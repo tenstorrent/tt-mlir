@@ -10,7 +10,7 @@ expected to produce defined values without an explicit accumulator pre-fill:
 1. `test_reduce_sum_compiles_and_runs` -- baseline shape/dtype smoke test.
 2. Parameterized correctness over several layout shapes, block shapes, and
    execution grids for row and column reduction directions.
-3. Mixed-input dtype coverage for the synthetic reduction scaler selection.
+3. Mixed-input dtype coverage for reduction scaler type selection.
 4. Invalid dim rejection for the Python DSL surface.
 """
 
@@ -136,30 +136,6 @@ def k_reduce_max_rows_accumulate_tile(in_t, acc_t, out_t, m_tile, n_blocks):
         remote_store(out_t, [0, n_off + n], acc.maximum(x.reduce_max_collapse(0)))
 
 
-@d2m.kernel
-def k_reduce_sum_cols_cross_tile(in_t, out_t, m_blocks, n_tiles):
-    m_off = core_index(0) * m_blocks
-    for m in range(m_blocks):
-        first = remote_load(in_t, [m_off + m, 0])
-        acc = reduce_sum_collapse(first, 1)
-        for n in range(1, n_tiles):
-            x = remote_load(in_t, [m_off + m, n])
-            acc = acc + reduce_sum_collapse(x, 1)
-        remote_store(out_t, [m_off + m, 0], acc)
-
-
-@d2m.kernel
-def k_reduce_max_rows_cross_tile(in_t, out_t, m_tiles, n_blocks):
-    n_off = core_index(1) * n_blocks
-    for n in range(n_blocks):
-        first = remote_load(in_t, [0, n_off + n])
-        acc = first.reduce_max_collapse(0)
-        for m in range(1, m_tiles):
-            x = remote_load(in_t, [m, n_off + n])
-            acc = acc.maximum(x.reduce_max_collapse(0))
-        remote_store(out_t, [0, n_off + n], acc)
-
-
 _LAYOUT_CASES = [
     pytest.param((32, 32), (1, 1), (1, 1), id="single-tile-grid-1x1"),
     pytest.param((64, 64), (1, 1), (2, 2), id="one-tile-per-core-grid-2x2"),
@@ -206,12 +182,6 @@ def _run_collapsed(kernel, tensor, input_layout, output_layout, grid):
     out = d2m.empty(output_layout)
     m_blocks, n_blocks = _blocks_per_core(input_layout, grid)
     kernel(d2m.to_layout(tensor, input_layout), out, m_blocks, n_blocks, grid=grid)
-    return out.to_host()
-
-
-def _run_cross_tile(kernel, tensor, input_layout, output_layout, grid, *scalars):
-    out = d2m.empty(output_layout)
-    kernel(d2m.to_layout(tensor, input_layout), out, *scalars, grid=grid)
     return out.to_host()
 
 
@@ -454,33 +424,6 @@ def test_reduce_sum_cols_cross_tile_output_layout():
             grid=(2, 1),
         )
         result = out.to_host()
-
-    assert tuple(result.shape) == (64, 1)
-    expected = tensor.sum(dim=1, keepdim=True)
-    diff = (expected - result).abs().max().item()
-    assert diff < 0.1, f"cross-tile reduce_sum(dim=1): max diff {diff}"
-
-
-@pytest.mark.skip(
-    reason=(
-        "A single unified kernel with multiple synchronizable remote_loads in "
-        "different loop scopes trips SplitUnifiedThread's synchronized-scope "
-        "assertion; the multi-pass variant above is the supported path for now."
-    )
-)
-def test_reduce_sum_cols_cross_tile_single_kernel_blocked():
-    input_layout = _make_layout(shape=(64, 64), grid_shape=(2, 2))
-    output_layout = d2m.reduction_layout(input_layout, 1, allow_cross_tile=True)
-    tensor = _tile_sum_input((64, 64))
-    result = _run_cross_tile(
-        k_reduce_sum_cols_cross_tile,
-        tensor,
-        input_layout,
-        output_layout,
-        (2, 1),
-        input_layout.logical_shape[0] // 32 // 2,
-        input_layout.logical_shape[1] // 32,
-    )
 
     assert tuple(result.shape) == (64, 1)
     expected = tensor.sum(dim=1, keepdim=True)

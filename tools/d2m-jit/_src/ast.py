@@ -19,6 +19,7 @@ from .errors import D2mJitError, closest_match
 from .utils import _discover_dialect_ops, _cast, _get_type_str
 from .tensor_layout import Layout
 
+
 _D2M_KERNEL_TYPES = {None, "datamovement", "noc", "compute", "unified"}
 
 
@@ -33,7 +34,6 @@ class D2MCompiler(ast.NodeVisitor):
 
     # Populated at import time by the @syntax decorator.
     _syntax = {}
-    _current = None
 
     _SUPPORTED_NODES = (
         # Variables
@@ -106,9 +106,6 @@ class D2MCompiler(ast.NodeVisitor):
         source_file=None,
         source_firstlineno=None,
         source_lines=None,
-        synthetic_args=None,
-        synthetic_arg_insert_index=None,
-        synthetic_reduce_scalers=None,
         **kwargs,
     ):
         assert kernel_type in _D2M_KERNEL_TYPES, f"Invalid kernel type {kernel_type}"
@@ -117,11 +114,6 @@ class D2MCompiler(ast.NodeVisitor):
         self.kernel_type = kernel_type
         self.captures = captures if captures is not None else {}
         self.args = args
-        self.synthetic_args = list(synthetic_args or [])
-        self.synthetic_arg_insert_index = synthetic_arg_insert_index
-        self.synthetic_symbol_table = {}
-        self.synthetic_reduce_scalers = dict(synthetic_reduce_scalers or {})
-        self.reduce_scaler_cache = {}
 
         # Source metadata used to build D2mJitError messages and to pin each
         # emitted op to a file_line_col Location.
@@ -143,10 +135,6 @@ class D2MCompiler(ast.NodeVisitor):
         self.symbol_tables = []
         self.supported_nodes = list(self._SUPPORTED_NODES)
         self._fn_map = dict(self._syntax)
-
-    @classmethod
-    def current(cls):
-        return cls._current
 
     # --- Error / source-location helpers ----------------------------------
 
@@ -194,17 +182,6 @@ class D2MCompiler(ast.NodeVisitor):
             names.update(tbl.keys())
         return names
 
-    def get_synthetic_arg(self, name):
-        return self.synthetic_symbol_table.get(name)
-
-    def get_synthetic_reduce_scaler(self, base_name, tile_element_type):
-        actual_name = self.synthetic_reduce_scalers.get(
-            (base_name, str(tile_element_type))
-        )
-        if actual_name is None:
-            return None
-        return self.get_synthetic_arg(actual_name)
-
     def _hint_for_function(self, name):
         match = closest_match(name, self._fn_map.keys())
         return f"did you mean `{match}`?" if match else None
@@ -245,8 +222,6 @@ class D2MCompiler(ast.NodeVisitor):
         params = inspect.signature(visitor).parameters
         filtered_kwargs = {k: v for k, v in kwargs.items() if k in params}
         loc = self._mlir_loc(node)
-        prev_current = D2MCompiler._current
-        D2MCompiler._current = self
         try:
             with loc:
                 if filtered_kwargs:
@@ -257,8 +232,6 @@ class D2MCompiler(ast.NodeVisitor):
             raise
         except Exception as orig:
             raise self._format_error(node, orig) from orig
-        finally:
-            D2MCompiler._current = prev_current
 
     # --- Module / function entry ------------------------------------------
 
@@ -271,13 +244,8 @@ class D2MCompiler(ast.NodeVisitor):
         assert not self.func_entry, "Cannot declare function within a function"
 
         func_operand_types = []
-        func_arg_names = []
-        user_arg_idx = 0
-        synthetic_insert_idx = self.synthetic_arg_insert_index
-        if synthetic_insert_idx is None:
-            synthetic_insert_idx = len(node.args.args)
-
-        def append_arg(arg_name, rt_arg, synthetic=False):
+        for i, arg in enumerate(node.args.args):
+            rt_arg = self.args[i]
             if isinstance(rt_arg, Layout):
                 func_operand_types.append(
                     rt_arg.build_device_tensor_type(self.ctx, blocked=True)
@@ -286,24 +254,8 @@ class D2MCompiler(ast.NodeVisitor):
                 func_operand_types.append(IndexType.get(self.ctx))
             else:
                 raise TypeError(
-                    f"Unknown kernel argument type {type(rt_arg)} for argument "
-                    f"{arg_name}"
+                    f"Unknown kernel argument type {type(rt_arg)} for argument {arg.arg}"
                 )
-            func_arg_names.append((arg_name, synthetic))
-
-        for i, arg in enumerate(node.args.args):
-            if i == synthetic_insert_idx:
-                for synthetic_name, synthetic_layout in self.synthetic_args:
-                    append_arg(synthetic_name, synthetic_layout, synthetic=True)
-            rt_arg = self.args[user_arg_idx]
-            user_arg_idx += 1
-            append_arg(arg.arg, rt_arg)
-
-        if synthetic_insert_idx >= len(node.args.args):
-            for synthetic_name, synthetic_layout in self.synthetic_args:
-                append_arg(synthetic_name, synthetic_layout, synthetic=True)
-
-        assert user_arg_idx == len(self.args)
 
         self.func_entry = func.FuncOp(name=node.name, type=(func_operand_types, []))
         self.func_entry.attributes[d2m.ir.ThreadAttr.name] = d2m.ir.ThreadAttr.get(
@@ -312,11 +264,8 @@ class D2MCompiler(ast.NodeVisitor):
 
         self.symbol_tables.append({})
         func_bb = self.func_entry.add_entry_block()
-        for (arg_name, synthetic), bb_arg in zip(func_arg_names, func_bb.arguments):
-            if synthetic:
-                self.synthetic_symbol_table[arg_name] = bb_arg
-            else:
-                self.symbol_tables[-1][arg_name] = bb_arg
+        for i, bb_arg in enumerate(func_bb.arguments):
+            self.symbol_tables[-1][node.args.args[i].arg] = bb_arg
         self.module_symbol_table = SymbolTable(self.module.operation)
 
         with InsertionPoint(func_bb):

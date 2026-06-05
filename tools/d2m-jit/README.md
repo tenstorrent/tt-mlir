@@ -272,7 +272,7 @@ row_avg = x.reduce_mean(-1)
 | `1` / `-1` | `#d2m<reduce_dim R>` | `result[:, 0]` |
 
 The output block has the same tensor-of-tiles shape as the input. These ops are
-float-only (`f32`, `f16`, `bf16`) and use synthetic 1x1 scaler tensors,
+float-only (`f32`, `bf16`) and use a device-local scaler generic,
 matching the D2M float tile-reduce signature `reduce(a * b, c)`. Sum/max use
 a unit scaler; mean uses a `1/32` scaler for one tile axis.
 
@@ -300,9 +300,8 @@ For cross-tile reductions, use `d2m.reduction_layout(..., allow_cross_tile=True)
 and accumulate the collapsed per-tile results across multiple kernel launches,
 materializing the accumulator between launches. This is slower than a single
 fused kernel, but it is the path that lowers through the current D2M pipeline.
-A single unified kernel with multiple synchronizing remote loads in different
-loop scopes currently trips `SplitUnifiedThread`, and in-place accumulator
-updates need the accumulator tensor to be passed as a separate input and output.
+The DSL does not currently support a single fused kernel that accumulates a
+reduction across multiple cores in the reduced dimension.
 
 ### Python operators on `TensorBlock`
 
@@ -420,8 +419,8 @@ have been dropped — the DSL emits the post-legalisation form directly.
 - **Matmul accumulator is currently undefined.** See the matmul note above.
 - **Float reductions are per tile.** Collapsed-output helpers support
   single-tile reductions directly. Cross-tile reductions work as multiple
-  host-orchestrated kernel passes; a single fused cross-tile kernel is blocked
-  by current unified-thread lowering limits.
+  host-orchestrated kernel passes; reducing across multiple cores in one fused
+  kernel is not supported today.
 - **Argument order in a `@kernel` call.** All `LazyTensor` arguments first,
   then any `int` scalar arguments. Mixing raises a `TypeError`. The last
   `num_outs` `LazyTensor`s (default 1) are treated as outputs.

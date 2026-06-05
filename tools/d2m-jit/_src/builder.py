@@ -44,6 +44,7 @@ from .errors import D2mJitError
 from .tensor_layout import Layout
 from .utils import _cleanup_source_code
 
+
 # Reverse of ttcore.DataType for picking output torch dtypes.
 _TTCORE_TO_TORCH = None  # lazy-init since torch may be missing
 
@@ -147,29 +148,6 @@ _PIPELINE = ",".join(
         "d2m-emitc-pipeline",
     ]
 )
-
-_REDUCE_UNIT_SCALER_ARG = "__d2m_reduce_unit_scaler"
-_REDUCE_MEAN_SCALER_ARG = "__d2m_reduce_mean_scaler"
-_REDUCE_MEAN_COLLAPSE_SCALER_ARG = "__d2m_reduce_mean_collapse_scaler"
-_FLOAT_REDUCTION_NAMES = {
-    "reduce_sum",
-    "reduce_max",
-    "reduce_mean",
-    "reduce_sum_collapse",
-    "reduce_max_collapse",
-    "reduce_mean_collapse",
-}
-_FLOAT_SUM_MAX_REDUCTION_NAMES = {
-    "reduce_sum",
-    "reduce_max",
-    "reduce_sum_collapse",
-    "reduce_max_collapse",
-}
-_FLOAT_MEAN_REDUCTION_NAMES = {"reduce_mean"}
-
-
-def reduce_mean_collapse_scaler_arg_name(dim: int, tile_count: int) -> str:
-    return f"{_REDUCE_MEAN_COLLAPSE_SCALER_ARG}_{dim}_{tile_count}"
 
 
 # --- Scope abstraction ------------------------------------------------------
@@ -988,28 +966,6 @@ def _affine_map_from_lambda(fn):
     return AffineMap.get(len(dims), 0, exprs), spec
 
 
-def _kernel_float_reductions(kernel_ast):
-    class _ReductionUseVisitor(_ast.NodeVisitor):
-        def __init__(self):
-            self.names = set()
-
-        def visit_Call(self, node):
-            if isinstance(node.func, _ast.Name):
-                name = node.func.id
-            elif isinstance(node.func, _ast.Attribute):
-                name = node.func.attr
-            else:
-                name = None
-
-            if name in _FLOAT_REDUCTION_NAMES:
-                self.names.add(name)
-            self.generic_visit(node)
-
-    visitor = _ReductionUseVisitor()
-    visitor.visit(kernel_ast)
-    return visitor.names
-
-
 def _emit_kernel_generic(
     kernel: "CompiledKernel",
     args,
@@ -1080,55 +1036,6 @@ def _emit_kernel_generic(
     input_lts = lazy_args[: len(lazy_args) - num_outs]
     output_lts = lazy_args[len(lazy_args) - num_outs :]
 
-    synthetic_lts = []
-    synthetic_args = []
-    synthetic_reduce_scalers = {}
-    reduction_names = _kernel_float_reductions(kernel._ast)
-    if reduction_names:
-        if not input_lts:
-            raise _call_error(
-                "float reductions require at least one input tensor argument",
-                cause=ValueError(),
-            )
-
-        def add_scaler(base_name, value, input_layout):
-            scaler_layout = Layout(
-                shape=(32, 32),
-                dtype=input_layout.dtype,
-                block_shape=[1, 1],
-                grid_shape=[1, 1],
-                tiled=True,
-                collapse=input_layout.collapse,
-                mem_space=input_layout.mem_space,
-            )
-            with b.ctx, b.loc:
-                tile_element_type = scaler_layout.build_device_tensor_type(
-                    b.ctx, blocked=True
-                ).element_type
-            key = (base_name, str(tile_element_type))
-            if key in synthetic_reduce_scalers:
-                return
-            name = f"{base_name}_{len(synthetic_reduce_scalers)}"
-            # For tiled layouts, full() emits a device-side tile_fill generic.
-            # The scaler then enters the reduction kernel as a normal tensor
-            # input, which lowers to the CB-backed operand reduce_tile expects.
-            synthetic_lts.append(full(scaler_layout, value)._resolve())
-            synthetic_args.append((name, scaler_layout))
-            synthetic_reduce_scalers[key] = name
-
-        for input_lt in input_lts:
-            if reduction_names & _FLOAT_SUM_MAX_REDUCTION_NAMES:
-                add_scaler(_REDUCE_UNIT_SCALER_ARG, 1.0, input_lt.layout)
-            if reduction_names & _FLOAT_MEAN_REDUCTION_NAMES:
-                add_scaler(_REDUCE_MEAN_SCALER_ARG, 1.0 / 32.0, input_lt.layout)
-            if "reduce_mean_collapse" in reduction_names:
-                for dim, tile_count in enumerate(input_lt.layout.block_shape):
-                    add_scaler(
-                        reduce_mean_collapse_scaler_arg_name(dim, tile_count),
-                        1.0 / (32.0 * tile_count),
-                        input_lt.layout,
-                    )
-
     # Compile the kernel body in the current builder's context. D2MCompiler
     # picks up b.ctx via get_default_loc_context.
     with b.ctx, b.loc:
@@ -1141,9 +1048,6 @@ def _emit_kernel_generic(
             source_file=kernel._source_file,
             source_firstlineno=kernel._source_firstlineno,
             source_lines=kernel._source_lines,
-            synthetic_args=synthetic_args,
-            synthetic_arg_insert_index=len(input_lts),
-            synthetic_reduce_scalers=synthetic_reduce_scalers,
         )
         compiler.visit(kernel._ast)
         compiler.module.operation.verify()
@@ -1153,7 +1057,7 @@ def _emit_kernel_generic(
         # Scalars are sourced from func args (not host-scope constants) so the
         # GenericOp's region stays isolated-from-above.
         additional = [b.add_scalar_input(s) for s in scalar_args]
-        inputs = [lt.value for lt in input_lts] + [lt.value for lt in synthetic_lts]
+        inputs = [lt.value for lt in input_lts]
         outputs = [lt.value for lt in output_lts]
         output_types = [v.type for v in outputs]
 

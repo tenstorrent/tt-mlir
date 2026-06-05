@@ -89,8 +89,8 @@ qk_matmul_kernel(Q, K_T, qk, ..., grid=g)   # Q @ K_T, no DMA between
   tile.
 - **Cross-tile collapsed reductions:** row/column `sum` and `max` can be built
   as multiple host-orchestrated kernel launches that accumulate one tile at a
-  time into a collapsed output layout. This is functional, but not a fused
-  single-kernel lowering yet.
+  time into a collapsed output layout. Reducing across multiple cores in one
+  fused kernel is not supported today.
 
 ### 🟡 Buildable with workarounds / scope cuts
 
@@ -367,8 +367,9 @@ nothing else does:
 ## 5. Critical-path unlocks, ranked
 
 1. **Fuse cross-tile reductions/accumulation.** Reductions and tile_bcast cover
-   the per-tile pieces, and host-orchestrated cross-tile sum/max work, but
-   softmax and normalization still need a single-kernel path for wide rows.
+   the per-tile pieces, and host-orchestrated cross-tile sum/max work, but the
+   DSL does not currently support reducing across multiple cores in one fused
+   kernel.
 2. **Fix matmul accumulator init** ([TODO §1](TODO.md) —
    `D2MToTTKernel` fill-pattern handling). Unlocks multi-K matmul →
    real GEMM, real attention Q×Kᵀ across K, FFN.

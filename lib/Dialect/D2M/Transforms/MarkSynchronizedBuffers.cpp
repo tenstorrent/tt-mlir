@@ -19,6 +19,8 @@ namespace mlir::tt::d2m {
 
 namespace {
 
+constexpr llvm::StringLiteral kReductionScalerAttr = "d2m.reduction_scaler";
+
 static bool containsAccumulatingCompute(Operation *op) {
   if (isa<d2m::TileMatmulOp, d2m::TileMatmulBlockOp, d2m::TileReduceSumOp,
           d2m::TileReduceMaxOp, d2m::TileReduceMeanOp, d2m::TileSFPUReduceSumOp,
@@ -64,17 +66,22 @@ public:
       for (auto &[cb, usageInfo] : cbUsageInfo) {
         if (auto allocOp =
                 mlir::dyn_cast<memref::AllocOp>(cb.getDefiningOp())) {
+          bool forceHoistedCB = allocOp->hasAttr(kReductionScalerAttr);
           int32_t bufferCount = numStreamBuffers;
-          for (Operation *producer : usageInfo.producers) {
-            if (cachedContainsAccumulatingCompute(producer)) {
-              bufferCount = 1;
-              break;
+          if (forceHoistedCB) {
+            bufferCount = 1;
+          } else {
+            for (Operation *producer : usageInfo.producers) {
+              if (cachedContainsAccumulatingCompute(producer)) {
+                bufferCount = 1;
+                break;
+              }
             }
           }
           allocOp->setAttr("d2m.synchronized_buffer",
                            rewriter.getI32IntegerAttr(bufferCount));
 
-          if (usageInfo.consumers.size() == 1 &&
+          if (!forceHoistedCB && usageInfo.consumers.size() == 1 &&
               usageInfo.producers.size() == 1) {
             auto *consumer = usageInfo.consumers.front();
             auto *producer = usageInfo.producers.front();

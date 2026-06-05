@@ -98,9 +98,9 @@ speculatively.
 - Integer reductions via `tile_sfpu_reduce_sum` / `tile_sfpu_reduce_max`.
 - Fused cross-tile or multi-dim (RC) reductions. Cross-tile sum/max are
   expressible today as multiple host-orchestrated kernel launches using
-  `reduction_layout(..., allow_cross_tile=True)`, but a single unified kernel
-  with multiple reduction loads still trips `SplitUnifiedThread`, and in-place
-  accumulator updates must pass the accumulator as both an input and output.
+  `reduction_layout(..., allow_cross_tile=True)`, but the DSL does not
+  currently support a single fused kernel that accumulates across multiple
+  cores in the reduced dimension.
 
 ### 🟡 Lower-level kernel primitives (advanced)
 
