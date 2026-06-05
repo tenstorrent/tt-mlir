@@ -174,6 +174,7 @@ kernel body.
 | `d2m.view(lt, lambda d0, d1: ...)` | Logical-rank permutation. The lambda's parameter count matches the source's logical rank. Result is a view (`is_view=True`). |
 | `d2m.view_layout(lt, lambda d0, d1, d2, d3: ...)` | Low-level: lambda parameter count matches the source's MLIR rank (typically `2 * logical_rank` for tiled tensors). Each result expression may be a parameter or the literal `0`. |
 | `d2m.permute(lt, *dims)` | `torch.permute`-style positional permutation. |
+| `d2m.reshape(lt, *new_shape)` | `torch.reshape`-style logical-shape change. Currently a host roundtrip (`to_host` -> `torch.reshape` -> `to_layout`); pays a DRAM transfer. Use for shape changes not expressible as a `view`. |
 | `d2m.to_host(*lts)` | Compile and execute; return a tuple of `torch.Tensor`s. Resets the builder. |
 | `LazyTensor.to_host()` | Sugar for `to_host(self)[0]`. |
 
@@ -234,11 +235,17 @@ Unary (41):
 `sign`, `signbit`, `ceil`, `floor`, `frac`, `trunc`, `abs`, `bitwise_not`,
 `logical_not`, `eqz`, `nez`, `gtz`, `gez`, `ltz`, `lez`.
 
-Binary (13):
+Binary (19):
 
 `add`, `sub`, `mul`, `div`, `pow`, `maximum`, `minimum`, `bitwise_and`,
 `bitwise_or`, `bitwise_xor`, `logical_left_shift`, `logical_right_shift`,
-`right_shift`.
+`right_shift`, `eq`, `ne`, `gt`, `ge`, `lt`, `le`.
+
+Comparisons (`eq` / `ne` / `gt` / `ge` / `lt` / `le`) write 1/0 into each tile
+lane (same element type as the inputs) -- pair with `where` to mask. They are
+free functions and method-form only; Python `<` / `>=` / `==` etc. are not
+overloaded because `visit_Compare` in the AST visitor lowers compares to
+`arith.cmpi` for index-domain conditions (loop bounds), which would conflict.
 
 Ternary:
 
