@@ -7,6 +7,9 @@
 #include <ATen/ATen.h>
 #include <ATen/ExpandUtils.h>
 #include <ATen/InferSize.h>
+#include <ATen/core/Reduction.h>
+#include <c10/core/Scalar.h>
+#include <c10/core/StorageImpl.h>
 #include <llvm/ADT/APFloat.h>
 #include <llvm/ADT/APInt.h>
 #include <llvm/ADT/SmallVector.h>
@@ -149,6 +152,93 @@ std::tuple<at::Tensor, at::Tensor> tt_max_pool2d_with_indices(const at::Tensor &
     return std::make_tuple(std::move(pool_result), std::move(dummy_indices));
 }
 
+// Move a freshly-computed result tensor's runtime buffer into a caller-provided
+// `.out` tensor. We assert `out` already has the expected shape and storage
+// size rather than resizing it: the structured `.out` dispatch is supposed to
+// pre-size `out`, so a mismatch means an assumption broke - fail loudly so we
+// can revisit before silently reshaping.
+at::Tensor &write_result_into(at::Tensor &out, const at::Tensor &result) {
+    TORCH_CHECK(out.sizes() == result.sizes(), "tt-kurbla .out kernel: out tensor shape ", out.sizes(),
+                " does not match computed result shape ", result.sizes());
+    // Equal sizes + equal storage bytes still allow a dtype mismatch when the
+    // itemsizes coincide (e.g. f32 vs i32, bf16 vs f16). Replacing the storage
+    // would then reinterpret the buffer's bits as out's dtype - check loudly.
+    TORCH_CHECK(out.scalar_type() == result.scalar_type(), "tt-kurbla .out kernel: out dtype ", out.scalar_type(),
+                " does not match computed result dtype ", result.scalar_type());
+    TORCH_CHECK(out.storage().nbytes() == result.storage().nbytes(), "tt-kurbla .out kernel: out storage is ",
+                out.storage().nbytes(), " bytes but result needs ", result.storage().nbytes());
+    storage_of(out).replace(storage_of(result).tensor());
+    return out;
+}
+
+// mse_loss.out: forward loss. `reduction == mean` produces a rank-0 scalar.
+at::Tensor &tt_mse_loss_out(const at::Tensor &self_in, const at::Tensor &target_in, int64_t reduction,
+                            at::Tensor &out) {
+    const auto [self, target] = align_on_tt(self_in, target_in);
+    auto mb = ModuleBuilder::init({spec_for(self), spec_for(target)});
+    auto [promoted, s, t] = promote_inputs(mb, self, target);
+    auto result_v = build_mse_loss(mb, s, t, reduction);
+    auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result_v.getType()).getShape();
+    std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
+    auto module_op = std::move(mb).finalize({result_v});
+    auto outputs = compile_and_run(std::move(module_op), {self, target});
+    auto result = wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
+    return write_result_into(out, result);
+}
+
+// add.out: `out = self + alpha * other`.
+at::Tensor &tt_add_out(const at::Tensor &self, const at::Tensor &other, const at::Scalar &alpha, at::Tensor &out) {
+    return write_result_into(out, tt_add(self, other, alpha));
+}
+
+// threshold_backward.grad_input: `grad_output * (self > threshold)`.
+at::Tensor &tt_threshold_backward_out(const at::Tensor &grad_output_in, const at::Tensor &self_in,
+                                      const at::Scalar &threshold, at::Tensor &grad_input) {
+    const auto [grad_output, self] = align_on_tt(grad_output_in, self_in);
+    auto mb = ModuleBuilder::init({spec_for(grad_output), spec_for(self)});
+    auto [promoted, go, s] = promote_inputs(mb, grad_output, self);
+    auto result_v = build_threshold_backward(mb, go, s, threshold.toDouble());
+    auto module_op = std::move(mb).finalize({result_v});
+    auto outputs = compile_and_run(std::move(module_op), {grad_output, self});
+    auto result = wrap_tt_tensor(std::move(outputs[0]), grad_output.sizes(), promoted);
+    return write_result_into(grad_input, result);
+}
+
+// sum.IntList_out: reduce `self` over `dim`.
+at::Tensor &tt_sum_out(const at::Tensor &self, at::OptionalIntArrayRef dim, bool keepdim,
+                       std::optional<at::ScalarType> dtype, at::Tensor &out) {
+    TORCH_CHECK(is_tt(self), "tt-kurbla aten::sum.IntList_out: tensor must be on tt backend");
+    TORCH_CHECK(dim.has_value(), "tt-kurbla aten::sum.IntList_out: dim must be specified");
+    // We reduce at self's element type and wrap the result as self's dtype; an
+    // explicit out-dtype (accumulate/cast) isn't plumbed through yet. Fail loud
+    // rather than silently returning the wrong dtype.
+    TORCH_CHECK(!dtype.has_value() || dtype.value() == self.scalar_type(),
+                "tt-kurbla aten::sum.IntList_out: dtype conversion is not yet supported (requested ", dtype.value(),
+                " for a ", self.scalar_type(), " tensor)");
+
+    auto mb = ModuleBuilder::init({spec_for(self)});
+    auto result_v = build_sum(mb, mb.args()[0], dim.value(), keepdim);
+    auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result_v.getType()).getShape();
+    std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
+    auto module_op = std::move(mb).finalize({result_v});
+    auto outputs = compile_and_run(std::move(module_op), {self});
+    auto result = wrap_tt_tensor(std::move(outputs[0]), out_shape, self.scalar_type());
+    return write_result_into(out, result);
+}
+
+// mse_loss_backward: `grad_output * 2 * (self - target) / N`. Functional (no
+// out=), so it returns a fresh tensor. `grad_output` is the rank-0 loss grad.
+at::Tensor tt_mse_loss_backward(const at::Tensor &grad_output_in, const at::Tensor &self_in,
+                                const at::Tensor &target_in, int64_t reduction) {
+    const auto [grad_output, self, target] = align_on_tt(grad_output_in, self_in, target_in);
+    auto mb = ModuleBuilder::init({spec_for(grad_output), spec_for(self), spec_for(target)});
+    auto [promoted, go, s, t] = promote_inputs(mb, grad_output, self, target);
+    auto result_v = build_mse_loss_backward(mb, go, s, t, reduction);
+    auto module_op = std::move(mb).finalize({result_v});
+    auto outputs = compile_and_run(std::move(module_op), {grad_output, self, target});
+    return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), promoted);
+}
+
 } // namespace
 
 mlir::Value build_relu(ModuleBuilder &mb, mlir::Value input) {
@@ -197,7 +287,12 @@ mlir::Value build_reshape(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<s
     return mb.create<mlir::tt::ttir::ReshapeOp>(result_type, input, shape_attr).getResult();
 }
 
-mlir::Value build_mean(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> dims, bool keepdim) {
+// Shared emitter for the TTIR reduction ops (MeanOp, SumOp, ...) that take the
+// same `(result_type, input, keep_dim, dim_arg)` signature. Normalizes `dims`
+// (handling negatives) against the input rank and computes the output shape;
+// empty `dims` reduces over all dimensions (null `dim_arg`).
+template <typename ReduceOp>
+mlir::Value build_reduce(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> dims, bool keepdim) {
     auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
     auto shape = input_type.getShape();
     int64_t rank = as<int64_t>(shape.size());
@@ -221,7 +316,71 @@ mlir::Value build_mean(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std:
     auto result_type = mlir::RankedTensorType::get(out_shape, input_type.getElementType());
     auto keep_dim_attr = mb.attrs().getBoolAttr(keepdim);
     mlir::ArrayAttr dim_arg_attr = norm_dims_i32.empty() ? nullptr : mb.attrs().getI32ArrayAttr(norm_dims_i32);
-    return mb.create<mlir::tt::ttir::MeanOp>(result_type, input, keep_dim_attr, dim_arg_attr).getResult();
+    return mb.create<ReduceOp>(result_type, input, keep_dim_attr, dim_arg_attr).getResult();
+}
+
+mlir::Value build_mean(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> dims, bool keepdim) {
+    return build_reduce<mlir::tt::ttir::MeanOp>(mb, input, dims, keepdim);
+}
+
+mlir::Value build_sum(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> dims, bool keepdim) {
+    return build_reduce<mlir::tt::ttir::SumOp>(mb, input, dims, keepdim);
+}
+
+mlir::Value build_threshold_backward(ModuleBuilder &mb, mlir::Value grad_output, mlir::Value self, double threshold) {
+    auto self_type = mlir::cast<mlir::RankedTensorType>(self.getType());
+    auto grad_type = mlir::cast<mlir::RankedTensorType>(grad_output.getType());
+
+    // mask = self > threshold, emitted as an i1 tensor of self's shape. The
+    // threshold constant is [1]-shaped and broadcasts against self.
+    auto threshold_const = build_scalar(mb, self_type.getElementType(), threshold);
+    auto mask_type = mlir::RankedTensorType::get(self_type.getShape(), mb.attrs().getI1Type());
+    auto mask = mb.create<mlir::tt::ttir::GreaterThanOp>(mask_type, self, threshold_const).getResult();
+
+    // Cast the bool mask to the gradient's element type (1.0 / 0.0) and gate
+    // the incoming gradient with a plain elementwise multiply.
+    auto mask_cast = mb.insert_typecast(mask, grad_type.getElementType());
+    return build_mul(mb, grad_output, mask_cast);
+}
+
+mlir::Value build_mse_loss(ModuleBuilder &mb, mlir::Value self, mlir::Value target, std::int64_t reduction) {
+    auto diff = build_sub(mb, self, target);
+    auto sq = build_mul(mb, diff, diff);
+    if (reduction == at::Reduction::None) {
+        // elementwise squared error, no reduction.
+        return sq;
+    }
+
+    // Mean / Sum: reduce over every element. Flatten first so the reduction is
+    // a single dim-0 reduce that keeps a `[1]` scalar result.
+    auto sq_type = mlir::cast<mlir::RankedTensorType>(sq.getType());
+    std::int64_t numel = 1;
+    for (auto d : sq_type.getShape()) {
+        numel *= d;
+    }
+    auto flat = build_reshape(mb, sq, {numel});
+    if (reduction == at::Reduction::Mean) {
+        return build_mean(mb, flat, {0}, /*keepdim=*/false);
+    }
+    return build_sum(mb, flat, {0}, /*keepdim=*/false);
+}
+
+mlir::Value build_mse_loss_backward(ModuleBuilder &mb, mlir::Value grad_output, mlir::Value self, mlir::Value target,
+                                    std::int64_t reduction) {
+    auto diff = build_sub(mb, self, target);
+
+    // d/dself mean((self-target)^2) = 2*(self-target)/N; Sum/None drop the /N.
+    std::int64_t n = 1;
+    if (reduction == at::Reduction::Mean) {
+        for (auto d : mlir::cast<mlir::RankedTensorType>(self.getType()).getShape()) {
+            n *= d;
+        }
+    }
+    auto scaled = scale_tensor(mb, diff, 2.0 / as<double>(n));
+
+    // grad_output is the upstream (scalar, `[1]`) gradient; it broadcasts over
+    // `self`'s shape just like build_scalar's constants do.
+    return build_mul(mb, grad_output, scaled);
 }
 
 mlir::Value build_scalar(ModuleBuilder &mb, mlir::Type element_type, double value) {
@@ -895,8 +1054,11 @@ mlir::Value build_embedding(ModuleBuilder &mb, mlir::Value indices, mlir::Value 
 
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("add.Tensor", TORCH_FN(tt_add));
+    m.impl("add.Scalar", TORCH_FN(tt_add_scalar));
+    m.impl("add.out", TORCH_FN(tt_add_out));
     m.impl("sub.Tensor", TORCH_FN(tt_sub));
     m.impl("mul.Tensor", TORCH_FN(tt_mul));
+    m.impl("mul.Scalar", TORCH_FN(tt_mul_scalar));
     m.impl("relu", TORCH_FN(tt_relu));
     m.impl("rsqrt", TORCH_FN(tt_rsqrt));
     m.impl("mean.dim", TORCH_FN(tt_mean));
@@ -912,8 +1074,6 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("slice.Tensor", TORCH_FN(tt_slice));
     m.impl("argmax", TORCH_FN(tt_argmax));
     m.impl("pow.Tensor_Scalar", TORCH_FN(tt_pow_tensor_scalar));
-    m.impl("add.Scalar", TORCH_FN(tt_add_scalar));
-    m.impl("mul.Scalar", TORCH_FN(tt_mul_scalar));
     m.impl("div.Tensor", TORCH_FN(tt_div_tensor));
     m.impl("div.Scalar", TORCH_FN(tt_div_scalar));
     m.impl("cos", TORCH_FN(tt_cos));
@@ -924,6 +1084,10 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("arange.start_step", TORCH_FN(tt_arange_start_step));
     m.impl("silu", TORCH_FN(tt_silu));
     m.impl("_softmax", TORCH_FN(tt_softmax));
+    m.impl("sum.IntList_out", TORCH_FN(tt_sum_out));
+    m.impl("threshold_backward.grad_input", TORCH_FN(tt_threshold_backward_out));
+    m.impl("mse_loss.out", TORCH_FN(tt_mse_loss_out));
+    m.impl("mse_loss_backward", TORCH_FN(tt_mse_loss_backward));
 }
 
 } // namespace tt::kurbla::torch_backend

@@ -56,6 +56,31 @@ mlir::Value build_reshape(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<s
 // `keepdim` controls whether reduced dimensions are retained as size-1.
 mlir::Value build_mean(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> dims, bool keepdim);
 
+// Emit TTIR for sum reduction along `dims` (negative dims are normalised
+// against the input rank). Empty `dims` reduces over all dimensions.
+// `keepdim` controls whether reduced dimensions are retained as size-1.
+mlir::Value build_sum(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> dims, bool keepdim);
+
+// Emit TTIR for `grad_output * (self > threshold)`. `grad_output` and `self`
+// must share shape and element type. The `self > threshold` mask is computed
+// at `self`'s element type, then cast to the gradient's element type so the
+// gate is a plain elementwise multiply.
+mlir::Value build_threshold_backward(ModuleBuilder &mb, mlir::Value grad_output, mlir::Value self, double threshold);
+
+// Emit TTIR for `aten::mse_loss`. `reduction` is an `at::Reduction` value:
+// None returns the elementwise squared error; Mean/Sum reduce over all
+// elements to a rank-0 scalar. `self` and `target` must share shape and
+// element type.
+mlir::Value build_mse_loss(ModuleBuilder &mb, mlir::Value self, mlir::Value target, std::int64_t reduction);
+
+// Emit TTIR for `aten::mse_loss_backward`:
+//   grad_input = grad_output * 2 * (self - target) / N
+// where N is the element count for `at::Reduction::Mean` and 1 otherwise.
+// `grad_output` is the (scalar, `[1]`) upstream gradient and broadcasts over
+// `self`'s shape. All tensor inputs must share element type.
+mlir::Value build_mse_loss_backward(ModuleBuilder &mb, mlir::Value grad_output, mlir::Value self, mlir::Value target,
+                                    std::int64_t reduction);
+
 // Emit TTIR for batch normalization inference:
 //   result = (operand - mean) / sqrt(variance + eps) * scale + offset
 // All five value inputs must share the same element type — callers must promote
