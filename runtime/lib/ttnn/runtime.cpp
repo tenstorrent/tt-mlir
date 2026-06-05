@@ -1445,6 +1445,12 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {op->mapping(), op->reduced()};
     break;
   }
+  case ::tt::target::ttnn::OpType::MoeGptOp: {
+    auto *op = opContext.type_as_MoeGptOp();
+    tensorRefs = {op->token_counts(), op->activation_records(),
+                  op->token_indices(), op->tilize_out(), op->tilize_out_rm()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::TopKOp: {
     tensorRefs = utils::convertFbTensorRefsToVector(
         opContext.type_as_TopKOp()->outputs());
@@ -1926,6 +1932,15 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_MoeExpertTokenRemapOp()->topk_tensor(),
                   opContext.type_as_MoeExpertTokenRemapOp()->expert_mapping(),
                   opContext.type_as_MoeExpertTokenRemapOp()->expert_metadata()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MoeGptOp: {
+    tensorRefs = {opContext.type_as_MoeGptOp()->input_tensor(),
+                  opContext.type_as_MoeGptOp()->expert_indices(),
+                  opContext.type_as_MoeGptOp()->expert_scores(),
+                  opContext.type_as_MoeGptOp()->expert_mapping(),
+                  opContext.type_as_MoeGptOp()->w0_w1_tensor(),
+                  opContext.type_as_MoeGptOp()->w2_tensor()};
     break;
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {
