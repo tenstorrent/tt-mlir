@@ -567,7 +567,7 @@ class D2MBuilder(Builder):
                 if skip_grid_selection:
                     generic.attributes["d2m.skip_grid_selection"] = UnitAttr.get(ctx)
                 with InsertionPoint(block):
-                    f(*args, **kwargs)
+                    f(*args, *additional_args, **kwargs)
 
                 return generic.result
 
