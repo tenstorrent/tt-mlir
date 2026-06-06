@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "d97c2c10b8f9aced6a758143f25cf01fe5cd4b2f")
+set(TT_METAL_VERSION "sshon/wip-1batch-moe")
 
 set(TTMLIR_TTMETAL_SOURCE_DIR "" CACHE PATH
     "Path to a user-managed tt-metal checkout. If empty, ExternalProject clones tt-metal at TT_METAL_VERSION.")
