@@ -16,6 +16,7 @@
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
 #include <type_traits>
+#include <utility>
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MMATERIALIZEVIEWRETURNS
@@ -111,8 +112,8 @@ public:
 
   LogicalResult matchAndRewrite(func::ReturnOp returnOp,
                                 PatternRewriter &rewriter) const override {
-    bool changed = false;
     rewriter.setInsertionPoint(returnOp);
+    SmallVector<std::pair<unsigned, Value>> replacements;
 
     // Inspect each return operand to determine if it needs materialization.
     for (OpOperand &opOperand : returnOp->getOpOperands()) {
@@ -126,11 +127,19 @@ public:
       // occurs, rather than just being a symbolic operation.
       Value materialized =
           materializeView(rewriter, returnOp.getLoc(), opOperand.get());
-      opOperand.set(materialized);
-      changed = true;
+      replacements.emplace_back(opOperand.getOperandNumber(), materialized);
     }
 
-    return success(changed);
+    if (replacements.empty()) {
+      return failure();
+    }
+
+    rewriter.modifyOpInPlace(returnOp, [&]() {
+      for (auto [operandNumber, materialized] : replacements) {
+        returnOp->setOperand(operandNumber, materialized);
+      }
+    });
+    return success();
   }
 };
 
@@ -157,7 +166,7 @@ public:
     rewriter.setInsertionPoint(op);
     Value materialized = materializeView(rewriter, op->getLoc(), toHostInput);
     // Update the ToHostOp/ToLayoutOp to use the materialized value.
-    op->setOperand(0, materialized);
+    rewriter.modifyOpInPlace(op, [&]() { op->setOperand(0, materialized); });
     return success();
   }
 };

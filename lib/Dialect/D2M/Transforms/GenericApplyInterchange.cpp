@@ -23,7 +23,8 @@ namespace {
 //   IterIndex(0) -> IterIndex(1) (0 is at position 1)
 //   IterIndex(1) -> IterIndex(2) (1 is at position 2)
 // Same logic applies to BlockIndexOp.
-static void updateIndexOpsForInterchange(GenericOp generic, Builder &builder,
+static void updateIndexOpsForInterchange(GenericOp generic,
+                                         PatternRewriter &rewriter,
                                          ArrayRef<int64_t> interchange) {
   // Compute the inverse permutation: maps old dimension to new position
   SmallVector<int64_t> inverseInterchange(interchange.size());
@@ -38,7 +39,9 @@ static void updateIndexOpsForInterchange(GenericOp generic, Builder &builder,
         int64_t oldDim = indexOp.getDim();
         if (oldDim < static_cast<int64_t>(inverseInterchange.size())) {
           int64_t newDim = inverseInterchange[oldDim];
-          indexOp.setDimAttr(builder.getI64IntegerAttr(newDim));
+          rewriter.modifyOpInPlace(indexOp, [&]() {
+            indexOp.setDimAttr(rewriter.getI64IntegerAttr(newDim));
+          });
         }
       };
 
@@ -98,8 +101,8 @@ public:
       generic.setIndexingMapsAttr(indexingMaps);
       generic.setIteratorTypesAttr(iteratorTypes);
       generic.setBlockFactorsAttr(blockFactors);
-      updateIndexOpsForInterchange(generic, rewriter, *interchange);
     });
+    updateIndexOpsForInterchange(generic, rewriter, *interchange);
     return success();
   }
 
