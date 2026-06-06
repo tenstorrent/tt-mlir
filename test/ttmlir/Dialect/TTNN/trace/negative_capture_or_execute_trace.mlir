@@ -19,7 +19,7 @@ func.func private @execute_fn(%arg0: tensor<ui32, #ttnn.trace_id>) {
 }
 func.func @test_capture_callee_missing(%arg0: tensor<32x32xbf16, #host_layout>, %arg1: tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout> {
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-  %1 = "ttnn.capture_or_execute_trace"(%0, %arg0, %arg1) <{capture_callee = @nonexistent_capture, execute_callee = @execute_fn}> : (!ttnn.device, tensor<32x32xbf16, #host_layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
+  %1 = "ttnn.capture_or_execute_trace"(%0, %arg0, %arg1) <{capture_callee = @nonexistent_capture, execute_callee = @execute_fn, operandSegmentSizes = array<i32: 1, 2, 0>}> : (!ttnn.device, tensor<32x32xbf16, #host_layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
   return %1 : tensor<32x32xbf16, #layout>
 }
 
@@ -31,13 +31,13 @@ func.func @test_capture_callee_missing(%arg0: tensor<32x32xbf16, #host_layout>, 
 #host_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #system_memory>>
 
 // --- Test 2: Input argument count mismatch with capture function ---
-// CHECK: error: 'ttnn.capture_or_execute_trace' op Number of input arguments (2) does not match capture function 'capture_fn' input count (1)
+// CHECK: error: 'ttnn.capture_or_execute_trace' op Number of input arguments (inputs + semaphore_inputs = 2 + 0 = 2) does not match capture function 'capture_fn' input count (1)
 func.func private @trace_fn(%arg0: tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout> {
   return %arg0 : tensor<32x32xbf16, #layout>
 }
 func.func private @capture_fn(%arg0: tensor<32x32xbf16, #host_layout>) -> (tensor<ui32, #ttnn.trace_id>, tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) {
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-  %1 = "ttnn.empty"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #layout>
+  %1 = "ttnn.empty"(%0) <{layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #layout>
   "ttnn.write_tensor"(%arg0, %1) <{blocking = false, cq_id = 0 : ui32}> : (tensor<32x32xbf16, #host_layout>, tensor<32x32xbf16, #layout>) -> ()
   call @trace_fn(%1) : (tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
   %3 = "ttnn.begin_trace_capture"(%0) <{cq_id = 0 : ui32}> : (!ttnn.device) -> tensor<ui32, #ttnn.trace_id>
@@ -50,7 +50,7 @@ func.func private @execute_fn(%arg0: tensor<ui32, #ttnn.trace_id>) {
 }
 func.func @test_input_count_mismatch(%arg0: tensor<32x32xbf16, #host_layout>, %arg1: tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout> {
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-  %1 = "ttnn.capture_or_execute_trace"(%0, %arg0, %arg1) <{capture_callee = @capture_fn, execute_callee = @execute_fn}> : (!ttnn.device, tensor<32x32xbf16, #host_layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
+  %1 = "ttnn.capture_or_execute_trace"(%0, %arg0, %arg1) <{capture_callee = @capture_fn, execute_callee = @execute_fn, operandSegmentSizes = array<i32: 1, 2, 0>}> : (!ttnn.device, tensor<32x32xbf16, #host_layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
   return %1 : tensor<32x32xbf16, #layout>
 }
 
@@ -69,7 +69,7 @@ func.func private @trace_fn(%arg0: tensor<32x32xbf16, #layout>) -> tensor<32x32x
 }
 func.func private @capture_fn(%arg0: tensor<32x32xbf16, #host_layout>, %arg1: tensor<32x32xf32, #layout_f32>) -> (tensor<ui32, #ttnn.trace_id>, tensor<32x32xbf16, #layout>, tensor<32x32xf32, #layout_f32>, tensor<32x32xbf16, #layout>) {
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-  %1 = "ttnn.empty"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #layout>
+  %1 = "ttnn.empty"(%0) <{layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #layout>
   "ttnn.write_tensor"(%arg0, %1) <{blocking = false, cq_id = 0 : ui32}> : (tensor<32x32xbf16, #host_layout>, tensor<32x32xbf16, #layout>) -> ()
   call @trace_fn(%1) : (tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
   %3 = "ttnn.begin_trace_capture"(%0) <{cq_id = 0 : ui32}> : (!ttnn.device) -> tensor<ui32, #ttnn.trace_id>
@@ -83,7 +83,7 @@ func.func private @execute_fn(%arg0: tensor<ui32, #ttnn.trace_id>) {
 func.func @test_input_type_mismatch(%arg0: tensor<32x32xbf16, #host_layout>, %arg1: tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout> {
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
   // Op passes bf16 but capture_fn expects f32 for arg1.
-  %1 = "ttnn.capture_or_execute_trace"(%0, %arg0, %arg1) <{capture_callee = @capture_fn, execute_callee = @execute_fn}> : (!ttnn.device, tensor<32x32xbf16, #host_layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
+  %1 = "ttnn.capture_or_execute_trace"(%0, %arg0, %arg1) <{capture_callee = @capture_fn, execute_callee = @execute_fn, operandSegmentSizes = array<i32: 1, 2, 0>}> : (!ttnn.device, tensor<32x32xbf16, #host_layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
   return %1 : tensor<32x32xbf16, #layout>
 }
 
@@ -107,7 +107,7 @@ func.func private @execute_fn(%arg0: tensor<ui32, #ttnn.trace_id>) {
 }
 func.func @test_no_trace_function(%arg0: tensor<32x32xbf16, #host_layout>, %arg1: tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout> {
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-  %1 = "ttnn.capture_or_execute_trace"(%0, %arg0, %arg1) <{capture_callee = @capture_fn, execute_callee = @execute_fn}> : (!ttnn.device, tensor<32x32xbf16, #host_layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
+  %1 = "ttnn.capture_or_execute_trace"(%0, %arg0, %arg1) <{capture_callee = @capture_fn, execute_callee = @execute_fn, operandSegmentSizes = array<i32: 1, 2, 0>}> : (!ttnn.device, tensor<32x32xbf16, #host_layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
   return %1 : tensor<32x32xbf16, #layout>
 }
 
@@ -126,7 +126,7 @@ func.func private @trace_fn(%arg0: tensor<32x32xbf16, #layout>) -> tensor<32x32x
 }
 func.func private @capture_fn(%arg0: tensor<32x32xbf16, #host_layout>) -> (tensor<ui32, #ttnn.trace_id>, tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) {
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-  %1 = "ttnn.empty"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #layout>
+  %1 = "ttnn.empty"(%0) <{layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #layout>
   "ttnn.write_tensor"(%arg0, %1) <{blocking = false, cq_id = 0 : ui32}> : (tensor<32x32xbf16, #host_layout>, tensor<32x32xbf16, #layout>) -> ()
   call @trace_fn(%1) : (tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
   %3 = "ttnn.begin_trace_capture"(%0) <{cq_id = 0 : ui32}> : (!ttnn.device) -> tensor<ui32, #ttnn.trace_id>
@@ -140,7 +140,7 @@ func.func private @execute_fn(%arg0: tensor<ui32, #ttnn.trace_id>) {
 func.func @test_output_count_mismatch(%arg0: tensor<32x32xbf16, #host_layout>) -> (tensor<32x32xbf16, #layout>, tensor<64x64xbf16, #layout_64x64>) {
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
   // trace_fn returns 1 result, but op declares 2 outputs.
-  %1, %2 = "ttnn.capture_or_execute_trace"(%0, %arg0) <{capture_callee = @capture_fn, execute_callee = @execute_fn}> : (!ttnn.device, tensor<32x32xbf16, #host_layout>) -> (tensor<32x32xbf16, #layout>, tensor<64x64xbf16, #layout_64x64>)
+  %1, %2 = "ttnn.capture_or_execute_trace"(%0, %arg0) <{capture_callee = @capture_fn, execute_callee = @execute_fn, operandSegmentSizes = array<i32: 1, 1, 0>}> : (!ttnn.device, tensor<32x32xbf16, #host_layout>) -> (tensor<32x32xbf16, #layout>, tensor<64x64xbf16, #layout_64x64>)
   return %1, %2 : tensor<32x32xbf16, #layout>, tensor<64x64xbf16, #layout_64x64>
 }
 
@@ -159,7 +159,7 @@ func.func private @trace_fn(%arg0: tensor<32x32xbf16, #layout>) -> tensor<32x32x
 }
 func.func private @capture_fn(%arg0: tensor<32x32xbf16, #host_layout>) -> (tensor<ui32, #ttnn.trace_id>, tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) {
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-  %1 = "ttnn.empty"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #layout>
+  %1 = "ttnn.empty"(%0) <{layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #layout>
   "ttnn.write_tensor"(%arg0, %1) <{blocking = false, cq_id = 0 : ui32}> : (tensor<32x32xbf16, #host_layout>, tensor<32x32xbf16, #layout>) -> ()
   call @trace_fn(%1) : (tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
   %3 = "ttnn.begin_trace_capture"(%0) <{cq_id = 0 : ui32}> : (!ttnn.device) -> tensor<ui32, #ttnn.trace_id>
@@ -173,7 +173,7 @@ func.func private @execute_fn(%arg0: tensor<ui32, #ttnn.trace_id>) {
 func.func @test_output_type_mismatch(%arg0: tensor<32x32xbf16, #host_layout>) -> tensor<32x32xf32, #layout_f32> {
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
   // trace_fn returns bf16 but op declares f32 output.
-  %1 = "ttnn.capture_or_execute_trace"(%0, %arg0) <{capture_callee = @capture_fn, execute_callee = @execute_fn}> : (!ttnn.device, tensor<32x32xbf16, #host_layout>) -> tensor<32x32xf32, #layout_f32>
+  %1 = "ttnn.capture_or_execute_trace"(%0, %arg0) <{capture_callee = @capture_fn, execute_callee = @execute_fn, operandSegmentSizes = array<i32: 1, 1, 0>}> : (!ttnn.device, tensor<32x32xbf16, #host_layout>) -> tensor<32x32xf32, #layout_f32>
   return %1 : tensor<32x32xf32, #layout_f32>
 }
 
@@ -188,7 +188,7 @@ func.func @test_output_type_mismatch(%arg0: tensor<32x32xbf16, #host_layout>) ->
 // CHECK: error: 'ttnn.capture_or_execute_trace' op All input arguments of trace function must be on device
 func.func private @trace_fn(%arg0: tensor<32x32xbf16, #host_layout>) -> tensor<32x32xbf16, #layout> {
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-  %1 = "ttnn.empty"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #layout>
+  %1 = "ttnn.empty"(%0) <{layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #layout>
   return %1 : tensor<32x32xbf16, #layout>
 }
 func.func private @capture_fn(%arg0: tensor<32x32xbf16, #host_layout>) -> (tensor<ui32, #ttnn.trace_id>, tensor<32x32xbf16, #host_layout>, tensor<32x32xbf16, #layout>) {
@@ -204,7 +204,7 @@ func.func private @execute_fn(%arg0: tensor<ui32, #ttnn.trace_id>) {
 }
 func.func @test_trace_arg_not_on_device(%arg0: tensor<32x32xbf16, #host_layout>) -> tensor<32x32xbf16, #layout> {
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-  %1 = "ttnn.capture_or_execute_trace"(%0, %arg0) <{capture_callee = @capture_fn, execute_callee = @execute_fn}> : (!ttnn.device, tensor<32x32xbf16, #host_layout>) -> tensor<32x32xbf16, #layout>
+  %1 = "ttnn.capture_or_execute_trace"(%0, %arg0) <{capture_callee = @capture_fn, execute_callee = @execute_fn, operandSegmentSizes = array<i32: 1, 1, 0>}> : (!ttnn.device, tensor<32x32xbf16, #host_layout>) -> tensor<32x32xbf16, #layout>
   return %1 : tensor<32x32xbf16, #layout>
 }
 
@@ -220,12 +220,12 @@ func.func @test_trace_arg_not_on_device(%arg0: tensor<32x32xbf16, #host_layout>)
 func.func private @trace_fn(%arg0: tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout> {
   // Trace function uses a different mesh shape (1x2 vs 1x1).
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
-  %1 = "ttnn.add"(%arg0, %arg0) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
+  %1 = "ttnn.add"(%arg0, %arg0) : (tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
   return %1 : tensor<32x32xbf16, #layout>
 }
 func.func private @capture_fn(%arg0: tensor<32x32xbf16, #host_layout>) -> (tensor<ui32, #ttnn.trace_id>, tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) {
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-  %1 = "ttnn.empty"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #layout>
+  %1 = "ttnn.empty"(%0) <{layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #layout>
   "ttnn.write_tensor"(%arg0, %1) <{blocking = false, cq_id = 0 : ui32}> : (tensor<32x32xbf16, #host_layout>, tensor<32x32xbf16, #layout>) -> ()
   call @trace_fn(%1) : (tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
   %3 = "ttnn.begin_trace_capture"(%0) <{cq_id = 0 : ui32}> : (!ttnn.device) -> tensor<ui32, #ttnn.trace_id>
@@ -238,7 +238,7 @@ func.func private @execute_fn(%arg0: tensor<ui32, #ttnn.trace_id>) {
 }
 func.func @test_device_config_mismatch(%arg0: tensor<32x32xbf16, #host_layout>) -> tensor<32x32xbf16, #layout> {
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-  %1 = "ttnn.capture_or_execute_trace"(%0, %arg0) <{capture_callee = @capture_fn, execute_callee = @execute_fn}> : (!ttnn.device, tensor<32x32xbf16, #host_layout>) -> tensor<32x32xbf16, #layout>
+  %1 = "ttnn.capture_or_execute_trace"(%0, %arg0) <{capture_callee = @capture_fn, execute_callee = @execute_fn, operandSegmentSizes = array<i32: 1, 1, 0>}> : (!ttnn.device, tensor<32x32xbf16, #host_layout>) -> tensor<32x32xbf16, #layout>
   return %1 : tensor<32x32xbf16, #layout>
 }
 
@@ -252,12 +252,12 @@ func.func @test_device_config_mismatch(%arg0: tensor<32x32xbf16, #host_layout>) 
 // --- Test 9: Execute callee does not reference a function ---
 // CHECK: error: 'ttnn.capture_or_execute_trace' op 'nonexistent_execute' does not reference a function
 func.func private @trace_fn(%arg0: tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout> {
-  %0 = "ttnn.add"(%arg0, %arg0) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
+  %0 = "ttnn.add"(%arg0, %arg0) : (tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
   return %0 : tensor<32x32xbf16, #layout>
 }
 func.func private @capture_fn(%arg0: tensor<32x32xbf16, #host_layout>) -> (tensor<ui32, #ttnn.trace_id>, tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) {
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-  %1 = "ttnn.empty"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #layout>
+  %1 = "ttnn.empty"(%0) <{layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #layout>
   "ttnn.write_tensor"(%arg0, %1) <{blocking = false, cq_id = 0 : ui32}> : (tensor<32x32xbf16, #host_layout>, tensor<32x32xbf16, #layout>) -> ()
   call @trace_fn(%1) : (tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
   %3 = "ttnn.begin_trace_capture"(%0) <{cq_id = 0 : ui32}> : (!ttnn.device) -> tensor<ui32, #ttnn.trace_id>
@@ -267,7 +267,7 @@ func.func private @capture_fn(%arg0: tensor<32x32xbf16, #host_layout>) -> (tenso
 }
 func.func @test_execute_callee_missing(%arg0: tensor<32x32xbf16, #host_layout>) -> tensor<32x32xbf16, #layout> {
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-  %1 = "ttnn.capture_or_execute_trace"(%0, %arg0) <{capture_callee = @capture_fn, execute_callee = @nonexistent_execute}> : (!ttnn.device, tensor<32x32xbf16, #host_layout>) -> tensor<32x32xbf16, #layout>
+  %1 = "ttnn.capture_or_execute_trace"(%0, %arg0) <{capture_callee = @capture_fn, execute_callee = @nonexistent_execute, operandSegmentSizes = array<i32: 1, 1, 0>}> : (!ttnn.device, tensor<32x32xbf16, #host_layout>) -> tensor<32x32xbf16, #layout>
   return %1 : tensor<32x32xbf16, #layout>
 }
 
@@ -281,12 +281,12 @@ func.func @test_execute_callee_missing(%arg0: tensor<32x32xbf16, #host_layout>) 
 // --- Test 10: Execute function has wrong number of arguments ---
 // CHECK: error: 'ttnn.capture_or_execute_trace' op Execute function 'execute_fn' must take exactly one trace_id argument, but has 2 arguments
 func.func private @trace_fn(%arg0: tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout> {
-  %0 = "ttnn.add"(%arg0, %arg0) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
+  %0 = "ttnn.add"(%arg0, %arg0) : (tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
   return %0 : tensor<32x32xbf16, #layout>
 }
 func.func private @capture_fn(%arg0: tensor<32x32xbf16, #host_layout>) -> (tensor<ui32, #ttnn.trace_id>, tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) {
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-  %1 = "ttnn.empty"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #layout>
+  %1 = "ttnn.empty"(%0) <{layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #layout>
   "ttnn.write_tensor"(%arg0, %1) <{blocking = false, cq_id = 0 : ui32}> : (tensor<32x32xbf16, #host_layout>, tensor<32x32xbf16, #layout>) -> ()
   call @trace_fn(%1) : (tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
   %3 = "ttnn.begin_trace_capture"(%0) <{cq_id = 0 : ui32}> : (!ttnn.device) -> tensor<ui32, #ttnn.trace_id>
@@ -299,7 +299,7 @@ func.func private @execute_fn(%arg0: tensor<ui32, #ttnn.trace_id>, %arg1: tensor
 }
 func.func @test_execute_wrong_arg_count(%arg0: tensor<32x32xbf16, #host_layout>) -> tensor<32x32xbf16, #layout> {
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-  %1 = "ttnn.capture_or_execute_trace"(%0, %arg0) <{capture_callee = @capture_fn, execute_callee = @execute_fn}> : (!ttnn.device, tensor<32x32xbf16, #host_layout>) -> tensor<32x32xbf16, #layout>
+  %1 = "ttnn.capture_or_execute_trace"(%0, %arg0) <{capture_callee = @capture_fn, execute_callee = @execute_fn, operandSegmentSizes = array<i32: 1, 1, 0>}> : (!ttnn.device, tensor<32x32xbf16, #host_layout>) -> tensor<32x32xbf16, #layout>
   return %1 : tensor<32x32xbf16, #layout>
 }
 
@@ -313,12 +313,12 @@ func.func @test_execute_wrong_arg_count(%arg0: tensor<32x32xbf16, #host_layout>)
 // --- Test 11: Execute function argument is not a trace_id tensor ---
 // CHECK: error: 'ttnn.capture_or_execute_trace' op Execute function 'execute_fn' argument must be a trace_id tensor (scalar ui32 with TraceIdAttr encoding)
 func.func private @trace_fn(%arg0: tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout> {
-  %0 = "ttnn.add"(%arg0, %arg0) <{dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
+  %0 = "ttnn.add"(%arg0, %arg0) : (tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
   return %0 : tensor<32x32xbf16, #layout>
 }
 func.func private @capture_fn(%arg0: tensor<32x32xbf16, #host_layout>) -> (tensor<ui32, #ttnn.trace_id>, tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) {
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-  %1 = "ttnn.empty"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #layout>
+  %1 = "ttnn.empty"(%0) <{layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #layout>
   "ttnn.write_tensor"(%arg0, %1) <{blocking = false, cq_id = 0 : ui32}> : (tensor<32x32xbf16, #host_layout>, tensor<32x32xbf16, #layout>) -> ()
   call @trace_fn(%1) : (tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
   %3 = "ttnn.begin_trace_capture"(%0) <{cq_id = 0 : ui32}> : (!ttnn.device) -> tensor<ui32, #ttnn.trace_id>
@@ -331,6 +331,6 @@ func.func private @execute_fn(%arg0: tensor<32x32xbf16, #layout>) {
 }
 func.func @test_execute_wrong_arg_type(%arg0: tensor<32x32xbf16, #host_layout>) -> tensor<32x32xbf16, #layout> {
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-  %1 = "ttnn.capture_or_execute_trace"(%0, %arg0) <{capture_callee = @capture_fn, execute_callee = @execute_fn}> : (!ttnn.device, tensor<32x32xbf16, #host_layout>) -> tensor<32x32xbf16, #layout>
+  %1 = "ttnn.capture_or_execute_trace"(%0, %arg0) <{capture_callee = @capture_fn, execute_callee = @execute_fn, operandSegmentSizes = array<i32: 1, 1, 0>}> : (!ttnn.device, tensor<32x32xbf16, #host_layout>) -> tensor<32x32xbf16, #layout>
   return %1 : tensor<32x32xbf16, #layout>
 }

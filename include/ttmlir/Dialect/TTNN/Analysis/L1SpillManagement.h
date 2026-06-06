@@ -27,9 +27,27 @@ namespace mlir::tt::ttnn {
 /// sum of per-result tensor sizes, and simulates top-down allocation to detect
 /// fragmentation (CB clash with low-address tensors).
 struct SumL1MemoryTracker {
+  /// Backend validator hook. When null, calls go to
+  /// op_constraint_validation::validateOperation(). When set (test-only),
+  /// forwards to the supplied callback. Used by every backend-validator
+  /// call in the pass (validate() and the two direct probes).
+  using BackendValidatorFn =
+      std::function<op_constraint_validation::ValidationResult(
+          Operation *, llvm::ArrayRef<TTNNLayoutAttr>, const OpConfig &,
+          uint64_t /*additionalL1*/)>;
+  BackendValidatorFn backendValidator;
+
   op_constraint_validation::ValidationResult
   validate(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
            const OpConfig &config) const;
+
+  /// Bypass input-overlap accounting and call the backend (or hook) with an
+  /// explicit additionalL1Usage. Used by consumer-reshard probes and DRAM
+  /// CB re-queries inside L1SpillManagement — those call sites already know
+  /// the L1 pressure they want to express.
+  op_constraint_validation::ValidationResult validateBackendDirect(
+      Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+      const OpConfig &config, uint64_t additionalL1Usage) const;
 
   /// Initialize address simulation with the L1 budget. Must be called before
   /// addTensor/removeTensor.
@@ -147,8 +165,8 @@ private:
   llvm::DenseMap<uint64_t, AliasGroup> aliasGroups;
 };
 
-/// L1SpillManagement enforces L1 budget constraints using Belady's optimal
-/// page replacement algorithm with validation-based budget enforcement.
+/// L1SpillManagement enforces L1 budget constraints using farthest-last-use
+/// eviction with validation-based budget enforcement.
 /// Each op is re-validated during the sweep using validateOperation() with
 /// the sum of live tensor L1 sizes as additionalL1Usage. When validation
 /// fails (OOM), tensors are evicted until it succeeds.
@@ -159,7 +177,6 @@ private:
 /// After processing, it modifies the IR:
 /// - Inserts ToMemoryConfigOp after spilled ops (L1 -> DRAM)
 /// - Reconnects uses to read from spilled tensor
-/// - Removes "ttnn.output_l1_usage" attributes (cleanup)
 template <typename MemoryTracker = SumL1MemoryTracker>
 class L1SpillManagement {
 public:
@@ -167,12 +184,17 @@ public:
                     uint64_t l1BudgetPerCore,
                     std::unique_ptr<L1SpillObserver> observer = nullptr);
 
-  /// Run Belady's algorithm with validation-based eviction and apply spills
-  /// directly to the IR.
+  /// Run farthest-last-use eviction with validation-based enforcement and apply
+  /// spills directly to the IR.
   void run();
 
   /// Access the observer (always non-null; NullObject when tracing disabled).
   L1SpillObserver *getObserver() { return observer_.get(); }
+
+  /// Access the memory tracker. Intended for test-only use: install a
+  /// backendValidator before calling run().
+  MemoryTracker &getMemoryTracker() { return memoryTracker; }
+  const MemoryTracker &getMemoryTracker() const { return memoryTracker; }
 
 private:
   func::FuncOp func;
@@ -188,7 +210,7 @@ private:
   /// Pluggable memory state tracker.
   MemoryTracker memoryTracker;
 
-  /// Belady eviction ordering: max-heap by lastUsePosition, keyed by Value.
+  /// Farthest-last-use ordering: max-heap by lastUsePosition, keyed by Value.
   using LiveEntry = std::pair<int64_t, Value>;
   struct LiveEntryCompare {
     bool operator()(const LiveEntry &a, const LiveEntry &b) const {
@@ -202,6 +224,9 @@ private:
   /// Event log entry for address reconstruction. Records every L1 allocation
   /// and deallocation in schedule order so that eviction can replay the full
   /// history (including dead tensors) to compute accurate addresses.
+  /// Reshards inserted for past consumers also get kAlloc/kDealloc entries
+  /// (via insertEventIntoLog) so future replays account for their transient
+  /// slot without needing a separate injection map.
   struct L1Event {
     enum Kind { kAlloc, kDealloc };
     Kind kind;
@@ -214,17 +239,33 @@ private:
   llvm::SmallVector<L1Event> l1EventLog;
 
   /// Snapshots of tracker state taken before each alloc event, keyed by
-  /// event-log index. Used as starting points for replay after eviction.
+  /// event-log index. Invariant: addressSnapshots[i] = tracker state
+  /// immediately before event i fires. Maintained by insertEventIntoLog.
+  /// Used as starting points for replay after eviction.
   llvm::DenseMap<size_t, typename MemoryTracker::Snapshot> addressSnapshots;
 
-  /// Maps each tensor Value to its alloc event index in l1EventLog.
-  /// Provides O(1) lookup in markEvictedAndRebuild instead of linear scan.
+  /// Maps each live-tensor Value to its alloc event index in l1EventLog.
+  /// O(1) restore-point lookup in markEvictedAndRebuild. NOT populated for
+  /// reshard events for past consumers — irrelevant as reshards are never
+  /// selected as eviction victims.
   llvm::DenseMap<Value, size_t> allocEventIndex;
 
-  /// Mark all events for a tensor as skipped and rebuild from its alloc
-  /// snapshot. Updates snapshots during replay so future evictions start
-  /// from accurate state.
+  /// Results of reshards inserted by insertReshardIntoSchedule (future
+  /// consumers). These must never be selected as eviction victims — evicting
+  /// them defeats the purpose of the reshard. A DenseSet rather than checking
+  /// isa<ToMemoryConfigOp> avoids falsely blocking regular to_memory_config
+  /// ops from MemoryLayoutPropagation, which ARE valid eviction candidates.
+  llvm::DenseSet<Value> insertedReshardValues;
+
+  /// Mark victim's alloc/dealloc events as skipped, restore the snapshot
+  /// taken before victim's alloc, then replay all subsequent non-skipped
+  /// events to rebuild a consistent address-simulation state. Reshard
+  /// kAlloc/kDealloc pairs in the log are replayed naturally.
   void markEvictedAndRebuild(Value victim);
+
+  /// Insert event at pos in l1EventLog and shift all allocEventIndex entries
+  /// and addressSnapshots keys >= pos by 1, preserving the index invariants.
+  void insertEventIntoLog(size_t pos, L1Event event);
 
   /// Extract OpConfig from op's current IR state (result type + op-specific
   /// attrs like Conv2dConfig, MatmulProgramConfig).
@@ -256,13 +297,30 @@ private:
   /// For ToMemoryConfigOp, also updates the memory_config attribute.
   void demoteToDram(Operation *op);
 
-  /// Insert ToMemoryConfigOp to spill a single result value to DRAM
-  /// interleaved. When insertBefore is provided, the spill op is placed
-  /// right before that op (e.g., a CCL op) instead of after the defining op.
-  void spillToDram(Value result, Operation *insertBefore = nullptr);
+  /// Insert a ToMemoryConfigOp right after `result`'s defining op to spill
+  /// `result` to DRAM. ALL uses of `result` (past and future) get rewired
+  /// to read from the spill. Snapshot/replay-safe: pair with
+  /// `markEvictedAndRebuild` to keep the address simulator consistent.
+  void spillToDram(Value result);
 
-  /// Remove all "ttnn.output_l1_usage" attributes from ops in the function.
-  void cleanupL1UsageAttrs();
+  /// Insert a ToMemoryConfigOp just BEFORE `triggerOp` to spill `result` to
+  /// DRAM. Only uses at/after `triggerOp` get rewired; earlier uses keep
+  /// reading from L1.
+  ///
+  /// INVARIANT: callers MUST follow with a full tracker reset (e.g.
+  /// `memoryTracker.init(l1BudgetPerCore)`) because the past-of-trigger
+  /// uses still occupy L1 in the IR. The default `markEvictedAndRebuild`
+  /// snapshot/replay path is NOT compatible with this overload — it would
+  /// mark `result`'s alloc as skipped at the producer's event index, which
+  /// disagrees with the IR (`result` is still allocated between defOp and
+  /// triggerOp).
+  ///
+  /// Currently the only caller is `evictAllFromL1`.
+  void spillToDramBeforeTrigger(Value result, Operation *triggerOp);
+
+  /// Shared implementation of the two spill overloads. Not part of the
+  /// public API.
+  void spillToDramImpl(Value result, Operation *insertBefore);
 
   /// Bundled schedule data built once at the start of run().
   struct ScheduleData {
@@ -275,6 +333,13 @@ private:
   /// Build schedule, last-use positions, death schedule, and position map.
   ScheduleData buildScheduleData();
 
+  /// Insert a reshard op into the schedule at consumerPos (shifting the
+  /// consumer and all later ops by +1), updating positionMap, lastUsePositions,
+  /// and deathSchedule so the forward sweep processes the reshard naturally.
+  void insertReshardIntoSchedule(Operation *reshardOp, Value reshardResult,
+                                 uint64_t reshardSizePerCore,
+                                 int64_t consumerPos, ScheduleData &data);
+
   /// Remove result tensors whose last use was the previous position.
   void processDeadTensors(int64_t pos, const ScheduleData &data);
 
@@ -286,57 +351,57 @@ private:
   bool wouldCBsOverlapTensors(Operation *op, int64_t pos, uint64_t cbPeakUsage,
                               uint64_t speculativeOutputAddr);
 
-  /// Output cannot fit contiguously in the free list. Evict using Belady's
-  /// algorithm until the output fits, then re-validate. Returns L1 bytes to
-  /// add to live set (0 if demoted to DRAM).
-  uint64_t handleNoFit(Operation *op, int64_t pos, const ScheduleData &data,
-                       uint64_t opL1Usage, uint64_t outputL1Size);
+  /// Output cannot fit contiguously in the free list. Evict farthest-last-use
+  /// tensors until the output fits, then re-validate. Returns L1 bytes to add
+  /// to live set (0 if demoted to DRAM).
+  uint64_t handleNoFit(Operation *op, int64_t pos, ScheduleData &data,
+                       uint64_t outputL1Size);
 
   /// CB fragmentation recovery: evict tensors in the CB danger zone,
   /// re-validate, or demote output to DRAM. Returns L1 bytes to add to live
   /// set (0 if demoted).
-  uint64_t handleFragmentation(Operation *op, int64_t pos,
-                               const ScheduleData &data, uint64_t opL1Usage,
+  uint64_t handleFragmentation(Operation *op, int64_t pos, ScheduleData &data,
                                uint64_t cbPeakUsage, uint64_t outputL1Size);
 
   /// Run contiguous-fit and CB-fragmentation checks on a validated op's
   /// output. Returns the (possibly updated) L1 size to add to the live set,
   /// or 0 if the output was demoted to DRAM.
-  uint64_t ensureFitsL1(Operation *op, int64_t pos, const ScheduleData &data,
-                        uint64_t opL1Usage, uint64_t cbPeakUsage,
-                        uint64_t l1Size);
+  uint64_t ensureFitsL1(Operation *op, int64_t pos, ScheduleData &data,
+                        uint64_t cbPeakUsage, uint64_t l1Size);
 
-  /// OOM recovery: demote to L1-interleaved, evict farthest-use, or spill self.
+  /// OOM recovery: evict farthest-last-use tensors or demote self to DRAM.
   void handleOOM(Operation *op, int64_t pos,
-                 llvm::ArrayRef<OpResult> tensorResults,
-                 const ScheduleData &data, uint64_t opL1Usage,
+                 llvm::ArrayRef<OpResult> tensorResults, ScheduleData &data,
                  std::function<void(uint64_t)> addResultsToLiveSet);
 
   /// Evict all live L1 tensors. Used when encountering ops without OpModel
   /// support — since we cannot know their L1 requirements, the only safe
   /// choice is a full flush. Spill ops are inserted right before triggerOp
   /// (the CCL op) so earlier consumers can still read from L1.
-  void evictAllFromL1(int64_t pos, const ScheduleData &data,
+  void evictAllFromL1(int64_t pos, ScheduleData &data,
                       Operation *triggerOp = nullptr);
 
-  /// Evict live tensors using Belady's algorithm until no tensor's simulated
+  /// Evict live tensors (farthest-last-use first) until no tensor's simulated
   /// address falls below the cushioned CB threshold. Replaces the former
   /// evictTensorsBelow, which was incorrect after address rebuild (addresses
   /// shift, making the threshold check stale).
   void evictForCBOverlap(uint64_t cushionedCBUsage, int64_t pos,
-                         const ScheduleData &data);
+                         ScheduleData &data);
 
-  /// Evict tensors using Belady's algorithm until shouldStop() returns true
+  /// Evict tensors (farthest-last-use first) until shouldStop() returns true
   /// or the live set is empty. Returns true if shouldStop was satisfied.
   /// After each eviction, rebuilds address simulation and inserts reshards
   /// for already-processed consumers.
-  bool evictUntil(int64_t pos, const ScheduleData &data,
+  bool evictUntil(int64_t pos, ScheduleData &data,
                   std::function<bool()> shouldStop);
 
-  /// Evict a specific live value: spill to DRAM, update tracker, insert
-  /// reshards for already-processed consumers. Used by evictUntil and by
-  /// sibling-operand eviction paths.
-  void evictValue(Value victim, int64_t pos, const ScheduleData &data);
+  /// Evict a specific live value: spill to DRAM, update tracker, and insert
+  /// reshards for consumers that still require the L1 layout. If
+  /// skipReshardConsumer is non-null, that one consumer is left reading the
+  /// DRAM spill (no reshard inserted for it); all other consumers are still
+  /// restored.
+  void evictValue(Value victim, int64_t pos, ScheduleData &data,
+                  Operation *skipReshardConsumer = nullptr);
 
   /// Insert a ToMemoryConfigOp before an already-processed consumer to
   /// convert the DRAM spill output back to the consumer's expected L1 layout.
@@ -350,8 +415,7 @@ private:
   /// to the shard, not in the static CB region) to locally_allocated (bottom-up
   /// in the static CB region), which can significantly increase the CB
   /// footprint.
-  void evictForDramCBGrowth(Operation *op, int64_t pos,
-                            const ScheduleData &data);
+  void evictForDramCBGrowth(Operation *op, int64_t pos, ScheduleData &data);
 
   /// Collect downstream consumers of an op, following through spill ops.
   static llvm::SmallVector<Operation *>

@@ -39,6 +39,7 @@
 #include "ttnn/operations/embedding/embedding.hpp"
 #include "ttnn/operations/experimental/ccl/moe/selective_reduce_combine/selective_reduce_combine.hpp"
 #include "ttnn/operations/experimental/conv3d/conv3d.hpp"
+#include "ttnn/operations/experimental/conv3d/prepare_conv3d_weights.hpp"
 #include "ttnn/operations/experimental/paged_cache/paged_cache.hpp"
 #include "ttnn/operations/experimental/topk_router_gpt/topk_router_gpt.hpp"
 #include "ttnn/operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
@@ -86,7 +87,7 @@ namespace tt::runtime::ttnn {
 // allocation/deallocation).
 ::tt::runtime::Tensor
 createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
-                         const std::vector<std::uint32_t> &stride,
+                         const std::vector<std::int64_t> &stride,
                          std::uint32_t itemsize,
                          ::tt::target::DataType dataType);
 
@@ -94,7 +95,7 @@ createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
 // host and its allocation/deallocation is owned by this tensor instance).
 ::tt::runtime::Tensor
 createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
-                      const std::vector<std::uint32_t> &stride,
+                      const std::vector<std::int64_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType);
 
 // Creates a borrowed host tensor that aliases the buffer of `ownedHostTensor`.
@@ -108,7 +109,7 @@ createUnsafeBorrowedHostTensor(::tt::runtime::Tensor ownedHostTensor);
 ::tt::runtime::Tensor createMultiDeviceHostTensor(
     const std::vector<const void *> &data,
     const std::vector<std::uint32_t> &shape,
-    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape);
@@ -125,14 +126,15 @@ createUnsafeBorrowedHostTensor(::tt::runtime::Tensor ownedHostTensor);
 // responsible for its allocation/deallocation).
 Tensor createMultiDeviceBorrowedHostTensor(
     std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
-    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape);
 
-::tt::runtime::Tensor createEmptyTensor(
-    Device device, Layout layout, const std::vector<std::uint32_t> &shape,
-    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize);
+::tt::runtime::Tensor createEmptyTensor(Device device, Layout layout,
+                                        const std::vector<std::uint32_t> &shape,
+                                        const std::vector<std::int64_t> &stride,
+                                        std::uint32_t itemsize);
 
 ::tt::runtime::Tensor createScalarTensor(::tt::runtime::Scalar scalar);
 
@@ -167,7 +169,7 @@ bool isTensorAllocated(::tt::runtime::Tensor tensor);
 tt::target::DataType getTensorDataType(::tt::runtime::Tensor tensor);
 std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor);
 std::vector<std::uint32_t> getTensorShape(::tt::runtime::Tensor tensor);
-std::vector<std::uint32_t> getTensorStride(::tt::runtime::Tensor tensor);
+std::vector<std::int64_t> getTensorStride(::tt::runtime::Tensor tensor);
 std::uint32_t getTensorElementSize(::tt::runtime::Tensor tensor);
 std::uint32_t getTensorVolume(::tt::runtime::Tensor tensor);
 std::uint32_t getTensorLogicalVolume(::tt::runtime::Tensor tensor);
@@ -291,6 +293,15 @@ void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor srcTensor);
 
 size_t getProgramIndex(CallbackContext programContextHandle);
+
+// Invoke a sequence of CPU-hoisted ops (represented through a CpuOp)
+// with custom caller-supplied host inputs.
+//
+// Useful for scenarios where a CPU-hoisted sequence of operations needs to be
+// invoked externally, out of the context of TTNN program execution.
+std::vector<::tt::runtime::Tensor>
+invokeCpuOp(CallbackContext programContextHandle, OpContext opContextHandle,
+            const std::vector<::tt::runtime::Tensor> &inputs);
 
 std::vector<::tt::runtime::Tensor>
 submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,

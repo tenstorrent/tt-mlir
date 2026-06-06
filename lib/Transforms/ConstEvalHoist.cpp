@@ -3,9 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreTraits.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
@@ -113,6 +116,8 @@ public:
     buildConstEvalSubgraphs();
   }
 
+  bool failed() const { return analysisFailed; }
+
   ConstEvalAnalysisResults getAnalysisResults() {
     llvm::DenseMap<mlir::Value, size_t> rootToId;
     llvm::DenseMap<size_t, ConstEvalSubgraph> idToSubgraph;
@@ -171,13 +176,6 @@ private:
       return;
     }
 
-    // Skip non-identity mesh shard ops.
-    if (auto meshShardOp = mlir::dyn_cast<mlir::tt::ttnn::MeshShardOp>(op)) {
-      if (meshShardOp.getShardType() != ttcore::MeshShardType::Identity) {
-        return;
-      }
-    }
-
     // Handle shared ops separately as well.
     if (isSharedOp(op)) {
       sharedOps.push_back(op);
@@ -191,22 +189,6 @@ private:
 
     if (isResultWrittenInPlace(op)) {
       return;
-    }
-
-    // Skip ops whose results are in L1. Const-eval functions persist their
-    // outputs across function boundaries, so L1 allocations from const-eval
-    // would consume L1 budget during @main execution without the
-    // L1SpillManagement pass being able to account for them.
-    for (auto result : op->getResults()) {
-      if (auto tensorType =
-              mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
-        if (auto layoutAttr = mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(
-                tensorType.getEncoding())) {
-          if (layoutAttr.hasL1BufferType()) {
-            return;
-          }
-        }
-      }
     }
 
     auto operandConstEval = [&](mlir::Value operand) {
@@ -223,6 +205,34 @@ private:
 
     // Check if all operands can be const-eval'ed.
     if (!llvm::all_of(op->getOperands(), operandConstEval)) {
+      return;
+    }
+
+    // L1-resident results must opt in via "ttnn.const_eval_allowed";
+    // const-eval outputs persist, so untagged L1 reservations would silently
+    // steal budget from the forward function.
+    bool anyResultInL1 = false;
+
+    for (auto result : op->getResults()) {
+      if (auto tensorType =
+              mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
+        if (auto layoutAttr = mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(
+                tensorType.getEncoding())) {
+          if (layoutAttr.hasL1BufferType()) {
+            anyResultInL1 = true;
+            break;
+          }
+        }
+      }
+    }
+
+    if (anyResultInL1 &&
+        !op->hasAttr(mlir::tt::ttnn::utils::g_ConstEvalAllowedAttrName)) {
+      op->emitError("result of an op resides in L1, and the op is a const-eval "
+                    "candidate, but it is not tagged with '")
+          << mlir::tt::ttnn::utils::g_ConstEvalAllowedAttrName
+          << "'; tag the op or change its memory space";
+      analysisFailed = true;
       return;
     }
 
@@ -267,6 +277,8 @@ private:
 
   // Set of ops which every subgraph + original graph must duplicate.
   llvm::SmallVector<mlir::Operation *, 1> sharedOps;
+
+  bool analysisFailed = false;
 };
 } // namespace
 
@@ -455,6 +467,50 @@ public:
 } // namespace
 
 namespace {
+// Sums per-core L1 footprint of const-eval function outputs. Returns nullopt
+// when no device is registered.
+static std::optional<uint64_t> computeL1ConstEvalUsage(mlir::ModuleOp module) {
+  auto deviceOp = ttcore::lookupDeviceOp(module);
+  if (!deviceOp) {
+    return std::nullopt;
+  }
+  ttcore::GridAttr workerGrid = deviceOp.getDeviceAttr().getWorkerGrid();
+  uint64_t numCores =
+      static_cast<uint64_t>(ttmlir::utils::volume(workerGrid.getShape()));
+  if (numCores == 0) {
+    return std::nullopt;
+  }
+
+  uint64_t total = 0;
+  module.walk([&](mlir::func::FuncOp funcOp) {
+    if (!ttmlir::utils::isConstEvalFunc(funcOp)) {
+      return;
+    }
+    auto &entryBlock = funcOp.getBody().front();
+    auto returnOp =
+        mlir::dyn_cast<mlir::func::ReturnOp>(entryBlock.getTerminator());
+    if (!returnOp) {
+      return;
+    }
+    for (mlir::Value operand : returnOp.getOperands()) {
+      auto tensorType =
+          mlir::dyn_cast<mlir::RankedTensorType>(operand.getType());
+      if (!tensorType) {
+        continue;
+      }
+      auto layout = mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(
+          tensorType.getEncoding());
+      if (!layout || !layout.hasL1BufferType()) {
+        continue;
+      }
+      total += ttnn::utils::getPerCoreL1Usage(layout, numCores);
+    }
+  });
+  return total;
+}
+} // namespace
+
+namespace {
 // Transform pass to hoist const-eval subgraphs into separate funcs, invoked
 // w/ ttcore.load_cached ops.
 class ConstEvalHoistTransform
@@ -482,22 +538,44 @@ public:
     }
 
     // Collect functions that need processing
-    module.walk([&](func::FuncOp funcOp) { processFunction(funcOp); });
+    bool failed = false;
+    module.walk([&](func::FuncOp funcOp) {
+      if (!processFunction(funcOp)) {
+        failed = true;
+      }
+    });
+
+    if (failed) {
+      signalPassFailure();
+      return;
+    }
+
+    if (auto usage = computeL1ConstEvalUsage(module)) {
+      OpBuilder builder(&getContext());
+      auto u64 = mlir::IntegerType::get(&getContext(), 64,
+                                        mlir::IntegerType::Unsigned);
+      constexpr uint64_t kCushion = 1024;
+      uint64_t alignedUsage = llvm::alignTo(*usage + kCushion, kCushion);
+      module->setAttr(ttnn::utils::g_L1ConstEvalUsageAttrName,
+                      builder.getIntegerAttr(u64, alignedUsage));
+    }
   }
 
 private:
-  // Process a single function for const-eval hoisting
-  void processFunction(func::FuncOp funcOp) {
+  bool processFunction(func::FuncOp funcOp) {
     if (ttmlir::utils::isConstEvalFunc(funcOp)) {
-      return;
+      return true;
     }
     // Skip kernel functions: load_cached only supports tensor results, but
     // kernel const-eval may return !emitc.size_t, i32, etc.
     if (ttmlir::utils::isKernelFunc(funcOp)) {
-      return;
+      return true;
     }
     // Run the analysis to identify const-eval subgraphs
     ConstEvalAnalyze analyzer(funcOp);
+    if (analyzer.failed()) {
+      return false;
+    }
     ConstEvalAnalysisResults analysisResults = analyzer.getAnalysisResults();
     llvm::SmallVector<ConstEvalSubgraph, 4> subgraphs =
         std::move(analysisResults.subgraphs);
@@ -505,7 +583,7 @@ private:
         std::move(analysisResults.sharedOps);
 
     if (subgraphs.empty()) {
-      return;
+      return true;
     }
 
     // Create new functions for each subgraph
@@ -515,6 +593,7 @@ private:
       // Create a new function for this const-eval subgraph
       createConstEvalFunction(funcOp, subgraph, sharedOps, i);
     }
+    return true;
   }
 
   // Create a new function for a const-eval subgraph and replace the original

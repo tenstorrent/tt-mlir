@@ -78,54 +78,12 @@ in the same scope (or split them into separate synchronized scopes).
 
 ---
 
-### 🔴 Host-scope `linalg.generic` doesn't lower
-
-**Where:** any DSL emission that produces a `linalg.generic` at
-host-`func.func` scope (outside a `d2m.GenericOp` region).
-
-**Symptom:**
-
-```
-error: 'builtin.module' op found linalg.generic operations that were
-  not converted to affine loops.
- Please run --d2m-linalg-to-affine before the d2m-insert-dst-register-
-  access-unscheduled / d2m-insert-dst-register-access-scheduled passes.
-```
-
-**Root cause:** `d2m-linalg-to-affine` only walks `linalg.generic`s
-**inside** `d2m.GenericOp` regions. Host-scope `linalg.generic`s
-survive into later passes that don't expect them.
-
-**Impact:** blocks every host-scope linalg pattern. We hit it when
-prototyping a device-side `d2m.zeros(L)` via
-`linalg.generic { d2m.tile_fill }`; we ended up using a host-side
-`torch.zeros` + `to_layout` round-trip instead.
-
-**Workaround for the DSL:** avoid emitting `linalg.generic` at host
-scope. Use `to_layout` from a host-side `torch` tensor instead.
-
-**Fix shape:** make `d2m-linalg-to-affine` (or a sibling pass) also
-handle the host-func-scope case, or have the DSL synthesise a
-`d2m.GenericOp` wrapper around host-side fills so they go through the
-existing path.
-
----
-
 ## Missing API surface
 
 These ops live in `D2MGenericRegionOps.td` but are not yet exposed in
 `api.py`. Each is a "wait for a use case" item — the DSL is a testbed,
 so we add ops when we have something to test against rather than
 speculatively.
-
-### 🟡 Bespoke-signature ops (need design)
-
-| op | why it's interesting | what's blocking |
-| --- | --- | --- |
-| `tile_clamp_scalar(x, min, max)` | clamp with attribute (not operand) bounds | needs `FloatAttr` / `IntegerAttr` threading through `_eltwise_block`, plus a wrapper that picks the attr type from the tile's underlying dtype |
-| `tile_typecast(x)` | in-kernel dtype conversion (host-side already covered by `tilize(dtype=...)`) | needs an `_eltwise_block` variant that takes a target element type different from the input |
-| `tile_transpose(x)` | per-tile (32×32) element transpose -- distinct from logical `permute` / `view` | naming question — collides with `permute` / `view` semantics if called `transpose` |
-| `tile_bcast(x, bcast_type)` | broadcast row / col / scalar tile to full tile | needs a `BcastTypeAttr` argument; small but bespoke |
 
 ### 🟡 Reductions (scoped — float blocked, int viable)
 
@@ -253,11 +211,11 @@ debugging kernel bodies; would need a thin wrapper that emits
 
 ### 🟢 Lit-side IR-shape FileCheck tests
 
-`test/d2m-jit/lit/` only has `captures.py` (AST inspection). Worth
-adding lit + FileCheck tests that dump pre-pipeline IR (the builder
-already supports `print_ir_before_pipeline`) and check the shape of
-what each DSL primitive emits — would lock down the IR contract
-without going to silicon.
+`test/d2m-jit/lit/` now has coverage for captures, error paths,
+pattern rewrites, and broadcast lowering. Worth expanding that into
+lit + FileCheck tests that dump pre-pipeline IR (the builder already
+supports `print_ir_before_pipeline`) and check the shape of more DSL
+primitives — this locks down the IR contract without going to silicon.
 
 Sketch:
 

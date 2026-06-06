@@ -16,7 +16,6 @@ module attributes {} {
 
     // Per-op says bf16. Should insert exactly one f32->bf16 typecast.
     // CHECK: %[[TYPECAST:.*]] = "ttnn.typecast"(%arg1)
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
     // CHECK-SAME: -> tensor<720x128xbf16,
 
     // Must NOT see a second typecast to bfp_bf8 from the global default.

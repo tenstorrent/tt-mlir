@@ -43,18 +43,17 @@ public:
 
     ModuleOp moduleOp = getOperation();
 
-    // Get L1 budget from system description and usage cap.
     ttcore::GridAttr deviceGrid =
         ttcore::lookupDevice(moduleOp).getWorkerGrid();
-    ttcore::ChipDescAttr chipDesc = ttcore::getOpChipDescAttr(moduleOp);
-    float tensorL1UsageCap = utils::getTensorL1UsageCap(moduleOp);
-    uint64_t l1BudgetPerCore =
-        static_cast<uint64_t>(tensorL1UsageCap * chipDesc.getUsableL1Size());
+    uint64_t l1BudgetPerCore = utils::getUsableL1PerCore(moduleOp);
 
     TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                  "L1 spill management: budget per core = {0} bytes "
-                 "(usable = {1}, cap = {2})",
-                 l1BudgetPerCore, chipDesc.getUsableL1Size(), tensorL1UsageCap);
+                 "(usable = {1}, cap = {2}, reserved = {3})",
+                 l1BudgetPerCore,
+                 ttcore::getOpChipDescAttr(moduleOp).getUsableL1Size(),
+                 utils::getTensorL1UsageCap(moduleOp),
+                 utils::getReservedL1Usage(moduleOp));
 
     moduleOp->walk([&](func::FuncOp func) {
       if (!ttmlir::utils::isForwardDeviceFunc(func)) {

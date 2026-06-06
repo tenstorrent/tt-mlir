@@ -25,15 +25,15 @@ module attributes {ttnn.tensor_l1_usage_cap = 1.400000e-01 : f32} {
       -> (tensor<1x4096x512xbf16, #ttnn_layout_l1_3d>, tensor<1x1x4096x512xbf16, #ttnn_layout_l1_4d>) {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
 
-    %P0 = "ttnn.add"(%arg0, %arg1) <{dtype = #ttcore.supportedDataTypes<bf16>}> {ttnn.output_l1_usage = 65536 : i64} : (tensor<4096x512xbf16, #ttnn_layout_dram_2d>, tensor<4096x512xbf16, #ttnn_layout_dram_2d>) -> tensor<4096x512xbf16, #ttnn_layout_l1_2d>
+    %P0 = "ttnn.add"(%arg0, %arg1) : (tensor<4096x512xbf16, #ttnn_layout_dram_2d>, tensor<4096x512xbf16, #ttnn_layout_dram_2d>) -> tensor<4096x512xbf16, #ttnn_layout_l1_2d>
 
     // First view: 2D → 3D, leading-1 inserted (last+second-to-last unchanged).
-    %V1 = "ttnn.reshape"(%P0) <{shape = [1 : i32, 4096 : i32, 512 : i32]}> {ttnn.output_l1_usage = 65536 : i64} : (tensor<4096x512xbf16, #ttnn_layout_l1_2d>) -> tensor<1x4096x512xbf16, #ttnn_layout_l1_3d>
+    %V1 = "ttnn.reshape"(%P0) <{shape = [1 : i32, 4096 : i32, 512 : i32]}> : (tensor<4096x512xbf16, #ttnn_layout_l1_2d>) -> tensor<1x4096x512xbf16, #ttnn_layout_l1_3d>
 
     // Second view of the SAME producer: 2D → 4D, two leading 1s.
     // Under move-based aliasing, this `allocateAddressAt(V2, P0)` asserts
     // because P0 was removed from tensorAddresses by V1's reshape.
-    %V2 = "ttnn.reshape"(%P0) <{shape = [1 : i32, 1 : i32, 4096 : i32, 512 : i32]}> {ttnn.output_l1_usage = 65536 : i64} : (tensor<4096x512xbf16, #ttnn_layout_l1_2d>) -> tensor<1x1x4096x512xbf16, #ttnn_layout_l1_4d>
+    %V2 = "ttnn.reshape"(%P0) <{shape = [1 : i32, 1 : i32, 4096 : i32, 512 : i32]}> : (tensor<4096x512xbf16, #ttnn_layout_l1_2d>) -> tensor<1x1x4096x512xbf16, #ttnn_layout_l1_4d>
 
     return %V1, %V2 : tensor<1x4096x512xbf16, #ttnn_layout_l1_3d>, tensor<1x1x4096x512xbf16, #ttnn_layout_l1_4d>
   }
@@ -41,5 +41,4 @@ module attributes {ttnn.tensor_l1_usage_cap = 1.400000e-01 : f32} {
   // CHECK-LABEL: func.func @forked_two_views_no_spill
   // Both reshape views remain in L1 alongside P0.
   // CHECK-NOT: "ttnn.to_memory_config"{{.*}}#dram
-  // CHECK-NOT: ttnn.output_l1_usage
 }

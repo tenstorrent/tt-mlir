@@ -331,11 +331,10 @@ module @jit_reshape attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas
   }
 }
 
-// CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-// CHECK-SAME: shard_shape = array<i64: 8, 1, 1, 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
+// CHECK: builtin.module @jit_reshape
+// arg0 sharded on dim 0 by mesh axis "batch"=8 -> tensor<128x2x32x32xf32>.
+// CHECK: func.func public @main
+// CHECK-SAME: %arg0: tensor<128x2x32x32xf32>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1, 0>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
@@ -345,6 +344,12 @@ module @jit_reshape attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas
 // -----
 
 // torchax - DDP with automatic parallelism
+// CHECK: builtin.module @jit__unnamed_wrapped_function_
+// arg0, arg1 are replicated; arg2 sharded on dim 0 by "batch"=8 -> tensor<128x1024xf32>.
+// CHECK: func.func public @main
+// CHECK-SAME: %arg0: tensor<1024x1024xf32>
+// CHECK-SAME: %arg1: tensor<1024xf32>
+// CHECK-SAME: %arg2: tensor<128x1024xf32>
 module @jit__unnamed_wrapped_function_ attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
   sdy.mesh @mesh = <["x"=1, "batch"=8]>
   func.func public @main(%arg0: tensor<1024x1024xf32> {sdy.sharding = #sdy.sharding<@mesh, [{}, {}]>}, %arg1: tensor<1024xf32> {sdy.sharding = #sdy.sharding<@mesh, [{}]>}, %arg2: tensor<1024x1024xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"batch"}, {}]>}) -> (tensor<1024x1024xf32> {jax.result_info = "[0]['_module.linear.weight']", sdy.sharding = #sdy.sharding<@mesh, [{}, {}]>}, tensor<1024xf32> {jax.result_info = "[0]['_module.linear.bias']", sdy.sharding = #sdy.sharding<@mesh, [{}]>}, tensor<1024x1024xf32> {jax.result_info = "[1]", sdy.sharding = #sdy.sharding<@mesh, [{"batch"}, {}]>}) {
@@ -364,21 +369,6 @@ module @jit__unnamed_wrapped_function_ attributes {mhlo.num_partitions = 8 : i32
 
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: -1>
-// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-// CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
-// CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_dims = array<i64: -1>
-// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-// CHECK-SAME: shard_shape = array<i64: 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
-// CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-// CHECK-SAME: shard_shape = array<i64: 8, 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
-// CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_dims = array<i64: -1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 1>
 // CHECK-SAME: shard_type = #ttcore.shard_type<replicate>
@@ -396,6 +386,11 @@ module @jit__unnamed_wrapped_function_ attributes {mhlo.num_partitions = 8 : i32
 // -----
 
 // jax/pjrt sharding target 2x4 for t3k - Shardy all_reduce with automatic input sharding
+// CHECK: builtin.module @jit_matmul_shardy_automatic_test1
+// mesh 2x4: arg0 sharded [{"x"},{"y"}] -> 4096x196; arg1 sharded [{"y"},{}] -> 196x16384.
+// CHECK: func.func public @main
+// CHECK-SAME: %arg0: tensor<4096x196xf32>
+// CHECK-SAME: %arg1: tensor<196x16384xf32>
 module @jit_matmul_shardy_automatic_test1 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
   sdy.mesh @mesh = <["x"=2, "y"=4]>
   func.func public @main(%arg0: tensor<8192x784xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {"y"}]>}, %arg1: tensor<784x16384xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}, {}]>}) -> (tensor<8192x16384xf32> {jax.result_info = ""}) {
@@ -413,16 +408,6 @@ module @jit_matmul_shardy_automatic_test1 attributes {mhlo.num_partitions = 8 : 
 }
 
 // CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_dims = array<i64: 0, 1>
-// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-// CHECK-SAME: shard_shape = array<i64: 2, 4>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
-// CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-// CHECK-SAME: shard_shape = array<i64: 4, 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
-// CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: 0, -1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>
 // CHECK-SAME: shard_shape = array<i64: 2, 1>
@@ -431,6 +416,11 @@ module @jit_matmul_shardy_automatic_test1 attributes {mhlo.num_partitions = 8 : 
 // -----
 
 // jax/pjrt automatic input/output sharding tests
+// CHECK: builtin.module @jit_matmul_shardy_automatic_test2
+// Same sharding as test1: arg0 -> 4096x196, arg1 -> 196x16384.
+// CHECK: func.func public @main
+// CHECK-SAME: %arg0: tensor<4096x196xf32>
+// CHECK-SAME: %arg1: tensor<196x16384xf32>
 module @jit_matmul_shardy_automatic_test2 attributes {mhlo.num_partitions = 8 : i32, mhlo.num_replicas = 1 : i32} {
   sdy.mesh @mesh = <["x"=2, "y"=4]>
   func.func public @main(%arg0: tensor<8192x784xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {"y"}]>}, %arg1: tensor<784x16384xf32> {sdy.sharding = #sdy.sharding<@mesh, [{"y"}, {}]>}) -> (tensor<8192x16384xf32> {jax.result_info = "", sdy.sharding = #sdy.sharding<@mesh, [{"x"}, {}]>}) {
@@ -447,16 +437,6 @@ module @jit_matmul_shardy_automatic_test2 attributes {mhlo.num_partitions = 8 : 
   }
 }
 
-// CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_dims = array<i64: 0, 1>
-// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-// CHECK-SAME: shard_shape = array<i64: 2, 4>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
-// CHECK: "ttir.mesh_shard"
-// CHECK-SAME: shard_dims = array<i64: -1, 0>
-// CHECK-SAME: shard_direction = #ttcore.shard_direction<full_to_shard>
-// CHECK-SAME: shard_shape = array<i64: 4, 1>
-// CHECK-SAME: shard_type = #ttcore.shard_type<identity>
 // CHECK: "ttir.mesh_shard"
 // CHECK-SAME: shard_dims = array<i64: 0, -1>
 // CHECK-SAME: shard_direction = #ttcore.shard_direction<shard_to_full>

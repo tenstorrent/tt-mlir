@@ -2486,11 +2486,12 @@ def TTIR_GroupNormOp : TTIR_NamedOp<"group_norm", [AttrSizedOperandSegments]> {
     is normalized by subtracting the mean and dividing by the standard deviation,
     then optionally scaled and shifted by weight (gamma) and bias (beta).
 
-    Input tensor is expected to have shape [N, 1, H*W, C], where C is the dimension
-    along which groups are formed. Groups are formed using the tensor's last dimension.
+    Input tensor must be at least 4D. Common shapes include [N, C, H, W] (4D) and
+    [N, C, D, H, W] (5D for 3D convolutions). During TTIR-to-TTNN conversion, inputs
+    are permuted and reshaped to [N, 1, H*W, C] based on the channel_dim attribute.
 
     Inputs:
-    - `input` (Tensor): The input tensor to be normalized (4D, shape [N, 1, H*W, C]).
+    - `input` (Tensor): The input tensor to be normalized (at least 4D).
     - `input_mask` (Optional Tensor): When processing the inputs, the mask is used to
       only look at the elements of the current group. Defaults to None.
     - `weight` (Optional Tensor): The scale parameter (gamma). If provided, the
@@ -5351,11 +5352,10 @@ def TTIR_RandOp : TTIR_CreationOp<"rand", [TTCore_NonCacheableTrait]> {
     Returns a tensor filled with random numbers drawn from a uniform distribution over given interval [low, high) [Default: [0, 1)].
 
     Example:
-      %0 = "ttir.rand"() <{dtype = bf16, high = 1.000000e+00 : f32, low = 0.000000e+00 : f32, seed = 0 : ui32, size = [32 : i32, 32 : i32]}> : () -> tensor<32x32xbf16>
+      %0 = "ttir.rand"() <{high = 1.000000e+00 : f32, low = 0.000000e+00 : f32, seed = 0 : ui32, size = [32 : i32, 32 : i32]}> : () -> tensor<32x32xbf16>
 
     Attributes:
       - `size` (Array of Integer): The shape of the tensor to create.
-      - `dtype` (mlir:Type): Data type of the returned tensor.
       - `low` (Float): The lower bound of the range (inclusive) [Default: 0.0].
       - `high` (Float): The upper bound of the range (exclusive) [Default: 1.0].
       - `seed` (Integer): Value to initialize the random number generator for reproducible results [Default: 0].
@@ -5365,7 +5365,6 @@ def TTIR_RandOp : TTIR_CreationOp<"rand", [TTCore_NonCacheableTrait]> {
   }];
 
   let arguments = (ins I32ArrayAttr:$size,
-                       TypeAttr:$dtype,
                        DefaultValuedAttr<F32Attr, "0.0">:$low,
                        DefaultValuedAttr<F32Attr, "1.0">:$high,
                        DefaultValuedAttr<UI32Attr, "0">:$seed);
@@ -6525,6 +6524,67 @@ def TTIR_MoeExpertTokenRemapOp : TTIR_NamedOp<"moe_expert_token_remap"> {
                          I64Attr:$reduction_size);
 
     let results = (outs AnyRankedTensor:$mapping, AnyRankedTensor:$reduced);
+
+    let hasVerifier = 1;
+}
+
+def TTIR_MoeGptOp : TTIR_NamedOp<"moe_gpt"> {
+    let summary = "Fused MoE compute kernel for GPT-OSS models.";
+    let description = [{
+      Fused Mixture-of-Experts compute kernel for GPT-OSS-style models.
+      Performs the full MoE compute pipeline in a single kernel: selective
+      tilize, gate/up projection (w0_w1), SwiGLU activation, all-to-all ring
+      exchange, down projection (w2), and combine. Typically follows
+      all_to_all_dispatch_metadata in the MoE dispatch/compute/combine flow.
+
+      Dimensions:
+        T         = total_tokens across the dispatch ring
+        K         = hidden_size
+        N         = intermediate_size
+        K_sel     = selected experts per token (top-k)
+        E         = experts per device
+        D         = total devices
+        C_dram    = DRAM-bank-aligned compute cores used for weight sharding
+        C_worker  = worker cores in the compute grid
+        L         = layers per weight tensor (typically 1)
+        G         = weight groups per core (gate/up interleaved pairs)
+        TILE_SIZE = compute tile size
+        L1_ALIGN  = L1 alignment
+
+      Input shapes (per device, after mesh sharding):
+      - input_tensor:   [T, K]                              (bf16)
+      - expert_indices: [T, K_sel]                          (uint16)
+      - expert_scores:  [T, K_sel]                          (bf16)
+      - expert_mapping: [1, E*D]                            (uint16;
+          flattened mapping, entry [0, i] = device ID owning expert i)
+      - w0_w1_tensor:   [C_dram, L, E, G, K, 4*TILE_SIZE]   (interleaved gate+up)
+      - w2_tensor:      [C_dram, L, E, 2, N, 4*TILE_SIZE]   (down projection)
+
+      Output shapes:
+      - token_counts:       [1, align(E*sizeof(u32), L1_ALIGN) / sizeof(u32)]                      (uint32)
+      - activation_records: [1, (T+1) * align((2*E+1)*sizeof(u32), L1_ALIGN) / sizeof(u32)]        (uint32)
+      - token_indices:      [E, (T+1) * align(sizeof(u32), L1_ALIGN) / sizeof(u32)]                (uint32)
+      - tilize_out:         [C_worker, 2, TILE_SIZE, K]     (bf16, tiled)
+      - tilize_out_rm:      [C_worker, 2, TILE_SIZE, K]     (bf16, row-major)
+      where align(n, a) = ceil(n/a) * a.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         AnyRankedTensor:$expert_indices,
+                         AnyRankedTensor:$expert_scores,
+                         AnyRankedTensor:$expert_mapping,
+                         AnyRankedTensor:$w0_w1_tensor,
+                         AnyRankedTensor:$w2_tensor,
+                         DefaultValuedAttr<UI32Attr, "4">:$output_height_shard_dim,
+                         DefaultValuedAttr<UI32Attr, "3">:$output_width_shard_dim,
+                         DefaultValuedAttr<UI32Attr, "2880">:$hidden_size,
+                         OptionalAttr<UI32Attr>:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$token_counts,
+                        AnyRankedTensor:$activation_records,
+                        AnyRankedTensor:$token_indices,
+                        AnyRankedTensor:$tilize_out,
+                        AnyRankedTensor:$tilize_out_rm);
 
     let hasVerifier = 1;
 }

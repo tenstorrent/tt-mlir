@@ -37,6 +37,7 @@ class StableHLOBuilder(Builder):
         ] = OrderedDict([("x", 1), ("y", 1)]),
         deallocate_goldens: bool = False,
         deallocated_goldens_dir: Optional[str] = "./deallocated_goldens",
+        system_desc_path: Optional[str] = None,
     ):
         super().__init__(
             ctx,
@@ -45,6 +46,7 @@ class StableHLOBuilder(Builder):
             mesh_dict,
             deallocate_goldens=deallocate_goldens,
             deallocated_goldens_dir=deallocated_goldens_dir,
+            system_desc_path=system_desc_path,
         )
 
     # ----- Class helper methods -----
@@ -9119,6 +9121,317 @@ class StableHLOBuilder(Builder):
                 ]
 
         return gather_module, gather_builder
+
+    ############### stablehlo.ScatterOp ###############
+
+    @tag(stablehlo.ScatterOp)
+    def scatter(
+        self,
+        inputs: Sequence[Operand],
+        scatter_indices: Operand,
+        updates: Sequence[Operand],
+        update_window_dims: List[int],
+        inserted_window_dims: List[int],
+        scattered_dims_to_operand_dims: List[int],
+        index_vector_dim: int,
+        update_computation: Callable[..., OpResult],
+        input_batching_dims: Optional[List[int]] = None,
+        scatter_indices_batching_dims: Optional[List[int]] = None,
+        indices_are_sorted: bool = False,
+        unique_indices: bool = False,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+        sharding_attr: Optional[sdy.TensorShardingPerValueAttr] = None,
+    ) -> Union[OpResult, List[OpResult]]:
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.scatter)
+
+        inputs = list(inputs)
+        updates = list(updates)
+
+        if len(inputs) != len(updates):
+            raise ValueError("Number of inputs must match number of updates")
+
+        if input_batching_dims is None:
+            input_batching_dims = []
+        if scatter_indices_batching_dims is None:
+            scatter_indices_batching_dims = []
+
+        scatter_dimension_numbers = stablehlo.ScatterDimensionNumbers.get(
+            update_window_dims=update_window_dims,
+            inserted_window_dims=inserted_window_dims,
+            input_batching_dims=input_batching_dims,
+            scatter_indices_batching_dims=scatter_indices_batching_dims,
+            scattered_dims_to_operand_dims=scattered_dims_to_operand_dims,
+            index_vector_dim=index_vector_dim,
+            context=self._ctx,
+        )
+
+        result_types = [inp.type for inp in inputs]
+
+        indices_are_sorted_attr = BoolAttr.get(indices_are_sorted, self._ctx)
+        unique_indices_attr = BoolAttr.get(unique_indices, self._ctx)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            result_types,
+            inputs=inputs,
+            scatter_indices=scatter_indices,
+            updates=updates,
+            scatter_dimension_numbers=scatter_dimension_numbers,
+            indices_are_sorted=indices_are_sorted_attr,
+            unique_indices=unique_indices_attr,
+            loc=loc,
+        )
+
+        # Build the update_computation region
+        # The region takes 2*N scalar arguments (N from inputs, N from updates)
+        body_arg_types = []
+        for inp in inputs:
+            element_type = RankedTensorType(inp.type).element_type
+            body_arg_types.append(RankedTensorType.get([], element_type))
+        for upd in updates:
+            element_type = RankedTensorType(upd.type).element_type
+            body_arg_types.append(RankedTensorType.get([], element_type))
+
+        update_region = op.update_computation
+        update_block = Block.create_at_start(update_region, body_arg_types)
+
+        with InsertionPoint(update_block):
+            # Call the user-provided update computation with block arguments
+            update_results = update_computation(*update_block.arguments)
+            if not isinstance(update_results, (list, tuple)):
+                update_results = [update_results]
+            stablehlo.ReturnOp(list(update_results), loc=loc)
+
+        if sharding_attr is not None:
+            op.operation.attributes["sdy.sharding"] = sharding_attr
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        # Compute golden tensors
+        input_goldens = [self._get_golden_tensor(inp) for inp in inputs]
+        indices_golden = self._get_golden_tensor(scatter_indices)
+        update_goldens = [self._get_golden_tensor(upd) for upd in updates]
+
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(
+            input_goldens,
+            indices_golden,
+            update_goldens,
+            scatter_dimension_numbers,
+            update_region,
+            result_types,
+        )
+
+        results = list(op.results)
+        if isinstance(golden_output, (list, tuple)):
+            for r, g in zip(results, golden_output):
+                self._set_golden_tensor(r, g)
+        else:
+            self._set_golden_tensor(results[0], golden_output)
+
+        return results[0] if len(results) == 1 else results
+
+    @parse(stablehlo.ScatterOp)
+    def scatter_parser(
+        self,
+        old_op: stablehlo.ScatterOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        stablehlo_op = self.get_opview_from_parser(StableHLOBuilder.scatter_parser)
+
+        new_inputs = [global_dict[inp] for inp in old_op.inputs]
+        new_scatter_indices = global_dict[old_op.scatter_indices]
+        new_updates = [global_dict[upd] for upd in old_op.updates]
+
+        result_types = [r.type for r in old_op.results]
+        scatter_dimension_numbers = stablehlo.ScatterDimensionNumbers(
+            old_op.scatter_dimension_numbers
+        )
+
+        # Reuse the original op's attributes
+        attrs = {named_attr.name: named_attr.attr for named_attr in old_op.attributes}
+
+        new_op = Operation.create(
+            name=old_op.operation.name,
+            results=result_types,
+            operands=list(new_inputs) + [new_scatter_indices] + list(new_updates),
+            attributes=attrs,
+            regions=1,
+            loc=old_op.location,
+        )
+
+        # Clone the update_computation region
+        old_region = old_op.update_computation
+        new_region = new_op.regions[0]
+        body_arg_types = [arg.type for arg in old_region.blocks[0].arguments]
+        new_block = Block.create_at_start(new_region, body_arg_types)
+
+        body_value_map: Dict[Any, Any] = {}
+        for old_arg, new_arg in zip(
+            old_region.blocks[0].arguments, new_block.arguments
+        ):
+            body_value_map[old_arg] = new_arg
+
+        with InsertionPoint(new_block):
+            for old_inner_op in old_region.blocks[0].operations:
+                cloned = old_inner_op.operation.clone()
+                for idx, opnd in enumerate(old_inner_op.operands):
+                    if opnd in body_value_map:
+                        cloned.operands[idx] = body_value_map[opnd]
+                for old_r, new_r in zip(old_inner_op.results, cloned.results):
+                    body_value_map[old_r] = new_r
+
+        # Compute golden tensors
+        input_goldens = [self._get_golden_tensor(inp) for inp in new_inputs]
+        indices_golden = self._get_golden_tensor(new_scatter_indices)
+        update_goldens = [self._get_golden_tensor(upd) for upd in new_updates]
+
+        op_golden_function = get_golden_function(stablehlo_op)
+        golden_output = op_golden_function(
+            input_goldens,
+            indices_golden,
+            update_goldens,
+            scatter_dimension_numbers,
+            new_region,
+            result_types,
+        )
+
+        op_map_dictionary: Dict[OpResult, OpResult] = {}
+        results = list(new_op.results)
+        goldens = (
+            list(golden_output)
+            if isinstance(golden_output, (list, tuple))
+            else [golden_output] * len(results)
+        )
+        for old_r, new_r, g in zip(old_op.results, results, goldens):
+            self._set_golden_tensor(new_r, g)
+            op_map_dictionary[old_r] = new_r
+
+        return new_op, op_map_dictionary
+
+    @split(stablehlo.ScatterOp)
+    def scatter_split(
+        self,
+        old_op: stablehlo.ScatterOp,
+    ) -> Tuple[Module, StableHLOBuilder]:
+        old_ctx = old_op.context
+        old_location = Location.unknown(old_ctx)
+
+        with old_ctx, old_location:
+            scatter_module = Module.create()
+            scatter_builder = StableHLOBuilder(
+                old_ctx,
+                old_location,
+                mesh_name=self._mesh_name,
+                mesh_dict=self._mesh_dict,
+            )
+
+            op_input_types = (
+                [inp.type for inp in old_op.inputs]
+                + [old_op.scatter_indices.type]
+                + [upd.type for upd in old_op.updates]
+            )
+
+            with InsertionPoint(scatter_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="scatter_module")
+                def decorated_func(*inputs):
+                    num_inputs = len(list(old_op.inputs))
+                    num_updates = len(list(old_op.updates))
+
+                    new_inputs = list(inputs[:num_inputs])
+                    new_scatter_indices = inputs[num_inputs]
+                    new_updates = list(inputs[num_inputs + 1 :])
+
+                    result_types = [r.type for r in old_op.results]
+
+                    attrs = {
+                        named_attr.name: named_attr.attr
+                        for named_attr in old_op.attributes
+                    }
+
+                    new_op = Operation.create(
+                        name=old_op.operation.name,
+                        results=result_types,
+                        operands=list(new_inputs)
+                        + [new_scatter_indices]
+                        + list(new_updates),
+                        attributes=attrs,
+                        regions=1,
+                        loc=old_op.location,
+                    )
+
+                    # Clone the update_computation region
+                    old_region = old_op.update_computation
+                    new_region = new_op.regions[0]
+                    body_arg_types = [
+                        arg.type for arg in old_region.blocks[0].arguments
+                    ]
+                    new_block = Block.create_at_start(new_region, body_arg_types)
+
+                    body_value_map: Dict[Any, Any] = {}
+                    for old_arg, new_arg in zip(
+                        old_region.blocks[0].arguments, new_block.arguments
+                    ):
+                        body_value_map[old_arg] = new_arg
+
+                    with InsertionPoint(new_block):
+                        for old_inner_op in old_region.blocks[0].operations:
+                            cloned = old_inner_op.operation.clone()
+                            for idx, opnd in enumerate(old_inner_op.operands):
+                                if opnd in body_value_map:
+                                    cloned.operands[idx] = body_value_map[opnd]
+                            for old_r, new_r in zip(
+                                old_inner_op.results, cloned.results
+                            ):
+                                body_value_map[old_r] = new_r
+
+                    # Wire goldens through
+                    for new_input, old_input in zip(new_inputs, old_op.inputs):
+                        scatter_builder._set_golden_tensor(
+                            new_input, self._get_golden_tensor(old_input)
+                        )
+                        scatter_builder._annotate_presharded_arg(new_input)
+                        ordered_inputs.append(new_input)
+
+                    scatter_builder._set_golden_tensor(
+                        new_scatter_indices,
+                        self._get_golden_tensor(old_op.scatter_indices),
+                    )
+                    scatter_builder._annotate_presharded_arg(new_scatter_indices)
+                    ordered_inputs.append(new_scatter_indices)
+
+                    for new_update, old_update in zip(new_updates, old_op.updates):
+                        scatter_builder._set_golden_tensor(
+                            new_update, self._get_golden_tensor(old_update)
+                        )
+                        scatter_builder._annotate_presharded_arg(new_update)
+                        ordered_inputs.append(new_update)
+
+                    for new_result, old_result in zip(new_op.results, old_op.results):
+                        scatter_builder._set_golden_tensor(
+                            new_result, self._get_golden_tensor(old_result)
+                        )
+                        ordered_outputs.append(new_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                scatter_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return scatter_module, scatter_builder
 
     ############### stablehlo.DotGeneralOp ###############
 

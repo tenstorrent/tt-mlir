@@ -84,31 +84,21 @@ std::vector<::ttnn::Tensor> executeCPUHoistedFunction(
 }
 
 // Executes CPU-hoisted function for single-chip workloads.
-void runSingleChip(
-    common::WrappedFunc fn,
+std::vector<::ttnn::Tensor> runSingleChip(
+    common::WrappedFunc fn, const std::vector<::ttnn::Tensor> &inputs,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
         *fbInputs,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
-        *fbOutputs,
-    ProgramContext &context) {
+        *fbOutputs) {
 
   std::vector<void *> inputDataPtrs;
-  inputDataPtrs.reserve(fbInputs->size());
-
-  for (size_t i = 0; i < fbInputs->size(); ++i) {
-    const auto &tensor =
-        context.getTensorPool().getTTNNTensorAndValidate(fbInputs->Get(i));
+  inputDataPtrs.reserve(inputs.size());
+  for (const ::ttnn::Tensor &tensor : inputs) {
     inputDataPtrs.push_back(
         ::tt::runtime::ttnn::utils::getRawHostDataPtr(tensor));
   }
 
-  std::vector<::ttnn::Tensor> outputs =
-      executeCPUHoistedFunction(fn, fbInputs, fbOutputs, inputDataPtrs);
-
-  for (size_t i = 0; i < outputs.size(); ++i) {
-    context.getTensorPool().insertTTNNTensorAndValidate(fbOutputs->Get(i),
-                                                        outputs[i]);
-  }
+  return executeCPUHoistedFunction(fn, fbInputs, fbOutputs, inputDataPtrs);
 }
 
 // Executes CPU-hoisted function for multi-chip workloads.
@@ -131,27 +121,24 @@ void runSingleChip(
 // the time of writing, all multi-device tensors are created through
 // tt::runtime::createMultiDeviceHostTensor, and they all appear as sharded
 // tensors from the TTNN perspective.
-void runMultiChip(
-    common::WrappedFunc fn,
+std::vector<::ttnn::Tensor> runMultiChip(
+    common::WrappedFunc fn, const std::vector<::ttnn::Tensor> &inputs,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
         *fbInputs,
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
         *fbOutputs,
-    ProgramContext &context) {
+    ::ttnn::MeshDevice &meshDevice) {
 
-  ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
   const ::ttnn::MeshShape &meshShape = meshDevice.shape();
   size_t numShards = meshDevice.num_devices();
 
-  // Collect input tensors.
+  // Expand each input into a per-shard list.
   // For multi-device input tensors, extract individual shards.
   // For single-device input tensors, store as a size-1 vector.
-  std::vector<std::vector<::ttnn::Tensor>> inputTensors;
-  inputTensors.reserve(fbInputs->size());
+  std::vector<std::vector<::ttnn::Tensor>> inputShards;
+  inputShards.reserve(inputs.size());
 
-  for (size_t i = 0; i < fbInputs->size(); ++i) {
-    const auto &tensor =
-        context.getTensorPool().getTTNNTensorAndValidate(fbInputs->Get(i));
+  for (const ::ttnn::Tensor &tensor : inputs) {
     size_t tensorMeshSize =
         tensor.tensor_topology().distribution_shape().mesh_size();
 
@@ -161,10 +148,9 @@ void runMultiChip(
                numShards, ")");
 
     if (tensorMeshSize > 1) {
-      inputTensors.emplace_back(
-          ::ttnn::distributed::get_device_tensors(tensor));
+      inputShards.emplace_back(::ttnn::distributed::get_device_tensors(tensor));
     } else {
-      inputTensors.emplace_back(1, tensor);
+      inputShards.emplace_back(1, tensor);
     }
   }
 
@@ -176,17 +162,17 @@ void runMultiChip(
 
   // Execute CPU-hoisted function for each shard.
   std::vector<void *> inputDataPtrs;
-  inputDataPtrs.reserve(fbInputs->size());
+  inputDataPtrs.reserve(inputs.size());
 
   for (size_t shardIdx = 0; shardIdx < numShards; ++shardIdx) {
     inputDataPtrs.clear();
 
-    for (size_t i = 0; i < fbInputs->size(); ++i) {
+    for (size_t i = 0; i < inputs.size(); ++i) {
       // For single device tensor inputs, always use index 0.
       // For sharded inputs, use the shard index.
-      size_t tensorIdx = inputTensors[i].size() == 1 ? 0 : shardIdx;
+      size_t tensorIdx = inputShards[i].size() == 1 ? 0 : shardIdx;
       inputDataPtrs.push_back(::tt::runtime::ttnn::utils::getRawHostDataPtr(
-          inputTensors[i][tensorIdx]));
+          inputShards[i][tensorIdx]));
     }
 
     std::vector<::ttnn::Tensor> shardOutputs =
@@ -198,12 +184,30 @@ void runMultiChip(
   }
 
   // Combine output shards into multi-device tensors.
+  std::vector<::ttnn::Tensor> outputs;
+  outputs.reserve(fbOutputs->size());
   for (size_t i = 0; i < fbOutputs->size(); ++i) {
-    ::ttnn::Tensor multiDeviceTensor =
-        ::ttnn::distributed::from_host_shards(outputShards[i], meshShape);
-    context.getTensorPool().insertTTNNTensorAndValidate(fbOutputs->Get(i),
-                                                        multiDeviceTensor);
+    outputs.push_back(
+        ::ttnn::distributed::from_host_shards(outputShards[i], meshShape));
   }
+  return outputs;
+}
+
+// Dispatches to the single- or multi-chip orchestrator for the given mesh.
+std::vector<::ttnn::Tensor> dispatchCPUHoistedOp(
+    common::WrappedFunc fn, const std::vector<::ttnn::Tensor> &inputs,
+    const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
+        *fbInputs,
+    const flatbuffers::Vector<flatbuffers::Offset<tt::target::ttnn::TensorRef>>
+        *fbOutputs,
+    ::ttnn::MeshDevice &meshDevice) {
+  LOG_ASSERT(inputs.size() == fbInputs->size(),
+             "dispatchCPUHoistedOp: input count mismatch: got ", inputs.size(),
+             ", CpuOp expects ", fbInputs->size());
+  if (meshDevice.num_devices() > 1) {
+    return runMultiChip(fn, inputs, fbInputs, fbOutputs, meshDevice);
+  }
+  return runSingleChip(fn, inputs, fbInputs, fbOutputs);
 }
 
 } // namespace
@@ -216,13 +220,68 @@ void run(const ::tt::target::ttnn::CpuOp *op, ProgramContext &context) {
   const auto *fbInputs = op->ins();
   const auto *fbOutputs = op->outs();
 
-  bool isMultiChip = context.getMeshDevice().num_devices() > 1;
-
-  if (isMultiChip) {
-    runMultiChip(fn, fbInputs, fbOutputs, context);
-  } else {
-    runSingleChip(fn, fbInputs, fbOutputs, context);
+  // Gather op inputs from the program's tensor pool.
+  std::vector<::ttnn::Tensor> inputs;
+  inputs.reserve(fbInputs->size());
+  for (size_t i = 0; i < fbInputs->size(); ++i) {
+    inputs.push_back(
+        context.getTensorPool().getTTNNTensorAndValidate(fbInputs->Get(i)));
   }
+
+  std::vector<::ttnn::Tensor> outputs = dispatchCPUHoistedOp(
+      fn, inputs, fbInputs, fbOutputs, context.getMeshDevice());
+
+  for (size_t i = 0; i < outputs.size(); ++i) {
+    context.getTensorPool().insertTTNNTensorAndValidate(fbOutputs->Get(i),
+                                                        outputs[i]);
+  }
+}
+
+std::vector<::tt::runtime::Tensor>
+invokeCpuOp(ProgramContext &context, const ::tt::target::ttnn::CpuOp *op,
+            const std::vector<::tt::runtime::Tensor> &inputs) {
+  LOG_ASSERT(op != nullptr, "invokeCpuOp: op is null");
+  LOG_ASSERT(inputs.size() == op->ins()->size(),
+             "invokeCpuOp: input count mismatch: got ", inputs.size(),
+             ", CpuOp expects ", op->ins()->size());
+
+  common::WrappedFunc fn = context.getDylibManager().getFunc(
+      op->dylib_id(), op->func_name()->c_str());
+  LOG_ASSERT(fn != nullptr, "invokeCpuOp: dylib function not found");
+
+  std::vector<::ttnn::Tensor> ttnnInputs;
+  ttnnInputs.reserve(inputs.size());
+  for (size_t i = 0; i < inputs.size(); ++i) {
+    const ::ttnn::Tensor &ttnnTensor =
+        ::tt::runtime::ttnn::utils::getTTNNTensorFromRuntimeTensor(inputs[i]);
+    LOG_ASSERT(::tt::runtime::ttnn::utils::isOnHost(ttnnTensor.storage_type()),
+               "invokeCpuOp: input ", i, " must be a host tensor");
+
+    const ::tt::target::ttnn::TensorRef *expectedRef = op->ins()->Get(i);
+    ::ttnn::DataType expectedDataType =
+        ::tt::runtime::ttnn::utils::toTTNNDataType(
+            expectedRef->desc()->layout()->memory_desc()->data_type());
+    LOG_ASSERT(ttnnTensor.dtype() == expectedDataType, "invokeCpuOp: input ", i,
+               " dtype mismatch");
+
+    ::ttnn::Shape expectedShape =
+        utils::toTTNNShape(*expectedRef->desc()->shape());
+    LOG_ASSERT(ttnnTensor.logical_shape() == expectedShape,
+               "invokeCpuOp: input ", i, " shape mismatch");
+
+    ttnnInputs.push_back(ttnnTensor);
+  }
+
+  std::vector<::ttnn::Tensor> ttnnOutputs = dispatchCPUHoistedOp(
+      fn, ttnnInputs, op->ins(), op->outs(), context.getMeshDevice());
+
+  std::vector<::tt::runtime::Tensor> result;
+  result.reserve(ttnnOutputs.size());
+  for (const ::ttnn::Tensor &t : ttnnOutputs) {
+    result.push_back(
+        ::tt::runtime::ttnn::utils::createRuntimeTensorFromTTNN(t));
+  }
+  return result;
 }
 
 } // namespace tt::runtime::ttnn::operations::cpu

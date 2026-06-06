@@ -7,7 +7,6 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 
 #include "ttmlir/Target/TTKernel/LLKs/experimental_coord_translation_generated.h"
-#include "ttmlir/Target/TTKernel/LLKs/experimental_dataflow_api_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_fabric_1d_routing_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_fabric_2d_routing_generated.h"
 #include "ttmlir/Target/TTKernel/LLKs/experimental_fabric_api_generated.h"
@@ -120,10 +119,6 @@ public:
         emitLlk(experimental_pack_untilize_llks_generated,
                 experimental_pack_untilize_llks_generated_len);
       }
-      if (callee == "experimental::get_noc_multicast_addr") {
-        emitLlk(experimental_dataflow_api_generated,
-                experimental_dataflow_api_generated_len);
-      }
       if (callee == "experimental::semaphore_wait" ||
           callee == "experimental::semaphore_wait_min") {
         emitLlk(experimental_semaphore_generated,
@@ -178,6 +173,12 @@ public:
 
       if (value.starts_with("CircularBuffer")) {
         headers.insert("api/dataflow/circular_buffer.h");
+      }
+
+      if (value.starts_with("Noc ") || value.starts_with("Noc(")) {
+        headers.insert("api/core_local_mem.h");
+        headers.insert("api/dataflow/endpoints.h");
+        headers.insert("api/dataflow/noc.h");
       }
 
       // Some callees are embedded in VerbatimOps.
@@ -249,12 +250,12 @@ public:
 namespace ttmlir {
 template<typename Arg>
 void dprint(Arg &&arg) {
-  DPRINT << arg;
+  DPRINT("{}", arg);
 }
 
 template<typename Arg, typename... ArgV>
 void dprint(Arg &&arg, ArgV&&... argv) {
-  DPRINT << arg;
+  DPRINT("{}", arg);
   dprint(argv...);
 }
 
@@ -264,16 +265,16 @@ void dprint(Arg &&arg, ArgV&&... argv) {
     if (threadType == ThreadType::Compute) {
       llksToEmit.push_back(R""""(
     namespace ttmlir {
-      inline void print_cb_details_(DebugPrinter dp, uint32_t cb_id) {
-      dp << "cb_id " << cb_id << ": { ";
-      dp << "size: " << get_local_cb_interface(cb_id).fifo_size << ", ";
-      dp << "limit: " << get_local_cb_interface(cb_id).fifo_limit << ", ";
-      dp << "page_size: " << get_local_cb_interface(cb_id).fifo_page_size << ", ";
-      dp << "num_pages: " << get_local_cb_interface(cb_id).fifo_num_pages << ", ";
-      dp << "rd_ptr: " << get_local_cb_interface(cb_id).fifo_rd_ptr << ", ";
-      dp << "wr_ptr: " << get_local_cb_interface(cb_id).fifo_wr_ptr << ", ";
-      dp << "wr_tile_ptr: " << get_local_cb_interface(cb_id).fifo_wr_tile_ptr;
-      dp << " }";
+      inline void print_cb_details_(uint32_t cb_id) {
+      DPRINT("cb_id {}: {{ size: {}, limit: {}, page_size: {}, num_pages: {}, rd_ptr: {}, wr_ptr: {}, wr_tile_ptr: {} }}",
+        cb_id,
+        get_local_cb_interface(cb_id).fifo_size,
+        get_local_cb_interface(cb_id).fifo_limit,
+        get_local_cb_interface(cb_id).fifo_page_size,
+        get_local_cb_interface(cb_id).fifo_num_pages,
+        get_local_cb_interface(cb_id).fifo_rd_ptr,
+        get_local_cb_interface(cb_id).fifo_wr_ptr,
+        get_local_cb_interface(cb_id).fifo_wr_tile_ptr);
     }
 
     struct CBPrinter {
@@ -282,11 +283,16 @@ void dprint(Arg &&arg, ArgV&&... argv) {
         constexpr CBPrinter(uint32_t cb_id) : cb_id(cb_id) {}
     };
 
-    DebugPrinter operator<<(DebugPrinter dp, CBPrinter cb) {
-        UNPACK((print_cb_details_(dp, cb.cb_id)));
-        MATH(DPRINT << cb.cb_id);
-        PACK((print_cb_details_(dp, cb.cb_id)));
-        return dp;
+    inline void dprint(CBPrinter cb) {
+        UNPACK((print_cb_details_(cb.cb_id)));
+        DPRINT_MATH("{}", cb.cb_id);
+        PACK((print_cb_details_(cb.cb_id)));
+    }
+
+    template<typename... ArgV>
+    void dprint(CBPrinter cb, ArgV&&... argv) {
+        dprint(cb);
+        dprint(argv...);
     }
     } // namespace ttmlir
     )"""");

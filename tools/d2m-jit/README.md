@@ -238,6 +238,17 @@ Ternary:
 | --- | --- |
 | `d2m.where(cond, t, f)` | Elementwise select: `cond ? t : f`. All three blocks must have the same type. `cond` is interpreted elementwise (non-zero ⇒ `t`, zero ⇒ `f`). Also available as `cond.where(t, f)`. |
 
+Tile broadcast:
+
+| Symbol | What |
+| --- | --- |
+| `d2m.tile_bcast(x, "row")` | Broadcast the tile's 0-row across each tile. |
+| `d2m.tile_bcast(x, "col")` | Broadcast the tile's 0-column across each tile. |
+| `d2m.tile_bcast(x, "2d")` | Broadcast element (0, 0) across each tile. |
+| `d2m.tile_bcast_row(x)` / `x.tile_bcast_row()` | No-argument row-broadcast shorthand. |
+| `d2m.tile_bcast_col(x)` / `x.tile_bcast_col()` | No-argument column-broadcast shorthand. |
+| `d2m.tile_bcast_2d(x)` / `x.tile_bcast_2d()` | No-argument row-and-column broadcast shorthand. |
+
 ### Python operators on `TensorBlock`
 
 `+` `-` `*` `/` `@` map to `add`, `sub`, `mul`, `div`, `matmul`. Unary `-`
@@ -369,5 +380,5 @@ have been dropped — the DSL emits the post-legalisation form directly.
 ## Known issues / TODO
 
 See [TODO.md](TODO.md) for active pipeline gaps (matmul accumulator init,
-host-scope `linalg.generic`), missing API surface (reductions, broadcast,
+host-scope `linalg.generic`), missing API surface (reductions,
 in-kernel typecast, DMA primitives, ...), and other follow-ups.

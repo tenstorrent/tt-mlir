@@ -826,13 +826,6 @@ void applyFallbackTransformations(
           operation->getContext(), firstActualOutputLayout.getLayout()));
     }
   }
-  // Update the data type attribute for ops that have one (e.g., ttnn.constant).
-  // The data type attribute must match the first result type's data type.
-  if (TTNNDtypeOpInterface dtypeOp =
-          mlir::dyn_cast<TTNNDtypeOpInterface>(operation)) {
-    dtypeOp.setDtypeAttr(ttcore::DataTypeAttr::get(
-        operation->getContext(), firstActualOutputLayout.getDataType()));
-  }
 }
 
 // Apply a single input operand change by inserting ToLayoutOp
@@ -927,9 +920,7 @@ ToLayoutOp createToLayoutOp(OpBuilder &builder, Location loc,
 
   return builder.create<ToLayoutOp>(
       loc, resultType, inputValue,
-      LayoutAttr::get(builder.getContext(), targetLayout.getLayout()),
-      ttcore::DataTypeAttr::get(builder.getContext(),
-                                targetLayout.getDataType()));
+      LayoutAttr::get(builder.getContext(), targetLayout.getLayout()));
 }
 
 // Try config fallbacks for Conv2d-like operations

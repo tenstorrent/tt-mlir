@@ -348,8 +348,16 @@ RESHAPE_SHAPES: List[Tuple[Tuple[int, ...], Tuple[int, ...]]] = [
     ((3, 11, 13), (33, 13)) | SkipIf("sim"),
     ((33, 13), (3, 11, 13)) | SkipIf("sim"),
     # 1D tensor shapes
-    ((1,), (1, 1, 1)),
-    ((1,), (1, 1, 1, 1)),
+    ((1,), (1, 1, 1))
+    | SkipIf(
+        "sim",
+        reason="NOC alignment violation in simulator, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+    ),
+    ((1,), (1, 1, 1, 1))
+    | SkipIf(
+        "sim",
+        reason="NOC alignment violation in simulator, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+    ),
     ((128,), (1, 128)),
     ((1, 64), (64,)),
     ((1, 1, 128), (128,)),
@@ -922,6 +930,39 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
     )
 
 
+# Skipping sim due to issue https://github.com/tenstorrent/ttsim-private/issues/291
+@pytest.mark.parametrize(
+    "shape,repeat_dims",
+    [
+        ((32, 32), [1, 3]),
+        ((32, 32), [3, 5]),
+        ((1, 32, 32), [32, 1, 1]),
+        ((1, 32, 32), [1, 2, 2]),
+        ((1, 32, 64, 128), [1, 2, 3, 4]),
+        ((3, 3, 64, 64), [1, 1, 5, 5]),
+        ((2, 3), [5, 7]),
+    ],
+)
+@pytest.mark.parametrize(
+    "dtype", [torch.float32, torch.int32, torch.bfloat16], ids=["f32", "i32", "bf16"]
+)
+@pytest.mark.parametrize("target", ["ttmetal" | SkipIf("sim")])
+def test_repeat(shape: Shape, repeat_dims: List[int], dtype, target, request, device):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def repeat(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.repeat(in0, repeat_dims, unit_attrs=unit_attrs)
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        target=target,
+    )
+
+
 # Slice tests
 @pytest.mark.parametrize(
     "shape,begins,ends,step",
@@ -935,8 +976,28 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
         # Simple 1D
         ((64,), [0], [32], None),
         # Strided 1D
-        ((70,), [3], [62], [7]),
-        ((2048,), [0], [2048], [3]),
+        pytest.param(
+            (70,),
+            [3],
+            [62],
+            [7],
+            marks=pytest.mark.skip_config(
+                ["sim"],
+                ["ttmetal"],
+                reason="NOC alignment violation, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+            ),
+        ),
+        pytest.param(
+            (2048,),
+            [0],
+            [2048],
+            [3],
+            marks=pytest.mark.skip_config(
+                ["sim"],
+                ["ttmetal"],
+                reason="NOC alignment violation, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+            ),
+        ),
         # Simple 2D
         ((64, 64), [0, 0], [32, 32], None),
         # Crop 2D

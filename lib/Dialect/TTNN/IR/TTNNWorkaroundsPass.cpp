@@ -262,21 +262,6 @@ TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds(
       .addOutputOperandWorkaround(operandWorkaround); // result
 }
 
-// Factory method to create a set of workarounds for mesh shard op input
-// operand. ttnn::MeshShardOp supports host tensors only
-TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createMeshShardOpOperandsWorkarounds(
-    mlir::tt::ttcore::MeshShardType shardType) {
-  wa::TTNNOperandWorkarounds sysMemWorkaround;
-  if (shardType != mlir::tt::ttcore::MeshShardType::Identity) {
-    sysMemWorkaround.tensorBufferTypeWorkaround = BufferType::SystemMemory;
-    sysMemWorkaround.tensorMemoryLayoutWorkaround = TensorMemoryLayoutAttr();
-  }
-  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(sysMemWorkaround)
-      .addOutputOperandWorkaround(sysMemWorkaround);
-}
-
 // Factory method to create a set of workarounds for mesh partition op operands.
 // The input and output tensors associated with the op should always be in
 // row-major layout.
@@ -360,6 +345,19 @@ TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds() {
   hostRowMajorWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addOutputOperandWorkaround(hostRowMajorWorkaround);
+}
+
+TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
+    createPrepareConv3dWeightsOpOperandsWorkarounds() {
+  TTNNOperandWorkarounds hostRowMajorWorkaround;
+  hostRowMajorWorkaround.tensorBufferTypeWorkaround = BufferType::SystemMemory;
+  hostRowMajorWorkaround.tensorMemoryLayoutWorkaround =
+      TensorMemoryLayoutAttr();
+  hostRowMajorWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(hostRowMajorWorkaround)
+      .addOutputOperandWorkaround(TTNNOperandWorkarounds());
 }
 
 // Factory method to create a set of workarounds for where op operands.
@@ -1310,6 +1308,104 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
       .addOutputOperandWorkaround(rowMajorBf16Workaround)     // dispatched
       .addOutputOperandWorkaround(l1ShardedUint16Workaround)  // indices
       .addOutputOperandWorkaround(l1ShardedBf16Workaround);   // scores
+}
+
+// Factory method to create workarounds for moe_gpt op operands.
+// tt-metal kernel requirements (moe_gpt_device_operation.cpp):
+//   input_tensor:      ROW_MAJOR (kernel performs tilize internally)
+//   expert_indices:    ROW_MAJOR, L1 HEIGHT_SHARDED (from dispatch_metadata)
+//   expert_scores:     ROW_MAJOR, L1 HEIGHT_SHARDED (from dispatch_metadata)
+//   expert_mapping:    ROW_MAJOR (tilize_reader reads pages as uint16 rows)
+//   token_counts out:       ROW_MAJOR, UINT32, L1 INTERLEAVED
+//   activation_records out: ROW_MAJOR, UINT32, L1 INTERLEAVED
+//   token_indices out:      ROW_MAJOR, UINT32, L1 INTERLEAVED
+//   tilize_out out:         TILE, BFLOAT16, L1 HEIGHT_SHARDED
+//   tilize_out_rm out:      ROW_MAJOR, BFLOAT16, L1 HEIGHT_SHARDED
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createMoeGptOpOperandsWorkarounds(
+    Operation *op) {
+  auto heightSharded = TensorMemoryLayoutAttr::get(
+      op->getContext(), TensorMemoryLayout::HeightSharded);
+
+  TTNNOperandWorkarounds noWorkaround;
+
+  // input_tensor: ROW_MAJOR L1 INTERLEAVED — the moe_gpt kernel contains a
+  // fused tilize step that expects row-major input. L1 INTERLEAVED matches
+  // tt-metal's fused_decode.py path (tt_sparse_l1 = to_memory_config(dispatch,
+  // L1_MEMORY_CONFIG) before the op call). Without L1 INTERLEAVED the kernel
+  // hits wrong addresses (upstream dispatch output is L1 HEIGHT_SHARDED on a
+  // drain core).
+  auto interleaved = TensorMemoryLayoutAttr::get(
+      op->getContext(), TensorMemoryLayout::Interleaved);
+  TTNNOperandWorkarounds rowMajorL1InterleavedWorkaround;
+  rowMajorL1InterleavedWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorL1InterleavedWorkaround.tensorBufferTypeWorkaround = BufferType::L1;
+  rowMajorL1InterleavedWorkaround.tensorMemoryLayoutWorkaround = interleaved;
+
+  // expert_mapping: UINT16 ROW_MAJOR L1 — the tilize_reader kernel casts the
+  // mapping buffer to uint16_t* and iterates with 2-byte stride. If the data
+  // is int32 or bfloat16, the stride mismatch produces garbage device IDs
+  // that deadlock the ring all-to-all. L1 is required so the reader hits L1
+  // instead of DRAM (matches tt_moe_gpt_mapping in GPT-OSS fused_decode.py,
+  // which is a separate L1-resident copy of tt_dispatch_mapping).
+  TTNNOperandWorkarounds l1RowMajorUint16Workaround;
+  l1RowMajorUint16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  l1RowMajorUint16Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::UInt16;
+  l1RowMajorUint16Workaround.tensorBufferTypeWorkaround = BufferType::L1;
+
+  // expert_indices: UINT16 ROW_MAJOR L1 HEIGHT_SHARDED — must match dispatch
+  // output dtype to avoid host round-trip that destroys shard placement.
+  TTNNOperandWorkarounds l1ShardedUint16RowMajorWorkaround;
+  l1ShardedUint16RowMajorWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  l1ShardedUint16RowMajorWorkaround.tensorDataTypeWorkaround =
+      ttcore::DataType::UInt16;
+  l1ShardedUint16RowMajorWorkaround.tensorBufferTypeWorkaround = BufferType::L1;
+  l1ShardedUint16RowMajorWorkaround.tensorMemoryLayoutWorkaround =
+      heightSharded;
+
+  // expert_scores: BF16 ROW_MAJOR L1 HEIGHT_SHARDED
+  TTNNOperandWorkarounds l1ShardedRowMajorWorkaround;
+  l1ShardedRowMajorWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  l1ShardedRowMajorWorkaround.tensorBufferTypeWorkaround = BufferType::L1;
+  l1ShardedRowMajorWorkaround.tensorMemoryLayoutWorkaround = heightSharded;
+
+  TTNNOperandWorkarounds rowMajorUint32L1Workaround;
+  rowMajorUint32L1Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorUint32L1Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::UInt32;
+  rowMajorUint32L1Workaround.tensorBufferTypeWorkaround = BufferType::L1;
+
+  TTNNOperandWorkarounds tileL1ShardedWorkaround;
+  tileL1ShardedWorkaround.tensorLayoutWorkaround = Layout::Tile;
+  tileL1ShardedWorkaround.tensorBufferTypeWorkaround = BufferType::L1;
+  tileL1ShardedWorkaround.tensorMemoryLayoutWorkaround = heightSharded;
+
+  TTNNOperandWorkarounds rowMajorL1ShardedWorkaround;
+  rowMajorL1ShardedWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorL1ShardedWorkaround.tensorBufferTypeWorkaround = BufferType::L1;
+  rowMajorL1ShardedWorkaround.tensorMemoryLayoutWorkaround = heightSharded;
+
+  // Weight input layout (bfloat4_b, TILE, HEIGHT_SHARDED DRAM on the DRAM-bank
+  // worker cores) and tilize output grids are handled by
+  // MoeGptLayoutRewritePattern in the decomposition workaround phase, which
+  // sets the non-default grids this framework cannot express.
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(
+          rowMajorL1InterleavedWorkaround) // input_tensor
+      .addInputOperandWorkaround(
+          l1ShardedUint16RowMajorWorkaround)                  // expert_indices
+      .addInputOperandWorkaround(l1ShardedRowMajorWorkaround) // expert_scores
+      .addInputOperandWorkaround(l1RowMajorUint16Workaround)  // expert_mapping
+      .addInputOperandWorkaround(noWorkaround)                // w0_w1_tensor
+      .addInputOperandWorkaround(noWorkaround)                // w2_tensor
+      .addOutputOperandWorkaround(rowMajorUint32L1Workaround) // token_counts
+      .addOutputOperandWorkaround(
+          rowMajorUint32L1Workaround) // activation_records
+      .addOutputOperandWorkaround(rowMajorUint32L1Workaround)   // token_indices
+      .addOutputOperandWorkaround(tileL1ShardedWorkaround)      // tilize_out
+      .addOutputOperandWorkaround(rowMajorL1ShardedWorkaround); // tilize_out_rm
 }
 
 // Factory method to create workarounds for all_to_all_combine op operands.

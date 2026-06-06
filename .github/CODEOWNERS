@@ -106,6 +106,12 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /test/ttmlir/Dialect/D2M/generic/insert_scratch_buffers.mlir @jdesousaTT @ckaravasilisTT @mbagherbeikTT @sgholamiTT @dlokeTT
 /test/ttmlir/Dialect/D2M/generic/eltwise_fusion_e2e.mlir @jdesousaTT @ckaravasilisTT @mbagherbeikTT @sgholamiTT @dlokeTT
 
+# D2M Grid Selection
+/lib/Dialect/D2M/Transforms/GridSelection.cpp @vwellsTT
+/lib/Dialect/D2M/Utils/GridSelectionUtils.cpp @vwellsTT
+/include/ttmlir/Dialect/D2M/Utils/GridSelectionUtils.h @vwellsTT
+/test/ttmlir/Dialect/D2M/Transforms/grid_selection*.mlir @vwellsTT
+
 # D2M View and Layout Handling
 /lib/Dialect/D2M/Transforms/LowerToLayout.cpp @vwellsTT
 /lib/Dialect/D2M/Transforms/MaterializeViewReturns.cpp @vwellsTT
@@ -207,6 +213,9 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /lib/Dialect/TTNN/Transforms/TTNNFusing.cpp @tenstorrent/forge-developers-mlir-core @odjuricicTT @mvasiljevicTT
 /test/ttmlir/Dialect/TTNN/fusing/ @tenstorrent/forge-developers-mlir-core @odjuricicTT @mvasiljevicTT
 
+# TTNN Collect Perf Metrics
+/lib/Dialect/TTNN/Transforms/TTNNCollectPerfMetrics.cpp @tenstorrent/forge-developers-mlir-optimizer
+
 # LLVM Target
 /include/ttmlir/Target/LLVM/ @tenstorrent/forge-developers-mlir-core
 /lib/Target/LLVM/ @tenstorrent/forge-developers-mlir-core
@@ -236,6 +245,10 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /tools/chisel @tenstorrent/forge-developers-mlir-tooling
 /tools/golden @tenstorrent/forge-developers-mlir-tooling
 /tools/ttrt @tenstorrent/forge-developers-mlir-tooling
+
+# d2m-jit
+/tools/d2m-jit/ @vwellsTT @nsmithtt @dlokeTT
+/test/d2m-jit/ @vwellsTT @nsmithtt @dlokeTT
 
 # tt-explorer
 /tools/explorer/ @tenstorrent/forge-developers-mlir-explorer

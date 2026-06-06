@@ -16,7 +16,10 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         OptimizerPasses/RowMajorLayoutPropagation.cpp
         OptimizerPasses/TTNNPrepareConv2dWeightsAndBias.cpp
         TTNNAdjustDeallocs.cpp
+        TTNNAllocateDistributedOpBuffers.cpp
+        TTNNAllocateDistributedOpSemaphores.cpp
         TTNNCollaspeD2M.cpp
+        TTNNResolveComposites.cpp
         TTNNCollectPerfMetrics.cpp
         TTNNCreateD2MSubgraphs.cpp
         TTNNFileSplit.cpp
@@ -27,6 +30,8 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Decomposition/DistributedLayerNormDecompositionRewritePattern.cpp
         Decomposition/GroupNormDecompositionRewritePattern.cpp
         Decomposition/RotaryEmbeddingDecompositionRewritePattern.cpp
+        Decomposition/SDPADecodeDecompositionPattern.cpp
+        Decomposition/SDPADecompositionPattern.cpp
         Decomposition/TopKDecompositionRewritePattern.cpp
         Decomposition/TTNNDecompositionPass.cpp
         OpValidator.cpp
@@ -47,7 +52,9 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNWeightDtypeConversion.cpp
         TTNNKVCacheDtypeConversion.cpp
         Workarounds/Decomposition/AllGatherOpRewritePattern.cpp
+        Workarounds/Decomposition/AllReduceReshapeOpRewritePattern.cpp
         Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.cpp
+        Workarounds/Decomposition/MoeGptLayoutRewritePattern.cpp
         Workarounds/Decomposition/ArgMaxOpDimRewritePattern.cpp
         Workarounds/Decomposition/ConcatOpRewritePattern.cpp
         Workarounds/Decomposition/PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern.cpp
@@ -56,6 +63,8 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.cpp
         Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.cpp
         Workarounds/Decomposition/GroupNormAffineReshapeRewritePattern.cpp
+        Workarounds/Decomposition/GroupNormChannelPadRewritePattern.cpp
+        Workarounds/Decomposition/IntegerProdOpRewritePattern.cpp
         Workarounds/Decomposition/LinearOpRewritePattern.cpp
         Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.cpp
         Workarounds/Decomposition/ReduceScatterOpRewritePattern.cpp

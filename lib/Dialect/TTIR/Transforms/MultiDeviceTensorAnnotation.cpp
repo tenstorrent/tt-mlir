@@ -118,6 +118,19 @@ public:
     // Visit all functions and add multi-device tensor annotations to each op if
     // necessary.
     for (auto funcOp : moduleOp.getOps<mlir::func::FuncOp>()) {
+      // Presharded args carry local shapes directly (no preceding mesh_shard).
+      // Mark them as multi-device so the annotation propagates to consumers.
+      for (auto arg : funcOp.getArguments()) {
+        if (auto ssAttr =
+                funcOp.getArgAttrOfType<mlir::tt::ttcore::ShardStatusAttr>(
+                    arg.getArgNumber(),
+                    mlir::tt::ttcore::ShardStatusAttr::name);
+            ssAttr &&
+            ssAttr.getValue() == mlir::tt::ttcore::ShardStatus::Presharded) {
+          annotateMeshToValue(arg, meshAttr);
+        }
+      }
+
       funcOp->walk<mlir::WalkOrder::PostOrder, mlir::ReverseIterator>(
           [&](mlir::Operation *op) {
             if (mlir::isa<mlir::func::ReturnOp>(op)) {

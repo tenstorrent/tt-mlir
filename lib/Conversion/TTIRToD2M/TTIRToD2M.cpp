@@ -148,10 +148,14 @@ protected:
     }
 
     // Divide out the tile shape for the last two dimensions.
-    impliedGrid[impliedGrid.size() - 1] /=
-        ttcore::TileType::getDefaultShape()[0];
-    impliedGrid[impliedGrid.size() - 2] /=
-        ttcore::TileType::getDefaultShape()[1];
+    if (impliedGrid.size() == 1) {
+      impliedGrid[0] /= ttcore::TileType::getDefaultShape()[1];
+    } else {
+      impliedGrid[impliedGrid.size() - 1] /=
+          ttcore::TileType::getDefaultShape()[0];
+      impliedGrid[impliedGrid.size() - 2] /=
+          ttcore::TileType::getDefaultShape()[1];
+    }
 
     return impliedGrid;
   }
@@ -223,10 +227,14 @@ protected:
     auto optimalGrid = getGridForTTNNTensor(tensorType);
 
     llvm::SmallVector<int64_t> dimAlignments(tensorType.getShape().size(), 1);
-    dimAlignments[dimAlignments.size() - 1] =
-        ttcore::TileType::getDefaultShape()[0];
-    dimAlignments[dimAlignments.size() - 2] =
-        ttcore::TileType::getDefaultShape()[1];
+    if (dimAlignments.size() == 1) {
+      dimAlignments[0] = ttcore::TileType::getDefaultShape()[1];
+    } else {
+      dimAlignments[dimAlignments.size() - 1] =
+          ttcore::TileType::getDefaultShape()[0];
+      dimAlignments[dimAlignments.size() - 2] =
+          ttcore::TileType::getDefaultShape()[1];
+    }
 
     ttcore::MetalLayoutAttr metalLayout;
     if (mlir::isa<ttnn::TTNNNDLayoutAttr>(ttnnLayout)) {
@@ -766,8 +774,7 @@ protected:
       return mlir::failure();
     }
 
-    const std::size_t physicalRank =
-        ttcore::getDeviceLayout(output).getRank() / 2;
+    const std::size_t physicalRank = outputRankedTy.getRank() / 2;
 
     SmallVector<AffineMap> indexingMaps =
         getIdentityAffineMapsArray(rewriter, 1, physicalRank);
@@ -860,6 +867,45 @@ protected:
 } // namespace
 
 namespace {
+// Maps a binary tile comparison op (used for floating-point lowering via the
+// SFPU `*_binary_tile` API) to the corresponding unary compare-with-zero op
+// (used for the integer fallback via `(a - b)` followed by `*z_int32`).
+template <typename T>
+struct ComparisonZTileOp;
+template <>
+struct ComparisonZTileOp<d2m::TileEqOp> {
+  using type = d2m::TileEqzOp;
+};
+template <>
+struct ComparisonZTileOp<d2m::TileNeOp> {
+  using type = d2m::TileNezOp;
+};
+template <>
+struct ComparisonZTileOp<d2m::TileGtOp> {
+  using type = d2m::TileGtzOp;
+};
+template <>
+struct ComparisonZTileOp<d2m::TileLtOp> {
+  using type = d2m::TileLtzOp;
+};
+template <>
+struct ComparisonZTileOp<d2m::TileGeOp> {
+  using type = d2m::TileGezOp;
+};
+template <>
+struct ComparisonZTileOp<d2m::TileLeOp> {
+  using type = d2m::TileLezOp;
+};
+
+template <typename TileOp>
+inline constexpr bool isBinaryComparisonTileOp =
+    std::is_same_v<TileOp, d2m::TileEqOp> ||
+    std::is_same_v<TileOp, d2m::TileNeOp> ||
+    std::is_same_v<TileOp, d2m::TileGtOp> ||
+    std::is_same_v<TileOp, d2m::TileLtOp> ||
+    std::is_same_v<TileOp, d2m::TileGeOp> ||
+    std::is_same_v<TileOp, d2m::TileLeOp>;
+
 // ----------------------------------------------------------------------------
 //
 // Rewrite elementwise ops by emitting a matching D2M tile version of the op
@@ -881,14 +927,6 @@ public:
                                enableMulticastInference) {}
 
 private:
-  static constexpr bool isComparisonOp =
-      std::is_same_v<ConcreteOp, ttir::EqualOp> ||
-      std::is_same_v<ConcreteOp, ttir::NotEqualOp> ||
-      std::is_same_v<ConcreteOp, ttir::GreaterThanOp> ||
-      std::is_same_v<ConcreteOp, ttir::GreaterEqualOp> ||
-      std::is_same_v<ConcreteOp, ttir::LessThanOp> ||
-      std::is_same_v<ConcreteOp, ttir::LessEqualOp>;
-
   // Build outer (per-shard) implicit-broadcast indexing maps in `physicalRank`,
   // by comparing each input's physical shard shape (in tiles) to the output's.
   //
@@ -973,7 +1011,7 @@ private:
     const auto outType =
         mlir::cast<mlir::RankedTensorType>(outputs[0].getType());
     const int outRank = static_cast<int>(outType.getRank());
-    TT_assert(outRank >= 2);
+    TT_assert(outRank >= 1);
     const auto outShape = outType.getShape();
 
     // Gather input types, ranks, and shapes.
@@ -1048,6 +1086,9 @@ private:
       const size_t rank = exprs.size();
       // Index locked for W -> Col/Scalar tile.
       const bool isColTile = mlir::isa<AffineConstantExpr>(exprs[rank - 1]);
+      if (rank == 1) {
+        return isColTile ? d2m::TileBcastType::Col : d2m::TileBcastType::None;
+      }
       // Index locked for H -> Row/Scalar tile.
       const bool isRowTile = mlir::isa<AffineConstantExpr>(exprs[rank - 2]);
 
@@ -1094,11 +1135,7 @@ private:
     }
 
     mlir::Value yield;
-    if constexpr (isComparisonOp) {
-      // For comparison ops, first subtract then compare with zero.
-      yield = bbBuilder.create<d2m::TileSubOp>(loc, resultTypes, operands);
-      yield = bbBuilder.create<TileOp>(loc, resultTypes, yield);
-    } else if constexpr (std::is_same_v<ConcreteOp, ttir::ClampTensorOp>) {
+    if constexpr (std::is_same_v<ConcreteOp, ttir::ClampTensorOp>) {
       // Decompose into maximum(input, min) then minimum(result, max).
       yield = bbBuilder.create<d2m::TileMaximumOp>(
           loc, resultTypes, ValueRange{operands[0], operands[1]});
@@ -1136,6 +1173,21 @@ private:
       auto diff = bbBuilder.create<d2m::TileSubOp>(loc, resultTypes,
                                                    ValueRange{nezA, nezB});
       yield = bbBuilder.create<d2m::TileNezOp>(loc, resultTypes, diff);
+    } else if constexpr (isBinaryComparisonTileOp<TileOp>) {
+      // The SFPU `*_binary_tile` API always writes fp32 1.0/0.0 into dst.
+      // For floating-point operands that is the correct answer, but for
+      // integer operands the result tensor's element type is an integer and
+      // the fp32 bytes would be reinterpreted (1.0f -> 0x3F800000). Fall back
+      // to the (sub + *z_int32) decomposition for integer-typed operands so
+      // the kernel produces integer 0/1 directly.
+      auto operandTileTy = mlir::cast<ttcore::TileType>(operands[0].getType());
+      if (operandTileTy.getElementType().isInteger()) {
+        auto sub = bbBuilder.create<d2m::TileSubOp>(loc, resultTypes, operands);
+        yield = bbBuilder.create<typename ComparisonZTileOp<TileOp>::type>(
+            loc, resultTypes, sub.getResult());
+      } else {
+        yield = bbBuilder.create<TileOp>(loc, resultTypes, operands);
+      }
     } else {
       yield = bbBuilder.create<TileOp>(loc, resultTypes, operands);
     }
@@ -1307,6 +1359,294 @@ private:
     auto parallel = ttcore::IteratorTypeAttr::get(
         builder.getContext(), ttcore::IteratorType::Parallel);
     return SmallVector<mlir::Attribute>(rank, parallel);
+  }
+};
+} // namespace
+
+namespace {
+class D2MBroadcastRewriter final
+    : public OpConversionPattern<ttir::BroadcastOp>,
+      D2MNamedRewriterCommon {
+public:
+  D2MBroadcastRewriter(const TypeConverter &typeConverter,
+                       mlir::MLIRContext *ctx,
+                       ttcore::MemorySpace defaultInputMemSpace,
+                       ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
+                       bool collapseTensors, bool enableMulticastInference)
+      : OpConversionPattern<ttir::BroadcastOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, collapseTensors,
+                               enableMulticastInference) {}
+
+private:
+  RankedTensorType getUnitGridLayoutType(RankedTensorType logicalType,
+                                         ttcore::MemorySpace memSpace,
+                                         bool tiled, OpBuilder &builder) const {
+    ArrayRef<int64_t> logicalShape = logicalType.getShape();
+
+    Type elementType = logicalType.getElementType();
+    llvm::SmallVector<int64_t> tileShape;
+    if (tiled) {
+      constexpr std::array<int64_t, 2> defaultShape =
+          ttcore::TileType::getDefaultShape();
+      tileShape.assign(defaultShape.begin(), defaultShape.end());
+      elementType = ttcore::TileType::get(elementType, tileShape);
+    }
+
+    auto emptyIntervalType = RankedTensorType::get(
+        {0, 2}, IntegerType::get(builder.getContext(), 64));
+    DenseIntElementsAttr emptyCollapseIntervals =
+        DenseIntElementsAttr::get(emptyIntervalType, ArrayRef<int64_t>{});
+    auto layout = ttcore::MetalLayoutAttr::get(
+        builder.getContext(), logicalShape, memSpace,
+        ttcore::TensorMemoryLayout::Sharded, emptyCollapseIntervals);
+
+    llvm::SmallVector<int64_t> unshardedShape =
+        layout.getPhysicalShape(tileShape);
+    llvm::SmallVector<int64_t> placeholderTensorGrid(unshardedShape.size(), 1);
+    llvm::SmallVector<int64_t> shardedShape =
+        layout.getDeviceShape(placeholderTensorGrid, tileShape);
+
+    return RankedTensorType::get(shardedShape, elementType, layout);
+  }
+
+  static bool isTileBroadcastDim(int64_t rank, int64_t dim) {
+    return rank == 1 ? dim == 0 : dim >= rank - 2;
+  }
+
+  static d2m::TileBcastType getTileBcastType(bool bcastRow, bool bcastCol) {
+    if (bcastRow && bcastCol) {
+      return d2m::TileBcastType::Scalar;
+    }
+    if (bcastCol) {
+      return d2m::TileBcastType::Col;
+    }
+    if (bcastRow) {
+      return d2m::TileBcastType::Row;
+    }
+    return d2m::TileBcastType::None;
+  }
+
+  static LogicalResult analyzeBroadcast(ttir::BroadcastOp op,
+                                        ConversionPatternRewriter &rewriter,
+                                        bool &hasOuterBroadcast,
+                                        d2m::TileBcastType &tileBcastType) {
+    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
+    ArrayRef<int64_t> inputShape = inputType.getShape();
+    ArrayRef<int64_t> outputShape = outputType.getShape();
+    int64_t rank = inputType.getRank();
+    if (rank < 1) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M broadcast lowering expects ranked tensor with rank >= 1");
+    }
+
+    bool bcastRow = false;
+    bool bcastCol = false;
+    for (int64_t dim = 0; dim < rank; ++dim) {
+      int64_t inputDim = inputShape[dim];
+      int64_t outputDim = outputShape[dim];
+      if (inputDim == outputDim) {
+        continue;
+      }
+      if (ShapedType::isDynamic(inputDim) || ShapedType::isDynamic(outputDim)) {
+        return rewriter.notifyMatchFailure(
+            op, "D2M explicit broadcast lowering requires static shapes");
+      }
+      if (inputDim <= 0 || outputDim <= 0) {
+        return rewriter.notifyMatchFailure(
+            op, "D2M explicit broadcast lowering requires positive dims");
+      }
+
+      if (isTileBroadcastDim(rank, dim)) {
+        if (inputDim != 1) {
+          return rewriter.notifyMatchFailure(op, [&](Diagnostic &diag) {
+            diag << "tile-dim explicit broadcast dim " << dim
+                 << " requires input dim 1 (input=" << inputDim
+                 << ", output=" << outputDim << ")";
+          });
+        }
+        bcastRow |= rank > 1 && dim == rank - 2;
+        bcastCol |= dim == rank - 1;
+        continue;
+      }
+
+      if (outputDim % inputDim != 0) {
+        return rewriter.notifyMatchFailure(op, [&](Diagnostic &diag) {
+          diag << "outer-dim explicit broadcast dim " << dim
+               << " requires output dim (" << outputDim
+               << ") to be a positive multiple of input dim (" << inputDim
+               << ")";
+        });
+      }
+      hasOuterBroadcast = true;
+    }
+
+    tileBcastType = getTileBcastType(bcastRow, bcastCol);
+    return success();
+  }
+
+  static AffineMap buildOuterBcastViewMap(OpBuilder &builder,
+                                          RankedTensorType inputType,
+                                          RankedTensorType outputType) {
+    ArrayRef<int64_t> inputShape = inputType.getShape();
+    ArrayRef<int64_t> outputShape = outputType.getShape();
+    TT_assert(inputShape.size() == outputShape.size());
+
+    SmallVector<AffineExpr> inputExprs;
+    inputExprs.reserve(outputShape.size());
+    for (auto [dim, shapeDims] :
+         llvm::enumerate(llvm::zip_equal(inputShape, outputShape))) {
+      auto [inputDim, outputDim] = shapeDims;
+      AffineExpr outputIndex = builder.getAffineDimExpr(dim);
+      if (inputDim == outputDim) {
+        inputExprs.push_back(outputIndex);
+        continue;
+      }
+
+      bool validOuterBroadcastDim =
+          inputDim > 0 && outputDim > 0 && outputDim % inputDim == 0;
+      TT_assertv(validOuterBroadcastDim,
+                 "explicit outer broadcast dim {} requires output dim ({}) "
+                 "to be a positive multiple of input dim ({})",
+                 dim, outputDim, inputDim);
+      inputExprs.push_back(inputDim == 1 ? builder.getAffineConstantExpr(0)
+                                         : outputIndex % inputDim);
+    }
+
+    return AffineMap::get(outputShape.size(), /*symbolCount=*/0, inputExprs,
+                          builder.getContext());
+  }
+
+  LogicalResult rewriteOuterBroadcastWithViewLayout(
+      ttir::BroadcastOp op, ttir::BroadcastOp::Adaptor adaptor,
+      ConversionPatternRewriter &rewriter) const {
+    Location loc = op.getLoc();
+    auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
+
+    Value input =
+        createOptimalLayoutOp(adaptor.getInput(), memorySpaces[0],
+                              /*tiled=*/true, /*noCollapse=*/true, rewriter);
+    auto viewType = getUnitGridLayoutType(outputType, memorySpaces[0],
+                                          /*tiled=*/true, rewriter);
+    auto remapping = buildOuterBcastViewMap(
+        rewriter, mlir::cast<RankedTensorType>(input.getType()), viewType);
+    auto view = rewriter.create<d2m::ViewLayoutOp>(
+        loc, viewType, input, remapping, /*reinterpretLayout=*/false);
+
+    rewriter.replaceOp(op,
+                       unLayoutResult(rewriter, view.getResult(), outputType));
+    return success();
+  }
+
+  static SmallVector<AffineMap>
+  buildPhysicalBcastIndexingMaps(OpBuilder &builder, Value input, Value output,
+                                 std::size_t physicalRank) {
+    auto getShardTiles = [](Value v) -> SmallVector<int64_t> {
+      auto tensorType = mlir::cast<RankedTensorType>(v.getType());
+      auto layout =
+          mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+      return SmallVector<int64_t>(layout.getShardShape(tensorType));
+    };
+
+    SmallVector<int64_t> inputShard = getShardTiles(input);
+    SmallVector<int64_t> outputShard = getShardTiles(output);
+    TT_assertv(inputShard.size() == physicalRank,
+               "input shard rank ({}) must equal physicalRank ({})",
+               inputShard.size(), physicalRank);
+    TT_assertv(outputShard.size() == physicalRank,
+               "output shard rank ({}) must equal physicalRank ({})",
+               outputShard.size(), physicalRank);
+
+    SmallVector<AffineExpr> inputExprs;
+    inputExprs.reserve(physicalRank);
+    for (std::size_t d = 0; d < physicalRank; ++d) {
+      if (inputShard[d] == outputShard[d]) {
+        inputExprs.push_back(builder.getAffineDimExpr(d));
+        continue;
+      }
+      TT_assertv(inputShard[d] == 1,
+                 "incompatible explicit broadcast in physical dim {} "
+                 "(input={}, output={})",
+                 d, inputShard[d], outputShard[d]);
+      inputExprs.push_back(builder.getAffineConstantExpr(0));
+    }
+
+    return {
+        AffineMap::get(physicalRank, /*symbolCount=*/0, inputExprs,
+                       builder.getContext()),
+        builder.getMultiDimIdentityMap(physicalRank),
+    };
+  }
+
+  LogicalResult
+  matchAndRewrite(ttir::BroadcastOp op, ttir::BroadcastOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+
+    bool hasOuterBroadcast = false;
+    d2m::TileBcastType tileBcastType = d2m::TileBcastType::None;
+    if (failed(
+            analyzeBroadcast(op, rewriter, hasOuterBroadcast, tileBcastType))) {
+      return failure();
+    }
+
+    if (hasOuterBroadcast && tileBcastType == d2m::TileBcastType::None) {
+      return rewriteOuterBroadcastWithViewLayout(op, adaptor, rewriter);
+    }
+
+    SmallVector<Value> origInputs = {adaptor.getInput()};
+    SmallVector<Value> origOutputs =
+        createDpsOutputs(loc, rewriter, {op.getResult().getType()});
+
+    auto [inputs, outputs] =
+        toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs},
+                                   /*tiled=*/true, /*noCollapse=*/true);
+    assert(inputs.size() == 1);
+    assert(outputs.size() == 1);
+
+    std::size_t physicalRank =
+        ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
+    SmallVector<AffineMap> indexingMaps = buildPhysicalBcastIndexingMaps(
+        rewriter, inputs[0], outputs[0], physicalRank);
+
+    auto parallel = ttcore::IteratorTypeAttr::get(
+        rewriter.getContext(), ttcore::IteratorType::Parallel);
+    SmallVector<Attribute> iteratorTypes(physicalRank, parallel);
+
+    auto generic = rewriter.create<d2m::GenericOp>(
+        loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
+        rewriter.getAffineMapArrayAttr(indexingMaps),
+        rewriter.getArrayAttr(iteratorTypes));
+
+    withD2MGenericRegion(
+        rewriter, loc, generic, inputs, outputs,
+        [&](ArrayRef<Value> blockArgs) -> SmallVector<Value> {
+          SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
+              iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
+
+          auto linalgGeneric = rewriter.create<linalg::GenericOp>(
+              loc,
+              /*resultTensorTypes=*/
+              llvm::to_vector(ValueRange(blockArgs.take_back(1)).getTypes()),
+              /*inputs=*/blockArgs.take_front(1),
+              /*outputs=*/blockArgs.take_back(1), indexingMaps,
+              linalgIteratorTypes,
+              [&](OpBuilder &bbBuilder, Location bbLoc, ValueRange bbArgs) {
+                Value yield = bbArgs[0];
+                if (tileBcastType != d2m::TileBcastType::None) {
+                  yield = bbBuilder.create<d2m::TileBcastOp>(
+                      bbLoc, bbArgs[1].getType(), yield, tileBcastType);
+                }
+                bbBuilder.create<linalg::YieldOp>(bbLoc, yield);
+              });
+
+          return {linalgGeneric.getResult(0)};
+        });
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
+                                          op.getResult().getType()));
+    return success();
   }
 };
 } // namespace
@@ -2582,7 +2922,7 @@ public:
     auto outType = mlir::cast<RankedTensorType>(op.getResult().getType());
 
     const int64_t rank = outType.getRank();
-    TT_assert(rank >= 2);
+    TT_assert(rank >= 1);
 
     int32_t dim = op.getDim();
     if (dim < 0) {
@@ -2612,7 +2952,7 @@ public:
         // For a row-major width concat, if at least one (including the last)
         // row's size violates the NoC constraints, use the
         // transpose-concat-transpose trick.
-        if (concatRowMajor && (dim == rank - 1) &&
+        if (rank >= 2 && concatRowMajor && (dim == rank - 1) &&
             (dimSize % alignToElements != 0)) {
           transposeRowMajor = true;
           break;
@@ -2638,7 +2978,9 @@ public:
     // Height <-> Width transpose indices.
     SmallVector<int64_t> hwTransposeIdx(rank);
     std::iota(hwTransposeIdx.begin(), hwTransposeIdx.end(), 0);
-    std::swap(hwTransposeIdx[rank - 1], hwTransposeIdx[rank - 2]);
+    if (rank >= 2) {
+      std::swap(hwTransposeIdx[rank - 1], hwTransposeIdx[rank - 2]);
+    }
 
     SmallVector<Value> effectiveInputs(adaptor.getOperands().begin(),
                                        adaptor.getOperands().end());
@@ -3125,9 +3467,9 @@ public:
     Location loc = op->getLoc();
     RankedTensorType resultType = op.getResult().getType();
 
-    if (resultType.getRank() != 2) {
+    if (resultType.getRank() < 1 || resultType.getRank() > 2) {
       return rewriter.notifyMatchFailure(
-          op, "D2M arange requires 2D tensor; decomposition pass should "
+          op, "D2M arange requires 1D or 2D tensor; decomposition pass should "
               "have handled other cases");
     }
 
@@ -3716,6 +4058,60 @@ struct TensorManipulationInfo {
 };
 
 namespace {
+static unsigned getUnitDevicePhysicalRank(unsigned logicalRank) {
+  return std::max(logicalRank, 2u);
+}
+
+static SmallVector<Value> buildZeroIndices(OpBuilder &builder, Location loc,
+                                           int64_t rank) {
+  SmallVector<Value> indices;
+  indices.reserve(rank);
+  for (int64_t i = 0; i < rank; ++i) {
+    indices.push_back(builder.create<arith::ConstantIndexOp>(loc, 0));
+  }
+  return indices;
+}
+
+static bool isScalarUnitVolumeReshape(RankedTensorType inputType,
+                                      RankedTensorType outputType) {
+  if (inputType.getRank() != 0 && outputType.getRank() != 0) {
+    return false;
+  }
+
+  return inputType.hasStaticShape() && outputType.hasStaticShape() &&
+         ttmlir::utils::volume<int64_t>(inputType.getShape()) == 1 &&
+         ttmlir::utils::volume<int64_t>(outputType.getShape()) == 1;
+}
+
+static LogicalResult rewriteScalarReshape(ttir::ReshapeOp op,
+                                          ttir::ReshapeOp::Adaptor adaptor,
+                                          ConversionPatternRewriter &rewriter) {
+  auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+  auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
+  if (!isScalarUnitVolumeReshape(inputType, outputType)) {
+    return rewriter.notifyMatchFailure(
+        op, "requires scalar input or output with static unit volume");
+  }
+
+  Location loc = op.getLoc();
+  SmallVector<Value> inputIndices =
+      buildZeroIndices(rewriter, loc, inputType.getRank());
+  Value scalar =
+      rewriter.create<tensor::ExtractOp>(loc, adaptor.getInput(), inputIndices);
+
+  if (outputType.getRank() == 0) {
+    rewriter.replaceOpWithNewOp<tensor::FromElementsOp>(op, outputType, scalar);
+    return success();
+  }
+
+  auto empty = rewriter.create<tensor::EmptyOp>(loc, outputType, ValueRange{});
+  SmallVector<Value> outputIndices =
+      buildZeroIndices(rewriter, loc, outputType.getRank());
+  rewriter.replaceOpWithNewOp<tensor::InsertOp>(op, scalar, empty,
+                                                outputIndices);
+  return success();
+}
+
 template <typename TensorManipulationOp,
           TensorManipulationInfo (*LogicalInfoFn)(TensorManipulationOp)>
 class D2MTensorManipulationOpRewriter
@@ -3737,6 +4133,14 @@ public:
   matchAndRewrite(TensorManipulationOp op,
                   typename TensorManipulationOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if constexpr (std::is_same_v<TensorManipulationOp, ttir::ReshapeOp>) {
+      auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+      auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
+      if (isScalarUnitVolumeReshape(inputType, outputType)) {
+        return rewriteScalarReshape(op, adaptor, rewriter);
+      }
+    }
+
     TensorManipulationInfo info = LogicalInfoFn(op);
     AffineMap deviceMap =
         projectLogicalMapToUnitDeviceSpace(rewriter, info.map);
@@ -3776,43 +4180,59 @@ public:
                                                       AffineMap logicalMap) {
     unsigned outputLogicalRank = logicalMap.getNumDims();
     unsigned inputLogicalRank = logicalMap.getNumResults();
-    unsigned outputDeviceRank = outputLogicalRank * 2;
+    unsigned outputPhysicalRank = getUnitDevicePhysicalRank(outputLogicalRank);
+    unsigned inputPhysicalRank = getUnitDevicePhysicalRank(inputLogicalRank);
+    unsigned outputSyntheticRank = outputPhysicalRank - outputLogicalRank;
+    unsigned inputSyntheticRank = inputPhysicalRank - inputLogicalRank;
+    unsigned outputDeviceRank = outputPhysicalRank * 2;
 
-    // Shift the logical map's dim references to shard dimensions.
-    // Logical dims d0, d1, d2... become device shard dims
-    // d(outputLogicalRank), d(outputLogicalRank+1), d(outputLogicalRank+2)...
-    SmallVector<AffineExpr> shardExprs;
-    for (auto expr : logicalMap.getResults()) {
-      shardExprs.push_back(
-          expr.shiftDims(outputLogicalRank, outputLogicalRank));
+    // Compose the logical map with the unit-grid device shard coordinates.
+    // Rank-1 logical tensors have a synthetic leading physical row dimension,
+    // so logical dim 0 maps to shard dim 1 instead of shard dim 0.
+    SmallVector<AffineExpr> outputLogicalExprs;
+    outputLogicalExprs.reserve(outputLogicalRank);
+    for (unsigned i = 0; i < outputLogicalRank; ++i) {
+      outputLogicalExprs.push_back(builder.getAffineDimExpr(
+          outputPhysicalRank + outputSyntheticRank + i));
     }
+    AffineMap outputDeviceToLogical = AffineMap::get(
+        outputDeviceRank, 0, outputLogicalExprs, builder.getContext());
+    AffineMap outputDeviceToInputLogical =
+        logicalMap.compose(outputDeviceToLogical);
 
     SmallVector<AffineExpr> deviceExprs;
 
-    // Grid coordinate mapping (first inputLogicalRank results).
-    for (unsigned i = 0; i < inputLogicalRank; ++i) {
-      if (inputLogicalRank == outputLogicalRank) {
-        // Same rank: identity mapping for grid (matches original behavior)
+    // Grid coordinate mapping (first inputPhysicalRank results).
+    for (unsigned i = 0; i < inputPhysicalRank; ++i) {
+      if (inputPhysicalRank == outputPhysicalRank) {
+        // Same physical rank: identity mapping for grid.
         deviceExprs.push_back(builder.getAffineDimExpr(i));
-      } else if (inputLogicalRank < outputLogicalRank) {
-        // Expanding (e.g., 2D -> 3D): map input grid dims to output's last
-        // inputLogicalRank grid dims.
-        unsigned outputGridIdx = outputLogicalRank - inputLogicalRank + i;
+      } else if (inputPhysicalRank < outputPhysicalRank) {
+        // Expanding: map input grid dims to output's last inputPhysicalRank
+        // grid dims.
+        unsigned outputGridIdx = outputPhysicalRank - inputPhysicalRank + i;
         deviceExprs.push_back(builder.getAffineDimExpr(outputGridIdx));
       } else {
-        // Contracting (e.g., 3D -> 2D): map last outputLogicalRank input grid
+        // Contracting: map last outputPhysicalRank input grid
         // dims to output grid, pad the rest with 0.
-        if (i < inputLogicalRank - outputLogicalRank) {
+        if (i < inputPhysicalRank - outputPhysicalRank) {
           deviceExprs.push_back(builder.getAffineConstantExpr(0));
         } else {
-          unsigned outputGridIdx = i - (inputLogicalRank - outputLogicalRank);
+          unsigned outputGridIdx = i - (inputPhysicalRank - outputPhysicalRank);
           deviceExprs.push_back(builder.getAffineDimExpr(outputGridIdx));
         }
       }
     }
 
-    for (auto expr : shardExprs) {
-      deviceExprs.push_back(expr);
+    // Shard coordinate mapping. Synthetic rank-1 row dims are fixed to zero;
+    // real logical dims come from the projected logical map.
+    for (unsigned i = 0; i < inputPhysicalRank; ++i) {
+      if (i < inputSyntheticRank) {
+        deviceExprs.push_back(builder.getAffineConstantExpr(0));
+        continue;
+      }
+      deviceExprs.push_back(
+          outputDeviceToInputLogical.getResult(i - inputSyntheticRank));
     }
 
     return AffineMap::get(outputDeviceRank, 0, deviceExprs,
@@ -4025,7 +4445,10 @@ public:
     auto outShape = outType.getShape();
 
     const int32_t rank = static_cast<int32_t>(inType.getRank());
-    TT_assert(rank >= 2);
+    if (rank < 2) {
+      return rewriter.notifyMatchFailure(
+          op, "NoC-constrained slice rewrite requires rank >= 2");
+    }
 
     const int32_t alignToElements =
         d2m::utils::getNocElementAlignmentL1(op, inType);
@@ -4172,6 +4595,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedElementwiseRewriter<ttir::AddOp,             d2m::TileAddOp>,
     D2MNamedElementwiseRewriter<ttir::AsinOp,            d2m::TileAsinOp>,
     D2MNamedElementwiseRewriter<ttir::AtanOp,            d2m::TileAtanOp>,
+    D2MNamedElementwiseRewriter<ttir::Atan2Op,           d2m::TileAtan2Op>,
     D2MNamedElementwiseRewriter<ttir::BitwiseAndOp,      d2m::TileBitwiseAndOp>,
     D2MNamedElementwiseRewriter<ttir::BitwiseNotOp,      d2m::TileBitwiseNotOp>,
     D2MNamedElementwiseRewriter<ttir::BitwiseOrOp,       d2m::TileBitwiseOrOp>,
@@ -4222,12 +4646,12 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedElementwiseRewriter<ttir::TruncOp,          d2m::TileTruncOp>,
     D2MNamedElementwiseRewriter<ttir::WhereOp,           d2m::TileWhereOp>,
     // Comparison.
-    D2MNamedElementwiseRewriter<ttir::EqualOp,           d2m::TileEqzOp>,
-    D2MNamedElementwiseRewriter<ttir::NotEqualOp,        d2m::TileNezOp>,
-    D2MNamedElementwiseRewriter<ttir::GreaterThanOp,     d2m::TileGtzOp>,
-    D2MNamedElementwiseRewriter<ttir::GreaterEqualOp,    d2m::TileGezOp>,
-    D2MNamedElementwiseRewriter<ttir::LessThanOp,        d2m::TileLtzOp>,
-    D2MNamedElementwiseRewriter<ttir::LessEqualOp,       d2m::TileLezOp>,
+    D2MNamedElementwiseRewriter<ttir::EqualOp,           d2m::TileEqOp>,
+    D2MNamedElementwiseRewriter<ttir::NotEqualOp,        d2m::TileNeOp>,
+    D2MNamedElementwiseRewriter<ttir::GreaterThanOp,     d2m::TileGtOp>,
+    D2MNamedElementwiseRewriter<ttir::GreaterEqualOp,    d2m::TileGeOp>,
+    D2MNamedElementwiseRewriter<ttir::LessThanOp,        d2m::TileLtOp>,
+    D2MNamedElementwiseRewriter<ttir::LessEqualOp,       d2m::TileLeOp>,
     // Outer-dim (and integer) reductions: accumulate full-tile binary ops.
     D2MNamedAccumReductionRewriter<ttir::SumOp,  d2m::TileAddOp>,
     D2MNamedAccumReductionRewriter<ttir::MaxOp,  d2m::TileMaximumOp>,
@@ -4240,6 +4664,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedTileReduceRewriter<ttir::SumOp,  d2m::TileReduceSumOp, d2m::TileSFPUReduceSumOp>,
     // Data movement.
     D2MNamedElementwiseRewriter<ttir::TypecastOp,        d2m::TileTypecastOp>,
+    D2MBroadcastRewriter,
     // Tensor manipulation/View ops.
     D2MConcatRewriter,
     D2MTensorManipulationOpRewriter<ttir::RearrangeOp,        rearrangeLogicalInfo>,
@@ -4258,7 +4683,8 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MAllGatherRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors, enableMulticastInference);
 
-  // High-priority rewriter for SliceStatic ops that violate NoC constraints.
+  // Handle SliceStatic cases that need a transpose-based rewrite to satisfy
+  // NoC alignment before the generic SliceStatic lowering consumes them.
   patterns.add<D2MSliceStaticOpNoCConstraintsRewriter>(typeConverter, ctx);
 
   // Decompose inner-dim min reductions to neg(max(neg)); runs during
@@ -4279,8 +4705,8 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // Arange.
   patterns.add<D2MArangeOpRewriter>(typeConverter, ctx, defaultInputMemSpace,
-    defaultOutputMemSpace, ttnnMode,
-    collapseTensors, enableMulticastInference);
+                                    defaultOutputMemSpace, ttnnMode,
+                                    collapseTensors, enableMulticastInference);
 
   // Embedding.
   patterns.add<D2MEmbeddingOpRewriter>(
@@ -4352,9 +4778,11 @@ public:
 
     target.addIllegalOp<mlir::tt::d2m::TileMatmulBlockOp>();
 
-    // Tensor empty is used within GenericOp regions to create local scratch
-    // buffers for remote_load and remote_store ops.
-    target.addLegalOp<::mlir::tensor::EmptyOp>();
+    // Tensor ops are used for local scratch buffers and scalar-only reshapes
+    // that should stay in host tensor space instead of creating rank-0 layouts.
+    target
+        .addLegalOp<::mlir::tensor::EmptyOp, ::mlir::tensor::ExtractOp,
+                    ::mlir::tensor::FromElementsOp, ::mlir::tensor::InsertOp>();
 
     if (failed(applyPartialConversion(module, target, std::move(patterns)))) {
       signalPassFailure();

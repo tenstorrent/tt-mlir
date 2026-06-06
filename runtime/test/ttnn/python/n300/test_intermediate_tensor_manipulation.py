@@ -34,7 +34,7 @@ def get_torch_tensor(tensor: ttrt.runtime.Tensor):
 
 
 def update_multi_device_tensor(
-    program_context, tensor_ref, dst_tensor, per_shard_torch_tensors, alive_refs
+    program_context, tensor_ref, dst_shards, per_shard_torch_tensors, alive_refs
 ):
     """Replace a multi-device pool entry with per-shard torch data.
 
@@ -44,9 +44,10 @@ def update_multi_device_tensor(
     contiguous_shards = [t.contiguous() for t in per_shard_torch_tensors]
     alive_refs.extend(contiguous_shards)
 
-    shape = dst_tensor.get_shape()
-    stride = dst_tensor.get_stride()
-    dtype = dst_tensor.get_dtype()
+    template_shard = dst_shards[0]
+    shape = template_shard.get_shape()
+    stride = template_shard.get_stride()
+    dtype = template_shard.get_dtype()
     item_size = contiguous_shards[0].element_size()
 
     multi_device_tensor = ttrt.runtime.create_multi_device_host_tensor(
@@ -75,7 +76,7 @@ def make_linear_postop(expected_per_shard, replacement_per_shard, alive_refs):
 
     - retrieves the per-shard intermediate tensor from the pool;
     - asserts each shard equals ``expected_per_shard[i]`` (a scalar);
-    - replaces the pool entry with per-shard tensors filled with
+    - updates the same pool entry twice, where the second replacement uses
       ``replacement_per_shard[i]``.
     """
 
@@ -121,8 +122,16 @@ def make_linear_postop(expected_per_shard, replacement_per_shard, alive_refs):
             )
             for i in range(len(shards))
         ]
+        first_replacement_shards = [torch.zeros_like(t) for t in replacement_shards]
         update_multi_device_tensor(
-            program_context, tensor_ref, shards[0], replacement_shards, alive_refs
+            program_context,
+            tensor_ref,
+            shards,
+            first_replacement_shards,
+            alive_refs,
+        )
+        update_multi_device_tensor(
+            program_context, tensor_ref, shards, replacement_shards, alive_refs
         )
 
     return postop

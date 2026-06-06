@@ -417,6 +417,15 @@ class D2MCompiler(ast.NodeVisitor):
 
     def visit_Call(self, node):
         def _resolve(arg):
+            # If args_as_attr supplied a callable, call it on the whole AST
+            # node directly -- bypassing visit dispatch -- so attribute-typed
+            # args can be expressed as `UnaryOp(USub, Constant(0.5))` (i.e.
+            # `-0.5`) and similar non-bare-Constant forms. visit_Constant
+            # also honors this, but only for raw Constants; doing it here
+            # generalises to any AST shape the callable wants to handle.
+            as_attr = getattr(arg, "_ttkernel_as_attr", False)
+            if callable(as_attr):
+                return as_attr(arg)
             v = self.visit(arg)
             if v is None:
                 self._fail(

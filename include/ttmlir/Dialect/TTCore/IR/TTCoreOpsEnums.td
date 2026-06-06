@@ -156,14 +156,12 @@ def TTCore_MeshShardDirection: I32EnumAttr<"MeshShardDirection", "TT MeshShardDi
   let cppNamespace = "::mlir::tt::ttcore";
 }
 
-def TTCore_MeshShardType_Identity  : I32EnumAttrCase<"Identity",  0, "identity">;
 def TTCore_MeshShardType_Replicate : I32EnumAttrCase<"Replicate", 1, "replicate">;
 def TTCore_MeshShardType_Maximal   : I32EnumAttrCase<"Maximal",   2, "maximal">;
 def TTCore_MeshShardType_Devices   : I32EnumAttrCase<"Devices",   3, "devices">;
 
 def TTCore_MeshShardType: I32EnumAttr<"MeshShardType", "TT MeshShardType",
                           [
-                           TTCore_MeshShardType_Identity,
                            TTCore_MeshShardType_Replicate,
                            TTCore_MeshShardType_Maximal,
                            TTCore_MeshShardType_Devices,

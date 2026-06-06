@@ -9,7 +9,7 @@ module attributes {} {
   func.func @rms_norm_pre_all_gather_forward(%input: tensor<1x1x128x64xbf16, #ttnn_layout>) -> tensor<1x1x128x32xbf16, #ttnn_layout_out> {
     // CHECK-LABEL: func.func @rms_norm_pre_all_gather_forward
     // CHECK: "ttnn.rms_norm_pre_all_gather"
-    %0 = "ttnn.rms_norm_pre_all_gather"(%input) <{dtype = #ttcore.supportedDataTypes<bf16>, use_2d_core_grid = false}> : (tensor<1x1x128x64xbf16, #ttnn_layout>) -> tensor<1x1x128x32xbf16, #ttnn_layout_out>
+    %0 = "ttnn.rms_norm_pre_all_gather"(%input) <{use_2d_core_grid = false}> : (tensor<1x1x128x64xbf16, #ttnn_layout>) -> tensor<1x1x128x32xbf16, #ttnn_layout_out>
     return %0 : tensor<1x1x128x32xbf16, #ttnn_layout_out>
   }
 
@@ -17,16 +17,7 @@ module attributes {} {
   func.func @rms_norm_pre_all_gather_with_residual_shape(%input: tensor<1x1x128x64xbf16, #ttnn_layout>, %residual: tensor<1x1x128x64xbf16, #ttnn_layout>) -> tensor<1x1x128x32xbf16, #ttnn_layout_out> {
     // CHECK-LABEL: func.func @rms_norm_pre_all_gather_with_residual_shape
     // CHECK: "ttnn.rms_norm_pre_all_gather"
-    %0 = "ttnn.rms_norm_pre_all_gather"(%input, %residual) <{dtype = #ttcore.supportedDataTypes<bf16>, use_2d_core_grid = false}> : (tensor<1x1x128x64xbf16, #ttnn_layout>, tensor<1x1x128x64xbf16, #ttnn_layout>) -> tensor<1x1x128x32xbf16, #ttnn_layout_out>
-    return %0 : tensor<1x1x128x32xbf16, #ttnn_layout_out>
-  }
-
-  // Test basic rms_norm_pre_all_gather with dtype only
-  func.func @rms_norm_pre_all_gather_with_dtype_attr(%input: tensor<1x1x128x64xbf16, #ttnn_layout>) -> tensor<1x1x128x32xbf16, #ttnn_layout_out> {
-    // CHECK-LABEL: func.func @rms_norm_pre_all_gather_with_dtype_attr
-    // CHECK: "ttnn.rms_norm_pre_all_gather"
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bf16>
-    %0 = "ttnn.rms_norm_pre_all_gather"(%input) <{dtype = #ttcore.supportedDataTypes<bf16>, use_2d_core_grid = false}> : (tensor<1x1x128x64xbf16, #ttnn_layout>) -> tensor<1x1x128x32xbf16, #ttnn_layout_out>
+    %0 = "ttnn.rms_norm_pre_all_gather"(%input, %residual) <{use_2d_core_grid = false}> : (tensor<1x1x128x64xbf16, #ttnn_layout>, tensor<1x1x128x64xbf16, #ttnn_layout>) -> tensor<1x1x128x32xbf16, #ttnn_layout_out>
     return %0 : tensor<1x1x128x32xbf16, #ttnn_layout_out>
   }
 }

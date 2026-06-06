@@ -108,16 +108,9 @@ public:
 
       // Non-splat, non-periodic constant: change sharding to fully replicated
       // so InsertExplicitReshards will insert the necessary reshard ops.
-      llvm::SmallVector<mlir::sdy::DimensionShardingAttr>
-          replicatedDimShardings;
-      for (int64_t dim = 0; dim < oldType.getRank(); ++dim) {
-        replicatedDimShardings.push_back(
-            mlir::sdy::DimensionShardingAttr::get(context, /*axes=*/{},
-                                                  /*isClosed=*/true));
-      }
-      auto replicatedSharding = mlir::sdy::TensorShardingAttr::get(
-          context, globalMeshOp.getSymName(), replicatedDimShardings,
-          /*replicatedAxes=*/{}, /*unknownAxes=*/{});
+      auto replicatedSharding =
+          shardy_utils::getClosedReplicatedTensorSdyShardingAttr(
+              context, globalMeshOp.getSymName(), oldType.getRank());
 
       constantOp->setAttr(mlir::sdy::TensorShardingAttr::name,
                           mlir::sdy::TensorShardingPerValueAttr::get(

@@ -4,13 +4,15 @@
 
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 
-#include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/IR/BuiltinOps.h"
-#include "mlir/Interfaces/InferIntRangeInterface.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
+
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/Interfaces/InferIntRangeInterface.h"
 
 #include <limits>
 
@@ -316,6 +318,31 @@ static bool isSFPUReduceDataFormatSupported(ttcore::DataType dt) {
   return success();
 }
 
+static ::mlir::LogicalResult verifyNocAsyncAddressMode(Operation *op,
+                                                       OperandRange core,
+                                                       OperandRange bankId) {
+  if (core.empty() == bankId.empty()) {
+    return op->emitOpError("must specify exactly one NoC address mode");
+  }
+  if (!core.empty() && core.size() != 2) {
+    return op->emitOpError("core address mode requires x and y coordinates");
+  }
+  if (!bankId.empty() && bankId.size() != 1) {
+    return op->emitOpError("bank address mode requires one bank id");
+  }
+  return success();
+}
+
+::mlir::LogicalResult NocAsyncReadOp::verify() {
+  return verifyNocAsyncAddressMode(getOperation(), getSrcCoreXY(),
+                                   getSrcBankId());
+}
+
+::mlir::LogicalResult NocAsyncWriteOp::verify() {
+  return verifyNocAsyncAddressMode(getOperation(), getDstCoreXY(),
+                                   getDstBankId());
+}
+
 ::mlir::LogicalResult TensorAccessorArgsOp::verify() {
   // Validation rules:
   // 1. If prev_args is present, cta_base and crta_base should NOT be present.
@@ -501,8 +528,11 @@ void NocAsyncReadBarrierOp::getCanonicalizationPatterns(
     for (Operation *it = op->getPrevNode(); it != nullptr;
          it = it->getPrevNode()) {
       if (mlir::isa<NocAsyncReadBarrierOp>(it)) {
-        rewriter.eraseOp(op);
-        return success();
+        auto previousBarrier = mlir::cast<NocAsyncReadBarrierOp>(it);
+        if (previousBarrier.getNoc() == op.getNoc()) {
+          rewriter.eraseOp(op);
+          return success();
+        }
       }
       if (mlir::isa<NocAsyncReadOp, NocAsyncReadTileOp,
                     NocAsyncReadOnePacketSetStateOp,
@@ -523,13 +553,17 @@ void NocAsyncWriteBarrierOp::getCanonicalizationPatterns(
     for (Operation *it = op->getPrevNode(); it != nullptr;
          it = it->getPrevNode()) {
       if (mlir::isa<NocAsyncWriteBarrierOp>(it)) {
-        rewriter.eraseOp(op);
-        return success();
+        auto previousBarrier = mlir::cast<NocAsyncWriteBarrierOp>(it);
+        if (previousBarrier.getNoc() == op.getNoc()) {
+          rewriter.eraseOp(op);
+          return success();
+        }
       }
       if (mlir::isa<NocAsyncWriteOp, NocAsyncWriteTileOp,
                     NocAsyncWriteSetTridOp, NocAsyncWriteOnePacketWithTridOp,
                     NocAsyncWriteMulticastOp, NocAsyncWriteMulticastOnePacketOp,
-                    NocAsyncWriteMulticastLoopbackSrcOp>(it) ||
+                    NocAsyncWriteMulticastLoopbackSrcOp, NocInlineDwWriteOp>(
+              it) ||
           it->getNumRegions() > 0) {
         break;
       }

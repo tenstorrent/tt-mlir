@@ -162,38 +162,6 @@ def TTNNLoadInputTensors: Pass<"ttnn-load-input-tensors", "::mlir::ModuleOp"> {
   ];
 }
 
-def TTNNCreateMainForTest: Pass<"ttnn-create-main-for-test", "::mlir::ModuleOp"> {
-  let summary = "Create main_for_test wrapper for frontend-driven execution.";
-  let description = [{
-    This pass creates a `main_for_test` function that wraps the forward function
-    (`_main`) for use by frontend execution drivers like PythonModelRunner.
-
-    The generated function accepts the same input tuple as the forward function
-    plus a device argument. It moves each input tensor to the device with the
-    appropriate memory configuration, then calls the forward function.
-
-    Given a forward function after tuplification and input loading:
-
-    ```mlir
-    func.func @_main(%arg0: tuple<tensor<32x32xbf16>>) -> tuple<tensor<32x32xbf16>> { ... }
-    func.func @load_inputs_for__main() -> tuple<tensor<32x32xbf16>> { ... }
-    func.func @main() -> i32 { ... }
-    ```
-
-    The pass will add:
-
-    ```mlir
-    func.func @main_for_test(%arg0: tuple<tensor<32x32xbf16>>, %arg1: !ttnn.device) -> tuple<tensor<32x32xbf16>> {
-      %0 = ttcore.get_tuple_element %arg0[0] : ...
-      %1 = "ttnn.to_device"(%0, %arg1) {memory_config = ...} : ...
-      %2 = ttcore.tuple %1 : ...
-      %3 = call @_main(%2) : ...
-      return %3 : ...
-    }
-    ```
-  }];
-}
-
 def TTNNSplitForwardFuncArgsByType : Pass<"ttnn-split-forward-func-args-by-type", "::mlir::ModuleOp"> {
   let summary = "Split forward function arguments into activations tuple and weights dictionary.";
   let description = [{
@@ -326,7 +294,7 @@ def TTNNPrepareModuleForExport : Pass<"ttnn-prepare-module-for-export", "::mlir:
     // After:
     %0 = ttcore.get_tuple_element %arg0[0]
         : (tuple<tensor<32x32xbf16, #host>, ...>)   -> tensor<32x32xbf16, #host>
-    %1 = "ttnn.to_layout"(%0) <{layout = #ttnn.layout<tile>, dtype = bf16}>
+    %1 = "ttnn.to_layout"(%0) <{layout = #ttnn.layout<tile>}>
         : (tensor<32x32xbf16, #host>) -> tensor<32x32xbf16, #host_staged>
     %2 = "ttnn.to_device"(%1, %arg1)
         : (tensor<32x32xbf16, #host_staged>, !ttnn.device)
@@ -405,7 +373,7 @@ def TTNNTraceHoistTransform : Pass<"ttnn-trace-hoist-transform", "::mlir::Module
     ```mlir
     // Trace function. Contains the ops that were hoisted to trace.
     func.func @trace_0_single_add(%arg0: tensor<32x32xbf16, #ttnn_layout> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout> attributes {ttnn.trace} {
-      %0 = "ttnn.add"(%arg0, %arg1) <{output_dtype = #ttcore.supportedDataTypes<bf16>}> : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+      %0 = "ttnn.add"(%arg0, %arg1) : (tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
       return %0 : tensor<32x32xbf16, #ttnn_layout>
     }
 
@@ -417,7 +385,7 @@ def TTNNTraceHoistTransform : Pass<"ttnn-trace-hoist-transform", "::mlir::Module
     // Returns the trace id, function outputs, and the trace input output tensors.
     func.func @run_and_capture_trace_0_single_add(%arg0: tensor<32x32xbf16, #ttnn_layout> {ttcore.argument_type = #ttcore.argument_type<input>}, %arg1: tensor<32x32xbf16, #ttnn_layout> {ttcore.argument_type = #ttcore.argument_type<parameter>}) -> (tensor<ui32, #ttnn_layout1>, tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>, tensor<32x32xbf16, #ttnn_layout>) attributes {ttnn.trace} {
       %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-      %1 = "ttnn.empty"(%0) <{dtype = #ttcore.supportedDataTypes<bf16>, layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout>
+      %1 = "ttnn.empty"(%0) <{layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout>
       %2 = "ttnn.from_device"(%arg0) : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout2>
       "ttnn.write_tensor"(%2, %1) <{blocking = false, cq_id = 0 : ui32}> : (tensor<32x32xbf16, #ttnn_layout2>, tensor<32x32xbf16, #ttnn_layout>) -> ()
       "ttnn.deallocate"(%2) <{force = false}> : (tensor<32x32xbf16, #ttnn_layout2>) -> ()
@@ -693,6 +661,22 @@ def TTNNRemoveDeallocs: Pass<"ttnn-remove-deallocs", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNResolveComposites : Pass<"ttnn-resolve-composites", "::mlir::ModuleOp"> {
+  let summary = "Resolve composite ops into typed ops or inline decompositions.";
+  let description = [{
+    This pass resolves `ttcore.composite` ops by attempting to replace each one
+    with a dedicated typed TTNN op (e.g. `ttnn.topk_router_gpt`). If the typed
+    op fails verification or OpModel validation, the decomposition function body
+    is inlined as a fallback.
+
+    Typed op promotion requires OpModel validation. If OpModel is not available
+    all composites are unconditionally decomposed into their primitive equivalents.
+
+    After resolution, decomposition functions that are no longer referenced are
+    erased from the module.
+  }];
+}
+
 def TTNNCollaspeD2M : Pass<"ttnn-collaspe-d2m", "::mlir::ModuleOp"> {
   let summary = "Collapse D2M subgraph modules(s) back into original module.";
   let description = [{
@@ -709,18 +693,46 @@ def TTNNConfigureCCLOps : Pass<"ttnn-configure-ccl-ops", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNAllocateDistributedOpBuffers
+    : Pass<"ttnn-allocate-distributed-op-buffers", "::mlir::ModuleOp"> {
+  let summary = "Allocate explicit scratch buffers for distributed ops.";
+  let description = [{
+    Walks every op implementing `DistributedOpInterface` and invokes
+    `allocateBuffers` on it. See `DistributedOpInterface` for the rationale
+    behind splitting buffer and semaphore allocation into separate passes
+    and for the prelude placement contract.
+  }];
+}
+
+def TTNNAllocateDistributedOpSemaphores
+    : Pass<"ttnn-allocate-distributed-op-semaphores", "::mlir::ModuleOp"> {
+  let summary = "Allocate explicit global semaphores for distributed ops.";
+  let description = [{
+    Walks every op implementing `DistributedOpInterface` and invokes
+    `allocateSemaphores` on it. See `DistributedOpInterface` for the
+    rationale behind splitting buffer and semaphore allocation into
+    separate passes and for the prelude placement contract.
+  }];
+}
+
 def TTNNMemoryManagement : Pass<"ttnn-memory-management", "::mlir::ModuleOp"> {
   let summary = "Memory usage optimization pass.";
   let description = [{
     This pass moves slice ops and reorganizes repeat ops to reduce memory usage.
   }];
+  let options = [
+    Option<"aggressiveMemorySaving",
+           "aggressive-memory-saving",
+           "bool", /*default=*/"true",
+           "Opt-out: disable aggressive memory saving patterns to reduce DRAM usage.">,
+  ];
 }
 
 def TTNNGreedyL1SpillManagement : Pass<"ttnn-greedy-l1-spill-management", "::mlir::ModuleOp"> {
-  let summary = "Belady's algorithm for L1 budget enforcement.";
+  let summary = "Farthest-last-use eviction for L1 budget enforcement.";
   let description = [{
-    This pass uses Belady's optimal page replacement algorithm to enforce L1
-    memory budgets by spilling tensors to DRAM when necessary.
+    This pass enforces L1 memory budgets by spilling tensors to DRAM using a
+    farthest-last-use eviction strategy.
   }];
   let options = [
     Option<"enableDecisionTrace", "enable-decision-trace", "bool", "false",

@@ -122,6 +122,11 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
       llvm::cl::desc("Insert DeviceZone scopes around selected TTKernel ops"),
       llvm::cl::init(false)};
 
+  ListOption<std::string> profilerTraits{
+      *this, "profiler-traits",
+      llvm::cl::desc(
+          "TTKernel op traits to instrument with DeviceZoneScopedN.")};
+
   // Option to set  math fidelity
   Option<mlir::tt::ttmetal::MathFidelity> mathFidelity{
       *this, "set-math-fidelity", llvm::cl::desc("Set the math fidelity."),
@@ -176,7 +181,8 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
   Option<std::string> testBufferSizePolicy{
       *this, "test-buffer-size-policy",
       llvm::cl::desc(
-          "Set policy for sizing stream buffers ('auto', 'min', 'max')."),
+          "Set policy for sizing stream buffers ('auto', 'auto-mn', 'min', "
+          "'max')."),
       llvm::cl::init("auto")};
 
   // Option to ingest a mix of ttnn and ttir ops and lower through D2m to TTNN
@@ -237,6 +243,17 @@ void createD2MBackendPipeline(OpPassManager &pm,
 // Outbound conversion pipelines.
 void createD2MToTTKernelPipeline(OpPassManager &pm,
                                  const D2MPipelineOptions &options);
+
+// Split halves of the D2M -> TTKernel + EmitC pipeline. Exposed so callers
+// that need to interleave dispatch-level conversion passes (e.g.
+// ConvertD2MToTTMetalPass) between the TTKernel and EmitC stages can compose
+// them directly. Composing pre-EmitC + dispatch + hoist-inits + EmitC matches
+// the canonical ordering in createTTIRToTTMetalPipeline.
+void createD2MToTTKernelPreEmitCPipeline(OpPassManager &pm,
+                                         const D2MPipelineOptions &options);
+
+void createD2MEmitCPipeline(OpPassManager &pm,
+                            const D2MPipelineOptions &options);
 
 void createD2MToTTMetalPipeline(OpPassManager &pm,
                                 const D2MPipelineOptions &options);

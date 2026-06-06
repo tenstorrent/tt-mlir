@@ -11,7 +11,8 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/AffineMap.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/IR/PatternMatch.h"
+#include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallBitVector.h"
@@ -69,13 +70,15 @@ public:
     // Get parent generic op to access grid shape
     auto genericOp = op->getParentOfType<GenericOp>();
     if (!genericOp) {
-      return op.emitOpError("RemoteLoadOp must be inside a GenericOp");
+      return rewriter.notifyMatchFailure(op, "RemoteLoadOp must be inside a "
+                                             "GenericOp");
     }
 
     // High-level multicast form requires indexing maps, which are not available
     // in explicit datamovement form.
     if (genericOp.isExplicitDatamovementForm()) {
-      return op.emitOpError(
+      return rewriter.notifyMatchFailure(
+          op,
           "High-level multicast form can only be used with regular GenericOp "
           "form (non-empty iterator_types and block_factors).");
     }
@@ -260,9 +263,7 @@ public:
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
     patterns.add<LowerMulticastLoadsRewriter>(&getContext());
-    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
-      signalPassFailure();
-    }
+    walkAndApplyPatterns(getOperation(), std::move(patterns));
   }
 };
 

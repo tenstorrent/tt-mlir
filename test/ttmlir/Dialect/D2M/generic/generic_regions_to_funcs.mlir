@@ -1,5 +1,7 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-normalize-thread-args --d2m-generic-regions-to-funcs -o %t %s
-// RUN: FileCheck %s --input-file=%t
+// RUN: ttmlir-opt --ttcore-register-device --cse --d2m-normalize-thread-args --d2m-generic-regions-to-funcs -o %t %s
+// RUN: FileCheck %s --input-file=%t --check-prefix=CHECK
+// RUN: ttmlir-opt --ttcore-register-device --d2m-normalize-thread-args --d2m-generic-regions-to-funcs -o %t.maps %s
+// RUN: FileCheck %s --input-file=%t.maps --check-prefix=MAPS
 
 #l1_ = #ttcore.memory_space<l1>
 #dram = #ttcore.memory_space<dram>
@@ -11,6 +13,7 @@
 ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1, d2) -> (d1, d2)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1, s2, s3, s4, s5, s6] -> (0, 0, (((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) mod 12, ((((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) floordiv s4) floordiv 12) * s4 + ((d0 * s1) * (s2 * (s3 * s6)) + d1 * (s2 * (s3 * s6)) + d2) mod s4 + s5), meshShape = , chipIds = [0]>
 
 func.func @add(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<0x0, 1>, #l1_>, %arg1: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<0x0, 1>, #l1_>) -> memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<0x0, 1>, #l1_> {
+  %outer_c0 = arith.constant 0 : index
   %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<0x0, 1>, #l1_>
 
   %view = d2m.view_layout %arg0 remapping = #remap :
@@ -43,6 +46,7 @@ func.func @add(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<0x0
 }
 // CHECK: func.func private @datamovement_kernel0{{.*}} attributes {d2m.thread = #d2m.thread<datamovement, processor = 2>, tt.function_type = "kernel"}
 // CHECK: d2m.get_arg(0)
+// CHECK: arith.constant 0 : index
 // CHECK: func.func private @compute_kernel1{{.*}} attributes {d2m.thread = #d2m.thread<compute>, tt.function_type = "kernel"}
 
 func.func @core_index_maps_during_outlining(%arg0: memref<2x2x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>) {
@@ -57,6 +61,6 @@ func.func @core_index_maps_during_outlining(%arg0: memref<2x2x2x2x!ttcore.tile<3
   return
 }
 
-// CHECK: func.func private @compute_kernel2{{.*}} attributes {d2m.thread = #d2m.thread<compute>, tt.function_type = "kernel"}
-// CHECK: d2m.core_index(0) {phys_to_virt_map = {{.*}}} : index
-// CHECK: d2m.core_index(1) {phys_to_virt_map = {{.*}}} : index
+// MAPS: func.func private @compute_kernel2{{.*}} attributes {d2m.thread = #d2m.thread<compute>, tt.function_type = "kernel"}
+// MAPS: d2m.core_index(0) {phys_to_virt_map = {{.*}}} : index
+// MAPS: d2m.core_index(1) {phys_to_virt_map = {{.*}}} : index

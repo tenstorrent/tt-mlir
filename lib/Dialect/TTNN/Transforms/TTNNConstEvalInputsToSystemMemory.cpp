@@ -176,13 +176,9 @@ static void convertArgumentOfConstEvalFunc(func::FuncOp constEvalFuncOp,
         mlir::cast<TTNNLayoutAttr>(deviceTensorType.getEncoding());
 
     // Create to_layout op to convert the argument to the original layout.
-    //
-    auto originalDataTypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
-        constEvalFuncOp.getContext(), deviceTensorLayout.getDataType());
-
     auto toLayoutOp = builder.create<ttnn::ToLayoutOp>(
         blockArgument.getLoc(), deviceTensorType, blockArgument,
-        deviceTensorLayout.getLayout(), originalDataTypeAttr);
+        deviceTensorLayout.getLayout());
 
     // Replace the argument usages with the to_layout op result.
     //

@@ -25,9 +25,11 @@
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -1328,15 +1330,6 @@ void EmptyOp::getEffects(
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult mlir::tt::ttir::RandOp::verify() {
-  auto dtype = getDtype();
-  auto outputType = getResult().getType().getElementType();
-
-  if (dtype != outputType) {
-    return emitOpError()
-           << "dtype does not match with output tensor type [dtype = " << dtype
-           << ", output tensor type = " << outputType << "].";
-  }
-
   float low = getLow().convertToFloat();
   float high = getHigh().convertToFloat();
   if (low >= high) {
@@ -5467,7 +5460,7 @@ mlir::OpFoldResult mlir::tt::ttir::RepeatInterleaveOp::fold(FoldAdaptor fold) {
 
   // Currently TTIR only supports the sum reduce types.
   if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum) {
-    return emitOpError("Invalid reduction op for all reduce op.");
+    return emitOpError("Invalid reduction type for all reduce op.");
   }
 
   return success();
@@ -5483,7 +5476,7 @@ mlir::OpFoldResult mlir::tt::ttir::RepeatInterleaveOp::fold(FoldAdaptor fold) {
 
   // Currently TTIR only supports the sum reduce types.
   if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum) {
-    return emitOpError("Invalid reduction op for all reduce async op.");
+    return emitOpError("Invalid reduction type for all reduce async op.");
   }
 
   return success();
@@ -5503,7 +5496,7 @@ mlir::OpFoldResult mlir::tt::ttir::RepeatInterleaveOp::fold(FoldAdaptor fold) {
   if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum &&
       reduceType != ::mlir::tt::ttcore::ReduceType::Max &&
       reduceType != ::mlir::tt::ttcore::ReduceType::Min) {
-    return emitOpError("Invalid reduction op for reduce scatter op.");
+    return emitOpError("Invalid reduction type for reduce scatter op.");
   }
 
   if (scatterDim >= inputType.getRank() || scatterDim < -inputType.getRank()) {
@@ -7188,9 +7181,9 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
     return emitOpError("input and output must have the same shape");
   }
 
-  // Input must be 4D.
-  if (inputType.getRank() != 4) {
-    return emitOpError("input must be a 4D tensor, got rank ")
+  // Input must be at least 4D (e.g. 4D [N, C, H, W] or 5D [N, C, D, H, W]).
+  if (inputType.getRank() < 4) {
+    return emitOpError("input must be at least a 4D tensor, got rank ")
            << inputType.getRank();
   }
 
@@ -8403,6 +8396,44 @@ static bool anyZero(mlir::ElementsAttr elems) {
   auto subtract = std::minus<>();
   return constantFoldEltwiseBinary(*this, adaptor.getLhs(), adaptor.getRhs(),
                                    subtract, subtract);
+}
+
+//===----------------------------------------------------------------------===//
+// MoeGptOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult MoeGptOp::verify() {
+  ::mlir::RankedTensorType w0w1Type = getW0W1Tensor().getType();
+  ::mlir::RankedTensorType w2Type = getW2Tensor().getType();
+
+  if (w0w1Type.getRank() != 6) {
+    return emitOpError("w0_w1_tensor must be a rank 6 tensor");
+  }
+  if (w2Type.getRank() != 6) {
+    return emitOpError("w2_tensor must be a rank 6 tensor");
+  }
+  if (w0w1Type.getDimSize(5) != 128) {
+    return emitOpError("w0_w1_tensor dim[5] must be 128 (4*TILE_SIZE)");
+  }
+  if (w2Type.getDimSize(5) != 128) {
+    return emitOpError("w2_tensor dim[5] must be 128 (4*TILE_SIZE)");
+  }
+  if (w0w1Type.getDimSize(0) != w2Type.getDimSize(0)) {
+    return emitOpError(
+        "w0_w1_tensor and w2_tensor must have same dim[0] (num_cores)");
+  }
+  if (w0w1Type.getDimSize(2) != w2Type.getDimSize(2)) {
+    return emitOpError("w0_w1_tensor and w2_tensor must have same dim[2] "
+                       "(experts_per_device)");
+  }
+  if (getExpertIndices().getType().getRank() < 2) {
+    return emitOpError("expert_indices must have rank >= 2");
+  }
+  if (getExpertScores().getType().getRank() < 2) {
+    return emitOpError("expert_scores must have rank >= 2");
+  }
+
+  return success();
 }
 
 } // namespace mlir::tt::ttir

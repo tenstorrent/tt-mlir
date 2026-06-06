@@ -155,13 +155,8 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
   }
 
   // Create matmul output type
-  auto outputEncoding =
-      mlir::cast<ttnn::TTNNLayoutAttr>(outputType.getEncoding());
   auto matmulOutputType =
       utils::RankedTensorTypeFactory::create(outputType, matmulShape);
-
-  auto dataTypeAttr = mlir::tt::ttcore::DataTypeAttr::get(
-      rewriter.getContext(), outputEncoding.getDataType());
 
   MatmulOp matmulOp = rewriter.create<ttnn::MatmulOp>(
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_decomp_matmul"),
@@ -183,8 +178,7 @@ LinearOpRewritePattern::matchAndRewrite(ttnn::LinearOp srcOp,
       utils::RankedTensorTypeFactory::create(outputType, addShape);
   AddOp addOp = rewriter.create<ttnn::AddOp>(
       ttmlir::utils::appendLocationSuffix(srcOp.getLoc(), "_decomp_add"),
-      addOutputType, matmulOp.getResult(), srcOp.getBias(),
-      /*dtype=*/dataTypeAttr);
+      addOutputType, matmulOp.getResult(), srcOp.getBias());
 
   // Step 3: Reshape the add result back to original output shape.
   // Reshape op will be no-op if addOp output shape is same as original LinearOp

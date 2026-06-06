@@ -15,10 +15,10 @@ module {
     // CHECK: !ttkernel.cb<1024, bf16>
     // CHECK: %[[INDEX_BYTES:.*]] = arith.constant 16 : i32
     // CHECK: %[[ROW_BYTES:.*]] = arith.constant 16 : i32
-    // CHECK: ttkernel.noc_async_read({{.*}}, {{.*}}, %[[INDEX_BYTES]])
+    // CHECK: ttkernel.noc_async_read {{.*}}, {{.*}}, {{.*}}, %[[INDEX_BYTES]]
     // CHECK: ttkernel.load_from_l1({{.*}}, {{.*}}) : (!ttkernel.l1_addr_ptr, i32) -> i32
-    // CHECK: ttkernel.noc_async_read({{.*}}, {{.*}}, %[[ROW_BYTES]])
-    // CHECK: ttkernel.noc_async_write({{.*}}, {{.*}}, %[[ROW_BYTES]])
+    // CHECK: ttkernel.noc_async_read {{.*}}, {{.*}}, {{.*}}, %[[ROW_BYTES]]
+    // CHECK: ttkernel.noc_async_write {{.*}}, {{.*}}, {{.*}}, %[[ROW_BYTES]]
     d2m.indexed_row_copy %indices, %weight, %output scratch %index_scratch, %row_scratch<6, 5> {indicesShape = array<i64: 2, 3>} : memref<1x1x32x32xui32, #ttcore.shard<128x4, 1>, #l1>, memref<1x1x32x32xbf16, #ttcore.shard<64x2, 1>, #l1>, memref<2x1x32x32xbf16, #ttcore.shard<64x2, 1>, #l1>, memref<1x1024xui32, #ttcore.cb_layout<4096x4, 1>, #l1>, memref<1x1024xbf16, #ttcore.cb_layout<2048x2, 1>, #l1>
     return
   }
@@ -34,11 +34,10 @@ module {
     // CHECK: !ttkernel.cb<1024, bf16>
     // CHECK: %[[INDEX_BYTES:.*]] = arith.constant 16 : i32
     // CHECK: %[[ROW_BYTES:.*]] = arith.constant 32 : i32
-    // CHECK: ttkernel.noc_async_read({{.*}}, {{.*}}, %[[INDEX_BYTES]])
+    // CHECK: ttkernel.noc_async_read {{.*}}, {{.*}}, {{.*}}, %[[INDEX_BYTES]]
     // CHECK: ttkernel.load_from_l1({{.*}}, {{.*}}) : (!ttkernel.l1_addr_ptr, i32) -> i32
-    // CHECK: ttkernel.get_noc_addr_from_bank_id
-    // CHECK: ttkernel.noc_async_read({{.*}}, {{.*}}, %[[ROW_BYTES]])
-    // CHECK: ttkernel.noc_async_write({{.*}}, {{.*}}, %[[ROW_BYTES]])
+    // CHECK: ttkernel.noc_async_read bank{{.*}}%[[ROW_BYTES]]
+    // CHECK: ttkernel.noc_async_write {{.*}}, {{.*}}, {{.*}}, %[[ROW_BYTES]]
     d2m.indexed_row_copy %indices, %weight, %output scratch %index_scratch, %row_scratch<6, 5> {indicesShape = array<i64: 2, 3>} : memref<1x1x32x32xui32, #ttcore.shard<128x4, 1>, #l1>, memref<1x1x32x32xbf16, #ttcore.shard<64x2, 1>, #dram>, memref<2x1x32x32xbf16, #ttcore.shard<64x2, 1>, #l1>, memref<1x1024xui32, #ttcore.cb_layout<4096x4, 1>, #l1>, memref<1x1024xbf16, #ttcore.cb_layout<2048x2, 1>, #l1>
     return
   }
@@ -52,11 +51,10 @@ module {
     // CHECK-LABEL: func.func private @embedding_dram_bf16_output_ui32_indices
     // CHECK: %[[INDEX_BYTES:.*]] = arith.constant 16 : i32
     // CHECK: %[[ROW_BYTES:.*]] = arith.constant 32 : i32
-    // CHECK: ttkernel.noc_async_read({{.*}}, {{.*}}, %[[INDEX_BYTES]])
+    // CHECK: ttkernel.noc_async_read {{.*}}, {{.*}}, {{.*}}, %[[INDEX_BYTES]]
     // CHECK: ttkernel.load_from_l1({{.*}}, {{.*}}) : (!ttkernel.l1_addr_ptr, i32) -> i32
-    // CHECK: ttkernel.get_noc_addr_from_bank_id
-    // CHECK: ttkernel.noc_async_read({{.*}}, {{.*}}, %[[ROW_BYTES]])
-    // CHECK: ttkernel.noc_async_write({{.*}}, {{.*}}, %[[ROW_BYTES]])
+    // CHECK: ttkernel.noc_async_read {{.*}}, {{.*}}, {{.*}}, %[[ROW_BYTES]]
+    // CHECK: ttkernel.noc_async_write {{.*}}bank{{.*}}%[[ROW_BYTES]]
     d2m.indexed_row_copy %indices, %weight, %output scratch %index_scratch, %row_scratch<6, 5> {indicesShape = array<i64: 2, 3>} : memref<1x1x32x32xui32, #ttcore.shard<128x4, 1>, #l1>, memref<1x1x32x32xbf16, #ttcore.shard<64x2, 1>, #l1>, memref<2x1x32x32xbf16, #ttcore.shard<64x2, 1>, #dram>, memref<1x1024xui32, #ttcore.cb_layout<4096x4, 1>, #l1>, memref<1x1024xbf16, #ttcore.cb_layout<2048x2, 1>, #l1>
     return
   }
@@ -72,10 +70,10 @@ module {
     // CHECK: !ttkernel.cb<1024, i32>
     // CHECK: %[[INDEX_BYTES:.*]] = arith.constant 16 : i32
     // CHECK: %[[ROW_BYTES:.*]] = arith.constant 16 : i32
-    // CHECK: ttkernel.noc_async_read({{.*}}, {{.*}}, %[[INDEX_BYTES]])
+    // CHECK: ttkernel.noc_async_read {{.*}}, {{.*}}, {{.*}}, %[[INDEX_BYTES]]
     // CHECK: ttkernel.load_from_l1({{.*}}, {{.*}}) : (!ttkernel.l1_addr_ptr, i32) -> i32
-    // CHECK: ttkernel.noc_async_read({{.*}}, {{.*}}, %[[ROW_BYTES]])
-    // CHECK: ttkernel.noc_async_write({{.*}}, {{.*}}, %[[ROW_BYTES]])
+    // CHECK: ttkernel.noc_async_read {{.*}}, {{.*}}, {{.*}}, %[[ROW_BYTES]]
+    // CHECK: ttkernel.noc_async_write {{.*}}, {{.*}}, {{.*}}, %[[ROW_BYTES]]
     d2m.indexed_row_copy %indices, %weight, %output scratch %index_scratch, %row_scratch<3, 1> {indicesShape = array<i64: 3, 1>} : memref<1x1x32x32xui32, #ttcore.shard<128x4, 1>, #l1>, memref<1x1x32x32xi32, #ttcore.shard<128x4, 1>, #l1>, memref<3x1x32x32xi32, #ttcore.shard<128x4, 1>, #l1>, memref<1x1024xui32, #ttcore.cb_layout<4096x4, 1>, #l1>, memref<1x1024xi32, #ttcore.cb_layout<4096x4, 1>, #l1>
     return
   }

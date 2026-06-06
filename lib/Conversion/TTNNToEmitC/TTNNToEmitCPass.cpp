@@ -50,6 +50,10 @@ public:
       return emitc::OpaqueType::get(ctx,
                                     ttnn_to_emitc::TypeNameV<::ttnn::Tensor>);
     });
+    addConversion(
+        [ctx](mlir::tt::ttnn::GlobalSemaphoreType type) -> emitc::OpaqueType {
+          return emitc::OpaqueType::get(ctx, "::ttnn::GlobalSemaphore");
+        });
     addConversion([ctx](mlir::TupleType type) -> emitc::OpaqueType {
       return emitc::OpaqueType::get(
           ctx, ttnn_to_emitc::TypeNameV<std::vector<::ttnn::Tensor>>);

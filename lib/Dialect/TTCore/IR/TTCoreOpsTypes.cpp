@@ -21,6 +21,7 @@
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Support/LLVM.h"
+#include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -926,6 +927,21 @@ MetalLayoutAttr::getPhysicalShape(ArrayRef<int64_t> tileShape) const {
       applyCollapsedIntervalsAndAlignments(
           getLogicalShape(), normalizedIntervals, getDimAlignments());
 
+  // Scalar tensors still occupy a single physical tile when tiled on device.
+  // Keep the logical rank 0, but expose a 2D physical tile plane to D2M and
+  // TTKernel lowering.
+  if (getLogicalShape().empty() && physicalShape.empty()) {
+    constexpr std::array<int64_t, 2> tileShape = TileType::getDefaultShape();
+    physicalShape.assign(tileShape.begin(), tileShape.end());
+  }
+
+  // Rank-1 logical tensors are represented on device as a single logical row
+  // in a 2D tile plane. This preserves user-visible rank while keeping D2M and
+  // TTKernel tilize/tile compute paths on their native 2D block shape.
+  if (getLogicalShape().size() == 1 && physicalShape.size() == 1) {
+    physicalShape.insert(physicalShape.begin(), TileType::getDefaultShape()[0]);
+  }
+
   if (!tileShape.empty()) {
     assert(physicalShape.size() >= 2);
     assert(tileShape.size() == 2);
@@ -1004,6 +1020,13 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::normalizeAndFlattenIntervals(
     normalized.push_back(++coveredUpTo);
   }
 
+  // Rank-1 logical tensors still use a 2D physical tile plane. The zero-length
+  // leading interval is the synthetic row dimension; the real logical dim maps
+  // to the innermost physical dimension.
+  if (inputRank == 1 && normalized.size() == 2) {
+    normalized.insert(normalized.begin(), {0, 0});
+  }
+
   return normalized;
 }
 
@@ -1033,9 +1056,15 @@ MetalLayoutAttr::computeTileAlignments(ArrayRef<int64_t> logicalShape,
   const int64_t logicalRank = logicalShape.size();
   const int64_t collapsedRank = normalizedIntervals.size() / 2;
 
-  assert(logicalRank >= 2);
-
   llvm::SmallVector<int64_t> alignments(logicalRank, 1);
+  if (logicalRank == 0) {
+    return alignments;
+  }
+  if (logicalRank == 1) {
+    alignments[0] = tileShape[1];
+    return alignments;
+  }
+
   // Handle the last two intervals (which will map to tiles).
   for (int64_t idx = -1; idx >= -2; idx--) {
     const int64_t tileIdx = tileShape.size() + idx;
@@ -1090,12 +1119,25 @@ llvm::SmallVector<int64_t> MetalLayoutAttr::computeGridAwareDimAlignments(
   const int64_t deviceGridRank = deviceGridShape.size();
   const int64_t tensorGridRank = normalizedIntervals.size() / 2;
 
-  assert(logicalRank >= 2);
   assert(deviceGridRank == 2);
   assert(normalizedIntervals.size() % 2 == 0);
-  assert(deviceGridRank <= tensorGridRank);
 
   llvm::SmallVector<int64_t> alignments(logicalRank, 1);
+  if (logicalRank == 0) {
+    return alignments;
+  }
+
+  assert(deviceGridRank <= tensorGridRank);
+  if (logicalRank == 1) {
+    const int64_t tileDim = tileShape[1];
+    const int64_t gridDim = deviceGridShape[1];
+    const int64_t gridAlignmentThreshold = gridDim * tileDim;
+    const int64_t alignedSize =
+        ttmlir::utils::alignUp(logicalShape[0], tileDim);
+    alignments[0] =
+        alignedSize > gridAlignmentThreshold ? gridAlignmentThreshold : tileDim;
+    return alignments;
+  }
 
   // Process the last two intervals (which map to the 2D tile shape) and apply
   // grid-aware alignments to saturate the worker grid when possible.
@@ -1158,6 +1200,10 @@ computeDefaultFlattenedIntervals(MLIRContext *context, int rank) {
   constexpr size_t kGridRank = 2;
 
   // Create collapse intervals.
+  if (rank == 0) {
+    return {};
+  }
+
   int64_t numDimsToCollapse = rank - kGridRank + 1;
   llvm::SmallVector<int64_t> flattenedIntervals;
 
@@ -1178,6 +1224,12 @@ MetalLayoutAttr::computeDefaultCollapsedIntervals(MLIRContext *context,
   constexpr size_t kGridRank = 2;
 
   auto flattenedIntervals = computeDefaultFlattenedIntervals(context, rank);
+
+  if (rank == 0) {
+    auto scalarIntervalType =
+        RankedTensorType::get({0, 2}, IntegerType::get(context, 64));
+    return DenseIntElementsAttr::get(scalarIntervalType, flattenedIntervals);
+  }
 
   auto intervalType = RankedTensorType::get(
       {static_cast<int64_t>(kGridRank), 2}, IntegerType::get(context, 64));
@@ -1264,12 +1316,6 @@ MetalLayoutAttr::getMemRefType(mlir::RankedTensorType tensorType) {
     TensorMemoryLayout memoryLayout) {
 
   int64_t logicalRank = logicalShape.size();
-
-  // Logical shape must have at least 2 dimensions for tiling.
-  if (logicalRank < 2) {
-    return emitError() << "logical_shape must have at least 2 dimensions, got "
-                       << logicalRank;
-  }
 
   // The dim_alignments rank must match logical_shape rank.
   if (static_cast<int64_t>(dimAlignments.size()) != logicalRank) {
@@ -1387,6 +1433,9 @@ MetalLayoutAttr::getHostStrideAndVolume() const {
   }
 
   // At this point, currentStride == 'stride' of the entire tensor, i.e. volume.
+  if (logicalShape.size() == 1) {
+    currentStride *= TileType::getDefaultShape()[0];
+  }
   TT_assertv(currentStride >= ttmlir::utils::volume(logicalShape),
              "Final stride ({}) less than volume ({})", currentStride,
              ttmlir::utils::volume(logicalShape));
@@ -1855,6 +1904,30 @@ uint64_t TileType::getSizeBytes() const {
 
 mlir::Type TileType::getElementType() const {
   return dataTypeToElementType(getContext(), getDataType());
+}
+
+const llvm::fltSemantics &TileType::getFloatSemantics() {
+  switch (getDataType()) {
+  case DataType::Float32:
+    return llvm::APFloat::IEEEsingle();
+  case DataType::Float16:
+  case DataType::BFP_Float8:
+  case DataType::BFP_Float4:
+  case DataType::BFP_Float2:
+    return llvm::APFloat::IEEEhalf();
+  case DataType::BFloat16:
+  case DataType::BFP_BFloat8:
+  case DataType::BFP_BFloat4:
+  case DataType::BFP_BFloat2:
+    return llvm::APFloat::BFloat();
+  case DataType::UInt32:
+  case DataType::UInt16:
+  case DataType::UInt8:
+  case DataType::Int32:
+  case DataType::Bool:
+    break;
+  }
+  llvm_unreachable("getFloatSemantics called on non-float TileType");
 }
 
 TileType TileType::cloneWith(::std::optional<::llvm::ArrayRef<int64_t>> shape,
