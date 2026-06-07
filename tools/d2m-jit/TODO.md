@@ -88,11 +88,10 @@ speculatively.
 ### 🟡 Reduction follow-ups
 
 - Integer reductions via `tile_sfpu_reduce_sum` / `tile_sfpu_reduce_max`.
-- Fused cross-tile or multi-dim (RC) reductions. Cross-tile sum/max are
-  expressible today as multiple host-orchestrated kernel launches using
-  `reduction_layout(..., allow_cross_tile=True)`, but the DSL does not
-  currently support a single fused kernel that accumulates across multiple
-  cores in the reduced dimension.
+- Cross-core or multi-dim (RC) reductions. Reductions spanning multiple cores
+  need a core gather/redistribute op that can collect partials from the cores
+  that own the reduced dimension and place the reduced values on the
+  output-owning cores.
 
 ### 🟡 Lower-level kernel primitives (advanced)
 

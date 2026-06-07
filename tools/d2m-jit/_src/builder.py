@@ -583,11 +583,12 @@ def zeros(layout: Layout) -> LazyTensor:
 
 
 def reduction_layout(layout: Layout, dim, allow_cross_tile: bool = False) -> Layout:
-    """Return the output layout for a collapsed per-tile reduction.
+    """Return the output layout for a keepdim per-tile reduction.
 
-    The DSL's collapsed float reductions can reduce across all tiles contained
-    on one core. Reductions spanning multiple cores in the reduced dimension
-    still require explicit cross-core accumulation.
+    The DSL's float reductions can reduce across all tiles contained on one
+    core. Reductions spanning multiple cores in the reduced dimension need a
+    core gather/redistribute op to collect partials and place reduced values on
+    the output-owning cores.
     """
     rank = len(layout.logical_shape)
     if dim < 0:
@@ -601,8 +602,8 @@ def reduction_layout(layout: Layout, dim, allow_cross_tile: bool = False) -> Lay
             "collapsed reductions only support a reduced logical dimension "
             "that fits on one core; got "
             f"{layout.grid_shape[dim]} cores along dimension {dim}. "
-            "Pass allow_cross_tile=True when the kernel explicitly accumulates "
-            "across all cores in the reduced dimension."
+            "Pass allow_cross_tile=True only when the kernel has an explicit "
+            "cross-core gather/redistribute strategy for the reduced dimension."
         )
 
     shape = list(layout.logical_shape)

@@ -47,24 +47,24 @@ def test_basic_reduction_ir_shape():
     _Builder.reset()
 
 
-def test_collapsed_reduction_ir_shape():
+def test_reduced_output_ir_shape():
     @d2m.kernel
     def k(in_t, out_t):
         x = remote_load(in_t, [0, 0])
-        remote_store(out_t, [0, 0], reduce_sum_collapse(x, 1))
+        remote_store(out_t, [0, 0], reduce_sum(x, 1))
 
     t = torch.arange(32 * 32, dtype=torch.float32).reshape(32, 32)
     k(d2m.to_layout(t, _L), d2m.empty(d2m.reduction_layout(_L, 1)), grid=(1, 1))
-    print("COLLAPSED_REDUCTION_IR")
+    print("REDUCED_OUTPUT_IR")
     print(_Builder.get().module)
     _Builder.reset()
 
 
-def test_multi_tile_single_core_collapsed_reduction_ir_shape():
+def test_multi_tile_single_core_reduction_ir_shape():
     @d2m.kernel
     def k(in_t, out_t):
         x = remote_load(in_t, [0, 0])
-        remote_store(out_t, [0, 0], x.reduce_mean_collapse(1))
+        remote_store(out_t, [0, 0], x.reduce_mean(1))
 
     t = torch.arange(32 * 64, dtype=torch.float32).reshape(32, 64)
     k(
@@ -72,17 +72,17 @@ def test_multi_tile_single_core_collapsed_reduction_ir_shape():
         d2m.empty(d2m.reduction_layout(_L_WIDE_BLOCK, 1)),
         grid=(1, 1),
     )
-    print("MULTI_TILE_SINGLE_CORE_COLLAPSED_REDUCTION_IR")
+    print("MULTI_TILE_SINGLE_CORE_REDUCTION_IR")
     print(_Builder.get().module)
     _Builder.reset()
 
 
-def test_multi_core_dim0_collapsed_reduction_ir_shape():
+def test_multi_core_dim0_reduction_ir_shape():
     @d2m.kernel
     def k(in_t, out_t):
         n = core_index(1)
         x = remote_load(in_t, [0, n])
-        remote_store(out_t, [0, n], reduce_sum_collapse(x, 0))
+        remote_store(out_t, [0, n], reduce_sum(x, 0))
 
     t = torch.arange(256 * 256, dtype=torch.float32).reshape(256, 256)
     k(
@@ -90,17 +90,17 @@ def test_multi_core_dim0_collapsed_reduction_ir_shape():
         d2m.empty(d2m.reduction_layout(_L_REDUCE_ROWS_256, 0)),
         grid=(1, 8),
     )
-    print("MULTI_CORE_DIM0_COLLAPSED_REDUCTION_IR")
+    print("MULTI_CORE_DIM0_REDUCTION_IR")
     print(_Builder.get().module)
     _Builder.reset()
 
 
-def test_multi_core_dim1_collapsed_reduction_ir_shape():
+def test_multi_core_dim1_reduction_ir_shape():
     @d2m.kernel
     def k(in_t, out_t):
         m = core_index(0)
         x = remote_load(in_t, [m, 0])
-        remote_store(out_t, [m, 0], reduce_sum_collapse(x, 1))
+        remote_store(out_t, [m, 0], reduce_sum(x, 1))
 
     t = torch.arange(256 * 256, dtype=torch.float32).reshape(256, 256)
     k(
@@ -108,16 +108,16 @@ def test_multi_core_dim1_collapsed_reduction_ir_shape():
         d2m.empty(d2m.reduction_layout(_L_REDUCE_COLS_256, 1)),
         grid=(8, 1),
     )
-    print("MULTI_CORE_DIM1_COLLAPSED_REDUCTION_IR")
+    print("MULTI_CORE_DIM1_REDUCTION_IR")
     print(_Builder.get().module)
     _Builder.reset()
 
 
 test_basic_reduction_ir_shape()
-test_collapsed_reduction_ir_shape()
-test_multi_tile_single_core_collapsed_reduction_ir_shape()
-test_multi_core_dim0_collapsed_reduction_ir_shape()
-test_multi_core_dim1_collapsed_reduction_ir_shape()
+test_reduced_output_ir_shape()
+test_multi_tile_single_core_reduction_ir_shape()
+test_multi_core_dim0_reduction_ir_shape()
+test_multi_core_dim1_reduction_ir_shape()
 print("PASS reductions")
 
 
@@ -132,13 +132,14 @@ print("PASS reductions")
 # CHECK-SAME: reduce_dim = #d2m<reduce_dim C>
 # CHECK: d2m.tile_reduce_mean
 # CHECK-SAME: reduce_dim = #d2m<reduce_dim R>
+# CHECK: d2m.tile_bcast
 
-# CHECK-LABEL: COLLAPSED_REDUCTION_IR
+# CHECK-LABEL: REDUCED_OUTPUT_IR
 # CHECK: logical_shape = 32x1
 # CHECK: d2m.tile_reduce_sum
 # CHECK-SAME: reduce_dim = #d2m<reduce_dim R>
 
-# CHECK-LABEL: MULTI_TILE_SINGLE_CORE_COLLAPSED_REDUCTION_IR
+# CHECK-LABEL: MULTI_TILE_SINGLE_CORE_REDUCTION_IR
 # CHECK: logical_shape = 32x64
 # CHECK: logical_shape = 32x1
 # CHECK: affine_map<(d0, d1) -> (d0, 0)>
@@ -150,7 +151,7 @@ print("PASS reductions")
 # CHECK: d2m.tile_reduce_mean
 # CHECK-SAME: reduce_dim = #d2m<reduce_dim R>
 
-# CHECK-LABEL: MULTI_CORE_DIM0_COLLAPSED_REDUCTION_IR
+# CHECK-LABEL: MULTI_CORE_DIM0_REDUCTION_IR
 # CHECK: logical_shape = 256x256
 # CHECK: logical_shape = 1x256
 # CHECK: tensor<8x1x!ttcore.tile<32x32, f32>>
@@ -158,7 +159,7 @@ print("PASS reductions")
 # CHECK: d2m.tile_reduce_sum
 # CHECK-SAME: reduce_dim = #d2m<reduce_dim C>
 
-# CHECK-LABEL: MULTI_CORE_DIM1_COLLAPSED_REDUCTION_IR
+# CHECK-LABEL: MULTI_CORE_DIM1_REDUCTION_IR
 # CHECK: logical_shape = 256x256
 # CHECK: logical_shape = 256x1
 # CHECK: tensor<1x8x!ttcore.tile<32x32, f32>>

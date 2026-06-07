@@ -40,6 +40,7 @@ from ._src.rewrite import (
 
 TileBcastType = d2m.TileBcastType
 _REDUCTION_SCALER_ATTR = "d2m.reduction_scaler"
+_REDUCED_AXES_ATTR = "d2m.reduced_axes"
 
 
 def _parse_tile_bcast_type(value):
@@ -581,7 +582,11 @@ def tile_bcast(input, bcast_type):
     input, with each tile expanded according to `bcast_type`.
     """
     tile_bcast_type = _parse_tile_bcast_type(bcast_type)
-    return _eltwise_block(lambda t: d2m.tile_bcast(t.type, t, tile_bcast_type), input)
+    return _eltwise_block(
+        lambda t: d2m.tile_bcast(t.type, t, tile_bcast_type),
+        input,
+        preserve_reduced_axes=False,
+    )
 
 
 @syntax("tile_bcast_row")
@@ -655,7 +660,9 @@ def reduce_sum(input, dim):
     """Block-level float sum reduction over one tile axis.
 
     `dim` follows torch/numpy axis numbering for a 2D tile block:
-    `0` reduces rows and `1` reduces columns.
+    `0` reduces rows and `1` reduces columns. The output keeps the reduced
+    dimension logically reduced; elementwise ops broadcast it back when it is
+    combined with an unreduced block.
     """
     return _reduce_block(
         lambda a, b, c, reduce_dim: d2m.tile_reduce_sum(a.type, a, b, c, reduce_dim),
@@ -663,6 +670,7 @@ def reduce_sum(input, dim):
         dim,
         1.0,
         0.0,
+        reduce_block_axis=True,
     )
 
 
@@ -671,7 +679,9 @@ def reduce_max(input, dim):
     """Block-level float max reduction over one tile axis.
 
     `dim` follows torch/numpy axis numbering for a 2D tile block:
-    `0` reduces rows and `1` reduces columns.
+    `0` reduces rows and `1` reduces columns. The output keeps the reduced
+    dimension logically reduced; elementwise ops broadcast it back when it is
+    combined with an unreduced block.
     """
     return _reduce_block(
         lambda a, b, c, reduce_dim: d2m.tile_reduce_max(a.type, a, b, c, reduce_dim),
@@ -679,6 +689,7 @@ def reduce_max(input, dim):
         dim,
         1.0,
         float("-inf"),
+        reduce_block_axis=True,
     )
 
 
@@ -687,51 +698,10 @@ def reduce_mean(input, dim):
     """Block-level float mean reduction over one tile axis.
 
     `dim` follows torch/numpy axis numbering for a 2D tile block:
-    `0` reduces rows and `1` reduces columns.
+    `0` reduces rows and `1` reduces columns. The output keeps the reduced
+    dimension logically reduced; elementwise ops broadcast it back when it is
+    combined with an unreduced block.
     """
-    return _reduce_block(
-        lambda a, b, c, reduce_dim: d2m.tile_reduce_mean(a.type, a, b, c, reduce_dim),
-        input,
-        dim,
-        1.0 / 32.0,
-        0.0,
-    )
-
-
-@syntax("reduce_sum_collapse", args_as_attr=[False, _int_attr_from_ast])
-def reduce_sum_collapse(input, dim):
-    """Block-level sum reduction for collapsed output layouts.
-
-    This reduces within each tile and across the reduced tile axis of the
-    local block. Pair it with a destination layout from
-    `d2m.reduction_layout(input_layout, dim)`.
-    """
-    return _reduce_block(
-        lambda a, b, c, reduce_dim: d2m.tile_reduce_sum(a.type, a, b, c, reduce_dim),
-        input,
-        dim,
-        1.0,
-        0.0,
-        collapse=True,
-    )
-
-
-@syntax("reduce_max_collapse", args_as_attr=[False, _int_attr_from_ast])
-def reduce_max_collapse(input, dim):
-    """Block-level max reduction for collapsed output layouts."""
-    return _reduce_block(
-        lambda a, b, c, reduce_dim: d2m.tile_reduce_max(a.type, a, b, c, reduce_dim),
-        input,
-        dim,
-        1.0,
-        float("-inf"),
-        collapse=True,
-    )
-
-
-@syntax("reduce_mean_collapse", args_as_attr=[False, _int_attr_from_ast])
-def reduce_mean_collapse(input, dim):
-    """Block-level mean reduction for collapsed output layouts."""
     rank = input.type.rank
     reduce_axis = _normalize_reduce_axis(dim, rank)
     tile_count = input.type.shape[reduce_axis]
@@ -741,7 +711,7 @@ def reduce_mean_collapse(input, dim):
         dim,
         1.0 / (32.0 * tile_count),
         0.0,
-        collapse=True,
+        reduce_block_axis=True,
     )
 
 
@@ -1045,18 +1015,6 @@ class TensorBlock:
         """Same as `d2m.reduce_mean(self, dim)`."""
         return reduce_mean(ast_self, dim)
 
-    def reduce_sum_collapse(ast_self: TensorBlock, dim) -> TensorBlock:
-        """Same as `d2m.reduce_sum_collapse(self, dim)`."""
-        return reduce_sum_collapse(ast_self, dim)
-
-    def reduce_max_collapse(ast_self: TensorBlock, dim) -> TensorBlock:
-        """Same as `d2m.reduce_max_collapse(self, dim)`."""
-        return reduce_max_collapse(ast_self, dim)
-
-    def reduce_mean_collapse(ast_self: TensorBlock, dim) -> TensorBlock:
-        """Same as `d2m.reduce_mean_collapse(self, dim)`."""
-        return reduce_mean_collapse(ast_self, dim)
-
     def store(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
         return d2m.store(ast_self, rhs)
 
@@ -1082,11 +1040,62 @@ class Semaphore:
 # --- Block-level eltwise helper -------------------------------------------
 
 
-def _eltwise_block(tile_op_fn, *blocks):
+def _get_reduced_axes(value):
+    owner = getattr(value, "owner", None)
+    if owner is None:
+        return frozenset()
+    try:
+        attr = owner.attributes[_REDUCED_AXES_ATTR]
+    except Exception:
+        return frozenset()
+    return frozenset(IntegerAttr(axis).value for axis in ArrayAttr(attr))
+
+
+def _set_reduced_axes(value, axes):
+    if axes:
+        value.owner.attributes[_REDUCED_AXES_ATTR] = ArrayAttr.get(
+            [IntegerAttr.get(IntegerType.get_signless(64), axis) for axis in axes]
+        )
+
+
+def _broadcast_indexing_map(rank, input_shape, output_shape):
+    exprs = []
+    for axis, (input_dim, output_dim) in enumerate(zip(input_shape, output_shape)):
+        if input_dim == output_dim:
+            exprs.append(AffineDimExpr.get(axis))
+        elif input_dim == 1:
+            exprs.append(AffineConstantExpr.get(0))
+        else:
+            raise ValueError(
+                f"cannot broadcast dimension {axis}: {input_dim} to {output_dim}"
+            )
+    return AffineMap.get(rank, 0, exprs)
+
+
+def _broadcast_block_shape(blocks):
+    rank = blocks[0].type.rank
+    output_shape = []
+    for axis in range(rank):
+        dims = [block.type.shape[axis] for block in blocks]
+        dim = max(dims)
+        if any(input_dim not in (1, dim) for input_dim in dims):
+            raise ValueError(f"input block shapes are not broadcast-compatible: {dims}")
+        output_shape.append(dim)
+    return output_shape
+
+
+def _common_reduced_axes(blocks):
+    axes = [_get_reduced_axes(block) for block in blocks]
+    if axes and all(axis_set == axes[0] for axis_set in axes):
+        return axes[0]
+    return frozenset()
+
+
+def _eltwise_block(tile_op_fn, *blocks, preserve_reduced_axes=True):
     """Wrap an N-ary per-tile op inside a `linalg.generic` over tensors of
     tiles.
 
-    All `blocks` must have the same tensor type. `tile_op_fn` is called
+    All `blocks` must have broadcast-compatible tensor types. `tile_op_fn` is called
     with the scalar (tile-typed) values for each input and must return
     the scalar output value (or an OpView whose .result is the value).
 
@@ -1104,23 +1113,33 @@ def _eltwise_block(tile_op_fn, *blocks):
     if not blocks:
         raise ValueError("_eltwise_block requires at least one input block")
     block_ty = blocks[0].type
+    rank = block_ty.rank
+    elem_ty = block_ty.element_type
     for b in blocks[1:]:
-        if b.type != block_ty:
+        if b.type.rank != rank or b.type.element_type != elem_ty:
             raise ValueError(
                 f"_eltwise_block: input block type mismatch: {b.type} vs {block_ty}"
             )
-    rank = block_ty.rank
-    elem_ty = block_ty.element_type
+    output_shape = _broadcast_block_shape(blocks)
+    output_ty = RankedTensorType.get(output_shape, elem_ty)
 
-    output = d2m.empty(block_ty)
+    output = d2m.empty(output_ty)
     identity = AffineMap.get_identity(rank)
     n_args = len(blocks) + 1  # one input map per block + one output map
-    indexing_maps = ArrayAttr.get([AffineMapAttr.get(identity)] * n_args)
+    indexing_maps = ArrayAttr.get(
+        [
+            AffineMapAttr.get(
+                _broadcast_indexing_map(rank, block.type.shape, output_shape)
+            )
+            for block in blocks
+        ]
+        + [AffineMapAttr.get(identity)]
+    )
     parallel = Attribute.parse("#linalg.iterator_type<parallel>")
     iterator_types = ArrayAttr.get([parallel] * rank)
 
     generic = linalg.GenericOp(
-        [block_ty],
+        [output_ty],
         list(blocks),
         [output],
         indexing_maps,
@@ -1130,10 +1149,19 @@ def _eltwise_block(tile_op_fn, *blocks):
     body_arg_locs = [Location.unknown()] * n_args
     body = Block.create_at_start(generic.regions[0], body_arg_tys, body_arg_locs)
     with InsertionPoint(body):
-        result = tile_op_fn(*body.arguments[: len(blocks)])
+        args = []
+        common_reduced_axes = _common_reduced_axes(blocks)
+        for block, arg in zip(blocks, body.arguments[: len(blocks)]):
+            for axis in sorted(_get_reduced_axes(block) - common_reduced_axes):
+                bcast = d2m.tile_bcast(arg.type, arg, _reduce_axis_to_bcast_type(axis))
+                arg = bcast.result if hasattr(bcast, "result") else bcast
+            args.append(arg)
+        result = tile_op_fn(*args)
         if hasattr(result, "result"):
             result = result.result
         linalg.yield_([result])
+    if preserve_reduced_axes:
+        _set_reduced_axes(generic.result, common_reduced_axes)
     return generic.result
 
 
@@ -1247,7 +1275,7 @@ def _tile_fill_float(tile_type, value):
     return d2m.tile_fill(tile_type, scalar)
 
 
-def _collapse_input_map(rank, reduce_axis, reduce_index):
+def _reduction_input_map(rank, reduce_axis, reduce_index):
     exprs = []
     for axis in range(rank):
         if axis == reduce_axis:
@@ -1255,6 +1283,14 @@ def _collapse_input_map(rank, reduce_axis, reduce_index):
         else:
             exprs.append(AffineDimExpr.get(axis))
     return AffineMap.get(rank, 0, exprs)
+
+
+def _reduce_axis_to_bcast_type(reduce_axis):
+    if reduce_axis == 0:
+        return Attribute.parse("#d2m<tile_bcast_type row>")
+    if reduce_axis == 1:
+        return Attribute.parse("#d2m<tile_bcast_type col>")
+    raise ValueError(f"reduce axis must be 0 or 1, got {reduce_axis}")
 
 
 def _reduction_scaler_block(output_ty, scaler_value):
@@ -1285,7 +1321,7 @@ def _reduction_scaler_block(output_ty, scaler_value):
     return generic.result
 
 
-def _reduce_block_collapse_explicit(
+def _reduce_block_axis_explicit(
     tile_op_fn,
     input,
     scaler_value,
@@ -1304,7 +1340,7 @@ def _reduce_block_collapse_explicit(
 
     tile_count = block_ty.shape[reduce_axis]
     indexing_maps = [
-        AffineMapAttr.get(_collapse_input_map(rank, reduce_axis, reduce_index))
+        AffineMapAttr.get(_reduction_input_map(rank, reduce_axis, reduce_index))
         for reduce_index in range(tile_count)
     ]
     indexing_maps.append(AffineMapAttr.get(AffineMap.get_identity(rank)))
@@ -1331,16 +1367,20 @@ def _reduce_block_collapse_explicit(
             if hasattr(accumulator, "result"):
                 accumulator = accumulator.result
         linalg.yield_([accumulator])
+    _set_reduced_axes(generic.result, {reduce_axis})
 
     return generic.result
 
 
-def _reduce_block(tile_op_fn, input, dim, scaler_value, identity_value, collapse=False):
+def _reduce_block(
+    tile_op_fn, input, dim, scaler_value, identity_value, reduce_block_axis=False
+):
     """Wrap a float d2m.tile_reduce_* op in a per-block linalg.generic.
 
-    Non-collapsed reductions keep the same block shape as `input` and reduce
-    within each tile. Collapsed reductions shrink the reduced block dimension
-    to 1 and accumulate across all tiles in that local block dimension.
+    Reductions shrink the reduced block dimension to 1 and accumulate across all
+    tiles in that local block dimension. When the reduced axis is inside a
+    single tile, the tensor shape may be unchanged, so the result is also marked
+    with `_REDUCED_AXES_ATTR` for later implicit elementwise broadcasting.
     """
     block_ty = input.type
     if not isinstance(block_ty, RankedTensorType):
@@ -1351,8 +1391,8 @@ def _reduce_block(tile_op_fn, input, dim, scaler_value, identity_value, collapse
     reduce_axis = _normalize_reduce_axis(dim, rank)
     reduce_dim = _dim_to_reduce_dim_attr(dim)
 
-    if collapse and block_ty.shape[reduce_axis] > 1:
-        return _reduce_block_collapse_explicit(
+    if reduce_block_axis and block_ty.shape[reduce_axis] > 1:
+        return _reduce_block_axis_explicit(
             tile_op_fn,
             input,
             scaler_value,
@@ -1394,6 +1434,7 @@ def _reduce_block(tile_op_fn, input, dim, scaler_value, identity_value, collapse
         if hasattr(result, "result"):
             result = result.result
         linalg.yield_([result])
+    _set_reduced_axes(generic.result, {reduce_axis})
     return generic.result
 
 
