@@ -349,3 +349,173 @@ def test_rope_complex_rotation(
     )
 
     assert check_op(output, "rotary_embedding")
+
+
+# ---------------------------------------------------------------------------
+# Pattern 3: interleaved-pair
+#   x_   = reshape(x, [..., D/2, 1, 2])
+#   out  = reshape(freqs[..., 0] * x_[..., 0] + freqs[..., 1] * x_[..., 1],
+#                  [..., D])
+#   where freqs is shape (..., D/2, 2, 2) packing per-pair [[cos,-sin],[sin,cos]]
+# ---------------------------------------------------------------------------
+
+
+def torch_rope_interleaved_pair(x, freqs):
+    """Golden reference for interleaved-pair RoPE."""
+    x_ = x.float().reshape(*x.shape[:-1], -1, 1, 2)
+    out = freqs[..., 0] * x_[..., 0] + freqs[..., 1] * x_[..., 1]
+    return out.reshape(*x.shape).type_as(x)
+
+
+def build_rope_interleaved_pair(
+    input: Operand,
+    freqs_input: Operand,
+    builder: TTIRBuilder,
+):
+    """Build Pattern 3 (interleaved-pair) as a sequence of TTIR ops.
+
+    input is [B, H, S, D]; freqs is [B, 1, S, D/2, 2, 2] with heads=1 broadcast
+    across H.
+    """
+    input_shape = list(input.type.shape)
+    freqs_shape = list(freqs_input.type.shape)
+    B, H, S, D = input_shape
+    half_dim = D // 2
+
+    # x_ = reshape(x, [..., D/2, 1, 2])
+    x_6d = builder.reshape(input, shape=[B, H, S, half_dim, 1, 2])
+
+    # x_[..., 0] (real) and x_[..., 1] (imag) — slice + reshape + broadcast
+    # to align with the (..., D/2, 2) shape used by the multiplies.
+    x_p0 = builder.slice(
+        x_6d,
+        begins=[0, 0, 0, 0, 0, 0],
+        ends=[B, H, S, half_dim, 1, 1],
+        step=[1, 1, 1, 1, 1, 1],
+    )
+    x_p1 = builder.slice(
+        x_6d,
+        begins=[0, 0, 0, 0, 0, 1],
+        ends=[B, H, S, half_dim, 1, 2],
+        step=[1, 1, 1, 1, 1, 1],
+    )
+    x_real_bc = builder.broadcast(
+        builder.reshape(
+            builder.reshape(x_p0, shape=[B, H, S, half_dim]),
+            shape=[B, H, S, half_dim, 1],
+        ),
+        broadcast_dimensions=[1, 1, 1, 1, 2],
+    )
+    x_imag_bc = builder.broadcast(
+        builder.reshape(
+            builder.reshape(x_p1, shape=[B, H, S, half_dim]),
+            shape=[B, H, S, half_dim, 1],
+        ),
+        broadcast_dimensions=[1, 1, 1, 1, 2],
+    )
+
+    # freqs[..., 0] = [cos, sin] and freqs[..., 1] = [-sin, cos]
+    # — slice the last dim, then broadcast over the heads dim.
+    freqs_c0 = builder.slice(
+        freqs_input,
+        begins=[0, 0, 0, 0, 0, 0],
+        ends=[freqs_shape[0], freqs_shape[1], freqs_shape[2], half_dim, 2, 1],
+        step=[1, 1, 1, 1, 1, 1],
+    )
+    freqs_c1 = builder.slice(
+        freqs_input,
+        begins=[0, 0, 0, 0, 0, 1],
+        ends=[freqs_shape[0], freqs_shape[1], freqs_shape[2], half_dim, 2, 2],
+        step=[1, 1, 1, 1, 1, 1],
+    )
+    # Squeeze the size-1 heads-broadcast dim (position [1]) and the trailing
+    # size-1 dim from the column slice, then re-add the heads-broadcast dim.
+    cos_bc = builder.broadcast(
+        builder.reshape(
+            builder.reshape(
+                freqs_c0, shape=[freqs_shape[0], freqs_shape[2], half_dim, 2]
+            ),
+            shape=[freqs_shape[0], 1, freqs_shape[2], half_dim, 2],
+        ),
+        broadcast_dimensions=[1, H, 1, 1, 1],
+    )
+    sin_bc = builder.broadcast(
+        builder.reshape(
+            builder.reshape(
+                freqs_c1, shape=[freqs_shape[0], freqs_shape[2], half_dim, 2]
+            ),
+            shape=[freqs_shape[0], 1, freqs_shape[2], half_dim, 2],
+        ),
+        broadcast_dimensions=[1, H, 1, 1, 1],
+    )
+
+    # freqs[..., 0] * x_[..., 0] + freqs[..., 1] * x_[..., 1], reshaped to [..., D]
+    sum_5d = builder.add(
+        builder.multiply(cos_bc, x_real_bc),
+        builder.multiply(sin_bc, x_imag_bc),
+    )
+    return builder.reshape(sum_5d, shape=input_shape)
+
+
+# Representative shapes for Pattern 3 (interleaved-pair)
+INTERLEAVED_PAIR_SHAPES = [
+    pytest.param(
+        (1, 20, 128, 128),
+        (1, 1, 128, 64, 2, 2),
+        id="hidream_i1_fast-prefill",
+    ),
+]
+
+
+@pytest.mark.parametrize("input_shape, freqs_shape", INTERLEAVED_PAIR_SHAPES)
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_rope_interleaved_pair(
+    input_shape, freqs_shape, dtype, target, request, device
+):
+    """
+    Pattern 3: interleaved-pair RoPE.
+    Used by HiDream-I1.
+
+    Verifies that the decomposed RoPE pattern fuses into ttnn.rotary_embedding
+    through the full pipeline.
+    """
+    shapes = [input_shape, freqs_shape]
+    dtypes = [dtype] * 2
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def rotary_embedding(
+            input: Operand,
+            freqs_input: Operand,
+            builder: TTIRBuilder,
+        ):
+            input_data = torch.randn(input_shape, dtype=dtype)
+
+            # Build a valid freqs_cis: per pair, 2x2 = [[c, -s], [s, c]].
+            angles = torch.randn(freqs_shape[:-2], dtype=torch.float32)
+            c, s = torch.cos(angles), torch.sin(angles)
+            freqs_data = (
+                torch.stack([c, -s, s, c], dim=-1).reshape(freqs_shape).to(dtype)
+            )
+
+            golden = torch_rope_interleaved_pair(input_data, freqs_data)
+
+            result = build_rope_interleaved_pair(input, freqs_input, builder)
+
+            builder.set_goldens(
+                {input: input_data, freqs_input: freqs_data},
+                {result: golden},
+            )
+            return result
+
+    output = compile_and_execute_ttir(
+        module,
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        pipeline_options=["enable-ttnn-decomposition-pass=false"],
+        save_artifacts=True,
+    )
+
+    assert check_op(output, "rotary_embedding")

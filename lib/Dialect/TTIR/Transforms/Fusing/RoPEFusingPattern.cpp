@@ -450,4 +450,373 @@ mlir::LogicalResult RoPEComplexRotationFusingPattern::matchAndRewrite(
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// RoPEInterleavedPairFusingPattern
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+// Build a slice on one dim (begin, end, step), identity on all other dims.
+static SliceStaticOp buildSliceOnDim(PatternRewriter &rewriter, Location loc,
+                                     Value input, int64_t targetDim,
+                                     int32_t begin, int32_t end,
+                                     int32_t step = 1) {
+  auto inputType = mlir::cast<RankedTensorType>(input.getType());
+  int64_t rank = inputType.getRank();
+  ArrayRef<int64_t> shape = inputType.getShape();
+
+  SmallVector<int32_t> begins(rank, 0);
+  SmallVector<int32_t> ends(rank);
+  SmallVector<int32_t> steps(rank, 1);
+  for (int64_t i = 0; i < rank; ++i) {
+    ends[i] = static_cast<int32_t>(shape[i]);
+  }
+  begins[targetDim] = begin;
+  ends[targetDim] = end;
+  steps[targetDim] = step;
+
+  SmallVector<int64_t> resultShape(shape);
+  resultShape[targetDim] = llvm::divideCeil(end - begin, step);
+
+  auto resultType =
+      RankedTensorType::get(resultShape, inputType.getElementType());
+
+  return rewriter.create<SliceStaticOp>(
+      loc, resultType, input, rewriter.getI32ArrayAttr(begins),
+      rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(steps));
+}
+
+// Helper: walk back through reshape/broadcast chain to find a SliceStaticOp.
+// Returns the slice and the value it slices from.
+static SliceStaticOp findSliceThroughTMs(Value v) {
+  while (Operation *defOp = v.getDefiningOp()) {
+    if (auto slice = dyn_cast<SliceStaticOp>(defOp)) {
+      return slice;
+    }
+    if (isa<ReshapeOp, BroadcastOp, TypecastOp>(defOp)) {
+      v = defOp->getOperand(0);
+      continue;
+    }
+    break;
+  }
+  return nullptr;
+}
+
+// For a slice on a 6D reshape of x at pair dim, returns the pair index
+// (0 or 1) if the slice has the form [..., 0:1, 0:1] or [..., 0:1, 1:2]
+// on the last two dims of a (..., 1, 2) shape. Returns nullopt otherwise.
+static std::optional<int64_t> getPairIndex(SliceStaticOp slice) {
+  auto inputType = mlir::cast<RankedTensorType>(slice.getOperand().getType());
+  int64_t rank = inputType.getRank();
+  if (rank < 2) {
+    return std::nullopt;
+  }
+  ArrayRef<int64_t> inputShape = inputType.getShape();
+  if (inputShape[rank - 2] != 1 || inputShape[rank - 1] != 2) {
+    return std::nullopt;
+  }
+
+  auto begins = slice.getBegins();
+  auto ends = slice.getEnds();
+  auto steps = slice.getStep();
+  for (int64_t i = 0; i < rank; ++i) {
+    auto step = mlir::cast<IntegerAttr>(steps[i]).getInt();
+    if (step != 1) {
+      return std::nullopt;
+    }
+    auto begin = mlir::cast<IntegerAttr>(begins[i]).getInt();
+    auto end = mlir::cast<IntegerAttr>(ends[i]).getInt();
+    if (i < rank - 1) {
+      // All dims except the last must be identity (or [0:1] on size-1 dim).
+      if (begin != 0 || end != inputShape[i]) {
+        return std::nullopt;
+      }
+    }
+  }
+  auto lastBegin = mlir::cast<IntegerAttr>(begins[rank - 1]).getInt();
+  auto lastEnd = mlir::cast<IntegerAttr>(ends[rank - 1]).getInt();
+  if (lastBegin == 0 && lastEnd == 1) {
+    return 0;
+  }
+  if (lastBegin == 1 && lastEnd == 2) {
+    return 1;
+  }
+  return std::nullopt;
+}
+
+// For a slice on freqs_cis (..., D/2, 2, 2), returns the column index (0 or 1)
+// if the slice picks one column of the trailing 2x2 (i.e. slices [..., :,
+// c:c+1] where c is 0 or 1) and is identity elsewhere.
+static std::optional<int64_t> getColumnIndex(SliceStaticOp slice) {
+  auto inputType = mlir::cast<RankedTensorType>(slice.getOperand().getType());
+  int64_t rank = inputType.getRank();
+  if (rank < 2) {
+    return std::nullopt;
+  }
+  ArrayRef<int64_t> inputShape = inputType.getShape();
+  if (inputShape[rank - 1] != 2) {
+    return std::nullopt;
+  }
+
+  auto begins = slice.getBegins();
+  auto ends = slice.getEnds();
+  auto steps = slice.getStep();
+  for (int64_t i = 0; i < rank - 1; ++i) {
+    auto step = mlir::cast<IntegerAttr>(steps[i]).getInt();
+    auto begin = mlir::cast<IntegerAttr>(begins[i]).getInt();
+    auto end = mlir::cast<IntegerAttr>(ends[i]).getInt();
+    if (step != 1 || begin != 0 || end != inputShape[i]) {
+      return std::nullopt;
+    }
+  }
+  auto lastStep = mlir::cast<IntegerAttr>(steps[rank - 1]).getInt();
+  auto lastBegin = mlir::cast<IntegerAttr>(begins[rank - 1]).getInt();
+  auto lastEnd = mlir::cast<IntegerAttr>(ends[rank - 1]).getInt();
+  if (lastStep != 1) {
+    return std::nullopt;
+  }
+  if (lastBegin == 0 && lastEnd == 1) {
+    return 0;
+  }
+  if (lastBegin == 1 && lastEnd == 2) {
+    return 1;
+  }
+  return std::nullopt;
+}
+
+// Tracks one half of the matched pattern (cos branch or sin branch).
+struct InterleavedBranch {
+  MultiplyOp mulOp;
+  SliceStaticOp xSlice;     // slice on the 6D reshape of x; pair index encoded
+  SliceStaticOp freqsSlice; // slice on freqs_cis; column index encoded
+  int64_t pairIdx;          // 0 or 1
+  int64_t colIdx;           // 0 or 1
+  Value xReshape6D;         // the 6D reshape of x (slice's input)
+  Value freqsSrc;           // freqs_cis source tensor
+};
+
+// Try to interpret a MultiplyOp as one branch of the interleaved RoPE pattern.
+// Returns the populated branch if both operands trace back to a pair-slice on
+// x's 6D reshape and a column-slice on freqs_cis; nullopt otherwise.
+static std::optional<InterleavedBranch> matchBranch(MultiplyOp mulOp) {
+  for (int swap = 0; swap < 2; ++swap) {
+    Value xSide = mulOp.getOperand(swap);
+    Value freqsSide = mulOp.getOperand(1 - swap);
+
+    SliceStaticOp xSlice = findSliceThroughTMs(xSide);
+    SliceStaticOp freqsSlice = findSliceThroughTMs(freqsSide);
+    if (!xSlice || !freqsSlice) {
+      continue;
+    }
+
+    auto pairIdx = getPairIndex(xSlice);
+    if (!pairIdx) {
+      continue;
+    }
+    auto colIdx = getColumnIndex(freqsSlice);
+    if (!colIdx) {
+      continue;
+    }
+
+    InterleavedBranch br;
+    br.mulOp = mulOp;
+    br.xSlice = xSlice;
+    br.freqsSlice = freqsSlice;
+    br.pairIdx = *pairIdx;
+    br.colIdx = *colIdx;
+    br.xReshape6D = xSlice.getOperand();
+    br.freqsSrc = freqsSlice.getOperand();
+    return br;
+  }
+  return std::nullopt;
+}
+
+} // namespace
+
+mlir::LogicalResult RoPEInterleavedPairFusingPattern::matchAndRewrite(
+    AddOp addOp, mlir::PatternRewriter &rewriter) const {
+  // 1. Both add operands must be multiplies.
+  auto mul0 = dyn_cast_or_null<MultiplyOp>(addOp.getOperand(0).getDefiningOp());
+  auto mul1 = dyn_cast_or_null<MultiplyOp>(addOp.getOperand(1).getDefiningOp());
+  if (!mul0 || !mul1) {
+    return failure();
+  }
+
+  // 2. Identify both branches.
+  auto br0 = matchBranch(mul0);
+  auto br1 = matchBranch(mul1);
+  if (!br0 || !br1) {
+    return failure();
+  }
+
+  // 3. Both branches must share the same x 6D reshape and same freqs_cis.
+  if (br0->xReshape6D != br1->xReshape6D || br0->freqsSrc != br1->freqsSrc) {
+    return failure();
+  }
+
+  // 4. The two branches must select pair indices {0, 1} and columns {0, 1}.
+  //    The "real" branch pairs pair[0] with col[0]; "imag" branch pairs
+  //    pair[1] with col[1]. We accept either order across mul0/mul1.
+  if (br0->pairIdx == br1->pairIdx || br0->colIdx == br1->colIdx) {
+    return failure();
+  }
+  if (br0->pairIdx != br0->colIdx || br1->pairIdx != br1->colIdx) {
+    return failure();
+  }
+
+  // 5. The x 6D reshape must come from a ReshapeOp that produced shape
+  //    (..., D/2, 1, 2) from (..., D).
+  auto xReshapeOp =
+      dyn_cast_or_null<ReshapeOp>(br0->xReshape6D.getDefiningOp());
+  if (!xReshapeOp) {
+    return failure();
+  }
+  Value x4d = xReshapeOp.getOperand();
+  auto x4dType = mlir::cast<RankedTensorType>(x4d.getType());
+  if (x4dType.getRank() != 4) {
+    return failure();
+  }
+  int64_t D = x4dType.getShape().back();
+  if (D % 2 != 0 || D < 2) {
+    return failure();
+  }
+  int64_t halfD = D / 2;
+
+  auto x6dType = mlir::cast<RankedTensorType>(br0->xReshape6D.getType());
+  ArrayRef<int64_t> x6dShape = x6dType.getShape();
+  int64_t x6dRank = x6dShape.size();
+  if (x6dRank != 6 || x6dShape[x6dRank - 3] != halfD ||
+      x6dShape[x6dRank - 2] != 1 || x6dShape[x6dRank - 1] != 2) {
+    return failure();
+  }
+
+  // 6. freqs_cis must be 6D shape (..., D/2, 2, 2).
+  auto freqsType = mlir::cast<RankedTensorType>(br0->freqsSrc.getType());
+  ArrayRef<int64_t> freqsShape = freqsType.getShape();
+  int64_t fRank = freqsShape.size();
+  if (fRank != 6 || freqsShape[fRank - 3] != halfD ||
+      freqsShape[fRank - 2] != 2 || freqsShape[fRank - 1] != 2) {
+    return failure();
+  }
+
+  // 7. AddOp must have a single ReshapeOp user that flattens
+  //    (..., D/2, 2) -> (..., D).
+  if (!addOp->hasOneUse()) {
+    return failure();
+  }
+  auto finalReshape = dyn_cast<ReshapeOp>(*addOp->getUsers().begin());
+  if (!finalReshape) {
+    return failure();
+  }
+  auto finalType = mlir::cast<RankedTensorType>(finalReshape.getType());
+  if (finalType.getShape() != x4dType.getShape()) {
+    return failure();
+  }
+
+  // 8. Single-use guards on critical intermediates.
+  if (!mul0->hasOneUse() || !mul1->hasOneUse()) {
+    return failure();
+  }
+
+  // -------- Rewrite --------
+  Location loc = addOp.getLoc();
+  Type elemType = x4dType.getElementType();
+
+  // 9. Extract cos_half and sin_half from freqs_cis.
+  //    cos = freqs_cis[..., 0, 0]  (row 0, col 0)
+  //    sin = freqs_cis[..., 1, 0]  (row 1, col 0)
+  // First slice on the row dim (rank-2), then on the col dim (rank-1).
+  SliceStaticOp cosRowSlice =
+      buildSliceOnDim(rewriter, loc, br0->freqsSrc, fRank - 2, 0, 1);
+  SliceStaticOp cosColSlice =
+      buildSliceOnDim(rewriter, loc, cosRowSlice.getResult(), fRank - 1, 0, 1);
+
+  SliceStaticOp sinRowSlice =
+      buildSliceOnDim(rewriter, loc, br0->freqsSrc, fRank - 2, 1, 2);
+  SliceStaticOp sinColSlice =
+      buildSliceOnDim(rewriter, loc, sinRowSlice.getResult(), fRank - 1, 0, 1);
+
+  // Squeeze the trailing two singleton dims so the cache is 4D and
+  // broadcastable to the 4D x. freqs_cis (B, S, ?, D/2, 1, 1) -> (B, S, ?, D/2)
+  SmallVector<int64_t> cacheShape4D(freqsShape.begin(),
+                                    freqsShape.begin() + fRank - 2);
+  auto cacheType4D = RankedTensorType::get(cacheShape4D, elemType);
+  SmallVector<int32_t> cacheShape4DAttr(cacheShape4D.size());
+  for (size_t i = 0; i < cacheShape4D.size(); ++i) {
+    cacheShape4DAttr[i] = static_cast<int32_t>(cacheShape4D[i]);
+  }
+  auto cosHalf =
+      rewriter.create<ReshapeOp>(loc, cacheType4D, cosColSlice.getResult(),
+                                 rewriter.getI32ArrayAttr(cacheShape4DAttr));
+  auto sinHalf =
+      rewriter.create<ReshapeOp>(loc, cacheType4D, sinColSlice.getResult(),
+                                 rewriter.getI32ArrayAttr(cacheShape4DAttr));
+
+  // 10. Duplicate caches to full D: cos_full = concat([cos_half, cos_half]).
+  SmallVector<int64_t> cacheShapeFull(cacheShape4D);
+  cacheShapeFull.back() = D;
+  auto cacheTypeFull = RankedTensorType::get(cacheShapeFull, elemType);
+  auto cosFull = rewriter.create<ConcatOp>(
+      loc, cacheTypeFull, ValueRange{cosHalf.getResult(), cosHalf.getResult()},
+      rewriter.getSI32IntegerAttr(cacheShapeFull.size() - 1));
+  auto sinFull = rewriter.create<ConcatOp>(
+      loc, cacheTypeFull, ValueRange{sinHalf.getResult(), sinHalf.getResult()},
+      rewriter.getSI32IntegerAttr(cacheShapeFull.size() - 1));
+
+  // 11. Permute x: interleaved [x0,x1,x2,x3,...] -> rotate-half
+  // [x0,x2,...|x1,x3,...]
+  //     via slice (step 2) on the last dim, then concat.
+  auto xEvens =
+      buildSliceOnDim(rewriter, loc, x4d, /*dim=*/3, 0, D, /*step=*/2);
+  auto xOdds = buildSliceOnDim(rewriter, loc, x4d, /*dim=*/3, 1, D, /*step=*/2);
+  auto xPerm = rewriter.create<ConcatOp>(
+      loc, x4dType, ValueRange{xEvens.getResult(), xOdds.getResult()},
+      rewriter.getSI32IntegerAttr(3));
+
+  // 12. Apply ttir.rotary_embedding.
+  auto rotEmb = rewriter.create<RotaryEmbeddingOp>(
+      loc, x4dType, xPerm.getResult(), cosFull.getResult(),
+      sinFull.getResult());
+
+  // 13. Permute back: rotate-half [r0,r1,...|i0,i1,...] -> interleaved
+  // [r0,i0,r1,i1,...]
+  //     via reshape -> permute (swap last two dims) -> reshape.
+  // Reshape (B,S,H,D) -> (B,S,H,2,D/2): the leading "2" is "which half".
+  SmallVector<int64_t> splitShape;
+  for (int64_t d : x4dType.getShape().drop_back()) {
+    splitShape.push_back(d);
+  }
+  splitShape.push_back(2);
+  splitShape.push_back(halfD);
+  auto splitType = RankedTensorType::get(splitShape, elemType);
+  SmallVector<int32_t> splitShapeAttr(splitShape.size());
+  for (size_t i = 0; i < splitShape.size(); ++i) {
+    splitShapeAttr[i] = static_cast<int32_t>(splitShape[i]);
+  }
+  auto split =
+      rewriter.create<ReshapeOp>(loc, splitType, rotEmb.getResult(),
+                                 rewriter.getI32ArrayAttr(splitShapeAttr));
+
+  // Permute last two dims: (B,S,H,2,D/2) -> (B,S,H,D/2,2).
+  SmallVector<int64_t> permShape(splitShape);
+  std::swap(permShape[permShape.size() - 2], permShape[permShape.size() - 1]);
+  auto permType = RankedTensorType::get(permShape, elemType);
+  SmallVector<int64_t> perm = {0, 1, 2, 4, 3};
+  auto permuted =
+      rewriter.create<PermuteOp>(loc, permType, split.getResult(), perm);
+
+  // Flatten back: (B,S,H,D/2,2) -> (B,S,H,D).
+  SmallVector<int32_t> finalShapeAttr;
+  for (int64_t d : x4dType.getShape()) {
+    finalShapeAttr.push_back(static_cast<int32_t>(d));
+  }
+  auto flat =
+      rewriter.create<ReshapeOp>(loc, x4dType, permuted.getResult(),
+                                 rewriter.getI32ArrayAttr(finalShapeAttr));
+
+  // 14. Replace the final reshape's result with our flattened output.
+  rewriter.replaceOp(finalReshape, flat.getResult());
+  return success();
+}
+
 } // namespace mlir::tt::ttir::fusing
