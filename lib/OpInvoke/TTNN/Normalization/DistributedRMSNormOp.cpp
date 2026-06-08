@@ -86,8 +86,9 @@ DistributedRMSNormOpResult callDistributedRMSNorm(
                                          params);
   };
 
-  tryCallingOp(::ttnn::fused_rms_minimal, /*constraintsImplemented=*/false,
-               /*runtimeImplemented=*/false, "DistributedRMSNormOp");
+  return callOp<DistributedRMSNormOpResult, false, false>(
+      ::ttnn::fused_rms_minimal, callType, makeTuple, device,
+      "DistributedRMSNormOp");
 }
 
 } // namespace ttnn_op_invoke

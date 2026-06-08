@@ -105,9 +105,9 @@ PrepareConvTranspose2dBiasOpResult callPrepareConvTranspose2dBias(
                                                  params);
   };
 
-  tryCallingOp(
+  return callOp<PrepareConvTranspose2dBiasOpResult, true, false>(
       ::ttnn::operations::conv::conv_transpose2d::prepare_conv_transpose2d_bias,
-      true, false, "PrepareConvTranspose2dBiasOp");
+      callType, makeTuple, device, "PrepareConvTranspose2dBiasOp");
 }
 
 } // namespace ttnn_op_invoke

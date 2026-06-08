@@ -67,6 +67,8 @@ NLPCreateQKVHeadsDecodeOpResult callNLPCreateQKVHeadsDecode(
                                               params);
   };
 
-  callOp(::ttnn::experimental::nlp_create_qkv_heads_decode);
+  return callOp<NLPCreateQKVHeadsDecodeOpResult>(
+      ::ttnn::experimental::nlp_create_qkv_heads_decode, callType, makeTuple,
+      device);
 }
 } // namespace ttnn_op_invoke

@@ -58,7 +58,9 @@ RotaryEmbeddingLlamaOpResult callRotaryEmbeddingLlama(
                                            transMat, params);
   };
 
-  callOp(::ttnn::experimental::rotary_embedding_llama);
+  return callOp<RotaryEmbeddingLlamaOpResult>(
+      ::ttnn::experimental::rotary_embedding_llama, callType, makeTuple,
+      device);
 }
 
 } // namespace ttnn_op_invoke

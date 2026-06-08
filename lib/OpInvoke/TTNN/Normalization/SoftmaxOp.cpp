@@ -47,7 +47,7 @@ SoftmaxOpResult callSoftmax(CallType callType,
     return createSoftmaxTuple(tag, opT, input, params);
   };
 
-  callOp(::ttnn::softmax);
+  return callOp<SoftmaxOpResult>(::ttnn::softmax, callType, makeTuple, device);
 }
 
 } // namespace ttnn_op_invoke

@@ -61,7 +61,9 @@ SplitQueryKeyValueAndSplitHeadsOpResult callSplitQueryKeyValueAndSplitHeads(
                                                       params);
   };
 
-  callOp(::ttnn::transformer::split_query_key_value_and_split_heads);
+  return callOp<SplitQueryKeyValueAndSplitHeadsOpResult>(
+      ::ttnn::transformer::split_query_key_value_and_split_heads, callType,
+      makeTuple, device);
 }
 
 } // namespace ttnn_op_invoke

@@ -101,8 +101,7 @@ callPrepareConv2dBias(CallType callType,
     return createPrepareConv2dBiasTuple(tag, opT, biasTensor, device, params);
   };
 
-  tryCallingOp(::ttnn::operations::conv::conv2d::prepare_conv_bias, true, false,
-               "PrepareConv2dBiasOp");
+  return callOp<PrepareConv2dBiasOpResult, true, false>(::ttnn::operations::conv::conv2d::prepare_conv_bias, callType, makeTuple, device, "PrepareConv2dBiasOp");
 }
 
 } // namespace ttnn_op_invoke

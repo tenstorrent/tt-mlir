@@ -115,7 +115,7 @@ Conv3dOpResult callConv3d(CallType callType,
                              params);
   };
 
-  callOp(::ttnn::experimental::conv3d);
+  return callOp<Conv3dOpResult>(::ttnn::experimental::conv3d, callType, makeTuple, device);
 }
 
 } // namespace ttnn_op_invoke
