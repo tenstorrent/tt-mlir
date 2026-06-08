@@ -1,12 +1,15 @@
 #include "engine/compile.hpp"
 
+#include <cstdint>
 #include <cstdlib>
 #include <memory>
 #include <mutex>
 #include <utility>
+#include <vector>
 
 #include "assert.hpp"
 #include "config.hpp"
+#include "engine/device.hpp"
 #include "misc.hpp"
 #include <llvm/Support/raw_ostream.h>
 #include <mlir/IR/BuiltinOps.h>
@@ -132,6 +135,7 @@ CompiledProgram run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const Compil
     MLIRCompileGuard guard;
 
     // Hash before any IR mutations so the key reflects the original TTIR.
+    // TODO: also fold the CompileOptions (meshShape, etc.) into the key.
     std::string key = hash_module(module_op);
     if (auto *entry = cache[key]) {
         return *entry;
@@ -154,6 +158,10 @@ CompiledProgram run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const Compil
     pm_opts.optimizationLevel = options.optimization_level;
     pm_opts.systemDescPath = options.system_desc.has_value() ? std::string{} : options.system_desc_path;
     pm_opts.mockSystemDescArch = to_ttcore_arch(options.mock_arch);
+
+    // Pass in the currently opened device mesh shape - otherwise the CCL ops will hit issues during compilation.
+    const auto mesh_shape = ::tt::kurbla::runtime_device_mesh_shape();
+    pm_opts.meshShape = std::vector<std::int64_t>(mesh_shape.begin(), mesh_shape.end());
 
     mlir::PassManager pm(module_op.getContext(), mlir::ModuleOp::getOperationName());
     mlir::tt::ttnn::createTTIRToTTNNRuntimePipeline(pm, pm_opts);
