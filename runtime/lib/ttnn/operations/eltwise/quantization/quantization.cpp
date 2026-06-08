@@ -74,8 +74,7 @@ runQuantizeDequantize(const ::tt::target::ttnn::EltwiseQuantizationOp *op,
           &input, scale, zeroPoint);
 
   LOG_ASSERT(
-      std::holds_alternative<::ttnn::Tensor>(result),
-      "Expected output Tensor from callEltwiseQuantizeDequantize execution");
+      std::holds_alternative<::ttnn::Tensor>(result),"Expected output Tensor from callEltwiseQuantizeDequantize execution");
 
   ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
 

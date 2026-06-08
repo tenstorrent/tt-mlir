@@ -71,7 +71,7 @@ ScaledDotProductAttentionOpResult callScaledDotProductAttention(
   };
 
   return callOp<ScaledDotProductAttentionOpResult>(
-      ::ttnn::transformer::scaled_dot_product_attention, callType, makeTuple,
+      WRAP_OP(::ttnn::transformer::scaled_dot_product_attention), callType, makeTuple,
       device);
 }
 

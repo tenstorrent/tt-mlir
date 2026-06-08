@@ -70,7 +70,7 @@ LayerNormPreAllGatherOpResult callLayerNormPreAllGather(
   };
 
   return callOp<LayerNormPreAllGatherOpResult>(
-      ::ttnn::layer_norm_pre_all_gather, callType, makeTuple, device);
+      WRAP_OP(::ttnn::layer_norm_pre_all_gather), callType, makeTuple, device);
 }
 
 } // namespace ttnn_op_invoke

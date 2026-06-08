@@ -99,7 +99,7 @@ BatchNormOpResult callBatchNormInference(
                                          runningVar, weight, bias, params);
   };
 
-  return callOp<BatchNormOpResult>(::ttnn::batch_norm, callType, makeTuple,
+  return callOp<BatchNormOpResult>(WRAP_OP(::ttnn::batch_norm), callType, makeTuple,
                                    device);
 }
 
@@ -115,7 +115,7 @@ BatchNormOpResult callBatchNormTraining(
                                         runningVar, weight, bias, params);
   };
 
-  return callOp<BatchNormOpResult>(::ttnn::batch_norm, callType, makeTuple,
+  return callOp<BatchNormOpResult>(WRAP_OP(::ttnn::batch_norm), callType, makeTuple,
                                    device);
 }
 

@@ -66,7 +66,7 @@ LayerNormPostAllGatherOpResult callLayerNormPostAllGather(
   };
 
   return callOp<LayerNormPostAllGatherOpResult>(
-      ::ttnn::layer_norm_post_all_gather, callType, makeTuple, device);
+      WRAP_OP(::ttnn::layer_norm_post_all_gather), callType, makeTuple, device);
 }
 
 } // namespace ttnn_op_invoke

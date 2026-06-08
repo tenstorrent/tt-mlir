@@ -47,7 +47,7 @@ callConcatenateHeads(CallType callType,
   };
 
   return callOp<ConcatenateHeadsOpResult>(
-      ::ttnn::transformer::concatenate_heads, callType, makeTuple, device);
+      WRAP_OP(::ttnn::transformer::concatenate_heads), callType, makeTuple, device);
 }
 
 } // namespace ttnn_op_invoke

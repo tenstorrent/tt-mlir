@@ -74,7 +74,7 @@ callNLPConcatHeadsDecode(CallType callType,
   };
 
   return callOp<NLPConcatHeadsDecodeOpResult>(
-      ::ttnn::experimental::nlp_concat_heads_decode, callType, makeTuple,
+      WRAP_OP(::ttnn::experimental::nlp_concat_heads_decode), callType, makeTuple,
       device);
 }
 

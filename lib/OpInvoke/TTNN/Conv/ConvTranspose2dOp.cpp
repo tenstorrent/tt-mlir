@@ -104,7 +104,7 @@ ConvTranspose2dOpResult callConvTranspose2d(
                                       bias, device, params);
   };
 
-  return callOp<ConvTranspose2dOpResult>(::ttnn::conv_transpose2d, callType, makeTuple, device);
+  return callOp<ConvTranspose2dOpResult>(WRAP_OP(::ttnn::conv_transpose2d), callType, makeTuple, device);
 }
 
 } // namespace ttnn_op_invoke

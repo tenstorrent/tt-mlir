@@ -65,7 +65,7 @@ callRMSNormPreAllGather(CallType callType,
     return createRMSNormPreAllGatherTuple(tag, opT, input, residual, params);
   };
 
-  return callOp<RMSNormPreAllGatherOpResult>(::ttnn::rms_norm_pre_all_gather,
+  return callOp<RMSNormPreAllGatherOpResult>(WRAP_OP(::ttnn::rms_norm_pre_all_gather),
                                              callType, makeTuple, device);
 }
 
