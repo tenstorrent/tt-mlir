@@ -14,14 +14,15 @@ void run(const ::tt::target::ttnn::NLPConcatHeadsDecodeOp *op,
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  ::tt::target::ttnn::NLPConcatHeadsDecodeOpT opT;
-  op->UnPackTo(&opT);
+  ::tt::target::ttnn::NLPConcatHeadsDecodeOpT nlpConcatHeadsDecodeOpNative;
+  op->UnPackTo(&nlpConcatHeadsDecodeOpNative);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ttnn_op_invoke::NLPConcatHeadsDecodeOpResult result =
       ttnn_op_invoke::callNLPConcatHeadsDecode(
-          ttnn_op_invoke::CallType::EXECUTE, opT, &in, &targetDevice);
+          ttnn_op_invoke::CallType::EXECUTE, nlpConcatHeadsDecodeOpNative, &in,
+          &targetDevice);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
              "Expected Tensor from callNLPConcatHeadsDecode execution");

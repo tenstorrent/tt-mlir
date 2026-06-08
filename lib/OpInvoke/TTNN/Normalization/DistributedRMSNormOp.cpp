@@ -15,34 +15,34 @@
 namespace ttnn_op_invoke {
 
 DistributedRMSNormResolvedParams resolveDistributedRMSNormParams(
-    const ::tt::target::ttnn::DistributedRMSNormOpT &opT) {
+    const ::tt::target::ttnn::DistributedRMSNormOpT &op) {
   DistributedRMSNormResolvedParams params;
-  if (opT.compute_config) {
+  if (op.compute_config) {
     params.computeConfig =
-        operations::utils::createDeviceComputeKernelConfig(*opT.compute_config);
+        operations::utils::createDeviceComputeKernelConfig(*op.compute_config);
   }
-  if (opT.program_config) {
+  if (op.program_config) {
     params.programConfig =
         operations::utils::createLayerNormShardedMultiCoreProgramConfig(
-            *opT.program_config);
+            *op.program_config);
   }
-  if (opT.sub_device_id.has_value()) {
+  if (op.sub_device_id.has_value()) {
     params.subDeviceId = std::make_optional<::tt::tt_metal::SubDeviceId>(
-        opT.sub_device_id.value());
+        op.sub_device_id.value());
   }
-  if (opT.num_links.has_value()) {
-    params.numLinks = static_cast<size_t>(opT.num_links.value());
+  if (op.num_links.has_value()) {
+    params.numLinks = static_cast<size_t>(op.num_links.value());
   }
-  if (opT.topology.has_value()) {
+  if (op.topology.has_value()) {
     params.topology = static_cast<::ttnn::ccl::Topology>(
-        ::tt::runtime::common::toMetalTopology(opT.topology.value()));
+        ::tt::runtime::common::toMetalTopology(op.topology.value()));
   }
   params.dtype = std::nullopt;
   params.useNoc1Only = false;
-  if (opT.out) {
+  if (op.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*opT.out));
-    LOG_ASSERT(operations::utils::inSystemMemory(*opT.out) ||
+        operations::utils::getTensorRefMemoryConfig(*op.out));
+    LOG_ASSERT(operations::utils::inSystemMemory(*op.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");
   }
@@ -51,13 +51,13 @@ DistributedRMSNormResolvedParams resolveDistributedRMSNormParams(
 
 template <typename Tag>
 auto createDistributedRMSNormTuple(
-    Tag tag, const ::tt::target::ttnn::DistributedRMSNormOpT &opT,
+    Tag tag, const ::tt::target::ttnn::DistributedRMSNormOpT &op,
     TensorArg input, std::optional<TensorArg> residual_input_tensor,
     std::optional<TensorArg> weight, std::optional<TensorArg> stats,
     ::ttnn::MeshDevice *device, const ::ttnn::GlobalSemaphore &semaphore,
     const DistributedRMSNormResolvedParams &params) {
   return std::make_tuple(
-      resolveTensorArg(input, tag), params.programConfig, opT.cluster_axis,
+      resolveTensorArg(input, tag), params.programConfig, op.cluster_axis,
       std::cref(*device), semaphore,
       /*persistent_output_tensor=*/std::nullopt, params.numLinks,
       params.topology, params.subDeviceId, params.dtype, params.computeConfig,
@@ -65,7 +65,7 @@ auto createDistributedRMSNormTuple(
       residual_input_tensor
           ? std::make_optional(resolveTensorArg(*residual_input_tensor, tag))
           : std::nullopt,
-      opT.epsilon,
+      op.epsilon,
       weight ? std::make_optional(resolveTensorArg(*weight, tag))
              : std::nullopt,
       stats ? std::make_optional(resolveTensorArg(*stats, tag)) : std::nullopt,
@@ -73,15 +73,14 @@ auto createDistributedRMSNormTuple(
 }
 
 DistributedRMSNormOpResult callDistributedRMSNorm(
-    CallType callType, const ::tt::target::ttnn::DistributedRMSNormOpT &opT,
+    CallType callType, const ::tt::target::ttnn::DistributedRMSNormOpT &op,
     TensorArg input, std::optional<TensorArg> residual_input_tensor,
     std::optional<TensorArg> weight, std::optional<TensorArg> stats,
     const ::ttnn::GlobalSemaphore &semaphore, ::ttnn::MeshDevice *device) {
-  DistributedRMSNormResolvedParams params =
-      resolveDistributedRMSNormParams(opT);
+  DistributedRMSNormResolvedParams params = resolveDistributedRMSNormParams(op);
 
   auto makeTuple = [&](auto tag) {
-    return createDistributedRMSNormTuple(tag, opT, input, residual_input_tensor,
+    return createDistributedRMSNormTuple(tag, op, input, residual_input_tensor,
                                          weight, stats, device, semaphore,
                                          params);
   };

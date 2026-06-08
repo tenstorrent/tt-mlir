@@ -28,11 +28,11 @@ struct GroupNormResolvedParams {
 };
 
 GroupNormResolvedParams
-resolveGroupNormParams(const ::tt::target::ttnn::GroupNormOpT &opT,
+resolveGroupNormParams(const ::tt::target::ttnn::GroupNormOpT &op,
                        CallType callType);
 
 GroupNormOpResult
-callGroupNorm(CallType callType, const ::tt::target::ttnn::GroupNormOpT &opT,
+callGroupNorm(CallType callType, const ::tt::target::ttnn::GroupNormOpT &op,
               TensorArg input, std::optional<TensorArg> inputMask,
               std::optional<TensorArg> weight, std::optional<TensorArg> bias,
               ::ttnn::MeshDevice *device);

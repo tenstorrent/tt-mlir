@@ -20,14 +20,15 @@ void run(const ::tt::target::ttnn::RMSNormPreAllGatherOp *op,
     residual.emplace(tensorPool.getTTNNTensorAndValidate(op->residual()));
   }
 
-  ::tt::target::ttnn::RMSNormPreAllGatherOpT opT;
-  op->UnPackTo(&opT);
+  ::tt::target::ttnn::RMSNormPreAllGatherOpT rmsNormPreAllGatherOpNative;
+  op->UnPackTo(&rmsNormPreAllGatherOpNative);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ttnn_op_invoke::RMSNormPreAllGatherOpResult result =
       ttnn_op_invoke::callRMSNormPreAllGather(
-          ttnn_op_invoke::CallType::EXECUTE, opT, &input,
+          ttnn_op_invoke::CallType::EXECUTE, rmsNormPreAllGatherOpNative,
+          &input,
           residual.has_value()
               ? std::optional<ttnn_op_invoke::TensorArg>(&*residual)
               : std::nullopt,

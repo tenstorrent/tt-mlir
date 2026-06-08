@@ -12,13 +12,13 @@ void run(const ::tt::target::ttnn::SoftmaxOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  ::tt::target::ttnn::SoftmaxOpT opT;
-  op->UnPackTo(&opT);
+  ::tt::target::ttnn::SoftmaxOpT softmaxOpNative;
+  op->UnPackTo(&softmaxOpNative);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ttnn_op_invoke::SoftmaxOpResult result = ttnn_op_invoke::callSoftmax(
-      ttnn_op_invoke::CallType::EXECUTE, opT, &in, &targetDevice);
+      ttnn_op_invoke::CallType::EXECUTE, softmaxOpNative, &in, &targetDevice);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
              "Expected Tensor from callSoftmax execution");

@@ -32,11 +32,11 @@ struct SplitQueryKeyValueAndSplitHeadsResolvedParams {
 
 SplitQueryKeyValueAndSplitHeadsResolvedParams
 resolveSplitQueryKeyValueAndSplitHeadsParams(
-    const ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT &opT);
+    const ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT &op);
 
 SplitQueryKeyValueAndSplitHeadsOpResult callSplitQueryKeyValueAndSplitHeads(
     CallType callType,
-    const ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT &opT,
+    const ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT &op,
     TensorArg input, std::optional<TensorArg> kvInput,
     ::ttnn::MeshDevice *device);
 

@@ -29,19 +29,19 @@ struct BatchNormResolvedParams {
 };
 
 BatchNormResolvedParams resolveBatchNormInferenceParams(
-    const ::tt::target::ttnn::BatchNormInferenceOpT &opT);
+    const ::tt::target::ttnn::BatchNormInferenceOpT &op);
 
 BatchNormResolvedParams resolveBatchNormTrainingParams(
-    const ::tt::target::ttnn::BatchNormTrainingOpT &opT);
+    const ::tt::target::ttnn::BatchNormTrainingOpT &op);
 
 BatchNormOpResult callBatchNormInference(
-    CallType callType, const ::tt::target::ttnn::BatchNormInferenceOpT &opT,
+    CallType callType, const ::tt::target::ttnn::BatchNormInferenceOpT &op,
     TensorArg input, std::optional<TensorArg> runningMean,
     std::optional<TensorArg> runningVar, std::optional<TensorArg> weight,
     std::optional<TensorArg> bias, ::ttnn::MeshDevice *device);
 
 BatchNormOpResult callBatchNormTraining(
-    CallType callType, const ::tt::target::ttnn::BatchNormTrainingOpT &opT,
+    CallType callType, const ::tt::target::ttnn::BatchNormTrainingOpT &op,
     TensorArg input, std::optional<TensorArg> runningMean,
     std::optional<TensorArg> runningVar, std::optional<TensorArg> weight,
     std::optional<TensorArg> bias, ::ttnn::MeshDevice *device);

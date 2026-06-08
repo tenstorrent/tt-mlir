@@ -28,11 +28,11 @@ struct ConcatenateHeadsResolvedParams {
 };
 
 ConcatenateHeadsResolvedParams resolveConcatenateHeadsParams(
-    const ::tt::target::ttnn::ConcatenateHeadsOpT &opT);
+    const ::tt::target::ttnn::ConcatenateHeadsOpT &op);
 
 ConcatenateHeadsOpResult
 callConcatenateHeads(CallType callType,
-                     const ::tt::target::ttnn::ConcatenateHeadsOpT &opT,
+                     const ::tt::target::ttnn::ConcatenateHeadsOpT &op,
                      TensorArg input, ::ttnn::MeshDevice *device);
 
 } // namespace ttnn_op_invoke

@@ -24,13 +24,13 @@ void run(const ::tt::target::ttnn::RMSNormOp *op, ProgramContext &context) {
     bias = tensorPool.getTTNNTensorAndValidate(op->bias());
   }
 
-  ::tt::target::ttnn::RMSNormOpT opT;
-  op->UnPackTo(&opT);
+  ::tt::target::ttnn::RMSNormOpT rmsNormOpNative;
+  op->UnPackTo(&rmsNormOpNative);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ttnn_op_invoke::RMSNormOpResult result = ttnn_op_invoke::callRMSNorm(
-      ttnn_op_invoke::CallType::EXECUTE, opT, &input,
+      ttnn_op_invoke::CallType::EXECUTE, rmsNormOpNative, &input,
       weight.has_value() ? std::optional<ttnn_op_invoke::TensorArg>(&*weight)
                          : std::nullopt,
       bias.has_value() ? std::optional<ttnn_op_invoke::TensorArg>(&*bias)

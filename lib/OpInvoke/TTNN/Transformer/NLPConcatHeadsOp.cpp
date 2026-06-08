@@ -16,12 +16,12 @@
 namespace ttnn_op_invoke {
 
 NLPConcatHeadsResolvedParams
-resolveNLPConcatHeadsParams(const ::tt::target::ttnn::NLPConcatHeadsOpT &opT) {
+resolveNLPConcatHeadsParams(const ::tt::target::ttnn::NLPConcatHeadsOpT &op) {
   NLPConcatHeadsResolvedParams params;
-  if (opT.out) {
+  if (op.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*opT.out));
-    LOG_ASSERT(operations::utils::inSystemMemory(*opT.out) ||
+        operations::utils::getTensorRefMemoryConfig(*op.out));
+    LOG_ASSERT(operations::utils::inSystemMemory(*op.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");
   }
@@ -30,7 +30,7 @@ resolveNLPConcatHeadsParams(const ::tt::target::ttnn::NLPConcatHeadsOpT &opT) {
 
 template <typename Tag>
 auto createNLPConcatHeadsTuple(
-    Tag tag, const ::tt::target::ttnn::NLPConcatHeadsOpT & /*opT*/,
+    Tag tag, const ::tt::target::ttnn::NLPConcatHeadsOpT & /*op*/,
     TensorArg input, const NLPConcatHeadsResolvedParams &params) {
   return std::make_tuple(resolveTensorArg(input, tag),
                          params.outputMemoryConfig);
@@ -38,12 +38,12 @@ auto createNLPConcatHeadsTuple(
 
 NLPConcatHeadsOpResult
 callNLPConcatHeads(CallType callType,
-                   const ::tt::target::ttnn::NLPConcatHeadsOpT &opT,
+                   const ::tt::target::ttnn::NLPConcatHeadsOpT &op,
                    TensorArg input, ::ttnn::MeshDevice *device) {
-  NLPConcatHeadsResolvedParams params = resolveNLPConcatHeadsParams(opT);
+  NLPConcatHeadsResolvedParams params = resolveNLPConcatHeadsParams(op);
 
   auto makeTuple = [&](auto tag) {
-    return createNLPConcatHeadsTuple(tag, opT, input, params);
+    return createNLPConcatHeadsTuple(tag, op, input, params);
   };
 
   return callOp<NLPConcatHeadsOpResult>(

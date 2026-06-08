@@ -33,11 +33,11 @@ struct ScaledDotProductAttentionDecodeResolvedParams {
 
 ScaledDotProductAttentionDecodeResolvedParams
 resolveScaledDotProductAttentionDecodeParams(
-    const ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT &opT);
+    const ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT &op);
 
 ScaledDotProductAttentionDecodeOpResult callScaledDotProductAttentionDecode(
     CallType callType,
-    const ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT &opT,
+    const ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT &op,
     TensorArg query, TensorArg key, TensorArg value,
     std::optional<TensorArg> attentionMask,
     std::optional<TensorArg> curPosTensor,

@@ -22,15 +22,15 @@ void run(const ::tt::target::ttnn::BatchNormInferenceOp *op,
       tensorPool.getTTNNTensorAndValidate(op->weight());
   const ::ttnn::Tensor &bias = tensorPool.getTTNNTensorAndValidate(op->bias());
 
-  ::tt::target::ttnn::BatchNormInferenceOpT opT;
-  op->UnPackTo(&opT);
+  ::tt::target::ttnn::BatchNormInferenceOpT batchNormInferenceOpNative;
+  op->UnPackTo(&batchNormInferenceOpNative);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ttnn_op_invoke::BatchNormOpResult result =
       ttnn_op_invoke::callBatchNormInference(
-          ttnn_op_invoke::CallType::EXECUTE, opT, &input, &runningMean,
-          &runningVar, &weight, &bias, &targetDevice);
+          ttnn_op_invoke::CallType::EXECUTE, batchNormInferenceOpNative, &input,
+          &runningMean, &runningVar, &weight, &bias, &targetDevice);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
              "Expected Tensor from callBatchNormInference execution");
@@ -53,15 +53,15 @@ void run(const ::tt::target::ttnn::BatchNormTrainingOp *op,
       tensorPool.getTTNNTensorAndValidate(op->weight());
   const ::ttnn::Tensor &bias = tensorPool.getTTNNTensorAndValidate(op->bias());
 
-  ::tt::target::ttnn::BatchNormTrainingOpT opT;
-  op->UnPackTo(&opT);
+  ::tt::target::ttnn::BatchNormTrainingOpT batchNormTrainingOpNative;
+  op->UnPackTo(&batchNormTrainingOpNative);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ttnn_op_invoke::BatchNormOpResult result =
       ttnn_op_invoke::callBatchNormTraining(
-          ttnn_op_invoke::CallType::EXECUTE, opT, &input, &runningMean,
-          &runningVar, &weight, &bias, &targetDevice);
+          ttnn_op_invoke::CallType::EXECUTE, batchNormTrainingOpNative, &input,
+          &runningMean, &runningVar, &weight, &bias, &targetDevice);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
              "Expected Tensor from callBatchNormTraining execution");

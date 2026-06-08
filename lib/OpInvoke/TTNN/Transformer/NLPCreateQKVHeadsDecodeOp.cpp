@@ -18,13 +18,13 @@
 namespace ttnn_op_invoke {
 
 NLPCreateQKVHeadsDecodeResolvedParams resolveNLPCreateQKVHeadsDecodeParams(
-    const ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT &opT) {
+    const ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT &op) {
   NLPCreateQKVHeadsDecodeResolvedParams params;
   params.optionalOutputTensors = std::nullopt;
 
-  if (opT.memcfg) {
+  if (op.memcfg) {
     params.outputMemoryConfig =
-        operations::utils::createMemoryConfigIfNeeded(*opT.memcfg);
+        operations::utils::createMemoryConfigIfNeeded(*op.memcfg);
   }
 
   return params;
@@ -32,23 +32,22 @@ NLPCreateQKVHeadsDecodeResolvedParams resolveNLPCreateQKVHeadsDecodeParams(
 
 template <typename Tag>
 auto createNLPCreateQKVHeadsDecodeTuple(
-    Tag tag, const ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT &opT,
+    Tag tag, const ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT &op,
     TensorArg input, std::optional<TensorArg> batchOffset,
     const NLPCreateQKVHeadsDecodeResolvedParams &params) {
   std::optional<const uint32_t> numKVHeads =
-      opT.num_kv_heads.has_value()
-          ? std::optional<const uint32_t>(*opT.num_kv_heads)
+      op.num_kv_heads.has_value()
+          ? std::optional<const uint32_t>(*op.num_kv_heads)
           : std::nullopt;
   std::optional<const bool> overlapQKCoregrid =
-      opT.overlap_qk_coregrid.has_value()
-          ? std::optional<const bool>(*opT.overlap_qk_coregrid)
+      op.overlap_qk_coregrid.has_value()
+          ? std::optional<const bool>(*op.overlap_qk_coregrid)
           : std::nullopt;
   std::optional<const uint32_t> sliceSize =
-      opT.slice_size.has_value()
-          ? std::optional<const uint32_t>(*opT.slice_size)
-          : std::nullopt;
+      op.slice_size.has_value() ? std::optional<const uint32_t>(*op.slice_size)
+                                : std::nullopt;
   return std::make_tuple(
-      resolveTensorArg(input, tag), opT.num_heads, numKVHeads,
+      resolveTensorArg(input, tag), op.num_heads, numKVHeads,
       params.optionalOutputTensors, overlapQKCoregrid,
       batchOffset ? std::make_optional(resolveTensorArg(*batchOffset, tag))
                   : std::nullopt,
@@ -56,14 +55,14 @@ auto createNLPCreateQKVHeadsDecodeTuple(
 }
 
 NLPCreateQKVHeadsDecodeOpResult callNLPCreateQKVHeadsDecode(
-    CallType callType,
-    const ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT &opT, TensorArg input,
-    std::optional<TensorArg> batchOffset, ::ttnn::MeshDevice *device) {
+    CallType callType, const ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT &op,
+    TensorArg input, std::optional<TensorArg> batchOffset,
+    ::ttnn::MeshDevice *device) {
   NLPCreateQKVHeadsDecodeResolvedParams params =
-      resolveNLPCreateQKVHeadsDecodeParams(opT);
+      resolveNLPCreateQKVHeadsDecodeParams(op);
 
   auto makeTuple = [&](auto tag) {
-    return createNLPCreateQKVHeadsDecodeTuple(tag, opT, input, batchOffset,
+    return createNLPCreateQKVHeadsDecodeTuple(tag, op, input, batchOffset,
                                               params);
   };
 

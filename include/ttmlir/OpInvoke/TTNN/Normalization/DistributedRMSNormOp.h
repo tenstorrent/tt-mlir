@@ -37,10 +37,10 @@ struct DistributedRMSNormResolvedParams {
 };
 
 DistributedRMSNormResolvedParams resolveDistributedRMSNormParams(
-    const ::tt::target::ttnn::DistributedRMSNormOpT &opT);
+    const ::tt::target::ttnn::DistributedRMSNormOpT &op);
 
 DistributedRMSNormOpResult callDistributedRMSNorm(
-    CallType callType, const ::tt::target::ttnn::DistributedRMSNormOpT &opT,
+    CallType callType, const ::tt::target::ttnn::DistributedRMSNormOpT &op,
     TensorArg input, std::optional<TensorArg> residual_input_tensor,
     std::optional<TensorArg> weight, std::optional<TensorArg> stats,
     const ::ttnn::GlobalSemaphore &semaphore, ::ttnn::MeshDevice *device);

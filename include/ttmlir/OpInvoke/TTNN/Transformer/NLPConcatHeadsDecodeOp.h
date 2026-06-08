@@ -29,12 +29,12 @@ struct NLPConcatHeadsDecodeResolvedParams {
 };
 
 NLPConcatHeadsDecodeResolvedParams resolveNLPConcatHeadsDecodeParams(
-    const ::tt::target::ttnn::NLPConcatHeadsDecodeOpT &opT, CallType callType,
+    const ::tt::target::ttnn::NLPConcatHeadsDecodeOpT &op, CallType callType,
     TensorArg input);
 
 NLPConcatHeadsDecodeOpResult
 callNLPConcatHeadsDecode(CallType callType,
-                         const ::tt::target::ttnn::NLPConcatHeadsDecodeOpT &opT,
+                         const ::tt::target::ttnn::NLPConcatHeadsDecodeOpT &op,
                          TensorArg input, ::ttnn::MeshDevice *device);
 
 } // namespace ttnn_op_invoke

@@ -15,23 +15,23 @@
 
 namespace ttnn_op_invoke {
 
-RotaryEmbeddingResolvedParams resolveRotaryEmbeddingParams(
-    const ::tt::target::ttnn::RotaryEmbeddingOpT &opT) {
+RotaryEmbeddingResolvedParams
+resolveRotaryEmbeddingParams(const ::tt::target::ttnn::RotaryEmbeddingOpT &op) {
   RotaryEmbeddingResolvedParams params;
 
-  if (opT.token_index.has_value()) {
-    params.tokenIndex = *opT.token_index;
+  if (op.token_index.has_value()) {
+    params.tokenIndex = *op.token_index;
   }
 
-  if (opT.compute_config) {
+  if (op.compute_config) {
     params.computeConfig =
-        operations::utils::createDeviceComputeKernelConfig(*opT.compute_config);
+        operations::utils::createDeviceComputeKernelConfig(*op.compute_config);
   }
 
-  if (opT.out) {
+  if (op.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*opT.out));
-    LOG_ASSERT(operations::utils::inSystemMemory(*opT.out) ||
+        operations::utils::getTensorRefMemoryConfig(*op.out));
+    LOG_ASSERT(operations::utils::inSystemMemory(*op.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");
   }
@@ -41,7 +41,7 @@ RotaryEmbeddingResolvedParams resolveRotaryEmbeddingParams(
 
 template <typename Tag>
 auto createRotaryEmbeddingTuple(
-    Tag tag, const ::tt::target::ttnn::RotaryEmbeddingOpT &opT, TensorArg input,
+    Tag tag, const ::tt::target::ttnn::RotaryEmbeddingOpT &op, TensorArg input,
     TensorArg cosCache, TensorArg sinCache,
     const RotaryEmbeddingResolvedParams &params) {
   return std::make_tuple(resolveTensorArg(input, tag),
@@ -52,13 +52,13 @@ auto createRotaryEmbeddingTuple(
 
 RotaryEmbeddingOpResult
 callRotaryEmbedding(CallType callType,
-                    const ::tt::target::ttnn::RotaryEmbeddingOpT &opT,
+                    const ::tt::target::ttnn::RotaryEmbeddingOpT &op,
                     TensorArg input, TensorArg cosCache, TensorArg sinCache,
                     ::ttnn::MeshDevice *device) {
-  RotaryEmbeddingResolvedParams params = resolveRotaryEmbeddingParams(opT);
+  RotaryEmbeddingResolvedParams params = resolveRotaryEmbeddingParams(op);
 
   auto makeTuple = [&](auto tag) {
-    return createRotaryEmbeddingTuple(tag, opT, input, cosCache, sinCache,
+    return createRotaryEmbeddingTuple(tag, op, input, cosCache, sinCache,
                                       params);
   };
 

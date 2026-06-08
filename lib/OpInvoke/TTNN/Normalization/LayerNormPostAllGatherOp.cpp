@@ -14,24 +14,24 @@
 namespace ttnn_op_invoke {
 
 LayerNormPostAllGatherResolvedParams resolveLayerNormPostAllGatherParams(
-    const ::tt::target::ttnn::LayerNormPostAllGatherOpT &opT) {
+    const ::tt::target::ttnn::LayerNormPostAllGatherOpT &op) {
   LayerNormPostAllGatherResolvedParams params;
-  if (opT.out) {
-    params.outputDtype = operations::utils::getDataType(*opT.out);
+  if (op.out) {
+    params.outputDtype = operations::utils::getDataType(*op.out);
   }
-  if (opT.compute_config) {
+  if (op.compute_config) {
     params.computeConfig =
-        operations::utils::createDeviceComputeKernelConfig(*opT.compute_config);
+        operations::utils::createDeviceComputeKernelConfig(*op.compute_config);
   }
-  if (opT.program_config) {
+  if (op.program_config) {
     params.programConfig =
         operations::utils::createLayerNormShardedMultiCoreProgramConfig(
-            *opT.program_config);
+            *op.program_config);
   }
-  if (opT.out) {
+  if (op.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*opT.out));
-    LOG_ASSERT(operations::utils::inSystemMemory(*opT.out) ||
+        operations::utils::getTensorRefMemoryConfig(*op.out));
+    LOG_ASSERT(operations::utils::inSystemMemory(*op.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");
   }
@@ -40,12 +40,12 @@ LayerNormPostAllGatherResolvedParams resolveLayerNormPostAllGatherParams(
 
 template <typename Tag>
 auto createLayerNormPostAllGatherTuple(
-    Tag tag, const ::tt::target::ttnn::LayerNormPostAllGatherOpT &opT,
+    Tag tag, const ::tt::target::ttnn::LayerNormPostAllGatherOpT &op,
     TensorArg input, TensorArg stats, std::optional<TensorArg> weight,
     std::optional<TensorArg> bias,
     const LayerNormPostAllGatherResolvedParams &params) {
   return std::make_tuple(
-      resolveTensorArg(input, tag), resolveTensorArg(stats, tag), opT.epsilon,
+      resolveTensorArg(input, tag), resolveTensorArg(stats, tag), op.epsilon,
       weight ? std::make_optional(resolveTensorArg(*weight, tag))
              : std::nullopt,
       bias ? std::make_optional(resolveTensorArg(*bias, tag)) : std::nullopt,
@@ -54,14 +54,14 @@ auto createLayerNormPostAllGatherTuple(
 }
 
 LayerNormPostAllGatherOpResult callLayerNormPostAllGather(
-    CallType callType, const ::tt::target::ttnn::LayerNormPostAllGatherOpT &opT,
+    CallType callType, const ::tt::target::ttnn::LayerNormPostAllGatherOpT &op,
     TensorArg input, TensorArg stats, std::optional<TensorArg> weight,
     std::optional<TensorArg> bias, ::ttnn::MeshDevice *device) {
   LayerNormPostAllGatherResolvedParams params =
-      resolveLayerNormPostAllGatherParams(opT);
+      resolveLayerNormPostAllGatherParams(op);
 
   auto makeTuple = [&](auto tag) {
-    return createLayerNormPostAllGatherTuple(tag, opT, input, stats, weight,
+    return createLayerNormPostAllGatherTuple(tag, op, input, stats, weight,
                                              bias, params);
   };
 

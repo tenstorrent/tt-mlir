@@ -14,16 +14,16 @@
 namespace ttnn_op_invoke {
 
 RMSNormResolvedParams
-resolveRMSNormParams(const ::tt::target::ttnn::RMSNormOpT &opT) {
+resolveRMSNormParams(const ::tt::target::ttnn::RMSNormOpT &op) {
   RMSNormResolvedParams params;
-  if (opT.compute_config) {
+  if (op.compute_config) {
     params.computeConfig =
-        operations::utils::createDeviceComputeKernelConfig(*opT.compute_config);
+        operations::utils::createDeviceComputeKernelConfig(*op.compute_config);
   }
-  if (opT.out) {
+  if (op.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*opT.out));
-    LOG_ASSERT(operations::utils::inSystemMemory(*opT.out) ||
+        operations::utils::getTensorRefMemoryConfig(*op.out));
+    LOG_ASSERT(operations::utils::inSystemMemory(*op.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");
   }
@@ -31,12 +31,12 @@ resolveRMSNormParams(const ::tt::target::ttnn::RMSNormOpT &opT) {
 }
 
 template <typename Tag>
-auto createRMSNormTuple(Tag tag, const ::tt::target::ttnn::RMSNormOpT &opT,
+auto createRMSNormTuple(Tag tag, const ::tt::target::ttnn::RMSNormOpT &op,
                         TensorArg input, std::optional<TensorArg> weight,
                         std::optional<TensorArg> bias,
                         const RMSNormResolvedParams &params) {
   return std::make_tuple(
-      resolveTensorArg(input, tag), opT.epsilon,
+      resolveTensorArg(input, tag), op.epsilon,
       weight ? std::make_optional(resolveTensorArg(*weight, tag))
              : std::nullopt,
       bias ? std::make_optional(resolveTensorArg(*bias, tag)) : std::nullopt,
@@ -45,14 +45,14 @@ auto createRMSNormTuple(Tag tag, const ::tt::target::ttnn::RMSNormOpT &opT,
 }
 
 RMSNormOpResult callRMSNorm(CallType callType,
-                            const ::tt::target::ttnn::RMSNormOpT &opT,
+                            const ::tt::target::ttnn::RMSNormOpT &op,
                             TensorArg input, std::optional<TensorArg> weight,
                             std::optional<TensorArg> bias,
                             ::ttnn::MeshDevice *device) {
-  RMSNormResolvedParams params = resolveRMSNormParams(opT);
+  RMSNormResolvedParams params = resolveRMSNormParams(op);
 
   auto makeTuple = [&](auto tag) {
-    return createRMSNormTuple(tag, opT, input, weight, bias, params);
+    return createRMSNormTuple(tag, op, input, weight, bias, params);
   };
 
   return callOp<RMSNormOpResult>(WRAP_OP(::ttnn::rms_norm), callType, makeTuple,

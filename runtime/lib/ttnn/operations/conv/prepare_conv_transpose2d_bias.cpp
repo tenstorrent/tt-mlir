@@ -14,14 +14,16 @@ void run(const ::tt::target::ttnn::PrepareConvTranspose2dBiasOp *op,
   const ::ttnn::Tensor &biasTensor =
       tensorPool.getTTNNTensorAndValidate(op->bias_tensor());
 
-  ::tt::target::ttnn::PrepareConvTranspose2dBiasOpT opT;
-  op->UnPackTo(&opT);
+  ::tt::target::ttnn::PrepareConvTranspose2dBiasOpT
+      prepareConvTranspose2dBiasOpNative;
+  op->UnPackTo(&prepareConvTranspose2dBiasOpNative);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ttnn_op_invoke::PrepareConvTranspose2dBiasOpResult result =
       ttnn_op_invoke::callPrepareConvTranspose2dBias(
-          ttnn_op_invoke::CallType::EXECUTE, opT, &biasTensor, &targetDevice);
+          ttnn_op_invoke::CallType::EXECUTE, prepareConvTranspose2dBiasOpNative,
+          &biasTensor, &targetDevice);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
              "Expected Tensor from callPrepareConvTranspose2dBias execution");

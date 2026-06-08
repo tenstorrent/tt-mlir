@@ -21,14 +21,16 @@ void run(const ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOp *op,
     batchOffset = tensorPool.getTTNNTensorAndValidate(op->batch_offset());
   }
 
-  ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT opT;
-  op->UnPackTo(&opT);
+  ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT
+      nlpCreateQkvHeadsDecodeOpNative;
+  op->UnPackTo(&nlpCreateQkvHeadsDecodeOpNative);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ttnn_op_invoke::NLPCreateQKVHeadsDecodeOpResult result =
       ttnn_op_invoke::callNLPCreateQKVHeadsDecode(
-          ttnn_op_invoke::CallType::EXECUTE, opT, &input,
+          ttnn_op_invoke::CallType::EXECUTE, nlpCreateQkvHeadsDecodeOpNative,
+          &input,
           batchOffset.has_value()
               ? std::optional<ttnn_op_invoke::TensorArg>(&*batchOffset)
               : std::nullopt,

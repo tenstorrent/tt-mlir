@@ -31,10 +31,10 @@ struct LayerNormPostAllGatherResolvedParams {
 };
 
 LayerNormPostAllGatherResolvedParams resolveLayerNormPostAllGatherParams(
-    const ::tt::target::ttnn::LayerNormPostAllGatherOpT &opT);
+    const ::tt::target::ttnn::LayerNormPostAllGatherOpT &op);
 
 LayerNormPostAllGatherOpResult callLayerNormPostAllGather(
-    CallType callType, const ::tt::target::ttnn::LayerNormPostAllGatherOpT &opT,
+    CallType callType, const ::tt::target::ttnn::LayerNormPostAllGatherOpT &op,
     TensorArg input, TensorArg stats, std::optional<TensorArg> weight,
     std::optional<TensorArg> bias, ::ttnn::MeshDevice *device);
 

@@ -25,14 +25,15 @@ void run(const ::tt::target::ttnn::LayerNormPostAllGatherOp *op,
     bias = tensorPool.getTTNNTensorAndValidate(op->bias());
   }
 
-  ::tt::target::ttnn::LayerNormPostAllGatherOpT opT;
-  op->UnPackTo(&opT);
+  ::tt::target::ttnn::LayerNormPostAllGatherOpT layerNormPostAllGatherOpNative;
+  op->UnPackTo(&layerNormPostAllGatherOpNative);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ttnn_op_invoke::LayerNormPostAllGatherOpResult result =
       ttnn_op_invoke::callLayerNormPostAllGather(
-          ttnn_op_invoke::CallType::EXECUTE, opT, &input, &stats,
+          ttnn_op_invoke::CallType::EXECUTE, layerNormPostAllGatherOpNative,
+          &input, &stats,
           weight.has_value()
               ? std::optional<ttnn_op_invoke::TensorArg>(&*weight)
               : std::nullopt,

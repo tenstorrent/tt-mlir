@@ -37,14 +37,16 @@ static void runPagedScaledDotProductAttentionDecodeOp(
         tensorPool.getTTNNTensorAndValidate(op->attention_sink()));
   }
 
-  ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT opT;
-  op->UnPackTo(&opT);
+  ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT
+      pagedScaledDotProductAttentionDecodeOpNative;
+  op->UnPackTo(&pagedScaledDotProductAttentionDecodeOpNative);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ttnn_op_invoke::PagedScaledDotProductAttentionDecodeOpResult result =
       ttnn_op_invoke::callPagedScaledDotProductAttentionDecode(
-          ttnn_op_invoke::CallType::EXECUTE, opT, &query, &key, &value,
+          ttnn_op_invoke::CallType::EXECUTE,
+          pagedScaledDotProductAttentionDecodeOpNative, &query, &key, &value,
           &pageTable,
           attentionMask.has_value()
               ? std::optional<ttnn_op_invoke::TensorArg>(&*attentionMask)

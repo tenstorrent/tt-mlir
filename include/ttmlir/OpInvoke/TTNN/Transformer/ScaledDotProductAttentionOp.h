@@ -30,13 +30,12 @@ struct ScaledDotProductAttentionResolvedParams {
 };
 
 ScaledDotProductAttentionResolvedParams resolveScaledDotProductAttentionParams(
-    const ::tt::target::ttnn::ScaledDotProductAttentionOpT &opT);
+    const ::tt::target::ttnn::ScaledDotProductAttentionOpT &op);
 
 ScaledDotProductAttentionOpResult callScaledDotProductAttention(
     CallType callType,
-    const ::tt::target::ttnn::ScaledDotProductAttentionOpT &opT,
-    TensorArg query, TensorArg key, TensorArg value,
-    std::optional<TensorArg> attentionMask,
+    const ::tt::target::ttnn::ScaledDotProductAttentionOpT &op, TensorArg query,
+    TensorArg key, TensorArg value, std::optional<TensorArg> attentionMask,
     std::optional<TensorArg> attentionSink, ::ttnn::MeshDevice *device);
 
 } // namespace ttnn_op_invoke

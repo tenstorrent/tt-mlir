@@ -16,12 +16,12 @@
 namespace ttnn_op_invoke {
 
 GroupNormResolvedParams
-resolveGroupNormParams(const ::tt::target::ttnn::GroupNormOpT &opT) {
+resolveGroupNormParams(const ::tt::target::ttnn::GroupNormOpT &op) {
   GroupNormResolvedParams params;
-  if (opT.out) {
+  if (op.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*opT.out));
-    LOG_ASSERT(operations::utils::inSystemMemory(*opT.out) ||
+        operations::utils::getTensorRefMemoryConfig(*op.out));
+    LOG_ASSERT(operations::utils::inSystemMemory(*op.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");
   }
@@ -29,14 +29,13 @@ resolveGroupNormParams(const ::tt::target::ttnn::GroupNormOpT &opT) {
 }
 
 template <typename Tag>
-auto createGroupNormTuple(Tag tag, const ::tt::target::ttnn::GroupNormOpT &opT,
+auto createGroupNormTuple(Tag tag, const ::tt::target::ttnn::GroupNormOpT &op,
                           TensorArg input, std::optional<TensorArg> inputMask,
                           std::optional<TensorArg> weight,
                           std::optional<TensorArg> bias,
                           const GroupNormResolvedParams &params) {
   return std::make_tuple(
-      resolveTensorArg(input, tag), static_cast<int>(opT.num_groups),
-      opT.epsilon,
+      resolveTensorArg(input, tag), static_cast<int>(op.num_groups), op.epsilon,
       inputMask ? std::make_optional(resolveTensorArg(*inputMask, tag))
                 : std::nullopt,
       weight ? std::make_optional(resolveTensorArg(*weight, tag))
@@ -50,14 +49,14 @@ auto createGroupNormTuple(Tag tag, const ::tt::target::ttnn::GroupNormOpT &opT,
 }
 
 GroupNormOpResult
-callGroupNorm(CallType callType, const ::tt::target::ttnn::GroupNormOpT &opT,
+callGroupNorm(CallType callType, const ::tt::target::ttnn::GroupNormOpT &op,
               TensorArg input, std::optional<TensorArg> inputMask,
               std::optional<TensorArg> weight, std::optional<TensorArg> bias,
               ::ttnn::MeshDevice *device) {
-  GroupNormResolvedParams params = resolveGroupNormParams(opT);
+  GroupNormResolvedParams params = resolveGroupNormParams(op);
 
   auto makeTuple = [&](auto tag) {
-    return createGroupNormTuple(tag, opT, input, inputMask, weight, bias,
+    return createGroupNormTuple(tag, op, input, inputMask, weight, bias,
                                 params);
   };
 

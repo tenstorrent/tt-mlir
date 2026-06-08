@@ -31,11 +31,11 @@ struct RotaryEmbeddingResolvedParams {
 };
 
 RotaryEmbeddingResolvedParams
-resolveRotaryEmbeddingParams(const ::tt::target::ttnn::RotaryEmbeddingOpT &opT);
+resolveRotaryEmbeddingParams(const ::tt::target::ttnn::RotaryEmbeddingOpT &op);
 
 RotaryEmbeddingOpResult
 callRotaryEmbedding(CallType callType,
-                    const ::tt::target::ttnn::RotaryEmbeddingOpT &opT,
+                    const ::tt::target::ttnn::RotaryEmbeddingOpT &op,
                     TensorArg input, TensorArg cosCache, TensorArg sinCache,
                     ::ttnn::MeshDevice *device);
 

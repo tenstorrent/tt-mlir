@@ -14,16 +14,16 @@
 namespace ttnn_op_invoke {
 
 BatchNormResolvedParams resolveBatchNormInferenceParams(
-    const ::tt::target::ttnn::BatchNormInferenceOpT &opT) {
+    const ::tt::target::ttnn::BatchNormInferenceOpT &op) {
   BatchNormResolvedParams params;
-  if (opT.compute_config) {
+  if (op.compute_config) {
     params.computeConfig =
-        operations::utils::createDeviceComputeKernelConfig(*opT.compute_config);
+        operations::utils::createDeviceComputeKernelConfig(*op.compute_config);
   }
-  if (opT.out) {
+  if (op.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*opT.out));
-    LOG_ASSERT(operations::utils::inSystemMemory(*opT.out) ||
+        operations::utils::getTensorRefMemoryConfig(*op.out));
+    LOG_ASSERT(operations::utils::inSystemMemory(*op.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");
   }
@@ -31,16 +31,16 @@ BatchNormResolvedParams resolveBatchNormInferenceParams(
 }
 
 BatchNormResolvedParams resolveBatchNormTrainingParams(
-    const ::tt::target::ttnn::BatchNormTrainingOpT &opT) {
+    const ::tt::target::ttnn::BatchNormTrainingOpT &op) {
   BatchNormResolvedParams params;
-  if (opT.compute_config) {
+  if (op.compute_config) {
     params.computeConfig =
-        operations::utils::createDeviceComputeKernelConfig(*opT.compute_config);
+        operations::utils::createDeviceComputeKernelConfig(*op.compute_config);
   }
-  if (opT.out) {
+  if (op.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*opT.out));
-    LOG_ASSERT(operations::utils::inSystemMemory(*opT.out) ||
+        operations::utils::getTensorRefMemoryConfig(*op.out));
+    LOG_ASSERT(operations::utils::inSystemMemory(*op.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");
   }
@@ -49,7 +49,7 @@ BatchNormResolvedParams resolveBatchNormTrainingParams(
 
 template <typename Tag>
 auto createBatchNormInferenceTuple(
-    Tag tag, const ::tt::target::ttnn::BatchNormInferenceOpT &opT,
+    Tag tag, const ::tt::target::ttnn::BatchNormInferenceOpT &op,
     TensorArg input, std::optional<TensorArg> runningMean,
     std::optional<TensorArg> runningVar, std::optional<TensorArg> weight,
     std::optional<TensorArg> bias, const BatchNormResolvedParams &params) {
@@ -59,7 +59,7 @@ auto createBatchNormInferenceTuple(
                   : std::nullopt,
       runningVar ? std::make_optional(resolveTensorArg(*runningVar, tag))
                  : std::nullopt,
-      /*training=*/false, opT.epsilon, /*momentum=*/0.1f,
+      /*training=*/false, op.epsilon, /*momentum=*/0.1f,
       weight ? std::make_optional(resolveTensorArg(*weight, tag))
              : std::nullopt,
       bias ? std::make_optional(resolveTensorArg(*bias, tag)) : std::nullopt,
@@ -69,7 +69,7 @@ auto createBatchNormInferenceTuple(
 
 template <typename Tag>
 auto createBatchNormTrainingTuple(
-    Tag tag, const ::tt::target::ttnn::BatchNormTrainingOpT &opT,
+    Tag tag, const ::tt::target::ttnn::BatchNormTrainingOpT &op,
     TensorArg input, std::optional<TensorArg> runningMean,
     std::optional<TensorArg> runningVar, std::optional<TensorArg> weight,
     std::optional<TensorArg> bias, const BatchNormResolvedParams &params) {
@@ -79,7 +79,7 @@ auto createBatchNormTrainingTuple(
                   : std::nullopt,
       runningVar ? std::make_optional(resolveTensorArg(*runningVar, tag))
                  : std::nullopt,
-      /*training=*/true, opT.epsilon, opT.momentum,
+      /*training=*/true, op.epsilon, op.momentum,
       weight ? std::make_optional(resolveTensorArg(*weight, tag))
              : std::nullopt,
       bias ? std::make_optional(resolveTensorArg(*bias, tag)) : std::nullopt,
@@ -88,14 +88,14 @@ auto createBatchNormTrainingTuple(
 }
 
 BatchNormOpResult callBatchNormInference(
-    CallType callType, const ::tt::target::ttnn::BatchNormInferenceOpT &opT,
+    CallType callType, const ::tt::target::ttnn::BatchNormInferenceOpT &op,
     TensorArg input, std::optional<TensorArg> runningMean,
     std::optional<TensorArg> runningVar, std::optional<TensorArg> weight,
     std::optional<TensorArg> bias, ::ttnn::MeshDevice *device) {
-  BatchNormResolvedParams params = resolveBatchNormInferenceParams(opT);
+  BatchNormResolvedParams params = resolveBatchNormInferenceParams(op);
 
   auto makeTuple = [&](auto tag) {
-    return createBatchNormInferenceTuple(tag, opT, input, runningMean,
+    return createBatchNormInferenceTuple(tag, op, input, runningMean,
                                          runningVar, weight, bias, params);
   };
 
@@ -104,15 +104,15 @@ BatchNormOpResult callBatchNormInference(
 }
 
 BatchNormOpResult callBatchNormTraining(
-    CallType callType, const ::tt::target::ttnn::BatchNormTrainingOpT &opT,
+    CallType callType, const ::tt::target::ttnn::BatchNormTrainingOpT &op,
     TensorArg input, std::optional<TensorArg> runningMean,
     std::optional<TensorArg> runningVar, std::optional<TensorArg> weight,
     std::optional<TensorArg> bias, ::ttnn::MeshDevice *device) {
-  BatchNormResolvedParams params = resolveBatchNormTrainingParams(opT);
+  BatchNormResolvedParams params = resolveBatchNormTrainingParams(op);
 
   auto makeTuple = [&](auto tag) {
-    return createBatchNormTrainingTuple(tag, opT, input, runningMean,
-                                        runningVar, weight, bias, params);
+    return createBatchNormTrainingTuple(tag, op, input, runningMean, runningVar,
+                                        weight, bias, params);
   };
 
   return callOp<BatchNormOpResult>(WRAP_OP(::ttnn::batch_norm), callType,

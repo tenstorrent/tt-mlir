@@ -96,19 +96,20 @@ createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config) {
 
 ::ttnn::operations::transformer::SDPAProgramConfig
 createSDPAProgramConfig(const ::tt::target::ttnn::SDPAConfig *config) {
-  ::tt::target::ttnn::SDPAConfigT sdpaConfigT;
-  config->UnPackTo(&sdpaConfigT);
+  ::tt::target::ttnn::SDPAConfigT sdpaConfigNative;
+  config->UnPackTo(&sdpaConfigNative);
   return ttnn_op_invoke::operations::utils::createSDPAProgramConfig(
-      sdpaConfigT);
+      sdpaConfigNative);
 }
 
 ::ttnn::prim::LayerNormProgramConfig
 createLayerNormShardedMultiCoreProgramConfig(
     const ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig *config) {
-  ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfigT layerNormConfig;
-  config->UnPackTo(&layerNormConfig);
+  ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfigT
+      layerNormConfigNative;
+  config->UnPackTo(&layerNormConfigNative);
   return ttnn_op_invoke::operations::utils::
-      createLayerNormShardedMultiCoreProgramConfig(layerNormConfig);
+      createLayerNormShardedMultiCoreProgramConfig(layerNormConfigNative);
 }
 
 template <typename T>

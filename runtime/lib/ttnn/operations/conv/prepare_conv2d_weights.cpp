@@ -15,14 +15,15 @@ void run(const ::tt::target::ttnn::PrepareConv2dWeightsOp *op,
   const ::ttnn::Tensor &weightTensor =
       tensorPool.getTTNNTensorAndValidate(op->weight_tensor());
 
-  ::tt::target::ttnn::PrepareConv2dWeightsOpT opT;
-  op->UnPackTo(&opT);
+  ::tt::target::ttnn::PrepareConv2dWeightsOpT prepareConv2dWeightsOpNative;
+  op->UnPackTo(&prepareConv2dWeightsOpNative);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ttnn_op_invoke::PrepareConv2dWeightsOpResult result =
       ttnn_op_invoke::callPrepareConv2dWeights(
-          ttnn_op_invoke::CallType::EXECUTE, opT, &weightTensor, &targetDevice);
+          ttnn_op_invoke::CallType::EXECUTE, prepareConv2dWeightsOpNative,
+          &weightTensor, &targetDevice);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
              "Expected Tensor from callPrepareConv2dWeights execution");

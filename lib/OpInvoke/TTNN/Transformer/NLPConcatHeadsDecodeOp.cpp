@@ -16,7 +16,7 @@
 namespace ttnn_op_invoke {
 
 NLPConcatHeadsDecodeResolvedParams resolveNLPConcatHeadsDecodeParams(
-    const ::tt::target::ttnn::NLPConcatHeadsDecodeOpT &opT, CallType callType,
+    const ::tt::target::ttnn::NLPConcatHeadsDecodeOpT &op, CallType callType,
     TensorArg input) {
   NLPConcatHeadsDecodeResolvedParams params;
 
@@ -43,10 +43,10 @@ NLPConcatHeadsDecodeResolvedParams resolveNLPConcatHeadsDecodeParams(
     }
   }
 
-  if (opT.out) {
+  if (op.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*opT.out));
-    LOG_ASSERT(operations::utils::inSystemMemory(*opT.out) ||
+        operations::utils::getTensorRefMemoryConfig(*op.out));
+    LOG_ASSERT(operations::utils::inSystemMemory(*op.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");
   }
@@ -55,22 +55,22 @@ NLPConcatHeadsDecodeResolvedParams resolveNLPConcatHeadsDecodeParams(
 
 template <typename Tag>
 auto createNLPConcatHeadsDecodeTuple(
-    Tag tag, const ::tt::target::ttnn::NLPConcatHeadsDecodeOpT &opT,
+    Tag tag, const ::tt::target::ttnn::NLPConcatHeadsDecodeOpT &op,
     TensorArg input, const NLPConcatHeadsDecodeResolvedParams &params) {
   return std::make_tuple(
-      resolveTensorArg(input, tag), opT.num_heads, params.outputMemoryConfig,
+      resolveTensorArg(input, tag), op.num_heads, params.outputMemoryConfig,
       /*optional_output_tensor=*/std::nullopt, params.subCoreGrids);
 }
 
 NLPConcatHeadsDecodeOpResult
 callNLPConcatHeadsDecode(CallType callType,
-                         const ::tt::target::ttnn::NLPConcatHeadsDecodeOpT &opT,
+                         const ::tt::target::ttnn::NLPConcatHeadsDecodeOpT &op,
                          TensorArg input, ::ttnn::MeshDevice *device) {
   NLPConcatHeadsDecodeResolvedParams params =
-      resolveNLPConcatHeadsDecodeParams(opT, callType, input);
+      resolveNLPConcatHeadsDecodeParams(op, callType, input);
 
   auto makeTuple = [&](auto tag) {
-    return createNLPConcatHeadsDecodeTuple(tag, opT, input, params);
+    return createNLPConcatHeadsDecodeTuple(tag, op, input, params);
   };
 
   return callOp<NLPConcatHeadsDecodeOpResult>(

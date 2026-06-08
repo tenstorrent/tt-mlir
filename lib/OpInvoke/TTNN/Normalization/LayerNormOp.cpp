@@ -14,12 +14,12 @@
 namespace ttnn_op_invoke {
 
 LayerNormResolvedParams
-resolveLayerNormParams(const ::tt::target::ttnn::LayerNormOpT &opT) {
+resolveLayerNormParams(const ::tt::target::ttnn::LayerNormOpT &op) {
   LayerNormResolvedParams params;
-  if (opT.out) {
+  if (op.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*opT.out));
-    LOG_ASSERT(operations::utils::inSystemMemory(*opT.out) ||
+        operations::utils::getTensorRefMemoryConfig(*op.out));
+    LOG_ASSERT(operations::utils::inSystemMemory(*op.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");
   }
@@ -27,12 +27,12 @@ resolveLayerNormParams(const ::tt::target::ttnn::LayerNormOpT &opT) {
 }
 
 template <typename Tag>
-auto createLayerNormTuple(Tag tag, const ::tt::target::ttnn::LayerNormOpT &opT,
+auto createLayerNormTuple(Tag tag, const ::tt::target::ttnn::LayerNormOpT &op,
                           TensorArg input, std::optional<TensorArg> weight,
                           std::optional<TensorArg> bias,
                           const LayerNormResolvedParams &params) {
   return std::make_tuple(
-      resolveTensorArg(input, tag), opT.epsilon,
+      resolveTensorArg(input, tag), op.epsilon,
       weight ? std::make_optional(resolveTensorArg(*weight, tag))
              : std::nullopt,
       bias ? std::make_optional(resolveTensorArg(*bias, tag)) : std::nullopt,
@@ -43,13 +43,13 @@ auto createLayerNormTuple(Tag tag, const ::tt::target::ttnn::LayerNormOpT &opT,
 }
 
 LayerNormOpResult
-callLayerNorm(CallType callType, const ::tt::target::ttnn::LayerNormOpT &opT,
+callLayerNorm(CallType callType, const ::tt::target::ttnn::LayerNormOpT &op,
               TensorArg input, std::optional<TensorArg> weight,
               std::optional<TensorArg> bias, ::ttnn::MeshDevice *device) {
-  LayerNormResolvedParams params = resolveLayerNormParams(opT);
+  LayerNormResolvedParams params = resolveLayerNormParams(op);
 
   auto makeTuple = [&](auto tag) {
-    return createLayerNormTuple(tag, opT, input, weight, bias, params);
+    return createLayerNormTuple(tag, op, input, weight, bias, params);
   };
 
   return callOp<LayerNormOpResult>(WRAP_OP(::ttnn::layer_norm), callType,

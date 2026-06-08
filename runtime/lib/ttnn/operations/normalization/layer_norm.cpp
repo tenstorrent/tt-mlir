@@ -24,13 +24,13 @@ void run(const ::tt::target::ttnn::LayerNormOp *op, ProgramContext &context) {
     bias = tensorPool.getTTNNTensorAndValidate(op->bias());
   }
 
-  ::tt::target::ttnn::LayerNormOpT opT;
-  op->UnPackTo(&opT);
+  ::tt::target::ttnn::LayerNormOpT layerNormOpNative;
+  op->UnPackTo(&layerNormOpNative);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ttnn_op_invoke::LayerNormOpResult result = ttnn_op_invoke::callLayerNorm(
-      ttnn_op_invoke::CallType::EXECUTE, opT, &input,
+      ttnn_op_invoke::CallType::EXECUTE, layerNormOpNative, &input,
       weight.has_value() ? std::optional<ttnn_op_invoke::TensorArg>(&*weight)
                          : std::nullopt,
       bias.has_value() ? std::optional<ttnn_op_invoke::TensorArg>(&*bias)

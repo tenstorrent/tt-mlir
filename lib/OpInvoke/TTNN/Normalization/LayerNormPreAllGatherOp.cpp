@@ -16,27 +16,27 @@
 namespace ttnn_op_invoke {
 
 LayerNormPreAllGatherResolvedParams resolveLayerNormPreAllGatherParams(
-    const ::tt::target::ttnn::LayerNormPreAllGatherOpT &opT) {
+    const ::tt::target::ttnn::LayerNormPreAllGatherOpT &op) {
   LayerNormPreAllGatherResolvedParams params;
-  if (opT.out) {
-    params.dtype = operations::utils::getDataType(*opT.out);
+  if (op.out) {
+    params.dtype = operations::utils::getDataType(*op.out);
   } else {
     params.dtype = ttnn::DataType::BFLOAT16;
   }
 
-  if (opT.compute_config) {
+  if (op.compute_config) {
     params.computeConfig =
-        operations::utils::createDeviceComputeKernelConfig(*opT.compute_config);
+        operations::utils::createDeviceComputeKernelConfig(*op.compute_config);
   }
-  if (opT.program_config) {
+  if (op.program_config) {
     params.programConfig =
         operations::utils::createLayerNormShardedMultiCoreProgramConfig(
-            *opT.program_config);
+            *op.program_config);
   }
-  if (opT.out) {
+  if (op.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*opT.out));
-    LOG_ASSERT(operations::utils::inSystemMemory(*opT.out) ||
+        operations::utils::getTensorRefMemoryConfig(*op.out));
+    LOG_ASSERT(operations::utils::inSystemMemory(*op.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");
   }
@@ -58,14 +58,14 @@ auto createLayerNormPreAllGatherTuple(
 }
 
 LayerNormPreAllGatherOpResult callLayerNormPreAllGather(
-    CallType callType, const ::tt::target::ttnn::LayerNormPreAllGatherOpT &opT,
+    CallType callType, const ::tt::target::ttnn::LayerNormPreAllGatherOpT &op,
     TensorArg input, std::optional<TensorArg> residualInput,
     std::optional<TensorArg> recip, ::ttnn::MeshDevice *device) {
   LayerNormPreAllGatherResolvedParams params =
-      resolveLayerNormPreAllGatherParams(opT);
+      resolveLayerNormPreAllGatherParams(op);
 
   auto makeTuple = [&](auto tag) {
-    return createLayerNormPreAllGatherTuple(tag, opT, input, residualInput,
+    return createLayerNormPreAllGatherTuple(tag, op, input, residualInput,
                                             recip, params);
   };
 

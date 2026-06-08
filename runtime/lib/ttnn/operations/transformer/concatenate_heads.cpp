@@ -13,14 +13,15 @@ runConcatenateHeadsOp(const ::tt::target::ttnn::ConcatenateHeadsOp *op,
                       ProgramTensorPool &tensorPool, ProgramContext &context) {
   const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  ::tt::target::ttnn::ConcatenateHeadsOpT opT;
-  op->UnPackTo(&opT);
+  ::tt::target::ttnn::ConcatenateHeadsOpT concatenateHeadsOpNative;
+  op->UnPackTo(&concatenateHeadsOpNative);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ttnn_op_invoke::ConcatenateHeadsOpResult result =
       ttnn_op_invoke::callConcatenateHeads(ttnn_op_invoke::CallType::EXECUTE,
-                                           opT, &input, &targetDevice);
+                                           concatenateHeadsOpNative, &input,
+                                           &targetDevice);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
              "Expected Tensor from callConcatenateHeads execution");

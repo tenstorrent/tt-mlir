@@ -33,13 +33,13 @@ struct PagedScaledDotProductAttentionDecodeResolvedParams {
 
 PagedScaledDotProductAttentionDecodeResolvedParams
 resolvePagedScaledDotProductAttentionDecodeParams(
-    const ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT &opT,
+    const ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT &op,
     ::ttnn::MeshDevice *device);
 
 PagedScaledDotProductAttentionDecodeOpResult
 callPagedScaledDotProductAttentionDecode(
     CallType callType,
-    const ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT &opT,
+    const ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT &op,
     TensorArg query, TensorArg key, TensorArg value, TensorArg pageTable,
     std::optional<TensorArg> attentionMask,
     std::optional<TensorArg> curPosTensor,

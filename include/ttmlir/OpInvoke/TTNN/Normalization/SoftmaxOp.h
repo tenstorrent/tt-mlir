@@ -29,10 +29,10 @@ struct SoftmaxResolvedParams {
 };
 
 SoftmaxResolvedParams
-resolveSoftmaxParams(const ::tt::target::ttnn::SoftmaxOpT &opT);
+resolveSoftmaxParams(const ::tt::target::ttnn::SoftmaxOpT &op);
 
 SoftmaxOpResult callSoftmax(CallType callType,
-                            const ::tt::target::ttnn::SoftmaxOpT &opT,
+                            const ::tt::target::ttnn::SoftmaxOpT &op,
                             TensorArg input, ::ttnn::MeshDevice *device);
 
 } // namespace ttnn_op_invoke

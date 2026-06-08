@@ -18,15 +18,15 @@ static void runRotaryEmbedding(const ::tt::target::ttnn::RotaryEmbeddingOp *op,
   const ::ttnn::Tensor &sinCache =
       tensorPool.getTTNNTensorAndValidate(op->sin_cache());
 
-  ::tt::target::ttnn::RotaryEmbeddingOpT opT;
-  op->UnPackTo(&opT);
+  ::tt::target::ttnn::RotaryEmbeddingOpT rotaryEmbeddingOpNative;
+  op->UnPackTo(&rotaryEmbeddingOpNative);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ttnn_op_invoke::RotaryEmbeddingOpResult result =
       ttnn_op_invoke::callRotaryEmbedding(ttnn_op_invoke::CallType::EXECUTE,
-                                          opT, &input, &cosCache, &sinCache,
-                                          &targetDevice);
+                                          rotaryEmbeddingOpNative, &input,
+                                          &cosCache, &sinCache, &targetDevice);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
              "Expected Tensor from callRotaryEmbedding execution");

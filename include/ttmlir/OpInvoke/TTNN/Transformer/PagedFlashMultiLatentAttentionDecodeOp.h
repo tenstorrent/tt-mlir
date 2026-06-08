@@ -32,13 +32,13 @@ struct PagedFlashMultiLatentAttentionDecodeResolvedParams {
 
 PagedFlashMultiLatentAttentionDecodeResolvedParams
 resolvePagedFlashMultiLatentAttentionDecodeParams(
-    const ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT &opT,
+    const ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT &op,
     ::ttnn::MeshDevice *device);
 
 PagedFlashMultiLatentAttentionDecodeOpResult
 callPagedFlashMultiLatentAttentionDecode(
     CallType callType,
-    const ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT &opT,
+    const ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT &op,
     TensorArg query, TensorArg key, std::optional<TensorArg> value,
     TensorArg pageTable, std::optional<TensorArg> attentionMask,
     std::optional<TensorArg> curPosTensor,

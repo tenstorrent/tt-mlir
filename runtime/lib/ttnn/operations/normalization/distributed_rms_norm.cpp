@@ -36,12 +36,12 @@ void run(const ::tt::target::ttnn::DistributedRMSNormOp *op,
       context.getGlobalSemaphorePool().getTTNNGlobalSemaphoreAndValidate(
           op->semaphore());
 
-  ::tt::target::ttnn::DistributedRMSNormOpT opT;
-  op->UnPackTo(&opT);
+  ::tt::target::ttnn::DistributedRMSNormOpT distributedRmsNormOpNative;
+  op->UnPackTo(&distributedRmsNormOpNative);
 
   ttnn_op_invoke::DistributedRMSNormOpResult result =
       ttnn_op_invoke::callDistributedRMSNorm(
-          ttnn_op_invoke::CallType::EXECUTE, opT, &input,
+          ttnn_op_invoke::CallType::EXECUTE, distributedRmsNormOpNative, &input,
           residual.has_value()
               ? std::optional<ttnn_op_invoke::TensorArg>(&*residual)
               : std::nullopt,

@@ -17,22 +17,22 @@ namespace ttnn_op_invoke {
 
 PagedScaledDotProductAttentionDecodeResolvedParams
 resolvePagedScaledDotProductAttentionDecodeParams(
-    const ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT &opT,
+    const ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT &op,
     ::ttnn::MeshDevice *device) {
   PagedScaledDotProductAttentionDecodeResolvedParams params;
 
-  if (opT.scale.has_value()) {
-    params.scale = *opT.scale;
+  if (op.scale.has_value()) {
+    params.scale = *op.scale;
   }
-  if (opT.sliding_window_size.has_value()) {
-    params.slidingWindowSize = *opT.sliding_window_size;
+  if (op.sliding_window_size.has_value()) {
+    params.slidingWindowSize = *op.sliding_window_size;
   }
 
   const auto computeGrid = device->compute_with_storage_grid_size();
-  if (opT.program_config) {
+  if (op.program_config) {
     params.programConfig =
-        operations::utils::createSDPAProgramConfig(*opT.program_config);
-  } else if (!opT.is_causal) {
+        operations::utils::createSDPAProgramConfig(*op.program_config);
+  } else if (!op.is_causal) {
     params.programConfig.emplace();
     params.programConfig->k_chunk_size = 32; // Required for non-causal
     params.programConfig->compute_with_storage_grid_size = computeGrid;
@@ -52,9 +52,9 @@ resolvePagedScaledDotProductAttentionDecodeParams(
     params.programConfig->exp_approx_mode = false;
   }
 
-  if (opT.out) {
+  if (op.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*opT.out));
+        operations::utils::getTensorRefMemoryConfig(*op.out));
   }
 
   return params;
@@ -63,7 +63,7 @@ resolvePagedScaledDotProductAttentionDecodeParams(
 template <typename Tag>
 auto createPagedScaledDotProductAttentionDecodeTuple(
     Tag tag,
-    const ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT &opT,
+    const ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT &op,
     TensorArg query, TensorArg key, TensorArg value, TensorArg pageTable,
     std::optional<TensorArg> attentionMask,
     std::optional<TensorArg> curPosTensor,
@@ -72,7 +72,7 @@ auto createPagedScaledDotProductAttentionDecodeTuple(
   return std::make_tuple(
       resolveTensorArg(query, tag), resolveTensorArg(key, tag),
       resolveTensorArg(value, tag), resolveTensorArg(pageTable, tag),
-      opT.is_causal,
+      op.is_causal,
       attentionMask ? std::make_optional(resolveTensorArg(*attentionMask, tag))
                     : std::nullopt,
       curPosTensor ? std::make_optional(resolveTensorArg(*curPosTensor, tag))
@@ -88,17 +88,17 @@ auto createPagedScaledDotProductAttentionDecodeTuple(
 PagedScaledDotProductAttentionDecodeOpResult
 callPagedScaledDotProductAttentionDecode(
     CallType callType,
-    const ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT &opT,
+    const ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT &op,
     TensorArg query, TensorArg key, TensorArg value, TensorArg pageTable,
     std::optional<TensorArg> attentionMask,
     std::optional<TensorArg> curPosTensor,
     std::optional<TensorArg> attentionSink, ::ttnn::MeshDevice *device) {
   PagedScaledDotProductAttentionDecodeResolvedParams params =
-      resolvePagedScaledDotProductAttentionDecodeParams(opT, device);
+      resolvePagedScaledDotProductAttentionDecodeParams(op, device);
 
   auto makeTuple = [&](auto tag) {
     return createPagedScaledDotProductAttentionDecodeTuple(
-        tag, opT, query, key, value, pageTable, attentionMask, curPosTensor,
+        tag, op, query, key, value, pageTable, attentionMask, curPosTensor,
         attentionSink, params);
   };
 

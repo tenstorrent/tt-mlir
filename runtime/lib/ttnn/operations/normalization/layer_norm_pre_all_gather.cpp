@@ -24,14 +24,15 @@ void run(const ::tt::target::ttnn::LayerNormPreAllGatherOp *op,
     recip = tensorPool.getTTNNTensorAndValidate(op->recip());
   }
 
-  ::tt::target::ttnn::LayerNormPreAllGatherOpT opT;
-  op->UnPackTo(&opT);
+  ::tt::target::ttnn::LayerNormPreAllGatherOpT layerNormPreAllGatherOpNative;
+  op->UnPackTo(&layerNormPreAllGatherOpNative);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ttnn_op_invoke::LayerNormPreAllGatherOpResult result =
       ttnn_op_invoke::callLayerNormPreAllGather(
-          ttnn_op_invoke::CallType::EXECUTE, opT, &input,
+          ttnn_op_invoke::CallType::EXECUTE, layerNormPreAllGatherOpNative,
+          &input,
           residualInput.has_value()
               ? std::optional<ttnn_op_invoke::TensorArg>(&*residualInput)
               : std::nullopt,

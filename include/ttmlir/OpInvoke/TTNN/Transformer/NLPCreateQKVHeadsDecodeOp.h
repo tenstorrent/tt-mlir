@@ -31,12 +31,12 @@ struct NLPCreateQKVHeadsDecodeResolvedParams {
 };
 
 NLPCreateQKVHeadsDecodeResolvedParams resolveNLPCreateQKVHeadsDecodeParams(
-    const ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT &opT);
+    const ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT &op);
 
 NLPCreateQKVHeadsDecodeOpResult callNLPCreateQKVHeadsDecode(
-    CallType callType,
-    const ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT &opT, TensorArg input,
-    std::optional<TensorArg> batchOffset, ::ttnn::MeshDevice *device);
+    CallType callType, const ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT &op,
+    TensorArg input, std::optional<TensorArg> batchOffset,
+    ::ttnn::MeshDevice *device);
 
 } // namespace ttnn_op_invoke
 

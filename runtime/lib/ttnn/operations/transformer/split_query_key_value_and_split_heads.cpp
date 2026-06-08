@@ -19,14 +19,16 @@ static void runSplitQueryKeyValueAndSplitHeadsOp(
     kvInput.emplace(tensorPool.getTTNNTensorAndValidate(op->kv_input()));
   }
 
-  ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT opT;
-  op->UnPackTo(&opT);
+  ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT
+      splitQueryKeyValueAndSplitHeadsOpNative;
+  op->UnPackTo(&splitQueryKeyValueAndSplitHeadsOpNative);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ttnn_op_invoke::SplitQueryKeyValueAndSplitHeadsOpResult result =
       ttnn_op_invoke::callSplitQueryKeyValueAndSplitHeads(
-          ttnn_op_invoke::CallType::EXECUTE, opT, &in,
+          ttnn_op_invoke::CallType::EXECUTE,
+          splitQueryKeyValueAndSplitHeadsOpNative, &in,
           kvInput.has_value()
               ? std::optional<ttnn_op_invoke::TensorArg>(&*kvInput)
               : std::nullopt,

@@ -39,11 +39,11 @@ struct PrepareConvTranspose2dBiasResolvedParams {
 
 PrepareConvTranspose2dBiasResolvedParams
 resolvePrepareConvTranspose2dBiasParams(
-    const ::tt::target::ttnn::PrepareConvTranspose2dBiasOpT &opT);
+    const ::tt::target::ttnn::PrepareConvTranspose2dBiasOpT &op);
 
 PrepareConvTranspose2dBiasOpResult callPrepareConvTranspose2dBias(
     CallType callType,
-    const ::tt::target::ttnn::PrepareConvTranspose2dBiasOpT &opT,
+    const ::tt::target::ttnn::PrepareConvTranspose2dBiasOpT &op,
     TensorArg biasTensor, ::ttnn::MeshDevice *device);
 
 } // namespace ttnn_op_invoke

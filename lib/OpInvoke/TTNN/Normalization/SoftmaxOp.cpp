@@ -14,16 +14,16 @@
 namespace ttnn_op_invoke {
 
 SoftmaxResolvedParams
-resolveSoftmaxParams(const ::tt::target::ttnn::SoftmaxOpT &opT) {
+resolveSoftmaxParams(const ::tt::target::ttnn::SoftmaxOpT &op) {
   SoftmaxResolvedParams params;
-  if (opT.compute_config) {
+  if (op.compute_config) {
     params.computeConfig =
-        operations::utils::createDeviceComputeKernelConfig(*opT.compute_config);
+        operations::utils::createDeviceComputeKernelConfig(*op.compute_config);
   }
-  if (opT.out) {
+  if (op.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*opT.out));
-    LOG_ASSERT(operations::utils::inSystemMemory(*opT.out) ||
+        operations::utils::getTensorRefMemoryConfig(*op.out));
+    LOG_ASSERT(operations::utils::inSystemMemory(*op.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");
   }
@@ -31,20 +31,20 @@ resolveSoftmaxParams(const ::tt::target::ttnn::SoftmaxOpT &opT) {
 }
 
 template <typename Tag>
-auto createSoftmaxTuple(Tag tag, const ::tt::target::ttnn::SoftmaxOpT &opT,
+auto createSoftmaxTuple(Tag tag, const ::tt::target::ttnn::SoftmaxOpT &op,
                         TensorArg input, const SoftmaxResolvedParams &params) {
-  return std::make_tuple(resolveTensorArg(input, tag), opT.dimension,
+  return std::make_tuple(resolveTensorArg(input, tag), op.dimension,
                          params.outputMemoryConfig, params.computeConfig,
-                         opT.numeric_stable);
+                         op.numeric_stable);
 }
 
 SoftmaxOpResult callSoftmax(CallType callType,
-                            const ::tt::target::ttnn::SoftmaxOpT &opT,
+                            const ::tt::target::ttnn::SoftmaxOpT &op,
                             TensorArg input, ::ttnn::MeshDevice *device) {
-  SoftmaxResolvedParams params = resolveSoftmaxParams(opT);
+  SoftmaxResolvedParams params = resolveSoftmaxParams(op);
 
   auto makeTuple = [&](auto tag) {
-    return createSoftmaxTuple(tag, opT, input, params);
+    return createSoftmaxTuple(tag, op, input, params);
   };
 
   return callOp<SoftmaxOpResult>(WRAP_OP(::ttnn::softmax), callType, makeTuple,

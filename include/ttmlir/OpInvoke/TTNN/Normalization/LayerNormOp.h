@@ -28,10 +28,10 @@ struct LayerNormResolvedParams {
 };
 
 LayerNormResolvedParams
-resolveLayerNormParams(const ::tt::target::ttnn::LayerNormOpT &opT);
+resolveLayerNormParams(const ::tt::target::ttnn::LayerNormOpT &op);
 
 LayerNormOpResult
-callLayerNorm(CallType callType, const ::tt::target::ttnn::LayerNormOpT &opT,
+callLayerNorm(CallType callType, const ::tt::target::ttnn::LayerNormOpT &op,
               TensorArg input, std::optional<TensorArg> weight,
               std::optional<TensorArg> bias, ::ttnn::MeshDevice *device);
 

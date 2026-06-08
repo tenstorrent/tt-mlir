@@ -29,10 +29,10 @@ struct RMSNormResolvedParams {
 };
 
 RMSNormResolvedParams
-resolveRMSNormParams(const ::tt::target::ttnn::RMSNormOpT &opT);
+resolveRMSNormParams(const ::tt::target::ttnn::RMSNormOpT &op);
 
 RMSNormOpResult callRMSNorm(CallType callType,
-                            const ::tt::target::ttnn::RMSNormOpT &opT,
+                            const ::tt::target::ttnn::RMSNormOpT &op,
                             TensorArg input, std::optional<TensorArg> weight,
                             std::optional<TensorArg> bias,
                             ::ttnn::MeshDevice *device);

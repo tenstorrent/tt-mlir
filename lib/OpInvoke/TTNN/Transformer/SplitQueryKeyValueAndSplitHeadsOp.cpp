@@ -18,17 +18,17 @@ namespace ttnn_op_invoke {
 
 SplitQueryKeyValueAndSplitHeadsResolvedParams
 resolveSplitQueryKeyValueAndSplitHeadsParams(
-    const ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT &opT) {
+    const ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT &op) {
   SplitQueryKeyValueAndSplitHeadsResolvedParams params;
-  if (opT.num_kv_heads.has_value()) {
-    params.numKVHeads = *opT.num_kv_heads;
+  if (op.num_kv_heads.has_value()) {
+    params.numKVHeads = *op.num_kv_heads;
   }
 
   // The output memory config is passed through q_out
-  if (opT.q_out) {
+  if (op.q_out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*opT.q_out));
-    LOG_ASSERT(operations::utils::inSystemMemory(*opT.q_out) ||
+        operations::utils::getTensorRefMemoryConfig(*op.q_out));
+    LOG_ASSERT(operations::utils::inSystemMemory(*op.q_out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");
   }
@@ -37,27 +37,27 @@ resolveSplitQueryKeyValueAndSplitHeadsParams(
 
 template <typename Tag>
 auto createSplitQueryKeyValueAndSplitHeadsTuple(
-    Tag tag, const ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT &opT,
+    Tag tag, const ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT &op,
     TensorArg input, std::optional<TensorArg> kvInput,
     const SplitQueryKeyValueAndSplitHeadsResolvedParams &params) {
   return std::make_tuple(
       resolveTensorArg(input, tag),
       kvInput ? std::make_optional(resolveTensorArg(*kvInput, tag))
               : std::nullopt,
-      opT.num_heads, params.numKVHeads, opT.transpose_key,
+      op.num_heads, params.numKVHeads, op.transpose_key,
       params.outputMemoryConfig);
 }
 
 SplitQueryKeyValueAndSplitHeadsOpResult callSplitQueryKeyValueAndSplitHeads(
     CallType callType,
-    const ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT &opT,
+    const ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT &op,
     TensorArg input, std::optional<TensorArg> kvInput,
     ::ttnn::MeshDevice *device) {
   SplitQueryKeyValueAndSplitHeadsResolvedParams params =
-      resolveSplitQueryKeyValueAndSplitHeadsParams(opT);
+      resolveSplitQueryKeyValueAndSplitHeadsParams(op);
 
   auto makeTuple = [&](auto tag) {
-    return createSplitQueryKeyValueAndSplitHeadsTuple(tag, opT, input, kvInput,
+    return createSplitQueryKeyValueAndSplitHeadsTuple(tag, op, input, kvInput,
                                                       params);
   };
 

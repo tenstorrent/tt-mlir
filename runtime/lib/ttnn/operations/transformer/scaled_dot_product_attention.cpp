@@ -29,14 +29,16 @@ static void runScaledDotProductAttentionOp(
         tensorPool.getTTNNTensorAndValidate(op->attention_sink()));
   }
 
-  ::tt::target::ttnn::ScaledDotProductAttentionOpT opT;
-  op->UnPackTo(&opT);
+  ::tt::target::ttnn::ScaledDotProductAttentionOpT
+      scaledDotProductAttentionOpNative;
+  op->UnPackTo(&scaledDotProductAttentionOpNative);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ttnn_op_invoke::ScaledDotProductAttentionOpResult result =
       ttnn_op_invoke::callScaledDotProductAttention(
-          ttnn_op_invoke::CallType::EXECUTE, opT, &query, &key, &value,
+          ttnn_op_invoke::CallType::EXECUTE, scaledDotProductAttentionOpNative,
+          &query, &key, &value,
           attentionMask.has_value()
               ? std::optional<ttnn_op_invoke::TensorArg>(&*attentionMask)
               : std::nullopt,

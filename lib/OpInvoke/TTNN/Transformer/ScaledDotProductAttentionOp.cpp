@@ -16,19 +16,19 @@
 namespace ttnn_op_invoke {
 
 ScaledDotProductAttentionResolvedParams resolveScaledDotProductAttentionParams(
-    const ::tt::target::ttnn::ScaledDotProductAttentionOpT &opT) {
+    const ::tt::target::ttnn::ScaledDotProductAttentionOpT &op) {
   ScaledDotProductAttentionResolvedParams params;
-  if (opT.scale.has_value()) {
-    params.scale = *opT.scale;
+  if (op.scale.has_value()) {
+    params.scale = *op.scale;
   }
-  if (opT.sliding_window_size.has_value()) {
-    params.slidingWindowSize = *opT.sliding_window_size;
+  if (op.sliding_window_size.has_value()) {
+    params.slidingWindowSize = *op.sliding_window_size;
   }
 
-  if (opT.out) {
+  if (op.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*opT.out));
-    LOG_ASSERT(operations::utils::inSystemMemory(*opT.out) ||
+        operations::utils::getTensorRefMemoryConfig(*op.out));
+    LOG_ASSERT(operations::utils::inSystemMemory(*op.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");
   }
@@ -38,7 +38,7 @@ ScaledDotProductAttentionResolvedParams resolveScaledDotProductAttentionParams(
 
 template <typename Tag>
 auto createScaledDotProductAttentionTuple(
-    Tag tag, const ::tt::target::ttnn::ScaledDotProductAttentionOpT &opT,
+    Tag tag, const ::tt::target::ttnn::ScaledDotProductAttentionOpT &op,
     TensorArg query, TensorArg key, TensorArg value,
     std::optional<TensorArg> attentionMask,
     std::optional<TensorArg> attentionSink,
@@ -48,7 +48,7 @@ auto createScaledDotProductAttentionTuple(
       resolveTensorArg(value, tag),
       attentionMask ? std::make_optional(resolveTensorArg(*attentionMask, tag))
                     : std::nullopt,
-      opT.is_causal, params.scale, params.slidingWindowSize,
+      op.is_causal, params.scale, params.slidingWindowSize,
       params.outputMemoryConfig,
       /*program_config=*/std::nullopt,
       /*compute_kernel_config=*/std::nullopt,
@@ -58,16 +58,15 @@ auto createScaledDotProductAttentionTuple(
 
 ScaledDotProductAttentionOpResult callScaledDotProductAttention(
     CallType callType,
-    const ::tt::target::ttnn::ScaledDotProductAttentionOpT &opT,
-    TensorArg query, TensorArg key, TensorArg value,
-    std::optional<TensorArg> attentionMask,
+    const ::tt::target::ttnn::ScaledDotProductAttentionOpT &op, TensorArg query,
+    TensorArg key, TensorArg value, std::optional<TensorArg> attentionMask,
     std::optional<TensorArg> attentionSink, ::ttnn::MeshDevice *device) {
   ScaledDotProductAttentionResolvedParams params =
-      resolveScaledDotProductAttentionParams(opT);
+      resolveScaledDotProductAttentionParams(op);
 
   auto makeTuple = [&](auto tag) {
     return createScaledDotProductAttentionTuple(
-        tag, opT, query, key, value, attentionMask, attentionSink, params);
+        tag, op, query, key, value, attentionMask, attentionSink, params);
   };
 
   return callOp<ScaledDotProductAttentionOpResult>(

@@ -14,14 +14,16 @@ void run(const ::tt::target::ttnn::PrepareConvTranspose2dWeightsOp *op,
   const ::ttnn::Tensor &weightTensor =
       tensorPool.getTTNNTensorAndValidate(op->weight_tensor());
 
-  ::tt::target::ttnn::PrepareConvTranspose2dWeightsOpT opT;
-  op->UnPackTo(&opT);
+  ::tt::target::ttnn::PrepareConvTranspose2dWeightsOpT
+      prepareConvTranspose2dWeightsOpNative;
+  op->UnPackTo(&prepareConvTranspose2dWeightsOpNative);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ttnn_op_invoke::PrepareConvTranspose2dWeightsOpResult result =
       ttnn_op_invoke::callPrepareConvTranspose2dWeights(
-          ttnn_op_invoke::CallType::EXECUTE, opT, &weightTensor, &targetDevice);
+          ttnn_op_invoke::CallType::EXECUTE,
+          prepareConvTranspose2dWeightsOpNative, &weightTensor, &targetDevice);
 
   LOG_ASSERT(
       std::holds_alternative<::ttnn::Tensor>(result),

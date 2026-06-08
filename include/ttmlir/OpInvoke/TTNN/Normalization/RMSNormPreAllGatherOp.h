@@ -32,11 +32,11 @@ struct RMSNormPreAllGatherResolvedParams {
 };
 
 RMSNormPreAllGatherResolvedParams resolveRMSNormPreAllGatherParams(
-    const ::tt::target::ttnn::RMSNormPreAllGatherOpT &opT);
+    const ::tt::target::ttnn::RMSNormPreAllGatherOpT &op);
 
 RMSNormPreAllGatherOpResult
 callRMSNormPreAllGather(CallType callType,
-                        const ::tt::target::ttnn::RMSNormPreAllGatherOpT &opT,
+                        const ::tt::target::ttnn::RMSNormPreAllGatherOpT &op,
                         TensorArg input, std::optional<TensorArg> residual,
                         ::ttnn::MeshDevice *device);
 

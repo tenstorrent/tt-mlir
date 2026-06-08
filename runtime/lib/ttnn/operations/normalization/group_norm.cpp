@@ -28,13 +28,13 @@ void run(const ::tt::target::ttnn::GroupNormOp *op, ProgramContext &context) {
     bias = tensorPool.getTTNNTensorAndValidate(op->bias());
   }
 
-  ::tt::target::ttnn::GroupNormOpT opT;
-  op->UnPackTo(&opT);
+  ::tt::target::ttnn::GroupNormOpT groupNormOpNative;
+  op->UnPackTo(&groupNormOpNative);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ttnn_op_invoke::GroupNormOpResult result = ttnn_op_invoke::callGroupNorm(
-      ttnn_op_invoke::CallType::EXECUTE, opT, &input,
+      ttnn_op_invoke::CallType::EXECUTE, groupNormOpNative, &input,
       input_mask.has_value()
           ? std::optional<ttnn_op_invoke::TensorArg>(&*input_mask)
           : std::nullopt,

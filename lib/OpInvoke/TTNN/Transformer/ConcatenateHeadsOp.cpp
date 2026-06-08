@@ -16,12 +16,12 @@
 namespace ttnn_op_invoke {
 
 ConcatenateHeadsResolvedParams resolveConcatenateHeadsParams(
-    const ::tt::target::ttnn::ConcatenateHeadsOpT &opT) {
+    const ::tt::target::ttnn::ConcatenateHeadsOpT &op) {
   ConcatenateHeadsResolvedParams params;
-  if (opT.out) {
+  if (op.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*opT.out));
-    LOG_ASSERT(operations::utils::inSystemMemory(*opT.out) ||
+        operations::utils::getTensorRefMemoryConfig(*op.out));
+    LOG_ASSERT(operations::utils::inSystemMemory(*op.out) ||
                    params.outputMemoryConfig.has_value(),
                "Memory config must exist for device tensors");
   }
@@ -30,7 +30,7 @@ ConcatenateHeadsResolvedParams resolveConcatenateHeadsParams(
 
 template <typename Tag>
 auto createConcatenateHeadsTuple(
-    Tag tag, const ::tt::target::ttnn::ConcatenateHeadsOpT & /*opT*/,
+    Tag tag, const ::tt::target::ttnn::ConcatenateHeadsOpT & /*op*/,
     TensorArg input, const ConcatenateHeadsResolvedParams &params) {
   return std::make_tuple(resolveTensorArg(input, tag),
                          params.outputMemoryConfig);
@@ -38,12 +38,12 @@ auto createConcatenateHeadsTuple(
 
 ConcatenateHeadsOpResult
 callConcatenateHeads(CallType callType,
-                     const ::tt::target::ttnn::ConcatenateHeadsOpT &opT,
+                     const ::tt::target::ttnn::ConcatenateHeadsOpT &op,
                      TensorArg input, ::ttnn::MeshDevice *device) {
-  ConcatenateHeadsResolvedParams params = resolveConcatenateHeadsParams(opT);
+  ConcatenateHeadsResolvedParams params = resolveConcatenateHeadsParams(op);
 
   auto makeTuple = [&](auto tag) {
-    return createConcatenateHeadsTuple(tag, opT, input, params);
+    return createConcatenateHeadsTuple(tag, op, input, params);
   };
 
   return callOp<ConcatenateHeadsOpResult>(

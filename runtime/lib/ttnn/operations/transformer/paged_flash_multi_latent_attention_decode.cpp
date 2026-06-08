@@ -41,14 +41,16 @@ static void runPagedFlashMultiLatentAttentionDecodeOp(
         tensorPool.getTTNNTensorAndValidate(op->attention_sink()));
   }
 
-  ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT opT;
-  op->UnPackTo(&opT);
+  ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT
+      pagedFlashMultiLatentAttentionDecodeOpNative;
+  op->UnPackTo(&pagedFlashMultiLatentAttentionDecodeOpNative);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ttnn_op_invoke::PagedFlashMultiLatentAttentionDecodeOpResult result =
       ttnn_op_invoke::callPagedFlashMultiLatentAttentionDecode(
-          ttnn_op_invoke::CallType::EXECUTE, opT, &query, &key,
+          ttnn_op_invoke::CallType::EXECUTE,
+          pagedFlashMultiLatentAttentionDecodeOpNative, &query, &key,
           value.has_value() ? std::optional<ttnn_op_invoke::TensorArg>(&*value)
                             : std::nullopt,
           &pageTable,

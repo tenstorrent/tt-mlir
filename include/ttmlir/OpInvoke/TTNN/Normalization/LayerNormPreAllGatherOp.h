@@ -31,10 +31,10 @@ struct LayerNormPreAllGatherResolvedParams {
 };
 
 LayerNormPreAllGatherResolvedParams resolveLayerNormPreAllGatherParams(
-    const ::tt::target::ttnn::LayerNormPreAllGatherOpT &opT);
+    const ::tt::target::ttnn::LayerNormPreAllGatherOpT &op);
 
 LayerNormPreAllGatherOpResult callLayerNormPreAllGather(
-    CallType callType, const ::tt::target::ttnn::LayerNormPreAllGatherOpT &opT,
+    CallType callType, const ::tt::target::ttnn::LayerNormPreAllGatherOpT &op,
     TensorArg input, std::optional<TensorArg> residualInput,
     std::optional<TensorArg> recip, ::ttnn::MeshDevice *device);
 

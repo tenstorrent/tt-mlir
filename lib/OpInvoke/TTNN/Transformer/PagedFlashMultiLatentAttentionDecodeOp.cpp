@@ -18,15 +18,15 @@ namespace ttnn_op_invoke {
 
 PagedFlashMultiLatentAttentionDecodeResolvedParams
 resolvePagedFlashMultiLatentAttentionDecodeParams(
-    const ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT &opT,
+    const ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT &op,
     ::ttnn::MeshDevice *device) {
   PagedFlashMultiLatentAttentionDecodeResolvedParams params;
 
-  if (opT.scale.has_value()) {
-    params.scale = *opT.scale;
+  if (op.scale.has_value()) {
+    params.scale = *op.scale;
   }
 
-  if (!opT.is_causal) {
+  if (!op.is_causal) {
     params.programConfig = std::make_optional<
         ::ttnn::operations::transformer::SDPAProgramConfig>();
     params.programConfig->k_chunk_size = 32; // Required for non-causal
@@ -34,9 +34,9 @@ resolvePagedFlashMultiLatentAttentionDecodeParams(
         device->compute_with_storage_grid_size();
   }
 
-  if (opT.out) {
+  if (op.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
-        operations::utils::getTensorRefMemoryConfig(*opT.out));
+        operations::utils::getTensorRefMemoryConfig(*op.out));
   }
 
   return params;
@@ -45,7 +45,7 @@ resolvePagedFlashMultiLatentAttentionDecodeParams(
 template <typename Tag>
 auto createPagedFlashMultiLatentAttentionDecodeTuple(
     Tag tag,
-    const ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT &opT,
+    const ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT &op,
     TensorArg query, TensorArg key, std::optional<TensorArg> value,
     TensorArg pageTable, std::optional<TensorArg> attentionMask,
     std::optional<TensorArg> curPosTensor,
@@ -54,7 +54,7 @@ auto createPagedFlashMultiLatentAttentionDecodeTuple(
   return std::make_tuple(
       resolveTensorArg(query, tag), resolveTensorArg(key, tag),
       value ? std::make_optional(resolveTensorArg(*value, tag)) : std::nullopt,
-      opT.head_dim_v, resolveTensorArg(pageTable, tag), opT.is_causal,
+      op.head_dim_v, resolveTensorArg(pageTable, tag), op.is_causal,
       attentionMask ? std::make_optional(resolveTensorArg(*attentionMask, tag))
                     : std::nullopt,
       curPosTensor ? std::make_optional(resolveTensorArg(*curPosTensor, tag))
@@ -69,17 +69,17 @@ auto createPagedFlashMultiLatentAttentionDecodeTuple(
 PagedFlashMultiLatentAttentionDecodeOpResult
 callPagedFlashMultiLatentAttentionDecode(
     CallType callType,
-    const ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT &opT,
+    const ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT &op,
     TensorArg query, TensorArg key, std::optional<TensorArg> value,
     TensorArg pageTable, std::optional<TensorArg> attentionMask,
     std::optional<TensorArg> curPosTensor,
     std::optional<TensorArg> attentionSink, ::ttnn::MeshDevice *device) {
   PagedFlashMultiLatentAttentionDecodeResolvedParams params =
-      resolvePagedFlashMultiLatentAttentionDecodeParams(opT, device);
+      resolvePagedFlashMultiLatentAttentionDecodeParams(op, device);
 
   auto makeTuple = [&](auto tag) {
     return createPagedFlashMultiLatentAttentionDecodeTuple(
-        tag, opT, query, key, value, pageTable, attentionMask, curPosTensor,
+        tag, op, query, key, value, pageTable, attentionMask, curPosTensor,
         attentionSink, params);
   };
 

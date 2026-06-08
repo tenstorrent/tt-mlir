@@ -21,15 +21,15 @@ runRotaryEmbeddingLlama(const ::tt::target::ttnn::RotaryEmbeddingLlamaOp *op,
   const ::ttnn::Tensor &transMat =
       tensorPool.getTTNNTensorAndValidate(op->trans_mat());
 
-  ::tt::target::ttnn::RotaryEmbeddingLlamaOpT opT;
-  op->UnPackTo(&opT);
+  ::tt::target::ttnn::RotaryEmbeddingLlamaOpT rotaryEmbeddingLlamaOpNative;
+  op->UnPackTo(&rotaryEmbeddingLlamaOpNative);
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ttnn_op_invoke::RotaryEmbeddingLlamaOpResult result =
       ttnn_op_invoke::callRotaryEmbeddingLlama(
-          ttnn_op_invoke::CallType::EXECUTE, opT, &input, &cosCache, &sinCache,
-          &transMat, &targetDevice);
+          ttnn_op_invoke::CallType::EXECUTE, rotaryEmbeddingLlamaOpNative,
+          &input, &cosCache, &sinCache, &transMat, &targetDevice);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
              "Expected Tensor from callRotaryEmbeddingLlama execution");
