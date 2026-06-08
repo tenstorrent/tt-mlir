@@ -52,8 +52,8 @@ callLayerNorm(CallType callType, const ::tt::target::ttnn::LayerNormOpT &opT,
     return createLayerNormTuple(tag, opT, input, weight, bias, params);
   };
 
-  return callOp<LayerNormOpResult>(WRAP_OP(::ttnn::layer_norm), callType, makeTuple,
-                                   device);
+  return callOp<LayerNormOpResult>(WRAP_OP(::ttnn::layer_norm), callType,
+                                   makeTuple, device);
 }
 
 } // namespace ttnn_op_invoke

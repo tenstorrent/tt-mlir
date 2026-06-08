@@ -103,8 +103,8 @@ callPagedScaledDotProductAttentionDecode(
   };
 
   return callOp<PagedScaledDotProductAttentionDecodeOpResult>(
-      WRAP_OP(::ttnn::transformer::paged_scaled_dot_product_attention_decode), callType,
-      makeTuple, device);
+      WRAP_OP(::ttnn::transformer::paged_scaled_dot_product_attention_decode),
+      callType, makeTuple, device);
 }
 
 } // namespace ttnn_op_invoke

@@ -55,7 +55,8 @@ RMSNormOpResult callRMSNorm(CallType callType,
     return createRMSNormTuple(tag, opT, input, weight, bias, params);
   };
 
-  return callOp<RMSNormOpResult>(WRAP_OP(::ttnn::rms_norm), callType, makeTuple, device);
+  return callOp<RMSNormOpResult>(WRAP_OP(::ttnn::rms_norm), callType, makeTuple,
+                                 device);
 }
 
 } // namespace ttnn_op_invoke

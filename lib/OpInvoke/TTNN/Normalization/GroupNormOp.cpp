@@ -61,8 +61,8 @@ callGroupNorm(CallType callType, const ::tt::target::ttnn::GroupNormOpT &opT,
                                 params);
   };
 
-  return callOp<GroupNormOpResult>(WRAP_OP(::ttnn::group_norm), callType, makeTuple,
-                                   device);
+  return callOp<GroupNormOpResult>(WRAP_OP(::ttnn::group_norm), callType,
+                                   makeTuple, device);
 }
 
 } // namespace ttnn_op_invoke

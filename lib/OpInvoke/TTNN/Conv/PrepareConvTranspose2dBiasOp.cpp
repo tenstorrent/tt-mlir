@@ -106,7 +106,8 @@ PrepareConvTranspose2dBiasOpResult callPrepareConvTranspose2dBias(
   };
 
   return callOp<PrepareConvTranspose2dBiasOpResult, true, false>(
-      WRAP_OP(::ttnn::operations::conv::conv_transpose2d::prepare_conv_transpose2d_bias),
+      WRAP_OP(::ttnn::operations::conv::conv_transpose2d::
+                  prepare_conv_transpose2d_bias),
       callType, makeTuple, device, "PrepareConvTranspose2dBiasOp");
 }
 

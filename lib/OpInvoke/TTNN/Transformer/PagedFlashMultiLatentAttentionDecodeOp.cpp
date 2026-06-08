@@ -84,8 +84,8 @@ callPagedFlashMultiLatentAttentionDecode(
   };
 
   return callOp<PagedFlashMultiLatentAttentionDecodeOpResult>(
-      WRAP_OP(::ttnn::transformer::paged_flash_multi_latent_attention_decode), callType,
-      makeTuple, device);
+      WRAP_OP(::ttnn::transformer::paged_flash_multi_latent_attention_decode),
+      callType, makeTuple, device);
 }
 
 } // namespace ttnn_op_invoke

@@ -46,8 +46,9 @@ callNLPConcatHeads(CallType callType,
     return createNLPConcatHeadsTuple(tag, opT, input, params);
   };
 
-  return callOp<NLPConcatHeadsOpResult>(WRAP_OP(::ttnn::experimental::nlp_concat_heads),
-                                        callType, makeTuple, device);
+  return callOp<NLPConcatHeadsOpResult>(
+      WRAP_OP(::ttnn::experimental::nlp_concat_heads), callType, makeTuple,
+      device);
 }
 
 } // namespace ttnn_op_invoke
