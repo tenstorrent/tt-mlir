@@ -11,8 +11,12 @@
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/PatternMatch.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
+
+#include <functional>
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MMARKSYNCHRONIZEDBUFFERS
@@ -62,6 +66,36 @@ public:
 
     moduleOp->walk([&](d2m::GenericOp genericOp) {
       auto cbUsageInfo = utils::getCBUsageInfo(genericOp.getRegion(0));
+
+      // A loop-carried accumulator is written by accumulating compute through
+      // an scf.for iter_arg: the fill writes the backing alloc, but the
+      // matmul/reduce writes the iter_arg block argument (a distinct Value).
+      // To detect this, follow the buffer through the iter_args of any scf.for
+      // it initializes and check the producers of each carried value.
+      llvm::DenseSet<Value> visited;
+      std::function<bool(Value)> accumulates = [&](Value v) -> bool {
+        if (!visited.insert(v).second) {
+          return false;
+        }
+        if (auto it = cbUsageInfo.find(v); it != cbUsageInfo.end()) {
+          for (Operation *producer : it->second.producers) {
+            if (cachedContainsAccumulatingCompute(producer)) {
+              return true;
+            }
+          }
+        }
+        for (OpOperand &use : v.getUses()) {
+          if (auto forOp = mlir::dyn_cast<scf::ForOp>(use.getOwner())) {
+            for (auto [i, init] : llvm::enumerate(forOp.getInitArgs())) {
+              if (init == v && accumulates(forOp.getRegionIterArgs()[i])) {
+                return true;
+              }
+            }
+          }
+        }
+        return false;
+      };
+
       for (auto &[cb, usageInfo] : cbUsageInfo) {
         // `cb` may be a block argument (e.g. an scf.for iter_arg carrying an
         // accumulator), in which case it has no defining op. Use
