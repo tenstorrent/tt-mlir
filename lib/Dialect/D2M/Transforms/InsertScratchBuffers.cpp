@@ -101,7 +101,6 @@ static void transferBlockingMaps(GenericOp genericOp) {
 // (post-bufferization). Creates a memref.alloc + scratch_init at the start of
 // the region body.
 static void addScratchToGeneric(GenericOp genericOp) {
-static void addScratchToGeneric(GenericOp genericOp) {
   // Skip if not in compute-only form.
   if (!genericOp.isComputeOnlyForm()) {
     return;
