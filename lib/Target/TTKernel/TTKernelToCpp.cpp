@@ -250,12 +250,12 @@ public:
 namespace ttmlir {
 template<typename Arg>
 void dprint(Arg &&arg) {
-  DPRINT << arg;
+  DPRINT("{}", arg);
 }
 
 template<typename Arg, typename... ArgV>
 void dprint(Arg &&arg, ArgV&&... argv) {
-  DPRINT << arg;
+  DPRINT("{}", arg);
   dprint(argv...);
 }
 
@@ -265,16 +265,16 @@ void dprint(Arg &&arg, ArgV&&... argv) {
     if (threadType == ThreadType::Compute) {
       llksToEmit.push_back(R""""(
     namespace ttmlir {
-      inline void print_cb_details_(DebugPrinter dp, uint32_t cb_id) {
-      dp << "cb_id " << cb_id << ": { ";
-      dp << "size: " << get_local_cb_interface(cb_id).fifo_size << ", ";
-      dp << "limit: " << get_local_cb_interface(cb_id).fifo_limit << ", ";
-      dp << "page_size: " << get_local_cb_interface(cb_id).fifo_page_size << ", ";
-      dp << "num_pages: " << get_local_cb_interface(cb_id).fifo_num_pages << ", ";
-      dp << "rd_ptr: " << get_local_cb_interface(cb_id).fifo_rd_ptr << ", ";
-      dp << "wr_ptr: " << get_local_cb_interface(cb_id).fifo_wr_ptr << ", ";
-      dp << "wr_tile_ptr: " << get_local_cb_interface(cb_id).fifo_wr_tile_ptr;
-      dp << " }";
+      inline void print_cb_details_(uint32_t cb_id) {
+      DPRINT("cb_id {}: {{ size: {}, limit: {}, page_size: {}, num_pages: {}, rd_ptr: {}, wr_ptr: {}, wr_tile_ptr: {} }}",
+        cb_id,
+        get_local_cb_interface(cb_id).fifo_size,
+        get_local_cb_interface(cb_id).fifo_limit,
+        get_local_cb_interface(cb_id).fifo_page_size,
+        get_local_cb_interface(cb_id).fifo_num_pages,
+        get_local_cb_interface(cb_id).fifo_rd_ptr,
+        get_local_cb_interface(cb_id).fifo_wr_ptr,
+        get_local_cb_interface(cb_id).fifo_wr_tile_ptr);
     }
 
     struct CBPrinter {
@@ -283,11 +283,16 @@ void dprint(Arg &&arg, ArgV&&... argv) {
         constexpr CBPrinter(uint32_t cb_id) : cb_id(cb_id) {}
     };
 
-    DebugPrinter operator<<(DebugPrinter dp, CBPrinter cb) {
-        UNPACK((print_cb_details_(dp, cb.cb_id)));
-        MATH(DPRINT << cb.cb_id);
-        PACK((print_cb_details_(dp, cb.cb_id)));
-        return dp;
+    inline void dprint(CBPrinter cb) {
+        UNPACK((print_cb_details_(cb.cb_id)));
+        DPRINT_MATH("{}", cb.cb_id);
+        PACK((print_cb_details_(cb.cb_id)));
+    }
+
+    template<typename... ArgV>
+    void dprint(CBPrinter cb, ArgV&&... argv) {
+        dprint(cb);
+        dprint(argv...);
     }
     } // namespace ttmlir
     )"""");

@@ -49,14 +49,13 @@ TEST_F(OpModelTest, RMSNormWidthShardedInputCrashTest) {
       llvm::SmallVector<int64_t>{numCoresY, numCoresX},
       llvm::SmallVector<int64_t>{shardHeight, shardWidth});
 
-  auto deviceGrid = CreateWorkerGrid();
   llvm::APFloat epsilon(1e-5f);
 
   // This should crash without the workaround in RMSNormOp::getOpConstraints.
   EXPECT_DEATH(
       {
         auto constraintsExp = op_model::OpModel<RMSNormOp>::getOpConstraints(
-            deviceGrid, inputShape, inputLayout, weightShape, weightLayout,
+            inputShape, inputLayout, weightShape, weightLayout,
             /*biasShape=*/std::nullopt, /*biasLayout=*/std::nullopt, epsilon,
             outputLayout);
         if (constraintsExp) {

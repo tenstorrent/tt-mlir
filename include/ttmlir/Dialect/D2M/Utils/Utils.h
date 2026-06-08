@@ -10,6 +10,7 @@
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Operation.h"
 
 #include <utility>
 #include <variant>
@@ -28,6 +29,11 @@ constexpr llvm::StringLiteral kVirtualGridInverseMappingAttr =
     "d2m.virtualGridInverseMapping";
 constexpr llvm::StringLiteral kVirtualGridForwardMappingAttr =
     "d2m.virtualGridForwardMapping";
+constexpr llvm::StringLiteral kReductionScalerAttr = "d2m.reduction_scaler";
+
+inline bool isReductionScalerBuffer(Operation *op) {
+  return op && op->hasAttr(kReductionScalerAttr);
+}
 
 // Return a new shaped type by reblocking its device shape to match a new grid
 // shape.

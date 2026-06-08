@@ -150,8 +150,7 @@ static void transferBlockingMaps(GenericOp genericOp) {
 // Add a scratch buffer inside a single d2m.generic op's region
 // (post-bufferization). Creates a memref.alloc + scratch_init at the start of
 // the region body.
-static void addScratchToGeneric(GenericOp genericOp,
-                                const utils::DstRegisterAnalysis &dstAnalysis) {
+static void addScratchToGeneric(GenericOp genericOp) {
   // Skip if not in compute-only form.
   if (!genericOp.isComputeOnlyForm()) {
     return;
@@ -173,6 +172,7 @@ static void addScratchToGeneric(GenericOp genericOp,
   ttcore::TileType tileType = getTileType(refMemRefType);
 
   // Calculate number of scratch tiles using the DST packing analysis.
+  utils::DstRegisterAnalysis dstAnalysis(genericOp);
   size_t numTiles = computeScratchNumTiles(genericOp, tileType, dstAnalysis);
 
   // Build scratch shard shape: [1, numTiles].
@@ -202,17 +202,13 @@ class D2MInsertScratchBuffers
   void runOnOperation() override {
     ModuleOp moduleOp = getOperation();
 
-    // Run DST packing analysis on the module to compute per-generic scratch
-    // size estimates.
-    utils::DstRegisterAnalysis dstAnalysis(moduleOp);
-
     SmallVector<GenericOp> genericsToProcess;
     moduleOp.walk(
         [&](GenericOp genericOp) { genericsToProcess.push_back(genericOp); });
 
     for (GenericOp genericOp : genericsToProcess) {
       transferBlockingMaps(genericOp);
-      addScratchToGeneric(genericOp, dstAnalysis);
+      addScratchToGeneric(genericOp);
     }
   }
 };

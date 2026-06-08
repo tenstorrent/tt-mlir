@@ -238,8 +238,8 @@ inline const llvm::StringMap<HeaderRequirement> &getCalleeToHeadersMap() {
         {"sub_unary_tile_int32",                           {"api/compute/eltwise_unary/binop_with_scalar.h", ""}},
         {"tan_tile",                                       {"api/compute/eltwise_unary/trigonometry.h", ""}},
         {"tan_tile_init",                                  {"api/compute/eltwise_unary/trigonometry.h", ""}},
-        {"tanh_tile",                                      {"api/compute/eltwise_unary/trigonometry.h", ""}},
-        {"tanh_tile_init",                                 {"api/compute/eltwise_unary/trigonometry.h", ""}},
+        {"tanh_tile",                                      {"api/compute/compute_kernel_api.h", ""}},
+        {"tanh_tile_init",                                 {"api/compute/compute_kernel_api.h", ""}},
         {"tile_regs_acquire",                              {"api/compute/reg_api.h", ""}},
         {"tile_regs_commit",                               {"api/compute/reg_api.h", ""}},
         {"tile_regs_release",                              {"api/compute/reg_api.h", ""}},
@@ -264,6 +264,10 @@ inline const llvm::StringMap<HeaderRequirement> &getCalleeToHeadersMap() {
         {"experimental::tilize_block",                     {"api/compute/tilize.h", ""}},
         {"experimental::untilize_block",                   {"api/compute/untilize.h", ""}},
         {"experimental::pack_untilize_block",              {"api/compute/pack_untilize.h", ""}},
+
+        // Numeric.
+        {"bfloat16_greater",                               {"api/numeric/bfloat16.h", "api/numeric/bfloat16.h"}},
+        {"float32_greater",                                {"api/numeric/float32.h", "api/numeric/float32.h"}},
 
         // System.
         // These size_t specializations are hard-coded in TTKernelToEmitC.

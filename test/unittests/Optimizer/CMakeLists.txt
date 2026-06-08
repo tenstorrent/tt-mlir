@@ -32,3 +32,16 @@ if (TTMLIR_ENABLE_OPMODEL)
         MLIRTTNNValidation
     )
 endif()
+
+add_mlir_unittest(L1SpillManagementTests
+    TestL1SpillManagement.cpp
+    PARTIAL_SOURCES_INTENDED
+)
+
+target_link_libraries(L1SpillManagementTests
+    PRIVATE
+    MLIRTTNNDialect
+    MLIRTTTransforms
+    MLIRTTNNAnalysis
+    MLIRTTNNValidation
+)
