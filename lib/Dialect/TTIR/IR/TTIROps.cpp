@@ -6012,14 +6012,33 @@ void mlir::tt::ttir::UpdateCacheOp::getCanonicalizationPatterns(
     if (batchIdxTensorType.getShape().size() != 1) {
       return emitOpError("Batch index tensor must be a 1D tensor");
     }
-    if (batchIdxTensorType.getShape()[0] != 1) {
+    // batch_idx_tensor must carry one batch_idx per input batch row. The
+    // legacy single-batch case (inputShape[0] == 1, tensor.shape == [1])
+    // is covered by the same rule.
+    int64_t batchIdxLen = batchIdxTensorType.getShape()[0];
+    if (!mlir::ShapedType::isDynamic(batchIdxLen) &&
+        !mlir::ShapedType::isDynamic(inputShape[0]) &&
+        batchIdxLen != inputShape[0]) {
       return emitOpError(
-          "Batch index tensor must have dim 0 be equal to 1, got " +
-          std::to_string(batchIdxTensorType.getShape()[0]));
+          "Batch index tensor must have dim 0 equal to input batch (" +
+          std::to_string(inputShape[0]) + "), got " +
+          std::to_string(batchIdxLen));
     }
     if (!batchIdxTensorType.getElementType().isInteger()) {
       return emitOpError("Batch index tensor must be an integer type");
     }
+  } else if (mlir::ShapedType::isDynamic(inputShape[0]) || inputShape[0] != 1) {
+    // Without a batch_idx_tensor the TTIR -> TTNN lowering hard-codes
+    // batch_idx = 0 in the tt-metal call, which only addresses
+    // page-table row 0. Require the input batch to be statically 1
+    // here; a dynamic batch dim could resolve to >1 after shape
+    // inference and produce undefined writes at runtime.
+    return emitOpError(
+        "Input batch must be statically 1 when no batch_idx_tensor is "
+        "provided, got " +
+        (mlir::ShapedType::isDynamic(inputShape[0])
+             ? std::string("dynamic")
+             : std::to_string(inputShape[0])));
   }
 
   int64_t numCacheHeads = cacheShape[1];

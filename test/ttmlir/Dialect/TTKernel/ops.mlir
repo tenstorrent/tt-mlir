@@ -251,17 +251,17 @@ func.func @test_remote_mailbox_protocol_ops(%mailbox: !ttkernel.l1_addr) {
 //===----------------------------------------------------------------------===//
 
 // CHECK-LABEL: func.func @test_bfloat16_greater
-// CHECK-SAME: (%[[A:.*]]: ui16, %[[B:.*]]: ui16)
-func.func @test_bfloat16_greater(%arg0: ui16, %arg1: ui16) -> () {
-  %0 = ttkernel.bfloat16_greater(%arg0, %arg1) : (ui16, ui16) -> i1
-  // CHECK: ttkernel.bfloat16_greater(%[[A]], %[[B]]) : (ui16, ui16) -> i1
+// CHECK-SAME: (%[[A:.*]]: i16, %[[B:.*]]: i16)
+func.func @test_bfloat16_greater(%arg0: i16, %arg1: i16) -> () {
+  %0 = ttkernel.bfloat16_greater(%arg0, %arg1) : (i16, i16) -> i1
+  // CHECK: ttkernel.bfloat16_greater(%[[A]], %[[B]]) : (i16, i16) -> i1
   return
 }
 
 // CHECK-LABEL: func.func @test_float32_greater
-// CHECK-SAME: (%[[A:.*]]: ui32, %[[B:.*]]: ui32)
-func.func @test_float32_greater(%arg0: ui32, %arg1: ui32) -> () {
-  %0 = ttkernel.float32_greater(%arg0, %arg1) : (ui32, ui32) -> i1
-  // CHECK: ttkernel.float32_greater(%[[A]], %[[B]]) : (ui32, ui32) -> i1
+// CHECK-SAME: (%[[A:.*]]: i32, %[[B:.*]]: i32)
+func.func @test_float32_greater(%arg0: i32, %arg1: i32) -> () {
+  %0 = ttkernel.float32_greater(%arg0, %arg1) : (i32, i32) -> i1
+  // CHECK: ttkernel.float32_greater(%[[A]], %[[B]]) : (i32, i32) -> i1
   return
 }
