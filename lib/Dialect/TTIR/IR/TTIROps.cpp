@@ -5472,6 +5472,19 @@ mlir::OpFoldResult mlir::tt::ttir::RepeatInterleaveOp::fold(FoldAdaptor fold) {
     return emitOpError("Invalid reduction type for all reduce op.");
   }
 
+  // Guard against a mis-partitioned sharded-axis argmax. The Shardy SPMD
+  // partitioner can lower a sharded-axis argmax into a per-shard local
+  // ttir.argmax followed by a ttir.all_reduce<sum> over the integer index
+  // result. Summing per-shard indices does not produce a global argmax, so
+  // this would silently compile and yield wrong results. See tt-mlir #8623.
+  if (mlir::isa_and_nonnull<ttir::ArgMaxOp>(getInput().getDefiningOp())) {
+    return emitOpError(
+        "Detected a mis-partitioned sharded-axis argmax: the input is a "
+        "per-shard ttir.argmax and summing per-shard indices does not produce "
+        "a global argmax. Keep the reduced (vocab) axis replicated, or express "
+        "argmax as a shardable composite.");
+  }
+
   return success();
 }
 
@@ -5486,6 +5499,19 @@ mlir::OpFoldResult mlir::tt::ttir::RepeatInterleaveOp::fold(FoldAdaptor fold) {
   // Currently TTIR only supports the sum reduce types.
   if (reduceType != ::mlir::tt::ttcore::ReduceType::Sum) {
     return emitOpError("Invalid reduction type for all reduce async op.");
+  }
+
+  // Guard against a mis-partitioned sharded-axis argmax. The Shardy SPMD
+  // partitioner can lower a sharded-axis argmax into a per-shard local
+  // ttir.argmax followed by an all-reduce<sum> over the integer index result.
+  // Summing per-shard indices does not produce a global argmax, so this would
+  // silently compile and yield wrong results. See tt-mlir #8623.
+  if (mlir::isa_and_nonnull<ttir::ArgMaxOp>(getInput().getDefiningOp())) {
+    return emitOpError(
+        "Detected a mis-partitioned sharded-axis argmax: the input is a "
+        "per-shard ttir.argmax and summing per-shard indices does not produce "
+        "a global argmax. Keep the reduced (vocab) axis replicated, or express "
+        "argmax as a shardable composite.");
   }
 
   return success();
