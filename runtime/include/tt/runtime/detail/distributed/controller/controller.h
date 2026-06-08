@@ -145,6 +145,8 @@ public:
 
   void setTensorRetain(const ::tt::runtime::Tensor &tensorHandle, bool retain);
 
+  void seedProgramBinary(const ::tt::runtime::Binary &executableHandle);
+
   ::tt::runtime::Layout getLayout(const ::tt::runtime::Binary &executableHandle,
                                   std::uint32_t programIndex,
                                   std::uint32_t inputIndex);
@@ -299,6 +301,10 @@ private:
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 
   void handleSetTensorRetainResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+
+  void handleSeedProgramBinaryResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 

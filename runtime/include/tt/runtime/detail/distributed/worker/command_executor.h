@@ -148,6 +148,10 @@ private:
           const ::tt::runtime::distributed::flatbuffer::SetTensorRetainCommand
               *command);
 
+  void execute(uint64_t commandId,
+               const ::tt::runtime::distributed::flatbuffer::
+                   SeedProgramBinaryCommand *command);
+
   void execute(
       uint64_t commandId,
       const ::tt::runtime::distributed::flatbuffer::GetLayoutCommand *command);

@@ -651,6 +651,18 @@ void Controller::setTensorRetain(const ::tt::runtime::Tensor &tensorHandle,
                                  std::move(commandBuilder));
 }
 
+void Controller::seedProgramBinary(
+    const ::tt::runtime::Binary &executableHandle) {
+  auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
+
+  uint64_t commandId = CommandFactory::buildSeedProgramBinaryCommand(
+      *commandBuilder, executableHandle);
+
+  pushToCommandAndResponseQueues(commandId,
+                                 fb::CommandType::SeedProgramBinaryCommand,
+                                 std::move(commandBuilder));
+}
+
 ::tt::runtime::Layout
 Controller::getLayout(const ::tt::runtime::Binary &executableHandle,
                       std::uint32_t programIndex, std::uint32_t inputIndex) {
@@ -1486,6 +1498,18 @@ void Controller::handleSetTensorRetainResponse(
   debug::assertNoAwaitingState(*awaitingResponse, "SetTensorRetain");
 }
 
+void Controller::handleSeedProgramBinaryResponse(
+    const std::vector<SizedBuffer> &responseBuffers,
+    std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
+
+  debug::checkResponsesIdentical(responseBuffers);
+
+  debug::checkResponseTypes(responseBuffers,
+                            fb::ResponseType::SeedProgramBinaryResponse);
+
+  debug::assertNoAwaitingState(*awaitingResponse, "SeedProgramBinary");
+}
+
 void Controller::handleGetLayoutResponse(
     const std::vector<SizedBuffer> &responseBuffers,
     std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse) {
@@ -1765,6 +1789,10 @@ void Controller::handleResponse(
   case fb::CommandType::CreateUnsafeBorrowedHostTensorCommand: {
     return handleCreateUnsafeBorrowedHostTensorResponse(
         responseBuffers, std::move(awaitingResponse));
+  }
+  case fb::CommandType::SeedProgramBinaryCommand: {
+    return handleSeedProgramBinaryResponse(responseBuffers,
+                                           std::move(awaitingResponse));
   }
   case fb::CommandType::GetLayoutCommand: {
     return handleGetLayoutResponse(responseBuffers,

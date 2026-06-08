@@ -180,6 +180,11 @@ void setTensorRetain(::tt::runtime::Tensor tensorHandle, bool retain) {
   ControllerSingleton::get().setTensorRetain(tensorHandle, retain);
 }
 
+void seedProgramBinary(::tt::runtime::Binary executableHandle) {
+  assertControllerLaunched();
+  ControllerSingleton::get().seedProgramBinary(executableHandle);
+}
+
 ::tt::runtime::Layout getLayout(::tt::runtime::Binary executableHandle,
                                 std::uint32_t programIndex,
                                 std::uint32_t inputIndex) {

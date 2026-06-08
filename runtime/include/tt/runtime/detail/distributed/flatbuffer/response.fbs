@@ -79,6 +79,9 @@ table GetTensorRetainResponse {
 table SetTensorRetainResponse {
 }
 
+table SeedProgramBinaryResponse {
+}
+
 table GetLayoutResponse {
 }
 
@@ -161,7 +164,8 @@ union ResponseType {
   CreateUnsafeBorrowedHostTensorResponse,
   CheckDiskCacheResponse,
   CreateTensorFromDiskCacheResponse,
-  CreateOwnedHostTensorAndSeedDiskCacheResponse
+  CreateOwnedHostTensorAndSeedDiskCacheResponse,
+  SeedProgramBinaryResponse
 }
 
 table Response {

@@ -124,6 +124,14 @@ table SetTensorRetainCommand {
   retain: bool;
 }
 
+// Seeds the worker binary pool with a binary, keyed by binary_id. Used to
+// transfer the binary bytes to the workers once, so that subsequent commands
+// referencing the same binary_id can omit the bytes.
+table SeedProgramBinaryCommand {
+  binary_id: uint64;
+  binary: [ubyte]; // raw bytes of size-prefixed TTNNBinary
+}
+
 table GetLayoutCommand {
   binary_id: uint64;
   binary: [ubyte]; // raw bytes of size-prefixed TTNNBinary
@@ -225,6 +233,7 @@ union CommandType {
   CheckDiskCacheCommand,
   CreateTensorFromDiskCacheCommand,
   CreateOwnedHostTensorAndSeedDiskCacheCommand,
+  SeedProgramBinaryCommand,
 }
 
 table Command {

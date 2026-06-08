@@ -204,6 +204,13 @@ void ResponseFactory::buildSetTensorRetainResponse(
   BUILD_RESPONSE(SetTensorRetain, fbb, commandId);
 }
 
+void ResponseFactory::buildSeedProgramBinaryResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  BUILD_RESPONSE(SeedProgramBinary, fbb, commandId);
+}
+
 void ResponseFactory::buildGetLayoutResponse(
     ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
