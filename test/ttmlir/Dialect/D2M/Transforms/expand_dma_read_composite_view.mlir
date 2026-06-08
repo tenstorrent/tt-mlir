@@ -84,15 +84,20 @@ module attributes {} {
         outs(%alloc_2 : memref<1x2x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) {
     ^datamovement0:
       // CHECK: d2m.get_cb(2)
+      // CHECK-NOT: d2m.composite_view
+      // CHECK-NOT: d2m.view_layout
       %1 = d2m.get_cb(1) : <memref<1x2x!ttcore.tile<32x32, f32>, #l1>>
       %core0 = d2m.core_index(0) {phys_to_virt_map = affine_map<() -> ()>} : index
       %core1 = d2m.core_index(1) {phys_to_virt_map = affine_map<() -> ()>} : index
       %2 = d2m.reserve %1 : <memref<1x2x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x2x!ttcore.tile<32x32, f32>, #l1>
       // CHECK: d2m.dma_read
+      // CHECK-NOT: d2m.composite_view
+      // CHECK-NOT: d2m.view_layout
       %tx = d2m.dma_read %view[%core0, %core1], %2, <0> : (memref<1x2x1x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>, memref<1x2x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx<read>
       d2m.dma_wait %tx : !d2m.mem_tx<read>
       d2m.push %1 : <memref<1x2x!ttcore.tile<32x32, f32>, #l1>>
     }
+    // CHECK: return
     return %alloc_2 : memref<1x2x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
   }
 
@@ -111,15 +116,20 @@ module attributes {} {
         outs(%alloc_2 : memref<1x2x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) {
     ^datamovement0:
       // CHECK: d2m.get_cb(2)
+      // CHECK-NOT: d2m.composite_view
+      // CHECK-NOT: d2m.view_layout
       %1 = d2m.get_cb(1) : <memref<1x2x!ttcore.tile<32x32, f32>, #l1>>
       %core0 = d2m.core_index(0) {phys_to_virt_map = affine_map<() -> ()>} : index
       %core1 = d2m.core_index(1) {phys_to_virt_map = affine_map<() -> ()>} : index
       %2 = d2m.reserve %1 : <memref<1x2x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x2x!ttcore.tile<32x32, f32>, #l1>
       // CHECK: d2m.dma_read
+      // CHECK-NOT: d2m.composite_view
+      // CHECK-NOT: d2m.view_layout
       %tx = d2m.dma_read %view_1[%core0, %core1], %2, <0> : (memref<1x2x1x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>, memref<1x2x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx<read>
       d2m.dma_wait %tx : !d2m.mem_tx<read>
       d2m.push %1 : <memref<1x2x!ttcore.tile<32x32, f32>, #l1>>
     }
+    // CHECK: return
     return %alloc_2 : memref<1x2x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
   }
 
