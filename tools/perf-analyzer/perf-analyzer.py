@@ -4,6 +4,7 @@
 
 import argparse
 import csv
+import json
 import pathlib
 import re
 from collections import defaultdict
@@ -37,6 +38,12 @@ def cycles_to_ns(cycles: int, freq_mhz: float) -> float:
     return cycles / freq_mhz * 1e3
 
 
+def dur(cycles: int, freq_mhz: float) -> dict:
+    """a duration as both raw cycles and derived nanoseconds, for JSON output"""
+
+    return {"cycles": int(cycles), "ns": cycles_to_ns(cycles, freq_mhz)}
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("path_to_perf_dir", type=pathlib.Path)
@@ -67,7 +74,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--waits",
         action="store_true",
-        help="prints information about stalls in the program (needs to be instrumented with device_zone)",
+        help="prints information about waits in the program",
+    )
+    parser.add_argument(
+        "--json",
+        metavar="PATH",
+        default=None,
+        help="writes a structured JSON snapshot of every section to PATH (machine/LLM consumption); composes with the text flags",
     )
     args = parser.parse_args()
 
@@ -140,7 +153,7 @@ def collect_device_timeline(profile_log: pathlib.Path) -> tuple[list[dict], int]
                     "risc": row["risc processor type"],
                     "duration": cycles - start_cycles,
                     "start": start_cycles,
-                    "end": cycles
+                    "end": cycles,
                 }
 
                 result.append(zone)
@@ -164,7 +177,11 @@ def aggregate_by_zone(
         else:
             key = f'{row["name"]}'
         total, count, maximum = result[key]
-        result[key] = (total + row["duration"], count + 1, max(maximum, row["duration"]))
+        result[key] = (
+            total + row["duration"],
+            count + 1,
+            max(maximum, row["duration"]),
+        )
 
     return result
 
@@ -301,58 +318,125 @@ def print_timeline(rows: list[dict], freq_mhz: float) -> None:
         )
 
 
-def print_waits(rows: list[dict], freq_mhz: float) -> None:
-    current_kernel: str = None
-
-    max_width = 0
-    for row in rows:
-        max_width = max(max_width, len(row["name"]))
+def aggregate_waits(rows: list[dict]) -> dict:
+    """returns per-kernel wait totals and a summary of the longest waiter:
+    {"per_kernel": {kernel: wait_cycles}, "longest": {...} | None}"""
 
     total_waits: dict[str, int] = defaultdict(int)
     total_compute: dict[str, int] = defaultdict(int)
-    print("\n===== WAITS ACROSS KERNELS =====")
     for row in rows:
         if row["name"] == "TRISC-KERNEL":
             total_compute[row["kernel"]] += row["duration"]
 
-        if row["name"] not in WAIT_ZONES:
-            continue
+        if row["name"] in WAIT_ZONES:
+            total_waits[row["kernel"]] += row["duration"]
 
-        if row["kernel"] != current_kernel:
-            current_kernel = row["kernel"]
-            print(current_kernel)
+    sum_waits = sum(total_waits.values())
+    longest_kernel = max(total_waits, key=total_waits.get, default=None)
 
-        total_waits[current_kernel] += row["duration"]
-        print(
-            f'\t{row["name"]:<{max_width + 3}}\t[core:{row["core"]}, RISC: {row["risc"]}]\t{time_formatter(row["duration"], freq_mhz)}'
-        )
+    longest = None
+    if longest_kernel is not None:
+        longest_wait = total_waits[longest_kernel]
+        envelope = total_compute[longest_kernel]
+        longest = {
+            "kernel": longest_kernel,
+            "wait_cycles": longest_wait,
+            "share_of_total_wait": longest_wait / sum_waits if sum_waits else 0.0,
+            "share_of_kernel_envelope": longest_wait / envelope if envelope else 0.0,
+        }
 
-    print("\n=== TOTALS ===\n")
-    kernel_width = max((len(k) for k in total_waits), default=0)
-    longest_kernel, longest_wait = None, 0
-    sum_waits = 0
-    for kernel, wait in total_waits.items():
+    return {"per_kernel": dict(total_waits), "longest": longest}
+
+
+def print_waits(rows: list[dict], freq_mhz: float) -> None:
+    waits = aggregate_waits(rows)
+    per_kernel = waits["per_kernel"]
+
+    print("\n===== WAITS ACROSS KERNELS =====\n")
+    kernel_width = max((len(k) for k in per_kernel), default=0)
+    for kernel, wait in per_kernel.items():
         print(f"{kernel:<{kernel_width + 3}}\t{time_formatter(wait, freq_mhz)}")
-        sum_waits += wait
-        if wait > longest_wait:
-            longest_kernel, longest_wait = kernel, wait
 
-    share_of_waits = longest_wait / sum_waits * 100 if sum_waits else 0.0
-    if longest_kernel is None:
+    longest = waits["longest"]
+    if longest is None:
         print("\nLongest wait: none")
         return
-    envelope = total_compute[longest_kernel]
-    share_of_envelope = longest_wait / envelope * 100 if envelope else 0.0
     print(
-        f"\nLongest wait: {longest_kernel:<{kernel_width + 3}}\t{time_formatter(longest_wait, freq_mhz)}\t{share_of_waits:.2f}% of total wait, {share_of_envelope:.2f}% of kernel envelope"
+        f"\nLongest wait: {longest['kernel']:<{kernel_width + 3}}\t"
+        f"{time_formatter(longest['wait_cycles'], freq_mhz)}\t"
+        f"{longest['share_of_total_wait'] * 100:.2f}% of total wait, "
+        f"{longest['share_of_kernel_envelope'] * 100:.2f}% of kernel envelope"
     )
+
+
+def build_report(
+    profile_log: pathlib.Path,
+    raw_timeline: list[dict],
+    zone_grouped_rows: dict[str, tuple[int, int, int]],
+    wall_cycles: int,
+    freq_mhz: float,
+) -> dict:
+    """assembles a self-describing JSON snapshot of every analysis section,
+    with durations as raw cycles plus derived ns (never pre-formatted strings)"""
+
+    runtimes = get_runtimes(raw_timeline, wall_cycles)
+
+    total_cycles = sum(t for t, _, _ in zone_grouped_rows.values())
+    op_times = [
+        {
+            "op": op,
+            "calls": count,
+            "total": dur(total, freq_mhz),
+            "longest": dur(maximum, freq_mhz),
+            "cycles_per_call": total / count if count else 0.0,
+            "pct_of_total": total / total_cycles * 100 if total_cycles else 0.0,
+        }
+        for op, (total, count, maximum) in sorted(
+            zone_grouped_rows.items(), key=lambda kv: kv[1][0], reverse=True
+        )
+    ]
+
+    waits = aggregate_waits(raw_timeline)
+    waits_json = {
+        "per_kernel": [
+            {"kernel": k, "wait": dur(c, freq_mhz)}
+            for k, c in sorted(
+                waits["per_kernel"].items(), key=lambda kv: kv[1], reverse=True
+            )
+        ],
+        "longest": None
+        if waits["longest"] is None
+        else {
+            "kernel": waits["longest"]["kernel"],
+            "wait": dur(waits["longest"]["wait_cycles"], freq_mhz),
+            "share_of_total_wait": waits["longest"]["share_of_total_wait"],
+            "share_of_kernel_envelope": waits["longest"]["share_of_kernel_envelope"],
+        },
+    }
+
+    return {
+        "metadata": {
+            "source": str(profile_log),
+            "chip_freq_mhz": freq_mhz,
+            "device_wall_time": {
+                **dur(wall_cycles, freq_mhz),
+                "note": "max-min timestamp across the trace; includes host-side gaps between dispatches",
+            },
+        },
+        "runtimes": {
+            "device_kernel_time": dur(runtimes["device kernel time"], freq_mhz),
+            "compute_share": runtimes["compute share"],
+            "wait_share": runtimes["wait share"],
+        },
+        "op_times": op_times,
+        "waits": waits_json,
+    }
 
 
 def main() -> None:
     args = parse_args()
     perf_dir: pathlib.Path = args.path_to_perf_dir
     profile_log = perf_dir / "profile_log_device.csv"
-    # ops_perf = perf_dir / 'ops_perf_results.csv'
 
     for file in [profile_log]:
         if not file.is_file():
@@ -379,6 +463,12 @@ def main() -> None:
     if args.waits:
         print_waits(raw_timeline, freq)
         print()
+    if args.json:
+        report = build_report(
+            profile_log, raw_timeline, zone_grouped_rows, wall_time, freq
+        )
+        pathlib.Path(args.json).write_text(json.dumps(report, indent=2))
+        print(f"wrote JSON report -> {args.json}")
 
 
 if __name__ == "__main__":
