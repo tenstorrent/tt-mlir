@@ -817,6 +817,17 @@ def reduce_mean(input, dim):
     )
 
 
+@syntax("__matmul_acc__")
+def _matmul_acc(acc, lhs, rhs):
+    """Matmul accumulating into `acc`: `acc + lhs @ rhs`, in place.
+
+    Not user-facing. The AST visitor routes `c += a @ b` here so the matmul
+    writes through `c`'s buffer (see `_matmul_block`'s `acc` argument); this
+    is required for a loop-carried `c` to bufferize and is the canonical
+    matmul K-reduction."""
+    return _matmul_block(lhs, rhs, acc=acc)
+
+
 @syntax("!tensor")
 class TensorBlock:
     """The DSL-side host class for a tile-typed tensor block.
