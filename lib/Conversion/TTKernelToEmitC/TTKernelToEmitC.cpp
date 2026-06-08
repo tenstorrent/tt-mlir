@@ -1232,10 +1232,13 @@ public:
     std::string endpoint = ensureEndpointDeclaration(
         op.getOperation(), rewriter, "MulticastEndpoint", "mcast_ep");
 
-    llvm::StringRef mcastMode =
+    // EXCLUDE_SRC maps to default NocOptions (no MCAST_INCL_SRC flag), so we
+    // omit the template argument entirely. INCLUDE_SRC maps to
+    // NocOptions::MCAST_INCL_SRC.
+    std::string templateArg =
         std::is_same_v<SourceOp, ttkernel::NocAsyncWriteMulticastOp>
-            ? "Noc::McastMode::EXCLUDE_SRC"
-            : "Noc::McastMode::INCLUDE_SRC";
+            ? ""
+            : "<NocOptions::MCAST_INCL_SRC>";
     bool linked = op.getLinked().value_or(false);
 
     operands.append({adaptor.getSrcLocalL1Addr(), adaptor.getSize(),
@@ -1248,9 +1251,9 @@ public:
         ".noc_x_end = {}, .noc_y_end = {}, "
         ".addr = static_cast<uint32_t>({})}";
 
-    std::string callStr = nocName + ".async_write_multicast<" +
-                          mcastMode.str() + ">(CoreLocalMem<uint32_t>({}), " +
-                          endpoint + ", {}, {}, {{} , " + dstArgs + ", " +
+    std::string callStr = nocName + ".async_write_multicast" + templateArg +
+                          "(CoreLocalMem<uint32_t>({}), " + endpoint +
+                          ", {}, {}, {{} , " + dstArgs + ", " +
                           (linked ? "true" : "false") + ");";
 
     rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr, operands);

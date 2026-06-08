@@ -2048,11 +2048,11 @@ module {
       // CHECK: %[[SIZE:.*]] = "emitc.constant"() <{value = 64 : i32}>
       // CHECK: %[[NUM_DESTS:.*]] = "emitc.constant"() <{value = 4 : i32}>
       // CHECK: %[[NOC:.*]] = "emitc.constant"() <{value = 1 : i8}>
-      // CHECK: emitc.verbatim "noc1.async_write_multicast<Noc::McastMode::EXCLUDE_SRC>
+      // CHECK: emitc.verbatim "noc1.async_write_multicast(
       // CHECK-SAME: noc_traits_t<MulticastEndpoint>::dst_args_mcast_type
       // CHECK-SAME: args %[[SRC]], %[[SIZE]], %[[NUM_DESTS]], %[[XE]], %[[YE]], %[[XS]], %[[YS]], %[[ADDR]]
       ttkernel.noc_async_write_multicast(%src, %size, %num_dests, start_xy[%xe, %ye], end_xy[%xs, %ys], %addr, %noc) : (i32, i32, i32, index, index, index, index, i32, i8) -> ()
-      // CHECK: emitc.verbatim "noc1.async_write_multicast<Noc::McastMode::INCLUDE_SRC>
+      // CHECK: emitc.verbatim "noc1.async_write_multicast<NocOptions::MCAST_INCL_SRC>
       // CHECK-SAME: noc_traits_t<MulticastEndpoint>::dst_args_mcast_type
       // CHECK-SAME: args %[[SRC]], %[[SIZE]], %[[NUM_DESTS]], %[[XE]], %[[YE]], %[[XS]], %[[YS]], %[[ADDR]]
       ttkernel.noc_async_write_multicast_loopback_src(%src, %size, %num_dests, start_xy[%xe, %ye], end_xy[%xs, %ys], %addr, %noc) : (i32, i32, i32, index, index, index, index, i32, i8) -> ()
@@ -2083,7 +2083,7 @@ module {
       // CHECK: %[[NOC2:.*]] = "emitc.constant"() <{value = 1 : i8}>
       // CHECK: emitc.verbatim "noc.async_write_barrier();"
       "ttkernel.noc_async_write_barrier"() : () -> ()
-      // CHECK: emitc.verbatim "noc1.async_write_multicast<Noc::McastMode::EXCLUDE_SRC>
+      // CHECK: emitc.verbatim "noc1.async_write_multicast(
       // CHECK-SAME: args %[[SRC2]], %[[SIZE2]], %[[NUM_DESTS2]], %[[XE2]], %[[YE2]], %[[XS2]], %[[YS2]], %[[ADDR2]]
       ttkernel.noc_async_write_multicast(%src, %size, %num_dests, start_xy[%xe, %ye], end_xy[%xs, %ys], %addr, %noc) : (i32, i32, i32, index, index, index, index, i32, i8) -> ()
       return
@@ -2117,7 +2117,7 @@ module {
       // CHECK: %[[NOC_SLOT:.*]] = emitc.subscript %[[NOC_PTR]][%[[NOC_OFFSET]]
       // CHECK: %[[LOADED_NOC:.*]] = emitc.load %[[NOC_SLOT]]
       // CHECK: %[[DYNAMIC_NOC:.*]] = emitc.cast %[[LOADED_NOC]]
-      // CHECK: emitc.verbatim "Noc({}).async_write_multicast<Noc::McastMode::EXCLUDE_SRC>
+      // CHECK: emitc.verbatim "Noc({}).async_write_multicast(
       // CHECK-SAME: args %[[DYNAMIC_NOC]], %[[SRC3]], %[[SIZE3]], %[[NUM_DESTS3]], %[[XE3]], %[[YE3]], %[[XS3]], %[[YS3]], %[[ADDR3]]
       ttkernel.noc_async_write_multicast(%src, %size, %num_dests, start_xy[%xe, %ye], end_xy[%xs, %ys], %addr, %noc) : (i32, i32, i32, index, index, index, index, i32, i8) -> ()
       return
