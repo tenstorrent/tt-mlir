@@ -1094,8 +1094,7 @@ public:
     SmallVector<Value, 1> operands;
     std::string nocName = ensureNocReference(op.getOperation(), rewriter,
                                              operands, adaptor.getNoc());
-    std::string callStr =
-        nocName + "." + methodName + "<Noc::BarrierMode::FULL>();";
+    std::string callStr = nocName + "." + methodName + "();";
 
     rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr, operands);
     rewriter.eraseOp(op);
@@ -1123,8 +1122,8 @@ public:
     std::string nocName = ensureNocReference(op.getOperation(), rewriter,
                                              operands, adaptor.getNoc());
     operands.push_back(adaptor.getTrid());
-    std::string callStr =
-        nocName + "." + methodName + "<Noc::BarrierMode::TXN_ID>({});";
+    std::string callStr = nocName + "." + methodName +
+                          "<NocOptions::TXN_ID>(NocOptVals{.trid = {}});";
 
     rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr, operands);
     rewriter.eraseOp(op);
