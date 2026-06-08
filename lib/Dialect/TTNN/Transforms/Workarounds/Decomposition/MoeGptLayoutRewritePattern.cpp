@@ -90,16 +90,24 @@ Value buildPreparedWeight(PatternRewriter &rewriter, Operation *anchor,
       weightType, BufferType::SystemMemory);
   Value hostWeight = rewriter.create<FromDeviceOp>(loc, hostType, weight);
 
-  // Step 2: to_layout TILE on host (no dtype).
+  // Step 2: to_layout TILE on host (no dtype). The ToLayoutOp builder at this
+  // tt-mlir pin takes (input, LayoutAttr, OptionalAttr<dtype>); the dtype is
+  // left null for a pure tilize.
   auto hostTiledType =
       utils::RankedTensorTypeFactory::create(hostType, Layout::Tile);
-  Value hostTiled =
-      rewriter.create<ToLayoutOp>(loc, hostTiledType, hostWeight, Layout::Tile);
+  Value hostTiled = rewriter.create<ToLayoutOp>(
+      loc, hostTiledType, hostWeight,
+      LayoutAttr::get(rewriter.getContext(), Layout::Tile),
+      /*dtype=*/ttcore::DataTypeAttr());
 
-  // Step 3: typecast to bfp4 on host.
+  // Step 3: typecast to bfp4 on host. TypecastOp at this pin takes an explicit
+  // dtype attribute.
   auto hostBfp4Type = utils::RankedTensorTypeFactory::create(
       hostTiledType, ttcore::DataType::BFP_BFloat4);
-  Value hostBfp4 = rewriter.create<TypecastOp>(loc, hostBfp4Type, hostTiled);
+  Value hostBfp4 = rewriter.create<TypecastOp>(
+      loc, hostBfp4Type, hostTiled,
+      ttcore::DataTypeAttr::get(rewriter.getContext(),
+                                ttcore::DataType::BFP_BFloat4));
 
   // Step 4: to_device with a result encoding carrying the explicit bank-
   // permuted CRS — the layout encoding is the single source of truth for the
