@@ -91,7 +91,7 @@ def test_typecast_f32_to_bf16():
     relies on the pipeline running `convert-d2m-to-ttmetal` while
     `ttkernel.typecast_tile` is still present (so the per-thread
     UnpackToDestMode picks Fp32 rather than Default) -- see the comment
-    on `_PIPELINE` in tools/d2m-jit/_src/builder.py."""
+    on `_pipeline_passes` in tools/d2m-jit/_src/builder.py."""
     t = torch.randn(64, 64, dtype=torch.float32)
     L_in = _make_layout(dtype=d2m.float32)
     L_out = _make_layout(dtype=d2m.bfloat16)
