@@ -285,14 +285,20 @@ mlir::LogicalResult d2m::CreateGlobalSemaphoreOp::bufferize(
 ::mlir::LogicalResult d2m::CreateGlobalSemaphoreOp::verify() {
   // Verify that the grid shape of the input tensor matches the device grid
   // shape.
-  ttcore::DeviceAttr device = ttcore::lookupDevice(getOperation());
-  auto deviceGridShape = device.getWorkerGrid().getShape();
-  auto tensorGridShape = ttcore::getGridShape(getInput());
-  if (!llvm::equal(deviceGridShape, tensorGridShape)) {
-    return emitOpError() << "input tensor grid shape (" << tensorGridShape
-                         << ") does not match device grid shape ("
-                         << deviceGridShape
-                         << ") for create_global_semaphore op";
+  auto deviceOp = ttcore::lookupDeviceOp(getOperation());
+  // This op may be verified before an enclosing device has been registered.
+  // In that case, intentionally defer the device-dependent grid-shape check
+  // until a device op is available rather than failing verification here.
+  if (deviceOp) {
+    ttcore::DeviceAttr device = deviceOp.getDeviceAttr();
+    auto deviceGridShape = device.getWorkerGrid().getShape();
+    auto tensorGridShape = ttcore::getGridShape(getInput());
+    if (!llvm::equal(deviceGridShape, tensorGridShape)) {
+      return emitOpError() << "input tensor grid shape (" << tensorGridShape
+                           << ") does not match device grid shape ("
+                           << deviceGridShape
+                           << ") for create_global_semaphore op";
+    }
   }
 
   // Check that the shard shape is 1x1.
