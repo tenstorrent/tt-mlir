@@ -79,6 +79,13 @@ public:
 
       llvm::DenseMap<Operation *, Layout> opLayoutConstraints;
       propagateRowMajorLayout(func, rowMajorArgs, opLayoutConstraints);
+
+      // Propagation may have rewritten a d2m_subgraph input operand to
+      // RowMajor while the referenced (private) subgraph function keeps its
+      // original argument layout -- RM intentionally does not descend into
+      // those functions. The d2m_subgraph verifier requires operand types to
+      // match the function signature exactly, so reconcile any mismatch here.
+      reconcileD2MSubgraphOperands(rewriter, func);
     });
 #endif // TTMLIR_ENABLE_OPMODEL
   }
@@ -317,6 +324,56 @@ private:
         worklist.push(user->getResult(0));
       }
     }
+  }
+
+  // Restores d2m_subgraph input operands whose layout was changed by RM
+  // propagation so they match the referenced subgraph function's argument
+  // types. RM does not modify the private subgraph functions, so a row-major
+  // operand feeding a tiled function argument would otherwise fail the
+  // D2MSubgraphOp verifier. A to_layout is inserted to convert each mismatched
+  // operand back to the function-argument layout.
+  void reconcileD2MSubgraphOperands(IRRewriter &rewriter, func::FuncOp func) {
+    func.walk([&](ttnn::D2MSubgraphOp subgraphOp) {
+      func::FuncOp mainFunc = subgraphOp.getD2MMainFunc();
+      if (!mainFunc ||
+          mainFunc.getNumArguments() != subgraphOp.getInputs().size()) {
+        return;
+      }
+
+      for (auto [idx, input] : llvm::enumerate(subgraphOp.getInputs())) {
+        Type expectedType = mainFunc.getArgument(idx).getType();
+        if (input.getType() == expectedType) {
+          continue;
+        }
+
+        auto expectedTensorType =
+            mlir::dyn_cast<RankedTensorType>(expectedType);
+        TTNNLayoutAttr expectedLayout =
+            expectedTensorType ? mlir::dyn_cast_or_null<TTNNLayoutAttr>(
+                                     expectedTensorType.getEncoding())
+                               : nullptr;
+        if (!expectedLayout) {
+          continue;
+        }
+
+        rewriter.setInsertionPoint(subgraphOp);
+        ttnn::ToLayoutOp toLayoutOp = utils::createToLayoutOp(
+            subgraphOp,
+            mlir::cast<mlir::TypedValue<RankedTensorType>>(input), rewriter,
+            expectedLayout.getLayout(), expectedLayout.getBufferType(),
+            expectedLayout.getMemLayout(), expectedLayout.getDataType(),
+            "_d2m_operand");
+
+        // getInputs() are the leading operands of the op, so the operand
+        // index equals the input index.
+        subgraphOp.setOperand(idx, toLayoutOp.getResult());
+
+        TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
+                     "Reconciled d2m_subgraph input {} to function arg layout "
+                     "{} via inserted ToLayoutOp",
+                     idx, expectedLayout);
+      }
+    });
   }
 
   // Checks if given operation is valid and returns RowMajor layout. If
