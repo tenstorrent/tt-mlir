@@ -105,6 +105,44 @@ def test_reshape_rejects_mismatched_numel():
     raise AssertionError("reshape with mismatched numel should have raised")
 
 
+def test_reshape_infers_minus_one_dim():
+    """A single `-1` dim is inferred from the source element count, matching
+    the torch idiom."""
+    L = d2m.Layout(
+        shape=(64, 64),
+        dtype=d2m.float32,
+        block_shape=[1, 1],
+        grid_shape=[1, 1],
+    )
+    t = torch.arange(64 * 64, dtype=torch.float32).reshape(64, 64)
+    lt = d2m.to_layout(t, L)
+    out = d2m.reshape(lt, 32, -1)
+    assert tuple(out.layout.logical_shape) == (
+        32,
+        128,
+    ), f"reshape(-1) inferred shape {out.layout.logical_shape}, expected (32, 128)"
+    assert torch.equal(
+        out.to_host(), t.reshape(32, 128)
+    ), "reshape(-1) values diverge from torch.reshape"
+
+
+def test_reshape_rejects_multiple_minus_one():
+    """Only one `-1` dim may be inferred; two must raise."""
+    L = d2m.Layout(
+        shape=(64, 64),
+        dtype=d2m.float32,
+        block_shape=[1, 1],
+        grid_shape=[1, 1],
+    )
+    lt = d2m.to_layout(torch.zeros(64, 64), L)
+    try:
+        d2m.reshape(lt, -1, -1)
+    except ValueError as e:
+        assert "one dimension" in str(e)
+        return
+    raise AssertionError("reshape with two -1 dims should have raised")
+
+
 def test_reshape_accepts_list_and_positional_form():
     """`d2m.reshape(lt, [N, M])` and `d2m.reshape(lt, N, M)` are equivalent."""
     L = d2m.Layout(
