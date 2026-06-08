@@ -751,7 +751,5 @@ const std::set<mlir::StringRef>
         // TopK's operands workaround forces input bf16 + indices ui16/ui32;
         // without it, opt_level>=1 dtype propagation picks f32. See #8141.
         ttnn::TopKOp::getOperationName(),
-        // PrepareConv3dWeightsOp is needed for conv3d and it requires ROW_MAJOR
-        // layout. See #8411.
-        ttnn::PrepareConv3dWeightsOp::getOperationName()};
+        ttnn::SliceDynamicOp::getOperationName()};
 } // namespace mlir::tt::ttnn

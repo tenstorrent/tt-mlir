@@ -30,6 +30,7 @@
 #include <set>
 #include <utility>
 #include <vector>
+#include <iostream>
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNOPERATIONVALIDATIONANDFALLBACK
@@ -120,6 +121,11 @@ bool tryFallbacks(Operation *operation,
                   const std::vector<TTNNLayoutAttr> &originalInputLayouts,
                   const llvm::SmallVector<OpConfig> &configs,
                   uint32_t maxAttempts = 0);
+
+// Try output-only fallback configurations for zero-input ops (creation ops)
+bool tryOutputOnlyFallbacks(Operation *operation,
+                            const llvm::SmallVector<OpConfig> &configs,
+                            uint32_t maxAttempts = 0);
 
 // Try config fallbacks for Conv2d-like operations
 bool tryConfigFallbacks(Operation *operation,
@@ -382,10 +388,7 @@ bool tryFallbacks(Operation *operation,
   }
 
   if (originalInputLayouts.empty()) {
-    TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
-                 "No TTNN input layouts found for operation {} at {}",
-                 operation->getName(), operation->getLoc());
-    return false;
+    return tryOutputOnlyFallbacks(operation, configs, maxAttempts);
   }
 
   TTMLIR_DEBUG(
@@ -479,6 +482,135 @@ bool tryFallbacks(Operation *operation,
                  "Found working fallback combination with {} operands after {} "
                  "failed attempts",
                  candidate.layouts.size(), failedAttempts);
+    return true;
+  }
+
+  return false;
+}
+
+bool tryOutputOnlyFallbacks(Operation *operation,
+                            const llvm::SmallVector<OpConfig> &configs,
+                            uint32_t maxAttempts) {
+  if (configs.empty() || !configs[0].outputLayout) {
+    TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
+                 "No output layout config for zero-input operation {} at {}",
+                 operation->getName(), operation->getLoc());
+    return false;
+  }
+
+  TTNNLayoutAttr originalOutputLayout = configs[0].outputLayout;
+  auto outputType =
+      mlir::cast<RankedTensorType>(operation->getResult(0).getType());
+  llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
+
+  std::vector<TTNNLayoutAttr> fallbackOutputLayouts =
+      createFallbackTransforms(originalOutputLayout, outputShape);
+
+  // Sort fallbacks by distance from the original layout (cheapest first).
+  std::sort(fallbackOutputLayouts.begin(), fallbackOutputLayouts.end(),
+            [&](const TTNNLayoutAttr &a, const TTNNLayoutAttr &b) {
+              double distA =
+                  calculateLayoutTransformDistance(originalOutputLayout, a);
+              double distB =
+                  calculateLayoutTransformDistance(originalOutputLayout, b);
+              if (distA != distB) {
+                return distA < distB;
+              }
+              if (a.getDataType() != b.getDataType()) {
+                return static_cast<int>(a.getDataType()) <
+                       static_cast<int>(b.getDataType());
+              }
+              return static_cast<int>(a.getLayout()) <
+                     static_cast<int>(b.getLayout());
+            });
+  TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
+               "Testing {} output-only fallbacks for zero-input operation {} "
+               "at {}",
+               fallbackOutputLayouts.size(), operation->getName(),
+               operation->getLoc());
+
+  auto dtypeOp = mlir::dyn_cast<TTNNDtypeOpInterface>(operation);
+  auto layoutOp = mlir::dyn_cast<TTNNLayoutOpInterface>(operation);
+  auto memConfigOp = mlir::dyn_cast<TTNNMemoryConfigOpInterface>(operation);
+
+  size_t failedAttempts = 0;
+  std::vector<TTNNLayoutAttr> emptyInputLayouts;
+  for (const TTNNLayoutAttr &candidateLayout : fallbackOutputLayouts) {
+    // Update the op's attributes to match the candidate layout so the
+    // OpModel interface sees consistent values during validation.
+    if (dtypeOp) {
+      dtypeOp.setDtypeAttr(ttcore::DataTypeAttr::get(
+          operation->getContext(), candidateLayout.getDataType()));
+    }
+    if (layoutOp) {
+      layoutOp.setLayoutAttr(
+          LayoutAttr::get(operation->getContext(), candidateLayout.getLayout()));
+    }
+    if (memConfigOp) {
+      memConfigOp.setMemoryConfigAttr(MemoryConfigAttr::get(
+          operation->getContext(), candidateLayout.getMemLayout(),
+          BufferTypeAttr::get(operation->getContext(),
+                              candidateLayout.getBufferType()),
+          /*shardSpec=*/std::nullopt));
+    }
+
+    OpConfig testConfig{candidateLayout};
+    auto result = op_constraint_validation::validateOperation(
+        operation, emptyInputLayouts, testConfig);
+
+    if (!result.isSuccess()) {
+      failedAttempts++;
+      TTMLIR_TRACE(ttmlir::LogComponent::ValidationFallback,
+                   "Output-only fallback failed (status: {}): {}",
+                   static_cast<int>(result.status), result.errorMessage);
+
+      if (maxAttempts > 0 &&
+          failedAttempts >= static_cast<size_t>(maxAttempts)) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
+                     "Reached maximum fallback attempts ({}) for operation {} "
+                     "at {}. Terminating early.",
+                     maxAttempts, operation->getName(), operation->getLoc());
+        return false;
+      }
+      continue;
+    } 
+    // Found a working output layout — apply it.
+    // Update the operation's result type to match the validated layout.
+    TTNNLayoutAttr actualLayout = result.checkAndGetFirstActualOutputLayout();
+    auto newResultType =
+        utils::RankedTensorTypeFactory::create(outputType, actualLayout);
+    operation->getResult(0).setType(newResultType);
+
+    // If the data type changed, insert a typecast after the operation to
+    // convert back to the original dtype for consumers. We use typecast
+    // instead of to_layout because the ToLayoutOp canonicalizer merges
+    // to_layout back into creation ops, undoing the fallback.
+    if (actualLayout.getDataType() != originalOutputLayout.getDataType()) {
+      auto originalResultType =
+          utils::RankedTensorTypeFactory::create(newResultType,
+                                                 originalOutputLayout);
+
+      llvm::SmallVector<std::pair<Operation *, unsigned>> uses;
+      for (auto &use : operation->getResult(0).getUses()) {
+        uses.emplace_back(use.getOwner(), use.getOperandNumber());
+      }
+
+      OpBuilder builder(operation->getContext());
+      builder.setInsertionPointAfter(operation);
+      auto typecastOp = builder.create<TypecastOp>(
+          operation->getLoc(), originalResultType, operation->getResult(0),
+          ttcore::DataTypeAttr::get(operation->getContext(),
+                                    originalOutputLayout.getDataType()));
+
+      for (auto &[useOp, operandIdx] : uses) {
+        useOp->setOperand(operandIdx, typecastOp.getResult());
+      }
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
+                 "Found working output-only fallback for operation {} at {} "
+                 "after {} failed attempts",
+                 operation->getName(), operation->getLoc(), failedAttempts);
     return true;
   }
 

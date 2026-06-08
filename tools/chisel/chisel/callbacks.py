@@ -136,6 +136,7 @@ def _emit_pcc(
     *,
     mode: NumericsMode,
     skip_pcc: bool,
+    ssa_inputs: dict = None,
 ) -> None:
     """Shape/dtype + PCC for one (golden, device) pair under `mode`."""
     check_shape_dtype(op, "mlir_vs_golden", mlir_output, golden_out)
@@ -149,7 +150,7 @@ def _emit_pcc(
             )
         )
         return
-    check_numerics(ctx, op, ssa, golden_out, device_tensor, mode=mode)
+    check_numerics(ctx, op, ssa, golden_out, device_tensor, mode=mode, ssa_inputs=ssa_inputs)
 
 
 @chisel_safe
@@ -191,6 +192,7 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
                 device_tensor,
                 mode=NumericsMode.ISOLATED,
                 skip_pcc=config.skip_pcc,
+                ssa_inputs=ctx.stashed_inputs,
             )
 
         if accum_out is not None:
@@ -203,6 +205,7 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
                 device_tensor,
                 mode=NumericsMode.ACCUMULATED,
                 skip_pcc=config.skip_pcc,
+                ssa_inputs=ctx.stashed_inputs,
             )
 
 
