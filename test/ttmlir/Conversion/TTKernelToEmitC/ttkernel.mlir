@@ -299,6 +299,42 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @binary_bcast_init
+    func.func @binary_bcast_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      %in0_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      %in1_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
+      // CHECK: %[[IN0_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      // CHECK: %[[IN1_CB:.*]] = emitc.literal "get_compile_time_arg_val(1)"
+      "ttkernel.binary_bcast_init"(%in0_cb, %in1_cb, %in1_cb) <{eltwise_binary_type = #ttkernel.eltwise_binary_type<add>, bcast_type = #ttkernel.bcast_type<row>}> : (!cb0_tiles, !cb1_tiles, !cb1_tiles) -> ()
+      "ttkernel.binary_bcast_init"(%in0_cb, %in1_cb, %in1_cb) <{eltwise_binary_type = #ttkernel.eltwise_binary_type<sub>, bcast_type = #ttkernel.bcast_type<col>}> : (!cb0_tiles, !cb1_tiles, !cb1_tiles) -> ()
+      "ttkernel.binary_bcast_init"(%in0_cb, %in1_cb, %in1_cb) <{eltwise_binary_type = #ttkernel.eltwise_binary_type<mul>, bcast_type = #ttkernel.bcast_type<scalar>}> : (!cb0_tiles, !cb1_tiles, !cb1_tiles) -> ()
+      // CHECK: call_opaque "init_bcast"(%[[IN0_CB]], %[[IN1_CB]], %[[IN1_CB]]) {template_args = [#emitc.opaque<"EltwiseBinaryType::ELWADD">, #emitc.opaque<"BroadcastType::ROW">]} : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+      // CHECK: call_opaque "init_bcast"(%[[IN0_CB]], %[[IN1_CB]], %[[IN1_CB]]) {template_args = [#emitc.opaque<"EltwiseBinaryType::ELWSUB">, #emitc.opaque<"BroadcastType::COL">]} : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+      // CHECK: call_opaque "init_bcast"(%[[IN0_CB]], %[[IN1_CB]], %[[IN1_CB]]) {template_args = [#emitc.opaque<"EltwiseBinaryType::ELWMUL">, #emitc.opaque<"BroadcastType::SCALAR">]} : (!emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">, !emitc.opaque<"::tt::CB">) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @binary_bcast
+    func.func @binary_bcast() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
+      %in0_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
+      %in1_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
+      %in0_tile_index = arith.constant 1 : index
+      %in1_tile_index = arith.constant 0 : index
+      %dst_index = arith.constant 3 : index
+      // CHECK: %[[IN0_CB:.*]] = emitc.literal "get_compile_time_arg_val(0)"
+      // CHECK: %[[IN1_CB:.*]] = emitc.literal "get_compile_time_arg_val(1)"
+      // CHECK: %[[IN0_TILE_INDEX:.*]] = "emitc.constant"
+      // CHECK: %[[IN1_TILE_INDEX:.*]] = "emitc.constant"
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      "ttkernel.binary_bcast"(%in0_cb, %in1_cb, %in0_tile_index, %in1_tile_index, %dst_index) <{eltwise_binary_type = #ttkernel.eltwise_binary_type<add>, bcast_type = #ttkernel.bcast_type<row>}> : (!cb0_tiles, !cb1_tiles, index, index, index) -> ()
+      "ttkernel.binary_bcast"(%in0_cb, %in1_cb, %in0_tile_index, %in1_tile_index, %dst_index) <{eltwise_binary_type = #ttkernel.eltwise_binary_type<sub>, bcast_type = #ttkernel.bcast_type<col>}> : (!cb0_tiles, !cb1_tiles, index, index, index) -> ()
+      "ttkernel.binary_bcast"(%in0_cb, %in1_cb, %in0_tile_index, %in1_tile_index, %dst_index) <{eltwise_binary_type = #ttkernel.eltwise_binary_type<mul>, bcast_type = #ttkernel.bcast_type<scalar>}> : (!cb0_tiles, !cb1_tiles, index, index, index) -> ()
+      // CHECK: emitc.call_opaque "add_tiles_bcast"(%[[IN0_CB]], %[[IN1_CB]], %[[IN0_TILE_INDEX]], %[[IN1_TILE_INDEX]], %[[DST_INDEX]]) {template_args = [#emitc.opaque<"BroadcastType::ROW">]}
+      // CHECK: emitc.call_opaque "sub_tiles_bcast"(%[[IN0_CB]], %[[IN1_CB]], %[[IN0_TILE_INDEX]], %[[IN1_TILE_INDEX]], %[[DST_INDEX]]) {template_args = [#emitc.opaque<"BroadcastType::COL">]}
+      // CHECK: emitc.call_opaque "mul_tiles_bcast"(%[[IN0_CB]], %[[IN1_CB]], %[[IN0_TILE_INDEX]], %[[IN1_TILE_INDEX]], %[[DST_INDEX]]) {template_args = [#emitc.opaque<"BroadcastType::SCALAR">]}
+      return
+    }
+
     // CHECK-LABEL: func @sub_tiles_init
     func.func @sub_tiles_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[CB0:.*]] = emitc.literal "get_compile_time_arg_val(0)"
