@@ -383,3 +383,359 @@ def test_compile_add_dtype_promotion() -> None:
     a = torch.randn((32, 32), dtype=torch.bfloat16)
     b = torch.randn((32, 32), dtype=torch.float32)
     _assert_compile_matches_eager(_Add(), a, b)
+
+
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_cos(shape: tuple[int, ...]) -> None:
+    class _Cos(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.cos(x)
+
+    x = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Cos(), x, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_sin(shape: tuple[int, ...]) -> None:
+    class _Sin(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.sin(x)
+
+    x = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Sin(), x, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_neg(shape: tuple[int, ...]) -> None:
+    class _Neg(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.neg(x)
+
+    x = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Neg(), x)
+
+
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_silu(shape: tuple[int, ...]) -> None:
+    class _SiLU(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.nn.functional.silu(x)
+
+    x = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_SiLU(), x, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_div_tensor(shape: tuple[int, ...]) -> None:
+    class _Div(nn.Module):
+        def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+            return a / b
+
+    a = torch.randn(shape, dtype=torch.bfloat16)
+    b = torch.rand(shape, dtype=torch.bfloat16).add(0.1)
+    _assert_compile_matches_eager(_Div(), a, b, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("scalar", [2.0, 0.5, -1.0])
+def test_compile_div_scalar(scalar: float) -> None:
+    class _DivScalar(nn.Module):
+        def __init__(self, s: float) -> None:
+            super().__init__()
+            self.s = s
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return x / self.s
+
+    x = torch.randn((32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_DivScalar(scalar), x, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("scalar", [2.0, 0.5])
+def test_compile_div_scalar_via_aten_op(scalar: float) -> None:
+    """Mirrors test_compile_add_scalar_via_aten_op for div.Scalar."""
+    def f(x: torch.Tensor) -> torch.Tensor:
+        return torch.ops.aten.div.Scalar(x, scalar)
+
+    x = torch.randn((32, 64), dtype=torch.bfloat16)
+    compiled = torch.compile(f, backend="tt", dynamic=False, fullgraph=True)
+    with torch.no_grad():
+        tt_out = compiled(x.to("tt")).cpu()
+    torch.testing.assert_close(tt_out, f(x), atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("exp", [2.0, 0.5])
+def test_compile_pow_tensor_scalar(exp: float) -> None:
+    class _Pow(nn.Module):
+        def __init__(self, e: float) -> None:
+            super().__init__()
+            self.e = e
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return x.pow(self.e)
+
+    x = torch.rand((32, 64), dtype=torch.bfloat16).add(0.1)
+    _assert_compile_matches_eager(_Pow(exp), x, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("scalar", [2.0, -0.5])
+def test_compile_add_scalar(scalar: float) -> None:
+    class _AddScalar(nn.Module):
+        def __init__(self, s: float) -> None:
+            super().__init__()
+            self.s = s
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return x + self.s
+
+    x = torch.randn((32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_AddScalar(scalar), x, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("scalar", [2.0, -0.5])
+def test_compile_add_scalar_via_aten_op(scalar: float) -> None:
+    """Explicitly calling `torch.ops.aten.add.Scalar` forces the `add.Scalar`
+    lowering — Dynamo emits `add.Tensor` for plain `x + 2.0` and never hits
+    this path. fullgraph=True prevents silent CPU fallback so any lowering bug
+    surfaces as a real failure."""
+    def f(x: torch.Tensor) -> torch.Tensor:
+        return torch.ops.aten.add.Scalar(x, scalar)
+
+    x = torch.randn((32, 64), dtype=torch.bfloat16)
+    compiled = torch.compile(f, backend="tt", dynamic=False, fullgraph=True)
+    with torch.no_grad():
+        tt_out = compiled(x.to("tt")).cpu()
+    torch.testing.assert_close(tt_out, f(x), atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("scalar", [2.0, -0.5])
+def test_compile_mul_scalar(scalar: float) -> None:
+    class _MulScalar(nn.Module):
+        def __init__(self, s: float) -> None:
+            super().__init__()
+            self.s = s
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return x * self.s
+
+    x = torch.randn((32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_MulScalar(scalar), x, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("scalar", [2.0, -0.5])
+def test_compile_mul_scalar_via_aten_op(scalar: float) -> None:
+    """Mirrors test_compile_add_scalar_via_aten_op for mul.Scalar."""
+    def f(x: torch.Tensor) -> torch.Tensor:
+        return torch.ops.aten.mul.Scalar(x, scalar)
+
+    x = torch.randn((32, 64), dtype=torch.bfloat16)
+    compiled = torch.compile(f, backend="tt", dynamic=False, fullgraph=True)
+    with torch.no_grad():
+        tt_out = compiled(x.to("tt")).cpu()
+    torch.testing.assert_close(tt_out, f(x), atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("dim", [-1, 0, 1])
+def test_compile_softmax(dim: int) -> None:
+    class _Softmax(nn.Module):
+        def __init__(self, d: int) -> None:
+            super().__init__()
+            self.d = d
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.softmax(x, dim=self.d)
+
+    x = torch.randn((32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Softmax(dim), x, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.usefixtures("skip_if_sim")
+@pytest.mark.parametrize("dim,keepdim", [(0, False), (1, True), (-1, False)])
+def test_compile_argmax(dim: int, keepdim: bool) -> None:
+    class _Argmax(nn.Module):
+        def __init__(self, d: int, k: bool) -> None:
+            super().__init__()
+            self.d = d
+            self.k = k
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.argmax(x, dim=self.d, keepdim=self.k)
+
+    x = torch.randn((32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Argmax(dim, keepdim), x)
+
+
+@pytest.mark.parametrize("dim", [0, 1, 2, -1])
+def test_compile_unsqueeze(dim: int) -> None:
+    class _Unsqueeze(nn.Module):
+        def __init__(self, d: int) -> None:
+            super().__init__()
+            self.d = d
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return x.unsqueeze(self.d)
+
+    x = torch.randn((32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Unsqueeze(dim), x)
+
+
+def test_compile_squeeze() -> None:
+    class _Squeeze(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return x.squeeze(dim=1)
+
+    x = torch.randn((32, 1, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Squeeze(), x)
+
+
+@pytest.mark.parametrize("dim0,dim1", [(0, 1), (1, 2), (0, 2)])
+def test_compile_transpose(dim0: int, dim1: int) -> None:
+    class _Transpose(nn.Module):
+        def __init__(self, d0: int, d1: int) -> None:
+            super().__init__()
+            self.d0 = d0
+            self.d1 = d1
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return x.transpose(self.d0, self.d1)
+
+    x = torch.randn((32, 64, 32), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Transpose(dim0, dim1), x)
+
+
+@pytest.mark.parametrize(
+    "src_shape,target_shape",
+    [((1, 64), (32, 64)), ((32, 1), (32, 64)), ((1, 1, 64), (32, 32, 64))],
+)
+def test_compile_expand(src_shape: tuple[int, ...], target_shape: tuple[int, ...]) -> None:
+    class _Expand(nn.Module):
+        def __init__(self, shape: tuple[int, ...]) -> None:
+            super().__init__()
+            self.shape = shape
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return x.expand(self.shape)
+
+    x = torch.randn(src_shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Expand(target_shape), x)
+
+
+@pytest.mark.parametrize("shape,perm", [
+    ((32, 64), (1, 0)),
+    ((32, 64, 32), (2, 0, 1)),
+    ((32, 64, 32), (0, 2, 1)),
+])
+def test_compile_permute(shape: tuple[int, ...], perm: tuple[int, ...]) -> None:
+    class _Permute(nn.Module):
+        def __init__(self, p: tuple[int, ...]) -> None:
+            super().__init__()
+            self.p = p
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return x.permute(self.p)
+
+    x = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Permute(perm), x)
+
+
+@pytest.mark.parametrize("dim", [0, 1, -1])
+def test_compile_cat(dim: int) -> None:
+    class _Cat(nn.Module):
+        def __init__(self, d: int) -> None:
+            super().__init__()
+            self.d = d
+
+        def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+            return torch.cat([a, b], dim=self.d)
+
+    a = torch.randn((32, 64), dtype=torch.bfloat16)
+    b = torch.randn((32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Cat(dim), a, b)
+
+
+@pytest.mark.parametrize(
+    "shape,dim,start,end",
+    [
+        ((32, 64), 1, 0, 32),
+        ((32, 64), 0, 16, 32),
+        ((32, 64, 32), -1, 0, 16),
+    ],
+)
+def test_compile_slice(shape: tuple[int, ...], dim: int, start: int, end: int) -> None:
+    class _Slice(nn.Module):
+        def __init__(self, d: int, s: int, e: int) -> None:
+            super().__init__()
+            self.d = d
+            self.s = s
+            self.e = e
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.narrow(x, self.d, self.s, self.e - self.s)
+
+    x = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Slice(dim, start, end), x)
+
+
+@pytest.mark.usefixtures("skip_if_sim")
+def test_compile_arange() -> None:
+    class _Arange(nn.Module):
+        def forward(self) -> torch.Tensor:
+            return torch.arange(128, dtype=torch.float32)
+
+    _assert_compile_matches_eager(_Arange())
+
+
+@pytest.mark.usefixtures("skip_if_sim")
+def test_compile_embedding() -> None:
+    class _Embedding(nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.emb = nn.Embedding(256, 64).to(torch.bfloat16)
+
+        def forward(self, idx: torch.Tensor) -> torch.Tensor:
+            return self.emb(idx)
+
+    idx = torch.randint(0, 256, (1, 128), dtype=torch.long)
+    _assert_compile_matches_eager(_Embedding(), idx, atol=1e-2, rtol=1e-2)
+
+
+@pytest.mark.parametrize(
+    "b,m,k,n",
+    [(2, 32, 64, 32), (4, 64, 32, 64)],
+)
+def test_compile_matmul_3d(b: int, m: int, k: int, n: int) -> None:
+    class _Matmul(nn.Module):
+        def forward(self, a: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+            return torch.matmul(a, x)
+
+    a = torch.randn((b, m, k), dtype=torch.bfloat16)
+    x = torch.randn((b, k, n), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Matmul(), a, x, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize(
+    "b,h,s,d",
+    [(1, 8, 32, 64), (1, 32, 32, 32)],
+)
+def test_compile_matmul_4d(b: int, h: int, s: int, d: int) -> None:
+    """Attention QK^T pattern: [B,H,S,D] @ [B,H,D,S] -> [B,H,S,S]."""
+    class _Matmul(nn.Module):
+        def forward(self, q: torch.Tensor, k: torch.Tensor) -> torch.Tensor:
+            return torch.matmul(q, k)
+
+    q = torch.randn((b, h, s, d), dtype=torch.bfloat16)
+    k = torch.randn((b, h, d, s), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Matmul(), q, k, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize(
+    "b,m,k,n",
+    [(2, 32, 64, 32), (4, 64, 32, 64)],
+)
+def test_compile_bmm(b: int, m: int, k: int, n: int) -> None:
+    class _BMM(nn.Module):
+        def forward(self, a: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+            return torch.bmm(a, x)
+
+    a = torch.randn((b, m, k), dtype=torch.bfloat16)
+    x = torch.randn((b, k, n), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_BMM(), a, x, atol=0.05, rtol=0.05)

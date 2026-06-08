@@ -691,10 +691,7 @@ at::Tensor tt_argmax(const at::Tensor &self, std::optional<int64_t> dim, bool ke
     std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
     auto module_op = std::move(mb).finalize({result});
     auto outputs = compile_and_run(std::move(module_op), {self});
-    // TTIR ArgMax returns i32. Widen to int64 for PyTorch compatibility.
-    auto i32_result = wrap_tt_tensor(std::move(outputs[0]), out_shape, at::ScalarType::Int);
-    auto i64_host = i32_result.cpu().to(at::ScalarType::Long);
-    return to_tt(i64_host, self.device());
+    return wrap_tt_tensor(std::move(outputs[0]), out_shape, at::ScalarType::Long);
 }
 
 at::Tensor tt_pow_tensor_scalar(const at::Tensor &self, const at::Scalar &exponent) {
@@ -919,7 +916,8 @@ mlir::Value build_argmax(ModuleBuilder &mb, mlir::Value input, std::optional<int
     }
     auto result_type = mlir::RankedTensorType::get(out_shape, mb.attrs().getI32Type());
     auto keep_dim_attr = mb.attrs().getBoolAttr(keepdim);
-    return mb.create<mlir::tt::ttir::ArgMaxOp>(result_type, input, keep_dim_attr, dim_arg_attr).getResult();
+    auto argmax = mb.create<mlir::tt::ttir::ArgMaxOp>(result_type, input, keep_dim_attr, dim_arg_attr).getResult();
+    return mb.insert_typecast(argmax, mb.attrs().getI64Type());
 }
 
 mlir::Value build_unsqueeze(ModuleBuilder &mb, mlir::Value input, int64_t dim) {

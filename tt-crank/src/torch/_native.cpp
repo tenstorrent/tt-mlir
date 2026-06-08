@@ -18,6 +18,7 @@
 #include <torch/csrc/autograd/python_variable.h>
 #include <ttmlir/Target/Common/types_generated.h>
 
+#include "cast.hpp"
 #include "torch/backend.hpp"
 #include "torch/ops/builders.hpp"
 #include "torch/ops/fallback.hpp"
@@ -146,6 +147,15 @@ public:
         return tk::build_scalar(*mb_, tk::mlir_element_type_for(tk::to_torch_dtype(dtype)), value);
     }
 
+    // Lift a Python scalar to a broadcastable `ttir.constant` matching the
+    // element type of `like`. Use this for Tensor_Scalar ops (e.g. pow) where
+    // the scalar operand must carry the same dtype as the tensor operand.
+    mlir::Value scalar_like(mlir::Value like, double value) {
+        assert_builder();
+        auto elem_type = mlir::cast<mlir::RankedTensorType>(like.getType()).getElementType();
+        return tk::build_scalar(*mb_, elem_type, value);
+    }
+
     // Cast `value` to a tensor with `dtype`'s element type, preserving shape.
     // No-op if `value` is already at that element type.
     mlir::Value typecast(mlir::Value value, ::tt::target::DataType dtype) {
@@ -158,6 +168,140 @@ public:
         auto module_op = std::move(*mb_).finalize(outputs);
         mb_.reset();
         return tk::compile_module(std::move(module_op));
+    }
+
+    // Unary elementwise
+    mlir::Value cos(mlir::Value input) {
+        assert_builder();
+        return tk::build_cos(*mb_, input);
+    }
+    mlir::Value sin(mlir::Value input) {
+        assert_builder();
+        return tk::build_sin(*mb_, input);
+    }
+    mlir::Value neg(mlir::Value input) {
+        assert_builder();
+        return tk::build_neg(*mb_, input);
+    }
+    mlir::Value silu(mlir::Value input) {
+        assert_builder();
+        return tk::build_silu(*mb_, input);
+    }
+
+    // Binary elementwise
+    mlir::Value div(mlir::Value lhs, mlir::Value rhs) {
+        assert_builder();
+        return tk::build_div(*mb_, lhs, rhs);
+    }
+    mlir::Value pow(mlir::Value lhs, mlir::Value rhs) {
+        assert_builder();
+        return tk::build_pow(*mb_, lhs, rhs);
+    }
+    mlir::Value matmul(mlir::Value lhs, mlir::Value rhs) {
+        assert_builder();
+        return tk::build_matmul(*mb_, lhs, rhs);
+    }
+
+    // Reductions
+    mlir::Value softmax(mlir::Value input, int64_t dim) {
+        assert_builder();
+        int64_t rank = mlir::cast<mlir::RankedTensorType>(input.getType()).getRank();
+        int64_t norm_dim = (dim + rank) % rank;
+        return tk::build_softmax(*mb_, input, norm_dim);
+    }
+    mlir::Value argmax(mlir::Value input, std::optional<int64_t> dim, bool keepdim) {
+        assert_builder();
+        if (dim.has_value()) {
+            int64_t rank = mlir::cast<mlir::RankedTensorType>(input.getType()).getRank();
+            dim = (dim.value() + rank) % rank;
+        }
+        return tk::build_argmax(*mb_, input, dim, keepdim);
+    }
+
+    // Shape ops — normalize dims using MLIR type info
+    mlir::Value unsqueeze(mlir::Value input, int64_t dim) {
+        assert_builder();
+        int64_t rank = mlir::cast<mlir::RankedTensorType>(input.getType()).getRank();
+        int64_t norm_dim = (dim + rank + 1) % (rank + 1);
+        return tk::build_unsqueeze(*mb_, input, norm_dim);
+    }
+    mlir::Value squeeze(mlir::Value input, int64_t dim) {
+        assert_builder();
+        int64_t rank = mlir::cast<mlir::RankedTensorType>(input.getType()).getRank();
+        int64_t norm_dim = (dim + rank) % rank;
+        return tk::build_squeeze(*mb_, input, norm_dim);
+    }
+    mlir::Value transpose_dims(mlir::Value input, int64_t dim0, int64_t dim1) {
+        assert_builder();
+        int64_t rank = mlir::cast<mlir::RankedTensorType>(input.getType()).getRank();
+        int64_t norm0 = (dim0 + rank) % rank;
+        int64_t norm1 = (dim1 + rank) % rank;
+        return tk::build_transpose(*mb_, input, norm0, norm1);
+    }
+    mlir::Value broadcast(mlir::Value input, std::vector<int64_t> target_shape) {
+        assert_builder();
+        return tk::build_broadcast(*mb_, input, target_shape);
+    }
+    mlir::Value permute(mlir::Value input, std::vector<int64_t> permutation) {
+        assert_builder();
+        int64_t rank = mlir::cast<mlir::RankedTensorType>(input.getType()).getRank();
+        for (auto &d : permutation) {
+            d = (d + rank) % rank;
+        }
+        return tk::build_permute(*mb_, input, permutation);
+    }
+
+    // Cat — typecast all inputs to the promoted (first input's) element type before concat
+    mlir::Value cat(std::vector<mlir::Value> inputs, int64_t dim) {
+        assert_builder();
+        auto promoted = mlir::cast<mlir::RankedTensorType>(inputs[0].getType()).getElementType();
+        llvm::SmallVector<mlir::Value> casted;
+        for (auto &v : inputs) {
+            casted.push_back(mb_->insert_typecast(v, promoted));
+        }
+        return tk::build_cat(*mb_, casted, dim);
+    }
+
+    // Slice — normalize dim, resolve None start/end, build full begins/ends/steps
+    mlir::Value slice(mlir::Value input, int64_t dim, std::optional<int64_t> start, std::optional<int64_t> end,
+                      int64_t step) {
+        assert_builder();
+        auto type = mlir::cast<mlir::RankedTensorType>(input.getType());
+        int64_t rank = type.getRank();
+        int64_t norm_dim = (dim + rank) % rank;
+        int64_t dim_size = type.getDimSize(norm_dim);
+        int64_t s = start.has_value() ? start.value() : 0;
+        int64_t e = end.has_value() ? end.value() : dim_size;
+        if (s < 0) {
+            s += dim_size;
+        }
+        if (e < 0) {
+            e += dim_size;
+        }
+        s = std::max<int64_t>(0, std::min(s, dim_size));
+        e = std::max<int64_t>(0, std::min(e, dim_size));
+        std::vector<int64_t> begins(as<std::size_t>(rank), 0);
+        std::vector<int64_t> ends, steps(as<std::size_t>(rank), 1);
+        for (int64_t i = 0; i < rank; ++i) {
+            ends.push_back(type.getDimSize(i));
+        }
+        begins[as<std::size_t>(norm_dim)] = s;
+        ends[as<std::size_t>(norm_dim)] = e;
+        steps[as<std::size_t>(norm_dim)] = step;
+        return tk::build_slice(*mb_, input, begins, ends, steps);
+    }
+
+    // Arange — creation op (no tensor inputs)
+    mlir::Value arange(int64_t start, int64_t end, int64_t step, ::tt::target::DataType dtype) {
+        assert_builder();
+        return tk::build_arange(*mb_, start, end, step, tk::mlir_element_type_for(tk::to_torch_dtype(dtype)));
+    }
+
+    // Embedding — indices (int) first, weight (float) second; no typecast on either
+    // (intentional dtype mismatch — build_embedding expects indices to be integer-typed)
+    mlir::Value embedding(mlir::Value weight, mlir::Value indices) {
+        assert_builder();
+        return tk::build_embedding(*mb_, indices, weight);
     }
 
 private:
@@ -294,7 +438,26 @@ NB_MODULE(_native, m) {
         .def("max_pool2d", &PyModuleBuilder::max_pool2d, "input"_a, "kernel_size"_a, "stride"_a, "padding"_a,
              "dilation"_a, "ceil_mode"_a = false)
         .def("scalar", &PyModuleBuilder::scalar, "dtype"_a, "value"_a)
+        .def("scalar_like", &PyModuleBuilder::scalar_like, "like"_a, "value"_a)
         .def("typecast", &PyModuleBuilder::typecast, "value"_a, "dtype"_a)
+        .def("cos", &PyModuleBuilder::cos, "input"_a)
+        .def("sin", &PyModuleBuilder::sin, "input"_a)
+        .def("neg", &PyModuleBuilder::neg, "input"_a)
+        .def("silu", &PyModuleBuilder::silu, "input"_a)
+        .def("div", &PyModuleBuilder::div, "lhs"_a, "rhs"_a)
+        .def("pow", &PyModuleBuilder::pow, "lhs"_a, "rhs"_a)
+        .def("matmul", &PyModuleBuilder::matmul, "lhs"_a, "rhs"_a)
+        .def("softmax", &PyModuleBuilder::softmax, "input"_a, "dim"_a)
+        .def("argmax", &PyModuleBuilder::argmax, "input"_a, "dim"_a, "keepdim"_a = false)
+        .def("unsqueeze", &PyModuleBuilder::unsqueeze, "input"_a, "dim"_a)
+        .def("squeeze", &PyModuleBuilder::squeeze, "input"_a, "dim"_a)
+        .def("transpose", &PyModuleBuilder::transpose_dims, "input"_a, "dim0"_a, "dim1"_a)
+        .def("broadcast", &PyModuleBuilder::broadcast, "input"_a, "target_shape"_a)
+        .def("permute", &PyModuleBuilder::permute, "input"_a, "permutation"_a)
+        .def("cat", &PyModuleBuilder::cat, "inputs"_a, "dim"_a)
+        .def("slice", &PyModuleBuilder::slice, "input"_a, "dim"_a, "start"_a, "end"_a, "step"_a = 1LL)
+        .def("arange", &PyModuleBuilder::arange, "start"_a, "end"_a, "step"_a, "dtype"_a)
+        .def("embedding", &PyModuleBuilder::embedding, "weight"_a, "indices"_a)
         // Consumes the builder. Subsequent calls on `self` raise.
         .def("compile", &PyModuleBuilder::compile, "outputs"_a);
 
