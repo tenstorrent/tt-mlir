@@ -1,22 +1,46 @@
 #pragma once
 
+#include <cstdint>
+#include <vector>
+
 #include <tt/runtime/types.h>
 
 #include "tt_kurbla_export.hpp"
 
 namespace tt::kurbla {
 
-// Process-wide MeshDevice, opened lazily on first call. Lifted out of
-// execution_payload.cpp so the torch backend (and any future frontend) can
-// call tt::runtime::toLayout/toHost without going through ExecutionPayload.
-// One open per process; closed at static-destruction time.
+// Process-wide MeshDevice, opened lazily on first call, may be reopened with a
+// different mesh via open_runtime_device_mesh(). Closed at process exit via an
+// atexit handler.
 TT_KURBLA_API ::tt::runtime::Device &runtime_device();
 
-// Process-wide SystemDesc, probed once against `runtime_device()` and cached.
-// Used as the compile target; matches the actually-open mesh's topology so
+// Process-wide SystemDesc - matches the actually-open mesh's topology so
 // downstream lowering and the runtime agree on chip count / layout.
-// First access opens the device (via runtime_device()) before probing — both
-// state items share the same DeviceState singleton, so init order is fixed.
+// NOTE: if no device is open at the time this function is called - we will
+// open a mesh device with default shape (default_mesh_shape).
 TT_KURBLA_API const ::tt::runtime::SystemDesc &runtime_system_desc();
+
+// Number of physical chips available.
+TT_KURBLA_API std::uint32_t runtime_device_num_chips();
+
+// Opens the device with the specified mesh shape (rows*cols must be in
+// [1, getNumAvailableDevices()]).
+// If the device is already opened with this shape - no-op.
+// If the device is already opened with different shape - we will close it
+// and re-open it with the specified shape.
+TT_KURBLA_API void open_runtime_device_mesh(std::uint32_t rows, std::uint32_t cols);
+
+// Current open-or-default mesh shape as {rows, cols}. Returns the shape passed
+// to `open_runtime_device_mesh` if it has been called; otherwise the default {1, 1}.
+TT_KURBLA_API std::vector<std::uint32_t> runtime_device_mesh_shape();
+
+// Close the mesh device if open. Call from atexit: closing from the C++ static
+// dtor races tt-metal's teardown and aborts in ~FDMeshCommandQueue.
+TT_KURBLA_API void close_runtime_device_mesh();
+
+// Default mesh shape when no explicit shape was requested: a single device.
+inline std::vector<std::uint32_t> default_mesh_shape() {
+    return {1U, 1U};
+}
 
 } // namespace tt::kurbla
