@@ -29,6 +29,7 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Interfaces/ViewLikeInterface.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/MapVector.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MSPLITUNIFIEDTHREADV2
@@ -93,7 +94,7 @@ Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
   return nullptr;
 }
 
-LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
+[[maybe_unused]] LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
                                               PatternRewriter &rewriter) {
   OpBuilder::InsertionGuard guard(rewriter);
 
@@ -472,7 +473,7 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
 
 // From cb usage info, check for load-store pairs and insert aliased cb ops for
 // alias side.
-static LogicalResult processSharedBufferPairs(
+[[maybe_unused]] static LogicalResult processSharedBufferPairs(
     Block *computeBlock, PatternRewriter &rewriter,
     llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
   for (auto [localBuffer, usageInfo] : cbUsageInfo) {
@@ -517,7 +518,7 @@ static LogicalResult processSharedBufferPairs(
   return success();
 }
 
-static LogicalResult
+[[maybe_unused]] static LogicalResult
 insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
                       llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
   SmallVector<RemoteLoadOp> loads;
@@ -630,7 +631,7 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
 // ---------------------------------------------------------------------------
 
 // Erase aliased load and store ops (no DMA needed).
-static LogicalResult eraseAliasedLoadStoreOps(
+[[maybe_unused]] static LogicalResult eraseAliasedLoadStoreOps(
     PatternRewriter &rewriter,
     llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
   for (auto [localBuffer, usageInfo] : cbUsageInfo) {
@@ -809,6 +810,240 @@ static void eraseDMAOpsInComputeBlock(PatternRewriter &rewriter,
 }
 
 // ---------------------------------------------------------------------------
+// V2 compute-side CB insertion (dataflow model)
+// ---------------------------------------------------------------------------
+//
+// Instead of wrapping compute in a SynchronizedRegionOp and assuming a single
+// producer/consumer per CB, V2 drives CB op placement directly off the
+// remote_load/remote_store boundaries (per @nsmith's observation that those
+// program points are exactly where push/pop semantics belong) and tolerates a
+// buffer with multiple intra-thread producers/consumers (e.g. a loop-carried
+// accumulator) by emitting a single handshake per cross-thread edge:
+//
+//   input  CB (remote_load -> compute reads):  d2m.wait at the load site,
+//          d2m.pop after the last compute consumer.
+//   output CB (compute writes -> remote_store): d2m.reserve before the first
+//          compute producer, d2m.push at the store site.
+//
+// Scope: handles the lowered memref/tile form the real pipeline produces --
+// CB access via memref.load/store (through view ops) into the dst register,
+// tile_*_block direct-CB operands, and aliased (operand_alias) load/store.
+
+// True if `op` lies within `region` (possibly nested).
+static bool isInRegion(Region &region, Operation *op) {
+  for (Region *r = op->getParentRegion(); r;) {
+    if (r == &region) {
+      return true;
+    }
+    Operation *parent = r->getParentOp();
+    r = parent ? parent->getParentRegion() : nullptr;
+  }
+  return false;
+}
+
+// Climb `op`'s ancestors until reaching the op whose parent block is `block`,
+// so CB ops anchor outside any loop nest wrapping the access.
+[[maybe_unused]] static Operation *topLevelInBlock(Operation *op,
+                                                   Block *block) {
+  Operation *cur = op;
+  while (cur && cur->getBlock() != block) {
+    cur = cur->getParentOp();
+  }
+  return cur;
+}
+
+namespace {
+// Per-CB compute-thread access summary used to decide which handshake to emit.
+struct CBComputeInfo {
+  bool consumed = false; // compute reads it (memref.load / tile_*_block input)
+  bool produced = false; // compute writes it (memref.store / tile_*_block output)
+  RemoteLoadOp dmLoad;    // DM partner that loads into it, if any
+  RemoteStoreOp dmStore;  // DM partner that stores from it, if any
+};
+} // namespace
+
+// Compute-side CB synchronization (dataflow model, no SynchronizedRegionOp).
+//
+// For each CB touched by the compute thread, emit the handshake bracketing the
+// compute access(es), anchored outside any wrapping loop:
+//   - non-aliased input  (DM loads):   wait ... pop
+//   - non-aliased output (DM stores):  reserve ... push
+//   - aliased (operand_alias) buffer:  full reserve/push/wait/pop cycle, since
+//     the alias makes the compute thread own the buffer's whole lifecycle.
+// CB uses (including those reached through memref view ops) are rewired to the
+// acquired buffer (wait/reserve result).
+static LogicalResult insertComputeCBOpsV2(GenericOp generic, Block *computeBlock,
+                                          PatternRewriter &rewriter) {
+  Region &computeRegion = *computeBlock->getParent();
+
+  // Pre-order index for program-order comparisons across nested blocks.
+  DenseMap<Operation *, unsigned> order;
+  {
+    unsigned i = 0;
+    computeBlock->walk<WalkOrder::PreOrder>(
+        [&](Operation *op) { order[op] = i++; });
+  }
+
+  llvm::MapVector<Value, CBComputeInfo> cbs;
+
+  // DM partners (identify which CBs cross the thread boundary, and aliasing).
+  computeBlock->walk([&](RemoteLoadOp op) { cbs[op.getLocalBuffer()].dmLoad = op; });
+  computeBlock->walk(
+      [&](RemoteStoreOp op) { cbs[op.getLocalBuffer()].dmStore = op; });
+
+  // Compute consume/produce via dst-register memref accesses (through views).
+  computeBlock->walk([&](memref::LoadOp ld) {
+    if (Value cb = traceComputeMemrefToCB(ld.getMemref(), generic)) {
+      cbs[cb].consumed = true;
+    }
+  });
+  computeBlock->walk([&](memref::StoreOp st) {
+    if (Value cb = traceComputeMemrefToCB(st.getMemref(), generic)) {
+      cbs[cb].produced = true;
+    }
+  });
+
+  // Compute consume/produce via synchronizable compute ops (tile_*_block etc.).
+  for (auto &[cb, usage] : utils::getCBUsageInfo(computeRegion)) {
+    for (Operation *p : usage.producers) {
+      if (!isa<RemoteLoadOp, RemoteStoreOp>(p)) {
+        cbs[cb].produced = true;
+      }
+    }
+    for (Operation *c : usage.consumers) {
+      if (!isa<RemoteLoadOp, RemoteStoreOp>(c)) {
+        cbs[cb].consumed = true;
+      }
+    }
+  }
+
+  for (auto &[cb, info] : cbs) {
+    // A buffer only needs CB synchronization if it crosses the thread
+    // boundary. An output is paired with the DM store; otherwise an input is
+    // paired with the DM load. Buffers with no DM partner are compute-local
+    // (e.g. dst-register intermediates) and need no handshake.
+    bool outputCB = info.produced && info.dmStore;
+    bool inputCB = !outputCB && info.consumed && info.dmLoad;
+    if (!outputCB && !inputCB) {
+      continue;
+    }
+
+    // Anchor CB ops at the DM partner's block (loop level), so a streaming
+    // access inside a loop gets a per-iteration handshake matching the
+    // per-iteration DMA, while an accumulator whose store sits outside the
+    // reduction loop gets a single handshake around it.
+    Block *partnerBlock =
+        outputCB ? info.dmStore->getBlock() : info.dmLoad->getBlock();
+    auto climbToPartner = [&](Operation *op) -> Operation * {
+      Operation *cur = op;
+      while (cur && cur->getBlock() != partnerBlock) {
+        cur = cur->getParentOp();
+      }
+      return cur;
+    };
+
+    // Direct compute-region uses of `cb` to rewire to the acquired buffer
+    // (view ops and tile_*_block; the remote ops are erased later). The
+    // acquire is anchored before the earliest of these.
+    SmallVector<OpOperand *> uses;
+    for (OpOperand &use : cb.getUses()) {
+      Operation *owner = use.getOwner();
+      if (isInRegion(computeRegion, owner) &&
+          !isa<RemoteLoadOp, RemoteStoreOp>(owner)) {
+        uses.push_back(&use);
+      }
+    }
+    if (uses.empty()) {
+      continue;
+    }
+
+    // Transitive accesses: follow memref view ops forward to the actual
+    // load/store/tile accesses. The release (pop/push) must come after the
+    // last of these, which may sit inside a loop nest below the view op.
+    SmallVector<Operation *> accesses;
+    {
+      DenseSet<Operation *> visited;
+      SmallVector<Value> worklist{cb};
+      while (!worklist.empty()) {
+        Value v = worklist.pop_back_val();
+        for (Operation *user : v.getUsers()) {
+          if (!isInRegion(computeRegion, user) ||
+              isa<RemoteLoadOp, RemoteStoreOp>(user) ||
+              !visited.insert(user).second) {
+            continue;
+          }
+          if (isa<memref::CollapseShapeOp, memref::SubViewOp, memref::CastOp>(
+                  user)) {
+            worklist.push_back(user->getResult(0));
+          } else {
+            accesses.push_back(user);
+          }
+        }
+      }
+    }
+
+    // Acquire anchor: earliest direct use (climbed to the partner block).
+    // Release anchor: latest transitive access (climbed to the partner block).
+    Operation *earliest = nullptr, *latest = nullptr;
+    for (OpOperand *use : uses) {
+      Operation *top = climbToPartner(use->getOwner());
+      if (top && (!earliest || order.lookup(top) < order.lookup(earliest))) {
+        earliest = top;
+      }
+    }
+    for (Operation *access : accesses) {
+      Operation *top = climbToPartner(access);
+      if (top && (!latest || order.lookup(top) > order.lookup(latest))) {
+        latest = top;
+      }
+    }
+    if (!earliest) {
+      continue;
+    }
+    if (!latest) {
+      latest = earliest;
+    }
+
+    Location loc = generic.getLoc();
+    unsigned cbIdx = generic.getOperandIndex(cb);
+    bool aliasedLoad = info.dmLoad && isAliasedLoad(info.dmLoad);
+    bool aliasedStore = info.dmStore && isAliasedStore(info.dmStore);
+
+    rewriter.setInsertionPoint(earliest);
+    Value cbVal = d2m::getOrCreateCB(rewriter, generic, computeBlock, cbIdx);
+
+    Value acquired;
+    if (outputCB) {
+      // Output buffer (compute writes; DM stores). Compute reserves before
+      // producing, pushes after; an aliased store adds the consumer half.
+      acquired = rewriter.create<ReserveOp>(loc, cbVal).getResult();
+      rewriter.setInsertionPointAfter(latest);
+      rewriter.create<PushOp>(loc, cbVal);
+      if (aliasedStore) {
+        rewriter.create<WaitOp>(loc, cbVal);
+        rewriter.create<PopOp>(loc, cbVal);
+      }
+    } else {
+      // Input buffer (compute reads; DM loads). An aliased load adds the
+      // producer half before the wait.
+      if (aliasedLoad) {
+        rewriter.create<ReserveOp>(loc, cbVal);
+        rewriter.create<PushOp>(loc, cbVal);
+      }
+      acquired = rewriter.create<WaitOp>(loc, cbVal).getResult();
+      rewriter.setInsertionPointAfter(latest);
+      rewriter.create<PopOp>(loc, cbVal);
+    }
+
+    for (OpOperand *use : uses) {
+      use->set(acquired);
+    }
+  }
+
+  return success();
+}
+
+// ---------------------------------------------------------------------------
 // Main rewriter
 // ---------------------------------------------------------------------------
 
@@ -825,9 +1060,8 @@ public:
       return failure();
     }
 
-    if (failed(wrapComputeInSynchronizedRegion(generic, rewriter))) {
-      return failure();
-    }
+    // V2: no SynchronizedRegionOp wrapping -- insertComputeCBOpsV2 anchors CB
+    // ops directly at the remote_load/remote_store boundaries.
 
     Region &originalRegion = generic.getRegion(0);
     if (originalRegion.empty()) {
@@ -882,17 +1116,9 @@ public:
       rewriter.clone(*term, computeMapping);
     }
 
-    // Compute thread: insert CB sync ops for implicit-form remote ops.
-    auto cbUsageInfoCompute = utils::getCBUsageInfo(newGeneric.getRegion(1));
-    auto cbUsageInfoDm = utils::getCBUsageInfo(newGeneric.getRegion(0));
-    if (failed(processSharedBufferPairs(computeBlock, rewriter,
-                                        cbUsageInfoCompute)) ||
-        failed(insertCBOpsForCompute(computeBlock, rewriter,
-                                     cbUsageInfoCompute))) {
-      return failure();
-    }
-
-    if (failed(eraseAliasedLoadStoreOps(rewriter, cbUsageInfoDm))) {
+    // Compute thread: insert CB sync ops anchored at the remote_load/store
+    // boundaries (dataflow model; no SynchronizedRegionOp).
+    if (failed(insertComputeCBOpsV2(newGeneric, computeBlock, rewriter))) {
       return failure();
     }
 
@@ -904,14 +1130,6 @@ public:
     eraseDMAOpsInComputeBlock(rewriter, computeBlock);
     eraseDeadOps(rewriter, dmBlock, /*isDatamovementThread=*/true);
     eraseDeadOps(rewriter, computeBlock, /*isDatamovementThread=*/false);
-
-    // Remove synchronized region ops, and move its ops to the parent level
-    computeBlock->walk([&](SynchronizedRegionOp synchronizedOp) {
-      if (failed(utils::unwrapSynchronizedRegion(rewriter, synchronizedOp))) {
-        return WalkResult::interrupt();
-      }
-      return WalkResult::advance();
-    });
 
     rewriter.replaceOp(generic, newGeneric.getResults());
 
