@@ -1940,10 +1940,14 @@ public:
 
     auto paddingModeAttr = adaptor.getPaddingModeAttr();
 
-    // Preserve TT-Metal's default conv3d behavior when no config is attached to
-    // the lowered TTNN op. Weight preparation must use C_in_block = 0 as well,
-    // otherwise the weights are pre-blocked differently from runtime defaults.
-    // Current tt-metal default conv3d config sets C_in_block = TILE_WIDTH.
+    // We lower without a conv3d_config so TTNN derives all of its default
+    // blocking (C_out_block, T/H/W_out_block, compute grid) consistently on
+    // both the ttnn-runtime and emitpy paths -- supplying a partial config
+    // suppresses that derivation and breaks one path or the other. The one
+    // thing we must keep in sync by hand is C_in_block: PrepareConv3dWeightsOp
+    // packs the weight with whatever block we pass it, and the conv kernel
+    // re-derives its own default block, so below we compute that same default
+    // and feed it to the prepare op (see the C_in_block computation).
     constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
     constexpr int64_t ALIGNMENT = TILE_WIDTH;
 
@@ -1971,11 +1975,32 @@ public:
     auto preparedWeightType = mlir::RankedTensorType::get(
         preparedWeightShape, oldWeightLayout.getScalarElementType(),
         preparedWeightLayout);
+
+    // Mirror ttnn::experimental::conv3d's default C_in_block (conv3d.cpp:
+    // lcm(l1_alignment, TILE_WIDTH / gcd(kernel_vol, TILE_WIDTH))) so the
+    // prepared weight and the conv kernel agree on input-channel blocking.
+    // The L1 alignment comes from the system descriptor (matches the runtime
+    // hal value).
+    auto gcd = [](int64_t a, int64_t b) {
+      while (b != 0) {
+        int64_t tmp = a % b;
+        a = b;
+        b = tmp;
+      }
+      return a;
+    };
+    int64_t kernelVolume = kernelDepth * kernelHeight * kernelWidth;
+    int64_t l1Alignment =
+        ttcore::getCurrentScopeSystemDesc(op).getNocL1AddressAlignBytes();
+    int64_t tileAlignFactor = TILE_WIDTH / gcd(kernelVolume, TILE_WIDTH);
+    int64_t cInBlock =
+        l1Alignment / gcd(l1Alignment, tileAlignFactor) * tileAlignFactor;
+
     Value reshapedWeight = rewriter.create<ttnn::PrepareConv3dWeightsOp>(
         ttmlir::utils::appendLocationSuffix(op.getLoc(),
                                             "_prepare_conv3d_weight"),
         preparedWeightType, adaptor.getWeight(), groupsAttr,
-        rewriter.getI32IntegerAttr(TILE_WIDTH),
+        rewriter.getI32IntegerAttr(static_cast<int32_t>(cInBlock)),
         rewriter.getI32IntegerAttr(ALIGNMENT), device);
 
     // Reshape bias tensor: (1, 1, 1, 1, O) → (1, O)
