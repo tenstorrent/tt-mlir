@@ -16,6 +16,7 @@
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
@@ -488,6 +489,26 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               // Continue tracing through this operation's results
               for (OpResult result : op->getResults()) {
                 for (Operation *userOp : result.getUsers()) {
+                  worklist.push_back(userOp);
+                }
+              }
+            }
+
+            // scf.for carries the remapped memref as a loop iter_arg. The
+            // result types were updated above, but the region iter_arg block
+            // arguments are not OpResults, so sync them to their init operand
+            // types here -- otherwise the verifier rejects the for op for
+            // init/iter_arg type mismatch. Then keep tracing through the body
+            // via the iter_arg users (e.g. an in-place accumulate).
+            if (auto forOp = mlir::dyn_cast<scf::ForOp>(op)) {
+              rewriter.modifyOpInPlace(op, [&]() {
+                for (auto [init, iterArg] : llvm::zip_equal(
+                         forOp.getInitArgs(), forOp.getRegionIterArgs())) {
+                  iterArg.setType(init.getType());
+                }
+              });
+              for (BlockArgument iterArg : forOp.getRegionIterArgs()) {
+                for (Operation *userOp : iterArg.getUsers()) {
                   worklist.push_back(userOp);
                 }
               }
@@ -1288,8 +1309,15 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           if (remoteStoreOp.getMemref() == operandCtx.operand->get() &&
               isAliasedStore(remoteStoreOp)) {
             auto *allocOp = remoteStoreOp.getLocalBuffer().getDefiningOp();
-            TT_assertv(mlir::isa<memref::AllocOp>(allocOp),
-                       "Expected memref::AllocOp");
+            // The local buffer is not always a plain alloc: a loop-carried
+            // accumulator (threaded through an scf.for iter_arg) is defined by
+            // the scf.for / a block argument. Aliased-store is only a
+            // copy-elision optimization, so when the buffer isn't a
+            // materializable alloc, skip the aliasing and keep the explicit
+            // store rather than asserting.
+            if (!mlir::isa_and_nonnull<memref::AllocOp>(allocOp)) {
+              return WalkResult::advance();
+            }
             rewriter.setInsertionPoint(allocOp);
             rewriter.replaceOpWithNewOp<d2m::OperandAliasOp>(
                 allocOp, allocOp->getResultTypes(), remoteStoreOp.getMemref());

@@ -62,8 +62,12 @@ public:
     moduleOp->walk([&](d2m::GenericOp genericOp) {
       auto cbUsageInfo = utils::getCBUsageInfo(genericOp.getRegion(0));
       for (auto &[cb, usageInfo] : cbUsageInfo) {
+        // `cb` may be a block argument (e.g. an scf.for iter_arg carrying an
+        // accumulator), in which case it has no defining op. Use
+        // dyn_cast_or_null so such CBs are simply skipped rather than
+        // tripping dyn_cast's non-null assertion.
         if (auto allocOp =
-                mlir::dyn_cast<memref::AllocOp>(cb.getDefiningOp())) {
+                mlir::dyn_cast_or_null<memref::AllocOp>(cb.getDefiningOp())) {
           int32_t bufferCount = numStreamBuffers;
           for (Operation *producer : usageInfo.producers) {
             if (cachedContainsAccumulatingCompute(producer)) {
