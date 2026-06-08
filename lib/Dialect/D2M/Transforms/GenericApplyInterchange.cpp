@@ -32,24 +32,22 @@ static void updateIndexOpsForInterchange(GenericOp generic,
     inverseInterchange[interchange[i]] = static_cast<int64_t>(i);
   }
 
-  // Update all index ops in one walk over each region.
+  auto updateDim = [&](auto indexOp) {
+    int64_t oldDim = indexOp.getDim();
+    if (oldDim < static_cast<int64_t>(inverseInterchange.size())) {
+      int64_t newDim = inverseInterchange[oldDim];
+      rewriter.modifyOpInPlace(indexOp, [&]() {
+        indexOp.setDimAttr(rewriter.getI64IntegerAttr(newDim));
+      });
+    }
+  };
+
+  // Walk each region once to avoid re-traversing large generic bodies.
   for (Region &region : generic->getRegions()) {
     region.walk([&](Operation *op) {
-      auto updateDim = [&](auto indexOp) {
-        int64_t oldDim = indexOp.getDim();
-        if (oldDim < static_cast<int64_t>(inverseInterchange.size())) {
-          int64_t newDim = inverseInterchange[oldDim];
-          rewriter.modifyOpInPlace(indexOp, [&]() {
-            indexOp.setDimAttr(rewriter.getI64IntegerAttr(newDim));
-          });
-        }
-      };
-
       if (auto iterIndex = dyn_cast<IterIndexOp>(op)) {
         updateDim(iterIndex);
-        return;
-      }
-      if (auto blockIndex = dyn_cast<BlockIndexOp>(op)) {
+      } else if (auto blockIndex = dyn_cast<BlockIndexOp>(op)) {
         updateDim(blockIndex);
       }
     });
