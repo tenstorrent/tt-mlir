@@ -84,6 +84,21 @@ def _lowering(*targets):
 
     return decorator
 
+
+# Ops in this set bypass _prepare_op_args (used for ops with intentional dtype
+# mismatches between tensor arguments, e.g. embedding where indices are int64).
+_SKIP_PREPARE_OP_ARGS: set = set()
+
+
+def _skip_prepare(*targets):
+    """Mark targets as bypassing _prepare_op_args. Stack with @_lowering."""
+    def decorator(fn):
+        for t in targets:
+            _SKIP_PREPARE_OP_ARGS.add(t)
+        return fn
+    return decorator
+
+
 @_lowering(_aten.add.Tensor)
 def _(mb, a, b, *, alpha=1):
     return mb.add(a, b, float(alpha))
@@ -190,6 +205,130 @@ def _(mb, input, weight, bias, running_mean, running_var, momentum, eps):
     return (result, None, None)
 
 
+@_lowering(_aten.cos.default)
+def _(mb, x):
+    return mb.cos(x)
+
+
+@_lowering(_aten.sin.default)
+def _(mb, x):
+    return mb.sin(x)
+
+
+@_lowering(_aten.neg.default)
+def _(mb, x):
+    return mb.neg(x)
+
+
+@_lowering(_aten.silu.default)
+def _(mb, x):
+    return mb.silu(x)
+
+
+@_lowering(_aten.div.Tensor)
+def _(mb, lhs, rhs):
+    return mb.div(lhs, rhs)
+
+
+@_lowering(_aten.div.Scalar)
+def _(mb, x, scalar):
+    return mb.div(x, mb.scalar_like(x, float(scalar)))
+
+
+@_lowering(_aten.pow.Tensor_Tensor)
+def _(mb, lhs, rhs):
+    return mb.pow(lhs, rhs)
+
+
+@_lowering(_aten.pow.Tensor_Scalar)
+def _(mb, lhs, exp):
+    return mb.pow(lhs, mb.scalar_like(lhs, float(exp)))
+
+
+@_lowering(_aten.matmul.default, _aten.bmm.default)
+def _(mb, lhs, rhs):
+    return mb.matmul(lhs, rhs)
+
+
+@_lowering(_aten.add.Scalar)
+def _(mb, x, scalar, alpha=1):
+    return mb.add(x, mb.scalar_like(x, float(scalar)), float(alpha))
+
+
+@_lowering(_aten.mul.Scalar)
+def _(mb, x, scalar):
+    return mb.mul(x, mb.scalar_like(x, float(scalar)))
+
+
+@_lowering(_aten._softmax.default)
+def _(mb, x, dim, half_to_float=False):
+    return mb.softmax(x, dim)
+
+
+@_lowering(_aten.argmax.default)
+@_skip_prepare(_aten.argmax.default)
+def _(mb, x, dim=None, keepdim=False):
+    # Skip _prepare_op_args: argmax output dtype (int64) is an index type,
+    # unrelated to the input dtype. Promoting the input to int64 changes the
+    # values being compared and produces wrong results.
+    return mb.argmax(x, dim, keepdim)
+
+
+@_lowering(_aten.unsqueeze.default)
+def _(mb, x, dim):
+    return mb.unsqueeze(x, dim)
+
+
+@_lowering(_aten.squeeze.dim)
+def _(mb, x, dim):
+    return mb.squeeze(x, dim)
+
+
+@_lowering(_aten.transpose.int)
+def _(mb, x, dim0, dim1):
+    return mb.transpose(x, dim0, dim1)
+
+
+@_lowering(_aten.expand.default)
+def _(mb, x, target_shape):
+    return mb.broadcast(x, list(target_shape))
+
+
+@_lowering(_aten.permute.default)
+def _(mb, x, dims):
+    return mb.permute(x, list(dims))
+
+
+@_lowering(_aten.cat.default)
+def _(mb, tensors, dim=0):
+    return mb.cat(list(tensors), dim)
+
+
+@_lowering(_aten.slice.Tensor)
+def _(mb, x, dim=0, start=None, end=None, step=1):
+    return mb.slice(x, int(dim), start if start is None else int(start),
+                    end if end is None else int(end), int(step))
+
+
+@_lowering(_aten.arange.default, _aten.arange.start, _aten.arange.start_step)
+def _(mb, *args, dtype=None, layout=None, device=None, pin_memory=None):
+    if len(args) == 1:
+        start, end, step = 0, int(args[0]), 1
+    elif len(args) == 2:
+        start, end, step = int(args[0]), int(args[1]), 1
+    else:
+        start, end, step = int(args[0]), int(args[1]), int(args[2])
+
+    rt_dtype = _to_runtime_dtype(dtype if dtype is not None else torch.float32)
+    return mb.arange(start, end, step, rt_dtype)
+
+
+@_lowering(_aten.embedding.default)
+@_skip_prepare(_aten.embedding.default)
+def _(mb, weight, indices, padding_idx=-1, scale_grad_by_freq=False, sparse=False):
+    return mb.embedding(weight, indices)
+
+
 def _is_tensor_schema_arg(
     idx: int,
     schema: torch._C.FunctionSchema,
@@ -201,7 +340,7 @@ def _prepare_op_args(
     mb: "_native.ModuleBuilder",
     args: tuple,
     target_dtype: "_native.DataType",
-    schema: torch._C.FunctionSchema,
+    target: torch._ops.OpOverload,
 ) -> tuple:
     """Uses the ATen schema to distinguish tensor-typed positions from
     non-tensor attributes (keepdim, dim, eps, momentum, etc.).
@@ -210,9 +349,12 @@ def _prepare_op_args(
       ttir.constant (handles e.g. aten.add.Tensor(x, 3.14))
     - Everything else (None, list, bool, ...): passed through unchanged
     """
+    if target in _SKIP_PREPARE_OP_ARGS:
+        return args
+
     out = []
     for i, a in enumerate(args):
-        if not _is_tensor_schema_arg(i, schema):
+        if not _is_tensor_schema_arg(i, target._schema):
             out.append(a)
             continue
 
@@ -248,7 +390,7 @@ class _TTIRInterpreter(torch.fx.Interpreter):
 
         val = self._current_node.meta["val"]
         target_dtype = _to_runtime_dtype(val[0].dtype if isinstance(val, (tuple, list)) else val.dtype)
-        args = _prepare_op_args(self.mb, args, target_dtype, target._schema)
+        args = _prepare_op_args(self.mb, args, target_dtype, target)
         return fn(self.mb, *args, **kwargs)
 
     def _call_operator(self, target, args, kwargs):
