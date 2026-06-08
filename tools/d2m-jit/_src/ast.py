@@ -600,9 +600,13 @@ class D2MCompiler(ast.NodeVisitor):
         if isinstance(rhs, OpView):
             rhs = rhs.result
 
-        if lhs.type != rhs.type:
+        # Elementwise ops require matching operand types, so coerce rhs to
+        # lhs. Matmul is the exception: its operands are M x K and K x N and
+        # are *meant* to differ, so skip the cast and let _matmul_block handle
+        # the shapes (otherwise `a @ b` for multi-tile operands fails in _cast
+        # before reaching the MatMult dispatch below).
+        if not isinstance(op, ast.MatMult) and lhs.type != rhs.type:
             rhs = _cast(rhs, lhs.type)
-        assert lhs.type == rhs.type, f"{lhs.type} != {rhs.type}"
         mlir_type = _get_type_str(lhs.type)
 
         def qualified_or(attr, otherwise, *args, **kwargs):

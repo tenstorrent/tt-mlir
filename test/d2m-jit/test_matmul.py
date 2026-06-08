@@ -23,6 +23,29 @@ import d2m_jit as d2m
 from utils import assert_pcc
 
 
+@pytest.fixture(autouse=True)
+def _use_split_unified_thread_v2():
+    """These matmul kernels (loop-carried accumulator, multicast, multi-tile K)
+    require the d2m-split-unified-thread-v2 rewrite. The legacy split pass
+    aborts on the matmul CB pattern (its single-producer/consumer assumption),
+    so enable v2 for this module until it becomes the default."""
+    prev = d2m.config.use_split_unified_thread_v2
+    d2m.config.use_split_unified_thread_v2 = True
+    yield
+    d2m.config.use_split_unified_thread_v2 = prev
+
+
+# Multi-tile K-reduction expressed as a single matmul: `remote_load` fetches a
+# [1,2]/[2,1] tile block (block_shape spans the K tiles) and `a @ b` reduces
+# over K inside one matmul. Exercises the `@` operator on differing M x K /
+# K x N operand shapes (the operator must not coerce them to a common type).
+@d2m.kernel
+def matmul_multi_k_kernel(lhs, rhs, out):
+    a = remote_load(lhs, [0, 0])
+    b = remote_load(rhs, [0, 0])
+    remote_store(out, [0, 0], a @ b)
+
+
 @d2m.kernel
 def matmul_kernel(lhs, rhs, out, m_blocks, n_blocks, k_blocks):
     m_off = core_index(0) * m_blocks
@@ -79,6 +102,36 @@ def test_matmul_correctness_via_zeros():
 
     diff = (expected - result).abs().max().item()
     assert diff < 0.05, f"per-shard matmul: max diff {diff} too large"
+
+
+def test_matmul_multi_tile_k():
+    """K>1 reduction inside a single matmul: lhs/rhs `block_shape` spans the K
+    tiles so one `remote_load` fetches a [1,2]/[2,1] block and `a @ b` reduces
+    over K=2. This is the supported multi-tile-K form (the reduction
+    accumulates in DST); it also exercises `a @ b` on differing operand
+    shapes, which the `@` operator must dispatch to matmul without coercing
+    the operands to a common type."""
+    lhs = torch.randn(32, 64, dtype=torch.float32)
+    rhs = torch.randn(64, 32, dtype=torch.float32)
+    L_lhs = d2m.Layout(
+        shape=(32, 64), dtype=d2m.float32, block_shape=[1, 2], grid_shape=[1, 1]
+    )
+    L_rhs = d2m.Layout(
+        shape=(64, 32), dtype=d2m.float32, block_shape=[2, 1], grid_shape=[1, 1]
+    )
+    L_out = d2m.Layout(
+        shape=(32, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1]
+    )
+    out_d = d2m.zeros(L_out)
+    matmul_multi_k_kernel(
+        d2m.to_layout(lhs, L_lhs), d2m.to_layout(rhs, L_rhs), out_d, grid=(1, 1)
+    )
+    result = out_d.to_host()
+    expected = lhs @ rhs
+    # PCC rather than an absolute-diff bound: f32 tile_matmul routes through the
+    # SFPU's fp19, so a K-reduction accrues ~1% abs error that is correct but
+    # exceeds the tight single-tile threshold used elsewhere.
+    assert_pcc(expected, result)
 
 
 # ---------------------------------------------------------------------------
