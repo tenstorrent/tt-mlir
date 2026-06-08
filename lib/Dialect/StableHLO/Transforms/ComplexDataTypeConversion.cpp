@@ -9,10 +9,13 @@
 #include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "shardy/dialect/sdy/ir/dialect.h"
 #include "stablehlo/dialect/StablehloOps.h"
+
+#include <numeric>
 
 using namespace mlir;
 
@@ -214,6 +217,82 @@ public:
 };
 } // namespace
 
+// Decomposes multiply(x, y) on complex tensors into real arithmetic on the
+// unpacked (...x2) representation:
+//
+//   (xr + i*xi) * (yr + i*yi)
+//       = (xr*yr - xi*yi) + i*(xr*yi + xi*yr)
+//
+// Both operands are already converted to the trailing real/imag-pair layout.
+// The trailing dim of 2 is transiently moved to the leading position (matching
+// the complex/real/imag decompositions) before the components are sliced out.
+namespace {
+class StablehloComplexMulToDecomposedPattern
+    : public OpConversionPattern<mlir::stablehlo::MulOp> {
+  using OpConversionPattern<mlir::stablehlo::MulOp>::OpConversionPattern;
+
+  // Slices component `idx` (0 = real, 1 = imag) off the leading dim of a
+  // transposed (2 x ...) tensor, returning the (1 x ...) slice.
+  static Value extractComponent(Location loc, Value transposed, int64_t idx,
+                                ConversionPatternRewriter &rewriter) {
+    auto type = mlir::cast<RankedTensorType>(transposed.getType());
+    int64_t rank = type.getRank();
+    SmallVector<int64_t> begins(rank, 0), steps(rank, 1);
+    SmallVector<int64_t> ends(type.getShape().begin(), type.getShape().end());
+    begins[0] = idx;
+    ends[0] = idx + 1;
+    SmallVector<int64_t> sliceShape(type.getShape().begin(),
+                                    type.getShape().end());
+    sliceShape[0] = 1;
+    return rewriter.create<mlir::stablehlo::SliceOp>(
+        loc, RankedTensorType::get(sliceShape, type.getElementType()),
+        transposed, rewriter.getDenseI64ArrayAttr(begins),
+        rewriter.getDenseI64ArrayAttr(ends),
+        rewriter.getDenseI64ArrayAttr(steps));
+  }
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::MulOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    Location loc = op.getLoc();
+
+    Value lhs = transposeTrailingToLeading(loc, adaptor.getLhs(), rewriter);
+    Value rhs = transposeTrailingToLeading(loc, adaptor.getRhs(), rewriter);
+
+    Value xr = extractComponent(loc, lhs, /*idx=*/0, rewriter);
+    Value xi = extractComponent(loc, lhs, /*idx=*/1, rewriter);
+    Value yr = extractComponent(loc, rhs, /*idx=*/0, rewriter);
+    Value yi = extractComponent(loc, rhs, /*idx=*/1, rewriter);
+
+    auto compType = mlir::cast<RankedTensorType>(xr.getType());
+
+    // out_re = xr*yr - xi*yi
+    Value xryr = rewriter.create<mlir::stablehlo::MulOp>(loc, compType, xr, yr);
+    Value xiyi = rewriter.create<mlir::stablehlo::MulOp>(loc, compType, xi, yi);
+    Value outRe =
+        rewriter.create<mlir::stablehlo::SubtractOp>(loc, compType, xryr, xiyi);
+
+    // out_im = xr*yi + xi*yr
+    Value xryi = rewriter.create<mlir::stablehlo::MulOp>(loc, compType, xr, yi);
+    Value xiyr = rewriter.create<mlir::stablehlo::MulOp>(loc, compType, xi, yr);
+    Value outIm =
+        rewriter.create<mlir::stablehlo::AddOp>(loc, compType, xryi, xiyr);
+
+    SmallVector<int64_t> concatShape(compType.getShape().begin(),
+                                     compType.getShape().end());
+    concatShape[0] = 2;
+    auto concatType =
+        RankedTensorType::get(concatShape, compType.getElementType());
+    Value packed = rewriter.create<mlir::stablehlo::ConcatenateOp>(
+        loc, concatType, ValueRange{outRe, outIm}, /*dimension=*/0);
+
+    rewriter.replaceOp(op, transposeLeadingToTrailing(loc, packed, rewriter));
+    return success();
+  }
+};
+} // namespace
+
 // Rewrites ops that produce complex-typed tensors to operate on the equivalent
 // unpacked real representation (trailing dim of size 2).
 namespace {
@@ -369,6 +448,117 @@ public:
   }
 };
 
+// Unpacks a complex "tenstorrent.gather" composite to the float-pair layout.
+// Besides retyping the result, the integer index is reshaped + broadcast up to
+// the gather result rank (the trailing real/imag pair shares one index) and the
+// decomposition's index argument is widened to match. The complex unpacking
+// only widened the operand/result, but ttir.gather -- emitted later from this
+// composite -- requires input.rank == index.rank with index.shape ==
+// result.shape, so the index is realigned here. Any other composite carrying
+// complex types is unsupported and reported as a match failure.
+class ComplexCompositeConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+  using OpConversionPattern<mlir::stablehlo::CompositeOp>::OpConversionPattern;
+
+public:
+  LogicalResult matchAndRewrite(
+      mlir::stablehlo::CompositeOp op,
+      OpConversionPattern<mlir::stablehlo::CompositeOp>::OpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+    if (op.getName() != "tenstorrent.gather") {
+      return rewriter.notifyMatchFailure(
+          op, "only tenstorrent.gather composites are supported");
+    }
+
+    auto newResultType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult(0).getType()));
+
+    SmallVector<Value> operands(adaptor.getOperands());
+    auto inputType = mlir::cast<RankedTensorType>(operands[0].getType());
+    auto indexType = mlir::cast<RankedTensorType>(operands[1].getType());
+
+    // Complex unpacking appended a trailing real/imag dim to the operand and
+    // result but not to the integer index, leaving the index one rank short.
+    // Reshape + broadcast it up to the result shape and widen the decomposition
+    // signature so the composite and its decomposition stay consistent.
+    if (inputType.getRank() != indexType.getRank()) {
+      Location loc = op.getLoc();
+      SmallVector<int64_t> reshapeShape(indexType.getShape());
+      reshapeShape.push_back(1);
+      auto reshapeType =
+          RankedTensorType::get(reshapeShape, indexType.getElementType());
+      Value reshaped = rewriter.create<mlir::stablehlo::ReshapeOp>(
+          loc, reshapeType, operands[1]);
+
+      auto bcastIndexType = RankedTensorType::get(newResultType.getShape(),
+                                                  indexType.getElementType());
+      SmallVector<int64_t> bcastDims(reshapeShape.size());
+      std::iota(bcastDims.begin(), bcastDims.end(), 0);
+      operands[1] = rewriter.create<mlir::stablehlo::BroadcastInDimOp>(
+          loc, bcastIndexType, reshaped,
+          rewriter.getDenseI64ArrayAttr(bcastDims));
+
+      if (auto decomposition =
+              SymbolTable::lookupNearestSymbolFrom<func::FuncOp>(
+                  op, op.getDecompositionAttr())) {
+        widenDecompositionIndexArg(rewriter, decomposition, bcastIndexType,
+                                   indexType);
+      }
+    }
+
+    rewriter.replaceOpWithNewOp<mlir::stablehlo::CompositeOp>(
+        op, TypeRange{newResultType}, operands, op.getProperties());
+    return success();
+  }
+
+private:
+  // Widens the gather decomposition's index argument to `newIndexType` (to
+  // match the broadcast index now passed by the composite) and slices it back
+  // to `oldIndexType` at the entry so the rest of the body is unchanged. Keeps
+  // the composite and its decomposition signature-consistent; the body is dead
+  // once the composite is legalized to TTIR.
+  static void widenDecompositionIndexArg(ConversionPatternRewriter &rewriter,
+                                         func::FuncOp func,
+                                         RankedTensorType newIndexType,
+                                         RankedTensorType oldIndexType) {
+    // The "tenstorrent.gather" decomposition takes (operand, index).
+    if (func.getNumArguments() < 2) {
+      return;
+    }
+    BlockArgument indexArg = func.getArgument(1);
+    if (indexArg.getType() == newIndexType) {
+      return; // already widened
+    }
+
+    rewriter.modifyOpInPlace(func, [&]() {
+      SmallVector<Type> inputs(func.getArgumentTypes());
+      inputs[1] = newIndexType;
+      func.setType(
+          FunctionType::get(func.getContext(), inputs, func.getResultTypes()));
+      indexArg.setType(newIndexType);
+    });
+
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointToStart(&func.getBody().front());
+    Location loc = func.getLoc();
+    int64_t rank = newIndexType.getRank();
+    SmallVector<int64_t> starts(rank, 0), strides(rank, 1);
+    SmallVector<int64_t> limits(newIndexType.getShape());
+    limits[rank - 1] = 1;
+    auto sliceType =
+        RankedTensorType::get(limits, newIndexType.getElementType());
+    auto sliceOp = rewriter.create<mlir::stablehlo::SliceOp>(
+        loc, sliceType, indexArg, rewriter.getDenseI64ArrayAttr(starts),
+        rewriter.getDenseI64ArrayAttr(limits),
+        rewriter.getDenseI64ArrayAttr(strides));
+    Value restored =
+        rewriter.create<mlir::stablehlo::ReshapeOp>(loc, oldIndexType, sliceOp);
+    rewriter.replaceUsesWithIf(indexArg, restored, [&](OpOperand &use) {
+      return use.getOwner() != sliceOp;
+    });
+  }
+};
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -486,6 +676,7 @@ public:
 } // namespace
 
 namespace {
+
 struct StableHLOComplexDataTypeConversionPass
     : public impl::StableHLOComplexDataTypeConversionPassBase<
           StableHLOComplexDataTypeConversionPass> {
@@ -506,8 +697,10 @@ struct StableHLOComplexDataTypeConversionPass
     target.addDynamicallyLegalOp<
         mlir::stablehlo::ConstantOp, mlir::stablehlo::ReshapeOp,
         mlir::stablehlo::SliceOp, mlir::stablehlo::GatherOp,
-        mlir::stablehlo::ConcatenateOp, mlir::stablehlo::BroadcastInDimOp>(
-        isNotComplexType);
+        mlir::stablehlo::ConcatenateOp, mlir::stablehlo::BroadcastInDimOp,
+        mlir::stablehlo::MulOp, mlir::stablehlo::AddOp,
+        mlir::stablehlo::SubtractOp, mlir::stablehlo::NegOp,
+        mlir::stablehlo::ConvertOp>(isNotComplexType);
 
     target.addIllegalOp<mlir::stablehlo::ComplexOp, mlir::stablehlo::RealOp,
                         mlir::stablehlo::ImagOp>();
@@ -523,6 +716,12 @@ struct StableHLOComplexDataTypeConversionPass
           return !hasComplexType(op.getOperandTypes()) &&
                  !hasComplexType(op.getResultTypes()) &&
                  !hasComplexType(op.getBody().front().getArgumentTypes());
+        });
+
+    target.addDynamicallyLegalOp<mlir::stablehlo::CompositeOp>(
+        [hasComplexType](mlir::stablehlo::CompositeOp op) {
+          return !hasComplexType(op->getOperandTypes()) &&
+                 !hasComplexType(op->getResultTypes());
         });
 
     TypeConverter typeConverter;
@@ -548,12 +747,17 @@ struct StableHLOComplexDataTypeConversionPass
     patterns.add<
         ComplexBroadcastInDimOpConversionPattern,
         ComplexConstantOpConversionPattern, ComplexGatherOpConversionPattern,
-        ComplexSliceOpConversionPattern,
+        ComplexSliceOpConversionPattern, ComplexCompositeConversionPattern,
         ComplexTypeDefaultConversionPattern<mlir::stablehlo::ConcatenateOp>,
         ComplexTypeDefaultConversionPattern<mlir::stablehlo::ReshapeOp>,
+        ComplexTypeDefaultConversionPattern<mlir::stablehlo::ConvertOp>,
+        ComplexTypeDefaultConversionPattern<mlir::stablehlo::AddOp>,
+        ComplexTypeDefaultConversionPattern<mlir::stablehlo::SubtractOp>,
+        ComplexTypeDefaultConversionPattern<mlir::stablehlo::NegOp>,
         ShardyManualComputationComplexConversionPattern,
         ShardyReturnOpTypeConversionPattern,
         StablehloComplexToDecomposedPattern,
+        StablehloComplexMulToDecomposedPattern,
         StablehloRealImagToDecomposedPattern<mlir::stablehlo::RealOp>,
         StablehloRealImagToDecomposedPattern<mlir::stablehlo::ImagOp>>(
         typeConverter, &getContext());
