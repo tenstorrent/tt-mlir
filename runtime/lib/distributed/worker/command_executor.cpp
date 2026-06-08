@@ -635,8 +635,12 @@ void CommandExecutor::execute(uint64_t commandId,
 void CommandExecutor::execute(uint64_t commandId,
                               const fb::GetLayoutCommand *command) {
 
-  ::tt::runtime::Binary binary =
-      getOrCreateBinary(command->binary(), command->binary_id());
+  uint64_t binaryId = command->binary_id();
+  LOG_ASSERT(binaryPool_.contains(binaryId),
+             "Binary with id ", binaryId,
+             " not found in binary pool; it must be seeded via "
+             "SeedProgramBinaryCommand before issuing a GetLayoutCommand");
+  ::tt::runtime::Binary binary = binaryPool_.at(binaryId);
 
   ::tt::runtime::Layout layout = ::tt::runtime::getLayout(
       binary, command->program_id(), command->input_id());

@@ -404,12 +404,9 @@ uint64_t CommandFactory::buildGetLayoutCommand(
 
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  std::vector<uint8_t> binaryBytes;
-  binary.storeToMemory(binaryBytes);
-
-  uint64_t commandId = BUILD_COMMAND_DIRECT(
-      GetLayout, fbb, binary.id(), &binaryBytes, programIndex, inputIndex,
-      outputLayout.getGlobalId());
+  uint64_t commandId =
+      BUILD_COMMAND(GetLayout, fbb, binary.id(), programIndex, inputIndex,
+                    outputLayout.getGlobalId());
 
   return commandId;
 }
