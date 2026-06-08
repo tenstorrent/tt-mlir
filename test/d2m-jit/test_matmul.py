@@ -20,17 +20,20 @@ Two flavours covered:
 import pytest
 import torch
 import d2m_jit as d2m
+from utils import assert_pcc
 
 
 @d2m.kernel
-def matmul_kernel(lhs, rhs, out, m_blocks, n_blocks):
+def matmul_kernel(lhs, rhs, out, m_blocks, n_blocks, k_blocks):
     m_off = core_index(0) * m_blocks
     n_off = core_index(1) * n_blocks
     for m in range(m_blocks):
         for n in range(n_blocks):
-            a = remote_load(lhs, [m_off + m, n_off + n])
-            b = remote_load(rhs, [m_off + m, n_off + n])
-            c = a @ b
+            c = zeros([1, 1])
+            for k in range(k_blocks):
+                a = remote_load(lhs, [m_off + m, n_off + k])
+                b = remote_load(rhs, [m_off + k, n_off + n])
+                c += a @ b
             remote_store(out, [m_off + m, n_off + n], c)
 
 
@@ -46,7 +49,7 @@ def test_matmul_compiles_and_runs():
     L = _make_layout()
     out_d = d2m.empty(L)
     matmul_kernel(
-        d2m.to_layout(lhs, L), d2m.to_layout(rhs, L), out_d, 1, 1, grid=(2, 2)
+        d2m.to_layout(lhs, L), d2m.to_layout(rhs, L), out_d, 1, 1, 1, grid=(2, 2)
     )
     result = out_d.to_host()
     assert tuple(result.shape) == (64, 64)
@@ -62,7 +65,7 @@ def test_matmul_correctness_via_zeros():
     L = _make_layout()
     out_d = d2m.zeros(L)  # pre-fill accumulator
     matmul_kernel(
-        d2m.to_layout(lhs, L), d2m.to_layout(rhs, L), out_d, 1, 1, grid=(2, 2)
+        d2m.to_layout(lhs, L), d2m.to_layout(rhs, L), out_d, 1, 1, 1, grid=(2, 2)
     )
     result = out_d.to_host()
 
@@ -114,20 +117,10 @@ def mcast_overwrite_kernel(lhs, rhs, out, K, M, N, GY, GX):
                 rhs_shard = remote_load(
                     rhs, [k, n], mcast_start_index=[0, cx], mcast_shape=[GY, 1]
                 )
-                out_shard = lhs_shard + rhs_shard
+                out_shard = lhs_shard @ rhs_shard
                 remote_store(out, [m, n], out_shard)
 
 
-@pytest.mark.skip(
-    reason=(
-        "Hits an expected assertion in "
-        "lib/Dialect/D2M/Transforms/SplitUnifiedThread.cpp:127 -- "
-        "wrapComputeInSynchronizedRegion expects exactly one op with a "
-        "synchronizable op, and the multicast remote_load pattern violates "
-        "that invariant. Tracked separately; un-skip once the pass handles "
-        "multi-op synchronized scopes."
-    )
-)
 def test_mcast_overwrite_grid_2x2():
     """Run mcast_overwrite_kernel on a 2x2 grid with K=M=N=1 -- single
     iteration per core, multicast from (cy, 0) across the row and from

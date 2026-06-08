@@ -8,6 +8,7 @@ import ast
 
 from ttmlir.ir import *
 from ttmlir.dialects import d2m, ttcore, arith, linalg
+from ttmlir.dialects._ods_common import get_default_loc_context
 
 from ._src.utils import _asindex
 from ._src.ast import D2MCompiler, syntax
@@ -665,10 +666,61 @@ def where(cond, true_value, false_value):
     )
 
 
+def _shape_literal(node):
+    """args_as_attr callback: pull a literal block shape out of `node`.
+
+    Accepts `[m, n]` / `(m, n)` of Python-literal ints. The shape must be a
+    compile-time literal because the resulting tensor type's dimensions are
+    static; runtime (index-typed) values cannot size a tensor type."""
+    if isinstance(node, (ast.List, ast.Tuple)):
+        return [int(_const_value(elt)) for elt in node.elts]
+    raise D2mJitError(
+        "zeros() expects a literal block shape, e.g. zeros([m_tiles, n_tiles]); "
+        f"got {type(node).__name__}"
+    )
+
+
+@syntax("zeros", args_as_attr=[_shape_literal])
+def _zeros_op(shape):
+    """Block-level zero-initialised accumulator block (kernel-body `zeros`).
+
+    Registered as the kernel-body op `zeros`; named `_zeros_op` at module
+    scope so it does not shadow the host-side `zeros(layout)` re-exported as
+    the public `d2m.zeros`.
+
+    `shape` is a Python-literal list/tuple of block dimensions in tiles, e.g.
+    `zeros([m_tiles, n_tiles])`. Produces a `tensor<shape x !ttcore.tile<32x32,
+    f32>>` filled with zeros (see `_zeros_block`). Intended as the accumulator
+    for an explicit matmul K-reduction loop:
+
+        c = zeros([1, 1])
+        for k in range(k_blocks):
+            c += remote_load(lhs, [m, k]) @ remote_load(rhs, [k, n])
+
+    The tile element type is f32; cast the result with `typecast` if a
+    different accumulator dtype is needed.
+    """
+    ctx = get_default_loc_context()
+    tile_ty = ttcore.ir.TileType.get(ctx, 32, 32, float32)
+    block_ty = RankedTensorType.get(list(shape), tile_ty)
+    return _zeros_block(block_ty)
+
+
 @syntax("matmul")
 def matmul(lhs, rhs):
     """Block-level matmul: `C = A @ B` (see _matmul_block)."""
     return _matmul_block(lhs, rhs)
+
+
+@syntax("__matmul_acc__")
+def _matmul_acc(acc, lhs, rhs):
+    """Matmul accumulating into `acc`: `acc + lhs @ rhs`, in place.
+
+    Not user-facing. The AST visitor routes `c += a @ b` here so the matmul
+    writes through `c`'s buffer (see `_matmul_block`'s `acc` argument); this
+    is required for a loop-carried `c` to bufferize and is the canonical
+    matmul K-reduction."""
+    return _matmul_block(lhs, rhs, acc=acc)
 
 
 @syntax("!tensor")
@@ -1115,7 +1167,73 @@ def _typecast_block(input, dtype):
     return generic.result
 
 
-def _matmul_block(lhs, rhs):
+def _scalar_type_for_data_type(ctx, data_type):
+    """Map a ttcore.DataType to its scalar MLIR float/int type.
+
+    Compared via `.name` because the enum instance returned by
+    `TileType.data_type` comes from a different nanobind module than the
+    `ttcore.DataType.*` constants (see `_FLOAT_DATA_TYPE_NAMES`)."""
+    name = data_type.name
+    if name == "Float32":
+        return F32Type.get(ctx)
+    if name == "Float16":
+        return F16Type.get(ctx)
+    if name == "BFloat16":
+        return BF16Type.get(ctx)
+    raise TypeError(f"unsupported tile data type for fill: {name}")
+
+
+def _zeros_block(block_ty):
+    """Inputless `linalg.generic` filling a tile-tensor block with zeros.
+
+    The body is `arith.constant 0 + d2m.tile_fill`, matching the splat-fill
+    pattern that host-side `full()` (and lowered `ttir.full`) emit and that
+    `ScalarizeConstTensors` recognises. Used both as the standalone in-kernel
+    `zeros(...)` op and as the zero-initialised accumulator for `_matmul_block`.
+
+        %out = d2m.empty() : tensor<...x!ttcore.tile<...>>
+        %ret = linalg.generic { indexing_maps = [identity],
+                                iterator_types = [parallel] * rank }
+            outs(%out) {
+          ^bb0(%t_out: !tile):
+            %c0 = arith.constant 0.0 : f32
+            %fill = d2m.tile_fill(%c0) : f32 -> !tile
+            linalg.yield %fill : !tile
+        } -> tensor<...x!ttcore.tile<...>>
+    """
+    tile_dc = ttcore.ir.TileType.maybe_downcast(block_ty.element_type)
+    if tile_dc is None:
+        raise TypeError(f"_zeros_block: expected a tile-typed block, got {block_ty}")
+    tile_ty = block_ty.element_type
+    rank = block_ty.rank
+    scalar_ty = _scalar_type_for_data_type(block_ty.context, tile_dc.data_type)
+
+    output = d2m.empty(block_ty)
+    identity = AffineMap.get_identity(rank)
+    indexing_maps = ArrayAttr.get([AffineMapAttr.get(identity)])
+    parallel = Attribute.parse("#linalg.iterator_type<parallel>")
+    iterator_types = ArrayAttr.get([parallel] * rank)
+
+    generic = linalg.GenericOp(
+        [block_ty],
+        [],  # no inputs -- this is a fill
+        [output],
+        indexing_maps,
+        iterator_types,
+    )
+    body = Block.create_at_start(generic.regions[0], [tile_ty], [Location.unknown()])
+    with InsertionPoint(body):
+        if FloatType.isinstance(scalar_ty):
+            zero_attr = FloatAttr.get(scalar_ty, 0.0)
+        else:
+            zero_attr = IntegerAttr.get(scalar_ty, 0)
+        scalar = arith.ConstantOp(scalar_ty, zero_attr).result
+        filled = d2m.TileFillOp(tile_ty, scalar).result
+        linalg.yield_([filled])
+    return generic.result
+
+
+def _matmul_block(lhs, rhs, acc=None):
     """Block-level matmul: `C = A @ B` where each tensor is a 2D block of
     tiles. Emits a linalg.generic with the standard matmul indexing maps
     (parallel/parallel/reduction over M/N/K) and `d2m.tile_matmul` in the
@@ -1124,6 +1242,14 @@ def _matmul_block(lhs, rhs):
     lhs: tensor<M x K x !ttcore.tile<...>>
     rhs: tensor<K x N x !ttcore.tile<...>>
     Returns: tensor<M x N x !ttcore.tile<...>>.
+
+    `acc` is an optional caller-supplied accumulator block used as the DPS
+    init (outs) of the matmul generic. When given, the result is `acc + A @ B`
+    written *in place* into `acc`'s buffer -- this is how `c += a @ b`
+    accumulates over an explicit K loop, and it lets the result alias a
+    loop-carried (scf.for iter_arg) accumulator so bufferization succeeds.
+    When omitted, a fresh zero-initialised accumulator is allocated so a
+    standalone `a @ b` yields `A @ B`.
     """
     assert isinstance(lhs.type, RankedTensorType)
     assert isinstance(rhs.type, RankedTensorType)
@@ -1142,14 +1268,22 @@ def _matmul_block(lhs, rhs):
     n_blocks = rhs.type.shape[1]
 
     out_ty = RankedTensorType.get([m_blocks, n_blocks], elem_ty)
-    # TODO: zero-initialise the accumulator. The matmul body computes
-    # `c = c + a @ b`, so an uninitialised output yields garbage. A
-    # host-scope linalg.generic-as-fill (the natural way to express this
-    # at this layer) does not survive the d2m -> ttkernel conversion
-    # today. Users needing correct matmul should pre-fill the output via
-    # `d2m.zeros(L)` and pass that as the out-param to a kernel that
-    # calls `@`.
-    output = d2m.empty(out_ty)
+    if acc is not None:
+        # Accumulate in place into the caller's buffer (e.g. a loop-carried
+        # `c`). tile_matmul computes `acc + a @ b` over the K reduction.
+        if acc.type != out_ty:
+            raise ValueError(
+                f"matmul accumulator type {acc.type} does not match output "
+                f"type {out_ty}"
+            )
+        output = acc
+    else:
+        # Zero-initialise the accumulator: the matmul body computes
+        # `c = c + a @ b`, so the init operand must be zero for a standalone
+        # `a @ b` to be correct. `_zeros_block` emits the same inputless
+        # `linalg.generic` + `d2m.tile_fill` splat-fill that host-side
+        # `full()` uses (and that survives the d2m -> ttkernel conversion).
+        output = _zeros_block(out_ty)
 
     # (d0, d1, d2) = (M, N, K).
     d0 = AffineDimExpr.get(0)

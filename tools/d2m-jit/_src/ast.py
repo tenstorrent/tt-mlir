@@ -23,6 +23,11 @@ from .tensor_layout import Layout
 _D2M_KERNEL_TYPES = {None, "datamovement", "noc", "compute", "unified"}
 
 
+def _as_value(v):
+    """Coerce an OpView (or Value) to an ir.Value."""
+    return v.result if isinstance(v, OpView) else v
+
+
 class D2MCompiler(ast.NodeVisitor):
     """Unified AST -> MLIR visitor for d2m_jit.
 
@@ -88,6 +93,7 @@ class D2MCompiler(ast.NodeVisitor):
         # Statements
         ast.Pass,
         ast.Assign,
+        ast.AugAssign,
         ast.Return,
         # Function/module
         ast.Module,
@@ -339,6 +345,23 @@ class D2MCompiler(ast.NodeVisitor):
                 scf.YieldOp([])
                 self.symbol_tables.pop()
 
+    @staticmethod
+    def _collect_assigned_names(body):
+        """Names assigned at the top level of a statement list, in order.
+
+        Used to discover candidate loop-carried accumulators. Only direct
+        `Name` targets of `Assign` / `AugAssign` are considered (no unpacking,
+        no assignments nested in inner blocks)."""
+        names = []
+        for stmt in body:
+            if isinstance(stmt, ast.AugAssign) and isinstance(stmt.target, ast.Name):
+                names.append(stmt.target.id)
+            elif isinstance(stmt, ast.Assign):
+                for t in stmt.targets:
+                    if isinstance(t, ast.Name):
+                        names.append(t.id)
+        return names
+
     def visit_For(self, node):
         assert node.iter.func.id == "range", "Only range() supported in for loops"
 
@@ -364,14 +387,35 @@ class D2MCompiler(ast.NodeVisitor):
         upper_bound = _to_index(upper_bound)
         step = _to_index(step)
 
-        for_op = scf.ForOp(lower_bound, upper_bound, step)
+        # Loop-carried accumulators: any variable assigned in the body that
+        # already lives in an enclosing scope (e.g. `c = zeros(...)` before the
+        # loop, then `c += ...` inside) becomes an scf.for iter_arg so the
+        # updated value is visible across iterations and after the loop. Fresh
+        # per-iteration locals (loads, temporaries) stay region-local.
+        owners = {}
+        carried = []
+        for name in self._collect_assigned_names(node.body):
+            owner = self._var_exists(name)
+            if owner and name not in owners:
+                owners[name] = owner
+                carried.append(name)
+        init_args = [_as_value(owners[name][name]) for name in carried]
+
+        for_op = scf.ForOp(lower_bound, upper_bound, step, iter_args=init_args)
         with InsertionPoint(for_op.body), Location.unknown():
             self.symbol_tables.append({})
             self.symbol_tables[-1][node.target.id] = for_op.induction_variable
+            for i, name in enumerate(carried):
+                self.symbol_tables[-1][name] = for_op.inner_iter_args[i]
             for stmt in node.body:
                 self.visit(stmt)
-            scf.YieldOp([])
+            scf.YieldOp([_as_value(self.symbol_tables[-1][name]) for name in carried])
             self.symbol_tables.pop()
+
+        # Re-bind the loop results in each accumulator's owning scope so uses
+        # after the loop see the final loop-carried value.
+        for i, name in enumerate(carried):
+            owners[name][name] = for_op.results[i]
 
     # --- Async (d2m) -------------------------------------------------------
 
@@ -412,6 +456,46 @@ class D2MCompiler(ast.NodeVisitor):
                 f"Assign target {type(target).__name__} not supported"
             )
         self.symbol_tables[-1][target.id] = self.visit(node.value)
+
+    def visit_AugAssign(self, node):
+        # `x op= y` -- read `x` from its defining scope, apply the binop, and
+        # write the result back into that same scope. When `x` is carried by an
+        # enclosing `scf.for` (see visit_For), the binding it reads/writes is
+        # the loop's iter-arg block argument, so the update is threaded through
+        # the loop's yield as a loop-carried value.
+        target = node.target
+        if not isinstance(target, ast.Name):
+            raise NotImplementedError(
+                f"AugAssign target {type(target).__name__} not supported"
+            )
+        sym_table = self._var_exists(target.id)
+        if not sym_table:
+            self._fail(
+                node,
+                NameError(f"unknown variable '{target.id}'"),
+                hint=self._hint_for_name(target.id),
+            )
+        lhs = _as_value(sym_table[target.id])
+
+        # `c += a @ b`: accumulate in place into `c` via the matmul's own
+        # accumulator (tile_matmul computes `c + a @ b`). The result then
+        # aliases `c`'s buffer, which a loop-carried (scf.for iter_arg)
+        # accumulator requires to bufferize. Routed through the registered
+        # `__matmul_acc__` op since this visitor cannot import api.py directly.
+        if (
+            isinstance(node.op, ast.Add)
+            and isinstance(node.value, ast.BinOp)
+            and isinstance(node.value.op, ast.MatMult)
+        ):
+            matmul_acc = self._fn_map.get("__matmul_acc__")
+            if matmul_acc is not None:
+                a = _as_value(self.visit(node.value.left))
+                b = _as_value(self.visit(node.value.right))
+                sym_table[target.id] = matmul_acc(lhs, a, b)
+                return
+
+        rhs = self.visit(node.value)
+        sym_table[target.id] = self._emit_binop(node.op, lhs, rhs)
 
     # --- Function calls ----------------------------------------------------
 
@@ -505,6 +589,9 @@ class D2MCompiler(ast.NodeVisitor):
     def visit_BinOp(self, node):
         lhs = self.visit(node.left)
         rhs = self.visit(node.right)
+        return self._emit_binop(node.op, lhs, rhs)
+
+    def _emit_binop(self, op, lhs, rhs):
         if not lhs or not rhs:
             raise ValueError("Binary operands not found")
 
@@ -523,9 +610,9 @@ class D2MCompiler(ast.NodeVisitor):
             return fn(*args, **kwargs)
 
         def unimplemented(*args, **kwargs):
-            raise NotImplementedError(f"{node.op} not implemented")
+            raise NotImplementedError(f"{op} not implemented")
 
-        match (node.op):
+        match (op):
             case ast.Add():
                 return qualified_or("__add__", arith.addi, lhs, rhs)
             case ast.Sub():
@@ -554,7 +641,7 @@ class D2MCompiler(ast.NodeVisitor):
                 return qualified_or("__xor__", arith.xori, lhs, rhs)
             case _:
                 raise NotImplementedError(
-                    f"Binary operator {type(node.op).__name__} not implemented"
+                    f"Binary operator {type(op).__name__} not implemented"
                 )
 
     def visit_UnaryOp(self, node):
@@ -747,11 +834,16 @@ def syntax(syntax_name, args_as_attr=None):
     def _fn_wrapper(fn):
         nonlocal args_as_attr
         assert callable(fn)
+        # Register under the explicit `syntax_name` rather than `fn.__name__`.
+        # Every existing call passes `syntax_name == fn.__name__`, so this is
+        # behavior-preserving; it lets a kernel op use a registry name that
+        # differs from its Python identifier (e.g. when the bare name would
+        # shadow an imported host-side symbol).
         if args_as_attr is None:
-            D2MCompiler._syntax[fn.__name__] = fn
+            D2MCompiler._syntax[syntax_name] = fn
         else:
             assert isinstance(args_as_attr, list)
-            D2MCompiler._syntax[fn.__name__] = (fn, args_as_attr)
+            D2MCompiler._syntax[syntax_name] = (fn, args_as_attr)
         return fn
 
     return _fn_wrapper
