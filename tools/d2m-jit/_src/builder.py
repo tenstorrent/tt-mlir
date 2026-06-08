@@ -44,7 +44,6 @@ from .errors import D2mJitError
 from .tensor_layout import Layout
 from .utils import _cleanup_source_code
 
-
 # Reverse of ttcore.DataType for picking output torch dtypes.
 _TTCORE_TO_TORCH = None  # lazy-init since torch may be missing
 
@@ -581,6 +580,39 @@ def full(layout: Layout, value) -> LazyTensor:
 def zeros(layout: Layout) -> LazyTensor:
     """`d2m.full(layout, 0)` -- allocate a zero-initialised device tensor."""
     return full(layout, 0)
+
+
+def reduction_layout(layout: Layout, dim, allow_cross_tile: bool = False) -> Layout:
+    """Return the output layout for a keepdim per-tile reduction.
+
+    The DSL's float reductions can reduce across all tiles contained on one
+    core. Reductions spanning multiple cores in the reduced dimension need a
+    core gather/redistribute op to collect partials and place reduced values on
+    the output-owning cores.
+    """
+    rank = len(layout.logical_shape)
+    if dim < 0:
+        dim += rank
+    if dim < 0 or dim >= rank:
+        raise ValueError(
+            f"reduce dim must be in range [-{rank}, {rank - 1}], got {dim}"
+        )
+    if layout.grid_shape[dim] > 1 and not allow_cross_tile:
+        raise ValueError(
+            "collapsed reductions only support a reduced logical dimension "
+            "that fits on one core; got "
+            f"{layout.grid_shape[dim]} cores along dimension {dim}. "
+            "Pass allow_cross_tile=True only when the kernel has an explicit "
+            "cross-core gather/redistribute strategy for the reduced dimension."
+        )
+
+    shape = list(layout.logical_shape)
+    block_shape = list(layout.block_shape)
+    grid_shape = list(layout.grid_shape)
+    shape[dim] = 1
+    block_shape[dim] = 1
+    grid_shape[dim] = 1
+    return layout.replace(shape=shape, block_shape=block_shape, grid_shape=grid_shape)
 
 
 def _derive_perm_layout(src_layout: Layout, spec):
