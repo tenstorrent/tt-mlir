@@ -325,6 +325,21 @@ uint64_t CommandFactory::buildSetTensorRetainCommand(
   return commandId;
 }
 
+uint64_t CommandFactory::buildSeedProgramBinaryCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb,
+    const ::tt::runtime::Binary &binary) {
+
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  std::vector<uint8_t> binaryBytes;
+  binary.storeToMemory(binaryBytes);
+
+  uint64_t commandId =
+      BUILD_COMMAND_DIRECT(SeedProgramBinary, fbb, binary.id(), &binaryBytes);
+
+  return commandId;
+}
+
 uint64_t CommandFactory::buildGetLayoutCommand(
     ::flatbuffers::FlatBufferBuilder &fbb, const ::tt::runtime::Binary &binary,
     uint32_t programIndex, uint32_t inputIndex,

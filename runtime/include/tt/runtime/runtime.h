@@ -230,6 +230,11 @@ bool hasLayout(Tensor tensor, Layout layout);
 
 Layout getTensorLayout(Tensor tensor);
 
+// Distributed-only: seeds the worker binary pools with the executable, keyed by
+// its binary id, so that subsequent commands referencing the same binary can
+// omit the binary bytes. Not supported on local (TTNN/TTMetal) runtimes.
+void seedProgramBinary(Binary executableHandle);
+
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex);
 

@@ -989,6 +989,22 @@ Tensor toLayout(Tensor tensor, Device device, Layout layout,
       });
 }
 
+void seedProgramBinary(Binary executableHandle) {
+  using RetType = void;
+  DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        detail::fatalNotImplemented("seedProgramBinary", DeviceRuntime::TTNN);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("seedProgramBinary",
+                                    DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        ::tt::runtime::distributed::seedProgramBinary(executableHandle);
+      });
+}
+
 Layout getLayout(Binary executableHandle, std::uint32_t programIndex,
                  std::uint32_t inputIndex) {
   using RetType = Layout;

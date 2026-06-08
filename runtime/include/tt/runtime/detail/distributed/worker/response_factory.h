@@ -86,6 +86,10 @@ public:
   buildSetTensorRetainResponse(::flatbuffers::FlatBufferBuilder &fbb,
                                uint64_t commandId);
 
+  static void
+  buildSeedProgramBinaryResponse(::flatbuffers::FlatBufferBuilder &fbb,
+                                 uint64_t commandId);
+
   static void buildGetLayoutResponse(::flatbuffers::FlatBufferBuilder &fbb,
                                      uint64_t commandId);
 

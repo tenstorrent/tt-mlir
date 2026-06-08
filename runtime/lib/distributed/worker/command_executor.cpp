@@ -554,6 +554,17 @@ void CommandExecutor::execute(uint64_t commandId,
 }
 
 void CommandExecutor::execute(uint64_t commandId,
+                              const fb::SeedProgramBinaryCommand *command) {
+
+  getOrCreateBinary(command->binary(), command->binary_id());
+
+  std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
+      buildResponse(ResponseFactory::buildSeedProgramBinaryResponse, commandId);
+
+  responseQueue_.push(std::move(responseBuilder));
+}
+
+void CommandExecutor::execute(uint64_t commandId,
                               const fb::GetLayoutCommand *command) {
 
   ::tt::runtime::Binary binary =
@@ -910,6 +921,10 @@ void CommandExecutor::executeCommand(const fb::Command *command) {
   case fb::CommandType::SetTensorRetainCommand: {
     return execute(command->command_id(),
                    command->type_as_SetTensorRetainCommand());
+  }
+  case fb::CommandType::SeedProgramBinaryCommand: {
+    return execute(command->command_id(),
+                   command->type_as_SeedProgramBinaryCommand());
   }
   case fb::CommandType::GetLayoutCommand: {
     return execute(command->command_id(), command->type_as_GetLayoutCommand());
