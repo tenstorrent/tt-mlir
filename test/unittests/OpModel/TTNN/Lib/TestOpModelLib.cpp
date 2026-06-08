@@ -1429,13 +1429,12 @@ TEST_F(OpModelTest, Sort) {
 
   constraintsExp = op_model::OpModel<SortOp>::getOpConstraints(
       tensorShape, layoutL1Interleaved, 0, false, false, layoutL1WSharded);
-  EXPECT_FALSE(static_cast<bool>(constraintsExp));
-  llvm::consumeError(constraintsExp.takeError());
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
 
   runtimeExp = op_model::OpModel<SortOp>::getOpRuntime(
       tensorShape, layoutL1Interleaved, 0, false, false, layoutL1WSharded);
-  EXPECT_FALSE(static_cast<bool>(runtimeExp));
-  llvm::consumeError(runtimeExp.takeError());
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
 }
 
 TEST_F(OpModelTest, TopK) {
