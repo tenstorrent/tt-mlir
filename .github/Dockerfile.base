@@ -59,9 +59,9 @@ RUN wget https://apt.llvm.org/llvm.sh && \
     rm llvm.sh && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* && \
-    ln -s /usr/bin/clang-20 /usr/bin/clang && \
-    ln -s /usr/bin/clang++-20 /usr/bin/clang++ && \
-    ln -s /usr/bin/clangd-20 /usr/bin/clangd
+    ln -sf /usr/bin/clang-20 /usr/bin/clang && \
+    ln -sf /usr/bin/clang++-20 /usr/bin/clang++ && \
+    ln -sf /usr/bin/clangd-20 /usr/bin/clangd
 
 # Install python packages
 RUN python3.12 -m pip install --no-cache-dir --break-system-packages cmake \
