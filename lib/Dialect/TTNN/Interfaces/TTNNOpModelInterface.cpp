@@ -4625,7 +4625,21 @@ D2MSubgraphOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   ValueToLayoutMap valueToLayout =
       buildValueToLayoutMap(inputs, block, opConfig);
 
-  op_model::OpConstraints ret(0, 0, 0, 0, {opConfig.outputLayout});
+  // Callers (e.g. RowMajorLayoutPropagation) may pass a null outputLayout to
+  // ask the backend to choose one. The subgraph itself does not pick a layout,
+  // so fall back to the layout this op already declares on its result; that is
+  // the layout the subgraph actually produces. Returning null here would be
+  // dereferenced by consumers that inspect the output layout (e.g.
+  // TTNNLayoutAttr::isTiled()).
+  TTNNLayoutAttr outputLayout = opConfig.outputLayout;
+  if (!outputLayout) {
+    auto resultType =
+        mlir::cast<RankedTensorType>(getResults()[0].getType());
+    outputLayout =
+        mlir::dyn_cast_or_null<TTNNLayoutAttr>(resultType.getEncoding());
+  }
+
+  op_model::OpConstraints ret(0, 0, 0, 0, {outputLayout});
 
   for (mlir::Operation &op : block.getOperations()) {
     auto backend = mlir::dyn_cast<OpModel>(&op);
