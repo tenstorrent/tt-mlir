@@ -129,7 +129,7 @@ createMetalHostBuffer(const void *data, const std::vector<std::uint32_t> &shape,
 
 Tensor createOwnedHostTensor(const void *data,
                              const std::vector<std::uint32_t> &shape,
-                             const std::vector<std::uint32_t> &stride,
+                             const std::vector<std::int64_t> &stride,
                              std::uint32_t itemsize,
                              ::tt::target::DataType dataType) {
   LOG_ASSERT(utils::isSupportedDataType(dataType),
@@ -181,7 +181,7 @@ Tensor createMultiDeviceHostTensor(
 Tensor createMultiDeviceHostTensor(
     const std::vector<const void *> &data,
     const std::vector<std::uint32_t> &shape,
-    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape) {
@@ -198,7 +198,7 @@ Tensor createMultiDeviceHostTensor(
 
 Tensor createMultiDeviceBorrowedHostTensor(
     std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
-    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape) {
@@ -615,8 +615,15 @@ static void stridedMemcpy(const TensorDesc &dst, const TensorDesc &src,
   LOG_ASSERT(dst.elementSize() == src.elementSize(),
              "Tensor item size mismatch");
 
-  const auto srcIndices = getStridedRowStartIndices(src.shape, src.stride);
-  const auto dstIndices = getStridedRowStartIndices(dst.shape, dst.stride);
+  // `getStridedRowStartIndices` requires `shape` and `stride` to share the same
+  // element type. `stride` is signed `int64`, so widen `shape` to `int64`
+  // (lossless) rather than narrowing the stride.
+  const auto srcIndices = getStridedRowStartIndices(
+      std::vector<std::int64_t>(src.shape.begin(), src.shape.end()),
+      src.stride);
+  const auto dstIndices = getStridedRowStartIndices(
+      std::vector<std::int64_t>(dst.shape.begin(), dst.shape.end()),
+      dst.stride);
   assert(srcIndices.size() == dstIndices.size());
   assert(srcIndices.size() ==
          utils::product(src.shape.cbegin(), src.shape.cend() - 1));
@@ -853,28 +860,28 @@ std::vector<std::uint32_t> getTensorShape(Tensor tensor) {
       tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
 }
 
-std::vector<std::uint32_t> getTensorStride(Tensor tensor) {
+std::vector<std::int64_t> getTensorStride(Tensor tensor) {
   return std::visit(
       utils::overloaded{
           [&](const std::uint32_t &) {
             LOG_FATAL("Unsupported variant type");
-            return std::vector<std::uint32_t>{};
+            return std::vector<std::int64_t>{};
           },
           [&](const TensorDesc &desc) {
             return ttmetal::getTensorDesc(tensor).stride;
           },
           [&](const HostBuffer &buffer) {
             LOG_FATAL("getTensorStride from HostBuffer not supported.");
-            return std::vector<std::uint32_t>{};
+            return std::vector<std::int64_t>{};
           },
           [&](const DistributedHostBuffer &buffer) {
             LOG_FATAL(
                 "getTensorStride from DistributedHostBuffer not supported.");
-            return std::vector<std::uint32_t>{};
+            return std::vector<std::int64_t>{};
           },
           [&](const MeshBuffer &buffer) {
             LOG_FATAL("getTensorStride from MeshBuffer not supported.");
-            return std::vector<std::uint32_t>{};
+            return std::vector<std::int64_t>{};
           },
       },
       tensor.as<MetalTensor>(DeviceRuntime::TTMetal));

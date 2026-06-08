@@ -96,6 +96,69 @@ DRAM_FUSION_CASES = [
     shape_dtype_param((128, 128), torch.bfloat16),
 ]
 
+DRAM_BROADCAST_CASES = [
+    pytest.param(
+        (1, 128, 1),
+        [1, 1, 2560],
+        torch.float32,
+        id="f32-1x128x1-to-1x128x2560",
+    ),
+    pytest.param(
+        (1, 1, 2560),
+        [1, 128, 1],
+        torch.bfloat16,
+        id="bf16-1x1x2560-to-1x128x2560",
+    ),
+    pytest.param(
+        (128, 1, 64),
+        [1, 32, 1],
+        torch.bfloat16,
+        id="bf16-128x1x64-to-128x32x64",
+    ),
+    pytest.param(
+        (128, 1, 64),
+        [1, 8, 1],
+        torch.bfloat16,
+        id="bf16-128x1x64-to-128x8x64",
+    ),
+    pytest.param(
+        (1, 128, 32, 1),
+        [1, 1, 1, 128],
+        torch.float32,
+        id="f32-1x128x32x1-to-1x128x32x128",
+    ),
+    pytest.param(
+        (1, 1, 1, 128),
+        [1, 128, 32, 1],
+        torch.bfloat16,
+        id="bf16-1x1x1x128-to-1x128x32x128",
+    ),
+    pytest.param(
+        (1, 64),
+        [128, 1],
+        torch.float32,
+        id="f32-1x64-to-128x64",
+    ),
+    pytest.param(
+        (1, 128, 8, 1),
+        [1, 1, 1, 128],
+        torch.float32,
+        id="f32-1x128x8x1-to-1x128x8x128",
+    ),
+    pytest.param(
+        (1, 1, 1, 128),
+        [1, 128, 8, 1],
+        torch.bfloat16,
+        id="bf16-1x1x1x128-to-1x128x8x128",
+    ),
+    pytest.param(
+        (128, 1),
+        [1, 64],
+        torch.float32,
+        id="f32-128x1-to-128x64",
+    ),
+]
+
 
 def get_add_scalar_value(dtype: torch.dtype):
     return 5 if dtype == torch.int32 else 5.0 if dtype == torch.bfloat16 else 2.5
@@ -232,6 +295,30 @@ def test_dram_fuse_converging_branches(
             return builder.multiply(lhs, rhs, unit_attrs=unit_attrs)
 
     compile_dram_fusion_test(module, request, device, target)
+
+
+@pytest.mark.parametrize("shape,broadcast_dimensions,dtype", DRAM_BROADCAST_CASES)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_dram_broadcast(
+    shape: Shape,
+    broadcast_dimensions: List[int],
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def broadcast(
+            in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = None
+        ):
+            return builder.broadcast(
+                in0,
+                broadcast_dimensions=broadcast_dimensions,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_dram_test(module, request, device, target)
 
 
 @pytest.mark.parametrize("shape,dtype", DRAM_NUMERIC_CASES)

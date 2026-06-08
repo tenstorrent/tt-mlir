@@ -2305,18 +2305,8 @@ public:
       typename =
           std::enable_if_t<std::is_convertible_v<MLIRAttrTy, mlir::Attribute>>>
   mlir::Attribute emit(MLIRAttrTy attr, std::string attrName = "") {
-    auto convertedValue =
-        EmitPyTypeConverter<TTNNTargetT<MLIRAttrTy>>::convert(attr);
-
-    addKeywordArgument(attrName);
-    if constexpr (std::is_same_v<decltype(convertedValue), std::string>) {
-      return rewriter.getType<emitpy::OpaqueAttr>(convertedValue);
-    } else if (convertedValue) {
-      return rewriter.getType<emitpy::OpaqueAttr>(*convertedValue);
-    }
-    // Conversion failed (e.g., null optional attribute): emit
-    // `std::nullopt`.
-    return rewriter.getType<emitpy::OpaqueAttr>(TypeNameV<std::nullopt_t>);
+    return emitConvertedAttr(
+        EmitPyTypeConverter<TTNNTargetT<MLIRAttrTy>>::convert(attr), attrName);
   }
 
   // This is a special handling for cases when there is a many-to-many
@@ -2325,17 +2315,8 @@ public:
   // ttnn::SmallVector<int32_t>}).
   template <typename TargetTy>
   mlir::Attribute emit(mlir::Attribute attr, std::string attrName = "") {
-    auto convertedValue = EmitPyTypeConverter<TargetTy>::convert(attr);
-
-    addKeywordArgument(attrName);
-    if constexpr (std::is_same_v<decltype(convertedValue), std::string>) {
-      return rewriter.getType<emitpy::OpaqueAttr>(convertedValue);
-    } else if (convertedValue) {
-      return rewriter.getType<emitpy::OpaqueAttr>(*convertedValue);
-    }
-    // Conversion failed (e.g., null optional attribute): emit
-    // `std::nullopt`.
-    return rewriter.getType<emitpy::OpaqueAttr>(TypeNameV<std::nullopt_t>);
+    return emitConvertedAttr(EmitPyTypeConverter<TargetTy>::convert(attr),
+                             attrName);
   }
 
   // Handles the case when a source type is not convertible to
@@ -2344,16 +2325,8 @@ public:
   std::enable_if_t<!IsMLIRTypeV<SourceTy>, mlir::Attribute>
   emit(SourceTy attr, std::string attrName = "") {
     using TargetTy = TTNNTargetT<llvm::remove_cvref_t<SourceTy>>;
-    auto result = EmitPyTypeConverter<TargetTy>::convert(attr);
-    // It's assumed that the conversion will always succeed, if the result is
-    // `std::optional<std::string>` we assume that it contains the converted
-    // value.
-    addKeywordArgument(attrName);
-    if constexpr (std::is_same_v<decltype(result),
-                                 std::optional<std::string>>) {
-      return rewriter.getType<emitpy::OpaqueAttr>(*result);
-    }
-    return rewriter.getType<emitpy::OpaqueAttr>(result);
+    return emitConvertedAttr(EmitPyTypeConverter<TargetTy>::convert(attr),
+                             attrName);
   }
 
   ttcore::DataTypeAttr getOutputDtype(mlir::Value val) {
@@ -2385,6 +2358,35 @@ public:
   }
 
 private:
+  // Records one keyword argument for the eventual call_opaque. Every
+  // argument must have a matching keyword name (at least an empty string if the
+  // keyword argument is missing).
+  //
+  // EmitPyTypeConverter::convert must return either:
+  // - std::string: always emitted (may be the None token for absent values).
+  // - std::optional<std::string>: empty optional emits Python None once;
+  //   engaged optional emits the converted expression.
+  template <typename ConvertedTy>
+  mlir::Attribute emitConvertedAttr(ConvertedTy &&convertedValue,
+                                    std::string attrName) {
+    using DecayedConvertedTy = std::decay_t<ConvertedTy>;
+    if constexpr (std::is_same_v<DecayedConvertedTy, std::string>) {
+      addKeywordArgument(attrName);
+      return rewriter.getAttr<emitpy::OpaqueAttr>(convertedValue);
+    } else if constexpr (std::is_same_v<DecayedConvertedTy,
+                                        std::optional<std::string>>) {
+      if (convertedValue) {
+        addKeywordArgument(attrName);
+        return rewriter.getAttr<emitpy::OpaqueAttr>(*convertedValue);
+      }
+      return emit(std::nullopt, attrName);
+    } else {
+      static_assert(sizeof(DecayedConvertedTy) == 0,
+                    "EmitPyTypeConverter::convert must return std::string or "
+                    "std::optional<std::string>");
+    }
+  }
+
   void addKeywordArgument(std::string attrName) {
     StringAttr keywordArg = rewriter.getStringAttr(attrName);
     keywordArgs.push_back(keywordArg);
@@ -2414,19 +2416,6 @@ private:
   llvm::SmallVector<mlir::Value> operands;
   llvm::SmallVector<mlir::Attribute> keywordArgs;
 };
-
-// Helper function that serves as an alternative to the
-// `emit<std::variant<...>>` member function of the `EmitPyTTNNEmitter` class.
-// For example, instead of calling `emit<std::variant<int32_t, float>>(attr)`,
-// one can call `emit<int32_t>(attr) | emit<float>(attr)`.
-inline mlir::Attribute operator|(mlir::Attribute lhs, mlir::Attribute rhs) {
-  const mlir::Attribute nulloptAttr = emitpy::OpaqueAttr::get(
-      lhs.getContext(), tt::ttnn_to_emitpy::TypeNameV<std::nullopt_t>);
-  if (!lhs || lhs == nulloptAttr) {
-    return rhs;
-  }
-  return lhs;
-}
 
 } // namespace ttnn_to_emitpy
 } // namespace tt

@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Utils.h"
 
@@ -188,6 +189,10 @@ collectScratchSpaceLoops(GenericOp genericOp) {
 /// Inputs/outputs of the generic already have externally visible storage and
 /// should never be replaced by scratch slots.
 static bool isIntermediateAlloc(memref::AllocOp allocOp, GenericOp genericOp) {
+  if (utils::isReductionScalerBuffer(allocOp.getOperation())) {
+    return false;
+  }
+
   // Check if alloc is inside the generic op's region
   if (!genericOp->isProperAncestor(allocOp)) {
     return false;

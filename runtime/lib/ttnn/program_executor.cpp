@@ -21,6 +21,7 @@
 #include "operations/ccl/distribute_tensor.h"
 #include "operations/ccl/mesh_partition.h"
 #include "operations/ccl/moe_expert_token_remap.h"
+#include "operations/ccl/moe_gpt.h"
 #include "operations/ccl/point_to_point.h"
 #include "operations/ccl/reduce_scatter.h"
 #include "operations/ccl/selective_reduce_combine.h"
@@ -551,6 +552,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::MoeExpertTokenRemapOp: {
     return operations::ccl::run(op->type_as_MoeExpertTokenRemapOp(),
                                 getContext());
+  }
+  case ::tt::target::ttnn::OpType::MoeGptOp: {
+    return operations::ccl::run(op->type_as_MoeGptOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ArangeOp: {
     return operations::creation::run(op->type_as_ArangeOp(), getContext());

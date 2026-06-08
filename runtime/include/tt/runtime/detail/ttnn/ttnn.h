@@ -87,7 +87,7 @@ namespace tt::runtime::ttnn {
 // allocation/deallocation).
 ::tt::runtime::Tensor
 createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
-                         const std::vector<std::uint32_t> &stride,
+                         const std::vector<std::int64_t> &stride,
                          std::uint32_t itemsize,
                          ::tt::target::DataType dataType);
 
@@ -95,7 +95,7 @@ createBorrowedHostTensor(void *data, const std::vector<std::uint32_t> &shape,
 // host and its allocation/deallocation is owned by this tensor instance).
 ::tt::runtime::Tensor
 createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
-                      const std::vector<std::uint32_t> &stride,
+                      const std::vector<std::int64_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType);
 
 // Creates a borrowed host tensor that aliases the buffer of `ownedHostTensor`.
@@ -109,7 +109,7 @@ createUnsafeBorrowedHostTensor(::tt::runtime::Tensor ownedHostTensor);
 ::tt::runtime::Tensor createMultiDeviceHostTensor(
     const std::vector<const void *> &data,
     const std::vector<std::uint32_t> &shape,
-    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape);
@@ -126,14 +126,15 @@ createUnsafeBorrowedHostTensor(::tt::runtime::Tensor ownedHostTensor);
 // responsible for its allocation/deallocation).
 Tensor createMultiDeviceBorrowedHostTensor(
     std::vector<void *> &data, const std::vector<std::uint32_t> &shape,
-    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+    const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
     ::tt::target::DataType dataType,
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape);
 
-::tt::runtime::Tensor createEmptyTensor(
-    Device device, Layout layout, const std::vector<std::uint32_t> &shape,
-    const std::vector<std::uint32_t> &stride, std::uint32_t itemsize);
+::tt::runtime::Tensor createEmptyTensor(Device device, Layout layout,
+                                        const std::vector<std::uint32_t> &shape,
+                                        const std::vector<std::int64_t> &stride,
+                                        std::uint32_t itemsize);
 
 ::tt::runtime::Tensor createScalarTensor(::tt::runtime::Scalar scalar);
 
@@ -168,7 +169,7 @@ bool isTensorAllocated(::tt::runtime::Tensor tensor);
 tt::target::DataType getTensorDataType(::tt::runtime::Tensor tensor);
 std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor);
 std::vector<std::uint32_t> getTensorShape(::tt::runtime::Tensor tensor);
-std::vector<std::uint32_t> getTensorStride(::tt::runtime::Tensor tensor);
+std::vector<std::int64_t> getTensorStride(::tt::runtime::Tensor tensor);
 std::uint32_t getTensorElementSize(::tt::runtime::Tensor tensor);
 std::uint32_t getTensorVolume(::tt::runtime::Tensor tensor);
 std::uint32_t getTensorLogicalVolume(::tt::runtime::Tensor tensor);

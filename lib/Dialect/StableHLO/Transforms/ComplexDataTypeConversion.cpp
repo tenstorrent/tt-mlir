@@ -311,9 +311,6 @@ public:
     auto newResultType = mlir::cast<RankedTensorType>(
         this->getTypeConverter()->convertType(op.getResult().getType()));
 
-    auto origOperandType =
-        mlir::cast<RankedTensorType>(op.getOperand().getType());
-
     SmallVector<int64_t> newSliceSizes(op.getSliceSizes().begin(),
                                        op.getSliceSizes().end());
     newSliceSizes.push_back(2);
@@ -321,9 +318,12 @@ public:
     auto dimNums = op.getDimensionNumbersAttr();
     SmallVector<int64_t> newOffsetDims(dimNums.getOffsetDims().begin(),
                                        dimNums.getOffsetDims().end());
-    // Pre-conversion rank indexes the trailing real/imag dim (size 2) appended
-    // after lowering (e.g. 512x24 complex -> 512x24x2xf32).
-    newOffsetDims.push_back(origOperandType.getRank());
+    // The trailing real/imag dim appended to the result must be referenced by
+    // its position in the *result* (newResultType.getRank() - 1), not by the
+    // operand rank.  When the gather collapses dimensions the result rank is
+    // less than the operand rank, so using origOperandType.getRank() would
+    // produce an out-of-range offset_dim that fails StableHLO verification.
+    newOffsetDims.push_back(newResultType.getRank() - 1);
     auto newDimNums = mlir::stablehlo::GatherDimensionNumbersAttr::get(
         rewriter.getContext(), newOffsetDims, dimNums.getCollapsedSliceDims(),
         dimNums.getOperandBatchingDims(), dimNums.getStartIndicesBatchingDims(),

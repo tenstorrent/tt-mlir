@@ -417,6 +417,18 @@ class D2MCompiler(ast.NodeVisitor):
 
     def visit_Call(self, node):
         def _resolve(arg):
+            # If args_as_attr supplied a callable, call it on the whole AST
+            # node directly -- bypassing visit dispatch -- so attribute-typed
+            # args can be expressed as `UnaryOp(USub, Constant(0.5))` (i.e.
+            # `-0.5`) and similar non-bare-Constant forms. visit_Constant
+            # also honors this, but only for raw Constants; doing it here
+            # generalises to any AST shape the callable wants to handle.
+            as_attr = getattr(arg, "_ttkernel_as_attr", False)
+            if callable(as_attr):
+                signature = inspect.signature(as_attr)
+                if len(signature.parameters) == 2:
+                    return as_attr(arg, self)
+                return as_attr(arg)
             v = self.visit(arg)
             if v is None:
                 self._fail(
@@ -504,51 +516,62 @@ class D2MCompiler(ast.NodeVisitor):
         if isinstance(rhs, OpView):
             rhs = rhs.result
 
-        if lhs.type != rhs.type:
-            rhs = _cast(rhs, lhs.type)
-        assert lhs.type == rhs.type, f"{lhs.type} != {rhs.type}"
         mlir_type = _get_type_str(lhs.type)
 
-        def qualified_or(attr, otherwise, *args, **kwargs):
-            fn = self._fn_map.get(f"{mlir_type}.{attr}", otherwise)
-            return fn(*args, **kwargs)
+        def qualified_or(attr, otherwise):
+            fn = self._fn_map.get(f"{mlir_type}.{attr}")
+            if fn is not None:
+                return fn(lhs, rhs)
+            cast_rhs = rhs
+            if lhs.type != cast_rhs.type:
+                cast_rhs = _cast(cast_rhs, lhs.type)
+            assert lhs.type == cast_rhs.type, f"{lhs.type} != {cast_rhs.type}"
+            return otherwise(lhs, cast_rhs)
 
         def unimplemented(*args, **kwargs):
             raise NotImplementedError(f"{node.op} not implemented")
 
         match (node.op):
             case ast.Add():
-                return qualified_or("__add__", arith.addi, lhs, rhs)
+                return qualified_or("__add__", arith.addi)
             case ast.Sub():
-                return qualified_or("__sub__", arith.subi, lhs, rhs)
+                return qualified_or("__sub__", arith.subi)
             case ast.Mult():
-                return qualified_or("__mul__", arith.muli, lhs, rhs)
+                return qualified_or("__mul__", arith.muli)
             case ast.Div():
-                return qualified_or("__truediv__", unimplemented, lhs, rhs)
+                return qualified_or("__truediv__", unimplemented)
             case ast.MatMult():
-                return qualified_or("__matmul__", unimplemented, lhs, rhs)
+                return qualified_or("__matmul__", unimplemented)
             case ast.FloorDiv():
-                return qualified_or("__floordiv__", arith.divsi, lhs, rhs)
+                return qualified_or("__floordiv__", arith.divsi)
             case ast.Mod():
-                return qualified_or("__mod__", arith.remsi, lhs, rhs)
+                return qualified_or("__mod__", arith.remsi)
             case ast.Pow():
-                return qualified_or("__pow__", unimplemented, lhs, rhs)
+                return qualified_or("__pow__", unimplemented)
             case ast.LShift():
-                return qualified_or("__lshift__", arith.shli, lhs, rhs)
+                return qualified_or("__lshift__", arith.shli)
             case ast.RShift():
-                return qualified_or("__rshift__", arith.shrsi, lhs, rhs)
+                return qualified_or("__rshift__", arith.shrsi)
             case ast.BitOr():
-                return qualified_or("__or__", arith.ori, lhs, rhs)
+                return qualified_or("__or__", arith.ori)
             case ast.BitAnd():
-                return qualified_or("__and__", arith.andi, lhs, rhs)
+                return qualified_or("__and__", arith.andi)
             case ast.BitXor():
-                return qualified_or("__xor__", arith.xori, lhs, rhs)
+                return qualified_or("__xor__", arith.xori)
             case _:
                 raise NotImplementedError(
                     f"Binary operator {type(node.op).__name__} not implemented"
                 )
 
     def visit_UnaryOp(self, node):
+        if (
+            isinstance(node.op, ast.USub)
+            and isinstance(node.operand, ast.Constant)
+            and isinstance(node.operand.value, int)
+            and not isinstance(node.operand.value, bool)
+        ):
+            return arith.ConstantOp(IndexType.get(self.ctx), -node.operand.value)
+
         operand = self.visit(node.operand)
         if not operand:
             raise ValueError("Unary operand not found")

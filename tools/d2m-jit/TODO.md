@@ -85,90 +85,13 @@ These ops live in `D2MGenericRegionOps.td` but are not yet exposed in
 so we add ops when we have something to test against rather than
 speculatively.
 
-### 🟡 Bespoke-signature ops (need design)
+### 🟡 Reduction follow-ups
 
-| op | why it's interesting | what's blocking |
-| --- | --- | --- |
-| `tile_clamp_scalar(x, min, max)` | clamp with attribute (not operand) bounds | needs `FloatAttr` / `IntegerAttr` threading through `_eltwise_block`, plus a wrapper that picks the attr type from the tile's underlying dtype |
-| `tile_typecast(x)` | in-kernel dtype conversion (host-side already covered by `tilize(dtype=...)`) | needs an `_eltwise_block` variant that takes a target element type different from the input |
-| `tile_transpose(x)` | per-tile (32×32) element transpose -- distinct from logical `permute` / `view` | naming question — collides with `permute` / `view` semantics if called `transpose` |
-
-### 🟡 Reductions (scoped — float blocked, int viable)
-
-`tile_reduce_sum`, `tile_reduce_max`, `tile_reduce_mean` (float) and
-`tile_sfpu_reduce_sum`, `tile_sfpu_reduce_max` (int).
-
-**Locked V1 design** (deferred behind blockers below):
-
-- Free functions `reduce_sum / reduce_max / reduce_mean(block, dim)`
-  reducing along numpy-style axis (`dim=0 → R`, `dim=1 → C`).
-- Two flavours per op: same-shape broadcast-back (default, for
-  `x - x.max(dim, keepdims=True)`-style softmax/layernorm prefixes) and
-  `*_collapse` (output axis collapsed to a single tile).
-- Float vs int auto-dispatch via tile-element-type inspection.
-- Multi-dim (RC) reduction deferred — call twice if needed.
-- Anchor test: softmax-prefix `exp(x - max(x))` on a single shard.
-
-#### Blocker A: float reductions need a scaler `b` operand
-
-`tile_reduce_*` (float) signature is `(a, b, c, dim) -> reduce(a*b)+c`.
-TTIR-to-D2M lowering supplies `b` as a separate 1×1-tile **tensor input**
-to the outer `d2m.GenericOp`, built by a *separate* `d2m.GenericOp` whose
-body fills the tile with `1.0` via `tile_fill`. The scaler is loaded into
-the reduce kernel via `remote_load(scaler, [0, 0])`.
-
-#### Blocker B: inline `tile_fill` in the reduce body fails to lower
-
-Attempted shortcut: emit `tile_fill(1.0)` and `tile_reduce_sum` as
-sibling ops inside the same `linalg.generic` body, so no host-side
-scaler tensor is needed. Builds clean IR but `D2MToTTKernel` cannot fold
-the resulting conversion cast:
-
-```
-error: failed to legalize unresolved materialization from
-  ('memref<4x!ttcore.tile<32x32, f32>, #ttcore.memory_space<dst>>')
-  to ('index')
-  that remained live after conversion
-```
-
-Root cause: `D2MTileFillRewriter` replaces the tile_fill result with a
-DST-register index, but the reduce rewriter's `getCB(op.getB())` call
-expects `b` to be a CB-backed tile (not a DST tile). Same family as the
-matmul accumulator init bug above.
-
-#### What V1 would actually cost
-
-If we go with the host-allocated scaler (the only path that lowers
-today):
-
-1. Walk the kernel AST at call time and detect `reduce_*` calls.
-2. Auto-host-allocate a 1×1-grid scaler tensor via
-   `d2m.full((32, 32), 1.0)`.
-3. Append the scaler to the outer `d2m.GenericOp` inputs and to the
-   inner kernel func signature as a synthetic argument.
-4. Inside the reduce primitive, emit `remote_load(scaler, [0, 0])`
-   once at body entry and cache the resulting tile (re-used across
-   multiple reduce calls in the same kernel).
-5. Plumb compiler state (thread-local or `D2MCompiler.symbol_tables`
-   sentinel) so the primitive can find the scaler from inside
-   `visit_Call`.
-6. Handle dtype matching (scaler must match the input tile's float
-   dtype: f32 vs bf16 vs f16).
-
-Estimated cost: **2–3 days** of DSL plumbing. Plus risk: the
-`remote_load(scaler, [0, 0])` from a >1×1 grid is structurally a
-multicast read from shard (0,0), which exercises the same path that
-SplitUnifiedThread blows up on (see TODO above). So grid>1×1 float
-reductions are likely blocked behind the same compiler bug.
-
-#### Recommended near-term
-
-- Land int-only `reduce_sum / reduce_max` via `tile_sfpu_reduce_*` (no
-  scaler). ~30 min of work. Provides the API shape for users to mirror.
-- Defer float reductions until either (a) `D2MToTTKernel` accepts a
-  tile_fill-produced `b` operand directly (Blocker B fix), or (b) the
-  scaler plumbing in the DSL is worth the 2–3 day investment.
-- Defer softmax/layernorm anchor tests until float lands.
+- Integer reductions via `tile_sfpu_reduce_sum` / `tile_sfpu_reduce_max`.
+- Cross-core or multi-dim (RC) reductions. Reductions spanning multiple cores
+  need a core gather/redistribute op that can collect partials from the cores
+  that own the reduced dimension and place the reduced values on the
+  output-owning cores.
 
 ### 🟡 Lower-level kernel primitives (advanced)
 

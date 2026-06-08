@@ -336,8 +336,8 @@ void CommandExecutor::execute(uint64_t commandId,
   const uint8_t *tensorData = command->data()->data();
   std::vector<uint32_t> shape(command->shape()->begin(),
                               command->shape()->end());
-  std::vector<uint32_t> stride(command->stride()->begin(),
-                               command->stride()->end());
+  std::vector<int64_t> stride(command->stride()->begin(),
+                              command->stride()->end());
   uint32_t itemSize = command->item_size();
   ::tt::target::DataType dataType = command->data_type();
 
