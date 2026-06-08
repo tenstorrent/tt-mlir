@@ -655,7 +655,10 @@ def arange(layout: Layout, start: int = 0, step: int = 1) -> LazyTensor:
 def reshape(lt: LazyTensor, *shape) -> LazyTensor:
     """torch.reshape-style logical-shape change.
 
-    Total element count must match. Currently implemented via a host
+    Total element count must match. A single dimension may be given as
+    `-1`, in which case its size is inferred from the remaining dims
+    (e.g. `reshape(lt, -1)` flattens, `reshape(lt, 2, -1)` infers the
+    last dim). Currently implemented via a host
     roundtrip (`to_host` -> `torch.reshape` -> `to_layout`), so it pays a
     DRAM transfer and re-tilises the data. Use it for shape changes that
     don't cleanly map to a `view` -- e.g. coalescing two non-adjacent dims
@@ -688,6 +691,31 @@ def reshape(lt: LazyTensor, *shape) -> LazyTensor:
     src_numel = 1
     for d in lt.layout.logical_shape:
         src_numel *= d
+
+    # Support the torch idiom of a single `-1` dim whose size is inferred
+    # from the remaining dims (e.g. reshape(lt, -1) flattens; reshape(lt,
+    # 2, -1) infers the second dim).
+    neg_axes = [i for i, d in enumerate(new_shape) if d == -1]
+    if len(neg_axes) > 1:
+        raise ValueError(
+            f"reshape: only one dimension may be inferred (-1), " f"got {new_shape}"
+        )
+    if any(d < -1 for d in new_shape):
+        raise ValueError(f"reshape: dimensions must be >= -1, got {new_shape}")
+    if neg_axes:
+        known = 1
+        for d in new_shape:
+            if d != -1:
+                known *= d
+        if known == 0 or src_numel % known != 0:
+            raise ValueError(
+                f"reshape: cannot infer -1 dimension: src has {src_numel} "
+                f"elements which is not divisible by the product of the "
+                f"known dims {known} (from {new_shape})"
+            )
+        inferred = src_numel // known
+        new_shape = tuple(inferred if d == -1 else d for d in new_shape)
+
     dst_numel = 1
     for d in new_shape:
         dst_numel *= d
