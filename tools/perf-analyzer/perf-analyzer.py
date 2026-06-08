@@ -139,6 +139,8 @@ def collect_device_timeline(profile_log: pathlib.Path) -> tuple[list[dict], int]
                     "core": (int(row["core_x"]), int(row["core_y"])),
                     "risc": row["risc processor type"],
                     "duration": cycles - start_cycles,
+                    "start": start_cycles,
+                    "end": cycles
                 }
 
                 result.append(zone)
@@ -148,10 +150,10 @@ def collect_device_timeline(profile_log: pathlib.Path) -> tuple[list[dict], int]
 
 def aggregate_by_zone(
     rows: list[dict], split_by_kernel: bool
-) -> dict[str, tuple[int, int]]:
+) -> dict[str, tuple[int, int, int]]:
     """returns a dict mapping op name -> (total duration in cycles, number of calls)"""
 
-    result: dict[str, tuple[int, int]] = defaultdict(lambda: (0, 0))
+    result: dict[str, tuple[int, int]] = defaultdict(lambda: (0, 0, 0))
 
     for row in rows:
         if row["name"] in ("TRISC-KERNEL", "TRISC-FW"):
@@ -161,8 +163,8 @@ def aggregate_by_zone(
             key = f'{row["name"]}[{row["risc"]}:{row["kernel"]}]'
         else:
             key = f'{row["name"]}'
-        total, count = result[key]
-        result[key] = (total + row["duration"], count + 1)
+        total, count, maximum = result[key]
+        result[key] = (total + row["duration"], count + 1, max(maximum, row["duration"]))
 
     return result
 
@@ -221,14 +223,15 @@ def print_runtimes(rows: list[dict], wall_cycles: int, freq_mhz: float) -> None:
     )
 
 
-def plot_histogram(rows: dict[str, tuple[int, int]], output_file: str) -> None:
+def plot_histogram(rows: dict[str, tuple[int, int, int]], output_file: str) -> None:
     labels = list(rows.keys())
-    totals = [t for t, _ in rows.values()]
-    counts = [c for _, c in rows.values()]
+    totals = [t for t, _, _ in rows.values()]
+    counts = [c for _, c, _ in rows.values()]
+    maxes = [m for _, _, m in rows.values()]
 
-    fig, (ax_dur, ax_cnt) = plt.subplots(
+    fig, (ax_dur, ax_cnt, ax_max) = plt.subplots(
         1,
-        2,
+        3,
         sharey=True,
         figsize=(12, max(4, 0.3 * len(labels))),
     )
@@ -240,34 +243,38 @@ def plot_histogram(rows: dict[str, tuple[int, int]], output_file: str) -> None:
     ax_cnt.barh(labels, counts)
     ax_cnt.set_xlabel("Number of calls")
 
+    ax_max.barh(labels, maxes)
+    ax_max.set_xlabel("Longest call (cycles)")
+
     fig.suptitle("Kernel runtime breakdown")
     fig.tight_layout()
     fig.savefig(output_file)
     plt.close(fig)
 
 
-def print_op_times(rows: dict[str, tuple[int, int]], freq_mhz: float) -> None:
+def print_op_times(rows: dict[str, tuple[int, int, int]], freq_mhz: float) -> None:
     print("\n===== OP TIMES =====\n")
     total_cycles = sum(v[0] for v in rows.values())
 
-    headers = ("Op", "Calls", "Total time", "Cycles/call", "%")
+    headers = ("Op", "Calls", "Total time", "Longest Call", "Cycles/call", "%")
     sorted_rows = sorted(rows.items(), key=lambda kv: kv[1][0], reverse=True)
     table = [
         (
             k,
             str(count),
             time_formatter(total, freq_mhz),
+            time_formatter(maximum, freq_mhz),
             f"{total / count:.3f}",
             f"{total / total_cycles * 100:.2f}%",
         )
-        for k, (total, count) in sorted_rows
+        for k, (total, count, maximum) in sorted_rows
     ]
-    widths = [max(len(row[i]) for row in (*table, headers)) for i in range(5)]
+    widths = [max(len(row[i]) for row in (*table, headers)) for i in range(6)]
 
-    def fmt(row: tuple[str, str, str, str]) -> str:
+    def fmt(row: tuple[str, str, str, str, str]) -> str:
         return (
             f"{row[0]:<{widths[0]}}  {row[1]:>{widths[1]}}  "
-            f"{row[2]:>{widths[2]}}  {row[3]:>{widths[3]}}  {row[4]:>{widths[4]}}"
+            f"{row[2]:>{widths[2]}}  {row[3]:>{widths[3]}}  {row[4]:>{widths[4]}}  {row[5]:>{widths[5]}}"
         )
 
     print(fmt(headers))
