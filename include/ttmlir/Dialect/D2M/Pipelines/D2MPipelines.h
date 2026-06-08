@@ -235,6 +235,13 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
       llvm::cl::desc("Disable L1 accumulation (force reloading from L1 to DST "
                      "instead of accumulating partials in L1)."),
       llvm::cl::init(false)};
+
+  Option<bool> useSplitUnifiedThreadV2{
+      *this, "use-split-unified-thread-v2",
+      llvm::cl::desc("Use the experimental d2m-split-unified-thread-v2 rewrite "
+                     "instead of the legacy d2m-split-unified-thread pass "
+                     "(for A/B comparison)."),
+      llvm::cl::init(false)};
 };
 
 void createTTIRBufferizationPipeline(OpPassManager &pm,
