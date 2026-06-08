@@ -7050,9 +7050,9 @@ protected:
     }
 
     auto constraintsExp = OpModel<FlashMlaPrefillOp>::getOpConstraints(
-        CreateWorkerGrid(), queryShape, queryLayout, keyShape, keyLayout,
-        valueShape, valueLayout, attentionMaskShape, attentionMaskLayout,
-        headDimV, isCausal, scale, outputLayout);
+        queryShape, queryLayout, keyShape, keyLayout, valueShape, valueLayout,
+        attentionMaskShape, attentionMaskLayout, headDimV, isCausal, scale,
+        outputLayout);
 
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
