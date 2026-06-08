@@ -21,7 +21,6 @@
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/Interfaces/DestinationStyleOpInterface.h"
-#include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -483,11 +482,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               if (dpsOp && op->getNumResults() == dpsOp.getNumDpsInits()) {
                 for (OpOperand &init : dpsOp.getDpsInitsMutable()) {
                   if (init.get() == allocResult) {
-                    unsigned resultIdx =
-                        init.getOperandNumber() - dpsOp.getNumDpsInputs();
-                    if (resultIdx < op->getNumResults()) {
-                      resultsToRetype.push_back(resultIdx);
-                    }
+                    resultsToRetype.push_back(
+                        dpsOp.getTiedOpResult(&init).getResultNumber());
                   }
                 }
               } else {

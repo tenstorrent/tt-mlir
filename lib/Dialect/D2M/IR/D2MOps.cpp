@@ -1480,7 +1480,8 @@ void d2m::GenericOp::build(
   TT_assertv(!outputs.empty(), "expected at least one output");
 
   if (!grid) {
-    // Derive the generic grid from the first output.
+    // TODO (dloke): Generalize multi-output generic grid selection. Issue:
+    // #8736
     auto output = outputs[0];
     SmallVector<int64_t> gridShape;
     TT_assert(ttcore::hasDeviceLayout(output));
@@ -3181,7 +3182,8 @@ analyzeLocalBufferAssociation(Value localBuffer,
           if (init.get() != value) {
             continue;
           }
-          unsigned initIdx = init.getOperandNumber() - dps.getNumDpsInputs();
+          unsigned initIdx = init.getOperandNumber() -
+                             dps.getDpsInits().getBeginOperandIndex();
           if (initIdx >= userOp->getNumResults()) {
             continue;
           }
