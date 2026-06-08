@@ -127,27 +127,37 @@ def _get_system_desc_path():
 # and the walk would silently fail to find it → wrong unpack mode → byte
 # scramble on f32→bf16 typecast. The pre-emitc / dispatch / hoist-inits /
 # emitc-tail split below mirrors what createTTIRToTTMetalPipeline does.
-_PIPELINE = ",".join(
-    [
-        "canonicalize",
-        "d2m-lower-to-layout",
-        "canonicalize",
-        "ttir-bufferization-pipeline",
-        "d2m-insert-scratch-buffers",
-        "d2m-generic-apply-interchange",
-        "d2m-generate-outer-loops",
-        "d2m-mark-synchronized-buffers",
-        "d2m-allocate",
-        "d2m-lower-multicast-loads",
-        "d2m-generic-lower-to-explicit-form",
-        "canonicalize",
-        "d2m-be-pipeline{use-tile-matmul=0}",
-        "d2m-to-ttkernel-pre-emitc-pipeline",
-        "d2m-to-ttmetal-pipeline",
-        "ttkernel-hoist-inits",
-        "d2m-emitc-pipeline",
-    ]
-)
+def _build_pipeline() -> str:
+    """Build the pass-pipeline string, folding in `config` toggles.
+
+    The `d2m-be-pipeline` options are computed here so runtime config (e.g.
+    `config.use_split_unified_thread_v2`) can select alternate backend passes
+    without forking the whole pipeline string.
+    """
+    be_opts = ["use-tile-matmul=0"]
+    if config.use_split_unified_thread_v2:
+        be_opts.append("use-split-unified-thread-v2=1")
+    return ",".join(
+        [
+            "canonicalize",
+            "d2m-lower-to-layout",
+            "canonicalize",
+            "ttir-bufferization-pipeline",
+            "d2m-insert-scratch-buffers",
+            "d2m-generic-apply-interchange",
+            "d2m-generate-outer-loops",
+            "d2m-mark-synchronized-buffers",
+            "d2m-allocate",
+            "d2m-lower-multicast-loads",
+            "d2m-generic-lower-to-explicit-form",
+            "canonicalize",
+            f"d2m-be-pipeline{{{' '.join(be_opts)}}}",
+            "d2m-to-ttkernel-pre-emitc-pipeline",
+            "d2m-to-ttmetal-pipeline",
+            "ttkernel-hoist-inits",
+            "d2m-emitc-pipeline",
+        ]
+    )
 
 
 # --- Scope abstraction ------------------------------------------------------
@@ -852,7 +862,7 @@ def _run_pipeline(b: _Builder):
     register = "ttcore-register-device"
     if system_desc:
         register += f"{{system-desc-path={system_desc}}}"
-    pipeline_str = f"builtin.module({register},{_PIPELINE})"
+    pipeline_str = f"builtin.module({register},{_build_pipeline()})"
 
     if config.print_pipeline:
         print(f"[d2m-jit] pipeline: {pipeline_str}")

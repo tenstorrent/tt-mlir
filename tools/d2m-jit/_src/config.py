@@ -42,6 +42,10 @@ class _Config:
     print_ir_debug_info: bool = _env_bool("D2M_JIT_PRINT_IR_DEBUG_INFO")
     # PassManager.enable_verifier toggle. Default True.
     verify_passes: bool = _env_bool("D2M_JIT_VERIFY", default=True)
+    # Use the experimental d2m-split-unified-thread-v2 rewrite (passed through
+    # to d2m-be-pipeline as use-split-unified-thread-v2=1) for A/B comparison
+    # against the legacy split pass.
+    use_split_unified_thread_v2: bool = _env_bool("D2M_JIT_SPLIT_UNIFIED_THREAD_V2")
     # If set, write the post-pipeline flatbuffer to this path before
     # device submit. Useful for offline inspection with ttrt.
     save_flatbuffer_path: Optional[str] = os.environ.get("D2M_JIT_SAVE_FLATBUFFER_PATH")

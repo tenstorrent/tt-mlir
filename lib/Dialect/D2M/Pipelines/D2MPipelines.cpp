@@ -236,7 +236,11 @@ void createD2MBackendPipeline(OpPassManager &pm,
   // sync ops and split the unified thread into separate compute
   // and datamovement threads.
   pm.addPass(d2m::createD2MHoistCBAllocs());
-  pm.addPass(d2m::createD2MSplitUnifiedThread());
+  if (options.useSplitUnifiedThreadV2) {
+    pm.addPass(d2m::createD2MSplitUnifiedThreadV2());
+  } else {
+    pm.addPass(d2m::createD2MSplitUnifiedThread());
+  }
 
   // Backend of DMA lowering pipeline; generic ops are now
   // in split compute-dma form. All remote loads and stores

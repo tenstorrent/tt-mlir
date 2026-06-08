@@ -31,6 +31,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         LowerToExplicitForm.cpp
         LowerMulticastLoads.cpp
         SplitUnifiedThread.cpp
+        SplitUnifiedThreadV2.cpp
         PreallocateMcastSemaphores.cpp
         ScheduleDMA.cpp
         LowerDMAToFullyIndexedForm.cpp
