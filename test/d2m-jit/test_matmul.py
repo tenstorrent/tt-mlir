@@ -353,6 +353,49 @@ def test_matmul_transpose_b_method_form_correctness():
     )
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "Outer-loop matmul accumulator (`c = zeros; for k: c += a @ b`) with "
+        "k_blocks > 1 computes only one K-block. The K-reduction here is an "
+        "outer scf.for (not a linalg reduction), so the partials accumulate "
+        "via the packer L1-acc path (llk_pack_reconfig_l1_acc). That path is "
+        "emitted and reads as correctly sequenced in IR (reconfig(kk!=0) around "
+        "matmul+pack), but on device the running partial is not accumulated -- "
+        "an L1-acc / matmul_block sequencing issue, not a frontend or split-pass "
+        "bug. The single-matmul-K form (test_matmul_multi_tile_k) works. "
+        "Remove this xfail once the L1-acc outer-loop path is fixed."
+    ),
+)
+def test_matmul_outer_loop_multi_k_xfail():
+    """Repro: K=2 reduction expressed as the d2m-jit outer-loop accumulator
+    (`for k: c += a @ b`). lhs/rhs grids span K so [i, k] / [k, j] address
+    distinct K shards. Currently produces only one K-block's contribution."""
+    lhs = torch.randn(32, 64, dtype=torch.float32)
+    rhs = torch.randn(64, 32, dtype=torch.float32)
+    L_lhs = d2m.Layout(
+        shape=(32, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 2]
+    )
+    L_rhs = d2m.Layout(
+        shape=(64, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[2, 1]
+    )
+    L_out = d2m.Layout(
+        shape=(32, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1]
+    )
+    out_d = d2m.zeros(L_out)
+    matmul_kernel(
+        d2m.to_layout(lhs, L_lhs),
+        d2m.to_layout(rhs, L_rhs),
+        out_d,
+        1,
+        1,
+        2,  # k_blocks = 2
+        grid=(1, 1),
+    )
+    result = out_d.to_host()
+    assert_pcc(lhs @ rhs, result)
+
+
 # ---------------------------------------------------------------------------
 # Multicast kernel
 # ---------------------------------------------------------------------------
