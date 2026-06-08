@@ -109,9 +109,10 @@ table SeedProgramBinaryCommand {
   binary: [ubyte]; // raw bytes of size-prefixed TTNNBinary
 }
 
+// The binary must already be present in the worker binary pool (seeded via
+// SeedProgramBinaryCommand) before this command is issued.
 table GetLayoutCommand {
   binary_id: uint64;
-  binary: [ubyte]; // raw bytes of size-prefixed TTNNBinary
   program_id: uint32;
   input_id: uint32;
   output_layout_id: uint64;
