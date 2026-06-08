@@ -5,6 +5,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
+from infra.testers.single_chip import op
 import torch
 
 from golden import GoldenMapTensor
@@ -90,6 +91,7 @@ def check_numerics(
     golden: GoldenMapTensor,
     device: GoldenMapTensor,
     mode: NumericsMode = NumericsMode.ISOLATED,
+    ssa_inputs: Optional[dict] = None,
 ) -> None:
     """Per-shard PCC check; emits one record per shard, tagged by `mode`."""
     check = "numerics"
@@ -119,6 +121,55 @@ def check_numerics(
         if cfg.max_rtol is not None and rtol > cfg.max_rtol:
             failed = True
         status = RecordStatus.NUMERICS_FAIL if failed else RecordStatus.OK
+        if status != RecordStatus.OK:
+            print(
+                f"[CHISEL DEBUG] Very low PCC ({pcc:.6f}) for {op.name}"
+                f" [ssa={ssa}, device={device_id}]", flush=True
+            )
+            print(
+                f"  golden  | shape={list(golden_shard.shape)}"
+                f" dtype={golden_shard.dtype}"
+                f" min={golden_shard.float().min().item():.6g}"
+                f" max={golden_shard.float().max().item():.6g}"
+                f" mean={golden_shard.float().mean().item():.6g}"
+                f" nan={golden_shard.isnan().sum().item()}"
+                f" inf={golden_shard.isinf().sum().item()}", flush=True
+            )
+            print(
+                f"  device  | shape={list(device_shard.shape)}"
+                f" dtype={device_shard.dtype}"
+                f" min={device_shard.float().min().item():.6g}"
+                f" max={device_shard.float().max().item():.6g}"
+                f" mean={device_shard.float().mean().item():.6g}"
+                f" nan={device_shard.isnan().sum().item()}"
+                f" inf={device_shard.isinf().sum().item()}", flush=True
+            )
+            g_flat = golden_shard.flatten()
+            d_flat = device_shard.flatten()
+            print(f"  golden[:10] = {g_flat[:10].tolist()}", flush=True)
+            print(f"  device[:10] = {d_flat[:10].tolist()}", flush=True)
+            if ssa_inputs:
+                for inp_ssa, inp_tensor in ssa_inputs.items():
+                    if isinstance(inp_tensor, GoldenMapTensor):
+                        for did, shard in inp_tensor.shard_map.items():
+                            print(
+                                f"  input {inp_ssa} [device={did}]"
+                                f" | shape={list(shard.shape)}"
+                                f" dtype={shard.dtype}"
+                                f" min={shard.float().min().item():.6g}"
+                                f" max={shard.float().max().item():.6g}"
+                                f" mean={shard.float().mean().item():.6g}"
+                                f" [:10]={shard.float().flatten()[:10].tolist()}", flush=True
+                            )
+            else:
+                for attr_name in op.attributes:
+                    print(
+                        f"  attr {attr_name.name} = {attr_name.attr}",
+                        flush=True,
+                    )
+            from .utils import get_op_asm
+            print(f"  op asm: {get_op_asm(op)}", flush=True)
+            
         ctx.write_record(
             ChiselRecord(
                 op=op.name,
