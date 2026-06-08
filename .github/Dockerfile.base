@@ -44,6 +44,7 @@ apt-get install -y -qq python3.12 python3.12-dev python3.12-venv
 wget -q https://raw.githubusercontent.com/tenstorrent/tt-metal/${TT_METAL_DEPENDENCIES_COMMIT}/{install_dependencies.sh,tt_metal/sfpi-info.sh,tt_metal/sfpi-version}
 chmod u+x sfpi-info.sh
 bash install_dependencies.sh --docker
+bash install_dependencies.sh --sfpi
 
 apt-get clean
 rm -rf /var/lib/apt/lists/*
