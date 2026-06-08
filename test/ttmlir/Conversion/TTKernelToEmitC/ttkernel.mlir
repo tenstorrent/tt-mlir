@@ -1992,7 +1992,7 @@ module {
     // CHECK-LABEL: func @noc_async_read_barrier
     func.func @noc_async_read_barrier() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: emitc.verbatim "Noc noc;"
-      // CHECK: emitc.verbatim "noc.async_read_barrier<Noc::BarrierMode::FULL>();"
+      // CHECK: emitc.verbatim "noc.async_read_barrier();"
       "ttkernel.noc_async_read_barrier"() : () -> ()
       return
     }
@@ -2002,7 +2002,7 @@ module {
       // CHECK: emitc.verbatim "Noc noc1(1);"
       // CHECK: %[[NOC_ID:.*]] = "emitc.constant"
       %noc_id = arith.constant 1 : i8
-      // CHECK: emitc.verbatim "noc1.async_read_barrier<Noc::BarrierMode::FULL>();"
+      // CHECK: emitc.verbatim "noc1.async_read_barrier();"
       ttkernel.noc_async_read_barrier(%noc_id) : (i8) -> ()
       return
     }
@@ -2081,7 +2081,7 @@ module {
       // CHECK: %[[SIZE2:.*]] = "emitc.constant"() <{value = 64 : i32}>
       // CHECK: %[[NUM_DESTS2:.*]] = "emitc.constant"() <{value = 4 : i32}>
       // CHECK: %[[NOC2:.*]] = "emitc.constant"() <{value = 1 : i8}>
-      // CHECK: emitc.verbatim "noc.async_write_barrier<Noc::BarrierMode::FULL>();"
+      // CHECK: emitc.verbatim "noc.async_write_barrier();"
       "ttkernel.noc_async_write_barrier"() : () -> ()
       // CHECK: emitc.verbatim "noc1.async_write_multicast<Noc::McastMode::EXCLUDE_SRC>
       // CHECK-SAME: args %[[SRC2]], %[[SIZE2]], %[[NUM_DESTS2]], %[[XE2]], %[[YE2]], %[[XS2]], %[[YS2]], %[[ADDR2]]
@@ -2126,7 +2126,7 @@ module {
     // CHECK-LABEL: func @noc_async_write_barrier
     func.func @noc_async_write_barrier() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: emitc.verbatim "Noc noc;"
-      // CHECK: emitc.verbatim "noc.async_write_barrier<Noc::BarrierMode::FULL>();"
+      // CHECK: emitc.verbatim "noc.async_write_barrier();"
       "ttkernel.noc_async_write_barrier"() : () -> ()
       return
     }
@@ -2136,7 +2136,7 @@ module {
       // CHECK: emitc.verbatim "Noc noc1(1);"
       // CHECK: %[[NOC_ID:.*]] = "emitc.constant"
       %noc_id = arith.constant 1 : i8
-      // CHECK: emitc.verbatim "noc1.async_write_barrier<Noc::BarrierMode::FULL>();"
+      // CHECK: emitc.verbatim "noc1.async_write_barrier();"
       ttkernel.noc_async_write_barrier(%noc_id) : (i8) -> ()
       return
     }

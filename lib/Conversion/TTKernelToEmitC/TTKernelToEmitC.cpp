@@ -1123,7 +1123,7 @@ public:
                                              operands, adaptor.getNoc());
     operands.push_back(adaptor.getTrid());
     std::string callStr = nocName + "." + methodName +
-                          "<NocOptions::TXN_ID>(NocOptVals{.trid = {}});";
+                          "<NocOptions::TXN_ID>(NocOptVals{{.trid = {}}});";
 
     rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr, operands);
     rewriter.eraseOp(op);
