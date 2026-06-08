@@ -1477,9 +1477,10 @@ void d2m::GenericOp::build(
     ArrayRef<int64_t> blockFactors,
     ttcore::FabricConnectionConfigAttr fabricConnectionConfig) {
   TT_assertv(!indexingMaps.empty(), "expected non-empty indexing maps");
-  TT_assertv(outputs.size() == 1u, "expected single output");
+  TT_assertv(!outputs.empty(), "expected at least one output");
 
   if (!grid) {
+    // Derive the generic grid from the first output.
     auto output = outputs[0];
     SmallVector<int64_t> gridShape;
     TT_assert(ttcore::hasDeviceLayout(output));
@@ -1624,7 +1625,9 @@ void d2m::GenericOp::build(
     ThreadType singleThreadType, ttcore::GridAttr grid,
     ArrayRef<int64_t> blockFactors,
     ttcore::FabricConnectionConfigAttr fabricConnectionConfig) {
-  TT_assertv(outputs.size() == 1u, "expected single output");
+  TT_assertv(!outputs.empty(), "expected at least one output");
+  // All outputs share the same shard rank, so derive iterator/indexing-map
+  // arity from the first one.
   RankedTensorType tensorType =
       mlir::cast<RankedTensorType>(outputs[0].getType());
   ttcore::MetalLayoutAttr maybeLayout =
@@ -1825,8 +1828,8 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
     }
   }
 
-  if (getOutputs().size() != 1) {
-    return emitOpError("must currently have exactly one output operand");
+  if (getOutputs().empty()) {
+    return emitOpError("must have at least one output operand");
   }
 
   if (getThreads().empty()) {
@@ -1967,6 +1970,17 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
   bool hasGrid = mlir::isa<MemRefType>(getOutputs().front().getType()) ||
                  (rankedTensorType && rankedTensorType.getEncoding());
   SmallVector<AffineMap> indexingMaps = getIndexingMapsValue();
+  if (getOutputs().size() > 1 && !indexingMaps.empty()) {
+    AffineMap firstOutputMap =
+        indexingMaps[getOperandIndex(getOutputs().front())];
+    for (Value output : getOutputs().drop_front()) {
+      if (indexingMaps[getOperandIndex(output)] != firstOutputMap) {
+        return emitOpError(
+            "all output operands must share the same indexing map");
+      }
+    }
+  }
+
   if (hasGrid && !indexingMaps.empty()) {
     // Validate that all operands have device layouts before calling
     // getInputOutputOperandGridShapes(), which assumes layouts are present.
@@ -2029,9 +2043,8 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
       }
     }
 
-    assert(getNumDpsInits() == 1);
+    assert(getNumDpsInits() >= 1);
     ::mlir::OpOperand *output = getDpsInitOperand(0);
-    // Op grid map is implicitly derived from the output operand.
     AffineMap opGridMap = indexingMaps[output->getOperandNumber()];
     LogicalResult blockFactorResult =
         verifyAffineBlocking("grid", indexingMaps, gridShapes, blockFactors,
@@ -2256,7 +2269,6 @@ void GenericOp::getCanonicalizationPatterns(mlir::RewritePatternSet &patterns,
                 dps) {
               for (OpOperand &initOperand : dps.getDpsInitsMutable()) {
                 assert(op.getNumDpsInits() == dps.getNumDpsInits());
-                assert(op.getNumDpsInits() == 1);
 
                 updated |=
                     replaceWithEmpty(rewriter, region, regionOp, initOperand);
@@ -2298,8 +2310,8 @@ AffineMap d2m::GenericOp::getIndexingMapForOperand(Value operand) {
 }
 
 AffineMap d2m::GenericOp::getOutputIndexingMap() {
-  TT_assertv(getNumDpsInits() == 1,
-             "getOutputIndexingMap expects exactly one output operand");
+  TT_assertv(getNumDpsInits() >= 1,
+             "getOutputIndexingMap expects at least one output operand");
   return getIndexingMapForOperand(getOutputs().front());
 }
 
@@ -2313,8 +2325,8 @@ std::optional<unsigned> d2m::GenericOp::getOutputOperandIndex(Value operand) {
 }
 
 mlir::SmallVector<int64_t> d2m::GenericOp::getOutputGridDimPositions() {
-  TT_assertv(getNumDpsInits() == 1,
-             "getOutputGridDimPositions expects exactly one output operand");
+  TT_assertv(getNumDpsInits() >= 1,
+             "getOutputGridDimPositions expects at least one output operand");
   auto outputOperandIndex = getOperandIndex(getOutputs().front());
   return getParticipatingLoopDims(outputOperandIndex);
 }
@@ -2930,11 +2942,14 @@ mlir::LogicalResult d2m::GenericOp::bufferize(
     return failure();
   }
 
-  assert(getNumResults() == 1 && "GenericOp should have exactly one result");
-  assert(getOutputs().size() == 1 &&
-         "GenericOp should have exactly one output");
+  assert(getNumResults() == getOutputs().size() &&
+         "GenericOp should have one result per output");
 
-  if (!mlir::isa<mlir::RankedTensorType>(getResult(0).getType())) {
+  // Skip if already bufferized.
+  bool anyTensor = llvm::any_of(getResults(), [](Value r) {
+    return mlir::isa<mlir::RankedTensorType>(r.getType());
+  });
+  if (!anyTensor) {
     return failure();
   }
   mlir::SmallVector<mlir::Value> bufferInputs;
@@ -3134,20 +3149,47 @@ analyzeLocalBufferAssociation(Value localBuffer,
   };
 
   bool hasRemoteUse = false;
-  for (Operation *userOp : localBuffer.getUsers()) {
-    if (auto loadOp = mlir::dyn_cast<RemoteLoadOp>(userOp)) {
-      if (loadOp.getLocalBuffer() == localBuffer) {
-        hasRemoteUse = true;
-        noteOperand(loadOperand, hasConflictingLoadOperands,
-                    loadOp.getMemref());
+
+  // Follow DPS aliases until a remote_load/remote_store identifies the parent
+  // generic operand associated with this local buffer.
+  llvm::SmallVector<Value, 4> worklist;
+  llvm::SmallPtrSet<Value, 8> visited;
+  worklist.push_back(localBuffer);
+  visited.insert(localBuffer);
+  while (!worklist.empty()) {
+    Value value = worklist.pop_back_val();
+    for (Operation *userOp : value.getUsers()) {
+      if (auto loadOp = mlir::dyn_cast<RemoteLoadOp>(userOp)) {
+        if (loadOp.getLocalBuffer() == value) {
+          hasRemoteUse = true;
+          noteOperand(loadOperand, hasConflictingLoadOperands,
+                      loadOp.getMemref());
+        }
+        continue;
       }
-      continue;
-    }
-    if (auto storeOp = mlir::dyn_cast<RemoteStoreOp>(userOp)) {
-      if (storeOp.getLocalBuffer() == localBuffer) {
-        hasRemoteUse = true;
-        noteOperand(storeOperand, hasConflictingStoreOperands,
-                    storeOp.getMemref());
+      if (auto storeOp = mlir::dyn_cast<RemoteStoreOp>(userOp)) {
+        if (storeOp.getLocalBuffer() == value) {
+          hasRemoteUse = true;
+          noteOperand(storeOperand, hasConflictingStoreOperands,
+                      storeOp.getMemref());
+        }
+        continue;
+      }
+      // Follow matching DPS init -> result aliases.
+      if (auto dps = mlir::dyn_cast<DestinationStyleOpInterface>(userOp)) {
+        for (OpOperand &init : dps.getDpsInitsMutable()) {
+          if (init.get() != value) {
+            continue;
+          }
+          unsigned initIdx = init.getOperandNumber() - dps.getNumDpsInputs();
+          if (initIdx >= userOp->getNumResults()) {
+            continue;
+          }
+          Value matchingResult = userOp->getResult(initIdx);
+          if (visited.insert(matchingResult).second) {
+            worklist.push_back(matchingResult);
+          }
+        }
       }
     }
   }
@@ -3190,16 +3232,11 @@ Value d2m::GenericOp::findAssocOperand(mlir::tensor::EmptyOp emptyOp) {
     return Value();
   }
 
-  // Assert that the parent GenericOp has a single output
-  int64_t numOutputs = static_cast<int64_t>(genericOp.getOutputs().size());
-  TT_assertv(numOutputs == 1,
-             "tensor.empty within generic op with multiple outputs - "
-             "cannot determine associated operand");
-
-  // By default, assume the associated operand is the sole output operand.
-  return analyzeLocalBufferAssociation(emptyOp.getResult(),
-                                       genericOp.getOutputs()[0])
-      .operand;
+  // Only the single-output case has an unambiguous fallback.
+  Value fallback = (genericOp.getOutputs().size() == 1)
+                       ? genericOp.getOutputs()[0]
+                       : Value();
+  return analyzeLocalBufferAssociation(emptyOp.getResult(), fallback).operand;
 }
 
 Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
@@ -3223,8 +3260,7 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
   //    declaration order; allocs without remote use there are local working
   //    buffers, not operand allocations.
   //
-  // d2m.get_cb ops are matched by operand_index when present, otherwise by
-  // their remote_load/remote_store binding.
+  // d2m.get_cb ops are matched by cb_operand_idx.
   Value result;
   unsigned idx = 0;
   std::function<void(Block &, bool)> scanBlock = [&](Block &block,
@@ -3233,10 +3269,18 @@ Value d2m::GenericOp::getOperandAlloc(Region &region, unsigned operandIndex) {
       if (result) {
         return;
       }
-      if (auto emptyOp = mlir::dyn_cast<mlir::tensor::EmptyOp>(&op)) {
-        LocalBufferAssociation assoc = analyzeLocalBufferAssociation(
-            emptyOp.getResult(),
-            generic ? generic.getOutputs().front() : Value());
+      if (auto getCbOp = mlir::dyn_cast<d2m::GetCBOp>(&op)) {
+        if (getCbOp.getCbOperandIdx() == operandIndex) {
+          result = getCbOp.getResult();
+          return;
+        }
+      } else if (auto emptyOp = mlir::dyn_cast<mlir::tensor::EmptyOp>(&op)) {
+        // Only the single-output case has an unambiguous fallback.
+        Value fallback = (generic && generic.getOutputs().size() == 1)
+                             ? generic.getOutputs().front()
+                             : Value();
+        LocalBufferAssociation assoc =
+            analyzeLocalBufferAssociation(emptyOp.getResult(), fallback);
         if (assoc.hasRemoteUse || (assoc.operand && !insideComputeLoop)) {
           if (generic && assoc.operand &&
               generic.getOperandIndex(assoc.operand) ==
