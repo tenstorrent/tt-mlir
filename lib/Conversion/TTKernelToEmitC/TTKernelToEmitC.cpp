@@ -611,6 +611,17 @@ public:
     }
   }
 
+  StringRef getEltwiseBinaryType(ttkernel::EltwiseBinaryType binaryType) const {
+    switch (binaryType) {
+    case ttkernel::EltwiseBinaryType::Add:
+      return "EltwiseBinaryType::ELWADD";
+    case ttkernel::EltwiseBinaryType::Sub:
+      return "EltwiseBinaryType::ELWSUB";
+    case ttkernel::EltwiseBinaryType::Mul:
+      return "EltwiseBinaryType::ELWMUL";
+    }
+  }
+
   ArrayAttr getTemplateArgs(Builder &builder, SourceOp op) const {
     if constexpr (std::is_same_v<SourceOp, ttkernel::ReduceInitOp> ||
                   std::is_same_v<SourceOp, ttkernel::ReduceTileOp>) {
@@ -674,6 +685,15 @@ public:
     } else if constexpr (std::is_same_v<SourceOp, ttkernel::UnaryBcastInitOp> ||
                          std::is_same_v<SourceOp, ttkernel::UnaryBcastTileOp>) {
       SmallVector<Attribute, 1> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), getBroadcastType(op.getBcastType())));
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp,
+                                        ttkernel::BinaryBcastInitOp>) {
+      // init_bcast<EltwiseBinaryType, BroadcastType>(in0_cb, in1_cb, out_cb)
+      SmallVector<Attribute, 2> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(), getEltwiseBinaryType(op.getEltwiseBinaryType())));
       template_args.push_back(emitc::OpaqueAttr::get(
           op.getContext(), getBroadcastType(op.getBcastType())));
       return ArrayAttr::get(op.getContext(), template_args);
@@ -798,6 +818,57 @@ public:
 
 private:
   std::string opName;
+};
+} // namespace
+
+namespace {
+// binary_bcast lowers to the ttmetal public broadcast wrappers
+// {add,sub,mul}_tiles_bcast<BroadcastType>(icb0, icb1, itile0, itile1, idst).
+// The callee name depends on the eltwise_binary_type attribute, so this needs a
+// dedicated rewriter rather than the fixed-name opaque rewriter.
+class TTKernelToEmitCBinaryBcastRewriter
+    : public OpConversionPattern<ttkernel::BinaryBcastTileOp> {
+public:
+  using OpConversionPattern<ttkernel::BinaryBcastTileOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::BinaryBcastTileOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    StringRef callee;
+    switch (op.getEltwiseBinaryType()) {
+    case ttkernel::EltwiseBinaryType::Add:
+      callee = "add_tiles_bcast";
+      break;
+    case ttkernel::EltwiseBinaryType::Sub:
+      callee = "sub_tiles_bcast";
+      break;
+    case ttkernel::EltwiseBinaryType::Mul:
+      callee = "mul_tiles_bcast";
+      break;
+    }
+
+    StringRef bcastType;
+    switch (op.getBcastType()) {
+    case ttkernel::BcastType::Row:
+      bcastType = "BroadcastType::ROW";
+      break;
+    case ttkernel::BcastType::Col:
+      bcastType = "BroadcastType::COL";
+      break;
+    case ttkernel::BcastType::Scalar:
+      bcastType = "BroadcastType::SCALAR";
+      break;
+    default:
+      return rewriter.notifyMatchFailure(op, "unsupported broadcast type");
+    }
+
+    ArrayAttr templateArgs = rewriter.getArrayAttr(
+        {emitc::OpaqueAttr::get(op.getContext(), bcastType)});
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, TypeRange{}, callee, nullptr, templateArgs, adaptor.getOperands());
+    return success();
+  }
 };
 } // namespace
 
@@ -2302,6 +2373,11 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::GetDataFormatOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::TensorAccessorOp>>(
         typeConverter, funcOp.getContext());
+
+    patterns.add<TTKernelToEmitCBinaryBcastRewriter>(typeConverter,
+                                                     funcOp.getContext());
+    patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryBcastInitOp>>(
+        typeConverter, funcOp.getContext(), "init_bcast");
 
     patterns.add<TTKernelToEmitCCBVoidMethodRewriter<ttkernel::CBPushBackOp>>(
         typeConverter, funcOp.getContext(), "push_back");

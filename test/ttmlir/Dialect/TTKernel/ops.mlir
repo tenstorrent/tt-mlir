@@ -245,3 +245,19 @@ func.func @test_remote_mailbox_protocol_ops(%mailbox: !ttkernel.l1_addr) {
   %sink = arith.addi %loaded, %zero : i32
   return
 }
+
+//===----------------------------------------------------------------------===//
+// Binary broadcast operations
+//===----------------------------------------------------------------------===//
+
+// CHECK-LABEL: func.func @test_binary_bcast
+func.func @test_binary_bcast() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>} {
+  %in0_cb = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<8, !ttcore.tile<32x32, f32>>
+  %in1_cb = ttkernel.get_compile_time_arg_val(1) : () -> !ttkernel.cb<8, !ttcore.tile<32x32, f32>>
+  %c0 = arith.constant 0 : index
+  ttkernel.binary_bcast_init(%in0_cb, %in1_cb, %in0_cb, <mul>, <col>) : (!ttkernel.cb<8, !ttcore.tile<32x32, f32>>, !ttkernel.cb<8, !ttcore.tile<32x32, f32>>, !ttkernel.cb<8, !ttcore.tile<32x32, f32>>) -> ()
+  // CHECK: ttkernel.binary_bcast_init(%{{.*}}, %{{.*}}, %{{.*}}, <mul>, <col>)
+  ttkernel.binary_bcast(%in0_cb, %in1_cb, %c0, %c0, %c0, <mul>, <col>) : (!ttkernel.cb<8, !ttcore.tile<32x32, f32>>, !ttkernel.cb<8, !ttcore.tile<32x32, f32>>, index, index, index) -> ()
+  // CHECK: ttkernel.binary_bcast(%{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}}, <mul>, <col>)
+  return
+}
