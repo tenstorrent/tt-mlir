@@ -19,6 +19,7 @@
 #include "ttmlir/OpInvoke/TTNN/Conv/PrepareConvTranspose2dBiasOp.h"
 #include "ttmlir/OpInvoke/TTNN/Conv/PrepareConvTranspose2dWeightsOp.h"
 #include "ttmlir/OpInvoke/TTNN/DataMovement/AssignOp.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/ConcatOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Binary/EltwiseBinaryCompositeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Binary/EltwiseBinaryOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Quantization/EltwiseQuantizationOp.h"
@@ -2799,6 +2800,17 @@ OpModel<ToMemoryConfigOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 // ConcatOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::ConcatOpT
+buildConcatOpTFromMLIR(int32_t dim, TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::ConcatOpT concatOp;
+  concatOp.dim = dim;
+  concatOp.out = detail::getOutputTensorRefT(outputLayout);
+  return concatOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<ConcatOp>::getOpConstraints(
     std::vector<llvm::ArrayRef<int64_t>> inputShapes,
     std::vector<TTNNLayoutAttr> inputLayouts, const int dim,
@@ -2818,10 +2830,22 @@ llvm::Expected<OpConstraints> OpModel<ConcatOp>::getOpConstraints(
     inputSpecs.push_back(std::move(_push_tmp));
   }
 
-  // Create query closure
+  ::tt::target::ttnn::ConcatOpT concatOpNative =
+      buildConcatOpTFromMLIR(dim, outputLayout);
+
+  std::vector<ttnn_op_invoke::TensorArg> inputArgs(inputSpecs.begin(),
+                                                   inputSpecs.end());
+
   auto concatOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::concat, device, inputSpecs, dim,
-                                detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::ConcatOpResult result = ttnn_op_invoke::callConcat(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, concatOpNative,
+        inputArgs, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from ConcatOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayouts[0].getContext(),
@@ -2850,10 +2874,22 @@ llvm::Expected<size_t> OpModel<ConcatOp>::getOpRuntime(
     inputSpecs.push_back(std::move(_push_tmp));
   }
 
-  // Create query closure
+  ::tt::target::ttnn::ConcatOpT concatOpNative =
+      buildConcatOpTFromMLIR(dim, outputLayout);
+
+  std::vector<ttnn_op_invoke::TensorArg> inputArgs(inputSpecs.begin(),
+                                                   inputSpecs.end());
+
   auto concatOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::concat, device, inputSpecs, dim,
-                            detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::ConcatOpResult result =
+        ttnn_op_invoke::callConcat(ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+                                   concatOpNative, inputArgs, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from ConcatOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(concatOpQuery);
