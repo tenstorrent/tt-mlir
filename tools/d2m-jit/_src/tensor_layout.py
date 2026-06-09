@@ -11,6 +11,8 @@ from ttmlir.dialects import ttcore, d2m
 float32 = ttcore.DataType.Float32
 float16 = ttcore.DataType.Float16
 bfloat16 = ttcore.DataType.BFloat16
+# uint32 is used for global-semaphore backing buffers (not a compute dtype).
+uint32 = ttcore.DataType.UInt32
 
 
 def _to_data_type(dtype):
@@ -23,6 +25,8 @@ def _to_data_type(dtype):
         return ttcore.DataType.Float16
     if s in {"torch.bfloat16", "bf16"}:
         return ttcore.DataType.BFloat16
+    if s in {"torch.uint32", "uint32", "u32"}:
+        return ttcore.DataType.UInt32
     raise TypeError(f"Unsupported dtype {dtype}")
 
 
@@ -106,6 +110,10 @@ class Layout:
             return F16Type.get(ctx)
         if self.dtype == ttcore.DataType.BFloat16:
             return BF16Type.get(ctx)
+        if self.dtype == ttcore.DataType.UInt32:
+            # Unsigned i32 -- the element type create_global_semaphore's
+            # verifier requires for a semaphore backing buffer.
+            return IntegerType.get_unsigned(32, ctx)
         raise TypeError(f"Unsupported data type {self.dtype}")
 
     def get_host_elem_type(self, ctx):

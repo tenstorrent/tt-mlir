@@ -38,7 +38,7 @@ from ttmlir.passmanager import PassManager
 from ttmlir.dialects import d2m, func, arith, linalg, ttcore
 from ttmlir.passes import ttmetal_to_flatbuffer_bin
 
-from .ast import D2MCompiler
+from .ast import D2MCompiler, SEMAPHORE_ARG
 from .config import config
 from .errors import D2mJitError
 from .tensor_layout import Layout
@@ -792,7 +792,15 @@ def _emit_returns_and_finalise(b: _Builder, lts):
     b._refresh_function_type(results=host_types)
 
 
-def _run_pipeline(b: _Builder):
+def _register_device(b: _Builder):
+    """Run `ttcore-register-device` on the module.
+
+    Done as its own pass (separate from `_run_pipeline`) and *before* the
+    pre-pipeline `verify()` in `to_host`: some op verifiers (e.g.
+    `create_global_semaphore`, which sizes its backing buffer to the device
+    worker grid) call `ttcore::lookupDevice`, which asserts when no device op
+    is present. Registering first makes that verify well-defined.
+    """
     system_desc = _get_system_desc_path()
     register = "ttcore-register-device"
     if system_desc:
@@ -948,6 +956,9 @@ def to_host(*lts: LazyTensor):
     assert all(lt.generation == b.generation for lt in resolved)
 
     _emit_returns_and_finalise(b, resolved)
+    # Register the device before verifying: device-dependent verifiers (e.g.
+    # create_global_semaphore) assert without a registered device.
+    _register_device(b)
     b.module.operation.verify()
     _run_pipeline(b)
     outs = _execute(b, resolved)
@@ -1051,30 +1062,37 @@ def _emit_kernel_generic(
             cause=cause,
         )
 
-    # Split args, preserving "all LazyTensors precede all scalars" ordering.
+    # Split args, preserving "all LazyTensors precede all non-tensor args"
+    # ordering. Non-tensor args (`extras`) are scalars (int) and global
+    # semaphores, kept in their original order so they map 1:1 onto the
+    # kernel's trailing parameters and the GenericOp's additionalArgs.
     lazy_args = []
-    scalar_args = []
-    saw_scalar = False
+    extras = []  # list of ("scalar", int) | ("sem", GlobalSemaphore)
+    saw_extra = False
     for i, a in enumerate(args):
         if isinstance(a, LazyTensor):
-            if saw_scalar:
+            if saw_extra:
                 raise _call_error(
                     f"argument {i} to kernel '{kernel.fn.__name__}' is a "
-                    f"LazyTensor but a scalar was already seen; tensor "
-                    f"arguments must precede scalars",
+                    f"LazyTensor but a scalar/semaphore was already seen; "
+                    f"tensor arguments must precede scalars and semaphores",
                     cause=TypeError(),
                 )
             lazy_args.append(a._resolve())
+        elif isinstance(a, GlobalSemaphore):
+            saw_extra = True
+            extras.append(("sem", a))
         elif isinstance(a, int) and not isinstance(a, bool):
-            saw_scalar = True
-            scalar_args.append(a)
+            saw_extra = True
+            extras.append(("scalar", a))
         else:
             raise _call_error(
                 f"argument {i} to kernel '{kernel.fn.__name__}' has "
                 f"unsupported type {type(a).__name__}: {a!r}",
                 hint=(
-                    "kernel arguments must be d2m_jit.LazyTensor or int. "
-                    "Use d2m.to_layout(t, L) to lift a torch tensor."
+                    "kernel arguments must be d2m_jit.LazyTensor, int, or "
+                    "d2m_jit.GlobalSemaphore. Use d2m.to_layout(t, L) to lift "
+                    "a torch tensor."
                 ),
                 cause=TypeError(),
             )
@@ -1115,7 +1133,13 @@ def _emit_kernel_generic(
     # Compile the kernel body in the current builder's context. D2MCompiler
     # picks up b.ctx via get_default_loc_context.
     with b.ctx, b.loc:
-        compiler_args = [lt.layout for lt in lazy_args] + list(scalar_args)
+        # Per-extra D2MCompiler arg: scalars pass their int (-> index func
+        # arg); semaphores pass the SEMAPHORE_ARG sentinel (-> global_semaphore
+        # func arg). Order matches the kernel's trailing parameters.
+        extra_compiler_args = [
+            val if kind == "scalar" else SEMAPHORE_ARG for kind, val in extras
+        ]
+        compiler_args = [lt.layout for lt in lazy_args] + extra_compiler_args
         compiler = D2MCompiler(
             kernel.fn.__name__,
             "unified",
@@ -1130,9 +1154,14 @@ def _emit_kernel_generic(
 
     # Emit the GenericOp + splice the kernel body.
     with b.ctx, b.loc, b.insert_point:
-        # Scalars are sourced from func args (not host-scope constants) so the
-        # GenericOp's region stays isolated-from-above.
-        additional = [b.add_scalar_input(s) for s in scalar_args]
+        # additionalArgs operands, in the kernel's trailing-parameter order:
+        #  - scalars are sourced from func args (not host-scope constants) so
+        #    the GenericOp's region stays isolated-from-above,
+        #  - semaphores reuse the host-scope `create_global_semaphore` result.
+        additional = [
+            b.add_scalar_input(val) if kind == "scalar" else val._resolve_value()
+            for kind, val in extras
+        ]
         inputs = [lt.value for lt in input_lts]
         outputs = [lt.value for lt in output_lts]
         output_types = [v.type for v in outputs]
@@ -1180,6 +1209,16 @@ def _emit_kernel_generic(
             orig_arg.replace_all_uses_with(op)
         for _ in range(len(block.arguments)):
             block.erase_argument(0)
+
+        # Reset each semaphore after the generic that consumed it, so its
+        # backing buffer becomes dead and is deallocated (matching the
+        # reset_global_semaphore + dealloc pattern in
+        # test/.../generic_global_semaphores.mlir). NOTE: this assumes a
+        # semaphore is used by a single kernel call; multi-kernel reuse would
+        # need an explicit host-side reset instead.
+        for kind, val in extras:
+            if kind == "sem":
+                d2m.reset_global_semaphore(val._resolve_value(), 0)
 
     # Rebind output LazyTensors to the GenericOp's results.
     for i, lt in enumerate(output_lts):
