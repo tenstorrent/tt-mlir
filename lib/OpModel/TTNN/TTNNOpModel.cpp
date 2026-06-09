@@ -20,6 +20,7 @@
 #include "ttmlir/OpInvoke/TTNN/Conv/PrepareConvTranspose2dWeightsOp.h"
 #include "ttmlir/OpInvoke/TTNN/DataMovement/AssignOp.h"
 #include "ttmlir/OpInvoke/TTNN/DataMovement/ConcatOp.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/GatherOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Binary/EltwiseBinaryCompositeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Binary/EltwiseBinaryOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Quantization/EltwiseQuantizationOp.h"
@@ -8641,6 +8642,16 @@ OpModel<mlir::tt::ttnn::EmbeddingBackwardOp>::getOpRuntime(
 // GatherOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::GatherOpT buildGatherOpTFromMLIR(int32_t dim,
+                                                     TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::GatherOpT gatherOp;
+  gatherOp.dim = dim;
+  gatherOp.out = detail::getOutputTensorRefT(outputLayout);
+  return gatherOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<GatherOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> indexShape, TTNNLayoutAttr indexLayout, int32_t dim,
@@ -8656,12 +8667,19 @@ llvm::Expected<OpConstraints> OpModel<GatherOp>::getOpConstraints(
       ::ttnn::TensorSpec indexSpec,
       detail::convertToTensorSpec(device, indexShape, indexLayout));
 
+  ::tt::target::ttnn::GatherOpT gatherOpNative =
+      buildGatherOpTFromMLIR(dim, outputLayout);
+
   auto gatherOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::gather, device, inputSpec, static_cast<int8_t>(dim), indexSpec,
-        /*sparse_grad=*/false, detail::getNullableMemoryConfig(outputLayout),
-        /*optional_output_tensor=*/std::nullopt,
-        /*sub_core_grids=*/std::nullopt);
+    ttnn_op_invoke::GatherOpResult result = ttnn_op_invoke::callGather(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, gatherOpNative,
+        inputSpec, indexSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from GatherOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), gatherOpQuery);
@@ -8685,12 +8703,19 @@ llvm::Expected<size_t> OpModel<GatherOp>::getOpRuntime(
       ::ttnn::TensorSpec indexSpec,
       detail::convertToTensorSpec(device, indexShape, indexLayout));
 
+  ::tt::target::ttnn::GatherOpT gatherOpNative =
+      buildGatherOpTFromMLIR(dim, outputLayout);
+
   auto gatherOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::gather, device, inputSpec, static_cast<int8_t>(dim), indexSpec,
-        /*sparse_grad=*/false, detail::getNullableMemoryConfig(outputLayout),
-        /*optional_output_tensor=*/std::nullopt,
-        /*sub_core_grids=*/std::nullopt);
+    ttnn_op_invoke::GatherOpResult result = ttnn_op_invoke::callGather(
+        ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, gatherOpNative, inputSpec,
+        indexSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(
+               result) &&
+           "Expected RuntimeQueryResponse from GatherOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(gatherOpQuery);

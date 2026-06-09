@@ -5735,4 +5735,99 @@ const std::initializer_list<mlir::tt::ttnn::ConcatOp> concatOpList = {
 INSTANTIATE_TEST_SUITE_P(ConcatOpTPathParityTest, ConcatOpTPathParityTest,
                          ::testing::ValuesIn(concatOpList));
 
+//===----------------------------------------------------------------------===//
+// GatherOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::GatherOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, GatherOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::GatherOpT
+buildGatherOpTFromMLIR(int32_t dim, TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::GatherOpT &opNativeOpModel,
+                       ::tt::target::ttnn::GatherOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::GatherOpT &op) {
+    op.input.reset();
+    op.index.reset();
+    op.memory_config.reset();
+    resetOutputTensorRefT(op.out);
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::GatherOp
+buildTestGatherOp(int32_t dim = 0,
+                  mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  auto outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(defaultShape, outputMemoryConfig)
+          : tiledL1BF16Type(defaultShape);
+
+  return e.builder.create<mlir::tt::ttnn::GatherOp>(loc, outputType, makeOnes(),
+                                                    makeOnes(), dim);
+}
+
+} // namespace
+
+using GatherOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::GatherOp>;
+
+TEST_P(GatherOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::GatherOp gatherOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::GatherOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildGatherOpTFromMLIR(
+          gatherOp.getDim(), resolveOutputLayout(gatherOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, gatherOp.getInput(), gatherOp.getIndex());
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, gatherOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::GatherOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::GatherOp> gatherOpList = {
+    buildTestGatherOp(),
+    buildTestGatherOp(/*dim=*/1),
+    buildTestGatherOp(/*dim=*/0,
+                      /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+    buildTestGatherOp(/*dim=*/1,
+                      /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(GatherOpTPathParityTest, GatherOpTPathParityTest,
+                         ::testing::ValuesIn(gatherOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL
