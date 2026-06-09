@@ -118,6 +118,32 @@ static bool isShardedLayout(TTNNLayoutAttr layout) {
   return memLayout && isShardedMemoryLayout(memLayout.getValue());
 }
 
+/// A sharded tiled layout is physically realizable on device only if, along
+/// every axis, the tensor's tile count is an exact multiple of the grid
+/// dimension. D2M's MetalLayoutAttr::getDeviceShape derives the per-core shard
+/// as tiles/grid and asserts exact divisibility, whereas TTNN tolerates a
+/// non-divisible grid via ceiling division. A grid wider than the tensor's
+/// tiles (e.g. <1x64> on a 544x1 tensor, where the width is a single tile) is
+/// therefore accepted by TTNN but aborts once lowered to D2M. Returns true for
+/// interleaved or row-major layouts (no such constraint applies).
+static bool isShardGridRealizable(TTNNLayoutAttr layout,
+                                  llvm::ArrayRef<int64_t> tensorShape) {
+  if (!isShardedLayout(layout) || !layout.isTiled()) {
+    return true;
+  }
+  llvm::SmallVector<int64_t, 2> tiledShape = layout.getTiledShape(tensorShape);
+  llvm::ArrayRef<int64_t> gridShape = layout.getGridShape();
+  if (tiledShape.size() != gridShape.size()) {
+    return true;
+  }
+  for (size_t i = 0; i < tiledShape.size(); ++i) {
+    if (gridShape[i] == 0 || tiledShape[i] % gridShape[i] != 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /// Compute total bytes transferred from DRAM across all inputs.
 static uint64_t
 computeInputDramBytes(const std::vector<TTNNLayoutAttr> &inputLayouts) {
@@ -950,6 +976,35 @@ MemoryLayoutPropagation::getInputCandidateSets(Operation *op) {
     // during addReshardCandidates — a sharded producer can still serve as
     // the source for a valid reshard to an accepted layout.
     applyInputLayoutFilter(candidatesForOperand, op, operandIdx, currentLayout);
+
+    // Operands crossing into a D2M subgraph must carry a layout D2M can
+    // physically realize: a sharded grid must evenly divide the operand's tile
+    // shape. The optimizer can inherit a wide producer's sharded grid onto a
+    // narrow operand (e.g. <1x64> onto a 544x1 tensor), which TTNN tolerates
+    // but D2M's getDeviceShape rejects with an assert. Drop such candidates so
+    // a realizable reshard wins instead; guarantee at least one realizable
+    // candidate remains (a DRAM-interleaved reshard) when filtering empties the
+    // set.
+    if (isa<D2MSubgraphOp>(op)) {
+      llvm::ArrayRef<int64_t> shape = tensorType.getShape();
+      candidatesForOperand.erase(
+          std::remove_if(candidatesForOperand.begin(),
+                         candidatesForOperand.end(),
+                         [&](const InputCandidate &ic) {
+                           return !isShardGridRealizable(ic.layout, shape);
+                         }),
+          candidatesForOperand.end());
+      if (candidatesForOperand.empty()) {
+        InputCandidate ic;
+        ic.layout = TTNNLayoutAttr::Builder(currentLayout, shape)
+                        .setBufferType(BufferType::DRAM)
+                        .setMemoryLayout(TensorMemoryLayout::Interleaved)
+                        .build();
+        ic.producerCandidateIndex = 0;
+        ic.isReshard = true;
+        candidatesForOperand.push_back(ic);
+      }
+    }
 
     // Cap per-operand candidate count to prevent cross-product explosion.
     // Non-reshard candidates (from producer beam) come first and are preserved;
