@@ -15,6 +15,8 @@ Two flavours covered:
    `d2m.zeros(L)` before calling the kernel. This is the recommended
    pattern for correct values until the device-side accumulator
    zero-init lands in `_matmul_block`.
+
+3. Parameterized transpose-b correctness over several M/K/N tile shapes.
 """
 
 import pytest
@@ -41,6 +43,14 @@ def matmul_transpose_b_kernel(lhs, rhs, out):
     a = remote_load(lhs, [0, 0])
     b = remote_load(rhs, [0, 0])
     c = matmul(a, b, transpose_b=True)
+    remote_store(out, [0, 0], c)
+
+
+@d2m.kernel
+def matmul_transpose_b_method_kernel(lhs, rhs, out):
+    a = remote_load(lhs, [0, 0])
+    b = remote_load(rhs, [0, 0])
+    c = a.matmul(b, transpose_b=True)
     remote_store(out, [0, 0], c)
 
 
@@ -88,31 +98,157 @@ def test_matmul_correctness_via_zeros():
     assert diff < 0.05, f"per-shard matmul: max diff {diff} too large"
 
 
-def test_matmul_transpose_b_correctness():
-    lhs = torch.rand(32, 32, dtype=torch.float32) * 0.999 + 0.001
-    rhs = torch.rand(64, 32, dtype=torch.float32) * 0.999 + 0.001
+_TRANSPOSE_B_CASES = [
+    pytest.param(
+        (32, 32, 32),
+        (1, 1),
+        (1, 1),
+        (1, 1),
+        d2m.float32,
+        torch.float32,
+        0.99,
+        id="f32-single-tile-32x32x32",
+    ),
+    pytest.param(
+        (32, 32, 64),
+        (1, 1),
+        (2, 1),
+        (1, 2),
+        d2m.float32,
+        torch.float32,
+        0.99,
+        id="f32-wide-n-32x32x64",
+    ),
+    pytest.param(
+        (32, 64, 96),
+        (1, 2),
+        (3, 2),
+        (1, 3),
+        d2m.float32,
+        torch.float32,
+        0.99,
+        id="f32-multi-k-wide-n-32x64x96",
+    ),
+    pytest.param(
+        (64, 96, 64),
+        (2, 3),
+        (2, 3),
+        (2, 2),
+        d2m.float32,
+        torch.float32,
+        0.99,
+        id="f32-tall-multi-k-64x96x64",
+    ),
+    pytest.param(
+        (64, 64, 32),
+        (2, 2),
+        (1, 2),
+        (2, 1),
+        d2m.bfloat16,
+        torch.bfloat16,
+        0.96,
+        id="bf16-tall-64x64x32",
+    ),
+]
+
+
+def _constrained_rand(shape, dtype):
+    if dtype == torch.float32:
+        return torch.rand(shape, dtype=dtype) * 0.999 + 0.001
+    return torch.rand(shape, dtype=dtype)
+
+
+def _transpose_b_layouts(
+    shape, lhs_block_shape, rhs_block_shape, out_block_shape, dtype
+):
+    m, k, n = shape
     lhs_layout = d2m.Layout(
-        shape=(32, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1]
+        shape=(m, k),
+        dtype=dtype,
+        block_shape=list(lhs_block_shape),
+        grid_shape=[1, 1],
     )
     rhs_layout = d2m.Layout(
-        shape=(64, 32), dtype=d2m.float32, block_shape=[2, 1], grid_shape=[1, 1]
+        shape=(n, k),
+        dtype=dtype,
+        block_shape=list(rhs_block_shape),
+        grid_shape=[1, 1],
     )
     out_layout = d2m.Layout(
-        shape=(32, 64), dtype=d2m.float32, block_shape=[1, 2], grid_shape=[1, 1]
+        shape=(m, n),
+        dtype=dtype,
+        block_shape=list(out_block_shape),
+        grid_shape=[1, 1],
     )
+    return lhs_layout, rhs_layout, out_layout
 
+
+def _run_transpose_b_case(
+    kernel,
+    shape,
+    lhs_block_shape,
+    rhs_block_shape,
+    out_block_shape,
+    d2m_dtype,
+    torch_dtype,
+    pcc,
+):
+    m, k, n = shape
+    lhs = _constrained_rand((m, k), torch_dtype)
+    rhs = _constrained_rand((n, k), torch_dtype)
+    lhs_layout, rhs_layout, out_layout = _transpose_b_layouts(
+        shape, lhs_block_shape, rhs_block_shape, out_block_shape, d2m_dtype
+    )
     out_d = d2m.empty(out_layout)
-    matmul_transpose_b_kernel(
+    kernel(
         d2m.to_layout(lhs, lhs_layout),
         d2m.to_layout(rhs, rhs_layout),
         out_d,
         grid=(1, 1),
     )
     result = out_d.to_host()
-    expected = lhs @ rhs.T
+    expected = lhs.to(torch.float32) @ rhs.to(torch.float32).T
 
-    assert tuple(result.shape) == (32, 64)
-    assert_pcc(expected, result, threshold=0.99)
+    assert tuple(result.shape) == (m, n)
+    assert_pcc(expected, result.to(torch.float32), threshold=pcc)
+
+
+@pytest.mark.parametrize(
+    "shape,lhs_block_shape,rhs_block_shape,out_block_shape,d2m_dtype,torch_dtype,pcc",
+    _TRANSPOSE_B_CASES,
+)
+def test_matmul_transpose_b_correctness(
+    shape,
+    lhs_block_shape,
+    rhs_block_shape,
+    out_block_shape,
+    d2m_dtype,
+    torch_dtype,
+    pcc,
+):
+    _run_transpose_b_case(
+        matmul_transpose_b_kernel,
+        shape,
+        lhs_block_shape,
+        rhs_block_shape,
+        out_block_shape,
+        d2m_dtype,
+        torch_dtype,
+        pcc,
+    )
+
+
+def test_matmul_transpose_b_method_form_correctness():
+    _run_transpose_b_case(
+        matmul_transpose_b_method_kernel,
+        (32, 64, 32),
+        (1, 2),
+        (1, 2),
+        (1, 1),
+        d2m.float32,
+        torch.float32,
+        0.99,
+    )
 
 
 # ---------------------------------------------------------------------------

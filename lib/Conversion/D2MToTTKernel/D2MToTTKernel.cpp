@@ -1035,9 +1035,10 @@ public:
                                          transposeB ? typeB.getShape()[0]
                                                     : typeB.getShape()[1]);
 
-      // nt_dim is the source-memref stride in the N direction (total number of
-      // N tiles across the full B tensor).  For an un-transposed B this is the
-      // source's column count; for a transposed B it's the source's row count.
+      // bKStride is the source-memref stride between consecutive K tiles in B.
+      // For an un-transposed B laid out as [K, N], advancing K moves by the
+      // source's N tile count.  For a transposed B laid out as [N, K],
+      // consecutive K tiles are contiguous.
       auto getSourceDim = [](Value view, unsigned dim) {
         if (auto castOp =
                 dyn_cast_or_null<memref::CastOp>(view.getDefiningOp())) {
@@ -1049,8 +1050,8 @@ public:
         auto srcTy = cast<MemRefType>(view.getType());
         return srcTy.getShape()[dim];
       };
-      auto nt_i32 = intConstant<int32_t>(
-          rewriter, op->getLoc(), getSourceDim(op.getB(), transposeB ? 0 : 1));
+      auto bKStride_i32 = intConstant<int32_t>(
+          rewriter, op->getLoc(), transposeB ? 1 : getSourceDim(op.getB(), 1));
 
       auto transpose =
           intConstant<int32_t>(rewriter, op->getLoc(), transposeB ? 1 : 0);
@@ -1081,7 +1082,7 @@ public:
 
       rewriter.create<ttkernel::ExperimentalMatmulBlockOp>(
           op->getLoc(), cbA, cbB, aTileIndex, bTileIndex, destIndex, transpose,
-          ct_i32, rt_i32, kt_i32, nt_i32);
+          ct_i32, rt_i32, kt_i32, bKStride_i32);
     } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileReduceSumOp> ||
                          std::is_same_v<ConcreteOp, d2m::TileReduceMaxOp> ||
                          std::is_same_v<ConcreteOp, d2m::TileReduceMeanOp>) {

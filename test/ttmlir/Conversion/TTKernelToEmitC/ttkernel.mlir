@@ -480,7 +480,7 @@ module {
       // CHECK: %[[CT_DIM:.*]] = "emitc.constant"
       // CHECK: %[[RT_DIM:.*]] = "emitc.constant"
       // CHECK: %[[KT_DIM:.*]] = "emitc.constant"
-      // CHECK: %[[NT_DIM:.*]] = "emitc.constant"
+      // CHECK: %[[IN1_K_STRIDE:.*]] = "emitc.constant"
       %transpose = arith.constant 0 : i32
       %in0_tile_index = arith.constant 1 : i32
       %in1_tile_index = arith.constant 2 : i32
@@ -488,9 +488,9 @@ module {
       %ct_dim = arith.constant 2 : i32
       %rt_dim = arith.constant 2 : i32
       %kt_dim = arith.constant 2 : i32
-      %nt_dim = arith.constant 2 : i32
-      // CHECK: emitc.call_opaque "experimental::matmul_block"(%[[CB_A]], %[[CB_B]], %[[IN0_TILE_INDEX]], %[[IN1_TILE_INDEX]], %[[DST_TILE_INDEX]], %[[TRANSPOSE]], %[[CT_DIM]], %[[RT_DIM]], %[[KT_DIM]], %[[NT_DIM]])
-      "ttkernel.experimental::matmul_block"(%cb_A, %cb_B, %in0_tile_index, %in1_tile_index, %dst_tile_index, %transpose, %ct_dim, %rt_dim, %kt_dim, %nt_dim) : (!cb0_tiles, !cb1_tiles, i32, i32, i32, i32, i32, i32, i32, i32) -> ()
+      %in1_k_stride = arith.constant 2 : i32
+      // CHECK: emitc.call_opaque "experimental::matmul_block"(%[[CB_A]], %[[CB_B]], %[[IN0_TILE_INDEX]], %[[IN1_TILE_INDEX]], %[[DST_TILE_INDEX]], %[[TRANSPOSE]], %[[CT_DIM]], %[[RT_DIM]], %[[KT_DIM]], %[[IN1_K_STRIDE]])
+      "ttkernel.experimental::matmul_block"(%cb_A, %cb_B, %in0_tile_index, %in1_tile_index, %dst_tile_index, %transpose, %ct_dim, %rt_dim, %kt_dim, %in1_k_stride) : (!cb0_tiles, !cb1_tiles, i32, i32, i32, i32, i32, i32, i32, i32) -> ()
       return
     }
 
