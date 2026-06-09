@@ -65,18 +65,43 @@ python3 tools/scripts/d2m_pipeclean/softmax_profiling/vbench.py _fb/d2m_fused_2x
 python3 tools/scripts/d2m_pipeclean/softmax_profiling/probe.py softmax 2
 ```
 
-## Device-side profiling (the actual task)
-Build is configured with `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON` (→ tt-metal `ENABLE_TRACY=ON`).
-Tracy `capture-release` lives at
-`third_party/tt-metal/src/tt-metal/build_Release/tools/profiler/bin/capture-release`.
+## Device-side profiling — STATUS & the actual task
 
-Things to investigate / build out:
-1. Per-op **device** duration (Tracy device zones) for each of the 3 cases — isolate
-   on-device kernel time from host dispatch. This is the number that makes the comparison
-   apples-to-apples.
-2. Whether enabling the profiler changes the eth/idle-erisc firmware size (the watcher does
-   — it overflows `idle_erisc`); confirm the profiler build still launches programs.
-3. Split host `submit()` vs `wait()` time (host enqueue vs device round-trip) — a quick
-   device-profiler-free signal; see notes in this file's git history.
-4. What instrumentation we can add to d2m-generated kernels (DeviceZoneScopedN) for future
-   per-stage timing.
+What I tried (2026-06-09) and found:
+- Rebuilt with `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON` (→ tt-metal `ENABLE_TRACY=ON`). Build is fine.
+- **Host-side Tracy works:** running with `capture-release` attached produced a ~30 KB
+  `.tracy` trace (host zones: dispatch/submit/etc.). Useful for host-side breakdown.
+- **Device-side profiling is BLOCKED on this setup:** with the profiler build, the device
+  **program launch hangs** — for BOTH ttnn and d2m, with and without
+  `TT_METAL_DEVICE_PROFILER=1`, on a clean reset device (verified with `timeout -s KILL`,
+  so not zombie contention). No `profile_log_device.csv` is produced. The profiler build
+  bakes device-side instrumentation into the dispatch/eth firmware, which overflows the eth
+  `idle_erisc` code region — the SAME failure family as `TT_METAL_WATCHER` (see memory note
+  `sdpa-4x4-eth-fw-overflow`): firmware bundle 19.7.0's `idle_erisc` is already ~at the
+  limit, and any extra instrumentation tips it over → device wedge at launch.
+- Because of this, the profiler build also breaks NORMAL device runs. **This branch's build
+  is configured with PERF_TRACE OFF** (working device); flip it ON only to reproduce the
+  hang / continue the investigation.
+
+Reproduce the device-profiler hang:
+```bash
+cmake -B build -DTT_RUNTIME_ENABLE_PERF_TRACE=ON && cmake --build build
+python -m tt_smi -r
+TT_METAL_DEVICE_PROFILER=1 python3 .../vbench.py _fb/ttnn_softmax_1x1.ttnn 32   # hangs at launch
+```
+
+Tasks for Arsen:
+1. **Unblock device profiling** — the eth `idle_erisc` overflow is the wall. Options to try:
+   (a) a firmware bundle where `idle_erisc` fits with instrumentation (the system warns 19.7.0
+   is "newer than latest fully tested 19.5.0"); (b) build the eth dispatch kernel `-Os`;
+   (c) a dispatch-core config that doesn't put dispatch on eth (single-chip / no fabric).
+2. Once it launches, get **per-op device duration** (Tracy device zones / `profile_log_device.csv`)
+   for the 3 cases — the apples-to-apples number that separates on-device kernel time from host
+   dispatch. NOTE from this work: at 1–9 tiles the wall-clock gap is ~100% fixed per-submit
+   overhead (compute is in the noise — see overhead decomposition above), so device-op timing
+   will likely show negligible compute; the interesting signal is in the **dispatch/launch path**.
+3. **Host-side profiling that needs no device instrumentation** (works today): run with
+   `capture-release` attached and inspect host zones; also split host `submit()` vs `wait()`
+   to separate host-enqueue from device-round-trip.
+4. What device instrumentation we could add to d2m-generated kernels (`DeviceZoneScopedN`) for
+   per-stage timing once the eth-firmware blocker is resolved.

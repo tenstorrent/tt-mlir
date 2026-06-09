@@ -58,17 +58,19 @@ def bench(name, fb, loops=1000, warmup=30):
         rt.close_mesh_device(dev)
 
 
-import sys
+import os
 
+# Flatbuffers are produced by gen_cases.sh into <repo-root>/_fb (override with FB_DIR).
+FB = os.environ.get("FB_DIR", "_fb")
 for name, fb in [
-    ("d2m 1x1", "d2m_sm_1.ttm"),
-    ("ttnn 1x1", "ttnn_sm_32.ttnn"),
-    ("d2m 2x2", "d2m_sm_2.ttm"),
-    ("ttnn 2x2", "ttnn_sm_64.ttnn"),
-    ("d2m 3x3", "d2m_sm_3.ttm"),
-    ("ttnn 3x3", "ttnn_sm_96.ttnn"),
+    ("d2m-fused 1x1", "d2m_fused_1x1.ttm"),
+    ("ttnn 1x1", "ttnn_softmax_1x1.ttnn"),
+    ("d2m-fused 2x2", "d2m_fused_2x2.ttm"),
+    ("ttnn 2x2", "ttnn_softmax_2x2.ttnn"),
+    ("d2m-fused 3x3", "d2m_fused_3x3.ttm"),
+    ("ttnn 3x3", "ttnn_softmax_3x3.ttnn"),
 ]:
     try:
-        bench(name, "/home/vwells/d2m_scratch/" + fb)
+        bench(name, os.path.join(FB, fb))
     except Exception as e:
         print(f"RESULT {name:14} FAIL {str(e).splitlines()[0][:70]}")
