@@ -428,6 +428,8 @@ static CompositeViewOp getCompositeViewSource(Value value) {
 
 static LogicalResult expandCompositeViewsInGeneric(IRRewriter &rewriter,
                                                    GenericOp gOp) {
+  // DMA read source that is the direct or indirect result of a composite view.
+  // The indirect case comes from a chain of d2m.view_layout ops.
   CompositeViewOp compositeView = nullptr;
   Value compositeSource = nullptr;
   gOp.walk([&](DMAReadOp dmaRead) {
