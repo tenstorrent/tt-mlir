@@ -256,7 +256,7 @@ private:
       for (int64_t i = 0; i < requestedType.getRank(); ++i) {
         allDims.push_back(i);
       }
-      ƒ SmallVector<ReassociationIndices> reassociation = {allDims};
+      SmallVector<ReassociationIndices> reassociation = {allDims};
 
       auto subviewType = mlir::cast<MemRefType>(result.getType());
       auto expandedType = memref::ExpandShapeOp::computeExpandedType(
