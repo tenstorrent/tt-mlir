@@ -6543,6 +6543,30 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
                         getDimArg(), getKeepDim(), getType().getShape());
 }
 
+// ProdOp canonicalization: prod(bool) -> min(bool).
+//
+// For inputs restricted to {0, 1} (e.g. the result of a comparison/logical op),
+// the product reduction is equivalent to a logical AND, which is exactly a min
+// reduction. We rewrite to MinOp because tt-metal's ttnn::prod reduces along a
+// dimension by first permuting that dimension, materializing a full-size copy
+// of the input (which OOMs for large tensors such as attention masks). The
+// generic min reduction reduces the last dimension in place and avoids that
+// extra allocation, while producing identical results for boolean inputs.
+void mlir::tt::ttir::ProdOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+  patterns.add(+[](mlir::tt::ttir::ProdOp op, mlir::PatternRewriter &rewriter) {
+    if (!isBooleanValued(op.getInput())) {
+      return mlir::failure();
+    }
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::MinOp>(
+        op, op.getResult().getType(), op.getInput(), op.getKeepDim(),
+        op.getDimArgAttr());
+    return mlir::success();
+  });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
+}
+
 //===----------------------------------------------------------------------===//
 // ReduceAndOp
 //===----------------------------------------------------------------------===//

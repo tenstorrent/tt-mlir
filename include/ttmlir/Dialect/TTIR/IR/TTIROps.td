@@ -3025,6 +3025,8 @@ def TTIR_ProdOp : TTIR_ReductionOp<"prod"> {
     Output:
     - `result` (Tensor): The result tensor after applying the reduction.
   }];
+
+  let hasCanonicalizer = 1;
 }
 
 def TTIR_EmbeddingOp : TTIR_NamedOp<"embedding"> {
