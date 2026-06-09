@@ -219,11 +219,12 @@ private:
 // by FlattenOrConvertCompositesPass (kCompositesWithCustomSharding path).
 //
 // Two execution paths:
-//   Single-device (not inside sdy.manual_computation, or vocab dim replicated):
+//   Single-device (not inside sdy.manual_computation, or topk dim replicated):
 //     → plain ttir.topk, same as TenstorrentTopKConversionPattern.
 //
-//   Distributed (inside sdy.manual_computation with vocab dim sharded):
-//     Each chip holds a local vocab shard. The distributed sequence is:
+//   Distributed (inside sdy.manual_computation with topk dim sharded):
+//     Each chip holds a local shard of the topk dim. The distributed sequence
+//     is:
 //       1. ttir.topk locally  → [batch, k] values + local indices
 //       2. ttir.all_gather    → [batch, k*N] values + local indices
 //       3. add compile-time shard offset → [batch, k*N] global indices
@@ -294,30 +295,20 @@ public:
     // Resolve topk dimension (default: last).
     int64_t d = dimAttr.getInt();
     int64_t topkDim = (d >= 0) ? d : rank + d;
-    int64_t vocabLocal = inputType.getShape()[topkDim];
+    int64_t numItemsLocal = inputType.getShape()[topkDim];
 
     // Build result types.
-    SmallVector<RankedTensorType, 2> resultTypes;
-    if (isTopKWithBoth) {
-      resultTypes = {
-          mlir::cast<RankedTensorType>(srcOp.getResult(0).getType()),
-          mlir::cast<RankedTensorType>(srcOp.getResult(1).getType())};
-    } else {
-      resultTypes = {
-          mlir::cast<RankedTensorType>(srcOp.getResult(0).getType())};
-    }
-
     RankedTensorType valuesType, indicesType;
     if (isTopKWithBoth) {
-      valuesType = resultTypes[0];
-      indicesType = resultTypes[1];
+      valuesType = mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+      indicesType = mlir::cast<RankedTensorType>(srcOp.getResult(1).getType());
     } else if (isTopKWithValues) {
-      valuesType = resultTypes[0];
+      valuesType = mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
       indicesType =
           RankedTensorType::get(valuesType.getShape(), rewriter.getI32Type());
     } else {
-      valuesType = RankedTensorType::get(resultTypes[0].getShape(), elemType);
-      indicesType = resultTypes[0];
+      indicesType = mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+      valuesType = RankedTensorType::get(indicesType.getShape(), elemType);
     }
 
     auto loc = srcOp.getLoc();
@@ -387,7 +378,7 @@ public:
     int64_t totalCandidates = k * numShards;
     auto dimI32 = rewriter.getI32IntegerAttr(static_cast<int32_t>(topkDim));
 
-    // Step 1: local topk on this chip's vocab shard.
+    // Step 1: local topk on this chip's shard.
     auto localValType = RankedTensorType::get({batch, k}, elemType);
     auto localIndType =
         RankedTensorType::get({batch, k}, rewriter.getI32Type());
@@ -395,7 +386,7 @@ public:
         loc, localValType, localIndType, input, kAttr, dimI32, largestAttr,
         BoolAttr::get(rewriter.getContext(), false));
 
-    // Step 2: all-gather the tiny results across the vocab mesh axis.
+    // Step 2: all-gather the tiny results across the sharded mesh axis.
     auto gatheredValType =
         RankedTensorType::get({batch, totalCandidates}, elemType);
     auto gatheredIndType =
@@ -410,13 +401,13 @@ public:
 
     // Step 3: add compile-time per-shard offset to convert local → global
     // indices. After all_gather, block [shard*k : (shard+1)*k] holds chip
-    // `shard`'s k candidates, all with local indices [0, vocabLocal). Adding
-    // shard*vocabLocal makes them global vocab positions.
+    // `shard`'s k candidates, all with local indices [0, numItemsLocal).
+    // Adding shard*numItemsLocal makes them global positions.
     SmallVector<int32_t> offsetValues;
     offsetValues.reserve(batch * totalCandidates);
     for (int64_t b = 0; b < batch; ++b) {
       for (int64_t shard = 0; shard < numShards; ++shard) {
-        int32_t shardOffset = static_cast<int32_t>(shard * vocabLocal);
+        int32_t shardOffset = static_cast<int32_t>(shard * numItemsLocal);
         for (int32_t j = 0; j < k; ++j) {
           offsetValues.push_back(shardOffset);
         }
