@@ -209,9 +209,16 @@ private:
     return currentOffset;
   }
 
-  // Replace a scratch_allocate with a rank-reducing subview at the assigned
-  // offset of the scratch memref (shape [1, N] from InsertScratchBuffers),
-  // followed by an expand_shape if the requested type is multi-dimensional.
+  // Replace a scratch_allocate with a rank-reducing subview of the scratch
+  // memref, followed by an expand_shape if the requested type is
+  // multi-dimensional.
+  //
+  // The scratch buffer has shape [1, N] from InsertScratchBuffers.
+  // Each scratch_allocate requests a memref with numElements total tiles.
+  // We emit:
+  //   1. subview [0, offset][1, M][1, 1] : memref<1xN> -> memref<M>  (flat 1D)
+  //   2. expand_shape memref<M> [[0,1,...,rank-1]] -> memref<requested shape>
+  //      (only if the requested type has rank > 1)
   void replaceScratchAllocate(ScratchAllocationInfo &info,
                               Value scratchMemRef) {
     ScratchAllocateOp allocOp = info.op;
@@ -249,7 +256,7 @@ private:
       for (int64_t i = 0; i < requestedType.getRank(); ++i) {
         allDims.push_back(i);
       }
-      SmallVector<ReassociationIndices> reassociation = {allDims};
+      ƒ SmallVector<ReassociationIndices> reassociation = {allDims};
 
       auto subviewType = mlir::cast<MemRefType>(result.getType());
       auto expandedType = memref::ExpandShapeOp::computeExpandedType(
