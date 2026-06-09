@@ -182,8 +182,10 @@ def test_mesh_shard_dsl_emits_full_and_shard(monkeypatch):
     ir_text = captured["ir"]
     assert "shard_direction = #ttcore.shard_direction<full_to_shard>" in ir_text
     assert "shard_direction = #ttcore.shard_direction<shard_to_full>" in ir_text
-    # Func arg is the full tensor; mesh_shard produces the per-device shard.
-    assert "tensor<64x128xf32>" in ir_text and "tensor<64x64xf32>" in ir_text
+    # Func arg is the full (plain) tensor; the per-device shard carries the
+    # tensor_mesh encoding marking it multi-device.
+    assert "tensor<64x128xf32>" in ir_text
+    assert 'tensor<64x64xf32, #ttcore.tensor_mesh<"mesh">>' in ir_text
 
 
 @pytest.mark.skipif(
@@ -203,3 +205,40 @@ def test_mesh_shard_dsl_roundtrip_1x2():
     out = lt.to_host()
     assert tuple(out.shape) == (512, 1024)
     assert torch.allclose(out, full, atol=1e-2), "DSL mesh_shard round-trip mismatch"
+
+
+@pytest.mark.skipif(
+    torch is None or runtime is None,
+    reason="requires torch + ttmlir runtime",
+)
+@pytest.mark.skipif(_num_devices() < 2, reason="requires a >=2-device mesh")
+def test_mesh_compute_roundtrip_1x2():
+    """Compute on a mesh shard: full -> shard -> eltwise kernel -> gather -> full.
+
+    Exercises a compute generic between full_to_shard and shard_to_full, which
+    requires the tensor_mesh encoding on the shard boundary (without it the
+    distributed host buffer mismatches the mesh device buffer at runtime)."""
+
+    @d2m.kernel
+    def sig_kernel(in_t, out_t, m_blocks, n_blocks):
+        m_off = core_index(0) * m_blocks
+        n_off = core_index(1) * n_blocks
+        for m in range(m_blocks):
+            for n in range(n_blocks):
+                shard = remote_load(in_t, [m_off + m, n_off + n])
+                remote_store(out_t, [m_off + m, n_off + n], sigmoid(shard))
+
+    d2m.mesh((1, 2), topology=("linear", "ring"))
+    L = d2m.Layout(
+        shape=(64, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[2, 2]
+    )
+    full = torch.randn(64, 128, dtype=torch.float32) * 0.5
+    in_d = d2m.mesh_shard(full, L, shard_dims=[0, 1], shard_shape=[1, 2])
+    out_d = d2m.empty(L)
+    sig_kernel(in_d, out_d, 1, 1, grid=(2, 2))
+    out_d = d2m.mesh_gather(out_d, shard_dims=[0, 1], shard_shape=[1, 2])
+    result = out_d.to_host()
+    expected = torch.sigmoid(full)
+    diff = (expected - result).abs().max().item()
+    assert tuple(result.shape) == (64, 128)
+    assert diff < 0.05, f"mesh compute round-trip: max abs diff {diff}"

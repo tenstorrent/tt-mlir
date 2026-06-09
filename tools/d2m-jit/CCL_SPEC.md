@@ -415,26 +415,17 @@ and this dev box.
   1x2. The host func arg is the full tensor; `mesh_shard` emits `full_to_shard`,
   `to_host` emits `shard_to_full`.
 
-- **🔴 C-c blocker (compute on a mesh shard).** A round-trip with a compute
-  generic between f2s and s2f fails at runtime:
-  `LOG_ASSERT meshBuffer.size() == tensorDesc.sizeBytes()`
-  (`runtime/lib/ttmetal/executor_utils.h:384`, from the `EnqueueWriteBuffer`
-  that writes the shard to a device buffer). Root cause: the `mesh_shard`
-  `full_to_shard` result is a plain single-device `TensorDesc` (e.g. 64x64 =
-  16 KB) but the device mesh buffer spans the mesh (2 x 16 KB = 32 KB). The
-  tensor must carry a `#ttcore.tensor_mesh` (`TensorMeshAttr`) encoding marking
-  it multi-device/distributed, which the buffer allocator + runtime use to bind
-  per-device shards. That encoding is normally added by
-  `ttir-multi-device-tensor-annotation`
-  (`lib/Dialect/TTIR/Transforms/MultiDeviceTensorAnnotation.cpp`) — but that
-  pass **only matches `ttir.mesh_shard`, not `d2m.mesh_shard`**, so d2m-jit's
-  direct-built IR never gets it. Identity works only because it never writes a
-  device compute buffer.
-
-  **Fix options (C-c task 0):** (a) replicate the annotation for
-  `d2m.mesh_shard` — set the `TensorMeshAttr` encoding on the f2s result /
-  s2f input and propagate to the func arg/result and through `to_layout`; or
-  (b) have d2m-jit emit `ttir.mesh_shard` for the I/O boundary and run the
-  existing TTIR annotation pass + `ttir-to-d2m` on just those ops. Needs the
-  buffer-sizing contract (TensorMeshAttr ↔ metal_layout/grid-selection ↔ mesh
-  buffer allocation) understood before the all_gather can execute.
+- **C-c task 0 (done): compute on a mesh shard.** Previously a round-trip with
+  a compute generic between f2s and s2f failed at runtime
+  (`LOG_ASSERT meshBuffer.size() == tensorDesc.sizeBytes()`,
+  `runtime/lib/ttmetal/executor_utils.h:384`): the `mesh_shard` `full_to_shard`
+  result was a plain single-device `TensorDesc` (e.g. 64x64 = 16 KB) while the
+  device mesh buffer spans the mesh (2 x 16 KB). **Fix:** tag the per-device
+  shard at the mesh_shard boundary with `#ttcore.tensor_mesh<name>` (option (a)
+  — replicating what `ttir-multi-device-tensor-annotation` does, but for
+  `d2m.mesh_shard`). It bufferizes to `#ttcore.host_layout<..., <name>>`, so the
+  runtime sizes the distributed host buffer to match the mesh device buffer.
+  Only the host-side shard boundary tensors are tagged (f2s result, s2f input);
+  the full tensor and the per-device device buffers stay plain. Verified on 1x2:
+  `mesh_shard → eltwise kernel → mesh_gather → to_host` matches torch
+  (`test_mesh_compute_roundtrip_1x2`).

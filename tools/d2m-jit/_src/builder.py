@@ -250,6 +250,10 @@ class _Builder:
         # the mesh *shape* lives in the module's ttcore.meshes attr (set by
         # set_mesh) and is read by ttcore-register-device's determineMeshShape.
         self._mesh_topology = None
+        # Name of the declared mesh (None until set_mesh), used to build the
+        # `#ttcore.tensor_mesh<...>` encoding that marks mesh_shard boundary
+        # tensors as multi-device.
+        self._mesh_name = None
 
     def set_mesh(self, shape, topology=None):
         """Declare the device mesh for this graph.
@@ -264,6 +268,7 @@ class _Builder:
             attr = Attribute.parse(f'#ttcore.meshes<[<"mesh" = {dims}>]>', self.ctx)
         self.module.operation.attributes["ttcore.meshes"] = attr
         self._mesh_topology = list(topology) if topology is not None else None
+        self._mesh_name = "mesh"
 
     def _refresh_function_type(self, results=None):
         with self.ctx, self.loc:
@@ -813,21 +818,31 @@ def _emit_returns_and_finalise(b: _Builder, lts):
     with b.ctx, b.loc, b.insert_point:
         for lt in lts:
             dev = lt.layout.build_device_view(b.ctx, lt.value)
-            host = lt.layout.build_from_device(b.ctx, dev)
-            host_ty = lt.layout.build_host_tensor_type(b.ctx)
             if lt.mesh is not None:
-                # Gather the per-device shards back into the full tensor.
+                # Bring the device shard back to a tensor_mesh-encoded host
+                # shard (multi-device), then gather to the full tensor. The
+                # encoding is what lets the runtime size the distributed host
+                # buffer to match the mesh device buffer.
                 elem = lt.layout.get_host_elem_type(b.ctx)
+                tensor_mesh = _tensor_mesh_attr(b)
+                host_shard_ty = RankedTensorType.get(
+                    lt.layout.logical_shape, elem, encoding=tensor_mesh
+                )
+                out_empty = d2m.empty(host_shard_ty)
+                host_shard = d2m.ToLayoutOp([host_shard_ty], dev, out_empty).result
                 full_ty = RankedTensorType.get(lt.mesh.full_shape, elem)
                 host = _emit_mesh_shard(
                     b,
-                    host,
+                    host_shard,
                     full_ty,
                     "shard_to_full",
                     lt.mesh.shard_dims,
                     lt.mesh.shard_shape,
                 )
                 host_ty = full_ty
+            else:
+                host = lt.layout.build_from_device(b.ctx, dev)
+                host_ty = lt.layout.build_host_tensor_type(b.ctx)
             host_values.append(host)
             host_types.append(host_ty)
         func.ReturnOp(host_values)
