@@ -155,3 +155,26 @@ def test_batch_norm_inference(n: int, c: int, h: int, w: int) -> None:
     model = torch.nn.BatchNorm2d(c).eval().to(torch.bfloat16)
     x = torch.randn((n, c, h, w), dtype=torch.bfloat16)
     assert_close_cpu_vs_tt(model, x, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("shape", [(64, 128), (32, 64, 32)])
+def test_where(shape: tuple[int, ...]) -> None:
+    condition = torch.randn(shape, dtype=torch.bfloat16) > 0
+    x = torch.randn(shape, dtype=torch.bfloat16)
+    y = torch.randn(shape, dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(torch.where, condition, x, y)
+
+
+@pytest.mark.parametrize("shape", [(64, 128), (32, 64, 32)])
+def test_isneginf(shape: tuple[int, ...]) -> None:
+    x = torch.randn(shape, dtype=torch.bfloat16)
+    x.view(-1)[0] = float('-inf')
+    x.view(-1)[1] = float('inf')
+    assert_close_cpu_vs_tt(torch.isneginf, x)
+
+
+@pytest.mark.parametrize("keepdim", [True, False])
+@pytest.mark.parametrize("dim", [0, 1, -1], ids=["dim0", "dim1", "dim_neg1"])
+def test_all(dim: int, keepdim: bool) -> None:
+    x = torch.randn((64, 128), dtype=torch.bfloat16) > 0
+    assert_close_cpu_vs_tt(lambda t: torch.all(t, dim=dim, keepdim=keepdim), x)

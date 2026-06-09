@@ -186,4 +186,27 @@ mlir::Value build_embedding(ModuleBuilder &mb, mlir::Value indices, mlir::Value 
 // inputs. Inputs must share element type — callers must promote first.
 mlir::Value build_matmul(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
 
+// Emit TTIR for element-wise conditional selection:
+//   result[i] = condition[i] ? true_val[i] : false_val[i]
+// `condition` must be Bool (i1). `true_val` and `false_val` must share element
+// type — callers must promote first. Broadcasting is applied across all 3 inputs.
+mlir::Value build_where(ModuleBuilder &mb, mlir::Value condition, mlir::Value true_val, mlir::Value false_val);
+
+// Emit TTIR for lower-triangular extraction (aten::tril). Elements strictly above
+// the `diagonal`-th diagonal are zeroed. `diagonal` == 0 keeps the main diagonal;
+// positive values extend above it, negative values cut below it.
+// Input must be at least 2D; the last two dimensions define the [N, M] matrix.
+mlir::Value build_tril(ModuleBuilder &mb, mlir::Value input, int64_t diagonal);
+
+// Emit TTIR for element-wise negative infinity test:
+//   result[i] = (self[i] == -inf)
+// Decomposes as logical_and(logical_not(isfinite(self)), lt(self, 0)).
+// Input must be a floating-point type. Output is Bool (i1).
+mlir::Value build_isneginf(ModuleBuilder &mb, mlir::Value input);
+
+// Emit TTIR for logical AND reduction along `dims`. Empty `dims` reduces over all
+// dimensions. `keepdim` controls whether reduced dimensions are retained as size 1.
+// Input and output are Bool (i1).
+mlir::Value build_all(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<int64_t> dims, bool keepdim);
+
 } // namespace tt::kurbla::torch_backend

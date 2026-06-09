@@ -29,6 +29,8 @@ mlir::Type to_mlir_element_type(mlir::MLIRContext &ctx, ::tt::target::DataType d
             return b.getI32Type();
         case ::tt::target::DataType::Int64:
             return b.getI64Type();
+        case ::tt::target::DataType::Bool:
+            return b.getI1Type();
         default:
             break;
     }

@@ -1,4 +1,4 @@
-"""Tests for shape-manipulation ops: unsqueeze, squeeze, expand, transpose, permute."""
+"""Tests for shape-manipulation ops: unsqueeze, squeeze, expand, transpose, permute, tril."""
 
 import pytest
 import torch
@@ -65,3 +65,10 @@ def test_transpose(shape: tuple, dim0: int, dim1: int) -> None:
 def test_permute(shape: tuple, perm: tuple) -> None:
     a = torch.randn(shape, dtype=torch.bfloat16)
     assert_close_cpu_vs_tt(lambda x: x.permute(perm), a)
+
+
+@pytest.mark.parametrize("diagonal", [0, 1, -1])
+@pytest.mark.parametrize("shape", [(32, 32), (64, 128), (32, 32, 64)])
+def test_tril(shape: tuple, diagonal: int) -> None:
+    a = torch.randn(shape, dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(lambda x: torch.tril(x, diagonal=diagonal), a)
