@@ -30,7 +30,6 @@
 #include <set>
 #include <utility>
 #include <vector>
-#include <iostream>
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNOPERATIONVALIDATIONANDFALLBACK
@@ -529,30 +528,14 @@ bool tryOutputOnlyFallbacks(Operation *operation,
                fallbackOutputLayouts.size(), operation->getName(),
                operation->getLoc());
 
-  auto dtypeOp = mlir::dyn_cast<TTNNDtypeOpInterface>(operation);
-  auto layoutOp = mlir::dyn_cast<TTNNLayoutOpInterface>(operation);
-  auto memConfigOp = mlir::dyn_cast<TTNNMemoryConfigOpInterface>(operation);
-
   size_t failedAttempts = 0;
   std::vector<TTNNLayoutAttr> emptyInputLayouts;
   for (const TTNNLayoutAttr &candidateLayout : fallbackOutputLayouts) {
-    // Update the op's attributes to match the candidate layout so the
-    // OpModel interface sees consistent values during validation.
-    if (dtypeOp) {
-      dtypeOp.setDtypeAttr(ttcore::DataTypeAttr::get(
-          operation->getContext(), candidateLayout.getDataType()));
-    }
-    if (layoutOp) {
-      layoutOp.setLayoutAttr(
-          LayoutAttr::get(operation->getContext(), candidateLayout.getLayout()));
-    }
-    if (memConfigOp) {
-      memConfigOp.setMemoryConfigAttr(MemoryConfigAttr::get(
-          operation->getContext(), candidateLayout.getMemLayout(),
-          BufferTypeAttr::get(operation->getContext(),
-                              candidateLayout.getBufferType()),
-          /*shardSpec=*/std::nullopt));
-    }
+    // Update the result type to carry the candidate layout so the OpModel
+    // interface sees consistent dtype/memory_config/layout during validation.
+    auto candidateResultType =
+        utils::RankedTensorTypeFactory::create(outputType, candidateLayout);
+    operation->getResult(0).setType(candidateResultType);
 
     OpConfig testConfig{candidateLayout};
     auto result = op_constraint_validation::validateOperation(
@@ -570,10 +553,12 @@ bool tryOutputOnlyFallbacks(Operation *operation,
                      "Reached maximum fallback attempts ({}) for operation {} "
                      "at {}. Terminating early.",
                      maxAttempts, operation->getName(), operation->getLoc());
+        // Restore original result type before returning.
+        operation->getResult(0).setType(outputType);
         return false;
       }
       continue;
-    } 
+    }
     // Found a working output layout — apply it.
     // Update the operation's result type to match the validated layout.
     TTNNLayoutAttr actualLayout = result.checkAndGetFirstActualOutputLayout();
@@ -598,9 +583,7 @@ bool tryOutputOnlyFallbacks(Operation *operation,
       OpBuilder builder(operation->getContext());
       builder.setInsertionPointAfter(operation);
       auto typecastOp = builder.create<TypecastOp>(
-          operation->getLoc(), originalResultType, operation->getResult(0),
-          ttcore::DataTypeAttr::get(operation->getContext(),
-                                    originalOutputLayout.getDataType()));
+          operation->getLoc(), originalResultType, operation->getResult(0));
 
       for (auto &[useOp, operandIdx] : uses) {
         useOp->setOperand(operandIdx, typecastOp.getResult());
@@ -614,6 +597,8 @@ bool tryOutputOnlyFallbacks(Operation *operation,
     return true;
   }
 
+  // Restore original result type — no candidate succeeded.
+  operation->getResult(0).setType(outputType);
   return false;
 }
 
