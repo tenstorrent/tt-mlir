@@ -5830,4 +5830,115 @@ const std::initializer_list<mlir::tt::ttnn::GatherOp> gatherOpList = {
 INSTANTIATE_TEST_SUITE_P(GatherOpTPathParityTest, GatherOpTPathParityTest,
                          ::testing::ValuesIn(gatherOpList));
 
+//===----------------------------------------------------------------------===//
+// PadOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::PadOp>
+createPadOp(::mlir::tt::FlatbufferObjectCache &cache, PadOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::PadOpT buildPadOpTFromMLIR(llvm::ArrayRef<int32_t> padding,
+                                               llvm::APFloat padValue,
+                                               bool useMulticore,
+                                               TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::PadOpT &opNativeOpModel,
+                       ::tt::target::ttnn::PadOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::PadOpT &op) {
+    op.in.reset();
+    op.memcfg.reset();
+    resetOutputTensorRefT(op.out);
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::PadOp
+buildTestPadOp(std::vector<int32_t> padding = {0, 0, 0, 0}, float value = 0.0f,
+               bool useMulticore = false,
+               mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  llvm::SmallVector<int64_t> outputShape;
+  for (size_t i = 0; i < defaultShape.size(); ++i) {
+    outputShape.push_back(defaultShape[i] + padding[2 * i] +
+                          padding[2 * i + 1]);
+  }
+
+  auto outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(outputShape, outputMemoryConfig)
+          : tiledL1BF16Type(outputShape);
+
+  return e.builder.create<mlir::tt::ttnn::PadOp>(
+      loc, outputType, makeOnes(),
+      mlir::DenseI32ArrayAttr::get(&e.context, padding),
+      mlir::FloatAttr::get(e.builder.getF32Type(), static_cast<double>(value)),
+      mlir::BoolAttr::get(&e.context, useMulticore));
+}
+
+} // namespace
+
+using PadOpTPathParityTest = ::testing::TestWithParam<mlir::tt::ttnn::PadOp>;
+
+TEST_P(PadOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::PadOp padOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::PadOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildPadOpTFromMLIR(
+          padOp.getPadding(), padOp.getValue(), padOp.getUseMulticore(),
+          resolveOutputLayout(padOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, padOp.getInput());
+
+  auto fbOffset = mlir::tt::ttnn::createPadOp(cache, padOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::PadOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::PadOp> padOpList = {
+    buildTestPadOp(),
+    buildTestPadOp(/*padding=*/{0, 2, 0, 2}),
+    buildTestPadOp(/*padding=*/{0, 0, 0, 0}, /*value=*/1.0f),
+    buildTestPadOp(/*padding=*/{0, 0, 0, 0}, /*value=*/0.0f,
+                   /*useMulticore=*/true),
+    buildTestPadOp(/*padding=*/{0, 0, 0, 0}, /*value=*/0.0f,
+                   /*useMulticore=*/false,
+                   /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+    buildTestPadOp(/*padding=*/{0, 2, 0, 2}, /*value=*/1.0f,
+                   /*useMulticore=*/true,
+                   /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(PadOpTPathParityTest, PadOpTPathParityTest,
+                         ::testing::ValuesIn(padOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL

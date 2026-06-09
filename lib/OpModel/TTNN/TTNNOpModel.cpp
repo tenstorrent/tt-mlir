@@ -21,6 +21,7 @@
 #include "ttmlir/OpInvoke/TTNN/DataMovement/AssignOp.h"
 #include "ttmlir/OpInvoke/TTNN/DataMovement/ConcatOp.h"
 #include "ttmlir/OpInvoke/TTNN/DataMovement/GatherOp.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/PadOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Binary/EltwiseBinaryCompositeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Binary/EltwiseBinaryOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Quantization/EltwiseQuantizationOp.h"
@@ -4495,30 +4496,18 @@ llvm::Expected<size_t> OpModel<RepeatOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 
 #ifdef TTMLIR_ENABLE_OPMODEL
-/**
- * @brief Converts padding array to PadSpecDim format for TTNN operations.
- *
- * @param padding Array of padding values in [before0, after0, before1, after1,
- * ...] format
- * @return SmallVector of PadSpecDim objects
- */
-static ttsl::SmallVector<::ttnn::operations::data_movement::PadSpecDim>
-convertPadding(llvm::ArrayRef<int32_t> padding) {
-  ttsl::SmallVector<::ttnn::operations::data_movement::PadSpecDim> paddingSpec;
-  // Reserve space to avoid memory reallocations
-  paddingSpec.reserve((padding.size() + 1) / 2);
-
-  constexpr int32_t defaultPadValue = 0;
-  for (size_t i = 0; i < padding.size(); i += 2) {
-    int32_t before = padding[i];
-    int32_t after = (i + 1 < padding.size()) ? padding[i + 1] : defaultPadValue;
-
-    assert(before >= 0 && after >= 0 && "Padding values must be non-negative");
-
-    paddingSpec.emplace_back(static_cast<uint32_t>(before),
-                             static_cast<uint32_t>(after));
+::tt::target::ttnn::PadOpT buildPadOpTFromMLIR(llvm::ArrayRef<int32_t> padding,
+                                               llvm::APFloat padValue,
+                                               bool useMulticore,
+                                               TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::PadOpT padOp;
+  for (int32_t p : padding) {
+    padOp.padding.push_back(static_cast<uint32_t>(p));
   }
-  return paddingSpec;
+  padOp.value = padValue.convertToFloat();
+  padOp.use_multicore = useMulticore;
+  padOp.out = detail::getOutputTensorRefT(outputLayout);
+  return padOp;
 }
 #endif // TTMLIR_ENABLE_OPMODEL
 
@@ -4534,14 +4523,19 @@ llvm::Expected<OpConstraints> OpModel<PadOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Convert padding to PadSpecDim format
-  auto paddingSpec = convertPadding(padding);
+  ::tt::target::ttnn::PadOpT padOpNative =
+      buildPadOpTFromMLIR(padding, padValue, multicore, outputLayout);
 
-  // Create query closure
   auto padOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::pad, device, inputSpec, paddingSpec,
-                                padValue.convertToFloat(), multicore,
-                                detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::PadOpResult result =
+        ttnn_op_invoke::callPad(ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+                                padOpNative, inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from PadOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), padOpQuery);
@@ -4562,14 +4556,19 @@ llvm::Expected<size_t> OpModel<PadOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Convert padding to PadSpecDim format
-  auto paddingSpec = convertPadding(padding);
+  ::tt::target::ttnn::PadOpT padOpNative =
+      buildPadOpTFromMLIR(padding, padValue, multicore, outputLayout);
 
-  // Create query closure
   auto padOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::pad, device, inputSpec, paddingSpec,
-                            padValue.convertToFloat(), multicore,
-                            detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::PadOpResult result =
+        ttnn_op_invoke::callPad(ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+                                padOpNative, inputSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from PadOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(padOpQuery);
@@ -8643,8 +8642,8 @@ OpModel<mlir::tt::ttnn::EmbeddingBackwardOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 
 #ifdef TTMLIR_ENABLE_OPMODEL
-::tt::target::ttnn::GatherOpT buildGatherOpTFromMLIR(int32_t dim,
-                                                     TTNNLayoutAttr outputLayout) {
+::tt::target::ttnn::GatherOpT
+buildGatherOpTFromMLIR(int32_t dim, TTNNLayoutAttr outputLayout) {
   ::tt::target::ttnn::GatherOpT gatherOp;
   gatherOp.dim = dim;
   gatherOp.out = detail::getOutputTensorRefT(outputLayout);
@@ -8711,9 +8710,9 @@ llvm::Expected<size_t> OpModel<GatherOp>::getOpRuntime(
         ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, gatherOpNative, inputSpec,
         indexSpec, device);
 
-    assert(std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(
-               result) &&
-           "Expected RuntimeQueryResponse from GatherOp query");
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from GatherOp query");
 
     return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
