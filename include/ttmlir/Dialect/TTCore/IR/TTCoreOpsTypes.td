@@ -775,6 +775,11 @@ def TTCore_TopologyAttr : EnumAttr<TTCore_Dialect, TTCore_Topology, "topology"> 
   let assemblyFormat = "`<` $value `>`";
 }
 
+def TTCore_MoEActivationFunctionAttr :
+    EnumAttr<TTCore_Dialect, TTCore_MoEActivationFunction, "moe_activation_function"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
 def TTCore_CoreRangeAttr: TTCore_Attr<"CoreRange", "core_range"> {
   let summary = "A range of cores in the core grid";
   let description = [{

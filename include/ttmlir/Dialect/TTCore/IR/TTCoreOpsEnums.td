@@ -254,6 +254,19 @@ def TTCore_Topology: I32EnumAttr<"Topology", "CCL Topology Type",
   let cppNamespace = "::mlir::tt::ttcore";
 }
 
+def TTCore_MoEActivationFunction_Silu   : I32EnumAttrCase<"Silu",   0, "silu">;
+def TTCore_MoEActivationFunction_SwiGLU : I32EnumAttrCase<"SwiGLU", 1, "swiglu">;
+
+def TTCore_MoEActivationFunction : I32EnumAttr<"MoEActivationFunction",
+                                               "Activation function for the MoE expert FFN",
+                          [
+                           TTCore_MoEActivationFunction_Silu,
+                           TTCore_MoEActivationFunction_SwiGLU,
+                          ]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttcore";
+}
+
 // Routing mode for fabric connections. This is used in D2M to decide how we want to route
 // in the given topology, as well as which links a core should connect to.
 // In line/mesh topologies, we need to connect to all links to ensure reachability, and there is

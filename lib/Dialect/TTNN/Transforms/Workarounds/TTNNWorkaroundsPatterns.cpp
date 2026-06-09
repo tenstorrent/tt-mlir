@@ -23,6 +23,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GroupNormChannelPadRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/IntegerProdOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MoeComputeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MoeGptLayoutRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PadHighDimRewritePattern.h"
@@ -677,6 +678,7 @@ public:
           workarounds::decomposition::TopKRouterGptDecompositionRewritePattern,
           workarounds::decomposition::
               AllToAllDispatchMetadataDrainCoreRewritePattern,
+          workarounds::decomposition::MoeComputeRewritePattern,
           workarounds::decomposition::SliceStaticOpRewritePattern,
           workarounds::decomposition::ConcatOpRewritePattern,
           workarounds::decomposition::MoeGptLayoutRewritePattern>(
@@ -756,5 +758,10 @@ const std::set<mlir::StringRef>
         ttnn::TopKOp::getOperationName(),
         // PrepareConv3dWeightsOp is needed for conv3d and it requires ROW_MAJOR
         // layout. See #8411.
-        ttnn::PrepareConv3dWeightsOp::getOperationName()};
+        ttnn::PrepareConv3dWeightsOp::getOperationName(),
+        // The moe_compute weight packers and the op itself require
+        // layout and data type workarounds.
+        ttnn::PrepareMoEComputeW0W1WeightsOp::getOperationName(),
+        ttnn::PrepareMoEComputeW2WeightsOp::getOperationName(),
+        ttnn::MoeComputeOp::getOperationName()};
 } // namespace mlir::tt::ttnn

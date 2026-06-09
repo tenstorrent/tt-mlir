@@ -1390,6 +1390,58 @@ struct OpModel<PrepareConvTranspose2dBiasOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// PrepareMoEComputeW0W1WeightsOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<PrepareMoEComputeW0W1WeightsOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(llvm::ArrayRef<int64_t> w0Shape, TTNNLayoutAttr w0Layout,
+                   llvm::ArrayRef<int64_t> w1Shape, TTNNLayoutAttr w1Layout,
+                   std::optional<llvm::ArrayRef<int64_t>> bias0Shape,
+                   std::optional<TTNNLayoutAttr> bias0Layout,
+                   std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
+                   std::optional<TTNNLayoutAttr> bias1Layout,
+                   uint32_t hiddenSize, uint32_t intermediateSize,
+                   std::optional<uint32_t> bhRingSize);
+};
+
+//===----------------------------------------------------------------------===//
+// PrepareMoEComputeW2WeightsOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<PrepareMoEComputeW2WeightsOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
+                   std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
+                   std::optional<TTNNLayoutAttr> bias2Layout,
+                   uint32_t hiddenSize, uint32_t intermediateSize,
+                   std::optional<uint32_t> bhRingSize);
+};
+
+//===----------------------------------------------------------------------===//
+// MoeComputeOp
+//===----------------------------------------------------------------------===//
+
+// compute_only path only; the A2A combine path needs multi-device and cannot
+// be graph-captured.
+template <>
+struct OpModel<MoeComputeOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> tilizeInputShape,
+      TTNNLayoutAttr tilizeInputLayout, llvm::ArrayRef<int64_t> indicesShape,
+      TTNNLayoutAttr indicesLayout, llvm::ArrayRef<int64_t> scoresShape,
+      TTNNLayoutAttr scoresLayout, llvm::ArrayRef<int64_t> mappingShape,
+      TTNNLayoutAttr mappingLayout, llvm::ArrayRef<int64_t> w0w1Shape,
+      TTNNLayoutAttr w0w1Layout, llvm::ArrayRef<int64_t> w2Shape,
+      TTNNLayoutAttr w2Layout, uint32_t layerId, uint32_t outputHeightShardDim,
+      uint32_t intermediateSize, bool hasBias,
+      ttcore::MoEActivationFunction activation,
+      std::optional<uint32_t> bhRingSize);
+};
+
+//===----------------------------------------------------------------------===//
 // MaxPool2dOp
 //===----------------------------------------------------------------------===//
 

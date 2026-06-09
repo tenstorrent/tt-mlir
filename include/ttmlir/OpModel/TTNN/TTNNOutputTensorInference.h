@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 
 #include "mlir/IR/BuiltinTypes.h"
+#include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::ttnn::op_model {
 
@@ -27,6 +28,20 @@ getPreparedConv2dWeightsOutputTensor(Conv2dOp *op,
 mlir::RankedTensorType
 getPreparedConvTranspose2dWeightsOutputTensor(ConvTranspose2dOp *op,
                                               Conv2dConfigAttr conv2dConfig);
+
+// Calculate the prepared-weight output tensor types for the
+// prepare_moe_compute_w0_w1_weights / _w2_weights ops.
+mlir::RankedTensorType
+getPreparedMoEComputeW0W1WeightsOutputType(PrepareMoEComputeW0W1WeightsOp *op);
+
+mlir::RankedTensorType
+getPreparedMoEComputeW2WeightsOutputType(PrepareMoEComputeW2WeightsOp *op);
+
+// Calculate the device-derived output tensor types for a compute_only
+// moe_compute op (the first five tensors tt-metal returns). The op's sixth
+// result, combine_output, aliases matmul_output and is not inferred here.
+llvm::SmallVector<mlir::RankedTensorType>
+getMoeComputeOutputTypes(MoeComputeOp *op);
 
 } // namespace mlir::tt::ttnn::op_model
 

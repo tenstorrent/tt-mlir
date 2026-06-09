@@ -182,6 +182,11 @@ enum Topology: ushort {
   Torus,
 }
 
+enum MoEActivationFunction: ushort {
+  Silu,
+  SwiGLU,
+}
+
 enum NocIndex : ushort {
   Noc0,
   Noc1,
