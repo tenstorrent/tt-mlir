@@ -69,12 +69,15 @@ struct LayoutScore {
   /// Memory footprint from ValidationResult (for tie-breaking).
   uint64_t outputL1Usage = 0;
 
-  /// Rulebook-pre-validated hint (e.g. DRAM-sharded matmul). When both
-  /// candidates are L1+sharded, this wins over normal candidates regardless
-  /// of core count — the rulebook has determined it is architecturally better
-  /// (e.g. DRAM-sharded matmul outperforms high-core-count 1D mcast despite
-  /// fewer output storage cores, see unified_ds_analysis.md §4e).
-  bool isPrevalidated = false;
+  /// DRAM-sharded matmul candidate. When both candidates are L1+sharded, this
+  /// wins over normal candidates regardless of core count — architecturally
+  /// superior for decode.
+  bool isDRAMShardedCandidate = false;
+
+  /// Set when isDRAMShardedCandidate and in0 is already the canonical
+  /// 1×kNumStorageCores L1 width-sharded layout (no in0 reshard needed).
+  /// Tiebreaker within DS candidates.
+  bool hasCanonicalDSIn0 = false;
 
   /// Higher score is better.
   bool operator>(const LayoutScore &other) const;

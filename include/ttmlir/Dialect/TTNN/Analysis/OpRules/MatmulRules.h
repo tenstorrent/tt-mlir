@@ -26,31 +26,50 @@ class MatmulOp;
 //===----------------------------------------------------------------------===//
 
 struct MatmulRuleBook : OpRuleBook {
-  /// Output hints: for DRAM-eligible matmuls, a pre-validated DRAM-sharded
-  /// hint (L1 WIDTH_SHARDED) as primary; existing partial configs as fallback.
-  /// For others: existing behavior (partial configs, no L1-interleaved).
+  /// Output hints: for DS-eligible matmuls, the DS hint is included alongside
+  /// the normal partial configs. adjustScore drives DS preference via
+  /// isDRAMShardedCandidate. For non-eligible matmuls: normal behavior.
   OutputHints
   getOutputHints(Operation *op,
                  const std::vector<OpConfig> &legalConfigs) const override;
 
-  /// Operand 1 (weight): reject L1-sharded. DRAM-sharded is allowed for the
-  /// DRAM-sharded matmul path (injected by applyOpSpecificAttrs).
+  /// Operand 1 (weight): reject L1. DRAM layouts (interleaved and
+  /// width-sharded) are accepted; the DRAM width-sharded(DS) layout is injected
+  /// via getExtraInputReshardCandidates.
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
 
   /// Apply MatmulProgramConfig + fused activation dedup.
-  /// For DRAM-sharded candidates: also inserts weight/in0 reshards and
-  /// strips the activation attr (inserting a separate activation op after).
+  /// For DS candidates: set program/compute config and split fused activation.
   void applyOpSpecificAttrs(Operation *op,
                             const BeamCandidate &candidate) const override;
 
+  /// Reject the DS hint for input combinations that aren't the correct DS
+  /// layouts (L1 width-sharded in0, DRAM width-sharded in1). The tt-metal op model
+  /// crashes (TT_FATAL) rather than returning a failure when given a DS program
+  /// config with incompatible input layouts.
+  bool isValidOutputHintForInputs(
+      const OpConfig &hint,
+      llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
+
+  /// Set isDRAMShardedCandidate / hasCanonicalDSIn0 for DS candidates.
+  LayoutScore adjustScore(Operation *op, LayoutScore base,
+                          const OpConfig &config,
+                          llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                          bool requiresReshard) const override;
+
+  /// Inject DS-specific input layouts into the candidate pool:
+  ///   operand 0 → L1 width-sharded 1×8 (canonical DS activation layout; 8 cores empirically optimal)
+  ///   operand 1 → DRAM width-sharded 1×12 (DS weight layout with padding)
+  std::vector<TTNNLayoutAttr>
+  getExtraInputReshardCandidates(Operation *op,
+                                 unsigned operandIdx) const override;
+
 private:
-  /// Build a pre-validated DRAM-sharded OpConfig for eligible matmuls.
-  /// Returns nullopt if the matmul is not eligible or params don't fit L1.
+  /// Build the DS output hint (L1 1×8 width-sharded + DS program config).
+  /// Returns nullopt if not eligible or params don't fit L1.
   std::optional<OpConfig> buildDRAMShardingHint(Operation *op) const;
 
-  /// Apply the full DRAM sharding IR transformation to an eligible MatmulOp.
-  /// Called from applyOpSpecificAttrs when the chosen candidate carries a
-  /// MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr.
+  /// Set program/compute config and split fused activation for a DS matmul.
   void applyDRAMShardedTransformation(MatmulOp matmulOp,
                                       const MatmulAttrs &matmulAttrs) const;
 };

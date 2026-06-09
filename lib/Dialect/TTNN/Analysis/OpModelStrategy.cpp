@@ -30,12 +30,17 @@ bool LayoutScore::operator>(const LayoutScore &other) const {
     return isSharded;
   }
 
-  // 3. Pre-validated rulebook hint wins when both are L1+sharded.
-  // The rulebook has already determined it's architecturally superior
-  // (e.g. DRAM-sharded matmul beats high-core-count 1D mcast despite
-  // fewer output storage cores; see unified_ds_analysis.md §4e).
-  if (isPrevalidated != other.isPrevalidated) {
-    return isPrevalidated;
+  // 3. DRAM-sharded matmul wins when both are L1+sharded — architecturally
+  // superior for decode when available.
+  if (isDRAMShardedCandidate != other.isDRAMShardedCandidate) {
+    return isDRAMShardedCandidate;
+  }
+
+  // 3a. Among DS candidates, prefer the one with empirically optimal 1×8 in0.
+  // Only meaningful when isDRAMShardedCandidate is set for both, so this is a
+  // tiebreaker within DS.
+  if (isDRAMShardedCandidate && hasCanonicalDSIn0 != other.hasCanonicalDSIn0) {
+    return hasCanonicalDSIn0;
   }
 
   // 4. Less DRAM input transfer > more DRAM input transfer.
@@ -59,7 +64,8 @@ bool LayoutScore::operator>(const LayoutScore &other) const {
 
 bool LayoutScore::operator==(const LayoutScore &other) const {
   return isL1 == other.isL1 && isSharded == other.isSharded &&
-         isPrevalidated == other.isPrevalidated &&
+         isDRAMShardedCandidate == other.isDRAMShardedCandidate &&
+         hasCanonicalDSIn0 == other.hasCanonicalDSIn0 &&
          inputDramBytes == other.inputDramBytes &&
          requiresReshard == other.requiresReshard &&
          coreCount == other.coreCount && outputL1Usage == other.outputL1Usage;

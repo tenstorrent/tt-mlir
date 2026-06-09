@@ -3,14 +3,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/MatmulRules.h"
+
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/LayoutFilterUtils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
-#include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Utils.h"
+#ifdef TTMLIR_ENABLE_OPMODEL
+#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
+#endif
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -27,7 +30,8 @@ namespace mlir::tt::ttnn {
 
 static constexpr int64_t kTileSize = 32;
 static constexpr int64_t kNumDRAMBanks = 12;
-static constexpr int64_t kNumStorageCores = 8;
+static constexpr int64_t kNumStorageCores =
+    8; // empirically optimal for DS matmul activation grid
 
 struct DRAMShardParams {
   int64_t K;
@@ -70,7 +74,7 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
   p.kTiles = K / kTileSize;
   p.shardWTiles = p.shardW / kTileSize;
   p.perCoreM = M / kTileSize;
-  p.perCoreN = (N / kTileSize) / numOutCores;
+  p.perCoreN = (N / kTileSize + numOutCores - 1) / numOutCores; // div_up
   p.in0ShardW = K / numIn0Cores;
   p.weightDataType = weightDataType;
 
@@ -83,11 +87,14 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
       (weightDataType == ttcore::DataType::BFP_BFloat4) ? kBfp4Tile : kBfp8Tile;
 
   int64_t kPerCore = p.kTiles / numIn0Cores;
+  // perCoreNCompute: tiles computed per DRAM-bank/compute core (= weight shard
+  // width per bank). Used for CB sizing — this is what the compute kernel
+  // actually accumulates per core before scattering to output storage cores.
   int64_t perCoreNCompute = p.shardWTiles;
 
-  // Tensor buffers placed in L1 (conservative estimate — see §4f of
-  // unified_ds_analysis.md: use numIn0Cores for both to keep budget identical
-  // to the previous pass and avoid increasing in0BlockW).
+  // Use numIn0Cores for the output tensor buffer estimate to keep the budget
+  // conservative and avoid inflating in0BlockW (which doubles in1CB per step).
+  // perCoreNStorage is only used for the output layout grid, not CB sizing.
   int64_t outTensorBufPerCore =
       p.perCoreM * ((N / kTileSize) / numIn0Cores) * kBf16Tile;
   int64_t in0TensorBuf = p.perCoreM * kPerCore * kBf16Tile;
@@ -109,8 +116,8 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
     bool doubleBuf = numBlocks > 1;
 
     int64_t in0CB = p.in0BlockW * p.perCoreM * kBf16Tile * (doubleBuf ? 2 : 1);
-    int64_t in1CB =
-        p.in0BlockW * perCoreNCompute * kWeightTile * (doubleBuf ? 3 : 1);
+    int64_t in1CB = p.in0BlockW * perCoreNCompute * kWeightTile *
+                    (doubleBuf ? 3 : 1); // weight shard per DRAM bank
 
     if (fixedCost + in0CB + in1CB <= cbBudget && kPerCore % p.in0BlockW == 0) {
       found = true;
@@ -218,12 +225,6 @@ static bool isDRAMShardEligible(MatmulOp matmulOp) {
 // Layout and config builders
 // ============================================================================
 
-static RankedTensorType withLayout(RankedTensorType origType,
-                                   TTNNLayoutAttr newLayout) {
-  return RankedTensorType::get(origType.getShape(), origType.getElementType(),
-                               newLayout);
-}
-
 static TTNNLayoutAttr buildDRAMShardedWeightLayout(MLIRContext *ctx,
                                                    TTNNLayoutAttr origLayout,
                                                    const DRAMShardParams &p) {
@@ -266,7 +267,6 @@ static TTNNLayoutAttr buildL1ShardedLayout(MLIRContext *ctx,
                              /*ignorePhysicalLayout=*/false, crs);
 }
 
-
 static MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr
 buildDRAMShardedProgramConfig(MLIRContext *ctx, const DRAMShardParams &p,
                               UnaryWithParamAttr fusedAct) {
@@ -286,31 +286,6 @@ buildComputeConfig(MLIRContext *ctx, ttcore::DataType weightDataType) {
       /*fp32DestAccEn=*/mlir::BoolAttr::get(ctx, true),
       /*packerL1Acc=*/mlir::BoolAttr::get(ctx, true),
       /*dstFullSyncEn=*/mlir::BoolAttr{});
-}
-
-// ============================================================================
-// Helper: check if a layout is already the right DS in0 layout
-// ============================================================================
-
-static bool isAlreadyDSIn0Layout(TTNNLayoutAttr layout, int64_t shardWTiles) {
-  if (!layout.hasL1BufferType()) {
-    return false;
-  }
-  auto ml = layout.getMemLayoutOpt();
-  if (!ml || *ml != TensorMemoryLayout::WidthSharded) {
-    return false;
-  }
-  auto shape = layout.getGridShape();
-  if (shape.size() != 2 || shape[0] != 1 || shape[1] != kNumStorageCores) {
-    return false;
-  }
-  // Check shard width matches expected K/kNumStorageCores tiles.
-  auto memref = layout.getMemref();
-  auto memrefShape = memref.getShape();
-  if (memrefShape.size() < 2) {
-    return false;
-  }
-  return memrefShape.back() == shardWTiles;
 }
 
 // ============================================================================
@@ -353,32 +328,16 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
     return std::nullopt;
   }
 
-  // Temporary diagnostic — remove after debugging.
-  {
-    Value weight = matmulOp.getB();
-    auto in0Type = mlir::cast<RankedTensorType>(matmulOp.getA().getType());
-    auto weightType = mlir::dyn_cast<RankedTensorType>(weight.getType());
-    int64_t M = weightType ? getActivationM(in0Type) : -1;
-    llvm::errs() << "[DS] MatmulOp at " << op->getLoc() << " M=" << M
-                 << " bfpDRAM="
-                 << (weightType ? isBfpDRAMInterleaved(weight) : false)
-                 << " constArg=" << ttcore::valueTracesToConstantArgs(weight)
-                 << "\n";
-  }
-
   if (!isDRAMShardEligible(matmulOp)) {
-    llvm::errs() << "[DS]   -> ineligible\n";
     return std::nullopt;
   }
 
   auto moduleOp = op->getParentOfType<ModuleOp>();
   if (!moduleOp) {
-    llvm::errs() << "[DS]   -> no moduleOp\n";
     return std::nullopt;
   }
   auto systemDescAttr = moduleOp->getAttr(ttcore::SystemDescAttr::name);
   if (!systemDescAttr) {
-    llvm::errs() << "[DS]   -> no systemDesc\n";
     return std::nullopt;
   }
   auto systemDesc = mlir::cast<ttcore::SystemDescAttr>(systemDescAttr);
@@ -392,33 +351,64 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
   auto [K, N] = getWeightKN(weightType);
   auto weightDataType = getWeightDataType(matmulOp.getB());
 
+  // Use the physical compute grid (post-harvesting) when OpModel is active;
+  // fall back to the MLIR device-op logical grid otherwise.
+  auto deviceOp = ttcore::lookupDeviceOp(op);
+  int64_t numAvailableCores = kNumStorageCores;
+#ifdef TTMLIR_ENABLE_OPMODEL
+  {
+    auto &sdc = mlir::tt::ttnn::op_model::SingletonDeviceContext::getInstance();
+    if (sdc.isDeviceInitialized()) {
+      numAvailableCores = ttmlir::utils::volume(sdc.getComputeGridShape());
+    } else if (deviceOp) {
+      numAvailableCores = ttmlir::utils::volume(
+          deviceOp.getDeviceAttr().getWorkerGrid().getShape());
+    }
+  }
+#else
+  if (deviceOp) {
+    numAvailableCores = ttmlir::utils::volume(
+        deviceOp.getDeviceAttr().getWorkerGrid().getShape());
+  }
+#endif
+
   auto pOpt = computeShardParams(M, K, N, kNumDRAMBanks, kNumStorageCores,
-                                 kNumStorageCores, weightDataType, l1Available);
+                                 numAvailableCores, weightDataType, l1Available);
   if (!pOpt) {
-    llvm::errs() << "[DS]   -> computeShardParams failed M=" << M << " K=" << K
-                 << " N=" << N << " l1=" << l1Available << "\n";
     return std::nullopt;
   }
-  llvm::errs() << "[DS]   -> hint built M=" << M << " K=" << K << " N=" << N
-               << " blkw=" << pOpt->in0BlockW << "\n";
   const auto &p = *pOpt;
 
   auto *ctx = op->getContext();
   auto outLayout = mlir::cast<TTNNLayoutAttr>(
       mlir::cast<RankedTensorType>(op->getResult(0).getType()).getEncoding());
+  auto resultType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
 
   int64_t outShardHTiles = M / kTileSize;
-  int64_t outShardWTiles = (N / kTileSize) / kNumStorageCores;
-  auto l1OutLayout = buildL1ShardedLayout(ctx, outLayout, outShardHTiles,
-                                          outShardWTiles, kNumStorageCores);
+  // numOutputCores = div_up(N_tiles, per_core_N_storage): exactly how many
+  // output cores compute_output_specs will allocate, ensuring no assertion fire.
+  int64_t numOutputCores = (N / kTileSize + p.perCoreN - 1) / p.perCoreN;
+
+  TTNNLayoutAttr l1OutLayout;
+  if (deviceOp) {
+    llvm::SmallVector<int64_t, 2> outputGrid = {1, numOutputCores};
+    l1OutLayout =
+        TTNNLayoutAttr::Builder(outLayout, resultType.getShape())
+            .setBufferType(BufferType::L1)
+            .setMemoryLayout(TensorMemoryLayoutAttr::get(
+                ctx, TensorMemoryLayout::WidthSharded))
+            .setGridShape(outputGrid)
+            .buildWithCanonicalCorePlacement(deviceOp.getDeviceAttr());
+  } else {
+    l1OutLayout = buildL1ShardedLayout(ctx, outLayout, outShardHTiles,
+                                       p.perCoreN, numOutputCores);
+  }
 
   UnaryWithParamAttr fusedAct; // null — activation is split into a separate op
   auto progConfig = buildDRAMShardedProgramConfig(ctx, p, fusedAct);
   auto computeConfig = buildComputeConfig(ctx, weightDataType);
 
-  OpConfig hint(l1OutLayout, MatmulAttrs{progConfig, computeConfig});
-  hint.prevalidated = true;
-  return hint;
+  return OpConfig(l1OutLayout, MatmulAttrs{progConfig, computeConfig});
 }
 
 // ============================================================================
@@ -438,23 +428,15 @@ LayoutFilterFn MatmulRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
 OutputHints MatmulRuleBook::getOutputHints(
     Operation *op, const std::vector<OpConfig> &legalConfigs) const {
 
-  if (auto dramHint = buildDRAMShardingHint(op)) {
-    llvm::errs() << "[DS] getOutputHints returning DS hint prevalidated="
-                 << dramHint->prevalidated << "\n";
-    return OutputHints{{*dramHint}, {}};
-  }
-
   auto partialConfigs =
       optimizer_utils::getUniqueTestConfigsForMatmulLinear(legalConfigs);
 
-  // Filter out L1-interleaved (worst of both worlds for matmul — see comment
-  // in the original getOutputHints).
+  // Filter out L1-interleaved and sharded configs without a program config.
   std::vector<OpConfig> filtered;
   for (const auto &cfg : partialConfigs) {
     if (isL1Interleaved(cfg)) {
       continue;
     }
-
     // Skip sharded outputs when no MatmulProgramConfig is available.
     //
     // Without a program config, tt-metal's runtime auto-picker
@@ -470,6 +452,13 @@ OutputHints MatmulRuleBook::getOutputHints(
     filtered.push_back(cfg);
   }
 
+  // Prepend the DS hint when eligible. adjustScore gives it priority over the
+  // normal hints via isDRAMShardedCandidate; normal hints remain as fallback
+  // in case DS validation fails for a given input combination.
+  if (auto dramHint = buildDRAMShardingHint(op)) {
+    filtered.insert(filtered.begin(), *dramHint);
+  }
+
   return OutputHints{filtered, {}};
 }
 
@@ -480,88 +469,13 @@ OutputHints MatmulRuleBook::getOutputHints(
 void MatmulRuleBook::applyDRAMShardedTransformation(
     MatmulOp matmulOp, const MatmulAttrs &matmulAttrs) const {
   auto *ctx = matmulOp.getContext();
-  OpBuilder builder(matmulOp); // inserts before matmulOp
+  // Input reshards (activation → L1 1×8, weight → DRAM 1×12) are handled by
+  // pass-2 in applyToIR via reshardLayouts populated from the input candidates
+  // injected by getExtraInputReshardCandidates.
 
-  Value in0 = matmulOp.getA();
-  Value weight = matmulOp.getB();
-  auto in0Type = mlir::cast<RankedTensorType>(in0.getType());
-  auto weightType = mlir::cast<RankedTensorType>(weight.getType());
+  OpBuilder builder(matmulOp);
 
-  auto moduleOp = matmulOp->getParentOfType<ModuleOp>();
-  auto systemDesc = mlir::cast<ttcore::SystemDescAttr>(
-      moduleOp->getAttr(ttcore::SystemDescAttr::name));
-  int64_t l1Available =
-      static_cast<int64_t>(ttnn::utils::getTensorL1UsageCap(moduleOp) *
-                           systemDesc.getChipDescs()[0].getUsableL1Size());
-
-  int64_t M = getActivationM(in0Type);
-  auto [K, N] = getWeightKN(weightType);
-  auto weightDataType = getWeightDataType(weight);
-
-  auto pOpt = computeShardParams(M, K, N, kNumDRAMBanks, kNumStorageCores,
-                                 kNumStorageCores, weightDataType, l1Available);
-  if (!pOpt) {
-    return;
-  }
-  const auto &p = *pOpt;
-
-  // --- 1. Reshard weight → DRAM WIDTH_SHARDED ---
-  auto weightLayout = mlir::cast<TTNNLayoutAttr>(weightType.getEncoding());
-  auto dramShardedWeightLayout =
-      buildDRAMShardedWeightLayout(ctx, weightLayout, p);
-  auto dramShardedWeightType = withLayout(weightType, dramShardedWeightLayout);
-  auto weightReshard = builder.create<ToMemoryConfigOp>(
-      matmulOp.getLoc(), dramShardedWeightType, weight);
-  matmulOp.setOperand(1, weightReshard.getResult());
-
-  // --- 2. Shard in0 → L1 WIDTH_SHARDED (skip if already correct) ---
-  // At this point in the first pass of applyToIR, in0's type may already be
-  // L1 WIDTH_SHARDED if a preceding DS matmul in the chain set it
-  // (applyOpConfig processes ops in order, so A's output type is set before we
-  // process B).
-  auto in0Layout = mlir::cast<TTNNLayoutAttr>(in0Type.getEncoding());
-  int64_t in0ShardWTiles = (K / kTileSize) / kNumStorageCores;
-
-  if (!isAlreadyDSIn0Layout(in0Layout, in0ShardWTiles)) {
-    int64_t in0ShardHTiles = M / kTileSize;
-    auto l1In0Layout = buildL1ShardedLayout(ctx, in0Layout, in0ShardHTiles,
-                                            in0ShardWTiles, kNumStorageCores);
-    auto l1In0Type = withLayout(in0Type, l1In0Layout);
-
-    // Reuse an existing reshard if a prior DS matmul already produced the
-    // same {1, kNumStorageCores} L1 width-sharded value from this in0
-    // (common when gate and up projections share a fork-point producer).
-    Value reshardedIn0;
-    for (Operation *user : in0.getUsers()) {
-      auto existingReshard = dyn_cast<ToMemoryConfigOp>(user);
-      if (!existingReshard) {
-        continue;
-      }
-      auto resultType = mlir::dyn_cast<RankedTensorType>(
-          existingReshard.getResult().getType());
-      if (!resultType) {
-        continue;
-      }
-      auto resultLayout =
-          mlir::dyn_cast<TTNNLayoutAttr>(resultType.getEncoding());
-      if (resultLayout && resultLayout == l1In0Layout) {
-        reshardedIn0 = existingReshard.getResult();
-        break;
-      }
-    }
-
-    if (!reshardedIn0) {
-      reshardedIn0 = builder
-                         .create<ToMemoryConfigOp>(matmulOp.getLoc(), l1In0Type,
-                                                   in0)
-                         .getResult();
-    }
-    matmulOp.setOperand(0, reshardedIn0);
-  }
-
-  // --- 3. Set program config and compute config ---
-  llvm::errs() << "[DS] applyDRAMShardedTransformation called for matmul at "
-               << matmulOp.getLoc() << "\n";
+  // --- 1. Set program config and compute config ---
   matmulOp.setMatmulProgramConfigAttr(
       mlir::cast<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
           matmulAttrs.matmulProgramConfig.value()));
@@ -570,11 +484,10 @@ void MatmulRuleBook::applyDRAMShardedTransformation(
     matmulOp.setComputeConfigAttr(*matmulAttrs.computeKernelConfig);
   }
 
-  // --- 4. Strip activation, insert separate activation op after ---
+  // --- 2. Strip activation, insert separate activation op after ---
   // Benchmarking showed fusing activation into the DRAM-sharded program config
-  // is ~38% slower (see unified_ds_analysis.md §4 — stalls the matmul pipeline
-  // on per-core activation of many output tiles). A separate elementwise op
-  // runs across all cores with full parallelism at negligible extra cost.
+  // is slower. A separate elementwise op runs across all cores with full
+  // parallelism at negligible extra cost.
   auto activationAttr = matmulOp.getActivationAttr();
   if (activationAttr) {
     matmulOp.removeActivationAttr();
@@ -604,6 +517,149 @@ void MatmulRuleBook::applyDRAMShardedTransformation(
 }
 
 // ============================================================================
+// MatmulRuleBook::isValidOutputHintForInputs
+// ============================================================================
+
+bool MatmulRuleBook::isValidOutputHintForInputs(
+    const OpConfig &hint, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
+  const auto *attrs = std::get_if<MatmulAttrs>(&hint.opSpecificAttrs);
+  if (!attrs || !attrs->matmulProgramConfig.has_value() ||
+      !mlir::isa<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
+          attrs->matmulProgramConfig.value())) {
+    return true;
+  }
+  // DS hint: tt-metal's compute_output_specs hits TT_FATAL (abort, not a
+  // catchable exception) for incompatible inputs — it assumes valid layouts
+  // upstream. Gate validation to only the correct DS input combination.
+  if (inputLayouts.size() < 2) {
+    return false;
+  }
+  auto in0 = inputLayouts[0];
+  auto in1 = inputLayouts[1];
+  if (!in0 || !in1) {
+    return false;
+  }
+  auto ml0 = in0.getMemLayoutOpt();
+  if (!in0.hasL1BufferType() || !ml0 ||
+      *ml0 != TensorMemoryLayout::WidthSharded) {
+    return false;
+  }
+  auto ml1 = in1.getMemLayoutOpt();
+  if (in1.hasL1BufferType() || !ml1 ||
+      *ml1 != TensorMemoryLayout::WidthSharded) {
+    return false;
+  }
+  return true;
+}
+
+// ============================================================================
+// MatmulRuleBook::adjustScore
+// ============================================================================
+
+LayoutScore
+MatmulRuleBook::adjustScore(Operation * /*op*/, LayoutScore base,
+                            const OpConfig &config,
+                            llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                            bool /*requiresReshard*/) const {
+  const auto *attrs = std::get_if<MatmulAttrs>(&config.opSpecificAttrs);
+  if (!attrs || !attrs->matmulProgramConfig.has_value() ||
+      !attrs->matmulProgramConfig.value()) {
+    return base;
+  }
+  if (!mlir::isa<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
+          attrs->matmulProgramConfig.value())) {
+    return base;
+  }
+  base.isDRAMShardedCandidate = true;
+  if (!inputLayouts.empty()) {
+    auto in0 = inputLayouts[0];
+    if (in0 && in0.hasL1BufferType()) {
+      auto ml = in0.getMemLayoutOpt();
+      if (ml && *ml == TensorMemoryLayout::WidthSharded) {
+        auto shape = in0.getGridShape();
+        if (shape.size() == 2 && shape[0] == 1 &&
+            shape[1] == kNumStorageCores) {
+          base.hasCanonicalDSIn0 = true;
+        }
+      }
+    }
+  }
+  return base;
+}
+
+// ============================================================================
+// MatmulRuleBook::getExtraInputReshardCandidates
+// ============================================================================
+
+std::vector<TTNNLayoutAttr>
+MatmulRuleBook::getExtraInputReshardCandidates(Operation *op,
+                                               unsigned operandIdx) const {
+  auto matmulOp = dyn_cast<MatmulOp>(op);
+  if (!matmulOp || !isDRAMShardEligible(matmulOp)) {
+    return {};
+  }
+
+  auto moduleOp = op->getParentOfType<ModuleOp>();
+  if (!moduleOp) {
+    return {};
+  }
+  auto systemDescAttr = moduleOp->getAttr(ttcore::SystemDescAttr::name);
+  if (!systemDescAttr) {
+    return {};
+  }
+  auto systemDesc = mlir::cast<ttcore::SystemDescAttr>(systemDescAttr);
+  int64_t l1Available =
+      static_cast<int64_t>(ttnn::utils::getTensorL1UsageCap(moduleOp) *
+                           systemDesc.getChipDescs()[0].getUsableL1Size());
+
+  auto in0Type = mlir::cast<RankedTensorType>(matmulOp.getA().getType());
+  auto weightType = mlir::cast<RankedTensorType>(matmulOp.getB().getType());
+  int64_t M = getActivationM(in0Type);
+  auto [K, N] = getWeightKN(weightType);
+  auto weightDataType = getWeightDataType(matmulOp.getB());
+
+  int64_t numAvailCores = kNumStorageCores;
+#ifdef TTMLIR_ENABLE_OPMODEL
+  {
+    auto &sdc2 =
+        mlir::tt::ttnn::op_model::SingletonDeviceContext::getInstance();
+    if (sdc2.isDeviceInitialized()) {
+      numAvailCores = ttmlir::utils::volume(sdc2.getComputeGridShape());
+    } else if (auto devOp2 = ttcore::lookupDeviceOp(op)) {
+      numAvailCores = ttmlir::utils::volume(
+          devOp2.getDeviceAttr().getWorkerGrid().getShape());
+    }
+  }
+#else
+  if (auto devOp2 = ttcore::lookupDeviceOp(op)) {
+    numAvailCores = ttmlir::utils::volume(
+        devOp2.getDeviceAttr().getWorkerGrid().getShape());
+  }
+#endif
+
+  auto pOpt = computeShardParams(M, K, N, kNumDRAMBanks, kNumStorageCores,
+                                 numAvailCores, weightDataType, l1Available);
+  if (!pOpt) {
+    return {};
+  }
+  const auto &p = *pOpt;
+
+  auto *ctx = op->getContext();
+  if (operandIdx == 0) {
+    auto in0Layout = mlir::cast<TTNNLayoutAttr>(in0Type.getEncoding());
+    int64_t in0ShardHTiles = M / kTileSize;
+    int64_t in0ShardWTiles = (K / kTileSize) / kNumStorageCores;
+    return {buildL1ShardedLayout(ctx, in0Layout, in0ShardHTiles, in0ShardWTiles,
+                                 kNumStorageCores)};
+  }
+  if (operandIdx == 1) {
+    auto weightLayout = mlir::cast<TTNNLayoutAttr>(weightType.getEncoding());
+    return {buildDRAMShardedWeightLayout(ctx, weightLayout, p)};
+  }
+  return {};
+}
+
+// ============================================================================
 // MatmulRuleBook::applyOpSpecificAttrs
 // ============================================================================
 
@@ -627,16 +683,11 @@ void MatmulRuleBook::applyOpSpecificAttrs(
 
   auto programConfig = matmulAttrs.matmulProgramConfig.value();
 
-  // DRAM-sharded path: full IR transformation (input reshards, config,
-  // activation split).
+  // DRAM-sharded path: weight reshard, program/compute config, activation
+  // split.
   bool isDRAMSharded =
       mlir::isa<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
           programConfig);
-  llvm::errs() << "[DS] applyOpSpecificAttrs: op=" << op->getName()
-               << " isDRAMSharded=" << isDRAMSharded
-               << " isMatmul=" << (matmulOp != nullptr)
-               << " score.isPrevalidated=" << candidate.score.isPrevalidated
-               << "\n";
   if (isDRAMSharded && matmulOp) {
     applyDRAMShardedTransformation(matmulOp, matmulAttrs);
     return;
