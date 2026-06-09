@@ -1494,9 +1494,9 @@ private:
           {moeExpertTokenRemapTargetName, getMoeExpertTokenRemapShardingRule},
           {utils::kTTRMSNormCustomCallTargetName, getRMSNormShardingRule},
           {flashMlaPrefillTargetName, getFlashMlaPrefillShardingRule},
-          {"tenstorrent.topk", getTopKShardingRule},
-          {"tenstorrent.topk_values", getTopKShardingRule},
-          {"tenstorrent.topk_indices", getTopKShardingRule},
+          {utils::kTTTopKCustomCallTargetName, getTopKShardingRule},
+          {utils::kTTTopKValuesCustomCallTargetName, getTopKShardingRule},
+          {utils::kTTTopKIndicesCustomCallTargetName, getTopKShardingRule},
           {utils::kTTGatherDimCustomCallTargetName, getGatherDimShardingRule},
           {utils::kTTGatherCustomCallTargetName, getGatherDimShardingRule},
       };
