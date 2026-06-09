@@ -558,7 +558,16 @@ class D2MCompiler(ast.NodeVisitor):
             for arg, as_attr in zip(node.args, args_as_attr):
                 arg._ttkernel_as_attr = as_attr
                 func_args.append(_resolve(arg))
-            kwargs = {kw.arg: _resolve(kw.value) for kw in node.keywords}
+            # Attribute-typed keyword args: a syntax fn may declare a
+            # `kwargs_as_attr` map (name -> AST-node callback); pull those out
+            # of the AST as literals (e.g. an I32Attr) instead of resolving
+            # them to runtime Values.
+            kw_as_attr = getattr(fn, "_d2m_kwargs_as_attr", {})
+            kwargs = {}
+            for kw in node.keywords:
+                if kw.arg in kw_as_attr:
+                    kw.value._ttkernel_as_attr = kw_as_attr[kw.arg]
+                kwargs[kw.arg] = _resolve(kw.value)
             return fn(*func_args, **kwargs)
 
         func_args = [_resolve(arg) for arg in node.args]
@@ -826,7 +835,7 @@ class D2MCompiler(ast.NodeVisitor):
         )
 
 
-def syntax(syntax_name, args_as_attr=None):
+def syntax(syntax_name, args_as_attr=None, kwargs_as_attr=None):
     if syntax_name.startswith("!"):
 
         def _class_wrapper(cls):
@@ -851,6 +860,12 @@ def syntax(syntax_name, args_as_attr=None):
     def _fn_wrapper(fn):
         nonlocal args_as_attr
         assert callable(fn)
+        # Attribute-typed keyword args (resolved from the AST node, not the
+        # runtime value). Stashed on the fn object so visit_Call can find it
+        # after unwrapping the (fn, args_as_attr) tuple below.
+        if kwargs_as_attr is not None:
+            assert isinstance(kwargs_as_attr, dict)
+            fn._d2m_kwargs_as_attr = kwargs_as_attr
         # Register under the explicit `syntax_name` rather than `fn.__name__`.
         # Every existing call passes `syntax_name == fn.__name__`, so this is
         # behavior-preserving; it lets a kernel op use a registry name that
