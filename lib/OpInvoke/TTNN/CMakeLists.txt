@@ -7,6 +7,7 @@ add_library(TTNNOpInvokeLib STATIC
   Conv/PrepareConv2dWeightsOp.cpp
   Conv/PrepareConvTranspose2dBiasOp.cpp
   Conv/PrepareConvTranspose2dWeightsOp.cpp
+  DataMovement/AssignOp.cpp
   Eltwise/Binary/EltwiseBinaryCompositeOp.cpp
   Eltwise/Binary/EltwiseBinaryOp.cpp
   Eltwise/Quantization/EltwiseQuantizationOp.cpp

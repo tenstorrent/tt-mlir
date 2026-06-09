@@ -5536,4 +5536,131 @@ const std::initializer_list<mlir::tt::ttnn::SoftmaxOp> softmaxOpList = {
 INSTANTIATE_TEST_SUITE_P(SoftmaxOpTPathParityTest, SoftmaxOpTPathParityTest,
                          ::testing::ValuesIn(softmaxOpList));
 
+//===----------------------------------------------------------------------===//
+// AssignOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::AssignOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, AssignOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::AssignOpT
+buildAssignOpTFromMLIR(TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+const mlir::tt::ttcore::DataTypeAttr f32DtypeAttr =
+    mlir::tt::ttcore::DataTypeAttr::get(getContext(),
+                                        mlir::tt::ttcore::DataType::Float32);
+
+void resetUnusedFields(::tt::target::ttnn::AssignOpT &opNativeOpModel,
+                       ::tt::target::ttnn::AssignOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::AssignOpT &op) {
+    op.input.reset();
+    op.output_memory_config.reset();
+    op.output_dtype.reset();
+    resetOutputTensorRefT(op.output);
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::AssignOp
+buildTestAssignOp(mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {},
+                  mlir::tt::ttcore::DataTypeAttr outputDtype = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  mlir::Type elemType = e.builder.getBF16Type();
+  if (outputDtype) {
+    elemType = mlir::tt::ttcore::dataTypeToElementType(getContext(),
+                                                       outputDtype.getValue());
+  }
+
+  auto device = mlir::tt::ttcore::lookupDevice(e.module.get());
+  auto tileType = mlir::tt::ttcore::TileType::get(elemType);
+  llvm::SmallVector<int64_t> gridShape = {1, 1, 32, 32};
+
+  auto inputLayout =
+      mlir::tt::ttnn::TTNNLayoutAttr::Builder(&e.context, defaultShape,
+                                              tileType)
+          .setBufferType(mlir::tt::ttnn::BufferType::L1)
+          .setMemoryLayout(mlir::tt::ttnn::TensorMemoryLayout::Interleaved)
+          .setGridShape(gridShape)
+          .buildWithCanonicalCorePlacement(device);
+
+  mlir::tt::ttnn::TTNNLayoutAttr outputLayout;
+  if (outputMemoryConfig) {
+    outputLayout =
+        mlir::tt::ttnn::TTNNLayoutAttr::Builder(&e.context, defaultShape,
+                                                tileType)
+            .setBufferType(outputMemoryConfig.getBufferType().getValue())
+            .setMemoryLayout(
+                outputMemoryConfig.getTensorMemoryLayout().getValue())
+            .setGridShape(gridShape)
+            .buildWithCanonicalCorePlacement(device);
+  } else {
+    outputLayout = inputLayout;
+  }
+
+  auto inputType =
+      mlir::RankedTensorType::get(defaultShape, elemType, inputLayout);
+  auto outputType =
+      mlir::RankedTensorType::get(defaultShape, elemType, outputLayout);
+
+  mlir::Value input =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{inputType},
+                                          mlir::ValueRange{})
+          .getResult();
+
+  return e.builder.create<mlir::tt::ttnn::AssignOp>(loc, outputType, input);
+}
+
+} // namespace
+
+using AssignOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::AssignOp>;
+
+TEST_P(AssignOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::AssignOp assignOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::AssignOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildAssignOpTFromMLIR(
+          resolveOutputLayout(assignOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, assignOp.getInput());
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, assignOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::AssignOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::AssignOp> assignOpList = {
+    buildTestAssignOp(),
+    buildTestAssignOp(/*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+    buildTestAssignOp({}, /*outputDtype=*/f32DtypeAttr),
+    buildTestAssignOp(/*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr,
+                      /*outputDtype=*/f32DtypeAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(AssignOpTPathParityTest, AssignOpTPathParityTest,
+                         ::testing::ValuesIn(assignOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL

@@ -18,6 +18,7 @@
 #include "ttmlir/OpInvoke/TTNN/Conv/PrepareConv2dWeightsOp.h"
 #include "ttmlir/OpInvoke/TTNN/Conv/PrepareConvTranspose2dBiasOp.h"
 #include "ttmlir/OpInvoke/TTNN/Conv/PrepareConvTranspose2dWeightsOp.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/AssignOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Binary/EltwiseBinaryCompositeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Binary/EltwiseBinaryOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Quantization/EltwiseQuantizationOp.h"
@@ -9015,32 +9016,41 @@ OpModel<ConstantOp>::getOpConstraints(mlir::ElementsAttr value,
 // AssignOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::AssignOpT
+buildAssignOpTFromMLIR(TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::AssignOpT assignOp;
+  assignOp.output = detail::getOutputTensorRefT(outputLayout);
+  return assignOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints>
 OpModel<mlir::tt::ttnn::AssignOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    std::optional<mlir::tt::ttcore::DataType> outputDtype) {
+    std::optional<mlir::tt::ttcore::DataType> dtype,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Convert input tensor to TensorSpec
   ASSIGN_OR_RETURN(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  ::tt::tt_metal::MemoryConfig metalMemConfig =
-      conversion::getMemoryConfig(MemoryConfigAttr::get(inputLayout));
+  ::tt::target::ttnn::AssignOpT assignOpNative =
+      buildAssignOpTFromMLIR(outputLayout);
 
-  // Convert optional output dtype
-  std::optional<::tt::tt_metal::DataType> metalOutputDtype = std::nullopt;
-  if (outputDtype.has_value()) {
-    metalOutputDtype = conversion::getDataType(outputDtype.value());
-  }
-  // Create query closure
   auto assignOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::assign, device, inputSpec,
-                                metalMemConfig, metalOutputDtype,
-                                std::nullopt /*optionalOutputTensor*/);
+    ttnn_op_invoke::AssignOpResult result = ttnn_op_invoke::callAssign(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, assignOpNative,
+        inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from AssignOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), assignOpQuery);
@@ -9051,30 +9061,29 @@ OpModel<mlir::tt::ttnn::AssignOp>::getOpConstraints(
 
 llvm::Expected<size_t> OpModel<mlir::tt::ttnn::AssignOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    std::optional<mlir::tt::ttcore::DataType> outputDtype) {
+    std::optional<mlir::tt::ttcore::DataType> dtype,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Convert input tensor to TensorSpec
   ASSIGN_OR_RETURN(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  ::tt::tt_metal::MemoryConfig metalMemConfig =
-      conversion::getMemoryConfig(inputLayout);
+  ::tt::target::ttnn::AssignOpT assignOpNative =
+      buildAssignOpTFromMLIR(outputLayout);
 
-  // Convert optional output dtype
-  std::optional<::tt::tt_metal::DataType> metalOutputDtype = std::nullopt;
-  if (outputDtype.has_value()) {
-    metalOutputDtype = conversion::getDataType(outputDtype.value());
-  }
-
-  // Create query closure
   auto assignOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::assign, device, inputSpec, metalMemConfig,
-                            metalOutputDtype,
-                            std::nullopt /*optionalOutputTensor*/);
+    ttnn_op_invoke::AssignOpResult result =
+        ttnn_op_invoke::callAssign(ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+                                   assignOpNative, inputSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from AssignOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(assignOpQuery);

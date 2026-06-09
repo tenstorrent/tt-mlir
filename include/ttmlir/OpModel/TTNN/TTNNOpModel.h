@@ -1969,11 +1969,13 @@ struct OpModel<mlir::tt::ttnn::AssignOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout,
-                   std::optional<mlir::tt::ttcore::DataType> outputDtype);
+                   std::optional<mlir::tt::ttcore::DataType> outputDtype,
+                   TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-               std::optional<mlir::tt::ttcore::DataType> outputDtype);
+               std::optional<mlir::tt::ttcore::DataType> outputDtype,
+               TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
