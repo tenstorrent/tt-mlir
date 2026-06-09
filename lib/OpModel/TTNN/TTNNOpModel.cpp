@@ -22,6 +22,7 @@
 #include "ttmlir/OpInvoke/TTNN/DataMovement/ConcatOp.h"
 #include "ttmlir/OpInvoke/TTNN/DataMovement/GatherOp.h"
 #include "ttmlir/OpInvoke/TTNN/DataMovement/PadOp.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/PermuteOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Binary/EltwiseBinaryCompositeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Binary/EltwiseBinaryOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Quantization/EltwiseQuantizationOp.h"
@@ -8298,6 +8299,19 @@ llvm::Expected<size_t> OpModel<ClampTensorOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // Permute
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::PermuteOpT
+buildPermuteOpTFromMLIR(llvm::ArrayRef<int64_t> permutation, llvm::APFloat padValue,
+                        TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::PermuteOpT permuteOp;
+  permuteOp.permutation = {permutation.begin(), permutation.end()};
+  permuteOp.pad_value = padValue.convertToFloat();
+  permuteOp.out = detail::getOutputTensorRefT(outputLayout);
+  return permuteOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<PermuteOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> permutation, llvm::APFloat padValue,
@@ -8306,21 +8320,23 @@ llvm::Expected<OpConstraints> OpModel<PermuteOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Convert permutations of TTNN_PermuteOp to dims of ttnn::permute
-  ::ttsl::SmallVector<int64_t> dims(permutation.size());
-  std::copy(permutation.begin(), permutation.end(), dims.begin());
-
-  float defaultedPadValue = padValue.convertToFloat();
-
   ASSIGN_OR_RETURN(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::PermuteOpT permuteOpNative = buildPermuteOpTFromMLIR(
+      permutation, padValue, outputLayout);
+
   auto permuteQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::permute, device, inputSpec, dims,
-                                detail::getNullableMemoryConfig(outputLayout),
-                                defaultedPadValue);
+    ttnn_op_invoke::PermuteOpResult result = ttnn_op_invoke::callPermute(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, permuteOpNative,
+        inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from PermuteOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), permuteQuery);
@@ -8337,22 +8353,23 @@ llvm::Expected<size_t> OpModel<PermuteOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Convert permutations of TTNN_PermuteOp to dims of ttnn::permute
-  ::ttsl::SmallVector<int64_t> dims(permutation.size());
-  std::copy(permutation.begin(), permutation.end(), dims.begin());
-
-  // Convert float
-  float defaultedPadValue = padValue.convertToFloat();
-
   ASSIGN_OR_RETURN(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::PermuteOpT permuteOpNative =
+      buildPermuteOpTFromMLIR(permutation, padValue, outputLayout);
+
   auto permuteQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::permute, device, inputSpec, dims,
-                            detail::getNullableMemoryConfig(outputLayout),
-                            defaultedPadValue);
+    ttnn_op_invoke::PermuteOpResult result =
+        ttnn_op_invoke::callPermute(ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+                                    permuteOpNative, inputSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from PermuteOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(permuteQuery);

@@ -5941,4 +5941,110 @@ const std::initializer_list<mlir::tt::ttnn::PadOp> padOpList = {
 INSTANTIATE_TEST_SUITE_P(PadOpTPathParityTest, PadOpTPathParityTest,
                          ::testing::ValuesIn(padOpList));
 
+//===----------------------------------------------------------------------===//
+// PermuteOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::PermuteOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, PermuteOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::PermuteOpT
+buildPermuteOpTFromMLIR(llvm::ArrayRef<int64_t> permutation,
+                        llvm::APFloat padValue, TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::PermuteOpT &opNativeOpModel,
+                       ::tt::target::ttnn::PermuteOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::PermuteOpT &op) {
+    op.in.reset();
+    op.memory_config.reset();
+    resetOutputTensorRefT(op.out);
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::PermuteOp
+buildTestPermuteOp(std::vector<int64_t> permutation = {1, 0},
+                   float padValue = 0.0f,
+                   mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  llvm::SmallVector<int64_t> outputShape(defaultShape.size());
+  for (size_t i = 0; i < permutation.size(); ++i) {
+    outputShape[i] = defaultShape[permutation[i]];
+  }
+
+  auto outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(outputShape, outputMemoryConfig)
+          : tiledL1BF16Type(outputShape);
+
+  return e.builder.create<mlir::tt::ttnn::PermuteOp>(
+      loc, outputType, makeOnes(),
+      mlir::DenseI64ArrayAttr::get(&e.context, permutation),
+      mlir::FloatAttr::get(e.builder.getF32Type(),
+                           static_cast<double>(padValue)));
+}
+
+} // namespace
+
+using PermuteOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::PermuteOp>;
+
+TEST_P(PermuteOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::PermuteOp permuteOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::PermuteOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildPermuteOpTFromMLIR(
+          permuteOp.getPermutation(), permuteOp.getPadValue(),
+          resolveOutputLayout(permuteOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, permuteOp.getInput());
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, permuteOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::PermuteOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::PermuteOp> permuteOpList = {
+    buildTestPermuteOp(),
+    buildTestPermuteOp(/*permutation=*/{0, 1}),
+    buildTestPermuteOp(/*permutation=*/{1, 0}, /*padValue=*/1.0f),
+    buildTestPermuteOp(/*permutation=*/{1, 0}, /*padValue=*/0.0f,
+                       /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+    buildTestPermuteOp(/*permutation=*/{0, 1}, /*padValue=*/1.0f,
+                       /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(PermuteOpTPathParityTest, PermuteOpTPathParityTest,
+                         ::testing::ValuesIn(permuteOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL
