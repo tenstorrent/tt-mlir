@@ -156,6 +156,27 @@ public:
   }
 };
 
+class TTNNCumProdToTTIRCumProdConversionPattern
+    : public mlir::OpConversionPattern<mlir::tt::ttnn::CumProdOp> {
+public:
+  using mlir::OpConversionPattern<
+      mlir::tt::ttnn::CumProdOp>::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::CumProdOp srcOp,
+                  mlir::tt::ttnn::CumProdOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<mlir::RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::CumProdOp>(
+        srcOp, outputType, adaptor.getInput(),
+        rewriter.getI64IntegerAttr(srcOp.getDim()));
+
+    return mlir::success();
+  }
+};
+
 class TTNNMatmulToTTIRMatmulConversionPattern
     : public mlir::OpConversionPattern<mlir::tt::ttnn::MatmulOp> {
 
@@ -372,7 +393,8 @@ addReductionOpsConversionPatterns(mlir::MLIRContext *ctx,
                                                     mlir::tt::ttir::MinOp>,
                TTNNArgMaxToTTIRArgMaxConversionPattern,
                TTNNProdToTTIRProdConversionPattern,
-               TTNNCumSumToTTIRCumSumConversionPattern>(typeConverter, ctx);
+               TTNNCumSumToTTIRCumSumConversionPattern,
+               TTNNCumProdToTTIRCumProdConversionPattern>(typeConverter, ctx);
 }
 
 namespace mlir::tt {

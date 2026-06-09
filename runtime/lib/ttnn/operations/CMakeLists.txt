@@ -79,6 +79,7 @@ set(TTNN_OPS_SRCS
   # ANCHOR_END: adding_an_op_matmul_runtime_cmake
   ${CMAKE_CURRENT_SOURCE_DIR}/mlir_native/func_call.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/reduction/cumsum.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/reduction/cumprod.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/batch_norm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/distributed_rms_norm.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/normalization/group_norm.cpp

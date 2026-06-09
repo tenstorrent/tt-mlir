@@ -6727,6 +6727,35 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 }
 
 //===----------------------------------------------------------------------===//
+// CumProdOp
+//===----------------------------------------------------------------------===//
+
+// CumProdOp verification
+::mlir::LogicalResult mlir::tt::ttir::CumProdOp::verify() {
+  int64_t dim = getDim();
+  int64_t inputRank = getInput().getType().getRank();
+  if (dim < -inputRank || dim >= inputRank) {
+    return emitOpError() << "specified dimension should be between "
+                         << -inputRank << " and " << (inputRank - 1)
+                         << ", but got: " << dim;
+  }
+
+  return success();
+}
+
+// CumProdOp folding
+::mlir::OpFoldResult mlir::tt::ttir::CumProdOp::fold(FoldAdaptor adaptor) {
+  // Normalize `dim` to be in range [0, rank).
+  int64_t dim = getDim();
+  int64_t rank = getInput().getType().getRank();
+  if (dim < 0) {
+    setDim(dim + rank);
+    return getResult();
+  }
+  return {};
+}
+
+//===----------------------------------------------------------------------===//
 // BatchNorm verification helpers
 //===----------------------------------------------------------------------===//
 namespace {

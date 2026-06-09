@@ -1891,6 +1891,35 @@ CumSumOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// CumProdOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+CumProdOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                            const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<CumProdOp>::getOpConstraints, *this, inputShape,
+      inputs[0], getDim(), dataTypeAttrToOptional(getDtypeAttr()),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+CumProdOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                        const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<CumProdOp>::getOpRuntime, *this, inputShape, inputs[0],
+      getDim(), dataTypeAttrToOptional(getDtypeAttr()), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // ConcatenateHeadsOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

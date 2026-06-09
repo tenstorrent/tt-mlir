@@ -650,6 +650,22 @@ createOp(FlatbufferObjectCache &cache, CumSumOp op) {
                                             dtype, memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::CumProdOp>
+createOp(FlatbufferObjectCache &cache, CumProdOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto outputType = op.getResult();
+  auto output = cache.getOrCreateNoSharding(outputType, tensorValueToFlatbuffer,
+
+                                            /*local_shape*/ std::nullopt);
+
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
+  auto dtype = toFlatbuffer(cache, op.getDtypeAttr());
+
+  return ::tt::target::ttnn::CreateCumProdOp(*cache.fbb, in, output,
+                                             op.getDim(), dtype, memoryConfig);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::PrepareConv2dWeightsOp>
 createOp(FlatbufferObjectCache &cache, PrepareConv2dWeightsOp op) {
   auto weightTensor = cache.at<::tt::target::ttnn::TensorRef>(
@@ -4281,6 +4297,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   }
   if (auto cumSumOp = dyn_cast<CumSumOp>(op); cumSumOp) {
     return createOperation(cache, createOp(cache, cumSumOp), debugString,
+                           locInfo);
+  }
+  if (auto cumProdOp = dyn_cast<CumProdOp>(op); cumProdOp) {
+    return createOperation(cache, createOp(cache, cumProdOp), debugString,
                            locInfo);
   }
   if (auto sumOp = dyn_cast<SumOp>(op); sumOp) {

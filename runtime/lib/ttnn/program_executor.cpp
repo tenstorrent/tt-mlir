@@ -92,6 +92,7 @@
 #include "operations/pool/upsample.h"
 #include "operations/rand/rand.h"
 #include "operations/reduction/argmax.h"
+#include "operations/reduction/cumprod.h"
 #include "operations/reduction/cumsum.h"
 #include "operations/reduction/prod.h"
 #include "operations/reduction/reduction.h"
@@ -353,6 +354,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::CumSumOp: {
     return operations::reduction::cumsum::run(op->type_as_CumSumOp(),
                                               getContext());
+  }
+  case ::tt::target::ttnn::OpType::CumProdOp: {
+    return operations::reduction::cumprod::run(op->type_as_CumProdOp(),
+                                               getContext());
   }
   case ::tt::target::ttnn::OpType::ReductionArgMaxOp: {
     return operations::reduction::run(op->type_as_ReductionArgMaxOp(),

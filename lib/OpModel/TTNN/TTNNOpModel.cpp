@@ -2364,6 +2364,68 @@ OpModel<CumSumOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 }
 
 //===----------------------------------------------------------------------===//
+// CumProdOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<CumProdOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    const int32_t dim, std::optional<ttcore::DataType> dtype,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+
+  std::optional<::ttnn::DataType> ttnnDtype = std::nullopt;
+  if (dtype) {
+    ttnnDtype = conversion::getDataType(*dtype);
+  }
+
+  auto cumProdOpQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS(::ttnn::cumprod, device, inputSpec, dim,
+                                ttnnDtype, false, std::nullopt,
+                                detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), cumProdOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+OpModel<CumProdOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                 TTNNLayoutAttr inputLayout, const int32_t dim,
+                                 std::optional<ttcore::DataType> dtype,
+                                 TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+
+  std::optional<::ttnn::DataType> ttnnDtype = std::nullopt;
+  if (dtype) {
+    ttnnDtype = conversion::getDataType(*dtype);
+  }
+
+  auto cumProdOpQuery = [=]() {
+    return QUERY_OP_RUNTIME(::ttnn::cumprod, device, inputSpec, dim, ttnnDtype,
+                            false, std::nullopt,
+                            detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime(cumProdOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // ConcatenateHeadsOp
 //===----------------------------------------------------------------------===//
 
