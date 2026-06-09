@@ -108,9 +108,10 @@ public:
                      " composite op must have exactly one input operand.");
     }
 
-    bool isTopKWithValues = srcOp.getName() == "tenstorrent.topk_values";
-    bool isTopKWithIndices = srcOp.getName() == "tenstorrent.topk_indices";
-    bool isTopKWithBoth = srcOp.getName() == "tenstorrent.topk";
+    bool isTopKWithValues = srcOp.getName() == kTTTopKValuesCustomCallTargetName;
+    bool isTopKWithIndices =
+        srcOp.getName() == kTTTopKIndicesCustomCallTargetName;
+    bool isTopKWithBoth = srcOp.getName() == kTTTopKCustomCallTargetName;
 
     if (isTopKWithBoth && srcOp->getNumResults() != 2) {
       return rewriter.notifyMatchFailure(
@@ -209,9 +210,9 @@ public:
 
 private:
   llvm::SmallSet<llvm::StringRef, 3> supportedOpNames = {
-      "tenstorrent.topk",
-      "tenstorrent.topk_indices",
-      "tenstorrent.topk_values",
+      kTTTopKCustomCallTargetName,
+      kTTTopKIndicesCustomCallTargetName,
+      kTTTopKValuesCustomCallTargetName,
   };
 };
 
@@ -249,9 +250,10 @@ public:
           srcOp, "topk custom_call must have exactly one input operand.");
     }
 
-    bool isTopKWithBoth = srcOp.getCallTargetName() == "tenstorrent.topk";
+    bool isTopKWithBoth =
+        srcOp.getCallTargetName() == kTTTopKCustomCallTargetName;
     bool isTopKWithValues =
-        srcOp.getCallTargetName() == "tenstorrent.topk_values";
+        srcOp.getCallTargetName() == kTTTopKValuesCustomCallTargetName;
 
     auto compositeAttrs = mlir::dyn_cast_or_null<DictionaryAttr>(
         srcOp->getDiscardableAttr(kCustomCallCompositeAttrsKey));
@@ -315,38 +317,23 @@ public:
     int64_t numShards = 0;
     uint32_t clusterAxis = 0;
 
-    if (auto manualComp =
-            srcOp->getParentOfType<mlir::sdy::ManualComputationOp>()) {
-      // Trace through reshards to find the source block arg.
-      Value traced = input;
-      while (auto reshardOp = dyn_cast_if_present<mlir::sdy::ReshardOp>(
-                 traced.getDefiningOp())) {
-        traced = reshardOp.getInput();
-      }
-
-      if (auto blockArg = dyn_cast<BlockArgument>(traced)) {
-        if (blockArg.getOwner() == &manualComp.getBody().front()) {
-          auto inShardings = manualComp.getInShardings().getShardings();
-          unsigned argIdx = blockArg.getArgNumber();
-
-          if (argIdx < inShardings.size()) {
-            auto dimShardings = inShardings[argIdx].getDimShardings();
-            if (topkDim < static_cast<int64_t>(dimShardings.size()) &&
-                !dimShardings[topkDim].getAxes().empty()) {
-              llvm::StringRef axisName =
-                  dimShardings[topkDim].getAxes()[0].getName();
-              auto moduleOp = srcOp->getParentOfType<mlir::ModuleOp>();
-              auto meshOps = shardy_utils::getMeshOps(moduleOp);
-              if (!meshOps.empty()) {
-                for (auto [idx, axis] :
-                     llvm::enumerate(meshOps[0].getMeshAttr().getAxes())) {
-                  if (axis.getName() == axisName) {
-                    numShards = axis.getSize();
-                    clusterAxis = static_cast<uint32_t>(idx);
-                    break;
-                  }
-                }
-              }
+    if (srcOp->getParentOfType<mlir::sdy::ManualComputationOp>()) {
+      auto moduleOp = srcOp->getParentOfType<mlir::ModuleOp>();
+      auto meshOps = shardy_utils::getMeshOps(moduleOp);
+      if (!meshOps.empty()) {
+        auto sharding = shardy_utils::getOperandShardingAttr(
+            srcOp->getOpOperand(0), meshOps[0]);
+        auto dimShardings = sharding.getDimShardings();
+        if (topkDim < static_cast<int64_t>(dimShardings.size()) &&
+            !dimShardings[topkDim].getAxes().empty()) {
+          llvm::StringRef axisName =
+              dimShardings[topkDim].getAxes()[0].getName();
+          for (auto [idx, axis] :
+               llvm::enumerate(meshOps[0].getMeshAttr().getAxes())) {
+            if (axis.getName() == axisName) {
+              numShards = axis.getSize();
+              clusterAxis = static_cast<uint32_t>(idx);
+              break;
             }
           }
         }
@@ -449,9 +436,9 @@ public:
 
 private:
   llvm::SmallSet<llvm::StringRef, 3> supportedOpNames = {
-      "tenstorrent.topk",
-      "tenstorrent.topk_values",
-      "tenstorrent.topk_indices",
+      kTTTopKCustomCallTargetName,
+      kTTTopKValuesCustomCallTargetName,
+      kTTTopKIndicesCustomCallTargetName,
   };
 };
 

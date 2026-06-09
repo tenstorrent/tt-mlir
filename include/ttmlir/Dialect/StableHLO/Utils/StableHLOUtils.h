@@ -45,6 +45,14 @@ inline constexpr llvm::StringLiteral
 inline constexpr llvm::StringLiteral
     kTTRMSNormCustomCallTargetName("tenstorrent.rms_norm");
 
+// Target names for the topk custom_call ops.
+inline constexpr llvm::StringLiteral
+    kTTTopKCustomCallTargetName("tenstorrent.topk");
+inline constexpr llvm::StringLiteral
+    kTTTopKValuesCustomCallTargetName("tenstorrent.topk_values");
+inline constexpr llvm::StringLiteral
+    kTTTopKIndicesCustomCallTargetName("tenstorrent.topk_indices");
+
 // Target name for the Gather custom_call op (source of this is a composite op
 // generated from torch.gather)
 inline constexpr llvm::StringLiteral
@@ -63,9 +71,9 @@ inline constexpr llvm::StringLiteral
 // FlattenOrConvertCompositesPass and RegisterCustomShardingRulePass).
 inline constexpr llvm::StringLiteral kCompositesWithCustomSharding[] = {
     kTTRMSNormCustomCallTargetName,
-    "tenstorrent.topk",
-    "tenstorrent.topk_values",
-    "tenstorrent.topk_indices",
+    kTTTopKCustomCallTargetName,
+    kTTTopKValuesCustomCallTargetName,
+    kTTTopKIndicesCustomCallTargetName,
     kTTSDPACompositeName,
     kTTGatherCustomCallTargetName,
     kTTGatherDimCustomCallTargetName,
