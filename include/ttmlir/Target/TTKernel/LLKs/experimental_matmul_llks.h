@@ -19,7 +19,8 @@ ALWI void matmul_block(uint32_t in0_cb_id, uint32_t in1_cb_id,
         uint32_t out_tile_index = idst + r * ct_dim + c;
         for (uint32_t k = 0; k < kt_dim; k++) {
           uint32_t a_tile_index = in0_tile_index + r * kt_dim + k;
-          uint32_t b_tile_index = in1_tile_index + c * kt_dim + k;
+          uint32_t b_tile_index =
+              in1_tile_index + c * kt_dim + k * in1_k_stride;
           ckernel::matmul_block(in0_cb_id, in1_cb_id, a_tile_index,
                                 b_tile_index, out_tile_index, transpose, 1, 1,
                                 1);

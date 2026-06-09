@@ -30,7 +30,6 @@ def create_matmul_constrained_inputs(
     lhs_shape,
     rhs_shape,
     dtype=torch.float32,
-    transpose_a: bool = False,
     transpose_b: bool = False,
 ):
     def module(builder: TTIRBuilder):
@@ -51,7 +50,6 @@ def create_matmul_constrained_inputs(
             return builder.matmul(
                 in0,
                 in1,
-                transpose_a=transpose_a,
                 transpose_b=transpose_b,
                 unit_attrs=unit_attrs,
             )

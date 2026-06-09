@@ -273,9 +273,7 @@ struct DecomposeSDPAPattern
                     elemType, encoding);
     }
 
-    // Transpose K: [B, NKV, Sk, D] -> [B, NKV, D, Sk]
-    // Explicit permute because D2M matmul doesn't support transpose_b (TODO
-    // #2591).
+    // Transpose K: [B, NKV, Sk, D] -> [B, NKV, D, Sk].
     auto keyTransposedType =
         RankedTensorType::get({kShape[0], kShape[1], kShape[3], kShape[2]},
                               elemType, keyType.getEncoding());

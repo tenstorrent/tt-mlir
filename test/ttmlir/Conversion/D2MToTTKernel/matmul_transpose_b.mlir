@@ -17,7 +17,7 @@ module {
     // CHECK: mm_block_init
     // CHECK: mm_block_init_short
     // CHECK: matmul_block
-    %r = "ttir.matmul"(%lhs, %rhs) <{transpose_a = false, transpose_b = true}> : (!lhs, !rhs) -> (!matmul_result)
+    %r = "ttir.matmul"(%lhs, %rhs) <{transpose_b = true}> : (!lhs, !rhs) -> (!matmul_result)
     return %r : !matmul_result
   }
 }

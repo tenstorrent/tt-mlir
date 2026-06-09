@@ -32,6 +32,6 @@ func.func @matmul_no_transpose(%lhs: tensor<128x96xf32>, %rhs: tensor<96x64xf32>
 // CHECK: "d2m.tile_matmul"
 // CHECK-SAME: transpose_b = true
 func.func @matmul_transpose_b(%lhs: tensor<128x96xf32>, %rhs: tensor<64x96xf32>) -> tensor<128x64xf32> {
-  %r = "ttir.matmul"(%lhs, %rhs) <{transpose_a = false, transpose_b = true}> : (tensor<128x96xf32>, tensor<64x96xf32>) -> tensor<128x64xf32>
+  %r = "ttir.matmul"(%lhs, %rhs) <{transpose_b = true}> : (tensor<128x96xf32>, tensor<64x96xf32>) -> tensor<128x64xf32>
   return %r : tensor<128x64xf32>
 }

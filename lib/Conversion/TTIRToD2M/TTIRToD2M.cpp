@@ -2436,6 +2436,10 @@ private:
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
+    if (op.getTransposeA()) {
+      return rewriter.notifyMatchFailure(op,
+                                         "expected transpose_a to not be set");
+    }
     checkPreconditions(op);
 
     const bool transposeB = op.getTransposeB();
@@ -2465,8 +2469,8 @@ private:
     const std::size_t physicalRank =
         ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
 
-    // TODO(#2591) handle transpose_a; transpose_b is handled via indexing maps
-    // + the transpose_b flag on tile_matmul_block.
+    // transpose_b is handled via indexing maps and the transpose_b flag on
+    // tile_matmul_block.
     SmallVector<mlir::AffineMap> indexingMaps = getAffineMapsArray(
         rewriter, numOperands, physicalRank, /*transposeB=*/transposeB);
     SmallVector<mlir::Attribute> iteratorTypes =
@@ -2582,10 +2586,7 @@ private:
   }
 
   static void checkPreconditions(ConcreteOp op) {
-    // transpose_b is supported via the tile_matmul_block kernel transpose flag.
-    // transpose_a has no corresponding kernel support today.
-    assert(!op.getTransposeA() &&
-           "TODO(#2591) transpose_a is not supported in the D2M path");
+    assert(!op.getTransposeA() && "expected transpose_a to not be set");
 
     auto aType = mlir::cast<RankedTensorType>(op.getA().getType());
     auto bType = mlir::cast<RankedTensorType>(op.getB().getType());

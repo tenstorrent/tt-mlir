@@ -638,7 +638,10 @@ def _normalize_bool_literal(value, name):
         attr = IntegerAttr.maybe_downcast(value.operation.attributes["value"])
         if attr is not None and attr.value in (0, 1):
             return bool(attr.value)
-    raise TypeError(f"{name} must be a Python bool literal, got {value!r}")
+    raise TypeError(
+        f"{name} must be a Python bool literal or a constant bool value, "
+        f"got {value!r}"
+    )
 
 
 @syntax("matmul", kwargs_as_attr={"transpose_b": _bool_attr_from_ast})
