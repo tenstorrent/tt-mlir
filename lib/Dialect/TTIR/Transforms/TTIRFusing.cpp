@@ -19,6 +19,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include <cmath>
 #include <cstdint>
 
 #include <type_traits>
@@ -2614,6 +2615,10 @@ namespace {
 class RMSNormFusionPattern : public mlir::OpRewritePattern<MultiplyOp> {
   using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
 
+  // Tolerance for matching the distributed 1/N scale, matching the value used
+  // by ScaledSumToMeanPattern.
+  static constexpr float FLOAT_TOLERANCE = 1e-4f;
+
 public:
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp outerMul,
@@ -2678,38 +2683,134 @@ public:
       return mlir::failure();
     }
 
-    MeanOp meanOp = addOp.getLhs().getDefiningOp<MeanOp>();
+    // The mean-of-squares (stats) reaches addOp through one operand; epsilon
+    // is the other. Two shapes are supported:
+    //   - local:       mean(x^2)                          -> RMSNormOp
+    //   - distributed: sum(x^2) -> all_reduce<sum> -> *1/N ->
+    //   DistributedRMSNormOp
+    // matchStats classifies one operand and returns the value whose defining op
+    // is the square (mul(x,x) / pow(x,2)), plus the cluster axis when the chain
+    // is distributed.
+    struct StatsMatch {
+      mlir::Value squareValue;
+      std::optional<uint32_t> clusterAxis;
+    };
+    auto matchStats = [&](mlir::Value statsValue) -> std::optional<StatsMatch> {
+      // Local: single ttir.mean reducing the last dim.
+      if (auto meanOp = statsValue.getDefiningOp<MeanOp>()) {
+        auto dimArg = meanOp.getDimArg();
+        if (!dimArg || dimArg->size() != 1) {
+          return std::nullopt;
+        }
+        auto meanInputType =
+            mlir::cast<RankedTensorType>(meanOp.getInput().getType());
+        int64_t dim = mlir::cast<mlir::IntegerAttr>((*dimArg)[0]).getInt();
+        int64_t actualDim = dim < 0 ? meanInputType.getRank() + dim : dim;
+        if (actualDim != meanInputType.getRank() - 1) {
+          return std::nullopt;
+        }
+        return StatsMatch{meanOp.getInput(), std::nullopt};
+      }
+
+      // Distributed: mul(all_reduce<sum>(sum(x^2, dim=-1)), 1/N). The 1/N scale
+      // is mesh-independent: 1/N == 1/(num_devices * local_hidden) where the
+      // local sum reduces only the local shard (local_hidden) and the
+      // all_reduce sums the partial stats across num_devices >= 2 devices.
+      auto mulOp = lookThroughSafeOps(statsValue).getDefiningOp<MultiplyOp>();
+      if (!mulOp) {
+        return std::nullopt;
+      }
+      auto getFull = [&](mlir::Value v) {
+        return lookThroughSafeOps(v).getDefiningOp<FullOp>();
+      };
+      FullOp invNFull = getFull(mulOp.getRhs());
+      mlir::Value reduced = mulOp.getLhs();
+      if (!invNFull) {
+        invNFull = getFull(mulOp.getLhs());
+        reduced = mulOp.getRhs();
+      }
+      if (!invNFull) {
+        return std::nullopt;
+      }
+      auto invNAttr = mlir::dyn_cast<FloatAttr>(invNFull.getFillValue());
+      if (!invNAttr) {
+        return std::nullopt;
+      }
+      float invN = invNAttr.getValue().convertToFloat();
+
+      // Exactly one sum all-reduce; input shape == output shape (no scatter).
+      auto allReduce = lookThroughSafeOps(reduced).getDefiningOp<AllReduceOp>();
+      if (!allReduce || allReduce.getReduceType() != ttcore::ReduceType::Sum) {
+        return std::nullopt;
+      }
+      auto arInType =
+          mlir::cast<RankedTensorType>(allReduce.getInput().getType());
+      auto arOutType = mlir::cast<RankedTensorType>(allReduce.getType());
+      if (arInType.getShape() != arOutType.getShape()) {
+        return std::nullopt;
+      }
+      uint32_t clusterAxis = allReduce.getClusterAxis();
+
+      // Inner local sum over the last dim.
+      auto sumOp =
+          lookThroughSafeOps(allReduce.getInput()).getDefiningOp<SumOp>();
+      auto sumDimArg = sumOp ? sumOp.getDimArg() : std::nullopt;
+      if (!sumOp || !sumDimArg || sumDimArg->size() != 1) {
+        return std::nullopt;
+      }
+      auto sumInputType =
+          mlir::cast<RankedTensorType>(sumOp.getInput().getType());
+      int64_t sumDim = mlir::cast<mlir::IntegerAttr>((*sumDimArg)[0]).getInt();
+      int64_t sumActualDim =
+          sumDim < 0 ? sumInputType.getRank() + sumDim : sumDim;
+      if (sumActualDim != sumInputType.getRank() - 1) {
+        return std::nullopt;
+      }
+      int64_t localHidden = sumInputType.getShape().back();
+      if (invN <= 0.0f || localHidden <= 0) {
+        return std::nullopt;
+      }
+
+      // Require 1/N == 1/(num_devices * local_hidden) with integer
+      // num_devices >= 2. This distinguishes the distributed scale from the
+      // local 1/local_hidden (handled by the mean path) without needing the
+      // mesh device count.
+      float numDevicesF = 1.0f / (invN * static_cast<float>(localHidden));
+      float numDevices = std::round(numDevicesF);
+      if (numDevices < 2.0f) {
+        return std::nullopt;
+      }
+      float expectedInvN =
+          1.0f / (numDevices * static_cast<float>(localHidden));
+      float tolerance =
+          std::max(FLOAT_TOLERANCE, std::abs(expectedInvN) * FLOAT_TOLERANCE);
+      if (std::abs(invN - expectedInvN) > tolerance) {
+        return std::nullopt;
+      }
+
+      return StatsMatch{sumOp.getInput(), clusterAxis};
+    };
+
+    std::optional<StatsMatch> statsMatch = matchStats(addOp.getLhs());
     mlir::Value epsilon = addOp.getRhs();
-    if (!meanOp) {
-      meanOp = addOp.getRhs().getDefiningOp<MeanOp>();
+    if (!statsMatch) {
+      statsMatch = matchStats(addOp.getRhs());
       epsilon = addOp.getLhs();
     }
-    if (!meanOp) {
-      return mlir::failure();
-    }
-
-    auto dimArg = meanOp.getDimArg();
-    if (!dimArg || dimArg->size() != 1) {
-      return mlir::failure();
-    }
-    auto meanInputType =
-        mlir::cast<RankedTensorType>(meanOp.getInput().getType());
-    int64_t dim = mlir::cast<mlir::IntegerAttr>((*dimArg)[0]).getInt();
-    int64_t actualDim = dim < 0 ? meanInputType.getRank() + dim : dim;
-    if (actualDim != meanInputType.getRank() - 1) {
+    if (!statsMatch) {
       return mlir::failure();
     }
 
     // Match x^2 as mul(x,x) or pow(x,2).
-    mlir::Value meanInput = meanOp.getInput();
+    mlir::Value squareValue = statsMatch->squareValue;
     mlir::Value squareInput = nullptr;
     mlir::Value x = lookThroughSafeOps(xRaw);
 
-    if (auto sq = meanInput.getDefiningOp<MultiplyOp>()) {
+    if (auto sq = squareValue.getDefiningOp<MultiplyOp>()) {
       if (sq.getLhs() == sq.getRhs()) {
         squareInput = lookThroughSafeOps(sq.getLhs());
       }
-    } else if (auto pw = meanInput.getDefiningOp<PowOp>()) {
+    } else if (auto pw = squareValue.getDefiningOp<PowOp>()) {
       if (isFullOpWithValue(pw.getRhs(), 2.0f)) {
         squareInput = lookThroughSafeOps(pw.getLhs());
       }
@@ -2771,16 +2872,27 @@ public:
 
     rewriter.setInsertionPoint(outerMul);
 
-    // Create RMSNormOp with output shape and dtype matching input.
-    auto rmsNormOutputType =
+    // Output shape and dtype match input.
+    auto normOutputType =
         RankedTensorType::get(inputType.getShape(), inputType.getElementType(),
                               inputType.getEncoding());
-    auto rmsNorm = rewriter.create<RMSNormOp>(
-        outerMul.getLoc(), rmsNormOutputType, x, gamma,
-        /*bias=*/nullptr, rewriter.getDenseI64ArrayAttr(normalizedShape),
-        rewriter.getF32FloatAttr(epsAttr.getValue().convertToFloat()));
-
-    mlir::Value result = rmsNorm;
+    float epsValue = epsAttr.getValue().convertToFloat();
+    mlir::Value result;
+    if (statsMatch->clusterAxis) {
+      // Distributed (tensor-parallel) RMSNorm: TTNN recovers the device count
+      // from the mesh; the all_reduce/sum/scale chain is replaced wholesale.
+      // No fused residual in the xla form (any residual add stays separate).
+      result = rewriter.create<DistributedRMSNormOp>(
+          outerMul.getLoc(), normOutputType, x, gamma,
+          /*residual=*/nullptr,
+          rewriter.getUI32IntegerAttr(*statsMatch->clusterAxis),
+          rewriter.getF32FloatAttr(epsValue));
+    } else {
+      result = rewriter.create<RMSNormOp>(
+          outerMul.getLoc(), normOutputType, x, gamma,
+          /*bias=*/nullptr, rewriter.getDenseI64ArrayAttr(normalizedShape),
+          rewriter.getF32FloatAttr(epsValue));
+    }
 
     // Transform result to match output type (reshape and/or typecast as needed)
     result = utils::reshapeAndCastToType(rewriter, outerMul.getLoc(), result,
