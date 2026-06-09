@@ -6157,4 +6157,108 @@ INSTANTIATE_TEST_SUITE_P(RepeatInterleaveOpTPathParityTest,
                          RepeatInterleaveOpTPathParityTest,
                          ::testing::ValuesIn(repeatInterleaveOpList));
 
+//===----------------------------------------------------------------------===//
+// RepeatOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+template <typename RepeatOp>
+::flatbuffers::Offset<::tt::target::ttnn::RepeatOp>
+createRepeatOp(::mlir::tt::FlatbufferObjectCache &cache, RepeatOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::RepeatOpT
+buildRepeatOpTFromMLIR(llvm::ArrayRef<int64_t> repeatDims,
+                       TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::RepeatOpT &opNativeOpModel,
+                       ::tt::target::ttnn::RepeatOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::RepeatOpT &op) {
+    op.in.reset();
+    op.memcfg.reset();
+    resetOutputTensorRefT(op.out);
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::RepeatOp
+buildTestRepeatOp(std::vector<int64_t> repeatDims = {1, 1},
+                  mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  llvm::SmallVector<int64_t> outputShape(defaultShape.size());
+  for (size_t i = 0; i < defaultShape.size(); ++i) {
+    outputShape[i] = defaultShape[i] * repeatDims[i];
+  }
+
+  auto outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(outputShape, outputMemoryConfig)
+          : tiledL1BF16Type(outputShape);
+
+  auto repeatDimsAttr = mlir::tt::ttnn::ShapeAttr::get(&e.context, repeatDims);
+
+  return e.builder.create<mlir::tt::ttnn::RepeatOp>(loc, outputType, makeOnes(),
+                                                    repeatDimsAttr);
+}
+
+} // namespace
+
+using RepeatOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::RepeatOp>;
+
+TEST_P(RepeatOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::RepeatOp repeatOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::RepeatOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildRepeatOpTFromMLIR(
+          repeatOp.getRepeatDims().getShape(), resolveOutputLayout(repeatOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, repeatOp.getInput());
+
+  auto fbOffset =
+      mlir::tt::ttnn::createRepeatOp<mlir::tt::ttnn::RepeatOp>(cache, repeatOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::RepeatOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::RepeatOp> repeatOpList = {
+    buildTestRepeatOp(),
+    buildTestRepeatOp(/*repeatDims=*/{2, 1}),
+    buildTestRepeatOp(/*repeatDims=*/{1, 1},
+                      /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+    buildTestRepeatOp(/*repeatDims=*/{2, 1},
+                      /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(RepeatOpTPathParityTest, RepeatOpTPathParityTest,
+                         ::testing::ValuesIn(repeatOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL

@@ -24,6 +24,7 @@
 #include "ttmlir/OpInvoke/TTNN/DataMovement/PadOp.h"
 #include "ttmlir/OpInvoke/TTNN/DataMovement/PermuteOp.h"
 #include "ttmlir/OpInvoke/TTNN/DataMovement/RepeatInterleaveOp.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/RepeatOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Binary/EltwiseBinaryCompositeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Binary/EltwiseBinaryOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Quantization/EltwiseQuantizationOp.h"
@@ -4456,6 +4457,18 @@ llvm::Expected<size_t> OpModel<RepeatInterleaveOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // RepeatOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::RepeatOpT
+buildRepeatOpTFromMLIR(llvm::ArrayRef<int64_t> repeatDims,
+                       TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::RepeatOpT repeatOp;
+  repeatOp.repeat_dims = {repeatDims.begin(), repeatDims.end()};
+  repeatOp.out = detail::getOutputTensorRefT(outputLayout);
+  return repeatOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<RepeatOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> repeats, TTNNLayoutAttr outputLayout) {
@@ -4467,21 +4480,19 @@ llvm::Expected<OpConstraints> OpModel<RepeatOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Convert repeats to ttnn::Shape
-  ::ttnn::Shape repeatShape = conversion::getShape(repeats);
+  ::tt::target::ttnn::RepeatOpT repeatOpNative =
+      buildRepeatOpTFromMLIR(repeats, outputLayout);
 
-  // Convert output layout to memory config
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
-
-  // Convert Shape to SmallVector<uint32_t> to use overload with memory_config
-  ::ttsl::SmallVector<uint32_t> repeatVec(repeatShape.cbegin(),
-                                          repeatShape.cend());
-
-  // Create query closure
   auto repeatOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::repeat, device, inputSpec, repeatVec,
-                                outputMemoryConfig);
+    ttnn_op_invoke::RepeatOpResult result = ttnn_op_invoke::callRepeat(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, repeatOpNative,
+        inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from RepeatOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), repeatOpQuery);
@@ -4501,21 +4512,19 @@ llvm::Expected<size_t> OpModel<RepeatOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Convert repeats to SmallVector<uint32_t> to use overload with memory_config
-  ::ttsl::SmallVector<uint32_t> repeatVec;
-  repeatVec.reserve(repeats.size());
-  for (int64_t r : repeats) {
-    repeatVec.push_back(static_cast<uint32_t>(r));
-  }
+  ::tt::target::ttnn::RepeatOpT repeatOpNative =
+      buildRepeatOpTFromMLIR(repeats, outputLayout);
 
-  // Convert output layout to memory config
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
-
-  // Create query closure
   auto repeatOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::repeat, device, inputSpec, repeatVec,
-                            outputMemoryConfig);
+    ttnn_op_invoke::RepeatOpResult result =
+        ttnn_op_invoke::callRepeat(ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+                                   repeatOpNative, inputSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from RepeatOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(repeatOpQuery);
