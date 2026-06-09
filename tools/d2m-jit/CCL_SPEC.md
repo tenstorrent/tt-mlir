@@ -429,3 +429,97 @@ and this dev box.
   the full tensor and the per-device device buffers stay plain. Verified on 1x2:
   `mesh_shard → eltwise kernel → mesh_gather → to_host` matches torch
   (`test_mesh_compute_roundtrip_1x2`).
+
+### C5: the all_gather kernel — precise scope
+
+Transcribed from `D2MAllGatherRewriter` (`TTIRToD2M.cpp:3775-4052`), the
+authoritative implementation. The `ccl.d2m` sketch is a rough 1x8 approximation
+and is **wrong/incomplete** in three ways: it has a trailing `semaphore_set`
+the rewriter does not (the start semaphore is reset at host scope via the
+auto-emitted `reset_global_semaphore`); it omits the **fabric connection
+config**; and it omits the **input/output view-grid reblocking**.
+
+**Algorithm (general).** Given `cluster_axis` (the mesh axis being gathered
+over), `all_gather_dim` (the tensor dim that grows), ring topology:
+- `num_devices = meshShape[cluster_axis]`; `num_cores = 2*num_links` (ring,
+  so 2 for `num_links=1`).
+- `workerCoreSplitDim` = first input dim whose physical (tiled) size is
+  divisible by `num_cores` — work is split across `num_cores` cores along it.
+- `inputViewGrid = [1]*rank; inputViewGrid[splitDim] *= num_cores`.
+  `outputViewGrid = [1]*rank; outputViewGrid[splitDim] *= num_cores;
+  outputViewGrid[all_gather_dim] *= num_devices`.
+- Reblock input/output device tensors to those grids via `d2m.view_layout`
+  with `d2m.ir.calculate_reblock_map(oldShape, newShape, ctx)` (the same helper
+  `Layout.build_blocked_view` already uses).
+- Emit a `d2m.generic` over `grid = inputViewGrid`, operands
+  `ins(inputStream) outs(outputStream) additionalArgs(startSem, endSem)`,
+  **with `fabricConnectionConfig =
+  #ttcore.fabric_connection_config<noc_index = noc0, topology = ring,
+  cluster_axis = <ca>, routing_mode = unidir_ring_torus, num_links = 1>`**, and
+  empty block_factors/indexing_maps/iterator_types (explicit-datamovement form).
+
+**Kernel body (the d2m.generic region):**
+```
+startDevice[d]      = (d == cluster_axis) ? 0          : mesh_position(d)
+deviceMcastShape[d] = (d == cluster_axis) ? num_devices : 1
+coreIndices         = [core_index(i) for i in range(rank)]
+device_synchronize(startSem, startDevice, deviceMcastShape,
+                   num_receivers = num_devices - 1, coreIndices)
+inputIndices[i]     = core_index(splitDim) if i == splitDim else 0
+load                = remote_load(inputStream, inputIndices)
+# output index along the gather dim: this device's slot + local shard index
+shardOffset         = outputViewGrid[all_gather_dim] // num_devices
+outputIndices[i]    = (i == all_gather_dim)
+                      ? mesh_position(cluster_axis) * shardOffset + inputIndices[i]
+                      : inputIndices[i]
+remote_store(outputStream, outputIndices, load,
+             start_device=startDevice, device_mcast_shape=deviceMcastShape,
+             semaphore=endSem, semaphore_indices=inputIndices)
+semaphore_wait(endSem, num_devices - 1)        # no reset (legal in any thread)
+yield(store)
+```
+Note: **no `semaphore_set` inside** — so this is legal in unified OR
+datamovement form. The rewriter uses unified; the d2m-jit path should try
+`@d2m.kernel(thread="datamovement")` first (it sidesteps SplitUnifiedThread and
+matches our validated datamovement lowering), falling back to unified.
+
+**Concrete 1x2 target** (`cluster_axis=1`, `all_gather_dim=0`, ring,
+`num_links=1` → `num_devices=2`, `num_cores=2`):
+- host full input `(256, 512)` → `mesh_shard [1,2] dims [0,1]` → `(256, 256)`
+  per device.
+- `splitDim`: tiled `(256,256)` → `(8,8)` tiles; `8 % 2 == 0` → `splitDim = 0`.
+- `inputViewGrid = [2, 1]` (grid = 2x1); `outputViewGrid = [4, 1]`
+  (split×devices on dim 0 = 2*2).
+- per-device output `(512, 256)`; `mesh_gather`/`shard_to_full [1,2]` →
+  `(512, 512)`.
+- constants: `num_receivers = 1`, `deviceMcastShape = [1, 2]` on the cluster
+  axis, `semaphore_wait(endSem, 1)`, `shardOffset = 4 // 2 = 2`.
+
+**d2m-jit gaps to close (C5 tasks):**
+- **C5.1 fabric config:** add a `fabric=` option to `@d2m.kernel` /
+  `_emit_kernel_generic` that builds the `FabricConnectionConfigAttr` and passes
+  it to `GenericOp(..., fabricConnectionConfig=...)` (the Python builder already
+  accepts the kwarg). Small.
+- **C5.2 view-grid reblock:** a host helper that emits `d2m.view_layout` with a
+  `calculate_reblock_map` to the input/output view grids, returning a
+  LazyTensor the kernel consumes. The existing `view`/`view_layout` don't take
+  an explicit target grid; add a thin `reblock(lt, grid)` (or reuse
+  `Layout.build_blocked_view` machinery). Medium.
+- **C5.3 the kernel + wiring:** author the all_gather kernel (above) with 1x2
+  constants, wire `mesh_shard(input) → reblock → all_gather kernel → reblock →
+  mesh_gather → to_host`, PCC vs torch all_gather. Iterate on silicon — this is
+  where cross-device `device_synchronize`/`semaphore_wait` correctness is first
+  exercised end to end.
+- **C5.4 (C4) generalize:** replace 1x2 literals with mesh-shape-derived values
+  (kernel scalars / captures) so it scales to 1x8.
+
+**Risk ranking:** C5.3 on-silicon cross-device sync (highest — untested
+anywhere); C5.2 getting the reblock maps exactly right (the index math must
+match the affine map the rewriter builds); C5.1 (low). The reblock + index math
+are the subtle parts; the op vocabulary and mesh I/O are all validated.
+
+**Open question:** whether to author the kernel against the reblocked *stream*
+tensors (as the rewriter does, requiring C5.2) or whether a simpler grid layout
+avoids the reblock for the 1x2 case. Worth a short spike: try the kernel without
+the view-grid reblock first (grid = the natural sharded grid) and see if the
+gather is still expressible — it may simplify C5.2 away for the first cut.
