@@ -38,7 +38,7 @@ from ttmlir.passmanager import PassManager
 from ttmlir.dialects import d2m, func, arith, linalg, ttcore
 from ttmlir.passes import ttmetal_to_flatbuffer_bin
 
-from .ast import D2MCompiler
+from .ast import D2MCompiler, SEMAPHORE_ARG
 from .config import config
 from .errors import D2mJitError
 from .tensor_layout import Layout
@@ -617,6 +617,91 @@ def arange(layout: Layout, start: int = 0, step: int = 1) -> LazyTensor:
     return to_layout(flat.reshape(list(layout.logical_shape)), layout)
 
 
+# --- Global semaphores -------------------------------------------------------
+
+
+def _semaphore_backing_type(ctx, grid_shape):
+    """Build the device tensor type for a global-semaphore backing buffer.
+
+    `d2m.create_global_semaphore`'s verifier requires the backing tensor to
+    have (a) a grid shape equal to the device worker grid, (b) a 1x1 shard,
+    and (c) a `ui32` element type. The compute `Layout` helper pads shards to
+    the 32x32 tile alignment, so we build the metal_layout directly with
+    `dim_alignments = 1x1` (matching `#sem_layout` in
+    test/.../generic_global_semaphores.mlir).
+    """
+    import numpy as np
+
+    rank = len(grid_shape)
+    # Identity collapse intervals [[0,1],[1,2],...]: one logical dim per shard
+    # dim, no collapsing.
+    intervals = np.array([[i, i + 1] for i in range(rank)], dtype=np.int64)
+    collapse = DenseIntElementsAttr.get(intervals, context=ctx)
+    metal_layout = ttcore.ir.MetalLayoutAttr.get(
+        ctx,
+        list(grid_shape),
+        int(ttcore.MemorySpace.DeviceL1),
+        int(ttcore.TensorMemoryLayout.Sharded),
+        collapse,
+        [1] * rank,  # dim_alignments: 1x1 shard, no tile padding
+    )
+    device_shape = ttcore.ir.MetalLayoutAttr.maybe_downcast(
+        metal_layout
+    ).getDeviceShape(list(grid_shape), [])
+    ui32 = IntegerType.get_unsigned(32, ctx)
+    return RankedTensorType.get(device_shape, ui32, encoding=metal_layout)
+
+
+class GlobalSemaphore:
+    """Host-side handle for a `!d2m.global_semaphore` created via
+    `d2m.create_global_semaphore`.
+
+    Passed positionally to a `@d2m.kernel` after the tensor arguments; the
+    kernel body sees it as a `!d2m.global_semaphore` parameter usable with
+    `semaphore_set` / `semaphore_wait` / `semaphore_inc` / `device_synchronize`
+    and the `semaphore=` kwarg of `remote_store`.
+    """
+
+    __slots__ = ("value", "generation", "grid_shape", "init")
+
+    def __init__(self, value, generation, grid_shape, init):
+        self.value = value
+        self.generation = generation
+        self.grid_shape = grid_shape
+        self.init = init
+
+    def _resolve_value(self):
+        b = _get_scope()
+        if self.generation != b.generation:
+            raise RuntimeError(
+                "Stale GlobalSemaphore: produced by a prior builder generation. "
+                "Create it in the same generation as the kernel call."
+            )
+        return self.value
+
+
+def global_semaphore(grid_shape=(8, 8), init=0) -> GlobalSemaphore:
+    """Allocate a global semaphore over the device worker grid.
+
+    `grid_shape` must equal the device worker grid (8x8 on Wormhole) — the
+    `create_global_semaphore` verifier checks this. `init` is the initial
+    value (default 0).
+
+    Emits an uninitialised `ui32` backing buffer plus
+    `d2m.create_global_semaphore`, and returns a `GlobalSemaphore` handle to
+    pass to a kernel.
+    """
+    b = _get_scope()
+    with b.ctx, b.loc, b.insert_point:
+        backing_ty = _semaphore_backing_type(b.ctx, grid_shape)
+        backing = d2m.empty(backing_ty)
+        sem_ty = d2m.ir.GlobalSemaphoreType.get(b.ctx)
+        # create_global_semaphore does not support type inference; the result
+        # type must be given explicitly.
+        sem = d2m.create_global_semaphore(backing, value=int(init), results=[sem_ty])
+    return GlobalSemaphore(sem, b.generation, tuple(grid_shape), int(init))
+
+
 def reshape(lt: LazyTensor, *shape) -> LazyTensor:
     """torch.reshape-style logical-shape change.
 
@@ -857,12 +942,30 @@ def _emit_returns_and_finalise(b: _Builder, lts):
     b._refresh_function_type(results=host_types)
 
 
-def _run_pipeline(b: _Builder):
+def _register_device(b: _Builder):
+    """Run `ttcore-register-device` on the module.
+
+    Done as its own pass (separate from `_run_pipeline`) and *before* the
+    pre-pipeline `verify()` in `to_host`: some op verifiers (e.g.
+    `create_global_semaphore`, which sizes its backing buffer to the device
+    worker grid) call `ttcore::lookupDevice`, which asserts when no device op
+    is present. Registering first makes that verify well-defined.
+    """
     system_desc = _get_system_desc_path()
     register = "ttcore-register-device"
     if system_desc:
         register += f"{{system-desc-path={system_desc}}}"
-    pipeline_str = f"builtin.module({register},{_build_pipeline()})"
+    if config.print_pipeline:
+        print(f"[d2m-jit] register: {register}")
+    pm = PassManager.parse(f"builtin.module({register})", context=b.ctx)
+    pm.enable_verifier(config.verify_passes)
+    pm.run(b.module.operation)
+
+
+def _run_pipeline(b: _Builder):
+    # The device is already registered (see `_register_device`, run before the
+    # pre-pipeline verify in `to_host`), so this is the compute pipeline only.
+    pipeline_str = f"builtin.module({_build_pipeline()})"
 
     if config.print_pipeline:
         print(f"[d2m-jit] pipeline: {pipeline_str}")
@@ -979,6 +1082,9 @@ def to_host(*lts: LazyTensor):
     assert all(lt.generation == b.generation for lt in resolved)
 
     _emit_returns_and_finalise(b, resolved)
+    # Register the device before verifying: device-dependent verifiers (e.g.
+    # create_global_semaphore) assert without a registered device.
+    _register_device(b)
     b.module.operation.verify()
     _run_pipeline(b)
     outs = _execute(b, resolved)
@@ -1075,30 +1181,37 @@ def _emit_kernel_generic(
             cause=cause,
         )
 
-    # Split args, preserving "all LazyTensors precede all scalars" ordering.
+    # Split args, preserving "all LazyTensors precede all non-tensor args"
+    # ordering. Non-tensor args (`extras`) are scalars (int) and global
+    # semaphores, kept in their original order so they map 1:1 onto the
+    # kernel's trailing parameters and the GenericOp's additionalArgs.
     lazy_args = []
-    scalar_args = []
-    saw_scalar = False
+    extras = []  # list of ("scalar", int) | ("sem", GlobalSemaphore)
+    saw_extra = False
     for i, a in enumerate(args):
         if isinstance(a, LazyTensor):
-            if saw_scalar:
+            if saw_extra:
                 raise _call_error(
                     f"argument {i} to kernel '{kernel.fn.__name__}' is a "
-                    f"LazyTensor but a scalar was already seen; tensor "
-                    f"arguments must precede scalars",
+                    f"LazyTensor but a scalar/semaphore was already seen; "
+                    f"tensor arguments must precede scalars and semaphores",
                     cause=TypeError(),
                 )
             lazy_args.append(a._resolve())
+        elif isinstance(a, GlobalSemaphore):
+            saw_extra = True
+            extras.append(("sem", a))
         elif isinstance(a, int) and not isinstance(a, bool):
-            saw_scalar = True
-            scalar_args.append(a)
+            saw_extra = True
+            extras.append(("scalar", a))
         else:
             raise _call_error(
                 f"argument {i} to kernel '{kernel.fn.__name__}' has "
                 f"unsupported type {type(a).__name__}: {a!r}",
                 hint=(
-                    "kernel arguments must be d2m_jit.LazyTensor or int. "
-                    "Use d2m.to_layout(t, L) to lift a torch tensor."
+                    "kernel arguments must be d2m_jit.LazyTensor, int, or "
+                    "d2m_jit.GlobalSemaphore. Use d2m.to_layout(t, L) to lift "
+                    "a torch tensor."
                 ),
                 cause=TypeError(),
             )
@@ -1117,7 +1230,13 @@ def _emit_kernel_generic(
     # Compile the kernel body in the current builder's context. D2MCompiler
     # picks up b.ctx via get_default_loc_context.
     with b.ctx, b.loc:
-        compiler_args = [lt.layout for lt in lazy_args] + list(scalar_args)
+        # Per-extra D2MCompiler arg: scalars pass their int (-> index func
+        # arg); semaphores pass the SEMAPHORE_ARG sentinel (-> global_semaphore
+        # func arg). Order matches the kernel's trailing parameters.
+        extra_compiler_args = [
+            val if kind == "scalar" else SEMAPHORE_ARG for kind, val in extras
+        ]
+        compiler_args = [lt.layout for lt in lazy_args] + extra_compiler_args
         compiler = D2MCompiler(
             kernel.fn.__name__,
             "unified",
@@ -1132,9 +1251,14 @@ def _emit_kernel_generic(
 
     # Emit the GenericOp + splice the kernel body.
     with b.ctx, b.loc, b.insert_point:
-        # Scalars are sourced from func args (not host-scope constants) so the
-        # GenericOp's region stays isolated-from-above.
-        additional = [b.add_scalar_input(s) for s in scalar_args]
+        # additionalArgs operands, in the kernel's trailing-parameter order:
+        #  - scalars are sourced from func args (not host-scope constants) so
+        #    the GenericOp's region stays isolated-from-above,
+        #  - semaphores reuse the host-scope `create_global_semaphore` result.
+        additional = [
+            b.add_scalar_input(val) if kind == "scalar" else val._resolve_value()
+            for kind, val in extras
+        ]
         inputs = [lt.value for lt in input_lts]
         outputs = [lt.value for lt in output_lts]
         output_types = [v.type for v in outputs]
@@ -1182,6 +1306,16 @@ def _emit_kernel_generic(
             orig_arg.replace_all_uses_with(op)
         for _ in range(len(block.arguments)):
             block.erase_argument(0)
+
+        # Reset each semaphore after the generic that consumed it, so its
+        # backing buffer becomes dead and is deallocated (matching the
+        # reset_global_semaphore + dealloc pattern in
+        # test/.../generic_global_semaphores.mlir). NOTE: this assumes a
+        # semaphore is used by a single kernel call; multi-kernel reuse would
+        # need an explicit host-side reset instead.
+        for kind, val in extras:
+            if kind == "sem":
+                d2m.reset_global_semaphore(val._resolve_value(), 0)
 
     # Rebind output LazyTensors to the GenericOp's results.
     for i, lt in enumerate(output_lts):

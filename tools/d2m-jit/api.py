@@ -14,10 +14,19 @@ from ._src.utils import _asindex
 from ._src.ast import D2MCompiler, syntax
 from ._src.config import config
 from ._src.errors import D2mJitError
-from ._src.tensor_layout import Layout, float32, float16, bfloat16, _to_data_type
+from ._src.tensor_layout import (
+    Layout,
+    float32,
+    float16,
+    bfloat16,
+    uint32,
+    _to_data_type,
+)
 from ._src.builder import (
     CompiledKernel,
     LazyTensor,
+    GlobalSemaphore,
+    global_semaphore,
     kernel,
     to_layout,
     tilize,
@@ -77,10 +86,46 @@ def _tile_bcast_type_attr(node):
     return _parse_tile_bcast_type(node.value)
 
 
+def _as_value(v):
+    """Coerce an OpView to its result Value (leave Values untouched)."""
+    return v.result if hasattr(v, "result") else v
+
+
+def _idx_list(v):
+    """Normalise an optional index / list-of-indices kwarg to a list of
+    index-typed Values (empty list for None). Used for the variadic
+    cross-device / semaphore operands."""
+    if v is None:
+        return []
+    if isinstance(v, (list, tuple)):
+        return [_asindex(x) for x in v]
+    return [_asindex(v)]
+
+
 @syntax("remote_load")
 def remote_load(
-    src, indices, mcast_start_index=None, mcast_shape=None, mcast_dims=None
+    *args, mcast_start_index=None, mcast_shape=None, mcast_dims=None
 ) -> MemTx:
+    """Load an entire shard from a remote tensor into a local L1 buffer.
+
+    Two call forms:
+      remote_load(src, indices, ...)        # allocate the destination buffer
+      remote_load(buf, src, indices, ...)   # load into an explicit buffer,
+                                            # e.g. one from in-kernel `empty`
+
+    `indices` are grid indices (length N/2 of the operand rank). Optional
+    multicast via `mcast_start_index`/`mcast_shape` (low-level) or
+    `mcast_dims` (high-level)."""
+    if len(args) == 2:
+        local_buffer, src, indices = None, args[0], args[1]
+    elif len(args) == 3:
+        local_buffer, src, indices = args
+    else:
+        raise D2mJitError(
+            "remote_load expects (src, indices) or (buf, src, indices); "
+            f"got {len(args)} positional arguments"
+        )
+
     if mcast_dims is not None:
         if isinstance(mcast_dims, tuple):
             mcast_dims = list(mcast_dims)
@@ -88,10 +133,16 @@ def remote_load(
             if isinstance(mcast_dims, int):
                 mcast_dims = arith.constant(IndexType.get(src.context), mcast_dims)
             mcast_dims = [mcast_dims]
-    dst_type = RankedTensorType.get(
-        src.type.shape[len(indices) :], src.type.element_type
-    )
-    dst = d2m.empty(dst_type)
+
+    if local_buffer is None:
+        dst_type = RankedTensorType.get(
+            src.type.shape[len(indices) :], src.type.element_type
+        )
+        local_buffer = d2m.empty(dst_type)
+    else:
+        local_buffer = _as_value(local_buffer)
+        dst_type = local_buffer.type
+
     return d2m.remote_load(
         dst_type,
         src,
@@ -99,21 +150,62 @@ def remote_load(
         mcast_start_index=mcast_start_index,
         mcast_shape=mcast_shape,
         mcast_dims=mcast_dims,
-        local_buffer=dst,
+        local_buffer=local_buffer,
     )
 
 
 @syntax("remote_store")
-def remote_store(dst, indices, src):
+def remote_store(
+    dst,
+    indices,
+    src,
+    *,
+    start_device=None,
+    device_mcast_shape=None,
+    semaphore=None,
+    semaphore_indices=None,
+):
+    """Store an entire shard from a local buffer into a remote tensor.
+
+    `indices` are grid indices (length N/2 of the operand rank). The
+    optional cross-device parameters drive a multi-device (mesh) store:
+      - `start_device` / `device_mcast_shape`: the destination device range,
+      - `semaphore` (`!d2m.global_semaphore`) + `semaphore_indices`: the
+        fabric semaphore to increment on the receiving device(s)."""
     return d2m.remote_store(
         dst.type,
         dst,
         indices,
-        start_device=[],
-        device_mcast_shape=[],
-        semaphore_indices=[],
+        start_device=_idx_list(start_device),
+        device_mcast_shape=_idx_list(device_mcast_shape),
+        semaphore_indices=_idx_list(semaphore_indices),
         local_buffer=src,
+        semaphore=semaphore,
     )
+
+
+@syntax("semaphore_set")
+def semaphore_set(semaphore, value, core=None, mcast=None):
+    """Set a (local or global) semaphore to `value`. Free-function form of
+    `Semaphore.set`; also reachable on a semaphore kernel argument."""
+    return d2m.semaphore_set(
+        semaphore, _asindex(value), _idx_list(core), _idx_list(mcast), [], []
+    )
+
+
+@syntax("semaphore_inc")
+def semaphore_inc(semaphore, value, core=None, mcast=None):
+    """Increment a (local or global) semaphore by `value`."""
+    return d2m.semaphore_inc(
+        semaphore, _asindex(value), _idx_list(core), _idx_list(mcast), [], []
+    )
+
+
+@syntax("semaphore_wait")
+def semaphore_wait(semaphore, value, reset=None):
+    """Block until a (local or global) semaphore reaches `value`. Optional
+    `reset` writes that value back after the wait completes."""
+    return d2m.semaphore_wait(semaphore, _asindex(value), reset_value=_asindex(reset))
 
 
 @syntax(
@@ -124,6 +216,20 @@ def remote_store(dst, indices, src):
 )
 def core_index(index):
     return d2m.core_index(index)
+
+
+@syntax(
+    "mesh_position",
+    args_as_attr=[
+        lambda node: IntegerAttr.get(IntegerType.get_signless(64), node.value)
+    ],
+)
+def mesh_position(dim):
+    """The current device's position in the mesh along `dim` (0=y, 1=x).
+
+    Returns an index. Only meaningful on a multi-device mesh; on a 1x1
+    mesh both dims are 0. `dim` must be a compile-time literal."""
+    return d2m.mesh_position(dim)
 
 
 # --- Block-level elementwise free functions ---------------------------------
@@ -675,7 +781,7 @@ def _shape_literal(node):
     if isinstance(node, (ast.List, ast.Tuple)):
         return [int(_const_value(elt)) for elt in node.elts]
     raise D2mJitError(
-        "zeros() expects a literal block shape, e.g. zeros([m_tiles, n_tiles]); "
+        "expected a literal block shape, e.g. [m_tiles, n_tiles]; "
         f"got {type(node).__name__}"
     )
 
@@ -704,6 +810,27 @@ def _zeros_op(shape):
     tile_ty = ttcore.ir.TileType.get(ctx, 32, 32, float32)
     block_ty = RankedTensorType.get(list(shape), tile_ty)
     return _zeros_block(block_ty)
+
+
+@syntax("empty", args_as_attr=[_shape_literal])
+def _empty_op(shape):
+    """Block-level uninitialised L1 scratch buffer (kernel-body `empty`).
+
+    Registered as the kernel-body op `empty`; named `_empty_op` at module
+    scope so it does not shadow the host-side `empty(layout)` re-exported as
+    the public `d2m.empty`.
+
+    `shape` is a Python-literal list/tuple of block dimensions in tiles, e.g.
+    `empty([m_tiles, n_tiles])`. Produces an uninitialised
+    `tensor<shape x !ttcore.tile<32x32, f32>>` (via `d2m.empty`), intended as
+    an explicit destination buffer for `remote_load(buf, src, indices)`.
+
+    The tile element type is f32; this matches `zeros(...)`. A dtype override
+    is a follow-up once a non-f32 CCL needs it."""
+    ctx = get_default_loc_context()
+    tile_ty = ttcore.ir.TileType.get(ctx, 32, 32, float32)
+    block_ty = RankedTensorType.get(list(shape), tile_ty)
+    return d2m.empty(block_ty)
 
 
 @syntax("matmul")
