@@ -951,10 +951,14 @@ getAllToAllDispatchMetadataShardingRule(mlir::stablehlo::CustomCallOp op) {
                                            op.getContext(), std::nullopt);
 
   // B factor: input dim 0 → output dim 1 (compound with D_cluster).
-  // kPassThrough so any batch sharding on the input flows through to the
-  // dispatched/metadata outputs without forcing an all_gather.
+  // kNeedReplication: expert parallelism is mandatory, so both mesh axes are
+  // reserved for the compound expert sharding and must NOT carry batch inside
+  // the dispatch path. Forcing B replicated makes Shardy insert an all_gather
+  // on the batch axis BEFORE dispatch (at the composite/group boundary),
+  // freeing the mesh axes for expert sharding within the op.
   builder.addFactor({0, 0, 0, mlir::sdy::kNullDim}, {1, 1, 1}, bDim,
-                    mlir::sdy::FactorType::kPassThrough);
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
   // D_cluster factor: no operand mapping, pairs with B factor on output dim 1.
   // Blocked-replicated so Shardy does not try to shard along this factor.
   builder.addFactor({mlir::sdy::kNullDim, mlir::sdy::kNullDim,
@@ -1239,13 +1243,16 @@ getMoeGptShardingRule(mlir::stablehlo::CustomCallOp op) {
 
   // BD (= B * D_cluster) appears at hidden[1]/indices[1]/scores[1] and at
   // bundled_{indices,scores}[1]/auxiliary_scores[1] and expert_output[2].
-  // Split into a kPassThrough B factor (carries batch-axis sharding across
-  // the op) and a blocked D_cluster factor so the ring-axis stays replicated.
+  // Both the B and D_cluster sub-factors are blocked-replicated: EP is
+  // mandatory so the mesh axes carry the expert sharding (propagated via the
+  // E factor into the expert weights/output), and the token (BD) axis must stay
+  // replicated so no batch sharding lands on the expert axes inside the op.
   builder.addFactor({1, 1, 1, mlir::sdy::kNullDim, mlir::sdy::kNullDim,
                      mlir::sdy::kNullDim, mlir::sdy::kNullDim,
                      mlir::sdy::kNullDim},
                     {mlir::sdy::kNullDim, 1, 1, 1, 2}, bBatchDim,
-                    mlir::sdy::FactorType::kPassThrough);
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
   builder.addFactor({1, 1, 1, mlir::sdy::kNullDim, mlir::sdy::kNullDim,
                      mlir::sdy::kNullDim, mlir::sdy::kNullDim,
                      mlir::sdy::kNullDim},
@@ -1659,13 +1666,17 @@ getSelectiveReduceCombineShardingRule(mlir::stablehlo::CustomCallOp op) {
                     mlir::sdy::FactorType::kNeedReplication,
                     /*isBlocked=*/true);
 
-  // Input BD = B*D_cluster and result B = B share a single kPassThrough B
-  // factor: this makes Shardy propagate the batch sharding from moe_gpt's
-  // output directly into the combine result without inserting any all_gather
-  // or all_slice. A second blocked D_cluster factor pairs with B on the input
-  // side to form the BD compound and keeps the ring axis replicated.
+  // Input BD = B*D_cluster and result B = B share a single blocked-replicated
+  // B factor: EP is mandatory, so the mesh axes carry expert sharding and the
+  // token (BD/B) axis stays replicated inside the op. Keeping B replicated
+  // here means the metadata bundle enters/leaves the op replicated (matching
+  // moe_gpt's replicated bundled outputs, so no all_slice is inserted between
+  // them), and the batch sharding is re-applied to the result downstream
+  // (outside the reoutlined composite group). A second blocked D_cluster
+  // factor pairs with B on the input side to form the BD compound.
   builder.addFactor({inputBDDim, 1, 1, mlir::sdy::kNullDim}, {resultBDDim},
-                    bDim, mlir::sdy::FactorType::kPassThrough);
+                    bDim, mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
   builder.addFactor({inputBDDim, 1, 1, mlir::sdy::kNullDim},
                     {mlir::sdy::kNullDim}, dClusterDim,
                     mlir::sdy::FactorType::kNeedReplication,
