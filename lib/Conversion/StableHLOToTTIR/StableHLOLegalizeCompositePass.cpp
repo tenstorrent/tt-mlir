@@ -292,12 +292,10 @@ public:
     mlir::Type elemType = inputType.getElementType();
     int32_t k = kAttr.getInt();
 
-    // Resolve topk dimension (default: last).
     int64_t d = dimAttr.getInt();
     int64_t topkDim = (d >= 0) ? d : rank + d;
     int64_t numItemsLocal = inputType.getShape()[topkDim];
 
-    // Build result types.
     RankedTensorType valuesType, indicesType;
     if (isTopKWithBoth) {
       valuesType = mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
@@ -313,9 +311,7 @@ public:
 
     auto loc = srcOp.getLoc();
 
-    // Determine if we're in the distributed case.
-    // We are if: (a) inside sdy.manual_computation AND (b) the topk dim of the
-    // input is sharded on some mesh axis.
+    // Distributed iff inside sdy.manual_computation with the topk dim sharded.
     int64_t numShards = 0;
     uint32_t clusterAxis = 0;
 
@@ -360,7 +356,6 @@ public:
     bool isDistributed = numShards > 1;
 
     if (!isDistributed) {
-      // Single-device path.
       auto topKOp = rewriter.create<ttir::TopKOp>(loc, valuesType, indicesType,
                                                   input, kAttr, dimAttr,
                                                   largestAttr, sortedAttr);
@@ -374,11 +369,9 @@ public:
       return success();
     }
 
-    // --- Distributed path ---
     int64_t totalCandidates = k * numShards;
     auto dimI32 = rewriter.getI32IntegerAttr(static_cast<int32_t>(topkDim));
 
-    // Step 1: local topk on this chip's shard.
     auto localValType = RankedTensorType::get({batch, k}, elemType);
     auto localIndType =
         RankedTensorType::get({batch, k}, rewriter.getI32Type());
@@ -386,7 +379,6 @@ public:
         loc, localValType, localIndType, input, kAttr, dimI32, largestAttr,
         BoolAttr::get(rewriter.getContext(), false));
 
-    // Step 2: all-gather the tiny results across the sharded mesh axis.
     auto gatheredValType =
         RankedTensorType::get({batch, totalCandidates}, elemType);
     auto gatheredIndType =
@@ -399,10 +391,9 @@ public:
         loc, gatheredIndType, localTopK.getIndices(),
         static_cast<int32_t>(topkDim), clusterAxis);
 
-    // Step 3: add compile-time per-shard offset to convert local → global
-    // indices. After all_gather, block [shard*k : (shard+1)*k] holds chip
-    // `shard`'s k candidates, all with local indices [0, numItemsLocal).
-    // Adding shard*numItemsLocal makes them global positions.
+    // After all_gather, block [shard*k : (shard+1)*k] holds chip `shard`'s
+    // k candidates with local indices [0, numItemsLocal). Adding
+    // shard*numItemsLocal makes them global positions.
     SmallVector<int32_t> offsetValues;
     offsetValues.reserve(batch * totalCandidates);
     for (int64_t b = 0; b < batch; ++b) {
@@ -421,7 +412,6 @@ public:
     Value globalInds = rewriter.create<ttir::AddOp>(loc, gatheredIndType,
                                                     gatheredInds, offsetConst);
 
-    // Step 4: merge-sort the k*N candidates back down to k.
     auto mergedValType = RankedTensorType::get({batch, k}, elemType);
     auto sortOrderType =
         RankedTensorType::get({batch, k}, rewriter.getI32Type());
@@ -429,8 +419,7 @@ public:
         loc, mergedValType, sortOrderType, gatheredVals, kAttr, dimI32,
         largestAttr, BoolAttr::get(rewriter.getContext(), true));
 
-    // Step 5: gather global indices using the sort order to align them with the
-    // merged values. GatherOp requires unsigned indices.
+    // GatherOp requires unsigned indices.
     auto ui32Type =
         RankedTensorType::get({batch, k}, rewriter.getIntegerType(32, false));
     Value sortOrderUi32 = rewriter.create<ttir::TypecastOp>(
@@ -439,8 +428,7 @@ public:
         loc, RankedTensorType::get({batch, k}, rewriter.getI32Type()),
         globalInds, sortOrderUi32, dimI32);
 
-    // Emit the requested outputs, converting i32 → declared index type if
-    // needed.
+    // Cast i32 indices to the declared index type if it differs.
     auto castIfNeeded = [&](Value inds, RankedTensorType targetType) -> Value {
       if (targetType.getElementType() == rewriter.getI32Type()) {
         return inds;
