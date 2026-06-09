@@ -12,6 +12,7 @@ add_library(TTNNOpInvokeLib STATIC
   DataMovement/GatherOp.cpp
   DataMovement/PadOp.cpp
   DataMovement/PermuteOp.cpp
+  DataMovement/RepeatInterleaveOp.cpp
   Eltwise/Binary/EltwiseBinaryCompositeOp.cpp
   Eltwise/Binary/EltwiseBinaryOp.cpp
   Eltwise/Quantization/EltwiseQuantizationOp.cpp

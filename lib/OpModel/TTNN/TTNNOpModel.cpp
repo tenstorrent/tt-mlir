@@ -23,6 +23,7 @@
 #include "ttmlir/OpInvoke/TTNN/DataMovement/GatherOp.h"
 #include "ttmlir/OpInvoke/TTNN/DataMovement/PadOp.h"
 #include "ttmlir/OpInvoke/TTNN/DataMovement/PermuteOp.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/RepeatInterleaveOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Binary/EltwiseBinaryCompositeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Binary/EltwiseBinaryOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Quantization/EltwiseQuantizationOp.h"
@@ -4372,6 +4373,19 @@ llvm::Expected<size_t> OpModel<NLPConcatHeadsDecodeOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // RepeatInterleaveOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::RepeatInterleaveOpT
+buildRepeatInterleaveOpTFromMLIR(const unsigned int repeats, const int dim,
+                                 TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::RepeatInterleaveOpT repeatInterleaveOp;
+  repeatInterleaveOp.repeats = repeats;
+  repeatInterleaveOp.dim = dim;
+  repeatInterleaveOp.out = detail::getOutputTensorRefT(outputLayout);
+  return repeatInterleaveOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<RepeatInterleaveOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     const unsigned int repeats, const int dim, TTNNLayoutAttr outputLayout) {
@@ -4383,11 +4397,20 @@ llvm::Expected<OpConstraints> OpModel<RepeatInterleaveOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::RepeatInterleaveOpT repeatInterleaveOpNative =
+      buildRepeatInterleaveOpTFromMLIR(repeats, dim, outputLayout);
+
   auto repeatInterleaveOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::repeat_interleave, device, inputSpec,
-                                repeats, dim,
-                                detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::RepeatInterleaveOpResult result =
+        ttnn_op_invoke::callRepeatInterleave(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            repeatInterleaveOpNative, inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from RepeatInterleaveOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(),
@@ -4408,11 +4431,20 @@ llvm::Expected<size_t> OpModel<RepeatInterleaveOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::RepeatInterleaveOpT repeatInterleaveOpNative =
+      buildRepeatInterleaveOpTFromMLIR(repeats, dim, outputLayout);
+
   auto repeatInterleaveOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::repeat_interleave, device, inputSpec,
-                            repeats, dim,
-                            detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::RepeatInterleaveOpResult result =
+        ttnn_op_invoke::callRepeatInterleave(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+            repeatInterleaveOpNative, inputSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from RepeatInterleaveOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(repeatInterleaveOpQuery);
@@ -8302,8 +8334,8 @@ llvm::Expected<size_t> OpModel<ClampTensorOp>::getOpRuntime(
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 ::tt::target::ttnn::PermuteOpT
-buildPermuteOpTFromMLIR(llvm::ArrayRef<int64_t> permutation, llvm::APFloat padValue,
-                        TTNNLayoutAttr outputLayout) {
+buildPermuteOpTFromMLIR(llvm::ArrayRef<int64_t> permutation,
+                        llvm::APFloat padValue, TTNNLayoutAttr outputLayout) {
   ::tt::target::ttnn::PermuteOpT permuteOp;
   permuteOp.permutation = {permutation.begin(), permutation.end()};
   permuteOp.pad_value = padValue.convertToFloat();
@@ -8324,8 +8356,8 @@ llvm::Expected<OpConstraints> OpModel<PermuteOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  ::tt::target::ttnn::PermuteOpT permuteOpNative = buildPermuteOpTFromMLIR(
-      permutation, padValue, outputLayout);
+  ::tt::target::ttnn::PermuteOpT permuteOpNative =
+      buildPermuteOpTFromMLIR(permutation, padValue, outputLayout);
 
   auto permuteQuery = [=]() {
     ttnn_op_invoke::PermuteOpResult result = ttnn_op_invoke::callPermute(

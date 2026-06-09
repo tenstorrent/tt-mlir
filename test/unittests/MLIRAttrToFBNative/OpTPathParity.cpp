@@ -6047,4 +6047,114 @@ const std::initializer_list<mlir::tt::ttnn::PermuteOp> permuteOpList = {
 INSTANTIATE_TEST_SUITE_P(PermuteOpTPathParityTest, PermuteOpTPathParityTest,
                          ::testing::ValuesIn(permuteOpList));
 
+//===----------------------------------------------------------------------===//
+// RepeatInterleaveOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+::flatbuffers::Offset<::tt::target::ttnn::RepeatInterleaveOp>
+createRepeatInterleaveOp(::mlir::tt::FlatbufferObjectCache &cache,
+                         RepeatInterleaveOp op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::RepeatInterleaveOpT
+buildRepeatInterleaveOpTFromMLIR(const unsigned int repeats, const int dim,
+                                 TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::RepeatInterleaveOpT &opNativeOpModel,
+                       ::tt::target::ttnn::RepeatInterleaveOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::RepeatInterleaveOpT &op) {
+    op.input.reset();
+    op.memory_config.reset();
+    resetOutputTensorRefT(op.out);
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::RepeatInterleaveOp buildTestRepeatInterleaveOp(
+    uint32_t repeats = 2, int32_t dim = 0,
+    mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  llvm::SmallVector<int64_t> outputShape(defaultShape.begin(),
+                                         defaultShape.end());
+  outputShape[dim] = defaultShape[dim] * static_cast<int64_t>(repeats);
+
+  auto outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(outputShape, outputMemoryConfig)
+          : tiledL1BF16Type(outputShape);
+
+  return e.builder.create<mlir::tt::ttnn::RepeatInterleaveOp>(
+      loc, outputType, makeOnes(),
+      e.builder.getIntegerAttr(e.builder.getIntegerType(32, /*isSigned=*/false),
+                               repeats),
+      e.builder.getI32IntegerAttr(dim));
+}
+
+} // namespace
+
+using RepeatInterleaveOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::RepeatInterleaveOp>;
+
+TEST_P(RepeatInterleaveOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::RepeatInterleaveOp repeatInterleaveOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::RepeatInterleaveOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildRepeatInterleaveOpTFromMLIR(
+          repeatInterleaveOp.getRepeats(), repeatInterleaveOp.getDim(),
+          resolveOutputLayout(repeatInterleaveOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, repeatInterleaveOp.getInput());
+
+  auto fbOffset =
+      mlir::tt::ttnn::createRepeatInterleaveOp(cache, repeatInterleaveOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::RepeatInterleaveOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::RepeatInterleaveOp>
+    repeatInterleaveOpList = {
+        buildTestRepeatInterleaveOp(),
+        buildTestRepeatInterleaveOp(/*repeats=*/3),
+        buildTestRepeatInterleaveOp(/*repeats=*/2, /*dim=*/1),
+        buildTestRepeatInterleaveOp(
+            /*repeats=*/2, /*dim=*/0,
+            /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+        buildTestRepeatInterleaveOp(
+            /*repeats=*/3, /*dim=*/1,
+            /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(RepeatInterleaveOpTPathParityTest,
+                         RepeatInterleaveOpTPathParityTest,
+                         ::testing::ValuesIn(repeatInterleaveOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL
