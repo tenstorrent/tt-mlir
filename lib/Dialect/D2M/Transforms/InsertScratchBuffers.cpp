@@ -66,7 +66,24 @@ static MemRefType findTiledReferenceType(GenericOp genericOp) {
   if (MemRefType tiledInputType = findTiledType(genericOp.getInputs())) {
     return tiledInputType;
   }
-  return findTiledType(genericOp.getOutputs());
+  if (MemRefType tiledOutputType = findTiledType(genericOp.getOutputs())) {
+    return tiledOutputType;
+  }
+  // AD-HOC (tilize/untilize fusion experiment): when the generic's operands are
+  // row-major (because tilize/untilize were fused into the region), the tiled
+  // working type only exists on in-region buffers. Fall back to scanning the
+  // region for a tiled memref.alloc.
+  MemRefType regionTiled;
+  genericOp.getRegion(0).walk([&](memref::AllocOp allocOp) {
+    if (regionTiled) {
+      return;
+    }
+    auto memrefType = allocOp.getType();
+    if (getTileType(memrefType)) {
+      regionTiled = memrefType;
+    }
+  });
+  return regionTiled;
 }
 
 // Count the number of linalg.generic ops in the first region of a

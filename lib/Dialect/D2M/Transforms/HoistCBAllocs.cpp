@@ -93,16 +93,18 @@ private:
           auto newAllocOp = attachCBLayoutAttribute(rewriter, allocOp, 1);
           allocsToHoist.push_back(newAllocOp);
         } else if (allocOp->getAttr("d2m.synchronized_buffer")) {
-          if (allocOp->getAttr("d2m.compute_intermediate")) {
-            // Skip hoisting, these are fake buffers added by fusion that are
-            // guaranteed to not be used
-            if (allocOp->getAttrOfType<IntegerAttr>("address")) {
-              allocOp.emitError("compute intermediate buffer must not have "
-                                "address attribute");
-              return WalkResult::interrupt();
-            }
+          bool isComputeIntermediate =
+              allocOp->getAttr("d2m.compute_intermediate") != nullptr;
+          bool hasAddress =
+              allocOp->getAttrOfType<IntegerAttr>("address") != nullptr;
+          if (isComputeIntermediate && !hasAddress) {
+            // Single-tile compute intermediate: stays resident in DST, no
+            // address was allocated, skip hoisting (no CB needed).
           } else {
-            if (!allocOp->getAttrOfType<IntegerAttr>("address")) {
+            // Either a normal synchronized buffer, or a multi-tile
+            // compute-intermediate that Allocate gave an L1 address to (it
+            // can't fit DST and is read via copy_tile, so it needs a CB).
+            if (!hasAddress) {
               allocOp.emitError(
                   "synchronized buffer must have address attribute");
               return WalkResult::interrupt();

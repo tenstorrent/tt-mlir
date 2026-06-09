@@ -629,10 +629,17 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         if (allocOp->getAttr("d2m.scratch_buffer")) {
           numBuffers = 1;
         } else if (allocOp->getAttr("d2m.synchronized_buffer")) {
-          // Skip allocating, this is a contract from fusion and compute
-          // lowering saying we will not actually use this buffer and it's just
-          // a placeholder, so we can safely skip it.
-          if (!allocOp->getAttr("d2m.compute_intermediate")) {
+          // Skip allocating compute-intermediates, this is a contract from
+          // fusion saying the buffer stays in DST and is just a placeholder --
+          // BUT that only holds for a single tile. A multi-tile intermediate
+          // can't fit DST and is read back via copy_tile, so it needs a real
+          // L1-backed CB just like other synchronized buffers.
+          int64_t tileVolume = 1;
+          for (int64_t d :
+               mlir::cast<MemRefType>(allocOp.getType()).getShape()) {
+            tileVolume *= d;
+          }
+          if (!allocOp->getAttr("d2m.compute_intermediate") || tileVolume > 1) {
             numBuffers =
                 allocOp->getAttrOfType<IntegerAttr>("d2m.synchronized_buffer")
                     .getInt();
