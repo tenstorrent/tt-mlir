@@ -966,6 +966,12 @@ def _affine_map_from_lambda(fn):
     return AffineMap.get(len(dims), 0, exprs), spec
 
 
+def _to_dram_kernel_arg(lt: LazyTensor) -> LazyTensor:
+    if lt.layout.mem_space == ttcore.MemorySpace.DeviceDRAM:
+        return lt
+    return to_layout(lt, lt.layout.replace(mem_space=ttcore.MemorySpace.DeviceDRAM))
+
+
 def _emit_kernel_generic(
     kernel: "CompiledKernel",
     args,
@@ -974,6 +980,7 @@ def _emit_kernel_generic(
     block_factors,
     indexing_maps,
     iterator_types,
+    kernel_io_in_dram=None,
 ):
     """Append a d2m.GenericOp to the open host func that invokes `kernel`."""
     b = _get_scope()
@@ -1035,6 +1042,28 @@ def _emit_kernel_generic(
         )
     input_lts = lazy_args[: len(lazy_args) - num_outs]
     output_lts = lazy_args[len(lazy_args) - num_outs :]
+    user_output_lts = output_lts
+
+    if kernel_io_in_dram is None:
+        kernel_io_in_dram = config.kernel_io_in_dram
+    elif not isinstance(kernel_io_in_dram, bool):
+        raise _call_error(
+            f"kernel_io_in_dram must be a bool, got {type(kernel_io_in_dram).__name__}",
+            cause=TypeError(),
+        )
+
+    if kernel_io_in_dram:
+        dram_arg_cache = {}
+
+        def to_dram(lt):
+            key = id(lt)
+            if key not in dram_arg_cache:
+                dram_arg_cache[key] = _to_dram_kernel_arg(lt)
+            return dram_arg_cache[key]
+
+        input_lts = [to_dram(lt) for lt in input_lts]
+        output_lts = [to_dram(lt) for lt in output_lts]
+        lazy_args = input_lts + output_lts
 
     # Compile the kernel body in the current builder's context. D2MCompiler
     # picks up b.ctx via get_default_loc_context.
@@ -1109,6 +1138,13 @@ def _emit_kernel_generic(
     for i, lt in enumerate(output_lts):
         lt.value = generic.results[i]
         lt.generation = b.generation
+    if kernel_io_in_dram:
+        for i, (user_lt, kernel_lt) in enumerate(zip(user_output_lts, output_lts)):
+            user_lt.layout = kernel_lt.layout
+            user_lt.value = generic.results[i]
+            user_lt.generation = b.generation
+            user_lt.materialized = None
+            user_lt.is_view = kernel_lt.is_view
 
 
 class CompiledKernel:
@@ -1135,6 +1171,7 @@ class CompiledKernel:
         block_factors=None,
         indexing_maps=None,
         iterator_types=None,
+        kernel_io_in_dram=None,
     ):
         _emit_kernel_generic(
             self,
@@ -1144,6 +1181,7 @@ class CompiledKernel:
             block_factors=block_factors,
             indexing_maps=indexing_maps,
             iterator_types=iterator_types,
+            kernel_io_in_dram=kernel_io_in_dram,
         )
 
 
