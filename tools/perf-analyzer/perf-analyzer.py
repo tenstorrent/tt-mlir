@@ -111,7 +111,12 @@ def collect_device_timeline(profile_log: pathlib.Path) -> tuple[list[dict], int]
 
         open_zones: dict[tuple, int] = {}
         kernel_name: str = ""
-        min_cycle, max_cycle = float("inf"), 0
+        # Track the timestamp span per dispatch (run host id) rather than one
+        # global min/max. A global max-min spans the whole timeline including
+        # the host-side idle gaps between dispatches, which on multi-op programs
+        # (e.g. softmax = reduce/elementwise/reduce) dwarfs the actual on-device
+        # time. Summing per-dispatch spans excludes those gaps.
+        disp_span: dict[tuple, list] = defaultdict(lambda: [float("inf"), 0])
         IDLE_ZONES = {"IDLE_ERISC-FW", "SUBORDINATE_IDLE_ERISC-FW"}
 
         for row in reader:
@@ -119,8 +124,9 @@ def collect_device_timeline(profile_log: pathlib.Path) -> tuple[list[dict], int]
 
             cycles = int(row["time[cycles since reset]"])
             if row["zone name"] not in IDLE_ZONES:
-                min_cycle = min(min_cycle, cycles)
-                max_cycle = max(max_cycle, cycles)
+                span = disp_span[(row["core_x"], row["core_y"], row["run host id"])]
+                span[0] = min(span[0], cycles)
+                span[1] = max(span[1], cycles)
 
             if row["zone name"].startswith("kernel_outer"):
                 kernel_name = row["zone name"][13:]
@@ -158,7 +164,10 @@ def collect_device_timeline(profile_log: pathlib.Path) -> tuple[list[dict], int]
 
                 result.append(zone)
 
-        return result, max_cycle - min_cycle
+        # Sum per-dispatch spans so inter-dispatch host idle is excluded; for a
+        # single-dispatch trace this equals the old global max-min.
+        wall_cycles = sum(hi - lo for lo, hi in disp_span.values())
+        return result, wall_cycles
 
 
 def aggregate_by_zone(
@@ -203,7 +212,15 @@ def get_runtimes(rows: list[dict], wall_cycles: int) -> dict[str, float]:
     '''returns a dict with fields "device wall time", "device kernel time", "compute share", "wait share"'''
 
     trisc_fw_cycles = sum(r["duration"] for r in rows if r["name"] == "TRISC-FW")
-    kernel_cycles = sum(r["duration"] for r in rows if r["name"] == "TRISC-KERNEL")
+    trisc_kernels: dict[tuple, list] = defaultdict(list)
+    for row in rows:
+        if row["name"] == "TRISC-KERNEL":
+            key = (row["core"], row["host_id"])
+            trisc_kernels[key].append(row["start"])
+            trisc_kernels[key].append(row["end"])
+
+    kernel_cycles = sum(max(trisc) - min(trisc) for trisc in trisc_kernels.values())
+
     return {
         "device wall time": wall_cycles,
         "device kernel time": kernel_cycles,
@@ -232,7 +249,7 @@ def print_runtimes(rows: list[dict], wall_cycles: int, freq_mhz: float) -> None:
         print(f"{k:<{label_w}}\t{v:>{val_w}}")
 
     print(
-        f'\nNote:\ndevice wall time = max - min timestamp across the trace (includes host-side gaps between dispatches)\ncompute share = sum(TRISC-KERNEL) / sum(TRISC-FW) — fraction of firmware-active time the math units were inside a kernel\nwait share = time spent in any of the following: {", ".join(z for z in WAIT_ZONES)} / kernel_main'
+        f'\nNote:\ndevice wall time = sum over dispatches of (max - min timestamp within that dispatch) — excludes host-side idle gaps between dispatches\ndevice kernel time = sum over (core, dispatch) of the TRISC-KERNEL span (max end - min start), collapsing the 3 concurrent TRISCs\ncompute share = device kernel time / sum(TRISC-FW) — fraction of firmware-active time the math units were inside a kernel\nwait share = time spent in any of the following: {", ".join(z for z in WAIT_ZONES)} / kernel_main'
     )
 
 

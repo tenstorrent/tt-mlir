@@ -41,7 +41,7 @@ rm -rf "$LOG_PATH/.logs"
 #   -m  treat the target as a module (runpy: equivalent to `python -m pytest`)
 #   -o  profiler artifacts output folder (its .logs/ is wiped per run)
 #   -v  verbose output
-python -m tracy -r -m -v -o "$LOG_PATH" pytest "$1"
+python -m tracy -r -v -o "$LOG_PATH" --profiler-capture-perf-counters=all -m pytest "$1"
 
 echo "tracy file      -> $LOG_PATH/reports/<timestamp>/tracy_profile_log_host.tracy"
 echo "ops perf report -> $LOG_PATH/reports/<timestamp>/ops_perf_results_<timestamp>.csv"
