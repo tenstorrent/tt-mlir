@@ -6528,4 +6528,36 @@ def TTIR_MoeExpertTokenRemapOp : TTIR_NamedOp<"moe_expert_token_remap"> {
     let hasVerifier = 1;
 }
 
+//===----------------------------------------------------------------------===//
+// TTIR raw hand-written kernel (lowers to ttnn.generic)
+//===----------------------------------------------------------------------===//
+
+def TTIR_RawKernelOp : TTIR_Op<"raw_kernel"> {
+  let summary = "Hand-written kernel placeholder, lowered to ttnn.generic.";
+  let description = [{
+    Carries a verbatim tt-metal C++ kernel from a
+    `stablehlo.custom_call @tt.raw_kernel` to the TTIR -> TTNN conversion,
+    which materialises a stock `ttnn.generic`. Opaque to TTIR: operands and
+    results are fully typed so Shardy and shape inference compose, but the
+    kernel body is never introspected.
+
+    Attributes:
+    - `kernel_source`: verbatim C++ kernel source (one source shared by the
+      reader / compute / writer RISC threads).
+    - `arg_roles`: comma-separated per-operand roles, e.g. `"in,in,in,out"`;
+      `out` entries correspond positionally to `results`.
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                       StrAttr:$kernel_source,
+                       StrAttr:$arg_roles);
+  let results = (outs Variadic<AnyRankedTensor>:$results);
+
+  let assemblyFormat = [{
+    `(` $inputs `)` attr-dict `:` `(` type($inputs) `)` `->` `(` type($results) `)`
+  }];
+
+  let hasVerifier = 1;
+}
+
 #endif

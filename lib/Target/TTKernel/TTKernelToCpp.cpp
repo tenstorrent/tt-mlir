@@ -338,6 +338,15 @@ cloneEntryIntoStandaloneModule(func::FuncOp origEntry, ThreadType threadType) {
 
 LogicalResult translateKernelFuncToCpp(func::FuncOp entry,
                                        llvm::raw_ostream &os) {
+  // Raw-source escape hatch: a kernel func carrying a verbatim C++ source
+  // string is emitted as-is, bypassing the ttkernel->emitc translation. Lets a
+  // hand-written tt-metal kernel ride through stock ttnn.generic as SOURCE_CODE.
+  if (auto rawSource =
+          entry->getAttrOfType<mlir::StringAttr>("ttkernel.raw_source")) {
+    os << rawSource.getValue();
+    return success();
+  }
+
   if (!entry->hasAttr(ThreadTypeAttr::name)) {
     return failure();
   }

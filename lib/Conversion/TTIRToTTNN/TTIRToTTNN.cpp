@@ -17,8 +17,10 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Types.h"
@@ -3439,6 +3441,256 @@ public:
   }
 };
 
+// Lowers the opaque `ttir.raw_kernel` carrier (a hand-written tt-metal kernel
+// emitted by tt-xla for the b1 DRAM-streaming selective-experts matmul) to a
+// stock `ttnn.generic`. The kernel config (tile counts, worker-core count, CB
+// sizes) is computed here from the *local* post-Shardy operand shapes; the
+// verbatim C++ source rides on a module-level func carrying ttkernel.raw_source,
+// which TTKernelToCpp emits as SOURCE_CODE. No tt-lang DSL, no Python bridge.
+//
+// Operand order (set by tt-xla custom_ops.stream_experts_matmul):
+//   0 in0   [R0, 1, K]  R0 = T (gate_up, reused k times) or R (down)
+//   1 in1   [E, K, N]   experts stacked (bfp8)
+//   2 index [1, R]      int32 selected-expert indices
+//   3 out   [R, 1, N]   destination, tied to the op's single result
+class RawKernelToGenericConversionPattern
+    : public OpConversionPattern<ttir::RawKernelOp> {
+public:
+  using OpConversionPattern<ttir::RawKernelOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::RawKernelOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    MLIRContext *ctx = rewriter.getContext();
+    constexpr int64_t kTile = 32;
+
+    ValueRange ins = adaptor.getInputs();
+    if (ins.size() != 4 || op.getResults().size() != 1) {
+      return rewriter.notifyMatchFailure(
+          op, "expected 4 operands (in0,in1,index,out) and 1 result");
+    }
+    auto shapeOf = [](Value v) {
+      return mlir::cast<RankedTensorType>(v.getType()).getShape();
+    };
+    ArrayRef<int64_t> in0Shape = shapeOf(ins[0]);
+    ArrayRef<int64_t> in1Shape = shapeOf(ins[1]);
+    ArrayRef<int64_t> outShape = shapeOf(ins[3]);
+    if (in0Shape.size() != 3 || in1Shape.size() != 3 || outShape.size() != 3) {
+      return rewriter.notifyMatchFailure(op, "operands must be rank-3");
+    }
+
+    const int64_t R = outShape[0];
+    const int64_t in0Rows = in0Shape[0];
+    const int64_t K = in0Shape.back();
+    const int64_t E = in1Shape[0];
+    const int64_t N = in1Shape.back();
+    if (K % kTile != 0 || N % kTile != 0) {
+      return rewriter.notifyMatchFailure(op, "K and N must be tile-aligned");
+    }
+    const int64_t Kt = K / kTile;
+    const int64_t Nt = N / kTile;
+    const int64_t kReuse =
+        std::max<int64_t>(1, R / std::max<int64_t>(in0Rows, 1));
+    const int64_t idxTiles = (R + kTile - 1) / kTile;
+
+    // num_cores = largest divisor of Nt that is <= 12 (the worker-core cap).
+    constexpr int64_t kMaxCores = 12;
+    int64_t numCores = 1;
+    for (int64_t nc = std::min<int64_t>(Nt, kMaxCores); nc >= 1; --nc) {
+      if (Nt % nc == 0) {
+        numCores = nc;
+        break;
+      }
+    }
+    const int64_t perCoreN = Nt / numCores;
+
+    // Byte/format constants -- must match the kernel + weight_dtype_override.
+    constexpr int64_t kBf16Tile = kTile * kTile * 2;  // 2048
+    constexpr int64_t kBfp8Tile = 1024 + 64;          // 1088
+    constexpr int64_t kBfp4Tile = 512 + 64;           // 576
+    constexpr int64_t kInt32Tile = kTile * kTile * 4; // 4096
+    // tt::DataFormat enum values the kernel reads from its CT args.
+    constexpr int64_t kDfFloat16b = 5, kDfBfp8b = 6, kDfBfp4b = 7, kDfInt32 = 8;
+    // CB indices (working L1 scratch) the kernel uses.
+    constexpr int64_t kCbIn0 = 0, kCbIn1 = 1, kCbIndex = 2, kCbOut = 16;
+
+    // Apply the requested weight format to in1 (expert weights). The op's
+    // ttcore.weight_dtype (propagated from @tt.weight_dtype_override by
+    // TTIRPropagateWeightDtype) may name a block format (bfp8/bfp4) that must be
+    // produced host-side (from_device -> typecast -> to_device); without this the
+    // weights stay bf16. The DRAM-streaming win at batch=1 comes from bfp8 here.
+    Value in1 = ins[1];
+    if (auto dtAttr =
+            op->getAttrOfType<mlir::StringAttr>("ttcore.weight_dtype")) {
+      std::optional<ttcore::DataType> target =
+          ttcore::DataTypeStringToEnum(dtAttr.getValue());
+      auto wType = mlir::cast<RankedTensorType>(in1.getType());
+      ttcore::DataType cur =
+          mlir::cast<ttnn::TTNNLayoutAttr>(wType.getEncoding()).getDataType();
+      if (target && *target != cur &&
+          (*target == ttcore::DataType::BFP_BFloat8 ||
+           *target == ttcore::DataType::BFP_BFloat4) &&
+          (cur == ttcore::DataType::BFloat16 ||
+           cur == ttcore::DataType::Float32)) {
+        auto hostIn = ttnn::utils::RankedTensorTypeFactory::create(
+            wType, ttnn::BufferType::SystemMemory);
+        auto fromDev =
+            rewriter.create<ttnn::FromDeviceOp>(op.getLoc(), hostIn, in1);
+        auto hostOut =
+            ttnn::utils::RankedTensorTypeFactory::create(hostIn, *target);
+        auto cast = rewriter.create<ttnn::TypecastOp>(op.getLoc(), hostOut,
+                                                      fromDev.getResult());
+        auto devOut =
+            ttnn::utils::RankedTensorTypeFactory::create(wType, *target);
+        mlir::Value device = ttnn::utils::getOrInsertDevice(rewriter, op);
+        in1 = rewriter
+                  .create<ttnn::ToDeviceOp>(op.getLoc(), devOut,
+                                            cast.getResult(), device)
+                  .getResult();
+      }
+    }
+
+    // Kernel in1 page size / data format track in1's actual storage dtype (a
+    // mismatch reads garbage and yields zeros).
+    ttcore::DataType in1Dtype =
+        mlir::cast<ttnn::TTNNLayoutAttr>(
+            mlir::cast<RankedTensorType>(in1.getType()).getEncoding())
+            .getDataType();
+    int64_t in1Page, in1Df;
+    switch (in1Dtype) {
+    case ttcore::DataType::BFloat16:
+      in1Page = kBf16Tile;
+      in1Df = kDfFloat16b;
+      break;
+    case ttcore::DataType::BFP_BFloat8:
+      in1Page = kBfp8Tile;
+      in1Df = kDfBfp8b;
+      break;
+    case ttcore::DataType::BFP_BFloat4:
+      in1Page = kBfp4Tile;
+      in1Df = kDfBfp4b;
+      break;
+    default:
+      return rewriter.notifyMatchFailure(op, "unsupported in1 storage dtype");
+    }
+
+    auto named = [&](StringRef n, int64_t v) -> Attribute {
+      return ttnn::KernelArgNamedArgAttr::get(ctx, rewriter.getStringAttr(n),
+                                              static_cast<uint32_t>(v));
+    };
+    // Compile-time args (named scalars), identical across the three threads.
+    SmallVector<Attribute> ctArgs = {
+        named("iem_cb_in0", kCbIn0),
+        named("iem_cb_in1", kCbIn1),
+        named("iem_cb_index", kCbIndex),
+        named("iem_cb_out", kCbOut),
+        named("iem_k_tiles", Kt),
+        named("iem_n_tiles", Nt),
+        named("iem_num_rows", R),
+        named("iem_num_experts", E),
+        named("iem_in0_page", kBf16Tile),
+        named("iem_in1_page", in1Page),
+        named("iem_index_page", kInt32Tile),
+        named("iem_out_page", kBf16Tile),
+        named("iem_in0_df", kDfFloat16b),
+        named("iem_in1_df", in1Df),
+        named("iem_out_df", kDfFloat16b),
+        named("iem_index_df", kDfInt32),
+        named("iem_per_core_n", perCoreN),
+        named("iem_k_reuse", kReuse)};
+
+    // Worker cores: row-major on the 8-wide Tensix grid, one 1x1 range each.
+    SmallVector<ttnn::CoreCoordAttr> coreCoords;
+    SmallVector<ttnn::CoreRangeAttr> coreRanges;
+    for (int64_t i = 0; i < numCores; ++i) {
+      auto c = ttnn::CoreCoordAttr::get(ctx, static_cast<uint64_t>(i % 8),
+                                        static_cast<uint64_t>(i / 8));
+      coreCoords.push_back(c);
+      coreRanges.push_back(ttnn::CoreRangeAttr::get(ctx, c, c));
+    }
+    auto coreRangeSet = ttnn::CoreRangeSetAttr::get(ctx, coreRanges);
+
+    // Per-core RT args (iem_core_id = list position) for the NOC threads.
+    SmallVector<ttnn::CoreRuntimeArgsAttr> perCoreRtArgs;
+    for (int64_t i = 0; i < numCores; ++i) {
+      SmallVector<Attribute> a = {named("iem_core_id", i)};
+      perCoreRtArgs.push_back(
+          ttnn::CoreRuntimeArgsAttr::get(ctx, coreCoords[i], a));
+    }
+    // Common RT args: base addresses of the 4 io tensors (in declaration order;
+    // the runtime resolves them from io_tensors[i] at launch).
+    SmallVector<Attribute> commonAddrArgs;
+    for (size_t i = 0; i < 4; ++i) {
+      commonAddrArgs.push_back(ttnn::KernelArgAddressOfTensorAttr::get(ctx, i));
+    }
+
+    // One module-level func carries the verbatim kernel source.
+    auto moduleOp = op->getParentOfType<ModuleOp>();
+    SymbolTable symbolTable(moduleOp);
+    std::string funcName = "raw_kernel_main";
+    for (unsigned s = 0; symbolTable.lookup(funcName); ++s) {
+      funcName = "raw_kernel_main_" + std::to_string(s);
+    }
+    {
+      OpBuilder::InsertionGuard g(rewriter);
+      rewriter.setInsertionPointToStart(moduleOp.getBody());
+      auto kernelFunc = rewriter.create<func::FuncOp>(
+          op.getLoc(), funcName, rewriter.getFunctionType({}, {}));
+      kernelFunc.setPrivate();
+      kernelFunc->setAttr("ttkernel.raw_source", op.getKernelSourceAttr());
+      rewriter.setInsertionPointToStart(kernelFunc.addEntryBlock());
+      rewriter.create<func::ReturnOp>(op.getLoc());
+    }
+    auto symbolRef = FlatSymbolRefAttr::get(ctx, funcName);
+
+    // Three kernels share the source: reader (ncrisc) + writer (brisc) carry
+    // the per-core core_id and the io-buffer addresses; compute (trisc) carries
+    // only the CT args.
+    SmallVector<Attribute> kernels = {
+        ttnn::ReadKernelAttr::get(ctx, symbolRef, coreRangeSet, commonAddrArgs,
+                                  perCoreRtArgs, ctArgs),
+        ttnn::ComputeKernelAttr::get(
+            ctx, symbolRef, coreRangeSet, ttnn::ComputeKernelMathFidelity::LoFi,
+            /*fp32_dest_acc_en=*/true, /*dst_full_sync_en=*/false,
+            ArrayRef<ttnn::ComputeKernelUnpackToDestMode>{
+                ttnn::ComputeKernelUnpackToDestMode::Default},
+            /*bfp8_pack_precise=*/false, /*math_approx_mode=*/false,
+            /*common_rt_args=*/ArrayRef<Attribute>{},
+            /*rt_args=*/ArrayRef<ttnn::CoreRuntimeArgsAttr>{}, ctArgs),
+        ttnn::WriteKernelAttr::get(ctx, symbolRef, coreRangeSet, commonAddrArgs,
+                                   perCoreRtArgs, ctArgs)};
+
+    // CBs: working L1 scratch (no global buffer backing).
+    auto makeCb = [&](int64_t idx, ttcore::DataType dt, int64_t page,
+                      int64_t total) -> ttnn::KernelCBAttr {
+      auto fmt = ttnn::KernelCBFormatAttr::get(
+          ctx, static_cast<uint32_t>(idx), dt, static_cast<uint32_t>(page));
+      return ttnn::KernelCBAttr::get(
+          ctx, static_cast<uint32_t>(total), coreRangeSet,
+          ArrayRef<ttnn::KernelCBFormatAttr>{fmt},
+          ttnn::KernelCBGlobalBufferAddressOfTensorAttr{});
+    };
+    SmallVector<ttnn::KernelCBAttr> cbs = {
+        makeCb(kCbIn0, ttcore::DataType::BFloat16, kBf16Tile,
+               2 * Kt * kBf16Tile),
+        makeCb(kCbIn1, in1Dtype, in1Page, 3 * Kt * in1Page),
+        makeCb(kCbIndex, ttcore::DataType::Int32, kInt32Tile,
+               idxTiles * kInt32Tile),
+        makeCb(kCbOut, ttcore::DataType::BFloat16, kBf16Tile, 2 * kBf16Tile)};
+
+    auto program = ttnn::ProgramAttr::get(
+        ctx, kernels, cbs, ArrayRef<ttnn::KernelSemaphoreAttr>{});
+
+    // ttnn.generic is DPS (no SSA result): the "out" destination operand is
+    // written in place. io_tensors = [in0, in1, index, out]; the op's single
+    // result aliases the out buffer (ins[3]).
+    SmallVector<Value> ios = {ins[0], in1, ins[2], ins[3]};
+    rewriter.setInsertionPoint(op);
+    rewriter.create<ttnn::GenericOp>(op.getLoc(), ios, ValueRange{}, program);
+    rewriter.replaceOp(op, ins[3]);
+    return success();
+  }
+};
 } // namespace
 
 namespace mlir::tt {
@@ -3448,7 +3700,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // clang-format off
   // ANCHOR: op_rewriter_pattern_set
   patterns
-      .add<TensorEmptyConversionPattern,
+      .add<RawKernelToGenericConversionPattern,
+           TensorEmptyConversionPattern,
            NamedFullConversionPattern<ttir::ZerosOp, ttnn::ZerosOp>,
            NamedFullConversionPattern<ttir::OnesOp, ttnn::OnesOp>,
            FullOpConversionPattern,

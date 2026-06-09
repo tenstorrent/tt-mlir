@@ -8379,4 +8379,45 @@ static bool anyZero(mlir::ElementsAttr elems) {
                                    subtract, subtract);
 }
 
+//===----------------------------------------------------------------------===//
+// RawKernelOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::RawKernelOp::verify() {
+  if (getInputs().empty()) {
+    return emitOpError("raw kernel must have at least one input operand.");
+  }
+  if (getKernelSource().empty()) {
+    return emitOpError("`kernel_source` attribute must not be empty.");
+  }
+
+  // arg_roles: one comma-separated "in"/"out" token per input; "out" tokens
+  // correspond positionally to results (the destination buffers the runtime
+  // hands back as the op's outputs).
+  llvm::SmallVector<llvm::StringRef> tokens;
+  getArgRoles().split(tokens, ',');
+  if (tokens.size() != getInputs().size()) {
+    return emitOpError("`arg_roles` token count (")
+           << tokens.size() << ") must match number of inputs ("
+           << getInputs().size() << ").";
+  }
+
+  size_t outCount = 0;
+  for (llvm::StringRef token : tokens) {
+    llvm::StringRef trimmed = token.trim();
+    if (trimmed == "out") {
+      ++outCount;
+    } else if (trimmed != "in") {
+      return emitOpError("`arg_roles` token must be \"in\" or \"out\", got: \"")
+             << trimmed << "\".";
+    }
+  }
+  if (outCount != getResults().size()) {
+    return emitOpError("number of \"out\" roles (")
+           << outCount << ") must match number of results ("
+           << getResults().size() << ").";
+  }
+  return success();
+}
+
 } // namespace mlir::tt::ttir

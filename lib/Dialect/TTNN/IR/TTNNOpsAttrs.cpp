@@ -999,8 +999,12 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
     ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
     ::llvm::ArrayRef<mlir::Attribute> args) {
   for (auto arg : args) {
+    // Named args carry a hand-written kernel's compile-time scalar constants
+    // (read via get_compile_time_arg_val); createKernelArgs bakes their values
+    // into the flatbuffer and the runtime feeds them as compile-time args.
     if (!llvm::isa<mlir::tt::ttnn::KernelArgCBBufferIndexAttr,
                    mlir::tt::ttnn::KernelArgScalarAttr,
+                   mlir::tt::ttnn::KernelArgNamedArgAttr,
                    mlir::tt::ttnn::KernelArgSemaphoreAtAttr>(arg)) {
       return emitError() << "Unexpected compile time argument";
     }

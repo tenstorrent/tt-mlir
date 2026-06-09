@@ -8984,6 +8984,80 @@ static void addCacheOpsConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOSamplingConversionPattern>(typeConverter, ctx);
 }
 
+namespace {
+// Lowers `stablehlo.custom_call @tt.raw_kernel` (a hand-written tt-metal kernel
+// emitted by tt-xla, carrying its verbatim C++ source + arg_roles in
+// mhlo.frontend_attributes) to the opaque `ttir.raw_kernel` carrier. The
+// TTIR -> TTNN conversion later materialises a stock ttnn.generic from it.
+class StableHLORawKernelConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (adaptor.getCallTargetNameAttr() != "tt.raw_kernel") {
+      return failure();
+    }
+
+    if (adaptor.getOperands().empty() || srcOp.getResults().empty()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tt.raw_kernel custom call must have at least one operand and "
+                 "one result.");
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tt.raw_kernel custom call must have mhlo.frontend_attributes.");
+    }
+
+    auto kernelSourceAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("kernel_source");
+    if (!kernelSourceAttr || kernelSourceAttr.getValue().empty()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tt.raw_kernel requires a non-empty `kernel_source` frontend "
+                 "attribute.");
+    }
+
+    auto argRolesAttr = frontendAttributes.getAs<mlir::StringAttr>("arg_roles");
+    if (!argRolesAttr || argRolesAttr.getValue().empty()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tt.raw_kernel requires a non-empty `arg_roles` frontend "
+                 "attribute.");
+    }
+
+    SmallVector<Type> resultTypes;
+    resultTypes.reserve(srcOp.getNumResults());
+    for (Type resultType : srcOp.getResultTypes()) {
+      Type converted = getTypeConverter()->convertType(resultType);
+      if (!converted) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Failed to convert tt.raw_kernel result type.");
+      }
+      resultTypes.push_back(converted);
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::RawKernelOp>(
+        srcOp, resultTypes, adaptor.getOperands(),
+        /*kernel_source=*/kernelSourceAttr, /*arg_roles=*/argRolesAttr);
+
+    return success();
+  }
+};
+} // namespace
+
+static void addRawKernelConversionPattern(MLIRContext *ctx,
+                                          RewritePatternSet &patterns,
+                                          TypeConverter &typeConverter) {
+  patterns.add<StableHLORawKernelConversionPattern>(typeConverter, ctx);
+}
+
 static void
 addOptimizationBarrierOpConversionPattern(MLIRContext *ctx,
                                           RewritePatternSet &patterns,
@@ -9503,6 +9577,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
   addAsinhOpConversionPattern(ctx, patterns, typeConverter);
   addSortOpConversionPattern(ctx, patterns, typeConverter);
   addCacheOpsConversionPattern(ctx, patterns, typeConverter);
+  addRawKernelConversionPattern(ctx, patterns, typeConverter);
   addOptimizationBarrierOpConversionPattern(ctx, patterns, typeConverter);
   addScaledDotProductAttentionDecodeOpConversionPattern(ctx, patterns,
                                                         typeConverter);

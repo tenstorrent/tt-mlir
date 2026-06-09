@@ -108,6 +108,8 @@ inline ::tt::DataFormat toDataFormat(::tt::target::DataType dataType) {
     return ::tt::DataFormat::Int32;
   case ::tt::target::DataType::BFP_BFloat8:
     return ::tt::DataFormat::Bfp8_b;
+  case ::tt::target::DataType::BFP_BFloat4:
+    return ::tt::DataFormat::Bfp4_b;
   default:
     LOG_FATAL("Unsupported data type");
   }
