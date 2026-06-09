@@ -311,12 +311,16 @@ mlir::LogicalResult RoPERotateHalfFusingPattern::matchAndRewrite(
 mlir::LogicalResult RoPEComplexRotationFusingPattern::matchAndRewrite(
     ConcatOp srcOp, mlir::PatternRewriter &rewriter) const {
 
-  // Must concat on last dimension with exactly 2 operands.
+  // Must concat on last dimension with exactly 2 operands. The op is defined on
+  // 4D tensors [batch, heads, seq, head_dim], but torch-xla traces drop the
+  // batch dim and emit rank-3 [seq, heads, head_dim] rope; we handle that by
+  // reshaping to 4D below.
   auto resultType = mlir::cast<RankedTensorType>(srcOp.getType());
-  if (resultType.getRank() != 4) {
+  int64_t rank = resultType.getRank();
+  if (rank != 3 && rank != 4) {
     return failure();
   }
-  if (srcOp.getDim() != resultType.getRank() - 1) {
+  if (srcOp.getDim() != rank - 1) {
     return failure();
   }
   if (srcOp.getNumOperands() != 2) {
@@ -383,9 +387,9 @@ mlir::LogicalResult RoPEComplexRotationFusingPattern::matchAndRewrite(
     return failure();
   }
 
-  // Input must be 4D.
+  // Input rank must match the concat result rank (3 or 4, as checked above).
   auto inputType = mlir::cast<RankedTensorType>(xSource.getType());
-  if (inputType.getRank() != 4) {
+  if (inputType.getRank() != rank) {
     return failure();
   }
 
@@ -426,7 +430,7 @@ mlir::LogicalResult RoPEComplexRotationFusingPattern::matchAndRewrite(
   auto cosHalfType = mlir::cast<RankedTensorType>(cosHalf.getType());
   auto sinHalfType = mlir::cast<RankedTensorType>(sinHalf.getType());
 
-  int64_t lastDim = resultType.getRank() - 1;
+  int64_t lastDim = rank - 1;
 
   SmallVector<int64_t> cosFullShape(cosHalfType.getShape());
   cosFullShape[lastDim] *= 2;
@@ -438,15 +442,64 @@ mlir::LogicalResult RoPEComplexRotationFusingPattern::matchAndRewrite(
   auto sinFullType =
       RankedTensorType::get(sinFullShape, sinHalfType.getElementType());
 
-  auto cosFull = rewriter.create<ConcatOp>(
+  Value cosFull = rewriter.create<ConcatOp>(
       srcOp.getLoc(), cosFullType, ValueRange{cosHalf, cosHalf},
       rewriter.getSI32IntegerAttr(lastDim));
-  auto sinFull = rewriter.create<ConcatOp>(
+  Value sinFull = rewriter.create<ConcatOp>(
       srcOp.getLoc(), sinFullType, ValueRange{sinHalf, sinHalf},
       rewriter.getSI32IntegerAttr(lastDim));
 
-  rewriter.replaceOpWithNewOp<RotaryEmbeddingOp>(srcOp, resultType, xSource,
-                                                 cosFull, sinFull);
+  if (rank == 4) {
+    rewriter.replaceOpWithNewOp<RotaryEmbeddingOp>(srcOp, resultType, xSource,
+                                                   cosFull, sinFull);
+    return success();
+  }
+
+  // Rank-3 path: the op requires 4D [batch, heads, seq, head_dim] with seq at
+  // dim -2. The traced tensors are [seq, heads, head_dim], so swap seq/heads
+  // and prepend a unit batch dim, run the op, then invert the layout on the
+  // result. head_dim (the rotated last dim) is untouched throughout.
+  auto loc = srcOp.getLoc();
+
+  // [seq, heads, head_dim] -> permute(1,0,2) -> reshape -> [1, heads, seq,
+  // dim].
+  auto toRopeLayout = [&](Value v) -> Value {
+    auto t = mlir::cast<RankedTensorType>(v.getType());
+    ArrayRef<int64_t> s = t.getShape();
+    auto permType = RankedTensorType::get({s[1], s[0], s[2]},
+                                          t.getElementType(), t.getEncoding());
+    Value permuted = rewriter.create<PermuteOp>(loc, permType, v,
+                                                SmallVector<int64_t>{1, 0, 2});
+    SmallVector<int64_t> shape4D{1, s[1], s[0], s[2]};
+    auto type4D =
+        RankedTensorType::get(shape4D, t.getElementType(), t.getEncoding());
+    SmallVector<int32_t> shape4Di(shape4D.begin(), shape4D.end());
+    return rewriter.create<ReshapeOp>(loc, type4D, permuted,
+                                      rewriter.getI32ArrayAttr(shape4Di));
+  };
+
+  Value x4D = toRopeLayout(xSource);
+  Value cos4D = toRopeLayout(cosFull);
+  Value sin4D = toRopeLayout(sinFull);
+
+  auto x4DType = mlir::cast<RankedTensorType>(x4D.getType());
+  auto rope =
+      rewriter.create<RotaryEmbeddingOp>(loc, x4DType, x4D, cos4D, sin4D);
+
+  // Invert: [1, heads, seq, dim] -> reshape -> [heads, seq, dim] ->
+  // permute(1,0,2) -> [seq, heads, dim] (== resultType).
+  ArrayRef<int64_t> rs = resultType.getShape();
+  auto squeezeType =
+      RankedTensorType::get({rs[1], rs[0], rs[2]}, resultType.getElementType(),
+                            resultType.getEncoding());
+  SmallVector<int32_t> squeezeShape{static_cast<int32_t>(rs[1]),
+                                    static_cast<int32_t>(rs[0]),
+                                    static_cast<int32_t>(rs[2])};
+  Value squeezed =
+      rewriter.create<ReshapeOp>(loc, squeezeType, rope.getResult(),
+                                 rewriter.getI32ArrayAttr(squeezeShape));
+  rewriter.replaceOpWithNewOp<PermuteOp>(srcOp, resultType, squeezed,
+                                         SmallVector<int64_t>{1, 0, 2});
   return success();
 }
 

@@ -123,6 +123,56 @@ module {
   }
 }
 
+// Rank-3 expanded RoPE as emitted by torch-xla traces: the batch dim is
+// dropped, leaving [seq, heads, head_dim]. The op is 4D, so fusion reshapes
+// to [batch, heads, seq, head_dim] (seq moved to dim -2) and back.
+// Single head (q after tensor-parallel sharding).
+// CHECK-LABEL: @rope_expanded_rank3_single_head
+// CHECK: "ttir.rotary_embedding"
+// CHECK-NOT: ttir.subtract
+module {
+  func.func @rope_expanded_rank3_single_head(%x: tensor<8x1x64xbf16>, %cos_h: tensor<8x1x32xbf16>, %sin_h: tensor<8x1x32xbf16>) -> tensor<8x1x64xbf16> {
+    %first = "ttir.slice_static"(%x) <{begins = [0:i32, 0:i32, 0:i32], ends = [8:i32, 1:i32, 32:i32], step = [1:i32, 1:i32, 1:i32]}> : (tensor<8x1x64xbf16>) -> tensor<8x1x32xbf16>
+    %second = "ttir.slice_static"(%x) <{begins = [0:i32, 0:i32, 32:i32], ends = [8:i32, 1:i32, 64:i32], step = [1:i32, 1:i32, 1:i32]}> : (tensor<8x1x64xbf16>) -> tensor<8x1x32xbf16>
+
+    %fc = "ttir.multiply"(%first, %cos_h) : (tensor<8x1x32xbf16>, tensor<8x1x32xbf16>) -> tensor<8x1x32xbf16>
+    %ss = "ttir.multiply"(%second, %sin_h) : (tensor<8x1x32xbf16>, tensor<8x1x32xbf16>) -> tensor<8x1x32xbf16>
+    %sub = "ttir.subtract"(%fc, %ss) : (tensor<8x1x32xbf16>, tensor<8x1x32xbf16>) -> tensor<8x1x32xbf16>
+
+    %sc = "ttir.multiply"(%second, %cos_h) : (tensor<8x1x32xbf16>, tensor<8x1x32xbf16>) -> tensor<8x1x32xbf16>
+    %fs = "ttir.multiply"(%first, %sin_h) : (tensor<8x1x32xbf16>, tensor<8x1x32xbf16>) -> tensor<8x1x32xbf16>
+    %add = "ttir.add"(%sc, %fs) : (tensor<8x1x32xbf16>, tensor<8x1x32xbf16>) -> tensor<8x1x32xbf16>
+
+    %result = "ttir.concat"(%sub, %add) <{dim = 2 : si32}> : (tensor<8x1x32xbf16>, tensor<8x1x32xbf16>) -> tensor<8x1x64xbf16>
+    return %result : tensor<8x1x64xbf16>
+  }
+}
+
+// Multiple heads (k with grouped KV heads) — exercises the seq/heads swap.
+// CHECK-LABEL: @rope_expanded_rank3_multi_head
+// CHECK: "ttir.rotary_embedding"
+// CHECK-NOT: ttir.subtract
+module {
+  func.func @rope_expanded_rank3_multi_head(%x: tensor<8x3x64xbf16>, %cos_h: tensor<8x1x32xbf16>, %sin_h: tensor<8x1x32xbf16>) -> tensor<8x3x64xbf16> {
+    %cos_bc = "ttir.broadcast"(%cos_h) <{broadcast_dimensions = array<i64: 1, 3, 1>}> : (tensor<8x1x32xbf16>) -> tensor<8x3x32xbf16>
+    %sin_bc = "ttir.broadcast"(%sin_h) <{broadcast_dimensions = array<i64: 1, 3, 1>}> : (tensor<8x1x32xbf16>) -> tensor<8x3x32xbf16>
+
+    %first = "ttir.slice_static"(%x) <{begins = [0:i32, 0:i32, 0:i32], ends = [8:i32, 3:i32, 32:i32], step = [1:i32, 1:i32, 1:i32]}> : (tensor<8x3x64xbf16>) -> tensor<8x3x32xbf16>
+    %second = "ttir.slice_static"(%x) <{begins = [0:i32, 0:i32, 32:i32], ends = [8:i32, 3:i32, 64:i32], step = [1:i32, 1:i32, 1:i32]}> : (tensor<8x3x64xbf16>) -> tensor<8x3x32xbf16>
+
+    %fc = "ttir.multiply"(%first, %cos_bc) : (tensor<8x3x32xbf16>, tensor<8x3x32xbf16>) -> tensor<8x3x32xbf16>
+    %ss = "ttir.multiply"(%second, %sin_bc) : (tensor<8x3x32xbf16>, tensor<8x3x32xbf16>) -> tensor<8x3x32xbf16>
+    %sub = "ttir.subtract"(%fc, %ss) : (tensor<8x3x32xbf16>, tensor<8x3x32xbf16>) -> tensor<8x3x32xbf16>
+
+    %sc = "ttir.multiply"(%second, %cos_bc) : (tensor<8x3x32xbf16>, tensor<8x3x32xbf16>) -> tensor<8x3x32xbf16>
+    %fs = "ttir.multiply"(%first, %sin_bc) : (tensor<8x3x32xbf16>, tensor<8x3x32xbf16>) -> tensor<8x3x32xbf16>
+    %add = "ttir.add"(%sc, %fs) : (tensor<8x3x32xbf16>, tensor<8x3x32xbf16>) -> tensor<8x3x32xbf16>
+
+    %result = "ttir.concat"(%sub, %add) <{dim = 2 : si32}> : (tensor<8x3x32xbf16>, tensor<8x3x32xbf16>) -> tensor<8x3x64xbf16>
+    return %result : tensor<8x3x64xbf16>
+  }
+}
+
 // =========================================================================
 // Negative tests
 // =========================================================================
