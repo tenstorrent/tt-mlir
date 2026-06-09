@@ -4124,11 +4124,24 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
       computeKernelConfigConverted =
           conversion::getDeviceComputeKernelConfig(computeKernelConfig);
 
+  // For DS program config the activation is applied as a separate elementwise
+  // op after the matmul (see MatmulRules::applyDRAMShardedTransformation). The
+  // DS kernel does not support external activation — passing activationStr here
+  // would cause validation to fail for ops like gate_proj that carry a
+  // fused-silu attribute from lowering. Clear it so validation succeeds; the
+  // separate op handles activation at apply time.
+  bool isDSProgramConfig =
+      programConfigAttr &&
+      mlir::isa<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
+          *programConfigAttr);
+  auto effectiveActivationStr =
+      isDSProgramConfig ? std::nullopt : activationStr;
+
   // Create query closure
   auto matmulOpQuery = [=]() {
     return QUERY_OP_CONSTRAINTS(
         ::ttnn::matmul, device, inputSpecA, inputSpecB, transposeA, transposeB,
-        outputMemoryConfig, outputDType, programConfig, activationStr,
+        outputMemoryConfig, outputDType, programConfig, effectiveActivationStr,
         computeKernelConfigConverted, /*core_grid=*/std::nullopt,
         /*output_tile=*/std::nullopt, /*optional_output_tensor=*/std::nullopt,
         /*global_cb=*/std::nullopt, /*sub_device_id=*/std::nullopt);

@@ -11,9 +11,6 @@
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerUtils.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
-#ifdef TTMLIR_ENABLE_OPMODEL
-#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
-#endif
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -351,26 +348,12 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
   auto [K, N] = getWeightKN(weightType);
   auto weightDataType = getWeightDataType(matmulOp.getB());
 
-  // Use the physical compute grid (post-harvesting) when OpModel is active;
-  // fall back to the MLIR device-op logical grid otherwise.
   auto deviceOp = ttcore::lookupDeviceOp(op);
   int64_t numAvailableCores = kNumStorageCores;
-#ifdef TTMLIR_ENABLE_OPMODEL
-  {
-    auto &sdc = mlir::tt::ttnn::op_model::SingletonDeviceContext::getInstance();
-    if (sdc.isDeviceInitialized()) {
-      numAvailableCores = ttmlir::utils::volume(sdc.getComputeGridShape());
-    } else if (deviceOp) {
-      numAvailableCores = ttmlir::utils::volume(
-          deviceOp.getDeviceAttr().getWorkerGrid().getShape());
-    }
-  }
-#else
   if (deviceOp) {
     numAvailableCores = ttmlir::utils::volume(
         deviceOp.getDeviceAttr().getWorkerGrid().getShape());
   }
-#endif
 
   auto pOpt = computeShardParams(M, K, N, kNumDRAMBanks, kNumStorageCores,
                                  numAvailableCores, weightDataType, l1Available);
@@ -404,7 +387,12 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
                                        p.perCoreN, numOutputCores);
   }
 
-  UnaryWithParamAttr fusedAct; // null — activation is split into a separate op
+  // Activation is handled as a separate elementwise op after the DS matmul
+  // (see applyDRAMShardedTransformation). Fusing it into the DS kernel is
+  // significantly slower. The op model is told no activation so it validates
+  // the DS config cleanly; the activation attribute on the op is stripped and
+  // a separate op is inserted at apply time.
+  UnaryWithParamAttr fusedAct;
   auto progConfig = buildDRAMShardedProgramConfig(ctx, p, fusedAct);
   auto computeConfig = buildComputeConfig(ctx, weightDataType);
 
@@ -484,10 +472,9 @@ void MatmulRuleBook::applyDRAMShardedTransformation(
     matmulOp.setComputeConfigAttr(*matmulAttrs.computeKernelConfig);
   }
 
-  // --- 2. Strip activation, insert separate activation op after ---
-  // Benchmarking showed fusing activation into the DRAM-sharded program config
-  // is slower. A separate elementwise op runs across all cores with full
-  // parallelism at negligible extra cost.
+  // --- 2. Strip activation, insert separate elementwise op after ---
+  // The DS kernel with fused activation is significantly slower than a
+  // separate elementwise op running across all cores with full parallelism.
   auto activationAttr = matmulOp.getActivationAttr();
   if (activationAttr) {
     matmulOp.removeActivationAttr();
@@ -501,15 +488,12 @@ void MatmulRuleBook::applyDRAMShardedTransformation(
     } else if (actStr == "gelu") {
       opName = "ttnn.gelu";
     }
-
     if (!opName.empty()) {
       builder.setInsertionPointAfter(matmulOp);
       Value matmulResult = matmulOp.getResult();
       auto *activationOp = builder.create(
           matmulOp.getLoc(), StringAttr::get(ctx, opName),
           ValueRange{matmulResult}, TypeRange{matmulResult.getType()});
-      // Replace all downstream uses of the matmul result with the activation
-      // result, keeping the activation op's own use of the matmul result.
       matmulResult.replaceAllUsesExcept(activationOp->getResult(0),
                                         activationOp);
     }
@@ -619,23 +603,10 @@ MatmulRuleBook::getExtraInputReshardCandidates(Operation *op,
   auto weightDataType = getWeightDataType(matmulOp.getB());
 
   int64_t numAvailCores = kNumStorageCores;
-#ifdef TTMLIR_ENABLE_OPMODEL
-  {
-    auto &sdc2 =
-        mlir::tt::ttnn::op_model::SingletonDeviceContext::getInstance();
-    if (sdc2.isDeviceInitialized()) {
-      numAvailCores = ttmlir::utils::volume(sdc2.getComputeGridShape());
-    } else if (auto devOp2 = ttcore::lookupDeviceOp(op)) {
-      numAvailCores = ttmlir::utils::volume(
-          devOp2.getDeviceAttr().getWorkerGrid().getShape());
-    }
-  }
-#else
   if (auto devOp2 = ttcore::lookupDeviceOp(op)) {
     numAvailCores = ttmlir::utils::volume(
         devOp2.getDeviceAttr().getWorkerGrid().getShape());
   }
-#endif
 
   auto pOpt = computeShardParams(M, K, N, kNumDRAMBanks, kNumStorageCores,
                                  numAvailCores, weightDataType, l1Available);
