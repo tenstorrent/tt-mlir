@@ -263,6 +263,11 @@ at::Scalar local_scalar_dense(const at::Tensor &self) {
             std::memcpy(&v, buffer.data(), sizeof(v));
             return at::Scalar(v);
         }
+        case c10::ScalarType::Bool: {
+            uint8_t v;
+            std::memcpy(&v, buffer.data(), sizeof(v));
+            return at::Scalar(as<bool>(v));
+        }
         default:
             TORCH_CHECK(false, "tt-kurbla _local_scalar_dense: unsupported dtype ", self.scalar_type());
     }
