@@ -211,6 +211,41 @@ def semaphore_wait(semaphore, value, reset=None):
 
 
 @syntax(
+    "device_synchronize",
+    kwargs_as_attr={
+        "num_receivers": lambda node: IntegerAttr.get(
+            IntegerType.get_signless(32), node.value
+        )
+    },
+)
+def device_synchronize(
+    semaphore,
+    start_device=None,
+    mcast_shape=None,
+    num_receivers=0,
+    core_indices=None,
+):
+    """Cross-device synchronization barrier for CCL kernels.
+
+    Receivers signal senders (by incrementing `semaphore` on the sender
+    device) that they have started the op; senders wait for all `num_receivers`
+    receivers before sending data. `start_device` / `mcast_shape` describe the
+    sender device range (from this device's perspective); `core_indices` is the
+    current core. `num_receivers` must be a compile-time literal (it lowers to
+    an i32 attribute).
+
+    Only legal in a datamovement kernel (`@d2m.kernel(thread="datamovement")`).
+    """
+    return d2m.device_synchronize(
+        semaphore,
+        _idx_list(start_device),
+        _idx_list(mcast_shape),
+        num_receivers,
+        _idx_list(core_indices),
+    )
+
+
+@syntax(
     "core_index",
     args_as_attr=[
         lambda node: IntegerAttr.get(IntegerType.get_signless(64), node.value)

@@ -1142,7 +1142,7 @@ def _emit_kernel_generic(
         compiler_args = [lt.layout for lt in lazy_args] + extra_compiler_args
         compiler = D2MCompiler(
             kernel.fn.__name__,
-            "unified",
+            kernel.thread_type,
             kernel._captures,
             *compiler_args,
             source_file=kernel._source_file,
@@ -1233,13 +1233,27 @@ def _emit_kernel_generic(
             user_lt.is_view = kernel_lt.is_view
 
 
+# Thread types a kernel may be authored as. "unified" (the default) is the
+# implicit-blocked compute+datamovement form that the backend splits into
+# per-thread regions. "datamovement" authors a single explicit datamovement
+# thread -- used for data-movement-only kernels (e.g. CCL) that need semaphore
+# set/inc ops, which GenericOp::verify rejects in unified form.
+_KERNEL_THREAD_TYPES = frozenset({"unified", "datamovement", "compute"})
+
+
 class CompiledKernel:
     """Wraps a user kernel function. Parses the Python body once; emits a
     `d2m.GenericOp` into the current builder on every call."""
 
-    def __init__(self, fn):
+    def __init__(self, fn, thread="unified"):
+        if thread not in _KERNEL_THREAD_TYPES:
+            raise ValueError(
+                f"@d2m.kernel thread must be one of {sorted(_KERNEL_THREAD_TYPES)}, "
+                f"got {thread!r}"
+            )
         functools.update_wrapper(self, fn)
         self.fn = fn
+        self.thread_type = thread
         (
             self._source,
             self._source_firstlineno,
@@ -1271,6 +1285,14 @@ class CompiledKernel:
         )
 
 
-def kernel(fn):
-    """Decorate a user function as a d2m_jit kernel."""
-    return CompiledKernel(fn)
+def kernel(fn=None, *, thread="unified"):
+    """Decorate a user function as a d2m_jit kernel.
+
+    Bare form `@d2m.kernel` authors a `unified` kernel. The parameterised form
+    `@d2m.kernel(thread="datamovement")` authors a single explicit datamovement
+    thread -- required for data-movement-only kernels (e.g. CCL) that use
+    `semaphore_set` / `semaphore_inc` / `device_synchronize`, which are illegal
+    in unified form."""
+    if fn is None:
+        return lambda f: CompiledKernel(f, thread=thread)
+    return CompiledKernel(fn, thread=thread)
