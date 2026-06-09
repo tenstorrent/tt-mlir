@@ -1,7 +1,6 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --stablehlo-pipeline -o %t.mlir %s
-// RUN: ttmlir-opt --legalize-stablehlo-composite-to-ttir -o %t2.mlir %t.mlir
-// RUN: FileCheck %s --input-file=%t2.mlir
+// RUN: ttmlir-opt --stablehlo-pipeline --legalize-stablehlo-composite-to-ttir -o %t.mlir %s
+// RUN: FileCheck %s --input-file=%t.mlir
 
 sdy.mesh @mesh = <["batch"=1, "vocab"=4]>
 
