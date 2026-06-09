@@ -35,29 +35,26 @@ static bool isCCLOp(Operation *op) {
   return mlir::isa<AllGatherOp, ReduceScatterOp, AllReduceOp>(op);
 }
 
-// Dtype carried by a value's TTNN layout encoding, if it has one.
-static std::optional<ttcore::DataType> getValueDtype(Value v) {
-  auto rt = mlir::dyn_cast<RankedTensorType>(v.getType());
-  if (!rt) {
-    return std::nullopt;
-  }
-  auto layout = mlir::dyn_cast_if_present<TTNNLayoutAttr>(rt.getEncoding());
-  if (!layout) {
-    return std::nullopt;
-  }
+// Dtype carried by a value's TTNN layout encoding. Every tensor at this stage
+// of the pipeline carries a TTNNLayoutAttr, so the dtype is always present;
+// callers only pass TTNN op results / operands.
+static ttcore::DataType getValueDtype(Value v) {
+  auto rt = mlir::cast<RankedTensorType>(v.getType());
+  auto layout = mlir::cast<TTNNLayoutAttr>(rt.getEncoding());
   return layout.getDataType();
 }
 
 // The float dtypes this pass is allowed to lower from. Activations entering a
 // CCL chain are bf16 (or f32); anything else is left alone.
-static bool isLowerableFloat(std::optional<ttcore::DataType> dtype) {
-  return dtype && (*dtype == ttcore::DataType::BFloat16 ||
-                   *dtype == ttcore::DataType::Float32);
+static bool isLowerableFloat(ttcore::DataType dtype) {
+  return dtype == ttcore::DataType::BFloat16 ||
+         dtype == ttcore::DataType::Float32;
 }
 
 // Rewrite an op's single result type so its encoding carries `targetDtype`.
-// No-op if the op already produces `targetDtype`, has no TTNN layout encoding,
-// or does not currently produce a lowerable float. Returns true on rewrite.
+// No-op if the op doesn't have a single ranked-tensor result, already produces
+// `targetDtype`, or does not currently produce a lowerable float. Returns true
+// on rewrite.
 //
 // TTNN reads an op's output dtype from its result layout encoding, so rewriting
 // the encoding is all that's needed to set the output dtype.

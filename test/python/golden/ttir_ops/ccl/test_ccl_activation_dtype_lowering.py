@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import re
 import pytest
 import torch
 from collections import OrderedDict
@@ -16,6 +17,17 @@ from builder.base.builder_apis import compile_ttir_to_flatbuffer
 from test_utils import shape_str
 
 pytestmark = pytest.mark.frontend("ttir")
+
+
+def _has_bfp8_encoding(ir: str) -> bool:
+    """True iff a tensor in `ir` actually carries a bfp_bf8 element type.
+
+    Matches bfp_bf8 only inside a `!ttcore.tile<...>` element type (a real
+    tensor encoding). This deliberately ignores the `supported_data_types`
+    list embedded in the `#system_desc`, which always advertises `<bfp_bf8>`
+    regardless of whether the pass ran.
+    """
+    return re.search(r"!ttcore\.tile<[^>]*bfp_bf8", ir) is not None
 
 
 # Builds the projection + residual pattern the `ttnn-ccl-activation-dtype-lowering`
@@ -155,15 +167,15 @@ def test_ccl_activation_dtype_lowering(
     )
 
     # The pass down-casts the projection activation to bfp_bf8 across the CCL.
-    assert (
-        "bfp_bf8" in ir_pass_on
-    ), "ttnn-ccl-activation-dtype-lowering should emit a bfp_bf8 activation"
+    assert _has_bfp8_encoding(
+        ir_pass_on
+    ), "ttnn-ccl-activation-dtype-lowering should emit a bfp_bf8 activation tensor"
 
     # Without the pass the same module stays bf16 -- proves the bfp_bf8 above is
     # the pass's doing, not something else in the pipeline.
-    assert (
-        "bfp_bf8" not in ir_pass_off
-    ), "no bfp_bf8 should appear when the pass is disabled"
+    assert not _has_bfp8_encoding(
+        ir_pass_off
+    ), "no bfp_bf8 tensor should appear when the pass is disabled"
 
     # The cast is done by rewriting tensor encodings, never an explicit typecast.
     assert (
