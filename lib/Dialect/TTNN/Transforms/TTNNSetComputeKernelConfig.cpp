@@ -2,9 +2,12 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+
+#include "llvm/ADT/DenseSet.h"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNSETCOMPUTEKERNELCONFIG
@@ -29,6 +32,25 @@ public:
       mathFidelityOverride =
           static_cast<MathFidelity>(static_cast<int>(mathFidelity.getValue()));
     }
+
+    // [#5116] Collect matmuls that linearize gather/embedding indices: their
+    // result feeds an embedding's index operand (possibly through
+    // typecast/reshape/to_layout). tt-mlir lowers a multi-dim stablehlo.gather
+    // to flat_index = indices @ strides via a float matmul + embedding lookup.
+    // Under bf16 destination accumulation, flat indices >= 512 are not exactly
+    // representable (bf16 integer step becomes 4), so the index rounds and the
+    // gather fetches the WRONG row. Index arithmetic must be exact, so force
+    // fp32 dest accumulation on these matmuls regardless of the global flag.
+    llvm::DenseSet<Operation *> indexMatmuls;
+    moduleOp->walk([&](EmbeddingOp emb) {
+      Operation *def = emb.getInput().getDefiningOp();
+      while (def && isa<TypecastOp, ReshapeOp, ToLayoutOp>(def)) {
+        def = def->getOperand(0).getDefiningOp();
+      }
+      if (def && isa<MatmulOp>(def)) {
+        indexMatmuls.insert(def);
+      }
+    });
 
     // Walk through all operations in the moduleOp
     moduleOp->walk([&](Operation *op) {
@@ -80,6 +102,13 @@ public:
 
       if (!config.getDstFullSyncEn() && dstFullSyncEn) {
         config = config.withDstFullSyncEn(dstFullSyncEn);
+      }
+
+      // [#5116] Gather/embedding index matmuls must accumulate exactly: force
+      // fp32 dest accumulation so flat indices >= 512 are not corrupted by bf16
+      // rounding (which fetches the wrong row and produces wrong logits).
+      if (indexMatmuls.contains(op)) {
+        config = config.withFp32DestAccEn(true);
       }
 
       // Log config after applying overrides
