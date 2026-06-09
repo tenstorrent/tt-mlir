@@ -307,3 +307,100 @@ The kernel is meaningless on 1×1.
 | `_src/builder.py` | B1 create_global_semaphore + backing buffer; B2/B4 additionalArg plumbing; B5 reset/dealloc; C1 mesh attr; C2 register-device mesh-shape; C3 host `mesh_shard`; C4/ui32 runtime marshaling |
 | `_src/tensor_layout.py` | B1 ui32 dtype path; C3 mesh/shard descriptor fields |
 | `test/d2m-jit/` | milestone anchor tests (lit IR-shape + on-device PCC) |
+
+---
+
+## 7. Workstream C: detailed scope — multi-device mesh
+
+Status: A and B landed (commits on `nsmith/d2m-ccl`); the full `ccl.d2m`
+all_gather kernel verifies and lowers on a degenerate 1x1 mock device. C is
+what makes it actually gather across devices. Researched against the codebase
+and this dev box.
+
+### Findings (grounding)
+
+- **Mesh-shape plumbing is cheap.** The module attr
+  `ttcore.meshes = #ttcore.meshes<[<"mesh"=RxC>]>` (or the
+  `ttcore-register-device` `mesh-shape` / `mesh-topology` options) flows
+  `determineMeshShape` → `DeviceAttr.meshShape` → flatbuffer `Dim2d` →
+  runtime `get_program_mesh_shape` → `open_mesh_device`. Module attr wins;
+  setting both to *conflicting* values errors.
+  (`TTCore/Utils/Mesh.h`, `Target/Utils/MLIRToFlatbuffer.h:52`,
+  `TTCoreRegisterDevice.cpp`, `TTCore/Transforms/Passes.td:54-86`.)
+- **`d2m.mesh_shard` already lowers in our pipeline.** It survives
+  bufferization (`D2MOps.cpp` `MeshShardOp::bufferize`) and is rewritten to
+  `ttmetal.mesh_shard` by `d2m-to-ttmetal-pipeline`
+  (`D2MToTTMetal.cpp:429`, `D2MMeshShardRewriter`) — already in
+  `_build_pipeline`. No new pass needed for mesh_shard I/O.
+- **Runtime distributes a full host tensor.** With `full_to_shard` on
+  inputs and `shard_to_full` on outputs, the runtime's `MeshShardCommand`
+  (`tensorFullToShard` / `tensorShardToFull`) distributes/gathers, so
+  `_execute` can keep marshaling one **full** `create_borrowed_host_tensor`
+  per input (Option A). A pre-sharded API
+  (`create_multi_device_host_tensor`) exists but is not needed for v1.
+- **Our hand-built generic mirrors `D2MAllGatherRewriter`**
+  (`TTIRToD2M.cpp:3775` — two global semaphores, to-layout'd I/O, the same
+  body), so we do not need `ttir.all_gather` or its
+  `TTIRMultiDeviceTensorAnnotation` pass. Risk: the TTIR-frontend annotations
+  we skip might still matter — must verify a directly built multi-device
+  program runs (medium risk).
+- **This box has ~2 chips, not 8.** UMD reports `local chip {0}` +
+  `remote chip {1}`. So end-to-end validation here is a **1x2** mesh, not
+  1x8. The kernel's mesh constants (`mcast_shape=[1,8]`, `num_receivers=7`
+  in `ccl.d2m`) must be **derived from the mesh shape**, not hardcoded
+  (1x2 → mcast `[1,2]`, `num_receivers=1`).
+
+### Tasks
+
+- **C1 — Mesh configuration (builder).** A way to declare the mesh (e.g.
+  `d2m.mesh(shape=(1,2), topology=("linear","ring"))` stored on the builder)
+  that sets the module `ttcore.meshes` attr and passes
+  `mesh-shape` / `mesh-topology` to `_register_device`. Pick module-attr OR
+  pass-option (both-conflict errors). ~0.5 day. Risk: low.
+- **C2 — `mesh_shard` host ops + Layout mesh support (tensor_layout +
+  builder).** `Layout` gains mesh fields (`mesh_shape`, `shard_dims`,
+  `shard_shape`) or a sibling descriptor; the per-device shard shape is
+  derived from the full logical shape (256x2048, shard [1,8] → 256x256). New
+  host op `mesh_shard(lt, shard_dims, shard_shape, direction)` (or a
+  `to_layout` variant) emitting `d2m.mesh_shard` with `shard_type=devices`;
+  inputs `full_to_shard`, outputs `shard_to_full`. ~2 days. Risk: medium
+  (Layout is single-device today).
+- **C3 — Runtime mesh I/O (`_execute`).** Once C1 lands,
+  `get_program_mesh_shape` returns the mesh and `open_mesh_device` opens N
+  devices. Keep full-tensor input marshaling (Option A); allocate full-shape
+  outputs for `shard_to_full`. Validate `submit` accepts a full borrowed
+  tensor for a mesh_shard'd input. ~1 day + validation. Risk: medium
+  (untested d2m-jit multi-device submit).
+- **C4 — Mesh-shape-driven kernel constants.** The all_gather body's mcast
+  shape / num_receivers / output-index math must come from the mesh shape
+  (kernel scalars or captures), not literals, so it works on 1x2 and 1x8
+  alike. ~0.5 day.
+- **C5 — End-to-end all_gather test (1x2).** Full host input → `mesh_shard`
+  → all_gather kernel → `mesh_shard` → full output, PCC vs `torch`. This is
+  where the cross-device `semaphore_wait` is finally signaled (no deadlock).
+  ~1 day incl. debugging.
+
+### Risks / open questions (ranked)
+
+1. **Untested multi-device path (D2 at mesh scale).** `mesh_position`,
+   `device_synchronize`, cross-device `remote_store`, and the d2m-jit
+   multi-device submit are exercised by no test. Highest chance of
+   compiler/runtime bugs. Mitigate with a tiny `mesh_shard` round-trip
+   (phase C-a) before the full gather.
+2. **Skipped TTIR-frontend annotations.** Directly built d2m multi-device
+   programs may miss `TTIRMultiDeviceTensorAnnotation` / LocalShape metadata.
+   Verify; add the pass to `_build_pipeline` if needed.
+3. **Hardware ceiling.** 1x2 here; 1x8 needs an 8-chip system. Keep the
+   kernel mesh-shape-driven so it scales when run elsewhere.
+4. **Topology / system-desc agreement.** register-device with a real system
+   desc + `mesh-shape` must match the physical cluster (ring on the cluster
+   axis). Confirm the auto-discovered mesh on the target supports the
+   requested shape.
+
+### Suggested phasing
+
+- **C-a (de-risk):** mesh config (C1) + runtime (C3) + a *no-compute*
+  `mesh_shard` round-trip (full → shard → full identity) on 1x2. Validates
+  mesh plumbing + runtime I/O in isolation, before any CCL semantics.
+- **C-b:** Layout mesh support + `mesh_shard` host ops (C2); PCC round-trip.
+- **C-c:** mesh-driven kernel constants (C4) + end-to-end all_gather (C5).

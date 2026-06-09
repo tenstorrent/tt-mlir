@@ -246,6 +246,24 @@ class _Builder:
         # Parallel arrays: MLIR arg types and the torch tensor that backs each.
         self._input_types: list = []
         self._input_tensors: list = []
+        # Optional mesh topology (e.g. ("linear", "ring")) for register-device;
+        # the mesh *shape* lives in the module's ttcore.meshes attr (set by
+        # set_mesh) and is read by ttcore-register-device's determineMeshShape.
+        self._mesh_topology = None
+
+    def set_mesh(self, shape, topology=None):
+        """Declare the device mesh for this graph.
+
+        Sets the module's `ttcore.meshes` attribute (which ttcore-register-device
+        reads to size the device, and which flows to the flatbuffer program mesh
+        shape consumed by the runtime). `topology` (e.g. ("linear", "ring")) is
+        stashed for register-device's `mesh-topology` option -- needed for CCL
+        ops like all_gather that require a ring axis."""
+        dims = "x".join(str(int(d)) for d in shape)
+        with self.ctx, self.loc:
+            attr = Attribute.parse(f'#ttcore.meshes<[<"mesh" = {dims}>]>', self.ctx)
+        self.module.operation.attributes["ttcore.meshes"] = attr
+        self._mesh_topology = list(topology) if topology is not None else None
 
     def _refresh_function_type(self, results=None):
         with self.ctx, self.loc:
@@ -802,7 +820,7 @@ def _register_device(b: _Builder):
     is present. Registering first makes that verify well-defined.
     """
     system_desc = _get_system_desc_path()
-    register = "ttcore-register-device"
+    opts = []
     if system_desc:
         register += f"{{system-desc-path={system_desc}}}"
     pipeline_str = f"builtin.module({register},{','.join(_pipeline_passes())})"

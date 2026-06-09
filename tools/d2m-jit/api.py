@@ -27,6 +27,7 @@ from ._src.builder import (
     LazyTensor,
     GlobalSemaphore,
     global_semaphore,
+    mesh,
     kernel,
     to_layout,
     tilize,
