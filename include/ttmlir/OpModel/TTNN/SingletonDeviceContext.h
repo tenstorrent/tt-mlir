@@ -25,6 +25,10 @@ namespace mlir {
 class Operation;
 } // namespace mlir
 
+namespace tt::tt_metal {
+class MetalEnv;
+} // namespace tt::tt_metal
+
 namespace tt::tt_metal::distributed {
 class MeshDevice;
 } // namespace tt::tt_metal::distributed
@@ -155,6 +159,11 @@ private:
   // silently produce wrong output layouts; this is fatal.
   void validateComputeGridAgainstSystemDesc() const;
 
+  // MetalEnv must outlive every MeshDevice that uses it (per metal_env.hpp),
+  // so declare BEFORE m_device — destruction order is reverse of declaration,
+  // so m_device dies first, then m_env. unique_ptr (not optional) because
+  // MetalEnv is non-movable and non-copyable.
+  std::unique_ptr<::tt::tt_metal::MetalEnv> m_env;
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> m_device;
   ttcore::SystemDescAttr m_systemDesc;
 

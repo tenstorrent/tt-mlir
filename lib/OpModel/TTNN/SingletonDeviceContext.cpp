@@ -12,10 +12,76 @@
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/ErrorHandling.h"
 
+#include <tt-metalium/dispatch_core_common.hpp>
+#include <tt-metalium/experimental/context/metal_env.hpp>
+#include <tt-metalium/experimental/mock_device.hpp>
+
 #include <cstdlib>
 #include <string>
 
 namespace mlir::tt::ttnn::op_model {
+
+namespace {
+
+::tt::ARCH toMetalArch(ttcore::Arch arch) {
+  switch (arch) {
+  case ttcore::Arch::WormholeB0:
+    return ::tt::ARCH::WORMHOLE_B0;
+  case ttcore::Arch::Blackhole:
+    return ::tt::ARCH::BLACKHOLE;
+  case ttcore::Arch::Quasar:
+    return ::tt::ARCH::QUASAR;
+  }
+  llvm_unreachable("Unknown arch");
+}
+
+// Inverse of toMetalArch. Used by reshapeMeshDevice to recover the ttcore arch
+// from the live env. report_fatal_error (not llvm_unreachable) so an arch we
+// can't map fails loudly in release builds instead of silently picking a wrong
+// mock cluster descriptor.
+ttcore::Arch fromMetalArch(::tt::ARCH arch) {
+  switch (arch) {
+  case ::tt::ARCH::WORMHOLE_B0:
+    return ttcore::Arch::WormholeB0;
+  case ::tt::ARCH::BLACKHOLE:
+    return ttcore::Arch::Blackhole;
+  case ::tt::ARCH::QUASAR:
+    return ttcore::Arch::Quasar;
+  default:
+    llvm::report_fatal_error("Unsupported tt-metal arch for OpModel device");
+  }
+}
+
+// Build a MetalEnvDescriptor for the requested device. Mock mode loads the
+// per-(arch, numChips) mock cluster descriptor; silicon uses the default.
+// Fabric is left DISABLED: multi-chip mock CCL fabric setup is blocked on
+// tt-metal-side work (https://github.com/tenstorrent/tt-metal/issues/44748).
+::tt::tt_metal::MetalEnvDescriptor
+makeEnvDescriptor(bool isMock, ttcore::Arch arch, uint32_t numChips) {
+  if (!isMock) {
+    return ::tt::tt_metal::MetalEnvDescriptor{};
+  }
+  auto mockClusterPath =
+      ::tt::tt_metal::experimental::get_mock_cluster_desc_name(
+          toMetalArch(arch), numChips);
+  if (!mockClusterPath) {
+    llvm::report_fatal_error(
+        "Unsupported (arch, numChips) for mock cluster descriptor");
+  }
+  return ::tt::tt_metal::MetalEnvDescriptor{*mockClusterPath};
+}
+
+// Pick the dispatch core type for a device opened on this env. When every
+// available device is PCIe-attached there are no spare Ethernet-connected
+// chips to dispatch from, so fall back to WORKER cores; otherwise prefer ETH.
+::tt::tt_metal::DispatchCoreType
+selectDispatchCoreType(const ::tt::tt_metal::MetalEnv &env) {
+  return env.get_num_available_devices() == env.get_num_pcie_devices()
+             ? ::tt::tt_metal::DispatchCoreType::WORKER
+             : ::tt::tt_metal::DispatchCoreType::ETH;
+}
+
+} // namespace
 
 SingletonDeviceContext::~SingletonDeviceContext() {
   assert(
@@ -92,15 +158,24 @@ void SingletonDeviceContext::closeInstance() {
   SingletonDeviceContext &instance = getInstance();
   assert(instance.m_device != nullptr && "No device to close");
   bool wasExternalDevice = instance.m_isExternalDevice;
-  bool wasMockDevice = instance.m_isMockDevice;
-  instance.m_device.reset();
+  if (!wasExternalDevice) {
+    // Flush the program cache while the device's MetalContext is still alive.
+    // An env-backed device destroys its MetalContext on close but does not
+    // clear the cache first, so cached programs would otherwise be freed by
+    // ~MeshDeviceImpl against a dead context and crash in
+    // deallocate_circular_buffers.
+    instance.m_device->disable_and_clear_program_cache();
+    instance.m_device.reset();
+    // RAII teardown: destroying the env tears down fabric + mock cluster.
+    instance.m_env.reset();
+  } else {
+    instance.m_device.reset();
+  }
   // m_computeGridShape is intentionally retained across close so that a reset
   // to the same grid does not bump m_deviceGeneration (and needlessly drop the
   // still-valid op-model caches). It is only read while a device is active.
   instance.m_isMockDevice = false;
-  if (!wasExternalDevice && wasMockDevice) {
-    ::tt::tt_metal::experimental::disable_mock_mode();
-  }
+  instance.m_isExternalDevice = false;
 }
 
 void SingletonDeviceContext::setExternalDevice(
@@ -145,45 +220,47 @@ void SingletonDeviceContext::openDevice(
     const std::optional<std::pair<size_t, size_t>> &meshShape) {
   assert(m_device == nullptr &&
          "Device is already initialized. Cannot open device again.");
+  assert(m_env == nullptr && "MetalEnv must be torn down before opening.");
 
-  m_isMockDevice = isMock;
-
+  ttcore::Arch arch = ttcore::Arch::WormholeB0;
+  uint32_t numChips = 1;
   if (isMock) {
     assert(m_systemDesc && "System desc must be set for mock device mode");
-    auto arch = m_systemDesc.getChipDesc(0).getArch().getValue();
-    uint32_t numChips = m_systemDesc.getChipDescIndices().size();
-    ::tt::ARCH metalArch;
-    switch (arch) {
-    case ttcore::Arch::WormholeB0:
-      metalArch = ::tt::ARCH::WORMHOLE_B0;
-      break;
-    case ttcore::Arch::Blackhole:
-      metalArch = ::tt::ARCH::BLACKHOLE;
-      break;
-    case ttcore::Arch::Quasar:
-      metalArch = ::tt::ARCH::QUASAR;
-      break;
-    }
-    ::tt::tt_metal::experimental::configure_mock_mode(metalArch, numChips);
+    arch = m_systemDesc.getChipDesc(0).getArch().getValue();
+    numChips = m_systemDesc.getChipDescIndices().size();
   }
 
-  // todo: this replicates logic in
-  // runtime/include/tt/runtime/detail/common/common.h, move to shared location
-  size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
-  size_t numPCIeDevices = ::tt::tt_metal::GetNumPCIeDevices();
-  ::tt::tt_metal::DispatchCoreType dispatchCoreType =
-      numDevices == numPCIeDevices ? ::tt::tt_metal::DispatchCoreType::WORKER
-                                   : ::tt::tt_metal::DispatchCoreType::ETH;
+  // Build into locals; commit to members only on success so a throw leaves
+  // m_env/m_device null and the context reusable.
+  auto env = std::make_unique<::tt::tt_metal::MetalEnv>(
+      makeEnvDescriptor(isMock, arch, numChips));
 
   ::tt::tt_metal::distributed::MeshShape shape{
       meshShape ? static_cast<unsigned int>(meshShape->first) : 1,
       meshShape ? static_cast<unsigned int>(meshShape->second) : 1};
-  m_device = ::tt::tt_metal::distributed::MeshDevice::create(
+
+  // create_mesh_device registers a process-global MetalContext before it
+  // validates the mesh size and does not unwind it if the size check fails,
+  // wedging the next open. Reject an over-subscribed mesh up front instead.
+  if (shape.mesh_size() > env->get_num_available_devices()) {
+    throw std::runtime_error("Requested mesh of " +
+                             std::to_string(shape.mesh_size()) +
+                             " devices exceeds the " +
+                             std::to_string(env->get_num_available_devices()) +
+                             " available in the system.");
+  }
+
+  auto device = env->create_mesh_device(
       ::tt::tt_metal::distributed::MeshDeviceConfig{shape},
       ::tt::constants::L1_SMALL_SIZE, traceRegionSize,
-      /* num_hw_cqs = */ 1, dispatchCoreType);
+      /*num_command_queues=*/1,
+      ::tt::tt_metal::DispatchCoreConfig{selectDispatchCoreType(*env)});
 
-  m_device->disable_and_clear_program_cache();
+  device->disable_and_clear_program_cache();
+
+  m_env = std::move(env);
+  m_device = std::move(device);
+  m_isMockDevice = isMock;
 
   refreshComputeGridShape();
 }
@@ -192,22 +269,38 @@ void SingletonDeviceContext::reshapeMeshDevice(
     const std::pair<size_t, size_t> &meshShape, size_t traceRegionSize) {
   assert(m_device != nullptr && "Device must be initialized to reshape");
   assert(m_isMockDevice && "Can only reshape mock devices");
+  assert(m_env != nullptr && "MetalEnv must be alive for reshape");
 
+  // MetalEnv pins the cluster descriptor at construction, so reshaping to a
+  // different mesh size means a fresh env with a different cluster_desc_name.
+  // Derive arch from the env that owns the live device (its descriptor
+  // remembers which mock cluster YAML it loaded); numChips comes from the new
+  // mesh shape.
+  ttcore::Arch arch = fromMetalArch(m_env->get_arch());
+  uint32_t numChips = static_cast<uint32_t>(meshShape.first * meshShape.second);
+
+  // Flush the program cache before destroying the env-backed device; see the
+  // matching note in closeInstance() for why this must happen while the
+  // device's MetalContext is still alive.
+  m_device->disable_and_clear_program_cache();
   m_device.reset();
-
-  size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
-  size_t numPCIeDevices = ::tt::tt_metal::GetNumPCIeDevices();
-  ::tt::tt_metal::DispatchCoreType dispatchCoreType =
-      numDevices == numPCIeDevices ? ::tt::tt_metal::DispatchCoreType::WORKER
-                                   : ::tt::tt_metal::DispatchCoreType::ETH;
+  m_env.reset();
 
   ::tt::tt_metal::distributed::MeshShape shape{
       static_cast<unsigned int>(meshShape.first),
       static_cast<unsigned int>(meshShape.second)};
-  m_device = ::tt::tt_metal::distributed::MeshDevice::create(
+
+  m_env = std::make_unique<::tt::tt_metal::MetalEnv>(
+      makeEnvDescriptor(/*isMock=*/true, arch, numChips));
+
+  ::tt::tt_metal::DispatchCoreType dispatchCoreType =
+      selectDispatchCoreType(*m_env);
+
+  m_device = m_env->create_mesh_device(
       ::tt::tt_metal::distributed::MeshDeviceConfig{shape},
       ::tt::constants::L1_SMALL_SIZE, traceRegionSize,
-      /* num_hw_cqs = */ 1, dispatchCoreType);
+      /*num_command_queues=*/1,
+      ::tt::tt_metal::DispatchCoreConfig{dispatchCoreType});
 
   m_device->disable_and_clear_program_cache();
 
