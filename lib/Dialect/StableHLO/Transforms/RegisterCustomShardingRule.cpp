@@ -1232,14 +1232,14 @@ getMoeExpertTokenRemapShardingRule(mlir::stablehlo::CustomCallOp op) {
 // Sharding rule for tenstorrent.topk* custom_call ops (converted from composite
 // by FlattenOrConvertCompositesPass).
 //
-// Input:  [batch, vocab]   — vocab dim is the topk dimension
-// Output: [batch, k]       — k results per batch item (one or two outputs)
+// Input:  [batch, N]   — N is the topk dimension
+// Output: [batch, k]   — k results per batch item (one or two outputs)
 //
-// Batch dim: kPassThrough — can be sharded freely across devices.
-// Vocab dim: kNeedReplication + isBlocked — topk handles the vocab dim
-//   internally (local topk + all_gather + merge). isBlocked prevents Shardy
-//   from inserting an all_gather before the op.
-// K dim in output: kNeedReplication — output is always replicated.
+// Batch dim: kPassThrough.
+// Topk dim: pass-through on input with no output dim, telling Shardy the op
+//   handles the distributed topk internally (local topk + all_gather + merge)
+//   so it must not insert an all_gather before the op.
+// K dim in output: kNeedReplication.
 static mlir::sdy::OpShardingRuleAttr
 getTopKShardingRule(mlir::stablehlo::CustomCallOp op) {
   if (op.getNumOperands() != 1) {
@@ -1263,24 +1263,19 @@ getTopKShardingRule(mlir::stablehlo::CustomCallOp op) {
   }
 
   int64_t batchSize = inputType.getShape()[0];
-  int64_t vocabSize = inputType.getShape()[1];
+  int64_t numItemsSize = inputType.getShape()[1];
   int64_t kSize = result0Type.getShape()[1];
 
   mlir::sdy::OpShardingRuleBuilder builder(op);
 
-  // Batch dim passes through from input to all results.
   llvm::SmallVector<int64_t> resultBatchDims(numResults, 0);
   builder.addFactor({0}, resultBatchDims, batchSize,
                     mlir::sdy::FactorType::kPassThrough);
 
-  // Vocab dim: pass-through on input, no corresponding output dim.
-  // This tells Shardy the input can be sharded on vocab and the op handles
-  // the distributed topk internally. Shardy will not insert an all_gather.
   builder.addFactor({1},
                     llvm::SmallVector<int64_t>(numResults, mlir::sdy::kNullDim),
-                    vocabSize, mlir::sdy::FactorType::kPassThrough);
+                    numItemsSize, mlir::sdy::FactorType::kPassThrough);
 
-  // K dim in output: always replicated, not linked to any input dim.
   llvm::SmallVector<int64_t> resultKDims(numResults, 1);
   builder.addFactor({mlir::sdy::kNullDim}, resultKDims, kSize,
                     mlir::sdy::FactorType::kNeedReplication);
