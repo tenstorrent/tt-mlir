@@ -268,9 +268,13 @@ class _Builder:
             ft = FunctionType.get(self._input_types, results or [])
             self.func_op.attributes["function_type"] = TypeAttr.get(ft)
 
-    def add_host_input(self, layout: Layout, host_tensor):
-        """Append a host-typed func arg and return its BlockArgument."""
-        host_ty = layout.build_host_tensor_type(self.ctx)
+    def add_host_input(self, layout: Layout, host_tensor, host_ty=None):
+        """Append a host-typed func arg and return its BlockArgument.
+
+        `host_ty` overrides the type (used for mesh inputs, whose func arg is
+        the full un-sharded tensor rather than `layout`'s per-device shard)."""
+        if host_ty is None:
+            host_ty = layout.build_host_tensor_type(self.ctx)
         bb_arg = self.entry_block.add_argument(host_ty, self.loc)
         self._input_types.append(host_ty)
         self._input_tensors.append(host_tensor)
@@ -353,7 +357,7 @@ class LazyTensor:
       - a materialised torch.Tensor (after to_host).
     """
 
-    __slots__ = ("layout", "value", "generation", "materialized", "is_view")
+    __slots__ = ("layout", "value", "generation", "materialized", "is_view", "mesh")
 
     def __init__(
         self,
@@ -362,6 +366,7 @@ class LazyTensor:
         generation,
         materialized=None,
         is_view: bool = False,
+        mesh=None,
     ):
         self.layout = layout
         self.value = value
@@ -372,6 +377,11 @@ class LazyTensor:
         # data is not in the view's logical form -- so we refuse it and
         # ask the user to materialise via to_layout first.
         self.is_view = is_view
+        # Mesh sharding metadata: None for a single-device tensor, else a
+        # `MeshShard` describing the full (un-sharded) shape and how this
+        # tensor's per-device shard maps onto the mesh. Drives the host-scope
+        # mesh_shard(shard_to_full) emitted on the to_host gather path.
+        self.mesh = mesh
 
     def to_host(self):
         return to_host(self)[0]
@@ -737,6 +747,103 @@ def mesh(shape, topology=None):
     b.set_mesh(shape, topology)
 
 
+class MeshShard:
+    """Mesh-sharding metadata carried by a LazyTensor (see `LazyTensor.mesh`).
+
+    Records the full (un-sharded) logical shape plus how the per-device shard
+    maps onto the mesh, so the to_host gather path can emit a
+    `mesh_shard(shard_to_full)`."""
+
+    __slots__ = ("full_shape", "shard_dims", "shard_shape")
+
+    def __init__(self, full_shape, shard_dims, shard_shape):
+        self.full_shape = list(full_shape)
+        self.shard_dims = list(shard_dims)
+        self.shard_shape = list(shard_shape)
+
+
+def _shard_logical_shape(full_shape, shard_dims, shard_shape):
+    """Per-device shard shape: `full_shape` divided by `shard_shape` along the
+    corresponding `shard_dims`."""
+    shard = list(full_shape)
+    for i, d in enumerate(shard_dims):
+        if shard[d] % shard_shape[i] != 0:
+            raise ValueError(
+                f"mesh shard: full dim {d} ({shard[d]}) not divisible by shard "
+                f"factor {shard_shape[i]}"
+            )
+        shard[d] //= shard_shape[i]
+    return shard
+
+
+def _emit_mesh_shard(b, value, dst_ty, direction, shard_dims, shard_shape):
+    """Emit a `d2m.mesh_shard` (devices) op in the given direction."""
+    devices = Attribute.parse("#ttcore.shard_type<devices>", b.ctx)
+    dir_attr = Attribute.parse(f"#ttcore.shard_direction<{direction}>", b.ctx)
+    return d2m.mesh_shard(
+        dst_ty, value, devices, dir_attr, list(shard_shape), list(shard_dims)
+    )
+
+
+def mesh_shard(input_, layout: Layout, shard_dims, shard_shape) -> LazyTensor:
+    """Distribute a full host tensor across the mesh, one shard per device
+    (`full_to_shard`).
+
+    `input_` is the full `torch.Tensor`; `layout` is the **per-device shard**
+    layout, whose `logical_shape` must equal `input_`'s shape divided by
+    `shard_shape` along `shard_dims`. `shard_shape` is the mesh shard factor
+    per axis (e.g. `[1, 2]` for a 1x2 mesh) and `shard_dims` maps tensor dims
+    to mesh axes (e.g. `[0, 1]`).
+
+    Returns a device LazyTensor carrying `MeshShard` metadata so `to_host`
+    gathers it back (`shard_to_full`)."""
+    if torch is None or not isinstance(input_, torch.Tensor):
+        raise TypeError("mesh_shard expects a torch.Tensor (the full tensor)")
+    b = _get_scope()
+    full_shape = list(input_.shape)
+    expected = _shard_logical_shape(full_shape, shard_dims, shard_shape)
+    if list(layout.logical_shape) != expected:
+        raise ValueError(
+            f"mesh_shard: layout shard shape {list(layout.logical_shape)} does "
+            f"not match {expected} (full {full_shape} / {list(shard_shape)} along "
+            f"dims {list(shard_dims)})"
+        )
+    with b.ctx, b.loc, b.insert_point:
+        elem = layout.get_host_elem_type(b.ctx)
+        full_ty = RankedTensorType.get(full_shape, elem)
+        shard_ty = RankedTensorType.get(expected, elem)
+        bb_arg = b.add_host_input(layout, input_, host_ty=full_ty)
+        sharded = _emit_mesh_shard(
+            b, bb_arg, shard_ty, "full_to_shard", shard_dims, shard_shape
+        )
+        dev = layout.build_to_device(b.ctx, sharded)
+    return LazyTensor(
+        layout, dev, b.generation, mesh=MeshShard(full_shape, shard_dims, shard_shape)
+    )
+
+
+def mesh_gather(lt: LazyTensor, shard_dims=None, shard_shape=None) -> LazyTensor:
+    """Mark a per-device shard LazyTensor to be gathered to its full tensor on
+    `to_host` (`shard_to_full`).
+
+    A tensor produced by `mesh_shard` already carries the metadata, so this is
+    a no-op for it. For a tensor produced some other way (e.g. a kernel output),
+    pass `shard_dims`/`shard_shape`; the full shape is derived from the layout's
+    per-device shard shape."""
+    lt = lt._resolve()
+    if lt.mesh is None:
+        if shard_dims is None or shard_shape is None:
+            raise ValueError(
+                "mesh_gather needs shard_dims/shard_shape for a tensor not "
+                "produced by mesh_shard"
+            )
+        full = list(lt.layout.logical_shape)
+        for i, d in enumerate(shard_dims):
+            full[d] *= shard_shape[i]
+        lt.mesh = MeshShard(full, shard_dims, shard_shape)
+    return lt
+
+
 def reshape(lt: LazyTensor, *shape) -> LazyTensor:
     """torch.reshape-style logical-shape change.
 
@@ -971,8 +1078,22 @@ def _emit_returns_and_finalise(b: _Builder, lts):
         for lt in lts:
             dev = lt.layout.build_device_view(b.ctx, lt.value)
             host = lt.layout.build_from_device(b.ctx, dev)
+            host_ty = lt.layout.build_host_tensor_type(b.ctx)
+            if lt.mesh is not None:
+                # Gather the per-device shards back into the full tensor.
+                elem = lt.layout.get_host_elem_type(b.ctx)
+                full_ty = RankedTensorType.get(lt.mesh.full_shape, elem)
+                host = _emit_mesh_shard(
+                    b,
+                    host,
+                    full_ty,
+                    "shard_to_full",
+                    lt.mesh.shard_dims,
+                    lt.mesh.shard_shape,
+                )
+                host_ty = full_ty
             host_values.append(host)
-            host_types.append(lt.layout.build_host_tensor_type(b.ctx))
+            host_types.append(host_ty)
         func.ReturnOp(host_values)
     b._refresh_function_type(results=host_types)
 
@@ -1068,7 +1189,10 @@ def _execute(b: _Builder, lts):
     rt_outputs = []
     for lt in lts:
         torch_dtype = _ttcore_to_torch_dtype(lt.layout.dtype)
-        t_out = torch.empty(list(lt.layout.logical_shape), dtype=torch_dtype)
+        out_shape = (
+            lt.mesh.full_shape if lt.mesh is not None else lt.layout.logical_shape
+        )
+        t_out = torch.empty(list(out_shape), dtype=torch_dtype)
         out_torch.append(t_out)
         rt_outputs.append(
             runtime.create_borrowed_host_tensor(

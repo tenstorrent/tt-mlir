@@ -404,3 +404,37 @@ and this dev box.
   mesh plumbing + runtime I/O in isolation, before any CCL semantics.
 - **C-b:** Layout mesh support + `mesh_shard` host ops (C2); PCC round-trip.
 - **C-c:** mesh-driven kernel constants (C4) + end-to-end all_gather (C5).
+
+### Progress & findings
+
+- **C-a (done):** `d2m.mesh(shape, topology)` config; 1x2 mesh_shard identity
+  validated through pipeline + runtime.
+- **C-b (done, with a caveat):** `mesh_shard` / `mesh_gather` host ops +
+  `LazyTensor.mesh` (`MeshShard`) metadata + mesh-aware `to_host` gather. The
+  **identity** round-trip (`mesh_shard(full)` → `to_host`) works end-to-end on
+  1x2. The host func arg is the full tensor; `mesh_shard` emits `full_to_shard`,
+  `to_host` emits `shard_to_full`.
+
+- **🔴 C-c blocker (compute on a mesh shard).** A round-trip with a compute
+  generic between f2s and s2f fails at runtime:
+  `LOG_ASSERT meshBuffer.size() == tensorDesc.sizeBytes()`
+  (`runtime/lib/ttmetal/executor_utils.h:384`, from the `EnqueueWriteBuffer`
+  that writes the shard to a device buffer). Root cause: the `mesh_shard`
+  `full_to_shard` result is a plain single-device `TensorDesc` (e.g. 64x64 =
+  16 KB) but the device mesh buffer spans the mesh (2 x 16 KB = 32 KB). The
+  tensor must carry a `#ttcore.tensor_mesh` (`TensorMeshAttr`) encoding marking
+  it multi-device/distributed, which the buffer allocator + runtime use to bind
+  per-device shards. That encoding is normally added by
+  `ttir-multi-device-tensor-annotation`
+  (`lib/Dialect/TTIR/Transforms/MultiDeviceTensorAnnotation.cpp`) — but that
+  pass **only matches `ttir.mesh_shard`, not `d2m.mesh_shard`**, so d2m-jit's
+  direct-built IR never gets it. Identity works only because it never writes a
+  device compute buffer.
+
+  **Fix options (C-c task 0):** (a) replicate the annotation for
+  `d2m.mesh_shard` — set the `TensorMeshAttr` encoding on the f2s result /
+  s2f input and propagate to the func arg/result and through `to_layout`; or
+  (b) have d2m-jit emit `ttir.mesh_shard` for the I/O boundary and run the
+  existing TTIR annotation pass + `ttir-to-d2m` on just those ops. Needs the
+  buffer-sizing contract (TensorMeshAttr ↔ metal_layout/grid-selection ↔ mesh
+  buffer allocation) understood before the all_gather can execute.
