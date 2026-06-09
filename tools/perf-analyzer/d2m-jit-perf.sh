@@ -33,6 +33,9 @@ LOG_PATH=$(realpath -m "$3")
 
 echo "running test $1 with instrumentation on $2..."
 
+echo "cleaning up previous logs at $LOG_PATH/.logs"
+rm -rf "$LOG_PATH/.logs"
+
 # python -m tracy wraps the run under a Tracy capture server, then post-processes:
 #   -r  generate report (starts capture-release, writes the .tracy file)
 #   -m  treat the target as a module (runpy: equivalent to `python -m pytest`)

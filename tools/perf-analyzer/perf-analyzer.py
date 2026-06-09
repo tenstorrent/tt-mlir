@@ -46,7 +46,7 @@ def dur(cycles: int, freq_mhz: float) -> dict:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("path_to_perf_dir", type=pathlib.Path)
+    parser.add_argument("path_to_perf_dir", type=pathlib.Path, help="path to the directory containing the profile_log_device.csv file")
     parser.add_argument(
         "--by_kernel",
         action="store_true",
@@ -166,7 +166,7 @@ def aggregate_by_zone(
 ) -> dict[str, tuple[int, int, int]]:
     """returns a dict mapping op name -> (total duration in cycles, number of calls)"""
 
-    result: dict[str, tuple[int, int]] = defaultdict(lambda: (0, 0, 0))
+    result: dict[str, tuple[int, int, int]] = defaultdict(lambda: (0, 0, 0))
 
     for row in rows:
         if row["name"] in ("TRISC-KERNEL", "TRISC-FW"):
@@ -210,10 +210,6 @@ def get_runtimes(rows: list[dict], wall_cycles: int) -> dict[str, float]:
         "compute share": kernel_cycles / trisc_fw_cycles if trisc_fw_cycles else 0.0,
         "wait share": get_wait_share(rows),
     }
-
-
-def get_stats(rows: list[dict]) -> dict:
-    return {"slowest op": "slowest op"}
 
 
 def time_formatter(cycles: int, freq_mhz: float) -> str:
@@ -468,7 +464,7 @@ def main() -> None:
             profile_log, raw_timeline, zone_grouped_rows, wall_time, freq
         )
         pathlib.Path(args.json).write_text(json.dumps(report, indent=2))
-        print(f"wrote JSON report -> {args.json}")
+        print(f"Wrote JSON report -> {args.json}")
 
 
 if __name__ == "__main__":
