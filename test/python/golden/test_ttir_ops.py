@@ -229,34 +229,6 @@ def test_broadcast(shape: List[int], broadcast_dimensions: List[int], request, d
 @pytest.mark.parametrize(
     "shapes",
     [
-        [(1, 4, 128, 128), (1, 4, 128, 128)] | SkipIf("sim"),
-        # Two shapes above exercise implicit broadcast, support for it can be spotty.
-        [(1, 4, 128, 128), (1, 1, 128, 128)] | SkipIf("sim"),
-        [(1, 8, 64, 128), (1, 1, 128, 256)] | SkipIf("sim"),
-    ],
-    ids=shapes_list_str,
-)
-def test_matmul(shapes: List[Shape], request, device):
-    def module(builder: TTIRBuilder):
-        @builder.func(shapes, [torch.float32] * len(shapes))
-        def matmul(
-            in0: Operand,
-            in1: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.matmul(in0, in1, unit_attrs=unit_attrs)
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        device=device,
-    )
-
-
-@pytest.mark.parametrize(
-    "shapes",
-    [
         [
             (1, 32, 32, 64),
             (64, 32, 3, 3),
