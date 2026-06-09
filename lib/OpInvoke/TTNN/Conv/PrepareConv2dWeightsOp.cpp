@@ -105,7 +105,7 @@ callPrepareConv2dWeights(CallType callType,
 
   return callOp<PrepareConv2dWeightsOpResult, true, false>(
       WRAP_OP(::ttnn::operations::conv::conv2d::prepare_conv_weights), callType,
-      makeTuple, device, "PrepareConv2dWeightsOp");
+      makeTuple, device);
 }
 
 } // namespace ttnn_op_invoke

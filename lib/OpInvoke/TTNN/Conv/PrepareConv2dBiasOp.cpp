@@ -103,7 +103,7 @@ callPrepareConv2dBias(CallType callType,
 
   return callOp<PrepareConv2dBiasOpResult, true, false>(
       WRAP_OP(::ttnn::operations::conv::conv2d::prepare_conv_bias), callType,
-      makeTuple, device, "PrepareConv2dBiasOp");
+      makeTuple, device);
 }
 
 } // namespace ttnn_op_invoke

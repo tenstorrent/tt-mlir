@@ -108,7 +108,7 @@ PrepareConvTranspose2dWeightsOpResult callPrepareConvTranspose2dWeights(
   return callOp<PrepareConvTranspose2dWeightsOpResult, true, false>(
       WRAP_OP(::ttnn::operations::conv::conv_transpose2d::
                   prepare_conv_transpose2d_weights),
-      callType, makeTuple, device, "PrepareConvTranspose2dWeightsOp");
+      callType, makeTuple, device);
 }
 
 } // namespace ttnn_op_invoke
