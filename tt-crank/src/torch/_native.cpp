@@ -6,6 +6,7 @@
 #include <vector>
 
 #include <ATen/ATen.h>
+#include <ATen/InferSize.h>
 #include <ATen/core/ScalarType.h>
 #include <c10/core/Device.h>
 #include <c10/core/ScalarType.h>
@@ -92,6 +93,12 @@ public:
 
     mlir::Value reshape(mlir::Value input, std::vector<std::int64_t> new_shape) {
         assert_builder();
+        auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+        int64_t numel = 1;
+        for (auto d : input_type.getShape()) {
+            numel *= d;
+        }
+        new_shape = at::infer_size(new_shape, numel);
         return tk::build_reshape(*mb_, input, new_shape);
     }
 
@@ -240,6 +247,18 @@ public:
     }
     mlir::Value broadcast(mlir::Value input, std::vector<int64_t> target_shape) {
         assert_builder();
+        // PyTorch expand() uses -1 to mean "keep current size"; resolve before MLIR.
+        auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+        auto input_shape = input_type.getShape();
+        int64_t input_rank = as<int64_t>(input_shape.size());
+        int64_t target_rank = as<int64_t>(target_shape.size());
+        for (int64_t i = 0; i < target_rank; ++i) {
+            if (target_shape[as<std::size_t>(i)] == -1) {
+                int64_t input_i = i - (target_rank - input_rank);
+                TORCH_CHECK(input_i >= 0, "tt-kurbla broadcast: -1 in target_shape at a prepended dim");
+                target_shape[as<std::size_t>(i)] = input_shape[as<std::size_t>(input_i)];
+            }
+        }
         return tk::build_broadcast(*mb_, input, target_shape);
     }
     mlir::Value permute(mlir::Value input, std::vector<int64_t> permutation) {
@@ -251,7 +270,7 @@ public:
         return tk::build_permute(*mb_, input, permutation);
     }
 
-    // Cat — typecast all inputs to the promoted (first input's) element type before concat
+    // Cat — typecast all inputs to the promoted (first input's) element type before concat.
     mlir::Value cat(std::vector<mlir::Value> inputs, int64_t dim) {
         assert_builder();
         auto promoted = mlir::cast<mlir::RankedTensorType>(inputs[0].getType()).getElementType();
@@ -302,6 +321,38 @@ public:
     mlir::Value embedding(mlir::Value weight, mlir::Value indices) {
         assert_builder();
         return tk::build_embedding(*mb_, indices, weight);
+    }
+
+    // Comparison
+    mlir::Value le(mlir::Value lhs, mlir::Value rhs) {
+        assert_builder();
+        return tk::build_le(*mb_, lhs, rhs);
+    }
+
+    // Conditional selection: result[i] = condition[i] ? true_val[i] : false_val[i]
+    mlir::Value where(mlir::Value condition, mlir::Value true_val, mlir::Value false_val) {
+        assert_builder();
+        return tk::build_where(*mb_, condition, true_val, false_val);
+    }
+
+    // Scaled dot-product attention (FlashAttention-2).
+    mlir::Value sdpa(mlir::Value query, mlir::Value key, mlir::Value value, bool is_causal, std::optional<float> scale,
+                     std::optional<mlir::Value> attn_mask) {
+        assert_builder();
+        return tk::build_sdpa(*mb_, query, key, value, is_causal, scale, attn_mask.value_or(mlir::Value{}));
+    }
+
+    // index_copy: result = self with source values placed at index positions along dim.
+    // index must be 1D; source must have the same rank as self.
+    mlir::Value index_copy(mlir::Value input, int64_t dim, mlir::Value index, mlir::Value source) {
+        assert_builder();
+        return tk::build_index_copy(*mb_, input, dim, index, source);
+    }
+
+    // tril: lower-triangular part of input; elements strictly above the diagonal-th diagonal are zeroed.
+    mlir::Value tril(mlir::Value input, int64_t diagonal = 0) {
+        assert_builder();
+        return tk::build_tril(*mb_, input, diagonal);
     }
 
 private:
@@ -458,6 +509,12 @@ NB_MODULE(_native, m) {
         .def("slice", &PyModuleBuilder::slice, "input"_a, "dim"_a, "start"_a, "end"_a, "step"_a = 1LL)
         .def("arange", &PyModuleBuilder::arange, "start"_a, "end"_a, "step"_a, "dtype"_a)
         .def("embedding", &PyModuleBuilder::embedding, "weight"_a, "indices"_a)
+        .def("le", &PyModuleBuilder::le, "lhs"_a, "rhs"_a)
+        .def("where", &PyModuleBuilder::where, "condition"_a, "true_val"_a, "false_val"_a)
+        .def("sdpa", &PyModuleBuilder::sdpa, "query"_a, "key"_a, "value"_a, "is_causal"_a = true,
+             "scale"_a = nb::none(), "attn_mask"_a = nb::none())
+        .def("index_copy", &PyModuleBuilder::index_copy, "input"_a, "dim"_a, "index"_a, "source"_a)
+        .def("tril", &PyModuleBuilder::tril, "input"_a, "diagonal"_a = 0)
         // Consumes the builder. Subsequent calls on `self` raise.
         .def("compile", &PyModuleBuilder::compile, "outputs"_a);
 

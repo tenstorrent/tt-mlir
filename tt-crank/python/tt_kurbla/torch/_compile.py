@@ -260,7 +260,7 @@ def _(mb, x, scalar):
     return mb.mul(x, mb.scalar_like(x, float(scalar)))
 
 
-@_lowering(_aten._softmax.default)
+@_lowering(_aten._softmax.default, _aten._safe_softmax.default)
 def _(mb, x, dim, half_to_float=False):
     return mb.softmax(x, dim)
 
@@ -301,7 +301,10 @@ def _(mb, x, dims):
 
 @_lowering(_aten.cat.default)
 def _(mb, tensors, dim=0):
-    return mb.cat(list(tensors), dim)
+    items = [v for v in tensors if not (isinstance(v, torch.Tensor) and v.numel() == 0)]
+    if len(items) == 1:
+        return items[0]
+    return mb.cat(items, int(dim))
 
 
 @_lowering(_aten.slice.Tensor)
@@ -319,7 +322,7 @@ def _(mb, *args, dtype=None, layout=None, device=None, pin_memory=None):
     else:
         start, end, step = int(args[0]), int(args[1]), int(args[2])
 
-    rt_dtype = _to_runtime_dtype(dtype if dtype is not None else torch.float32)
+    rt_dtype = _to_runtime_dtype(dtype if dtype is not None else torch.int64)
     return mb.arange(start, end, step, rt_dtype)
 
 
@@ -327,6 +330,85 @@ def _(mb, *args, dtype=None, layout=None, device=None, pin_memory=None):
 @_skip_prepare(_aten.embedding.default)
 def _(mb, weight, indices, padding_idx=-1, scale_grad_by_freq=False, sparse=False):
     return mb.embedding(weight, indices)
+
+
+@_lowering(_aten.le.Tensor)
+@_skip_prepare(_aten.le.Tensor)
+def _(mb, lhs, rhs):
+    return mb.le(lhs, rhs)
+
+
+@_lowering(_aten.where.self)
+@_skip_prepare(_aten.where.self)
+def _(mb, condition, self, other):
+    return mb.where(condition, self, other)
+
+
+@_lowering(_aten.tril.default)
+@_skip_prepare(_aten.tril.default)
+def _(mb, input, diagonal=0):
+    return mb.tril(input, int(diagonal))
+
+
+@_lowering(_aten._scaled_dot_product_flash_attention_for_cpu.default)
+@_skip_prepare(_aten._scaled_dot_product_flash_attention_for_cpu.default)
+def _(mb, query, key, value, dropout_p=0.0, is_causal=False, attn_mask=None, scale=None):
+    result = mb.sdpa(query, key, value, is_causal=is_causal, scale=scale, attn_mask=attn_mask)
+    # Returns a 9-tuple; downstream getitem[0] extracts the attention output.
+    return (result, None, None, None, None, None, None, None, None)
+
+
+@_lowering(_aten._to_copy.default)
+@_skip_prepare(_aten._to_copy.default)
+def _(mb, x, dtype=None, layout=None, device=None, pin_memory=None, non_blocking=False, memory_format=None):
+    if dtype is not None:
+        return mb.typecast(x, _to_runtime_dtype(dtype))
+    return x
+
+
+@_lowering(_aten._unsafe_view.default)
+def _(mb, x, size):
+    return mb.reshape(x, list(size))
+
+
+@_lowering(_aten.alias.default, _aten.clone.default, _aten.lift_fresh_copy.default)
+@_skip_prepare(_aten.alias.default, _aten.clone.default, _aten.lift_fresh_copy.default)
+def _(mb, x, **kwargs):
+    return x
+
+
+@_lowering(_aten.scalar_tensor.default)
+@_skip_prepare(_aten.scalar_tensor.default)
+def _(mb, value, dtype=None, layout=None, device=None, pin_memory=None):
+    rt_dtype = _to_runtime_dtype(dtype if dtype is not None else torch.float32)
+    return mb.scalar(rt_dtype, float(value))
+
+
+@_lowering(_aten.full.default)
+@_skip_prepare(_aten.full.default)
+def _(mb, size, fill_value, dtype=None, layout=None, device=None, pin_memory=None, memory_format=None):
+    rt_dtype = _to_runtime_dtype(dtype if dtype is not None else torch.float32)
+    return mb.broadcast(mb.scalar(rt_dtype, float(fill_value)), list(size))
+
+
+@_lowering(_aten.zeros.default)
+@_skip_prepare(_aten.zeros.default)
+def _(mb, size, dtype=None, layout=None, device=None, pin_memory=None, memory_format=None):
+    rt_dtype = _to_runtime_dtype(dtype if dtype is not None else torch.float32)
+    return mb.broadcast(mb.scalar(rt_dtype, 0.0), list(size))
+
+
+@_lowering(_aten.index_copy.default)
+@_skip_prepare(_aten.index_copy.default)
+def _(mb, input, dim, index, source):
+    return mb.index_copy(input, int(dim), index, source)
+
+
+@_lowering(_aten.ones.default)
+@_skip_prepare(_aten.ones.default)
+def _(mb, size, dtype=None, layout=None, device=None, pin_memory=None, memory_format=None):
+    rt_dtype = _to_runtime_dtype(dtype if dtype is not None else torch.float32)
+    return mb.broadcast(mb.scalar(rt_dtype, 1.0), list(size))
 
 
 def _is_tensor_schema_arg(

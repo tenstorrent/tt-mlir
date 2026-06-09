@@ -1,6 +1,8 @@
+#include <optional>
 #include <vector>
 
 #include <ATen/ATen.h>
+#include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <torch/library.h>
 #include <ttmlir/Dialect/TTIR/IR/TTIROps.h>
@@ -163,6 +165,18 @@ mlir::Value build_matmul(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
     out_shape.push_back(rhs_shape[as<std::size_t>(rhs_rank - 1)]);
     auto result_type = mlir::RankedTensorType::get(out_shape, lhs_type.getElementType());
     return mb.create<mlir::tt::ttir::MatmulOp>(result_type, lhs, rhs, false, false).getResult();
+}
+
+mlir::Value build_sdpa(ModuleBuilder &mb, mlir::Value query, mlir::Value key, mlir::Value value, bool is_causal,
+                       std::optional<float> scale, mlir::Value attn_mask) {
+    auto result_type = mlir::cast<mlir::RankedTensorType>(query.getType());
+    mlir::FloatAttr scale_attr =
+        scale.has_value() ? mlir::FloatAttr::get(mb.attrs().getF32Type(), scale.value()) : mlir::FloatAttr{};
+    auto is_causal_attr = mb.attrs().getBoolAttr(is_causal);
+    return mb
+        .create<mlir::tt::ttir::ScaledDotProductAttentionOp>(result_type, query, key, value, attn_mask, is_causal_attr,
+                                                             scale_attr, mlir::IntegerAttr{}, mlir::Value{})
+        .getResult();
 }
 
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {

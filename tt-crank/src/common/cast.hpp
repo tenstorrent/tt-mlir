@@ -5,7 +5,7 @@
 #include <type_traits>
 
 // Checked cast in debug build.
-template <class To, class From> [[nodiscard]] constexpr To checked_cast(const From &from) {
+template <class To, class From> [[nodiscard]] constexpr To as_checked(const From &from) {
     if constexpr (build_debug) {
         if constexpr (std::is_signed_v<To> && std::is_unsigned_v<From>) {
             TT_ASSERT(static_cast<To>(from) >= 0, "Overflow error in cast (unsigned to signed): {} -> {}", from,
@@ -23,6 +23,11 @@ template <class To, class From> [[nodiscard]] constexpr To checked_cast(const Fr
     return static_cast<To>(from);
 }
 
+// Create a value of type To from the bits of from with intentional data loss.
+template <class To, class From> [[nodiscard]] constexpr To as_unchecked(const From &from) {
+    return static_cast<To>(from);
+}
+
 // Create a value of type To from the bits of from.
 template <class To, class From> [[nodiscard]] constexpr To as(const From &from) {
     if constexpr (std::is_same_v<From, To>) {
@@ -34,6 +39,6 @@ template <class To, class From> [[nodiscard]] constexpr To as(const From &from) 
         // FP-to-FP narrowing conversions are lossy by design - skip the data loss check.
         return static_cast<To>(from);
     } else {
-        return checked_cast<To>(from);
+        return as_checked<To>(from);
     }
 }
