@@ -739,3 +739,170 @@ def test_compile_bmm(b: int, m: int, k: int, n: int) -> None:
     a = torch.randn((b, m, k), dtype=torch.bfloat16)
     x = torch.randn((b, k, n), dtype=torch.bfloat16)
     _assert_compile_matches_eager(_BMM(), a, x, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize(
+    "shape,dim,keepdim",
+    [
+        ((64, 128), [-1], False),
+        ((64, 128), [0], True),
+        ((32, 64, 32), [1, 2], False),
+        ((32, 64, 32), [1, 2], True),
+    ],
+    ids=["2d_last", "2d_first_keepdim", "3d_last_two", "3d_last_two_keepdim"],
+)
+def test_compile_sum(shape: tuple[int, ...], dim: list[int], keepdim: bool) -> None:
+    """aten::sum.dim_IntList in a compiled graph — exercises SumOp with dim
+    and keep_dim attrs. Mirrors test_compile_mean."""
+    class _Sum(nn.Module):
+        def __init__(self, d: list[int], k: bool) -> None:
+            super().__init__()
+            self.d = d
+            self.k = k
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return x.sum(dim=self.d, keepdim=self.k)
+
+    x = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Sum(dim, keepdim), x, atol=0.05, rtol=0.05)
+
+
+def test_compile_le() -> None:
+    """aten::le.Tensor in a compiled graph — produces a Bool result tensor."""
+    class _Le(nn.Module):
+        def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+            return a <= b
+
+    a = torch.randn((32, 64), dtype=torch.bfloat16)
+    b = torch.randn((32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Le(), a, b)
+
+
+def test_compile_where() -> None:
+    """aten::where.self in a compiled graph — Bool mask selects between two
+    float tensors. The mask is produced by aten::le so the graph exercises
+    both lowerings end-to-end."""
+    class _Where(nn.Module):
+        def forward(self, a: torch.Tensor, b: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+            return torch.where(a <= b, b, c)
+
+    a = torch.randn((32, 64), dtype=torch.bfloat16)
+    b = torch.randn((32, 64), dtype=torch.bfloat16)
+    c = torch.randn((32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Where(), a, b, c)
+
+
+@pytest.mark.parametrize(
+    "shape,diagonal",
+    [
+        ((32, 32), 0),
+        ((32, 64), 0),
+        ((32, 64), 2),
+        ((32, 64), -2),
+    ],
+    ids=["square", "rect", "above_main", "below_main"],
+)
+def test_compile_tril(shape: tuple, diagonal: int) -> None:
+    """aten::tril.default in a compiled graph — lower-triangular extraction with
+    various shapes and diagonal offsets. Exercises build_tril including the
+    arange/reshape/le/where subgraph it decomposes into."""
+    class _Tril(nn.Module):
+        def __init__(self, diagonal: int) -> None:
+            super().__init__()
+            self.diagonal = diagonal
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.tril(x, diagonal=self.diagonal)
+
+    x = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Tril(diagonal), x)
+
+
+@pytest.mark.usefixtures("skip_if_sim")
+@pytest.mark.parametrize("is_causal", [True, False], ids=["causal", "noncausal"])
+def test_compile_sdpa(is_causal: bool) -> None:
+    """scaled_dot_product_attention in a compiled graph — Dynamo dispatches to
+    _scaled_dot_product_flash_attention_for_cpu on CPU which the tt lowering
+    maps to build_sdpa. Tests both the causal (is_causal=True, no explicit mask)
+    and non-causal (is_causal=False) variants."""
+    class _SDPA(nn.Module):
+        def __init__(self, causal: bool) -> None:
+            super().__init__()
+            self.causal = causal
+
+        def forward(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
+            return torch.nn.functional.scaled_dot_product_attention(
+                q, k, v, is_causal=self.causal
+            )
+
+    q = torch.randn((1, 8, 32, 64), dtype=torch.bfloat16)
+    k = torch.randn((1, 8, 32, 64), dtype=torch.bfloat16)
+    v = torch.randn((1, 8, 32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_SDPA(is_causal), q, k, v, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.usefixtures("skip_if_sim")
+def test_compile_index_copy() -> None:
+    """aten::index_copy.default in a compiled graph — copies rows from `src`
+    into `dst` at positions given by `index` along dim 0. Used by StaticCache
+    to scatter KV-states into pre-allocated buffers."""
+    class _IndexCopy(nn.Module):
+        def forward(
+            self, dst: torch.Tensor, index: torch.Tensor, src: torch.Tensor
+        ) -> torch.Tensor:
+            return dst.index_copy(0, index, src)
+
+    dst = torch.zeros((64, 32), dtype=torch.bfloat16)
+    index = torch.arange(32, dtype=torch.int64)
+    src = torch.randn((32, 32), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_IndexCopy(), dst, index, src)
+
+
+def test_compile_threshold_backward() -> None:
+    """aten::threshold_backward in a compiled graph — ReLU backward gate:
+    grad_output * (self > threshold). Threshold 0 matches the relu backward."""
+    class _ThresholdBwd(nn.Module):
+        def forward(self, grad: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+            return torch.ops.aten.threshold_backward.default(grad, x, 0.0)
+
+    grad = torch.randn((32, 64), dtype=torch.bfloat16)
+    x = torch.randn((32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_ThresholdBwd(), grad, x)
+
+
+@pytest.mark.parametrize("reduction", [0, 1, 2], ids=["none", "mean", "sum"])
+def test_compile_mse_loss(reduction: int) -> None:
+    """aten::mse_loss in a compiled graph. reduction=0 (None) returns the
+    elementwise squared error; 1 (Mean) and 2 (Sum) reduce to a scalar."""
+    class _MSELoss(nn.Module):
+        def __init__(self, r: int) -> None:
+            super().__init__()
+            self.r = r
+
+        def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+            return torch.ops.aten.mse_loss.default(pred, target, self.r)
+
+    pred = torch.randn((32, 32), dtype=torch.bfloat16)
+    target = torch.randn((32, 32), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_MSELoss(reduction), pred, target, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("reduction", [0, 1, 2], ids=["none", "mean", "sum"])
+def test_compile_mse_loss_backward(reduction: int) -> None:
+    """aten::mse_loss_backward in a compiled graph. For None reduction grad_output
+    is the same shape as the inputs; for Mean/Sum it is a scalar [1] that
+    broadcasts over the result."""
+    class _MSELossBwd(nn.Module):
+        def __init__(self, r: int) -> None:
+            super().__init__()
+            self.r = r
+
+        def forward(
+            self, grad: torch.Tensor, pred: torch.Tensor, target: torch.Tensor
+        ) -> torch.Tensor:
+            return torch.ops.aten.mse_loss_backward.default(grad, pred, target, self.r)
+
+    pred = torch.randn((32, 32), dtype=torch.bfloat16)
+    target = torch.randn((32, 32), dtype=torch.bfloat16)
+    grad = torch.randn((32, 32) if reduction == 0 else (1,), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_MSELossBwd(reduction), grad, pred, target, atol=0.05, rtol=0.05)

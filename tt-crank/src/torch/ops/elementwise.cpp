@@ -17,6 +17,7 @@
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/Support/LLVM.h>
 #include <torch/library.h>
+#include <ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h>
 #include <ttmlir/Dialect/TTIR/IR/TTIROps.h>
 
 #include "cast.hpp"
@@ -396,7 +397,8 @@ mlir::Value build_scalar(ModuleBuilder &mb, mlir::Type element_type, double valu
         value_attr = mlir::DenseElementsAttr::get(tensor_type, ap);
     } else {
         auto int_ty = mlir::cast<mlir::IntegerType>(element_type);
-        llvm::APInt ap(int_ty.getWidth(), as<std::int64_t>(value), /*isSigned=*/true);
+        bool is_signed = int_ty.getWidth() > 1;
+        llvm::APInt ap(int_ty.getWidth(), as_unchecked<std::int64_t>(value), is_signed); // NOLINT
         value_attr = mlir::DenseElementsAttr::get(tensor_type, ap);
     }
     auto constant = mb.create<mlir::tt::ttir::ConstantOp>(tensor_type, value_attr);
@@ -1074,6 +1076,48 @@ mlir::Value build_tril(ModuleBuilder &mb, mlir::Value input, int64_t diagonal) {
     // mask [N, M] broadcasts against input [..., N, M] inside WhereOp.
     auto zero = build_scalar(mb, input_type.getElementType(), 0.0);
     return mb.create<mlir::tt::ttir::WhereOp>(input_type, mask, input, zero).getResult();
+}
+
+mlir::Value build_le(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
+    auto lhs_type = mlir::cast<mlir::RankedTensorType>(lhs.getType());
+    auto rhs_type = mlir::cast<mlir::RankedTensorType>(rhs.getType());
+    auto out_shape = at::infer_size(at::IntArrayRef(lhs_type.getShape().data(), lhs_type.getShape().size()),
+                                    at::IntArrayRef(rhs_type.getShape().data(), rhs_type.getShape().size()));
+    auto result_type = mlir::RankedTensorType::get(out_shape, mb.attrs().getI1Type());
+    return mb.create<mlir::tt::ttir::LessEqualOp>(result_type, lhs, rhs).getResult();
+}
+
+mlir::Value build_index_copy(ModuleBuilder &mb, mlir::Value input, int64_t dim, mlir::Value index, mlir::Value source) {
+    auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto source_type = mlir::cast<mlir::RankedTensorType>(source.getType());
+    auto index_type = mlir::cast<mlir::RankedTensorType>(index.getType());
+    TORCH_INTERNAL_ASSERT(index_type.getRank() == 1, "tt-kurbla build_index_copy: index must be 1D");
+    int64_t rank = as<int64_t>(input_type.getShape().size());
+    if (dim < 0) {
+        dim += rank;
+    }
+
+    // Reshape 1D index [n] to [1, ..., n, ..., 1] (size 1 except at dim)
+    llvm::SmallVector<int64_t> reshaped_shape(as<std::size_t>(rank), 1LL);
+    reshaped_shape[as<std::size_t>(dim)] = index_type.getShape()[0];
+    mlir::Value expanded_index = build_reshape(mb, index, reshaped_shape);
+
+    // Broadcast to source_shape so index and source have identical shapes
+    llvm::SmallVector<int64_t> target_shape(source_type.getShape().begin(), source_type.getShape().end());
+    expanded_index = build_broadcast(mb, expanded_index, target_shape);
+
+    // ScatterOp needs i32 indices
+    auto i32_type = mb.attrs().getI32Type();
+    if (index_type.getElementType() != i32_type) {
+        expanded_index = mb.insert_typecast(expanded_index, i32_type);
+    }
+
+    auto reduce_attr =
+        mlir::tt::ttcore::ReduceTypeAttr::get(mb.attrs().getContext(), mlir::tt::ttcore::ReduceType::Invalid);
+    return mb
+        .create<mlir::tt::ttir::ScatterOp>(input_type, input, expanded_index, source,
+                                           mb.attrs().getI32IntegerAttr(as<int32_t>(dim)), reduce_attr)
+        .getResult();
 }
 
 mlir::Value build_where(ModuleBuilder &mb, mlir::Value condition, mlir::Value true_val, mlir::Value false_val) {

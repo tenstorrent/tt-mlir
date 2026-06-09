@@ -209,4 +209,27 @@ mlir::Value build_isneginf(ModuleBuilder &mb, mlir::Value input);
 // Input and output are Bool (i1).
 mlir::Value build_all(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<int64_t> dims, bool keepdim);
 
+// Emit TTIR for element-wise less-than-or-equal comparison:
+//   result[i] = (lhs[i] <= rhs[i])
+// `lhs` and `rhs` must share element type — callers must promote first.
+// Output is Bool (i1), broadcast-shaped from lhs and rhs.
+mlir::Value build_le(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
+
+// Emit TTIR for index_copy (aten::index_copy.default):
+//   result = self with source values scattered in at `index` positions along `dim`.
+// `index` must be a 1D integer tensor; `source` must be rank == self.rank.
+// Expands `index` to source.shape before emitting ScatterOp with Invalid reduce
+// (plain replace, no accumulation). Input `dim` must already be non-negative.
+mlir::Value build_index_copy(ModuleBuilder &mb, mlir::Value input, int64_t dim, mlir::Value index, mlir::Value source);
+
+// Emit TTIR for scaled dot-product attention (FlashAttention-2):
+//   output = softmax(Q @ K^T * scale + mask) @ V
+// `query`, `key`, `value` are `[B x H x Sq/Sk x D]`. `attn_mask` may be
+// a null `mlir::Value{}` when no explicit mask is used. When `is_causal`
+// is `true`, the op applies a lower-triangular causal mask internally.
+// `scale` defaults to `1 / sqrt(D)` when empty. Returns a tensor of the
+// same shape and type as `query`.
+mlir::Value build_sdpa(ModuleBuilder &mb, mlir::Value query, mlir::Value key, mlir::Value value, bool is_causal,
+                       std::optional<float> scale, mlir::Value attn_mask);
+
 } // namespace tt::kurbla::torch_backend
