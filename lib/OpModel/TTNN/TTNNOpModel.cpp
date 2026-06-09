@@ -2385,7 +2385,8 @@ llvm::Expected<OpConstraints> OpModel<CumProdOp>::getOpConstraints(
 
   auto cumProdOpQuery = [=]() {
     return QUERY_OP_CONSTRAINTS(::ttnn::cumprod, device, inputSpec, dim,
-                                ttnnDtype, false, std::nullopt,
+                                ttnnDtype, /*reverse_order=*/false,
+                                /*optional_out=*/std::nullopt,
                                 detail::getNullableMemoryConfig(outputLayout));
   };
 
@@ -2415,7 +2416,8 @@ OpModel<CumProdOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 
   auto cumProdOpQuery = [=]() {
     return QUERY_OP_RUNTIME(::ttnn::cumprod, device, inputSpec, dim, ttnnDtype,
-                            false, std::nullopt,
+                            /*reverse_order=*/false,
+                            /*optional_out=*/std::nullopt,
                             detail::getNullableMemoryConfig(outputLayout));
   };
 

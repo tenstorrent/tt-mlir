@@ -484,7 +484,9 @@ public:
     return success();
   }
 };
+} // namespace
 
+namespace {
 class CumProdOpConversionPattern : public OpConversionPattern<ttir::CumProdOp> {
 public:
   using OpConversionPattern<ttir::CumProdOp>::OpConversionPattern;

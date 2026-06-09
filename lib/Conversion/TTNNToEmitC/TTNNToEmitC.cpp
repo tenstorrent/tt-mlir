@@ -1210,7 +1210,11 @@ public:
     return success();
   }
 };
+} // namespace
 
+// CumProd op conversion pattern
+//
+namespace {
 class CumProdOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::CumProdOp> {
 
