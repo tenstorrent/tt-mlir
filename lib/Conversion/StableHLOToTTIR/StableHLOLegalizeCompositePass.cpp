@@ -108,7 +108,8 @@ public:
                      " composite op must have exactly one input operand.");
     }
 
-    bool isTopKWithValues = srcOp.getName() == kTTTopKValuesCustomCallTargetName;
+    bool isTopKWithValues =
+        srcOp.getName() == kTTTopKValuesCustomCallTargetName;
     bool isTopKWithIndices =
         srcOp.getName() == kTTTopKIndicesCustomCallTargetName;
     bool isTopKWithBoth = srcOp.getName() == kTTTopKCustomCallTargetName;
