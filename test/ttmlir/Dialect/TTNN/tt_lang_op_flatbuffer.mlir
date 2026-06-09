@@ -1,9 +1,18 @@
-// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" -o %t.mlir %s
+// RUN: ttmlir-opt --ttcore-register-device -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
 // Smoke-tests the `ttnn.tt_lang_op` -> `GenericOp` flatbuffer emitter
-// added in TTNNToFlatbuffer.cpp.
+// added in TTNNToFlatbuffer.cpp. This is a HOST-SIDE emitter test only:
+// it registers a mock device, FileChecks the MLIR, and confirms the
+// flatbuffer translates without diagnostics. It is deliberately NOT
+// under `test/ttmlir/Silicon/` because the `kernel_artifact` below uses
+// stub kernel bodies (plain comments, no `kernel_main`) that cannot be
+// JIT-built on device -- the `ttrt run Silicon` and chisel jobs scan the
+// Silicon tree and would try to execute every emitted flatbuffer. Real
+// on-device coverage for the tt-lang path lives in tt-xla's
+// `tests/torch/ops/test_tt_lang_kernel_e2e.py`, which compiles a real
+// tt-lang kernel end to end.
 //
 // `kernel_artifact` is a synthetic JSON payload produced offline (mirrors
 // the shape that tt-xla's tt_torch.tt_lang._serialize_compiled_kernel
@@ -47,7 +56,7 @@
 //
 // We only FileCheck the MLIR side here (the flatbuffer is a binary blob
 // that lit can't easily inspect inline). If the emitter throws/errors
-// the second RUN line will fail.
+// the third RUN line will fail.
 
 #dram = #ttnn.buffer_type<dram>
 
