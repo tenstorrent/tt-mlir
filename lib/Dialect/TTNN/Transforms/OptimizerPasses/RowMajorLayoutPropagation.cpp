@@ -64,11 +64,8 @@ public:
         return;
       }
 
-      // Skip functions containing D2M subgraph calls. The D2M pipeline
-      // requires tiled inputs and does not support row-major tensors.
-      // The first invocation of this pass (before D2M subgraph creation)
-      // already handled RM propagation; the second invocation (after D2M
-      // creation) must not touch to_layout ops feeding D2M subgraphs.
+      // Skip functions with D2M subgraphs: D2M requires tiled inputs, and the
+      // pre-D2M invocation of this pass already handled RM propagation.
       if (func.getBody()
               .walk([](ttnn::D2MSubgraphOp) {
                 return mlir::WalkResult::interrupt();
@@ -345,17 +342,6 @@ private:
           llvm::inconvertibleErrorCode());
     }
 
-    // Stop propagation at D2M subgraph calls. The D2M pipeline requires tiled
-    // inputs and does not support row-major tensors.
-    if (mlir::isa<ttnn::D2MSubgraphOp>(op)) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
-                   "Stopping RM propagation at D2MSubgraphOp {}",
-                   ttmlir::opToString(op));
-      return llvm::make_error<llvm::StringError>(
-          "Stopping RM propagation at D2MSubgraphOp",
-          llvm::inconvertibleErrorCode());
-    }
-
     // Stop propagation at in-place operations (e.g., paged_update_cache).
     // In-place ops have no results and modify tensors in place, so there's
     // no output to propagate layout to.
@@ -394,21 +380,18 @@ private:
           "Stopping RM propagation", llvm::inconvertibleErrorCode());
     }
 
-    // Use the null-safe accessor: validateOperation() can return Success with
-    // an empty actualOutputLayouts set (observed for integer-typed ops with no
-    // OpModel support, e.g. ttnn.eq / ttnn.ge / ttnn.add on si32 in the GPT-
-    // OSS-20B D2M subgraphs). checkAndGetFirstActualOutputLayout() only guards
-    // that with an assert, so a Release (or assert-stripped) build would
-    // dereference a null TTNNLayoutAttr inside .isTiled() and SIGSEGV.
-    // Treat "no actual output layout" the same as "tile layout": stop here.
+    // validateOperation() can succeed with an empty output-layout set (si32 ops
+    // with no OpModel support, e.g. ttnn.eq/ge/add). Use the null-safe accessor
+    // and treat a missing layout as a stop, rather than deref-ing null in Release.
     auto actualFirstOutputLayout = result.getFirstActualOutputLayout();
     if (!actualFirstOutputLayout || actualFirstOutputLayout.isTiled()) {
-      TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
-                   "Stopping RM propagation at op {}: {},\n\t output layout: {}",
-                   ttmlir::opToString(op),
-                   actualFirstOutputLayout ? "returns tile layout"
-                                           : "no actual output layout",
-                   actualFirstOutputLayout);
+      TTMLIR_DEBUG(
+          ttmlir::LogComponent::RMPropagation,
+          "Stopping RM propagation at op {}: {},\n\t output layout: {}",
+          ttmlir::opToString(op),
+          actualFirstOutputLayout ? "returns tile layout"
+                                  : "no actual output layout",
+          actualFirstOutputLayout);
       return llvm::make_error<llvm::StringError>(
           "Stopping RM propagation", llvm::inconvertibleErrorCode());
     }
