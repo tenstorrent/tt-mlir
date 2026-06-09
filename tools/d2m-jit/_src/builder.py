@@ -244,6 +244,24 @@ class _Builder:
         # Parallel arrays: MLIR arg types and the torch tensor that backs each.
         self._input_types: list = []
         self._input_tensors: list = []
+        # Optional mesh topology (e.g. ("linear", "ring")) for register-device;
+        # the mesh *shape* lives in the module's ttcore.meshes attr (set by
+        # set_mesh) and is read by ttcore-register-device's determineMeshShape.
+        self._mesh_topology = None
+
+    def set_mesh(self, shape, topology=None):
+        """Declare the device mesh for this graph.
+
+        Sets the module's `ttcore.meshes` attribute (which ttcore-register-device
+        reads to size the device, and which flows to the flatbuffer program mesh
+        shape consumed by the runtime). `topology` (e.g. ("linear", "ring")) is
+        stashed for register-device's `mesh-topology` option -- needed for CCL
+        ops like all_gather that require a ring axis."""
+        dims = "x".join(str(int(d)) for d in shape)
+        with self.ctx, self.loc:
+            attr = Attribute.parse(f'#ttcore.meshes<[<"mesh" = {dims}>]>', self.ctx)
+        self.module.operation.attributes["ttcore.meshes"] = attr
+        self._mesh_topology = list(topology) if topology is not None else None
 
     def _refresh_function_type(self, results=None):
         with self.ctx, self.loc:
@@ -702,6 +720,23 @@ def global_semaphore(grid_shape=(8, 8), init=0) -> GlobalSemaphore:
     return GlobalSemaphore(sem, b.generation, tuple(grid_shape), int(init))
 
 
+def mesh(shape, topology=None):
+    """Declare the device mesh for the current graph.
+
+    `shape` is the mesh shape, e.g. `(1, 2)` for a 1x2 mesh; `topology` is an
+    optional per-axis topology tuple (e.g. `("linear", "ring")`) needed by CCL
+    ops such as all_gather (which require a ring cluster axis). Call before
+    building the graph; the mesh persists until the next `to_host` reset.
+
+    Sets the module's `ttcore.meshes` attribute, which ttcore-register-device
+    reads to size the device and which flows to the runtime as the program mesh
+    shape."""
+    b = _get_scope()
+    if not isinstance(b, _Builder):
+        raise RuntimeError("mesh() requires the lazy builder scope")
+    b.set_mesh(shape, topology)
+
+
 def reshape(lt: LazyTensor, *shape) -> LazyTensor:
     """torch.reshape-style logical-shape change.
 
@@ -952,9 +987,18 @@ def _register_device(b: _Builder):
     is present. Registering first makes that verify well-defined.
     """
     system_desc = _get_system_desc_path()
-    register = "ttcore-register-device"
+    opts = []
     if system_desc:
-        register += f"{{system-desc-path={system_desc}}}"
+        opts.append(f"system-desc-path={system_desc}")
+    # Mesh shape comes from the module's ttcore.meshes attr (determineMeshShape
+    # reads it); only the topology needs to be passed as a pass option. Passing
+    # mesh-shape here too would risk a conflict-error against the attr.
+    topology = getattr(b, "_mesh_topology", None)
+    if topology:
+        opts.append("mesh-topology=" + ",".join(topology))
+    register = "ttcore-register-device"
+    if opts:
+        register += "{" + " ".join(opts) + "}"
     if config.print_pipeline:
         print(f"[d2m-jit] register: {register}")
     pm = PassManager.parse(f"builtin.module({register})", context=b.ctx)
