@@ -14,7 +14,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/WalkPatternRewriteDriver.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MLOWERDMATOFULLYINDEXEDFORM
@@ -189,6 +189,20 @@ static Value generateDMAWithCoalescing(OpBuilder &builder, Location loc,
 }
 
 namespace {
+class AffineApplyCreatedListener : public RewriterBase::Listener {
+public:
+  bool wasAffineApplyCreated() const { return affineApplyCreated; }
+
+  void notifyOperationInserted(Operation *op, OpBuilder::InsertPoint) override {
+    if (isa<affine::AffineApplyOp>(op)) {
+      affineApplyCreated = true;
+    }
+  }
+
+private:
+  bool affineApplyCreated = false;
+};
+
 class D2MLowerDMAReadToFullyIndexed : public OpRewritePattern<DMAReadOp> {
 public:
   D2MLowerDMAReadToFullyIndexed(MLIRContext *context,
@@ -488,17 +502,23 @@ public:
       D2MLowerDMAToFullyIndexedForm>::D2MLowerDMAToFullyIndexedFormBase;
 
   void runOnOperation() final {
-    RewritePatternSet patterns(&getContext());
-    patterns.add<D2MLowerDMAReadToFullyIndexed>(&getContext(),
-                                                debugCoalescingInference);
-    patterns.add<D2MLowerDMAWriteToFullyIndexed>(&getContext(),
-                                                 debugCoalescingInference);
-    patterns.add<D2MLowerLocalCopyToFullyIndexed>(&getContext(),
-                                                  debugCoalescingInference);
-    populateAffineToStdConversionPatterns(patterns);
-    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
-      signalPassFailure();
+    RewritePatternSet dmaPatterns(&getContext());
+    dmaPatterns.add<D2MLowerDMAReadToFullyIndexed>(&getContext(),
+                                                   debugCoalescingInference);
+    dmaPatterns.add<D2MLowerDMAWriteToFullyIndexed>(&getContext(),
+                                                    debugCoalescingInference);
+    dmaPatterns.add<D2MLowerLocalCopyToFullyIndexed>(&getContext(),
+                                                     debugCoalescingInference);
+    AffineApplyCreatedListener listener;
+    walkAndApplyPatterns(getOperation(), std::move(dmaPatterns), &listener);
+
+    if (!listener.wasAffineApplyCreated()) {
+      return;
     }
+
+    RewritePatternSet affineToStdPatterns(&getContext());
+    populateAffineToStdConversionPatterns(affineToStdPatterns);
+    walkAndApplyPatterns(getOperation(), std::move(affineToStdPatterns));
   }
 };
 } // namespace
