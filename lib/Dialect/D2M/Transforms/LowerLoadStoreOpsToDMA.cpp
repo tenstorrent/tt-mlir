@@ -371,11 +371,9 @@ public:
               : axisInGroup;
     }
 
-    // Physical coords reused across branches.
-    SmallVector<Value> physGroupStart = utils::mapVirtualToPhysicalCoreIndex(
-        rewriter, loc, genericOp.getGrid(), groupStart);
-    SmallVector<Value> physCollector = utils::mapVirtualToPhysicalCoreIndex(
-        rewriter, loc, genericOp.getGrid(), collectorIdx);
+    // Semaphore targets stay in virtual grid space: GenericRegionsToFuncs maps
+    // them virt->phys once before D2MToTTKernel. DMARead srcCore is the
+    // exception since that pass leaves it untouched.
 
     // if (isInGroup) { if (isCollector) collectorBranch else sourceBranch }
     rewriter.create<scf::IfOp>(
@@ -435,7 +433,7 @@ public:
                 bool xIsOne = staticShapeX && *staticShapeX == 1;
                 if (yIsOne && xIsOne) {
                   builder.create<SemaphoreIncOp>(loc, collectorDone, one,
-                                                 physGroupStart);
+                                                 groupStart);
                 } else if (yIsOne || xIsOne) {
                   Value lb = yIsOne ? groupStart[1] : groupStart[0];
                   Value ub = yIsOne ? endX : endY;
@@ -446,17 +444,14 @@ public:
                           ValueRange) {
                         Value virtY = axisIsX ? groupStart[0] : iv;
                         Value virtX = axisIsX ? iv : groupStart[1];
-                        SmallVector<Value> physTarget =
-                            utils::mapVirtualToPhysicalCoreIndex(
-                                incBuilder, incLoc, genericOp.getGrid(),
-                                {virtY, virtX});
-                        incBuilder.create<SemaphoreIncOp>(incLoc, collectorDone,
-                                                          one, physTarget);
+                        incBuilder.create<SemaphoreIncOp>(
+                            incLoc, collectorDone, one,
+                            ValueRange{virtY, virtX});
                         incBuilder.create<scf::YieldOp>(incLoc);
                       });
                 } else {
                   builder.create<SemaphoreSetOp>(
-                      loc, collectorDone, one, physGroupStart, groupShape,
+                      loc, collectorDone, one, groupStart, groupShape,
                       /*startDevice=*/ValueRange(),
                       /*deviceMcastShape=*/ValueRange());
                 }
@@ -470,7 +465,7 @@ public:
                 // Source: signal the collector we are ready, then wait
                 // until it has pulled us.
                 builder.create<SemaphoreIncOp>(loc, sourceReady, one,
-                                               physCollector);
+                                               collectorIdx);
                 builder.create<SemaphoreWaitOp>(loc, collectorDone, one, zero);
                 builder.create<scf::YieldOp>(loc);
               });

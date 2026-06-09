@@ -48,12 +48,12 @@ module attributes {ttcore.system_desc = #system_desc} {
   // CHECK: ttkernel.noc_semaphore_set
   //
   // DMA loop: source coord comes from the loop iv (proves srcCore is
-  // carried end-to-end), not from my_logical_x.
+  // carried end-to-end), not from my_logical_x. The fully-indexed read
+  // embeds the translated coords directly in noc_async_read core[...].
   // CHECK: scf.for %[[SX:.*]] = %{{.*}} to %{{.*}} step %{{.*}} {
   // CHECK:   ttkernel.experimental::convert_logical_y_to_translated
   // CHECK:   ttkernel.experimental::convert_logical_x_to_translated(%[[SX]])
-  // CHECK:   ttkernel.get_noc_addr
-  // CHECK:   ttkernel.noc_async_read
+  // CHECK:   ttkernel.noc_async_read core[
   // CHECK:   ttkernel.noc_async_read_barrier
   // CHECK: }
   //
