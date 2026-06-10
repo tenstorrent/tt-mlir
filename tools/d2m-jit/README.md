@@ -201,6 +201,11 @@ Argument conventions:
 - `grid=(Y, X)` is required; it controls the physical grid the kernel runs on.
 - `num_outs`, `block_factors`, `indexing_maps`, `iterator_types` are optional
   advanced knobs (see `CompiledKernel.__call__`).
+- Set `kernel_io_in_dram=True` on a call, or
+  `d2m.config.kernel_io_in_dram = True` globally, to convert every tensor input
+  and out-param for the kernel to `mem_space="dram"` before emitting the
+  `d2m.generic`. The process-wide default can also be set with
+  `D2M_JIT_KERNEL_IO_IN_DRAM=1`.
 
 Inside a kernel body, the following names are available (registered via the
 `@syntax` decorator and dispatched by `D2MCompiler`):
