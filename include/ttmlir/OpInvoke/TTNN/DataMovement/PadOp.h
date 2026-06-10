@@ -20,15 +20,14 @@ using PadOpResult =
                  ::ttnn::graph::RuntimeQueryResponse, ::ttnn::Tensor>;
 
 struct PadResolvedParams {
-  ::ttnn::SmallVector<::ttnn::operations::data_movement::PadSpecDim> padding;
+  ::ttsl::SmallVector<::ttnn::operations::data_movement::PadSpecDim> padding;
   std::optional<::ttnn::MemoryConfig> outputMemoryConfig;
 };
 
 PadResolvedParams resolvePadParams(const ::tt::target::ttnn::PadOpT &padOp);
 
-PadOpResult callPad(CallType callType,
-                    const ::tt::target::ttnn::PadOpT &padOp, TensorArg input,
-                    ::ttnn::MeshDevice *device = nullptr);
+PadOpResult callPad(CallType callType, const ::tt::target::ttnn::PadOpT &padOp,
+                    TensorArg input, ::ttnn::MeshDevice *device = nullptr);
 
 } // namespace ttnn_op_invoke
 

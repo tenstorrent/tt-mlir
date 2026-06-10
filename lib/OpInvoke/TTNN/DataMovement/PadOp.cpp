@@ -12,7 +12,7 @@ PadResolvedParams resolvePadParams(const ::tt::target::ttnn::PadOpT &padOp) {
   PadResolvedParams params;
 
   for (uint32_t i = 0; i + 1 < padOp.padding.size(); i += 2) {
-    params.padding.push_back({padOp.padding[i], padOp.padding[i + 1]});
+    params.padding.emplace_back(padOp.padding[i], padOp.padding[i + 1]);
   }
 
   if (padOp.out) {
