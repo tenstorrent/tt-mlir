@@ -59,17 +59,19 @@ public:
     ttkernel::ArgSpecAttr kernelSpec =
         kernelFunc->getAttrOfType<ttkernel::ArgSpecAttr>(
             ttkernel::ArgSpecAttr::name);
+    SmallVector<ttmetal::KernelArgAttr> crtArgs;
     SmallVector<ttmetal::KernelArgAttr> rtArgs;
     SmallVector<ttmetal::KernelArgAttr> ctArgs;
     for (ttkernel::ArgAttr arg : kernelSpec.getRtArgs()) {
+      auto &args = arg.getIsUniform() ? crtArgs : rtArgs;
       if (arg.getArgType() == ttkernel::ArgType::CBPort) {
-        rtArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
+        args.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
             arg.getArgType(), cbOperandIndexToPort.at(arg.getOperandIndex())));
       } else if (arg.getArgType() == ttkernel::ArgType::NamedArgument) {
-        rtArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
+        args.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
             arg.getArgType(), arg.getOperandIndex()));
       } else {
-        rtArgs.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
+        args.push_back(builder.getAttr<ttmetal::KernelArgAttr>(
             arg.getArgType(), argMapping.at(arg.getOperandIndex())));
       }
     }
@@ -85,7 +87,7 @@ public:
             arg.getArgType(), argMapping.at(arg.getOperandIndex())));
       }
     }
-    return builder.getAttr<ttmetal::KernelArgsAttr>(rtArgs, ctArgs);
+    return builder.getAttr<ttmetal::KernelArgsAttr>(crtArgs, rtArgs, ctArgs);
   }
 
   static ArrayAttr convertThreadsToKernelConfigs(
@@ -737,7 +739,8 @@ private:
                                       const SpatialRemapTable &remapTable,
                                       size_t mergedCbSlotBase) {
     size_t operandIndex = kernelArg.getOperandIndex();
-    if (kernelArg.getType() == ttkernel::ArgType::BufferAddress) {
+    if (kernelArg.getType() == ttkernel::ArgType::BufferAddress ||
+        kernelArg.getType() == ttkernel::ArgType::Scalar) {
       if (auto unified = remapTable.lookupIO(enqueueProgram, operandIndex)) {
         operandIndex = *unified;
       }
@@ -762,11 +765,18 @@ private:
                   ttmetal::EnqueueProgramOp enqueueProgram,
                   const SpatialRemapTable &remapTable,
                   size_t mergedCbSlotBase) {
+    SmallVector<KernelArgAttr> remappedCommonRuntimeArgs;
     SmallVector<KernelArgAttr> remappedRuntimeArgs;
     SmallVector<KernelArgAttr> remappedCompileTimeArgs;
+    remappedCommonRuntimeArgs.reserve(kernelArgs.getCommonRtArgs().size());
     remappedRuntimeArgs.reserve(kernelArgs.getRtArgs().size());
     remappedCompileTimeArgs.reserve(kernelArgs.getCtArgs().size());
 
+    for (KernelArgAttr commonRuntimeArg : kernelArgs.getCommonRtArgs()) {
+      remappedCommonRuntimeArgs.push_back(
+          remapKernelArg(builder, commonRuntimeArg, enqueueProgram, remapTable,
+                         mergedCbSlotBase));
+    }
     for (KernelArgAttr runtimeArg : kernelArgs.getRtArgs()) {
       remappedRuntimeArgs.push_back(remapKernelArg(
           builder, runtimeArg, enqueueProgram, remapTable, mergedCbSlotBase));
@@ -777,7 +787,8 @@ private:
                          mergedCbSlotBase));
     }
 
-    return builder.getAttr<KernelArgsAttr>(remappedRuntimeArgs,
+    return builder.getAttr<KernelArgsAttr>(remappedCommonRuntimeArgs,
+                                           remappedRuntimeArgs,
                                            remappedCompileTimeArgs);
   }
 

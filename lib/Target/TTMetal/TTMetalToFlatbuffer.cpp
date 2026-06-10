@@ -905,9 +905,10 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
 static flatbuffers::Offset<target::metal::KernelArgs>
 kernelArgsToFlatbuffer(FlatbufferObjectCache &cache,
                        KernelArgsAttr kernelArgs) {
+  auto crtArgs = toFlatbuffer(cache, kernelArgs.getCommonRtArgs());
   auto rtArgs = toFlatbuffer(cache, kernelArgs.getRtArgs());
   auto ctArgs = toFlatbuffer(cache, kernelArgs.getCtArgs());
-  return target::metal::CreateKernelArgs(*cache.fbb, rtArgs, ctArgs);
+  return target::metal::CreateKernelArgs(*cache.fbb, crtArgs, rtArgs, ctArgs);
 }
 
 static flatbuffers::Offset<target::metal::NocConfig>

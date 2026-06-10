@@ -55,12 +55,14 @@ def TTMetal_KernelArgAttr : TTMetal_Attr<"KernelArg", "kernel_arg"> {
 def TTMetal_KernelArgsAttr : TTMetal_Attr<"KernelArgs", "kernel_args"> {
   let summary = "TTMetal kernel arguments attribute.";
   let description = [{
-    Holds two lists of kernel arguments, one for runtime and one for compile time.
+    Holds kernel argument bindings for common runtime (CRTA), per-core runtime (RTA),
+    and compile-time (CTA) arguments.
   }];
 
-  let parameters = (ins OptionalArrayRefParameter<"KernelArgAttr">:$rt_args,
+  let parameters = (ins OptionalArrayRefParameter<"KernelArgAttr">:$common_rt_args,
+                        OptionalArrayRefParameter<"KernelArgAttr">:$rt_args,
                         OptionalArrayRefParameter<"KernelArgAttr">:$ct_args);
-  let assemblyFormat = "`<` (`rt_args` `=` `[` $rt_args^ `]`)? ` ` (`ct_args` `=` `[` $ct_args^ `]`)? `>`";
+  let assemblyFormat = "`<` (`common_rt_args` `=` `[` $common_rt_args^ `]`)? ` ` (`rt_args` `=` `[` $rt_args^ `]`)? ` ` (`ct_args` `=` `[` $ct_args^ `]`)? `>`";
 }
 
 

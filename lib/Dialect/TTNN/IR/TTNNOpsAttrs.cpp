@@ -990,6 +990,7 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
                    mlir::tt::ttnn::KernelArgAddressOfTensorAttr,
                    mlir::tt::ttnn::KernelArgSemaphoreAtAttr,
                    mlir::tt::ttnn::KernelArgGlobalSemaphoreAttr,
+                   mlir::tt::ttnn::KernelArgScalarAttr,
                    mlir::tt::ttnn::KernelArgNamedArgAttr>(arg)) {
       return emitError() << "Unexpected common runtime argument";
     }

@@ -47,7 +47,8 @@ module {
     // its raw d2m operand index <4>.
     // CHECK: "ttnn.generic"(%{{.*}}, %{{.*}}, %arg1)
     // CHECK-SAME: operandSegmentSizes = array<i32: 2, 1>
-    // CHECK-SAME: ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>, #ttnn.kernel_arg_scalar<2>]
+    // CHECK-SAME: ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_cb_buffer_index<1>]
+    // CHECK-SAME: common_rt_args = [#ttnn.kernel_arg_scalar<2>]
     // CHECK-SAME: (tensor<32x32xf32, {{.*}}>, tensor<32x32xf32, {{.*}}>, i32) -> ()
     d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<compute, @compute_kernel0>]}
         ins(%view_input : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #ttcore.memory_space<l1>>)
@@ -60,10 +61,12 @@ module {
   }
   func.func private @compute_kernel0() attributes {
     ttkernel.arg_spec = #ttkernel.arg_spec<
+      rt_args = [
+        <arg_type = scalar, operand_index = 4>
+      ]
       ct_args = [
         <arg_type = cb_port, operand_index = 2>,
-        <arg_type = cb_port, operand_index = 3>,
-        <arg_type = scalar, operand_index = 4>
+        <arg_type = cb_port, operand_index = 3>
       ]
     >,
     ttkernel.thread = #ttkernel.thread<compute>
