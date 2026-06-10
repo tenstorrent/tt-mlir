@@ -44,9 +44,9 @@ at::Tensor tt_mm(const at::Tensor &self, const at::Tensor &mat2) {
     auto result = build_mm(mb, a, b);
     auto module_op = std::move(mb).finalize({result});
 
-    std::vector<int64_t> out_shape{a_in.size(0), b_in.size(1)};
     auto outputs = compile_and_run(std::move(module_op), {a_in, b_in});
-    return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
+    std::vector<int64_t> per_chip_out{a_in.size(0), b_in.size(1)};
+    return wrap_tt_tensor(std::move(outputs[0]), per_chip_out, promoted);
 }
 
 // aten::addmm(bias, mat1, mat2, beta=1, alpha=1) = beta*bias + alpha*(mat1 @ mat2)
@@ -63,9 +63,9 @@ at::Tensor tt_addmm(const at::Tensor &self, const at::Tensor &mat1, const at::Te
     auto result = build_addmm(mb, bias, a, b, beta.toDouble(), alpha.toDouble());
     auto module_op = std::move(mb).finalize({result});
 
-    std::vector<int64_t> out_shape{mat1.size(0), mat2.size(1)};
     auto outputs = compile_and_run(std::move(module_op), {a_in, b_in, bias_in});
-    return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
+    std::vector<int64_t> per_chip_out{a_in.size(0), b_in.size(1)};
+    return wrap_tt_tensor(std::move(outputs[0]), per_chip_out, promoted);
 }
 
 at::Tensor tt_matmul(const at::Tensor &self_in, const at::Tensor &mat2_in) {

@@ -15,7 +15,6 @@ if "--sim" in sys.argv:
 import pytest  # noqa: E402
 import torch  # noqa: E402
 
-import tt_kurbla.torch  # noqa: E402, F401  - registers the backend
 from tt_kurbla.torch.testing import DeviceType  # noqa: E402
 
 
@@ -33,6 +32,20 @@ def pytest_configure(config: pytest.Config) -> None:
         "markers",
         "benchmark: marks a test as a benchmark (deselect with '-m \"not benchmark\"').",
     )
+    config.addinivalue_line(
+        "markers",
+        "multichip: marks a test as requiring >= 2 physical chips "
+        "(skipped when torch.tt.num_chips() < 2).",
+    )
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    if torch.tt.num_chips() >= 2:
+        return
+    skip = pytest.mark.skip(reason="requires >= 2 physical chips")
+    for item in items:
+        if item.get_closest_marker("multichip") is not None:
+            item.add_marker(skip)
 
 
 @pytest.fixture(autouse=True)

@@ -93,6 +93,16 @@ mlir::Value build_bn_inference(ModuleBuilder &mb, mlir::Value operand, mlir::Val
 // broadcasts against any tensor in downstream elementwise ops.
 mlir::Value build_scalar(ModuleBuilder &mb, mlir::Type element_type, double value);
 
+// Emit `ttir.all_reduce(reduce_type, cluster_axis)` over the runtime mesh axis
+// `cluster_axis` (caller-supplied). Output shape == input (per-chip) shape.
+mlir::Value build_all_reduce(ModuleBuilder &mb, mlir::Value input, const std::string &reduce_op,
+                             std::uint32_t cluster_axis);
+
+// Emit `ttir.all_gather(all_gather_dim=0, cluster_axis)`. Output dim 0 is
+// `group_size * input dim 0`; the gather dim is fixed at 0 by the
+// `all_gather_into_tensor` / `_allgather_base` contract.
+mlir::Value build_all_gather(ModuleBuilder &mb, mlir::Value input, std::int64_t group_size, std::uint32_t cluster_axis);
+
 // Emit `value * tensor` as a TTIR subgraph: a `ttir.constant` at `tensor`'s
 // element type, then a `ttir.multiply`. Shared cross-op helper.
 mlir::Value scale_tensor(ModuleBuilder &mb, mlir::Value tensor, double value);
