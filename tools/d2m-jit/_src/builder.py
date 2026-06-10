@@ -868,6 +868,39 @@ def mesh_gather(lt: LazyTensor, shard_dims=None, shard_shape=None) -> LazyTensor
     return lt
 
 
+def reblock(lt: LazyTensor, grid) -> LazyTensor:
+    """Reblock a device tensor onto a different worker-core `grid` (a metadata
+    `d2m.view_layout`, no data movement).
+
+    Used to build the CCL "stream" operands: spread a shard's work across cores
+    and (for an all_gather output) span the mesh on the gather dim. The new
+    layout's `block_shape` is chosen so its blocked grid equals `grid` (the
+    layout is self-consistent), so a later device-view / to_host on the result
+    is a no-op rather than an implicit re-reblock."""
+    lt = lt._resolve()
+    layout = lt.layout
+    b = _get_scope()
+    grid = list(grid)
+    logical = list(layout.logical_shape)
+    tiles = [(s + 31) // 32 for s in logical] if layout.tiled else logical
+    if len(grid) != len(tiles):
+        raise ValueError(f"reblock: grid {grid} rank != logical rank {len(tiles)}")
+    new_block = []
+    for t, g in zip(tiles, grid):
+        if g <= 0 or t % g != 0:
+            raise ValueError(
+                f"reblock: {t} tiles along a dim not divisible by grid {g}"
+            )
+        new_block.append(t // g)
+    new_layout = layout.replace(grid_shape=grid, block_shape=new_block)
+    with b.ctx, b.loc, b.insert_point:
+        old_shape = list(lt.value.type.shape)
+        new_ty = new_layout.build_device_tensor_type(b.ctx, blocked=False)
+        reblock_map = d2m.ir.calculate_reblock_map(old_shape, list(new_ty.shape), b.ctx)
+        val = d2m.ViewLayoutOp(new_ty, lt.value, reblock_map).result
+    return LazyTensor(new_layout, val, b.generation, is_view=True, mesh=lt.mesh)
+
+
 def reshape(lt: LazyTensor, *shape) -> LazyTensor:
     """torch.reshape-style logical-shape change.
 
@@ -1525,6 +1558,10 @@ def _emit_kernel_generic(
     for i, lt in enumerate(output_lts):
         lt.value = generic.results[i]
         lt.generation = b.generation
+        # The output may have been a reblocked stream view (is_view=True); after
+        # the kernel writes through it, it holds a real result and is
+        # materialisable (the result aliases the underlying buffer).
+        lt.is_view = False
 
 
 # Thread types a kernel may be authored as. "unified" (the default) is the
