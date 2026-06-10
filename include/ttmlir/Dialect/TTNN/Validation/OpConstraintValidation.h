@@ -50,6 +50,11 @@ struct ValidationResult {
   // CB peak L1 usage from op_model. Only valid if Success.
   uint64_t cbPeakUsage = 0;
 
+  // Per-output allocation records from a stateful (build-from-records) query.
+  // Empty on the stateless path. The L1 spill path keeps these for still-live
+  // tensors and rebuilds allocator state from them.
+  llvm::SmallVector<op_model::OpModelAllocationRecord> outputAllocations;
+
   // Error message if status != Success.
   std::string errorMessage;
 
@@ -146,6 +151,16 @@ ValidationResult validateOperation(Operation *op,
                                    llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                                    const OpConfig &config,
                                    uint64_t additionalL1Usage = 0);
+
+// Stateful (build-from-records) validation for the L1 spill path. Routes to the
+// uncached getOpConstraintsWithState, evaluating the op against `liveRecords`
+// (the allocations already live in L1). An empty liveRecords is equivalent to
+// the stateless query.
+ValidationResult
+validateOperation(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                  const OpConfig &config,
+                  llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords,
+                  uint64_t additionalL1Usage = 0);
 
 // Test multiple attributes with all layouts.
 // op: Operation to validate.

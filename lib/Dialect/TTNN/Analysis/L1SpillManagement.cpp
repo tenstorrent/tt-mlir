@@ -1807,9 +1807,99 @@ void L1SpillManagement<MemoryTracker>::insertReshardForConsumer(
 }
 
 //===----------------------------------------------------------------------===//
+// MockAllocatorL1Tracker
+//===----------------------------------------------------------------------===//
+
+op_constraint_validation::ValidationResult
+MockAllocatorL1Tracker::validate(Operation *op,
+                                 llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                                 const OpConfig &config) const {
+  // Test-only hook takes precedence and is state-agnostic.
+  if (backendValidator) {
+    return backendValidator(op, inputLayouts, config, /*additionalL1Usage=*/0);
+  }
+
+  // Flatten the currently-live L1 allocations into the stateful query's initial
+  // state. additionalL1Usage is 0: the live set is encoded in the records, not
+  // a scalar. Ops that don't override the stateful interface method fall back
+  // to the (cached) stateless query and return no records.
+  llvm::SmallVector<op_model::OpModelAllocationRecord> flat;
+  for (const auto &entry : liveRecords) {
+    flat.append(entry.second.begin(), entry.second.end());
+  }
+
+  op_constraint_validation::ValidationResult result =
+      op_constraint_validation::validateOperation(op, inputLayouts, config,
+                                                  flat,
+                                                  /*additionalL1Usage=*/0);
+
+  // Stash this op's output records for association at addTensor time.
+  if (result.isSuccess() && !result.outputAllocations.empty()) {
+    pendingRecords[op] = RecordVec(result.outputAllocations.begin(),
+                                   result.outputAllocations.end());
+  }
+  return result;
+}
+
+void MockAllocatorL1Tracker::init(uint64_t l1BudgetPerCore) {
+  SumL1MemoryTracker::init(l1BudgetPerCore);
+  liveRecords.clear();
+  pendingRecords.clear();
+}
+
+void MockAllocatorL1Tracker::addTensor(Value result, uint64_t l1SizePerCore) {
+  SumL1MemoryTracker::addTensor(result, l1SizePerCore);
+  // Associate the pending record for this result (positional: i-th tensor
+  // result <-> i-th output-buffer record). Ops that produced no records (not
+  // migrated to the stateful path) simply contribute nothing to the state.
+  Operation *op = result.getDefiningOp();
+  if (!op) {
+    return;
+  }
+  auto it = pendingRecords.find(op);
+  if (it == pendingRecords.end()) {
+    return;
+  }
+  const unsigned idx = mlir::cast<OpResult>(result).getResultNumber();
+  if (idx < it->second.size()) {
+    liveRecords[result] = RecordVec{it->second[idx]};
+  }
+}
+
+void MockAllocatorL1Tracker::addTensorAtAddress(Value result,
+                                                uint64_t l1SizePerCore,
+                                                Value srcAtSameAddr) {
+  // Alias (e.g. a reshape view): shares srcAtSameAddr's buffer, so it adds no
+  // new allocation to the state — do not add a record for `result` (that would
+  // double-count the same buffer). The base tracks the address alias group.
+  SumL1MemoryTracker::addTensorAtAddress(result, l1SizePerCore, srcAtSameAddr);
+}
+
+void MockAllocatorL1Tracker::removeTensor(Value result) {
+  SumL1MemoryTracker::removeTensor(result);
+  liveRecords.erase(result);
+}
+
+void MockAllocatorL1Tracker::removeTensorFromSizes(Value result) {
+  SumL1MemoryTracker::removeTensorFromSizes(result);
+  // Eviction spills to DRAM via this path: the tensor has left L1.
+  liveRecords.erase(result);
+}
+
+MockAllocatorL1Tracker::Snapshot MockAllocatorL1Tracker::takeSnapshot() const {
+  return Snapshot{SumL1MemoryTracker::takeSnapshot(), liveRecords};
+}
+
+void MockAllocatorL1Tracker::restoreSnapshot(const Snapshot &snapshot) {
+  SumL1MemoryTracker::restoreSnapshot(snapshot.base);
+  liveRecords = snapshot.liveRecords;
+}
+
+//===----------------------------------------------------------------------===//
 // Explicit template instantiation
 //===----------------------------------------------------------------------===//
 
 template class L1SpillManagement<SumL1MemoryTracker>;
+template class L1SpillManagement<MockAllocatorL1Tracker>;
 
 } // namespace mlir::tt::ttnn

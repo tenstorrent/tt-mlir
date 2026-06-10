@@ -46,3 +46,36 @@ target_link_libraries(L1SpillManagementTests
     MLIRTTNNAnalysis
     MLIRTTNNValidation
 )
+
+if (TTMLIR_ENABLE_OPMODEL)
+    # Allocator-backed stateful spill tests. Standalone binary (custom main()
+    # registering MockDeviceEnvironment) rather than add_mlir_unittest, so it is
+    # NOT wired into MLIRUnitTests/check-ttmlir -- it needs the op-model lib and
+    # a mock device, matching the TestOpModelLibMockDevice convention. Runs
+    # HW-free (mock device) on any box with the op-model build.
+    add_executable(L1SpillManagementMockAllocatorTests
+        TestL1SpillManagementMockAllocator.cpp
+    )
+
+    target_compile_options(L1SpillManagementMockAllocatorTests
+        PRIVATE
+        -fno-rtti
+    )
+
+    target_include_directories(L1SpillManagementMockAllocatorTests
+        PUBLIC
+        ${PROJECT_SOURCE_DIR}/test/unittests/OpModel/TTNN/
+    )
+
+    target_link_libraries(L1SpillManagementMockAllocatorTests
+        PRIVATE
+        gtest
+        TTNNOpModelLib
+        MLIRTTCoreDialect
+        MLIRTTNNDialect
+        MLIRTTTransforms
+        MLIRTTNNAnalysis
+        MLIRTTNNValidation
+        TTMLIRTestUtils
+    )
+endif()

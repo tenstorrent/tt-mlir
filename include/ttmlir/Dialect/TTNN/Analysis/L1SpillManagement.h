@@ -169,6 +169,62 @@ private:
   llvm::DenseMap<uint64_t, AliasGroup> aliasGroups;
 };
 
+/// L1 memory tracker backed by tt-metal's stateful op-constraints query.
+///
+/// Reuses SumL1MemoryTracker's address simulation for eviction ordering and
+/// CB-overlap checks (inherited unchanged), but replaces the *fit decision*:
+/// validate() feeds the set of currently-live L1 allocations (as
+/// build-from-records) into the op-model's stateful query, so fragmentation and
+/// placement are modeled by tt-metal's real allocator rather than the scalar
+/// additional-L1 heuristic.
+///
+/// Live allocation records are keyed by Value. They are captured from the
+/// validation result (a `mutable` per-op stash filled in validate(), consumed
+/// in addTensor) and dropped when a tensor leaves L1 (removeTensor /
+/// removeTensorFromSizes, which the eviction path uses to spill to DRAM).
+struct MockAllocatorL1Tracker : SumL1MemoryTracker {
+  using RecordVec = llvm::SmallVector<op_model::OpModelAllocationRecord>;
+
+  /// Currently-live L1 allocations, keyed by the producing Value. Flattened
+  /// into the stateful query's initial state on each validate().
+  llvm::DenseMap<Value, RecordVec> liveRecords;
+
+  /// Records produced by the most recent successful validate(), keyed by op,
+  /// awaiting association with result Values at addTensor time. `mutable` so
+  /// the const validate() can populate it.
+  mutable llvm::DenseMap<Operation *, RecordVec> pendingRecords;
+
+  /// Stateful fit decision: build the initial allocator state from liveRecords
+  /// and route through the uncached getOpConstraintsWithState. Falls back to
+  /// stateless behavior for ops that don't override the stateful interface
+  /// method (their result carries no records).
+  op_constraint_validation::ValidationResult
+  validate(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+           const OpConfig &config) const;
+
+  void init(uint64_t l1BudgetPerCore);
+
+  /// Delegates address/size bookkeeping to the base, then records `result`'s
+  /// allocation from the pending stash (if the op produced records).
+  void addTensor(Value result, uint64_t l1SizePerCore);
+  void addTensorAtAddress(Value result, uint64_t l1SizePerCore,
+                          Value srcAtSameAddr);
+
+  /// Delegates to the base, then drops `result` from liveRecords (it has left
+  /// L1 — dead or spilled to DRAM).
+  void removeTensor(Value result);
+  void removeTensorFromSizes(Value result);
+
+  /// Snapshot carrying both the base address-sim snapshot and the live-records
+  /// map, so eviction replay restores the record set alongside addresses.
+  struct Snapshot {
+    SumL1MemoryTracker::Snapshot base;
+    llvm::DenseMap<Value, RecordVec> liveRecords;
+  };
+  Snapshot takeSnapshot() const;
+  void restoreSnapshot(const Snapshot &snapshot);
+};
+
 /// L1SpillManagement enforces L1 budget constraints using farthest-last-use
 /// eviction with validation-based budget enforcement.
 /// Each op is re-validated during the sweep using validateOperation() with
@@ -456,8 +512,9 @@ private:
   collectDownstreamConsumers(Operation *changed);
 };
 
-// Explicit instantiation declaration (definition in .cpp).
+// Explicit instantiation declarations (definitions in .cpp).
 extern template class L1SpillManagement<SumL1MemoryTracker>;
+extern template class L1SpillManagement<MockAllocatorL1Tracker>;
 
 } // namespace mlir::tt::ttnn
 

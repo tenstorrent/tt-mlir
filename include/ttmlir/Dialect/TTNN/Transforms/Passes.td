@@ -852,6 +852,10 @@ def TTNNGreedyL1SpillManagement : Pass<"ttnn-greedy-l1-spill-management", "::mli
     Option<"decisionTraceDir", "decision-trace-dir", "std::string",
            "\"ttrt-artifacts/decision_trace\"",
            "Directory for decision trace JSON output.">,
+    Option<"useMockAllocatorState", "use-mock-allocator-state", "bool", "true",
+           "Use tt-metal's stateful op-constraints query (MockAllocatorL1Tracker) "
+           "for fragmentation-accurate L1 fit decisions. When false, use the "
+           "scalar additional-L1 + CB-cushion tracker (SumL1MemoryTracker).">,
   ];
 }
 
