@@ -56,6 +56,7 @@ TTNNOptimizerOptions::TTNNOptimizerOptions(
     : insertMemReconfig(pipelineOptions.insertMemReconfig),
       overrideOutputLayout(pipelineOptions.overrideOutputLayout),
       overrideConv2dConfig(pipelineOptions.overrideConv2dConfig),
+      overrideConv3dConfig(pipelineOptions.overrideConv3dConfig),
       memoryLayoutAnalysisEnabled(pipelineOptions.memoryLayoutAnalysisEnabled),
       l1InterleavedFallbackAnalysisEnabled(
           pipelineOptions.l1InterleavedFallbackAnalysisEnabled),
@@ -133,6 +134,7 @@ public:
     insertMemReconfig = std::move(options.insertMemReconfig);
     overrideOutputLayout = std::move(options.overrideOutputLayout);
     overrideConv2dConfig = std::move(options.overrideConv2dConfig);
+    overrideConv3dConfig = std::move(options.overrideConv3dConfig);
     memoryLayoutAnalysisEnabled =
         std::move(options.memoryLayoutAnalysisEnabled);
     l1InterleavedFallbackAnalysisEnabled =
@@ -163,6 +165,12 @@ protected:
           *this, OptionNames::overrideConv2dConfig,
           ::llvm::cl::desc("Override Conv2d configuration for specific ops."),
           ::llvm::cl::init(llvm::StringMap<Conv2dConfigOverrideParams>())};
+  ::mlir::Pass::Option<llvm::StringMap<Conv3dConfigOverrideParams>,
+                       mlir::tt::ttnn::Conv3dConfigOverrideParser>
+      overrideConv3dConfig{
+          *this, OptionNames::overrideConv3dConfig,
+          ::llvm::cl::desc("Override Conv3d configuration for specific ops."),
+          ::llvm::cl::init(llvm::StringMap<Conv3dConfigOverrideParams>())};
   ::mlir::Pass::Option<bool> memoryLayoutAnalysisEnabled{
       *this, OptionNames::memoryLayoutAnalysisEnabled,
       ::llvm::cl::desc("Enable memory layout optimization."),
@@ -299,7 +307,8 @@ public:
         LegalOpConfigAnalysis legalOpConfigAnalysis =
             getChildAnalysis<LegalOpConfigAnalysis>(op);
         legalOpConfigAnalysis.init(LegalOpConfigAnalysisInput(
-            legalOpLayoutAnalysis.getResult(), &overrideConv2dConfig));
+            legalOpLayoutAnalysis.getResult(), &overrideConv2dConfig,
+            &overrideConv3dConfig));
         legalConfigs[op] = legalOpConfigAnalysis.getResult();
 
         // Save only L1 Interleaved legal configs in a separate map for
@@ -520,6 +529,22 @@ public:
                       // well and merge with the Conv2dOp case above.
                     }
                   })
+              .Case<ttnn::Conv3dOp>([&](ttnn::Conv3dOp convOp) {
+                auto opAttributes = opConfigAnalysis.getResult().at(op);
+                if (std::holds_alternative<ttnn::Conv3dAttrs>(
+                        opAttributes.opSpecificAttrs)) {
+                  ttnn::Conv3dAttrs conv3dAttrs =
+                      std::get<ttnn::Conv3dAttrs>(opAttributes.opSpecificAttrs);
+                  if (conv3dAttrs.conv3dConfig.has_value()) {
+                    convOp.setConv3dConfigAttr(
+                        conv3dAttrs.conv3dConfig.value());
+                  }
+                  if (conv3dAttrs.deviceComputeKernelConfig.has_value()) {
+                    convOp.setComputeConfigAttr(
+                        conv3dAttrs.deviceComputeKernelConfig.value());
+                  }
+                }
+              })
               .Case<ttnn::MatmulOp, ttnn::LinearOp>([&](auto matmulOp) {
                 auto opAttributes = opConfigAnalysis.getResult().at(op);
                 if (std::holds_alternative<ttnn::MatmulAttrs>(

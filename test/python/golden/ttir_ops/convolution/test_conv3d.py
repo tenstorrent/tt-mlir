@@ -151,3 +151,60 @@ def test_conv3d(
         device=device,
         target=target,
     )
+
+
+@pytest.mark.parametrize("enable_greedy", [False, True], ids=["chain", "greedy"])
+def test_conv3d_optimizer(enable_greedy: bool, request, device):
+    """Golden execution of conv3d through the optimizer-enabled pipeline.
+
+    Covers the path introduced alongside post-optimizer conv3d weight
+    preparation: Conv3dOp is handled by LegalOpConfigAnalysis, a Conv3dConfigAttr
+    (here pinned via --override-conv3d-config) is applied, and the
+    TTNNPrepareConv3dWeights pass materializes the prepare op using the
+    optimizer-chosen c_in_block. The default (no-optimizer) pipeline exercised by
+    test_conv3d above never runs the optimizer, so this is the only golden
+    coverage of that path.
+
+    Note: c_in_block only changes how the input-channel reduction is tiled, not
+    the conv result, so this golden test cannot distinguish whether the override
+    was applied — it would pass even if c_in_block were ignored. It validates
+    that the optimizer / override pipeline compiles and executes with correct
+    numerics; that c_in_block=64 was actually selected is verified at the IR
+    level.
+    """
+    # in_channels=128 => c_in_aligned=128, so c_in_block=64 is a legal block.
+    input_shape = (1, 8, 28, 28, 128)
+    weight_shape = (32, 128, 3, 3, 3)
+    input_shapes = [input_shape, weight_shape]
+    input_types = [torch.bfloat16, torch.bfloat16]
+
+    def module(builder: TTIRBuilder):
+        @builder.func(input_shapes, input_types)
+        def conv3d_optimizer_wrapper(
+            in0: Operand,
+            weight: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.conv3d(
+                in0,
+                weight,
+                None,
+                stride=[1, 1, 1],
+                padding=[0, 0, 0],
+                groups=1,
+                loc="conv3d_opt",
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        target="ttnn",
+        pipeline_options=[
+            "optimization-level=1",
+            f"enable-greedy-optimizer={'true' if enable_greedy else 'false'}",
+            "override-conv3d-config=conv3d_opt=c_in_block#64",
+        ],
+    )

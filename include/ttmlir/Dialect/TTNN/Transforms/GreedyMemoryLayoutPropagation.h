@@ -24,6 +24,7 @@ struct TTNNGreedyMemoryLayoutPropagationPipelineOptions {
   bool enableL1ShardingLayouts = true;
   llvm::StringMap<OutputLayoutOverrideParams> overrideOutputLayout;
   llvm::StringMap<Conv2dConfigOverrideParams> overrideConv2dConfig;
+  llvm::StringMap<Conv3dConfigOverrideParams> overrideConv3dConfig;
   bool enableDecisionTrace = false;
   std::string decisionTraceDir = "ttrt-artifacts/decision_trace";
   bool enableCompileTimeStats = false;

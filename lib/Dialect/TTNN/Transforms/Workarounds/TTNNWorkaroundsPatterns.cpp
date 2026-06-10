@@ -774,12 +774,17 @@ const std::set<mlir::StringRef>
         // tt-metal SDPA-supported dtype (bf16). Without it, opt_level>=1 leaves
         // f32 operands
         ttnn::FlashMlaPrefillOp::getOperationName(),
-        // PrepareConv3dWeightsOp is needed for conv3d and it requires ROW_MAJOR
-        // layout. See #8411.
-        ttnn::PrepareConv3dWeightsOp::getOperationName(),
         // The moe_compute weight packers and the op itself require
         // layout and data type workarounds.
         ttnn::PrepareMoEComputeW0W1WeightsOp::getOperationName(),
         ttnn::PrepareMoEComputeW2WeightsOp::getOperationName(),
         ttnn::MoeComputeOp::getOperationName()};
+        // Conv3d's runtime kernel hard-rejects Tile input
+        // (TT_FATAL @ conv3d_device_operation.cpp:49); without the
+        // workaround running here, the optimizer's layout propagation
+        // picks Tile for the input and downstream OpModel queries
+        // (LegalOpConfigAnalysis, OperationValidationAndFallback) see
+        // an inconsistent view between in-IR layouts and runtime
+        // contract.
+        ttnn::Conv3dOp::getOperationName()};
 } // namespace mlir::tt::ttnn
