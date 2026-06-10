@@ -3257,6 +3257,27 @@ public:
 } // namespace
 
 namespace {
+class ChunkedScaledDotProductAttentionOpConversionPattern
+    : public OpConversionPattern<ttir::ChunkedScaledDotProductAttentionOp> {
+public:
+  using OpConversionPattern<
+      ttir::ChunkedScaledDotProductAttentionOp>::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(ttir::ChunkedScaledDotProductAttentionOp op,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::ChunkedScaledDotProductAttentionOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
+        adaptor.getPageTable(), adaptor.getChunkStartIdx(),
+        adaptor.getScaleAttr(),
+        /*program_config=*/nullptr);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class PagedFlashMultiLatentAttentionDecodeOpConversionPattern
     : public OpConversionPattern<ttir::PagedFlashMultiLatentAttentionDecodeOp> {
 public:
@@ -3732,6 +3753,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ScaledDotProductAttentionOpConversionPattern,
            ScaledDotProductAttentionDecodeOpConversionPattern,
            PagedScaledDotProductAttentionDecodeOpConversionPattern,
+           ChunkedScaledDotProductAttentionOpConversionPattern,
            PagedFlashMultiLatentAttentionDecodeOpConversionPattern,
            SplitQueryKeyValueAndSplitHeadsOpConversionPattern,
            GeluBackwardOpConversionPattern,
