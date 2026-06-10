@@ -356,9 +356,9 @@ TTNNLayoutAttr::getTiledShape(llvm::ArrayRef<int64_t> tensorShape) const {
       linear.replace(mlir::DenseMap<mlir::AffineExpr, mlir::AffineExpr>{
           {y, y.floorDiv(tileH)}, {x, x.floorDiv(tileW)}});
 
-  // Get tiled shape by evaluating the affine map with tensor shape.
-  return ttmlir::utils::evalShape(tiled,
-                                  utils::getTilePaddedShape(tensorShape));
+  // Get tiled shape using actual tile dims so non-square tiles work correctly.
+  return ttmlir::utils::evalShape(
+      tiled, utils::getTilePaddedShape(tensorShape, tileH, tileW));
 }
 
 // Get the size of shard in bytes
@@ -1432,8 +1432,15 @@ TTNNLayoutAttr TTNNLayoutAttr::Builder::build() {
 
   llvm::SmallVector<int64_t, 4> physicalShape(tensorShape.begin(),
                                               tensorShape.end());
-  if (mlir::isa<mlir::tt::ttcore::TileType>(elementType)) {
-    physicalShape = utils::getTilePaddedShape(tensorShape);
+  if (auto tileType =
+          mlir::dyn_cast<mlir::tt::ttcore::TileType>(elementType)) {
+    // Use the actual tile dimensions so non-square tiles (e.g. {32,16} for
+    // narrow-K convolutions) pad the last dim to tileW (16), not to the
+    // default TILE_WIDTH (32).  Previously getTilePaddedShape() always used
+    // the hardcoded constants, causing a {32,16} tile to still pad K to 32
+    // (2 tile-columns × 1024 B = 144 MB — identical to {32,32}).
+    physicalShape = utils::getTilePaddedShape(tensorShape, tileType.getHeight(),
+                                              tileType.getWidth());
   }
 
   AffineMap linear = mlir::tt::ttcore::collapsedLinearAffineMap(

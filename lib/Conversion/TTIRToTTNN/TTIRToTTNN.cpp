@@ -3277,10 +3277,17 @@ public:
     RankedTensorType nhwcOutputType =
         ttnn::utils::RankedTensorTypeFactory::create(ttirOutputType, nhwcOutputShape);
 
+    // Detect K from the TTIR grid shape (N, 2K, H_out, W_out).
+    // batch_output_channels=true when K > 1 (batched multi-camera path).
+    auto ttirGridType = mlir::cast<RankedTensorType>(op.getGrid().getType());
+    int64_t gridCoordDim = ttirGridType.getShape()[1];
+    int64_t K = gridCoordDim / 2;
+    bool batchOutputChannels = (K > 1);
+
     mlir::Value ttnnResult = rewriter.create<ttnn::GridSampleOp>(
         loc, nhwcOutputType, input, grid, adaptor.getModeAttr(),
         adaptor.getPaddingModeAttr(), adaptor.getAlignCornersAttr(),
-        ttnn::MemoryConfigAttr());
+        rewriter.getBoolAttr(batchOutputChannels), ttnn::MemoryConfigAttr());
 
     // Permute output back from NHWC (N, H_out, W_out, C) to NCHW (N, C, H_out, W_out).
     // Permutation [0,3,1,2] is the inverse of [0,2,3,1].

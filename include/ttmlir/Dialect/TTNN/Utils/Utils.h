@@ -97,6 +97,12 @@ void irToFile(mlir::Operation *op, std::string filename);
 // dims to tile size (32). E.g. (1, 2, 16, 16) -> (1, 2, 32, 32).
 llvm::SmallVector<int64_t> getTilePaddedShape(llvm::ArrayRef<int64_t> shape);
 
+// Overload that uses the actual tile dimensions (tileH, tileW) instead of the
+// default 32×32. Required when using non-square tiles such as {32,16} for
+// narrow-K convolutions where K < TILE_WIDTH.
+llvm::SmallVector<int64_t> getTilePaddedShape(llvm::ArrayRef<int64_t> shape,
+                                               int64_t tileH, int64_t tileW);
+
 // Extract input layouts from operation operands, skipping device type operands.
 std::vector<TTNNLayoutAttr> extractInputLayouts(Operation *op);
 

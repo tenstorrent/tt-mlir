@@ -1795,14 +1795,16 @@ struct OpModel<GridSampleOp> {
                    llvm::ArrayRef<int64_t> gridShape,
                    TTNNLayoutAttr inputLayout, TTNNLayoutAttr gridLayout,
                    llvm::StringRef mode, llvm::StringRef paddingMode,
-                   bool alignCorners, TTNNLayoutAttr outputLayout);
+                   bool alignCorners, bool batchOutputChannels,
+                   TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                llvm::ArrayRef<int64_t> gridShape,
                TTNNLayoutAttr inputLayout, TTNNLayoutAttr gridLayout,
                llvm::StringRef mode, llvm::StringRef paddingMode,
-               bool alignCorners, TTNNLayoutAttr outputLayout);
+               bool alignCorners, bool batchOutputChannels,
+               TTNNLayoutAttr outputLayout);
 };
 
 // UpsampleOp
@@ -2040,6 +2042,7 @@ struct OpModel<MeshPartitionOp> {
                int32_t dim, std::optional<uint32_t> clusterAxis,
                TTNNLayoutAttr outputLayout);
 };
+
 
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOPMODEL_H

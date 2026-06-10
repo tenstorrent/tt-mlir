@@ -8,6 +8,7 @@
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/TTNN/Target.h"
+#include "tt_metal/api/tt-metalium/tile.hpp"
 #include "ttnn/events.hpp"
 
 namespace tt::runtime::ttnn::utils {
@@ -73,6 +74,15 @@ fromTTNNStorageType(::ttnn::StorageType storageType);
 
 ::ttnn::Layout
 inferLayoutFromTileShape(const ::tt::target::ttnn::TensorRef *tensorRef);
+
+// Returns both layout and the actual Tile object so non-default tile shapes
+// (e.g. {32,16} for narrow-K convolution) are preserved at runtime.
+std::pair<::ttnn::Layout, std::optional<::tt::tt_metal::Tile>>
+inferLayoutAndTileFromTileShape(const ::tt::target::Dim2d *tileShape);
+
+std::pair<::ttnn::Layout, std::optional<::tt::tt_metal::Tile>>
+inferLayoutAndTileFromTileShape(
+    const ::tt::target::ttnn::TensorRef *tensorRef);
 
 tt::tt_metal::CoreCoord
 toTTNNCoreCoord(const ::tt::target::ttnn::CoreCoord &coreCoord);

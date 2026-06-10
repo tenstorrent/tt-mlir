@@ -930,6 +930,7 @@ public:
         emitter.emit(srcOp.getMode(), "mode"),
         emitter.emit(srcOp.getPaddingMode(), "padding_mode"),
         emitter.emit(srcOp.getAlignCorners(), "align_corners"),
+        emitter.emit(srcOp.getBatchOutputChannels(), "batch_output_channels"),
         emitter.emit(srcOp.getMemoryConfig() |
                          emitter.getMemoryConfig(srcOp.getResult()),
                      "memory_config"),

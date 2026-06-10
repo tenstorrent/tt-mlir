@@ -1823,6 +1823,7 @@ createOp(FlatbufferObjectCache &cache, UpsampleOp op) {
       *cache.fbb, input, scaleType, scaleFactor, mode, memoryConfig, output);
 }
 
+
 ::flatbuffers::Offset<::tt::target::ttnn::GridSampleOp>
 createOp(FlatbufferObjectCache &cache, GridSampleOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
@@ -1836,6 +1837,7 @@ createOp(FlatbufferObjectCache &cache, GridSampleOp op) {
   flatbuffers::Offset<flatbuffers::String> paddingMode =
       toFlatbuffer(cache, op.getPaddingMode());
   bool alignCorners = op.getAlignCorners();
+  bool batchOutputChannels = op.getBatchOutputChannels();
   flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
       op.getMemoryConfig() ? toFlatbuffer(cache, op.getMemoryConfig().value())
                            : 0;
@@ -1845,6 +1847,7 @@ createOp(FlatbufferObjectCache &cache, GridSampleOp op) {
 
   return ::tt::target::ttnn::CreateGridSampleOp(*cache.fbb, input, grid, mode,
                                                 paddingMode, alignCorners,
+                                                batchOutputChannels,
                                                 memoryConfig, output);
 }
 
