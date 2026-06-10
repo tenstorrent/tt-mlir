@@ -15,7 +15,7 @@ namespace tt::runtime {
 
 TensorDesc::TensorDesc(const std::vector<uint32_t> &shape,
                        const ::tt::target::DataType dataType,
-                       const std::optional<std::vector<uint32_t>> &stride,
+                       const std::optional<std::vector<int64_t>> &stride,
                        const std::optional<uint64_t> physicalVolume)
     : shape(shape), dataType(dataType) {
   this->stride = stride.value_or(utils::calculateStride(shape));

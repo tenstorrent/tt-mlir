@@ -59,6 +59,8 @@ def TTKernel_DeviceZoneOpTrait : TTKernel_Trait<"TTKernelDeviceZoneOpTrait", []>
 
 def TTKernel_TridNocOpTrait : TTKernel_Trait<"TTKernelTridNocOpTrait", []>;
 
+def TTKernel_LayoutOpTrait : TTKernel_Trait<"TTKernelLayoutOpTrait", []>;
+
 //===----------------------------------------------------------------------===//
 // Base TTKernel operation definitions.
 //===----------------------------------------------------------------------===//

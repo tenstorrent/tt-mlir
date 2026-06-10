@@ -20,6 +20,7 @@
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/OpDefinition.h"
+#include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/TypeSwitch.h"
@@ -475,10 +476,26 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
             // Check if this is a compute operation with results
             if (op->getNumResults() > 0) {
-              // Update result types for operations that produce values
+              // Re-type only the DPS result that aliases this alloc.
+              auto dpsOp = mlir::dyn_cast<DestinationStyleOpInterface>(op);
+              llvm::SmallVector<unsigned, 2> resultsToRetype;
+              if (dpsOp && op->getNumResults() == dpsOp.getNumDpsInits()) {
+                for (OpOperand &init : dpsOp.getDpsInitsMutable()) {
+                  if (init.get() == allocResult) {
+                    resultsToRetype.push_back(
+                        dpsOp.getTiedOpResult(&init).getResultNumber());
+                  }
+                }
+              } else {
+                // Preserve legacy behavior for non-DPS/asymmetric ops.
+                for (unsigned i = 0; i < op->getNumResults(); ++i) {
+                  resultsToRetype.push_back(i);
+                }
+              }
+
               rewriter.modifyOpInPlace(op, [&]() {
-                for (OpResult result : op->getResults()) {
-                  // Only update if the result is a memref type
+                for (unsigned idx : resultsToRetype) {
+                  OpResult result = op->getResult(idx);
                   if (mlir::isa<MemRefType>(result.getType())) {
                     result.setType(allocType);
                   }

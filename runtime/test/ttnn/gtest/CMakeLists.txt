@@ -1,3 +1,4 @@
 add_runtime_gtest(test_tensor_serialization)
 add_runtime_gtest(test_tensor_cache_lifetime)
 add_runtime_gtest(test_unsafe_borrowed_host_tensor)
+add_runtime_gtest(test_owned_host_tensor_strided)

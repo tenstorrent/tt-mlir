@@ -99,7 +99,7 @@ table TensorDescFlat {
   shape: [uint32];
   data_type: tt.target.DataType;
   itemsize: uint32;
-  stride: [uint32];
+  stride: [int64];
   physical_volume: uint64;
 }
 

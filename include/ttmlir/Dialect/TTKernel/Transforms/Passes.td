@@ -19,10 +19,13 @@ def TTKernelInsertDeviceZoneScopes: Pass<"insert-device-zone-scopes", "::mlir::M
   let summary = "Insert DeviceZoneScopedN around selected TTKernel ops";
   let description = [{
     Insert scoping braces and DeviceZoneScopedN statements around TTKernel ops
-    marked with DeviceZoneOpTrait, to annotate device zone regions prior to
+    passed in the traits parameter, to annotate device zone regions prior to
     lowering to EmitC.
   }];
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::tt::ttkernel::TTKernelDialect"];
+  let options = [
+    ListOption<"traitNames", "traits", "std::string", "TTKernel traits to instrument (fpu, sfpu, init, unary, binary, ternary, device-zone, trid-noc, layout, all). Empty = nothing" >
+  ];
 }
 
 def TTKernelHoistInits: Pass<"ttkernel-hoist-inits", "::mlir::ModuleOp"> {

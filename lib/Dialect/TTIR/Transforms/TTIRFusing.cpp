@@ -2631,7 +2631,7 @@ public:
     auto lookThroughSafeOps = [normalizedDimSize](mlir::Value value) {
       return utils::lookThroughLayoutOpsIf(
           value, [normalizedDimSize](mlir::Operation *op) {
-            if (utils::preservesDim(op, -1)) {
+            if (utils::preservesDimUpToOnes(op, -1)) {
               return true;
             }
             // Allow broadcasts that expand to normalized size.

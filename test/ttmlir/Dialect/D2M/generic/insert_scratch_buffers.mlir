@@ -10,12 +10,13 @@
 #map = affine_map<(d0, d1) -> (d0, d1)>
 
 // Two tile_add ops in a fused generic → scratch_init should be inserted.
-// Verify: memref.alloc sized by DST packing analysis + scratch_init inside region.
+// Verify: memref.alloc sized at the fixed scratch-buffer size (128KB,
+// = 32 f32 tiles), plus scratch_init inside the region.
 
 // CHECK-LABEL: func.func @two_adds_gets_scratch
 // CHECK: d2m.generic
 // CHECK: ins(%{{.*}}, %{{.*}} :
-// CHECK: memref.alloc() {d2m.scratch_buffer} : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
+// CHECK: memref.alloc() {d2m.scratch_buffer} : memref<1x32x!ttcore.tile<32x32, f32>, #l1>
 // CHECK-NEXT: d2m.scratch_init
 func.func @two_adds_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
   %out = memref.alloc() : !memref_tiled
@@ -63,7 +64,7 @@ func.func @two_adds_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
 
 // CHECK-LABEL: func.func @add_and_mul_gets_scratch
 // CHECK: d2m.generic
-// CHECK: memref.alloc() {d2m.scratch_buffer} : memref<1x8x!ttcore.tile<32x32, f32>, #l1>
+// CHECK: memref.alloc() {d2m.scratch_buffer} : memref<1x32x!ttcore.tile<32x32, f32>, #l1>
 // CHECK-NEXT: d2m.scratch_init
 func.func @add_and_mul_gets_scratch(%arg0: !memref_tiled, %arg1: !memref_tiled) {
   %out = memref.alloc() : !memref_tiled
