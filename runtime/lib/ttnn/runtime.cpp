@@ -1372,6 +1372,11 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
         opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::ChunkedScaledDotProductAttentionOp: {
+    tensorRefs = {
+        opContext.type_as_ChunkedScaledDotProductAttentionOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::PagedFlashMultiLatentAttentionDecodeOp: {
     tensorRefs = {
         opContext.type_as_PagedFlashMultiLatentAttentionDecodeOp()->out()};
@@ -2084,6 +2089,12 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
             ->cur_pos_tensor(),
         opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
             ->attention_sink()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ChunkedScaledDotProductAttentionOp: {
+    auto *chunkedOp = opContext.type_as_ChunkedScaledDotProductAttentionOp();
+    tensorRefs = {chunkedOp->query(), chunkedOp->key(), chunkedOp->value(),
+                  chunkedOp->page_table(), chunkedOp->chunk_start_idx()};
     break;
   }
   case ::tt::target::ttnn::OpType::PagedFlashMultiLatentAttentionDecodeOp: {
