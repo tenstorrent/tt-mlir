@@ -59,8 +59,16 @@ bool inDeviceMemory(const ::tt::target::ttnn::TensorRef *tensorRef) {
 }
 
 bool isValidTileShape(const ::tt::target::Dim2d *shape) {
-  return (shape->x() == 1 && shape->y() == 1) ||
-         (shape->x() == 32 && shape->y() == 32);
+  // ROW_MAJOR sentinel {1,1} or any hardware-supported tile size.
+  // Wormhole supported_tile_sizes: 4x16, 16x16, 32x16, 4x32, 16x32, 32x32.
+  if (shape->x() == 1 && shape->y() == 1) {
+    return true; // ROW_MAJOR sentinel
+  }
+  // Allow any positive tile dimensions that are powers of 2 and at most 32.
+  const auto validDim = [](int32_t d) {
+    return d == 4 || d == 8 || d == 16 || d == 32;
+  };
+  return validDim(shape->y()) && validDim(shape->x());
 }
 
 bool isSharded(
@@ -344,6 +352,29 @@ inferLayoutFromTileShape(const ::tt::target::ttnn::TensorRef *tensorRef) {
   const ::tt::target::Dim2d *tileShape =
       tensorRef->desc()->layout()->memory_desc()->tile_shape();
   return inferLayoutFromTileShape(tileShape);
+}
+
+// Returns both layout and (for TILE layout) the actual tile dimensions
+// preserved from the flatbuffer so non-default tile shapes (e.g. {32,16})
+// reach the runtime TensorSpec instead of being silently replaced by {32,32}.
+std::pair<::ttnn::Layout, std::optional<::tt::tt_metal::Tile>>
+inferLayoutAndTileFromTileShape(const ::tt::target::Dim2d *tileShape) {
+  LOG_ASSERT(isValidTileShape(tileShape));
+  if (tileShape->x() == 1 && tileShape->y() == 1) {
+    return {::ttnn::Layout::ROW_MAJOR, std::nullopt};
+  }
+  // Preserve the exact tile dimensions from the flatbuffer (height=y, width=x).
+  return {::ttnn::Layout::TILE,
+          ::tt::tt_metal::Tile({static_cast<uint32_t>(tileShape->y()),
+                                static_cast<uint32_t>(tileShape->x())})};
+}
+
+std::pair<::ttnn::Layout, std::optional<::tt::tt_metal::Tile>>
+inferLayoutAndTileFromTileShape(
+    const ::tt::target::ttnn::TensorRef *tensorRef) {
+  const ::tt::target::Dim2d *tileShape =
+      tensorRef->desc()->layout()->memory_desc()->tile_shape();
+  return inferLayoutAndTileFromTileShape(tileShape);
 }
 
 tt::tt_metal::CoreCoord

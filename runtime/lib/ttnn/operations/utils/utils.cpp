@@ -558,16 +558,20 @@ allocateTensorOnDevice(const ::tt::target::ttnn::TensorRef *tensorRef,
   ::ttnn::Shape ttnnShape = toTTNNShape(*tensorRef->desc()->shape());
   ::ttnn::DataType ttnnDataType = ::tt::runtime::ttnn::utils::toTTNNDataType(
       tensorRef->desc()->layout()->memory_desc()->data_type());
-  ::ttnn::Layout ttnnLayout =
-      ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(tensorRef);
+  // Use inferLayoutAndTileFromTileShape so a non-default tile shape (e.g.
+  // {32,16} from TTNNLayoutAttr) is preserved all the way to the TensorSpec.
+  auto [ttnnLayout, ttnnTile] =
+      ::tt::runtime::ttnn::utils::inferLayoutAndTileFromTileShape(tensorRef);
   std::optional<::ttnn::MemoryConfig> memoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(tensorRef));
   LOG_ASSERT(memoryConfig.has_value());
+  ::ttnn::PageConfig pageConfig =
+      ttnnTile.has_value() ? ::ttnn::PageConfig(ttnnLayout, ttnnTile.value())
+                           : ::ttnn::PageConfig(ttnnLayout);
   ::ttnn::TensorSpec tensorSpec(
       ttnnShape,
-      ::ttnn::TensorLayout(ttnnDataType, ::ttnn::PageConfig(ttnnLayout),
-                           *memoryConfig));
+      ::ttnn::TensorLayout(ttnnDataType, pageConfig, *memoryConfig));
   ::ttnn::Tensor deviceTensor =
       ::tt::tt_metal::create_device_tensor(tensorSpec, &meshDevice);
   return deviceTensor;

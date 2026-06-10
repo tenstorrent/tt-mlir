@@ -37,6 +37,7 @@ void run(const ::tt::target::ttnn::GridSampleOp *op, ProgramContext &context) {
   std::string mode = op->mode()->str();
   std::string paddingMode = op->padding_mode()->str();
   bool alignCorners = op->align_corners();
+  bool batchOutputChannels = op->batch_output_channels();
 
   std::optional<::ttnn::MemoryConfig> memoryConfig =
       op->memory_config()
@@ -108,7 +109,7 @@ void run(const ::tt::target::ttnn::GridSampleOp *op, ProgramContext &context) {
     ::ttnn::Tensor output =
         ::ttnn::grid_sample(input, precomputedGridDevice, mode, paddingMode,
                             alignCorners, /*use_precomputed_grid=*/true,
-                            /*batch_output_channels=*/false, memoryConfig);
+                            batchOutputChannels, memoryConfig);
 
     // Nearest mode grid_sample produces HEIGHT_SHARDED L1 output which is
     // incompatible with subsequent layout conversion ops (e.g. permute needs
@@ -122,7 +123,7 @@ void run(const ::tt::target::ttnn::GridSampleOp *op, ProgramContext &context) {
     ::ttnn::Tensor output =
         ::ttnn::grid_sample(input, grid, mode, paddingMode, alignCorners,
                             /*use_precomputed_grid=*/false,
-                            /*batch_output_channels=*/false, memoryConfig);
+                            batchOutputChannels, memoryConfig);
 
     tensorPool.insertTTNNTensorAndValidate(op->out(), output);
   }
