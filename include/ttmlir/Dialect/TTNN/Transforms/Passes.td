@@ -592,19 +592,22 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
 def TTNNSetComputeKernelConfig: Pass<"ttnn-set-compute-kernel-config", "::mlir::ModuleOp"> {
   let summary = "Set default ComputeKernelConfig attributes for operations.";
   let description = [{
-    This pass sets default ComputeKernelConfig attributes for TTNN operations that support
-    the ComputeKernelConfigOpInterface. It only sets parameter values that are not already
-    defined, preserving any existing configuration decisions made by earlier compiler passes.
+    This pass sets ComputeKernelConfig attributes for TTNN operations that implement
+    ComputeKernelConfigOpInterface.
 
-    Behaviour:
-    - If an operation has no compute_config attribute, a new compute config is created with override values
-    - If an operation has a compute_config but a specific parameter (e.g., math_fidelity) is
-      unset (std::nullopt), the override value is applied for that parameter only
-    - If a parameter is already set in the compute_config, it is not overridden, preserving
-      the existing compiler decision
+    Pipeline behaviour:
+    - If an operation has no compute_config attribute, a new config is created and pipeline
+      option values are applied.
+    - If a parameter is already set on the operation's compute_config, pipeline options do
+      not override it.
+    - If a parameter is unset (std::nullopt for math_fidelity, false for bool options),
+      the corresponding pipeline option is applied.
 
-    This allows setting default values for ComputeKernelConfig parameters while respecting
-    any explicit configuration choices made by prior passes.
+    Large-inner-dimension bf16 matmul/linear correctness fix (tenstorrent/tt-metal#46101):
+    For `ttnn.matmul` and `ttnn.linear` with inner dimension > 50000 and bf16 output,
+    always sets `fp32_dest_acc_en = true` and `packer_l1_acc = true`, even when those
+    parameters are already set to false. This rule runs after pipeline option defaults
+    and takes precedence over explicit values on the op.
 
     Example usage:
     ttmlir-opt --ttnn-set-compute-kernel-config="math-fidelity=hifi4" input.mlir

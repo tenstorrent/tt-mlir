@@ -27,7 +27,29 @@
 #include "mlir/Interfaces/InferTypeOpInterface.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
+#include "llvm/ADT/SmallVector.h"
+
+#include <optional>
+
 #define GET_OP_CLASSES
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h.inc"
+
+namespace mlir::tt::ttnn {
+
+struct MatmulAdjustedShapes {
+  llvm::SmallVector<int64_t> inputA;
+  llvm::SmallVector<int64_t> inputB;
+};
+
+MatmulAdjustedShapes
+getMatmulAdjustedInputShapes(::mlir::RankedTensorType inputA,
+                             ::mlir::RankedTensorType inputB, bool transposeA,
+                             bool transposeB);
+
+std::optional<int64_t> getMatmulInnerDim(::mlir::RankedTensorType inputA,
+                                         ::mlir::RankedTensorType inputB,
+                                         bool transposeA, bool transposeB);
+
+} // namespace mlir::tt::ttnn
 
 #endif
