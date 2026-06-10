@@ -3493,16 +3493,37 @@ public:
         std::max<int64_t>(1, R / std::max<int64_t>(in0Rows, 1));
     const int64_t idxTiles = (R + kTile - 1) / kTile;
 
-    // num_cores = largest divisor of Nt that is <= 12 (the worker-core cap).
-    constexpr int64_t kMaxCores = 12;
+    // Non-bank-local op (down, Nt=90): 18 cores best on WH (10->45us, 18->38us;
+    // >18 hits DRAM-bank contention). The bank-local op (gate_up) uses one core
+    // per DRAM bank instead.
+    constexpr int64_t kMaxCores = 18;
+    constexpr int64_t kWhDramBanks = 12; // Wormhole DRAM bank count (not pow2)
     int64_t numCores = 1;
-    for (int64_t nc = std::min<int64_t>(Nt, kMaxCores); nc >= 1; --nc) {
-      if (Nt % nc == 0) {
-        numCores = nc;
-        break;
+    // Bank-local (Nt a multiple of the bank count) -> one core per DRAM bank so
+    // each core streams a single bank with no cross-core contention. Else the
+    // largest divisor of Nt under the cap.
+    if (Nt % kWhDramBanks == 0 && Nt >= kWhDramBanks) {
+      numCores = kWhDramBanks;
+    } else {
+      for (int64_t nc = std::min<int64_t>(Nt, kMaxCores); nc >= 1; --nc) {
+        if (Nt % nc == 0) {
+          numCores = nc;
+          break;
+        }
       }
     }
     const int64_t perCoreN = Nt / numCores;
+
+    // Nt a multiple of banks -> a column's K-tiles share a bank (stride Nt); the
+    // kernel streams it with one address + a fixed in-bank step, skipping the
+    // per-tile (non-pow2) bank division. Tiles; 0 disables (e.g. down, Nt=90).
+    const int64_t in1BankStep =
+        (Nt % kWhDramBanks == 0) ? (Nt / kWhDramBanks) : 0;
+    // Bank-local core->column: core c takes the columns in bank c (nt = c,
+    // c+num_cores, ...) so no two cores contend on a bank. Else contiguous slice.
+    const bool bankLocal = in1BankStep != 0 && numCores == kWhDramBanks;
+    const int64_t colFirstMul = bankLocal ? 1 : perCoreN;
+    const int64_t colStride = bankLocal ? numCores : 1;
 
     // Byte/format constants -- must match the kernel + weight_dtype_override.
     constexpr int64_t kBf16Tile = kTile * kTile * 2;  // 2048
@@ -3597,7 +3618,10 @@ public:
         named("iem_out_df", kDfFloat16b),
         named("iem_index_df", kDfInt32),
         named("iem_per_core_n", perCoreN),
-        named("iem_k_reuse", kReuse)};
+        named("iem_k_reuse", kReuse),
+        named("iem_in1_bank_step", in1BankStep),
+        named("iem_col_first_mul", colFirstMul),
+        named("iem_col_stride", colStride)};
 
     // Worker cores: row-major on the 8-wide Tensix grid, one 1x1 range each.
     SmallVector<ttnn::CoreCoordAttr> coreCoords;
