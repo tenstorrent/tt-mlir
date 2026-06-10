@@ -881,9 +881,17 @@ void Controller::processResponseQueue() {
     }
 
     std::vector<SizedBuffer> responseBuffers;
+    // toHost and memcpy responses are only sent after the device finishes
+    // executing the program, so they need a longer read timeout than other
+    // commands.
+    bool isDataTransferCommand =
+        commandType == fb::CommandType::ToHostCommand ||
+        commandType == fb::CommandType::MemcpyCommand;
+    std::chrono::seconds readTimeout =
+        isDataTransferCommand ? dataTransferReadTimeout_ : readTimeout_;
     responseBuffers.reserve(readFutures.size());
     for (std::future<SizedBuffer> &readFuture : readFutures) {
-      if (readFuture.wait_for(readTimeout_) == std::future_status::timeout) {
+      if (readFuture.wait_for(readTimeout) == std::future_status::timeout) {
         LOG_FATAL("Read timeout occurred while receiving response from worker");
       }
       responseBuffers.push_back(readFuture.get());
