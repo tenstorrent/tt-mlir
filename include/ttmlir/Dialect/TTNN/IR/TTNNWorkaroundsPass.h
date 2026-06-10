@@ -360,6 +360,9 @@ public:
       Operation *op);
 
   static TTNNOperandsWorkarounds
+  createChunkedScaledDotProductAttentionOpOperandsWorkarounds(Operation *op);
+
+  static TTNNOperandsWorkarounds
   createPagedFlashMultiLatentAttentionDecodeOpOperandsWorkarounds(
       Operation *op);
 
