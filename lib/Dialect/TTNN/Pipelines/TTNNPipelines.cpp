@@ -246,6 +246,11 @@ void createTTNNPipelineWorkaroundPass(
 
 void createTTNNPipelineLayoutDecompositionPass(
     OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options) {
+  // Remove the unnecessary TILE round-trip for GridSample LUT grid tensors.
+  // The LUT arrives ROW_MAJOR; GridSample requires ROW_MAJOR; the TILE
+  // detour (tilize → TILE-reshape → untilize) was pure overhead.
+  pm.addPass(createTTNNGridSampleLayoutOptimizer());
+
   pm.addPass(createTTNNDecomposeLayouts());
 }
 

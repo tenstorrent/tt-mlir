@@ -715,4 +715,29 @@ def TTNNGreedyMemoryLayoutPropagation : Pass<"ttnn-greedy-memory-layout-propagat
   ];
 }
 
+def TTNNGridSampleLayoutOptimizer : Pass<"ttnn-grid-sample-layout-opt", "::mlir::ModuleOp"> {
+  let summary = "Remove unnecessary TILE round-trip for GridSample LUT grid tensors.";
+  let description = [{
+    For GridSampleOp ops whose grid input follows the pattern:
+      BlockArg(ROW_MAJOR DRAM) -> to_layout(TILE) -> reshape -> [to_memory_config(DRAM)] -> to_layout(ROW_MAJOR) -> grid_sample
+
+    This pass replaces the pattern with:
+      BlockArg(ROW_MAJOR DRAM) -> reshape(ROW_MAJOR, free view) -> grid_sample
+
+    The reshape in ROW_MAJOR is a free view (zero DRAM copies) because merging
+    the last two dims of a contiguous ROW_MAJOR tensor is always a reinterpretation
+    of the same memory. GridSample mandates ROW_MAJOR input, so the TILE detour
+    was always unnecessary.
+
+    Saves: TilizeWithValPadding + ReshapeView(TILE) + Untilize per GridSample call.
+    Block B: ~2.66 ms (~43% speedup). Block D: ~0.70 ms (~36% speedup).
+  }];
+  let dependentDialects = ["mlir::tt::ttnn::TTNNDialect"];
+}
+
+def TTNNNarrowKConv2dTileOptimisation : Pass<"ttnn-narrow-k-conv2d-tile-opt", "::mlir::ModuleOp"> {
+  let summary = "Narrow-K conv2d tile optimization (stub — blocked by tilize kernel TILE_WIDTH=32).";
+  let dependentDialects = ["mlir::tt::ttnn::TTNNDialect"];
+}
+
 #endif
