@@ -49,11 +49,13 @@ bash install_dependencies.sh --sfpi
 # tt-metal's install_dependencies.sh --docker no longer installs ULFM OpenMPI
 # (it expects it to come from container layers). Without it, libtt_metal.so
 # resolves libmpi.so.40 to the system OpenMPI 4.x (ORTE), whose singleton
-# MPI_Init forks a daemon that dies on the CI process limit. Install the same
-# ULFM build that install_mpi_ulfm would have provided.
-wget -q -O /tmp/openmpi-ulfm.deb https://github.com/tenstorrent/ompi/releases/download/v5.0.7/openmpi-ulfm_5.0.7-1_amd64.deb
-apt-get install -f -y /tmp/openmpi-ulfm.deb
-rm -f /tmp/openmpi-ulfm.deb
+# MPI_Init forks a daemon that dies on the CI process limit. Reuse the pinned
+# metal script's own install_mpi_ulfm so the ULFM version stays in sync with
+# TT_METAL_DEPENDENCIES_COMMIT instead of hardcoding it here.
+source install_dependencies.sh --source-only
+detect_os
+distributed=1
+install_mpi_ulfm
 
 apt-get clean
 rm -rf /var/lib/apt/lists/*
