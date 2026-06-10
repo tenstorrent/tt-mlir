@@ -10,6 +10,9 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Visitors.h"
+
+#include <limits>
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MLOWERSCRATCHALLOCATE
@@ -24,8 +27,8 @@ struct ScratchAllocationInfo {
   int64_t numElements;   // Number of elements (tiles) requested.
   int64_t elementOffset; // Starting element offset in scratch buffer.
 
-  // Liveness range: positions of the definition and last use within the
-  // top-level operation ordering of the entry block.
+  // Liveness range, as positions in a region-wide pre-order walk over the
+  // owning d2m.generic, taken across the slot's uses (first/last store/load).
   int64_t startPosition = -1;
   int64_t endPosition = -1;
 
@@ -109,8 +112,7 @@ private:
       return a.slotId < b.slotId;
     });
 
-    Block &block = region.front();
-    computeLiveness(allocations, block);
+    computeLiveness(allocations, region);
     int64_t peakUsage = assignOffsets(allocations);
 
     // Verify allocations fit in the scratch buffer.
@@ -139,33 +141,29 @@ private:
 
   // Compute liveness ranges for scratch allocations.
   //
-  // Each allocation's live range spans from its definition to its last use.
+  // Positions come from a region-wide pre-order walk so that ops nested in
+  // `scratch_space_loop` nests get distinct indices.
   void computeLiveness(SmallVectorImpl<ScratchAllocationInfo> &allocations,
-                       Block &block) {
-    // Assign sequential position indices to top-level operations in the block.
+                       Region &region) {
     DenseMap<Operation *, int64_t> opPositions;
     int64_t pos = 0;
-    for (Operation &op : block) {
-      opPositions[&op] = pos++;
-    }
-
-    auto getTopLevelOp = [&](Operation *op) -> Operation * {
-      return block.findAncestorOpInBlock(*op);
-    };
+    region.walk<WalkOrder::PreOrder>(
+        [&](Operation *op) { opPositions[op] = pos++; });
 
     for (auto &info : allocations) {
-      Operation *topLevelDef = getTopLevelOp(info.op.getOperation());
-      assert(opPositions.contains(topLevelDef) &&
-             "scratch allocation must have a top-level position");
-      info.startPosition = opPositions[topLevelDef];
-      info.endPosition = info.startPosition;
-
+      info.startPosition = std::numeric_limits<int64_t>::max();
+      info.endPosition = std::numeric_limits<int64_t>::min();
       for (OpOperand &use : info.op.getResult().getUses()) {
-        Operation *topLevelUser = getTopLevelOp(use.getOwner());
-        assert(opPositions.contains(topLevelUser) &&
-               "scratch allocation user must have a top-level position");
-        int64_t userPos = opPositions[topLevelUser];
-        info.endPosition = std::max(info.endPosition, userPos);
+        auto it = opPositions.find(use.getOwner());
+        assert(it != opPositions.end() && "use is outside scratch region");
+        info.startPosition = std::min(info.startPosition, it->second);
+        info.endPosition = std::max(info.endPosition, it->second);
+      }
+      if (info.startPosition > info.endPosition) {
+        // Unused slot: pin the range to the def so it still gets an offset.
+        Operation *defOp = info.op.getOperation();
+        assert(opPositions.contains(defOp) && "def is outside scratch region");
+        info.startPosition = info.endPosition = opPositions[defOp];
       }
     }
   }
@@ -211,16 +209,16 @@ private:
     return currentOffset;
   }
 
-  /// Replace a scratch_allocate with a rank-reducing subview of the scratch
-  /// memref, followed by an expand_shape if the requested type is
-  /// multi-dimensional.
-  ///
-  /// The scratch buffer has shape [1, N] from InsertScratchBuffers.
-  /// Each scratch_allocate requests a memref with numElements total tiles.
-  /// We emit:
-  ///   1. subview [0, offset][1, M][1, 1] : memref<1xN> -> memref<M>  (flat 1D)
-  ///   2. expand_shape memref<M> [[0,1,...,rank-1]] -> memref<requested shape>
-  ///      (only if the requested type has rank > 1)
+  // Replace a scratch_allocate with a rank-reducing subview of the scratch
+  // memref, followed by an expand_shape if the requested type is
+  // multi-dimensional.
+  //
+  // The scratch buffer has shape [1, N] from InsertScratchBuffers.
+  // Each scratch_allocate requests a memref with numElements total tiles.
+  // We emit:
+  //   1. subview [0, offset][1, M][1, 1] : memref<1xN> -> memref<M>  (flat 1D)
+  //   2. expand_shape memref<M> [[0,1,...,rank-1]] -> memref<requested shape>
+  //      (only if the requested type has rank > 1)
   void replaceScratchAllocate(ScratchAllocationInfo &info,
                               Value scratchMemRef) {
     ScratchAllocateOp allocOp = info.op;
@@ -229,14 +227,13 @@ private:
     OpBuilder builder(allocOp);
     Location loc = allocOp.getLoc();
 
-    // Always extract a flat 1D slice from the 2D scratch buffer.
     SmallVector<int64_t> flatShape = {info.numElements};
     SmallVector<int64_t> staticOffsets = {0, info.elementOffset};
     SmallVector<int64_t> staticSizes = {1, info.numElements};
     SmallVector<int64_t> staticStrides = {1, 1};
 
-    // Infer the correct rank-reduced result type. For non-zero offsets, the
-    // inferred type includes a strided layout (e.g. strided<[1], offset: N>).
+    // For non-zero offsets the inferred type carries a strided layout
+    // (e.g. strided<[1], offset: N>), which the requested type does not.
     auto sourceType = mlir::cast<MemRefType>(scratchMemRef.getType());
     auto inferredType = memref::SubViewOp::inferRankReducedResultType(
         flatShape, sourceType, staticOffsets, staticSizes, staticStrides);
@@ -254,16 +251,12 @@ private:
 
     Value result = subviewOp.getResult();
 
-    // If the requested type is multi-dimensional, reshape the flat 1D slice.
-    // We must compute the correct expanded type (preserving any strided layout
-    // from the subview) rather than using requestedType directly.
     if (requestedType.getRank() > 1) {
-      SmallVector<ReassociationIndices> reassociation;
       ReassociationIndices allDims;
       for (int64_t i = 0; i < requestedType.getRank(); ++i) {
         allDims.push_back(i);
       }
-      reassociation.push_back(allDims);
+      SmallVector<ReassociationIndices> reassociation = {allDims};
 
       auto subviewType = mlir::cast<MemRefType>(result.getType());
       auto expandedType = memref::ExpandShapeOp::computeExpandedType(
