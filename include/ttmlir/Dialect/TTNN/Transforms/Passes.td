@@ -482,6 +482,38 @@ def TTNNWeightDtypeConversion: Pass<"ttnn-weight-dtype-conversion", "::mlir::Mod
   ];
 }
 
+def TTNNCCLActivationDtypeLowering: Pass<"ttnn-ccl-activation-dtype-lowering", "::mlir::ModuleOp"> {
+  let summary = "Lower activation precision to bfp_bf8 around CCL ops.";
+  let description = [{
+    This pass is part of the Mixed Precision effort in compiler.
+    This pass reduces ethernet traffic for collective communication (CCL) ops
+    in large transformer models by lowering activation precision from bf16 to
+    bfp_bf8 across the CCL boundary. Producer matmul ops have their result
+    tensor's layout encoding rewritten to bfp_bf8 so no explicit ttnn.typecast is
+    required at the producer side. On the consumer side, some patterns allow for
+    implicit casting back to bf16 (e.g. residual add). Currently we added only patterns
+    that don't require explicit casts on both sides.
+
+    The pass implements two strict per-pattern matchers, each modeled after a
+    Llama-style sub-graph:
+      - Projection matmul (attention output / MLP down) -> [view / CCL]* ->
+        residual add. The residual add's result encoding stays bf16 (it was
+        constructed from the bf16 residual operand), so TTNN restores bf16
+        at the block output by combining the bfp_bf8 CCL output with the
+        bf16 residual — no exit-side cast needed.
+      - MLP up / gate matmuls -> [view / CCL]* -> silu / multiply. The
+        multiply's result encoding is rewritten to bfp_bf8 so the downstream
+        FF2 matmul receives bfp_bf8 input; the FF2 residual add then
+        restores bf16 via the projection-residual matcher when FF2 itself is
+        lowered.
+
+    A matmul only matches a pattern when the entire downstream chain shape
+    matches the template, so the pass under-triggers by design. The idea is
+    to add new patterns as we get more multichip models running and fuse patterns
+    to more general ones as we get more cases.
+  }];
+}
+
 def TTNNKVCacheDtypeConversion: Pass<"ttnn-kv-cache-dtype-conversion", "::mlir::ModuleOp"> {
   let summary = "Convert KV cache tensors to a lower precision dtype.";
   let description = [{
