@@ -70,6 +70,14 @@ public:
           func, deviceGrid, l1BudgetPerCore, std::move(observer));
       spill.run();
 
+      // run() emits a diagnostic but cannot fail the pass on its own; surface
+      // any unrecoverable condition (e.g. an op whose CBs overlap a required
+      // inserted-reshard input) as a pass failure.
+      if (spill.hasFailed()) {
+        signalPassFailure();
+        return;
+      }
+
       // Sync D2M subgraph function types to match dispatch op's current inputs
       // (e.g. after spill, operand types may have changed to DRAM).
       d2m_optimizer_utils::syncAllD2MFuncTypes(func);
