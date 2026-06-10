@@ -25,7 +25,7 @@ static bool hasSetComputeConfigFields(DeviceComputeKernelConfigAttr config) {
 }
 
 template <typename OpTy>
-void maybeApplyLargeInnerDimBf16MatmulConfig(
+void applyLargeInnerDimBf16MatmulConfig(
     OpTy op, DeviceComputeKernelConfigAttr &config) {
   std::optional<int64_t> innerDim =
       getMatmulInnerDim(op.getA().getType(), op.getB().getType(),
@@ -124,9 +124,9 @@ public:
 
       // This fix is required for correctness of large matmuls/linears.
       if (auto matmulOp = dyn_cast<MatmulOp>(op)) {
-        maybeApplyLargeInnerDimBf16MatmulConfig(matmulOp, config);
+        applyLargeInnerDimBf16MatmulConfig(matmulOp, config);
       } else if (auto linearOp = dyn_cast<LinearOp>(op)) {
-        maybeApplyLargeInnerDimBf16MatmulConfig(linearOp, config);
+        applyLargeInnerDimBf16MatmulConfig(linearOp, config);
       }
 
       // Log config after applying overrides
