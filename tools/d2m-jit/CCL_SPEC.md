@@ -630,9 +630,18 @@ With that, the full 1x2 all_gather — `mesh_shard → reblock → all_gather ke
 `test_all_gather_1x2_lowers` (device/desc-gated, build+lower only).
 
 **Remaining (C5.4 / validation):**
-- **On-device execution + PCC.** Lowering is verified; the kernel has **not**
-  been run on silicon (the dev box is in an ARC firmware error — needs
-  `tt-smi -r`). Expected for the 1x2 256x512 reference all_gather:
+- **🔴 On-device execution blocked by fabric topology on this box.** The
+  all_gather compiles + lowers, but `to_host` (full execute) fails at
+  `runtime.submit` with `FATAL: Backward direction is missing on mesh
+  coordinate MeshCoordinate([0, 0])`. The all_gather requires **ring** topology
+  (D2MAllGatherRewriter asserts ring-only; fabric config uses
+  `unidir_ring_torus`), but the auto-discovered 1x2 (2-chip n300) fabric mesh
+  doesn't provide the ring's backward link. This is a **fabric/hardware
+  constraint, not a compiler/DSL bug** — the non-fabric mesh_shard round-trips
+  (host-side distribute/gather) execute fine on this box; only the inter-device
+  fabric path needs a real ring. Validating execution needs an 8-chip ring (the
+  original 1x8 target) or a 2-chip box wired/configured as a bidirectional
+  ring. Expected result for the 1x2 256x512 case (when runnable):
   `hstack(vstack(in[:,0:64], in[:,64:128]), <same>)`.
 - **Auto-enable split-v2 for fabric kernels** (currently the caller sets
   `config.use_split_unified_thread_v2`); detect a `fabric=`/CCL kernel and set
