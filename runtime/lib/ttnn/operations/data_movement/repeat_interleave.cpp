@@ -20,9 +20,9 @@ void run(const ::tt::target::ttnn::RepeatInterleaveOp *op,
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   ttnn_op_invoke::RepeatInterleaveOpResult result =
-      ttnn_op_invoke::callRepeatInterleave(
-          ttnn_op_invoke::CallType::EXECUTE, repeatInterleaveOpNative, &input,
-          &targetDevice);
+      ttnn_op_invoke::callRepeatInterleave(ttnn_op_invoke::CallType::EXECUTE,
+                                           repeatInterleaveOpNative, &input,
+                                           &targetDevice);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
              "Expected Tensor from callRepeatInterleave execution");

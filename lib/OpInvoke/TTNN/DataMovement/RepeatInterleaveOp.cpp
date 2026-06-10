@@ -15,10 +15,9 @@ RepeatInterleaveResolvedParams resolveRepeatInterleaveParams(
   if (repeatInterleaveOp.out) {
     params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
         operations::utils::getTensorRefMemoryConfig(*repeatInterleaveOp.out));
-    LOG_ASSERT(
-        operations::utils::inSystemMemory(*repeatInterleaveOp.out) ||
-            params.outputMemoryConfig.has_value(),
-        "Memory config must exist for device tensors");
+    LOG_ASSERT(operations::utils::inSystemMemory(*repeatInterleaveOp.out) ||
+                   params.outputMemoryConfig.has_value(),
+               "Memory config must exist for device tensors");
   }
 
   return params;
@@ -26,8 +25,7 @@ RepeatInterleaveResolvedParams resolveRepeatInterleaveParams(
 
 template <typename Tag>
 auto createRepeatInterleaveTuple(
-    Tag tag,
-    const ::tt::target::ttnn::RepeatInterleaveOpT &repeatInterleaveOp,
+    Tag tag, const ::tt::target::ttnn::RepeatInterleaveOpT &repeatInterleaveOp,
     TensorArg input, const RepeatInterleaveResolvedParams &params) {
   return std::make_tuple(resolveTensorArg(input, tag),
                          repeatInterleaveOp.repeats, repeatInterleaveOp.dim,
@@ -46,7 +44,7 @@ RepeatInterleaveOpResult callRepeatInterleave(
   };
 
   return callOp<RepeatInterleaveOpResult>(WRAP_OP(::ttnn::repeat_interleave),
-                                         callType, makeTuple, device);
+                                          callType, makeTuple, device);
 }
 
 } // namespace ttnn_op_invoke

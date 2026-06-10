@@ -38,7 +38,9 @@ PadOpResult callPad(CallType callType, const ::tt::target::ttnn::PadOpT &padOp,
                     TensorArg input, ::ttnn::MeshDevice *device) {
   PadResolvedParams params = resolvePadParams(padOp);
 
-  auto makeTuple = [&](auto tag) { return createPadTuple(tag, padOp, input, params); };
+  auto makeTuple = [&](auto tag) {
+    return createPadTuple(tag, padOp, input, params);
+  };
 
   return callOp<PadOpResult>(WRAP_OP(::ttnn::pad), callType, makeTuple, device);
 }

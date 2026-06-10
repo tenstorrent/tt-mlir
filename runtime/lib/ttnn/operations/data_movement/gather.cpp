@@ -20,9 +20,9 @@ void run(const ::tt::target::ttnn::GatherOp *op, ProgramContext &context) {
 
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  ttnn_op_invoke::GatherOpResult result = ttnn_op_invoke::callGather(
-      ttnn_op_invoke::CallType::EXECUTE, gatherOpNative, &input, &index,
-      &targetDevice);
+  ttnn_op_invoke::GatherOpResult result =
+      ttnn_op_invoke::callGather(ttnn_op_invoke::CallType::EXECUTE,
+                                 gatherOpNative, &input, &index, &targetDevice);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
              "Expected Tensor from callGather execution");
