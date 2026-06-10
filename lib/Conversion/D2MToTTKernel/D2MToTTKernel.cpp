@@ -233,6 +233,14 @@ static Value getDeviceInMcastRange(OpBuilder &rewriter, Location loc,
 }
 
 static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
+  if (auto waitOp = cb.getDefiningOp<d2m::WaitOp>()) {
+    return rewriter.getRemappedValue(waitOp.getCb());
+  }
+
+  if (auto reserveOp = cb.getDefiningOp<d2m::ReserveOp>()) {
+    return rewriter.getRemappedValue(reserveOp.getCb());
+  }
+
   if (auto loadOp = cb.getDefiningOp<memref::LoadOp>()) {
     assert(loadOp.getIndices().size() == 1 &&
            "Expected single index in load op, failing.");
@@ -2067,6 +2075,67 @@ public:
 } // namespace
 
 namespace {
+// Lowers the three D2M topk block ops to their ckernel primitives. The two
+// value tiles are copied into DST[0,1] and the two index tiles into DST[2,3]
+// (the layout the topk LLKs require), then the matching topk op runs in place
+// on idst=0.
+template <typename ConcreteOp>
+class D2MTopkOpsRewriter : public OpConversionPattern<ConcreteOp> {
+public:
+  using OpConversionPattern<ConcreteOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op->getLoc();
+    Value cbVals = getCB(rewriter, op.getValues());
+    Value cbIdx = getCB(rewriter, op.getIndices());
+
+    Value dst0 = index(rewriter, loc, 0);
+    Value dst1 = index(rewriter, loc, 1);
+    Value dst2 = index(rewriter, loc, 2);
+    Value dst3 = index(rewriter, loc, 3);
+    Value cbTile0 = index(rewriter, loc, 0);
+    Value cbTile1 = index(rewriter, loc, 1);
+
+    auto insertionPoint = rewriter.getInsertionPoint();
+    setInsertionPointAfterOperands(rewriter, {cbVals, cbIdx},
+                                   /*allowHoisting*/ true);
+    rewriter.create<ttkernel::TopkTileInitOp>(loc);
+    rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
+
+    rewriter.create<ttkernel::CopyTileInitOp>(loc, cbVals);
+    rewriter.create<ttkernel::CopyTileOp>(loc, cbVals, cbTile0, dst0);
+    rewriter.create<ttkernel::CopyTileOp>(loc, cbVals, cbTile1, dst1);
+    rewriter.create<ttkernel::CopyTileInitOp>(loc, cbIdx);
+    rewriter.create<ttkernel::CopyTileOp>(loc, cbIdx, cbTile0, dst2);
+    rewriter.create<ttkernel::CopyTileOp>(loc, cbIdx, cbTile1, dst3);
+
+    if constexpr (std::is_same_v<ConcreteOp, d2m::TileTopkLocalSortOp>) {
+      rewriter.create<ttkernel::TopkLocalSortOp>(
+          loc, dst0, intConstant<int32_t>(rewriter, loc, op.getIdir()),
+          intConstant<int32_t>(rewriter, loc, op.getIEndPhase()),
+          intConstant<int32_t>(rewriter, loc, op.getIStartPhase()));
+    } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileTopkMergeOp>) {
+      rewriter.create<ttkernel::TopkMergeOp>(
+          loc, dst0, intConstant<int32_t>(rewriter, loc, op.getMIter()),
+          intConstant<int32_t>(rewriter, loc, op.getK()));
+    } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileTopkRebuildOp>) {
+      rewriter.create<ttkernel::TopkRebuildOp>(
+          loc, dst0, intConstant<int32_t>(rewriter, loc, op.getIdir()),
+          intConstant<int32_t>(rewriter, loc, op.getMIter()),
+          intConstant<int32_t>(rewriter, loc, op.getK()),
+          intConstant<int32_t>(rewriter, loc, op.getLogk()),
+          intConstant<int32_t>(rewriter, loc, op.getSkipSecond()));
+    }
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 
 class D2MDstReinterpretCastRewriter
     : public OpConversionPattern<d2m::DstReinterpretCastOp> {
@@ -3572,6 +3641,9 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MWriteColMaskTileRewriter,
                ttkernel::D2MExperimentalFillArangeTileRewriter,
                ttkernel::D2MTileTransposeRewriter,
+               ttkernel::D2MTopkOpsRewriter<d2m::TileTopkLocalSortOp>,
+               ttkernel::D2MTopkOpsRewriter<d2m::TileTopkMergeOp>,
+               ttkernel::D2MTopkOpsRewriter<d2m::TileTopkRebuildOp>,
                ttkernel::D2MDstReinterpretCastRewriter,
                ttkernel::AcquireDstRewriter,
                ttkernel::UnpackStallOnPackRewriter,

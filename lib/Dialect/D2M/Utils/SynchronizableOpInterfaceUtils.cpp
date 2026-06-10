@@ -41,6 +41,7 @@ llvm::DenseMap<Value, CBUsageInfo> getCBUsageInfo(Region &genericRegion) {
 }
 
 bool isPurelyDerivedOp(Operation *op,
+                       const DenseSet<Operation *> &opsInRange,
                        DenseMap<Operation *, bool> &purelyDerivedOps) {
   // check if the result is already cached
   if (purelyDerivedOps.contains(op)) {
@@ -53,8 +54,8 @@ bool isPurelyDerivedOp(Operation *op,
     // Block arguments (e.g., loop induction variables) have no defining op
     // and are considered pure since they don't have side effects.
     Operation *definingOp = operand.getDefiningOp();
-    if (definingOp != nullptr &&
-        !isPurelyDerivedOp(definingOp, purelyDerivedOps)) {
+    if (definingOp != nullptr && opsInRange.contains(definingOp) &&
+        !isPurelyDerivedOp(definingOp, opsInRange, purelyDerivedOps)) {
       isPurelyDerived = false;
       break;
     }
@@ -89,7 +90,7 @@ Operation *wrapInSynchronizedRegion(RewriterBase &rewriter,
   DenseMap<Operation *, bool> purelyDerivedOps;
   SmallVector<Operation *> opsToErase;
   for (Operation &op : llvm::make_range(start, end)) {
-    if (!isPurelyDerivedOp(&op, purelyDerivedOps)) {
+    if (!isPurelyDerivedOp(&op, opsInRange, purelyDerivedOps)) {
       opsToErase.push_back(&op);
       for (Value result : op.getResults()) {
         for (Operation *user : result.getUsers()) {

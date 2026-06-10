@@ -1770,6 +1770,87 @@ void TileMatmulBlockOp::getEffects(
                        0, true, mlir::SideEffects::DefaultResource::get());
 }
 
+static mlir::LogicalResult verifyTopkOperandsAreTiles(mlir::Operation *op,
+                                                      mlir::Value values,
+                                                      mlir::Value indices,
+                                                      mlir::Value outValues,
+                                                      mlir::Value outIndices,
+                                                      llvm::StringRef opName) {
+  for (mlir::Value v : {values, indices, outValues, outIndices}) {
+    if (!llvm::isa<mlir::tt::ttcore::TileType>(getElemType(v.getType()))) {
+      return op->emitOpError("operands to ")
+             << opName << " must have ttcore.tile element type";
+    }
+  }
+  return mlir::success();
+}
+
+::mlir::LogicalResult TileTopkLocalSortOp::verify() {
+  return verifyTopkOperandsAreTiles(*this, getValues(), getIndices(),
+                                    getOutValues(), getOutIndices(),
+                                    "TileTopkLocalSort");
+}
+
+void TileTopkLocalSortOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getValuesMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getIndicesMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getOutValuesMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getOutIndicesMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+}
+
+::mlir::LogicalResult TileTopkMergeOp::verify() {
+  return verifyTopkOperandsAreTiles(*this, getValues(), getIndices(),
+                                    getOutValues(), getOutIndices(),
+                                    "TileTopkMerge");
+}
+
+void TileTopkMergeOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getValuesMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getIndicesMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getOutValuesMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getOutIndicesMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+}
+
+::mlir::LogicalResult TileTopkRebuildOp::verify() {
+  return verifyTopkOperandsAreTiles(*this, getValues(), getIndices(),
+                                    getOutValues(), getOutIndices(),
+                                    "TileTopkRebuild");
+}
+
+void TileTopkRebuildOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getValuesMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getIndicesMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getOutValuesMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getOutIndicesMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+}
+
 mlir::LogicalResult TileTilizeBlockOp::bufferize(
     mlir::RewriterBase &rewriter,
     const mlir::bufferization::BufferizationOptions &options,
