@@ -12,6 +12,8 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/Error.h"
 
+#include <optional>
+
 // Unwrap an llvm::Expected<T> expression: on success assign the value to `lhs`,
 // on failure propagate the error by returning it from the enclosing function.
 //
@@ -54,9 +56,10 @@ struct OpModel;
 
 template <typename OpT>
 struct UnaryEltwiseOpModel {
-  static llvm::Expected<OpConstraints>
-  getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout, TTNNLayoutAttr outputLayout);
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      TTNNLayoutAttr outputLayout,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
@@ -1075,7 +1078,8 @@ struct OpModel<MatmulOp> {
       std::optional<llvm::StringRef> activation = std::nullopt,
       std::optional<mlir::Attribute> programConfigAttr = std::nullopt,
       std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
-          std::nullopt);
+          std::nullopt,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,

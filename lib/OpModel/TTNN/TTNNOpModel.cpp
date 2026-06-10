@@ -50,6 +50,10 @@ namespace mlir::tt::ttnn::op_model {
 #define QUERY_OP_CONSTRAINTS(op, device, ...)                                  \
   ::ttnn::graph::query_op_constraints(WRAP_OP(op), device, __VA_ARGS__)
 
+#define QUERY_OP_CONSTRAINTS_WITH_STATE(op, device, state, ...)                \
+  ::ttnn::graph::query_op_constraints_with_optional_state(WRAP_OP(op), device,  \
+                                                          state, __VA_ARGS__)
+
 #define QUERY_OP_RUNTIME(op, device, ...)                                      \
   ::ttnn::graph::query_op_runtime(WRAP_OP(op), device, __VA_ARGS__)
 // clang-format on
@@ -165,6 +169,102 @@ llvm::Expected<OpConstraints> getOpConstraints(MLIRContext *context,
                        response.resource_usage.peak_memory_usage_per_core,
                        response.resource_usage.l1_output_buffer_per_core,
                        layoutAttrs);
+}
+
+/**
+ * @brief Stateful variant of executeConstraintQuery.
+ *
+ * Mirrors executeConstraintQuery exactly (same ProgramCacheState +
+ * disable_and_clear_program_cache + LogLevelGuard + try/catch), but the
+ * callable yields a QueryOutput (response + new allocator state). Validation is
+ * performed against query.response, and the whole QueryOutput is returned on
+ * success.
+ *
+ * @param callable A callable object that performs the stateful query.
+ * @return A QueryOutput if successful, or an error.
+ */
+template <class Callable>
+llvm::Expected<::ttnn::graph::QueryOutput>
+executeConstraintQueryWithState(Callable &callable) {
+  ::ttnn::graph::QueryOutput query;
+  try {
+    auto *device = SingletonDeviceContext::getInstance().getDevice();
+    ::ttnn::graph::detail::LogLevelGuard log_guard(
+        spdlog::level::level_enum::off);
+    ProgramCacheState pcState(device);
+    device->disable_and_clear_program_cache();
+    query = callable();
+  } catch (const std::exception &e) {
+    // We expect that query will handle exceptions and set error message. If
+    // not, we should not continue.
+    // TODO(rpavlovicTT): This should be a TT_FATAL.
+    llvm::errs() << "Exception thrown during op constraints query: " << e.what()
+                 << "\n";
+    assert(false && "Exception thrown during op constraints query");
+  }
+
+  if (query.response.status != ::ttnn::graph::ExecutionStatus::Success) {
+    return llvm::createStringError(
+        llvm::inconvertibleErrorCode(),
+        "Op constraint query failed with error: " +
+            query.response.error_message.value_or("<error message not set>"));
+  }
+
+  if (!query.response.output_tensor_specs.has_value() ||
+      query.response.output_tensor_specs->empty()) {
+    return llvm::createStringError(llvm::inconvertibleErrorCode(),
+                                   "Op constraint query missing output tensor");
+  }
+
+  return query;
+}
+
+/**
+ * @brief Stateful variant of getOpConstraints.
+ *
+ * Mirrors getOpConstraints but runs the stateful query path: it reads
+ * out.response for the resource usage + output tensor specs (identical logic to
+ * getOpConstraints), and surfaces the resulting allocator state on
+ * OpConstraints::newState.
+ *
+ * @param context The MLIRContext to use for creating the TTNNLayoutAttr for the
+ * output tensor.
+ * @param callable A callable object that performs the stateful query.
+ * @return An OpConstraints (carrying the new allocator state) or an error.
+ */
+template <class Callable>
+llvm::Expected<OpConstraints>
+getOpConstraintsWithState(MLIRContext *context, Callable &callable) {
+
+  llvm::Expected<::ttnn::graph::QueryOutput> query =
+      executeConstraintQueryWithState<Callable>(callable);
+  if (auto error = query.takeError()) {
+    return error;
+  }
+
+  ::ttnn::graph::QueryOutput out = query.get();
+
+  // The worker grid used to build interleaved output layouts is sourced from
+  // the open device rather than threaded in from the IR: the two are equivalent
+  // (the system desc that produced the IR's DeviceAttr is itself derived from
+  // this grid), and this is the only place the value is consumed. The context
+  // caches it across device open/reset, so this is a cheap lookup.
+  const llvm::ArrayRef<int64_t> deviceGrid =
+      SingletonDeviceContext::getInstance().getComputeGridShape();
+
+  llvm::SmallVector<TTNNLayoutAttr> layoutAttrs;
+  for (const auto &outputTensorSpec :
+       out.response.output_tensor_specs.value()) {
+    layoutAttrs.push_back(conversion::getLayoutAttrFromTensorSpec(
+        context, outputTensorSpec, deviceGrid));
+  }
+
+  return OpConstraints(
+      out.response.resource_usage.cb_peak_size_per_core,
+      out.response.resource_usage.l1_buffers_peak_per_core,
+      out.response.resource_usage.peak_memory_usage_per_core,
+      out.response.resource_usage.l1_output_buffer_per_core, layoutAttrs,
+      std::make_shared<MockAllocatorState>(std::move(out.new_state)));
 }
 
 template <class Callable>
@@ -815,10 +915,9 @@ getPrepareConv2dBiasOpOutputTensorSpec(
 //===----------------------------------------------------------------------===//
 
 template <typename OpTy>
-llvm::Expected<OpConstraints>
-UnaryEltwiseOpModel<OpTy>::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
-                                            TTNNLayoutAttr inputLayout,
-                                            TTNNLayoutAttr outputLayout) {
+llvm::Expected<OpConstraints> UnaryEltwiseOpModel<OpTy>::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    TTNNLayoutAttr outputLayout, const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
 
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -828,14 +927,18 @@ UnaryEltwiseOpModel<OpTy>::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
+  std::optional<MockAllocatorState> initialStateOpt =
+      initialState ? std::optional<MockAllocatorState>(*initialState)
+                   : std::nullopt;
+
   // Create query closure
   auto query = [=]() {
-    return ::ttnn::graph::query_op_constraints(
-        detail::getOpSymbol<OpTy>(), device, inputSpec,
+    return QUERY_OP_CONSTRAINTS_WITH_STATE(
+        detail::getOpSymbol<OpTy>(), device, initialStateOpt, inputSpec,
         detail::getNullableMemoryConfig(outputLayout));
   };
 
-  return operation::getOpConstraints(inputLayout.getContext(), query);
+  return operation::getOpConstraintsWithState(inputLayout.getContext(), query);
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -4092,7 +4195,8 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
     TTNNLayoutAttr outputLayout, bool transposeA, bool transposeB,
     std::optional<llvm::StringRef> activation,
     std::optional<mlir::Attribute> programConfigAttr,
-    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -4124,17 +4228,22 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
       computeKernelConfigConverted =
           conversion::getDeviceComputeKernelConfig(computeKernelConfig);
 
+  std::optional<MockAllocatorState> initialStateOpt =
+      initialState ? std::optional<MockAllocatorState>(*initialState)
+                   : std::nullopt;
+
   // Create query closure
   auto matmulOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::matmul, device, inputSpecA, inputSpecB, transposeA, transposeB,
-        outputMemoryConfig, outputDType, programConfig, activationStr,
-        computeKernelConfigConverted, /*core_grid=*/std::nullopt,
+    return QUERY_OP_CONSTRAINTS_WITH_STATE(
+        ::ttnn::matmul, device, initialStateOpt, inputSpecA, inputSpecB,
+        transposeA, transposeB, outputMemoryConfig, outputDType, programConfig,
+        activationStr, computeKernelConfigConverted, /*core_grid=*/std::nullopt,
         /*output_tile=*/std::nullopt, /*optional_output_tensor=*/std::nullopt,
         /*global_cb=*/std::nullopt, /*sub_device_id=*/std::nullopt);
   };
 
-  return operation::getOpConstraints(inputLayoutA.getContext(), matmulOpQuery);
+  return operation::getOpConstraintsWithState(inputLayoutA.getContext(),
+                                              matmulOpQuery);
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
