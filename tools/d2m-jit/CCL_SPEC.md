@@ -606,3 +606,35 @@ cleanly through our pipeline with split-v2), the remaining differences are:
 structure and/or #2 `tensor.empty` matter most), iterating against a healthy
 device. The reblock + fabric + mesh plumbing are all in place; this is now a
 "match the rewriter's IR byte-for-byte" exercise on the fabric path.
+
+### C5.3 done: the all_gather LOWERS end-to-end
+
+Root cause of the `getFabricConnectionManager` crash, found by diffing the
+thread-split: my all_gather generic split into **two** datamovement threads;
+the second got a `mesh_position` (from `device_synchronize`) but **no** fabric
+`dma_write`, so the per-func fabric-manager walk didn't create an `fcm` for it.
+The reference splits into **one** datamovement thread (mesh_position + fabric
+write together).
+
+**Fix (one line):** the in-kernel `empty([...])` op now emits **`tensor.empty`**
+instead of `d2m.empty` (matching the rewriter's load buffer). The `d2m.empty`
+scratch buffer was making the backend schedule the datamovement work onto a
+second NOC thread; `tensor.empty` keeps the fabric chain on one thread. (The
+`d2m.yield` and output-buffer-structure deltas turned out **not** to matter —
+`tensor.empty` alone fixes lowering.)
+
+With that, the full 1x2 all_gather — `mesh_shard → reblock → all_gather kernel
+(unified + `config.use_split_unified_thread_v2 = True`) → reblock → mesh_gather
+→` build+lower — **compiles to a ttmetal flatbuffer** (program mesh shape
+`(1,2)`, fabric `enqueue_program` with a single datamovement kernel). Test:
+`test_all_gather_1x2_lowers` (device/desc-gated, build+lower only).
+
+**Remaining (C5.4 / validation):**
+- **On-device execution + PCC.** Lowering is verified; the kernel has **not**
+  been run on silicon (the dev box is in an ARC firmware error — needs
+  `tt-smi -r`). Expected for the 1x2 256x512 reference all_gather:
+  `hstack(vstack(in[:,0:64], in[:,64:128]), <same>)`.
+- **Auto-enable split-v2 for fabric kernels** (currently the caller sets
+  `config.use_split_unified_thread_v2`); detect a `fabric=`/CCL kernel and set
+  it automatically.
+- **Generalise the 1x2 literals** to mesh-shape-derived values (C5.4) for 1x8.

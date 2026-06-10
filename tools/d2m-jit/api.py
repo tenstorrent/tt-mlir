@@ -7,7 +7,7 @@ from __future__ import annotations
 import ast
 
 from ttmlir.ir import *
-from ttmlir.dialects import d2m, ttcore, arith, linalg
+from ttmlir.dialects import d2m, ttcore, arith, linalg, tensor
 from ttmlir.dialects._ods_common import get_default_loc_context
 
 from ._src.utils import _asindex
@@ -863,15 +863,21 @@ def _empty_op(shape):
 
     `shape` is a Python-literal list/tuple of block dimensions in tiles, e.g.
     `empty([m_tiles, n_tiles])`. Produces an uninitialised
-    `tensor<shape x !ttcore.tile<32x32, f32>>` (via `d2m.empty`), intended as
+    `tensor<shape x !ttcore.tile<32x32, f32>>` (via `tensor.empty`), intended as
     an explicit destination buffer for `remote_load(buf, src, indices)`.
+
+    Uses `tensor.empty` (not `d2m.empty`): for a cross-device CCL kernel a
+    `d2m.empty` load buffer makes the backend split the datamovement work onto a
+    second NOC thread that ends up without the fabric write (the
+    `getFabricConnectionManager` lowering then fails); `tensor.empty` matches the
+    buffer the all_gather rewriter emits and keeps the fabric chain on one
+    thread.
 
     The tile element type is f32; this matches `zeros(...)`. A dtype override
     is a follow-up once a non-f32 CCL needs it."""
     ctx = get_default_loc_context()
     tile_ty = ttcore.ir.TileType.get(ctx, 32, 32, float32)
-    block_ty = RankedTensorType.get(list(shape), tile_ty)
-    return d2m.empty(block_ty)
+    return tensor.empty(list(shape), tile_ty)
 
 
 @syntax("matmul")
