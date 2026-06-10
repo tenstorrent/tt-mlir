@@ -230,9 +230,23 @@ def test_broadcast(shape: List[int], broadcast_dimensions: List[int], request, d
     "shapes",
     [
         [(1, 4, 128, 128), (1, 4, 128, 128)] | SkipIf("sim"),
-        # Two shapes above exercise implicit broadcast, support for it can be spotty.
+        [(4, 8, 128, 128), (4, 8, 128, 128)] | SkipIf("sim"),
+        # Shapes below exercise implicit broadcast, support for it can be spotty.
         [(1, 4, 128, 128), (1, 1, 128, 128)] | SkipIf("sim"),
         [(1, 8, 64, 128), (1, 1, 128, 256)] | SkipIf("sim"),
+        [(4, 8, 128, 128), (1, 1, 128, 128)] | SkipIf("sim"),
+        # Known unsupported case below, batching on dim0 with broadcast on dim1.
+        pytest.param(
+            [(4, 8, 128, 128), (4, 1, 128, 128)],
+            marks=[
+                pytest.mark.skip_config("sim"),
+                pytest.mark.xfail(
+                    reason="metal rejects a rank-4 matmul dim-1 batch mismatch "
+                    "when the RHS batch is not 1; see FoldBroadcastIntoMatmul",
+                    strict=False,
+                ),
+            ],
+        ),
     ],
     ids=shapes_list_str,
 )

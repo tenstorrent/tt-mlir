@@ -96,67 +96,66 @@ public:
   }
 };
 
-// Drop a `ttir.broadcast` feeding the RHS of a `ttir.matmul` when it only
-// expands the second batch dim and the LHS already supplies the expanded size.
+// Drop a `ttir.broadcast` feeding the RHS of a `ttir.matmul` when TTNN's matmul
+// will implicitly reproduce that broadcast.
+//
+// TTNN's matmul documentation mentions that broadcasting is in general
+// basically unsupported, albeit a few cases might work. This code only checks
+// one case: with 4Dx4D operands, dim 1 (second batch dimension) on the RHS can
+// be broadcast to match the LHS when the unbroadcast RHS is a single batch
+// (all of its leading dims are 1). Other cases are explicitly out of scope for
+// now. This *is* basically hardcoding the current details of metal behavior
+// on the TTIR level, just like isImplicitBroadcastSupported does for
+// elementwise ops.
 class FoldBroadcastIntoMatmul : public OpRewritePattern<ttir::MatmulOp> {
 public:
   using OpRewritePattern<ttir::MatmulOp>::OpRewritePattern;
 
   LogicalResult matchAndRewrite(ttir::MatmulOp op,
                                 PatternRewriter &rewriter) const override {
-    Value newRhs = tryDropBroadcast(op.getB(), op.getA());
-    if (!newRhs) {
+    auto bcast = op.getB().getDefiningOp<ttir::BroadcastOp>();
+    if (!bcast) {
       return failure();
     }
-    rewriter.modifyOpInPlace(op, [&]() { op.setOperand(1, newRhs); });
-    return success();
-  }
 
-private:
-  // TTNN's matmul documentation mentions that broadcasting is in general
-  // basically unsupported, albeit a few cases might work. This code only checks
-  // one case: With 4Dx4D operands, dim 1(second batch dimension) on the RHS can
-  // be broadcast to match the LHS. Other cases are explicitly out of scope for
-  // now. This *is* basically hardcoding the current details of metal behavior
-  // on the TTIR level, just like isImplicitBroadcastSupported does for
-  // elementwise ops.
-  static Value tryDropBroadcast(Value rhs, Value lhs) {
-    auto bcast = rhs.getDefiningOp<ttir::BroadcastOp>();
-    if (!bcast) {
-      return {};
-    }
-    // `foldedRhsShape` is what the RHS would become if we drop the broadcast.
-    auto foldedRhsShape =
-        mlir::cast<RankedTensorType>(bcast.getInput().getType()).getShape();
-    auto rhsShape = mlir::cast<RankedTensorType>(rhs.getType()).getShape();
-    auto lhsShape = mlir::cast<RankedTensorType>(lhs.getType()).getShape();
+    ArrayRef<int64_t> bcastDims = bcast.getBroadcastDimensions();
+    auto rhsShape =
+        mlir::cast<RankedTensorType>(op.getB().getType()).getShape();
+    auto lhsShape =
+        mlir::cast<RankedTensorType>(op.getA().getType()).getShape();
 
     constexpr int64_t kMatmulRank = 4;
-    constexpr int64_t kBroadcastableBatchDim = 1;
-    if (static_cast<int64_t>(foldedRhsShape.size()) != kMatmulRank ||
+    constexpr int64_t kBatchDim = 1;
+
+    if (static_cast<int64_t>(bcastDims.size()) != kMatmulRank ||
         static_cast<int64_t>(lhsShape.size()) != kMatmulRank) {
-      return {};
+      return failure();
     }
 
     // The broadcast must expand exactly dim 1 and leave every other dim
-    // untouched: the inner two dims (M/K, K/N) carry matmul semantics, and dim
-    // 0 is only sometimes broadcastable, so the safe default is to keep it
-    // untouched.
+    // (including the inner contraction dims) untouched.
     for (int64_t i = 0; i < kMatmulRank; ++i) {
-      bool expanded = foldedRhsShape[i] != rhsShape[i];
-      if (expanded != (i == kBroadcastableBatchDim)) {
-        return {};
+      bool expanded = bcastDims[i] != 1;
+      if (expanded != (i == kBatchDim)) {
+        return failure();
       }
     }
 
-    // The LHS must already supply the broadcast dim's full size, so dropping
-    // the broadcast leaves the result unchanged and the kernel only has to
-    // implicitly broadcast a size-1 RHS dim 1.
-    if (lhsShape[kBroadcastableBatchDim] != rhsShape[kBroadcastableBatchDim]) {
-      return {};
+    // TTNN only implicitly broadcasts the RHS batch when the folded RHS is a
+    // single batch. dim 1 is broadcast (so its pre-broadcast size is 1) and
+    // dim 0 is untouched, so this reduces to the outer dim 0 being 1.
+    if (rhsShape[0] != 1) {
+      return failure();
     }
 
-    return bcast.getInput();
+    // The LHS must already supply dim 1 so dropping the broadcast leaves the
+    // matmul result shape unchanged.
+    if (lhsShape[kBatchDim] != rhsShape[kBatchDim]) {
+      return failure();
+    }
+
+    rewriter.modifyOpInPlace(op, [&]() { op.setOperand(1, bcast.getInput()); });
+    return success();
   }
 };
 
