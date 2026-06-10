@@ -19,6 +19,7 @@ from builder.base.builder_apis import (
 from builder.base.builder_runtime import execute_fb
 from builder.base.builder_utils import get_artifact_dir
 from conftest import get_request_kwargs
+from test_utils import SkipIf
 
 pytestmark = pytest.mark.frontend("ttir")
 
@@ -59,8 +60,10 @@ TTNN_MODEL_MLIR_SNIPPETS = discover_ttnn_model_mlir_snippets()
 
 
 @pytest.mark.parametrize("snippet_id", list(TTNN_MODEL_MLIR_SNIPPETS.keys()))
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim")])
 def test_ttnn_model_snippet_compile_execute(
     snippet_id: str,
+    target: str,
     request,
     device,
 ):
@@ -75,7 +78,7 @@ def test_ttnn_model_snippet_compile_execute(
         mlir_content = f.read()
 
     artifact_dir = get_artifact_dir(
-        output_root, f"ttnn_model_snippets/{snippet_id}", "ttnn", save_artifacts
+        output_root, f"ttnn_model_snippets/{snippet_id}", target, save_artifacts
     )
 
     module, builder = load_mlir_file(mlir_content, target="ttir")
@@ -88,7 +91,7 @@ def test_ttnn_model_snippet_compile_execute(
         builder,
         system_desc_path=system_desc_path,
         artifact_dir=artifact_dir,
-        target="ttnn",
+        target=target,
         save_artifacts=save_artifacts,
         print_ir=print_ir,
     )
