@@ -2990,11 +2990,568 @@ public:
   }
 };
 
+// ── Conv2d + Slice Fusion ─────────────────────────────────────────────────────
+//
+// Fuses a 1×1 pointwise Conv2dOp followed by a SliceStaticOp on the channel
+// dimension into a smaller Conv2dOp that directly computes only the needed
+// output channels.  An optional ClampScalarOp (relu6) between conv and slice
+// is preserved on the fused conv output.
+//
+// Pattern 1 — with relu6:
+//   %conv  = ttir.conv2d(input, W[O,C,1,1], bias[1,1,1,O])  -> [N,H,W,O]
+//   %clamp = ttir.clamp_scalar(%conv, min=0, max=6)
+//   %slice = ttir.slice_static(%clamp, begins=[0,0,0,k], ends=[N,H,W,k+n])
+//
+// Pattern 2 — without relu6:
+//   %conv  = ttir.conv2d(input, W[O,C,1,1], bias[1,1,1,O])  -> [N,H,W,O]
+//   %slice = ttir.slice_static(%conv,  begins=[0,0,0,k], ends=[N,H,W,k+n])
+//
+// Replacement (both patterns):
+//   %w_s   = ttir.slice_static(W, begins=[k,0,0,0], ends=[k+n,C,1,1])
+//   %b_s   = ttir.slice_static(bias, begins=[0,0,0,k], ends=[1,1,1,k+n])
+//   %fused = ttir.conv2d(input, %w_s, %b_s)  -> [N,H,W,n]
+//   [%cl_s = ttir.clamp_scalar(%fused, ...)]    ← only if original had clamp
+//   replace %slice → %fused (or %cl_s)
+//
+// The weight/bias slices are constant-folded at compile time (both are program
+// arguments that never change at runtime) → zero runtime overhead.
+class Conv2dSliceFusion : public mlir::OpRewritePattern<SliceStaticOp> {
+  using mlir::OpRewritePattern<SliceStaticOp>::OpRewritePattern;
+
+public:
+  // Helper: extract int32 values from an i32 ArrayAttr.
+  static llvm::SmallVector<int32_t> extractI32s(mlir::ArrayAttr attr) {
+    llvm::SmallVector<int32_t> vals;
+    for (mlir::Attribute a : attr)
+      vals.push_back(static_cast<int32_t>(
+          mlir::cast<mlir::IntegerAttr>(a).getInt()));
+    return vals;
+  }
+
+  mlir::LogicalResult
+  matchAndRewrite(SliceStaticOp sliceOp,
+                  mlir::PatternRewriter &rewriter) const final {
+
+    // ── Step 1: Walk back through optional ClampScalarOp ─────────────────────
+    mlir::Value sliceInput = sliceOp.getInput();
+
+    ClampScalarOp clampOp = sliceInput.getDefiningOp<ClampScalarOp>();
+    if (clampOp)
+      sliceInput = clampOp.getInput();
+
+    // ── Step 2: Find Conv2dOp ─────────────────────────────────────────────────
+    Conv2dOp convOp = sliceInput.getDefiningOp<Conv2dOp>();
+    if (!convOp)
+      return mlir::failure();
+
+    // ── Step 3: Guard — 1×1 pointwise conv, groups=1 ─────────────────────────
+    auto weightType =
+        mlir::cast<mlir::RankedTensorType>(convOp.getWeight().getType());
+    llvm::ArrayRef<int64_t> wShape = weightType.getShape();
+    if (weightType.getRank() != 4)
+      return mlir::failure();
+    // ONNX weight format (O, C, kH, kW): kH=dim2, kW=dim3
+    if (wShape[2] != 1 || wShape[3] != 1)
+      return mlir::failure();
+    if (convOp.getGroups() != 1)
+      return mlir::failure();
+
+    // ── Step 4: Guard — slice on channel dim only, step=1 ────────────────────
+    auto inputType =
+        mlir::cast<mlir::RankedTensorType>(sliceInput.getType());
+    int64_t rank = inputType.getRank();
+    llvm::ArrayRef<int64_t> shape = inputType.getShape();
+
+    auto begins = extractI32s(sliceOp.getBegins());
+    auto ends   = extractI32s(sliceOp.getEnds());
+    auto steps  = extractI32s(sliceOp.getStep());
+
+    if (static_cast<int64_t>(begins.size()) != rank)
+      return mlir::failure();
+
+    // Channel dim is the LAST dim for NHWC (channel_last=true).
+    int64_t chDim = rank - 1;
+
+    // All dims except channel must be full range with step=1.
+    for (int64_t d = 0; d < rank; ++d) {
+      if (d == chDim) continue;
+      if (begins[d] != 0 || ends[d] != static_cast<int32_t>(shape[d]) ||
+          steps[d] != 1)
+        return mlir::failure();
+    }
+    if (steps[chDim] != 1)
+      return mlir::failure();
+
+    int32_t chBegin = begins[chDim];
+    int32_t chEnd   = ends[chDim];
+    int32_t newOutCh = chEnd - chBegin;
+    if (newOutCh <= 0)
+      return mlir::failure();
+
+
+    // ── Step 5: Slice weight on dim 0 (out_channels in ONNX OIHW) ───────────
+    llvm::SmallVector<int32_t> wBegins = {chBegin, 0, 0, 0};
+    llvm::SmallVector<int32_t> wEnds   = {chEnd,
+                                          static_cast<int32_t>(wShape[1]),
+                                          static_cast<int32_t>(wShape[2]),
+                                          static_cast<int32_t>(wShape[3])};
+    llvm::SmallVector<int32_t> wSteps  = {1, 1, 1, 1};
+    llvm::SmallVector<int64_t> wSlicedShape = {newOutCh, wShape[1],
+                                               wShape[2], wShape[3]};
+    auto weightSlicedType = mlir::RankedTensorType::get(
+        wSlicedShape, weightType.getElementType());
+
+    rewriter.setInsertionPoint(convOp);
+    auto weightSlice = rewriter.create<SliceStaticOp>(
+        ttmlir::utils::appendLocationSuffix(sliceOp.getLoc(), "_w_slice"),
+        weightSlicedType, convOp.getWeight(),
+        rewriter.getI32ArrayAttr(wBegins),
+        rewriter.getI32ArrayAttr(wEnds),
+        rewriter.getI32ArrayAttr(wSteps));
+
+    // ── Step 6: Slice bias on channel dim (last dim in NHWC broadcast) ───────
+    mlir::Value newBias;
+    if (convOp.getBias()) {
+      auto biasType =
+          mlir::cast<mlir::RankedTensorType>(convOp.getBias().getType());
+      int64_t bRank = biasType.getRank();
+      llvm::ArrayRef<int64_t> bShape = biasType.getShape();
+
+      llvm::SmallVector<int32_t> bBegins(bRank, 0);
+      llvm::SmallVector<int32_t> bEnds;
+      llvm::SmallVector<int32_t> bSteps(bRank, 1);
+      for (int64_t d = 0; d < bRank; ++d)
+        bEnds.push_back(static_cast<int32_t>(bShape[d]));
+      bBegins[bRank - 1] = chBegin;
+      bEnds[bRank - 1]   = chEnd;
+
+      llvm::SmallVector<int64_t> bSlicedShape(bShape.begin(), bShape.end());
+      bSlicedShape[bRank - 1] = newOutCh;
+      auto biasSlicedType = mlir::RankedTensorType::get(
+          bSlicedShape, biasType.getElementType());
+
+      auto biasSlice = rewriter.create<SliceStaticOp>(
+          ttmlir::utils::appendLocationSuffix(sliceOp.getLoc(), "_b_slice"),
+          biasSlicedType, convOp.getBias(),
+          rewriter.getI32ArrayAttr(bBegins),
+          rewriter.getI32ArrayAttr(bEnds),
+          rewriter.getI32ArrayAttr(bSteps));
+      newBias = biasSlice.getResult();
+    }
+
+    // ── Step 7: Build fused conv2d output type ────────────────────────────────
+    llvm::SmallVector<int64_t> fusedOutShape(shape.begin(), shape.end());
+    fusedOutShape[chDim] = newOutCh;
+    auto fusedOutType = mlir::RankedTensorType::get(
+        fusedOutShape, inputType.getElementType());
+
+    // ── Step 8: Create fused Conv2dOp ─────────────────────────────────────────
+    rewriter.setInsertionPoint(sliceOp);
+    // The TTIR→TTNN Conv2dOpConversionPattern requires FlattenedCompatInfoAttr
+    // (batch_size, input_height, input_width before flattening). If missing, it
+    // returns "TTNN only supports flattened input tensors" and fails to legalize.
+    // Copy it from the original conv2d which was created with the correct values.
+    auto fusedConv = Conv2dOp::create(
+        rewriter, sliceOp.getLoc(), fusedOutType,
+        convOp.getInput(),        // same activation input
+        weightSlice.getResult(),  // sliced weight
+        newBias,                  // sliced bias (or null if no bias)
+        convOp.getStride(),
+        convOp.getPadding(),
+        convOp.getDilation(),
+        convOp.getGroups(),
+        convOp.getBatchDim(),
+        convOp.getHeightDim(),
+        convOp.getWidthDim(),
+        convOp.getChannelDim(),
+        convOp.getFlattenedCompatInfoAttr()); // ← CRITICAL: carry original H/W info
+
+    // Also copy any remaining op attributes (e.g. channel_last = true)
+    for (mlir::NamedAttribute attr : convOp->getAttrs()) {
+      if (!fusedConv->getAttr(attr.getName()))
+        fusedConv->setAttr(attr.getName(), attr.getValue());
+    }
+
+    // ── Step 9: Recreate ClampScalarOp if original had one ────────────────────
+    mlir::Value finalResult = fusedConv.getResult();
+    if (clampOp) {
+      auto fusedClamp = ClampScalarOp::create(
+          rewriter, sliceOp.getLoc(), fusedOutType,
+          fusedConv.getResult(),
+          clampOp.getMinAttr(),
+          clampOp.getMaxAttr());
+      finalResult = fusedClamp.getResult();
+    }
+
+    // ── Step 10: Replace the slice ─────────────────────────────────────────────
+    rewriter.replaceOp(sliceOp, finalResult);
+    return mlir::success();
+  }
+};
+
+// Fuse K×(index→reshape→transpose→transpose→grid_sample)+concat into a single
+// batched grid_sample using batch_output_channels=true.
+//
+// Before (per camera group, repeated K times with k=0..K-1):
+//   %ik = ttir.index(%lut5d, dim=3, begin=k, end=k+1)  -> (N,H,W,1,2)
+//   %rk = ttir.reshape(%ik)                             -> (N,H,W,2)
+//   %t0k = ttir.transpose(%rk, dim0=-3, dim1=-1)        -> (N,2,W,H)
+//   %t1k = ttir.transpose(%t0k, dim0=-2, dim1=-1)       -> (N,2,H,W)
+//   %gk  = ttir.grid_sample(%img, %t1k)                 -> (N,C,H,W)
+//   %out = ttir.concat(%g0..%gK-1, dim=channel)         -> (N,K*C,H,W)
+//
+// After:
+//   %r  = ttir.reshape(%lut5d)                          -> (N,H,W,2K)
+//   %t0 = ttir.transpose(%r, dim0=-3, dim1=-1)          -> (N,2K,W,H)
+//   %t1 = ttir.transpose(%t0, dim0=-2, dim1=-1)         -> (N,2K,H,W)
+//   %out = ttir.grid_sample(%img, %t1)                  -> (N,K*C,H,W)
+class GridSampleBatchedFuse : public mlir::OpRewritePattern<ConcatOp> {
+  using mlir::OpRewritePattern<ConcatOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ConcatOp concatOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    auto inputs = concatOp.getInputs();
+    int64_t K = static_cast<int64_t>(inputs.size());
+    if (K < 2)
+      return mlir::failure();
+
+    // All concat inputs must come from GridSampleOp results.
+    SmallVector<GridSampleOp> gridSampleOps;
+    gridSampleOps.reserve(K);
+    for (mlir::Value v : inputs) {
+      auto gsOp = v.getDefiningOp<GridSampleOp>();
+      if (!gsOp)
+        return mlir::failure();
+      gridSampleOps.push_back(gsOp);
+    }
+
+    // Each GridSampleOp result must feed only this concat.
+    for (auto gsOp : gridSampleOps)
+      if (!gsOp.getResult().hasOneUse())
+        return mlir::failure();
+
+    // All GridSampleOps must share the same input image and interpolation attrs.
+    mlir::Value commonInput = gridSampleOps[0].getInput();
+    auto mode0 = gridSampleOps[0].getModeAttr();
+    auto paddingMode0 = gridSampleOps[0].getPaddingModeAttr();
+    auto alignCorners0 = gridSampleOps[0].getAlignCornersAttr();
+    for (int64_t i = 1; i < K; ++i) {
+      if (gridSampleOps[i].getInput() != commonInput ||
+          gridSampleOps[i].getModeAttr() != mode0 ||
+          gridSampleOps[i].getPaddingModeAttr() != paddingMode0 ||
+          gridSampleOps[i].getAlignCornersAttr() != alignCorners0)
+        return mlir::failure();
+    }
+
+    // Match the per-camera grid chain.
+    //
+    // Starting TTIR (transpose ops with negative dims):
+    //   transpose(-2,-1) ← transpose(-3,-1) ← reshape ← index(lut5d, k, dim=3)
+    //
+    // After CanonicalizerPass (which runs before TTIRFusing):
+    //   1. TransposeOp → PermuteOp with positive dims:
+    //      transpose(-3,-1) on rank-4 → permute([0,3,2,1])
+    //      transpose(-2,-1) on rank-4 → permute([0,1,3,2])
+    //   2. foldConsecutivePermute folds two consecutive PermuteOps into one:
+    //      composedPerm[i] = innerPerm[outerPerm[i]]
+    //      [0,3,2,1] ∘ [0,1,3,2] = [0,3,1,2]
+    //
+    // So the canonical chain is:
+    //   permute([0,3,1,2]) ← reshape ← index(lut5d, k, dim=3)
+    //
+    // All K chains must draw from the same LUT source.
+    mlir::Value lut5dSource = nullptr;
+    for (int64_t k = 0; k < K; ++k) {
+      mlir::Value grid = gridSampleOps[k].getGrid();
+
+      // Composed permute([0,3,1,2]) — equivalent to transpose(-3,-1) then
+      // transpose(-2,-1) on a rank-4 tensor, folded into one by canonicalization.
+      // On (N, H, W, 2): output is (N, 2, H, W).
+      auto gridPermOp = grid.getDefiningOp<PermuteOp>();
+      if (!gridPermOp)
+        return mlir::failure();
+      auto perm = gridPermOp.getPermutation();
+      if (perm.size() != 4 || perm[0] != 0 || perm[1] != 3 ||
+          perm[2] != 1 || perm[3] != 2)
+        return mlir::failure();
+
+      auto reshapeOp = gridPermOp.getInput().getDefiningOp<ReshapeOp>();
+      if (!reshapeOp)
+        return mlir::failure();
+      auto indexOp = reshapeOp.getInput().getDefiningOp<IndexOp>();
+      if (!indexOp)
+        return mlir::failure();
+      if (static_cast<int64_t>(indexOp.getDim()) != 3 ||
+          static_cast<int64_t>(indexOp.getBegin()) != k ||
+          static_cast<int64_t>(indexOp.getEnd()) != k + 1 ||
+          static_cast<int64_t>(indexOp.getStep()) != 1)
+        return mlir::failure();
+
+      mlir::Value lut5d = indexOp.getInput();
+      if (!lut5dSource)
+        lut5dSource = lut5d;
+      else if (lut5dSource != lut5d)
+        return mlir::failure();
+    }
+
+    // Validate 5-D LUT shape: (N, H, W, K, 2).
+    auto lut5dType = mlir::cast<RankedTensorType>(lut5dSource.getType());
+    if (lut5dType.getRank() != 5 || lut5dType.getShape()[3] != K ||
+        lut5dType.getShape()[4] != 2)
+      return mlir::failure();
+    int64_t N = lut5dType.getShape()[0];
+    int64_t H_lut = lut5dType.getShape()[1];
+    int64_t W_lut = lut5dType.getShape()[2];
+    mlir::Type elemType = lut5dType.getElementType();
+
+    mlir::Location loc = concatOp.getLoc();
+
+    // Step 1: reshape (N, H, W, K, 2) → (N, H, W, 2K).
+    SmallVector<int32_t> reshape4dI32 = {
+        static_cast<int32_t>(N), static_cast<int32_t>(H_lut),
+        static_cast<int32_t>(W_lut), static_cast<int32_t>(K * 2)};
+    auto reshape4dType = RankedTensorType::get({N, H_lut, W_lut, K * 2}, elemType);
+    auto reshape4d = rewriter.create<ReshapeOp>(loc, reshape4dType, lut5dSource,
+                                                rewriter.getI32ArrayAttr(reshape4dI32));
+
+    // Step 2: permute([0,3,1,2]): (N, H, W, 2K) → (N, 2K, H, W).
+    // This is the composed result of transpose(-3,-1) then transpose(-2,-1) on
+    // rank-4, which foldConsecutivePermute reduces to a single permute.
+    auto gridType = RankedTensorType::get({N, K * 2, H_lut, W_lut}, elemType);
+    SmallVector<int64_t> gridPerm = {0, 3, 1, 2};
+    auto gridPermOp = rewriter.create<PermuteOp>(loc, gridType, reshape4d.getResult(),
+                                                  gridPerm);
+
+    // Step 3: single batched grid_sample — output shape (N, K*C, H_out, W_out).
+    rewriter.replaceOpWithNewOp<GridSampleOp>(
+        concatOp,
+        mlir::cast<RankedTensorType>(concatOp.getResult().getType()),
+        commonInput, gridPermOp.getResult(), mode0, paddingMode0, alignCorners0);
+
+    return mlir::success();
+  }
+};
+
+// Transforms a 1×1 pointwise Conv2dOp on NHWC format — surrounded by 4
+// Replaces a narrow-K 1×1 Conv2dOp (in_channels ≤ MAX_IN_CHANNELS) with
+// per-scalar multiply-accumulate ops working directly on the flattened NHWC
+// input tensor that already exists in the IR.
+//
+// Motivation: The conv2d path pads K to TILE_SIZE=32, causing ~91% DRAM waste
+// when in_channels=3.  Elementwise ops on (N,1,H*W,1) slices read only real
+// data with zero tile-padding waste.
+//
+// Pattern (fires after Conv2dSliceFusion splits the original conv):
+//   flat_input (N,1,H*W,C_in) ← already in IR
+//   conv2d(flat_input, W[O,C,1,1], bias)  → (N,1,H*W,O)
+//
+// Replacement:
+//   For each input channel c:
+//     ch_c   = slice(flat_input, dim=3, c:c+1)  → (N,1,H*W,1)  [4.7MB]
+//   For each output channel k:
+//     w_kc   = slice(W, k:k+1, c:c+1, 0:1, 0:1) → (1,1,1,1)   [const-folded]
+//     p_kc   = multiply(ch_c, w_kc)              → (N,1,H*W,1)
+//     acc_k  = sum_c(p_kc) + bias_k              → (N,1,H*W,1)
+//   For O=1: finalResult = acc_0  (no concat)
+//   For O>1: finalResult = concat([acc_0..acc_{O-1}], dim=3) → (N,1,H*W,O)
+//
+// The conv2d result is replaced; the downstream reshape+permute chain is
+// preserved unchanged.  Inner dead ops (permute+reshape before conv) are DCE'd.
+class Conv2dNarrowKToElementwise : public mlir::OpRewritePattern<Conv2dOp> {
+  using mlir::OpRewritePattern<Conv2dOp>::OpRewritePattern;
+
+public:
+  static constexpr int64_t MAX_IN_CHANNELS = 8;
+
+  mlir::LogicalResult
+  matchAndRewrite(Conv2dOp convOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    // ── Step 1: Guards on the conv ────────────────────────────────────────────
+    auto weightType =
+        mlir::cast<RankedTensorType>(convOp.getWeight().getType());
+    llvm::ArrayRef<int64_t> wShape = weightType.getShape();
+    // OIHW weight: wShape = (out_ch, in_ch, kH, kW)
+    if (weightType.getRank() != 4 || wShape[2] != 1 || wShape[3] != 1)
+      return mlir::failure();
+    if (convOp.getGroups() != 1)
+      return mlir::failure();
+    int64_t in_channels  = wShape[1];
+    int64_t out_channels = wShape[0];
+    if (in_channels <= 0 || in_channels > MAX_IN_CHANNELS)
+      return mlir::failure();
+    // Only fire on out_ch=1 (post-Conv2dSliceFusion single-channel convs).
+    // Multi-channel output requires a concat that is too large for TTNN L1.
+    if (out_channels != 1)
+      return mlir::failure();
+
+    // hasOneUse ensures we fire only on post-Conv2dSliceFusion small convs.
+    // We also reject when the single user is a SliceStaticOp — this happens
+    // when Conv2dSliceFusion already replaced one slice (reducing the original
+    // conv from 2 users to 1) but the remaining user is still a slice.
+    // In that case the original large conv would fire and create a large concat.
+    if (!convOp.getResult().hasOneUse())
+      return mlir::failure();
+    if (mlir::isa<SliceStaticOp>(*convOp.getResult().user_begin()))
+      return mlir::failure();
+
+    // ── Step 2: Verify the flattened NHWC input type ─────────────────────────
+    // The conv input MUST be in flattened NHWC format: (N, 1, H*W, C_in).
+    // TTPopulateArgumentTypes inserts this flattening before all sliding-window
+    // convs.  The intermediate dim=1 distinguishes flattened from unflattenned
+    // NHWC (1,H,W,C) — without this check NarrowK would fire on non-flattened
+    // convs and produce wrong slice types.
+    auto inputType =
+        mlir::cast<RankedTensorType>(convOp.getInput().getType());
+    llvm::ArrayRef<int64_t> inShape = inputType.getShape();
+    if (inputType.getRank() != 4)
+      return mlir::failure();
+    // Require (N, 1, H*W, C_in) — dim1 must be 1 (flattened format marker)
+    if (inShape[1] != 1)
+      return mlir::failure();
+    if (inShape[3] != in_channels)
+      return mlir::failure();
+    for (int64_t d : inShape)
+      if (d == mlir::ShapedType::kDynamic)
+        return mlir::failure();
+
+    int64_t N = inShape[0], HW = inShape[2];  // N × 1 × H*W × C_in
+
+    // ── Step 3: Build per-scalar multiply-accumulate in flattened NHWC ───────
+    rewriter.setInsertionPoint(convOp);
+    auto loc = convOp.getLoc();
+    auto elemType = inputType.getElementType();
+
+    // Each channel slice type: (N, 1, H*W, 1)
+    auto chSliceType =
+        RankedTensorType::get({N, 1, HW, 1}, elemType);
+    // Weight scalar type: (1, 1, 1, 1)
+    auto wScalarType =
+        RankedTensorType::get({1, 1, 1, 1}, weightType.getElementType());
+
+    // 3a — Slice input channels along NHWC dim=3 → each (N,1,H*W,1) [4.7MB]
+    SmallVector<Value> inputChannels;
+    inputChannels.reserve(in_channels);
+    for (int64_t c = 0; c < in_channels; ++c) {
+      SmallVector<int32_t> beg = {0, 0, 0, static_cast<int32_t>(c)};
+      SmallVector<int32_t> end = {static_cast<int32_t>(N), 1,
+                                  static_cast<int32_t>(HW),
+                                  static_cast<int32_t>(c + 1)};
+      SmallVector<int32_t> stp = {1, 1, 1, 1};
+      auto sl = rewriter.create<SliceStaticOp>(
+          ttmlir::utils::appendLocationSuffix(loc,
+              "_ic" + std::to_string(c)),
+          chSliceType, convOp.getInput(),
+          rewriter.getI32ArrayAttr(beg),
+          rewriter.getI32ArrayAttr(end),
+          rewriter.getI32ArrayAttr(stp));
+      inputChannels.push_back(sl.getResult());
+    }
+
+    mlir::Value biasVal = convOp.getBias();
+    mlir::Type biasElemType =
+        biasVal
+            ? mlir::cast<RankedTensorType>(biasVal.getType()).getElementType()
+            : elemType;
+
+    // 3b — For each output channel k: accumulate weighted input channels
+    SmallVector<Value> outputChannels;
+    outputChannels.reserve(out_channels);
+
+    for (int64_t k = 0; k < out_channels; ++k) {
+      SmallVector<Value> products;
+      products.reserve(in_channels);
+
+      for (int64_t c = 0; c < in_channels; ++c) {
+        // Scalar weight W[k, c, 0, 0] → (1,1,1,1)  [const-folded at startup]
+        SmallVector<int32_t> wb = {static_cast<int32_t>(k),
+                                   static_cast<int32_t>(c), 0, 0};
+        SmallVector<int32_t> we = {static_cast<int32_t>(k + 1),
+                                   static_cast<int32_t>(c + 1), 1, 1};
+        SmallVector<int32_t> ws = {1, 1, 1, 1};
+        auto wSc = rewriter.create<SliceStaticOp>(
+            ttmlir::utils::appendLocationSuffix(loc,
+                "_w" + std::to_string(k) + "_" + std::to_string(c)),
+            wScalarType, convOp.getWeight(),
+            rewriter.getI32ArrayAttr(wb),
+            rewriter.getI32ArrayAttr(we),
+            rewriter.getI32ArrayAttr(ws));
+
+        // (N,1,H*W,1) * (1,1,1,1) → (N,1,H*W,1)  broadcast scalar weight
+        auto mul = rewriter.create<MultiplyOp>(
+            ttmlir::utils::appendLocationSuffix(loc,
+                "_mul" + std::to_string(k) + "_" + std::to_string(c)),
+            chSliceType, inputChannels[c], wSc.getResult());
+        products.push_back(mul.getResult());
+      }
+
+      // Accumulate input channels
+      Value acc = products[0];
+      for (int64_t c = 1; c < in_channels; ++c)
+        acc = rewriter.create<AddOp>(
+            ttmlir::utils::appendLocationSuffix(loc,
+                "_acc" + std::to_string(k) + "_" + std::to_string(c)),
+            chSliceType, acc, products[c]).getResult();
+
+      // Add bias[k] if present: bias is (1,1,1,out_ch) → slice to (1,1,1,1)
+      if (biasVal) {
+        auto biasType =
+            mlir::cast<RankedTensorType>(biasVal.getType());
+        int64_t bRank = biasType.getRank();
+        SmallVector<int32_t> bb(bRank, 0);
+        SmallVector<int32_t> be;
+        SmallVector<int32_t> bs(bRank, 1);
+        for (int64_t d = 0; d < bRank; ++d)
+          be.push_back(static_cast<int32_t>(biasType.getShape()[d]));
+        bb[bRank - 1] = static_cast<int32_t>(k);
+        be[bRank - 1] = static_cast<int32_t>(k + 1);
+        auto biasScType =
+            RankedTensorType::get({1, 1, 1, 1}, biasElemType);
+        auto bSc = rewriter.create<SliceStaticOp>(
+            ttmlir::utils::appendLocationSuffix(loc,
+                "_b" + std::to_string(k)),
+            biasScType, biasVal,
+            rewriter.getI32ArrayAttr(bb),
+            rewriter.getI32ArrayAttr(be),
+            rewriter.getI32ArrayAttr(bs));
+        acc = rewriter.create<AddOp>(
+            ttmlir::utils::appendLocationSuffix(loc,
+                "_ba" + std::to_string(k)),
+            chSliceType, acc, bSc.getResult()).getResult();
+      }
+
+      outputChannels.push_back(acc);
+    }
+
+    // ── Step 4: Combine output channels and replace conv result ──────────────
+    // The downstream reshape → permute chain is preserved unchanged.
+    mlir::Value finalResult;
+    if (out_channels == 1) {
+      // Most common case after Conv2dSliceFusion: skip concat entirely
+      finalResult = outputChannels[0];
+    } else {
+      // Concat along NHWC channel dim=3 → (N,1,H*W,O)
+      auto concatType =
+          RankedTensorType::get({N, 1, HW, out_channels}, elemType);
+      finalResult = rewriter.create<ConcatOp>(
+          ttmlir::utils::appendLocationSuffix(loc, "_oc_concat"),
+          concatType, outputChannels,
+          rewriter.getSI32IntegerAttr(3)).getResult(); // dim=3 (NHWC channel)
+    }
+
+    rewriter.replaceOp(convOp, finalResult);
+    return mlir::success();
+  }
+};
+
+
 } // namespace
 
 class TTIRFusingPass : public impl::TTIRFusingBase<TTIRFusingPass> {
 public:
   using impl::TTIRFusingBase<TTIRFusingPass>::TTIRFusingBase;
+
   void runOnOperation() final {
     {
       RewritePatternSet patterns(&getContext());
@@ -3006,11 +3563,18 @@ public:
         return;
       }
     }
+
     {
       RewritePatternSet patterns(&getContext());
       patterns.add<ConvAddBias<Conv2dOp>>(&getContext());
       patterns.add<ConvAddBias<ConvTranspose2dOp>>(&getContext());
       patterns.add<ConvAddBias<Conv3dOp>>(&getContext());
+      patterns.add<Conv2dSliceFusion>(&getContext());
+      // Conv2dNarrowKToElementwise disabled: elementwise decomposition creates
+      // too many TTNN kernel dispatches (~9 ops/camera × 4 cameras), making
+      // Block A 3× slower (1.80 FPS) vs the original conv2d path (5.73 FPS).
+      // The TTNN pipelined matmul path is faster despite K=32 tile-padding waste.
+      // patterns.add<Conv2dNarrowKToElementwise>(&getContext());
 
       // Add patterns for each reduction op type.
       patterns.add<ReductionWithReshapePattern<SumOp>>(&getContext());
@@ -3050,6 +3614,8 @@ public:
       patterns.add<HardsigmoidFusionPattern>(&getContext());
       patterns.add<MishFusingPattern>(&getContext());
       patterns.add<ReshapeBroadcastReshapeToRepeatPattern>(&getContext());
+      if (!getenv("TTMLIR_DISABLE_GRIDSAMPLE_BATCH_FUSE"))
+        patterns.add<GridSampleBatchedFuse>(&getContext());
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);
