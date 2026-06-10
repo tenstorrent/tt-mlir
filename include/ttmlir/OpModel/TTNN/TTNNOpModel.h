@@ -680,6 +680,24 @@ struct OpModel<CumSumOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// CumProdOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<CumProdOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, const int32_t dim,
+                   std::optional<ttcore::DataType> dtype,
+                   TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               const int32_t dim, std::optional<ttcore::DataType> dtype,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // ConcatenateHeadsOp
 //===----------------------------------------------------------------------===//
 

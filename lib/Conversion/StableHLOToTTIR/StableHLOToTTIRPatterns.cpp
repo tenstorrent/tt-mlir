@@ -113,6 +113,7 @@ getPaddingOrDefault(mlir::DenseIntElementsAttr attr, size_t numSpatialDims) {
 enum TypicalInitReductionValue {
   NEG_INF, // It is also used for minimum integer value.
   ZERO,
+  ONE, // Used for cumulative product operations.
 };
 
 // Check if the constant op is initialized with the desired init value.
@@ -124,7 +125,6 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
 
   float desiredF32;
   double desiredF64;
-  uint16_t desiredBF16;
   int32_t desiredI32;
   int64_t desiredI64;
   int8_t desiredI8;
@@ -132,7 +132,6 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
   if (desired == TypicalInitReductionValue::NEG_INF) {
     desiredF32 = -std::numeric_limits<float>::infinity();
     desiredF64 = -std::numeric_limits<double>::infinity();
-    desiredBF16 = 0xff80; // This is -inf in bfloat16 raw bits
     desiredI32 = std::numeric_limits<int32_t>::min();
     desiredI64 = std::numeric_limits<int64_t>::min();
     desiredI8 = std::numeric_limits<int8_t>::min();
@@ -140,29 +139,32 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
   } else if (desired == TypicalInitReductionValue::ZERO) {
     desiredF32 = 0.0;
     desiredF64 = 0.0;
-    desiredBF16 = 0x0000; // This is 0 in bfloat16 raw bits
     desiredI32 = 0;
     desiredI64 = 0;
     desiredI8 = 0;
     desiredI1 = false;
+  } else if (desired == TypicalInitReductionValue::ONE) {
+    desiredF32 = 1.0;
+    desiredF64 = 1.0;
+    desiredI32 = 1;
+    desiredI64 = 1;
+    desiredI8 = 1;
+    desiredI1 = true;
   } else {
     return false;
   }
 
-  // Comparing actual bits in case of bfloat16.
   if (initValueOp.getResult().getType().getElementType().isBF16()) {
-    // Collect the values into a vector
-    std::vector<mlir::Attribute> values;
-    for (int64_t i = 0; i < initValueOp.getValueAttr().size(); ++i) {
-      values.push_back(
-          initValueOp.getValueAttr().getValues<mlir::Attribute>()[i]);
+    const llvm::APFloat &value =
+        *initValueOp.getValue().value_begin<llvm::APFloat>();
+    if (desired == TypicalInitReductionValue::NEG_INF) {
+      return value.isInfinity() && value.isNegative();
     }
-
-    auto denseValues = ::mlir::DenseElementsAttr::get(
-        initValueOp.getValueAttr().getShapedType(), values);
-    uint16_t bfloatBits =
-        static_cast<uint16_t>(*denseValues.getRawData().data());
-    return bfloatBits == desiredBF16;
+    if (desired == TypicalInitReductionValue::ZERO) {
+      return value.isZero();
+    }
+    return !value.isInfinity() && !value.isNaN() &&
+           value.convertToDouble() == 1.0;
   }
   if (initValueOp.getResult().getType().getElementType().isF32()) {
     return *initValueOp.getValue().value_begin<float>() == desiredF32;
@@ -2440,19 +2442,21 @@ public:
 // StableHLOToTTIRReduceWindowOpConversionPattern
 // The lowering is specialized for a few well-structured cases and **does not**
 // handle all valid StableHLO patterns. Current assumptions:
-//  - The body block must contain only `stablehlo.{add,max}` ops followed by a
-//    `stablehlo.return`. Other reductions (e.g., min, multiply) are
+//  - The body block must contain only `stablehlo.{add,max,multiply}` ops
+//    followed by a `stablehlo.return`. Other reductions (e.g., min) are
 //    unsupported.
 //  - The number of body reduction ops must match the number of inputs.
 //  - The initial values (`init_values`) must be stablehlo.constant ops that are
-//    either zero or negative infinity (NEG_INF). Function arguments or more
-//    complex expressions are not currently supported.
+//    either zero, one, or negative infinity (NEG_INF). Function arguments or
+//    more complex expressions are not currently supported.
 //  - Mixed dtypes across inputs are supported, but reduction op must match
 //    the input type.
 //  - `CumSum` lowering only works for single-input/single-output cases and
 //    must satisfy specific window/padding rules (see isCumSum()).
+//  - `CumProd` lowering only works for single-input/single-output cases and
+//    must satisfy specific window/padding rules (see isCumProd()).
 // This conversion is tailored toward cases like max_pool2d, avg_pool2d (via
-// sum+div), and cumulative sum.
+// sum+div), cumulative sum, and cumulative product.
 // TODO(anusingh):
 //  - Support initialization via function arguments
 //  - Generalize to other reduction ops
@@ -2504,7 +2508,8 @@ public:
     auto &operations = block.getOperations();
     SmallVector<mlir::Operation *> reductionOps;
     for (Operation &op : llvm::drop_end(operations, 1)) {
-      if (!isa<mlir::stablehlo::AddOp, mlir::stablehlo::MaxOp>(&op)) {
+      if (!isa<mlir::stablehlo::AddOp, mlir::stablehlo::MaxOp,
+               mlir::stablehlo::MulOp>(&op)) {
         return rewriter.notifyMatchFailure(srcOp, "Unsupported reduction op.");
       }
       reductionOps.push_back(&op);
@@ -2565,6 +2570,18 @@ public:
         rewriter.replaceOpWithNewOp<ttir::CumSumOp>(
             srcOp, resultType, adaptor.getInputs()[0],
             rewriter.getI64IntegerAttr(*dimension));
+        return success();
+      }
+
+      // Handle the special case of lowering to CumProdOp.
+      std::optional<int64_t> cumprodDimension =
+          isCumProd(srcOp, adaptor, (*initValues)[0], reductionOps[0], padding);
+      if (cumprodDimension) {
+        mlir::RankedTensorType resultType = cast<RankedTensorType>(
+            getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+        rewriter.replaceOpWithNewOp<ttir::CumProdOp>(
+            srcOp, resultType, adaptor.getInputs()[0],
+            rewriter.getI64IntegerAttr(*cumprodDimension));
         return success();
       }
     }
@@ -3081,6 +3098,52 @@ private:
     return dimension;
   }
 
+  // This function verifies all the required conditions to convert stablehlo
+  // reduce_window op to TTIR cumprod op and also determine the dimension
+  // attribute along which the cumulative product will be computed.
+  // The reduce_window op must satisfy the following conditions.
+  // 1. Front op in the block must be 'multiply'.
+  // 2. InitValue must be one.
+  // 3. There are no strides or dilations for window-related attributes.
+  // 4. The size of padding attribute is equal to two times input tensor rank.
+  // 5. Padding value must be zero in case of splat vector. Window dimension
+  //    attribute must have all elements equal to one in this case.
+  // 6. Padding attribute have one non-zero element in case of non-splat vector
+  //    and this non-zero element must be equal to size of specified dimension
+  //    minus one.
+  // The dimension attribute is determined in following two ways.
+  // 1. (If padding is splat vector): First dimension in the input tensor shape,
+  //    whose size is 1, is the required dimension.
+  // 2. (If padding is non-splat vector): Window dimension attribute must have
+  //    all elements equal to 1 except one; whose location is the required
+  //    dimension and value must be equal to size of the required dimension.
+  std::optional<int64_t>
+  isCumProd(mlir::stablehlo::ReduceWindowOp &srcOp,
+            mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
+            TypicalInitReductionValue initValue, mlir::Operation *frontOp,
+            DenseI64ArrayAttr padding) const {
+    if (!isa<mlir::stablehlo::MulOp>(frontOp)) {
+      return std::nullopt;
+    }
+
+    if (initValue != TypicalInitReductionValue::ONE) {
+      return std::nullopt;
+    }
+
+    // Verify window-related attributes (strides, dilations)
+    if (!hasValidWindowAttributes(adaptor)) {
+      return std::nullopt;
+    }
+
+    int64_t dimension;
+    // Check input tensor type and padding
+    if (!hasValidInputAndPadding(srcOp, adaptor, dimension, padding)) {
+      return std::nullopt;
+    }
+
+    return dimension;
+  }
+
   // Helper function to find the StableHLO constant defining op by traversing
   // through operations that preserve constant semantics (similar to
   // getConstantValueDefiningOp).
@@ -3110,6 +3173,8 @@ private:
         initValues.push_back(TypicalInitReductionValue::NEG_INF);
       } else if (checkInitValue(constantOp, TypicalInitReductionValue::ZERO)) {
         initValues.push_back(TypicalInitReductionValue::ZERO);
+      } else if (checkInitValue(constantOp, TypicalInitReductionValue::ONE)) {
+        initValues.push_back(TypicalInitReductionValue::ONE);
       } else {
         return std::nullopt;
       }

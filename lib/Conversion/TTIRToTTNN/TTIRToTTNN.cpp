@@ -487,6 +487,23 @@ public:
 } // namespace
 
 namespace {
+class CumProdOpConversionPattern : public OpConversionPattern<ttir::CumProdOp> {
+public:
+  using OpConversionPattern<ttir::CumProdOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::CumProdOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::CumProdOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(),
+        rewriter.getI32IntegerAttr(static_cast<int32_t>(adaptor.getDim())));
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class RepeatInterleaveOpConversionPattern
     : public OpConversionPattern<ttir::RepeatInterleaveOp> {
 public:
@@ -3563,6 +3580,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            EmbeddingBackwardOpConversionPattern,
            RepeatOpConversionPattern,
            CumSumOpConversionPattern,
+           CumProdOpConversionPattern,
            RepeatInterleaveOpConversionPattern,
            SoftmaxOpConversionPattern,
            SortOpConversionPattern,

@@ -1216,6 +1216,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_CumSumOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::CumProdOp: {
+    tensorRefs = {opContext.type_as_CumProdOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::RandOp: {
     tensorRefs = {opContext.type_as_RandOp()->out()};
     break;
@@ -1709,6 +1713,10 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::CumSumOp: {
     tensorRefs = {opContext.type_as_CumSumOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::CumProdOp: {
+    tensorRefs = {opContext.type_as_CumProdOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::ReductionArgMaxOp: {

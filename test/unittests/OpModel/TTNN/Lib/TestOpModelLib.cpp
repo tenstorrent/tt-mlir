@@ -954,6 +954,52 @@ TEST_F(OpModelTest, CumSum) {
   llvm::consumeError(runtimeExp.takeError());
 }
 
+TEST_F(OpModelTest, CumProd) {
+  const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  const TTNNLayoutAttr layoutDRAM = CreateTiledLayout(
+      tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutL1Interleaved = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutL1WSharded = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::WidthSharded);
+
+  auto constraintsExp = op_model::OpModel<CumProdOp>::getOpConstraints(
+      tensorShape, layoutDRAM, 0, std::nullopt, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  auto runtimeExp = op_model::OpModel<CumProdOp>::getOpRuntime(
+      tensorShape, layoutDRAM, 0, std::nullopt, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp = op_model::OpModel<CumProdOp>::getOpConstraints(
+      tensorShape, layoutDRAM, 0, std::nullopt, layoutL1Interleaved);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.tensorL1PeakSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
+
+  runtimeExp = op_model::OpModel<CumProdOp>::getOpRuntime(
+      tensorShape, layoutDRAM, 0, std::nullopt, layoutL1Interleaved);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp = op_model::OpModel<CumProdOp>::getOpConstraints(
+      tensorShape, layoutL1Interleaved, 0, std::nullopt, layoutL1WSharded);
+  EXPECT_FALSE(static_cast<bool>(constraintsExp));
+  llvm::consumeError(constraintsExp.takeError());
+
+  runtimeExp = op_model::OpModel<CumProdOp>::getOpRuntime(
+      tensorShape, layoutL1Interleaved, 0, std::nullopt, layoutL1WSharded);
+  EXPECT_FALSE(static_cast<bool>(runtimeExp));
+  llvm::consumeError(runtimeExp.takeError());
+}
+
 // ==== ConcatenateHeadsOp Tests ====
 class OpModelConcatenateHeadsParam
     : public OpModelTest,

@@ -3189,6 +3189,58 @@ def TTIR_CumSumOp : TTIR_NamedOp<"cumsum"> {
   let hasFolder = 1;
 }
 
+def TTIR_CumProdOp : TTIR_NamedOp<"cumprod"> {
+  let summary = "Cumulative product operation.";
+  let description = [{
+    The `cumprod` operation computes the cumulative product of elements along a specified dimension of the input tensor.
+
+    For each position in the output tensor, this operation computes the product of all elements in the input tensor
+    along the specified dimension up to and including that position. The shape of the output tensor matches
+    the shape of the input tensor.
+
+    Example:
+    ```mlir
+    // Cumulative product along dimension 0
+    %input = ... : tensor<2x3xf32>
+    %result = ttir.cumprod(%input) {dim = 0 : i64} : (tensor<2x3xf32>) -> tensor<2x3xf32>
+    // Input tensor:
+    // [[2, 3, 4],
+    //  [5, 6, 7]]
+    // Output tensor:
+    // [[2, 3, 4],        // first row remains the same
+    //  [10, 18, 28]]     // each element is the product of the corresponding column up to this point
+
+    // Cumulative product along dimension 1
+    %input = ... : tensor<2x3xf32>
+    %result = ttir.cumprod(%input) {dim = 1 : i64} : (tensor<2x3xf32>) -> tensor<2x3xf32>
+    // Input tensor:
+    // [[2, 3, 4],
+    //  [5, 6, 7]]
+    // Output tensor:
+    // [[2, 6, 24],       // each element is the product of the corresponding row up to this point
+    //  [5, 30, 210]]
+    ```
+
+    Inputs:
+    - `input` (Tensor): The input tensor.
+
+    Attributes:
+    - `dim` (Integer): The dimension along which to compute the cumulative product.
+
+    Output:
+    - `result` (Tensor): The tensor containing the cumulative products.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       I64Attr:$dim);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+
+  let hasFolder = 1;
+}
+
 def TTIR_SoftmaxOp : TTIR_NamedOp<"softmax"> {
     let summary = "Softmax normalization operation.";
     let description = [{
