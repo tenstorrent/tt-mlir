@@ -580,33 +580,24 @@ std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
   return {tensor};
 }
 
-template <typename T>
-static std::vector<T> getStridedRowStartIndices(const std::vector<T> &shape,
-                                                const std::vector<T> &strides,
-                                                const size_t dim = 0) {
-  const T dimSize = shape[dim];
-
-  // Base case.
-  if (dim == shape.size() - 1) {
-    // A single row always start at index 0.
-    return std::vector<T>{0};
+static void stridedMemcpyRecursive(const TensorDesc &dst, const TensorDesc &src,
+                                   std::byte *dstPtr, const std::byte *srcPtr,
+                                   size_t elemSize, size_t dim,
+                                   std::ptrdiff_t dstOffset,
+                                   std::ptrdiff_t srcOffset) {
+  if (dim == src.shape.size()) {
+    std::memcpy(dstPtr + dstOffset * static_cast<std::ptrdiff_t>(elemSize),
+                srcPtr + srcOffset * static_cast<std::ptrdiff_t>(elemSize),
+                elemSize);
+    return;
   }
 
-  // Recursive case.
-  // 1. Get the indices of all the rows of a single slice of the current dim.
-  const auto sliceIndices = getStridedRowStartIndices(shape, strides, dim + 1);
-  const size_t sliceRows = sliceIndices.size();
-  // 2. Generate indices for all the slices of the current dim.
-  std::vector<T> indices(sliceRows * dimSize);
-  // 3. The distance between the start of the first row of two neighboring
-  // slices is the size of the slice, i.e. the stride of the current dim.
-  for (T i = 0; i < dimSize; i++) {
-    const T offset = i * strides[dim];
-    for (size_t j = 0; j < sliceRows; j++) {
-      indices[i * sliceRows + j] = sliceIndices[j] + offset;
-    }
+  for (uint32_t i = 0; i < src.shape[dim]; i++) {
+    stridedMemcpyRecursive(
+        dst, src, dstPtr, srcPtr, elemSize, dim + 1,
+        dstOffset + static_cast<std::ptrdiff_t>(i * dst.stride[dim]),
+        srcOffset + static_cast<std::ptrdiff_t>(i * src.stride[dim]));
   }
-  return indices;
 }
 
 static void stridedMemcpy(const TensorDesc &dst, const TensorDesc &src,
@@ -615,27 +606,16 @@ static void stridedMemcpy(const TensorDesc &dst, const TensorDesc &src,
   LOG_ASSERT(dst.elementSize() == src.elementSize(),
              "Tensor item size mismatch");
 
-  // `getStridedRowStartIndices` requires `shape` and `stride` to share the same
-  // element type. `stride` is signed `int64`, so widen `shape` to `int64`
-  // (lossless) rather than narrowing the stride.
-  const auto srcIndices = getStridedRowStartIndices(
-      std::vector<std::int64_t>(src.shape.begin(), src.shape.end()),
-      src.stride);
-  const auto dstIndices = getStridedRowStartIndices(
-      std::vector<std::int64_t>(dst.shape.begin(), dst.shape.end()),
-      dst.stride);
-  assert(srcIndices.size() == dstIndices.size());
-  assert(srcIndices.size() ==
-         utils::product(src.shape.cbegin(), src.shape.cend() - 1));
-
   const size_t elemSize = src.elementSize();
-  const size_t rowSize = src.shape[src.shape.size() - 1] * elemSize;
   const std::byte *srcPtr = static_cast<const std::byte *>(srcData);
   std::byte *dstPtr = static_cast<std::byte *>(dstData);
-  for (size_t i = 0; i < srcIndices.size(); i++) {
-    std::memcpy(dstPtr + dstIndices[i] * elemSize,
-                srcPtr + srcIndices[i] * elemSize, rowSize);
+  if (src.shape.empty()) {
+    std::memcpy(dstPtr, srcPtr, elemSize);
+    return;
   }
+
+  stridedMemcpyRecursive(dst, src, dstPtr, srcPtr, elemSize,
+                         /*dim=*/0, /*dstOffset=*/0, /*srcOffset=*/0);
 }
 
 void memcpy(void *dst, Tensor src,

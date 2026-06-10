@@ -3,6 +3,7 @@
 #l1_ = #ttcore.memory_space<l1>
 #dram = #ttcore.memory_space<dram>
 #map = affine_map<(d0, d1) -> (d0, d1)>
+#map_projected_output = affine_map<(d0, d1) -> (0, d0)>
 #map4 = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #parallel = #ttcore.iterator_type<parallel>
 #reduction = #ttcore.iterator_type<reduction>
@@ -121,6 +122,28 @@ module attributes {} {
       // CHECK: d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] mcore[%[[CORE0]], %[[C0]]] mshape[%[[C1]], %[[C2]]]
       %buffer = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
       d2m.remote_load %buffer %stream[%c0, %c1] mcast[%c0] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x2x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<4>, #dram>
+    }
+    return
+  }
+
+  // Squeezed reductions can leave the output map with a constant grid
+  // coordinate, e.g. (d0, d1) -> (0, d0). That projected map cannot define a
+  // full-rank multicast region, so the high-level mcast form falls back to
+  // unicast.
+  // CHECK-LABEL: func.func @test_multicast_projected_output_falls_back_to_unicast
+  func.func @test_multicast_projected_output_falls_back_to_unicast(%arg0: memref<4x2x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
+    %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
+    %stream = d2m.view_layout %arg0 remapping = #map4 : memref<4x2x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<4x2x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<4>, #dram>
+
+    d2m.generic {block_factors = [1, 2], grid = #ttcore.grid<1x4>, indexing_maps = [#map, #map_projected_output], iterator_types = [#parallel, #reduction], threads = [#d2m.thread<unified>]}
+        ins(%stream : memref<4x2x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<4>, #dram>)
+        outs(%alloc : memref<1x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>) {
+    ^unified0:
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      // CHECK: d2m.remote_load %{{.*}} %{{.*}}[%{{.*}}, %{{.*}}] :
+      %buffer = memref.alloc() : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+      d2m.remote_load %buffer %stream[%c0, %c1] mcast[%c0] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<4x2x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #ttcore.view<4>, #dram>
     }
     return
   }

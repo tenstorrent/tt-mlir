@@ -683,14 +683,26 @@ def _int_attr_from_ast(node, compiler=None):
     return IntegerAttr.get(IntegerType.get_signless(64), value)
 
 
-@syntax("reduce_sum", args_as_attr=[False, _int_attr_from_ast])
-def reduce_sum(input, dim):
+def _bool_attr_from_ast(node, compiler=None):
+    if isinstance(node, ast.Constant) and isinstance(node.value, bool):
+        return node.value
+    if (
+        compiler is not None
+        and isinstance(node, ast.Name)
+        and isinstance(compiler.captures.get(node.id), bool)
+    ):
+        return compiler.captures[node.id]
+    raise TypeError("expected boolean literal")
+
+
+@syntax("reduce_sum", args_as_attr=[False, _int_attr_from_ast, _bool_attr_from_ast])
+def reduce_sum(input, dim, keep_dim=True):
     """Block-level float sum reduction over one tile axis.
 
     `dim` follows torch/numpy axis numbering for a 2D tile block:
-    `0` reduces rows and `1` reduces columns. The output keeps the reduced
-    dimension logically reduced; elementwise ops broadcast it back when it is
-    combined with an unreduced block.
+    `0` reduces rows and `1` reduces columns. By default the output keeps the
+    reduced dimension logically reduced; with `keep_dim=False`, the block uses
+    the rank-1 physical layout shape for the remaining tile axis.
     """
     return _reduce_block(
         lambda a, b, c, reduce_dim: d2m.tile_reduce_sum(a.type, a, b, c, reduce_dim),
@@ -699,17 +711,18 @@ def reduce_sum(input, dim):
         1.0,
         0.0,
         reduce_block_axis=True,
+        keep_dim=keep_dim,
     )
 
 
-@syntax("reduce_max", args_as_attr=[False, _int_attr_from_ast])
-def reduce_max(input, dim):
+@syntax("reduce_max", args_as_attr=[False, _int_attr_from_ast, _bool_attr_from_ast])
+def reduce_max(input, dim, keep_dim=True):
     """Block-level float max reduction over one tile axis.
 
     `dim` follows torch/numpy axis numbering for a 2D tile block:
-    `0` reduces rows and `1` reduces columns. The output keeps the reduced
-    dimension logically reduced; elementwise ops broadcast it back when it is
-    combined with an unreduced block.
+    `0` reduces rows and `1` reduces columns. By default the output keeps the
+    reduced dimension logically reduced; with `keep_dim=False`, the block uses
+    the rank-1 physical layout shape for the remaining tile axis.
     """
     return _reduce_block(
         lambda a, b, c, reduce_dim: d2m.tile_reduce_max(a.type, a, b, c, reduce_dim),
@@ -718,17 +731,18 @@ def reduce_max(input, dim):
         1.0,
         float("-inf"),
         reduce_block_axis=True,
+        keep_dim=keep_dim,
     )
 
 
-@syntax("reduce_mean", args_as_attr=[False, _int_attr_from_ast])
-def reduce_mean(input, dim):
+@syntax("reduce_mean", args_as_attr=[False, _int_attr_from_ast, _bool_attr_from_ast])
+def reduce_mean(input, dim, keep_dim=True):
     """Block-level float mean reduction over one tile axis.
 
     `dim` follows torch/numpy axis numbering for a 2D tile block:
-    `0` reduces rows and `1` reduces columns. The output keeps the reduced
-    dimension logically reduced; elementwise ops broadcast it back when it is
-    combined with an unreduced block.
+    `0` reduces rows and `1` reduces columns. By default the output keeps the
+    reduced dimension logically reduced; with `keep_dim=False`, the block uses
+    the rank-1 physical layout shape for the remaining tile axis.
     """
     rank = input.type.rank
     reduce_axis = _normalize_reduce_axis(dim, rank)
@@ -740,6 +754,7 @@ def reduce_mean(input, dim):
         1.0 / (32.0 * tile_count),
         0.0,
         reduce_block_axis=True,
+        keep_dim=keep_dim,
     )
 
 
@@ -1033,17 +1048,17 @@ class TensorBlock:
         """Same as `d2m.matmul(self, rhs)`."""
         return matmul(ast_self, rhs, transpose_b=transpose_b)
 
-    def reduce_sum(ast_self: TensorBlock, dim) -> TensorBlock:
+    def reduce_sum(ast_self: TensorBlock, dim, keep_dim=True) -> TensorBlock:
         """Same as `d2m.reduce_sum(self, dim)`."""
-        return reduce_sum(ast_self, dim)
+        return reduce_sum(ast_self, dim, keep_dim)
 
-    def reduce_max(ast_self: TensorBlock, dim) -> TensorBlock:
+    def reduce_max(ast_self: TensorBlock, dim, keep_dim=True) -> TensorBlock:
         """Same as `d2m.reduce_max(self, dim)`."""
-        return reduce_max(ast_self, dim)
+        return reduce_max(ast_self, dim, keep_dim)
 
-    def reduce_mean(ast_self: TensorBlock, dim) -> TensorBlock:
+    def reduce_mean(ast_self: TensorBlock, dim, keep_dim=True) -> TensorBlock:
         """Same as `d2m.reduce_mean(self, dim)`."""
-        return reduce_mean(ast_self, dim)
+        return reduce_mean(ast_self, dim, keep_dim)
 
     def store(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
         return d2m.store(ast_self, rhs)
@@ -1305,7 +1320,26 @@ def _tile_fill_float(tile_type, value):
     return d2m.tile_fill(tile_type, scalar)
 
 
-def _reduction_input_map(rank, reduce_axis, reduce_index):
+def _reduction_input_map(rank, reduce_axis, reduce_index, keep_dim=True):
+    if not keep_dim:
+        if rank != 2:
+            raise ValueError(
+                f"keep_dim=False reductions require rank-2 blocks, got rank {rank}"
+            )
+        if reduce_axis == 0:
+            return AffineMap.get(
+                rank,
+                0,
+                [AffineConstantExpr.get(reduce_index), AffineDimExpr.get(1)],
+            )
+        if reduce_axis == 1:
+            return AffineMap.get(
+                rank,
+                0,
+                [AffineDimExpr.get(1), AffineConstantExpr.get(reduce_index)],
+            )
+        raise ValueError(f"reduce axis must be 0 or 1, got {reduce_axis}")
+
     exprs = []
     for axis in range(rank):
         if axis == reduce_axis:
@@ -1313,6 +1347,18 @@ def _reduction_input_map(rank, reduce_axis, reduce_index):
         else:
             exprs.append(AffineDimExpr.get(axis))
     return AffineMap.get(rank, 0, exprs)
+
+
+def _keep_dim_to_bool(keep_dim):
+    if isinstance(keep_dim, bool):
+        return keep_dim
+    if isinstance(keep_dim, arith.ConstantOp):
+        keep_dim = IntegerAttr(keep_dim.value).value
+    if isinstance(keep_dim, IntegerAttr):
+        keep_dim = keep_dim.value
+    if isinstance(keep_dim, int) and keep_dim in (0, 1):
+        return bool(keep_dim)
+    raise TypeError(f"keep_dim must be a boolean literal, got {keep_dim!r}")
 
 
 def _reduce_axis_to_bcast_type(reduce_axis):
@@ -1358,19 +1404,29 @@ def _reduce_block_axis_explicit(
     reduce_axis,
     reduce_dim,
     identity_value,
+    keep_dim=True,
 ):
     block_ty = input.type
     rank = block_ty.rank
     elem_ty = block_ty.element_type
-    output_shape = list(block_ty.shape)
-    output_shape[reduce_axis] = 1
+    if keep_dim:
+        output_shape = list(block_ty.shape)
+        output_shape[reduce_axis] = 1
+    else:
+        if rank != 2:
+            raise ValueError(
+                f"keep_dim=False reductions require rank-2 blocks, got rank {rank}"
+            )
+        output_shape = [1, block_ty.shape[1 - reduce_axis]]
     output_ty = RankedTensorType.get(output_shape, elem_ty)
     output = d2m.empty(output_ty)
     scaler = _reduction_scaler_block(output_ty, scaler_value)
 
     tile_count = block_ty.shape[reduce_axis]
     indexing_maps = [
-        AffineMapAttr.get(_reduction_input_map(rank, reduce_axis, reduce_index))
+        AffineMapAttr.get(
+            _reduction_input_map(rank, reduce_axis, reduce_index, keep_dim)
+        )
         for reduce_index in range(tile_count)
     ]
     indexing_maps.append(AffineMapAttr.get(AffineMap.get_identity(rank)))
@@ -1396,14 +1452,25 @@ def _reduce_block_axis_explicit(
             accumulator = tile_op_fn(input_tile, scaler_tile, accumulator, reduce_dim)
             if hasattr(accumulator, "result"):
                 accumulator = accumulator.result
+        if not keep_dim and reduce_axis == 1:
+            accumulator = d2m.tile_transpose(accumulator.type, accumulator)
+            if hasattr(accumulator, "result"):
+                accumulator = accumulator.result
         linalg.yield_([accumulator])
-    _set_reduced_axes(generic.result, {reduce_axis})
+    if keep_dim:
+        _set_reduced_axes(generic.result, {reduce_axis})
 
     return generic.result
 
 
 def _reduce_block(
-    tile_op_fn, input, dim, scaler_value, identity_value, reduce_block_axis=False
+    tile_op_fn,
+    input,
+    dim,
+    scaler_value,
+    identity_value,
+    reduce_block_axis=False,
+    keep_dim=True,
 ):
     """Wrap a float d2m.tile_reduce_* op in a per-block linalg.generic.
 
@@ -1420,6 +1487,24 @@ def _reduce_block(
     elem_ty = block_ty.element_type
     reduce_axis = _normalize_reduce_axis(dim, rank)
     reduce_dim = _dim_to_reduce_dim_attr(dim)
+    keep_dim = _keep_dim_to_bool(keep_dim)
+
+    if not keep_dim:
+        if rank != 2:
+            raise ValueError(
+                f"keep_dim=False reductions require rank-2 blocks, got rank {rank}"
+            )
+        if not reduce_block_axis:
+            raise ValueError("keep_dim=False requires reduce_block_axis=True")
+        return _reduce_block_axis_explicit(
+            tile_op_fn,
+            input,
+            scaler_value,
+            reduce_axis,
+            reduce_dim,
+            identity_value,
+            keep_dim=False,
+        )
 
     if reduce_block_axis and block_ty.shape[reduce_axis] > 1:
         return _reduce_block_axis_explicit(
@@ -1429,6 +1514,7 @@ def _reduce_block(
             reduce_axis,
             reduce_dim,
             identity_value,
+            keep_dim=True,
         )
 
     output_ty = block_ty

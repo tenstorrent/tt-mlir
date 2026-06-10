@@ -22,6 +22,9 @@ _L = d2m.Layout(
 _L_WIDE_BLOCK = d2m.Layout(
     shape=(32, 64), dtype=d2m.float32, block_shape=[1, 2], grid_shape=[1, 1]
 )
+_L_TALL_BLOCK = d2m.Layout(
+    shape=(64, 32), dtype=d2m.float32, block_shape=[2, 1], grid_shape=[1, 1]
+)
 _L_REDUCE_ROWS_256 = d2m.Layout(
     shape=(256, 256), dtype=d2m.float32, block_shape=[8, 1], grid_shape=[1, 8]
 )
@@ -77,6 +80,23 @@ def test_multi_tile_single_core_reduction_ir_shape():
     _Builder.reset()
 
 
+def test_reduced_output_keep_dim_false_ir_shape():
+    @d2m.kernel
+    def k(in_t, out_t):
+        x = remote_load(in_t, [0, 0])
+        remote_store(out_t, [0, 0], reduce_sum(x, 1, keep_dim=False))
+
+    t = torch.arange(64 * 32, dtype=torch.float32).reshape(64, 32)
+    k(
+        d2m.to_layout(t, _L_TALL_BLOCK),
+        d2m.empty(d2m.reduction_layout(_L_TALL_BLOCK, 1, keep_dim=False)),
+        grid=(1, 1),
+    )
+    print("REDUCED_OUTPUT_KEEP_DIM_FALSE_IR")
+    print(_Builder.get().module)
+    _Builder.reset()
+
+
 def test_multi_core_dim0_reduction_ir_shape():
     @d2m.kernel
     def k(in_t, out_t):
@@ -116,6 +136,7 @@ def test_multi_core_dim1_reduction_ir_shape():
 test_basic_reduction_ir_shape()
 test_reduced_output_ir_shape()
 test_multi_tile_single_core_reduction_ir_shape()
+test_reduced_output_keep_dim_false_ir_shape()
 test_multi_core_dim0_reduction_ir_shape()
 test_multi_core_dim1_reduction_ir_shape()
 print("PASS reductions")
@@ -150,6 +171,13 @@ print("PASS reductions")
 # CHECK-SAME: reduce_dim = #d2m<reduce_dim R>
 # CHECK: d2m.tile_reduce_mean
 # CHECK-SAME: reduce_dim = #d2m<reduce_dim R>
+
+# CHECK-LABEL: REDUCED_OUTPUT_KEEP_DIM_FALSE_IR
+# CHECK: logical_shape = 64
+# CHECK: tensor<1x2x!ttcore.tile<32x32, f32>>
+# CHECK: d2m.tile_reduce_sum
+# CHECK-SAME: reduce_dim = #d2m<reduce_dim R>
+# CHECK-NEXT: "d2m.tile_transpose"
 
 # CHECK-LABEL: MULTI_CORE_DIM0_REDUCTION_IR
 # CHECK: logical_shape = 256x256

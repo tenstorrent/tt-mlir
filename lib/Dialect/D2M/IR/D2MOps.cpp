@@ -961,6 +961,69 @@ ToDeviceOp::getBufferType(mlir::Value value,
 // ToHostOp
 //===----------------------------------------------------------------------===//
 
+static std::optional<ttcore::HostLayoutAttr>
+getSqueezedToHostLayout(Value input, RankedTensorType outputType) {
+  auto inputType = mlir::dyn_cast<RankedTensorType>(input.getType());
+  if (!inputType) {
+    return std::nullopt;
+  }
+
+  auto inputLayout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+      inputType.getEncoding());
+  if (!inputLayout) {
+    return std::nullopt;
+  }
+
+  ArrayRef<int64_t> inputShape = inputLayout.getLogicalShape();
+  ArrayRef<int64_t> outputShape = outputType.getShape();
+  auto tensorMeshAttr = mlir::dyn_cast_if_present<ttcore::TensorMeshAttr>(
+      outputType.getEncoding());
+  uint64_t hostVolume = inputLayout.getHostVolume();
+  uint64_t inputPhysicalVolume =
+      ttmlir::utils::volume<int64_t>(inputType.getShape());
+  if (inputPhysicalVolume > hostVolume) {
+    hostVolume = inputPhysicalVolume;
+  }
+
+  if (outputShape.empty() &&
+      llvm::all_of(inputShape, [](int64_t dim) { return dim == 1; })) {
+    return ttcore::HostLayoutAttr::get(outputType.getContext(), outputShape,
+                                       /*hostStrides=*/{}, hostVolume,
+                                       tensorMeshAttr);
+  }
+
+  if (inputShape.size() <= outputShape.size()) {
+    return std::nullopt;
+  }
+
+  SmallVector<int64_t> inputStrides = inputLayout.getHostStride();
+  if (inputStrides.size() != inputShape.size()) {
+    return std::nullopt;
+  }
+
+  SmallVector<int64_t> hostStrides;
+  hostStrides.reserve(outputShape.size());
+  size_t outputIdx = 0;
+  for (auto [inputIdx, inputDim] : llvm::enumerate(inputShape)) {
+    if (outputIdx < outputShape.size() && inputDim == outputShape[outputIdx]) {
+      hostStrides.push_back(inputStrides[inputIdx]);
+      ++outputIdx;
+      continue;
+    }
+    if (inputDim == 1) {
+      continue;
+    }
+    return std::nullopt;
+  }
+
+  if (outputIdx != outputShape.size()) {
+    return std::nullopt;
+  }
+
+  return ttcore::HostLayoutAttr::get(outputType.getContext(), outputShape,
+                                     hostStrides, hostVolume, tensorMeshAttr);
+}
+
 ::mlir::LogicalResult ToHostOp::verify() {
   // Skip verification for memrefs (post-bufferization) - let bufferization
   // handle the semantics.
@@ -1087,6 +1150,14 @@ ToHostOp::getBufferType(mlir::Value value,
                         const mlir::bufferization::BufferizationOptions &,
                         const mlir::bufferization::BufferizationState &,
                         ::llvm::SmallVector<mlir::Value> &) {
+  if (value == getOutput() || (getNumResults() == 1 && value == getResult(0))) {
+    auto outputType = mlir::cast<RankedTensorType>(getOutput().getType());
+    if (auto hostLayout = getSqueezedToHostLayout(getInput(), outputType)) {
+      return mlir::cast<mlir::bufferization::BufferLikeType>(MemRefType::get(
+          outputType.getShape(), outputType.getElementType(), *hostLayout));
+    }
+  }
+
   return ttcore::getBufferType(value.getType(), /*isView=*/false, getLayout());
 }
 

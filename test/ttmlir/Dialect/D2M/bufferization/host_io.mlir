@@ -59,4 +59,40 @@ module {
     // CHECK: return %[[OUT]]
     return %4 : tensor<8x32x32xf32>
   }
+
+  // CHECK-LABEL: func.func @test_squeezed_to_host_bounce_stride
+  func.func @test_squeezed_to_host_bounce_stride() -> tensor<128xbf16> {
+    // CHECK: %[[OUT:.*]] = memref.alloc
+    // CHECK-NOT: #ttcore.host_layout
+    %0 = d2m.empty() : tensor<128xbf16>
+    // CHECK: %[[OUT_DEV:.*]] = memref.alloc
+    // CHECK-NOT: #ttcore.host_layout
+    %1 = d2m.empty() : tensor<4x1x32x32xbf16, #ttcore.metal_layout<logical_shape = 128x1, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>>
+    // CHECK: %[[OUT_BOUNCE:.*]] = memref.alloc
+    // CHECK-SAME: #ttcore.host_layout<logical_shape = 128, host_strides = 32, host_volume = 4096>
+    // CHECK: d2m.to_host %[[OUT_DEV]], %[[OUT_BOUNCE]]
+    %2 = d2m.to_host %1, %0 layout = <logical_shape = 128, dim_alignments = 32, collapsed_intervals = dense<[[0, 0], [0, 1]]> : tensor<2x2xi64>, l1, sharded> : tensor<4x1x32x32xbf16, #ttcore.metal_layout<logical_shape = 128x1, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>> into tensor<128xbf16> -> tensor<128xbf16>
+    // CHECK: memref.copy %[[OUT_BOUNCE]], %[[OUT]]
+
+    // CHECK: return %[[OUT]]
+    return %2 : tensor<128xbf16>
+  }
+
+  // CHECK-LABEL: func.func @test_scalar_squeezed_to_host_bounce_volume
+  func.func @test_scalar_squeezed_to_host_bounce_volume() -> tensor<i32> {
+    // CHECK: %[[OUT:.*]] = memref.alloc
+    // CHECK-NOT: #ttcore.host_layout
+    %0 = d2m.empty() : tensor<i32>
+    // CHECK: %[[OUT_DEV:.*]] = memref.alloc
+    // CHECK-NOT: #ttcore.host_layout
+    %1 = d2m.empty() : tensor<1x1x32x32xi32, #ttcore.metal_layout<logical_shape = 1x1, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>>
+    // CHECK: %[[OUT_BOUNCE:.*]] = memref.alloc
+    // CHECK-SAME: #ttcore.host_layout<logical_shape = , host_strides = , host_volume = 1024>
+    // CHECK: d2m.to_host %[[OUT_DEV]], %[[OUT_BOUNCE]]
+    %2 = d2m.to_host %1, %0 layout = <logical_shape = 1x1, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded> : tensor<1x1x32x32xi32, #ttcore.metal_layout<logical_shape = 1x1, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>> into tensor<i32> -> tensor<i32>
+    // CHECK: memref.copy %[[OUT_BOUNCE]], %[[OUT]]
+
+    // CHECK: return %[[OUT]]
+    return %2 : tensor<i32>
+  }
 }

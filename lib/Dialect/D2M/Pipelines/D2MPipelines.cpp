@@ -92,7 +92,6 @@ void createD2MFrontendPipeline(OpPassManager &pm,
   pm.addPass(ttir::createTTIREraseInverseOps());
   pm.addPass(ttir::createTTIRMoveReshapeToConstant());
   pm.addPass(ttir::createTTIRFoldConstantReshapeBroadcast());
-  pm.addPass(ttir::createTTIRReductionForceKeepDim());
   pm.addPass(ttir::createTTIRDecomposeComplexReshape());
   pm.addPass(ttir::createTTIRImplicitBroadcastFold());
   pm.addPass(createCanonicalizerPassWithOptions(options));

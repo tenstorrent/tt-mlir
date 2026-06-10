@@ -150,6 +150,75 @@ buildIdentityLoadStore(OpBuilder &builder, Location loc, Value inputCBBlockArg,
   return {src, dst, indices};
 }
 
+static std::optional<AffineMap> buildSqueezedLayoutTransformMap(
+    ttcore::MetalLayoutAttr fromLayout, RankedTensorType fromType,
+    ttcore::MetalLayoutAttr toLayout, RankedTensorType toType) {
+  if (ttcore::isTiled(fromType) || ttcore::isTiled(toType)) {
+    return std::nullopt;
+  }
+
+  MLIRContext *ctx = fromLayout.getContext();
+  ArrayRef<int64_t> fromLogicalShape = fromLayout.getLogicalShape();
+  ArrayRef<int64_t> toLogicalShape = toLayout.getLogicalShape();
+  if (fromLogicalShape.size() < toLogicalShape.size()) {
+    return std::nullopt;
+  }
+
+  mlir::AffineExpr zero = mlir::getAffineConstantExpr(0, ctx);
+  SmallVector<mlir::AffineExpr> toLogicalToFromLogical;
+  toLogicalToFromLogical.reserve(fromLogicalShape.size());
+
+  std::size_t toDim = 0;
+  for (int64_t fromDimSize : fromLogicalShape) {
+    if (toDim < toLogicalShape.size() && fromDimSize == toLogicalShape[toDim]) {
+      toLogicalToFromLogical.push_back(mlir::getAffineDimExpr(toDim, ctx));
+      ++toDim;
+      continue;
+    }
+
+    if (fromDimSize != 1) {
+      return std::nullopt;
+    }
+    toLogicalToFromLogical.push_back(zero);
+  }
+  if (toDim != toLogicalShape.size()) {
+    return std::nullopt;
+  }
+
+  auto toPhysicalShape = toLayout.getPhysicalShape(/*tileShape=*/{});
+  auto toGridShape = toLayout.getGridShape(toType);
+  AffineMap toDeviceToLogical;
+  if (toLogicalShape.empty()) {
+    toDeviceToLogical =
+        AffineMap::get(toType.getRank(), /*symbolCount=*/0, {}, ctx);
+  } else {
+    auto toDeviceToPhysical = ttmlir::utils::buildDeviceToPhysicalMap(
+        toPhysicalShape, toGridShape, ctx);
+    auto toPhysicalToLogical = ttcore::utils::buildPhysicalToLogicalMap(
+        toLogicalShape, toPhysicalShape, toLayout.getDimAlignments(),
+        toLayout.getCollapsedIntervals(), ctx);
+    toDeviceToLogical = toPhysicalToLogical.compose(toDeviceToPhysical);
+  }
+
+  auto toLogicalToFromLogicalMap = AffineMap::get(
+      toLogicalShape.size(), /*symbolCount=*/0, toLogicalToFromLogical, ctx);
+
+  auto fromPhysicalShape = fromLayout.getPhysicalShape(/*tileShape=*/{});
+  auto fromGridShape = fromLayout.getGridShape(fromType);
+  auto fromLogicalToPhysical = ttcore::utils::buildLogicalToPhysicalMap(
+      fromLogicalShape, fromPhysicalShape, fromLayout.getDimAlignments(),
+      fromLayout.getCollapsedIntervals(), ctx);
+  auto fromPhysicalToDevice = ttmlir::utils::buildPhysicalToDeviceMap(
+      fromPhysicalShape, fromGridShape, ctx);
+  auto fromLogicalToDevice =
+      fromPhysicalToDevice.compose(fromLogicalToPhysical);
+
+  auto toLogicalToFromDevice =
+      fromLogicalToDevice.compose(toLogicalToFromLogicalMap);
+  return mlir::simplifyAffineMap(
+      toLogicalToFromDevice.compose(toDeviceToLogical));
+}
+
 class D2MLowerToLayoutRewriter : public OpRewritePattern<ToLayoutOp> {
 
 public:
@@ -185,24 +254,34 @@ public:
 
     // Simple tilized reblocking can use a direct device-space map, avoiding
     // tile-unaligned logical-space mappings.
+    bool sameLogicalShape =
+        inputLayout.getLogicalShape() == outputLayout.getLogicalShape();
     bool isSimpleReblocking =
-        (inputLayout.getLogicalShape() == outputLayout.getLogicalShape() &&
+        (sameLogicalShape &&
          inputLayout.getDimAlignments() == outputLayout.getDimAlignments() &&
          inputLayout.getCollapsedIntervals() ==
              outputLayout.getCollapsedIntervals());
 
-    bool bothTilized =
-        ttcore::isTiled(inputInfo.type) && ttcore::isTiled(outputInfo.type);
+    bool inputTiled = ttcore::isTiled(inputInfo.type);
+    bool outputTiled = ttcore::isTiled(outputInfo.type);
+    bool sameTiling = inputTiled == outputTiled;
 
     AffineMap viewMap;
 
-    if (isSimpleReblocking && bothTilized) {
-      // Fast path: pure grid reblocking on tilized tensors.
+    if (sameTiling && isSimpleReblocking) {
+      // Fast path: pure physical reblocking.
       // Use calculateReblockMap which works directly on device shapes without
-      // going through logical space (avoids tile alignment issues).
+      // going through logical space.
       viewMap = ttmlir::utils::calculateReblockMap(inputInfo.type.getShape(),
                                                    outputInfo.type.getShape(),
                                                    rewriter.getContext());
+    } else if (!sameLogicalShape) {
+      std::optional<AffineMap> squeezedMap = buildSqueezedLayoutTransformMap(
+          inputLayout, inputInfo.type, outputLayout, outputInfo.type);
+      assert(squeezedMap &&
+             "unsupported rank-changing layout transform requires singleton "
+             "dimensions to be squeezed");
+      viewMap = *squeezedMap;
     } else {
       // Complex layout changes are represented through shared logical space.
       viewMap = ttcore::utils::buildLayoutTransformMap(
@@ -270,19 +349,30 @@ public:
     assert(inputInfo.isSystem() != outputInfo.isSystem() &&
            "one of input or output must be system for now");
 
-    // Use the layout of whichever side has a layout (input or output).
+    // Use the layout of whichever side has a layout (input or output). If the
+    // host tensor has a different logical shape, e.g. a squeezed reduction
+    // result, build a transfer layout that matches the host shape while keeping
+    // the same device memory target.
     auto deviceLayout =
         inputInfo.isSystem() ? outputInfo.layout : inputInfo.layout;
     assert(deviceLayout.has_value() && "Device side must have a layout");
+    auto systemInfo = inputInfo.isSystem() ? inputInfo : outputInfo;
+    auto transferLayout = *deviceLayout;
+    if (!llvm::equal(transferLayout.getLogicalShape(),
+                     systemInfo.type.getShape())) {
+      transferLayout = ttcore::MetalLayoutAttr::get(
+          rewriter.getContext(), systemInfo.type.getShape(),
+          transferLayout.getMemorySpace(), transferLayout.getMemoryLayout());
+    }
 
     // Emit dedicated host transfer ops based on direction.
     if (inputInfo.isSystem()) {
       // Host → Device: use ToDeviceOp.
-      return rewriter.create<ToDeviceOp>(loc, input, output, *deviceLayout)
+      return rewriter.create<ToDeviceOp>(loc, input, output, transferLayout)
           .getResult(0);
     }
     // Device → Host: use ToHostOp.
-    return rewriter.create<ToHostOp>(loc, input, output, *deviceLayout)
+    return rewriter.create<ToHostOp>(loc, input, output, transferLayout)
         .getResult(0);
   }
 

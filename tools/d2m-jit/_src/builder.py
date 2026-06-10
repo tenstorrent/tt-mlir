@@ -595,8 +595,10 @@ def zeros(layout: Layout) -> LazyTensor:
     return full(layout, 0)
 
 
-def reduction_layout(layout: Layout, dim, allow_cross_tile: bool = False) -> Layout:
-    """Return the output layout for a keepdim per-tile reduction.
+def reduction_layout(
+    layout: Layout, dim, allow_cross_tile: bool = False, keep_dim: bool = True
+) -> Layout:
+    """Return the output layout for a per-tile reduction.
 
     The DSL's float reductions can reduce across all tiles contained on one
     core. Reductions spanning multiple cores in the reduced dimension need a
@@ -610,6 +612,8 @@ def reduction_layout(layout: Layout, dim, allow_cross_tile: bool = False) -> Lay
         raise ValueError(
             f"reduce dim must be in range [-{rank}, {rank - 1}], got {dim}"
         )
+    if not isinstance(keep_dim, bool):
+        raise TypeError(f"keep_dim must be a bool, got {type(keep_dim).__name__}")
     if layout.grid_shape[dim] > 1 and not allow_cross_tile:
         raise ValueError(
             "collapsed reductions only support a reduced logical dimension "
@@ -622,9 +626,14 @@ def reduction_layout(layout: Layout, dim, allow_cross_tile: bool = False) -> Lay
     shape = list(layout.logical_shape)
     block_shape = list(layout.block_shape)
     grid_shape = list(layout.grid_shape)
-    shape[dim] = 1
-    block_shape[dim] = 1
-    grid_shape[dim] = 1
+    if keep_dim:
+        shape[dim] = 1
+        block_shape[dim] = 1
+        grid_shape[dim] = 1
+    else:
+        del shape[dim]
+        del block_shape[dim]
+        del grid_shape[dim]
     return layout.replace(shape=shape, block_shape=block_shape, grid_shape=grid_shape)
 
 
@@ -967,7 +976,7 @@ def to_host(*lts: LazyTensor):
 
 
 def _collect_int_captures(fn):
-    """Closed-over int free variables, used as immediate captures by D2MCompiler."""
+    """Closed-over int/bool free variables used as immediate captures."""
     if fn.__closure__ is None:
         return {}
     out = {}
@@ -976,7 +985,7 @@ def _collect_int_captures(fn):
             val = cell.cell_contents
         except ValueError:
             continue
-        if isinstance(val, int) and not isinstance(val, bool):
+        if isinstance(val, (bool, int)):
             out[name] = val
     return out
 

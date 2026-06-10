@@ -244,7 +244,9 @@ def test_reduce_3d_inner(
 ):
     if len(dim_arg) >= 2 and not keep_dim:
         pytest.skip(
-            "keep_dim=False not supported for multi-dim reductions on inner 2 dims because the reshape after the reduction is unsupported due to noc issue: https://github.com/tenstorrent/tt-mlir/issues/6377"
+            "keep_dim=False not supported for multi-dim reductions on inner 2 "
+            "dims because the layout pack after the reduction is unsupported "
+            "due to noc issue: https://github.com/tenstorrent/tt-mlir/issues/6377"
         )
 
     tile_size = 32
@@ -337,7 +339,9 @@ def test_reduce_4d_inner(
 ):
     if len(dim_arg) >= 2 and not keep_dim:
         pytest.skip(
-            "keep_dim=False not supported for multi-dim reductions on inner 2 dims because the reshape after the reduction is unsupported due to noc issue: https://github.com/tenstorrent/tt-mlir/issues/6377"
+            "keep_dim=False not supported for multi-dim reductions on inner 2 "
+            "dims because the layout pack after the reduction is unsupported "
+            "due to noc issue: https://github.com/tenstorrent/tt-mlir/issues/6377"
         )
 
     tile_size = 32

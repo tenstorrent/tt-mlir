@@ -5,7 +5,6 @@
 from ttmlir.ir import *
 from ttmlir.dialects import ttcore, d2m
 
-
 # Public dtype constants. Pass to `dtype=` on Layout / tilize / untilize
 # instead of strings ("fp32", "bf16", ...). The strings are still accepted.
 float32 = ttcore.DataType.Float32
@@ -120,10 +119,22 @@ class Layout:
             )
         return elem_type
 
+    def _physical_grid_shape(self, grid_shape):
+        grid_shape = list(grid_shape)
+        logical_rank = len(self.logical_shape)
+        if logical_rank >= 2:
+            return grid_shape
+        # TTCore represents rank-0/rank-1 logical tensors with a 2D physical
+        # tile plane on device. Mirror that here so Python never passes a
+        # short grid shape to MetalLayoutAttr.getDeviceShape.
+        return [1] * (2 - logical_rank) + grid_shape
+
     def get_device_shape(self, ctx, grid_shape):
         layout = self.build_metal_layout(ctx)
         metal_layout = ttcore.ir.MetalLayoutAttr.maybe_downcast(layout)
-        return metal_layout.getDeviceShape(grid_shape, self.get_tile_shape())
+        return metal_layout.getDeviceShape(
+            self._physical_grid_shape(grid_shape), self.get_tile_shape()
+        )
 
     def build_host_tensor_type(self, ctx):
         return RankedTensorType.get(self.logical_shape, self.get_host_elem_type(ctx))

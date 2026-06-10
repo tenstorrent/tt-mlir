@@ -260,18 +260,20 @@ Tile broadcast:
 ### Float reduction block-level ops
 
 `reduce_sum`, `reduce_max`, and `reduce_mean` are registered as free functions
-and `TensorBlock` methods. They are keepdim reductions: the reduced logical
-dimension becomes size 1 in the destination layout.
+and `TensorBlock` methods. By default they are keepdim reductions: the reduced
+logical dimension becomes size 1 in the destination layout. Pass
+`keep_dim=False` to use the squeezed rank-1 physical output form.
 
 ```python
 row_sum = d2m.reduce_sum(x, 1)  # or x.reduce_sum(1)
 col_max = x.reduce_max(0)
 row_avg = x.reduce_mean(-1)
+flat_row_sum = d2m.reduce_sum(x, 1, keep_dim=False)
 ```
 
 `dim` follows torch/numpy axis numbering for a 2D tile block:
 
-| `dim` | D2M reduce dim | Result layout |
+| `dim` | D2M reduce dim | Keepdim result layout |
 | --- | --- | --- |
 | `0` / `-2` | `#d2m<reduce_dim C>` | `shape[0] == 1` |
 | `1` / `-1` | `#d2m<reduce_dim R>` | `shape[1] == 1` |
@@ -280,11 +282,13 @@ These ops are float-only (`f32`, `bf16`) and use a device-local scaler generic,
 matching the D2M float tile-reduce signature `reduce(a * b, c)`. Sum/max use a
 unit scaler; mean scales by the number of elements reduced in the local block.
 
-Use `d2m.reduction_layout(input_layout, dim)` for the output tensor:
+Use `d2m.reduction_layout(input_layout, dim, keep_dim=...)` for the output
+tensor:
 
 ```python
 L_in = d2m.Layout(shape=(64, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[2, 1])
 L_out = d2m.reduction_layout(L_in, 1)  # shape=(64, 1), grid_shape=[2, 1]
+L_flat = d2m.reduction_layout(L_in, 1, keep_dim=False)  # shape=(64,), grid_shape=[2]
 
 @d2m.kernel
 def row_sum_kernel(in_t, out_t, m_blocks, n_blocks):
@@ -294,6 +298,20 @@ def row_sum_kernel(in_t, out_t, m_blocks, n_blocks):
         for n in range(n_blocks):
             x = remote_load(in_t, [m_off + m, n_off + n])
             remote_store(out_t, [m_off + m, 0], reduce_sum(x, 1))
+```
+
+For `keep_dim=False`, store into the rank-1 physical tile plane. Rank-1 tiled
+outputs are represented as physical `1 x N` tile grids, so reducing the last
+tile dimension maps the remaining logical axis to the second physical index.
+Choose an execution grid that divides both the input and output physical grids:
+
+```python
+@d2m.kernel
+def row_sum_flat_kernel(in_t, out_t, m_blocks, n_blocks):
+    m_off = core_index(0) * m_blocks
+    for m in range(m_blocks):
+        x = remote_load(in_t, [m_off + m, 0])
+        remote_store(out_t, [0, m_off + m], reduce_sum(x, 1, keep_dim=False))
 ```
 
 Elementwise ops implicitly broadcast a reduced operand when it is combined with

@@ -101,6 +101,10 @@ public:
     auto getDimPosAtResultIndex =
         [](AffineMap indexingMap,
            int64_t resultIndex) -> std::optional<int64_t> {
+      if (resultIndex < 0 ||
+          resultIndex >= static_cast<int64_t>(indexingMap.getNumResults())) {
+        return {};
+      }
       if (auto dimExpr = mlir::dyn_cast<AffineDimExpr>(
               indexingMap.getResult(resultIndex))) {
         return dimExpr.getPosition();
@@ -188,24 +192,30 @@ public:
     mcastShapeInt64.reserve(computeGridShape.size());
 
     for (size_t dim = 0; dim < computeGridShape.size(); ++dim) {
-      if (auto maybeDimPos = getDimPosAtResultIndex(outputIndexingMap, dim)) {
-        auto dimPos = *maybeDimPos;
-        if (mcastDimSet.contains(dimPos)) {
-          // for parallel dim specified by multicast, extent is 0
-          Value coreIdx =
-              rewriter.create<CoreIndexOp>(loc, static_cast<int64_t>(dim));
-          mcastStartIndex.push_back(coreIdx);
-          mcastShapeInt64.push_back(1);
-        } else {
-          // for other parallel dims, extent is the grid shape
-          TT_assert(computeGridShape.size() == 2u);
-          mcastStartIndex.push_back(zero);
-          mcastShapeInt64.push_back(computeGridShape[dim]);
-        }
+      auto maybeDimPos = getDimPosAtResultIndex(outputIndexingMap, dim);
+      if (!maybeDimPos) {
+        implementAsUnicast = true;
+        break;
+      }
+
+      auto dimPos = *maybeDimPos;
+      if (mcastDimSet.contains(dimPos)) {
+        // for parallel dim specified by multicast, extent is 0
+        Value coreIdx =
+            rewriter.create<CoreIndexOp>(loc, static_cast<int64_t>(dim));
+        mcastStartIndex.push_back(coreIdx);
+        mcastShapeInt64.push_back(1);
+      } else {
+        // for other parallel dims, extent is the grid shape
+        TT_assert(computeGridShape.size() == 2u);
+        mcastStartIndex.push_back(zero);
+        mcastShapeInt64.push_back(computeGridShape[dim]);
       }
     }
-    TT_assert(mcastStartIndex.size() == computeGridShape.size());
-    TT_assert(mcastShapeInt64.size() == computeGridShape.size());
+    if (implementAsUnicast) {
+      lowerToUnicastFallback(op, rewriter);
+      return success();
+    }
 
     // Convert virtual multicast extents to physical extents if virtualization
     // is present. The multicast start coordinates are already expressed in the

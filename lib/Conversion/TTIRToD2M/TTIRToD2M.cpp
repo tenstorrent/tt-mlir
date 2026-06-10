@@ -38,6 +38,8 @@ namespace mlir::tt {
 
 namespace {
 
+static unsigned getUnitDevicePhysicalRank(unsigned logicalRank);
+
 /// True when the reduction touches a dim before the last two (tile C/R).
 /// Those go through the D2M outer-reduction path and must not be decomposed.
 template <typename TTIRReductionOp>
@@ -76,14 +78,12 @@ protected:
   /// `D2MNamedAccumReductionRewriter` and
   /// `D2MNamedTileReduceRewriter`).
   /// Call once at the start of each match; downstream code assumes `dim_arg` is
-  /// present and `keep_dim` is true. Valid indices inside `dim_arg` are
-  /// enforced by the TTIR op verifier.
+  /// present. Valid indices inside `dim_arg` are enforced by the TTIR op
+  /// verifier.
   template <typename TTIRReductionOp>
   static void checkTTIRReductionPreconditions(TTIRReductionOp op) {
     assert(op.getDimArg() &&
            "TTIR reduction op must have dim_arg for D2M lowering");
-    assert(op.getKeepDimAttr().getValue() &&
-           "TTIR reduction lowering expects keep_dim=true");
   }
 
   /// Normalize a possibly negative `dim_arg` entry into `[0, rank)`. `rank`
@@ -98,10 +98,209 @@ protected:
     return static_cast<std::size_t>(n);
   }
 
+  static std::size_t logicalDimToPhysicalDim(std::size_t logicalDim,
+                                             std::size_t logicalRank,
+                                             std::size_t physicalRank) {
+    assert(physicalRank >= logicalRank &&
+           "physical rank must include all logical dimensions");
+    return physicalRank - logicalRank + logicalDim;
+  }
+
+  template <typename TTIRReductionOp>
+  static SmallVector<bool> getReducedLogicalDims(TTIRReductionOp op) {
+    auto inputType =
+        mlir::cast<mlir::RankedTensorType>(op.getInput().getType());
+    std::size_t logicalRank = inputType.getRank();
+    SmallVector<bool> dims(logicalRank, false);
+    std::optional<mlir::ArrayAttr> maybeDimArg = op.getDimArg();
+    assert(maybeDimArg && "TTIR reduction op must have dim_arg");
+    mlir::ArrayAttr dimArg = *maybeDimArg;
+    for (mlir::Attribute reduceDim : dimArg) {
+      int64_t dim = mlir::cast<mlir::IntegerAttr>(reduceDim).getInt();
+      dims[normalizeReductionDimIndex(dim, logicalRank)] = true;
+    }
+    return dims;
+  }
+
+  template <typename TTIRReductionOp>
+  static bool canWriteReductionDirectlyToResult(TTIRReductionOp op) {
+    if (op.getKeepDimAttr().getValue()) {
+      return true;
+    }
+
+    auto inputType =
+        mlir::cast<mlir::RankedTensorType>(op.getInput().getType());
+    std::size_t logicalRank = inputType.getRank();
+
+    // Rank-1/rank-2 tile reductions generally stay within the tile plane.
+    // Keep 2D reduce-last squeezed outputs as a keepdim core reduction followed
+    // by layout conversion; the direct rank-1 generic path requires an in-tile
+    // transpose and is not a valid silicon lowering today.
+    if (logicalRank <= 2) {
+      return !needsSqueezedTileTranspose(op);
+    }
+
+    // For higher ranks, squeezing an inner tile dimension shifts an outer
+    // logical dimension into the output tile plane. That requires an in-tile
+    // pack/tilize step, not just projected indexing maps.
+    SmallVector<bool> reducedLogicalDims = getReducedLogicalDims(op);
+    for (std::size_t dim = logicalRank - 2; dim < logicalRank; ++dim) {
+      if (reducedLogicalDims[dim]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  template <typename TTIRReductionOp>
+  static mlir::RankedTensorType
+  getKeepDimReductionResultType(TTIRReductionOp op) {
+    auto inputType =
+        mlir::cast<mlir::RankedTensorType>(op.getInput().getType());
+    auto resultType =
+        mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
+
+    llvm::SmallVector<int64_t> keepDimShape(inputType.getShape());
+    SmallVector<bool> reducedLogicalDims = getReducedLogicalDims(op);
+    for (std::size_t dim = 0; dim < keepDimShape.size(); ++dim) {
+      if (reducedLogicalDims[dim]) {
+        keepDimShape[dim] = 1;
+      }
+    }
+
+    return mlir::RankedTensorType::get(
+        keepDimShape, resultType.getElementType(), resultType.getEncoding());
+  }
+
+  template <typename TTIRReductionOp>
+  static bool needsSqueezedTileTranspose(TTIRReductionOp op) {
+    if (op.getKeepDimAttr().getValue()) {
+      return false;
+    }
+
+    auto inputType =
+        mlir::cast<mlir::RankedTensorType>(op.getInput().getType());
+    auto outputType =
+        mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
+    if (inputType.getRank() != 2 || outputType.getRank() != 1) {
+      return false;
+    }
+
+    SmallVector<bool> reducedLogicalDims = getReducedLogicalDims(op);
+    return !reducedLogicalDims[0] && reducedLogicalDims[1];
+  }
+
+  template <typename TTIRReductionOp>
+  static SmallVector<bool> getReducedPhysicalDims(TTIRReductionOp op,
+                                                  std::size_t physicalRank) {
+    auto inputType =
+        mlir::cast<mlir::RankedTensorType>(op.getInput().getType());
+    std::size_t logicalRank = inputType.getRank();
+    SmallVector<bool> reducedPhysicalDims(physicalRank, false);
+    SmallVector<bool> reducedLogicalDims = getReducedLogicalDims(op);
+    for (std::size_t logicalDim = 0; logicalDim < logicalRank; ++logicalDim) {
+      if (!reducedLogicalDims[logicalDim]) {
+        continue;
+      }
+      std::size_t physicalDim =
+          logicalDimToPhysicalDim(logicalDim, logicalRank, physicalRank);
+      reducedPhysicalDims[physicalDim] = true;
+    }
+    return reducedPhysicalDims;
+  }
+
+  template <typename TTIRReductionOp>
+  static mlir::AffineMap
+  getReductionOutputAffineMap(mlir::OpBuilder &builder, TTIRReductionOp op,
+                              std::size_t inputPhysicalRank,
+                              std::size_t outputPhysicalRank,
+                              bool keepReducedDimsInOutput) {
+    mlir::MLIRContext *ctx = builder.getContext();
+    mlir::AffineExpr zero = mlir::getAffineConstantExpr(0, ctx);
+    auto inputType =
+        mlir::cast<mlir::RankedTensorType>(op.getInput().getType());
+    auto outputType =
+        mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
+    std::size_t inputLogicalRank = inputType.getRank();
+    std::size_t outputLogicalRank = outputType.getRank();
+
+    SmallVector<mlir::AffineExpr> results;
+    results.reserve(outputPhysicalRank);
+
+    if (keepReducedDimsInOutput) {
+      assert(inputPhysicalRank == outputPhysicalRank &&
+             "keep-dim reductions preserve physical rank");
+      SmallVector<bool> reducedPhysicalDims =
+          getReducedPhysicalDims(op, inputPhysicalRank);
+      for (std::size_t dim = 0; dim < inputPhysicalRank; ++dim) {
+        results.push_back(
+            reducedPhysicalDims[dim] ? zero : builder.getAffineDimExpr(dim));
+      }
+      return mlir::AffineMap::get(inputPhysicalRank, /*symbolCount=*/0, results,
+                                  ctx);
+    }
+
+    SmallVector<bool> reducedLogicalDims = getReducedLogicalDims(op);
+    std::size_t numOutputLogicalDims = llvm::count(reducedLogicalDims, false);
+    assert(outputLogicalRank == numOutputLogicalDims &&
+           "squeezed reduction output rank mismatch");
+    assert(outputPhysicalRank >= numOutputLogicalDims &&
+           "squeezed reduction output physical rank is too small");
+
+    // The output layout may keep no synthetic dimensions for scalar outputs, or
+    // may keep leading synthetic dimensions for rank-1 tiled outputs.
+    std::size_t outputSyntheticRank = outputPhysicalRank - numOutputLogicalDims;
+    for (std::size_t dim = 0; dim < outputSyntheticRank; ++dim) {
+      results.push_back(zero);
+    }
+
+    for (std::size_t logicalDim = 0; logicalDim < inputLogicalRank;
+         ++logicalDim) {
+      if (reducedLogicalDims[logicalDim]) {
+        continue;
+      }
+      std::size_t physicalDim = logicalDimToPhysicalDim(
+          logicalDim, inputLogicalRank, inputPhysicalRank);
+      results.push_back(builder.getAffineDimExpr(physicalDim));
+    }
+
+    assert(results.size() == outputPhysicalRank &&
+           "squeezed reduction output map rank mismatch");
+    return mlir::AffineMap::get(inputPhysicalRank, /*symbolCount=*/0, results,
+                                ctx);
+  }
+
+  template <typename TTIRReductionOp>
+  static SmallVector<mlir::Attribute>
+  getReductionIteratorTypesArray(mlir::OpBuilder &builder, TTIRReductionOp op,
+                                 std::size_t physicalRank) {
+    auto parallel = ttcore::IteratorTypeAttr::get(
+        builder.getContext(), ttcore::IteratorType::Parallel);
+    auto reduction = ttcore::IteratorTypeAttr::get(
+        builder.getContext(), ttcore::IteratorType::Reduction);
+
+    SmallVector<mlir::Attribute> iterators(physicalRank, parallel);
+    SmallVector<bool> reducedPhysicalDims =
+        getReducedPhysicalDims(op, physicalRank);
+    for (std::size_t dim = 0; dim < physicalRank; ++dim) {
+      if (reducedPhysicalDims[dim]) {
+        iterators[dim] = reduction;
+      }
+    }
+    return iterators;
+  }
+
   static void assertPhysicalIteratorRankForReduction(std::size_t physicalRank) {
     assert(physicalRank >= 2 &&
            "D2M reduction lowering expects at least two physical iterator "
            "dimensions (tile C and R) after layout");
+  }
+
+  static std::size_t getD2MGridRank(Value value) {
+    auto type = mlir::cast<mlir::ShapedType>(value.getType());
+    assert(type.getRank() % 2 == 0 &&
+           "D2M layout shape must contain grid and shard dimensions");
+    return type.getRank() / 2;
   }
 
   static bool isTTNNTensor(Type type) {
@@ -1230,8 +1429,7 @@ private:
     const std::size_t numOutputs = outputs.size();
     const std::size_t numOperands = (numInputs + numOutputs);
 
-    const std::size_t physicalRank =
-        ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
+    const std::size_t physicalRank = getD2MGridRank(outputs[0]);
 
     // Build indexing maps in the *physical* iteration domain. For implicit
     // broadcasts we cannot reuse the logical-rank maps from
@@ -1605,8 +1803,7 @@ private:
     assert(inputs.size() == 1);
     assert(outputs.size() == 1);
 
-    std::size_t physicalRank =
-        ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
+    std::size_t physicalRank = getD2MGridRank(outputs[0]);
     SmallVector<AffineMap> indexingMaps = buildPhysicalBcastIndexingMaps(
         rewriter, inputs[0], outputs[0], physicalRank);
 
@@ -1708,28 +1905,6 @@ private:
         .getResult();
   }
 
-  /// Per-shard linalg.generic for tile-level reduction: identity on the input
-  /// map, projected-to-zero on reduced result dims (same `dim_arg` as TTIR).
-  static std::pair<mlir::AffineMap, SmallVector<mlir::utils::IteratorType>>
-  shardLinalgAccumulationSignature(mlir::OpBuilder &builder,
-                                   mlir::ArrayAttr dimArg,
-                                   std::size_t shardRank) {
-    mlir::AffineExpr zero =
-        mlir::getAffineConstantExpr(0, builder.getContext());
-    mlir::MutableAffineMap accumulatorMap(
-        builder.getMultiDimIdentityMap(shardRank));
-    SmallVector<mlir::utils::IteratorType> iteratorTypes(
-        shardRank, mlir::utils::IteratorType::parallel);
-    for (mlir::Attribute reduceDimAttr : dimArg) {
-      int64_t dim = mlir::cast<mlir::IntegerAttr>(reduceDimAttr).getInt();
-      dim = (dim + static_cast<int64_t>(shardRank)) %
-            static_cast<int64_t>(shardRank);
-      accumulatorMap.setResult(dim, zero);
-      iteratorTypes[dim] = mlir::utils::IteratorType::reduction;
-    }
-    return {accumulatorMap.getAffineMap(), std::move(iteratorTypes)};
-  }
-
   /// Identity value for the outer-reduction scan (sum: 0, max: -inf / int min,
   /// min: +inf / int max) so padded / untouched elements do not affect the
   /// result.
@@ -1771,23 +1946,30 @@ private:
       return failure();
     }
     checkTTIRReductionPreconditions(op);
+    const bool writeDirectlyToResult = canWriteReductionDirectlyToResult(op);
+    if (!writeDirectlyToResult) {
+      return rewriter.notifyMatchFailure(
+          op, "mixed outer and inner keep_dim=false reductions require "
+              "in-tile packing");
+    }
 
     mlir::Location loc = op->getLoc();
     auto inputType =
         mlir::cast<mlir::RankedTensorType>(adaptor.getInput().getType());
     auto outputType =
         mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
-    mlir::ArrayAttr dimArg = *op.getDimArg();
+    mlir::RankedTensorType coreOutputType = outputType;
+    const bool keepReducedDimsInCore = op.getKeepDimAttr().getValue();
 
     mlir::Attribute fillAttr =
         initialFillAttrForOuterReduction<TileAccumulateOp>(
-            rewriter, outputType.getElementType());
+            rewriter, coreOutputType.getElementType());
     if (!fillAttr) {
       return rewriter.notifyMatchFailure(
           op, "unsupported element type for outer reduction identity fill");
     }
-    mlir::FailureOr<mlir::Value> filledOutput =
-        lowerRankedTensorFillViaGeneric(rewriter, loc, outputType, fillAttr);
+    mlir::FailureOr<mlir::Value> filledOutput = lowerRankedTensorFillViaGeneric(
+        rewriter, loc, coreOutputType, fillAttr);
     if (mlir::failed(filledOutput)) {
       return failure();
     }
@@ -1795,7 +1977,7 @@ private:
     mlir::SmallVector<mlir::Value> origInputs = adaptor.getOperands();
     origInputs.push_back(*filledOutput);
     SmallVector<Value> origOutputs =
-        createDpsOutputs(loc, rewriter, {outputType});
+        createDpsOutputs(loc, rewriter, {coreOutputType});
     bool noCollapse = inputType.getRank() > 2;
     auto [inputs, outputs] = toLayoutOperandsAndResults(
         rewriter, {origInputs, origOutputs},
@@ -1803,16 +1985,18 @@ private:
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
-    const std::size_t physicalRank =
-        ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
-    assertPhysicalIteratorRankForReduction(physicalRank);
+    const std::size_t inputPhysicalRank = getD2MGridRank(inputs[0]);
+    const std::size_t outputPhysicalRank = getD2MGridRank(outputs[0]);
+    assertPhysicalIteratorRankForReduction(inputPhysicalRank);
 
     SmallVector<mlir::AffineMap> indexingMaps = {
-        rewriter.getMultiDimIdentityMap(physicalRank),
-        getOutputAffineMap(rewriter, op, physicalRank),
-        getOutputAffineMap(rewriter, op, physicalRank)};
+        rewriter.getMultiDimIdentityMap(inputPhysicalRank),
+        getReductionOutputAffineMap(rewriter, op, inputPhysicalRank,
+                                    outputPhysicalRank, keepReducedDimsInCore),
+        getReductionOutputAffineMap(rewriter, op, inputPhysicalRank,
+                                    outputPhysicalRank, keepReducedDimsInCore)};
     mlir::SmallVector<mlir::Attribute> iteratorTypes =
-        getIteratorTypesArray(rewriter, op, physicalRank);
+        getReductionIteratorTypesArray(rewriter, op, inputPhysicalRank);
 
     auto generic = rewriter.create<d2m::GenericOp>(
         loc, inputs, outputs, /*additionalArgs=*/mlir::ValueRange(),
@@ -1854,14 +2038,15 @@ private:
     mlir::Value outputBuffer = rewriter.create<mlir::tensor::EmptyOp>(
         loc, outputShardType.getShape(), outputShardType.getElementType());
 
-    std::size_t shardRank = outputShardType.getRank();
-    auto accumulationSig =
-        shardLinalgAccumulationSignature(rewriter, dimArg, shardRank);
-    mlir::AffineMap accumulatorMap = accumulationSig.first;
+    std::size_t inputShardRank = inputShardType.getRank();
+    std::size_t outputShardRank = outputShardType.getRank();
+    mlir::AffineMap accumulatorMap = getReductionOutputAffineMap(
+        rewriter, op, inputShardRank, outputShardRank, keepReducedDimsInCore);
     SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
-        std::move(accumulationSig.second);
+        iteratorTypeTTIRToLinalg(rewriter, getReductionIteratorTypesArray(
+                                               rewriter, op, inputShardRank));
     mlir::SmallVector<mlir::AffineMap> linalgIndexingMaps = {
-        rewriter.getMultiDimIdentityMap(shardRank), accumulatorMap,
+        rewriter.getMultiDimIdentityMap(inputShardRank), accumulatorMap,
         accumulatorMap};
 
     auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
@@ -1876,7 +2061,7 @@ private:
           mlir::Value c0 =
               bbBuilder.create<mlir::arith::ConstantIndexOp>(bbLoc, 0);
           mlir::Value isFirstIter = nullptr;
-          for (size_t dim = 0; dim < shardRank; ++dim) {
+          for (size_t dim = 0; dim < inputShardRank; ++dim) {
             if (linalgIteratorTypes[dim] ==
                 mlir::utils::IteratorType::reduction) {
               mlir::Value idx =
@@ -1943,7 +2128,9 @@ private:
                                bool noCollapse) const {
     mlir::RankedTensorType meanInputTy =
         mlir::cast<mlir::RankedTensorType>(adaptor.getInput().getType());
-    mlir::ArrayAttr meanDimArg = *op.getDimArg();
+    std::optional<mlir::ArrayAttr> maybeMeanDimArg = op.getDimArg();
+    assert(maybeMeanDimArg && "TTIR mean reduction must have dim_arg");
+    mlir::ArrayAttr meanDimArg = *maybeMeanDimArg;
     int64_t reductionSize = 1;
     for (mlir::Attribute dimAttr : meanDimArg) {
       int64_t dim = mlir::cast<mlir::IntegerAttr>(dimAttr).getInt();
@@ -1981,8 +2168,7 @@ private:
         rewriter, {scaleOrigInputs, scaleOrigOutputs},
         /*tiled=*/true, noCollapse, ttcore::OOBVal::Zero);
 
-    const std::size_t scalePhysRank =
-        ttcore::getDeviceLayout(scaleOutputs[0]).getRank() / 2;
+    const std::size_t scalePhysRank = getD2MGridRank(scaleOutputs[0]);
     mlir::SmallVector<mlir::AffineMap> scaleMaps(
         3, rewriter.getMultiDimIdentityMap(scalePhysRank));
     auto parallelIt = ttcore::IteratorTypeAttr::get(
@@ -2025,42 +2211,6 @@ private:
       return ttcore::OOBVal::Inf;
     }
     return ttcore::OOBVal::Zero;
-  }
-
-  static mlir::AffineMap getOutputAffineMap(mlir::OpBuilder &builder,
-                                            ConcreteOp op, std::size_t rank) {
-    mlir::ArrayAttr dimArg = *op.getDimArg();
-    mlir::AffineExpr zero =
-        mlir::getAffineConstantExpr(0, builder.getContext());
-    mlir::MutableAffineMap accumulator(builder.getMultiDimIdentityMap(rank));
-    SmallVector<bool> dims(rank, false);
-    for (auto reduceDim : dimArg) {
-      int64_t dim = mlir::cast<IntegerAttr>(reduceDim).getInt();
-      dims[normalizeReductionDimIndex(dim, rank)] = true;
-    }
-    for (std::size_t i = 0; i < rank; ++i) {
-      if (dims[i]) {
-        accumulator.setResult(i, zero);
-      }
-    }
-
-    return accumulator.getAffineMap();
-  }
-
-  static SmallVector<mlir::Attribute>
-  getIteratorTypesArray(mlir::OpBuilder &builder, ConcreteOp op,
-                        std::size_t rank) {
-    mlir::ArrayAttr dimArg = *op.getDimArg();
-    auto parallel = ttcore::IteratorTypeAttr::get(
-        builder.getContext(), ttcore::IteratorType::Parallel);
-    auto reduction = ttcore::IteratorTypeAttr::get(
-        builder.getContext(), ttcore::IteratorType::Reduction);
-    SmallVector<mlir::Attribute> iterators(rank, parallel);
-    for (auto reduceDim : dimArg) {
-      int64_t dim = mlir::cast<IntegerAttr>(reduceDim).getInt();
-      iterators[normalizeReductionDimIndex(dim, rank)] = reduction;
-    }
-    return iterators;
   }
 };
 } // namespace
@@ -2114,10 +2264,17 @@ private:
     mlir::Location loc = op->getLoc();
 
     auto origInputs = adaptor.getOperands();
-    auto origOutputs =
-        createDpsOutputs(loc, rewriter, {op.getResult().getType()});
     auto inputTensorType =
         mlir::cast<RankedTensorType>(origInputs.front().getType());
+    auto resultTensorType =
+        mlir::cast<RankedTensorType>(op.getResult().getType());
+    const bool writeDirectlyToResult = canWriteReductionDirectlyToResult(op);
+    mlir::RankedTensorType coreOutputType =
+        writeDirectlyToResult ? resultTensorType
+                              : getKeepDimReductionResultType(op);
+    const bool keepReducedDimsInCore =
+        op.getKeepDimAttr().getValue() || !writeDirectlyToResult;
+    auto origOutputs = createDpsOutputs(loc, rewriter, {coreOutputType});
     // Float reductions multiply A by a broadcast scaler tile inside
     // tile_reduce_*. Integer reductions lower through the SFPU, which
     // ignores the scaler entirely, so we emit tile_sfpu_reduce_* without a
@@ -2144,14 +2301,15 @@ private:
     const std::size_t numOutputs = outputs.size();
     const std::size_t numOperands = (numInputs + numOutputs);
 
-    const std::size_t physicalRank =
-        ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
-    assertPhysicalIteratorRankForReduction(physicalRank);
+    const std::size_t inputPhysicalRank = getD2MGridRank(inputs[0]);
+    const std::size_t outputPhysicalRank = getD2MGridRank(outputs[0]);
+    assertPhysicalIteratorRankForReduction(inputPhysicalRank);
 
-    SmallVector<mlir::AffineMap> indexingMaps =
-        getAffineMapsArray(rewriter, op, numOperands, physicalRank, hasScaler);
+    SmallVector<mlir::AffineMap> indexingMaps = getAffineMapsArray(
+        rewriter, op, numOperands, inputPhysicalRank, outputPhysicalRank,
+        hasScaler, keepReducedDimsInCore);
     SmallVector<mlir::Attribute> iteratorTypes =
-        getIteratorTypesArray(rewriter, op, physicalRank);
+        getReductionIteratorTypesArray(rewriter, op, inputPhysicalRank);
 
     // Create 'd2m.generic' accepting extended operands.
     auto generic = rewriter.create<d2m::GenericOp>(
@@ -2178,14 +2336,15 @@ private:
         // Create 'linalg.generic' accepting 'blockArgs'.
 
         SmallVector<mlir::AffineMap> linalgIndexingMaps = getAffineMapsArray(
-            rewriter, op, numOperands, physicalRank, hasScaler);
+            rewriter, op, numOperands, inputPhysicalRank, outputPhysicalRank,
+            hasScaler, keepReducedDimsInCore);
         SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
             iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
         // Propagate attributes.
 
-        auto reduceDimAttr =
-            d2m::ReduceDimAttr::get(ctx, dimArgAsReduceDim(op, physicalRank));
+        auto reduceDimAttr = d2m::ReduceDimAttr::get(
+            ctx, dimArgAsReduceDim(op, inputPhysicalRank));
 
         auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
             loc,
@@ -2215,6 +2374,10 @@ private:
                   llvm_unreachable("int path guarded against at entry");
                 }
               }
+              if (writeDirectlyToResult && needsSqueezedTileTranspose(op)) {
+                yield = bbBuilder.create<d2m::TileTransposeOp>(
+                    bbLoc, resultType, yield);
+              }
               bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
             });
 
@@ -2241,6 +2404,12 @@ private:
     rewriter.finalizeOpModification(generic);
     rewriter.restoreInsertionPoint(insertPoint);
 
+    if (!writeDirectlyToResult) {
+      rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
+                                            op->getResult(0).getType()));
+      return llvm::success();
+    }
+
     rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
                                           op->getResult(0).getType()));
     return llvm::success();
@@ -2248,52 +2417,29 @@ private:
 
   static SmallVector<mlir::AffineMap>
   getAffineMapsArray(mlir::OpBuilder &builder, ConcreteOp op, std::size_t arity,
-                     std::size_t rank, bool hasScaler) {
-    mlir::ArrayAttr dimArg = getDimArg(op);
-
+                     std::size_t inputPhysicalRank,
+                     std::size_t outputPhysicalRank, bool hasScaler,
+                     bool keepReducedDimsInOutput) {
     mlir::AffineExpr zero =
         mlir::getAffineConstantExpr(0, builder.getContext());
 
-    mlir::MutableAffineMap accumulator(builder.getMultiDimIdentityMap(rank));
-    forAllDims(rank, dimArg, [&](std::size_t index, bool dropped) {
-      if (dropped) {
-        accumulator.setResult(index, zero);
-      }
-    });
     // Final two (or one, if no scaler) maps are special: the scaler is
     // broadcast from a single tile via a zeros map, and the output uses the
     // accumulator map. All earlier inputs use the identity map.
     const std::size_t numIdentity = arity - 1 - (hasScaler ? 1 : 0);
-    SmallVector<mlir::AffineMap> maps(numIdentity,
-                                      builder.getMultiDimIdentityMap(rank));
+    SmallVector<mlir::AffineMap> maps(
+        numIdentity, builder.getMultiDimIdentityMap(inputPhysicalRank));
     if (hasScaler) {
       std::array<mlir::AffineExpr, 2> zeros{zero, zero};
-      maps.emplace_back(mlir::AffineMap::get(/* dimCount */ rank,
+      maps.emplace_back(mlir::AffineMap::get(/* dimCount */ inputPhysicalRank,
                                              /* symbolCount */ 0, zeros,
                                              builder.getContext()));
     }
-    maps.emplace_back(accumulator.getAffineMap());
+    maps.emplace_back(getReductionOutputAffineMap(
+        builder, op, inputPhysicalRank, outputPhysicalRank,
+        keepReducedDimsInOutput));
 
     return maps;
-  }
-
-  static SmallVector<mlir::Attribute>
-  getIteratorTypesArray(mlir::OpBuilder &builder, ConcreteOp op,
-                        std::size_t rank) {
-    mlir::ArrayAttr dimArg = getDimArg(op);
-
-    auto parallel = ttcore::IteratorTypeAttr::get(
-        builder.getContext(), ttcore::IteratorType::Parallel);
-    auto reduction = ttcore::IteratorTypeAttr::get(
-        builder.getContext(), ttcore::IteratorType::Reduction);
-
-    SmallVector<mlir::Attribute> iterators(rank, parallel);
-    forAllDims(rank, dimArg, [&](std::size_t index, bool dropped) {
-      if (dropped) {
-        iterators[index] = reduction;
-      }
-    });
-    return iterators;
   }
 
   // For mean reduction, the scaler must encode 1/N where N is the product of
@@ -2302,7 +2448,9 @@ private:
     if constexpr (std::is_same_v<ConcreteOp, ttir::MeanOp>) {
       auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
       ArrayRef<int64_t> shape = inputType.getShape();
-      mlir::ArrayAttr dimArg = getDimArg(op);
+      std::optional<mlir::ArrayAttr> maybeDimArg = op.getDimArg();
+      assert(maybeDimArg && "TTIR mean reduction must have dim_arg");
+      mlir::ArrayAttr dimArg = *maybeDimArg;
       int64_t reductionSize = 1;
       for (auto dimAttr : dimArg) {
         int64_t dim = mlir::cast<IntegerAttr>(dimAttr).getInt();
@@ -2318,9 +2466,7 @@ private:
   /// Outer-only reductions should have matched
   /// `D2MNamedAccumReductionRewriter`.
   static d2m::ReduceDim dimArgAsReduceDim(ConcreteOp op, std::size_t rank) {
-    SmallVector<bool> dims(rank, false);
-    forAllDims(rank, getDimArg(op),
-               [&](std::size_t index, bool dropped) { dims[index] = dropped; });
+    SmallVector<bool> dims = getReducedPhysicalDims(op, rank);
 
     bool reduceSecondToLast = dims[rank - 2]; // "C" in tile terminology
     bool reduceLast = dims[rank - 1];         // "R" in tile terminology
@@ -2340,20 +2486,6 @@ private:
         "logical dims, D2MNamedAccumReductionRewriter must match "
         "before this pattern since it has higher benefit.");
   }
-
-  static mlir::ArrayAttr getDimArg(ConcreteOp op) { return *op.getDimArg(); }
-
-  template <typename F>
-  static void forAllDims(std::size_t rank, mlir::ArrayAttr dimArg, F &&fn) {
-    SmallVector<bool> dims(rank, false);
-    for (auto reduceDim : dimArg) {
-      int64_t dim = mlir::cast<IntegerAttr>(reduceDim).getInt();
-      dims[normalizeReductionDimIndex(dim, rank)] = true;
-    }
-    for (std::size_t d = 0; d < rank; ++d) {
-      std::forward<F>(fn)(d, dims[d]);
-    }
-  }
 };
 } // namespace
 
@@ -2369,6 +2501,58 @@ class D2MInnerMinDecompositionRewriter final
     : public mlir::OpConversionPattern<ttir::MinOp> {
 public:
   using OpConversionPattern::OpConversionPattern;
+
+private:
+  static std::size_t normalizeDim(int64_t dim, std::size_t rank) {
+    int64_t r = static_cast<int64_t>(rank);
+    int64_t n = dim % r;
+    if (n < 0) {
+      n += r;
+    }
+    return static_cast<std::size_t>(n);
+  }
+
+  static bool needsKeepDimInvertBeforeSqueeze(ttir::MinOp op) {
+    if (op.getKeepDimAttr().getValue()) {
+      return false;
+    }
+
+    auto inputType =
+        mlir::cast<mlir::RankedTensorType>(op.getInput().getType());
+    auto resultType =
+        mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
+    if (inputType.getRank() != 2 || resultType.getRank() != 1) {
+      return false;
+    }
+
+    std::optional<mlir::ArrayAttr> maybeDimArg = op.getDimArg();
+    assert(maybeDimArg && "TTIR reduction op must have dim_arg");
+    bool reduceFirst = false;
+    bool reduceLast = false;
+    for (mlir::Attribute dimAttr : *maybeDimArg) {
+      std::size_t dim = normalizeDim(mlir::cast<IntegerAttr>(dimAttr).getInt(),
+                                     inputType.getRank());
+      reduceFirst |= dim == 0;
+      reduceLast |= dim == 1;
+    }
+    return reduceLast && !reduceFirst;
+  }
+
+  static mlir::RankedTensorType getKeepDimResultType(ttir::MinOp op) {
+    auto inputType =
+        mlir::cast<mlir::RankedTensorType>(op.getInput().getType());
+    auto resultType =
+        mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
+    llvm::SmallVector<int64_t> shape(inputType.getShape());
+    std::optional<mlir::ArrayAttr> maybeDimArg = op.getDimArg();
+    assert(maybeDimArg && "TTIR reduction op must have dim_arg");
+    for (mlir::Attribute dimAttr : *maybeDimArg) {
+      shape[normalizeDim(mlir::cast<IntegerAttr>(dimAttr).getInt(),
+                         inputType.getRank())] = 1;
+    }
+    return mlir::RankedTensorType::get(shape, resultType.getElementType(),
+                                       resultType.getEncoding());
+  }
 
   LogicalResult
   matchAndRewrite(ttir::MinOp op, OpAdaptor adaptor,
@@ -2392,16 +2576,26 @@ public:
     };
 
     mlir::Value invertedInput = invert(inputType, op.getInput());
-    auto maxOp =
-        rewriter.create<ttir::MaxOp>(loc, resultType, invertedInput,
-                                     op.getKeepDimAttr(), op.getDimArgAttr());
-    if (isInt) {
-      rewriter.replaceOpWithNewOp<ttir::BitwiseNotOp>(op, resultType,
-                                                      maxOp.getResult());
-    } else {
-      rewriter.replaceOpWithNewOp<ttir::NegOp>(op, resultType,
-                                               maxOp.getResult());
+
+    bool invertBeforeSqueeze = needsKeepDimInvertBeforeSqueeze(op);
+    mlir::RankedTensorType maxResultType =
+        invertBeforeSqueeze ? getKeepDimResultType(op) : resultType;
+    mlir::BoolAttr keepDimAttr =
+        invertBeforeSqueeze ? rewriter.getBoolAttr(true) : op.getKeepDimAttr();
+
+    auto maxOp = rewriter.create<ttir::MaxOp>(loc, maxResultType, invertedInput,
+                                              keepDimAttr, op.getDimArgAttr());
+    mlir::Value invertedMax = invert(maxResultType, maxOp.getResult());
+
+    if (invertBeforeSqueeze) {
+      auto shapeAttr = rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(
+          resultType.getShape().begin(), resultType.getShape().end()));
+      rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(op, resultType, invertedMax,
+                                                   shapeAttr);
+      return mlir::success();
     }
+
+    rewriter.replaceOp(op, invertedMax);
     return mlir::success();
   }
 };
@@ -2466,8 +2660,7 @@ private:
 
     // Device layout doubles the rank (logical dimensions + device grid
     // dimensions).
-    const std::size_t physicalRank =
-        ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
+    const std::size_t physicalRank = getD2MGridRank(outputs[0]);
 
     // transpose_b is handled via indexing maps and the transpose_b flag on
     // tile_matmul_block.
@@ -3359,8 +3552,7 @@ private:
         rewriter, {origInputs, origOutputs}, /*tiled*/ true);
     assert(outputs.size() == 1);
 
-    const std::size_t physicalRank =
-        ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
+    const std::size_t physicalRank = getD2MGridRank(outputs[0]);
     SmallVector<AffineMap> indexingMaps =
         getIdentityAffineMapsArray(rewriter, 1, physicalRank);
     auto parallel = ttcore::IteratorTypeAttr::get(
@@ -3419,8 +3611,7 @@ private:
         rewriter, {origInputs, origOutputs}, /*tiled*/ true);
     assert(inputs.size() == 1 && outputs.size() == 1);
 
-    const std::size_t physicalRank =
-        ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
+    const std::size_t physicalRank = getD2MGridRank(outputs[0]);
     SmallVector<AffineMap> indexingMaps =
         getIdentityAffineMapsArray(rewriter, 2, physicalRank);
     auto parallel = ttcore::IteratorTypeAttr::get(
@@ -3506,8 +3697,7 @@ public:
     auto outputTensorType = mlir::cast<RankedTensorType>(output.getType());
     auto outputLayout =
         mlir::cast<ttcore::MetalLayoutAttr>(outputTensorType.getEncoding());
-    const std::size_t physicalRank =
-        ttcore::getDeviceLayout(output).getRank() / 2;
+    const std::size_t physicalRank = getD2MGridRank(output);
 
     // Create scratch tensor for index tile (single tile per core).
     auto outputTileType =
@@ -3651,8 +3841,7 @@ public:
         createOptimalLayoutOp(origOutputs[0], memorySpaces[1],
                               /*tiled=*/false, /*noCollapse=*/false, rewriter)};
 
-    const std::size_t physicalRank =
-        ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
+    const std::size_t physicalRank = getD2MGridRank(outputs[0]);
     if (physicalRank != 2) {
       return rewriter.notifyMatchFailure(
           op, "D2M embedding currently requires collapsed 2D layouts");
@@ -4107,6 +4296,34 @@ static bool isScalarUnitVolumeReshape(RankedTensorType inputType,
          ttmlir::utils::volume<int64_t>(outputType.getShape()) == 1;
 }
 
+static bool isSingletonDimensionSqueezeReshape(RankedTensorType inputType,
+                                               RankedTensorType outputType) {
+  if (!inputType.hasStaticShape() || !outputType.hasStaticShape() ||
+      inputType.getRank() <= outputType.getRank()) {
+    return false;
+  }
+
+  if (ttmlir::utils::volume<int64_t>(inputType.getShape()) !=
+      ttmlir::utils::volume<int64_t>(outputType.getShape())) {
+    return false;
+  }
+
+  ArrayRef<int64_t> inputShape = inputType.getShape();
+  ArrayRef<int64_t> outputShape = outputType.getShape();
+  std::size_t outputDim = 0;
+  for (int64_t inputDimSize : inputShape) {
+    if (outputDim < outputShape.size() &&
+        inputDimSize == outputShape[outputDim]) {
+      ++outputDim;
+      continue;
+    }
+    if (inputDimSize != 1) {
+      return false;
+    }
+  }
+  return outputDim == outputShape.size();
+}
+
 static LogicalResult rewriteScalarReshape(ttir::ReshapeOp op,
                                           ttir::ReshapeOp::Adaptor adaptor,
                                           ConversionPatternRewriter &rewriter) {
@@ -4162,6 +4379,12 @@ public:
       auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
       if (isScalarUnitVolumeReshape(inputType, outputType)) {
         return rewriteScalarReshape(op, adaptor, rewriter);
+      }
+      if (isSingletonDimensionSqueezeReshape(inputType, outputType)) {
+        rewriter.replaceOp(op,
+                           this->unLayoutResult(rewriter, adaptor.getInput(),
+                                                op->getResult(0).getType()));
+        return success();
       }
     }
 

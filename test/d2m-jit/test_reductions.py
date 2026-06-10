@@ -17,6 +17,7 @@ expected to produce defined values without an explicit accumulator pre-fill:
 import pytest
 import torch
 import d2m_jit as d2m
+from d2m_jit._src.builder import _Builder
 
 
 @d2m.kernel
@@ -81,6 +82,12 @@ def k_reduce_sum_cols_out(in_t, out_t, m_blocks, n_blocks):
 
 
 @d2m.kernel
+def k_reduce_sum_cols_squeezed_single(in_t, out_t):
+    x = remote_load(in_t, [0, 0])
+    remote_store(out_t, [0, 0], reduce_sum(x, 1, keep_dim=False))
+
+
+@d2m.kernel
 def k_reduce_max_rows_out(in_t, out_t, m_blocks, n_blocks):
     m_off = core_index(0) * m_blocks
     n_off = core_index(1) * n_blocks
@@ -88,6 +95,12 @@ def k_reduce_max_rows_out(in_t, out_t, m_blocks, n_blocks):
         for n in range(n_blocks):
             x = remote_load(in_t, [m_off + m, n_off + n])
             remote_store(out_t, [0, n_off + n], x.reduce_max(0))
+
+
+@d2m.kernel
+def k_reduce_max_rows_squeezed_single(in_t, out_t):
+    x = remote_load(in_t, [0, 0])
+    remote_store(out_t, [0, 0], x.reduce_max(0, False))
 
 
 @d2m.kernel
@@ -345,6 +358,27 @@ def test_reduce_sum_cols_output_layout():
     assert diff < 0.05, f"reduce_sum(dim=1): max diff {diff}"
 
 
+def test_reduce_sum_cols_keep_dim_false_output_layout():
+    input_layout = _make_layout(shape=(64, 32), block_shape=(2, 1), grid_shape=(1, 1))
+    output_layout = d2m.reduction_layout(input_layout, 1, keep_dim=False)
+    tensor = _tile_sum_input((64, 32))
+    out = d2m.empty(output_layout)
+    k_reduce_sum_cols_squeezed_single(
+        d2m.to_layout(tensor, input_layout), out, grid=(1, 1)
+    )
+    module = str(_Builder.get().module)
+    _Builder.reset()
+
+    assert output_layout.logical_shape == [64]
+    assert output_layout.block_shape == [2]
+    assert output_layout.grid_shape == [1]
+    assert "logical_shape = 64" in module
+    assert "tensor<1x2x!ttcore.tile<32x32, f32>>" in module
+    assert "d2m.tile_reduce_sum" in module
+    assert "reduce_dim = #d2m<reduce_dim R>" in module
+    assert "d2m.tile_transpose" in module
+
+
 def test_reduce_max_rows_output_layout():
     input_layout = _make_layout(shape=(32, 64), grid_shape=(1, 2))
     output_layout = d2m.reduction_layout(input_layout, 0)
@@ -361,6 +395,27 @@ def test_reduce_max_rows_output_layout():
     expected = tensor.max(dim=0, keepdim=True).values
     diff = (expected - result).abs().max().item()
     assert diff < 0.05, f"reduce_max(dim=0): max diff {diff}"
+
+
+def test_reduce_max_rows_keep_dim_false_output_layout():
+    input_layout = _make_layout(shape=(32, 64), block_shape=(1, 2), grid_shape=(1, 1))
+    output_layout = d2m.reduction_layout(input_layout, 0, keep_dim=False)
+    tensor = _tile_max_input((32, 64))
+    out = d2m.empty(output_layout)
+    k_reduce_max_rows_squeezed_single(
+        d2m.to_layout(tensor, input_layout), out, grid=(1, 1)
+    )
+    module = str(_Builder.get().module)
+    _Builder.reset()
+
+    assert output_layout.logical_shape == [64]
+    assert output_layout.block_shape == [2]
+    assert output_layout.grid_shape == [1]
+    assert "logical_shape = 64" in module
+    assert "tensor<1x2x!ttcore.tile<32x32, f32>>" in module
+    assert "d2m.tile_reduce_max" in module
+    assert "reduce_dim = #d2m<reduce_dim C>" in module
+    assert "d2m.tile_transpose" not in module
 
 
 def test_reduce_sum_cols_multi_tile_single_core():
@@ -430,6 +485,15 @@ def test_reduction_layout_allows_multiple_blocks_on_one_core():
     assert output_layout.logical_shape == [64, 1]
     assert output_layout.block_shape == [1, 1]
     assert output_layout.grid_shape == [1, 1]
+
+
+def test_reduction_layout_keep_dim_false_squeezes_metadata():
+    layout = _make_layout(shape=(64, 32), block_shape=(1, 1), grid_shape=(2, 1))
+    output_layout = d2m.reduction_layout(layout, 1, keep_dim=False)
+
+    assert output_layout.logical_shape == [64]
+    assert output_layout.block_shape == [1]
+    assert output_layout.grid_shape == [2]
 
 
 def test_reduce_sum_cols_cross_tile_output_layout():

@@ -18,7 +18,6 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         MoveReshapeToConstant.cpp
         Quantization.cpp
         QuantDequantConversion.cpp
-        ReductionForceKeepDim.cpp
         Transforms.cpp
         TTIRFusing.cpp
         Fusing/RoPEFusingPattern.cpp

@@ -454,24 +454,50 @@ class D2MCompiler(ast.NodeVisitor):
                     fn, args_as_attr = fn
                 else:
                     fn, args_as_attr, kwargs_as_attr = fn
-                if args_as_attr is None:
-                    args_as_attr = [False] * len(node.args)
-            if len(node.args) != len(args_as_attr):
+            params = list(inspect.signature(fn).parameters.values())
+            positional_params = [
+                p
+                for p in params
+                if p.kind
+                in (
+                    inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                )
+            ]
+            if args_as_attr is None:
+                args_as_attr = [False] * len(positional_params)
+            required_params = [
+                p for p in positional_params if p.default is inspect.Parameter.empty
+            ]
+            keyword_names = {kw.arg for kw in node.keywords}
+            missing_required = [
+                p.name for p in required_params if p.name not in keyword_names
+            ][len(node.args) :]
+            if len(node.args) > len(args_as_attr) or missing_required:
                 self._fail(
                     node,
                     TypeError(
                         f"function '{node.func.id}' takes "
-                        f"{len(args_as_attr)} positional args; "
+                        f"{len(required_params)} to {len(args_as_attr)} "
+                        f"positional args; "
                         f"got {len(node.args)}"
                     ),
                 )
             func_args = []
-            for arg, as_attr in zip(node.args, args_as_attr):
+            for arg, as_attr in zip(node.args, args_as_attr[: len(node.args)]):
                 arg._ttkernel_as_attr = as_attr
                 func_args.append(_resolve(arg))
+            param_to_attr = {
+                p.name: args_as_attr[i]
+                for i, p in enumerate(positional_params[: len(args_as_attr)])
+            }
             kwargs = {}
             for kw in node.keywords:
-                kw.value._ttkernel_as_attr = kwargs_as_attr.get(kw.arg, False)
+                if kw.arg is None:
+                    self._fail(node, TypeError("**kwargs are not supported"))
+                kw.value._ttkernel_as_attr = kwargs_as_attr.get(
+                    kw.arg, param_to_attr.get(kw.arg, False)
+                )
                 kwargs[kw.arg] = _resolve(kw.value)
             return fn(*func_args, **kwargs)
 
