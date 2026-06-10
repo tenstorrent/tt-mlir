@@ -139,6 +139,14 @@ std::vector<std::uint32_t> runtime_device_mesh_shape() {
     return slot.has_value() ? slot->mesh_shape : default_mesh_shape();
 }
 
+std::uint32_t runtime_device_mesh_size() {
+    std::uint32_t n = 1;
+    for (auto d : runtime_device_mesh_shape()) {
+        n *= d;
+    }
+    return n;
+}
+
 void close_runtime_device_mesh() {
     device_slot().reset();
 }

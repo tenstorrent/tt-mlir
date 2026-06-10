@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <string>
 #include <vector>
 
 #include <ATen/ATen.h>
@@ -20,6 +21,7 @@
 #include <mlir/IR/BuiltinTypes.h>
 
 #include "cast.hpp"
+#include "engine/device.hpp"
 #include "torch/backend.hpp"
 #include "torch/ops/builders.hpp"
 #include "torch/tensor.hpp"
@@ -34,21 +36,27 @@ namespace {
 // construction; if null, the runtime returns a zero-initialized buffer of
 // the right size.
 at::Tensor make_tt_tensor_from_host(void *data, at::IntArrayRef sizes, c10::ScalarType dtype) {
-    auto desc = make_contiguous_desc(sizes, dtype);
-    auto runtime_tensor = ::tt::runtime::createOwnedHostTensor(data, desc);
+    auto runtime_tensor = runtime_from_host_buffer(data, sizes, dtype);
     auto *storage = new TensorStorage(std::move(runtime_tensor));
     return make_tt_tensor(storage, sizes, dtype);
 }
 
-// Read the full contents of a tt tensor into a freshly-allocated host buffer.
-// The torch dtype is passed through so unsupported dtypes (Long, Float64, ...)
-// get cast back to the wider dtype on the way out.
+// Copy this rank's local shard (shard 0) of a tt tensor into `dst`. That's the
+// `to_local` semantic `.cpu()` / `.item()` want; the global cross-chip view is
+// reconstructed by DTensor's `full_tensor()` via a collective, not here.
+void read_local_shard_to_host(const at::Tensor &self, void *dst, const char *who) {
+    auto &storage = storage_of(self);
+    auto host_shards = ::tt::runtime::toHost(storage.tensor(), /*untilize=*/true);
+    TORCH_CHECK(!host_shards.empty(), "tt-kurbla ", who, ": runtime returned no shards");
+    ::tt::runtime::memcpy(dst, host_shards[0], to_runtime_dtype(self.scalar_type()));
+}
+
+// Read this rank's local shard (shard 0) into a freshly-allocated host buffer,
+// sized to the per-chip numel. Used by `.item()` and (replicated-only) as_strided.
 std::vector<std::byte> read_to_host(const at::Tensor &self, const char *who) {
-    auto host_shards = ::tt::runtime::toHost(storage_of(self).tensor(), /*untilize=*/true);
-    TORCH_CHECK(host_shards.size() == 1, "tt-kurbla ", who, ": multi-shard tensors not supported");
     const std::size_t nbytes = as<std::size_t>(self.numel()) * self.dtype().itemsize();
     std::vector<std::byte> buffer(nbytes);
-    ::tt::runtime::memcpy(buffer.data(), host_shards[0], to_runtime_dtype(self.scalar_type()));
+    read_local_shard_to_host(self, buffer.data(), who);
     return buffer;
 }
 
@@ -62,6 +70,55 @@ at::Tensor empty_memory_format(at::IntArrayRef size, std::optional<at::ScalarTyp
     TORCH_CHECK(!memory_format.has_value() || memory_format.value() == c10::MemoryFormat::Contiguous,
                 "tt-kurbla empty.memory_format: only contiguous memory_format is supported");
     return make_tt_tensor_from_host(/*data=*/nullptr, size, dtype.value_or(c10::ScalarType::Float));
+}
+
+// Read every chip's slab independently into its own host buffer. Used by the
+// tt→tt deep-copy path where collapsing N distinct per-chip buffers into a
+// single logical view would destroy per-chip data. For single-device or
+// genuinely replicated tensors this returns a one-element vector with the
+// chip's bytes.
+std::vector<std::vector<std::byte>> read_per_shard_to_host(const at::Tensor &self, const char *who) {
+    auto &storage = storage_of(self);
+    auto host_shards = ::tt::runtime::toHost(storage.tensor(), /*untilize=*/true);
+    TORCH_CHECK(!host_shards.empty(), "tt-kurbla ", who, ": runtime returned no shards");
+    const auto element_dtype = to_runtime_dtype(self.scalar_type());
+    const auto element_size = as<std::size_t>(self.element_size());
+
+    std::vector<std::vector<std::byte>> per_shard;
+    per_shard.reserve(host_shards.size());
+    for (auto &shard : host_shards) {
+        const auto shard_bytes = as<std::size_t>(::tt::runtime::getTensorVolume(shard)) * element_size;
+        std::vector<std::byte> buf(shard_bytes);
+        ::tt::runtime::memcpy(buf.data(), shard, element_dtype);
+        per_shard.push_back(std::move(buf));
+    }
+    return per_shard;
+}
+
+// True iff `self`'s runtime tensor is replicated across the mesh (every chip
+// holds identical data) rather than sharded. Lets reshape/copy rebuild with the
+// matching distribution instead of always stamping Shard.
+bool runtime_is_replicated(const at::Tensor &self) {
+    const auto desc = ::tt::runtime::getTensorTopologyDescription(storage_of(self).tensor());
+    return desc.find("Replicate") != std::string::npos && desc.find("Shard") == std::string::npos;
+}
+
+// Rebuild `src`'s runtime tensor at per-chip shape `sizes`, preserving its
+// distribution. Single-chip or replicated: read shard 0 once and fan it across
+// the mesh; sharded: read every chip's slab and keep them distinct.
+::tt::runtime::Tensor rebuild_at_shape(const at::Tensor &src, at::IntArrayRef sizes, c10::ScalarType dtype,
+                                       const char *who) {
+    if (::tt::kurbla::runtime_device_mesh_size() <= 1 || runtime_is_replicated(src)) {
+        const auto buffer = read_to_host(src, who);
+        return runtime_from_host_buffer(buffer.data(), sizes, dtype);
+    }
+    const auto per_shard = read_per_shard_to_host(src, who);
+    std::vector<const void *> ptrs;
+    ptrs.reserve(per_shard.size());
+    for (const auto &b : per_shard) {
+        ptrs.push_back(b.data());
+    }
+    return runtime_from_host_buffer(ptrs, sizes, dtype);
 }
 
 at::Tensor empty_strided(at::IntArrayRef size, at::IntArrayRef stride, std::optional<at::ScalarType> dtype,
@@ -87,31 +144,33 @@ at::Tensor copy_from(const at::Tensor &self, const at::Tensor &dst, bool /*non_b
     }
 
     if (self.is_cpu() && is_tt(dst)) {
-        TORCH_CHECK(self.is_contiguous(), "tt-kurbla _copy_from(cpu→tt): source must be contiguous");
-        auto desc = make_contiguous_desc(dst.sizes(), dst.scalar_type());
+        // The rebuild replicates the CPU buffer to every chip. A sharded dst
+        // would need each rank's local data, but we only have rank 0's — fail
+        // loudly instead of silently overwriting every shard with it.
+        TORCH_CHECK(::tt::kurbla::runtime_device_mesh_size() <= 1 || runtime_is_replicated(dst),
+                    "tt-kurbla _copy_from(cpu→tt): destination is sharded; copying a CPU tensor would replicate "
+                    "rank 0's local data over every shard — distribute the new data instead (distribute_tensor)");
         // TODO: investigate createBorrowedHostTensor over self.data_ptr() to avoid
         //       the buffer copy here. Need to confirm tt-mlir runtime's borrowed-
         //       tensor lifetime rules vs. how long PyTorch keeps `self` alive.
-        auto runtime_tensor = ::tt::runtime::createOwnedHostTensor(self.data_ptr(), desc);
+        auto runtime_tensor = runtime_from_torch_tensor(self);
         storage_of(dst).replace(std::move(runtime_tensor));
         return dst;
     }
 
     if (is_tt(self) && dst.is_cpu()) {
         TORCH_CHECK(dst.is_contiguous(), "tt-kurbla _copy_from(tt→cpu): destination must be contiguous");
-        auto host_shards = ::tt::runtime::toHost(storage_of(self).tensor(), /*untilize=*/true);
-        TORCH_CHECK(host_shards.size() == 1, "tt-kurbla _copy_from(tt→cpu): multi-shard tensors not supported");
-        ::tt::runtime::memcpy(dst.data_ptr(), host_shards[0], to_runtime_dtype(dst.scalar_type()));
+        read_local_shard_to_host(self, dst.data_ptr(), "_copy_from(tt→cpu)");
         return dst;
     }
 
     if (is_tt(self) && is_tt(dst)) {
-        // Route through host: read source bytes, write to a fresh owned-host
-        // runtime tensor matching dst's desc, swap into dst's storage.
-        auto buffer = read_to_host(self, "_copy_from(tt→tt)");
-        auto desc = make_contiguous_desc(dst.sizes(), dst.scalar_type());
-        auto runtime_tensor = ::tt::runtime::createOwnedHostTensor(buffer.data(), desc);
-        storage_of(dst).replace(std::move(runtime_tensor));
+        // Per-shard deep copy: pull every chip's slab and rebuild, preserving
+        // self's distribution. Collapsing to shard 0 would broadcast rank 0's
+        // data to every chip for sharded tensors (matmul/scatter outputs, the
+        // clone DTensor's funcol all_reduce does first, etc.).
+        // TODO(perf): a runtime per-shard device-to-device copy would skip the host round-trip.
+        storage_of(dst).replace(rebuild_at_shape(self, dst.sizes(), dst.scalar_type(), "_copy_from(tt→tt)"));
         return dst;
     }
 
@@ -161,8 +220,7 @@ const at::Tensor &resize_(const at::Tensor &self, at::IntArrayRef size, std::opt
 
     const std::int64_t new_numel = c10::multiply_integers(size);
     if (new_numel != self.numel()) {
-        auto desc = make_contiguous_desc(size, self.scalar_type());
-        auto runtime_tensor = ::tt::runtime::createOwnedHostTensor(/*data=*/nullptr, desc);
+        auto runtime_tensor = runtime_from_host_buffer(/*data=*/nullptr, size, self.scalar_type());
         storage_of(self).replace(std::move(runtime_tensor));
 
         const std::size_t new_nbytes = as<std::size_t>(new_numel) * self.dtype().itemsize();
@@ -211,13 +269,19 @@ at::Tensor view(const at::Tensor &self, at::IntArrayRef size) {
     // same shape/divisibility checks CPU/CUDA do — the dispatcher doesn't
     // unfold `-1` for non-native backends, so we have to do it here.
     auto resolved = at::infer_size(size, self.numel());
-    auto buffer = read_to_host(self, "aten::view");
-    return make_tt_tensor_from_host(buffer.data(), resolved, self.scalar_type());
+    // Reshape is a per-chip metadata change: rebuild from every shard at the new
+    // per-chip shape, preserving the distribution (DTensor hands us a per-shard-valid
+    // local shape, redistributing first if the view would cross a sharded dim).
+    return wrap_tt_tensor(rebuild_at_shape(self, resolved, self.scalar_type(), "aten::view"), resolved,
+                          self.scalar_type());
 }
 
 at::Tensor as_strided(const at::Tensor &self, at::IntArrayRef size, at::IntArrayRef stride,
                       std::optional<int64_t> storage_offset) {
     TORCH_CHECK(is_tt(self), "tt-kurbla aten::as_strided: tensor is not on the tt backend");
+    TORCH_CHECK(::tt::kurbla::runtime_device_mesh_size() <= 1 || runtime_is_replicated(self),
+                "tt-kurbla aten::as_strided: not supported on a sharded tt tensor "
+                "(DTensor doesn't define strided views over shards; redistribute to Replicate first)");
 
     // Pull to CPU, apply the requested view on the CPU side (gives correct
     // strided semantics for any stride/offset combination), then materialize a

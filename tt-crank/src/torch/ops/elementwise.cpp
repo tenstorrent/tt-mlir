@@ -384,6 +384,38 @@ mlir::Value build_mse_loss_backward(ModuleBuilder &mb, mlir::Value grad_output, 
     return build_mul(mb, grad_output, scaled);
 }
 
+mlir::Value build_all_reduce(ModuleBuilder &mb, mlir::Value input, const std::string &reduce_op,
+                             std::uint32_t cluster_axis) {
+    // Map the c10d reduce-op string to a ttcore ReduceType. Only Sum is wired
+    // end-to-end today (the metal all_reduce kernel hardcodes sum); other ops
+    // surface here as a clear error rather than silently summing.
+    TORCH_CHECK(reduce_op == "sum", "tt-kurbla build_all_reduce: only reduce_op='sum' supported, got '", reduce_op,
+                "'");
+    auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto reduce_type_attr =
+        ::mlir::tt::ttcore::ReduceTypeAttr::get(result_type.getContext(), ::mlir::tt::ttcore::ReduceType::Sum);
+    return mb
+        .create<mlir::tt::ttir::AllReduceOp>(result_type, input, reduce_type_attr,
+                                             mb.attrs().getUI32IntegerAttr(cluster_axis))
+        .getResult();
+}
+
+mlir::Value build_all_gather(ModuleBuilder &mb, mlir::Value input, std::int64_t group_size,
+                             std::uint32_t cluster_axis) {
+    auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    std::vector<std::int64_t> out_shape(input_type.getShape().begin(), input_type.getShape().end());
+    TORCH_CHECK(!out_shape.empty(), "tt-kurbla build_all_gather: input must be at least 1-D");
+    // all_gather_dim is fixed at 0 by the all_gather_into_tensor / _allgather_base
+    // contract (the result concatenates the per-rank slabs along dim 0).
+    out_shape[0] *= group_size;
+    auto result_type = mlir::RankedTensorType::get(out_shape, input_type.getElementType());
+    return mb
+        .create<mlir::tt::ttir::AllGatherOp>(result_type, input,
+                                             /*all_gather_dim=*/mb.attrs().getSI32IntegerAttr(0),
+                                             mb.attrs().getUI32IntegerAttr(cluster_axis))
+        .getResult();
+}
+
 mlir::Value build_scalar(ModuleBuilder &mb, mlir::Type element_type, double value) {
     // Shape `[1]` broadcasts against any rank via numpy-style prepend-1 rules.
     auto tensor_type = mlir::RankedTensorType::get({1}, element_type);

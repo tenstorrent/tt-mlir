@@ -2,6 +2,7 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -10,19 +11,21 @@
 #include <ATen/core/ScalarType.h>
 #include <c10/core/Device.h>
 #include <c10/core/ScalarType.h>
-#include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/Value.h>
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/shared_ptr.h>
+#include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
 #include <torch/csrc/autograd/python_variable.h>
 #include <ttmlir/Target/Common/types_generated.h>
 
 #include "cast.hpp"
+#include "engine/device.hpp"
 #include "torch/backend.hpp"
 #include "torch/ops/builders.hpp"
 #include "torch/ops/fallback.hpp"
+#include "torch/tensor.hpp"
 #include "torch/ttir_module_builder.hpp"
 
 namespace nb = nanobind;
@@ -428,6 +431,52 @@ NB_MODULE(_native, m) {
 
     m.doc() = "tt-kurbla torch backend native module";
     m.def("loaded", []() { return true; });
+
+    m.def("runtime_device_num_chips", &::tt::kurbla::runtime_device_num_chips,
+          "Number of physical chips behind the single logical tt device.");
+
+    m.def("open_runtime_device_mesh", &::tt::kurbla::open_runtime_device_mesh, "rows"_a, "cols"_a,
+          "Open (or reopen, if already open with a different shape) the MeshDevice "
+          "with mesh shape (rows, cols). rows*cols must be in [1, num_chips()].");
+
+    m.def("runtime_device_mesh_shape", &::tt::kurbla::runtime_device_mesh_shape,
+          "Current runtime mesh shape as [rows, cols].");
+
+    // Thin binding wrappers over the distributed primitives in tensor.cpp:
+    // unwrap Python objects to at::Tensor, forward, that's it. The actual
+    // logic (TTIR construction, runtime calls, storage manipulation) lives
+    // in src/torch/tensor.cpp.
+
+    m.def(
+        "scatter_into",
+        [](nb::handle py_output, nb::list py_chunks) {
+            at::Tensor output = unpack_torch_tensor(py_output);
+            std::vector<at::Tensor> chunks;
+            chunks.reserve(nb::len(py_chunks));
+            for (auto h : py_chunks) {
+                chunks.push_back(unpack_torch_tensor(h));
+            }
+            tk::scatter_into(output, chunks);
+        },
+        "output"_a, "chunks"_a);
+
+    m.def(
+        "allgather_into",
+        [](nb::handle py_output, nb::handle py_input, std::uint32_t cluster_axis) {
+            tk::allgather_into(unpack_torch_tensor(py_output), unpack_torch_tensor(py_input), cluster_axis);
+        },
+        "output"_a, "input"_a, "cluster_axis"_a);
+
+    m.def(
+        "allreduce_into",
+        [](nb::handle py_tensor, std::uint32_t cluster_axis) {
+            tk::allreduce_into(unpack_torch_tensor(py_tensor), cluster_axis);
+        },
+        "tensor"_a, "cluster_axis"_a);
+
+    m.def(
+        "describe_tensor",
+        [](nb::handle py_t) -> std::string { return tk::describe_tensor(unpack_torch_tensor(py_t)); }, "py_t"_a);
 
     // Strict-fallback toggle. Tests flip this on to assert that a code path
     // never falls back to CPU; the catch-all fallback raises instead of

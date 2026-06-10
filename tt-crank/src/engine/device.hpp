@@ -34,6 +34,11 @@ TT_KURBLA_API void open_runtime_device_mesh(std::uint32_t rows, std::uint32_t co
 // to `open_runtime_device_mesh` if it has been called; otherwise the default {1, 1}.
 TT_KURBLA_API std::vector<std::uint32_t> runtime_device_mesh_shape();
 
+// Number of devices in the open-or-default mesh (rows*cols) — the count a tensor
+// is distributed across. Distinct from runtime_device_num_chips(), the physical
+// count that only bounds how large a mesh may be opened.
+TT_KURBLA_API std::uint32_t runtime_device_mesh_size();
+
 // Close the mesh device if open. Call from atexit: closing from the C++ static
 // dtor races tt-metal's teardown and aborts in ~FDMeshCommandQueue.
 TT_KURBLA_API void close_runtime_device_mesh();

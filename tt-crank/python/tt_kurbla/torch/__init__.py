@@ -1,3 +1,5 @@
+import torch  # noqa: F401  — load libtorch before importing the _native extension
+
 from . import _native  # noqa: F401  — loading the .so runs c10::register_privateuse1_backend("tt")
 from ._device import register
 from tt_kurbla._runtime_env import setup_tt_metal_home
@@ -5,6 +7,13 @@ from tt_kurbla._runtime_env import setup_tt_metal_home
 setup_tt_metal_home()
 
 register()
+
+# Register the "tt" c10d distributed backend. Must come after `register()`
+# above (PrivateUse1 → "tt" rename) so the backend's device list matches.
+from . import _distributed  # noqa: E402, F401
+
+# Multi-chip APIs live on the torch.tt namespace (see _device.py): num_chips,
+# init_device_mesh — that's the single front door.
 
 # Self-registers the "tt" dynamo backend so `torch.compile(model, backend="tt")`
 # works without an extra import on the user's side. Must come after `register()`
