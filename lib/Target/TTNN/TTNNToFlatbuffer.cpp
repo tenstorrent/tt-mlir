@@ -3201,6 +3201,37 @@ createOp(FlatbufferObjectCache &cache,
       programConfig.value_or(0));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ChunkedScaledDotProductAttentionOp>
+createOp(FlatbufferObjectCache &cache, ChunkedScaledDotProductAttentionOp op) {
+  auto query = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getQuery()));
+  auto key = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getKey()));
+  auto value = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getValue()));
+  auto pageTable = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getPageTable()));
+  auto chunkStartIdx = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getChunkStartIdx()));
+
+  auto scale = toFlatbuffer(
+      cache, op.getScale()
+                 ? std::make_optional(op.getScale().value().convertToFloat())
+                 : std::nullopt);
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
+
+  auto out =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::SDPAConfig>>
+      programConfig = toFlatbuffer(cache, op.getProgramConfig());
+
+  return ::tt::target::ttnn::CreateChunkedScaledDotProductAttentionOp(
+      *cache.fbb, query, key, value, pageTable, chunkStartIdx, scale, out,
+      memoryConfig, programConfig.value_or(0));
+}
+
 ::flatbuffers::Offset<
     ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOp>
 createOp(FlatbufferObjectCache &cache,
@@ -4674,6 +4705,13 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(
         cache, createOp(cache, pagedScaledDotProductAttentionDecodeOp),
         debugString, locInfo);
+  }
+  if (auto chunkedScaledDotProductAttentionOp =
+          dyn_cast<ChunkedScaledDotProductAttentionOp>(op);
+      chunkedScaledDotProductAttentionOp) {
+    return createOperation(cache,
+                           createOp(cache, chunkedScaledDotProductAttentionOp),
+                           debugString, locInfo);
   }
   if (auto pagedFlashMlaDecodeOp =
           dyn_cast<PagedFlashMultiLatentAttentionDecodeOp>(op);
