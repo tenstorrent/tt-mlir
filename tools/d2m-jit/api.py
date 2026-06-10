@@ -31,6 +31,7 @@ from ._src.builder import (
     MeshShard,
     mesh_shard,
     mesh_gather,
+    fabric_config,
     kernel,
     to_layout,
     tilize,

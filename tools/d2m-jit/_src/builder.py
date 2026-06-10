@@ -1360,6 +1360,7 @@ def _emit_kernel_generic(
     block_factors,
     indexing_maps,
     iterator_types,
+    fabric=None,
 ):
     """Append a d2m.GenericOp to the open host func that invokes `kernel`."""
     b = _get_scope()
@@ -1495,6 +1496,7 @@ def _emit_kernel_generic(
             iter_attr,
             threads,
             1,  # num_regions
+            fabricConnectionConfig=fabric,
         )
 
         region = generic.regions[0]
@@ -1563,6 +1565,7 @@ class CompiledKernel:
         block_factors=None,
         indexing_maps=None,
         iterator_types=None,
+        fabric=None,
     ):
         _emit_kernel_generic(
             self,
@@ -1572,6 +1575,30 @@ class CompiledKernel:
             block_factors=block_factors,
             indexing_maps=indexing_maps,
             iterator_types=iterator_types,
+            fabric=fabric,
+        )
+
+
+def fabric_config(
+    cluster_axis,
+    topology="ring",
+    num_links=1,
+    noc="noc0",
+    routing="unidir_ring_torus",
+):
+    """Build a `#ttcore.fabric_connection_config` attribute for a CCL kernel.
+
+    Pass the result as the `fabric=` argument of a `@d2m.kernel` call; it
+    configures the cross-device fabric routing for the GenericOp (required for
+    all_gather and other collectives). Defaults match the all_gather lowering
+    (`noc0`, ring topology, unidirectional ring/torus routing)."""
+    b = _get_scope()
+    with b.ctx, b.loc:
+        return Attribute.parse(
+            f"#ttcore.fabric_connection_config<noc_index = {noc}, "
+            f"topology = {topology}, cluster_axis = {int(cluster_axis)}, "
+            f"routing_mode = {routing}, num_links = {int(num_links)}>",
+            b.ctx,
         )
 
 

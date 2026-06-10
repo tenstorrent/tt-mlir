@@ -523,3 +523,50 @@ tensors (as the rewriter does, requiring C5.2) or whether a simpler grid layout
 avoids the reblock for the 1x2 case. Worth a short spike: try the kernel without
 the view-grid reblock first (grid = the natural sharded grid) and see if the
 gather is still expressible — it may simplify C5.2 away for the first cut.
+
+### C5 progress & findings (in-flight)
+
+- **C5.1 (done): fabric config.** `@d2m.kernel(...)` accepts `fabric=` and
+  `_emit_kernel_generic` passes it to `GenericOp(fabricConnectionConfig=...)`;
+  `d2m.fabric_config(cluster_axis, topology="ring", num_links=1, ...)` builds the
+  `#ttcore.fabric_connection_config<...>` attr. Verified: builds, no regression
+  on non-CCL paths.
+- **Kernel authored correctly.** Generating the 1x2 all_gather via the DSL
+  (mesh_position / device_synchronize(num_receivers=1) / explicit-buffer
+  remote_load / cross-device remote_store with `semaphore increment` /
+  semaphore_wait, output index `dx*2 + cy`) produces a `d2m.generic` that is
+  **structurally identical** to `D2MAllGatherRewriter`'s output (verified by
+  diffing the pre-pipeline IR): same fabric config, grid 2x1, operands,
+  additionalArgs, ops, and indices.
+- **Reference lowers through our pipeline.** The rewriter's D2M IR
+  (`ttir-to-d2m` of a 1x2 ttir.all_gather) lowers cleanly through `_build_pipeline`
+  **with `config.use_split_unified_thread_v2 = True`** — produces the final
+  `ttmetal.enqueue_program` with the FabricConnectionManager. So our backend
+  pipeline is CCL-capable; the v1 split-unified-thread asserts (D1) and **v2 is
+  required** for the all_gather.
+- **🔴 The remaining blocker: the generic's operands must be `view_layout`
+  reblocked *streams*, not direct `to_layout` buffers.** The "spike" (choosing
+  `block_shape=[1,2]` so `to_layout` yields the 2x1 / 4x1 grids directly) makes
+  the *generic* identical, but skips the `d2m.view_layout` reblock the rewriter
+  emits (input `2x2x1x1 → 2x1x1x2`, output `4x2x1x1 → 4x1x1x2`, via
+  `calculate_reblock_map`). Without those stream views the downstream fabric/DMA
+  lowering fails (`D2MToTTKernel getFabricConnectionManager`: no fabric
+  `dma_write` found in the func). So **C5.2 (the reblock) is required after all**
+  — the streams carry the buffer↔stream relationship the DMA lowering needs.
+
+**Remaining C5 work (precise):**
+1. A `reblock(lt, grid)` host helper: `ViewLayoutOp` with
+   `d2m.ir.calculate_reblock_map(old_device_shape, new_device_shape, ctx)` to the
+   stream grid. Input: `mesh_shard → L(grid=[2,2]) → reblock([2,1])`. Output:
+   `empty(L(grid=[4,2])) → reblock([4,1])`.
+2. Thread the reblocked-view output back through `mesh_gather` / `to_host`
+   (the generic result is a stream view; `_emit_returns_and_finalise` must
+   un-view it before `from_device` + `shard_to_full` — the view↔buffer + mesh
+   interaction is the fiddly part).
+3. Enable `config.use_split_unified_thread_v2` for the all_gather (or detect a
+   fabric kernel and set it).
+4. Run on a healthy 2-chip mesh and PCC-check vs the reference all_gather
+   (`hstack(vstack(in[:,0:64], in[:,64:128]), ...)` for the 1x2 256x512 case).
+
+**Env note:** repeated multi-device open/close put the dev box's chip into an
+`ARC startup` firmware error; on-device runs need a `tt-smi` reset.
