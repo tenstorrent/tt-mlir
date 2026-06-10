@@ -7,10 +7,14 @@
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/common/runtime_context.h"
 #include "tt/runtime/detail/distributed/controller/command_factory.h"
+#include "tt/runtime/detail/distributed/flatbuffer/command_generated.h"
 #include "tt/runtime/detail/distributed/flatbuffer/flatbuffer.h"
 #include "tt/runtime/detail/distributed/utils/utils.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
+
+#include <chrono>
+
 namespace tt::runtime::distributed::controller {
 
 namespace fb = ::tt::runtime::distributed::flatbuffer;
@@ -876,6 +880,8 @@ void Controller::processResponseQueue() {
     std::vector<std::future<SizedBuffer>> readFutures;
     readFutures.reserve(workerConnections_.size());
 
+    auto readStart = std::chrono::steady_clock::now();
+
     for (const auto &workerConnection : workerConnections_) {
       readFutures.push_back(workerConnection->sizePrefixedReadAsync());
     }
@@ -892,10 +898,18 @@ void Controller::processResponseQueue() {
     responseBuffers.reserve(readFutures.size());
     for (std::future<SizedBuffer> &readFuture : readFutures) {
       if (readFuture.wait_for(readTimeout) == std::future_status::timeout) {
-        LOG_FATAL("Read timeout occurred while receiving response from worker");
+        LOG_FATAL("Read timeout occurred while receiving response from worker "
+                  "for ",
+                  fb::EnumNameCommandType(commandType), " after ",
+                  readTimeout.count(), " seconds");
       }
       responseBuffers.push_back(readFuture.get());
     }
+
+    [[maybe_unused]] auto readElapsedMs =
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - readStart)
+            .count();
 
     for (const SizedBuffer &responseBuffer : responseBuffers) {
       if (isResponseType(responseBuffer, fb::ResponseType::ErrorResponse)) {
@@ -908,7 +922,8 @@ void Controller::processResponseQueue() {
     handleResponse(responseBuffers, std::move(awaitingResponseQueueEntry));
 
     LOG_DEBUG("Finished handling response for command id: ", commandId,
-              " and command type: ", fb::EnumNameCommandType(commandType));
+              " and command type: ", fb::EnumNameCommandType(commandType),
+              " (waited ", readElapsedMs, " ms for worker response(s))");
   }
 }
 
