@@ -31,6 +31,7 @@ from ._src.builder import (
     MeshShard,
     mesh_shard,
     mesh_gather,
+    reblock,
     fabric_config,
     kernel,
     to_layout,

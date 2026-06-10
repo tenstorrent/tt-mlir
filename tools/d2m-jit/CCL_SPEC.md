@@ -570,3 +570,39 @@ gather is still expressible — it may simplify C5.2 away for the first cut.
 
 **Env note:** repeated multi-device open/close put the dev box's chip into an
 `ARC startup` firmware error; on-device runs need a `tt-smi` reset.
+
+### C5.2 done: `reblock` implemented + threaded through the gather path
+
+- `d2m.reblock(lt, grid)` emits `d2m.view_layout` with
+  `d2m.ir.calculate_reblock_map` to a stream grid; it picks `block_shape` so the
+  new layout's blocked grid equals `grid` (self-consistent, so the later
+  device-view/to_host is a no-op). Verified: produces the same `2x2x1x1 →
+  2x1x1x2` view + `#map` as the rewriter.
+- Threaded: `mesh_shard(full, L(grid=[2,2])) → reblock([2,1]) → all_gather
+  kernel → reblock'd output → mesh_gather → to_host`. Kernel-output rebinding
+  now clears `is_view` (a reblocked stream becomes a real result once written).
+- The full all_gather **builds** with the right structure (reblocked streams,
+  fabric config, kernel body).
+
+**🔴 Still not lowering — narrowed to IR-shape deltas vs the rewriter.** Diffing
+my pre-pipeline IR against `D2MAllGatherRewriter`'s output (the reference lowers
+cleanly through our pipeline with split-v2), the remaining differences are:
+  1. **Output buffer shape.** Rewriter: plain `empty(128x64)` → `to_layout`
+     (4x2) → `view_layout` (4x1). Mine: `d2m.empty` directly at the device grid
+     (4x2) → `reblock`, skipping the plain-tensor + to_layout step.
+  2. **Load buffer op.** Rewriter uses `tensor.empty` for the per-core load
+     buffer; my in-kernel `empty([1,2])` emits `d2m.empty`.
+  3. **No `d2m.yield`.** The rewriter yields the `remote_store` result; d2m-jit
+     kernels end without a yield (works for non-CCL, maybe not for the fabric
+     path).
+  4. **Output index op.** Rewriter emits `affine.apply` (`dx*2+cy`); mine emits
+     `arith.muli/addi` (equivalent value).
+  The crash is `D2MToTTKernel getFabricConnectionManager` (no fabric `dma_write`
+  found in the mesh_position's func) — one of the above changes the
+  thread-split grouping or the remote_store→dma_write lowering so the fabric
+  write isn't where the mesh_position rewriter expects it.
+
+**Next:** reproduce the rewriter's exact IR shape (likely #1 output-buffer
+structure and/or #2 `tensor.empty` matter most), iterating against a healthy
+device. The reblock + fabric + mesh plumbing are all in place; this is now a
+"match the rewriter's IR byte-for-byte" exercise on the fabric path.
