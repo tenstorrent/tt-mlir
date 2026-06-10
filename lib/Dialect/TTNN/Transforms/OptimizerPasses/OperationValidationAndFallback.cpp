@@ -170,6 +170,18 @@ public:
           return WalkResult::skip();
         }
 
+        if (auto sliceOp = mlir::dyn_cast<ttnn::SliceStaticOp>(operation)) {
+          if (auto inputType = mlir::dyn_cast<mlir::RankedTensorType>(
+                  sliceOp.getInput().getType())) {
+            if (auto layout = mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(
+                    inputType.getEncoding())) {
+              if (layout.getBufferType() == BufferType::SystemMemory) {
+                return WalkResult::skip();
+              }
+            }
+          }
+        }
+
         // Skip operations that are not OpModel castable (can't be validated)
         // TODO(rpavlovic): we should have all ops implement OpModel interface
         // eventually. Then this check becomes an assert.
