@@ -13,8 +13,13 @@ runtime/pipeline plumbing).
 C-b (DSL surface): `test_mesh_shard_dsl_emits_full_and_shard` checks the
 `d2m.mesh_shard` / `to_host` op emission (no device);
 `test_mesh_shard_dsl_roundtrip_1x2` runs the same identity through the real
-`mesh_shard(...).to_host()` DSL flow. (Compute *between* the shard and gather
-is blocked on TensorMeshAttr annotation -- see CCL_SPEC.md section 7.)
+`mesh_shard(...).to_host()` DSL flow; `test_mesh_compute_roundtrip_1x2` adds a
+compute generic between shard and gather.
+
+C5 (CCL): `test_all_gather_1x2_lowers` compiles a full 1x2 all_gather kernel
+(reblock streams + fabric config + device_synchronize / cross-device
+remote_store / semaphore_wait) to a ttmetal flatbuffer. On-device execution +
+PCC is a follow-up (needs a healthy mesh). See CCL_SPEC.md section 7.
 """
 
 import pytest
@@ -242,3 +247,94 @@ def test_mesh_compute_roundtrip_1x2():
     diff = (expected - result).abs().max().item()
     assert tuple(result.shape) == (64, 128)
     assert diff < 0.05, f"mesh compute round-trip: max abs diff {diff}"
+
+
+@pytest.mark.skipif(
+    torch is None or runtime is None or ttmetal_to_flatbuffer_bin is None,
+    reason="requires torch + ttmlir runtime",
+)
+@pytest.mark.skipif(_num_devices() < 2, reason="requires a >=2-device mesh")
+def test_all_gather_1x2_lowers():
+    """A 1x2 all_gather kernel (datamovement form via unified + split-v2)
+    compiles end-to-end to a ttmetal flatbuffer.
+
+    Mirrors D2MAllGatherRewriter: mesh_shard(full_to_shard) -> reblock to the
+    stream grids -> all_gather generic (device_synchronize + cross-device
+    remote_store + semaphore_wait, with a fabric connection config) -> reblock
+    output -> mesh_gather. Validates lowering (incl. the fabric connection
+    manager setup, which needs the in-kernel scratch buffer to be tensor.empty
+    and the fabric chain on one datamovement thread). On-device execution +
+    PCC is a follow-up (needs a healthy mesh)."""
+    from d2m_jit._src.builder import _build_pipeline, _emit_returns_and_finalise
+
+    @d2m.kernel(thread="unified")
+    def all_gather(in0, out0, start_sem, end_sem):
+        dy = mesh_position(0)
+        cy = core_index(0)
+        cx = core_index(1)
+        device_synchronize(
+            start_sem,
+            start_device=[dy, 0],
+            mcast_shape=[1, 2],
+            num_receivers=1,
+            core_indices=[cy, cx],
+        )
+        buf = empty([1, 2])
+        remote_load(buf, in0, [cy, 0])
+        dx = mesh_position(1)
+        remote_store(
+            out0,
+            [dx * 2 + cy, 0],
+            buf,
+            start_device=[dy, 0],
+            device_mcast_shape=[1, 2],
+            semaphore=end_sem,
+            semaphore_indices=[cy, 0],
+        )
+        semaphore_wait(end_sem, 1)
+
+    sd = _get_system_desc_path()
+    if not sd:
+        pytest.skip("no system descriptor available")
+
+    prev_v2 = d2m.config.use_split_unified_thread_v2
+    d2m.config.use_split_unified_thread_v2 = True  # the fabric kernel needs v2
+    try:
+        d2m.mesh((1, 2), topology=("linear", "ring"))
+        L_in = d2m.Layout(
+            shape=(64, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[2, 2]
+        )
+        L_out = d2m.Layout(
+            shape=(128, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[4, 2]
+        )
+        in_s = d2m.reblock(
+            d2m.mesh_shard(
+                torch.randn(64, 128), L_in, shard_dims=[0, 1], shard_shape=[1, 2]
+            ),
+            [2, 1],
+        )
+        out_s = d2m.reblock(d2m.empty(L_out), [4, 1])
+        ss = d2m.global_semaphore(grid_shape=(8, 8))
+        es = d2m.global_semaphore(grid_shape=(8, 8))
+        all_gather(
+            in_s, out_s, ss, es, grid=(2, 1), fabric=d2m.fabric_config(cluster_axis=1)
+        )
+        out = d2m.mesh_gather(out_s, shard_dims=[0, 1], shard_shape=[1, 2])
+
+        # Build + lower to a ttmetal flatbuffer (no execution).
+        b = _Builder.get()
+        _emit_returns_and_finalise(b, [out._resolve()])
+        PassManager.parse(
+            f"builtin.module(ttcore-register-device{{system-desc-path={sd} "
+            f"mesh-shape=1,2 mesh-topology=linear,ring}})",
+            context=b.ctx,
+        ).run(b.module.operation)
+        b.module.operation.verify()
+        PassManager.parse(f"builtin.module({_build_pipeline()})", context=b.ctx).run(
+            b.module.operation
+        )
+        fbb = binary.load_binary_from_capsule(ttmetal_to_flatbuffer_bin(b.module))
+        assert tuple(fbb.get_program_mesh_shape(0)) == (1, 2)
+    finally:
+        d2m.config.use_split_unified_thread_v2 = prev_v2
+        _Builder.reset()

@@ -54,9 +54,9 @@ _Builder.reset()
 # CHECK: "d2m.mesh_position"() <{dim = 0 : i64}> : () -> index
 # CHECK: "d2m.mesh_position"() <{dim = 1 : i64}> : () -> index
 # CHECK: "d2m.core_index"() <{dim = 0 : i64}> : () -> index
-# Explicit-buffer load: empty scratch, then a remote_load whose first operand
-# is that buffer (localBuffer segment = 1).
-# CHECK: %[[BUF:.*]] = "d2m.empty"() : () -> tensor<1x1x!ttcore.tile<32x32, f32>>
+# Explicit-buffer load: tensor.empty scratch, then a remote_load whose first
+# operand is that buffer (localBuffer segment = 1).
+# CHECK: %[[BUF:.*]] = "tensor.empty"() : () -> tensor<1x1x!ttcore.tile<32x32, f32>>
 # CHECK: "d2m.remote_load"(%[[BUF]], {{.*}}) <{operandSegmentSizes = array<i32: 1, 1, 2, 0, 0, 0, 0>}>
 # Cross-device store: startDevice + deviceMcastShape present, no semaphore.
 # CHECK: "d2m.remote_store"({{.*}}) <{operandSegmentSizes = array<i32: 1, 2, 1, 0, 2, 2, 0, 0>}>

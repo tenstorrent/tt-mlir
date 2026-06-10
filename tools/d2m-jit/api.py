@@ -7,7 +7,7 @@ from __future__ import annotations
 import ast
 
 from ttmlir.ir import *
-from ttmlir.dialects import d2m, ttcore, arith, linalg
+from ttmlir.dialects import d2m, ttcore, arith, linalg, tensor
 from ttmlir.dialects._ods_common import get_default_loc_context
 
 from ._src.utils import _asindex
