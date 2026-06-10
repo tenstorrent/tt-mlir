@@ -39,9 +39,10 @@ llvm::StringRef validationStatusToString(ValidationStatus status) {
   return "Unknown";
 }
 
-static ValidationResult
-validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                    const OpConfig &config, uint64_t additionalL1Usage);
+static ValidationResult validateConstraints(
+    Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+    const OpConfig &config, uint64_t additionalL1Usage, bool useState = false,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords = {});
 
 //----------- Public API implementations ----------
 
@@ -50,6 +51,15 @@ ValidationResult validateOperation(Operation *op,
                                    const OpConfig &config,
                                    uint64_t additionalL1Usage) {
   return validateConstraints(op, inputLayouts, config, additionalL1Usage);
+}
+
+ValidationResult
+validateOperation(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                  const OpConfig &config,
+                  llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords,
+                  uint64_t additionalL1Usage) {
+  return validateConstraints(op, inputLayouts, config, additionalL1Usage,
+                             /*useState=*/true, liveRecords);
 }
 
 std::vector<ValidationResult>
@@ -120,14 +130,31 @@ checkConstraintsResult(Operation *contextOp,
           TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,
                        "OpModel constraints failed: {}",
                        ttmlir::utils::firstNLines(errorMsg, 8));
-          result = ValidationResult::metalBackendError(
-              ttmlir::utils::firstNLines(errorMsg, 8));
+          // The stateful (build-from-records) query places the currently-live
+          // tensors at real addresses, so an op that does not fit surfaces as a
+          // tt-metal allocator exception ("Out of Memory: Not enough space
+          // ...") from the backend rather than via the peak-usage budget check
+          // below. Classify that as OOM (not a hard backend error) so the L1
+          // spill pass takes the evict-and-refit recovery -- the same path the
+          // scalar tracker's soft OOM takes. Demoting straight to DRAM instead
+          // skips config fallback and can leave a numerically-wrong op config
+          // (https://github.com/tenstorrent/tt-mlir/issues/9045). A genuine
+          // backend constraint (unsupported config, etc.) carries no "Out of
+          // Memory" marker and still routes to metalBackendError.
+          if (errorMsg.find("Out of Memory") != std::string::npos) {
+            result = ValidationResult::outOfMemoryError(
+                ttmlir::utils::firstNLines(errorMsg, 8));
+          } else {
+            result = ValidationResult::metalBackendError(
+                ttmlir::utils::firstNLines(errorMsg, 8));
+          }
         });
     return result;
   }
 
   auto [cbPeakUsage, l1BuffersPeakUsage, overallPeakL1Usage,
-        outputTensorUsagePerCore, outputLayouts] = constraints.get();
+        outputTensorUsagePerCore, outputLayouts, outputAllocations] =
+      constraints.get();
 
   uint64_t effectiveL1Limit = utils::getUsableL1PerCore(contextOp);
   uint64_t totalL1Usage = overallPeakL1Usage + additionalL1Usage;
@@ -151,15 +178,18 @@ checkConstraintsResult(Operation *contextOp,
                overallPeakL1Usage, cbPeakUsage, l1BuffersPeakUsage,
                outputTensorUsagePerCore);
 
-  return ValidationResult::success(0, outputLayouts, outputTensorUsagePerCore,
-                                   cbPeakUsage);
+  ValidationResult result = ValidationResult::success(
+      0, outputLayouts, outputTensorUsagePerCore, cbPeakUsage);
+  result.outputAllocations = std::move(outputAllocations);
+  return result;
 }
 
 // ----------- Core constraint validation implementation ----------
 
-static ValidationResult
-validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                    const OpConfig &config, uint64_t additionalL1Usage) {
+static ValidationResult validateConstraints(
+    Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+    const OpConfig &config, uint64_t additionalL1Usage, bool useState,
+    llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
 
   // Check that operation supports OpModel interface.
   auto backend = mlir::dyn_cast<OpModel>(op);
@@ -201,8 +231,13 @@ validateConstraints(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
   }
   TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation, "Output config {}", config);
 
+  // Stateful path (L1 spill): route through the uncached
+  // getOpConstraintsWithState so the query is evaluated against the live
+  // allocation set. Stateless path (beam search): the cached getOpConstraints.
   llvm::Expected<ttnn::op_model::OpConstraints> l1UsageExp =
-      backend.getOpConstraints(inputLayouts, config);
+      useState
+          ? backend.getOpConstraintsWithState(inputLayouts, config, liveRecords)
+          : backend.getOpConstraints(inputLayouts, config);
 
   return checkConstraintsResult(op, std::move(l1UsageExp), additionalL1Usage);
 }
