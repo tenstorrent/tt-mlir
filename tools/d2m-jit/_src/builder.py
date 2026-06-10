@@ -1256,6 +1256,7 @@ def _emit_kernel_generic(
             iter_attr,
             threads,
             1,  # num_regions
+            fabricConnectionConfig=fabric,
         )
 
         region = generic.regions[0]
