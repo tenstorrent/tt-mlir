@@ -25,8 +25,8 @@ static bool hasSetComputeConfigFields(DeviceComputeKernelConfigAttr config) {
 }
 
 template <typename OpTy>
-void applyLargeInnerDimBf16MatmulConfig(
-    OpTy op, DeviceComputeKernelConfigAttr &config) {
+void applyLargeInnerDimBf16MatmulConfig(OpTy op,
+                                        DeviceComputeKernelConfigAttr &config) {
   std::optional<int64_t> innerDim =
       getMatmulInnerDim(op.getA().getType(), op.getB().getType(),
                         op.getTransposeA(), op.getTransposeB());
