@@ -647,3 +647,36 @@ With that, the full 1x2 all_gather — `mesh_shard → reblock → all_gather ke
   `config.use_split_unified_thread_v2`); detect a `fabric=`/CCL kernel and set
   it automatically.
 - **Generalise the 1x2 literals** to mesh-shape-derived values (C5.4) for 1x8.
+
+### Line config on a 1x2 mesh (n300) — progress
+
+d2m **does** support a line config: `Topology` has `linear` and `RoutingMode`
+has `bidir_line_mesh` (vs ring / `unidir_ring_torus`), both exposed on the
+`#ttcore.fabric_connection_config` attr. Because the DSL hand-builds the kernel
+(not via `D2MAllGatherRewriter`, which hard-asserts ring-only), we can target
+the 2-chip n300's bidirectional line. Two changes vs the ring version:
+- `d2m.mesh((1,2), topology=("linear","linear"))` and
+  `fabric_config(cluster_axis=1, topology="linear", routing="bidir_line_mesh")`.
+- **One core per device**, not two: a line uses `num_cores = num_links*1 = 1`
+  (ring uses `*2`). So `grid=(1,1)`, the whole per-device shard on one core
+  (`buf = empty([2,2])`, `remote_load(buf, in0, [0,0])`), output index
+  `out_i = mesh_position(1)` (shardOffset 1), no work-split reblock.
+
+Progress on the 1x2 box (each step cleared the previous error):
+1. ring topology → `FATAL: Backward direction is missing` (2-chip has no ring
+   backward link). Fixed by linear topology.
+2. 2-core kernel → `FATAL: Number of cores (2) exceeds routing planes (1)`.
+   Fixed by the single-core (grid 1x1) line kernel.
+3. single-core line kernel → **compiles, lowers, and passes fabric init**, but
+   **execution hangs** (deadlock, killed at timeout). The hand-written
+   cross-device sync (device_synchronize / mcast remote_store + semaphore_wait,
+   copied from the ring rewriter) does not complete on a 2-device line.
+
+**🔴 Remaining: the line all_gather sync protocol.** There is no reference for
+a *line* all_gather (the rewriter is ring-only), so the device_synchronize /
+semaphore mcast protocol for a 2-device bidirectional line needs to be worked
+out (num_receivers, mcast start/shape, wait values, and whether a 2-device line
+even forms the expected mcast group). This is genuine cross-device-protocol
+work, not a DSL gap — the DSL can express it; the protocol values are unknown.
+The dev box's chip also wedges (ARC `0xdeadc0de`) on repeated fabric runs,
+needing `tt-smi -r` (sometimes twice), which makes iteration slow.
