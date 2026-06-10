@@ -239,7 +239,7 @@ def test_broadcast(shape: List[int], broadcast_dimensions: List[int], request, d
         pytest.param(
             [(4, 8, 128, 128), (4, 1, 128, 128)],
             marks=[
-                pytest.mark.skip_config("sim"),
+                pytest.mark.skip_config(["sim"]),
                 pytest.mark.xfail(
                     reason="metal rejects a rank-4 matmul dim-1 batch mismatch "
                     "when the RHS batch is not 1; see FoldBroadcastIntoMatmul",
