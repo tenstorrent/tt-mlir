@@ -719,3 +719,34 @@ config (e.g. 1x8). The same local self-inc happens for ring, so `num_devices` is
 believed correct there too (`num_devices - 1` was a latent off-by-one the ring
 path never exercised on-device — `(1,8)` is filtered out on this 2-chip n300).
 **This must be validated on an ≥8-chip ring system (CI) before merge.**
+
+### d2m-jit DSL port of the all_gather (`test_all_gather_1x2_roundtrip`)
+
+`test/d2m-jit/test_mesh.py::test_all_gather_1x2_roundtrip` hand-builds the same
+1x2 line all_gather via the DSL (the rewriter mirror). Two things surfaced:
+
+1. **✅ Fixed: datamovement-thread segfault.** A `@d2m.kernel(thread=
+   "datamovement")` CCL kernel emits `remote_load`/`remote_store` in *implicit
+   (local-buffer)* form (no CB — the unified path's `SplitUnifiedThread` is what
+   inserts CBs). `D2MLowerLoadStoreOpsToDMA` only handled explicit-CB form and
+   segfaulted on `getCbType().getUnderlyingAs<MemRefType>()` (null `CBType`).
+   Both `D2MLowerRemoteStoreRewritePattern` and `D2MLowerRemoteLoadRewritePattern`
+   now lower the implicit form directly to `dma_write`/`dma_read` on the local
+   buffer (no CB reserve/wait/push/pop). `datamovement` now lowers + reaches
+   execution. (There was no prior datamovement-through-full-pipeline test;
+   `ccl_all_gather.py` only register-device + verify + prints IR.)
+
+2. **🔴 Open: DSL kernel device-hangs at execution.** With the segfault fixed,
+   the hand-built kernel deadlocks on the 2-device line on **both**
+   `datamovement` and `unified`+split-v2 (103% host CPU busy-poll, no compiler
+   running), while the **rewriter** path passes e2e with the same protocol
+   values (`num_receivers = 1`, end-wait `num_devices = 2`, single-core line,
+   linear/bidir_line_mesh). So it is *not* the end-wait off-by-one. Suspected: a
+   structural / semaphore-init discrepancy vs the rewriter — e.g. d2m-jit emits
+   `reset_global_semaphore` only *after* the generic (for dealloc), not as a
+   pre-kernel init; the rewriter pipeline resets at host scope. Next step:
+   compile-only diff the DSL kernel's lowered D2M/ttmetal IR against the
+   rewriter's to find the delta, then on-device `dprint` the semaphore values.
+   The test is `@pytest.mark.skip`ped (a device-hang can't be `xfail`'d — it
+   would time out the suite) with the correct algorithm captured for when the
+   hang is resolved.

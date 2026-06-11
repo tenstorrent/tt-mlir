@@ -177,6 +177,27 @@ public:
           remoteLoad, "remote operand must be a memref, not a tensor");
     }
 
+    Value remoteMemref = remoteLoad.getMemref();
+    SmallVector<Value> gridIndices = remoteLoad.getIndices();
+
+    // Implicit (local buffer) form: DMA-read the shard straight into the local
+    // buffer memref (e.g. a datamovement-thread CCL kernel's scratch buffer).
+    // No CB to reserve/push; the buffer is already allocated.
+    if (!remoteLoad.isExplicitCBForm()) {
+      assert(remoteLoad.getLocalBuffer() &&
+             "remote_load must have either a CB or a local buffer");
+      if (remoteLoad.isMcast()) {
+        return rewriter.notifyMatchFailure(
+            remoteLoad, "multicast remote_load requires explicit CB form");
+      }
+      Value localMemref = remoteLoad.getLocalBuffer();
+      Value dmaTx = rewriter.create<DMAReadOp>(loc, remoteMemref, gridIndices,
+                                               localMemref);
+      rewriter.eraseOp(remoteLoad);
+      rewriter.create<DMAWaitOp>(loc, dmaTx);
+      return success();
+    }
+
     CBType cbType = remoteLoad.getCbType();
     if (!cbType.getUnderlyingAs<MemRefType>()) {
       return rewriter.notifyMatchFailure(
@@ -189,8 +210,6 @@ public:
 
     // Unicast path: reserve CB, emit shard-level dma_read, wait, push.
     Value cb = remoteLoad.getCb();
-    Value remoteMemref = remoteLoad.getMemref();
-    SmallVector<Value> gridIndices = remoteLoad.getIndices();
 
     Value localMemref = rewriter.create<ReserveOp>(loc, cb).getResult();
     Value dmaTx =
@@ -226,20 +245,32 @@ public:
           remoteStore, "remote operand must be a memref, not a tensor");
     }
 
-    CBType cbType = remoteStore.getCbType();
-    if (!cbType.getUnderlyingAs<MemRefType>()) {
-      return rewriter.notifyMatchFailure(
-          remoteStore, "circular buffer must have memref underlying type");
-    }
-
-    Value cb = remoteStore.getCb();
     Value remoteMemref = remoteStore.getMemref();
     SmallVector<Value> gridIndices = remoteStore.getIndices();
     ValueRange startDevice = remoteStore.getStartDevice();
     ValueRange deviceMcastShape = remoteStore.getDeviceMcastShape();
 
-    // Wait on CB, emit shard-level dma_write, wait, pop
-    Value localMemref = rewriter.create<WaitOp>(loc, cb).getResult();
+    // The store source is either an explicit CB (wait on it, pop when done) or,
+    // in implicit form, a plain local-buffer memref (e.g. a datamovement-thread
+    // CCL kernel that loaded into a scratch buffer). Post-bufferization the
+    // local buffer is already the memref a CB WaitOp would have yielded, so the
+    // two forms share the same dma_write; only the CB form needs wait/pop.
+    Value cb;
+    Value localMemref;
+    if (remoteStore.isExplicitCBForm()) {
+      CBType cbType = remoteStore.getCbType();
+      if (!cbType.getUnderlyingAs<MemRefType>()) {
+        return rewriter.notifyMatchFailure(
+            remoteStore, "circular buffer must have memref underlying type");
+      }
+      cb = remoteStore.getCb();
+      localMemref = rewriter.create<WaitOp>(loc, cb).getResult();
+    } else {
+      localMemref = remoteStore.getLocalBuffer();
+      assert(localMemref &&
+             "remote_store must have either a CB or a local buffer");
+    }
+
     Value dmaTx =
         rewriter.create<DMAWriteOp>(loc, localMemref, remoteMemref, gridIndices,
                                     startDevice, deviceMcastShape);
@@ -255,8 +286,10 @@ public:
 
     // Wait for DMA to complete.
     rewriter.create<DMAWaitOp>(loc, dmaTx);
-    // Pop the circular buffer to signal consumption.
-    rewriter.create<PopOp>(loc, cb);
+    // Pop the circular buffer to signal consumption (CB form only).
+    if (cb) {
+      rewriter.create<PopOp>(loc, cb);
+    }
     return success();
   }
 };

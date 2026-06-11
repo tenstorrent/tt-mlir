@@ -338,3 +338,114 @@ def test_all_gather_1x2_lowers():
     finally:
         d2m.config.use_split_unified_thread_v2 = prev_v2
         _Builder.reset()
+
+
+@pytest.mark.skipif(
+    torch is None or runtime is None,
+    reason="requires torch + ttmlir runtime",
+)
+@pytest.mark.skipif(_num_devices() < 2, reason="requires a >=2-device mesh")
+@pytest.mark.skip(
+    reason="d2m-jit DSL all_gather device-hangs at execution (both 'datamovement' "
+    "and 'unified'+v2), unlike the REWRITER path "
+    "(test/python/golden/d2m/test_allgather.py, which passes e2e with the same "
+    "protocol values). It compiles + lowers + reaches execution; the hand-built "
+    "kernel deadlocks on the 2-device line for a reason distinct from the "
+    "(already-fixed) end-wait off-by-one -- likely a structural / semaphore-init "
+    "discrepancy vs the rewriter. See CCL_SPEC.md section 7."
+)
+def test_all_gather_1x2_roundtrip():
+    """A 1x2 line-config all_gather, the d2m-jit DSL mirror of
+    `test/python/golden/d2m/test_allgather.py` (which drives
+    D2MAllGatherRewriter). Hand-builds the same generic on a bidirectional
+    2-device line: device_synchronize barrier -> cross-device mcast
+    remote_store -> semaphore_wait, with a linear / bidir_line_mesh fabric
+    config (a 2-device ring has no backward link).
+
+    Authored as a `datamovement`-thread kernel (the CCL ops are illegal in
+    unified form); the remote_load/remote_store run in implicit (local-buffer)
+    form, which D2MLowerLoadStoreOpsToDMA lowers straight to dma_read/dma_write.
+
+    Line-config specifics vs the ring algorithm in CCL_SPEC.md section 7:
+    - topology "linear" + routing "bidir_line_mesh" (not ring / unidir).
+    - end-wait target num_devices (2), not num_devices - 1: remote_store
+      increments endSemaphore on every device in the mcast range *including
+      this one* (a local self-increment for the shard written locally), so each
+      device sees num_devices increments; an exact-equality wait on
+      num_devices - 1 overshoots by one and deadlocks (CCL_SPEC.md section 7).
+    - one core per device (num_cores = num_links*1 = 1, vs ring's *2): a
+      single-core (grid 1x1) kernel, whole per-device shard on one core.
+
+    Data flow (full (64,128), shard dim 1 by 2, gather dim 0, cluster axis 1):
+    device d's shard is full[:, 64*d:64*(d+1)]; after the gather every device
+    holds vstack(shard0, shard1) (128,64); shard_to_full column-concats the two
+    identical halves -> (128,128)."""
+
+    @d2m.kernel(thread="datamovement")
+    def all_gather(in0, out0, start_sem, end_sem):
+        dy = mesh_position(0)
+        cy = core_index(0)
+        cx = core_index(1)
+        device_synchronize(
+            start_sem,
+            start_device=[dy, 0],
+            mcast_shape=[1, 2],
+            num_receivers=1,
+            core_indices=[cy, cx],
+        )
+        buf = empty([2, 2])  # whole 64x64 shard (2x2 tiles) on one core
+        remote_load(buf, in0, [0, 0])
+        dx = mesh_position(1)
+        # shardOffset = 1: device d writes its shard to output block [d, 0].
+        remote_store(
+            out0,
+            [dx, 0],
+            buf,
+            start_device=[dy, 0],
+            device_mcast_shape=[1, 2],
+            semaphore=end_sem,
+            semaphore_indices=[0, 0],
+        )
+        # num_devices (1 remote + 1 local self-inc), not num_devices - 1.
+        semaphore_wait(end_sem, 2)
+
+    try:
+        d2m.mesh((1, 2), topology=("linear", "linear"))
+        L_in = d2m.Layout(
+            shape=(64, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[2, 2]
+        )
+        L_out = d2m.Layout(
+            shape=(128, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[4, 2]
+        )
+        full = torch.randn(64, 128, dtype=torch.float32)
+        # Single core: whole shard on one block; output spans the gather dim
+        # (2 device slots) over one core.
+        in_s = d2m.reblock(
+            d2m.mesh_shard(full, L_in, shard_dims=[0, 1], shard_shape=[1, 2]),
+            [1, 1],
+        )
+        out_s = d2m.reblock(d2m.empty(L_out), [2, 1])
+        ss = d2m.global_semaphore(grid_shape=(8, 8))
+        es = d2m.global_semaphore(grid_shape=(8, 8))
+        all_gather(
+            in_s,
+            out_s,
+            ss,
+            es,
+            grid=(1, 1),
+            fabric=d2m.fabric_config(
+                cluster_axis=1, topology="linear", routing="bidir_line_mesh"
+            ),
+        )
+        out_s = d2m.mesh_gather(out_s, shard_dims=[0, 1], shard_shape=[1, 2])
+        result = out_s.to_host()
+
+        shard0 = full[:, :64]
+        shard1 = full[:, 64:]
+        vstack = torch.cat([shard0, shard1], dim=0)  # (128, 64)
+        expected = torch.cat([vstack, vstack], dim=1)  # (128, 128)
+        assert tuple(result.shape) == (128, 128), result.shape
+        diff = (expected - result).abs().max().item()
+        assert diff < 0.05, f"1x2 all_gather max abs diff {diff}"
+    finally:
+        _Builder.reset()
