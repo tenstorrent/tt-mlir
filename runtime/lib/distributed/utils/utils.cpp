@@ -67,23 +67,14 @@ getTTRunCommand(uint16_t port,
   const char *wrapperEnv = std::getenv("TTNN_WORKER_WRAPPER");
   std::string workerWrapper = wrapperEnv ? wrapperEnv : "";
 
-  oss << "./ttnn/ttnn/distributed/ttrun.py " << multiProcessArgs.toArgString();
+  oss << "./ttnn/ttnn/distributed/ttrun.py " << multiProcessArgs.toArgString()
+      << " ";
 
-  std::string workerCommand = getWorkerExecutableCommand(port, workerPathOpt,
-                                                         hostnameOpt);
   if (!workerWrapper.empty()) {
-    workerCommand = workerWrapper + " " + workerCommand;
+    oss << workerWrapper << " ";
   }
 
-  // Tracy -r re-invokes `python3 -m tracy <osCmd>` without -r. `bash -c` as the
-  // profiled program makes Tracy call open_code("bash"). Use `sh -c '<worker>'`
-  // so the inner Tracy subprocess runs the worker via the shell.
-  const char *tracyEnv = std::getenv("TTRUN_TRACY");
-  if (tracyEnv && tracyEnv[0] != '\0') {
-    oss << " --tracy \"-r\" sh -c '" << workerCommand << "'";
-  } else {
-    oss << " bash -c \"" << workerCommand << "\"";
-  }
+  oss << getWorkerExecutableCommand(port, workerPathOpt, hostnameOpt);
 
   return oss.str();
 }
