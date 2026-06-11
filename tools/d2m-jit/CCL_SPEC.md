@@ -879,3 +879,35 @@ path never exercised on-device — `(1,8)` is filtered out on this 2-chip n300).
    The test is `@pytest.mark.skip`ped (a device-hang can't be `xfail`'d — it
    would time out the suite) with the correct algorithm + the load→store fix
    captured for when the hang is resolved.
+
+   **Kernel-C++ diff (done) — the datamovement kernel is identical; the
+   divergence is program/runtime-level.** Cleared the program-kernel cache, ran
+   the golden rewriter cold to get its CCL datamovement kernel C++
+   (`kernel_includes.hpp`), and diffed it against the DSL's. The end-semaphore
+   handling is the same: local `noc_semaphore_inc(addr, 1)` to the running core
+   + `fabric_mcast_sem_inc(..., 1)` to the peer, then
+   `experimental::semaphore_wait(reinterpret_cast(ct_arg), 2)`; the ct_arg→end_sem
+   mapping is correct in both. The *only* difference was the self-inc's Y coord:
+   rewriter uses `convert_logical_y_to_translated(get_absolute_logical_y())`
+   (running core), DSL used `...(0)` (literal, from `semaphore_indices=[0,0]`).
+   **Tested the fix** (`semaphore_indices=[core_index(0), 0]`, making the DSL's
+   coord dynamic == the rewriter's): **still hangs**. (For grid 1x1 on row 0 the
+   two coincide anyway — confirming the kernel runs on (0,0) and the self-inc
+   already targets the correct core.)
+
+   So with the coord fix the datamovement kernel C++ is byte-equivalent to the
+   rewriter's, yet the DSL hangs and the rewriter passes → **the bug is not in
+   the datamovement kernel codegen.** It is in the surrounding *program/runtime*:
+   the rewriter lowers to a compute(`tilize`)+datamovement CB-pipelined
+   multi-kernel program, while the DSL is datamovement-only; and the two use
+   different runtime program-assembly / global-semaphore allocation+init / fabric
+   setup. The end sem staying at 0 (local self-inc not visible to the local wait
+   despite identical code + same core) points at the **runtime semaphore
+   allocation / device-side zero-init / kernel placement**, not the kernel.
+
+   **Next step:** compare the two *programs* (not the datamovement kernel): the
+   kernel list (rewriter has a compute kernel the DSL lacks), the global-semaphore
+   allocation + whether it is zero-initialised on device before launch, the
+   fabric program config, and the per-kernel runtime args (the actual semaphore
+   L1 addresses passed). i.e. move from kernel-C++ diffing to runtime/program
+   diffing (flatbuffer / `_execute` vs the ttmetal runtime).
