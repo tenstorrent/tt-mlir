@@ -30,6 +30,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <optional>
 #include <type_traits>
 #include <utility>
 
@@ -989,11 +990,15 @@ public:
       auto cbA = getCB(rewriter, op.getA());
       auto cbB = getCB(rewriter, op.getB());
       auto outCB = getOutCB(rewriter, op);
+      auto func = op->template getParentOfType<func::FuncOp>();
+      if (!func) {
+        return rewriter.notifyMatchFailure(op,
+                                           "tile_matmul must be inside a func");
+      }
 
       // Must have only 1 MatmulInit op per kernel, so we always insert at
       // beginning of the func, and only if no MatmulInit already exists.
-      if (auto func = op->template getParentOfType<func::FuncOp>();
-          !hasMatmulInit(func)) {
+      if (!hasMatmulInit(func)) {
         setInsertionPointToFuncStart(rewriter, func, op);
         auto transposeInit = intConstant<int32_t>(rewriter, op->getLoc(), 0);
         rewriter.create<ttkernel::MatmulInitOp>(op->getLoc(), cbA, cbB, outCB,
@@ -1021,14 +1026,22 @@ public:
 
       auto typeA = llvm::cast<MemRefType>(op.getA().getType());
       auto typeB = llvm::cast<MemRefType>(op.getB().getType());
+      const bool transposeB = op.getTransposeB();
       auto rt_i32 =
           intConstant<int32_t>(rewriter, op->getLoc(), typeA.getShape()[0]);
       auto kt_i32 =
           intConstant<int32_t>(rewriter, op->getLoc(), typeA.getShape()[1]);
-      auto ct_i32 =
-          intConstant<int32_t>(rewriter, op->getLoc(), typeB.getShape()[1]);
+      // When B is transposed its block shape is [nt, kt]; when not, it is
+      // [kt, nt].  ct_dim always denotes the number of output columns (nt).
+      auto ct_i32 = intConstant<int32_t>(rewriter, op->getLoc(),
+                                         transposeB ? typeB.getShape()[0]
+                                                    : typeB.getShape()[1]);
 
-      auto getNumColumns = [](Value view) {
+      // bKStride is the source-memref stride between consecutive K tiles in B.
+      // For an un-transposed B laid out as [K, N], advancing K moves by the
+      // source's N tile count.  For a transposed B laid out as [N, K],
+      // consecutive K tiles are contiguous.
+      auto getSourceDim = [](Value view, unsigned dim) {
         if (auto castOp =
                 dyn_cast_or_null<memref::CastOp>(view.getDefiningOp())) {
           view = castOp.getSource();
@@ -1037,12 +1050,13 @@ public:
           view = svOp.getSource();
         }
         auto srcTy = cast<MemRefType>(view.getType());
-        return srcTy.getShape()[1];
+        return srcTy.getShape()[dim];
       };
-      auto nt_i32 = intConstant<int32_t>(rewriter, op->getLoc(),
-                                         getNumColumns(op.getB()));
+      auto bKStride_i32 = intConstant<int32_t>(
+          rewriter, op->getLoc(), transposeB ? 1 : getSourceDim(op.getB(), 1));
 
-      auto transpose = intConstant<int32_t>(rewriter, op->getLoc(), 0);
+      auto transpose =
+          intConstant<int32_t>(rewriter, op->getLoc(), transposeB ? 1 : 0);
 
       rewriter.create<ttkernel::MatmulBlockInitOp>(
           op->getLoc(), cbA, cbB, outCB, transpose, ct_i32, rt_i32, kt_i32);
@@ -1070,7 +1084,7 @@ public:
 
       rewriter.create<ttkernel::ExperimentalMatmulBlockOp>(
           op->getLoc(), cbA, cbB, aTileIndex, bTileIndex, destIndex, transpose,
-          ct_i32, rt_i32, kt_i32, nt_i32);
+          ct_i32, rt_i32, kt_i32, bKStride_i32);
     } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileReduceSumOp> ||
                          std::is_same_v<ConcreteOp, d2m::TileReduceMaxOp> ||
                          std::is_same_v<ConcreteOp, d2m::TileReduceMeanOp>) {

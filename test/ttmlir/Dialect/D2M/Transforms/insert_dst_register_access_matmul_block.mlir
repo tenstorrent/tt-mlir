@@ -63,7 +63,7 @@ module {
       // CHECK-NOT: scf.if
 
       // Check matmul operation uses values from correct memory spaces
-      // CHECK: "d2m.tile_matmul_block"(%[[blockA]], %[[blockB]], %[[blockOut]]) : (memref<3x3x!ttcore.tile<32x32, f16>, strided<[3, 1], offset: ?>, #l1>, memref<3x2x!ttcore.tile<32x32, f16>, strided<[2, 1], offset: ?>, #l1>, memref<3x2x!ttcore.tile<32x32, f16>, strided<[2, 1], offset: ?>, #l1>) -> ()
+      // CHECK: "d2m.tile_matmul_block"(%[[blockA]], %[[blockB]], %[[blockOut]]) {{<\{transpose_b = false\}>}} : (memref<3x3x!ttcore.tile<32x32, f16>, strided<[3, 1], offset: ?>, #l1>, memref<3x2x!ttcore.tile<32x32, f16>, strided<[2, 1], offset: ?>, #l1>, memref<3x2x!ttcore.tile<32x32, f16>, strided<[2, 1], offset: ?>, #l1>) -> ()
 
       %c0 = arith.constant 0 : index
       %c3_10 = arith.constant 3 : index
