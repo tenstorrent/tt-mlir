@@ -151,6 +151,33 @@ createOp(::mlir::tt::FlatbufferObjectCache &cache,
 ::flatbuffers::Offset<::tt::target::ttnn::NLPConcatHeadsDecodeOp>
 createOp(::mlir::tt::FlatbufferObjectCache &cache, NLPConcatHeadsDecodeOp op);
 
+::flatbuffers::Offset<::tt::target::ttnn::BatchNormInferenceOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, BatchNormInferenceOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::BatchNormTrainingOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, BatchNormTrainingOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::GroupNormOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, GroupNormOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::LayerNormPostAllGatherOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, LayerNormPostAllGatherOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::LayerNormPreAllGatherOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, LayerNormPreAllGatherOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::LayerNormOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, LayerNormOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::RMSNormPreAllGatherOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, RMSNormPreAllGatherOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::RMSNormOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, RMSNormOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::SoftmaxOp>
+createSoftmaxOp(::mlir::tt::FlatbufferObjectCache &cache, SoftmaxOp op);
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_TARGET_TTNN_TTNNTOFLATBUFFER_H

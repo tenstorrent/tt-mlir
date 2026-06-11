@@ -3,10 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/normalization/layer_norm_post_all_gather.h"
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
-
-#include "ttnn/operations/normalization/layernorm_distributed/layernorm_post_all_gather.hpp"
+#include "tt/runtime/detail/common/logger.h"
+#include "ttmlir/OpInvoke/TTNN/Normalization/LayerNormPostAllGatherOp.h"
+#include <variant>
 
 namespace tt::runtime::ttnn::operations::layer_norm_post_all_gather {
 void run(const ::tt::target::ttnn::LayerNormPostAllGatherOp *op,
@@ -15,8 +14,6 @@ void run(const ::tt::target::ttnn::LayerNormPostAllGatherOp *op,
 
   ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->input());
   ::ttnn::Tensor &stats = tensorPool.getTTNNTensorAndValidate(op->stats());
-
-  float epsilon = op->epsilon();
 
   std::optional<::ttnn::Tensor> weight = std::nullopt;
   if (op->weight()) {
@@ -28,32 +25,26 @@ void run(const ::tt::target::ttnn::LayerNormPostAllGatherOp *op,
     bias = tensorPool.getTTNNTensorAndValidate(op->bias());
   }
 
-  std::optional<::ttnn::MemoryConfig> memoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
+  ::tt::target::ttnn::LayerNormPostAllGatherOpT layerNormPostAllGatherOpNative;
+  op->UnPackTo(&layerNormPostAllGatherOpNative);
 
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig = std::nullopt;
-  if (op->compute_config()) {
-    computeConfig =
-        utils::createDeviceComputeKernelConfig(op->compute_config());
-  }
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  std::optional<::ttnn::prim::LayerNormProgramConfig> programConfig =
-      std::nullopt;
-  if (op->program_config()) {
-    programConfig = utils::createLayerNormShardedMultiCoreProgramConfig(
-        op->program_config());
-  }
+  ttnn_op_invoke::LayerNormPostAllGatherOpResult result =
+      ttnn_op_invoke::callLayerNormPostAllGather(
+          ttnn_op_invoke::CallType::EXECUTE, layerNormPostAllGatherOpNative,
+          &input, &stats,
+          weight.has_value()
+              ? std::optional<ttnn_op_invoke::TensorArg>(&*weight)
+              : std::nullopt,
+          bias.has_value() ? std::optional<ttnn_op_invoke::TensorArg>(&*bias)
+                           : std::nullopt,
+          &targetDevice);
 
-  std::optional<::ttnn::DataType> dtype = std::nullopt;
-  if (op->dtype()) {
-    dtype = ttnn_op_invoke::operations::utils::toTTNNDataType(*op->dtype());
-  }
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callLayerNormPostAllGather execution");
 
-  ::ttnn::Tensor output = ::ttnn::layer_norm_post_all_gather(
-      input, stats, epsilon, weight, bias, memoryConfig, computeConfig,
-      programConfig, dtype);
-
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 } // namespace tt::runtime::ttnn::operations::layer_norm_post_all_gather

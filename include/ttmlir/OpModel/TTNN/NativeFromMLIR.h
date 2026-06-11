@@ -226,6 +226,51 @@ buildSplitQueryKeyValueAndSplitHeadsOpTFromMLIR(
 buildNLPConcatHeadsDecodeOpTFromMLIR(uint32_t numHeads,
                                      TTNNLayoutAttr outputLayout);
 
+::tt::target::ttnn::BatchNormInferenceOpT buildBatchNormInferenceOpTFromMLIR(
+    llvm::APFloat epsilon,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::BatchNormTrainingOpT buildBatchNormTrainingOpTFromMLIR(
+    llvm::APFloat epsilon, llvm::APFloat momentum,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::GroupNormOpT
+buildGroupNormOpTFromMLIR(int64_t numGroups, llvm::APFloat epsilon,
+                          TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::LayerNormPostAllGatherOpT
+buildLayerNormPostAllGatherOpTFromMLIR(
+    llvm::APFloat epsilon,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::LayerNormPreAllGatherOpT
+buildLayerNormPreAllGatherOpTFromMLIR(
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::LayerNormOpT
+buildLayerNormOpTFromMLIR(llvm::APFloat epsilon, TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::RMSNormPreAllGatherOpT buildRMSNormPreAllGatherOpTFromMLIR(
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+    std::optional<bool> use2DCoreGrid, TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::RMSNormOpT buildRMSNormOpTFromMLIR(
+    llvm::APFloat epsilon,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::SoftmaxOpT buildSoftmaxOpTFromMLIR(
+    int32_t dimension, bool numericStable,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout);
+
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_ENABLE_OPMODEL
 

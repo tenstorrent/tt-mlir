@@ -3,11 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/normalization/layer_norm_pre_all_gather.h"
-
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
-#include "ttnn/operations/normalization/layernorm/device/layernorm_types.hpp"
-#include "ttnn/operations/normalization/layernorm_distributed/layernorm_pre_all_gather.hpp"
+#include "tt/runtime/detail/common/logger.h"
+#include "ttmlir/OpInvoke/TTNN/Normalization/LayerNormPreAllGatherOp.h"
+#include <variant>
 
 namespace tt::runtime::ttnn::operations::layer_norm_pre_all_gather {
 void run(const ::tt::target::ttnn::LayerNormPreAllGatherOp *op,
@@ -21,35 +19,31 @@ void run(const ::tt::target::ttnn::LayerNormPreAllGatherOp *op,
     residualInput = tensorPool.getTTNNTensorAndValidate(op->residual_input());
   }
 
-  ::ttnn::DataType dtype =
-      ttnn_op_invoke::operations::utils::toTTNNDataType(op->dtype());
-
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig = std::nullopt;
-  if (op->compute_config()) {
-    computeConfig =
-        utils::createDeviceComputeKernelConfig(op->compute_config());
-  }
-
-  std::optional<::ttnn::prim::LayerNormProgramConfig> programConfig =
-      std::nullopt;
-  if (op->program_config()) {
-    programConfig = utils::createLayerNormShardedMultiCoreProgramConfig(
-        op->program_config());
-  }
-
-  std::optional<::ttnn::MemoryConfig> memoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
-
   std::optional<::ttnn::Tensor> recip = std::nullopt;
   if (op->recip()) {
     recip = tensorPool.getTTNNTensorAndValidate(op->recip());
   }
 
-  ::ttnn::Tensor output = ::ttnn::layer_norm_pre_all_gather(
-      input, dtype, residualInput, computeConfig, programConfig, memoryConfig,
-      recip);
+  ::tt::target::ttnn::LayerNormPreAllGatherOpT layerNormPreAllGatherOpNative;
+  op->UnPackTo(&layerNormPreAllGatherOpNative);
 
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
+
+  ttnn_op_invoke::LayerNormPreAllGatherOpResult result =
+      ttnn_op_invoke::callLayerNormPreAllGather(
+          ttnn_op_invoke::CallType::EXECUTE, layerNormPreAllGatherOpNative,
+          &input,
+          residualInput.has_value()
+              ? std::optional<ttnn_op_invoke::TensorArg>(&*residualInput)
+              : std::nullopt,
+          recip.has_value() ? std::optional<ttnn_op_invoke::TensorArg>(&*recip)
+                            : std::nullopt,
+          &targetDevice);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callLayerNormPreAllGather execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 } // namespace tt::runtime::ttnn::operations::layer_norm_pre_all_gather

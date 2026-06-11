@@ -163,6 +163,12 @@ createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfigT &config);
 ::ttnn::operations::transformer::SDPAProgramConfig
 createSDPAProgramConfig(const ::tt::target::ttnn::SDPAConfigT &config);
 
+::ttnn::prim::LayerNormProgramConfig
+createLayerNormShardedMultiCoreProgramConfig(
+    const ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfigT &config);
+
+::tt::tt_fabric::Topology toMetalTopology(::tt::target::Topology topology);
+
 } // namespace ttnn_op_invoke::operations::utils
 
 #endif // TTMLIR_OPINVOKE_TTNN_UTILS_UTILS_H

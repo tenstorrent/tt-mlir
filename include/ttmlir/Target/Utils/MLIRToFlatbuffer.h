@@ -972,15 +972,26 @@ toFlatbuffer(FlatbufferObjectCache &cache,
   return ::tt::target::ttnn::SDPAConfig::Pack(*cache.fbb, &t);
 }
 
+inline ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfigT
+toNative(ttnn::LayerNormShardedMultiCoreProgramConfigAttr configAttr) {
+  ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfigT config;
+  config.compute_with_storage_grid_size =
+      std::make_unique<::tt::target::ttnn::CoreCoord>(
+          toNative(configAttr.getComputeWithStorageGridSize()));
+  config.subblock_w = configAttr.getSubblockW();
+  config.block_h = configAttr.getBlockH();
+  config.block_w = configAttr.getBlockW();
+  config.inplace = configAttr.getInplace();
+  return config;
+}
+
 inline ::flatbuffers::Offset<
     ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig>
 toFlatbuffer(FlatbufferObjectCache &cache,
              ttnn::LayerNormShardedMultiCoreProgramConfigAttr configAttr) {
-  ::tt::target::ttnn::CoreCoord computeWithStorageGridSize =
-      toFlatbuffer(cache, configAttr.getComputeWithStorageGridSize());
-  return ::tt::target::ttnn::CreateLayerNormShardedMultiCoreProgramConfig(
-      *cache.fbb, &computeWithStorageGridSize, configAttr.getSubblockW(),
-      configAttr.getBlockH(), configAttr.getBlockW(), configAttr.getInplace());
+  auto t = toNative(configAttr);
+  return ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig::Pack(
+      *cache.fbb, &t);
 }
 
 inline ::tt::target::ttnn::Conv2dConfigT
@@ -1419,8 +1430,7 @@ toFlatbuffer(FlatbufferObjectCache &cache,
   return fbMathFidelity;
 }
 
-inline ::tt::target::Topology toFlatbuffer(FlatbufferObjectCache &cache,
-                                           ttcore::Topology topology) {
+inline ::tt::target::Topology toNative(ttcore::Topology topology) {
   ::tt::target::Topology fbTopology;
   switch (topology) {
   case ttcore::Topology::Ring:
@@ -1439,6 +1449,11 @@ inline ::tt::target::Topology toFlatbuffer(FlatbufferObjectCache &cache,
     llvm_unreachable("Disabled topology cannot be serialized to flatbuffer");
   }
   return fbTopology;
+}
+
+inline ::tt::target::Topology toFlatbuffer(FlatbufferObjectCache &,
+                                           ttcore::Topology topology) {
+  return toNative(topology);
 }
 
 inline ::tt::target::MoEActivationFunction
