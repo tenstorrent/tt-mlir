@@ -559,4 +559,29 @@ createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfigT &config) {
   return computeKernelConfig;
 }
 
+::ttnn::operations::transformer::SDPAProgramConfig
+createSDPAProgramConfig(const ::tt::target::ttnn::SDPAConfigT &config) {
+  ::ttnn::operations::transformer::SDPAProgramConfig sdpaConfig;
+
+  sdpaConfig.compute_with_storage_grid_size =
+      toTTNNCoreCoord(*config.compute_with_storage_grid_size);
+
+  if (config.sub_core_grids) {
+    sdpaConfig.sub_core_grids = toTTNNCoreRangeSet(*config.sub_core_grids);
+  }
+
+  sdpaConfig.q_chunk_size = config.q_chunk_size;
+  sdpaConfig.k_chunk_size = config.k_chunk_size;
+
+  if (config.exp_approx_mode.has_value()) {
+    sdpaConfig.exp_approx_mode = *config.exp_approx_mode;
+  }
+
+  if (config.max_cores_per_head_batch.has_value()) {
+    sdpaConfig.max_cores_per_head_batch = *config.max_cores_per_head_batch;
+  }
+
+  return sdpaConfig;
+}
+
 } // namespace ttnn_op_invoke::operations::utils
