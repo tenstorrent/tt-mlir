@@ -742,11 +742,32 @@ path never exercised on-device — `(1,8)` is filtered out on this 2-chip n300).
    running), while the **rewriter** path passes e2e with the same protocol
    values (`num_receivers = 1`, end-wait `num_devices = 2`, single-core line,
    linear/bidir_line_mesh). So it is *not* the end-wait off-by-one. Suspected: a
-   structural / semaphore-init discrepancy vs the rewriter — e.g. d2m-jit emits
-   `reset_global_semaphore` only *after* the generic (for dealloc), not as a
-   pre-kernel init; the rewriter pipeline resets at host scope. Next step:
-   compile-only diff the DSL kernel's lowered D2M/ttmetal IR against the
-   rewriter's to find the delta, then on-device `dprint` the semaphore values.
+   structural / semaphore-init discrepancy vs the rewriter.
+
+   **D2M IR diff (done).** Dumped the rewriter's post-`TTIRToD2M` D2M IR and the
+   DSL kernel's constructed D2M IR and compared. The sync ops are identical
+   (`device_synchronize` numReceivers=1, mcast `[1,2]`; `semaphore_wait %end, 2`;
+   matching `start_device`/`mcast_shape`/`semaphore_indices`). Two divergences
+   found — **both addressed, neither cleared the hang**:
+   1. *Store source.* The rewriter threads `remote_load`'s result into
+      `remote_store` (`%16 = remote_load …; remote_store … %16`); the DSL kernel
+      passed the pre-load buffer (`remote_load(buf,…); remote_store(…, buf)`),
+      leaving the load result dead and dropping the load→store dependency. Fixed
+      in the test (`buf = remote_load(buf, in0, [0,0])`). Real correctness fix,
+      but the hang persists.
+   2. *reset_global_semaphore.* The DSL emits two `reset_global_semaphore` after
+      the generic (builder.py, for backing-buffer deadness); the rewriter emits
+      none. Ruled out: suppressing them (env-gated patch, reverted) did not clear
+      the hang.
+   The cause is therefore **below the D2M level** — in the D2M→TTKernel fabric
+   lowering or genuinely on-device. Next step: diff the *TTKernel* IR
+   (post-`ConvertD2MToTTKernel`) DSL-vs-rewriter, and/or on-device `dprint` the
+   start/end semaphore values to see which wait never completes. Note the
+   rewriter's generic is `unified` → `SplitUnifiedThread` → datamovement+compute
+   *two* threads, while the DSL builds a single `datamovement` thread; the
+   `unified`+v2 DSL variant also hangs, so the thread *count* alone isn't it, but
+   the splitter may set up CB/buffer/fabric scaffolding the hand kernel lacks.
+
    The test is `@pytest.mark.skip`ped (a device-hang can't be `xfail`'d — it
-   would time out the suite) with the correct algorithm captured for when the
-   hang is resolved.
+   would time out the suite) with the correct algorithm + the load→store fix
+   captured for when the hang is resolved.

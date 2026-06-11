@@ -346,13 +346,14 @@ def test_all_gather_1x2_lowers():
 )
 @pytest.mark.skipif(_num_devices() < 2, reason="requires a >=2-device mesh")
 @pytest.mark.skip(
-    reason="d2m-jit DSL all_gather device-hangs at execution (both 'datamovement' "
-    "and 'unified'+v2), unlike the REWRITER path "
-    "(test/python/golden/d2m/test_allgather.py, which passes e2e with the same "
-    "protocol values). It compiles + lowers + reaches execution; the hand-built "
-    "kernel deadlocks on the 2-device line for a reason distinct from the "
-    "(already-fixed) end-wait off-by-one -- likely a structural / semaphore-init "
-    "discrepancy vs the rewriter. See CCL_SPEC.md section 7."
+    reason="d2m-jit DSL all_gather device-hangs at execution, unlike the REWRITER "
+    "path (test/python/golden/d2m/test_allgather.py, which passes e2e). Diffing "
+    "the lowered D2M IR vs the rewriter found two divergences, both now "
+    "addressed without clearing the hang: the store now threads the remote_load "
+    "result (was using the pre-load buffer), and the post-generic "
+    "reset_global_semaphore was ruled out (hang persists with it suppressed). "
+    "The cause is below the D2M level (TTKernel/fabric or on-device). "
+    "See CCL_SPEC.md section 7."
 )
 def test_all_gather_1x2_roundtrip():
     """A 1x2 line-config all_gather, the d2m-jit DSL mirror of
@@ -394,7 +395,11 @@ def test_all_gather_1x2_roundtrip():
             core_indices=[cy, cx],
         )
         buf = empty([2, 2])  # whole 64x64 shard (2x2 tiles) on one core
-        remote_load(buf, in0, [0, 0])
+        # Rebind buf to the load result so the store depends on the load (the
+        # rewriter threads remote_load's result into remote_store; passing the
+        # pre-load buffer drops the dependency and lets the DMA scheduler hoist
+        # the store's fabric mcast ahead of the load).
+        buf = remote_load(buf, in0, [0, 0])
         dx = mesh_position(1)
         # shardOffset = 1: device d writes its shard to output block [d, 0].
         remote_store(
