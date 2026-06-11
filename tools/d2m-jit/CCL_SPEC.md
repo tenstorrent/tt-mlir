@@ -816,14 +816,39 @@ path never exercised on-device — `(1,8)` is filtered out on this 2-chip n300).
    fails is the end-semaphore increment count converging to 2 on the 2-device
    line.
 
-   **Discriminating next step:** read the end-semaphore L1 value on the hang (or
-   temporarily lower the wait to `semaphore_wait_min`) to tell undershoot (stuck
-   at 1 — the remote `fabric_mcast_sem_inc` from the peer never arrives, only the
-   local self-inc) from overshoot (>2 — exact `!=` misses). The rewriter uses the
-   same exact-equality `experimental::semaphore_wait` and reaches 2, so the DSL's
-   increment delivery/count on the line differs. The rewriter path works e2e and
-   is the supported route today; the DSL port (`test_all_gather_1x2_roundtrip`)
-   stays skipped pending this follow-up.
+   **Discriminating tests (done) — the end semaphore stays at 0.** Ran the DSL
+   kernel varying the end-wait value and `device_synchronize`:
+
+   | device_synchronize | end `semaphore_wait` | result |
+   | --- | --- | --- |
+   | removed | removed | **PASS, PCC=1.0** |
+   | removed | `wait(2)` | hang |
+   | present | `wait(2)` | hang |
+   | present | `wait(1)` | hang |
+
+   The presence of the end `semaphore_wait` alone flips PASS→hang, *independent
+   of `device_synchronize`* — so the hang is the **end wait**, not the start
+   barrier (correcting the earlier `NWFD`-ambiguity read: `noc_async_writes_flushed`
+   runs after *every* fabric op, so that waypoint didn't prove "past the data
+   write"). And it hangs at **both `wait(1)` and `wait(2)`**, so the end semaphore
+   never reaches even 1 — effectively **stuck at 0**.
+
+   So `remote_store`'s `SemaphoreInc` — which the TTKernel IR shows lowering to a
+   local `noc_semaphore_inc` (self) **plus** `fabric_mcast_sem_inc` (peer) — does
+   **not** increment the semaphore that `semaphore_wait` polls: *neither* the
+   local self-inc *nor* the remote arrives at the wait's slot. This is a
+   **semaphore-plumbing bug in the DSL path**, not a wait-value error. (The
+   `num_devices` end-wait value is correct — it is verified on the rewriter, which
+   reaches exactly `num_devices`; the DSL fails because *no* increment lands, so
+   no wait value would pass.)
+
+   **Next step:** read the end-semaphore L1 value on the hang (confirm 0) and
+   trace why the emitted `noc_semaphore_inc` / `fabric_mcast_sem_inc` don't reach
+   the `semaphore_wait` slot in the single-`datamovement`-thread DSL kernel —
+   candidates: a semaphore address/handle mismatch between the inc and the wait,
+   or the inc being scheduled/placed such that it doesn't execute before the
+   wait. The rewriter path works e2e and is the supported route today; the DSL
+   port (`test_all_gather_1x2_roundtrip`) stays skipped pending this follow-up.
 
    The test is `@pytest.mark.skip`ped (a device-hang can't be `xfail`'d — it
    would time out the suite) with the correct algorithm + the load→store fix
