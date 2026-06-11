@@ -7,6 +7,7 @@
 #include "tt/runtime/detail/common/runtime_context.h"
 
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -67,9 +68,14 @@ getTTRunCommand(uint16_t port,
   const char *wrapperEnv = std::getenv("TTNN_WORKER_WRAPPER");
   std::string workerWrapper = wrapperEnv ? wrapperEnv : "";
 
-  oss << "./ttnn/ttnn/distributed/ttrun.py " << multiProcessArgs.toArgString()
-      << " "
-      << "bash -c "
+  oss << "./ttnn/ttnn/distributed/ttrun.py " << multiProcessArgs.toArgString();
+
+  const char *tracyEnv = std::getenv("TTRUN_TRACY");
+  if (tracyEnv && std::strcmp(tracyEnv, "1") == 0) {
+    oss << " --tracy";
+  }
+
+  oss << " bash -c "
       << "\"";
 
   if (!workerWrapper.empty()) {
