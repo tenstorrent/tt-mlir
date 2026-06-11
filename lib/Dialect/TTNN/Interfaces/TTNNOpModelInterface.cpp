@@ -3375,7 +3375,7 @@ ConvTranspose2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
       getKernelSize(), getStride(), getPadding(), getOutputPadding(),
       getDilation(), getGroups(), conv2dAttrs.conv2dConfig,
-      getConv2dSliceConfig(), opConfig.outputLayout);
+      getConv2dSliceConfig(), getComputeConfig(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3402,7 +3402,7 @@ ConvTranspose2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
       getKernelSize(), getStride(), getPadding(), getOutputPadding(),
       getDilation(), getGroups(), conv2dAttrs.conv2dConfig,
-      getConv2dSliceConfig(), opConfig.outputLayout);
+      getConv2dSliceConfig(), getComputeConfig(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3455,8 +3455,8 @@ PrepareConv2dBiasOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
       getInputWidth(), getKernelSize(), getStride(), getPadding(),
       getDilation(), getGroups(), getInputDtype(), getOutputDtype(),
-      conv2dAttrs.conv2dConfig, conv2dAttrs.deviceComputeKernelConfig,
-      opConfig.outputLayout);
+      conv2dAttrs.conv2dConfig, getConv2dSliceConfig(),
+      conv2dAttrs.deviceComputeKernelConfig, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
