@@ -88,30 +88,30 @@ struct AggregatedMetrics {
 inline bool isValidWeightForTargetCalculation(mlir::Value v);
 bool constEvalDoesNotChangeTensorVolume(ttcore::LoadCachedOp loadCachedOp);
 uint64_t bytesAtBfp8(RankedTensorType t);
-uint64_t getNumTileMatmuls(Value lhs, Value result);
+uint64_t getNumTileMatmuls(Value lhs, Value result, bool transposeA);
 
 //===----------------------------------------------------------------------===//
 // Performance Targets and Roofline Calculation
 //
-// Used for estimating top perf for any model on the current hadware.
+// Used for estimating top perf for any model on the current hardware.
 //
-// This calculation should be extrimly conservative and allways try to stay on
-// the side of undersetimating the time it an op takes. Overestimating can lead
+// This calculation should be extremely conservative and always try to stay on
+// the side of underestimating the time an op takes. Overestimating can lead
 // to reporting false and optimistic results which can cause a lot of harm.
 //
 // Process:
 // For each matmul op (including linear and SDPA) we calculate the time it would
 // take to read its weights from DRAM at theoretical bandwidth and the time it
 // would take to compute the matmul at 100% utilization. The max of these is the
-// roofline. The actual time estimate is then multiplied by 0.7 for a realistic
-// utilization factor.
+// roofline. The roofline is then divided by a utilization factor (0.7) to get a
+// realistic time estimate, since peak hardware throughput is rarely achievable.
 //
 // Assumptions and limitations:
 // * Single chip only, skip multichip for now
 // * All weights are assumed to be bfp8
-// * All compute cores are to be used for evey matmul
+// * All compute cores are to be used for every matmul
 // * All matmuls use HiFi2 math fidelity (32 cycles per tile-mul)
-// * All ops other then mamtul are skipped (vision models with convs will have
+// * All ops other than matmul are skipped (vision models with convs will have
 // inaccurate estimates)
 //
 // Specs used:
@@ -160,7 +160,7 @@ struct PerfTargets {
     return us * 1e6; // convert to us
   }
 
-  // Cycles per for a single 32x32x32 tile matmul.
+  // Cycles for a single 32x32x32 tile matmul.
   uint64_t getNumCycles(uint64_t numMatmulTiles, MathFidelity mathFidelity) {
     switch (mathFidelity) {
     case MathFidelity::LoFi:
@@ -186,7 +186,8 @@ struct PerfTargets {
           llvm::TypeSwitch<Operation *, bool>(op)
               .Case<MatmulOp, LinearOp>([&](auto m) {
                 weights = {m.getB()};
-                tileMuls = getNumTileMatmuls(m.getA(), m.getResult());
+                tileMuls = getNumTileMatmuls(m.getA(), m.getResult(),
+                                             m.getTransposeA());
                 return true;
               })
               .Case<ScaledDotProductAttentionDecodeOp,
@@ -296,8 +297,6 @@ private:
   uint64_t sdpaPrefillTileMuls(Value query, Value key, Value value,
                                std::optional<int32_t> slidingWindowSize,
                                bool isCausal) {
-    // TODO, needs support for sliding window since it lowers the compute .
-    // maybe support for other params that can lower compute?
     auto qType = mlir::dyn_cast<RankedTensorType>(query.getType());
     auto kType = mlir::dyn_cast<RankedTensorType>(key.getType());
     auto vType = mlir::dyn_cast<RankedTensorType>(value.getType());
@@ -315,8 +314,10 @@ private:
     // value: `[B x Hkv x Sk x Dv]`
     // Hq - number of query heads
     // Hkv - number of key/value heads, can be different from Hq in multi-query
-    // scenarios Sq - sequence length of queries Sk - sequence length of
-    // keys/values Dk - hidden dimension of keys Dv - hidden dimension of values
+    // Sq - sequence length of queries
+    // Sk - sequence length of keys/values
+    // Dk - hidden dimension of keys
+    // Dv - hidden dimension of values (usually Dk = Dv)
 
     auto B = qShape[0];
     auto Hq = qShape[1];
@@ -363,7 +364,7 @@ private:
 
 // In order to not overestimate the time it takes to read weights from DRAM, we
 // need to be sure the tensor is actually representative of the real model
-// weights We check the following conditions:
+// weights. We check the following conditions:
 // * Tensor needs to be in DRAM.
 // * A tensor that is a direct arg marked as a weight
 // (Parameter/Constant/kv_cache) is valid.
@@ -444,26 +445,34 @@ uint64_t bytesAtBfp8(RankedTensorType t) {
       static_cast<double>(t.getNumElements()) * 17.0 / 16.0 + 0.5);
 }
 
-uint64_t getNumTileMatmuls(Value lhs, Value result) {
+uint64_t getNumTileMatmuls(Value lhs, Value result, bool transposeA) {
   ArrayRef<int64_t> lhsShape =
       mlir::cast<RankedTensorType>(lhs.getType()).getShape();
   ArrayRef<int64_t> resultShape =
       mlir::cast<RankedTensorType>(result.getType()).getShape();
 
-  auto M = resultShape[resultShape.size() - 2];
-  auto K = lhsShape[lhsShape.size() - 1];
-  auto N = resultShape[resultShape.size() - 1];
-  auto batch = 1;
+  // Both operands must be at least rank 2 to extract M/K/N.
+  if (lhsShape.size() < 2 || resultShape.size() < 2) {
+    return 0;
+  }
+
+  int64_t M = resultShape[resultShape.size() - 2];
+  // The contraction dim K is the last dim of A, unless A is transposed, in
+  // which case it is the second-to-last dim.
+  int64_t K = transposeA ? lhsShape[lhsShape.size() - 2]
+                         : lhsShape[lhsShape.size() - 1];
+  int64_t N = resultShape[resultShape.size() - 1];
+  int64_t batch = 1;
   for (size_t i = 0; i < resultShape.size() - 2; i++) {
     batch *= resultShape[i];
   }
 
   // Tilize M, K, N
-  auto tilesM = (M + 31) / 32;
-  auto tilesK = (K + 31) / 32;
-  auto tilesN = (N + 31) / 32;
+  int64_t tilesM = (M + 31) / 32;
+  int64_t tilesK = (K + 31) / 32;
+  int64_t tilesN = (N + 31) / 32;
 
-  return batch * tilesM * tilesK * tilesN;
+  return static_cast<uint64_t>(batch) * tilesM * tilesK * tilesN;
 }
 
 class TTNNCollectPerfMetrics
@@ -724,9 +733,13 @@ public:
     llvm::DenseSet<Value> spilledValues;
     llvm::StringMap<int> operationTypeCounts;
     PerfTargets perfTargets;
+    // The single function whose weight ops feed the perf-target roofline.
+    // Counting only this function avoids double-counting weights when more
+    // than one function matches the walk filter below.
+    func::FuncOp perfTargetFunc;
 
     // Identify the outer forward function for perf-target collection. All
-    // inputs / wegiht tensors should be visible from the argument list of this
+    // inputs / weight tensors should be visible from the argument list of this
     // function. Nothing else is needed for the DRAM bound roofline calculation.
     {
       llvm::SmallVector<func::FuncOp> outerFuncs;
@@ -760,6 +773,21 @@ public:
         return;
       }
       perfTargets = std::move(*computed);
+
+      // Pick the one function to account for. When tracing is enabled the
+      // weight ops live in the trace-main function; otherwise they live in
+      // the validated outer forward-device function. Other matching
+      // functions (e.g. private forward funcs) are intentionally skipped so
+      // their weights are not counted twice.
+      if (ttnnEnableTrace) {
+        module->walk([&](func::FuncOp funcOp) {
+          if (!perfTargetFunc && ttmlir::utils::isTraceMainFunc(funcOp)) {
+            perfTargetFunc = funcOp;
+          }
+        });
+      } else {
+        perfTargetFunc = outerFuncs.front();
+      }
     }
 
     module->walk([&](func::FuncOp funcOp) {
@@ -774,8 +802,11 @@ public:
       }
 
       // Walk every weight-consuming op (matmul/linear + SDPA variants)
-      // through a single dispatch + shared roofline kernel.
-      perfTargets.calculatePerfTargets(funcOp);
+      // through a single dispatch + shared roofline kernel. Only the single
+      // selected function is accounted for, to avoid double-counting weights.
+      if (funcOp == perfTargetFunc) {
+        perfTargets.calculatePerfTargets(funcOp);
+      }
 
       // First pass: identify DRAM spills
       identifyDRAMSpills(funcOp, spilledValues);
