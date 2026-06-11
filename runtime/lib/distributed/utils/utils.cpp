@@ -7,7 +7,6 @@
 #include "tt/runtime/detail/common/runtime_context.h"
 
 #include <cstdlib>
-#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -70,9 +69,11 @@ getTTRunCommand(uint16_t port,
 
   oss << "./ttnn/ttnn/distributed/ttrun.py " << multiProcessArgs.toArgString();
 
+  // ttrun --tracy takes a quoted `python -m tracy` argument string (not a
+  // boolean flag). Bare --tracy would consume "bash" as the tracy argument.
   const char *tracyEnv = std::getenv("TTRUN_TRACY");
-  if (tracyEnv && std::strcmp(tracyEnv, "1") == 0) {
-    oss << " --tracy";
+  if (tracyEnv && tracyEnv[0] != '\0') {
+    oss << " --tracy \"-r\"";
   }
 
   oss << " bash -c "
