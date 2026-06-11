@@ -480,6 +480,11 @@ def test_sort(
             "Sorting along batch dimension is not supported: https://github.com/tenstorrent/tt-metal/issues/31187"
         )
 
+    if stable:
+        pytest.xfail(
+            "stable=True is not implemented in ttnn::sort: https://github.com/tenstorrent/tt-metal/issues/33492"
+        )
+
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def sort_wrapper(
