@@ -317,7 +317,7 @@ module @SyncTensorsGraph.779 {
         %306 = "ttir.slice_static"(%299) <{begins = [0 : i32, 1 : i32], ends = [236236 : i32, 2 : i32], step = [1 : i32, 1 : i32]}> : (tensor<236236x2xi64>) -> tensor<236236x1xi64>
         %307 = "ttir.reshape"(%306) <{shape = [236236 : i32]}> : (tensor<236236x1xi64>) -> tensor<236236xi64>
         %308 = "ttir.lt"(%307, %13) : (tensor<236236xi64>, tensor<236236xi64>) -> tensor<236236xi1>
-        %309 = "ttir.add"(%307, %10) : (tensor<236236xi64>, tensor<236236xi64>) -> tensor<236236xi64> 
+        %309 = "ttir.add"(%307, %10) : (tensor<236236xi64>, tensor<236236xi64>) -> tensor<236236xi64>
         %310 = "ttir.where"(%308, %309, %307) : (tensor<236236xi1>, tensor<236236xi64>, tensor<236236xi64>) -> tensor<236236xi64>
         %311 = "ttir.reshape"(%310) <{shape = [236236 : i32, 1 : i32]}> : (tensor<236236xi64>) -> tensor<236236x1xi64>
         %312 = "ttir.concat"(%305, %311) <{dim = 1 : si32}> : (tensor<236236x1xi64>, tensor<236236x1xi64>) -> tensor<236236x2xi64>
