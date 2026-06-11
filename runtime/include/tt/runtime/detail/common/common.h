@@ -5,6 +5,7 @@
 #ifndef TT_RUNTIME_DETAIL_COMMON_COMMON_H
 #define TT_RUNTIME_DETAIL_COMMON_COMMON_H
 
+#include "ttmlir/OpInvoke/TTNN/utils/utils.h"
 #include <optional>
 #include <vector>
 
@@ -170,17 +171,7 @@ createFullMeshDevice(
 
 inline ::tt::tt_fabric::Topology
 toMetalTopology(::tt::target::Topology topology) {
-  switch (topology) {
-  case ::tt::target::Topology::Ring:
-    return ::tt::tt_fabric::Topology::Ring;
-  case ::tt::target::Topology::Linear:
-    return ::tt::tt_fabric::Topology::Linear;
-  case ::tt::target::Topology::Mesh:
-    return ::tt::tt_fabric::Topology::Mesh;
-  case ::tt::target::Topology::Torus:
-    return ::tt::tt_fabric::Topology::Torus;
-  }
-  LOG_FATAL("Unknown tt::target::Topology value");
+  return ttnn_op_invoke::operations::utils::toMetalTopology(topology);
 }
 
 } // namespace tt::runtime::common

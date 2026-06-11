@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/normalization/rms_norm.h"
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
+#include "tt/runtime/detail/common/logger.h"
+#include "ttmlir/OpInvoke/TTNN/Normalization/RMSNormOp.h"
+#include <variant>
 
 namespace tt::runtime::ttnn::operations::rms_norm {
 void run(const ::tt::target::ttnn::RMSNormOp *op, ProgramContext &context) {
@@ -23,28 +24,23 @@ void run(const ::tt::target::ttnn::RMSNormOp *op, ProgramContext &context) {
     bias = tensorPool.getTTNNTensorAndValidate(op->bias());
   }
 
-  float epsilon = op->epsilon();
+  ::tt::target::ttnn::RMSNormOpT rmsNormOpNative;
+  op->UnPackTo(&rmsNormOpNative);
 
-  // Handle optional memory config
-  std::optional<::ttnn::MemoryConfig> memoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig;
-  if (op->compute_config()) {
-    computeConfig =
-        utils::createDeviceComputeKernelConfig(op->compute_config());
-  }
+  ttnn_op_invoke::RMSNormOpResult result = ttnn_op_invoke::callRMSNorm(
+      ttnn_op_invoke::CallType::EXECUTE, rmsNormOpNative, &input,
+      weight.has_value() ? std::optional<ttnn_op_invoke::TensorArg>(&*weight)
+                         : std::nullopt,
+      bias.has_value() ? std::optional<ttnn_op_invoke::TensorArg>(&*bias)
+                       : std::nullopt,
+      &targetDevice);
 
-  // Call TTNN RMS norm operation
-  ::ttnn::Tensor output = ::ttnn::rms_norm(
-      input, epsilon, weight, bias,
-      /*residual_input_tensor=*/std::nullopt, // Not used in our implementation
-      memoryConfig,
-      /*program_config=*/std::nullopt,        // Use default
-      /*compute_kernel_config=*/computeConfig // Use default
-  );
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callRMSNorm execution");
 
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 } // namespace tt::runtime::ttnn::operations::rms_norm

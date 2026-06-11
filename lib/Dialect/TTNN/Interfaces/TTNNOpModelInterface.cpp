@@ -1511,7 +1511,8 @@ SoftmaxOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<SoftmaxOp>::getOpConstraints, *this, inputShape,
-      inputs[0], getDimension(), getNumericStable(), opConfig.outputLayout);
+      inputs[0], getDimension(), getNumericStable(), getComputeConfig(),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1523,7 +1524,8 @@ SoftmaxOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<SoftmaxOp>::getOpRuntime, *this, inputShape, inputs[0],
-      getDimension(), getNumericStable(), opConfig.outputLayout);
+      getDimension(), getNumericStable(), getComputeConfig(),
+      opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3608,6 +3610,8 @@ struct BatchNormOptionalArgs {
   std::optional<TTNNLayoutAttr> weightLayout = std::nullopt;
   std::optional<llvm::ArrayRef<int64_t>> biasShape = std::nullopt;
   std::optional<TTNNLayoutAttr> biasLayout = std::nullopt;
+  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+      std::nullopt;
 };
 
 template <typename BatchNormOpType>
@@ -3624,6 +3628,7 @@ unpackBatchNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
     ret.runningVarLayout = inputs[2];
     ret.weightLayout = inputs[3];
     ret.biasLayout = inputs[4];
+    ret.computeKernelConfig = op.getComputeConfig();
   }
   return ret;
 }
@@ -3645,7 +3650,8 @@ llvm::Expected<op_model::OpConstraints> BatchNormInferenceOp::getOpConstraints(
       optionalArgs.runningMeanLayout, optionalArgs.runningVarShape,
       optionalArgs.runningVarLayout, optionalArgs.weightShape,
       optionalArgs.weightLayout, optionalArgs.biasShape,
-      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout);
+      optionalArgs.biasLayout, getEpsilon(), optionalArgs.computeKernelConfig,
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3666,7 +3672,7 @@ BatchNormInferenceOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       optionalArgs.runningVarShape, optionalArgs.runningVarLayout,
       optionalArgs.weightShape, optionalArgs.weightLayout,
       optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(),
-      opConfig.outputLayout);
+      optionalArgs.computeKernelConfig, opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3695,7 +3701,7 @@ BatchNormTrainingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
       optionalArgs.runningVarLayout, optionalArgs.weightShape,
       optionalArgs.weightLayout, optionalArgs.biasShape,
       optionalArgs.biasLayout, getEpsilon(), getMomentum(),
-      opConfig.outputLayout);
+      optionalArgs.computeKernelConfig, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3719,7 +3725,7 @@ BatchNormTrainingOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       optionalArgs.runningVarShape, optionalArgs.runningVarLayout,
       optionalArgs.weightShape, optionalArgs.weightLayout,
       optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(),
-      getMomentum(), opConfig.outputLayout);
+      getMomentum(), optionalArgs.computeKernelConfig, opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3800,6 +3806,10 @@ RMSNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 struct RMSNormPreAllGatherOptionalArgs {
   std::optional<llvm::ArrayRef<int64_t>> residualInputShape = std::nullopt;
   std::optional<TTNNLayoutAttr> residualInputLayout = std::nullopt;
+  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+      std::nullopt;
+  std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig =
+      std::nullopt;
 };
 
 static RMSNormPreAllGatherOptionalArgs
@@ -3813,6 +3823,13 @@ unpackRMSNormPreAllGatherOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
     if (idx < inputs.size()) {
       ret.residualInputLayout = inputs[idx++];
     }
+  }
+
+  if (op.getComputeConfig()) {
+    ret.computeKernelConfig = op.getComputeConfig();
+  }
+  if (op.getProgramConfig()) {
+    ret.programConfig = op.getProgramConfig();
   }
 
   return ret;
@@ -3830,7 +3847,8 @@ llvm::Expected<op_model::OpConstraints> RMSNormPreAllGatherOp::getOpConstraints(
       op_model::OpModel<RMSNormPreAllGatherOp>::getOpConstraints, *this,
       inputShape, inputs[0], optionalArgs.residualInputShape,
       optionalArgs.residualInputLayout, dataTypeAttrToOptional(getDtypeAttr()),
-      getUse_2dCoreGrid(), opConfig.outputLayout);
+      getUse_2dCoreGrid(), optionalArgs.computeKernelConfig,
+      optionalArgs.programConfig, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3845,7 +3863,8 @@ RMSNormPreAllGatherOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       op_model::OpModel<RMSNormPreAllGatherOp>::getOpRuntime, *this, inputShape,
       inputs[0], optionalArgs.residualInputShape,
       optionalArgs.residualInputLayout, dataTypeAttrToOptional(getDtypeAttr()),
-      getUse_2dCoreGrid(), opConfig.outputLayout);
+      getUse_2dCoreGrid(), optionalArgs.computeKernelConfig,
+      optionalArgs.programConfig, opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3920,6 +3939,10 @@ struct LayerNormPreAllGatherOptionalArgs {
   std::optional<TTNNLayoutAttr> residualInputLayout = std::nullopt;
   std::optional<llvm::ArrayRef<int64_t>> recipShape = std::nullopt;
   std::optional<TTNNLayoutAttr> recipLayout = std::nullopt;
+  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+      std::nullopt;
+  std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig =
+      std::nullopt;
 };
 
 static LayerNormPreAllGatherOptionalArgs
@@ -3940,6 +3963,12 @@ unpackLayerNormPreAllGatherOptionalArgs(
       ret.recipLayout = inputs[idx++];
     }
   }
+  if (op.getComputeConfig()) {
+    ret.computeKernelConfig = op.getComputeConfig();
+  }
+  if (op.getProgramConfig()) {
+    ret.programConfig = op.getProgramConfig();
+  }
   return ret;
 }
 
@@ -3957,6 +3986,7 @@ LayerNormPreAllGatherOp::getOpConstraints(
       inputShape, inputs[0], optionalArgs.residualInputShape,
       optionalArgs.residualInputLayout, optionalArgs.recipShape,
       optionalArgs.recipLayout, dataTypeAttrToOptional(getDtypeAttr()),
+      optionalArgs.computeKernelConfig, optionalArgs.programConfig,
       opConfig.outputLayout);
 }
 
@@ -3973,6 +4003,7 @@ LayerNormPreAllGatherOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       inputShape, inputs[0], optionalArgs.residualInputShape,
       optionalArgs.residualInputLayout, optionalArgs.recipShape,
       optionalArgs.recipLayout, dataTypeAttrToOptional(getDtypeAttr()),
+      optionalArgs.computeKernelConfig, optionalArgs.programConfig,
       opConfig.outputLayout);
 }
 
@@ -3985,6 +4016,10 @@ struct LayerNormPostAllGatherOptionalArgs {
   std::optional<TTNNLayoutAttr> weightLayout = std::nullopt;
   std::optional<llvm::ArrayRef<int64_t>> biasShape = std::nullopt;
   std::optional<TTNNLayoutAttr> biasLayout = std::nullopt;
+  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+      std::nullopt;
+  std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig =
+      std::nullopt;
 };
 
 static LayerNormPostAllGatherOptionalArgs
@@ -4005,6 +4040,12 @@ unpackLayerNormPostAllGatherOptionalArgs(
       ret.biasLayout = inputs[idx++];
     }
   }
+  if (op.getComputeConfig()) {
+    ret.computeKernelConfig = op.getComputeConfig();
+  }
+  if (op.getProgramConfig()) {
+    ret.programConfig = op.getProgramConfig();
+  }
   return ret;
 }
 
@@ -4022,7 +4063,8 @@ LayerNormPostAllGatherOp::getOpConstraints(
       op_model::OpModel<LayerNormPostAllGatherOp>::getOpConstraints, *this,
       inputShape, inputs[0], statsShape, inputs[1], optionalArgs.weightShape,
       optionalArgs.weightLayout, optionalArgs.biasShape,
-      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout);
+      optionalArgs.biasLayout, getEpsilon(), optionalArgs.computeKernelConfig,
+      optionalArgs.programConfig, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t> LayerNormPostAllGatherOp::getOpRuntime(
@@ -4037,7 +4079,8 @@ llvm::Expected<size_t> LayerNormPostAllGatherOp::getOpRuntime(
       op_model::OpModel<LayerNormPostAllGatherOp>::getOpRuntime, *this,
       inputShape, inputs[0], statsShape, inputs[1], optionalArgs.weightShape,
       optionalArgs.weightLayout, optionalArgs.biasShape,
-      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout);
+      optionalArgs.biasLayout, getEpsilon(), optionalArgs.computeKernelConfig,
+      optionalArgs.programConfig, opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

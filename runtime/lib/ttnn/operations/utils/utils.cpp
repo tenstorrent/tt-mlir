@@ -105,14 +105,11 @@ createSDPAProgramConfig(const ::tt::target::ttnn::SDPAConfig *config) {
 ::ttnn::prim::LayerNormProgramConfig
 createLayerNormShardedMultiCoreProgramConfig(
     const ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfig *config) {
-  const auto *gridSize = config->compute_with_storage_grid_size();
-  return ::ttnn::prim::LayerNormShardedMultiCoreProgramConfig{
-      .compute_with_storage_grid_size = {gridSize->x(), gridSize->y()},
-      .subblock_w = config->subblock_w(),
-      .block_h = config->block_h(),
-      .block_w = config->block_w(),
-      .inplace = config->inplace(),
-  };
+  ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfigT
+      layerNormConfigNative;
+  config->UnPackTo(&layerNormConfigNative);
+  return ttnn_op_invoke::operations::utils::
+      createLayerNormShardedMultiCoreProgramConfig(layerNormConfigNative);
 }
 
 template <typename T>
