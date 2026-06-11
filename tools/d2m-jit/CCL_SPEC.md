@@ -781,10 +781,29 @@ path never exercised on-device — `(1,8)` is filtered out on this 2-chip n300).
    from the hand kernel in a way static IR can't pin down.
 
    **Static analysis is exhausted** (sync ops match; data-path structure differs
-   but both internally consistent). The only remaining lead is **on-device
-   `dprint`**: instrument the start/end semaphore values on each device to see
-   which `semaphore_wait` never reaches its target (and whether the increments
-   arrive). That's slow (each iteration wedges the box, needs `tt-smi -r`).
+   but both internally consistent).
+
+   **On-device `dprint` attempted (inconclusive).** Instrumented the kernel with
+   stage markers (S0 before sync … S4 after the end wait) via a dynamically
+   registered `dprint` syntax op (`d2m.PrintOp` → `ttkernel::dprint` →
+   `DEVICE_PRINT`). The markers compile into the kernel and the DPRINT server
+   attaches on both devices, but **no marker is emitted at all — not even S0**
+   (the first op, before any sync). `DEVICE_PRINT` auto-drains via the host
+   server (no manual flush needed), so the absence of even S0 means either (a)
+   the datamovement thread never reaches its first instruction — the hang is at
+   program launch / dispatch, before the kernel body — or (b) the first
+   `DEVICE_PRINT` itself stalls waiting on the server's start-magic
+   (dprint.h: "device code stalls waiting on the host to flush it"), i.e. dprint
+   perturbs the hang. Either way it didn't localise the stall.
+
+   **Better next tool: tt-metal Watcher** (`TT_METAL_WATCHER=1`) — it reports each
+   RISC's current `WAYPOINT` without needing print drainage, so it can show which
+   kernel/RISC is stalled and where (e.g. a fabric connection wait vs a semaphore
+   wait) on a live hang. Alternatively read the start/end semaphore L1 values
+   from the host post-mortem. This is genuinely deep d2m-jit fabric/dispatch
+   debugging; the rewriter path works e2e and is the supported route today, so
+   the DSL port (`test_all_gather_1x2_roundtrip`) stays skipped pending a focused
+   follow-up.
 
    The test is `@pytest.mark.skip`ped (a device-hang can't be `xfail`'d — it
    would time out the suite) with the correct algorithm + the load→store fix
