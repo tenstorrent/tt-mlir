@@ -69,22 +69,21 @@ getTTRunCommand(uint16_t port,
 
   oss << "./ttnn/ttnn/distributed/ttrun.py " << multiProcessArgs.toArgString();
 
-  // ttrun --tracy takes a quoted `python -m tracy` argument string (not a
-  // boolean flag). Bare --tracy would consume "bash" as the tracy argument.
+  std::string workerCommand = getWorkerExecutableCommand(port, workerPathOpt,
+                                                         hostnameOpt);
+  if (!workerWrapper.empty()) {
+    workerCommand = workerWrapper + " " + workerCommand;
+  }
+
+  // Tracy -r re-invokes `python3 -m tracy <osCmd>` without -r. `bash -c` as the
+  // profiled program makes Tracy call open_code("bash"). Use `sh -c '<worker>'`
+  // so the inner Tracy subprocess runs the worker via the shell.
   const char *tracyEnv = std::getenv("TTRUN_TRACY");
   if (tracyEnv && tracyEnv[0] != '\0') {
-    oss << " --tracy \"-r\"";
+    oss << " --tracy \"-r\" sh -c '" << workerCommand << "'";
+  } else {
+    oss << " bash -c \"" << workerCommand << "\"";
   }
-
-  oss << " bash -c "
-      << "\"";
-
-  if (!workerWrapper.empty()) {
-    oss << workerWrapper << " ";
-  }
-
-  oss << getWorkerExecutableCommand(port, workerPathOpt, hostnameOpt)
-      << "\"";
 
   return oss.str();
 }
