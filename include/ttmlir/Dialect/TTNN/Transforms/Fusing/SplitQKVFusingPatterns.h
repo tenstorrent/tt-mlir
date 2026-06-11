@@ -44,15 +44,20 @@ private:
   OpValidationConfig validationConfig;
 };
 
-// Fuses a SplitQueryKeyValueAndSplitHeadsOp followed by permute [2,0,1,3]
-// on all three outputs into a single NLPCreateQKVHeadsDecodeOp, which is
-// optimized for the decode case (S=1).
+// Fuses a SplitQueryKeyValueAndSplitHeadsOp followed by the decode layout
+// change [B,H,1,D] -> [1,B,H,D] on all three outputs into a single
+// NLPCreateQKVHeadsDecodeOp, which is optimized for the decode case (S=1).
+//
+// The layout change is accepted in either equivalent form:
+//   * an explicit permute [2,0,1,3], or
+//   * the equivalent reshape [B,H,1,D] -> [1,B,H,D] (pure relabel when S==1;
+//     compilers often emit this instead of a permute).
 //
 // Pattern matched:
 //   split_query_key_value_and_split_heads [B,1,hidden]
-//     -> Q[B,H,1,D] -> permute[2,0,1,3] -> [1,B,H,D]
-//     -> K[B,Hkv,1,D] -> permute[2,0,1,3] -> [1,B,Hkv,D]
-//     -> V[B,Hkv,1,D] -> permute[2,0,1,3] -> [1,B,Hkv,D]
+//     -> Q[B,H,1,D] -> permute[2,0,1,3] / reshape -> [1,B,H,D]
+//     -> K[B,Hkv,1,D] -> permute[2,0,1,3] / reshape -> [1,B,Hkv,D]
+//     -> V[B,Hkv,1,D] -> permute[2,0,1,3] / reshape -> [1,B,Hkv,D]
 //
 // Replaced with:
 //   reshape [B,1,hidden] -> [1,1,B,hidden]

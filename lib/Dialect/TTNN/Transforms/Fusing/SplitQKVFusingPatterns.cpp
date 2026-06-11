@@ -693,20 +693,44 @@ mlir::LogicalResult createFusedOp(mlir::PatternRewriter &rewriter,
 // NLPCreateQKVHeadsDecodeFusing helpers
 // ============================================================================
 
-// Returns the single PermuteOp user of `result` if it has permutation
-// [2, 0, 1, 3], or nullptr otherwise.
-PermuteOp getDecodePermuteUser(Value result) {
+// Returns the single user of `result` that performs the decode layout change
+// [B, H, 1, D] -> [1, B, H, D], or nullptr otherwise.
+//
+// This layout change can be expressed two equivalent ways, both of which we
+// accept:
+//   * an explicit `permute [2, 0, 1, 3]`, or
+//   * a `reshape [B, H, 1, D] -> [1, B, H, D]`. Because the sequence dim is 1
+//     (decode), this reshape is a pure relabel that moves no data and is
+//     bit-identical to the permute (verified: row-major flat index of
+//     in[b,h,0,d] equals that of out[0,b,h,d]). Compilers frequently emit this
+//     form instead of a permute, which previously prevented the decode fusion
+//     from firing.
+Operation *getDecodeLayoutChangeUser(Value result) {
   if (!result.hasOneUse()) {
     return nullptr;
   }
-  auto permuteOp = dyn_cast<PermuteOp>(*result.getUsers().begin());
-  if (!permuteOp) {
+  Operation *user = *result.getUsers().begin();
+
+  if (auto permuteOp = dyn_cast<PermuteOp>(user)) {
+    if (permuteOp.getPermutation() == ArrayRef<int64_t>{2, 0, 1, 3}) {
+      return permuteOp;
+    }
     return nullptr;
   }
-  if (permuteOp.getPermutation() != ArrayRef<int64_t>{2, 0, 1, 3}) {
+
+  if (auto reshapeOp = dyn_cast<ReshapeOp>(user)) {
+    auto inShape = mlir::cast<RankedTensorType>(result.getType()).getShape();
+    auto outShape = reshapeOp.getType().getShape();
+    // Match exactly [B, H, 1, D] -> [1, B, H, D] (decode, S == 1).
+    if (inShape.size() == 4 && outShape.size() == 4 && inShape[2] == 1 &&
+        outShape[0] == 1 && outShape[1] == inShape[0] &&
+        outShape[2] == inShape[1] && outShape[3] == inShape[3]) {
+      return reshapeOp;
+    }
     return nullptr;
   }
-  return permuteOp;
+
+  return nullptr;
 }
 
 } // namespace
@@ -845,13 +869,18 @@ mlir::LogicalResult NLPCreateQKVHeadsDecodeFusing::matchAndRewrite(
     return mlir::failure();
   }
 
-  // All three outputs must each have exactly one use: a permute [2,0,1,3].
-  auto qPermuteOp = getDecodePermuteUser(splitOp.getQuery());
-  auto kPermuteOp = getDecodePermuteUser(splitOp.getKey());
-  auto vPermuteOp = getDecodePermuteUser(splitOp.getValue());
-  if (!qPermuteOp || !kPermuteOp || !vPermuteOp) {
+  // All three outputs must each have exactly one use that performs the decode
+  // layout change [B,H,1,D] -> [1,B,H,D], expressed as either a permute
+  // [2,0,1,3] or the equivalent (S==1) reshape.
+  Operation *qLayoutOp = getDecodeLayoutChangeUser(splitOp.getQuery());
+  Operation *kLayoutOp = getDecodeLayoutChangeUser(splitOp.getKey());
+  Operation *vLayoutOp = getDecodeLayoutChangeUser(splitOp.getValue());
+  if (!qLayoutOp || !kLayoutOp || !vLayoutOp) {
     return mlir::failure();
   }
+  auto qType = mlir::cast<RankedTensorType>(qLayoutOp->getResult(0).getType());
+  auto kType = mlir::cast<RankedTensorType>(kLayoutOp->getResult(0).getType());
+  auto vType = mlir::cast<RankedTensorType>(vLayoutOp->getResult(0).getType());
 
   // Extract dimensions.
   int64_t batchSize = inputShape[0];
@@ -876,15 +905,13 @@ mlir::LogicalResult NLPCreateQKVHeadsDecodeFusing::matchAndRewrite(
   auto numHeadsAttr = rewriter.getUI32IntegerAttr(numHeads);
   auto numKVHeadsAttr =
       isGQA ? rewriter.getUI32IntegerAttr(numKVHeads) : IntegerAttr();
-  SmallVector<Type> resultTypes = {qPermuteOp.getType(), kPermuteOp.getType(),
-                                   vPermuteOp.getType()};
+  SmallVector<Type> resultTypes = {qType, kType, vType};
 
   // Validate the fused op before creating it.
   IsolatedIRValidationWrapper validator(rewriter.getContext(),
                                         validationConfig);
   auto validationResult = validator.validateOp<NLPCreateQKVHeadsDecodeOp>(
-      splitOp.getOperation(), splitOp.getLoc(),
-      {qPermuteOp.getType(), kPermuteOp.getType(), vPermuteOp.getType()},
+      splitOp.getOperation(), splitOp.getLoc(), {qType, kType, vType},
       reshapeOp.getResult(),
       /*batch_offset=*/Value(), numHeadsAttr, numKVHeadsAttr,
       /*overlap_qk_coregrid=*/BoolAttr(),
@@ -900,10 +927,10 @@ mlir::LogicalResult NLPCreateQKVHeadsDecodeFusing::matchAndRewrite(
       /*overlap_qk_coregrid=*/BoolAttr(),
       /*slice_size=*/IntegerAttr());
 
-  // Replace permute ops with decode op outputs.
-  rewriter.replaceOp(qPermuteOp, decodeOp.getQuery());
-  rewriter.replaceOp(kPermuteOp, decodeOp.getKey());
-  rewriter.replaceOp(vPermuteOp, decodeOp.getValue());
+  // Replace the layout-change ops (permute or reshape) with decode op outputs.
+  rewriter.replaceOp(qLayoutOp, decodeOp.getQuery());
+  rewriter.replaceOp(kLayoutOp, decodeOp.getKey());
+  rewriter.replaceOp(vLayoutOp, decodeOp.getValue());
 
   return mlir::success();
 }
