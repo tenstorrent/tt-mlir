@@ -66,13 +66,20 @@ module attributes {} {
 
 // -----
 
-// Test: rank-1 ttir.gather lowers to a rank-1 ttnn.gather. Execution of the
-// rank-1 case is handled by a reshape-based workaround in the TTNN runtime
-// (runtime/lib/ttnn/operations/data_movement/gather.cpp); this lit test only
-// guards the compile path that feeds that workaround.
+// Test: rank-1 ttir.gather. tt-metal's gather requires rank >= 2, so the TTNN
+// rank-1 workaround (GatherOpRank1RewritePattern) unsqueezes a leading unit
+// dimension on the input and index, gathers on the resulting rank-2 tensors,
+// and reshapes the result back to rank 1.
 // CHECK-LABEL: func.func @gather_1d
-// CHECK: "ttnn.gather"(%arg0, %arg1)
-// CHECK-SAME: dim = 0 : i32
+// CHECK: "ttnn.reshape"(%arg0)
+// CHECK-SAME: shape = [1 : i32, 8 : i32]
+// CHECK: "ttnn.reshape"(%arg1)
+// CHECK-SAME: shape = [1 : i32, 3 : i32]
+// CHECK: "ttnn.gather"
+// CHECK-SAME: dim = 1 : i32
+// CHECK-SAME: (tensor<1x8xf32, {{.*}}>, tensor<1x3xui32, {{.*}}>) -> tensor<1x3xf32
+// CHECK: "ttnn.reshape"
+// CHECK-SAME: shape = [3 : i32]
 module attributes {} {
   func.func @gather_1d(%arg0: tensor<8xf32>, %arg1: tensor<3xui32>) -> tensor<3xf32> {
     %0 = "ttir.gather"(%arg0, %arg1) <{dim = 0 : i32}> : (tensor<8xf32>, tensor<3xui32>) -> tensor<3xf32>

@@ -878,8 +878,7 @@ public:
 };
 
 // Shared helper: builds a ttir.gather from an (input, index) pair, casting the
-// index to UInt32 when needed and applying a workaround when input tensors
-// are Rank 1.
+// index to UInt32 when needed.
 static LogicalResult convertToTTIRGather(mlir::Operation *srcOp,
                                          mlir::Value input, mlir::Value index,
                                          RankedTensorType outputType,
@@ -909,56 +908,6 @@ static LogicalResult convertToTTIRGather(mlir::Operation *srcOp,
   if (inputRank == 0) {
     return rewriter.notifyMatchFailure(
         srcOp, "0-rank tensors (scalars) are not supported.");
-  }
-
-  // Workaround to support Rank-1 input/index tensors: tt-metal's gather
-  // requires rank >= 2, so unsqueeze a leading unit dimension on the input
-  // and index, gather, then reshape the result back to the original rank.
-  // tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/45155
-  if (inputRank < 2) {
-    auto prependUnitDim = [](RankedTensorType type) {
-      SmallVector<int64_t> shape = {1};
-      shape.append(type.getShape().begin(), type.getShape().end());
-      return shape;
-    };
-
-    SmallVector<int64_t> inputShape2D = prependUnitDim(inputType);
-    SmallVector<int64_t> indexShape2D = prependUnitDim(indexType);
-    SmallVector<int64_t> outShape2D = prependUnitDim(outputType);
-
-    auto reshape = [&](Value value, ArrayRef<int64_t> shape, Type elementType) {
-      auto reshapedType = RankedTensorType::get(shape, elementType);
-      return rewriter.create<ttir::ReshapeOp>(
-          srcOp->getLoc(), reshapedType, value,
-          rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(shape)));
-    };
-
-    Value inputReshaped =
-        reshape(input, inputShape2D, inputType.getElementType());
-    Value indexReshaped =
-        reshape(index, indexShape2D, indexType.getElementType());
-
-    // Map `dim` from the original rank into the unsqueezed (rank-2) layout.
-    // Original dim d referenced in a rank-R tensor becomes d + (2 - R) under
-    // the leading-1 prepend. Negative dims already index from the back and
-    // remain valid.
-    int32_t adjustedDim = dim;
-    if (dim >= 0) {
-      adjustedDim = dim + static_cast<int32_t>(2 - inputRank);
-    }
-
-    // The gather result mirrors the (reshaped) index shape.
-    auto gatherReshapedType =
-        RankedTensorType::get(outShape2D, outputType.getElementType());
-    Value gather = rewriter.create<ttir::GatherOp>(
-        srcOp->getLoc(), gatherReshapedType, inputReshaped, indexReshaped,
-        rewriter.getI32IntegerAttr(adjustedDim));
-
-    rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
-        srcOp, outputType, gather,
-        rewriter.getI32ArrayAttr(
-            llvm::to_vector_of<int32_t>(outputType.getShape())));
-    return success();
   }
 
   rewriter.replaceOpWithNewOp<ttir::GatherOp>(srcOp, outputType, input, index,
