@@ -174,6 +174,7 @@ kernel body.
 | `d2m.view(lt, lambda d0, d1: ...)` | Logical-rank permutation. The lambda's parameter count matches the source's logical rank. Result is a view (`is_view=True`). |
 | `d2m.view_layout(lt, lambda d0, d1, d2, d3: ...)` | Low-level: lambda parameter count matches the source's MLIR rank (typically `2 * logical_rank` for tiled tensors). Each result expression may be a parameter or the literal `0`. |
 | `d2m.permute(lt, *dims)` | `torch.permute`-style positional permutation. |
+| `d2m.spatial(inputs, outputs, grid_ranges, region_builders)` | Emit a `d2m.spatial` wrapper around one `@d2m.kernel` call per disjoint core range. |
 | `d2m.to_host(*lts)` | Compile and execute; return a tuple of `torch.Tensor`s. Resets the builder. |
 | `LazyTensor.to_host()` | Sugar for `to_host(self)[0]`. |
 
@@ -391,6 +392,8 @@ RNG is deterministic per test. `test/d2m-jit/utils.py` provides
 
 ```
 ttcore-register-device,
+canonicalize,
+d2m-materialize-view-returns,
 canonicalize,
 d2m-lower-to-layout,
 canonicalize,

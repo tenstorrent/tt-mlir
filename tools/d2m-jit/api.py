@@ -28,6 +28,7 @@ from ._src.builder import (
     view_layout,
     view,
     permute,
+    spatial,
     to_host,
 )
 from ._src.rewrite import (
