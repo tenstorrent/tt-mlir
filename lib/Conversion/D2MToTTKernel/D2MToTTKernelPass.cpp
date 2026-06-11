@@ -186,16 +186,32 @@ struct ConvertD2MToTTKernel
     // insert fabric connection manager ops and setup fabric connections at the
     // start of the function and close at the end.
     moduleOp->walk([&](func::FuncOp func) {
-      bool fabric_write_present = false;
-      func.walk([&](d2m::DMAWriteOp dmaWriteOp) {
-        if (dmaWriteOp.getStartDevice().size() > 0) {
-          fabric_write_present = true;
+      // A func needs a fabric connection manager if it issues *any*
+      // cross-device fabric op -- a fabric write (DMAWriteOp), a fabric
+      // semaphore increment (SemaphoreIncOp/SemaphoreSetOp with a startDevice),
+      // or a device_synchronize barrier (which always mcasts a fabric sem inc).
+      // Checking only DMAWriteOp missed the sem-only case: when the unified CCL
+      // generic is split into datamovement+compute threads, a split func can
+      // hold the fabric sem ops without a fabric write, leaving its fabric ops
+      // with no fcm to lower against (getFabricConnectionManager assert).
+      bool fabric_op_present = false;
+      func.walk([&](Operation *op) {
+        bool isFabric =
+            llvm::isa<d2m::DeviceSynchronizeOp>(op) ||
+            (llvm::isa<d2m::DMAWriteOp>(op) &&
+             llvm::cast<d2m::DMAWriteOp>(op).getStartDevice().size() > 0) ||
+            (llvm::isa<d2m::SemaphoreIncOp>(op) &&
+             llvm::cast<d2m::SemaphoreIncOp>(op).getStartDevice().size() > 0) ||
+            (llvm::isa<d2m::SemaphoreSetOp>(op) &&
+             llvm::cast<d2m::SemaphoreSetOp>(op).getStartDevice().size() > 0);
+        if (isFabric) {
+          fabric_op_present = true;
           return WalkResult::interrupt();
         }
         return WalkResult::advance();
       });
 
-      if (fabric_write_present) {
+      if (fabric_op_present) {
         OpBuilder builder(func.getContext());
         builder.setInsertionPointToStart(&func.getBody().front());
         auto fabricConnectionManager =
