@@ -14,6 +14,7 @@
 #include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Support/Logger.h"
 
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Location.h"
 #include "llvm/ADT/DenseMap.h"
@@ -27,7 +28,6 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include "mlir/IR/Builders.h"
 #include <algorithm>
 #include <cassert>
 #include <cstdint>
@@ -90,14 +90,24 @@ bool constEvalDoesNotChangeTensorVolume(ttcore::LoadCachedOp loadCachedOp);
 uint64_t bytesAtBfp8(RankedTensorType t);
 uint64_t getNumTileMatmuls(Value lhs, Value result, bool transposeA);
 
+// Tile dimensions used to round matmul / SDPA dims up to whole 32x32 tiles.
+constexpr int64_t kTileHeight = ttcore::TileType::getDefaultShape()[0];
+constexpr int64_t kTileWidth = ttcore::TileType::getDefaultShape()[1];
+
+// Round `x` up to a whole number of tiles along a 32-wide dimension.
+inline uint64_t roundUpToTiles(uint64_t x) {
+  return (x + kTileWidth - 1) / kTileWidth;
+}
+
 //===----------------------------------------------------------------------===//
 // Performance Targets and Roofline Calculation
 //
 // Used for estimating top perf for any model on the current hardware.
 //
 // This calculation should be extremely conservative and always try to stay on
-// the side of underestimating the time an op takes. Overestimating can lead
-// to reporting false and optimistic results which can cause a lot of harm.
+// the side of overestimating the time an op takes (i.e. underestimating
+// performance). Underestimating the time reports false, optimistic results
+// which can cause a lot of harm.
 //
 // Process:
 // For each matmul op (including linear and SDPA) we calculate the time it would
@@ -160,7 +170,8 @@ struct PerfTargets {
     return us * 1e6; // convert to us
   }
 
-  // Cycles for a single 32x32x32 tile matmul.
+  // Total cycles for `numMatmulTiles` 32x32x32 tile matmuls, scaled by the
+  // per-tile cost of the given math fidelity.
   uint64_t getNumCycles(uint64_t numMatmulTiles, MathFidelity mathFidelity) {
     switch (mathFidelity) {
     case MathFidelity::LoFi:
@@ -338,11 +349,10 @@ private:
            "Head dimension of Q must match K and V");
     assert(Sk == vShape[2] && "Sequence length of K and V must match");
 
-    auto up32 = [](uint64_t x) { return (x + 31) / 32; };
-    auto SqTiles = up32(Sq);
-    auto DkTiles = up32(Dk);
-    auto effectiveSkTiles = up32(effectiveSk);
-    auto DvTiles = up32(Dv);
+    auto SqTiles = roundUpToTiles(Sq);
+    auto DkTiles = roundUpToTiles(Dk);
+    auto effectiveSkTiles = roundUpToTiles(effectiveSk);
+    auto DvTiles = roundUpToTiles(Dv);
 
     // QK^T matmul compute
     // B * Hq * Sq * Dk * Sk
@@ -468,9 +478,9 @@ uint64_t getNumTileMatmuls(Value lhs, Value result, bool transposeA) {
   }
 
   // Tilize M, K, N
-  int64_t tilesM = (M + 31) / 32;
-  int64_t tilesK = (K + 31) / 32;
-  int64_t tilesN = (N + 31) / 32;
+  int64_t tilesM = (M + kTileHeight - 1) / kTileHeight;
+  int64_t tilesK = (K + kTileWidth - 1) / kTileWidth;
+  int64_t tilesN = (N + kTileWidth - 1) / kTileWidth;
 
   return static_cast<uint64_t>(batch) * tilesM * tilesK * tilesN;
 }
@@ -785,10 +795,19 @@ public:
             perfTargetFunc = funcOp;
           }
         });
-      } else {
+      }
+      // Fall back to the outer forward-device function when tracing is
+      // disabled, or enabled but no trace-main function is present (otherwise
+      // perfTargetFunc would stay null and we'd emit an all-zero roofline).
+      if (!perfTargetFunc) {
         perfTargetFunc = outerFuncs.front();
       }
     }
+
+    // Walk every weight-consuming op (matmul/linear + SDPA variants) in the
+    // single selected function through a shared roofline kernel. Accounting
+    // exactly one function avoids double-counting weights.
+    perfTargets.calculatePerfTargets(perfTargetFunc);
 
     module->walk([&](func::FuncOp funcOp) {
       if (ttnnEnableTrace) {
@@ -799,13 +818,6 @@ public:
         if (!ttmlir::utils::isForwardDeviceFunc(funcOp)) {
           return;
         }
-      }
-
-      // Walk every weight-consuming op (matmul/linear + SDPA variants)
-      // through a single dispatch + shared roofline kernel. Only the single
-      // selected function is accounted for, to avoid double-counting weights.
-      if (funcOp == perfTargetFunc) {
-        perfTargets.calculatePerfTargets(funcOp);
       }
 
       // First pass: identify DRAM spills

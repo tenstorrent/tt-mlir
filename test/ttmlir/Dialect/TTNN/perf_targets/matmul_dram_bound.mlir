@@ -58,6 +58,6 @@ module attributes {ttcore.system_desc = #system_desc} {
 // CHECK: "dram_bound_ops": 1
 // CHECK: "params_count": 16777216
 // CHECK: "params_memory_bytes": 17825792
-// CHECK: "roofline_ms": 0.061895111111111109
+// CHECK: "roofline_ms": 0.061895
 // CHECK: "skipped_ops": 0
-// CHECK: "top_perf_estimate_ms": 0.088421587301587307
+// CHECK: "top_perf_estimate_ms": 0.088421
