@@ -759,14 +759,32 @@ path never exercised on-device — `(1,8)` is filtered out on this 2-chip n300).
       the generic (builder.py, for backing-buffer deadness); the rewriter emits
       none. Ruled out: suppressing them (env-gated patch, reverted) did not clear
       the hang.
-   The cause is therefore **below the D2M level** — in the D2M→TTKernel fabric
-   lowering or genuinely on-device. Next step: diff the *TTKernel* IR
-   (post-`ConvertD2MToTTKernel`) DSL-vs-rewriter, and/or on-device `dprint` the
-   start/end semaphore values to see which wait never completes. Note the
-   rewriter's generic is `unified` → `SplitUnifiedThread` → datamovement+compute
-   *two* threads, while the DSL builds a single `datamovement` thread; the
-   `unified`+v2 DSL variant also hangs, so the thread *count* alone isn't it, but
-   the splitter may set up CB/buffer/fabric scaffolding the hand kernel lacks.
+   The cause is therefore **below the D2M level**.
+
+   **TTKernel IR diff (done, print-ir-after-all both paths).** Compared the
+   post-`ConvertD2MToTTKernel` kernels. The **cross-device sync ops are
+   byte-for-byte identical**: barrier `fabric_mcast_sem_inc` + `semaphore_wait(.,
+   1)`; end `fabric_mcast_sem_inc` + local `noc_semaphore_inc` +
+   `semaphore_wait(., 2)`. (An apparent "extra wait" in the rewriter was a
+   print-after-all duplication artifact — one end wait each.) So the hang is
+   **not** a sync-op/value difference.
+
+   The real divergence is **structural data-path**: the rewriter's all_gather
+   lowers to a *CB-pipelined multi-kernel* — a `compute` kernel that `tilize`s
+   (`cb_reserve`/`tilize_block`/`cb_push`) feeding a `datamovement` kernel that
+   consumes via `cb_wait_front`/`cb_pop_front` around the fabric write, plus an
+   aux datamovement kernel. The DSL `datamovement` kernel is a single thread
+   doing direct `dma_read`→`dma_write` on the local buffer (the implicit-form
+   lowering), no tilize / no CB producer-consumer. The `unified`+v2 DSL variant
+   *does* get a CB/compute split yet still hangs, so the CB pipeline alone isn't
+   the fix either — the splitter's exact fabric/CB/buffer scaffolding differs
+   from the hand kernel in a way static IR can't pin down.
+
+   **Static analysis is exhausted** (sync ops match; data-path structure differs
+   but both internally consistent). The only remaining lead is **on-device
+   `dprint`**: instrument the start/end semaphore values on each device to see
+   which `semaphore_wait` never reaches its target (and whether the increments
+   arrive). That's slow (each iteration wedges the box, needs `tt-smi -r`).
 
    The test is `@pytest.mark.skip`ped (a device-hang can't be `xfail`'d — it
    would time out the suite) with the correct algorithm + the load→store fix
