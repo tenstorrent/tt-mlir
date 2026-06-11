@@ -1,10 +1,9 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-linalg-to-affine --d2m-insert-dst-register-access-unscheduled="disable-l1-acc=true" --d2m-insert-tile-matmul-block --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-// Verify that the `transpose_b` attribute on `d2m.tile_matmul` is forwarded to
-// the lowered `d2m.tile_matmul_block` op by the D2MInsertTileMatmulBlock pass.
-// The block-level RHS shape here is (N=2, K=3) instead of the usual (K, N)
-// because B is semantically transposed.
+// Verify that D2MInsertTileMatmulBlock infers transpose_b from the transposed
+// B affine indexing pattern and sets it on the lowered `d2m.tile_matmul_block`.
+// The block-level RHS shape here is (N=2, K=3) instead of the usual (K, N).
 
 #l1_ = #ttcore.memory_space<l1>
 module {
@@ -26,8 +25,7 @@ module {
       %cb2 = d2m.reserve %arg2_cb : !d2m.cb<memref<3x2x!ttcore.tile<32x32, f16>, #l1_>> -> memref<3x2x!ttcore.tile<32x32, f16>, #l1_>
 
       // The compute loop below is replaced by a single `d2m.tile_matmul_block`
-      // that carries the same `transpose_b = true` flag as the inner
-      // `d2m.tile_matmul`.
+      // that carries `transpose_b = true`.
       // CHECK: "d2m.tile_matmul_block"(%[[A:.*]], %[[B:.*]], %[[OUT:.*]]) {{<\{transpose_b = true\}>}}
       // CHECK-NOT: "d2m.tile_matmul"
       // CHECK-NOT: transpose_b = false
@@ -50,7 +48,7 @@ module {
             %subview_19 = memref.subview %cb2[%arg2, %arg3] [3, 2] [1, 1] : memref<3x2x!ttcore.tile<32x32, f16>, #l1_> to memref<3x2x!ttcore.tile<32x32, f16>, strided<[2, 1], offset: ?>, #l1_>
             linalg.generic {indexing_maps = [affine_map<(d0, d1, d2) -> (d0, d2)>, affine_map<(d0, d1, d2) -> (d1, d2)>, affine_map<(d0, d1, d2) -> (d0, d1)>], iterator_types = ["parallel", "parallel", "reduction"]} ins(%subview, %subview_18 : memref<3x3x!ttcore.tile<32x32, f16>, strided<[3, 1], offset: ?>, #l1_>, memref<2x3x!ttcore.tile<32x32, f16>, strided<[3, 1], offset: ?>, #l1_>) outs(%subview_19 : memref<3x2x!ttcore.tile<32x32, f16>, strided<[2, 1], offset: ?>, #l1_>) {
             ^bb0(%in: !ttcore.tile<32x32, f16>, %in_20: !ttcore.tile<32x32, f16>, %out: !ttcore.tile<32x32, f16>):
-              %0 = "d2m.tile_matmul"(%in, %in_20, %out) <{transpose_b = true}> : (!ttcore.tile<32x32, f16>, !ttcore.tile<32x32, f16>, !ttcore.tile<32x32, f16>) -> !ttcore.tile<32x32, f16>
+              %0 = "d2m.tile_matmul"(%in, %in_20, %out) : (!ttcore.tile<32x32, f16>, !ttcore.tile<32x32, f16>, !ttcore.tile<32x32, f16>) -> !ttcore.tile<32x32, f16>
               linalg.yield %0 : !ttcore.tile<32x32, f16>
             }
           }

@@ -2550,8 +2550,7 @@ private:
                 mlir::Value yield = bbBuilder.create<d2m::TileMatmulOp>(
                     loc, /* resultTypes */
                     bbArgs.take_back(tileOpNumOutputs).getTypes()[0],
-                    /* a */ bbArgs[0], /* b */ bbArgs[1], /* c */ bbArgs[2],
-                    /* transpose_b */ transposeB);
+                    /* a */ bbArgs[0], /* b */ bbArgs[1], /* c */ bbArgs[2]);
 
                 bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
               });
@@ -3752,7 +3751,7 @@ private:
             mlir::ValueRange bbArgs) {
           mlir::Value mm = bbBuilder.create<d2m::TileMatmulOp>(
               bbLoc, bbArgs.take_back(1).getTypes()[0], /*a=*/bbArgs[0],
-              /*b=*/bbArgs[1], /*c=*/bbArgs[2], /*transpose_b=*/transposeB);
+              /*b=*/bbArgs[1], /*c=*/bbArgs[2]);
           bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, mm);
         });
 

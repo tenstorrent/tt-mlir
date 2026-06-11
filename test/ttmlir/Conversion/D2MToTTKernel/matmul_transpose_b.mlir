@@ -1,8 +1,10 @@
 // RUN: ttmlir-opt --ttir-to-ttmetal-pipeline="use-tile-matmul=false" -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
+// RUN: not ttmlir-opt --ttir-to-ttmetal-pipeline="use-tile-matmul=true" -o /dev/null %s 2>&1 | FileCheck %s --check-prefix=TILE-ERR
 
 // Test that ttir.matmul with transpose_b=true propagates the transpose flag
-// through d2m.tile_matmul -> d2m.tile_matmul_block -> ttkernel::matmul_block.
+// through d2m.tile_matmul_block -> ttkernel::matmul_block. The raw
+// tile_matmul path does not support transpose_b and must reject it.
 
 !lhs = tensor<128x96xf32>
 !rhs = tensor<64x96xf32>
@@ -17,6 +19,7 @@ module {
     // CHECK: mm_block_init
     // CHECK: mm_block_init_short
     // CHECK: matmul_block
+    // TILE-ERR: 'd2m.tile_matmul' op transpose_b is only supported by tile_matmul_block lowering
     %r = "ttir.matmul"(%lhs, %rhs) <{transpose_b = true}> : (!lhs, !rhs) -> (!matmul_result)
     return %r : !matmul_result
   }

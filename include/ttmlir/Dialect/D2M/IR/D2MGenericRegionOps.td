@@ -975,15 +975,9 @@ def D2M_TileMatmulOp : D2M_GenericRegionComputeOp<"tile_matmul"> {
   let summary = "D2M Tile Matmul Op";
   let description = [{
         The `tile_matmul` operation computes the matrix multiplication of A and B input tiles and element-wise adds C tile: result <- a @ b + c.
-
-        The optional `transpose_b` attribute records whether the enclosing
-        matmul semantically transposes the B operand.  It is preserved through
-        the pipeline so `D2MInsertTileMatmulBlock` can forward it onto the
-        lowered `tile_matmul_block` op.
     }];
 
-  let arguments = (ins TTCore_Tile:$a, TTCore_Tile:$b, TTCore_Tile:$c,
-                       DefaultValuedAttr<BoolAttr, "false">:$transpose_b);
+  let arguments = (ins TTCore_Tile:$a, TTCore_Tile:$b, TTCore_Tile:$c);
   let results = (outs TTCore_Tile:$result);
 
   let extraClassDeclaration = [{

@@ -549,44 +549,6 @@ static bool hasMatmulInit(func::FuncOp func) {
   });
 }
 
-static std::optional<bool> getMatmulInitTransposeB(func::FuncOp func) {
-  for (Operation &op : func.getBody().front()) {
-    auto matmulInitOp = dyn_cast<ttkernel::MatmulInitOp>(op);
-    if (!matmulInitOp) {
-      continue;
-    }
-    auto constantOp =
-        matmulInitOp.getOperand(3).getDefiningOp<arith::ConstantOp>();
-    if (!constantOp) {
-      return std::nullopt;
-    }
-    auto attr = dyn_cast<IntegerAttr>(constantOp.getValue());
-    if (!attr) {
-      return std::nullopt;
-    }
-    return attr.getInt() != 0;
-  }
-  return std::nullopt;
-}
-
-static bool hasMixedTileMatmulTransposeB(func::FuncOp func) {
-  std::optional<bool> expectedTransposeB;
-  bool hasMixedTransposeB = false;
-  func.walk([&](d2m::TileMatmulOp matmulOp) {
-    bool transposeB = matmulOp.getTransposeB();
-    if (!expectedTransposeB) {
-      expectedTransposeB = transposeB;
-      return WalkResult::advance();
-    }
-    if (*expectedTransposeB == transposeB) {
-      return WalkResult::advance();
-    }
-    hasMixedTransposeB = true;
-    return WalkResult::interrupt();
-  });
-  return hasMixedTransposeB;
-}
-
 } // namespace
 
 namespace {
@@ -1028,35 +990,23 @@ public:
       auto cbA = getCB(rewriter, op.getA());
       auto cbB = getCB(rewriter, op.getB());
       auto outCB = getOutCB(rewriter, op);
-      const int32_t transposeValue = op.getTransposeB() ? 1 : 0;
       auto func = op->template getParentOfType<func::FuncOp>();
       if (!func) {
         return rewriter.notifyMatchFailure(op,
                                            "tile_matmul must be inside a func");
-      }
-      if (std::optional<bool> initTransposeB = getMatmulInitTransposeB(func);
-          initTransposeB && *initTransposeB != op.getTransposeB()) {
-        return rewriter.notifyMatchFailure(
-            op, "all tile_matmul ops in a kernel must agree on transpose_b");
-      }
-      if (hasMixedTileMatmulTransposeB(func)) {
-        return rewriter.notifyMatchFailure(
-            op, "all tile_matmul ops in a kernel must agree on transpose_b");
       }
 
       // Must have only 1 MatmulInit op per kernel, so we always insert at
       // beginning of the func, and only if no MatmulInit already exists.
       if (!hasMatmulInit(func)) {
         setInsertionPointToFuncStart(rewriter, func, op);
-        auto transposeInit =
-            intConstant<int32_t>(rewriter, op->getLoc(), transposeValue);
+        auto transposeInit = intConstant<int32_t>(rewriter, op->getLoc(), 0);
         rewriter.create<ttkernel::MatmulInitOp>(op->getLoc(), cbA, cbB, outCB,
                                                 transposeInit);
       }
 
       rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
-      auto transpose =
-          intConstant<int32_t>(rewriter, op->getLoc(), transposeValue);
+      auto transpose = intConstant<int32_t>(rewriter, op->getLoc(), 0);
       rewriter.create<ttkernel::MatmulInitShortOp>(op->getLoc(), cbA, cbB,
                                                    transpose);
       rewriter.create<ttkernel::MatmulTilesOp>(op->getLoc(), cbA, cbB,

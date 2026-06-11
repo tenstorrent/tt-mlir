@@ -1543,6 +1543,5 @@ def _matmul_block(lhs, rhs, transpose_b=False):
         result = d2m.tile_matmul(c_t.type, a_t, b_t, c_t)
         if hasattr(result, "result"):
             result = result.result
-        result.owner.attributes["transpose_b"] = BoolAttr.get(transpose_b)
         linalg.yield_([result])
     return generic.result

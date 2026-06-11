@@ -92,7 +92,6 @@ print("PASS matmul transpose_b")
 # CHECK:       affine_map<(d0, d1, d2) -> (d1, d2)>
 # CHECK:       tensor<1x1x!ttcore.tile<32x32, f32>>
 # CHECK:       "d2m.tile_matmul"
-# CHECK-SAME:  transpose_b = true
 
 # CHECK-LABEL: WIDE_N_TRANSPOSE_B_IR
 # CHECK-DAG:   logical_shape = 32x32
@@ -102,7 +101,6 @@ print("PASS matmul transpose_b")
 # CHECK:       tensor<2x1x!ttcore.tile<32x32, f32>>
 # CHECK:       tensor<1x2x!ttcore.tile<32x32, f32>>
 # CHECK:       "d2m.tile_matmul"
-# CHECK-SAME:  transpose_b = true
 
 # CHECK-LABEL: MULTI_K_RECTANGULAR_TRANSPOSE_B_IR
 # CHECK-DAG:   logical_shape = 32x64
@@ -113,7 +111,6 @@ print("PASS matmul transpose_b")
 # CHECK:       tensor<3x2x!ttcore.tile<32x32, f32>>
 # CHECK:       tensor<1x3x!ttcore.tile<32x32, f32>>
 # CHECK:       "d2m.tile_matmul"
-# CHECK-SAME:  transpose_b = true
 
 # CHECK-LABEL: METHOD_FORM_TALL_MULTI_K_TRANSPOSE_B_IR
 # CHECK-DAG:   logical_shape = 64x96
@@ -124,5 +121,4 @@ print("PASS matmul transpose_b")
 # CHECK:       tensor<1x3x!ttcore.tile<32x32, f32>>
 # CHECK:       tensor<2x1x!ttcore.tile<32x32, f32>>
 # CHECK:       "d2m.tile_matmul"
-# CHECK-SAME:  transpose_b = true
 # CHECK:       PASS matmul transpose_b
