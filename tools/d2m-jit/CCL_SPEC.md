@@ -952,3 +952,24 @@ path never exercised on-device — `(1,8)` is filtered out on this 2-chip n300).
    generic splits into compute+datamovement like the rewriter), or add a no-op
    compute thread — and see if the end semaphore then advances. If that fixes it,
    the DSL CCL path needs to emit the compute-kernel half, not just datamovement.
+
+   **Tried it (compile failure — a *second* gap).** Authored the all_gather as a
+   `unified` kernel with a compute op in the data path
+   (`buf = remote_load(...); buf = sigmoid(buf); remote_store(..., buf)`,
+   `use_split_unified_thread_v2=True`) so `SplitUnifiedThread` would emit a
+   compute kernel alongside the datamovement one. It **fails to lower**:
+   `getFabricConnectionManager: Assertion 'fcm' failed, Expected fabric
+   connection manager op` (`D2MToTTKernel.cpp:174`). So when a unified CCL kernel
+   is split into datamovement+compute, the fabric-connection-manager setup is not
+   propagated to the split datamovement thread — the d2m-jit fabric path doesn't
+   support a compute thread coexisting with the fabric/CCL datamovement thread.
+
+   So the DSL CCL path has two layered gaps: (a) it can't currently emit the
+   compute-kernel half that the rewriter's all_gather program has (fcm assertion
+   on the unified+compute+CCL split), and (b) the datamovement-only program it
+   *can* emit hangs (end sem stuck at 0). Both are genuine d2m-jit
+   fabric/SplitUnifiedThread infrastructure work. The rewriter path remains the
+   supported, working route; the DSL port stays skipped. A focused fix would
+   start by teaching the fabric-connection-manager setup to survive the
+   compute/datamovement split (gap a), then re-test whether the resulting
+   2-kernel program clears the hang (gap b / the hypothesis).
