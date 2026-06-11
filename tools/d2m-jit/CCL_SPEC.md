@@ -911,3 +911,37 @@ path never exercised on-device — `(1,8)` is filtered out on this 2-chip n300).
    fabric program config, and the per-kernel runtime args (the actual semaphore
    L1 addresses passed). i.e. move from kernel-C++ diffing to runtime/program
    diffing (flatbuffer / `_execute` vs the ttmetal runtime).
+
+   **Flatbuffer program diff (done) — the all_gather program is missing a
+   compute kernel.** Dumped both flatbuffers (`Binary.as_json()`) and compared
+   the all_gather `EnqueueProgramCommand` (the one carrying the
+   `fabric_connection_config`, identical in both: noc0 / Linear /
+   bidir_line_mesh / num_links 1). Everything matches except the **kernel list**:
+   - **rewriter all_gather program: 2 kernels** — a `NocConfig` (datamovement) on
+     core (0,0) **+ a `ComputeConfig` (tilize) kernel** on core (0,0).
+   - **DSL all_gather program: 1 kernel** — only the `NocConfig` datamovement on
+     core (0,0).
+   Both datamovement kernels: same core (0,0, size 1x1), same `Noc0`, same
+   `arg_refs = [BufferRef, BufferRef, GlobalSemaphoreRef, GlobalSemaphoreRef]`,
+   1 cb. So the *only* structural difference in the all_gather program is the
+   presence of the compute kernel.
+
+   The rewriter gets the compute kernel because its unified generic carries a
+   `tilize` (row-major→tiled data path), which `SplitUnifiedThread` peels into a
+   compute thread; the rewriter datamovement kernel then consumes the tilized
+   data via CBs (`cb_wait_front`). The DSL authors a `datamovement`-only kernel
+   on pre-tiled data (direct `dma_read`), so no compute kernel and no CB
+   producer. **This correlates exactly with the hang**: compute-kernel-present
+   (rewriter) works; compute-kernel-absent (DSL) hangs — and the `unified`+v2 DSL
+   variant also hung because its pure-datamovement body produces no compute op to
+   split out either.
+
+   **🎯 Strong hypothesis:** a tt-metal fabric/CCL program (or just the
+   program-launch / NOC-init / go-signal path on a Tensix core) needs the compute
+   kernel present; without it the datamovement kernel's local `noc_semaphore_inc`
+   never becomes visible to its own `semaphore_wait` (end sem stuck at 0).
+   **Next test:** make the DSL all_gather program include a compute kernel on the
+   same core — e.g. route the data through a trivial tilize/compute (so the
+   generic splits into compute+datamovement like the rewriter), or add a no-op
+   compute thread — and see if the end semaphore then advances. If that fixes it,
+   the DSL CCL path needs to emit the compute-kernel half, not just datamovement.
