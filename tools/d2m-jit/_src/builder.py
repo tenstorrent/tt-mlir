@@ -254,6 +254,12 @@ class _Builder:
         # `#ttcore.tensor_mesh<...>` encoding that marks mesh_shard boundary
         # tensors as multi-device.
         self._mesh_name = None
+        # Set when a kernel is invoked with a `fabric=` config (a CCL kernel).
+        # `_execute` must then enable the device fabric (set_fabric_config)
+        # before opening the mesh device, or the cross-device fabric ops
+        # (device_synchronize / fabric remote_store / fabric semaphore incs)
+        # silently no-op and the kernel hangs on its semaphore_wait.
+        self._fabric_used = False
 
     def set_mesh(self, shape, topology=None):
         """Declare the device mesh for this graph.
@@ -970,14 +976,25 @@ def _execute(b: _Builder, lts):
             )
         )
 
+    # CCL kernels need the device fabric enabled before the mesh device is
+    # opened (matching the golden harness, which calls set_fabric_config). Without
+    # this the program's fabric ops (device_synchronize / fabric remote_store /
+    # fabric semaphore incs) silently no-op and the kernel hangs on semaphore_wait.
+    fabric_used = getattr(b, "_fabric_used", False)
+    if fabric_used:
+        runtime.set_fabric_config(runtime.FabricConfig.FABRIC_1D_RING)
     device = runtime.open_mesh_device(device_options)
-    submitted = runtime.submit(device, fbb, program_index, rt_inputs)
-    runtime.wait(submitted)
-    for i, rt_out in enumerate(submitted):
-        host_view = runtime.to_host(rt_out, untilize=True)[0]
-        runtime.memcpy(rt_outputs[i], host_view)
-        runtime.deallocate_tensor(rt_out, force=True)
-    runtime.close_mesh_device(device)
+    try:
+        submitted = runtime.submit(device, fbb, program_index, rt_inputs)
+        runtime.wait(submitted)
+        for i, rt_out in enumerate(submitted):
+            host_view = runtime.to_host(rt_out, untilize=True)[0]
+            runtime.memcpy(rt_outputs[i], host_view)
+            runtime.deallocate_tensor(rt_out, force=True)
+    finally:
+        runtime.close_mesh_device(device)
+        if fabric_used:
+            runtime.set_fabric_config(runtime.FabricConfig.DISABLED)
     return out_torch
 
 
@@ -1102,6 +1119,11 @@ def _emit_kernel_generic(
 ):
     """Append a d2m.GenericOp to the open host func that invokes `kernel`."""
     b = _get_scope()
+
+    # A `fabric=` kernel needs the device fabric enabled at open time; flag it so
+    # `_execute` calls set_fabric_config before open_mesh_device.
+    if fabric is not None and isinstance(b, _Builder):
+        b._fabric_used = True
 
     def _call_error(msg, hint=None, cause=None):
         # Pin call-site errors to the kernel's `def` line. The user's actual

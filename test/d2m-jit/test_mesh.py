@@ -345,16 +345,6 @@ def test_all_gather_1x2_lowers():
     reason="requires torch + ttmlir runtime",
 )
 @pytest.mark.skipif(_num_devices() < 2, reason="requires a >=2-device mesh")
-@pytest.mark.skip(
-    reason="d2m-jit DSL all_gather device-hangs at execution, unlike the REWRITER "
-    "path (test/python/golden/d2m/test_allgather.py, which passes e2e). Diffing "
-    "the lowered D2M IR vs the rewriter found two divergences, both now "
-    "addressed without clearing the hang: the store now threads the remote_load "
-    "result (was using the pre-load buffer), and the post-generic "
-    "reset_global_semaphore was ruled out (hang persists with it suppressed). "
-    "The cause is below the D2M level (TTKernel/fabric or on-device). "
-    "See CCL_SPEC.md section 7."
-)
 def test_all_gather_1x2_roundtrip():
     """A 1x2 line-config all_gather, the d2m-jit DSL mirror of
     `test/python/golden/d2m/test_allgather.py` (which drives
@@ -376,6 +366,10 @@ def test_all_gather_1x2_roundtrip():
       num_devices - 1 overshoots by one and deadlocks (CCL_SPEC.md section 7).
     - one core per device (num_cores = num_links*1 = 1, vs ring's *2): a
       single-core (grid 1x1) kernel, whole per-device shard on one core.
+
+    The `fabric=` config also makes `_execute` enable the device fabric
+    (`set_fabric_config`) before opening the mesh device; without that the
+    cross-device fabric semaphore incs silently no-op and the kernel deadlocks.
 
     Data flow (full (64,128), shard dim 1 by 2, gather dim 0, cluster axis 1):
     device d's shard is full[:, 64*d:64*(d+1)]; after the gather every device
@@ -409,7 +403,7 @@ def test_all_gather_1x2_roundtrip():
             start_device=[dy, 0],
             device_mcast_shape=[1, 2],
             semaphore=end_sem,
-            semaphore_indices=[0, 0],
+            semaphore_indices=[cy, 0],
         )
         # num_devices (1 remote + 1 local self-inc), not num_devices - 1.
         semaphore_wait(end_sem, 2)

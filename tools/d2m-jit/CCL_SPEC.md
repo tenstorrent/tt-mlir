@@ -973,3 +973,34 @@ path never exercised on-device — `(1,8)` is filtered out on this 2-chip n300).
    start by teaching the fabric-connection-manager setup to survive the
    compute/datamovement split (gap a), then re-test whether the resulting
    2-kernel program clears the hang (gap b / the hypothesis).
+
+### ✅✅ ROOT CAUSE FOUND & FIXED — `_execute` never enabled the device fabric
+
+The hang was **not** in the kernel, the program, or the compute-kernel split — it
+was the **runtime**. The golden harness opens the mesh device *after* calling
+`runtime.set_fabric_config(FabricConfig.FABRIC_1D_RING)` (conftest.py); the
+d2m-jit `_execute` opened the mesh device with **no `set_fabric_config` call at
+all**, so the device fabric defaulted to `DISABLED`. With the fabric disabled,
+the program's cross-device fabric ops (the `device_synchronize` mcast sem-inc,
+the `remote_store` fabric write, and the fabric semaphore increments) **silently
+no-op**, so the end semaphore is never incremented across devices and the kernel
+spins forever on `semaphore_wait` (end sem stuck at 0 — exactly what the watcher
+and the wait-value sweep showed). The "compute kernel present ⇒ works" was a red
+herring (the rewriter happened to also be on the fabric-enabled golden runtime).
+
+**Fix** (`tools/d2m-jit/_src/builder.py`):
+- track `_Builder._fabric_used` (set when a kernel is invoked with `fabric=`),
+- in `_execute`, if a fabric kernel was used, `set_fabric_config(FABRIC_1D_RING)`
+  before `open_mesh_device` and reset to `DISABLED` after `close_mesh_device`.
+
+With this, `test_all_gather_1x2_roundtrip` runs end-to-end and matches torch
+(maxdiff ~2e-3) — the test is now **unskipped and passing**. The kernel uses
+`semaphore_indices=[core_index(0), 0]` (matching the rewriter's running-core
+self-inc address, vs the earlier literal `[0,0]`).
+
+Secondary fix kept (`D2MToTTKernelPass.cpp`): the fabric-connection-manager
+insertion now detects fabric *semaphore* ops (`DeviceSynchronizeOp`,
+`SemaphoreInc/SetOp` with a startDevice), not only fabric `DMAWriteOp`. This
+closes gap (a) — a unified CCL+compute kernel now lowers past the
+`getFabricConnectionManager` assertion (compile-validated). It does not affect
+the datamovement-only path (that func already has a fabric write).
