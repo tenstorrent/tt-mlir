@@ -939,23 +939,21 @@ LogicalResult ExpressionOp::verify() {
 
   // Ensure the terminator is a yield op
   auto yield = cast<YieldOp>(body.getTerminator());
-  Value yieldResult = yield.getResult();
 
-  // Ensure the yield result is valid
-  if (!yieldResult) {
+  // YieldOp's auto-generated operand-count invariant is checked only after
+  // this verifier runs (parent's verify() before children's invariants), so
+  // reading getResult() on a malformed zero-operand yield would be a UB OOB
+  // read into operand storage. Guard here.
+  if (yield->getNumOperands() != 1) {
     return emitOpError("must yield a value at termination");
   }
 
+  Value yieldResult = yield.getResult();
   Operation *rootOp = yieldResult.getDefiningOp();
 
-  // Ensure the yield result is defined within the expression
+  // Ensure the yield result is defined within the expression (not a block arg)
   if (!rootOp) {
     return emitOpError("yielded value has no defining op");
-  }
-
-  // Check if the rootOp is in a block (required for getParentOp())
-  if (!rootOp->getBlock()) {
-    return emitOpError("yielded value's defining op is not in a block");
   }
 
   // Ensure the yield result op is defined within the expression
