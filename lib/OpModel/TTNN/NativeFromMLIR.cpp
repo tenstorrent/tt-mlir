@@ -478,6 +478,348 @@ buildEltwiseUnaryCompositeClampTensorOpTFromMLIR(TTNNLayoutAttr outputLayout) {
   return eltwiseUnaryCompositeOp;
 }
 
+::tt::target::ttnn::Conv3dOpT buildConv3dOpTFromMLIR(
+    uint32_t in_channels, uint32_t out_channels, uint32_t batch_size,
+    uint32_t input_depth, uint32_t input_height, uint32_t input_width,
+    llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
+    llvm::ArrayRef<int32_t> padding, llvm::StringRef padding_mode,
+    uint32_t groups, std::optional<ttcore::DataTypeAttr> outputDtype,
+    std::optional<Conv3dConfigAttr> conv3dConfig,
+    std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::Conv3dOpT conv3dOp;
+  conv3dOp.in_channels = in_channels;
+  conv3dOp.out_channels = out_channels;
+  conv3dOp.batch_size = batch_size;
+  conv3dOp.input_depth = input_depth;
+  conv3dOp.input_height = input_height;
+  conv3dOp.input_width = input_width;
+  conv3dOp.kernel_size =
+      std::vector<int32_t>(kernel_size.begin(), kernel_size.end());
+  conv3dOp.stride = std::vector<int32_t>(stride.begin(), stride.end());
+  conv3dOp.padding = std::vector<int32_t>(padding.begin(), padding.end());
+  conv3dOp.padding_mode = padding_mode.str();
+  conv3dOp.groups = groups;
+  conv3dOp.out = detail::getOutputTensorRefT(outputLayout);
+  if (outputDtype.has_value() && outputDtype.value()) {
+    conv3dOp.output_dtype = toNative(outputDtype.value().getValue());
+  }
+  conv3dOp.conv3d_config =
+      (conv3dConfig.has_value() && *conv3dConfig)
+          ? std::make_unique<::tt::target::ttnn::Conv3dConfigT>(
+                toNative(*conv3dConfig))
+          : nullptr;
+  conv3dOp.compute_config =
+      (deviceComputeKernelConfig.has_value() && *deviceComputeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*deviceComputeKernelConfig))
+          : nullptr;
+  auto outputMemoryConfigT = detail::getNullableMemoryConfigT(outputLayout);
+  conv3dOp.memory_config =
+      outputMemoryConfigT.has_value()
+          ? std::make_unique<::tt::target::ttnn::MemoryConfigT>(
+                *outputMemoryConfigT)
+          : nullptr;
+
+  return conv3dOp;
+}
+
+::tt::target::ttnn::ConvTranspose2dOpT buildConvTranspose2dOpTFromMLIR(
+    uint32_t in_channels, uint32_t out_channels, uint32_t batch_size,
+    uint32_t input_height, uint32_t input_width,
+    llvm::ArrayRef<int32_t> kernel_size, llvm::ArrayRef<int32_t> stride,
+    llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> output_padding,
+    llvm::ArrayRef<int32_t> dilation, uint32_t groups,
+    std::optional<Conv2dConfigAttr> conv2dConfig,
+    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
+    std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::ConvTranspose2dOpT convTranspose2dOp;
+  convTranspose2dOp.in_channels = in_channels;
+  convTranspose2dOp.out_channels = out_channels;
+  convTranspose2dOp.batch_size = batch_size;
+  convTranspose2dOp.input_height = input_height;
+  convTranspose2dOp.input_width = input_width;
+  convTranspose2dOp.kernel_size =
+      std::vector<int32_t>(kernel_size.begin(), kernel_size.end());
+  convTranspose2dOp.stride = std::vector<int32_t>(stride.begin(), stride.end());
+  convTranspose2dOp.padding =
+      std::vector<int32_t>(padding.begin(), padding.end());
+  convTranspose2dOp.output_padding =
+      std::vector<int32_t>(output_padding.begin(), output_padding.end());
+  convTranspose2dOp.dilation =
+      std::vector<int32_t>(dilation.begin(), dilation.end());
+  convTranspose2dOp.groups = groups;
+  convTranspose2dOp.out = detail::getOutputTensorRefT(outputLayout);
+  convTranspose2dOp.conv2d_config =
+      (conv2dConfig.has_value() && *conv2dConfig)
+          ? std::make_unique<::tt::target::ttnn::Conv2dConfigT>(
+                toNative(*conv2dConfig))
+          : nullptr;
+  convTranspose2dOp.compute_config =
+      (deviceComputeKernelConfig.has_value() && *deviceComputeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*deviceComputeKernelConfig))
+          : nullptr;
+  convTranspose2dOp.conv2d_slice_config =
+      (conv2dSliceConfig.has_value() && *conv2dSliceConfig)
+          ? std::make_unique<::tt::target::ttnn::Conv2dSliceConfigT>(
+                toNative(*conv2dSliceConfig))
+          : nullptr;
+
+  return convTranspose2dOp;
+}
+
+::tt::target::ttnn::PrepareConv2dWeightsOpT
+buildPrepareConv2dWeightsOpTFromMLIR(
+    MemoryConfigAttr inputMemConfig, ::mlir::tt::ttnn::Layout inputTensorLayout,
+    llvm::StringRef weightsFormat, int32_t inChannels, int32_t outChannels,
+    int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
+    llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
+    llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
+    bool hasBias, int32_t groups, ttcore::DataType inputDtype,
+    std::optional<ttcore::DataType> outputDtype,
+    std::optional<Conv2dConfigAttr> conv2dConfig,
+    std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::PrepareConv2dWeightsOpT prepareConv2dWeightsOp;
+  prepareConv2dWeightsOp.in_channels = inChannels;
+  prepareConv2dWeightsOp.out_channels = outChannels;
+  prepareConv2dWeightsOp.batch_size = batchSize;
+  prepareConv2dWeightsOp.input_height = inputHeight;
+  prepareConv2dWeightsOp.input_width = inputWidth;
+  prepareConv2dWeightsOp.kernel_size =
+      std::vector<int32_t>(kernelSize.begin(), kernelSize.end());
+  prepareConv2dWeightsOp.stride =
+      std::vector<int32_t>(stride.begin(), stride.end());
+  auto reorderedPadding = detail::reorderPool2dPadding(padding);
+  std::visit(
+      [&prepareConv2dWeightsOp](const auto &arr) {
+        prepareConv2dWeightsOp.padding.assign(arr.begin(), arr.end());
+      },
+      reorderedPadding);
+  prepareConv2dWeightsOp.dilation =
+      std::vector<int32_t>(dilation.begin(), dilation.end());
+  prepareConv2dWeightsOp.has_bias = hasBias;
+  prepareConv2dWeightsOp.groups = groups;
+  prepareConv2dWeightsOp.weights_format = weightsFormat.str();
+  prepareConv2dWeightsOp.input_tensor_layout = toNative(inputTensorLayout);
+  prepareConv2dWeightsOp.input_dtype = toNative(inputDtype);
+  if (outputDtype.has_value()) {
+    prepareConv2dWeightsOp.output_dtype = toNative(outputDtype.value());
+  }
+  prepareConv2dWeightsOp.input_memory_config =
+      std::make_unique<::tt::target::ttnn::MemoryConfigT>(
+          toNative(inputMemConfig));
+  prepareConv2dWeightsOp.conv2d_config =
+      (conv2dConfig.has_value() && *conv2dConfig)
+          ? std::make_unique<::tt::target::ttnn::Conv2dConfigT>(
+                toNative(*conv2dConfig))
+          : nullptr;
+  prepareConv2dWeightsOp.compute_config =
+      (deviceComputeKernelConfig.has_value() && *deviceComputeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*deviceComputeKernelConfig))
+          : nullptr;
+  prepareConv2dWeightsOp.conv2d_slice_config =
+      (conv2dSliceConfig.has_value() && *conv2dSliceConfig)
+          ? std::make_unique<::tt::target::ttnn::Conv2dSliceConfigT>(
+                toNative(*conv2dSliceConfig))
+          : nullptr;
+  prepareConv2dWeightsOp.out = detail::getOutputTensorRefT(outputLayout);
+
+  return prepareConv2dWeightsOp;
+}
+
+::tt::target::ttnn::PrepareConv2dBiasOpT buildPrepareConv2dBiasOpTFromMLIR(
+    MemoryConfigAttr inputMemConfig, ::mlir::tt::ttnn::Layout inputTensorLayout,
+    int32_t inChannels, int32_t outChannels, int32_t batchSize,
+    int32_t inputHeight, int32_t inputWidth, llvm::ArrayRef<int32_t> kernelSize,
+    llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
+    llvm::ArrayRef<int32_t> dilation, int32_t groups,
+    ttcore::DataType inputDtype, std::optional<ttcore::DataType> outputDtype,
+    std::optional<Conv2dConfigAttr> conv2dConfig,
+    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
+    std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::PrepareConv2dBiasOpT prepareConv2dBiasOp;
+  prepareConv2dBiasOp.in_channels = inChannels;
+  prepareConv2dBiasOp.out_channels = outChannels;
+  prepareConv2dBiasOp.batch_size = batchSize;
+  prepareConv2dBiasOp.input_height = inputHeight;
+  prepareConv2dBiasOp.input_width = inputWidth;
+  prepareConv2dBiasOp.kernel_size =
+      std::vector<int32_t>(kernelSize.begin(), kernelSize.end());
+  prepareConv2dBiasOp.stride =
+      std::vector<int32_t>(stride.begin(), stride.end());
+  auto reorderedPadding = detail::reorderPool2dPadding(padding);
+  std::visit(
+      [&prepareConv2dBiasOp](const auto &arr) {
+        prepareConv2dBiasOp.padding.assign(arr.begin(), arr.end());
+      },
+      reorderedPadding);
+  prepareConv2dBiasOp.dilation =
+      std::vector<int32_t>(dilation.begin(), dilation.end());
+  prepareConv2dBiasOp.groups = groups;
+  prepareConv2dBiasOp.input_tensor_layout = toNative(inputTensorLayout);
+  prepareConv2dBiasOp.input_dtype = toNative(inputDtype);
+  if (outputDtype.has_value()) {
+    prepareConv2dBiasOp.output_dtype = toNative(outputDtype.value());
+  }
+  prepareConv2dBiasOp.input_memory_config =
+      std::make_unique<::tt::target::ttnn::MemoryConfigT>(
+          toNative(inputMemConfig));
+  prepareConv2dBiasOp.conv2d_config =
+      (conv2dConfig.has_value() && *conv2dConfig)
+          ? std::make_unique<::tt::target::ttnn::Conv2dConfigT>(
+                toNative(*conv2dConfig))
+          : nullptr;
+  prepareConv2dBiasOp.compute_config =
+      (deviceComputeKernelConfig.has_value() && *deviceComputeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*deviceComputeKernelConfig))
+          : nullptr;
+  prepareConv2dBiasOp.conv2d_slice_config =
+      (conv2dSliceConfig.has_value() && *conv2dSliceConfig)
+          ? std::make_unique<::tt::target::ttnn::Conv2dSliceConfigT>(
+                toNative(*conv2dSliceConfig))
+          : nullptr;
+  prepareConv2dBiasOp.out = detail::getOutputTensorRefT(outputLayout);
+
+  return prepareConv2dBiasOp;
+}
+
+::tt::target::ttnn::PrepareConvTranspose2dWeightsOpT
+buildPrepareConvTranspose2dWeightsOpTFromMLIR(
+    MemoryConfigAttr inputMemConfig, ::mlir::tt::ttnn::Layout inputTensorLayout,
+    llvm::StringRef weightsFormat, int32_t inChannels, int32_t outChannels,
+    int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
+    llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
+    llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> outputPadding,
+    llvm::ArrayRef<int32_t> dilation, bool hasBias, int32_t groups,
+    ttcore::DataType inputDtype, std::optional<ttcore::DataType> outputDtype,
+    std::optional<Conv2dConfigAttr> conv2dConfig,
+    std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig, bool mirrorKernel,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::PrepareConvTranspose2dWeightsOpT
+      prepareConvTranspose2dWeightsOp;
+  prepareConvTranspose2dWeightsOp.in_channels = inChannels;
+  prepareConvTranspose2dWeightsOp.out_channels = outChannels;
+  prepareConvTranspose2dWeightsOp.batch_size = batchSize;
+  prepareConvTranspose2dWeightsOp.input_height = inputHeight;
+  prepareConvTranspose2dWeightsOp.input_width = inputWidth;
+  prepareConvTranspose2dWeightsOp.kernel_size =
+      std::vector<int32_t>(kernelSize.begin(), kernelSize.end());
+  prepareConvTranspose2dWeightsOp.stride =
+      std::vector<int32_t>(stride.begin(), stride.end());
+  auto reorderedPadding = detail::reorderPool2dPadding(padding);
+  std::visit(
+      [&prepareConvTranspose2dWeightsOp](const auto &arr) {
+        prepareConvTranspose2dWeightsOp.padding.assign(arr.begin(), arr.end());
+      },
+      reorderedPadding);
+  prepareConvTranspose2dWeightsOp.output_padding =
+      std::vector<int32_t>(outputPadding.begin(), outputPadding.end());
+  prepareConvTranspose2dWeightsOp.dilation =
+      std::vector<int32_t>(dilation.begin(), dilation.end());
+  prepareConvTranspose2dWeightsOp.has_bias = hasBias;
+  prepareConvTranspose2dWeightsOp.groups = groups;
+  prepareConvTranspose2dWeightsOp.weights_format = weightsFormat.str();
+  prepareConvTranspose2dWeightsOp.mirror_kernel = mirrorKernel;
+  prepareConvTranspose2dWeightsOp.input_tensor_layout =
+      toNative(inputTensorLayout);
+  prepareConvTranspose2dWeightsOp.input_dtype = toNative(inputDtype);
+  if (outputDtype.has_value()) {
+    prepareConvTranspose2dWeightsOp.output_dtype =
+        toNative(outputDtype.value());
+  }
+  prepareConvTranspose2dWeightsOp.input_memory_config =
+      std::make_unique<::tt::target::ttnn::MemoryConfigT>(
+          toNative(inputMemConfig));
+  prepareConvTranspose2dWeightsOp.conv2d_config =
+      (conv2dConfig.has_value() && *conv2dConfig)
+          ? std::make_unique<::tt::target::ttnn::Conv2dConfigT>(
+                toNative(*conv2dConfig))
+          : nullptr;
+  prepareConvTranspose2dWeightsOp.compute_config =
+      (deviceComputeKernelConfig.has_value() && *deviceComputeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*deviceComputeKernelConfig))
+          : nullptr;
+  prepareConvTranspose2dWeightsOp.conv2d_slice_config =
+      (conv2dSliceConfig.has_value() && *conv2dSliceConfig)
+          ? std::make_unique<::tt::target::ttnn::Conv2dSliceConfigT>(
+                toNative(*conv2dSliceConfig))
+          : nullptr;
+  prepareConvTranspose2dWeightsOp.out =
+      detail::getOutputTensorRefT(outputLayout);
+
+  return prepareConvTranspose2dWeightsOp;
+}
+
+::tt::target::ttnn::PrepareConvTranspose2dBiasOpT
+buildPrepareConvTranspose2dBiasOpTFromMLIR(
+    MemoryConfigAttr inputMemConfig, ::mlir::tt::ttnn::Layout inputTensorLayout,
+    int32_t inChannels, int32_t outChannels, int32_t batchSize,
+    int32_t inputHeight, int32_t inputWidth, llvm::ArrayRef<int32_t> kernelSize,
+    llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
+    llvm::ArrayRef<int32_t> dilation, int32_t groups,
+    ttcore::DataType inputDtype, std::optional<ttcore::DataType> outputDtype,
+    std::optional<Conv2dConfigAttr> conv2dConfig,
+    std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::PrepareConvTranspose2dBiasOpT
+      prepareConvTranspose2dBiasOp;
+  prepareConvTranspose2dBiasOp.in_channels = inChannels;
+  prepareConvTranspose2dBiasOp.out_channels = outChannels;
+  prepareConvTranspose2dBiasOp.batch_size = batchSize;
+  prepareConvTranspose2dBiasOp.input_height = inputHeight;
+  prepareConvTranspose2dBiasOp.input_width = inputWidth;
+  prepareConvTranspose2dBiasOp.kernel_size =
+      std::vector<int32_t>(kernelSize.begin(), kernelSize.end());
+  prepareConvTranspose2dBiasOp.stride =
+      std::vector<int32_t>(stride.begin(), stride.end());
+  auto reorderedPadding = detail::reorderPool2dPadding(padding);
+  std::visit(
+      [&prepareConvTranspose2dBiasOp](const auto &arr) {
+        prepareConvTranspose2dBiasOp.padding.assign(arr.begin(), arr.end());
+      },
+      reorderedPadding);
+  prepareConvTranspose2dBiasOp.dilation =
+      std::vector<int32_t>(dilation.begin(), dilation.end());
+  prepareConvTranspose2dBiasOp.groups = groups;
+  prepareConvTranspose2dBiasOp.input_tensor_layout =
+      toNative(inputTensorLayout);
+  prepareConvTranspose2dBiasOp.input_dtype = toNative(inputDtype);
+  if (outputDtype.has_value()) {
+    prepareConvTranspose2dBiasOp.output_dtype = toNative(outputDtype.value());
+  }
+  prepareConvTranspose2dBiasOp.input_memory_config =
+      std::make_unique<::tt::target::ttnn::MemoryConfigT>(
+          toNative(inputMemConfig));
+  prepareConvTranspose2dBiasOp.conv2d_config =
+      (conv2dConfig.has_value() && *conv2dConfig)
+          ? std::make_unique<::tt::target::ttnn::Conv2dConfigT>(
+                toNative(*conv2dConfig))
+          : nullptr;
+  prepareConvTranspose2dBiasOp.compute_config =
+      (deviceComputeKernelConfig.has_value() && *deviceComputeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*deviceComputeKernelConfig))
+          : nullptr;
+  prepareConvTranspose2dBiasOp.conv2d_slice_config =
+      (conv2dSliceConfig.has_value() && *conv2dSliceConfig)
+          ? std::make_unique<::tt::target::ttnn::Conv2dSliceConfigT>(
+                toNative(*conv2dSliceConfig))
+          : nullptr;
+  prepareConvTranspose2dBiasOp.out = detail::getOutputTensorRefT(outputLayout);
+
+  return prepareConvTranspose2dBiasOp;
+}
+
 } // namespace mlir::tt::ttnn::op_model
 
 #endif // TTMLIR_ENABLE_OPMODEL

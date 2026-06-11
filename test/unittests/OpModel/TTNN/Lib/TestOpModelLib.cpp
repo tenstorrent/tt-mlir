@@ -2865,11 +2865,19 @@ TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
   const TTNNLayoutAttr outputLayout = CreateTiledLayout(
       outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
+  DeviceComputeKernelConfigAttr deviceConfig =
+      DeviceComputeKernelConfigAttr::get(
+          &context, /*mathFidelity=*/MathFidelity::LoFi,
+          /*mathApproxMode=*/::mlir::BoolAttr::get(&context, true),
+          /*fp32DestAccEn=*/::mlir::BoolAttr::get(&context, true),
+          /*packerL1Acc=*/::mlir::BoolAttr::get(&context, true),
+          /*dstFullSyncEn=*/::mlir::BoolAttr::get(&context, true));
+
   auto constraintsExp = OpModel<ConvTranspose2dOp>::getOpConstraints(
       inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
       std::nullopt, in_channels, out_channels, batch_size, input_height,
       input_width, kernel_size, stride, padding, output_padding, dilation,
-      groups, std::nullopt, std::nullopt, outputLayout);
+      groups, std::nullopt, std::nullopt, deviceConfig, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
@@ -2888,7 +2896,7 @@ TEST_P(OpModelConvTranspose2dParam, ConvTranspose2d) {
       inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
       std::nullopt, in_channels, out_channels, batch_size, input_height,
       input_width, kernel_size, stride, padding, output_padding, dilation,
-      groups, std::nullopt, std::nullopt, outputLayout);
+      groups, std::nullopt, std::nullopt, deviceConfig, outputLayout);
   // Manually cast to bool because EXPECT_TRUE requires a const bool operator
   // which llvm::Expected<T> does not have
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
@@ -4036,12 +4044,19 @@ TEST_P(OpModelPrepareConv2dBiasParam, PrepareConv2dBias) {
   //  issues an error. See conv2d_op_program_factory_common.cpp in tt-metal.
   Conv2dConfigAttr conv2dConfig = Conv2dConfigAttr::get(&context);
   conv2dConfig = conv2dConfig.withWeightsDtype(ttcore::DataType::Float32);
+  DeviceComputeKernelConfigAttr deviceConfig =
+      DeviceComputeKernelConfigAttr::get(
+          &context, /*mathFidelity=*/MathFidelity::LoFi,
+          /*mathApproxMode=*/::mlir::BoolAttr::get(&context, true),
+          /*fp32DestAccEn=*/::mlir::BoolAttr::get(&context, true),
+          /*packerL1Acc=*/::mlir::BoolAttr::get(&context, true),
+          /*dstFullSyncEn=*/::mlir::BoolAttr::get(&context, true));
 
   auto constraintsExp = OpModel<PrepareConv2dBiasOp>::getOpConstraints(
       biasLayout, biasShape, inputMemConfig, inputTensorLayout, in_channels,
       out_channels, batch_size, input_height, input_width, kernel_size, stride,
       padding, dilation, groups, ttcore::DataType::Float32, std::nullopt,
-      conv2dConfig, std::nullopt, outputLayout);
+      conv2dConfig, std::nullopt, deviceConfig, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
