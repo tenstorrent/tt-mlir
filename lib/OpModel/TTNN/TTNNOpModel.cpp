@@ -18,6 +18,18 @@
 #include "ttmlir/OpInvoke/TTNN/Conv/PrepareConv2dWeightsOp.h"
 #include "ttmlir/OpInvoke/TTNN/Conv/PrepareConvTranspose2dBiasOp.h"
 #include "ttmlir/OpInvoke/TTNN/Conv/PrepareConvTranspose2dWeightsOp.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/AssignOp.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/ConcatOp.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/GatherOp.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/PadOp.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/PermuteOp.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/RepeatInterleaveOp.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/RepeatOp.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/ReshapeOp.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/ScatterOp.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/SliceOp.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/SortOp.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/TransposeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Binary/EltwiseBinaryCompositeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Binary/EltwiseBinaryOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Quantization/EltwiseQuantizationOp.h"
@@ -2189,11 +2201,12 @@ llvm::Expected<size_t> OpModel<SoftmaxOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // ScatterOp
 //===----------------------------------------------------------------------===//
+
 llvm::Expected<OpConstraints> OpModel<ScatterOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> indexShape, TTNNLayoutAttr indexLayout,
     llvm::ArrayRef<int64_t> sourceShape, TTNNLayoutAttr sourceLayout,
-    int32_t dim, std::optional<ttcore::ReduceTypeAttr> optReduction,
+    int32_t dim, mlir::tt::ttcore::ReduceType reduceType,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -2211,15 +2224,19 @@ llvm::Expected<OpConstraints> OpModel<ScatterOp>::getOpConstraints(
       ::ttnn::TensorSpec sourceSpec,
       detail::convertToTensorSpec(device, sourceShape, sourceLayout));
 
-  // Convert optReduction to ScatterReductionType enum
-  auto optReductionType = conversion::getScatterReductionType(optReduction);
+  ::tt::target::ttnn::ScatterOpT scatterOpNative =
+      buildScatterOpTFromMLIR(dim, reduceType, outputLayout);
 
-  //  Create query closure
   auto scatterOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::scatter, device, inputSpec, dim, indexSpec, sourceSpec,
-        detail::getNullableMemoryConfig(outputLayout), optReductionType,
-        /* sub_core_grid */ std::nullopt);
+    ttnn_op_invoke::ScatterOpResult result = ttnn_op_invoke::callScatter(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, scatterOpNative,
+        inputSpec, indexSpec, sourceSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from ScatterOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), scatterOpQuery);
@@ -2232,7 +2249,7 @@ llvm::Expected<size_t> OpModel<ScatterOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> indexShape, TTNNLayoutAttr indexLayout,
     llvm::ArrayRef<int64_t> sourceShape, TTNNLayoutAttr sourceLayout,
-    int32_t dim, std::optional<ttcore::ReduceTypeAttr> optReduction,
+    int32_t dim, mlir::tt::ttcore::ReduceType reduceType,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -2250,17 +2267,22 @@ llvm::Expected<size_t> OpModel<ScatterOp>::getOpRuntime(
       ::ttnn::TensorSpec sourceSpec,
       detail::convertToTensorSpec(device, sourceShape, sourceLayout));
 
-  auto optReductionType = conversion::getScatterReductionType(optReduction);
+  ::tt::target::ttnn::ScatterOpT scatterOpNative =
+      buildScatterOpTFromMLIR(dim, reduceType, outputLayout);
 
-  //  Create query closure
-  auto scatterOpRuntimeQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::scatter, device, inputSpec, dim, indexSpec, sourceSpec,
-        detail::getNullableMemoryConfig(outputLayout), optReductionType,
-        /* sub_core_grid */ std::nullopt);
+  auto scatterOpQuery = [=]() {
+    ttnn_op_invoke::ScatterOpResult result = ttnn_op_invoke::callScatter(
+        ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, scatterOpNative, inputSpec,
+        indexSpec, sourceSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from ScatterOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
-  return operation::getOpRuntime(scatterOpRuntimeQuery);
+  return operation::getOpRuntime(scatterOpQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -2269,6 +2291,7 @@ llvm::Expected<size_t> OpModel<ScatterOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // ReshapeOp
 //===----------------------------------------------------------------------===//
+
 llvm::Expected<OpConstraints> OpModel<ReshapeOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> outputShape, TTNNLayoutAttr outputLayout) {
@@ -2280,11 +2303,19 @@ llvm::Expected<OpConstraints> OpModel<ReshapeOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::ReshapeOpT reshapeOpNative =
+      buildReshapeOpTFromMLIR(outputShape, outputLayout);
+
   auto reshapeOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::reshape, device, inputSpec,
-                                conversion::getShape(outputShape),
-                                detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::ReshapeOpResult result = ttnn_op_invoke::callReshape(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, reshapeOpNative,
+        inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from ReshapeOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), reshapeOpQuery);
@@ -2304,11 +2335,19 @@ llvm::Expected<size_t> OpModel<ReshapeOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::ReshapeOpT reshapeOpNative =
+      buildReshapeOpTFromMLIR(outputShape, outputLayout);
+
   auto reshapeOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::reshape, device, inputSpec,
-                            conversion::getShape(outputShape),
-                            detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::ReshapeOpResult result =
+        ttnn_op_invoke::callReshape(ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+                                    reshapeOpNative, inputSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from ReshapeOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(reshapeOpQuery);
@@ -2320,6 +2359,7 @@ llvm::Expected<size_t> OpModel<ReshapeOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // SliceStaticOp
 //===----------------------------------------------------------------------===//
+
 llvm::Expected<OpConstraints> OpModel<SliceStaticOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> begins, llvm::ArrayRef<int64_t> ends,
@@ -2332,24 +2372,19 @@ llvm::Expected<OpConstraints> OpModel<SliceStaticOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // convert arrays
-  ::ttsl::SmallVector<int> beginsVec =
-      conversion::convertLLVMSmallVecToTTNNSmallVec(begins);
-  ::ttsl::SmallVector<int> endsVec =
-      conversion::convertLLVMSmallVecToTTNNSmallVec(ends);
-  ::ttsl::SmallVector<int> stepVec =
-      conversion::convertLLVMSmallVecToTTNNSmallVec(step);
+  ::tt::target::ttnn::SliceOpT sliceOpNative =
+      buildSliceStaticOpTFromMLIR(begins, ends, step, outputLayout);
 
-  ttsl::Span<const int> beginsSpan = ::ttsl::make_const_span(beginsVec);
-  ttsl::Span<const int> endsSpan = ::ttsl::make_const_span(endsVec);
-  ttsl::Span<const int> stepSpan = ::ttsl::make_const_span(stepVec);
-
-  // Create query closure
   auto sliceOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::slice, device, inputSpec, beginsSpan,
-                                endsSpan, stepSpan,
-                                detail::getNullableMemoryConfig(outputLayout),
-                                std::nullopt, std::nullopt);
+    ttnn_op_invoke::SliceOpResult result = ttnn_op_invoke::callSliceStatic(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, sliceOpNative,
+        inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from SliceStaticOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), sliceOpQuery);
@@ -2370,24 +2405,19 @@ llvm::Expected<size_t> OpModel<SliceStaticOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Convert arrays
-  ::ttsl::SmallVector<int> beginsVec =
-      conversion::convertLLVMSmallVecToTTNNSmallVec(begins);
-  ::ttsl::SmallVector<int> endsVec =
-      conversion::convertLLVMSmallVecToTTNNSmallVec(ends);
-  ::ttsl::SmallVector<int> stepVec =
-      conversion::convertLLVMSmallVecToTTNNSmallVec(step);
+  ::tt::target::ttnn::SliceOpT sliceOpNative =
+      buildSliceStaticOpTFromMLIR(begins, ends, step, outputLayout);
 
-  ttsl::Span<const int> beginsSpan = ::ttsl::make_const_span(beginsVec);
-  ttsl::Span<const int> endsSpan = ::ttsl::make_const_span(endsVec);
-  ttsl::Span<const int> stepSpan = ::ttsl::make_const_span(stepVec);
-
-  // Create query closure
   auto sliceOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::slice, device, inputSpec, beginsSpan,
-                            endsSpan, stepSpan,
-                            detail::getNullableMemoryConfig(outputLayout),
-                            std::nullopt, std::nullopt);
+    ttnn_op_invoke::SliceOpResult result = ttnn_op_invoke::callSliceStatic(
+        ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, sliceOpNative, inputSpec,
+        device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from SliceStaticOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(sliceOpQuery);
@@ -2713,6 +2743,7 @@ OpModel<ToMemoryConfigOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 // ConcatOp
 //===----------------------------------------------------------------------===//
+
 llvm::Expected<OpConstraints> OpModel<ConcatOp>::getOpConstraints(
     std::vector<llvm::ArrayRef<int64_t>> inputShapes,
     std::vector<TTNNLayoutAttr> inputLayouts, const int dim,
@@ -2732,10 +2763,22 @@ llvm::Expected<OpConstraints> OpModel<ConcatOp>::getOpConstraints(
     inputSpecs.push_back(std::move(_push_tmp));
   }
 
-  // Create query closure
+  ::tt::target::ttnn::ConcatOpT concatOpNative =
+      buildConcatOpTFromMLIR(dim, outputLayout);
+
+  std::vector<ttnn_op_invoke::TensorArg> inputArgs(inputSpecs.begin(),
+                                                   inputSpecs.end());
+
   auto concatOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::concat, device, inputSpecs, dim,
-                                detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::ConcatOpResult result = ttnn_op_invoke::callConcat(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, concatOpNative,
+        inputArgs, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from ConcatOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayouts[0].getContext(),
@@ -2764,10 +2807,22 @@ llvm::Expected<size_t> OpModel<ConcatOp>::getOpRuntime(
     inputSpecs.push_back(std::move(_push_tmp));
   }
 
-  // Create query closure
+  ::tt::target::ttnn::ConcatOpT concatOpNative =
+      buildConcatOpTFromMLIR(dim, outputLayout);
+
+  std::vector<ttnn_op_invoke::TensorArg> inputArgs(inputSpecs.begin(),
+                                                   inputSpecs.end());
+
   auto concatOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::concat, device, inputSpecs, dim,
-                            detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::ConcatOpResult result =
+        ttnn_op_invoke::callConcat(ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+                                   concatOpNative, inputArgs, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from ConcatOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(concatOpQuery);
@@ -2779,6 +2834,7 @@ llvm::Expected<size_t> OpModel<ConcatOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // TransposeOp
 //===----------------------------------------------------------------------===//
+
 llvm::Expected<OpConstraints> OpModel<TransposeOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     const int dim0, const int dim1, TTNNLayoutAttr outputLayout) {
@@ -2790,12 +2846,19 @@ llvm::Expected<OpConstraints> OpModel<TransposeOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::TransposeOpT transposeOpNative =
+      buildTransposeOpTFromMLIR(dim0, dim1, outputLayout);
+
   auto transposeOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::transpose, device, inputSpec,
-                                static_cast<int64_t>(dim0),
-                                static_cast<int64_t>(dim1),
-                                detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::TransposeOpResult result = ttnn_op_invoke::callTranspose(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, transposeOpNative,
+        inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from TransposeOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(),
@@ -2816,12 +2879,19 @@ llvm::Expected<size_t> OpModel<TransposeOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::TransposeOpT transposeOpNative =
+      buildTransposeOpTFromMLIR(dim0, dim1, outputLayout);
+
   auto transposeOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::transpose, device, inputSpec,
-                            static_cast<int64_t>(dim0),
-                            static_cast<int64_t>(dim1),
-                            detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::TransposeOpResult result = ttnn_op_invoke::callTranspose(
+        ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, transposeOpNative,
+        inputSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from TransposeOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(transposeOpQuery);
@@ -4232,6 +4302,7 @@ llvm::Expected<size_t> OpModel<NLPConcatHeadsDecodeOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // RepeatInterleaveOp
 //===----------------------------------------------------------------------===//
+
 llvm::Expected<OpConstraints> OpModel<RepeatInterleaveOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     const unsigned int repeats, const int dim, TTNNLayoutAttr outputLayout) {
@@ -4243,11 +4314,20 @@ llvm::Expected<OpConstraints> OpModel<RepeatInterleaveOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::RepeatInterleaveOpT repeatInterleaveOpNative =
+      buildRepeatInterleaveOpTFromMLIR(repeats, dim, outputLayout);
+
   auto repeatInterleaveOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::repeat_interleave, device, inputSpec,
-                                repeats, dim,
-                                detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::RepeatInterleaveOpResult result =
+        ttnn_op_invoke::callRepeatInterleave(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            repeatInterleaveOpNative, inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from RepeatInterleaveOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(),
@@ -4268,11 +4348,20 @@ llvm::Expected<size_t> OpModel<RepeatInterleaveOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::RepeatInterleaveOpT repeatInterleaveOpNative =
+      buildRepeatInterleaveOpTFromMLIR(repeats, dim, outputLayout);
+
   auto repeatInterleaveOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::repeat_interleave, device, inputSpec,
-                            repeats, dim,
-                            detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::RepeatInterleaveOpResult result =
+        ttnn_op_invoke::callRepeatInterleave(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+            repeatInterleaveOpNative, inputSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from RepeatInterleaveOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(repeatInterleaveOpQuery);
@@ -4284,6 +4373,7 @@ llvm::Expected<size_t> OpModel<RepeatInterleaveOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // RepeatOp
 //===----------------------------------------------------------------------===//
+
 llvm::Expected<OpConstraints> OpModel<RepeatOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> repeats, TTNNLayoutAttr outputLayout) {
@@ -4295,21 +4385,19 @@ llvm::Expected<OpConstraints> OpModel<RepeatOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Convert repeats to ttnn::Shape
-  ::ttnn::Shape repeatShape = conversion::getShape(repeats);
+  ::tt::target::ttnn::RepeatOpT repeatOpNative =
+      buildRepeatOpTFromMLIR(repeats, outputLayout);
 
-  // Convert output layout to memory config
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
-
-  // Convert Shape to SmallVector<uint32_t> to use overload with memory_config
-  ::ttsl::SmallVector<uint32_t> repeatVec(repeatShape.cbegin(),
-                                          repeatShape.cend());
-
-  // Create query closure
   auto repeatOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::repeat, device, inputSpec, repeatVec,
-                                outputMemoryConfig);
+    ttnn_op_invoke::RepeatOpResult result = ttnn_op_invoke::callRepeat(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, repeatOpNative,
+        inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from RepeatOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), repeatOpQuery);
@@ -4329,21 +4417,19 @@ llvm::Expected<size_t> OpModel<RepeatOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Convert repeats to SmallVector<uint32_t> to use overload with memory_config
-  ::ttsl::SmallVector<uint32_t> repeatVec;
-  repeatVec.reserve(repeats.size());
-  for (int64_t r : repeats) {
-    repeatVec.push_back(static_cast<uint32_t>(r));
-  }
+  ::tt::target::ttnn::RepeatOpT repeatOpNative =
+      buildRepeatOpTFromMLIR(repeats, outputLayout);
 
-  // Convert output layout to memory config
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
-
-  // Create query closure
   auto repeatOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::repeat, device, inputSpec, repeatVec,
-                            outputMemoryConfig);
+    ttnn_op_invoke::RepeatOpResult result =
+        ttnn_op_invoke::callRepeat(ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+                                   repeatOpNative, inputSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from RepeatOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(repeatOpQuery);
@@ -4355,34 +4441,6 @@ llvm::Expected<size_t> OpModel<RepeatOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // PadOp
 //===----------------------------------------------------------------------===//
-
-#ifdef TTMLIR_ENABLE_OPMODEL
-/**
- * @brief Converts padding array to PadSpecDim format for TTNN operations.
- *
- * @param padding Array of padding values in [before0, after0, before1, after1,
- * ...] format
- * @return SmallVector of PadSpecDim objects
- */
-static ttsl::SmallVector<::ttnn::operations::data_movement::PadSpecDim>
-convertPadding(llvm::ArrayRef<int32_t> padding) {
-  ttsl::SmallVector<::ttnn::operations::data_movement::PadSpecDim> paddingSpec;
-  // Reserve space to avoid memory reallocations
-  paddingSpec.reserve((padding.size() + 1) / 2);
-
-  constexpr int32_t defaultPadValue = 0;
-  for (size_t i = 0; i < padding.size(); i += 2) {
-    int32_t before = padding[i];
-    int32_t after = (i + 1 < padding.size()) ? padding[i + 1] : defaultPadValue;
-
-    assert(before >= 0 && after >= 0 && "Padding values must be non-negative");
-
-    paddingSpec.emplace_back(static_cast<uint32_t>(before),
-                             static_cast<uint32_t>(after));
-  }
-  return paddingSpec;
-}
-#endif // TTMLIR_ENABLE_OPMODEL
 
 llvm::Expected<OpConstraints> OpModel<PadOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -4396,14 +4454,19 @@ llvm::Expected<OpConstraints> OpModel<PadOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Convert padding to PadSpecDim format
-  auto paddingSpec = convertPadding(padding);
+  ::tt::target::ttnn::PadOpT padOpNative =
+      buildPadOpTFromMLIR(padding, padValue, multicore, outputLayout);
 
-  // Create query closure
   auto padOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::pad, device, inputSpec, paddingSpec,
-                                padValue.convertToFloat(), multicore,
-                                detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::PadOpResult result =
+        ttnn_op_invoke::callPad(ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+                                padOpNative, inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from PadOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), padOpQuery);
@@ -4424,14 +4487,19 @@ llvm::Expected<size_t> OpModel<PadOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Convert padding to PadSpecDim format
-  auto paddingSpec = convertPadding(padding);
+  ::tt::target::ttnn::PadOpT padOpNative =
+      buildPadOpTFromMLIR(padding, padValue, multicore, outputLayout);
 
-  // Create query closure
   auto padOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::pad, device, inputSpec, paddingSpec,
-                            padValue.convertToFloat(), multicore,
-                            detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::PadOpResult result =
+        ttnn_op_invoke::callPad(ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+                                padOpNative, inputSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from PadOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(padOpQuery);
@@ -4443,6 +4511,7 @@ llvm::Expected<size_t> OpModel<PadOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // SortOp
 //===----------------------------------------------------------------------===//
+
 llvm::Expected<OpConstraints> OpModel<SortOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout, int dim,
     bool descending, bool stable, TTNNLayoutAttr outputLayout) {
@@ -4454,11 +4523,19 @@ llvm::Expected<OpConstraints> OpModel<SortOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::SortOpT sortOpNative =
+      buildSortOpTFromMLIR(dim, descending, stable, outputLayout);
+
   auto sortOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::sort, device, inputSpec, dim,
-                                descending, stable,
-                                detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::SortOpResult result =
+        ttnn_op_invoke::callSort(ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+                                 sortOpNative, inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from SortOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), sortOpQuery);
@@ -4478,11 +4555,19 @@ llvm::Expected<size_t> OpModel<SortOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::SortOpT sortOpNative =
+      buildSortOpTFromMLIR(dim, descending, stable, outputLayout);
+
   auto sortOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::sort, device, inputSpec,
-                            static_cast<int8_t>(dim), descending, stable,
-                            detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::SortOpResult result =
+        ttnn_op_invoke::callSort(ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+                                 sortOpNative, inputSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from SortOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(sortOpQuery);
@@ -7443,6 +7528,7 @@ llvm::Expected<size_t> OpModel<ClampTensorOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // Permute
 //===----------------------------------------------------------------------===//
+
 llvm::Expected<OpConstraints> OpModel<PermuteOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> permutation, llvm::APFloat padValue,
@@ -7451,21 +7537,23 @@ llvm::Expected<OpConstraints> OpModel<PermuteOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Convert permutations of TTNN_PermuteOp to dims of ttnn::permute
-  ::ttsl::SmallVector<int64_t> dims(permutation.size());
-  std::copy(permutation.begin(), permutation.end(), dims.begin());
-
-  float defaultedPadValue = padValue.convertToFloat();
-
   ASSIGN_OR_RETURN(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::PermuteOpT permuteOpNative =
+      buildPermuteOpTFromMLIR(permutation, padValue, outputLayout);
+
   auto permuteQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::permute, device, inputSpec, dims,
-                                detail::getNullableMemoryConfig(outputLayout),
-                                defaultedPadValue);
+    ttnn_op_invoke::PermuteOpResult result = ttnn_op_invoke::callPermute(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, permuteOpNative,
+        inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from PermuteOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), permuteQuery);
@@ -7482,22 +7570,23 @@ llvm::Expected<size_t> OpModel<PermuteOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Convert permutations of TTNN_PermuteOp to dims of ttnn::permute
-  ::ttsl::SmallVector<int64_t> dims(permutation.size());
-  std::copy(permutation.begin(), permutation.end(), dims.begin());
-
-  // Convert float
-  float defaultedPadValue = padValue.convertToFloat();
-
   ASSIGN_OR_RETURN(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::PermuteOpT permuteOpNative =
+      buildPermuteOpTFromMLIR(permutation, padValue, outputLayout);
+
   auto permuteQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::permute, device, inputSpec, dims,
-                            detail::getNullableMemoryConfig(outputLayout),
-                            defaultedPadValue);
+    ttnn_op_invoke::PermuteOpResult result =
+        ttnn_op_invoke::callPermute(ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+                                    permuteOpNative, inputSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from PermuteOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(permuteQuery);
@@ -7801,12 +7890,19 @@ llvm::Expected<OpConstraints> OpModel<GatherOp>::getOpConstraints(
       ::ttnn::TensorSpec indexSpec,
       detail::convertToTensorSpec(device, indexShape, indexLayout));
 
+  ::tt::target::ttnn::GatherOpT gatherOpNative =
+      buildGatherOpTFromMLIR(dim, outputLayout);
+
   auto gatherOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::gather, device, inputSpec, static_cast<int8_t>(dim), indexSpec,
-        /*sparse_grad=*/false, detail::getNullableMemoryConfig(outputLayout),
-        /*optional_output_tensor=*/std::nullopt,
-        /*sub_core_grids=*/std::nullopt);
+    ttnn_op_invoke::GatherOpResult result = ttnn_op_invoke::callGather(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, gatherOpNative,
+        inputSpec, indexSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from GatherOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), gatherOpQuery);
@@ -7830,12 +7926,19 @@ llvm::Expected<size_t> OpModel<GatherOp>::getOpRuntime(
       ::ttnn::TensorSpec indexSpec,
       detail::convertToTensorSpec(device, indexShape, indexLayout));
 
+  ::tt::target::ttnn::GatherOpT gatherOpNative =
+      buildGatherOpTFromMLIR(dim, outputLayout);
+
   auto gatherOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::gather, device, inputSpec, static_cast<int8_t>(dim), indexSpec,
-        /*sparse_grad=*/false, detail::getNullableMemoryConfig(outputLayout),
-        /*optional_output_tensor=*/std::nullopt,
-        /*sub_core_grids=*/std::nullopt);
+    ttnn_op_invoke::GatherOpResult result = ttnn_op_invoke::callGather(
+        ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, gatherOpNative, inputSpec,
+        indexSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from GatherOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(gatherOpQuery);
@@ -8200,29 +8303,29 @@ OpModel<ConstantOp>::getOpConstraints(mlir::ElementsAttr value,
 llvm::Expected<OpConstraints>
 OpModel<mlir::tt::ttnn::AssignOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    std::optional<mlir::tt::ttcore::DataType> outputDtype) {
+    std::optional<mlir::tt::ttcore::DataType> dtype,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Convert input tensor to TensorSpec
   ASSIGN_OR_RETURN(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  ::tt::tt_metal::MemoryConfig metalMemConfig =
-      conversion::getMemoryConfig(MemoryConfigAttr::get(inputLayout));
+  ::tt::target::ttnn::AssignOpT assignOpNative =
+      buildAssignOpTFromMLIR(outputLayout);
 
-  // Convert optional output dtype
-  std::optional<::tt::tt_metal::DataType> metalOutputDtype = std::nullopt;
-  if (outputDtype.has_value()) {
-    metalOutputDtype = conversion::getDataType(outputDtype.value());
-  }
-  // Create query closure
   auto assignOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::assign, device, inputSpec,
-                                metalMemConfig, metalOutputDtype,
-                                std::nullopt /*optionalOutputTensor*/);
+    ttnn_op_invoke::AssignOpResult result = ttnn_op_invoke::callAssign(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, assignOpNative,
+        inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from AssignOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), assignOpQuery);
@@ -8233,30 +8336,29 @@ OpModel<mlir::tt::ttnn::AssignOp>::getOpConstraints(
 
 llvm::Expected<size_t> OpModel<mlir::tt::ttnn::AssignOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    std::optional<mlir::tt::ttcore::DataType> outputDtype) {
+    std::optional<mlir::tt::ttcore::DataType> dtype,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Convert input tensor to TensorSpec
   ASSIGN_OR_RETURN(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  ::tt::tt_metal::MemoryConfig metalMemConfig =
-      conversion::getMemoryConfig(inputLayout);
+  ::tt::target::ttnn::AssignOpT assignOpNative =
+      buildAssignOpTFromMLIR(outputLayout);
 
-  // Convert optional output dtype
-  std::optional<::tt::tt_metal::DataType> metalOutputDtype = std::nullopt;
-  if (outputDtype.has_value()) {
-    metalOutputDtype = conversion::getDataType(outputDtype.value());
-  }
-
-  // Create query closure
   auto assignOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::assign, device, inputSpec, metalMemConfig,
-                            metalOutputDtype,
-                            std::nullopt /*optionalOutputTensor*/);
+    ttnn_op_invoke::AssignOpResult result =
+        ttnn_op_invoke::callAssign(ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+                                   assignOpNative, inputSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from AssignOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(assignOpQuery);

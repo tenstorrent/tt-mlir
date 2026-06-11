@@ -1151,6 +1151,126 @@ buildGroupNormOpTFromMLIR(int64_t numGroups, llvm::APFloat epsilon,
   return groupNormOp;
 }
 
+::tt::target::ttnn::AssignOpT
+buildAssignOpTFromMLIR(TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::AssignOpT assignOp;
+  assignOp.output = detail::getOutputTensorRefT(outputLayout);
+  return assignOp;
+}
+
+::tt::target::ttnn::ScatterOpT
+buildScatterOpTFromMLIR(int32_t dim, mlir::tt::ttcore::ReduceType reduceType,
+                        TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::ScatterOpT scatterOp;
+  scatterOp.dim = dim;
+  scatterOp.scatter_reduce_type = toNative(reduceType);
+  scatterOp.out = detail::getOutputTensorRefT(outputLayout);
+  return scatterOp;
+}
+
+::tt::target::ttnn::ReshapeOpT
+buildReshapeOpTFromMLIR(llvm::ArrayRef<int64_t> outputShape,
+                        TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::ReshapeOpT reshapeOp;
+  reshapeOp.shape = {outputShape.begin(), outputShape.end()};
+  reshapeOp.out = detail::getOutputTensorRefT(outputLayout);
+  return reshapeOp;
+}
+
+::tt::target::ttnn::SliceOpT buildSliceStaticOpTFromMLIR(
+    llvm::ArrayRef<int64_t> begins, llvm::ArrayRef<int64_t> ends,
+    llvm::ArrayRef<int64_t> step, TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::SliceOpT sliceOp;
+  sliceOp.type = ::tt::target::ttnn::SliceOpType::SliceStaticOp;
+  sliceOp.step = {step.begin(), step.end()};
+  sliceOp.out = detail::getOutputTensorRefT(outputLayout);
+  ::tt::target::ttnn::SliceStaticOpParamsT staticParams;
+  staticParams.begins = {begins.begin(), begins.end()};
+  staticParams.ends = {ends.begin(), ends.end()};
+  sliceOp.params.Set(staticParams);
+  return sliceOp;
+}
+
+::tt::target::ttnn::ConcatOpT
+buildConcatOpTFromMLIR(int32_t dim, TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::ConcatOpT concatOp;
+  concatOp.dim = dim;
+  concatOp.out = detail::getOutputTensorRefT(outputLayout);
+  return concatOp;
+}
+
+::tt::target::ttnn::TransposeOpT
+buildTransposeOpTFromMLIR(int32_t dim0, int32_t dim1,
+                          TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::TransposeOpT transposeOp;
+  transposeOp.dim0 = dim0;
+  transposeOp.dim1 = dim1;
+  transposeOp.out = detail::getOutputTensorRefT(outputLayout);
+  return transposeOp;
+}
+
+::tt::target::ttnn::RepeatInterleaveOpT
+buildRepeatInterleaveOpTFromMLIR(const unsigned int repeats, const int dim,
+                                 TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::RepeatInterleaveOpT repeatInterleaveOp;
+  repeatInterleaveOp.repeats = repeats;
+  repeatInterleaveOp.dim = dim;
+  repeatInterleaveOp.out = detail::getOutputTensorRefT(outputLayout);
+  return repeatInterleaveOp;
+}
+
+::tt::target::ttnn::RepeatOpT
+buildRepeatOpTFromMLIR(llvm::ArrayRef<int64_t> repeatDims,
+                       TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::RepeatOpT repeatOp;
+  repeatOp.repeat_dims = {repeatDims.begin(), repeatDims.end()};
+  repeatOp.out = detail::getOutputTensorRefT(outputLayout);
+  return repeatOp;
+}
+
+::tt::target::ttnn::PadOpT buildPadOpTFromMLIR(llvm::ArrayRef<int32_t> padding,
+                                               llvm::APFloat padValue,
+                                               bool useMulticore,
+                                               TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::PadOpT padOp;
+  for (int32_t p : padding) {
+    padOp.padding.push_back(static_cast<uint32_t>(p));
+  }
+  padOp.value = padValue.convertToFloat();
+  padOp.use_multicore = useMulticore;
+  padOp.out = detail::getOutputTensorRefT(outputLayout);
+  return padOp;
+}
+
+::tt::target::ttnn::SortOpT buildSortOpTFromMLIR(int dim, bool descending,
+                                                 bool stable,
+                                                 TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::SortOpT sortOp;
+  sortOp.dim = static_cast<int8_t>(dim);
+  sortOp.descending = descending;
+  sortOp.stable = stable;
+  sortOp.outputs.push_back(detail::getOutputTensorRefT(outputLayout));
+  return sortOp;
+}
+
+::tt::target::ttnn::PermuteOpT
+buildPermuteOpTFromMLIR(llvm::ArrayRef<int64_t> permutation,
+                        llvm::APFloat padValue, TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::PermuteOpT permuteOp;
+  permuteOp.permutation = {permutation.begin(), permutation.end()};
+  permuteOp.pad_value = padValue.convertToFloat();
+  permuteOp.out = detail::getOutputTensorRefT(outputLayout);
+  return permuteOp;
+}
+
+::tt::target::ttnn::GatherOpT
+buildGatherOpTFromMLIR(int32_t dim, TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::GatherOpT gatherOp;
+  gatherOp.dim = dim;
+  gatherOp.out = detail::getOutputTensorRefT(outputLayout);
+  return gatherOp;
+}
+
 } // namespace mlir::tt::ttnn::op_model
 
 #endif // TTMLIR_ENABLE_OPMODEL

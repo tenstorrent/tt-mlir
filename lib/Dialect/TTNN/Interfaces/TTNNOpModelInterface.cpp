@@ -1082,17 +1082,10 @@ ScatterOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   const auto indexShape = getIndex().getType().getShape();
   const auto sourceShape = getSource().getType().getShape();
 
-  std::optional<ttcore::ReduceTypeAttr> reduceType =
-      ttcore::ReduceTypeAttr::get(getContext(), ttcore::ReduceType::Invalid);
-  if (getScatterReduceType() != ttcore::ReduceType::Invalid) {
-    reduceType =
-        ttcore::ReduceTypeAttr::get(getContext(), getScatterReduceType());
-  }
-
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ScatterOp>::getOpConstraints, *this, inputShape,
       inputs[0], indexShape, inputs[1], sourceShape, inputs[2], getDim(),
-      reduceType, opConfig.outputLayout);
+      getScatterReduceType(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -1104,17 +1097,10 @@ ScatterOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   const auto indexShape = getIndex().getType().getShape();
   const auto sourceShape = getSource().getType().getShape();
 
-  std::optional<ttcore::ReduceTypeAttr> reduceType =
-      ttcore::ReduceTypeAttr::get(getContext(), ttcore::ReduceType::Invalid);
-  if (getScatterReduceType() != ttcore::ReduceType::Invalid) {
-    reduceType =
-        ttcore::ReduceTypeAttr::get(getContext(), getScatterReduceType());
-  }
-
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<ScatterOp>::getOpRuntime, *this, inputShape, inputs[0],
-      indexShape, inputs[1], sourceShape, inputs[2], getDim(), reduceType,
-      opConfig.outputLayout);
+      indexShape, inputs[1], sourceShape, inputs[2], getDim(),
+      getScatterReduceType(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -4823,7 +4809,8 @@ AssignOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<mlir::tt::ttnn::AssignOp>::getOpConstraints, *this,
-      inputShape, inputs[0], dataTypeAttrToOptional(getDtypeAttr()));
+      inputShape, inputs[0], dataTypeAttrToOptional(getDtypeAttr()),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -4834,7 +4821,8 @@ AssignOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<mlir::tt::ttnn::AssignOp>::getOpRuntime, *this,
-      inputShape, inputs[0], dataTypeAttrToOptional(getDtypeAttr()));
+      inputShape, inputs[0], dataTypeAttrToOptional(getDtypeAttr()),
+      opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

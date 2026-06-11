@@ -5037,4 +5037,1122 @@ const std::initializer_list<mlir::tt::ttnn::SoftmaxOp> softmaxOpList = {
 INSTANTIATE_TEST_SUITE_P(SoftmaxOpTPathParityTest, SoftmaxOpTPathParityTest,
                          ::testing::ValuesIn(softmaxOpList));
 
+//===----------------------------------------------------------------------===//
+// AssignOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+const mlir::tt::ttcore::DataTypeAttr f32DtypeAttr =
+    mlir::tt::ttcore::DataTypeAttr::get(getContext(),
+                                        mlir::tt::ttcore::DataType::Float32);
+
+void resetUnusedFields(::tt::target::ttnn::AssignOpT &opNativeOpModel,
+                       ::tt::target::ttnn::AssignOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::AssignOpT &op) {
+    op.input.reset();
+    op.output_memory_config.reset();
+    op.output_dtype.reset();
+    op.output.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::AssignOp
+buildTestAssignOp(mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  mlir::RankedTensorType outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(defaultShape, outputMemoryConfig)
+          : tiledL1BF16Type(defaultShape);
+
+  return e.builder.create<mlir::tt::ttnn::AssignOp>(loc, outputType,
+                                                    makeOnes());
+}
+
+} // namespace
+
+using AssignOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::AssignOp>;
+
+TEST_P(AssignOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::AssignOp assignOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::AssignOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildAssignOpTFromMLIR(
+          resolveOutputLayout(assignOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, assignOp.getInput());
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, assignOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::AssignOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.output, opNativeFB.output);
+}
+
+const std::initializer_list<mlir::tt::ttnn::AssignOp> assignOpList = {
+    buildTestAssignOp(),
+    buildTestAssignOp(/*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(AssignOpTPathParityTest, AssignOpTPathParityTest,
+                         ::testing::ValuesIn(assignOpList));
+
+//===----------------------------------------------------------------------===//
+// ConcatOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::ConcatOpT &opNativeOpModel,
+                       ::tt::target::ttnn::ConcatOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::ConcatOpT &op) {
+    op.inputs.clear();
+    op.memory_config.reset();
+    op.out.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::ConcatOp
+buildTestConcatOp(int32_t dim = 0,
+                  mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  llvm::SmallVector<int64_t> outputShape =
+      dim == 0 ? llvm::SmallVector<int64_t>{64, 32}
+               : llvm::SmallVector<int64_t>{32, 64};
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  auto outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(outputShape, outputMemoryConfig)
+          : tiledL1BF16Type(outputShape);
+
+  mlir::Value input1 = makeOnes();
+  mlir::Value input2 = makeOnes();
+
+  return e.builder.create<mlir::tt::ttnn::ConcatOp>(
+      loc, outputType, mlir::ValueRange{input1, input2}, dim);
+}
+
+} // namespace
+
+using ConcatOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::ConcatOp>;
+
+TEST_P(ConcatOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::ConcatOp concatOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::ConcatOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildConcatOpTFromMLIR(
+          concatOp.getDim(), resolveOutputLayout(concatOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  for (mlir::Value input : concatOp.getInputs()) {
+    cache.getOrCreateNoSharding(mlir::tt::ttnn::getOperandThroughDPSOps(input),
+                                mlir::tt::ttnn::tensorValueToFlatbuffer,
+                                /*localShape=*/std::nullopt);
+  }
+
+  auto fbOffset = mlir::tt::ttnn::createConcatOp(cache, concatOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::ConcatOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::ConcatOp> concatOpList = {
+    buildTestConcatOp(),
+    buildTestConcatOp(/*dim=*/1),
+    buildTestConcatOp(/*dim=*/0,
+                      /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+    buildTestConcatOp(/*dim=*/1,
+                      /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(ConcatOpTPathParityTest, ConcatOpTPathParityTest,
+                         ::testing::ValuesIn(concatOpList));
+
+//===----------------------------------------------------------------------===//
+// GatherOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::GatherOpT &opNativeOpModel,
+                       ::tt::target::ttnn::GatherOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::GatherOpT &op) {
+    op.input.reset();
+    op.index.reset();
+    op.memory_config.reset();
+    op.out.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::GatherOp
+buildTestGatherOp(int32_t dim = 0,
+                  mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  auto outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(defaultShape, outputMemoryConfig)
+          : tiledL1BF16Type(defaultShape);
+
+  return e.builder.create<mlir::tt::ttnn::GatherOp>(loc, outputType, makeOnes(),
+                                                    makeOnes(), dim);
+}
+
+} // namespace
+
+using GatherOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::GatherOp>;
+
+TEST_P(GatherOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::GatherOp gatherOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::GatherOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildGatherOpTFromMLIR(
+          gatherOp.getDim(), resolveOutputLayout(gatherOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, gatherOp.getInput(), gatherOp.getIndex());
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, gatherOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::GatherOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::GatherOp> gatherOpList = {
+    buildTestGatherOp(),
+    buildTestGatherOp(/*dim=*/1),
+    buildTestGatherOp(/*dim=*/0,
+                      /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+    buildTestGatherOp(/*dim=*/1,
+                      /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(GatherOpTPathParityTest, GatherOpTPathParityTest,
+                         ::testing::ValuesIn(gatherOpList));
+
+//===----------------------------------------------------------------------===//
+// PadOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::PadOpT &opNativeOpModel,
+                       ::tt::target::ttnn::PadOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::PadOpT &op) {
+    op.in.reset();
+    op.memcfg.reset();
+    op.out.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::PadOp
+buildTestPadOp(std::vector<int32_t> padding = {0, 0, 0, 0}, float value = 0.0f,
+               bool useMulticore = false,
+               mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  llvm::SmallVector<int64_t> outputShape;
+  for (size_t i = 0; i < defaultShape.size(); ++i) {
+    outputShape.push_back(defaultShape[i] + padding[2 * i] +
+                          padding[2 * i + 1]);
+  }
+
+  auto outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(outputShape, outputMemoryConfig)
+          : tiledL1BF16Type(outputShape);
+
+  return e.builder.create<mlir::tt::ttnn::PadOp>(
+      loc, outputType, makeOnes(),
+      mlir::DenseI32ArrayAttr::get(&e.context, padding),
+      mlir::FloatAttr::get(e.builder.getF32Type(), static_cast<double>(value)),
+      mlir::BoolAttr::get(&e.context, useMulticore));
+}
+
+} // namespace
+
+using PadOpTPathParityTest = ::testing::TestWithParam<mlir::tt::ttnn::PadOp>;
+
+TEST_P(PadOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::PadOp padOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::PadOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildPadOpTFromMLIR(
+          padOp.getPadding(), padOp.getValue(), padOp.getUseMulticore(),
+          resolveOutputLayout(padOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, padOp.getInput());
+
+  auto fbOffset = mlir::tt::ttnn::createPadOp(cache, padOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::PadOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::PadOp> padOpList = {
+    buildTestPadOp(),
+    buildTestPadOp(/*padding=*/{0, 2, 0, 2}),
+    buildTestPadOp(/*padding=*/{0, 0, 0, 0}, /*value=*/1.0f),
+    buildTestPadOp(/*padding=*/{0, 0, 0, 0}, /*value=*/0.0f,
+                   /*useMulticore=*/true),
+    buildTestPadOp(/*padding=*/{0, 0, 0, 0}, /*value=*/0.0f,
+                   /*useMulticore=*/false,
+                   /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+    buildTestPadOp(/*padding=*/{0, 2, 0, 2}, /*value=*/1.0f,
+                   /*useMulticore=*/true,
+                   /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(PadOpTPathParityTest, PadOpTPathParityTest,
+                         ::testing::ValuesIn(padOpList));
+
+//===----------------------------------------------------------------------===//
+// PermuteOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::PermuteOpT &opNativeOpModel,
+                       ::tt::target::ttnn::PermuteOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::PermuteOpT &op) {
+    op.in.reset();
+    op.memory_config.reset();
+    op.out.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::PermuteOp
+buildTestPermuteOp(std::vector<int64_t> permutation = {1, 0},
+                   float padValue = 0.0f,
+                   mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  llvm::SmallVector<int64_t> outputShape(defaultShape.size());
+  for (size_t i = 0; i < permutation.size(); ++i) {
+    outputShape[i] = defaultShape[permutation[i]];
+  }
+
+  auto outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(outputShape, outputMemoryConfig)
+          : tiledL1BF16Type(outputShape);
+
+  return e.builder.create<mlir::tt::ttnn::PermuteOp>(
+      loc, outputType, makeOnes(),
+      mlir::DenseI64ArrayAttr::get(&e.context, permutation),
+      mlir::FloatAttr::get(e.builder.getF32Type(),
+                           static_cast<double>(padValue)));
+}
+
+} // namespace
+
+using PermuteOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::PermuteOp>;
+
+TEST_P(PermuteOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::PermuteOp permuteOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::PermuteOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildPermuteOpTFromMLIR(
+          permuteOp.getPermutation(), permuteOp.getPadValue(),
+          resolveOutputLayout(permuteOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, permuteOp.getInput());
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, permuteOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::PermuteOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::PermuteOp> permuteOpList = {
+    buildTestPermuteOp(),
+    buildTestPermuteOp(/*permutation=*/{0, 1}),
+    buildTestPermuteOp(/*permutation=*/{1, 0}, /*padValue=*/1.0f),
+    buildTestPermuteOp(/*permutation=*/{1, 0}, /*padValue=*/0.0f,
+                       /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+    buildTestPermuteOp(/*permutation=*/{0, 1}, /*padValue=*/1.0f,
+                       /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(PermuteOpTPathParityTest, PermuteOpTPathParityTest,
+                         ::testing::ValuesIn(permuteOpList));
+
+//===----------------------------------------------------------------------===//
+// RepeatInterleaveOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::RepeatInterleaveOpT &opNativeOpModel,
+                       ::tt::target::ttnn::RepeatInterleaveOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::RepeatInterleaveOpT &op) {
+    op.input.reset();
+    op.memory_config.reset();
+    op.out.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::RepeatInterleaveOp buildTestRepeatInterleaveOp(
+    uint32_t repeats = 2, int32_t dim = 0,
+    mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  llvm::SmallVector<int64_t> outputShape(defaultShape.begin(),
+                                         defaultShape.end());
+  outputShape[dim] = defaultShape[dim] * static_cast<int64_t>(repeats);
+
+  auto outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(outputShape, outputMemoryConfig)
+          : tiledL1BF16Type(outputShape);
+
+  return e.builder.create<mlir::tt::ttnn::RepeatInterleaveOp>(
+      loc, outputType, makeOnes(),
+      e.builder.getIntegerAttr(e.builder.getIntegerType(32, /*isSigned=*/false),
+                               repeats),
+      e.builder.getI32IntegerAttr(dim));
+}
+
+} // namespace
+
+using RepeatInterleaveOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::RepeatInterleaveOp>;
+
+TEST_P(RepeatInterleaveOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::RepeatInterleaveOp repeatInterleaveOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::RepeatInterleaveOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildRepeatInterleaveOpTFromMLIR(
+          repeatInterleaveOp.getRepeats(), repeatInterleaveOp.getDim(),
+          resolveOutputLayout(repeatInterleaveOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, repeatInterleaveOp.getInput());
+
+  auto fbOffset =
+      mlir::tt::ttnn::createRepeatInterleaveOp(cache, repeatInterleaveOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::RepeatInterleaveOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::RepeatInterleaveOp>
+    repeatInterleaveOpList = {
+        buildTestRepeatInterleaveOp(),
+        buildTestRepeatInterleaveOp(/*repeats=*/3),
+        buildTestRepeatInterleaveOp(/*repeats=*/2, /*dim=*/1),
+        buildTestRepeatInterleaveOp(
+            /*repeats=*/2, /*dim=*/0,
+            /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+        buildTestRepeatInterleaveOp(
+            /*repeats=*/3, /*dim=*/1,
+            /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(RepeatInterleaveOpTPathParityTest,
+                         RepeatInterleaveOpTPathParityTest,
+                         ::testing::ValuesIn(repeatInterleaveOpList));
+
+//===----------------------------------------------------------------------===//
+// RepeatOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::RepeatOpT &opNativeOpModel,
+                       ::tt::target::ttnn::RepeatOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::RepeatOpT &op) {
+    op.in.reset();
+    op.memcfg.reset();
+    op.out.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::RepeatOp
+buildTestRepeatOp(std::vector<int64_t> repeatDims = {1, 1},
+                  mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  llvm::SmallVector<int64_t> outputShape(defaultShape.size());
+  for (size_t i = 0; i < defaultShape.size(); ++i) {
+    outputShape[i] = defaultShape[i] * repeatDims[i];
+  }
+
+  auto outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(outputShape, outputMemoryConfig)
+          : tiledL1BF16Type(outputShape);
+
+  auto repeatDimsAttr = mlir::tt::ttnn::ShapeAttr::get(&e.context, repeatDims);
+
+  return e.builder.create<mlir::tt::ttnn::RepeatOp>(loc, outputType, makeOnes(),
+                                                    repeatDimsAttr);
+}
+
+} // namespace
+
+using RepeatOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::RepeatOp>;
+
+TEST_P(RepeatOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::RepeatOp repeatOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::RepeatOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildRepeatOpTFromMLIR(
+          repeatOp.getRepeatDims().getShape(), resolveOutputLayout(repeatOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, repeatOp.getInput());
+
+  auto fbOffset =
+      mlir::tt::ttnn::createRepeatOp<mlir::tt::ttnn::RepeatOp>(cache, repeatOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::RepeatOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::RepeatOp> repeatOpList = {
+    buildTestRepeatOp(),
+    buildTestRepeatOp(/*repeatDims=*/{2, 1}),
+    buildTestRepeatOp(/*repeatDims=*/{1, 1},
+                      /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+    buildTestRepeatOp(/*repeatDims=*/{2, 1},
+                      /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(RepeatOpTPathParityTest, RepeatOpTPathParityTest,
+                         ::testing::ValuesIn(repeatOpList));
+
+//===----------------------------------------------------------------------===//
+// ReshapeOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::ReshapeOpT &opNativeOpModel,
+                       ::tt::target::ttnn::ReshapeOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::ReshapeOpT &op) {
+    op.in.reset();
+    op.memory_config.reset();
+    op.out.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::ReshapeOp
+buildTestReshapeOp(std::vector<int32_t> shape = {32, 32},
+                   mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  llvm::SmallVector<int64_t> outputShape(shape.begin(), shape.end());
+
+  auto outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(outputShape, outputMemoryConfig)
+          : tiledL1BF16Type(outputShape);
+
+  return e.builder.create<mlir::tt::ttnn::ReshapeOp>(
+      loc, outputType, makeOnes(), e.builder.getI32ArrayAttr(shape));
+}
+
+} // namespace
+
+using ReshapeOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::ReshapeOp>;
+
+TEST_P(ReshapeOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::ReshapeOp reshapeOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::ReshapeOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildReshapeOpTFromMLIR(
+          reshapeOp.getResult().getType().getShape(),
+          resolveOutputLayout(reshapeOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, reshapeOp.getInput());
+
+  auto fbOffset = mlir::tt::ttnn::createReshapeOp(cache, reshapeOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::ReshapeOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::ReshapeOp> reshapeOpList = {
+    buildTestReshapeOp(),
+    buildTestReshapeOp(/*shape=*/{16, 64}),
+    buildTestReshapeOp(/*shape=*/{32, 32},
+                       /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+    buildTestReshapeOp(/*shape=*/{16, 64},
+                       /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(ReshapeOpTPathParityTest, ReshapeOpTPathParityTest,
+                         ::testing::ValuesIn(reshapeOpList));
+
+//===----------------------------------------------------------------------===//
+// ScatterOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::ScatterOpT &opNativeOpModel,
+                       ::tt::target::ttnn::ScatterOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::ScatterOpT &op) {
+    op.input.reset();
+    op.index.reset();
+    op.source.reset();
+    op.memory_config.reset();
+    op.out.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::ScatterOp
+buildTestScatterOp(int32_t dim = 0,
+                   mlir::tt::ttcore::ReduceType reduceType =
+                       mlir::tt::ttcore::ReduceType::Invalid,
+                   mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  auto outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(defaultShape, outputMemoryConfig)
+          : tiledL1BF16Type(defaultShape);
+
+  auto reduceTypeAttr =
+      mlir::tt::ttcore::ReduceTypeAttr::get(&e.context, reduceType);
+
+  return e.builder.create<mlir::tt::ttnn::ScatterOp>(
+      loc, outputType, makeOnes(), makeOnes(), makeOnes(),
+      e.builder.getI32IntegerAttr(dim), reduceTypeAttr);
+}
+
+} // namespace
+
+using ScatterOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::ScatterOp>;
+
+TEST_P(ScatterOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::ScatterOp scatterOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::ScatterOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildScatterOpTFromMLIR(
+          scatterOp.getDim(), scatterOp.getScatterReduceType(),
+          resolveOutputLayout(scatterOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, scatterOp.getInput(),
+                               scatterOp.getIndex(), scatterOp.getSource());
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, scatterOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::ScatterOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::ScatterOp> scatterOpList = {
+    buildTestScatterOp(),
+    buildTestScatterOp(/*dim=*/1),
+    buildTestScatterOp(/*dim=*/0, mlir::tt::ttcore::ReduceType::Sum),
+    buildTestScatterOp(/*dim=*/0, mlir::tt::ttcore::ReduceType::Invalid,
+                       /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+    buildTestScatterOp(/*dim=*/1, mlir::tt::ttcore::ReduceType::Max,
+                       /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(ScatterOpTPathParityTest, ScatterOpTPathParityTest,
+                         ::testing::ValuesIn(scatterOpList));
+
+//===----------------------------------------------------------------------===//
+// SliceStaticOpTPathParity
+//===----------------------------------------------------------------------===//
+namespace mlir::tt::ttnn::detail {
+llvm::SmallVector<int64_t>
+convertArrayAttrToSmallVec(mlir::ArrayAttr arrayAttr);
+} // namespace mlir::tt::ttnn::detail
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::SliceOpT &opNativeOpModel,
+                       ::tt::target::ttnn::SliceOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::SliceOpT &op) {
+    op.in.reset();
+    op.out.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::SliceStaticOp buildTestSliceStaticOp(
+    std::vector<int64_t> begins = {0, 0}, std::vector<int64_t> ends = {16, 16},
+    std::vector<int64_t> step = {1, 1},
+    mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  llvm::SmallVector<int64_t> outputShape;
+  for (size_t i = 0; i < begins.size(); ++i) {
+    int64_t dim = (ends[i] - begins[i] + step[i] - 1) / step[i];
+    outputShape.push_back(dim);
+  }
+
+  auto outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(outputShape, outputMemoryConfig)
+          : tiledL1BF16Type(outputShape);
+
+  llvm::SmallVector<int32_t> begins32(begins.begin(), begins.end());
+  llvm::SmallVector<int32_t> ends32(ends.begin(), ends.end());
+  llvm::SmallVector<int32_t> step32(step.begin(), step.end());
+
+  return e.builder.create<mlir::tt::ttnn::SliceStaticOp>(
+      loc, outputType, makeOnes(), e.builder.getI32ArrayAttr(begins32),
+      e.builder.getI32ArrayAttr(ends32), e.builder.getI32ArrayAttr(step32));
+}
+
+} // namespace
+
+using SliceStaticOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::SliceStaticOp>;
+
+TEST_P(SliceStaticOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::SliceStaticOp sliceStaticOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::SliceOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildSliceStaticOpTFromMLIR(
+          mlir::tt::ttnn::detail::convertArrayAttrToSmallVec(
+              sliceStaticOp.getBegins()),
+          mlir::tt::ttnn::detail::convertArrayAttrToSmallVec(
+              sliceStaticOp.getEnds()),
+          mlir::tt::ttnn::detail::convertArrayAttrToSmallVec(
+              sliceStaticOp.getStep()),
+          resolveOutputLayout(sliceStaticOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, sliceStaticOp.getInput());
+
+  auto fbOffset = mlir::tt::ttnn::createSliceOp(cache, sliceStaticOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::SliceOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::SliceStaticOp> sliceStaticOpList = {
+    buildTestSliceStaticOp(),
+    buildTestSliceStaticOp(/*begins=*/{4, 4}, /*ends=*/{16, 16},
+                           /*step=*/{1, 1}),
+    buildTestSliceStaticOp(/*begins=*/{0, 0}, /*ends=*/{8, 8},
+                           /*step=*/{1, 1}),
+    buildTestSliceStaticOp(/*begins=*/{0, 0}, /*ends=*/{16, 16},
+                           /*step=*/{2, 2}),
+    buildTestSliceStaticOp(/*begins=*/{0, 0}, /*ends=*/{16, 16},
+                           /*step=*/{1, 1},
+                           /*outputMemoryConfig=*/
+                           nonDefaultInputMemoryConfigAttr),
+    buildTestSliceStaticOp(/*begins=*/{4, 4}, /*ends=*/{8, 8},
+                           /*step=*/{2, 2},
+                           /*outputMemoryConfig=*/
+                           nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(SliceStaticOpTPathParityTest,
+                         SliceStaticOpTPathParityTest,
+                         ::testing::ValuesIn(sliceStaticOpList));
+
+//===----------------------------------------------------------------------===//
+// SortOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::SortOpT &opNativeOpModel,
+                       ::tt::target::ttnn::SortOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::SortOpT &op) {
+    op.in.reset();
+    op.memcfg.reset();
+    if (!op.outputs.empty() && op.outputs[0]) {
+      op.outputs[0].reset();
+      op.outputs.resize(1);
+    }
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::SortOp
+buildTestSortOp(int dim = -1, bool descending = false, bool stable = false,
+                mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  auto valuesType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(defaultShape, outputMemoryConfig)
+          : tiledL1BF16Type(defaultShape);
+  auto indicesType = tiledL1BF16Type(defaultShape);
+
+  return e.builder.create<mlir::tt::ttnn::SortOp>(
+      loc, mlir::TypeRange{valuesType, indicesType}, makeOnes(),
+      e.builder.getIntegerAttr(e.builder.getIntegerType(8, /*isSigned=*/true),
+                               dim),
+      e.builder.getBoolAttr(descending), e.builder.getBoolAttr(stable));
+}
+
+} // namespace
+
+using SortOpTPathParityTest = ::testing::TestWithParam<mlir::tt::ttnn::SortOp>;
+
+TEST_P(SortOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::SortOp sortOp = GetParam();
+
+  auto valuesLayout = mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
+      mlir::cast<mlir::RankedTensorType>(sortOp.getValues().getType())
+          .getEncoding());
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::SortOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildSortOpTFromMLIR(
+          sortOp.getDim(), sortOp.getDescending(), sortOp.getStable(),
+          valuesLayout);
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, sortOp.getInput());
+
+  auto fbOffset = mlir::tt::ttnn::createSortOp(cache, sortOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::SortOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.outputs[0], opNativeFB.outputs[0]);
+}
+
+const std::initializer_list<mlir::tt::ttnn::SortOp> sortOpList = {
+    buildTestSortOp(),
+    buildTestSortOp(/*dim=*/0),
+    buildTestSortOp(/*dim=*/-1, /*descending=*/true),
+    buildTestSortOp(/*dim=*/-1, /*descending=*/false, /*stable=*/true),
+    buildTestSortOp(/*dim=*/-1, /*descending=*/false, /*stable=*/false,
+                    /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+    buildTestSortOp(/*dim=*/0, /*descending=*/true, /*stable=*/true,
+                    /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(SortOpTPathParityTest, SortOpTPathParityTest,
+                         ::testing::ValuesIn(sortOpList));
+
+//===----------------------------------------------------------------------===//
+// TransposeOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::TransposeOpT &opNativeOpModel,
+                       ::tt::target::ttnn::TransposeOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::TransposeOpT &op) {
+    op.in.reset();
+    op.out.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::TransposeOp
+buildTestTransposeOp(int32_t dim0 = 0, int32_t dim1 = 1,
+                     mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  auto outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(defaultShape, outputMemoryConfig)
+          : tiledL1BF16Type(defaultShape);
+
+  return e.builder.create<mlir::tt::ttnn::TransposeOp>(
+      loc, outputType, makeOnes(), e.builder.getI32IntegerAttr(dim0),
+      e.builder.getI32IntegerAttr(dim1));
+}
+
+} // namespace
+
+using TransposeOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::TransposeOp>;
+
+TEST_P(TransposeOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::TransposeOp transposeOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::TransposeOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildTransposeOpTFromMLIR(
+          transposeOp.getDim0(), transposeOp.getDim1(),
+          resolveOutputLayout(transposeOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, transposeOp.getInput());
+
+  auto fbOffset = mlir::tt::ttnn::createTransposeOp(cache, transposeOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::TransposeOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::TransposeOp> transposeOpList = {
+    buildTestTransposeOp(),
+    buildTestTransposeOp(/*dim0=*/1, /*dim1=*/0),
+    buildTestTransposeOp(/*dim0=*/0, /*dim1=*/-1),
+    buildTestTransposeOp(
+        /*dim0=*/0, /*dim1=*/1,
+        /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+    buildTestTransposeOp(
+        /*dim0=*/1, /*dim1=*/0,
+        /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(TransposeOpTPathParityTest, TransposeOpTPathParityTest,
+                         ::testing::ValuesIn(transposeOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL

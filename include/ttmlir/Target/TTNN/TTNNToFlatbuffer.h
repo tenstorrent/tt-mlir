@@ -178,6 +178,45 @@ createOp(::mlir::tt::FlatbufferObjectCache &cache, RMSNormOp op);
 ::flatbuffers::Offset<::tt::target::ttnn::SoftmaxOp>
 createSoftmaxOp(::mlir::tt::FlatbufferObjectCache &cache, SoftmaxOp op);
 
+::flatbuffers::Offset<::tt::target::ttnn::AssignOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, AssignOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::ConcatOp>
+createConcatOp(::mlir::tt::FlatbufferObjectCache &cache, ConcatOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::GatherOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, GatherOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::PadOp>
+createPadOp(::mlir::tt::FlatbufferObjectCache &cache, PadOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::PermuteOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, PermuteOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::RepeatInterleaveOp>
+createRepeatInterleaveOp(::mlir::tt::FlatbufferObjectCache &cache,
+                         RepeatInterleaveOp op);
+
+template <typename RepeatOp>
+::flatbuffers::Offset<::tt::target::ttnn::RepeatOp>
+createRepeatOp(::mlir::tt::FlatbufferObjectCache &cache, RepeatOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::ReshapeOp>
+createReshapeOp(::mlir::tt::FlatbufferObjectCache &cache, ReshapeOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::ScatterOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, ScatterOp op);
+
+template <typename SliceOpT>
+::flatbuffers::Offset<::tt::target::ttnn::SliceOp>
+createSliceOp(::mlir::tt::FlatbufferObjectCache &cache, SliceOpT op);
+
+::flatbuffers::Offset<::tt::target::ttnn::SortOp>
+createSortOp(::mlir::tt::FlatbufferObjectCache &cache, SortOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::TransposeOp>
+createTransposeOp(::mlir::tt::FlatbufferObjectCache &cache, TransposeOp op);
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_TARGET_TTNN_TTNNTOFLATBUFFER_H
