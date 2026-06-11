@@ -3,13 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/normalization/distributed_rms_norm.h"
-#include "tt/runtime/detail/common/common.h"
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
-
-#include "ttnn/global_semaphore.hpp"
-#include "ttnn/operations/experimental/ccl/rms_allgather/rms_allgather.hpp"
-#include "ttnn/operations/normalization/layernorm/device/layernorm_types.hpp"
+#include "tt/runtime/detail/common/logger.h"
+#include "ttmlir/OpInvoke/TTNN/Normalization/DistributedRMSNormOp.h"
+#include <variant>
 
 namespace tt::runtime::ttnn::operations::distributed_rms_norm {
 void run(const ::tt::target::ttnn::DistributedRMSNormOp *op,
@@ -28,60 +24,38 @@ void run(const ::tt::target::ttnn::DistributedRMSNormOp *op,
     residual = tensorPool.getTTNNTensorAndValidate(op->residual());
   }
 
-  uint32_t clusterAxis = op->cluster_axis();
-  float epsilon = op->epsilon();
-
-  std::optional<::tt::tt_metal::SubDeviceId> subDeviceId =
-      op->sub_device_id() ? std::make_optional<::tt::tt_metal::SubDeviceId>(
-                                op->sub_device_id().value())
-                          : std::nullopt;
-
-  std::optional<::ttnn::MemoryConfig> memoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
-
-  std::optional<size_t> numLinks = std::nullopt;
-  if (op->num_links()) {
-    numLinks = static_cast<size_t>(op->num_links().value());
-  }
-
-  ::ttnn::ccl::Topology topology = ::ttnn::ccl::Topology::Linear;
-  if (op->topology()) {
-    topology = static_cast<::ttnn::ccl::Topology>(
-        ::tt::runtime::common::toMetalTopology(op->topology().value()));
-  }
-
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeConfig = std::nullopt;
-  if (op->compute_config()) {
-    computeConfig =
-        utils::createDeviceComputeKernelConfig(op->compute_config());
+  std::optional<::ttnn::Tensor> stats = std::nullopt;
+  if (op->stats()) {
+    stats = tensorPool.getTTNNTensorAndValidate(op->stats());
   }
 
   ::ttnn::MeshDevice &meshDevice = context.getMeshDevice();
-
-  ::ttnn::prim::LayerNormProgramConfig programConfig;
-  if (op->program_config()) {
-    programConfig = utils::createLayerNormShardedMultiCoreProgramConfig(
-        op->program_config());
-  }
-
   LOG_ASSERT(op->semaphore(),
              "DistributedRMSNormOp expects an explicit global semaphore");
   ::ttnn::GlobalSemaphore semaphore =
       context.getGlobalSemaphorePool().getTTNNGlobalSemaphoreAndValidate(
           op->semaphore());
 
-  ::ttnn::Tensor &statsTensor =
-      tensorPool.getTTNNTensorAndValidate(op->stats());
+  ::tt::target::ttnn::DistributedRMSNormOpT distributedRmsNormOpNative;
+  op->UnPackTo(&distributedRmsNormOpNative);
 
-  ::ttnn::Tensor output = ::ttnn::fused_rms_minimal(
-      input, programConfig, clusterAxis, meshDevice, semaphore,
-      /*persistent_output_tensor=*/std::nullopt, numLinks, topology,
-      subDeviceId,
-      /*dtype=*/std::nullopt, computeConfig, memoryConfig, residual, epsilon,
-      weight, statsTensor,
-      /*use_noc1_only=*/false);
+  ttnn_op_invoke::DistributedRMSNormOpResult result =
+      ttnn_op_invoke::callDistributedRMSNorm(
+          ttnn_op_invoke::CallType::EXECUTE, distributedRmsNormOpNative, &input,
+          residual.has_value()
+              ? std::optional<ttnn_op_invoke::TensorArg>(&*residual)
+              : std::nullopt,
+          weight.has_value()
+              ? std::optional<ttnn_op_invoke::TensorArg>(&*weight)
+              : std::nullopt,
+          stats.has_value() ? std::optional<ttnn_op_invoke::TensorArg>(&*stats)
+                            : std::nullopt,
+          semaphore, &meshDevice);
 
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callDistributedRMSNorm execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 } // namespace tt::runtime::ttnn::operations::distributed_rms_norm

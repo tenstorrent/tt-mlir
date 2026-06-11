@@ -25,6 +25,14 @@
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Unary/EltwiseUnaryCompositeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Unary/EltwiseUnaryOp.h"
 #include "ttmlir/OpInvoke/TTNN/Matmul/MatmulOp.h"
+#include "ttmlir/OpInvoke/TTNN/Normalization/BatchNormOp.h"
+#include "ttmlir/OpInvoke/TTNN/Normalization/GroupNormOp.h"
+#include "ttmlir/OpInvoke/TTNN/Normalization/LayerNormOp.h"
+#include "ttmlir/OpInvoke/TTNN/Normalization/LayerNormPostAllGatherOp.h"
+#include "ttmlir/OpInvoke/TTNN/Normalization/LayerNormPreAllGatherOp.h"
+#include "ttmlir/OpInvoke/TTNN/Normalization/RMSNormOp.h"
+#include "ttmlir/OpInvoke/TTNN/Normalization/RMSNormPreAllGatherOp.h"
+#include "ttmlir/OpInvoke/TTNN/Normalization/SoftmaxOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/ConcatenateHeadsOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/NLPConcatHeadsDecodeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Transformer/NLPConcatHeadsOp.h"
@@ -2178,9 +2186,30 @@ template struct NamedFullOpModel<OnesOp>;
 //===----------------------------------------------------------------------===//
 // SoftmaxOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::SoftmaxOpT buildSoftmaxOpTFromMLIR(
+    int32_t dimension, bool numericStable,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::SoftmaxOpT softmaxOp;
+  softmaxOp.dimension = dimension;
+  softmaxOp.numeric_stable = numericStable;
+  softmaxOp.compute_config =
+      (computeKernelConfig.has_value() && *computeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*computeKernelConfig))
+          : nullptr;
+  softmaxOp.out = detail::getOutputTensorRefT(outputLayout);
+  return softmaxOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    const int dimArg, bool numericStable, TTNNLayoutAttr outputLayout) {
+    const int dimArg, bool numericStable,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -2189,12 +2218,19 @@ llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::SoftmaxOpT softmaxOpNative = buildSoftmaxOpTFromMLIR(
+      dimArg, numericStable, computeKernelConfig, outputLayout);
+
   auto softmaxOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::softmax, device, inputSpec, dimArg,
-                                detail::getNullableMemoryConfig(outputLayout),
-                                std::nullopt, // compute_kernel_config,
-                                numericStable);
+    ttnn_op_invoke::SoftmaxOpResult result = ttnn_op_invoke::callSoftmax(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, softmaxOpNative,
+        inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected SoftmaxOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), softmaxOpQuery);
@@ -2205,7 +2241,9 @@ llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraints(
 
 llvm::Expected<size_t> OpModel<SoftmaxOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    const int dimArg, bool numericStable, TTNNLayoutAttr outputLayout) {
+    const int dimArg, bool numericStable,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -2214,12 +2252,18 @@ llvm::Expected<size_t> OpModel<SoftmaxOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::SoftmaxOpT softmaxOpNative = buildSoftmaxOpTFromMLIR(
+      dimArg, numericStable, computeKernelConfig, outputLayout);
+
   auto softmaxOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::softmax, device, inputSpec, dimArg,
-                            detail::getNullableMemoryConfig(outputLayout),
-                            std::nullopt, // compute_kernel_config,
-                            numericStable);
+    ttnn_op_invoke::SoftmaxOpResult result =
+        ttnn_op_invoke::callSoftmax(ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+                                    softmaxOpNative, inputSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected SoftmaxOp runtime query to return RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(softmaxOpQuery);
@@ -7095,6 +7139,23 @@ llvm::Expected<size_t> OpModel<GlobalAvgPool2dOp>::getOpRuntime(
 // BatchNormInferenceOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::BatchNormInferenceOpT buildBatchNormInferenceOpTFromMLIR(
+    llvm::APFloat epsilon,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::BatchNormInferenceOpT batchNormInferenceOp;
+  batchNormInferenceOp.epsilon = epsilon.convertToFloat();
+  batchNormInferenceOp.compute_config =
+      (computeKernelConfig.has_value() && *computeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*computeKernelConfig))
+          : nullptr;
+  batchNormInferenceOp.out = detail::getOutputTensorRefT(outputLayout);
+  return batchNormInferenceOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<BatchNormInferenceOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> runningMeanShape,
@@ -7105,6 +7166,7 @@ llvm::Expected<OpConstraints> OpModel<BatchNormInferenceOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -7124,22 +7186,23 @@ llvm::Expected<OpConstraints> OpModel<BatchNormInferenceOp>::getOpConstraints(
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
-  // The following arguments are received by the invoke method of batch norm but
-  // they don't exist in the op's definition in TTNNOps.td:
-  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
-      std::nullopt;
 
-  // For inference, training is false and momentum is 0.1 (default)
-  bool training = false;
-  float momentum = 0.1f;
+  ::tt::target::ttnn::BatchNormInferenceOpT batchNormInferenceOpNative =
+      buildBatchNormInferenceOpTFromMLIR(epsilon, computeKernelConfig,
+                                         outputLayout);
 
   auto batchNormQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::batch_norm, device, inputSpec, runningMeanSpec, runningVarSpec,
-        training, epsilon.convertToFloat(), momentum, weightSpec, biasSpec,
-        outputSpec, detail::getNullableMemoryConfig(outputLayout),
-        computeKernelConfig);
+    ttnn_op_invoke::BatchNormOpResult result =
+        ttnn_op_invoke::callBatchNormInference(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            batchNormInferenceOpNative, inputSpec, runningMeanSpec,
+            runningVarSpec, weightSpec, biasSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected BatchNormInferenceOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), batchNormQuery);
@@ -7158,6 +7221,7 @@ llvm::Expected<size_t> OpModel<BatchNormInferenceOp>::getOpRuntime(
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -7177,23 +7241,23 @@ llvm::Expected<size_t> OpModel<BatchNormInferenceOp>::getOpRuntime(
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
-  // The following arguments are received by the invoke method of batch norm but
-  // they don't exist in the op's definition in TTNNOps.td:
-  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
-      std::nullopt;
 
-  // For inference, training is false and momentum is 0.1 (default)
-  bool training = false;
-  float momentum = 0.1f;
+  ::tt::target::ttnn::BatchNormInferenceOpT batchNormInferenceOpNative =
+      buildBatchNormInferenceOpTFromMLIR(epsilon, computeKernelConfig,
+                                         outputLayout);
 
-  // Create query closure
   auto batchNormQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::batch_norm, device, inputSpec, runningMeanSpec, runningVarSpec,
-        training, epsilon.convertToFloat(), momentum, weightSpec, biasSpec,
-        outputSpec, detail::getNullableMemoryConfig(outputLayout),
-        computeKernelConfig);
+    ttnn_op_invoke::BatchNormOpResult result =
+        ttnn_op_invoke::callBatchNormInference(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+            batchNormInferenceOpNative, inputSpec, runningMeanSpec,
+            runningVarSpec, weightSpec, biasSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected BatchNormInferenceOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(batchNormQuery);
@@ -7206,6 +7270,24 @@ llvm::Expected<size_t> OpModel<BatchNormInferenceOp>::getOpRuntime(
 // BatchNormTrainingOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::BatchNormTrainingOpT buildBatchNormTrainingOpTFromMLIR(
+    llvm::APFloat epsilon, llvm::APFloat momentum,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::BatchNormTrainingOpT batchNormTrainingOp;
+  batchNormTrainingOp.epsilon = epsilon.convertToFloat();
+  batchNormTrainingOp.momentum = momentum.convertToFloat();
+  batchNormTrainingOp.compute_config =
+      (computeKernelConfig.has_value() && *computeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*computeKernelConfig))
+          : nullptr;
+  batchNormTrainingOp.out = detail::getOutputTensorRefT(outputLayout);
+  return batchNormTrainingOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<BatchNormTrainingOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> runningMeanShape,
@@ -7216,7 +7298,9 @@ llvm::Expected<OpConstraints> OpModel<BatchNormTrainingOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-    llvm::APFloat momentum, TTNNLayoutAttr outputLayout) {
+    llvm::APFloat momentum,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -7235,21 +7319,23 @@ llvm::Expected<OpConstraints> OpModel<BatchNormTrainingOp>::getOpConstraints(
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
-  // The following arguments are received by the invoke method of batch norm but
-  // they don't exist in the op's definition in TTNNOps.td:
-  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
-      std::nullopt;
 
-  // For training mode
-  bool training = true;
+  ::tt::target::ttnn::BatchNormTrainingOpT batchNormTrainingOpNative =
+      buildBatchNormTrainingOpTFromMLIR(epsilon, momentum, computeKernelConfig,
+                                        outputLayout);
 
   auto batchNormQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::batch_norm, device, inputSpec, runningMeanSpec, runningVarSpec,
-        training, epsilon.convertToFloat(), momentum.convertToFloat(),
-        weightSpec, biasSpec, outputSpec,
-        detail::getNullableMemoryConfig(outputLayout), computeKernelConfig);
+    ttnn_op_invoke::BatchNormOpResult result =
+        ttnn_op_invoke::callBatchNormTraining(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            batchNormTrainingOpNative, inputSpec, runningMeanSpec,
+            runningVarSpec, weightSpec, biasSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected BatchNormTrainingOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), batchNormQuery);
@@ -7268,7 +7354,9 @@ llvm::Expected<size_t> OpModel<BatchNormTrainingOp>::getOpRuntime(
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-    llvm::APFloat momentum, TTNNLayoutAttr outputLayout) {
+    llvm::APFloat momentum,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -7287,22 +7375,23 @@ llvm::Expected<size_t> OpModel<BatchNormTrainingOp>::getOpRuntime(
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
-  // The following arguments are received by the invoke method of batch norm but
-  // they don't exist in the op's definition in TTNNOps.td:
-  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
-      std::nullopt;
 
-  // For training mode
-  bool training = true;
+  ::tt::target::ttnn::BatchNormTrainingOpT batchNormTrainingOpNative =
+      buildBatchNormTrainingOpTFromMLIR(epsilon, momentum, computeKernelConfig,
+                                        outputLayout);
 
-  // Create query closure
   auto batchNormQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::batch_norm, device, inputSpec, runningMeanSpec, runningVarSpec,
-        training, epsilon.convertToFloat(), momentum.convertToFloat(),
-        weightSpec, biasSpec, outputSpec,
-        detail::getNullableMemoryConfig(outputLayout), computeKernelConfig);
+    ttnn_op_invoke::BatchNormOpResult result =
+        ttnn_op_invoke::callBatchNormTraining(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+            batchNormTrainingOpNative, inputSpec, runningMeanSpec,
+            runningVarSpec, weightSpec, biasSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected BatchNormTrainingOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(batchNormQuery);
@@ -7314,6 +7403,23 @@ llvm::Expected<size_t> OpModel<BatchNormTrainingOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // RMSNormOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::RMSNormOpT buildRMSNormOpTFromMLIR(
+    llvm::APFloat epsilon,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::RMSNormOpT rmsNormOp;
+  rmsNormOp.epsilon = epsilon.convertToFloat();
+  rmsNormOp.compute_config =
+      (computeKernelConfig.has_value() && *computeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*computeKernelConfig))
+          : nullptr;
+  rmsNormOp.out = detail::getOutputTensorRefT(outputLayout);
+  return rmsNormOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
 
 llvm::Expected<OpConstraints> OpModel<RMSNormOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -7336,20 +7442,19 @@ llvm::Expected<OpConstraints> OpModel<RMSNormOp>::getOpConstraints(
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
-  // This information is not available in the op's definition in TTNNOps.td:
-  std::optional<::ttnn::TensorSpec> residualInputSpec = std::nullopt;
+  ::tt::target::ttnn::RMSNormOpT rmsNormOpNative =
+      buildRMSNormOpTFromMLIR(epsilon, computeKernelConfig, outputLayout);
 
-  std::optional<::ttnn::DeviceComputeKernelConfig>
-      computeKernelConfigConverted =
-          conversion::getDeviceComputeKernelConfig(computeKernelConfig);
-
-  // Create query closure
   auto rmsNormQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::rms_norm, device, inputSpec, epsilon.convertToFloat(),
-        weightSpec, biasSpec, residualInputSpec,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt, computeKernelConfigConverted);
+    ttnn_op_invoke::RMSNormOpResult result = ttnn_op_invoke::callRMSNorm(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, rmsNormOpNative,
+        inputSpec, weightSpec, biasSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected RMSNormOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), rmsNormQuery);
@@ -7379,20 +7484,18 @@ llvm::Expected<size_t> OpModel<RMSNormOp>::getOpRuntime(
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
-  // This information is not available in the op's definition in TTNNOps.td:
-  std::optional<::ttnn::TensorSpec> residualInputSpec = std::nullopt;
+  ::tt::target::ttnn::RMSNormOpT rmsNormOpNative =
+      buildRMSNormOpTFromMLIR(epsilon, computeKernelConfig, outputLayout);
 
-  std::optional<::ttnn::DeviceComputeKernelConfig>
-      computeKernelConfigConverted =
-          conversion::getDeviceComputeKernelConfig(computeKernelConfig);
-
-  // Create query closure
   auto rmsNormQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::rms_norm, device, inputSpec, epsilon.convertToFloat(),
-        weightSpec, biasSpec, residualInputSpec,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt, computeKernelConfigConverted);
+    ttnn_op_invoke::RMSNormOpResult result = ttnn_op_invoke::callRMSNorm(
+        ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, rmsNormOpNative, inputSpec,
+        weightSpec, biasSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RMSNormOp runtime query to return RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(rmsNormQuery);
@@ -7405,11 +7508,36 @@ llvm::Expected<size_t> OpModel<RMSNormOp>::getOpRuntime(
 // RMSNormPreAllGatherOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::RMSNormPreAllGatherOpT buildRMSNormPreAllGatherOpTFromMLIR(
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+    std::optional<bool> use2DCoreGrid, TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::RMSNormPreAllGatherOpT rmsNormPreAllGatherOp;
+  rmsNormPreAllGatherOp.use_2d_core_grid = use2DCoreGrid.value_or(false);
+  rmsNormPreAllGatherOp.compute_config =
+      (computeKernelConfig.has_value() && *computeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*computeKernelConfig))
+          : nullptr;
+  rmsNormPreAllGatherOp.program_config =
+      (programConfig.has_value() && *programConfig)
+          ? std::make_unique<
+                ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfigT>(
+                toNative(*programConfig))
+          : nullptr;
+  rmsNormPreAllGatherOp.out = detail::getOutputTensorRefT(outputLayout);
+  return rmsNormPreAllGatherOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<RMSNormPreAllGatherOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
     std::optional<TTNNLayoutAttr> residualInputLayout,
     std::optional<ttcore::DataType> dtype, std::optional<bool> use2DCoreGrid,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -7423,24 +7551,24 @@ llvm::Expected<OpConstraints> OpModel<RMSNormPreAllGatherOp>::getOpConstraints(
       detail::convertToOptionalTensorSpec(device, residualInputShape,
                                           residualInputLayout);
 
-  ::ttnn::DataType metalDtype = ::ttnn::DataType::BFLOAT16;
-  if (dtype.has_value()) {
-    metalDtype = conversion::getDataType(dtype.value());
-  }
+  ::tt::target::ttnn::RMSNormPreAllGatherOpT rmsNormPreAllGatherOpNative =
+      buildRMSNormPreAllGatherOpTFromMLIR(computeKernelConfig, programConfig,
+                                          use2DCoreGrid, outputLayout);
 
   auto query = [=]() {
-    return ::ttnn::graph::query_op_constraints(
-        ::ttnn::rms_norm_pre_all_gather, device, inputSpec,
-        /*dtype=*/metalDtype,
-        /*residual_input_tensor=*/residualInputSpec,
-        /*compute_kernel_config=*/std::nullopt,
-        /*program_config=*/std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*use_2d_core_grid=*/use2DCoreGrid);
+    ttnn_op_invoke::RMSNormPreAllGatherOpResult result =
+        ttnn_op_invoke::callRMSNormPreAllGather(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            rmsNormPreAllGatherOpNative, inputSpec, residualInputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected RMSNormPreAllGatherOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), query);
-
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -7451,6 +7579,8 @@ llvm::Expected<size_t> OpModel<RMSNormPreAllGatherOp>::getOpRuntime(
     std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
     std::optional<TTNNLayoutAttr> residualInputLayout,
     std::optional<ttcore::DataType> dtype, std::optional<bool> use2DCoreGrid,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -7464,21 +7594,23 @@ llvm::Expected<size_t> OpModel<RMSNormPreAllGatherOp>::getOpRuntime(
       detail::convertToOptionalTensorSpec(device, residualInputShape,
                                           residualInputLayout);
 
-  ::ttnn::DataType metalDtype = ::ttnn::DataType::BFLOAT16;
-  if (dtype.has_value()) {
-    metalDtype = conversion::getDataType(dtype.value());
-  }
+  ::tt::target::ttnn::RMSNormPreAllGatherOpT rmsNormPreAllGatherOpNative =
+      buildRMSNormPreAllGatherOpTFromMLIR(computeKernelConfig, programConfig,
+                                          use2DCoreGrid, outputLayout);
 
   auto query = [=]() {
-    return ::ttnn::graph::query_op_runtime(
-        ::ttnn::rms_norm_pre_all_gather, device, inputSpec,
-        /*dtype=*/metalDtype,
-        /*residual_input_tensor=*/residualInputSpec,
-        /*compute_kernel_config=*/std::nullopt,
-        /*program_config=*/std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*use_2d_core_grid=*/use2DCoreGrid);
+    ttnn_op_invoke::RMSNormPreAllGatherOpResult result =
+        ttnn_op_invoke::callRMSNormPreAllGather(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+            rmsNormPreAllGatherOpNative, inputSpec, residualInputSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RMSNormPreAllGatherOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
+
   return operation::getOpRuntime(query);
 #else
   return llvm::createStringError("Not Implemented");
@@ -7488,6 +7620,16 @@ llvm::Expected<size_t> OpModel<RMSNormPreAllGatherOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // LayerNormOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::LayerNormOpT
+buildLayerNormOpTFromMLIR(llvm::APFloat epsilon, TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::LayerNormOpT layerNormOp;
+  layerNormOp.epsilon = epsilon.convertToFloat();
+  layerNormOp.out = detail::getOutputTensorRefT(outputLayout);
+  return layerNormOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
 
 llvm::Expected<OpConstraints> OpModel<LayerNormOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -7509,15 +7651,19 @@ llvm::Expected<OpConstraints> OpModel<LayerNormOp>::getOpConstraints(
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
-  std::optional<::ttnn::TensorSpec> residualInputSpec = std::nullopt;
+  ::tt::target::ttnn::LayerNormOpT layerNormOpNative =
+      buildLayerNormOpTFromMLIR(epsilon, outputLayout);
 
   auto layerNormQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::layer_norm, device, inputSpec, epsilon.convertToFloat(),
-        weightSpec, biasSpec, residualInputSpec,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
-        /*compute_kernel_config=*/std::nullopt, /*recip_tensor=*/std::nullopt);
+    ttnn_op_invoke::LayerNormOpResult result = ttnn_op_invoke::callLayerNorm(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, layerNormOpNative,
+        inputSpec, weightSpec, biasSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected LayerNormOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), layerNormQuery);
@@ -7546,16 +7692,18 @@ llvm::Expected<size_t> OpModel<LayerNormOp>::getOpRuntime(
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
-  std::optional<::ttnn::TensorSpec> residualInputSpec = std::nullopt;
+  ::tt::target::ttnn::LayerNormOpT layerNormOpNative =
+      buildLayerNormOpTFromMLIR(epsilon, outputLayout);
 
-  // Create query closure
   auto layerNormQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::layer_norm, device, inputSpec, epsilon.convertToFloat(),
-        weightSpec, biasSpec, residualInputSpec,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
-        /*compute_kernel_config=*/std::nullopt, /*recip_tensor=*/std::nullopt);
+    ttnn_op_invoke::LayerNormOpResult result = ttnn_op_invoke::callLayerNorm(
+        ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, layerNormOpNative,
+        inputSpec, weightSpec, biasSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected LayerNormOp runtime query to return RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(layerNormQuery);
@@ -7568,6 +7716,29 @@ llvm::Expected<size_t> OpModel<LayerNormOp>::getOpRuntime(
 // LayerNormPreAllGatherOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::LayerNormPreAllGatherOpT
+buildLayerNormPreAllGatherOpTFromMLIR(
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::LayerNormPreAllGatherOpT layerNormPreAllGatherOp;
+  layerNormPreAllGatherOp.compute_config =
+      (computeKernelConfig.has_value() && *computeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*computeKernelConfig))
+          : nullptr;
+  layerNormPreAllGatherOp.program_config =
+      (programConfig.has_value() && *programConfig)
+          ? std::make_unique<
+                ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfigT>(
+                toNative(*programConfig))
+          : nullptr;
+  layerNormPreAllGatherOp.out = detail::getOutputTensorRefT(outputLayout);
+  return layerNormPreAllGatherOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints>
 OpModel<LayerNormPreAllGatherOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -7575,7 +7746,10 @@ OpModel<LayerNormPreAllGatherOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> residualInputLayout,
     std::optional<llvm::ArrayRef<int64_t>> recipShape,
     std::optional<TTNNLayoutAttr> recipLayout,
-    std::optional<ttcore::DataType> dtype, TTNNLayoutAttr outputLayout) {
+    std::optional<ttcore::DataType> dtype,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -7590,20 +7764,22 @@ OpModel<LayerNormPreAllGatherOp>::getOpConstraints(
   std::optional<::ttnn::TensorSpec> recipSpec =
       detail::convertToOptionalTensorSpec(device, recipShape, recipLayout);
 
-  ::ttnn::DataType metalDtype = ::ttnn::DataType::BFLOAT16;
-  if (dtype.has_value()) {
-    metalDtype = conversion::getDataType(dtype.value());
-  }
+  ::tt::target::ttnn::LayerNormPreAllGatherOpT layerNormPreAllGatherOpNative =
+      buildLayerNormPreAllGatherOpTFromMLIR(computeKernelConfig, programConfig,
+                                            outputLayout);
 
   auto query = [=]() {
-    return ::ttnn::graph::query_op_constraints(
-        ::ttnn::layer_norm_pre_all_gather, device, inputSpec,
-        /*dtype=*/metalDtype,
-        /*residual_input_tensor=*/residualInputSpec,
-        /*compute_kernel_config=*/std::nullopt,
-        /*program_config=*/std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*recip_tensor=*/recipSpec);
+    ttnn_op_invoke::LayerNormPreAllGatherOpResult result =
+        ttnn_op_invoke::callLayerNormPreAllGather(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            layerNormPreAllGatherOpNative, inputSpec, residualInputSpec,
+            recipSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected LayerNormPreAllGatherOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), query);
@@ -7618,7 +7794,10 @@ llvm::Expected<size_t> OpModel<LayerNormPreAllGatherOp>::getOpRuntime(
     std::optional<TTNNLayoutAttr> residualInputLayout,
     std::optional<llvm::ArrayRef<int64_t>> recipShape,
     std::optional<TTNNLayoutAttr> recipLayout,
-    std::optional<ttcore::DataType> dtype, TTNNLayoutAttr outputLayout) {
+    std::optional<ttcore::DataType> dtype,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -7633,20 +7812,22 @@ llvm::Expected<size_t> OpModel<LayerNormPreAllGatherOp>::getOpRuntime(
   std::optional<::ttnn::TensorSpec> recipSpec =
       detail::convertToOptionalTensorSpec(device, recipShape, recipLayout);
 
-  ::ttnn::DataType metalDtype = ::ttnn::DataType::BFLOAT16;
-  if (dtype.has_value()) {
-    metalDtype = conversion::getDataType(dtype.value());
-  }
+  ::tt::target::ttnn::LayerNormPreAllGatherOpT layerNormPreAllGatherOpNative =
+      buildLayerNormPreAllGatherOpTFromMLIR(computeKernelConfig, programConfig,
+                                            outputLayout);
 
   auto query = [=]() {
-    return ::ttnn::graph::query_op_runtime(
-        ::ttnn::layer_norm_pre_all_gather, device, inputSpec,
-        /*dtype=*/metalDtype,
-        /*residual_input_tensor=*/residualInputSpec,
-        /*compute_kernel_config=*/std::nullopt,
-        /*program_config=*/std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*recip_tensor=*/recipSpec);
+    ttnn_op_invoke::LayerNormPreAllGatherOpResult result =
+        ttnn_op_invoke::callLayerNormPreAllGather(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+            layerNormPreAllGatherOpNative, inputSpec, residualInputSpec,
+            recipSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected LayerNormPreAllGatherOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(query);
@@ -7659,6 +7840,31 @@ llvm::Expected<size_t> OpModel<LayerNormPreAllGatherOp>::getOpRuntime(
 // LayerNormPostAllGatherOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::LayerNormPostAllGatherOpT
+buildLayerNormPostAllGatherOpTFromMLIR(
+    llvm::APFloat epsilon,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::LayerNormPostAllGatherOpT layerNormPostAllGatherOp;
+  layerNormPostAllGatherOp.epsilon = epsilon.convertToFloat();
+  layerNormPostAllGatherOp.compute_config =
+      (computeKernelConfig.has_value() && *computeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*computeKernelConfig))
+          : nullptr;
+  layerNormPostAllGatherOp.program_config =
+      (programConfig.has_value() && *programConfig)
+          ? std::make_unique<
+                ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfigT>(
+                toNative(*programConfig))
+          : nullptr;
+  layerNormPostAllGatherOp.out = detail::getOutputTensorRefT(outputLayout);
+  return layerNormPostAllGatherOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints>
 OpModel<LayerNormPostAllGatherOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -7667,6 +7873,8 @@ OpModel<LayerNormPostAllGatherOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -7685,14 +7893,22 @@ OpModel<LayerNormPostAllGatherOp>::getOpConstraints(
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
+  ::tt::target::ttnn::LayerNormPostAllGatherOpT layerNormPostAllGatherOpNative =
+      buildLayerNormPostAllGatherOpTFromMLIR(epsilon, computeKernelConfig,
+                                             programConfig, outputLayout);
+
   auto query = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::layer_norm_post_all_gather, device,
-                                inputSpec, statsSpec, epsilon.convertToFloat(),
-                                weightSpec, biasSpec,
-                                detail::getNullableMemoryConfig(outputLayout),
-                                /*compute_kernel_config=*/std::nullopt,
-                                /*program_config=*/std::nullopt,
-                                /*dtype=*/std::nullopt);
+    ttnn_op_invoke::LayerNormPostAllGatherOpResult result =
+        ttnn_op_invoke::callLayerNormPostAllGather(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            layerNormPostAllGatherOpNative, inputSpec, statsSpec, weightSpec,
+            biasSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected LayerNormPostAllGatherOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), query);
@@ -7708,6 +7924,8 @@ llvm::Expected<size_t> OpModel<LayerNormPostAllGatherOp>::getOpRuntime(
     std::optional<TTNNLayoutAttr> weightLayout,
     std::optional<llvm::ArrayRef<int64_t>> biasShape,
     std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -7726,14 +7944,22 @@ llvm::Expected<size_t> OpModel<LayerNormPostAllGatherOp>::getOpRuntime(
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
+  ::tt::target::ttnn::LayerNormPostAllGatherOpT layerNormPostAllGatherOpNative =
+      buildLayerNormPostAllGatherOpTFromMLIR(epsilon, computeKernelConfig,
+                                             programConfig, outputLayout);
+
   auto query = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::layer_norm_post_all_gather, device,
-                            inputSpec, statsSpec, epsilon.convertToFloat(),
-                            weightSpec, biasSpec,
-                            detail::getNullableMemoryConfig(outputLayout),
-                            /*compute_kernel_config=*/std::nullopt,
-                            /*program_config=*/std::nullopt,
-                            /*dtype=*/std::nullopt);
+    ttnn_op_invoke::LayerNormPostAllGatherOpResult result =
+        ttnn_op_invoke::callLayerNormPostAllGather(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+            layerNormPostAllGatherOpNative, inputSpec, statsSpec, weightSpec,
+            biasSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected LayerNormPostAllGatherOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(query);
@@ -7745,6 +7971,18 @@ llvm::Expected<size_t> OpModel<LayerNormPostAllGatherOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // GroupNormOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::GroupNormOpT
+buildGroupNormOpTFromMLIR(int64_t numGroups, llvm::APFloat epsilon,
+                          TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::GroupNormOpT groupNormOp;
+  groupNormOp.num_groups = numGroups;
+  groupNormOp.epsilon = epsilon.convertToFloat();
+  groupNormOp.out = detail::getOutputTensorRefT(outputLayout);
+  return groupNormOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
 
 llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -7771,23 +8009,19 @@ llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraints(
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
-  int numGroupsInt = static_cast<int>(numGroups);
-  float epsilonFloat = epsilon.convertToFloat();
+  ::tt::target::ttnn::GroupNormOpT groupNormOpNative =
+      buildGroupNormOpTFromMLIR(numGroups, epsilon, outputLayout);
 
   auto groupNormQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::group_norm, device, inputSpec,
-                                numGroupsInt, epsilonFloat, inputMaskSpec,
-                                weightSpec, biasSpec,
-                                /*reciprocals=*/std::nullopt,
-                                detail::getNullableMemoryConfig(outputLayout),
-                                /*dtype=*/std::nullopt,
-                                /*core_grid=*/std::nullopt,
-                                /*inplace=*/std::nullopt,
-                                /*output_layout=*/std::nullopt,
-                                /*num_out_blocks=*/std::nullopt,
-                                /*compute_kernel_config=*/std::nullopt,
-                                /*negative_mask=*/std::nullopt,
-                                /*use_welford=*/false);
+    ttnn_op_invoke::GroupNormOpResult result = ttnn_op_invoke::callGroupNorm(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, groupNormOpNative,
+        inputSpec, inputMaskSpec, weightSpec, biasSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected GroupNormOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), groupNormQuery);
@@ -7821,22 +8055,19 @@ llvm::Expected<size_t> OpModel<GroupNormOp>::getOpRuntime(
   std::optional<::ttnn::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
-  int numGroupsInt = static_cast<int>(numGroups);
-  float epsilonFloat = epsilon.convertToFloat();
+  ::tt::target::ttnn::GroupNormOpT groupNormOpNative =
+      buildGroupNormOpTFromMLIR(numGroups, epsilon, outputLayout);
 
   auto groupNormQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::group_norm, device, inputSpec, numGroupsInt,
-                            epsilonFloat, inputMaskSpec, weightSpec, biasSpec,
-                            /*reciprocals=*/std::nullopt,
-                            detail::getNullableMemoryConfig(outputLayout),
-                            /*dtype=*/std::nullopt,
-                            /*core_grid=*/std::nullopt,
-                            /*inplace=*/std::nullopt,
-                            /*output_layout=*/std::nullopt,
-                            /*num_out_blocks=*/std::nullopt,
-                            /*compute_kernel_config=*/std::nullopt,
-                            /*negative_mask=*/std::nullopt,
-                            /*use_welford=*/false);
+    ttnn_op_invoke::GroupNormOpResult result = ttnn_op_invoke::callGroupNorm(
+        ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, groupNormOpNative,
+        inputSpec, inputMaskSpec, weightSpec, biasSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected GroupNormOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(groupNormQuery);

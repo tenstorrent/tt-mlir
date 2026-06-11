@@ -1,0 +1,56 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
+#include "ttmlir/OpInvoke/TTNN/Normalization/LayerNormOp.h"
+#include "ttmlir/OpInvoke/TTNN/utils/utils.h"
+#include "ttnn/operations/normalization/layernorm/layernorm.hpp"
+
+#include <optional>
+
+namespace ttnn_op_invoke {
+
+LayerNormResolvedParams
+resolveLayerNormParams(const ::tt::target::ttnn::LayerNormOpT &op) {
+  LayerNormResolvedParams params;
+  if (op.out) {
+    params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
+        operations::utils::getTensorRefMemoryConfig(*op.out));
+    TT_INVOKE_ASSERT(operations::utils::inSystemMemory(*op.out) ||
+                         params.outputMemoryConfig.has_value(),
+                     "Memory config must exist for device tensors");
+  }
+  return params;
+}
+
+template <typename Tag>
+auto createLayerNormTuple(Tag tag, const ::tt::target::ttnn::LayerNormOpT &op,
+                          TensorArg input, std::optional<TensorArg> weight,
+                          std::optional<TensorArg> bias,
+                          const LayerNormResolvedParams &params) {
+  return std::make_tuple(
+      resolveTensorArg(input, tag), op.epsilon,
+      weight ? std::make_optional(resolveTensorArg(*weight, tag))
+             : std::nullopt,
+      bias ? std::make_optional(resolveTensorArg(*bias, tag)) : std::nullopt,
+      /*residual_input_tensor=*/std::nullopt, params.outputMemoryConfig,
+      /*program_config=*/std::nullopt,
+      /*compute_kernel_config=*/std::nullopt,
+      /*recip_tensor=*/std::nullopt);
+}
+
+LayerNormOpResult
+callLayerNorm(CallType callType, const ::tt::target::ttnn::LayerNormOpT &op,
+              TensorArg input, std::optional<TensorArg> weight,
+              std::optional<TensorArg> bias, ::ttnn::MeshDevice *device) {
+  LayerNormResolvedParams params = resolveLayerNormParams(op);
+
+  auto makeTuple = [&](auto tag) {
+    return createLayerNormTuple(tag, op, input, weight, bias, params);
+  };
+
+  return callOp<LayerNormOpResult>(WRAP_OP(::ttnn::layer_norm), callType,
+                                   makeTuple, device);
+}
+
+} // namespace ttnn_op_invoke

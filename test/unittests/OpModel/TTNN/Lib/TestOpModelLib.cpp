@@ -545,8 +545,16 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   const TTNNLayoutAttr inputLayout_l1 = CreateTiledLayout(
       tensorShape, BufferType::L1, TensorMemoryLayout::Interleaved);
 
+  DeviceComputeKernelConfigAttr deviceConfig =
+      DeviceComputeKernelConfigAttr::get(
+          &context, /*mathFidelity=*/MathFidelity::LoFi,
+          /*mathApproxMode=*/::mlir::BoolAttr::get(&context, true),
+          /*fp32DestAccEn=*/::mlir::BoolAttr::get(&context, true),
+          /*packerL1Acc=*/::mlir::BoolAttr::get(&context, true),
+          /*dstFullSyncEn=*/::mlir::BoolAttr::get(&context, true));
+
   auto constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      tensorShape, inputLayout_dram, -1, false, inputLayout_dram);
+      tensorShape, inputLayout_dram, -1, false, deviceConfig, inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   auto [cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayoutReadBacks] =
       constraintsExp.get();
@@ -555,7 +563,7 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   EXPECT_EQ(l1PeakSize, 0);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      tensorShape, inputLayout_dram, -1, false, inputLayout_l1);
+      tensorShape, inputLayout_dram, -1, false, deviceConfig, inputLayout_l1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -563,7 +571,7 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      tensorShape, inputLayout_l1, -1, false, inputLayout_dram);
+      tensorShape, inputLayout_l1, -1, false, deviceConfig, inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -571,7 +579,7 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      tensorShape, inputLayout_l1, -1, false, inputLayout_l1);
+      tensorShape, inputLayout_l1, -1, false, deviceConfig, inputLayout_l1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -579,7 +587,7 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
   EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      tensorShape, inputLayout_dram, -1, false, inputLayout_dram);
+      tensorShape, inputLayout_dram, -1, false, deviceConfig, inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -593,7 +601,7 @@ TEST_F(OpModelTest, SoftmaxInterleaved) {
        {inputLayout_l1, inputLayout_l1}};
   for (const auto &[input_layout, output_layout] : layout_combinations) {
     auto runtimeExp = OpModel<SoftmaxOp>::getOpRuntime(
-        tensorShape, input_layout, -1, false, output_layout);
+        tensorShape, input_layout, -1, false, deviceConfig, output_layout);
     EXPECT_TRUE(static_cast<bool>(runtimeExp));
     EXPECT_TRUE(runtimeExp.get() > 0);
   }
@@ -604,12 +612,20 @@ TEST_F(OpModelTest, SoftmaxNumericStable) {
   const TTNNLayoutAttr inputLayout_dram = CreateTiledLayout(
       tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
 
+  DeviceComputeKernelConfigAttr deviceConfig =
+      DeviceComputeKernelConfigAttr::get(
+          &context, /*mathFidelity=*/MathFidelity::LoFi,
+          /*mathApproxMode=*/::mlir::BoolAttr::get(&context, true),
+          /*fp32DestAccEn=*/::mlir::BoolAttr::get(&context, true),
+          /*packerL1Acc=*/::mlir::BoolAttr::get(&context, true),
+          /*dstFullSyncEn=*/::mlir::BoolAttr::get(&context, true));
+
   auto constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      tensorShape, inputLayout_dram, -1, true, inputLayout_dram);
+      tensorShape, inputLayout_dram, -1, true, deviceConfig, inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
 
   auto runtimeExp = OpModel<SoftmaxOp>::getOpRuntime(
-      tensorShape, inputLayout_dram, -1, true, inputLayout_dram);
+      tensorShape, inputLayout_dram, -1, true, deviceConfig, inputLayout_dram);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
@@ -1582,8 +1598,17 @@ TEST_F(OpModelTest, SoftmaxSharded) {
   const TTNNLayoutAttr inputLayout_l1_i = CreateTiledLayout(
       tensorShape, BufferType::L1, TensorMemoryLayout::Interleaved);
 
+  DeviceComputeKernelConfigAttr deviceConfig =
+      DeviceComputeKernelConfigAttr::get(
+          &context, /*mathFidelity=*/MathFidelity::LoFi,
+          /*mathApproxMode=*/::mlir::BoolAttr::get(&context, true),
+          /*fp32DestAccEn=*/::mlir::BoolAttr::get(&context, true),
+          /*packerL1Acc=*/::mlir::BoolAttr::get(&context, true),
+          /*dstFullSyncEn=*/::mlir::BoolAttr::get(&context, true));
+
   auto constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      tensorShape, inputLayout_l1_hs, -2, false, inputLayout_l1_hs);
+      tensorShape, inputLayout_l1_hs, -2, false, deviceConfig,
+      inputLayout_l1_hs);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -1591,7 +1616,8 @@ TEST_F(OpModelTest, SoftmaxSharded) {
   EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      tensorShape, inputLayout_l1_hs, -2, false, inputLayout_l1_i);
+      tensorShape, inputLayout_l1_hs, -2, false, deviceConfig,
+      inputLayout_l1_i);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -1599,15 +1625,17 @@ TEST_F(OpModelTest, SoftmaxSharded) {
   EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   constraintsExp = OpModel<SoftmaxOp>::getOpConstraints(
-      tensorShape, inputLayout_l1_i, -2, false, inputLayout_l1_hs);
+      tensorShape, inputLayout_l1_i, -2, false, deviceConfig,
+      inputLayout_l1_hs);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_GE(opCstr.tensorL1PeakSize, 0);
   EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
-  auto runtimeExp = OpModel<SoftmaxOp>::getOpRuntime(
-      tensorShape, inputLayout_l1_i, -2, false, inputLayout_l1_hs);
+  auto runtimeExp =
+      OpModel<SoftmaxOp>::getOpRuntime(tensorShape, inputLayout_l1_i, -2, false,
+                                       deviceConfig, inputLayout_l1_hs);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
@@ -4143,17 +4171,26 @@ TEST_P(OpModelBatchNormParam, BatchNormParam) {
     biasLayout = CreateTiledLayout(shape, bufferType, layout, virtualGrid);
   }
 
+  DeviceComputeKernelConfigAttr deviceConfig =
+      DeviceComputeKernelConfigAttr::get(
+          &context, /*mathFidelity=*/MathFidelity::LoFi,
+          /*mathApproxMode=*/::mlir::BoolAttr::get(&context, true),
+          /*fp32DestAccEn=*/::mlir::BoolAttr::get(&context, true),
+          /*packerL1Acc=*/::mlir::BoolAttr::get(&context, true),
+          /*dstFullSyncEn=*/::mlir::BoolAttr::get(&context, true));
+
   // Test getOpConstraints
   llvm::Expected<OpConstraints> constraintsExp =
       training
           ? op_model::OpModel<BatchNormTrainingOp>::getOpConstraints(
                 inputShape, inputLayout, runningMeanShape, runningMeanLayout,
                 runningVarShape, runningVarLayout, weightShape, weightLayout,
-                biasShape, biasLayout, epsilon, momentum, outputLayout)
+                biasShape, biasLayout, epsilon, momentum, deviceConfig,
+                outputLayout)
           : op_model::OpModel<BatchNormInferenceOp>::getOpConstraints(
                 inputShape, inputLayout, runningMeanShape, runningMeanLayout,
                 runningVarShape, runningVarLayout, weightShape, weightLayout,
-                biasShape, biasLayout, epsilon, outputLayout);
+                biasShape, biasLayout, epsilon, deviceConfig, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
@@ -4173,11 +4210,12 @@ TEST_P(OpModelBatchNormParam, BatchNormParam) {
           ? op_model::OpModel<BatchNormTrainingOp>::getOpRuntime(
                 inputShape, inputLayout, runningMeanShape, runningMeanLayout,
                 runningVarShape, runningVarLayout, weightShape, weightLayout,
-                biasShape, biasLayout, epsilon, momentum, outputLayout)
+                biasShape, biasLayout, epsilon, momentum, deviceConfig,
+                outputLayout)
           : op_model::OpModel<BatchNormInferenceOp>::getOpRuntime(
                 inputShape, inputLayout, runningMeanShape, runningMeanLayout,
                 runningVarShape, runningVarLayout, weightShape, weightLayout,
-                biasShape, biasLayout, epsilon, outputLayout);
+                biasShape, biasLayout, epsilon, deviceConfig, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {
@@ -4450,11 +4488,25 @@ TEST_P(OpModelRMSNormPreAllGatherParam, RMSNormPreAllGatherParam) {
         CreateTiledLayout(shape, bufferType, layout, virtualGrid);
   }
 
+  DeviceComputeKernelConfigAttr deviceConfig =
+      DeviceComputeKernelConfigAttr::get(
+          &context, /*mathFidelity=*/MathFidelity::LoFi,
+          /*mathApproxMode=*/::mlir::BoolAttr::get(&context, true),
+          /*fp32DestAccEn=*/::mlir::BoolAttr::get(&context, true),
+          /*packerL1Acc=*/::mlir::BoolAttr::get(&context, true),
+          /*dstFullSyncEn=*/::mlir::BoolAttr::get(&context, true));
+
+  LayerNormShardedMultiCoreProgramConfigAttr programConfig =
+      LayerNormShardedMultiCoreProgramConfigAttr::get(
+          &context, CoreCoordAttr::get(&context, 8, 8),
+          /*subblock_w=*/1u, /*block_h=*/1u, /*block_w=*/4u,
+          /*inplace=*/false);
+
   // Test Constraints
   auto constraintsExp =
       op_model::OpModel<RMSNormPreAllGatherOp>::getOpConstraints(
           inputShape, inputLayout, residualInputShape, residualInputLayout,
-          dtype, use_2d_core_grid, outputLayout);
+          dtype, use_2d_core_grid, deviceConfig, programConfig, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
@@ -4471,7 +4523,7 @@ TEST_P(OpModelRMSNormPreAllGatherParam, RMSNormPreAllGatherParam) {
   // Test Op Runtime
   auto runtimeExp = op_model::OpModel<RMSNormPreAllGatherOp>::getOpRuntime(
       inputShape, inputLayout, residualInputShape, residualInputLayout, dtype,
-      use_2d_core_grid, outputLayout);
+      use_2d_core_grid, deviceConfig, programConfig, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {
@@ -4710,11 +4762,26 @@ TEST_P(OpModelLayerNormPreAllGatherParam, LayerNormPreAllGatherParam) {
     recipLayout = CreateTiledLayout(shape, bufferType, layout, virtualGrid);
   }
 
+  DeviceComputeKernelConfigAttr deviceConfig =
+      DeviceComputeKernelConfigAttr::get(
+          &context, /*mathFidelity=*/MathFidelity::LoFi,
+          /*mathApproxMode=*/::mlir::BoolAttr::get(&context, true),
+          /*fp32DestAccEn=*/::mlir::BoolAttr::get(&context, true),
+          /*packerL1Acc=*/::mlir::BoolAttr::get(&context, true),
+          /*dstFullSyncEn=*/::mlir::BoolAttr::get(&context, true));
+
+  LayerNormShardedMultiCoreProgramConfigAttr programConfig =
+      LayerNormShardedMultiCoreProgramConfigAttr::get(
+          &context, CoreCoordAttr::get(&context, 8, 8),
+          /*subblock_w=*/1u, /*block_h=*/1u, /*block_w=*/4u,
+          /*inplace=*/false);
+
   // Test getOpConstraints
   auto constraintsExp =
       op_model::OpModel<LayerNormPreAllGatherOp>::getOpConstraints(
           inputShape, inputLayout, residualInputShape, residualInputLayout,
-          recipShape, recipLayout, dtype, outputLayout);
+          recipShape, recipLayout, dtype, deviceConfig, programConfig,
+          outputLayout);
 
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
@@ -4731,7 +4798,8 @@ TEST_P(OpModelLayerNormPreAllGatherParam, LayerNormPreAllGatherParam) {
   // Test getOpRuntime
   auto runtimeExp = op_model::OpModel<LayerNormPreAllGatherOp>::getOpRuntime(
       inputShape, inputLayout, residualInputShape, residualInputLayout,
-      recipShape, recipLayout, dtype, outputLayout);
+      recipShape, recipLayout, dtype, deviceConfig, programConfig,
+      outputLayout);
 
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {
@@ -4838,10 +4906,25 @@ TEST_P(OpModelLayerNormPostAllGatherParam, LayerNormPostAllGatherParam) {
     biasLayout = CreateTiledLayout(shape, bufferType, layout, virtualGrid);
   }
 
+  DeviceComputeKernelConfigAttr deviceConfig =
+      DeviceComputeKernelConfigAttr::get(
+          &context, /*mathFidelity=*/MathFidelity::LoFi,
+          /*mathApproxMode=*/::mlir::BoolAttr::get(&context, true),
+          /*fp32DestAccEn=*/::mlir::BoolAttr::get(&context, true),
+          /*packerL1Acc=*/::mlir::BoolAttr::get(&context, true),
+          /*dstFullSyncEn=*/::mlir::BoolAttr::get(&context, true));
+
+  LayerNormShardedMultiCoreProgramConfigAttr programConfig =
+      LayerNormShardedMultiCoreProgramConfigAttr::get(
+          &context, CoreCoordAttr::get(&context, 8, 8),
+          /*subblock_w=*/1u, /*block_h=*/1u, /*block_w=*/4u,
+          /*inplace=*/false);
+
   auto constraintsExp =
       op_model::OpModel<LayerNormPostAllGatherOp>::getOpConstraints(
           inputShape, inputLayout, statsShape, statsLayout, weightShape,
-          weightLayout, biasShape, biasLayout, epsilon, outputLayout);
+          weightLayout, biasShape, biasLayout, epsilon, deviceConfig,
+          programConfig, outputLayout);
 
   EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
   if (constraintsExp) {
@@ -4857,7 +4940,8 @@ TEST_P(OpModelLayerNormPostAllGatherParam, LayerNormPostAllGatherParam) {
 
   auto runtimeExp = op_model::OpModel<LayerNormPostAllGatherOp>::getOpRuntime(
       inputShape, inputLayout, statsShape, statsLayout, weightShape,
-      weightLayout, biasShape, biasLayout, epsilon, outputLayout);
+      weightLayout, biasShape, biasLayout, epsilon, deviceConfig, programConfig,
+      outputLayout);
 
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (runtimeExp) {
