@@ -4,7 +4,7 @@
 // system desc. Two variants (trace=off/on) must produce identical
 // numbers, just like on Wormhole.
 //
-// NOTE: the Blackhole TTIR→TTNN pipeline currently fails op-validation
+// TODO(#8767): the Blackhole TTIR→TTNN pipeline fails op-validation
 // (worker-grid mismatch on ttnn.full) at optimization-level=1 for this
 // IR. The failure is in the broader pipeline, not in our pass, so this
 // test runs at the default opt level until the BH pipeline is fixed.
