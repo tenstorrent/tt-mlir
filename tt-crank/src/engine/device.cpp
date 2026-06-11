@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
+#include <map>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -62,9 +63,7 @@ private:
         // Configure the fabric for this mesh before opening the devices.
         // setFabricConfig writes a process-global, so it must run on every open
         // to stay in sync with the mesh we're about to open.
-        const auto system_desc = ::tt::runtime::getCurrentSystemDesc();
-        const auto fabric = ::tt::runtime::computeMeshFabricConfig(system_desc, mesh_shape);
-        ::tt::runtime::setFabricConfig(fabric.globalConfig);
+        ::tt::runtime::setFabricConfig(runtime_mesh_fabric_config(mesh_shape).globalConfig);
 
         auto device = ::tt::runtime::openMeshDevice(::tt::runtime::MeshDeviceOptions{.meshShape = mesh_shape});
 
@@ -145,6 +144,18 @@ std::uint32_t runtime_device_mesh_size() {
         n *= d;
     }
     return n;
+}
+
+const ::tt::runtime::MeshFabricConfig &runtime_mesh_fabric_config(const std::vector<std::uint32_t> &mesh_shape) {
+    // computeMeshFabricConfig is pure for a given machine + mesh shape, so
+    // memoize per shape.
+    static std::map<std::vector<std::uint32_t>, ::tt::runtime::MeshFabricConfig> cache;
+    auto it = cache.find(mesh_shape);
+    if (it == cache.end()) {
+        const auto system_desc = ::tt::runtime::getCurrentSystemDesc();
+        it = cache.emplace(mesh_shape, ::tt::runtime::computeMeshFabricConfig(system_desc, mesh_shape)).first;
+    }
+    return it->second;
 }
 
 void close_runtime_device_mesh() {

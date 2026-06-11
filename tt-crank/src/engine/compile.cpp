@@ -24,6 +24,8 @@
 
 #include <tracy/Tracy.hpp>
 
+#include <tt/runtime/runtime.h>
+
 #include <ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h>
 #include <ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h>
 #include <ttmlir/RegisterAll.h>
@@ -126,6 +128,18 @@ private:
 
 CompilerCache cache; // NOLINT
 
+std::string calc_compilation_key(mlir::ModuleOp module_op,
+                                 const mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions &pm_opts) {
+    std::string key = hash_module(module_op);
+    {
+        llvm::raw_string_ostream key_stream(key);
+        key_stream << '\n';
+        pm_opts.print(key_stream);
+    }
+
+    return key;
+}
+
 // Runs the TTIR-to-TTNN runtime pipeline on `module` and emits a flatbuffer.
 // Assumes the caller has already installed a ScopedDiagnosticHandler that
 // writes captured diagnostics into `diag_buffer`. The module is mutated in
@@ -134,9 +148,29 @@ CompiledProgram run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const Compil
                                           const std::string &diag_buffer) {
     MLIRCompileGuard guard;
 
+    const auto mesh_shape = ::tt::kurbla::runtime_device_mesh_shape();
+    const auto &mesh_fabric = ::tt::kurbla::runtime_mesh_fabric_config(mesh_shape);
+
+    mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions pm_opts;
+    pm_opts.optimizationLevel = options.optimization_level;
+    pm_opts.systemDescPath = options.system_desc.has_value() ? std::string{} : options.system_desc_path;
+    pm_opts.mockSystemDescArch = to_ttcore_arch(options.mock_arch);
+
+    // Pass in the currently opened device mesh shape - otherwise the CCL ops will hit issues during compilation.
+    pm_opts.meshShape = std::vector<std::int64_t>(mesh_shape.begin(), mesh_shape.end());
+
+    // Match CCL topology to what the fabric actually supports per mesh axis.
+    std::vector<mlir::tt::ttcore::Topology> mesh_topology;
+    for (const auto axis : mesh_fabric.perAxisConfig) {
+        mesh_topology.push_back(axis == ::tt::runtime::FabricConfig::FABRIC_1D_RING
+                                    ? mlir::tt::ttcore::Topology::Ring
+                                    : mlir::tt::ttcore::Topology::Linear);
+    }
+    pm_opts.meshTopology = mesh_topology;
+
     // Hash before any IR mutations so the key reflects the original TTIR.
-    // TODO: also fold the CompileOptions (meshShape, etc.) into the key.
-    std::string key = hash_module(module_op);
+    // The pipeline options must be in the key too, since they directly impact the compilation result.
+    auto key = calc_compilation_key(module_op, pm_opts);
     if (auto *entry = cache[key]) {
         return *entry;
     }
@@ -153,15 +187,6 @@ CompiledProgram run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const Compil
         // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
         module_op->setAttr(mlir::tt::ttcore::SystemDescAttr::name, attr_or.value());
     }
-
-    mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions pm_opts;
-    pm_opts.optimizationLevel = options.optimization_level;
-    pm_opts.systemDescPath = options.system_desc.has_value() ? std::string{} : options.system_desc_path;
-    pm_opts.mockSystemDescArch = to_ttcore_arch(options.mock_arch);
-
-    // Pass in the currently opened device mesh shape - otherwise the CCL ops will hit issues during compilation.
-    const auto mesh_shape = ::tt::kurbla::runtime_device_mesh_shape();
-    pm_opts.meshShape = std::vector<std::int64_t>(mesh_shape.begin(), mesh_shape.end());
 
     mlir::PassManager pm(module_op.getContext(), mlir::ModuleOp::getOperationName());
     mlir::tt::ttnn::createTTIRToTTNNRuntimePipeline(pm, pm_opts);
