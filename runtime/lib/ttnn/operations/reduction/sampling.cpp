@@ -72,9 +72,13 @@ void run(const ::tt::target::ttnn::SamplingOp *op, ProgramContext &context) {
     output = ::ttnn::reshape(output, ::ttnn::Shape({outShape[3]}));
   }
 
-  // ttnn::sampling returns UINT32. Typecast to INT32 to match compiler type.
-  if (output.dtype() == ::tt::tt_metal::DataType::UINT32) {
-    output = ::ttnn::typecast(output, ::tt::tt_metal::DataType::INT32);
+  // ttnn::sampling returns UINT32; cast to the compiler-declared output dtype
+  // (INT32 or UINT32) so the runtime tensor matches the output TensorRef.
+  // Value-preserving since sampled indices are non-negative.
+  ::ttnn::DataType expectedDtype = ::tt::runtime::ttnn::utils::toTTNNDataType(
+      op->out()->desc()->layout()->memory_desc()->data_type());
+  if (output.dtype() != expectedDtype) {
+    output = ::ttnn::typecast(output, expectedDtype);
   }
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
