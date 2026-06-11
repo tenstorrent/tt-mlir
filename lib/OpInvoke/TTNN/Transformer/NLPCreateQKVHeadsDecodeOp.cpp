@@ -1,0 +1,68 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
+#include "ttmlir/OpInvoke/TTNN/Transformer/NLPCreateQKVHeadsDecodeOp.h"
+#include "ttmlir/OpInvoke/TTNN/utils/utils.h"
+#include "ttnn/operations/experimental/transformer/nlp_create_qkv_heads_decode/nlp_create_qkv_heads_decode.hpp"
+
+#include <cstdint>
+#include <optional>
+#include <tuple>
+
+namespace ttnn_op_invoke {
+
+NLPCreateQKVHeadsDecodeResolvedParams resolveNLPCreateQKVHeadsDecodeParams(
+    const ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT &op) {
+  NLPCreateQKVHeadsDecodeResolvedParams params;
+  params.optionalOutputTensors = std::nullopt;
+
+  if (op.memcfg) {
+    params.outputMemoryConfig =
+        operations::utils::createMemoryConfigIfNeeded(*op.memcfg);
+  }
+
+  return params;
+}
+
+template <typename Tag>
+auto createNLPCreateQKVHeadsDecodeTuple(
+    Tag tag, const ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT &op,
+    TensorArg input, std::optional<TensorArg> batchOffset,
+    const NLPCreateQKVHeadsDecodeResolvedParams &params) {
+  std::optional<const uint32_t> numKVHeads =
+      op.num_kv_heads.has_value()
+          ? std::optional<const uint32_t>(*op.num_kv_heads)
+          : std::nullopt;
+  std::optional<const bool> overlapQKCoregrid =
+      op.overlap_qk_coregrid.has_value()
+          ? std::optional<const bool>(*op.overlap_qk_coregrid)
+          : std::nullopt;
+  std::optional<const uint32_t> sliceSize =
+      op.slice_size.has_value() ? std::optional<const uint32_t>(*op.slice_size)
+                                : std::nullopt;
+  return std::make_tuple(
+      resolveTensorArg(input, tag), op.num_heads, numKVHeads,
+      params.optionalOutputTensors, overlapQKCoregrid,
+      batchOffset ? std::make_optional(resolveTensorArg(*batchOffset, tag))
+                  : std::nullopt,
+      sliceSize, params.outputMemoryConfig);
+}
+
+NLPCreateQKVHeadsDecodeOpResult callNLPCreateQKVHeadsDecode(
+    CallType callType, const ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT &op,
+    TensorArg input, std::optional<TensorArg> batchOffset,
+    ::ttnn::MeshDevice *device) {
+  NLPCreateQKVHeadsDecodeResolvedParams params =
+      resolveNLPCreateQKVHeadsDecodeParams(op);
+
+  auto makeTuple = [&](auto tag) {
+    return createNLPCreateQKVHeadsDecodeTuple(tag, op, input, batchOffset,
+                                              params);
+  };
+
+  return callOp<NLPCreateQKVHeadsDecodeOpResult>(
+      WRAP_OP(::ttnn::experimental::nlp_create_qkv_heads_decode), callType,
+      makeTuple, device);
+}
+} // namespace ttnn_op_invoke

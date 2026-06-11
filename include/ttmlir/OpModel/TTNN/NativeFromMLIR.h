@@ -168,6 +168,64 @@ buildPrepareConvTranspose2dBiasOpTFromMLIR(
     std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
     TTNNLayoutAttr outputLayout);
 
+::tt::target::ttnn::ConcatenateHeadsOpT
+buildConcatenateHeadsOpTFromMLIR(TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::NLPConcatHeadsOpT
+buildNLPConcatHeadsOpTFromMLIR(TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT
+buildNLPCreateQKVHeadsDecodeOpTFromMLIR(uint32_t numHeads,
+                                        std::optional<uint32_t> numKVHeads,
+                                        std::optional<bool> overlapQKCoregrid,
+                                        std::optional<uint32_t> sliceSize,
+                                        TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT
+buildPagedFlashMultiLatentAttentionDecodeOpTFromMLIR(
+    uint32_t headDimV, bool isCausal, std::optional<llvm::APFloat> scale,
+    TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT
+buildPagedScaledDotProductAttentionDecodeOpTFromMLIR(
+    bool isCausal, std::optional<llvm::APFloat> scale,
+    std::optional<uint32_t> slidingWindowSize,
+    std::optional<SDPAProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::RotaryEmbeddingLlamaOpT
+buildRotaryEmbeddingLlamaOpTFromMLIR(
+    bool isDecodeMode,
+    std::optional<::mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+        deviceComputeKernelConfig,
+    TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::RotaryEmbeddingOpT buildRotaryEmbeddingOpTFromMLIR(
+    std::optional<uint32_t> tokenIndex,
+    std::optional<::mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+        deviceComputeKernelConfig,
+    TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT
+buildScaledDotProductAttentionDecodeOpTFromMLIR(
+    bool isCausal, std::optional<llvm::APFloat> scale,
+    std::optional<SDPAProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::ScaledDotProductAttentionOpT
+buildScaledDotProductAttentionOpTFromMLIR(
+    bool isCausal, std::optional<llvm::APFloat> scale,
+    std::optional<uint32_t> slidingWindowSize, TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT
+buildSplitQueryKeyValueAndSplitHeadsOpTFromMLIR(
+    uint32_t numHeads, std::optional<uint32_t> numKVHeads, bool transposeKey,
+    TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::NLPConcatHeadsDecodeOpT
+buildNLPConcatHeadsDecodeOpTFromMLIR(uint32_t numHeads,
+                                     TTNNLayoutAttr outputLayout);
+
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_ENABLE_OPMODEL
 

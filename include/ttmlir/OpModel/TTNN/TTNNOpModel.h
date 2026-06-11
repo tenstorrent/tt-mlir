@@ -778,7 +778,9 @@ struct OpModel<ScaledDotProductAttentionDecodeOp> {
                std::optional<TTNNLayoutAttr> curPosTensorLayout,
                std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
                std::optional<TTNNLayoutAttr> attentionSinkLayout,
-               std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
+               std::optional<llvm::APFloat> scale,
+               std::optional<SDPAProgramConfigAttr> programConfig,
+               TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
@@ -921,7 +923,10 @@ struct OpModel<RotaryEmbeddingLlamaOp> {
       llvm::ArrayRef<int64_t> cosShape, TTNNLayoutAttr cosLayout,
       llvm::ArrayRef<int64_t> sinShape, TTNNLayoutAttr sinLayout,
       llvm::ArrayRef<int64_t> transMatShape, TTNNLayoutAttr transMatLayout,
-      bool isDecodeMode, TTNNLayoutAttr outputLayout);
+      bool isDecodeMode,
+      std::optional<::mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+          deviceComputeKernelConfig,
+      TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -929,6 +934,8 @@ struct OpModel<RotaryEmbeddingLlamaOp> {
                llvm::ArrayRef<int64_t> sinShape, TTNNLayoutAttr sinLayout,
                llvm::ArrayRef<int64_t> transMatShape,
                TTNNLayoutAttr transMatLayout, bool isDecodeMode,
+               std::optional<::mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+                   deviceComputeKernelConfig,
                TTNNLayoutAttr outputLayout);
 };
 
@@ -938,18 +945,23 @@ struct OpModel<RotaryEmbeddingLlamaOp> {
 
 template <>
 struct OpModel<RotaryEmbeddingOp> {
-  static llvm::Expected<OpConstraints>
-  getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> cosShape,
-                   TTNNLayoutAttr cosLayout, llvm::ArrayRef<int64_t> sinShape,
-                   TTNNLayoutAttr sinLayout, std::optional<uint32_t> tokenIndex,
-                   TTNNLayoutAttr outputLayout);
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      llvm::ArrayRef<int64_t> cosShape, TTNNLayoutAttr cosLayout,
+      llvm::ArrayRef<int64_t> sinShape, TTNNLayoutAttr sinLayout,
+      std::optional<uint32_t> tokenIndex,
+      std::optional<::mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+          deviceComputeKernelConfig,
+      TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
                llvm::ArrayRef<int64_t> cosShape, TTNNLayoutAttr cosLayout,
                llvm::ArrayRef<int64_t> sinShape, TTNNLayoutAttr sinLayout,
-               std::optional<uint32_t> tokenIndex, TTNNLayoutAttr outputLayout);
+               std::optional<uint32_t> tokenIndex,
+               std::optional<::mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+                   deviceComputeKernelConfig,
+               TTNNLayoutAttr outputLayout);
 };
 
 //===-----------------------------------------------------------------------===//
