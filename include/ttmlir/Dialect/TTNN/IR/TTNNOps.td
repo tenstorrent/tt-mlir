@@ -4300,7 +4300,7 @@ def TTNN_TtLangOp : Op<TTNN_Dialect, "tt_lang_op",
     positionally to the op's results (result `i` aliases the `i`-th `"out"`
     operand's buffer). `arg_roles` is therefore constrained to the form
     `in* out+` -- all `"in"` operands first, then all `"out"` operands --
-    which is enforced by the verifier and by the `@tt_torch.kernel`
+    which is enforced by the verifier and by the `@tt_torch.tt_lang_operation`
     decorator. Generic MLIR analyses (the TTNN deallocate pass, etc.)
     follow the DPS operand->result tie directly, so the op needs no
     name-keyed special-casing.

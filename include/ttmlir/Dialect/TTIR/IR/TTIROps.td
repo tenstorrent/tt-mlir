@@ -6682,8 +6682,8 @@ def TTIR_TtLangOp : TTIR_Op<"tt_lang_op",
     [TTIROpInterface, DestinationStyleOpInterface]> {
   let summary = "Opaque tt-lang custom kernel placeholder.";
   let description = [{
-    Represents an invocation of a user-defined tt-lang kernel registered via
-    `@tt_torch.kernel`. The kernel body is opaque to TTIR: its operands and
+    Represents an invocation of a user-defined tt-lang operation registered via
+    `@tt_torch.tt_lang_operation`. The kernel body is opaque to TTIR: its operands and
     results are fully typed so type / shape / layout inference on adjacent ops
     still works (in particular through Shardy and shape refinement), but TTIR
     does not look inside the kernel body. The kernel is materialised later by
@@ -6698,7 +6698,7 @@ def TTIR_TtLangOp : TTIR_Op<"tt_lang_op",
     TTIR -> TTNN conversion.
 
     Attributes:
-    - `kernel_id`: stable identifier of the @tt_torch.kernel registration
+    - `kernel_id`: stable identifier of the @tt_torch.tt_lang_operation registration
       (e.g. `"my_module.my_kernel::v1"`).
     - `version_tag`: identifier the kernel author bumps to force recompile.
     - `arg_roles`: comma-separated roles for `inputs` (e.g. `"in,in,out"`).

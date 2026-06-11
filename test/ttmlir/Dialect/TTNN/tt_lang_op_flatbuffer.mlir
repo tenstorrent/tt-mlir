@@ -15,7 +15,7 @@
 // tt-lang kernel end to end.
 //
 // `kernel_artifact` is a synthetic JSON payload produced offline (mirrors
-// the shape that tt-xla's tt_torch.tt_lang._serialize_compiled_kernel
+// the shape that tt-xla's tt_torch.tt_lang._serialize_compiled_operation
 // produces). Decoded, it is::
 //
 //   {

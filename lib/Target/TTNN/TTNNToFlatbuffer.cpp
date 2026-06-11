@@ -3758,7 +3758,7 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
 // ============================================================================
 //
 // Schema is documented end-to-end in
-// `python_package/tt_torch/tt_lang.py::_serialize_compiled_kernel`. The
+// `python_package/tt_torch/tt_lang.py::_serialize_compiled_operation`. The
 // shape is::
 //
 //   {
@@ -4115,7 +4115,7 @@ static ::mlir::LogicalResult buildKernelArgsFromJson(
 
 // Build a flatbuffer ProgramDescriptor from a tt-lang kernel_artifact
 // (UTF-8 JSON produced by tt-xla's
-// python_package/tt_torch/tt_lang.py::_serialize_compiled_kernel).
+// python_package/tt_torch/tt_lang.py::_serialize_compiled_operation).
 //
 // ``declToIoIndex`` maps each ``ttnn.tt_lang_op`` operand position
 // (declaration order) to its position in the surrounding

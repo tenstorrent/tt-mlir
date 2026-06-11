@@ -876,10 +876,10 @@ def TTNNResolveTtLangKernels : Pass<"ttnn-resolve-tt-lang-kernels", "::mlir::Mod
   let description = [{
     This pass walks the module for `ttnn.tt_lang_op` operations with an
     empty `kernel_artifact` attribute and invokes
-    `tt_torch.tt_lang.resolve_kernel` through the host process's Python
+    `tt_torch.tt_lang.resolve_operation` through the host process's Python
     interpreter, passing the (now-final, post-TTIR->TTNN) shard-local
     operand types and `arg_roles` / `shard_spec`. The
-    `tt_torch.tt_lang.resolve_kernel` resolver lives in tt-xla's
+    `tt_torch.tt_lang.resolve_operation` resolver lives in tt-xla's
     `tt_torch` Python package and returns a `CompiledTTNNKernel` JSON
     artifact, which the pass attaches back onto the op as the
     `kernel_artifact` `StringAttr`. This attribute is later consumed by
@@ -906,13 +906,13 @@ def TTNNResolveTtLangKernels : Pass<"ttnn-resolve-tt-lang-kernels", "::mlir::Mod
     Option<"meshShape", "mesh-shape", "std::string",
            /*default=*/"\"\"",
            "Comma-separated mesh shape (e.g. 1,1 or 2,4) "
-           "forwarded to `resolve_kernel` so the Python compiler sees "
+           "forwarded to `resolve_operation` so the Python compiler sees "
            "the active mesh. Empty defaults to [1].">,
     Option<"pythonModule", "python-module", "std::string",
            /*default=*/"\"tt_torch.tt_lang\"",
            "Python module exposing the resolver entry point.">,
     Option<"pythonFunction", "python-function", "std::string",
-           /*default=*/"\"resolve_kernel\"",
+           /*default=*/"\"resolve_operation\"",
            "Function in `python-module` to invoke per op.">,
   ];
 }

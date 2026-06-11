@@ -136,7 +136,9 @@ mlir::LogicalResult resolveOneKernel(TtLangOp op,
     }
 
     py::dict kwargs;
-    kwargs["kernel_id"] = py::str(kernelId.str());
+    // The op's id lives in the `kernel_id` MLIR attribute (wire-level name)
+    // but the Python resolver's parameter is `operation_id`.
+    kwargs["operation_id"] = py::str(kernelId.str());
     kwargs["version_tag"] = py::str(versionTag.str());
     kwargs["shapes"] = shapes;
     kwargs["dtypes"] = dtypes;
