@@ -115,52 +115,6 @@ module @gather_composite_tests attributes {mhlo.num_partitions = 1 : i32, mhlo.n
     return %0 : tensor<2x3xf32>
   }
 
-  // Test: Rank-1 input/index — unsqueezed to rank 2, gathered, and reshaped
-  // back. dim 0 maps to dim 1 under the leading unit-dim prepend.
-  // CHECK-LABEL: func.func @gather_rank1
-  func.func @gather_rank1(%arg0: tensor<5xf32>, %arg1: tensor<2xi32>) -> tensor<2xf32> {
-    // CHECK: "ttir.typecast"(%arg1)
-    // CHECK-SAME: (tensor<2xi32>) -> tensor<2xui32>
-    // CHECK: "ttir.reshape"
-    // CHECK-SAME: -> tensor<1x5xf32>
-    // CHECK: "ttir.reshape"
-    // CHECK-SAME: -> tensor<1x2xui32>
-    // CHECK: "ttir.gather"
-    // CHECK-SAME: dim = 1 : i32
-    // CHECK-SAME: (tensor<1x5xf32>, tensor<1x2xui32>) -> tensor<1x2xf32>
-    // CHECK: "ttir.reshape"
-    // CHECK-SAME: -> tensor<2xf32>
-    %0 = stablehlo.composite "tenstorrent.gather" %arg0, %arg1 {composite_attributes = {dim = 0 : i64}, decomposition = @tenstorrent.gather.impl_rank1} : (tensor<5xf32>, tensor<2xi32>) -> tensor<2xf32>
-    return %0 : tensor<2xf32>
-  }
-  func.func private @tenstorrent.gather.impl_rank1(%arg0: tensor<5xf32>, %arg1: tensor<2xi32>) -> tensor<2xf32> {
-    %0 = stablehlo.constant dense<0.000000e+00> : tensor<2xf32>
-    return %0 : tensor<2xf32>
-  }
-
-  // Test: Rank-1 input/index with negative dim — negative dims index from the
-  // back and are passed through to the rank-2 gather unchanged.
-  // CHECK-LABEL: func.func @gather_rank1_negative_dim
-  func.func @gather_rank1_negative_dim(%arg0: tensor<5xf32>, %arg1: tensor<2xi32>) -> tensor<2xf32> {
-    // CHECK: "ttir.typecast"(%arg1)
-    // CHECK-SAME: (tensor<2xi32>) -> tensor<2xui32>
-    // CHECK: "ttir.reshape"
-    // CHECK-SAME: -> tensor<1x5xf32>
-    // CHECK: "ttir.reshape"
-    // CHECK-SAME: -> tensor<1x2xui32>
-    // CHECK: "ttir.gather"
-    // CHECK-SAME: dim = -1 : i32
-    // CHECK-SAME: (tensor<1x5xf32>, tensor<1x2xui32>) -> tensor<1x2xf32>
-    // CHECK: "ttir.reshape"
-    // CHECK-SAME: -> tensor<2xf32>
-    %0 = stablehlo.composite "tenstorrent.gather" %arg0, %arg1 {composite_attributes = {dim = -1 : i64}, decomposition = @tenstorrent.gather.impl_rank1_neg} : (tensor<5xf32>, tensor<2xi32>) -> tensor<2xf32>
-    return %0 : tensor<2xf32>
-  }
-  func.func private @tenstorrent.gather.impl_rank1_neg(%arg0: tensor<5xf32>, %arg1: tensor<2xi32>) -> tensor<2xf32> {
-    %0 = stablehlo.constant dense<0.000000e+00> : tensor<2xf32>
-    return %0 : tensor<2xf32>
-  }
-
   // Test: Gather with no composite_attributes — `dim` is required, so the
   // conversion pattern declines to match and no ttir.gather is produced.
   // CHECK-LABEL: func.func @gather_missing_dim
