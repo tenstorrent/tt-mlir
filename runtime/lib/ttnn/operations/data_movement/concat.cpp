@@ -4,28 +4,31 @@
 
 #include "operations/data_movement/concat.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/ConcatOp.h"
 
 namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::ConcatOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  std::vector<::ttnn::Tensor> inputs;
+
+  std::vector<ttnn_op_invoke::TensorArg> inputArgs;
   for (const auto &input : *op->inputs()) {
     const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(input);
-    inputs.push_back(in);
+    inputArgs.push_back(&in);
   }
-  int32_t dim = op->dim();
-  std::optional<::ttnn::MemoryConfig> memoryConfig =
-      op->memory_config() == 0
-          ? ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-                ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()))
-          : ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-                op->memory_config());
-  ::ttnn::Tensor out = ::ttnn::concat(inputs, dim, memoryConfig);
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  ::tt::target::ttnn::ConcatOpT concatOpNative;
+  op->UnPackTo(&concatOpNative);
+
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
+
+  ttnn_op_invoke::ConcatOpResult result = ttnn_op_invoke::callConcat(
+      ttnn_op_invoke::CallType::EXECUTE, concatOpNative, std::move(inputArgs),
+      &targetDevice);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callConcat execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement

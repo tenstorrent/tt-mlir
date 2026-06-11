@@ -4,9 +4,7 @@
 
 #include "operations/data_movement/reshape.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-
-#include "tt/runtime/detail/ttnn/utils.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/ReshapeOp.h"
 
 namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {
@@ -14,15 +12,18 @@ void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {
 
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  const auto *fbShape = op->shape();
-  std::vector<int32_t> shape(fbShape->begin(), fbShape->end());
-  std::optional<::ttnn::MemoryConfig> memoryConfig =
-      op->memory_config() == 0
-          ? ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-                ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()))
-          : ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-                op->memory_config());
-  ::ttnn::Tensor out = ::ttnn::reshape(in, shape, memoryConfig);
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  ::tt::target::ttnn::ReshapeOpT reshapeOpNative;
+  op->UnPackTo(&reshapeOpNative);
+
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
+
+  ttnn_op_invoke::ReshapeOpResult result = ttnn_op_invoke::callReshape(
+      ttnn_op_invoke::CallType::EXECUTE, reshapeOpNative, &in, &targetDevice);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callReshape execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement

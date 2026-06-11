@@ -636,6 +636,7 @@ TEST_F(OpModelTest, Scatter) {
   const int32_t dim = 0;
   const ttcore::ReduceTypeAttr reduceTypeAttr =
       ttcore::ReduceTypeAttr::get(&context, ttcore::ReduceType::Invalid);
+  const ttcore::ReduceType reduceType = reduceTypeAttr.getValue();
 
   const TTNNLayoutAttr inputLayoutDRAM = CreateTiledLayout(
       inputShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
@@ -653,7 +654,7 @@ TEST_F(OpModelTest, Scatter) {
   // DRAM layouts
   auto constraintsExp = OpModel<ScatterOp>::getOpConstraints(
       inputShape, inputLayoutDRAM, indexSourceShape, indexLayoutDRAM,
-      indexSourceShape, sourceLayoutDRAM, dim, reduceTypeAttr, inputLayoutDRAM);
+      indexSourceShape, sourceLayoutDRAM, dim, reduceType, inputLayoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -663,14 +664,14 @@ TEST_F(OpModelTest, Scatter) {
 
   auto runtimeExp = OpModel<ScatterOp>::getOpRuntime(
       inputShape, inputLayoutDRAM, indexSourceShape, indexLayoutDRAM,
-      indexSourceShape, sourceLayoutDRAM, dim, reduceTypeAttr, inputLayoutDRAM);
+      indexSourceShape, sourceLayoutDRAM, dim, reduceType, inputLayoutDRAM);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
   // L1 layouts
   constraintsExp = OpModel<ScatterOp>::getOpConstraints(
       inputShape, inputLayoutL1, indexSourceShape, indexLayoutL1,
-      indexSourceShape, sourceLayoutL1, dim, reduceTypeAttr, inputLayoutL1);
+      indexSourceShape, sourceLayoutL1, dim, reduceType, inputLayoutL1);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -680,7 +681,7 @@ TEST_F(OpModelTest, Scatter) {
 
   runtimeExp = OpModel<ScatterOp>::getOpRuntime(
       inputShape, inputLayoutL1, indexSourceShape, indexLayoutL1,
-      indexSourceShape, sourceLayoutL1, dim, reduceTypeAttr, inputLayoutL1);
+      indexSourceShape, sourceLayoutL1, dim, reduceType, inputLayoutL1);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
@@ -6752,7 +6753,7 @@ TEST_F(OpModelTest, AssignOp) {
       std::nullopt, GetPhysicalGridSize(), builder.getF32Type());
   // Test AssignOp with DRAM output
   auto constraintsExp = OpModel<AssignOp>::getOpConstraints(
-      tensorShape, tensorLayoutDRAM_F32, std::nullopt);
+      tensorShape, tensorLayoutDRAM_F32, std::nullopt, tensorLayoutDRAM_F32);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -6760,7 +6761,7 @@ TEST_F(OpModelTest, AssignOp) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = OpModel<AssignOp>::getOpRuntime(
-      tensorShape, tensorLayoutDRAM_F32, std::nullopt);
+      tensorShape, tensorLayoutDRAM_F32, std::nullopt, tensorLayoutDRAM_F32);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
@@ -6769,15 +6770,15 @@ TEST_F(OpModelTest, AssignOp) {
       std::nullopt, GetPhysicalGridSize(), builder.getF32Type());
   // Test AssignOp with L1 output
   constraintsExp = OpModel<AssignOp>::getOpConstraints(
-      tensorShape, tensorLayoutL1_F32, std::nullopt);
+      tensorShape, tensorLayoutL1_F32, std::nullopt, tensorLayoutL1_F32);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_GE(opCstr.tensorL1PeakSize, 0);
   EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
-  runtimeExp = OpModel<AssignOp>::getOpRuntime(tensorShape, tensorLayoutL1_F32,
-                                               std::nullopt);
+  runtimeExp = OpModel<AssignOp>::getOpRuntime(
+      tensorShape, tensorLayoutL1_F32, std::nullopt, tensorLayoutL1_F32);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
@@ -6786,7 +6787,7 @@ TEST_F(OpModelTest, AssignOp) {
 
   // Test AssignOp with output dtype
   constraintsExp = OpModel<AssignOp>::getOpConstraints(
-      tensorShape, tensorLayoutL1_F32, outputDtype);
+      tensorShape, tensorLayoutL1_F32, outputDtype, tensorLayoutL1_F32);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -6794,7 +6795,7 @@ TEST_F(OpModelTest, AssignOp) {
   EXPECT_GT(opCstr.outputL1BufferSize, 0);
 
   runtimeExp = OpModel<AssignOp>::getOpRuntime(tensorShape, tensorLayoutL1_F32,
-                                               outputDtype);
+                                               outputDtype, tensorLayoutL1_F32);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }
