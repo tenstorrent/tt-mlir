@@ -7,6 +7,10 @@
 
 #include "tt_kurbla_export.hpp"
 
+namespace tt::runtime {
+struct MeshFabricConfig;
+} // namespace tt::runtime
+
 namespace tt::kurbla {
 
 // Process-wide MeshDevice, opened lazily on first call, may be reopened with a
@@ -38,6 +42,13 @@ TT_KURBLA_API std::vector<std::uint32_t> runtime_device_mesh_shape();
 // is distributed across. Distinct from runtime_device_num_chips(), the physical
 // count that only bounds how large a mesh may be opened.
 TT_KURBLA_API std::uint32_t runtime_device_mesh_size();
+
+// Fabric config for a mesh shape on this machine, memoized per shape. The
+// per-axis entries ({rows axis, cols axis}) say whether each axis has a
+// wraparound link (Ring) or not (Linear); CCL lowering must match them or
+// fabric routing fails. The global entry is what setFabricConfig needs.
+TT_KURBLA_API const ::tt::runtime::MeshFabricConfig &
+runtime_mesh_fabric_config(const std::vector<std::uint32_t> &mesh_shape);
 
 // Close the mesh device if open. Call from atexit: closing from the C++ static
 // dtor races tt-metal's teardown and aborts in ~FDMeshCommandQueue.
