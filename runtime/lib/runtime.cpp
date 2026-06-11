@@ -367,8 +367,6 @@ Tensor createMultiDeviceHostTensor(
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape) {
   using RetType = Tensor;
-  LOG_ASSERT(!shape.empty());
-  LOG_ASSERT(!stride.empty());
   LOG_ASSERT(itemsize > 0);
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
@@ -415,8 +413,6 @@ Tensor createMultiDeviceBorrowedHostTensor(
     const std::unordered_map<std::string, std::string> &strategy,
     const std::vector<uint32_t> &meshShape) {
   using RetType = Tensor;
-  LOG_ASSERT(!shape.empty());
-  LOG_ASSERT(!stride.empty());
   LOG_ASSERT(itemsize > 0);
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
