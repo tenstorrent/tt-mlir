@@ -53,6 +53,26 @@ createOp(::mlir::tt::FlatbufferObjectCache &cache, LinearOp op);
 ::flatbuffers::Offset<::tt::target::ttnn::Conv2dOp>
 createOp(::mlir::tt::FlatbufferObjectCache &cache, Conv2dOp op);
 
+::flatbuffers::Offset<::tt::target::ttnn::Conv3dOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, Conv3dOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::ConvTranspose2dOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, ConvTranspose2dOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::PrepareConv2dWeightsOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, PrepareConv2dWeightsOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::PrepareConv2dBiasOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, PrepareConv2dBiasOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::PrepareConvTranspose2dWeightsOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache,
+         PrepareConvTranspose2dWeightsOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::PrepareConvTranspose2dBiasOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache,
+         PrepareConvTranspose2dBiasOp op);
+
 ::flatbuffers::Offset<::tt::target::DeviceRef>
 createDeviceRef(::mlir::tt::FlatbufferObjectCache &cache, ::mlir::Value device);
 

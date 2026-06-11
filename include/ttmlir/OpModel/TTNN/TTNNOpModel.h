@@ -1357,6 +1357,7 @@ struct OpModel<ConvTranspose2dOp> {
       llvm::ArrayRef<int32_t> output_padding, llvm::ArrayRef<int32_t> dilation,
       uint32_t groups, std::optional<Conv2dConfigAttr> conv2dConfig,
       std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
+      std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
       TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t> getOpRuntime(
@@ -1370,6 +1371,7 @@ struct OpModel<ConvTranspose2dOp> {
       llvm::ArrayRef<int32_t> output_padding, llvm::ArrayRef<int32_t> dilation,
       uint32_t groups, std::optional<Conv2dConfigAttr> conv2dConfig,
       std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
+      std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
       TTNNLayoutAttr outputLayout);
 };
 
@@ -1411,6 +1413,7 @@ struct OpModel<PrepareConv2dBiasOp> {
       llvm::ArrayRef<int32_t> dilation, int32_t groups,
       ttcore::DataType inputDtype, std::optional<ttcore::DataType> outputDtype,
       std::optional<Conv2dConfigAttr> conv2dConfig,
+      std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
       std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
       TTNNLayoutAttr outputLayout);
 };
