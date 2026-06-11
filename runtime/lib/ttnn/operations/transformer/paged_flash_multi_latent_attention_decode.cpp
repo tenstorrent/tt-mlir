@@ -3,16 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/transformer/paged_flash_multi_latent_attention_decode.h"
-
-#include "tt/runtime/detail/ttnn/utils.h"
+#include "tt/runtime/detail/common/logger.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/PagedFlashMultiLatentAttentionDecodeOp.h"
+#include <variant>
 
 namespace tt::runtime::ttnn::operations::transformer {
 static void runPagedFlashMultiLatentAttentionDecodeOp(
     const ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOp *op,
-    ProgramTensorPool &tensorPool) {
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
-
+    ProgramTensorPool &tensorPool, ProgramContext &context) {
   const ::ttnn::Tensor &query =
       tensorPool.getTTNNTensorAndValidate(op->query());
   const ::ttnn::Tensor &key = tensorPool.getTTNNTensorAndValidate(op->key());
@@ -22,11 +20,8 @@ static void runPagedFlashMultiLatentAttentionDecodeOp(
     value.emplace(tensorPool.getTTNNTensorAndValidate(op->value()));
   }
 
-  uint32_t headDimV = op->head_dim_v();
-
   const ::ttnn::Tensor &pageTable =
       tensorPool.getTTNNTensorAndValidate(op->page_table());
-  bool isCausal = op->is_causal();
 
   std::optional<::ttnn::Tensor> attentionMask = std::nullopt;
   if (op->attention_mask()) {
@@ -46,29 +41,42 @@ static void runPagedFlashMultiLatentAttentionDecodeOp(
         tensorPool.getTTNNTensorAndValidate(op->attention_sink()));
   }
 
-  std::optional<float> scale = op->scale();
-  std::optional<uint32_t> slidingWindowSize = std::nullopt;
+  ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT
+      pagedFlashMultiLatentAttentionDecodeOpNative;
+  op->UnPackTo(&pagedFlashMultiLatentAttentionDecodeOpNative);
 
-  auto programConfig =
-      std::make_optional<::ttnn::operations::transformer::SDPAProgramConfig>();
-  programConfig->k_chunk_size = 32; // Required for non-causal
-  programConfig->compute_with_storage_grid_size =
-      query.device()->compute_with_storage_grid_size();
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  ::ttnn::Tensor out =
-      ::ttnn::transformer::paged_flash_multi_latent_attention_decode(
-          query, key, value, headDimV, pageTable, isCausal, attentionMask,
-          curPosTensor, attentionSink, scale, slidingWindowSize,
-          outputMemoryConfig,
-          /*program_config=*/isCausal ? std::nullopt : programConfig,
-          /*compute_kernel_config=*/std::nullopt);
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  ttnn_op_invoke::PagedFlashMultiLatentAttentionDecodeOpResult result =
+      ttnn_op_invoke::callPagedFlashMultiLatentAttentionDecode(
+          ttnn_op_invoke::CallType::EXECUTE,
+          pagedFlashMultiLatentAttentionDecodeOpNative, &query, &key,
+          value.has_value() ? std::optional<ttnn_op_invoke::TensorArg>(&*value)
+                            : std::nullopt,
+          &pageTable,
+          attentionMask.has_value()
+              ? std::optional<ttnn_op_invoke::TensorArg>(&*attentionMask)
+              : std::nullopt,
+          curPosTensor.has_value()
+              ? std::optional<ttnn_op_invoke::TensorArg>(&*curPosTensor)
+              : std::nullopt,
+          attentionSink.has_value()
+              ? std::optional<ttnn_op_invoke::TensorArg>(&*attentionSink)
+              : std::nullopt,
+          &targetDevice);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from "
+             "callPagedFlashMultiLatentAttentionDecode execution");
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(),
+                                         std::get<::ttnn::Tensor>(result));
 }
 
 void run(const ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  runPagedFlashMultiLatentAttentionDecodeOp(op, tensorPool);
+  runPagedFlashMultiLatentAttentionDecodeOp(op, tensorPool, context);
 }
 
 } // namespace tt::runtime::ttnn::operations::transformer

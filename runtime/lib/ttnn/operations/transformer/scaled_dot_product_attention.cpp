@@ -4,52 +4,60 @@
 
 #include "operations/transformer/scaled_dot_product_attention.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/ScaledDotProductAttentionOp.h"
+#include <variant>
 
 namespace tt::runtime::ttnn::operations::transformer {
 static void runScaledDotProductAttentionOp(
     const ::tt::target::ttnn::ScaledDotProductAttentionOp *op,
-    ProgramTensorPool &tensorPool) {
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
-
+    ProgramTensorPool &tensorPool, ProgramContext &context) {
   const ::ttnn::Tensor &query =
       tensorPool.getTTNNTensorAndValidate(op->query());
   const ::ttnn::Tensor &key = tensorPool.getTTNNTensorAndValidate(op->key());
   const ::ttnn::Tensor &value =
       tensorPool.getTTNNTensorAndValidate(op->value());
-  bool isCausal = op->is_causal();
 
-  const std::optional<::ttnn::Tensor> &attentionMask =
-      op->attention_mask()
-          ? std::make_optional(
-                tensorPool.getTTNNTensorAndValidate(op->attention_mask()))
-          : std::nullopt;
+  std::optional<::ttnn::Tensor> attentionMask = std::nullopt;
+  if (op->attention_mask()) {
+    attentionMask.emplace(
+        tensorPool.getTTNNTensorAndValidate(op->attention_mask()));
+  }
 
-  std::optional<float> scale = op->scale();
-  std::optional<uint32_t> slidingWindowSize = op->sliding_window_size();
+  std::optional<::ttnn::Tensor> attentionSink = std::nullopt;
+  if (op->attention_sink()) {
+    attentionSink.emplace(
+        tensorPool.getTTNNTensorAndValidate(op->attention_sink()));
+  }
 
-  const std::optional<::ttnn::Tensor> &attentionSink =
-      op->attention_sink()
-          ? std::make_optional(
-                tensorPool.getTTNNTensorAndValidate(op->attention_sink()))
-          : std::nullopt;
+  ::tt::target::ttnn::ScaledDotProductAttentionOpT
+      scaledDotProductAttentionOpNative;
+  op->UnPackTo(&scaledDotProductAttentionOpNative);
 
-  ::ttnn::Tensor out = ::ttnn::transformer::scaled_dot_product_attention(
-      query, key, value, attentionMask, isCausal, scale, slidingWindowSize,
-      outputMemoryConfig,
-      /*program_config=*/std::nullopt,
-      /*compute_kernel_config=*/std::nullopt, attentionSink);
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
+
+  ttnn_op_invoke::ScaledDotProductAttentionOpResult result =
+      ttnn_op_invoke::callScaledDotProductAttention(
+          ttnn_op_invoke::CallType::EXECUTE, scaledDotProductAttentionOpNative,
+          &query, &key, &value,
+          attentionMask.has_value()
+              ? std::optional<ttnn_op_invoke::TensorArg>(&*attentionMask)
+              : std::nullopt,
+          attentionSink.has_value()
+              ? std::optional<ttnn_op_invoke::TensorArg>(&*attentionSink)
+              : std::nullopt,
+          &targetDevice);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callScaledDotProductAttention execution");
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
 void run(const ::tt::target::ttnn::ScaledDotProductAttentionOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  runScaledDotProductAttentionOp(op, tensorPool);
+  runScaledDotProductAttentionOp(op, tensorPool, context);
 }
 
 } // namespace tt::runtime::ttnn::operations::transformer

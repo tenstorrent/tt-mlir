@@ -25,6 +25,17 @@
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Unary/EltwiseUnaryCompositeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Unary/EltwiseUnaryOp.h"
 #include "ttmlir/OpInvoke/TTNN/Matmul/MatmulOp.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/ConcatenateHeadsOp.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/NLPConcatHeadsDecodeOp.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/NLPConcatHeadsOp.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/NLPCreateQKVHeadsDecodeOp.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/PagedFlashMultiLatentAttentionDecodeOp.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/PagedScaledDotProductAttentionDecodeOp.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/RotaryEmbeddingLlamaOp.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/RotaryEmbeddingOp.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/ScaledDotProductAttentionDecodeOp.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/ScaledDotProductAttentionOp.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/SplitQueryKeyValueAndSplitHeadsOp.h"
 #include "ttmlir/OpInvoke/TTNN/utils/utils.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
@@ -35,6 +46,7 @@
 #include "mlir/IR/Types.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/WithColor.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <algorithm>
@@ -2924,9 +2936,17 @@ OpModel<CumSumOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-//===----------------------------------------------------------------------===//
 // ConcatenateHeadsOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::ConcatenateHeadsOpT
+buildConcatenateHeadsOpTFromMLIR(TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::ConcatenateHeadsOpT concatenateHeadsOp;
+  concatenateHeadsOp.out = detail::getOutputTensorRefT(outputLayout);
+  return concatenateHeadsOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
 
 llvm::Expected<OpConstraints> OpModel<ConcatenateHeadsOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -2939,11 +2959,20 @@ llvm::Expected<OpConstraints> OpModel<ConcatenateHeadsOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::ConcatenateHeadsOpT concatenateHeadsOpNative =
+      buildConcatenateHeadsOpTFromMLIR(outputLayout);
+
   auto concatenateHeadsOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::transformer::concatenate_heads, device,
-                                inputSpec,
-                                detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::ConcatenateHeadsOpResult result =
+        ttnn_op_invoke::callConcatenateHeads(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            concatenateHeadsOpNative, inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConcatenateHeadsOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(),
@@ -2965,11 +2994,20 @@ OpModel<ConcatenateHeadsOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::ConcatenateHeadsOpT concatenateHeadsOpNative =
+      buildConcatenateHeadsOpTFromMLIR(outputLayout);
+
   auto concatenateHeadsOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::transformer::concatenate_heads, device,
-                            inputSpec,
-                            detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::ConcatenateHeadsOpResult result =
+        ttnn_op_invoke::callConcatenateHeads(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+            concatenateHeadsOpNative, inputSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected ConcatenateHeadsOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(concatenateHeadsOpQuery);
@@ -2981,6 +3019,30 @@ OpModel<ConcatenateHeadsOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 // ScaledDotProductAttentionDecodeOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT
+buildScaledDotProductAttentionDecodeOpTFromMLIR(
+    bool isCausal, std::optional<llvm::APFloat> scale,
+    std::optional<SDPAProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT
+      scaledDotProductAttentionDecodeOp;
+  scaledDotProductAttentionDecodeOp.is_causal = isCausal;
+  if (scale.has_value()) {
+    scaledDotProductAttentionDecodeOp.scale = scale->convertToFloat();
+  }
+  if (programConfig.has_value() && *programConfig) {
+    scaledDotProductAttentionDecodeOp.program_config =
+        std::make_unique<::tt::target::ttnn::SDPAConfigT>(
+            toNative(*programConfig));
+  }
+  scaledDotProductAttentionDecodeOp.out =
+      detail::getOutputTensorRefT(outputLayout);
+  return scaledDotProductAttentionDecodeOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints>
 OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
@@ -3019,26 +3081,24 @@ OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
-  std::optional<float> scaleFloat =
-      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
-  std::optional<uint32_t> slidingWindowSize = std::nullopt;
-
-  // The current position information is required for this op. It can either be
-  // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
-  // std::optional so we must pass an empty vector.
-  const std::vector<uint32_t> curPosEmpty = {};
-
-  auto sdpaProgramConfigConverted =
-      conversion::getSDPAProgramConfig(programConfig);
+  ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT
+      scaledDotProductAttentionDecodeOpNative =
+          buildScaledDotProductAttentionDecodeOpTFromMLIR(
+              isCausal, scale, programConfig, outputLayout);
 
   auto scaledDotProductAttentionDecodeOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::transformer::scaled_dot_product_attention_decode, device,
-        querySpec, keySpec, valueSpec, isCausal, attentionMaskSpec, curPosEmpty,
-        curPosTensorSpec, attentionSinkSpec, scaleFloat, slidingWindowSize,
-        detail::getNullableMemoryConfig(outputLayout),
-        sdpaProgramConfigConverted,
-        /*compute_kernel_config=*/std::nullopt);
+    ttnn_op_invoke::ScaledDotProductAttentionDecodeOpResult result =
+        ttnn_op_invoke::callScaledDotProductAttentionDecode(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            scaledDotProductAttentionDecodeOpNative, querySpec, keySpec,
+            valueSpec, attentionMaskSpec, curPosTensorSpec, attentionSinkSpec,
+            device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ScaledDotProductAttentionDecodeOp constraints query to "
+           "return ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(queryLayout.getContext(),
@@ -3058,7 +3118,9 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
     std::optional<TTNNLayoutAttr> curPosTensorLayout,
     std::optional<llvm::ArrayRef<int64_t>> attentionSinkShape,
     std::optional<TTNNLayoutAttr> attentionSinkLayout,
-    std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout) {
+    std::optional<llvm::APFloat> scale,
+    std::optional<SDPAProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -3083,22 +3145,24 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
-  std::optional<float> scaleFloat =
-      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+  ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT
+      scaledDotProductAttentionDecodeOpNative =
+          buildScaledDotProductAttentionDecodeOpTFromMLIR(
+              isCausal, scale, programConfig, outputLayout);
 
-  // The current position information is required for this op. It can either be
-  // passed as a tensor or as a uint vector. The uint vector is not wrapped in a
-  // std::optional so we must pass an empty vector.
-  const std::vector<uint32_t> curPosEmpty = {};
   auto scaledDotProductAttentionDecodeOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::transformer::scaled_dot_product_attention_decode, device,
-        querySpec, keySpec, valueSpec, isCausal, attentionMaskSpec, curPosEmpty,
-        curPosTensorSpec, attentionSinkSpec, scaleFloat,
-        /*slidingWindowSize=*/std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
-        /*compute_kernel_config=*/std::nullopt);
+    ttnn_op_invoke::ScaledDotProductAttentionDecodeOpResult result =
+        ttnn_op_invoke::callScaledDotProductAttentionDecode(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+            scaledDotProductAttentionDecodeOpNative, querySpec, keySpec,
+            valueSpec, attentionMaskSpec, curPosTensorSpec, attentionSinkSpec,
+            device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected ScaledDotProductAttentionDecodeOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(scaledDotProductAttentionDecodeOpQuery);
@@ -3111,6 +3175,35 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // PagedScaledDotProductAttentionDecodeOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT
+buildPagedScaledDotProductAttentionDecodeOpTFromMLIR(
+    bool isCausal, std::optional<llvm::APFloat> scale,
+    std::optional<uint32_t> slidingWindowSize,
+    std::optional<SDPAProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT
+      pagedScaledDotProductAttentionDecodeOp;
+  pagedScaledDotProductAttentionDecodeOp.is_causal = isCausal;
+  if (scale.has_value()) {
+    pagedScaledDotProductAttentionDecodeOp.scale =
+        scale.value().convertToFloat();
+  }
+  if (slidingWindowSize.has_value()) {
+    pagedScaledDotProductAttentionDecodeOp.sliding_window_size =
+        *slidingWindowSize;
+  }
+  if (programConfig.has_value() && *programConfig) {
+    pagedScaledDotProductAttentionDecodeOp.program_config =
+        std::make_unique<::tt::target::ttnn::SDPAConfigT>(
+            toNative(*programConfig));
+  }
+  pagedScaledDotProductAttentionDecodeOp.out =
+      detail::getOutputTensorRefT(outputLayout);
+  return pagedScaledDotProductAttentionDecodeOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
 
 llvm::Expected<OpConstraints>
 OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
@@ -3155,19 +3248,33 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
-  std::optional<float> scaleFloat =
-      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
-  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
-      sdpaProgramConfig = conversion::getSDPAProgramConfig(programConfig);
+  ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT
+      pagedScaledDotProductAttentionDecodeOpNative =
+          buildPagedScaledDotProductAttentionDecodeOpTFromMLIR(
+              isCausal, scale, slidingWindowSize, programConfig, outputLayout);
 
   auto pagedScaledDotProductAttentionDecodeOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::transformer::paged_scaled_dot_product_attention_decode, device,
-        querySpec, keySpec, valueSpec, pageTableSpec, isCausal,
-        attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
-        slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
-        sdpaProgramConfig,
-        /*compute_kernel_config=*/std::nullopt);
+    ttnn_op_invoke::PagedScaledDotProductAttentionDecodeOpResult result =
+        ttnn_op_invoke::callPagedScaledDotProductAttentionDecode(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            pagedScaledDotProductAttentionDecodeOpNative, querySpec, keySpec,
+            valueSpec, pageTableSpec,
+            attentionMaskSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*attentionMaskSpec)
+                : std::nullopt,
+            curPosTensorSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*curPosTensorSpec)
+                : std::nullopt,
+            attentionSinkSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*attentionSinkSpec)
+                : std::nullopt,
+            device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected PagedScaledDotProductAttentionDecodeOp constraints query "
+           "to return ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(
@@ -3221,20 +3328,33 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime(
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
-  std::optional<float> scaleFloat =
-      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
-
-  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
-      sdpaProgramConfig = conversion::getSDPAProgramConfig(programConfig);
+  ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT
+      pagedScaledDotProductAttentionDecodeOpNative =
+          buildPagedScaledDotProductAttentionDecodeOpTFromMLIR(
+              isCausal, scale, slidingWindowSize, programConfig, outputLayout);
 
   auto pagedScaledDotProductAttentionDecodeOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::transformer::paged_scaled_dot_product_attention_decode, device,
-        querySpec, keySpec, valueSpec, pageTableSpec, isCausal,
-        attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
-        slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
-        sdpaProgramConfig,
-        /*compute_kernel_config=*/std::nullopt);
+    ttnn_op_invoke::PagedScaledDotProductAttentionDecodeOpResult result =
+        ttnn_op_invoke::callPagedScaledDotProductAttentionDecode(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+            pagedScaledDotProductAttentionDecodeOpNative, querySpec, keySpec,
+            valueSpec, pageTableSpec,
+            attentionMaskSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*attentionMaskSpec)
+                : std::nullopt,
+            curPosTensorSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*curPosTensorSpec)
+                : std::nullopt,
+            attentionSinkSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*attentionSinkSpec)
+                : std::nullopt,
+            device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected PagedScaledDotProductAttentionDecodeOp runtime query to "
+        "return RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(pagedScaledDotProductAttentionDecodeOpQuery);
@@ -3246,6 +3366,25 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // PagedFlashMultiLatentAttentionDecodeOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT
+buildPagedFlashMultiLatentAttentionDecodeOpTFromMLIR(
+    uint32_t headDimV, bool isCausal, std::optional<llvm::APFloat> scale,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT
+      pagedFlashMultiLatentAttentionDecodeOp;
+  pagedFlashMultiLatentAttentionDecodeOp.head_dim_v = headDimV;
+  pagedFlashMultiLatentAttentionDecodeOp.is_causal = isCausal;
+  if (scale.has_value()) {
+    pagedFlashMultiLatentAttentionDecodeOp.scale =
+        scale.value().convertToFloat();
+  }
+  pagedFlashMultiLatentAttentionDecodeOp.out =
+      detail::getOutputTensorRefT(outputLayout);
+  return pagedFlashMultiLatentAttentionDecodeOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
 
 llvm::Expected<OpConstraints>
 OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpConstraints(
@@ -3286,18 +3425,36 @@ OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpConstraints(
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
-  std::optional<float> scaleFloat =
-      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+  ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT
+      pagedFlashMultiLatentAttentionDecodeOpNative =
+          buildPagedFlashMultiLatentAttentionDecodeOpTFromMLIR(
+              headDimV, isCausal, scale, outputLayout);
 
   auto pagedFlashMlaDecodeOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::transformer::paged_flash_multi_latent_attention_decode, device,
-        querySpec, keySpec, valueSpec, headDimV, pageTableSpec, isCausal,
-        attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
-        /*slidingWindowSize=*/std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
-        /*compute_kernel_config=*/std::nullopt);
+    ttnn_op_invoke::PagedFlashMultiLatentAttentionDecodeOpResult result =
+        ttnn_op_invoke::callPagedFlashMultiLatentAttentionDecode(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            pagedFlashMultiLatentAttentionDecodeOpNative, querySpec, keySpec,
+            valueSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*valueSpec)
+                : std::nullopt,
+            pageTableSpec,
+            attentionMaskSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*attentionMaskSpec)
+                : std::nullopt,
+            curPosTensorSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*curPosTensorSpec)
+                : std::nullopt,
+            attentionSinkSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*attentionSinkSpec)
+                : std::nullopt,
+            device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected PagedFlashMultiLatentAttentionDecodeOp constraints query "
+           "to return ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(queryLayout.getContext(),
@@ -3346,18 +3503,36 @@ OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpRuntime(
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
-  std::optional<float> scaleFloat =
-      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+  ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT
+      pagedFlashMultiLatentAttentionDecodeOpNative =
+          buildPagedFlashMultiLatentAttentionDecodeOpTFromMLIR(
+              headDimV, isCausal, scale, outputLayout);
 
   auto pagedFlashMlaDecodeOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::transformer::paged_flash_multi_latent_attention_decode, device,
-        querySpec, keySpec, valueSpec, headDimV, pageTableSpec, isCausal,
-        attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
-        /*slidingWindowSize=*/std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
-        /*compute_kernel_config=*/std::nullopt);
+    ttnn_op_invoke::PagedFlashMultiLatentAttentionDecodeOpResult result =
+        ttnn_op_invoke::callPagedFlashMultiLatentAttentionDecode(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+            pagedFlashMultiLatentAttentionDecodeOpNative, querySpec, keySpec,
+            valueSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*valueSpec)
+                : std::nullopt,
+            pageTableSpec,
+            attentionMaskSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*attentionMaskSpec)
+                : std::nullopt,
+            curPosTensorSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*curPosTensorSpec)
+                : std::nullopt,
+            attentionSinkSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*attentionSinkSpec)
+                : std::nullopt,
+            device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected PagedFlashMultiLatentAttentionDecodeOp runtime query to "
+        "return RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(pagedFlashMlaDecodeOpQuery);
@@ -3369,6 +3544,24 @@ OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // ScaledDotProductAttentionOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::ScaledDotProductAttentionOpT
+buildScaledDotProductAttentionOpTFromMLIR(
+    bool isCausal, std::optional<llvm::APFloat> scale,
+    std::optional<uint32_t> slidingWindowSize, TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::ScaledDotProductAttentionOpT scaledDotProductAttentionOp;
+  scaledDotProductAttentionOp.is_causal = isCausal;
+  if (scale.has_value()) {
+    scaledDotProductAttentionOp.scale = scale->convertToFloat();
+  }
+  if (slidingWindowSize.has_value()) {
+    scaledDotProductAttentionOp.sliding_window_size = *slidingWindowSize;
+  }
+  scaledDotProductAttentionOp.out = detail::getOutputTensorRefT(outputLayout);
+  return scaledDotProductAttentionOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
 
 llvm::Expected<OpConstraints>
 OpModel<ScaledDotProductAttentionOp>::getOpConstraints(
@@ -3401,16 +3594,23 @@ OpModel<ScaledDotProductAttentionOp>::getOpConstraints(
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
-  std::optional<float> scaleFloat =
-      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+  ::tt::target::ttnn::ScaledDotProductAttentionOpT
+      scaledDotProductAttentionOpNative =
+          buildScaledDotProductAttentionOpTFromMLIR(
+              isCausal, scale, slidingWindowSize, outputLayout);
 
   auto scaledDotProductAttentionOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::transformer::scaled_dot_product_attention, device, querySpec,
-        keySpec, valueSpec, attentionMaskSpec, isCausal, scaleFloat,
-        slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
-        /*compute_kernel_config=*/std::nullopt, attentionSinkSpec);
+    ttnn_op_invoke::ScaledDotProductAttentionOpResult result =
+        ttnn_op_invoke::callScaledDotProductAttention(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            scaledDotProductAttentionOpNative, querySpec, keySpec, valueSpec,
+            attentionMaskSpec, attentionSinkSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ScaledDotProductAttentionOp constraints query to "
+           "return ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(queryLayout.getContext(),
@@ -3451,16 +3651,23 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionOp>::getOpRuntime(
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
-  std::optional<float> scaleFloat =
-      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+  ::tt::target::ttnn::ScaledDotProductAttentionOpT
+      scaledDotProductAttentionOpNative =
+          buildScaledDotProductAttentionOpTFromMLIR(
+              isCausal, scale, slidingWindowSize, outputLayout);
 
   auto scaledDotProductAttentionOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::transformer::scaled_dot_product_attention, device, querySpec,
-        keySpec, valueSpec, attentionMaskSpec, isCausal, scaleFloat,
-        slidingWindowSize, detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
-        /*compute_kernel_config=*/std::nullopt, attentionSinkSpec);
+    ttnn_op_invoke::ScaledDotProductAttentionOpResult result =
+        ttnn_op_invoke::callScaledDotProductAttention(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+            scaledDotProductAttentionOpNative, querySpec, keySpec, valueSpec,
+            attentionMaskSpec, attentionSinkSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected ScaledDotProductAttentionOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(scaledDotProductAttentionOpQuery);
@@ -3472,12 +3679,35 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionOp>::getOpRuntime(
 //===-----------------------------------------------------------------------===//
 // RotaryEmbeddingLlamaOp
 // ===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::RotaryEmbeddingLlamaOpT
+buildRotaryEmbeddingLlamaOpTFromMLIR(
+    bool isDecodeMode,
+    std::optional<::mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+        deviceComputeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::RotaryEmbeddingLlamaOpT rotaryEmbeddingLlamaOp;
+  rotaryEmbeddingLlamaOp.is_decode_mode = isDecodeMode;
+  rotaryEmbeddingLlamaOp.compute_config =
+      (deviceComputeKernelConfig.has_value() && *deviceComputeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*deviceComputeKernelConfig))
+          : nullptr;
+  rotaryEmbeddingLlamaOp.out = detail::getOutputTensorRefT(outputLayout);
+  return rotaryEmbeddingLlamaOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<RotaryEmbeddingLlamaOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> cosShape, TTNNLayoutAttr cosLayout,
     llvm::ArrayRef<int64_t> sinShape, TTNNLayoutAttr sinLayout,
     llvm::ArrayRef<int64_t> transMatShape, TTNNLayoutAttr transMatLayout,
-    bool isDecodeMode, TTNNLayoutAttr outputLayout) {
+    bool isDecodeMode,
+    std::optional<::mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+        deviceComputeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -3493,11 +3723,22 @@ llvm::Expected<OpConstraints> OpModel<RotaryEmbeddingLlamaOp>::getOpConstraints(
       ::ttnn::TensorSpec transMatSpec,
       detail::convertToTensorSpec(device, transMatShape, transMatLayout));
 
+  ::tt::target::ttnn::RotaryEmbeddingLlamaOpT rotaryEmbeddingLlamaOpNative =
+      buildRotaryEmbeddingLlamaOpTFromMLIR(
+          isDecodeMode, deviceComputeKernelConfig, outputLayout);
+
   auto rotaryEmbeddingLlamaOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::experimental::rotary_embedding_llama,
-                                device, inputSpec, cosSpec, sinSpec,
-                                transMatSpec, isDecodeMode,
-                                detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::RotaryEmbeddingLlamaOpResult result =
+        ttnn_op_invoke::callRotaryEmbeddingLlama(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            rotaryEmbeddingLlamaOpNative, inputSpec, cosSpec, sinSpec,
+            transMatSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected RotaryEmbeddingLlamaOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(),
@@ -3512,7 +3753,10 @@ llvm::Expected<size_t> OpModel<RotaryEmbeddingLlamaOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> cosShape, TTNNLayoutAttr cosLayout,
     llvm::ArrayRef<int64_t> sinShape, TTNNLayoutAttr sinLayout,
     llvm::ArrayRef<int64_t> transMatShape, TTNNLayoutAttr transMatLayout,
-    bool isDecodeMode, TTNNLayoutAttr outputLayout) {
+    bool isDecodeMode,
+    std::optional<::mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+        deviceComputeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -3528,12 +3772,22 @@ llvm::Expected<size_t> OpModel<RotaryEmbeddingLlamaOp>::getOpRuntime(
       ::ttnn::TensorSpec transMatSpec,
       detail::convertToTensorSpec(device, transMatShape, transMatLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::RotaryEmbeddingLlamaOpT rotaryEmbeddingLlamaOpNative =
+      buildRotaryEmbeddingLlamaOpTFromMLIR(
+          isDecodeMode, deviceComputeKernelConfig, outputLayout);
+
   auto rotaryEmbeddingLlamaOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::experimental::rotary_embedding_llama,
-                            device, inputSpec, cosSpec, sinSpec, transMatSpec,
-                            isDecodeMode,
-                            detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::RotaryEmbeddingLlamaOpResult result =
+        ttnn_op_invoke::callRotaryEmbeddingLlama(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+            rotaryEmbeddingLlamaOpNative, inputSpec, cosSpec, sinSpec,
+            transMatSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RotaryEmbeddingLlamaOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(rotaryEmbeddingLlamaOpQuery);
@@ -3546,11 +3800,34 @@ llvm::Expected<size_t> OpModel<RotaryEmbeddingLlamaOp>::getOpRuntime(
 // RotaryEmbeddingOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::RotaryEmbeddingOpT buildRotaryEmbeddingOpTFromMLIR(
+    std::optional<uint32_t> tokenIndex,
+    std::optional<::mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+        deviceComputeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::RotaryEmbeddingOpT rotaryEmbeddingOp;
+  if (tokenIndex.has_value()) {
+    rotaryEmbeddingOp.token_index = *tokenIndex;
+  }
+  rotaryEmbeddingOp.compute_config =
+      (deviceComputeKernelConfig.has_value() && *deviceComputeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*deviceComputeKernelConfig))
+          : nullptr;
+  rotaryEmbeddingOp.out = detail::getOutputTensorRefT(outputLayout);
+  return rotaryEmbeddingOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<RotaryEmbeddingOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> cosShape, TTNNLayoutAttr cosLayout,
     llvm::ArrayRef<int64_t> sinShape, TTNNLayoutAttr sinLayout,
-    std::optional<uint32_t> tokenIndex, TTNNLayoutAttr outputLayout) {
+    std::optional<uint32_t> tokenIndex,
+    std::optional<::mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+        deviceComputeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -3563,10 +3840,21 @@ llvm::Expected<OpConstraints> OpModel<RotaryEmbeddingOp>::getOpConstraints(
   ASSIGN_OR_RETURN(::ttnn::TensorSpec sinSpec,
                    detail::convertToTensorSpec(device, sinShape, sinLayout));
 
+  ::tt::target::ttnn::RotaryEmbeddingOpT rotaryEmbeddingOpNative =
+      buildRotaryEmbeddingOpTFromMLIR(tokenIndex, deviceComputeKernelConfig,
+                                      outputLayout);
+
   auto rotaryEmbeddingOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::experimental::rotary_embedding, device,
-                                inputSpec, cosSpec, sinSpec, tokenIndex,
-                                detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::RotaryEmbeddingOpResult result =
+        ttnn_op_invoke::callRotaryEmbedding(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            rotaryEmbeddingOpNative, inputSpec, cosSpec, sinSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected RotaryEmbeddingOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(),
@@ -3580,7 +3868,10 @@ llvm::Expected<size_t> OpModel<RotaryEmbeddingOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> cosShape, TTNNLayoutAttr cosLayout,
     llvm::ArrayRef<int64_t> sinShape, TTNNLayoutAttr sinLayout,
-    std::optional<uint32_t> tokenIndex, TTNNLayoutAttr outputLayout) {
+    std::optional<uint32_t> tokenIndex,
+    std::optional<::mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+        deviceComputeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -3593,11 +3884,21 @@ llvm::Expected<size_t> OpModel<RotaryEmbeddingOp>::getOpRuntime(
   ASSIGN_OR_RETURN(::ttnn::TensorSpec sinSpec,
                    detail::convertToTensorSpec(device, sinShape, sinLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::RotaryEmbeddingOpT rotaryEmbeddingOpNative =
+      buildRotaryEmbeddingOpTFromMLIR(tokenIndex, deviceComputeKernelConfig,
+                                      outputLayout);
+
   auto rotaryEmbeddingOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::experimental::rotary_embedding, device,
-                            inputSpec, cosSpec, sinSpec, tokenIndex,
-                            detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::RotaryEmbeddingOpResult result =
+        ttnn_op_invoke::callRotaryEmbedding(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, rotaryEmbeddingOpNative,
+            inputSpec, cosSpec, sinSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RotaryEmbeddingOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(rotaryEmbeddingOpQuery);
@@ -3609,6 +3910,38 @@ llvm::Expected<size_t> OpModel<RotaryEmbeddingOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // NLPCreateQKVHeadsDecodeOp
 //===----------------------------------------------------------------------===//
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT
+buildNLPCreateQKVHeadsDecodeOpTFromMLIR(uint32_t numHeads,
+                                        std::optional<uint32_t> numKVHeads,
+                                        std::optional<bool> overlapQKCoregrid,
+                                        std::optional<uint32_t> sliceSize,
+                                        TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT nlpCreateQkvHeadsDecodeOp;
+  nlpCreateQkvHeadsDecodeOp.num_heads = numHeads;
+  if (numKVHeads.has_value()) {
+    nlpCreateQkvHeadsDecodeOp.num_kv_heads = *numKVHeads;
+  }
+  if (overlapQKCoregrid.has_value()) {
+    nlpCreateQkvHeadsDecodeOp.overlap_qk_coregrid = *overlapQKCoregrid;
+  }
+  if (sliceSize.has_value()) {
+    nlpCreateQkvHeadsDecodeOp.slice_size = *sliceSize;
+  }
+  auto memory_config = detail::getNullableMemoryConfigT(outputLayout);
+  if (memory_config.has_value()) {
+    nlpCreateQkvHeadsDecodeOp.memcfg =
+        std::make_unique<::tt::target::ttnn::MemoryConfigT>(
+            memory_config.value());
+    if (nlpCreateQkvHeadsDecodeOp.memcfg) {
+      llvm::WithColor::warning()
+          << "Memory config should be set to nullptr to match runtime";
+    }
+  }
+  return nlpCreateQkvHeadsDecodeOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<op_model::OpConstraints>
 OpModel<NLPCreateQKVHeadsDecodeOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -3630,15 +3963,25 @@ OpModel<NLPCreateQKVHeadsDecodeOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
-  std::optional<std::array<::ttnn::Tensor, 3>> optionalOutputTensors =
-      std::nullopt;
-  auto nlpCreateQKVHeadsDecode = [&]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::experimental::nlp_create_qkv_heads_decode, device, inputSpec,
-        numHeads, numKVHeads, optionalOutputTensors,
-        std::optional<const bool>(overlapQKCoregrid), batchOffsetSpec,
-        sliceSize, detail::getNullableMemoryConfig(outputLayout));
+  ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT
+      nlpCreateQkvHeadsDecodeOpNative = buildNLPCreateQKVHeadsDecodeOpTFromMLIR(
+          numHeads, numKVHeads, overlapQKCoregrid, sliceSize, outputLayout);
+
+  auto nlpCreateQKVHeadsDecode = [=]() {
+    ttnn_op_invoke::NLPCreateQKVHeadsDecodeOpResult result =
+        ttnn_op_invoke::callNLPCreateQKVHeadsDecode(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            nlpCreateQkvHeadsDecodeOpNative, inputSpec,
+            batchOffsetSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*batchOffsetSpec)
+                : std::nullopt,
+            device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected NLPCreateQKVHeadsDecodeOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(),
@@ -3669,15 +4012,25 @@ llvm::Expected<size_t> OpModel<NLPCreateQKVHeadsDecodeOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
-  std::optional<std::array<::ttnn::Tensor, 3>> optionalOutputTensors =
-      std::nullopt;
+  ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT
+      nlpCreateQkvHeadsDecodeOpNative = buildNLPCreateQKVHeadsDecodeOpTFromMLIR(
+          numHeads, numKVHeads, overlapQKCoregrid, sliceSize, outputLayout);
+
   auto nlpCreateQKVHeadsDecode = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::experimental::nlp_create_qkv_heads_decode, device, inputSpec,
-        numHeads, numKVHeads, optionalOutputTensors,
-        std::optional<const bool>(overlapQKCoregrid), batchOffsetSpec,
-        sliceSize, detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::NLPCreateQKVHeadsDecodeOpResult result =
+        ttnn_op_invoke::callNLPCreateQKVHeadsDecode(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+            nlpCreateQkvHeadsDecodeOpNative, inputSpec,
+            batchOffsetSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*batchOffsetSpec)
+                : std::nullopt,
+            device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected NLPCreateQKVHeadsDecodeOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(nlpCreateQKVHeadsDecode);
@@ -3689,6 +4042,25 @@ llvm::Expected<size_t> OpModel<NLPCreateQKVHeadsDecodeOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // SplitQueryKeyValueAndSplitHeadsOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT
+buildSplitQueryKeyValueAndSplitHeadsOpTFromMLIR(
+    uint32_t numHeads, std::optional<uint32_t> numKVHeads, bool transposeKey,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT
+      splitQueryKeyValueAndSplitHeadsOp;
+  splitQueryKeyValueAndSplitHeadsOp.num_heads = numHeads;
+  if (numKVHeads.has_value()) {
+    splitQueryKeyValueAndSplitHeadsOp.num_kv_heads = *numKVHeads;
+  }
+  splitQueryKeyValueAndSplitHeadsOp.transpose_key = transposeKey;
+  splitQueryKeyValueAndSplitHeadsOp.q_out =
+      detail::getOutputTensorRefT(outputLayout);
+  return splitQueryKeyValueAndSplitHeadsOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints>
 OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -3711,12 +4083,23 @@ OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpConstraints(
                                                  inputKVLayout.value()));
   }
 
-  // Create query closure
+  ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT
+      splitQueryKeyValueAndSplitHeadsOpNative =
+          buildSplitQueryKeyValueAndSplitHeadsOpTFromMLIR(
+              numHeads, numKVHeads, transposeKey, outputLayout);
+
   auto splitQueryKeyValueAndSplitHeadsOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::transformer::split_query_key_value_and_split_heads, device,
-        inputSpec, inputKVSpec, numHeads, numKVHeads, transposeKey,
-        detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::SplitQueryKeyValueAndSplitHeadsOpResult result =
+        ttnn_op_invoke::callSplitQueryKeyValueAndSplitHeads(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            splitQueryKeyValueAndSplitHeadsOpNative, inputSpec, inputKVSpec,
+            device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected SplitQueryKeyValueAndSplitHeadsOp constraints query "
+           "to return ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(),
@@ -3747,12 +4130,23 @@ llvm::Expected<size_t> OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpRuntime(
                                                  inputKVLayout.value()));
   }
 
-  // Create query closure
+  ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT
+      splitQueryKeyValueAndSplitHeadsOpNative =
+          buildSplitQueryKeyValueAndSplitHeadsOpTFromMLIR(
+              numHeads, numKVHeads, transposeKey, outputLayout);
+
   auto splitQueryKeyValueAndSplitHeadsOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::transformer::split_query_key_value_and_split_heads, device,
-        inputSpec, inputKVSpec, numHeads, numKVHeads, transposeKey,
-        detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::SplitQueryKeyValueAndSplitHeadsOpResult result =
+        ttnn_op_invoke::callSplitQueryKeyValueAndSplitHeads(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+            splitQueryKeyValueAndSplitHeadsOpNative, inputSpec, inputKVSpec,
+            device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected SplitQueryKeyValueAndSplitHeadsOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(splitQueryKeyValueAndSplitHeadsOpQuery);
@@ -3764,6 +4158,16 @@ llvm::Expected<size_t> OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // NLPConcatHeadsOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::NLPConcatHeadsOpT
+buildNLPConcatHeadsOpTFromMLIR(TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::NLPConcatHeadsOpT nlpConcatHeadsOp;
+  nlpConcatHeadsOp.out = detail::getOutputTensorRefT(outputLayout);
+  return nlpConcatHeadsOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints>
 OpModel<NLPConcatHeadsOp>::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                                             TTNNLayoutAttr inputLayout,
@@ -3776,11 +4180,20 @@ OpModel<NLPConcatHeadsOp>::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::NLPConcatHeadsOpT nlpConcatHeadsOpNative =
+      buildNLPConcatHeadsOpTFromMLIR(outputLayout);
+
   auto nlpConcatHeadsOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::experimental::nlp_concat_heads, device,
-                                inputSpec,
-                                detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::NLPConcatHeadsOpResult result =
+        ttnn_op_invoke::callNLPConcatHeads(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            nlpConcatHeadsOpNative, inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected NLPConcatHeadsOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(),
@@ -3802,11 +4215,20 @@ OpModel<NLPConcatHeadsOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::NLPConcatHeadsOpT nlpConcatHeadsOpNative =
+      buildNLPConcatHeadsOpTFromMLIR(outputLayout);
+
   auto nlpConcatHeadsOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::experimental::nlp_concat_heads, device,
-                            inputSpec,
-                            detail::getNullableMemoryConfig(outputLayout));
+    ttnn_op_invoke::NLPConcatHeadsOpResult result =
+        ttnn_op_invoke::callNLPConcatHeads(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, nlpConcatHeadsOpNative,
+            inputSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected NLPConcatHeadsOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(nlpConcatHeadsOpQuery);
@@ -3818,6 +4240,18 @@ OpModel<NLPConcatHeadsOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 //===----------------------------------------------------------------------===//
 // NLPConcatHeadsDecodeOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::NLPConcatHeadsDecodeOpT
+buildNLPConcatHeadsDecodeOpTFromMLIR(uint32_t numHeads,
+                                     TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::NLPConcatHeadsDecodeOpT nlpConcatHeadsDecodeOp;
+  nlpConcatHeadsDecodeOp.num_heads = numHeads;
+  nlpConcatHeadsDecodeOp.out = detail::getOutputTensorRefT(outputLayout);
+  return nlpConcatHeadsDecodeOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<NLPConcatHeadsDecodeOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     uint32_t numHeads, TTNNLayoutAttr outputLayout) {
@@ -3829,28 +4263,20 @@ llvm::Expected<OpConstraints> OpModel<NLPConcatHeadsDecodeOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // tt-metal's nlp_concat_heads_decode infers on_subcoregrids from the input
-  // shard grid: if the CoreRangeSet has multiple ranges or doesn't start at
-  // (0,0), it sets on_subcoregrids=true and requires sub_core_grids.
-  // Compute sub_core_grids from the input layout so the subcoregrids path
-  // doesn't crash on a nullopt dereference in compute_output_specs.
-  std::optional<::tt::tt_metal::CoreRangeSet> subCoreGrids = std::nullopt;
-  if (inputLayout.hasL1BufferType() && inputLayout.getMemLayout() &&
-      isShardedMemoryLayout(inputLayout.getMemLayout().getValue())) {
-    auto coreRangeSet = conversion::getCoreRangeSet(inputLayout);
-    auto ranges = coreRangeSet.ranges();
-    if (ranges.size() != 1 ||
-        ranges[0].start_coord != ::tt::tt_metal::CoreCoord{0, 0}) {
-      subCoreGrids = coreRangeSet;
-    }
-  }
+  ::tt::target::ttnn::NLPConcatHeadsDecodeOpT nlpConcatHeadsDecodeOpNative =
+      buildNLPConcatHeadsDecodeOpTFromMLIR(numHeads, outputLayout);
 
-  // Create query closure
   auto nlpConcatHeadsDecodeOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::experimental::nlp_concat_heads_decode, device, inputSpec,
-        numHeads, detail::getNullableMemoryConfig(outputLayout),
-        std::optional<::tt::tt_metal::Tensor>(std::nullopt), subCoreGrids);
+    ttnn_op_invoke::NLPConcatHeadsDecodeOpResult result =
+        ttnn_op_invoke::callNLPConcatHeadsDecode(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            nlpConcatHeadsDecodeOpNative, inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected NLPConcatHeadsDecodeOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(),
@@ -3871,25 +4297,20 @@ llvm::Expected<size_t> OpModel<NLPConcatHeadsDecodeOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Pass sub_core_grids when the input shard grid would trigger subcoregrids
-  // (see getOpConstraints above for rationale).
-  std::optional<::tt::tt_metal::CoreRangeSet> subCoreGrids = std::nullopt;
-  if (inputLayout.hasL1BufferType() && inputLayout.getMemLayout() &&
-      isShardedMemoryLayout(inputLayout.getMemLayout().getValue())) {
-    auto coreRangeSet = conversion::getCoreRangeSet(inputLayout);
-    auto ranges = coreRangeSet.ranges();
-    if (ranges.size() != 1 ||
-        ranges[0].start_coord != ::tt::tt_metal::CoreCoord{0, 0}) {
-      subCoreGrids = coreRangeSet;
-    }
-  }
+  ::tt::target::ttnn::NLPConcatHeadsDecodeOpT nlpConcatHeadsDecodeOpNative =
+      buildNLPConcatHeadsDecodeOpTFromMLIR(numHeads, outputLayout);
 
-  // Create query closure
   auto nlpConcatHeadsDecodeOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::experimental::nlp_concat_heads_decode, device, inputSpec,
-        numHeads, detail::getNullableMemoryConfig(outputLayout),
-        std::optional<::tt::tt_metal::Tensor>(std::nullopt), subCoreGrids);
+    ttnn_op_invoke::NLPConcatHeadsDecodeOpResult result =
+        ttnn_op_invoke::callNLPConcatHeadsDecode(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+            nlpConcatHeadsDecodeOpNative, inputSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected NLPConcatHeadsDecodeOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(nlpConcatHeadsDecodeOpQuery);
@@ -3897,6 +4318,8 @@ llvm::Expected<size_t> OpModel<NLPConcatHeadsDecodeOp>::getOpRuntime(
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
 }
+
+//===----------------------------------------------------------------------===//
 
 //===----------------------------------------------------------------------===//
 // RepeatInterleaveOp
@@ -5603,7 +6026,7 @@ llvm::Expected<size_t> OpModel<Conv3dOp>::getOpRuntime(
           ? std::make_unique<::tt::target::ttnn::Conv2dConfigT>(
                 toNative(*conv2dConfig))
           : nullptr;
-  convTranspose2dOp.compute_config = 
+  convTranspose2dOp.compute_config =
       (deviceComputeKernelConfig.has_value() && *deviceComputeKernelConfig)
           ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
                 toNative(*deviceComputeKernelConfig))
@@ -5667,10 +6090,11 @@ llvm::Expected<OpConstraints> OpModel<ConvTranspose2dOp>::getOpConstraints(
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   ::tt::target::ttnn::ConvTranspose2dOpT convTranspose2dOpNative =
-      buildConvTranspose2dOpTFromMLIR(
-          in_channels, out_channels, batch_size, input_height, input_width,
-          kernel_size, stride, padding, output_padding, dilation, groups,
-          conv2dConfig, conv2dSliceConfig, deviceComputeKernelConfig, outputLayout);
+      buildConvTranspose2dOpTFromMLIR(in_channels, out_channels, batch_size,
+                                      input_height, input_width, kernel_size,
+                                      stride, padding, output_padding, dilation,
+                                      groups, conv2dConfig, conv2dSliceConfig,
+                                      deviceComputeKernelConfig, outputLayout);
 
   // Create query closure
   auto convTranspose2dOpQuery = [=]() {
@@ -5747,10 +6171,11 @@ llvm::Expected<size_t> OpModel<ConvTranspose2dOp>::getOpRuntime(
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   ::tt::target::ttnn::ConvTranspose2dOpT convTranspose2dOpNative =
-      buildConvTranspose2dOpTFromMLIR(
-          in_channels, out_channels, batch_size, input_height, input_width,
-          kernel_size, stride, padding, output_padding, dilation, groups,
-          conv2dConfig, conv2dSliceConfig, deviceComputeKernelConfig, outputLayout);
+      buildConvTranspose2dOpTFromMLIR(in_channels, out_channels, batch_size,
+                                      input_height, input_width, kernel_size,
+                                      stride, padding, output_padding, dilation,
+                                      groups, conv2dConfig, conv2dSliceConfig,
+                                      deviceComputeKernelConfig, outputLayout);
 
   // Create query closure
   auto convTranspose2dOpQuery = [=]() {

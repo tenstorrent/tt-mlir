@@ -2044,7 +2044,8 @@ llvm::Expected<size_t> ScaledDotProductAttentionDecodeOp::getOpRuntime(
       sdpaArgs.isCausal, sdpaArgs.attentionMaskShape,
       sdpaArgs.attentionMaskLayout, sdpaArgs.curPosTensorShape,
       sdpaArgs.curPosTensorLayout, sdpaArgs.attentionSinkShape,
-      sdpaArgs.attentionSinkLayout, sdpaArgs.scale, opConfig.outputLayout);
+      sdpaArgs.attentionSinkLayout, sdpaArgs.scale, sdpaArgs.programConfig,
+      opConfig.outputLayout);
   // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 
@@ -2386,7 +2387,8 @@ RotaryEmbeddingLlamaOp::getOpConstraints(
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<RotaryEmbeddingLlamaOp>::getOpConstraints, *this,
       inputShape, inputs[0], cosShape, inputs[1], sinShape, inputs[2],
-      transMatShape, inputs[3], isDecodeMode, opConfig.outputLayout);
+      transMatShape, inputs[3], isDecodeMode, getComputeConfig(),
+      opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -2403,7 +2405,8 @@ RotaryEmbeddingLlamaOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<RotaryEmbeddingLlamaOp>::getOpRuntime, *this,
       inputShape, inputs[0], cosShape, inputs[1], sinShape, inputs[2],
-      transMatShape, inputs[3], isDecodeMode, opConfig.outputLayout);
+      transMatShape, inputs[3], isDecodeMode, getComputeConfig(),
+      opConfig.outputLayout);
 }
 
 //===-----------------------------------------------------------------------===//
@@ -2423,7 +2426,7 @@ RotaryEmbeddingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<RotaryEmbeddingOp>::getOpConstraints, *this, inputShape,
       inputs[0], cosShape, inputs[1], sinShape, inputs[2], tokenIndex,
-      opConfig.outputLayout);
+      getComputeConfig(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -2439,7 +2442,7 @@ RotaryEmbeddingOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<RotaryEmbeddingOp>::getOpRuntime, *this, inputShape,
       inputs[0], cosShape, inputs[1], sinShape, inputs[2], tokenIndex,
-      opConfig.outputLayout);
+      getComputeConfig(), opConfig.outputLayout);
 }
 
 //===-----------------------------------------------------------------------===//
