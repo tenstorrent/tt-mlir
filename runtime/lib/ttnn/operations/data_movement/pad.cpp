@@ -4,13 +4,7 @@
 
 #include "operations/data_movement/pad.h"
 #include "tt/runtime/detail/common/logger.h"
-
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
-#include "tt/runtime/workarounds.h"
-#include "tt_stl/span.hpp"
-
-#include <optional>
+#include "ttmlir/OpInvoke/TTNN/DataMovement/PadOp.h"
 
 namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::PadOp *op, ProgramContext &context) {
@@ -18,21 +12,18 @@ void run(const ::tt::target::ttnn::PadOp *op, ProgramContext &context) {
 
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  float padValue = op->value();
+  ::tt::target::ttnn::PadOpT padOpNative;
+  op->UnPackTo(&padOpNative);
 
-  ::ttnn::Tensor out;
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  ::ttsl::SmallVector<::ttnn::operations::data_movement::PadSpecDim> padding;
-  for (uint32_t i = 0; i < op->padding()->size(); i += 2) {
-    padding.emplace_back(op->padding()->Get(i), op->padding()->Get(i + 1));
-  }
+  ttnn_op_invoke::PadOpResult result = ttnn_op_invoke::callPad(
+      ttnn_op_invoke::CallType::EXECUTE, padOpNative, &in, &targetDevice);
 
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callPad execution");
 
-  out = ::ttnn::pad(in, padding, padValue, op->use_multicore(),
-                    outputMemoryConfig);
-
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement

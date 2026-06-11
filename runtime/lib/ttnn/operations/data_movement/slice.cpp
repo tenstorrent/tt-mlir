@@ -6,36 +6,28 @@
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
-
+#include "ttmlir/OpInvoke/TTNN/DataMovement/SliceOp.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttnn/operations/data_movement/slice/slice.hpp"
 #include <cstdint>
 
 namespace tt::runtime::ttnn::operations::data_movement {
 static void runSliceStaticOp(const ::tt::target::ttnn::SliceOp *op,
-                             ProgramTensorPool &tensorPool) {
+                             ProgramTensorPool &tensorPool,
+                             ::ttnn::MeshDevice &targetDevice) {
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  ::ttsl::SmallVector<int32_t> begins(
-      op->params_as<target::ttnn::SliceStaticOpParams>()->begins()->begin(),
-      op->params_as<target::ttnn::SliceStaticOpParams>()->begins()->end());
-  ::ttsl::SmallVector<int32_t> ends(
-      op->params_as<target::ttnn::SliceStaticOpParams>()->ends()->begin(),
-      op->params_as<target::ttnn::SliceStaticOpParams>()->ends()->end());
-  ::ttsl::SmallVector<int32_t> step(op->step()->begin(), op->step()->end());
+  ::tt::target::ttnn::SliceOpT sliceOpNative;
+  op->UnPackTo(&sliceOpNative);
 
-  ttsl::Span<const int32_t> beginsSpan(begins.data(), begins.size());
-  ttsl::Span<const int32_t> endsSpan(ends.data(), ends.size());
-  ttsl::Span<const int32_t> stepSpan(step.data(), step.size());
+  ttnn_op_invoke::SliceOpResult result = ttnn_op_invoke::callSliceStatic(
+      ttnn_op_invoke::CallType::EXECUTE, sliceOpNative, &in, &targetDevice);
 
-  std::optional<::ttnn::MemoryConfig> memoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callSliceStatic execution");
 
-  ::ttnn::Tensor out =
-      ::ttnn::slice(in, beginsSpan, endsSpan, stepSpan, memoryConfig);
-
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
 static void runSliceDynamicOp(const ::tt::target::ttnn::SliceOp *op,
@@ -66,10 +58,11 @@ static void runSliceDynamicOp(const ::tt::target::ttnn::SliceOp *op,
 
 void run(const ::tt::target::ttnn::SliceOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
   switch (op->type()) {
   case ::tt::target::ttnn::SliceOpType::SliceStaticOp:
-    runSliceStaticOp(op, tensorPool);
+    runSliceStaticOp(op, tensorPool, targetDevice);
     break;
   case ::tt::target::ttnn::SliceOpType::SliceDynamicOp:
     runSliceDynamicOp(op, tensorPool);

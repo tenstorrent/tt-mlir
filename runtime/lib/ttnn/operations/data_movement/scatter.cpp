@@ -4,9 +4,7 @@
 
 #include "operations/data_movement/scatter.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-#include "tt/runtime/detail/ttnn/utils.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/ScatterOp.h"
 
 namespace tt::runtime::ttnn::operations::data_movement {
 
@@ -18,40 +16,21 @@ void run(const ::tt::target::ttnn::ScatterOp *op, ProgramContext &context) {
       tensorPool.getTTNNTensorAndValidate(op->index());
   const ::ttnn::Tensor &source =
       tensorPool.getTTNNTensorAndValidate(op->source());
-  int32_t dim = op->dim();
 
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
-  // TT Metal currently only supports the following scatter reduction types:
-  // SUM, MULTIPLY, AMIN, AMAX - applied reduction to source tensor
-  // INVALID - copy source to output tensor and apply no reduction(pass
-  // std::nullopt)
-  std::optional<std::string> scatterReduceTypeString;
-  switch (op->scatter_reduce_type()) {
-  case ::tt::target::ttnn::ScatterReduceType::Sum: // Sum -> add
-    scatterReduceTypeString = "add";
-    break;
-  case ::tt::target::ttnn::ScatterReduceType::Prod: // Prod -> multiply
-    scatterReduceTypeString = "multiply";
-    break;
-  case ::tt::target::ttnn::ScatterReduceType::Min: // Min -> amin
-    scatterReduceTypeString = "amin";
-    break;
-  case ::tt::target::ttnn::ScatterReduceType::Max: // Max -> amax
-    scatterReduceTypeString = "amax";
-    break;
-  case ::tt::target::ttnn::ScatterReduceType::Invalid: // Invalid -> no
-                                                       // reduction
-    scatterReduceTypeString = std::nullopt;
-    break;
-  }
+  ::tt::target::ttnn::ScatterOpT scatterOpNative;
+  op->UnPackTo(&scatterOpNative);
 
-  ::ttnn::Tensor out =
-      ::ttnn::scatter(input, dim, index, source, outputMemoryConfig,
-                      scatterReduceTypeString, std::nullopt);
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  ttnn_op_invoke::ScatterOpResult result = ttnn_op_invoke::callScatter(
+      ttnn_op_invoke::CallType::EXECUTE, scatterOpNative, &input, &index,
+      &source, &targetDevice);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callScatter execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
 } // namespace tt::runtime::ttnn::operations::data_movement
