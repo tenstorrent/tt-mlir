@@ -936,6 +936,13 @@ path never exercised on-device — `(1,8)` is filtered out on this 2-chip n300).
    variant also hung because its pure-datamovement body produces no compute op to
    split out either.
 
+   **Semaphore-creation check (done) — identical.** `CreateGlobalSemaphoreCommand`
+   in both flatbuffers: `initial_value = 0`, `core_range_set = 8x8` (full worker
+   grid, includes core (0,0)). So the semaphores are zero-initialised on the core
+   the kernel runs on in both paths — this rules out a semaphore init / core-range
+   cause and confirms the **compute kernel presence is the SOLE structural
+   difference** in the all_gather program.
+
    **🎯 Strong hypothesis:** a tt-metal fabric/CCL program (or just the
    program-launch / NOC-init / go-signal path on a Tensix core) needs the compute
    kernel present; without it the datamovement kernel's local `noc_semaphore_inc`
