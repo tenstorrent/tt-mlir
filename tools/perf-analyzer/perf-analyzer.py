@@ -49,7 +49,11 @@ def dur(cycles: int, freq_mhz: float) -> dict:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("path_to_perf_dir", type=pathlib.Path, help="path to the directory containing the profile_log_device.csv file")
+    parser.add_argument(
+        "path_to_perf_dir",
+        type=pathlib.Path,
+        help="path to the directory containing the profile_log_device.csv file",
+    )
     parser.add_argument(
         "--by_kernel",
         action="store_true",
@@ -88,7 +92,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--stats",
         action="store_true",
-        help="parse hardware counter stats and print as a table"
+        help="parse hardware counter stats and print as a table",
     )
     parser.add_argument(
         "--stat_graph",
@@ -449,10 +453,8 @@ def print_waits(rows: list[dict], freq_mhz: float) -> None:
     )
 
 
-
-
 def collect_device_runtimes(profile_log: pathlib.Path, freq_mhz: float) -> dict:
-    '''Per-op "DEVICE KERNEL DURATION" computed straight from the device log,
+    """Per-op "DEVICE KERNEL DURATION" computed straight from the device log,
     independent of ops_perf_results.csv.
 
     Mirrors tt-metal's `device_kernel_duration` analysis (device_post_proc_config.py):
@@ -461,7 +463,7 @@ def collect_device_runtimes(profile_log: pathlib.Path, freq_mhz: float) -> dict:
     the LAST `*-KERNEL` ZONE_END, across ALL cores and ALL RISCs
     (BRISC/NCRISC/TRISC/ERISC) — not just TRISC. Returned in cycles; the rest of the
     tool works in cycles and converts to ns at print time.
-    '''
+    """
     # per op (run host id) -> [min *-KERNEL start, max *-KERNEL end]
     op_kernel_span: dict[str, list] = defaultdict(lambda: [float("inf"), 0])
 
@@ -484,7 +486,9 @@ def collect_device_runtimes(profile_log: pathlib.Path, freq_mhz: float) -> dict:
         hi - lo for lo, hi in op_kernel_span.values() if lo != float("inf") and hi >= lo
     ]
     if not kernel_durations:
-        print(f"\n***** {profile_log} has no kernel zones. Unable to collect runtime information.")
+        print(
+            f"\n***** {profile_log} has no kernel zones. Unable to collect runtime information."
+        )
         return {"kernel duration": 0}
 
     # reduce to the longest single op, as before (swap for sum() for total kernel time)
@@ -492,7 +496,7 @@ def collect_device_runtimes(profile_log: pathlib.Path, freq_mhz: float) -> dict:
 
 
 def collect_perf_counters(profile_log: pathlib.Path) -> pd.DataFrame:
-    PERF_COUNTER_TIMER_ID: str = '9090'
+    PERF_COUNTER_TIMER_ID: str = "9090"
     perf_counter_events = []
 
     with profile_log.open() as f:
@@ -504,64 +508,73 @@ def collect_perf_counters(profile_log: pathlib.Path) -> pd.DataFrame:
             if row["timer_id"] == PERF_COUNTER_TIMER_ID:
                 raw_md = row["meta data"]
                 meta_data = json.loads(raw_md.replace(";", ",").replace("'", '"'))
-                perf_counter_events.append({
-                    "run_host_id": row["run host id"],
-                    "record time": row["time[cycles since reset]"],
-                    "core_x": int(row["core_x"]),
-                    "core_y": int(row["core_y"]),
-                    "risc_type": row["risc processor type"],
-                    "counter type": meta_data.get("counter type", ""),
-                    "value": meta_data.get("value", 0),
-                    "ref cnt": meta_data.get("ref cnt", 0),
-                })
-    
+                perf_counter_events.append(
+                    {
+                        "run_host_id": row["run host id"],
+                        "record time": row["time[cycles since reset]"],
+                        "core_x": int(row["core_x"]),
+                        "core_y": int(row["core_y"]),
+                        "risc_type": row["risc processor type"],
+                        "counter type": meta_data.get("counter type", ""),
+                        "value": meta_data.get("value", 0),
+                        "ref cnt": meta_data.get("ref cnt", 0),
+                    }
+                )
+
     return pd.DataFrame(perf_counter_events)
 
 
 def get_perf_counter_stats(perf_counters: pd.DataFrame) -> dict:
     def get_counter_values(*counter_names: str):
         mask = perf_counters["counter type"].isin(counter_names)
-        return perf_counters[mask].set_index(["run_host_id", "core_x", "core_y"])["value"]
-
+        return perf_counters[mask].set_index(["run_host_id", "core_x", "core_y"])[
+            "value"
+        ]
 
     def get_counter_ref_cnt(*counter_names: str):
         mask = perf_counters["counter type"].isin(counter_names)
-        return perf_counters[mask].set_index(["run_host_id", "core_x", "core_y"])["ref cnt"]
-    
+        return perf_counters[mask].set_index(["run_host_id", "core_x", "core_y"])[
+            "ref cnt"
+        ]
+
     def get_value_ref_ratio(*counter_names: str):
         idx = ["run_host_id", "core_x", "core_y"]
         vals = get_counter_values(*counter_names).groupby(level=idx).sum()
         refs = get_counter_ref_cnt(*counter_names).groupby(level=idx).sum()
         return (vals / refs).replace([float("inf"), -float("inf")], float("nan"))
-    
-    def get_stats(series: pd.Series):
-        return {
-            "min": series.min(),
-            "max": series.max(),
-            "mean": series.mean()
-        }
-    
-    def get_stats_by_core(series: pd.Series):
-        series = series.groupby(level=('core_x', 'core_y'))
-        return {f'({name[0]},{name[1]})': group.mean() for name, group in series}
-    
-    sfpu_util = get_value_ref_ratio('SFPU_COUNTER')
-    fpu_util = get_value_ref_ratio('FPU_COUNTER')
-    mmio_idle_t0 = get_value_ref_ratio('WAITING_FOR_MMIO_IDLE_0')
-    sfpu_idle_t1 = get_value_ref_ratio('WAITING_FOR_SFPU_IDLE_1')
-    thcon_idle_t0 = get_value_ref_ratio('WAITING_FOR_THCON_IDLE_0')
-    move_idle_t0 = get_value_ref_ratio('WAITING_FOR_MOVE_IDLE_0')
-    semaphore_zero_wait_0 = get_value_ref_ratio('WAITING_FOR_NONZERO_SEM_0')
-    semaphore_zero_wait_1 = get_value_ref_ratio('WAITING_FOR_NONZERO_SEM_1')
-    semaphore_zero_wait_2 = get_value_ref_ratio('WAITING_FOR_NONZERO_SEM_2')
-    semaphore_full_wait_0 = get_value_ref_ratio('WAITING_FOR_NONFULL_SEM_0')
-    semaphore_full_wait_1 = get_value_ref_ratio('WAITING_FOR_NONFULL_SEM_1')
-    semaphore_full_wait_2 = get_value_ref_ratio('WAITING_FOR_NONFULL_SEM_2')
 
-    noc_out = (get_counter_values('L1_0_NOC_RING0_OUTGOING_0') + get_counter_values('L1_0_NOC_RING0_OUTGOING_1')) / 2
-    noc_in = (get_counter_values('L1_0_NOC_RING0_INCOMING_0') + get_counter_values('L1_0_NOC_RING0_INCOMING_1')) / 2
-    fpu_counter = get_counter_values('FPU_COUNTER')
-    noc_vs_compute = ((noc_out + noc_in) / (fpu_counter + noc_out + noc_in)).replace(float('nan'), 0)
+    def get_stats(series: pd.Series):
+        return {"min": series.min(), "max": series.max(), "mean": series.mean()}
+
+    def get_stats_by_core(series: pd.Series):
+        series = series.groupby(level=("core_x", "core_y"))
+        return {f"({name[0]},{name[1]})": group.mean() for name, group in series}
+
+    sfpu_util = get_value_ref_ratio("SFPU_COUNTER")
+    fpu_util = get_value_ref_ratio("FPU_COUNTER")
+    mmio_idle_t0 = get_value_ref_ratio("WAITING_FOR_MMIO_IDLE_0")
+    sfpu_idle_t1 = get_value_ref_ratio("WAITING_FOR_SFPU_IDLE_1")
+    thcon_idle_t0 = get_value_ref_ratio("WAITING_FOR_THCON_IDLE_0")
+    move_idle_t0 = get_value_ref_ratio("WAITING_FOR_MOVE_IDLE_0")
+    semaphore_zero_wait_0 = get_value_ref_ratio("WAITING_FOR_NONZERO_SEM_0")
+    semaphore_zero_wait_1 = get_value_ref_ratio("WAITING_FOR_NONZERO_SEM_1")
+    semaphore_zero_wait_2 = get_value_ref_ratio("WAITING_FOR_NONZERO_SEM_2")
+    semaphore_full_wait_0 = get_value_ref_ratio("WAITING_FOR_NONFULL_SEM_0")
+    semaphore_full_wait_1 = get_value_ref_ratio("WAITING_FOR_NONFULL_SEM_1")
+    semaphore_full_wait_2 = get_value_ref_ratio("WAITING_FOR_NONFULL_SEM_2")
+
+    noc_out = (
+        get_counter_values("L1_0_NOC_RING0_OUTGOING_0")
+        + get_counter_values("L1_0_NOC_RING0_OUTGOING_1")
+    ) / 2
+    noc_in = (
+        get_counter_values("L1_0_NOC_RING0_INCOMING_0")
+        + get_counter_values("L1_0_NOC_RING0_INCOMING_1")
+    ) / 2
+    fpu_counter = get_counter_values("FPU_COUNTER")
+    noc_vs_compute = ((noc_out + noc_in) / (fpu_counter + noc_out + noc_in)).replace(
+        float("nan"), 0
+    )
 
     return {
         "sfpu utilization": get_stats_by_core(sfpu_util),
@@ -576,12 +589,12 @@ def get_perf_counter_stats(perf_counters: pd.DataFrame) -> dict:
         "semaphore full wait t0": get_stats_by_core(semaphore_full_wait_0),
         "semaphore full wait t1": get_stats_by_core(semaphore_full_wait_1),
         "semaphore full wait t2": get_stats_by_core(semaphore_full_wait_2),
-        "noc vs compute": get_stats_by_core(noc_vs_compute)
+        "noc vs compute": get_stats_by_core(noc_vs_compute),
     }
 
 
 def print_perf_counter_stats(perf_stats: dict) -> None:
-    print('\n===== H/W COUNTER STATS =====\n')
+    print("\n===== H/W COUNTER STATS =====\n")
 
     # cores live in the inner dicts; collect them in first-seen order across all stats
     cores: list = []
@@ -590,21 +603,20 @@ def print_perf_counter_stats(perf_stats: dict) -> None:
             if core not in cores:
                 cores.append(core)
 
-    headers = ("Stat",) + tuple(
-        f"Mean{core}"
-        for core in cores
-    )
+    headers = ("Stat",) + tuple(f"Mean{core}" for core in cores)
     table = [
-        (k,) + tuple(
-            f"{by_core[core] * 100:.3f}%" if core in by_core else "-"
-            for core in cores
+        (k,)
+        + tuple(
+            f"{by_core[core] * 100:.3f}%" if core in by_core else "-" for core in cores
         )
         for k, by_core in perf_stats.items()
     ]
-    widths = [max(len(row[i]) for row in (*table, headers)) for i in range(len(headers))]
+    widths = [
+        max(len(row[i]) for row in (*table, headers)) for i in range(len(headers))
+    ]
 
     def fmt(row: tuple[str, str, str, str]) -> str:
-        return '  '.join(f'{column:>{width}}' for column, width in zip(row, widths))
+        return "  ".join(f"{column:>{width}}" for column, width in zip(row, widths))
 
     print(fmt(headers))
     print("-" * (sum(widths) + 2 * (len(widths) - 1)))
@@ -676,13 +688,14 @@ def build_report(
         "stats": stats,
     }
 
+
 def main() -> None:
     args = parse_args()
     perf_dir: pathlib.Path = args.path_to_perf_dir
     profile_log = perf_dir / "profile_log_device.csv"
 
     if not profile_log.exists():
-        raise FileNotFoundError('profile_log_device not found')
+        raise FileNotFoundError("profile_log_device not found")
 
     print(f"Reading from {profile_log}...")
 
