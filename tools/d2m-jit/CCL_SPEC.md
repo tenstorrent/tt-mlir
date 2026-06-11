@@ -680,3 +680,42 @@ even forms the expected mcast group). This is genuine cross-device-protocol
 work, not a DSL gap — the DSL can express it; the protocol values are unknown.
 The dev box's chip also wedges (ARC `0xdeadc0de`) on repeated fabric runs,
 needing `tt-smi -r` (sometimes twice), which makes iteration slow.
+
+### ✅ RESOLVED: line all_gather works e2e via `D2MAllGatherRewriter`
+
+The 1x2 line all_gather now passes through the *rewriter* (not just the DSL):
+`test/python/golden/d2m/test_allgather.py` with `mesh_shape=(1,2)` and
+`mesh-topology=linear,linear` passes all 8 cases (gather dims 0/1, 128x128 &
+256x256, bf16 & f32) with `pcc=1.0` on the n300. Four changes:
+
+1. **`D2MAllGatherRewriter` accepts linear topology** (`TTIRToD2M.cpp`): the
+   ring-only assert now allows `Linear`, and routing mode is selected by
+   topology (`Ring → UnidirRingTorus`, `Linear → BidirLineMesh`). `num_cores`
+   already yields 1 for non-ring (the single-core line kernel).
+2. **Fabric line-mcast routing fix** (`experimental_fabric_topology_info.h`,
+   `get_line_regions`): the "remove my_idx from endpoints" remap moved `my_idx`
+   itself, which on a 2-device range *inverts* the send direction for the
+   end-of-line sender (it sent forward into its non-existent forward link, so
+   the increment never arrived → deadlock). The forward/backward counts already
+   exclude self, so the remap is unnecessary for the non-wrapped (line) case and
+   is now confined to the wrapped/torus branch. (`get_ring_regions` already does
+   this correctly by shrinking the range endpoints, not `my_idx`.)
+3. **Conditional direction asserts** (`experimental_fabric_1d_routing.h`,
+   `get_mcast_params_line`): edge devices legitimately have one direction =
+   `COUNT`, so the `fwd_dir/bwd_dir != COUNT` asserts are gated by the
+   corresponding `range != 0` (would otherwise trip under watcher).
+4. **End-semaphore off-by-one** (`TTIRToD2M.cpp`): `remote_store` increments
+   `endSemaphore` on every device in the mcast range *including the sender* (a
+   local self-inc for the shard written locally), so each device receives
+   `num_devices` increments (`num_devices - 1` remote + 1 self), but the wait
+   targeted `num_devices - 1`. With an exact-equality `semaphore_wait` the count
+   overshoots by one and deadlocks. The end-wait target is now `num_devices`.
+   (The `device_synchronize` start-barrier correctly stays `num_devices - 1` —
+   it has no local self-inc.)
+
+**🟡 Caveat — ring path not re-validated on hardware.** Fix #4 changes the
+end-wait value on the *shared* all_gather path, so it also affects the ring
+config (e.g. 1x8). The same local self-inc happens for ring, so `num_devices` is
+believed correct there too (`num_devices - 1` was a latent off-by-one the ring
+path never exercised on-device — `(1,8)` is filtered out on this 2-chip n300).
+**This must be validated on an ≥8-chip ring system (CI) before merge.**

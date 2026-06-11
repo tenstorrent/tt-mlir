@@ -50,7 +50,7 @@ pytestmark = pytest.mark.frontend("ttir")
     "mesh_shape",
     [
         (1, 8),
-        # (1, 2),
+        (1, 2),
         # (1, 32),
         # (8, 4)
     ],
@@ -122,8 +122,11 @@ def test_all_gather(
                 shard_dims=shard_dims,
             )
 
+    # Per-axis topology: a ring only differs from a line with >2 devices, so
+    # 1- and 2-device axes (e.g. the 1x2 mesh) use a linear topology.
+    topology = ",".join("ring" if dim > 2 else "linear" for dim in mesh_shape)
     pipeline_options = [
-        f"mesh-topology=linear,ring",
+        f"mesh-topology={topology}",
     ]
 
     compile_and_execute_ttir(
