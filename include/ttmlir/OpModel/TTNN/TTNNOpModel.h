@@ -532,14 +532,14 @@ struct OpModel<ScatterOp> {
       llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
       llvm::ArrayRef<int64_t> indexShape, TTNNLayoutAttr indexLayout,
       llvm::ArrayRef<int64_t> sourceShape, TTNNLayoutAttr sourceLayout,
-      int32_t dim, std::optional<ttcore::ReduceTypeAttr> optReduction,
+      int32_t dim, mlir::tt::ttcore::ReduceType reduceType,
       TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
                llvm::ArrayRef<int64_t> indexShape, TTNNLayoutAttr indexLayout,
                llvm::ArrayRef<int64_t> sourceShape, TTNNLayoutAttr sourceLayout,
-               int32_t dim, std::optional<ttcore::ReduceTypeAttr> optReduction,
+               int32_t dim, mlir::tt::ttcore::ReduceType reduceType,
                TTNNLayoutAttr outputLayout);
 };
 
@@ -1984,11 +1984,13 @@ struct OpModel<mlir::tt::ttnn::AssignOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout,
-                   std::optional<mlir::tt::ttcore::DataType> outputDtype);
+                   std::optional<mlir::tt::ttcore::DataType> outputDtype,
+                   TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-               std::optional<mlir::tt::ttcore::DataType> outputDtype);
+               std::optional<mlir::tt::ttcore::DataType> outputDtype,
+               TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//

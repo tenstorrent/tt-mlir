@@ -4,28 +4,25 @@
 
 #include "operations/data_movement/transpose.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/TransposeOp.h"
 
 namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::TransposeOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  int32_t dim0 = op->dim0();
-  int32_t dim1 = op->dim1();
+  ::tt::target::ttnn::TransposeOpT transposeOpNative;
+  op->UnPackTo(&transposeOpNative);
 
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
-  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
-                 outputMemoryConfig.has_value(),
-             "Memory config must exist for device tensors");
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  ::ttnn::Tensor out = ::ttnn::transpose(in, dim0, dim1, outputMemoryConfig);
+  ttnn_op_invoke::TransposeOpResult result = ttnn_op_invoke::callTranspose(
+      ttnn_op_invoke::CallType::EXECUTE, transposeOpNative, &in, &targetDevice);
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callTranspose execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement

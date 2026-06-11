@@ -8,6 +8,18 @@ add_library(TTNNOpInvokeLib STATIC
   Conv/PrepareConv3dWeightsOp.cpp
   Conv/PrepareConvTranspose2dBiasOp.cpp
   Conv/PrepareConvTranspose2dWeightsOp.cpp
+  DataMovement/AssignOp.cpp
+  DataMovement/ConcatOp.cpp
+  DataMovement/GatherOp.cpp
+  DataMovement/PadOp.cpp
+  DataMovement/PermuteOp.cpp
+  DataMovement/RepeatInterleaveOp.cpp
+  DataMovement/RepeatOp.cpp
+  DataMovement/ReshapeOp.cpp
+  DataMovement/ScatterOp.cpp
+  DataMovement/SortOp.cpp
+  DataMovement/TransposeOp.cpp
+  DataMovement/WriteTensorOp.cpp
   Eltwise/Binary/EltwiseBinaryCompositeOp.cpp
   Eltwise/Binary/EltwiseBinaryOp.cpp
   Eltwise/Quantization/EltwiseQuantizationOp.cpp

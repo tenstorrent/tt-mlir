@@ -4,10 +4,8 @@
 
 #include "operations/data_movement/write_tensor.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
-#include "ttnn/tensor/tensor_impl.hpp"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/WriteTensorOp.h"
 
 namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::WriteTensorOp *op, ProgramContext &context) {
@@ -21,10 +19,17 @@ void run(const ::tt::target::ttnn::WriteTensorOp *op, ProgramContext &context) {
       tensorPool.getTTNNTensorAndValidate(op->host_tensor());
   ::ttnn::Tensor &deviceTensor =
       tensorPool.getTTNNTensorAndValidate(op->device_tensor());
-  ::ttnn::QueueId ttnnCqId = ::ttnn::QueueId(op->cq_id());
 
-  // Note: copy_to_device replaced write_tensor and does not have a blocking
-  // parameter. The operation is always blocking.
-  ::tt::tt_metal::copy_to_device(hostTensor, deviceTensor, ttnnCqId);
+  ::tt::target::ttnn::WriteTensorOpT writeTensorOpNative;
+  op->UnPackTo(&writeTensorOpNative);
+
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
+
+  ttnn_op_invoke::WriteTensorOpResult result = ttnn_op_invoke::callWriteTensor(
+      ttnn_op_invoke::CallType::EXECUTE, writeTensorOpNative, &hostTensor,
+      &deviceTensor, &targetDevice);
+
+  LOG_ASSERT(std::holds_alternative<std::monostate>(result),
+             "Expected std::monostate from callWriteTensor execution");
 }
 } // namespace tt::runtime::ttnn::operations::data_movement
