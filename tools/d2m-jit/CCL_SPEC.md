@@ -796,14 +796,34 @@ path never exercised on-device — `(1,8)` is filtered out on this 2-chip n300).
    (dprint.h: "device code stalls waiting on the host to flush it"), i.e. dprint
    perturbs the hang. Either way it didn't localise the stall.
 
-   **Better next tool: tt-metal Watcher** (`TT_METAL_WATCHER=1`) — it reports each
-   RISC's current `WAYPOINT` without needing print drainage, so it can show which
-   kernel/RISC is stalled and where (e.g. a fabric connection wait vs a semaphore
-   wait) on a live hang. Alternatively read the start/end semaphore L1 values
-   from the host post-mortem. This is genuinely deep d2m-jit fabric/dispatch
-   debugging; the rewriter path works e2e and is the supported route today, so
-   the DSL port (`test_all_gather_1x2_roundtrip`) stays skipped pending a focused
-   follow-up.
+   **Watcher localised it (done, `TT_METAL_WATCHER=1` with
+   `TT_METAL_WATCHER_DISABLE_NOC_SANITIZE=1 TT_METAL_WATCHER_DISABLE_STACK_USAGE=1`
+   — full/`DUMP_ALL` overflows the idle-erisc ELF, so disable the heavy
+   features).** On the live hang both devices' worker core (0,0) sit at the same
+   waypoints: `NTW, NWFD, W, W, W` — BRISC at `NTW` (firmware idle, normal),
+   NCRISC (the datamovement thread running the kernel) at `NWFD`, the three
+   TRISCs idle. `NWFD` = `noc_async_writes_flushed` *completed* (dataflow_api.h),
+   and the kernel's `experimental::semaphore_wait` (experimental_semaphore.h) is
+   an un-instrumented `while (*sem != val)` spin, so the last waypoint stays
+   `NWFD` from the `fabric_mcast_sem_inc` just before it.
+
+   **Conclusion: the hang is the END `semaphore_wait` (`while (sem != 2)`), on
+   both devices** — *not* launch/dispatch (the dprint ambiguity is resolved: the
+   kernel runs), *not* the start barrier (it's past `device_synchronize` and the
+   data write — `NWFD` means the NOC writes flushed). The end semaphore never
+   reaches exactly `num_devices = 2`. Since the data fabric write *does* land
+   (PCC=1.0 in the sync-disabled run), fabric delivery works for writes; what
+   fails is the end-semaphore increment count converging to 2 on the 2-device
+   line.
+
+   **Discriminating next step:** read the end-semaphore L1 value on the hang (or
+   temporarily lower the wait to `semaphore_wait_min`) to tell undershoot (stuck
+   at 1 — the remote `fabric_mcast_sem_inc` from the peer never arrives, only the
+   local self-inc) from overshoot (>2 — exact `!=` misses). The rewriter uses the
+   same exact-equality `experimental::semaphore_wait` and reaches 2, so the DSL's
+   increment delivery/count on the line differs. The rewriter path works e2e and
+   is the supported route today; the DSL port (`test_all_gather_1x2_roundtrip`)
+   stays skipped pending this follow-up.
 
    The test is `@pytest.mark.skip`ped (a device-hang can't be `xfail`'d — it
    would time out the suite) with the correct algorithm + the load→store fix
