@@ -3301,10 +3301,31 @@ private:
   LogicalResult lowerToSDPAOp(ttir::ScaledDotProductAttentionOp op,
                               OpAdaptor adaptor,
                               ConversionPatternRewriter &rewriter) const {
+    // The TTNN SDPA kernel streams over the query dim and cannot broadcast it,
+    // so materialize a query-broadcast mask ([.., 1, Sk]) to [.., Sq, Sk].
+    Value mask = adaptor.getAttentionMask();
+    if (mask) {
+      auto maskType = mlir::cast<RankedTensorType>(mask.getType());
+      int64_t seqLen =
+          mlir::cast<RankedTensorType>(adaptor.getQuery().getType())
+              .getDimSize(kSeqLenDim);
+      if (maskType.getDimSize(kSeqLenDim) == 1 && seqLen != 1) {
+        SmallVector<int64_t> broadcastShape(maskType.getShape());
+        broadcastShape[kSeqLenDim] = seqLen;
+        auto broadcastType = ttnn::utils::RankedTensorTypeFactory::create(
+            maskType, broadcastShape);
+        auto broadcastDims = ttmlir::utils::getBroadcastDimensions<int64_t>(
+            maskType.getShape(), broadcastShape);
+        mask = rewriter.create<ttnn::RepeatOp>(
+            op.getLoc(), broadcastType, mask,
+            ttnn::ShapeAttr::get(rewriter.getContext(), broadcastDims));
+      }
+    }
+
     rewriter.replaceOpWithNewOp<ttnn::ScaledDotProductAttentionOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
-        adaptor.getAttentionMask(), op.getIsCausal(), adaptor.getScaleAttr(),
+        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(), mask,
+        op.getIsCausal(), adaptor.getScaleAttr(),
         adaptor.getSlidingWindowSizeAttr(), adaptor.getAttentionSink());
 
     return success();
