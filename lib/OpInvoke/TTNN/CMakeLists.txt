@@ -15,6 +15,17 @@ add_library(TTNNOpInvokeLib STATIC
   Eltwise/Unary/EltwiseUnaryCompositeOp.cpp
   Eltwise/Unary/EltwiseUnaryOp.cpp
   Matmul/MatmulOp.cpp
+  Transformer/ConcatenateHeadsOp.cpp
+  Transformer/NLPConcatHeadsDecodeOp.cpp
+  Transformer/NLPConcatHeadsOp.cpp
+  Transformer/NLPCreateQKVHeadsDecodeOp.cpp
+  Transformer/PagedFlashMultiLatentAttentionDecodeOp.cpp
+  Transformer/PagedScaledDotProductAttentionDecodeOp.cpp
+  Transformer/RotaryEmbeddingLlamaOp.cpp
+  Transformer/RotaryEmbeddingOp.cpp
+  Transformer/ScaledDotProductAttentionDecodeOp.cpp
+  Transformer/ScaledDotProductAttentionOp.cpp
+  Transformer/SplitQueryKeyValueAndSplitHeadsOp.cpp
 )
 
 set_property(TARGET TTNNOpInvokeLib PROPERTY CXX_STANDARD 20)

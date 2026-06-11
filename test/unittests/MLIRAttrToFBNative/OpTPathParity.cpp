@@ -2757,4 +2757,1318 @@ INSTANTIATE_TEST_SUITE_P(RequantizeOpTPathParityTest,
                          RequantizeOpTPathParityTest,
                          ::testing::ValuesIn(requantizeOpList));
 
+// ConcatenateHeadsOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::ConcatenateHeadsOpT &opNativeOpModel,
+                       ::tt::target::ttnn::ConcatenateHeadsOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::ConcatenateHeadsOpT &op) {
+    op.in.reset();
+    op.out.reset();
+    op.memcfg.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::ConcatenateHeadsOp buildTestConcatenateHeadsOp(
+    mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto inputType = tiledL1BF16Type(defaultShape);
+  auto outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(defaultShape, outputMemoryConfig)
+          : tiledL1BF16Type(defaultShape);
+
+  mlir::Value input =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{inputType},
+                                          mlir::ValueRange{})
+          .getResult();
+
+  return e.builder.create<mlir::tt::ttnn::ConcatenateHeadsOp>(loc, outputType,
+                                                              input);
+}
+
+} // namespace
+
+using ConcatenateHeadsOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::ConcatenateHeadsOp>;
+
+TEST_P(ConcatenateHeadsOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::ConcatenateHeadsOp concatOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::ConcatenateHeadsOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildConcatenateHeadsOpTFromMLIR(
+          resolveOutputLayout(concatOp));
+
+  // Path B: FB serialization round-trip.
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, concatOp.getInput());
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, concatOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::ConcatenateHeadsOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::ConcatenateHeadsOp>
+    concatenateHeadsOpList = {
+        buildTestConcatenateHeadsOp(),
+        buildTestConcatenateHeadsOp(
+            /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(ConcatenateHeadsOpTPathParityTest,
+                         ConcatenateHeadsOpTPathParityTest,
+                         ::testing::ValuesIn(concatenateHeadsOpList));
+
+//===----------------------------------------------------------------------===//
+// NLPConcatHeadsOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::NLPConcatHeadsOpT &opNativeOpModel,
+                       ::tt::target::ttnn::NLPConcatHeadsOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::NLPConcatHeadsOpT &op) {
+    op.in.reset();
+    op.out.reset();
+    op.memcfg.reset();
+  };
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::NLPConcatHeadsOp buildTestNLPConcatHeadsOp(
+    mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto inputType = tiledL1BF16Type(defaultShape);
+  auto outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(defaultShape, outputMemoryConfig)
+          : tiledL1BF16Type(defaultShape);
+
+  mlir::Value input =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{inputType},
+                                          mlir::ValueRange{})
+          .getResult();
+
+  return e.builder.create<mlir::tt::ttnn::NLPConcatHeadsOp>(loc, outputType,
+                                                            input);
+}
+
+} // namespace
+
+using NLPConcatHeadsOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::NLPConcatHeadsOp>;
+
+TEST_P(NLPConcatHeadsOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::NLPConcatHeadsOp nlpConcatOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::NLPConcatHeadsOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildNLPConcatHeadsOpTFromMLIR(
+          resolveOutputLayout(nlpConcatOp));
+
+  // Path B: FB serialization round-trip.
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, nlpConcatOp.getInput());
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, nlpConcatOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::NLPConcatHeadsOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::NLPConcatHeadsOp>
+    nlpConcatHeadsOpList = {
+        buildTestNLPConcatHeadsOp(),
+        buildTestNLPConcatHeadsOp(
+            /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(NLPConcatHeadsOpTPathParityTest,
+                         NLPConcatHeadsOpTPathParityTest,
+                         ::testing::ValuesIn(nlpConcatHeadsOpList));
+
+//===----------------------------------------------------------------------===//
+// NLPCreateQKVHeadsDecodeOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(
+    ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT &opNativeOpModel,
+    ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT &op) {
+    op.input.reset();
+    op.batch_offset.reset();
+    op.q_out.reset();
+    op.k_out.reset();
+    op.v_out.reset();
+  };
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp buildTestNLPCreateQKVHeadsDecodeOp(
+    bool withBatchOffset = false, uint32_t numHeads = 8,
+    std::optional<uint32_t> numKVHeads = std::nullopt,
+    std::optional<bool> overlapQKCoregrid = std::nullopt,
+    std::optional<uint32_t> sliceSize = std::nullopt) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto inputType = tiledL1BF16Type(defaultShape);
+  auto outputType = tiledL1BF16Type(defaultShape);
+
+  mlir::Value input =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{inputType},
+                                          mlir::ValueRange{})
+          .getResult();
+  mlir::Value batchOffset = nullptr;
+  if (withBatchOffset) {
+    auto batchOffsetType = tiledL1BF16Type(defaultShape);
+    batchOffset =
+        e.builder
+            .create<mlir::tt::ttnn::OnesOp>(
+                loc, mlir::TypeRange{batchOffsetType}, mlir::ValueRange{})
+            .getResult();
+  }
+
+  mlir::IntegerAttr numKVHeadsAttr;
+  if (numKVHeads.has_value()) {
+    numKVHeadsAttr = mlir::IntegerAttr::get(
+        mlir::IntegerType::get(getContext(), 32, mlir::IntegerType::Unsigned),
+        *numKVHeads);
+  }
+  mlir::BoolAttr overlapQKCoregridAttr;
+  if (overlapQKCoregrid.has_value()) {
+    overlapQKCoregridAttr =
+        mlir::BoolAttr::get(getContext(), *overlapQKCoregrid);
+  }
+  mlir::IntegerAttr sliceSizeAttr;
+  if (sliceSize.has_value()) {
+    sliceSizeAttr = mlir::IntegerAttr::get(
+        mlir::IntegerType::get(getContext(), 32, mlir::IntegerType::Unsigned),
+        *sliceSize);
+  }
+
+  return e.builder.create<mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp>(
+      loc, /*query=*/outputType, /*key=*/outputType, /*value=*/outputType,
+      input, batchOffset, numHeads, numKVHeadsAttr, overlapQKCoregridAttr,
+      sliceSizeAttr);
+}
+
+} // namespace
+
+using NLPCreateQKVHeadsDecodeOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp>;
+
+TEST_P(NLPCreateQKVHeadsDecodeOpTPathParityTest,
+       BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp qkvOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildNLPCreateQKVHeadsDecodeOpTFromMLIR(
+          qkvOp.getNumHeads(), qkvOp.getNumKvHeads(),
+          qkvOp.getOverlapQkCoregrid(), qkvOp.getSliceSize(), nullptr);
+
+  // Path B: FB serialization round-trip.
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, qkvOp.getInput());
+  if (qkvOp.getBatchOffset()) {
+    prepopulateOperandTensorRefs(cache, qkvOp.getBatchOffset());
+  }
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, qkvOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.q_out, opNativeFB.q_out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp>
+    nlpCreateQKVHeadsDecodeOpList = {
+        buildTestNLPCreateQKVHeadsDecodeOp(),
+        buildTestNLPCreateQKVHeadsDecodeOp(/*withBatchOffset=*/true),
+        buildTestNLPCreateQKVHeadsDecodeOp(/*withBatchOffset=*/false,
+                                           /*numHeads=*/16u),
+        buildTestNLPCreateQKVHeadsDecodeOp(
+            /*withBatchOffset=*/false, /*numHeads=*/8u,
+            /*numKVHeads=*/std::optional<uint32_t>(4u)),
+        buildTestNLPCreateQKVHeadsDecodeOp(
+            /*withBatchOffset=*/false, /*numHeads=*/8u,
+            /*numKVHeads=*/std::nullopt,
+            /*overlapQKCoregrid=*/std::optional<bool>(true)),
+        buildTestNLPCreateQKVHeadsDecodeOp(
+            /*withBatchOffset=*/false, /*numHeads=*/8u,
+            /*numKVHeads=*/std::nullopt,
+            /*overlapQKCoregrid=*/std::nullopt,
+            /*sliceSize=*/std::optional<uint32_t>(32u)),
+        buildTestNLPCreateQKVHeadsDecodeOp(
+            /*withBatchOffset=*/true, /*numHeads=*/16u,
+            /*numKVHeads=*/std::optional<uint32_t>(4u),
+            /*overlapQKCoregrid=*/std::optional<bool>(false),
+            /*sliceSize=*/std::optional<uint32_t>(64u)),
+};
+
+INSTANTIATE_TEST_SUITE_P(NLPCreateQKVHeadsDecodeOpTPathParityTest,
+                         NLPCreateQKVHeadsDecodeOpTPathParityTest,
+                         ::testing::ValuesIn(nlpCreateQKVHeadsDecodeOpList));
+
+TEST_F(NLPCreateQKVHeadsDecodeOpTPathParityTest, NonDefaultMemoryConfig) {
+  mlir::tt::ttnn::NLPCreateQKVHeadsDecodeOp qkvOp =
+      buildTestNLPCreateQKVHeadsDecodeOp(
+          /*withBatchOffset=*/true, /*numHeads=*/16u,
+          /*numKVHeads=*/std::optional<uint32_t>(4u),
+          /*overlapQKCoregrid=*/std::optional<bool>(false),
+          /*sliceSize=*/std::optional<uint32_t>(64u));
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildNLPCreateQKVHeadsDecodeOpTFromMLIR(
+          qkvOp.getNumHeads(), qkvOp.getNumKvHeads(),
+          qkvOp.getOverlapQkCoregrid(), qkvOp.getSliceSize(),
+          mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
+              mlir::cast<mlir::RankedTensorType>(qkvOp.getQuery().getType())
+                  .getEncoding()));
+
+  // Path B: FB serialization round-trip.
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, qkvOp.getInput());
+  if (qkvOp.getBatchOffset()) {
+    prepopulateOperandTensorRefs(cache, qkvOp.getBatchOffset());
+  }
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, qkvOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_NE(opNativeOpModel, opNativeFB);
+  EXPECT_NE(opNativeOpModel.memcfg, opNativeFB.memcfg);
+  EXPECT_NE(opNativeOpModel.memcfg, nullptr);
+  EXPECT_EQ(opNativeFB.memcfg, nullptr);
+  opNativeOpModel.memcfg.reset();
+  opNativeFB.memcfg.reset();
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+}
+
+//===----------------------------------------------------------------------===//
+// PagedFlashMultiLatentAttentionDecodeOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(
+    ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT
+        &opNativeOpModel,
+    ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT &opNativeFB) {
+  auto helper =
+      [](::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT &op) {
+        op.query.reset();
+        op.key.reset();
+        op.value.reset();
+        op.page_table.reset();
+        op.attention_mask.reset();
+        op.cur_pos_tensor.reset();
+        op.attention_sink.reset();
+        op.out.reset();
+        op.memcfg.reset();
+      };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp
+buildTestPagedFlashMultiLatentAttentionDecodeOp(
+    bool withValue = false, uint32_t headDimV = 64, bool isCausal = true,
+    bool withAttentionMask = false, bool withCurPosTensor = false,
+    bool withAttentionSink = false, mlir::FloatAttr scale = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  mlir::Value query = makeOnes();
+  mlir::Value key = makeOnes();
+  mlir::Value value = withValue ? makeOnes() : mlir::Value();
+  mlir::Value pageTable = makeOnes();
+  mlir::Value attentionMask = withAttentionMask ? makeOnes() : mlir::Value();
+  mlir::Value curPosTensor = withCurPosTensor ? makeOnes() : mlir::Value();
+  mlir::Value attentionSink = withAttentionSink ? makeOnes() : mlir::Value();
+
+  return e.builder
+      .create<mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp>(
+          loc, tensorType, query, key, value, headDimV, pageTable, isCausal,
+          attentionMask, curPosTensor, attentionSink, scale);
+}
+
+} // namespace
+
+using PagedFlashMultiLatentAttentionDecodeOpTPathParityTest =
+    ::testing::TestWithParam<
+        mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp>;
+
+TEST_P(PagedFlashMultiLatentAttentionDecodeOpTPathParityTest,
+       BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp mlaOp = GetParam();
+
+  std::optional<llvm::APFloat> scaleOpt;
+  if (auto scaleAttr = mlaOp.getScaleAttr()) {
+    scaleOpt = scaleAttr.getValue();
+  }
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::
+          buildPagedFlashMultiLatentAttentionDecodeOpTFromMLIR(
+              mlaOp.getHeadDimV(), mlaOp.getIsCausal(), scaleOpt,
+              resolveOutputLayout(mlaOp));
+
+  // Path B: FB serialization round-trip.
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, mlaOp.getQuery(), mlaOp.getKey(),
+                               mlaOp.getPageTable());
+  if (mlaOp.getValue()) {
+    prepopulateOperandTensorRefs(cache, mlaOp.getValue());
+  }
+  if (mlaOp.getAttentionMask()) {
+    prepopulateOperandTensorRefs(cache, mlaOp.getAttentionMask());
+  }
+  if (mlaOp.getCurPosTensor()) {
+    prepopulateOperandTensorRefs(cache, mlaOp.getCurPosTensor());
+  }
+  if (mlaOp.getAttentionSink()) {
+    prepopulateOperandTensorRefs(cache, mlaOp.getAttentionSink());
+  }
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, mlaOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<
+    mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp>
+    pagedFlashMlaDecodeOpList = {
+        buildTestPagedFlashMultiLatentAttentionDecodeOp(),
+        buildTestPagedFlashMultiLatentAttentionDecodeOp(/*withValue=*/true),
+        buildTestPagedFlashMultiLatentAttentionDecodeOp(/*withValue=*/false,
+                                                        /*headDimV=*/128u),
+        buildTestPagedFlashMultiLatentAttentionDecodeOp(/*withValue=*/false,
+                                                        /*headDimV=*/64u,
+                                                        /*isCausal=*/false),
+        buildTestPagedFlashMultiLatentAttentionDecodeOp(
+            /*withValue=*/false, /*headDimV=*/64u, /*isCausal=*/true,
+            /*withAttentionMask=*/true),
+        buildTestPagedFlashMultiLatentAttentionDecodeOp(
+            /*withValue=*/false, /*headDimV=*/64u, /*isCausal=*/true,
+            /*withAttentionMask=*/false, /*withCurPosTensor=*/true),
+        buildTestPagedFlashMultiLatentAttentionDecodeOp(
+            /*withValue=*/false, /*headDimV=*/64u, /*isCausal=*/true,
+            /*withAttentionMask=*/false, /*withCurPosTensor=*/false,
+            /*withAttentionSink=*/true),
+        buildTestPagedFlashMultiLatentAttentionDecodeOp(
+            /*withValue=*/false, /*headDimV=*/64u, /*isCausal=*/true,
+            /*withAttentionMask=*/false, /*withCurPosTensor=*/false,
+            /*withAttentionSink=*/false,
+            /*scale=*/mlir::Builder(getContext()).getF32FloatAttr(0.125f)),
+        buildTestPagedFlashMultiLatentAttentionDecodeOp(
+            /*withValue=*/true, /*headDimV=*/128u, /*isCausal=*/false,
+            /*withAttentionMask=*/true, /*withCurPosTensor=*/true,
+            /*withAttentionSink=*/true,
+            /*scale=*/mlir::Builder(getContext()).getF32FloatAttr(0.25f)),
+};
+
+INSTANTIATE_TEST_SUITE_P(PagedFlashMultiLatentAttentionDecodeOpTPathParityTest,
+                         PagedFlashMultiLatentAttentionDecodeOpTPathParityTest,
+                         ::testing::ValuesIn(pagedFlashMlaDecodeOpList));
+
+//===----------------------------------------------------------------------===//
+// PagedScaledDotProductAttentionDecodeOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+const mlir::tt::ttnn::SDPAProgramConfigAttr nonDefaultSDPAProgramConfigAttr =
+    mlir::tt::ttnn::SDPAProgramConfigAttr::get(
+        getContext(),
+        /*computeWithStorageGridSize=*/
+        mlir::tt::ttnn::CoreCoordAttr::get(getContext(), 8, 8),
+        /*subCoreGrids=*/mlir::tt::ttnn::CoreRangeSetAttr(),
+        /*qChunkSize=*/64, /*kChunkSize=*/64,
+        /*expApproxMode=*/mlir::BoolAttr::get(getContext(), false),
+        /*maxCoresPerHeadBatch=*/64);
+
+void resetUnusedFields(
+    ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT
+        &opNativeOpModel,
+    ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT &opNativeFB) {
+  auto helper =
+      [](::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT &op) {
+        op.query.reset();
+        op.key.reset();
+        op.value.reset();
+        op.page_table.reset();
+        op.attention_mask.reset();
+        op.cur_pos_tensor.reset();
+        op.attention_sink.reset();
+        op.out.reset();
+        op.memcfg.reset();
+      };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp
+buildTestPagedScaledDotProductAttentionDecodeOp(
+    bool isCausal = true, bool withAttentionMask = false,
+    bool withCurPosTensor = false, bool withAttentionSink = false,
+    mlir::FloatAttr scale = {}, mlir::IntegerAttr slidingWindowSize = {},
+    mlir::tt::ttnn::SDPAProgramConfigAttr programConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  mlir::Value query = makeOnes();
+  mlir::Value key = makeOnes();
+  mlir::Value value = makeOnes();
+  mlir::Value pageTable = makeOnes();
+  mlir::Value attentionMask = withAttentionMask ? makeOnes() : mlir::Value();
+  mlir::Value curPosTensor = withCurPosTensor ? makeOnes() : mlir::Value();
+  mlir::Value attentionSink = withAttentionSink ? makeOnes() : mlir::Value();
+
+  return e.builder
+      .create<mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp>(
+          loc, tensorType, query, key, value, pageTable, isCausal,
+          attentionMask, curPosTensor, attentionSink, scale, slidingWindowSize,
+          programConfig);
+}
+
+} // namespace
+
+using PagedScaledDotProductAttentionDecodeOpTPathParityTest =
+    ::testing::TestWithParam<
+        mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp>;
+
+TEST_P(PagedScaledDotProductAttentionDecodeOpTPathParityTest,
+       BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp sdpaOp = GetParam();
+
+  std::optional<llvm::APFloat> scaleOpt;
+  if (auto scaleAttr = sdpaOp.getScaleAttr()) {
+    scaleOpt = scaleAttr.getValue();
+  }
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::
+          buildPagedScaledDotProductAttentionDecodeOpTFromMLIR(
+              sdpaOp.getIsCausal(), scaleOpt, sdpaOp.getSlidingWindowSize(),
+              sdpaOp.getProgramConfig(), resolveOutputLayout(sdpaOp));
+
+  // Path B: FB serialization round-trip.
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, sdpaOp.getQuery(), sdpaOp.getKey(),
+                               sdpaOp.getValue(), sdpaOp.getPageTable());
+  if (sdpaOp.getAttentionMask()) {
+    prepopulateOperandTensorRefs(cache, sdpaOp.getAttentionMask());
+  }
+  if (sdpaOp.getCurPosTensor()) {
+    prepopulateOperandTensorRefs(cache, sdpaOp.getCurPosTensor());
+  }
+  if (sdpaOp.getAttentionSink()) {
+    prepopulateOperandTensorRefs(cache, sdpaOp.getAttentionSink());
+  }
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, sdpaOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<
+    mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp>
+    pagedScaledDotProductAttentionDecodeOpList = {
+        buildTestPagedScaledDotProductAttentionDecodeOp(),
+        buildTestPagedScaledDotProductAttentionDecodeOp(/*isCausal=*/false),
+        buildTestPagedScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/true, /*withAttentionMask=*/true),
+        buildTestPagedScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/true, /*withAttentionMask=*/false,
+            /*withCurPosTensor=*/true),
+        buildTestPagedScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/true, /*withAttentionMask=*/false,
+            /*withCurPosTensor=*/false, /*withAttentionSink=*/true),
+        buildTestPagedScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/true, /*withAttentionMask=*/false,
+            /*withCurPosTensor=*/false, /*withAttentionSink=*/false,
+            /*scale=*/mlir::Builder(getContext()).getF32FloatAttr(0.125f)),
+        buildTestPagedScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/true, /*withAttentionMask=*/false,
+            /*withCurPosTensor=*/false, /*withAttentionSink=*/false,
+            /*scale=*/{},
+            /*slidingWindowSize=*/
+            mlir::IntegerAttr::get(
+                mlir::IntegerType::get(getContext(), 32,
+                                       mlir::IntegerType::Unsigned),
+                128u)),
+        buildTestPagedScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/true, /*withAttentionMask=*/false,
+            /*withCurPosTensor=*/false, /*withAttentionSink=*/false,
+            /*scale=*/{}, /*slidingWindowSize=*/{},
+            /*programConfig=*/nonDefaultSDPAProgramConfigAttr),
+        buildTestPagedScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/false, /*withAttentionMask=*/true,
+            /*withCurPosTensor=*/true, /*withAttentionSink=*/true,
+            /*scale=*/mlir::Builder(getContext()).getF32FloatAttr(0.25f),
+            /*slidingWindowSize=*/
+            mlir::IntegerAttr::get(
+                mlir::IntegerType::get(getContext(), 32,
+                                       mlir::IntegerType::Unsigned),
+                256u),
+            /*programConfig=*/nonDefaultSDPAProgramConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    PagedScaledDotProductAttentionDecodeOpTPathParityTest,
+    PagedScaledDotProductAttentionDecodeOpTPathParityTest,
+    ::testing::ValuesIn(pagedScaledDotProductAttentionDecodeOpList));
+
+//===----------------------------------------------------------------------===//
+// RotaryEmbeddingLlamaOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(
+    ::tt::target::ttnn::RotaryEmbeddingLlamaOpT &opNativeOpModel,
+    ::tt::target::ttnn::RotaryEmbeddingLlamaOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::RotaryEmbeddingLlamaOpT &op) {
+    op.input.reset();
+    op.cos_cache.reset();
+    op.sin_cache.reset();
+    op.trans_mat.reset();
+    op.out.reset();
+    op.memcfg.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::RotaryEmbeddingLlamaOp buildTestRotaryEmbeddingLlamaOp(
+    bool isDecodeMode = false,
+    mlir::tt::ttnn::DeviceComputeKernelConfigAttr computeConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto inputType = tiledL1BF16Type(defaultShape);
+  auto cosCacheType = tiledL1BF16Type(defaultShape);
+  auto sinCacheType = tiledL1BF16Type(defaultShape);
+  auto transMatType = tiledL1BF16Type(defaultShape);
+  auto outputType = tiledL1BF16Type(defaultShape);
+
+  mlir::Value input =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{inputType},
+                                          mlir::ValueRange{})
+          .getResult();
+  mlir::Value cosCache =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{cosCacheType},
+                                          mlir::ValueRange{})
+          .getResult();
+  mlir::Value sinCache =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{sinCacheType},
+                                          mlir::ValueRange{})
+          .getResult();
+  mlir::Value transMat =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{transMatType},
+                                          mlir::ValueRange{})
+          .getResult();
+
+  return e.builder.create<mlir::tt::ttnn::RotaryEmbeddingLlamaOp>(
+      loc, outputType, input, cosCache, sinCache, transMat, isDecodeMode,
+      computeConfig);
+}
+
+} // namespace
+
+using RotaryEmbeddingLlamaOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::RotaryEmbeddingLlamaOp>;
+
+TEST_P(RotaryEmbeddingLlamaOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::RotaryEmbeddingLlamaOp rotaryOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::RotaryEmbeddingLlamaOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildRotaryEmbeddingLlamaOpTFromMLIR(
+          rotaryOp.getIsDecodeMode(), rotaryOp.getComputeConfig(),
+          resolveOutputLayout(rotaryOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, rotaryOp.getInput(),
+                               rotaryOp.getCosCache(), rotaryOp.getSinCache(),
+                               rotaryOp.getTransMat());
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, rotaryOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::RotaryEmbeddingLlamaOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::RotaryEmbeddingLlamaOp>
+    rotaryEmbeddingLlamaOpList = {
+        buildTestRotaryEmbeddingLlamaOp(),
+        buildTestRotaryEmbeddingLlamaOp(/*isDecodeMode=*/true),
+        buildTestRotaryEmbeddingLlamaOp(
+            /*isDecodeMode=*/false,
+            /*computeConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
+        buildTestRotaryEmbeddingLlamaOp(
+            /*isDecodeMode=*/true,
+            /*computeConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(RotaryEmbeddingLlamaOpTPathParityTest,
+                         RotaryEmbeddingLlamaOpTPathParityTest,
+                         ::testing::ValuesIn(rotaryEmbeddingLlamaOpList));
+
+//===----------------------------------------------------------------------===//
+// RotaryEmbeddingOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::RotaryEmbeddingOpT &opNativeOpModel,
+                       ::tt::target::ttnn::RotaryEmbeddingOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::RotaryEmbeddingOpT &op) {
+    op.input.reset();
+    op.cos_cache.reset();
+    op.sin_cache.reset();
+    op.out.reset();
+    op.memcfg.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::RotaryEmbeddingOp buildTestRotaryEmbeddingOp(
+    mlir::IntegerAttr tokenIndex = {},
+    mlir::tt::ttnn::DeviceComputeKernelConfigAttr computeConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto inputType = tiledL1BF16Type(defaultShape);
+  auto cosCacheType = tiledL1BF16Type(defaultShape);
+  auto sinCacheType = tiledL1BF16Type(defaultShape);
+  auto outputType = tiledL1BF16Type(defaultShape);
+
+  mlir::Value input =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{inputType},
+                                          mlir::ValueRange{})
+          .getResult();
+  mlir::Value cosCache =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{cosCacheType},
+                                          mlir::ValueRange{})
+          .getResult();
+  mlir::Value sinCache =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{sinCacheType},
+                                          mlir::ValueRange{})
+          .getResult();
+
+  return e.builder.create<mlir::tt::ttnn::RotaryEmbeddingOp>(
+      loc, outputType, input, cosCache, sinCache, tokenIndex, computeConfig);
+}
+
+} // namespace
+
+using RotaryEmbeddingOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::RotaryEmbeddingOp>;
+
+TEST_P(RotaryEmbeddingOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::RotaryEmbeddingOp rotaryOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::RotaryEmbeddingOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildRotaryEmbeddingOpTFromMLIR(
+          rotaryOp.getTokenIndex(), rotaryOp.getComputeConfig(),
+          resolveOutputLayout(rotaryOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, rotaryOp.getInput(),
+                               rotaryOp.getCosCache(), rotaryOp.getSinCache());
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, rotaryOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::RotaryEmbeddingOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::RotaryEmbeddingOp>
+    rotaryEmbeddingOpList = {
+        buildTestRotaryEmbeddingOp(),
+        buildTestRotaryEmbeddingOp(
+            /*tokenIndex=*/mlir::IntegerAttr::get(
+                mlir::IntegerType::get(getContext(), 32,
+                                       mlir::IntegerType::Unsigned),
+                42u)),
+        buildTestRotaryEmbeddingOp(
+            /*tokenIndex=*/{},
+            /*computeConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
+        buildTestRotaryEmbeddingOp(
+            /*tokenIndex=*/
+            mlir::IntegerAttr::get(
+                mlir::IntegerType::get(getContext(), 32,
+                                       mlir::IntegerType::Unsigned),
+                42u),
+            /*computeConfig=*/nonDefaultDeviceComputeKernelConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(RotaryEmbeddingOpTPathParityTest,
+                         RotaryEmbeddingOpTPathParityTest,
+                         ::testing::ValuesIn(rotaryEmbeddingOpList));
+
+//===----------------------------------------------------------------------===//
+// ScaledDotProductAttentionDecodeOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(
+    ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT &opNativeOpModel,
+    ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT &op) {
+    op.query.reset();
+    op.key.reset();
+    op.value.reset();
+    op.attention_mask.reset();
+    op.cur_pos_tensor.reset();
+    op.attention_sink.reset();
+    op.out.reset();
+    op.memcfg.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp
+buildTestScaledDotProductAttentionDecodeOp(
+    bool isCausal = true, bool withAttentionMask = false,
+    bool withCurPosTensor = false, bool withAttentionSink = false,
+    mlir::FloatAttr scale = {},
+    mlir::tt::ttnn::SDPAProgramConfigAttr programConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  mlir::Value query = makeOnes();
+  mlir::Value key = makeOnes();
+  mlir::Value value = makeOnes();
+  mlir::Value attentionMask = withAttentionMask ? makeOnes() : mlir::Value();
+  mlir::Value curPosTensor = withCurPosTensor ? makeOnes() : mlir::Value();
+  mlir::Value attentionSink = withAttentionSink ? makeOnes() : mlir::Value();
+
+  return e.builder.create<mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp>(
+      loc, tensorType, query, key, value, isCausal, attentionMask, curPosTensor,
+      attentionSink, scale, programConfig);
+}
+
+} // namespace
+
+using ScaledDotProductAttentionDecodeOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp>;
+
+TEST_P(ScaledDotProductAttentionDecodeOpTPathParityTest,
+       BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp sdpaOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildScaledDotProductAttentionDecodeOpTFromMLIR(
+          sdpaOp.getIsCausal(), sdpaOp.getScale(),
+          sdpaOp.getProgramConfigAttr(), resolveOutputLayout(sdpaOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, sdpaOp.getQuery(), sdpaOp.getKey(),
+                               sdpaOp.getValue());
+  if (sdpaOp.getAttentionMask()) {
+    prepopulateOperandTensorRefs(cache, sdpaOp.getAttentionMask());
+  }
+  if (sdpaOp.getCurPosTensor()) {
+    prepopulateOperandTensorRefs(cache, sdpaOp.getCurPosTensor());
+  }
+  if (sdpaOp.getAttentionSink()) {
+    prepopulateOperandTensorRefs(cache, sdpaOp.getAttentionSink());
+  }
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, sdpaOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::ScaledDotProductAttentionDecodeOp>
+    scaledDotProductAttentionDecodeOpList = {
+        buildTestScaledDotProductAttentionDecodeOp(),
+        buildTestScaledDotProductAttentionDecodeOp(/*isCausal=*/false),
+        buildTestScaledDotProductAttentionDecodeOp(/*isCausal=*/true,
+                                                   /*withAttentionMask=*/true),
+        buildTestScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/true, /*withAttentionMask=*/false,
+            /*withCurPosTensor=*/true),
+        buildTestScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/true, /*withAttentionMask=*/false,
+            /*withCurPosTensor=*/false, /*withAttentionSink=*/true),
+        buildTestScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/true, /*withAttentionMask=*/false,
+            /*withCurPosTensor=*/false, /*withAttentionSink=*/false,
+            /*scale=*/mlir::Builder(getContext()).getF32FloatAttr(0.125f)),
+        buildTestScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/true, /*withAttentionMask=*/false,
+            /*withCurPosTensor=*/false, /*withAttentionSink=*/false,
+            /*scale=*/{},
+            /*programConfig=*/nonDefaultSDPAProgramConfigAttr),
+        buildTestScaledDotProductAttentionDecodeOp(
+            /*isCausal=*/false, /*withAttentionMask=*/true,
+            /*withCurPosTensor=*/true, /*withAttentionSink=*/true,
+            /*scale=*/mlir::Builder(getContext()).getF32FloatAttr(0.125f),
+            /*programConfig=*/nonDefaultSDPAProgramConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    ScaledDotProductAttentionDecodeOpTPathParityTest,
+    ScaledDotProductAttentionDecodeOpTPathParityTest,
+    ::testing::ValuesIn(scaledDotProductAttentionDecodeOpList));
+
+//===----------------------------------------------------------------------===//
+// ScaledDotProductAttentionOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(
+    ::tt::target::ttnn::ScaledDotProductAttentionOpT &opNativeOpModel,
+    ::tt::target::ttnn::ScaledDotProductAttentionOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::ScaledDotProductAttentionOpT &op) {
+    op.query.reset();
+    op.key.reset();
+    op.value.reset();
+    op.attention_mask.reset();
+    op.attention_sink.reset();
+    op.out.reset();
+    op.memcfg.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::ScaledDotProductAttentionOp
+buildTestScaledDotProductAttentionOp(bool isCausal = true,
+                                     bool withAttentionMask = false,
+                                     mlir::FloatAttr scale = {},
+                                     mlir::IntegerAttr slidingWindowSize = {},
+                                     bool withAttentionSink = false) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  mlir::Value query = makeOnes();
+  mlir::Value key = makeOnes();
+  mlir::Value value = makeOnes();
+  mlir::Value attentionMask = withAttentionMask ? makeOnes() : mlir::Value();
+  mlir::Value attentionSink = withAttentionSink ? makeOnes() : mlir::Value();
+
+  return e.builder.create<mlir::tt::ttnn::ScaledDotProductAttentionOp>(
+      loc, tensorType, query, key, value, attentionMask, isCausal, scale,
+      slidingWindowSize, attentionSink);
+}
+
+} // namespace
+
+using ScaledDotProductAttentionOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::ScaledDotProductAttentionOp>;
+
+TEST_P(ScaledDotProductAttentionOpTPathParityTest,
+       BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::ScaledDotProductAttentionOp sdpaOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::ScaledDotProductAttentionOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildScaledDotProductAttentionOpTFromMLIR(
+          sdpaOp.getIsCausal(), sdpaOp.getScale(),
+          sdpaOp.getSlidingWindowSize(), resolveOutputLayout(sdpaOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, sdpaOp.getQuery(), sdpaOp.getKey(),
+                               sdpaOp.getValue());
+  if (sdpaOp.getAttentionMask()) {
+    prepopulateOperandTensorRefs(cache, sdpaOp.getAttentionMask());
+  }
+  if (sdpaOp.getAttentionSink()) {
+    prepopulateOperandTensorRefs(cache, sdpaOp.getAttentionSink());
+  }
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, sdpaOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::ScaledDotProductAttentionOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::ScaledDotProductAttentionOp>
+    scaledDotProductAttentionOpList = {
+        buildTestScaledDotProductAttentionOp(),
+        buildTestScaledDotProductAttentionOp(/*isCausal=*/false),
+        buildTestScaledDotProductAttentionOp(/*isCausal=*/true,
+                                             /*withAttentionMask=*/true),
+        buildTestScaledDotProductAttentionOp(
+            /*isCausal=*/true, /*withAttentionMask=*/false,
+            /*scale=*/mlir::Builder(getContext()).getF32FloatAttr(0.125f)),
+        buildTestScaledDotProductAttentionOp(
+            /*isCausal=*/true, /*withAttentionMask=*/false, /*scale=*/{},
+            /*slidingWindowSize=*/
+            mlir::IntegerAttr::get(
+                mlir::IntegerType::get(getContext(), 32,
+                                       mlir::IntegerType::Unsigned),
+                128u)),
+        buildTestScaledDotProductAttentionOp(
+            /*isCausal=*/true, /*withAttentionMask=*/false, /*scale=*/{},
+            /*slidingWindowSize=*/{},
+            /*withAttentionSink=*/true),
+        buildTestScaledDotProductAttentionOp(
+            /*isCausal=*/false, /*withAttentionMask=*/true,
+            /*scale=*/mlir::Builder(getContext()).getF32FloatAttr(0.125f),
+            /*slidingWindowSize=*/
+            mlir::IntegerAttr::get(
+                mlir::IntegerType::get(getContext(), 32,
+                                       mlir::IntegerType::Unsigned),
+                128u),
+            /*withAttentionSink=*/true),
+};
+
+INSTANTIATE_TEST_SUITE_P(ScaledDotProductAttentionOpTPathParityTest,
+                         ScaledDotProductAttentionOpTPathParityTest,
+                         ::testing::ValuesIn(scaledDotProductAttentionOpList));
+
+//===----------------------------------------------------------------------===//
+// SplitQueryKeyValueAndSplitHeadsOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(
+    ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT &opNativeOpModel,
+    ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT &op) {
+    op.in.reset();
+    op.kv_input.reset();
+    op.memcfg.reset();
+    op.q_out.reset();
+    op.k_out.reset();
+    op.v_out.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp
+buildTestSplitQueryKeyValueAndSplitHeadsOp(bool withKvInputTensor = false,
+                                           uint32_t numHeads = 4u,
+                                           mlir::IntegerAttr numKvHeads = {},
+                                           bool transposeKey = false) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+
+  mlir::Value inputTensor =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                          mlir::ValueRange{})
+          .getResult();
+  mlir::Value kvInputTensor =
+      withKvInputTensor
+          ? e.builder
+                .create<mlir::tt::ttnn::OnesOp>(
+                    loc, mlir::TypeRange{tensorType}, mlir::ValueRange{})
+                .getResult()
+          : mlir::Value();
+
+  return e.builder.create<mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp>(
+      loc, mlir::TypeRange{tensorType, tensorType, tensorType}, inputTensor,
+      kvInputTensor, numHeads, numKvHeads, transposeKey);
+}
+
+} // namespace
+
+using SplitQueryKeyValueAndSplitHeadsOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp>;
+
+TEST_P(SplitQueryKeyValueAndSplitHeadsOpTPathParityTest,
+       BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp sqkvOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildSplitQueryKeyValueAndSplitHeadsOpTFromMLIR(
+          sqkvOp.getNumHeads(), sqkvOp.getNumKvHeads(),
+          sqkvOp.getTransposeKey(),
+          mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
+              mlir::cast<mlir::RankedTensorType>(sqkvOp.getQuery().getType())
+                  .getEncoding()));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, sqkvOp.getInputTensor());
+  if (sqkvOp.getKvInputTensor()) {
+    prepopulateOperandTensorRefs(cache, sqkvOp.getKvInputTensor());
+  }
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, sqkvOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.q_out, opNativeFB.q_out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::SplitQueryKeyValueAndSplitHeadsOp>
+    splitQueryKeyValueAndSplitHeadsOpList = {
+        buildTestSplitQueryKeyValueAndSplitHeadsOp(),
+        buildTestSplitQueryKeyValueAndSplitHeadsOp(/*withKvInputTensor=*/true),
+        buildTestSplitQueryKeyValueAndSplitHeadsOp(/*withKvInputTensor=*/false,
+                                                   /*numHeads=*/8u),
+        buildTestSplitQueryKeyValueAndSplitHeadsOp(
+            /*withKvInputTensor=*/false, /*numHeads=*/4u,
+            /*numKvHeads=*/
+            mlir::IntegerAttr::get(
+                mlir::IntegerType::get(getContext(), 32,
+                                       mlir::IntegerType::Unsigned),
+                2u)),
+        buildTestSplitQueryKeyValueAndSplitHeadsOp(
+            /*withKvInputTensor=*/false, /*numHeads=*/4u, /*numKvHeads=*/{},
+            /*transposeKey=*/true),
+        buildTestSplitQueryKeyValueAndSplitHeadsOp(
+            /*withKvInputTensor=*/true, /*numHeads=*/8u,
+            /*numKvHeads=*/
+            mlir::IntegerAttr::get(
+                mlir::IntegerType::get(getContext(), 32,
+                                       mlir::IntegerType::Unsigned),
+                2u),
+            /*transposeKey=*/true),
+};
+
+INSTANTIATE_TEST_SUITE_P(
+    SplitQueryKeyValueAndSplitHeadsOpTPathParityTest,
+    SplitQueryKeyValueAndSplitHeadsOpTPathParityTest,
+    ::testing::ValuesIn(splitQueryKeyValueAndSplitHeadsOpList));
+
+//===----------------------------------------------------------------------===//
+// NLPConcatHeadsDecodeOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(
+    ::tt::target::ttnn::NLPConcatHeadsDecodeOpT &opNativeOpModel,
+    ::tt::target::ttnn::NLPConcatHeadsDecodeOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::NLPConcatHeadsDecodeOpT &op) {
+    op.in.reset();
+    op.out.reset();
+    op.memcfg.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::NLPConcatHeadsDecodeOp
+buildTestNLPConcatHeadsDecodeOp(uint32_t numHeads = 4u) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto inputType = tiledL1BF16Type(defaultShape);
+  auto outputType = tiledL1BF16Type(defaultShape);
+
+  mlir::Value input =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{inputType},
+                                          mlir::ValueRange{})
+          .getResult();
+
+  return e.builder.create<mlir::tt::ttnn::NLPConcatHeadsDecodeOp>(
+      loc, outputType, input, numHeads);
+}
+
+} // namespace
+
+using NLPConcatHeadsDecodeOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::NLPConcatHeadsDecodeOp>;
+
+TEST_P(NLPConcatHeadsDecodeOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::NLPConcatHeadsDecodeOp nlpOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::NLPConcatHeadsDecodeOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildNLPConcatHeadsDecodeOpTFromMLIR(
+          nlpOp.getNumHeads(), resolveOutputLayout(nlpOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, nlpOp.getInput());
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, nlpOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::NLPConcatHeadsDecodeOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::NLPConcatHeadsDecodeOp>
+    nlpConcatHeadsDecodeOpList = {
+        buildTestNLPConcatHeadsDecodeOp(),
+        buildTestNLPConcatHeadsDecodeOp(/*numHeads=*/8u),
+};
+
+INSTANTIATE_TEST_SUITE_P(NLPConcatHeadsDecodeOpTPathParityTest,
+                         NLPConcatHeadsDecodeOpTPathParityTest,
+                         ::testing::ValuesIn(nlpConcatHeadsDecodeOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL
