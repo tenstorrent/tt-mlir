@@ -31,6 +31,7 @@ from ._src.builder import (
     view,
     permute,
     reshape,
+    spatial,
     to_host,
 )
 from ._src.rewrite import (

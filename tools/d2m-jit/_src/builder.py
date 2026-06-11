@@ -139,6 +139,8 @@ def _pipeline_passes():
     """
     passes = [
         "canonicalize",
+        "d2m-materialize-view-returns",
+        "canonicalize",
         "d2m-lower-to-layout",
         "canonicalize",
         "ttir-bufferization-pipeline",
@@ -324,6 +326,155 @@ class RewriteScope:
         with self.ctx, self.loc, self.insert_point:
             idx_ty = IndexType.get(self.ctx)
             return arith.ConstantOp(idx_ty, IntegerAttr.get(idx_ty, int(value))).result
+
+
+def _has_nonzero_offset(offset):
+    return any(coord != 0 for coord in offset)
+
+
+def _add_affine_const(expr, value, ctx):
+    if value == 0:
+        return expr
+    return AffineExpr.get_add(expr, AffineExpr.get_constant(value, ctx))
+
+
+def _spatial_grid_maps(ctx, offset):
+    if len(offset) != 2:
+        raise ValueError(f"d2m.spatial grid offset must be 2D, got {offset}")
+
+    d0 = AffineDimExpr.get(0)
+    d1 = AffineDimExpr.get(1)
+    zero = AffineExpr.get_constant(0, ctx)
+    forward_map = AffineMap.get(
+        2,
+        0,
+        [
+            zero,
+            _add_affine_const(d0, offset[0], ctx),
+            _add_affine_const(d1, offset[1], ctx),
+        ],
+    )
+    inverse_map = AffineMap.get(
+        2,
+        0,
+        [
+            zero,
+            _add_affine_const(d0, -offset[0], ctx),
+            _add_affine_const(d1, -offset[1], ctx),
+        ],
+    )
+    return forward_map, inverse_map
+
+
+def _spatial_empty_vgm_maps(ctx, grid_rank, offset):
+    if grid_rank != 2:
+        raise ValueError(f"d2m.spatial only supports 2D nested grids, got {grid_rank}D")
+    if len(offset) != 2:
+        raise ValueError(f"d2m.spatial grid offset must be 2D, got {offset}")
+
+    dims = [AffineDimExpr.get(i) for i in range(2 * grid_rank)]
+    inverse_map = _spatial_grid_maps(ctx, offset)[1]
+    forward_map = AffineMap.get(
+        2 * grid_rank,
+        0,
+        [
+            _add_affine_const(dims[0], offset[0], ctx),
+            _add_affine_const(dims[1], offset[1], ctx),
+            dims[2],
+            dims[3],
+        ],
+    )
+    return inverse_map, forward_map
+
+
+class _SpatialRegionScope:
+    """Build-scope view for one region of a `d2m.spatial` op.
+
+    Kernel calls inside the region still share the parent lazy builder's
+    function arguments and generation, but they insert into the spatial region
+    and defer LazyTensor rebinding until the enclosing spatial op is complete.
+    """
+
+    def __init__(
+        self, parent, insert_point, spatial_op, output_lts, grid_shape, offset
+    ):
+        self.parent = parent
+        self.ctx = parent.ctx
+        self.loc = parent.loc
+        self.insert_point = insert_point
+        self.generation = parent.generation
+        self.spatial_op = spatial_op
+        self.output_lts = list(output_lts)
+        self._output_index_by_id = {id(lt): i for i, lt in enumerate(output_lts)}
+        self._remapped_outputs = {}
+        self.grid_shape = list(grid_shape)
+        self.offset = list(offset)
+        self.defer_kernel_output_rebind = True
+        self.disallow_kernel_io_in_dram = True
+        self.emitted_generics = []
+
+    def add_host_input(self, layout, host_tensor):
+        return self.parent.add_host_input(layout, host_tensor)
+
+    def add_scalar_input(self, value: int):
+        return self.parent.add_scalar_input(value)
+
+    def capture_kernel_generic(self, emitted):
+        self.emitted_generics.append(emitted)
+
+    def validate_grid(self, grid):
+        grid = list(grid)
+        if len(grid) != 2:
+            raise ValueError(
+                f"d2m.spatial only supports 2D nested generic grids, got {grid}"
+            )
+        if grid[0] > self.grid_shape[0] or grid[1] > self.grid_shape[1]:
+            raise ValueError(
+                f"nested generic grid {grid} exceeds spatial region shape "
+                f"{self.grid_shape}"
+            )
+
+    def grid_attr(self, grid):
+        grid = list(grid)
+        if not _has_nonzero_offset(self.offset):
+            return ttcore.ir.GridAttr.get(self.ctx, grid)
+        forward_map, inverse_map = _spatial_grid_maps(self.ctx, self.offset)
+        return ttcore.ir.GridAttr.get(self.ctx, grid, forward_map, inverse_map)
+
+    def remap_output(self, lt: "LazyTensor", grid):
+        if not _has_nonzero_offset(self.offset):
+            return lt
+
+        output_idx = self._output_index_by_id.get(id(lt))
+        if output_idx is None:
+            raise ValueError(
+                "d2m.spatial region kernel writes an output that was not listed "
+                "in d2m.spatial(outputs=...)"
+            )
+
+        if output_idx not in self._remapped_outputs:
+            inverse_map, forward_map = _spatial_empty_vgm_maps(
+                self.ctx, len(grid), self.offset
+            )
+            with self.ctx, self.loc, InsertionPoint(self.spatial_op.operation):
+                remapped_value = d2m.empty(
+                    lt.value.type,
+                    virtual_grid_inverse_mapping=inverse_map,
+                    virtual_grid_forward_mapping=forward_map,
+                )
+            spatial_output_operand_idx = len(self.spatial_op.inputs) + output_idx
+            self.spatial_op.operation.operands[
+                spatial_output_operand_idx
+            ] = remapped_value
+            self._remapped_outputs[output_idx] = remapped_value
+
+        return LazyTensor(
+            lt.layout,
+            self._remapped_outputs[output_idx],
+            lt.generation,
+            materialized=lt.materialized,
+            is_view=lt.is_view,
+        )
 
 
 # --- LazyTensor --------------------------------------------------------------
@@ -915,6 +1066,157 @@ def permute(lt: LazyTensor, *dims) -> LazyTensor:
     return _emit_perm_view(lt, list(dims))
 
 
+def _require_int(value, what):
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise TypeError(f"{what} must be an int, got {type(value).__name__}")
+    return value
+
+
+def _core_range_array_attr(ctx, grid_ranges):
+    range_attrs = []
+    normalized = []
+    for i, grid_range in enumerate(grid_ranges):
+        try:
+            start_yx, end_yx = grid_range
+            sy, sx = start_yx
+            ey, ex = end_yx
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "grid_ranges entries must be ((start_y, start_x), "
+                f"(end_y, end_x)) pairs, got {grid_range!r} at index {i}"
+            ) from exc
+        sy = _require_int(sy, f"grid_ranges[{i}].start_y")
+        sx = _require_int(sx, f"grid_ranges[{i}].start_x")
+        ey = _require_int(ey, f"grid_ranges[{i}].end_y")
+        ex = _require_int(ex, f"grid_ranges[{i}].end_x")
+        if ey < sy or ex < sx:
+            raise ValueError(
+                f"grid_ranges[{i}] end ({ey}, {ex}) must be greater than "
+                f"or equal to start ({sy}, {sx})"
+            )
+        range_attrs.append(
+            Attribute.parse(f"#ttcore.core_range<({sy}, {sx}), ({ey}, {ex})>", ctx)
+        )
+        normalized.append(((sy, sx), (ey, ex)))
+    return ArrayAttr.get(range_attrs), normalized
+
+
+def _resolve_lazy_tensor_sequence(values, name):
+    if isinstance(values, LazyTensor):
+        raise TypeError(f"{name} must be a sequence of LazyTensor objects")
+    try:
+        seq = list(values)
+    except TypeError as exc:
+        raise TypeError(f"{name} must be a sequence of LazyTensor objects") from exc
+    for i, value in enumerate(seq):
+        if not isinstance(value, LazyTensor):
+            raise TypeError(
+                f"{name}[{i}] must be a LazyTensor, got {type(value).__name__}"
+            )
+    return [value._resolve() for value in seq]
+
+
+def spatial(inputs, outputs, grid_ranges, region_builders):
+    """Emit a `d2m.spatial` op around one kernel call per region.
+
+    Args:
+      inputs: LazyTensor inputs referenced by the nested kernels.
+      outputs: LazyTensor outputs produced by the nested kernels. The flattened
+        order must match the order the region kernels write their outputs.
+      grid_ranges: One inclusive `((start_y, start_x), (end_y, end_x))` core
+        range per region.
+      region_builders: One zero-argument callable per region. Each callable
+        must emit exactly one `@d2m.kernel` call.
+
+    Returns the output LazyTensors after rebinding them to the spatial results.
+    """
+    b = _get_scope()
+    if not hasattr(b, "module") and not isinstance(b, RewriteScope):
+        raise RuntimeError("d2m.spatial() requires a lazy builder-like scope")
+
+    try:
+        builders = list(region_builders)
+    except TypeError as exc:
+        raise TypeError("region_builders must be a sequence of callables") from exc
+    if not builders:
+        raise ValueError("region_builders must contain at least one callable")
+    for i, builder_fn in enumerate(builders):
+        if not callable(builder_fn):
+            raise TypeError(
+                f"region_builders[{i}] must be callable, got "
+                f"{type(builder_fn).__name__}"
+            )
+
+    try:
+        ranges = list(grid_ranges)
+    except TypeError as exc:
+        raise TypeError("grid_ranges must be a sequence") from exc
+    if len(ranges) != len(builders):
+        raise ValueError(
+            f"grid_ranges has {len(ranges)} entries but region_builders has "
+            f"{len(builders)}"
+        )
+
+    input_lts = _resolve_lazy_tensor_sequence(inputs, "inputs")
+    output_lts = _resolve_lazy_tensor_sequence(outputs, "outputs")
+    if not output_lts:
+        raise ValueError("outputs must contain at least one LazyTensor")
+
+    emitted_generics = []
+    with b.ctx, b.loc, b.insert_point:
+        grid_ranges_attr, normalized_ranges = _core_range_array_attr(b.ctx, ranges)
+        result_types = [lt.value.type for lt in output_lts]
+        spatial_op = d2m.SpatialOp(
+            result_types,
+            [lt.value for lt in input_lts],
+            [lt.value for lt in output_lts],
+            grid_ranges_attr,
+            len(builders),
+        )
+
+        for region_idx, build_region in enumerate(builders):
+            block = Block.create_at_start(spatial_op.regions[region_idx], [], [])
+            (sy, sx), (ey, ex) = normalized_ranges[region_idx]
+            region_scope = _SpatialRegionScope(
+                b,
+                InsertionPoint(block),
+                spatial_op,
+                output_lts,
+                grid_shape=[ey - sy + 1, ex - sx + 1],
+                offset=[sy, sx],
+            )
+            with _push_scope(region_scope):
+                build_region()
+            if len(region_scope.emitted_generics) != 1:
+                raise ValueError(
+                    "each d2m.spatial region must emit exactly one "
+                    f"@d2m.kernel call, got {len(region_scope.emitted_generics)} "
+                    f"in region {region_idx}"
+                )
+            emitted = region_scope.emitted_generics[0]
+            emitted_generics.append(emitted)
+            with region_scope.insert_point:
+                d2m.spatial_yield(list(emitted.generic.results))
+
+    emitted_outputs = []
+    for emitted in emitted_generics:
+        emitted_outputs.extend(emitted.user_output_lts)
+    if len(emitted_outputs) != len(output_lts) or any(
+        actual is not expected for actual, expected in zip(emitted_outputs, output_lts)
+    ):
+        raise ValueError(
+            "d2m.spatial outputs must match the region kernel outputs in "
+            "flattened region order"
+        )
+
+    for i, lt in enumerate(output_lts):
+        lt.value = spatial_op.results[i]
+        lt.generation = b.generation
+        lt.materialized = None
+        lt.is_view = False
+    return tuple(output_lts)
+
+
 # --- Materialisation ---------------------------------------------------------
 
 
@@ -944,7 +1246,7 @@ def _run_pipeline(b: _Builder):
         print(f"[d2m-jit] pipeline: {pipeline_str}")
     if config.print_ir_before_pipeline:
         print("[d2m-jit] IR before pipeline:")
-        print(b.module)
+        print(b.module.operation.get_asm(assume_verified=True))
 
     pm = PassManager.parse(pipeline_str, context=b.ctx)
     pm.enable_verifier(config.verify_passes)
@@ -1089,7 +1391,6 @@ def to_host(*lts: LazyTensor):
     assert all(lt.generation == b.generation for lt in resolved)
 
     _emit_returns_and_finalise(b, resolved)
-    b.module.operation.verify()
     _run_pipeline(b)
     outs = _execute(b, resolved)
 
@@ -1213,6 +1514,31 @@ def _to_dram_kernel_arg(lt: LazyTensor) -> LazyTensor:
     return to_layout(lt, lt.layout.replace(mem_space=ttcore.MemorySpace.DeviceDRAM))
 
 
+class _EmittedKernelGeneric:
+    __slots__ = ("generic", "input_lts", "output_lts", "user_output_lts")
+
+    def __init__(self, generic, input_lts, output_lts, user_output_lts):
+        self.generic = generic
+        self.input_lts = input_lts
+        self.output_lts = output_lts
+        self.user_output_lts = user_output_lts
+
+
+def _get_spatial_kernel_yield_values(block, outputs):
+    latest_store_results = [None] * len(outputs)
+    for op in block.operations:
+        if op.name != "d2m.remote_store" or not op.results:
+            continue
+        stored_output = op.operands[0]
+        for i, output in enumerate(outputs):
+            if stored_output == output:
+                latest_store_results[i] = op.results[0]
+    return [
+        store_result if store_result is not None else output
+        for store_result, output in zip(latest_store_results, outputs)
+    ]
+
+
 def _emit_kernel_generic(
     kernel: "CompiledKernel",
     args,
@@ -1292,6 +1618,15 @@ def _emit_kernel_generic(
             f"kernel_io_in_dram must be a bool, got {type(kernel_io_in_dram).__name__}",
             cause=TypeError(),
         )
+    if kernel_io_in_dram and getattr(b, "disallow_kernel_io_in_dram", False):
+        raise _call_error(
+            "kernel_io_in_dram is not supported inside d2m.spatial",
+            hint=(
+                "Pass kernel_io_in_dram=False for kernels called from "
+                "d2m.spatial, or temporarily disable d2m.config.kernel_io_in_dram."
+            ),
+            cause=ValueError(),
+        )
 
     if kernel_io_in_dram:
         dram_arg_cache = {}
@@ -1328,6 +1663,14 @@ def _emit_kernel_generic(
     else:
         effective_captures = kernel._captures
         runtime_scalars = list(scalar_args)
+    grid = list(grid)
+    validate_grid = getattr(b, "validate_grid", None)
+    if validate_grid is not None:
+        validate_grid(grid)
+    remap_output = getattr(b, "remap_output", None)
+    if remap_output is not None:
+        output_lts = [remap_output(lt, grid) for lt in output_lts]
+        lazy_args = input_lts + output_lts
 
     # Compile the kernel body in the current builder's context. D2MCompiler
     # picks up b.ctx via get_default_loc_context.
@@ -1359,19 +1702,40 @@ def _emit_kernel_generic(
         threads = ArrayAttr.get(
             [compiler.func_entry.attributes[d2m.ir.ThreadAttr.name]]
         )
-        grid_attr = ttcore.ir.GridAttr.get(b.ctx, list(grid))
+        build_grid_attr = getattr(b, "grid_attr", None)
+        grid_attr = (
+            build_grid_attr(grid)
+            if build_grid_attr is not None
+            else ttcore.ir.GridAttr.get(b.ctx, grid)
+        )
 
         bf = list(block_factors or [])
         if bf and isinstance(bf[0], tuple):
             bf = [v for tup in bf for v in tup]
 
-        indexing_attrs = [_affine_map_from_lambda(f)[0] for f in (indexing_maps or [])]
+        use_default_spatial_parallelization = (
+            getattr(b, "defer_kernel_output_rebind", False)
+            and block_factors is None
+            and indexing_maps is None
+            and iterator_types is None
+        )
+        if use_default_spatial_parallelization:
+            rank = len(grid)
+            bf = [1] * rank
+            identity = AffineMap.get_identity(rank)
+            indexing_attrs = [identity] * (len(inputs) + len(outputs))
+            iterator_values = ["parallel"] * rank
+        else:
+            indexing_attrs = [
+                _affine_map_from_lambda(f)[0] for f in (indexing_maps or [])
+            ]
+            iterator_values = list(iterator_types or [])
         iter_attr = ArrayAttr.get(
             [
                 ttcore.ir.IteratorTypeAttr.get(
                     b.ctx, ttcore.IteratorType[i.title()].value
                 )
-                for i in (iterator_types or [])
+                for i in iterator_values
             ]
         )
 
@@ -1399,6 +1763,17 @@ def _emit_kernel_generic(
             orig_arg.replace_all_uses_with(op)
         for _ in range(len(block.arguments)):
             block.erase_argument(0)
+        if use_default_spatial_parallelization:
+            yield_values = _get_spatial_kernel_yield_values(block, outputs)
+            with InsertionPoint(block):
+                d2m.yield_(yield_values)
+
+    emitted = _EmittedKernelGeneric(generic, input_lts, output_lts, user_output_lts)
+    capture = getattr(b, "capture_kernel_generic", None)
+    if capture is not None:
+        capture(emitted)
+    if getattr(b, "defer_kernel_output_rebind", False):
+        return emitted
 
     # Rebind output LazyTensors to the GenericOp's results.
     for i, lt in enumerate(output_lts):
@@ -1411,6 +1786,7 @@ def _emit_kernel_generic(
             user_lt.generation = b.generation
             user_lt.materialized = None
             user_lt.is_view = kernel_lt.is_view
+    return emitted
 
 
 class CompiledKernel:
