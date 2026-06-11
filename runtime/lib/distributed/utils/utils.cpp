@@ -67,7 +67,7 @@ getTTRunCommand(uint16_t port,
   const char *wrapperEnv = std::getenv("TTNN_WORKER_WRAPPER");
   std::string workerWrapper = wrapperEnv ? wrapperEnv : "";
 
-  oss << "./ttnn/ttnn/distributed/ttrun.py " << multiProcessArgs.toArgString()
+  oss << "./ttnn/ttnn/distributed/ttrun.py --verbose " << multiProcessArgs.toArgString()
       << " ";
 
   if (!workerWrapper.empty()) {
