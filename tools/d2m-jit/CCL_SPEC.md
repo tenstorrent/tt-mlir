@@ -822,9 +822,10 @@ path never exercised on-device — `(1,8)` is filtered out on this 2-chip n300).
    | device_synchronize | end `semaphore_wait` | result |
    | --- | --- | --- |
    | removed | removed | **PASS, PCC=1.0** |
+   | removed | `wait(1)` | hang |
    | removed | `wait(2)` | hang |
-   | present | `wait(2)` | hang |
    | present | `wait(1)` | hang |
+   | present | `wait(2)` | hang |
 
    The presence of the end `semaphore_wait` alone flips PASS→hang, *independent
    of `device_synchronize`* — so the hang is the **end wait**, not the start
@@ -842,13 +843,38 @@ path never exercised on-device — `(1,8)` is filtered out on this 2-chip n300).
    reaches exactly `num_devices`; the DSL fails because *no* increment lands, so
    no wait value would pass.)
 
-   **Next step:** read the end-semaphore L1 value on the hang (confirm 0) and
-   trace why the emitted `noc_semaphore_inc` / `fabric_mcast_sem_inc` don't reach
-   the `semaphore_wait` slot in the single-`datamovement`-thread DSL kernel —
-   candidates: a semaphore address/handle mismatch between the inc and the wait,
-   or the inc being scheduled/placed such that it doesn't execute before the
-   wait. The rewriter path works e2e and is the supported route today; the DSL
-   port (`test_all_gather_1x2_roundtrip`) stays skipped pending this follow-up.
+   The clean rows (device_synchronize *removed*, so no start-barrier confound)
+   hang at **both** `wait(1)` and `wait(2)`, so the end semaphore is genuinely
+   **stuck at 0** — not undershoot-at-2 / overshoot-at-1.
+
+   **Slot trace (done, no handle mismatch).** Dumped the lowered EmitC for the
+   datamovement kernel and traced the end-semaphore ops:
+   - end `semaphore_wait` polls `reinterpret_cast<uint32_t*>(%11)` where `%11 =
+     get_compile_time_arg_val(1)` = end_sem's L1 address (LOCAL core pointer).
+   - end `fabric_mcast_sem_inc` and the local `noc_semaphore_inc` both write
+     `noc_addr = get_noc_unicast_addr(convert_logical_x/y_to_translated(0),
+     %11)` — i.e. the **same** semaphore `%11`, at translated logical core (0,0).
+   - the local self-inc's in-range gate folds to `mesh_pos(axis1) <= 1`, always
+     true, so it *does* execute; and the watcher confirms the kernel runs on
+     worker (0,0).
+
+   So inc and wait reference the **same semaphore and (nominally) the same
+   core**, yet the sem stays 0. The local `noc_semaphore_inc`'s NOC write isn't
+   landing at the L1 slot the `semaphore_wait` polls. Prime suspect: a
+   **coordinate-space mismatch** — the inc addresses the core via
+   `convert_logical_to_translated(0)` (a fabric/translated coord) while the wait
+   reads the core's local L1 pointer directly; if translated(0) ≠ the kernel's
+   physical/virtual core, the NOC self-inc lands on a different core's L1. The
+   rewriter avoids this (its single-thread→split CB structure / coord handling
+   differs).
+
+   **Next step:** read the end-sem L1 value on the hang to confirm 0, and compare
+   the *physical* core the `noc_semaphore_inc` resolves to against the core the
+   `semaphore_wait` reads (the logical→translated vs logical→virtual coordinate
+   path for a self-targeted global-semaphore inc). This is deep NOC-coordinate /
+   tt-metal plumbing work. The rewriter path works e2e and is the supported route
+   today; the DSL port (`test_all_gather_1x2_roundtrip`) stays skipped pending
+   this follow-up.
 
    The test is `@pytest.mark.skip`ped (a device-hang can't be `xfail`'d — it
    would time out the suite) with the correct algorithm + the load→store fix
