@@ -23,11 +23,13 @@ transfers with no device-layout requirement**, mapping straight to `dma_read`/
    and reuse the buffer — O(one tile) resident, not O(whole shard). This is the
    pull-and-forward stream the atomic gather couldn't express.
 
-PR #8531 already added the underlying mechanism: a `dma_read` mode whose NoC
-source is another core (`srcCore`), with "no device-layout requirement on the
-source buffer". This spec exposes that (and its write dual) as first-class ops
-instead of burying it inside the `gather_core` collective. `gather_core` is
-explicitly **out of scope** here.
+PR #8531 demonstrated the underlying NoC mechanism (a cross-core local-L1 read,
+"no device-layout requirement on the source buffer") by adding a `srcCore` mode
+to `dma_read` and consuming it from the `gather_core` collective. We take the
+same mechanism but expose it as **standalone primitive ops that lower directly
+to the NoC** (see "Lowering" below) rather than threading it through `dma_read` —
+`core_read`/`core_write` don't need any of `dma_read`'s device-layout addressing
+machinery. `gather_core` is explicitly **out of scope** here.
 
 ## Ops
 
@@ -70,8 +72,8 @@ Symmetric: write this core's local buffer into another core's local buffer.
 `core_write` is the push dual of `core_read`. The matmul→all_gather pattern
 below only needs `core_read` (the fabric core pulls); `core_write` is specced
 for completeness and for push-style collectives. **Implement `core_read`
-first** — PR #8531 already added the `dma_read` source-core mode; the
-`dma_write` dest-core mode for `core_write` still needs adding.
+first** (a `noc_async_read` lowering); `core_write` is the symmetric
+`noc_async_write` and can follow.
 
 ## Operands / traits (tablegen sketch)
 
@@ -89,11 +91,12 @@ def D2M_CoreReadOp : D2M_GenericRegionDatamovementOp<"core_read",
 ```
 
 - Not a `ShardDMAOpInterface` (no CB-port/shard semantics) — distinct from
-  `remote_load`. It is `Synchronizable` (carries the DM/compute handshake) and
-  `DestinationStyle` (tensor form aliases `%dst`, like `remote_load`).
-- `numElems`/`dstIndices`: support the shard-level (whole buffer, `numElems==0`)
-  and fully-indexed forms, matching `dma_read`, so `LowerDMAToFullyIndexedForm`
-  can expand it.
+  `remote_load`, and so the DMA-addressing passes (`ScheduleDMA`,
+  `LowerDMAToFullyIndexedForm`, `D2MOptimizeDMA`) ignore it (they pattern-match
+  `ShardDMAOpInterface`/`dma_read`). It is `Synchronizable` (carries the
+  DM/compute handshake) and `DestinationStyle` (tensor form aliases `%dst`).
+- Whole-buffer transfer only: no per-tile `dstIndices`/`numElems` indexing — the
+  byte count is the buffer volume and the offset is the buffer's L1 base.
 
 ## The uniform-L1-offset invariant
 
@@ -104,36 +107,52 @@ allocator (`D2MAllocate`) must place these buffers identically across cores;
 buffers that can't satisfy it (e.g. per-core-variable allocations) are illegal
 operands — enforce in the verifier where detectable, document otherwise.
 
-## Lowering
+## Lowering — direct to ttkernel (no `dma_read`)
 
-- `core_read` → `dma_read` with the cross-core source mode from PR #8531: same
-  L1 layout as local mode (no grid component, uniform offset), NoC source =
-  `srcCore`. No device-layout requirement on `%src`. Reuse #8531's
-  `LowerLoadStoreOpsToDMA` / `LowerDMAToFullyIndexedForm` additions as-is where
-  possible.
-- `core_write` → `dma_write` with a symmetric dest-core mode (**to add**: #8531
-  only did the read side).
-- `srcCore`/`dstCore` are logical grid coords; the existing
-  `mapVirtualToPhysicalCoreIndex` (moved to D2M Utils by #8531) converts to
-  physical NoC coords at `GenericRegionsToFuncs`.
+`core_read`/`core_write` **survive the whole backend pipeline unchanged** and
+lower directly in `D2MToTTKernel`. They are *not* routed through `dma_read`/
+`dma_write`: that op family exists to resolve device-layout (grid/shard)
+addressing — affine memory maps, shard→fully-indexed expansion, multicast — none
+of which `core_read` needs. `core_read`'s addressing is trivial (a whole buffer
+at the uniform L1 base, a source given by a core coordinate), so routing it
+through `dma_read` only bolts a foreign addressing mode onto that op and drags it
+through an indexing pass that recomputes an offset the op already knows.
+
+`D2MToTTKernel` lowering (one focused rewriter each):
+- `core_read`: `get_noc_addr(phys(srcCore), srcBase)` → `noc_async_read` into
+  `dstBase`, size = buffer volume; then the usual read-barrier (`noc_async_read_barrier`
+  / `dma_wait`). Mirrors the existing `dma_read` *local-to-local* lowering, but
+  with `srcCore` (mapped logical→physical via `getVirtualCoordsFromLogicalCoords`)
+  as the source NoC coordinate instead of `my_logical_y/x`.
+- `core_write`: symmetric `noc_async_write` to `get_noc_addr(phys(dstCore), dstBase)`.
+
+`srcBase`/`dstBase` are the buffers' concrete L1 addresses, which `D2MAllocate`
+stamps into the memrefs before `D2MToTTKernel` (the precedent is the `dma_read`
+local form, which reads memref bases the same way). This relies on the
+uniform-L1-offset invariant above.
+
+The intermediate backend passes need no changes — they pattern-match the
+`dma_read`/`ShardDMAOpInterface` family and fall through on `core_read`/
+`core_write`. The only passes that must know about the ops are the thread-split
+ones (below).
 
 ## Thread-split / scheduling behavior
 
 These are datamovement ops, so the work already landed this session applies
 directly:
 
-- **DM-resident**: classified onto the datamovement thread by
-  `split-unified-thread-v2` (`collectOpsToErase`) and kept on a DM thread by
-  `ScheduleDMA` — same bucket as `ShardDMAOpInterface` / `device_synchronize`.
-  (They are not `ShardDMAOpInterface`, so add them to the DM-resident `isa<>`
-  lists alongside the existing DMA ops.)
-- **scf.if-gatable**: the passes now recurse into `scf.if` (committed
-  `8fa5c4d71a`), so `if core == collector { ...core_read...; remote_store }`
-  lowers onto the DM thread inside the guard.
-- **collectDMAOps / filterOpsForThread**: decide whether `core_read`/`write`
-  participate in the NoC-processor split. Simplest first cut: treat a kernel
-  containing them like the explicit-semaphore case (single DM thread, Option D)
-  to avoid cross-thread duplication until the streaming sync is proven.
+- **DM-resident**: add `core_read`/`core_write` to the DM-resident `isa<>` list
+  in `split-unified-thread-v2` (`collectOpsToErase`) so they stay on the
+  datamovement thread and are erased from compute — alongside
+  `ShardDMAOpInterface` / `DeviceSynchronizeOp` / the semaphore mutations.
+- **scf.if-gatable**: the passes recurse into `scf.if` (committed `8fa5c4d71a`),
+  so `if core == collector { ...core_read...; remote_store }` lowers onto the DM
+  thread inside the guard.
+- **NoC-processor split**: `ScheduleDMA` ignores `core_read`/`core_write` (not
+  `ShardDMAOpInterface`). First cut: keep kernels containing them single-DM-thread
+  (Option D — the same guard already added for explicit semaphore mutations) so
+  there's no NoC-split interaction to reason about until the streaming sync is
+  proven.
 
 ## Synchronization contract
 
@@ -195,8 +214,8 @@ forms); they emit `d2m.core_read`/`d2m.core_write`.
 
 ## Open questions
 
-- **dma_write dest-core mode** for `core_write` — confirm scope of adding it
-  (PR #8531 added read only).
+- **`core_write` lowering** — the symmetric `noc_async_write`; straightforward
+  once `core_read` is proven.
 - **Allocator guarantee** of identical L1 offsets for these buffers — does
   `D2MAllocate` already place in-kernel scratch / CBs uniformly across the grid,
   or does it need a constraint?
