@@ -2313,7 +2313,7 @@ TEST_P(OpModelLinearParam, LinearParam) {
 
   auto runtimeExp = OpModel<LinearOp>::getOpRuntime(
       inputShapeA, inputLayoutA, inputShapeB, inputLayoutB, biasShape,
-      biasLayout, outputLayout, false, false);
+      biasLayout, outputLayout, false, false, /*activation=*/std::nullopt);
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (expectedLegal) {
     EXPECT_TRUE(runtimeExp.get() > 0);
@@ -2532,9 +2532,9 @@ TEST_P(OpModelMatmulParam, MatmulParam) {
     llvm::consumeError(constraintsExp.takeError());
   }
 
-  auto runtimeExp =
-      OpModel<MatmulOp>::getOpRuntime(inputShapeA, inputLayoutA, inputShapeB,
-                                      inputLayoutB, outputLayout, false, false);
+  auto runtimeExp = OpModel<MatmulOp>::getOpRuntime(
+      inputShapeA, inputLayoutA, inputShapeB, inputLayoutB, outputLayout, false,
+      false, /*activation=*/std::nullopt);
   EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
   if (expectedLegal) {
     EXPECT_TRUE(runtimeExp.get() > 0);
