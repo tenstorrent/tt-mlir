@@ -368,14 +368,20 @@ static LogicalResult insertComputeCBOpsV2(GenericOp generic,
   });
 
   // Compute consume/produce via synchronizable compute ops (tile_*_block etc.).
+  // RemoteLoad/RemoteStore are DM partners (handled via dmLoad/dmStore above),
+  // and core_read is a DM-only op (its src/dst are DM-internal: a core->core
+  // NoC read, erased from the compute thread later) -- none of them make a CB
+  // compute-resident, so they must not mark produced/consumed here. Otherwise a
+  // CB touched only by DM ops gets a bogus compute handshake and the DM thread
+  // double-waits it (deadlock).
   for (auto &[cb, usage] : utils::getCBUsageInfo(computeRegion)) {
     for (Operation *p : usage.producers) {
-      if (!isa<RemoteLoadOp, RemoteStoreOp>(p)) {
+      if (!isa<RemoteLoadOp, RemoteStoreOp, CoreReadOp>(p)) {
         cbs[cb].produced = true;
       }
     }
     for (Operation *c : usage.consumers) {
-      if (!isa<RemoteLoadOp, RemoteStoreOp>(c)) {
+      if (!isa<RemoteLoadOp, RemoteStoreOp, CoreReadOp>(c)) {
         cbs[cb].consumed = true;
       }
     }
