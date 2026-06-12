@@ -212,10 +212,17 @@ forms); they emit `d2m.core_read`/`d2m.core_write`.
 - same element type, same shape on src/dst.
 - (best-effort) flag operands that can't meet the uniform-L1-offset invariant.
 
+## Status
+
+Both `core_read` and `core_write` are implemented and validated end-to-end on
+device (grid-(1,2) cross-core gather/scatter, PCC-correct): op def + verifier +
+bufferization, direct `noc_async_read`/`noc_async_write` lowering in
+D2MToTTKernel, DM-resident + single-DM-thread (Option D) split wiring with the CB
+produce (core_read) / consume (core_write) handshake, and the DSL builtins. See
+`test/d2m-jit/test_semaphore.py`.
+
 ## Open questions
 
-- **`core_write` lowering** — the symmetric `noc_async_write`; straightforward
-  once `core_read` is proven.
 - **Allocator guarantee** of identical L1 offsets for these buffers — does
   `D2MAllocate` already place in-kernel scratch / CBs uniformly across the grid,
   or does it need a constraint?
