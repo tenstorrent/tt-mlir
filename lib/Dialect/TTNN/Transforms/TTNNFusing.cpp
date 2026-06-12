@@ -333,8 +333,17 @@ public:
           &getContext(), validationConfig);
       patterns.add<fusing::SplitQueryKeyValueAndSplitHeadsFusing<LinearOp>>(
           &getContext(), validationConfig);
-      patterns.add<fusing::NLPCreateQKVHeadsDecodeFusing>(&getContext(),
-                                                          validationConfig);
+      // Generalized tile-fill reorder ONLY (entries #3/#4). Co-registering
+      // NLPCreateQKVHeadsDecodeFusing is pointless here: the reorder sinks the
+      // [B,H,1,D] -> [1,B,H,D] reshape onto the split output, which is exactly
+      // NLP's trigger, so the two together collapse into the decode op and
+      // re-introduce the sharded<->interleaved round-trips (the entry #3
+      // regression). The reorder alone keeps everything interleaved, tile-fills
+      // the per-head RMSNorm + partial RoPE, and shares the cos/sin head
+      // broadcast across layers (no per-layer host dispatch).
+      patterns.add<fusing::QKVDecodeNormRopeReorderFusing>(&getContext());
+      // patterns.add<fusing::NLPCreateQKVHeadsDecodeFusing>(&getContext(),
+      //                                                     validationConfig);
     }
 #endif // TTMLIR_ENABLE_OPMODEL
 
