@@ -297,10 +297,13 @@ public:
     // to one DM thread + local-barrier the observers) until that lands; see the
     // TODO in DMAUtils.cpp's checkForIllegalSemaphoreOps and
     // tools/d2m-jit/unified_semaphore_design.md.
-    bool hasExplicitSemaphoreMutation = false;
+    // core_read (a core->core NoC read) is also kept single-DM-thread for now:
+    // it is not a ShardDMAOpInterface so it would not be assigned/filtered by a
+    // NOC split, and the streaming sync against it is not yet proven.
+    bool keepSingleDMThread = false;
     dmBlock->walk([&](Operation *op) {
-      if (isa<SemaphoreIncOp, SemaphoreSetOp>(op)) {
-        hasExplicitSemaphoreMutation = true;
+      if (isa<SemaphoreIncOp, SemaphoreSetOp, CoreReadOp>(op)) {
+        keepSingleDMThread = true;
         return WalkResult::interrupt();
       }
       return WalkResult::advance();

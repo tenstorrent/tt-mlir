@@ -2608,6 +2608,44 @@ private:
   const d2m::CBProducerConsumer *cbProducerConsumer;
 };
 
+// core_read: a whole-buffer core->core local-L1 read. Reads the source core's
+// copy of %src (same uniform L1 offset across the grid, selected by srcCore
+// logical coords) into the local %dst, then barriers. No dma_read: this maps
+// 1:1 to the NoC read primitive.
+class D2MCoreReadRewriter : public OpConversionPattern<d2m::CoreReadOp> {
+public:
+  using OpConversionPattern<d2m::CoreReadOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::CoreReadOp op, d2m::CoreReadOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto chipDesc = ttcore::getOpChipDescAttr(op);
+    Location loc = op.getLoc();
+
+    Value dstL1Addr =
+        rewriter.create<ttkernel::GetWritePtrOp>(loc, adaptor.getDst());
+    Value srcL1Addr =
+        rewriter.create<ttkernel::GetReadPtrOp>(loc, adaptor.getSrc());
+
+    auto srcType = op.getSrcMemRefType();
+    int64_t bytes = srcType.getNumElements() *
+                    ttcore::getElementSizeBytes(srcType.getElementType());
+    auto size = intConstant<int32_t>(rewriter, loc, bytes);
+
+    // Source core's virtual coords from the srcCore logical coordinates
+    // (srcCore = [y, x]), instead of this core's my_logical_y/x.
+    auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
+        rewriter, loc, chipDesc, adaptor.getSrcCore());
+    NocEndpoint srcEndpoint{
+        ttcore::MemorySpace::DeviceL1, {virtX, virtY}, nullptr, srcL1Addr};
+    createNocAsyncRead(rewriter, loc, srcEndpoint, dstL1Addr, size);
+    rewriter.create<ttkernel::NocAsyncReadBarrierOp>(loc);
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 class D2MDMAWriteRewriter : public OpConversionPattern<d2m::DMAWriteOp> {
 public:
   D2MDMAWriteRewriter(TypeConverter &typeConverter, MLIRContext *context,
@@ -3769,6 +3807,7 @@ void populateD2MToTTKernelPatterns(
   patterns.add<ttkernel::D2MGetCBRewriter>(typeConverter, ctx,
                                            forceCompileTimeArgs);
   patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &cbProducerConsumer);
+  patterns.add<ttkernel::D2MCoreReadRewriter>(typeConverter, ctx);
   patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &cbProducerConsumer);
 
   // Debug op patterns.
