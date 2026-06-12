@@ -1,3 +1,6 @@
+// optimization-level=1 enables the optimizer/fusing path, which requires
+// OpModel support (otherwise the pipeline hits llvm_unreachable).
+// REQUIRES: opmodel
 // RUN: rm -rf %t.dir && mkdir -p %t.dir
 //
 // Two variants at optimization-level=1 — trace disabled and enabled. The
