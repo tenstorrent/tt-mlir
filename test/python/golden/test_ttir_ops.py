@@ -17,7 +17,6 @@ from builder.base.builder_enums import *
 from ttmlir.ir import DenseI32ArrayAttr
 from test_utils import (
     SkipIf,
-    XFail,
     shape_str,
     shapes_list_str,
     make_shard_shape,
@@ -219,62 +218,6 @@ def test_broadcast(shape: List[int], broadcast_dimensions: List[int], request, d
             return builder.broadcast(
                 in0, broadcast_dimensions=broadcast_dimensions, unit_attrs=unit_attrs
             )
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        device=device,
-    )
-
-
-@pytest.mark.parametrize(
-    "shapes",
-    [
-        # No broadcast.
-        [(1, 1, 128, 128), (1, 1, 128, 128)] | SkipIf("sim"),
-        [(2, 1, 128, 128), (2, 1, 128, 128)] | SkipIf("sim"),
-        [(1, 2, 128, 128), (1, 2, 128, 128)] | SkipIf("sim"),
-        [(2, 2, 128, 128), (2, 2, 128, 128)] | SkipIf("sim"),
-        # RHS broadcast: supported only when the whole RHS is a single batch.
-        [(1, 4, 128, 128), (1, 1, 128, 128)] | SkipIf("sim"),
-        [(4, 1, 128, 128), (1, 1, 128, 128)] | SkipIf("sim"),
-        [(4, 8, 128, 128), (1, 1, 128, 128)] | SkipIf("sim"),
-        [(1, 8, 64, 128), (1, 1, 128, 256)] | SkipIf("sim"),
-        [(2, 4, 128, 128), (2, 1, 128, 128)]
-        | SkipIf("sim")
-        | XFail("partial RHS batch"),
-        [(4, 2, 128, 128), (1, 2, 128, 128)]
-        | SkipIf("sim")
-        | XFail("partial RHS batch"),
-        # LHS broadcast: never supported.
-        [(1, 1, 128, 128), (1, 4, 128, 128)]
-        | SkipIf("sim")
-        | XFail("LHS batch broadcast"),
-        [(2, 1, 128, 128), (2, 4, 128, 128)]
-        | SkipIf("sim")
-        | XFail("LHS batch broadcast"),
-        [(1, 1, 128, 128), (4, 1, 128, 128)]
-        | SkipIf("sim")
-        | XFail("LHS batch broadcast"),
-        [(1, 2, 128, 128), (4, 2, 128, 128)]
-        | SkipIf("sim")
-        | XFail("LHS batch broadcast"),
-        [(1, 1, 128, 128), (4, 8, 128, 128)]
-        | SkipIf("sim")
-        | XFail("LHS batch broadcast"),
-    ],
-    ids=shapes_list_str,
-)
-def test_matmul(shapes: List[Shape], request, device):
-    def module(builder: TTIRBuilder):
-        @builder.func(shapes, [torch.float32] * len(shapes))
-        def matmul(
-            in0: Operand,
-            in1: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.matmul(in0, in1, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
         module,

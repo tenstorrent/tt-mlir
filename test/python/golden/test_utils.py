@@ -99,18 +99,14 @@ class SkipExecIf(SkipIf):
 
 
 class XFail:
-    """Append a non-strict xfail mark. Chainable, e.g. ``case | SkipIf("sim") |
-    XFail("reason")``."""
+    """Append a non-strict xfail mark to a parametrize case, e.g.
+    ``case | XFail("reason")``."""
 
     def __init__(self, reason):
         self.reason = reason
 
     def __ror__(self, lhs):
         mark = pytest.mark.xfail(reason=self.reason, strict=False)
-        # ``lhs`` may already be a marked pytest.param (a ParameterSet) from an
-        # earlier ``| SkipIf(...)``; preserve its values and marks.
-        if hasattr(lhs, "values") and hasattr(lhs, "marks"):
-            return pytest.param(*lhs.values, marks=[*lhs.marks, mark], id=lhs.id)
         if not isinstance(lhs, tuple):
             lhs = (lhs,)
         return pytest.param(*lhs, marks=[mark])
