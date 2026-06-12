@@ -7973,24 +7973,8 @@ public:
           rewriter.getIntegerType(32, /*isSigned=*/false), seed.value());
     }
 
-    // ttnn::sampling returns UINT32, so model the op as UINT32 (the kernel's
-    // true output) and typecast to the frontend-declared result type to
-    // reconcile with consumers.
-    auto ui32Type = rewriter.getIntegerType(32, /*isSigned=*/false);
-    auto samplingResultType =
-        mlir::cast<RankedTensorType>(resultType.clone(ui32Type));
-
-    auto samplingOp = rewriter.create<ttir::SamplingOp>(
-        srcOp.getLoc(), samplingResultType, inputValues, inputIndices, k, p,
-        temp, seedAttr);
-
-    if (samplingResultType == resultType) {
-      rewriter.replaceOp(srcOp, samplingOp.getResult());
-    } else {
-      auto typecastOp = rewriter.create<ttir::TypecastOp>(
-          srcOp.getLoc(), resultType, samplingOp.getResult());
-      rewriter.replaceOp(srcOp, typecastOp.getResult());
-    }
+    rewriter.replaceOpWithNewOp<ttir::SamplingOp>(
+        srcOp, resultType, inputValues, inputIndices, k, p, temp, seedAttr);
 
     return success();
   }
