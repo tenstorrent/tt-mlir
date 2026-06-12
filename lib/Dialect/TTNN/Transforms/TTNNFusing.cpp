@@ -333,6 +333,19 @@ public:
           &getContext(), validationConfig);
       patterns.add<fusing::SplitQueryKeyValueAndSplitHeadsFusing<LinearOp>>(
           &getContext(), validationConfig);
+      // Decode QKV fusion, composed. These two patterns chain to fixpoint:
+      //   1. QKVDecodeNormRopeReorderFusing looks through RMSNorm + partial RoPE
+      //      and sinks the [B,H,1,D] -> [1,B,H,D] reshape directly onto the split
+      //      output (rebuilding norm/RoPE after it in the [1,B,H,D] layout).
+      //   2. That reshape-on-split-output is exactly NLPCreateQKVHeadsDecodeFusing's
+      //      trigger, so it then replaces split+reshape with
+      //      nlp_create_qkv_heads_decode (height-sharded [1,B,H,D] output).
+      // Previously co-registering these regressed because the decode op's
+      // height-sharded output had to be converted back to interleaved for RMSNorm
+      // (sharded<->interleaved round-trips). With height-sharded RMSNorm now
+      // supported in tt-metal, the decode output feeds RMSNorm/RoPE/SDPA-decode/
+      // cache directly, so the round-trips are no longer inserted.
+      patterns.add<fusing::QKVDecodeNormRopeReorderFusing>(&getContext());
       patterns.add<fusing::NLPCreateQKVHeadsDecodeFusing>(&getContext(),
                                                           validationConfig);
     }

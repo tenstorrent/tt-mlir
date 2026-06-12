@@ -733,6 +733,312 @@ Operation *getDecodeLayoutChangeUser(Value result) {
   return nullptr;
 }
 
+// ----------------------------------------------------------------------------
+// Shape-driven decode chain matching (shared by the decode-layout reorder).
+//
+// In the decode case (S == 1) a per-head tensor [B, H, 1, D] frequently flows
+// through a sequence of *shape-preserving* per-head ops -- a QK-RMSNorm and/or
+// a (partial) rotary embedding -- before the decode layout change
+// [B, H, 1, D] -> [1, B, H, D]. We model the chain as an ordered list of such
+// steps so the matcher/rebuilder stay agnostic to which subset is present and
+// in what order: norm-only, rope-only, norm+rope, rope+norm, or none (Direct).
+//
+// The partial-RoPE step (recognized purely from op kinds + shapes, no
+// model-specific constants):
+//
+//   in -> slice [.., 0:half] (rotated) -> rotary_embedding(cos,sin) --\
+//   in -> slice [.., half:D] (pass)    -----------------------------+-> concat(last)
+//
+// Decomposing into per-op steps is what lets this generalize beyond GLM's exact
+// "rms_norm then partial-rope" shape: each step is a self-contained
+// match/rebuild unit and the walker simply consumes as many as it finds.
+enum class DecodeStepKind { RMSNorm, PartialRoPE };
+
+struct DecodeStep {
+  DecodeStepKind kind;
+  // RMSNorm step.
+  RMSNormOp norm;
+  // PartialRoPE step.
+  RotaryEmbeddingOp rope;
+  int64_t half = 0; // last-dim split point (size of the rotated part).
+  bool rotatedIsFirstConcatOperand = true;
+};
+
+struct DecodeChain {
+  Operation *layoutChange = nullptr; // final [B,H,1,D] -> [1,B,H,D] op.
+  SmallVector<DecodeStep> steps;     // shape-preserving per-head ops; empty =>
+                                     // Direct (split output feeds the layout
+                                     // change immediately, e.g. V).
+  bool isDirect() const { return steps.empty(); }
+};
+
+// Extracts an I32ArrayAttr into int64 values.
+SmallVector<int64_t> i32ArrayToVec(mlir::ArrayAttr arr) {
+  SmallVector<int64_t> out;
+  for (mlir::Attribute a : arr) {
+    out.push_back(mlir::cast<mlir::IntegerAttr>(a).getInt());
+  }
+  return out;
+}
+
+// True iff `slice` selects only the last dim of a 4D tensor over [lo, hi),
+// taking the full extent of the other three dims (unit step everywhere).
+bool isLastDimSlice(SliceStaticOp slice, ArrayRef<int64_t> inShape, int64_t lo,
+                    int64_t hi) {
+  if (inShape.size() != 4) {
+    return false;
+  }
+  auto begins = i32ArrayToVec(slice.getBegins());
+  auto ends = i32ArrayToVec(slice.getEnds());
+  auto step = i32ArrayToVec(slice.getStep());
+  if (begins.size() != 4 || ends.size() != 4 || step.size() != 4) {
+    return false;
+  }
+  for (int64_t s : step) {
+    if (s != 1) {
+      return false;
+    }
+  }
+  for (int d = 0; d < 3; ++d) {
+    if (begins[d] != 0 || ends[d] != inShape[d]) {
+      return false;
+    }
+  }
+  return begins[3] == lo && ends[3] == hi;
+}
+
+// Small step matcher: `cur` -> rms_norm (shape-preserving). On success fills
+// `step` and sets `next` to the value to continue the walk from.
+bool matchRMSNormStep(Value cur, DecodeStep &step, Value &next) {
+  if (!cur.hasOneUse()) {
+    return false;
+  }
+  auto norm = dyn_cast<RMSNormOp>(*cur.getUsers().begin());
+  if (!norm || norm.getInput() != cur) {
+    return false;
+  }
+  step.kind = DecodeStepKind::RMSNorm;
+  step.norm = norm;
+  next = norm.getResult();
+  return true;
+}
+
+// Small step matcher: `cur` -> (slice/rope/slice/concat) partial RoPE. The
+// rotary is the high-level (pre-decomposition) op, shape-preserving on the
+// rotated half, and feeds the concat directly.
+bool matchPartialRoPEStep(Value cur, DecodeStep &step, Value &next) {
+  auto curTy = mlir::dyn_cast<RankedTensorType>(cur.getType());
+  if (!curTy || curTy.getRank() != 4) {
+    return false;
+  }
+  ArrayRef<int64_t> shape = curTy.getShape();
+  int64_t headDim = shape[3];
+
+  // `cur` fans out to exactly two last-dim slices: rotated [0, half) and the
+  // pass-through tail [half, D).
+  SmallVector<SliceStaticOp> slices;
+  for (Operation *user : cur.getUsers()) {
+    auto s = dyn_cast<SliceStaticOp>(user);
+    if (!s) {
+      return false;
+    }
+    slices.push_back(s);
+  }
+  if (slices.size() != 2) {
+    return false;
+  }
+
+  int64_t half = 0;
+  for (SliceStaticOp s : slices) {
+    auto begins = i32ArrayToVec(s.getBegins());
+    if (begins.size() == 4 && begins[3] == 0) {
+      half = i32ArrayToVec(s.getEnds())[3];
+    }
+  }
+  if (half <= 0 || half >= headDim) {
+    return false;
+  }
+
+  SliceStaticOp rotSlice, passSlice;
+  for (SliceStaticOp s : slices) {
+    if (isLastDimSlice(s, shape, 0, half)) {
+      rotSlice = s;
+    } else if (isLastDimSlice(s, shape, half, headDim)) {
+      passSlice = s;
+    }
+  }
+  if (!rotSlice || !passSlice || !rotSlice.getResult().hasOneUse() ||
+      !passSlice.getResult().hasOneUse()) {
+    return false;
+  }
+
+  auto rope =
+      dyn_cast<RotaryEmbeddingOp>(*rotSlice.getResult().getUsers().begin());
+  if (!rope || rope.getInput() != rotSlice.getResult() ||
+      !rope.getResult().hasOneUse()) {
+    return false;
+  }
+
+  auto concat = dyn_cast<ConcatOp>(*rope.getResult().getUsers().begin());
+  auto passConcat =
+      dyn_cast<ConcatOp>(*passSlice.getResult().getUsers().begin());
+  if (!concat || !passConcat ||
+      concat.getOperation() != passConcat.getOperation()) {
+    return false;
+  }
+  if (concat.getInputs().size() != 2 || concat.getDim() != 3) {
+    return false;
+  }
+
+  step.kind = DecodeStepKind::PartialRoPE;
+  step.rope = rope;
+  step.half = half;
+  step.rotatedIsFirstConcatOperand = (concat.getInputs()[0] == rope.getResult());
+  next = concat.getResult();
+  return true;
+}
+
+// Matches a [B, H, 1, D] value against the decode layout change, consuming any
+// number of shape-preserving per-head steps (RMSNorm / partial-RoPE, any order)
+// in between. Generic: a Direct chain (no steps) is returned for e.g. V.
+std::optional<DecodeChain> matchDecodeChain(Value start) {
+  auto startTy = mlir::dyn_cast<RankedTensorType>(start.getType());
+  if (!startTy || startTy.getRank() != 4 || startTy.getShape()[2] != 1) {
+    return std::nullopt;
+  }
+
+  DecodeChain dc;
+  Value cur = start;
+  for (unsigned guard = 0; guard < kRoleTraceMaxDepth; ++guard) {
+    if (Operation *lc = getDecodeLayoutChangeUser(cur)) {
+      dc.layoutChange = lc;
+      return dc;
+    }
+    DecodeStep step;
+    Value next;
+    if (matchRMSNormStep(cur, step, next) ||
+        matchPartialRoPEStep(cur, step, next)) {
+      dc.steps.push_back(step);
+      cur = next;
+      continue;
+    }
+    return std::nullopt;
+  }
+  return std::nullopt;
+}
+
+// Broadcasts a [c0, c1, 1, c3] rotary cos/sin cache across the heads axis to
+// [c0, c1, H, c3]. The cache is loop-invariant (shared by every layer and by
+// the Q/K outputs), so the RepeatOp is created ONCE -- hoisted to just after
+// the cache's definition -- and reused. Emitting it per rebuild instead would
+// add a host dispatch per layer that eats the tile-fill win (entry #4). If an
+// identical broadcast already exists it is reused; if the cache already spans H
+// heads it is returned unchanged.
+Value getOrCreateHeadBroadcast(mlir::PatternRewriter &rewriter, Value cache,
+                               int64_t H) {
+  auto cacheTy = mlir::cast<RankedTensorType>(cache.getType());
+  ArrayRef<int64_t> cs = cacheTy.getShape();
+  if (cs.size() != 4 || cs[2] == 0 || cs[2] == H || H % cs[2] != 0) {
+    return cache;
+  }
+  SmallVector<int64_t> repShape{cs[0], cs[1], H, cs[3]};
+  for (Operation *user : cache.getUsers()) {
+    auto r = dyn_cast<RepeatOp>(user);
+    if (r && mlir::cast<RankedTensorType>(r.getResult().getType()).getShape() ==
+                 ArrayRef<int64_t>(repShape)) {
+      return r.getResult();
+    }
+  }
+  mlir::OpBuilder::InsertionGuard guard(rewriter);
+  if (Operation *def = cache.getDefiningOp()) {
+    rewriter.setInsertionPointAfter(def);
+  }
+  auto repTy = utils::RankedTensorTypeFactory::create(cacheTy, repShape);
+  return rewriter
+      .create<RepeatOp>(
+          cache.getLoc(), repTy, cache,
+          ShapeAttr::get(rewriter.getContext(), {1, 1, H / cs[2], 1}))
+      .getResult();
+}
+
+// Rebuilds a single RMSNorm step in the [1, B, H, D] decode layout. The norm
+// still normalizes the last dim D, so it is layout-invariant.
+Value rebuildRMSNormStep(mlir::PatternRewriter &rewriter, DecodeStep &step,
+                         Value in) {
+  auto ty = mlir::cast<RankedTensorType>(in.getType());
+  return rewriter
+      .create<RMSNormOp>(step.norm.getLoc(), ty, in, step.norm.getWeight(),
+                         step.norm.getBias(), step.norm.getEpsilonAttr(),
+                         step.norm.getComputeConfigAttr())
+      .getResult();
+}
+
+// Rebuilds a single partial-RoPE step in the [1, B, H, D] decode layout.
+Value rebuildPartialRoPEStep(mlir::PatternRewriter &rewriter, DecodeStep &step,
+                             Value in) {
+  mlir::Location loc = step.rope.getLoc();
+  auto d0Type = mlir::cast<RankedTensorType>(in.getType());
+  ArrayRef<int64_t> sh = d0Type.getShape(); // [1, B, H, D]
+  int64_t B = sh[1], H = sh[2], D = sh[3];
+  int64_t half = step.half;
+
+  auto i32Arr = [&](ArrayRef<int64_t> v) {
+    SmallVector<int32_t> tmp(v.begin(), v.end());
+    return rewriter.getI32ArrayAttr(tmp);
+  };
+
+  auto halfType = utils::RankedTensorTypeFactory::create(
+      d0Type, SmallVector<int64_t>{1, B, H, half});
+
+  auto rotSlice = rewriter.create<SliceStaticOp>(
+      loc, halfType, in, i32Arr({0, 0, 0, 0}), i32Arr({1, B, H, half}),
+      i32Arr({1, 1, 1, 1}));
+  auto passSlice = rewriter.create<SliceStaticOp>(
+      loc, halfType, in, i32Arr({0, 0, 0, half}), i32Arr({1, B, H, D}),
+      i32Arr({1, 1, 1, 1}));
+
+  // High-level (pre-decomposition) rotary is shape-preserving and treats dim 2
+  // as its sequence axis. In the original [B,H,1,half] layout dim 2 is the
+  // single decode position; in the [1,B,H,half] decode layout dim 2 is the
+  // heads axis. The same rotation applies to every head, so broadcast the
+  // single-position cos/sin caches across the heads axis -- ONCE, shared across
+  // all layers (see getOrCreateHeadBroadcast). A later pass decomposes this
+  // rotary (tile-padding the heads axis) exactly as for the original op.
+  Value cosRep = getOrCreateHeadBroadcast(rewriter, step.rope.getCosCache(), H);
+  Value sinRep = getOrCreateHeadBroadcast(rewriter, step.rope.getSinCache(), H);
+
+  auto newRope = rewriter.create<RotaryEmbeddingOp>(
+      loc, halfType, rotSlice.getResult(), cosRep, sinRep,
+      step.rope.getTokenIndexAttr(), step.rope.getComputeConfigAttr());
+
+  Value op0 = step.rotatedIsFirstConcatOperand ? newRope.getResult()
+                                               : passSlice.getResult();
+  Value op1 = step.rotatedIsFirstConcatOperand ? passSlice.getResult()
+                                               : newRope.getResult();
+  return rewriter
+      .create<ConcatOp>(loc, d0Type, ValueRange{op0, op1},
+                        static_cast<int32_t>(3))
+      .getResult();
+}
+
+// Replays the matched chain on `decodeOut` (shape [1, B, H, D]) and returns the
+// value that should replace `dc.layoutChange`. For Direct chains there is
+// nothing to rebuild -> returns `decodeOut`.
+Value rebuildDecodeChain(mlir::PatternRewriter &rewriter, DecodeChain &dc,
+                         Value decodeOut) {
+  if (dc.isDirect()) {
+    return decodeOut;
+  }
+  rewriter.setInsertionPoint(dc.layoutChange);
+  Value cur = decodeOut;
+  for (DecodeStep &step : dc.steps) {
+    cur = step.kind == DecodeStepKind::RMSNorm
+              ? rebuildRMSNormStep(rewriter, step, cur)
+              : rebuildPartialRoPEStep(rewriter, step, cur);
+  }
+  return cur;
+}
+
 } // namespace
 
 // ============================================================================
@@ -933,6 +1239,63 @@ mlir::LogicalResult NLPCreateQKVHeadsDecodeFusing::matchAndRewrite(
   rewriter.replaceOp(vLayoutOp, decodeOp.getValue());
 
   return mlir::success();
+}
+
+// ============================================================================
+// QKVDecodeNormRopeReorderFusing
+// ============================================================================
+
+mlir::LogicalResult QKVDecodeNormRopeReorderFusing::matchAndRewrite(
+    SplitQueryKeyValueAndSplitHeadsOp splitOp,
+    mlir::PatternRewriter &rewriter) const {
+  // Decode case only: single fused input, no transpose_key, S == 1.
+  if (splitOp.getKvInputTensor() || splitOp.getTransposeKey()) {
+    return mlir::failure();
+  }
+  auto inputShape = splitOp.getInputTensor().getType().getShape();
+  if (inputShape.size() != 3 || inputShape[1] != 1) {
+    return mlir::failure();
+  }
+
+  // Relocate the decode layout-change reshape ABOVE the RMSNorm + partial RoPE
+  // for every output that has such a chain. Outputs that go straight to the
+  // layout change (Direct, e.g. V) have nothing to relocate and are left alone.
+  Value outputs[] = {splitOp.getQuery(), splitOp.getKey(), splitOp.getValue()};
+  bool changed = false;
+
+  for (Value out : outputs) {
+    std::optional<DecodeChain> dc = matchDecodeChain(out);
+    if (!dc || dc->isDirect()) {
+      // Direct (e.g. V): the [B,H,1,D] -> [1,B,H,D] reshape is already a free
+      // relabel with no per-head ops to tile-fill. Nothing to reorder.
+      continue;
+    }
+
+    // The layout-change op's result type is the interleaved [1,B,H,D] target.
+    auto outTy = mlir::cast<RankedTensorType>(out.getType()); // [B,H,1,D]
+    auto lcTy =
+        mlir::cast<RankedTensorType>(dc->layoutChange->getResult(0).getType());
+    ArrayRef<int64_t> lcShape = lcTy.getShape(); // [1,B,H,D]
+
+    // Insert the same [B,H,1,D] -> [1,B,H,D] reshape directly on the split
+    // output (a pure relabel when S==1, identical to the original layout
+    // change), keeping everything interleaved (no decode op, no sharding).
+    rewriter.setInsertionPointAfterValue(out);
+    SmallVector<int32_t> shapeI32(lcShape.begin(), lcShape.end());
+    auto reshaped = rewriter.create<ReshapeOp>(
+        dc->layoutChange->getLoc(), lcTy, out,
+        rewriter.getI32ArrayAttr(shapeI32));
+    (void)outTy;
+
+    // Rebuild RMSNorm + partial RoPE in the [1,B,H,D] layout and replace the
+    // old layout-change op. The now-dead original norm/rope/slice/concat chain
+    // is cleaned up by DCE.
+    Value rebuilt = rebuildDecodeChain(rewriter, *dc, reshaped.getResult());
+    rewriter.replaceOp(dc->layoutChange, rebuilt);
+    changed = true;
+  }
+
+  return changed ? mlir::success() : mlir::failure();
 }
 
 } // namespace mlir::tt::ttnn::fusing
