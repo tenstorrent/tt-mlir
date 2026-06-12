@@ -139,6 +139,17 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
   if (srcType.getElementType() != dstType.getElementType()) {
     return emitOpError("Operands to DMARead must have the same element type");
   }
+  // Cross-core local-L1 read form: srcCore requires a non-device-laid-out
+  // src and is a 2D core coordinate.
+  if (hasSrcCore()) {
+    if (isSrcRemote()) {
+      return emitOpError(
+          "srcCore is mutually exclusive with a device-laid-out src");
+    }
+    if (getSrcCore().size() != 2) {
+      return emitOpError("srcCore must have exactly 2 indices");
+    }
+  }
   int64_t numDstIndices = getDstIndices().size();
   int64_t numSrcIndices = getSrcIndices().size();
   if (isShardLevel()) {
@@ -1638,6 +1649,305 @@ bool RemoteStoreOp::hasTensorSemantics() {
   Value result = getResult();
   bool resultIsTensor = result && mlir::isa<RankedTensorType>(result.getType());
   return memrefIsTensor || localBufferIsTensor || resultIsTensor;
+}
+
+//===----------------------------------------------------------------------===//
+// GatherCoreOp Parser / Printer / Verifier
+//===----------------------------------------------------------------------===//
+//
+// Surface form per side: an optional leading `from` toggles src vs srcCb;
+// the dst-side type toggles dst vs dstCb (`into` is mandatory). Tensor
+// form is only valid with both sides implicit (enforced by verify()).
+
+ParseResult GatherCoreOp::parse(OpAsmParser &parser, OperationState &result) {
+  bool srcIsCb = succeeded(parser.parseOptionalKeyword("from"));
+
+  OpAsmParser::UnresolvedOperand firstOp, secondOp;
+  if (parser.parseOperand(firstOp) || parser.parseKeyword("into") ||
+      parser.parseOperand(secondOp)) {
+    return failure();
+  }
+
+  auto parseIndexList =
+      [&](StringRef keyword,
+          SmallVector<OpAsmParser::UnresolvedOperand> &indices) -> ParseResult {
+    if (parser.parseKeyword(keyword) || parser.parseLSquare() ||
+        parser.parseOperandList(indices) || parser.parseRSquare()) {
+      return failure();
+    }
+    return success();
+  };
+
+  SmallVector<OpAsmParser::UnresolvedOperand> groupStartIndex;
+  SmallVector<OpAsmParser::UnresolvedOperand> groupShape;
+  SmallVector<OpAsmParser::UnresolvedOperand> collectorIndex;
+  if (parseIndexList("group", groupStartIndex) ||
+      parseIndexList("shape", groupShape) ||
+      parseIndexList("collector", collectorIndex)) {
+    return failure();
+  }
+
+  if (parser.parseOptionalAttrDict(result.attributes)) {
+    return failure();
+  }
+
+  Type firstType, secondType;
+  if (parser.parseColon() || parser.parseType(firstType) ||
+      parser.parseComma() || parser.parseType(secondType)) {
+    return failure();
+  }
+
+  Type resultType;
+  if (succeeded(parser.parseOptionalArrow())) {
+    if (parser.parseType(resultType)) {
+      return failure();
+    }
+    result.addTypes(resultType);
+  }
+
+  // Dst form is determined by its type; src form by the `from` keyword.
+  bool dstIsCb = mlir::isa<CBType>(secondType);
+
+  // Resolve operands in canonical segment order:
+  // [src, dst, srcCb, dstCb, groupStartIndex, groupShape, collectorIndex].
+  int32_t srcSeg = 0, dstSeg = 0, srcCbSeg = 0, dstCbSeg = 0;
+  if (!srcIsCb) {
+    if (parser.resolveOperand(firstOp, firstType, result.operands)) {
+      return failure();
+    }
+    srcSeg = 1;
+  }
+  if (!dstIsCb) {
+    if (parser.resolveOperand(secondOp, secondType, result.operands)) {
+      return failure();
+    }
+    dstSeg = 1;
+  }
+  if (srcIsCb) {
+    if (parser.resolveOperand(firstOp, firstType, result.operands)) {
+      return failure();
+    }
+    srcCbSeg = 1;
+  }
+  if (dstIsCb) {
+    if (parser.resolveOperand(secondOp, secondType, result.operands)) {
+      return failure();
+    }
+    dstCbSeg = 1;
+  }
+
+  auto indexType = parser.getBuilder().getIndexType();
+  if (parser.resolveOperands(groupStartIndex, indexType, result.operands) ||
+      parser.resolveOperands(groupShape, indexType, result.operands) ||
+      parser.resolveOperands(collectorIndex, indexType, result.operands)) {
+    return failure();
+  }
+
+  SmallVector<int32_t> segmentSizes = {
+      srcSeg,
+      dstSeg,
+      srcCbSeg,
+      dstCbSeg,
+      static_cast<int32_t>(groupStartIndex.size()),
+      static_cast<int32_t>(groupShape.size()),
+      static_cast<int32_t>(collectorIndex.size()),
+  };
+  result.addAttribute("operandSegmentSizes",
+                      parser.getBuilder().getDenseI32ArrayAttr(segmentSizes));
+  return success();
+}
+
+void GatherCoreOp::print(OpAsmPrinter &p) {
+  if (Value srcCb = getSrcCb()) {
+    p << " from ";
+    p.printOperand(srcCb);
+  } else {
+    p << " ";
+    p.printOperand(getSrc());
+  }
+  p << " into ";
+  p.printOperand(getDstCb() ? getDstCb() : getDst());
+
+  auto printIdxList = [&](StringRef keyword, OperandRange indices) {
+    p << " " << keyword << "[";
+    p.printOperands(indices);
+    p << "]";
+  };
+  printIdxList("group", getGroupStartIndex());
+  printIdxList("shape", getGroupShape());
+  printIdxList("collector", getCollectorIndex());
+
+  llvm::StringRef elidedAttrs[] = {"operandSegmentSizes"};
+  p.printOptionalAttrDict((*this)->getAttrs(), elidedAttrs);
+
+  p << " : ";
+  p.printType(getSrcCb() ? getSrcCb().getType() : getSrc().getType());
+  p << ", ";
+  p.printType(getDstCb() ? getDstCb().getType() : getDst().getType());
+  if (Value result = getResult()) {
+    p << " -> ";
+    p.printType(result.getType());
+  }
+}
+
+::mlir::LogicalResult GatherCoreOp::verify() {
+  Value src = getSrc();
+  Value dst = getDst();
+  Value srcCb = getSrcCb();
+  Value dstCb = getDstCb();
+  bool hasSrc = static_cast<bool>(src);
+  bool hasSrcCb = static_cast<bool>(srcCb);
+  bool hasDst = static_cast<bool>(dst);
+  bool hasDstCb = static_cast<bool>(dstCb);
+
+  // Each side is an XOR: exactly one of (implicit, CB) per side.
+  if (hasSrc == hasSrcCb) {
+    return emitOpError("exactly one of src and srcCb must be present");
+  }
+  if (hasDst == hasDstCb) {
+    return emitOpError("exactly one of dst and dstCb must be present");
+  }
+
+  // Tensor form requires both sides implicit and tensor-typed.
+  bool srcIsTensor = hasSrc && mlir::isa<RankedTensorType>(src.getType());
+  bool dstIsTensor = hasDst && mlir::isa<RankedTensorType>(dst.getType());
+  if (srcIsTensor != dstIsTensor) {
+    return emitOpError("src and dst must both be tensors or both be memrefs");
+  }
+  if ((srcIsTensor || dstIsTensor) && (hasSrcCb || hasDstCb)) {
+    return emitOpError("tensor form requires both sides to be implicit");
+  }
+
+  // DPS: tensor form has a result aliasing dst; memref/CB form has none.
+  bool hasResult = static_cast<bool>(getResult());
+  if (srcIsTensor && !hasResult) {
+    return emitOpError("tensor form must have a result");
+  }
+  if (!srcIsTensor && hasResult) {
+    return emitOpError("non-tensor form must not have a result");
+  }
+  if (hasResult && getResult().getType() != dst.getType()) {
+    return emitOpError("result type must match dst type");
+  }
+
+  // Implicit operands must not carry a device layout. (CBs are L1-local.)
+  if (hasSrc && ttcore::hasDeviceLayout(src)) {
+    return emitOpError("src must not have a device layout");
+  }
+  if (hasDst && ttcore::hasDeviceLayout(dst)) {
+    return emitOpError("dst must not have a device layout");
+  }
+
+  ShapedType srcShaped = getSrcShapedType();
+  ShapedType dstShaped = getDstShapedType();
+  if (srcShaped.getElementType() != dstShaped.getElementType()) {
+    return emitOpError("src and dst element types must match");
+  }
+  if (srcShaped.getShape() != dstShaped.getShape()) {
+    return emitOpError("src and dst shapes must match");
+  }
+
+  // V1: 2D core grid, single device.
+  if (getGroupStartIndex().size() != 2) {
+    return emitOpError("groupStartIndex must have exactly 2 indices");
+  }
+  if (getGroupShape().size() != 2) {
+    return emitOpError("groupShape must have exactly 2 indices");
+  }
+  if (getCollectorIndex().size() != 2) {
+    return emitOpError("collectorIndex must have exactly 2 indices");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// GatherCoreOp Bufferization Interface Implementation
+//===----------------------------------------------------------------------===//
+
+bool GatherCoreOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  Value src = getSrc();
+  return src && operand.get() == src;
+}
+
+bool GatherCoreOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  Value dst = getDst();
+  return dst && operand.get() == dst;
+}
+
+mlir::bufferization::AliasingValueList
+GatherCoreOp::getAliasingValues(mlir::OpOperand &operand,
+                                const mlir::bufferization::AnalysisState &) {
+  // DPS aliasing only matters in tensor form (result <-> dst).
+  mlir::bufferization::AliasingValueList aliasList;
+  Value result = getResult();
+  Value dst = getDst();
+  if (result && dst && operand.get() == dst) {
+    aliasList.addAlias(
+        {result, mlir::bufferization::BufferRelation::Equivalent});
+  }
+  return aliasList;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+GatherCoreOp::getBufferType(mlir::Value value,
+                            const mlir::bufferization::BufferizationOptions &,
+                            const mlir::bufferization::BufferizationState &,
+                            ::llvm::SmallVector<mlir::Value> &) {
+  Value src = getSrc();
+  Value dst = getDst();
+  if ((src && value == src) || (dst && value == dst)) {
+    return ttcore::getBufferType(value.getType(), /*isView=*/false);
+  }
+  return mlir::failure();
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+mlir::LogicalResult GatherCoreOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+  // Only the tensor form needs bufferization; memref/CB forms are
+  // already lowered.
+  Value result = getResult();
+  Value src = getSrc();
+  Value dst = getDst();
+  if (!result || !src || !dst) {
+    return mlir::failure();
+  }
+
+  mlir::FailureOr<Value> srcBuffer =
+      mlir::bufferization::getBuffer(rewriter, src, options, state);
+  if (failed(srcBuffer)) {
+    return srcBuffer;
+  }
+  mlir::FailureOr<Value> dstBuffer =
+      mlir::bufferization::getBuffer(rewriter, dst, options, state);
+  if (failed(dstBuffer)) {
+    return dstBuffer;
+  }
+
+  rewriter.create<GatherCoreOp>(getLoc(), *srcBuffer, *dstBuffer,
+                                getGroupStartIndex(), getGroupShape(),
+                                getCollectorIndex());
+  auto toTensor = rewriter.create<bufferization::ToTensorOp>(
+      getLoc(), result.getType(), *dstBuffer);
+  rewriter.replaceAllUsesWith(result, toTensor.getResult());
+  rewriter.eraseOp(*this);
+  return mlir::success();
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
+
+bool GatherCoreOp::hasTensorSemantics() {
+  Value src = getSrc();
+  Value dst = getDst();
+  bool srcIsTensor = src && mlir::isa<RankedTensorType>(src.getType());
+  bool dstIsTensor = dst && mlir::isa<RankedTensorType>(dst.getType());
+  Value result = getResult();
+  bool resultIsTensor = result && mlir::isa<RankedTensorType>(result.getType());
+  return srcIsTensor || dstIsTensor || resultIsTensor;
 }
 
 //===----------------------------------------------------------------------===//

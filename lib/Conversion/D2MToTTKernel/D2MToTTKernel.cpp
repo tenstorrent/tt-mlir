@@ -2400,10 +2400,18 @@ public:
     if (op.isSrcLocal()) {
       Value srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
           rewriter, loc, adaptor.getSrc(), op.getSrcIndices());
-      auto myY = rewriter.create<ttkernel::MyLogicalYOp>(loc);
-      auto myX = rewriter.create<ttkernel::MyLogicalXOp>(loc);
+      // Source logical coords: srcCore (cross-core form) or my_logical_y/x
+      // (plain local read).
+      Value srcLogicalY, srcLogicalX;
+      if (op.hasSrcCore()) {
+        srcLogicalY = op.getSrcCore()[0];
+        srcLogicalX = op.getSrcCore()[1];
+      } else {
+        srcLogicalY = rewriter.create<ttkernel::MyLogicalYOp>(loc);
+        srcLogicalX = rewriter.create<ttkernel::MyLogicalXOp>(loc);
+      }
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
-          rewriter, loc, chipDesc, ValueRange{myY, myX});
+          rewriter, loc, chipDesc, ValueRange{srcLogicalY, srcLogicalX});
       NocEndpoint srcEndpoint{
           ttcore::MemorySpace::DeviceL1, {virtX, virtY}, nullptr, srcL1Addr};
       createNocAsyncRead(rewriter, loc, srcEndpoint, dstL1Addr, size);

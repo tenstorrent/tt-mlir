@@ -14,6 +14,7 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Affine/Utils.h"
 #include "mlir/IR/AffineExpr.h"
 
@@ -977,6 +978,38 @@ getNocElementAlignment(Operation *op, ttcore::MemorySpace memorySpace,
 int32_t getNocElementAlignmentL1(
     Operation *op, const std::variant<RankedTensorType, MemRefType> &type) {
   return getNocElementAlignment(op, ttcore::MemorySpace::DeviceL1, type);
+}
+
+SmallVector<Value> mapVirtualToPhysicalCoreIndex(OpBuilder &builder,
+                                                 Location loc,
+                                                 ttcore::GridAttr grid,
+                                                 ValueRange virtualCoreIndex) {
+  AffineMap map = grid.getVirtToPhysicalMap();
+  if (!map || map.isEmpty()) {
+    return SmallVector<Value>(virtualCoreIndex.begin(), virtualCoreIndex.end());
+  }
+
+  TT_assertv(map.getNumDims() == virtualCoreIndex.size(),
+             "Expected virtual-to-physical grid map input rank to match core "
+             "index rank.");
+  // Maps that include a leading device result expose
+  // {device, coreY, coreX, ...}; skip the device result if present.
+  unsigned firstCoreResult =
+      map.getNumResults() == virtualCoreIndex.size() ? 0 : 1;
+  TT_assertv(map.getNumResults() >= firstCoreResult + virtualCoreIndex.size(),
+             "Expected virtual-to-physical grid map to have enough core "
+             "coordinate results.");
+
+  SmallVector<Value> physicalCoreIndex;
+  physicalCoreIndex.reserve(virtualCoreIndex.size());
+  for (unsigned i = 0; i < virtualCoreIndex.size(); ++i) {
+    AffineMap selectedMap = AffineMap::get(
+        map.getNumDims(), map.getNumSymbols(),
+        {map.getResult(firstCoreResult + i)}, builder.getContext());
+    physicalCoreIndex.push_back(builder.create<affine::AffineApplyOp>(
+        loc, selectedMap, virtualCoreIndex));
+  }
+  return physicalCoreIndex;
 }
 
 } // namespace mlir::tt::d2m::utils

@@ -18,7 +18,8 @@ namespace mlir::tt::d2m {
 
 namespace {
 
-// Attribute name for storing pre-allocated semaphore indices on RemoteLoadOp.
+// Attribute name for storing pre-allocated semaphore indices on a triggering
+// op (RemoteLoadOp with mcast, or GatherCoreOp).
 constexpr StringRef kPreallocatedSemaphoresAttr = "preallocated_semaphores";
 
 // Check if a RemoteLoadOp needs multicast semaphores.
@@ -28,19 +29,25 @@ static bool needsMcastSemaphores(RemoteLoadOp remoteLoad) {
          !remoteLoad.getMcastShape().empty();
 }
 
-// Recursively collect all RemoteLoadOps that need multicast semaphores.
-static void collectMcastRemoteLoads(Block *block,
-                                    SmallVectorImpl<RemoteLoadOp> &mcastLoads) {
+// Returns true for ops that need a fresh pair of local semaphores allocated
+// on the parent generic. Multicast RemoteLoadOp uses them as a sender/
+// receiver handshake; GatherCoreOp as a source/collector handshake.
+static bool needsLocalSemaphorePair(Operation *op) {
+  if (auto remoteLoad = mlir::dyn_cast<RemoteLoadOp>(op)) {
+    return needsMcastSemaphores(remoteLoad);
+  }
+  return mlir::isa<GatherCoreOp>(op);
+}
+
+static void collectSemaphoreOps(Block *block,
+                                SmallVectorImpl<Operation *> &semaphoreOps) {
   for (Operation &op : block->getOperations()) {
     if (auto forOp = mlir::dyn_cast<scf::ForOp>(&op)) {
-      collectMcastRemoteLoads(forOp.getBody(), mcastLoads);
+      collectSemaphoreOps(forOp.getBody(), semaphoreOps);
       continue;
     }
-
-    if (auto remoteLoad = mlir::dyn_cast<RemoteLoadOp>(&op)) {
-      if (needsMcastSemaphores(remoteLoad)) {
-        mcastLoads.push_back(remoteLoad);
-      }
+    if (needsLocalSemaphorePair(&op)) {
+      semaphoreOps.push_back(&op);
     }
   }
 }
@@ -60,37 +67,37 @@ public:
 
 private:
   void processGenericOp(IRRewriter &rewriter, GenericOp generic) {
-    // Skip if already processed (any RemoteLoadOp has the attribute).
+    // Skip if already processed (any matching op has the attribute).
     for (Region &region : generic->getRegions()) {
       if (region.empty()) {
         continue;
       }
-      SmallVector<RemoteLoadOp> mcastLoads;
-      collectMcastRemoteLoads(&region.front(), mcastLoads);
-      for (RemoteLoadOp load : mcastLoads) {
-        if (load->hasAttr(kPreallocatedSemaphoresAttr)) {
+      SmallVector<Operation *> semaphoreOps;
+      collectSemaphoreOps(&region.front(), semaphoreOps);
+      for (Operation *op : semaphoreOps) {
+        if (op->hasAttr(kPreallocatedSemaphoresAttr)) {
           return;
         }
       }
     }
 
-    // Find all RemoteLoadOps that need multicast semaphores.
-    SmallVector<RemoteLoadOp> allMcastLoads;
+    // Collect all ops in this generic that need a semaphore pair.
+    SmallVector<Operation *> allSemaphoreOps;
     for (Region &region : generic->getRegions()) {
       if (region.empty()) {
         continue;
       }
-      collectMcastRemoteLoads(&region.front(), allMcastLoads);
+      collectSemaphoreOps(&region.front(), allSemaphoreOps);
     }
 
-    if (allMcastLoads.empty()) {
+    if (allSemaphoreOps.empty()) {
       return;
     }
 
     Location loc = generic.getLoc();
     LocalSemaphoreType semType = rewriter.getType<LocalSemaphoreType>();
 
-    for (RemoteLoadOp load : allMcastLoads) {
+    for (Operation *op : allSemaphoreOps) {
       unsigned argsIdx = generic.getNumOperands();
       int64_t sem0AbsIdx = static_cast<int64_t>(argsIdx);
       int64_t sem1AbsIdx = sem0AbsIdx + 1;
@@ -107,8 +114,8 @@ private:
       generic.getAdditionalArgsMutable().append(sem0.getResult());
       generic.getAdditionalArgsMutable().append(sem1.getResult());
 
-      load->setAttr(kPreallocatedSemaphoresAttr,
-                    rewriter.getI64ArrayAttr({sem0AbsIdx, sem1AbsIdx}));
+      op->setAttr(kPreallocatedSemaphoresAttr,
+                  rewriter.getI64ArrayAttr({sem0AbsIdx, sem1AbsIdx}));
     }
   }
 };

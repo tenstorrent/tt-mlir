@@ -1397,32 +1397,54 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
            memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
       ```
 
+      Cross-core local-L1 read form: when `srcCore` is non-empty, `%src` is
+      a local memref with a uniform L1 offset across the grid, and `srcCore`
+      selects the source core to read from (no `my_logical_*` is implied).
+
+      ```mlir
+      %tx = d2m.dma_read %src[%offset] core[%srcY, %srcX], %dst[%offset], <8>
+        : (memref<2x4x!ttcore.tile<32x32, f32>, #l1>,
+           memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx
+      ```
+
       This operation only supports unicast (multicast are write-only).
 
       Constraints:
       - dst MUST be a LOCAL memref!
       - src and dst must have the same element type.
+      - `srcCore`, if present, is mutually exclusive with a device-laid-out src.
     }];
 
     let arguments = (ins AnyRankedTensorOrMemRef:$src, Variadic<Index>:$srcIndices,
                          AnyRankedTensorOrMemRef:$dst, Variadic<Index>:$dstIndices,
-                         I64Attr:$numElems);
+                         I64Attr:$numElems,
+                         Variadic<Index>:$srcCore);
     let results = (outs D2M_MemTx:$result);
 
     let builders = [
       // Shard-level form (grid indices on src, no indices on dst, numElems = 0)
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst),
       [{
-        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, ValueRange(), $_builder.getI64IntegerAttr(0));
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, ValueRange(), $_builder.getI64IntegerAttr(0), /*srcCore=*/ValueRange());
       }]>,
       // Fully indexed form
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "IntegerAttr": $numElems),
       [{
-        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, dstIndices, numElems);
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, dstIndices, numElems, /*srcCore=*/ValueRange());
+      }]>,
+      // Cross-core local-L1 read, fully indexed form.
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "IntegerAttr": $numElems, "ValueRange": $srcCore),
+      [{
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, dstIndices, numElems, srcCore);
+      }]>,
+      // Cross-core local-L1 read, shard-level form.
+      OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $srcCore),
+      [{
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, ValueRange(), $_builder.getI64IntegerAttr(0), srcCore);
       }]>,
     ];
 
-    let assemblyFormat    = [{ $src `[` $srcIndices `]` `,` $dst (`[` $dstIndices^ `]`)? `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` qualified(type($result))}];
+    let assemblyFormat    = [{ $src `[` $srcIndices `]` (`core` `[` $srcCore^ `]`)? `,` $dst (`[` $dstIndices^ `]`)? `,` `<` $numElems `>` attr-dict `:` `(` type($src) `,` type($dst) `)` `->` qualified(type($result))}];
 
     let hasVerifier = 1;
 
@@ -1433,6 +1455,8 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
       MemRefType getDstMemRefType() { return cast<MemRefType>(getDst().getType()); }
       bool isShardLevel() { return getNumElems() == 0; }
       bool isFullyIndexed() { return getNumElems() > 0; }
+      // True for the cross-core local-L1 read form.
+      bool hasSrcCore() { return !getSrcCore().empty(); }
       size_t getSizeBytes() {
         assert(isFullyIndexed() && "getSizeBytes() requires fully indexed form");
         auto elementSizeBytes =
@@ -2278,6 +2302,167 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
 
       bool isConsumer(mlir::OpOperand &operand) {
         return llvm::any_of(getLocalBufferMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
+      }
+    }];
+}
+
+def D2M_GatherCoreOp : D2M_GenericRegionDatamovementOp<"gather_core",
+  [ AttrSizedOperandSegments
+  , MemoryEffects<[MemRead, MemWrite]>
+  , DestinationStyleOpInterface
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType",
+      "hasTensorSemantics"
+    ]>
+  , D2M_SynchronizableOpInterface
+  ]> {
+    let summary = "D2M collective gather across cores.";
+    let description = [{
+      Collective gather of per-core local L1 buffers into a designated
+      collector core. All cores in the rectangular group
+      `[groupStartIndex, groupStartIndex + groupShape)` execute this op. The
+      collector at `collectorIndex` reads each source core's local `%src`
+      into its local `%dst`. Non-collector cores publish their `%src` (via
+      prior writes) and then synchronize; they do not touch `%dst`.
+
+      The op relies on the invariant that `%src` has the same L1 offset
+      on every core in the group. The lowering passes assume this.
+
+      Each side (src and dst) independently chooses between an implicit
+      memref/tensor operand and an explicit CB operand, for four possible
+      surface forms. Mixed forms support cases where one buffer is a
+      scratch alloc and the other crosses the DM/compute thread boundary
+      as a CB.
+
+      Tensor form (pre-bufferization, DPS — both sides implicit):
+      ```mlir
+      %result = d2m.gather_core %src into %dst
+        group [%groupY, %groupX] shape [%groupSizeY, %groupSizeX]
+        collector [%collectorY, %collectorX]
+        : tensor<2x4x!ttcore.tile<32x32, f32>>,
+          tensor<2x4x!ttcore.tile<32x32, f32>>
+        -> tensor<2x4x!ttcore.tile<32x32, f32>>
+      ```
+
+      Implicit memref form (post-bufferization, pre-`SplitUnifiedThread`):
+      ```mlir
+      d2m.gather_core %src into %dst
+        group [%groupY, %groupX] shape [%groupSizeY, %groupSizeX]
+        collector [%collectorY, %collectorX]
+        : memref<2x4x!ttcore.tile<32x32, f32>, #l1>,
+          memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+      ```
+
+      Explicit CB form (post-`SplitUnifiedThread`): one or both of
+      `%srcCb` / `%dstCb` are `!d2m.cb<memref<...>>` values. `%dstCb` is
+      allocated on every group core but only the collector executes its
+      CB ops.
+      ```mlir
+      d2m.gather_core from %srcCb into %dstCb
+        group [%groupY, %groupX] shape [%groupSizeY, %groupSizeX]
+        collector [%collectorY, %collectorX]
+        : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>,
+          !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      ```
+
+      Constraints (V1):
+      - Exactly one of (`$src`, `$srcCb`) and one of (`$dst`, `$dstCb`)
+        is present; the two sides are independent.
+      - Tensor form is only valid with both sides implicit (CBs and
+        tensors do not mix).
+      - `groupStartIndex`, `groupShape`, and `collectorIndex` each have
+        exactly 2 entries (2D core grid).
+      - Source and destination element types and shapes must match.
+      - In implicit form, neither operand has a device layout.
+
+      Synchronization uses two local semaphores preallocated by
+      `D2MPreallocateMcastSemaphores`; the protocol body is materialized
+      by `D2MLowerLoadStoreOpsToDMA`.
+    }];
+
+    let arguments = (ins
+      Optional<AnyRankedTensorOrMemRef>:$src,
+      Optional<AnyRankedTensorOrMemRef>:$dst,
+      Optional<D2M_CB>:$srcCb,
+      Optional<D2M_CB>:$dstCb,
+      Variadic<Index>:$groupStartIndex,
+      Variadic<Index>:$groupShape,
+      Variadic<Index>:$collectorIndex);
+
+    let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
+
+    let builders = [
+      // Implicit memref form. Tensor and CB forms use the auto-generated
+      // builders by passing nullptrs for the other side's operand.
+      OpBuilder<(ins "Value":$src, "Value":$dst,
+                     "ValueRange":$groupStartIndex, "ValueRange":$groupShape,
+                     "ValueRange":$collectorIndex),
+      [{
+        build($_builder, $_state, /*result=*/Type{}, src, dst,
+              /*srcCb=*/Value{}, /*dstCb=*/Value{},
+              groupStartIndex, groupShape, collectorIndex);
+      }]>
+    ];
+
+    let hasCustomAssemblyFormat = 1;
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      // DestinationStyleOpInterface: dst is the DPS init in implicit form;
+      // empty otherwise.
+      MutableOperandRange getDpsInitsMutable() {
+        return getDstMutable();
+      }
+
+      bool isExplicitCBForm() {
+        return static_cast<bool>(getSrcCb()) || static_cast<bool>(getDstCb());
+      }
+      bool isImplicitForm() {
+        return static_cast<bool>(getSrc()) || static_cast<bool>(getDst());
+      }
+      bool hasResultForm() { return static_cast<bool>(getResult()); }
+
+      // Underlying shaped type of each side, regardless of form.
+      ShapedType getSrcShapedType() {
+        if (getSrc())
+          return cast<ShapedType>(getSrc().getType());
+        if (getSrcCb())
+          return cast<CBType>(getSrcCb().getType()).getUnderlyingAs<ShapedType>();
+        llvm_unreachable("GatherCoreOp has neither src nor srcCb");
+      }
+      ShapedType getDstShapedType() {
+        if (getDst())
+          return cast<ShapedType>(getDst().getType());
+        if (getDstCb())
+          return cast<CBType>(getDstCb().getType()).getUnderlyingAs<ShapedType>();
+        llvm_unreachable("GatherCoreOp has neither dst nor dstCb");
+      }
+
+      // CB type accessors; null if the corresponding side is implicit.
+      CBType getSrcCbType() {
+        Value cb = getSrcCb();
+        return cb ? cast<CBType>(cb.getType()) : CBType();
+      }
+      CBType getDstCbType() {
+        Value cb = getDstCb();
+        return cb ? cast<CBType>(cb.getType()) : CBType();
+      }
+
+      // SynchronizableOpInterface: cover both implicit and CB operand on
+      // each side so the CB-usage analysis sees the right value pre- and
+      // post-SplitUnifiedThread.
+      bool isProducer(mlir::OpOperand &operand) {
+        return (getDst() && operand.get() == getDst()) ||
+               (getDstCb() && operand.get() == getDstCb());
+      }
+      bool isConsumer(mlir::OpOperand &operand) {
+        return (getSrc() && operand.get() == getSrc()) ||
+               (getSrcCb() && operand.get() == getSrcCb());
       }
     }];
 }

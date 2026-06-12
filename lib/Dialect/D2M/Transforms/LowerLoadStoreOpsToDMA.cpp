@@ -6,9 +6,11 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::d2m {
@@ -261,6 +263,227 @@ public:
   }
 };
 
+class D2MLowerGatherCoreRewritePattern : public OpRewritePattern<GatherCoreOp> {
+public:
+  using OpRewritePattern<GatherCoreOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(GatherCoreOp gather,
+                                PatternRewriter &rewriter) const final {
+    Location loc = gather.getLoc();
+
+    // Accept implicit memref form or explicit CB form; tensor form must have
+    // been bufferized by now.
+    auto isMemRefOrAbsent = [](Value v) {
+      return !v || mlir::isa<MemRefType>(v.getType());
+    };
+    if (!isMemRefOrAbsent(gather.getSrc()) ||
+        !isMemRefOrAbsent(gather.getDst())) {
+      return rewriter.notifyMatchFailure(gather,
+                                         "implicit-form src/dst must be "
+                                         "memrefs at this stage");
+    }
+    if (gather.getSrcCb() &&
+        !gather.getSrcCbType().getUnderlyingAs<MemRefType>()) {
+      return rewriter.notifyMatchFailure(
+          gather, "srcCb must have memref underlying type");
+    }
+    if (gather.getDstCb() &&
+        !gather.getDstCbType().getUnderlyingAs<MemRefType>()) {
+      return rewriter.notifyMatchFailure(
+          gather, "dstCb must have memref underlying type");
+    }
+
+    auto genericOp = gather->getParentOfType<GenericOp>();
+    TT_assertv(genericOp, "GatherCoreOp must be inside a GenericOp");
+
+    // In CB form, materialize src's underlying memref via WaitOp on every
+    // group core (consumer-side handshake with the upstream compute thread).
+    // The matching PopOp is emitted after the scf.if, once both the
+    // collector's reads and the sources' wait on collectorDone are done.
+    Value src = gather.getSrc();
+    Value srcCb = gather.getSrcCb();
+    if (srcCb) {
+      src = rewriter.create<WaitOp>(loc, srcCb).getResult();
+    }
+    Value dst = gather.getDst();
+    Value dstCb = gather.getDstCb();
+    ValueRange groupStart = gather.getGroupStartIndex();
+    ValueRange groupShape = gather.getGroupShape();
+    ValueRange collectorIdx = gather.getCollectorIndex();
+    TT_assertv((groupStart.size() == 2 && groupShape.size() == 2 &&
+                collectorIdx.size() == 2),
+               "GatherCoreOp must have 2D group / collector indices (V1)");
+
+    // Two preallocated local semaphores: sourceReady (sources -> collector)
+    // and collectorDone (collector -> sources).
+    auto preallocatedSems = getPreallocatedSemaphores(gather);
+    Value sourceReady = preallocatedSems.first;
+    Value collectorDone = preallocatedSems.second;
+
+    Value zero = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getIndexType(), rewriter.getIndexAttr(0));
+    Value one = rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexType(),
+                                                   rewriter.getIndexAttr(1));
+
+    // The collector pulls from every group core (including itself) and so
+    // expects (groupVolume - 1) sourceReady signals.
+    Value groupVolume =
+        rewriter.create<arith::MulIOp>(loc, groupShape[0], groupShape[1]);
+    Value numSources = rewriter.create<arith::SubIOp>(loc, groupVolume, one);
+
+    Value endY =
+        rewriter.create<arith::AddIOp>(loc, groupStart[0], groupShape[0]);
+    Value endX =
+        rewriter.create<arith::AddIOp>(loc, groupStart[1], groupShape[1]);
+
+    // Build two per-core booleans:
+    //   isInGroup   - this core lies in [groupStart, groupStart + groupShape).
+    //   isCollector - this core matches collectorIdx.
+    // isInGroup gates the entire protocol so cores in the enclosing generic
+    // that are outside the gather group don't fan-in/fan-out (which would
+    // over-saturate sourceReady and deadlock on collectorDone).
+    AffineMap gridMapping = genericOp.getGrid().getPhysicalToVirtMap();
+    Value isCollector;
+    Value isInGroup;
+    for (unsigned i = 0; i < 2u; ++i) {
+      Value coreIdx = rewriter.create<CoreIndexOp>(loc, static_cast<int64_t>(i),
+                                                   gridMapping);
+      Value collEq = rewriter.create<arith::CmpIOp>(loc, rewriter.getI1Type(),
+                                                    arith::CmpIPredicate::eq,
+                                                    coreIdx, collectorIdx[i]);
+      isCollector =
+          isCollector ? rewriter.create<arith::AndIOp>(loc, isCollector, collEq)
+                            .getResult()
+                      : collEq;
+
+      Value axisEnd = (i == 0) ? endY : endX;
+      Value geStart = rewriter.create<arith::CmpIOp>(loc, rewriter.getI1Type(),
+                                                     arith::CmpIPredicate::sge,
+                                                     coreIdx, groupStart[i]);
+      Value ltEnd = rewriter.create<arith::CmpIOp>(loc, rewriter.getI1Type(),
+                                                   arith::CmpIPredicate::slt,
+                                                   coreIdx, axisEnd);
+      Value axisInGroup = rewriter.create<arith::AndIOp>(loc, geStart, ltEnd);
+      isInGroup =
+          isInGroup
+              ? rewriter.create<arith::AndIOp>(loc, isInGroup, axisInGroup)
+                    .getResult()
+              : axisInGroup;
+    }
+
+    // Semaphore targets stay in virtual grid space: GenericRegionsToFuncs maps
+    // them virt->phys once before D2MToTTKernel. DMARead srcCore is the
+    // exception since that pass leaves it untouched.
+
+    // if (isInGroup) { if (isCollector) collectorBranch else sourceBranch }
+    rewriter.create<scf::IfOp>(
+        loc, isInGroup, [&](OpBuilder &groupBuilder, Location groupLoc) {
+          groupBuilder.create<scf::IfOp>(
+              groupLoc, isCollector,
+              [&](OpBuilder &builder, Location loc) {
+                // Collector: reserve dst CB (only the collector pushes it),
+                // wait for sources, pull each source's payload, then
+                // fan out collectorDone to the group.
+                Value dstLocal = dst;
+                if (dstCb) {
+                  dstLocal = builder.create<ReserveOp>(loc, dstCb).getResult();
+                }
+
+                builder.create<SemaphoreWaitOp>(loc, sourceReady, numSources,
+                                                zero);
+
+                // Row-major over the group; the collector's own iteration is
+                // a self-read, which is correct and avoids an inner branch.
+                builder.create<scf::ForOp>(
+                    loc, groupStart[0], endY, one, ValueRange(),
+                    [&](OpBuilder &yBuilder, Location yLoc, Value srcY,
+                        ValueRange) {
+                      yBuilder.create<scf::ForOp>(
+                          yLoc, groupStart[1], endX, one, ValueRange(),
+                          [&](OpBuilder &xBuilder, Location xLoc, Value srcX,
+                              ValueRange) {
+                            SmallVector<Value> physSrc =
+                                utils::mapVirtualToPhysicalCoreIndex(
+                                    xBuilder, xLoc, genericOp.getGrid(),
+                                    {srcY, srcX});
+                            Value tx = xBuilder.create<DMAReadOp>(
+                                xLoc, src, /*srcIndices=*/ValueRange(),
+                                dstLocal,
+                                /*srcCore=*/ValueRange(physSrc));
+                            xBuilder.create<DMAWaitOp>(xLoc, tx);
+                            xBuilder.create<scf::YieldOp>(xLoc);
+                          });
+                      yBuilder.create<scf::YieldOp>(yLoc);
+                    });
+
+                // collectorDone fan-out. The general case is a single mcast
+                // SemaphoreSet over the group rectangle. We fall back to a
+                // loop of unicast SemaphoreInc on statically-degenerate
+                // group shapes (1xN, Nx1, 1x1) because the downstream
+                // get_noc_multicast_addr lowering folds start/end coords on
+                // a degenerate axis to the same SSA, which the emitc.expression
+                // printer cannot round-trip. The two forms are observable-
+                // equivalent: collectorDone is zero-initialized, reset on each
+                // source's wait, and only ever published with value 1.
+                std::optional<int64_t> staticShapeY =
+                    getConstantIntValue(groupShape[0]);
+                std::optional<int64_t> staticShapeX =
+                    getConstantIntValue(groupShape[1]);
+                bool yIsOne = staticShapeY && *staticShapeY == 1;
+                bool xIsOne = staticShapeX && *staticShapeX == 1;
+                if (yIsOne && xIsOne) {
+                  builder.create<SemaphoreIncOp>(loc, collectorDone, one,
+                                                 groupStart);
+                } else if (yIsOne || xIsOne) {
+                  Value lb = yIsOne ? groupStart[1] : groupStart[0];
+                  Value ub = yIsOne ? endX : endY;
+                  bool axisIsX = yIsOne;
+                  builder.create<scf::ForOp>(
+                      loc, lb, ub, one, ValueRange(),
+                      [&](OpBuilder &incBuilder, Location incLoc, Value iv,
+                          ValueRange) {
+                        Value virtY = axisIsX ? groupStart[0] : iv;
+                        Value virtX = axisIsX ? iv : groupStart[1];
+                        incBuilder.create<SemaphoreIncOp>(
+                            incLoc, collectorDone, one,
+                            ValueRange{virtY, virtX});
+                        incBuilder.create<scf::YieldOp>(incLoc);
+                      });
+                } else {
+                  builder.create<SemaphoreSetOp>(
+                      loc, collectorDone, one, groupStart, groupShape,
+                      /*startDevice=*/ValueRange(),
+                      /*deviceMcastShape=*/ValueRange());
+                }
+
+                if (dstCb) {
+                  builder.create<PushOp>(loc, dstCb);
+                }
+                builder.create<scf::YieldOp>(loc);
+              },
+              [&](OpBuilder &builder, Location loc) {
+                // Source: signal the collector we are ready, then wait
+                // until it has pulled us.
+                builder.create<SemaphoreIncOp>(loc, sourceReady, one,
+                                               collectorIdx);
+                builder.create<SemaphoreWaitOp>(loc, collectorDone, one, zero);
+                builder.create<scf::YieldOp>(loc);
+              });
+          groupBuilder.create<scf::YieldOp>(groupLoc);
+        });
+
+    // src CB pop on every group core: safe here because both branches have
+    // completed (collector finished its reads, sources waited on
+    // collectorDone).
+    if (srcCb) {
+      rewriter.create<PopOp>(loc, srcCb);
+    }
+
+    rewriter.eraseOp(gather);
+    return success();
+  }
+};
+
 class D2MLowerDMACopyRewritePattern : public OpRewritePattern<LocalCopyOp> {
 public:
   using OpRewritePattern<LocalCopyOp>::OpRewritePattern;
@@ -303,6 +526,7 @@ public:
     patterns.add<D2MLowerRemoteLoadRewritePattern>(&getContext());
     patterns.add<D2MLowerRemoteStoreRewritePattern>(&getContext());
     patterns.add<D2MLowerDMACopyRewritePattern>(&getContext());
+    patterns.add<D2MLowerGatherCoreRewritePattern>(&getContext());
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();
     }

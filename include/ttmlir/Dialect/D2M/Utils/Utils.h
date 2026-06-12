@@ -17,6 +17,7 @@
 
 namespace mlir::tt::ttcore {
 class DeviceAttr;
+class GridAttr;
 } // namespace mlir::tt::ttcore
 
 namespace mlir::tt::d2m::utils {
@@ -188,6 +189,15 @@ getNocElementAlignment(Operation *op, ttcore::MemorySpace memorySpace,
 // in number of tensor/memref elements.
 int32_t getNocElementAlignmentL1(
     Operation *op, const std::variant<RankedTensorType, MemRefType> &type);
+
+// Apply the grid's virt-to-physical map to a virtual core index. Returns
+// the input unchanged if the map is empty/identity. Used by passes that
+// emit cross-core ops (multicast remote_load, gather_core, etc.) whose
+// runtime arguments are physical NoC coordinates.
+SmallVector<Value> mapVirtualToPhysicalCoreIndex(OpBuilder &builder,
+                                                 Location loc,
+                                                 ttcore::GridAttr grid,
+                                                 ValueRange virtualCoreIndex);
 
 } // namespace mlir::tt::d2m::utils
 
