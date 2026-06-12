@@ -2977,9 +2977,9 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<OpConstraints> OpModel<FlashMlaPrefillOp>::getOpConstraints(
-    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> queryShape,
-    TTNNLayoutAttr queryLayout, llvm::ArrayRef<int64_t> keyShape,
-    TTNNLayoutAttr keyLayout, std::optional<llvm::ArrayRef<int64_t>> valueShape,
+    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+    std::optional<llvm::ArrayRef<int64_t>> valueShape,
     std::optional<TTNNLayoutAttr> valueLayout,
     std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
     std::optional<TTNNLayoutAttr> attentionMaskLayout, uint32_t headDimV,
@@ -3013,7 +3013,7 @@ llvm::Expected<OpConstraints> OpModel<FlashMlaPrefillOp>::getOpConstraints(
                                 /*compute_kernel_config=*/std::nullopt);
   };
 
-  return operation::getOpConstraints(queryLayout.getContext(), deviceGrid,
+  return operation::getOpConstraints(queryLayout.getContext(),
                                      flashMlaPrefillOpQuery);
 #else
   return OpConstraints{};

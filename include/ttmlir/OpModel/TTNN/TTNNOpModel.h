@@ -855,9 +855,8 @@ struct OpModel<ScaledDotProductAttentionOp> {
 template <>
 struct OpModel<FlashMlaPrefillOp> {
   static llvm::Expected<OpConstraints> getOpConstraints(
-      ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> queryShape,
-      TTNNLayoutAttr queryLayout, llvm::ArrayRef<int64_t> keyShape,
-      TTNNLayoutAttr keyLayout,
+      llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+      llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
       std::optional<llvm::ArrayRef<int64_t>> valueShape,
       std::optional<TTNNLayoutAttr> valueLayout,
       std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
