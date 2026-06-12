@@ -2357,6 +2357,73 @@ def D2M_CoreReadOp : D2M_GenericRegionDatamovementOp<"core_read",
     }];
 }
 
+def D2M_CoreWriteOp : D2M_GenericRegionDatamovementOp<"core_write",
+  [ MemoryEffects<[MemRead, MemWrite]>
+  , DestinationStyleOpInterface
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType",
+      "hasTensorSemantics"
+    ]>
+  , D2M_SynchronizableOpInterface
+  ]> {
+    let summary = "D2M core-to-core local-L1 write.";
+    let description = [{
+      Writes this core's local L1 buffer `%src` into another core's local L1
+      buffer `%dst` (the copy on the core at `dstCore` logical coordinates),
+      over the NoC. The push dual of `core_read`: a primitive core->core
+      transfer with **no device-layout requirement** on either buffer, lowering
+      directly to a `noc_async_write` in D2MToTTKernel (no `dma_write`). Relies
+      on the same uniform-L1-offset invariant (`%dst` at the same L1 offset on
+      every core in the grid). Synchronization (the destination core not reading
+      `%dst` until the write lands) is the caller's responsibility (semaphores).
+
+      Tensor form (pre-bufferization, DPS) -- the result aliases `%dst`:
+      ```mlir
+      %result = d2m.core_write %src into %dst core [%dstY, %dstX]
+        : tensor<MxN x tile>, tensor<MxN x tile> -> tensor<MxN x tile>
+      ```
+
+      Constraints:
+      - `%src` and `%dst` must be local (no device layout).
+      - `dstCore` rank must equal the grid rank (2 for current grids).
+      - `%src` and `%dst` must have the same element type and shape.
+    }];
+
+    let arguments = (ins
+        Arg<AnyRankedTensorOrMemRef, "this core's local source buffer",
+            [MemRead]>:$src,
+        Arg<AnyRankedTensorOrMemRef, "destination core's local buffer",
+            [MemWrite]>:$dst,
+        Variadic<Index>:$dstCore);
+
+    let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
+
+    let assemblyFormat = [{
+      $src `into` $dst `core` `[` $dstCore `]` attr-dict
+      `:` type($src) `,` type($dst) (`->` qualified(type($result))^)?
+    }];
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      MemRefType getSrcMemRefType() { return cast<MemRefType>(getSrc().getType()); }
+      MemRefType getDstMemRefType() { return cast<MemRefType>(getDst().getType()); }
+      // DestinationStyleOpInterface: %dst is the single DPS init.
+      mlir::MutableOperandRange getDpsInitsMutable() { return getDstMutable(); }
+      // SynchronizableOpInterface: core_write produces dst, consumes src.
+      bool isProducer(mlir::OpOperand &operand) {
+        return &getDstMutable() == &operand;
+      }
+      bool isConsumer(mlir::OpOperand &operand) {
+        return &getSrcMutable() == &operand;
+      }
+    }];
+}
+
 def D2M_SynchronizedRegionOp : D2M_GenericRegionOp<"synchronized_region", [
   MemoryEffects<[MemRead, MemWrite]>,
   AttrSizedOperandSegments,

@@ -273,3 +273,44 @@ def test_core_read_cross_core_gather():
     expected = torch.cat([half1, half1], dim=1)
     assert tuple(result.shape) == (32, 64)
     assert_pcc(expected, result)
+
+
+@d2m.kernel
+def core_write_scatter(in0, out0, done):
+    # grid (1,2): core 0 writes its shard into core 1's buffer over the NoC
+    # (core_write, the push dual of core_read), signals, then core 1 stores
+    # that buffer. The receive buffer is also loaded locally so it has a local
+    # CB producer; core_write overwrites its data.
+    cy = core_index(0)
+    cx = core_index(1)
+    src = empty([1, 1])
+    src = remote_load(src, in0, [cy, cx])
+    recv = empty([1, 1])
+    recv = remote_load(recv, in0, [cy, cx])
+    if cx == 0:
+        core_write(src, recv, core=[0, 1])  # write core 0's shard into core 1's recv
+        semaphore_inc(done, 1, core=[0, 1])
+    else:
+        semaphore_wait(done, 1)
+        remote_store(out0, [cy, cx], recv)  # core 1 stores recv (= core 0's shard)
+
+
+@pytest.mark.skipif(
+    torch is None or runtime is None, reason="requires torch + ttmlir runtime"
+)
+@pytest.mark.skipif(_num_devices() < 1, reason="requires a device")
+def test_core_write_cross_core_scatter():
+    """End-to-end core_write: on a grid (1,2), core 0 writes its local shard
+    into core 1's local L1 buffer over the NoC (gated by a cross-core
+    semaphore). out[0,1] then holds core 0's shard."""
+    L = d2m.Layout(
+        shape=(32, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 2]
+    )
+    full = torch.randn(32, 64, dtype=torch.float32)
+    out_d = d2m.empty(L)
+    done = d2m.global_semaphore(grid_shape=(8, 8), init=0)
+    core_write_scatter(d2m.to_layout(full, L), out_d, done, grid=(1, 2))
+    result = out_d.to_host()
+    # out's second column (core 1) holds core 0's shard, delivered via core_write.
+    assert tuple(result.shape) == (32, 64)
+    assert_pcc(full[:, :32], result[:, 32:])

@@ -204,6 +204,20 @@ def core_read(dst, src, *, core):
     return d2m.core_read(dst.type, src, _idx_list(core), dst)
 
 
+@syntax("core_write")
+def core_write(src, dst, *, core):
+    """Write this core's local L1 buffer `src` into another core's `dst` buffer.
+
+    The push dual of `core_read`: a direct core->core NoC write (no device
+    layout). `src` is sent into the copy of `dst` on the core at logical
+    coordinates `core` ([y, x], same L1 offset across the grid). Synchronization
+    (the destination core not reading `dst` until the write lands) is the
+    caller's responsibility via semaphores. Returns the (remote) `dst` handle."""
+    src = _as_value(src)
+    dst = _as_value(dst)
+    return d2m.core_write(dst.type, src, dst, _idx_list(core))
+
+
 @syntax("semaphore_set")
 def semaphore_set(semaphore, value, core=None, mcast=None):
     """Set a (local or global) semaphore to `value`. Free-function form of

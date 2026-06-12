@@ -300,7 +300,7 @@ public:
     // NOC split, and the streaming sync against it is not yet proven.
     bool keepSingleDMThread = false;
     dmBlock->walk([&](Operation *op) {
-      if (isa<SemaphoreIncOp, SemaphoreSetOp, CoreReadOp>(op)) {
+      if (isa<SemaphoreIncOp, SemaphoreSetOp, CoreReadOp, CoreWriteOp>(op)) {
         keepSingleDMThread = true;
         return WalkResult::interrupt();
       }
