@@ -10123,11 +10123,11 @@ class TTNNBuilder(Builder):
             temp: Per-request temperature values [batch=32] bf16 (1/temperature).
             seed: Optional random seed for reproducibility.
         Returns:
-            Sampled global token indices [batch=32] int32.
+            Sampled global token indices [batch=32] uint32.
         """
         ttnn_op = self.get_opview_from_method(TTNNBuilder.sampling)
 
-        mlir_output_type = self._get_type_from_torch_dtype(torch.int32)
+        mlir_output_type = self._get_type_from_torch_dtype(torch.uint32)
 
         vals_golden = self._get_golden_tensor(input_values)
         idx_golden = self._get_golden_tensor(input_indices)
