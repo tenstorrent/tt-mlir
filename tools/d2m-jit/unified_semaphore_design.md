@@ -148,3 +148,78 @@ With `wait`-with-reset decomposed away, the whole model is just two rules:
 **replicate waits, pin mutations** — plus an ordering edge from a pinned mutation
 to any thread that observes it (a reset that another thread re-waits on is the
 case to cover with a test).
+
+---
+
+## Producer-done signals (matmul → core_read gather) — empirical update
+
+Wiring `core_read` into a fused matmul→all_gather surfaced a concrete instance
+of the placement problem, and an empirical hardware constraint that rules out
+one of the obvious fixes.
+
+### The kernel and the bug
+
+```python
+c = a @ b                                 # per-core matmul tile (compute thread)
+semaphore_inc(ready, 1, core=[0, 0])      # "my tile is ready" -> injector
+if injector:
+    semaphore_wait(ready, NUM_CORES)
+    for j: core_read(g[j], c, core=[0, j]); ...  # gather every core's tile (DM)
+```
+
+Compiles and runs (no hang) but returns `inf`. After the split, each producer
+core's `semaphore_inc(ready)` lands on the **DM** thread right after the *input*
+DMA — **before** the compute-thread matmul has written `c`. So `ready` reaches
+`NUM_CORES` while tiles are still uncomputed, and the injector's `core_read`
+gathers stale/uninitialized L1.
+
+The matmul output `c` lowers to a **raw, unsynchronized shared buffer**
+(`get_arg`, `cb_layout`, *no* reserve/push/wait/pop). There is no compute→DM
+handshake on it at all — nothing the readiness signal can be ordered behind.
+
+### Dead-end: place the inc on the compute thread
+
+The tempting fix — route a `compute_signal`-tagged inc onto the compute thread
+(after the matmul) — was prototyped (discardable `d2m.compute_signal` attr +
+`collectOpsToErase` routing). The IR was correct (inc placed after
+`tile_matmul_block`), but the **kernel does not compile**:
+
+```
+dataflow_api_common.h: error: 'NOC_INDEX' was not declared in this scope
+dataflow_api.h: error: redefinition of 'get_absolute_logical_x()' ...
+```
+
+**TRISC (compute) has no NOC.** A NOC `semaphore_inc` pulls in `dataflow_api.h`,
+which needs `NOC_INDEX` — undefined in the compute environment. There is no NOC
+semaphore API in any `*trisc*` firmware. So a NOC semaphore op simply cannot be
+emitted from the compute kernel. (This is *why* tt-metal's
+`MatmulFusedOpSignaler` signals from the **writer/DM** kernel, not the matmul
+compute kernel — the writer does `cb_wait_front` on the matmul output CB, then
+the NOC inc.) The prototype was reverted.
+
+### Correct fix: per-core compute→DM fence on the matmul output CB
+
+Keep the readiness inc on the **DM** thread (it must, for the NOC), but **fence**
+it behind the local matmul, matching tt-metal:
+
+1. Make the matmul output a real compute→DM handshake CB on **every** producer
+   core: compute `reserve`/`push`, DM `wait`/`pop`. Today it is a raw shared
+   buffer because its only data-consumer (`core_read`) is **cross-core on the
+   injector** — producer cores have no local consumer, so the handshake is never
+   synthesized. The fence must be driven by the *readiness inc itself* acting as
+   a local DM consumer of the matmul output, not by the cross-core `core_read`.
+2. Order the `semaphore_inc(ready)` after that local DM `wait`. Now `ready`
+   counts *completed* matmuls; the injector's cross-core `core_read` is safe
+   (the `ready` semaphore covers the cross-core edge; the local fence covers the
+   per-core compute→DM edge).
+
+To associate the inc with the matmul output it fences, the cleanest surface is
+an explicit fence operand on `semaphore_inc` (e.g. `semaphore_inc(ready, 1,
+core=[0,0], after=c)`) so the dependency is in the IR; `split-unified-thread-v2`
+then treats the inc as a local DM consumer of `c`'s CB and synthesizes the
+handshake. This is the "ordering edge from a pinned mutation to the producing
+thread" from the Recommendation above, specialized to producer-done signals.
+
+**Status:** characterized and validated on device (the `inf` repro); the fence
+is not yet implemented. `core_read`/`core_write` themselves are correct — this
+is purely the semaphore-ordering edge for fused producer→consumer kernels.

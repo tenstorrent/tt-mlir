@@ -272,10 +272,19 @@ static void collectOpsToErase(Block *block, DenseSet<Operation *> &eraseSet,
     }
 
     // DM-resident ops stay on the datamovement thread and are removed from the
-    // compute thread. Semaphore mutations (inc/set) belong here too: compute
-    // (TRISC) has no NOC/fabric access, and ScheduleDMA keeps a kernel that has
-    // them on a single DM thread so they run exactly once. core_read is a
-    // core->core NoC read, also DM-only.
+    // compute thread. Semaphore mutations (inc/set) belong here: compute
+    // (TRISC) has no NOC -- a NOC semaphore inc cannot even compile there
+    // (dataflow_api.h needs NOC_INDEX, undefined in the compute environment) --
+    // and ScheduleDMA keeps a kernel that has them on a single DM thread so
+    // they run exactly once. core_read is a core->core NoC read, also DM-only.
+    //
+    // NOTE: a *producer-done* signal in a fused producer->consumer kernel
+    // (e.g. the matmul -> core_read gather, where each core increments a
+    // `ready` semaphore once its matmul tile is done) currently fires here
+    // right after the input DMA -- before the compute matmul has run -- so the
+    // gather reads stale L1. The fix (a per-core compute->DM fence on the
+    // matmul output CB, matching tt-metal's writer-signals pattern) is specced
+    // in tools/d2m-jit/unified_semaphore_design.md ("Producer-done signals").
     bool isDMAOp = isa<ShardDMAOpInterface, DeviceSynchronizeOp, SemaphoreIncOp,
                        SemaphoreSetOp, CoreReadOp, CoreWriteOp>(&op);
     bool isReplicated = isa<SemaphoreWaitOp>(&op);
