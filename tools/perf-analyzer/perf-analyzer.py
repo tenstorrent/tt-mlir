@@ -100,6 +100,13 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="plots a heatmap graph of each stat collected",
     )
+    parser.add_argument(
+        "--compare_to",
+        type=pathlib.Path,
+        metavar="PATH",
+        default=None,
+        help="compare this report to another report, highlight differences",
+    )
     args = parser.parse_args()
 
     if not args.path_to_perf_dir.is_dir():
@@ -525,6 +532,9 @@ def collect_perf_counters(profile_log: pathlib.Path) -> pd.DataFrame:
 
 
 def get_perf_counter_stats(perf_counters: pd.DataFrame) -> dict:
+    """Calculate meaningful metrics from raw h/w performance counter values"""
+    """Taken from tt-metal"""
+
     def get_counter_values(*counter_names: str):
         mask = perf_counters["counter type"].isin(counter_names)
         return perf_counters[mask].set_index(["run_host_id", "core_x", "core_y"])[
@@ -624,16 +634,19 @@ def print_perf_counter_stats(perf_stats: dict) -> None:
         print(fmt(row))
 
 
-def build_report(
-    profile_log: pathlib.Path,
-    raw_timeline: list[dict],
-    zone_grouped_rows: dict[str, tuple[int, int, int]],
-    wall_cycles: int,
-    freq_mhz: float,
-) -> dict:
-    """assembles a self-describing JSON snapshot of every analysis section,
-    with durations as raw cycles plus derived ns (never pre-formatted strings)"""
+def build_report(profile_log: pathlib.Path, by_kernel: bool = False) -> dict:
+    """assembles a self-describing JSON snapshot of every analysis section for a
+    single profile_log, with durations as raw cycles plus derived ns (never
+    pre-formatted strings).
 
+    Self-contained: every section is derived from the profile_log path alone, so
+    this can be reused/mapped across multiple profiles, e.g.
+    ``{p: build_report(p) for p in profile_logs}``."""
+
+    freq_mhz = read_chip_freq_mhz(profile_log)
+    raw_timeline, wall_cycles = collect_device_timeline(profile_log)
+    zone_grouped_rows = aggregate_by_zone(raw_timeline, by_kernel)
+    perf_stats = get_perf_counter_stats(collect_perf_counters(profile_log))
     runtimes = collect_device_runtimes(profile_log, freq_mhz)
 
     total_cycles = sum(t for t, _, _ in zone_grouped_rows.values())
@@ -669,8 +682,6 @@ def build_report(
         },
     }
 
-    stats = get_perf_counter_stats(collect_perf_counters(profile_log))
-
     return {
         "metadata": {
             "source": str(profile_log),
@@ -685,8 +696,203 @@ def build_report(
         },
         "op_times": op_times,
         "waits": waits_json,
+        "stats": perf_stats,
+    }
+
+
+def compare_reports(
+    profile_log1: pathlib.Path,
+    profile_log2: pathlib.Path,
+    by_kernel: bool = False,
+) -> dict:
+    """builds a report for each profile and lays the two side by side.
+
+    Returns a dict whose leaves are ``{"a": <val from profile1>, "b": <val from
+    profile2>, "ratio": a/b}`` triples (ratio is None where it can't be computed
+    or where b == 0). Sections: ``runtimes``, ``op_times`` (op by op, including
+    ops present in only one profile), and ``stats``."""
+
+    report1 = build_report(profile_log1, by_kernel)
+    report2 = build_report(profile_log2, by_kernel)
+
+    def ratio(a, b):
+        if a is None or b is None or b == 0:
+            return None
+        return a / b
+
+    def cmp(a, b):
+        return {"a": a, "b": b, "ratio": ratio(a, b)}
+
+    def cmp_dur(a: dict | None, b: dict | None) -> dict:
+        # a/b are {"cycles", "ns"} dicts (or None when the op is missing here)
+        ac = None if a is None else a["cycles"]
+        bc = None if b is None else b["cycles"]
+        return {
+            "cycles": cmp(ac, bc),
+            "ns": cmp(
+                None if a is None else a["ns"],
+                None if b is None else b["ns"],
+            ),
+        }
+
+    # ---- runtimes -------------------------------------------------------
+    rt1 = report1["runtimes"]["device_kernel_time"]
+    rt2 = report2["runtimes"]["device_kernel_time"]
+    runtimes = {"device_kernel_time": cmp_dur(rt1, rt2)}
+
+    # ---- op_times (op by op) -------------------------------------------
+    ops1 = {o["op"]: o for o in report1["op_times"]}
+    ops2 = {o["op"]: o for o in report2["op_times"]}
+    # preserve profile1's ordering (already sorted by total cycles desc), then
+    # append any ops that only appear in profile2
+    op_order = list(ops1) + [op for op in ops2 if op not in ops1]
+
+    op_times = {}
+    for op in op_order:
+        o1 = ops1.get(op)
+        o2 = ops2.get(op)
+        op_times[op] = {
+            "present_in": {"a": o1 is not None, "b": o2 is not None},
+            "calls": cmp(
+                None if o1 is None else o1["calls"],
+                None if o2 is None else o2["calls"],
+            ),
+            "total": cmp_dur(
+                None if o1 is None else o1["total"],
+                None if o2 is None else o2["total"],
+            ),
+            "longest": cmp_dur(
+                None if o1 is None else o1["longest"],
+                None if o2 is None else o2["longest"],
+            ),
+            "cycles_per_call": cmp(
+                None if o1 is None else o1["cycles_per_call"],
+                None if o2 is None else o2["cycles_per_call"],
+            ),
+        }
+
+    # ---- stats (h/w counters, per stat per core) -----------------------
+    stats1 = report1["stats"]
+    stats2 = report2["stats"]
+    stat_order = list(stats1) + [s for s in stats2 if s not in stats1]
+
+    stats = {}
+    for stat in stat_order:
+        by_core1 = stats1.get(stat, {})
+        by_core2 = stats2.get(stat, {})
+        cores = list(by_core1) + [c for c in by_core2 if c not in by_core1]
+        stats[stat] = {
+            str(core): cmp(by_core1.get(core), by_core2.get(core)) for core in cores
+        }
+
+    return {
+        "a": str(profile_log1),
+        "b": str(profile_log2),
+        "runtimes": runtimes,
+        "op_times": op_times,
         "stats": stats,
     }
+
+
+def print_comparison(comparison: dict) -> None:
+    """pretty-prints the dict produced by compare_reports as side-by-side tables
+    (A | B | ratio) for the runtimes, op_times, and stats sections."""
+
+    def num(v, fmt: str = "{:.3f}") -> str:
+        # render a comparison leaf value (may be None when an op/stat is absent)
+        return "-" if v is None else fmt.format(v) if isinstance(v, float) else str(v)
+
+    def ratio_str(r) -> str:
+        return "-" if r is None else f"{r:.3f}x"
+
+    def print_table(headers: tuple, table: list[tuple]) -> None:
+        widths = [
+            max(len(row[i]) for row in (*table, headers)) for i in range(len(headers))
+        ]
+
+        def fmt(row: tuple) -> str:
+            cells = [f"{row[0]:<{widths[0]}}"] + [
+                f"{row[i]:>{widths[i]}}" for i in range(1, len(row))
+            ]
+            return "  ".join(cells)
+
+        print(fmt(headers))
+        print("-" * (sum(widths) + 2 * (len(widths) - 1)))
+        for row in table:
+            print(fmt(row))
+
+    a_label = comparison["a"]
+    b_label = comparison["b"]
+    print("\n===== COMPARISON =====\n")
+    print(f"  A: {a_label}")
+    print(f"  B: {b_label}")
+    print("  ratio = A / B")
+
+    # ---- runtimes -------------------------------------------------------
+    print("\n----- RUNTIMES -----\n")
+    headers = ("Metric", "A [ns]", "B [ns]", "ratio")
+    table = []
+    for name, leaf in comparison["runtimes"].items():
+        ns = leaf["ns"]
+        table.append((name, num(ns["a"]), num(ns["b"]), ratio_str(ns["ratio"])))
+    print_table(headers, table)
+
+    # ---- op_times -------------------------------------------------------
+    print("\n----- OP TIMES (cycles) -----\n")
+    headers = (
+        "Op",
+        "Calls A",
+        "Calls B",
+        "Total A",
+        "Total B",
+        "ratio",
+        "Longest A",
+        "Longest B",
+        "Cyc/call A",
+        "Cyc/call B",
+    )
+    table = []
+    for op, leaf in comparison["op_times"].items():
+        calls = leaf["calls"]
+        total = leaf["total"]["cycles"]
+        longest = leaf["longest"]["cycles"]
+        cpc = leaf["cycles_per_call"]
+        table.append(
+            (
+                op,
+                num(calls["a"]),
+                num(calls["b"]),
+                num(total["a"]),
+                num(total["b"]),
+                ratio_str(total["ratio"]),
+                num(longest["a"]),
+                num(longest["b"]),
+                num(cpc["a"]),
+                num(cpc["b"]),
+            )
+        )
+    print_table(headers, table)
+
+    # ---- stats ----------------------------------------------------------
+    if comparison["stats"]:
+        print("\n----- H/W COUNTER STATS (A% | B% | ratio, per core) -----\n")
+        # one row per (stat, core); percentages match print_perf_counter_stats
+        headers = ("Stat", "Core", "A", "B", "ratio")
+        table = []
+        for stat, by_core in comparison["stats"].items():
+            for core, leaf in by_core.items():
+                a = leaf["a"]
+                b = leaf["b"]
+                table.append(
+                    (
+                        stat,
+                        core,
+                        "-" if a is None else f"{a * 100:.3f}%",
+                        "-" if b is None else f"{b * 100:.3f}%",
+                        ratio_str(leaf["ratio"]),
+                    )
+                )
+        print_table(headers, table)
 
 
 def main() -> None:
@@ -695,7 +901,7 @@ def main() -> None:
     profile_log = perf_dir / "profile_log_device.csv"
 
     if not profile_log.exists():
-        raise FileNotFoundError("profile_log_device not found")
+        raise FileNotFoundError("profile_log_device.csv not found")
 
     print(f"Reading from {profile_log}...")
 
@@ -704,7 +910,7 @@ def main() -> None:
     zone_grouped_rows = aggregate_by_zone(raw_timeline, args.by_kernel)
     runtimes = collect_device_runtimes(profile_log, freq)
     perf_counters = collect_perf_counters(profile_log)
-    d = get_perf_counter_stats(perf_counters)
+    perf_stats = get_perf_counter_stats(perf_counters)
     if args.op_graph:
         plot_histogram(zone_grouped_rows, args.op_graph)
         print()
@@ -721,15 +927,20 @@ def main() -> None:
         print_waits(raw_timeline, freq)
         print()
     if args.stats:
-        print_perf_counter_stats(d)
+        print_perf_counter_stats(perf_stats)
         print()
     if args.stat_graph:
-        plot_stats(d, args.stat_graph)
+        plot_stats(perf_stats, args.stat_graph)
+        print()
+    if args.compare_to:
+        prof2 = args.compare_to / "profile_log_device.csv"
+        print(f"Reading from {prof2}...")
+        print("***** Make sure that both reports contain the same instrumentation")
+        comp = compare_reports(profile_log, prof2, args.by_kernel)
+        print_comparison(comp)
         print()
     if args.json:
-        report = build_report(
-            profile_log, raw_timeline, zone_grouped_rows, wall_time, freq
-        )
+        report = build_report(profile_log, args.by_kernel)
         pathlib.Path(args.json).write_text(json.dumps(report, indent=2))
         print(f"Wrote JSON report -> {args.json}")
 
