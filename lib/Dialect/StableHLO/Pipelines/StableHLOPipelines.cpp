@@ -130,13 +130,19 @@ void createStableHLOPipeline(OpPassManager &pm,
   // multi-host. The unfused all_gather + rms_norm + all_slice path works
   // correctly. Re-enable once tt-metal fixes the fused_rms_minimal kernel
   // for multi-host (see distributed_rmsnorm_multihost_bug.md).
-  llvm::errs()
-      << "WARNING: FuseDistributedCustomCallsPass is disabled due to a "
-         "multi-host bug in tt-metal's fused_rms_minimal kernel "
-         "(RMSAllGatherMeshWorkloadFactory::create_at calls "
-         "get_device on remote mesh coordinates). "
-         "RMSNorm will use the unfused all_gather + rms_norm path.\n";
-  // pm.addPass(createFuseDistributedCustomCallsPass());
+  // llvm::errs()
+  //     << "WARNING: FuseDistributedCustomCallsPass is disabled due to a "
+  //        "multi-host bug in tt-metal's fused_rms_minimal kernel "
+  //        "(RMSAllGatherMeshWorkloadFactory::create_at calls "
+  //        "get_device on remote mesh coordinates). "
+  //        "RMSNorm will use the unfused all_gather + rms_norm path.\n";
+
+  // Conditionally add FuseDistributedCustomCallsPass if FUSE_RMS=1
+  if (const char *fuseRmsEnv = std::getenv("FUSE_RMS")) {
+    if (std::string(fuseRmsEnv) == "1") {
+      pm.addPass(createFuseDistributedCustomCallsPass());
+    }
+  }
 
   // Close tensor shardings as analysis is complete.
   pm.addPass(mlir::sdy::createCloseShardingsPass());
