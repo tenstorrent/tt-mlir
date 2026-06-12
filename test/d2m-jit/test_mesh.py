@@ -464,21 +464,6 @@ def test_all_gather_1x2_roundtrip():
     assert diff < 0.05, f"1x2 all_gather max abs diff {diff}"
 
 
-@pytest.mark.skip(
-    reason=(
-        "Fused unified-split CCL hangs on device. The kernel lowers cleanly to a "
-        "ttmetal flatbuffer, but on the 1x2 mesh it deadlocks: split-unified-"
-        "thread-v2 duplicates the device_synchronize barrier across BOTH "
-        "datamovement threads (kernel6 proc=1 and kernel7 proc=0), and the watcher "
-        "shows our kernels (k_ids 18/19/20) only ever load on device 0 -- device 1 "
-        "never launches them -- so the all_gather barrier / end-semaphore never "
-        "completes. No unified-split CCL kernel has run on device yet "
-        "(test_all_gather_1x2_lowers only lowers); the single-thread datamovement "
-        "form (test_all_gather_1x2_roundtrip) works. Skip (not xfail) because the "
-        "test would otherwise hang the suite. Remove once the unified-split CCL "
-        "path executes a barrier once per core rather than once per DM thread."
-    )
-)
 @pytest.mark.skipif(
     torch is None or runtime is None,
     reason="requires torch + ttmlir runtime",
@@ -501,6 +486,14 @@ def test_matmul_all_gather_fused_1x2_roundtrip():
     `remote_store` consumes it). The fabric remote_store's source is therefore
     a compute-produced CB rather than a remote_load result -- the case the
     split pass's `produced`/`dmStore` partner logic exists for.
+
+    Because the matmul forces the datamovement ops to split across two DM
+    processor threads (a reader feeding compute + a writer draining it), this
+    is also the case that exercises ScheduleDMA pinning the device_synchronize
+    barrier to a single DM thread: replicating it across both DM threads makes
+    each core emit two fabric barrier increments and deadlocks (the single-
+    thread datamovement form in test_all_gather_1x2_roundtrip never split, so
+    it never hit this).
 
     CCL specifics mirror test_all_gather_1x2_roundtrip (linear topology /
     bidir_line_mesh routing, end-wait num_devices=2 because remote_store also
