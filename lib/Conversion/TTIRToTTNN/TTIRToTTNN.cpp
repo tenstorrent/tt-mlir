@@ -3319,16 +3319,7 @@ private:
   //
   // Workaround for https://github.com/tenstorrent/tt-metal/issues/40470: the
   // SDPA prefill and decode kernels apply `scale` inside the exp path to BOTH
-  // the QK scores and the attention sink (exp((sink - max) * scale)). The
-  // generic ttir.scaled_dot_product_attention carries the sink as a faithful
-  // post-scale logit (in the source graph it is concatenated to the
-  // already-scaled scores, and the op's golden does not scale it). Feeding it
-  // raw would make the kernel compute scale*sink. Dividing by `scale` here
-  // cancels the kernel's multiply: scale * (sink / scale) == sink. tt-metal's
-  // own gpt-oss model does the same at weight-load time (weights.py:
-  // sinks_for_sdpa = sinks / scaling). Done at lowering — not in fusing — so
-  // the TTIR op stays faithful and every producer of it (fuser, StableHLO,
-  // or hand-authored) is covered by a single site. A constant sink folds away.
+  // the QK scores and the attention sink (exp((sink - max) * scale)).
   Value
   compensateAttentionSinkForScale(ttir::ScaledDotProductAttentionOp op,
                                   Value sink,
@@ -3428,14 +3419,14 @@ private:
             ttnn::ShapeAttr::get(rewriter.getContext(), broadcastDims));
       }
     }
-    
+
     Value attentionSink = compensateAttentionSinkForScale(
         op, adaptor.getAttentionSink(), rewriter);
 
     rewriter.replaceOpWithNewOp<ttnn::ScaledDotProductAttentionOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
-        mask, op.getIsCausal(), adaptor.getScaleAttr(),
+        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(), mask,
+        op.getIsCausal(), adaptor.getScaleAttr(),
         adaptor.getSlidingWindowSizeAttr(), attentionSink);
 
     return success();
