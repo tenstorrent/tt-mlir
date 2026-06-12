@@ -1253,6 +1253,19 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             if (!mlir::isa_and_nonnull<memref::AllocOp>(allocOp)) {
               return WalkResult::advance();
             }
+            // Skip the copy-elision when the buffer is a core_read
+            // destination: it holds gathered cross-core data that must be
+            // explicitly stored, possibly to a *remote* output shard. Aliasing
+            // it to this core's local output shard is wrong, and several gather
+            // dsts (one per gathered tile) would all alias the same local shard
+            // and clobber each other (e.g. a matmul -> core_read all-gather).
+            // (core_write is the opposite: its dst is the peer-written buffer,
+            // and aliasing it to the output is the intended copy-elision.)
+            if (llvm::any_of(allocOp->getUsers(), [](Operation *user) {
+                  return mlir::isa<CoreReadOp>(user);
+                })) {
+              return WalkResult::advance();
+            }
             rewriter.setInsertionPoint(allocOp);
             rewriter.replaceOpWithNewOp<d2m::OperandAliasOp>(
                 allocOp, allocOp->getResultTypes(), remoteStoreOp.getMemref());

@@ -230,11 +230,22 @@ def semaphore_set(semaphore, value, core=None, mcast=None):
 
 
 @syntax("semaphore_inc")
-def semaphore_inc(semaphore, value, core=None, mcast=None):
-    """Increment a (local or global) semaphore by `value`."""
-    return d2m.semaphore_inc(
+def semaphore_inc(semaphore, value, core=None, mcast=None, compute=False):
+    """Increment a (local or global) semaphore by `value`.
+
+    Pass `compute=True` when this inc is a *producer-done* signal in a fused
+    producer->consumer kernel -- i.e. it tells a gatherer that this core's
+    compute output (the buffer a `core_read` will gather) is ready. The backend
+    keeps the inc on the datamovement thread (TRISC has no NOC) but fences it
+    behind a per-core compute->DM handshake on that output, so the signal can't
+    fire before the matmul/compute completes. See split-unified-thread-v2
+    (d2m.compute_signal) and unified_semaphore_design.md."""
+    op = d2m.semaphore_inc(
         semaphore, _asindex(value), _idx_list(core), _idx_list(mcast), [], []
     )
+    if compute:
+        op.operation.attributes["d2m.compute_signal"] = UnitAttr.get()
+    return op
 
 
 @syntax("semaphore_wait")

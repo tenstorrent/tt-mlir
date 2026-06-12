@@ -114,11 +114,49 @@ static LogicalResult convertDMAToExplicitCBForm(Block *dmBlock,
   SmallVector<LocalCopyOp> localCopies;
   SmallVector<CoreReadOp> coreReads;
   SmallVector<CoreWriteOp> coreWrites;
+  SmallVector<SemaphoreIncOp> computeSignalIncs;
   dmBlock->walk([&](RemoteLoadOp op) { loads.push_back(op); });
   dmBlock->walk([&](RemoteStoreOp op) { stores.push_back(op); });
   dmBlock->walk([&](LocalCopyOp op) { localCopies.push_back(op); });
   dmBlock->walk([&](CoreReadOp op) { coreReads.push_back(op); });
   dmBlock->walk([&](CoreWriteOp op) { coreWrites.push_back(op); });
+  dmBlock->walk([&](SemaphoreIncOp op) {
+    if (op->hasAttr("d2m.compute_signal")) {
+      computeSignalIncs.push_back(op);
+    }
+  });
+
+  // A `d2m.compute_signal` inc is a producer-done signal: it must not fire
+  // until this core's matmul output (the buffer the gather core_reads) is
+  // ready. Fence it by inserting wait(outputCB) before the inc -- the
+  // compute-side push that insertComputeCBOpsV2 added via the dmFence output
+  // handshake fills that CB, so the wait blocks until this core's matmul
+  // completes. Inputs were already pushed (below), so the compute thread can
+  // run the matmul: no deadlock.
+  //
+  // The gather's core_read then reads the *wait result* (the acquired front
+  // buffer), not the raw operand. This is load-bearing twice over: (1) it keeps
+  // the wait alive (a wait with an unused result and single-use cb is
+  // canonicalized away, dropping the fence), and (2) it points core_read at the
+  // front read pointer -- the matmul output -- at a uniform L1 offset across
+  // cores. Deliberately NO pop: cb_pop_front would advance the read pointer
+  // past the just-produced data, breaking the cross-core read; the buffer is
+  // single-shot (one push, read cross-core, released at block scope).
+  Value fencedSrc, fenceWaited;
+  if (!coreReads.empty() && !computeSignalIncs.empty()) {
+    fencedSrc = coreReads.front().getSrc();
+    unsigned fenceCbOperandIdx =
+        coreReads.front()->getParentOfType<GenericOp>().getOperandIndex(
+            fencedSrc);
+    for (SemaphoreIncOp inc : computeSignalIncs) {
+      GenericOp generic = inc->getParentOfType<GenericOp>();
+      rewriter.setInsertionPoint(inc);
+      Value cb =
+          d2m::getOrCreateCB(rewriter, generic, dmBlock, fenceCbOperandIdx);
+      fenceWaited = rewriter.create<WaitOp>(inc.getLoc(), cb).getResult();
+      inc->removeAttr("d2m.compute_signal");
+    }
+  }
 
   for (RemoteLoadOp loadOp : loads) {
     if (loadOp.isExplicitCBForm()) {
@@ -171,19 +209,25 @@ static LogicalResult convertDMAToExplicitCBForm(Block *dmBlock,
   // downstream consumer of that buffer on the DM thread (e.g. a remote_store,
   // converted to wait/pop the same CB above) gets the push and doesn't
   // deadlock. core_read's src is read cross-core by address (uniform L1 offset)
-  // and needs no local CB acquire.
+  // and needs no local CB acquire -- except a fenced src (a compute-produced
+  // matmul output), which reads the fence's wait result so the read pointer
+  // lands on the produced front buffer (see the fence above).
   for (CoreReadOp coreReadOp : coreReads) {
     GenericOp generic = coreReadOp->getParentOfType<GenericOp>();
     Value dstBuffer = coreReadOp.getDst();
     unsigned cbOperandIdx = generic.getOperandIndex(dstBuffer);
 
+    Value src = coreReadOp.getSrc();
+    if (fenceWaited && src == fencedSrc) {
+      src = fenceWaited;
+    }
+
     rewriter.setInsertionPoint(coreReadOp);
     Value cb = d2m::getOrCreateCB(rewriter, generic, dmBlock, cbOperandIdx);
     Value reserved =
         rewriter.create<ReserveOp>(coreReadOp.getLoc(), cb).getResult();
-    rewriter.create<CoreReadOp>(coreReadOp.getLoc(), TypeRange{},
-                                coreReadOp.getSrc(), coreReadOp.getSrcCore(),
-                                reserved);
+    rewriter.create<CoreReadOp>(coreReadOp.getLoc(), TypeRange{}, src,
+                                coreReadOp.getSrcCore(), reserved);
     rewriter.create<PushOp>(coreReadOp.getLoc(), cb);
     coreReadOp->dropAllUses();
     rewriter.eraseOp(coreReadOp);
@@ -278,13 +322,13 @@ static void collectOpsToErase(Block *block, DenseSet<Operation *> &eraseSet,
     // and ScheduleDMA keeps a kernel that has them on a single DM thread so
     // they run exactly once. core_read is a core->core NoC read, also DM-only.
     //
-    // NOTE: a *producer-done* signal in a fused producer->consumer kernel
-    // (e.g. the matmul -> core_read gather, where each core increments a
-    // `ready` semaphore once its matmul tile is done) currently fires here
-    // right after the input DMA -- before the compute matmul has run -- so the
-    // gather reads stale L1. The fix (a per-core compute->DM fence on the
-    // matmul output CB, matching tt-metal's writer-signals pattern) is specced
-    // in tools/d2m-jit/unified_semaphore_design.md ("Producer-done signals").
+    // A *producer-done* signal in a fused producer->consumer kernel (e.g. the
+    // matmul -> core_read gather, where each core increments a `ready`
+    // semaphore once its matmul tile is done) is marked `d2m.compute_signal`
+    // and still lives here on DM, but convertDMAToExplicitCBForm fences it
+    // behind this core's matmul output CB so it can't fire before the compute
+    // completes (matching tt-metal's writer-signals pattern). See
+    // tools/d2m-jit/unified_semaphore_design.md ("Producer-done signals").
     bool isDMAOp = isa<ShardDMAOpInterface, DeviceSynchronizeOp, SemaphoreIncOp,
                        SemaphoreSetOp, CoreReadOp, CoreWriteOp>(&op);
     bool isReplicated = isa<SemaphoreWaitOp>(&op);
@@ -384,6 +428,12 @@ struct CBComputeInfo {
       false;           // compute writes it (memref.store / tile_*_block output)
   RemoteLoadOp dmLoad; // DM partner that loads into it, if any
   RemoteStoreOp dmStore; // DM partner that stores from it, if any
+  // A `d2m.compute_signal` semaphore_inc that fences on this CB (a fused
+  // producer-done signal: the inc waits for this compute output before
+  // signaling a gatherer). Acts like a dmStore for output-CB handshaking, so
+  // the compute side reserves/pushes the buffer; the DM-side wait/pop bracket
+  // the inc (see convertDMAToExplicitCBForm).
+  Operation *dmFence = nullptr;
 };
 } // namespace
 
@@ -417,6 +467,25 @@ static LogicalResult insertComputeCBOpsV2(GenericOp generic,
       [&](RemoteLoadOp op) { cbs[op.getLocalBuffer()].dmLoad = op; });
   computeBlock->walk(
       [&](RemoteStoreOp op) { cbs[op.getLocalBuffer()].dmStore = op; });
+
+  // A `d2m.compute_signal` inc fences on the compute output that a gatherer
+  // will read -- i.e. core_read's src. Register it as that CB's dmFence so the
+  // CB gets the output handshake (compute reserve/push), turning the matmul
+  // output from a raw shared buffer into a synchronized one; the DM-side
+  // wait/pop bracket the inc (convertDMAToExplicitCBForm), ordering the signal
+  // after this core's matmul. All core_reads in the target gather pattern share
+  // one src (the matmul output), so any of them identifies the fenced CB.
+  if (Value fenceCB = [&]() -> Value {
+        CoreReadOp anyRead;
+        computeBlock->walk([&](CoreReadOp op) { anyRead = op; });
+        return anyRead ? anyRead.getSrc() : Value();
+      }()) {
+    computeBlock->walk([&](SemaphoreIncOp inc) {
+      if (inc->hasAttr("d2m.compute_signal")) {
+        cbs[fenceCB].dmFence = inc;
+      }
+    });
+  }
 
   // Compute consume/produce via dst-register memref accesses (through views).
   computeBlock->walk([&](memref::LoadOp ld) {
@@ -455,7 +524,7 @@ static LogicalResult insertComputeCBOpsV2(GenericOp generic,
     // boundary. An output is paired with the DM store; otherwise an input is
     // paired with the DM load. Buffers with no DM partner are compute-local
     // (e.g. dst-register intermediates) and need no handshake.
-    bool outputCB = info.produced && info.dmStore;
+    bool outputCB = info.produced && (info.dmStore || info.dmFence);
     bool inputCB = !outputCB && info.consumed && info.dmLoad;
     if (!outputCB && !inputCB) {
       continue;
@@ -465,8 +534,9 @@ static LogicalResult insertComputeCBOpsV2(GenericOp generic,
     // access inside a loop gets a per-iteration handshake matching the
     // per-iteration DMA, while an accumulator whose store sits outside the
     // reduction loop gets a single handshake around it.
-    Block *partnerBlock =
-        outputCB ? info.dmStore->getBlock() : info.dmLoad->getBlock();
+    Block *partnerBlock = outputCB ? (info.dmStore ? info.dmStore->getBlock()
+                                                   : info.dmFence->getBlock())
+                                   : info.dmLoad->getBlock();
     auto climbToPartner = [&](Operation *op) -> Operation * {
       Operation *cur = op;
       while (cur && cur->getBlock() != partnerBlock) {
@@ -476,13 +546,16 @@ static LogicalResult insertComputeCBOpsV2(GenericOp generic,
     };
 
     // Direct compute-region uses of `cb` to rewire to the acquired buffer
-    // (view ops and tile_*_block; the remote ops are erased later). The
-    // acquire is anchored before the earliest of these.
+    // (view ops and tile_*_block; remote_load/store and core_read/core_write
+    // are DM ops erased from compute later, and -- crucially -- a cross-core
+    // core_read of this CB must NOT count as a compute access, else the push
+    // anchors past it (e.g. after the gather's scf.if), deadlocking the fence).
+    // The acquire is anchored before the earliest of these.
     SmallVector<OpOperand *> uses;
     for (OpOperand &use : cb.getUses()) {
       Operation *owner = use.getOwner();
       if (isInRegion(computeRegion, owner) &&
-          !isa<RemoteLoadOp, RemoteStoreOp>(owner)) {
+          !isa<RemoteLoadOp, RemoteStoreOp, CoreReadOp, CoreWriteOp>(owner)) {
         uses.push_back(&use);
       }
     }
@@ -501,7 +574,7 @@ static LogicalResult insertComputeCBOpsV2(GenericOp generic,
         Value v = worklist.pop_back_val();
         for (Operation *user : v.getUsers()) {
           if (!isInRegion(computeRegion, user) ||
-              isa<RemoteLoadOp, RemoteStoreOp>(user) ||
+              isa<RemoteLoadOp, RemoteStoreOp, CoreReadOp, CoreWriteOp>(user) ||
               !visited.insert(user).second) {
             continue;
           }

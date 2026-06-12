@@ -314,3 +314,59 @@ def test_core_write_cross_core_scatter():
     # out's second column (core 1) holds core 0's shard, delivered via core_write.
     assert tuple(result.shape) == (32, 64)
     assert_pcc(full[:, :32], result[:, 32:])
+
+
+@d2m.kernel
+def matmul_core_read_gather(lhs, rhs, out, ready):
+    # grid (1,2): each core matmuls its own shard (a @ b on the compute thread),
+    # then increments a producer-done semaphore with compute=True -- the backend
+    # keeps that inc on the datamovement thread but *fences* it behind this
+    # core's matmul output CB, so the signal can't fire before the compute
+    # finishes. The injector (core 0) waits for both matmuls, then gathers its
+    # own tile and core 1's tile via core_read and stores them. A fused matmul ->
+    # cross-core all-gather in a single kernel.
+    cy = core_index(0)
+    cx = core_index(1)
+    a = remote_load(lhs, [cy, cx])
+    b = remote_load(rhs, [cy, cx])
+    c = a @ b
+    semaphore_inc(ready, 1, core=[0, 0], compute=True)  # producer-done (fenced)
+    if cx == 0:
+        semaphore_wait(ready, 2)
+        g0 = empty([1, 1])
+        g0 = core_read(g0, c, core=[0, 0])  # own tile
+        g1 = empty([1, 1])
+        g1 = core_read(g1, c, core=[0, 1])  # core 1's tile (cross-core)
+        remote_store(out, [0, 0], g0)
+        remote_store(out, [0, 1], g1)
+
+
+@pytest.mark.skipif(
+    torch is None or runtime is None, reason="requires torch + ttmlir runtime"
+)
+@pytest.mark.skipif(_num_devices() < 1, reason="requires a device")
+def test_matmul_core_read_gather():
+    """End-to-end fused matmul -> core_read all-gather on a grid (1,2): each core
+    matmuls its shard and signals a *producer-done* semaphore (compute=True, so
+    the inc is fenced behind the matmul on the datamovement thread); core 0 then
+    gathers both tiles via core_read and stores them. Exercises two fixes
+    together: the producer-done fence (the readiness signal must not fire before
+    the compute -- otherwise the gather reads stale L1) and the aliased-store
+    copy-elision skip for core_read dsts (otherwise the two gather buffers alias
+    the injector's single local output shard and clobber each other)."""
+    L = d2m.Layout(
+        shape=(32, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 2]
+    )
+    a_full = torch.randn(32, 64, dtype=torch.float32)
+    b_full = torch.randn(32, 64, dtype=torch.float32)
+    out_d = d2m.empty(L)
+    ready = d2m.global_semaphore(grid_shape=(8, 8), init=0)
+    matmul_core_read_gather(
+        d2m.to_layout(a_full, L), d2m.to_layout(b_full, L), out_d, ready, grid=(1, 2)
+    )
+    result = out_d.to_host()
+    exp0 = a_full[:, :32] @ b_full[:, :32]
+    exp1 = a_full[:, 32:] @ b_full[:, 32:]
+    expected = torch.cat([exp0, exp1], dim=1)
+    assert tuple(result.shape) == (32, 64)
+    assert_pcc(expected, result)
