@@ -127,6 +127,90 @@ def test_semaphore_inc_pinned_to_single_dm_thread():
             )
 
 
+@d2m.kernel
+def gated_fabric(in0, out0, start_sem, end_sem):
+    # Multi-core generic: per-core local passthrough, with the cross-device
+    # barrier gated to a single core via scf.if on the core index.
+    dy = mesh_position(0)
+    cy = core_index(0)
+    cx = core_index(1)
+    buf = remote_load(in0, [cy, cx])
+    remote_store(out0, [cy, cx], buf)
+    if cx == 0:
+        device_synchronize(
+            start_sem,
+            start_device=[dy, 0],
+            mcast_shape=[1, 2],
+            num_receivers=1,
+            core_indices=[cy, cx],
+        )
+        semaphore_wait(end_sem, 1)
+
+
+@pytest.mark.skipif(torch is None, reason="requires torch")
+def test_scf_if_gated_fabric_lands_on_dm_thread():
+    """A fabric op (device_synchronize) gated behind `if core==0` in a
+    multi-core generic must lower onto a *datamovement* thread, not compute.
+
+    The thread-split passes recurse into scf.for and scf.if when classifying
+    ops; without the scf.if recursion the whole guarded conditional is treated
+    as compute-resident and the fabric op lands on compute (TRISC, no fabric
+    access). This lowers the kernel and asserts the placement at the IR level."""
+    d2m.mesh((1, 2), topology=("linear", "linear"))
+    L = d2m.Layout(
+        shape=(32, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 2]
+    )
+    full = torch.randn(32, 128, dtype=torch.float32)
+    in_s = d2m.mesh_shard(full, L, shard_dims=[0, 1], shard_shape=[1, 2])
+    out_s = d2m.empty(L)
+    ss = d2m.global_semaphore(grid_shape=(8, 8))
+    es = d2m.global_semaphore(grid_shape=(8, 8))
+    gated_fabric(
+        in_s,
+        out_s,
+        ss,
+        es,
+        grid=(1, 2),
+        fabric=d2m.fabric_config(
+            cluster_axis=1, topology="linear", routing="bidir_line_mesh"
+        ),
+    )
+    out = d2m.mesh_gather(out_s, shard_dims=[0, 1], shard_shape=[1, 2])
+
+    b = _Builder.get()
+    _emit_returns_and_finalise(b, [out._resolve()])
+    sd = _get_system_desc_path()
+    if not sd:
+        pytest.skip("no system descriptor available")
+    PassManager.parse(
+        f"builtin.module(ttcore-register-device{{system-desc-path={sd} "
+        f"mesh-shape=1,2 mesh-topology=linear,linear}})",
+        context=b.ctx,
+    ).run(b.module.operation)
+    passes = _build_pipeline().split(",")
+    cut = passes.index("d2m-to-ttkernel-pre-emitc-pipeline")
+    PassManager.parse(f"builtin.module({','.join(passes[:cut])})", context=b.ctx).run(
+        b.module.operation
+    )
+    ir = str(b.module)
+
+    func_re = re.compile(
+        r"func\.func private @(\w+)\(\) attributes \{d2m\.thread = "
+        r"#d2m\.thread<(\w+)"
+    )
+    starts = [(m.group(1), m.group(2), m.start()) for m in func_re.finditer(ir)]
+    saw_sync = False
+    for i, (name, thread, start) in enumerate(starts):
+        end = starts[i + 1][2] if i + 1 < len(starts) else len(ir)
+        if "d2m.device_synchronize" in ir[start:end]:
+            saw_sync = True
+            assert thread == "datamovement", (
+                f"device_synchronize landed on a {thread} thread ({name}); a "
+                f"fabric op must be on a datamovement thread"
+            )
+    assert saw_sync, "no func with device_synchronize found"
+
+
 @pytest.mark.skipif(
     torch is None or runtime is None, reason="requires torch + ttmlir runtime"
 )

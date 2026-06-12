@@ -45,6 +45,13 @@ collectDMAOps(Block *block,
       collectDMAOps(forOp.getBody(), dmaOps);
       continue;
     }
+    if (auto ifOp = mlir::dyn_cast<scf::IfOp>(&op)) {
+      collectDMAOps(ifOp.thenBlock(), dmaOps);
+      if (Block *elseBlock = ifOp.elseBlock()) {
+        collectDMAOps(elseBlock, dmaOps);
+      }
+      continue;
+    }
 
     if (auto dmaOp = mlir::dyn_cast<ShardDMAOpInterface>(&op)) {
       dmaOps.push_back({&op, dmaOp.getCBPort()});
@@ -210,9 +217,17 @@ static void filterOpsForThread(PatternRewriter &rewriter, Block *block,
         continue;
       }
 
-      // Recurse into nested loops.
+      // Recurse into nested loops / conditionals.
       if (auto forOp = mlir::dyn_cast<scf::ForOp>(&op)) {
         filterOpsForThread(rewriter, forOp.getBody(), assignedCBs, keepBarrier);
+        continue;
+      }
+      if (auto ifOp = mlir::dyn_cast<scf::IfOp>(&op)) {
+        filterOpsForThread(rewriter, ifOp.thenBlock(), assignedCBs,
+                           keepBarrier);
+        if (Block *elseBlock = ifOp.elseBlock()) {
+          filterOpsForThread(rewriter, elseBlock, assignedCBs, keepBarrier);
+        }
         continue;
       }
 

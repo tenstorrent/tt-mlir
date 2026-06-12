@@ -208,6 +208,19 @@ static void collectOpsToErase(Block *block, DenseSet<Operation *> &eraseSet,
       collectOpsToErase(forOp.getBody(), eraseSet, isDatamovementThread);
       continue;
     }
+    // Recurse into scf.if regions and classify their contents (like scf.for),
+    // keeping the if op itself in both threads. Without this, an scf.if
+    // guarding a fabric op (e.g. device_synchronize gated to a single core) is
+    // neither isDMAOp nor isReplicated, so the whole conditional is treated as
+    // compute-resident and moved off the datamovement thread -- the fabric op
+    // then lands on compute (TRISC), which has no NOC/fabric access.
+    if (auto ifOp = dyn_cast<scf::IfOp>(&op)) {
+      collectOpsToErase(ifOp.thenBlock(), eraseSet, isDatamovementThread);
+      if (Block *elseBlock = ifOp.elseBlock()) {
+        collectOpsToErase(elseBlock, eraseSet, isDatamovementThread);
+      }
+      continue;
+    }
 
     // DM-resident ops stay on the datamovement thread and are removed from the
     // compute thread. Semaphore mutations (inc/set) belong here too: compute
