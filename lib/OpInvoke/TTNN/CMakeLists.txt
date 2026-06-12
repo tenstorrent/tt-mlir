@@ -1,6 +1,8 @@
 add_library(TTNNOpInvokeLib STATIC
   utils/utils.cpp
   Conv/Conv2dOp.cpp
+  Eltwise/Unary/EltwiseUnaryCompositeOp.cpp
+  Eltwise/Unary/EltwiseUnaryOp.cpp
   Matmul/MatmulOp.cpp
 )
 
