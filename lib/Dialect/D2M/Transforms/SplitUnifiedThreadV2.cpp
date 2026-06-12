@@ -209,7 +209,12 @@ static void collectOpsToErase(Block *block, DenseSet<Operation *> &eraseSet,
       continue;
     }
 
-    bool isDMAOp = isa<ShardDMAOpInterface, DeviceSynchronizeOp>(&op);
+    // DM-resident ops stay on the datamovement thread and are removed from the
+    // compute thread. Semaphore mutations (inc/set) belong here too: compute
+    // (TRISC) has no NOC/fabric access, and ScheduleDMA keeps a kernel that has
+    // them on a single DM thread so they run exactly once.
+    bool isDMAOp = isa<ShardDMAOpInterface, DeviceSynchronizeOp, SemaphoreIncOp,
+                       SemaphoreSetOp>(&op);
     bool isReplicated = isa<SemaphoreWaitOp>(&op);
 
     if (isDatamovementThread && !isDMAOp && !isReplicated) {

@@ -267,12 +267,27 @@ public:
     }
     Block *dmBlock = &dmRegion.front();
 
-    // Check that there are no illegal semaphore ops in the datamovement region.
-    // Replicating these across multiple threads would create a race condition
-    // on the shared semaphore.
     if (failed(utils::checkForIllegalSemaphoreOps(dmBlock))) {
       return failure();
     }
+
+    // Option D (temporary): a kernel with explicit semaphore mutations
+    // (semaphore_inc / semaphore_set) is kept on a SINGLE datamovement thread.
+    // Splitting the DM region across NOC processors clones every op into each
+    // thread, so a mutation would run once per thread -- a race / wrong count
+    // on the shared semaphore. Keeping one DM thread makes the mutation run
+    // exactly once. This sidesteps the general problem (pin each semaphore op
+    // to one DM thread + local-barrier the observers) until that lands; see the
+    // TODO in DMAUtils.cpp's checkForIllegalSemaphoreOps and
+    // tools/d2m-jit/unified_semaphore_design.md.
+    bool hasExplicitSemaphoreMutation = false;
+    dmBlock->walk([&](Operation *op) {
+      if (isa<SemaphoreIncOp, SemaphoreSetOp>(op)) {
+        hasExplicitSemaphoreMutation = true;
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
 
     // Collect all DMA operations and their CB associations.
     SmallVector<std::pair<Operation *, unsigned>> dmaOps;
@@ -293,9 +308,11 @@ public:
     unsigned numThreadsToUse = std::min(
         static_cast<unsigned>(cbWorkloads.size()), numDatamovementThreads);
 
-    // Not enough CBs to warrant splitting but still need to assign a processor
-    // on the existing single DM thread before returning failure.
-    if (numThreadsToUse <= 1 || cbWorkloads.size() <= 1) {
+    // Stay on a single DM thread when splitting isn't warranted (<=1 CB) or
+    // would duplicate explicit semaphore mutations (Option D above). Still
+    // assign a processor on the existing single DM thread before bailing.
+    if (numThreadsToUse <= 1 || cbWorkloads.size() <= 1 ||
+        hasExplicitSemaphoreMutation) {
       bool writesDRAM = llvm::any_of(dmaOps, [](const auto &entry) {
         auto store = mlir::dyn_cast_or_null<RemoteStoreOp>(entry.first);
         return store && ttcore::getMemorySpace(store.getMemref()) ==
