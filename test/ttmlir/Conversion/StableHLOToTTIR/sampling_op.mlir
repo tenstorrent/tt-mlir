@@ -16,12 +16,8 @@ module attributes {} {
       %arg2: tensor<1xui32>,
       %arg3: tensor<1xbf16>,
       %arg4: tensor<1xbf16>) -> tensor<1xi32> {
-    // ttnn.sampling is modeled as returning ui32 (the kernel's true output);
-    // a typecast reconciles with the i32 result the frontend declared.
     // CHECK: "ttir.sampling"(%arg0, %arg1, %arg2, %arg3, %arg4)
     // CHECK-SAME: seed = 42 : ui32
-    // CHECK-SAME: -> tensor<1xui32>
-    // CHECK: "ttir.typecast"
     // CHECK-SAME: -> tensor<1xi32>
     %0 = stablehlo.custom_call @tt.sampling(%arg0, %arg1, %arg2, %arg3, %arg4) {
         api_version = 0 : i32,
@@ -40,8 +36,6 @@ module attributes {} {
       %arg4: tensor<4xbf16>) -> tensor<4xi32> {
     // CHECK: "ttir.sampling"(%arg0, %arg1, %arg2, %arg3, %arg4)
     // CHECK-NOT: seed
-    // CHECK-SAME: -> tensor<4xui32>
-    // CHECK: "ttir.typecast"
     // CHECK-SAME: -> tensor<4xi32>
     %0 = stablehlo.custom_call @tt.sampling(%arg0, %arg1, %arg2, %arg3, %arg4) {
         api_version = 0 : i32
