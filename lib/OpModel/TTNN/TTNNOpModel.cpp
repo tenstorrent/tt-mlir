@@ -12,8 +12,10 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/OpInvoke/TTNN/utils/utils.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
+#include "ttmlir/Target/Utils/MLIRToFlatbuffer.h"
 
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Attributes.h"
@@ -36,23 +38,6 @@
 namespace mlir::tt::ttnn::op_model {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
-
-// Macros to wrap overloaded functions for use with
-// query_op_constraints/runtime. These create a generic lambda that forwards
-// arguments, letting the compiler resolve the correct overload based on the
-// actual argument types.
-// clang-format off
-#define WRAP_OP(op)                                                         \
-  [](auto &&...args) -> decltype(op(std::forward<decltype(args)>(args)...)) {  \
-    return op(std::forward<decltype(args)>(args)...);                          \
-  }
-
-#define QUERY_OP_CONSTRAINTS(op, device, ...)                                  \
-  ::ttnn::graph::query_op_constraints(WRAP_OP(op), device, __VA_ARGS__)
-
-#define QUERY_OP_RUNTIME(op, device, ...)                                      \
-  ::ttnn::graph::query_op_runtime(WRAP_OP(op), device, __VA_ARGS__)
-// clang-format on
 
 namespace operation {
 
@@ -241,6 +226,37 @@ getNullableMemoryConfig(TTNNLayoutAttr layout) {
   return conversion::getMemoryConfig(layout);
 }
 
+std::optional<::tt::target::ttnn::MemoryConfigT>
+getNullableMemoryConfigT(TTNNLayoutAttr layout) {
+  if (!layout) {
+    return std::nullopt;
+  }
+  return conversion::getMemoryConfigT(layout);
+}
+
+std::unique_ptr<::tt::target::ttnn::TensorRefT>
+getOutputTensorRefT(TTNNLayoutAttr layout) {
+  auto memoryConfigNative = getNullableMemoryConfigT(layout);
+  if (!memoryConfigNative.has_value()) {
+    return nullptr;
+  }
+
+  auto tensorRefNative = std::make_unique<::tt::target::ttnn::TensorRefT>();
+  tensorRefNative->desc = std::make_unique<::tt::target::ttnn::TensorDescT>();
+  tensorRefNative->desc->layout =
+      std::make_unique<::tt::target::ttnn::LayoutDescT>();
+  tensorRefNative->desc->layout->memory_desc =
+      std::make_unique<::tt::target::ttnn::MemoryDescT>();
+  tensorRefNative->desc->layout->memory_desc->memory_config =
+      std::make_unique<::tt::target::ttnn::MemoryConfigT>(
+          memoryConfigNative.value());
+
+  tensorRefNative->desc->layout->memory_desc->data_type =
+      toNative(layout.getDataType());
+
+  return tensorRefNative;
+}
+
 /**
  * @brief Reorder pool2d padding from IR convention to tt-metal convention.
  *
@@ -272,6 +288,14 @@ getNullableDataType(TTNNLayoutAttr layout) {
     return std::nullopt;
   }
   return conversion::getDataType(layout.getDataType());
+}
+
+std::optional<::tt::target::DataType>
+getNullableDataTypeT(TTNNLayoutAttr layout) {
+  if (!layout) {
+    return std::nullopt;
+  }
+  return toNative(layout.getDataType());
 }
 
 /**

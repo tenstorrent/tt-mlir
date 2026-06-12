@@ -27,11 +27,11 @@ static void runFullWithOp(const ::tt::target::ttnn::NamedFullOp *op,
                     op->out()));
 
   if (op->dtype()) {
-    dtype = ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->dtype()));
+    dtype = ttnn_op_invoke::operations::utils::toTTNNDataType(*(op->dtype()));
   }
 
   if (op->layout()) {
-    layout = ::tt::runtime::ttnn::utils::toTTNNLayout(*(op->layout()));
+    layout = ::ttnn_op_invoke::operations::utils::toTTNNLayout(*(op->layout()));
   }
 
   if (op->device()) {
