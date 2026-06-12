@@ -45,8 +45,8 @@ void run(const ::tt::target::ttnn::ConvTranspose2dOp *op,
 
   std::optional<::ttnn::DataType> outputDtype;
   if (op->output_dtype()) {
-    outputDtype =
-        ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
+    outputDtype = ttnn_op_invoke::operations::utils::toTTNNDataType(
+        *(op->output_dtype()));
   }
 
   auto conv2dConfig = ::ttnn::Conv2dConfig();
