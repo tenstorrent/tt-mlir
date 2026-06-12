@@ -428,7 +428,8 @@ def TTKernel_ExperimentalMatmulBlockOp : TTKernel_FPUOp<"experimental.matmul_blo
 def TTKernel_TopkTileInitOp : TTKernel_InitOp<"topk_tile_init"> {
     let summary = "TopK tile init function";
     let description = [{
-      Initialization for the topk operations. Must be called before topk_local_sort/topk_merge/topk_rebuild.
+      Initialization for the topk operations. Must be called before
+      topk_local_sort/topk_merge/topk_rebuild.
     }];
 
     let assemblyFormat = [{

@@ -2098,11 +2098,15 @@ public:
     Value cbTile0 = index(rewriter, loc, 0);
     Value cbTile1 = index(rewriter, loc, 1);
 
-    auto insertionPoint = rewriter.getInsertionPoint();
-    setInsertionPointAfterOperands(rewriter, {cbVals, cbIdx},
-                                   /*allowHoisting*/ true);
+    Value cbOutVals = getCB(rewriter, op.getOutValues());
+    Value cbOutIdx = getCB(rewriter, op.getOutIndices());
+
+    rewriter.create<ttkernel::TileRegsAcquireOp>(loc);
+
+    // init_sfpu must be called inline (not hoisted) to reconfigure the
+    // unpacker data format. copy_tile_init does not reconfigure data types.
+    rewriter.create<ttkernel::InitSFPUOp>(loc, cbVals, cbOutVals);
     rewriter.create<ttkernel::TopkTileInitOp>(loc);
-    rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
     rewriter.create<ttkernel::CopyTileInitOp>(loc, cbVals);
     rewriter.create<ttkernel::CopyTileOp>(loc, cbVals, cbTile0, dst0);
@@ -2128,6 +2132,23 @@ public:
           intConstant<int32_t>(rewriter, loc, op.getLogk()),
           intConstant<int32_t>(rewriter, loc, op.getSkipSecond()));
     }
+
+    rewriter.create<ttkernel::TileRegsCommitOp>(loc);
+    rewriter.create<ttkernel::TileRegsWaitOp>(loc);
+
+    rewriter.create<ttkernel::PackReconfigDataFormatOp>(loc, cbOutVals);
+    rewriter.create<ttkernel::PackTileOp>(loc, dst0, cbOutVals, cbTile0,
+                                          rewriter.getBoolAttr(true));
+    rewriter.create<ttkernel::PackTileOp>(loc, dst1, cbOutVals, cbTile1,
+                                          rewriter.getBoolAttr(true));
+
+    rewriter.create<ttkernel::PackReconfigDataFormatOp>(loc, cbOutIdx);
+    rewriter.create<ttkernel::PackTileOp>(loc, dst2, cbOutIdx, cbTile0,
+                                          rewriter.getBoolAttr(true));
+    rewriter.create<ttkernel::PackTileOp>(loc, dst3, cbOutIdx, cbTile1,
+                                          rewriter.getBoolAttr(true));
+
+    rewriter.create<ttkernel::TileRegsReleaseOp>(loc);
 
     rewriter.eraseOp(op);
     return success();

@@ -3304,6 +3304,73 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
   let hasVerifier = 1;
 }
 
+def D2M_TopkBlockOp : D2M_GenericRegionComputeOp<"topk_block",
+  [DestinationStyleOpInterface,
+  DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+  DeclareOpInterfaceMethods<BufferizableOpInterface,
+    ["bufferizesToMemoryRead", "bufferizesToMemoryWrite", "bufferize",
+    "getAliasingValues", "getBufferType"]>,
+  D2M_SkipOpEltwiseFusionTrait,
+  D2M_SynchronizableOpInterface]> {
+  let summary = "D2M TopK Block Op";
+  let description = [{
+      The `topk_block` operation performs the core TopK computation on a
+      transposed input shard, producing sorted top-K values and their
+      original indices.
+
+      This op operates at the block level (memref of tiles) and is
+      decomposed post-bufferization by `d2m-decompose-topk` into
+      `arange_block`, `tile_topk_local_sort`, `tile_topk_merge`, and
+      `tile_topk_rebuild`.
+
+      The scratch_idx_tile is a single-tile scratch buffer used by the
+      internal arange_block operation.
+  }];
+
+  let arguments = (ins
+      AnyRankedTensorOrMemRef:$input_values,
+      AnyRankedTensorOrMemRef:$scratch_idx_tile,
+      AnyRankedTensorOrMemRef:$out_values,
+      AnyRankedTensorOrMemRef:$out_indices,
+      I32Attr:$k,
+      I64Attr:$num_elements,
+      BoolAttr:$stable_sort);
+
+  let results = (outs
+      AnyRankedTensorOrMemRef:$result_values,
+      AnyRankedTensorOrMemRef:$result_indices);
+
+  let builders = [
+    OpBuilder<(ins "Value":$inputValues, "Value":$scratchIdxTile,
+                    "Value":$outValues, "Value":$outIndices,
+                    "int32_t":$k, "int64_t":$numElements,
+                    "bool":$stableSort), [{
+      build($_builder, $_state,
+            outValues.getType(), outIndices.getType(),
+            inputValues, scratchIdxTile, outValues, outIndices,
+            $_builder.getI32IntegerAttr(k),
+            $_builder.getI64IntegerAttr(numElements),
+            $_builder.getBoolAttr(stableSort));
+    }]>
+  ];
+
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() {
+      return MutableOperandRange(getOperation(), 2, 2);
+    }
+    bool isProducer(mlir::OpOperand &operand) {
+      return &operand == &getOutValuesMutable() ||
+             &operand == &getOutIndicesMutable();
+    }
+    bool isConsumer(mlir::OpOperand &operand) {
+      return &operand == &getInputValuesMutable() ||
+             &operand == &getScratchIdxTileMutable();
+    }
+  }];
+
+  let hasVerifier = 1;
+}
+
 def D2M_DeviceSynchronizeOp: D2M_GenericRegionOp<"device_synchronize",
   [AttrSizedOperandSegments, MemoryEffects<[MemRead, MemWrite]>]> {
   let summary = "Device synchronize op.";

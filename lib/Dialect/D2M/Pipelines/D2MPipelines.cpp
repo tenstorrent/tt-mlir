@@ -133,6 +133,7 @@ void createD2MFrontendPipeline(OpPassManager &pm,
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
   pm.addPass(d2m::createD2MInsertScratchBuffers());
+  pm.addPass(d2m::createD2MDecomposeTopk());
 
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
   {
