@@ -1612,6 +1612,112 @@ bool RemoteLoadOp::hasTensorSemantics() {
   return memrefIsTensor || resultIsTensor;
 }
 
+//===----------------------------------------------------------------------===//
+// CoreReadOp Implementation
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult CoreReadOp::verify() {
+  // src and dst are local buffers -- no device (grid/shard) layout.
+  if (ttcore::hasDeviceLayout(getSrc())) {
+    return emitOpError("src must be a local buffer (no device layout)");
+  }
+  if (ttcore::hasDeviceLayout(getDst())) {
+    return emitOpError("dst must be a local buffer (no device layout)");
+  }
+  // srcCore selects the source core by 2D logical grid coordinates.
+  if (getSrcCore().size() != 2) {
+    return emitOpError("expected 2 srcCore coordinates (grid rank), got ")
+           << getSrcCore().size();
+  }
+  // src and dst describe the same shard.
+  auto srcType = mlir::cast<ShapedType>(getSrc().getType());
+  auto dstType = mlir::cast<ShapedType>(getDst().getType());
+  if (srcType.getElementType() != dstType.getElementType()) {
+    return emitOpError("src and dst element types must match");
+  }
+  if (srcType.getShape() != dstType.getShape()) {
+    return emitOpError("src and dst shapes must match");
+  }
+  if (Value result = getResult()) {
+    if (result.getType() != getDst().getType()) {
+      return emitOpError("result type must match dst type");
+    }
+  }
+  return mlir::success();
+}
+
+bool CoreReadOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getSrc();
+}
+
+bool CoreReadOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getDst();
+}
+
+mlir::bufferization::AliasingValueList
+CoreReadOp::getAliasingValues(mlir::OpOperand &operand,
+                              const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList aliasList;
+  // The result aliases dst (read-in-place), so downstream ops resolve to the
+  // original dst allocation via getBuffer().
+  Value result = getResult();
+  if (result && operand.get() == getDst()) {
+    aliasList.addAlias(
+        {result, mlir::bufferization::BufferRelation::Equivalent});
+  }
+  return aliasList;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+CoreReadOp::getBufferType(mlir::Value value,
+                          const mlir::bufferization::BufferizationOptions &,
+                          const mlir::bufferization::BufferizationState &,
+                          ::llvm::SmallVector<mlir::Value> &) {
+  if (value == getSrc() || value == getDst()) {
+    return ttcore::getBufferType(value.getType(), /*isView=*/false);
+  }
+  return mlir::failure();
+}
+
+mlir::LogicalResult
+CoreReadOp::bufferize(mlir::RewriterBase &rewriter,
+                      const mlir::bufferization::BufferizationOptions &options,
+                      mlir::bufferization::BufferizationState &state) {
+  Value result = getResult();
+  if (!result) {
+    return emitOpError("expected a result to bufferize");
+  }
+  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
+  mlir::FailureOr<Value> srcBuffer =
+      mlir::bufferization::getBuffer(rewriter, getSrc(), options, state);
+  if (failed(srcBuffer)) {
+    return srcBuffer;
+  }
+  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
+  mlir::FailureOr<Value> dstBuffer =
+      mlir::bufferization::getBuffer(rewriter, getDst(), options, state);
+  if (failed(dstBuffer)) {
+    return dstBuffer;
+  }
+  // Memref form: no result; the data is read in place into dst.
+  rewriter.create<CoreReadOp>(getLoc(), mlir::TypeRange{}, *srcBuffer,
+                              getSrcCore(), *dstBuffer);
+  auto toTensor = rewriter.create<bufferization::ToTensorOp>(
+      getLoc(), result.getType(), *dstBuffer);
+  rewriter.replaceAllUsesWith(result, toTensor.getResult());
+  rewriter.eraseOp(*this);
+  return mlir::success();
+}
+
+bool CoreReadOp::hasTensorSemantics() {
+  bool srcIsTensor = mlir::isa<RankedTensorType>(getSrc().getType());
+  Value result = getResult();
+  bool resultIsTensor = result && mlir::isa<RankedTensorType>(result.getType());
+  return srcIsTensor || resultIsTensor;
+}
+
 bool RemoteLoadOp::isNotConflicting(
     mlir::OpOperand *uRead, mlir::OpOperand *uConflictingWrite,
     const mlir::bufferization::AnalysisState &) {
