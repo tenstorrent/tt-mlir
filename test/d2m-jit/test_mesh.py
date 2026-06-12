@@ -63,13 +63,10 @@ def _num_devices():
 
 def test_mesh_sets_module_attr():
     """d2m.mesh(...) sets the module's ttcore.meshes attr and stores topology."""
-    try:
-        d2m.mesh((1, 2), topology=("linear", "ring"))
-        b = _Builder.get()
-        assert '#ttcore.meshes<[<"mesh" = 1x2>]>' in str(b.module.operation)
-        assert b._mesh_topology == ["linear", "ring"]
-    finally:
-        _Builder.reset()
+    d2m.mesh((1, 2), topology=("linear", "ring"))
+    b = _Builder.get()
+    assert '#ttcore.meshes<[<"mesh" = 1x2>]>' in str(b.module.operation)
+    assert b._mesh_topology == ["linear", "ring"]
 
 
 _ROUNDTRIP_IR = """
@@ -170,7 +167,6 @@ def test_mesh_shard_dsl_emits_full_and_shard(monkeypatch):
         for orig, lt, t in zip(lts, resolved, outs):
             orig.materialized = t
             orig.value = None
-        _b._Builder.reset()
         return tuple(outs)
 
     monkeypatch.setattr(_b, "to_host", _patched_to_host)
@@ -297,47 +293,41 @@ def test_all_gather_1x2_lowers():
     if not sd:
         pytest.skip("no system descriptor available")
 
-    prev_v2 = d2m.config.use_split_unified_thread_v2
-    d2m.config.use_split_unified_thread_v2 = True  # the fabric kernel needs v2
-    try:
-        d2m.mesh((1, 2), topology=("linear", "ring"))
-        L_in = d2m.Layout(
-            shape=(64, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[2, 2]
-        )
-        L_out = d2m.Layout(
-            shape=(128, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[4, 2]
-        )
-        in_s = d2m.reblock(
-            d2m.mesh_shard(
-                torch.randn(64, 128), L_in, shard_dims=[0, 1], shard_shape=[1, 2]
-            ),
-            [2, 1],
-        )
-        out_s = d2m.reblock(d2m.empty(L_out), [4, 1])
-        ss = d2m.global_semaphore(grid_shape=(8, 8))
-        es = d2m.global_semaphore(grid_shape=(8, 8))
-        all_gather(
-            in_s, out_s, ss, es, grid=(2, 1), fabric=d2m.fabric_config(cluster_axis=1)
-        )
-        out = d2m.mesh_gather(out_s, shard_dims=[0, 1], shard_shape=[1, 2])
+    d2m.mesh((1, 2), topology=("linear", "ring"))
+    L_in = d2m.Layout(
+        shape=(64, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[2, 2]
+    )
+    L_out = d2m.Layout(
+        shape=(128, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[4, 2]
+    )
+    in_s = d2m.reblock(
+        d2m.mesh_shard(
+            torch.randn(64, 128), L_in, shard_dims=[0, 1], shard_shape=[1, 2]
+        ),
+        [2, 1],
+    )
+    out_s = d2m.reblock(d2m.empty(L_out), [4, 1])
+    ss = d2m.global_semaphore(grid_shape=(8, 8))
+    es = d2m.global_semaphore(grid_shape=(8, 8))
+    all_gather(
+        in_s, out_s, ss, es, grid=(2, 1), fabric=d2m.fabric_config(cluster_axis=1)
+    )
+    out = d2m.mesh_gather(out_s, shard_dims=[0, 1], shard_shape=[1, 2])
 
-        # Build + lower to a ttmetal flatbuffer (no execution).
-        b = _Builder.get()
-        _emit_returns_and_finalise(b, [out._resolve()])
-        PassManager.parse(
-            f"builtin.module(ttcore-register-device{{system-desc-path={sd} "
-            f"mesh-shape=1,2 mesh-topology=linear,ring}})",
-            context=b.ctx,
-        ).run(b.module.operation)
-        b.module.operation.verify()
-        PassManager.parse(f"builtin.module({_build_pipeline()})", context=b.ctx).run(
-            b.module.operation
-        )
-        fbb = binary.load_binary_from_capsule(ttmetal_to_flatbuffer_bin(b.module))
-        assert tuple(fbb.get_program_mesh_shape(0)) == (1, 2)
-    finally:
-        d2m.config.use_split_unified_thread_v2 = prev_v2
-        _Builder.reset()
+    # Build + lower to a ttmetal flatbuffer (no execution).
+    b = _Builder.get()
+    _emit_returns_and_finalise(b, [out._resolve()])
+    PassManager.parse(
+        f"builtin.module(ttcore-register-device{{system-desc-path={sd} "
+        f"mesh-shape=1,2 mesh-topology=linear,ring}})",
+        context=b.ctx,
+    ).run(b.module.operation)
+    b.module.operation.verify()
+    PassManager.parse(f"builtin.module({_build_pipeline()})", context=b.ctx).run(
+        b.module.operation
+    )
+    fbb = binary.load_binary_from_capsule(ttmetal_to_flatbuffer_bin(b.module))
+    assert tuple(fbb.get_program_mesh_shape(0)) == (1, 2)
 
 
 @pytest.mark.skipif(
@@ -408,43 +398,40 @@ def test_all_gather_1x2_roundtrip():
         # num_devices (1 remote + 1 local self-inc), not num_devices - 1.
         semaphore_wait(end_sem, 2)
 
-    try:
-        d2m.mesh((1, 2), topology=("linear", "linear"))
-        L_in = d2m.Layout(
-            shape=(64, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[2, 2]
-        )
-        L_out = d2m.Layout(
-            shape=(128, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[4, 2]
-        )
-        full = torch.randn(64, 128, dtype=torch.float32)
-        # Single core: whole shard on one block; output spans the gather dim
-        # (2 device slots) over one core.
-        in_s = d2m.reblock(
-            d2m.mesh_shard(full, L_in, shard_dims=[0, 1], shard_shape=[1, 2]),
-            [1, 1],
-        )
-        out_s = d2m.reblock(d2m.empty(L_out), [2, 1])
-        ss = d2m.global_semaphore(grid_shape=(8, 8))
-        es = d2m.global_semaphore(grid_shape=(8, 8))
-        all_gather(
-            in_s,
-            out_s,
-            ss,
-            es,
-            grid=(1, 1),
-            fabric=d2m.fabric_config(
-                cluster_axis=1, topology="linear", routing="bidir_line_mesh"
-            ),
-        )
-        out_s = d2m.mesh_gather(out_s, shard_dims=[0, 1], shard_shape=[1, 2])
-        result = out_s.to_host()
+    d2m.mesh((1, 2), topology=("linear", "linear"))
+    L_in = d2m.Layout(
+        shape=(64, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[2, 2]
+    )
+    L_out = d2m.Layout(
+        shape=(128, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[4, 2]
+    )
+    full = torch.randn(64, 128, dtype=torch.float32)
+    # Single core: whole shard on one block; output spans the gather dim
+    # (2 device slots) over one core.
+    in_s = d2m.reblock(
+        d2m.mesh_shard(full, L_in, shard_dims=[0, 1], shard_shape=[1, 2]),
+        [1, 1],
+    )
+    out_s = d2m.reblock(d2m.empty(L_out), [2, 1])
+    ss = d2m.global_semaphore(grid_shape=(8, 8))
+    es = d2m.global_semaphore(grid_shape=(8, 8))
+    all_gather(
+        in_s,
+        out_s,
+        ss,
+        es,
+        grid=(1, 1),
+        fabric=d2m.fabric_config(
+            cluster_axis=1, topology="linear", routing="bidir_line_mesh"
+        ),
+    )
+    out_s = d2m.mesh_gather(out_s, shard_dims=[0, 1], shard_shape=[1, 2])
+    result = out_s.to_host()
 
-        shard0 = full[:, :64]
-        shard1 = full[:, 64:]
-        vstack = torch.cat([shard0, shard1], dim=0)  # (128, 64)
-        expected = torch.cat([vstack, vstack], dim=1)  # (128, 128)
-        assert tuple(result.shape) == (128, 128), result.shape
-        diff = (expected - result).abs().max().item()
-        assert diff < 0.05, f"1x2 all_gather max abs diff {diff}"
-    finally:
-        _Builder.reset()
+    shard0 = full[:, :64]
+    shard1 = full[:, 64:]
+    vstack = torch.cat([shard0, shard1], dim=0)  # (128, 64)
+    expected = torch.cat([vstack, vstack], dim=1)  # (128, 128)
+    assert tuple(result.shape) == (128, 128), result.shape
+    diff = (expected - result).abs().max().item()
+    assert diff < 0.05, f"1x2 all_gather max abs diff {diff}"

@@ -20,7 +20,6 @@ def make_layout():
 
 
 def test_view_layout_identity_round_trip():
-    _b._Builder.reset()
     t = torch.randn(64, 64, dtype=torch.float32)
     lt = d2m.to_layout(t, make_layout())
     v = d2m.view_layout(lt, lambda d0, d1, d2, d3: (d0, d1, d2, d3))
@@ -30,7 +29,6 @@ def test_view_layout_identity_round_trip():
 
 
 def test_view_identity_round_trip():
-    _b._Builder.reset()
     t = torch.randn(64, 64, dtype=torch.float32)
     lt = d2m.to_layout(t, make_layout())
     v = d2m.view(lt, lambda d0, d1: (d0, d1))
@@ -40,7 +38,6 @@ def test_view_identity_round_trip():
 
 
 def test_view_raises_on_non_permutation():
-    _b._Builder.reset()
     t = torch.randn(64, 64, dtype=torch.float32)
     lt = d2m.to_layout(t, make_layout())
     try:
@@ -51,7 +48,6 @@ def test_view_raises_on_non_permutation():
 
 
 def test_view_raises_on_rank_mismatch():
-    _b._Builder.reset()
     t = torch.randn(64, 64, dtype=torch.float32)
     lt = d2m.to_layout(t, make_layout())
     try:
@@ -62,7 +58,6 @@ def test_view_raises_on_rank_mismatch():
 
 
 def test_permute_happy():
-    _b._Builder.reset()
     t = torch.randn(64, 64, dtype=torch.float32)
     lt = d2m.to_layout(t, make_layout())
     p = d2m.permute(lt, 1, 0)
@@ -86,7 +81,6 @@ def test_permute_rejects_torch_tensor():
 
 
 def test_permute_rejects_wrong_arity():
-    _b._Builder.reset()
     t = torch.randn(64, 64, dtype=torch.float32)
     lt = d2m.to_layout(t, make_layout())
     try:
@@ -97,7 +91,6 @@ def test_permute_rejects_wrong_arity():
 
 
 def test_permute_rejects_non_permutation():
-    _b._Builder.reset()
     t = torch.randn(64, 64, dtype=torch.float32)
     lt = d2m.to_layout(t, make_layout())
     try:
@@ -108,7 +101,6 @@ def test_permute_rejects_non_permutation():
 
 
 def test_to_host_on_view_raises():
-    _b._Builder.reset()
     t = torch.randn(64, 64, dtype=torch.float32)
     lt = d2m.to_layout(t, make_layout())
     v = d2m.view(lt, lambda d0, d1: (d0, d1))
@@ -121,7 +113,6 @@ def test_to_host_on_view_raises():
 
 
 def test_to_layout_clears_view_flag():
-    _b._Builder.reset()
     t = torch.randn(64, 64, dtype=torch.float32)
     lt = d2m.to_layout(t, make_layout())
     v = d2m.view(lt, lambda d0, d1: (d0, d1))
