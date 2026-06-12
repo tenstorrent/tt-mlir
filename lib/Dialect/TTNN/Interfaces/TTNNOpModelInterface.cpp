@@ -2897,10 +2897,19 @@ LinearOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
     biasLayout = inputs[2];
   }
 
+  // Convert activation attribute to optional StringRef
+  std::optional<llvm::StringRef> activation =
+      getActivation() ? std::make_optional(getActivation().value())
+                      : std::nullopt;
+
+  // Get matmul program config from opConfig if present, otherwise from op.
+  MatmulAttrs attr = unpackMatmulAttrs(opConfig.opSpecificAttrs, *this);
+
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<LinearOp>::getOpRuntime, *this, inputShapeA, inputs[0],
       inputShapeB, inputs[1], biasShape, biasLayout, opConfig.outputLayout,
-      getTransposeA(), getTransposeB());
+      getTransposeA(), getTransposeB(), activation, attr.matmulProgramConfig,
+      attr.computeKernelConfig);
 }
 
 //===----------------------------------------------------------------------===//
@@ -2938,10 +2947,19 @@ MatmulOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   const auto inputShapeA = getA().getType().getShape();
   const auto inputShapeB = getB().getType().getShape();
 
+  // Convert activation attribute to optional StringRef
+  std::optional<llvm::StringRef> activation =
+      getActivation() ? std::make_optional(getActivation().value())
+                      : std::nullopt;
+
+  // Get matmul program config from opConfig if present, otherwise from op.
+  MatmulAttrs attr = unpackMatmulAttrs(opConfig.opSpecificAttrs, *this);
+
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<MatmulOp>::getOpRuntime, *this, inputShapeA, inputs[0],
       inputShapeB, inputs[1], opConfig.outputLayout, getTransposeA(),
-      getTransposeB());
+      getTransposeB(), activation, attr.matmulProgramConfig,
+      attr.computeKernelConfig);
 }
 
 //===----------------------------------------------------------------------===//

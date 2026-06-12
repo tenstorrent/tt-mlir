@@ -1054,12 +1054,16 @@ struct OpModel<LinearOp> {
       std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
           std::nullopt);
 
-  static llvm::Expected<size_t>
-  getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
-               llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
-               std::optional<llvm::ArrayRef<int64_t>> biasShape,
-               std::optional<TTNNLayoutAttr> biasLayout,
-               TTNNLayoutAttr outputLayout, bool transposeA, bool transposeB);
+  static llvm::Expected<size_t> getOpRuntime(
+      llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
+      llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
+      std::optional<llvm::ArrayRef<int64_t>> biasShape,
+      std::optional<TTNNLayoutAttr> biasLayout, TTNNLayoutAttr outputLayout,
+      bool transposeA, bool transposeB,
+      std::optional<llvm::StringRef> activation,
+      std::optional<mlir::Attribute> programConfigAttr = std::nullopt,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+          std::nullopt);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1077,10 +1081,14 @@ struct OpModel<MatmulOp> {
       std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
           std::nullopt);
 
-  static llvm::Expected<size_t>
-  getOpRuntime(llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
-               llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
-               TTNNLayoutAttr outputLayout, bool transposeA, bool transposeB);
+  static llvm::Expected<size_t> getOpRuntime(
+      llvm::ArrayRef<int64_t> inputShapeA, TTNNLayoutAttr inputLayoutA,
+      llvm::ArrayRef<int64_t> inputShapeB, TTNNLayoutAttr inputLayoutB,
+      TTNNLayoutAttr outputLayout, bool transposeA, bool transposeB,
+      std::optional<llvm::StringRef> activation = std::nullopt,
+      std::optional<mlir::Attribute> programConfigAttr = std::nullopt,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+          std::nullopt);
 };
 
 //===----------------------------------------------------------------------===//
