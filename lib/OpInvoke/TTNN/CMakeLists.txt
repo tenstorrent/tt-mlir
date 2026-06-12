@@ -1,5 +1,6 @@
 add_library(TTNNOpInvokeLib STATIC
   utils/utils.cpp
+  Conv/Conv2dOp.cpp
 )
 
 set_property(TARGET TTNNOpInvokeLib PROPERTY CXX_STANDARD 20)
