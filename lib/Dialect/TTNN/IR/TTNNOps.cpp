@@ -2588,9 +2588,7 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 // cases might work. This canonicalization only handles one case: with 4Dx4D
 // operands, dim 1 (the second batch dimension) on the RHS can be broadcast to
 // match the LHS when the unbroadcast RHS is a single batch (its outer dim 0 is
-// 1). Other cases are explicitly out of scope. Keeping this knowledge of
-// metal's matmul behavior in the TTNN dialect -- on the very op that
-// implements it -- avoids leaking it into higher levels of IR.
+// 1). Other cases are explicitly out of scope.
 //
 // `ttir.broadcast` lowers to `ttnn.repeat`, so the redundant op matched here is
 // a `ttnn.repeat` whose repeat_dims expand exactly dim 1.
