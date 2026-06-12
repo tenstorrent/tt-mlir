@@ -1227,6 +1227,62 @@ def _run_pipeline(b: _Builder):
         print(b.module)
 
 
+# --- Mesh-device cache --------------------------------------------------------
+#
+# Opening + closing a mesh device on every execution repeatedly inits and tears
+# down the UMD cluster: slow, and on n300 it flakes the ARC startup. Mirroring
+# test/python/golden/conftest.py's `_get_device_for_target`, we keep one device
+# open and reuse it across executions, only closing + reopening when the mesh
+# shape or fabric setting changes. The d2m-jit conftest closes the cached device
+# at session end and after a failing test (the hardware may be in an undefined
+# state). A test that opens its own mesh device must call `_close_cached_device`
+# first so two meshes are never open at once.
+_cached_device = None
+_cached_mesh_shape = None
+_cached_fabric_used = None
+
+
+def _get_cached_device(mesh_shape, fabric_used):
+    """Return a mesh device for (`mesh_shape`, `fabric_used`), reusing the cached
+    one on a match and otherwise closing it and opening a fresh one."""
+    global _cached_device, _cached_mesh_shape, _cached_fabric_used
+    mesh_shape = tuple(mesh_shape)
+    if _cached_device is not None:
+        if _cached_mesh_shape == mesh_shape and _cached_fabric_used == fabric_used:
+            return _cached_device
+        # Mesh / fabric mismatch: tear down before opening the new device.
+        _close_cached_device()
+    # CCL kernels need the device fabric enabled *before* the mesh is opened
+    # (matching the golden harness). Without it the program's fabric ops
+    # (device_synchronize / fabric remote_store / fabric semaphore incs) silently
+    # no-op and the kernel hangs on semaphore_wait.
+    if fabric_used:
+        runtime.set_fabric_config(runtime.FabricConfig.FABRIC_1D_RING)
+    device_options = runtime.MeshDeviceOptions()
+    device_options.mesh_shape = list(mesh_shape)
+    _cached_device = runtime.open_mesh_device(device_options)
+    _cached_mesh_shape = mesh_shape
+    _cached_fabric_used = fabric_used
+    return _cached_device
+
+
+def _close_cached_device():
+    """Close and forget the cached mesh device (disabling fabric if it was on).
+    Safe to call when nothing is cached."""
+    global _cached_device, _cached_mesh_shape, _cached_fabric_used
+    if _cached_device is None:
+        return
+    fabric_used = _cached_fabric_used
+    try:
+        runtime.close_mesh_device(_cached_device)
+    finally:
+        if fabric_used:
+            runtime.set_fabric_config(runtime.FabricConfig.DISABLED)
+        _cached_device = None
+        _cached_mesh_shape = None
+        _cached_fabric_used = None
+
+
 def _execute(b: _Builder, lts):
     """Serialize to flatbuffer, run on a mesh device, return torch tensors."""
     if runtime is None or binary is None:
@@ -1237,8 +1293,7 @@ def _execute(b: _Builder, lts):
         fbb.store(config.save_flatbuffer_path)
         print(f"[d2m-jit] flatbuffer written to {config.save_flatbuffer_path}")
     program_index = 0
-    device_options = runtime.MeshDeviceOptions()
-    device_options.mesh_shape = fbb.get_program_mesh_shape(program_index)
+    mesh_shape = fbb.get_program_mesh_shape(program_index)
     runtime.set_compatible_device_runtime(fbb)
 
     # Marshal inputs from the torch tensors / scalars gathered during graph build.
@@ -1277,14 +1332,11 @@ def _execute(b: _Builder, lts):
             )
         )
 
-    # CCL kernels need the device fabric enabled before the mesh device is
-    # opened (matching the golden harness, which calls set_fabric_config). Without
-    # this the program's fabric ops (device_synchronize / fabric remote_store /
-    # fabric semaphore incs) silently no-op and the kernel hangs on semaphore_wait.
+    # Reuse a cached mesh device when possible (see _get_cached_device); CCL
+    # kernels need the device fabric enabled before the mesh is opened, which
+    # the cache handles based on `fabric_used`.
     fabric_used = getattr(b, "_fabric_used", False)
-    if fabric_used:
-        runtime.set_fabric_config(runtime.FabricConfig.FABRIC_1D_RING)
-    device = runtime.open_mesh_device(device_options)
+    device = _get_cached_device(mesh_shape, fabric_used)
     try:
         submitted = runtime.submit(device, fbb, program_index, rt_inputs)
         runtime.wait(submitted)
@@ -1292,10 +1344,11 @@ def _execute(b: _Builder, lts):
             host_view = runtime.to_host(rt_out, untilize=True)[0]
             runtime.memcpy(rt_outputs[i], host_view)
             runtime.deallocate_tensor(rt_out, force=True)
-    finally:
-        runtime.close_mesh_device(device)
-        if fabric_used:
-            runtime.set_fabric_config(runtime.FabricConfig.DISABLED)
+    except Exception:
+        # After a failed execution the device may be in an undefined state;
+        # drop it so the next run opens a clean one.
+        _close_cached_device()
+        raise
     return out_torch
 
 
