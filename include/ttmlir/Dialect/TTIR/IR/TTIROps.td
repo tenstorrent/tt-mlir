@@ -6139,7 +6139,7 @@ def TTIR_ChunkedScaledDotProductAttentionOp : TTIR_NamedOp<"chunked_scaled_dot_p
 
   let results = (outs AnyRankedTensor:$result);
 
-  let hasVerifier = 0;
+  let hasVerifier = 1;
 }
 
 def TTIR_PagedFlashMultiLatentAttentionDecodeOp : TTIR_NamedOp<"paged_flash_multi_latent_attention_decode", [AttrSizedOperandSegments]> {

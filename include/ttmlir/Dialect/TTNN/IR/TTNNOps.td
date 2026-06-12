@@ -3731,7 +3731,7 @@ def TTNN_ChunkedScaledDotProductAttentionOp : TTNN_Op<"chunked_scaled_dot_produc
     }
   }];
 
-  let hasVerifier = 0;
+  let hasVerifier = 1;
 }
 
 def TTNN_PagedFlashMultiLatentAttentionDecodeOp : TTNN_Op<"paged_flash_multi_latent_attention_decode", [AttrSizedOperandSegments]> {
