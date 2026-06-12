@@ -936,8 +936,7 @@ def _execute(b: _Builder, lts):
         fbb.store(config.save_flatbuffer_path)
         print(f"[d2m-jit] flatbuffer written to {config.save_flatbuffer_path}")
     program_index = 0
-    device_options = runtime.MeshDeviceOptions()
-    device_options.mesh_shape = fbb.get_program_mesh_shape(program_index)
+    mesh_shape = fbb.get_program_mesh_shape(program_index)
     runtime.set_compatible_device_runtime(fbb)
 
     # Marshal inputs from the torch tensors / scalars gathered during graph build.
@@ -976,14 +975,11 @@ def _execute(b: _Builder, lts):
             )
         )
 
-    # CCL kernels need the device fabric enabled before the mesh device is
-    # opened (matching the golden harness, which calls set_fabric_config). Without
-    # this the program's fabric ops (device_synchronize / fabric remote_store /
-    # fabric semaphore incs) silently no-op and the kernel hangs on semaphore_wait.
+    # Reuse a cached mesh device when possible (see _get_cached_device); CCL
+    # kernels need the device fabric enabled before the mesh is opened, which
+    # the cache handles based on `fabric_used`.
     fabric_used = getattr(b, "_fabric_used", False)
-    if fabric_used:
-        runtime.set_fabric_config(runtime.FabricConfig.FABRIC_1D_RING)
-    device = runtime.open_mesh_device(device_options)
+    device = _get_cached_device(mesh_shape, fabric_used)
     try:
         submitted = runtime.submit(device, fbb, program_index, rt_inputs)
         runtime.wait(submitted)
@@ -991,10 +987,11 @@ def _execute(b: _Builder, lts):
             host_view = runtime.to_host(rt_out, untilize=True)[0]
             runtime.memcpy(rt_outputs[i], host_view)
             runtime.deallocate_tensor(rt_out, force=True)
-    finally:
-        runtime.close_mesh_device(device)
-        if fabric_used:
-            runtime.set_fabric_config(runtime.FabricConfig.DISABLED)
+    except Exception:
+        # After a failed execution the device may be in an undefined state;
+        # drop it so the next run opens a clean one.
+        _close_cached_device()
+        raise
     return out_torch
 
 

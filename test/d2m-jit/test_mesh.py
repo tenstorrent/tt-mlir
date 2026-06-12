@@ -22,12 +22,19 @@ remote_store / semaphore_wait) to a ttmetal flatbuffer. On-device execution +
 PCC is a follow-up (needs a healthy mesh). See CCL_SPEC.md section 7.
 """
 
+import functools
+import json
+import re
+
 import pytest
+
+from utils import assert_pcc
 
 import d2m_jit as d2m
 from d2m_jit._src.builder import (
     _Builder,
     _build_pipeline,
+    _close_cached_device,
     _get_system_desc_path,
     _to_runtime_data_type,
 )
@@ -52,11 +59,28 @@ except ImportError:
     ttmetal_to_flatbuffer_bin = None
 
 
+@functools.lru_cache(maxsize=1)
 def _num_devices():
-    if runtime is None:
+    """Number of physical chips, read *statically* from the system descriptor.
+
+    Avoids `runtime.get_num_available_devices()`, which opens+destroys the UMD
+    cluster on every call. This is evaluated once per skipif decorator at import
+    time (~7x), and that repeated cluster init flakes the n300 ARC startup; worse,
+    a single transient flake cached here would poison the whole session with a
+    bogus 0. The system descriptor's `chip_desc_indices` is the authoritative,
+    hardware-free chip count (mirrors golden conftest's get_board_id), so the
+    cache is safe."""
+    if binary is None:
+        return 0
+    sd = _get_system_desc_path()
+    if not sd:
         return 0
     try:
-        return runtime.get_num_available_devices()
+        js = binary.load_system_desc_from_path(sd).as_json()
+        js = re.sub(r"\bnan\b", "NaN", js)
+        js = re.sub(r"\binf\b", "Infinity", js)
+        desc = json.loads(js)["system_desc"]
+        return len(desc["chip_desc_indices"])
     except Exception:
         return 0
 
@@ -115,6 +139,9 @@ def test_mesh_shard_roundtrip_1x2():
         t.element_size(),
         _to_runtime_data_type(t.dtype),
     )
+    # This test opens its own mesh device, so drop any device the cached-device
+    # path (builder._execute) may still hold open -- two open meshes conflict.
+    _close_cached_device()
     opts = runtime.MeshDeviceOptions()
     opts.mesh_shape = mesh_shape
     dev = runtime.open_mesh_device(opts)
@@ -435,3 +462,125 @@ def test_all_gather_1x2_roundtrip():
     assert tuple(result.shape) == (128, 128), result.shape
     diff = (expected - result).abs().max().item()
     assert diff < 0.05, f"1x2 all_gather max abs diff {diff}"
+
+
+@pytest.mark.skip(
+    reason=(
+        "Fused unified-split CCL hangs on device. The kernel lowers cleanly to a "
+        "ttmetal flatbuffer, but on the 1x2 mesh it deadlocks: split-unified-"
+        "thread-v2 duplicates the device_synchronize barrier across BOTH "
+        "datamovement threads (kernel6 proc=1 and kernel7 proc=0), and the watcher "
+        "shows our kernels (k_ids 18/19/20) only ever load on device 0 -- device 1 "
+        "never launches them -- so the all_gather barrier / end-semaphore never "
+        "completes. No unified-split CCL kernel has run on device yet "
+        "(test_all_gather_1x2_lowers only lowers); the single-thread datamovement "
+        "form (test_all_gather_1x2_roundtrip) works. Skip (not xfail) because the "
+        "test would otherwise hang the suite. Remove once the unified-split CCL "
+        "path executes a barrier once per core rather than once per DM thread."
+    )
+)
+@pytest.mark.skipif(
+    torch is None or runtime is None,
+    reason="requires torch + ttmlir runtime",
+)
+@pytest.mark.skipif(_num_devices() < 2, reason="requires a >=2-device mesh")
+def test_matmul_all_gather_fused_1x2_roundtrip():
+    """A *fused* distributed-matmul + all_gather in a single `unified` kernel.
+
+    Each device d holds one 32x32 shard of lhs and rhs (the column shards
+    A_d / B_d). The kernel computes the local product C_d = A_d @ B_d on the
+    compute thread, then all-gathers C_d across the 2-device line so every
+    device ends holding vstack(C_0, C_1) (64,32); shard_to_full column-concats
+    the two identical halves -> (64,64).
+
+    Fusion is what makes this interesting: the matmul (compute) and the CCL
+    data movement (device_synchronize / cross-device remote_store /
+    semaphore_wait) live in ONE generic. `split-unified-thread-v2` separates
+    them into a compute thread + a datamovement thread, handshaking the matmul
+    output CB across the boundary (CBComputeInfo: compute *produces* it, the DM
+    `remote_store` consumes it). The fabric remote_store's source is therefore
+    a compute-produced CB rather than a remote_load result -- the case the
+    split pass's `produced`/`dmStore` partner logic exists for.
+
+    CCL specifics mirror test_all_gather_1x2_roundtrip (linear topology /
+    bidir_line_mesh routing, end-wait num_devices=2 because remote_store also
+    self-increments the local shard, single core per device). The `fabric=`
+    config also makes `_execute` enable the device fabric (set_fabric_config).
+    """
+
+    @d2m.kernel(thread="unified")
+    def matmul_all_gather(lhs, rhs, out, start_sem, end_sem):
+        dy = mesh_position(0)
+        cy = core_index(0)
+        cx = core_index(1)
+        device_synchronize(
+            start_sem,
+            start_device=[dy, 0],
+            mcast_shape=[1, 2],
+            num_receivers=1,
+            core_indices=[cy, cx],
+        )
+        # Local per-device matmul: a single 32x32 tile each, so `a @ b` is a
+        # one-tile matmul (M=K=N=1) -- the well-supported single-tile form.
+        a = remote_load(lhs, [0, 0])
+        b = remote_load(rhs, [0, 0])
+        c = a @ b
+        dx = mesh_position(1)
+        # all_gather: device d mcasts its product C_d into output block [d, 0]
+        # on every device, incrementing end_sem on each receiver.
+        remote_store(
+            out,
+            [dx, 0],
+            c,
+            start_device=[dy, 0],
+            device_mcast_shape=[1, 2],
+            semaphore=end_sem,
+            semaphore_indices=[cy, 0],
+        )
+        # num_devices (1 remote + 1 local self-inc), not num_devices - 1.
+        semaphore_wait(end_sem, 2)
+
+    d2m.mesh((1, 2), topology=("linear", "linear"))
+    # Per-device shard is a single 32x32 tile.
+    L_in = d2m.Layout(
+        shape=(32, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1]
+    )
+    # Output spans the gather dim (2 device slots stacked) over one core.
+    L_out = d2m.Layout(
+        shape=(64, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[2, 1]
+    )
+    full_a = torch.randn(32, 64, dtype=torch.float32)
+    full_b = torch.randn(32, 64, dtype=torch.float32)
+    a_s = d2m.reblock(
+        d2m.mesh_shard(full_a, L_in, shard_dims=[0, 1], shard_shape=[1, 2]),
+        [1, 1],
+    )
+    b_s = d2m.reblock(
+        d2m.mesh_shard(full_b, L_in, shard_dims=[0, 1], shard_shape=[1, 2]),
+        [1, 1],
+    )
+    out_s = d2m.reblock(d2m.empty(L_out), [2, 1])
+    ss = d2m.global_semaphore(grid_shape=(8, 8))
+    es = d2m.global_semaphore(grid_shape=(8, 8))
+    matmul_all_gather(
+        a_s,
+        b_s,
+        out_s,
+        ss,
+        es,
+        grid=(1, 1),
+        fabric=d2m.fabric_config(
+            cluster_axis=1, topology="linear", routing="bidir_line_mesh"
+        ),
+    )
+    out_s = d2m.mesh_gather(out_s, shard_dims=[0, 1], shard_shape=[1, 2])
+    result = out_s.to_host()
+
+    a0, a1 = full_a[:, :32], full_a[:, 32:]
+    b0, b1 = full_b[:, :32], full_b[:, 32:]
+    c0 = a0 @ b0  # device 0's product (32, 32)
+    c1 = a1 @ b1  # device 1's product (32, 32)
+    vstack = torch.cat([c0, c1], dim=0)  # (64, 32)
+    expected = torch.cat([vstack, vstack], dim=1)  # (64, 64)
+    assert tuple(result.shape) == (64, 64), result.shape
+    assert_pcc(expected, result)
