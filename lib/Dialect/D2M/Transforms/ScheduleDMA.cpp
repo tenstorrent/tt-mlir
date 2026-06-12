@@ -295,10 +295,13 @@ public:
     // to one DM thread + local-barrier the observers) until that lands; see the
     // TODO in DMAUtils.cpp's checkForIllegalSemaphoreOps and
     // tools/d2m-jit/unified_semaphore_design.md.
-    bool hasExplicitSemaphoreMutation = false;
+    // core_read (a core->core NoC read) is also kept single-DM-thread for now:
+    // it is not a ShardDMAOpInterface so it would not be assigned/filtered by a
+    // NOC split, and the streaming sync against it is not yet proven.
+    bool keepSingleDMThread = false;
     dmBlock->walk([&](Operation *op) {
-      if (isa<SemaphoreIncOp, SemaphoreSetOp>(op)) {
-        hasExplicitSemaphoreMutation = true;
+      if (isa<SemaphoreIncOp, SemaphoreSetOp, CoreReadOp>(op)) {
+        keepSingleDMThread = true;
         return WalkResult::interrupt();
       }
       return WalkResult::advance();
@@ -324,10 +327,9 @@ public:
         static_cast<unsigned>(cbWorkloads.size()), numDatamovementThreads);
 
     // Stay on a single DM thread when splitting isn't warranted (<=1 CB) or
-    // would duplicate explicit semaphore mutations (Option D above). Still
+    // would duplicate semaphore mutations / core_read (Option D above). Still
     // assign a processor on the existing single DM thread before bailing.
-    if (numThreadsToUse <= 1 || cbWorkloads.size() <= 1 ||
-        hasExplicitSemaphoreMutation) {
+    if (numThreadsToUse <= 1 || cbWorkloads.size() <= 1 || keepSingleDMThread) {
       bool writesDRAM = llvm::any_of(dmaOps, [](const auto &entry) {
         auto store = mlir::dyn_cast_or_null<RemoteStoreOp>(entry.first);
         return store && ttcore::getMemorySpace(store.getMemref()) ==

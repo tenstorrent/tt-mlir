@@ -190,6 +190,20 @@ def remote_store(
     )
 
 
+@syntax("core_read")
+def core_read(dst, src, *, core):
+    """Read another core's local L1 buffer into this core's `dst` buffer.
+
+    A direct core->core NoC read (no device layout): the copy of `src` on the
+    core at logical coordinates `core` ([y, x], same L1 offset across the grid)
+    is read into `dst`. Synchronization (the source having published `src`, and
+    not overwriting it until read) is the caller's responsibility via
+    semaphores. Returns the read data (aliasing `dst`)."""
+    dst = _as_value(dst)
+    src = _as_value(src)
+    return d2m.core_read(dst.type, src, _idx_list(core), dst)
+
+
 @syntax("semaphore_set")
 def semaphore_set(semaphore, value, core=None, mcast=None):
     """Set a (local or global) semaphore to `value`. Free-function form of
