@@ -901,15 +901,32 @@ private:
         }
       }
 
-      // Collect all hoistable ops between first and last
+      // Collect all hoistable ops between first and last. Creation ops (e.g.
+      // ttnn.constant / ttnn.full materialized mid-graph by op decompositions
+      // such as SDPA) are not hoistable, but they only depend on the device
+      // (no data dependency on surrounding compute). Rather than failing, sink
+      // them above the trace region so they are treated as regular trace inputs
+      // (recreated per execution), matching how leading creation ops are
+      // handled when const-eval is disabled.
+      llvm::SmallVector<Operation *> creationOpsToSink;
       for (size_t i = firstHoistable; i <= lastHoistable; i++) {
         if (shouldHoistOp(allOps[i])) {
           opsToHoist.push_back(allOps[i]);
+        } else if (allOps[i]
+                       ->hasTrait<
+                           mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>()) {
+          creationOpsToSink.push_back(allOps[i]);
         } else {
           // We found a non-hoistable op in the middle - this is an error
           return allOps[i]->emitError(
               "Non-hoistable op found in the middle of hoistable ops");
         }
+      }
+
+      // Move the mid-graph creation ops above the first hoistable op so the
+      // trace op (inserted at the first hoistable op) dominates its operands.
+      for (Operation *creationOp : creationOpsToSink) {
+        creationOp->moveBefore(allOps[firstHoistable]);
       }
     }
 
