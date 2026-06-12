@@ -44,18 +44,6 @@ getPrepareMoEComputeW2WeightsOpOutputTensorSpec(
     std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
     std::optional<TTNNLayoutAttr> bias2Layout, uint32_t hiddenSize,
     uint32_t intermediateSize, std::optional<uint32_t> bhRingSize);
-
-llvm::Expected<std::vector<::ttnn::TensorSpec>>
-getMoeComputeOpOutputTensorSpecs(
-    llvm::ArrayRef<int64_t> tilizeInputShape, TTNNLayoutAttr tilizeInputLayout,
-    llvm::ArrayRef<int64_t> indicesShape, TTNNLayoutAttr indicesLayout,
-    llvm::ArrayRef<int64_t> scoresShape, TTNNLayoutAttr scoresLayout,
-    llvm::ArrayRef<int64_t> mappingShape, TTNNLayoutAttr mappingLayout,
-    llvm::ArrayRef<int64_t> w0w1Shape, TTNNLayoutAttr w0w1Layout,
-    llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout, uint32_t layerId,
-    uint32_t outputHeightShardDim, uint32_t intermediateSize, bool hasBias,
-    ttcore::MoEActivationFunction activation,
-    std::optional<uint32_t> bhRingSize);
 } // namespace mlir::tt::ttnn::op_model
 
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -229,55 +217,6 @@ getPreparedMoEComputeW2WeightsOutputType(PrepareMoEComputeW2WeightsOp *op) {
 #else
   assert(false && "Cannot calculate prepare_moe_compute_w2_weights shape "
                   "without op model");
-#endif
-}
-
-llvm::SmallVector<mlir::RankedTensorType>
-getMoeComputeOutputTypes(MoeComputeOp *op) {
-#ifdef TTMLIR_ENABLE_OPMODEL
-  auto operand = [](mlir::Value v) {
-    auto t = mlir::cast<mlir::RankedTensorType>(v.getType());
-    return std::make_pair(t.getShape(),
-                          mlir::cast<TTNNLayoutAttr>(t.getEncoding()));
-  };
-  auto [tilizeInputShape, tilizeInputLayout] =
-      operand(op->getTilizeInputTensor());
-  auto [indicesShape, indicesLayout] =
-      operand(op->getTilizeExpertIndicesTensor());
-  auto [scoresShape, scoresLayout] = operand(op->getTilizeExpertScoresTensor());
-  auto [mappingShape, mappingLayout] =
-      operand(op->getTilizeExpertMappingTensor());
-  auto [w0w1Shape, w0w1Layout] = operand(op->getMatmulW0W1Tensor());
-  auto [w2Shape, w2Layout] = operand(op->getMatmulW2Tensor());
-
-  std::optional<uint32_t> bhRingSize = op->getBhRingSize();
-
-  auto specsOrErr = getMoeComputeOpOutputTensorSpecs(
-      tilizeInputShape, tilizeInputLayout, indicesShape, indicesLayout,
-      scoresShape, scoresLayout, mappingShape, mappingLayout, w0w1Shape,
-      w0w1Layout, w2Shape, w2Layout, op->getLayerId(),
-      op->getOutputHeightShardDim(), op->getIntermediateSize(),
-      op->getHasBias(), op->getActivationFunction(), bhRingSize);
-  if (!specsOrErr) {
-    llvm::errs() << llvm::toString(specsOrErr.takeError());
-    assert(false && "Failed to calculate moe_compute output shapes.");
-  }
-
-  auto deviceGrid =
-      ttcore::lookupDevice(op->getOperation()).getWorkerGrid().getShape();
-  llvm::SmallVector<mlir::RankedTensorType> outputTypes;
-  for (const auto &spec : specsOrErr.get()) {
-    auto outLayout = conversion::getLayoutAttrFromTensorSpec(op->getContext(),
-                                                             spec, deviceGrid);
-    auto shape = spec.logical_shape();
-    outputTypes.push_back(mlir::RankedTensorType::get(
-        llvm::SmallVector<int64_t>(shape.cbegin(), shape.cend()),
-        outLayout.getScalarElementType(), outLayout));
-  }
-  return outputTypes;
-#else
-  assert(false &&
-         "Cannot calculate moe_compute output shapes without op model");
 #endif
 }
 

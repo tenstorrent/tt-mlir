@@ -119,7 +119,6 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(SplitQueryKeyValueAndSplitHeadsOp::getOperationName(), &splitQKV);
     reg(RMSNormOp::getOperationName(), &rmsNorm);
     reg(MeshPartitionOp::getOperationName(), &meshPartition);
-    reg(MoeComputeOp::getOperationName(), &moe);
     reg(PrepareMoEComputeW0W1WeightsOp::getOperationName(), &moe);
     reg(PrepareMoEComputeW2WeightsOp::getOperationName(), &moe);
     reg(PagedUpdateCacheOp::getOperationName(), &pagedUpdateCache);

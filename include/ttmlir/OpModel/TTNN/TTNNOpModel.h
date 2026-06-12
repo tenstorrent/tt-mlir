@@ -1421,27 +1421,6 @@ struct OpModel<PrepareMoEComputeW2WeightsOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// MoeComputeOp
-//===----------------------------------------------------------------------===//
-
-// compute_only path only; the A2A combine path needs multi-device and cannot
-// be graph-captured.
-template <>
-struct OpModel<MoeComputeOp> {
-  static llvm::Expected<OpConstraints> getOpConstraints(
-      llvm::ArrayRef<int64_t> tilizeInputShape,
-      TTNNLayoutAttr tilizeInputLayout, llvm::ArrayRef<int64_t> indicesShape,
-      TTNNLayoutAttr indicesLayout, llvm::ArrayRef<int64_t> scoresShape,
-      TTNNLayoutAttr scoresLayout, llvm::ArrayRef<int64_t> mappingShape,
-      TTNNLayoutAttr mappingLayout, llvm::ArrayRef<int64_t> w0w1Shape,
-      TTNNLayoutAttr w0w1Layout, llvm::ArrayRef<int64_t> w2Shape,
-      TTNNLayoutAttr w2Layout, uint32_t layerId, uint32_t outputHeightShardDim,
-      uint32_t intermediateSize, bool hasBias,
-      ttcore::MoEActivationFunction activation,
-      std::optional<uint32_t> bhRingSize);
-};
-
-//===----------------------------------------------------------------------===//
 // MaxPool2dOp
 //===----------------------------------------------------------------------===//
 

@@ -14,7 +14,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
-#include "ttnn/operations/experimental/ccl/moe_compute/moe_compute.hpp"
 #include "ttnn/operations/experimental/ccl/moe_compute/moe_compute_utils.hpp"
 
 #include "mlir/IR/AttrTypeSubElements.h"
@@ -952,99 +951,6 @@ getPrepareMoEComputeW2WeightsOpOutputTensorSpec(
   return output.get().output_tensor_specs.value()[0];
 }
 
-//===----------------------------------------------------------------------===//
-// MoeComputeOp
-//===----------------------------------------------------------------------===//
-
-static ::ttnn::experimental::prim::detail::MoEActivationFunction
-toMetalMoEActivation(ttcore::MoEActivationFunction fn) {
-  switch (fn) {
-  case ttcore::MoEActivationFunction::Silu:
-    return ::ttnn::experimental::prim::detail::MoEActivationFunction::SILU;
-  case ttcore::MoEActivationFunction::SwiGLU:
-    return ::ttnn::experimental::prim::detail::MoEActivationFunction::SWIGLU;
-  }
-  llvm_unreachable("Unknown ttcore::MoEActivationFunction");
-}
-
-// Inlined compute_only moe_compute (mirrors the runtime op): single-device, no
-// combine, every combine-path input unset, returns five tensors. Traced by
-// query_op_constraints to derive the output specs.
-static std::vector<::ttnn::Tensor> moeComputeComputeOnly(
-    const ::ttnn::Tensor &tilizeInput, const ::ttnn::Tensor &indices,
-    const ::ttnn::Tensor &scores, const ::ttnn::Tensor &mapping,
-    const ::ttnn::Tensor &w0w1, const ::ttnn::Tensor &w2, uint32_t layerId,
-    uint32_t outputHeightShardDim, uint32_t intermediateSize, bool hasBias,
-    ::ttnn::experimental::prim::detail::MoEActivationFunction activation,
-    std::optional<uint32_t> bhRingSize) {
-  return ::ttnn::experimental::moe_compute(
-      tilizeInput, indices, scores, mapping, w0w1, w2, layerId,
-      outputHeightShardDim, intermediateSize, hasBias,
-      /*cluster_axis=*/std::nullopt, /*topology=*/std::nullopt,
-      /*num_links=*/std::nullopt, /*mux_core_range_set=*/std::nullopt,
-      /*output_memory_config=*/std::nullopt,
-      /*optional_output_tensor=*/std::nullopt,
-      /*cross_device_semaphore=*/std::nullopt, activation,
-      /*compute_only=*/true, bhRingSize);
-}
-
-static auto makeMoeComputeQuery(
-    llvm::ArrayRef<int64_t> tilizeInputShape, TTNNLayoutAttr tilizeInputLayout,
-    llvm::ArrayRef<int64_t> indicesShape, TTNNLayoutAttr indicesLayout,
-    llvm::ArrayRef<int64_t> scoresShape, TTNNLayoutAttr scoresLayout,
-    llvm::ArrayRef<int64_t> mappingShape, TTNNLayoutAttr mappingLayout,
-    llvm::ArrayRef<int64_t> w0w1Shape, TTNNLayoutAttr w0w1Layout,
-    llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout, uint32_t layerId,
-    uint32_t outputHeightShardDim, uint32_t intermediateSize, bool hasBias,
-    ttcore::MoEActivationFunction activation,
-    std::optional<uint32_t> bhRingSize) {
-  ::tt::tt_metal::distributed::MeshDevice *device =
-      SingletonDeviceContext::getInstance().getDevice();
-
-  ::ttnn::experimental::prim::detail::MoEActivationFunction metalActivation =
-      toMetalMoEActivation(activation);
-
-  return [=]() {
-    ::ttnn::TensorSpec tilizeInput =
-        conversion::getTensorSpec(tilizeInputShape, tilizeInputLayout);
-    ::ttnn::TensorSpec indices =
-        conversion::getTensorSpec(indicesShape, indicesLayout);
-    ::ttnn::TensorSpec scores =
-        conversion::getTensorSpec(scoresShape, scoresLayout);
-    ::ttnn::TensorSpec mapping =
-        conversion::getTensorSpec(mappingShape, mappingLayout);
-    ::ttnn::TensorSpec w0w1 = conversion::getTensorSpec(w0w1Shape, w0w1Layout);
-    ::ttnn::TensorSpec w2 = conversion::getTensorSpec(w2Shape, w2Layout);
-    return ::ttnn::graph::query_op_constraints(
-        WRAP_OP(moeComputeComputeOnly), device, tilizeInput, indices, scores,
-        mapping, w0w1, w2, layerId, outputHeightShardDim, intermediateSize,
-        hasBias, metalActivation, bhRingSize);
-  };
-}
-
-llvm::Expected<std::vector<::ttnn::TensorSpec>>
-getMoeComputeOpOutputTensorSpecs(
-    llvm::ArrayRef<int64_t> tilizeInputShape, TTNNLayoutAttr tilizeInputLayout,
-    llvm::ArrayRef<int64_t> indicesShape, TTNNLayoutAttr indicesLayout,
-    llvm::ArrayRef<int64_t> scoresShape, TTNNLayoutAttr scoresLayout,
-    llvm::ArrayRef<int64_t> mappingShape, TTNNLayoutAttr mappingLayout,
-    llvm::ArrayRef<int64_t> w0w1Shape, TTNNLayoutAttr w0w1Layout,
-    llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout, uint32_t layerId,
-    uint32_t outputHeightShardDim, uint32_t intermediateSize, bool hasBias,
-    ttcore::MoEActivationFunction activation,
-    std::optional<uint32_t> bhRingSize) {
-  auto query = makeMoeComputeQuery(
-      tilizeInputShape, tilizeInputLayout, indicesShape, indicesLayout,
-      scoresShape, scoresLayout, mappingShape, mappingLayout, w0w1Shape,
-      w0w1Layout, w2Shape, w2Layout, layerId, outputHeightShardDim,
-      intermediateSize, hasBias, activation, bhRingSize);
-  auto output = operation::executeConstraintQuery(query);
-  if (!output) {
-    return output.takeError();
-  }
-  return output.get().output_tensor_specs.value();
-}
-
 #endif // TTMLIR_ENABLE_OPMODEL
 
 llvm::Expected<OpConstraints>
@@ -1077,38 +983,6 @@ OpModel<PrepareMoEComputeW2WeightsOp>::getOpConstraints(
       w2Shape, w2Layout, bias2Shape, bias2Layout, hiddenSize, intermediateSize,
       bhRingSize);
   return operation::getOpConstraints(w2Layout.getContext(), query);
-#else
-  return OpConstraints{};
-#endif // TTMLIR_ENABLE_OPMODEL
-}
-
-llvm::Expected<OpConstraints> OpModel<MoeComputeOp>::getOpConstraints(
-    llvm::ArrayRef<int64_t> tilizeInputShape, TTNNLayoutAttr tilizeInputLayout,
-    llvm::ArrayRef<int64_t> indicesShape, TTNNLayoutAttr indicesLayout,
-    llvm::ArrayRef<int64_t> scoresShape, TTNNLayoutAttr scoresLayout,
-    llvm::ArrayRef<int64_t> mappingShape, TTNNLayoutAttr mappingLayout,
-    llvm::ArrayRef<int64_t> w0w1Shape, TTNNLayoutAttr w0w1Layout,
-    llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout, uint32_t layerId,
-    uint32_t outputHeightShardDim, uint32_t intermediateSize, bool hasBias,
-    ttcore::MoEActivationFunction activation,
-    std::optional<uint32_t> bhRingSize) {
-#ifdef TTMLIR_ENABLE_OPMODEL
-  auto query = makeMoeComputeQuery(
-      tilizeInputShape, tilizeInputLayout, indicesShape, indicesLayout,
-      scoresShape, scoresLayout, mappingShape, mappingLayout, w0w1Shape,
-      w0w1Layout, w2Shape, w2Layout, layerId, outputHeightShardDim,
-      intermediateSize, hasBias, activation, bhRingSize);
-  llvm::Expected<OpConstraints> constraints =
-      operation::getOpConstraints(tilizeInputLayout.getContext(), query);
-  if (!constraints) {
-    return constraints.takeError();
-  }
-  // combine_output aliases matmul_output; duplicate its layout to match the
-  // op's six results.
-  assert(constraints->outputLayouts.size() == 5 &&
-         "compute_only moe_compute must return five output layouts");
-  constraints->outputLayouts.push_back(constraints->outputLayouts[4]);
-  return constraints;
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL

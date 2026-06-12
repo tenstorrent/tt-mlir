@@ -3090,41 +3090,6 @@ llvm::Expected<size_t> PrepareMoEComputeW2WeightsOp::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
-// MoeComputeOp - TTNN Op Model Interface
-//===----------------------------------------------------------------------===//
-
-llvm::Expected<op_model::OpConstraints>
-MoeComputeOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                               const OpConfig &opConfig) {
-  // Only the compute_only path is single-device and graph-capturable.
-  if (!getComputeOnly()) {
-    return issueErrorForGetOpConstraints(
-        getOperation(), detail::ReasonForLackOfSupport::NeedsMultiDevice);
-  }
-  assert(inputs.size() == 6);
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<MoeComputeOp>::getOpConstraints, *this,
-      getTilizeInputTensor().getType().getShape(), inputs[0],
-      getTilizeExpertIndicesTensor().getType().getShape(), inputs[1],
-      getTilizeExpertScoresTensor().getType().getShape(), inputs[2],
-      getTilizeExpertMappingTensor().getType().getShape(), inputs[3],
-      getMatmulW0W1Tensor().getType().getShape(), inputs[4],
-      getMatmulW2Tensor().getType().getShape(), inputs[5], getLayerId(),
-      getOutputHeightShardDim(), getIntermediateSize(), getHasBias(),
-      getActivationFunction(), getBhRingSize());
-}
-
-llvm::Expected<size_t>
-MoeComputeOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                           const OpConfig &opConfig) {
-  // query_op_runtime would execute the kernel with uninitialized routing
-  // tensors.
-  return issueErrorForGetOpRuntime(
-      getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
-}
-
-//===----------------------------------------------------------------------===//
 // DeallocateOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

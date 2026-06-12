@@ -1862,7 +1862,7 @@ def TTNN_PrepareMoEComputeW2WeightsOp :
 }
 
 def TTNN_MoeComputeOp : TTNN_Op<"moe_compute",
-    [AttrSizedOperandSegments, TTNN_DistributedOpInterface]> {
+    [AttrSizedOperandSegments, TTNN_DistributedOpInterface, OpModelExempt]> {
     let summary = "Fused MoE expert compute (selective tilize + experts + combine).";
     let description = [{
       Composite operation that performs the MoE expert FFN in a single fused

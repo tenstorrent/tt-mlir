@@ -44,10 +44,10 @@ public:
     }
   }
 
-  // The weight-prep ops and ttnn.moe_compute are created with placeholder
-  // result types (inherited from the TTIR-side declaration). Replace them with
-  // the device-derived specs OpModel computes via graph-captured query of the
-  // matching tt-metal invocation. Consumers read the deduced types via use-def.
+  // The weight-prep ops are created with placeholder result types. Replace them
+  // with the device-derived specs OpModel computes via graph-captured query of
+  // the matching tt-metal invocation. Consumers read the deduced types via
+  // use-def.
   void runOnOperation() final {
 #ifndef TTMLIR_ENABLE_OPMODEL
     llvm::llvm_unreachable_internal("TTNNDeduceMoEComputeLayouts requires "
@@ -66,23 +66,6 @@ public:
       op.getResult().setType(
           op_model::getPreparedMoEComputeW2WeightsOutputType(&op));
       refreshEnclosingFuncReturnType(op.getResult());
-    });
-
-    // moe_compute runs after the prep walks above, so its weight operands carry
-    // the refined packed types by now. Capture the device-derived layout of
-    // every output and write it back; the sixth result (combine_output) aliases
-    // matmul_output in compute_only, so it takes the fifth captured type.
-    moduleOp.walk([&](ttnn::MoeComputeOp op) {
-      llvm::SmallVector<mlir::RankedTensorType> outputTypes =
-          op_model::getMoeComputeOutputTypes(&op);
-      assert(outputTypes.size() == 5 &&
-             "compute_only moe_compute yields five output specs");
-      for (size_t idx = 0; idx < outputTypes.size(); ++idx) {
-        op.getResult(idx).setType(outputTypes[idx]);
-        refreshEnclosingFuncReturnType(op.getResult(idx));
-      }
-      op.getCombineOutput().setType(outputTypes.back());
-      refreshEnclosingFuncReturnType(op.getCombineOutput());
     });
 #endif // TTMLIR_ENABLE_OPMODEL
   }
