@@ -14,10 +14,10 @@ backing-buffer grid must match the 8x8 worker grid).
 
 This is the single-device "fake CCL" anchor modelled on
 test/ttmlir/Dialect/D2M/generic/generic_global_semaphores.mlir. It uses only
-`semaphore_wait` (no reset) inside the unified region -- `semaphore_set` /
-`semaphore_inc` / `semaphore_wait`-with-reset are rejected by GenericOp::verify
-in unified form (they race when replicated across threads) and require the
-multi-thread kernel structure that is the next milestone.
+`semaphore_wait` (no reset) inside the unified region. (`semaphore_set` /
+`semaphore_inc` / `semaphore_wait`-with-reset are now *accepted* in unified
+form but are not yet split safely across threads -- see the TODO in
+DMAUtils.cpp's checkForIllegalSemaphoreOps.)
 """
 
 import d2m_jit as d2m

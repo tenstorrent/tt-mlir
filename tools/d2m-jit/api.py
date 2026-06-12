@@ -238,7 +238,8 @@ def device_synchronize(
     current core. `num_receivers` must be a compile-time literal (it lowers to
     an i32 attribute).
 
-    Only legal in a datamovement kernel (`@d2m.kernel(thread="datamovement")`).
+    Authored in a `@d2m.kernel` (unified) like every other op; the backend
+    pins this barrier to a single datamovement thread when it splits the kernel.
     """
     return d2m.device_synchronize(
         semaphore,

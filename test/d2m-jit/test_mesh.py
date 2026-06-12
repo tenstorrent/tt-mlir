@@ -290,7 +290,7 @@ def test_all_gather_1x2_lowers():
     PCC is a follow-up (needs a healthy mesh)."""
     from d2m_jit._src.builder import _build_pipeline, _emit_returns_and_finalise
 
-    @d2m.kernel(thread="unified")
+    @d2m.kernel
     def all_gather(in0, out0, start_sem, end_sem):
         dy = mesh_position(0)
         cy = core_index(0)
@@ -370,9 +370,10 @@ def test_all_gather_1x2_roundtrip():
     remote_store -> semaphore_wait, with a linear / bidir_line_mesh fabric
     config (a 2-device ring has no backward link).
 
-    Authored as a `datamovement`-thread kernel (the CCL ops are illegal in
-    unified form); the remote_load/remote_store run in implicit (local-buffer)
-    form, which D2MLowerLoadStoreOpsToDMA lowers straight to dma_read/dma_write.
+    Authored as a `unified` kernel (the only form). With no compute between the
+    load and store, the backend splits it into a single datamovement thread, so
+    the remote_load/remote_store run in implicit (local-buffer) form, which
+    D2MLowerLoadStoreOpsToDMA lowers straight to dma_read/dma_write.
 
     Line-config specifics vs the ring algorithm in CCL_SPEC.md section 7:
     - topology "linear" + routing "bidir_line_mesh" (not ring / unidir).
@@ -393,7 +394,7 @@ def test_all_gather_1x2_roundtrip():
     holds vstack(shard0, shard1) (128,64); shard_to_full column-concats the two
     identical halves -> (128,128)."""
 
-    @d2m.kernel(thread="datamovement")
+    @d2m.kernel
     def all_gather(in0, out0, start_sem, end_sem):
         dy = mesh_position(0)
         cy = core_index(0)
@@ -501,7 +502,7 @@ def test_matmul_all_gather_fused_1x2_roundtrip():
     config also makes `_execute` enable the device fabric (set_fabric_config).
     """
 
-    @d2m.kernel(thread="unified")
+    @d2m.kernel
     def matmul_all_gather(lhs, rhs, out, start_sem, end_sem):
         dy = mesh_position(0)
         cy = core_index(0)
