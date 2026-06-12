@@ -478,10 +478,11 @@ remote_store(outputStream, outputIndices, load,
 semaphore_wait(endSem, num_devices - 1)        # no reset (legal in any thread)
 yield(store)
 ```
-Note: **no `semaphore_set` inside** — so this is legal in unified OR
-datamovement form. The rewriter uses unified; the d2m-jit path should try
-`@d2m.kernel(thread="datamovement")` first (it sidesteps SplitUnifiedThread and
-matches our validated datamovement lowering), falling back to unified.
+Note: **no `semaphore_set` inside** — so it works in the unified form that is
+now the only `@d2m.kernel` form. The backend splits the unified generic and
+pins the `device_synchronize` barrier to a single datamovement thread
+(ScheduleDMA), so the all_gather lowers and runs correctly. (The explicit
+`thread="datamovement"` form has been removed.)
 
 **Concrete 1x2 target** (`cluster_axis=1`, `all_gather_dim=0`, ring,
 `num_links=1` → `num_devices=2`, `num_cores=2`):

@@ -5,14 +5,14 @@
 # RUN: %python %s | FileCheck %s
 # REQUIRES: d2m-jit
 
-"""IR-shape lit test for a full datamovement-form all_gather kernel.
+"""IR-shape lit test for a full all_gather kernel.
 
-This is the milestone-2 anchor: a `@d2m.kernel(thread="datamovement")` kernel
-(matching tools/d2m-jit/ccl.d2m) that uses the full CCL op set --
-`device_synchronize`, cross-device `remote_store` with a semaphore, plus
-`semaphore_wait` and `semaphore_set`. These semaphore set/sync ops are illegal
-in unified form (GenericOp::verify rejects them as cross-thread races); the
-explicit datamovement thread is what makes them legal.
+A `@d2m.kernel` (the only form -- unified) matching tools/d2m-jit/ccl.d2m that
+uses the full CCL op set: `device_synchronize`, cross-device `remote_store`
+with a semaphore, `semaphore_wait`, and `semaphore_set`. The explicit
+`semaphore_set` / `semaphore_inc` ops are currently *permitted* in unified form
+(checkForIllegalSemaphoreOps is temporarily permissive); they are not yet split
+safely across threads -- see the TODO in DMAUtils.cpp.
 
 Registers a mock Wormhole device so the verifiers run, then checks the IR.
 """
@@ -26,7 +26,7 @@ from ttmlir.passmanager import PassManager
 L = d2m.Layout(shape=(64, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[2, 2])
 
 
-@d2m.kernel(thread="datamovement")
+@d2m.kernel
 def all_gather(in0, out0, ccl_start_semaphore, ccl_end_semaphore):
     dy = mesh_position(0)
     dx = mesh_position(1)
@@ -74,7 +74,7 @@ _Builder.reset()
 
 # Datamovement thread (not unified) -- the form that makes set/sync legal.
 # CHECK: d2m.generic
-# CHECK-SAME: threads = [#d2m.thread<datamovement>]
+# CHECK-SAME: threads = [#d2m.thread<unified>]
 # Two global semaphores threaded in as additionalArgs.
 # CHECK: additionalArgs(%{{.*}}, %{{.*}} : !d2m.global_semaphore, !d2m.global_semaphore)
 # CHECK: d2m.mesh_position

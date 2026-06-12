@@ -1313,27 +1313,23 @@ def _emit_kernel_generic(
             user_lt.is_view = kernel_lt.is_view
 
 
-# Thread types a kernel may be authored as. "unified" (the default) is the
-# implicit-blocked compute+datamovement form that the backend splits into
-# per-thread regions. "datamovement" authors a single explicit datamovement
-# thread -- used for data-movement-only kernels (e.g. CCL) that need semaphore
-# set/inc ops, which GenericOp::verify rejects in unified form.
-_KERNEL_THREAD_TYPES = frozenset({"unified", "datamovement", "compute"})
+# All kernels are authored as the "unified" implicit-blocked compute+
+# datamovement form; the backend (split-unified-thread-v2 -> schedule-dma)
+# splits it into per-thread regions. CCL kernels (device_synchronize,
+# cross-device remote_store, semaphores) are authored unified too -- the split
+# pins the device_synchronize barrier to a single datamovement thread (see
+# ScheduleDMA). Explicit semaphore_set/inc are permitted but not yet split
+# safely (see checkForIllegalSemaphoreOps's TODO in DMAUtils.cpp).
 
 
 class CompiledKernel:
     """Wraps a user kernel function. Parses the Python body once; emits a
-    `d2m.GenericOp` into the current builder on every call."""
+    `d2m.GenericOp` (unified thread) into the current builder on every call."""
 
-    def __init__(self, fn, thread="unified"):
-        if thread not in _KERNEL_THREAD_TYPES:
-            raise ValueError(
-                f"@d2m.kernel thread must be one of {sorted(_KERNEL_THREAD_TYPES)}, "
-                f"got {thread!r}"
-            )
+    def __init__(self, fn):
         functools.update_wrapper(self, fn)
         self.fn = fn
-        self.thread_type = thread
+        self.thread_type = "unified"
         (
             self._source,
             self._source_firstlineno,
@@ -1365,14 +1361,12 @@ class CompiledKernel:
         )
 
 
-def kernel(fn=None, *, thread="unified"):
+def kernel(fn):
     """Decorate a user function as a d2m_jit kernel.
 
-    Bare form `@d2m.kernel` authors a `unified` kernel. The parameterised form
-    `@d2m.kernel(thread="datamovement")` authors a single explicit datamovement
-    thread -- required for data-movement-only kernels (e.g. CCL) that use
-    `semaphore_set` / `semaphore_inc` / `device_synchronize`, which are illegal
-    in unified form."""
-    if fn is None:
-        return lambda f: CompiledKernel(f, thread=thread)
-    return CompiledKernel(fn, thread=thread)
+    All kernels are authored as the `unified` compute+datamovement form; the
+    backend splits it into per-thread regions. CCL kernels (device_synchronize,
+    cross-device remote_store, semaphores) are authored the same way -- the
+    split pins the device_synchronize barrier to a single datamovement thread.
+    """
+    return CompiledKernel(fn)
