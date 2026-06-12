@@ -962,7 +962,6 @@ public:
 namespace {
 class DeallocateOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::DeallocateOp> {
-
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
       mlir::tt::ttnn::DeallocateOp>::TTNNToEmitPyBaseOpConversionPattern;
@@ -980,6 +979,18 @@ public:
     };
 
     emitter.replaceOp(*this, args);
+
+    // Drop the Python handle to the deallocated tensor right after the
+    // deallocate call by emitting `del <tensor>`. ttnn.deallocate is a no-op
+    // whenever the tensor's storage is shared (e.g. with a view-aliasing
+    // reshape result), so without releasing the variable the storage would
+    // never be freed and would leak. Releasing the handle decrements the
+    // storage reference count, letting ttnn's refcount-based deallocation
+    // release the resource.
+    rewriter.setInsertionPointAfter(deallocateOp);
+    rewriter.create<mlir::tt::emitpy::VerbatimOp>(
+        deallocateOp.getLoc(), rewriter.getStringAttr("del {}"),
+        mlir::ValueRange{adaptor.getInput()});
 
     return success();
   }

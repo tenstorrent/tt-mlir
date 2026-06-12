@@ -839,6 +839,31 @@ static LogicalResult printOperation(PythonEmitter &emitter, AssignOp op) {
   return success();
 }
 
+static LogicalResult printOperation(PythonEmitter &emitter,
+                                    VerbatimOp verbatimOp) {
+  raw_indented_ostream &os = emitter.ostream();
+
+  FailureOr<SmallVector<ReplacementItem>> items =
+      verbatimOp.parseFormatString();
+  if (failed(items)) {
+    return failure();
+  }
+
+  auto fmtArg = verbatimOp.getFmtArgs().begin();
+  for (ReplacementItem &item : *items) {
+    if (auto *str = std::get_if<StringRef>(&item)) {
+      os << *str;
+    } else {
+      // Placeholder: emit the next format argument as its variable name.
+      if (failed(emitter.emitOperand(*fmtArg++, "verbatim_arg"))) {
+        return failure();
+      }
+    }
+  }
+
+  return success();
+}
+
 static LogicalResult printOperation(PythonEmitter &emitter, YieldOp yieldOp) {
   // YieldOp should only appear inside ExpressionOp
   // In the new design, yield should never be directly emitted
@@ -1006,7 +1031,8 @@ LogicalResult PythonEmitter::emitOperation(Operation &op) {
           .Case<CallOpaqueOp, ImportOp, AssignOp, GetAttrOp, SetAttrOp,
                 ConstantOp, SubscriptOp, ClassOp, GlobalOp, AssignGlobalOp,
                 GlobalStatementOp, CreateDictOp, ExpressionOp, YieldOp, IfOp,
-                FileOp>([&](auto op) { return printOperation(*this, op); })
+                VerbatimOp, FileOp>(
+              [&](auto op) { return printOperation(*this, op); })
           .Case<LiteralOp>([&](auto op) {
             registerDeferredValue(op.getResult(), op.getValue());
             return success();
