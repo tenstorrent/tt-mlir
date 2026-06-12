@@ -113,10 +113,12 @@ static LogicalResult convertDMAToExplicitCBForm(Block *dmBlock,
   SmallVector<RemoteStoreOp> stores;
   SmallVector<LocalCopyOp> localCopies;
   SmallVector<CoreReadOp> coreReads;
+  SmallVector<CoreWriteOp> coreWrites;
   dmBlock->walk([&](RemoteLoadOp op) { loads.push_back(op); });
   dmBlock->walk([&](RemoteStoreOp op) { stores.push_back(op); });
   dmBlock->walk([&](LocalCopyOp op) { localCopies.push_back(op); });
   dmBlock->walk([&](CoreReadOp op) { coreReads.push_back(op); });
+  dmBlock->walk([&](CoreWriteOp op) { coreWrites.push_back(op); });
 
   for (RemoteLoadOp loadOp : loads) {
     if (loadOp.isExplicitCBForm()) {
@@ -187,6 +189,28 @@ static LogicalResult convertDMAToExplicitCBForm(Block *dmBlock,
     rewriter.eraseOp(coreReadOp);
   }
 
+  // core_write consumes its src buffer; wrap it in the CB consume protocol
+  // (wait src CB -> core_write from the waited buffer -> pop) so an upstream
+  // producer of that buffer on the DM thread (e.g. a remote_load, converted to
+  // reserve/push) handshakes correctly. core_write's dst is written cross-core
+  // by address (uniform L1 offset) and needs no local CB acquire.
+  for (CoreWriteOp coreWriteOp : coreWrites) {
+    GenericOp generic = coreWriteOp->getParentOfType<GenericOp>();
+    Value srcBuffer = coreWriteOp.getSrc();
+    unsigned cbOperandIdx = generic.getOperandIndex(srcBuffer);
+
+    rewriter.setInsertionPoint(coreWriteOp);
+    Value cb = d2m::getOrCreateCB(rewriter, generic, dmBlock, cbOperandIdx);
+    Value waited =
+        rewriter.create<WaitOp>(coreWriteOp.getLoc(), cb).getResult();
+    rewriter.create<CoreWriteOp>(coreWriteOp.getLoc(), TypeRange{}, waited,
+                                 coreWriteOp.getDst(),
+                                 coreWriteOp.getDstCore());
+    rewriter.create<PopOp>(coreWriteOp.getLoc(), cb);
+    coreWriteOp->dropAllUses();
+    rewriter.eraseOp(coreWriteOp);
+  }
+
   // Convert implicit-form local_copy ops to explicit CB form.
   for (LocalCopyOp copyOp : localCopies) {
     if (copyOp.isExplicitCBForm()) {
@@ -253,7 +277,7 @@ static void collectOpsToErase(Block *block, DenseSet<Operation *> &eraseSet,
     // them on a single DM thread so they run exactly once. core_read is a
     // core->core NoC read, also DM-only.
     bool isDMAOp = isa<ShardDMAOpInterface, DeviceSynchronizeOp, SemaphoreIncOp,
-                       SemaphoreSetOp, CoreReadOp>(&op);
+                       SemaphoreSetOp, CoreReadOp, CoreWriteOp>(&op);
     bool isReplicated = isa<SemaphoreWaitOp>(&op);
     // CB-protocol ops (reserve/push/wait/pop) emitted into the DM thread during
     // the split -- e.g. the reserve/push that wrap core_read's produce into its
@@ -406,12 +430,12 @@ static LogicalResult insertComputeCBOpsV2(GenericOp generic,
   // double-waits it (deadlock).
   for (auto &[cb, usage] : utils::getCBUsageInfo(computeRegion)) {
     for (Operation *p : usage.producers) {
-      if (!isa<RemoteLoadOp, RemoteStoreOp, CoreReadOp>(p)) {
+      if (!isa<RemoteLoadOp, RemoteStoreOp, CoreReadOp, CoreWriteOp>(p)) {
         cbs[cb].produced = true;
       }
     }
     for (Operation *c : usage.consumers) {
-      if (!isa<RemoteLoadOp, RemoteStoreOp, CoreReadOp>(c)) {
+      if (!isa<RemoteLoadOp, RemoteStoreOp, CoreReadOp, CoreWriteOp>(c)) {
         cbs[cb].consumed = true;
       }
     }

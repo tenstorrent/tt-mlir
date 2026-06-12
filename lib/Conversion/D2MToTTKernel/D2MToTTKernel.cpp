@@ -2646,6 +2646,44 @@ public:
   }
 };
 
+// core_write: a whole-buffer core->core local-L1 write. Writes the local %src
+// into the destination core's copy of %dst (same uniform L1 offset, selected by
+// dstCore logical coords), then barriers. The push dual of core_read; no
+// dma_write.
+class D2MCoreWriteRewriter : public OpConversionPattern<d2m::CoreWriteOp> {
+public:
+  using OpConversionPattern<d2m::CoreWriteOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::CoreWriteOp op, d2m::CoreWriteOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto chipDesc = ttcore::getOpChipDescAttr(op);
+    Location loc = op.getLoc();
+
+    Value srcL1Addr =
+        rewriter.create<ttkernel::GetReadPtrOp>(loc, adaptor.getSrc());
+    Value dstL1Addr =
+        rewriter.create<ttkernel::GetWritePtrOp>(loc, adaptor.getDst());
+
+    auto srcType = op.getSrcMemRefType();
+    int64_t bytes = srcType.getNumElements() *
+                    ttcore::getElementSizeBytes(srcType.getElementType());
+    auto size = intConstant<int32_t>(rewriter, loc, bytes);
+
+    // Destination core's virtual coords from the dstCore logical coordinates
+    // (dstCore = [y, x]), instead of this core's my_logical_y/x.
+    auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
+        rewriter, loc, chipDesc, adaptor.getDstCore());
+    NocEndpoint dstEndpoint{
+        ttcore::MemorySpace::DeviceL1, {virtX, virtY}, nullptr, dstL1Addr};
+    createNocAsyncWrite(rewriter, loc, srcL1Addr, dstEndpoint, size);
+    rewriter.create<ttkernel::NocAsyncWriteBarrierOp>(loc);
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 class D2MDMAWriteRewriter : public OpConversionPattern<d2m::DMAWriteOp> {
 public:
   D2MDMAWriteRewriter(TypeConverter &typeConverter, MLIRContext *context,
@@ -3808,6 +3846,7 @@ void populateD2MToTTKernelPatterns(
                                            forceCompileTimeArgs);
   patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &cbProducerConsumer);
   patterns.add<ttkernel::D2MCoreReadRewriter>(typeConverter, ctx);
+  patterns.add<ttkernel::D2MCoreWriteRewriter>(typeConverter, ctx);
   patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &cbProducerConsumer);
 
   // Debug op patterns.
