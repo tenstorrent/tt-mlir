@@ -98,6 +98,24 @@ class SkipExecIf(SkipIf):
         super().__init__(*marks_groups, mark_fn=pytest.mark.skip_exec)
 
 
+class XFail:
+    """Append a non-strict xfail mark. Chainable, e.g. ``case | SkipIf("sim") |
+    XFail("reason")``."""
+
+    def __init__(self, reason):
+        self.reason = reason
+
+    def __ror__(self, lhs):
+        mark = pytest.mark.xfail(reason=self.reason, strict=False)
+        # ``lhs`` may already be a marked pytest.param (a ParameterSet) from an
+        # earlier ``| SkipIf(...)``; preserve its values and marks.
+        if hasattr(lhs, "values") and hasattr(lhs, "marks"):
+            return pytest.param(*lhs.values, marks=[*lhs.marks, mark], id=lhs.id)
+        if not isinstance(lhs, tuple):
+            lhs = (lhs,)
+        return pytest.param(*lhs, marks=[mark])
+
+
 def shape_str(shape):
     """
     Converts shape tuple to string.
