@@ -130,6 +130,19 @@ static bool workaroundInputOperand(
       inputWorkaroundResults.tensorMemoryLayoutResult.targetValue,
       inputWorkaroundResults.tensorDataTypeResult.targetValue, "_workaround");
 
+  // A workaround that moves an input operand into L1 may target a const-derived
+  // operand (e.g. moe_gpt's replicated expert_mapping metadata). The const-eval
+  // hoist pass hard-fails on L1-resident const-eval candidates unless they carry
+  // the discardable `ttnn.const_eval_allowed` attribute, so tag the inserted
+  // to_layout to allow the hoist. Harmless for non-const inputs: they are never
+  // const-eval candidates.
+  if (inputWorkaroundResults.tensorBufferTypeResult.targetValue ==
+      ttnn::BufferType::L1) {
+    if (Operation *toLayoutDef = insertedToLayoutOpValue.getDefiningOp()) {
+      toLayoutDef->setAttr("ttnn.const_eval_allowed", rewriter.getUnitAttr());
+    }
+  }
+
   // Insert to layout op between the current op and the input operand
   // to convert the input operand to the desired tensor layout, buffer type.
   rewriter.modifyOpInPlace(op, [&]() {

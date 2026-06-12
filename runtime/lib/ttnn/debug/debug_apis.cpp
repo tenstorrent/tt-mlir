@@ -10,6 +10,9 @@
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 
+#include <cstdio>
+#include <string>
+
 namespace tt::runtime::ttnn::debug {
 
 // TensorSpec populates equivalent legacy and ND shard specs when possible, so
@@ -27,6 +30,20 @@ void checkTensorRefMatchesTTNNTensor(
   ::ttnn::Layout expectedLayout =
       ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(tensorRef);
   ::ttnn::Layout actualLayout = ttnnTensor.layout();
+  if (expectedLayout != actualLayout) {
+    std::string shapeStr;
+    for (int64_t d : *tensorRef->desc()->shape()) {
+      shapeStr += std::to_string(d) + ",";
+    }
+    std::fprintf(stderr,
+                 "[TT_LAYOUT_MISMATCH] global_id=%u shape=[%s] actual_dtype=%s "
+                 "expected=%s got=%s\n",
+                 tensorRef->global_id(), shapeStr.c_str(),
+                 toString(ttnnTensor.dtype()).c_str(),
+                 toString(expectedLayout).c_str(),
+                 toString(actualLayout).c_str());
+    std::fflush(stderr);
+  }
   DEBUG_ASSERT(expectedLayout == actualLayout, "Layout mismatch, expected ",
                toString(expectedLayout), ", got ", toString(actualLayout));
 

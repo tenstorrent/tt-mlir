@@ -11,7 +11,9 @@
 #include "tt/runtime/detail/ttnn/utils.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <optional>
+#include <string>
 
 namespace tt::runtime::ttnn::operations::matmul {
 
