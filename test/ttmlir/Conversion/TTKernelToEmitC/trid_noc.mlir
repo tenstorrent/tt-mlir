@@ -17,7 +17,7 @@
 // CHECK-NEXT: %[[NOC_ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
 // CHECK-NEXT: emitc.call_opaque "noc_async_read_set_trid"(%[[TRID]], %[[NOC_IDX]]) : (i32, i8) -> ()
 // CHECK-NEXT: emitc.call_opaque "noc_async_read_one_packet_with_state_with_trid"(%[[SRC_BASE]], %[[SRC_ADDR]], %[[DST_L1]], %[[TRID]], %[[NOC_IDX]]) : (i32, i32, i32, i32, i8) -> ()
-// CHECK-NEXT: emitc.verbatim "noc0.async_read_barrier<Noc::BarrierMode::TXN_ID>({});" args %[[TRID]] : i32
+// CHECK-NEXT: emitc.verbatim "noc0.async_read_barrier<NocOptions::TXN_ID>(NocOptVals{{[{][{]}}.trid = {}{{[}][}]}});" args %[[TRID]] : i32
 func.func @trid_read_path() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
   %trid = arith.constant 3 : i32
   %noc_idx = arith.constant 0 : i8
@@ -50,7 +50,7 @@ func.func @trid_read_path() -> () attributes {ttkernel.thread = #ttkernel.thread
 // CHECK-NEXT: %[[NOC_ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64
 // CHECK-NEXT: emitc.call_opaque "noc_async_write_set_trid"(%[[TRID]], %[[NOC_IDX]]) : (i32, i8) -> ()
 // CHECK-NEXT: emitc.call_opaque "noc_async_write_one_packet_with_trid"(%[[DST]], %[[NOC_ADDR]], %[[SIZE]], %[[TRID]], %[[NOC_IDX]]) : (i32, i64, i32, i32, i8) -> ()
-// CHECK-NEXT: emitc.verbatim "noc0.async_write_barrier<Noc::BarrierMode::TXN_ID>({});" args %[[TRID]] : i32
+// CHECK-NEXT: emitc.verbatim "noc0.async_write_barrier<NocOptions::TXN_ID>(NocOptVals{{[{][{]}}.trid = {}{{[}][}]}});" args %[[TRID]] : i32
 // CHECK-NEXT: emitc.call_opaque "reset_noc_trid_barrier_counter"(%[[MASK]], %[[NOC_IDX]]) : (i32, i8) -> ()
 func.func @trid_write_path() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
   %trid = arith.constant 3 : i32
@@ -75,7 +75,7 @@ func.func @trid_write_path() -> () attributes {ttkernel.thread = #ttkernel.threa
 // CHECK-LABEL: func @trid_barrier_default_noc
 // CHECK: emitc.verbatim "Noc noc;"
 // CHECK: %[[TRID:.*]] = "emitc.constant"() <{value = 3 : i32}> : () -> i32
-// CHECK: emitc.verbatim "noc.async_write_barrier<Noc::BarrierMode::TXN_ID>({});" args %[[TRID]] : i32
+// CHECK: emitc.verbatim "noc.async_write_barrier<NocOptions::TXN_ID>(NocOptVals{{[{][{]}}.trid = {}{{[}][}]}});" args %[[TRID]] : i32
 func.func @trid_barrier_default_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
   %trid = arith.constant 3 : i32
   "ttkernel.noc_async_write_barrier_with_trid"(%trid) : (i32) -> ()
@@ -90,7 +90,7 @@ func.func @trid_barrier_default_noc() -> () attributes {ttkernel.thread = #ttker
 // CHECK-LABEL: func @trid_barrier_dynamic_noc
 // CHECK: %[[TRID:.*]] = "emitc.constant"() <{value = 3 : i32}> : () -> i32
 // CHECK: %[[NOC:.*]] = emitc.cast
-// CHECK: emitc.verbatim "Noc({}).async_read_barrier<Noc::BarrierMode::TXN_ID>({});" args %[[NOC]], %[[TRID]] : i8, i32
+// CHECK: emitc.verbatim "Noc({}).async_read_barrier<NocOptions::TXN_ID>(NocOptVals{{[{][{]}}.trid = {}{{[}][}]}});" args %[[NOC]], %[[TRID]] : i8, i32
 func.func @trid_barrier_dynamic_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
   %trid = arith.constant 3 : i32
   %noc_arg = arith.constant 262400 : i32

@@ -1656,6 +1656,40 @@ TEST_F(OpModelBase, cumSumOp) {
   }
 }
 
+TEST_F(OpModelBase, cumProdOp) {
+  // create CumProdOp
+  llvm::SmallVector<int64_t> tensorShapeA = {128, 128};
+  llvm::SmallVector<int64_t> tensorShapeO = {128, 128};
+
+  auto input = createEmptyTensor(tensorShapeA);
+  auto output = createEmptyTensor(tensorShapeO);
+
+  auto cumProd =
+      builder.create<CumProdOp>(builder.getUnknownLoc(), output.getType(),
+                                input, builder.getI32IntegerAttr(0));
+
+  // test cumProd Op interface
+  auto constraintsExp = getOpConstraints(cumProd.getOperation());
+  if (constraintsExp) {
+    auto l1 = constraintsExp.get();
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+        l1;
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GE(l1PeakSize, 0);
+    EXPECT_GT(outputSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints; Error="
+           << llvm::toString(constraintsExp.takeError()) << std::endl;
+  }
+
+  auto runtimeExp = getOpRuntime(cumProd.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
 TEST_F(OpModelBase, TopKOp) {
   // create TopKOp
   llvm::SmallVector<int64_t> tensorShapeA = {64, 64};

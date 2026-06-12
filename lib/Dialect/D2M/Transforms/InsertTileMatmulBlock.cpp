@@ -9,6 +9,7 @@
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/Block.h"
 
 namespace mlir::tt::d2m {
@@ -31,6 +32,44 @@ static d2m::TileMatmulOp findTileMatmul(Operation *op) {
     return WalkResult::interrupt();
   });
   return result;
+}
+
+static Value getDirectAffineIndexOperand(affine::AffineLoadOp loadOp,
+                                         unsigned resultIdx) {
+  AffineMap map = loadOp.getAffineMap();
+  if (resultIdx >= map.getNumResults()) {
+    return nullptr;
+  }
+  auto dimExpr = dyn_cast<AffineDimExpr>(map.getResult(resultIdx));
+  if (!dimExpr) {
+    return nullptr;
+  }
+  ValueRange operands = loadOp.getMapOperands();
+  if (dimExpr.getPosition() >= operands.size()) {
+    return nullptr;
+  }
+  return operands[dimExpr.getPosition()];
+}
+
+static bool inferTransposeB(d2m::TileMatmulOp matmulOp) {
+  auto aLoad = matmulOp.getA().getDefiningOp<affine::AffineLoadOp>();
+  auto bLoad = matmulOp.getB().getDefiningOp<affine::AffineLoadOp>();
+  if (!aLoad || !bLoad) {
+    return false;
+  }
+
+  auto aType = dyn_cast<ShapedType>(aLoad.getMemRef().getType());
+  auto bType = dyn_cast<ShapedType>(bLoad.getMemRef().getType());
+  if (!aType || !bType || aType.getRank() < 2 || bType.getRank() < 2) {
+    return false;
+  }
+
+  // Linalg matmul iteration space is (M, N, K).  A is indexed as (M, K).
+  // If B's second index also uses K, the source block is laid out as (N, K)
+  // and the block-level matmul must set transpose_b=true.
+  Value aKIndex = getDirectAffineIndexOperand(aLoad, 1);
+  Value bSecondIndex = getDirectAffineIndexOperand(bLoad, 1);
+  return aKIndex && bSecondIndex == aKIndex;
 }
 
 // Trace a tile_matmul operand back through its defining affine.load to find
@@ -159,11 +198,14 @@ public:
       D2MInsertTileMatmulBlock>::D2MInsertTileMatmulBlockBase;
 
   void runOnOperation() final {
+    ModuleOp moduleOp = getOperation();
+
     if (useTileMatmul) {
+      if (failed(rejectUnsupportedTransposedTileMatmul(moduleOp))) {
+        signalPassFailure();
+      }
       return;
     }
-
-    ModuleOp moduleOp = getOperation();
 
     // Find all tile_matmul ops and determine their outermost compute loops.
     SmallVector<affine::AffineForOp> candidates;
@@ -188,6 +230,20 @@ public:
   }
 
 private:
+  LogicalResult rejectUnsupportedTransposedTileMatmul(ModuleOp moduleOp) {
+    LogicalResult result = success();
+    moduleOp->walk([&](d2m::TileMatmulOp matmulOp) {
+      if (!inferTransposeB(matmulOp)) {
+        return WalkResult::advance();
+      }
+      matmulOp->emitOpError()
+          << "transpose_b is only supported by tile_matmul_block lowering";
+      result = failure();
+      return WalkResult::interrupt();
+    });
+    return result;
+  }
+
   LogicalResult processCandidate(affine::AffineForOp computeLoop) {
     d2m::TileMatmulOp matmulOp = findTileMatmul(computeLoop);
     if (!matmulOp) {
@@ -230,10 +286,13 @@ private:
     }
 
     // Insert tile_matmul_block right after the compute loop, then erase it.
+    // Infer transpose_b from the affine load pattern because raw tile_matmul
+    // does not carry a transpose attribute.
     OpBuilder builder(computeLoop->getContext());
     builder.setInsertionPointAfter(computeLoop);
-    builder.create<d2m::TileMatmulBlockOp>(computeLoop->getLoc(), inputA,
-                                           inputB, outputC);
+    builder.create<d2m::TileMatmulBlockOp>(
+        computeLoop->getLoc(), inputA, inputB, outputC,
+        /*transpose_b=*/inferTransposeB(matmulOp));
     computeLoop->erase();
 
     return success();

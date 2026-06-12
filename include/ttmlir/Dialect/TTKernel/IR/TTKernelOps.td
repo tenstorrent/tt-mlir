@@ -410,8 +410,9 @@ def TTKernel_ExperimentalMatmulBlockOp : TTKernel_FPUOp<"experimental::matmul_bl
     let description = [{
       Performs block-sized matrix multiplication *C=A\*B* between the blocks in two
       different input CBs and writes the result to DST. The DST register buffer
-      must be in acquired state via *acquire_dst* call. This call is blocking and
-      is only available on the compute engine.
+      must be in acquired state via *acquire_dst* call. `in1_k_stride` is the
+      source-tile stride between consecutive K tiles in input 1. This call is
+      blocking and is only available on the compute engine.
     }];
 
     let arguments = (ins TTKernel_CB:$in0_cb_id,
@@ -423,7 +424,7 @@ def TTKernel_ExperimentalMatmulBlockOp : TTKernel_FPUOp<"experimental::matmul_bl
                          I32:$ct_dim,
                          I32:$rt_dim,
                          I32:$kt_dim,
-                         I32:$nt_dim);
+                         I32:$in1_k_stride);
 }
 
 

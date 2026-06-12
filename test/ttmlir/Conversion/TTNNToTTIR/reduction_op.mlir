@@ -101,6 +101,18 @@ module {
         return %3 : tensor<32x32xf32, #dram_layout>
     }
 
+    func.func @test_cumprod(%arg0: tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #dram_layout> {
+        %1 = "ttnn.to_memory_config"(%arg0) : (tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #l1_layout>
+
+        // CHECK: %{{[0-9]+}} = "ttir.cumprod"(%{{[0-9]+}}) <{dim = 1 : i64}> : (tensor<32x32xf32, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout1>
+        // CHECK-NOT: "ttnn.cumprod"
+        %2 = "ttnn.cumprod"(%1) <{dim = 1 : i32}> {ttnn.hoist_generic_via_d2m} : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout>
+
+        %3 = "ttnn.to_memory_config"(%2) : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
+
+        return %3 : tensor<32x32xf32, #dram_layout>
+    }
+
     func.func @test_sum_all_dims(%arg0: tensor<64x32xf32, #dram_layout>) -> tensor<f32, #dram_layout> {
         %1 = "ttnn.to_memory_config"(%arg0) : (tensor<64x32xf32, #dram_layout>) -> tensor<64x32xf32, #l1_layout>
 

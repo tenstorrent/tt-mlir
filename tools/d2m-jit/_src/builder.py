@@ -44,7 +44,6 @@ from .errors import D2mJitError
 from .tensor_layout import Layout
 from .utils import _cleanup_source_code
 
-
 # Reverse of ttcore.DataType for picking output torch dtypes.
 _TTCORE_TO_TORCH = None  # lazy-init since torch may be missing
 
@@ -596,6 +595,39 @@ def zeros(layout: Layout) -> LazyTensor:
     return full(layout, 0)
 
 
+def reduction_layout(layout: Layout, dim, allow_cross_tile: bool = False) -> Layout:
+    """Return the output layout for a keepdim per-tile reduction.
+
+    The DSL's float reductions can reduce across all tiles contained on one
+    core. Reductions spanning multiple cores in the reduced dimension need a
+    core gather/redistribute op to collect partials and place reduced values on
+    the output-owning cores.
+    """
+    rank = len(layout.logical_shape)
+    if dim < 0:
+        dim += rank
+    if dim < 0 or dim >= rank:
+        raise ValueError(
+            f"reduce dim must be in range [-{rank}, {rank - 1}], got {dim}"
+        )
+    if layout.grid_shape[dim] > 1 and not allow_cross_tile:
+        raise ValueError(
+            "collapsed reductions only support a reduced logical dimension "
+            "that fits on one core; got "
+            f"{layout.grid_shape[dim]} cores along dimension {dim}. "
+            "Pass allow_cross_tile=True only when the kernel has an explicit "
+            "cross-core gather/redistribute strategy for the reduced dimension."
+        )
+
+    shape = list(layout.logical_shape)
+    block_shape = list(layout.block_shape)
+    grid_shape = list(layout.grid_shape)
+    shape[dim] = 1
+    block_shape[dim] = 1
+    grid_shape[dim] = 1
+    return layout.replace(shape=shape, block_shape=block_shape, grid_shape=grid_shape)
+
+
 def _derive_perm_layout(src_layout: Layout, spec):
     """If `spec` (from _affine_map_from_lambda) describes a clean permutation
     of paired (grid, tile) dims, return a Layout with logical_shape/
@@ -981,6 +1013,12 @@ def _affine_map_from_lambda(fn):
     return AffineMap.get(len(dims), 0, exprs), spec
 
 
+def _to_dram_kernel_arg(lt: LazyTensor) -> LazyTensor:
+    if lt.layout.mem_space == ttcore.MemorySpace.DeviceDRAM:
+        return lt
+    return to_layout(lt, lt.layout.replace(mem_space=ttcore.MemorySpace.DeviceDRAM))
+
+
 def _emit_kernel_generic(
     kernel: "CompiledKernel",
     args,
@@ -989,6 +1027,7 @@ def _emit_kernel_generic(
     block_factors,
     indexing_maps,
     iterator_types,
+    kernel_io_in_dram=None,
 ):
     """Append a d2m.GenericOp to the open host func that invokes `kernel`."""
     b = _get_scope()
@@ -1050,6 +1089,28 @@ def _emit_kernel_generic(
         )
     input_lts = lazy_args[: len(lazy_args) - num_outs]
     output_lts = lazy_args[len(lazy_args) - num_outs :]
+    user_output_lts = output_lts
+
+    if kernel_io_in_dram is None:
+        kernel_io_in_dram = config.kernel_io_in_dram
+    elif not isinstance(kernel_io_in_dram, bool):
+        raise _call_error(
+            f"kernel_io_in_dram must be a bool, got {type(kernel_io_in_dram).__name__}",
+            cause=TypeError(),
+        )
+
+    if kernel_io_in_dram:
+        dram_arg_cache = {}
+
+        def to_dram(lt):
+            key = id(lt)
+            if key not in dram_arg_cache:
+                dram_arg_cache[key] = _to_dram_kernel_arg(lt)
+            return dram_arg_cache[key]
+
+        input_lts = [to_dram(lt) for lt in input_lts]
+        output_lts = [to_dram(lt) for lt in output_lts]
+        lazy_args = input_lts + output_lts
 
     # Compile the kernel body in the current builder's context. D2MCompiler
     # picks up b.ctx via get_default_loc_context.
@@ -1124,6 +1185,13 @@ def _emit_kernel_generic(
     for i, lt in enumerate(output_lts):
         lt.value = generic.results[i]
         lt.generation = b.generation
+    if kernel_io_in_dram:
+        for i, (user_lt, kernel_lt) in enumerate(zip(user_output_lts, output_lts)):
+            user_lt.layout = kernel_lt.layout
+            user_lt.value = generic.results[i]
+            user_lt.generation = b.generation
+            user_lt.materialized = None
+            user_lt.is_view = kernel_lt.is_view
 
 
 class CompiledKernel:
@@ -1150,6 +1218,7 @@ class CompiledKernel:
         block_factors=None,
         indexing_maps=None,
         iterator_types=None,
+        kernel_io_in_dram=None,
     ):
         _emit_kernel_generic(
             self,
@@ -1159,6 +1228,7 @@ class CompiledKernel:
             block_factors=block_factors,
             indexing_maps=indexing_maps,
             iterator_types=iterator_types,
+            kernel_io_in_dram=kernel_io_in_dram,
         )
 
 

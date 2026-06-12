@@ -92,8 +92,8 @@ public:
 private:
   bool isCommuteUpwardsViable(RMSNormOpT op,
                               ReshapeOp reshapeUser) const override {
-    // RMSNorm normalizes along the last dim, so it must be preserved by the
-    // reshape.
+    // RMSNorm normalizes along the last dim, so it must remain the trailing
+    // dim of the input after the reshape.
     return utils::preservesDim(reshapeUser, -1);
   }
 

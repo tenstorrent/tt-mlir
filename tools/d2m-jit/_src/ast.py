@@ -19,7 +19,6 @@ from .errors import D2mJitError, closest_match
 from .utils import _discover_dialect_ops, _cast, _get_type_str
 from .tensor_layout import Layout
 
-
 _D2M_KERNEL_TYPES = {None, "datamovement", "noc", "compute", "unified"}
 
 
@@ -425,6 +424,9 @@ class D2MCompiler(ast.NodeVisitor):
             # generalises to any AST shape the callable wants to handle.
             as_attr = getattr(arg, "_ttkernel_as_attr", False)
             if callable(as_attr):
+                signature = inspect.signature(as_attr)
+                if len(signature.parameters) == 2:
+                    return as_attr(arg, self)
                 return as_attr(arg)
             v = self.visit(arg)
             if v is None:
@@ -446,8 +448,14 @@ class D2MCompiler(ast.NodeVisitor):
                 )
             fn = self._fn_map[node.func.id]
             args_as_attr = [False] * len(node.args)
+            kwargs_as_attr = {}
             if isinstance(fn, tuple):
-                fn, args_as_attr = fn
+                if len(fn) == 2:
+                    fn, args_as_attr = fn
+                else:
+                    fn, args_as_attr, kwargs_as_attr = fn
+                if args_as_attr is None:
+                    args_as_attr = [False] * len(node.args)
             if len(node.args) != len(args_as_attr):
                 self._fail(
                     node,
@@ -461,7 +469,10 @@ class D2MCompiler(ast.NodeVisitor):
             for arg, as_attr in zip(node.args, args_as_attr):
                 arg._ttkernel_as_attr = as_attr
                 func_args.append(_resolve(arg))
-            kwargs = {kw.arg: _resolve(kw.value) for kw in node.keywords}
+            kwargs = {}
+            for kw in node.keywords:
+                kw.value._ttkernel_as_attr = kwargs_as_attr.get(kw.arg, False)
+                kwargs[kw.arg] = _resolve(kw.value)
             return fn(*func_args, **kwargs)
 
         func_args = [_resolve(arg) for arg in node.args]
@@ -513,51 +524,62 @@ class D2MCompiler(ast.NodeVisitor):
         if isinstance(rhs, OpView):
             rhs = rhs.result
 
-        if lhs.type != rhs.type:
-            rhs = _cast(rhs, lhs.type)
-        assert lhs.type == rhs.type, f"{lhs.type} != {rhs.type}"
         mlir_type = _get_type_str(lhs.type)
 
-        def qualified_or(attr, otherwise, *args, **kwargs):
-            fn = self._fn_map.get(f"{mlir_type}.{attr}", otherwise)
-            return fn(*args, **kwargs)
+        def qualified_or(attr, otherwise):
+            fn = self._fn_map.get(f"{mlir_type}.{attr}")
+            if fn is not None:
+                return fn(lhs, rhs)
+            cast_rhs = rhs
+            if lhs.type != cast_rhs.type:
+                cast_rhs = _cast(cast_rhs, lhs.type)
+            assert lhs.type == cast_rhs.type, f"{lhs.type} != {cast_rhs.type}"
+            return otherwise(lhs, cast_rhs)
 
         def unimplemented(*args, **kwargs):
             raise NotImplementedError(f"{node.op} not implemented")
 
         match (node.op):
             case ast.Add():
-                return qualified_or("__add__", arith.addi, lhs, rhs)
+                return qualified_or("__add__", arith.addi)
             case ast.Sub():
-                return qualified_or("__sub__", arith.subi, lhs, rhs)
+                return qualified_or("__sub__", arith.subi)
             case ast.Mult():
-                return qualified_or("__mul__", arith.muli, lhs, rhs)
+                return qualified_or("__mul__", arith.muli)
             case ast.Div():
-                return qualified_or("__truediv__", unimplemented, lhs, rhs)
+                return qualified_or("__truediv__", unimplemented)
             case ast.MatMult():
-                return qualified_or("__matmul__", unimplemented, lhs, rhs)
+                return qualified_or("__matmul__", unimplemented)
             case ast.FloorDiv():
-                return qualified_or("__floordiv__", arith.divsi, lhs, rhs)
+                return qualified_or("__floordiv__", arith.divsi)
             case ast.Mod():
-                return qualified_or("__mod__", arith.remsi, lhs, rhs)
+                return qualified_or("__mod__", arith.remsi)
             case ast.Pow():
-                return qualified_or("__pow__", unimplemented, lhs, rhs)
+                return qualified_or("__pow__", unimplemented)
             case ast.LShift():
-                return qualified_or("__lshift__", arith.shli, lhs, rhs)
+                return qualified_or("__lshift__", arith.shli)
             case ast.RShift():
-                return qualified_or("__rshift__", arith.shrsi, lhs, rhs)
+                return qualified_or("__rshift__", arith.shrsi)
             case ast.BitOr():
-                return qualified_or("__or__", arith.ori, lhs, rhs)
+                return qualified_or("__or__", arith.ori)
             case ast.BitAnd():
-                return qualified_or("__and__", arith.andi, lhs, rhs)
+                return qualified_or("__and__", arith.andi)
             case ast.BitXor():
-                return qualified_or("__xor__", arith.xori, lhs, rhs)
+                return qualified_or("__xor__", arith.xori)
             case _:
                 raise NotImplementedError(
                     f"Binary operator {type(node.op).__name__} not implemented"
                 )
 
     def visit_UnaryOp(self, node):
+        if (
+            isinstance(node.op, ast.USub)
+            and isinstance(node.operand, ast.Constant)
+            and isinstance(node.operand.value, int)
+            and not isinstance(node.operand.value, bool)
+        ):
+            return arith.ConstantOp(IndexType.get(self.ctx), -node.operand.value)
+
         operand = self.visit(node.operand)
         if not operand:
             raise ValueError("Unary operand not found")
@@ -722,11 +744,11 @@ class D2MCompiler(ast.NodeVisitor):
         )
 
 
-def syntax(syntax_name, args_as_attr=None):
+def syntax(syntax_name, args_as_attr=None, kwargs_as_attr=None):
     if syntax_name.startswith("!"):
 
         def _class_wrapper(cls):
-            nonlocal args_as_attr
+            nonlocal args_as_attr, kwargs_as_attr
             assert isinstance(cls, type)
             for name, method in cls.__dict__.items():
                 if callable(method):
@@ -735,23 +757,37 @@ def syntax(syntax_name, args_as_attr=None):
                     if first_arg_name == "ast_self":
                         setattr(cls, name, staticmethod(method))
                         qualified = f"{syntax_name}.{name}"
-                        if args_as_attr is None:
+                        if args_as_attr is None and kwargs_as_attr is None:
                             D2MCompiler._syntax[qualified] = method
                         else:
-                            assert isinstance(args_as_attr, list)
-                            D2MCompiler._syntax[qualified] = (method, args_as_attr)
+                            assert args_as_attr is None or isinstance(
+                                args_as_attr, list
+                            )
+                            assert kwargs_as_attr is None or isinstance(
+                                kwargs_as_attr, dict
+                            )
+                            D2MCompiler._syntax[qualified] = (
+                                method,
+                                args_as_attr,
+                                kwargs_as_attr or {},
+                            )
             return cls
 
         return _class_wrapper
 
     def _fn_wrapper(fn):
-        nonlocal args_as_attr
+        nonlocal args_as_attr, kwargs_as_attr
         assert callable(fn)
-        if args_as_attr is None:
+        if args_as_attr is None and kwargs_as_attr is None:
             D2MCompiler._syntax[fn.__name__] = fn
         else:
-            assert isinstance(args_as_attr, list)
-            D2MCompiler._syntax[fn.__name__] = (fn, args_as_attr)
+            assert args_as_attr is None or isinstance(args_as_attr, list)
+            assert kwargs_as_attr is None or isinstance(kwargs_as_attr, dict)
+            D2MCompiler._syntax[fn.__name__] = (
+                fn,
+                args_as_attr,
+                kwargs_as_attr or {},
+            )
         return fn
 
     return _fn_wrapper

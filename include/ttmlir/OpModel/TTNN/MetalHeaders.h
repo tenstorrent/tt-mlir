@@ -12,7 +12,7 @@
 #include "tt-metalium/buffer_types.hpp"
 #include "tt-metalium/core_coord.hpp"
 #include "tt-metalium/device.hpp"
-#include "tt-metalium/experimental/mock_device.hpp"
+#include "tt-metalium/experimental/mock_device/mock_device.hpp"
 #include "tt-metalium/host_api.hpp"
 #include "ttnn/graph/graph_processor.hpp"
 // using namespace removed in metal
@@ -87,6 +87,7 @@ extract_output_tensor(const std::tuple<Tensor, Tensor, Tensor> &result) {
 #include "ttnn/operations/normalization/softmax/softmax.hpp"
 #include "ttnn/operations/pool/upsample/upsample.hpp"
 #include "ttnn/operations/rand/rand.hpp"
+#include "ttnn/operations/reduction/accumulation/cumprod/cumprod.hpp"
 #include "ttnn/operations/reduction/accumulation/cumsum/cumsum.hpp"
 #include "ttnn/operations/reduction/argmax/argmax.hpp"
 #include "ttnn/operations/reduction/generic/generic_reductions.hpp"

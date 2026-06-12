@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Utils.h"
 
@@ -13,10 +14,7 @@
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "llvm/ADT/SmallPtrSet.h"
-
-#include <optional>
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MINSERTSPILLANDSCRATCH
@@ -67,50 +65,6 @@ struct IntermediateAllocInfo {
       consumers; // all consumer loop nests that read from it
   SmallVector<affine::AffineStoreOp> stores; // Stores to this alloc
 };
-
-// Compute the static capacity of the single scratch buffer owned by a
-// GenericOp.
-//
-// LowerScratchAllocate lays out d2m.scratch_allocate slots sequentially into
-// this buffer, so total slot demand must fit within this capacity.
-static FailureOr<std::optional<int64_t>>
-getScratchCapacity(GenericOp genericOp) {
-  std::optional<int64_t> capacity;
-  WalkResult result = genericOp.walk([&](ScratchInitOp scratchInit) {
-    if (capacity) {
-      return WalkResult::interrupt();
-    }
-
-    auto memrefType =
-        mlir::cast<MemRefType>(scratchInit.getScratch().getType());
-    ArrayRef<int64_t> shape = memrefType.getShape();
-    if (llvm::is_contained(shape, ShapedType::kDynamic)) {
-      return WalkResult::interrupt();
-    }
-
-    capacity = ttmlir::utils::volume<int64_t>(shape);
-    return WalkResult::advance();
-  });
-  if (result.wasInterrupted()) {
-    return failure();
-  }
-  return capacity;
-}
-
-// Estimate total scratch memory demand from intermediate allocations.
-static int64_t estimateScratchDemand(ArrayRef<IntermediateAllocInfo> infos) {
-  int64_t demand = 0;
-  for (auto &info : infos) {
-    if (!info.producer) {
-      continue;
-    }
-    if (llvm::is_contained(info.producer->scratchShape, ShapedType::kDynamic)) {
-      return ShapedType::kDynamic;
-    }
-    demand += ttmlir::utils::volume<int64_t>(info.producer->scratchShape);
-  }
-  return demand;
-}
 
 /// Find the innermost affine.for loop with d2m.linalg_root attribute.
 ///
@@ -188,6 +142,10 @@ collectScratchSpaceLoops(GenericOp genericOp) {
 /// Inputs/outputs of the generic already have externally visible storage and
 /// should never be replaced by scratch slots.
 static bool isIntermediateAlloc(memref::AllocOp allocOp, GenericOp genericOp) {
+  if (utils::isReductionScalerBuffer(allocOp.getOperation())) {
+    return false;
+  }
+
   // Check if alloc is inside the generic op's region
   if (!genericOp->isProperAncestor(allocOp)) {
     return false;
@@ -246,52 +204,6 @@ static void collectLoadsInLoop(Value memref, ScratchLoopInfo &loopInfo,
   });
 }
 
-/// Check whether two affine loops have identical static iteration spaces.
-static bool haveMatchingConstantBounds(affine::AffineForOp lhs,
-                                       affine::AffineForOp rhs) {
-  if (!lhs.hasConstantBounds() || !rhs.hasConstantBounds()) {
-    return false;
-  }
-  return lhs.getConstantLowerBound() == rhs.getConstantLowerBound() &&
-         lhs.getConstantUpperBound() == rhs.getConstantUpperBound() &&
-         lhs.getStepAsInt() == rhs.getStepAsInt();
-}
-
-/// Return the single top-level affine child in a loop body, if one exists.
-static affine::AffineForOp
-getSingleTopLevelAffineChild(affine::AffineForOp loop) {
-  affine::AffineForOp child = nullptr;
-  for (Operation &op : *loop.getBody()) {
-    if (isa<affine::AffineYieldOp>(op)) {
-      continue;
-    }
-    auto innerFor = dyn_cast<affine::AffineForOp>(op);
-    if (!innerFor || child) {
-      return nullptr;
-    }
-    child = innerFor;
-  }
-  return child;
-}
-
-/// Return true if an op uses any value from the provided set.
-static bool usesAnyValue(Operation *op, ArrayRef<Value> values) {
-  return llvm::any_of(op->getOperands(), [&](Value operand) {
-    return llvm::is_contained(values, operand);
-  });
-}
-
-static bool hasNoMemoryEffects(Operation *op) {
-  auto effectOp = dyn_cast<MemoryEffectOpInterface>(op);
-  if (!effectOp) {
-    return false;
-  }
-
-  SmallVector<MemoryEffects::EffectInstance> effects;
-  effectOp.getEffects(effects);
-  return effects.empty();
-}
-
 static UnpackStallOnPackOp
 getUnpackStallImmediatelyBefore(Operation *consumerLoop) {
   Operation *previous = consumerLoop->getPrevNode();
@@ -326,101 +238,6 @@ static void ensureUnpackStallBeforeConsumer(
 
   rewriter.setInsertionPoint(consumerLoop);
   rewriter.create<UnpackStallOnPackOp>(consumerLoop->getLoc());
-}
-
-/// Fuse a dependence-related group of sibling scratch loops under one shared
-/// affine prefix.
-static bool manuallyFuseScratchLoopGroup(ArrayRef<affine::AffineForOp> loops,
-                                         IRRewriter &rewriter) {
-  if (loops.size() < 2) {
-    return false;
-  }
-
-  Block *parentBlock = loops.front()->getBlock();
-  SmallVector<Value> oldIvs;
-  oldIvs.reserve(loops.size());
-  for (auto loop : loops) {
-    if (loop->getBlock() != parentBlock ||
-        !haveMatchingConstantBounds(loops.front(), loop)) {
-      return false;
-    }
-
-    affine::AffineForOp inner = getSingleTopLevelAffineChild(loop);
-    // Hoist exactly one common affine prefix. The inner loop becomes the new
-    // scratch boundary and must still contain a nested linalg root.
-    if (!inner || inner->hasAttr("d2m.linalg_root")) {
-      return false;
-    }
-    oldIvs.push_back(loop.getInductionVar());
-  }
-
-  for (size_t i = 1; i < loops.size(); ++i) {
-    if (!loops[i - 1]->isBeforeInBlock(loops[i])) {
-      return false;
-    }
-  }
-
-  SmallVector<SmallVector<Operation *>> setupOpsBeforeLoop(loops.size());
-  SmallVector<Operation *> staleStalls;
-  for (size_t i = 1; i < loops.size(); ++i) {
-    for (auto it = std::next(loops[i - 1]->getIterator());
-         it != loops[i]->getIterator(); ++it) {
-      Operation *op = &*it;
-      if (isa<UnpackStallOnPackOp>(op)) {
-        staleStalls.push_back(op);
-        continue;
-      }
-
-      if (usesAnyValue(op, oldIvs) || !hasNoMemoryEffects(op)) {
-        return false;
-      }
-      setupOpsBeforeLoop[i].push_back(op);
-    }
-  }
-
-  rewriter.setInsertionPoint(loops.front());
-  affine::AffineForOp firstLoop = loops.front();
-  auto sharedLoop = rewriter.create<affine::AffineForOp>(
-      firstLoop.getLoc(), firstLoop.getConstantLowerBound(),
-      firstLoop.getConstantUpperBound(), firstLoop.getStepAsInt());
-
-  for (auto loop : loops) {
-    loop.getInductionVar().replaceAllUsesWith(sharedLoop.getInductionVar());
-  }
-
-  Operation *sharedYield = sharedLoop.getBody()->getTerminator();
-  for (auto &ops : setupOpsBeforeLoop) {
-    for (Operation *op : ops) {
-      op->moveBefore(sharedLoop);
-    }
-  }
-
-  for (auto indexedLoop : llvm::enumerate(loops)) {
-    affine::AffineForOp loop = indexedLoop.value();
-    auto &ops = loop.getBody()->getOperations();
-    sharedLoop.getBody()->getOperations().splice(
-        sharedYield->getIterator(), ops, ops.begin(), std::prev(ops.end()));
-  }
-
-  for (Operation *stallOp : staleStalls) {
-    rewriter.eraseOp(stallOp);
-  }
-
-  for (Operation &op : *sharedLoop.getBody()) {
-    auto innerFor = dyn_cast<affine::AffineForOp>(&op);
-    if (!innerFor) {
-      continue;
-    }
-    innerFor->setAttr("d2m.scratch_space_loop",
-                      UnitAttr::get(rewriter.getContext()));
-    innerFor->removeAttr("d2m.scratch_inserted");
-  }
-
-  for (auto loop : loops) {
-    rewriter.eraseOp(loop);
-  }
-
-  return true;
 }
 
 /// Build an affine map and operands for accessing the scratch buffer.
@@ -988,20 +805,6 @@ static bool fuseOuterScfLoops(SmallVector<affine::AffineForOp> &scratchLoops,
   return true;
 }
 
-static bool containsUnsafeFusedConsumer(ArrayRef<affine::AffineForOp> loops) {
-  // TODO (anuragsingh): Investigate the TileDivOp/TileWhereOp DST allocation
-  // failures and remove this guard once sibling fusion is safe for these ops.
-  // Issue: https://github.com/tenstorrent/tt-mlir/issues/8198
-  return llvm::any_of(loops, [](affine::AffineForOp loop) {
-    return loop
-        .walk([](Operation *op) {
-          return isa<TileDivOp, TileWhereOp>(op) ? WalkResult::interrupt()
-                                                 : WalkResult::advance();
-        })
-        .wasInterrupted();
-  });
-}
-
 static SmallVector<IntermediateAllocInfo>
 findIntermediates(GenericOp genericOp,
                   SmallVectorImpl<ScratchLoopInfo> &scratchLoops) {
@@ -1099,78 +902,6 @@ findIntermediates(GenericOp genericOp,
   return intermediates;
 }
 
-/// Repeatedly fuse dependence-related sibling scratch loops.
-static bool
-fuseScratchLoopSiblings(GenericOp genericOp,
-                        SmallVector<affine::AffineForOp> &scratchSpaceLoops,
-                        IRRewriter &rewriter) {
-  bool changed = false;
-  bool madeProgress = true;
-
-  while (madeProgress) {
-    madeProgress = false;
-
-    SmallVector<ScratchLoopInfo> loopShells;
-    loopShells.reserve(scratchSpaceLoops.size());
-    for (auto scratchLoop : scratchSpaceLoops) {
-      ScratchLoopInfo info;
-      info.scratchLoop = scratchLoop;
-      loopShells.push_back(info);
-    }
-
-    SmallVector<IntermediateAllocInfo> intermediates =
-        findIntermediates(genericOp, loopShells);
-    if (intermediates.empty()) {
-      break;
-    }
-
-    size_t bestBegin = scratchSpaceLoops.size();
-    size_t bestEnd = 0;
-    // Pick the widest producer->consumer span so one fusion covers the whole
-    // chain.
-    for (auto &intermediate : intermediates) {
-      size_t producerIdx =
-          static_cast<size_t>(intermediate.producer - loopShells.data());
-      for (auto &consumer : intermediate.consumers) {
-        if (consumer.loop == intermediate.producer) {
-          continue;
-        }
-        size_t consumerIdx =
-            static_cast<size_t>(consumer.loop - loopShells.data());
-        if (consumerIdx <= producerIdx ||
-            consumerIdx > intermediate.lastConsumerIndex) {
-          continue;
-        }
-        if (bestBegin == scratchSpaceLoops.size() ||
-            consumerIdx - producerIdx > bestEnd - bestBegin) {
-          bestBegin = producerIdx;
-          bestEnd = consumerIdx;
-        }
-      }
-    }
-
-    if (bestBegin == scratchSpaceLoops.size()) {
-      break;
-    }
-
-    SmallVector<affine::AffineForOp> loopsToFuse;
-    for (size_t i = bestBegin; i <= bestEnd; ++i) {
-      loopsToFuse.push_back(scratchSpaceLoops[i]);
-    }
-
-    if (containsUnsafeFusedConsumer(loopsToFuse)) {
-      break;
-    }
-
-    if (manuallyFuseScratchLoopGroup(loopsToFuse, rewriter)) {
-      scratchSpaceLoops = collectScratchSpaceLoops(genericOp);
-      changed = madeProgress = true;
-    }
-  }
-
-  return changed;
-}
-
 /// Main pass implementation
 class D2MInsertSpillAndScratch
     : public impl::D2MInsertSpillAndScratchBase<D2MInsertSpillAndScratch> {
@@ -1212,41 +943,7 @@ private:
       return success();
     }
 
-    // Regather, then only fuse sibling scratch loops when the unfused scratch
-    // demand cannot fit in the available scratch buffer.
     scratchSpaceLoops = collectScratchSpaceLoops(genericOp);
-    bool needsSiblingFusionForCapacity = true;
-    FailureOr<std::optional<int64_t>> capacityOr =
-        getScratchCapacity(genericOp);
-    if (failed(capacityOr)) {
-      return genericOp.emitOpError()
-             << "expected at most one statically-shaped scratch_init";
-    }
-    if (std::optional<int64_t> capacity = *capacityOr) {
-      SmallVector<ScratchLoopInfo> preSiblingFusionScratchLoops;
-      for (auto scratchLoop : scratchSpaceLoops) {
-        ScratchLoopInfo info;
-        info.scratchLoop = scratchLoop;
-        info.linalgRoot = findLinalgRootLoop(scratchLoop);
-        if (!info.linalgRoot) {
-          continue;
-        }
-        collectAllInnerLoops(scratchLoop, info.allLoops);
-        if (computeScratchShape(info)) {
-          preSiblingFusionScratchLoops.push_back(info);
-        }
-      }
-
-      int64_t demand = estimateScratchDemand(
-          findIntermediates(genericOp, preSiblingFusionScratchLoops));
-      needsSiblingFusionForCapacity =
-          demand == ShapedType::kDynamic || demand > *capacity;
-    }
-
-    if (needsSiblingFusionForCapacity) {
-      fuseScratchLoopSiblings(genericOp, scratchSpaceLoops, rewriter);
-      scratchSpaceLoops = collectScratchSpaceLoops(genericOp);
-    }
 
     // Collect structural information for each scratch_space_loop.
     //

@@ -6543,6 +6543,30 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
                         getDimArg(), getKeepDim(), getType().getShape());
 }
 
+// ProdOp canonicalization: prod(bool) -> min(bool).
+//
+// For inputs restricted to {0, 1} (e.g. the result of a comparison/logical op),
+// the product reduction is equivalent to a logical AND, which is exactly a min
+// reduction. We rewrite to MinOp because tt-metal's ttnn::prod reduces along a
+// dimension by first permuting that dimension, materializing a full-size copy
+// of the input (which OOMs for large tensors such as attention masks). The
+// generic min reduction reduces the last dimension in place and avoids that
+// extra allocation, while producing identical results for boolean inputs.
+void mlir::tt::ttir::ProdOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+  patterns.add(+[](mlir::tt::ttir::ProdOp op, mlir::PatternRewriter &rewriter) {
+    if (!isBooleanValued(op.getInput())) {
+      return mlir::failure();
+    }
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::MinOp>(
+        op, op.getResult().getType(), op.getInput(), op.getKeepDim(),
+        op.getDimArgAttr());
+    return mlir::success();
+  });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
+}
+
 //===----------------------------------------------------------------------===//
 // ReduceAndOp
 //===----------------------------------------------------------------------===//
@@ -6716,6 +6740,35 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 
 // CumSumOp folding
 ::mlir::OpFoldResult mlir::tt::ttir::CumSumOp::fold(FoldAdaptor adaptor) {
+  // Normalize `dim` to be in range [0, rank).
+  int64_t dim = getDim();
+  int64_t rank = getInput().getType().getRank();
+  if (dim < 0) {
+    setDim(dim + rank);
+    return getResult();
+  }
+  return {};
+}
+
+//===----------------------------------------------------------------------===//
+// CumProdOp
+//===----------------------------------------------------------------------===//
+
+// CumProdOp verification
+::mlir::LogicalResult mlir::tt::ttir::CumProdOp::verify() {
+  int64_t dim = getDim();
+  int64_t inputRank = getInput().getType().getRank();
+  if (dim < -inputRank || dim >= inputRank) {
+    return emitOpError() << "specified dimension should be between "
+                         << -inputRank << " and " << (inputRank - 1)
+                         << ", but got: " << dim;
+  }
+
+  return success();
+}
+
+// CumProdOp folding
+::mlir::OpFoldResult mlir::tt::ttir::CumProdOp::fold(FoldAdaptor adaptor) {
   // Normalize `dim` to be in range [0, rank).
   int64_t dim = getDim();
   int64_t rank = getInput().getType().getRank();
@@ -7556,9 +7609,10 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
       return emitOpError("Attention mask dim 1 must be 1 (broadcast) or match "
                          "query num heads");
     }
-    if (attentionMaskType.getShape()[2] != seqLen) {
-      return emitOpError(
-          "Attention mask at dim 2 must match query sequence length");
+    if (attentionMaskType.getShape()[2] != 1 &&
+        attentionMaskType.getShape()[2] != seqLen) {
+      return emitOpError("Attention mask dim 2 must be 1 (broadcast) or match "
+                         "query sequence length");
     }
     if (attentionMaskType.getShape()[3] != maxSeqLen) {
       return emitOpError("Attention mask at dim 3 must match key/value "

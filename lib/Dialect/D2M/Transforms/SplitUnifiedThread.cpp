@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/SynchronizableOpInterfaceUtils.h"
+#include "ttmlir/Dialect/D2M/Utils/Utils.h"
 
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -49,6 +50,9 @@ Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
         // Skip scratch buffers.
         Operation *definingOp = value.getDefiningOp();
         if (definingOp && definingOp->getAttr("d2m.scratch_buffer")) {
+          return nullptr;
+        }
+        if (utils::isReductionScalerBuffer(definingOp)) {
           return nullptr;
         }
         return value;
