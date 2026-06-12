@@ -79,6 +79,34 @@ private:
   OpValidationConfig validationConfig;
 };
 
+// Tile-fill reorder for the decode QK-RMSNorm + partial-RoPE path. Keeps the
+// generic (interleaved) SplitQueryKeyValueAndSplitHeadsOp but SINKS the decode
+// layout-change reshape [B,H,1,D] -> [1,B,H,D] ABOVE the per-head RMSNorm +
+// partial RoPE, so those ops run in the tile-filled [1,B,H,D] layout (heads
+// padded to a tile over B blocks) instead of [B,H,1,D] (seq 1 padded to a tile
+// over B*H blocks). Unlike NLPCreateQKVHeadsDecodeFusing this introduces NO
+// decode op and NO sharded<->interleaved conversions, so it does not regress
+// models whose downstream attention path is interleaved (e.g. GLM at
+// opt_level=1). See perf/optimization_log.md entry #4.
+//
+// Pattern matched (per output that has the RMSNorm + partial-RoPE chain):
+//   split.out [B,H,1,D] -> rms_norm -> slice/rotary/slice/concat
+//     -> reshape/permute [B,H,1,D] -> [1,B,H,D]
+//
+// Rewritten to:
+//   split.out [B,H,1,D] -> reshape [1,B,H,D] -> rms_norm
+//     -> slice/rotary(cos,sin repeated across heads)/slice/concat
+class QKVDecodeNormRopeReorderFusing
+    : public mlir::OpRewritePattern<SplitQueryKeyValueAndSplitHeadsOp> {
+public:
+  QKVDecodeNormRopeReorderFusing(mlir::MLIRContext *context)
+      : OpRewritePattern<SplitQueryKeyValueAndSplitHeadsOp>(context) {}
+
+  mlir::LogicalResult
+  matchAndRewrite(SplitQueryKeyValueAndSplitHeadsOp splitOp,
+                  mlir::PatternRewriter &rewriter) const override;
+};
+
 } // namespace mlir::tt::ttnn::fusing
 
 #endif // TTMLIR_DIALECT_TTNN_TRANSFORMS_FUSING_SPLITQKVFUSINGPATTERNS_H

@@ -333,8 +333,15 @@ public:
           &getContext(), validationConfig);
       patterns.add<fusing::SplitQueryKeyValueAndSplitHeadsFusing<LinearOp>>(
           &getContext(), validationConfig);
-      patterns.add<fusing::NLPCreateQKVHeadsDecodeFusing>(&getContext(),
-                                                          validationConfig);
+      // Tile-fill experiment: isolate QKVDecodeNormRopeReorderFusing (sinks the
+      // decode layout-change reshape above the per-head RMSNorm + partial RoPE,
+      // no decode op, no sharding round-trips). NLPCreateQKVHeadsDecodeFusing is
+      // disabled here so the V (direct) path is not swapped to the decode op,
+      // which would re-introduce the sharded<->interleaved regression we are
+      // trying to avoid. See perf/optimization_log.md entry #4.
+      patterns.add<fusing::QKVDecodeNormRopeReorderFusing>(&getContext());
+      // patterns.add<fusing::NLPCreateQKVHeadsDecodeFusing>(&getContext(),
+      //                                                     validationConfig);
     }
 #endif // TTMLIR_ENABLE_OPMODEL
 
