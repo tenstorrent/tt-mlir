@@ -495,7 +495,7 @@ TTNNOperandsWorkaroundsFactory::createSamplingOpOperandsWorkarounds() {
       .addInputOperandWorkaround(rowMajor)         // k
       .addInputOperandWorkaround(rowMajor)         // p
       .addInputOperandWorkaround(rowMajor)         // temp
-      .addOutputOperandWorkaround(rowMajorUInt32); // result (uint32)
+      .addOutputOperandWorkaround(rowMajorUInt32); // result
 }
 
 TTNNOperandsWorkarounds
