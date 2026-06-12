@@ -96,69 +96,6 @@ public:
   }
 };
 
-// Drop a `ttir.broadcast` feeding the RHS of a `ttir.matmul` when TTNN's matmul
-// will implicitly reproduce that broadcast.
-//
-// TTNN's matmul documentation mentions that broadcasting is in general
-// basically unsupported, albeit a few cases might work. This code only checks
-// one case: with 4Dx4D operands, dim 1 (second batch dimension) on the RHS can
-// be broadcast to match the LHS when the unbroadcast RHS is a single batch
-// (all of its leading dims are 1). Other cases are explicitly out of scope for
-// now. This *is* basically hardcoding the current details of metal behavior
-// on the TTIR level, just like isImplicitBroadcastSupported does for
-// elementwise ops.
-class FoldBroadcastIntoMatmul : public OpRewritePattern<ttir::MatmulOp> {
-public:
-  using OpRewritePattern<ttir::MatmulOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(ttir::MatmulOp op,
-                                PatternRewriter &rewriter) const override {
-    auto bcast = op.getB().getDefiningOp<ttir::BroadcastOp>();
-    if (!bcast) {
-      return failure();
-    }
-
-    ArrayRef<int64_t> bcastDims = bcast.getBroadcastDimensions();
-    auto rhsShape =
-        mlir::cast<RankedTensorType>(op.getB().getType()).getShape();
-    auto lhsShape =
-        mlir::cast<RankedTensorType>(op.getA().getType()).getShape();
-
-    constexpr int64_t kMatmulRank = 4;
-    constexpr int64_t kBatchDim = 1;
-
-    if (static_cast<int64_t>(bcastDims.size()) != kMatmulRank ||
-        static_cast<int64_t>(lhsShape.size()) != kMatmulRank) {
-      return failure();
-    }
-
-    // The broadcast must expand exactly dim 1 and leave every other dim
-    // (including the inner contraction dims) untouched.
-    for (int64_t i = 0; i < kMatmulRank; ++i) {
-      bool expanded = bcastDims[i] != 1;
-      if (expanded != (i == kBatchDim)) {
-        return failure();
-      }
-    }
-
-    // TTNN only implicitly broadcasts the RHS batch when the folded RHS is a
-    // single batch. dim 1 is broadcast (so its pre-broadcast size is 1) and
-    // dim 0 is untouched, so this reduces to the outer dim 0 being 1.
-    if (rhsShape[0] != 1) {
-      return failure();
-    }
-
-    // The LHS must already supply dim 1 so dropping the broadcast leaves the
-    // matmul result shape unchanged.
-    if (lhsShape[kBatchDim] != rhsShape[kBatchDim]) {
-      return failure();
-    }
-
-    rewriter.modifyOpInPlace(op, [&]() { op.setOperand(1, bcast.getInput()); });
-    return success();
-  }
-};
-
 class TTIRImplicitBroadcastFold
     : public impl::TTIRImplicitBroadcastFoldBase<TTIRImplicitBroadcastFold> {
 public:
@@ -166,8 +103,7 @@ public:
       TTIRImplicitBroadcastFold>::TTIRImplicitBroadcastFoldBase;
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<TTIRImplicitBroadcastFoldRewriter, FoldBroadcastIntoMatmul>(
-        &getContext());
+    patterns.add<TTIRImplicitBroadcastFoldRewriter>(&getContext());
     FrozenRewritePatternSet patternSet(std::move(patterns));
 
     if (failed(applyPatternsGreedily(getOperation(), patternSet))) {
