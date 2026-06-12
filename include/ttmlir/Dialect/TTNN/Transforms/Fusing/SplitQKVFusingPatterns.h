@@ -44,25 +44,33 @@ private:
   OpValidationConfig validationConfig;
 };
 
-// Fuses a SplitQueryKeyValueAndSplitHeadsOp followed by the decode layout
-// change [B,H,1,D] -> [1,B,H,D] on all three outputs into a single
-// NLPCreateQKVHeadsDecodeOp, which is optimized for the decode case (S=1).
+// Fuses a SplitQueryKeyValueAndSplitHeadsOp into a single
+// NLPCreateQKVHeadsDecodeOp for the decode case (S=1), when each output reaches
+// the decode layout change [B,H,1,D] -> [1,B,H,D].
 //
 // The layout change is accepted in either equivalent form:
 //   * an explicit permute [2,0,1,3], or
 //   * the equivalent reshape [B,H,1,D] -> [1,B,H,D] (pure relabel when S==1;
 //     compilers often emit this instead of a permute).
 //
-// Pattern matched:
+// An output need not feed the layout change directly. It may first pass through
+// an optional per-head QK-RMSNorm and an optional "rotate first `half`, pass the
+// rest" partial-RoPE (slice/rotary/slice/concat), all matched purely by op kinds
+// and shapes (no model-specific constants). Such a chain is rebuilt in the
+// [1,B,H,D] decode layout after the fused op; the partial-RoPE's cos/sin caches
+// are repeated across the (now heads-) sequence axis so the rotary op applies
+// the single decode position to every head.
+//
+// Pattern matched (V shown direct, Q/K shown with the optional chain):
 //   split_query_key_value_and_split_heads [B,1,hidden]
-//     -> Q[B,H,1,D] -> permute[2,0,1,3] / reshape -> [1,B,H,D]
-//     -> K[B,Hkv,1,D] -> permute[2,0,1,3] / reshape -> [1,B,Hkv,D]
-//     -> V[B,Hkv,1,D] -> permute[2,0,1,3] / reshape -> [1,B,Hkv,D]
+//     -> V[B,Hkv,1,D]               -> permute/reshape -> [1,B,Hkv,D]
+//     -> Q[B,H,1,D]   -> rms_norm -> partial-RoPE -> reshape -> [1,B,H,D]
+//     -> K[B,Hkv,1,D] -> rms_norm -> partial-RoPE -> reshape -> [1,B,Hkv,D]
 //
 // Replaced with:
 //   reshape [B,1,hidden] -> [1,1,B,hidden]
-//     -> nlp_create_qkv_heads_decode -> Q[1,B,H,D], K[1,B,Hkv,D],
-//     V[1,B,Hkv,D]
+//     -> nlp_create_qkv_heads_decode -> Q[1,B,H,D], K[1,B,Hkv,D], V[1,B,Hkv,D]
+//     -> (rebuilt rms_norm + partial-RoPE in decode layout for Q/K)
 class NLPCreateQKVHeadsDecodeFusing
     : public mlir::OpRewritePattern<SplitQueryKeyValueAndSplitHeadsOp> {
 public:
