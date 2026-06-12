@@ -213,13 +213,42 @@ it behind the local matmul, matching tt-metal:
    (the `ready` semaphore covers the cross-core edge; the local fence covers the
    per-core compute→DM edge).
 
-To associate the inc with the matmul output it fences, the cleanest surface is
-an explicit fence operand on `semaphore_inc` (e.g. `semaphore_inc(ready, 1,
-core=[0,0], after=c)`) so the dependency is in the IR; `split-unified-thread-v2`
-then treats the inc as a local DM consumer of `c`'s CB and synthesizes the
-handshake. This is the "ordering edge from a pinned mutation to the producing
-thread" from the Recommendation above, specialized to producer-done signals.
+To associate the inc with the matmul output it fences: the DSL marks it
+`semaphore_inc(ready, 1, core=[0,0], compute=True)`, which sets a
+`d2m.compute_signal` attribute. `split-unified-thread-v2` then, in
+`convertDMAToExplicitCBForm`, fences each such inc behind the matmul output the
+gather reads — i.e. **`core_read`'s src CB**:
 
-**Status:** characterized and validated on device (the `inf` repro); the fence
-is not yet implemented. `core_read`/`core_write` themselves are correct — this
-is purely the semaphore-ordering edge for fused producer→consumer kernels.
+- `insertComputeCBOpsV2` registers the inc as that CB's `dmFence` partner, so
+  the compute side gets the output handshake (`reserve` before the matmul,
+  `push` after) — turning the raw shared buffer into a synchronized one.
+- The DM side inserts `wait(outputCB)` before the inc. The inc (and the
+  injector's `core_read`) then read the **wait result** — load-bearing twice:
+  it keeps the wait alive (a wait with unused result + single-use cb is
+  canonicalized away) and points `core_read` at the produced front buffer.
+  Deliberately **no pop** (a cross-core read at a uniform L1 offset; `pop` would
+  advance the read pointer off the data). The push anchor must also exclude
+  `core_read`/`core_write` from the compute-region "latest access" scan, else
+  the push lands after the gather's `scf.if` and deadlocks.
+
+**Status: IMPLEMENTED and validated on device.** `test_matmul_core_read_gather`
+(test/d2m-jit/test_semaphore.py) runs a fused matmul → cross-core `core_read`
+all-gather on a (1,2) grid and gets `[exp0, exp1]` (PCC). Two fixes were needed
+together:
+
+1. **The fence** (above): without it the readiness inc fires after the *input*
+   DMA, before the matmul → the gather reads stale L1 (`inf`).
+2. **Aliased-store skip for `core_read` dsts** (Allocate.cpp
+   `materializeAliasedLoadStore`): the copy-elision aliased *both* gather dst
+   buffers to the injector's single *local* output shard (ignoring the
+   `remote_store` indices), so the cross-core tile clobbered the own tile
+   (`[exp1, exp1]`). core_read dsts hold gathered data destined for possibly-
+   *remote* shards, so they must keep distinct buffers + explicit stores.
+   (core_write dsts are the opposite — aliasing them to the output is the
+   intended elision, so the skip is core_read-only.)
+
+Other findings from bring-up: a NOC `semaphore_inc` **cannot** be placed on the
+compute thread (TRISC has no NOC; `dataflow_api.h` won't compile there) — hence
+the DM-fence approach, not compute-thread placement. A NOC **self-read**
+(`core_read` of one's own L1) works; the injector reads its own tile that way.
+`core_read`/`core_write` themselves were correct throughout.
