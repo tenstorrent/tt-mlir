@@ -333,6 +333,14 @@ public:
           &getContext(), validationConfig);
       patterns.add<fusing::SplitQueryKeyValueAndSplitHeadsFusing<LinearOp>>(
           &getContext(), validationConfig);
+      // Combined experiment: register BOTH the tile-fill reorder (entry #4) and
+      // the decode-op fusion (entry #3). The tile-fill reorder is added first so
+      // it gets first crack at the Q/K RMSNorm + partial-RoPE chains (sinking the
+      // [B,H,1,D] -> [1,B,H,D] reshape above the per-head ops, no decode op, no
+      // sharding). NLPCreateQKVHeadsDecodeFusing then handles any remaining
+      // direct (V) path by swapping to nlp_create_qkv_heads_decode. See
+      // perf/optimization_log.md entries #3 and #4.
+      patterns.add<fusing::QKVDecodeNormRopeReorderFusing>(&getContext());
       patterns.add<fusing::NLPCreateQKVHeadsDecodeFusing>(&getContext(),
                                                           validationConfig);
     }
