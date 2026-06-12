@@ -48,6 +48,11 @@ struct TTNNOperandWorkarounds {
   // Tensor data format workaround.
   TensorDataTypeWorkaround tensorDataTypeWorkaround;
 
+  // Tags the inserted ToLayoutOp with "ttnn.const_eval_allowed" so
+  // ConstEvalHoist may hoist its L1-resident result. Opt in only for constant
+  // operands whose L1 residency is meant to be const-eval'd.
+  bool allowL1ConstEval = false;
+
   // Default constructor.
   TTNNOperandWorkarounds() = default;
 
