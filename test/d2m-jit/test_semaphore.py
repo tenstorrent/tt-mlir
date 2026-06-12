@@ -230,3 +230,46 @@ def test_matmul_semaphore_barrier_runs():
     result = out_d.to_host()
     assert tuple(result.shape) == (32, 32)
     assert_pcc(lhs @ rhs, result)
+
+
+@d2m.kernel
+def core_read_gather(in0, out0, barrier):
+    # grid (1,2): each core loads its 32x32 shard into a local buffer and
+    # signals a barrier; then core 0 core_reads core 1's buffer (a cross-core
+    # NoC read of a peer's local L1) and stores it. Exercises core_read +
+    # cross-core semaphore_inc end to end.
+    cy = core_index(0)
+    cx = core_index(1)
+    buf = empty([1, 1])
+    buf = remote_load(buf, in0, [cy, cx])
+    semaphore_inc(barrier, 1, core=[0, 0])  # signal core 0 (cross-core for core 1)
+    if cx == 0:
+        semaphore_wait(barrier, 2)
+        peer = empty([1, 1])
+        peer = core_read(peer, buf, core=[0, 1])  # read core 1's buffer
+        remote_store(out0, [0, 0], peer)
+    else:
+        remote_store(out0, [cy, cx], buf)
+
+
+@pytest.mark.skipif(
+    torch is None or runtime is None, reason="requires torch + ttmlir runtime"
+)
+@pytest.mark.skipif(_num_devices() < 1, reason="requires a device")
+def test_core_read_cross_core_gather():
+    """End-to-end core_read: on a grid (1,2), core 0 reads core 1's local L1
+    buffer over the NoC (gated by a cross-core semaphore barrier). out[0,0] is
+    core 1's shard (gathered), out[0,1] is core 1's own shard."""
+    L = d2m.Layout(
+        shape=(32, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 2]
+    )
+    full = torch.randn(32, 64, dtype=torch.float32)
+    out_d = d2m.empty(L)
+    bar = d2m.global_semaphore(grid_shape=(8, 8), init=0)
+    core_read_gather(d2m.to_layout(full, L), out_d, bar, grid=(1, 2))
+    result = out_d.to_host()
+
+    half1 = full[:, 32:]  # core 1's shard
+    expected = torch.cat([half1, half1], dim=1)
+    assert tuple(result.shape) == (32, 64)
+    assert_pcc(expected, result)
