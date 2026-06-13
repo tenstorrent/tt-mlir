@@ -119,7 +119,7 @@ target_link_directories(TTMLIRCompiler PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib64)
 
 # The tt-lang kernel resolver pass (TTNNResolveTtLangKernelsPython.cpp in
 # MLIRTTNNTransforms) uses pybind11 but since the actual symbols live in
-# libpython we link against libpython instead
+# libpython we link against Python3::Python instead
 if(NOT TARGET Python3::Python)
   find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
 endif()

@@ -4324,25 +4324,6 @@ def TTNN_TtLangOp : Op<TTNN_Dialect, "tt_lang_op",
       unsigned numIns = getInputs().size() - numOuts;
       return ::mlir::MutableOperandRange(*this, numIns, numOuts);
     }
-
-    // tt-lang kernels are emitted assuming TILE_LAYOUT for every operand:
-    // the JIT'd readers/writers use ``noc_async_read_tile`` /
-    // ``noc_async_write_tile`` with the synthesized
-    // ``aligned_page_size = tile_h * tile_w * elem_size_bytes`` per
-    // operand, and the compute thread interprets each page as a 32x32
-    // tile (4 16x16 faces).
-    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-      wa::TTNNOperandWorkarounds tile;
-      tile.tensorLayoutWorkaround = Layout::Tile;
-      auto wa = wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
-      for (size_t i = 0; i < this->getInputs().size(); ++i) {
-        wa.addInputOperandWorkaround(tile);
-      }
-      for (size_t i = 0; i < this->getResults().size(); ++i) {
-        wa.addOutputOperandWorkaround(tile);
-      }
-      return wa;
-    }
   }];
 
   let assemblyFormat = [{
