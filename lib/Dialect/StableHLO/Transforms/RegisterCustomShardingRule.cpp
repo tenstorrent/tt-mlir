@@ -523,10 +523,12 @@ getPagedAttentionShardingRule(mlir::stablehlo::CustomCallOp op) {
 
   if (target == pagedSdpaDecodeTargetName) {
     // Paged SDPA decode
-    //  0: query  [1, num_users, num_heads, head_size]
-    //  1: key    [num_blocks_total, num_heads, block_size, head_size]
-    //  2: value  [num_blocks_total, num_heads, block_size, head_size]
-    //  3+: page_table, attention_mask, ...
+    //  0: query           [1, num_users, num_heads, head_size]
+    //  1: key             [num_blocks_total, num_heads, block_size, head_size]
+    //  2: value           [num_blocks_total, num_heads, block_size, head_size]
+    //  3: page_table      [num_users, max_pages_per_user]
+    //  4: cur_pos_tensor  [num_users]
+    //  5+: attention_mask, ...
     auto queryType = llvm::cast<RankedTensorType>(op.getOperand(0).getType());
     auto keyType = llvm::cast<RankedTensorType>(op.getOperand(1).getType());
     auto valueType = llvm::cast<RankedTensorType>(op.getOperand(2).getType());
@@ -550,31 +552,61 @@ getPagedAttentionShardingRule(mlir::stablehlo::CustomCallOp op) {
       return mlir::sdy::OpShardingRuleAttr();
     }
 
-    const int64_t queryHeadDim = 2; // [1, U, H, D]
-    const int64_t kvHeadDim = 1;    // [B, H, S, D]
-    const int64_t outputHeadDim = 2;
+    const int64_t queryHeadDim = 2;  // [1, U, H, D]
+    const int64_t kvHeadDim = 1;     // [B, H, S, D]
+    const int64_t outputHeadDim = 2; // [1, U, H, D]
+    const int64_t queryUsersDim = 1; // [1, U, H, D]
+    const int64_t outputUsersDim = 1;
+    const int64_t numOperands = op.getNumOperands();
 
     int64_t headSize = queryType.getShape()[queryHeadDim];
+    int64_t numUsers = queryType.getShape()[queryUsersDim];
 
-    SmallVector<int64_t> operandHeadDims(op.getNumOperands(),
-                                         mlir::sdy::kNullDim);
-    SmallVector<int64_t> resultHeadDims(op.getNumResults(),
-                                        mlir::sdy::kNullDim);
+    mlir::sdy::OpShardingRuleBuilder builder(op);
 
-    operandHeadDims[0] = queryHeadDim; // query
-    operandHeadDims[1] = kvHeadDim;    // key
-    operandHeadDims[2] = kvHeadDim;    // value
-    resultHeadDims[0] = outputHeadDim; // output
+    // Head factor: shards num_heads across query/key/value/output.
+    {
+      SmallVector<int64_t> operandDims(numOperands, mlir::sdy::kNullDim);
+      SmallVector<int64_t> resultDims(op.getNumResults(), mlir::sdy::kNullDim);
+      operandDims[0] = queryHeadDim;
+      operandDims[1] = kvHeadDim;
+      operandDims[2] = kvHeadDim;
+      resultDims[0] = outputHeadDim;
+      builder.addFactor(operandDims, resultDims, headSize,
+                        mlir::sdy::FactorType::kPassThrough);
+    }
 
-    return buildHeadShardedCustomCallRule(op, operandHeadDims, resultHeadDims,
-                                          headSize);
+    // Users factor: links query users dim, page_table batch dim,
+    // cur_pos_tensor dim, and output users dim. Without this, Shardy is
+    // free to propagate batch sharding to query (from upstream batch-sharded
+    // activations) while leaving the output's literal global shape unchanged,
+    // producing per-chip data with a global-shape annotation. Downstream
+    // reshapes then run into TTNN volume-mismatch failures.
+    {
+      SmallVector<int64_t> operandUsersDims(numOperands, mlir::sdy::kNullDim);
+      operandUsersDims[0] = queryUsersDim;
+      if (numOperands >= 4) {
+        operandUsersDims[3] = 0; // page_table: dim 0
+      }
+      if (numOperands >= 5) {
+        operandUsersDims[4] = 0; // cur_pos_tensor: dim 0
+      }
+      SmallVector<int64_t> resultUsersDims(op.getNumResults(),
+                                           mlir::sdy::kNullDim);
+      resultUsersDims[0] = outputUsersDim;
+      builder.addFactor(operandUsersDims, resultUsersDims, numUsers,
+                        mlir::sdy::FactorType::kPassThrough);
+    }
+
+    return builder.build();
   }
 
   if (target == pagedUpdateCacheTargetName) {
     // Paged update cache
-    //  0: cache        [num_pages_total, num_heads, block_size, hidden_size]
-    //  1: fill_value   [1, num_users, num_heads, hidden_size]
-    //  2+: update_indices, page_table, ...
+    //  0: cache          [num_pages_total, num_heads, block_size, hidden_size]
+    //  1: fill_value     [1, num_users, num_heads, hidden_size]
+    //  2: update_indices [num_users]
+    //  3: page_table     [num_users, max_pages_per_user]
     auto cacheType = llvm::cast<RankedTensorType>(op.getOperand(0).getType());
     auto outputType = llvm::cast<RankedTensorType>(op.getResult(0).getType());
 
@@ -586,21 +618,46 @@ getPagedAttentionShardingRule(mlir::stablehlo::CustomCallOp op) {
 
     const int64_t cacheHeadDim = 1;
     const int64_t fillValueHeadDim = 2;
+    const int64_t fillValueUsersDim = 1;
     const int64_t outputHeadDim = 1;
+    const int64_t numOperands = op.getNumOperands();
 
     int64_t headSize = cacheType.getShape()[cacheHeadDim];
+    auto fillValueType =
+        llvm::cast<RankedTensorType>(op.getOperand(1).getType());
+    int64_t numUsers = fillValueType.getShape()[fillValueUsersDim];
 
-    SmallVector<int64_t> operandHeadDims(op.getNumOperands(),
-                                         mlir::sdy::kNullDim);
-    SmallVector<int64_t> resultHeadDims(op.getNumResults(),
-                                        mlir::sdy::kNullDim);
+    mlir::sdy::OpShardingRuleBuilder builder(op);
 
-    operandHeadDims[0] = cacheHeadDim;     // cache
-    operandHeadDims[1] = fillValueHeadDim; // fill_value
-    resultHeadDims[0] = outputHeadDim;     // output
+    // Head factor: shards num_heads across cache, fill_value, and output.
+    {
+      SmallVector<int64_t> operandHeadDims(numOperands, mlir::sdy::kNullDim);
+      SmallVector<int64_t> resultHeadDims(op.getNumResults(),
+                                          mlir::sdy::kNullDim);
+      operandHeadDims[0] = cacheHeadDim;
+      operandHeadDims[1] = fillValueHeadDim;
+      resultHeadDims[0] = outputHeadDim;
+      builder.addFactor(operandHeadDims, resultHeadDims, headSize,
+                        mlir::sdy::FactorType::kPassThrough);
+    }
 
-    return buildHeadShardedCustomCallRule(op, operandHeadDims, resultHeadDims,
-                                          headSize);
+    // Users factor: links fill_value's num_users dim with update_indices and
+    // page_table batch dim. Without this, Shardy is free to shard them
+    // inconsistently — propagating a batch sharding to fill_value's num_users
+    // but leaving update_indices/page_table replicated, which fails the
+    // PagedUpdateCacheOp verifier (inputShape[1] != updateIndexShape[0]).
+    if (numOperands >= 4) {
+      SmallVector<int64_t> operandUsersDims(numOperands, mlir::sdy::kNullDim);
+      operandUsersDims[1] = fillValueUsersDim; // fill_value: dim 1
+      operandUsersDims[2] = 0;                 // update_indices: dim 0
+      operandUsersDims[3] = 0;                 // page_table: dim 0
+      SmallVector<int64_t> resultUsersDims(op.getNumResults(),
+                                           mlir::sdy::kNullDim);
+      builder.addFactor(operandUsersDims, resultUsersDims, numUsers,
+                        mlir::sdy::FactorType::kPassThrough);
+    }
+
+    return builder.build();
   }
 
   if (target == pagedFillCacheTargetName) {
