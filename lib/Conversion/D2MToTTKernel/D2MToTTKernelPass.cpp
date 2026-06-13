@@ -182,50 +182,122 @@ struct ConvertD2MToTTKernel
     scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
                                                          patterns, target);
 
-    // If there is any fabric related writes,
-    // insert fabric connection manager ops and setup fabric connections at the
-    // start of the function and close at the end.
-    moduleOp->walk([&](func::FuncOp func) {
-      // A func needs a fabric connection manager if it issues *any*
-      // cross-device fabric op -- a fabric write (DMAWriteOp), a fabric
-      // semaphore increment (SemaphoreIncOp/SemaphoreSetOp with a startDevice),
-      // or a device_synchronize barrier (which always mcasts a fabric sem inc).
-      // Checking only DMAWriteOp missed the sem-only case: when the unified CCL
-      // generic is split into datamovement+compute threads, a split func can
-      // hold the fabric sem ops without a fabric write, leaving its fabric ops
-      // with no fcm to lower against (getFabricConnectionManager assert).
-      bool fabric_op_present = false;
-      func.walk([&](Operation *op) {
-        bool isFabric =
-            llvm::isa<d2m::DeviceSynchronizeOp>(op) ||
-            (llvm::isa<d2m::DMAWriteOp>(op) &&
-             llvm::cast<d2m::DMAWriteOp>(op).getStartDevice().size() > 0) ||
-            (llvm::isa<d2m::SemaphoreIncOp>(op) &&
-             llvm::cast<d2m::SemaphoreIncOp>(op).getStartDevice().size() > 0) ||
-            (llvm::isa<d2m::SemaphoreSetOp>(op) &&
-             llvm::cast<d2m::SemaphoreSetOp>(op).getStartDevice().size() > 0);
-        if (isFabric) {
-          fabric_op_present = true;
-          return WalkResult::interrupt();
-        }
-        return WalkResult::advance();
-      });
+    auto isFabricOp = [](Operation *op) {
+      return llvm::isa<d2m::DeviceSynchronizeOp>(op) ||
+             (llvm::isa<d2m::DMAWriteOp>(op) &&
+              llvm::cast<d2m::DMAWriteOp>(op).getStartDevice().size() > 0) ||
+             (llvm::isa<d2m::SemaphoreIncOp>(op) &&
+              llvm::cast<d2m::SemaphoreIncOp>(op).getStartDevice().size() >
+                  0) ||
+             (llvm::isa<d2m::SemaphoreSetOp>(op) &&
+              llvm::cast<d2m::SemaphoreSetOp>(op).getStartDevice().size() > 0);
+    };
+    // Ops that lower to use the fabric connection manager (so the fcm must
+    // dominate them): the fabric ops plus mesh_position (lowers to
+    // get_my_logical_mesh_position(fcm)). The fcm anchor is the common ancestor
+    // of these, so a router-gated kernel must keep all of them -- including any
+    // mesh_position -- inside the is_router_core() branch.
+    auto isFcmUser = [&](Operation *op) {
+      return isFabricOp(op) || llvm::isa<d2m::MeshPositionOp>(op);
+    };
 
-      if (fabric_op_present) {
-        OpBuilder builder(func.getContext());
-        builder.setInsertionPointToStart(&func.getBody().front());
-        auto fabricConnectionManager =
-            builder
-                .create<ttkernel::CreateFabricConnectionManagerOp>(
-                    func.getLoc())
-                .getResult();
-        builder.create<ttkernel::SetupFabricConnectionsOp>(
-            func.getLoc(), fabricConnectionManager);
-        Operation *terminator = func.getBody().front().getTerminator();
-        builder.setInsertionPoint(terminator);
-        builder.create<ttkernel::CloseFabricConnectionsOp>(
-            func.getLoc(), fabricConnectionManager);
+    // True if the generic whose thread is this func declares a router_cores
+    // subset (fabric on fewer cores than the grid). When it does, the fabric
+    // connection manager must be gated to the router cores; otherwise it is
+    // created for the whole grid (legacy behavior). See
+    // tools/d2m-jit/fabric_router_cores_design.md (step 2).
+    auto funcHasRouterSubset = [](func::FuncOp func) {
+      StringRef name = func.getSymName();
+      bool found = false;
+      if (auto module = func->getParentOfType<ModuleOp>()) {
+        module.walk([&](d2m::GenericOp generic) {
+          auto cfg = generic.getFabricConnectionConfigAttr();
+          if (!cfg || cfg.getRouterCores().empty()) {
+            return WalkResult::advance();
+          }
+          for (Attribute t : generic.getThreads()) {
+            auto sym = llvm::cast<d2m::ThreadAttr>(t).getKernelSymbol();
+            if (sym && sym.getLeafReference() == name) {
+              found = true;
+              return WalkResult::interrupt();
+            }
+          }
+          return WalkResult::advance();
+        });
       }
+      return found;
+    };
+
+    // Deepest block that is an ancestor of every op. For a router-gated kernel
+    // (all fabric ops inside one `if is_router_core()`), this is that scf.if
+    // body, so the fcm lifecycle lands inside the gate; for an ungated kernel
+    // (fabric ops at the func top) it is the func body.
+    auto commonAncestorBlock = [](ArrayRef<Operation *> ops) -> Block * {
+      auto chain = [](Operation *op) {
+        SmallVector<Block *> blocks;
+        for (Block *b = op->getBlock(); b;) {
+          blocks.push_back(b);
+          Operation *parent = b->getParentOp();
+          b = parent ? parent->getBlock() : nullptr;
+        }
+        return blocks; // innermost-first
+      };
+      SmallVector<Block *> common = chain(ops[0]);
+      for (Operation *op : ops.drop_front()) {
+        SmallVector<Block *> c = chain(op);
+        llvm::SmallPtrSet<Block *, 8> set(c.begin(), c.end());
+        SmallVector<Block *> next;
+        for (Block *b : common) {
+          if (set.contains(b)) {
+            next.push_back(b);
+          }
+        }
+        common = std::move(next);
+      }
+      return common.empty() ? nullptr : common.front();
+    };
+
+    // If there are any cross-device fabric ops, create/setup the fabric
+    // connection manager before them and close it after, anchored so that a
+    // router_cores-gated kernel opens the connection only on its router cores.
+    moduleOp->walk([&](func::FuncOp func) {
+      SmallVector<Operation *> fabricOps, fcmUsers;
+      func.walk([&](Operation *op) {
+        if (isFabricOp(op)) {
+          fabricOps.push_back(op);
+        }
+        if (isFcmUser(op)) {
+          fcmUsers.push_back(op);
+        }
+      });
+      if (fabricOps.empty()) {
+        return;
+      }
+
+      // Default (no router subset): func top, the whole grid opens a
+      // connection. With a router subset: anchor at the fcm users' common
+      // ancestor, so the connection manager is created only where the gated
+      // fabric work runs. (The fcm must still dominate every user, hence the
+      // common ancestor of *all* fcm users, mesh_position included, not just
+      // the fabric ops.)
+      Block *anchor = &func.getBody().front();
+      if (funcHasRouterSubset(func)) {
+        if (Block *common = commonAncestorBlock(fcmUsers)) {
+          anchor = common;
+        }
+      }
+
+      OpBuilder builder(func.getContext());
+      builder.setInsertionPointToStart(anchor);
+      auto fabricConnectionManager =
+          builder
+              .create<ttkernel::CreateFabricConnectionManagerOp>(func.getLoc())
+              .getResult();
+      builder.create<ttkernel::SetupFabricConnectionsOp>(
+          func.getLoc(), fabricConnectionManager);
+      builder.setInsertionPoint(anchor->getTerminator());
+      builder.create<ttkernel::CloseFabricConnectionsOp>(
+          func.getLoc(), fabricConnectionManager);
     });
 
     if (failed(
