@@ -8,7 +8,8 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/IRMapping.h"
@@ -29,9 +30,9 @@ struct DMAThreadAssignment {
   // Estimated workload for this thread (number of DMA ops).
   size_t workload = 0;
 
-  // Assigned hardware datamovement processor.
+  // Assigned hardware DM core.
   // For WH/BH: 1 = DRAM reader, 0 = DRAM writer.
-  int32_t processorIndex = -1;
+  int32_t dmCoreIndex = -1;
 };
 
 // Collect all DMA ops from a block, recursively walking into nested scf.for
@@ -68,8 +69,8 @@ struct NocScore {
 
 // Wormhole/Blackhole have 2 DMs and 2 NoCs. After CBs have already been
 // load-balanced across two threads, choose which thread should use NoC0 versus
-// NoC1. The backend maps NoC0 to processor 1 and NoC1 to processor 0, so this
-// helper stores the equivalent processor index on each assignment.
+// NoC1, then store the DM core index that maps to that NoC (see
+// ttcore::getDmCoreDefaultNoc for the canonical convention).
 static void assignNoCsToThreads(
     SmallVectorImpl<DMAThreadAssignment> &assignments,
     const SmallVectorImpl<std::pair<Operation *, unsigned>> &dmaOps) {
@@ -115,19 +116,20 @@ static void assignNoCsToThreads(
       swapNocs ? ttcore::NocIndex::Noc1 : ttcore::NocIndex::Noc0;
   ttcore::NocIndex thread1Noc =
       swapNocs ? ttcore::NocIndex::Noc0 : ttcore::NocIndex::Noc1;
-  assignments[0].processorIndex = thread0Noc == ttcore::NocIndex::Noc0 ? 1 : 0;
-  assignments[1].processorIndex = thread1Noc == ttcore::NocIndex::Noc0 ? 1 : 0;
+  // Inverse of ttcore::getDmCoreDefaultNoc for WH/BH.
+  assignments[0].dmCoreIndex = thread0Noc == ttcore::NocIndex::Noc0 ? 1 : 0;
+  assignments[1].dmCoreIndex = thread1Noc == ttcore::NocIndex::Noc0 ? 1 : 0;
 }
 
-// There is no NoC choice to make. Use the thread index as the processor index.
-static void assignProcessorIndicesForSingleNoC(
+// There is no NoC choice to make, use the thread index as the DM core index.
+static void assignDmCoreIndicesForSingleNoC(
     SmallVectorImpl<DMAThreadAssignment> &assignments) {
   for (size_t index = 0; index < assignments.size(); ++index) {
-    assignments[index].processorIndex = static_cast<int32_t>(index);
+    assignments[index].dmCoreIndex = static_cast<int32_t>(index);
   }
 }
 
-static void assignProcessorIndices(
+static void assignDmCoreIndices(
     SmallVectorImpl<DMAThreadAssignment> &assignments,
     const SmallVectorImpl<std::pair<Operation *, unsigned>> &dmaOps,
     unsigned numDatamovementThreads) {
@@ -137,8 +139,8 @@ static void assignProcessorIndices(
     return;
   }
 
-  TT_assertv(numDatamovementThreads == 6u, "Expect 6 DM processors");
-  assignProcessorIndicesForSingleNoC(assignments);
+  TT_assertv(numDatamovementThreads == 6u, "Expect 6 DM cores");
+  assignDmCoreIndicesForSingleNoC(assignments);
 }
 
 // Assign CBs to threads to balance workload.
@@ -275,23 +277,23 @@ public:
     unsigned numThreadsToUse = std::min(
         static_cast<unsigned>(cbWorkloads.size()), numDatamovementThreads);
 
-    // Not enough CBs to warrant splitting but still need to assign a processor
-    // on the existing single DM thread before returning failure.
+    // Not enough CBs to warrant splitting but still need to assign a DM core on
+    // the existing single DM thread before returning failure.
     if (numThreadsToUse <= 1 || cbWorkloads.size() <= 1) {
       bool writesDRAM = llvm::any_of(dmaOps, [](const auto &entry) {
         auto store = mlir::dyn_cast_or_null<RemoteStoreOp>(entry.first);
         return store && ttcore::getMemorySpace(store.getMemref()) ==
                             ttcore::MemorySpace::DeviceDRAM;
       });
-      int32_t processorIndex;
+      int32_t dmCoreIndex;
       if (numDatamovementThreads == 2) {
-        processorIndex = writesDRAM ? 0 : 1;
+        dmCoreIndex = writesDRAM ? 0 : 1;
       } else {
-        processorIndex = 0;
+        dmCoreIndex = 0;
       }
       generic.setThreadsAttr(rewriter.getArrayAttr({
           rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement, nullptr,
-                                       processorIndex),
+                                       dmCoreIndex),
           generic.getThreadsAttr().getValue()[1],
       }));
       return failure();
@@ -301,14 +303,14 @@ public:
     SmallVector<DMAThreadAssignment> assignments =
         assignCBsToThreads(cbWorkloads, numThreadsToUse);
 
-    assignProcessorIndices(assignments, dmaOps, numDatamovementThreads);
+    assignDmCoreIndices(assignments, dmaOps, numDatamovementThreads);
 
     // Create new thread attributes: N datamovement threads + 1 compute thread.
     SmallVector<Attribute> threads;
     for (unsigned i = 0; i < numThreadsToUse; ++i) {
       threads.push_back(rewriter.getAttr<ThreadAttr>(
           ThreadType::Datamovement,
-          /*kernelSymbol=*/nullptr, assignments[i].processorIndex));
+          /*kernelSymbol=*/nullptr, assignments[i].dmCoreIndex));
     }
     threads.push_back(rewriter.getAttr<ThreadAttr>(ThreadType::Compute));
 
@@ -390,17 +392,15 @@ public:
     TT_assert(systemDesc);
 
     auto chipDesc = systemDesc.getChipDescs().front();
-    unsigned numDatamovementThreads =
-        numDatamovementProcessors != 0 ? numDatamovementProcessors
-                                       : chipDesc.getNumDatamovementThreads();
+    const unsigned numDatamovementThreads =
+        numDmCores != 0 ? numDmCores : chipDesc.getNumDatamovementThreads();
 
     // If only 1 DMA thread available, nothing to schedule.
     if (numDatamovementThreads == 1) {
       return;
     }
     if (numDatamovementThreads != 2 && numDatamovementThreads != 6) {
-      moduleOp.emitError(
-          "d2m-schedule-dma only supports 2 or 6 datamovement processors");
+      moduleOp.emitError("d2m-schedule-dma only supports 2 or 6 DM cores");
       signalPassFailure();
       return;
     }

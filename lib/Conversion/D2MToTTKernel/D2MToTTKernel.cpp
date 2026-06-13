@@ -49,10 +49,7 @@ static Value intConstant(OpBuilder &rewriter, Location loc, T value) {
 }
 
 static FailureOr<int32_t> getKernelNocIndex(Operation *op) {
-  if (ttcore::getOpChipDescAttr(op).getArch().getValue() ==
-      ttcore::Arch::Quasar) {
-    return 0;
-  }
+  const auto arch = ttcore::getOpChipDescAttr(op).getArch().getValue();
 
   auto funcOp = op->getParentOfType<func::FuncOp>();
   if (!funcOp) {
@@ -66,10 +63,24 @@ static FailureOr<int32_t> getKernelNocIndex(Operation *op) {
     return failure();
   }
 
-  const int32_t processorIdx = threadAttr.getProcessorIndex();
-  const int32_t nocIdx = 1 - processorIdx;
-  TT_assertv((nocIdx == 0 || nocIdx == 1), "nocIndex should be 0 or 1.");
-  return nocIdx;
+  return static_cast<int32_t>(
+      ttcore::getDmCoreDefaultNoc(arch, threadAttr.getDmCoreIndex()));
+}
+
+// Early resolution & materialization of the DM kernel's NoC index in the
+// pipeline (before TTKernelToEmitC & D2MToTTMetal).
+//
+// Returns null when the NoC index cannot be resolved (e.g. a function with no
+// d2m.thread attribute). Callers pass the null Value straight through as an
+// absent optional `noc` operand, so TTKernelToEmitC falls back to the kernel's
+// default `noc_index` global variable.
+static Value materializeKernelNocId(OpBuilder &rewriter, Operation *op) {
+  FailureOr<int32_t> nocIdx = getKernelNocIndex(op);
+  if (failed(nocIdx)) {
+    return Value{};
+  }
+  return intConstant<int8_t>(rewriter, op->getLoc(),
+                             static_cast<int8_t>(*nocIdx));
 }
 
 // On WH & BH, NoC1's traversal direciton (bottom left to top right) is the
@@ -2309,33 +2320,33 @@ static NocEndpoint buildMappedNocEndpoint(OpBuilder &rewriter, Location loc,
 
 static void createNocAsyncRead(OpBuilder &rewriter, Location loc,
                                const NocEndpoint &src, Value dstLocalL1Addr,
-                               Value size) {
+                               Value size, Value nocId) {
   SmallVector<Value, 1> srcBankId;
   if (src.bankId) {
     srcBankId.push_back(src.bankId);
   }
-  rewriter.create<ttkernel::NocAsyncReadOp>(loc, src.coreXY, srcBankId,
-                                            src.address, dstLocalL1Addr, size);
+  rewriter.create<ttkernel::NocAsyncReadOp>(
+      loc, src.coreXY, srcBankId, src.address, dstLocalL1Addr, size, nocId);
 }
 
 static void createNocAsyncWrite(OpBuilder &rewriter, Location loc,
                                 Value srcLocalL1Addr, const NocEndpoint &dst,
-                                Value size) {
+                                Value size, Value nocId) {
   SmallVector<Value, 1> dstBankId;
   if (dst.bankId) {
     dstBankId.push_back(dst.bankId);
   }
-  rewriter.create<ttkernel::NocAsyncWriteOp>(loc, srcLocalL1Addr, dst.coreXY,
-                                             dstBankId, dst.address, size);
+  rewriter.create<ttkernel::NocAsyncWriteOp>(
+      loc, srcLocalL1Addr, dst.coreXY, dstBankId, dst.address, size, nocId);
 }
 
 static Value loadI32FromNocPacketThroughScratch(
     OpBuilder &rewriter, Location loc, Value scratchCb, const NocEndpoint &src,
-    Value laneI32, Value transferSizeBytes, Value onePage) {
+    Value laneI32, Value transferSizeBytes, Value onePage, Value nocId) {
   rewriter.create<ttkernel::CBReserveBackOp>(loc, scratchCb, onePage);
   Value writePtr = rewriter.create<ttkernel::GetWritePtrOp>(loc, scratchCb);
-  createNocAsyncRead(rewriter, loc, src, writePtr, transferSizeBytes);
-  rewriter.create<ttkernel::NocAsyncReadBarrierOp>(loc);
+  createNocAsyncRead(rewriter, loc, src, writePtr, transferSizeBytes, nocId);
+  rewriter.create<ttkernel::NocAsyncReadBarrierOp>(loc, nocId);
   rewriter.create<ttkernel::CBPushBackOp>(loc, scratchCb, onePage);
   rewriter.create<ttkernel::CBWaitFrontOp>(loc, scratchCb, onePage);
   Value readPtr = rewriter.create<ttkernel::GetReadPtrOp>(loc, scratchCb);
@@ -2350,16 +2361,17 @@ static Value loadI32FromNocPacketThroughScratch(
 static void copyNocToNocThroughScratch(OpBuilder &rewriter, Location loc,
                                        Value scratchCb, const NocEndpoint &src,
                                        const NocEndpoint &dst,
-                                       Value transferSizeBytes, Value onePage) {
+                                       Value transferSizeBytes, Value onePage,
+                                       Value nocId) {
   rewriter.create<ttkernel::CBReserveBackOp>(loc, scratchCb, onePage);
   Value writePtr = rewriter.create<ttkernel::GetWritePtrOp>(loc, scratchCb);
-  createNocAsyncRead(rewriter, loc, src, writePtr, transferSizeBytes);
-  rewriter.create<ttkernel::NocAsyncReadBarrierOp>(loc);
+  createNocAsyncRead(rewriter, loc, src, writePtr, transferSizeBytes, nocId);
+  rewriter.create<ttkernel::NocAsyncReadBarrierOp>(loc, nocId);
   rewriter.create<ttkernel::CBPushBackOp>(loc, scratchCb, onePage);
   rewriter.create<ttkernel::CBWaitFrontOp>(loc, scratchCb, onePage);
   Value readPtr = rewriter.create<ttkernel::GetReadPtrOp>(loc, scratchCb);
-  createNocAsyncWrite(rewriter, loc, readPtr, dst, transferSizeBytes);
-  rewriter.create<ttkernel::NocAsyncWriteBarrierOp>(loc);
+  createNocAsyncWrite(rewriter, loc, readPtr, dst, transferSizeBytes, nocId);
+  rewriter.create<ttkernel::NocAsyncWriteBarrierOp>(loc, nocId);
   rewriter.create<ttkernel::CBPopFrontOp>(loc, scratchCb, onePage);
 }
 
@@ -2397,6 +2409,8 @@ public:
 
     auto size = intConstant<int32_t>(rewriter, loc, op.getSizeBytes());
 
+    Value nocId = materializeKernelNocId(rewriter, op.getOperation());
+
     if (op.isSrcLocal()) {
       Value srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
           rewriter, loc, adaptor.getSrc(), op.getSrcIndices());
@@ -2406,12 +2420,12 @@ public:
           rewriter, loc, chipDesc, ValueRange{myY, myX});
       NocEndpoint srcEndpoint{
           ttcore::MemorySpace::DeviceL1, {virtX, virtY}, nullptr, srcL1Addr};
-      createNocAsyncRead(rewriter, loc, srcEndpoint, dstL1Addr, size);
+      createNocAsyncRead(rewriter, loc, srcEndpoint, dstL1Addr, size, nocId);
     } else {
       auto srcEndpoint =
           buildNocEndpoint(rewriter, loc, adaptor.getSrc(), op.getSrcIndices(),
                            chipDesc, op.getSrcMemorySpace());
-      createNocAsyncRead(rewriter, loc, srcEndpoint, dstL1Addr, size);
+      createNocAsyncRead(rewriter, loc, srcEndpoint, dstL1Addr, size, nocId);
     }
 
     rewriter.replaceOpWithNewOp<d2m::NullTxOp>(op, op.getResult().getType());
@@ -2435,6 +2449,8 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
 
     auto chipDesc = ttcore::getOpChipDescAttr(op);
+
+    Value nocId = materializeKernelNocId(rewriter, op.getOperation());
 
     if (op.getStartDevice().size() > 0) {
       auto srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
@@ -2484,7 +2500,7 @@ public:
           OpBuilder::InsertionGuard guard(rewriter);
           rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
           createNocAsyncWrite(rewriter, op.getLoc(), srcL1Addr, dstEndpoint,
-                              size);
+                              size, nocId);
           rewriter.create<scf::YieldOp>(op.getLoc());
         }
       }
@@ -2539,7 +2555,6 @@ public:
           return rewriter.notifyMatchFailure(
               op, "unable to resolve datamovement kernel NoC index");
         }
-        Value nocId = intConstant<int8_t>(rewriter, op->getLoc(), *nocIdx);
 
         flipMcastCoordsIfNoc1(*nocIdx, virtX, virtY, virtMcastEndX,
                               virtMcastEndY);
@@ -2566,7 +2581,7 @@ public:
         NocEndpoint dstEndpoint{
             ttcore::MemorySpace::DeviceL1, {virtX, virtY}, nullptr, dstL1Start};
         createNocAsyncWrite(rewriter, op.getLoc(), srcL1Start, dstEndpoint,
-                            transferSize);
+                            transferSize, nocId);
       }
     } else if (op.isDstRemote()) {
       auto srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
@@ -2576,7 +2591,8 @@ public:
                                           chipDesc, op.getDstMemorySpace());
       auto size =
           intConstant<int32_t>(rewriter, op->getLoc(), op.getSizeBytes());
-      createNocAsyncWrite(rewriter, op.getLoc(), srcL1Addr, dstEndpoint, size);
+      createNocAsyncWrite(rewriter, op.getLoc(), srcL1Addr, dstEndpoint, size,
+                          nocId);
     }
 
     rewriter.replaceOpWithNewOp<d2m::NullTxOp>(op, op.getResult().getType());
@@ -2674,6 +2690,7 @@ public:
     }
 
     Value onePage = intConstant<int32_t>(rewriter, loc, 1);
+    Value nocId = materializeKernelNocId(rewriter, op.getOperation());
     Value indexTransferSizeBytesValue =
         intConstant<int32_t>(rewriter, loc, indexTransferSizeBytes);
     Value rowTransferSizeBytesValue =
@@ -2737,7 +2754,7 @@ public:
           indexLogicalIndices, chipDesc, ttcore::MemorySpace::DeviceL1);
       Value indexValue = loadI32FromNocPacketThroughScratch(
           rewriter, loc, adaptor.getIndexScratch(), indexEndpoint, indexLaneI32,
-          indexTransferSizeBytesValue, onePage);
+          indexTransferSizeBytesValue, onePage, nocId);
 
       Value srcRowIndex = rewriter.create<arith::IndexCastOp>(
           loc, rewriter.getIndexType(), indexValue);
@@ -2762,7 +2779,7 @@ public:
             chipDesc, dstMemorySpace);
         copyNocToNocThroughScratch(rewriter, loc, adaptor.getRowScratch(),
                                    srcEndpoint, outputEndpoint,
-                                   rowTransferSizeBytesValue, onePage);
+                                   rowTransferSizeBytesValue, onePage, nocId);
       }
     }
 
@@ -2846,12 +2863,14 @@ public:
     auto txKind =
         mlir::cast<d2m::MemTxType>(op.getMemTx().getType()).getDmaType();
 
+    Value nocId = materializeKernelNocId(rewriter, op.getOperation());
+
     switch (txKind) {
     case d2m::DMAType::Read:
-      rewriter.create<ttkernel::NocAsyncReadBarrierOp>(op.getLoc());
+      rewriter.create<ttkernel::NocAsyncReadBarrierOp>(op.getLoc(), nocId);
       break;
     case d2m::DMAType::Write:
-      rewriter.create<ttkernel::NocAsyncWriteBarrierOp>(op.getLoc());
+      rewriter.create<ttkernel::NocAsyncWriteBarrierOp>(op.getLoc(), nocId);
       break;
     case d2m::DMAType::McastWrite:
       break;

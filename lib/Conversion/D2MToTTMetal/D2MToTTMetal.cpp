@@ -129,13 +129,12 @@ public:
         break;
       }
       case d2m::ThreadType::Datamovement: {
-        const int32_t processorIdx = thread.getProcessorIndex();
-        TT_assert(processorIdx >= 0);
-        const auto nocIdx = (arch == ttcore::Arch::Quasar || processorIdx == 1)
-                                ? ttcore::NocIndex::Noc0
-                                : ttcore::NocIndex::Noc1;
+        const int32_t dmCoreIndex = thread.getDmCoreIndex();
+        TT_assert(dmCoreIndex >= 0);
+        const auto nocIdx = ttcore::getDmCoreDefaultNoc(arch, dmCoreIndex);
         kernelConfig = builder.getAttr<ttmetal::NocConfigAttr>(
-            thread.getKernelSymbol(), coreRange, kernelArgs, nocIdx);
+            thread.getKernelSymbol(), coreRange, kernelArgs, dmCoreIndex,
+            nocIdx);
         break;
       }
       case d2m::ThreadType::Unified: {
@@ -805,7 +804,7 @@ private:
               nocConfig.getCoreRange(),
               remapKernelArgs(builder, nocConfig.getKernelArgs(),
                               enqueueProgram, remapTable, mergedCbSlotBase),
-              nocConfig.getNocIndex());
+              nocConfig.getDmCoreIndex(), nocConfig.getNocIndex());
         })
         .Case<EthernetConfigAttr>([&](EthernetConfigAttr ethernetConfig) {
           return EthernetConfigAttr::get(

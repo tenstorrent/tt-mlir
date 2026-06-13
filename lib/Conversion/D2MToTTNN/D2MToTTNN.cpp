@@ -339,15 +339,13 @@ static SmallVector<mlir::Attribute> createKernelDescriptors(
       break;
     }
     case d2m::ThreadType::Datamovement: {
-      const int32_t processorIdx = threadAttr.getProcessorIndex();
-      TT_assert(processorIdx >= 0);
-      const auto nocIdx = (arch == ttcore::Arch::Quasar || processorIdx == 1)
-                              ? ttcore::NocIndex::Noc0
-                              : ttcore::NocIndex::Noc1;
-      auto processor = processorIdx == 0 ? ttnn::DataMovementProcessor::RiscV0
-                                         : ttnn::DataMovementProcessor::RiscV1;
+      const int32_t dmCoreIndex = threadAttr.getDmCoreIndex();
+      TT_assert(dmCoreIndex >= 0);
+      const auto nocIndex = ttcore::getDmCoreDefaultNoc(arch, dmCoreIndex);
+      auto processor = dmCoreIndex == 0 ? ttnn::DataMovementProcessor::RiscV0
+                                        : ttnn::DataMovementProcessor::RiscV1;
       kernelConfigs[i] = builder.getAttr<ttnn::DataMovementKernelAttr>(
-          kernelSymbol, coreRangeSet, processor, nocIdx,
+          kernelSymbol, coreRangeSet, processor, nocIndex,
           ttnn::NocMode::DedicatedNoc, kernelCRTArgs, kernelCTArgs);
       break;
     }

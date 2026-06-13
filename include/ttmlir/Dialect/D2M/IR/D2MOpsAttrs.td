@@ -21,20 +21,23 @@ def D2M_ThreadAttr : AttrDef<D2M_Dialect, "Thread", [], "::mlir::Attribute"> {
   let summary = "Thread information for a generic op.";
   let description = [{
     Holds the thread information corresponding to a single generic op region.
-    For datamovement threads, processorIndex indicates the assigned hardware
-    datamovement processor. ProcessorIndex 0 is a mapped to NoC1 and
-    ProcessorIndex 1 is mapped to NoC0.
+    For data movement threads, `dmCoreIndex` indicates the assigned hardware DM
+    core.
+
+    The default DM core -> NoC mapping is defined in getDmCoreDefaultNoc:
+    on Wormhole/Blackhole DM core 1 maps to NoC0 and DM core 0 maps to NoC1;
+    on Quasar every DM core maps to NoC0.
 
     A value of -1 means unassigned.
   }];
   let parameters = (ins
     "ThreadType":$threadType,
     OptionalParameter<"SymbolRefAttr">:$kernelSymbol,
-    DefaultValuedParameter<"int32_t", "-1">:$processorIndex
+    DefaultValuedParameter<"int32_t", "-1">:$dmCoreIndex
   );
 
   // Format: `<` threadType (`,` kernelSymbol)?
-  //             (`,` `processor` `=` processorIndex)? `>`.
+  //             (`,` `dm_core` `=` dmCoreIndex)? `>`.
   // The optional groups all start with `,`, which the declarative format cannot
   // disambiguate when kernelSymbol is absent, so we hand-roll the parser to
   // peek for the keyword after a comma and pick the right branch.
