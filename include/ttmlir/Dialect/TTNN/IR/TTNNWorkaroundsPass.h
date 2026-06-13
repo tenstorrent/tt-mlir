@@ -106,7 +106,8 @@ struct TTNNOperandWorkarounds {
     return tensorLayoutWorkaround == rhs.tensorLayoutWorkaround &&
            tensorBufferTypeWorkaround == rhs.tensorBufferTypeWorkaround &&
            tensorMemoryLayoutWorkaround == rhs.tensorMemoryLayoutWorkaround &&
-           tensorDataTypeWorkaround == rhs.tensorDataTypeWorkaround;
+           tensorDataTypeWorkaround == rhs.tensorDataTypeWorkaround &&
+           allowL1ConstEval == rhs.allowL1ConstEval;
   }
 
   // Inequality operator.
@@ -117,7 +118,8 @@ struct TTNNOperandWorkarounds {
   // Returns true if any of the workarounds is set.
   bool hasAnyWorkaround() const {
     return tensorLayoutWorkaround || tensorBufferTypeWorkaround ||
-           tensorMemoryLayoutWorkaround || tensorDataTypeWorkaround;
+           tensorMemoryLayoutWorkaround || tensorDataTypeWorkaround ||
+           allowL1ConstEval;
   }
 };
 
