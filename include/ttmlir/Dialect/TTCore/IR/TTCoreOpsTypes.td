@@ -693,8 +693,16 @@ def TTCore_FabricConnectionConfigAttr: TTCore_Attr<"FabricConnectionConfig", "fa
                         "Topology":$topology,
                         "uint32_t":$cluster_axis,
                         "RoutingMode":$routing_mode,
-                        "uint32_t":$num_links);
-  let assemblyFormat = "`<` `noc_index` `=` $noc_index `,` `topology` `=` $topology `,` `cluster_axis` `=` $cluster_axis `,` `routing_mode` `=` $routing_mode `,` `num_links` `=` $num_links `>`";
+                        "uint32_t":$num_links,
+                        OptionalArrayRefParameter<"int64_t">:$router_cores);
+  let assemblyFormat = "`<` `noc_index` `=` $noc_index `,` `topology` `=` $topology `,` `cluster_axis` `=` $cluster_axis `,` `routing_mode` `=` $routing_mode `,` `num_links` `=` $num_links (`,` `router_cores` `=` `[` $router_cores^ `]`)? `>`";
+  let extraClassDeclaration = [{
+    // router_cores is a flat list of (y, x) grid coordinate pairs, one per
+    // (link, direction) slot: slot i -> routing plane i / cores_per_link,
+    // direction i % cores_per_link. Empty == default (whole grid), i.e. legacy
+    // behavior. See tools/d2m-jit/fabric_router_cores_design.md.
+    unsigned getNumRouterSlots() const { return getRouterCores().size() / 2; }
+  }];
 }
 
 //===----------------------------------------------------------------------===//
