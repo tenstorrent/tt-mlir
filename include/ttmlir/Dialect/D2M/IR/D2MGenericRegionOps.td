@@ -3140,6 +3140,34 @@ def D2M_MeshPositionOp : D2M_GenericRegionOp<"mesh_position", [ Pure ]> {
     let results = (outs Index:$result);
 }
 
+def D2M_IsRouterCoreOp : D2M_GenericRegionOp<"is_router_core", [ Pure ]> {
+    let summary = "Query whether this core is a fabric router core.";
+    let description = [{
+      Returns true on cores assigned to issue fabric ops, per the enclosing
+      generic's `fabric_connection_config` `router_cores`. Lowers to a comparison
+      of this core's logical position against the configured router coordinates
+      (constant true when `router_cores` is empty, i.e. the whole grid). Branch
+      on it (`scf.if`) to gate fabric work to the router cores. See
+      tools/d2m-jit/fabric_router_cores_design.md.
+    }];
+    let results = (outs I1:$result);
+    let assemblyFormat = [{ attr-dict `:` type($result) }];
+}
+
+def D2M_RouterDirectionOp : D2M_GenericRegionOp<"router_direction", [ Pure ]> {
+    let summary = "Query this router core's (link, direction) slot index.";
+    let description = [{
+      Returns the router-core slot index this core matches (slot `i` -> routing
+      plane `i / cores_per_link`, direction `i % cores_per_link`), per the
+      enclosing generic's `fabric_connection_config` `router_cores`. A router
+      core switches on this to address the correct (forward/backward) neighbor.
+      Returns 0 when `router_cores` is empty; undefined on non-router cores.
+      Lowers to a select chain over the configured router coordinates.
+    }];
+    let results = (outs Index:$result);
+    let assemblyFormat = [{ attr-dict `:` type($result) }];
+}
+
 
 //===----------------------------------------------------------------------===//
 // D2M Remote Access ops (Used in TTMetal Lowering)

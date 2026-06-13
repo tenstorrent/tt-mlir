@@ -1693,19 +1693,32 @@ def fabric_config(
     num_links=1,
     noc="noc0",
     routing="unidir_ring_torus",
+    router_cores=None,
 ):
     """Build a `#ttcore.fabric_connection_config` attribute for a CCL kernel.
 
     Pass the result as the `fabric=` argument of a `@d2m.kernel` call; it
     configures the cross-device fabric routing for the GenericOp (required for
     all_gather and other collectives). Defaults match the all_gather lowering
-    (`noc0`, ring topology, unidirectional ring/torus routing)."""
+    (`noc0`, ring topology, unidirectional ring/torus routing).
+
+    `router_cores` optionally restricts the fabric to a subset of the generic's
+    grid: a list of `(y, x)` grid coordinates, one per `(link, direction)` slot
+    (slot `i` -> routing plane `i // cores_per_link`, direction
+    `i % cores_per_link`; `cores_per_link` is 1 for `bidir_line_mesh`, 2 for
+    `unidir_ring_torus`). Omitted == the whole grid (legacy behavior). The kernel
+    queries membership via `is_router_core()` / `router_direction()`. See
+    tools/d2m-jit/fabric_router_cores_design.md."""
     b = _get_scope()
+    routers = ""
+    if router_cores:
+        flat = ", ".join(str(int(v)) for yx in router_cores for v in yx)
+        routers = f", router_cores = [{flat}]"
     with b.ctx, b.loc:
         return Attribute.parse(
             f"#ttcore.fabric_connection_config<noc_index = {noc}, "
             f"topology = {topology}, cluster_axis = {int(cluster_axis)}, "
-            f"routing_mode = {routing}, num_links = {int(num_links)}>",
+            f"routing_mode = {routing}, num_links = {int(num_links)}{routers}>",
             b.ctx,
         )
 

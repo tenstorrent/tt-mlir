@@ -2897,6 +2897,120 @@ public:
 };
 } // namespace
 
+// router_cores (flat [y,x,...] pairs) of the fabric config of the generic whose
+// thread references this op's enclosing kernel func. Empty == whole grid (no
+// router subset). The generic still exists at D2MToTTKernel time (lowered to
+// ttmetal later) and references its thread funcs by symbol.
+static SmallVector<int64_t> getRouterCores(Operation *op) {
+  auto func = op->getParentOfType<func::FuncOp>();
+  if (!func) {
+    return {};
+  }
+  StringRef funcName = func.getSymName();
+  SmallVector<int64_t> routers;
+  if (auto module = op->getParentOfType<ModuleOp>()) {
+    module.walk([&](d2m::GenericOp generic) {
+      auto cfg = generic.getFabricConnectionConfigAttr();
+      if (!cfg) {
+        return WalkResult::advance();
+      }
+      for (Attribute t : generic.getThreads()) {
+        auto sym = mlir::cast<d2m::ThreadAttr>(t).getKernelSymbol();
+        if (sym && sym.getLeafReference() == funcName) {
+          routers = llvm::to_vector(cfg.getRouterCores());
+          return WalkResult::interrupt();
+        }
+      }
+      return WalkResult::advance();
+    });
+  }
+  return routers;
+}
+
+namespace {
+// is_router_core() := OR over router slots (ry,rx) of
+//   (my_logical_y == ry && my_logical_x == rx); constant true when there is no
+// router subset (whole grid).
+class D2MIsRouterCoreRewriter
+    : public OpConversionPattern<d2m::IsRouterCoreOp> {
+public:
+  using OpConversionPattern<d2m::IsRouterCoreOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::IsRouterCoreOp op, d2m::IsRouterCoreOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op.getLoc();
+    SmallVector<int64_t> routers = getRouterCores(op);
+    if (routers.empty()) {
+      rewriter.replaceOpWithNewOp<arith::ConstantOp>(
+          op, rewriter.getBoolAttr(true));
+      return success();
+    }
+    Value myY = rewriter.create<ttkernel::MyLogicalYOp>(loc);
+    Value myX = rewriter.create<ttkernel::MyLogicalXOp>(loc);
+    Value result;
+    for (size_t i = 0; i + 1 < routers.size(); i += 2) {
+      Value ry = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getIndexAttr(routers[i]));
+      Value rx = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getIndexAttr(routers[i + 1]));
+      Value eqY = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
+                                                 myY, ry);
+      Value eqX = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
+                                                 myX, rx);
+      Value both = rewriter.create<arith::AndIOp>(loc, eqY, eqX);
+      result =
+          result ? rewriter.create<arith::OrIOp>(loc, result, both).getResult()
+                 : both;
+    }
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
+// router_direction() := the slot index this core matches (select chain), 0 by
+// default / when there is no router subset.
+class D2MRouterDirectionRewriter
+    : public OpConversionPattern<d2m::RouterDirectionOp> {
+public:
+  using OpConversionPattern<d2m::RouterDirectionOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::RouterDirectionOp op,
+                  d2m::RouterDirectionOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op.getLoc();
+    SmallVector<int64_t> routers = getRouterCores(op);
+    Value result =
+        rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexAttr(0));
+    if (routers.empty()) {
+      rewriter.replaceOp(op, result);
+      return success();
+    }
+    Value myY = rewriter.create<ttkernel::MyLogicalYOp>(loc);
+    Value myX = rewriter.create<ttkernel::MyLogicalXOp>(loc);
+    unsigned numSlots = routers.size() / 2;
+    // Fold from the last slot so earlier slots win on (unexpected) overlap.
+    for (int s = static_cast<int>(numSlots) - 1; s >= 0; --s) {
+      Value ry = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getIndexAttr(routers[2 * s]));
+      Value rx = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getIndexAttr(routers[2 * s + 1]));
+      Value eqY = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
+                                                 myY, ry);
+      Value eqX = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
+                                                 myX, rx);
+      Value both = rewriter.create<arith::AndIOp>(loc, eqY, eqX);
+      Value slot =
+          rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexAttr(s));
+      result = rewriter.create<arith::SelectOp>(loc, both, slot, result);
+    }
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+} // namespace
+
 namespace {
 class D2MDMAWaitRewriter : public OpConversionPattern<d2m::DMAWaitOp> {
 public:
@@ -3507,6 +3621,8 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MDMAWaitRewriter,
                ttkernel::D2MCoreIndexRewriter,
                ttkernel::D2MMeshPositionRewriter,
+               ttkernel::D2MIsRouterCoreRewriter,
+               ttkernel::D2MRouterDirectionRewriter,
                ttkernel::D2MNullTxRewriter,
                ttkernel::D2MIndexedRowCopyRewriter,
                ttkernel::MemRefCollapseRewriter,

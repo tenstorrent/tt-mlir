@@ -313,6 +313,25 @@ def mesh_position(dim):
     return d2m.mesh_position(dim)
 
 
+@syntax("is_router_core")
+def is_router_core():
+    """True on cores assigned to issue fabric ops, per this kernel's
+    `fabric_config(router_cores=...)`. Branch on it (``if is_router_core():``)
+    to gate fabric work (device_synchronize / cross-device remote_store) to the
+    router cores. With no `router_cores` (the whole grid), always true. See
+    tools/d2m-jit/fabric_router_cores_design.md."""
+    return d2m.is_router_core()
+
+
+@syntax("router_direction")
+def router_direction():
+    """This router core's (link, direction) slot index: slot ``i`` is routing
+    plane ``i // cores_per_link``, direction ``i % cores_per_link`` (forward /
+    backward). Switch on it inside an ``is_router_core()`` branch to address the
+    correct neighbor. Returns 0 by default; undefined on non-router cores."""
+    return d2m.router_direction()
+
+
 # --- Block-level elementwise free functions ---------------------------------
 #
 # Each op wraps the per-tile d2m.tile_* builder in a linalg.generic over a
