@@ -216,4 +216,11 @@ table FabricConnectionConfig {
   cluster_axis: uint32;
   routing_mode: RoutingMode;
   num_links: uint32;
+  // Optional subset of worker cores assigned to issue fabric ops: a flat list
+  // of (y, x) logical grid coordinate pairs, one per (link, direction) slot
+  // (slot i -> routing plane i / cores_per_link, direction i % cores_per_link).
+  // Empty == the whole kernel grid (legacy). The runtime wires fabric
+  // connections only to these cores; the kernel gates fabric work to them via
+  // is_router_core(). See tools/d2m-jit/fabric_router_cores_design.md.
+  router_cores: [int];
 }
