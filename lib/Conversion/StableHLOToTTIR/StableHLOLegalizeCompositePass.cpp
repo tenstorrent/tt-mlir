@@ -322,13 +322,157 @@ public:
       auto moduleOp = srcOp->getParentOfType<mlir::ModuleOp>();
       auto meshOps = shardy_utils::getMeshOps(moduleOp);
       if (!meshOps.empty()) {
-        auto sharding = shardy_utils::getOperandShardingAttr(
-            srcOp->getOpOperand(0), meshOps[0]);
+        // Walk back through pass-through ops to find a value whose sharding
+        // can be resolved, tracking which dim of the walked-back value
+        // corresponds to the original topk dim. Frontends (e.g. torch_xla)
+        // emit reshape/transpose/dot_general chains between sharded block
+        // args and composites; querying the immediate operand returns the
+        // replicated default and silently disables the distributed lowering.
+        Value shardingSource = srcOp.getOperand(0);
+        int64_t trackedDim = topkDim;
+        auto findReshapeMappedDim =
+            [](llvm::ArrayRef<int64_t> outShape,
+               llvm::ArrayRef<int64_t> inShape,
+               int64_t outDim) -> std::optional<int64_t> {
+          // Handle unit-dim noise (e.g. (B,V) <-> (1,B,V)) by matching
+          // non-unit dims by ordinal. Bail on non-trivial merges/splits.
+          if (outDim < 0 || outDim >= static_cast<int64_t>(outShape.size())) {
+            return std::nullopt;
+          }
+          if (outShape[outDim] == 1) {
+            return std::nullopt;
+          }
+          int64_t nonUnitPos = 0;
+          for (int64_t i = 0; i < outDim; ++i) {
+            if (outShape[i] != 1) {
+              nonUnitPos++;
+            }
+          }
+          int64_t count = 0;
+          for (int64_t i = 0; i < static_cast<int64_t>(inShape.size()); ++i) {
+            if (inShape[i] == 1) {
+              continue;
+            }
+            if (count == nonUnitPos) {
+              return inShape[i] == outShape[outDim]
+                         ? std::optional<int64_t>(i)
+                         : std::nullopt;
+            }
+            count++;
+          }
+          return std::nullopt;
+        };
+        bool walkOk = true;
+        while (walkOk) {
+          mlir::Operation *def = shardingSource.getDefiningOp();
+          if (!def) {
+            break; // Reached a BlockArgument; query sharding from manual
+                   // computation's in_shardings.
+          }
+          if (auto reshape =
+                  llvm::dyn_cast<mlir::stablehlo::ReshapeOp>(def)) {
+            auto outShape = mlir::cast<mlir::RankedTensorType>(
+                                reshape.getType())
+                                .getShape();
+            auto inShape = mlir::cast<mlir::RankedTensorType>(
+                               reshape.getOperand().getType())
+                               .getShape();
+            auto mapped = findReshapeMappedDim(outShape, inShape, trackedDim);
+            if (!mapped) {
+              walkOk = false;
+              break;
+            }
+            trackedDim = *mapped;
+            shardingSource = reshape.getOperand();
+            continue;
+          }
+          if (auto transpose =
+                  llvm::dyn_cast<mlir::stablehlo::TransposeOp>(def)) {
+            auto perm = transpose.getPermutation();
+            if (trackedDim < 0 ||
+                trackedDim >= static_cast<int64_t>(perm.size())) {
+              walkOk = false;
+              break;
+            }
+            trackedDim = perm[trackedDim];
+            shardingSource = transpose.getOperand();
+            continue;
+          }
+          if (auto sel = llvm::dyn_cast<mlir::stablehlo::SelectOp>(def)) {
+            // select(cond, on_true, on_false): on_true and on_false have the
+            // same shape and same sharding implications for the result.
+            // Walk through on_true (operand 1), skipping the condition.
+            shardingSource = sel.getOnTrue();
+            continue;
+          }
+          if (auto dot = llvm::dyn_cast<mlir::stablehlo::DotGeneralOp>(def)) {
+            auto dnums = dot.getDotDimensionNumbers();
+            auto batchLhs = dnums.getLhsBatchingDimensions();
+            auto batchRhs = dnums.getRhsBatchingDimensions();
+            auto contractLhs = dnums.getLhsContractingDimensions();
+            auto contractRhs = dnums.getRhsContractingDimensions();
+            auto lhsShape = mlir::cast<mlir::RankedTensorType>(
+                                dot.getLhs().getType())
+                                .getShape();
+            auto rhsShape = mlir::cast<mlir::RankedTensorType>(
+                                dot.getRhs().getType())
+                                .getShape();
+            int64_t numBatch = batchLhs.size();
+            // Output layout: [batch_dims, lhs_other_dims, rhs_other_dims].
+            if (trackedDim < numBatch) {
+              trackedDim = batchLhs[trackedDim];
+              shardingSource = dot.getLhs();
+              continue;
+            }
+            int64_t pos = trackedDim - numBatch;
+            llvm::SmallVector<int64_t> lhsOther;
+            for (int64_t i = 0; i < static_cast<int64_t>(lhsShape.size());
+                 ++i) {
+              if (!llvm::is_contained(batchLhs, i) &&
+                  !llvm::is_contained(contractLhs, i)) {
+                lhsOther.push_back(i);
+              }
+            }
+            if (pos < static_cast<int64_t>(lhsOther.size())) {
+              trackedDim = lhsOther[pos];
+              shardingSource = dot.getLhs();
+              continue;
+            }
+            llvm::SmallVector<int64_t> rhsOther;
+            for (int64_t i = 0; i < static_cast<int64_t>(rhsShape.size());
+                 ++i) {
+              if (!llvm::is_contained(batchRhs, i) &&
+                  !llvm::is_contained(contractRhs, i)) {
+                rhsOther.push_back(i);
+              }
+            }
+            int64_t rhsPos = pos - lhsOther.size();
+            if (rhsPos < static_cast<int64_t>(rhsOther.size())) {
+              trackedDim = rhsOther[rhsPos];
+              shardingSource = dot.getRhs();
+              continue;
+            }
+            walkOk = false;
+            break;
+          }
+          // Unknown op — stop and query sharding on what we have.
+          break;
+        }
+        if (walkOk && shardingSource.use_empty()) {
+          walkOk = false;
+        }
+        auto sharding =
+            walkOk
+                ? shardy_utils::getOperandShardingAttr(
+                      *shardingSource.use_begin(), meshOps[0])
+                : shardy_utils::getOperandShardingAttr(
+                      srcOp->getOpOperand(0), meshOps[0]);
+        int64_t queryDim = walkOk ? trackedDim : topkDim;
         auto dimShardings = sharding.getDimShardings();
-        if (topkDim < static_cast<int64_t>(dimShardings.size()) &&
-            !dimShardings[topkDim].getAxes().empty()) {
+        if (queryDim < static_cast<int64_t>(dimShardings.size()) &&
+            !dimShardings[queryDim].getAxes().empty()) {
           llvm::StringRef axisName =
-              dimShardings[topkDim].getAxes()[0].getName();
+              dimShardings[queryDim].getAxes()[0].getName();
           for (auto [idx, axis] :
                llvm::enumerate(meshOps[0].getMeshAttr().getAxes())) {
             if (axis.getName() == axisName) {
