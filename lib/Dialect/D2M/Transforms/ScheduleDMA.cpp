@@ -309,6 +309,28 @@ public:
       return WalkResult::advance();
     });
 
+    // Multiple cross-device fabric sends must stay on a single DM thread. Each
+    // NOC thread that issues a fabric op creates and tears down its own
+    // fabric_connection_manager (setup_fabric_connections /
+    // close_fabric_connections); two managers racing the same link on one core
+    // deadlock. A *single* fabric send is safe on whatever thread it lands on,
+    // and pinning is actively harmful there -- a fused matmul+all_gather needs
+    // the matmul to split its reader/writer across DM threads (only the
+    // device_synchronize barrier is pinned, below), so collapsing it to one
+    // thread breaks the matmul CB handshake. Only pin when >1 fabric send (a
+    // cross-device remote_store, i.e. with a startDevice mcast range) would
+    // otherwise be distributed across threads -- e.g. a per-tile streaming
+    // all_gather.
+    unsigned numFabricSends = 0;
+    dmBlock->walk([&](RemoteStoreOp store) {
+      if (!store.getStartDevice().empty()) {
+        ++numFabricSends;
+      }
+    });
+    if (numFabricSends > 1) {
+      keepSingleDMThread = true;
+    }
+
     // Collect all DMA operations and their CB associations.
     SmallVector<std::pair<Operation *, unsigned>> dmaOps;
     collectDMAOps(dmBlock, dmaOps);
