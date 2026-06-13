@@ -238,10 +238,10 @@ The legal statement grammar (derived from `_SUPPORTED_NODES` and the
 `visit_*` methods):
 
 ```
-kernel        ::= ("def" | "async def") NAME "(" params ")" ":" suite
+kernel        ::= "def" NAME "(" params ")" ":" suite
 suite         ::= statement+
 statement     ::= assign | aug_assign | for_stmt | if_stmt
-                | expr_stmt | return_stmt | "pass"
+                | expr_stmt | return_stmt
 assign        ::= NAME "=" expr                      # single target only
 aug_assign    ::= NAME augop expr                    # += -= *= /= etc.
 for_stmt      ::= "for" NAME "in" "range" "(" args ")" ":" suite
@@ -263,16 +263,14 @@ Statement-level rules:
   multiple targets (`a = b = …`) are **🚧 not supported**.
 - **`AugAssign`** ✅ — `x op= y`; reads `x` from its defining scope and writes
   back. `c += a @ b` is special-cased to in-place matmul accumulation (§6.8).
-- **`async def`** ✅ — treated identically to `def`; enables `yield`/`await`
-  in the body (§5.4).
 - **`return`** ✅ — kernels are `() -> ()`; a bare `return` or `return expr`
   is accepted but the host func is always emitted with no results.
-- **`pass`** ✅.
 
-Statements **not** in the grammar (each 🚧 / rejected): `while`, `break`,
-`continue`, `with`, `try`/`except`, `raise`, nested `def`/`lambda`,
-`global`/`nonlocal`, `del`, `import`, comprehensions, `match`, annotated
-assignments, starred/keyword unpacking in assignment.
+Statements **not** in the grammar (each 🚧 / rejected): `async def`, `await`,
+`yield`, `pass`, `while`, `break`, `continue`, `with`, `try`/`except`,
+`raise`, nested `def`/`lambda`, `global`/`nonlocal`, `del`, `import`,
+comprehensions, `match`, annotated assignments, starred/keyword unpacking in
+assignment.
 
 ### 5.2 Expressions and operators ✅
 
@@ -336,13 +334,6 @@ for k in range(k_blocks):
 # c now holds the reduced result
 ```
 
-### 5.4 Async: `yield` / `await` ⚠️
-
-In an `async def` kernel, `yield x` emits `d2m.YieldOp` and `await x` emits
-`d2m.AwaitOp` (operands may be a single name or a tuple). Intended for
-multi-thread kernel authoring. Constrained: only `Name`/`Tuple` operands are
-accepted.
-
 ---
 
 ## 6. Kernel-body operations
@@ -361,7 +352,7 @@ over the tensor of tiles (`_eltwise_block` / `_matmul_block`).
 | `mesh_position` | `mesh_position(dim)` | ✅ | This device's mesh position along `dim` (0=y, 1=x). `index`. 0 on a 1×1 mesh. |
 | `iter_index` / `block_index` / `block_offset` | — | 🚧 | Alternative iteration-position queries. Meaningful only with `block_factors`/`indexing_maps` forms (§4.1). |
 
-### 6.2 Data movement
+### 6.2 Data movement (point-to-point)
 
 | Op | Signature | Status | Semantics |
 | --- | --- | --- | --- |
@@ -370,6 +361,62 @@ over the tensor of tiles (`_eltwise_block` / `_matmul_block`).
 | `core_read` | `core_read(dst, src, *, core)` | ✅ | Direct core→core L1 read: read core `[y,x]`'s `src` into local `dst` (no device layout). Caller owns synchronization. See [core_read_write_spec.md](core_read_write_spec.md). |
 | `core_write` | `core_write(src, dst, *, core)` | ✅ | Push dual of `core_read`: write local `src` into core `[y,x]`'s `dst`. |
 | `dma_read`/`dma_write`/`dma_wait`/`local_copy`/`indexed_row_copy`/`embedding`/`null_tx` | — | 🚧 | Lower-level DMA primitives (exist in `D2MGenericRegionOps.td`, unexposed). |
+
+### 6.2.1 Core collectives (MPI-style) 🚧
+
+A proposed family of **collective** data-movement ops that coordinate data
+*between cores on the device grid*, with MPI semantics. They are the
+core-grid analogue of the cross-device CCL ops (`device_synchronize`,
+mesh-level all-gather): same collective shapes, but the "communicator" is a
+set of worker cores rather than a set of mesh devices, and the transport is
+the on-chip NoC (the `core_read`/`core_write` mechanism, §6.2) rather than the
+fabric. None are implemented yet; this subsection fixes the intended surface.
+
+**Communicator model.** Each collective runs over a *group* of cores:
+
+- **Default group** — all cores on the kernel's `grid` (one communicator).
+- `axis=` (0=y, 1=x) — restrict the collective to one grid dimension: cores
+  sharing the *other* coordinate form one independent group (so `axis=1`
+  gives per-row collectives, `axis=0` per-column). Mirrors `cluster_axis` in
+  `fabric_config`.
+- `group=(start_index, shape)` — an explicit rectangular sub-grid range
+  (same shape as the `mcast_start_index`/`mcast_shape` operands of
+  `remote_load`), for collectives over a sub-tile of the grid.
+
+**Rank ordering.** Within a group, a core's rank is row-major over the group's
+extent (`rank = local_y * group_width + local_x`); for an `axis` collective it
+is the core's position along that axis. Gather/scatter/all-to-all chunk order
+follows this rank.
+
+**Reduction op.** `op` is a compile-time literal (an attribute arg, like
+`clamp_scalar`): one of `"sum"`, `"max"`, `"min"`, `"prod"`. Reductions are
+elementwise over the tile block.
+
+**Buffers.** `src`/`dst` are in-kernel L1 blocks (tile-tensors, §2.5) — no
+device layout, exactly like `core_read`/`core_write`. Send/receive buffer
+sizing follows MPI: gather/scatter/reduce-scatter/all-to-all relate `src` and
+`dst` by a `group_size` factor as noted per op.
+
+**Synchronization.** Unlike the raw `core_read`/`core_write` primitives (where
+the caller owns all semaphore handshakes), a collective is **self-contained**:
+it emits the internal NoC handshakes needed for correctness, and (except where
+noted) implies a barrier across the group on completion. This is the primary
+value-add over hand-rolling collectives out of `core_read`/`core_write`.
+
+`root` (rooted collectives) is a core coordinate `[y, x]` (an `axis`
+collective takes the root's index along that axis).
+
+| Op | MPI analogue | Signature | Semantics |
+| --- | --- | --- | --- |
+| `core_broadcast` | `MPI_Bcast` | `core_broadcast(buf, *, root, axis=None, group=None)` | `root`'s `buf` is copied to every core's `buf` (in place). |
+| `core_gather` | `MPI_Gather` | `core_gather(dst, src, *, root, axis=None, group=None)` | Every core sends `src`; `root`'s `dst` (size `group_size × src`) holds the rank-ordered concatenation. `dst` is meaningful only on `root`. |
+| `core_all_gather` | `MPI_Allgather` | `core_all_gather(dst, src, *, axis=None, group=None)` | Like `core_gather`, but *every* core's `dst` receives the full concatenation. |
+| `core_scatter` | `MPI_Scatter` | `core_scatter(dst, src, *, root, axis=None, group=None)` | `root`'s `src` (size `group_size × dst`) is split into rank-ordered chunks; chunk `r` lands in rank `r`'s `dst`. |
+| `core_reduce` | `MPI_Reduce` | `core_reduce(dst, src, op, *, root, axis=None, group=None)` | Elementwise `op`-reduction of every core's `src` across the group; result in `root`'s `dst` (same shape as `src`). |
+| `core_all_reduce` | `MPI_Allreduce` | `core_all_reduce(dst, src, op, *, axis=None, group=None)` | Like `core_reduce`, but the reduced result lands in *every* core's `dst`. |
+| `core_reduce_scatter` | `MPI_Reduce_scatter` | `core_reduce_scatter(dst, src, op, *, axis=None, group=None)` | `src` is `group_size` chunks; reduce across cores chunk-wise, then rank `r` receives reduced chunk `r` in `dst`. |
+| `core_all_to_all` | `MPI_Alltoall` | `core_all_to_all(dst, src, *, axis=None, group=None)` | `src`/`dst` are `group_size` chunks each; chunk `j` of rank `i` is delivered to slot `i` of rank `j`'s `dst` (transpose). |
+| `core_synchronize` | `MPI_Barrier` | `core_synchronize(*, axis=None, group=None)` | Barrier: every core in the group blocks until all have arrived. Cross-core analogue of `device_synchronize` (§6.3). |
 
 ### 6.3 Synchronization
 
@@ -527,6 +574,12 @@ Track new ops against `D2MGenericRegionOps.td`: dst/scratch register ops
 (`push`/`pop`/`reserve`), masks (`write_col_mask_tile`,
 `write_row_mask_tile`), runtime-arg queries (`get_arg`, `get_block_factor`,
 `get_cb`). See [TODO.md](TODO.md) "Lower-level kernel primitives".
+
+The **MPI-style core collectives** (`core_broadcast`, `core_gather`,
+`core_all_gather`, `core_scatter`, `core_reduce`, `core_all_reduce`,
+`core_reduce_scatter`, `core_all_to_all`, `core_synchronize`) are scoped in
+§6.2.1; they need new `d2m` ops (or a lowering built on `core_read`/
+`core_write` + semaphores) before they can be exposed.
 
 ### 9.4 Template — adding a new kernel-scope op
 
