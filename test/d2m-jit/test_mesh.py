@@ -644,3 +644,119 @@ def test_two_generic_matmul_gather():
             ) @ _shard(b_full, cy, cx)
     assert tuple(result.shape) == (64, 64), result.shape
     assert_pcc(expected, result)
+
+
+@d2m.kernel
+def _mm_col(lhs, rhs, c):
+    # Multicore matmul: each core [cy,cx] computes an independent output tile
+    # c[cy,cx] = lhs[cy,cx] @ rhs[cy,cx]. On grid (2,1) this is a 2-core matmul
+    # producing a 2-row-tile per-device shard C_d.
+    cy = core_index(0)
+    cx = core_index(1)
+    a = remote_load(lhs, [cy, cx])
+    b = remote_load(rhs, [cy, cx])
+    cc = a @ b
+    remote_store(c, [cy, cx], cc)
+
+
+@d2m.kernel
+def _all_gather_mc(in0, out0, start_sem, end_sem):
+    # all_gather of a multi-tile per-device shard. The grid-1 link core reads the
+    # whole (reblocked) per-device shard and fabric-mcasts it to every device.
+    dy = mesh_position(0)
+    cy = core_index(0)
+    cx = core_index(1)
+    device_synchronize(
+        start_sem,
+        start_device=[dy, 0],
+        mcast_shape=[1, 2],
+        num_receivers=1,
+        core_indices=[cy, cx],
+    )
+    buf = empty([2, 1])  # two row-tiles (the whole per-device shard) on one core
+    buf = remote_load(buf, in0, [0, 0])
+    dx = mesh_position(1)
+    remote_store(
+        out0,
+        [dx, 0],
+        buf,
+        start_device=[dy, 0],
+        device_mcast_shape=[1, 2],
+        semaphore=end_sem,
+        semaphore_indices=[cy, 0],
+    )
+    semaphore_wait(end_sem, 2)
+
+
+@pytest.mark.skipif(
+    torch is None or runtime is None, reason="requires torch + ttmlir runtime"
+)
+@pytest.mark.skipif(_num_devices() < 1, reason="requires a device")
+def test_multicore_matmul_all_gather():
+    """Multicore matmul + all_gather on a 1x2 mesh -- the full-grid target shape,
+    built as the two-generic structure the fabric single-core constraint forces.
+
+    Per device d (1x2 column shard of a (64,64) operand pair): a grid-(2,1)
+    matmul generic computes C_d -- core [cy,0] does the independent tile product
+    A_d[cy] @ B_d[cy], giving a 2-row-tile shard C_d = (64,32). reblock(C_d, 1x1)
+    gathers both tiles onto the link core. A grid-(1,1) all_gather generic then
+    reads the whole reblocked C_d and fabric-mcasts it across the line, so every
+    device ends with vstack(C_0, C_1) = (128,32); mesh_gather column-concats the
+    two identical device copies -> (128,64).
+
+    This composes the pieces validated on the way here:
+    - the matmul runs on a *multi-core* grid (vs the grid-1 fused proof), so the
+      matmul and the single-core fabric send cannot share a generic;
+    - they are therefore *two chained generics* (matmul -> all_gather), with the
+      gather correctly ordered after the matmul (test_two_generic_matmul_gather);
+    - reblock(matmul_output) feeds the gather to the link core (design sketch
+      fused_matmul_allgather_8x8_design.md, step 1).
+    """
+    d2m.mesh((1, 2), topology=("linear", "linear"))
+    L_in = d2m.Layout(
+        shape=(64, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[2, 1]
+    )
+    L_out = d2m.Layout(
+        shape=(128, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[2, 1]
+    )
+    full_a = torch.randn(64, 64, dtype=torch.float32)
+    full_b = torch.randn(64, 64, dtype=torch.float32)
+    a_s = d2m.reblock(
+        d2m.mesh_shard(full_a, L_in, shard_dims=[0, 1], shard_shape=[1, 2]), [2, 1]
+    )
+    b_s = d2m.reblock(
+        d2m.mesh_shard(full_b, L_in, shard_dims=[0, 1], shard_shape=[1, 2]), [2, 1]
+    )
+    c_d = d2m.empty(L_in)
+    out_s = d2m.reblock(d2m.empty(L_out), [2, 1])
+    ss = d2m.global_semaphore(grid_shape=(8, 8))
+    es = d2m.global_semaphore(grid_shape=(8, 8))
+    _mm_col(a_s, b_s, c_d, grid=(2, 1))
+    c_rb = d2m.reblock(c_d, [1, 1])
+    _all_gather_mc(
+        c_rb,
+        out_s,
+        ss,
+        es,
+        grid=(1, 1),
+        fabric=d2m.fabric_config(
+            cluster_axis=1, topology="linear", routing="bidir_line_mesh"
+        ),
+    )
+    out_s = d2m.mesh_gather(out_s, shard_dims=[0, 1], shard_shape=[1, 2])
+    result = out_s.to_host()
+
+    per_device = []
+    for d in range(2):
+        a_d = full_a[:, 32 * d : 32 * (d + 1)]
+        b_d = full_b[:, 32 * d : 32 * (d + 1)]
+        cd = torch.zeros(64, 32, dtype=torch.float32)
+        for cy in range(2):
+            cd[32 * cy : 32 * (cy + 1), :] = (
+                a_d[32 * cy : 32 * (cy + 1), :] @ b_d[32 * cy : 32 * (cy + 1), :]
+            )
+        per_device.append(cd)
+    stacked = torch.cat([per_device[0], per_device[1]], dim=0)  # (128, 32)
+    expected = torch.cat([stacked, stacked], dim=1)  # (128, 64)
+    assert tuple(result.shape) == (128, 64), result.shape
+    assert_pcc(expected, result)
