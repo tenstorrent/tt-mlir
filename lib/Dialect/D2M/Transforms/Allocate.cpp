@@ -1232,6 +1232,23 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     for (const auto &[genericOp, genericCtx] : analysis.generics) {
       const auto &genericOpRef = genericOp;
       for (const OperandContext &operandCtx : genericCtx.operands) {
+        // Aliased-store copy-elision rewrites a remote_store's local buffer to
+        // an alias of the output, so the producer writes the output shard
+        // directly. operand_alias resolves to *this core's single local output
+        // shard*, regardless of the store's index. That is only valid for a
+        // UNIQUE store to the operand (one local buffer <-> one local shard).
+        // A gather/scatter -- more than one remote_store to the same output,
+        // each to a different shard -- would alias every dst to that one local
+        // shard and clobber (e.g. a grid-1 generic gathering N shards: matmul
+        // -> core_read all-gather, or a remote_load reblock). So skip the
+        // elision entirely when the operand has multiple stores.
+        unsigned numStoresToOperand = 0;
+        genericOpRef->walk([&](RemoteStoreOp s) {
+          if (s.getMemref() == operandCtx.operand->get()) {
+            ++numStoresToOperand;
+          }
+        });
+
         genericOpRef->walk([&](RemoteStoreOp remoteStoreOp) {
           //  Check we don't already have aliased load since we can't alias
           //  DMA on both sides
@@ -1253,14 +1270,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             if (!mlir::isa_and_nonnull<memref::AllocOp>(allocOp)) {
               return WalkResult::advance();
             }
-            // Skip the copy-elision when the buffer is a core_read
-            // destination: it holds gathered cross-core data that must be
-            // explicitly stored, possibly to a *remote* output shard. Aliasing
-            // it to this core's local output shard is wrong, and several gather
-            // dsts (one per gathered tile) would all alias the same local shard
-            // and clobber each other (e.g. a matmul -> core_read all-gather).
-            // (core_write is the opposite: its dst is the peer-written buffer,
-            // and aliasing it to the output is the intended copy-elision.)
+            // Also skip when the buffer is a core_read destination: it holds
+            // gathered cross-core data destined for a possibly-*remote* output
+            // shard, which the local-shard alias gets wrong even for a single
+            // store. (core_write is the opposite -- its dst is the peer-written
+            // buffer, and aliasing it to the output is the intended elision.)
             if (llvm::any_of(allocOp->getUsers(), [](Operation *user) {
                   return mlir::isa<CoreReadOp>(user);
                 })) {
