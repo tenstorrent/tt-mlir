@@ -102,7 +102,14 @@ def _to_runtime_data_type(dtype):
 class FabricConfig:
     """Host-side description of a generic's 1D fabric connection."""
 
-    __slots__ = ("cluster_axis", "topology", "routing", "noc", "num_links")
+    __slots__ = (
+        "cluster_axis",
+        "topology",
+        "routing",
+        "noc",
+        "num_links",
+        "router_cores",
+    )
 
     _ROUTING_BY_TOPOLOGY = {
         "linear": "bidir_line_mesh",
@@ -116,6 +123,7 @@ class FabricConfig:
         routing=None,
         noc="noc0",
         num_links=1,
+        router_cores=None,
     ):
         if (
             not isinstance(cluster_axis, int)
@@ -152,24 +160,60 @@ class FabricConfig:
                 f"fabric num_links must be a positive integer, got {num_links!r}"
             )
 
+        router_cores = [] if router_cores is None else list(router_cores)
+        flattened_router_cores = []
+        seen_router_cores = set()
+        for coordinate in router_cores:
+            if (
+                not isinstance(coordinate, (list, tuple))
+                or len(coordinate) != 2
+                or any(
+                    not isinstance(value, int) or isinstance(value, bool) or value < 0
+                    for value in coordinate
+                )
+            ):
+                raise ValueError(
+                    "fabric router_cores entries must be non-negative (y, x) "
+                    f"integer pairs, got {coordinate!r}"
+                )
+            coordinate = tuple(coordinate)
+            if coordinate in seen_router_cores:
+                raise ValueError(
+                    f"fabric router_cores contains duplicate core {coordinate!r}"
+                )
+            seen_router_cores.add(coordinate)
+            flattened_router_cores.extend(coordinate)
+
+        cores_per_link = 2 if routing == "unidir_ring_torus" else 1
+        if len(router_cores) > num_links * cores_per_link:
+            raise ValueError(
+                "fabric router_cores exceeds the configured routing slots: "
+                f"{len(router_cores)} cores for {num_links * cores_per_link} slots"
+            )
+
         self.cluster_axis = cluster_axis
         self.topology = topology
         self.routing = routing
         self.noc = noc
         self.num_links = num_links
+        self.router_cores = tuple(flattened_router_cores)
 
     @property
     def runtime_mode(self):
         return "FABRIC_1D_RING" if self.topology == "ring" else "FABRIC_1D"
 
     def build_attr(self, ctx):
+        router_cores = ""
+        if self.router_cores:
+            values = ", ".join(str(value) for value in self.router_cores)
+            router_cores = f", router_cores = [{values}]"
         return Attribute.parse(
             "#ttcore.fabric_connection_config<"
             f"noc_index = {self.noc}, "
             f"topology = {self.topology}, "
             f"cluster_axis = {self.cluster_axis}, "
             f"routing_mode = {self.routing}, "
-            f"num_links = {self.num_links}>",
+            f"num_links = {self.num_links}{router_cores}>",
             ctx,
         )
 
@@ -180,9 +224,17 @@ def fabric_config(
     routing=None,
     noc="noc0",
     num_links=1,
+    router_cores=None,
 ):
     """Create a validated 1D fabric configuration for a kernel call."""
-    return FabricConfig(cluster_axis, topology, routing, noc, num_links)
+    return FabricConfig(
+        cluster_axis,
+        topology,
+        routing,
+        noc,
+        num_links,
+        router_cores,
+    )
 
 
 # --- Builder singleton -------------------------------------------------------
@@ -2003,6 +2055,13 @@ def _emit_kernel_generic(
                 "supported inside a pattern rewrite or d2m.spatial",
                 cause=TypeError(),
             )
+        for y, x in zip(fabric.router_cores[::2], fabric.router_cores[1::2]):
+            if y >= grid[0] or x >= grid[1]:
+                raise _call_error(
+                    f"fabric router core {(y, x)} is outside kernel grid "
+                    f"{tuple(grid)}",
+                    cause=ValueError(),
+                )
         b.enable_fabric(fabric)
         fabric_attr = fabric.build_attr(b.ctx)
 

@@ -373,6 +373,18 @@ def device_synchronize(
     )
 
 
+@syntax("is_router_core")
+def is_router_core():
+    """Return true on cores selected by ``fabric_config(router_cores=...)``."""
+    return d2m.is_router_core()
+
+
+@syntax("router_direction")
+def router_direction():
+    """Return this router core's link-direction slot index."""
+    return d2m.router_direction()
+
+
 # --- Block-level elementwise free functions ---------------------------------
 #
 # Each op wraps the per-tile d2m.tile_* builder in a linalg.generic over a
