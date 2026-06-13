@@ -3758,8 +3758,9 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
 // ============================================================================
 //
 // Schema is documented end-to-end in
-// `python_package/tt_torch/tt_lang.py::_serialize_compiled_operation`. The
-// shape is::
+// `python_package/tt_torch/tt_lang.py::_serialize_compiled_operation`.
+// Note: The above file lives in tt-xla, not tt-mlir.
+// The shape is::
 //
 //   {
 //     "format_version": 1,

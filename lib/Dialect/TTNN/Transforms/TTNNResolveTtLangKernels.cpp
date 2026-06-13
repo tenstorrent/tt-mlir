@@ -69,7 +69,7 @@ parseMeshShape(llvm::StringRef s, mlir::Operation *errorAnchor) {
   if (s.empty()) {
     return out;
   }
-  llvm::SmallVector<llvm::StringRef, 4> parts;
+  llvm::SmallVector<llvm::StringRef> parts;
   s.split(parts, ',');
   for (llvm::StringRef part : parts) {
     if (part.empty()) {
