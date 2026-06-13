@@ -578,3 +578,69 @@ def test_matmul_all_gather_fused_1x2_roundtrip():
     expected = torch.cat([vstack, vstack], dim=1)  # (64, 64)
     assert tuple(result.shape) == (64, 64), result.shape
     assert_pcc(expected, result)
+
+
+@d2m.kernel
+def _mm_shard(lhs, rhs, c):
+    cy = core_index(0)
+    cx = core_index(1)
+    a = remote_load(lhs, [cy, cx])
+    b = remote_load(rhs, [cy, cx])
+    cc = a @ b
+    remote_store(c, [cy, cx], cc)
+
+
+@d2m.kernel
+def _gather4(c, out):
+    # grid (1,1): one core reads all four shards of C and stores them.
+    g00 = empty([1, 1])
+    g00 = remote_load(g00, c, [0, 0])
+    remote_store(out, [0, 0], g00)
+    g01 = empty([1, 1])
+    g01 = remote_load(g01, c, [0, 1])
+    remote_store(out, [0, 1], g01)
+    g10 = empty([1, 1])
+    g10 = remote_load(g10, c, [1, 0])
+    remote_store(out, [1, 0], g10)
+    g11 = empty([1, 1])
+    g11 = remote_load(g11, c, [1, 1])
+    remote_store(out, [1, 1], g11)
+
+
+@pytest.mark.skipif(
+    torch is None or runtime is None, reason="requires torch + ttmlir runtime"
+)
+@pytest.mark.skipif(_num_devices() < 1, reason="requires a device")
+def test_two_generic_matmul_gather():
+    """Two-generic structure (single device, no fabric) -- the building block for
+    a full-grid matmul + all_gather, where the fabric's single-core constraint
+    forces the matmul (grid N) and the gather/send (grid 1) into separate
+    generics. Here: a grid-(2,2) matmul writes a 4-shard C, then a grid-(1,1)
+    gather generic reads all four shards of C and stores them. Validates (a) two
+    chained generics with the gather correctly ordered after the matmul, (b) a
+    grid-1 generic reading a sharded input, and (c) the aliased-store fix -- the
+    four gather stores must not alias the gather core's single local output
+    shard (Allocate.cpp materializeAliasedLoadStore)."""
+    L = d2m.Layout(
+        shape=(64, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[2, 2]
+    )
+    a_full = torch.randn(64, 64, dtype=torch.float32)
+    b_full = torch.randn(64, 64, dtype=torch.float32)
+    c_d = d2m.empty(L)
+    out_d = d2m.empty(L)
+    _mm_shard(d2m.to_layout(a_full, L), d2m.to_layout(b_full, L), c_d, grid=(2, 2))
+    _gather4(c_d, out_d, grid=(1, 1))
+    result = out_d.to_host()
+
+    # Each shard [cy,cx] is an independent per-tile matmul a[cy,cx] @ b[cy,cx].
+    def _shard(t, cy, cx):
+        return t[cy * 32 : (cy + 1) * 32, cx * 32 : (cx + 1) * 32]
+
+    expected = torch.zeros(64, 64, dtype=torch.float32)
+    for cy in range(2):
+        for cx in range(2):
+            expected[cy * 32 : (cy + 1) * 32, cx * 32 : (cx + 1) * 32] = _shard(
+                a_full, cy, cx
+            ) @ _shard(b_full, cy, cx)
+    assert tuple(result.shape) == (64, 64), result.shape
+    assert_pcc(expected, result)
