@@ -118,20 +118,8 @@ target_link_directories(TTMLIRCompiler PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib)
 target_link_directories(TTMLIRCompiler PRIVATE ${TTMLIR_TOOLCHAIN_DIR}/lib64)
 
 # The tt-lang kernel resolver pass (TTNNResolveTtLangKernelsPython.cpp in
-# MLIRTTNNTransforms) calls into CPython via pybind11, so
-# MLIRTTNNTransforms emits unresolved `Py_*` symbols (libpython). The
-# link dep on `pybind11::embed` inside MLIRTTNNTransforms does NOT
-# reliably propagate through MLIR's `obj.${name}` aggregation to the
-# aggregate compiler libraries (`TTMLIRCompilerStatic`, linked by
-# `ttmlir-opt` and downstream tools), so we attach libpython directly to
-# the aggregate targets here. We link the underlying `Python3::Python`
-# target rather than `pybind11::embed` because `pybind11::embed` is a
-# transitive IMPORTED INTERFACE whose link to `Python3::Python` is
-# itself gated on whether `Development.Embed` was found by pybind11's
-# `find_package(Python ...)` call -- depending on consumer ordering
-# this gate can drop the libpython link silently. The
-# `Python3::Python` target is created here via
-# `find_package(Python3 ... Development REQUIRED)` so we're sure of it.
+# MLIRTTNNTransforms) uses pybind11 but since the actual symbols live in
+# libpython we link against libpython instead
 if(NOT TARGET Python3::Python)
   find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
 endif()
