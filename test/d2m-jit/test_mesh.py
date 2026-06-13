@@ -760,3 +760,116 @@ def test_multicore_matmul_all_gather():
     expected = torch.cat([stacked, stacked], dim=1)  # (128, 64)
     assert tuple(result.shape) == (128, 64), result.shape
     assert_pcc(expected, result)
+
+
+@d2m.kernel
+def _all_gather_stream(in0, out0, start_sem, end_sem):
+    # Streaming all_gather: the link core reads ONE tile of the per-device shard
+    # at a time and fabric-mcasts it immediately, reusing a single 1-tile buffer.
+    # Unlike _all_gather_mc (which reblocks the whole shard onto the link core
+    # and sends it in one shot), this never materialises the whole shard -> L1
+    # use is bounded by one tile regardless of grid, the mechanism that scales to
+    # 8x8. Multiple fabric sends in one generic require ScheduleDMA to keep the
+    # kernel on a single datamovement thread (one fabric_connection_manager);
+    # otherwise the sends split across NOC threads and the two managers deadlock.
+    dy = mesh_position(0)
+    cy = core_index(0)
+    cx = core_index(1)
+    device_synchronize(
+        start_sem,
+        start_device=[dy, 0],
+        mcast_shape=[1, 2],
+        num_receivers=1,
+        core_indices=[cy, cx],
+    )
+    dx = mesh_position(1)
+    b0 = empty([1, 1])
+    b0 = remote_load(b0, in0, [0, 0])
+    remote_store(
+        out0,
+        [dx * 2 + 0, 0],
+        b0,
+        start_device=[dy, 0],
+        device_mcast_shape=[1, 2],
+        semaphore=end_sem,
+        semaphore_indices=[cy, 0],
+    )
+    b1 = empty([1, 1])
+    b1 = remote_load(b1, in0, [1, 0])
+    remote_store(
+        out0,
+        [dx * 2 + 1, 0],
+        b1,
+        start_device=[dy, 0],
+        device_mcast_shape=[1, 2],
+        semaphore=end_sem,
+        semaphore_indices=[cy, 0],
+    )
+    semaphore_wait(end_sem, 4)  # 2 sends x (1 remote + 1 self-inc)
+
+
+@pytest.mark.skipif(
+    torch is None or runtime is None, reason="requires torch + ttmlir runtime"
+)
+@pytest.mark.skipif(_num_devices() < 1, reason="requires a device")
+def test_streaming_matmul_all_gather():
+    """Streaming multicore matmul + all_gather on a 1x2 mesh -- the L1-scalable
+    form of test_multicore_matmul_all_gather. Same grid-(2,1) matmul producing a
+    2-row-tile per-device shard C_d, but the all_gather generic *streams*: it
+    reads one tile of C_d and fabric-mcasts it, reusing a single 1-tile buffer,
+    rather than reblocking the whole shard onto the link core and sending it in
+    one shot. So the link core never holds more than one tile -> bounded L1
+    regardless of grid (the path to 8x8, where an atomic gather of 64 tiles would
+    pressure L1).
+
+    The two fabric sends in one generic exercise ScheduleDMA keeping a fabric
+    kernel on a single datamovement thread (one fabric_connection_manager);
+    distributing the sends across NOC threads deadlocks two managers on one core.
+    """
+    d2m.mesh((1, 2), topology=("linear", "linear"))
+    L_in = d2m.Layout(
+        shape=(64, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[2, 1]
+    )
+    L_out = d2m.Layout(
+        shape=(128, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[4, 1]
+    )
+    full_a = torch.randn(64, 64, dtype=torch.float32)
+    full_b = torch.randn(64, 64, dtype=torch.float32)
+    a_s = d2m.reblock(
+        d2m.mesh_shard(full_a, L_in, shard_dims=[0, 1], shard_shape=[1, 2]), [2, 1]
+    )
+    b_s = d2m.reblock(
+        d2m.mesh_shard(full_b, L_in, shard_dims=[0, 1], shard_shape=[1, 2]), [2, 1]
+    )
+    c_d = d2m.empty(L_in)
+    out_s = d2m.reblock(d2m.empty(L_out), [4, 1])
+    ss = d2m.global_semaphore(grid_shape=(8, 8))
+    es = d2m.global_semaphore(grid_shape=(8, 8))
+    _mm_col(a_s, b_s, c_d, grid=(2, 1))
+    _all_gather_stream(
+        c_d,
+        out_s,
+        ss,
+        es,
+        grid=(1, 1),
+        fabric=d2m.fabric_config(
+            cluster_axis=1, topology="linear", routing="bidir_line_mesh"
+        ),
+    )
+    out_s = d2m.mesh_gather(out_s, shard_dims=[0, 1], shard_shape=[1, 2])
+    result = out_s.to_host()
+
+    per_device = []
+    for d in range(2):
+        a_d = full_a[:, 32 * d : 32 * (d + 1)]
+        b_d = full_b[:, 32 * d : 32 * (d + 1)]
+        cd = torch.zeros(64, 32, dtype=torch.float32)
+        for cy in range(2):
+            cd[32 * cy : 32 * (cy + 1), :] = (
+                a_d[32 * cy : 32 * (cy + 1), :] @ b_d[32 * cy : 32 * (cy + 1), :]
+            )
+        per_device.append(cd)
+    stacked = torch.cat([per_device[0], per_device[1]], dim=0)
+    expected = torch.cat([stacked, stacked], dim=1)
+    assert tuple(result.shape) == (128, 64), result.shape
+    assert_pcc(expected, result)
