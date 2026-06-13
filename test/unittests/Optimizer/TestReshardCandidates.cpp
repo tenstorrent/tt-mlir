@@ -366,3 +366,53 @@ TEST_F(ReshardCandidatesTest, ReshardExplorationK1vsK8) {
   EXPECT_GE(candidatesK8, candidatesK1)
       << "K=8 should produce at least as many candidates as K=1";
 }
+
+TEST_F(ReshardCandidatesTest, ReshardCandidatesProducerIndicesInBounds) {
+  // Verify cache hits still emit candidates; a miss would leave
+  // producerCandidateIndices out of bounds.
+  llvm::SmallVector<int64_t> shape = {1, 1, 32, 32};
+  auto layout = createDRAMInterleavedLayout(shape);
+  auto tensorType =
+      mlir::RankedTensorType::get(shape, builder.getBF16Type(), layout);
+
+  createFuncOp({tensorType, tensorType}, {tensorType});
+  mlir::Value arg0 = func.getBody().front().getArgument(0);
+  mlir::Value arg1 = func.getBody().front().getArgument(1);
+
+  auto addOp =
+      builder.create<AddOp>(builder.getUnknownLoc(), tensorType, arg0, arg1);
+  auto reluOp = builder.create<ReluOp>(builder.getUnknownLoc(), tensorType,
+                                       addOp.getResult());
+  auto mulOp = builder.create<MultiplyOp>(builder.getUnknownLoc(), tensorType,
+                                          reluOp.getResult(), arg1);
+  builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),
+                                       mulOp.getResult());
+
+  llvm::DenseMap<mlir::Operation *, std::vector<OpConfig>> legalConfigs;
+  legalConfigs[addOp.getOperation()] = createElementwiseLegalConfigs(shape);
+  legalConfigs[reluOp.getOperation()] = createElementwiseLegalConfigs(shape);
+  legalConfigs[mulOp.getOperation()] = createElementwiseLegalConfigs(shape);
+
+  auto bareType = mlir::RankedTensorType::get(shape, builder.getBF16Type());
+  TensorTypeLayoutsMap tensorLayouts =
+      buildTensorTypeLayoutsMap(bareType, shape);
+
+  constexpr size_t kBeamWidth = 8;
+  MemoryLayoutPropagation propagation(func, legalConfigs, &tensorLayouts,
+                                      kBeamWidth);
+  propagation.run();
+
+  const auto &beamState = propagation.getBeamState();
+  for (const auto &[op, candidates] : beamState) {
+    for (const auto &candidate : candidates) {
+      for (size_t opIdx = 0;
+           opIdx < candidate.producerCandidateIndices.size(); ++opIdx) {
+        if (candidate.reshardLayouts.count(opIdx) == 0) {
+          continue;
+        }
+        EXPECT_LT(candidate.producerCandidateIndices[opIdx], kBeamWidth)
+            << "Reshard candidate has out-of-bounds producerCandidateIndex";
+      }
+    }
+  }
+}

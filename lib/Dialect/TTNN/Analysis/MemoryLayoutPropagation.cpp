@@ -856,6 +856,9 @@ void MemoryLayoutPropagation::addReshardCandidates(
     if (candidates.size() >= maxCandidates) {
       break;
     }
+    // Skip redundant validateReshard calls: multiple beam entries can share the
+    // same producerOutput layout, making (producerOutput, reshardLayout) repeat.
+    llvm::SmallVector<std::pair<TTNNLayoutAttr, bool>, 8> validationCache;
     for (size_t pIdx = 0; pIdx < producerBeamSize; ++pIdx) {
       if (candidates.size() >= maxCandidates) {
         break;
@@ -872,8 +875,21 @@ void MemoryLayoutPropagation::addReshardCandidates(
       if (!producerOutput) {
         continue;
       }
-      if (!validateReshard(op, tensorType.getShape(), producerOutput,
-                           reshardLayout)) {
+      bool valid = false;
+      bool found = false;
+      for (const auto &[cachedLayout, cachedValid] : validationCache) {
+        if (cachedLayout == producerOutput) {
+          valid = cachedValid;
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        valid = validateReshard(op, tensorType.getShape(), producerOutput,
+                                reshardLayout);
+        validationCache.push_back({producerOutput, valid});
+      }
+      if (!valid) {
         continue;
       }
       InputCandidate ic;
