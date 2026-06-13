@@ -941,12 +941,16 @@ static flatbuffers::Offset<target::FabricConnectionConfig>
 fabricConnectionConfigToFlatbuffer(
     FlatbufferObjectCache &cache,
     ttcore::FabricConnectionConfigAttr fabricConnectionConfig) {
+  std::vector<int32_t> routerCores(
+      fabricConnectionConfig.getRouterCores().begin(),
+      fabricConnectionConfig.getRouterCores().end());
   return target::CreateFabricConnectionConfig(
       *cache.fbb, toFlatbuffer(cache, fabricConnectionConfig.getNocIndex()),
       toFlatbuffer(cache, fabricConnectionConfig.getTopology()),
       fabricConnectionConfig.getClusterAxis(),
       toFlatbuffer(cache, fabricConnectionConfig.getRoutingMode()),
-      fabricConnectionConfig.getNumLinks());
+      fabricConnectionConfig.getNumLinks(),
+      cache.fbb->CreateVector(routerCores));
 }
 
 static flatbuffers::Offset<target::metal::KernelConfig>
