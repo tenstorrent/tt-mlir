@@ -608,10 +608,10 @@ binary_bitwise_ops = [
 ]
 
 binary_bitwise_dtypes = [
-    torch.int32 | SkipIf("sim"),
-    torch.uint32 | SkipIf("sim"),
-    torch.uint16 | SkipIf("sim"),
-    torch.uint8 | SkipIf("sim"),
+    torch.int32 | SkipIf(["n150", "sim"]),
+    torch.uint32 | SkipIf(["n150", "sim"]),
+    torch.uint16,
+    torch.uint8,
 ]
 
 
@@ -674,9 +674,9 @@ binary_logical_shift_ops = [
 ]
 
 binary_logical_shift_dtypes = [
-    torch.int32 | SkipIf("sim"),
-    torch.uint32 | SkipIf("sim"),
-    torch.uint16 | SkipIf("sim"),
+    torch.int32 | SkipIf(["n150", "sim"]),
+    torch.uint32 | SkipIf(["n150", "sim"]),
+    torch.uint16,
 ]
 
 
@@ -706,7 +706,7 @@ def test_logical_shift_binary_ops(
 
 
 binary_right_shift_dtypes = [
-    torch.int32 | SkipIf("sim"),
+    torch.int32 | SkipIf(["n150", "sim"]),
 ]
 
 
@@ -776,7 +776,7 @@ def _logical_right_shift_edge_golden(
     "op_name",
     ["logical_left_shift", "logical_right_shift", "right_shift"],
 )
-@pytest.mark.skip_config(["sim"])
+@pytest.mark.skip_config(["n150", "sim"])
 def test_shift_binary_ops_edge_cases(
     shape: Shape, target: str, op_name: str, request, device
 ):

@@ -56,7 +56,7 @@ cp third_party/tt-metal/src/tt-metal/tt_metal/soc_descriptors/blackhole_140_arch
   ttsim/vX.Y.Z/blackhole/soc_descriptor.yaml
 ```
 
-Before every local command, avoid re-activation path corruption:
+Before every local command, avoid re-activation path corruption. Do not source `env/activate` under `set -u`; the activation script expects unset variables during initialization.
 
 ```bash
 unset BUILD_DIR
@@ -88,6 +88,7 @@ ttrt query --save-artifacts --artifact-dir "$TT_METAL_SIMULATOR_HOME/ttrt-artifa
 3. Prefer precise marks: skip a dtype, shape, op, or arch-specific case instead of an entire file/test.
 4. Keep non-simulator skips intact. For example, `SkipIf("ttnn", "emitc", "emitpy", "sim")` should usually become `SkipIf("ttnn", "emitc", "emitpy")` if the op now passes on WH/BH TTSim.
 5. If a run aborts inside TTSim, isolate with a single pytest node or a narrow `-k` expression and keep/add the smallest simulator skip that avoids the abort.
+6. When validating a skip refresh, collect the simulator-only node IDs and run them in isolated pytest subprocesses. This keeps one TTSim `UndefinedBehavior` abort from hiding the rest of the skip list. Exclude unconditional `pytest.mark.skip` cases from the executable checklist, but record them separately so they are not mistaken for validated simulator passes.
 
 Run raw pytest through the venv Python for readable output; the local `pytest` console script may summarize through tools like `rtk` and hide details:
 
