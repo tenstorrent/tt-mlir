@@ -48,9 +48,9 @@ func.func @scatter_simple_3(%arg0: tensor<71x32xbf16>, %arg1: tensor<71x4x2xi64>
   // CHECK: "ttnn.reshape"({{.*}}) <{shape = [2272 : i32]}>
   // flatten updates:
   // CHECK: "ttnn.reshape"({{.*}}) <{shape = [284 : i32]}>
-  // Scatter is broken into chunks where index_shape[dim] < 256.
-  // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<invalid>}> : (tensor<2272xbf16, {{.*}}>, tensor<256xsi32, {{.*}}>, tensor<256xbf16, {{.*}}>) -> tensor<2272xbf16, {{.*}}>
-  // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<invalid>}> : (tensor<2272xbf16, {{.*}}>, tensor<28xsi32, {{.*}}>, tensor<28xbf16, {{.*}}>) -> tensor<2272xbf16, {{.*}}>
+  // Single scatter op — the operand workaround converts the int32 index tensor
+  // to row-major, avoiding the 256-element tiled limit.
+  // CHECK: "ttnn.scatter"({{.*}}) <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<invalid>}> : (tensor<2272xbf16, {{.*}}>, tensor<284xsi32, {{.*}}>, tensor<284xbf16, {{.*}}>) -> tensor<2272xbf16, {{.*}}>
   // reshape flattened output to expected output shape
   // CHECK: "ttnn.reshape"({{.*}}) <{shape = [71 : i32, 32 : i32]}>
 }

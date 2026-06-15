@@ -69,7 +69,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/LinearOpRewritePattern.cpp
         Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.cpp
         Workarounds/Decomposition/ReduceScatterOpRewritePattern.cpp
-        Workarounds/Decomposition/ScatterOpRewritePattern.cpp
         Workarounds/Decomposition/SliceStaticOpRewritePattern.cpp
         Workarounds/Decomposition/ScaledDotProductAttentionDecodeAttentionSinkRewritePattern.cpp
         Workarounds/Decomposition/ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern.cpp
