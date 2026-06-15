@@ -12,7 +12,13 @@ from golden.mapping import mlir_datatype_to_torch_dtype, mlir_type_to_torch_dtyp
 from golden.metrics import get_atol_rtol_pcc
 
 from .exceptions import ChiselFailure, DtypeMismatch, ShapeMismatch
-from .report import ChiselRecord, NumericsMode, NumericsPayload, RecordStatus
+from .report import (
+    ChiselRecord,
+    NumericsMode,
+    NumericsPayload,
+    RecordStatus,
+    SkippedNumericsPayload,
+)
 
 logger = logging.getLogger("chisel")
 
@@ -72,6 +78,32 @@ def _extract_shape_dtype(source) -> tuple[list, torch.dtype]:
             mlir_datatype_to_torch_dtype(source.get_dtype()),
         )
     raise TypeError(f"cannot extract shape/dtype from {type(source).__name__}")
+
+
+def emit_pcc(
+    ctx,
+    op,
+    ssa: str,
+    mlir_value,
+    golden_out: GoldenMapTensor,
+    device_tensor: GoldenMapTensor,
+    *,
+    mode: NumericsMode,
+    skip_pcc: bool,
+) -> None:
+    """Shape/dtype + PCC for one (golden, device) pair under `mode`."""
+    check_shape_dtype(op, "mlir_vs_golden", mlir_value, golden_out)
+    if skip_pcc:
+        ctx.write_record(
+            ChiselRecord(
+                op=op.name,
+                check="numerics",
+                ssa=ssa,
+                payload=SkippedNumericsPayload(mode=mode),
+            )
+        )
+        return
+    check_numerics(ctx, op, ssa, golden_out, device_tensor, mode=mode)
 
 
 def check_shape_dtype(op, check: str, expected, actual) -> None:

@@ -8,7 +8,12 @@ from typing import Callable, Dict, Optional, Type
 from ttmlir.dialects import func, ttcore, ttnn
 from ttmlir.ir import OpView
 
-from .op_handlers import _deallocate_pre_op, _noop_post_op
+from .op_handlers import (
+    _deallocate_pre_op,
+    _noop_post_op,
+    _subprogram_post_op,
+    _subprogram_pre_op,
+)
 
 logger = logging.getLogger("chisel")
 
@@ -39,7 +44,6 @@ def default_configs() -> Dict[Type[OpView], ChiselOpConfig]:
         # ttnn.generic: IR output count = 0 but FB output count = 1.
         ttnn.GenericOp: ChiselOpConfig(no_golden=True),
         # Non-executable ops (device handles, I/O, control flow): no golden to run.
-        func.CallOp: ChiselOpConfig(no_golden=True),
         ttnn.GetDeviceOp: ChiselOpConfig(no_golden=True),
         ttnn.LoadTensorOp: ChiselOpConfig(no_golden=True),
         # Custom pre_op evicts inputs from the golden pool
@@ -47,7 +51,19 @@ def default_configs() -> Dict[Type[OpView], ChiselOpConfig]:
             pre_op=_deallocate_pre_op,
             post_op=_noop_post_op,
         ),
-        ttcore.LoadCachedOp: ChiselOpConfig(no_golden=True),
+        # Sub-program ops: chain the parent's golden through the callee via
+        # the cross-program globalId pool. Pre-op publishes parent inputs by
+        # globalId; post-op reads sub-program outputs by globalId.
+        func.CallOp: ChiselOpConfig(
+            no_golden=True,
+            pre_op=_subprogram_pre_op,
+            post_op=_subprogram_post_op,
+        ),
+        ttcore.LoadCachedOp: ChiselOpConfig(
+            no_golden=True,
+            pre_op=_subprogram_pre_op,
+            post_op=_subprogram_post_op,
+        ),
         # Trace / control-flow / I/O ops.
         ttnn.AllocOp: ChiselOpConfig(no_golden=True),
         ttnn.BeginTraceCaptureOp: ChiselOpConfig(no_golden=True),

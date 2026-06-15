@@ -1200,6 +1200,26 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
       });
 }
 
+bool registerPoolTensorDestroyCallback(CallbackContext programContextHandle,
+                                       TensorRef tensorRef,
+                                       std::function<void(Tensor)> callback) {
+  using RetType = bool;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return tt::runtime::ttnn::registerPoolTensorDestroyCallback(
+            programContextHandle, tensorRef, std::move(callback));
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("registerPoolTensorDestroyCallback",
+                                    DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("registerPoolTensorDestroyCallback",
+                                    HostRuntime::Distributed);
+      });
+}
+
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor srcTensor) {
   using RetType = void;

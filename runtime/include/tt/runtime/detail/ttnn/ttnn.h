@@ -287,6 +287,13 @@ std::optional<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
                        tt::runtime::TensorRef tensorRef, bool untilize);
 
+// Registers a destroy callback on the underlying TTNNTensorWrapper of the
+// pool-resident Tensor for `tensorRef`. Returns false if the tensorRef is
+// not currently in the pool.
+bool registerPoolTensorDestroyCallback(
+    CallbackContext programContextHandle, tt::runtime::TensorRef tensorRef,
+    std::function<void(tt::runtime::Tensor)> callback);
+
 // Update tensor to which tensorRef refers
 // Preferred to be owned tensor to avoid unexpected behavior in case of
 // deallocation
