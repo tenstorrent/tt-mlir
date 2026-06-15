@@ -8091,64 +8091,6 @@ def ttir_sdpa_golden(
     return output.to(output_dtype)
 
 
-def ttir_flash_mla_prefill_golden(
-    query: GoldenMapTensor,
-    key: GoldenMapTensor,
-    value: Optional[GoldenMapTensor],
-    attention_mask: Optional[GoldenMapTensor],
-    head_dim_v_attr: IntegerAttr,
-    is_causal_attr: BoolAttr,
-    scale_attr: Optional[FloatAttr],
-    output_type_mlir: Type,
-) -> GoldenMapTensor:
-    """
-    Golden function for flash_mla_prefill. Mirrors the CPU path in tt-xla's
-    custom op: when `value` is None (MLA-from-latent), V is taken from the
-    first `head_dim_v` features of K.
-    """
-    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-    is_causal = unpack_mlir_attr(is_causal_attr)
-    head_dim_v = unpack_mlir_attr(head_dim_v_attr)
-    scale = unpack_mlir_attr(scale_attr) if scale_attr is not None else None
-
-    if value is None:
-        value_t = key[..., :head_dim_v]
-    else:
-        value_t = value
-
-    q_heads = query.shape[1]
-    kv_heads = key.shape[1]
-    k_eff = key
-    v_eff = value_t
-    if q_heads != kv_heads:
-        assert q_heads % kv_heads == 0
-        num_repeats = q_heads // kv_heads
-        k_eff = torch.repeat_interleave(key, num_repeats, dim=1)
-        v_eff = torch.repeat_interleave(value_t, num_repeats, dim=1)
-
-    if scale is None:
-        scale = 1.0 / (float(query.shape[-1]) ** 0.5)
-
-    qk = torch.matmul(query.float(), k_eff.float().transpose(-2, -1))
-    qk = torch.mul(qk, scale)
-
-    if is_causal and attention_mask is None:
-        seq_len_q = qk.shape[-2]
-        seq_len_k = qk.shape[-1]
-        causal_mask = torch.triu(
-            torch.full((seq_len_q, seq_len_k), float("-inf")), diagonal=1
-        )
-        qk = torch.add(qk, causal_mask)
-
-    if attention_mask is not None:
-        qk = torch.add(qk, attention_mask.float())
-
-    attn_weights = torch.softmax(qk, dim=-1)
-    output = torch.matmul(attn_weights, v_eff.float())
-
-    return output.to(output_dtype)
-
-
 def ttir_paged_sdpa_decode_golden(
     query: GoldenMapTensor,
     key: GoldenMapTensor,
@@ -8506,7 +8448,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.LinearOp: linear_golden,
     ttir.ScaledDotProductAttentionOp: ttir_sdpa_golden,
     ttir.ScaledDotProductAttentionDecodeOp: sdpa_decode_golden,
-    ttir.FlashMlaPrefillOp: ttir_flash_mla_prefill_golden,
     ttir.DotGeneralOp: ttir_dot_general_golden,
     ttir.ScatterOp: ttir_scatter_golden,
     ttir.GatherOp: ttir_gather_golden,
