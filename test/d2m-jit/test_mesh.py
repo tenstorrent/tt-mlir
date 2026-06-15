@@ -873,3 +873,215 @@ def test_streaming_matmul_all_gather():
     expected = torch.cat([stacked, stacked], dim=1)
     assert tuple(result.shape) == (128, 64), result.shape
     assert_pcc(expected, result)
+
+
+# ---------------------------------------------------------------------------
+# Compute-isolation references for the fused matmul + all_gather
+# ---------------------------------------------------------------------------
+#
+# These two kernels are the *fused single-generic* all_gather (producer-done
+# `ready` fence -> router core_read-gathers both row tiles -> fabric-mcasts
+# each across the 1x2 line) with the matmul swapped for a trivial compute.
+# They were the bisection that root-caused the fused-matmul all_gather race:
+#
+#   zeros   -> reads NO input, trivial compute      -> all-gathers correctly
+#   eltwise -> reads ONE input, trivial compute (abs)-> all-gathers correctly
+#   matmul  -> reads TWO inputs via tile_matmul_block-> RACED (garbage/inf)
+#
+# So the core_read + fabric path and the input-streaming handshake are sound;
+# the race was specific to tile_matmul_block, which reads whole CB blocks
+# directly and (unlike the eltwise ops, whose per-tile memref loads carry the
+# consume handshake) was missing the input cb_wait_front/cb_pop_front in the
+# V2 split's compute thread -- it read its inputs before the input DMA landed.
+# Keeping these as regression refs: if the fused matmul ever races again, run
+# these first to confirm the gather/fabric path is still innocent.
+
+
+@d2m.kernel
+def _fused_zeros_all_gather(lhs, out, start_sem, ready, end_sem):
+    # `lhs` is unused on purpose: the compute fills zeros and reads no input,
+    # so a correct all-gather here is independent of inputs AND of the compute.
+    cy = core_index(0)
+    cx = core_index(1)
+    dy = mesh_position(0)
+    if is_router_core():
+        device_synchronize(
+            start_sem,
+            start_device=[dy, 0],
+            mcast_shape=[1, 2],
+            num_receivers=1,
+            core_indices=[cy, cx],
+        )
+    c = zeros([1, 1])
+    semaphore_inc(ready, 1, core=[0, 0], compute=True)  # producer-done fence
+    if is_router_core():
+        semaphore_wait(ready, 2)  # both cores' compute is done
+        dx = mesh_position(1)
+        g0 = empty([1, 1])
+        g0 = core_read(g0, c, core=[0, 0])
+        g1 = empty([1, 1])
+        g1 = core_read(g1, c, core=[1, 0])
+        remote_store(
+            out,
+            [dx * 2 + 0, 0],
+            g0,
+            start_device=[dy, 0],
+            device_mcast_shape=[1, 2],
+            semaphore=end_sem,
+            semaphore_indices=[cy, 0],
+        )
+        remote_store(
+            out,
+            [dx * 2 + 1, 0],
+            g1,
+            start_device=[dy, 0],
+            device_mcast_shape=[1, 2],
+            semaphore=end_sem,
+            semaphore_indices=[cy, 0],
+        )
+        semaphore_wait(end_sem, 4)  # 2 sends x (1 remote + 1 self-inc)
+
+
+@pytest.mark.skipif(
+    torch is None or runtime is None, reason="requires torch + ttmlir runtime"
+)
+@pytest.mark.skipif(_num_devices() < 2, reason="requires a >=2-device mesh")
+def test_fused_zeros_all_gather():
+    """Fused single-generic all_gather whose compute is a trivial `zeros` fill
+    (no input). Proves the producer-done fence + cross-core core_read gather +
+    fabric mcast all-gather correctly on a 1x2 mesh, independent of any input
+    or compute -- the compute-isolation baseline for the fused matmul path."""
+    d2m.mesh((1, 2), topology=("linear", "linear"))
+    L_in = d2m.Layout(
+        shape=(64, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[2, 1]
+    )
+    L_out = d2m.Layout(
+        shape=(128, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[4, 1]
+    )
+    full_a = torch.randn(64, 64, dtype=torch.float32)
+    a_s = d2m.reblock(
+        d2m.mesh_shard(full_a, L_in, shard_dims=[0, 1], shard_shape=[1, 2]), [2, 1]
+    )
+    out_s = d2m.reblock(d2m.empty(L_out), [4, 1])
+    ss = d2m.global_semaphore(grid_shape=(8, 8))
+    ready = d2m.global_semaphore(grid_shape=(8, 8), init=0)
+    es = d2m.global_semaphore(grid_shape=(8, 8))
+    _fused_zeros_all_gather(
+        a_s,
+        out_s,
+        ss,
+        ready,
+        es,
+        grid=(2, 1),
+        fabric=d2m.fabric_config(
+            cluster_axis=1,
+            topology="linear",
+            routing="bidir_line_mesh",
+            router_cores=[(0, 0)],
+        ),
+    )
+    out_s = d2m.mesh_gather(out_s, shard_dims=[0, 1], shard_shape=[1, 2])
+    result = out_s.to_host()
+    # All output tiles are the zeros the compute produced. (corrcoef of two
+    # constant tensors is nan, so check the value directly rather than pcc.)
+    assert tuple(result.shape) == (128, 64), result.shape
+    assert torch.isfinite(result).all().item(), result
+    assert result.abs().max().item() < 1e-3, result.abs().max().item()
+
+
+@d2m.kernel
+def _fused_eltwise_all_gather(lhs, out, start_sem, ready, end_sem):
+    cy = core_index(0)
+    cx = core_index(1)
+    dy = mesh_position(0)
+    if is_router_core():
+        device_synchronize(
+            start_sem,
+            start_device=[dy, 0],
+            mcast_shape=[1, 2],
+            num_receivers=1,
+            core_indices=[cy, cx],
+        )
+    a = remote_load(lhs, [cy, cx])
+    c = abs(a)  # read one input + trivial elementwise compute
+    semaphore_inc(ready, 1, core=[0, 0], compute=True)  # producer-done fence
+    if is_router_core():
+        semaphore_wait(ready, 2)
+        dx = mesh_position(1)
+        g0 = empty([1, 1])
+        g0 = core_read(g0, c, core=[0, 0])
+        g1 = empty([1, 1])
+        g1 = core_read(g1, c, core=[1, 0])
+        remote_store(
+            out,
+            [dx * 2 + 0, 0],
+            g0,
+            start_device=[dy, 0],
+            device_mcast_shape=[1, 2],
+            semaphore=end_sem,
+            semaphore_indices=[cy, 0],
+        )
+        remote_store(
+            out,
+            [dx * 2 + 1, 0],
+            g1,
+            start_device=[dy, 0],
+            device_mcast_shape=[1, 2],
+            semaphore=end_sem,
+            semaphore_indices=[cy, 0],
+        )
+        semaphore_wait(end_sem, 4)
+
+
+@pytest.mark.skipif(
+    torch is None or runtime is None, reason="requires torch + ttmlir runtime"
+)
+@pytest.mark.skipif(_num_devices() < 2, reason="requires a >=2-device mesh")
+def test_fused_eltwise_all_gather():
+    """Fused single-generic all_gather whose compute reads ONE input and applies
+    a trivial elementwise op (abs), then core_read-gathers both row tiles and
+    fabric-mcasts them across the 1x2 mesh. Same structure as the fused matmul
+    all_gather but with the matmul swapped for abs -- isolates the input-stream
+    handshake + gather/fabric path from tile_matmul_block."""
+    d2m.mesh((1, 2), topology=("linear", "linear"))
+    L_in = d2m.Layout(
+        shape=(64, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[2, 1]
+    )
+    L_out = d2m.Layout(
+        shape=(128, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[4, 1]
+    )
+    full_a = torch.randn(64, 64, dtype=torch.float32)
+    a_s = d2m.reblock(
+        d2m.mesh_shard(full_a, L_in, shard_dims=[0, 1], shard_shape=[1, 2]), [2, 1]
+    )
+    out_s = d2m.reblock(d2m.empty(L_out), [4, 1])
+    ss = d2m.global_semaphore(grid_shape=(8, 8))
+    ready = d2m.global_semaphore(grid_shape=(8, 8), init=0)
+    es = d2m.global_semaphore(grid_shape=(8, 8))
+    _fused_eltwise_all_gather(
+        a_s,
+        out_s,
+        ss,
+        ready,
+        es,
+        grid=(2, 1),
+        fabric=d2m.fabric_config(
+            cluster_axis=1,
+            topology="linear",
+            routing="bidir_line_mesh",
+            router_cores=[(0, 0)],
+        ),
+    )
+    out_s = d2m.mesh_gather(out_s, shard_dims=[0, 1], shard_shape=[1, 2])
+    result = out_s.to_host()
+
+    # Each device d computes abs of its (64,32) column shard, tiled into the two
+    # row tiles g0=[0,0], g1=[1,0]; the gather stacks them and mcasts so every
+    # device holds vstack(abs(A_0), abs(A_1)) (128,32); mesh_gather column-concats
+    # the two identical device copies -> (128,64).
+    ca0 = full_a[:, 0:32].abs()
+    ca1 = full_a[:, 32:64].abs()
+    stacked = torch.cat([ca0, ca1], dim=0)  # (128, 32)
+    expected = torch.cat([stacked, stacked], dim=1)  # (128, 64)
+    assert tuple(result.shape) == (128, 64), result.shape
+    assert_pcc(expected, result)
