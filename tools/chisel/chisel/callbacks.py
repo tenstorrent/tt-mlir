@@ -33,14 +33,19 @@ from .ops import (
 from .report import (
     ChiselRecord,
     GoldenEvictedPayload,
-    GoldenPromotedPayload,
     NoGoldenPayload,
     NumericsMode,
     SkippedNumericsPayload,
 )
 from .safety import chisel_safe
-from .utils import cached_retrieve_tensor, get_op_asm, invalidate_device_cache
-from .validators import check_numerics, check_shape_dtype
+from .utils import (
+    promote_golden,
+    publish_to_session_pool,
+    cached_retrieve_tensor,
+    get_op_asm,
+    invalidate_device_cache,
+)
+from .validators import check_numerics, check_shape_dtype, emit_pcc
 
 logger = logging.getLogger("chisel")
 
@@ -108,6 +113,7 @@ def _default_pre_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
     _assert_op_matches_runtime(ctx)
     asm_state = ctx.asm_state
     pool = ctx.golden_tensor_pool
+    accumulation = ctx.checks_config.accumulation
 
     mlir_op_inputs = get_op_inputs(op)
     for mlir_input, rt_tensor_ref in zip(mlir_op_inputs, ctx.input_refs, strict=True):
@@ -115,44 +121,10 @@ def _default_pre_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
         ssa = mlir_input.get_name(asm_state)
         ctx.stashed_inputs[ssa] = tensor
         # Seed only SSAs not yet produced by a prior op's golden (i.e. function args).
-        if ssa in pool:
+        if not accumulation or ssa in pool:
             continue
 
-        pool[ssa] = tensor
-        ctx.write_record(
-            ChiselRecord(
-                op=op.name,
-                check="golden_promoted",
-                ssa=ssa,
-                payload=GoldenPromotedPayload(),
-            )
-        )
-
-
-def _emit_pcc(
-    ctx: ChiselContext,
-    op,
-    ssa: SSAName,
-    mlir_value: Value,
-    golden_out: GoldenMapTensor,
-    device_tensor: GoldenMapTensor,
-    *,
-    mode: NumericsMode,
-    skip_pcc: bool,
-) -> None:
-    """Shape/dtype + PCC for one (golden, device) pair under `mode`."""
-    check_shape_dtype(op, "mlir_vs_golden", mlir_value, golden_out)
-    if skip_pcc:
-        ctx.write_record(
-            ChiselRecord(
-                op=op.name,
-                check="numerics",
-                ssa=ssa,
-                payload=SkippedNumericsPayload(mode=mode),
-            )
-        )
-        return
-    check_numerics(ctx, op, ssa, golden_out, device_tensor, mode=mode)
+        promote_golden(ctx, op, ssa, rt_tensor_ref)
 
 
 def _get_inplace_input_refs(
@@ -220,6 +192,7 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
         zip(mlir_op_outputs, ctx.output_refs, strict=True)
     )
     entries.extend(inplace_refs)
+    function_output_ssas = ctx.function_output_ssas
 
     # Invalidate the device cache for every entry, then pull each device tensor
     # once: outputs are freshly produced and in-place operands were just mutated,
@@ -240,11 +213,11 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
         )
         all_outs = execute_golden_with_ssa_inputs(op, ssa_inputs, asm_state)
 
-        for idx, (mlir_value, _tensor_ref) in enumerate(entries):
+        for idx, (mlir_value, tensor_ref) in enumerate(entries):
             ssa = entry_ssas[idx]
             golden_out = all_outs[idx]
             device_tensor = device_tensors[idx]
-            _emit_pcc(
+            emit_pcc(
                 ctx,
                 op,
                 ssa,
@@ -258,6 +231,8 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
                 continue
 
             ctx.golden_tensor_pool[ssa] = golden_out
+            if ssa in function_output_ssas:
+                publish_to_session_pool(ctx, tensor_ref, golden_out)
 
 
 def run_op_callback(

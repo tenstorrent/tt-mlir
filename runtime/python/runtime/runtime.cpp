@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <iostream>
 #include <sstream>
 
 #include "tt/runtime/debug.h"
@@ -241,9 +242,12 @@ void registerRuntimeBindings(nb::module_ &m) {
            [](tt::runtime::Tensor self, tt::runtime::Layout layout) {
              return tt::runtime::hasLayout(self, layout);
            })
-      .def("get_layout", [](tt::runtime::Tensor self) {
-        return tt::runtime::getTensorLayout(self);
-      });
+      .def("get_layout",
+           [](tt::runtime::Tensor self) {
+             return tt::runtime::getTensorLayout(self);
+           })
+      .def("get_global_id",
+           [](tt::runtime::Tensor self) { return self.getGlobalId(); });
 
   nb::class_<tt::runtime::TensorRef>(m, "TensorRef")
       .def(
@@ -574,6 +578,31 @@ void registerRuntimeBindings(nb::module_ &m) {
     -------
     Optional[tt.runtime.Tensor]
         The tensor from the tensor pool that is referenced by the given tensor reference, or ``None`` when the tensor is not present in the pool (e.g., it was deallocated).
+    )");
+
+  m.def(
+      "register_pool_tensor_destroy_callback",
+      [](tt::runtime::CallbackContext program_context_handle,
+         tt::runtime::TensorRef tensor_ref, nb::callable callback) {
+        return tt::runtime::registerPoolTensorDestroyCallback(
+            program_context_handle, tensor_ref,
+            [callback](tt::runtime::Tensor tensor) {
+              nb::gil_scoped_acquire gil;
+              try {
+                callback(tensor);
+              } catch (const std::exception &e) {
+                std::cerr << "chisel destroy callback: " << e.what() << "\n";
+              }
+            });
+      },
+      nb::arg("program_context_handle"), nb::arg("tensor_ref"),
+      nb::arg("callback"),
+      R"(
+    Register a Python callback to fire when the underlying tensor wrapper of
+    the pool-resident tensor referenced by *tensor_ref* is destroyed.
+
+    Returns True if the callback was registered (tensor was in the pool),
+    False otherwise.
     )");
 
   m.def(

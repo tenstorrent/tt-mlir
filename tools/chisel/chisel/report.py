@@ -100,6 +100,17 @@ class NoGoldenPayload(_Payload):
     status: Literal[RecordStatus.NO_GOLDEN] = RecordStatus.NO_GOLDEN
 
 
+class GoldenPromotionSource(str, Enum):
+    """Where a promoted golden came from.
+
+    DEVICE: seeded from the device tensor's current contents.
+    SESSION_POOL: seeded from a prior program's accumulated golden (multi-program chain).
+    """
+
+    DEVICE = "device"
+    SESSION_POOL = "session_pool"
+
+
 class GoldenPromotedPayload(_Payload):
     """Audit-only: emitted when a device tensor is seeded into the golden pool.
 
@@ -108,6 +119,7 @@ class GoldenPromotedPayload(_Payload):
     """
 
     status: Literal[RecordStatus.GOLDEN_PROMOTED] = RecordStatus.GOLDEN_PROMOTED
+    source: GoldenPromotionSource = GoldenPromotionSource.DEVICE
 
 
 class GoldenEvictedPayload(_Payload):

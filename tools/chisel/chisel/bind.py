@@ -99,7 +99,11 @@ def unbind() -> None:
     # TODO(ndrakulic): test in tt-xla for race conditions due to asynchronous runtime execution.
     tt_runtime.unregister_hooks()
     if context.is_initialized():
-        context.get_instance().close_results()
+        ctx = context.get_instance()
+        ctx.close_results()
+        # Safety net: destroy-callback eviction handles most entries, but
+        # anything that outlives the session is dropped here.
+        ctx.clear_session_pool()
     context.set_current(None)
 
 

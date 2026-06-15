@@ -2320,10 +2320,31 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
     return std::nullopt;
   }
 
-  ::tt::runtime::Tensor outTensor = utils::createRuntimeTensorFromTTNN(
-      tensorPool.getTTNNTensorAndValidate(tensorRefPtr));
+  return tensorPool.getRuntimeTensorAndValidate(tensorRefPtr);
+}
 
-  return outTensor;
+bool registerPoolTensorDestroyCallback(
+    CallbackContext programContextHandle, tt::runtime::TensorRef tensorRef,
+    std::function<void(tt::runtime::Tensor)> callback) {
+  auto &programContext =
+      programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
+          DeviceRuntime::TTNN);
+  ttnn::ProgramTensorPool &tensorPool = programContext.getTensorPool();
+
+  const auto *tensorRefPtr =
+      &tensorRef.as<tt::target::ttnn::TensorRef>(DeviceRuntime::TTNN);
+
+  if (!tensorRefPtr || !tensorPool.contains(tensorRefPtr)) {
+    return false;
+  }
+
+  ttnn::TTNNTensorWrapper &wrapper =
+      tensorPool.getTTNNTensorWrapperAndValidate(tensorRefPtr);
+  wrapper.registerOnDestroyCallback(
+      [cb = std::move(callback)](ttnn::TTNNTensorWrapper *w) {
+        cb(utils::createRuntimeTensorFromTTNN(w->getTensor()));
+      });
+  return true;
 }
 
 std::vector<uint32_t> getTensorRefShape(tt::runtime::TensorRef tensorRef) {
