@@ -18,6 +18,15 @@ func.func @chunk_start_idx_not_1d(%q: tensor<1x12x64x64xf32>, %k: tensor<128x12x
 
 // -----
 
+// Chunk start index must have shape [1] (a single shared offset), not [N>1].
+func.func @chunk_start_idx_not_len1(%q: tensor<1x12x64x64xf32>, %k: tensor<128x12x32x64xf32>, %v: tensor<128x12x32x64xf32>, %pt: tensor<1x4xi32>, %csi: tensor<4xi32>, %o: tensor<1x12x64x64xf32>) -> tensor<1x12x64x64xf32> {
+  // expected-error @+1 {{Chunk start index must have shape [1]}}
+  %1 = "ttir.chunked_scaled_dot_product_attention"(%q, %k, %v, %pt, %csi, %o) : (tensor<1x12x64x64xf32>, tensor<128x12x32x64xf32>, tensor<128x12x32x64xf32>, tensor<1x4xi32>, tensor<4xi32>, tensor<1x12x64x64xf32>) -> tensor<1x12x64x64xf32>
+  return %1 : tensor<1x12x64x64xf32>
+}
+
+// -----
+
 // Query head size (last dim) must match key/value head size.
 func.func @head_size_mismatch(%q: tensor<1x12x64x64xf32>, %k: tensor<128x12x32x128xf32>, %v: tensor<128x12x32x128xf32>, %pt: tensor<1x4xi32>, %csi: tensor<1xi32>, %o: tensor<1x12x64x64xf32>) -> tensor<1x12x64x64xf32> {
   // expected-error @+1 {{Query head size must match key/value head size.}}

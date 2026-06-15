@@ -6039,6 +6039,10 @@ mlir::tt::ttnn::ChunkedScaledDotProductAttentionOp::verify() {
   if (chunkStartIdxType.getRank() != 1) {
     return emitOpError("Chunk start index must be a 1D tensor.");
   }
+  if (chunkStartIdxType.getDimSize(0) != 1) {
+    return emitOpError("Chunk start index must have shape [1] (a single prefix "
+                       "offset shared by all users).");
+  }
 
   // The query may be higher precision than the key/value: the kernel reads a
   // BFP8/BFP4 paged cache with a BF16 query. Require float here; key/value

@@ -7517,6 +7517,10 @@ mlir::tt::ttir::ChunkedScaledDotProductAttentionOp::verify() {
   if (chunkStartIdxType.getRank() != 1) {
     return emitOpError("Chunk start index must be a 1D tensor.");
   }
+  if (chunkStartIdxType.getDimSize(0) != 1) {
+    return emitOpError("Chunk start index must have shape [1] (a single prefix "
+                       "offset shared by all users).");
+  }
 
   // Verify element types. The BFP8/BFP4 KV cache typecast happens later in the
   // TTNN pipeline, so at TTIR query/key/value share one float element type.
