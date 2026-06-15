@@ -8,7 +8,6 @@ from collections import namedtuple
 
 from .kernel_types import *
 
-
 # Import ttnn for only the op.py module
 try:
     import ttnn
@@ -31,7 +30,6 @@ class PyKernelOp:
         """Initialize the PyKernelOp with an empty kernel selection dictionary. Intakes the `ttnn` module to operate."""
         self.kernel_selection = {}
         self.kernel_cache = {}
-        self.tensor_accessor_config = 0
 
         # Keep a mobile statewise reference to the ttnn module
         if isinstance(ttnn, Exception):
@@ -87,31 +85,55 @@ class PyKernelOp:
         core = self.ttnn.CoreCoord(0, 0)
         return self.ttnn.CoreRangeSet([self.ttnn.CoreRange(core, core)])
 
-    def set_tensor_accessor_config(self, tensors):
-        """
-        Set the tensor accessor config based on the passed tensors.
-        Right now, the only relevant flags are IsDram and Sharded.
-        """
-        config = TensorAccessorConfig.NONE
-        if not tensors:
-            raise ValueError("Must provide at least one tensor.")
-        if not isinstance(tensors, (list, tuple)):
-            tensors = [tensors]
-        memory_config = tensors[0].memory_config()
-
+    def _get_tensor_accessor_config(self, tensor):
+        config = TensorAccessorConfig.NONE.value
+        memory_config = tensor.memory_config()
         if memory_config.buffer_type == self.ttnn.BufferType.DRAM:
-            config |= TensorAccessorConfig.IsDram
+            config |= TensorAccessorConfig.IsDram.value
         if memory_config.is_sharded():
-            config |= TensorAccessorConfig.Sharded
+            config |= TensorAccessorConfig.Sharded.value
 
-        self.tensor_accessor_config = config
+        return config
+
+    def _get_tensor_accessor_configs(self, tensors_or_configs):
+        if tensors_or_configs is None:
+            return []
+        if not isinstance(tensors_or_configs, (list, tuple)):
+            tensors_or_configs = [tensors_or_configs]
+
+        configs = []
+        for tensor_or_config in tensors_or_configs:
+            if isinstance(tensor_or_config, TensorAccessorConfig):
+                configs.append(tensor_or_config.value)
+            elif isinstance(tensor_or_config, int):
+                configs.append(tensor_or_config)
+            else:
+                configs.append(self._get_tensor_accessor_config(tensor_or_config))
+
+        return configs
 
     def _compute_input_hash(self, tensors, options):
         """Compute a hash of the input tensors and compile-time options."""
         # Simplified implementation - should be enhanced for production
-        hash_input = str(
-            [(getattr(t, "shape", None), getattr(t, "dtype", None)) for t in tensors]
-        )
+        tensor_metadata = []
+        for tensor in tensors:
+            memory_config = (
+                tensor.memory_config() if hasattr(tensor, "memory_config") else None
+            )
+            memory_metadata = None
+            if memory_config is not None:
+                memory_metadata = (
+                    getattr(memory_config, "buffer_type", None),
+                    memory_config.is_sharded(),
+                )
+            tensor_metadata.append(
+                (
+                    getattr(tensor, "shape", None),
+                    getattr(tensor, "dtype", None),
+                    memory_metadata,
+                )
+            )
+        hash_input = str(tensor_metadata)
         hash_input += str(options)
         return hashlib.md5(hash_input.encode()).hexdigest()
 
@@ -235,7 +257,9 @@ class PyKernelOp:
 
     # Use common runtime args for scalars, otherwise use arg_val for list of lists and template function to resolve this.
     # Who knew function signature theory and resolution order would be relevant one day
-    def create_kernel(self, kernel, *args, core_ranges=None, **kwargs):
+    def create_kernel(
+        self, kernel, *args, core_ranges=None, tensor_accessor_configs=None, **kwargs
+    ):
         # Resolve core_ranges
         core_ranges = self.get_core_ranges(core_ranges)
 
@@ -290,6 +314,9 @@ class PyKernelOp:
 
                 arg_idx += 1
 
+        accessor_config_args = self._get_tensor_accessor_configs(
+            tensor_accessor_configs
+        )
         ct_const_args = self.make_ct_args(**kwargs)
 
         if rt_args is None:
@@ -307,7 +334,7 @@ class PyKernelOp:
         kernel_path = kernel_t.dump_to_file()
 
         config = self._config_from_thread_type(kernel._decorator_name)
-        compile_time_args = [cb.cb_id for cb in cb_args] + [self.tensor_accessor_config]
+        compile_time_args = [cb.cb_id for cb in cb_args] + accessor_config_args
 
         kernel_desc_args = {
             "kernel_source": kernel_path,

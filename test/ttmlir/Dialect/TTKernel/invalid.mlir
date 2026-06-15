@@ -1,11 +1,17 @@
 // RUN: ttmlir-opt --split-input-file --verify-diagnostics %s
 
-// Test TTKernelTridNocOpTrait validation - bad TRID (read op).
+// Test TTKernelTridNocOpTrait validation - bad TRID.
 module {
   %minus_one = arith.constant -1 : i32
   %noc0 = arith.constant 0 : i8
+  %src = arith.constant 0 : i32
+  %x = arith.constant 0 : index
+  %y = arith.constant 0 : index
+  %dst = arith.constant 0 : i32
+  %size = arith.constant 32 : i32
   // expected-error @+1 {{trid must be in [0, 15].}}
-  ttkernel.noc_async_read_set_trid(%minus_one, %noc0) : (i32, i8) -> ()
+  ttkernel.noc_async_write_one_packet_with_trid(%src, core[%x, %y], %dst, %size, %minus_one, noc %noc0)
+      : (i32, index, index, i32, i32, i32, i8) -> ()
 }
 
 // -----
@@ -25,18 +31,7 @@ module {
   %trid = arith.constant 0 : i32
   %two_i8 = arith.constant 2 : i8
   // expected-error @+1 {{noc must be in [0, 1].}}
-  ttkernel.noc_async_read_one_packet_with_state_with_trid(%trid, %trid, %trid, %trid, %two_i8)
-      : (i32, i32, i32, i32, i8) -> ()
-}
-
-// -----
-
-// Test ResetNocTridBarrierCounterOp validation - bad NOC.
-module {
-  %mask = arith.constant -1 : i32
-  %bad_noc = arith.constant 2 : i8
-  // expected-error @+1 {{noc must be in [0, 1].}}
-  ttkernel.reset_noc_trid_barrier_counter(%mask, %bad_noc) : (i32, i8) -> ()
+  ttkernel.noc_async_read_barrier_with_trid(%trid, %two_i8) : (i32, i8) -> ()
 }
 
 // -----
@@ -207,15 +202,17 @@ func.func @test_noc_semaphore_inc_wrong_addr_type() {
 // NocInlineDwWriteOp type-constraint tests.
 //===----------------------------------------------------------------------===//
 
-// Test: $dst_noc_addr must be !ttkernel.noc_addr.
-func.func @test_noc_inline_dw_write_wrong_dst_type() {
+// Test: $dstNocX must be index-like.
+func.func @test_noc_inline_dw_write_wrong_dst_x_type() {
   // expected-note @below {{prior use here}}
-  %bad_dst = arith.constant 0 : i32
+  %bad_x = arith.constant 0 : i64
+  %y = arith.constant 0 : index
+  %dst = arith.constant 0 : i32
   %val = arith.constant 1 : i32
   %be = arith.constant 15 : i8
   %noc = arith.constant 0 : i8
-  // expected-error @below {{use of value '%bad_dst' expects different type than prior uses: '!ttkernel.noc_addr' vs 'i32'}}
-  "ttkernel.noc_inline_dw_write"(%bad_dst, %val, %be, %noc) : (!ttkernel.noc_addr, i32, i8, i8) -> ()
+  // expected-error @below {{use of value '%bad_x' expects different type than prior uses: 'index' vs 'i64'}}
+  "ttkernel.noc_inline_dw_write"(%bad_x, %y, %dst, %val, %be, %noc) : (index, index, i32, i32, i8, i8) -> ()
   return
 }
 
@@ -226,13 +223,12 @@ func.func @test_noc_inline_dw_write_wrong_val_type() {
   %x = arith.constant 1 : index
   %y = arith.constant 1 : index
   %off = arith.constant 0 : i32
-  %dst = "ttkernel.get_noc_addr"(%x, %y, %off) : (index, index, i32) -> (!ttkernel.noc_addr)
   // expected-note @below {{prior use here}}
   %bad_val = arith.constant 1 : i64
   %be = arith.constant 15 : i8
   %noc = arith.constant 0 : i8
   // expected-error @below {{use of value '%bad_val' expects different type than prior uses: 'i32' vs 'i64'}}
-  "ttkernel.noc_inline_dw_write"(%dst, %bad_val, %be, %noc) : (!ttkernel.noc_addr, i32, i8, i8) -> ()
+  "ttkernel.noc_inline_dw_write"(%x, %y, %off, %bad_val, %be, %noc) : (index, index, i32, i32, i8, i8) -> ()
   return
 }
 
@@ -243,13 +239,12 @@ func.func @test_noc_inline_dw_write_wrong_byte_enable_type() {
   %x = arith.constant 1 : index
   %y = arith.constant 1 : index
   %off = arith.constant 0 : i32
-  %dst = "ttkernel.get_noc_addr"(%x, %y, %off) : (index, index, i32) -> (!ttkernel.noc_addr)
   %val = arith.constant 1 : i32
   // expected-note @below {{prior use here}}
   %bad_be = arith.constant 15 : i32
   %noc = arith.constant 0 : i8
   // expected-error @below {{use of value '%bad_be' expects different type than prior uses: 'i8' vs 'i32'}}
-  "ttkernel.noc_inline_dw_write"(%dst, %val, %bad_be, %noc) : (!ttkernel.noc_addr, i32, i8, i8) -> ()
+  "ttkernel.noc_inline_dw_write"(%x, %y, %off, %val, %bad_be, %noc) : (index, index, i32, i32, i8, i8) -> ()
   return
 }
 
@@ -260,13 +255,12 @@ func.func @test_noc_inline_dw_write_wrong_noc_id_type() {
   %x = arith.constant 1 : index
   %y = arith.constant 1 : index
   %off = arith.constant 0 : i32
-  %dst = "ttkernel.get_noc_addr"(%x, %y, %off) : (index, index, i32) -> (!ttkernel.noc_addr)
   %val = arith.constant 1 : i32
   %be = arith.constant 15 : i8
   // expected-note @below {{prior use here}}
   %bad_noc = arith.constant 0 : i32
   // expected-error @below {{use of value '%bad_noc' expects different type than prior uses: 'i8' vs 'i32'}}
-  "ttkernel.noc_inline_dw_write"(%dst, %val, %be, %bad_noc) : (!ttkernel.noc_addr, i32, i8, i8) -> ()
+  "ttkernel.noc_inline_dw_write"(%x, %y, %off, %val, %be, %bad_noc) : (index, index, i32, i32, i8, i8) -> ()
   return
 }
 

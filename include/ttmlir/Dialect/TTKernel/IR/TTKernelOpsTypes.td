@@ -102,11 +102,6 @@ def TTKernel_L1AddrPtr : TTKernel_Type<"L1AddrPtr", "l1_addr_ptr"> {
     }];
 }
 
-def TTKernel_InterleavedAddrGenFast : TTKernel_Type<"InterleavedAddrGenFast", "interleaved_addr_gen_fast"> {
-    let summary = "TTKernel InterleavedAddrGenFast type";
-    let description = "InterleavedAddrGenFast type in TTKernel dialect";
-}
-
 def TTKernel_TensorAccessorArgs : TTKernel_Type<"TensorAccessorArgs", "TensorAccessorArgs"> {
   let summary = "TensorAccessorArgs type";
   let description = "TensorAccessor args type that stores compile + runtime information";
