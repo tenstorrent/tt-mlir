@@ -1,5 +1,5 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --insert-reshards-for-unpropagated-ops -o %t.mlir %s
+// RUN: ttmlir-opt --split-input-file --insert-reshards-for-unpropagated-ops -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 
 // Shardy can propagate a valid-looking result sharding on a reshape's flat
