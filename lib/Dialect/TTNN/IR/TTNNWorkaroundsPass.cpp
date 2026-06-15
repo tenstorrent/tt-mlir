@@ -234,32 +234,43 @@ TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds(
   auto sourceType =
       mlir::cast<mlir::RankedTensorType>(scatterOp.getSource().getType());
 
+  auto indexType =
+      mlir::cast<mlir::RankedTensorType>(scatterOp.getIndex().getType());
+
   ttnn::TTNNLayoutAttr inputLayoutAttr =
       mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
+  ttnn::TTNNLayoutAttr indexLayoutAttr =
+      mlir::cast<ttnn::TTNNLayoutAttr>(indexType.getEncoding());
   ttnn::TTNNLayoutAttr sourceLayoutAttr =
       mlir::cast<ttnn::TTNNLayoutAttr>(sourceType.getEncoding());
 
-  bool isLayoutWorkaroundRequired =
-      (inputLayoutAttr.isTiled() &&
-       (inputType.getElementType().isF32() ||
-        inputType.getElementType().isBF16() ||
-        inputType.getElementType().isInteger(32))) ||
-      (sourceLayoutAttr.isTiled() &&
-       (sourceType.getElementType().isF32() ||
-        sourceType.getElementType().isBF16() ||
-        sourceType.getElementType().isInteger(32)));
+  auto needsRowMajor = [](ttnn::TTNNLayoutAttr layout,
+                          mlir::RankedTensorType type) {
+    return layout.isTiled() &&
+           (type.getElementType().isF32() || type.getElementType().isBF16() ||
+            type.getElementType().isInteger(32));
+  };
 
-  TTNNOperandWorkarounds operandWorkaround;
+  TTNNOperandWorkarounds inputSourceWorkaround;
+  if (needsRowMajor(inputLayoutAttr, inputType) ||
+      needsRowMajor(sourceLayoutAttr, sourceType)) {
+    inputSourceWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  }
 
-  if (isLayoutWorkaroundRequired) {
-    operandWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  // The index tensor is always integer-typed. tt-metal's scatter kernel
+  // has a 256-element scatter axis limit for int32 tiled tensors
+  // (see scatter.cpp check_support). Force the index tensor to row-major
+  // when it is int32 tiled to avoid this constraint entirely.
+  TTNNOperandWorkarounds indexWorkaround;
+  if (needsRowMajor(indexLayoutAttr, indexType)) {
+    indexWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
   }
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(operandWorkaround)   // input
-      .addInputOperandWorkaround(operandWorkaround)   // index
-      .addInputOperandWorkaround(operandWorkaround)   // source
-      .addOutputOperandWorkaround(operandWorkaround); // result
+      .addInputOperandWorkaround(inputSourceWorkaround)   // input
+      .addInputOperandWorkaround(indexWorkaround)         // index
+      .addInputOperandWorkaround(inputSourceWorkaround)   // source
+      .addOutputOperandWorkaround(inputSourceWorkaround); // result
 }
 
 // Factory method to create a set of workarounds for mesh partition op operands.
