@@ -932,6 +932,33 @@ public:
           rewriter.create<ttir::TypecastOp>(srcOp.getLoc(), ui32Type, index);
     }
 
+    // ttir.gather requires the index and input to have equal rank. When they
+    // differ (e.g. complex decomposition added a trailing dim to the input),
+    // expand the index to the result shape via reshape + broadcast.
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    auto curIndexType = mlir::cast<RankedTensorType>(index.getType());
+    if (inputType.getRank() != curIndexType.getRank()) {
+      llvm::ArrayRef<int64_t> targetShape = outputType.getShape();
+      SmallVector<int64_t> reshapeShape(curIndexType.getShape());
+      reshapeShape.resize(targetShape.size(), 1);
+      auto reshapeType =
+          RankedTensorType::get(reshapeShape, curIndexType.getElementType());
+      Value reshaped = rewriter.create<ttir::ReshapeOp>(
+          srcOp.getLoc(), reshapeType, index,
+          rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(reshapeShape)));
+
+      SmallVector<int64_t> broadcastDims(targetShape.size());
+      for (size_t i = 0; i < targetShape.size(); ++i) {
+        broadcastDims[i] =
+            reshapeShape[i] == targetShape[i] ? 1 : targetShape[i];
+      }
+      auto broadcastType =
+          RankedTensorType::get(targetShape, curIndexType.getElementType());
+      index = rewriter.create<ttir::BroadcastOp>(
+          srcOp.getLoc(), broadcastType, reshaped,
+          rewriter.getDenseI64ArrayAttr(broadcastDims));
+    }
+
     rewriter.replaceOpWithNewOp<ttir::GatherOp>(srcOp, outputType, input, index,
                                                 dimAttr);
     return success();
