@@ -1,5 +1,12 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttnn-layout --convert-ttir-to-ttnn --ttnn-workaround --canonicalize -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttnn-layout --ttnn-workaround --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
+
+// Also run at optimization-level 1 (the level used by the optimizer pipeline
+// and by composite-promotion OpModel validation). At this level the operand
+// workaround only fires for ops in the allow-list, so this run guards that
+// flash_mla_prefill is registered there (otherwise the Q/K/V casts would be skipped).
+// RUN: ttmlir-opt --ttcore-register-device --ttnn-layout --ttnn-workaround="ttnn-optimization-level=1" --canonicalize -o %t1 %s
+// RUN: FileCheck %s --input-file=%t1
 
 // Test that f32 inputs to flash_mla_prefill are automatically converted to
 // bf16 (and the bf16 output cast back to f32) by the workaround pass.
@@ -17,7 +24,7 @@ module {
     // CHECK: %{{[0-9]+}} = "ttnn.to_layout"(%[[OUT_BF16]])
     // CHECK-SAME: tensor<1x16x32x64xbf16
     // CHECK-SAME: -> tensor<1x16x32x64xf32
-    %0 = "ttir.flash_mla_prefill"(%query, %key) <{operandSegmentSizes = array<i32: 1, 1, 0, 0>, head_dim_v = 64 : ui32, is_causal = true}> : (tensor<1x16x32x128xf32>, tensor<1x1x32x128xf32>) -> tensor<1x16x32x64xf32>
+    %0 = "ttnn.flash_mla_prefill"(%query, %key) <{operandSegmentSizes = array<i32: 1, 1, 0, 0>, head_dim_v = 64 : ui32, is_causal = true}> : (tensor<1x16x32x128xf32>, tensor<1x1x32x128xf32>) -> tensor<1x16x32x64xf32>
     return %0 : tensor<1x16x32x64xf32>
   }
 
@@ -34,7 +41,7 @@ module {
     // CHECK-SAME: -> tensor<1x16x32x64xbf16
     // CHECK: "ttnn.to_layout"(%[[OUT_BF16]])
     // CHECK-SAME: -> tensor<1x16x32x64xf32
-    %0 = "ttir.flash_mla_prefill"(%query, %key, %value) <{operandSegmentSizes = array<i32: 1, 1, 1, 0>, head_dim_v = 64 : ui32, is_causal = true}> : (tensor<1x16x32x128xf32>, tensor<1x1x32x128xf32>, tensor<1x1x32x64xf32>) -> tensor<1x16x32x64xf32>
+    %0 = "ttnn.flash_mla_prefill"(%query, %key, %value) <{operandSegmentSizes = array<i32: 1, 1, 1, 0>, head_dim_v = 64 : ui32, is_causal = true}> : (tensor<1x16x32x128xf32>, tensor<1x1x32x128xf32>, tensor<1x1x32x64xf32>) -> tensor<1x16x32x64xf32>
     return %0 : tensor<1x16x32x64xf32>
   }
 
@@ -51,7 +58,7 @@ module {
     // CHECK-SAME: -> tensor<1x16x32x64xbf16
     // CHECK: "ttnn.to_layout"(%[[OUT_BF16]])
     // CHECK-SAME: -> tensor<1x16x32x64xf32
-    %0 = "ttir.flash_mla_prefill"(%query, %key, %mask) <{operandSegmentSizes = array<i32: 1, 1, 0, 1>, head_dim_v = 64 : ui32, is_causal = false}> : (tensor<1x16x32x128xf32>, tensor<1x1x32x128xf32>, tensor<1x1x32x32xf32>) -> tensor<1x16x32x64xf32>
+    %0 = "ttnn.flash_mla_prefill"(%query, %key, %mask) <{operandSegmentSizes = array<i32: 1, 1, 0, 1>, head_dim_v = 64 : ui32, is_causal = false}> : (tensor<1x16x32x128xf32>, tensor<1x1x32x128xf32>, tensor<1x1x32x32xf32>) -> tensor<1x16x32x64xf32>
     return %0 : tensor<1x16x32x64xf32>
   }
 
@@ -66,7 +73,7 @@ module {
     // CHECK-SAME: -> tensor<2x8x64x96xbf16
     // CHECK: "ttnn.to_layout"(%[[OUT_BF16]])
     // CHECK-SAME: -> tensor<2x8x64x96xf32
-    %0 = "ttir.flash_mla_prefill"(%query, %key, %value, %mask) <{operandSegmentSizes = array<i32: 1, 1, 1, 1>, head_dim_v = 96 : ui32, is_causal = false, scale = 0.125 : f32}> : (tensor<2x8x64x128xf32>, tensor<2x1x64x128xf32>, tensor<2x1x64x96xf32>, tensor<2x1x64x64xf32>) -> tensor<2x8x64x96xf32>
+    %0 = "ttnn.flash_mla_prefill"(%query, %key, %value, %mask) <{operandSegmentSizes = array<i32: 1, 1, 1, 1>, head_dim_v = 96 : ui32, is_causal = false, scale = 1.250000e-01 : f32}> : (tensor<2x8x64x128xf32>, tensor<2x1x64x128xf32>, tensor<2x1x64x96xf32>, tensor<2x1x64x64xf32>) -> tensor<2x8x64x96xf32>
     return %0 : tensor<2x8x64x96xf32>
   }
 
@@ -75,7 +82,7 @@ module {
     // CHECK-LABEL: func.func public @flash_mla_prefill_bf16_no_workaround
     // CHECK-NOT: ttnn.to_layout
     // CHECK: "ttnn.flash_mla_prefill"
-    %0 = "ttir.flash_mla_prefill"(%query, %key) <{operandSegmentSizes = array<i32: 1, 1, 0, 0>, head_dim_v = 64 : ui32, is_causal = true}> : (tensor<1x16x32x128xbf16>, tensor<1x1x32x128xbf16>) -> tensor<1x16x32x64xbf16>
+    %0 = "ttnn.flash_mla_prefill"(%query, %key) <{operandSegmentSizes = array<i32: 1, 1, 0, 0>, head_dim_v = 64 : ui32, is_causal = true}> : (tensor<1x16x32x128xbf16>, tensor<1x1x32x128xbf16>) -> tensor<1x16x32x64xbf16>
     return %0 : tensor<1x16x32x64xbf16>
   }
 }

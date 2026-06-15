@@ -41,6 +41,45 @@ static llvm::StringMap<CompositeEntry> &getCompositeRegistry() {
   return registry;
 }
 
+// Operands and attributes recovered from a "flash_mla_prefill" composite,
+// shared by its validate and build registry callbacks.
+struct FlashMlaPrefillCompositeArgs {
+  Value query;
+  Value key;
+  Value value;         // null when the latent form is used.
+  Value attentionMask; // null when absent.
+  IntegerAttr headDimV;
+  BoolAttr isCausal;
+  FloatAttr scale; // null when default is meant to be used
+};
+
+// Map the composite's variadic inputs back to (query, key, value, mask) using
+// the has_value / has_attention_mask flags, and pull out the typed attributes.
+static FlashMlaPrefillCompositeArgs
+extractFlashMlaPrefillArgs(ttcore::CompositeOp compositeOp) {
+  DictionaryAttr attrs = compositeOp.getCompositeAttributes().value_or(nullptr);
+  TT_assert(attrs);
+
+  auto readBool = [&](StringRef name) -> bool {
+    auto a = attrs.getAs<BoolAttr>(name);
+    return a && a.getValue();
+  };
+  bool hasValue = readBool("has_value");
+  bool hasAttentionMask = readBool("has_attention_mask");
+
+  auto inputs = compositeOp.getInputs();
+  FlashMlaPrefillCompositeArgs args;
+  args.query = inputs[0];
+  args.key = inputs[1];
+  unsigned idx = 2;
+  args.value = hasValue ? inputs[idx++] : Value();
+  args.attentionMask = hasAttentionMask ? inputs[idx++] : Value();
+  args.headDimV = attrs.getAs<IntegerAttr>("head_dim_v");
+  args.isCausal = attrs.getAs<BoolAttr>("is_causal");
+  args.scale = attrs.getAs<FloatAttr>("scale");
+  return args;
+}
+
 static void registerBuiltinComposites() {
   auto &registry = getCompositeRegistry();
   if (!registry.empty()) {
@@ -83,6 +122,34 @@ static void registerBuiltinComposites() {
             compositeOp.getInputs()[2],
             builder.getI32IntegerAttr(kAttr.getInt()),
             builder.getI32IntegerAttr(numExpertsAttr.getInt()));
+      }};
+
+  registry["flash_mla_prefill"] = CompositeEntry{
+      // Validate
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
+        FlashMlaPrefillCompositeArgs args =
+            extractFlashMlaPrefillArgs(compositeOp);
+        TT_assert(args.headDimV);
+        TT_assert(args.isCausal);
+
+        SmallVector<Type> resultTypes(compositeOp.getResultTypes());
+        IsolatedIRValidationWrapper validator(compositeOp.getContext());
+        return validator.validateOp<FlashMlaPrefillOp>(
+            compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
+            args.query, args.key, args.value, args.attentionMask,
+            static_cast<uint32_t>(args.headDimV.getValue().getZExtValue()),
+            args.isCausal.getValue(), args.scale);
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        FlashMlaPrefillCompositeArgs args =
+            extractFlashMlaPrefillArgs(compositeOp);
+        return builder.create<FlashMlaPrefillOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(), args.query,
+            args.key, args.value, args.attentionMask,
+            static_cast<uint32_t>(args.headDimV.getValue().getZExtValue()),
+            args.isCausal.getValue(), args.scale);
       }};
 }
 

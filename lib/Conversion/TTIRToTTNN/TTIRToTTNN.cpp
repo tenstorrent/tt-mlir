@@ -3295,25 +3295,6 @@ private:
 };
 } // namespace
 
-namespace {
-class FlashMlaPrefillOpConversionPattern
-    : public OpConversionPattern<ttir::FlashMlaPrefillOp> {
-public:
-  using OpConversionPattern<ttir::FlashMlaPrefillOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::FlashMlaPrefillOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<ttnn::FlashMlaPrefillOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
-        adaptor.getAttentionMask(), op.getHeadDimV(), op.getIsCausal(),
-        adaptor.getScaleAttr());
-    return success();
-  }
-};
-} // namespace
-
 // This rewrite pattern lowers a ttir.all_to_all op into a sequence of
 // ttnn.slice_static, ttnn.point_to_point, and ttnn.concat ops.
 //
@@ -3640,7 +3621,6 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ScaledDotProductAttentionDecodeOpConversionPattern,
            PagedScaledDotProductAttentionDecodeOpConversionPattern,
            PagedFlashMultiLatentAttentionDecodeOpConversionPattern,
-           FlashMlaPrefillOpConversionPattern,
            SplitQueryKeyValueAndSplitHeadsOpConversionPattern,
            GeluBackwardOpConversionPattern,
            DropoutOpConversionPattern,
