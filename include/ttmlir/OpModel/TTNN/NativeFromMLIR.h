@@ -342,6 +342,14 @@ buildTopKRouterGptOpTFromMLIR(uint32_t k, uint32_t numExperts,
                                                  bool largest, bool sorted,
                                                  TTNNLayoutAttr outputLayout);
 
+::tt::target::ttnn::FillCacheOpT
+buildFillCacheOpTFromMLIR(uint32_t batchOffset);
+
+::tt::target::ttnn::PagedFillCacheOpT buildPagedFillCacheOpTFromMLIR();
+
+::tt::target::ttnn::PagedUpdateCacheOpT
+buildPagedUpdateCacheOpTFromMLIR(bool shareCache);
+
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_ENABLE_OPMODEL
 

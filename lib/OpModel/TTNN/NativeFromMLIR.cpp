@@ -1348,6 +1348,26 @@ buildProdOpTFromMLIR(std::optional<int64_t> dimArg, bool keepDim,
   return topKOp;
 }
 
+::tt::target::ttnn::FillCacheOpT
+buildFillCacheOpTFromMLIR(uint32_t batchOffset) {
+  ::tt::target::ttnn::FillCacheOpT fillCacheOp;
+  fillCacheOp.batch_offset = batchOffset;
+  return fillCacheOp;
+}
+
+::tt::target::ttnn::PagedUpdateCacheOpT
+buildPagedUpdateCacheOpTFromMLIR(bool shareCache) {
+  ::tt::target::ttnn::PagedUpdateCacheOpT op;
+  op.share_cache = shareCache;
+  return op;
+}
+
+::tt::target::ttnn::PagedFillCacheOpT buildPagedFillCacheOpTFromMLIR() {
+  ::tt::target::ttnn::PagedFillCacheOpT pagedFillCacheOp;
+
+  return pagedFillCacheOp;
+}
+
 } // namespace mlir::tt::ttnn::op_model
 
 #endif // TTMLIR_ENABLE_OPMODEL

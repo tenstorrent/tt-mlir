@@ -239,6 +239,15 @@ createOp(::mlir::tt::FlatbufferObjectCache &cache, TopKRouterGptOp op);
 ::flatbuffers::Offset<::tt::target::ttnn::TopKOp>
 createOp(::mlir::tt::FlatbufferObjectCache &cache, TopKOp op);
 
+::flatbuffers::Offset<::tt::target::ttnn::FillCacheOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, FillCacheOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::PagedFillCacheOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, PagedFillCacheOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::PagedUpdateCacheOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, PagedUpdateCacheOp op);
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_TARGET_TTNN_TTNNTOFLATBUFFER_H
