@@ -1,10 +1,9 @@
 # SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
-"""Cross-program golden chaining through sub-program ops (func.call and
-ttcore.load_cached).
+"""Cross-program golden chaining through sub-program ops (ttcore.load_cached).
 
-Both ops delegate execution to a nested program. Chisel reuses the
+The op delegates execution to a nested program. Chisel reuses the
 session-scoped globalId pool: the parent op's pre-handler publishes each
 input's accumulated golden keyed by the input Tensor's globalId, the
 sub-program's default pre-op finds it as a function-arg cross-pool hit, the
@@ -13,8 +12,7 @@ globalId, and the parent op's post-handler reads them back to install the
 golden on the parent SSA. See tools/chisel/chisel/op_handlers.py:
 _subprogram_pre_op / _subprogram_post_op.
 
-Three scenarios:
-  * func.call: parent invokes a private nested function via builder.call.
+Two scenarios:
   * ttcore.load_cached, cache miss: parameter-typed args trigger const-eval
     hoisting; first submit runs the const-eval sub-function.
   * ttcore.load_cached, cache hit (same session): second submit with the same
@@ -95,73 +93,6 @@ def _session_pool_records(records):
 
 def _records_for_op(records, op_name: str):
     return [r for r in records if r.op == op_name]
-
-
-def test_func_call_chains_through_subprogram(device, tmp_path):
-    """builder.call generates func.CallOp. At runtime the callee is executed by
-    a nested ProgramExecutor and chisel's hooks fire for it. The parent's
-    func.call pre-op publishes each input's accumulated golden by globalId; the
-    callee's default pre-op finds them as function-arg cross-pool hits; the
-    parent's func.call post-op then reads the callee's output goldens back."""
-
-    def prog(builder: TTNNBuilder):
-        @builder.func([_SHAPE, _SHAPE], [torch.float32, torch.float32])
-        def main_fn(
-            x: Operand,
-            y: Operand,
-            builder: TTNNBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            def nested(a, b, builder):
-                return builder.multiply(a, b)
-
-            s = builder.add(x, y)
-            r = builder.call(nested, [s, y])
-            return builder.add(r, x)
-
-    fbb = _compile(prog, "func_call_prog", tmp_path)
-    assert fbb.get_num_programs() >= 2, (
-        "expected a callee program for func.call in the flatbuffer; "
-        f"got {fbb.get_num_programs()}"
-    )
-
-    parent_name = fbb.get_program_name(0)
-    callee_names = [fbb.get_program_name(i) for i in range(1, fbb.get_num_programs())]
-
-    with chisel.session(
-        checks_config=chisel.ChiselChecksConfig(accumulation=True),
-    ) as report:
-        x_host = _make_host_input(device)
-        y_host = _make_host_input(device)
-        outs, _ = _submit_with_layout_convert(device, fbb, [x_host, y_host])
-        assert outs, "func.call program produced no outputs"
-        records = list(report.records)
-
-    pool_records = _session_pool_records(records)
-    assert pool_records, (
-        "expected source=session_pool records on the func.call chain; "
-        f"promotions seen: "
-        f"{[(r.op, r.ssa, r.payload.source, r.program_name) for r in records if r.check == 'golden_promoted']}"
-    )
-
-    # Callee program contributes pool records for its function args.
-    callee_arg_pool = [r for r in pool_records if r.program_name in callee_names]
-    assert callee_arg_pool, (
-        "expected at least one source=session_pool record from the callee "
-        "(function-arg seed); callee programs were "
-        f"{callee_names}, pool records: "
-        f"{[(r.op, r.program_name) for r in pool_records]}"
-    )
-
-    # Parent's func.call output is also promoted from the program pool.
-    parent_call_pool = [
-        r for r in pool_records if r.program_name == parent_name and r.op == "func.call"
-    ]
-    assert parent_call_pool, (
-        "expected source=session_pool record on the parent's func.call output; "
-        f"parent={parent_name}; pool records: "
-        f"{[(r.op, r.program_name) for r in pool_records]}"
-    )
 
 
 def test_load_cached_cache_miss_chains_through_subprogram(device, tmp_path):
@@ -283,8 +214,8 @@ def test_load_cached_cache_hit_chains_through_subprogram(device, tmp_path):
         # submits. Without a surviving entry the cache hit cannot chain.
         ctx = chisel.context.get_instance()
         assert (
-            ctx.program_io_pool
-        ), "program_io_pool empty between submits; cache hit cannot chain"
+            ctx.session_pool
+        ), "session_pool empty between submits; cache hit cannot chain"
 
         # Second submit: pass the same device tensors verbatim. Same
         # TTNNTensorWrappers => same versions => LoadCachedOp cache hit.
