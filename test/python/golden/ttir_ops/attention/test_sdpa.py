@@ -356,20 +356,26 @@ def test_sdpa_decode_mask_broadcast(
 @pytest.mark.parametrize(
     "batch,num_heads,num_kv_heads,head_dim,chunk_len,chunk_start_idx,block_size,blocks_per_user,scale",
     [
-        # No GQA: heads=8, head_dim=64, prefix=128, chunk=128, seq_len=256.
+        # MHA: heads=8, head_dim=64, prefix=128, chunk=128, seq_len=256.
         (1, 8, 8, 64, 128, 128, 32, 8, 0.125),
-        # No GQA: heads=8, head_dim=128, prefix=128, chunk=128, seq_len=256.
+        # MHA: heads=8, head_dim=128, prefix=128, chunk=128, seq_len=256.
         (1, 8, 8, 128, 128, 128, 32, 8, 0.0883883387),
         # GQA (4:1): heads=8, kv_heads=2, head_dim=64.
         (1, 8, 2, 64, 128, 128, 32, 8, 0.125),
         # GQA (4:1): heads=8, kv_heads=2, head_dim=128.
         (1, 8, 2, 128, 128, 128, 32, 8, 0.0883883387),
+        # MQA: heads=8, kv_heads=1, head_dim=64.
+        (1, 8, 1, 64, 128, 128, 32, 8, 0.125),
+        # MQA: heads=8, kv_heads=1, head_dim=128.
+        (1, 8, 1, 128, 128, 128, 32, 8, 0.0883883387),
     ],
     ids=[
-        "no_gqa_d64",
-        "no_gqa_d128",
+        "mha_d64",
+        "mha_d128",
         "gqa_d64",
         "gqa_d128",
+        "mqa_d64",
+        "mqa_d128",
     ],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
