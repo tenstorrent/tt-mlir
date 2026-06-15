@@ -2593,6 +2593,66 @@ std::optional<int64_t> getMatmulInnerDim(::mlir::RankedTensorType inputA,
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn_verify
 
+// Drop a `ttnn.repeat` feeding the RHS of a `ttnn.matmul` when TTNN's matmul
+// will implicitly reproduce that broadcast.
+//
+// TTNN's matmul broadcasting is in general basically unsupported, albeit a few
+// cases might work. This canonicalization only handles one case: with 4Dx4D
+// operands, dim 1 (the second batch dimension) on the RHS can be broadcast to
+// match the LHS when the unbroadcast RHS is a single batch (its outer dim 0 is
+// 1). Other cases are explicitly out of scope.
+//
+// `ttir.broadcast` lowers to `ttnn.repeat`, so the redundant op matched here is
+// a `ttnn.repeat` whose repeat_dims expand exactly dim 1.
+void mlir::tt::ttnn::MatmulOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext * /*context*/) {
+  patterns.add(+[](MatmulOp op,
+                   mlir::PatternRewriter &rewriter) -> mlir::LogicalResult {
+    auto repeat = op.getB().getDefiningOp<RepeatOp>();
+    if (!repeat) {
+      return mlir::failure();
+    }
+
+    llvm::ArrayRef<int64_t> repeatDims = repeat.getRepeatDims().getShape();
+    llvm::ArrayRef<int64_t> rhsShape = op.getB().getType().getShape();
+    llvm::ArrayRef<int64_t> lhsShape = op.getA().getType().getShape();
+
+    constexpr int64_t kMatmulRank = 4;
+    constexpr int64_t kBatchDim = 1;
+
+    if (static_cast<int64_t>(repeatDims.size()) != kMatmulRank ||
+        static_cast<int64_t>(lhsShape.size()) != kMatmulRank) {
+      return mlir::failure();
+    }
+
+    // The repeat must expand exactly dim 1 and leave every other dim (including
+    // the inner contraction dims) untouched.
+    for (int64_t i = 0; i < kMatmulRank; ++i) {
+      bool expanded = repeatDims[i] != 1;
+      if (expanded != (i == kBatchDim)) {
+        return mlir::failure();
+      }
+    }
+
+    // TTNN only implicitly broadcasts the RHS batch when the folded RHS is a
+    // single batch. dim 1 is repeated (so its pre-repeat size is 1) and dim 0
+    // is untouched, so this reduces to the outer dim 0 being 1.
+    if (rhsShape[0] != 1) {
+      return mlir::failure();
+    }
+
+    // The LHS must already supply dim 1 so dropping the repeat leaves the
+    // matmul result shape unchanged.
+    if (lhsShape[kBatchDim] != rhsShape[kBatchDim]) {
+      return mlir::failure();
+    }
+
+    rewriter.modifyOpInPlace(op,
+                             [&]() { op.setOperand(1, repeat.getInput()); });
+    return mlir::success();
+  });
+}
+
 //===----------------------------------------------------------------------===//
 // SparseMatmulOp
 //===----------------------------------------------------------------------===//
