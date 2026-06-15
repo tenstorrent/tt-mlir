@@ -382,15 +382,16 @@ struct OpModel<WhereOp> : TernaryEltwiseOpModel<WhereOp> {};
 
 template <typename OpT>
 struct ReductionOpModel {
-  static llvm::Expected<OpConstraints>
-  getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout,
-                   std::optional<llvm::ArrayRef<int64_t>> dimArg, bool keepDim,
-                   TTNNLayoutAttr outputLayout);
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      std::optional<llvm::ArrayRef<int64_t>> dimArg, bool keepDim,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+      TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
                std::optional<llvm::ArrayRef<int64_t>> dimArg, bool keepDim,
+               std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
                TTNNLayoutAttr outputLayout);
 };
 

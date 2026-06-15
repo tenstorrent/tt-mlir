@@ -4,29 +4,33 @@
 
 #include "operations/reduction/prod.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
+#include "ttmlir/OpInvoke/TTNN/Reduction/ProdOp.h"
 
 namespace tt::runtime::ttnn::operations::reduction {
 static void runReductionProdOp(const ::tt::target::ttnn::ReductionProdOp *op,
-                               ProgramTensorPool &tensorPool) {
-
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
+                               ProgramTensorPool &tensorPool,
+                               ProgramContext &context) {
 
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  ::ttnn::Tensor out = ::ttnn::prod(in, op->dim_arg(), op->keep_dim(),
-                                    outputMemoryConfig /* memory_config_arg */);
+  ::tt::target::ttnn::ReductionProdOpT prodOpNative;
+  op->UnPackTo(&prodOpNative);
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
+
+  ttnn_op_invoke::ProdOpResult result = ttnn_op_invoke::callProd(
+      ttnn_op_invoke::CallType::EXECUTE, prodOpNative, &in, &targetDevice);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callProd execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
 void run(const ::tt::target::ttnn::ReductionProdOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  runReductionProdOp(op, tensorPool);
+  runReductionProdOp(op, tensorPool, context);
 }
 } // namespace tt::runtime::ttnn::operations::reduction
