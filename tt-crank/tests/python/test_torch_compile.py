@@ -40,7 +40,7 @@ def _assert_compile_matches_eager(
         cpu_out = model(*cpu_inputs)
 
         model_tt = model.to("tt")
-        compiled = torch.compile(model_tt, backend="tt", dynamic=False)
+        compiled = torch.compile(model_tt, backend="tt")
         tt_inputs = tuple(t.to("tt") for t in cpu_inputs)
         tt_out = compiled(*tt_inputs).cpu()
 
@@ -457,7 +457,7 @@ def test_compile_div_scalar_via_aten_op(scalar: float) -> None:
         return torch.ops.aten.div.Scalar(x, scalar)
 
     x = torch.randn((32, 64), dtype=torch.bfloat16)
-    compiled = torch.compile(f, backend="tt", dynamic=False, fullgraph=True)
+    compiled = torch.compile(f, backend="tt")
     with torch.no_grad():
         tt_out = compiled(x.to("tt")).cpu()
     torch.testing.assert_close(tt_out, f(x), atol=0.05, rtol=0.05)
@@ -501,7 +501,7 @@ def test_compile_add_scalar_via_aten_op(scalar: float) -> None:
         return torch.ops.aten.add.Scalar(x, scalar)
 
     x = torch.randn((32, 64), dtype=torch.bfloat16)
-    compiled = torch.compile(f, backend="tt", dynamic=False, fullgraph=True)
+    compiled = torch.compile(f, backend="tt")
     with torch.no_grad():
         tt_out = compiled(x.to("tt")).cpu()
     torch.testing.assert_close(tt_out, f(x), atol=0.05, rtol=0.05)
@@ -528,7 +528,7 @@ def test_compile_mul_scalar_via_aten_op(scalar: float) -> None:
         return torch.ops.aten.mul.Scalar(x, scalar)
 
     x = torch.randn((32, 64), dtype=torch.bfloat16)
-    compiled = torch.compile(f, backend="tt", dynamic=False, fullgraph=True)
+    compiled = torch.compile(f, backend="tt")
     with torch.no_grad():
         tt_out = compiled(x.to("tt")).cpu()
     torch.testing.assert_close(tt_out, f(x), atol=0.05, rtol=0.05)
