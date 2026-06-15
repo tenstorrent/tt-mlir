@@ -519,6 +519,29 @@ static LogicalResult insertComputeCBOpsV2(GenericOp generic,
     }
   }
 
+  // tile_matmul_block reads its two input blocks (a, b) and writes its output
+  // block directly -- it does NOT load/store individual tiles via memref ops
+  // (the dst-register access trace above) and is deliberately not a
+  // SynchronizableOpInterface op (the legacy V1 split + MarkSynchronizedBuffers
+  // would then try to wrapInSynchronizedRegion its dst-register accesses and
+  // crash). So neither path above sees its CB usage. Recognize it explicitly
+  // here, tracing each operand's subview back to the generic's CB operand so it
+  // merges with the dmLoad/dmStore entry. Without this the matmul's inputs are
+  // never paired with their DMA load, the input cb_wait_front/cb_pop_front
+  // handshake is silently skipped, and the matmul reads its inputs before the
+  // DMA completes -- racing it.
+  computeBlock->walk([&](TileMatmulBlockOp mm) {
+    if (Value cb = traceComputeMemrefToCB(mm.getA(), generic)) {
+      cbs[cb].consumed = true;
+    }
+    if (Value cb = traceComputeMemrefToCB(mm.getB(), generic)) {
+      cbs[cb].consumed = true;
+    }
+    if (Value cb = traceComputeMemrefToCB(mm.getOutput(), generic)) {
+      cbs[cb].produced = true;
+    }
+  });
+
   for (auto &[cb, info] : cbs) {
     // A buffer only needs CB synchronization if it crosses the thread
     // boundary. An output is paired with the DM store; otherwise an input is

@@ -122,24 +122,20 @@ def test_matmul_multi_tile_k():
     assert_pcc(expected, result)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Outer-loop matmul accumulator (`c = zeros; for k: c += a @ b`) with "
-        "k_blocks > 1 computes only one K-block. The K-reduction here is an "
-        "outer scf.for (not a linalg reduction), so the partials accumulate "
-        "via the packer L1-acc path (llk_pack_reconfig_l1_acc). That path is "
-        "emitted and reads as correctly sequenced in IR (reconfig(kk!=0) around "
-        "matmul+pack), but on device the running partial is not accumulated -- "
-        "an L1-acc / matmul_block sequencing issue, not a frontend or split-pass "
-        "bug. The single-matmul-K form (test_matmul_multi_tile_k) works. "
-        "Remove this xfail once the L1-acc outer-loop path is fixed."
-    ),
-)
-def test_matmul_outer_loop_multi_k_xfail():
-    """Repro: K=2 reduction expressed as the d2m-jit outer-loop accumulator
+def test_matmul_outer_loop_multi_k():
+    """K=2 reduction expressed as the d2m-jit outer-loop accumulator
     (`for k: c += a @ b`). lhs/rhs grids span K so [i, k] / [k, j] address
-    distinct K shards. Currently produces only one K-block's contribution."""
+    distinct K shards; partials accumulate via the packer L1-acc path
+    (llk_pack_reconfig_l1_acc).
+
+    Previously xfailed: the partials came out as garbage because
+    tile_matmul_block read its input CBs before the input DMA completed -- the
+    compute thread was missing the input cb_wait_front/cb_pop_front handshake.
+    Unlike the eltwise tile ops (whose per-tile memref loads carry the consume
+    handshake), matmul_block reads whole CB blocks directly, so the V2 split's
+    consume tracing never saw its inputs. Fixed by recognizing tile_matmul_block
+    explicitly in SplitUnifiedThreadV2's insertComputeCBOpsV2 (tracing its
+    a/b/output operands back to their CBs)."""
     lhs = torch.randn(32, 64, dtype=torch.float32)
     rhs = torch.randn(64, 32, dtype=torch.float32)
     L_lhs = d2m.Layout(
