@@ -51,14 +51,10 @@ def default_configs() -> Dict[Type[OpView], ChiselOpConfig]:
             pre_op=_deallocate_pre_op,
             post_op=_noop_post_op,
         ),
+        func.CallOp: ChiselOpConfig(no_golden=True),
         # Sub-program ops: chain the parent's golden through the callee via
         # the cross-program globalId pool. Pre-op publishes parent inputs by
         # globalId; post-op reads sub-program outputs by globalId.
-        func.CallOp: ChiselOpConfig(
-            no_golden=True,
-            pre_op=_subprogram_pre_op,
-            post_op=_subprogram_post_op,
-        ),
         ttcore.LoadCachedOp: ChiselOpConfig(
             no_golden=True,
             pre_op=_subprogram_pre_op,
