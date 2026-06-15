@@ -639,11 +639,12 @@ getDramMapShapeSymbols(ttcore::DeviceAttr device, MemRefType memrefType,
     gridShape = llvm::to_vector(memrefType.getShape().take_front(gridRank));
     shardShape = llvm::to_vector(memrefType.getShape().drop_front(gridRank));
 
-    if (ttmlir::d2m::utils::grids::requiresVirtualGrid(
-            gridShape, device.getWorkerGrid().getShape())) {
-      gridShape = llvm::to_vector(collapseToPhysicalGrid2D(
-          gridShape, device.getWorkerGrid().getShape()));
-    }
+    // This helper is DRAM-only (called from the DeviceDRAM address-map path).
+    // DRAM shards round-robin across the DRAM channels (createDramMap), so the
+    // grid is NOT collapsed onto the worker grid: a >64-shard logical grid is
+    // valid and is linearized/round-robined as-is. (appendShapeCollapsedToRank
+    // below still folds an ND grid down to the worker rank for the map
+    // symbols.)
   }
 
   SmallVector<int64_t> symbols;
@@ -679,11 +680,16 @@ getMemoryMapImpl(ttcore::DeviceAttr device, MemRefType memrefType,
     auto deviceGridShape = device.getWorkerGrid().getShape();
 
     // Use stored forward map if available; otherwise fall back to
-    // requiresVirtualGrid for ND / oversized grids.
+    // requiresVirtualGrid for ND / oversized grids. DRAM shards round-robin
+    // across the DRAM channels (createDramMap) rather than being placed on the
+    // worker grid, so no virtual->physical core map applies -- leave
+    // coreVirtMap null and let the DRAM map address the full logical grid
+    // below.
     AffineMap coreVirtMap;
     if (storedForwardMap) {
       coreVirtMap = *storedForwardMap;
-    } else if (ttmlir::d2m::utils::grids::requiresVirtualGrid(
+    } else if (memorySpace != ttcore::MemorySpace::DeviceDRAM &&
+               ttmlir::d2m::utils::grids::requiresVirtualGrid(
                    gridShape, deviceGridShape)) {
       auto physicalGrid = ttmlir::d2m::utils::grids::getPhysicalGridExtent(
           llvm::SmallVector<int64_t>(gridShape.begin(), gridShape.end()),

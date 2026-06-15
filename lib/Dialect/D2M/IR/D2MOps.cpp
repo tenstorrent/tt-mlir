@@ -142,8 +142,16 @@ void d2m::EmptyOp::build(mlir::OpBuilder &builder, mlir::OperationState &state,
   if (auto metalLayout =
           mlir::dyn_cast_or_null<ttcore::MetalLayoutAttr>(encoding)) {
     auto gridShape = llvm::to_vector(metalLayout.getGridShape(resultType));
-    if (ttmlir::d2m::utils::grids::requiresVirtualGrid(gridShape,
-                                                       targetGridShape)) {
+    // DRAM tensors are not placed on the worker grid: their shards round-robin
+    // across the (12) DRAM channels (see createDramMap), so the worker-grid
+    // volume <= 64 constraint and the virtual->physical core map do not apply.
+    // Skipping the map here lets a >64-shard tensor (e.g. a 128-tile gather
+    // output) be DRAM-resident; the DRAM address map round-robins the full
+    // logical grid directly.
+    const bool isDRAM =
+        metalLayout.getMemorySpace() == ttcore::MemorySpace::DeviceDRAM;
+    if (!isDRAM && ttmlir::d2m::utils::grids::requiresVirtualGrid(
+                       gridShape, targetGridShape)) {
       auto physGrid = utils::findLegalPhysicalGridForVolume(
           ttmlir::utils::volume<int64_t>(gridShape), targetGridShape);
       TT_assertv(!physGrid.empty(),
