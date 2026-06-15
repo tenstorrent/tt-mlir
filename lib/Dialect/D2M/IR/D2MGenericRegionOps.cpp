@@ -1492,7 +1492,7 @@ mlir::LogicalResult TopkBlockOp::bufferize(
 
   rewriter.create<TopkBlockOp>(getLoc(), *maybeInputBuffer, *maybeScratchBuffer,
                                 *maybeOutValsBuffer, *maybeOutIdxBuffer, getK(),
-                                getNumElements(), getStableSort());
+                                getNumElements(), getStableSort(), getDim());
 
   mlir::bufferization::replaceOpWithBufferizedValues(
       rewriter, getOperation(),

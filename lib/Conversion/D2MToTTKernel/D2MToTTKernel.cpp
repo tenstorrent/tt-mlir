@@ -2075,80 +2075,110 @@ public:
 } // namespace
 
 namespace {
-// Lowers the three D2M topk block ops to their ckernel primitives. The two
-// value tiles are copied into DST[0,1] and the two index tiles into DST[2,3]
-// (the layout the topk LLKs require), then the matching topk op runs in place
-// on idst=0.
-template <typename ConcreteOp>
-class D2MTopkOpsRewriter : public OpConversionPattern<ConcreteOp> {
+// Lowers TileTopkLocalSortOp to ckernel topk primitives via tree reduction.
+class D2MTopkRewriter
+    : public OpConversionPattern<d2m::TileTopkLocalSortOp> {
 public:
-  using OpConversionPattern<ConcreteOp>::OpConversionPattern;
+  using OpConversionPattern<d2m::TileTopkLocalSortOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
+  matchAndRewrite(d2m::TileTopkLocalSortOp op,
+                  d2m::TileTopkLocalSortOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     Location loc = op->getLoc();
     Value cbVals = getCB(rewriter, op.getValues());
     Value cbIdx = getCB(rewriter, op.getIndices());
+    Value cbOutVals = getCB(rewriter, op.getOutValues());
+    Value cbOutIdx = getCB(rewriter, op.getOutIndices());
+
+    auto inputType = llvm::cast<MemRefType>(op.getValues().getType());
+    int32_t dim = op.getDim();
+    int64_t numTilesInner = inputType.getShape()[dim];
 
     Value dst0 = index(rewriter, loc, 0);
     Value dst1 = index(rewriter, loc, 1);
     Value dst2 = index(rewriter, loc, 2);
     Value dst3 = index(rewriter, loc, 3);
-    Value cbTile0 = index(rewriter, loc, 0);
-    Value cbTile1 = index(rewriter, loc, 1);
 
-    Value cbOutVals = getCB(rewriter, op.getOutValues());
-    Value cbOutIdx = getCB(rewriter, op.getOutIndices());
+    Value idir = intConstant<int32_t>(rewriter, loc, op.getIdir());
+    Value endPhase = intConstant<int32_t>(rewriter, loc, op.getIEndPhase());
+    Value startPhase =
+        intConstant<int32_t>(rewriter, loc, op.getIStartPhase());
 
-    rewriter.create<ttkernel::TileRegsAcquireOp>(loc);
-
-    // init_sfpu must be called inline (not hoisted) to reconfigure the
-    // unpacker data format. copy_tile_init does not reconfigure data types.
-    rewriter.create<ttkernel::InitSFPUOp>(loc, cbVals, cbOutVals);
     rewriter.create<ttkernel::TopkTileInitOp>(loc);
 
-    rewriter.create<ttkernel::CopyTileInitOp>(loc, cbVals);
-    rewriter.create<ttkernel::CopyTileOp>(loc, cbVals, cbTile0, dst0);
-    rewriter.create<ttkernel::CopyTileOp>(loc, cbVals, cbTile1, dst1);
-    rewriter.create<ttkernel::CopyTileInitOp>(loc, cbIdx);
-    rewriter.create<ttkernel::CopyTileOp>(loc, cbIdx, cbTile0, dst2);
-    rewriter.create<ttkernel::CopyTileOp>(loc, cbIdx, cbTile1, dst3);
+    for (int64_t wt = 0; wt < numTilesInner; wt += 2) {
+      Value tileA = index(rewriter, loc, wt);
+      Value tileB = index(rewriter, loc, wt + 1);
 
-    if constexpr (std::is_same_v<ConcreteOp, d2m::TileTopkLocalSortOp>) {
-      rewriter.create<ttkernel::TopkLocalSortOp>(
-          loc, dst0, intConstant<int32_t>(rewriter, loc, op.getIdir()),
-          intConstant<int32_t>(rewriter, loc, op.getIEndPhase()),
-          intConstant<int32_t>(rewriter, loc, op.getIStartPhase()));
-    } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileTopkMergeOp>) {
-      rewriter.create<ttkernel::TopkMergeOp>(
-          loc, dst0, intConstant<int32_t>(rewriter, loc, op.getMIter()),
-          intConstant<int32_t>(rewriter, loc, op.getK()));
-    } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileTopkRebuildOp>) {
-      rewriter.create<ttkernel::TopkRebuildOp>(
-          loc, dst0, intConstant<int32_t>(rewriter, loc, op.getIdir()),
-          intConstant<int32_t>(rewriter, loc, op.getMIter()),
-          intConstant<int32_t>(rewriter, loc, op.getK()),
-          intConstant<int32_t>(rewriter, loc, op.getLogk()),
-          intConstant<int32_t>(rewriter, loc, op.getSkipSecond()));
+      rewriter.create<ttkernel::TileRegsAcquireOp>(loc);
+      rewriter.create<ttkernel::InitSFPUOp>(loc, cbVals, cbOutVals);
+
+      rewriter.create<ttkernel::CopyTileInitOp>(loc, cbVals);
+      rewriter.create<ttkernel::CopyTileOp>(loc, cbVals, tileA, dst0);
+      rewriter.create<ttkernel::CopyTileOp>(loc, cbVals, tileB, dst1);
+      rewriter.create<ttkernel::CopyTileInitOp>(loc, cbIdx);
+      rewriter.create<ttkernel::CopyTileOp>(loc, cbIdx, tileA, dst2);
+      rewriter.create<ttkernel::CopyTileOp>(loc, cbIdx, tileB, dst3);
+
+      rewriter.create<ttkernel::TopkLocalSortOp>(loc, dst0, idir, endPhase,
+                                                  startPhase);
+
+      rewriter.create<ttkernel::TileRegsCommitOp>(loc);
+      rewriter.create<ttkernel::TileRegsWaitOp>(loc);
+
+      rewriter.create<ttkernel::PackReconfigDataFormatOp>(loc, cbOutVals);
+      rewriter.create<ttkernel::PackTileOp>(loc, dst0, cbOutVals, tileA,
+                                            rewriter.getBoolAttr(true));
+      rewriter.create<ttkernel::PackTileOp>(loc, dst1, cbOutVals, tileB,
+                                            rewriter.getBoolAttr(true));
+
+      rewriter.create<ttkernel::PackReconfigDataFormatOp>(loc, cbOutIdx);
+      rewriter.create<ttkernel::PackTileOp>(loc, dst2, cbOutIdx, tileA,
+                                            rewriter.getBoolAttr(true));
+      rewriter.create<ttkernel::PackTileOp>(loc, dst3, cbOutIdx, tileB,
+                                            rewriter.getBoolAttr(true));
+
+      rewriter.create<ttkernel::TileRegsReleaseOp>(loc);
     }
 
-    rewriter.create<ttkernel::TileRegsCommitOp>(loc);
-    rewriter.create<ttkernel::TileRegsWaitOp>(loc);
+    for (int64_t stride = 2; stride < numTilesInner; stride *= 2) {
+      for (int64_t wt = 0; wt + stride < numTilesInner;
+           wt += 2 * stride) {
+        Value tileA = index(rewriter, loc, wt);
+        Value tileB = index(rewriter, loc, wt + stride);
 
-    rewriter.create<ttkernel::PackReconfigDataFormatOp>(loc, cbOutVals);
-    rewriter.create<ttkernel::PackTileOp>(loc, dst0, cbOutVals, cbTile0,
-                                          rewriter.getBoolAttr(true));
-    rewriter.create<ttkernel::PackTileOp>(loc, dst1, cbOutVals, cbTile1,
-                                          rewriter.getBoolAttr(true));
+        rewriter.create<ttkernel::TileRegsAcquireOp>(loc);
+        rewriter.create<ttkernel::InitSFPUOp>(loc, cbOutVals, cbOutVals);
 
-    rewriter.create<ttkernel::PackReconfigDataFormatOp>(loc, cbOutIdx);
-    rewriter.create<ttkernel::PackTileOp>(loc, dst2, cbOutIdx, cbTile0,
-                                          rewriter.getBoolAttr(true));
-    rewriter.create<ttkernel::PackTileOp>(loc, dst3, cbOutIdx, cbTile1,
-                                          rewriter.getBoolAttr(true));
+        rewriter.create<ttkernel::CopyTileInitOp>(loc, cbOutVals);
+        rewriter.create<ttkernel::CopyTileOp>(loc, cbOutVals, tileA, dst0);
+        rewriter.create<ttkernel::CopyTileOp>(loc, cbOutVals, tileB, dst1);
+        rewriter.create<ttkernel::CopyTileInitOp>(loc, cbOutIdx);
+        rewriter.create<ttkernel::CopyTileOp>(loc, cbOutIdx, tileA, dst2);
+        rewriter.create<ttkernel::CopyTileOp>(loc, cbOutIdx, tileB, dst3);
 
-    rewriter.create<ttkernel::TileRegsReleaseOp>(loc);
+        rewriter.create<ttkernel::TopkLocalSortOp>(loc, dst0, idir, endPhase,
+                                                    startPhase);
+
+        rewriter.create<ttkernel::TileRegsCommitOp>(loc);
+        rewriter.create<ttkernel::TileRegsWaitOp>(loc);
+
+        rewriter.create<ttkernel::PackReconfigDataFormatOp>(loc, cbOutVals);
+        rewriter.create<ttkernel::PackTileOp>(loc, dst0, cbOutVals, tileA,
+                                              rewriter.getBoolAttr(true));
+        rewriter.create<ttkernel::PackTileOp>(loc, dst1, cbOutVals, tileB,
+                                              rewriter.getBoolAttr(true));
+
+        rewriter.create<ttkernel::PackReconfigDataFormatOp>(loc, cbOutIdx);
+        rewriter.create<ttkernel::PackTileOp>(loc, dst2, cbOutIdx, tileA,
+                                              rewriter.getBoolAttr(true));
+        rewriter.create<ttkernel::PackTileOp>(loc, dst3, cbOutIdx, tileB,
+                                              rewriter.getBoolAttr(true));
+
+        rewriter.create<ttkernel::TileRegsReleaseOp>(loc);
+      }
+    }
 
     rewriter.eraseOp(op);
     return success();
@@ -3662,9 +3692,7 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MWriteColMaskTileRewriter,
                ttkernel::D2MExperimentalFillArangeTileRewriter,
                ttkernel::D2MTileTransposeRewriter,
-               ttkernel::D2MTopkOpsRewriter<d2m::TileTopkLocalSortOp>,
-               ttkernel::D2MTopkOpsRewriter<d2m::TileTopkMergeOp>,
-               ttkernel::D2MTopkOpsRewriter<d2m::TileTopkRebuildOp>,
+               ttkernel::D2MTopkRewriter,
                ttkernel::D2MDstReinterpretCastRewriter,
                ttkernel::AcquireDstRewriter,
                ttkernel::UnpackStallOnPackRewriter,

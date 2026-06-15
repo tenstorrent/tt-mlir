@@ -1097,7 +1097,8 @@ def D2M_TileTopkLocalSortOp : D2M_GenericRegionComputeOp<"tile_topk_local_sort",
                          I32Attr:$idir,
                          I32Attr:$i_end_phase,
                          I32Attr:$i_start_phase,
-                         BoolAttr:$stable_sort);
+                         BoolAttr:$stable_sort,
+                         I32Attr:$dim);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() {
@@ -3334,7 +3335,8 @@ def D2M_TopkBlockOp : D2M_GenericRegionComputeOp<"topk_block",
       AnyRankedTensorOrMemRef:$out_indices,
       I32Attr:$k,
       I64Attr:$num_elements,
-      BoolAttr:$stable_sort);
+      BoolAttr:$stable_sort,
+      I32Attr:$dim);
 
   let results = (outs
       AnyRankedTensorOrMemRef:$result_values,
@@ -3344,13 +3346,14 @@ def D2M_TopkBlockOp : D2M_GenericRegionComputeOp<"topk_block",
     OpBuilder<(ins "Value":$inputValues, "Value":$scratchIdxTile,
                     "Value":$outValues, "Value":$outIndices,
                     "int32_t":$k, "int64_t":$numElements,
-                    "bool":$stableSort), [{
+                    "bool":$stableSort, "int32_t":$dim), [{
       build($_builder, $_state,
             outValues.getType(), outIndices.getType(),
             inputValues, scratchIdxTile, outValues, outIndices,
             $_builder.getI32IntegerAttr(k),
             $_builder.getI64IntegerAttr(numElements),
-            $_builder.getBoolAttr(stableSort));
+            $_builder.getBoolAttr(stableSort),
+            $_builder.getI32IntegerAttr(dim));
     }]>
   ];
 

@@ -18,12 +18,23 @@ torch.manual_seed(0)
 
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
-    "shape,k",
+    "shape,k,dim",
     [
-        pytest.param((32, 64), 16, id="32x64_k16"),
+        pytest.param((32, 64), 16, -1, id="32x64_k16_dim1"),
+        pytest.param((32, 128), 16, -1, id="32x128_k16_dim1"),
+        pytest.param((32, 256), 16, -1, id="32x256_k16_dim1"),
+        pytest.param((32, 64), 48, -1, id="32x64_k48_dim1"),
+        pytest.param((32, 64), 64, -1, id="32x64_k64_dim1"),
+        pytest.param((32, 256), 64, -1, id="32x256_k64_dim1"),
+        pytest.param((64, 32), 16, 0, id="64x32_k16_dim0"),
+        pytest.param((128, 32), 16, 0, id="128x32_k16_dim0"),
+        pytest.param((256, 32), 16, 0, id="256x32_k16_dim0"),
+        pytest.param((64, 32), 48, 0, id="64x32_k48_dim0"),
+        pytest.param((64, 32), 64, 0, id="64x32_k64_dim0"),
+        pytest.param((256, 32), 64, 0, id="256x32_k64_dim0"),
     ],
 )
-def test_topk(shape, k, target, request, device):
+def test_topk(shape, k, dim, target, request, device):
     def module(builder: TTIRBuilder):
         @builder.func([shape], [torch.float32])
         def topk(
@@ -34,7 +45,7 @@ def test_topk(shape, k, target, request, device):
             return builder.topk(
                 in0,
                 k=k,
-                dim=-1,
+                dim=dim,
                 largest=True,
                 sorted=False,
                 unit_attrs=unit_attrs,
