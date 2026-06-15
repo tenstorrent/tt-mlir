@@ -19,7 +19,6 @@ from .errors import D2mJitError, closest_match
 from .utils import _discover_dialect_ops, _cast, _get_type_str
 from .tensor_layout import Layout
 
-
 _D2M_KERNEL_TYPES = {None, "datamovement", "noc", "compute", "unified"}
 
 
@@ -449,8 +448,14 @@ class D2MCompiler(ast.NodeVisitor):
                 )
             fn = self._fn_map[node.func.id]
             args_as_attr = [False] * len(node.args)
+            kwargs_as_attr = {}
             if isinstance(fn, tuple):
-                fn, args_as_attr = fn
+                if len(fn) == 2:
+                    fn, args_as_attr = fn
+                else:
+                    fn, args_as_attr, kwargs_as_attr = fn
+                if args_as_attr is None:
+                    args_as_attr = [False] * len(node.args)
             if len(node.args) != len(args_as_attr):
                 self._fail(
                     node,
@@ -464,7 +469,10 @@ class D2MCompiler(ast.NodeVisitor):
             for arg, as_attr in zip(node.args, args_as_attr):
                 arg._ttkernel_as_attr = as_attr
                 func_args.append(_resolve(arg))
-            kwargs = {kw.arg: _resolve(kw.value) for kw in node.keywords}
+            kwargs = {}
+            for kw in node.keywords:
+                kw.value._ttkernel_as_attr = kwargs_as_attr.get(kw.arg, False)
+                kwargs[kw.arg] = _resolve(kw.value)
             return fn(*func_args, **kwargs)
 
         func_args = [_resolve(arg) for arg in node.args]
@@ -736,11 +744,11 @@ class D2MCompiler(ast.NodeVisitor):
         )
 
 
-def syntax(syntax_name, args_as_attr=None):
+def syntax(syntax_name, args_as_attr=None, kwargs_as_attr=None):
     if syntax_name.startswith("!"):
 
         def _class_wrapper(cls):
-            nonlocal args_as_attr
+            nonlocal args_as_attr, kwargs_as_attr
             assert isinstance(cls, type)
             for name, method in cls.__dict__.items():
                 if callable(method):
@@ -749,23 +757,37 @@ def syntax(syntax_name, args_as_attr=None):
                     if first_arg_name == "ast_self":
                         setattr(cls, name, staticmethod(method))
                         qualified = f"{syntax_name}.{name}"
-                        if args_as_attr is None:
+                        if args_as_attr is None and kwargs_as_attr is None:
                             D2MCompiler._syntax[qualified] = method
                         else:
-                            assert isinstance(args_as_attr, list)
-                            D2MCompiler._syntax[qualified] = (method, args_as_attr)
+                            assert args_as_attr is None or isinstance(
+                                args_as_attr, list
+                            )
+                            assert kwargs_as_attr is None or isinstance(
+                                kwargs_as_attr, dict
+                            )
+                            D2MCompiler._syntax[qualified] = (
+                                method,
+                                args_as_attr,
+                                kwargs_as_attr or {},
+                            )
             return cls
 
         return _class_wrapper
 
     def _fn_wrapper(fn):
-        nonlocal args_as_attr
+        nonlocal args_as_attr, kwargs_as_attr
         assert callable(fn)
-        if args_as_attr is None:
+        if args_as_attr is None and kwargs_as_attr is None:
             D2MCompiler._syntax[fn.__name__] = fn
         else:
-            assert isinstance(args_as_attr, list)
-            D2MCompiler._syntax[fn.__name__] = (fn, args_as_attr)
+            assert args_as_attr is None or isinstance(args_as_attr, list)
+            assert kwargs_as_attr is None or isinstance(kwargs_as_attr, dict)
+            D2MCompiler._syntax[fn.__name__] = (
+                fn,
+                args_as_attr,
+                kwargs_as_attr or {},
+            )
         return fn
 
     return _fn_wrapper

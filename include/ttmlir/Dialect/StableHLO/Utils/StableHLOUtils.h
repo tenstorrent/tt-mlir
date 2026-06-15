@@ -45,6 +45,10 @@ inline constexpr llvm::StringLiteral
 inline constexpr llvm::StringLiteral
     kTTRMSNormCustomCallTargetName("tenstorrent.rms_norm");
 
+// Composite name emitted by the frontend for scaled_dot_product_attention.
+inline constexpr llvm::StringLiteral
+    kTTSDPACompositeName("tenstorrent.scaled_dot_product_attention");
+
 // Composite names that have custom sharding rules. These composites are
 // converted to stablehlo.custom_call ops so that Shardy can propagate shardings
 // defined by the custom sharding rule for that composite as if the composite
@@ -53,6 +57,7 @@ inline constexpr llvm::StringLiteral
 // FlattenOrConvertCompositesPass and RegisterCustomShardingRulePass).
 inline constexpr llvm::StringLiteral kCompositesWithCustomSharding[] = {
     kTTRMSNormCustomCallTargetName,
+    kTTSDPACompositeName,
 };
 
 // Target name for the distributed RMS norm custom_call op.

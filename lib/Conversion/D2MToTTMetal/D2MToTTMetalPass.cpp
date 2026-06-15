@@ -83,8 +83,8 @@ struct ConvertD2MToTTMetal
     // enqueue_program per spatial region); SpatialOpRewriter in the second pass
     // merges those enqueue_program ops and then erases the spatial wrapper.
 
-    if (failed(d2m::utils::checkBackendDatamovementProcessorSupport(
-            getOperation(), "D2MToTTMetal"))) {
+    if (failed(d2m::utils::checkBackendDmCoreSupport(getOperation(),
+                                                     "D2MToTTMetal"))) {
       signalPassFailure();
       return;
     }

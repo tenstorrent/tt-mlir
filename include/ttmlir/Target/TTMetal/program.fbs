@@ -9,6 +9,7 @@ enum EthType : ushort {
 }
 
 table NocConfig {
+  processor: DataMovementProcessor;
   noc_index: NocIndex;
 }
 

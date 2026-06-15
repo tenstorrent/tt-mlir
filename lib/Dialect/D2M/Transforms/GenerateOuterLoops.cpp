@@ -59,36 +59,32 @@ public:
     return loops;
   }
 
-  static void rewriteBlockIndexOps(PatternRewriter &rewriter, Location loc,
-                                   GenericOp generic) {
-    SmallVector<BlockIndexOp> blockIndices;
-    generic->walk(
-        [&](BlockIndexOp blockIndex) { blockIndices.push_back(blockIndex); });
+  static void lowerIndexOps(PatternRewriter &rewriter, Location loc,
+                            SmallVector<affine::AffineForOp> &loops,
+                            GenericOp generic) {
+    SmallVector<Operation *> indexOps;
+    generic->walk([&](Operation *op) {
+      if (isa<BlockIndexOp, IterIndexOp>(op)) {
+        indexOps.push_back(op);
+      }
+    });
 
-    for (BlockIndexOp blockIndex : blockIndices) {
-      rewriter.setInsertionPoint(blockIndex);
-      int64_t dim = blockIndex.getDim();
-      Value offset = rewriter.create<BlockOffsetOp>(loc, dim);
-      Value iterIndex = rewriter.create<IterIndexOp>(loc, dim);
-      Value index = rewriter.create<arith::AddIOp>(loc, iterIndex, offset);
-      rewriter.replaceOp(blockIndex, index);
-    }
-  }
-
-  static void lowerIterIndexOps(PatternRewriter &rewriter,
-                                SmallVector<affine::AffineForOp> &loops,
-                                GenericOp generic) {
-    SmallVector<IterIndexOp> iterIndices;
-    generic->walk(
-        [&](IterIndexOp iterIndex) { iterIndices.push_back(iterIndex); });
-
-    for (IterIndexOp iterIndex : iterIndices) {
-      uint64_t dim = iterIndex.getDim();
-      TT_assertv(dim < loops.size(),
-                 "iter_index dim {} out of bounds for loop nest size {}", dim,
+    for (Operation *op : indexOps) {
+      int64_t dim = isa<BlockIndexOp>(op) ? cast<BlockIndexOp>(op).getDim()
+                                          : cast<IterIndexOp>(op).getDim();
+      bool dimInBounds = dim >= 0 && static_cast<size_t>(dim) < loops.size();
+      TT_assertv(dimInBounds,
+                 "index dim {} out of bounds for loop nest size {}", dim,
                  loops.size());
       Value loopIv = loops[dim].getInductionVar();
-      rewriter.replaceOp(iterIndex, loopIv);
+      if (auto blockIndex = dyn_cast<BlockIndexOp>(op)) {
+        rewriter.setInsertionPoint(blockIndex);
+        Value offset = rewriter.create<BlockOffsetOp>(loc, dim);
+        Value index = rewriter.create<arith::AddIOp>(loc, loopIv, offset);
+        rewriter.replaceOp(blockIndex, index);
+        continue;
+      }
+      rewriter.replaceOp(op, ValueRange(loopIv));
     }
   }
 
@@ -166,11 +162,10 @@ public:
       }
     }
 
-    // First rewrite block_index(dim) -> block_offset(dim) + iter_index(dim).
-    // Then lower the iter_index ops to the generated blocking loop IVs.
+    // Lower block_index(dim) -> block_offset(dim) + loop_iv(dim), and
+    // iter_index(dim) -> loop_iv(dim).
     rewriter.setInsertionPointToStart(loopedBlock);
-    rewriteBlockIndexOps(rewriter, generic.getLoc(), loopedGeneric);
-    lowerIterIndexOps(rewriter, loops, loopedGeneric);
+    lowerIndexOps(rewriter, generic.getLoc(), loops, loopedGeneric);
 
     rewriter.replaceOp(generic, loopedGeneric.getResults());
 

@@ -204,9 +204,12 @@ getSDPAShardingRule(mlir::stablehlo::CustomCallOp op) {
   // Branch explicitly between the identical-head MHA case and the grouped-head
   // GQA/MQA case for clarity.
 
-  // For standard MHA (qHeads == kvHeads), all tensors have identical shapes
-  // so we can use the efficient addPointwise builder.
-  if (qHeads == kvHeads) {
+  // For standard MHA (qHeads == kvHeads) with no extra operands, all tensors
+  // have identical shapes so we can use the efficient addPointwise builder.
+  // When an attention_mask is present its shape differs from Q (e.g.
+  // [1, 1, S, S] vs [B, H, S, D]), so addPointwise cannot be used; fall through
+  // to the explicit per-operand builder below, which leaves the mask unsharded.
+  if (qHeads == kvHeads && op.getNumOperands() == 3) {
     auto getFactorType = [](int64_t dim) -> mlir::sdy::FactorType {
       if (dim == 0 || dim == 1) {
         return mlir::sdy::FactorType::kPassThrough;
@@ -1127,6 +1130,11 @@ private:
                                       mlir::stablehlo::CustomCallOp)>>
       customCallShardingRules = {
           {sdpaTargetName, getSDPAShardingRule},
+          // Composite SDPA (frontend
+          // "tenstorrent.scaled_dot_product_attention") is converted to a
+          // custom_call keeping its composite name as the target, so map that
+          // name to the same head-sharding rule.
+          {utils::kTTSDPACompositeName, getSDPAShardingRule},
           {pagedSdpaDecodeTargetName, getPagedAttentionShardingRule},
           {pagedUpdateCacheTargetName, getPagedAttentionShardingRule},
           {pagedFillCacheTargetName, getPagedAttentionShardingRule},

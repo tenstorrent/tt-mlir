@@ -335,35 +335,24 @@ static std::string getResultVariableName(Value result, llvm::StringRef prefix) {
   return (prefix + ssaName.substr(1)).str();
 }
 
+// Resolves the kernel `Noc` C++ object to use for a NoC op and ensures it is
+// declared at the top of the enclosing kernel function.
+//
+// When the NoC index is statically known, emit an explicitly-indexed object
+// `Noc nocN(N);`, so users can use both the `noc0` and `noc1` in the same
+// kernel at their own risk.
+//
+// For a non-constant `nocId` (determined at runtime), splice into an inline
+// temporary `Noc({})`.
+//
+// When the optional `noc` op operand is absent and there is no way to
+// statically resolve the NoC index, fall back to the NoC the kernel ultimately
+// launches on (its `noc_index` global variable) with the explicit `Noc
+// noc(noc_index);` declaration.
 static std::string ensureNocDeclaration(Operation *useOp,
-                                        ConversionPatternRewriter &rewriter) {
-  constexpr llvm::StringLiteral nocName = "noc";
-  if (hasDominatingVerbatimWithPrefix(useOp, "Noc noc;") ||
-      hasDominatingVerbatimWithPrefix(useOp, "Noc noc(")) {
-    return nocName.str();
-  }
-
-  OpBuilder::InsertionGuard guard(rewriter);
-  setInsertionPointToFunctionStart(useOp, rewriter);
-  FailureOr<int64_t> nocIdx = getStaticNocIndex(useOp);
-  if (succeeded(nocIdx)) {
-    rewriter.create<emitc::VerbatimOp>(
-        useOp->getLoc(), "Noc noc(" + std::to_string(*nocIdx) + ");");
-  } else {
-    rewriter.create<emitc::VerbatimOp>(useOp->getLoc(), "Noc noc;");
-  }
-
-  return nocName.str();
-}
-
-static std::string ensureNocReference(Operation *useOp,
-                                      ConversionPatternRewriter &rewriter,
-                                      SmallVectorImpl<Value> &operands,
-                                      Value nocId = {}) {
-  if (!nocId) {
-    return ensureNocDeclaration(useOp, rewriter);
-  }
-
+                                        ConversionPatternRewriter &rewriter,
+                                        SmallVectorImpl<Value> &operands,
+                                        Value nocId = {}) {
   FailureOr<int64_t> nocIdx = getStaticNocIndex(useOp, nocId);
   if (succeeded(nocIdx)) {
     std::string nocName = "noc" + std::to_string(*nocIdx);
@@ -373,8 +362,18 @@ static std::string ensureNocReference(Operation *useOp,
                                            nocName);
   }
 
-  operands.push_back(nocId);
-  return "Noc({})";
+  if (nocId) {
+    // Explicit but non-constant nocId: splice the runtime value inline.
+    operands.push_back(nocId);
+    return "Noc({})";
+  }
+
+  // Unresolvable and no per-op override: construct from the `noc_index` kernel
+  // global variable, defined by the Metalium DM core config and the
+  // `-DNOC_INDEX` SFPI cmdline flag.
+  return ensureFunctionScopedDeclaration(useOp, rewriter, "Noc noc(noc_index);",
+                                         "noc",
+                                         /*duplicateCheckPrefix=*/"Noc noc(");
 }
 
 static std::string
@@ -1034,8 +1033,8 @@ public:
     TT_assert(resultType);
 
     SmallVector<Value, 1> nocOperands;
-    std::string nocName = ensureNocReference(op.getOperation(), rewriter,
-                                             nocOperands, adaptor.getNoc());
+    std::string nocName = ensureNocDeclaration(op.getOperation(), rewriter,
+                                               nocOperands, adaptor.getNoc());
     std::string endpoint = ensureEndpointDeclaration(
         op.getOperation(), rewriter, "UnicastEndpoint", "unicast_ep");
     SmallVector<Value, 4> operands = {adaptor.getX(), adaptor.getY(),
@@ -1068,8 +1067,8 @@ public:
                   ttkernel::NocAsyncAtomicBarrierOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     SmallVector<Value, 1> operands;
-    std::string nocName = ensureNocReference(op.getOperation(), rewriter,
-                                             operands, adaptor.getNocId());
+    std::string nocName = ensureNocDeclaration(op.getOperation(), rewriter,
+                                               operands, adaptor.getNoc());
     std::string callStr = nocName + ".async_atomic_barrier();";
 
     rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr, operands);
@@ -1092,10 +1091,9 @@ public:
   matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     SmallVector<Value, 1> operands;
-    std::string nocName = ensureNocReference(op.getOperation(), rewriter,
-                                             operands, adaptor.getNoc());
-    std::string callStr =
-        nocName + "." + methodName + "<Noc::BarrierMode::FULL>();";
+    std::string nocName = ensureNocDeclaration(op.getOperation(), rewriter,
+                                               operands, adaptor.getNoc());
+    std::string callStr = nocName + "." + methodName + "();";
 
     rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr, operands);
     rewriter.eraseOp(op);
@@ -1120,11 +1118,11 @@ public:
   matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     SmallVector<Value, 2> operands;
-    std::string nocName = ensureNocReference(op.getOperation(), rewriter,
-                                             operands, adaptor.getNoc());
+    std::string nocName = ensureNocDeclaration(op.getOperation(), rewriter,
+                                               operands, adaptor.getNoc());
     operands.push_back(adaptor.getTrid());
-    std::string callStr =
-        nocName + "." + methodName + "<Noc::BarrierMode::TXN_ID>({});";
+    std::string callStr = nocName + "." + methodName +
+                          "<NocOptions::TXN_ID>(NocOptVals{{.trid = {}}});";
 
     rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr, operands);
     rewriter.eraseOp(op);
@@ -1165,7 +1163,15 @@ public:
       remoteAddr = adaptor.getDstAddress();
     }
 
-    std::string nocName = ensureNocDeclaration(op.getOperation(), rewriter);
+    SmallVector<Value, 1> nocOperands;
+    std::string nocName = ensureNocDeclaration(op.getOperation(), rewriter,
+                                               nocOperands, adaptor.getNoc());
+    // A dynamic (explicit & non-constant) NoC object is spliced into callStr
+    // and would break operand ordering for async transfers.
+    if (!nocOperands.empty()) {
+      return rewriter.notifyMatchFailure(
+          op, "dynamic NoC ID is not supported for async read/write");
+    }
     SmallVector<Value, 5> operands{localL1Addr, adaptor.getSize()};
     std::string callStr;
 
@@ -1228,15 +1234,18 @@ public:
   matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     SmallVector<Value, 9> operands;
-    std::string nocName = ensureNocReference(op.getOperation(), rewriter,
-                                             operands, adaptor.getNoc());
+    std::string nocName = ensureNocDeclaration(op.getOperation(), rewriter,
+                                               operands, adaptor.getNoc());
     std::string endpoint = ensureEndpointDeclaration(
         op.getOperation(), rewriter, "MulticastEndpoint", "mcast_ep");
 
-    llvm::StringRef mcastMode =
+    // EXCLUDE_SRC maps to default NocOptions (no MCAST_INCL_SRC flag), so we
+    // omit the template argument entirely. INCLUDE_SRC maps to
+    // NocOptions::MCAST_INCL_SRC.
+    std::string templateArg =
         std::is_same_v<SourceOp, ttkernel::NocAsyncWriteMulticastOp>
-            ? "Noc::McastMode::EXCLUDE_SRC"
-            : "Noc::McastMode::INCLUDE_SRC";
+            ? ""
+            : "<NocOptions::MCAST_INCL_SRC>";
     bool linked = op.getLinked().value_or(false);
 
     operands.append({adaptor.getSrcLocalL1Addr(), adaptor.getSize(),
@@ -1249,9 +1258,9 @@ public:
         ".noc_x_end = {}, .noc_y_end = {}, "
         ".addr = static_cast<uint32_t>({})}";
 
-    std::string callStr = nocName + ".async_write_multicast<" +
-                          mcastMode.str() + ">(CoreLocalMem<uint32_t>({}), " +
-                          endpoint + ", {}, {}, {{} , " + dstArgs + ", " +
+    std::string callStr = nocName + ".async_write_multicast" + templateArg +
+                          "(CoreLocalMem<uint32_t>({}), " + endpoint +
+                          ", {}, {}, {{} , " + dstArgs + ", " +
                           (linked ? "true" : "false") + ");";
 
     rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr, operands);

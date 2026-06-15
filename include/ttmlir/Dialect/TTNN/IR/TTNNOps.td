@@ -1141,6 +1141,30 @@ def TTNN_CumSumOp : TTNN_Op<"cumsum"> {
   let results = (outs AnyRankedTensor:$result);
 }
 
+def TTNN_CumProdOp : TTNN_Op<"cumprod"> {
+  let summary = "Cumulative product op.";
+  let description = [{
+    Computes the cumulative product of elements of a tensor along specified dimension.
+
+    Example:
+      input: [[2, 3, 4],
+              [5, 6, 7]]
+
+      // Cumulative product along dim=0:
+      output: [[2, 3, 4],
+               [10, 18, 28]]
+
+      // Cumulative product along dim=1:
+      output: [[2, 6, 24],
+               [5, 30, 210]]
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       I32Attr:$dim);
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
 def TTNN_ConcatenateHeadsOp: TTNN_Op<"concatenate_heads"> {
     let summary = "Concatenate heads op used in attention layer.";
     let description = [{

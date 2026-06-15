@@ -3939,6 +3939,14 @@ def ttir_cumsum_golden(
     return torch.cumsum(input_tensor, dim=dim).to(output_dtype)
 
 
+def ttir_cumprod_golden(
+    input_tensor: GoldenMapTensor, dim: IntegerAttr, output_type_mlir: Type
+) -> GoldenMapTensor:
+    dim = unpack_mlir_attr(dim)
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.cumprod(input_tensor, dim=dim).to(output_dtype)
+
+
 def ttir_ones_golden(
     shape: ArrayAttr, mesh_shape_attr: ArrayAttr, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -8401,6 +8409,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.ClampScalarOp: ttir_clamp_scalar_golden,
     ttir.ClampTensorOp: ttir_clamp_tensor_golden,
     ttir.CumSumOp: ttir_cumsum_golden,
+    ttir.CumProdOp: ttir_cumprod_golden,
     ttir.BroadcastOp: ttir_broadcast_golden,
     ttir.PadOp: ttir_pad_golden,
     ttir.IndexSelectOp: select_golden,

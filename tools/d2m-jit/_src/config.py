@@ -42,6 +42,8 @@ class _Config:
     print_ir_debug_info: bool = _env_bool("D2M_JIT_PRINT_IR_DEBUG_INFO")
     # PassManager.enable_verifier toggle. Default True.
     verify_passes: bool = _env_bool("D2M_JIT_VERIFY", default=True)
+    # Convert all tensor inputs and out-params to DRAM before each kernel call.
+    kernel_io_in_dram: bool = _env_bool("D2M_JIT_KERNEL_IO_IN_DRAM")
     # If set, write the post-pipeline flatbuffer to this path before
     # device submit. Useful for offline inspection with ttrt.
     save_flatbuffer_path: Optional[str] = os.environ.get("D2M_JIT_SAVE_FLATBUFFER_PATH")

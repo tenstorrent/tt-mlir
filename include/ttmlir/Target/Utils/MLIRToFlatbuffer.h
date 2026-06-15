@@ -1196,6 +1196,15 @@ inline ::tt::target::NocIndex toFlatbuffer(FlatbufferObjectCache &cache,
   assert(false && "Unsupported NocIndex");
 }
 
+inline ::tt::target::DataMovementProcessor
+toFlatbufferDataMovementProcessor(const int32_t dmCoreIndex) {
+  // Quasar exposes 6 out of 8 DM cores.
+  assert(dmCoreIndex >= 0 &&
+         dmCoreIndex <= static_cast<int32_t>(
+                            ::tt::target::DataMovementProcessor::RISCV_5));
+  return static_cast<::tt::target::DataMovementProcessor>(dmCoreIndex);
+}
+
 inline ::tt::target::RoutingMode toFlatbuffer(FlatbufferObjectCache &cache,
                                               ttcore::RoutingMode routingMode) {
   switch (routingMode) {

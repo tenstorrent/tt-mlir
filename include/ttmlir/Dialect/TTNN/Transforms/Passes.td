@@ -482,6 +482,38 @@ def TTNNWeightDtypeConversion: Pass<"ttnn-weight-dtype-conversion", "::mlir::Mod
   ];
 }
 
+def TTNNCCLActivationDtypeLowering: Pass<"ttnn-ccl-activation-dtype-lowering", "::mlir::ModuleOp"> {
+  let summary = "Lower activation precision to bfp_bf8 around CCL ops.";
+  let description = [{
+    This pass is part of the Mixed Precision effort in compiler.
+    This pass reduces ethernet traffic for collective communication (CCL) ops
+    in large transformer models by lowering activation precision from bf16 to
+    bfp_bf8 across the CCL boundary. Producer matmul ops have their result
+    tensor's layout encoding rewritten to bfp_bf8 so no explicit ttnn.typecast is
+    required at the producer side. On the consumer side, some patterns allow for
+    implicit casting back to bf16 (e.g. residual add). Currently we added only patterns
+    that don't require explicit casts on both sides.
+
+    The pass implements two strict per-pattern matchers, each modeled after a
+    Llama-style sub-graph:
+      - Projection matmul (attention output / MLP down) -> [view / CCL]* ->
+        residual add. The residual add's result encoding stays bf16 (it was
+        constructed from the bf16 residual operand), so TTNN restores bf16
+        at the block output by combining the bfp_bf8 CCL output with the
+        bf16 residual — no exit-side cast needed.
+      - MLP up / gate matmuls -> [view / CCL]* -> silu / multiply. The
+        multiply's result encoding is rewritten to bfp_bf8 so the downstream
+        FF2 matmul receives bfp_bf8 input; the FF2 residual add then
+        restores bf16 via the projection-residual matcher when FF2 itself is
+        lowered.
+
+    A matmul only matches a pattern when the entire downstream chain shape
+    matches the template, so the pass under-triggers by design. The idea is
+    to add new patterns as we get more multichip models running and fuse patterns
+    to more general ones as we get more cases.
+  }];
+}
+
 def TTNNKVCacheDtypeConversion: Pass<"ttnn-kv-cache-dtype-conversion", "::mlir::ModuleOp"> {
   let summary = "Convert KV cache tensors to a lower precision dtype.";
   let description = [{
@@ -560,19 +592,22 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
 def TTNNSetComputeKernelConfig: Pass<"ttnn-set-compute-kernel-config", "::mlir::ModuleOp"> {
   let summary = "Set default ComputeKernelConfig attributes for operations.";
   let description = [{
-    This pass sets default ComputeKernelConfig attributes for TTNN operations that support
-    the ComputeKernelConfigOpInterface. It only sets parameter values that are not already
-    defined, preserving any existing configuration decisions made by earlier compiler passes.
+    This pass sets ComputeKernelConfig attributes for TTNN operations that implement
+    ComputeKernelConfigOpInterface.
 
-    Behaviour:
-    - If an operation has no compute_config attribute, a new compute config is created with override values
-    - If an operation has a compute_config but a specific parameter (e.g., math_fidelity) is
-      unset (std::nullopt), the override value is applied for that parameter only
-    - If a parameter is already set in the compute_config, it is not overridden, preserving
-      the existing compiler decision
+    Pipeline behaviour:
+    - If an operation has no compute_config attribute, a new config is created and pipeline
+      option values are applied.
+    - If a parameter is already set on the operation's compute_config, pipeline options do
+      not override it.
+    - If a parameter is unset (std::nullopt for math_fidelity, false for bool options),
+      the corresponding pipeline option is applied.
 
-    This allows setting default values for ComputeKernelConfig parameters while respecting
-    any explicit configuration choices made by prior passes.
+    Large-inner-dimension bf16 matmul/linear correctness fix (tenstorrent/tt-metal#46101):
+    For `ttnn.matmul` and `ttnn.linear` with inner dimension > 50000 and bf16 output,
+    always sets `fp32_dest_acc_en = true` and `packer_l1_acc = true`, even when those
+    parameters are already set to false. This rule runs after pipeline option defaults
+    and takes precedence over explicit values on the op.
 
     Example usage:
     ttmlir-opt --ttnn-set-compute-kernel-config="math-fidelity=hifi4" input.mlir

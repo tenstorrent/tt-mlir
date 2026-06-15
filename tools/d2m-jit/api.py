@@ -622,10 +622,38 @@ def where(cond, true_value, false_value):
     )
 
 
-@syntax("matmul")
-def matmul(lhs, rhs):
-    """Block-level matmul: `C = A @ B` (see _matmul_block)."""
-    return _matmul_block(lhs, rhs)
+def _bool_attr_from_ast(node):
+    if isinstance(node, ast.Constant) and isinstance(node.value, bool):
+        return node.value
+    raise D2mJitError(
+        f"expected a Python bool literal, got {type(node).__name__}; runtime "
+        "values are not supported for attribute-typed kernel arguments"
+    )
+
+
+def _normalize_bool_literal(value, name):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, arith.ConstantOp):
+        attr = IntegerAttr.maybe_downcast(value.operation.attributes["value"])
+        if attr is not None and attr.value in (0, 1):
+            return bool(attr.value)
+    raise TypeError(
+        f"{name} must be a Python bool literal or a constant bool value, "
+        f"got {value!r}"
+    )
+
+
+@syntax("matmul", kwargs_as_attr={"transpose_b": _bool_attr_from_ast})
+def matmul(lhs, rhs, transpose_b=False):
+    """Block-level matmul: `C = A @ B` (see _matmul_block).
+
+    Set `transpose_b=True` when `rhs` is stored as `(N, K)` and should be
+    transposed by the matmul kernel.
+    """
+    return _matmul_block(
+        lhs, rhs, transpose_b=_normalize_bool_literal(transpose_b, "transpose_b")
+    )
 
 
 def _int_attr_from_ast(node, compiler=None):
@@ -999,9 +1027,11 @@ class TensorBlock:
         the condition tile."""
         return where(ast_self, true_value, false_value)
 
-    def matmul(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
+    def matmul(
+        ast_self: TensorBlock, rhs: TensorBlock, transpose_b=False
+    ) -> TensorBlock:
         """Same as `d2m.matmul(self, rhs)`."""
-        return matmul(ast_self, rhs)
+        return matmul(ast_self, rhs, transpose_b=transpose_b)
 
     def reduce_sum(ast_self: TensorBlock, dim) -> TensorBlock:
         """Same as `d2m.reduce_sum(self, dim)`."""
@@ -1438,16 +1468,18 @@ def _reduce_block(
     return generic.result
 
 
-def _matmul_block(lhs, rhs):
+def _matmul_block(lhs, rhs, transpose_b=False):
     """Block-level matmul: `C = A @ B` where each tensor is a 2D block of
     tiles. Emits a linalg.generic with the standard matmul indexing maps
     (parallel/parallel/reduction over M/N/K) and `d2m.tile_matmul` in the
     body (per-tile accumulating multiply-add).
 
     lhs: tensor<M x K x !ttcore.tile<...>>
-    rhs: tensor<K x N x !ttcore.tile<...>>
+    rhs: tensor<K x N x !ttcore.tile<...>>, or tensor<N x K x ...> when
+         transpose_b is true
     Returns: tensor<M x N x !ttcore.tile<...>>.
     """
+    transpose_b = _normalize_bool_literal(transpose_b, "transpose_b")
     assert isinstance(lhs.type, RankedTensorType)
     assert isinstance(rhs.type, RankedTensorType)
     assert lhs.type.rank == 2, f"matmul lhs must be 2D, got rank {lhs.type.rank}"
@@ -1459,10 +1491,12 @@ def _matmul_block(lhs, rhs):
     elem_ty = lhs.type.element_type
     m_blocks = lhs.type.shape[0]
     k_blocks = lhs.type.shape[1]
-    assert (
-        k_blocks == rhs.type.shape[0]
-    ), f"matmul inner dim mismatch: lhs K={k_blocks} vs rhs K={rhs.type.shape[0]}"
-    n_blocks = rhs.type.shape[1]
+    rhs_k_dim = 1 if transpose_b else 0
+    assert k_blocks == rhs.type.shape[rhs_k_dim], (
+        f"matmul inner dim mismatch: lhs K={k_blocks} vs rhs "
+        f"K={rhs.type.shape[rhs_k_dim]}"
+    )
+    n_blocks = rhs.type.shape[0] if transpose_b else rhs.type.shape[1]
 
     out_ty = RankedTensorType.get([m_blocks, n_blocks], elem_ty)
     # TODO: zero-initialise the accumulator. The matmul body computes
@@ -1479,7 +1513,7 @@ def _matmul_block(lhs, rhs):
     d1 = AffineDimExpr.get(1)
     d2 = AffineDimExpr.get(2)
     a_map = AffineMap.get(3, 0, [d0, d2])
-    b_map = AffineMap.get(3, 0, [d2, d1])
+    b_map = AffineMap.get(3, 0, [d1, d2] if transpose_b else [d2, d1])
     c_map = AffineMap.get(3, 0, [d0, d1])
     indexing_maps = ArrayAttr.get(
         [
