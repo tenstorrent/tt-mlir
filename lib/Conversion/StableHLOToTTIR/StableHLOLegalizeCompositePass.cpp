@@ -354,9 +354,8 @@ public:
               continue;
             }
             if (count == nonUnitPos) {
-              return inShape[i] == outShape[outDim]
-                         ? std::optional<int64_t>(i)
-                         : std::nullopt;
+              return inShape[i] == outShape[outDim] ? std::optional<int64_t>(i)
+                                                    : std::nullopt;
             }
             count++;
           }
@@ -369,11 +368,10 @@ public:
             break; // Reached a BlockArgument; query sharding from manual
                    // computation's in_shardings.
           }
-          if (auto reshape =
-                  llvm::dyn_cast<mlir::stablehlo::ReshapeOp>(def)) {
-            auto outShape = mlir::cast<mlir::RankedTensorType>(
-                                reshape.getType())
-                                .getShape();
+          if (auto reshape = llvm::dyn_cast<mlir::stablehlo::ReshapeOp>(def)) {
+            auto outShape =
+                mlir::cast<mlir::RankedTensorType>(reshape.getType())
+                    .getShape();
             auto inShape = mlir::cast<mlir::RankedTensorType>(
                                reshape.getOperand().getType())
                                .getShape();
@@ -411,12 +409,12 @@ public:
             auto batchRhs = dnums.getRhsBatchingDimensions();
             auto contractLhs = dnums.getLhsContractingDimensions();
             auto contractRhs = dnums.getRhsContractingDimensions();
-            auto lhsShape = mlir::cast<mlir::RankedTensorType>(
-                                dot.getLhs().getType())
-                                .getShape();
-            auto rhsShape = mlir::cast<mlir::RankedTensorType>(
-                                dot.getRhs().getType())
-                                .getShape();
+            auto lhsShape =
+                mlir::cast<mlir::RankedTensorType>(dot.getLhs().getType())
+                    .getShape();
+            auto rhsShape =
+                mlir::cast<mlir::RankedTensorType>(dot.getRhs().getType())
+                    .getShape();
             int64_t numBatch = batchLhs.size();
             // Output layout: [batch_dims, lhs_other_dims, rhs_other_dims].
             if (trackedDim < numBatch) {
@@ -461,12 +459,10 @@ public:
         if (walkOk && shardingSource.use_empty()) {
           walkOk = false;
         }
-        auto sharding =
-            walkOk
-                ? shardy_utils::getOperandShardingAttr(
-                      *shardingSource.use_begin(), meshOps[0])
-                : shardy_utils::getOperandShardingAttr(
-                      srcOp->getOpOperand(0), meshOps[0]);
+        auto sharding = walkOk ? shardy_utils::getOperandShardingAttr(
+                                     *shardingSource.use_begin(), meshOps[0])
+                               : shardy_utils::getOperandShardingAttr(
+                                     srcOp->getOpOperand(0), meshOps[0]);
         int64_t queryDim = walkOk ? trackedDim : topkDim;
         auto dimShardings = sharding.getDimShardings();
         if (queryDim < static_cast<int64_t>(dimShardings.size()) &&
@@ -511,9 +507,9 @@ public:
     int64_t effectiveK = k;
     int64_t paddedTotal = k * numShards;
     if (paddedTotal < kTileWidth || paddedTotal % kTileWidth != 0) {
-      paddedTotal = ((std::max(paddedTotal, kTileWidth) + kTileWidth - 1) /
-                     kTileWidth) *
-                    kTileWidth;
+      paddedTotal =
+          ((std::max(paddedTotal, kTileWidth) + kTileWidth - 1) / kTileWidth) *
+          kTileWidth;
       while (paddedTotal % numShards != 0) {
         paddedTotal += kTileWidth;
       }
@@ -527,8 +523,8 @@ public:
     bool padded = effectiveK != k;
     int64_t totalCandidates = paddedTotal;
     auto dimI32 = rewriter.getI32IntegerAttr(static_cast<int32_t>(topkDim));
-    auto effectiveKAttr = rewriter.getI32IntegerAttr(
-        static_cast<int32_t>(effectiveK));
+    auto effectiveKAttr =
+        rewriter.getI32IntegerAttr(static_cast<int32_t>(effectiveK));
 
     auto localValType = RankedTensorType::get({batch, effectiveK}, elemType);
     auto localIndType =
@@ -573,17 +569,16 @@ public:
     // Merge with effectiveK to keep the merge output tile-aligned; slice
     // down to the user's k after the gather. (If padded==false, this is
     // the same as the original merge with K=k.)
-    auto mergedValType =
-        RankedTensorType::get({batch, effectiveK}, elemType);
+    auto mergedValType = RankedTensorType::get({batch, effectiveK}, elemType);
     auto sortOrderType =
         RankedTensorType::get({batch, effectiveK}, rewriter.getI32Type());
     auto mergeTopK = rewriter.create<ttir::TopKOp>(
-        loc, mergedValType, sortOrderType, gatheredVals, effectiveKAttr,
-        dimI32, largestAttr, BoolAttr::get(rewriter.getContext(), true));
+        loc, mergedValType, sortOrderType, gatheredVals, effectiveKAttr, dimI32,
+        largestAttr, BoolAttr::get(rewriter.getContext(), true));
 
     // GatherOp requires unsigned indices.
-    auto ui32Type = RankedTensorType::get(
-        {batch, effectiveK}, rewriter.getIntegerType(32, false));
+    auto ui32Type = RankedTensorType::get({batch, effectiveK},
+                                          rewriter.getIntegerType(32, false));
     Value sortOrderUi32 = rewriter.create<ttir::TypecastOp>(
         loc, ui32Type, mergeTopK.getIndices());
     Value alignedInds = rewriter.create<ttir::GatherOp>(
@@ -601,8 +596,8 @@ public:
       auto slicedIndType =
           RankedTensorType::get({batch, k}, rewriter.getI32Type());
       auto toI32Array = [&](ArrayRef<int64_t> v) {
-        return rewriter.getI32ArrayAttr(SmallVector<int32_t>(v.begin(),
-                                                              v.end()));
+        return rewriter.getI32ArrayAttr(
+            SmallVector<int32_t>(v.begin(), v.end()));
       };
       finalValues = rewriter.create<ttir::SliceStaticOp>(
           loc, slicedValType, finalValues, toI32Array(sliceStarts),
