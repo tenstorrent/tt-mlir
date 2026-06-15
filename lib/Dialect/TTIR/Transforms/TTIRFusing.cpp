@@ -1484,6 +1484,173 @@ private:
   }
 };
 
+// Push an output-row slice of a matmul up into its LHS (A) operand.
+//
+// If only a contiguous sub-range of a matmul's output *rows* is ever used, the
+// remaining rows are computed and immediately discarded. Slicing the LHS first
+// yields the same result from an M-times-smaller matmul:
+//
+//   %m = ttir.matmul(%A : [M,K], %B : [K,N])   -> [M,N]
+//   %s = ttir.slice_static(%m) [r0:r1, :]      -> [r1-r0, N]
+//     ==>
+//   %As = ttir.slice_static(%A) [r0:r1, :]     -> [r1-r0, K]
+//   %m2 = ttir.matmul(%As, %B)                 -> [r1-r0, N]
+//
+// The canonical source is a causal-LM head during prefill: only the last
+// token's logits feed the next-token argmax, so a [seq, H] x [H, vocab]
+// projection collapses to [1, H] x [H, vocab] (~seq_len less work). A single
+// leading-unit-dim reshape between the matmul and the slice (e.g.
+// [seq, vocab] -> [1, seq, vocab], as emitted for a rank-3 logits tensor) is
+// looked through.
+//
+// Guards: the matmul (and the optional reshape) must have a single user, the
+// slice must be identity (full range, step 1) on every dim except the matmul
+// output row dim, and it must strictly narrow that dim (otherwise it is a
+// no-op). transpose_a is honored when locating the row dim of A.
+class SliceBeforeMatmulPattern
+    : public mlir::OpRewritePattern<SliceStaticOp> {
+  using mlir::OpRewritePattern<SliceStaticOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(SliceStaticOp slice,
+                  mlir::PatternRewriter &rewriter) const final {
+    // Walk up through an optional leading-unit-dim reshape to the matmul.
+    Value sliced = slice.getInput();
+    auto reshape = sliced.getDefiningOp<ReshapeOp>();
+    Value matmulVal = reshape ? reshape.getInput() : sliced;
+    auto matmul = matmulVal.getDefiningOp<MatmulOp>();
+    if (!matmul) {
+      return rewriter.notifyMatchFailure(slice, "producer is not a matmul");
+    }
+
+    // Single-use chain: pushing the slice up is only a win if the full matmul
+    // (and any intervening reshape) has no other consumer.
+    if (!matmul.getResult().hasOneUse()) {
+      return rewriter.notifyMatchFailure(slice, "matmul result has other uses");
+    }
+    if (reshape && !reshape.getResult().hasOneUse()) {
+      return rewriter.notifyMatchFailure(slice, "reshape has other uses");
+    }
+
+    auto matmulType = mlir::cast<RankedTensorType>(matmul.getType());
+    ArrayRef<int64_t> matmulShape = matmulType.getShape();
+    int64_t matmulRank = matmulType.getRank();
+    if (matmulRank < 2) {
+      return rewriter.notifyMatchFailure(slice, "matmul rank < 2");
+    }
+
+    auto sliceType = mlir::cast<RankedTensorType>(slice.getType());
+    int64_t sliceRank = sliceType.getRank();
+
+    // If a reshape intervened, require it to only prepend size-1 dims, so the
+    // slice dims map 1:1 onto the matmul output dims (offset by `pad`).
+    int64_t pad = sliceRank - matmulRank;
+    if (pad < 0) {
+      return rewriter.notifyMatchFailure(slice, "slice rank below matmul rank");
+    }
+    if (reshape) {
+      ArrayRef<int64_t> rOut =
+          mlir::cast<RankedTensorType>(reshape.getType()).getShape();
+      for (int64_t i = 0; i < pad; ++i) {
+        if (rOut[i] != 1) {
+          return rewriter.notifyMatchFailure(slice, "reshape not leading-1 pad");
+        }
+      }
+      if (rOut.drop_front(pad) != matmulShape) {
+        return rewriter.notifyMatchFailure(slice, "reshape mixes matmul dims");
+      }
+    } else if (pad != 0) {
+      return rewriter.notifyMatchFailure(slice, "rank mismatch without reshape");
+    }
+
+    // Matmul output row dim is rank-2; the col (N) dim is rank-1.
+    int64_t outRowDim = matmulRank - 2;
+    int64_t sliceRowDim = outRowDim + pad;
+
+    // The slice must keep the full N dim and all batch dims, and select a
+    // strict contiguous sub-range (step 1) on exactly the row dim.
+    auto begins = slice.getBegins().getValue();
+    auto ends = slice.getEnds().getValue();
+    auto steps = slice.getStep().getValue();
+    ArrayRef<int64_t> inShape =
+        mlir::cast<RankedTensorType>(slice.getInput().getType()).getShape();
+
+    int64_t r0 = 0, r1 = 0;
+    for (int64_t d = 0; d < sliceRank; ++d) {
+      int64_t b = mlir::cast<IntegerAttr>(begins[d]).getInt();
+      int64_t e = mlir::cast<IntegerAttr>(ends[d]).getInt();
+      int64_t s = mlir::cast<IntegerAttr>(steps[d]).getInt();
+      int64_t dim = inShape[d];
+      if (b < 0) {
+        b += dim;
+      }
+      if (e < 0) {
+        e += dim;
+      }
+      if (s != 1) {
+        return rewriter.notifyMatchFailure(slice, "non-unit step");
+      }
+      if (d == sliceRowDim) {
+        r0 = b;
+        r1 = e;
+      } else if (b != 0 || e != dim) {
+        return rewriter.notifyMatchFailure(slice, "slice not on row dim only");
+      }
+    }
+    if (r1 - r0 >= matmulShape[outRowDim]) {
+      return rewriter.notifyMatchFailure(slice, "slice does not narrow rows");
+    }
+
+    // transpose_a decides which dim of A carries the output rows:
+    //   transpose_a=false: A = [.., M, K] -> row dim = rank-2
+    //   transpose_a=true:  A = [.., K, M] -> row dim = rank-1
+    Value a = matmul.getA();
+    auto aType = mlir::cast<RankedTensorType>(a.getType());
+    int64_t aRank = aType.getRank();
+    int64_t aRowDim = matmul.getTransposeA() ? aRank - 1 : aRank - 2;
+
+    // Build slice(A) narrowing only aRowDim to [r0:r1).
+    ArrayRef<int64_t> aShape = aType.getShape();
+    SmallVector<int32_t> aBegins(aRank, 0);
+    SmallVector<int32_t> aEnds(aShape.begin(), aShape.end());
+    SmallVector<int32_t> aSteps(aRank, 1);
+    aBegins[aRowDim] = static_cast<int32_t>(r0);
+    aEnds[aRowDim] = static_cast<int32_t>(r1);
+
+    SmallVector<int64_t> aSlicedShape(aShape);
+    aSlicedShape[aRowDim] = r1 - r0;
+    auto aSlicedType = RankedTensorType::get(
+        aSlicedShape, aType.getElementType(), aType.getEncoding());
+    auto aSlice = rewriter.create<SliceStaticOp>(
+        matmul.getLoc(), aSlicedType, a, rewriter.getI32ArrayAttr(aBegins),
+        rewriter.getI32ArrayAttr(aEnds), rewriter.getI32ArrayAttr(aSteps));
+
+    // New, narrowed matmul: output row dim becomes r1-r0.
+    SmallVector<int64_t> newOutShape(matmulShape);
+    newOutShape[outRowDim] = r1 - r0;
+    auto newOutType = RankedTensorType::get(
+        newOutShape, matmulType.getElementType(), matmulType.getEncoding());
+    auto newMatmul = rewriter.create<MatmulOp>(
+        matmul.getLoc(), newOutType, aSlice.getResult(), matmul.getB(),
+        matmul.getTransposeA(), matmul.getTransposeB());
+
+    // Reshape the narrowed result back to the slice's output shape (a no-op
+    // reshape when no reshape intervened, i.e. the shapes already match).
+    if (newOutType == sliceType) {
+      rewriter.replaceOp(slice, newMatmul.getResult());
+    } else {
+      SmallVector<int32_t> finalShape(sliceType.getShape().begin(),
+                                      sliceType.getShape().end());
+      auto reshapeBack = rewriter.create<ReshapeOp>(
+          slice.getLoc(), sliceType, newMatmul.getResult(),
+          rewriter.getI32ArrayAttr(finalShape));
+      rewriter.replaceOp(slice, reshapeBack.getResult());
+    }
+    return mlir::success();
+  }
+};
+
 // Fuse multiple MatmulOps that share the same LHS (A operand) into a single
 // MatmulOp with concatenated RHS (B operand) weights and sliced outputs.
 //
@@ -3116,6 +3283,7 @@ public:
       patterns.add<SpatialMeanOptimizationPattern>(&getContext());
       patterns.add<SharedLHSMatmulFusion<MatmulOp>>(&getContext());
       patterns.add<SharedLHSMatmulFusion<LinearOp>>(&getContext());
+      patterns.add<SliceBeforeMatmulPattern>(&getContext());
       patterns.add<RMSNormFusionPattern>(&getContext());
 
       patterns.add<GeluFusionPattern>(&getContext());
