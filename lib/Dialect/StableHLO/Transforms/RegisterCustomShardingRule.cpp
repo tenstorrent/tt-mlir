@@ -392,21 +392,21 @@ getPagedAttentionShardingRule(mlir::stablehlo::CustomCallOp op) {
       return mlir::sdy::OpShardingRuleAttr();
     }
 
-    const int64_t queryHeadDim = 1; // [U, H, chunk_len, D]
-    const int64_t kvHeadDim = 1;    // [B, H, S, D]
-    const int64_t outputHeadDim = 1;
+    // Query [U, H, chunk_len, D], K/V [B, H, S, D], and output all carry the
+    // head dim at index 1.
+    const int64_t headDim = 1;
 
-    int64_t headSize = queryType.getShape()[queryHeadDim];
+    int64_t headSize = queryType.getShape()[headDim];
 
     SmallVector<int64_t> operandHeadDims(op.getNumOperands(),
                                          mlir::sdy::kNullDim);
     SmallVector<int64_t> resultHeadDims(op.getNumResults(),
                                         mlir::sdy::kNullDim);
 
-    operandHeadDims[0] = queryHeadDim; // query
-    operandHeadDims[1] = kvHeadDim;    // key
-    operandHeadDims[2] = kvHeadDim;    // value
-    resultHeadDims[0] = outputHeadDim; // output
+    operandHeadDims[0] = headDim; // query
+    operandHeadDims[1] = headDim; // key
+    operandHeadDims[2] = headDim; // value
+    resultHeadDims[0] = headDim;  // output
 
     return buildHeadShardedCustomCallRule(op, operandHeadDims, resultHeadDims,
                                           headSize);
