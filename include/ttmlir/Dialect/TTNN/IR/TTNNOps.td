@@ -3869,7 +3869,7 @@ def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_prod
 def TTNN_ChunkedScaledDotProductAttentionOp : TTNN_Op<"chunked_scaled_dot_product_attention", [OpModelExempt]> {
   let summary = "Chunked prefill scaled dot product attention over a paged KV cache.";
   let description = [{
-    Chunked-prefill attention (tt-xla #4986). A prefill chunk of `query` attends
+    Chunked-prefill attention. A prefill chunk of `query` attends
     causally over the prefix `[0, chunk_start_idx + chunk_len)` resident in the
     paged K/V cache, read on device via `page_table`, with the prefix offset given
     by the device tensor `chunk_start_idx` (`[1]` int32). Trace-compatible.

@@ -6164,7 +6164,7 @@ def TTIR_PagedScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"paged_scaled_dot
 def TTIR_ChunkedScaledDotProductAttentionOp : TTIR_NamedOp<"chunked_scaled_dot_product_attention"> {
   let summary = "Chunked prefill scaled dot product attention over a paged KV cache.";
   let description = [{
-    Chunked-prefill attention (tt-xla #4986). A prefill chunk of `query` attends
+    Chunked-prefill attention. A prefill chunk of `query` attends
     causally over the prefix tokens `[0, chunk_start_idx + chunk_len)` that are
     resident in the paged K/V cache, read on device via `page_table`. The prefix
     offset is supplied by the device tensor `chunk_start_idx` (`[1]` int32), so the
