@@ -128,8 +128,8 @@ def test_session_pool_chains_a_to_b(device, tmp_path):
         # the published golden.
         ctx = chisel.context.get_instance()
         assert (
-            ctx.program_io_pool
-        ), "program_io_pool should contain A's published golden between submits"
+            ctx.session_pool
+        ), "session_pool should contain A's published golden between submits"
 
         # Convert B's second (fresh) input via the binary's expected layout
         # for slot 1. Slot 0 is A's device output, passed through unchanged
@@ -176,9 +176,9 @@ def test_session_pool_chains_a_to_a_to_a(device, tmp_path):
 
         out1 = _submit_with_layout_convert(device, fbb, [x_host, y_host])
         ctx = chisel.context.get_instance()
-        pool_size_after_run1 = len(ctx.program_io_pool)
+        pool_size_after_run1 = len(ctx.session_pool)
         assert pool_size_after_run1 >= 1, (
-            "expected at least one entry in program_io_pool after run 1, "
+            "expected at least one entry in session_pool after run 1, "
             f"got {pool_size_after_run1}"
         )
 

@@ -143,6 +143,7 @@ class ChiselContext:
             raise UnexpectedStateError("golden_tensor_pool")
         return program._golden_tensor_pool
 
+    @property
     def device_tensor_pool(self) -> Dict[SSAName, GoldenMapTensor]:
         """Program-scoped SSA -> device tensor cache; persists across ops."""
         program = self._current_callback_program
