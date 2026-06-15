@@ -383,8 +383,16 @@ protected:
     const TTNNLayoutAttr outputLayout = CreateTiledLayout(
         outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
 
+    DeviceComputeKernelConfigAttr deviceConfig =
+        DeviceComputeKernelConfigAttr::get(
+            &context, /*mathFidelity=*/MathFidelity::LoFi,
+            /*mathApproxMode=*/::mlir::BoolAttr::get(&context, true),
+            /*fp32DestAccEn=*/::mlir::BoolAttr::get(&context, true),
+            /*packerL1Acc=*/::mlir::BoolAttr::get(&context, true),
+            /*dstFullSyncEn=*/::mlir::BoolAttr::get(&context, true));
+
     auto constraintsExp = OpModel<OpTy>::getOpConstraints(
-        inputShape, inputLayout, dimArg, keepDim, outputLayout);
+        inputShape, inputLayout, dimArg, keepDim, deviceConfig, outputLayout);
     // Manually cast to bool because EXPECT_TRUE requires a const bool operator
     // which llvm::Expected<T> does not have
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
@@ -400,7 +408,7 @@ protected:
       llvm::consumeError(constraintsExp.takeError());
     }
     auto runtimeExp = OpModel<OpTy>::getOpRuntime(
-        inputShape, inputLayout, dimArg, keepDim, outputLayout);
+        inputShape, inputLayout, dimArg, keepDim, deviceConfig, outputLayout);
     EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
     if (expectedLegal) {
       EXPECT_TRUE(runtimeExp.get() > 0);
