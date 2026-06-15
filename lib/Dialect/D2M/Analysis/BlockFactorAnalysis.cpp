@@ -148,6 +148,35 @@ static bool isScalarTileLayoutConversion(GenericOp genericOp) {
   return hasExpectedRegionOp;
 }
 
+static bool canReblockOperandToGrid(Value operand,
+                                    ArrayRef<int64_t> newGridShape) {
+  auto operandType = mlir::dyn_cast<ShapedType>(operand.getType());
+  if (!operandType || !operandType.hasStaticShape()) {
+    return false;
+  }
+
+  auto layout = ttcore::getDeviceLayout(operandType);
+  if (!layout) {
+    return false;
+  }
+
+  ArrayRef<int64_t> oldGridShape = layout.getGridShape(operandType);
+  ArrayRef<int64_t> oldShardShape = layout.getShardShape(operandType);
+  if (newGridShape.size() != oldGridShape.size() ||
+      oldGridShape.size() != oldShardShape.size()) {
+    return false;
+  }
+
+  for (auto [idx, gridDim] : llvm::enumerate(newGridShape)) {
+    if (gridDim <= 0 ||
+        (oldGridShape[idx] * oldShardShape[idx]) % gridDim != 0) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 /// Classify a generic op's iteration shape for auto-policy search.
 /// @return the search config or nullopt if auto-blocking is not applicable.
 static std::optional<AutoSearchConfig>
@@ -373,6 +402,12 @@ static std::optional<CandidateScore> evaluateCandidate(
 
     auto [operandGridShape, operandShardShape] = getOperandGridAndShardExtents(
         genericOp, operandIndex, candidateGridExtents, candidateShardExtents);
+
+    // Reblocking rebuilds the operand type using the derived grid shape. Reject
+    // candidates that cannot evenly repartition the operand's actual layout.
+    if (!canReblockOperandToGrid(operand, operandGridShape)) {
+      return std::nullopt;
+    }
 
     // Reject candidates that would result in a too small operand shard shape.
     if (ttmlir::utils::volume<int64_t>(operandShardShape) < 4) {
