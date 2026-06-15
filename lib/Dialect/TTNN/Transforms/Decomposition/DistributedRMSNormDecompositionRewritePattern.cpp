@@ -359,7 +359,7 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
 
   // rms_norm_pre_all_gather emits the per-device *sum* of squares (sum(x^2)),
   // not the per-device mean. The MeanOp above only divided the gathered sums by
-  // numDevices; to recover the global E(x^2) = sum(x^2) / H we must additionally
+  // numDevices; to recover the global E(x^2) = sum(x^2) / N we must additionally
   // divide by the per-device hidden size N (= input's last dim). Omitting this
   // leaves the variance N times too large, shrinking the normalized output by
   // sqrt(N).
