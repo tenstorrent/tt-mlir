@@ -130,3 +130,42 @@ func.func private @tenstorrent.topk.impl(%arg0: tensor<1x65536xf32>)
   %5 = stablehlo.convert %4 : (tensor<1x32xi32>) -> tensor<1x32xi64>
   return %3, %5 : tensor<1x32xf32>, tensor<1x32xi64>
 }
+
+// Regression: K=1 (greedy) on a sharded input. k*numShards = 4 is below the
+// tt-metal tile width (32), so the lowering must pad per-shard candidates to
+// effectiveK=8 (with 4 shards) to keep the all_gather'd intermediate
+// tile-aligned, then slice down to k=1 at the end.
+// CHECK-LABEL: func.func public @topk_indices_k1_multi_device
+// CHECK: sdy.manual_computation
+// CHECK: "ttir.topk"{{.*}}k = 8 : i32{{.*}}tensor<1x16384xf32>{{.*}}tensor<1x8xf32>
+// CHECK: "ttir.all_gather"{{.*}}tensor<1x8xf32>{{.*}}tensor<1x32xf32>
+// CHECK: "ttir.all_gather"{{.*}}tensor<1x8xi32>{{.*}}tensor<1x32xi32>
+// CHECK: "ttir.add"{{.*}}tensor<1x32xi32>
+// CHECK: "ttir.topk"{{.*}}k = 8 : i32{{.*}}tensor<1x32xf32>{{.*}}tensor<1x8xf32>
+// CHECK: "ttir.gather"{{.*}}tensor<1x32xi32>{{.*}}tensor<1x8xi32>
+// CHECK: "ttir.slice_static"{{.*}}tensor<1x8xi32>{{.*}}tensor<1x1xi32>
+func.func public @topk_indices_k1_multi_device(
+    %arg0: tensor<1x65536xf32>
+        {sdy.sharding = #sdy.sharding<@mesh, [{}, {"vocab"}]>})
+    -> (tensor<1x1xi64> {sdy.sharding = #sdy.sharding<@mesh, [{}, {}]>}) {
+  %0 = stablehlo.composite "tenstorrent.topk_indices" %arg0 {
+      composite_attributes = {dim = -1 : i64, k = 1 : i64,
+                              largest = true, sorted = false},
+      decomposition = @tenstorrent.topk_indices.impl_k1
+  } : (tensor<1x65536xf32>) -> tensor<1x1xi64>
+  return %0 : tensor<1x1xi64>
+}
+
+func.func private @tenstorrent.topk_indices.impl_k1(%arg0: tensor<1x65536xf32>)
+    -> tensor<1x1xi64> {
+  %0 = stablehlo.iota dim = 0 : tensor<65536xi32>
+  %1 = stablehlo.reshape %0 : (tensor<65536xi32>) -> tensor<1x65536xi32>
+  %2:2 = "stablehlo.sort"(%arg0, %1) <{dimension = 1 : i64}> ({
+  ^bb0(%a: tensor<f32>, %b: tensor<f32>, %c: tensor<i32>, %d: tensor<i32>):
+    %cmp = stablehlo.compare GT, %a, %b, TOTALORDER : (tensor<f32>, tensor<f32>) -> tensor<i1>
+    stablehlo.return %cmp : tensor<i1>
+  }) : (tensor<1x65536xf32>, tensor<1x65536xi32>) -> (tensor<1x65536xf32>, tensor<1x65536xi32>)
+  %4 = stablehlo.slice %2#1 [0:1, 0:1] : (tensor<1x65536xi32>) -> tensor<1x1xi32>
+  %5 = stablehlo.convert %4 : (tensor<1x1xi32>) -> tensor<1x1xi64>
+  return %5 : tensor<1x1xi64>
+}
