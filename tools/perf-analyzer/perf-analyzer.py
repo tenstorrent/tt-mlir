@@ -136,15 +136,10 @@ def collect_device_timeline(profile_log: pathlib.Path) -> tuple[list[dict], int]
 
         open_zones: dict[tuple, int] = {}
         kernel_name: str = ""
-        # Track the timestamp span per dispatch (run host id) rather than one
-        # global min/max. A global max-min spans the whole timeline including
-        # the host-side idle gaps between dispatches, which on multi-op programs
-        # (e.g. softmax = reduce/elementwise/reduce) dwarfs the actual on-device
-        # time. Summing per-dispatch spans excludes those gaps.
-        # disp_span: dict[str, list] = defaultdict(lambda: [float("inf"), 0])
+        # Track the timestamp span per core (core_x/core_y). The computed wall time
+        # below is the longest per-core span observed in the trace (it may still
+        # include host-side gaps between dispatches depending on instrumentation).
         minmax = defaultdict(lambda: (float("inf"), 0))
-
-        IDLE_ZONES = {"IDLE_ERISC-FW", "SUBORDINATE_IDLE_ERISC-FW"}
 
         for row in reader:
             row = {k.strip().lower(): v for k, v in row.items()}
@@ -191,9 +186,7 @@ def collect_device_timeline(profile_log: pathlib.Path) -> tuple[list[dict], int]
 
         # Sum per-dispatch spans so inter-dispatch host idle is excluded; for a
         # single-dispatch trace this equals the old global max-min.
-        # wall_cycles = sum(hi - lo for lo, hi in disp_span.values())
-        # print(minmax)
-        wall_cycles = max(core[1] - core[0] for core in minmax.values())
+        wall_cycles = max((hi - lo for lo, hi in minmax.values()), default=0)
         return result, wall_cycles
 
 
@@ -320,6 +313,11 @@ def plot_stats(perf_stats: dict, output_file: str) -> None:
     # (non-compute rows/cols are absent) so we index by sorted position, not by
     # a contiguous 0..N range.
     all_cores = {core for by_core in perf_stats.values() for core in by_core}
+
+    if not all_cores:
+        print("No hardware counter stats found; skipping stat graph.")
+        return
+
     xs = sorted({parse_core(c)[0] for c in all_cores})
     ys = sorted({parse_core(c)[1] for c in all_cores})
     x_idx = {x: i for i, x in enumerate(xs)}
@@ -532,8 +530,9 @@ def collect_perf_counters(profile_log: pathlib.Path) -> pd.DataFrame:
 
 
 def get_perf_counter_stats(perf_counters: pd.DataFrame) -> dict:
-    """Calculate meaningful metrics from raw h/w performance counter values"""
-    """Taken from tt-metal"""
+    """Calculate meaningful metrics from raw h/w performance counter values (from tt-metal)."""
+    if perf_counters.empty:
+        return {}
 
     def get_counter_values(*counter_names: str):
         mask = perf_counters["counter type"].isin(counter_names)

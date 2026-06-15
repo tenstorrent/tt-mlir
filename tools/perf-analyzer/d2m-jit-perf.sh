@@ -15,7 +15,11 @@ fi
 
 # Check if the user is in a venv.
 if [ -z "${VIRTUAL_ENV:-}" ] && [ -f env/activate ]; then
+  # env/activate references unset vars; disable nounset while sourcing it.
+  set +u
+  # shellcheck source=/dev/null
   source env/activate
+  set -u
 fi
 
 # Export some necessary environment variables.
