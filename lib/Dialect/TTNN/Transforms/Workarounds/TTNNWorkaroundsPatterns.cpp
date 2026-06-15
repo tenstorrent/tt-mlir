@@ -130,6 +130,14 @@ static bool workaroundInputOperand(
       inputWorkaroundResults.tensorMemoryLayoutResult.targetValue,
       inputWorkaroundResults.tensorDataTypeResult.targetValue, "_workaround");
 
+  // When the operand is a const-eval'able constant whose L1 residency is
+  // intended, tag the inserted op so ConstEvalHoist permits hoisting it
+  // despite the L1-resident result.
+  if (inputWorkaround.allowL1ConstEval) {
+    insertedToLayoutOpValue.getDefiningOp()->setAttr(
+        utils::g_ConstEvalAllowedAttrName, rewriter.getUnitAttr());
+  }
+
   // Insert to layout op between the current op and the input operand
   // to convert the input operand to the desired tensor layout, buffer type.
   rewriter.modifyOpInPlace(op, [&]() {

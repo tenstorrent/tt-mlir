@@ -72,11 +72,6 @@ void run(const ::tt::target::ttnn::SamplingOp *op, ProgramContext &context) {
     output = ::ttnn::reshape(output, ::ttnn::Shape({outShape[3]}));
   }
 
-  // ttnn::sampling returns UINT32. Typecast to INT32 to match compiler type.
-  if (output.dtype() == ::tt::tt_metal::DataType::UINT32) {
-    output = ::ttnn::typecast(output, ::tt::tt_metal::DataType::INT32);
-  }
-
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 } // namespace tt::runtime::ttnn::operations::reduction::sampling

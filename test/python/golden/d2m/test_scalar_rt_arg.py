@@ -35,7 +35,7 @@ module {
         #ttmetal.noc_config<@scalar_kernel,
           #ttmetal.core_range<0x0, 1x1>,
           #ttmetal.kernel_args<ct_args = [<scalar[0]>]>,
-          noc0>
+          dm_core = 1, noc0>
       ],
       operandSegmentSizes = array<i32: 1, 0>
     }> : (i32) -> ()

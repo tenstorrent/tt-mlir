@@ -479,19 +479,23 @@ TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSamplingOpOperandsWorkarounds() {
   // ttnn::sampling kernel requires ROW_MAJOR layout for index/param tensors
-  // and produces a ROW_MAJOR output. Declare both so the pass inserts
-  // to_layout ops to reconcile with neighbours.
+  // and produces a ROW_MAJOR uint32 result (token indices). Declare these so
+  // the pass inserts to_layout/typecast ops to reconcile with neighbours.
   TTNNOperandWorkarounds empty;
   TTNNOperandWorkarounds rowMajor;
   rowMajor.tensorLayoutWorkaround = Layout::RowMajor;
 
+  TTNNOperandWorkarounds rowMajorUInt32;
+  rowMajorUInt32.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorUInt32.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
+
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(empty)      // input_values
-      .addInputOperandWorkaround(rowMajor)   // input_indices
-      .addInputOperandWorkaround(rowMajor)   // k
-      .addInputOperandWorkaround(rowMajor)   // p
-      .addInputOperandWorkaround(rowMajor)   // temp
-      .addOutputOperandWorkaround(rowMajor); // result
+      .addInputOperandWorkaround(empty)            // input_values
+      .addInputOperandWorkaround(rowMajor)         // input_indices
+      .addInputOperandWorkaround(rowMajor)         // k
+      .addInputOperandWorkaround(rowMajor)         // p
+      .addInputOperandWorkaround(rowMajor)         // temp
+      .addOutputOperandWorkaround(rowMajorUInt32); // result
 }
 
 TTNNOperandsWorkarounds
@@ -1353,6 +1357,9 @@ TTNNOperandsWorkaroundsFactory::createMoeGptOpOperandsWorkarounds(
   l1RowMajorUint16Workaround.tensorDataTypeWorkaround =
       ttcore::DataType::UInt16;
   l1RowMajorUint16Workaround.tensorBufferTypeWorkaround = BufferType::L1;
+  // expert_mapping is a constant argument; its L1 copy is meant to be
+  // const-eval'd, so opt in to tagging the inserted op as const-eval-allowed.
+  l1RowMajorUint16Workaround.allowL1ConstEval = true;
 
   // expert_indices: UINT16 ROW_MAJOR L1 HEIGHT_SHARDED — must match dispatch
   // output dtype to avoid host round-trip that destroys shard placement.

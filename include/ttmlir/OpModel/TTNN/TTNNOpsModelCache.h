@@ -94,6 +94,14 @@ public:
   llvm::Expected<ValueT> getOrCompute(Callable &&computeFunc, Operation *op,
                                       Args &&...args) {
     assert(op != nullptr);
+    // Cached values may contain MLIR attributes/types, which are owned by the
+    // MLIRContext that created them. Drop entries before crossing context
+    // boundaries.
+    MLIRContext *opContext = op->getContext();
+    if (opContext != context) {
+      clear();
+      context = opContext;
+    }
 #ifdef TTMLIR_ENABLE_OPMODEL
     // Cached entries are computed against the active device's grid. If the
     // device session's grid changed, drop the now-stale entries. The device
@@ -169,6 +177,8 @@ private:
 
   Cache cache;
   CacheStats stats;
+  // MLIR context that owns any attributes/types stored in cached values.
+  MLIRContext *context = nullptr;
   // Device generation this cache was last filled under; see getOrCompute.
   uint64_t generation = 0;
 };

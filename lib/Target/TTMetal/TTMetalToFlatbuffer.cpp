@@ -914,7 +914,9 @@ static flatbuffers::Offset<target::metal::NocConfig>
 nocConfigToFlatbuffer(FlatbufferObjectCache &cache,
                       NocConfigAttr nocConfigAttr) {
   return target::metal::CreateNocConfig(
-      *cache.fbb, toFlatbuffer(cache, nocConfigAttr.getNocIndex()));
+      *cache.fbb,
+      toFlatbufferDataMovementProcessor(nocConfigAttr.getDmCoreIndex()),
+      toFlatbuffer(cache, nocConfigAttr.getNocIndex()));
 }
 
 static flatbuffers::Offset<target::metal::ComputeConfig>

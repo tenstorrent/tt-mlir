@@ -19,10 +19,10 @@ namespace mlir::tt::d2m::utils {
 // shared semaphore.
 LogicalResult checkForIllegalSemaphoreOps(Block *block);
 
-// Backends currently support only the WH/BH 2-DM processor model. Reject
-// Quasar and any explicit processor index beyond RiscV0/RiscV1 up front.
-LogicalResult checkBackendDatamovementProcessorSupport(ModuleOp moduleOp,
-                                                       llvm::StringRef backend);
+// Backends currently support only the WH/BH 2-DM core model. Reject Quasar and
+// any explicit DM core index beyond RiscV0/RiscV1 up front.
+LogicalResult checkBackendDmCoreSupport(ModuleOp moduleOp,
+                                        llvm::StringRef backend);
 
 } // namespace mlir::tt::d2m::utils
 

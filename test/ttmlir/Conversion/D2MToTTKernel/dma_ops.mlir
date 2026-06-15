@@ -41,7 +41,7 @@ module {
     return
   }
 
-  func.func private @local_mcast_dma_write_loopback_uses_direct_coords() attributes {d2m.thread = #d2m.thread<datamovement, processor = 0>} {
+  func.func private @local_mcast_dma_write_loopback_uses_direct_coords() attributes {d2m.thread = #d2m.thread<datamovement, dm_core = 0>} {
     %src_cb = d2m.get_cb(0) : !d2m.cb<memref<1x!ttcore.tile<32x32, f32>, #l1>>
     %dst_cb = d2m.get_cb(1) : !d2m.cb<memref<1x!ttcore.tile<32x32, f32>, #l1>>
     %src = d2m.wait %src_cb : !d2m.cb<memref<1x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x!ttcore.tile<32x32, f32>, #l1>
@@ -57,8 +57,7 @@ module {
     // CHECK: %[[END_Y:[0-9]+]] = ttkernel.experimental::convert_logical_y_to_translated
     // CHECK: %[[END_X:[0-9]+]] = ttkernel.experimental::convert_logical_x_to_translated
     // CHECK: %[[NUM_DESTS:[0-9]+]] = arith.index_cast {{.*}} : index to i32
-    // CHECK: %[[NOC:[a-zA-Z0-9_]+]] = arith.constant 1 : i8
-    // CHECK: ttkernel.noc_async_write_multicast_loopback_src({{.*}}, {{.*}}, %[[NUM_DESTS]], start_xy[%[[END_X]], %[[END_Y]]], end_xy[%[[START_X]], %[[START_Y]]], {{.*}}, %[[NOC]], true)
+    // CHECK: ttkernel.noc_async_write_multicast_loopback_src({{.*}}, {{.*}}, %[[NUM_DESTS]], start_xy[%[[END_X]], %[[END_Y]]], end_xy[%[[START_X]], %[[START_Y]]], {{.*}}, noc %{{[a-zA-Z0-9_]+}}, linked true)
     %tx = d2m.dma_write %src[%c0], %dst[%c0] core[%c1, %c2] mcast[%c2, %c3], <1> : (memref<1x!ttcore.tile<32x32, f32>, #l1>, memref<1x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx<write>
     d2m.dma_wait %tx : !d2m.mem_tx<write>
     return

@@ -126,8 +126,8 @@ struct ConvertD2MToTTKernel
              op->hasAttr(ttkernel::ThreadTypeAttr::name);
     });
 
-    if (failed(d2m::utils::checkBackendDatamovementProcessorSupport(
-            moduleOp, "D2MToTTKernel"))) {
+    if (failed(
+            d2m::utils::checkBackendDmCoreSupport(moduleOp, "D2MToTTKernel"))) {
       signalPassFailure();
       return;
     }

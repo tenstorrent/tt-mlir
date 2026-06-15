@@ -187,6 +187,19 @@ enum NocIndex : ushort {
   Noc1,
 }
 
+// Wormhole/Blackhole: RISCV_0=BRISC, RISCV_1=NCRISC.
+// Quasar: RISCV_0..RISCV_7 = DM0..DM7.
+enum DataMovementProcessor : ushort {
+  RISCV_0,
+  RISCV_1,
+  RISCV_2,
+  RISCV_3,
+  RISCV_4,
+  RISCV_5,
+  RISCV_6,
+  RISCV_7,
+}
+
 enum RoutingMode : ushort {
   BidirLineMesh,
   UnidirRingTorus,

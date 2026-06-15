@@ -48,6 +48,11 @@ struct TTNNOperandWorkarounds {
   // Tensor data format workaround.
   TensorDataTypeWorkaround tensorDataTypeWorkaround;
 
+  // Tags the inserted ToLayoutOp with "ttnn.const_eval_allowed" so
+  // ConstEvalHoist may hoist its L1-resident result. Opt in only for constant
+  // operands whose L1 residency is meant to be const-eval'd.
+  bool allowL1ConstEval = false;
+
   // Default constructor.
   TTNNOperandWorkarounds() = default;
 
@@ -101,7 +106,8 @@ struct TTNNOperandWorkarounds {
     return tensorLayoutWorkaround == rhs.tensorLayoutWorkaround &&
            tensorBufferTypeWorkaround == rhs.tensorBufferTypeWorkaround &&
            tensorMemoryLayoutWorkaround == rhs.tensorMemoryLayoutWorkaround &&
-           tensorDataTypeWorkaround == rhs.tensorDataTypeWorkaround;
+           tensorDataTypeWorkaround == rhs.tensorDataTypeWorkaround &&
+           allowL1ConstEval == rhs.allowL1ConstEval;
   }
 
   // Inequality operator.
@@ -112,7 +118,8 @@ struct TTNNOperandWorkarounds {
   // Returns true if any of the workarounds is set.
   bool hasAnyWorkaround() const {
     return tensorLayoutWorkaround || tensorBufferTypeWorkaround ||
-           tensorMemoryLayoutWorkaround || tensorDataTypeWorkaround;
+           tensorMemoryLayoutWorkaround || tensorDataTypeWorkaround ||
+           allowL1ConstEval;
   }
 };
 
