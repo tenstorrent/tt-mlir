@@ -3324,6 +3324,15 @@ public:
       }
     }
 
+    // Restore the insertion point to the original op before replacing it: the
+    // InsertionGuard above only restores on scope exit (after this statement),
+    // so the rewriter's insertion point is still inside the innermost accessor
+    // loop. Without this, ConversionPatternRewriter::replaceOpWithNewOp would
+    // materialize the NullTx (and the subsequent mem_tx->index conversion of
+    // the yielded value) inside that child loop region, while an enclosing loop
+    // that carries the dma mem_tx token through its iter_args yields it -- a
+    // dominance violation (e.g. a multi-block eltwise kernel).
+    rewriter.setInsertionPoint(op);
     rewriter.replaceOpWithNewOp<d2m::NullTxOp>(op, op.getResult().getType());
     return success();
   }
