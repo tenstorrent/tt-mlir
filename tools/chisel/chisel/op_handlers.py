@@ -41,7 +41,7 @@ def _noop_post_op(ctx, config) -> None:
 
 @chisel_safe
 def _subprogram_pre_op(ctx, config) -> None:
-    """For func.call / ttcore.LoadCachedOp: publish each parent input's
+    """For ttcore.LoadCachedOp: publish each parent input's
     accumulated golden into the cross-program pool keyed by the input
     Tensor's globalId, so the sub-program's default pre-op finds it via
     the standard function-arg cross-pool lookup."""
@@ -65,7 +65,7 @@ def _subprogram_pre_op(ctx, config) -> None:
 
 @chisel_safe
 def _subprogram_post_op(ctx, config) -> None:
-    """For func.call / ttcore.LoadCachedOp: install each output's accumulated
+    """For ttcore.LoadCachedOp: install each output's accumulated
     golden (published by the sub-program's post-op, by globalId) into the
     parent's golden pool. PCC was already done inside the sub-program."""
     if not ctx.checks_config.accumulation:
