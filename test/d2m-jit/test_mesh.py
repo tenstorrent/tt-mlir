@@ -1207,3 +1207,120 @@ def test_fused_matmul_all_gather():
     expected = torch.cat([stacked, stacked], dim=1)  # (128, 64)
     assert tuple(result.shape) == (128, 64), result.shape
     assert_pcc(expected, result)
+
+
+@d2m.kernel
+def _fused_matmul_all_gather_grid(lhs, rhs, out, start_sem, ready, end_sem, gy, gx):
+    # Grid-(gy,gx) generalization of _fused_matmul_all_gather: the router core
+    # core_read-gathers all gy*gx output tiles in a nested loop (vs the 2 hard-
+    # coded reads) and fabric-mcasts each across the 1x2 line. This is the path
+    # toward the 8x8 target -- it scales the gather fan-in to gy*gx->1. The
+    # one-tile-per-core output grid is [2*gy, gx], so gy*gx is bounded by
+    # 2*gy*gx <= physical cores (64): 4x4 (16->1) fits exactly at 32 output
+    # tiles; 8x8 (128 output tiles) needs a coarser output / multi-tile cores.
+    cy = core_index(0)
+    cx = core_index(1)
+    dy = mesh_position(0)
+    if is_router_core():
+        device_synchronize(
+            start_sem,
+            start_device=[dy, 0],
+            mcast_shape=[1, 2],
+            num_receivers=1,
+            core_indices=[cy, cx],
+        )
+    a = remote_load(lhs, [cy, cx])
+    b = remote_load(rhs, [cy, cx])
+    c = a @ b
+    semaphore_inc(ready, 1, core=[0, 0], compute=True)  # producer-done fence
+    if is_router_core():
+        semaphore_wait(ready, gy * gx)  # every core's matmul is done
+        dx = mesh_position(1)
+        for ty in range(gy):
+            for tx in range(gx):
+                g = empty([1, 1])
+                g = core_read(g, c, core=[ty, tx])
+                remote_store(
+                    out,
+                    [dx * gy + ty, tx],
+                    g,
+                    start_device=[dy, 0],
+                    device_mcast_shape=[1, 2],
+                    semaphore=end_sem,
+                    semaphore_indices=[cy, 0],
+                )
+        semaphore_wait(end_sem, 2 * gy * gx)  # each send: 1 remote + 1 self-inc
+
+
+@pytest.mark.skipif(
+    torch is None or runtime is None, reason="requires torch + ttmlir runtime"
+)
+@pytest.mark.skipif(_num_devices() < 2, reason="requires a >=2-device mesh")
+def test_fused_matmul_all_gather_grid_4x4():
+    """Fused single-generic matmul + all_gather scaled to a 4x4 grid: a 16->1
+    cross-core core_read gather on the router core, fabric-mcast across the 1x2
+    mesh. Block-diagonal matmul (core [cy,cx] does the independent tile product
+    A[cy,cx] @ B[cy,cx]); device d's shard C_d is (128,128), the two devices'
+    shards stack to (256,128) per device and mesh_gather column-concats the
+    identical copies -> (256,256). Largest gather fan-in that fits one tile per
+    core (output grid [8,4] = 32 <= 64); 8x8 needs a coarser output layout."""
+    GY, GX = 4, 4
+    rows, cols = 32 * GY, 32 * GX
+    d2m.mesh((1, 2), topology=("linear", "linear"))
+    L_in = d2m.Layout(
+        shape=(rows, cols), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[GY, GX]
+    )
+    L_out = d2m.Layout(
+        shape=(2 * rows, cols),
+        dtype=d2m.float32,
+        block_shape=[1, 1],
+        grid_shape=[2 * GY, GX],
+    )
+    full_a = torch.randn(rows, 2 * cols, dtype=torch.float32)
+    full_b = torch.randn(rows, 2 * cols, dtype=torch.float32)
+    a_s = d2m.reblock(
+        d2m.mesh_shard(full_a, L_in, shard_dims=[0, 1], shard_shape=[1, 2]), [GY, GX]
+    )
+    b_s = d2m.reblock(
+        d2m.mesh_shard(full_b, L_in, shard_dims=[0, 1], shard_shape=[1, 2]), [GY, GX]
+    )
+    out_s = d2m.reblock(d2m.empty(L_out), [2 * GY, GX])
+    ss = d2m.global_semaphore(grid_shape=(8, 8))
+    ready = d2m.global_semaphore(grid_shape=(8, 8), init=0)
+    es = d2m.global_semaphore(grid_shape=(8, 8))
+    _fused_matmul_all_gather_grid(
+        a_s,
+        b_s,
+        out_s,
+        ss,
+        ready,
+        es,
+        GY,
+        GX,
+        grid=(GY, GX),
+        fabric=d2m.fabric_config(
+            cluster_axis=1,
+            topology="linear",
+            routing="bidir_line_mesh",
+            router_cores=[(0, 0)],
+        ),
+    )
+    out_s = d2m.mesh_gather(out_s, shard_dims=[0, 1], shard_shape=[1, 2])
+    result = out_s.to_host()
+
+    per_device = []
+    for d in range(2):
+        a_d = full_a[:, d * cols : (d + 1) * cols]
+        b_d = full_b[:, d * cols : (d + 1) * cols]
+        cd = torch.zeros(rows, cols, dtype=torch.float32)
+        for ty in range(GY):
+            for tx in range(GX):
+                cd[32 * ty : 32 * (ty + 1), 32 * tx : 32 * (tx + 1)] = (
+                    a_d[32 * ty : 32 * (ty + 1), 32 * tx : 32 * (tx + 1)]
+                    @ b_d[32 * ty : 32 * (ty + 1), 32 * tx : 32 * (tx + 1)]
+                )
+        per_device.append(cd)
+    stacked = torch.cat([per_device[0], per_device[1]], dim=0)  # (256, 128)
+    expected = torch.cat([stacked, stacked], dim=1)  # (256, 256)
+    assert tuple(result.shape) == (256, 256), result.shape
+    assert_pcc(expected, result)
