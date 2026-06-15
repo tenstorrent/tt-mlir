@@ -501,15 +501,41 @@ public:
       return success();
     }
 
-    int64_t totalCandidates = k * numShards;
+    // Pad intermediates to tile-aligned: each chip emits `effectiveK >= k`
+    // candidates so that `effectiveK * numShards` is a multiple of the
+    // tile width (32). Without this, the all_gather'd (B, k*N) tensor is
+    // sub-tile-size when k*N < 32, and downstream TTNN ops (gather, add,
+    // topk, slice) don't handle sub-tile layouts cleanly. After the
+    // tile-aligned merge_topk + gather, slice down to the user's k.
+    constexpr int64_t kTileWidth = 32;
+    int64_t effectiveK = k;
+    int64_t paddedTotal = k * numShards;
+    if (paddedTotal < kTileWidth || paddedTotal % kTileWidth != 0) {
+      paddedTotal = ((std::max(paddedTotal, kTileWidth) + kTileWidth - 1) /
+                     kTileWidth) *
+                    kTileWidth;
+      while (paddedTotal % numShards != 0) {
+        paddedTotal += kTileWidth;
+      }
+      effectiveK = paddedTotal / numShards;
+    }
+    // Cap effectiveK at numItemsLocal so the per-chip topk has enough items.
+    if (effectiveK > numItemsLocal) {
+      effectiveK = numItemsLocal;
+      paddedTotal = effectiveK * numShards;
+    }
+    bool padded = effectiveK != k;
+    int64_t totalCandidates = paddedTotal;
     auto dimI32 = rewriter.getI32IntegerAttr(static_cast<int32_t>(topkDim));
+    auto effectiveKAttr = rewriter.getI32IntegerAttr(
+        static_cast<int32_t>(effectiveK));
 
-    auto localValType = RankedTensorType::get({batch, k}, elemType);
+    auto localValType = RankedTensorType::get({batch, effectiveK}, elemType);
     auto localIndType =
-        RankedTensorType::get({batch, k}, rewriter.getI32Type());
+        RankedTensorType::get({batch, effectiveK}, rewriter.getI32Type());
     auto localTopK = rewriter.create<ttir::TopKOp>(
-        loc, localValType, localIndType, input, kAttr, dimI32, largestAttr,
-        BoolAttr::get(rewriter.getContext(), false));
+        loc, localValType, localIndType, input, effectiveKAttr, dimI32,
+        largestAttr, BoolAttr::get(rewriter.getContext(), false));
 
     auto gatheredValType =
         RankedTensorType::get({batch, totalCandidates}, elemType);
@@ -523,15 +549,15 @@ public:
         loc, gatheredIndType, localTopK.getIndices(),
         static_cast<int32_t>(topkDim), clusterAxis);
 
-    // After all_gather, block [shard*k : (shard+1)*k] holds chip `shard`'s
-    // k candidates with local indices [0, numItemsLocal). Adding
-    // shard*numItemsLocal makes them global positions.
+    // After all_gather, block [shard*effectiveK : (shard+1)*effectiveK] holds
+    // chip `shard`'s effectiveK candidates with local indices in
+    // [0, numItemsLocal). Adding shard*numItemsLocal makes them global.
     SmallVector<int32_t> offsetValues;
     offsetValues.reserve(batch * totalCandidates);
     for (int64_t b = 0; b < batch; ++b) {
       for (int64_t shard = 0; shard < numShards; ++shard) {
         int32_t shardOffset = static_cast<int32_t>(shard * numItemsLocal);
-        for (int32_t j = 0; j < k; ++j) {
+        for (int32_t j = 0; j < effectiveK; ++j) {
           offsetValues.push_back(shardOffset);
         }
       }
@@ -544,21 +570,47 @@ public:
     Value globalInds = rewriter.create<ttir::AddOp>(loc, gatheredIndType,
                                                     gatheredInds, offsetConst);
 
-    auto mergedValType = RankedTensorType::get({batch, k}, elemType);
+    // Merge with effectiveK to keep the merge output tile-aligned; slice
+    // down to the user's k after the gather. (If padded==false, this is
+    // the same as the original merge with K=k.)
+    auto mergedValType =
+        RankedTensorType::get({batch, effectiveK}, elemType);
     auto sortOrderType =
-        RankedTensorType::get({batch, k}, rewriter.getI32Type());
+        RankedTensorType::get({batch, effectiveK}, rewriter.getI32Type());
     auto mergeTopK = rewriter.create<ttir::TopKOp>(
-        loc, mergedValType, sortOrderType, gatheredVals, kAttr, dimI32,
-        largestAttr, BoolAttr::get(rewriter.getContext(), true));
+        loc, mergedValType, sortOrderType, gatheredVals, effectiveKAttr,
+        dimI32, largestAttr, BoolAttr::get(rewriter.getContext(), true));
 
     // GatherOp requires unsigned indices.
-    auto ui32Type =
-        RankedTensorType::get({batch, k}, rewriter.getIntegerType(32, false));
+    auto ui32Type = RankedTensorType::get(
+        {batch, effectiveK}, rewriter.getIntegerType(32, false));
     Value sortOrderUi32 = rewriter.create<ttir::TypecastOp>(
         loc, ui32Type, mergeTopK.getIndices());
     Value alignedInds = rewriter.create<ttir::GatherOp>(
-        loc, RankedTensorType::get({batch, k}, rewriter.getI32Type()),
+        loc, RankedTensorType::get({batch, effectiveK}, rewriter.getI32Type()),
         globalInds, sortOrderUi32, dimI32);
+
+    Value finalValues = mergeTopK.getValues();
+    Value finalInds = alignedInds;
+    if (padded) {
+      // Slice down to the user-visible k along the topk dim.
+      SmallVector<int64_t> sliceStarts(2, 0);
+      SmallVector<int64_t> sliceEnds = {batch, k};
+      SmallVector<int64_t> sliceSteps(2, 1);
+      auto slicedValType = RankedTensorType::get({batch, k}, elemType);
+      auto slicedIndType =
+          RankedTensorType::get({batch, k}, rewriter.getI32Type());
+      auto toI32Array = [&](ArrayRef<int64_t> v) {
+        return rewriter.getI32ArrayAttr(SmallVector<int32_t>(v.begin(),
+                                                              v.end()));
+      };
+      finalValues = rewriter.create<ttir::SliceStaticOp>(
+          loc, slicedValType, finalValues, toI32Array(sliceStarts),
+          toI32Array(sliceEnds), toI32Array(sliceSteps));
+      finalInds = rewriter.create<ttir::SliceStaticOp>(
+          loc, slicedIndType, finalInds, toI32Array(sliceStarts),
+          toI32Array(sliceEnds), toI32Array(sliceSteps));
+    }
 
     // Cast i32 indices to the declared index type if it differs.
     auto castIfNeeded = [&](Value inds, RankedTensorType targetType) -> Value {
@@ -569,12 +621,12 @@ public:
     };
 
     if (isTopKWithBoth) {
-      rewriter.replaceOp(srcOp, {mergeTopK.getValues(),
-                                 castIfNeeded(alignedInds, indicesType)});
+      rewriter.replaceOp(srcOp,
+                         {finalValues, castIfNeeded(finalInds, indicesType)});
     } else if (isTopKWithValues) {
-      rewriter.replaceOp(srcOp, {mergeTopK.getValues()});
+      rewriter.replaceOp(srcOp, {finalValues});
     } else {
-      rewriter.replaceOp(srcOp, {castIfNeeded(alignedInds, indicesType)});
+      rewriter.replaceOp(srcOp, {castIfNeeded(finalInds, indicesType)});
     }
     return success();
   }
