@@ -126,8 +126,18 @@ def _get_system_desc_path():
 # and the walk would silently fail to find it → wrong unpack mode → byte
 # scramble on f32→bf16 typecast. The pre-emitc / dispatch / hoist-inits /
 # emitc-tail split below mirrors what createTTIRToTTMetalPipeline does.
-_PIPELINE = ",".join(
-    [
+def _pipeline_passes():
+    """Build the ordered list of pass names for the d2m -> ttmetal lowering.
+
+    When `config.insert_profiler_traces` is set, the TTKernel
+    `insert-device-zone-scopes` pass is spliced in after `ttkernel-hoist-inits`
+    and before the EmitC tail — the same slot createTTIRToTTMetalPipeline uses.
+    It must run while the kernel body is still in TTKernel form (it walks
+    TTKernel ops to wrap them in `DeviceZoneScopedN` scopes) and after
+    hoist-inits so the dispatch-level conversion sees the original loop
+    structure.
+    """
+    passes = [
         "canonicalize",
         "d2m-lower-to-layout",
         "canonicalize",
@@ -144,9 +154,12 @@ _PIPELINE = ",".join(
         "d2m-to-ttkernel-pre-emitc-pipeline",
         "d2m-to-ttmetal-pipeline",
         "ttkernel-hoist-inits",
-        "d2m-emitc-pipeline",
     ]
-)
+    if config.insert_profiler_traces:
+        traits = config.profiler_traits.strip() or "device-zone"
+        passes.append("insert-device-zone-scopes{traits=" + traits + "}")
+    passes.append("d2m-emitc-pipeline")
+    return passes
 
 
 # --- Scope abstraction ------------------------------------------------------
@@ -784,7 +797,7 @@ def _run_pipeline(b: _Builder):
     register = "ttcore-register-device"
     if system_desc:
         register += f"{{system-desc-path={system_desc}}}"
-    pipeline_str = f"builtin.module({register},{_PIPELINE})"
+    pipeline_str = f"builtin.module({register},{','.join(_pipeline_passes())})"
 
     if config.print_pipeline:
         print(f"[d2m-jit] pipeline: {pipeline_str}")
@@ -808,10 +821,44 @@ def _run_pipeline(b: _Builder):
         print(b.module)
 
 
+_g_perf_trace_enabled = False
+
+
+def _maybe_enable_perf_trace():
+    """Flip the perf::Env singleton so the ttmetal executor dumps device
+    profiler results after each workload. Must run before the first submit in
+    the process (the singleton is seeded on first access). Idempotent.
+
+    Device-side capture is controlled by tt-metal env vars that must be present
+    *before* the device is opened (and DISPATCH must be 0 or the profiler read
+    hangs on dispatch-core data). We do not mutate them here -- tt-metal reads
+    them too early for that to be reliable -- but we warn if they are missing so
+    the user sets them on the command line:
+        TT_METAL_DEVICE_PROFILER=1 TT_METAL_DEVICE_PROFILER_DISPATCH=0
+    """
+    global _g_perf_trace_enabled
+    if not config.enable_perf_trace or _g_perf_trace_enabled:
+        return
+    if os.environ.get("TT_METAL_DEVICE_PROFILER") != "1":
+        print(
+            "[d2m-jit] WARNING: D2M_JIT_ENABLE_PERF_TRACE is set but "
+            "TT_METAL_DEVICE_PROFILER=1 is not in the environment; no device "
+            "profiler csv will be produced. Re-run with "
+            "TT_METAL_DEVICE_PROFILER=1 TT_METAL_DEVICE_PROFILER_DISPATCH=0 set."
+        )
+    runtime.PerfEnv.get(enable_perf_trace=True)
+    _g_perf_trace_enabled = True
+    print(
+        "[d2m-jit] perf trace enabled; device profiler csv -> "
+        "$TT_METAL_HOME/generated/profiler/.logs/profile_log_device.csv"
+    )
+
+
 def _execute(b: _Builder, lts):
     """Serialize to flatbuffer, run on a mesh device, return torch tensors."""
     if runtime is None or binary is None:
         raise RuntimeError("ttmlir runtime is not available in this build")
+    _maybe_enable_perf_trace()
     bin_capsule = ttmetal_to_flatbuffer_bin(b.module)
     fbb = binary.load_binary_from_capsule(bin_capsule)
     if config.save_flatbuffer_path:
