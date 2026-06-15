@@ -4,6 +4,7 @@
 
 import pytest
 import torch
+import math
 from conftest import get_request_kwargs
 from typing import List
 
@@ -34,13 +35,26 @@ _D2M_POST_GRID_WITH_VIEW_PIPELINE = (
 )
 
 
+def arange_tile(*shape, tile_size=[32, 32], dtype=None):
+    assert len(shape) >= 2
+    assert shape[-2] % tile_size[-2] == 0
+    assert shape[-1] % tile_size[-1] == 0
+    tiled_shape = list(shape)
+    tiled_shape[-2] //= tile_size[-2]
+    tiled_shape[-1] //= tile_size[-1]
+    tensor = torch.arange(math.prod(tiled_shape), dtype=dtype).reshape(tiled_shape)
+    tensor = tensor.unsqueeze(-1).unsqueeze(-1)
+    tensor = tensor.repeat([1] * len(tiled_shape) + tile_size)
+    return tensor.transpose(-2, -3).reshape(shape)
+
+
 @pytest.mark.parametrize("input_grid_y", [1, 2, 3])
 @pytest.mark.parametrize("input_grid_x", [1, 2, 3])
 @pytest.mark.parametrize("output_grid_y", [2, 3, 4])
 @pytest.mark.parametrize("output_grid_x", [2, 3, 4])
 @pytest.mark.parametrize("shard_mul_y", [3])
 @pytest.mark.parametrize("shard_mul_x", [2])
-@pytest.mark.parametrize("tiled", [False])
+@pytest.mark.parametrize("tiled", [True])
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_to_layout(
     input_grid_y: int,
@@ -63,7 +77,7 @@ def test_to_layout(
     )
 
     def module(builder: D2MBuilder):
-        golden = torch.randn(shape)
+        golden = arange_tile(*shape, dtype=torch.float32)
 
         @builder.func([shape], [torch.float32])
         def to_layout(
@@ -73,13 +87,17 @@ def test_to_layout(
         ):
             to_device = builder.to_layout(
                 in0,
-                output_type=builder.get_metal_tensor_layout(shape, tiled=tiled),
+                output_type=builder.get_metal_tensor_layout(
+                    shape, tiled=tiled, grid=input_grid
+                ),
                 unit_attrs=unit_attrs,
                 loc="to_device",
             )
             reblock = builder.to_layout(
                 to_device,
-                output_type=builder.get_metal_tensor_layout(shape, tiled=tiled),
+                output_type=builder.get_metal_tensor_layout(
+                    shape, tiled=tiled, grid=output_grid
+                ),
                 unit_attrs=unit_attrs,
                 loc="reblock",
             )
@@ -92,11 +110,23 @@ def test_to_layout(
             builder.set_goldens({in0: golden}, {from_device: golden})
             return from_device
 
+    use_tensor_accessor_dma = True
+    ta = f"use-tensor-accessor-dma={1 if use_tensor_accessor_dma else 0}"
+    pipeline = (
+        f"d2m-lower-to-layout,canonicalize,ttir-bufferization-pipeline,"
+        f"d2m-insert-scratch-buffers,d2m-generic-apply-interchange,"
+        f"d2m-generate-outer-loops,d2m-allocate,d2m-lower-multicast-loads,"
+        f"d2m-generic-lower-to-explicit-form,canonicalize,"
+        f"d2m-be-pipeline{{{ta}}},"
+        f"d2m-to-ttkernel-pipeline{{{ta}}},"
+        f"d2m-to-ttmetal-pipeline"
+    )
     compile_and_execute_d2m(
         module,
         target=target,
-        custom_pipeline=_D2M_POST_GRID_PIPELINE,
+        custom_pipeline=pipeline,
         device=device,
+        print_ir=True,
         **get_request_kwargs(request),
     )
 

@@ -230,6 +230,15 @@ convertKernelArg(Builder &builder, const ttkernel::ArgAttr &arg,
   case ttkernel::ArgType::Scalar: {
     return builder.getAttr<ttnn::KernelArgScalarAttr>(arg.getOperandIndex());
   }
+  case ttkernel::ArgType::TensorAccessor: {
+    llvm_unreachable("TensorAccessor is not supported in TTNN mode");
+  }
+  case ttkernel::ArgType::TensorStride: {
+    llvm_unreachable("TensorStride is not supported in TTNN mode");
+  }
+  case ttkernel::ArgType::Reserved: {
+    llvm_unreachable("TensorAccessor is not supported in TTNN mode");
+  }
   }
   llvm_unreachable("Invalid ArgType");
 }
