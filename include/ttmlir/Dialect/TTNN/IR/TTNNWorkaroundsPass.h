@@ -24,6 +24,9 @@ class RotaryEmbeddingOp;
 class Conv3dOp;
 class TopKOp;
 class TopKRouterGptOp;
+class MoeComputeOp;
+class PrepareMoEComputeW0W1WeightsOp;
+class PrepareMoEComputeW2WeightsOp;
 } // namespace mlir::tt::ttnn
 
 namespace mlir::tt::ttnn::wa {
@@ -408,6 +411,22 @@ public:
   // Issue page: https://github.com/tenstorrent/tt-metal/issues/39128
   static TTNNOperandsWorkarounds
   createMoeExpertTokenRemapOpOperandsWorkarounds();
+
+  // Create workarounds for moe_compute op operands.
+  // Inputs are bfloat16 / uint16 ROW_MAJOR; outputs are a mix of uint32 and
+  // bfloat16 in ROW_MAJOR and TILE layouts.
+  static TTNNOperandsWorkarounds
+  createMoeComputeOpOperandsWorkarounds(ttnn::MoeComputeOp op);
+
+  // Create workarounds for the moe_compute weight-prep op operands: the
+  // tt-metal packers require ROW_MAJOR weights/biases.
+  static TTNNOperandsWorkarounds
+  createPrepareMoEComputeW0W1WeightsOpOperandsWorkarounds(
+      ttnn::PrepareMoEComputeW0W1WeightsOp op);
+
+  static TTNNOperandsWorkarounds
+  createPrepareMoEComputeW2WeightsOpOperandsWorkarounds(
+      ttnn::PrepareMoEComputeW2WeightsOp op);
 
   // Create workarounds for topk ops.
   // Input must be BFloat16 or BFP_BFloat8.

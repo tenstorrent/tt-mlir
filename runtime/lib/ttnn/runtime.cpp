@@ -1528,6 +1528,21 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
                   op->token_indices(), op->tilize_out(), op->tilize_out_rm()};
     break;
   }
+  case ::tt::target::ttnn::OpType::PrepareMoEComputeW0W1WeightsOp: {
+    tensorRefs = {opContext.type_as_PrepareMoEComputeW0W1WeightsOp()->out()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareMoEComputeW2WeightsOp: {
+    tensorRefs = {opContext.type_as_PrepareMoEComputeW2WeightsOp()->out()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MoeComputeOp: {
+    auto *op = opContext.type_as_MoeComputeOp();
+    tensorRefs = {op->per_expert_total_tokens(), op->expert_activation(),
+                  op->expert_to_token(),         op->tilize_output(),
+                  op->matmul_output(),           op->combine_output()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::TopKOp: {
     tensorRefs = utils::convertFbTensorRefsToVector(
         opContext.type_as_TopKOp()->outputs());
@@ -2018,6 +2033,33 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
                   opContext.type_as_MoeGptOp()->expert_mapping(),
                   opContext.type_as_MoeGptOp()->w0_w1_tensor(),
                   opContext.type_as_MoeGptOp()->w2_tensor()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareMoEComputeW0W1WeightsOp: {
+    auto *op = opContext.type_as_PrepareMoEComputeW0W1WeightsOp();
+    tensorRefs = {op->w0(), op->w1()};
+    if (op->bias_0() != nullptr) {
+      tensorRefs.push_back(op->bias_0());
+    }
+    if (op->bias_1() != nullptr) {
+      tensorRefs.push_back(op->bias_1());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareMoEComputeW2WeightsOp: {
+    auto *op = opContext.type_as_PrepareMoEComputeW2WeightsOp();
+    tensorRefs = {op->w2()};
+    if (op->bias_2() != nullptr) {
+      tensorRefs.push_back(op->bias_2());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MoeComputeOp: {
+    auto *op = opContext.type_as_MoeComputeOp();
+    tensorRefs = {
+        op->tilize_input_tensor(),         op->tilize_expert_indices_tensor(),
+        op->tilize_expert_scores_tensor(), op->tilize_expert_mapping_tensor(),
+        op->matmul_w0_w1_tensor(),         op->matmul_w2_tensor()};
     break;
   }
   case ::tt::target::ttnn::OpType::UpsampleOp: {

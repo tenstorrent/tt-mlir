@@ -1185,6 +1185,18 @@ inline ::tt::target::Topology toFlatbuffer(FlatbufferObjectCache &cache,
   return fbTopology;
 }
 
+inline ::tt::target::MoEActivationFunction
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttcore::MoEActivationFunction activation) {
+  switch (activation) {
+  case ttcore::MoEActivationFunction::Silu:
+    return ::tt::target::MoEActivationFunction::Silu;
+  case ttcore::MoEActivationFunction::SwiGLU:
+    return ::tt::target::MoEActivationFunction::SwiGLU;
+  }
+  llvm_unreachable("Unknown MoEActivationFunction");
+}
+
 inline ::tt::target::NocIndex toFlatbuffer(FlatbufferObjectCache &cache,
                                            ttcore::NocIndex nocIndex) {
   switch (nocIndex) {

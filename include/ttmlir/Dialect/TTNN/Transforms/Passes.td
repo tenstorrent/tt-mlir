@@ -312,6 +312,21 @@ def TTNNPrepareConv2dWeightsAndBias : Pass<"ttnn-prepare-conv2d-weights-and-bias
   }];
 }
 
+def TTNNDeduceMoEComputeLayouts : Pass<"ttnn-deduce-moe-compute-layouts", "::mlir::ModuleOp"> {
+  let summary = "Refine result layouts of the moe_compute weight-prep and compute ops using OpModel.";
+  let description = [{
+    The prepare_moe_compute_*_weights ops produce a 6-D packed tensor with a
+    bank-permuted DRAM HEIGHT_SHARDED memory config, and ttnn.moe_compute
+    produces height-sharded outputs on the device compute grid. The exact
+    shapes and layouts depend on the target device and the hidden/intermediate
+    sizes, so the TTIR caller cannot know them up front. This pass walks those
+    ops emerging from TTIR->TTNN conversion and replaces their (placeholder)
+    result layouts with the OpModel-derived specs obtained via graph-captured
+    query of the corresponding tt-metal invocation.
+    Requires -DTTMLIR_ENABLE_OPMODEL=ON.
+  }];
+}
+
 def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
 {
   let summary = "TTNN fusing pass.";

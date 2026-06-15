@@ -680,7 +680,7 @@ TTNNLayoutAttr getLayoutAttrFromTensorSpec(MLIRContext *context,
                              tensorSpec.memory_config().memory_layout()));
 
   llvm::SmallVector<int64_t> gridShape = {1, 1};
-  if (isL1BufferType(bufferType)) {
+  if (isL1BufferType(bufferType) || tensorSpec.memory_config().is_sharded()) {
     gridShape = getLogicalGridShape(tensorSpec.memory_config(), deviceGrid);
   }
 

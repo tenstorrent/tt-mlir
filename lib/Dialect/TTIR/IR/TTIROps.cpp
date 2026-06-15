@@ -8015,6 +8015,112 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// MoeComputeOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::MoeComputeOp::verify() {
+  if (getIntermediateSize() == 0 || getIntermediateSize() % 32 != 0) {
+    return emitOpError("intermediate_size must be a positive multiple of 32");
+  }
+  // Per-expert biases fuse into the prepacked weights, so they are all present
+  // together or all absent.
+  const bool anyBias = getBias_0() || getBias_1() || getBias_2();
+  if (anyBias && (!getBias_0() || !getBias_1() || !getBias_2())) {
+    return emitOpError(
+        "bias_0, bias_1, and bias_2 must be all present or all absent");
+  }
+  // The tt-metal packers consume biases in PyTorch (L, E, *) format, so the
+  // weight-prep wrapper forwards them verbatim — require that exact shape here
+  // rather than reshaping at runtime. w0 is (L, E, K=hidden, N=intermediate).
+  if (anyBias) {
+    llvm::ArrayRef<int64_t> w0Shape =
+        mlir::cast<RankedTensorType>(getW0().getType()).getShape();
+    if (w0Shape.size() != 4) {
+      return emitOpError("w0 must have rank 4 (L, E, hidden, intermediate)");
+    }
+    int64_t L = w0Shape[0], E = w0Shape[1], hidden = w0Shape[2],
+            intermediate = w0Shape[3];
+    auto checkBias = [&](mlir::Value bias, int64_t lastDim,
+                         llvm::StringRef name) -> ::mlir::LogicalResult {
+      llvm::ArrayRef<int64_t> shape =
+          mlir::cast<RankedTensorType>(bias.getType()).getShape();
+      if (shape != llvm::ArrayRef<int64_t>{L, E, lastDim}) {
+        return emitOpError() << name << " must have shape (" << L << ", " << E
+                             << ", " << lastDim << ")";
+      }
+      return success();
+    };
+    if (failed(checkBias(getBias_0(), intermediate, "bias_0")) ||
+        failed(checkBias(getBias_1(), intermediate, "bias_1")) ||
+        failed(checkBias(getBias_2(), hidden, "bias_2"))) {
+      return failure();
+    }
+  }
+  if (getOutputHeightShardDim() == 0) {
+    return emitOpError("output_height_shard_dim must be positive");
+  }
+  // Only the compute_only path is supported: the A2A selective-reduce-combine
+  // (and all multi-device routing it implies) is intentionally not wired, so
+  // the full-path-only input (cluster_axis) must be unset. compute_only must be
+  // set.
+  if (!getComputeOnly()) {
+    return emitOpError("only the compute_only path is supported; compute_only "
+                       "must be set");
+  }
+  if (getClusterAxis()) {
+    return emitOpError("compute_only moe_compute must not set cluster_axis");
+  }
+  if (getBhRingSize() && *getBhRingSize() != 8 && *getBhRingSize() != 12 &&
+      *getBhRingSize() != 16) {
+    return emitOpError("bh_ring_size must be 8, 12, or 16");
+  }
+
+  ::mlir::RankedTensorType inputType = getTilizeInputTensor().getType();
+  if (inputType.getRank() < 2) {
+    return emitOpError("tilize_input_tensor must have rank >= 2");
+  }
+  int64_t hiddenSize = inputType.getShape().back();
+  if (hiddenSize <= 0 || hiddenSize % 32 != 0) {
+    return emitOpError(
+        "tilize_input_tensor last dim (hidden_size) must be a positive "
+        "multiple of 32");
+  }
+
+  // w0 is (L, E, K=hidden, N=intermediate); its K must match the activation
+  // hidden_size, otherwise the gate/up matmul contracts mismatched dims.
+  llvm::ArrayRef<int64_t> w0Shape =
+      mlir::cast<RankedTensorType>(getW0().getType()).getShape();
+  if (w0Shape.size() != 4) {
+    return emitOpError("w0 must have rank 4 (L, E, hidden, intermediate)");
+  }
+  if (w0Shape[2] != hiddenSize) {
+    return emitOpError() << "w0 hidden dim (" << w0Shape[2]
+                         << ") must match tilize_input_tensor hidden_size ("
+                         << hiddenSize << ")";
+  }
+
+  // The W0/W1 and W2 matmuls shard their contraction (intermediate_size) and
+  // the W2 output (hidden_size) across the matmul ring (bh_ring_size cores on
+  // BH, default 12; WH is always 12). If either dim has fewer than ring-size
+  // tiles, the per-core shard distribution degenerates and leaves output tiles
+  // uncomputed, so require at least one tile per ring core in both dims.
+  int64_t ringSize = getBhRingSize() ? *getBhRingSize() : 12;
+  int64_t minSize = ringSize * 32;
+  if (hiddenSize < minSize) {
+    return emitOpError() << "hidden_size (" << hiddenSize
+                         << ") must be at least bh_ring_size*32 = " << minSize
+                         << " (one tile per matmul-ring core)";
+  }
+  if (static_cast<int64_t>(getIntermediateSize()) < minSize) {
+    return emitOpError() << "intermediate_size (" << getIntermediateSize()
+                         << ") must be at least bh_ring_size*32 = " << minSize
+                         << " (one tile per matmul-ring core)";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // AbsOp
 //===----------------------------------------------------------------------===//
 
