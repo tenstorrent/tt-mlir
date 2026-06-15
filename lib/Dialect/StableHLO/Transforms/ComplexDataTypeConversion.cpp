@@ -322,6 +322,30 @@ public:
   }
 };
 
+// Converts the result type of a complex gather composite. Its decomposition
+// function is converted in the same pass, so the composite still matches its
+// decomposition signature.
+class ComplexCompositeGatherConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+  using OpConversionPattern<mlir::stablehlo::CompositeOp>::OpConversionPattern;
+
+public:
+  LogicalResult matchAndRewrite(
+      mlir::stablehlo::CompositeOp op,
+      OpConversionPattern<mlir::stablehlo::CompositeOp>::OpAdaptor adaptor,
+      ConversionPatternRewriter &rewriter) const override {
+    if (op.getName() != "tenstorrent.gather") {
+      return failure();
+    }
+    auto newResultType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getResult(0).getType()));
+    rewriter.replaceOpWithNewOp<mlir::stablehlo::CompositeOp>(
+        op, TypeRange{newResultType}, adaptor.getOperands(),
+        op.getProperties());
+    return success();
+  }
+};
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -477,6 +501,16 @@ struct StableHLOComplexDataTypeConversionPass
                  !hasComplexType(op.getBody().front().getArgumentTypes());
         });
 
+    // Convert only the complex gather composite; leave other composites alone.
+    target.addDynamicallyLegalOp<mlir::stablehlo::CompositeOp>(
+        [hasComplexType](mlir::stablehlo::CompositeOp op) {
+          if (op.getName() != "tenstorrent.gather") {
+            return true;
+          }
+          return !hasComplexType(op->getOperandTypes()) &&
+                 !hasComplexType(op->getResultTypes());
+        });
+
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type type) { return type; });
     typeConverter.addConversion(
@@ -500,6 +534,7 @@ struct StableHLOComplexDataTypeConversionPass
     patterns.add<
         ComplexBroadcastInDimOpConversionPattern,
         ComplexConstantOpConversionPattern, ComplexSliceOpConversionPattern,
+        ComplexCompositeGatherConversionPattern,
         ComplexTypeDefaultConversionPattern<mlir::stablehlo::ConcatenateOp>,
         ComplexTypeDefaultConversionPattern<mlir::stablehlo::ReshapeOp>,
         ShardyManualComputationComplexConversionPattern,
