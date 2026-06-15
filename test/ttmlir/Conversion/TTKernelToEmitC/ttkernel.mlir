@@ -895,6 +895,71 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @exp_tile_init_approx
+    func.func @exp_tile_init_approx() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: emitc.call_opaque "exp_tile_init"() {template_args = [#emitc.opaque<"true">]}
+      "ttkernel.exp_tile_init"() <{approx = true}> : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @exp_tile_init_clamping
+    func.func @exp_tile_init_clamping() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // The unset `scale` template arg is backfilled with the metal default (0x3F800000).
+      // CHECK: emitc.call_opaque "exp_tile_init"() {template_args = [#emitc.opaque<"false">, #emitc.opaque<"1065353216">, #emitc.opaque<"InputClamping::None">]}
+      "ttkernel.exp_tile_init"() <{input_clamping = #ttkernel.input_clamping<none>}> : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @exp_tile_init_scale
+    func.func @exp_tile_init_scale() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // The unset `approx` template arg is backfilled with the metal default (false).
+      // CHECK: emitc.call_opaque "exp_tile_init"() {template_args = [#emitc.opaque<"false">, #emitc.opaque<"1077936128">]}
+      "ttkernel.exp_tile_init"() <{scale = 1077936128 : i32}> : () -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @exp_tile_flags
+    func.func @exp_tile_flags() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "exp_tile"(%[[DST_INDEX]]) {template_args = [#emitc.opaque<"true">, #emitc.opaque<"false">, #emitc.opaque<"InputClamping::None">]}
+      "ttkernel.exp_tile"(%dst_index) <{approx = true, input_clamping = #ttkernel.input_clamping<none>}> : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @exp_tile_runtime_scale
+    func.func @exp_tile_runtime_scale() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "exp_tile"(%[[DST_INDEX]])
+      // CHECK-SAME: args = [0 : index, #emitc.opaque<"(int)VectorMode::RC">, #emitc.opaque<"16384">]
+      // CHECK-SAME: template_args = [#emitc.opaque<"true">, #emitc.opaque<"true">, #emitc.opaque<"InputClamping::None">]
+      "ttkernel.exp_tile"(%dst_index) <{approx = true, input_clamping = #ttkernel.input_clamping<none>, scale = 16384 : i32}> : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @exp_tile_default_scale
+    func.func @exp_tile_default_scale() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // CHECK: emitc.call_opaque "exp_tile"(%[[DST_INDEX]])
+      // CHECK-NOT: args =
+      // CHECK-NOT: template_args
+      "ttkernel.exp_tile"(%dst_index) <{scale = 16256 : i32}> : (i32) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @exp_tile_iterations
+    func.func @exp_tile_iterations() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+      // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
+      %dst_index = arith.constant 3 : i32
+      // Unset approx/scale_en are backfilled with metal defaults; unset
+      // input_clamping is backfilled with ClampToNegative when iterations is set.
+      // CHECK: emitc.call_opaque "exp_tile"(%[[DST_INDEX]]) {template_args = [#emitc.opaque<"false">, #emitc.opaque<"false">, #emitc.opaque<"InputClamping::ClampToNegative">, #emitc.opaque<"12">]}
+      "ttkernel.exp_tile"(%dst_index) <{iterations = 12 : i32}> : (i32) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @exp2_tile_init
     func.func @exp2_tile_init() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: emitc.call_opaque "exp2_tile_init"()
