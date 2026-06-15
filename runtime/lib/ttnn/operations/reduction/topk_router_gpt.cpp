@@ -4,9 +4,7 @@
 
 #include "operations/reduction/topk_router_gpt.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-#include "tt/runtime/detail/ttnn/utils.h"
+#include "ttmlir/OpInvoke/TTNN/Reduction/TopKRouterGptOp.h"
 
 namespace tt::runtime::ttnn::operations::reduction::topk_router_gpt {
 
@@ -20,11 +18,21 @@ void run(const ::tt::target::ttnn::TopKRouterGptOp *op,
       tensorPool.getTTNNTensorAndValidate(op->weight());
   const ::ttnn::Tensor &bias = tensorPool.getTTNNTensorAndValidate(op->bias());
 
-  uint32_t k = static_cast<uint32_t>(op->k());
-  uint32_t numExperts = static_cast<uint32_t>(op->num_experts());
+  ::tt::target::ttnn::TopKRouterGptOpT opNative;
+  op->UnPackTo(&opNative);
 
-  auto [expertIndices, expertWeights] =
-      ::ttnn::experimental::topk_router_gpt(input, weight, bias, k, numExperts);
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
+
+  ttnn_op_invoke::TopKRouterGptOpResult result =
+      ttnn_op_invoke::callTopKRouterGpt(ttnn_op_invoke::CallType::EXECUTE,
+                                        opNative, &input, &weight, &bias,
+                                        &targetDevice);
+
+  using tensorTuple = std::tuple<::ttnn::Tensor, ::ttnn::Tensor>;
+  LOG_ASSERT(std::holds_alternative<tensorTuple>(result),
+             "Expected tuple of Tensors from callTopKRouterGpt execution");
+
+  auto [expertIndices, expertWeights] = std::get<tensorTuple>(result);
 
   tensorPool.insertTTNNTensorAndValidate(op->expert_indices(), expertIndices);
   tensorPool.insertTTNNTensorAndValidate(op->expert_weights(), expertWeights);

@@ -317,6 +317,31 @@ buildScatterOpTFromMLIR(int32_t dim, mlir::tt::ttcore::ReduceType reduceType,
 buildTransposeOpTFromMLIR(int32_t dim0, int32_t dim1,
                           TTNNLayoutAttr outputLayout);
 
+::tt::target::ttnn::ReductionArgMaxOpT
+buildArgMaxOpTFromMLIR(std::optional<int32_t> dim, bool keepDim,
+                       TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::CumSumOpT
+buildCumSumOpTFromMLIR(int32_t dim, TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::ReductionProdOpT
+buildProdOpTFromMLIR(std::optional<int64_t> dimArg, bool keepDim,
+                     TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::ReductionOpT buildReductionOpTFromMLIR(
+    ::tt::target::ttnn::ReductionOpType type,
+    std::optional<llvm::ArrayRef<int64_t>> dimArg, bool keepDim,
+    std::optional<mlir::tt::ttnn::DeviceComputeKernelConfigAttr> computeConfig,
+    TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::TopKRouterGptOpT
+buildTopKRouterGptOpTFromMLIR(uint32_t k, uint32_t numExperts,
+                              TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::TopKOpT buildTopKOpTFromMLIR(int32_t k, int32_t dim,
+                                                 bool largest, bool sorted,
+                                                 TTNNLayoutAttr outputLayout);
+
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_ENABLE_OPMODEL
 
