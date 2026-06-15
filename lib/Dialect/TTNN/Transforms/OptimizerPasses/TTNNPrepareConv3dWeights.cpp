@@ -40,8 +40,26 @@ public:
 
 private:
   void processConvOp(Conv3dOp convOp, IRRewriter &rewriter) {
-    // Skip if the prepare op is already in place (weight already 2D).
+    // If the weight is already 2D, a prepare op (from a previous run of this
+    // pass or an earlier pass) is already in place, so don't re-prepare. But
+    // the conv3d runtime kernel still requires the weight in TILE layout, and
+    // the weight-layout workaround was relaxed to dtype-only; nothing else
+    // enforces tile here. So ensure the tile layout holds rather than assuming
+    // it, then return.
     if (convOp.getWeight().getType().getRank() == 2) {
+      mlir::TypedValue<RankedTensorType> weight = convOp.getWeight();
+      auto weightLayout =
+          mlir::cast<TTNNLayoutAttr>(weight.getType().getEncoding());
+      if (weightLayout.getLayout() != Layout::Tile) {
+        rewriter.setInsertionPoint(convOp);
+        ToLayoutOp toTileOp = utils::createToLayoutOp(
+            convOp, weight, rewriter, Layout::Tile,
+            weightLayout.getBufferType(), weightLayout.getMemLayout(),
+            weightLayout.getDataType(), "_prepare_conv3d_weight_to_tile");
+        rewriter.modifyOpInPlace(convOp, [&]() {
+          convOp.getWeightMutable().assign(toTileOp.getResult());
+        });
+      }
       return;
     }
 

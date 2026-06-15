@@ -317,10 +317,12 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
           conv3dConfig = convOp.getConv3dConfigAttr();
         }
 
-        // Default compute config attached to every emitted Conv3dOp. At
-        // optimization-level=1 the TTNNSetComputeKernelConfig pass is
-        // skipped (it defers to the optimizer), but Conv3dOp's runtime
-        // kernel rejects IR without compute_config.
+        // Default compute config attached to every emitted Conv3dOp.
+        // TTNNSetComputeKernelConfig runs before the optimizer but only
+        // materializes a compute_config when fidelity/fp32 fields are set, so
+        // it can leave Conv3dOp without one; the chosen Conv3dAttrs here
+        // supersede it regardless. Conv3dOp's runtime kernel rejects IR
+        // without compute_config, so attach a default.
         auto defaultComputeCfg =
             DeviceComputeKernelConfigAttr::get(op->getContext())
                 .withMathFidelity(MathFidelity::HiFi4)

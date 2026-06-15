@@ -369,6 +369,20 @@ verifyConv3dInputDims(mlir::tt::ttnn::Conv3dOp *op,
                                << ") must equal kD*kH*kW*C_in/groups ("
                                << expectedFlattenedDim << ")";
     }
+  } else {
+    // Raw 5D weight: (O, C/G, kD, kH, kW). The flattened-dim check above can't
+    // apply (C/G is still unaligned here), so verify the weight's kernel dims
+    // match the op's kernel_size attribute directly.
+    if (weightDims.kernelDepth != params.kernelSize.depth ||
+        weightDims.kernelHeight != params.kernelSize.vertical ||
+        weightDims.kernelWidth != params.kernelSize.horizontal) {
+      return op->emitOpError()
+             << "weight kernel dimensions (" << weightDims.kernelDepth << ", "
+             << weightDims.kernelHeight << ", " << weightDims.kernelWidth
+             << ") must match kernel_size (" << params.kernelSize.depth << ", "
+             << params.kernelSize.vertical << ", "
+             << params.kernelSize.horizontal << ")";
+    }
   }
 
   if (biasDims) {
