@@ -50,7 +50,7 @@ def test_mnist_linear_training(mode: ExecutionMode, dtype: torch.dtype, tt_devic
     tt_model.load_state_dict(cpu_model.state_dict())
 
     if mode is ExecutionMode.COMPILE:
-        tt_model = torch.compile(tt_model, backend="tt", dynamic=False)
+        tt_model = torch.compile(tt_model, backend="tt")
 
     # Eager must run entirely on device; compile lowers the graph to its own
     # module, so the eager fallback guard doesn't apply there.
@@ -98,7 +98,7 @@ def test_mnist_linear_fwd_loss_compiled(dtype: torch.dtype, tt_device: torch.dev
     def tt_step(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         return F.mse_loss(tt_model(x), y)
 
-    tt_step = torch.compile(tt_step, backend="tt", dynamic=False)
+    tt_step = torch.compile(tt_step, backend="tt")
 
     tt_losses = _train_step(tt_step, tt_model.parameters(), inputs.to(tt_device), targets.to(tt_device))
     cpu_losses = _train_step(cpu_step, cpu_model.parameters(), inputs, targets)

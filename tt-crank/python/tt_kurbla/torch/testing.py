@@ -81,7 +81,7 @@ def assert_close_cpu_vs_tt(
         testing the fallback path itself).
       - :attr:`ExecutionMode.COMPILE`: wraps ``fn`` in an ``nn.Module``
         (unless it already is one), moves the module to tt, runs it through
-        ``torch.compile(backend="tt", dynamic=False)``, and compares. The
+        ``torch.compile(backend="tt")``, and compares. The
         compile path doesn't share the strict-fallback toggle — dynamo
         graph-breaks surface as logs/warnings, not as a captured exception
         from the eager dispatcher — so ``assert_native`` is ignored here.
@@ -100,7 +100,7 @@ def assert_close_cpu_vs_tt(
             tt_out = fn(*tt_args).cpu()
     elif mode is ExecutionMode.COMPILE:
         model = fn if isinstance(fn, torch.nn.Module) else _wrap_callable_as_module(fn)
-        compiled = torch.compile(model.to("tt"), backend="tt", dynamic=False)
+        compiled = torch.compile(model.to("tt"), backend="tt")
         with torch.no_grad():
             tt_out = compiled(*tt_args).cpu()
     else:
