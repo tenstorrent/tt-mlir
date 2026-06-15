@@ -1271,6 +1271,83 @@ buildGatherOpTFromMLIR(int32_t dim, TTNNLayoutAttr outputLayout) {
   return gatherOp;
 }
 
+::tt::target::ttnn::ReductionOpT buildReductionOpTFromMLIR(
+    ::tt::target::ttnn::ReductionOpType type,
+    std::optional<llvm::ArrayRef<int64_t>> dimArg, bool keepDim,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::ReductionOpT reductionOp;
+  reductionOp.type = type;
+  if (dimArg) {
+    for (int64_t v : *dimArg) {
+      reductionOp.dim_arg.push_back(static_cast<int32_t>(v));
+    }
+  }
+  reductionOp.keep_dim = keepDim;
+  reductionOp.compute_config =
+      (computeKernelConfig.has_value() && *computeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*computeKernelConfig))
+          : nullptr;
+  reductionOp.out = detail::getOutputTensorRefT(outputLayout);
+  return reductionOp;
+}
+
+::tt::target::ttnn::CumSumOpT
+buildCumSumOpTFromMLIR(int32_t dim, TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::CumSumOpT cumSumOp;
+  cumSumOp.dim = dim;
+  cumSumOp.out = detail::getOutputTensorRefT(outputLayout);
+  return cumSumOp;
+}
+
+::tt::target::ttnn::TopKRouterGptOpT
+buildTopKRouterGptOpTFromMLIR(uint32_t k, uint32_t numExperts,
+                              TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::TopKRouterGptOpT topKOp;
+  topKOp.k = static_cast<int32_t>(k);
+  topKOp.num_experts = static_cast<int32_t>(numExperts);
+  topKOp.expert_indices = detail::getOutputTensorRefT(outputLayout);
+  topKOp.expert_weights = detail::getOutputTensorRefT(outputLayout);
+  return topKOp;
+}
+
+::tt::target::ttnn::ReductionArgMaxOpT
+buildArgMaxOpTFromMLIR(std::optional<int32_t> dim, bool keepDim,
+                       TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::ReductionArgMaxOpT argMaxOp;
+  if (dim.has_value()) {
+    argMaxOp.dim = *dim;
+  }
+  argMaxOp.keep_dim = keepDim;
+  argMaxOp.out = detail::getOutputTensorRefT(outputLayout);
+  return argMaxOp;
+}
+
+::tt::target::ttnn::ReductionProdOpT
+buildProdOpTFromMLIR(std::optional<int64_t> dimArg, bool keepDim,
+                     TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::ReductionProdOpT prodOp;
+  if (dimArg.has_value()) {
+    prodOp.dim_arg = *dimArg;
+  }
+  prodOp.keep_dim = keepDim;
+  prodOp.out = detail::getOutputTensorRefT(outputLayout);
+  return prodOp;
+}
+
+::tt::target::ttnn::TopKOpT buildTopKOpTFromMLIR(int32_t k, int32_t dim,
+                                                 bool largest, bool sorted,
+                                                 TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::TopKOpT topKOp;
+  topKOp.k = k;
+  topKOp.dim = dim;
+  topKOp.largest = largest;
+  topKOp.sorted = sorted;
+  topKOp.outputs.push_back(detail::getOutputTensorRefT(outputLayout));
+  return topKOp;
+}
+
 } // namespace mlir::tt::ttnn::op_model
 
 #endif // TTMLIR_ENABLE_OPMODEL

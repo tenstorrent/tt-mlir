@@ -5,32 +5,25 @@
 #include "operations/reduction/cumsum.h"
 
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
-#include "ttmlir/Target/TTNN/program_generated.h"
-#include "ttnn/operations/reduction/accumulation/cumsum/cumsum.hpp"
-
-#include <optional>
+#include "ttmlir/OpInvoke/TTNN/Reduction/CumSumOp.h"
 
 namespace tt::runtime::ttnn::operations::reduction::cumsum {
 void run(const ::tt::target::ttnn::CumSumOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
+  ::tt::target::ttnn::CumSumOpT cumSumOpNative;
+  op->UnPackTo(&cumSumOpNative);
 
-  std::optional<::ttnn::DataType> dtype = std::nullopt;
-  if (op->dtype()) {
-    dtype = ttnn_op_invoke::operations::utils::toTTNNDataType(*op->dtype());
-  }
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  ::ttnn::Tensor out =
-      ::ttnn::cumsum(in, op->dim(), dtype, /*reverseOrder=*/false,
-                     /*optionalOut=*/std::nullopt, outputMemoryConfig);
+  ttnn_op_invoke::CumSumOpResult result = ttnn_op_invoke::callCumSum(
+      ttnn_op_invoke::CallType::EXECUTE, cumSumOpNative, &in, &targetDevice);
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callCumSum execution");
+
+  const ::ttnn::Tensor &output = std::get<::ttnn::Tensor>(result);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 } // namespace tt::runtime::ttnn::operations::reduction::cumsum
