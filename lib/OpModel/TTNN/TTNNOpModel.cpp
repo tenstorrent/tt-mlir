@@ -36,6 +36,9 @@
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Ternary/EltwiseTernaryOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Unary/EltwiseUnaryCompositeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Unary/EltwiseUnaryOp.h"
+#include "ttmlir/OpInvoke/TTNN/KVCache/FillCacheOp.h"
+#include "ttmlir/OpInvoke/TTNN/KVCache/PagedFillCacheOp.h"
+#include "ttmlir/OpInvoke/TTNN/KVCache/PagedUpdateCacheOp.h"
 #include "ttmlir/OpInvoke/TTNN/Matmul/MatmulOp.h"
 #include "ttmlir/OpInvoke/TTNN/Normalization/BatchNormOp.h"
 #include "ttmlir/OpInvoke/TTNN/Normalization/GroupNormOp.h"
@@ -5685,6 +5688,15 @@ OpModel<DeallocateOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
 // FillCacheOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::FillCacheOpT
+buildFillCacheOpTFromMLIR(uint32_t batchOffset) {
+  ::tt::target::ttnn::FillCacheOpT fillCacheOp;
+  fillCacheOp.batch_offset = batchOffset;
+  return fillCacheOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<FillCacheOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -5700,9 +5712,19 @@ llvm::Expected<OpConstraints> OpModel<FillCacheOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
+  ::tt::target::ttnn::FillCacheOpT fillCacheOpNative =
+      buildFillCacheOpTFromMLIR(batchOffset);
+
   auto fillCacheOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::fill_cache, device, cacheSpec,
-                                inputSpec, batchOffset);
+    ttnn_op_invoke::FillCacheOpResult result = ttnn_op_invoke::callFillCache(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, fillCacheOpNative,
+        cacheSpec, inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from FillCacheOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(cacheLayout.getContext(),
@@ -5728,9 +5750,19 @@ llvm::Expected<size_t> OpModel<FillCacheOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
+  ::tt::target::ttnn::FillCacheOpT fillCacheOpNative =
+      buildFillCacheOpTFromMLIR(batchOffset);
+
   auto fillCacheOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::fill_cache, device, cacheSpec, inputSpec,
-                            batchOffset);
+    ttnn_op_invoke::FillCacheOpResult result = ttnn_op_invoke::callFillCache(
+        ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, fillCacheOpNative,
+        cacheSpec, inputSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from FillCacheOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(fillCacheOpQuery);
@@ -5825,6 +5857,16 @@ llvm::Expected<size_t> OpModel<UpdateCacheOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // PagedUpdateCacheOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::PagedUpdateCacheOpT
+buildPagedUpdateCacheOpTFromMLIR(bool shareCache) {
+  ::tt::target::ttnn::PagedUpdateCacheOpT op;
+  op.share_cache = shareCache;
+  return op;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<PagedUpdateCacheOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -5855,13 +5897,25 @@ llvm::Expected<OpConstraints> OpModel<PagedUpdateCacheOp>::getOpConstraints(
         detail::convertToTensorSpec(device, *pageTableShape, *pageTableLayout));
   }
 
-  std::vector<uint32_t> emptyUpdateIndex = {};
+  ::tt::target::ttnn::PagedUpdateCacheOpT pagedUpdateCacheOpNative =
+      buildPagedUpdateCacheOpTFromMLIR(shareCache);
+
   auto pagedUpdateCacheOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::experimental::paged_update_cache, device, cacheSpec, inputSpec,
-        emptyUpdateIndex, updateIndexSpec, shareCache, pageTableSpec,
-        /*batch_offset=*/0,
-        /*compute_kernel_config=*/std::nullopt, /*mesh_coords=*/std::nullopt);
+    ttnn_op_invoke::PagedUpdateCacheOpResult result =
+        ttnn_op_invoke::callPagedUpdateCache(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            pagedUpdateCacheOpNative, cacheSpec, inputSpec,
+            std::optional<ttnn_op_invoke::TensorArg>(updateIndexSpec),
+            pageTableSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*pageTableSpec)
+                : std::nullopt,
+            device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from PagedUpdateCacheOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(cacheLayout.getContext(),
@@ -5901,12 +5955,30 @@ llvm::Expected<size_t> OpModel<PagedUpdateCacheOp>::getOpRuntime(
         detail::convertToTensorSpec(device, *pageTableShape, *pageTableLayout));
   }
 
-  std::vector<uint32_t> emptyUpdateIndex = {};
+  ::tt::target::ttnn::PagedUpdateCacheOpT pagedUpdateCacheOpNative =
+      buildPagedUpdateCacheOpTFromMLIR(shareCache);
+
+  std::optional<ttnn_op_invoke::TensorArg> pageTableArg;
+  if (pageTableSpec) {
+    pageTableArg = *pageTableSpec;
+  }
+
   auto pagedUpdateCacheOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::experimental::paged_update_cache, device,
-                            cacheSpec, inputSpec, emptyUpdateIndex,
-                            updateIndexSpec, shareCache, pageTableSpec, 0,
-                            std::nullopt, std::nullopt);
+    ttnn_op_invoke::PagedUpdateCacheOpResult result =
+        ttnn_op_invoke::callPagedUpdateCache(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+            pagedUpdateCacheOpNative, cacheSpec, inputSpec,
+            std::optional<ttnn_op_invoke::TensorArg>(updateIndexSpec),
+            pageTableSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*pageTableSpec)
+                : std::nullopt,
+            device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from PagedUpdateCacheOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(pagedUpdateCacheOpQuery);
@@ -5918,6 +5990,14 @@ llvm::Expected<size_t> OpModel<PagedUpdateCacheOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // PagedFillCacheOp
 //===----------------------------------------------------------------------===//
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::PagedFillCacheOpT buildPagedFillCacheOpTFromMLIR() {
+  ::tt::target::ttnn::PagedFillCacheOpT pagedFillCacheOp;
+
+  return pagedFillCacheOp;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
 
 llvm::Expected<OpConstraints> OpModel<PagedFillCacheOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> cacheShape, TTNNLayoutAttr cacheLayout,
@@ -5947,12 +6027,24 @@ llvm::Expected<OpConstraints> OpModel<PagedFillCacheOp>::getOpConstraints(
         detail::convertToTensorSpec(device, *batchIdxShape, *batchIdxLayout));
   }
 
+  ::tt::target::ttnn::PagedFillCacheOpT pagedFillCacheOpNative =
+      buildPagedFillCacheOpTFromMLIR();
+
   auto pagedFillCacheOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::experimental::paged_fill_cache, device, cacheSpec, inputSpec,
-        pageTableSpec, batchIdxSpec,
-        /*batch_offset=*/0,
-        /*compute_kernel_config=*/std::nullopt, /*mesh_coords=*/std::nullopt);
+    ttnn_op_invoke::PagedFillCacheOpResult result =
+        ttnn_op_invoke::callPagedFillCache(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            pagedFillCacheOpNative, cacheSpec, inputSpec, pageTableSpec,
+            batchIdxSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*batchIdxSpec)
+                : std::nullopt,
+            device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from PagedFillCacheOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(cacheLayout.getContext(),
@@ -5990,12 +6082,24 @@ llvm::Expected<size_t> OpModel<PagedFillCacheOp>::getOpRuntime(
         detail::convertToTensorSpec(device, *batchIdxShape, *batchIdxLayout));
   }
 
+  ::tt::target::ttnn::PagedFillCacheOpT pagedFillCacheOpNative =
+      buildPagedFillCacheOpTFromMLIR();
+
   auto pagedFillCacheOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::experimental::paged_fill_cache, device,
-                            cacheSpec, inputSpec, pageTableSpec, batchIdxSpec,
-                            /*batch_offset=*/0,
-                            /*compute_kernel_config=*/std::nullopt,
-                            /*mesh_coords=*/std::nullopt);
+    ttnn_op_invoke::PagedFillCacheOpResult result =
+        ttnn_op_invoke::callPagedFillCache(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, pagedFillCacheOpNative,
+            cacheSpec, inputSpec, pageTableSpec,
+            batchIdxSpec.has_value()
+                ? std::optional<ttnn_op_invoke::TensorArg>(*batchIdxSpec)
+                : std::nullopt,
+            device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from PagedFillCacheOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(pagedFillCacheOpQuery);

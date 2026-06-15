@@ -27,6 +27,9 @@ add_library(TTNNOpInvokeLib STATIC
   Eltwise/Ternary/EltwiseTernaryOp.cpp
   Eltwise/Unary/EltwiseUnaryCompositeOp.cpp
   Eltwise/Unary/EltwiseUnaryOp.cpp
+  KVCache/FillCacheOp.cpp
+  KVCache/PagedFillCacheOp.cpp
+  KVCache/PagedUpdateCacheOp.cpp
   Matmul/MatmulOp.cpp
   Normalization/BatchNormOp.cpp
   Normalization/DistributedRMSNormOp.cpp
