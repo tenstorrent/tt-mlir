@@ -74,6 +74,16 @@ public:
         return tk::build_mm(*mb_, lhs, rhs);
     }
 
+    mlir::Value all_reduce(mlir::Value input, const std::string &reduce_op, std::uint32_t cluster_axis) {
+        assert_builder();
+        return tk::build_all_reduce(*mb_, input, reduce_op, cluster_axis);
+    }
+
+    mlir::Value all_gather(mlir::Value input, std::int64_t group_size, std::uint32_t cluster_axis) {
+        assert_builder();
+        return tk::build_all_gather(*mb_, input, group_size, cluster_axis);
+    }
+
     mlir::Value addmm(mlir::Value bias, mlir::Value mat1, mlir::Value mat2, double beta, double alpha) {
         assert_builder();
         return tk::build_addmm(*mb_, bias, mat1, mat2, beta, alpha);
@@ -520,6 +530,8 @@ NB_MODULE(_native, m) {
         .def("sub", &PyModuleBuilder::sub, "lhs"_a, "rhs"_a, "alpha"_a = 1.0)
         .def("mul", &PyModuleBuilder::mul, "lhs"_a, "rhs"_a)
         .def("mm", &PyModuleBuilder::mm, "lhs"_a, "rhs"_a)
+        .def("all_reduce", &PyModuleBuilder::all_reduce, "input"_a, "reduce_op"_a, "cluster_axis"_a)
+        .def("all_gather", &PyModuleBuilder::all_gather, "input"_a, "group_size"_a, "cluster_axis"_a)
         .def("addmm", &PyModuleBuilder::addmm, "bias"_a, "mat1"_a, "mat2"_a, "beta"_a = 1.0, "alpha"_a = 1.0)
         .def("t", &PyModuleBuilder::t, "input"_a)
         .def("relu", &PyModuleBuilder::relu, "input"_a)

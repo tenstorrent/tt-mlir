@@ -4,23 +4,12 @@ from torch.distributed.tensor import DTensor, Partial, Replicate, Shard, distrib
 
 pytestmark = pytest.mark.multichip
 
-# 2-D mesh shape per chip count.
-MESH_2D = {4: (2, 2), 8: (2, 4)}
-
-
-def _init_mesh_2d():
-    n = torch.tt.num_chips()
-    if n not in MESH_2D:
-        pytest.skip(f"2-D mesh needs 4 or 8 chips, have {n}")
-    rows, cols = MESH_2D[n]
-    return torch.tt.init_device_mesh((rows, cols), mesh_dim_names=("rows", "cols"))
-
 
 @pytest.mark.parametrize("axis", [0, 1])
-def test_all_gather_per_axis(tt_pg, axis: int) -> None:
+def test_all_gather_per_axis(tt_pg, mesh_2d_shape, axis: int) -> None:
     """Shard along one mesh axis, replicate the other; `full_tensor()` fires a
     single all-gather over that axis."""
-    mesh = _init_mesh_2d()
+    mesh = torch.tt.init_device_mesh(mesh_2d_shape, mesh_dim_names=("rows", "cols"))
     axis_size = mesh.shape[axis]
 
     x = torch.randn(32 * axis_size, 32, dtype=torch.bfloat16)
@@ -32,11 +21,11 @@ def test_all_gather_per_axis(tt_pg, axis: int) -> None:
 
 
 @pytest.mark.parametrize("axis", [0, 1])
-def test_all_reduce_per_axis(tt_pg, axis: int) -> None:
+def test_all_reduce_per_axis(tt_pg, mesh_2d_shape, axis: int) -> None:
     """Partial along one mesh axis; `full_tensor()` fires an all-reduce over
     it. Every chip holds the same local slab, so the result is local *
     axis_size."""
-    mesh = _init_mesh_2d()
+    mesh = torch.tt.init_device_mesh(mesh_2d_shape, mesh_dim_names=("rows", "cols"))
     axis_size = mesh.shape[axis]
 
     local = torch.randn(32, 32, dtype=torch.bfloat16)
@@ -59,10 +48,10 @@ def test_all_reduce_per_axis(tt_pg, axis: int) -> None:
     "scatter seam to place chunks at full mesh coordinates.",
     strict=True,
 )
-def test_shard_both_axes(tt_pg) -> None:
+def test_shard_both_axes(tt_pg, mesh_2d_shape) -> None:
     """`[Shard(0), Shard(1)]` — one shard per chip; `full_tensor()` gathers
     over both axes back to the global tensor."""
-    mesh = _init_mesh_2d()
+    mesh = torch.tt.init_device_mesh(mesh_2d_shape, mesh_dim_names=("rows", "cols"))
     rows, cols = mesh.shape
 
     x = torch.randn(32 * rows, 32 * cols, dtype=torch.bfloat16)
@@ -72,21 +61,19 @@ def test_shard_both_axes(tt_pg) -> None:
     torch.testing.assert_close(full, x, atol=0.05, rtol=0.05)
 
 
-def test_same_ccl_across_meshes(tt_pg) -> None:
+def test_same_ccl_across_meshes(tt_pg, mesh_2d_shape) -> None:
     """Compile-cache regression: the same TTIR (a 32x32 all-reduce) must not be
     replayed across meshes. A 1xN all-reduce compiles on the Ring fabric; the
     2-D long-axis all-reduce that follows hashes to the same module but needs
     Linear — a cache keyed on module hash alone replays Ring and fails."""
     n = torch.tt.num_chips()
-    if n not in MESH_2D:
-        pytest.skip(f"2-D mesh needs 4 or 8 chips, have {n}")
     local = torch.randn(32, 32, dtype=torch.bfloat16)
 
     mesh_1d = torch.tt.init_device_mesh((n,), mesh_dim_names=("dp",))
     dx = DTensor.from_local(local.to("tt"), mesh_1d, [Partial()], run_check=False)
     torch.testing.assert_close(dx.full_tensor().cpu(), local * n, atol=0.05, rtol=0.05)
 
-    mesh_2d = torch.tt.init_device_mesh(MESH_2D[n], mesh_dim_names=("rows", "cols"))
+    mesh_2d = torch.tt.init_device_mesh(mesh_2d_shape, mesh_dim_names=("rows", "cols"))
     cols = mesh_2d.shape[1]
     dx = DTensor.from_local(local.to("tt"), mesh_2d, [Replicate(), Partial()], run_check=False)
     torch.testing.assert_close(dx.full_tensor().cpu(), local * cols, atol=0.05, rtol=0.05)

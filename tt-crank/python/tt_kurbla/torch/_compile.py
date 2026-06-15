@@ -1,4 +1,4 @@
-"""Phase-0 `torch.compile()` backend for tt-kurbla.
+"""`torch.compile()` backend for tt-kurbla.
 
 Registers a dynamo backend under the name `tt` that lowers a post-aot FX
 graph into a single TTIR module, compiles it through tt-mlir, and returns a
@@ -29,6 +29,7 @@ from torch._dynamo.backends.common import aot_module_simplified
 from . import _native
 
 _aten = torch.ops.aten
+_funcol = torch.ops._c10d_functional
 
 
 _DTYPE_TO_RUNTIME = {
@@ -155,6 +156,10 @@ def _(mb, self, target, reduction=1):
 @_lowering(_aten.mse_loss_backward.default)
 def _(mb, grad_output, self, target, reduction):
     return mb.mse_loss_backward(grad_output, self, target, int(reduction))
+
+@_lowering(_aten.div.Tensor)
+def _(mb, a, b):
+    return mb.div(a, b)
 
 
 @_lowering(_aten.mm.default)
@@ -416,6 +421,30 @@ def _is_tensor_schema_arg(
     schema: torch._C.FunctionSchema,
 ) -> bool:
     return idx < len(schema.arguments) and "Tensor" in str(schema.arguments[idx].type)
+
+
+def _cluster_axis_for_group(group_name: str) -> int:
+    """The runtime cluster axis of the mesh dim behind `group_name` — read off
+    the eager `TTProcessGroup.cluster_axis` (derived from rank composition)."""
+    from torch.distributed.distributed_c10d import _resolve_process_group
+
+    return _resolve_process_group(group_name).cluster_axis
+
+
+@_lowering(_funcol.all_reduce.default)
+def _(mb, input, reduce_op, group_name):
+    return mb.all_reduce(input, reduce_op, _cluster_axis_for_group(group_name))
+
+
+@_lowering(_funcol.all_gather_into_tensor.default)
+def _(mb, input, group_size, group_name):
+    return mb.all_gather(input, group_size, _cluster_axis_for_group(group_name))
+
+
+@_lowering(_funcol.wait_tensor.default)
+def _(mb, input):
+    # TODO: Should we wait here?
+    return input
 
 
 def _prepare_op_args(

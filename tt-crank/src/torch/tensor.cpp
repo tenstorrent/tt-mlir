@@ -76,6 +76,7 @@ at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef 
     for (auto s : sizes) {
         shape.push_back(as<std::uint32_t>(s));
     }
+
     // Let the desc compute stride and physicalVolume for the row-major case.
     return {shape, to_runtime_dtype(dtype)};
 }
