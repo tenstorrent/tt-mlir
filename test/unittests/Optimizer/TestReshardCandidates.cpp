@@ -368,8 +368,7 @@ TEST_F(ReshardCandidatesTest, ReshardExplorationK1vsK8) {
 }
 
 TEST_F(ReshardCandidatesTest, ReshardCandidatesProducerIndicesInBounds) {
-  // Verify cache hits still emit candidates; a miss would leave
-  // producerCandidateIndices out of bounds.
+  // Verify reshard candidates have in-bounds producerCandidateIndices.
   llvm::SmallVector<int64_t> shape = {1, 1, 32, 32};
   auto layout = createDRAMInterleavedLayout(shape);
   auto tensorType =
@@ -405,8 +404,8 @@ TEST_F(ReshardCandidatesTest, ReshardCandidatesProducerIndicesInBounds) {
   const auto &beamState = propagation.getBeamState();
   for (const auto &[op, candidates] : beamState) {
     for (const auto &candidate : candidates) {
-      for (size_t opIdx = 0;
-           opIdx < candidate.producerCandidateIndices.size(); ++opIdx) {
+      for (size_t opIdx = 0; opIdx < candidate.producerCandidateIndices.size();
+           ++opIdx) {
         if (candidate.reshardLayouts.count(opIdx) == 0) {
           continue;
         }

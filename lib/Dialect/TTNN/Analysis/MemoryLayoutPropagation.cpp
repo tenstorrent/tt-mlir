@@ -856,8 +856,7 @@ void MemoryLayoutPropagation::addReshardCandidates(
     if (candidates.size() >= maxCandidates) {
       break;
     }
-    // Skip redundant validateReshard calls: multiple beam entries can share the
-    // same producerOutput layout, making (producerOutput, reshardLayout) repeat.
+    // Avoid repeated validateReshard for beam entries sharing a producerOutput.
     llvm::SmallVector<std::pair<TTNNLayoutAttr, bool>, 8> validationCache;
     for (size_t pIdx = 0; pIdx < producerBeamSize; ++pIdx) {
       if (candidates.size() >= maxCandidates) {
