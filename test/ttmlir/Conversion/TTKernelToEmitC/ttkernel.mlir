@@ -2163,6 +2163,28 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @semaphore_set_and_remote_up
+    // SEMDOWN-LABEL: func @semaphore_set_and_remote_up
+    func.func @semaphore_set_and_remote_up() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: %[[SEMAPHORE_ID:.*]] = "emitc.constant"
+      %semaphore_id = arith.constant 3 : i32
+      // CHECK: %[[VALUE:.*]] = "emitc.constant"
+      %value = arith.constant 2 : i32
+      // CHECK: %[[X:.*]] = "emitc.constant"
+      %x = arith.constant 1 : index
+      // CHECK: %[[Y:.*]] = "emitc.constant"
+      %y = arith.constant 0 : index
+      // CHECK: %[[NOC:.*]] = "emitc.constant"
+      %noc = arith.constant 1 : i8
+      // CHECK: emitc.verbatim "Semaphore({}).set({});" args %[[SEMAPHORE_ID]], %[[VALUE]] : i32, i32
+      // SEMDOWN: emitc.verbatim "Semaphore({}).set({});" args %{{.*}}, %{{.*}} : i32, i32
+      ttkernel.semaphore_set(%semaphore_id, %value) : (i32, i32) -> ()
+      // CHECK: emitc.verbatim "Semaphore({}).up(noc1, static_cast<uint32_t>({}), static_cast<uint32_t>({}), static_cast<uint32_t>({}));" args %[[SEMAPHORE_ID]], %[[X]], %[[Y]], %[[VALUE]] : i32, !emitc.size_t, !emitc.size_t, i32
+      // SEMDOWN: emitc.verbatim "Semaphore({}).up(noc1, static_cast<uint32_t>({}), static_cast<uint32_t>({}), static_cast<uint32_t>({}));" args %{{.*}}, %{{.*}}, %{{.*}}, %{{.*}} : i32, !emitc.size_t, !emitc.size_t, i32
+      ttkernel.semaphore_up_remote(%semaphore_id, core[%x, %y], %value, noc %noc) : (i32, index, index, i32, i8) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @noc_semaphore_inc
     func.func @noc_semaphore_inc() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64

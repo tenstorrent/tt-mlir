@@ -1896,6 +1896,49 @@ public:
   }
 };
 
+class TTKernelSemaphoreSetOpToEmitCRewriter
+    : public OpConversionPattern<ttkernel::SemaphoreSetOp> {
+public:
+  using OpConversionPattern<ttkernel::SemaphoreSetOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::SemaphoreSetOp op,
+                  ttkernel::SemaphoreSetOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.create<emitc::VerbatimOp>(
+        op.getLoc(), rewriter.getStringAttr("Semaphore({}).set({});"),
+        ValueRange{adaptor.getSemaphore(), adaptor.getVal()});
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class TTKernelSemaphoreUpRemoteOpToEmitCRewriter
+    : public OpConversionPattern<ttkernel::SemaphoreUpRemoteOp> {
+public:
+  using OpConversionPattern<
+      ttkernel::SemaphoreUpRemoteOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::SemaphoreUpRemoteOp op,
+                  ttkernel::SemaphoreUpRemoteOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    SmallVector<Value, 5> operands{adaptor.getSemaphore()};
+    std::string nocName = ensureNocDeclaration(op.getOperation(), rewriter,
+                                               operands, adaptor.getNoc());
+    operands.push_back(adaptor.getNocX());
+    operands.push_back(adaptor.getNocY());
+    operands.push_back(adaptor.getVal());
+    std::string callStr =
+        "Semaphore({}).up(" + nocName +
+        ", static_cast<uint32_t>({}), static_cast<uint32_t>({}), "
+        "static_cast<uint32_t>({}));";
+    rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr, operands);
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 class PackReconfigDataFormatOpConversion
     : public OpConversionPattern<ttkernel::PackReconfigDataFormatOp> {
 public:
@@ -2062,6 +2105,8 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocSemaphoreIncOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SemaphoreWaitOp>,
         TTKernelSemaphoreDownOpToEmitCRewriter,
+        TTKernelSemaphoreSetOpToEmitCRewriter,
+        TTKernelSemaphoreUpRemoteOpToEmitCRewriter,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocSemaphoreSetMulticastOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::NocSemaphoreSetMulticastLoopbackOp>,

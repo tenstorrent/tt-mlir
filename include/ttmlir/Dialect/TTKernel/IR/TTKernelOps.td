@@ -3889,6 +3889,40 @@ def TTKernel_SemaphoreDownOp : TTKernel_Op<"semaphore_down"> {
     }];
 }
 
+def TTKernel_SemaphoreSetOp : TTKernel_Op<"semaphore_set"> {
+    let summary = "SemaphoreSet";
+    let description = [{
+      Sets a local semaphore to the specified value using the TT-Metal
+      dataflow Semaphore API. The semaphore operand is the local semaphore ID,
+      not an L1 address.
+    }];
+
+    let arguments = (ins IndexLike:$semaphore, IndexLike:$val);
+
+    let assemblyFormat = [{
+      `(` $semaphore `,` $val `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_SemaphoreUpRemoteOp : TTKernel_Op<"semaphore_up_remote"> {
+    let summary = "SemaphoreUpRemote";
+    let description = [{
+      Atomically increments the same semaphore ID on a remote core using the
+      TT-Metal dataflow Semaphore API. The semaphore operand is the local
+      semaphore ID whose L1 offset identifies the remote semaphore.
+    }];
+
+    let arguments = (ins IndexLike:$semaphore,
+                         IndexLike:$noc_x,
+                         IndexLike:$noc_y,
+                         IndexLike:$val,
+                         I8:$noc);
+
+    let assemblyFormat = [{
+      `(` $semaphore `,` `core` `[` $noc_x `,` $noc_y `]` `,` $val `,` `noc` $noc `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_NocSemaphoreSetMulticastOp : TTKernel_Op<"noc_semaphore_set_multicast"> {
     let summary = "NocSemaphoreSetMulticast";
     let description = [{

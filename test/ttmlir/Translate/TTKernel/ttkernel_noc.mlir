@@ -17,6 +17,7 @@ func.func @ttkernel_noc_cb() -> () attributes {ttkernel.arg_spec = #ttkernel.arg
     %c32_i32 = arith.constant 32 : i32
     // CHECK: size_t [[A0:.*]] = 0
     %c0_idx = arith.constant 0 : index
+    %c1_i8 = arith.constant 1 : i8
     // CHECK: int32_t [[A1:.*]] = 262144;
     %c262144_i32 = arith.constant 262144 : i32
     %cb = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<8, !ttcore.tile<32x32, f32>>
@@ -49,6 +50,7 @@ func.func @ttkernel_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<n
     %c262400_i32 = arith.constant 262400 : i32
     // CHECK: size_t [[A0:.*]] = 0
     %c0_idx = arith.constant 0 : index
+    %c1_i8 = arith.constant 1 : i8
     // CHECK: int32_t [[A1:.*]] = 262144;
     %c262144_i32 = arith.constant 262144 : i32
     // CHECK: [[NOC1]].async_read([[EP1]], CoreLocalMem<uint32_t>([[C1]]), [[C0]]
@@ -62,6 +64,12 @@ func.func @ttkernel_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<n
     // CHECK: Semaphore([[A0]]).down([[C0]]);
     // SEMDOWN: Semaphore({{.*}}).down({{.*}});
     ttkernel.semaphore_down(%c0_idx, %c32_i32) : (index, i32) -> ()
+    // CHECK: Semaphore([[A0]]).set([[C0]]);
+    // SEMDOWN: Semaphore({{.*}}).set({{.*}});
+    ttkernel.semaphore_set(%c0_idx, %c32_i32) : (index, i32) -> ()
+    // CHECK: Semaphore([[A0]]).up([[NOC1]], static_cast<uint32_t>([[A0]]), static_cast<uint32_t>([[A0]]), static_cast<uint32_t>([[C0]]));
+    // SEMDOWN: Semaphore({{.*}}).up(noc1, static_cast<uint32_t>({{.*}}), static_cast<uint32_t>({{.*}}), static_cast<uint32_t>({{.*}}));
+    ttkernel.semaphore_up_remote(%c0_idx, core[%c0_idx, %c0_idx], %c32_i32, noc %c1_i8) : (index, index, index, i32, i8) -> ()
     // CHECK: noc_semaphore_set_remote([[SEM]], [[NOCADDR1]])
     ttkernel.remote_sram_write_u32(%sem, %4) : (!ttkernel.local_semaphore, !ttkernel.noc_addr) -> ()
     // CHECK-DAG: int32_t [[INLINE_VALUE:.*]] = 7
