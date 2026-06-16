@@ -325,6 +325,20 @@ def ConvertTTKernelToEmitC : Pass<"convert-ttkernel-to-emitc", "::mlir::ModuleOp
                            "mlir::tt::ttkernel::TTKernelDialect"];
 }
 
+def RemoveDeadEmitCExpressions : Pass<"remove-dead-emitc-expressions", "::mlir::ModuleOp"> {
+  let summary = "Remove unused side-effect-free EmitC operations.";
+  let description = [{
+    Remove unused EmitC operations that implement CExpressionInterface or wrap
+    expression bodies in emitc.expression and report no side effects. Also
+    remove EmitC variables whose only uses are writes, together with the dead
+    assignments. This covers pure C expression fragments and write-only locals
+    that MLIR's generic DCE cannot see because EmitC models expression effects
+    through CExpressionInterface and variables carry memory effects.
+  }];
+  let constructor = "createRemoveDeadEmitCExpressionsPass()";
+  let dependentDialects = ["mlir::emitc::EmitCDialect"];
+}
+
 def ConvertSFPIToEmitC : Pass<"convert-sfpi-to-emitc", "::mlir::ModuleOp"> {
   let summary = "Convert SFPI dialect to EmitC dialect using GCC RISC-V Tenstorrent builtins.";
   let description = [{
