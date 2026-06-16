@@ -8,6 +8,7 @@ import math
 class DeviceGetter:
     _instance = None
     _mesh_shape = None
+    _fabric_config = None
     l1_small_size = 1 << 15
 
     def __init__(self):
@@ -19,7 +20,7 @@ class DeviceGetter:
             ttnn.set_fabric_config(ttnn.FabricConfig.DISABLED)
 
     @classmethod
-    def get_device(cls, mesh_shape):
+    def get_device(cls, mesh_shape, fabric_config=None):
         if cls._instance == None:
             if (
                 not isinstance(mesh_shape, (list, tuple))
@@ -31,8 +32,18 @@ class DeviceGetter:
                 )
             cls._mesh_shape = mesh_shape
 
-            if math.prod(mesh_shape) >= 2:
-                ttnn.set_fabric_config(ttnn.FabricConfig.FABRIC_1D)
+            # If the caller doesn't specify a fabric config, fallback to
+            # FABRIC_1D for multi-device meshes.
+            if fabric_config is None:
+                fabric_config = (
+                    ttnn.FabricConfig.FABRIC_1D
+                    if math.prod(mesh_shape) >= 2
+                    else ttnn.FabricConfig.DISABLED
+                )
+            cls._fabric_config = fabric_config
+
+            if fabric_config != ttnn.FabricConfig.DISABLED:
+                ttnn.set_fabric_config(fabric_config)
             cls._instance = ttnn.open_mesh_device(
                 mesh_shape=ttnn.MeshShape(mesh_shape),
                 l1_small_size=cls.l1_small_size,
@@ -43,6 +54,14 @@ class DeviceGetter:
         if tuple(cls._mesh_shape) != tuple(mesh_shape):
             raise ValueError(
                 f"Device already initialized with mesh_shape={cls._mesh_shape}, but got mesh_shape={mesh_shape}"
+            )
+
+        # Same for fabric_config: if the caller explicitly requests one, it
+        # must match the config the singleton was initialized with.
+        if fabric_config is not None and fabric_config != cls._fabric_config:
+            raise ValueError(
+                f"Device already initialized with fabric_config={cls._fabric_config}, "
+                f"but got fabric_config={fabric_config}"
             )
 
         return cls._instance

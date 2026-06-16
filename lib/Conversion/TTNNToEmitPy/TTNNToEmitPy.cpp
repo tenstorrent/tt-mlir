@@ -1047,6 +1047,30 @@ private:
     return "utils.DeviceGetter.get_device";
   }
 
+  // Emit a `fabric_config=...` keyword argument based on the
+  // device's `meshTopology`:
+  //   - Linear / Mesh  axes (no wraparound): `FABRIC_1D`.
+  //   - Ring   / Torus axes (wraparound):    `FABRIC_1D_RING`.
+  // Only 1D fabrics are set, matching the runtime classifier.
+  static std::optional<llvm::StringRef>
+  getFabricConfigExpression(mlir::Operation *op) {
+    auto deviceOp = ttcore::lookupDeviceOp(op);
+    if (!deviceOp) {
+      return std::nullopt;
+    }
+    auto deviceAttr = deviceOp.getDeviceAttr();
+    if (deviceAttr.getChipIds().size() <= 1) {
+      return llvm::StringRef("ttnn.FabricConfig.DISABLED");
+    }
+    bool anyAxisWraps =
+        llvm::any_of(deviceAttr.getMeshTopology(), [](ttcore::Topology t) {
+          return t == ttcore::Topology::Ring || t == ttcore::Topology::Torus;
+        });
+
+    return anyAxisWraps ? llvm::StringRef("ttnn.FabricConfig.FABRIC_1D_RING")
+                        : llvm::StringRef("ttnn.FabricConfig.FABRIC_1D");
+  }
+
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
       mlir::tt::ttnn::GetDeviceOp>::TTNNToEmitPyBaseOpConversionPattern;
@@ -1061,6 +1085,11 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(getDeviceOp.getMeshShapeAttr()),
     };
+
+    if (auto fabricConfigExpr = getFabricConfigExpression(getDeviceOp)) {
+      args.push_back(
+          emitter.emitExpression(*fabricConfigExpr, "fabric_config"));
+    }
 
     emitter.replaceOp(*this, args);
 
