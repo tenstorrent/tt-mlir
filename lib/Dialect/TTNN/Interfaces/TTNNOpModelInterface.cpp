@@ -3028,6 +3028,68 @@ MoeGptOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// PrepareMoEComputeW0W1WeightsOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+PrepareMoEComputeW0W1WeightsOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  const bool hasBias = getBias_0() != nullptr;
+  assert(inputs.size() == (hasBias ? 4u : 2u));
+
+  std::optional<llvm::ArrayRef<int64_t>> bias0Shape, bias1Shape;
+  std::optional<TTNNLayoutAttr> bias0Layout, bias1Layout;
+  if (hasBias) {
+    bias0Shape = getBias_0().getType().getShape();
+    bias1Shape = getBias_1().getType().getShape();
+    bias0Layout = inputs[2];
+    bias1Layout = inputs[3];
+  }
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<PrepareMoEComputeW0W1WeightsOp>::getOpConstraints,
+      *this, getW0().getType().getShape(), inputs[0],
+      getW1().getType().getShape(), inputs[1], bias0Shape, bias0Layout,
+      bias1Shape, bias1Layout, getHiddenSize(), getIntermediateSize(),
+      getBhRingSize());
+}
+
+llvm::Expected<size_t> PrepareMoEComputeW0W1WeightsOp::getOpRuntime(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
+}
+
+//===----------------------------------------------------------------------===//
+// PrepareMoEComputeW2WeightsOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+PrepareMoEComputeW2WeightsOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  const bool hasBias = getBias_2() != nullptr;
+  assert(inputs.size() == (hasBias ? 2u : 1u));
+
+  std::optional<llvm::ArrayRef<int64_t>> bias2Shape;
+  std::optional<TTNNLayoutAttr> bias2Layout;
+  if (hasBias) {
+    bias2Shape = getBias_2().getType().getShape();
+    bias2Layout = inputs[1];
+  }
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<PrepareMoEComputeW2WeightsOp>::getOpConstraints, *this,
+      getW2().getType().getShape(), inputs[0], bias2Shape, bias2Layout,
+      getHiddenSize(), getIntermediateSize(), getBhRingSize());
+}
+
+llvm::Expected<size_t> PrepareMoEComputeW2WeightsOp::getOpRuntime(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
+}
+
+//===----------------------------------------------------------------------===//
 // DeallocateOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

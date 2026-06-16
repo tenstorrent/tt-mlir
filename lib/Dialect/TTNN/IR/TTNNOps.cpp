@@ -2593,6 +2593,66 @@ std::optional<int64_t> getMatmulInnerDim(::mlir::RankedTensorType inputA,
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn_verify
 
+// Drop a `ttnn.repeat` feeding the RHS of a `ttnn.matmul` when TTNN's matmul
+// will implicitly reproduce that broadcast.
+//
+// TTNN's matmul broadcasting is in general basically unsupported, albeit a few
+// cases might work. This canonicalization only handles one case: with 4Dx4D
+// operands, dim 1 (the second batch dimension) on the RHS can be broadcast to
+// match the LHS when the unbroadcast RHS is a single batch (its outer dim 0 is
+// 1). Other cases are explicitly out of scope.
+//
+// `ttir.broadcast` lowers to `ttnn.repeat`, so the redundant op matched here is
+// a `ttnn.repeat` whose repeat_dims expand exactly dim 1.
+void mlir::tt::ttnn::MatmulOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext * /*context*/) {
+  patterns.add(+[](MatmulOp op,
+                   mlir::PatternRewriter &rewriter) -> mlir::LogicalResult {
+    auto repeat = op.getB().getDefiningOp<RepeatOp>();
+    if (!repeat) {
+      return mlir::failure();
+    }
+
+    llvm::ArrayRef<int64_t> repeatDims = repeat.getRepeatDims().getShape();
+    llvm::ArrayRef<int64_t> rhsShape = op.getB().getType().getShape();
+    llvm::ArrayRef<int64_t> lhsShape = op.getA().getType().getShape();
+
+    constexpr int64_t kMatmulRank = 4;
+    constexpr int64_t kBatchDim = 1;
+
+    if (static_cast<int64_t>(repeatDims.size()) != kMatmulRank ||
+        static_cast<int64_t>(lhsShape.size()) != kMatmulRank) {
+      return mlir::failure();
+    }
+
+    // The repeat must expand exactly dim 1 and leave every other dim (including
+    // the inner contraction dims) untouched.
+    for (int64_t i = 0; i < kMatmulRank; ++i) {
+      bool expanded = repeatDims[i] != 1;
+      if (expanded != (i == kBatchDim)) {
+        return mlir::failure();
+      }
+    }
+
+    // TTNN only implicitly broadcasts the RHS batch when the folded RHS is a
+    // single batch. dim 1 is repeated (so its pre-repeat size is 1) and dim 0
+    // is untouched, so this reduces to the outer dim 0 being 1.
+    if (rhsShape[0] != 1) {
+      return mlir::failure();
+    }
+
+    // The LHS must already supply dim 1 so dropping the repeat leaves the
+    // matmul result shape unchanged.
+    if (lhsShape[kBatchDim] != rhsShape[kBatchDim]) {
+      return mlir::failure();
+    }
+
+    rewriter.modifyOpInPlace(op,
+                             [&]() { op.setOperand(1, repeat.getInput()); });
+    return mlir::success();
+  });
+}
+
 //===----------------------------------------------------------------------===//
 // SparseMatmulOp
 //===----------------------------------------------------------------------===//
@@ -2938,6 +2998,111 @@ std::optional<int64_t> getMatmulInnerDim(::mlir::RankedTensorType inputA,
 
   return success();
 }
+
+//===----------------------------------------------------------------------===//
+// PrepareMoEComputeW0W1WeightsOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult PrepareMoEComputeW0W1WeightsOp::verify() {
+  if (getHiddenSize() == 0 || getHiddenSize() % 32 != 0) {
+    return emitOpError("hidden_size must be a positive multiple of 32");
+  }
+  if (getIntermediateSize() == 0 || getIntermediateSize() % 32 != 0) {
+    return emitOpError("intermediate_size must be a positive multiple of 32");
+  }
+  if (static_cast<bool>(getBias_0()) != static_cast<bool>(getBias_1())) {
+    return emitOpError("bias_0 and bias_1 must be both present or both absent");
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// PrepareMoEComputeW2WeightsOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult PrepareMoEComputeW2WeightsOp::verify() {
+  if (getHiddenSize() == 0 || getHiddenSize() % 32 != 0) {
+    return emitOpError("hidden_size must be a positive multiple of 32");
+  }
+  if (getIntermediateSize() == 0 || getIntermediateSize() % 32 != 0) {
+    return emitOpError("intermediate_size must be a positive multiple of 32");
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// MoeComputeOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult MoeComputeOp::verify() {
+  if (getIntermediateSize() == 0 || getIntermediateSize() % 32 != 0) {
+    return emitOpError("intermediate_size must be a positive multiple of 32");
+  }
+  if (getOutputHeightShardDim() == 0) {
+    return emitOpError("output_height_shard_dim must be positive");
+  }
+  // Only the compute_only path is supported: the A2A selective-reduce-combine
+  // (and the multi-device routing it implies) is intentionally not wired.
+  if (!getComputeOnly()) {
+    return emitOpError("only the compute_only path is supported; compute_only "
+                       "must be set");
+  }
+  if (getClusterAxis() || getTopology() || getNumLinks() ||
+      getMuxCoreRangeSet() || getOptionalOutputTensor() ||
+      getCrossDeviceSemaphore()) {
+    return emitOpError(
+        "compute_only moe_compute must not set cluster_axis, topology, "
+        "num_links, mux_core_range_set, optional_output_tensor, or "
+        "cross_device_semaphore");
+  }
+  if (getBhRingSize() && *getBhRingSize() != 8 && *getBhRingSize() != 12 &&
+      *getBhRingSize() != 16) {
+    return emitOpError("bh_ring_size must be 8, 12, or 16");
+  }
+
+  RankedTensorType inputType = getTilizeInputTensor().getType();
+  if (inputType.getRank() < 2) {
+    return emitOpError("tilize_input_tensor must have rank >= 2");
+  }
+  int64_t hiddenSize = inputType.getShape().back();
+  if (hiddenSize <= 0 || hiddenSize % 32 != 0) {
+    return emitOpError(
+        "tilize_input_tensor last dim (hidden_size) must be a positive "
+        "multiple of 32");
+  }
+
+  // The W0/W1 and W2 matmuls shard their contraction (intermediate_size) and
+  // the W2 output (hidden_size) across the matmul ring (bh_ring_size cores on
+  // BH, default 12; WH is always 12). If either dim has fewer than ring-size
+  // tiles, the per-core shard distribution degenerates and leaves output tiles
+  // uncomputed, so require at least one tile per ring core in both dims.
+  int64_t ringSize = getBhRingSize() ? *getBhRingSize() : 12;
+  int64_t minSize = ringSize * 32;
+  if (hiddenSize < minSize) {
+    return emitOpError() << "hidden_size (" << hiddenSize
+                         << ") must be at least bh_ring_size*32 = " << minSize
+                         << " (one tile per matmul-ring core)";
+  }
+  if (static_cast<int64_t>(getIntermediateSize()) < minSize) {
+    return emitOpError() << "intermediate_size (" << getIntermediateSize()
+                         << ") must be at least bh_ring_size*32 = " << minSize
+                         << " (one tile per matmul-ring core)";
+  }
+
+  return success();
+}
+
+// Only the compute_only path is supported: it skips the A2A combine, so there
+// is no combine-output buffer to materialize (optional_output_tensor stays
+// unset, enforced by the verifier).
+bool MoeComputeOp::hasUnboundBuffers() { return false; }
+
+void MoeComputeOp::allocateBuffers(::mlir::RewriterBase &rewriter) {}
+
+// compute_only has no A2A combine, hence no cross-device semaphore.
+bool MoeComputeOp::hasUnboundSemaphores() { return false; }
+
+void MoeComputeOp::allocateSemaphores(::mlir::RewriterBase &rewriter) {}
 
 //===----------------------------------------------------------------------===//
 // AllocOp
@@ -3841,6 +4006,12 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
            << "Input tensor and index tensor must have the same rank. "
            << "Got input rank = " << inputRank
            << ", index rank = " << indexRank;
+  }
+
+  if (inputRank < 1) {
+    return emitOpError()
+           << "Input tensor and index tensor must have rank >= 1. "
+           << "Got rank = " << inputRank;
   }
 
   int32_t dim = getDim();

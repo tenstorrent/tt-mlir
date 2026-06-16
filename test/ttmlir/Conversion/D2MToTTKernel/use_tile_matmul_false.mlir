@@ -13,10 +13,8 @@ module {
     // CHECK-NOT: ttir.matmul
     // CHECK-NOT: matmul_tiles
     // CHECK-DAG: emitc.verbatim "Noc noc0(0);"
-    // CHECK-DAG: emitc.verbatim "Noc noc(0);"
     // CHECK: noc0.async_write_multicast
     // CHECK-DAG: emitc.verbatim "Noc noc1(1);"
-    // CHECK-DAG: emitc.verbatim "Noc noc(1);"
     // CHECK: noc1.async_write_multicast
     // CHECK-NOT: noc_async_write_barrier
     // CHECK: mm_block_init

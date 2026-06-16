@@ -1390,6 +1390,37 @@ struct OpModel<PrepareConvTranspose2dBiasOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// PrepareMoEComputeW0W1WeightsOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<PrepareMoEComputeW0W1WeightsOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(llvm::ArrayRef<int64_t> w0Shape, TTNNLayoutAttr w0Layout,
+                   llvm::ArrayRef<int64_t> w1Shape, TTNNLayoutAttr w1Layout,
+                   std::optional<llvm::ArrayRef<int64_t>> bias0Shape,
+                   std::optional<TTNNLayoutAttr> bias0Layout,
+                   std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
+                   std::optional<TTNNLayoutAttr> bias1Layout,
+                   uint32_t hiddenSize, uint32_t intermediateSize,
+                   std::optional<uint32_t> bhRingSize);
+};
+
+//===----------------------------------------------------------------------===//
+// PrepareMoEComputeW2WeightsOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<PrepareMoEComputeW2WeightsOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
+                   std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
+                   std::optional<TTNNLayoutAttr> bias2Layout,
+                   uint32_t hiddenSize, uint32_t intermediateSize,
+                   std::optional<uint32_t> bhRingSize);
+};
+
+//===----------------------------------------------------------------------===//
 // MaxPool2dOp
 //===----------------------------------------------------------------------===//
 

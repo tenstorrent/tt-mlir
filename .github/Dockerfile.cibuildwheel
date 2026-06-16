@@ -17,7 +17,8 @@ RUN rpm --import https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW
 # Setup / install metal dependencies
 RUN wget https://raw.githubusercontent.com/tenstorrent/tt-metal/${TT_METAL_VERSION}/{install_dependencies.sh,tt_metal/sfpi-info.sh,tt_metal/sfpi-version} && \
     chmod u+x sfpi-info.sh && \
-    bash install_dependencies.sh --docker
+    bash install_dependencies.sh --docker && \
+    bash install_dependencies.sh --sfpi
 
 FROM ciwheel-base AS toolchain-source
 SHELL ["/bin/bash", "-c"]

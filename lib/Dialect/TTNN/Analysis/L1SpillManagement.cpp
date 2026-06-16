@@ -1561,6 +1561,7 @@ void L1SpillManagement<MemoryTracker>::evictForDramCBGrowth(
     op->emitError("L1SpillManagement: DRAM output config failed validation "
                   "after demotion (")
         << result.errorMessage << "); this indicates a compiler bug";
+    compilationFailed = true;
     return;
   }
   if (result.cbPeakUsage == 0) {
@@ -1576,6 +1577,22 @@ void L1SpillManagement<MemoryTracker>::evictForDramCBGrowth(
                memoryTracker.getLowestOccupiedAddress());
 
   evictForCBOverlap(dramCBCushioned, pos, data);
+
+  // If the CB region still overlaps a live tensor after eviction, that tensor
+  // is an inserted reshard we cannot evict (it restores a required L1 input).
+  // Demotion freed the output but not this input, so the op cannot be placed:
+  // its CBs would clobber an L1 input it requires. Fail with a clear error
+  // rather than emit IR that overflows L1 at runtime.
+  if (!liveValues.empty() &&
+      dramCBCushioned > memoryTracker.getLowestOccupiedAddress()) {
+    op->emitError("L1SpillManagement: ")
+        << op->getName()
+        << " requires an L1 input restored by an inserted reshard, but its "
+           "circular-buffer region overlaps that reshard's L1 slot and the "
+           "reshard cannot be evicted or relocated; the op cannot be placed "
+           "within the L1 budget";
+    compilationFailed = true;
+  }
 }
 
 //===----------------------------------------------------------------------===//

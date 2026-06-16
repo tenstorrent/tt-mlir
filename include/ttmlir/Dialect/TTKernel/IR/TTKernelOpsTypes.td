@@ -74,6 +74,10 @@ def TTKernel_ReduceDimAttr : EnumAttr<TTKernel_Dialect, TTKernel_ReduceDim, "red
   let assemblyFormat = "`<` $value `>`";
 }
 
+def TTKernel_InputClampingAttr : EnumAttr<TTKernel_Dialect, TTKernel_InputClamping, "input_clamping"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
 def TTKernel_L1Addr : TTKernel_Type<"L1Addr", "l1_addr"> {
     let summary = "TTKernel l1 address";
     let description = "L1 address type in TTKernel dialect";

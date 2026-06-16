@@ -3025,6 +3025,8 @@ def TTIR_ProdOp : TTIR_ReductionOp<"prod"> {
     Output:
     - `result` (Tensor): The result tensor after applying the reduction.
   }];
+
+  let hasCanonicalizer = 1;
 }
 
 def TTIR_EmbeddingOp : TTIR_NamedOp<"embedding"> {
@@ -6637,6 +6639,70 @@ def TTIR_MoeGptOp : TTIR_NamedOp<"moe_gpt"> {
                         AnyRankedTensor:$token_indices,
                         AnyRankedTensor:$tilize_out,
                         AnyRankedTensor:$tilize_out_rm);
+
+    let hasVerifier = 1;
+}
+
+def TTIR_MoeComputeOp : TTIR_NamedOp<"moe_compute", [TTIR_CCL, AttrSizedOperandSegments]> {
+    let summary = "Fused MoE expert compute (selective tilize + experts + combine).";
+    let description = [{
+      Composite operation that performs the MoE expert FFN in a single fused
+      kernel: selective tilize of dispatched tokens, the gate/up matmul (W0/W1)
+      followed by SILU or SwiGLU activation, the down matmul (W2), and an
+      A2A selective-reduce-combine. Maps to
+      `ttnn.experimental.moe_compute` at runtime.
+
+      Takes the raw per-expert weights `w0` / `w1` / `w2` (logical shapes
+      `(L, E, K, N)`, `(L, E, K, N)`, `(L, E, N, K)` with `K = hidden_size`,
+      `N = intermediate_size`) and optional per-expert biases `bias_0` /
+      `bias_1` / `bias_2`.
+
+      Inputs:
+      - `tilize_input_tensor`: dense per-token activations dispatched via
+        all_to_all_dispatch.
+      - `tilize_expert_indices_tensor`: per-token expert indices.
+      - `tilize_expert_scores_tensor`: per-token expert routing scores.
+      - `tilize_expert_mapping_tensor`: global expert-to-device mapping.
+      - `w0` / `w1` / `w2`: raw per-expert gate / up / down weights.
+      - `bias_0` / `bias_1` / `bias_2`: optional per-expert biases.
+
+      Outputs (6, in declaration order):
+        0. `per_expert_total_tokens`     routing metadata: per-expert token counts
+        1. `expert_activation`           routing metadata: per-token activation records
+        2. `expert_to_token`             routing metadata: per-expert token lists
+        3. `tilize_output`               selective-tilize staging buffer
+        4. `matmul_output`               expert-FFN result (final output in compute_only)
+        5. `combine_output`              A2A-combined result (aliases matmul_output
+           in compute_only)
+    }];
+
+    let arguments = (ins AnyRankedTensor:$tilize_input_tensor,
+                         AnyRankedTensor:$tilize_expert_indices_tensor,
+                         AnyRankedTensor:$tilize_expert_scores_tensor,
+                         AnyRankedTensor:$tilize_expert_mapping_tensor,
+                         AnyRankedTensor:$w0,
+                         AnyRankedTensor:$w1,
+                         AnyRankedTensor:$w2,
+                         Optional<AnyRankedTensor>:$bias_0,
+                         Optional<AnyRankedTensor>:$bias_1,
+                         Optional<AnyRankedTensor>:$bias_2,
+                         UI32Attr:$layer_id,
+                         UI32Attr:$output_height_shard_dim,
+                         UI32Attr:$intermediate_size,
+                         DefaultValuedAttr<TTCore_MoEActivationFunctionAttr,
+                             "::mlir::tt::ttcore::MoEActivationFunction::Silu">:$activation_function,
+                         OptionalAttr<UI32Attr>:$bh_ring_size,
+                         DefaultValuedAttr<BoolAttr, "true">:$compute_only,
+
+                         // Full-path-only inputs, unused when compute_only == true.
+                         OptionalAttr<UI32Attr>:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$per_expert_total_tokens,
+                        AnyRankedTensor:$expert_activation,
+                        AnyRankedTensor:$expert_to_token,
+                        AnyRankedTensor:$tilize_output,
+                        AnyRankedTensor:$matmul_output,
+                        AnyRankedTensor:$combine_output);
 
     let hasVerifier = 1;
 }

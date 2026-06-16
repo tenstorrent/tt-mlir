@@ -29,7 +29,7 @@ module {
   }
 
   // Remote multicast semaphore_set
-  func.func private @mcast_set() attributes {d2m.thread = #d2m.thread<datamovement, processor = 1>} {
+  func.func private @mcast_set() attributes {d2m.thread = #d2m.thread<datamovement, dm_core = 1>} {
     %sem0 = d2m.get_arg(0) : !d2m.local_semaphore
     %c7 = arith.constant 7 : index
     %y  = arith.constant 4 : index
@@ -49,7 +49,7 @@ module {
 
   // Remote multicast semaphore_set on NOC1 flips the start and end coordinate
   // operands before creating the standard multicast address.
-  func.func private @mcast_set_noc1() attributes {d2m.thread = #d2m.thread<datamovement, processor = 0>} {
+  func.func private @mcast_set_noc1() attributes {d2m.thread = #d2m.thread<datamovement, dm_core = 0>} {
     %sem0 = d2m.get_arg(0) : !d2m.local_semaphore
     %c7 = arith.constant 7 : index
     %y  = arith.constant 4 : index

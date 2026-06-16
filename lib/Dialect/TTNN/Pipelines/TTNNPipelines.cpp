@@ -126,6 +126,8 @@ void createTTNNPipelineAnalysisPasses(
                 mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
             innerPm.addPass(mlir::createCanonicalizerPass());
             innerPm.addPass(
+                mlir::tt::ttnn::createTTNNDeduceMoEComputeLayouts());
+            innerPm.addPass(
                 mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
                     validationOptions));
             innerPm.addPass(
@@ -156,6 +158,8 @@ void createTTNNPipelineAnalysisPasses(
            memLayoutEnabled](OpPassManager &innerPm) {
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNDeduceMoEComputeLayouts());
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNGreedyMemoryLayoutPropagation(
                     propagationOptions));

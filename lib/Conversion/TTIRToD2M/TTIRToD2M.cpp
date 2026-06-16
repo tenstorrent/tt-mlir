@@ -2436,7 +2436,13 @@ private:
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
+    if (op.getTransposeA()) {
+      return rewriter.notifyMatchFailure(op,
+                                         "expected transpose_a to not be set");
+    }
     checkPreconditions(op);
+
+    const bool transposeB = op.getTransposeB();
 
     mlir::Location loc = op->getLoc();
 
@@ -2463,10 +2469,10 @@ private:
     const std::size_t physicalRank =
         ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
 
-    // TODO(#2591) handle 'transpose_{a,b}' attributes.
-
-    SmallVector<mlir::AffineMap> indexingMaps =
-        getAffineMapsArray(rewriter, numOperands, physicalRank);
+    // transpose_b is handled via indexing maps and the transpose_b flag on
+    // tile_matmul_block.
+    SmallVector<mlir::AffineMap> indexingMaps = getAffineMapsArray(
+        rewriter, numOperands, physicalRank, /*transposeB=*/transposeB);
     SmallVector<mlir::Attribute> iteratorTypes =
         getIteratorTypesArray(rewriter, physicalRank);
 
@@ -2495,9 +2501,9 @@ private:
         // Delegate next level of nesting to a "block" op.
 
         if constexpr (std::is_same_v<d2m::TileMatmulBlockOp, TileOp>) {
-          rewriter.create<TileOp>(loc,
-                                  /* resultTypes */ mlir::TypeRange(),
-                                  /* operands */ blockArgs);
+          rewriter.create<d2m::TileMatmulBlockOp>(
+              loc, /* a */ blockArgs[0], /* b */ blockArgs[1],
+              /* output */ blockArgs[2], /* transpose_b */ transposeB);
 
           // Insert remote_store operations for each output before yield
           SmallVector<Value> storeResults;
@@ -2521,11 +2527,13 @@ private:
 
         } else if constexpr (std::is_same_v<d2m::TileMatmulOp, TileOp>) {
 
-          static constexpr std::size_t tileOpNumInputs = 3;
           static constexpr std::size_t tileOpNumOutputs = 1;
 
-          SmallVector<mlir::AffineMap> linalgIndexingMaps =
-              getAffineMapsArray(rewriter, numOperands, physicalRank);
+          // The generic-level indexing maps already encode the transposed
+          // access pattern onto B; the linalg body then consumes per-iteration
+          // tiles using the same iteration-space layout.
+          SmallVector<mlir::AffineMap> linalgIndexingMaps = getAffineMapsArray(
+              rewriter, numOperands, physicalRank, /*transposeB=*/transposeB);
           SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
               iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
 
@@ -2539,10 +2547,10 @@ private:
               linalgIteratorTypes,
               [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
                   mlir::ValueRange bbArgs) {
-                mlir::Value yield = bbBuilder.create<TileOp>(
+                mlir::Value yield = bbBuilder.create<d2m::TileMatmulOp>(
                     loc, /* resultTypes */
-                    bbArgs.take_back(tileOpNumOutputs).getTypes(),
-                    /* operands */ bbArgs.take_front(tileOpNumInputs));
+                    bbArgs.take_back(tileOpNumOutputs).getTypes()[0],
+                    /* a */ bbArgs[0], /* b */ bbArgs[1], /* c */ bbArgs[2]);
 
                 bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
               });
@@ -2577,8 +2585,7 @@ private:
   }
 
   static void checkPreconditions(ConcreteOp op) {
-    assert((!op.getTransposeA() && !op.getTransposeB()) &&
-           "TODO(#2591) expected no transpose attributes");
+    assert(!op.getTransposeA() && "expected transpose_a to not be set");
 
     auto aType = mlir::cast<RankedTensorType>(op.getA().getType());
     auto bType = mlir::cast<RankedTensorType>(op.getB().getType());
@@ -2602,13 +2609,19 @@ private:
   ///   - Batch dimensions are identity-mapped across all operands
   ///   - Last two logical dimensions follow standard matmul pattern
   ///
+  /// When `transposeB` is true the RHS last two dims are swapped to (N, K) so
+  /// that the physical RHS tensor of shape (..., N, K) is indexed correctly.
+  /// The kernel is then asked to transpose B during compute via the tile_matmul
+  /// block transpose flag.
+  ///
   /// \param builder OpBuilder for creating affine expressions
   /// \param arity Number of operands (must be 3: LHS, RHS, OUT)
   /// \param rank Physical rank of the matmul operation (logical tensor rank)
+  /// \param transposeB Whether the RHS operand is transposed
   /// \return Vector of affine maps for [LHS, RHS, OUT]
   static SmallVector<mlir::AffineMap>
   getAffineMapsArray(mlir::OpBuilder &builder, std::size_t arity,
-                     std::size_t rank) {
+                     std::size_t rank, bool transposeB) {
     assert(arity == 3 && "expected 3 operands");
     assert(rank >= 2 && "matmul operation must have rank >= 2");
     mlir::MLIRContext *ctx = builder.getContext();
@@ -2633,9 +2646,14 @@ private:
     lhsExprs.push_back(builder.getAffineDimExpr(rank - 2)); // M (rows)
     lhsExprs.push_back(builder.getAffineDimExpr(rank));     // K (contraction)
 
-    // RHS last two dimensions: [..., K, N]
-    rhsExprs.push_back(builder.getAffineDimExpr(rank));     // K (contraction)
-    rhsExprs.push_back(builder.getAffineDimExpr(rank - 1)); // N (columns)
+    // RHS last two dimensions: [..., K, N], or [..., N, K] when transposed.
+    if (transposeB) {
+      rhsExprs.push_back(builder.getAffineDimExpr(rank - 1)); // N (rows)
+      rhsExprs.push_back(builder.getAffineDimExpr(rank));     // K (columns)
+    } else {
+      rhsExprs.push_back(builder.getAffineDimExpr(rank));     // K (contraction)
+      rhsExprs.push_back(builder.getAffineDimExpr(rank - 1)); // N (columns)
+    }
 
     // OUT last two dimensions: [..., M, N]
     outExprs.push_back(builder.getAffineDimExpr(rank - 2)); // M (rows)
@@ -3722,16 +3740,18 @@ private:
 
     RankedTensorType tensorA =
         mlir::cast<RankedTensorType>(adaptor.getA().getType());
+    const bool transposeB = op.getTransposeB();
     auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
         op.getLoc(), adaptor.getOutput().getType(),
         SmallVector<Value>{adaptor.getA(), adaptor.getB()}, adaptor.getOutput(),
         getAffineMapsArray(rewriter, adaptor.getOperands().size(),
-                           tensorA.getRank()),
+                           tensorA.getRank(), transposeB),
         getIteratorTypesArray(rewriter, tensorA.getRank()),
         [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
             mlir::ValueRange bbArgs) {
           mlir::Value mm = bbBuilder.create<d2m::TileMatmulOp>(
-              bbLoc, bbArgs.take_back(1).getTypes(), bbArgs);
+              bbLoc, bbArgs.take_back(1).getTypes()[0], /*a=*/bbArgs[0],
+              /*b=*/bbArgs[1], /*c=*/bbArgs[2]);
           bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, mm);
         });
 
@@ -3744,14 +3764,18 @@ private:
 
   static SmallVector<mlir::AffineMap>
   getAffineMapsArray(mlir::OpBuilder &builder, std::size_t arity,
-                     std::size_t rank) {
+                     std::size_t rank, bool transposeB) {
     assert(arity == 3 && "expected 3 operands");
     // TODO(#2592) for handling higher ranks if it's needed.
     assert(rank == 2 && "expected a rank 2 operation");
     mlir::MLIRContext *ctx = builder.getContext();
 
+    // B indexing switches from (K, N) to (N, K) when transposed.
+    std::array<unsigned, 2> bTargets = transposeB
+                                           ? std::array<unsigned, 2>{1, 2}
+                                           : std::array<unsigned, 2>{2, 1};
     return SmallVector<mlir::AffineMap>{makeAffineMap(ctx, {0, 2}),
-                                        makeAffineMap(ctx, {2, 1}),
+                                        makeAffineMap(ctx, bTargets),
                                         makeAffineMap(ctx, {0, 1})};
   }
 

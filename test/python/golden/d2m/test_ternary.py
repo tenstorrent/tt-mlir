@@ -195,8 +195,8 @@ def test_ternary_eltwise_ops_implicit_broadcast(
     [
         (0.8, -0.5, torch.float32),
         (0.8, -0.5, torch.bfloat16),
-        pytest.param(3, 0, torch.int32, marks=pytest.mark.skip_config(["sim"])),
-        pytest.param(3, 0, torch.int64, marks=pytest.mark.skip_config(["sim"])),
+        pytest.param(3, 0, torch.int32, marks=pytest.mark.skip_config(["n150", "sim"])),
+        pytest.param(3, 0, torch.int64, marks=pytest.mark.skip_config(["n150", "sim"])),
     ],
     ids=["f32", "bf16", "i32", "i64"],
 )

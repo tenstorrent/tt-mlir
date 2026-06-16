@@ -110,4 +110,19 @@ def TTKernel_EltwiseBinaryType
   let cppNamespace = "::mlir::tt::ttkernel";
 }
 
+// Mirrors tt-metal's `ckernel::InputClamping` (see compute_kernel_api
+// eltwise_unary/exp.h). Controls whether the approximate exponential clamps
+// very negative inputs. `None` skips the clamp (the positive/non-zero check).
+def TTKernel_InputClampingNone : I32EnumAttrCase<"None", 0, "none">;
+def TTKernel_InputClampingClampToNegative
+    : I32EnumAttrCase<"ClampToNegative", 1, "clamp_to_negative">;
+
+def TTKernel_InputClamping
+    : I32EnumAttr<"InputClamping", "TTKernel SFPU Input Clamping Modes",
+                  [TTKernel_InputClampingNone,
+                   TTKernel_InputClampingClampToNegative]> {
+  let genSpecializedAttr = 0;
+  let cppNamespace = "::mlir::tt::ttkernel";
+}
+
 #endif

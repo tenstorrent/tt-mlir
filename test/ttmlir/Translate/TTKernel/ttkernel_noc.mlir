@@ -25,7 +25,7 @@ func.func @ttkernel_noc_cb() -> () attributes {ttkernel.arg_spec = #ttkernel.arg
     %wptr = "ttkernel.get_write_ptr"(%cb) : (!ttkernel.cb<8, !ttcore.tile<32x32, f32>>) -> i32
     // CHECK: [[NOC]].async_read([[EP]], CoreLocalMem<uint32_t>([[CB]].get_write_ptr()), [[C0]]
     ttkernel.noc_async_read core[%c0_idx, %c0_idx], %c262144_i32, %wptr, %c32_i32 : (index, index, i32, i32, i32) -> ()
-    // CHECK: [[NOC]].async_read_barrier<Noc::BarrierMode::FULL>()
+    // CHECK: [[NOC]].async_read_barrier()
     ttkernel.noc_async_read_barrier() : () -> ()
     // CHECK: [[CB]].push_back
     "ttkernel.cb_push_back"(%cb, %c1_i32) : (!ttkernel.cb<8, !ttcore.tile<32x32, f32>>, i32) -> ()
@@ -71,7 +71,7 @@ func.func @ttkernel_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<n
     ttkernel.noc_async_atomic_barrier() : () -> ()
     // CHECK: noc1.async_atomic_barrier()
     ttkernel.noc_async_atomic_barrier(%noc) : (i8) -> ()
-    // CHECK: [[NOC1]].async_read_barrier<Noc::BarrierMode::FULL>()
+    // CHECK: [[NOC1]].async_read_barrier()
     ttkernel.noc_async_read_barrier() : () -> ()
     // CHECK: return
     func.return
@@ -91,9 +91,9 @@ func.func @ttkernel_noc_with_noc_id() -> () attributes {ttkernel.thread = #ttker
     %noc_id = arith.constant 1 : i8
     // CHECK: uint64_t [[EXPLICIT_NOC_ADDR:.*]] = [[EXPLICIT_EP]].get_noc_unicast_addr(static_cast<uint32_t>([[EXPLICIT_X]]), static_cast<uint32_t>([[EXPLICIT_Y]]), static_cast<uint32_t>([[EXPLICIT_ADDR]]), [[EXPLICIT_NOC]].get_noc_id())
     %noc_addr = ttkernel.get_noc_addr(%x, %y, %addr, %noc_id) : (index, index, i32, i8) -> !ttkernel.noc_addr
-    // CHECK: [[EXPLICIT_NOC]].async_read_barrier<Noc::BarrierMode::FULL>()
+    // CHECK: [[EXPLICIT_NOC]].async_read_barrier()
     ttkernel.noc_async_read_barrier(%noc_id) : (i8) -> ()
-    // CHECK: [[EXPLICIT_NOC]].async_write_barrier<Noc::BarrierMode::FULL>()
+    // CHECK: [[EXPLICIT_NOC]].async_write_barrier()
     ttkernel.noc_async_write_barrier(%noc_id) : (i8) -> ()
     // CHECK: return
     func.return

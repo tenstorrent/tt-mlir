@@ -15,6 +15,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         OptimizerPasses/GreedyMemoryLayoutPropagation.cpp
         OptimizerPasses/RowMajorLayoutPropagation.cpp
         OptimizerPasses/TTNNPrepareConv2dWeightsAndBias.cpp
+        OptimizerPasses/TTNNDeduceMoEComputeLayouts.cpp
         TTNNAdjustDeallocs.cpp
         TTNNAllocateDistributedOpBuffers.cpp
         TTNNAllocateDistributedOpSemaphores.cpp
@@ -57,19 +58,20 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.cpp
         Workarounds/Decomposition/MoeGptLayoutRewritePattern.cpp
         Workarounds/Decomposition/ArgMaxOpDimRewritePattern.cpp
+        Workarounds/Decomposition/MoeComputeRewritePattern.cpp
         Workarounds/Decomposition/ConcatOpRewritePattern.cpp
         Workarounds/Decomposition/PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern.cpp
         Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.cpp
         Workarounds/Decomposition/PointToPointOpRewritePattern.cpp
         Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.cpp
         Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.cpp
+        Workarounds/Decomposition/GatherOpRank1RewritePattern.cpp
         Workarounds/Decomposition/GroupNormAffineReshapeRewritePattern.cpp
         Workarounds/Decomposition/GroupNormChannelPadRewritePattern.cpp
         Workarounds/Decomposition/IntegerProdOpRewritePattern.cpp
         Workarounds/Decomposition/LinearOpRewritePattern.cpp
         Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.cpp
         Workarounds/Decomposition/ReduceScatterOpRewritePattern.cpp
-        Workarounds/Decomposition/ScatterOpRewritePattern.cpp
         Workarounds/Decomposition/SliceStaticOpRewritePattern.cpp
         Workarounds/Decomposition/ScaledDotProductAttentionDecodeAttentionSinkRewritePattern.cpp
         Workarounds/Decomposition/ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern.cpp
