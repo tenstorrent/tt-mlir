@@ -158,12 +158,13 @@ private:
   }
 
   bool canUntilizeDataTypeOnDevice(const ttcore::DataType &dataType) const {
-    // tt-metal untilize supports: bfloat16, float32, uint32, int32
+    // tt-metal untilize supports: bfloat16, float32, uint32, int32, uint16.
     // (requires use_pack_untilize for uint32/int32)
     // See: ttnn/operations/data_movement/untilize/device/untilize_op.cpp
     return dataType == ttcore::DataType::BFloat16 ||
            dataType == ttcore::DataType::Float32 ||
            dataType == ttcore::DataType::UInt32 ||
+           dataType == ttcore::DataType::UInt16 ||
            dataType == ttcore::DataType::Int32;
   }
 

@@ -161,6 +161,9 @@ _MOE_CONFIGS = [
 ]
 
 
+@pytest.mark.skip(
+    "The test will reland completely refactored as part of tt-mlir #8795."
+)
 @pytest.mark.skip_exec(
     ("n150",),
     reason="Single-card moe_compute doesn't work on WH architecture",
