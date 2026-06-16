@@ -16,6 +16,8 @@
 #include <memory>
 #include <optional>
 #include <shared_mutex>
+#include <ttnn/tensor/tensor.hpp>
+#include <ttnn/types.hpp>
 #include <unordered_map>
 #include <vector>
 
@@ -45,7 +47,8 @@ public:
         version(getLatestVersion()) {
     LOG_INFO("Constructing TTNNTensorWrapper, shape=", tensor.logical_shape(),
              " wrapper=", static_cast<const void *>(this),
-             " attrs_use_count=", tensor.tensor_attributes.use_count());
+             " attrs_use_count=", tensor.tensor_attributes.use_count(),
+            (tensor.storage_type() == ::ttnn::HOST_STORAGE_TYPE?" [host] ":" [device] "));
   }
 
   ~TTNNTensorWrapper() {
@@ -54,7 +57,8 @@ public:
     }
     LOG_INFO("Destructing TTNNTensorWrapper, shape=", tensor.logical_shape(),
              " wrapper=", static_cast<const void *>(this),
-             " attrs_use_count=", tensor.tensor_attributes.use_count());
+             " attrs_use_count=", tensor.tensor_attributes.use_count(),
+            (tensor.storage_type() == ::ttnn::HOST_STORAGE_TYPE?" [host] ":" [device] "));
   }
 
   TTNNTensorWrapper(const TTNNTensorWrapper &other) = delete;
