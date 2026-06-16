@@ -186,3 +186,182 @@ func.func @left_matrix_reshape_deflate_negative(%arg0: tensor<1x1024x4096xbf16>,
   %2 = "ttir.slice_static"(%1) <{begins = [1023 : i32, 0 : i32], ends = [1024 : i32, 128256 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1x128256xbf16>
   return %2 : tensor<1x128256xbf16>
 }
+
+// The same fusion applies to ttir.linear (matmul + bias). For a row (M) slice
+// the slice is pushed into A; the bias is indexed by the N (column) dim, so a
+// [vocab] bias is identical across rows and passes through untouched.
+// CHECK-LABEL: func.func @linear_left
+func.func @linear_left(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x128256xbf16>, %arg2: tensor<128256xbf16>) -> tensor<1x128256xbf16> {
+  // CHECK: %[[A:.*]] = "ttir.slice_static"(%arg0) <{begins = [1023 : i32, 0 : i32], ends = [1024 : i32, 4096 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x4096xbf16>) -> tensor<1x4096xbf16>
+  // CHECK: "ttir.linear"(%[[A]], %arg1, %arg2) <{transpose_a = false, transpose_b = false}> : (tensor<1x4096xbf16>, tensor<4096x128256xbf16>, tensor<128256xbf16>) -> tensor<1x128256xbf16>
+  // CHECK-NOT: tensor<1024x128256xbf16>
+  %0 = "ttir.linear"(%arg0, %arg1, %arg2) : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>, tensor<128256xbf16>) -> tensor<1024x128256xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [1023 : i32, 0 : i32], ends = [1024 : i32, 128256 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1x128256xbf16>
+  return %1 : tensor<1x128256xbf16>
+}
+
+// Row slice with a full 2D bias [M, N]: the bias dim aligned with the sliced M
+// dim is real, so the bias is sliced along the same row range as A.
+// CHECK-LABEL: func.func @linear_left_bias_2d
+func.func @linear_left_bias_2d(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x128256xbf16>, %arg2: tensor<1024x128256xbf16>) -> tensor<1x128256xbf16> {
+  // CHECK: %[[A:.*]] = "ttir.slice_static"(%arg0) <{begins = [1023 : i32, 0 : i32], ends = [1024 : i32, 4096 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x4096xbf16>) -> tensor<1x4096xbf16>
+  // CHECK: %[[BIAS:.*]] = "ttir.slice_static"(%arg2) <{begins = [1023 : i32, 0 : i32], ends = [1024 : i32, 128256 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1x128256xbf16>
+  // CHECK: "ttir.linear"(%[[A]], %arg1, %[[BIAS]]) <{transpose_a = false, transpose_b = false}> : (tensor<1x4096xbf16>, tensor<4096x128256xbf16>, tensor<1x128256xbf16>) -> tensor<1x128256xbf16>
+  %0 = "ttir.linear"(%arg0, %arg1, %arg2) : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>, tensor<1024x128256xbf16>) -> tensor<1024x128256xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [1023 : i32, 0 : i32], ends = [1024 : i32, 128256 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1x128256xbf16>
+  return %1 : tensor<1x128256xbf16>
+}
+
+// Row slice with a bias [1, N] (broadcast over M): the bias dim aligned with M
+// is size-1, so it already covers every row and is left untouched.
+// CHECK-LABEL: func.func @linear_left_bias_broadcast_m
+func.func @linear_left_bias_broadcast_m(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x128256xbf16>, %arg2: tensor<1x128256xbf16>) -> tensor<1x128256xbf16> {
+  // CHECK: %[[A:.*]] = "ttir.slice_static"(%arg0) <{begins = [1023 : i32, 0 : i32], ends = [1024 : i32, 4096 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x4096xbf16>) -> tensor<1x4096xbf16>
+  // CHECK: "ttir.linear"(%[[A]], %arg1, %arg2) <{transpose_a = false, transpose_b = false}> : (tensor<1x4096xbf16>, tensor<4096x128256xbf16>, tensor<1x128256xbf16>) -> tensor<1x128256xbf16>
+  // CHECK-NOT: tensor<1024x128256xbf16>
+  %0 = "ttir.linear"(%arg0, %arg1, %arg2) : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>, tensor<1x128256xbf16>) -> tensor<1024x128256xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [1023 : i32, 0 : i32], ends = [1024 : i32, 128256 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1x128256xbf16>
+  return %1 : tensor<1x128256xbf16>
+}
+
+// transpose_a=true row slice on a linear: A is [K, M], so the slice is pushed
+// into A's trailing dim and the [N] bias still passes through untouched.
+// CHECK-LABEL: func.func @linear_left_transpose
+func.func @linear_left_transpose(%arg0: tensor<4096x1024xbf16>, %arg1: tensor<4096x128256xbf16>, %arg2: tensor<128256xbf16>) -> tensor<1x128256xbf16> {
+  // CHECK: %[[A:.*]] = "ttir.slice_static"(%arg0) <{begins = [0 : i32, 1023 : i32], ends = [4096 : i32, 1024 : i32], step = [1 : i32, 1 : i32]}> : (tensor<4096x1024xbf16>) -> tensor<4096x1xbf16>
+  // CHECK: "ttir.linear"(%[[A]], %arg1, %arg2) <{transpose_a = true, transpose_b = false}> : (tensor<4096x1xbf16>, tensor<4096x128256xbf16>, tensor<128256xbf16>) -> tensor<1x128256xbf16>
+  // CHECK-NOT: tensor<1024x128256xbf16>
+  %0 = "ttir.linear"(%arg0, %arg1, %arg2) <{transpose_a = true, transpose_b = false}> : (tensor<4096x1024xbf16>, tensor<4096x128256xbf16>, tensor<128256xbf16>) -> tensor<1024x128256xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [1023 : i32, 0 : i32], ends = [1024 : i32, 128256 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1x128256xbf16>
+  return %1 : tensor<1x128256xbf16>
+}
+
+// A column (N) slice of a linear is pushed into B, and the [vocab] bias (which
+// is indexed by N) is sliced along the same column range.
+// CHECK-LABEL: func.func @linear_right
+func.func @linear_right(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x128256xbf16>, %arg2: tensor<128256xbf16>) -> tensor<1024x64xbf16> {
+  // CHECK: %[[B:.*]] = "ttir.slice_static"(%arg1) <{begins = [0 : i32, 0 : i32], ends = [4096 : i32, 64 : i32], step = [1 : i32, 1 : i32]}> : (tensor<4096x128256xbf16>) -> tensor<4096x64xbf16>
+  // CHECK: %[[BIAS:.*]] = "ttir.slice_static"(%arg2) <{begins = [0 : i32], ends = [64 : i32], step = [1 : i32]}> : (tensor<128256xbf16>) -> tensor<64xbf16>
+  // CHECK: "ttir.linear"(%arg0, %[[B]], %[[BIAS]]) <{transpose_a = false, transpose_b = false}> : (tensor<1024x4096xbf16>, tensor<4096x64xbf16>, tensor<64xbf16>) -> tensor<1024x64xbf16>
+  // CHECK-NOT: tensor<1024x128256xbf16>
+  %0 = "ttir.linear"(%arg0, %arg1, %arg2) : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>, tensor<128256xbf16>) -> tensor<1024x128256xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [0 : i32, 0 : i32], ends = [1024 : i32, 64 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1024x64xbf16>
+  return %1 : tensor<1024x64xbf16>
+}
+
+// Column slice with a full 2D bias [M, N]: the bias dim aligned with N is real,
+// so the bias is sliced along the same column range as B (its M dim is kept).
+// CHECK-LABEL: func.func @linear_right_bias_2d
+func.func @linear_right_bias_2d(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x128256xbf16>, %arg2: tensor<1024x128256xbf16>) -> tensor<1024x64xbf16> {
+  // CHECK: %[[B:.*]] = "ttir.slice_static"(%arg1) <{begins = [0 : i32, 0 : i32], ends = [4096 : i32, 64 : i32], step = [1 : i32, 1 : i32]}> : (tensor<4096x128256xbf16>) -> tensor<4096x64xbf16>
+  // CHECK: %[[BIAS:.*]] = "ttir.slice_static"(%arg2) <{begins = [0 : i32, 0 : i32], ends = [1024 : i32, 64 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1024x64xbf16>
+  // CHECK: "ttir.linear"(%arg0, %[[B]], %[[BIAS]]) <{transpose_a = false, transpose_b = false}> : (tensor<1024x4096xbf16>, tensor<4096x64xbf16>, tensor<1024x64xbf16>) -> tensor<1024x64xbf16>
+  %0 = "ttir.linear"(%arg0, %arg1, %arg2) : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>, tensor<1024x128256xbf16>) -> tensor<1024x128256xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [0 : i32, 0 : i32], ends = [1024 : i32, 64 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1024x64xbf16>
+  return %1 : tensor<1024x64xbf16>
+}
+
+// Column slice with a bias [M, 1] (broadcast over N): the bias dim aligned with
+// N is size-1, so it already covers every column and is left untouched.
+// CHECK-LABEL: func.func @linear_right_bias_broadcast_n
+func.func @linear_right_bias_broadcast_n(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x128256xbf16>, %arg2: tensor<1024x1xbf16>) -> tensor<1024x64xbf16> {
+  // CHECK: %[[B:.*]] = "ttir.slice_static"(%arg1) <{begins = [0 : i32, 0 : i32], ends = [4096 : i32, 64 : i32], step = [1 : i32, 1 : i32]}> : (tensor<4096x128256xbf16>) -> tensor<4096x64xbf16>
+  // CHECK: "ttir.linear"(%arg0, %[[B]], %arg2) <{transpose_a = false, transpose_b = false}> : (tensor<1024x4096xbf16>, tensor<4096x64xbf16>, tensor<1024x1xbf16>) -> tensor<1024x64xbf16>
+  // CHECK-NOT: tensor<1024x128256xbf16>
+  %0 = "ttir.linear"(%arg0, %arg1, %arg2) : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>, tensor<1024x1xbf16>) -> tensor<1024x128256xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [0 : i32, 0 : i32], ends = [1024 : i32, 64 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1024x64xbf16>
+  return %1 : tensor<1024x64xbf16>
+}
+
+// Column slice with a scalar bias [1] (broadcast over everything): the aligned
+// dim is size-1, so the bias is left untouched while B is narrowed.
+// CHECK-LABEL: func.func @linear_right_bias_scalar
+func.func @linear_right_bias_scalar(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x128256xbf16>, %arg2: tensor<1xbf16>) -> tensor<1024x64xbf16> {
+  // CHECK: %[[B:.*]] = "ttir.slice_static"(%arg1) <{begins = [0 : i32, 0 : i32], ends = [4096 : i32, 64 : i32], step = [1 : i32, 1 : i32]}> : (tensor<4096x128256xbf16>) -> tensor<4096x64xbf16>
+  // CHECK: "ttir.linear"(%arg0, %[[B]], %arg2) <{transpose_a = false, transpose_b = false}> : (tensor<1024x4096xbf16>, tensor<4096x64xbf16>, tensor<1xbf16>) -> tensor<1024x64xbf16>
+  // CHECK-NOT: tensor<1024x128256xbf16>
+  %0 = "ttir.linear"(%arg0, %arg1, %arg2) : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>, tensor<1xbf16>) -> tensor<1024x128256xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [0 : i32, 0 : i32], ends = [1024 : i32, 64 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1024x64xbf16>
+  return %1 : tensor<1024x64xbf16>
+}
+
+// transpose_b=true column slice on a linear: B is [N, K], so the slice is
+// pushed into B's rank-2 dim and the [N] bias is sliced along the same range.
+// CHECK-LABEL: func.func @linear_right_transpose
+func.func @linear_right_transpose(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<128256x4096xbf16>, %arg2: tensor<128256xbf16>) -> tensor<1024x64xbf16> {
+  // CHECK: %[[B:.*]] = "ttir.slice_static"(%arg1) <{begins = [0 : i32, 0 : i32], ends = [64 : i32, 4096 : i32], step = [1 : i32, 1 : i32]}> : (tensor<128256x4096xbf16>) -> tensor<64x4096xbf16>
+  // CHECK: %[[BIAS:.*]] = "ttir.slice_static"(%arg2) <{begins = [0 : i32], ends = [64 : i32], step = [1 : i32]}> : (tensor<128256xbf16>) -> tensor<64xbf16>
+  // CHECK: "ttir.linear"(%arg0, %[[B]], %[[BIAS]]) <{transpose_a = false, transpose_b = true}> : (tensor<1024x4096xbf16>, tensor<64x4096xbf16>, tensor<64xbf16>) -> tensor<1024x64xbf16>
+  // CHECK-NOT: tensor<1024x128256xbf16>
+  %0 = "ttir.linear"(%arg0, %arg1, %arg2) <{transpose_a = false, transpose_b = true}> : (tensor<1024x4096xbf16>, tensor<128256x4096xbf16>, tensor<128256xbf16>) -> tensor<1024x128256xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [0 : i32, 0 : i32], ends = [1024 : i32, 64 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1024x64xbf16>
+  return %1 : tensor<1024x64xbf16>
+}
+
+// Negative: the slice narrows both the row and column dims of a linear output
+// at once. As with matmul, only a single narrowed dim is supported, so the
+// linear is left alone.
+// CHECK-LABEL: func.func @linear_both_negative
+func.func @linear_both_negative(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x128256xbf16>, %arg2: tensor<128256xbf16>) -> tensor<1x64xbf16> {
+  // CHECK: "ttir.linear"(%arg0, %arg1, %arg2) <{transpose_a = false, transpose_b = false}> : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>, tensor<128256xbf16>) -> tensor<1024x128256xbf16>
+  %0 = "ttir.linear"(%arg0, %arg1, %arg2) : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>, tensor<128256xbf16>) -> tensor<1024x128256xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [1023 : i32, 0 : i32], ends = [1024 : i32, 64 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1x64xbf16>
+  return %1 : tensor<1x64xbf16>
+}
+
+// Batched 3D linear with a full 3D bias [B, M, N]. A column (N) slice is pushed
+// into B and the bias is sliced along its trailing N dim (batch + M kept full).
+// CHECK-LABEL: func.func @linear_batched_bias_3d
+func.func @linear_batched_bias_3d(%arg0: tensor<2x1024x4096xbf16>, %arg1: tensor<2x4096x128256xbf16>, %arg2: tensor<2x1024x128256xbf16>) -> tensor<2x1024x64xbf16> {
+  // CHECK: %[[B:.*]] = "ttir.slice_static"(%arg1) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [2 : i32, 4096 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<2x4096x128256xbf16>) -> tensor<2x4096x64xbf16>
+  // CHECK: %[[BIAS:.*]] = "ttir.slice_static"(%arg2) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [2 : i32, 1024 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<2x1024x128256xbf16>) -> tensor<2x1024x64xbf16>
+  // CHECK: "ttir.linear"(%arg0, %[[B]], %[[BIAS]]) <{transpose_a = false, transpose_b = false}> : (tensor<2x1024x4096xbf16>, tensor<2x4096x64xbf16>, tensor<2x1024x64xbf16>) -> tensor<2x1024x64xbf16>
+  %0 = "ttir.linear"(%arg0, %arg1, %arg2) : (tensor<2x1024x4096xbf16>, tensor<2x4096x128256xbf16>, tensor<2x1024x128256xbf16>) -> tensor<2x1024x128256xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [2 : i32, 1024 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<2x1024x128256xbf16>) -> tensor<2x1024x64xbf16>
+  return %1 : tensor<2x1024x64xbf16>
+}
+
+// Batched 3D linear with a full 3D bias, row (M) slice: pushed into A and the
+// bias is sliced along its M dim (batch + N kept full).
+// CHECK-LABEL: func.func @linear_batched_bias_3d_row
+func.func @linear_batched_bias_3d_row(%arg0: tensor<2x1024x4096xbf16>, %arg1: tensor<2x4096x128256xbf16>, %arg2: tensor<2x1024x128256xbf16>) -> tensor<2x1x128256xbf16> {
+  // CHECK: %[[A:.*]] = "ttir.slice_static"(%arg0) <{begins = [0 : i32, 1023 : i32, 0 : i32], ends = [2 : i32, 1024 : i32, 4096 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<2x1024x4096xbf16>) -> tensor<2x1x4096xbf16>
+  // CHECK: %[[BIAS:.*]] = "ttir.slice_static"(%arg2) <{begins = [0 : i32, 1023 : i32, 0 : i32], ends = [2 : i32, 1024 : i32, 128256 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<2x1024x128256xbf16>) -> tensor<2x1x128256xbf16>
+  // CHECK: "ttir.linear"(%[[A]], %arg1, %[[BIAS]]) <{transpose_a = false, transpose_b = false}> : (tensor<2x1x4096xbf16>, tensor<2x4096x128256xbf16>, tensor<2x1x128256xbf16>) -> tensor<2x1x128256xbf16>
+  %0 = "ttir.linear"(%arg0, %arg1, %arg2) : (tensor<2x1024x4096xbf16>, tensor<2x4096x128256xbf16>, tensor<2x1024x128256xbf16>) -> tensor<2x1024x128256xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [0 : i32, 1023 : i32, 0 : i32], ends = [2 : i32, 1024 : i32, 128256 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<2x1024x128256xbf16>) -> tensor<2x1x128256xbf16>
+  return %1 : tensor<2x1x128256xbf16>
+}
+
+// Batched 3D linear with a 3D bias [1, M, N] (broadcast over the batch dim). A
+// column slice narrows the bias's N dim; the size-1 batch dim stays full ([0:1])
+// and keeps broadcasting onto the 2-batch output.
+// CHECK-LABEL: func.func @linear_batched_bias_broadcast_batch
+func.func @linear_batched_bias_broadcast_batch(%arg0: tensor<2x1024x4096xbf16>, %arg1: tensor<2x4096x128256xbf16>, %arg2: tensor<1x1024x128256xbf16>) -> tensor<2x1024x64xbf16> {
+  // CHECK: %[[B:.*]] = "ttir.slice_static"(%arg1) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [2 : i32, 4096 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<2x4096x128256xbf16>) -> tensor<2x4096x64xbf16>
+  // CHECK: %[[BIAS:.*]] = "ttir.slice_static"(%arg2) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 1024 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1024x128256xbf16>) -> tensor<1x1024x64xbf16>
+  // CHECK: "ttir.linear"(%arg0, %[[B]], %[[BIAS]]) <{transpose_a = false, transpose_b = false}> : (tensor<2x1024x4096xbf16>, tensor<2x4096x64xbf16>, tensor<1x1024x64xbf16>) -> tensor<2x1024x64xbf16>
+  %0 = "ttir.linear"(%arg0, %arg1, %arg2) : (tensor<2x1024x4096xbf16>, tensor<2x4096x128256xbf16>, tensor<1x1024x128256xbf16>) -> tensor<2x1024x128256xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [2 : i32, 1024 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<2x1024x128256xbf16>) -> tensor<2x1024x64xbf16>
+  return %1 : tensor<2x1024x64xbf16>
+}
+
+// Negative: the linear result has another user, so narrowing would force the
+// full linear to be recomputed. Leave it alone.
+// CHECK-LABEL: func.func @linear_multiple_uses_negative
+func.func @linear_multiple_uses_negative(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x128256xbf16>, %arg2: tensor<128256xbf16>) -> (tensor<1x128256xbf16>, tensor<1024x128256xbf16>) {
+  // CHECK: "ttir.linear"(%arg0, %arg1, %arg2) <{transpose_a = false, transpose_b = false}> : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>, tensor<128256xbf16>) -> tensor<1024x128256xbf16>
+  %0 = "ttir.linear"(%arg0, %arg1, %arg2) : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>, tensor<128256xbf16>) -> tensor<1024x128256xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [1023 : i32, 0 : i32], ends = [1024 : i32, 128256 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1x128256xbf16>
+  return %1, %0 : tensor<1x128256xbf16>, tensor<1024x128256xbf16>
+}
+
+// Negative: the slice narrows the leading *batch* dim of a batched linear, not
+// the output row/col dims, so the pattern leaves it alone.
+// CHECK-LABEL: func.func @linear_batch_slice_negative
+func.func @linear_batch_slice_negative(%arg0: tensor<2x1024x4096xbf16>, %arg1: tensor<2x4096x128256xbf16>, %arg2: tensor<128256xbf16>) -> tensor<1x1024x128256xbf16> {
+  // CHECK: "ttir.linear"(%arg0, %arg1, %arg2) <{transpose_a = false, transpose_b = false}> : (tensor<2x1024x4096xbf16>, tensor<2x4096x128256xbf16>, tensor<128256xbf16>) -> tensor<2x1024x128256xbf16>
+  %0 = "ttir.linear"(%arg0, %arg1, %arg2) : (tensor<2x1024x4096xbf16>, tensor<2x4096x128256xbf16>, tensor<128256xbf16>) -> tensor<2x1024x128256xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 1024 : i32, 128256 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<2x1024x128256xbf16>) -> tensor<1x1024x128256xbf16>
+  return %1 : tensor<1x1024x128256xbf16>
+}
