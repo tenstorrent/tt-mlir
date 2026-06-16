@@ -359,6 +359,17 @@ createOp(FlatbufferObjectCache &cache, ResetGlobalSemaphoreOp op) {
                                                           op.getValue());
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::AllocateMoeComputeSemaphoreOp>
+createOp(FlatbufferObjectCache &cache, AllocateMoeComputeSemaphoreOp op) {
+  auto output =
+      cache.getOrCreate(op.getResult(), globalSemaphoreValueToFlatbuffer);
+  auto coreRangeSet = ::tt::target::ttnn::CreateCoreRangeSet(
+      *cache.fbb, toFlatbuffer(cache, op.getMuxCoreRangeSet().getCoreRanges()));
+  return ::tt::target::ttnn::CreateAllocateMoeComputeSemaphoreOp(
+      *cache.fbb, coreRangeSet, op.getOutputHeightShardDim(),
+      op.getHiddenSize(), op.getInitialValue(), output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::FullOp>
 createOp(FlatbufferObjectCache &cache, FullOp op) {
   auto shape = op.getShape().getShape().vec();
@@ -1392,30 +1403,15 @@ createOp(FlatbufferObjectCache &cache, MoeComputeOp op) {
 
   auto activation = toFlatbuffer(cache, op.getActivationFunction());
 
-  // `cluster_axis`, `num_links`, and `topology` are schema-optional
-  // (uint32/Topology = null). Use the toFlatbuffer overloads that return
-  // flatbuffers::Optional<...> so unset attrs serialize as the absent marker
-  // rather than 0/Ring — tt-metal distinguishes the two (e.g. moe_compute
-  // asserts num_links > 0, and cluster_axis=0 is a valid mesh axis).
-  auto clusterAxis = toFlatbuffer(cache, op.getClusterAxis());
+  // cluster_axis is required but schema-optional; serialize it present.
+  // num_links and topology are optional — serialize unset as the absent marker
+  // (tt-metal asserts num_links > 0).
+  auto clusterAxis = ::flatbuffers::Optional<uint32_t>(op.getClusterAxis());
   auto numLinks = toFlatbuffer(cache, op.getNumLinks());
   auto topology = toFlatbuffer(cache, op.getTopology());
 
-  ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet> muxCoreRangeSet = 0;
-  if (op.getMuxCoreRangeSetAttr()) {
-    muxCoreRangeSet = toFlatbuffer(cache, op.getMuxCoreRangeSetAttr());
-  }
+  auto muxCoreRangeSet = toFlatbuffer(cache, op.getMuxCoreRangeSetAttr());
 
-  auto perExpertTokens = cache.getOrCreateNoSharding(
-      op.getPerExpertTotalTokens(), tensorValueToFlatbuffer, std::nullopt);
-  auto expertActivation = cache.getOrCreateNoSharding(
-      op.getExpertActivation(), tensorValueToFlatbuffer, std::nullopt);
-  auto expertToToken = cache.getOrCreateNoSharding(
-      op.getExpertToToken(), tensorValueToFlatbuffer, std::nullopt);
-  auto tilizeOutput = cache.getOrCreateNoSharding(
-      op.getTilizeOutput(), tensorValueToFlatbuffer, std::nullopt);
-  auto matmulOutput = cache.getOrCreateNoSharding(
-      op.getMatmulOutput(), tensorValueToFlatbuffer, std::nullopt);
   auto combineOutput = cache.getOrCreateNoSharding(
       op.getCombineOutput(), tensorValueToFlatbuffer, std::nullopt);
 
@@ -1424,8 +1420,7 @@ createOp(FlatbufferObjectCache &cache, MoeComputeOp op) {
       w2, optionalOutput, crossDeviceSemaphore, deviceRef, op.getLayerId(),
       op.getOutputHeightShardDim(), op.getIntermediateSize(), op.getHasBias(),
       clusterAxis, activation, numLinks, topology, muxCoreRangeSet,
-      op.getComputeOnly(), perExpertTokens, expertActivation, expertToToken,
-      tilizeOutput, matmulOutput, combineOutput);
+      combineOutput);
 }
 
 // Convert ttcore::ReduceType to tt::target::ttnn::ScatterReduceType
@@ -5010,6 +5005,14 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto createGlobalSemaphoreOp = dyn_cast<CreateGlobalSemaphoreOp>(op);
       createGlobalSemaphoreOp) {
     return createOperation(cache, createOp(cache, createGlobalSemaphoreOp),
+                           debugString, locInfo);
+  }
+
+  if (auto allocateMoeComputeSemaphoreOp =
+          dyn_cast<AllocateMoeComputeSemaphoreOp>(op);
+      allocateMoeComputeSemaphoreOp) {
+    return createOperation(cache,
+                           createOp(cache, allocateMoeComputeSemaphoreOp),
                            debugString, locInfo);
   }
 

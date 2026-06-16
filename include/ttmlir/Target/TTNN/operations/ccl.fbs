@@ -198,11 +198,7 @@ table MoeComputeOp {
   num_links: uint32 = null;
   topology: tt.target.Topology = null;
   mux_core_range_set: tt.target.ttnn.CoreRangeSet;
-  compute_only: bool;
-  per_expert_total_tokens: tt.target.ttnn.TensorRef;
-  expert_activation: tt.target.ttnn.TensorRef;
-  expert_to_token: tt.target.ttnn.TensorRef;
-  tilize_output: tt.target.ttnn.TensorRef;
-  matmul_output: tt.target.ttnn.TensorRef;
+  // Only the A2A combine output is exposed; tt-metal's routing/tilize/matmul
+  // intermediates are allocated and freed inside the runtime handler.
   combine_output: tt.target.ttnn.TensorRef;
 }
