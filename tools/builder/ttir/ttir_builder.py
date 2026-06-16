@@ -17529,28 +17529,18 @@ class TTIRBuilder(Builder):
         layer_id: int,
         output_height_shard_dim: int,
         intermediate_size: int,
+        cluster_axis: int,
+        output_shape: Shape,
+        output_type: torch.dtype,
         bias_0: Optional[Operand] = None,
         bias_1: Optional[Operand] = None,
         bias_2: Optional[Operand] = None,
         activation_function: str = "silu",
-        compute_only: bool = True,
-        output_shapes: Optional[List[Shape]] = None,
-        output_types: Optional[List[torch.dtype]] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> Tuple[OpResult, OpResult, OpResult, OpResult, OpResult, OpResult]:
-        assert (
-            output_shapes is not None and len(output_shapes) == 6
-        ), "output_shapes must be a list of 6 shapes for moe_compute"
-        assert (
-            output_types is not None and len(output_types) == 6
-        ), "output_types must be a list of 6 dtypes for moe_compute"
-
-        result_types = [
-            self._create_ranked_tensor_type(
-                shape, self._get_type_from_torch_dtype(dtype)
-            )
-            for shape, dtype in zip(output_shapes, output_types)
-        ]
+    ) -> OpResult:
+        result_type = self._create_ranked_tensor_type(
+            output_shape, self._get_type_from_torch_dtype(output_type)
+        )
 
         u32 = IntegerType.get_unsigned(32)
         layer_id_attr = IntegerAttr.get(u32, layer_id)
@@ -17559,17 +17549,12 @@ class TTIRBuilder(Builder):
         activation_attr = Attribute.parse(
             f"#ttcore.moe_activation_function<{activation_function}>"
         )
-        compute_only_attr = BoolAttr.get(compute_only)
+        cluster_axis_attr = IntegerAttr.get(u32, cluster_axis)
 
         loc = self._get_location()
 
         op = ttir.MoeComputeOp(
-            result_types[0],
-            result_types[1],
-            result_types[2],
-            result_types[3],
-            result_types[4],
-            result_types[5],
+            result_type,
             tilize_input_tensor,
             tilize_expert_indices_tensor,
             tilize_expert_scores_tensor,
@@ -17584,7 +17569,7 @@ class TTIRBuilder(Builder):
             bias_1=bias_1,
             bias_2=bias_2,
             activation_function=activation_attr,
-            compute_only=compute_only_attr,
+            cluster_axis=cluster_axis_attr,
             loc=loc,
         )
 
@@ -17592,14 +17577,13 @@ class TTIRBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        # Compute goldens via the registered reference from the raw weight
-        # operands (the SiLU/SwiGLU MLP reference). Device-specific weight
-        # prepacking happens in TTNN; the golden works directly off w0/w1/w2.
+        # Golden works off the raw w0/w1/w2 operands; weight prepacking is a
+        # TTNN concern.
         def _maybe_golden(v):
             return self._get_golden_tensor(v) if v is not None else None
 
         op_golden_function = get_golden_function(ttir.MoeComputeOp)
-        golden_outputs = op_golden_function(
+        golden_output = op_golden_function(
             self._get_golden_tensor(tilize_input_tensor),
             self._get_golden_tensor(tilize_expert_indices_tensor),
             self._get_golden_tensor(tilize_expert_scores_tensor),
@@ -17614,16 +17598,13 @@ class TTIRBuilder(Builder):
             output_height_shard_dim=output_height_shard_dim,
             intermediate_size=intermediate_size,
             has_bias=any(b is not None for b in (bias_0, bias_1, bias_2)),
-            # cluster_axis is full-path routing, unused in compute_only.
-            cluster_axis=0,
+            cluster_axis=cluster_axis,
             activation_function=activation_function,
-            compute_only=compute_only,
-            output_types_mlir=[r.type for r in op.results],
+            output_type_mlir=op.result.type,
         )
-        for result, golden in zip(op.results, golden_outputs):
-            self._set_golden_tensor(result, golden)
+        self._set_golden_tensor(op.result, golden_output)
 
-        return tuple(op.results)
+        return op.result
 
     def upsample2d(
         self,
