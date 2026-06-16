@@ -412,19 +412,32 @@ struct Event : public detail::RuntimeCheckedObjectImpl {
 struct Tensor : public detail::RuntimeCheckedObjectImpl {
   std::shared_ptr<void> data;
   Event event;
-  Tensor() : globalId(nextTensorGlobalId()) {}
+  Tensor() : globalId(nextTensorGlobalId()) { recordAllocDebugStat(); }
   Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
          DeviceRuntime runtime,
          std::optional<std::shared_ptr<void>> eventHandle = std::nullopt)
       : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
         event(eventHandle.value_or(nullptr), runtime),
-        globalId(nextTensorGlobalId()) {}
+        globalId(nextTensorGlobalId()) {
+    recordAllocDebugStat();
+  }
+  Tensor(const Tensor &other)
+      : detail::RuntimeCheckedObjectImpl(other), data(other.data),
+        event(other.event), globalId(other.globalId) {
+    recordAllocDebugStat();
+  }
+  ~Tensor();
 
-  void setGlobalId(std::uint64_t id) { globalId = id; }
+  void setGlobalId(std::uint64_t id) {
+    globalId = id;
+    recordAllocDebugStat();
+  }
   std::uint64_t getGlobalId() const { return globalId; }
 
 private:
   std::uint64_t nextTensorGlobalId();
+  void recordAllocDebugStat() const;
+  void recordDeallocDebugStat() const;
   std::uint64_t globalId;
 };
 
