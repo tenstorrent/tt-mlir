@@ -207,6 +207,10 @@ public:
         assert_builder();
         return tk::build_silu(*mb_, input);
     }
+    mlir::Value gelu(mlir::Value input) {
+        assert_builder();
+        return tk::build_gelu(*mb_, input);
+    }
 
     // Binary elementwise
     mlir::Value div(mlir::Value lhs, mlir::Value rhs) {
@@ -556,6 +560,7 @@ NB_MODULE(_native, m) {
         .def("sin", &PyModuleBuilder::sin, "input"_a)
         .def("neg", &PyModuleBuilder::neg, "input"_a)
         .def("silu", &PyModuleBuilder::silu, "input"_a)
+        .def("gelu", &PyModuleBuilder::gelu, "input"_a)
         .def("div", &PyModuleBuilder::div, "lhs"_a, "rhs"_a)
         .def("pow", &PyModuleBuilder::pow, "lhs"_a, "rhs"_a)
         .def("matmul", &PyModuleBuilder::matmul, "lhs"_a, "rhs"_a)

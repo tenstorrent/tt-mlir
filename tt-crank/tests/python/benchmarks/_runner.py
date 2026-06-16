@@ -5,10 +5,9 @@ Every measurement uses host-side wall-clock via ``time.perf_counter_ns`` with
 explicit fences via ``_sync`` (recursive ``.cpu()`` on tensor leaves).
 
 Results carry a ``measurements`` array of ``{name, value, unit, target}``
-entries rather than a fixed set of fields. That shape mirrors what tt-xla
-emits and makes it cheap to tack on new metrics (TTFT, ITL percentiles,
-device kernel duration from tracy, etc.) without breaking the JSON schema
-that downstream dashboards key on.
+entries rather than a fixed set of fields, so new metrics (TTFT, ITL
+percentiles, device kernel duration from tracy, etc.) can be added without
+breaking the JSON schema that downstream dashboards key on.
 """
 
 from __future__ import annotations
@@ -75,15 +74,15 @@ def prepare_model(model: nn.Module, mode: str) -> nn.Module:
     """Return ``model`` wrapped according to the requested execution mode.
 
     ``"eager"`` returns the model unchanged. ``"compile"`` wraps it with
-    ``torch.compile(backend="tt_kurbla")``; until the tt_kurbla compile
-    backend is registered with torch._dynamo, the first forward pass raises.
-    Benchmark tests deliberately do not catch this - failures make the gap
-    visible until compile support lands.
+    ``torch.compile(backend="tt")`` after freezing gradients.
     """
     if mode == "eager":
         return model
     if mode == "compile":
-        return torch.compile(model, backend="tt")
+        model.requires_grad_(False)
+        # dynamic=False is needed for the --accuracy path: causes SymInts to appear
+        # in our graph, which we don't support at the moment.
+        return torch.compile(model, backend="tt", dynamic=False)
     raise ValueError(f"unknown mode {mode!r}; expected 'eager' or 'compile'")
 
 
@@ -177,8 +176,8 @@ def _percentile(sorted_values: Sequence[float], pct: float) -> float:
 def _infer_batch_size(inputs: Sequence[Any]) -> int:
     """Pick the batch dim from the first tensor in ``inputs``.
 
-    Matches tt-xla's convention: throughput is reported per-sample, so a
-    benchmark with batch 64 and 1500 iters/s shows up as 96000 samples/s.
+    Throughput is reported per-sample, so a benchmark with batch 64 and 1500
+    iters/s shows up as 96000 samples/s.
     """
     for x in inputs:
         if isinstance(x, torch.Tensor) and x.ndim >= 1:
@@ -319,124 +318,76 @@ def run_benchmark(
     )
 
 
-def run_decode_benchmark(
+def run_llm_benchmark(
     model: nn.Module,
     prompt_input_ids: torch.Tensor,
+    past_key_values: Any,
+    cache_position: torch.Tensor,
     *,
-    warmup: int,
-    iters: int,
+    warmup_steps: int,
+    total_steps: int,
     label: str,
     mode: str,
     device: str,
-    reference_model: nn.Module | None = None,
-    reference_prompt_input_ids: torch.Tensor | None = None,
     profile_enabled: bool = False,
     profile_dir: str = "./profile_data",
 ) -> BenchmarkResult:
-    """Autoregressive decode benchmark with per-step timing.
+    """Autoregressive generate loop over one StaticCache; step 0 = prefill.
 
-    Decode is inherently serial - each step depends on the previous step's
-    sampled token plus the growing KV cache - so there's no host-side
-    pipelining to give up by fencing per step. We exploit that to capture
-    per-token timing, which lets us derive TTFT (time-to-first-token, i.e.
-    prefill latency) plus ITL (inter-token-latency) distribution rather
-    than just a single aggregate.
+    ``model`` is an ``LLMSamplingWrapper`` returning ``(next_token,
+    next_cache_position)``, so between steps only the next token crosses to
+    host - that transfer is the per-step fence. Step 0 prefills the full
+    prompt into the pre-allocated cache (-> ``ttft_ms``); the remaining
+    ``total_steps - 1`` decode steps yield the inter-token-latency
+    distribution and ``tokens_per_sec`` (per user, so batch-size independent).
 
-    Shape:
-      1. ``warmup`` discarded prefill+decode round to warm JIT/kernel caches.
-      2. One timed prefill → ``ttft_ms``.
-      3. ``iters`` timed decode steps, each fenced via ``_sync(next_token)``.
-
-    Reported measurements: ttft_ms, itl_mean_ms, itl_p50_ms, itl_p95_ms,
-    decode_throughput_tps, decode_total_ms.
+    Warmup runs the same loop for ``warmup_steps``, then the cache is
+    ``reset()`` outside the timed region so timing starts from a clean cache.
     """
 
-    def _decode_step(token: torch.Tensor, past: Any) -> tuple[Any, torch.Tensor]:
-        out = model(token, past_key_values=past, use_cache=True)
-        next_tok = out.logits[:, -1:, :].argmax(dim=-1)
-        return out, next_tok
+    def _generate(steps: int) -> list[int]:
+        token, position = prompt_input_ids, cache_position
+        times_ns: list[int] = []
+        for step in range(steps):
+            name = "prefill" if step == 0 else f"decode_{step - 1}"
+            _signpost(f"{name}_start")
+            t0 = time.perf_counter_ns()
+            token, position = model(token, past_key_values, position)
+            _sync(token)
+            times_ns.append(time.perf_counter_ns() - t0)
+            _signpost(f"{name}_end")
+        return times_ns
 
-    accuracy_measurements: list[Measurement] = []
-    have_ref = reference_model is not None and reference_prompt_input_ids is not None
     trace_path = _resolve_trace_path(profile_enabled, profile_dir, label, "perf")
 
     with torch.no_grad():
-        if have_ref:
-            cold_prefill = model(prompt_input_ids, use_cache=True)
-            _sync(cold_prefill.logits)
-            pcc_before = _pcc_against_reference(
-                cold_prefill, reference_model, (reference_prompt_input_ids,)
-            )
-            accuracy_measurements.append(Measurement("pcc_before_warmup", pcc_before, "pcc"))
-
         _signpost("warmup_start")
-        if warmup > 0:
-            warm_prefill = model(prompt_input_ids, use_cache=True)
-            past = warm_prefill.past_key_values
-            tok = warm_prefill.logits[:, -1:, :].argmax(dim=-1)
-            for _ in range(warmup):
-                warm_out, tok = _decode_step(tok, past)
-                past = warm_out.past_key_values
-            _sync(tok)
+        _generate(warmup_steps)
         _signpost("warmup_end")
-
-        if have_ref:
-            warm_check = model(prompt_input_ids, use_cache=True)
-            _sync(warm_check.logits)
-            pcc_after = _pcc_against_reference(
-                warm_check, reference_model, (reference_prompt_input_ids,)
-            )
-            accuracy_measurements.append(Measurement("pcc_after_warmup", pcc_after, "pcc"))
+        past_key_values.reset()
 
         with _maybe_profile(trace_path):
-            # Prefill → TTFT.
-            _signpost("prefill_start")
-            t_prefill0 = time.perf_counter_ns()
-            prefill = model(prompt_input_ids, use_cache=True)
-            start_token = prefill.logits[:, -1:, :].argmax(dim=-1)
-            _sync(start_token)
-            ttft_ns = time.perf_counter_ns() - t_prefill0
-            _signpost("prefill_end")
-
-            # Per-step decode timing.
-            past = prefill.past_key_values
-            next_token = start_token
-            step_times_ns: list[int] = []
-            for step_idx in range(iters):
-                _signpost(f"decode_{step_idx}_start")
-                t0 = time.perf_counter_ns()
-                out, next_token = _decode_step(next_token, past)
-                _sync(next_token)
-                step_times_ns.append(time.perf_counter_ns() - t0)
-                past = out.past_key_values
-                _signpost(f"decode_{step_idx}_end")
+            step_ns = _generate(total_steps)
         _signpost("end")
 
-    step_times_ms = [t / 1e6 for t in step_times_ns]
-    sorted_ms = sorted(step_times_ms)
-    itl_mean_ms = statistics.fmean(step_times_ms) if step_times_ms else 0.0
-    itl_p50_ms = _percentile(sorted_ms, 50.0)
-    itl_p95_ms = _percentile(sorted_ms, 95.0)
-    decode_total_ns = sum(step_times_ns)
+    decode_ms = sorted(t / 1e6 for t in step_ns[1:])
+    decode_total_ns = sum(step_ns[1:])
     tokens_per_sec = (
-        iters * 1e9 / decode_total_ns if decode_total_ns > 0 else 0.0
+        len(decode_ms) * 1e9 / decode_total_ns if decode_total_ns > 0 else 0.0
     )
-    ttft_ms = ttft_ns / 1e6
-    decode_total_ms = decode_total_ns / 1e6
 
     return BenchmarkResult(
         label=label,
         mode=mode,
         device=device,
-        warmup=warmup,
-        iters=iters,
+        warmup=warmup_steps,
+        iters=total_steps,
         measurements=[
-            *accuracy_measurements,
-            Measurement("ttft_ms", ttft_ms, "ms"),
-            Measurement("itl_mean_ms", itl_mean_ms, "ms"),
-            Measurement("itl_p50_ms", itl_p50_ms, "ms"),
-            Measurement("itl_p95_ms", itl_p95_ms, "ms"),
+            Measurement("ttft_ms", step_ns[0] / 1e6, "ms"),
+            Measurement("itl_mean_ms", statistics.fmean(decode_ms) if decode_ms else 0.0, "ms"),
+            Measurement("itl_p50_ms", _percentile(decode_ms, 50.0), "ms"),
+            Measurement("itl_p95_ms", _percentile(decode_ms, 95.0), "ms"),
             Measurement("tokens_per_sec", tokens_per_sec, "tokens/s"),
-            Measurement("decode_total_ms", decode_total_ms, "ms"),
+            Measurement("decode_total_ms", decode_total_ns / 1e6, "ms"),
         ],
     )

@@ -3,7 +3,11 @@
 import pytest
 import torch
 
-from tt_kurbla.torch.testing import assert_close_cpu_vs_tt, get_supported_dtypes
+from tt_kurbla.torch.testing import (
+    assert_close_cpu_vs_tt,
+    get_supported_dtypes,
+    strict_no_fallback,
+)
 
 
 @pytest.mark.parametrize("dtype", get_supported_dtypes())
@@ -65,6 +69,18 @@ def test_neg(shape: tuple) -> None:
 def test_silu(shape: tuple) -> None:
     a = torch.randn(shape, dtype=torch.bfloat16)
     assert_close_cpu_vs_tt(torch.nn.functional.silu, a, atol=5e-3, rtol=5e-3)
+
+
+@pytest.mark.parametrize("approximate", ["none", "tanh"])
+@pytest.mark.parametrize("shape", [(32, 64), (32, 64, 128)])
+def test_gelu(shape: tuple, approximate: str) -> None:
+    a = torch.randn(shape, dtype=torch.bfloat16)
+    # We emit the accurate gelu (approximate="none"); a "tanh" request is served
+    # by that same accurate op. strict_no_fallback asserts gelu runs on the
+    # native tt kernel rather than silently falling back to CPU.
+    gelu = lambda x: torch.nn.functional.gelu(x, approximate=approximate)  # noqa: E731
+    with strict_no_fallback():
+        assert_close_cpu_vs_tt(gelu, a, atol=2e-2, rtol=2e-2)
 
 
 @pytest.mark.parametrize("dim", [-1, 0, 1])

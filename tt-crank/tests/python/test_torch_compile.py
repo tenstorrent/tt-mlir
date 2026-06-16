@@ -426,6 +426,17 @@ def test_compile_silu(shape: tuple[int, ...]) -> None:
 
 
 @pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_gelu(shape: tuple[int, ...]) -> None:
+    # We emit the accurate gelu; a "tanh" request gets that same op (see lowering).
+    class _GELU(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.nn.functional.gelu(x, approximate="tanh")
+
+    x = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_GELU(), x, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
 def test_compile_div_tensor(shape: tuple[int, ...]) -> None:
     class _Div(nn.Module):
         def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:

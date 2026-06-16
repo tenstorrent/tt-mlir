@@ -863,6 +863,20 @@ at::Tensor tt_silu(const at::Tensor &self) {
     return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
 }
 
+at::Tensor tt_gelu(const at::Tensor &self, c10::string_view approximate) {
+    TORCH_CHECK(is_tt(self), "tt-kurbla aten::gelu: tensor must be on tt backend");
+    // tt-mlir lowers gelu to ttnn.gelu(fast_and_approximate_mode=false): the
+    // exact/accurate variant, i.e. approximate="none". A "tanh" request is
+    // served by this same accurate op - correct, it just doesn't get the
+    // faster tanh-approx kernel.
+    (void)approximate;
+    auto mb = ModuleBuilder::init({spec_for(self)});
+    auto result = build_gelu(mb, mb.args()[0]);
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {self});
+    return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
+}
+
 at::Tensor tt_softmax(const at::Tensor &self_in, int64_t dim, bool half_to_float) {
     TORCH_CHECK(is_tt(self_in), "tt-kurbla aten::_softmax: tensor must be on tt backend");
     auto out_dtype = half_to_float ? at::ScalarType::Float : self_in.scalar_type();
@@ -895,6 +909,11 @@ mlir::Value build_neg(ModuleBuilder &mb, mlir::Value input) {
 mlir::Value build_silu(ModuleBuilder &mb, mlir::Value input) {
     auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
     return mb.create<mlir::tt::ttir::SiluOp>(result_type, input).getResult();
+}
+
+mlir::Value build_gelu(ModuleBuilder &mb, mlir::Value input) {
+    auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    return mb.create<mlir::tt::ttir::GeluOp>(result_type, input).getResult();
 }
 
 mlir::Value build_div(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
@@ -1276,6 +1295,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("arange.start", TORCH_FN(tt_arange_start));
     m.impl("arange.start_step", TORCH_FN(tt_arange_start_step));
     m.impl("silu", TORCH_FN(tt_silu));
+    m.impl("gelu", TORCH_FN(tt_gelu));
     m.impl("_softmax", TORCH_FN(tt_softmax));
     m.impl("sum.IntList_out", TORCH_FN(tt_sum_out));
     m.impl("threshold_backward.grad_input", TORCH_FN(tt_threshold_backward_out));
