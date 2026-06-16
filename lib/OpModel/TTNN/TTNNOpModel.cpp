@@ -35,6 +35,7 @@
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Ternary/EltwiseTernaryOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Unary/EltwiseUnaryCompositeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Unary/EltwiseUnaryOp.h"
+#include "ttmlir/OpInvoke/TTNN/Embedding/EmbeddingBackwardOp.h"
 #include "ttmlir/OpInvoke/TTNN/KVCache/FillCacheOp.h"
 #include "ttmlir/OpInvoke/TTNN/KVCache/PagedFillCacheOp.h"
 #include "ttmlir/OpInvoke/TTNN/KVCache/PagedUpdateCacheOp.h"
@@ -9021,6 +9022,17 @@ llvm::Expected<size_t> OpModel<EmbeddingOp>::getOpRuntime(
 // EmbeddingBackwardOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::EmbeddingBackwardOpT
+buildEmbeddingBackwardOpTFromMLIR(TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::EmbeddingBackwardOpT op;
+  if (outputLayout) {
+    op.out = detail::getOutputTensorRefT(outputLayout);
+  }
+  return op;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints> OpModel<EmbeddingBackwardOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
@@ -9042,11 +9054,21 @@ llvm::Expected<OpConstraints> OpModel<EmbeddingBackwardOp>::getOpConstraints(
       ::ttnn::TensorSpec inGradientSpec,
       detail::convertToTensorSpec(device, inGradientShape, inGradientLayout));
 
+  ::tt::target::ttnn::EmbeddingBackwardOpT embeddingBackwardOpNative =
+      buildEmbeddingBackwardOpTFromMLIR(outputLayout);
+
   auto embeddingBackwardOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::embedding_bw, device, inputSpec, weightSpec, inGradientSpec,
-        /*dtype*/ std::nullopt, detail::getNullableMemoryConfig(outputLayout),
-        /*optional_output_tensor*/ std::nullopt);
+    ttnn_op_invoke::EmbeddingBackwardOpResult result =
+        ttnn_op_invoke::callEmbeddingBackward(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS,
+            embeddingBackwardOpNative, inputSpec, weightSpec, inGradientSpec,
+            device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from EmbeddingBackwardOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(),
@@ -9078,11 +9100,21 @@ OpModel<mlir::tt::ttnn::EmbeddingBackwardOp>::getOpRuntime(
       ::ttnn::TensorSpec inGradientSpec,
       detail::convertToTensorSpec(device, inGradientShape, inGradientLayout));
 
+  ::tt::target::ttnn::EmbeddingBackwardOpT embeddingBackwardOpNative =
+      buildEmbeddingBackwardOpTFromMLIR(outputLayout);
+
   auto embeddingBackwardOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::embedding_bw, device, inputSpec, weightSpec, inGradientSpec,
-        /*dtype*/ std::nullopt, detail::getNullableMemoryConfig(outputLayout),
-        /*optional_output_tensor*/ std::nullopt);
+    ttnn_op_invoke::EmbeddingBackwardOpResult result =
+        ttnn_op_invoke::callEmbeddingBackward(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+            embeddingBackwardOpNative, inputSpec, weightSpec, inGradientSpec,
+            device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from EmbeddingBackwardOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(embeddingBackwardOpQuery);
