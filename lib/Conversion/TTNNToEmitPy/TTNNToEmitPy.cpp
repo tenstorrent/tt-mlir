@@ -4405,8 +4405,8 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getQuery()),
         emitter.emit(srcOp.getKey()),
-        emitter.emit(srcOp.getHeadDimV()),
-        emitter.emit(srcOp.getValue(), "input_tensor_v"),
+        srcOp.getValue() ? emitter.emit(srcOp.getValue())
+                         : emitter.emit(srcOp.getHeadDimV()),
         emitter.emit(srcOp.getAttentionMask(), "attn_mask"),
         emitter.emit(srcOp.getIsCausal(), "is_causal"),
         emitter.emit<float>(srcOp.getScaleAttr(), "scale"),
