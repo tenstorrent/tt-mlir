@@ -169,6 +169,8 @@ createLayerNormShardedMultiCoreProgramConfig(
 
 ::tt::tt_fabric::Topology toMetalTopology(::tt::target::Topology topology);
 
+bool isTilized(const ::tt::target::ttnn::TensorRefT tensorRef);
+
 } // namespace ttnn_op_invoke::operations::utils
 
 #endif // TTMLIR_OPINVOKE_TTNN_UTILS_UTILS_H

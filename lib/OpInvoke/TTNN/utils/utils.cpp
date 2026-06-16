@@ -613,4 +613,14 @@ createLayerNormShardedMultiCoreProgramConfig(
   llvm_unreachable("Unknown tt::target::Topology value");
 }
 
+bool isTilized(const ::tt::target::ttnn::TensorRefT tensorRef) {
+  if (!tensorRef.desc || !tensorRef.desc->layout ||
+      !tensorRef.desc->layout->memory_desc ||
+      !tensorRef.desc->layout->memory_desc->tile_shape) {
+    return false;
+  }
+  return tensorRef.desc->layout->memory_desc->tile_shape->x() == 32 &&
+         tensorRef.desc->layout->memory_desc->tile_shape->y() == 32;
+}
+
 } // namespace ttnn_op_invoke::operations::utils

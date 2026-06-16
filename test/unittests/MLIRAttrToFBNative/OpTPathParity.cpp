@@ -7754,8 +7754,8 @@ void resetUnusedFields(::tt::target::ttnn::EmbeddingOpT &opNativeOpModel,
   helper(opNativeFB);
 }
 
-mlir::tt::ttnn::EmbeddingOp buildTestEmbeddingOp(
-    mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+mlir::tt::ttnn::EmbeddingOp
+buildTestEmbeddingOp(mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
   auto &e = env();
   auto loc = e.builder.getUnknownLoc();
 

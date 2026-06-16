@@ -12,10 +12,11 @@ EmbeddingResolvedParams
 resolveEmbeddingParams(const ::tt::target::ttnn::EmbeddingOpT &op) {
   EmbeddingResolvedParams params;
 
-  bool isTiled = op.out && op.out->desc && op.out->desc->layout &&
-                 op.out->desc->layout->memory_desc &&
-                 op.out->desc->layout->memory_desc->tile_shape;
-  params.layout = isTiled ? ::ttnn::TILE_LAYOUT : ::ttnn::ROW_MAJOR_LAYOUT;
+  if (op.out) {
+    params.layout = operations::utils::isTilized(*op.out)
+                        ? ::ttnn::TILE_LAYOUT
+                        : ::ttnn::ROW_MAJOR_LAYOUT;
+  }
 
   params.embeddingsType = ::ttnn::prim::EmbeddingsType::GENERIC;
 

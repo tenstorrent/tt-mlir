@@ -35,9 +35,9 @@ std::vector<::tt::runtime::GlobalSemaphore> collectSemaphoreInputs(
 }
 
 bool isTilized(const ::tt::target::ttnn::TensorRef *tensorRef) {
-  const ::tt::target::Dim2d *tileShape =
-      tensorRef->desc()->layout()->memory_desc()->tile_shape();
-  return tileShape->x() == 32 && tileShape->y() == 32;
+  ::tt::target::ttnn::TensorRefT tensorRefNative;
+  tensorRef->UnPackTo(&tensorRefNative);
+  return ttnn_op_invoke::operations::utils::isTilized(tensorRefNative);
 }
 
 ::ttnn::DataType getDataType(const ::tt::target::ttnn::TensorRef *tensorRef) {
