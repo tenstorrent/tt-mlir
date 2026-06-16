@@ -23,7 +23,8 @@ pytestmark = pytest.mark.frontend("ttir")
 D2M_TILIZE_PIPELINE = (
     "ttcore-mark-functions-as-forward,d2m-lower-to-layout,canonicalize,"
     "ttir-bufferization-pipeline,d2m-insert-scratch-buffers,"
-    "d2m-generic-apply-interchange,d2m-generate-outer-loops,d2m-allocate,"
+    "d2m-generic-apply-interchange,d2m-generate-outer-loops,"
+    "d2m-reblock-generics,d2m-allocate,"
     "d2m-lower-multicast-loads,d2m-generic-lower-to-explicit-form,"
     "canonicalize,d2m-be-pipeline,d2m-to-ttkernel-pipeline,"
     "d2m-to-ttmetal-pipeline"
