@@ -402,6 +402,65 @@ static mlir::LogicalResult updateShapes(MLIRContext *context,
   return mlir::success();
 }
 
+// Shardy shards the convolution's feature dim across operands but leaves
+// feature_group_count at its global value, so the local (already-reduced) input
+// feature dim is no longer divisible by it and StableHLO verification rejects
+// the op. The fix is to rescale the count from the localized types.
+// Issue: https://github.com/tenstorrent/tt-metal/issues/45396
+//
+// in_channels_per_group is invariant under sharding, so the new count follows
+// from the local LHS feature dim:
+//   in_channels_per_group = global_in_feature_dim / feature_group_count
+//   new_feature_group_count = local_in_feature_dim / in_channels_per_group
+// (depthwise conv has in_channels_per_group == 1, so the count equals the local
+// feature dim.)
+static mlir::LogicalResult
+fixConvolutionFeatureGroupCount(MLIRContext *context,
+                                mlir::ModuleOp &rootModule) {
+  mlir::WalkResult result =
+      rootModule.walk([&](mlir::stablehlo::ConvolutionOp convOp) {
+        uint64_t currentFGC = convOp.getFeatureGroupCount();
+        // A standard convolution (feature_group_count == 1) keeps a single
+        // group no matter how the feature dim is sharded, so its count never
+        // goes stale and there is nothing to recompute.
+        if (currentFGC <= 1) {
+          return WalkResult::advance();
+        }
+
+        auto lhsType =
+            mlir::cast<mlir::RankedTensorType>(convOp.getLhs().getType());
+        auto rhsType =
+            mlir::cast<mlir::RankedTensorType>(convOp.getRhs().getType());
+
+        int64_t inputFeatureDim =
+            convOp.getDimensionNumbers().getInputFeatureDimension();
+        int64_t kernelInputFeatureDim =
+            convOp.getDimensionNumbers().getKernelInputFeatureDimension();
+
+        int64_t localInputChannels = lhsType.getDimSize(inputFeatureDim);
+        int64_t inChannelsPerGroup = rhsType.getDimSize(kernelInputFeatureDim);
+
+        if (inChannelsPerGroup <= 0 ||
+            localInputChannels % inChannelsPerGroup != 0) {
+          convOp.emitError()
+              << "cannot rescale feature_group_count: local input feature dim ("
+              << localInputChannels
+              << ") not divisible by kernel input feature "
+                 "dim ("
+              << inChannelsPerGroup << ")";
+          return WalkResult::interrupt();
+        }
+
+        int64_t newFGC = localInputChannels / inChannelsPerGroup;
+        if (static_cast<int64_t>(currentFGC) != newFGC) {
+          convOp.setFeatureGroupCount(static_cast<uint64_t>(newFGC));
+        }
+        return WalkResult::advance();
+      });
+
+  return mlir::failure(result.wasInterrupted());
+}
+
 // Convert all sdy ccl ops into stablehlo ccl ops.
 static mlir::LogicalResult
 convertShardyCCLToStableHLOCCL(MLIRContext *context,
@@ -523,6 +582,14 @@ public:
         return;
       }
     });
+
+    // Shardy updates the operand shapes but not
+    // the feature_group_count attribute, so we fix it here from the local
+    // types.
+    if (failed(fixConvolutionFeatureGroupCount(context, rootModule))) {
+      signalPassFailure();
+      return;
+    }
 
     // Run conversion pattern to convert all sdy ccl operations into stablehlo
     // ccl operations
