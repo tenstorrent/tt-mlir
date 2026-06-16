@@ -22,6 +22,23 @@ def check_op(mlir_file: str, op_name: str) -> bool:
     return False
 
 
+def slice_precedes_matmul(mlir_file: str) -> bool:
+    # After SliceBeforeMatmul fusion the output slice is pushed up into a
+    # matmul operand, so a slice now feeds the matmul instead of consuming it.
+    first_slice = first_matmul = None
+    with open(mlir_file, "r") as f:
+        for idx, line in enumerate(f):
+            if first_slice is None and "ttnn.slice" in line:
+                first_slice = idx
+            if first_matmul is None and "ttnn.matmul" in line:
+                first_matmul = idx
+    return (
+        first_slice is not None
+        and first_matmul is not None
+        and first_slice < first_matmul
+    )
+
+
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -409,6 +426,73 @@ def test_matmul_with_bias_fusing(
         "ttnn_compiled.mlir",
     )
     assert check_op(output_path, "linear") and not check_op(output_path, "matmul")
+
+
+@pytest.mark.parametrize(
+    "shape_a,shape_b,transpose_b,reshape_shape,begins,ends",
+    [
+        # Row (M) slice -> pushed into A. The last row of the matmul output is
+        # kept (greedy-decode lm_head after the rank-3 logits tensor has been
+        # collapsed to 2D).
+        ((256, 512), (512, 1024), False, None, [255, 0], [256, 1024]),
+        # Column (N) slice -> pushed into B. A middle block of output columns.
+        ((256, 512), (512, 1024), False, None, [0, 5], [256, 17]),
+        # transpose_b=true: B is [N, K], so the column slice is pushed into B's
+        # rank-2 dim and transpose_b is preserved.
+        ((256, 512), (1024, 512), True, None, [0, 0], [256, 64]),
+        # Row slice through a leading-unit-dim reshape (the rank-3 logits tensor
+        # [1, seq, vocab] produced by HF causal-LM heads).
+        ((256, 512), (512, 1024), False, [1, 256, 1024], [0, 255, 0], [1, 256, 1024]),
+    ],
+)
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 2])
+def test_slice_before_matmul_fusing(
+    shape_a: Shape,
+    shape_b: Shape,
+    transpose_b: bool,
+    reshape_shape: Optional[List[int]],
+    begins: List[int],
+    ends: List[int],
+    dtypes: List[torch.dtype],
+    request,
+    device,
+):
+    shapes = [shape_a, shape_b]
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def matmul_slice(
+            input_tensor: Operand,
+            weight: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            matmul_result = builder.matmul(
+                input_tensor, weight, transpose_b=transpose_b
+            )
+            if reshape_shape is not None:
+                matmul_result = builder.reshape(matmul_result, reshape_shape)
+            return builder.slice(matmul_result, begins, ends)
+
+    # Numerical correctness: compile_and_execute_ttir runs the matmul->slice
+    # graph on device with check_pcc=True (default pcc=0.99) and compares the
+    # result against the torch golden the builder accumulates. If the fusion
+    # changed the numerics, PCC drops below threshold and this call raises.
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        save_artifacts=True,
+        check_pcc=True,
+    )
+    output_path = os.path.join(
+        get_artifact_dir(
+            request.config.getoption("--path"), "TTIRBuilder", request.node.name
+        ),
+        "ttnn_compiled.mlir",
+    )
+    # The fusion fired: a slice now feeds the matmul instead of consuming it.
+    assert check_op(output_path, "matmul") and slice_precedes_matmul(output_path)
 
 
 @pytest.mark.parametrize(
