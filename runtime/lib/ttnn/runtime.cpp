@@ -706,10 +706,12 @@ createSocketPair(Device senderMesh, Device receiverMesh,
 
   // For 1x1 submeshes the device coordinate within each submesh is (0, 0).
   ttm::SocketConnection connection(
-      ttm::MeshCoreCoord(::ttnn::MeshCoordinate(0, 0),
-                         CoreCoord(senderCore[0], senderCore[1])),
-      ttm::MeshCoreCoord(::ttnn::MeshCoordinate(0, 0),
-                         CoreCoord(receiverCore[0], receiverCore[1])));
+      ttm::MeshCoreCoord(
+          ::ttnn::MeshCoordinate(0, 0),
+          ::tt::tt_metal::CoreCoord(senderCore[0], senderCore[1])),
+      ttm::MeshCoreCoord(
+          ::ttnn::MeshCoordinate(0, 0),
+          ::tt::tt_metal::CoreCoord(receiverCore[0], receiverCore[1])));
   ttm::SocketMemoryConfig memConfig(::tt::tt_metal::BufferType::L1, fifoSize);
   ttm::SocketConfig config({connection}, memConfig);
 
