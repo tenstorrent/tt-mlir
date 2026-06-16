@@ -753,12 +753,16 @@ def TTKernel_CopyDestValuesOp : TTKernel_SFPUOp<"copy_dest_values", [TTKernel_Bi
       register buffer. Performs element-wise copy: DST[idst_out] <- DST[idst_in].
       The DST register buffer must be in acquired state via *tile_regs_acquire* call.
       This call is blocking and is only available on the compute engine.
+
+      Lowers to: copy_dest_values<DataFormat>(idst_in, idst_out).
     }];
 
-    let arguments = (ins IndexLike:$idst_in, IndexLike:$idst_out);
+    let arguments = (ins IndexLike:$idst_in,
+                         IndexLike:$idst_out,
+                         TTCore_DataTypeAttr:$data_format);
 
     let assemblyFormat = [{
-      `(` $idst_in `,` $idst_out `)` attr-dict `:` functional-type(operands, results)
+      `(` $idst_in `,` $idst_out `,` $data_format `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 

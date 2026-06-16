@@ -95,8 +95,8 @@ func.func @test_copy_dest_values_init() -> () {
 // CHECK-LABEL: func.func @test_copy_dest_values
 func.func @test_copy_dest_values() -> () {
   %c0 = arith.constant 0 : index
-  ttkernel.copy_dest_values(%c0, %c0) : (index, index) -> ()
-  // CHECK: ttkernel.copy_dest_values(%{{.*}}, %{{.*}}) : (index, index) -> ()
+  ttkernel.copy_dest_values(%c0, %c0, <f32>) : (index, index) -> ()
+  // CHECK: ttkernel.copy_dest_values(%{{.*}}, %{{.*}}, <f32>) : (index, index) -> ()
   return
 }
 

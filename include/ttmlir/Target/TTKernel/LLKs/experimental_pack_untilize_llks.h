@@ -18,8 +18,8 @@ ALWI void llk_pack_untilize(uint32_t output, uint32_t num_col_tiles_in_pass,
   const uint32_t offset = start_tile_row * total_col_tiles * page_size;
 
   get_local_cb_interface(output_id).fifo_wr_ptr += offset;
-  ::llk_pack_untilize<cols_per_dst_pass, total_col_tiles>(1, output, FACE_R_DIM,
-                                                          4, block_c_index, 0);
+  ::llk_pack_untilize<cols_per_dst_pass, total_col_tiles>(1, output,
+                                                          block_c_index, 0);
   get_local_cb_interface(output_id).fifo_wr_ptr -= offset;
 }
 #endif // TRISC_PACK
