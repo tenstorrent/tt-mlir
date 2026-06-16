@@ -62,6 +62,36 @@ bool isOuterReduction(TTIRReductionOp op) {
   return false;
 }
 
+template <typename TTIRReductionOp>
+bool is2DReduceLastKeepDimFalse(TTIRReductionOp op) {
+  if (op.getKeepDimAttr().getValue()) {
+    return false;
+  }
+
+  auto inputType = mlir::cast<mlir::RankedTensorType>(op.getInput().getType());
+  auto resultType =
+      mlir::cast<mlir::RankedTensorType>(op.getResult().getType());
+  if (inputType.getRank() != 2 || resultType.getRank() != 1) {
+    return false;
+  }
+
+  std::optional<mlir::ArrayAttr> maybeDimArg = op.getDimArg();
+  assert(maybeDimArg && "TTIR reduction op must have dim_arg");
+  bool reduceFirst = false;
+  bool reduceLast = false;
+  for (mlir::Attribute dimAttr : *maybeDimArg) {
+    int64_t dim = mlir::cast<IntegerAttr>(dimAttr).getInt();
+    int64_t rank = inputType.getRank();
+    int64_t normalized = dim % rank;
+    if (normalized < 0) {
+      normalized += rank;
+    }
+    reduceFirst |= normalized == 0;
+    reduceLast |= normalized == 1;
+  }
+  return reduceLast && !reduceFirst;
+}
+
 class D2MNamedRewriterCommon {
 protected:
   using base = D2MNamedRewriterCommon;
@@ -2219,8 +2249,9 @@ private:
 // physical iterator dims) via tile_reduce_{sum,max,mean} for float element
 // types (with a broadcast scaler tile encoding e.g. 1/N for mean) and via
 // tile_sfpu_reduce_{sum,max} for integer element types (no scaler, SFPU
-// lowering). `IntTileOp` may be `void` to indicate the int path is not
-// supported (e.g. mean).
+// lowering). Inner min decomposes in-layout as f(max(f(x))) where f is an
+// order-reversing involution; no tile_reduce_min kernel exists. `IntTileOp`
+// may be `void` to indicate the int path is not supported (e.g. mean).
 namespace {
 template <typename ConcreteOp, typename FloatTileOp, typename IntTileOp = void>
 class D2MNamedTileReduceRewriter final
@@ -2241,9 +2272,73 @@ public:
 private:
   static constexpr bool kIntSupported = !std::is_void_v<IntTileOp>;
 
+  static mlir::Value createMinInvolution(mlir::OpBuilder &builder,
+                                         mlir::Location loc,
+                                         mlir::Type resultType,
+                                         mlir::Value input, bool isFloat) {
+    if (isFloat) {
+      return builder.create<d2m::TileNegativeOp>(loc, resultType, input)
+          .getResult();
+    }
+    return builder.create<d2m::TileBitwiseNotOp>(loc, resultType, input)
+        .getResult();
+  }
+
+  mlir::Value
+  applyMinInvolutionGeneric(mlir::ConversionPatternRewriter &rewriter,
+                            mlir::Location loc, mlir::Value input,
+                            bool isFloat) const {
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    mlir::Value output = rewriter.create<d2m::EmptyOp>(
+        loc, inputType.getShape(), inputType.getElementType(),
+        inputType.getEncoding());
+
+    const std::size_t physicalRank = getD2MGridRank(input);
+    SmallVector<mlir::AffineMap> indexingMaps =
+        getIdentityAffineMapsArray(rewriter, 2, physicalRank);
+    auto parallel = ttcore::IteratorTypeAttr::get(
+        rewriter.getContext(), ttcore::IteratorType::Parallel);
+    SmallVector<mlir::Attribute> iteratorTypes(physicalRank, parallel);
+
+    SmallVector<mlir::Value> inputs = {input};
+    SmallVector<mlir::Value> outputs = {output};
+    auto generic = rewriter.create<d2m::GenericOp>(
+        loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
+        rewriter.getAffineMapArrayAttr(indexingMaps),
+        rewriter.getArrayAttr(iteratorTypes));
+
+    withD2MGenericRegion(
+        rewriter, loc, generic, inputs, outputs,
+        [&](mlir::ArrayRef<mlir::Value> blockArgs) -> SmallVector<Value> {
+          SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
+              iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
+          SmallVector<mlir::Value> linalgInputs = {blockArgs.front()};
+          SmallVector<mlir::Value> linalgOutputs = {blockArgs.back()};
+
+          auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
+              loc,
+              /*resultTensorTypes=*/TypeRange{blockArgs.back().getType()},
+              /*inputs=*/linalgInputs,
+              /*outputs=*/linalgOutputs, indexingMaps, linalgIteratorTypes,
+              [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+                  mlir::ValueRange bbArgs) {
+                mlir::Value yield = createMinInvolution(
+                    bbBuilder, bbLoc, bbArgs[1].getType(), bbArgs[0], isFloat);
+                bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, yield);
+              });
+
+          return {linalgGeneric.getResult(0)};
+        });
+
+    return generic.getResult(0);
+  }
+
   // Return the identity OOB fill value for this reduction's tile op.
   // Padded elements must not affect the reduction result.
   static constexpr ttcore::OOBVal getReductionOOBVal() {
+    if constexpr (std::is_same_v<ConcreteOp, ttir::MinOp>) {
+      return ttcore::OOBVal::Inf;
+    }
     if constexpr (std::is_same_v<FloatTileOp, d2m::TileReduceMaxOp>) {
       return ttcore::OOBVal::NegInf;
     } else if constexpr (std::is_same_v<FloatTileOp, d2m::TileReduceSumOp> ||
@@ -2258,6 +2353,11 @@ private:
   LogicalResult
   matchAndRewrite(ConcreteOp op, typename ConcreteOp::Adaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
+    if constexpr (std::is_same_v<ConcreteOp, ttir::MinOp>) {
+      if (!is2DReduceLastKeepDimFalse(op)) {
+        return failure();
+      }
+    }
     checkTTIRReductionPreconditions(op);
 
     mlir::MLIRContext *ctx = rewriter.getContext();
@@ -2296,6 +2396,9 @@ private:
     auto [inputs, outputs] = toLayoutOperandsAndResults(
         rewriter, {newInputs, origOutputs},
         /*tiled*/ true, noCollapse, getReductionOOBVal());
+    if constexpr (std::is_same_v<ConcreteOp, ttir::MinOp>) {
+      inputs[0] = applyMinInvolutionGeneric(rewriter, loc, inputs[0], isFloat);
+    }
 
     const std::size_t numInputs = inputs.size();
     const std::size_t numOutputs = outputs.size();
@@ -2404,14 +2507,13 @@ private:
     rewriter.finalizeOpModification(generic);
     rewriter.restoreInsertionPoint(insertPoint);
 
-    if (!writeDirectlyToResult) {
-      rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
-                                            op->getResult(0).getType()));
-      return llvm::success();
+    mlir::Value result = generic.getResult(0);
+    if constexpr (std::is_same_v<ConcreteOp, ttir::MinOp>) {
+      result = applyMinInvolutionGeneric(rewriter, loc, result, isFloat);
     }
 
-    rewriter.replaceOp(op, unLayoutResult(rewriter, generic->getResult(0),
-                                          op->getResult(0).getType()));
+    rewriter.replaceOp(
+        op, unLayoutResult(rewriter, result, op->getResult(0).getType()));
     return llvm::success();
   }
 
@@ -2496,6 +2598,10 @@ private:
 // tile_reduce_min kernel exists; outer min uses `tile_minimum` via the
 // accumulation path. Floats use `neg`; integers use `bitwise_not` since
 // `~INT_MIN == INT_MAX` keeps it order-reversing at INT_MIN (unlike `neg`).
+//
+// The 2D reduce-last keep_dim=false case is handled directly in
+// D2MNamedTileReduceRewriter to keep the final invert before the squeezed
+// layout conversion.
 namespace {
 class D2MInnerMinDecompositionRewriter final
     : public mlir::OpConversionPattern<ttir::MinOp> {
@@ -2557,7 +2663,7 @@ private:
   LogicalResult
   matchAndRewrite(ttir::MinOp op, OpAdaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
-    if (isOuterReduction(op)) {
+    if (isOuterReduction(op) || is2DReduceLastKeepDimFalse(op)) {
       return failure();
     }
     auto inputType =
@@ -4296,34 +4402,6 @@ static bool isScalarUnitVolumeReshape(RankedTensorType inputType,
          ttmlir::utils::volume<int64_t>(outputType.getShape()) == 1;
 }
 
-static bool isSingletonDimensionSqueezeReshape(RankedTensorType inputType,
-                                               RankedTensorType outputType) {
-  if (!inputType.hasStaticShape() || !outputType.hasStaticShape() ||
-      inputType.getRank() <= outputType.getRank()) {
-    return false;
-  }
-
-  if (ttmlir::utils::volume<int64_t>(inputType.getShape()) !=
-      ttmlir::utils::volume<int64_t>(outputType.getShape())) {
-    return false;
-  }
-
-  ArrayRef<int64_t> inputShape = inputType.getShape();
-  ArrayRef<int64_t> outputShape = outputType.getShape();
-  std::size_t outputDim = 0;
-  for (int64_t inputDimSize : inputShape) {
-    if (outputDim < outputShape.size() &&
-        inputDimSize == outputShape[outputDim]) {
-      ++outputDim;
-      continue;
-    }
-    if (inputDimSize != 1) {
-      return false;
-    }
-  }
-  return outputDim == outputShape.size();
-}
-
 static LogicalResult rewriteScalarReshape(ttir::ReshapeOp op,
                                           ttir::ReshapeOp::Adaptor adaptor,
                                           ConversionPatternRewriter &rewriter) {
@@ -4379,12 +4457,6 @@ public:
       auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
       if (isScalarUnitVolumeReshape(inputType, outputType)) {
         return rewriteScalarReshape(op, adaptor, rewriter);
-      }
-      if (isSingletonDimensionSqueezeReshape(inputType, outputType)) {
-        rewriter.replaceOp(op,
-                           this->unLayoutResult(rewriter, adaptor.getInput(),
-                                                op->getResult(0).getType()));
-        return success();
       }
     }
 
@@ -4908,6 +4980,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     // tile_sfpu_reduce_* (integer). Mean has no integer variant.
     D2MNamedTileReduceRewriter<ttir::MaxOp,  d2m::TileReduceMaxOp, d2m::TileSFPUReduceMaxOp>,
     D2MNamedTileReduceRewriter<ttir::MeanOp, d2m::TileReduceMeanOp>,
+    D2MNamedTileReduceRewriter<ttir::MinOp,  d2m::TileReduceMaxOp, d2m::TileSFPUReduceMaxOp>,
     D2MNamedTileReduceRewriter<ttir::SumOp,  d2m::TileReduceSumOp, d2m::TileSFPUReduceSumOp>,
     // Data movement.
     D2MNamedElementwiseRewriter<ttir::TypecastOp,        d2m::TileTypecastOp>,
@@ -4934,8 +5007,8 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // NoC alignment before the generic SliceStatic lowering consumes them.
   patterns.add<D2MSliceStaticOpNoCConstraintsRewriter>(typeConverter, ctx);
 
-  // Decompose inner-dim min reductions to neg(max(neg)); runs during
-  // TTIRToD2M instead of as a separate pre-pass.
+  // Decompose inner-dim min reductions that are not handled directly by the
+  // D2M tile-reduce min path.
   patterns.add<D2MInnerMinDecompositionRewriter>(typeConverter, ctx);
 
   // ToLayout 1:1 conversion.

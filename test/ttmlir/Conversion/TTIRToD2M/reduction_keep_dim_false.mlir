@@ -48,10 +48,12 @@ module {
 
   // CHECK-LABEL: func.func @i32_min_2d_reduce_last_keep_dim_false
   func.func @i32_min_2d_reduce_last_keep_dim_false(%arg0: tensor<128x64xsi32>) -> tensor<128xsi32> {
+    // CHECK: d2m.mask {{.*}}fill_value = <inf>
+    // CHECK: "d2m.tile_bitwise_not"
     // CHECK: "d2m.tile_sfpu_reduce_max"{{.*}}reduce_dim = #d2m<reduce_dim R>
     // CHECK: "d2m.tile_bitwise_not"
     // CHECK-NOT: d2m.view_layout
-    // CHECK: d2m.to_layout {{.*}} : tensor<128x1xsi32> into tensor<128xsi32>
+    // CHECK: d2m.to_layout {{.*logical_shape = 128x1.*}} into tensor<128xsi32>
     // CHECK-NOT: d2m.view_layout
     // CHECK: return
     %0 = "ttir.min"(%arg0) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<128x64xsi32>) -> tensor<128xsi32>
