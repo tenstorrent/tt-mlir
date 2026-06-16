@@ -1518,8 +1518,7 @@ private:
 // of the matmul output row/col dims, and it must strictly narrow that dim
 // (otherwise it is a no-op). transpose_a / transpose_b are honored when
 // locating the producing dim of A / B.
-class SliceBeforeMatmulPattern
-    : public mlir::OpRewritePattern<SliceStaticOp> {
+class SliceBeforeMatmulPattern : public mlir::OpRewritePattern<SliceStaticOp> {
   using mlir::OpRewritePattern<SliceStaticOp>::OpRewritePattern;
 
 public:
@@ -1566,14 +1565,16 @@ public:
           mlir::cast<RankedTensorType>(reshape.getType()).getShape();
       for (int64_t i = 0; i < numLeadingUnitDims; ++i) {
         if (reshapeShape[i] != 1) {
-          return rewriter.notifyMatchFailure(slice, "reshape not leading-1 pad");
+          return rewriter.notifyMatchFailure(slice,
+                                             "reshape not leading-1 pad");
         }
       }
       if (reshapeShape.drop_front(numLeadingUnitDims) != matmulShape) {
         return rewriter.notifyMatchFailure(slice, "reshape mixes matmul dims");
       }
     } else if (numLeadingUnitDims != 0) {
-      return rewriter.notifyMatchFailure(slice, "rank mismatch without reshape");
+      return rewriter.notifyMatchFailure(slice,
+                                         "rank mismatch without reshape");
     }
 
     // Matmul output row dim (M) is rank-2; the col (N) dim is rank-1.
@@ -1590,7 +1591,7 @@ public:
     ArrayRef<int64_t> sliceInputShape =
         mlir::cast<RankedTensorType>(slice.getInput().getType()).getShape();
 
-    int64_t narrowedDim = -1; // the single slice dim that is narrowed
+    int64_t narrowedDim = -1;           // the single slice dim that is narrowed
     int64_t sliceFrom = 0, sliceTo = 0; // [sliceFrom:sliceTo) on that dim
     for (int64_t dim = 0; dim < sliceRank; ++dim) {
       int64_t begin = mlir::cast<IntegerAttr>(sliceBegins[dim]).getInt();
@@ -1650,9 +1651,9 @@ public:
 
     SmallVector<int64_t> operandSlicedShape(operandShape);
     operandSlicedShape[operandDim] = sliceTo - sliceFrom;
-    auto operandSlicedType = RankedTensorType::get(
-        operandSlicedShape, operandType.getElementType(),
-        operandType.getEncoding());
+    auto operandSlicedType =
+        RankedTensorType::get(operandSlicedShape, operandType.getElementType(),
+                              operandType.getEncoding());
     auto operandSlice = rewriter.create<SliceStaticOp>(
         matmul.getLoc(), operandSlicedType, matmulOperand,
         rewriter.getI32ArrayAttr(operandBegins),
@@ -1662,8 +1663,9 @@ public:
     // New, narrowed matmul: the produced output dim becomes sliceTo-sliceFrom.
     SmallVector<int64_t> narrowedOutShape(matmulShape);
     narrowedOutShape[narrowedOutDim] = sliceTo - sliceFrom;
-    auto narrowedOutType = RankedTensorType::get(
-        narrowedOutShape, matmulType.getElementType(), matmulType.getEncoding());
+    auto narrowedOutType =
+        RankedTensorType::get(narrowedOutShape, matmulType.getElementType(),
+                              matmulType.getEncoding());
     Value newMatmulA = sliceRows ? operandSlice.getResult() : matmul.getA();
     Value newMatmulB = sliceRows ? matmul.getB() : operandSlice.getResult();
     auto newMatmul = rewriter.create<MatmulOp>(
