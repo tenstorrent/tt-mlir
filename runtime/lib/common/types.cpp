@@ -122,6 +122,28 @@ MultiProcessArgs::withTcpInterface(std::string_view interfaceName) {
   return *this;
 }
 
+MultiProcessArgs &MultiProcessArgs::withTracy(bool enabled) {
+  tracyEnabled_ = enabled;
+  return *this;
+}
+
+MultiProcessArgs &MultiProcessArgs::withTracyBasePort(uint16_t port) {
+  tracyBasePort_ = port;
+  return *this;
+}
+
+MultiProcessArgs &
+MultiProcessArgs::withTracyOutputFolder(std::string_view path) {
+  tracyOutputFolder_ = std::string(path);
+  return *this;
+}
+
+MultiProcessArgs &
+MultiProcessArgs::withTracyExtraArgs(const std::vector<std::string> &args) {
+  tracyExtraArgs_ = args;
+  return *this;
+}
+
 std::optional<std::string> MultiProcessArgs::getControllerHostname() const {
   return controllerHostname_;
 }
@@ -140,6 +162,32 @@ std::string MultiProcessArgs::toArgString() const {
   if (tcpInterface_.has_value()) {
     oss << " ";
     oss << "--tcp-interface " << tcpInterface_.value();
+  }
+
+  // Tracy multi-host profiling, tt-run specific. The --tracy value is a single
+  // quoted string forwarded to python -m tracy; empty string enables defaults.
+  if (tracyEnabled_) {
+    oss << " --tracy \"";
+    bool first = true;
+    auto sep = [&]() {
+      if (!first) {
+        oss << " ";
+      }
+      first = false;
+    };
+    if (tracyBasePort_.has_value()) {
+      sep();
+      oss << "--port " << tracyBasePort_.value();
+    }
+    if (tracyOutputFolder_.has_value()) {
+      sep();
+      oss << "--output-folder " << tracyOutputFolder_.value();
+    }
+    for (const auto &arg : tracyExtraArgs_) {
+      sep();
+      oss << arg;
+    }
+    oss << "\"";
   }
 
   oss << " ";

@@ -241,6 +241,14 @@ public:
 
   MultiProcessArgs &withControllerHostname(std::string_view hostname);
 
+  MultiProcessArgs &withTracy(bool enabled);
+
+  MultiProcessArgs &withTracyBasePort(uint16_t port);
+
+  MultiProcessArgs &withTracyOutputFolder(std::string_view path);
+
+  MultiProcessArgs &withTracyExtraArgs(const std::vector<std::string> &args);
+
   MultiProcessArgs &withTcpInterface(std::string_view interfaceName);
 
   std::optional<std::string> getControllerHostname() const;
@@ -268,13 +276,21 @@ private:
   std::optional<std::string> controllerHostname_;
 
   std::optional<std::string> tcpInterface_;
+
+  bool tracyEnabled_ = false;
+
+  std::optional<uint16_t> tracyBasePort_;
+
+  std::optional<std::string> tracyOutputFolder_;
+
+  std::vector<std::string> tracyExtraArgs_;
 };
 
 struct DistributedOptions {
   uint16_t controllerPort = 0;
   DistributedMode mode = DistributedMode::MultiProcess;
-  // Optional, if not provided, the distributed worker path will be derived from
-  // the MLIR home.
+  // Optional, if not provided, the distributed worker path will be derived
+  // from the MLIR home.
   std::optional<std::string> workerPath = std::nullopt;
   // Required for MultiProcess mode
   std::optional<MultiProcessArgs> multiProcessArgs = std::nullopt;
