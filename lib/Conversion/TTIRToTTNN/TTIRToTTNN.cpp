@@ -2053,14 +2053,36 @@ public:
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(op.getResult().getType()));
 
+    // Attach a *complete* default Conv3dConfigAttr. tt-metal only auto-derives
+    // a full default config when conv3d_config is entirely absent (conv3d.cpp
+    // `config_opt.value_or(<full default>)`); given any partial config it
+    // leaves the unset fields at their C++ struct defaults (C_out_block = 0,
+    // compute grid = {1, 1}), which violate the kernel's blocking invariants
+    // for some shapes (C_out_block = 0 collapses to the full padded output
+    // channels, breaking `matmul_N_t % out_subblock_w`; a 1x1 grid breaks
+    // `C_in_blocks <= total_cores`). So mirror tt-metal's own defaults here —
+    // spatial out-blocks = 1, c_out_block = TILE_WIDTH, c_in_block =
+    // TILE_WIDTH, and the compute grid taken from the device's worker grid — so
+    // the op's config is the single source of truth on every backend. This is
+    // the one place that encodes tt-metal's default knowledge; the optimizer
+    // may refine fields later (its overrides merge onto this config, preserving
+    // the rest), and TTNNPrepareConv3dWeights only reads c_in_block back out.
+    auto computeGrid = ttcore::GridAttr::get(
+        getContext(), ttcore::lookupDevice(op).getWorkerGrid().getShape());
+    auto defaultConv3dConfig = ttnn::Conv3dConfigAttr::get(
+        getContext(), /*weights_dtype=*/std::nullopt, /*t_out_block=*/1,
+        /*w_out_block=*/1, /*h_out_block=*/1, /*c_out_block=*/TILE_WIDTH,
+        /*c_in_block=*/TILE_WIDTH,
+        /*compute_with_storage_grid_size=*/computeGrid);
+
     // The raw 5D weight is passed through unchanged; TTNNPrepareConv3dWeights
     // (a post-optimizer pass) inserts the PrepareConv3dWeightsOp once the
-    // optimizer has chosen a Conv3dConfigAttr.
+    // optimizer has chosen (or kept) the Conv3dConfigAttr.
     auto convOp = rewriter.create<ttnn::Conv3dOp>(
         op.getLoc(), outputType, input, adaptor.getWeight(), reshapedBias,
         device, inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
         inputHeightAttr, inputWidthAttr, kernelSizeAttr, *strideAttr,
-        *paddingAttr, paddingModeAttr, groupsAttr, /*conv3d_config=*/nullptr,
+        *paddingAttr, paddingModeAttr, groupsAttr, defaultConv3dConfig,
         /*compute_config=*/nullptr);
 
     rewriter.replaceOp(op, convOp.getResult());

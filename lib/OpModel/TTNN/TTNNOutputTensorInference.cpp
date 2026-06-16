@@ -218,6 +218,7 @@ getPreparedMoEComputeW2WeightsOutputType(PrepareMoEComputeW2WeightsOp *op) {
   assert(false && "Cannot calculate prepare_moe_compute_w2_weights shape "
                   "without op model");
 #endif
+}
 
 mlir::RankedTensorType getPreparedConv3dWeightsOutputTensor(Conv3dOp *op) {
   auto weightType = op->getWeight().getType();

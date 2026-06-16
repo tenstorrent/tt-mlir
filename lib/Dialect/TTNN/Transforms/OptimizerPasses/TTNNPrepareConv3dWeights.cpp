@@ -67,14 +67,16 @@ private:
         static_cast<int32_t>(ttcore::TileType::getDefaultShape()[1]);
     constexpr int32_t ALIGNMENT = TILE_WIDTH;
 
-    // Derive c_in_block from the optimizer's Conv3dConfigAttr when present,
-    // otherwise default to TILE_WIDTH (matching tt-metal's default).
-    int32_t cInBlock = TILE_WIDTH;
-    if (Conv3dConfigAttr config = convOp.getConv3dConfigAttr()) {
-      if (auto chosen = config.getCInBlock()) {
-        cInBlock = static_cast<int32_t>(*chosen);
-      }
-    }
+    // c_in_block is read straight from the op's Conv3dConfigAttr. TTIRToTTNN
+    // attaches a complete config (and the optimizer only refines it), so the
+    // field is always present by the time this pass runs. This pass does not
+    // reason about tt-metal defaults or modify the config — it just consumes
+    // the c_in_block already chosen and prepares the weight with it.
+    Conv3dConfigAttr config = convOp.getConv3dConfigAttr();
+    assert(config && config.getCInBlock() &&
+           "Conv3dOp must carry a Conv3dConfigAttr with c_in_block (set by "
+           "TTIRToTTNN) before TTNNPrepareConv3dWeights runs");
+    int32_t cInBlock = static_cast<int32_t>(*config.getCInBlock());
 
     // The prepare op's MLIR result type must match what tt-metal's runtime
     // produces: a ROW_MAJOR 2D tensor. The helper builds exactly that.
