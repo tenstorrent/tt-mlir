@@ -1239,13 +1239,10 @@ public:
     std::string endpoint = ensureEndpointDeclaration(
         op.getOperation(), rewriter, "MulticastEndpoint", "mcast_ep");
 
-    // EXCLUDE_SRC maps to default NocOptions (no MCAST_INCL_SRC flag), so we
-    // omit the template argument entirely. INCLUDE_SRC maps to
-    // NocOptions::MCAST_INCL_SRC.
     std::string templateArg =
         std::is_same_v<SourceOp, ttkernel::NocAsyncWriteMulticastOp>
-            ? ""
-            : "<NocOptions::MCAST_INCL_SRC>";
+            ? "<Noc::McastMode::EXCLUDE_SRC>"
+            : "<Noc::McastMode::INCLUDE_SRC>";
     bool linked = op.getLinked().value_or(false);
 
     operands.append({adaptor.getSrcLocalL1Addr(), adaptor.getSize(),
