@@ -3930,6 +3930,11 @@ namespace {
 class RMSNormPreAllGatherOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<
           mlir::tt::ttnn::RMSNormPreAllGatherOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.rms_norm_pre_all_gather";
+  }
+
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
       mlir::tt::ttnn::RMSNormPreAllGatherOp>::
@@ -3948,12 +3953,10 @@ public:
         emitter.emit(srcOp.getDtypeAttr(), "dtype"),
         emitter.emit(srcOp.getResidual(), "residual_input_tensor"),
         emitter.emit(srcOp.getComputeConfig(), "compute_kernel_config"),
-        emitter.emit(srcOp.getProgramConfig(), "program_config"),
+        emitter.emit(srcOp.getProgramConfig()),
         emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
         emitter.emit(srcOp.getUse_2dCoreGrid(), "use_2d_core_grid"),
     };
-
-    emitter.replaceOp(*this, args);
 
     return success();
   }
