@@ -357,12 +357,7 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
       ttmlir::utils::appendLocationSuffix(loc, "_global_mean"), scalarRowType,
       flattenedStats.getResult(), /*keep_dim=*/true, dimArg);
 
-  // rms_norm_pre_all_gather emits the per-device *sum* of squares (sum(x^2)),
-  // not the per-device mean. The MeanOp above only divided the gathered sums by
-  // numDevices; to recover the global E(x^2) = sum(x^2) / N we must
-  // additionally divide by the per-device hidden size N (= input's last dim).
-  // Omitting this leaves the variance N times too large, shrinking the
-  // normalized output by sqrt(N).
+  // Stats are per-device sum(x^2); divide by hidden size N to get E(x^2).
   double invHiddenPerDevice = 1.0 / static_cast<double>(inputShape.back());
   auto invHiddenTensor = rewriter.create<ttnn::FullOp>(
       ttmlir::utils::appendLocationSuffix(loc, "_inv_hidden"), scalarRowType,
