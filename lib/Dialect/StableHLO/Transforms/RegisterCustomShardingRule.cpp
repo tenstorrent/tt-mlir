@@ -1093,6 +1093,95 @@ getRMSNormShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
+// Sharding rule for torch.gather-style custom_call (tenstorrent.gather /
+// tenstorrent.gather_dim).
+//
+// Operands:
+//   operand 0: input  [d0, ..., dim_K, ..., dN]   (rank N+1)
+//   operand 1: index  [d0, ..., dim_J, ..., dN]   (same rank as input)
+// Result: same shape as index (torch.gather semantics).
+//
+// Non-gather dims align across input/index/result and can be sharded freely.
+// The input's gather dim must be replicated because indices can reference any
+// position along it. The index/result gather dim is independent of the input
+// gather dim and can be sharded freely.
+static mlir::sdy::OpShardingRuleAttr
+getGatherDimShardingRule(mlir::stablehlo::CustomCallOp op) {
+  if (op.getNumOperands() != 2 || op.getNumResults() != 1) {
+    op.getOperation()->emitWarning()
+        << "gather sharding rule expects 2 operands and 1 result, got "
+        << op.getNumOperands() << " operands and " << op.getNumResults()
+        << " results";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto inputType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto indexType = llvm::dyn_cast<RankedTensorType>(op.getOperand(1).getType());
+  auto resultType = llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
+  if (!inputType || !indexType || !resultType) {
+    op.getOperation()->emitWarning()
+        << "gather sharding rule requires ranked tensor types";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  const int64_t rank = inputType.getRank();
+  if (indexType.getRank() != rank || resultType.getRank() != rank) {
+    op.getOperation()->emitWarning()
+        << "gather sharding rule requires input, index, and result of equal "
+           "rank; got input rank "
+        << rank << ", index rank " << indexType.getRank() << ", result rank "
+        << resultType.getRank();
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto compositeAttrs = mlir::dyn_cast_or_null<DictionaryAttr>(
+      op->getDiscardableAttr(utils::kCustomCallCompositeAttrsKey));
+  if (!compositeAttrs) {
+    op.getOperation()->emitWarning()
+        << "gather sharding rule: missing tt.composite_attributes";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+  auto dimAttr = compositeAttrs.getAs<IntegerAttr>("dim");
+  if (!dimAttr) {
+    op.getOperation()->emitWarning()
+        << "gather sharding rule: missing or non-integer 'dim' attribute";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+  int64_t dim = dimAttr.getInt();
+  if (dim < 0) {
+    dim += rank;
+  }
+  if (dim < 0 || dim >= rank) {
+    op.getOperation()->emitWarning()
+        << "gather sharding rule: dim " << dimAttr.getInt()
+        << " out of range for rank " << rank;
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  sdy::OpShardingRuleBuilder builder(op);
+
+  // Non-gather dims: single passthrough factor linking input[d], index[d],
+  // and result[d].
+  for (int64_t d = 0; d < rank; ++d) {
+    if (d == dim) {
+      continue;
+    }
+    builder.addFactor({d, d}, {d}, inputType.getDimSize(d),
+                      sdy::FactorType::kPassThrough);
+  }
+
+  // Input gather dim: replication required, appears only on the input.
+  builder.addFactor({dim, sdy::kNullDim}, {sdy::kNullDim},
+                    inputType.getDimSize(dim),
+                    sdy::FactorType::kNeedReplication);
+
+  // Index/result gather dim: passthrough, links index and result.
+  builder.addFactor({sdy::kNullDim, dim}, {dim}, indexType.getDimSize(dim),
+                    sdy::FactorType::kPassThrough);
+
+  return builder.build();
+}
+
 struct StablehloCustomCallShardingModel
     : public mlir::sdy::ShardingRuleOpInterface::ExternalModel<
           StablehloCustomCallShardingModel, ::mlir::stablehlo::CustomCallOp> {
@@ -1143,6 +1232,8 @@ private:
           {allToAllCombineTargetName, getAllToAllCombineShardingRule},
           {moeExpertTokenRemapTargetName, getMoeExpertTokenRemapShardingRule},
           {utils::kTTRMSNormCustomCallTargetName, getRMSNormShardingRule},
+          {utils::kTTGatherDimCustomCallTargetName, getGatherDimShardingRule},
+          {utils::kTTGatherCustomCallTargetName, getGatherDimShardingRule},
       };
 };
 

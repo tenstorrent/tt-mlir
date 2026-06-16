@@ -45,3 +45,18 @@ module {
     return %0 : tensor<2x4x3xf32>
   }
 }
+
+// -----
+
+// Verify gather on rank-1 tensors. The TTNN runtime applies a reshape-based
+// workaround for rank-1 inputs (see runtime/lib/ttnn/operations/data_movement/
+// gather.cpp); this test only guards the compile-side acceptance of rank-1.
+module {
+  func.func @gather_1d(%arg0: tensor<8xf32>, %arg1: tensor<3xui32>) -> tensor<3xf32> {
+    // CHECK: "ttir.gather"
+    // CHECK-SAME: dim = 0 : i32
+    // CHECK-SAME: (tensor<8xf32>, tensor<3xui32>) -> tensor<3xf32>
+    %0 = "ttir.gather"(%arg0, %arg1) <{dim = 0 : i32}> : (tensor<8xf32>, tensor<3xui32>) -> tensor<3xf32>
+    return %0 : tensor<3xf32>
+  }
+}
