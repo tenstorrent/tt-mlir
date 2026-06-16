@@ -25,6 +25,11 @@
 #include "ttmlir/Target/TTNN/types_generated.h"
 #include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/types.hpp"
+// Pipeline-parallel device-to-device sockets (plans/pipeline-parallel-basic).
+#include "tt-metalium/distributed.hpp"
+#include "tt-metalium/experimental/sockets/mesh_socket.hpp"
+#include "ttnn/operations/experimental/ccl/send_recv_async/recv_async/recv_async.hpp"
+#include "ttnn/operations/experimental/ccl/send_recv_async/send_async/send_async.hpp"
 #include "types_generated.h"
 
 #include "tracy/Tracy.hpp"
@@ -683,6 +688,66 @@ Device createSubMeshDevice(
       std::static_pointer_cast<void>(ttnnTraceCache), DeviceRuntime::TTNN);
   return Device(std::static_pointer_cast<void>(subMeshDevice), traceCache,
                 DeviceRuntime::TTNN);
+}
+
+std::pair<MeshSocketHandle, MeshSocketHandle>
+createSocketPair(Device senderMesh, Device receiverMesh,
+                 const std::vector<uint32_t> &senderCore,
+                 const std::vector<uint32_t> &receiverCore, uint32_t fifoSize) {
+  namespace ttm = ::tt::tt_metal::distributed;
+
+  std::shared_ptr<::ttnn::MeshDevice> sender =
+      senderMesh.asSharedPtr<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  std::shared_ptr<::ttnn::MeshDevice> receiver =
+      receiverMesh.asSharedPtr<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+
+  LOG_ASSERT(senderCore.size() == 2 && receiverCore.size() == 2,
+             "Socket core coords must be 2D {x, y}");
+
+  // For 1x1 submeshes the device coordinate within each submesh is (0, 0).
+  ttm::SocketConnection connection(
+      ttm::MeshCoreCoord(::ttnn::MeshCoordinate(0, 0),
+                         CoreCoord(senderCore[0], senderCore[1])),
+      ttm::MeshCoreCoord(::ttnn::MeshCoordinate(0, 0),
+                         CoreCoord(receiverCore[0], receiverCore[1])));
+  ttm::SocketMemoryConfig memConfig(::tt::tt_metal::BufferType::L1, fifoSize);
+  ttm::SocketConfig config({connection}, memConfig);
+
+  auto [sendSock, recvSock] =
+      ttm::MeshSocket::create_socket_pair(sender, receiver, config);
+
+  auto sendPtr = std::make_shared<ttm::MeshSocket>(std::move(sendSock));
+  auto recvPtr = std::make_shared<ttm::MeshSocket>(std::move(recvSock));
+  return {MeshSocketHandle(std::static_pointer_cast<void>(sendPtr),
+                           DeviceRuntime::TTNN),
+          MeshSocketHandle(std::static_pointer_cast<void>(recvPtr),
+                           DeviceRuntime::TTNN)};
+}
+
+void socketSend(MeshSocketHandle senderSocket, Tensor input) {
+  namespace ttm = ::tt::tt_metal::distributed;
+  ttm::MeshSocket &sock = senderSocket.as<ttm::MeshSocket>(DeviceRuntime::TTNN);
+  ::ttnn::Tensor &in = utils::getTTNNTensorFromRuntimeTensor(input);
+  ::ttnn::experimental::send_async(in, sock); // non-blocking enqueue
+}
+
+void socketRecv(MeshSocketHandle receiverSocket, Tensor output) {
+  namespace ttm = ::tt::tt_metal::distributed;
+  ttm::MeshSocket &sock =
+      receiverSocket.as<ttm::MeshSocket>(DeviceRuntime::TTNN);
+  ::ttnn::Tensor &out = utils::getTTNNTensorFromRuntimeTensor(output);
+  ::ttnn::experimental::recv_async(out, sock); // writes in-place, non-blocking
+}
+
+void closeSocket(MeshSocketHandle socket) {
+  // Handle owns a shared_ptr<MeshSocket>; resetting the wrapper releases it.
+  socket.handle.reset();
+}
+
+void synchronizeDevice(Device meshDevice) {
+  ::ttnn::MeshDevice &md =
+      meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
+  ::tt::tt_metal::distributed::Synchronize(&md, /*cqId=*/std::nullopt);
 }
 
 void releaseSubMeshDevice(Device subMesh) {

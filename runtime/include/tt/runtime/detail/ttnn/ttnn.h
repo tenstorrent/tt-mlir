@@ -221,6 +221,15 @@ getMemoryView(Device device);
 
 void setFabricConfig(tt::runtime::FabricConfig config);
 
+std::pair<MeshSocketHandle, MeshSocketHandle>
+createSocketPair(Device senderMesh, Device receiverMesh,
+                 const std::vector<uint32_t> &senderCore,
+                 const std::vector<uint32_t> &receiverCore, uint32_t fifoSize);
+void socketSend(MeshSocketHandle senderSocket, Tensor input);
+void socketRecv(MeshSocketHandle receiverSocket, Tensor output);
+void closeSocket(MeshSocketHandle socket);
+void synchronizeDevice(Device meshDevice);
+
 void wait(Event event);
 
 void wait(::tt::runtime::Tensor tensor,

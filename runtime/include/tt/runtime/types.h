@@ -417,6 +417,13 @@ private:
   std::uint64_t globalId;
 };
 
+// Opaque handle to a tt-metal MeshSocket endpoint (sender or receiver), used for
+// device-to-device tensor transfer over fabric between (sub)meshes in the same
+// process. See plans/pipeline-parallel-basic.
+struct MeshSocketHandle : public detail::RuntimeCheckedObjectImpl {
+  using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
+};
+
 struct GlobalSemaphore : public detail::RuntimeCheckedObjectImpl {
   using detail::RuntimeCheckedObjectImpl::RuntimeCheckedObjectImpl;
   GlobalSemaphore() : globalId(nextGlobalSemaphoreGlobalId()) {}

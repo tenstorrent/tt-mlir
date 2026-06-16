@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include "tt/runtime/types.h"
@@ -294,6 +295,32 @@ using OpWalkFn = std::function<void(OpContext)>;
 
 void walkProgram(Binary executableHandle, uint32_t programIndex,
                  const OpWalkFn &cb);
+
+// --- Pipeline-parallel device-to-device sockets (plans/pipeline-parallel-basic) ---
+// Creates a sender/receiver socket pair for device-to-device tensor transfer
+// over fabric between two (sub)meshes in the same process. senderCore /
+// receiverCore are the {x, y} worker-core logical coords used as the socket
+// endpoints on each mesh; for 1x1 submeshes the device coordinate is (0, 0).
+// Requires fabric enabled, e.g. setFabricConfig(FabricConfig::FABRIC_2D).
+std::pair<MeshSocketHandle, MeshSocketHandle>
+createSocketPair(Device senderMesh, Device receiverMesh,
+                 const std::vector<uint32_t> &senderCore,
+                 const std::vector<uint32_t> &receiverCore, uint32_t fifoSize);
+
+// Enqueues a send of the given device tensor over the sender socket
+// (non-blocking on the device queue).
+void socketSend(MeshSocketHandle senderSocket, Tensor input);
+
+// Enqueues a receive into the pre-allocated device tensor over the receiver
+// socket (writes in-place, non-blocking on the device queue).
+void socketRecv(MeshSocketHandle receiverSocket, Tensor output);
+
+// Releases a socket handle (sender or receiver).
+void closeSocket(MeshSocketHandle socket);
+
+// Blocks until all work queued on the given mesh device drains. Use to fence
+// the async socket send/recv (after issuing BOTH) before reading results.
+void synchronizeDevice(Device meshDevice);
 
 std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
                            std::uint32_t programIndex,

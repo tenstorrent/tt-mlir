@@ -463,6 +463,22 @@ void registerRuntimeBindings(nb::module_ &m) {
   m.def("to_host", &tt::runtime::toHost, nb::arg("tensor"),
         nb::arg("untilize") = false, nb::arg("blocking") = true,
         "Copy the tensor to host");
+
+  // Pipeline-parallel device-to-device sockets (plans/pipeline-parallel-basic).
+  nb::class_<tt::runtime::MeshSocketHandle>(m, "MeshSocketHandle");
+  m.def("create_socket_pair", &tt::runtime::createSocketPair,
+        nb::arg("sender_mesh"), nb::arg("receiver_mesh"), nb::arg("sender_core"),
+        nb::arg("receiver_core"), nb::arg("fifo_size"),
+        "Create a (sender, receiver) socket pair between two meshes.");
+  m.def("socket_send", &tt::runtime::socketSend, nb::arg("sender_socket"),
+        nb::arg("input"), "Enqueue a send of a device tensor over the socket.");
+  m.def("socket_recv", &tt::runtime::socketRecv, nb::arg("receiver_socket"),
+        nb::arg("output"),
+        "Enqueue a receive into a device tensor over the socket.");
+  m.def("close_socket", &tt::runtime::closeSocket, nb::arg("socket"),
+        "Release a socket handle.");
+  m.def("synchronize_device", &tt::runtime::synchronizeDevice,
+        nb::arg("mesh_device"), "Block until the mesh device's queues drain.");
   m.def("get_device_tensors", &tt::runtime::getDeviceTensors, nb::arg("tensor"),
         "Returns vector of device tensors.");
   m.def("get_num_shards", detail::getNumShards, nb::arg("tensor"),
