@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/D2M/Analysis/GridAnalysis.h"
 
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/Utils/GridSelectionUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
@@ -13,8 +14,10 @@
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 
 #include "mlir/IR/BuiltinOps.h"
+#include "llvm/ADT/SmallSet.h"
 
 #include <algorithm>
+#include <optional>
 
 namespace mlir::tt::d2m {
 
@@ -23,6 +26,135 @@ bool GridAnalysis::isTTNNOperand(Value operand) {
     operand = view.getInput();
   }
   return operand.getDefiningOp<ttir::TTNNMetalLayoutCastOp>() != nullptr;
+}
+
+static bool isMatmulGeneric(GenericOp genericOp) {
+  return genericOp
+      ->walk([](Operation *op) {
+        if (mlir::isa<d2m::TileMatmulOp, d2m::TileMatmulBlockOp>(op)) {
+          return WalkResult::interrupt();
+        }
+        return WalkResult::advance();
+      })
+      .wasInterrupted();
+}
+
+static utils::VirtualGridMode getVirtualGridMode(GenericOp genericOp,
+                                                 bool ttnnMode) {
+  return (ttnnMode || isMatmulGeneric(genericOp))
+             ? utils::VirtualGridMode::SingleAxis2D
+             : utils::VirtualGridMode::General;
+}
+
+static int64_t getShardWidthAlignmentElements(Operation *op,
+                                              RankedTensorType tensorType) {
+  if (mlir::isa<ttcore::TileType>(tensorType.getElementType())) {
+    return 1;
+  }
+
+  int64_t elementSizeBytes = static_cast<int64_t>(
+      ttcore::getElementSizeBytes(tensorType.getElementType()));
+  int64_t nocAlignmentBytes = static_cast<int64_t>(
+      ttcore::getOpChipDescAttr(op).getNocL1AddressAlignBytes());
+  TT_assert(nocAlignmentBytes > 0);
+  TT_assert(elementSizeBytes > 0);
+  TT_assert(nocAlignmentBytes % elementSizeBytes == 0);
+  return nocAlignmentBytes / elementSizeBytes;
+}
+
+static bool isProjectedGridUsable(ArrayRef<int64_t> projectedGrid,
+                                  ArrayRef<int64_t> targetGrid) {
+  if (projectedGrid.empty() || projectedGrid.size() != targetGrid.size()) {
+    return false;
+  }
+  if (llvm::any_of(projectedGrid, [](int64_t dim) { return dim <= 0; })) {
+    return false;
+  }
+  return ttmlir::utils::volume<int64_t>(projectedGrid) <=
+         ttmlir::utils::volume<int64_t>(targetGrid);
+}
+
+static SmallVector<int64_t>
+computeProjectedViewSourceGrid(Value operand, d2m::ToLayoutOp toLayoutOp,
+                               ArrayRef<int64_t> selectedGrid,
+                               ArrayRef<int64_t> targetGrid, bool ttnnMode,
+                               ArrayRef<int64_t> paddingTileShape) {
+  auto viewOp = operand.getDefiningOp<d2m::ViewLayoutOp>();
+  if (!viewOp) {
+    return {};
+  }
+  std::optional<utils::MaterializedViewLayoutBridge> bridge =
+      utils::computeMaterializedViewLayoutBridge(
+          viewOp, toLayoutOp, ttnnMode, selectedGrid, paddingTileShape);
+  if (!bridge) {
+    return {};
+  }
+
+  SmallVector<int64_t> projectedGrid =
+      utils::projectViewGridToBaseGrid(bridge->viewToBase, selectedGrid);
+  if (!isProjectedGridUsable(projectedGrid, targetGrid)) {
+    return {};
+  }
+  return projectedGrid;
+}
+
+static bool isGridUsableByOperand(Value operand, ArrayRef<int64_t> grid) {
+  auto tensorType = mlir::cast<RankedTensorType>(operand.getType());
+  auto layout =
+      mlir::dyn_cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+  if (!layout) {
+    return false;
+  }
+
+  SmallVector<int64_t> intervals = layout.getNormalizedIntervals();
+  const size_t gridRank = intervals.size() / 2;
+  if (grid.size() != gridRank) {
+    return false;
+  }
+
+  for (auto [idx, gridDim] : llvm::enumerate(grid)) {
+    if (gridDim <= 1) {
+      continue;
+    }
+    if (intervals[idx * 2] == intervals[idx * 2 + 1]) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool isBetterGrid(ArrayRef<int64_t> candidate,
+                         ArrayRef<int64_t> current) {
+  int64_t candidateVolume = ttmlir::utils::volume<int64_t>(candidate);
+  int64_t currentVolume = ttmlir::utils::volume<int64_t>(current);
+  if (candidateVolume != currentVolume) {
+    return candidateVolume > currentVolume;
+  }
+  return std::lexicographical_compare(current.begin(), current.end(),
+                                      candidate.begin(), candidate.end());
+}
+
+static SmallVector<int64_t> computeProjectedViewConsumerGrid(
+    Value operand, d2m::ToLayoutOp toLayoutOp, ArrayRef<int64_t> sourceGrid,
+    ArrayRef<int64_t> selectedGrid, ArrayRef<int64_t> targetGrid, bool ttnnMode,
+    ArrayRef<int64_t> paddingTileShape) {
+  auto viewOp = operand.getDefiningOp<d2m::ViewLayoutOp>();
+  if (!viewOp) {
+    return {};
+  }
+  std::optional<utils::MaterializedViewLayoutBridge> bridge =
+      utils::computeMaterializedViewLayoutBridge(
+          viewOp, toLayoutOp, ttnnMode, selectedGrid, paddingTileShape);
+  if (!bridge) {
+    return {};
+  }
+
+  SmallVector<int64_t> projectedGrid =
+      utils::projectBaseGridToViewGrid(bridge->viewToBase, sourceGrid);
+  if (!isProjectedGridUsable(projectedGrid, targetGrid)) {
+    return {};
+  }
+  return projectedGrid;
 }
 
 // Find the largest value <= maxFactor that divides all the given physical
@@ -282,11 +414,13 @@ static SmallVector<int64_t> computeScalarCompositeInputGrid(
 static SmallVector<int64_t> computeCompositeInputSelectedGrid(
     RankedTensorType inputType, ttcore::MetalLayoutAttr materializedLayout,
     bool isTiled, int64_t concatDim, ArrayRef<int64_t> selectedGrid,
-    ArrayRef<int64_t> paddingShape, ArrayRef<int64_t> targetGrid) {
+    ArrayRef<int64_t> paddingShape, ArrayRef<int64_t> targetGrid,
+    utils::VirtualGridMode virtualGridMode) {
   if (isTiled) {
     SmallVector<int64_t> inputPhysShape =
         materializedLayout.getPhysicalShape(paddingShape);
-    return utils::computeOptimalGrid(inputType, inputPhysShape, targetGrid);
+    return utils::computeOptimalGrid(inputType, inputPhysShape, targetGrid,
+                                     virtualGridMode);
   }
 
   return computeScalarCompositeInputGrid(
@@ -296,7 +430,8 @@ static SmallVector<int64_t> computeCompositeInputSelectedGrid(
 static CompositeInputGridInfo computePaddedCompositeInputGridInfo(
     Value input, RankedTensorType materializedOutType,
     ArrayRef<int64_t> targetGrid, ArrayRef<int64_t> selectedGrid, bool isTiled,
-    int64_t concatDim, ArrayRef<int64_t> paddingShape) {
+    int64_t concatDim, ArrayRef<int64_t> paddingShape,
+    utils::VirtualGridMode virtualGridMode) {
   CompositeInputGridInfo info;
   info.input = input;
 
@@ -306,7 +441,7 @@ static CompositeInputGridInfo computePaddedCompositeInputGridInfo(
 
   info.selectedGrid = computeCompositeInputSelectedGrid(
       inputType, materializedLayout, isTiled, concatDim, selectedGrid,
-      paddingShape, targetGrid);
+      paddingShape, targetGrid, virtualGridMode);
 
   ArrayRef<int64_t> elementTileShape =
       isTiled ? paddingShape : ArrayRef<int64_t>();
@@ -320,7 +455,8 @@ static CompositeInputGridInfo computePaddedCompositeInputGridInfo(
 static CompositeInputGridInfo computeCompositeInputGridInfo(
     Value input, RankedTensorType materializedOutType,
     ArrayRef<int64_t> targetGrid, ArrayRef<int64_t> selectedGrid, bool isTiled,
-    int64_t concatDim, ArrayRef<int64_t> effectivePaddingShape) {
+    int64_t concatDim, ArrayRef<int64_t> effectivePaddingShape,
+    utils::VirtualGridMode virtualGridMode) {
   CompositeInputGridInfo info;
   info.input = input;
   info.materializedType = mlir::cast<RankedTensorType>(input.getType());
@@ -334,21 +470,22 @@ static CompositeInputGridInfo computeCompositeInputGridInfo(
     auto tileType =
         mlir::cast<ttcore::TileType>(info.materializedType.getElementType());
     SmallVector<int64_t> tileShape = llvm::to_vector(tileType.getShape());
-    return computePaddedCompositeInputGridInfo(input, materializedOutType,
-                                               targetGrid, selectedGrid,
-                                               isTiled, concatDim, tileShape);
+    return computePaddedCompositeInputGridInfo(
+        input, materializedOutType, targetGrid, selectedGrid, isTiled,
+        concatDim, tileShape, virtualGridMode);
   }
 
   TT_assert(!effectivePaddingShape.empty());
-  return computePaddedCompositeInputGridInfo(input, materializedOutType,
-                                             targetGrid, selectedGrid, isTiled,
-                                             concatDim, effectivePaddingShape);
+  return computePaddedCompositeInputGridInfo(
+      input, materializedOutType, targetGrid, selectedGrid, isTiled, concatDim,
+      effectivePaddingShape, virtualGridMode);
 }
 
 static llvm::SmallVector<CompositeInputGridInfo>
 computeCompositeInputGridInfos(d2m::CompositeViewOp compositeView,
                                ArrayRef<int64_t> targetGrid,
                                ArrayRef<int64_t> selectedGrid, bool ttnnMode,
+                               utils::VirtualGridMode virtualGridMode,
                                ArrayRef<int64_t> paddingTileShape = {}) {
   auto outType =
       mlir::cast<RankedTensorType>(compositeView.getResult().getType());
@@ -366,7 +503,7 @@ computeCompositeInputGridInfos(d2m::CompositeViewOp compositeView,
   for (Value input : compositeView.getInputs()) {
     inputInfos.push_back(computeCompositeInputGridInfo(
         input, materializedOutType, targetGrid, selectedGrid, isTiled,
-        compositeView.getDim(), effectivePaddingShape));
+        compositeView.getDim(), effectivePaddingShape, virtualGridMode));
   }
   return inputInfos;
 }
@@ -377,6 +514,8 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
   GenericGridAnalysisResult result;
   result.effectiveTargetGridRange = effectiveTargetGridRange;
   ArrayRef<int64_t> targetGridShape = result.effectiveTargetGridRange.shape;
+  utils::VirtualGridMode virtualGridMode =
+      getVirtualGridMode(genericOp, ttnnMode);
 
   // Build per-operand target grids. When a loop dimension maps to different
   // operand-dim positions across operands (e.g. matmul K is dim 1 of LHS but
@@ -459,8 +598,11 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
     llvm::SmallVector<int64_t> physShape =
         utils::computePhysicalShape(operand, targetGrid, ttnnMode);
     physicalShapes.push_back(physShape);
+    int64_t shardWidthAlignment =
+        getShardWidthAlignmentElements(genericOp, operandType);
     auto optimalGrid =
-        utils::computeOptimalGrid(operandType, physShape, targetGrid);
+        utils::computeOptimalGrid(operandType, physShape, targetGrid,
+                                  virtualGridMode, shardWidthAlignment);
     optimalOperandGrids.push_back(optimalGrid);
 
     OperandGridInfo info;
@@ -486,10 +628,18 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
         Value toLayoutResult = toLayoutOp.getResult(0);
         auto inputType =
             mlir::cast<mlir::RankedTensorType>(toLayoutResult.getType());
-        llvm::SmallVector<int64_t> inputPhysShape =
+        llvm::SmallVector<int64_t> gridAwarePhysShape =
             utils::computePhysicalShape(toLayoutResult, targetGrid, ttnnMode);
-        info.viewSourceGrid =
-            utils::computeOptimalGrid(inputType, inputPhysShape, targetGrid);
+        int64_t inputShardWidthAlignment =
+            getShardWidthAlignmentElements(genericOp, inputType);
+        llvm::SmallVector<int64_t> gridAwareGrid = utils::computeOptimalGrid(
+            inputType, gridAwarePhysShape, targetGrid, virtualGridMode,
+            inputShardWidthAlignment);
+
+        // A materialized view may copy its padded physical domain. Keep the
+        // producer grid tied to the view consumer's grid-aware shape; the exact
+        // source-domain coverage is computed after the consumer grid is final.
+        info.viewSourceGrid = gridAwareGrid;
       }
     }
 
@@ -549,6 +699,89 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
   }
 
   // Must run after normalization above has finalized `info.selectedGrid`:
+  // view-source grids are the producer-side companion of the final consumer
+  // grid, projected through the view remapping when that is more parallel than
+  // the independent source-grid fallback.
+  for (OperandGridInfo &info : result.operandInfos) {
+    auto toLayoutOp = utils::getToLayoutProducerBehindViews(info.operand);
+    if (!toLayoutOp ||
+        toLayoutOp.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
+      continue;
+    }
+
+    SmallVector<int64_t> projectedGrid = computeProjectedViewSourceGrid(
+        info.operand, toLayoutOp, info.selectedGrid, info.targetGrid, ttnnMode,
+        info.paddingTileShape);
+    if (!projectedGrid.empty() &&
+        ttmlir::utils::volume<int64_t>(projectedGrid) >
+            ttmlir::utils::volume<int64_t>(info.viewSourceGrid)) {
+      info.viewSourceGrid = projectedGrid;
+    }
+  }
+
+  // A view may expose a producer that already has a better virtual grid than
+  // the independently selected consumer grid. Project producer grids through
+  // materialized views, then commit the best legal projection per operand.
+  SmallVector<SmallVector<int64_t>> projectedConsumerGrids(
+      result.operandInfos.size());
+  for (auto [idx, info] : llvm::enumerate(result.operandInfos)) {
+    auto toLayoutOp = utils::getToLayoutProducerBehindViews(info.operand);
+    if (!toLayoutOp || info.viewSourceGrid.empty() ||
+        toLayoutOp.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
+      continue;
+    }
+
+    SmallVector<int64_t> projectedGrid = computeProjectedViewConsumerGrid(
+        info.operand, toLayoutOp, info.viewSourceGrid, info.selectedGrid,
+        info.targetGrid, ttnnMode, info.paddingTileShape);
+    if (projectedGrid.empty() ||
+        !isBetterGrid(projectedGrid, info.selectedGrid)) {
+      continue;
+    }
+
+    AffineMap indexingMap = genericOp.getIndexingMap(idx);
+    for (auto [otherIdx, otherInfo] : llvm::enumerate(result.operandInfos)) {
+      if (genericOp.getIndexingMap(otherIdx) != indexingMap ||
+          !isGridUsableByOperand(otherInfo.operand, projectedGrid) ||
+          !isBetterGrid(projectedGrid,
+                        result.normalizedOperandGrids[otherIdx])) {
+        continue;
+      }
+      if (projectedConsumerGrids[otherIdx].empty() ||
+          isBetterGrid(projectedGrid, projectedConsumerGrids[otherIdx])) {
+        projectedConsumerGrids[otherIdx] = projectedGrid;
+      }
+    }
+  }
+
+  for (auto [idx, projectedGrid] : llvm::enumerate(projectedConsumerGrids)) {
+    if (projectedGrid.empty()) {
+      continue;
+    }
+    result.operandInfos[idx].selectedGrid = projectedGrid;
+    result.normalizedOperandGrids[idx] = projectedGrid;
+  }
+
+  // If consumer projection changed selected grids, refresh the producer-side
+  // companion grids from the final view grids.
+  for (OperandGridInfo &info : result.operandInfos) {
+    auto toLayoutOp = utils::getToLayoutProducerBehindViews(info.operand);
+    if (!toLayoutOp ||
+        toLayoutOp.getInput().getDefiningOp<ttir::TTNNMetalLayoutCastOp>()) {
+      continue;
+    }
+
+    SmallVector<int64_t> projectedGrid = computeProjectedViewSourceGrid(
+        info.operand, toLayoutOp, info.selectedGrid, info.targetGrid, ttnnMode,
+        info.paddingTileShape);
+    if (!projectedGrid.empty() &&
+        ttmlir::utils::volume<int64_t>(projectedGrid) >
+            ttmlir::utils::volume<int64_t>(info.viewSourceGrid)) {
+      info.viewSourceGrid = projectedGrid;
+    }
+  }
+
+  // Must run after normalization above has finalized `info.selectedGrid`:
   // composite input grids are derived from the parent operand's *final*
   // selected grid, not its pre-normalization optimal grid.
   for (OperandGridInfo &info : result.operandInfos) {
@@ -558,7 +791,7 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
     }
     info.compositeInputInfos = computeCompositeInputGridInfos(
         compositeView, info.targetGrid, info.selectedGrid, ttnnMode,
-        info.paddingTileShape);
+        virtualGridMode, info.paddingTileShape);
   }
 
   return result;

@@ -3,12 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/D2M/Utils/GridSelectionUtils.h"
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Utils.h"
 
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallPtrSet.h"
 
 #include <array>
@@ -138,56 +140,79 @@ static unsigned findShardedDimIndex(ArrayRef<int64_t> physicalShape) {
   return bestIndex;
 }
 
-llvm::SmallVector<int64_t>
-computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
-                          ArrayRef<int64_t> targetGrid) {
-
-  int64_t targetGridVolume = ttmlir::utils::volume(targetGrid);
-  if (physicalShape.size() != 2) {
-
-    // Compute factors for all dims.
-    SmallVector<SmallVector<int64_t>> factors =
-        llvm::to_vector(llvm::map_range(physicalShape, [](int64_t dim) {
-          return ttmlir::utils::getFactors(dim);
-        }));
-
-    auto factorCombinations =
-        ttmlir::utils::computeCartesianProduct<int64_t>(factors);
-
-    // Find grid with the greatest volume that is less than or equal to the
-    // target grid volume.
-    SmallVector<int64_t> bestGrid = {0};
-    int64_t bestGridVolume = 0;
-    for (const auto &grid : factorCombinations) {
-      int64_t gridVolume = ttmlir::utils::volume<int64_t>(grid);
-      if (gridVolume <= targetGridVolume && gridVolume > bestGridVolume) {
-        auto physGrid =
-            utils::findLegalPhysicalGridForVolume(gridVolume, targetGrid);
-        if (!physGrid.empty()) {
-
-          bestGrid = grid;
-          bestGridVolume = ttmlir::utils::volume<int64_t>(bestGrid);
-        }
-      }
-    }
-    return bestGrid;
+static bool hasAlignedShardWidth(ArrayRef<int64_t> physicalShape,
+                                 ArrayRef<int64_t> grid,
+                                 int64_t shardWidthAlignment) {
+  if (shardWidthAlignment <= 1) {
+    return true;
   }
 
-  // If not ND sharded, compute grid for 2D height or width sharding (Nx1, 1xN).
+  TT_assert(!physicalShape.empty());
+  TT_assert(physicalShape.size() == grid.size());
+  int64_t gridDim = grid.back();
+  TT_assert(gridDim > 0);
+  if (gridDim == 1) {
+    return true;
+  }
+  TT_assert(physicalShape.back() % gridDim == 0);
+  return (physicalShape.back() / gridDim) % shardWidthAlignment == 0;
+}
+
+static llvm::SmallVector<int64_t>
+computeBestFactorProductGrid(ArrayRef<int64_t> physicalShape,
+                             ArrayRef<int64_t> targetGrid,
+                             int64_t shardWidthAlignment) {
+  int64_t targetGridVolume = ttmlir::utils::volume(targetGrid);
+  SmallVector<SmallVector<int64_t>> factors =
+      llvm::to_vector(llvm::map_range(physicalShape, [](int64_t dim) {
+        return ttmlir::utils::getFactors(dim);
+      }));
+
+  auto factorCombinations =
+      ttmlir::utils::computeCartesianProduct<int64_t>(factors);
+
+  llvm::SmallVector<int64_t> bestGrid;
+  int64_t bestVolume = 0;
+  for (const auto &grid : factorCombinations) {
+    int64_t gridVolume = ttmlir::utils::volume<int64_t>(grid);
+    if (gridVolume > targetGridVolume || gridVolume <= bestVolume) {
+      continue;
+    }
+    if (!hasAlignedShardWidth(physicalShape, grid, shardWidthAlignment)) {
+      continue;
+    }
+    if (utils::findLegalPhysicalGridForVolume(gridVolume, targetGrid).empty()) {
+      continue;
+    }
+    bestGrid = grid;
+    bestVolume = gridVolume;
+  }
+  return bestGrid;
+}
+
+static llvm::SmallVector<int64_t>
+computeSingleAxis2DVirtualGrid(ArrayRef<int64_t> physicalShape,
+                               ArrayRef<int64_t> targetGrid,
+                               int64_t shardWidthAlignment) {
+  int64_t targetGridVolume = ttmlir::utils::volume(targetGrid);
   unsigned shardedDimIndex = findShardedDimIndex(physicalShape);
 
-  // Find the largest factor of the sharded dimension that fits within the
-  // target grid volume.
   int64_t bestFactor = 0;
   const auto factors =
       ttmlir::utils::getFactors(physicalShape[shardedDimIndex]);
   for (int64_t factor : llvm::reverse(factors)) {
-    if (factor <= targetGridVolume) {
-      auto physGrid = utils::findLegalPhysicalGridForVolume(factor, targetGrid);
-      if (!physGrid.empty()) {
-        bestFactor = factor;
-        break;
-      }
+    if (factor > targetGridVolume) {
+      continue;
+    }
+    llvm::SmallVector<int64_t> trialGrid(physicalShape.size(), 1);
+    trialGrid[shardedDimIndex] = factor;
+    if (!hasAlignedShardWidth(physicalShape, trialGrid, shardWidthAlignment)) {
+      continue;
+    }
+    auto physGrid = utils::findLegalPhysicalGridForVolume(factor, targetGrid);
+    if (!physGrid.empty()) {
+      bestFactor = factor;
+      break;
     }
   }
 
@@ -198,15 +223,22 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
     return {};
   }
 
-  llvm::SmallVector<int64_t> grid;
-  for (size_t i = 0; i < physicalShape.size(); ++i) {
-    if (i == shardedDimIndex) {
-      grid.push_back(bestFactor);
-    } else {
-      grid.push_back(1);
-    }
-  }
+  llvm::SmallVector<int64_t> grid(physicalShape.size(), 1);
+  grid[shardedDimIndex] = bestFactor;
   return grid;
+}
+
+llvm::SmallVector<int64_t>
+computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
+                          ArrayRef<int64_t> targetGrid, VirtualGridMode mode,
+                          int64_t shardWidthAlignment) {
+  if (physicalShape.size() == 2 && mode == VirtualGridMode::SingleAxis2D) {
+    return computeSingleAxis2DVirtualGrid(physicalShape, targetGrid,
+                                          shardWidthAlignment);
+  }
+
+  return computeBestFactorProductGrid(physicalShape, targetGrid,
+                                      shardWidthAlignment);
 }
 
 bool shouldImplementAsVirtualGrid(mlir::RankedTensorType tensorType,
@@ -238,20 +270,37 @@ bool shouldImplementAsVirtualGrid(mlir::RankedTensorType tensorType,
 
 llvm::SmallVector<int64_t> computeOptimalGrid(mlir::RankedTensorType tensorType,
                                               ArrayRef<int64_t> physicalShape,
-                                              ArrayRef<int64_t> targetGrid) {
+                                              ArrayRef<int64_t> targetGrid,
+                                              VirtualGridMode mode,
+                                              int64_t shardWidthAlignment) {
+  auto blockShardedGrid =
+      computeOptimalBlockShardedGrid(physicalShape, targetGrid);
   if (shouldImplementAsVirtualGrid(tensorType, physicalShape, targetGrid)) {
-    auto virtualGrid = computeOptimalVirtualGrid(physicalShape, targetGrid);
-    if (!virtualGrid.empty()) {
+    auto virtualGrid = computeOptimalVirtualGrid(physicalShape, targetGrid,
+                                                 mode, shardWidthAlignment);
+    if (!virtualGrid.empty() &&
+        ttmlir::utils::volume<int64_t>(virtualGrid) >
+            ttmlir::utils::volume<int64_t>(blockShardedGrid)) {
       return virtualGrid;
     }
   }
-  return computeOptimalBlockShardedGrid(physicalShape, targetGrid);
+  return blockShardedGrid;
 }
 
-llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
-                                                ArrayRef<int64_t> targetGrid,
-                                                bool ttnnMode) {
+static llvm::SmallVector<int64_t>
+getTileShapeForPhysicalShape(mlir::RankedTensorType tensorType) {
+  if (auto tileType =
+          mlir::dyn_cast<ttcore::TileType>(tensorType.getElementType())) {
+    return llvm::to_vector(tileType.getShape());
+  }
 
+  // Always tile-align when calculating the physical shape, even in the row
+  // major case.
+  return llvm::to_vector(ttcore::TileType::getDefaultShape());
+}
+
+static llvm::SmallVector<int64_t> computePhysicalShapeWithAlignments(
+    mlir::Value operand, ArrayRef<int64_t> alignments, bool ttnnMode) {
   auto tensorType = mlir::cast<mlir::RankedTensorType>(operand.getType());
   auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
 
@@ -260,27 +309,193 @@ llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
     return layout.getPhysicalShape(ttcore::TileType::getDefaultShape());
   }
 
-  llvm::SmallVector<int64_t> tileShape;
-  if (auto tileType =
-          mlir::dyn_cast<ttcore::TileType>(tensorType.getElementType())) {
-    tileShape = llvm::to_vector(tileType.getShape());
-  } else {
-    // Always tile-align when calculating the physical shape, even in the row
-    // major case.
-    tileShape = llvm::to_vector(ttcore::TileType::getDefaultShape());
-  }
-
-  llvm::SmallVector<int64_t> alignments =
-      ttcore::MetalLayoutAttr::computeGridAwareDimAlignments(
-          layout.getLogicalShape(), targetGrid,
-          layout.getNormalizedIntervals());
-
+  llvm::SmallVector<int64_t> tileShape =
+      getTileShapeForPhysicalShape(tensorType);
   auto tempLayout = ttcore::MetalLayoutAttr::get(
       operand.getContext(), layout.getLogicalShape(), layout.getMemorySpace(),
       layout.getMemoryLayout(), layout.getCollapsedIntervals(), alignments);
 
   return tempLayout.getPhysicalShape(
       llvm::ArrayRef(tileShape.data(), tileShape.size()));
+}
+
+llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
+                                                ArrayRef<int64_t> targetGrid,
+                                                bool ttnnMode) {
+  auto tensorType = mlir::cast<mlir::RankedTensorType>(operand.getType());
+  auto layout = mlir::cast<ttcore::MetalLayoutAttr>(tensorType.getEncoding());
+  llvm::SmallVector<int64_t> alignments =
+      ttcore::MetalLayoutAttr::computeGridAwareDimAlignments(
+          layout.getLogicalShape(), targetGrid,
+          layout.getNormalizedIntervals());
+  return computePhysicalShapeWithAlignments(operand, alignments, ttnnMode);
+}
+
+mlir::AffineMap
+deriveMaterializedViewRemapping(d2m::ViewLayoutOp viewOp,
+                                mlir::RankedTensorType newResultType) {
+  auto oldResultType =
+      mlir::cast<RankedTensorType>(viewOp.getResult().getType());
+  auto oldLayout =
+      mlir::cast<ttcore::MetalLayoutAttr>(oldResultType.getEncoding());
+
+  // Compose the original remapping with a reblock map that maps from the
+  // old output shape to the new output shape.
+  llvm::SmallVector<int64_t> oldShape(oldResultType.getShape());
+  llvm::SmallVector<int64_t> newShape(newResultType.getShape());
+
+  // If dim alignments changed, align-up the old shape to match.
+  auto newLayout =
+      mlir::cast<ttcore::MetalLayoutAttr>(newResultType.getEncoding());
+  if (!llvm::equal(oldLayout.getDimAlignments(),
+                   newLayout.getDimAlignments())) {
+    llvm::SmallVector<int64_t> tileShape;
+    if (auto tileType =
+            mlir::dyn_cast<ttcore::TileType>(oldResultType.getElementType())) {
+      tileShape = llvm::to_vector(tileType.getShape());
+    }
+    oldShape = newLayout.getDeviceShape(oldLayout.getGridShape(oldResultType),
+                                        tileShape);
+  }
+
+  mlir::AffineMap newRemapping = viewOp.getRemapping();
+  if (!llvm::equal(oldShape, newShape)) {
+    TT_assert(ttmlir::utils::volume<int64_t>(oldShape) ==
+              ttmlir::utils::volume<int64_t>(newShape));
+    mlir::AffineMap reblockMap = ttmlir::utils::calculateReblockMap(
+        oldShape, newShape, viewOp.getContext());
+    newRemapping = newRemapping.compose(reblockMap);
+  }
+  return newRemapping;
+}
+
+std::optional<mlir::AffineMap>
+composeViewRemappingsToBase(d2m::ViewLayoutOp leafView,
+                            mlir::Value expectedBase,
+                            mlir::AffineMap leafRemapping) {
+  mlir::AffineMap composed = leafRemapping;
+  mlir::Value current = leafView.getInput();
+  while (auto view = current.getDefiningOp<d2m::ViewLayoutOp>()) {
+    composed = view.getRemapping().compose(composed);
+    current = view.getInput();
+  }
+
+  if (current != expectedBase) {
+    return std::nullopt;
+  }
+  return composed;
+}
+
+std::optional<MaterializedViewLayoutBridge> computeMaterializedViewLayoutBridge(
+    d2m::ViewLayoutOp viewOp, d2m::ToLayoutOp toLayoutOp, bool ttnnMode,
+    ArrayRef<int64_t> selectedGrid, ArrayRef<int64_t> paddingTileShape) {
+  auto viewType =
+      mlir::cast<mlir::RankedTensorType>(viewOp.getResult().getType());
+  mlir::RankedTensorType materializedViewType =
+      tensorWithOptimalGrid(viewType, ttnnMode, selectedGrid, paddingTileShape);
+  mlir::AffineMap materializedRemapping =
+      deriveMaterializedViewRemapping(viewOp, materializedViewType);
+  std::optional<mlir::AffineMap> viewToBase = composeViewRemappingsToBase(
+      viewOp, toLayoutOp.getResult(0), materializedRemapping);
+  if (!viewToBase) {
+    return std::nullopt;
+  }
+
+  return MaterializedViewLayoutBridge{materializedViewType, *viewToBase};
+}
+
+static llvm::SmallDenseSet<unsigned> collectAffineDimDeps(mlir::AffineExpr expr,
+                                                          unsigned maxDim) {
+  llvm::SmallDenseSet<unsigned> deps;
+  expr.walk([&](mlir::AffineExpr subExpr) {
+    auto dimExpr = mlir::dyn_cast<mlir::AffineDimExpr>(subExpr);
+    if (!dimExpr || dimExpr.getPosition() >= maxDim) {
+      return;
+    }
+    deps.insert(dimExpr.getPosition());
+  });
+  return deps;
+}
+
+llvm::SmallVector<int64_t>
+projectViewGridToBaseGrid(mlir::AffineMap viewToBase,
+                          ArrayRef<int64_t> selectedGrid) {
+  const unsigned gridRank = selectedGrid.size();
+  if (viewToBase.getNumDims() != gridRank * 2 ||
+      viewToBase.getNumResults() != gridRank * 2) {
+    return {};
+  }
+
+  llvm::SmallVector<int64_t> baseGrid(gridRank, 1);
+  bool sawProjectedGridDim = false;
+  for (auto [viewGridDim, gridFactor] : llvm::enumerate(selectedGrid)) {
+    if (gridFactor <= 1) {
+      continue;
+    }
+
+    std::optional<unsigned> baseDim;
+    for (auto [baseResultDim, resultExpr] :
+         llvm::enumerate(viewToBase.getResults())) {
+      if (!collectAffineDimDeps(resultExpr, gridRank).contains(viewGridDim)) {
+        continue;
+      }
+
+      unsigned candidateBaseDim = baseResultDim % gridRank;
+      if (baseDim && *baseDim != candidateBaseDim) {
+        return {};
+      }
+      baseDim = candidateBaseDim;
+    }
+
+    if (!baseDim) {
+      continue;
+    }
+    sawProjectedGridDim = true;
+    baseGrid[*baseDim] *= gridFactor;
+  }
+
+  return sawProjectedGridDim ? baseGrid : llvm::SmallVector<int64_t>{};
+}
+
+llvm::SmallVector<int64_t>
+projectBaseGridToViewGrid(mlir::AffineMap viewToBase,
+                          ArrayRef<int64_t> baseGrid) {
+  const unsigned gridRank = baseGrid.size();
+  if (viewToBase.getNumDims() != gridRank * 2 ||
+      viewToBase.getNumResults() != gridRank * 2) {
+    return {};
+  }
+
+  llvm::SmallVector<int64_t> viewGrid(gridRank, 1);
+  bool sawProjectedGridDim = false;
+  for (auto [baseDim, gridFactor] : llvm::enumerate(baseGrid)) {
+    if (gridFactor <= 1) {
+      continue;
+    }
+
+    std::optional<unsigned> viewDim;
+    for (auto [baseResultDim, resultExpr] :
+         llvm::enumerate(viewToBase.getResults())) {
+      if (baseResultDim % gridRank != baseDim) {
+        continue;
+      }
+
+      for (unsigned dep : collectAffineDimDeps(resultExpr, gridRank)) {
+        if (viewDim && *viewDim != dep) {
+          return {};
+        }
+        viewDim = dep;
+      }
+    }
+
+    if (!viewDim) {
+      continue;
+    }
+    sawProjectedGridDim = true;
+    viewGrid[*viewDim] *= gridFactor;
+  }
+
+  return sawProjectedGridDim ? viewGrid : llvm::SmallVector<int64_t>{};
 }
 
 int64_t computeCollapsedIntervalSize(ArrayRef<int64_t> logicalShape,
@@ -298,10 +513,9 @@ int64_t computeCollapsedIntervalSize(ArrayRef<int64_t> logicalShape,
   return collapsedSize;
 }
 
-static llvm::SmallVector<int64_t>
-computeSelectedGridDimAlignments(ttcore::MetalLayoutAttr layout,
-                                 ArrayRef<int64_t> selectedGrid,
-                                 ArrayRef<int64_t> tileShape) {
+static llvm::SmallVector<int64_t> computeSelectedGridDimAlignments(
+    ttcore::MetalLayoutAttr layout, ArrayRef<int64_t> selectedGrid,
+    ArrayRef<int64_t> tileShape, ArrayRef<int64_t> minPhysicalShape) {
   llvm::SmallVector<int64_t> normalizedIntervals =
       layout.getNormalizedIntervals();
   const int64_t tensorGridRank = normalizedIntervals.size() / 2;
@@ -317,29 +531,64 @@ computeSelectedGridDimAlignments(ttcore::MetalLayoutAttr layout,
       ttcore::MetalLayoutAttr::computeTileAlignments(layout.getLogicalShape(),
                                                      normalizedIntervals);
 
+  if (!minPhysicalShape.empty()) {
+    TT_assertv(minPhysicalShape.size() == static_cast<size_t>(tensorGridRank),
+               "Minimum physical shape rank {} must match tensor grid rank {}.",
+               minPhysicalShape.size(), tensorGridRank);
+  }
+
   for (int64_t intervalIdx = 0; intervalIdx < tensorGridRank; ++intervalIdx) {
     const int64_t gridDim = selectedGrid[intervalIdx];
-    if (gridDim <= 1) {
+    const int64_t intervalStart = normalizedIntervals[intervalIdx * 2];
+    const int64_t intervalEnd = normalizedIntervals[intervalIdx * 2 + 1];
+    if (intervalStart == intervalEnd) {
+      TT_assertv(gridDim == 1,
+                 "Cannot shard empty collapsed interval {} with grid dim {}.",
+                 intervalIdx, gridDim);
+      // Rank-1 tensors have a synthetic leading tile row. There is no
+      // logical dim alignment to update, but the default row can satisfy
+      // view-source coverage.
+      if (!minPhysicalShape.empty()) {
+        TT_assertv(minPhysicalShape[intervalIdx] <= defaultTileShape[0],
+                   "Cannot force empty collapsed interval {} to physical "
+                   "dimension {}.",
+                   intervalIdx, minPhysicalShape[intervalIdx]);
+      }
       continue;
     }
 
     const bool isTileInterval = intervalIdx >= tensorGridRank - 2;
     const int64_t tileIdx = intervalIdx - (tensorGridRank - 2);
-    const int64_t gridAwareThreshold =
-        gridDim * (isTileInterval ? defaultTileShape[tileIdx] : 1);
-
-    const int64_t intervalStart = normalizedIntervals[intervalIdx * 2];
-    const int64_t intervalEnd = normalizedIntervals[intervalIdx * 2 + 1];
     const int64_t alignmentDim =
         (intervalStart + 1 == intervalEnd) ? intervalEnd - 1 : intervalStart;
 
     int64_t collapsedSize = computeCollapsedIntervalSize(
         layout.getLogicalShape(), alignments, intervalStart, intervalEnd);
-    if (collapsedSize > gridAwareThreshold) {
-      alignments[alignmentDim] =
-          std::lcm(alignments[alignmentDim], gridAwareThreshold);
-      collapsedSize = computeCollapsedIntervalSize(
-          layout.getLogicalShape(), alignments, intervalStart, intervalEnd);
+    if (gridDim > 1) {
+      const int64_t gridAwareThreshold =
+          gridDim * (isTileInterval ? defaultTileShape[tileIdx] : 1);
+      if (collapsedSize > gridAwareThreshold) {
+        alignments[alignmentDim] =
+            std::lcm(alignments[alignmentDim], gridAwareThreshold);
+        collapsedSize = computeCollapsedIntervalSize(
+            layout.getLogicalShape(), alignments, intervalStart, intervalEnd);
+      }
+    }
+
+    if (!minPhysicalShape.empty()) {
+      const int64_t requiredPhysicalDim = minPhysicalShape[intervalIdx];
+      if (collapsedSize < requiredPhysicalDim) {
+        const int64_t baseAlignment = alignments[alignmentDim];
+        do {
+          alignments[alignmentDim] += baseAlignment;
+          collapsedSize = computeCollapsedIntervalSize(
+              layout.getLogicalShape(), alignments, intervalStart, intervalEnd);
+        } while (collapsedSize < requiredPhysicalDim);
+      }
+    }
+
+    if (gridDim <= 1) {
+      continue;
     }
 
     const bool dividesTiles = !tileShape.empty() && isTileInterval;
@@ -366,10 +615,11 @@ computeSelectedGridDimAlignments(ttcore::MetalLayoutAttr layout,
   return alignments;
 }
 
-ttcore::MetalLayoutAttr layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
-                                              ArrayRef<int64_t> selectedGrid,
-                                              bool ttnnMode,
-                                              ArrayRef<int64_t> tileShape) {
+ttcore::MetalLayoutAttr
+layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
+                      ArrayRef<int64_t> selectedGrid, bool ttnnMode,
+                      ArrayRef<int64_t> tileShape,
+                      ArrayRef<int64_t> minPhysicalShape) {
   llvm::SmallVector<int64_t> newDimAlignments;
   if (ttnnMode) {
     // TTNN tensors use simple tile-aligned dim alignments without grid-aware
@@ -383,8 +633,8 @@ ttcore::MetalLayoutAttr layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
       newDimAlignments[newDimAlignments.size() - 2] = defaultTileShape[0];
     }
   } else {
-    newDimAlignments =
-        computeSelectedGridDimAlignments(oldLayout, selectedGrid, tileShape);
+    newDimAlignments = computeSelectedGridDimAlignments(
+        oldLayout, selectedGrid, tileShape, minPhysicalShape);
   }
 
   return ttcore::MetalLayoutAttr::get(
@@ -396,7 +646,8 @@ ttcore::MetalLayoutAttr layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
 mlir::RankedTensorType
 tensorWithOptimalGrid(mlir::RankedTensorType oldTensor, bool ttnnMode,
                       ArrayRef<int64_t> optimalGrid,
-                      ArrayRef<int64_t> paddingTileShape) {
+                      ArrayRef<int64_t> paddingTileShape,
+                      ArrayRef<int64_t> minPhysicalShape) {
   auto oldLayout = mlir::cast<ttcore::MetalLayoutAttr>(oldTensor.getEncoding());
 
   llvm::SmallVector<int64_t> tileShape;
@@ -409,8 +660,8 @@ tensorWithOptimalGrid(mlir::RankedTensorType oldTensor, bool ttnnMode,
   ArrayRef<int64_t> layoutTileShape = paddingTileShape.empty()
                                           ? ArrayRef<int64_t>(tileShape)
                                           : paddingTileShape;
-  ttcore::MetalLayoutAttr newLayout =
-      layoutWithOptimalGrid(oldLayout, optimalGrid, ttnnMode, layoutTileShape);
+  ttcore::MetalLayoutAttr newLayout = layoutWithOptimalGrid(
+      oldLayout, optimalGrid, ttnnMode, layoutTileShape, minPhysicalShape);
 
   llvm::SmallVector<int64_t> deviceShape = newLayout.getDeviceShape(
       optimalGrid, llvm::ArrayRef(tileShape.data(), tileShape.size()));

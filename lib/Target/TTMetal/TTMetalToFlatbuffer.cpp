@@ -587,10 +587,8 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
 
   uint64_t pageSize = 0;
   uint64_t tilePageSize = device.getMemrefCBPageSizeBytes(memref);
-  bool useScalarCBLayoutSizing =
-      !mlir::isa<ttcore::TileType>(memref.getElementType()) &&
-      shardLayout.getBuffers() > 1;
-  if (!useScalarCBLayoutSizing) {
+  bool scalarElement = !mlir::isa<ttcore::TileType>(memref.getElementType());
+  if (!scalarElement) {
     pageSize = tilePageSize;
   } else {
     ArrayRef<int64_t> stride = shardLayout.getStride();
@@ -609,7 +607,7 @@ memrefTypeToCircularBufferConfigFlatbuffer(FlatbufferObjectCache &cache,
     // getMemrefCBNumPages (that counts tiles) and avoid wrong offset
     // calculations.
     const uint64_t rawShardBytes =
-        elementSize * ttmlir::utils::volume(memref.getShape());
+        elementSize * ttmlir::utils::volume(shardLayout.getShardShape(memref));
     const bool tileAligned = rawShardBytes % tilePageSize == 0;
     pageSize = tileAligned ? tilePageSize : scalarPageSize;
   }

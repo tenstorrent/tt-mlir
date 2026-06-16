@@ -14,9 +14,20 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <optional>
+
 namespace mlir::tt::d2m {
 
 namespace utils {
+
+enum class VirtualGridMode {
+  // Preserve the original 2D virtual-grid behavior: pick one sharded tensor
+  // dimension and materialize Nx1/1xN.
+  SingleAxis2D,
+  // Explore factors from every tensor-grid dimension. This can materialize
+  // broader 2D virtual grids without changing the caller's virtual-grid gate.
+  General
+};
 
 // Walk back through any chain of ViewLayoutOp producers and return the
 // ToLayoutOp that feeds them. Returns a null ToLayoutOp if `operand` is not
@@ -50,12 +61,13 @@ computeOptimalBlockShardedGrid(ArrayRef<int64_t> physicalShape,
                                ArrayRef<int64_t> targetGrid);
 
 // Compute optimal virtual grid shape for a given physical shape and target
-// grid. For ND tensors, explores Cartesian product of dimension factors.
-// For 2D tensors, finds the largest factor of the sharded dimension. Returns
-// empty vector if utilization is too low (signals fallback to block sharding).
+// grid. SingleAxis2D preserves main's 2D behavior; General explores Cartesian
+// products of dimension factors. Returns empty vector if utilization is too low
+// (signals fallback to block sharding).
 llvm::SmallVector<int64_t>
 computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
-                          ArrayRef<int64_t> targetGrid);
+                          ArrayRef<int64_t> targetGrid, VirtualGridMode mode,
+                          int64_t shardWidthAlignment = 1);
 
 // Determine whether a tensor should use a virtual grid based on its physical
 // shape and the target grid. Returns true when block sharding yields low grid
@@ -68,7 +80,9 @@ bool shouldImplementAsVirtualGrid(mlir::RankedTensorType tensorType,
 // block sharding based on heuristics.
 llvm::SmallVector<int64_t> computeOptimalGrid(mlir::RankedTensorType tensorType,
                                               ArrayRef<int64_t> physicalShape,
-                                              ArrayRef<int64_t> targetGrid);
+                                              ArrayRef<int64_t> targetGrid,
+                                              VirtualGridMode mode,
+                                              int64_t shardWidthAlignment = 1);
 
 // Compute physical shape for a MetalLayoutAttr. In TTNN mode, returns the raw
 // physical shape without alignment adjustments. Otherwise, computes grid-aware
@@ -77,19 +91,55 @@ llvm::SmallVector<int64_t> computePhysicalShape(mlir::Value operand,
                                                 ArrayRef<int64_t> targetGrid,
                                                 bool ttnnMode);
 
+// Compose a ViewLayoutOp remapping with the reblock map implied by
+// newResultType.
+mlir::AffineMap
+deriveMaterializedViewRemapping(d2m::ViewLayoutOp viewOp,
+                                mlir::RankedTensorType newResultType);
+
+// Compose a chain of ViewLayoutOp remappings back to expectedBase.
+std::optional<mlir::AffineMap>
+composeViewRemappingsToBase(d2m::ViewLayoutOp leafView,
+                            mlir::Value expectedBase,
+                            mlir::AffineMap leafRemapping);
+
+struct MaterializedViewLayoutBridge {
+  mlir::RankedTensorType materializedViewType;
+  mlir::AffineMap viewToBase;
+};
+
+// Materialize a view with a selected consumer grid and compose its remapping
+// back to the producing ToLayoutOp.
+std::optional<MaterializedViewLayoutBridge> computeMaterializedViewLayoutBridge(
+    d2m::ViewLayoutOp viewOp, d2m::ToLayoutOp toLayoutOp, bool ttnnMode,
+    ArrayRef<int64_t> selectedGrid, ArrayRef<int64_t> paddingTileShape);
+
+// Project a selected view grid through a view-to-base map. This is used for
+// layout bridges whose source and consumer grids are related by a TM.
+llvm::SmallVector<int64_t>
+projectViewGridToBaseGrid(mlir::AffineMap viewToBase,
+                          ArrayRef<int64_t> selectedGrid);
+
+// Project a selected base grid through a view-to-base map.
+llvm::SmallVector<int64_t>
+projectBaseGridToViewGrid(mlir::AffineMap viewToBase,
+                          ArrayRef<int64_t> baseGrid);
+
 // Create a new MetalLayoutAttr with grid-aware dimension alignments for the
 // given selected grid. The tile shape is empty for row-major tensors.
-ttcore::MetalLayoutAttr layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
-                                              ArrayRef<int64_t> selectedGrid,
-                                              bool ttnnMode,
-                                              ArrayRef<int64_t> tileShape);
+ttcore::MetalLayoutAttr
+layoutWithOptimalGrid(ttcore::MetalLayoutAttr oldLayout,
+                      ArrayRef<int64_t> selectedGrid, bool ttnnMode,
+                      ArrayRef<int64_t> tileShape,
+                      ArrayRef<int64_t> minPhysicalShape = {});
 
 // Create a new RankedTensorType with the given optimal grid, recomputing the
 // device shape and layout accordingly.
 mlir::RankedTensorType
 tensorWithOptimalGrid(mlir::RankedTensorType oldTensor, bool ttnnMode,
                       ArrayRef<int64_t> optimalGrid,
-                      ArrayRef<int64_t> paddingTileShape = {});
+                      ArrayRef<int64_t> paddingTileShape = {},
+                      ArrayRef<int64_t> minPhysicalShape = {});
 
 } // namespace utils
 } // namespace mlir::tt::d2m
