@@ -140,6 +140,11 @@ mlir::Value build_neg(ModuleBuilder &mb, mlir::Value input);
 // Emit TTIR for element-wise SiLU activation.
 mlir::Value build_silu(ModuleBuilder &mb, mlir::Value input);
 
+// Emit TTIR for element-wise GELU activation. ttir.gelu lowers to
+// ttnn.gelu(fast_and_approximate_mode=false): the exact/accurate variant
+// (aten approximate="none"). A "tanh" request gets this same accurate op.
+mlir::Value build_gelu(ModuleBuilder &mb, mlir::Value input);
+
 // Emit TTIR for element-wise `lhs / rhs`. Inputs must share element type.
 mlir::Value build_div(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
 

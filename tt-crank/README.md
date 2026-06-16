@@ -95,7 +95,7 @@ Flags (defaults shown):
 
 | Flag | Default | Purpose |
 |---|---|---|
-| `--mode={eager,compile}` | `eager` | `compile` wraps the model with `torch.compile(backend="tt_kurbla")`; fails until the compile backend lands |
+| `--mode={eager,compile}` | `eager` | `compile` wraps the model with `torch.compile(backend="tt")` |
 | `--warmup=N` | `3` | Untimed warmup iterations before measurement starts |
 | `--iters=N` | `20` | Timed iterations per benchmark |
 | `--cpu-baseline` | off | Time the same model on CPU for a comparison row |
@@ -103,9 +103,10 @@ Flags (defaults shown):
 | `--benchmark-json=PATH` | `benchmark_results.json` | Per-test JSON output for CI ingestion |
 | `--profiler` | off | Capture a `torch.profiler` Chrome trace per benchmark (open in `chrome://tracing` or Perfetto) |
 | `--profile-dir=DIR` | `./profile_data` | Where `--profiler` writes its traces |
-| `--llama-model=ID` | `meta-llama/Llama-3.2-1B` | HuggingFace id for the Llama benchmark |
+| `--llm-batch-size=N` | `32` | Batch size for the LLM decode benchmark |
+| `--llm-max-output-tokens=N` | fill 128-slot cache | Override the generate-step count; small values for smoke runs |
 
-Results print as one card per test at session end, with `total_ms`, `iter_mean_ms`, `samples_per_sec` for CNN/prefill workloads and `ttft_ms`, `itl_p50_ms`, `itl_p95_ms`, `tokens_per_sec` for the decode benchmark. The same data lands in `--benchmark-json` keyed on `measurement_name` (matches tt-xla's schema for cross-project comparison).
+Results print as one card per test at session end, with `total_ms`, `iter_mean_ms`, `samples_per_sec` for CNN/prefill workloads and `ttft_ms`, `itl_p50_ms`, `itl_p95_ms`, `tokens_per_sec` for the decode benchmark. The same data lands in `--benchmark-json` keyed on `measurement_name`.
 
 ```sh
 # typical run on real silicon
@@ -128,14 +129,12 @@ CNN / prefill (`run_benchmark`) emits:
 - `drain_start` — start of the final `_sync` pass
 - `end`
 
-Decode (`run_decode_benchmark`) emits:
+LLM generate loop (`run_llm_benchmark`) emits:
 
 - `warmup_start` / `warmup_end`
-- `prefill_start` / `prefill_end`
+- `prefill_start` / `prefill_end` (step 0)
 - `decode_<i>_start` / `decode_<i>_end` for each step `i`
 - `end`
-
-The ResNet50 and Llama benchmarks currently `pytest.skip` with the backend gaps documented in their skip reasons (Long dtype, factory-op fallback path, etc.). MNIST runs end-to-end.
 
 ## Layout
 

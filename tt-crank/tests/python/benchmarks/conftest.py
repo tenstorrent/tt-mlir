@@ -31,8 +31,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default="eager",
         choices=["eager", "compile"],
         help="Model execution mode. 'compile' wraps the model with "
-        "torch.compile(backend='tt_kurbla') and is expected to fail until "
-        "the compile backend is registered.",
+        "torch.compile(backend='tt'); 'eager' runs the model as-is.",
     )
     group.addoption(
         "--warmup",
@@ -81,10 +80,19 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Path to write the per-test benchmark JSON results to.",
     )
     group.addoption(
-        "--llama-model",
+        "--llm-batch-size",
         action="store",
-        default="meta-llama/Llama-3.2-1B",
-        help="HuggingFace model id used by the Llama benchmark.",
+        type=int,
+        default=32,
+        help="Batch size for the LLM decode benchmark.",
+    )
+    group.addoption(
+        "--llm-max-output-tokens",
+        action="store",
+        type=int,
+        default=None,
+        help="Override the generate-step count for the LLM decode benchmark. "
+        "Default fills the 128-slot KV cache; use a small value for smoke runs.",
     )
 
 
@@ -124,8 +132,14 @@ def profile_dir(request: pytest.FixtureRequest) -> str:
 
 
 @pytest.fixture(scope="session")
-def llama_model_id(request: pytest.FixtureRequest) -> str:
-    return str(request.config.getoption("--llama-model"))
+def llm_batch_size(request: pytest.FixtureRequest) -> int:
+    return int(request.config.getoption("--llm-batch-size"))
+
+
+@pytest.fixture(scope="session")
+def llm_max_output_tokens(request: pytest.FixtureRequest) -> int | None:
+    value = request.config.getoption("--llm-max-output-tokens")
+    return None if value is None else int(value)
 
 
 @pytest.fixture

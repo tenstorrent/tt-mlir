@@ -230,6 +230,15 @@ def _(mb, x):
     return mb.silu(x)
 
 
+@_lowering(_aten.gelu.default)
+def _(mb, x, approximate="none"):
+    # tt-mlir lowers gelu to ttnn.gelu(fast_and_approximate_mode=false): the
+    # exact/accurate variant, i.e. approximate="none". A "tanh" request is
+    # served by this same accurate op - correct (well within precision), it
+    # just doesn't get the faster tanh-approx kernel it asked for.
+    return mb.gelu(x)
+
+
 @_lowering(_aten.div.Tensor)
 def _(mb, lhs, rhs):
     return mb.div(lhs, rhs)
@@ -316,6 +325,14 @@ def _(mb, tensors, dim=0):
 def _(mb, x, dim=0, start=None, end=None, step=1):
     return mb.slice(x, int(dim), start if start is None else int(start),
                     end if end is None else int(end), int(step))
+
+
+@_lowering(_aten.select.int)
+def _(mb, x, dim, index):
+    # slice keeps the indexed dim at size 1; squeeze drops it. end=None
+    # covers index == -1, where index + 1 would wrap to an empty slice.
+    end = None if index == -1 else int(index) + 1
+    return mb.squeeze(mb.slice(x, int(dim), int(index), end, 1), int(dim))
 
 
 @_lowering(_aten.arange.default, _aten.arange.start, _aten.arange.start_step)
