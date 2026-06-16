@@ -610,6 +610,21 @@ public:
     }
   }
 
+  StringRef getInputClamping(ttkernel::InputClamping inputClamping) const {
+    switch (inputClamping) {
+    case ttkernel::InputClamping::None:
+      return "InputClamping::None";
+    case ttkernel::InputClamping::ClampToNegative:
+      return "InputClamping::ClampToNegative";
+    }
+  }
+
+  static bool hasNonDefaultExpTileScale(IntegerAttr scaleAttr) {
+    constexpr uint32_t defaultScale = 0x3F80u; // 1.0 encoded for exp_tile().
+    return scaleAttr &&
+           static_cast<uint32_t>(scaleAttr.getInt()) != defaultScale;
+  }
+
   ArrayAttr getTemplateArgs(Builder &builder, SourceOp op) const {
     if constexpr (std::is_same_v<SourceOp, ttkernel::ReduceInitOp> ||
                   std::is_same_v<SourceOp, ttkernel::ReduceTileOp>) {
@@ -772,6 +787,119 @@ public:
       template_args.push_back(
           emitc::OpaqueAttr::get(op.getContext(), "DataFormat::Int32"));
       return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::ExpTileInitOp>) {
+      // exp_tile_init<bool approx, uint32_t scale, InputClamping
+      // input_clamping>() Emit template args only up to the last explicitly-set
+      // parameter, filling in metal defaults for any preceding unset parameter.
+      // When nothing is set the op lowers to a bare `exp_tile_init()`.
+      auto approxAttr = op.getApproxAttr();
+      auto scaleAttr = op.getScaleAttr();
+      auto clampAttr = op.getInputClampingAttr();
+      int lastSet = -1;
+      if (approxAttr) {
+        lastSet = 0;
+      }
+      if (scaleAttr) {
+        lastSet = 1;
+      }
+      if (clampAttr) {
+        lastSet = 2;
+      }
+      if (lastSet < 0) {
+        return ArrayAttr();
+      }
+      SmallVector<Attribute, 3> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(),
+          (approxAttr && approxAttr.getValue()) ? "true" : "false"));
+      if (lastSet >= 1) {
+        uint32_t scale =
+            scaleAttr ? static_cast<uint32_t>(scaleAttr.getInt()) : 0x3F800000u;
+        template_args.push_back(
+            emitc::OpaqueAttr::get(op.getContext(), std::to_string(scale)));
+      }
+      if (lastSet >= 2) {
+        ttkernel::InputClamping inputClamping =
+            clampAttr ? clampAttr.getValue()
+                      : ttkernel::InputClamping::ClampToNegative;
+        template_args.push_back(emitc::OpaqueAttr::get(
+            op.getContext(), getInputClamping(inputClamping)));
+      }
+      return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::ExpTileOp>) {
+      // exp_tile<bool approx, bool scale_en, InputClamping input_clamping,
+      //          int iterations>(idst, vector_mode, scale)
+      // Emit template args only up to the last explicitly-set parameter,
+      // filling in metal defaults for any preceding unset parameter. When
+      // nothing is set the op lowers to a bare `exp_tile(idst)`. The runtime
+      // `scale` argument is handled separately by getCallArgs().
+      auto approxAttr = op.getApproxAttr();
+      auto scaleAttr = op.getScaleAttr();
+      bool scaleEn = hasNonDefaultExpTileScale(scaleAttr);
+      auto clampAttr = op.getInputClampingAttr();
+      auto iterationsAttr = op.getIterationsAttr();
+      int lastSet = -1;
+      if (approxAttr) {
+        lastSet = 0;
+      }
+      if (scaleEn) {
+        lastSet = 1;
+      }
+      if (clampAttr) {
+        lastSet = 2;
+      }
+      if (iterationsAttr) {
+        lastSet = 3;
+      }
+      if (lastSet < 0) {
+        return ArrayAttr();
+      }
+      SmallVector<Attribute, 4> template_args;
+      template_args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(),
+          (approxAttr && approxAttr.getValue()) ? "true" : "false"));
+      if (lastSet >= 1) {
+        template_args.push_back(emitc::OpaqueAttr::get(
+            op.getContext(), scaleEn ? "true" : "false"));
+      }
+      if (lastSet >= 2) {
+        ttkernel::InputClamping inputClamping =
+            clampAttr ? clampAttr.getValue()
+                      : ttkernel::InputClamping::ClampToNegative;
+        template_args.push_back(emitc::OpaqueAttr::get(
+            op.getContext(), getInputClamping(inputClamping)));
+      }
+      if (lastSet >= 3) {
+        int64_t iterations = iterationsAttr ? iterationsAttr.getInt() : 8;
+        template_args.push_back(emitc::OpaqueAttr::get(
+            op.getContext(), std::to_string(iterations)));
+      }
+      return ArrayAttr::get(op.getContext(), template_args);
+    }
+    return ArrayAttr();
+  }
+
+  // Build the positional call `args` interleaving. Returns a null ArrayAttr to
+  // pass all operands in their natural order (the common case). Op-specific
+  // overrides can insert literal runtime arguments alongside operand
+  // references (operand indices are encoded as IndexType IntegerAttrs).
+  ArrayAttr getCallArgs(Builder &builder, SourceOp op) const {
+    if constexpr (std::is_same_v<SourceOp, ttkernel::ExpTileOp>) {
+      // exp_tile(idst, vector_mode, scale): only materialize the runtime
+      // vector_mode/scale arguments when an explicit scale is provided.
+      // Otherwise fall back to the bare exp_tile(idst) call.
+      auto scaleAttr = op.getScaleAttr();
+      if (!hasNonDefaultExpTileScale(scaleAttr)) {
+        return ArrayAttr();
+      }
+      SmallVector<Attribute, 3> args;
+      args.push_back(builder.getIndexAttr(0)); // idst (operand 0)
+      args.push_back(
+          emitc::OpaqueAttr::get(op.getContext(), "(int)VectorMode::RC"));
+      args.push_back(emitc::OpaqueAttr::get(
+          op.getContext(),
+          std::to_string(static_cast<uint32_t>(scaleAttr.getInt()))));
+      return ArrayAttr::get(op.getContext(), args);
     }
     return ArrayAttr();
   }
@@ -789,8 +917,8 @@ public:
     }
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        op, resultTypes, getOpName(op), nullptr, getTemplateArgs(rewriter, op),
-        adaptor.getOperands());
+        op, resultTypes, getOpName(op), getCallArgs(rewriter, op),
+        getTemplateArgs(rewriter, op), adaptor.getOperands());
 
     return success();
   }

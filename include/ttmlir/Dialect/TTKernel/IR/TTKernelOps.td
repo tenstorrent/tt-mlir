@@ -1683,9 +1683,25 @@ def TTKernel_ExpTileInitOp : TTKernel_InitOp<"exp_tile_init"> {
     let summary = "Short init function which configures compute unit for execution of exp_tile.";
     let description = [{
       Must be run before exp_tile.
+
+      The optional attributes map onto the metal template parameters
+      `exp_tile_init<bool approx, uint32_t scale, InputClamping input_clamping>()`.
+      When all attributes are omitted the op lowers to a bare `exp_tile_init()`
+      call, preserving the metal defaults
+      (approx=false, scale=0x3F800000, input_clamping=ClampToNegative).
     }];
 
-    let arguments = (ins);
+    let arguments = (ins
+      OptionalAttr<BoolAttr>:$approx,
+      OptionalAttr<I32Attr>:$scale,
+      OptionalAttr<TTKernel_InputClampingAttr>:$input_clamping);
+
+    let builders = [
+      OpBuilder<(ins), [{
+        build($_builder, $_state, /*approx=*/nullptr, /*scale=*/nullptr,
+              /*input_clamping=*/nullptr);
+      }]>,
+    ];
 
     let assemblyFormat = [{
       `(` `)` attr-dict `:` functional-type(operands, results)
@@ -1699,9 +1715,31 @@ def TTKernel_ExpTileOp : TTKernel_SFPUOp<"exp_tile", [TTKernel_UnaryOpTrait]> {
       in DST register at index tile_index. The DST register buffer must be in
       acquired state via *tile_regs_acquire* call. This call is blocking and is only
       available on the compute engine.
+
+      The optional attributes map onto the metal template parameters
+      `exp_tile<bool approx, bool scale_en, InputClamping input_clamping, int iterations>(idst, vector_mode, scale)`.
+      When all attributes are omitted the op lowers to a bare `exp_tile(idst)`
+      call, preserving the metal defaults
+      (approx=false, scale_en=false, input_clamping=ClampToNegative, iterations=8).
+      `scale` holds the runtime scale argument; when present and not equal to
+      the default 1.0 value it enables metal's `scale_en` template parameter and
+      is emitted as the third positional argument with `vector_mode` defaulted
+      to `VectorMode::RC`.
     }];
 
-    let arguments = (ins IndexLike:$tile_index);
+    let arguments = (ins IndexLike:$tile_index,
+      OptionalAttr<BoolAttr>:$approx,
+      OptionalAttr<TTKernel_InputClampingAttr>:$input_clamping,
+      OptionalAttr<I32Attr>:$iterations,
+      OptionalAttr<I32Attr>:$scale);
+
+    let builders = [
+      OpBuilder<(ins "::mlir::Value":$tile_index), [{
+        build($_builder, $_state, tile_index, /*approx=*/nullptr,
+              /*input_clamping=*/nullptr, /*iterations=*/nullptr,
+              /*scale=*/nullptr);
+      }]>,
+    ];
 
     let assemblyFormat = [{
       `(` $tile_index `)` attr-dict `:` functional-type(operands, results)
