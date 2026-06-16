@@ -31,7 +31,12 @@
 #include "llvm/Support/LogicalResult.h"
 
 #include <array>
+#include <cstddef>
 #include <limits>
+#include <mlir/IR/Attributes.h>
+#include <mlir/IR/Location.h>
+#include <mlir/IR/Value.h>
+#include <mlir/Support/LLVM.h>
 #include <type_traits>
 
 namespace mlir::tt {
@@ -4597,6 +4602,63 @@ public:
 
       rewriter.replaceOp(op, postTranspose.getResult());
     }
+
+    return success();
+  }
+};
+
+class D2MArgMaxRewriter : public OpConversionPattern<ttir::ArgMaxOp>,
+                         D2MNamedRewriterCommon {
+public:
+  D2MArgMaxRewriter(const TypeConverter &typeConverter, mlir::MLIRContext *ctx,
+                    ttcore::MemorySpace defaultInputMemSpace,
+                    ttcore::MemorySpace defaultOutputMemSpace, bool ttnnMode,
+                    bool collapseTensors, bool enableMulticastInference)
+      : OpConversionPattern<ttir::ArgMaxOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, collapseTensors,
+                               enableMulticastInference) {}
+
+private:
+  LogicalResult
+  matchAndRewrite(ttir::ArgMaxOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+    mlir::Location loc = op->getLoc();
+    mlir::ValueRange origInputs = adaptor.getOperands();
+    mlir::RankedTensorType outType = mlir::dyn_cast<RankedTensorType>(op.getResult().getType());
+    auto origOutputs = createDpsOutputs(loc, rewriter, {outType});
+    auto [inputs, outputs] = toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs}, /*tiled=*/ true, /*noCollapse=*/ false, ttcore::OOBVal::Zero);
+
+    const std::size_t physicalRank = ttcore::getDeviceLayout(outputs[0]).getRank();
+
+    auto indexingMaps = {
+      rewriter.getMultiDimIdentityMap(physicalRank),
+      rewriter.getMultiDimIdentityMap(physicalRank)
+    };
+    SmallVector<mlir::Attribute> iteratorTypes(physicalRank, rewriter.getStringAttr("parallel"));
+
+    auto generic1 = rewriter.create<d2m::GenericOp>(loc, inputs, outputs, ValueRange(), rewriter.getAffineMapArrayAttr(indexingMaps), rewriter.getArrayAttr(iteratorTypes));
+
+    auto insertPoint = rewriter.saveInsertionPoint();
+    rewriter.startOpModification(generic1);
+    {
+      mlir::Region &region = generic1.getRegions().front();
+      mlir::Block *block = rewriter.createBlock(&region);
+      {
+        auto [inputIndices, mcastGridDims] = createInputIndicesAndMcastGridDims(rewriter, loc, generic1, enableMulticastInference);
+        auto blockArgsVec = createBlockArguments(rewriter, block, loc, TypeRange(inputs), TypeRange(outputs), generic1, inputIndices, mcastGridDims);
+
+        ArrayRef<Value> blockArgs(blockArgsVec);
+
+        auto inputArg = blockArgs.front();
+        auto outputArg = blockArgs.back();
+        auto reduceMax = rewriter.create<d2m::TileReduceMaxOp>(loc, outputArg.getType(), inputArg);
+
+        rewriter.create<d2m::YieldOp>(loc, reduceMax.getResult());
+      }
+    }
+    rewriter.finalizeOpModification(generic1);
+    rewriter.restoreInsertionPoint(insertPoint);
 
     return success();
   }
