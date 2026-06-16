@@ -7,6 +7,8 @@
 // CHECK: #include "api/dataflow/dataflow_api.h"
 // CHECK: #include "api/dataflow/endpoints.h"
 // CHECK: #include "api/dataflow/noc.h"
+// CHECK: #include "api/dataflow/noc_semaphore.h"
+// SEMDOWN: #include "api/dataflow/noc_semaphore.h"
 // CHECK: void kernel_main
 func.func @ttkernel_noc_cb() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     // CHECK: UnicastEndpoint [[EP:unicast_ep]]
@@ -57,6 +59,9 @@ func.func @ttkernel_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<n
     ttkernel.noc_async_read core[%c0_idx, %c0_idx], %c262208_i32, %c262432_i32, %c32_i32 : (index, index, i32, i32, i32) -> ()
     // CHECK: int32_t [[SEM:.*]] = get_semaphore
     %sem = ttkernel.get_semaphore(%c0_idx) : (index) -> !ttkernel.local_semaphore
+    // CHECK: Semaphore([[A0]]).down([[C0]]);
+    // SEMDOWN: Semaphore({{.*}}).down({{.*}});
+    ttkernel.semaphore_down(%c0_idx, %c32_i32) : (index, i32) -> ()
     // CHECK: noc_semaphore_set_remote([[SEM]], [[NOCADDR1]])
     ttkernel.remote_sram_write_u32(%sem, %4) : (!ttkernel.local_semaphore, !ttkernel.noc_addr) -> ()
     // CHECK-DAG: int32_t [[INLINE_VALUE:.*]] = 7

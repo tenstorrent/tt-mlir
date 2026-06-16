@@ -2150,6 +2150,19 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @semaphore_down
+    // SEMDOWN-LABEL: func @semaphore_down
+    func.func @semaphore_down() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: %[[SEMAPHORE_ID:.*]] = "emitc.constant"
+      %semaphore_id = arith.constant 2 : i32
+      // CHECK: %[[VALUE:.*]] = "emitc.constant"
+      %value = arith.constant 1 : i32
+      // CHECK: emitc.verbatim "Semaphore({}).down({});" args %[[SEMAPHORE_ID]], %[[VALUE]] : i32, i32
+      // SEMDOWN: emitc.verbatim "Semaphore({}).down({});" args %{{.*}}, %{{.*}} : i32, i32
+      ttkernel.semaphore_down(%semaphore_id, %value) : (i32, i32) -> ()
+      return
+    }
+
     // CHECK-LABEL: func @noc_semaphore_inc
     func.func @noc_semaphore_inc() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: %[[ADDR:.*]] = emitc.literal "noc_addr_{{[0-9]+}}" : i64

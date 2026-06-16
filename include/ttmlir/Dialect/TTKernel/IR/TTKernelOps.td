@@ -3874,6 +3874,21 @@ def TTKernel_SemaphoreWaitMinOp : TTKernel_Op<"experimental::semaphore_wait_min"
     }];
 }
 
+def TTKernel_SemaphoreDownOp : TTKernel_Op<"semaphore_down"> {
+    let summary = "SemaphoreDown";
+    let description = [{
+      Blocks until a local semaphore is at least the specified value, then
+      decrements it by that value using the TT-Metal dataflow Semaphore API.
+      The semaphore operand is the local semaphore ID, not an L1 address.
+    }];
+
+    let arguments = (ins IndexLike:$semaphore, IndexLike:$val);
+
+    let assemblyFormat = [{
+      `(` $semaphore `,` $val `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
 def TTKernel_NocSemaphoreSetMulticastOp : TTKernel_Op<"noc_semaphore_set_multicast"> {
     let summary = "NocSemaphoreSetMulticast";
     let description = [{

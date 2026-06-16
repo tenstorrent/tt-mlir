@@ -1879,6 +1879,23 @@ public:
   }
 };
 
+class TTKernelSemaphoreDownOpToEmitCRewriter
+    : public OpConversionPattern<ttkernel::SemaphoreDownOp> {
+public:
+  using OpConversionPattern<ttkernel::SemaphoreDownOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::SemaphoreDownOp op,
+                  ttkernel::SemaphoreDownOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.create<emitc::VerbatimOp>(
+        op.getLoc(), rewriter.getStringAttr("Semaphore({}).down({});"),
+        ValueRange{adaptor.getSemaphore(), adaptor.getVal()});
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 class PackReconfigDataFormatOpConversion
     : public OpConversionPattern<ttkernel::PackReconfigDataFormatOp> {
 public:
@@ -2044,6 +2061,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::SemaphoreWaitMinOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocSemaphoreIncOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SemaphoreWaitOp>,
+        TTKernelSemaphoreDownOpToEmitCRewriter,
         TTKernelToEmitCOpaqueRewriter<ttkernel::NocSemaphoreSetMulticastOp>,
         TTKernelToEmitCOpaqueRewriter<
             ttkernel::NocSemaphoreSetMulticastLoopbackOp>,

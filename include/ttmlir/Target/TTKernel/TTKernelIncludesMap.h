@@ -58,6 +58,7 @@ inline const llvm::StringMap<HeaderRequirement> &getCalleeToHeadersMap() {
         {"noc_semaphore_set_multicast",                    {"", "api/dataflow/dataflow_api.h"}},
         {"noc_semaphore_set_multicast_loopback_src",       {"", "api/dataflow/dataflow_api.h"}},
         {"reset_noc_trid_barrier_counter",                 {"", "api/dataflow/dataflow_api.h"}},
+        {"Semaphore",                                      {"", "api/dataflow/noc_semaphore.h"}},
 
         // Compute.
         {"abs_tile",                                       {"api/compute/compute_kernel_api.h", ""}},
