@@ -4625,8 +4625,9 @@ private:
                   mlir::ConversionPatternRewriter &rewriter) const final {
     mlir::Location loc = op->getLoc();
     mlir::ValueRange origInputs = adaptor.getOperands();
-    mlir::RankedTensorType outType = mlir::dyn_cast<RankedTensorType>(op.getResult().getType());
-    auto origOutputs = createDpsOutputs(loc, rewriter, {outType});
+    mlir::RankedTensorType inputType = mlir::dyn_cast<RankedTensorType>(op.getInput().getType());
+    mlir::RankedTensorType outputType = mlir::dyn_cast<RankedTensorType>(op.getResult().getType());
+    auto origOutputs = createDpsOutputs(loc, rewriter, {outputType});
     auto [inputs, outputs] = toLayoutOperandsAndResults(rewriter, {origInputs, origOutputs}, /*tiled=*/ true, /*noCollapse=*/ false, ttcore::OOBVal::Zero);
 
     const std::size_t physicalRank = ttcore::getDeviceLayout(outputs[0]).getRank();
@@ -4642,6 +4643,7 @@ private:
     auto insertPoint = rewriter.saveInsertionPoint();
     rewriter.startOpModification(generic1);
     {
+      // d2m.tile_reduce_max
       mlir::Region &region = generic1.getRegions().front();
       mlir::Block *block = rewriter.createBlock(&region);
       {
@@ -4659,6 +4661,8 @@ private:
     }
     rewriter.finalizeOpModification(generic1);
     rewriter.restoreInsertionPoint(insertPoint);
+
+    
 
     return success();
   }
