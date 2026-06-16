@@ -31,22 +31,14 @@ localNumElements(mlir::sdy::MeshAttr meshAttr, mlir::RankedTensorType type,
 }
 
 // A reshape is unrealizable when its result demands a finer sharding than its
-// operand can locally supply. Shardy's conservative propagation leaves such a
-// reshape in three states this pass must normalize to replicated I/O:
-//   * the result is unannotated while a sharded operand shrinks per shard
-//     (the original tt-xla#3643 gap),
-//   * the result carries a sharding that cannot be localized because a sharded
-//     dimension is not divisible by its mesh axis (e.g. heads=30 across
-//     model=4), or
-//   * the result is sharded *more* than the operand, so the operand's
-//     per-shard data is too coarse to produce it locally -- e.g. a replicated
-//     (1x3616x30x128) operand reshaped to a (3616x3840) result sharded on the
-//     merged dim (tt-xla#5148). This breaks the element-count check in
-//     UpdateGlobalToLocalShapes.
-// A result that is *equally or less* sharded than the operand is a valid
-// reshape (downstream InsertExplicitReshards gathers any extra operand
-// sharding), so it is left untouched -- a mere per-shard element-count
-// difference in that direction is not a failure.
+// operand can locally supply. Normalize three such states to replicated I/O:
+//   * unannotated result while a sharded operand shrinks per shard,
+//   * result sharding that cannot localize (sharded dim not divisible by its
+//     mesh axis), or
+//   * result sharded *more* than the operand, so the operand is too coarse to
+//     produce it locally.
+// A result equally or less sharded than the operand is valid and left
+// untouched; downstream InsertExplicitReshards gathers any extra sharding.
 static bool reshapeNeedsReplication(mlir::Operation *op,
                                     mlir::sdy::MeshOp globalMeshOp) {
   mlir::sdy::MeshAttr meshAttr = globalMeshOp.getMesh();
@@ -71,8 +63,8 @@ static bool reshapeNeedsReplication(mlir::Operation *op,
       !shardy_utils::isFullyReplicatedTensor(operandSharding, globalMeshOp);
 
   // Result Shardy never annotated: reshard the sharded operand to replicated so
-  // per-shard shapes match downstream (tt-xla#3643). Nothing to do when the
-  // operand is already replicated.
+  // per-shard shapes match downstream. Nothing to do when the operand is
+  // already replicated.
   auto spv = op->getAttrOfType<mlir::sdy::TensorShardingPerValueAttr>(
       mlir::sdy::TensorShardingAttr::name);
   if (!spv || spv.getShardings().empty()) {
@@ -123,9 +115,7 @@ static void replicateOperandViaReshard(mlir::OpBuilder &builder,
 // result sharding. The reshard later lowers to an all_gather, so the reshape
 // runs on replicated data and per-shard shapes match in
 // UpdateGlobalToLocalShapes; downstream InsertExplicitReshards reconciles
-// sharded consumers. Covers both the unannotated-result case (tt-xla#3643) and
-// non-divisible factored dims (e.g. heads=30 split across model=4,
-// tt-xla#5148).
+// sharded consumers.
 class InsertReshardsForUnpropagatedOpsPass
     : public impl::InsertReshardsForUnpropagatedOpsPassBase<
           InsertReshardsForUnpropagatedOpsPass> {
