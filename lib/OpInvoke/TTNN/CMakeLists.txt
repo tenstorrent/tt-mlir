@@ -27,6 +27,7 @@ add_library(TTNNOpInvokeLib STATIC
   Eltwise/Unary/EltwiseUnaryCompositeOp.cpp
   Eltwise/Unary/EltwiseUnaryOp.cpp
   Embedding/EmbeddingBackwardOp.cpp
+  Embedding/EmbeddingOp.cpp
   KVCache/FillCacheOp.cpp
   KVCache/PagedFillCacheOp.cpp
   KVCache/PagedUpdateCacheOp.cpp

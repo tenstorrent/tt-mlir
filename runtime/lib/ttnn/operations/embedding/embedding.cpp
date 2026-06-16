@@ -4,10 +4,7 @@
 
 #include "operations/embedding/embedding.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
+#include "ttmlir/OpInvoke/TTNN/Embedding/EmbeddingOp.h"
 
 namespace tt::runtime::ttnn::operations::embedding {
 void run(const ::tt::target::ttnn::EmbeddingOp *op, ProgramContext &context) {
@@ -18,25 +15,19 @@ void run(const ::tt::target::ttnn::EmbeddingOp *op, ProgramContext &context) {
   const ::ttnn::Tensor &weight =
       tensorPool.getTTNNTensorAndValidate(op->weight());
 
-  // default params for embedding op
-  std::optional<int> padToken = std::nullopt;
-  ::ttnn::Layout layout = utils::isTilized(op->out())
-                              ? ::ttnn::TILE_LAYOUT
-                              : ::ttnn::ROW_MAJOR_LAYOUT;
-  auto embeddingsType = ::ttnn::prim::EmbeddingsType::GENERIC;
-  ::ttnn::DataType outputDataType = utils::getDataType(op->out());
+  ::tt::target::ttnn::EmbeddingOpT opNative;
+  op->UnPackTo(&opNative);
 
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
-  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
-                 outputMemoryConfig.has_value(),
-             "Memory config must exist for device tensors");
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  ::ttnn::Tensor out =
-      ::ttnn::embedding(input, weight, padToken, layout, embeddingsType,
-                        outputDataType, outputMemoryConfig);
+  ttnn_op_invoke::EmbeddingOpResult result =
+      ttnn_op_invoke::callEmbedding(ttnn_op_invoke::CallType::EXECUTE, opNative,
+                                    &input, &weight, &targetDevice);
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callEmbedding execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 } // namespace tt::runtime::ttnn::operations::embedding

@@ -36,6 +36,7 @@
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Unary/EltwiseUnaryCompositeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Unary/EltwiseUnaryOp.h"
 #include "ttmlir/OpInvoke/TTNN/Embedding/EmbeddingBackwardOp.h"
+#include "ttmlir/OpInvoke/TTNN/Embedding/EmbeddingOp.h"
 #include "ttmlir/OpInvoke/TTNN/KVCache/FillCacheOp.h"
 #include "ttmlir/OpInvoke/TTNN/KVCache/PagedFillCacheOp.h"
 #include "ttmlir/OpInvoke/TTNN/KVCache/PagedUpdateCacheOp.h"
@@ -8912,24 +8913,11 @@ llvm::Expected<size_t> OpModel<UpsampleOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 
 #ifdef TTMLIR_ENABLE_OPMODEL
-struct EmbeddingOpArgs {
-  ::ttnn::TensorSpec inputSpec;
-  ::ttnn::TensorSpec weightSpec;
-};
-
-llvm::Expected<EmbeddingOpArgs> getEmbeddingOpArgs(
-    ::tt::tt_metal::distributed::MeshDevice *device,
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout) {
-  ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
-      detail::convertToTensorSpec(device, inputShape, inputLayout));
-
-  ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec weightSpec,
-      detail::convertToTensorSpec(device, weightShape, weightLayout));
-
-  return EmbeddingOpArgs{inputSpec, weightSpec};
+::tt::target::ttnn::EmbeddingOpT
+buildEmbeddingOpTFromMLIR(TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::EmbeddingOpT op;
+  op.out = detail::getOutputTensorRefT(outputLayout);
+  return op;
 }
 #endif // TTMLIR_ENABLE_OPMODEL
 
@@ -8941,32 +8929,26 @@ llvm::Expected<OpConstraints> OpModel<EmbeddingOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  llvm::Expected<EmbeddingOpArgs> embeddingOpArgsExp = getEmbeddingOpArgs(
-      device, inputShape, inputLayout, weightShape, weightLayout);
-  if (!embeddingOpArgsExp) {
-    return embeddingOpArgsExp.takeError();
-  }
-  EmbeddingOpArgs &embeddingOpArgs = embeddingOpArgsExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec weightSpec,
+      detail::convertToTensorSpec(device, weightShape, weightLayout));
 
-  // sgholamiTT: For the following arguments, I tried to follow the same pattern
-  // as in the runtime/embedding.cpp. Subject to change in the future.
-  std::optional<int> padToken = std::nullopt;
-  ::ttnn::Layout layout =
-      outputLayout ? (outputLayout.isTiled() ? ::ttnn::TILE_LAYOUT
-                                             : ::ttnn::ROW_MAJOR_LAYOUT)
-                   : (weightLayout.isTiled() ? ::ttnn::TILE_LAYOUT
-                                             : ::ttnn::ROW_MAJOR_LAYOUT);
-  auto embeddingsType = ::ttnn::prim::EmbeddingsType::GENERIC;
-  std::optional<::ttnn::DataType> dtype =
-      outputLayout ? std::make_optional(
-                         conversion::getDataType(outputLayout.getDataType()))
-                   : std::nullopt;
+  ::tt::target::ttnn::EmbeddingOpT embeddingOpNative =
+      buildEmbeddingOpTFromMLIR(outputLayout);
 
   auto embeddingOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::embedding, device, embeddingOpArgs.inputSpec,
-        embeddingOpArgs.weightSpec, padToken, layout, embeddingsType, dtype,
-        detail::getNullableMemoryConfig(outputLayout), std::nullopt);
+    ttnn_op_invoke::EmbeddingOpResult result = ttnn_op_invoke::callEmbedding(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, embeddingOpNative,
+        inputSpec, weightSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected ConstraintQueryResponse from EmbeddingOp query");
+
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(),
@@ -8984,32 +8966,26 @@ llvm::Expected<size_t> OpModel<EmbeddingOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  llvm::Expected<EmbeddingOpArgs> embeddingOpArgsExp = getEmbeddingOpArgs(
-      device, inputShape, inputLayout, weightShape, weightLayout);
-  if (!embeddingOpArgsExp) {
-    return embeddingOpArgsExp.takeError();
-  }
-  EmbeddingOpArgs &embeddingOpArgs = embeddingOpArgsExp.get();
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec weightSpec,
+      detail::convertToTensorSpec(device, weightShape, weightLayout));
 
-  // sgholamiTT: For the following arguments, I tried to follow the same pattern
-  // as in the runtime/embedding.cpp. Subject to change in the future.
-  std::optional<int> padToken = std::nullopt;
-  ::ttnn::Layout layout =
-      outputLayout ? (outputLayout.isTiled() ? ::ttnn::TILE_LAYOUT
-                                             : ::ttnn::ROW_MAJOR_LAYOUT)
-                   : (weightLayout.isTiled() ? ::ttnn::TILE_LAYOUT
-                                             : ::ttnn::ROW_MAJOR_LAYOUT);
-  auto embeddingsType = ::ttnn::prim::EmbeddingsType::GENERIC;
-  std::optional<::ttnn::DataType> dtype =
-      outputLayout ? std::make_optional(
-                         conversion::getDataType(outputLayout.getDataType()))
-                   : std::nullopt;
+  ::tt::target::ttnn::EmbeddingOpT embeddingOpNative =
+      buildEmbeddingOpTFromMLIR(outputLayout);
 
   auto embeddingOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::embedding, device, embeddingOpArgs.inputSpec,
-        embeddingOpArgs.weightSpec, padToken, layout, embeddingsType, dtype,
-        detail::getNullableMemoryConfig(outputLayout), std::nullopt);
+    ttnn_op_invoke::EmbeddingOpResult result = ttnn_op_invoke::callEmbedding(
+        ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, embeddingOpNative,
+        inputSpec, weightSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected RuntimeQueryResponse from EmbeddingOp query");
+
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(embeddingOpQuery);
@@ -9026,9 +9002,7 @@ llvm::Expected<size_t> OpModel<EmbeddingOp>::getOpRuntime(
 ::tt::target::ttnn::EmbeddingBackwardOpT
 buildEmbeddingBackwardOpTFromMLIR(TTNNLayoutAttr outputLayout) {
   ::tt::target::ttnn::EmbeddingBackwardOpT op;
-  if (outputLayout) {
-    op.out = detail::getOutputTensorRefT(outputLayout);
-  }
+  op.out = detail::getOutputTensorRefT(outputLayout);
   return op;
 }
 #endif // TTMLIR_ENABLE_OPMODEL
