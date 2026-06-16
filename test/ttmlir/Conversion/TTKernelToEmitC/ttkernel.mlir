@@ -2565,14 +2565,11 @@ module {
       %temp_addr = arith.constant 262400 : i32
       %tile_size = arith.constant 8 : i32
       %tile = arith.constant 1 : i32
-      // CHECK: %[[VAR:.*]] = "emitc.variable"() <{value = #emitc.opaque<"">}> : () -> !emitc.lvalue<!emitc.opaque<"InterleavedAddrGenFast<true>">>
-      // CHECK: "emitc.member"(%[[VAR]]) <{member = "bank_base_address"}>
-      // CHECK: "emitc.member"(%[[VAR]]) <{member = "page_size"}>
-      // CHECK: "emitc.member"(%[[VAR]]) <{member = "data_format"}>
-      // CHECK: emitc.assign %[[TEMP_ADDR]]
-      // CHECK: emitc.assign %[[TILE_SIZE]]
-      // CHECK: emitc.assign %[[DATA_FORMAT]]
-      // CHECK: %[[ADDR_GEN:.*]] = emitc.load %[[VAR]] : <!emitc.opaque<"InterleavedAddrGenFast<true>">>
+      // CHECK: emitc.verbatim "InterleavedAddrGenFast<true> [[ADDR_GEN_VAR:interleaved_addr_gen_[0-9]+]];"
+      // CHECK: emitc.verbatim "[[ADDR_GEN_VAR]].bank_base_address = {};" args %[[TEMP_ADDR]]
+      // CHECK: emitc.verbatim "[[ADDR_GEN_VAR]].page_size = {};" args %[[TILE_SIZE]]
+      // CHECK: emitc.verbatim "[[ADDR_GEN_VAR]].data_format = {};" args %[[DATA_FORMAT]]
+      // CHECK: %[[ADDR_GEN:.*]] = emitc.literal "[[ADDR_GEN_VAR]]" : !emitc.opaque<"InterleavedAddrGenFast<true>">
       %s = "ttkernel.get_interleaved_addr_gen_fast"(%is_dram, %temp_addr, %tile_size, %data_format) : (i1, i32, i32, !ttkernel.DataFormat) -> !ttkernel.interleaved_addr_gen_fast
       // CHECK: emitc.call_opaque "noc_async_write_tile"(%[[TILE]], %[[ADDR_GEN]], %[[TEMP_ADDR]])
       "ttkernel.noc_async_write_tile"(%tile, %s, %temp_addr) : (i32, !ttkernel.interleaved_addr_gen_fast, i32) -> ()
@@ -2938,6 +2935,33 @@ module {
       // CHECK: %[[LOADED:.*]] = emitc.load %[[SUBSCRIPT]] : <{{.*}}>
       // CHECK: emitc.cast %[[LOADED]] : !emitc.opaque<"tt_l1_ptr uint32_t"> to i32
       %val = ttkernel.load_from_l1(%ptr, %offset) : (!ttkernel.l1_addr_ptr, i32) -> i32
+      return
+    }
+
+    // CHECK-LABEL: func @fabric_connection_manager
+    func.func @fabric_connection_manager() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: emitc.verbatim "experimental::FabricConnectionManager [[FCM:fabric_connection_manager_[0-9]+]];"
+      // CHECK: %[[FCM_LIT:.*]] = emitc.literal "[[FCM]]" : !emitc.opaque<"experimental::FabricConnectionManager">
+      %fcm = "ttkernel.experimental::create_fabric_connection_manager"() : () -> !ttkernel.fabric_connection_manager
+      // CHECK: emitc.call_opaque "experimental::setup_fabric_connections"(%[[FCM_LIT]])
+      "ttkernel.experimental::setup_fabric_connections"(%fcm) : (!ttkernel.fabric_connection_manager) -> ()
+
+      %bank_id = arith.constant 0 : i32
+      %addr_offset = arith.constant 0 : i32
+      %noc_addr = ttkernel.get_noc_addr_from_bank_id(%bank_id, %addr_offset) : (i32, i32) -> !ttkernel.noc_addr
+      %l1_addr = arith.constant 1024 : i32
+      %size = arith.constant 16 : i32
+      %src_dev = arith.constant 0 : i16
+      %mesh_y = arith.constant 0 : index
+      %mesh_x = arith.constant 1 : index
+      // CHECK: emitc.verbatim "std::array<uint32_t, 2> [[POS:logical_mesh_position_[0-9]+]] = std::array<uint32_t, 2>{{.*}};" args
+      // CHECK: %[[POS_LIT:.*]] = emitc.literal "[[POS]]" : !emitc.opaque<"std::array<uint32_t, 2>">
+      // CHECK: call_opaque "experimental::get_device_id_from_logical_mesh_position"(%[[FCM_LIT]], %[[POS_LIT]])
+      %device_id = "ttkernel.experimental::get_device_id_from_logical_mesh_position"(%fcm, %mesh_y, %mesh_x) : (!ttkernel.fabric_connection_manager, index, index) -> i16
+      // CHECK: emitc.call_opaque "experimental::fabric_fast_write_any_len"(%[[FCM_LIT]]
+      "ttkernel.experimental::fabric_fast_write_any_len"(%fcm, %src_dev, %device_id, %noc_addr, %l1_addr, %size) : (!ttkernel.fabric_connection_manager, i16, i16, !ttkernel.noc_addr, i32, i32) -> ()
+      // CHECK: emitc.call_opaque "experimental::close_fabric_connections"(%[[FCM_LIT]])
+      "ttkernel.experimental::close_fabric_connections"(%fcm) : (!ttkernel.fabric_connection_manager) -> ()
       return
     }
 

@@ -1436,18 +1436,15 @@ public:
   using OpConversionPattern<
       ttkernel::GetDeviceIdFromLogicalMeshPositionOp>::OpConversionPattern;
 
-  // helper function thats like call opaque inintializer list
-  Value callOpaqueInitializerList(ConversionPatternRewriter &rewriter,
-                                  Location loc, emitc::OpaqueType type,
-                                  std::string callee,
-                                  SmallVector<Value> initializerList) const {
-    // Create the variable
-    auto var = rewriter.create<emitc::VariableOp>(
-        loc, emitc::LValueType::get(type),
-        emitc::OpaqueAttr::get(rewriter.getContext(), ""));
-
-    // Initialize it via VerbatimOp
-    std::string initStr = "{} = " + callee;
+  // Creates a named value for an opaque initializer list.
+  Value
+  callOpaqueInitializerList(ConversionPatternRewriter &rewriter,
+                            ttkernel::GetDeviceIdFromLogicalMeshPositionOp op,
+                            emitc::OpaqueType type, std::string callee,
+                            SmallVector<Value> initializerList) const {
+    std::string varName =
+        getResultVariableName(op.getResult(), "logical_mesh_position_");
+    std::string initStr = callee + " " + varName + " = " + callee;
     initStr += "{{";
     for (size_t i = 0; i < initializerList.size(); ++i) {
       if (i > 0) {
@@ -1456,25 +1453,27 @@ public:
       initStr += "{}";
     }
     initStr += "};";
-    initializerList.insert(initializerList.begin(), var.getResult());
-    rewriter.create<emitc::VerbatimOp>(loc, initStr, initializerList);
+    rewriter.create<emitc::VerbatimOp>(op.getLoc(), initStr, initializerList);
 
-    // Load the value from the variable
-    auto loadOp = rewriter.create<emitc::LoadOp>(loc, type, var);
-    return loadOp.getResult();
+    return rewriter.create<emitc::LiteralOp>(op.getLoc(), type, varName)
+        .getResult();
   }
 
   LogicalResult
   matchAndRewrite(ttkernel::GetDeviceIdFromLogicalMeshPositionOp op,
                   OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    if (op.getResult().use_empty()) {
+      rewriter.eraseOp(op);
+      return success();
+    }
+
     // Call std::array constructor to create an array out of the indices
     auto arrTypeStr = "std::array<uint32_t, " +
                       std::to_string(adaptor.getPositionIndices().size()) + ">";
     auto arrType = emitc::OpaqueType::get(op.getContext(), arrTypeStr);
-    Value meshPositionArray =
-        callOpaqueInitializerList(rewriter, op.getLoc(), arrType, arrTypeStr,
-                                  adaptor.getPositionIndices());
+    Value meshPositionArray = callOpaqueInitializerList(
+        rewriter, op, arrType, arrTypeStr, adaptor.getPositionIndices());
 
     // Call get_device_id_from_logical_mesh_position
     auto opName = op.getOperation()->getName().getStringRef().drop_front(9);
@@ -1643,47 +1642,35 @@ public:
   LogicalResult
   matchAndRewrite(Op op, ttkernel::GetInterleavedAddrGenFastOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    if (op.getResult().getUses().empty()) {
+    if (op.getResult().use_empty()) {
       rewriter.eraseOp(op);
-    } else {
-      mlir::Type opaqueStructType =
-          this->getTypeConverter()->convertType(op->getResultTypes()[0]);
-
-      mlir::Type lvalueType = emitc::LValueType::get(opaqueStructType);
-
-      // Declare the struct variable and then assign to its members
-      auto varOp = rewriter.create<emitc::VariableOp>(
-          op->getLoc(), lvalueType,
-          emitc::OpaqueAttr::get(op.getContext(), ""));
-
-      // Create an lvalue for all struct field accesses
-      auto lvalueBankBaseAddr = rewriter.create<emitc::MemberOp>(
-          op->getLoc(),
-          emitc::LValueType::get(adaptor.getBankBaseAddress().getType()),
-          "bank_base_address", varOp);
-      auto lvaluePageSize = rewriter.create<emitc::MemberOp>(
-          op->getLoc(), emitc::LValueType::get(adaptor.getPageSize().getType()),
-          "page_size", varOp);
-      auto lvalueDataFormat = rewriter.create<emitc::MemberOp>(
-          op->getLoc(),
-          emitc::LValueType::get(adaptor.getDataFormat().getType()),
-          "data_format", varOp);
-
-      // Assign corresponding values to the struct members
-      rewriter.create<emitc::AssignOp>(op->getLoc(), lvalueBankBaseAddr,
-                                       adaptor.getBankBaseAddress());
-      rewriter.create<emitc::AssignOp>(op->getLoc(), lvaluePageSize,
-                                       adaptor.getPageSize());
-      rewriter.create<emitc::AssignOp>(op->getLoc(), lvalueDataFormat,
-                                       adaptor.getDataFormat());
-
-      // Load the value from the lvalue variable
-      auto loadOp =
-          rewriter.create<emitc::LoadOp>(op->getLoc(), opaqueStructType, varOp);
-
-      // Replace the original operation with the loaded value so it can be used.
-      rewriter.replaceOp(op, loadOp.getResult());
+      return success();
     }
+
+    mlir::Type opaqueStructType =
+        this->getTypeConverter()->convertType(op->getResultTypes()[0]);
+    if (!opaqueStructType) {
+      return rewriter.notifyMatchFailure(op, "Failed to convert result type");
+    }
+
+    std::string varName =
+        getResultVariableName(op.getResult(), "interleaved_addr_gen_");
+    rewriter.create<emitc::VerbatimOp>(
+        op.getLoc(), "InterleavedAddrGenFast<true> " + varName + ";");
+    rewriter.create<emitc::VerbatimOp>(
+        op.getLoc(), varName + ".bank_base_address = {};",
+        ValueRange{adaptor.getBankBaseAddress()});
+    rewriter.create<emitc::VerbatimOp>(op.getLoc(),
+                                       varName + ".page_size = {};",
+                                       ValueRange{adaptor.getPageSize()});
+    rewriter.create<emitc::VerbatimOp>(op.getLoc(),
+                                       varName + ".data_format = {};",
+                                       ValueRange{adaptor.getDataFormat()});
+
+    rewriter.replaceOp(op, rewriter
+                               .create<emitc::LiteralOp>(
+                                   op.getLoc(), opaqueStructType, varName)
+                               .getResult());
     return success();
   }
 };
@@ -1702,7 +1689,7 @@ public:
   LogicalResult
   matchAndRewrite(Op op, ttkernel::TensorAccessorArgsOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    if (op.getResult().getUses().empty()) {
+    if (op.getResult().use_empty()) {
       rewriter.eraseOp(op);
       return success();
     }
@@ -1770,24 +1757,25 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     if (op.getResult().getUses().empty()) {
       rewriter.eraseOp(op);
-    } else {
-      mlir::Type opaqueStructType =
-          this->getTypeConverter()->convertType(op->getResultTypes()[0]);
-
-      mlir::Type lvalueType = emitc::LValueType::get(opaqueStructType);
-
-      // Declare the struct variable
-      auto varOp = rewriter.create<emitc::VariableOp>(
-          op->getLoc(), lvalueType,
-          emitc::OpaqueAttr::get(op.getContext(), ""));
-
-      // Load the value from the lvalue variable
-      auto loadOp =
-          rewriter.create<emitc::LoadOp>(op->getLoc(), opaqueStructType, varOp);
-
-      // Replace the original operation with the loaded value so it can be used.
-      rewriter.replaceOp(op, loadOp.getResult());
+      return success();
     }
+
+    mlir::Type opaqueStructType =
+        this->getTypeConverter()->convertType(op->getResultTypes()[0]);
+    auto opaqueType =
+        mlir::dyn_cast_if_present<emitc::OpaqueType>(opaqueStructType);
+    if (!opaqueType) {
+      return rewriter.notifyMatchFailure(op, "Failed to convert result type");
+    }
+
+    std::string varName =
+        getResultVariableName(op.getResult(), "fabric_connection_manager_");
+    rewriter.create<emitc::VerbatimOp>(
+        op.getLoc(), (opaqueType.getValue() + " " + varName + ";").str());
+    rewriter.replaceOp(op, rewriter
+                               .create<emitc::LiteralOp>(
+                                   op.getLoc(), opaqueStructType, varName)
+                               .getResult());
     return success();
   }
 };
