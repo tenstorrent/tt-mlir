@@ -1591,7 +1591,7 @@ public:
         mlir::cast<RankedTensorType>(slice.getInput().getType()).getShape();
 
     int64_t narrowedDim = -1; // the single slice dim that is narrowed
-    int64_t slice_from = 0, slice_to = 0; // [slice_from:slice_to) on that dim
+    int64_t sliceFrom = 0, sliceTo = 0; // [sliceFrom:sliceTo) on that dim
     for (int64_t dim = 0; dim < sliceRank; ++dim) {
       int64_t begin = mlir::cast<IntegerAttr>(sliceBegins[dim]).getInt();
       int64_t end = mlir::cast<IntegerAttr>(sliceEnds[dim]).getInt();
@@ -1613,8 +1613,8 @@ public:
         return rewriter.notifyMatchFailure(slice, "more than one narrowed dim");
       }
       narrowedDim = dim;
-      slice_from = begin;
-      slice_to = end;
+      sliceFrom = begin;
+      sliceTo = end;
     }
     if (narrowedDim != sliceRowDim && narrowedDim != sliceColDim) {
       return rewriter.notifyMatchFailure(slice, "slice not on row or col dim");
@@ -1622,7 +1622,7 @@ public:
 
     bool sliceRows = (narrowedDim == sliceRowDim);
     int64_t narrowedOutDim = sliceRows ? matmulRowDim : matmulColDim;
-    if (slice_to - slice_from >= matmulShape[narrowedOutDim]) {
+    if (sliceTo - sliceFrom >= matmulShape[narrowedOutDim]) {
       return rewriter.notifyMatchFailure(slice, "slice does not narrow");
     }
 
@@ -1640,16 +1640,16 @@ public:
       operandDim = matmul.getTransposeB() ? operandRank - 2 : operandRank - 1;
     }
 
-    // Build slice(operand) narrowing only operandDim to [slice_from:slice_to).
+    // Build slice(operand) narrowing only operandDim to [sliceFrom:sliceTo).
     ArrayRef<int64_t> operandShape = operandType.getShape();
     SmallVector<int32_t> operandBegins(operandRank, 0);
     SmallVector<int32_t> operandEnds(operandShape.begin(), operandShape.end());
     SmallVector<int32_t> operandSteps(operandRank, 1);
-    operandBegins[operandDim] = static_cast<int32_t>(slice_from);
-    operandEnds[operandDim] = static_cast<int32_t>(slice_to);
+    operandBegins[operandDim] = static_cast<int32_t>(sliceFrom);
+    operandEnds[operandDim] = static_cast<int32_t>(sliceTo);
 
     SmallVector<int64_t> operandSlicedShape(operandShape);
-    operandSlicedShape[operandDim] = slice_to - slice_from;
+    operandSlicedShape[operandDim] = sliceTo - sliceFrom;
     auto operandSlicedType = RankedTensorType::get(
         operandSlicedShape, operandType.getElementType(),
         operandType.getEncoding());
@@ -1659,9 +1659,9 @@ public:
         rewriter.getI32ArrayAttr(operandEnds),
         rewriter.getI32ArrayAttr(operandSteps));
 
-    // New, narrowed matmul: the produced output dim becomes slice_to-slice_from.
+    // New, narrowed matmul: the produced output dim becomes sliceTo-sliceFrom.
     SmallVector<int64_t> narrowedOutShape(matmulShape);
-    narrowedOutShape[narrowedOutDim] = slice_to - slice_from;
+    narrowedOutShape[narrowedOutDim] = sliceTo - sliceFrom;
     auto narrowedOutType = RankedTensorType::get(
         narrowedOutShape, matmulType.getElementType(), matmulType.getEncoding());
     Value newMatmulA = sliceRows ? operandSlice.getResult() : matmul.getA();
