@@ -408,9 +408,13 @@ createOp(FlatbufferObjectCache &cache, ArangeOp op) {
 
                                   /*local_shape*/ std::nullopt);
 
+  // start/end/step are signless I64Attr (getters return uint64_t); cast through
+  // int64_t so negative bounds/step are not turned into huge float values.
   return ::tt::target::ttnn::CreateArangeOp(
-      *cache.fbb, device /* optional */, static_cast<float>(op.getStart()),
-      static_cast<float>(op.getEnd()), static_cast<float>(op.getStep()),
+      *cache.fbb, device /* optional */,
+      static_cast<float>(static_cast<int64_t>(op.getStart())),
+      static_cast<float>(static_cast<int64_t>(op.getEnd())),
+      static_cast<float>(static_cast<int64_t>(op.getStep())),
       dtype /* optional */, layout /* optional */, memoryConfig /* optional */,
       output);
 }
