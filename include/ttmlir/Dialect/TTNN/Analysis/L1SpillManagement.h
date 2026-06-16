@@ -196,6 +196,11 @@ public:
   MemoryTracker &getMemoryTracker() { return memoryTracker; }
   const MemoryTracker &getMemoryTracker() const { return memoryTracker; }
 
+  /// True if run() hit an unrecoverable condition and emitted an error. The
+  /// driving pass must signalPassFailure() when this is set (emitError alone
+  /// does not fail the pass).
+  bool hasFailed() const { return compilationFailed; }
+
 private:
   func::FuncOp func;
   ttcore::GridAttr deviceGrid;
@@ -203,6 +208,9 @@ private:
 
   /// Precomputed CB fragmentation cushion (bytes). See kCBFragCushionFraction.
   uint64_t cbFragCushion;
+
+  /// Set when run() emits an error for an unrecoverable condition.
+  bool compilationFailed = false;
 
   /// Observer (NullObject pattern: always non-null).
   std::unique_ptr<L1SpillObserver> observer_;

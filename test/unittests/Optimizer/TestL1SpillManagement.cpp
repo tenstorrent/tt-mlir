@@ -3,6 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "L1SpillTestFixture.h"
+
+#include "mlir/IR/Diagnostics.h"
+
 #include "gtest/gtest.h"
 
 using namespace mlir::tt::ttnn::test;
@@ -699,4 +702,116 @@ TEST_F(ViewEligibleReshapeAliasTest,
   EXPECT_EQ(countSpills(), 0u);
   EXPECT_FALSE(wasSpilled(opA->getResult(0)))
       << "opA must stay in L1; reshape aliases its slot";
+}
+
+//===----------------------------------------------------------------------===//
+// ReshardCbOverlapTest
+//
+// Exercises the address simulation end to end. Tensors are placed top-down, so
+// the inserted reshard occupies the top `reshardL1` bytes and pushes cons's
+// output down to [budget-reshardL1-consOut, budget-reshardL1]. cons's cushioned
+// CB region (grows bottom-up) is sized to land inside that gap: it overlaps the
+// pushed-down output yet stays clear of the reshard slot itself, so the reshard
+// input remains valid in memory — the conflict is purely the output placement
+// the reshard forced. The pass can't evict the protected reshard, so it demotes
+// cons. Without the fix the reshard isn't tracked, the output sits at the top
+// clear of the CB, and cons stays L1 — so this fails without the fix.
+//===----------------------------------------------------------------------===//
+
+class ReshardCbOverlapTest : public L1SpillTestFixture {};
+
+TEST_F(ReshardCbOverlapTest, TrackedReshardSlotForcesConsumerDemotion) {
+  l1BudgetPerCore = 1300 * kKiB;
+  llvm::SmallVector<int64_t> shape = {1, 1, 1024, 1024};
+  auto l1 = makeL1Sharded(shape);
+  auto tt = tensorType(shape, l1);
+
+  // The reshard restores prod's L1 layout, so it occupies that layout's
+  // per-core footprint: a 1024x1024 bf16 tensor (2 MiB) height-sharded across
+  // the 8-core grid -> 256 KiB per core (~20% of the 1300-KiB budget).
+  uint64_t reshardL1 = perCoreL1Usage(l1);
+  uint64_t cushion = l1BudgetPerCore / 10; // kCBFragCushionFraction
+  uint64_t consOut = 50 * kKiB;
+  // Centre the cushioned CB in the gap (output, reshard) the reshard opens up:
+  // cb + cushion = budget - reshardL1 - consOut/2 sits above the pushed-down
+  // output (budget - reshardL1 - consOut) and below the reshard slot
+  // (budget - reshardL1). Untracked, the output sits at the top and clears it.
+  uint64_t cbPeak = l1BudgetPerCore - reshardL1 - consOut / 2 - cushion;
+
+  auto args = beginFunc({tt});
+  auto *prod = addUnary(args[0], tt, /*l1UsageBytes=*/800 * kKiB);
+  auto *trigger = addUnary(args[0], tt, /*l1UsageBytes=*/800 * kKiB);
+  auto *cons = addUnary(prod->getResult(0), tt, /*l1UsageBytes=*/consOut);
+  setL1Usage(cons, consOut, /*cb=*/cbPeak);
+  setRequiresShardedInput(cons);
+  finishFunc({trigger->getResult(0), cons->getResult(0)});
+
+  auto [obs] = run();
+
+  // prod is the sole farthest-last-use victim: one eviction, then spilled.
+  ASSERT_EQ(obs->evictions.size(), 1u);
+  EXPECT_EQ(obs->evictions[0].victim, prod);
+  ASSERT_TRUE(wasSpilled(prod->getResult(0)));
+
+  // cons reads the inserted reshard; that tracked slot pushed cons's output
+  // into the CB region, so the pass demotes cons to DRAM.
+  ASSERT_TRUE(mlir::isa_and_nonnull<mlir::tt::ttnn::ToMemoryConfigOp>(
+      cons->getOperand(0).getDefiningOp()));
+  EXPECT_FALSE(resultIsL1(cons->getResult(0)))
+      << "cons must be demoted: the tracked reshard pushed its output into the "
+         "CB region";
+}
+
+//===----------------------------------------------------------------------===//
+// ReshardCbOverlapTest.OverlapWithReshardInputFailsCompilation
+//
+// The unresolvable counterpart to the demotion case above. cons is CB-heavy:
+// its L1-output CB overlaps its pushed-down output, so the pass demotes cons to
+// DRAM (as above). But its DRAM-output CB is larger still (locally-allocated
+// CBs grow for DRAM outputs) and overlaps the reshard slot *itself* — which the
+// pass can neither evict nor relocate. So even after demotion the op cannot be
+// placed. The pass must fail compilation with a clear error rather than emit IR
+// that overflows L1 at runtime.
+//===----------------------------------------------------------------------===//
+
+TEST_F(ReshardCbOverlapTest, OverlapWithReshardInputFailsCompilation) {
+  l1BudgetPerCore = 1300 * kKiB;
+  llvm::SmallVector<int64_t> shape = {1, 1, 1024, 1024};
+  auto l1 = makeL1Sharded(shape);
+  auto tt = tensorType(shape, l1);
+
+  uint64_t reshardL1 = perCoreL1Usage(l1); // 256 KiB at the top of L1
+  uint64_t cushion = l1BudgetPerCore / 10;
+  uint64_t consOut = 50 * kKiB;
+  // L1 CB overlaps the pushed-down output (forces the demote, as above).
+  uint64_t cbL1 = l1BudgetPerCore - reshardL1 - consOut / 2 - cushion;
+  // DRAM CB lands midway between the reshard slot (budget - reshardL1) and the
+  // top of L1: it overlaps the reshard itself yet still fits the budget (so
+  // this is genuinely "CB clashes with the reshard input", not "CB too big").
+  uint64_t cbDram = l1BudgetPerCore - reshardL1 / 2 - cushion;
+
+  auto args = beginFunc({tt});
+  auto *prod = addUnary(args[0], tt, /*l1UsageBytes=*/800 * kKiB);
+  auto *trigger = addUnary(args[0], tt, /*l1UsageBytes=*/800 * kKiB);
+  auto *cons = addUnary(prod->getResult(0), tt, /*l1UsageBytes=*/consOut);
+  setL1Usage(cons, consOut, /*cb=*/cbL1);
+  setDramCBPeak(cons, cbDram);
+  setRequiresShardedInput(cons);
+  finishFunc({trigger->getResult(0), cons->getResult(0)});
+
+  // Capture the emitted diagnostic instead of letting it print to stderr.
+  std::string diag;
+  mlir::ScopedDiagnosticHandler handler(&context, [&](mlir::Diagnostic &d) {
+    if (d.getSeverity() == mlir::DiagnosticSeverity::Error) {
+      diag += d.str();
+    }
+    return mlir::success();
+  });
+
+  run();
+
+  EXPECT_TRUE(pass->hasFailed())
+      << "CB overlapping the un-evictable reshard input must fail compilation";
+  EXPECT_NE(diag.find("cannot be placed"), std::string::npos)
+      << "expected a clear placement error; got: " << diag;
 }
