@@ -48,9 +48,8 @@ LogicalResult checkForIllegalSemaphoreOps(Block *block) {
   return success();
 }
 
-LogicalResult
-checkBackendDatamovementProcessorSupport(ModuleOp moduleOp,
-                                         llvm::StringRef backend) {
+LogicalResult checkBackendDmCoreSupport(ModuleOp moduleOp,
+                                        llvm::StringRef backend) {
   auto systemDesc = moduleOp->getAttrOfType<ttcore::SystemDescAttr>(
       ttcore::SystemDescAttr::name);
   if (systemDesc && systemDesc.getChipDescs().front().getArch().getValue() ==
@@ -61,16 +60,15 @@ checkBackendDatamovementProcessorSupport(ModuleOp moduleOp,
 
   auto checkThread = [&](Operation *op, ThreadAttr thread) {
     if (thread.getThreadType() == ThreadType::Datamovement &&
-        thread.getProcessorIndex() >= 2) {
-      op->emitError() << "datamovement processor indices greater than 1 are "
-                         "not supported by "
+        thread.getDmCoreIndex() >= 2) {
+      op->emitError() << "DM core indices greater than 1 are not supported by "
                       << backend << " lowering yet";
       return WalkResult::interrupt();
     }
     return WalkResult::advance();
   };
 
-  WalkResult unsupportedProcessor = moduleOp->walk([&](Operation *op) {
+  WalkResult unsupportedDmCore = moduleOp->walk([&](Operation *op) {
     if (auto generic = dyn_cast<GenericOp>(op)) {
       for (Attribute threadAttr : generic.getThreads()) {
         if (checkThread(op, cast<ThreadAttr>(threadAttr)).wasInterrupted()) {
@@ -89,7 +87,7 @@ checkBackendDatamovementProcessorSupport(ModuleOp moduleOp,
     return WalkResult::advance();
   });
 
-  return unsupportedProcessor.wasInterrupted() ? failure() : success();
+  return unsupportedDmCore.wasInterrupted() ? failure() : success();
 }
 
 } // namespace mlir::tt::d2m::utils

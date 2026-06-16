@@ -24,6 +24,8 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GroupNormChannelPadRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/IntegerProdOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MoeComputeRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MoeGptLayoutRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PadHighDimRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern.h"
@@ -36,7 +38,6 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionDecodeAttentionSinkRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScatterOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SliceStaticOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/TopKRouterGptDecompositionRewritePattern.h"
@@ -129,6 +130,14 @@ static bool workaroundInputOperand(
       inputWorkaroundResults.tensorBufferTypeResult.targetValue,
       inputWorkaroundResults.tensorMemoryLayoutResult.targetValue,
       inputWorkaroundResults.tensorDataTypeResult.targetValue, "_workaround");
+
+  // When the operand is a const-eval'able constant whose L1 residency is
+  // intended, tag the inserted op so ConstEvalHoist permits hoisting it
+  // despite the L1-resident result.
+  if (inputWorkaround.allowL1ConstEval) {
+    insertedToLayoutOpValue.getDefiningOp()->setAttr(
+        utils::g_ConstEvalAllowedAttrName, rewriter.getUnitAttr());
+  }
 
   // Insert to layout op between the current op and the input operand
   // to convert the input operand to the desired tensor layout, buffer type.
@@ -640,7 +649,6 @@ public:
           workarounds::decomposition::TTNNAllReduceReshapeWorkarounds,
           workarounds::decomposition::TTNNAllGatherWorkarounds,
           workarounds::decomposition::TTNNReduceScatterWorkarounds,
-          workarounds::decomposition::TTNNScatterWorkarounds,
           workarounds::decomposition::EmbeddingOpSqueezeWeightRewritePattern,
           workarounds::decomposition::GroupNormChannelPadRewritePattern,
           workarounds::decomposition::GroupNormAffineReshapeRewritePattern,
@@ -678,8 +686,11 @@ public:
           workarounds::decomposition::TopKRouterGptDecompositionRewritePattern,
           workarounds::decomposition::
               AllToAllDispatchMetadataDrainCoreRewritePattern,
+          workarounds::decomposition::MoeComputeRewritePattern,
           workarounds::decomposition::SliceStaticOpRewritePattern,
-          workarounds::decomposition::ConcatOpRewritePattern>(&getContext());
+          workarounds::decomposition::ConcatOpRewritePattern,
+          workarounds::decomposition::MoeGptLayoutRewritePattern>(
+          &getContext());
       patterns.add<workarounds::decomposition::LinearOpRewritePattern>(
           &getContext(), /*benefit=*/2);
 
@@ -755,5 +766,10 @@ const std::set<mlir::StringRef>
         ttnn::TopKOp::getOperationName(),
         // PrepareConv3dWeightsOp is needed for conv3d and it requires ROW_MAJOR
         // layout. See #8411.
-        ttnn::PrepareConv3dWeightsOp::getOperationName()};
+        ttnn::PrepareConv3dWeightsOp::getOperationName(),
+        // The moe_compute weight packers and the op itself require
+        // layout and data type workarounds.
+        ttnn::PrepareMoEComputeW0W1WeightsOp::getOperationName(),
+        ttnn::PrepareMoEComputeW2WeightsOp::getOperationName(),
+        ttnn::MoeComputeOp::getOperationName()};
 } // namespace mlir::tt::ttnn

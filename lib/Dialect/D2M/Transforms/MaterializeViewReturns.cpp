@@ -13,7 +13,10 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/PatternMatch.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "mlir/Transforms/WalkPatternRewriteDriver.h"
+
+#include <type_traits>
+#include <utility>
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MMATERIALIZEVIEWRETURNS
@@ -103,6 +106,71 @@ Value materializeView(OpBuilder &builder, Location loc, Value viewResult) {
   return genericOp.getResult(0);
 }
 
+class MaterializeReturnViewPattern : public OpRewritePattern<func::ReturnOp> {
+public:
+  using OpRewritePattern<func::ReturnOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(func::ReturnOp returnOp,
+                                PatternRewriter &rewriter) const override {
+    rewriter.setInsertionPoint(returnOp);
+    SmallVector<std::pair<unsigned, Value>> replacements;
+
+    // Inspect each return operand to determine if it needs materialization.
+    for (OpOperand &opOperand : returnOp->getOpOperands()) {
+      Operation *definingOp = opOperand.get().getDefiningOp();
+      if (!isViewOp(definingOp)) {
+        continue;
+      }
+
+      // Insert a generic op to materialize the view before returning. This
+      // ensures the tensor transformation represented by the view actually
+      // occurs, rather than just being a symbolic operation.
+      Value materialized =
+          materializeView(rewriter, returnOp.getLoc(), opOperand.get());
+      replacements.emplace_back(opOperand.getOperandNumber(), materialized);
+    }
+
+    if (replacements.empty()) {
+      return failure();
+    }
+
+    rewriter.modifyOpInPlace(returnOp, [&]() {
+      for (auto [operandNumber, materialized] : replacements) {
+        returnOp->setOperand(operandNumber, materialized);
+      }
+    });
+    return success();
+  }
+};
+
+template <typename OpTy>
+class MaterializeToHostViewPattern : public OpRewritePattern<OpTy> {
+public:
+  using OpRewritePattern<OpTy>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(OpTy op,
+                                PatternRewriter &rewriter) const override {
+    if constexpr (std::is_same_v<OpTy, d2m::ToLayoutOp>) {
+      if (!op.isDeviceToHost()) {
+        return failure();
+      }
+    }
+
+    Value toHostInput = op->getOperand(0);
+    Operation *inputDefiningOp = toHostInput.getDefiningOp();
+    if (!isViewOp(inputDefiningOp)) {
+      return failure();
+    }
+
+    // Materialize the view before the device-to-host transfer.
+    rewriter.setInsertionPoint(op);
+    Value materialized = materializeView(rewriter, op->getLoc(), toHostInput);
+    // Update the ToHostOp/ToLayoutOp to use the materialized value.
+    rewriter.modifyOpInPlace(op, [&]() { op->setOperand(0, materialized); });
+    return success();
+  }
+};
+
 class MaterializeViewReturnsPass
     : public impl::D2MMaterializeViewReturnsBase<MaterializeViewReturnsPass> {
 public:
@@ -110,53 +178,11 @@ public:
       MaterializeViewReturnsPass>::D2MMaterializeViewReturnsBase;
 
   void runOnOperation() final {
-    ModuleOp module = getOperation();
-    OpBuilder builder(&getContext());
-
-    // Process each function in the module to find unmaterialized views.
-    module.walk([&](func::FuncOp funcOp) {
-      // Case 1: Direct view return (should not happen with proper pipelines).
-      funcOp.walk([&](func::ReturnOp returnOp) {
-        builder.setInsertionPoint(returnOp);
-
-        // Inspect each return operand to determine if it needs materialization.
-        for (OpOperand &opOperand : returnOp->getOpOperands()) {
-          Operation *definingOp = opOperand.get().getDefiningOp();
-          if (isViewOp(definingOp)) {
-            // Insert a generic op to materialize the view before returning.
-            // This ensures the tensor transformation represented by the view
-            // actually occurs, rather than just being a symbolic operation.
-            Value materialized =
-                materializeView(builder, returnOp.getLoc(), opOperand.get());
-            opOperand.set(materialized);
-          }
-        }
-      });
-
-      // Case 2: View consumed by ToHostOp (or ToLayoutOp that is
-      // device-to-host). This can happen before the return, or in the middle of
-      // the function for the return-to-host-then-fetch-back pattern.
-      // Materialize the view BEFORE the device-to-host transfer.
-      funcOp.walk([&](Operation *op) {
-        auto toLayoutOp = mlir::dyn_cast_if_present<d2m::ToLayoutOp>(op);
-        bool isToHostOp = mlir::isa_and_nonnull<d2m::ToHostOp>(op) ||
-                          (toLayoutOp && toLayoutOp.isDeviceToHost());
-
-        if (isToHostOp) {
-          Value toHostInput = op->getOperand(0);
-          Operation *inputDefiningOp = toHostInput.getDefiningOp();
-
-          if (isViewOp(inputDefiningOp)) {
-            // Materialize the view before the device-to-host transfer.
-            builder.setInsertionPoint(op);
-            Value materialized =
-                materializeView(builder, op->getLoc(), toHostInput);
-            // Update the ToHostOp to use the materialized value.
-            op->setOperand(0, materialized);
-          }
-        }
-      });
-    });
+    RewritePatternSet patterns(&getContext());
+    patterns.add<MaterializeReturnViewPattern,
+                 MaterializeToHostViewPattern<d2m::ToHostOp>,
+                 MaterializeToHostViewPattern<d2m::ToLayoutOp>>(&getContext());
+    walkAndApplyPatterns(getOperation(), std::move(patterns));
   }
 };
 

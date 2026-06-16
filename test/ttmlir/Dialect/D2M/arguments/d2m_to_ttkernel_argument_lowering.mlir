@@ -80,7 +80,7 @@ func.func private @datamovement_kernel1() attributes {d2m.thread = #d2m.thread<d
 #map1 = affine_map<() -> ()>
 
 // CHECK: ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = local_semaphore, operand_index = 5>, <arg_type = local_semaphore, operand_index = 6>, <arg_type = buffer_address, operand_index = 0>]>
-func.func private @datamovement_kernel4() attributes {d2m.thread = #d2m.thread<datamovement, processor = 1>, tt.function_type = "kernel"} {
+func.func private @datamovement_kernel4() attributes {d2m.thread = #d2m.thread<datamovement, dm_core = 1>, tt.function_type = "kernel"} {
   // CHECK: %0 = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<1, !ttcore.tile<32x32, f32>>
   // CHECK: %1 = ttkernel.get_compile_time_arg_val(1) : () -> i32
   // CHECK: %2 = ttkernel.get_semaphore(%1) : (i32) -> !ttkernel.local_semaphore

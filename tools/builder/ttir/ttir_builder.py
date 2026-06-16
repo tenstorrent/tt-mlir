@@ -168,19 +168,6 @@ class TTIRBuilder(Builder):
     ) -> ttnn.ir.TTNNLayoutAttr:
         return None
 
-    def _to_dispatch_layout_for_golden(
-        self, tensor: GoldenMapTensor
-    ) -> GoldenMapTensor:
-        # Support both legacy [B, S, 1, H] and current [B, 1, S, H] layouts.
-        if tensor.shape[1] == 1:
-            # [B, 1, S, C] -> [1, B, S, C]
-            return tensor.permute(1, 0, 2, 3)
-        if tensor.shape[2] == 1:
-            # [B, S, 1, C] -> [1, B, S, C]
-            return tensor.permute(2, 0, 1, 3)
-        # Fallback to preserve historical behavior when no singleton axis is present.
-        return tensor.unsqueeze(0)
-
     # ----- Public Op Generators ----
 
     ############### ttir.AllToAllOp ###############
@@ -2120,6 +2107,122 @@ class TTIRBuilder(Builder):
                 ]
 
         return cumsum_module, cumsum_builder
+
+    ############### ttir.CumProdOp ###############
+
+    @tag(ttir.CumProdOp)
+    def cumprod(
+        self,
+        in0: Operand,
+        dim: int,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.cumprod)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        dim_attr = IntegerAttr.get(IntegerType.get_signless(64), dim)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(input0, dim_attr, mlir_output_type)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(result, in0, dim_attr, loc=loc)
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.CumProdOp)
+    def cumprod_parser(
+        self,
+        old_op: ttir.CumProdOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.cumprod_parser)
+        in0 = global_dict[old_op.input]
+        result = old_op.result.type
+        dim_attr = old_op.dim
+
+        new_op = ttir_op(
+            result,
+            in0,
+            dim_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0, dim_attr, old_op.result.type.element_type
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.CumProdOp)
+    def cumprod_split(
+        self,
+        old_op: ttir.CumProdOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.cumprod_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            cumprod_module = Module.create()
+            cumprod_builder = TTIRBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+
+            with InsertionPoint(cumprod_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="cumprod_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(result, in0, old_op.dim, loc=old_op.location)
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    cumprod_builder._set_golden_tensor(new_op_result, old_op_result)
+                    input0 = self._get_golden_tensor(old_op.input)
+                    cumprod_builder._set_golden_tensor(in0, input0)
+                    cumprod_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                cumprod_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return cumprod_module, cumprod_builder
 
     ############### ttir.OnesOp ###############
 
@@ -16886,6 +16989,420 @@ class TTIRBuilder(Builder):
                 ]
 
         return token_remap_module, token_remap_builder
+
+    ############### ttir.MoeGptOp ###############
+
+    @tag(ttir.MoeGptOp)
+    def moe_gpt(
+        self,
+        input_tensor: Operand,
+        expert_indices: Operand,
+        expert_scores: Operand,
+        expert_mapping: Operand,
+        w0_w1_tensor: Operand,
+        w2_tensor: Operand,
+        output_height_shard_dim: int = 4,
+        output_width_shard_dim: int = 3,
+        hidden_size: int = 2880,
+        cluster_axis: Optional[int] = None,
+        token_counts_shape: Optional[Shape] = None,
+        token_counts_type: Optional[torch.dtype] = None,
+        activation_records_shape: Optional[Shape] = None,
+        activation_records_type: Optional[torch.dtype] = None,
+        token_indices_shape: Optional[Shape] = None,
+        token_indices_type: Optional[torch.dtype] = None,
+        tilize_out_shape: Optional[Shape] = None,
+        tilize_out_type: Optional[torch.dtype] = None,
+        tilize_out_rm_shape: Optional[Shape] = None,
+        tilize_out_rm_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> Tuple[OpResult, OpResult, OpResult, OpResult, OpResult]:
+        assert token_counts_shape is not None, "token_counts_shape required"
+        assert token_counts_type is not None, "token_counts_type required"
+        assert activation_records_shape is not None, "activation_records_shape required"
+        assert activation_records_type is not None, "activation_records_type required"
+        assert token_indices_shape is not None, "token_indices_shape required"
+        assert token_indices_type is not None, "token_indices_type required"
+        assert tilize_out_shape is not None, "tilize_out_shape required"
+        assert tilize_out_type is not None, "tilize_out_type required"
+        assert tilize_out_rm_shape is not None, "tilize_out_rm_shape required"
+        assert tilize_out_rm_type is not None, "tilize_out_rm_type required"
+
+        mlir_tc_type = self._get_type_from_torch_dtype(token_counts_type)
+        mlir_act_type = self._get_type_from_torch_dtype(activation_records_type)
+        mlir_ti_type = self._get_type_from_torch_dtype(token_indices_type)
+        mlir_tile_type = self._get_type_from_torch_dtype(tilize_out_type)
+        mlir_tile_rm_type = self._get_type_from_torch_dtype(tilize_out_rm_type)
+
+        token_counts_result = self._create_ranked_tensor_type(
+            token_counts_shape, mlir_tc_type
+        )
+        activation_records_result = self._create_ranked_tensor_type(
+            activation_records_shape, mlir_act_type
+        )
+        token_indices_result = self._create_ranked_tensor_type(
+            token_indices_shape, mlir_ti_type
+        )
+        tilize_out_result = self._create_ranked_tensor_type(
+            tilize_out_shape, mlir_tile_type
+        )
+        tilize_out_rm_result = self._create_ranked_tensor_type(
+            tilize_out_rm_shape, mlir_tile_rm_type
+        )
+
+        ohs_attr = IntegerAttr.get(
+            IntegerType.get_unsigned(32), output_height_shard_dim
+        )
+        ows_attr = IntegerAttr.get(IntegerType.get_unsigned(32), output_width_shard_dim)
+        hs_attr = IntegerAttr.get(IntegerType.get_unsigned(32), hidden_size)
+        ca_attr = (
+            IntegerAttr.get(IntegerType.get_unsigned(32), cluster_axis)
+            if cluster_axis is not None
+            else None
+        )
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.unknown(self._ctx) if loc == "" else Location.name(loc)
+
+        op = ttir.MoeGptOp(
+            token_counts_result,
+            activation_records_result,
+            token_indices_result,
+            tilize_out_result,
+            tilize_out_rm_result,
+            input_tensor,
+            expert_indices,
+            expert_scores,
+            expert_mapping,
+            w0_w1_tensor,
+            w2_tensor,
+            output_height_shard_dim=ohs_attr,
+            output_width_shard_dim=ows_attr,
+            hidden_size=hs_attr,
+            cluster_axis=ca_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        # Compute golden reference for all 5 outputs.
+        in0 = self._get_golden_tensor(input_tensor)
+        in1 = self._get_golden_tensor(expert_indices)
+        in2 = self._get_golden_tensor(expert_scores)
+        in3 = self._get_golden_tensor(expert_mapping)
+        nwc_attr = IntegerAttr.get(IntegerType.get_unsigned(32), tilize_out_shape[0])
+        ca_golden_attr = (
+            ca_attr
+            if ca_attr is not None
+            else IntegerAttr.get(IntegerType.get_unsigned(32), 0)
+        )
+        raw_w0, raw_w1, raw_w2 = self._moe_gpt_raw_weights
+        op_golden_function = get_golden_function(ttir.MoeGptOp)
+        (
+            golden_tc,
+            golden_act,
+            golden_et,
+            golden_tile,
+            golden_tile_rm,
+        ) = op_golden_function(
+            in0,
+            in1,
+            in2,
+            in3,
+            raw_w0,
+            raw_w1,
+            raw_w2,
+            hs_attr,
+            ca_golden_attr,
+            nwc_attr,
+            mlir_tc_type,
+            mlir_act_type,
+            mlir_ti_type,
+            mlir_tile_type,
+            mlir_tile_rm_type,
+            tilize_out_shape=tilize_out_shape,
+        )
+        self._set_golden_tensor(op.token_counts, golden_tc)
+        self._set_golden_tensor(op.activation_records, golden_act)
+        self._set_golden_tensor(op.token_indices, golden_et)
+        self._set_golden_tensor(op.tilize_out, golden_tile)
+        self._set_golden_tensor(op.tilize_out_rm, golden_tile_rm)
+
+        return (
+            op.token_counts,
+            op.activation_records,
+            op.token_indices,
+            op.tilize_out,
+            op.tilize_out_rm,
+        )
+
+    @parse(ttir.MoeGptOp)
+    def moe_gpt_parser(
+        self,
+        old_op: ttir.MoeGptOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.moe_gpt_parser)
+
+        input_tensor = global_dict[old_op.input_tensor]
+        expert_indices = global_dict[old_op.expert_indices]
+        expert_scores = global_dict[old_op.expert_scores]
+        expert_mapping = global_dict[old_op.expert_mapping]
+        w0_w1_tensor = global_dict[old_op.w0_w1_tensor]
+        w2_tensor = global_dict[old_op.w2_tensor]
+
+        new_op = ttir_op(
+            old_op.token_counts.type,
+            old_op.activation_records.type,
+            old_op.token_indices.type,
+            old_op.tilize_out.type,
+            old_op.tilize_out_rm.type,
+            input_tensor,
+            expert_indices,
+            expert_scores,
+            expert_mapping,
+            w0_w1_tensor,
+            w2_tensor,
+            old_op.output_height_shard_dim,
+            old_op.output_width_shard_dim,
+            old_op.hidden_size,
+            old_op.cluster_axis,
+            loc=old_op.location,
+        )
+
+        result_names = [
+            "token_counts",
+            "activation_records",
+            "token_indices",
+            "tilize_out",
+            "tilize_out_rm",
+        ]
+        op_map_dictionary = {}
+        for name in result_names:
+            old_result = getattr(old_op, name)
+            new_result = getattr(new_op, name)
+            result_type = old_result.type
+            shape = tuple(int(dim) for dim in result_type.shape)
+            dtype = mlir_type_to_torch_dtype(result_type.element_type)
+            golden = GoldenMapTensor(
+                {
+                    i: torch.zeros(shape, dtype=dtype).clone()
+                    for i in range(self._mesh_shape[0] * self._mesh_shape[1])
+                },
+                mesh_shape=self._mesh_shape,
+            )
+            self._set_golden_tensor(new_result, golden)
+            op_map_dictionary[old_result] = new_result
+
+        return new_op, op_map_dictionary
+
+    @split(ttir.MoeGptOp)
+    def moe_gpt_split(
+        self,
+        old_op: ttir.MoeGptOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.moe_gpt_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            moe_gpt_module = Module.create()
+            moe_gpt_builder = TTIRBuilder(
+                old_ctx, old_loc, self._mesh_shape, self._mesh_dict
+            )
+            op_input_types = [
+                old_op.input_tensor.type,
+                old_op.expert_indices.type,
+                old_op.expert_scores.type,
+                old_op.expert_mapping.type,
+                old_op.w0_w1_tensor.type,
+                old_op.w2_tensor.type,
+            ]
+
+            with InsertionPoint(moe_gpt_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="moe_gpt_module")
+                def decorated_func(*inputs):
+                    new_op = ttir_op(
+                        old_op.token_counts.type,
+                        old_op.activation_records.type,
+                        old_op.token_indices.type,
+                        old_op.tilize_out.type,
+                        old_op.tilize_out_rm.type,
+                        inputs[0],
+                        inputs[1],
+                        inputs[2],
+                        inputs[3],
+                        inputs[4],
+                        inputs[5],
+                        old_op.output_height_shard_dim,
+                        old_op.output_width_shard_dim,
+                        old_op.hidden_size,
+                        old_op.cluster_axis,
+                        loc=old_op.location,
+                    )
+
+                    result_names = [
+                        "token_counts",
+                        "activation_records",
+                        "token_indices",
+                        "tilize_out",
+                        "tilize_out_rm",
+                    ]
+                    for i, name in enumerate(result_names):
+                        old_result = getattr(old_op, name)
+                        new_result = getattr(new_op, name)
+                        old_golden = self._get_golden_tensor(old_result)
+                        moe_gpt_builder._set_golden_tensor(new_result, old_golden)
+                        ordered_outputs.append(new_result)
+
+                    for i in range(6):
+                        old_input = [
+                            old_op.input_tensor,
+                            old_op.expert_indices,
+                            old_op.expert_scores,
+                            old_op.expert_mapping,
+                            old_op.w0_w1_tensor,
+                            old_op.w2_tensor,
+                        ][i]
+                        moe_gpt_builder._set_golden_tensor(
+                            inputs[i], self._get_golden_tensor(old_input)
+                        )
+                        ordered_inputs.append(inputs[i])
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                moe_gpt_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return moe_gpt_module, moe_gpt_builder
+
+    ############### ttir.MoeComputeOp ###############
+
+    @tag(ttir.MoeComputeOp)
+    def moe_compute(
+        self,
+        tilize_input_tensor: Operand,
+        tilize_expert_indices_tensor: Operand,
+        tilize_expert_scores_tensor: Operand,
+        tilize_expert_mapping_tensor: Operand,
+        w0: Operand,
+        w1: Operand,
+        w2: Operand,
+        layer_id: int,
+        output_height_shard_dim: int,
+        intermediate_size: int,
+        bias_0: Optional[Operand] = None,
+        bias_1: Optional[Operand] = None,
+        bias_2: Optional[Operand] = None,
+        activation_function: str = "silu",
+        compute_only: bool = True,
+        bh_ring_size: Optional[int] = None,
+        output_shapes: Optional[List[Shape]] = None,
+        output_types: Optional[List[torch.dtype]] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> Tuple[OpResult, OpResult, OpResult, OpResult, OpResult, OpResult]:
+        assert (
+            output_shapes is not None and len(output_shapes) == 6
+        ), "output_shapes must be a list of 6 shapes for moe_compute"
+        assert (
+            output_types is not None and len(output_types) == 6
+        ), "output_types must be a list of 6 dtypes for moe_compute"
+
+        result_types = [
+            self._create_ranked_tensor_type(
+                shape, self._get_type_from_torch_dtype(dtype)
+            )
+            for shape, dtype in zip(output_shapes, output_types)
+        ]
+
+        u32 = IntegerType.get_unsigned(32)
+        layer_id_attr = IntegerAttr.get(u32, layer_id)
+        output_height_shard_dim_attr = IntegerAttr.get(u32, output_height_shard_dim)
+        intermediate_size_attr = IntegerAttr.get(u32, intermediate_size)
+        activation_attr = Attribute.parse(
+            f"#ttcore.moe_activation_function<{activation_function}>"
+        )
+        compute_only_attr = BoolAttr.get(compute_only)
+        bh_ring_size_attr = (
+            IntegerAttr.get(u32, bh_ring_size) if bh_ring_size is not None else None
+        )
+
+        loc = self._get_location()
+
+        op = ttir.MoeComputeOp(
+            result_types[0],
+            result_types[1],
+            result_types[2],
+            result_types[3],
+            result_types[4],
+            result_types[5],
+            tilize_input_tensor,
+            tilize_expert_indices_tensor,
+            tilize_expert_scores_tensor,
+            tilize_expert_mapping_tensor,
+            w0,
+            w1,
+            w2,
+            layer_id_attr,
+            output_height_shard_dim_attr,
+            intermediate_size_attr,
+            bias_0=bias_0,
+            bias_1=bias_1,
+            bias_2=bias_2,
+            activation_function=activation_attr,
+            compute_only=compute_only_attr,
+            bh_ring_size=bh_ring_size_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        # Compute goldens via the registered reference from the raw weight
+        # operands (the SiLU/SwiGLU MLP reference). Device-specific weight
+        # prepacking happens in TTNN; the golden works directly off w0/w1/w2.
+        def _maybe_golden(v):
+            return self._get_golden_tensor(v) if v is not None else None
+
+        op_golden_function = get_golden_function(ttir.MoeComputeOp)
+        golden_outputs = op_golden_function(
+            self._get_golden_tensor(tilize_input_tensor),
+            self._get_golden_tensor(tilize_expert_indices_tensor),
+            self._get_golden_tensor(tilize_expert_scores_tensor),
+            self._get_golden_tensor(tilize_expert_mapping_tensor),
+            self._get_golden_tensor(w0),
+            self._get_golden_tensor(w1),
+            self._get_golden_tensor(w2),
+            bias_0=_maybe_golden(bias_0),
+            bias_1=_maybe_golden(bias_1),
+            bias_2=_maybe_golden(bias_2),
+            layer_id=layer_id,
+            output_height_shard_dim=output_height_shard_dim,
+            intermediate_size=intermediate_size,
+            has_bias=any(b is not None for b in (bias_0, bias_1, bias_2)),
+            # cluster_axis is full-path routing, unused in compute_only.
+            cluster_axis=0,
+            activation_function=activation_function,
+            compute_only=compute_only,
+            bh_ring_size=bh_ring_size,
+            output_types_mlir=[r.type for r in op.results],
+        )
+        for result, golden in zip(op.results, golden_outputs):
+            self._set_golden_tensor(result, golden)
+
+        return tuple(op.results)
 
     def upsample2d(
         self,

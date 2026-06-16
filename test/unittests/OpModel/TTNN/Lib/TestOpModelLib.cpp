@@ -954,6 +954,52 @@ TEST_F(OpModelTest, CumSum) {
   llvm::consumeError(runtimeExp.takeError());
 }
 
+TEST_F(OpModelTest, CumProd) {
+  const llvm::SmallVector<int64_t> tensorShape = {workerCoresN300, 1024};
+  const TTNNLayoutAttr layoutDRAM = CreateTiledLayout(
+      tensorShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutL1Interleaved = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::Interleaved);
+  const TTNNLayoutAttr layoutL1WSharded = CreateTiledLayout(
+      tensorShape, BufferType::L1, TensorMemoryLayout::WidthSharded);
+
+  auto constraintsExp = op_model::OpModel<CumProdOp>::getOpConstraints(
+      tensorShape, layoutDRAM, 0, std::nullopt, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  OpConstraints &opCstr = constraintsExp.get();
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+  EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+
+  auto runtimeExp = op_model::OpModel<CumProdOp>::getOpRuntime(
+      tensorShape, layoutDRAM, 0, std::nullopt, layoutDRAM);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp = op_model::OpModel<CumProdOp>::getOpConstraints(
+      tensorShape, layoutDRAM, 0, std::nullopt, layoutL1Interleaved);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  opCstr = constraintsExp.get();
+  EXPECT_GT(opCstr.cbL1PeakSize, 0);
+  EXPECT_GT(opCstr.tensorL1PeakSize, 0);
+  EXPECT_GT(opCstr.outputL1BufferSize, 0);
+
+  runtimeExp = op_model::OpModel<CumProdOp>::getOpRuntime(
+      tensorShape, layoutDRAM, 0, std::nullopt, layoutL1Interleaved);
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
+
+  constraintsExp = op_model::OpModel<CumProdOp>::getOpConstraints(
+      tensorShape, layoutL1Interleaved, 0, std::nullopt, layoutL1WSharded);
+  EXPECT_FALSE(static_cast<bool>(constraintsExp));
+  llvm::consumeError(constraintsExp.takeError());
+
+  runtimeExp = op_model::OpModel<CumProdOp>::getOpRuntime(
+      tensorShape, layoutL1Interleaved, 0, std::nullopt, layoutL1WSharded);
+  EXPECT_FALSE(static_cast<bool>(runtimeExp));
+  llvm::consumeError(runtimeExp.takeError());
+}
+
 // ==== ConcatenateHeadsOp Tests ====
 class OpModelConcatenateHeadsParam
     : public OpModelTest,
@@ -1429,13 +1475,12 @@ TEST_F(OpModelTest, Sort) {
 
   constraintsExp = op_model::OpModel<SortOp>::getOpConstraints(
       tensorShape, layoutL1Interleaved, 0, false, false, layoutL1WSharded);
-  EXPECT_FALSE(static_cast<bool>(constraintsExp));
-  llvm::consumeError(constraintsExp.takeError());
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
 
   runtimeExp = op_model::OpModel<SortOp>::getOpRuntime(
       tensorShape, layoutL1Interleaved, 0, false, false, layoutL1WSharded);
-  EXPECT_FALSE(static_cast<bool>(runtimeExp));
-  llvm::consumeError(runtimeExp.takeError());
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  EXPECT_TRUE(runtimeExp.get() > 0);
 }
 
 TEST_F(OpModelTest, TopK) {
@@ -5377,10 +5422,16 @@ TEST_F(OpModelTest, PagedUpdateCacheOp) {
   const llvm::SmallVector<int64_t> updateIndexShape = {8};
   const llvm::SmallVector<int64_t> pageTableShape = {8, 16};
 
+  // The input (fill value) must be L1 height-sharded on a {numUsers, 1} grid,
+  // where numUsers = inputShape[1] = 8. tt-metal enforces
+  // input_num_shards == num_users.
+  const llvm::SmallVector<int64_t> inputVirtualGrid = {8, 1};
+
   const TTNNLayoutAttr cacheLayout = CreateTiledLayout(
       cacheShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
-  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
-      inputShape, BufferType::L1, TensorMemoryLayout::HeightSharded);
+  const TTNNLayoutAttr inputLayout =
+      CreateTiledLayout(inputShape, BufferType::L1,
+                        TensorMemoryLayout::HeightSharded, inputVirtualGrid);
   const TTNNLayoutAttr updateIndexLayout = CreateRowMajorLayoutInt32(
       updateIndexShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
   const TTNNLayoutAttr pageTableLayout = CreateRowMajorLayoutInt32(
@@ -5411,10 +5462,16 @@ TEST_F(OpModelTest, PagedUpdateCacheOpWithoutPageTable) {
   const llvm::SmallVector<int64_t> inputShape = {1, 8, 12, 256};
   const llvm::SmallVector<int64_t> updateIndexShape = {8};
 
+  // The input (fill value) must be L1 height-sharded on a {numUsers, 1} grid,
+  // where numUsers = inputShape[1] = 8. tt-metal enforces
+  // input_num_shards == num_users.
+  const llvm::SmallVector<int64_t> inputVirtualGrid = {8, 1};
+
   const TTNNLayoutAttr cacheLayout = CreateTiledLayout(
       cacheShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
-  const TTNNLayoutAttr inputLayout = CreateTiledLayout(
-      inputShape, BufferType::L1, TensorMemoryLayout::HeightSharded);
+  const TTNNLayoutAttr inputLayout =
+      CreateTiledLayout(inputShape, BufferType::L1,
+                        TensorMemoryLayout::HeightSharded, inputVirtualGrid);
   const TTNNLayoutAttr updateIndexLayout = CreateRowMajorLayoutInt32(
       updateIndexShape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
 
@@ -5442,18 +5499,20 @@ TEST_F(OpModelTest, PagedUpdateCacheOpWithoutPageTable) {
   }
 }
 
-// Tripwire for tt-metal grid validation on PagedUpdateCacheOp operand 1.
+// tt-metal grid validation on PagedUpdateCacheOp operand 1.
 // The kernel requires input1 ("fill value") to be L1 height-sharded on a
 // {numUsers, 1} virtual grid, where numUsers = input1.shape[1]. Any other
 // grid silently produced PCC=0 for the upper users.
 //
-// tt-mlir's PagedUpdateCacheRuleBook still pins to {numUsers, 1} because
-// tt-metal does not reject other grids
-// (https://github.com/tenstorrent/tt-metal/issues/44923).  This test
-// constructs a non-{numUsers, 1} grid and asserts that OpModel currently
-// accepts it.  When tt-metal adds the assert, this EXPECT will start
-// failing, which is the signal to flip it to EXPECT_FALSE and relax the
-// rule.
+// As of the tt-metal uplift that added `input_num_shards == num_users`
+// (https://github.com/tenstorrent/tt-metal/issues/44923), metal now rejects
+// non-{numUsers, 1} grids, so OpModel surfaces that as a failed constraint
+// query.  This test feeds a {4, 1} grid (num_cores = 4 != numUsers = 8) and
+// asserts the query fails.
+//
+// TODO(#44923): with metal enforcing this from its side, the operand-1 rule
+// in PagedUpdateCacheRuleBook is now redundant and can be dropped (along with
+// this test); deferred to a follow-up cleanup.
 TEST_F(OpModelTest, PagedUpdateCacheOpWrongGridTripwire) {
   const llvm::SmallVector<int64_t> cacheShape = {8, 4, 32, 256};
   const llvm::SmallVector<int64_t> inputShape = {1, 8, 12, 256};
@@ -5479,7 +5538,7 @@ TEST_F(OpModelTest, PagedUpdateCacheOpWrongGridTripwire) {
   if (!ok) {
     llvm::consumeError(constraintsExp.takeError());
   }
-  EXPECT_TRUE(ok);
+  EXPECT_FALSE(ok);
 }
 
 TEST_F(OpModelTest, PagedFillCacheOp) {

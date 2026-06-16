@@ -14,6 +14,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
+#include "ttnn/operations/experimental/ccl/moe_compute/moe_compute_utils.hpp"
 
 #include "mlir/IR/AttrTypeSubElements.h"
 #include "mlir/IR/Attributes.h"
@@ -808,7 +809,184 @@ getPrepareConv2dBiasOpOutputTensorSpec(
   return output.get().output_tensor_specs.value().at(0);
 }
 
+//===----------------------------------------------------------------------===//
+// PrepareMoEComputeW0W1WeightsOp / PrepareMoEComputeW2WeightsOp
+//===----------------------------------------------------------------------===//
+
+// tt-metal exposes no single weight-prep entry, so the packer + bf4 quantize +
+// bank-permuted memory config are composed here and traced by
+// query_op_constraints to derive the packed output spec. The runtime prepare
+// ops compose the identical sequence. Biases arrive (L, E, intermediate) /
+// (L, E, hidden) — the moe_compute verifier enforces that, so they're forwarded
+// verbatim.
+static ::ttnn::Tensor
+moeComputePackW0W1(const ::ttnn::Tensor &w0, const ::ttnn::Tensor &w1,
+                   std::optional<::ttnn::Tensor> b0,
+                   std::optional<::ttnn::Tensor> b1, uint32_t hiddenSize,
+                   uint32_t intermediateSize, uint32_t bhRingSize,
+                   ::ttnn::MeshDevice *device) {
+  uint32_t L = w0.logical_shape()[0];
+  uint32_t E = w0.logical_shape()[1];
+  bool hasBias = b0.has_value();
+  ::ttnn::Tensor packed =
+      hasBias ? ::ttnn::experimental::prepare_w0_w1_tensor_with_bias(
+                    w0, w1, *b0, *b1, L, E, hiddenSize, intermediateSize,
+                    bhRingSize)
+              : ::ttnn::experimental::prepare_w0_w1_tensor_for_moe_compute(
+                    w0, w1, L, E, hiddenSize, intermediateSize, bhRingSize);
+  return ::ttnn::experimental::quantize_weights_via_host(
+      packed, ::tt::tt_metal::DataType::BFLOAT4_B,
+      ::ttnn::experimental::get_weight_mem_configs(
+          device, L, E, hiddenSize, intermediateSize, hasBias, bhRingSize)
+          .w0_w1);
+}
+
+static ::ttnn::Tensor
+moeComputePackW2(const ::ttnn::Tensor &w2, std::optional<::ttnn::Tensor> b2,
+                 uint32_t hiddenSize, uint32_t intermediateSize,
+                 uint32_t bhRingSize, ::ttnn::MeshDevice *device) {
+  uint32_t L = w2.logical_shape()[0];
+  uint32_t E = w2.logical_shape()[1];
+  bool hasBias = b2.has_value();
+  ::ttnn::Tensor packed =
+      hasBias ? ::ttnn::experimental::prepare_w2_tensor_with_bias(
+                    w2, *b2, L, E, intermediateSize, hiddenSize, bhRingSize)
+              : ::ttnn::experimental::prepare_w2_tensor_for_moe_compute(
+                    w2, L, E, intermediateSize, hiddenSize, bhRingSize);
+  return ::ttnn::experimental::quantize_weights_via_host(
+      packed, ::tt::tt_metal::DataType::BFLOAT4_B,
+      ::ttnn::experimental::get_weight_mem_configs(
+          device, L, E, hiddenSize, intermediateSize, hasBias, bhRingSize)
+          .w2);
+}
+
+// Constraint-query closure shared by the spec getter and getOpConstraints.
+static auto makePrepareMoEComputeW0W1WeightsQuery(
+    llvm::ArrayRef<int64_t> w0Shape, TTNNLayoutAttr w0Layout,
+    llvm::ArrayRef<int64_t> w1Shape, TTNNLayoutAttr w1Layout,
+    std::optional<llvm::ArrayRef<int64_t>> bias0Shape,
+    std::optional<TTNNLayoutAttr> bias0Layout,
+    std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
+    std::optional<TTNNLayoutAttr> bias1Layout, uint32_t hiddenSize,
+    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  uint32_t ring = bhRingSize.value_or(12);
+
+  return [=]() {
+    ::ttnn::TensorSpec w0Spec = conversion::getTensorSpec(w0Shape, w0Layout);
+    ::ttnn::TensorSpec w1Spec = conversion::getTensorSpec(w1Shape, w1Layout);
+    std::optional<::ttnn::TensorSpec> b0Spec;
+    if (bias0Shape && bias0Layout) {
+      b0Spec = conversion::getTensorSpec(*bias0Shape, *bias0Layout);
+    }
+    std::optional<::ttnn::TensorSpec> b1Spec;
+    if (bias1Shape && bias1Layout) {
+      b1Spec = conversion::getTensorSpec(*bias1Shape, *bias1Layout);
+    }
+    return ::ttnn::graph::query_op_constraints(
+        WRAP_OP(moeComputePackW0W1), device, w0Spec, w1Spec, b0Spec, b1Spec,
+        hiddenSize, intermediateSize, ring, device);
+  };
+}
+
+llvm::Expected<::ttnn::TensorSpec>
+getPrepareMoEComputeW0W1WeightsOpOutputTensorSpec(
+    llvm::ArrayRef<int64_t> w0Shape, TTNNLayoutAttr w0Layout,
+    llvm::ArrayRef<int64_t> w1Shape, TTNNLayoutAttr w1Layout,
+    std::optional<llvm::ArrayRef<int64_t>> bias0Shape,
+    std::optional<TTNNLayoutAttr> bias0Layout,
+    std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
+    std::optional<TTNNLayoutAttr> bias1Layout, uint32_t hiddenSize,
+    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+  auto query = makePrepareMoEComputeW0W1WeightsQuery(
+      w0Shape, w0Layout, w1Shape, w1Layout, bias0Shape, bias0Layout, bias1Shape,
+      bias1Layout, hiddenSize, intermediateSize, bhRingSize);
+  auto output = operation::executeConstraintQuery(query);
+  if (!output) {
+    return output.takeError();
+  }
+  assert(output.get().output_tensor_specs.has_value() &&
+         !output.get().output_tensor_specs->empty());
+  return output.get().output_tensor_specs.value()[0];
+}
+
+static auto makePrepareMoEComputeW2WeightsQuery(
+    llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
+    std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
+    std::optional<TTNNLayoutAttr> bias2Layout, uint32_t hiddenSize,
+    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  uint32_t ring = bhRingSize.value_or(12);
+  return [=]() {
+    ::ttnn::TensorSpec w2Spec = conversion::getTensorSpec(w2Shape, w2Layout);
+    std::optional<::ttnn::TensorSpec> b2Spec;
+    if (bias2Shape && bias2Layout) {
+      b2Spec = conversion::getTensorSpec(*bias2Shape, *bias2Layout);
+    }
+    return ::ttnn::graph::query_op_constraints(
+        WRAP_OP(moeComputePackW2), device, w2Spec, b2Spec, hiddenSize,
+        intermediateSize, ring, device);
+  };
+}
+
+llvm::Expected<::ttnn::TensorSpec>
+getPrepareMoEComputeW2WeightsOpOutputTensorSpec(
+    llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
+    std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
+    std::optional<TTNNLayoutAttr> bias2Layout, uint32_t hiddenSize,
+    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+  auto query = makePrepareMoEComputeW2WeightsQuery(
+      w2Shape, w2Layout, bias2Shape, bias2Layout, hiddenSize, intermediateSize,
+      bhRingSize);
+  auto output = operation::executeConstraintQuery(query);
+  if (!output) {
+    return output.takeError();
+  }
+  assert(output.get().output_tensor_specs.has_value() &&
+         !output.get().output_tensor_specs->empty());
+  return output.get().output_tensor_specs.value()[0];
+}
+
 #endif // TTMLIR_ENABLE_OPMODEL
+
+llvm::Expected<OpConstraints>
+OpModel<PrepareMoEComputeW0W1WeightsOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> w0Shape, TTNNLayoutAttr w0Layout,
+    llvm::ArrayRef<int64_t> w1Shape, TTNNLayoutAttr w1Layout,
+    std::optional<llvm::ArrayRef<int64_t>> bias0Shape,
+    std::optional<TTNNLayoutAttr> bias0Layout,
+    std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
+    std::optional<TTNNLayoutAttr> bias1Layout, uint32_t hiddenSize,
+    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  auto query = makePrepareMoEComputeW0W1WeightsQuery(
+      w0Shape, w0Layout, w1Shape, w1Layout, bias0Shape, bias0Layout, bias1Shape,
+      bias1Layout, hiddenSize, intermediateSize, bhRingSize);
+  return operation::getOpConstraints(w0Layout.getContext(), query);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<OpConstraints>
+OpModel<PrepareMoEComputeW2WeightsOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
+    std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
+    std::optional<TTNNLayoutAttr> bias2Layout, uint32_t hiddenSize,
+    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  auto query = makePrepareMoEComputeW2WeightsQuery(
+      w2Shape, w2Layout, bias2Shape, bias2Layout, hiddenSize, intermediateSize,
+      bhRingSize);
+  return operation::getOpConstraints(w2Layout.getContext(), query);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
 
 //===----------------------------------------------------------------------===//
 // Unary Eltwise Ops
@@ -2358,6 +2536,70 @@ OpModel<CumSumOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   };
 
   return operation::getOpRuntime(cumSumOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// CumProdOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<CumProdOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    const int32_t dim, std::optional<ttcore::DataType> dtype,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+
+  std::optional<::ttnn::DataType> ttnnDtype = std::nullopt;
+  if (dtype) {
+    ttnnDtype = conversion::getDataType(*dtype);
+  }
+
+  auto cumProdOpQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS(::ttnn::cumprod, device, inputSpec, dim,
+                                ttnnDtype, /*reverse_order=*/false,
+                                /*optional_out=*/std::nullopt,
+                                detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), cumProdOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+OpModel<CumProdOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                 TTNNLayoutAttr inputLayout, const int32_t dim,
+                                 std::optional<ttcore::DataType> dtype,
+                                 TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+
+  std::optional<::ttnn::DataType> ttnnDtype = std::nullopt;
+  if (dtype) {
+    ttnnDtype = conversion::getDataType(*dtype);
+  }
+
+  auto cumProdOpQuery = [=]() {
+    return QUERY_OP_RUNTIME(::ttnn::cumprod, device, inputSpec, dim, ttnnDtype,
+                            /*reverse_order=*/false,
+                            /*optional_out=*/std::nullopt,
+                            detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime(cumProdOpQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL

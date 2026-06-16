@@ -107,12 +107,17 @@ def TTMetal_NocConfigAttr: TTMetal_Attr<"NocConfig", "noc_config", [TTMetal_Kern
   let summary = "TTMetal NocConfig attribute.";
   let description = [{
     Structure for configuring noc kernels.
+
+    The dm_core_index selects the DM core this kernel launches on; noc_index
+    selects the NoC it drives. See ttcore::getDmCoreDefaultNoc for the default
+    DM core -> NoC convention.
   }];
   let parameters = (ins "SymbolRefAttr":$kernel_symbol,
                         "CoreRangeAttr":$core_range,
                         "KernelArgsAttr":$kernel_args,
+                        "int32_t":$dm_core_index,
                         "mlir::tt::ttcore::NocIndex":$noc_index);
-  let assemblyFormat = "`<` $kernel_symbol `,` qualified($core_range) `,` qualified($kernel_args) `,` $noc_index `>`";
+  let assemblyFormat = "`<` $kernel_symbol `,` qualified($core_range) `,` qualified($kernel_args) `,` `dm_core` `=` $dm_core_index `,` $noc_index `>`";
   let extraClassDeclaration = [{
     mlir::tt::ttkernel::ThreadType getThreadType() const { return mlir::tt::ttkernel::ThreadType::Noc; }
   }];

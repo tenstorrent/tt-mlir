@@ -2100,7 +2100,31 @@ mlir::OpFoldResult foldConsecutiveToLayoutOp(ttnn::ToLayoutOp op) {
     if (producerMemConfig && consumerMemConfig &&
         producerMemConfig.getBufferType().getValue() == BufferType::DRAM &&
         consumerMemConfig.getBufferType().getValue() == BufferType::L1) {
-      return nullptr;
+      // Allow fold when the net change (producer's input → consumer's output)
+      // preserves buffer type, memory layout, and layout enum — meaning only
+      // dtype differs. This happens when adjacent ops have matching workarounds
+      // (e.g. dispatch_metadata output and moe_gpt input both need
+      // HEIGHT_SHARDED L1). The intermediate DRAM step is a workaround
+      // artifact, not intentional staging.
+      auto producerInputLayout = mlir::dyn_cast<TTNNLayoutAttr>(
+          mlir::cast<RankedTensorType>(producerOp.getInput().getType())
+              .getEncoding());
+      auto consumerOutputLayout = mlir::dyn_cast<TTNNLayoutAttr>(
+          mlir::cast<RankedTensorType>(op.getResult().getType()).getEncoding());
+
+      bool canRelax = false;
+      if (producerInputLayout && consumerOutputLayout) {
+        canRelax =
+            producerInputLayout.getBufferType() ==
+                consumerOutputLayout.getBufferType() &&
+            producerInputLayout.getMemLayoutOpt() ==
+                consumerOutputLayout.getMemLayoutOpt() &&
+            producerInputLayout.getLayout() == consumerOutputLayout.getLayout();
+      }
+
+      if (!canRelax) {
+        return nullptr;
+      }
     }
   }
 
@@ -2268,6 +2292,54 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// Matmul / Linear shape helpers
+//===----------------------------------------------------------------------===//
+
+MatmulAdjustedShapes
+getMatmulAdjustedInputShapes(::mlir::RankedTensorType inputA,
+                             ::mlir::RankedTensorType inputB, bool transposeA,
+                             bool transposeB) {
+  llvm::SmallVector<int64_t> inputAShape(inputA.getShape());
+  llvm::SmallVector<int64_t> inputBShape(inputB.getShape());
+
+  // If input A is a vector (1D tensor), 1 is prepended to its dimensions for
+  // the purpose of the matrix multiplication. After the matrix multiplication,
+  // the prepended dimension is removed. Otherwise, check if the LHS needs to be
+  // transposed.
+  if (inputA.getRank() == 1) {
+    inputAShape.insert(inputAShape.begin(), 1);
+  } else if (transposeA) {
+    std::swap(inputAShape[inputAShape.size() - 1],
+              inputAShape[inputAShape.size() - 2]);
+  }
+
+  // If input B is a vector (1D tensor), a 1 is appended to its dimensions for
+  // the purpose of the matrix-vector product and removed afterwards. Otherwise,
+  // check if the RHS needs to be transposed.
+  if (inputB.getRank() == 1) {
+    inputBShape.push_back(1);
+  } else if (transposeB) {
+    std::swap(inputBShape[inputBShape.size() - 1],
+              inputBShape[inputBShape.size() - 2]);
+  }
+
+  return MatmulAdjustedShapes{std::move(inputAShape), std::move(inputBShape)};
+}
+
+std::optional<int64_t> getMatmulInnerDim(::mlir::RankedTensorType inputA,
+                                         ::mlir::RankedTensorType inputB,
+                                         bool transposeA, bool transposeB) {
+  if (inputA.getRank() < 1 || inputB.getRank() < 1) {
+    return std::nullopt;
+  }
+
+  MatmulAdjustedShapes adjustedShapes =
+      getMatmulAdjustedInputShapes(inputA, inputB, transposeA, transposeB);
+  // Inner (K) dimension after vector/transpose adjustment, matching verify().
+  return adjustedShapes.inputA.back();
+}
+
+//===----------------------------------------------------------------------===//
 // LinearOp
 //===----------------------------------------------------------------------===//
 
@@ -2280,8 +2352,6 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   ::mlir::RankedTensorType outputType = getResult().getType();
 
   llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
-  llvm::SmallVector<int64_t> inputAShape(inputAType.getShape());
-  llvm::SmallVector<int64_t> inputBShape(inputBType.getShape());
 
   // Verify that the input A is at least 1D tensor.
   if (inputAType.getRank() < 1) {
@@ -2293,26 +2363,10 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
     return emitOpError("Input B must be at least a 1D tensor");
   }
 
-  // If input A is a vector (1D tensor), 1 is prepended to its dimensions for
-  // the purpose of the matrix multiplication. After the matrix multiplication,
-  // the prepended dimension is removed. Otherwise, check if the LHS needs to be
-  // transposed.
-  if (inputAType.getRank() == 1) {
-    inputAShape.insert(inputAShape.begin(), 1);
-  } else if (getTransposeA()) {
-    std::swap(inputAShape[inputAShape.size() - 1],
-              inputAShape[inputAShape.size() - 2]);
-  }
-
-  // If input B is a vector (1D tensor), a 1 is appended to its dimensions for
-  // the purpose of the matrix-vector product and removed afterwards. Otherwise,
-  // check if the RHS needs to be transposed.
-  if (inputBType.getRank() == 1) {
-    inputBShape.push_back(1);
-  } else if (getTransposeB()) {
-    std::swap(inputBShape[inputBShape.size() - 1],
-              inputBShape[inputBShape.size() - 2]);
-  }
+  MatmulAdjustedShapes adjustedShapes = getMatmulAdjustedInputShapes(
+      inputAType, inputBType, getTransposeA(), getTransposeB());
+  llvm::SmallVector<int64_t> inputAShape = std::move(adjustedShapes.inputA);
+  llvm::SmallVector<int64_t> inputBShape = std::move(adjustedShapes.inputB);
 
   // Verify that the input A and input B has matching inner dimensions.
   if (inputAShape[inputAShape.size() - 1] !=
@@ -2438,8 +2492,6 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   ::mlir::RankedTensorType outputType = getResult().getType();
 
   llvm::ArrayRef<int64_t> outputShape = outputType.getShape();
-  llvm::SmallVector<int64_t> inputAShape(inputAType.getShape());
-  llvm::SmallVector<int64_t> inputBShape(inputBType.getShape());
 
   // Verify that the input A is at least 1D tensor.
   if (inputAType.getRank() < 1) {
@@ -2451,26 +2503,10 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
     return emitOpError("Input B must be at least a 1D tensor");
   }
 
-  // If input A is a vector (1D tensor), 1 is prepended to its dimensions for
-  // the purpose of the matrix multiplication. After the matrix multiplication,
-  // the prepended dimension is removed. Otherwise, check if the LHS needs to be
-  // transposed.
-  if (inputAType.getRank() == 1) {
-    inputAShape.insert(inputAShape.begin(), 1);
-  } else if (getTransposeA()) {
-    std::swap(inputAShape[inputAShape.size() - 1],
-              inputAShape[inputAShape.size() - 2]);
-  }
-
-  // If input B is a vector (1D tensor), a 1 is appended to its dimensions for
-  // the purpose of the matrix-vector product and removed afterwards. Otherwise,
-  // check if the RHS needs to be transposed.
-  if (inputBType.getRank() == 1) {
-    inputBShape.push_back(1);
-  } else if (getTransposeB()) {
-    std::swap(inputBShape[inputBShape.size() - 1],
-              inputBShape[inputBShape.size() - 2]);
-  }
+  MatmulAdjustedShapes adjustedShapes = getMatmulAdjustedInputShapes(
+      inputAType, inputBType, getTransposeA(), getTransposeB());
+  llvm::SmallVector<int64_t> inputAShape = std::move(adjustedShapes.inputA);
+  llvm::SmallVector<int64_t> inputBShape = std::move(adjustedShapes.inputB);
 
   // Verify that the input A and input B has matching inner dimensions.
   if (inputAShape[inputAShape.size() - 1] !=
@@ -2556,6 +2592,66 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
   return success();
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn_verify
+
+// Drop a `ttnn.repeat` feeding the RHS of a `ttnn.matmul` when TTNN's matmul
+// will implicitly reproduce that broadcast.
+//
+// TTNN's matmul broadcasting is in general basically unsupported, albeit a few
+// cases might work. This canonicalization only handles one case: with 4Dx4D
+// operands, dim 1 (the second batch dimension) on the RHS can be broadcast to
+// match the LHS when the unbroadcast RHS is a single batch (its outer dim 0 is
+// 1). Other cases are explicitly out of scope.
+//
+// `ttir.broadcast` lowers to `ttnn.repeat`, so the redundant op matched here is
+// a `ttnn.repeat` whose repeat_dims expand exactly dim 1.
+void mlir::tt::ttnn::MatmulOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext * /*context*/) {
+  patterns.add(+[](MatmulOp op,
+                   mlir::PatternRewriter &rewriter) -> mlir::LogicalResult {
+    auto repeat = op.getB().getDefiningOp<RepeatOp>();
+    if (!repeat) {
+      return mlir::failure();
+    }
+
+    llvm::ArrayRef<int64_t> repeatDims = repeat.getRepeatDims().getShape();
+    llvm::ArrayRef<int64_t> rhsShape = op.getB().getType().getShape();
+    llvm::ArrayRef<int64_t> lhsShape = op.getA().getType().getShape();
+
+    constexpr int64_t kMatmulRank = 4;
+    constexpr int64_t kBatchDim = 1;
+
+    if (static_cast<int64_t>(repeatDims.size()) != kMatmulRank ||
+        static_cast<int64_t>(lhsShape.size()) != kMatmulRank) {
+      return mlir::failure();
+    }
+
+    // The repeat must expand exactly dim 1 and leave every other dim (including
+    // the inner contraction dims) untouched.
+    for (int64_t i = 0; i < kMatmulRank; ++i) {
+      bool expanded = repeatDims[i] != 1;
+      if (expanded != (i == kBatchDim)) {
+        return mlir::failure();
+      }
+    }
+
+    // TTNN only implicitly broadcasts the RHS batch when the folded RHS is a
+    // single batch. dim 1 is repeated (so its pre-repeat size is 1) and dim 0
+    // is untouched, so this reduces to the outer dim 0 being 1.
+    if (rhsShape[0] != 1) {
+      return mlir::failure();
+    }
+
+    // The LHS must already supply dim 1 so dropping the repeat leaves the
+    // matmul result shape unchanged.
+    if (lhsShape[kBatchDim] != rhsShape[kBatchDim]) {
+      return mlir::failure();
+    }
+
+    rewriter.modifyOpInPlace(op,
+                             [&]() { op.setOperand(1, repeat.getInput()); });
+    return mlir::success();
+  });
+}
 
 //===----------------------------------------------------------------------===//
 // SparseMatmulOp
@@ -2864,6 +2960,149 @@ void mlir::tt::ttnn::ToLayoutOp::getCanonicalizationPatterns(
 
   return success();
 }
+
+//===----------------------------------------------------------------------===//
+// MoeGptOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult MoeGptOp::verify() {
+  ::mlir::RankedTensorType w0w1Type = getW0W1Tensor().getType();
+  ::mlir::RankedTensorType w2Type = getW2Tensor().getType();
+
+  if (w0w1Type.getRank() != 6) {
+    return emitOpError("w0_w1_tensor must be a rank 6 tensor");
+  }
+  if (w2Type.getRank() != 6) {
+    return emitOpError("w2_tensor must be a rank 6 tensor");
+  }
+  if (w0w1Type.getDimSize(5) != 128) {
+    return emitOpError("w0_w1_tensor dim[5] must be 128 (4*TILE_SIZE)");
+  }
+  if (w2Type.getDimSize(5) != 128) {
+    return emitOpError("w2_tensor dim[5] must be 128 (4*TILE_SIZE)");
+  }
+  if (w0w1Type.getDimSize(0) != w2Type.getDimSize(0)) {
+    return emitOpError(
+        "w0_w1_tensor and w2_tensor must have same dim[0] (num_cores)");
+  }
+  if (w0w1Type.getDimSize(2) != w2Type.getDimSize(2)) {
+    return emitOpError("w0_w1_tensor and w2_tensor must have same dim[2] "
+                       "(experts_per_device)");
+  }
+  if (getExpertIndices().getType().getRank() < 2) {
+    return emitOpError("expert_indices must have rank >= 2");
+  }
+  if (getExpertScores().getType().getRank() < 2) {
+    return emitOpError("expert_scores must have rank >= 2");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// PrepareMoEComputeW0W1WeightsOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult PrepareMoEComputeW0W1WeightsOp::verify() {
+  if (getHiddenSize() == 0 || getHiddenSize() % 32 != 0) {
+    return emitOpError("hidden_size must be a positive multiple of 32");
+  }
+  if (getIntermediateSize() == 0 || getIntermediateSize() % 32 != 0) {
+    return emitOpError("intermediate_size must be a positive multiple of 32");
+  }
+  if (static_cast<bool>(getBias_0()) != static_cast<bool>(getBias_1())) {
+    return emitOpError("bias_0 and bias_1 must be both present or both absent");
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// PrepareMoEComputeW2WeightsOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult PrepareMoEComputeW2WeightsOp::verify() {
+  if (getHiddenSize() == 0 || getHiddenSize() % 32 != 0) {
+    return emitOpError("hidden_size must be a positive multiple of 32");
+  }
+  if (getIntermediateSize() == 0 || getIntermediateSize() % 32 != 0) {
+    return emitOpError("intermediate_size must be a positive multiple of 32");
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// MoeComputeOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult MoeComputeOp::verify() {
+  if (getIntermediateSize() == 0 || getIntermediateSize() % 32 != 0) {
+    return emitOpError("intermediate_size must be a positive multiple of 32");
+  }
+  if (getOutputHeightShardDim() == 0) {
+    return emitOpError("output_height_shard_dim must be positive");
+  }
+  // Only the compute_only path is supported: the A2A selective-reduce-combine
+  // (and the multi-device routing it implies) is intentionally not wired.
+  if (!getComputeOnly()) {
+    return emitOpError("only the compute_only path is supported; compute_only "
+                       "must be set");
+  }
+  if (getClusterAxis() || getTopology() || getNumLinks() ||
+      getMuxCoreRangeSet() || getOptionalOutputTensor() ||
+      getCrossDeviceSemaphore()) {
+    return emitOpError(
+        "compute_only moe_compute must not set cluster_axis, topology, "
+        "num_links, mux_core_range_set, optional_output_tensor, or "
+        "cross_device_semaphore");
+  }
+  if (getBhRingSize() && *getBhRingSize() != 8 && *getBhRingSize() != 12 &&
+      *getBhRingSize() != 16) {
+    return emitOpError("bh_ring_size must be 8, 12, or 16");
+  }
+
+  RankedTensorType inputType = getTilizeInputTensor().getType();
+  if (inputType.getRank() < 2) {
+    return emitOpError("tilize_input_tensor must have rank >= 2");
+  }
+  int64_t hiddenSize = inputType.getShape().back();
+  if (hiddenSize <= 0 || hiddenSize % 32 != 0) {
+    return emitOpError(
+        "tilize_input_tensor last dim (hidden_size) must be a positive "
+        "multiple of 32");
+  }
+
+  // The W0/W1 and W2 matmuls shard their contraction (intermediate_size) and
+  // the W2 output (hidden_size) across the matmul ring (bh_ring_size cores on
+  // BH, default 12; WH is always 12). If either dim has fewer than ring-size
+  // tiles, the per-core shard distribution degenerates and leaves output tiles
+  // uncomputed, so require at least one tile per ring core in both dims.
+  int64_t ringSize = getBhRingSize() ? *getBhRingSize() : 12;
+  int64_t minSize = ringSize * 32;
+  if (hiddenSize < minSize) {
+    return emitOpError() << "hidden_size (" << hiddenSize
+                         << ") must be at least bh_ring_size*32 = " << minSize
+                         << " (one tile per matmul-ring core)";
+  }
+  if (static_cast<int64_t>(getIntermediateSize()) < minSize) {
+    return emitOpError() << "intermediate_size (" << getIntermediateSize()
+                         << ") must be at least bh_ring_size*32 = " << minSize
+                         << " (one tile per matmul-ring core)";
+  }
+
+  return success();
+}
+
+// Only the compute_only path is supported: it skips the A2A combine, so there
+// is no combine-output buffer to materialize (optional_output_tensor stays
+// unset, enforced by the verifier).
+bool MoeComputeOp::hasUnboundBuffers() { return false; }
+
+void MoeComputeOp::allocateBuffers(::mlir::RewriterBase &rewriter) {}
+
+// compute_only has no A2A combine, hence no cross-device semaphore.
+bool MoeComputeOp::hasUnboundSemaphores() { return false; }
+
+void MoeComputeOp::allocateSemaphores(::mlir::RewriterBase &rewriter) {}
 
 //===----------------------------------------------------------------------===//
 // AllocOp
@@ -4143,14 +4382,33 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
     if (batchIdxTensorType.getShape().size() != 1) {
       return emitOpError("Batch index tensor must be a 1D tensor");
     }
-    if (batchIdxTensorType.getShape()[0] != 1) {
+    // batch_idx_tensor must carry one batch_idx per input batch row. The
+    // legacy single-batch case (inputShape[0] == 1, tensor.shape == [1])
+    // is covered by the same rule.
+    int64_t batchIdxLen = batchIdxTensorType.getShape()[0];
+    if (!mlir::ShapedType::isDynamic(batchIdxLen) &&
+        !mlir::ShapedType::isDynamic(inputShape[0]) &&
+        batchIdxLen != inputShape[0]) {
       return emitOpError(
-          "Batch index tensor must have dim 0 be equal to 1, got " +
-          std::to_string(batchIdxTensorType.getShape()[0]));
+          "Batch index tensor must have dim 0 equal to input batch (" +
+          std::to_string(inputShape[0]) + "), got " +
+          std::to_string(batchIdxLen));
     }
     if (!batchIdxTensorType.getElementType().isInteger()) {
       return emitOpError("Batch index tensor must be an integer type");
     }
+  } else if (mlir::ShapedType::isDynamic(inputShape[0]) || inputShape[0] != 1) {
+    // Without a batch_idx_tensor the lowering hard-codes batch_idx = 0
+    // in the tt-metal call, which only addresses page-table row 0.
+    // Require the input batch to be statically 1 here; a dynamic batch
+    // dim could resolve to >1 after shape inference and produce
+    // undefined writes at runtime.
+    return emitOpError(
+        "Input batch must be statically 1 when no batch_idx_tensor is "
+        "provided, got " +
+        (mlir::ShapedType::isDynamic(inputShape[0])
+             ? std::string("dynamic")
+             : std::to_string(inputShape[0])));
   }
 
   int64_t numCacheHeads = cacheShape[1];

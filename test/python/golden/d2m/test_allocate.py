@@ -7,6 +7,8 @@ import torch
 from conftest import get_request_kwargs
 
 from builder.base.builder_apis import compile_and_execute_ttir
+from builder.base.builder_utils import Operand
+from builder.ttir.ttir_builder import TTIRBuilder
 
 # borrow currently constrained way to build matmul inputs:
 from d2m.test_matmul import create_matmul_constrained_inputs as create_matmul_inputs
@@ -86,3 +88,62 @@ def test_allocate_max(
         custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
         **get_request_kwargs(request),
     )
+
+
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "allow_l1_output_spilling", [True, False], ids=["enabled", "disabled"]
+)
+def test_allocate_spills_internal_generic_outputs(
+    allow_l1_output_spilling: bool, target: str, request, device
+):
+    # Keep many intermediate generic outputs live so the allocator must spill
+    # some of them using the real device grid and L1 capacity.
+    shape = (1536, 1536)
+    num_branches = 12
+    dtype = torch.float32
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [dtype, dtype])
+        def live_fanout_reduce(in0: Operand, in1: Operand, builder: TTIRBuilder):
+            lhs = builder.neg(in0)
+            rhs = builder.abs(in1)
+            vals = [lhs, rhs]
+
+            cur = builder.add(lhs, rhs)
+            vals.append(cur)
+            for i in range(num_branches):
+                if i % 4 == 0:
+                    cur = builder.add(cur, lhs)
+                elif i % 4 == 1:
+                    cur = builder.add(cur, rhs)
+                elif i % 4 == 2:
+                    cur = builder.neg(cur)
+                else:
+                    cur = builder.abs(cur)
+                vals.append(cur)
+
+            acc = vals[0]
+            for val in vals[1:]:
+                acc = builder.add(acc, val)
+            return builder.sigmoid(acc)
+
+    options = [
+        f"allow-l1-output-spilling={str(allow_l1_output_spilling).lower()}",
+        "enable-elementwise-fusion=false",
+    ]
+
+    def run_test():
+        compile_and_execute_ttir(
+            module,
+            target=target,
+            device=device,
+            custom_pipeline=f"ttir-to-ttmetal-pipeline{{{' '.join(options)}}}",
+            **get_request_kwargs(request),
+        )
+
+    if allow_l1_output_spilling:
+        run_test()
+    else:
+        with pytest.raises(Exception, match="exceeds memory capacity"):
+            run_test()

@@ -256,10 +256,13 @@ int64_t findMatchingDim(llvm::ArrayRef<int64_t> fromShape,
 // that dimension maps to. Returns -1 if no matching dimension is found.
 int64_t findMatchingDimRTL(ReshapeOp reshapeOp, int64_t dimRTL);
 
-// Checks if an operation preserves a given dimension.
-// For reshape, this checks both that the dimension size is unchanged and that
-// the product of trailing dimensions (stride) is preserved.
-// Dimension can be negative (counted from back, e.g. -1 for last dimension).
+// Checks if an op preserves a dim's size and trailing stride, allowing the
+// dim to shift across intervening size-1 dims (e.g. `(...,N) -> (...,N,1)`).
+// Dim can be negative (counted from back, e.g. -1 for last).
+bool preservesDimUpToOnes(mlir::Operation *op, int64_t dim);
+
+// Stricter variant: additionally requires the output dim at the same offset
+// from the trailing edge to have the same size as `inputShape[dim]`.
 bool preservesDim(mlir::Operation *op, int64_t dim);
 
 // If `originalOp` consumes values that were typecasted from the same source

@@ -113,6 +113,7 @@ getPaddingOrDefault(mlir::DenseIntElementsAttr attr, size_t numSpatialDims) {
 enum TypicalInitReductionValue {
   NEG_INF, // It is also used for minimum integer value.
   ZERO,
+  ONE, // Used for cumulative product operations.
 };
 
 // Check if the constant op is initialized with the desired init value.
@@ -124,7 +125,6 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
 
   float desiredF32;
   double desiredF64;
-  uint16_t desiredBF16;
   int32_t desiredI32;
   int64_t desiredI64;
   int8_t desiredI8;
@@ -132,7 +132,6 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
   if (desired == TypicalInitReductionValue::NEG_INF) {
     desiredF32 = -std::numeric_limits<float>::infinity();
     desiredF64 = -std::numeric_limits<double>::infinity();
-    desiredBF16 = 0xff80; // This is -inf in bfloat16 raw bits
     desiredI32 = std::numeric_limits<int32_t>::min();
     desiredI64 = std::numeric_limits<int64_t>::min();
     desiredI8 = std::numeric_limits<int8_t>::min();
@@ -140,29 +139,32 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
   } else if (desired == TypicalInitReductionValue::ZERO) {
     desiredF32 = 0.0;
     desiredF64 = 0.0;
-    desiredBF16 = 0x0000; // This is 0 in bfloat16 raw bits
     desiredI32 = 0;
     desiredI64 = 0;
     desiredI8 = 0;
     desiredI1 = false;
+  } else if (desired == TypicalInitReductionValue::ONE) {
+    desiredF32 = 1.0;
+    desiredF64 = 1.0;
+    desiredI32 = 1;
+    desiredI64 = 1;
+    desiredI8 = 1;
+    desiredI1 = true;
   } else {
     return false;
   }
 
-  // Comparing actual bits in case of bfloat16.
   if (initValueOp.getResult().getType().getElementType().isBF16()) {
-    // Collect the values into a vector
-    std::vector<mlir::Attribute> values;
-    for (int64_t i = 0; i < initValueOp.getValueAttr().size(); ++i) {
-      values.push_back(
-          initValueOp.getValueAttr().getValues<mlir::Attribute>()[i]);
+    const llvm::APFloat &value =
+        *initValueOp.getValue().value_begin<llvm::APFloat>();
+    if (desired == TypicalInitReductionValue::NEG_INF) {
+      return value.isInfinity() && value.isNegative();
     }
-
-    auto denseValues = ::mlir::DenseElementsAttr::get(
-        initValueOp.getValueAttr().getShapedType(), values);
-    uint16_t bfloatBits =
-        static_cast<uint16_t>(*denseValues.getRawData().data());
-    return bfloatBits == desiredBF16;
+    if (desired == TypicalInitReductionValue::ZERO) {
+      return value.isZero();
+    }
+    return !value.isInfinity() && !value.isNaN() &&
+           value.convertToDouble() == 1.0;
   }
   if (initValueOp.getResult().getType().getElementType().isF32()) {
     return *initValueOp.getValue().value_begin<float>() == desiredF32;
@@ -2440,19 +2442,21 @@ public:
 // StableHLOToTTIRReduceWindowOpConversionPattern
 // The lowering is specialized for a few well-structured cases and **does not**
 // handle all valid StableHLO patterns. Current assumptions:
-//  - The body block must contain only `stablehlo.{add,max}` ops followed by a
-//    `stablehlo.return`. Other reductions (e.g., min, multiply) are
+//  - The body block must contain only `stablehlo.{add,max,multiply}` ops
+//    followed by a `stablehlo.return`. Other reductions (e.g., min) are
 //    unsupported.
 //  - The number of body reduction ops must match the number of inputs.
 //  - The initial values (`init_values`) must be stablehlo.constant ops that are
-//    either zero or negative infinity (NEG_INF). Function arguments or more
-//    complex expressions are not currently supported.
+//    either zero, one, or negative infinity (NEG_INF). Function arguments or
+//    more complex expressions are not currently supported.
 //  - Mixed dtypes across inputs are supported, but reduction op must match
 //    the input type.
 //  - `CumSum` lowering only works for single-input/single-output cases and
 //    must satisfy specific window/padding rules (see isCumSum()).
+//  - `CumProd` lowering only works for single-input/single-output cases and
+//    must satisfy specific window/padding rules (see isCumProd()).
 // This conversion is tailored toward cases like max_pool2d, avg_pool2d (via
-// sum+div), and cumulative sum.
+// sum+div), cumulative sum, and cumulative product.
 // TODO(anusingh):
 //  - Support initialization via function arguments
 //  - Generalize to other reduction ops
@@ -2504,7 +2508,8 @@ public:
     auto &operations = block.getOperations();
     SmallVector<mlir::Operation *> reductionOps;
     for (Operation &op : llvm::drop_end(operations, 1)) {
-      if (!isa<mlir::stablehlo::AddOp, mlir::stablehlo::MaxOp>(&op)) {
+      if (!isa<mlir::stablehlo::AddOp, mlir::stablehlo::MaxOp,
+               mlir::stablehlo::MulOp>(&op)) {
         return rewriter.notifyMatchFailure(srcOp, "Unsupported reduction op.");
       }
       reductionOps.push_back(&op);
@@ -2565,6 +2570,18 @@ public:
         rewriter.replaceOpWithNewOp<ttir::CumSumOp>(
             srcOp, resultType, adaptor.getInputs()[0],
             rewriter.getI64IntegerAttr(*dimension));
+        return success();
+      }
+
+      // Handle the special case of lowering to CumProdOp.
+      std::optional<int64_t> cumprodDimension =
+          isCumProd(srcOp, adaptor, (*initValues)[0], reductionOps[0], padding);
+      if (cumprodDimension) {
+        mlir::RankedTensorType resultType = cast<RankedTensorType>(
+            getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+        rewriter.replaceOpWithNewOp<ttir::CumProdOp>(
+            srcOp, resultType, adaptor.getInputs()[0],
+            rewriter.getI64IntegerAttr(*cumprodDimension));
         return success();
       }
     }
@@ -3081,6 +3098,52 @@ private:
     return dimension;
   }
 
+  // This function verifies all the required conditions to convert stablehlo
+  // reduce_window op to TTIR cumprod op and also determine the dimension
+  // attribute along which the cumulative product will be computed.
+  // The reduce_window op must satisfy the following conditions.
+  // 1. Front op in the block must be 'multiply'.
+  // 2. InitValue must be one.
+  // 3. There are no strides or dilations for window-related attributes.
+  // 4. The size of padding attribute is equal to two times input tensor rank.
+  // 5. Padding value must be zero in case of splat vector. Window dimension
+  //    attribute must have all elements equal to one in this case.
+  // 6. Padding attribute have one non-zero element in case of non-splat vector
+  //    and this non-zero element must be equal to size of specified dimension
+  //    minus one.
+  // The dimension attribute is determined in following two ways.
+  // 1. (If padding is splat vector): First dimension in the input tensor shape,
+  //    whose size is 1, is the required dimension.
+  // 2. (If padding is non-splat vector): Window dimension attribute must have
+  //    all elements equal to 1 except one; whose location is the required
+  //    dimension and value must be equal to size of the required dimension.
+  std::optional<int64_t>
+  isCumProd(mlir::stablehlo::ReduceWindowOp &srcOp,
+            mlir::stablehlo::ReduceWindowOp::Adaptor adaptor,
+            TypicalInitReductionValue initValue, mlir::Operation *frontOp,
+            DenseI64ArrayAttr padding) const {
+    if (!isa<mlir::stablehlo::MulOp>(frontOp)) {
+      return std::nullopt;
+    }
+
+    if (initValue != TypicalInitReductionValue::ONE) {
+      return std::nullopt;
+    }
+
+    // Verify window-related attributes (strides, dilations)
+    if (!hasValidWindowAttributes(adaptor)) {
+      return std::nullopt;
+    }
+
+    int64_t dimension;
+    // Check input tensor type and padding
+    if (!hasValidInputAndPadding(srcOp, adaptor, dimension, padding)) {
+      return std::nullopt;
+    }
+
+    return dimension;
+  }
+
   // Helper function to find the StableHLO constant defining op by traversing
   // through operations that preserve constant semantics (similar to
   // getConstantValueDefiningOp).
@@ -3110,6 +3173,8 @@ private:
         initValues.push_back(TypicalInitReductionValue::NEG_INF);
       } else if (checkInitValue(constantOp, TypicalInitReductionValue::ZERO)) {
         initValues.push_back(TypicalInitReductionValue::ZERO);
+      } else if (checkInitValue(constantOp, TypicalInitReductionValue::ONE)) {
+        initValues.push_back(TypicalInitReductionValue::ONE);
       } else {
         return std::nullopt;
       }
@@ -4734,13 +4799,186 @@ class StableHLOGatherToEmbeddingPattern
    */
   LogicalResult checkBasicLegality(mlir::stablehlo::GatherOp srcOp,
                                    PatternRewriter &rewriter) const {
-    auto dimensionNumbers = srcOp.getDimensionNumbers();
+    // Shape/slice constraints shared with the integer-gather lowering.
+    if (failed(checkGatherShapeLegality(srcOp, rewriter))) {
+      return failure();
+    }
 
-    // Get input and start indices tensor shape.
+    // ttir.embedding casts its weight to bf16, which represents integers
+    // exactly only in [-256, 256], so wide integers round. Handle single-index
+    // integer gathers to StableHLOGatherIntToGatherPattern (ttir.gather keeps
+    // their precision); every other case (multi-dim integer indexing,
+    // index-typed, and float operands) stays on the embedding path unchanged.
+    auto operandElemType = srcOp.getOperand().getType().getElementType();
+    if (mlir::isa<mlir::IntegerType>(operandElemType) &&
+        numFlattenedIndexingDims(srcOp) <= 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "single-index integer gather lowered via ttir.gather");
+    }
+
+    return success();
+  }
+
+public:
+  /**
+   * Lowers Gather Op into Embedding Op (and applies Reshape and Permute Ops, if
+   * necessary)
+   *
+   * There is no TTNN Gather support.
+   * Gather Op is lowered into Embedding Op.
+   * Torch embeddings are lowered into Gather Op.
+   * Most models use Gather Op to implement simple embeddings.
+   * If encountered more complicated Gather Op implementations, they can be
+   * lowered into slice/ concat/ etc.
+   *
+   * Embedding Op expects:
+   * - weights to be strictly 2D. We index the first dimension of weights, and
+   * take slices from the full second dimension.
+   * - input can be 1D or 2D
+   * - output shape is the shape of input with the last dimension of the
+   * weights appended
+   *
+   *  - Gather Op input becomes Embedding Op weights. Because it can have
+   * any number and order of dimensions, it is permuted and reshaped
+   * (flattened).
+   *  - Gather Op startIndices becomes Embedding Op input. Because it can
+   * have any number and order of dimensions, it is permuted and reshaped
+   * (flattened).
+   * - Embedding Op output needs to be reshaped to recover lost
+   * dimensions and permuted as Gather Op output dimensions can be in any
+   * order.
+   */
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::GatherOp srcOp,
+                  mlir::stablehlo::GatherOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // GatherOp can be used to implement embedding lookup, check for that case.
+    LogicalResult err = checkBasicLegality(srcOp, rewriter);
+    if (!err.succeeded()) {
+      return err;
+    }
+
+    // Normalize the gather into the shared 2D (weights, indices) operands and
+    // lower to ttir.embedding. Integer single-index gathers are rejected by
+    // checkBasicLegality and handled by StableHLOGatherIntToGatherPattern.
+    GatherOperands ops = buildGatherOperands(srcOp, adaptor, rewriter);
+
+    auto embeddingOutputType = mlir::RankedTensorType::get(
+        ops.newOutputShape, ops.reshapedInput.getType().getElementType(),
+        ops.reshapedInput.getType().getEncoding());
+    ttir::EmbeddingOp embeddingOp =
+        rewriter.create<ttir::EmbeddingOp>(srcOp.getLoc(), embeddingOutputType,
+                                           ops.startIndices, ops.reshapedInput);
+
+    auto expectedOutputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+    rewriter.replaceOp(srcOp, reshapeAndPermuteOutput(rewriter, embeddingOp,
+                                                      ops.indexedDim, srcOp,
+                                                      expectedOutputType));
+    return success();
+  }
+
+public:
+  // Result of buildGatherOperands: the 2D operands the embedding and
+  // integer-gather lowerings share, plus the metadata needed to reshape the
+  // result back to the gather's output layout.
+  struct GatherOperands {
+    // Operand permuted so indexed dims lead, then flattened to 2D [V, D].
+    mlir::TypedValue<mlir::RankedTensorType> reshapedInput;
+    // Start indices flattened/sliced/expanded to 2D.
+    mlir::TypedValue<mlir::RankedTensorType> startIndices;
+    // startIndices shape with the trailing weight dim (D) appended -- the
+    // shape the terminal op (embedding/gather) produces before
+    // reshapeAndPermuteOutput.
+    llvm::SmallVector<int64_t> newOutputShape;
+    // First flattened indexing dim; the axis reshapeAndPermuteOutput permutes
+    // around.
+    int64_t indexedDim;
+  };
+
+  // Pure description (emits no IR) of which operand dims actually get indexed
+  // after dropping full-slice dims and handling singletons. Mirrors the
+  // filtering buildGatherOperands performs, so legality checks can reason
+  // about the flattened indexing dims without building any ops.
+  struct IndexedDimInfo {
+    llvm::SmallVector<int64_t> startIndexMap;
+    int64_t actualIndexedDim;
+    bool needsExpansion;
+  };
+
+  static IndexedDimInfo computeIndexedDimInfo(mlir::stablehlo::GatherOp srcOp) {
+    auto dimensionNumbers = srcOp.getDimensionNumbers();
+    auto inputShape = srcOp.getOperand().getType().getShape();
+    auto sliceSizes = srcOp.getSliceSizes();
+    auto originalStartIndexMap = dimensionNumbers.getStartIndexMap();
+
+    // If there are indexed dims that have full slice size, we need to ignore
+    // them and slice indices accordingly, which is why we note the
+    // actualIndexedDim.
+    int64_t actualIndexedDim = -1;
+
+    // If there is an indexed dim with slice size > 1, but not full, we need to
+    // expand start indices to contain the implied ones.
+    bool needsExpansion = false;
+
+    // Create startIndexMap without dims for which sliceSizes[dim] =
+    // inputShape[dim]. If there are dims for which sliceSizes[dim] =
+    // inputShape[dim] = 1, they are treated specially:
+    // - if there is a partially indexed dim, they are removed
+    // - if all other indexed dims are full, one of them is kept
+    size_t fullIndexedDims = 0;
+    bool partialIndexedDimExists = false;
+    for (size_t i = 0; i < originalStartIndexMap.size(); ++i) {
+      int64_t dim = originalStartIndexMap[i];
+      if (sliceSizes[dim] == inputShape[dim]) {
+        fullIndexedDims++;
+      } else if (sliceSizes[dim] != 1) {
+        partialIndexedDimExists = true;
+      }
+    }
+
+    llvm::SmallVector<int64_t> startIndexMap;
+    for (size_t i = 0; i < originalStartIndexMap.size(); ++i) {
+      int64_t dim = originalStartIndexMap[i];
+      if (inputShape[dim] == 1) {
+        if (fullIndexedDims == originalStartIndexMap.size()) {
+          startIndexMap.push_back(dim);
+          actualIndexedDim = i;
+          break;
+        }
+        if (partialIndexedDimExists || fullIndexedDims > 0) {
+          continue;
+        }
+      } else if (sliceSizes[dim] == inputShape[dim]) {
+        continue;
+      }
+
+      startIndexMap.push_back(dim);
+      actualIndexedDim = i;
+      if (sliceSizes[dim] != 1) {
+        needsExpansion = true;
+      }
+    }
+
+    return IndexedDimInfo{std::move(startIndexMap), actualIndexedDim,
+                          needsExpansion};
+  }
+
+  // Number of input dims flattened into the single embedding/gather index
+  // dimension. Used to distinguish single-index gathers (-> ttir.gather for
+  // integers) from multi-index gathers.
+  static size_t numFlattenedIndexingDims(mlir::stablehlo::GatherOp srcOp) {
+    return computeIndexedDimInfo(srcOp).startIndexMap.size();
+  }
+
+  // Shape/slice constraints required to normalize a gather into the 2D
+  // (weights, indices) form. Element-type agnostic, so it is shared by the
+  // embedding and integer-gather patterns.
+  static LogicalResult checkGatherShapeLegality(mlir::stablehlo::GatherOp srcOp,
+                                                PatternRewriter &rewriter) {
+    auto dimensionNumbers = srcOp.getDimensionNumbers();
     auto inputShape = srcOp.getOperand().getType().getShape();
     auto startIndicesShape = srcOp.getStartIndices().getType().getShape();
-
-    // Get attributes needed for embedding op pattern matching checks.
     auto sliceSizes = srcOp.getSliceSizes();
     auto startIndexMap = dimensionNumbers.getStartIndexMap();
 
@@ -4799,98 +5037,24 @@ class StableHLOGatherToEmbeddingPattern
     return success();
   }
 
-public:
-  /**
-   * Lowers Gather Op into Embedding Op (and applies Reshape and Permute Ops, if
-   * necessary)
-   *
-   * There is no TTNN Gather support.
-   * Gather Op is lowered into Embedding Op.
-   * Torch embeddings are lowered into Gather Op.
-   * Most models use Gather Op to implement simple embeddings.
-   * If encountered more complicated Gather Op implementations, they can be
-   * lowered into slice/ concat/ etc.
-   *
-   * Embedding Op expects:
-   * - weights to be strictly 2D. We index the first dimension of weights, and
-   * take slices from the full second dimension.
-   * - input can be 1D or 2D
-   * - output shape is the shape of input with the last dimension of the
-   * weights appended
-   *
-   *  - Gather Op input becomes Embedding Op weights. Because it can have
-   * any number and order of dimensions, it is permuted and reshaped
-   * (flattened).
-   *  - Gather Op startIndices becomes Embedding Op input. Because it can
-   * have any number and order of dimensions, it is permuted and reshaped
-   * (flattened).
-   * - Embedding Op output needs to be reshaped to recover lost
-   * dimensions and permuted as Gather Op output dimensions can be in any
-   * order.
-   */
-  LogicalResult
-  matchAndRewrite(mlir::stablehlo::GatherOp srcOp,
-                  mlir::stablehlo::GatherOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    // GatherOp can be used to implement embedding lookup, check for that case.
-    LogicalResult err = checkBasicLegality(srcOp, rewriter);
-    if (!err.succeeded()) {
-      return err;
-    }
-
+  // Normalizes a (shape-legal) StableHLO gather into the 2D weights/indices
+  // operands shared by the embedding and integer-gather lowerings. Requires
+  // checkGatherShapeLegality to have already succeeded.
+  static GatherOperands
+  buildGatherOperands(mlir::stablehlo::GatherOp srcOp,
+                      mlir::stablehlo::GatherOp::Adaptor adaptor,
+                      ConversionPatternRewriter &rewriter) {
     auto dimensionNumbers = srcOp.getDimensionNumbers();
-    auto inputShape = srcOp.getOperand().getType().getShape();
     auto sliceSizes = srcOp.getSliceSizes();
     auto originalStartIndexMap = dimensionNumbers.getStartIndexMap();
 
-    // If there are indexed dims that have full slice size, we need to ignore
-    // them and slice indices accordingly, which is why we note the
-    // actualIndexedDim.
-    int64_t actualIndexedDim = -1;
-
-    // If there is an indexed dim with slice size > 1, but not full, we need to
-    // expand start indices to contain the implied ones.
-    bool needsExpansion = false;
-
-    // Create startIndexMap without dims for which sliceSizes[dim] =
-    // inputShape[dim]. If there are dims for which sliceSizes[dim] =
-    // inputShape[dim] = 1, they are treated specially:
-    // - if there is a partially indexed dim, they are removed
-    // - if all other indexed dims are full, one of them is kept
-    size_t fullIndexedDims = 0;
-    bool partialIndexedDimExists = false;
-    for (size_t i = 0; i < originalStartIndexMap.size(); ++i) {
-      int64_t dim = originalStartIndexMap[i];
-      if (sliceSizes[dim] == inputShape[dim]) {
-        fullIndexedDims++;
-      } else if (sliceSizes[dim] != 1) {
-        partialIndexedDimExists = true;
-      }
-    }
-
-    llvm::SmallVector<int64_t> startIndexMap;
-    for (size_t i = 0; i < originalStartIndexMap.size(); ++i) {
-      int64_t dim = originalStartIndexMap[i];
-      if (inputShape[dim] == 1) {
-        if (fullIndexedDims == originalStartIndexMap.size()) {
-          startIndexMap.push_back(dim);
-          actualIndexedDim = i;
-          break;
-        }
-        if (partialIndexedDimExists || fullIndexedDims > 0) {
-          continue;
-        }
-      } else if (sliceSizes[dim] == inputShape[dim]) {
-        continue;
-      }
-
-      startIndexMap.push_back(dim);
-      actualIndexedDim = i;
-      if (sliceSizes[dim] != 1) {
-        needsExpansion = true;
-      }
-    }
+    IndexedDimInfo info = computeIndexedDimInfo(srcOp);
+    ArrayRef<int64_t> startIndexMap = info.startIndexMap;
+    int64_t actualIndexedDim = info.actualIndexedDim;
+    bool needsExpansion = info.needsExpansion;
     auto numIndexingDims = startIndexMap.size();
+    assert(numIndexingDims != 0 &&
+           "gather lowering requires at least one flattened indexing dim");
 
     // Use adapted operands for building new ops (type-converted values).
     auto input = adaptor.getOperands()[0];
@@ -4957,21 +5121,12 @@ public:
                                               startIndicesShape.end());
     newOutputShape.push_back(reshapedInput.getType().getShape()[1]);
 
-    auto embeddingOutputType = mlir::RankedTensorType::get(
-        newOutputShape, reshapedInput.getType().getElementType(),
-        reshapedInput.getType().getEncoding());
-    ttir::EmbeddingOp embeddingOp = rewriter.create<ttir::EmbeddingOp>(
-        srcOp.getLoc(), embeddingOutputType, startIndices, reshapedInput);
-
-    auto expectedOutputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult().getType()));
-    rewriter.replaceOp(srcOp, reshapeAndPermuteOutput(rewriter, embeddingOp,
-                                                      startIndexMap[0], srcOp,
-                                                      expectedOutputType));
-    return success();
+    return GatherOperands{mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(
+                              reshapedInput.getResult()),
+                          startIndices, std::move(newOutputShape),
+                          startIndexMap[0]};
   }
 
-public:
   // In StableHLO, startIndexMap attribute refers to which dims of input
   // we are indexing (with startIndices). We need these dims to be
   // flattened together to be the first dim of transformed input (that is
@@ -5331,6 +5486,104 @@ public:
     return rewriter.create<ttir::AddOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_expandedStartIndices"),
         expandedType, broadcastedStartIndices, offsetConstant);
+  }
+};
+
+// Single-index integer gathers can't use ttir.embedding: it casts the weight
+// to bf16 and rounds wide integers. Lowering to ttir.gather keeps integer
+// precision. Reuses StableHLOGatherToEmbeddingPattern's geometric
+// normalization (buildGatherOperands), then broadcasts the indices to the
+// weight's trailing dim so ttir.gather sees equal-rank operands (torch.gather
+// semantics).
+class StableHLOGatherIntToGatherPattern
+    : public OpConversionPattern<mlir::stablehlo::GatherOp> {
+  using OpConversionPattern<mlir::stablehlo::GatherOp>::OpConversionPattern;
+
+  // Matches only the integer single-index gathers that
+  // StableHLOGatherToEmbeddingPattern deliberately turns away.
+  static LogicalResult checkLegality(mlir::stablehlo::GatherOp srcOp,
+                                     PatternRewriter &rewriter) {
+    if (!mlir::isa<mlir::IntegerType>(
+            srcOp.getOperand().getType().getElementType())) {
+      return rewriter.notifyMatchFailure(srcOp, "non-integer operand");
+    }
+    if (failed(StableHLOGatherToEmbeddingPattern::checkGatherShapeLegality(
+            srcOp, rewriter))) {
+      return failure();
+    }
+    if (StableHLOGatherToEmbeddingPattern::numFlattenedIndexingDims(srcOp) >
+        1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "multi-dim integer indexing uses the embedding path");
+    }
+    return success();
+  }
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::GatherOp srcOp,
+                  mlir::stablehlo::GatherOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (failed(checkLegality(srcOp, rewriter))) {
+      return failure();
+    }
+
+    auto ops = StableHLOGatherToEmbeddingPattern::buildGatherOperands(
+        srcOp, adaptor, rewriter);
+    auto reshapedInput = ops.reshapedInput;
+    auto startIndices = ops.startIndices;
+    auto startIndicesType = startIndices.getType();
+    auto startIndicesElemType = startIndicesType.getElementType();
+    int64_t D = reshapedInput.getType().getShape()[1];
+    int64_t B = 1;
+    for (int64_t dim : startIndicesType.getShape()) {
+      B *= dim;
+    }
+
+    auto indicesFlatType = mlir::RankedTensorType::get(
+        {B, 1}, startIndicesElemType, startIndicesType.getEncoding());
+    auto indicesFlat = ttir::utils::createReshapeOp(
+        rewriter,
+        ttmlir::utils::appendLocationSuffix(srcOp->getLoc(),
+                                            "_intGatherIndicesFlat"),
+        startIndices, indicesFlatType.getShape());
+
+    Value indicesBcast = indicesFlat;
+    if (D != 1) {
+      auto indicesBcastType = mlir::RankedTensorType::get(
+          {B, D}, startIndicesElemType, startIndicesType.getEncoding());
+      indicesBcast = rewriter.create<ttir::BroadcastOp>(
+          ttmlir::utils::appendLocationSuffix(srcOp->getLoc(),
+                                              "_intGatherIndicesBcast"),
+          indicesBcastType, indicesFlat, rewriter.getDenseI64ArrayAttr({1, D}));
+    }
+
+    auto gatherOutType = mlir::RankedTensorType::get(
+        {B, D}, reshapedInput.getType().getElementType(),
+        reshapedInput.getType().getEncoding());
+    Value gather = rewriter.create<ttir::GatherOp>(
+        ttmlir::utils::appendLocationSuffix(srcOp->getLoc(), "_intGather"),
+        gatherOutType, reshapedInput, indicesBcast,
+        rewriter.getI32IntegerAttr(0));
+
+    // Reshape (B, D) -> startIndices.shape + (D,) so reshapeAndPermuteOutput
+    // sees the same intermediate shape it would have from ttir.embedding.
+    auto reshaped = ttir::utils::createReshapeOp(
+        rewriter,
+        ttmlir::utils::appendLocationSuffix(srcOp->getLoc(),
+                                            "_intGatherReshape"),
+        mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(gather),
+        ops.newOutputShape);
+
+    auto expectedOutputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+    rewriter.replaceOp(
+        srcOp, StableHLOGatherToEmbeddingPattern::reshapeAndPermuteOutput(
+                   rewriter,
+                   mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(
+                       reshaped.getResult()),
+                   ops.indexedDim, srcOp, expectedOutputType));
+    return success();
   }
 };
 
@@ -8898,6 +9151,7 @@ static void addGatherOpConversionPattern(MLIRContext *ctx,
   patterns.add<StableHLOGatherToGatherDimPattern>(typeConverter, ctx);
   patterns.add<StableHLOGatherToSliceRepeatConcatPattern>(typeConverter, ctx);
   patterns.add<StableHLOGatherToEmbeddingPattern>(typeConverter, ctx);
+  patterns.add<StableHLOGatherIntToGatherPattern>(typeConverter, ctx);
   patterns.add<StableHLOGatherMultiPartialFlattenPattern>(typeConverter, ctx);
 }
 

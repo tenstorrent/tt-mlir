@@ -777,6 +777,82 @@ public:
 //   2. `attention_sink` is hard-coded to operand-segment size 0; the frontend
 //      cannot supply it yet. Tracked by
 //      https://github.com/tenstorrent/tt-xla/issues/4030.
+// Shared lowering of scaled_dot_product_attention (composite or custom_call
+// form) to ttir.scaled_dot_product_attention. Operands are [query, key, value]
+// and optionally a 4th attention_mask; is_causal/scale come from the composite
+// attribute dictionary.
+static LogicalResult convertToTTIRScaledDotProductAttention(
+    mlir::Operation *srcOp, mlir::ValueRange operands,
+    DictionaryAttr compositeAttrs, RankedTensorType outputType,
+    ConversionPatternRewriter &rewriter) {
+  size_t numOperands = operands.size();
+  if (numOperands < 3) {
+    return rewriter.notifyMatchFailure(
+        srcOp, "scaled_dot_product_attention must have at least 3 operands "
+               "(query, key, value).");
+  }
+
+  // For now, frontend composite doesnt support attention_sink.
+  // Issue: https://github.com/tenstorrent/tt-xla/issues/4030
+  if (numOperands > 4) {
+    return rewriter.notifyMatchFailure(
+        srcOp, "scaled_dot_product_attention must have at most 4 operands "
+               "(query, key, value, attention_mask). "
+               "Attention sink is not supported yet.");
+  }
+
+  SmallVector<NamedAttribute> namedAttrs;
+
+  bool isCausal = true;
+  if (compositeAttrs) {
+    if (auto attr = compositeAttrs.getAs<BoolAttr>("is_causal")) {
+      isCausal = attr.getValue();
+      namedAttrs.push_back(rewriter.getNamedAttr("is_causal", attr));
+    }
+    if (auto attr = compositeAttrs.getAs<FloatAttr>("scale")) {
+      namedAttrs.push_back(rewriter.getNamedAttr(
+          "scale", rewriter.getF32FloatAttr(
+                       static_cast<float>(attr.getValueAsDouble()))));
+    }
+  }
+
+  // The first 3 operands are always query, key, value. A 4th operand
+  // (attention_mask) is present only when is_causal is false.
+  bool hasAttnMask = !isCausal && numOperands == 4;
+  SmallVector<Value> sdpaOperands = {operands[0], operands[1], operands[2]};
+  if (hasAttnMask) {
+    // Left-pad mask with unit dims to 4D — matches PyTorch broadcast semantics.
+    Value mask = operands[3];
+    auto maskType = mlir::cast<RankedTensorType>(mask.getType());
+    int64_t maskRank = maskType.getRank();
+    if (maskRank > 4) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "attention_mask rank must be <= 4");
+    }
+    if (maskRank < 4) {
+      SmallVector<int64_t> paddedShape(4 - maskRank, 1);
+      paddedShape.append(maskType.getShape().begin(),
+                         maskType.getShape().end());
+      auto paddedType =
+          RankedTensorType::get(paddedShape, maskType.getElementType());
+      mask = rewriter.create<ttir::ReshapeOp>(
+          srcOp->getLoc(), paddedType, mask,
+          rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(paddedShape)));
+    }
+    sdpaOperands.push_back(mask);
+  }
+
+  // ttir.scaled_dot_product_attention has AttrSizedOperandSegments:
+  //   [query, key, value, attention_mask, attention_sink]
+  SmallVector<int32_t> segmentSizes = {1, 1, 1, hasAttnMask ? 1 : 0, 0};
+  namedAttrs.push_back(rewriter.getNamedAttr(
+      "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
+
+  rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
+      srcOp, outputType, sdpaOperands, namedAttrs);
+  return success();
+}
+
 class TenstorrentScaledDotProductAttentionConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
 
@@ -797,83 +873,49 @@ public:
           srcOp, "CompositeOp must have exactly one result.");
     }
 
-    size_t numOperands = adaptor.getOperands().size();
-    if (numOperands < 3) {
-      return rewriter.notifyMatchFailure(
-          srcOp,
-          "tenstorrent.scaled_dot_product_attention composite op must have "
-          "at least 3 operands (query, key, value).");
-    }
-
-    // For now, frontend composite doesnt support attention_sink.
-    // Issue: https://github.com/tenstorrent/tt-xla/issues/4030
-    if (numOperands > 4) {
-      return rewriter.notifyMatchFailure(
-          srcOp,
-          "tenstorrent.scaled_dot_product_attention composite op must have "
-          "at most 4 operands (query, key, value, attention_mask). "
-          "Attention sink is not supported yet.");
-    }
-
     auto outputType =
         mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
 
-    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+    return convertToTTIRScaledDotProductAttention(
+        srcOp, adaptor.getOperands(), srcOp.getCompositeAttributes(),
+        outputType, rewriter);
+  }
+};
 
-    SmallVector<NamedAttribute> namedAttrs;
+// Converts the sharded form, stablehlo.custom_call
+// @tenstorrent.scaled_dot_product_attention, to
+// ttir.scaled_dot_product_attention. FlattenOrConvertCompositesPass converts
+// the composite into this custom_call so Shardy can propagate the head
+// sharding; this lowers it back, mirroring CustomCallRMSNormConversionPattern.
+class CustomCallScaledDotProductAttentionConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
 
-    bool isCausal = true;
-    if (compositeAttrs) {
-      if (auto attr = compositeAttrs.getAs<BoolAttr>("is_causal")) {
-        isCausal = attr.getValue();
-        namedAttrs.push_back(rewriter.getNamedAttr("is_causal", attr));
-      }
-      if (auto attr = compositeAttrs.getAs<FloatAttr>("scale")) {
-        namedAttrs.push_back(rewriter.getNamedAttr(
-            "scale", rewriter.getF32FloatAttr(
-                         static_cast<float>(attr.getValueAsDouble()))));
-      }
+public:
+  CustomCallScaledDotProductAttentionConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CustomCallOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (adaptor.getCallTargetNameAttr() != kTTSDPACompositeName ||
+        !srcOp->hasAttr(kHasCustomShardingAttr)) {
+      return failure();
     }
-
-    // The composite's first 3 operands are always query, key, value.
-    // A 4th boundary input (attention_mask) is present only when
-    // is_causal is false and the frontend marked 4 inputs.
-    bool hasAttnMask = !isCausal && numOperands == 4;
-    SmallVector<Value> sdpaOperands = {adaptor.getOperands()[0],
-                                       adaptor.getOperands()[1],
-                                       adaptor.getOperands()[2]};
-    if (hasAttnMask) {
-      // Left-pad mask with unit dims to 4D — matches PyTorch broadcast
-      // semantics.
-      Value mask = adaptor.getOperands()[3];
-      auto maskType = mlir::cast<RankedTensorType>(mask.getType());
-      int64_t maskRank = maskType.getRank();
-      if (maskRank > 4) {
-        return rewriter.notifyMatchFailure(srcOp,
-                                           "attention_mask rank must be <= 4");
-      }
-      if (maskRank < 4) {
-        SmallVector<int64_t> paddedShape(4 - maskRank, 1);
-        paddedShape.append(maskType.getShape().begin(),
-                           maskType.getShape().end());
-        auto paddedType =
-            RankedTensorType::get(paddedShape, maskType.getElementType());
-        mask = rewriter.create<ttir::ReshapeOp>(
-            srcOp.getLoc(), paddedType, mask,
-            rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(paddedShape)));
-      }
-      sdpaOperands.push_back(mask);
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "CustomCallOp must have exactly one result.");
     }
-
-    // ttir.scaled_dot_product_attention has AttrSizedOperandSegments:
-    //   [query, key, value, attention_mask, attention_sink]
-    SmallVector<int32_t> segmentSizes = {1, 1, 1, hasAttnMask ? 1 : 0, 0};
-    namedAttrs.push_back(rewriter.getNamedAttr(
-        "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
-
-    rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
-        srcOp, outputType, sdpaOperands, namedAttrs);
-    return success();
+    auto compositeAttrs = mlir::dyn_cast_or_null<DictionaryAttr>(
+        srcOp->getDiscardableAttr(kCustomCallCompositeAttrsKey));
+    if (!compositeAttrs) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "missing attributes on converted custom_call op");
+    }
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+    return convertToTTIRScaledDotProductAttention(
+        srcOp, adaptor.getOperands(), compositeAttrs, outputType, rewriter);
   }
 };
 
@@ -1052,6 +1094,7 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<TenstorrentUniformToRandConversionPattern>(context);
   patterns.add<TenstorrentTopKConversionPattern>(context);
   patterns.add<TenstorrentScaledDotProductAttentionConversionPattern>(context);
+  patterns.add<CustomCallScaledDotProductAttentionConversionPattern>(context);
   patterns.add<TenstorrentGatherConversionPattern>(context);
   patterns.add<CustomCallGatherConversionPattern>(context);
   patterns.add<ShardyAllSliceToTTIRMeshPartitionConversionPattern>(context);

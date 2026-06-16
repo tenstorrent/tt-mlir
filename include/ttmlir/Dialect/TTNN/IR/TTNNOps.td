@@ -1141,6 +1141,30 @@ def TTNN_CumSumOp : TTNN_Op<"cumsum"> {
   let results = (outs AnyRankedTensor:$result);
 }
 
+def TTNN_CumProdOp : TTNN_Op<"cumprod"> {
+  let summary = "Cumulative product op.";
+  let description = [{
+    Computes the cumulative product of elements of a tensor along specified dimension.
+
+    Example:
+      input: [[2, 3, 4],
+              [5, 6, 7]]
+
+      // Cumulative product along dim=0:
+      output: [[2, 3, 4],
+               [10, 18, 28]]
+
+      // Cumulative product along dim=1:
+      output: [[2, 6, 24],
+               [5, 30, 210]]
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       I32Attr:$dim);
+
+  let results = (outs AnyRankedTensor:$result);
+}
+
 def TTNN_ConcatenateHeadsOp: TTNN_Op<"concatenate_heads"> {
     let summary = "Concatenate heads op used in attention layer.";
     let description = [{
@@ -1511,6 +1535,7 @@ def TTNN_MatmulOp : TTNN_Op<"matmul", [TTNN_ComputeKernelConfigOpInterface]> {
     ];
 
     let hasVerifier = 1;
+    let hasCanonicalizer = 1;
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn
 
@@ -1700,6 +1725,211 @@ def TTNN_MoeExpertTokenRemapOp : TTNN_Op<"moe_expert_token_remap", [OpModelExemp
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createMoeExpertTokenRemapOpOperandsWorkarounds();
       }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_MoeGptOp : TTNN_Op<"moe_gpt"> {
+    let summary = "Fused MoE compute kernel for GPT-OSS models.";
+    let description = [{
+      Fused Mixture-of-Experts compute kernel for GPT-OSS-style models. Runs
+      the full MoE compute pipeline in a single kernel: selective tilize,
+      gate/up projection (w0_w1), SwiGLU activation, all-to-all ring exchange
+      along cluster_axis, down projection (w2), and combine. Typically follows
+      ttnn.all_to_all_dispatch_metadata in the MoE dispatch/compute/combine flow.
+
+      Dimensions:
+        T         = total_tokens across the dispatch ring
+        K         = hidden_size
+        N         = intermediate_size
+        K_sel     = selected experts per token (top-k)
+        E         = experts per device
+        D         = total devices
+        C_dram    = DRAM-bank-aligned compute cores used for weight sharding
+        C_worker  = worker cores in the compute grid
+        L         = layers per weight tensor (typically 1)
+        G         = weight groups per core (gate/up interleaved pairs)
+        TILE_SIZE = compute tile size
+        L1_ALIGN  = L1 alignment
+
+      Input shapes and layouts (per device, after mesh sharding; enforced by
+      TTNNWorkaroundsPass to match kernel expectations):
+      - input_tensor:   [T, K]                             bf16,   ROW_MAJOR
+          (kernel tilizes internally)
+      - expert_indices: [T, K_sel]                         uint16, ROW_MAJOR, L1 HEIGHT_SHARDED
+      - expert_scores:  [T, K_sel]                         bf16,   ROW_MAJOR, L1 HEIGHT_SHARDED
+      - expert_mapping: [1, E*D]                           uint16, ROW_MAJOR
+          (flattened mapping, entry [0, i] = device ID owning expert i;
+           the tilize_reader kernel casts the buffer to uint16_t*)
+      - w0_w1_tensor:   [C_dram, L, E, G, K, 4*TILE_SIZE]  (interleaved gate+up)
+      - w2_tensor:      [C_dram, L, E, 2, N, 4*TILE_SIZE]  (down projection)
+
+      Output shapes:
+      - token_counts:       [1, align(E*sizeof(u32), L1_ALIGN) / sizeof(u32)]                      uint32
+      - activation_records: [1, (T+1) * align((2*E+1)*sizeof(u32), L1_ALIGN) / sizeof(u32)]        uint32
+      - token_indices:      [E, (T+1) * align(sizeof(u32), L1_ALIGN) / sizeof(u32)]                uint32
+      - tilize_out:         [C_worker, 2, TILE_SIZE, K]    bf16, TILE
+      - tilize_out_rm:      [C_worker, 2, TILE_SIZE, K]    bf16, ROW_MAJOR
+      where align(n, a) = ceil(n/a) * a.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         AnyRankedTensor:$expert_indices,
+                         AnyRankedTensor:$expert_scores,
+                         AnyRankedTensor:$expert_mapping,
+                         AnyRankedTensor:$w0_w1_tensor,
+                         AnyRankedTensor:$w2_tensor,
+                         DefaultValuedAttr<UI32Attr, "4">:$output_height_shard_dim,
+                         DefaultValuedAttr<UI32Attr, "3">:$output_width_shard_dim,
+                         DefaultValuedAttr<UI32Attr, "2880">:$hidden_size,
+                         OptionalAttr<UI32Attr>:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$token_counts,
+                        AnyRankedTensor:$activation_records,
+                        AnyRankedTensor:$token_indices,
+                        AnyRankedTensor:$tilize_out,
+                        AnyRankedTensor:$tilize_out_rm);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createMoeGptOpOperandsWorkarounds(getOperation());
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_PrepareMoEComputeW0W1WeightsOp :
+    TTNN_Op<"prepare_moe_compute_w0_w1_weights",
+    [AttrSizedOperandSegments]> {
+    let summary = "Prepack gate (W0) and up (W1) expert weights for moe_compute.";
+    let description = [{
+      Interleaves W0 / W1 and reorders the result into the bank-aware sharded
+      layout `ttnn.moe_compute`'s `matmul_w0_w1_tensor` operand consumes.
+      Optional `bias_0` / `bias_1` fuse per-expert biases along K (their
+      presence must match `has_bias` on the downstream `moe_compute`). The
+      result shape and memory layout are derived at compile time by the
+      TTNNDeduceMoEComputeLayouts pass via a TTNN graph-capture query.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$w0,
+                         AnyRankedTensor:$w1,
+                         Optional<AnyRankedTensor>:$bias_0,
+                         Optional<AnyRankedTensor>:$bias_1,
+                         TTNN_Device:$device,
+                         UI32Attr:$hidden_size,
+                         UI32Attr:$intermediate_size,
+                         OptionalAttr<UI32Attr>:$bh_ring_size);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createPrepareMoEComputeW0W1WeightsOpOperandsWorkarounds(*this);
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_PrepareMoEComputeW2WeightsOp :
+    TTNN_Op<"prepare_moe_compute_w2_weights"> {
+    let summary = "Prepack down (W2) expert weight for moe_compute.";
+    let description = [{
+      Reorders W2 into the bank-aware sharded layout `ttnn.moe_compute`'s
+      `matmul_w2_tensor` operand consumes. Optional `bias_2` fuses the
+      per-expert bias along N without ring-rotation (its presence must match
+      `has_bias` on the downstream `moe_compute`). Result shape comes from the
+      TTNN graph capture query.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$w2,
+                         Optional<AnyRankedTensor>:$bias_2,
+                         TTNN_Device:$device,
+                         UI32Attr:$hidden_size,
+                         UI32Attr:$intermediate_size,
+                         OptionalAttr<UI32Attr>:$bh_ring_size);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createPrepareMoEComputeW2WeightsOpOperandsWorkarounds(*this);
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_MoeComputeOp : TTNN_Op<"moe_compute",
+    [AttrSizedOperandSegments, TTNN_DistributedOpInterface, OpModelExempt]> {
+    let summary = "Fused MoE expert compute (selective tilize + experts + combine).";
+    let description = [{
+      Composite operation that performs the MoE expert FFN in a single fused
+      kernel: selective tilize of dispatched tokens, the gate/up matmul (W0/W1)
+      followed by SILU or SwiGLU activation, the down matmul (W2), and an
+      A2A selective-reduce-combine. Maps to
+      `ttnn::experimental::moe_compute` at runtime.
+
+      `optional_output_tensor` is the caller-allocated combine-output buffer;
+      `cross_device_semaphore` synchronizes the A2A combine across devices.
+      Both are optional in source MLIR but must be bound before the runtime
+      can lower the op. They are populated by the
+      `TTNNAllocateDistributedOpBuffers` / `TTNNAllocateDistributedOpSemaphores`
+      passes via the `DistributedOpInterface`.
+
+      When `compute_only` is set, the A2A combine is skipped (single-device /
+      no-CCL bring-up): tt-metal returns only the first five tensors and
+      `matmul_output` is the final user-visible output. In that mode
+      `cluster_axis`, `topology`, `num_links`, `mux_core_range_set`,
+      `optional_output_tensor`, and `cross_device_semaphore` are unused, and
+      `combine_output` aliases `matmul_output`. `bh_ring_size` pins the
+      Blackhole matmul ring size (8, 12, or 16; default 12) and is ignored on
+      Wormhole.
+
+      See `TTIR_MoeComputeOp` for input/output shapes and dtypes.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$tilize_input_tensor,
+                         AnyRankedTensor:$tilize_expert_indices_tensor,
+                         AnyRankedTensor:$tilize_expert_scores_tensor,
+                         AnyRankedTensor:$tilize_expert_mapping_tensor,
+                         AnyRankedTensor:$matmul_w0_w1_tensor,
+                         AnyRankedTensor:$matmul_w2_tensor,
+                         Optional<AnyRankedTensor>:$optional_output_tensor,
+                         Optional<TTNN_GlobalSemaphore>:$cross_device_semaphore,
+                         TTNN_Device:$device,
+                         UI32Attr:$layer_id,
+                         UI32Attr:$output_height_shard_dim,
+                         UI32Attr:$intermediate_size,
+                         BoolAttr:$has_bias,
+                         DefaultValuedAttr<TTCore_MoEActivationFunctionAttr,
+                             "::mlir::tt::ttcore::MoEActivationFunction::Silu">:$activation_function,
+                         OptionalAttr<UI32Attr>:$bh_ring_size,
+                         DefaultValuedAttr<BoolAttr, "true">:$compute_only,
+
+                         // Full-path-only inputs, unused when compute_only == true.
+                         OptionalAttr<UI32Attr>:$cluster_axis,
+                         OptionalAttr<UI32Attr>:$num_links,
+                         OptionalAttr<TTCore_TopologyAttr>:$topology,
+                         OptionalAttr<TTNN_CoreRangeSetAttr>:$mux_core_range_set);
+
+    let results = (outs AnyRankedTensor:$per_expert_total_tokens,
+                        AnyRankedTensor:$expert_activation,
+                        AnyRankedTensor:$expert_to_token,
+                        AnyRankedTensor:$tilize_output,
+                        AnyRankedTensor:$matmul_output,
+                        AnyRankedTensor:$combine_output);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createMoeComputeOpOperandsWorkarounds(*this);
+      }
+      bool hasUnboundBuffers();
+      void allocateBuffers(::mlir::RewriterBase &rewriter);
+      bool hasUnboundSemaphores();
+      void allocateSemaphores(::mlir::RewriterBase &rewriter);
     }];
 
     let hasVerifier = 1;

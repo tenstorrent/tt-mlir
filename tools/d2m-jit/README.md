@@ -133,6 +133,8 @@ on single tile scalars, so elementwise ops in the DSL are wrapped in
 `linalg.generic` over the tensor of tiles (`_eltwise_block` in `api.py`).
 Matmul follows the same pattern but with parallel/parallel/reduction iterators
 over (M, N, K) and `d2m.tile_matmul` in the body (`_matmul_block`).
+Float reductions use `d2m.tile_reduce_*` with an automatically generated
+device-local scaler generic (`_reduce_block`).
 
 ### Views
 
@@ -166,6 +168,7 @@ kernel body.
 | `d2m.empty(layout)` | Allocate an uninitialised device tensor. |
 | `d2m.zeros(layout)` | Allocate a zero-initialised device tensor (host-side `torch.zeros` + `to_layout`). |
 | `d2m.full(layout, value)` | Allocate a device tensor initialised to a scalar `value` (host-side `torch.full` + `to_layout`). |
+| `d2m.reduction_layout(layout, dim, allow_cross_tile=False)` | Build the keepdim output layout for a row/column reduction. Set `allow_cross_tile=True` only when the kernel has a cross-core gather/redistribute strategy for the reduced dimension. |
 | `d2m.tilize(lt, dtype=None)` | Convert a `LazyTensor` to a tile-typed (`tiled=True`) layout; optional dtype override. |
 | `d2m.untilize(lt, dtype=None)` | Convert a `LazyTensor` to row-major (`tiled=False`); optional dtype override. |
 | `d2m.view(lt, lambda d0, d1: ...)` | Logical-rank permutation. The lambda's parameter count matches the source's logical rank. Result is a view (`is_view=True`). |
@@ -198,6 +201,11 @@ Argument conventions:
 - `grid=(Y, X)` is required; it controls the physical grid the kernel runs on.
 - `num_outs`, `block_factors`, `indexing_maps`, `iterator_types` are optional
   advanced knobs (see `CompiledKernel.__call__`).
+- Set `kernel_io_in_dram=True` on a call, or
+  `d2m.config.kernel_io_in_dram = True` globally, to convert every tensor input
+  and out-param for the kernel to `mem_space="dram"` before emitting the
+  `d2m.generic`. The process-wide default can also be set with
+  `D2M_JIT_KERNEL_IO_IN_DRAM=1`.
 
 Inside a kernel body, the following names are available (registered via the
 `@syntax` decorator and dispatched by `D2MCompiler`):
@@ -248,6 +256,56 @@ Tile broadcast:
 | `d2m.tile_bcast_row(x)` / `x.tile_bcast_row()` | No-argument row-broadcast shorthand. |
 | `d2m.tile_bcast_col(x)` / `x.tile_bcast_col()` | No-argument column-broadcast shorthand. |
 | `d2m.tile_bcast_2d(x)` / `x.tile_bcast_2d()` | No-argument row-and-column broadcast shorthand. |
+
+### Float reduction block-level ops
+
+`reduce_sum`, `reduce_max`, and `reduce_mean` are registered as free functions
+and `TensorBlock` methods. They are keepdim reductions: the reduced logical
+dimension becomes size 1 in the destination layout.
+
+```python
+row_sum = d2m.reduce_sum(x, 1)  # or x.reduce_sum(1)
+col_max = x.reduce_max(0)
+row_avg = x.reduce_mean(-1)
+```
+
+`dim` follows torch/numpy axis numbering for a 2D tile block:
+
+| `dim` | D2M reduce dim | Result layout |
+| --- | --- | --- |
+| `0` / `-2` | `#d2m<reduce_dim C>` | `shape[0] == 1` |
+| `1` / `-1` | `#d2m<reduce_dim R>` | `shape[1] == 1` |
+
+These ops are float-only (`f32`, `bf16`) and use a device-local scaler generic,
+matching the D2M float tile-reduce signature `reduce(a * b, c)`. Sum/max use a
+unit scaler; mean scales by the number of elements reduced in the local block.
+
+Use `d2m.reduction_layout(input_layout, dim)` for the output tensor:
+
+```python
+L_in = d2m.Layout(shape=(64, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[2, 1])
+L_out = d2m.reduction_layout(L_in, 1)  # shape=(64, 1), grid_shape=[2, 1]
+
+@d2m.kernel
+def row_sum_kernel(in_t, out_t, m_blocks, n_blocks):
+    m_off = core_index(0) * m_blocks
+    n_off = core_index(1) * n_blocks
+    for m in range(m_blocks):
+        for n in range(n_blocks):
+            x = remote_load(in_t, [m_off + m, n_off + n])
+            remote_store(out_t, [m_off + m, 0], reduce_sum(x, 1))
+```
+
+Elementwise ops implicitly broadcast a reduced operand when it is combined with
+an unreduced block, so softmax/layernorm-style code can stay natural:
+
+```python
+y = x - x.reduce_max(1)
+```
+
+Reductions that span multiple cores need a core gather/redistribute op: gather
+partials from the cores that own the reduced dimension, complete the reduction,
+then redistribute the reduced values to the cores that own the output layout.
 
 ### Python operators on `TensorBlock`
 
@@ -363,6 +421,9 @@ have been dropped — the DSL emits the post-legalisation form directly.
   generation that was not passed to `to_host` raises on re-use. If you need
   multiple values out, pass them all to a single `to_host`.
 - **Matmul accumulator is currently undefined.** See the matmul note above.
+- **Float reductions are per tile/per core.** Use `reduction_layout` for reduced
+  outputs. Reductions spanning multiple cores need a core gather/redistribute
+  op.
 - **Argument order in a `@kernel` call.** All `LazyTensor` arguments first,
   then any `int` scalar arguments. Mixing raises a `TypeError`. The last
   `num_outs` `LazyTensor`s (default 1) are treated as outputs.
@@ -380,5 +441,5 @@ have been dropped — the DSL emits the post-legalisation form directly.
 ## Known issues / TODO
 
 See [TODO.md](TODO.md) for active pipeline gaps (matmul accumulator init,
-host-scope `linalg.generic`), missing API surface (reductions,
-in-kernel typecast, DMA primitives, ...), and other follow-ups.
+host-scope `linalg.generic`), missing API surface (in-kernel typecast, DMA
+primitives, ...), and other follow-ups.

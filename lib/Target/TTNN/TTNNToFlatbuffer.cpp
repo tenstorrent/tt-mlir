@@ -650,6 +650,22 @@ createOp(FlatbufferObjectCache &cache, CumSumOp op) {
                                             dtype, memoryConfig);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::CumProdOp>
+createOp(FlatbufferObjectCache &cache, CumProdOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto outputType = op.getResult();
+  auto output = cache.getOrCreateNoSharding(outputType, tensorValueToFlatbuffer,
+
+                                            /*local_shape*/ std::nullopt);
+
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
+  auto dtype = toFlatbuffer(cache, op.getDtypeAttr());
+
+  return ::tt::target::ttnn::CreateCumProdOp(*cache.fbb, in, output,
+                                             op.getDim(), dtype, memoryConfig);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::PrepareConv2dWeightsOp>
 createOp(FlatbufferObjectCache &cache, PrepareConv2dWeightsOp op) {
   auto weightTensor = cache.at<::tt::target::ttnn::TensorRef>(
@@ -1254,6 +1270,170 @@ createOp(FlatbufferObjectCache &cache, MoeExpertTokenRemapOp op) {
   return ::tt::target::ttnn::CreateMoeExpertTokenRemapOp(
       *cache.fbb, topkTensor, expertMapping, expertMetadata, mapping, reduced,
       static_cast<uint32_t>(op.getReductionSize()), memoryConfig);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::MoeGptOp>
+createOp(FlatbufferObjectCache &cache, MoeGptOp op) {
+  auto inputTensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInputTensor()));
+  auto expertIndices = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertIndices()));
+  auto expertScores = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertScores()));
+  auto expertMapping = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpertMapping()));
+  auto w0w1Tensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getW0W1Tensor()));
+  auto w2Tensor = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getW2Tensor()));
+
+  auto tokenCounts = cache.getOrCreateNoSharding(
+      op.getTokenCounts(), tensorValueToFlatbuffer, std::nullopt);
+  auto activationRecords = cache.getOrCreateNoSharding(
+      op.getActivationRecords(), tensorValueToFlatbuffer, std::nullopt);
+  auto tokenIndices = cache.getOrCreateNoSharding(
+      op.getTokenIndices(), tensorValueToFlatbuffer, std::nullopt);
+  auto tilizeOut = cache.getOrCreateNoSharding(
+      op.getTilizeOut(), tensorValueToFlatbuffer, std::nullopt);
+  auto tilizeOutRm = cache.getOrCreateNoSharding(
+      op.getTilizeOutRm(), tensorValueToFlatbuffer, std::nullopt);
+
+  ::flatbuffers::Optional<uint32_t> clusterAxis;
+  if (auto attr = op.getClusterAxisAttr()) {
+    clusterAxis = attr.getUInt();
+  }
+
+  return ::tt::target::ttnn::CreateMoeGptOp(
+      *cache.fbb, inputTensor, expertIndices, expertScores, expertMapping,
+      w0w1Tensor, w2Tensor, op.getOutputHeightShardDim(),
+      op.getOutputWidthShardDim(), op.getHiddenSize(), clusterAxis, tokenCounts,
+      activationRecords, tokenIndices, tilizeOut, tilizeOutRm);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::PrepareMoEComputeW0W1WeightsOp>
+createOp(FlatbufferObjectCache &cache, PrepareMoEComputeW0W1WeightsOp op) {
+  auto w0 = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getW0()));
+  auto w1 = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getW1()));
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> bias0 = 0;
+  if (op.getBias_0()) {
+    bias0 = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getBias_0()));
+  }
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> bias1 = 0;
+  if (op.getBias_1()) {
+    bias1 = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getBias_1()));
+  }
+  auto device = getOperandThroughDPSOps(op.getDevice());
+  auto deviceRef = cache.at<::tt::target::DeviceRef>(device);
+  auto out = cache.getOrCreateNoSharding(op.getResult(),
+                                         tensorValueToFlatbuffer, std::nullopt);
+
+  // `bh_ring_size` is schema-optional (uint32 = null); same absent-marker
+  // handling as the downstream moe_compute op.
+  auto bhRingSize = toFlatbuffer(cache, op.getBhRingSize());
+
+  return ::tt::target::ttnn::CreatePrepareMoEComputeW0W1WeightsOp(
+      *cache.fbb, w0, w1, bias0, bias1, deviceRef, op.getHiddenSize(),
+      op.getIntermediateSize(), bhRingSize, out);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::PrepareMoEComputeW2WeightsOp>
+createOp(FlatbufferObjectCache &cache, PrepareMoEComputeW2WeightsOp op) {
+  auto w2 = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getW2()));
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> bias2 = 0;
+  if (op.getBias_2()) {
+    bias2 = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getBias_2()));
+  }
+  auto device = getOperandThroughDPSOps(op.getDevice());
+  auto deviceRef = cache.at<::tt::target::DeviceRef>(device);
+  auto out = cache.getOrCreateNoSharding(op.getResult(),
+                                         tensorValueToFlatbuffer, std::nullopt);
+
+  // `bh_ring_size` is schema-optional (uint32 = null); same absent-marker
+  // handling as the downstream moe_compute op.
+  auto bhRingSize = toFlatbuffer(cache, op.getBhRingSize());
+
+  return ::tt::target::ttnn::CreatePrepareMoEComputeW2WeightsOp(
+      *cache.fbb, w2, bias2, deviceRef, op.getHiddenSize(),
+      op.getIntermediateSize(), bhRingSize, out);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::MoeComputeOp>
+createOp(FlatbufferObjectCache &cache, MoeComputeOp op) {
+  auto tilizeInput = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getTilizeInputTensor()));
+  auto tilizeIndices = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getTilizeExpertIndicesTensor()));
+  auto tilizeScores = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getTilizeExpertScoresTensor()));
+  auto tilizeMapping = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getTilizeExpertMappingTensor()));
+  auto w0w1 = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getMatmulW0W1Tensor()));
+  auto w2 = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getMatmulW2Tensor()));
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> optionalOutput = 0;
+  if (op.getOptionalOutputTensor()) {
+    optionalOutput = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getOptionalOutputTensor()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>
+      crossDeviceSemaphore = 0;
+  if (op.getCrossDeviceSemaphore()) {
+    crossDeviceSemaphore = cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(
+        op.getCrossDeviceSemaphore());
+  }
+
+  auto device = getOperandThroughDPSOps(op.getDevice());
+  auto deviceRef = cache.at<::tt::target::DeviceRef>(device);
+
+  auto activation = toFlatbuffer(cache, op.getActivationFunction());
+
+  // `cluster_axis`, `num_links`, and `topology` are schema-optional
+  // (uint32/Topology = null). Use the toFlatbuffer overloads that return
+  // flatbuffers::Optional<...> so unset attrs serialize as the absent marker
+  // rather than 0/Ring — tt-metal distinguishes the two (e.g. moe_compute
+  // asserts num_links > 0, and cluster_axis=0 is a valid mesh axis).
+  auto clusterAxis = toFlatbuffer(cache, op.getClusterAxis());
+  auto numLinks = toFlatbuffer(cache, op.getNumLinks());
+  auto topology = toFlatbuffer(cache, op.getTopology());
+
+  // `bh_ring_size` is schema-optional (uint32 = null); same absent-marker
+  // handling as num_links above.
+  auto bhRingSize = toFlatbuffer(cache, op.getBhRingSize());
+
+  ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet> muxCoreRangeSet = 0;
+  if (op.getMuxCoreRangeSetAttr()) {
+    muxCoreRangeSet = toFlatbuffer(cache, op.getMuxCoreRangeSetAttr());
+  }
+
+  auto perExpertTokens = cache.getOrCreateNoSharding(
+      op.getPerExpertTotalTokens(), tensorValueToFlatbuffer, std::nullopt);
+  auto expertActivation = cache.getOrCreateNoSharding(
+      op.getExpertActivation(), tensorValueToFlatbuffer, std::nullopt);
+  auto expertToToken = cache.getOrCreateNoSharding(
+      op.getExpertToToken(), tensorValueToFlatbuffer, std::nullopt);
+  auto tilizeOutput = cache.getOrCreateNoSharding(
+      op.getTilizeOutput(), tensorValueToFlatbuffer, std::nullopt);
+  auto matmulOutput = cache.getOrCreateNoSharding(
+      op.getMatmulOutput(), tensorValueToFlatbuffer, std::nullopt);
+  auto combineOutput = cache.getOrCreateNoSharding(
+      op.getCombineOutput(), tensorValueToFlatbuffer, std::nullopt);
+
+  return ::tt::target::ttnn::CreateMoeComputeOp(
+      *cache.fbb, tilizeInput, tilizeIndices, tilizeScores, tilizeMapping, w0w1,
+      w2, optionalOutput, crossDeviceSemaphore, deviceRef, op.getLayerId(),
+      op.getOutputHeightShardDim(), op.getIntermediateSize(), op.getHasBias(),
+      clusterAxis, activation, numLinks, topology, muxCoreRangeSet,
+      op.getComputeOnly(), bhRingSize, perExpertTokens, expertActivation,
+      expertToToken, tilizeOutput, matmulOutput, combineOutput);
 }
 
 // Convert ttcore::ReduceType to tt::target::ttnn::ScatterReduceType
@@ -4245,6 +4425,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, cumSumOp), debugString,
                            locInfo);
   }
+  if (auto cumProdOp = dyn_cast<CumProdOp>(op); cumProdOp) {
+    return createOperation(cache, createOp(cache, cumProdOp), debugString,
+                           locInfo);
+  }
   if (auto sumOp = dyn_cast<SumOp>(op); sumOp) {
     return createOperation(cache, createReductionOp(cache, sumOp), debugString,
                            locInfo);
@@ -4380,6 +4564,22 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
       moeExpertTokenRemapOp) {
     return createOperation(cache, createOp(cache, moeExpertTokenRemapOp),
                            debugString, locInfo);
+  }
+  if (auto moeGptOp = dyn_cast<MoeGptOp>(op); moeGptOp) {
+    return createOperation(cache, createOp(cache, moeGptOp), debugString,
+                           locInfo);
+  }
+  if (auto prepW0W1 = dyn_cast<PrepareMoEComputeW0W1WeightsOp>(op); prepW0W1) {
+    return createOperation(cache, createOp(cache, prepW0W1), debugString,
+                           locInfo);
+  }
+  if (auto prepW2 = dyn_cast<PrepareMoEComputeW2WeightsOp>(op); prepW2) {
+    return createOperation(cache, createOp(cache, prepW2), debugString,
+                           locInfo);
+  }
+  if (auto moeComputeOp = dyn_cast<MoeComputeOp>(op); moeComputeOp) {
+    return createOperation(cache, createOp(cache, moeComputeOp), debugString,
+                           locInfo);
   }
   if (auto scatterOp = dyn_cast<ScatterOp>(op); scatterOp) {
     return createOperation(cache, createOp(cache, scatterOp), debugString,
