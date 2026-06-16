@@ -214,12 +214,12 @@ std::uint64_t Tensor::nextTensorGlobalId() {
 Tensor::~Tensor() { recordDeallocDebugStat(); }
 
 void Tensor::recordAllocDebugStat() const {
-  debug::Stats::get().incrementStat("TensorAlloc." + std::to_string(globalId));
+  // debug::Stats::get().incrementStat("TensorAlloc." + std::to_string(globalId));
 }
 
 void Tensor::recordDeallocDebugStat() const {
-  debug::Stats::get().incrementStat("TensorDealloc." +
-                                    std::to_string(globalId));
+  // debug::Stats::get().incrementStat("TensorDealloc." +
+                                    // std::to_string(globalId));
 }
 
 std::uint64_t GlobalSemaphore::nextGlobalSemaphoreGlobalId() {

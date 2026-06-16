@@ -30,6 +30,8 @@ using TensorPtrMapIterator = typename TensorPtrMap::iterator;
 using GlobalSemaphoreMapIterator = typename GlobalSemaphoreMap::iterator;
 class TTNNTensorWrapper;
 using OnDestroyTensorCallback = std::function<void(TTNNTensorWrapper *)>;
+using OnConstructTensorCallback = std::function<void(TTNNTensorWrapper *)>;
+
 
 // Wrapper for ttnn::Tensor that contains
 // additional metadata specific to our ttnn runtime
@@ -40,12 +42,19 @@ public:
       const std::optional<::ttnn::MeshEvent> &meshEvent = std::nullopt,
       bool retain = false)
       : tensor(tensor), meshEvent(meshEvent), retain(retain),
-        version(getLatestVersion()) {}
+        version(getLatestVersion()) {
+    LOG_INFO("Constructing TTNNTensorWrapper, shape=", tensor.logical_shape(),
+             " wrapper=", static_cast<const void *>(this),
+             " attrs_use_count=", tensor.tensor_attributes.use_count());
+  }
 
   ~TTNNTensorWrapper() {
     for (const auto &callback : onDestroyCallbacks) {
       callback(this);
     }
+    LOG_INFO("Destructing TTNNTensorWrapper, shape=", tensor.logical_shape(),
+             " wrapper=", static_cast<const void *>(this),
+             " attrs_use_count=", tensor.tensor_attributes.use_count());
   }
 
   TTNNTensorWrapper(const TTNNTensorWrapper &other) = delete;
@@ -67,6 +76,10 @@ public:
 
   void registerOnDestroyCallback(OnDestroyTensorCallback callback) {
     onDestroyCallbacks.push_back(callback);
+  }
+
+  void registerOnConstructCallback(OnConstructTensorCallback callback) {
+    onConstructCallbacks.push_back(callback);
   }
 
   bool shouldRetain() const { return retain.load(std::memory_order_relaxed); }
@@ -107,6 +120,8 @@ private:
   // E.g., used in consteval caching to remove cache entries associated with an
   // input tensor, once the input tensor is destroyed.
   std::vector<OnDestroyTensorCallback> onDestroyCallbacks;
+  std::vector<OnDestroyTensorCallback> onConstructCallbacks;
+
 };
 
 struct LayoutDesc {
