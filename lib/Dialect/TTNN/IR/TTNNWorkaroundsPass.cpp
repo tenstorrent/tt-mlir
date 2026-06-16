@@ -234,32 +234,43 @@ TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds(
   auto sourceType =
       mlir::cast<mlir::RankedTensorType>(scatterOp.getSource().getType());
 
+  auto indexType =
+      mlir::cast<mlir::RankedTensorType>(scatterOp.getIndex().getType());
+
   ttnn::TTNNLayoutAttr inputLayoutAttr =
       mlir::cast<ttnn::TTNNLayoutAttr>(inputType.getEncoding());
+  ttnn::TTNNLayoutAttr indexLayoutAttr =
+      mlir::cast<ttnn::TTNNLayoutAttr>(indexType.getEncoding());
   ttnn::TTNNLayoutAttr sourceLayoutAttr =
       mlir::cast<ttnn::TTNNLayoutAttr>(sourceType.getEncoding());
 
-  bool isLayoutWorkaroundRequired =
-      (inputLayoutAttr.isTiled() &&
-       (inputType.getElementType().isF32() ||
-        inputType.getElementType().isBF16() ||
-        inputType.getElementType().isInteger(32))) ||
-      (sourceLayoutAttr.isTiled() &&
-       (sourceType.getElementType().isF32() ||
-        sourceType.getElementType().isBF16() ||
-        sourceType.getElementType().isInteger(32)));
+  auto needsRowMajor = [](ttnn::TTNNLayoutAttr layout,
+                          mlir::RankedTensorType type) {
+    return layout.isTiled() &&
+           (type.getElementType().isF32() || type.getElementType().isBF16() ||
+            type.getElementType().isInteger(32));
+  };
 
-  TTNNOperandWorkarounds operandWorkaround;
+  TTNNOperandWorkarounds inputSourceWorkaround;
+  if (needsRowMajor(inputLayoutAttr, inputType) ||
+      needsRowMajor(sourceLayoutAttr, sourceType)) {
+    inputSourceWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  }
 
-  if (isLayoutWorkaroundRequired) {
-    operandWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  // The index tensor is always integer-typed. tt-metal's scatter kernel
+  // has a 256-element scatter axis limit for int32 tiled tensors
+  // (see scatter.cpp check_support). Force the index tensor to row-major
+  // when it is int32 tiled to avoid this constraint entirely.
+  TTNNOperandWorkarounds indexWorkaround;
+  if (needsRowMajor(indexLayoutAttr, indexType)) {
+    indexWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
   }
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(operandWorkaround)   // input
-      .addInputOperandWorkaround(operandWorkaround)   // index
-      .addInputOperandWorkaround(operandWorkaround)   // source
-      .addOutputOperandWorkaround(operandWorkaround); // result
+      .addInputOperandWorkaround(inputSourceWorkaround)   // input
+      .addInputOperandWorkaround(indexWorkaround)         // index
+      .addInputOperandWorkaround(inputSourceWorkaround)   // source
+      .addOutputOperandWorkaround(inputSourceWorkaround); // result
 }
 
 // Factory method to create a set of workarounds for mesh partition op operands.
@@ -479,19 +490,23 @@ TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSamplingOpOperandsWorkarounds() {
   // ttnn::sampling kernel requires ROW_MAJOR layout for index/param tensors
-  // and produces a ROW_MAJOR output. Declare both so the pass inserts
-  // to_layout ops to reconcile with neighbours.
+  // and produces a ROW_MAJOR uint32 result (token indices). Declare these so
+  // the pass inserts to_layout/typecast ops to reconcile with neighbours.
   TTNNOperandWorkarounds empty;
   TTNNOperandWorkarounds rowMajor;
   rowMajor.tensorLayoutWorkaround = Layout::RowMajor;
 
+  TTNNOperandWorkarounds rowMajorUInt32;
+  rowMajorUInt32.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorUInt32.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
+
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(empty)      // input_values
-      .addInputOperandWorkaround(rowMajor)   // input_indices
-      .addInputOperandWorkaround(rowMajor)   // k
-      .addInputOperandWorkaround(rowMajor)   // p
-      .addInputOperandWorkaround(rowMajor)   // temp
-      .addOutputOperandWorkaround(rowMajor); // result
+      .addInputOperandWorkaround(empty)            // input_values
+      .addInputOperandWorkaround(rowMajor)         // input_indices
+      .addInputOperandWorkaround(rowMajor)         // k
+      .addInputOperandWorkaround(rowMajor)         // p
+      .addInputOperandWorkaround(rowMajor)         // temp
+      .addOutputOperandWorkaround(rowMajorUInt32); // result
 }
 
 TTNNOperandsWorkarounds
@@ -1417,6 +1432,9 @@ TTNNOperandsWorkaroundsFactory::createMoeGptOpOperandsWorkarounds(
   l1RowMajorUint16Workaround.tensorDataTypeWorkaround =
       ttcore::DataType::UInt16;
   l1RowMajorUint16Workaround.tensorBufferTypeWorkaround = BufferType::L1;
+  // expert_mapping is a constant argument; its L1 copy is meant to be
+  // const-eval'd, so opt in to tagging the inserted op as const-eval-allowed.
+  l1RowMajorUint16Workaround.allowL1ConstEval = true;
 
   // expert_indices: UINT16 ROW_MAJOR L1 HEIGHT_SHARDED — must match dispatch
   // output dtype to avoid host round-trip that destroys shard placement.
@@ -1520,6 +1538,103 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
       .addInputOperandWorkaround(rowMajorUint16Workaround)   // expert_metadata
       .addOutputOperandWorkaround(rowMajorBf16Workaround)    // mapping
       .addOutputOperandWorkaround(rowMajorUint16Workaround); // reduced
+}
+
+// tt-metal moe_compute op requirements:
+//
+// Inputs:
+//   tilize_input_tensor:           ROW_MAJOR, BFLOAT16
+//   tilize_expert_indices_tensor:  handled in MoeComputeRewritePattern.
+//   tilize_expert_scores_tensor:   handled in MoeComputeRewritePattern.
+//   tilize_expert_mapping_tensor:  ROW_MAJOR, UINT16
+//   matmul_w0_w1_tensor:           pre-packed by prepare_moe_compute_weights;
+//                                  no dtype/layout workaround applied here.
+//   matmul_w2_tensor:              same as W0/W1.
+//
+// Outputs:
+//   per_expert_total_tokens:       UINT32, ROW_MAJOR
+//   expert_activation:             UINT32, ROW_MAJOR
+//   expert_to_token:               UINT32, ROW_MAJOR
+//   tilize_output:                 BFLOAT16, TILE
+//   matmul_output:                 BFLOAT16, ROW_MAJOR (aliases tilize_output)
+//   combine_output:                BFLOAT16, ROW_MAJOR
+//
+// Memory-config (sharded vs interleaved) coercion is intentionally not
+// expressed here; the dedicated MoeComputeRewritePattern handles it.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createMoeComputeOpOperandsWorkarounds(
+    ttnn::MoeComputeOp op) {
+  TTNNOperandWorkarounds rmBf16;
+  rmBf16.tensorLayoutWorkaround = Layout::RowMajor;
+  rmBf16.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  TTNNOperandWorkarounds rmU16;
+  rmU16.tensorLayoutWorkaround = Layout::RowMajor;
+  rmU16.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
+
+  TTNNOperandWorkarounds rmU32;
+  rmU32.tensorLayoutWorkaround = Layout::RowMajor;
+  rmU32.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
+
+  TTNNOperandWorkarounds tileBf16;
+  tileBf16.tensorLayoutWorkaround = Layout::Tile;
+  tileBf16.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  TTNNOperandWorkarounds none;
+
+  TTNNOperandsWorkarounds w =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+          .addInputOperandWorkaround(rmBf16) // tilize_input_tensor
+          .addInputOperandWorkaround(none)   // tilize_expert_indices_tensor
+          .addInputOperandWorkaround(none)   // tilize_expert_scores_tensor
+          .addInputOperandWorkaround(rmU16)  // tilize_expert_mapping_tensor
+          .addInputOperandWorkaround(none)   // matmul_w0_w1_tensor
+          .addInputOperandWorkaround(none);  // matmul_w2_tensor
+
+  return w
+      .addOutputOperandWorkaround(rmU32)    // per_expert_total_tokens
+      .addOutputOperandWorkaround(rmU32)    // expert_activation
+      .addOutputOperandWorkaround(rmU32)    // expert_to_token
+      .addOutputOperandWorkaround(tileBf16) // tilize_output
+      .addOutputOperandWorkaround(rmBf16)   // matmul_output
+      .addOutputOperandWorkaround(rmBf16);  // combine_output
+}
+
+// The tt-metal moe_compute weight packers require ROW_MAJOR weights/biases.
+// One input workaround per ranked-tensor operand (biases are optional), no
+// output workaround (the packed result layout comes from OpModel capture).
+TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
+    createPrepareMoEComputeW0W1WeightsOpOperandsWorkarounds(
+        ttnn::PrepareMoEComputeW0W1WeightsOp op) {
+  TTNNOperandWorkarounds rowMajor;
+  rowMajor.tensorLayoutWorkaround = Layout::RowMajor;
+
+  TTNNOperandsWorkarounds w =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+          .addInputOperandWorkaround(rowMajor)  // w0
+          .addInputOperandWorkaround(rowMajor); // w1
+  if (op.getBias_0()) {
+    w = w.addInputOperandWorkaround(rowMajor); // bias_0
+  }
+  if (op.getBias_1()) {
+    w = w.addInputOperandWorkaround(rowMajor); // bias_1
+  }
+  return w.addOutputOperandWorkaround(TTNNOperandWorkarounds());
+}
+
+TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
+    createPrepareMoEComputeW2WeightsOpOperandsWorkarounds(
+        ttnn::PrepareMoEComputeW2WeightsOp op) {
+  TTNNOperandWorkarounds rowMajor;
+  rowMajor.tensorLayoutWorkaround = Layout::RowMajor;
+
+  TTNNOperandsWorkarounds w =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+          .addInputOperandWorkaround(rowMajor); // w2
+  if (op.getBias_2()) {
+    w = w.addInputOperandWorkaround(rowMajor); // bias_2
+  }
+  return w.addOutputOperandWorkaround(TTNNOperandWorkarounds());
 }
 
 // Factory method to create a set of workarounds for topk op.

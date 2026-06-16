@@ -4,7 +4,7 @@ SHELL ["/bin/bash", "-c"]
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
 
-ARG TT_METAL_DEPENDENCIES_COMMIT=68e82deb155ec50633cbb505d33a5a014cf678e2
+ARG TT_METAL_DEPENDENCIES_COMMIT=1efd27cafdb43765593130b72b78084999eb8f45
 
 # Install dependencies
 RUN <<EOT
@@ -44,6 +44,12 @@ apt-get install -y -qq python3.12 python3.12-dev python3.12-venv
 wget -q https://raw.githubusercontent.com/tenstorrent/tt-metal/${TT_METAL_DEPENDENCIES_COMMIT}/{install_dependencies.sh,tt_metal/sfpi-info.sh,tt_metal/sfpi-version}
 chmod u+x sfpi-info.sh
 bash install_dependencies.sh --docker
+bash install_dependencies.sh --sfpi
+
+# tt-metal's install_dependencies.sh --docker no longer installs ULFM OpenMPI,
+# so install it here so libtt_metal.so links against the ULFM build instead of
+# the system OpenMPI.
+( source install_dependencies.sh --source-only && detect_os && distributed=1 && install_mpi_ulfm )
 
 apt-get clean
 rm -rf /var/lib/apt/lists/*
@@ -59,9 +65,9 @@ RUN wget https://apt.llvm.org/llvm.sh && \
     rm llvm.sh && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* && \
-    ln -s /usr/bin/clang-20 /usr/bin/clang && \
-    ln -s /usr/bin/clang++-20 /usr/bin/clang++ && \
-    ln -s /usr/bin/clangd-20 /usr/bin/clangd
+    ln -sf /usr/bin/clang-20 /usr/bin/clang && \
+    ln -sf /usr/bin/clang++-20 /usr/bin/clang++ && \
+    ln -sf /usr/bin/clangd-20 /usr/bin/clangd
 
 # Install python packages
 RUN python3.12 -m pip install --no-cache-dir --break-system-packages cmake \

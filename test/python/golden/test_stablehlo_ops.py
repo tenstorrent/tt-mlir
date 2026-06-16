@@ -712,6 +712,11 @@ def test_sort(
     request,
     device,
 ):
+    if is_stable:
+        pytest.xfail(
+            "stable=True is not implemented in ttnn::sort: https://github.com/tenstorrent/tt-metal/issues/33492"
+        )
+
     def module(builder: StableHLOBuilder):
         @builder.func([shape], [dtype])
         def sort(

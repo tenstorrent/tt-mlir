@@ -15,7 +15,9 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -143,6 +145,10 @@ public:
     uint64_t cbPeakUsage = 0;     // CB peak when output is L1-sharded
     uint64_t dramCBPeakUsage = 0; // CB peak when output is DRAM-interleaved
                                   // (used by evictForDramCBGrowth probe)
+    // Hard sharded-input constraint (e.g. paged_update_cache): when set, the op
+    // returns MetalBackendError if any input is DRAM. Drives the
+    // constraint-driven reshard path once a producer is spilled.
+    bool requiresShardedInput = false;
   };
   llvm::DenseMap<mlir::Operation *, PerOpConfig> perOpConfigs;
 
@@ -176,6 +182,12 @@ public:
     perOpConfigs[op].forceStatus = ValidationStatus::NotImplemented;
   }
 
+  /// Mark `op` as requiring sharded (L1) inputs: it fails validation once any
+  /// input is DRAM (i.e. after its producer is spilled).
+  void setRequiresShardedInput(mlir::Operation *op) {
+    perOpConfigs[op].requiresShardedInput = true;
+  }
+
   // --- Layout helpers ---
 
   /// Default grid {8, 1} is the canonical HeightSharded layout (M, 1).
@@ -188,6 +200,12 @@ public:
         .setMemoryLayout(TensorMemoryLayout::HeightSharded)
         .setGridShape(grid)
         .buildWithCanonicalCorePlacement(deviceAttr);
+  }
+
+  /// Per-core L1 bytes for `layout` (matches how the pass sizes reshards).
+  uint64_t perCoreL1Usage(TTNNLayoutAttr layout) const {
+    return utils::getPerCoreL1Usage(
+        layout, ttmlir::utils::volume(layout.getGridShape()));
   }
 
   TTNNLayoutAttr makeDRAM(llvm::ArrayRef<int64_t> shape) {
@@ -276,12 +294,27 @@ public:
   SumL1MemoryTracker::BackendValidatorFn makeValidator() const {
     uint64_t budget = l1BudgetPerCore;
     return [this, budget](mlir::Operation *op,
-                          llvm::ArrayRef<TTNNLayoutAttr> /*inputLayouts*/,
+                          llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
                           const OpConfig &config,
                           uint64_t additionalL1) -> ValidationResult {
       auto it = perOpConfigs.find(op);
-      uint64_t outL1 =
-          (it != perOpConfigs.end()) ? it->second.outputL1Usage : 0;
+      uint64_t outL1 = 0;
+      if (it != perOpConfigs.end()) {
+        outL1 = it->second.outputL1Usage;
+      } else if (op->getNumResults() > 0) {
+        // Pass-inserted reshard (no explicit setL1Usage): default to its
+        // layout's per-core L1 so it occupies a real address-sim slot. DRAM
+        // spills contribute 0 via the configIsDRAM branch below.
+        if (auto rt = mlir::dyn_cast<mlir::RankedTensorType>(
+                op->getResult(0).getType())) {
+          if (auto enc =
+                  mlir::dyn_cast_or_null<TTNNLayoutAttr>(rt.getEncoding())) {
+            if (enc.hasL1BufferType()) {
+              outL1 = perCoreL1Usage(enc);
+            }
+          }
+        }
+      }
 
       // CB peak depends on whether the probed config is L1 or DRAM. The pass
       // queries DRAM CB after demotion via evictForDramCBGrowth — read
@@ -314,6 +347,17 @@ public:
           return ValidationResult::outOfMemoryError("injected OOM");
         }
         return ValidationResult::metalBackendError("injected backend error");
+      }
+
+      // Hard sharded-input constraint: reject a DRAM input (triggers the
+      // constraint-driven reshard once a producer is spilled).
+      if (it != perOpConfigs.end() && it->second.requiresShardedInput) {
+        for (TTNNLayoutAttr inLayout : inputLayouts) {
+          if (inLayout && !inLayout.hasL1BufferType()) {
+            return ValidationResult::metalBackendError(
+                "requires sharded input");
+          }
+        }
       }
 
       if (additionalL1 + effectiveOutL1 > budget) {

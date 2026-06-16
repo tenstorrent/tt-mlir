@@ -1185,6 +1185,18 @@ inline ::tt::target::Topology toFlatbuffer(FlatbufferObjectCache &cache,
   return fbTopology;
 }
 
+inline ::tt::target::MoEActivationFunction
+toFlatbuffer(FlatbufferObjectCache &cache,
+             ttcore::MoEActivationFunction activation) {
+  switch (activation) {
+  case ttcore::MoEActivationFunction::Silu:
+    return ::tt::target::MoEActivationFunction::Silu;
+  case ttcore::MoEActivationFunction::SwiGLU:
+    return ::tt::target::MoEActivationFunction::SwiGLU;
+  }
+  llvm_unreachable("Unknown MoEActivationFunction");
+}
+
 inline ::tt::target::NocIndex toFlatbuffer(FlatbufferObjectCache &cache,
                                            ttcore::NocIndex nocIndex) {
   switch (nocIndex) {
@@ -1194,6 +1206,15 @@ inline ::tt::target::NocIndex toFlatbuffer(FlatbufferObjectCache &cache,
     return ::tt::target::NocIndex::Noc1;
   }
   assert(false && "Unsupported NocIndex");
+}
+
+inline ::tt::target::DataMovementProcessor
+toFlatbufferDataMovementProcessor(const int32_t dmCoreIndex) {
+  // Quasar exposes 6 out of 8 DM cores.
+  assert(dmCoreIndex >= 0 &&
+         dmCoreIndex <= static_cast<int32_t>(
+                            ::tt::target::DataMovementProcessor::RISCV_5));
+  return static_cast<::tt::target::DataMovementProcessor>(dmCoreIndex);
 }
 
 inline ::tt::target::RoutingMode toFlatbuffer(FlatbufferObjectCache &cache,

@@ -228,7 +228,8 @@ convertKernelArg(Builder &builder, const ttkernel::ArgAttr &arg,
         additionalArgMapping.at(arg.getOperandIndex()));
   }
   case ttkernel::ArgType::Scalar: {
-    return builder.getAttr<ttnn::KernelArgScalarAttr>(arg.getOperandIndex());
+    return builder.getAttr<ttnn::KernelArgScalarAttr>(
+        additionalArgMapping.at(arg.getOperandIndex()));
   }
   }
   llvm_unreachable("Invalid ArgType");
@@ -339,15 +340,13 @@ static SmallVector<mlir::Attribute> createKernelDescriptors(
       break;
     }
     case d2m::ThreadType::Datamovement: {
-      const int32_t processorIdx = threadAttr.getProcessorIndex();
-      TT_assert(processorIdx >= 0);
-      const auto nocIdx = (arch == ttcore::Arch::Quasar || processorIdx == 1)
-                              ? ttcore::NocIndex::Noc0
-                              : ttcore::NocIndex::Noc1;
-      auto processor = processorIdx == 0 ? ttnn::DataMovementProcessor::RiscV0
-                                         : ttnn::DataMovementProcessor::RiscV1;
+      const int32_t dmCoreIndex = threadAttr.getDmCoreIndex();
+      TT_assert(dmCoreIndex >= 0);
+      const auto nocIndex = ttcore::getDmCoreDefaultNoc(arch, dmCoreIndex);
+      auto processor = dmCoreIndex == 0 ? ttnn::DataMovementProcessor::RiscV0
+                                        : ttnn::DataMovementProcessor::RiscV1;
       kernelConfigs[i] = builder.getAttr<ttnn::DataMovementKernelAttr>(
-          kernelSymbol, coreRangeSet, processor, nocIdx,
+          kernelSymbol, coreRangeSet, processor, nocIndex,
           ttnn::NocMode::DedicatedNoc, kernelCRTArgs, kernelCTArgs);
       break;
     }
@@ -695,6 +694,10 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
       // Local semaphores are described via createSemaphoreDescriptors; skip.
     } else if (isa<MemRefType>(arg.getType())) {
       // CBs are described via createCBDescriptors; skip.
+    } else if (mlir::isa<IntegerType, IndexType, FloatType>(arg.getType())) {
+      additionalArgMapping[op.getInputsAndOutputs().size() + idx] =
+          op.getInputsAndOutputs().size() + ttnnGenericAdditionalArgs.size();
+      ttnnGenericAdditionalArgs.push_back(arg);
     } else {
       return op.emitOpError(
                  "unexpected operand type in d2m.generic's additionalArgs: ")

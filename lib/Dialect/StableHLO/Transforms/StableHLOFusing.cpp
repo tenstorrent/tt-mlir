@@ -245,6 +245,68 @@ private:
   }
 };
 
+// Fuses reshape + gather when the reshape is an unsqueeze at index_vector_dim
+// and index_vector_dim is the last dim.
+//
+class ReshapeGatherFusionPattern
+    : public OpRewritePattern<::mlir::stablehlo::GatherOp> {
+  using OpRewritePattern<::mlir::stablehlo::GatherOp>::OpRewritePattern;
+
+public:
+  LogicalResult matchAndRewrite(::mlir::stablehlo::GatherOp gatherOp,
+                                ::mlir::PatternRewriter &rewriter) const final {
+    auto reshapeOp = mlir::dyn_cast_or_null<::mlir::stablehlo::ReshapeOp>(
+        gatherOp.getStartIndices().getDefiningOp());
+    if (!reshapeOp) {
+      return failure();
+    }
+
+    if (shardy_utils::opHasShardySharding(reshapeOp.getOperation()) ||
+        shardy_utils::opHasShardySharding(gatherOp.getOperation())) {
+      return failure();
+    }
+
+    auto reshapeInput = reshapeOp.getOperand();
+    auto reshapeOutput = reshapeOp.getResult();
+    ArrayRef<int64_t> inputShape = reshapeInput.getType().getShape();
+    ArrayRef<int64_t> outputShape = reshapeOutput.getType().getShape();
+
+    // Reshape must add exactly one dimension.
+    if (outputShape.size() != inputShape.size() + 1) {
+      return failure();
+    }
+
+    auto dimNumbers = gatherOp.getDimensionNumbers();
+    int64_t indexVectorDim = dimNumbers.getIndexVectorDim();
+
+    // The unsqueezed dimension must be at index_vector_dim and have size 1.
+    if (indexVectorDim >= static_cast<int64_t>(outputShape.size()) ||
+        outputShape[indexVectorDim] != 1) {
+      return failure();
+    }
+
+    // All other dims must be preserved in order.
+    for (size_t i = 0; i < inputShape.size(); i++) {
+      size_t outIdx = static_cast<int64_t>(i) < indexVectorDim ? i : i + 1;
+      if (outputShape[outIdx] != inputShape[i]) {
+        return failure();
+      }
+    }
+
+    // index_vector_dim must be the last dim.
+    if (indexVectorDim != static_cast<int64_t>(outputShape.size()) - 1) {
+      return failure();
+    }
+
+    rewriter.replaceOpWithNewOp<::mlir::stablehlo::GatherOp>(
+        gatherOp, gatherOp.getResult().getType(), gatherOp.getOperand(),
+        reshapeInput, gatherOp.getDimensionNumbers(), gatherOp.getSliceSizes(),
+        gatherOp.getIndicesAreSorted());
+
+    return success();
+  }
+};
+
 struct StableHLOFusingPass
     : public impl::StableHLOFusingPassBase<StableHLOFusingPass> {
 public:
@@ -254,6 +316,7 @@ public:
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
     patterns.add<ConcatenateToBroadcastInDimFusionPattern>(&getContext());
+    patterns.add<ReshapeGatherFusionPattern>(&getContext());
 
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);

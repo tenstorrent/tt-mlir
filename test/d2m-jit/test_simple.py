@@ -66,3 +66,30 @@ def test_eltwise2():
     print(out[::32, ::32])
     golden = lhs + rhs
     assert_pcc(golden, out)
+
+
+def test_eltwise_dram():
+    lhs = arange_tile(64, 64, dtype=torch.float)
+    rhs = arange_tile(64, 64, dtype=torch.float)
+    grid = (1, 1)
+    block_shape = [1, 1]
+    m_blocks = (lhs.shape[0] // 32) // block_shape[0] // grid[0]
+    n_blocks = (lhs.shape[1] // 32) // block_shape[1] // grid[1]
+
+    L = d2m.Layout(
+        shape=lhs.shape,
+        dtype=lhs.dtype,
+        block_shape=block_shape,
+        grid_shape=[1, 1],
+        mem_space="dram",
+    )
+
+    lhs_d = d2m.to_layout(lhs, L)
+    rhs_d = d2m.to_layout(rhs, L)
+    out_d = d2m.empty(L)
+    add(lhs_d, rhs_d, out_d, m_blocks, n_blocks, grid=grid)
+    out = out_d.to_host()
+
+    print(out[::32, ::32])
+    golden = lhs + rhs
+    assert_pcc(golden, out)

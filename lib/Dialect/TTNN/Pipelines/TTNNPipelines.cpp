@@ -126,6 +126,8 @@ void createTTNNPipelineAnalysisPasses(
                 mlir::tt::ttnn::createTTNNOptimizer(optimizerOptions));
             innerPm.addPass(mlir::createCanonicalizerPass());
             innerPm.addPass(
+                mlir::tt::ttnn::createTTNNDeduceMoEComputeLayouts());
+            innerPm.addPass(
                 mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
                     validationOptions));
             innerPm.addPass(
@@ -156,6 +158,8 @@ void createTTNNPipelineAnalysisPasses(
            memLayoutEnabled](OpPassManager &innerPm) {
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNDeduceMoEComputeLayouts());
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNGreedyMemoryLayoutPropagation(
                     propagationOptions));
@@ -382,18 +386,21 @@ void createTTIRToTTNNCommonPipeline(
       devicePm.addPass(createTTNNKVCacheDtypeConversion(convOpts));
     }
 
-    // Apply ComputeKernelConfig settings before analysis passes.
-    // Create options struct and forward pipeline options.
-    TTNNSetComputeKernelConfigOptions setConfigOptions;
+    // Activation dtype lowering runs after weight dtype conversion and KV
+    // cache dtype conversion. This is important because activation dtype can
+    // be influenced by weight and KV cache dtype.
+    if (options.enableActivationDtypeLowering) {
+      devicePm.addPass(createTTNNCCLActivationDtypeLowering());
+    }
 
-    // Forward the OptionalMathFidelity value directly
+    // Apply ComputeKernelConfig settings before analysis passes.
+    // Always run: large-K matmul/linear packer_l1_acc logic runs even when
+    // pipeline options leave math_fidelity undefined and fp32_dest_acc_en
+    // false.
+    TTNNSetComputeKernelConfigOptions setConfigOptions;
     setConfigOptions.mathFidelity = options.computeCfgMathFidelity.getValue();
     setConfigOptions.fp32DestAccEn = options.computeCfgFp32DestAccEn.getValue();
-
-    if (setConfigOptions.fp32DestAccEn ||
-        setConfigOptions.mathFidelity != OptionalMathFidelity::Undefined) {
-      devicePm.addPass(createTTNNSetComputeKernelConfig(setConfigOptions));
-    }
+    devicePm.addPass(createTTNNSetComputeKernelConfig(setConfigOptions));
 
     if (options.enableCreateD2MSubgraphs) {
       if (!options.optimizerPassEnabled) {

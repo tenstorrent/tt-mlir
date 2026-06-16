@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/DataMovementRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/EmbeddingRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/MatmulRules.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/MoeRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/NormalizationRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/TransformerRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/TypecastRules.h"
@@ -79,6 +80,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static SplitQKVRuleBook splitQKV;
   static RmsNormRuleBook rmsNorm;
   static MeshPartitionRuleBook meshPartition;
+  static MoeRuleBook moe;
   static PagedUpdateCacheRuleBook pagedUpdateCache;
   static FillCacheRuleBook fillCache;
   static PagedFillCacheRuleBook pagedFillCache;
@@ -117,6 +119,8 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(SplitQueryKeyValueAndSplitHeadsOp::getOperationName(), &splitQKV);
     reg(RMSNormOp::getOperationName(), &rmsNorm);
     reg(MeshPartitionOp::getOperationName(), &meshPartition);
+    reg(PrepareMoEComputeW0W1WeightsOp::getOperationName(), &moe);
+    reg(PrepareMoEComputeW2WeightsOp::getOperationName(), &moe);
     reg(PagedUpdateCacheOp::getOperationName(), &pagedUpdateCache);
     reg(FillCacheOp::getOperationName(), &fillCache);
     reg(PagedFillCacheOp::getOperationName(), &pagedFillCache);

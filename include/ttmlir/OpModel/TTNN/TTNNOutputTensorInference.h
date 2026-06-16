@@ -28,6 +28,14 @@ mlir::RankedTensorType
 getPreparedConvTranspose2dWeightsOutputTensor(ConvTranspose2dOp *op,
                                               Conv2dConfigAttr conv2dConfig);
 
+// Calculate the prepared-weight output tensor types for the
+// prepare_moe_compute_w0_w1_weights / _w2_weights ops.
+mlir::RankedTensorType
+getPreparedMoEComputeW0W1WeightsOutputType(PrepareMoEComputeW0W1WeightsOp *op);
+
+mlir::RankedTensorType
+getPreparedMoEComputeW2WeightsOutputType(PrepareMoEComputeW2WeightsOp *op);
+
 } // namespace mlir::tt::ttnn::op_model
 
 #endif // TTMLIR_OPMODEL_TTNN_TTNNOUTPUTTENSORINFERENCE_H

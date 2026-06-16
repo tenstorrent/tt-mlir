@@ -70,6 +70,69 @@ module attributes {} {
     return %alloc_2 : memref<1x8x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>
   }
 
+  // CHECK-LABEL: func.func @test_view_layout_of_composite_view
+  func.func @test_view_layout_of_composite_view() -> memref<1x2x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1> {
+    %alloc_0 = memref.alloc() {address = 103712 : i64, alignment = 16 : i64} : memref<1x1x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    %alloc_1 = memref.alloc() {address = 111904 : i64, alignment = 16 : i64} : memref<1x1x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    // CHECK-NOT: d2m.composite_view
+    // CHECK-NOT: d2m.view_layout
+    %0 = "d2m.composite_view"(%alloc_0, %alloc_1) <{dim = 1 : si32}> : (memref<1x1x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) -> memref<1x1x1x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
+    %view = d2m.view_layout %0 remapping = affine_map<(d0, d1, d2, d3) -> (0, 0, 0, d1 * 2 + d3)> : memref<1x1x1x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1> -> memref<1x2x1x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
+    %alloc_2 = memref.alloc() {address = 120096 : i64, alignment = 16 : i64} : memref<1x2x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x2>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>]}
+        ins(%view : memref<1x2x1x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>)
+        outs(%alloc_2 : memref<1x2x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) {
+    ^datamovement0:
+      // CHECK: d2m.get_cb(2)
+      // CHECK-NOT: d2m.composite_view
+      // CHECK-NOT: d2m.view_layout
+      %1 = d2m.get_cb(1) : <memref<1x2x!ttcore.tile<32x32, f32>, #l1>>
+      %core0 = d2m.core_index(0) {phys_to_virt_map = affine_map<() -> ()>} : index
+      %core1 = d2m.core_index(1) {phys_to_virt_map = affine_map<() -> ()>} : index
+      %2 = d2m.reserve %1 : <memref<1x2x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x2x!ttcore.tile<32x32, f32>, #l1>
+      // CHECK: d2m.dma_read
+      // CHECK-NOT: d2m.composite_view
+      // CHECK-NOT: d2m.view_layout
+      %tx = d2m.dma_read %view[%core0, %core1], %2, <0> : (memref<1x2x1x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>, memref<1x2x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx<read>
+      d2m.dma_wait %tx : !d2m.mem_tx<read>
+      d2m.push %1 : <memref<1x2x!ttcore.tile<32x32, f32>, #l1>>
+    }
+    // CHECK: return
+    return %alloc_2 : memref<1x2x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+  }
+
+  // CHECK-LABEL: func.func @test_view_layout_chain_of_composite_view
+  func.func @test_view_layout_chain_of_composite_view() -> memref<1x2x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1> {
+    %alloc_0 = memref.alloc() {address = 103712 : i64, alignment = 16 : i64} : memref<1x1x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    %alloc_1 = memref.alloc() {address = 111904 : i64, alignment = 16 : i64} : memref<1x1x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    // CHECK-NOT: d2m.composite_view
+    // CHECK-NOT: d2m.view_layout
+    %0 = "d2m.composite_view"(%alloc_0, %alloc_1) <{dim = 1 : si32}> : (memref<1x1x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) -> memref<1x1x1x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
+    %view_0 = d2m.view_layout %0 remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)> : memref<1x1x1x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1> -> memref<1x1x1x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
+    %view_1 = d2m.view_layout %view_0 remapping = affine_map<(d0, d1, d2, d3) -> (0, 0, 0, d1 * 2 + d3)> : memref<1x1x1x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1> -> memref<1x2x1x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
+    %alloc_2 = memref.alloc() {address = 120096 : i64, alignment = 16 : i64} : memref<1x2x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x2>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>]}
+        ins(%view_1 : memref<1x2x1x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>)
+        outs(%alloc_2 : memref<1x2x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>) {
+    ^datamovement0:
+      // CHECK: d2m.get_cb(2)
+      // CHECK-NOT: d2m.composite_view
+      // CHECK-NOT: d2m.view_layout
+      %1 = d2m.get_cb(1) : <memref<1x2x!ttcore.tile<32x32, f32>, #l1>>
+      %core0 = d2m.core_index(0) {phys_to_virt_map = affine_map<() -> ()>} : index
+      %core1 = d2m.core_index(1) {phys_to_virt_map = affine_map<() -> ()>} : index
+      %2 = d2m.reserve %1 : <memref<1x2x!ttcore.tile<32x32, f32>, #l1>> -> memref<1x2x!ttcore.tile<32x32, f32>, #l1>
+      // CHECK: d2m.dma_read
+      // CHECK-NOT: d2m.composite_view
+      // CHECK-NOT: d2m.view_layout
+      %tx = d2m.dma_read %view_1[%core0, %core1], %2, <0> : (memref<1x2x1x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>, memref<1x2x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx<read>
+      d2m.dma_wait %tx : !d2m.mem_tx<read>
+      d2m.push %1 : <memref<1x2x!ttcore.tile<32x32, f32>, #l1>>
+    }
+    // CHECK: return
+    return %alloc_2 : memref<1x2x1x2x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
+  }
+
   // CHECK-LABEL: func.func @test_composite_view_row_major_width
   func.func @test_composite_view_row_major_width() -> memref<4x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1> {
     %alloc_0 = memref.alloc() {address = 103712 : i64, alignment = 16 : i64} : memref<4x1x32x32xf32, #ttcore.shard<128x4, 1>, #l1>

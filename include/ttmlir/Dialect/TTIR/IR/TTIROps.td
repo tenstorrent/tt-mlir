@@ -3025,6 +3025,8 @@ def TTIR_ProdOp : TTIR_ReductionOp<"prod"> {
     Output:
     - `result` (Tensor): The result tensor after applying the reduction.
   }];
+
+  let hasCanonicalizer = 1;
 }
 
 def TTIR_EmbeddingOp : TTIR_NamedOp<"embedding"> {
@@ -3177,6 +3179,58 @@ def TTIR_CumSumOp : TTIR_NamedOp<"cumsum"> {
 
     Output:
     - `result` (Tensor): The tensor containing the cumulative sums.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       I64Attr:$dim);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+
+  let hasFolder = 1;
+}
+
+def TTIR_CumProdOp : TTIR_NamedOp<"cumprod"> {
+  let summary = "Cumulative product operation.";
+  let description = [{
+    The `cumprod` operation computes the cumulative product of elements along a specified dimension of the input tensor.
+
+    For each position in the output tensor, this operation computes the product of all elements in the input tensor
+    along the specified dimension up to and including that position. The shape of the output tensor matches
+    the shape of the input tensor.
+
+    Example:
+    ```mlir
+    // Cumulative product along dimension 0
+    %input = ... : tensor<2x3xf32>
+    %result = ttir.cumprod(%input) {dim = 0 : i64} : (tensor<2x3xf32>) -> tensor<2x3xf32>
+    // Input tensor:
+    // [[2, 3, 4],
+    //  [5, 6, 7]]
+    // Output tensor:
+    // [[2, 3, 4],        // first row remains the same
+    //  [10, 18, 28]]     // each element is the product of the corresponding column up to this point
+
+    // Cumulative product along dimension 1
+    %input = ... : tensor<2x3xf32>
+    %result = ttir.cumprod(%input) {dim = 1 : i64} : (tensor<2x3xf32>) -> tensor<2x3xf32>
+    // Input tensor:
+    // [[2, 3, 4],
+    //  [5, 6, 7]]
+    // Output tensor:
+    // [[2, 6, 24],       // each element is the product of the corresponding row up to this point
+    //  [5, 30, 210]]
+    ```
+
+    Inputs:
+    - `input` (Tensor): The input tensor.
+
+    Attributes:
+    - `dim` (Integer): The dimension along which to compute the cumulative product.
+
+    Output:
+    - `result` (Tensor): The tensor containing the cumulative products.
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
@@ -6585,6 +6639,70 @@ def TTIR_MoeGptOp : TTIR_NamedOp<"moe_gpt"> {
                         AnyRankedTensor:$token_indices,
                         AnyRankedTensor:$tilize_out,
                         AnyRankedTensor:$tilize_out_rm);
+
+    let hasVerifier = 1;
+}
+
+def TTIR_MoeComputeOp : TTIR_NamedOp<"moe_compute", [TTIR_CCL, AttrSizedOperandSegments]> {
+    let summary = "Fused MoE expert compute (selective tilize + experts + combine).";
+    let description = [{
+      Composite operation that performs the MoE expert FFN in a single fused
+      kernel: selective tilize of dispatched tokens, the gate/up matmul (W0/W1)
+      followed by SILU or SwiGLU activation, the down matmul (W2), and an
+      A2A selective-reduce-combine. Maps to
+      `ttnn.experimental.moe_compute` at runtime.
+
+      Takes the raw per-expert weights `w0` / `w1` / `w2` (logical shapes
+      `(L, E, K, N)`, `(L, E, K, N)`, `(L, E, N, K)` with `K = hidden_size`,
+      `N = intermediate_size`) and optional per-expert biases `bias_0` /
+      `bias_1` / `bias_2`.
+
+      Inputs:
+      - `tilize_input_tensor`: dense per-token activations dispatched via
+        all_to_all_dispatch.
+      - `tilize_expert_indices_tensor`: per-token expert indices.
+      - `tilize_expert_scores_tensor`: per-token expert routing scores.
+      - `tilize_expert_mapping_tensor`: global expert-to-device mapping.
+      - `w0` / `w1` / `w2`: raw per-expert gate / up / down weights.
+      - `bias_0` / `bias_1` / `bias_2`: optional per-expert biases.
+
+      Outputs (6, in declaration order):
+        0. `per_expert_total_tokens`     routing metadata: per-expert token counts
+        1. `expert_activation`           routing metadata: per-token activation records
+        2. `expert_to_token`             routing metadata: per-expert token lists
+        3. `tilize_output`               selective-tilize staging buffer
+        4. `matmul_output`               expert-FFN result (final output in compute_only)
+        5. `combine_output`              A2A-combined result (aliases matmul_output
+           in compute_only)
+    }];
+
+    let arguments = (ins AnyRankedTensor:$tilize_input_tensor,
+                         AnyRankedTensor:$tilize_expert_indices_tensor,
+                         AnyRankedTensor:$tilize_expert_scores_tensor,
+                         AnyRankedTensor:$tilize_expert_mapping_tensor,
+                         AnyRankedTensor:$w0,
+                         AnyRankedTensor:$w1,
+                         AnyRankedTensor:$w2,
+                         Optional<AnyRankedTensor>:$bias_0,
+                         Optional<AnyRankedTensor>:$bias_1,
+                         Optional<AnyRankedTensor>:$bias_2,
+                         UI32Attr:$layer_id,
+                         UI32Attr:$output_height_shard_dim,
+                         UI32Attr:$intermediate_size,
+                         DefaultValuedAttr<TTCore_MoEActivationFunctionAttr,
+                             "::mlir::tt::ttcore::MoEActivationFunction::Silu">:$activation_function,
+                         OptionalAttr<UI32Attr>:$bh_ring_size,
+                         DefaultValuedAttr<BoolAttr, "true">:$compute_only,
+
+                         // Full-path-only inputs, unused when compute_only == true.
+                         OptionalAttr<UI32Attr>:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$per_expert_total_tokens,
+                        AnyRankedTensor:$expert_activation,
+                        AnyRankedTensor:$expert_to_token,
+                        AnyRankedTensor:$tilize_output,
+                        AnyRankedTensor:$matmul_output,
+                        AnyRankedTensor:$combine_output);
 
     let hasVerifier = 1;
 }

@@ -487,6 +487,23 @@ public:
 } // namespace
 
 namespace {
+class CumProdOpConversionPattern : public OpConversionPattern<ttir::CumProdOp> {
+public:
+  using OpConversionPattern<ttir::CumProdOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::CumProdOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::CumProdOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(),
+        rewriter.getI32IntegerAttr(static_cast<int32_t>(adaptor.getDim())));
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class RepeatInterleaveOpConversionPattern
     : public OpConversionPattern<ttir::RepeatInterleaveOp> {
 public:
@@ -1775,6 +1792,74 @@ public:
         adaptor.getW2Tensor(), op.getOutputHeightShardDimAttr(),
         op.getOutputWidthShardDimAttr(), op.getHiddenSizeAttr(),
         op.getClusterAxisAttr());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class MoeComputeOpConversionPattern
+    : public OpConversionPattern<ttir::MoeComputeOp> {
+public:
+  using OpConversionPattern<ttir::MoeComputeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::MoeComputeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    llvm::SmallVector<Type, 6> resultTypes;
+    resultTypes.reserve(op->getNumResults());
+    for (Value result : op->getResults()) {
+      resultTypes.push_back(
+          this->getTypeConverter()->convertType(result.getType()));
+    }
+
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    // Weight prepacking is a TTNN concern (mirrors prepare_conv2d/3d_weights):
+    // insert the device-specific ttnn.prepare_moe_compute_* ops here from the
+    // raw weights. Their result type is bank-sharded and device-dependent
+    // (num_cores), so unlike conv weight prep it can't be computed statically;
+    // create them with a placeholder type and let TTNNDeduceMoEComputeLayouts
+    // refine it via OpModel (see that pass).
+    auto w0Type = cast<RankedTensorType>(adaptor.getW0().getType());
+    auto w2Type = cast<RankedTensorType>(adaptor.getW2().getType());
+    // w0 logical shape is (L, E, K=hidden_size, N=intermediate_size).
+    auto u32Ty = rewriter.getIntegerType(32, /*isSigned=*/false);
+    auto hiddenSizeAttr = rewriter.getIntegerAttr(u32Ty, w0Type.getShape()[2]);
+    auto intermediateSizeAttr = op.getIntermediateSizeAttr();
+
+    auto w0w1Prepared = rewriter.create<ttnn::PrepareMoEComputeW0W1WeightsOp>(
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_prepare_w0_w1"),
+        /*placeholder type, refined by TTNNDeduceMoEComputeLayouts=*/w0Type,
+        adaptor.getW0(), adaptor.getW1(), adaptor.getBias_0(),
+        adaptor.getBias_1(), device, hiddenSizeAttr, intermediateSizeAttr,
+        op.getBhRingSizeAttr());
+
+    auto w2Prepared = rewriter.create<ttnn::PrepareMoEComputeW2WeightsOp>(
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_prepare_w2"),
+        /*placeholder type, refined by TTNNDeduceMoEComputeLayouts=*/w2Type,
+        adaptor.getW2(), adaptor.getBias_2(), device, hiddenSizeAttr,
+        intermediateSizeAttr, op.getBhRingSizeAttr());
+
+    // The TTNN op (mirroring tt-metal) carries has_bias; derive it from the
+    // bias operands.
+    auto hasBiasAttr =
+        rewriter.getBoolAttr(static_cast<bool>(adaptor.getBias_0()));
+
+    // Only the compute_only path is supported (verifier-enforced): the
+    // combine-path operands/attrs (including cluster_axis) stay unset.
+    rewriter.replaceOpWithNewOp<ttnn::MoeComputeOp>(
+        op, resultTypes, adaptor.getTilizeInputTensor(),
+        adaptor.getTilizeExpertIndicesTensor(),
+        adaptor.getTilizeExpertScoresTensor(),
+        adaptor.getTilizeExpertMappingTensor(), w0w1Prepared.getResult(),
+        w2Prepared.getResult(), /*optional_output_tensor=*/Value(),
+        /*cross_device_semaphore=*/Value(), device, op.getLayerIdAttr(),
+        op.getOutputHeightShardDimAttr(), op.getIntermediateSizeAttr(),
+        hasBiasAttr, op.getActivationFunctionAttr(), op.getBhRingSizeAttr(),
+        op.getComputeOnlyAttr(), op.getClusterAxisAttr(),
+        /*num_links=*/mlir::IntegerAttr(), /*topology=*/ttcore::TopologyAttr(),
+        /*mux_core_range_set=*/ttnn::CoreRangeSetAttr());
     return success();
   }
 };
@@ -3284,10 +3369,31 @@ private:
   LogicalResult lowerToSDPAOp(ttir::ScaledDotProductAttentionOp op,
                               OpAdaptor adaptor,
                               ConversionPatternRewriter &rewriter) const {
+    // The TTNN SDPA kernel streams over the query dim and cannot broadcast it,
+    // so materialize a query-broadcast mask ([.., 1, Sk]) to [.., Sq, Sk].
+    Value mask = adaptor.getAttentionMask();
+    if (mask) {
+      auto maskType = mlir::cast<RankedTensorType>(mask.getType());
+      int64_t seqLen =
+          mlir::cast<RankedTensorType>(adaptor.getQuery().getType())
+              .getDimSize(kSeqLenDim);
+      if (maskType.getDimSize(kSeqLenDim) == 1 && seqLen != 1) {
+        SmallVector<int64_t> broadcastShape(maskType.getShape());
+        broadcastShape[kSeqLenDim] = seqLen;
+        auto broadcastType = ttnn::utils::RankedTensorTypeFactory::create(
+            maskType, broadcastShape);
+        auto broadcastDims = ttmlir::utils::getBroadcastDimensions<int64_t>(
+            maskType.getShape(), broadcastShape);
+        mask = rewriter.create<ttnn::RepeatOp>(
+            op.getLoc(), broadcastType, mask,
+            ttnn::ShapeAttr::get(rewriter.getContext(), broadcastDims));
+      }
+    }
+
     rewriter.replaceOpWithNewOp<ttnn::ScaledDotProductAttentionOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
-        adaptor.getAttentionMask(), op.getIsCausal(), adaptor.getScaleAttr(),
+        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(), mask,
+        op.getIsCausal(), adaptor.getScaleAttr(),
         adaptor.getSlidingWindowSizeAttr(), adaptor.getAttentionSink());
 
     return success();
@@ -3563,6 +3669,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            EmbeddingBackwardOpConversionPattern,
            RepeatOpConversionPattern,
            CumSumOpConversionPattern,
+           CumProdOpConversionPattern,
            RepeatInterleaveOpConversionPattern,
            SoftmaxOpConversionPattern,
            SortOpConversionPattern,
@@ -3593,6 +3700,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            SelectiveReduceCombineOpConversionPattern,
            MoeExpertTokenRemapOpConversionPattern,
            MoeGptOpConversionPattern,
+           MoeComputeOpConversionPattern,
            Conv2dOpConversionPattern,
            Conv3dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,

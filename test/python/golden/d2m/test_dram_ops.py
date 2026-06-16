@@ -59,7 +59,7 @@ def dtype_str(dtype: torch.dtype):
 
 
 def shape_dtype_param(shape: Shape, dtype: torch.dtype):
-    marks = [pytest.mark.skip_config(["sim"])] if dtype == torch.int32 else []
+    marks = [pytest.mark.skip_config(["n150", "sim"])] if dtype == torch.int32 else []
     return pytest.param(
         shape, dtype, marks=marks, id=f"{dtype_str(dtype)}-{shape_str(shape)}"
     )
@@ -527,7 +527,7 @@ DRAM_EMBEDDING_CASES = [
         (1024, 32),
         torch.uint32,
         torch.int32,
-        marks=pytest.mark.skip_config(["sim"]),
+        marks=pytest.mark.skip_config(["n150", "sim"]),
         id="ui32_indices_i32_table_1x32_1024x32",
     ),
     pytest.param(

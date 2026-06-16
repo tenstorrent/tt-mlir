@@ -6,6 +6,7 @@ import torch
 from typing import List, Optional
 from conftest import x86_only, get_request_kwargs
 from builder.base.builder_utils import Operand, Shape
+from builder.base.builder_enums import ReduceType
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
 from test_utils import (
@@ -480,6 +481,11 @@ def test_sort(
             "Sorting along batch dimension is not supported: https://github.com/tenstorrent/tt-metal/issues/31187"
         )
 
+    if stable:
+        pytest.xfail(
+            "stable=True is not implemented in ttnn::sort: https://github.com/tenstorrent/tt-metal/issues/33492"
+        )
+
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
         def sort_wrapper(
@@ -606,4 +612,60 @@ def test_typecast(
         device=device,
         target=target,
         pipeline_options=pipeline_options,
+    )
+
+
+@pytest.mark.parametrize(
+    "input_shape,index_shape,scatter_dim",
+    [
+        ((8,), (3,), 0),
+        ((32,), (300,), 0),
+        ((512,), (284,), 0),
+        ((32, 64), (4, 64), 0),
+    ],
+    ids=["1d_small", "1d_index300", "1d_index284", "2d_dim0"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_scatter(
+    input_shape: Shape,
+    index_shape: Shape,
+    scatter_dim: int,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    source_shape = index_shape
+
+    def module(builder: TTIRBuilder):
+        @builder.func(
+            [input_shape, index_shape, source_shape],
+            [dtype, torch.int32, dtype],
+        )
+        def scatter(
+            in0: Operand,
+            index: Operand,
+            source: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            valid_index = torch.randint(
+                0, input_shape[scatter_dim], index_shape, dtype=torch.int32
+            )
+            builder.set_goldens({index: valid_index})
+            return builder.scatter(
+                in0,
+                index,
+                source,
+                dim=scatter_dim,
+                scatter_reduce_type=ReduceType.Sum,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        target=target,
     )

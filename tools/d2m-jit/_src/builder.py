@@ -126,8 +126,18 @@ def _get_system_desc_path():
 # and the walk would silently fail to find it → wrong unpack mode → byte
 # scramble on f32→bf16 typecast. The pre-emitc / dispatch / hoist-inits /
 # emitc-tail split below mirrors what createTTIRToTTMetalPipeline does.
-_PIPELINE = ",".join(
-    [
+def _pipeline_passes():
+    """Build the ordered list of pass names for the d2m -> ttmetal lowering.
+
+    When `config.insert_profiler_traces` is set, the TTKernel
+    `insert-device-zone-scopes` pass is spliced in after `ttkernel-hoist-inits`
+    and before the EmitC tail — the same slot createTTIRToTTMetalPipeline uses.
+    It must run while the kernel body is still in TTKernel form (it walks
+    TTKernel ops to wrap them in `DeviceZoneScopedN` scopes) and after
+    hoist-inits so the dispatch-level conversion sees the original loop
+    structure.
+    """
+    passes = [
         "canonicalize",
         "d2m-lower-to-layout",
         "canonicalize",
@@ -144,9 +154,12 @@ _PIPELINE = ",".join(
         "d2m-to-ttkernel-pre-emitc-pipeline",
         "d2m-to-ttmetal-pipeline",
         "ttkernel-hoist-inits",
-        "d2m-emitc-pipeline",
     ]
-)
+    if config.insert_profiler_traces:
+        traits = config.profiler_traits.strip() or "device-zone"
+        passes.append("insert-device-zone-scopes{traits=" + traits + "}")
+    passes.append("d2m-emitc-pipeline")
+    return passes
 
 
 # --- Scope abstraction ------------------------------------------------------
@@ -784,7 +797,7 @@ def _run_pipeline(b: _Builder):
     register = "ttcore-register-device"
     if system_desc:
         register += f"{{system-desc-path={system_desc}}}"
-    pipeline_str = f"builtin.module({register},{_PIPELINE})"
+    pipeline_str = f"builtin.module({register},{','.join(_pipeline_passes())})"
 
     if config.print_pipeline:
         print(f"[d2m-jit] pipeline: {pipeline_str}")
@@ -808,10 +821,44 @@ def _run_pipeline(b: _Builder):
         print(b.module)
 
 
+_g_perf_trace_enabled = False
+
+
+def _maybe_enable_perf_trace():
+    """Flip the perf::Env singleton so the ttmetal executor dumps device
+    profiler results after each workload. Must run before the first submit in
+    the process (the singleton is seeded on first access). Idempotent.
+
+    Device-side capture is controlled by tt-metal env vars that must be present
+    *before* the device is opened (and DISPATCH must be 0 or the profiler read
+    hangs on dispatch-core data). We do not mutate them here -- tt-metal reads
+    them too early for that to be reliable -- but we warn if they are missing so
+    the user sets them on the command line:
+        TT_METAL_DEVICE_PROFILER=1 TT_METAL_DEVICE_PROFILER_DISPATCH=0
+    """
+    global _g_perf_trace_enabled
+    if not config.enable_perf_trace or _g_perf_trace_enabled:
+        return
+    if os.environ.get("TT_METAL_DEVICE_PROFILER") != "1":
+        print(
+            "[d2m-jit] WARNING: D2M_JIT_ENABLE_PERF_TRACE is set but "
+            "TT_METAL_DEVICE_PROFILER=1 is not in the environment; no device "
+            "profiler csv will be produced. Re-run with "
+            "TT_METAL_DEVICE_PROFILER=1 TT_METAL_DEVICE_PROFILER_DISPATCH=0 set."
+        )
+    runtime.PerfEnv.get(enable_perf_trace=True)
+    _g_perf_trace_enabled = True
+    print(
+        "[d2m-jit] perf trace enabled; device profiler csv -> "
+        "$TT_METAL_HOME/generated/profiler/.logs/profile_log_device.csv"
+    )
+
+
 def _execute(b: _Builder, lts):
     """Serialize to flatbuffer, run on a mesh device, return torch tensors."""
     if runtime is None or binary is None:
         raise RuntimeError("ttmlir runtime is not available in this build")
+    _maybe_enable_perf_trace()
     bin_capsule = ttmetal_to_flatbuffer_bin(b.module)
     fbb = binary.load_binary_from_capsule(bin_capsule)
     if config.save_flatbuffer_path:
@@ -966,6 +1013,12 @@ def _affine_map_from_lambda(fn):
     return AffineMap.get(len(dims), 0, exprs), spec
 
 
+def _to_dram_kernel_arg(lt: LazyTensor) -> LazyTensor:
+    if lt.layout.mem_space == ttcore.MemorySpace.DeviceDRAM:
+        return lt
+    return to_layout(lt, lt.layout.replace(mem_space=ttcore.MemorySpace.DeviceDRAM))
+
+
 def _emit_kernel_generic(
     kernel: "CompiledKernel",
     args,
@@ -974,6 +1027,7 @@ def _emit_kernel_generic(
     block_factors,
     indexing_maps,
     iterator_types,
+    kernel_io_in_dram=None,
 ):
     """Append a d2m.GenericOp to the open host func that invokes `kernel`."""
     b = _get_scope()
@@ -1035,6 +1089,28 @@ def _emit_kernel_generic(
         )
     input_lts = lazy_args[: len(lazy_args) - num_outs]
     output_lts = lazy_args[len(lazy_args) - num_outs :]
+    user_output_lts = output_lts
+
+    if kernel_io_in_dram is None:
+        kernel_io_in_dram = config.kernel_io_in_dram
+    elif not isinstance(kernel_io_in_dram, bool):
+        raise _call_error(
+            f"kernel_io_in_dram must be a bool, got {type(kernel_io_in_dram).__name__}",
+            cause=TypeError(),
+        )
+
+    if kernel_io_in_dram:
+        dram_arg_cache = {}
+
+        def to_dram(lt):
+            key = id(lt)
+            if key not in dram_arg_cache:
+                dram_arg_cache[key] = _to_dram_kernel_arg(lt)
+            return dram_arg_cache[key]
+
+        input_lts = [to_dram(lt) for lt in input_lts]
+        output_lts = [to_dram(lt) for lt in output_lts]
+        lazy_args = input_lts + output_lts
 
     # Compile the kernel body in the current builder's context. D2MCompiler
     # picks up b.ctx via get_default_loc_context.
@@ -1109,6 +1185,13 @@ def _emit_kernel_generic(
     for i, lt in enumerate(output_lts):
         lt.value = generic.results[i]
         lt.generation = b.generation
+    if kernel_io_in_dram:
+        for i, (user_lt, kernel_lt) in enumerate(zip(user_output_lts, output_lts)):
+            user_lt.layout = kernel_lt.layout
+            user_lt.value = generic.results[i]
+            user_lt.generation = b.generation
+            user_lt.materialized = None
+            user_lt.is_view = kernel_lt.is_view
 
 
 class CompiledKernel:
@@ -1135,6 +1218,7 @@ class CompiledKernel:
         block_factors=None,
         indexing_maps=None,
         iterator_types=None,
+        kernel_io_in_dram=None,
     ):
         _emit_kernel_generic(
             self,
@@ -1144,6 +1228,7 @@ class CompiledKernel:
             block_factors=block_factors,
             indexing_maps=indexing_maps,
             iterator_types=iterator_types,
+            kernel_io_in_dram=kernel_io_in_dram,
         )
 
 
