@@ -65,7 +65,6 @@ getTTRunCommand(uint16_t port,
 
   oss << "./ttnn/ttnn/distributed/ttrun.py " << multiProcessArgs.toArgString()
       << " "
-      << "bash -c "
       << "\"" << getWorkerExecutableCommand(port, workerPathOpt, hostnameOpt)
       << "\"";
 
