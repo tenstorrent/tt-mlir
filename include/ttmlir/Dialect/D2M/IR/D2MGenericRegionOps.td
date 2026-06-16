@@ -1097,8 +1097,11 @@ def D2M_TileTopkLocalSortOp : D2M_GenericRegionComputeOp<"tile_topk_local_sort",
                          I32Attr:$idir,
                          I32Attr:$i_end_phase,
                          I32Attr:$i_start_phase,
-                         BoolAttr:$stable_sort,
-                         I32Attr:$dim);
+                         I64Attr:$tile_a,
+                         I64Attr:$tile_b,
+                         BoolAttr:$is_group_start,
+                         BoolAttr:$is_group_end,
+                         BoolAttr:$read_from_output);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() {
@@ -1133,7 +1136,11 @@ def D2M_TileTopkMergeOp : D2M_GenericRegionComputeOp<"tile_topk_merge",
                          AnyRankedTensorOrMemRef:$out_indices,
                          I32Attr:$m_iter,
                          I32Attr:$k,
-                         BoolAttr:$stable_sort);
+                         I64Attr:$tile_a,
+                         I64Attr:$tile_b,
+                         BoolAttr:$is_group_start,
+                         BoolAttr:$is_group_end,
+                         BoolAttr:$read_from_output);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() {
@@ -1171,7 +1178,11 @@ def D2M_TileTopkRebuildOp : D2M_GenericRegionComputeOp<"tile_topk_rebuild",
                          I32Attr:$k,
                          I32Attr:$logk,
                          I32Attr:$skip_second,
-                         BoolAttr:$stable_sort);
+                         I64Attr:$tile_a,
+                         I64Attr:$tile_b,
+                         BoolAttr:$is_group_start,
+                         BoolAttr:$is_group_end,
+                         BoolAttr:$read_from_output);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() {

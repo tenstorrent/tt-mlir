@@ -1379,8 +1379,7 @@ mlir::LogicalResult TopkBlockOp::verify() {
   bool outIdxIsTensor = mlir::isa<mlir::RankedTensorType>(outIdxType);
 
   if (inputIsTensor != outValsIsTensor || inputIsTensor != outIdxIsTensor) {
-    return emitOpError(
-        "all operands must be tensors or all must be memrefs");
+    return emitOpError("all operands must be tensors or all must be memrefs");
   }
   return mlir::success();
 }
@@ -1414,8 +1413,7 @@ bool TopkBlockOp::bufferizesToMemoryRead(
 
 bool TopkBlockOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  return operand.get() == getOutValues() ||
-         operand.get() == getOutIndices() ||
+  return operand.get() == getOutValues() || operand.get() == getOutIndices() ||
          operand.get() == getScratchIdxTile();
 }
 
@@ -1458,10 +1456,10 @@ TopkBlockOp::getBufferType(mlir::Value value,
 }
 
 // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
-mlir::LogicalResult TopkBlockOp::bufferize(
-    mlir::RewriterBase &rewriter,
-    const mlir::bufferization::BufferizationOptions &options,
-    mlir::bufferization::BufferizationState &state) {
+mlir::LogicalResult
+TopkBlockOp::bufferize(mlir::RewriterBase &rewriter,
+                       const mlir::bufferization::BufferizationOptions &options,
+                       mlir::bufferization::BufferizationState &state) {
   if (!mlir::isa<mlir::RankedTensorType>(getOutValues().getType())) {
     return mlir::failure();
   }
@@ -1478,21 +1476,21 @@ mlir::LogicalResult TopkBlockOp::bufferize(
     return maybeScratchBuffer;
   }
 
-  auto maybeOutValsBuffer = mlir::bufferization::getBuffer(
-      rewriter, getOutValues(), options, state);
+  auto maybeOutValsBuffer =
+      mlir::bufferization::getBuffer(rewriter, getOutValues(), options, state);
   if (failed(maybeOutValsBuffer)) {
     return maybeOutValsBuffer;
   }
 
-  auto maybeOutIdxBuffer = mlir::bufferization::getBuffer(
-      rewriter, getOutIndices(), options, state);
+  auto maybeOutIdxBuffer =
+      mlir::bufferization::getBuffer(rewriter, getOutIndices(), options, state);
   if (failed(maybeOutIdxBuffer)) {
     return maybeOutIdxBuffer;
   }
 
   rewriter.create<TopkBlockOp>(getLoc(), *maybeInputBuffer, *maybeScratchBuffer,
-                                *maybeOutValsBuffer, *maybeOutIdxBuffer, getK(),
-                                getNumElements(), getStableSort(), getDim());
+                               *maybeOutValsBuffer, *maybeOutIdxBuffer, getK(),
+                               getNumElements(), getStableSort(), getDim());
 
   mlir::bufferization::replaceOpWithBufferizedValues(
       rewriter, getOperation(),
@@ -1905,12 +1903,10 @@ void TileMatmulBlockOp::getEffects(
                        0, true, mlir::SideEffects::DefaultResource::get());
 }
 
-static mlir::LogicalResult verifyTopkOperandsAreTiles(mlir::Operation *op,
-                                                      mlir::Value values,
-                                                      mlir::Value indices,
-                                                      mlir::Value outValues,
-                                                      mlir::Value outIndices,
-                                                      llvm::StringRef opName) {
+static mlir::LogicalResult
+verifyTopkOperandsAreTiles(mlir::Operation *op, mlir::Value values,
+                           mlir::Value indices, mlir::Value outValues,
+                           mlir::Value outIndices, llvm::StringRef opName) {
   for (mlir::Value v : {values, indices, outValues, outIndices}) {
     if (!llvm::isa<mlir::tt::ttcore::TileType>(getElemType(v.getType()))) {
       return op->emitOpError("operands to ")
@@ -1932,8 +1928,8 @@ void TileTopkLocalSortOp::getEffects(
         &effects) {
   effects.emplace_back(mlir::MemoryEffects::Read::get(), &getValuesMutable(), 0,
                        true, mlir::SideEffects::DefaultResource::get());
-  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getIndicesMutable(), 0,
-                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getIndicesMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
   effects.emplace_back(mlir::MemoryEffects::Write::get(),
                        &getOutValuesMutable(), 0, true,
                        mlir::SideEffects::DefaultResource::get());
@@ -1954,8 +1950,8 @@ void TileTopkMergeOp::getEffects(
         &effects) {
   effects.emplace_back(mlir::MemoryEffects::Read::get(), &getValuesMutable(), 0,
                        true, mlir::SideEffects::DefaultResource::get());
-  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getIndicesMutable(), 0,
-                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getIndicesMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
   effects.emplace_back(mlir::MemoryEffects::Write::get(),
                        &getOutValuesMutable(), 0, true,
                        mlir::SideEffects::DefaultResource::get());
@@ -1976,8 +1972,8 @@ void TileTopkRebuildOp::getEffects(
         &effects) {
   effects.emplace_back(mlir::MemoryEffects::Read::get(), &getValuesMutable(), 0,
                        true, mlir::SideEffects::DefaultResource::get());
-  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getIndicesMutable(), 0,
-                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getIndicesMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
   effects.emplace_back(mlir::MemoryEffects::Write::get(),
                        &getOutValuesMutable(), 0, true,
                        mlir::SideEffects::DefaultResource::get());
