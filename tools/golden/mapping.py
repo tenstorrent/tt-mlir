@@ -8466,6 +8466,39 @@ def ttir_sdpa_golden(
     return output.to(output_dtype)
 
 
+def flash_mla_prefill_golden(
+    query: GoldenMapTensor,
+    key: GoldenMapTensor,
+    value: Optional[GoldenMapTensor],
+    attention_mask: Optional[GoldenMapTensor],
+    head_dim_v: int,
+    is_causal: bool,
+    scale: Optional[float],
+) -> GoldenMapTensor:
+    """
+    Golden for the tt.flash_mla_prefill custom_call.
+    """
+    output_dtype = query.dtype
+
+    value_t = key[..., :head_dim_v] if value is None else value
+    attn_mask = attention_mask.float() if attention_mask is not None else None
+    effective_causal = is_causal and attention_mask is None
+
+    # Compute in f32 for golden accuracy, then cast back to the query dtype.
+    # A None `scale` lets SDPA apply its 1/sqrt(head_dim) default.
+    output = torch.nn.functional.scaled_dot_product_attention(
+        query.float(),
+        key.float(),
+        value_t.float(),
+        attn_mask=attn_mask,
+        is_causal=effective_causal,
+        scale=scale,
+        enable_gqa=query.shape[1] != key.shape[1],
+    )
+
+    return output.to(output_dtype)
+
+
 def ttir_paged_sdpa_decode_golden(
     query: GoldenMapTensor,
     key: GoldenMapTensor,
@@ -9042,6 +9075,24 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     debug.RegionStartOp: debug_region_start_golden,
     debug.RegionEndOp: debug_region_end_golden,
 }
+
+
+# StableHLO custom_call goldens
+STABLEHLO_CUSTOM_CALL_GOLDEN_MAPPINGS: Dict[str, Callable] = {
+    "tt.flash_mla_prefill": flash_mla_prefill_golden,
+}
+
+
+def get_custom_call_golden_function(call_target_name: str) -> Optional[Callable]:
+    """
+    Get the golden function for a given stablehlo.custom_call operation name.
+    """
+
+    if call_target_name in STABLEHLO_CUSTOM_CALL_GOLDEN_MAPPINGS:
+        return STABLEHLO_CUSTOM_CALL_GOLDEN_MAPPINGS[call_target_name]
+    assert (
+        False
+    ), f"No golden function found for custom_call operation: {call_target_name}"
 
 
 def get_golden_function(ttir_op_class: type, **kwargs) -> Optional[Callable]:

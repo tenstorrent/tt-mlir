@@ -20,7 +20,12 @@ from ttmlir.dialects import stablehlo, sdy, mpmd, func
 from builder.base.builder import *
 from builder.base.builder_utils import *
 
-from golden import get_golden_function, apply_sharding, apply_unsharding
+from golden import (
+    get_golden_function,
+    get_custom_call_golden_function,
+    apply_sharding,
+    apply_unsharding,
+)
 
 
 class StableHLOBuilder(Builder):
@@ -234,39 +239,6 @@ class StableHLOBuilder(Builder):
         filename = caller_frame.filename
         lineno = caller_frame.lineno
         return Location.name(f"{filename}:{lineno}")
-
-    def _flash_mla_prefill_golden(
-        self,
-        query: GoldenMapTensor,
-        key: GoldenMapTensor,
-        value: Optional[GoldenMapTensor],
-        attention_mask: Optional[GoldenMapTensor],
-        head_dim_v: int,
-        is_causal: bool,
-        scale: Optional[float],
-    ) -> GoldenMapTensor:
-        """
-        Golden for the tt.flash_mla_prefill custom_call.
-        """
-        output_dtype = query.dtype
-
-        value_t = key[..., :head_dim_v] if value is None else value
-        attn_mask = attention_mask.float() if attention_mask is not None else None
-        effective_causal = is_causal and attention_mask is None
-
-        # Compute in f32 for golden accuracy, then cast back to the query dtype.
-        # A None `scale` lets SDPA apply its 1/sqrt(head_dim) default.
-        output = torch.nn.functional.scaled_dot_product_attention(
-            query.float(),
-            key.float(),
-            value_t.float(),
-            attn_mask=attn_mask,
-            is_causal=effective_causal,
-            scale=scale,
-            enable_gqa=query.shape[1] != key.shape[1],
-        )
-
-        return output.to(output_dtype)
 
     # ----- Public StableHLO Op Generators ----
 
@@ -9878,7 +9850,8 @@ class StableHLOBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        golden_output = self._flash_mla_prefill_golden(
+        op_golden_function = get_custom_call_golden_function("tt.flash_mla_prefill")
+        golden_output = op_golden_function(
             self._get_golden_tensor(query),
             self._get_golden_tensor(key),
             self._get_golden_tensor(value) if has_value else None,
