@@ -1335,9 +1335,9 @@ public:
         srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
-        emitter.emit(static_cast<int64_t>(srcOp.getStart())),
-        emitter.emit(static_cast<int64_t>(srcOp.getEnd())),
-        emitter.emit(static_cast<int64_t>(srcOp.getStep())),
+        emitter.emit(srcOp.getStart()),
+        emitter.emit(srcOp.getEnd()),
+        emitter.emit(srcOp.getStep()),
         emitter.emit(srcOp.getDtypeAttr(), "dtype"),
         emitter.emit(srcOp.getDevice(), "device"),
         emitter.emit(srcOp.getLayoutAttr().getValue(), "layout"),

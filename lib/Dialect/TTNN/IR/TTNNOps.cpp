@@ -1254,23 +1254,15 @@ verifyPoolingOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 
 ::mlir::LogicalResult mlir::tt::ttnn::ArangeOp::verify() {
 
-  // start/end/step are signless I64Attr, so the generated getters return
-  // uint64_t. Cast to int64_t before doing arithmetic, otherwise negative
-  // bounds/step are interpreted as huge unsigned values (e.g. a valid
-  // descending range like arange(5, -5, -1) would be wrongly rejected).
-  int64_t start = static_cast<int64_t>(getStart());
-  int64_t end = static_cast<int64_t>(getEnd());
-  int64_t step = static_cast<int64_t>(getStep());
-
-  if (step == 0) {
+  if (getStep() == 0) {
     return emitOpError("Step cannot be zero.");
   }
 
-  int64_t numValues = (end - start) / step;
+  int64_t numValues = (getEnd() - getStart()) / getStep();
 
   if (numValues <= 0) {
     return emitOpError("Invalid range: start=")
-           << start << ", end=" << end << ", step=" << step;
+           << getStart() << ", end=" << getEnd() << ", step=" << getStep();
   }
 
   std::vector<int64_t> expectedShape = {numValues};

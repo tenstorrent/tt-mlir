@@ -2908,9 +2908,9 @@ def TTNN_ArangeOp : TTNN_CreationOp<"arange", [CanExecuteOnHostTrait]> {
   }];
 
   let arguments = (ins Optional<TTNN_Device>:$device,
-                       I64Attr:$start,
-                       I64Attr:$end,
-                       I64Attr:$step);
+                       SI64Attr:$start,
+                       SI64Attr:$end,
+                       SI64Attr:$step);
 
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;

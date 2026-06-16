@@ -92,7 +92,7 @@ module {
   // CHECK-LABEL: func.func @arange_op(
   func.func @arange_op(%arg0: tensor<32xbf16, #ttnn_layout_1d> {ttcore.argument_type = #ttcore.argument_type<input>}) -> tensor<32xbf16, #ttnn_layout_1d> {
     // CHECK: %[[CACHED:.*]] = ttcore.load_cached(@arange_op_const_eval_0, [])
-    %arange = "ttnn.arange"() <{end = 32 : i64, layout = #ttnn.layout<tile>, start = 0 : i64, step = 1 : i64}> : () -> tensor<32xbf16, #ttnn_layout_1d>
+    %arange = "ttnn.arange"() <{end = 32 : si64, layout = #ttnn.layout<tile>, start = 0 : si64, step = 1 : si64}> : () -> tensor<32xbf16, #ttnn_layout_1d>
     // CHECK: %[[RESULT:.*]] = "ttnn.add"(%arg0, %[[CACHED]])
     %result = "ttnn.add"(%arg0, %arange) : (tensor<32xbf16, #ttnn_layout_1d>, tensor<32xbf16, #ttnn_layout_1d>) -> tensor<32xbf16, #ttnn_layout_1d>
     return %result : tensor<32xbf16, #ttnn_layout_1d>
