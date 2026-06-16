@@ -1706,15 +1706,18 @@ private:
     Value cb;
     Value cbTileIdx;
     Value dstOperandIdx;
+    Type dstOperandType;
     if (reuseType == BinaryDestReuseType::DestToSrcA) {
       // LHS from Dst, RHS from Cb
       cb = getCB(rewriter, op.getRhs());
       cbTileIdx = adaptor.getRhs();
       dstOperandIdx = adaptor.getLhs();
+      dstOperandType = op.getLhs().getType();
     } else {
       cb = getCB(rewriter, op.getLhs());
       cbTileIdx = adaptor.getLhs();
       dstOperandIdx = adaptor.getRhs();
+      dstOperandType = op.getRhs().getType();
     }
 
     auto outCB = getOutCB(rewriter, op);
@@ -1734,8 +1737,11 @@ private:
     // binary_dest_reuse is an in-place operation. If the DST
     // operand comes from a different slot, copy it first to the output slot.
     if (dstOperandIdx != dstIdx) {
+      const auto dataFormat =
+          mlir::cast<ttcore::TileType>(dstOperandType).getDataType();
       rewriter.create<ttkernel::CopyDestValuesInitOp>(loc);
-      rewriter.create<ttkernel::CopyDestValuesOp>(loc, dstOperandIdx, dstIdx);
+      rewriter.create<ttkernel::CopyDestValuesOp>(loc, dstOperandIdx, dstIdx,
+                                                  dataFormat);
     }
 
     rewriter.create<ttkernel::BinaryDestReuseTilesInitOp>(loc, cb, eltwiseType,

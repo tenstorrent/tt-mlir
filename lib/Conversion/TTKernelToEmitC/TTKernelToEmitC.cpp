@@ -685,6 +685,11 @@ public:
       template_args.push_back(emitc::OpaqueAttr::get(
           op.getContext(), getReduceDim(op.getReduceDim())));
       return ArrayAttr::get(op.getContext(), template_args);
+    } else if constexpr (std::is_same_v<SourceOp, ttkernel::CopyDestValuesOp>) {
+      SmallVector<Attribute, 1> template_args;
+      template_args.push_back(
+          datatypeToDataformatEnumNameOpaqueAttr(builder, op.getDataFormat()));
+      return ArrayAttr::get(op.getContext(), template_args);
     } else if constexpr (std::is_same_v<SourceOp, ttkernel::UnaryBcastInitOp> ||
                          std::is_same_v<SourceOp, ttkernel::UnaryBcastTileOp>) {
       SmallVector<Attribute, 1> template_args;

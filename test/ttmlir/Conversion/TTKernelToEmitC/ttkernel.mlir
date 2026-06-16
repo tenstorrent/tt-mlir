@@ -698,8 +698,8 @@ module {
       %c1 = arith.constant 1 : index
       // CHECK: %[[DST0_INDEX:.*]] = "emitc.constant"
       // CHECK: %[[DST1_INDEX:.*]] = "emitc.constant"
-      // CHECK: emitc.call_opaque "copy_dest_values"(%[[DST0_INDEX]], %[[DST1_INDEX]])
-      "ttkernel.copy_dest_values"(%c0, %c1) : (index, index) -> ()
+      // CHECK: emitc.call_opaque "copy_dest_values"(%[[DST0_INDEX]], %[[DST1_INDEX]]) {template_args = [#emitc.opaque<"DataFormat::Float16_b">]}
+      "ttkernel.copy_dest_values"(%c0, %c1) <{data_format = #ttcore.supportedDataTypes<bf16>}> : (index, index) -> ()
       return
     }
 
