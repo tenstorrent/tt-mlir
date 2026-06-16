@@ -1484,29 +1484,40 @@ private:
   }
 };
 
-// Push an output-row slice of a matmul up into its LHS (A) operand.
+// Push an output slice of a matmul up into the operand that produces the
+// sliced dimension: a *row* (M) slice goes into the LHS (A), a *column* (N)
+// slice goes into the RHS (B).
 //
-// If only a contiguous sub-range of a matmul's output *rows* is ever used, the
-// remaining rows are computed and immediately discarded. Slicing the LHS first
-// yields the same result from an M-times-smaller matmul:
+// If only a contiguous sub-range of a matmul's output rows (or columns) is ever
+// used, the rest is computed and immediately discarded. Slicing the producing
+// operand first yields the same result from a smaller matmul:
 //
-//   %m = ttir.matmul(%A : [M,K], %B : [K,N])   -> [M,N]
-//   %s = ttir.slice_static(%m) [r0:r1, :]      -> [r1-r0, N]
-//     ==>
-//   %As = ttir.slice_static(%A) [r0:r1, :]     -> [r1-r0, K]
-//   %m2 = ttir.matmul(%As, %B)                 -> [r1-r0, N]
+//   row slice:
+//     %m = ttir.matmul(%A : [M,K], %B : [K,N])   -> [M,N]
+//     %s = ttir.slice_static(%m) [r0:r1, :]      -> [r1-r0, N]
+//       ==>
+//     %As = ttir.slice_static(%A) [r0:r1, :]     -> [r1-r0, K]
+//     %m2 = ttir.matmul(%As, %B)                 -> [r1-r0, N]
 //
-// The canonical source is a causal-LM head during prefill: only the last
-// token's logits feed the next-token argmax, so a [seq, H] x [H, vocab]
+//   column slice:
+//     %m = ttir.matmul(%A : [M,K], %B : [K,N])   -> [M,N]
+//     %s = ttir.slice_static(%m) [:, c0:c1]      -> [M, c1-c0]
+//       ==>
+//     %Bs = ttir.slice_static(%B) [:, c0:c1]     -> [K, c1-c0]
+//     %m2 = ttir.matmul(%A, %Bs)                 -> [M, c1-c0]
+//
+// The canonical row-slice source is a causal-LM head during prefill: only the
+// last token's logits feed the next-token argmax, so a [seq, H] x [H, vocab]
 // projection collapses to [1, H] x [H, vocab] (~seq_len less work). A single
 // leading-unit-dim reshape between the matmul and the slice (e.g.
 // [seq, vocab] -> [1, seq, vocab], as emitted for a rank-3 logits tensor) is
 // looked through.
 //
 // Guards: the matmul (and the optional reshape) must have a single user, the
-// slice must be identity (full range, step 1) on every dim except the matmul
-// output row dim, and it must strictly narrow that dim (otherwise it is a
-// no-op). transpose_a is honored when locating the row dim of A.
+// slice must be identity (full range, step 1) on every dim except exactly one
+// of the matmul output row/col dims, and it must strictly narrow that dim
+// (otherwise it is a no-op). transpose_a / transpose_b are honored when
+// locating the producing dim of A / B.
 class SliceBeforeMatmulPattern
     : public mlir::OpRewritePattern<SliceStaticOp> {
   using mlir::OpRewritePattern<SliceStaticOp>::OpRewritePattern;
@@ -1516,10 +1527,10 @@ public:
   matchAndRewrite(SliceStaticOp slice,
                   mlir::PatternRewriter &rewriter) const final {
     // Walk up through an optional leading-unit-dim reshape to the matmul.
-    Value sliced = slice.getInput();
-    auto reshape = sliced.getDefiningOp<ReshapeOp>();
-    Value matmulVal = reshape ? reshape.getInput() : sliced;
-    auto matmul = matmulVal.getDefiningOp<MatmulOp>();
+    Value sliceVal = slice.getInput();
+    auto reshape = sliceVal.getDefiningOp<ReshapeOp>();
+    Value reshapeVal = reshape ? reshape.getInput() : sliceVal;
+    auto matmul = reshapeVal.getDefiningOp<MatmulOp>();
     if (!matmul) {
       return rewriter.notifyMatchFailure(slice, "producer is not a matmul");
     }
@@ -1544,107 +1555,131 @@ public:
     int64_t sliceRank = sliceType.getRank();
 
     // If a reshape intervened, require it to only prepend size-1 dims, so the
-    // slice dims map 1:1 onto the matmul output dims (offset by `pad`).
-    int64_t pad = sliceRank - matmulRank;
-    if (pad < 0) {
+    // slice dims map 1:1 onto the matmul output dims (offset by the number of
+    // prepended leading unit dims).
+    int64_t numLeadingUnitDims = sliceRank - matmulRank;
+    if (numLeadingUnitDims < 0) {
       return rewriter.notifyMatchFailure(slice, "slice rank below matmul rank");
     }
     if (reshape) {
-      ArrayRef<int64_t> rOut =
+      ArrayRef<int64_t> reshapeShape =
           mlir::cast<RankedTensorType>(reshape.getType()).getShape();
-      for (int64_t i = 0; i < pad; ++i) {
-        if (rOut[i] != 1) {
+      for (int64_t i = 0; i < numLeadingUnitDims; ++i) {
+        if (reshapeShape[i] != 1) {
           return rewriter.notifyMatchFailure(slice, "reshape not leading-1 pad");
         }
       }
-      if (rOut.drop_front(pad) != matmulShape) {
+      if (reshapeShape.drop_front(numLeadingUnitDims) != matmulShape) {
         return rewriter.notifyMatchFailure(slice, "reshape mixes matmul dims");
       }
-    } else if (pad != 0) {
+    } else if (numLeadingUnitDims != 0) {
       return rewriter.notifyMatchFailure(slice, "rank mismatch without reshape");
     }
 
-    // Matmul output row dim is rank-2; the col (N) dim is rank-1.
-    int64_t outRowDim = matmulRank - 2;
-    int64_t sliceRowDim = outRowDim + pad;
+    // Matmul output row dim (M) is rank-2; the col (N) dim is rank-1.
+    int64_t matmulRowDim = matmulRank - 2;
+    int64_t matmulColDim = matmulRank - 1;
+    int64_t sliceRowDim = matmulRowDim + numLeadingUnitDims;
+    int64_t sliceColDim = matmulColDim + numLeadingUnitDims;
 
-    // The slice must keep the full N dim and all batch dims, and select a
-    // strict contiguous sub-range (step 1) on exactly the row dim.
-    auto begins = slice.getBegins().getValue();
-    auto ends = slice.getEnds().getValue();
-    auto steps = slice.getStep().getValue();
-    ArrayRef<int64_t> inShape =
+    // The slice must keep every batch dim full (step 1) and narrow exactly one
+    // of the row/col output dims with a strict contiguous sub-range.
+    auto sliceBegins = slice.getBegins().getValue();
+    auto sliceEnds = slice.getEnds().getValue();
+    auto sliceSteps = slice.getStep().getValue();
+    ArrayRef<int64_t> sliceInputShape =
         mlir::cast<RankedTensorType>(slice.getInput().getType()).getShape();
 
-    int64_t r0 = 0, r1 = 0;
-    for (int64_t d = 0; d < sliceRank; ++d) {
-      int64_t b = mlir::cast<IntegerAttr>(begins[d]).getInt();
-      int64_t e = mlir::cast<IntegerAttr>(ends[d]).getInt();
-      int64_t s = mlir::cast<IntegerAttr>(steps[d]).getInt();
-      int64_t dim = inShape[d];
-      if (b < 0) {
-        b += dim;
+    int64_t narrowedDim = -1; // the single slice dim that is narrowed
+    int64_t slice_from = 0, slice_to = 0; // [slice_from:slice_to) on that dim
+    for (int64_t dim = 0; dim < sliceRank; ++dim) {
+      int64_t begin = mlir::cast<IntegerAttr>(sliceBegins[dim]).getInt();
+      int64_t end = mlir::cast<IntegerAttr>(sliceEnds[dim]).getInt();
+      int64_t step = mlir::cast<IntegerAttr>(sliceSteps[dim]).getInt();
+      int64_t dimSize = sliceInputShape[dim];
+      if (begin < 0) {
+        begin += dimSize;
       }
-      if (e < 0) {
-        e += dim;
+      if (end < 0) {
+        end += dimSize;
       }
-      if (s != 1) {
+      if (step != 1) {
         return rewriter.notifyMatchFailure(slice, "non-unit step");
       }
-      if (d == sliceRowDim) {
-        r0 = b;
-        r1 = e;
-      } else if (b != 0 || e != dim) {
-        return rewriter.notifyMatchFailure(slice, "slice not on row dim only");
+      if (begin == 0 && end == dimSize) {
+        continue; // full range on this dim
       }
+      if (narrowedDim != -1) {
+        return rewriter.notifyMatchFailure(slice, "more than one narrowed dim");
+      }
+      narrowedDim = dim;
+      slice_from = begin;
+      slice_to = end;
     }
-    if (r1 - r0 >= matmulShape[outRowDim]) {
-      return rewriter.notifyMatchFailure(slice, "slice does not narrow rows");
+    if (narrowedDim != sliceRowDim && narrowedDim != sliceColDim) {
+      return rewriter.notifyMatchFailure(slice, "slice not on row or col dim");
     }
 
-    // transpose_a decides which dim of A carries the output rows:
-    //   transpose_a=false: A = [.., M, K] -> row dim = rank-2
-    //   transpose_a=true:  A = [.., K, M] -> row dim = rank-1
-    Value a = matmul.getA();
-    auto aType = mlir::cast<RankedTensorType>(a.getType());
-    int64_t aRank = aType.getRank();
-    int64_t aRowDim = matmul.getTransposeA() ? aRank - 1 : aRank - 2;
+    bool sliceRows = (narrowedDim == sliceRowDim);
+    int64_t narrowedOutDim = sliceRows ? matmulRowDim : matmulColDim;
+    if (slice_to - slice_from >= matmulShape[narrowedOutDim]) {
+      return rewriter.notifyMatchFailure(slice, "slice does not narrow");
+    }
 
-    // Build slice(A) narrowing only aRowDim to [r0:r1).
-    ArrayRef<int64_t> aShape = aType.getShape();
-    SmallVector<int32_t> aBegins(aRank, 0);
-    SmallVector<int32_t> aEnds(aShape.begin(), aShape.end());
-    SmallVector<int32_t> aSteps(aRank, 1);
-    aBegins[aRowDim] = static_cast<int32_t>(r0);
-    aEnds[aRowDim] = static_cast<int32_t>(r1);
+    // Select the operand that produces the narrowed output dim and the operand
+    // dim carrying it, honoring the relevant transpose flag:
+    //   rows -> A: transpose_a ? A=[..,K,M] last dim : A=[..,M,K] rank-2 dim
+    //   cols -> B: transpose_b ? B=[..,N,K] rank-2 dim : B=[..,K,N] last dim
+    Value matmulOperand = sliceRows ? matmul.getA() : matmul.getB();
+    auto operandType = mlir::cast<RankedTensorType>(matmulOperand.getType());
+    int64_t operandRank = operandType.getRank();
+    int64_t operandDim;
+    if (sliceRows) {
+      operandDim = matmul.getTransposeA() ? operandRank - 1 : operandRank - 2;
+    } else {
+      operandDim = matmul.getTransposeB() ? operandRank - 2 : operandRank - 1;
+    }
 
-    SmallVector<int64_t> aSlicedShape(aShape);
-    aSlicedShape[aRowDim] = r1 - r0;
-    auto aSlicedType = RankedTensorType::get(
-        aSlicedShape, aType.getElementType(), aType.getEncoding());
-    auto aSlice = rewriter.create<SliceStaticOp>(
-        matmul.getLoc(), aSlicedType, a, rewriter.getI32ArrayAttr(aBegins),
-        rewriter.getI32ArrayAttr(aEnds), rewriter.getI32ArrayAttr(aSteps));
+    // Build slice(operand) narrowing only operandDim to [slice_from:slice_to).
+    ArrayRef<int64_t> operandShape = operandType.getShape();
+    SmallVector<int32_t> operandBegins(operandRank, 0);
+    SmallVector<int32_t> operandEnds(operandShape.begin(), operandShape.end());
+    SmallVector<int32_t> operandSteps(operandRank, 1);
+    operandBegins[operandDim] = static_cast<int32_t>(slice_from);
+    operandEnds[operandDim] = static_cast<int32_t>(slice_to);
 
-    // New, narrowed matmul: output row dim becomes r1-r0.
-    SmallVector<int64_t> newOutShape(matmulShape);
-    newOutShape[outRowDim] = r1 - r0;
-    auto newOutType = RankedTensorType::get(
-        newOutShape, matmulType.getElementType(), matmulType.getEncoding());
+    SmallVector<int64_t> operandSlicedShape(operandShape);
+    operandSlicedShape[operandDim] = slice_to - slice_from;
+    auto operandSlicedType = RankedTensorType::get(
+        operandSlicedShape, operandType.getElementType(),
+        operandType.getEncoding());
+    auto operandSlice = rewriter.create<SliceStaticOp>(
+        matmul.getLoc(), operandSlicedType, matmulOperand,
+        rewriter.getI32ArrayAttr(operandBegins),
+        rewriter.getI32ArrayAttr(operandEnds),
+        rewriter.getI32ArrayAttr(operandSteps));
+
+    // New, narrowed matmul: the produced output dim becomes slice_to-slice_from.
+    SmallVector<int64_t> narrowedOutShape(matmulShape);
+    narrowedOutShape[narrowedOutDim] = slice_to - slice_from;
+    auto narrowedOutType = RankedTensorType::get(
+        narrowedOutShape, matmulType.getElementType(), matmulType.getEncoding());
+    Value newMatmulA = sliceRows ? operandSlice.getResult() : matmul.getA();
+    Value newMatmulB = sliceRows ? matmul.getB() : operandSlice.getResult();
     auto newMatmul = rewriter.create<MatmulOp>(
-        matmul.getLoc(), newOutType, aSlice.getResult(), matmul.getB(),
+        matmul.getLoc(), narrowedOutType, newMatmulA, newMatmulB,
         matmul.getTransposeA(), matmul.getTransposeB());
 
     // Reshape the narrowed result back to the slice's output shape (a no-op
     // reshape when no reshape intervened, i.e. the shapes already match).
-    if (newOutType == sliceType) {
+    if (narrowedOutType == sliceType) {
       rewriter.replaceOp(slice, newMatmul.getResult());
     } else {
-      SmallVector<int32_t> finalShape(sliceType.getShape().begin(),
-                                      sliceType.getShape().end());
+      SmallVector<int32_t> reshapeBackShape(sliceType.getShape().begin(),
+                                            sliceType.getShape().end());
       auto reshapeBack = rewriter.create<ReshapeOp>(
           slice.getLoc(), sliceType, newMatmul.getResult(),
-          rewriter.getI32ArrayAttr(finalShape));
+          rewriter.getI32ArrayAttr(reshapeBackShape));
       rewriter.replaceOp(slice, reshapeBack.getResult());
     }
     return mlir::success();
