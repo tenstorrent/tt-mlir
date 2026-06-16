@@ -45,20 +45,20 @@ public:
       bool retain = false)
       : tensor(tensor), meshEvent(meshEvent), retain(retain),
         version(getLatestVersion()) {
-    LOG_INFO("Constructing TTNNTensorWrapper, shape=", tensor.logical_shape(),
-             " wrapper=", static_cast<const void *>(this),
-             " attrs_use_count=", tensor.tensor_attributes.use_count(),
-            (tensor.storage_type() == ::ttnn::HOST_STORAGE_TYPE?" [host] ":" [device] "));
+    // LOG_INFO("Constructing TTNNTensorWrapper, shape=", tensor.logical_shape(),
+    //          " wrapper=", static_cast<const void *>(this),
+    //          " attrs_use_count=", tensor.tensor_attributes.use_count(),
+    //         (tensor.storage_type() == ::ttnn::HOST_STORAGE_TYPE?" [host] ":" [device] "));
   }
 
   ~TTNNTensorWrapper() {
     for (const auto &callback : onDestroyCallbacks) {
       callback(this);
     }
-    LOG_INFO("Destructing TTNNTensorWrapper, shape=", tensor.logical_shape(),
-             " wrapper=", static_cast<const void *>(this),
-             " attrs_use_count=", tensor.tensor_attributes.use_count(),
-            (tensor.storage_type() == ::ttnn::HOST_STORAGE_TYPE?" [host] ":" [device] "));
+    // LOG_INFO("Destructing TTNNTensorWrapper, shape=", tensor.logical_shape(),
+    //          " wrapper=", static_cast<const void *>(this),
+    //          " attrs_use_count=", tensor.tensor_attributes.use_count(),
+    //         (tensor.storage_type() == ::ttnn::HOST_STORAGE_TYPE?" [host] ":" [device] "));
   }
 
   TTNNTensorWrapper(const TTNNTensorWrapper &other) = delete;
