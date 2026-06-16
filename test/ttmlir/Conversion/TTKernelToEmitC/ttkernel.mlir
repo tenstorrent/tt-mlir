@@ -2968,6 +2968,34 @@ module {
   } // module
 
   //===----------------------------------------------------------------------===//
+  // TTKernel Arith operations
+  //===----------------------------------------------------------------------===//
+
+  module @ttkernel_arith_operations {
+
+    // CHECK-LABEL: func @bool_logical_andi_ori
+    func.func @bool_logical_andi_ori() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = scalar, operand_index = 0>, <arg_type = scalar, operand_index = 1>, <arg_type = scalar, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<noc>} {
+      %arg0 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> i32
+      %arg1 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> i32
+      %arg2 = "ttkernel.get_compile_time_arg_val"() <{arg_index = 2 : i32}> : () -> i32
+      // CHECK: %[[LHS:.*]] = emitc.cmp ne
+      %lhs = arith.cmpi ne, %arg0, %arg1 : i32
+      // CHECK: %[[RHS:.*]] = emitc.cmp eq
+      %rhs = arith.cmpi eq, %arg0, %arg2 : i32
+      // CHECK: emitc.logical_or %[[LHS]], %[[RHS]]
+      %logical_or = arith.ori %lhs, %rhs : i1
+      // CHECK: emitc.logical_and %[[LHS]], %[[RHS]]
+      %logical_and = arith.andi %lhs, %rhs : i1
+      // CHECK: emitc.bitwise_or
+      %bitwise_or = arith.ori %arg0, %arg1 : i32
+      // CHECK: emitc.bitwise_and
+      %bitwise_and = arith.andi %arg0, %arg2 : i32
+      return
+    }
+
+  } // module
+
+  //===----------------------------------------------------------------------===//
   // TTKernel Numeric operations
   //===----------------------------------------------------------------------===//
 

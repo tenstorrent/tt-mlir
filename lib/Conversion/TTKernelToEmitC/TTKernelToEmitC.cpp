@@ -1920,6 +1920,38 @@ public:
   }
 };
 
+// Boolean arith.andi / arith.ori represent logical operations. Lowering them to
+// bitwise EmitC ops emits C++ expressions like `(a != b) | (c != d)`, which GCC
+// warns about as an ambiguous mix of comparisons and bitwise operators.
+template <typename SourceOp, typename EmitCOp>
+class ArithBoolBinaryRewriter : public OpConversionPattern<SourceOp> {
+public:
+  ArithBoolBinaryRewriter(const TypeConverter &typeConverter,
+                          MLIRContext *context,
+                          PatternBenefit benefit = PatternBenefit(2))
+      : OpConversionPattern<SourceOp>(typeConverter, context, benefit) {}
+
+  LogicalResult
+  matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto resultType = dyn_cast<IntegerType>(op.getResult().getType());
+    if (!resultType || resultType.getWidth() != 1) {
+      return failure();
+    }
+
+    Type convertedType =
+        this->getTypeConverter()->convertType(op.getResult().getType());
+    if (!convertedType) {
+      return failure();
+    }
+
+    ValueRange operands = adaptor.getOperands();
+    rewriter.replaceOpWithNewOp<EmitCOp>(op, convertedType, operands[0],
+                                         operands[1]);
+    return success();
+  }
+};
+
 // Rewriter for scalar unary tile ops (add_unary_tile, mul_unary_tile, etc).
 // These ops take a tile index and a scalar parameter. The custom GCC may not
 // see the data dependency between the scalar value and the SFPU intrinsic,
@@ -2515,7 +2547,9 @@ public:
 
     patterns
         .add<ArithFloorDivRewriter, ArithBitcastRewriter, ArithMaxUIRewriter,
-             ArithMinUIRewriter, ArithMaxSIRewriter, ArithMinSIRewriter>(
+             ArithMinUIRewriter, ArithMaxSIRewriter, ArithMinSIRewriter,
+             ArithBoolBinaryRewriter<arith::AndIOp, emitc::LogicalAndOp>,
+             ArithBoolBinaryRewriter<arith::OrIOp, emitc::LogicalOrOp>>(
             typeConverter, funcOp.getContext());
 
     return applyFullConversion(funcOp, target, std::move(patterns));
