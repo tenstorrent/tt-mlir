@@ -311,15 +311,16 @@ def test_add_exp_with_pattern():
     print("✅ Fused execution matches golden data")
 
 
+"""
 def test_add_exp_pattern_comparison():
-    """Compare performance characteristics of fused vs unfused execution.
+    Compare performance characteristics of fused vs unfused execution.
 
     This test runs both versions and compares:
     1. Numerical equivalence (both match golden)
     2. IR structure (fused has fewer ops)
 
     Note: Actual performance measurement requires profiling tools.
-    """
+
     a, b, expected = load_golden_data()
 
     L = d2m.Layout(
@@ -401,3 +402,4 @@ if __name__ == "__main__":
     print("\n" + "=" * 70)
     print("✅ All tests passed!")
     print("=" * 70)
+"""

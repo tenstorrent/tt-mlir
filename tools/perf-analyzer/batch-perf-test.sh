@@ -99,7 +99,7 @@ echo "   Found $TEST_COUNT tests" | tee -a "$BATCH_LOG"
 echo "" | tee -a "$BATCH_LOG"
 
 # Initialize CSV header
-echo "test_name,total_device_time_ms,kernel_count,avg_kernel_time_ms,max_kernel_time_ms,min_kernel_time_ms,status,output_dir" > "$SUMMARY_CSV"
+echo "test_name,total_device_time_ns,kernel_count,avg_kernel_time_ns,max_kernel_time_ns,min_kernel_time_ns,status,output_dir" > "$SUMMARY_CSV"
 
 # Step 2: Run each test through d2m-jit-perf.sh
 TEST_NUM=0
@@ -187,13 +187,14 @@ try:
         print('0,0,0,0,0')
         sys.exit(0)
 
-    total_ms = sum(durations_ns) / 1_000_000
+    # Keep values in nanoseconds (no conversion)
+    total_ns = sum(durations_ns)
     count = len(durations_ns)
-    avg_ms = total_ms / count
-    max_ms = max(durations_ns) / 1_000_000
-    min_ms = min(durations_ns) / 1_000_000
+    avg_ns = total_ns / count
+    max_ns = max(durations_ns)
+    min_ns = min(durations_ns)
 
-    print(f'{total_ms:.3f},{count},{avg_ms:.3f},{max_ms:.3f},{min_ms:.3f}')
+    print(f'{total_ns:.0f},{count},{avg_ns:.0f},{max_ns:.0f},{min_ns:.0f}')
 except Exception as e:
     print(f'0,0,0,0,0', file=sys.stderr)
     print(f'Error: {e}', file=sys.stderr)
@@ -202,11 +203,11 @@ except Exception as e:
 
         if [ -n "$PERF_DATA" ]; then
           IFS=',' read -r TOTAL_TIME KERNEL_COUNT AVG_TIME MAX_TIME MIN_TIME <<< "$PERF_DATA"
-          echo "      Total device time: ${TOTAL_TIME}ms" | tee -a "$BATCH_LOG"
+          echo "      Total device time: ${TOTAL_TIME}ns" | tee -a "$BATCH_LOG"
           echo "      Kernel count: $KERNEL_COUNT" | tee -a "$BATCH_LOG"
-          echo "      Avg kernel time: ${AVG_TIME}ms" | tee -a "$BATCH_LOG"
-          echo "      Max kernel time: ${MAX_TIME}ms" | tee -a "$BATCH_LOG"
-          echo "      Min kernel time: ${MIN_TIME}ms" | tee -a "$BATCH_LOG"
+          echo "      Avg kernel time: ${AVG_TIME}ns" | tee -a "$BATCH_LOG"
+          echo "      Max kernel time: ${MAX_TIME}ns" | tee -a "$BATCH_LOG"
+          echo "      Min kernel time: ${MIN_TIME}ns" | tee -a "$BATCH_LOG"
 
           # Add to CSV
           echo "\"$TEST_NAME\",$TOTAL_TIME,$KERNEL_COUNT,$AVG_TIME,$MAX_TIME,$MIN_TIME,$STATUS,\"$TEST_OUTPUT_DIR\"" >> "$SUMMARY_CSV"
@@ -269,27 +270,28 @@ print()
 # Calculate aggregate stats
 passed_rows = [r for r in rows if r['status'] == 'PASSED']
 if passed_rows:
-    total_times = [float(r['total_device_time_ms']) for r in passed_rows if float(r['total_device_time_ms']) > 0]
+    total_times_ns = [float(r['total_device_time_ns']) for r in passed_rows if float(r['total_device_time_ns']) > 0]
     kernel_counts = [int(r['kernel_count']) for r in passed_rows if int(r['kernel_count']) > 0]
-    avg_times = [float(r['avg_kernel_time_ms']) for r in passed_rows if float(r['avg_kernel_time_ms']) > 0]
+    avg_times_ns = [float(r['avg_kernel_time_ns']) for r in passed_rows if float(r['avg_kernel_time_ns']) > 0]
 
-    if total_times:
-        print(f"- **Total Device Time (all tests):** {sum(total_times):.3f}ms")
-        print(f"- **Average Test Time:** {sum(total_times)/len(total_times):.3f}ms")
-        print(f"- **Longest Test:** {max(total_times):.3f}ms")
-        print(f"- **Shortest Test:** {min(total_times):.3f}ms")
+    if total_times_ns:
+        # Convert ns to ms for display
+        print(f"- **Total Device Time (all tests):** {sum(total_times_ns)/1e6:.3f}ms")
+        print(f"- **Average Test Time:** {sum(total_times_ns)/len(total_times_ns)/1e6:.3f}ms")
+        print(f"- **Longest Test:** {max(total_times_ns)/1e6:.3f}ms")
+        print(f"- **Shortest Test:** {min(total_times_ns)/1e6:.3f}ms")
     if kernel_counts:
         print(f"- **Total Kernels:** {sum(kernel_counts)}")
         print(f"- **Average Kernels per Test:** {sum(kernel_counts)/len(kernel_counts):.1f}")
-    if avg_times:
-        print(f"- **Average Kernel Time (across all):** {sum(avg_times)/len(avg_times):.3f}ms")
+    if avg_times_ns:
+        print(f"- **Average Kernel Time (across all):** {sum(avg_times_ns)/len(avg_times_ns)/1e6:.3f}ms")
 else:
     print("No successful tests with performance data.")
 
 print()
 print("## Detailed Results")
 print()
-print("| Test Name | Status | Total Time (ms) | Kernels | Avg Kernel (ms) | Max Kernel (ms) | Min Kernel (ms) |")
+print("| Test Name | Status | Total Time (ns) | Kernels | Avg Kernel (ns) | Max Kernel (ns) | Min Kernel (ns) |")
 print("|-----------|--------|-----------------|---------|-----------------|-----------------|-----------------|")
 
 for row in rows:
@@ -298,11 +300,11 @@ for row in rows:
         test_name = test_name[:47] + "..."
 
     status_icon = "✅" if row['status'] == "PASSED" else "❌"
-    total = f"{float(row['total_device_time_ms']):.2f}" if float(row['total_device_time_ms']) > 0 else "N/A"
+    total = f"{float(row['total_device_time_ns']):.0f}" if float(row['total_device_time_ns']) > 0 else "N/A"
     kernels = row['kernel_count'] if int(row['kernel_count']) > 0 else "N/A"
-    avg = f"{float(row['avg_kernel_time_ms']):.3f}" if float(row['avg_kernel_time_ms']) > 0 else "N/A"
-    max_k = f"{float(row['max_kernel_time_ms']):.3f}" if float(row['max_kernel_time_ms']) > 0 else "N/A"
-    min_k = f"{float(row['min_kernel_time_ms']):.3f}" if float(row['min_kernel_time_ms']) > 0 else "N/A"
+    avg = f"{float(row['avg_kernel_time_ns']):.0f}" if float(row['avg_kernel_time_ns']) > 0 else "N/A"
+    max_k = f"{float(row['max_kernel_time_ns']):.0f}" if float(row['max_kernel_time_ns']) > 0 else "N/A"
+    min_k = f"{float(row['min_kernel_time_ns']):.0f}" if float(row['min_kernel_time_ns']) > 0 else "N/A"
 
     print(f"| {test_name} | {status_icon} | {total} | {kernels} | {avg} | {max_k} | {min_k} |")
 
@@ -311,17 +313,17 @@ print("## Performance Ranking (by Total Device Time)")
 print()
 
 # Sort by total device time
-passed_with_data = [r for r in passed_rows if float(r['total_device_time_ms']) > 0]
-passed_with_data.sort(key=lambda x: float(x['total_device_time_ms']), reverse=True)
+passed_with_data = [r for r in passed_rows if float(r['total_device_time_ns']) > 0]
+passed_with_data.sort(key=lambda x: float(x['total_device_time_ns']), reverse=True)
 
 if passed_with_data:
-    print("| Rank | Test Name | Total Time (ms) | Kernels |")
+    print("| Rank | Test Name | Total Time (ns) | Kernels |")
     print("|------|-----------|-----------------|---------|")
     for i, row in enumerate(passed_with_data[:10], 1):  # Top 10
         test_name = row['test_name'].split('::')[-1]
         if len(test_name) > 60:
             test_name = test_name[:57] + "..."
-        total = f"{float(row['total_device_time_ms']):.2f}"
+        total = f"{float(row['total_device_time_ns']):.0f}"
         kernels = row['kernel_count']
         print(f"| {i} | {test_name} | {total} | {kernels} |")
 
