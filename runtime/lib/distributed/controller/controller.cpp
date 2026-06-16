@@ -9,11 +9,29 @@
 #include "tt/runtime/detail/distributed/controller/command_factory.h"
 #include "tt/runtime/detail/distributed/flatbuffer/flatbuffer.h"
 #include "tt/runtime/detail/distributed/utils/utils.h"
+#include "tt/runtime/flatbuffer/types_generated.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
 namespace tt::runtime::distributed::controller {
 
 namespace fb = ::tt::runtime::distributed::flatbuffer;
+
+
+tt::runtime::Tensor createDistributedTensorHandle(){  
+  class handleRefcounter{
+    public: 
+    handleRefcounter();
+    ~handleRefcounter(){
+      std::cout << "handleRefcounter destroyed" << std::endl;
+    };
+    private:
+  };
+
+  tt::runtime::Tensor outputTensorHandle = tt::runtime::Tensor(std::make_shared<handleRefcounter>(), nullptr, DeviceRuntime::TTNN);
+  return outputTensorHandle;
+}
+
+
 
 static const fb::Response *getResponse(const SizedBuffer &response) {
   bool isDistributedResponse = fb::ResponseBufferHasIdentifier(response.data());
