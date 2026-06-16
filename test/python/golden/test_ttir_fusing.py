@@ -583,6 +583,203 @@ def test_slice_before_linear_fusing(
     ) and slice_precedes_matmul(output_path)
 
 
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 4])
+def test_slice_before_matmul_cascade_fusing(
+    dtypes: List[torch.dtype],
+    request,
+    device,
+):
+    # Chain of three matmuls, each result feeding the next as its single-use
+    # LHS, with a row (M) slice at the bottom. SliceBeforeMatmul pushes the row
+    # slice up one level into the LHS, which is itself a matmul -- re-matching
+    # the pattern -- so the greedy driver cascades it to the top: the slice ends
+    # up on the original input and every matmul is narrowed to a single row.
+    shapes = [(256, 512), (512, 384), (384, 256), (256, 128)]
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def matmul_chain_slice(
+            a: Operand,
+            b: Operand,
+            c: Operand,
+            d: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            m1 = builder.matmul(a, b)
+            m2 = builder.matmul(m1, c)
+            m3 = builder.matmul(m2, d)
+            return builder.slice(m3, [255, 0], [256, 128])
+
+    # PCC (default 0.99) verifies the cascade preserved numerics end to end.
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        save_artifacts=True,
+        check_pcc=True,
+    )
+    output_path = os.path.join(
+        get_artifact_dir(
+            request.config.getoption("--path"), "TTIRBuilder", request.node.name
+        ),
+        "ttnn_compiled.mlir",
+    )
+    # The cascade fired: a slice now feeds the (first) matmul instead of a slice
+    # consuming the (last) matmul's output.
+    assert check_op(output_path, "matmul") and slice_precedes_matmul(output_path)
+
+
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 4])
+def test_shared_lhs_fusion_not_undone(
+    dtypes: List[torch.dtype],
+    request,
+    device,
+):
+    # Three matmuls sharing the same LHS are fused by SharedLHSMatmulFusion into
+    # one matmul over the concatenated weights, split back out with per-output
+    # slices. Those slices feed a matmul result with multiple uses, so
+    # SliceBeforeMatmul's single-use guard must leave them alone (pushing them
+    # into the concatenated RHS would undo the concatenation). This verifies the
+    # two fusions coexist and the result stays numerically correct.
+    shapes = [(32, 512), (512, 384), (512, 384), (512, 384)]
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def shared_lhs(
+            a: Operand,
+            b0: Operand,
+            b1: Operand,
+            b2: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return (
+                builder.matmul(a, b0),
+                builder.matmul(a, b1),
+                builder.matmul(a, b2),
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        save_artifacts=True,
+        check_pcc=True,
+    )
+    output_path = os.path.join(
+        get_artifact_dir(
+            request.config.getoption("--path"), "TTIRBuilder", request.node.name
+        ),
+        "ttnn_compiled.mlir",
+    )
+    # SharedLHSMatmulFusion fired and was preserved: the weights are concatenated
+    # and fed to a single matmul (not pulled back apart by SliceBeforeMatmul).
+    assert check_op(output_path, "matmul") and check_op(output_path, "concat")
+
+
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 5])
+def test_shared_lhs_fusion_with_final_slice(
+    dtypes: List[torch.dtype],
+    request,
+    device,
+):
+    # Same shared-LHS group, but one output feeds a downstream "final" matmul
+    # whose result is row-sliced. Both fusions apply: the shared-LHS group still
+    # fuses to one matmul over the concatenated weights (left untouched by the
+    # single-use guard), while the trailing row slice IS pushed up into the
+    # final matmul, narrowing it to a single row.
+    shapes = [(32, 512), (512, 384), (512, 384), (512, 384), (384, 256)]
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def shared_lhs_final(
+            a: Operand,
+            b0: Operand,
+            b1: Operand,
+            b2: Operand,
+            d: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            o0 = builder.matmul(a, b0)
+            o1 = builder.matmul(a, b1)
+            o2 = builder.matmul(a, b2)
+            final = builder.matmul(o2, d)
+            return (o0, o1, builder.slice(final, [31, 0], [32, 256]))
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        save_artifacts=True,
+        check_pcc=True,
+    )
+    output_path = os.path.join(
+        get_artifact_dir(
+            request.config.getoption("--path"), "TTIRBuilder", request.node.name
+        ),
+        "ttnn_compiled.mlir",
+    )
+    # The shared-LHS concatenation survives and a matmul remains for the
+    # (now narrowed) final projection.
+    assert check_op(output_path, "matmul") and check_op(output_path, "concat")
+
+
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 4])
+def test_shared_lhs_vs_slice_before_matmul_collision(
+    dtypes: List[torch.dtype],
+    request,
+    device,
+):
+    # Direct collision: all three matmuls share the same LHS (so
+    # SharedLHSMatmulFusion wants to fuse them) AND the last one's output is
+    # sliced (so SliceBeforeMatmul wants to push the slice into the LHS). With
+    # the pass's top-down traversal the matmuls are visited before the slice, so
+    # SharedLHSMatmulFusion fires first; the fused result then has multiple uses
+    # and SliceBeforeMatmul's single-use guard blocks it. SharedLHS wins -- the
+    # row slice just composes with the fused output column slice. Either outcome
+    # is numerically correct; this pins the winner and the numerics.
+    shapes = [(32, 512), (512, 384), (512, 384), (512, 384)]
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def shared_lhs_collision(
+            a: Operand,
+            b0: Operand,
+            b1: Operand,
+            b2: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            o0 = builder.matmul(a, b0)
+            o1 = builder.matmul(a, b1)
+            o2 = builder.matmul(a, b2)
+            return (o0, o1, builder.slice(o2, [31, 0], [32, 384]))
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        save_artifacts=True,
+        check_pcc=True,
+    )
+    output_path = os.path.join(
+        get_artifact_dir(
+            request.config.getoption("--path"), "TTIRBuilder", request.node.name
+        ),
+        "ttnn_compiled.mlir",
+    )
+    # SharedLHS won: the weights are concatenated into a single fused matmul, and
+    # the slices land on its output (so a slice does NOT precede the matmul, as
+    # it would have if SliceBeforeMatmul had fired instead).
+    assert (
+        check_op(output_path, "matmul")
+        and check_op(output_path, "concat")
+        and not slice_precedes_matmul(output_path)
+    )
+
+
 @pytest.mark.parametrize(
     "matmul_shapes,bias_shape,bias_reshape,bias_broadcast",
     [

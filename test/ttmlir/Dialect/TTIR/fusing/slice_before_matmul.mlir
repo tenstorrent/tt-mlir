@@ -365,3 +365,99 @@ func.func @linear_batch_slice_negative(%arg0: tensor<2x1024x4096xbf16>, %arg1: t
   %1 = "ttir.slice_static"(%0) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 1024 : i32, 128256 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<2x1024x128256xbf16>) -> tensor<1x1024x128256xbf16>
   return %1 : tensor<1x1024x128256xbf16>
 }
+
+// Interaction with SharedLHSMatmulFusion: three matmuls sharing the same LHS
+// are fused into one matmul over the concatenated weights, then split back out
+// with per-output *column* slices. Those slices feed off a matmul result with
+// three uses, so this pattern's single-use guard must leave them alone --
+// otherwise pushing the column slices into the (concatenated) RHS would undo
+// the concatenation. The fused matmul must keep its full concatenated N dim
+// (1152), with the three slices remaining on its output.
+// CHECK-LABEL: func.func @shared_lhs_fusion_not_undone
+func.func @shared_lhs_fusion_not_undone(%arg0: tensor<32x512xbf16>, %arg1: tensor<512x384xbf16>, %arg2: tensor<512x384xbf16>, %arg3: tensor<512x384xbf16>) -> (tensor<32x384xbf16>, tensor<32x384xbf16>, tensor<32x384xbf16>) {
+  // CHECK: %[[W:.*]] = "ttir.concat"({{.*}}) <{dim = 1 : si32}> : (tensor<512x384xbf16>, tensor<512x384xbf16>, tensor<512x384xbf16>) -> tensor<512x1152xbf16>
+  // CHECK: %[[M:.*]] = "ttir.matmul"(%arg0, %[[W]]) <{transpose_a = false, transpose_b = false}> : (tensor<32x512xbf16>, tensor<512x1152xbf16>) -> tensor<32x1152xbf16>
+  // CHECK: "ttir.slice_static"(%[[M]])
+  // CHECK: "ttir.slice_static"(%[[M]])
+  // CHECK: "ttir.slice_static"(%[[M]])
+  %0 = "ttir.matmul"(%arg0, %arg1) : (tensor<32x512xbf16>, tensor<512x384xbf16>) -> tensor<32x384xbf16>
+  %1 = "ttir.matmul"(%arg0, %arg2) : (tensor<32x512xbf16>, tensor<512x384xbf16>) -> tensor<32x384xbf16>
+  %2 = "ttir.matmul"(%arg0, %arg3) : (tensor<32x512xbf16>, tensor<512x384xbf16>) -> tensor<32x384xbf16>
+  return %0, %1, %2 : tensor<32x384xbf16>, tensor<32x384xbf16>, tensor<32x384xbf16>
+}
+
+// Same shared-LHS group, but one of its outputs feeds a downstream "final"
+// matmul whose result is row-sliced. Both fusions apply and compose: the
+// shared-LHS group still fuses to one matmul over the concatenated weights
+// (full N=1152, three output slices off it -- left untouched by this pattern's
+// single-use guard), while the trailing row slice IS pushed up into the final
+// matmul's LHS. That LHS is itself a (column) slice of the fused result, so the
+// pushed row slice folds together with it into a single combined slice of the
+// fused output ([31:32, 0:384]), and the final matmul is narrowed to M=1.
+// CHECK-LABEL: func.func @shared_lhs_fusion_with_final_slice
+func.func @shared_lhs_fusion_with_final_slice(%arg0: tensor<32x512xbf16>, %arg1: tensor<512x384xbf16>, %arg2: tensor<512x384xbf16>, %arg3: tensor<512x384xbf16>, %arg4: tensor<384x256xbf16>) -> (tensor<32x384xbf16>, tensor<32x384xbf16>, tensor<1x256xbf16>) {
+  // The shared-LHS group is fused and preserved (full concatenated N=1152).
+  // CHECK: %[[W:.*]] = "ttir.concat"({{.*}}) <{dim = 1 : si32}> : (tensor<512x384xbf16>, tensor<512x384xbf16>, tensor<512x384xbf16>) -> tensor<512x1152xbf16>
+  // CHECK: %[[FUSED:.*]] = "ttir.matmul"(%arg0, %[[W]]) <{transpose_a = false, transpose_b = false}> : (tensor<32x512xbf16>, tensor<512x1152xbf16>) -> tensor<32x1152xbf16>
+  // The two directly-returned outputs stay as full-row column slices of the fused result.
+  // CHECK: "ttir.slice_static"(%[[FUSED]]) <{begins = [0 : i32, 384 : i32], ends = [32 : i32, 768 : i32], step = [1 : i32, 1 : i32]}>
+  // CHECK: "ttir.slice_static"(%[[FUSED]]) <{begins = [0 : i32, 768 : i32], ends = [32 : i32, 1152 : i32], step = [1 : i32, 1 : i32]}>
+  // The final matmul's LHS slice and the trailing row slice fold into one slice
+  // of the fused output, and the final matmul is narrowed to a single row.
+  // CHECK: %[[L:.*]] = "ttir.slice_static"(%[[FUSED]]) <{begins = [31 : i32, 0 : i32], ends = [32 : i32, 384 : i32], step = [1 : i32, 1 : i32]}> : (tensor<32x1152xbf16>) -> tensor<1x384xbf16>
+  // CHECK: "ttir.matmul"(%[[L]], %arg4) <{transpose_a = false, transpose_b = false}> : (tensor<1x384xbf16>, tensor<384x256xbf16>) -> tensor<1x256xbf16>
+  %0 = "ttir.matmul"(%arg0, %arg1) : (tensor<32x512xbf16>, tensor<512x384xbf16>) -> tensor<32x384xbf16>
+  %1 = "ttir.matmul"(%arg0, %arg2) : (tensor<32x512xbf16>, tensor<512x384xbf16>) -> tensor<32x384xbf16>
+  %2 = "ttir.matmul"(%arg0, %arg3) : (tensor<32x512xbf16>, tensor<512x384xbf16>) -> tensor<32x384xbf16>
+  %3 = "ttir.matmul"(%2, %arg4) : (tensor<32x384xbf16>, tensor<384x256xbf16>) -> tensor<32x256xbf16>
+  %s = "ttir.slice_static"(%3) <{begins = [31 : i32, 0 : i32], ends = [32 : i32, 256 : i32], step = [1 : i32, 1 : i32]}> : (tensor<32x256xbf16>) -> tensor<1x256xbf16>
+  return %0, %1, %s : tensor<32x384xbf16>, tensor<32x384xbf16>, tensor<1x256xbf16>
+}
+
+// Collision: all three matmuls share the same LHS (%arg0) *and* the last one's
+// output is sliced -- so both SharedLHSMatmulFusion (wants to fuse the three)
+// and SliceBeforeMatmul (wants to push the slice into %arg0) match. With the
+// pass's top-down traversal the matmuls are visited before the slice, so
+// SharedLHSMatmulFusion fires first and fuses all three into one matmul over
+// the concatenated weights. The fused result then has three uses, so
+// SliceBeforeMatmul's single-use guard blocks it: the row slice simply composes
+// with the fused output's column slice ([31:32, 0:384]) rather than being
+// pushed into %arg0. SharedLHS wins, and only one matmul remains.
+// CHECK-LABEL: func.func @shared_lhs_wins_collision
+func.func @shared_lhs_wins_collision(%arg0: tensor<32x512xbf16>, %arg1: tensor<512x384xbf16>, %arg2: tensor<512x384xbf16>, %arg3: tensor<512x384xbf16>) -> (tensor<32x384xbf16>, tensor<32x384xbf16>, tensor<1x384xbf16>) {
+  // CHECK: %[[W:.*]] = "ttir.concat"({{.*}}) <{dim = 1 : si32}> : (tensor<512x384xbf16>, tensor<512x384xbf16>, tensor<512x384xbf16>) -> tensor<512x1152xbf16>
+  // CHECK: %[[FUSED:.*]] = "ttir.matmul"(%arg0, %[[W]]) <{transpose_a = false, transpose_b = false}> : (tensor<32x512xbf16>, tensor<512x1152xbf16>) -> tensor<32x1152xbf16>
+  // CHECK: "ttir.slice_static"(%[[FUSED]]) <{begins = [0 : i32, 384 : i32], ends = [32 : i32, 768 : i32], step = [1 : i32, 1 : i32]}>
+  // CHECK: "ttir.slice_static"(%[[FUSED]]) <{begins = [0 : i32, 768 : i32], ends = [32 : i32, 1152 : i32], step = [1 : i32, 1 : i32]}>
+  // The sliced output composes the row slice with the fused column slice.
+  // CHECK: "ttir.slice_static"(%[[FUSED]]) <{begins = [31 : i32, 0 : i32], ends = [32 : i32, 384 : i32], step = [1 : i32, 1 : i32]}> : (tensor<32x1152xbf16>) -> tensor<1x384xbf16>
+  // SliceBeforeMatmul did not fire: no second, narrowed matmul was split off.
+  // CHECK-NOT: "ttir.matmul"
+  %0 = "ttir.matmul"(%arg0, %arg1) : (tensor<32x512xbf16>, tensor<512x384xbf16>) -> tensor<32x384xbf16>
+  %1 = "ttir.matmul"(%arg0, %arg2) : (tensor<32x512xbf16>, tensor<512x384xbf16>) -> tensor<32x384xbf16>
+  %2 = "ttir.matmul"(%arg0, %arg3) : (tensor<32x512xbf16>, tensor<512x384xbf16>) -> tensor<32x384xbf16>
+  %s = "ttir.slice_static"(%2) <{begins = [31 : i32, 0 : i32], ends = [32 : i32, 384 : i32], step = [1 : i32, 1 : i32]}> : (tensor<32x384xbf16>) -> tensor<1x384xbf16>
+  return %0, %1, %s : tensor<32x384xbf16>, tensor<32x384xbf16>, tensor<1x384xbf16>
+}
+
+// Cascade through a chain of matmuls: each matmul result is the (single-use)
+// LHS of the next, so a row slice at the bottom is pushed up one level into the
+// LHS, which is itself a matmul -- re-matching this pattern. The greedy driver
+// iterates it to a fixpoint, so the slice walks all the way up to the original
+// %arg0 and every matmul in the chain is narrowed to a single row (M=1). No
+// explicit loop in the pattern is needed.
+// CHECK-LABEL: func.func @cascade_three_matmuls
+func.func @cascade_three_matmuls(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x2048xbf16>, %arg2: tensor<2048x1024xbf16>, %arg3: tensor<1024x512xbf16>) -> tensor<1x512xbf16> {
+  // The slice ends up on %arg0 (the top of the chain), narrowing it to one row.
+  // CHECK: %[[A:.*]] = "ttir.slice_static"(%arg0) <{begins = [1023 : i32, 0 : i32], ends = [1024 : i32, 4096 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x4096xbf16>) -> tensor<1x4096xbf16>
+  // All three matmuls are narrowed to M=1 and no slice remains on any output.
+  // CHECK: %[[M1:.*]] = "ttir.matmul"(%[[A]], %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<1x4096xbf16>, tensor<4096x2048xbf16>) -> tensor<1x2048xbf16>
+  // CHECK: %[[M2:.*]] = "ttir.matmul"(%[[M1]], %arg2) <{transpose_a = false, transpose_b = false}> : (tensor<1x2048xbf16>, tensor<2048x1024xbf16>) -> tensor<1x1024xbf16>
+  // CHECK: "ttir.matmul"(%[[M2]], %arg3) <{transpose_a = false, transpose_b = false}> : (tensor<1x1024xbf16>, tensor<1024x512xbf16>) -> tensor<1x512xbf16>
+  // CHECK-NOT: "ttir.slice_static"
+  %m1 = "ttir.matmul"(%arg0, %arg1) : (tensor<1024x4096xbf16>, tensor<4096x2048xbf16>) -> tensor<1024x2048xbf16>
+  %m2 = "ttir.matmul"(%m1, %arg2) : (tensor<1024x2048xbf16>, tensor<2048x1024xbf16>) -> tensor<1024x1024xbf16>
+  %m3 = "ttir.matmul"(%m2, %arg3) : (tensor<1024x1024xbf16>, tensor<1024x512xbf16>) -> tensor<1024x512xbf16>
+  %s = "ttir.slice_static"(%m3) <{begins = [1023 : i32, 0 : i32], ends = [1024 : i32, 512 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x512xbf16>) -> tensor<1x512xbf16>
+  return %s : tensor<1x512xbf16>
+}
