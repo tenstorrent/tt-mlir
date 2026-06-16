@@ -14,6 +14,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
 
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::ttnn {
@@ -34,6 +35,11 @@ public:
   // Currently, the list is empty, but we may want to allow certain TMs in the
   // future.
   static bool isAllowedOnCachePath(Operation *op) { return false; }
+
+  // Ops that preserve dtype on the read path (cache arg → consumer).
+  static bool isTransparentOnReadPath(Operation *op) {
+    return mlir::isa<PermuteOp, ReshapeOp, RepeatOp>(op);
+  }
 
   // Walks the linear tensor chain from `value` back through allowed ops,
   // collecting intermediate tensor values into `chain`. Returns the
@@ -159,6 +165,103 @@ public:
     }
   }
 
+  // Walks the read-path chain forward from `v`, collecting transparent op
+  // results into propagatedValues and non-transparent consumers into
+  // boundaryOps.
+  static void walkReadPath(Value v, llvm::DenseSet<Value> &propagatedValues,
+                           llvm::DenseSet<Operation *> &boundaryOps) {
+    for (OpOperand &use : v.getUses()) {
+      Operation *op = use.getOwner();
+
+      // Cache write ops, write-path ops (e.g. mesh_shard), and returns are
+      // handled elsewhere.
+      if (mlir::isa<FillCacheOp, UpdateCacheOp, PagedFillCacheOp,
+                    PagedUpdateCacheOp, func::ReturnOp>(op) ||
+          isAllowedOnCachePath(op)) {
+        continue;
+      }
+
+      if (!isTransparentOnReadPath(op)) {
+        boundaryOps.insert(op);
+        continue;
+      }
+
+      for (Value result : op->getResults()) {
+        if (!mlir::isa<RankedTensorType>(result.getType()) ||
+            propagatedValues.count(result)) {
+          continue;
+        }
+        propagatedValues.insert(result);
+        walkReadPath(result, propagatedValues, boundaryOps);
+      }
+    }
+  }
+
+  // Collects read-path values and their non-transparent consumers without
+  // modifying any types.
+  static void collectReadPathInfo(func::FuncOp funcOp,
+                                  llvm::DenseSet<Value> &propagatedValues,
+                                  llvm::DenseSet<Operation *> &boundaryOps) {
+    for (BlockArgument arg : funcOp.getBody().getArguments()) {
+      if (!funcOp.getArgAttr(arg.getArgNumber(), ttcore::g_kvCacheAttrName)) {
+        continue;
+      }
+      propagatedValues.insert(arg);
+      walkReadPath(arg, propagatedValues, boundaryOps);
+    }
+  }
+
+  // Updates result types of transparent read-path ops in propagatedValues to
+  // targetDtype. Block args are skipped — they are already retyped by
+  // convertCacheArgTypes.
+  static void
+  propagateDtypeForward(const llvm::DenseSet<Value> &propagatedValues,
+                        ttcore::DataType targetDtype) {
+    for (Value v : propagatedValues) {
+      if (mlir::isa<BlockArgument>(v)) {
+        continue;
+      }
+      auto tensorType = mlir::cast<RankedTensorType>(v.getType());
+      v.setType(ttnn::utils::RankedTensorTypeFactory::create(tensorType,
+                                                             targetDtype));
+    }
+  }
+
+  // For each boundary op, typecasts non-cache-path operands to cacheDtype and
+  // updates the op result types to match.
+  static void
+  insertTypecastsAtBoundary(mlir::OpBuilder &builder,
+                            const llvm::DenseSet<Operation *> &boundaryOps,
+                            const llvm::DenseSet<Value> &propagatedValues,
+                            ttcore::DataType cacheDtype) {
+    for (Operation *op : boundaryOps) {
+      for (OpOperand &operand : op->getOpOperands()) {
+        Value v = operand.get();
+        if (!mlir::isa<RankedTensorType>(v.getType()) ||
+            propagatedValues.count(v)) {
+          continue;
+        }
+        auto vType = mlir::cast<RankedTensorType>(v.getType());
+        auto newType =
+            ttnn::utils::RankedTensorTypeFactory::create(vType, cacheDtype);
+        if (vType == newType) {
+          continue;
+        }
+        builder.setInsertionPoint(op);
+        auto typecastOp = builder.create<TypecastOp>(op->getLoc(), newType, v);
+        operand.set(typecastOp.getResult());
+      }
+      for (Value result : op->getResults()) {
+        if (!mlir::isa<RankedTensorType>(result.getType())) {
+          continue;
+        }
+        auto resultType = mlir::cast<RankedTensorType>(result.getType());
+        result.setType(ttnn::utils::RankedTensorTypeFactory::create(
+            resultType, cacheDtype));
+      }
+    }
+  }
+
   // Inserts a ttnn.typecast before `op`'s input operand if it is not already
   // the target dtype.
   template <typename OpTy>
@@ -216,6 +319,10 @@ public:
         return;
       }
 
+      llvm::DenseSet<Value> propagatedValues;
+      llvm::DenseSet<Operation *> boundaryOps;
+      collectReadPathInfo(funcOp, propagatedValues, boundaryOps);
+
       // Update all kv_cache block arg types, the function
       // signature, and propagate the new dtype through the chain.
       convertCacheArgTypes(funcOp, dtype);
@@ -226,6 +333,11 @@ public:
               propagateDtypeTowardRoot(cacheOp.getCache(), dtype);
             });
       });
+
+      // Forward-propagate the new dtype through transparent read-path ops,
+      // then insert typecasts at the dtype boundary.
+      propagateDtypeForward(propagatedValues, dtype);
+      insertTypecastsAtBoundary(builder, boundaryOps, propagatedValues, dtype);
 
       // Insert typecasts on the input (fill value) of each cache op
       // so the written data matches the new cache dtype.
