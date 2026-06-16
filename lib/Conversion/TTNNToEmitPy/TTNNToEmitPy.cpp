@@ -4401,6 +4401,7 @@ public:
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::FlashMlaPrefillOp>
         emitter(srcOp, adaptor, rewriter);
 
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getQuery()),
         emitter.emit(srcOp.getKey()),
@@ -4411,6 +4412,7 @@ public:
         emitter.emit<float>(srcOp.getScaleAttr(), "scale"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
     emitter.replaceOp(*this, args);
 
