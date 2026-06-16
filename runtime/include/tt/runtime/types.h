@@ -415,17 +415,15 @@ struct Tensor : public detail::RuntimeCheckedObjectImpl {
   Tensor() : globalId(nextTensorGlobalId()) { recordAllocDebugStat(); }
   Tensor(std::shared_ptr<void> handle, std::shared_ptr<void> data,
          DeviceRuntime runtime,
-         std::optional<std::shared_ptr<void>> eventHandle = std::nullopt,
-         std::string debugShapeString = "unknown_shape")
+         std::optional<std::shared_ptr<void>> eventHandle = std::nullopt)
       : detail::RuntimeCheckedObjectImpl(handle, runtime), data(data),
         event(eventHandle.value_or(nullptr), runtime),
-        debugShapeString(debugShapeString), globalId(nextTensorGlobalId()) {
+        globalId(nextTensorGlobalId()) {
     recordAllocDebugStat();
   }
   Tensor(const Tensor &other)
       : detail::RuntimeCheckedObjectImpl(other), data(other.data),
-        event(other.event), debugShapeString(other.debugShapeString),
-        globalId(other.globalId) {
+        event(other.event), globalId(other.globalId) {
     recordAllocDebugStat();
   }
   ~Tensor();
@@ -440,7 +438,6 @@ private:
   std::uint64_t nextTensorGlobalId();
   void recordAllocDebugStat() const;
   void recordDeallocDebugStat() const;
-  std::string debugShapeString = "unknown_shape";
   std::uint64_t globalId;
 };
 

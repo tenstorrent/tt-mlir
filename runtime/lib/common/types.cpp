@@ -214,8 +214,7 @@ std::uint64_t Tensor::nextTensorGlobalId() {
 Tensor::~Tensor() { recordDeallocDebugStat(); }
 
 void Tensor::recordAllocDebugStat() const {
-  debug::Stats::get().incrementStat("TensorAlloc." + std::to_string(globalId) +
-                                    "." + this->debugShapeString);
+  debug::Stats::get().incrementStat("TensorAlloc." + std::to_string(globalId));
 }
 
 void Tensor::recordDeallocDebugStat() const {

@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <memory>
-#include <sstream>
 #include <vector>
 
 #include "tt/runtime/detail/common/common.h"
@@ -564,23 +563,6 @@ fromTTNNMemoryConfig(::flatbuffers::FlatBufferBuilder &fbb,
                                                 bufferType, fbShardSpec);
 }
 
-static std::string getTensorDebugShapeString(const ::ttnn::Tensor &tensor) {
-  try {
-    std::ostringstream shapeString;
-    const auto logicalShape = tensor.logical_shape();
-    for (std::size_t i = 0; i < logicalShape.size(); ++i) {
-      if (i != 0) {
-        shapeString << "_";
-      }
-      shapeString << logicalShape[i];
-    }
-
-    return shapeString.str();
-  } catch (...) {
-    return "unknown_shape";
-  }
-}
-
 ::tt::runtime::Tensor
 createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
                             const std::optional<::ttnn::MeshEvent> &meshEvent,
@@ -589,9 +571,7 @@ createRuntimeTensorFromTTNN(const ::ttnn::Tensor &tensor,
       tensor, meshEvent, retain);
 
   return ::tt::runtime::Tensor(std::static_pointer_cast<void>(tensorPtr),
-                               /*data=*/nullptr, DeviceRuntime::TTNN,
-                               /*eventHandle=*/std::nullopt,
-                               getTensorDebugShapeString(tensor));
+                               /*data=*/nullptr, DeviceRuntime::TTNN);
 }
 
 ::tt::runtime::Device
