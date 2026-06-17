@@ -64,8 +64,7 @@ getTTRunCommand(uint16_t port,
       multiProcessArgs.getControllerHostname();
 
   oss << "./ttnn/ttnn/distributed/ttrun.py " << multiProcessArgs.toArgString()
-      << " "
-      << getWorkerExecutableCommand(port, workerPathOpt, hostnameOpt);
+      << " " << getWorkerExecutableCommand(port, workerPathOpt, hostnameOpt);
 
   return oss.str();
 }
