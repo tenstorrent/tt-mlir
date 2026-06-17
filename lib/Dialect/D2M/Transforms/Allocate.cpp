@@ -1017,53 +1017,51 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                              [](auto size) { return size >= 0; })));
 
       TT_debug(memrefCtx.varIndex < 0);
-      memrefCtx.varIndex =
-          problem.def([&, &memref = memref,
-                       &memrefCtx = memrefCtx](Planner::VariableBuilder &b) {
-            // If `memref` is being defined inside `funcOp` and is initially
-            // placed in L1, it will require scratch memory to hold its tensor
-            // data.
-            if (memref.getDefiningOp<memref::AllocOp>() &&
-                memspace == MemorySpace::DeviceL1) {
-              memrefCtx.reqIndex = b.request(
-                  PlannerSpace::Scratch,
-                  memrefCtx.allocSize[ordinal(asPlannerSpace(memspace))],
-                  memrefCtx.live.first, memrefCtx.live.last);
-            }
+      memrefCtx.varIndex = problem.def([&, &memref = memref,
+                                        &memrefCtx = memrefCtx](
+                                           Planner::VariableBuilder &b) {
+        // If `memref` is being defined inside `funcOp` and is initially
+        // placed in L1, it will require scratch memory to hold its tensor
+        // data.
+        if (memref.getDefiningOp<memref::AllocOp>() &&
+            memspace == MemorySpace::DeviceL1) {
+          memrefCtx.reqIndex =
+              b.request(PlannerSpace::Scratch,
+                        memrefCtx.allocSize[ordinal(asPlannerSpace(memspace))],
+                        memrefCtx.live.first, memrefCtx.live.last);
+        }
 
-            // This decision variable must be bound to its incoming memspace
-            // in any of these cases:
-            //  - if it is placed in DRAM *explicitly*;
-            //  - if the incoming IR indicates that this alloc should be pinned
-            //    to its current memspace in any other explicit way (aggregated
-            //    into `isMemspaceBound`), unless it is a compiler-generated
-            //    output explicitly marked spillable;
-            //  - if it is a generic output and output spilling is disabled, or
-            //    if it is a terminal generic output. When output spilling is
-            //    enabled, only outputs with downstream generic users remain
-            //    spillable because the allocator can remap their def/use chain
-            //    and insert producer/consumer streams as needed;
-            //  - (edge case) if it has zero generic op users;
-            const bool isIntermediateMemref =
-                memrefCtx.usedForOutput && memrefCtx.genericUsers.size() > 1;
-            const bool hasOutputSpillOverride =
-                memrefCtx.allowL1OutputSpill ||
-                memrefCtx.allowGenericOutputSpill;
-            const bool bindOutputToL1 =
-                memrefCtx.usedForOutput && !hasOutputSpillOverride &&
-                (!allowL1OutputSpilling || !isIntermediateMemref);
-            const bool bound = (memspace == MemorySpace::DeviceDRAM) ||
-                               (memrefCtx.isMemspaceBound &&
-                                !hasOutputSpillOverride) ||
-                               bindOutputToL1 ||
-                               memrefCtx.genericUsers.empty();
-            const bool forceSpillToDram = forceSpillToDramIfLegal && !bound;
-            if (bound) {
-              b.bind(asPlannerSpace(memspace));
-            } else if (forceSpillToDram) {
-              b.bind(PlannerSpace::Spill);
-            }
-          });
+        // This decision variable must be bound to its incoming memspace
+        // in any of these cases:
+        //  - if it is placed in DRAM *explicitly*;
+        //  - if the incoming IR indicates that this alloc should be pinned
+        //    to its current memspace in any other explicit way (aggregated
+        //    into `isMemspaceBound`), unless it is a compiler-generated
+        //    output explicitly marked spillable;
+        //  - if it is a generic output and output spilling is disabled, or
+        //    if it is a terminal generic output. When output spilling is
+        //    enabled, only outputs with downstream generic users remain
+        //    spillable because the allocator can remap their def/use chain
+        //    and insert producer/consumer streams as needed;
+        //  - (edge case) if it has zero generic op users;
+        const bool isIntermediateMemref =
+            memrefCtx.usedForOutput && memrefCtx.genericUsers.size() > 1;
+        const bool hasOutputSpillOverride =
+            memrefCtx.allowL1OutputSpill || memrefCtx.allowGenericOutputSpill;
+        const bool bindOutputToL1 =
+            memrefCtx.usedForOutput && !hasOutputSpillOverride &&
+            (!allowL1OutputSpilling || !isIntermediateMemref);
+        const bool bound =
+            (memspace == MemorySpace::DeviceDRAM) ||
+            (memrefCtx.isMemspaceBound && !hasOutputSpillOverride) ||
+            bindOutputToL1 || memrefCtx.genericUsers.empty();
+        const bool forceSpillToDram = forceSpillToDramIfLegal && !bound;
+        if (bound) {
+          b.bind(asPlannerSpace(memspace));
+        } else if (forceSpillToDram) {
+          b.bind(PlannerSpace::Spill);
+        }
+      });
     }
 
     TT_ALLOC_TRACE("L1 planner problem:\n{}", problem);

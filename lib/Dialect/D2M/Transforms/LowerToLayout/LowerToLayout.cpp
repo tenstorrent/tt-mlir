@@ -489,9 +489,9 @@ public:
     if (!invAttr && !fwdAttr) {
       if (auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
               spec.type.getEncoding())) {
-        auto empty = rewriter.create<d2m::EmptyOp>(
-            loc, spec.type.getShape(), spec.type.getElementType(), layout,
-            targetGridShape);
+        auto empty = rewriter.create<d2m::EmptyOp>(loc, spec.type.getShape(),
+                                                   spec.type.getElementType(),
+                                                   layout, targetGridShape);
         if (spec.allowL1OutputSpill) {
           empty->setAttr(kAllowL1OutputSpillAttr, rewriter.getUnitAttr());
         }
@@ -499,7 +499,8 @@ public:
       }
     }
 
-    auto empty = rewriter.create<d2m::EmptyOp>(loc, spec.type, invAttr, fwdAttr);
+    auto empty =
+        rewriter.create<d2m::EmptyOp>(loc, spec.type, invAttr, fwdAttr);
     if (spec.allowL1OutputSpill) {
       empty->setAttr(kAllowL1OutputSpillAttr, rewriter.getUnitAttr());
     }

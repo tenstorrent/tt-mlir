@@ -380,8 +380,7 @@ Plan canonicalize(const PlanState &src, const PlanState &tgt,
         ctx, current.type, *current.getLayout(), targetGridShape,
         current.remapping, ttcore::MemorySpace::DeviceL1,
         llvm::to_vector(current.getGridShape()), current.type.getElementType());
-    auto output = makeOutputSpec(l1Type, current.vgmForward,
-                                 current.vgmInverse,
+    auto output = makeOutputSpec(l1Type, current.vgmForward, current.vgmInverse,
                                  /*allowL1OutputSpill=*/true);
     plan.push_back(DRAMToL1Step{output, AffineMap()});
     updateStateFromOutput(current, output, current.remapping);
