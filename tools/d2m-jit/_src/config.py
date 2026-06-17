@@ -50,6 +50,14 @@ class _Config:
     use_split_unified_thread_v2: bool = _env_bool(
         "D2M_JIT_SPLIT_UNIFIED_THREAD_V2", default=True
     )
+    # Use TensorAccessor-based DMA lowering (passed through to d2m-be-pipeline
+    # and d2m-to-ttkernel-pre-emitc-pipeline as use-tensor-accessor-dma=1):
+    # skips D2MLowerDMAToFullyIndexedForm and lowers shard-level dma_read/write
+    # to TTKernel TensorAccessor ops. Default OFF; opt in with
+    # D2M_JIT_USE_TENSOR_ACCESSOR_DMA=1.
+    use_tensor_accessor_dma: bool = _env_bool(
+        "D2M_JIT_USE_TENSOR_ACCESSOR_DMA", default=False
+    )
     # If set, write the post-pipeline flatbuffer to this path before
     # device submit. Useful for offline inspection with ttrt.
     save_flatbuffer_path: Optional[str] = os.environ.get("D2M_JIT_SAVE_FLATBUFFER_PATH")

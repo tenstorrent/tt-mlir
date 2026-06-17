@@ -137,6 +137,13 @@ def _build_pipeline() -> str:
     be_opts = ["use-tile-matmul=0"]
     if config.use_split_unified_thread_v2:
         be_opts.append("use-split-unified-thread-v2=1")
+    # use-tensor-accessor-dma is consumed by both d2m-be-pipeline (which gates
+    # D2MLowerDMAToFullyIndexedForm) and d2m-to-ttkernel-pre-emitc-pipeline
+    # (which passes it to convert-d2m-to-ttkernel); set it on both.
+    preemitc = "d2m-to-ttkernel-pre-emitc-pipeline"
+    if config.use_tensor_accessor_dma:
+        be_opts.append("use-tensor-accessor-dma=1")
+        preemitc += "{use-tensor-accessor-dma=1}"
     return ",".join(
         [
             "canonicalize",
@@ -152,7 +159,7 @@ def _build_pipeline() -> str:
             "d2m-generic-lower-to-explicit-form",
             "canonicalize",
             f"d2m-be-pipeline{{{' '.join(be_opts)}}}",
-            "d2m-to-ttkernel-pre-emitc-pipeline",
+            preemitc,
             "d2m-to-ttmetal-pipeline",
             "ttkernel-hoist-inits",
             "d2m-emitc-pipeline",
