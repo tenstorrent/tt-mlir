@@ -123,7 +123,6 @@ resetOutputTensorRefT(std::unique_ptr<::tt::target::ttnn::TensorRefT> &out) {
   }
   out->desc->layout->memory_desc->storage_type =
       ::tt::target::ttnn::StorageType::Host;
-  out->desc->layout->memory_desc->tile_shape.reset();
 }
 
 template <typename... Values>
