@@ -70,6 +70,22 @@ class ChiselContext:
         return self.recorder.debug_chisel_dir
 
     @property
+    def binary_id(self) -> int:
+        """Binary id of the current callback scope."""
+        binary_state = self._current_callback_binary
+        if binary_state is None:
+            raise UnexpectedStateError("binary_id")
+        return binary_state.binary_id
+
+    @property
+    def program_index(self) -> int:
+        """Program index of the current callback scope."""
+        program = self._current_callback_program
+        if program is None:
+            raise UnexpectedStateError("program_index")
+        return program.program_index
+
+    @property
     def asm_state(self) -> AsmState:
         binary_state = self._current_callback_binary
         if binary_state is None:

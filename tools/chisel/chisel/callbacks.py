@@ -21,6 +21,7 @@ from ttmlir.ir import Value
 from golden import GoldenMapTensor
 
 from .context import ChiselContext, get_instance
+from .dump import dump_failing_op_tensors
 from .exceptions import IrRuntimeMismatch
 from .executor import execute_golden_with_ssa_inputs
 from .op_configs import ChiselOpConfig
@@ -139,8 +140,11 @@ def _emit_pcc(
     *,
     mode: NumericsMode,
     skip_pcc: bool,
-) -> None:
-    """Shape/dtype + PCC for one (golden, device) pair under `mode`."""
+) -> bool:
+    """Shape/dtype + PCC for one (golden, device) pair under `mode`.
+
+    Returns True if the numerics check failed (used to trigger a tensor dump).
+    """
     check_shape_dtype(op, "mlir_vs_golden", mlir_value, golden_out)
     if skip_pcc:
         ctx.write_record(
@@ -151,8 +155,8 @@ def _emit_pcc(
                 payload=SkippedNumericsPayload(mode=mode),
             )
         )
-        return
-    check_numerics(ctx, op, ssa, golden_out, device_tensor, mode=mode)
+        return False
+    return check_numerics(ctx, op, ssa, golden_out, device_tensor, mode=mode)
 
 
 def _get_inplace_input_refs(
@@ -244,7 +248,7 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
             ssa = entry_ssas[idx]
             golden_out = all_outs[idx]
             device_tensor = device_tensors[idx]
-            _emit_pcc(
+            failed = _emit_pcc(
                 ctx,
                 op,
                 ssa,
@@ -254,10 +258,65 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
                 mode=mode,
                 skip_pcc=config.skip_pcc,
             )
+            if failed:
+
+                # Op input SSAs, used to scope the per-op input tensors we dump on failure.
+                input_ssas = [mlir_in.get_name(asm_state) for mlir_in in get_op_inputs(op)]
+
+                _dump_failing_op(
+                    ctx,
+                    op,
+                    ssa,
+                    mode,
+                    golden_out,
+                    device_tensor,
+                    input_ssas,
+                    ssa_inputs,
+                )
             if mode is NumericsMode.ISOLATED:
                 continue
 
             ctx.golden_tensor_pool[ssa] = golden_out
+
+
+def _dump_failing_op(
+    ctx: ChiselContext,
+    op,
+    ssa: SSAName,
+    mode: NumericsMode,
+    golden_out: GoldenMapTensor,
+    device_tensor: GoldenMapTensor,
+    input_ssas: list[SSAName],
+    ssa_inputs: dict,
+) -> None:
+    """On a numerics failure, dump device+golden input/output torch tensors.
+
+    Device inputs come from the per-op stash; golden inputs are skipped in
+    isolation (identical to device inputs) and taken from the pool in
+    accumulation. Always active for now: falls back to ./chisel_dump when no
+    debug dir is configured (a flag will gate this later).
+    """
+    debug_dir = ctx.debug_chisel_dir or "chisel_dump"
+    stashed = ctx.stashed_inputs
+    device_inputs = {s: stashed[s] for s in input_ssas if s in stashed}
+    golden_inputs = (
+        None
+        if mode is NumericsMode.ISOLATED
+        else {s: ssa_inputs[s] for s in input_ssas if s in ssa_inputs}
+    )
+    dump_failing_op_tensors(
+        debug_dir,
+        binary_id=ctx.binary_id,
+        program_index=ctx.program_index,
+        op_name=op.name,
+        ssa=ssa,
+        mode=mode,
+        golden_out=golden_out,
+        device_out=device_tensor,
+        device_inputs=device_inputs,
+        golden_inputs=golden_inputs,
+        min_pcc=ctx.checks_config.pcc.min_pcc,
+    )
 
 
 def run_op_callback(

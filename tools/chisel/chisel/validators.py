@@ -90,8 +90,12 @@ def check_numerics(
     golden: GoldenMapTensor,
     device: GoldenMapTensor,
     mode: NumericsMode = NumericsMode.ISOLATED,
-) -> None:
-    """Per-shard PCC check; emits one record per shard, tagged by `mode`."""
+) -> bool:
+    """Per-shard PCC check; emits one record per shard, tagged by `mode`.
+
+    Returns True if any shard failed (PCC below min_pcc, or atol/rtol over
+    threshold), so the caller can dump the failing tensors.
+    """
     check = "numerics"
     check_shape_dtype(op, check, golden, device)
 
@@ -108,6 +112,7 @@ def check_numerics(
             f"device={sorted(device_shards)}",
         )
 
+    any_failed = False
     for device_id, golden_shard in golden_shards.items():
         device_shard = device_shards[device_id]
         atol, rtol, pcc = get_atol_rtol_pcc(
@@ -118,6 +123,7 @@ def check_numerics(
             failed = True
         if cfg.max_rtol is not None and rtol > cfg.max_rtol:
             failed = True
+        any_failed = any_failed or failed
         status = RecordStatus.NUMERICS_FAIL if failed else RecordStatus.OK
         ctx.write_record(
             ChiselRecord(
@@ -134,3 +140,4 @@ def check_numerics(
                 ),
             )
         )
+    return any_failed
