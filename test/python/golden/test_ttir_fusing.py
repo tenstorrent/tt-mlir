@@ -452,6 +452,23 @@ def test_matmul_with_bias_fusing(
             [0, 255, 0],
             [1, 256, 1024],
         ),
+        # Middle block of output rows ([5:17]) -> pushed into A just like a
+        # trailing row slice; only the selected rows feed the matmul.
+        ((256, 512), (512, 1024), False, False, None, [5, 0], [17, 1024]),
+        # Negative begin/end row indices ([-4:-1]) are normalized against the
+        # dim size before being pushed into A (rows [252:255]).
+        ((256, 512), (512, 1024), False, False, None, [-4, 0], [-1, 1024]),
+        # Batched 3D x 3D matmul: the leading batch dim is kept full while the
+        # output row dim is sliced and pushed into A's matching dim.
+        (
+            (2, 256, 512),
+            (2, 512, 1024),
+            False,
+            False,
+            None,
+            [0, 255, 0],
+            [2, 256, 1024],
+        ),
     ],
 )
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 2])
@@ -506,30 +523,67 @@ def test_slice_before_matmul_fusing(
 
 
 @pytest.mark.parametrize(
-    "shape_a,shape_b,bias_shape,transpose_b,begins,ends",
+    "shape_a,shape_b,bias_shape,transpose_a,transpose_b,begins,ends",
     [
         # Row (M) slice -> pushed into A; the [N] bias is indexed by N, so it
         # passes through to the narrowed linear untouched.
-        ((256, 512), (512, 1024), (1024,), False, [255, 0], [256, 1024]),
+        ((256, 512), (512, 1024), (1024,), False, False, [255, 0], [256, 1024]),
         # Column (N) slice -> pushed into B; the [N] bias is sliced along N too.
-        ((256, 512), (512, 1024), (1024,), False, [0, 5], [256, 17]),
+        ((256, 512), (512, 1024), (1024,), False, False, [0, 5], [256, 17]),
         # transpose_b=true column slice: B is [N, K] and the [N] bias is still
         # sliced along the N range.
-        ((256, 512), (1024, 512), (1024,), True, [0, 0], [256, 64]),
+        ((256, 512), (1024, 512), (1024,), False, True, [0, 0], [256, 64]),
+        # transpose_a=true row slice: A is [K, M], so the slice is pushed into
+        # A's trailing dim and the [N] bias passes through untouched.
+        ((512, 256), (512, 1024), (1024,), True, False, [255, 0], [256, 1024]),
         # Batched 3D linear with a full 3D bias [B, M, N]; a column slice narrows
         # B and the bias's trailing N dim (batch + M kept full).
-        ((2, 256, 512), (2, 512, 1024), (2, 256, 1024), False, [0, 0, 5], [2, 256, 17]),
+        (
+            (2, 256, 512),
+            (2, 512, 1024),
+            (2, 256, 1024),
+            False,
+            False,
+            [0, 0, 5],
+            [2, 256, 17],
+        ),
+        # Batched 3D linear with a full 3D bias, row (M) slice: pushed into A and
+        # the bias is sliced along its M dim (batch + N kept full).
+        (
+            (2, 256, 512),
+            (2, 512, 1024),
+            (2, 256, 1024),
+            False,
+            False,
+            [0, 255, 0],
+            [2, 256, 1024],
+        ),
+        # Batched 3D linear with a [1, M, N] bias (broadcast over the batch dim):
+        # a column slice narrows the bias's N dim; the size-1 batch dim stays full
+        # and keeps broadcasting onto the 2-batch output.
+        (
+            (2, 256, 512),
+            (2, 512, 1024),
+            (1, 256, 1024),
+            False,
+            False,
+            [0, 0, 5],
+            [2, 256, 17],
+        ),
         # Row slice with a full 2D bias [M, N]: bias is sliced along the M range.
-        ((256, 512), (512, 1024), (256, 1024), False, [255, 0], [256, 1024]),
+        ((256, 512), (512, 1024), (256, 1024), False, False, [255, 0], [256, 1024]),
         # Column slice with a full 2D bias [M, N]: bias is sliced along the N
         # range, its M dim kept full.
-        ((256, 512), (512, 1024), (256, 1024), False, [0, 5], [256, 17]),
+        ((256, 512), (512, 1024), (256, 1024), False, False, [0, 5], [256, 17]),
         # Row slice with a [1, N] bias (broadcast over M): the M-aligned bias dim
         # is size-1, so the bias is left untouched and must still broadcast.
-        ((256, 512), (512, 1024), (1, 1024), False, [255, 0], [256, 1024]),
+        ((256, 512), (512, 1024), (1, 1024), False, False, [255, 0], [256, 1024]),
         # Column slice with a [M, 1] bias (broadcast over N): the N-aligned bias
         # dim is size-1, so the bias is left untouched and must still broadcast.
-        ((256, 512), (512, 1024), (256, 1), False, [0, 5], [256, 17]),
+        ((256, 512), (512, 1024), (256, 1), False, False, [0, 5], [256, 17]),
+        # Column slice with a scalar bias [1] (broadcast over everything): the
+        # aligned dim is size-1, so the bias is left untouched while B is narrowed.
+        ((256, 512), (512, 1024), (1,), False, False, [0, 5], [256, 17]),
     ],
 )
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 3])
@@ -537,6 +591,7 @@ def test_slice_before_linear_fusing(
     shape_a: Shape,
     shape_b: Shape,
     bias_shape: Shape,
+    transpose_a: bool,
     transpose_b: bool,
     begins: List[int],
     ends: List[int],
@@ -556,7 +611,11 @@ def test_slice_before_linear_fusing(
             unit_attrs: Optional[List[str]] = None,
         ):
             linear_result = builder.linear(
-                input_tensor, weight, bias=bias, transpose_b=transpose_b
+                input_tensor,
+                weight,
+                bias=bias,
+                transpose_a=transpose_a,
+                transpose_b=transpose_b,
             )
             return builder.slice(linear_result, begins, ends)
 
