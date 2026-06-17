@@ -741,7 +741,7 @@ class Builder(metaclass=BuilderMeta):
     def _set_golden_tensor(
         self,
         operand: Operand,
-        goldens: List[Union[GoldenMapTensor, str]],
+        goldens: Union[GoldenMapTensor, str],
     ):
         shard_dims = self._presharded_arg_shard_dims.get(
             operand
