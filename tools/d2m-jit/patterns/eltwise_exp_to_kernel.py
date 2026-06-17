@@ -58,3 +58,59 @@ def lower_exp(op, rewriter):
     out = d2m.empty(L)
     exp_fused(x, out, 1, 1, grid=(1, 1))
     return d2m.from_device(out)
+
+
+# ============================================================================
+# Test Metadata - used by test/d2m-jit/pattern_tests/ test framework
+# ============================================================================
+
+import torch
+
+PATTERN_TEST_METADATA = {
+    "pattern_name": "eltwise_exp",
+    "description": "Single-eltwise pattern: ttir.exp -> d2m subgraph",
+    # LIT test configuration
+    "lit_tests": [
+        {
+            "name": "exp_pattern_positive",
+            "module_text": """
+module {
+  func.func @forward(%x: tensor<32x32xf32>) -> tensor<32x32xf32> {
+    %r = "ttir.exp"(%x) : (tensor<32x32xf32>) -> tensor<32x32xf32>
+    return %r : tensor<32x32xf32>
+  }
+}
+""",
+            "file_checks": [
+                "CHECK-LABEL: func.func @forward",
+                "CHECK-NOT:    ttir.exp",
+                "CHECK:        d2m.generic",
+                "CHECK:        return %{{.*}} : tensor<32x32xf32>",
+            ],
+        }
+    ],
+    # On-device E2E test configuration
+    "e2e_tests": [
+        {
+            "name": "test_pattern_exp_kernel_on_device",
+            "description": "The exp_fused kernel matches torch.exp on device",
+            "kernel_fn": exp_fused,
+            "input_generator": lambda: {
+                "x": (torch.rand(32, 32, dtype=torch.float32) - 0.5) * 2.0,
+            },
+            "reference_fn": lambda x: torch.exp(x),
+            "layout_config": {
+                "shape": (32, 32),
+                "dtype": d2m.float32,
+                "block_shape": [1, 1],
+                "grid_shape": [1, 1],
+                "tiled": True,
+            },
+            "kernel_args": {
+                "m_blocks": 1,
+                "n_blocks": 1,
+                "grid": (1, 1),
+            },
+        }
+    ],
+}
