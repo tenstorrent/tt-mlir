@@ -644,7 +644,7 @@ public:
     if (decompositionWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
       patterns.add<
-          GatherSi32Workaround, TTNNAllReduceWorkarounds,
+          GatherSi32Workaround,
           workarounds::decomposition::GatherOpRank1RewritePattern,
           workarounds::decomposition::TTNNAllReduceReshapeWorkarounds,
           workarounds::decomposition::TTNNAllGatherWorkarounds,
@@ -693,6 +693,12 @@ public:
           &getContext());
       patterns.add<workarounds::decomposition::LinearOpRewritePattern>(
           &getContext(), /*benefit=*/2);
+
+      // The all_reduce decomposition workaround can be disabled via a pass
+      // option, e.g. once TTNN provides stable native all_reduce support.
+      if (allReduceWorkaroundEnabled) {
+        patterns.add<TTNNAllReduceWorkarounds>(&getContext());
+      }
 
       // PagedUpdateCacheOpRewritePattern is only needed below opt-level 2.
       // At level >= 2 the greedy sharding optimizer (PagedUpdateCacheRuleBook

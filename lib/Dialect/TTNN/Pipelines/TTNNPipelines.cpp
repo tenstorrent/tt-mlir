@@ -245,6 +245,8 @@ void createTTNNPipelineWorkaroundPass(
       options.layoutWorkaroundsEnabled,
       options.decompositionWorkaroundsEnabled};
 
+  workaroundOptions.allReduceWorkaroundEnabled =
+      options.allReduceWorkaroundEnabled;
   workaroundOptions.optimizationLevel = options.optimizationLevel;
 
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
