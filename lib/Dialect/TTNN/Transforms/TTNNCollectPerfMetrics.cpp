@@ -5,6 +5,8 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -75,6 +77,84 @@ struct AggregatedMetrics {
         (static_cast<double>(systemMemoryOps) / totalShardableOps) * 100.0;
   }
 };
+
+//===----------------------------------------------------------------------===//
+// DRAM-bound top-perf calculation
+//
+// Emits a theoretical performance ceiling under the assumption that every
+// forward pass is bottlenecked by reading weights and KV cache from DRAM.
+// The result lands in the `perf_targets` section of the JSON output.
+//
+// Process
+//   1. Pick the entry point: the unique public forward-device function.
+//      Hard fail if not exactly one, if `ttcore.system_desc` is missing,
+//      or if the arch (currently Quasar) has no calibrated bandwidth.
+//   2. Walk *only the forward function's argument list* (no op-graph
+//      walk). Each tensor arg is bucketed via existing ttcore attributes:
+//        - `ttcore.kv_cache` present       → KV cache bytes
+//        - `ttcore.argument_type != Input` → parameter bytes
+//                                            (Parameter / Constant / Default)
+//        - Input args                      → ignored (activations).
+//   3. Normalize both totals to BFP8-equivalent storage
+//      (1056 B / 32x32 tile = 1.03125 B / scalar), independent of how the
+//      IR has encoded the arg dtype.
+//   4. `dram_time_ms = total_bytes / dram_peak_bandwidth`,
+//      `top_perf_time_ms = dram_time_ms`,
+//      `top_perf_samples_per_sec = 1000 / top_perf_time_ms`.
+//
+// Assumptions
+//   - DRAM-bound regime. Compute (FLOPs vs TFLOPS), L1/SRAM, dispatch,
+//     kernel-launch overhead, host transfers, and inter-chip traffic are
+//     all ignored.
+//   - All weights assumed to be BFP8.
+//   - Relies on the front end labelling Parameter / Constant / kv_cache on
+//     args correctly.
+//   - Peak per-arch DRAM bandwidth, hardcoded:
+//       Wormhole B0 = 288 GB/s (12-channel GDDR6 aggregate),
+//       Blackhole  = 512 GB/s (placeholder until measured),
+//       Quasar     = uncalibrated (hard fail).
+//     Not pulled from `ChipDescAttr`; not derated for attainable / memory
+//     controller efficiency / access pattern; Galaxy effective bandwidth
+//     differs.
+//   - Single-chip only. Multi-chip system_desc is a soft skip (multi-chip
+//     / tensor-parallel accounting is not yet implemented).
+//   - Strict roofline, alpha = 1.0. `top_perf_time_ms = dram_time_ms`
+//     directly — no safety factor, no min(dram, compute) blend. The
+//     emitted number is a pure theoretical ceiling for consumers to
+//     compare measurements against.
+//   - One sample == one invocation. `samples_per_sec` assumes a single
+//     forward call yields a single sample (one token for decode, one
+//     image for vision); consumers must interpret accordingly.
+//===----------------------------------------------------------------------===//
+struct PerfTargets {
+  ttcore::Arch arch = ttcore::Arch::WormholeB0;
+  unsigned numChips = 0;
+  uint64_t dramBandwidthBytesPerSec = 0;
+
+  uint64_t paramCount = 0;
+  uint64_t paramMemoryBytes = 0;
+  uint64_t paramMemoryBytesBfp8 = 0;
+
+  uint64_t kvCacheCount = 0;
+  uint64_t kvCacheMemoryBytes = 0;
+  uint64_t kvCacheMemoryBytesBfp8 = 0;
+
+  double dramRooflineTimeMs = 0.0;
+  double topPerfTimeMs = 0.0;
+  double topPerfSamplesPerSec = 0.0;
+};
+
+// Bytes per scalar element. Caller must ensure elementType is a plain
+// scalar (non-TileType); TTNN forward args reach this pass with scalar
+// element type and TTNNLayoutAttr encoding carrying the tile/dtype layout.
+inline uint64_t getBytesPerScalarElement(mlir::Type elementType) {
+  return elementType.getIntOrFloatBitWidth() / 8;
+}
+
+inline uint64_t getTensorMemoryBytes(mlir::RankedTensorType tt) {
+  return static_cast<uint64_t>(tt.getNumElements()) *
+         getBytesPerScalarElement(tt.getElementType());
+}
 
 class TTNNCollectPerfMetrics
     : public impl::TTNNCollectPerfMetricsBase<TTNNCollectPerfMetrics> {
@@ -176,6 +256,152 @@ private:
     jsonOutput["operation_type_breakdown"] = std::move(operationTypeBreakdown);
   }
 
+  // Per-arch DRAM bandwidth lookup. Not exposed on ChipDescAttr today, so
+  // hardcoded. Wormhole B0 n150: 12 channels of GDDR6 ≈ 288 GB/s aggregate.
+  // Blackhole: 512 GB/s placeholder, refine when we evaluate on hardware.
+  // On galaxy systems the effective DRAM bandwidth is different. Single chip
+  // calculation only for now.
+  LogicalResult populateHardwareLimits(PerfTargets &t,
+                                       ttcore::ChipDescAttr chipDesc,
+                                       ModuleOp module) {
+    t.arch = chipDesc.getArch().getValue();
+    switch (t.arch) {
+    case ttcore::Arch::WormholeB0:
+      t.dramBandwidthBytesPerSec = 288ULL * 1000ULL * 1000ULL * 1000ULL;
+      return success();
+    case ttcore::Arch::Blackhole:
+      t.dramBandwidthBytesPerSec = 512ULL * 1000ULL * 1000ULL * 1000ULL;
+      return success();
+    case ttcore::Arch::Quasar:
+      return module.emitError()
+             << "TTNNCollectPerfMetrics: perf target estimate not calibrated "
+                "for arch 'quasar'.";
+    }
+    llvm_unreachable("unknown ttcore::Arch value");
+  }
+
+  // Walk forward-function arguments only — no op-graph traversal. Classify
+  // each arg via the existing ttcore.argument_type and ttcore.kv_cache attrs.
+  void collectArgumentStats(PerfTargets &t, func::FuncOp funcOp) {
+    for (BlockArgument arg : funcOp.getArguments()) {
+      auto tensorType = mlir::dyn_cast<RankedTensorType>(arg.getType());
+      if (!tensorType) {
+        continue;
+      }
+      // TTNN forward args carry a scalar element type with TTNNLayoutAttr
+      // encoding. A TileType element would mean the outer shape is in
+      // tile counts, breaking the scalarVol/byte math below.
+      assert(!mlir::isa<ttcore::TileType>(tensorType.getElementType()) &&
+             "TTNNCollectPerfMetrics: unexpected TileType element on "
+             "forward arg; expected scalar element + TTNNLayoutAttr "
+             "encoding.");
+      uint64_t scalarVol = static_cast<uint64_t>(tensorType.getNumElements());
+      uint64_t bytes = getTensorMemoryBytes(tensorType);
+      unsigned idx = arg.getArgNumber();
+
+      if (ttcore::isKVCacheArgument(funcOp, idx)) {
+        t.kvCacheCount += scalarVol;
+        t.kvCacheMemoryBytes += bytes;
+        continue;
+      }
+
+      // Parameter / Constant / Default — everything that isn't a runtime
+      // input contributes to the DRAM-bound weight stream.
+      if (ttcore::getFunctionArgumentType(funcOp, idx) !=
+          ttcore::ArgumentType::Input) {
+        t.paramCount += scalarVol;
+        t.paramMemoryBytes += bytes;
+      }
+    }
+  }
+
+  FailureOr<PerfTargets> computePerfTargets(ModuleOp module,
+                                            func::FuncOp forwardFunc) {
+    PerfTargets perfTargets;
+    auto systemDescAttr = module->getAttrOfType<ttcore::SystemDescAttr>(
+        ttcore::SystemDescAttr::name);
+    assert(systemDescAttr &&
+           "system_desc presence must be checked by the caller");
+    auto chipDescs = systemDescAttr.getChipDescs();
+    // Single-chip only. On anything other than exactly one chip we leave
+    // the rest of `perfTargets` unpopulated and return; the caller's
+    // `numChips == 1` gate suppresses emission. Multi-chip rooflines need
+    // tensor-parallel-aware accounting we don't have yet, and silently
+    // estimating against chip 0 would give a misleading number.
+    perfTargets.numChips = chipDescs.size();
+    if (perfTargets.numChips != 1) {
+      llvm::errs() << "TTNNCollectPerfMetrics: perf target estimate requires "
+                      "a single-chip system desc; got "
+                   << chipDescs.size() << " chips. Skipping.\n";
+      return perfTargets;
+    }
+    if (failed(populateHardwareLimits(perfTargets, chipDescs[0], module))) {
+      return failure();
+    }
+    collectArgumentStats(perfTargets, forwardFunc);
+
+    // Normalize weight / KV bytes to BFP8 storage independent of the
+    // encoded dtype in the IR. The tt-mlir TTNN runtime pipeline pushes
+    // weights through BFP8 by default; the few tensors that stay BF16
+    // (norms, RoPE inv_freq) are small enough that rounding them down
+    // doesn't move the DRAM math materially. This keeps the ceiling stable
+    // across front-end dtype annotations.
+    // BFP8 tile: 1056 B per 32x32 tile = 1056/1024 ≈ 1.03125 B / scalar.
+    constexpr double kBfp8BytesPerElement = 1056.0 / 1024.0;
+    auto bytesAtBfp8 = [](uint64_t count) {
+      return static_cast<uint64_t>(
+          static_cast<double>(count) * kBfp8BytesPerElement + 0.5);
+    };
+    perfTargets.paramMemoryBytesBfp8 = bytesAtBfp8(perfTargets.paramCount);
+    perfTargets.kvCacheMemoryBytesBfp8 = bytesAtBfp8(perfTargets.kvCacheCount);
+
+    uint64_t totalDramBytes =
+        perfTargets.paramMemoryBytesBfp8 + perfTargets.kvCacheMemoryBytesBfp8;
+    assert(perfTargets.dramBandwidthBytesPerSec > 0 &&
+           "TTNNCollectPerfMetrics: DRAM bandwidth must be populated before "
+           "computing the roofline.");
+    double dramTimeSec =
+        static_cast<double>(totalDramBytes) /
+        static_cast<double>(perfTargets.dramBandwidthBytesPerSec);
+    perfTargets.dramRooflineTimeMs = dramTimeSec * 1000.0;
+    // Strict roofline: top_perf_time_ms = dram_time_ms (alpha = 1.0). The
+    // emitted number is a theoretical ceiling consumers can compare against.
+    perfTargets.topPerfTimeMs = perfTargets.dramRooflineTimeMs;
+    perfTargets.topPerfSamplesPerSec = perfTargets.topPerfTimeMs > 0.0
+                                           ? 1000.0 / perfTargets.topPerfTimeMs
+                                           : 0.0;
+    return perfTargets;
+  }
+
+  void addPerfTargetsToJson(llvm::json::Object &jsonOutput,
+                            const PerfTargets &t) {
+    llvm::json::Object pt;
+    pt["arch"] = ttcore::stringifyArch(t.arch).str();
+    pt["num_chips"] = static_cast<int64_t>(t.numChips);
+    pt["dram_bandwidth_bytes_per_sec"] =
+        static_cast<int64_t>(t.dramBandwidthBytesPerSec);
+
+    llvm::json::Object params;
+    params["count"] = static_cast<int64_t>(t.paramCount);
+    params["memory_bytes"] = static_cast<int64_t>(t.paramMemoryBytes);
+    params["memory_bytes_bfp8"] = static_cast<int64_t>(t.paramMemoryBytesBfp8);
+    pt["params"] = std::move(params);
+
+    llvm::json::Object kv;
+    kv["count"] = static_cast<int64_t>(t.kvCacheCount);
+    kv["memory_bytes"] = static_cast<int64_t>(t.kvCacheMemoryBytes);
+    kv["memory_bytes_bfp8"] = static_cast<int64_t>(t.kvCacheMemoryBytesBfp8);
+    pt["kv_cache"] = std::move(kv);
+
+    llvm::json::Object rl;
+    rl["dram_time_ms"] = t.dramRooflineTimeMs;
+    rl["top_perf_time_ms"] = t.topPerfTimeMs;
+    rl["top_perf_samples_per_sec"] = t.topPerfSamplesPerSec;
+    pt["roofline"] = std::move(rl);
+
+    jsonOutput["perf_targets"] = std::move(pt);
+  }
+
   std::string generateAutoFilename(ModuleOp module) {
     std::string baseName = "UnnamedModule";
 
@@ -250,6 +476,45 @@ public:
     AggregatedMetrics aggregatedMetrics;
     llvm::DenseSet<Value> spilledValues;
     llvm::StringMap<int> operationTypeCounts;
+    PerfTargets perfTargets;
+
+    // Identify the outer forward function for perf-target collection. All
+    // inputs / wegiht tensors should be visible from the argument list of this
+    // function. Nothing else is needed for the DRAM bound roofline calculation.
+    {
+      llvm::SmallVector<func::FuncOp> outerFuncs;
+      module->walk([&](func::FuncOp funcOp) {
+        if (ttmlir::utils::isForwardDeviceFunc(funcOp) && !funcOp.isPrivate()) {
+          outerFuncs.push_back(funcOp);
+        }
+      });
+
+      if (outerFuncs.size() != 1) {
+        module.emitError() << "TTNNCollectPerfMetrics: expected exactly one "
+                              "outer forward-device function for perf target "
+                              "estimate; got "
+                           << outerFuncs.size() << ".";
+        signalPassFailure();
+        return;
+      }
+
+      if (!module->getAttrOfType<ttcore::SystemDescAttr>(
+              ttcore::SystemDescAttr::name)) {
+        module.emitError() << "TTNNCollectPerfMetrics: no ttcore.system_desc "
+                              "on the module; cannot compute perf target "
+                              "estimate.";
+        signalPassFailure();
+        return;
+      }
+
+      FailureOr<PerfTargets> computed =
+          computePerfTargets(module, outerFuncs.front());
+      if (failed(computed)) {
+        signalPassFailure();
+        return;
+      }
+      perfTargets = std::move(*computed);
+    }
 
     module->walk([&](func::FuncOp funcOp) {
       if (ttnnEnableTrace) {
@@ -331,6 +596,13 @@ public:
 
     llvm::json::Object jsonOutput;
     addSummaryToJson(jsonOutput, aggregatedMetrics);
+
+    // Only emit perf_targets when computePerfTargets fully populated the
+    // struct; a soft-skip (e.g. multi-chip) leaves numChips at 0 and the
+    // numbers would all be zero.
+    if (perfTargets.numChips == 1) {
+      addPerfTargetsToJson(jsonOutput, perfTargets);
+    }
 
     if (ttnnPerfMetricsVerboseOutputEnabled) {
       addVerboseOutputToJson(jsonOutput, operationDetails, operationTypeCounts);
