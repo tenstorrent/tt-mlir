@@ -1644,6 +1644,14 @@ public:
 
     bool sliceRows = (narrowedDim == sliceRowDim);
     int64_t narrowedOutDim = sliceRows ? matmulRowDim : matmulColDim;
+    // Reject empty slices (begin == end): legal TTIR (the slice verifier
+    // explicitly allows them) but they would produce a 0-sized slice + matmul,
+    // which is not a beneficial fusion and is unlikely to be supported
+    // downstream. Inverted slices (begin > end) can't reach here: step is 1 and
+    // the slice verifier rejects begin > end for positive step.
+    if (sliceTo == sliceFrom) {
+      return rewriter.notifyMatchFailure(slice, "empty slice");
+    }
     if (sliceTo - sliceFrom >= matmulShape[narrowedOutDim]) {
       return rewriter.notifyMatchFailure(slice, "slice does not narrow");
     }
