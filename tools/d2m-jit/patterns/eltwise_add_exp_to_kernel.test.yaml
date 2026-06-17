@@ -1,0 +1,93 @@
+# Pattern test configuration for eltwise_add_exp
+# This configuration defines tests for the fused add→exp pattern
+
+pattern_name: eltwise_add_exp
+pattern_module: eltwise_add_exp_to_kernel
+description: |
+  Fused eltwise DAG pattern that matches ttir.add → ttir.exp chains and
+  lowers them to a single d2m kernel computing (a + b).exp() in one pass.
+
+  Uses a match predicate to ensure the exp's input comes from an add operation.
+  Has higher benefit (20) than single-op patterns to ensure fusion wins.
+
+tags:
+  - eltwise
+  - fusion
+  - dag-pattern
+  - add
+  - exp
+
+# LIT tests verify that IR rewriting works correctly
+lit_tests:
+  - name: add_exp_pattern_positive
+    description: Pattern matches add→exp chain and fuses into single kernel
+    module_text: |
+      module {
+        func.func @positive(%a: tensor<32x32xf32>, %b: tensor<32x32xf32>)
+            -> tensor<32x32xf32> {
+          %sum = "ttir.add"(%a, %b) :
+              (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+          %r = "ttir.exp"(%sum) : (tensor<32x32xf32>) -> tensor<32x32xf32>
+          return %r : tensor<32x32xf32>
+        }
+      }
+    file_checks:
+      - "CHECK-LABEL:  func.func @positive"
+      - "CHECK-NOT:    ttir.exp"
+      - "CHECK:        d2m.generic"
+      - "CHECK:        d2m.tile_add"
+      - "CHECK:        d2m.tile_exp"
+      - "CHECK:        return %{{.*}} : tensor<32x32xf32>"
+
+  - name: add_exp_pattern_negative
+    description: Pattern does NOT match exp without upstream add (match predicate fails)
+    module_text: |
+      module {
+        func.func @negative(%x: tensor<32x32xf32>) -> tensor<32x32xf32> {
+          %r = "ttir.exp"(%x) : (tensor<32x32xf32>) -> tensor<32x32xf32>
+          return %r : tensor<32x32xf32>
+        }
+      }
+    file_checks:
+      - "CHECK-LABEL:  func.func @negative"
+      - "CHECK:        ttir.exp"
+      - "CHECK-NOT:    d2m.generic"
+
+# E2E tests verify kernel correctness on device
+e2e_tests:
+  - name: test_pattern_add_exp_kernel_on_device
+    description: The add_exp_fused kernel matches torch.exp(a + b) on device
+    kernel: add_exp_fused
+
+    inputs:
+      - name: a
+        shape: [32, 32]
+        generator: uniform
+        dtype: float32
+        range_min: -1.0
+        range_max: 1.0
+
+      - name: b
+        shape: [32, 32]
+        generator: uniform
+        dtype: float32
+        range_min: -1.0
+        range_max: 1.0
+
+    reference: "torch.exp(a + b)"
+
+    layout:
+      shape: [32, 32]
+      dtype: float32
+      block_shape: [1, 1]
+      grid_shape: [1, 1]
+      tiled: true
+      memory_space: L1
+
+    kernel_args:
+      m_blocks: 1
+      n_blocks: 1
+      grid: [1, 1]
+
+    pcc_threshold: 0.99
+    seed: 0

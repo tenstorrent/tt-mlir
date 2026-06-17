@@ -4,14 +4,20 @@
 
 """Pattern test discovery and metadata loading utilities.
 
-Scans tools/d2m-jit/patterns/ for pattern files with PATTERN_TEST_METADATA
-and provides utilities to load and access test configurations.
+Scans tools/d2m-jit/patterns/ for:
+1. Pattern files with PATTERN_TEST_METADATA (legacy dict-based)
+2. External .test.yaml configuration files (new YAML-based)
+
+Provides unified interface for accessing test configurations from both sources.
 """
 
 import importlib
 import importlib.util
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
+
+from .yaml_loader import discover_yaml_configs, load_yaml_config
+from .config_schema import PatternTestConfig
 
 
 def get_patterns_dir() -> Path:
@@ -72,16 +78,36 @@ def load_pattern_metadata(pattern_file: Path) -> Optional[Dict[str, Any]]:
     return metadata
 
 
-def discover_all_pattern_tests() -> List[Dict[str, Any]]:
-    """Discover all pattern test metadata.
+def discover_all_pattern_tests() -> List[Union[Dict[str, Any], PatternTestConfig]]:
+    """Discover all pattern test metadata from both sources.
+
+    Discovers tests from:
+    1. YAML config files (*.test.yaml) - preferred method
+    2. Legacy PATTERN_TEST_METADATA dicts in pattern files
 
     Returns:
-        List of metadata dictionaries, one per pattern file with test metadata
+        List of test configurations (mix of PatternTestConfig and legacy dicts)
     """
-    pattern_files = discover_pattern_modules()
+    patterns_dir = get_patterns_dir()
     all_metadata = []
 
+    # First, discover YAML configs
+    yaml_configs = discover_yaml_configs(patterns_dir)
+    all_metadata.extend(yaml_configs)
+
+    # Track which patterns have YAML configs to avoid duplicates
+    yaml_pattern_names = {config.pattern_name for config in yaml_configs}
+
+    # Then, discover legacy dict-based configs (only if no YAML exists)
+    pattern_files = discover_pattern_modules()
     for pattern_file in pattern_files:
+        # Check if this pattern has a YAML config
+        yaml_file = pattern_file.with_suffix(".test.yaml")
+        if yaml_file.exists():
+            # Skip legacy dict - YAML takes precedence
+            continue
+
+        # Load legacy dict-based metadata
         metadata = load_pattern_metadata(pattern_file)
         if metadata:
             all_metadata.append(metadata)
@@ -98,6 +124,68 @@ def get_pattern_metadata_by_name(pattern_name: str) -> Optional[Dict[str, Any]]:
     Returns:
         The metadata dict if found, None otherwise
     """
+    all_metadata = discover_all_pattern_tests()
+    for metadata in all_metadata:
+        if isinstance(metadata, PatternTestConfig):
+            if metadata.pattern_name == pattern_name:
+                return metadata
+        elif metadata.get("pattern_name") == pattern_name:
+            return metadata
+    return None
+
+
+def is_yaml_config(metadata: Union[Dict[str, Any], PatternTestConfig]) -> bool:
+    """Check if metadata is from a YAML config file.
+
+    Args:
+        metadata: Either a PatternTestConfig or legacy dict
+
+    Returns:
+        True if from YAML, False if legacy dict
+    """
+    return isinstance(metadata, PatternTestConfig)
+
+
+def get_pattern_name(metadata: Union[Dict[str, Any], PatternTestConfig]) -> str:
+    """Get pattern name from either config type.
+
+    Args:
+        metadata: Either a PatternTestConfig or legacy dict
+
+    Returns:
+        Pattern name string
+    """
+    if isinstance(metadata, PatternTestConfig):
+        return metadata.pattern_name
+    return metadata.get("pattern_name", "unknown")
+
+
+def get_lit_tests(metadata: Union[Dict[str, Any], PatternTestConfig]) -> List[Any]:
+    """Get LIT tests from either config type.
+
+    Args:
+        metadata: Either a PatternTestConfig or legacy dict
+
+    Returns:
+        List of LIT test configurations
+    """
+    if isinstance(metadata, PatternTestConfig):
+        return metadata.lit_tests
+    return metadata.get("lit_tests", [])
+
+
+def get_e2e_tests(metadata: Union[Dict[str, Any], PatternTestConfig]) -> List[Any]:
+    """Get E2E tests from either config type.
+
+    Args:
+        metadata: Either a PatternTestConfig or legacy dict
+
+    Returns:
+        List of E2E test configurations
+    """
+    if isinstance(metadata, PatternTestConfig):
+        return metadata.e2e_tests
+    return metadata.get("e2e_tests", [])
     all_metadata = discover_all_pattern_tests()
     for metadata in all_metadata:
         if metadata.get("pattern_name") == pattern_name:

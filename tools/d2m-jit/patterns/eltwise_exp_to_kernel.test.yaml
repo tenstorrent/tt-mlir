@@ -1,0 +1,62 @@
+# Pattern test configuration for eltwise_exp
+# This configuration defines tests for the single-op exp pattern
+
+pattern_name: eltwise_exp
+pattern_module: eltwise_exp_to_kernel
+description: |
+  Single-eltwise pattern that matches ttir.exp and lowers it to a d2m kernel.
+  Uses tiled L1 layout with a single tile (1x1 grid, 1x1 block).
+
+tags:
+  - eltwise
+  - single-op
+  - exp
+
+# LIT tests verify that IR rewriting works correctly
+lit_tests:
+  - name: exp_pattern_positive
+    description: Pattern matches ttir.exp and replaces with d2m.generic
+    module_text: |
+      module {
+        func.func @forward(%x: tensor<32x32xf32>) -> tensor<32x32xf32> {
+          %r = "ttir.exp"(%x) : (tensor<32x32xf32>) -> tensor<32x32xf32>
+          return %r : tensor<32x32xf32>
+        }
+      }
+    file_checks:
+      - "CHECK-LABEL: func.func @forward"
+      - "CHECK-NOT:    ttir.exp"
+      - "CHECK:        d2m.generic"
+      - "CHECK:        return %{{.*}} : tensor<32x32xf32>"
+
+# E2E tests verify kernel correctness on device
+e2e_tests:
+  - name: test_pattern_exp_kernel_on_device
+    description: The exp_fused kernel matches torch.exp on device
+    kernel: exp_fused
+
+    inputs:
+      - name: x
+        shape: [32, 32]
+        generator: uniform
+        dtype: float32
+        range_min: -1.0
+        range_max: 1.0
+
+    reference: "torch.exp(x)"
+
+    layout:
+      shape: [32, 32]
+      dtype: float32
+      block_shape: [1, 1]
+      grid_shape: [1, 1]
+      tiled: true
+      memory_space: L1
+
+    kernel_args:
+      m_blocks: 1
+      n_blocks: 1
+      grid: [1, 1]
+
+    pcc_threshold: 0.99
+    seed: 0
