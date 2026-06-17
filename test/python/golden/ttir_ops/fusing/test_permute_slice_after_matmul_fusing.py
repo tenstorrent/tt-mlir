@@ -4,10 +4,9 @@
 
 import pytest
 import torch
-import os
 from typing import List, Optional
 
-from builder.base.builder_utils import Operand, Shape, get_artifact_dir
+from builder.base.builder_utils import Operand, Shape
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
 from conftest import get_request_kwargs
@@ -149,18 +148,12 @@ def test_permute_slice_after_matmul_fusing(
     # graph on device with check_pcc=True (default pcc=0.99) and compares the
     # result against the torch golden the builder accumulates. If the fusion
     # changed the numerics, PCC drops below threshold and this call raises.
-    compile_and_execute_ttir(
+    output_path = compile_and_execute_ttir(
         module,
         **get_request_kwargs(request),
         device=device,
         save_artifacts=True,
         check_pcc=True,
-    )
-    output_path = os.path.join(
-        get_artifact_dir(
-            request.config.getoption("--path"), "TTIRBuilder", request.node.name
-        ),
-        "ttnn_compiled.mlir",
     )
     # The fusion fired: a slice now feeds the matmul instead of consuming it.
     assert check_op(output_path, "matmul") and slice_precedes_matmul(output_path)
@@ -265,18 +258,12 @@ def test_permute_slice_after_linear_fusing(
 
     # Numerical correctness: the on-device golden PCC comparison (check_pcc,
     # default 0.99) catches any mismatch from slicing the operand/bias.
-    compile_and_execute_ttir(
+    output_path = compile_and_execute_ttir(
         module,
         **get_request_kwargs(request),
         device=device,
         save_artifacts=True,
         check_pcc=True,
-    )
-    output_path = os.path.join(
-        get_artifact_dir(
-            request.config.getoption("--path"), "TTIRBuilder", request.node.name
-        ),
-        "ttnn_compiled.mlir",
     )
     # The fusion fired: a slice now feeds the narrowed op instead of consuming
     # it. A 2D linear stays ttnn.linear; a batched linear lowers to ttnn.matmul
@@ -315,18 +302,12 @@ def test_permute_slice_after_matmul_cascade_fusing(
             return builder.slice(m3, [255, 0], [256, 128])
 
     # PCC (default 0.99) verifies the cascade preserved numerics end to end.
-    compile_and_execute_ttir(
+    output_path = compile_and_execute_ttir(
         module,
         **get_request_kwargs(request),
         device=device,
         save_artifacts=True,
         check_pcc=True,
-    )
-    output_path = os.path.join(
-        get_artifact_dir(
-            request.config.getoption("--path"), "TTIRBuilder", request.node.name
-        ),
-        "ttnn_compiled.mlir",
     )
     # The cascade fired: a slice now feeds the (first) matmul instead of a slice
     # consuming the (last) matmul's output.
@@ -363,18 +344,12 @@ def test_shared_lhs_fusion_not_undone(
                 builder.matmul(a, b2),
             )
 
-    compile_and_execute_ttir(
+    output_path = compile_and_execute_ttir(
         module,
         **get_request_kwargs(request),
         device=device,
         save_artifacts=True,
         check_pcc=True,
-    )
-    output_path = os.path.join(
-        get_artifact_dir(
-            request.config.getoption("--path"), "TTIRBuilder", request.node.name
-        ),
-        "ttnn_compiled.mlir",
     )
     # SharedLHSMatmulFusion fired and was preserved: the weights are concatenated
     # and fed to a single matmul (not pulled back apart by PermuteSliceAfterMatmul).
@@ -411,18 +386,12 @@ def test_shared_lhs_fusion_with_final_slice(
             final = builder.matmul(o2, d)
             return (o0, o1, builder.slice(final, [31, 0], [32, 256]))
 
-    compile_and_execute_ttir(
+    output_path = compile_and_execute_ttir(
         module,
         **get_request_kwargs(request),
         device=device,
         save_artifacts=True,
         check_pcc=True,
-    )
-    output_path = os.path.join(
-        get_artifact_dir(
-            request.config.getoption("--path"), "TTIRBuilder", request.node.name
-        ),
-        "ttnn_compiled.mlir",
     )
     # The shared-LHS concatenation survives and a matmul remains for the
     # (now narrowed) final projection.
@@ -460,18 +429,12 @@ def test_shared_lhs_vs_permute_slice_after_matmul_collision(
             o2 = builder.matmul(a, b2)
             return (o0, o1, builder.slice(o2, [31, 0], [32, 384]))
 
-    compile_and_execute_ttir(
+    output_path = compile_and_execute_ttir(
         module,
         **get_request_kwargs(request),
         device=device,
         save_artifacts=True,
         check_pcc=True,
-    )
-    output_path = os.path.join(
-        get_artifact_dir(
-            request.config.getoption("--path"), "TTIRBuilder", request.node.name
-        ),
-        "ttnn_compiled.mlir",
     )
     # SharedLHS won: the weights are concatenated into a single fused matmul, and
     # the slices land on its output (so a slice does NOT precede the matmul, as
