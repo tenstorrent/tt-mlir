@@ -44,6 +44,81 @@ from .errors import D2mJitError
 from .tensor_layout import Layout
 from .utils import _cleanup_source_code
 
+# Physical worker-grid shape (Wormhole). Logical grids larger than this in any
+# dimension are folded onto it via a virtual grid (virt_to_physical_map).
+_PHYSICAL_GRID = (8, 8)
+
+
+def _legal_physical_rect(volume, phys=_PHYSICAL_GRID):
+    """Smallest-rows physical rect [r, c] (r<=phys[0], c<=phys[1]) with r*c==volume."""
+    for r in range(min(volume, phys[0]), 0, -1):
+        if volume % r == 0 and volume // r <= phys[1]:
+            return (r, volume // r)
+    return None
+
+
+def _virtual_grid_maps(ctx, grid, phys=_PHYSICAL_GRID):
+    """If `grid` exceeds the physical worker grid, return (grid_vtp, vgm_fwd,
+    vgm_inv) for folding it onto a legal physical rect; else (None, None, None).
+
+      - grid_vtp: the generic GridAttr's virt_to_physical_map. Must be 2D
+        (num_dims == grid rank): (d0,d1) -> (device, y, x). Hand-built.
+      - vgm_fwd / vgm_inv: grids::createCoreVirtMaps forward/inverse — the output
+        operand's VGM. vgm_inv (physical->virtual) also becomes the grid's
+        physical_to_virt_map; the verifier requires those two to be identical."""
+    grid = [int(g) for g in grid]
+    if len(grid) == 2 and grid[0] <= phys[0] and grid[1] <= phys[1]:
+        return None, None, None
+    if len(grid) != 2:
+        raise D2mJitError(f"virtual grid only supported for 2D grids, got {grid}")
+    volume = grid[0] * grid[1]
+    target = _legal_physical_rect(volume, phys)
+    if target is None:
+        raise D2mJitError(
+            f"grid {grid} (volume {volume}) does not fit physical {list(phys)}"
+        )
+    vgm_fwd, vgm_inv = d2m.ir.create_core_virt_maps(grid, list(target), ctx)
+    g1 = grid[1]
+    px = target[1]
+    with ctx:
+        d0 = AffineDimExpr.get(0)
+        d1 = AffineDimExpr.get(1)
+        cst = lambda v: AffineConstantExpr.get(v)
+        lin = d0 * g1 + d1  # logical grid coords -> linear core id
+        grid_vtp = AffineMap.get(
+            2,
+            0,
+            [cst(0), AffineExpr.get_floor_div(lin, cst(px)), AffineExpr.get_mod(lin, cst(px))],
+        )
+    return grid_vtp, vgm_fwd, vgm_inv
+
+
+def _grid_attr_maybe_virtual(ctx, grid, phys=_PHYSICAL_GRID):
+    """GridAttr for `grid`, virtual (with folding maps) if it exceeds the physical
+    worker grid. Returns (grid_attr, vgm_forward_or_None, vgm_inverse_or_None) so
+    the caller can stamp the matching VGM on the output operand."""
+    grid = [int(g) for g in grid]
+    grid_vtp, vgm_fwd, vgm_inv = _virtual_grid_maps(ctx, grid, phys)
+    if grid_vtp is None:
+        return ttcore.ir.GridAttr.get(ctx, grid), None, None
+    # grid physical_to_virt == output VGM inverse (verifier requires equality).
+    return ttcore.ir.GridAttr.get(ctx, grid, grid_vtp, vgm_inv), vgm_fwd, vgm_inv
+
+
+def _set_vgm(emptyish, fwd, inv):
+    """Attach virtual-grid-mapping attrs to an EmptyOp (Value or OpView) so a
+    virtual-grid generic's output operand carries the matching VGM."""
+    if fwd is None:
+        return
+    op = (
+        emptyish.operation
+        if hasattr(emptyish, "operation")
+        else emptyish.owner
+    )
+    op.attributes["virtualGridForwardMapping"] = AffineMapAttr.get(fwd)
+    op.attributes["virtualGridInverseMapping"] = AffineMapAttr.get(inv)
+
+
 # Reverse of ttcore.DataType for picking output torch dtypes.
 _TTCORE_TO_TORCH = None  # lazy-init since torch may be missing
 
@@ -126,27 +201,34 @@ def _get_system_desc_path():
 # and the walk would silently fail to find it → wrong unpack mode → byte
 # scramble on f32→bf16 typecast. The pre-emitc / dispatch / hoist-inits /
 # emitc-tail split below mirrors what createTTIRToTTMetalPipeline does.
-_PIPELINE = ",".join(
-    [
-        "canonicalize",
-        "d2m-lower-to-layout",
-        "canonicalize",
-        "ttir-bufferization-pipeline",
-        "d2m-insert-scratch-buffers",
-        "d2m-generic-apply-interchange",
-        "d2m-generate-outer-loops",
-        "d2m-mark-synchronized-buffers",
-        "d2m-allocate",
-        "d2m-lower-multicast-loads",
-        "d2m-generic-lower-to-explicit-form",
-        "canonicalize",
-        "d2m-be-pipeline{use-tile-matmul=0}",
-        "d2m-to-ttkernel-pre-emitc-pipeline",
-        "d2m-to-ttmetal-pipeline",
-        "ttkernel-hoist-inits",
-        "d2m-emitc-pipeline",
-    ]
-)
+_pipeline_passes = [
+    "canonicalize",
+    "d2m-lower-to-layout",
+    "canonicalize",
+    "ttir-bufferization-pipeline",
+    "d2m-insert-scratch-buffers",
+    "d2m-generic-apply-interchange",
+    "d2m-generate-outer-loops",
+    "d2m-mark-synchronized-buffers",
+    "d2m-allocate",
+    "d2m-lower-multicast-loads",
+    "d2m-generic-lower-to-explicit-form",
+    "canonicalize",
+    "d2m-be-pipeline{use-tile-matmul=0}",
+    "d2m-to-ttkernel-pre-emitc-pipeline",
+    "d2m-to-ttmetal-pipeline",
+    "ttkernel-hoist-inits",
+    "ttkernel-dedup-inits",
+]
+# Optional per-op DeviceZoneScopedN instrumentation: set D2M_JIT_PROFILE_TRAITS to a
+# comma list of TTKernel traits (fpu, sfpu, init, unary, binary, ternary, device-zone,
+# trid-noc, layout, all). Mirrors createD2MToTTKernelPipeline's profiler-traces hook
+# (insert-device-zone-scopes after ttkernel-hoist-inits, before the emitc tail).
+_profile_traits = os.environ.get("D2M_JIT_PROFILE_TRAITS", "").strip()
+if _profile_traits:
+    _pipeline_passes.append("insert-device-zone-scopes{traits=" + _profile_traits + "}")
+_pipeline_passes.append("d2m-emitc-pipeline")
+_PIPELINE = ",".join(_pipeline_passes)
 
 
 # --- Scope abstraction ------------------------------------------------------
@@ -224,6 +306,10 @@ class _Builder:
         self.ctx = Context()
         self.loc = Location.unknown(self.ctx)
         self.module = Module.create(self.loc)
+        # Set when a generic uses a virtual grid (virt_to_physical map); its
+        # verifier needs a registered device, so the early verify() is deferred
+        # to the pipeline (which runs ttcore-register-device first).
+        self.uses_virtual_grid = False
         with self.ctx, self.loc, InsertionPoint(self.module.body):
             self.func_op = func.FuncOp("main", FunctionType.get([], []))
             self.entry_block = self.func_op.add_entry_block()
@@ -455,6 +541,10 @@ def empty(layout: Layout) -> LazyTensor:
     with b.ctx, b.loc, b.insert_point:
         unblocked_ty = layout.build_device_tensor_type(b.ctx, blocked=False)
         raw = d2m.empty(unblocked_ty)
+        _vtp, _fwd, _inv = _virtual_grid_maps(b.ctx, list(layout.grid_shape))
+        if _fwd is not None:
+            _set_vgm(raw, _fwd, _inv)
+            b.uses_virtual_grid = True
         val = layout.build_blocked_view(b.ctx, raw)
     return LazyTensor(layout, val, b.generation)
 
@@ -516,7 +606,10 @@ def full(layout: Layout, value) -> LazyTensor:
         threads = ArrayAttr.get(
             [d2m.ir.ThreadAttr.get(b.ctx, str(d2m.ThreadType.Unified))]
         )
-        grid_attr = ttcore.ir.GridAttr.get(b.ctx, list(layout.grid_shape))
+        grid_attr, _fwd, _inv = _grid_attr_maybe_virtual(b.ctx, list(layout.grid_shape))
+        if _fwd is not None:
+            _set_vgm(raw, _fwd, _inv)
+            b.uses_virtual_grid = True
 
         generic = d2m.GenericOp(
             [outer_ty],
@@ -1001,7 +1094,10 @@ def to_host(*lts: LazyTensor):
     assert all(lt.generation == b.generation for lt in resolved)
 
     _emit_returns_and_finalise(b, resolved)
-    b.module.operation.verify()
+    if not b.uses_virtual_grid:
+        # virtual-grid generics need a registered device to verify; defer to
+        # the pipeline's post-register-device verifier.
+        b.module.operation.verify()
     _run_pipeline(b)
     outs = _execute(b, resolved)
 
@@ -1164,7 +1260,8 @@ def _emit_kernel_generic(
         threads = ArrayAttr.get(
             [compiler.func_entry.attributes[d2m.ir.ThreadAttr.name]]
         )
-        grid_attr = ttcore.ir.GridAttr.get(b.ctx, list(grid))
+        grid_attr, _fwd, _inv = _grid_attr_maybe_virtual(b.ctx, list(grid))
+        b.uses_virtual_grid = b.uses_virtual_grid or (_fwd is not None)
 
         bf = list(block_factors or [])
         if bf and isinstance(bf[0], tuple):

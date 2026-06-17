@@ -11,6 +11,7 @@
 #include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsTypes.h"
+#include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 
 namespace mlir::ttmlir::python {
 void populateD2MModule(nb::module_ &m) {
@@ -61,6 +62,19 @@ void populateD2MModule(nb::module_ &m) {
                                     MlirContext ctx) {
     return wrap(::ttmlir::utils::calculateReblockMap(inputShape, outputShape,
                                                      unwrap(ctx)));
+  });
+
+  // Forward (virtual->physical) and inverse (physical->virtual) affine maps that
+  // implement a virtual grid as a physical-view pair. Mirrors GridSelection's
+  // use of grids::createCoreVirtMaps so d2m-jit can target a logical grid (e.g.
+  // 64x1) that folds onto the physical worker grid (e.g. 8x8).
+  m.def("create_core_virt_maps", [](std::vector<int64_t> virtualGrid,
+                                    std::vector<int64_t> targetGrid,
+                                    MlirContext ctx) {
+    auto [forwardMap, inverseMap] =
+        ::ttmlir::d2m::utils::grids::createCoreVirtMaps(unwrap(ctx), virtualGrid,
+                                                        targetGrid);
+    return std::make_pair(wrap(forwardMap), wrap(inverseMap));
   });
 }
 } // namespace mlir::ttmlir::python

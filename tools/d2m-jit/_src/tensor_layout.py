@@ -5,6 +5,29 @@
 from ttmlir.ir import *
 from ttmlir.dialects import ttcore, d2m
 
+# Physical worker-grid shape (Wormhole). Logical grids larger than this fold onto
+# it via a virtual grid; the EmptyOp carries the fold maps (VGM) so d2m-allocate
+# places shards on real cores. Mirrors mainline GridSelection.
+_PHYSICAL_GRID = (8, 8)
+
+
+def _stamp_input_vgm(ctx, empty_val, grid_shape):
+    grid = [int(g) for g in grid_shape]
+    if len(grid) != 2 or (grid[0] <= _PHYSICAL_GRID[0] and grid[1] <= _PHYSICAL_GRID[1]):
+        return
+    volume = grid[0] * grid[1]
+    target = None
+    for r in range(min(volume, _PHYSICAL_GRID[0]), 0, -1):
+        if volume % r == 0 and volume // r <= _PHYSICAL_GRID[1]:
+            target = [r, volume // r]
+            break
+    if target is None:
+        return
+    fwd, inv = d2m.ir.create_core_virt_maps(grid, target, ctx)
+    op = empty_val.operation if hasattr(empty_val, "operation") else empty_val.owner
+    op.attributes["virtualGridForwardMapping"] = AffineMapAttr.get(fwd)
+    op.attributes["virtualGridInverseMapping"] = AffineMapAttr.get(inv)
+
 
 # Public dtype constants. Pass to `dtype=` on Layout / tilize / untilize
 # instead of strings ("fp32", "bf16", ...). The strings are still accepted.
@@ -165,6 +188,11 @@ class Layout:
     def build_to_device(self, ctx, val):
         output_type = self.build_device_tensor_type(ctx)
         output = d2m.empty(output_type)
+        # If grid_shape exceeds the physical worker grid (e.g. 64x1 on 8x8), the
+        # host->device buffer is sharded on a virtual grid; stamp the VGM so
+        # d2m-allocate folds its shards onto physical cores (else placement hits
+        # a nonexistent logical core like (0,63)).
+        _stamp_input_vgm(ctx, output, self.grid_shape)
         res = d2m.ToLayoutOp([output_type], val, output).result
         return self.build_blocked_view(ctx, res)
 
