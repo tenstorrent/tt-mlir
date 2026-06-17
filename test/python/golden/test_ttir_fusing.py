@@ -27,6 +27,11 @@ def slice_precedes_matmul(mlir_file: str, mm_ops: tuple = ("matmul", "linear")) 
     # matmul/linear operand, so a slice now feeds the op instead of consuming it.
     # (A linear lowers to ttnn.linear for 2D and to ttnn.matmul + add when
     # batched, so accept either as the consuming op.)
+    #
+    # This is a textual line-order heuristic: it discriminates fusion only
+    # because the graphs under test have no slice upstream of the matmul/linear.
+    # If fusion did not fire, the only slice consumes the op's output and lands
+    # after it. Don't reuse this on a graph whose matmul input is itself sliced.
     first_slice = first_mm = None
     with open(mlir_file, "r") as f:
         for idx, line in enumerate(f):
@@ -468,6 +473,33 @@ def test_matmul_with_bias_fusing(
             None,
             [0, 255, 0],
             [2, 256, 1024],
+        ),
+        # Column (N) slice through a leading-unit-dim reshape -> pushed into B;
+        # the reshape is looked through and re-applied to the narrowed result.
+        (
+            (256, 512),
+            (512, 1024),
+            False,
+            False,
+            [1, 256, 1024],
+            [0, 0, 5],
+            [1, 256, 17],
+        ),
+        # transpose_a=true and transpose_b=true together: A is [K, M], B is
+        # [N, K]. A row slice is pushed into A's trailing (M) dim and both
+        # transpose flags are preserved.
+        ((512, 256), (1024, 512), True, True, None, [255, 0], [256, 1024]),
+        # transpose_a=true row slice *through* a leading-unit-dim reshape: the
+        # reshape's dim offset and the transpose flag are honored together; the
+        # slice is pushed into A's trailing (M) dim.
+        (
+            (512, 256),
+            (512, 1024),
+            True,
+            False,
+            [1, 256, 1024],
+            [0, 255, 0],
+            [1, 256, 1024],
         ),
     ],
 )
