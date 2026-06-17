@@ -2973,10 +2973,7 @@ def test_hoisted_concatenate_heads(
 @pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
 def test_presharded_arg(target, mesh_shape, request, device):
     def module(builder: TTIRBuilder):
-        # (1, 1, 256, 512) is the logical (global) tensor shape.
-        # After pre-sharding, each device will have a local shard of shape (1, 1, 256, 256).
-        # The result is presharded too, so each device keeps its local (1, 1, 256, 256)
-        # shard and no ShardToFull mesh_shard is emitted to gather the output.
+        # Global shape (1, 1, 256, 512); each device holds a (1, 1, 256, 256) shard.
         @builder.func(
             [(1, 1, 256, 512), (1, 1, 256, 512)],
             [torch.float32, torch.float32],
@@ -2984,11 +2981,12 @@ def test_presharded_arg(target, mesh_shape, request, device):
             presharded_results={0: (-1, 3)},
         )
         def model(in0: Operand, in1: Operand, builder: TTIRBuilder):
-            # Rely on the builder's default (random) goldens: the global input
-            # goldens are sharded into per-device shards, and the result golden
-            # is checked per-device. Random non-uniform values vary across the
-            # sharded dim, so a wrong global -> per-device split would fail PCC.
-            return builder.add(in0, in1)
+            summed = builder.add(in0, in1)
+            # Swap shards across devices so each device's output depends on the
+            # other device's input, validating physical shard placement.
+            return builder.collective_permute(
+                summed, source_target_pairs=[(0, 1), (1, 0)]
+            )
 
     compile_and_execute_ttir(
         module,
