@@ -458,11 +458,15 @@ uint64_t CommandFactory::buildMemcpyCommand(
 uint64_t CommandFactory::buildDeallocateTensorCommand(
     ::flatbuffers::FlatBufferBuilder &fbb, const ::tt::runtime::Tensor &tensor,
     bool force) {
+  return buildDeallocateTensorCommand(fbb, tensor.getGlobalId(), force);
+}
+
+uint64_t CommandFactory::buildDeallocateTensorCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t globalId, bool force) {
 
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  uint64_t commandId =
-      BUILD_COMMAND(DeallocateTensor, fbb, tensor.getGlobalId(), force);
+  uint64_t commandId = BUILD_COMMAND(DeallocateTensor, fbb, globalId, force);
 
   return commandId;
 }
