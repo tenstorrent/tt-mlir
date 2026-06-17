@@ -198,6 +198,13 @@ private:
           nullptr,
       std::unique_ptr<std::promise<void>> awaitingPromise = nullptr);
 
+  // Sends a fire-and-forget DeallocateTensor command identified only by the
+  // tensor global id. Skips sending if the controller is not in a state that
+  // can accept commands (uninitialized or shutting down / shut down), which
+  // makes it safe to call from a tensor handle deleter that may run after the
+  // distributed runtime has been torn down.
+  void deallocateTensorByGlobalId(std::uint64_t globalId, bool force = false);
+
   void launchCommandDispatcher();
   void processCommandQueue();
   void dispatchCommand(const ::flatbuffers::FlatBufferBuilder &commandBuilder);

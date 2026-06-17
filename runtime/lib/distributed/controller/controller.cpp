@@ -722,11 +722,25 @@ void Controller::memcpy(const ::tt::runtime::Tensor &dstHandle,
 
 void Controller::deallocateTensor(::tt::runtime::Tensor &tensorHandle,
                                   bool force) {
+  deallocateTensorByGlobalId(tensorHandle.getGlobalId(), force);
+}
+
+void Controller::deallocateTensorByGlobalId(std::uint64_t globalId,
+                                            bool force) {
+  ControllerState currentState =
+      controllerState_.load(std::memory_order_relaxed);
+  if (currentState == ControllerState::Uninitialized ||
+      currentState == ControllerState::ShuttingDown ||
+      currentState == ControllerState::Shutdown) {
+    LOG_DEBUG("Skipping deallocate of tensor global id ", globalId,
+              " because controller is not accepting commands");
+    return;
+  }
 
   auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
 
   uint64_t commandId = CommandFactory::buildDeallocateTensorCommand(
-      *commandBuilder, tensorHandle, force);
+      *commandBuilder, globalId, force);
 
   pushToCommandAndResponseQueues(commandId,
                                  fb::CommandType::DeallocateTensorCommand,
