@@ -192,17 +192,25 @@ namespace {
 class D2MLowerDMAReadToFullyIndexed : public OpRewritePattern<DMAReadOp> {
 public:
   D2MLowerDMAReadToFullyIndexed(MLIRContext *context,
-                                bool debugCoalescingInference)
+                                bool debugCoalescingInference,
+                                bool useTensorAccessorDMA)
       : OpRewritePattern<DMAReadOp>(context),
-        debugCoalescingInference(debugCoalescingInference) {}
+        debugCoalescingInference(debugCoalescingInference),
+        useTensorAccessorDMA(useTensorAccessorDMA) {}
 
 private:
   bool debugCoalescingInference;
+  bool useTensorAccessorDMA;
 
 public:
   LogicalResult matchAndRewrite(DMAReadOp op,
                                 PatternRewriter &rewriter) const final {
     if (op.isFullyIndexed()) {
+      return failure();
+    }
+    // When the TensorAccessor path is enabled, leave shard-level reads in
+    // shard form for D2MDMAViaTensorAccessorRewriter (D2MToTTKernel) to lower.
+    if (useTensorAccessorDMA) {
       return failure();
     }
 
@@ -260,17 +268,28 @@ public:
 class D2MLowerDMAWriteToFullyIndexed : public OpRewritePattern<DMAWriteOp> {
 public:
   D2MLowerDMAWriteToFullyIndexed(MLIRContext *context,
-                                 bool debugCoalescingInference)
+                                 bool debugCoalescingInference,
+                                 bool useTensorAccessorDMA)
       : OpRewritePattern<DMAWriteOp>(context),
-        debugCoalescingInference(debugCoalescingInference) {}
+        debugCoalescingInference(debugCoalescingInference),
+        useTensorAccessorDMA(useTensorAccessorDMA) {}
 
 private:
   bool debugCoalescingInference;
+  bool useTensorAccessorDMA;
 
 public:
   LogicalResult matchAndRewrite(DMAWriteOp op,
                                 PatternRewriter &rewriter) const final {
     if (op.isFullyIndexed()) {
+      return failure();
+    }
+    // When the TensorAccessor path is enabled, leave plain (non-multicast,
+    // non-local-destination) shard-level writes in shard form for
+    // D2MDMAViaTensorAccessorRewriter (D2MToTTKernel). Multicast and
+    // local-destination writes are not handled by the accessor path, so they
+    // still lower to fully-indexed form here.
+    if (useTensorAccessorDMA && !op.isMcast() && !op.isDstLocal()) {
       return failure();
     }
 
@@ -489,10 +508,10 @@ public:
 
   void runOnOperation() final {
     RewritePatternSet patterns(&getContext());
-    patterns.add<D2MLowerDMAReadToFullyIndexed>(&getContext(),
-                                                debugCoalescingInference);
-    patterns.add<D2MLowerDMAWriteToFullyIndexed>(&getContext(),
-                                                 debugCoalescingInference);
+    patterns.add<D2MLowerDMAReadToFullyIndexed>(
+        &getContext(), debugCoalescingInference, useTensorAccessorDMA);
+    patterns.add<D2MLowerDMAWriteToFullyIndexed>(
+        &getContext(), debugCoalescingInference, useTensorAccessorDMA);
     patterns.add<D2MLowerLocalCopyToFullyIndexed>(&getContext(),
                                                   debugCoalescingInference);
     populateAffineToStdConversionPatterns(patterns);

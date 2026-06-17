@@ -52,11 +52,12 @@ class _Config:
     )
     # Use TensorAccessor-based DMA lowering (passed through to d2m-be-pipeline
     # and d2m-to-ttkernel-pre-emitc-pipeline as use-tensor-accessor-dma=1):
-    # skips D2MLowerDMAToFullyIndexedForm and lowers shard-level dma_read/write
-    # to TTKernel TensorAccessor ops. Default OFF; opt in with
-    # D2M_JIT_USE_TENSOR_ACCESSOR_DMA=1.
+    # lowers plain shard-level dma_read/write to TTKernel TensorAccessor ops
+    # (multicast and local-destination DMAs still go through
+    # D2MLowerDMAToFullyIndexedForm). Default ON; opt out with
+    # D2M_JIT_USE_TENSOR_ACCESSOR_DMA=0.
     use_tensor_accessor_dma: bool = _env_bool(
-        "D2M_JIT_USE_TENSOR_ACCESSOR_DMA", default=False
+        "D2M_JIT_USE_TENSOR_ACCESSOR_DMA", default=True
     )
     # If set, write the post-pipeline flatbuffer to this path before
     # device submit. Useful for offline inspection with ttrt.

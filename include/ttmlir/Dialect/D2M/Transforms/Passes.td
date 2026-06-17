@@ -1199,6 +1199,12 @@ def D2MLowerDMAToFullyIndexedForm : Pass<"d2m-lower-dma-to-fully-indexed-form", 
            /*default=*/"false",
            "Enable debug mode for coalescing inference. Runs both analytical and "
            "sampling-based coalescing checks and prints debug output comparing them.">,
+    Option<"useTensorAccessorDMA", "use-tensor-accessor-dma", "bool",
+           /*default=*/"false",
+           "When set, plain (non-multicast, non-local) shard-level DMAs are left "
+           "in shard form for the TensorAccessor lowering in D2MToTTKernel; only "
+           "multicast and local-destination DMAs are lowered to fully-indexed "
+           "form here (the TensorAccessor path does not handle those).">,
   ];
 }
 
