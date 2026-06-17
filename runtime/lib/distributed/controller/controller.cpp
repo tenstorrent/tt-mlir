@@ -19,10 +19,37 @@ namespace tt::runtime::distributed::controller {
 namespace fb = ::tt::runtime::distributed::flatbuffer;
 
 
-tt::runtime::Tensor createDistributedTensorWithRefcountedHandle(std::string caller_name = std::source_location::current().function_name()){  
-  LOG_INFO("createDistributedTensorWithRefcountedHandle from", caller_name);
-  std::shared_ptr<void> fakeHandle = std::shared_ptr<void>(nullptr, [caller_name](void *){ LOG_INFO("handle destroyed | created by ", caller_name ); });
-  tt::runtime::Tensor outputTensorHandle = tt::runtime::Tensor(fakeHandle, nullptr, DeviceRuntime::TTNN);
+struct Controller::DistributedTensorToken {
+  Controller *controller = nullptr;
+  std::uint64_t globalId = 0;
+  std::string callerName;
+
+  ~DistributedTensorToken() {
+    LOG_DEBUG("Releasing distributed tensor global id ", globalId,
+              " created by ", callerName);
+    if (controller != nullptr) {
+      controller->deallocateTensorByGlobalId(globalId);
+    }
+  }
+};
+
+::tt::runtime::Tensor
+Controller::createDistributedTensorWithRefcountedHandle(
+    std::source_location loc) {
+  auto token = std::make_shared<DistributedTensorToken>();
+  token->controller = this;
+  token->callerName = loc.function_name();
+
+  ::tt::runtime::Tensor outputTensorHandle(
+      std::static_pointer_cast<void>(token), nullptr, DeviceRuntime::TTNN);
+
+  // The tensor assigns its own global id on construction; capture it so the
+  // token can deallocate by id when the last handle copy is released.
+  token->globalId = outputTensorHandle.getGlobalId();
+
+  LOG_DEBUG("Created distributed tensor global id ", token->globalId,
+            " from ", token->callerName);
+
   return outputTensorHandle;
 }
 

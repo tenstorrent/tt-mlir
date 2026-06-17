@@ -9,6 +9,8 @@
 #include "tt/runtime/detail/distributed/flatbuffer/flatbuffer.h"
 #include "tt/runtime/detail/distributed/types/spsc_queue.h"
 #include "tt/runtime/types.h"
+#include <cstdint>
+#include <source_location>
 #include <thread>
 
 namespace tt::runtime::distributed::controller {
@@ -204,6 +206,18 @@ private:
   // makes it safe to call from a tensor handle deleter that may run after the
   // distributed runtime has been torn down.
   void deallocateTensorByGlobalId(std::uint64_t globalId, bool force = false);
+
+  // Owns the lifetime of a distributed tensor handle. When the last copy of
+  // the tensor (and thus this token) is released, the destructor asks the
+  // controller to deallocate the tensor by its global id. Defined in the .cpp;
+  // as a nested type it can call the controller's private helpers.
+  struct DistributedTensorToken;
+
+  // Creates a distributed tensor whose refcounted handle triggers a tensor
+  // deallocation on the workers once its last copy is released. The default
+  // argument captures the calling function for debugging.
+  ::tt::runtime::Tensor createDistributedTensorWithRefcountedHandle(
+      std::source_location loc = std::source_location::current());
 
   void launchCommandDispatcher();
   void processCommandQueue();
