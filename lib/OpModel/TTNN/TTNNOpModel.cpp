@@ -304,15 +304,8 @@ getOutputTensorRefT(TTNNLayoutAttr layout) {
   auto tensorRefNative = std::make_unique<::tt::target::ttnn::TensorRefT>();
   tensorRefNative->desc = std::make_unique<::tt::target::ttnn::TensorDescT>();
   tensorRefNative->desc->layout =
-      std::make_unique<::tt::target::ttnn::LayoutDescT>();
-  tensorRefNative->desc->layout->memory_desc =
-      std::make_unique<::tt::target::ttnn::MemoryDescT>();
-  tensorRefNative->desc->layout->memory_desc->memory_config =
-      std::make_unique<::tt::target::ttnn::MemoryConfigT>(
-          memoryConfigNative.value());
-
-  tensorRefNative->desc->layout->memory_desc->data_type =
-      toNative(layout.getDataType());
+      std::make_unique<::tt::target::ttnn::LayoutDescT>(
+          ttnnLayoutAttrToNative(layout));
 
   return tensorRefNative;
 }

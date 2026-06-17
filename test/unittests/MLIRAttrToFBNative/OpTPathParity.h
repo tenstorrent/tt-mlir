@@ -114,16 +114,6 @@ resetOutputTensorRefT(std::unique_ptr<::tt::target::ttnn::TensorRefT> &out) {
   out->desc->mesh_shape.clear();
   out->desc->shard_status = ::tt::target::ttnn::ShardStatus::Presharded;
   out->desc->local_shape.clear();
-  if (!out->desc->layout) {
-    return;
-  }
-  out->desc->layout->oob_val = ::tt::target::OOBVal::Undef;
-  if (!out->desc->layout->memory_desc) {
-    return;
-  }
-  out->desc->layout->memory_desc->storage_type =
-      ::tt::target::ttnn::StorageType::Host;
-  out->desc->layout->memory_desc->tile_shape.reset();
 }
 
 template <typename... Values>
