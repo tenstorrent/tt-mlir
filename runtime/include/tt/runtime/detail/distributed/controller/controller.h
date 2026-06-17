@@ -10,6 +10,7 @@
 #include "tt/runtime/detail/distributed/types/spsc_queue.h"
 #include "tt/runtime/types.h"
 #include <cstdint>
+#include <mutex>
 #include <source_location>
 #include <thread>
 
@@ -191,6 +192,13 @@ private:
 
   std::thread responseHandlerThread_;
   SPSCQueue<std::unique_ptr<AwaitingResponseQueueEntry>> awaitingResponseQueue_;
+
+  // Serializes whole submissions so the paired pushes to awaitingResponseQueue_
+  // and commandQueue_ stay in lockstep. Without this, two threads (e.g. the
+  // execution thread and a tensor-handle deleter firing on a PJRT teardown
+  // thread) could interleave their pushes and desync the two queues, causing
+  // responses to be matched to the wrong command.
+  std::mutex commandSubmissionMutex_;
 
   void pushToCommandAndResponseQueues(
       uint64_t commandId,

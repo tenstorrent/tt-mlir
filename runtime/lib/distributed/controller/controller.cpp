@@ -886,6 +886,10 @@ void Controller::pushToCommandAndResponseQueues(
   LOG_DEBUG("Pushing command id: ", commandId,
             " and command type: ", fb::EnumNameCommandType(commandType),
             " to command and response queues");
+  // Hold the submission lock across both pushes so concurrent submitters cannot
+  // interleave and desync the two queues. Response matching is positional, so
+  // awaitingResponseQueue_ and commandQueue_ must be appended in lockstep.
+  std::lock_guard<std::mutex> submissionLock(commandSubmissionMutex_);
   // Need to push to the response queue first to ensure the command response is
   // waited for before the command is dispatched
   awaitingResponseQueue_.push(std::make_unique<AwaitingResponseQueueEntry>(
