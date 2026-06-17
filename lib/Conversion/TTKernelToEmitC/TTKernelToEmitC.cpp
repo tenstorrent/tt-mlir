@@ -1371,40 +1371,42 @@ public:
           .getResult();
     };
 
-    auto operandsIter = adaptor.getOperands().begin();
-    auto operandsEnd = adaptor.getOperands().end();
-    StringRef rest;
+    // Lower to a single fmt-style DPRINT call:
+    //   DPRINT("<fmt with {} placeholders>", arg0, arg1, ...)
+    // The new tt-metal DEVICE_PRINT is fmt-style and requires the format
+    // string to be a compile-time literal: passing each arg through a
+    // template wrapper as DPRINT("{}", arg) would format string-literal
+    // pieces (and "\n") as pointer addresses rather than text, so the
+    // format string must be emitted verbatim as the first argument and the
+    // operands passed positionally for the {} placeholders.
+    bool isComputeThread =
+        op->getParentOfType<func::FuncOp>()
+            ->getAttrOfType<ttkernel::ThreadTypeAttr>(
+                ttkernel::ThreadTypeAttr::name)
+            .getValue() == ttkernel::ThreadType::Compute;
+
     SmallVector<Value> vargs;
-    do {
-      std::tie(fmt, rest) = fmt.split("{}");
-      if (!fmt.empty()) {
-        vargs.push_back(stringlit(fmt));
+    vargs.push_back(stringlit(fmt));
+    for (auto operand : adaptor.getOperands()) {
+      auto operandIndex = vargs.size() - 1;
+      if (mlir::isa<ttkernel::CBType>(
+              op.getOperands()[operandIndex].getType()) &&
+          isComputeThread) {
+        auto cbPrinter =
+            rewriter
+                .create<emitc::CallOpaqueOp>(
+                    op.getLoc(),
+                    rewriter.getType<emitc::OpaqueType>("ttmlir::CBPrinter"),
+                    "ttmlir::CBPrinter", nullptr, nullptr, ValueRange{operand})
+                .getResult(0);
+        vargs.push_back(cbPrinter);
+      } else {
+        vargs.push_back(operand);
       }
-      if (operandsIter != operandsEnd) {
-        if (mlir::isa<ttkernel::CBType>(
-                op.getOperands()[operandsIter.getIndex()].getType()) &&
-            op->getParentOfType<func::FuncOp>()
-                    ->getAttrOfType<ttkernel::ThreadTypeAttr>(
-                        ttkernel::ThreadTypeAttr::name)
-                    .getValue() == ttkernel::ThreadType::Compute) {
-          auto cbPrinter =
-              rewriter
-                  .create<emitc::CallOpaqueOp>(
-                      op.getLoc(),
-                      rewriter.getType<emitc::OpaqueType>("ttmlir::CBPrinter"),
-                      "ttmlir::CBPrinter", nullptr, nullptr,
-                      ValueRange{*operandsIter++})
-                  .getResult(0);
-          vargs.push_back(cbPrinter);
-        } else {
-          vargs.push_back(*operandsIter++);
-        }
-      }
-      fmt = rest;
-    } while (!fmt.empty());
+    }
 
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        op, TypeRange(), "ttmlir::dprint", nullptr, nullptr, vargs);
+        op, TypeRange(), "DPRINT", nullptr, nullptr, vargs);
     return success();
   }
 };
