@@ -2985,15 +2985,20 @@ def test_presharded_arg(target, mesh_shape, request, device):
         )
         def model(in0: Operand, in1: Operand, builder: TTIRBuilder):
             # Goldens are set on the logical (global) tensors; the builder shards
-            # them into per-device shards for both inputs and the result.
-            torch_all_ones = torch.ones((1, 1, 256, 512), dtype=torch.float32)
-            torch_all_twos = torch.full((1, 1, 256, 512), 2.0, dtype=torch.float32)
-            builder.set_goldens({in0: torch_all_ones, in1: torch_all_twos}, {})
+            # them into per-device shards for both inputs and the result. Use
+            # non-uniform values that vary along the sharded dim (3) so the
+            # per-device shards differ - this actually exercises the global ->
+            # per-device split rather than letting identical shards mask a bug.
+            torch_in0 = torch.arange(1 * 1 * 256 * 512, dtype=torch.float32).reshape(
+                1, 1, 256, 512
+            )
+            torch_in1 = torch_in0 * 2.0
+            builder.set_goldens({in0: torch_in0, in1: torch_in1}, {})
 
             result = builder.add(in0, in1)
 
-            torch_all_threes = torch.full((1, 1, 256, 512), 3.0, dtype=torch.float32)
-            builder.set_goldens({}, {result: torch_all_threes})
+            torch_sum = torch_in0 + torch_in1
+            builder.set_goldens({}, {result: torch_sum})
 
             return result
 
