@@ -932,9 +932,9 @@ module {
       // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
       %dst_index = arith.constant 3 : i32
       // CHECK: emitc.call_opaque "exp_tile"(%[[DST_INDEX]])
-      // CHECK-SAME: args = [0 : index, #emitc.opaque<"(int)VectorMode::RC">, #emitc.opaque<"16384">]
+      // CHECK-SAME: args = [0 : index, #emitc.opaque<"VectorMode::RC">, #emitc.opaque<"16384">]
       // CHECK-SAME: template_args = [#emitc.opaque<"true">, #emitc.opaque<"true">, #emitc.opaque<"InputClamping::None">]
-      "ttkernel.exp_tile"(%dst_index) <{approx = true, input_clamping = #ttkernel.input_clamping<none>, scale = 16384 : i32}> : (i32) -> ()
+      "ttkernel.exp_tile"(%dst_index) <{approx = true, input_clamping = #ttkernel.input_clamping<none>, scale = 1073741824 : i32}> : (i32) -> ()
       return
     }
 
@@ -945,7 +945,7 @@ module {
       // CHECK: emitc.call_opaque "exp_tile"(%[[DST_INDEX]])
       // CHECK-NOT: args =
       // CHECK-NOT: template_args
-      "ttkernel.exp_tile"(%dst_index) <{scale = 16256 : i32}> : (i32) -> ()
+      "ttkernel.exp_tile"(%dst_index) <{scale = 1065353216 : i32}> : (i32) -> ()
       return
     }
 
