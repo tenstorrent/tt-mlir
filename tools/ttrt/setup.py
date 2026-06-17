@@ -87,8 +87,8 @@ if enable_ttnn or enable_ttmetal:
     runlibs += ["libtracy.so.0.10.0"]
 
 if enable_perf:
-    perflibs += ["capture-release"]
-    perflibs += ["csvexport-release"]
+    perflibs += ["tracy-capture"]
+    perflibs += ["tracy-csvexport"]
 
 if enable_runtime:
     shutil.copy(

@@ -19,8 +19,8 @@ def trace(log_dir: str, port: int):
     TT_METAL_RUNTIME_ROOT = os.environ.get(
         "TT_METAL_RUNTIME_ROOT", "third_party/tt-metal/src/tt-metal"
     )
-    tracy_capture_tool_path = os.path.join(TT_METAL_RUNTIME_ROOT, "capture-release")
-    tracy_csvexport_tool_path = os.path.join(TT_METAL_RUNTIME_ROOT, "csvexport-release")
+    tracy_capture_tool_path = os.path.join(TT_METAL_RUNTIME_ROOT, "tracy-capture")
+    tracy_csvexport_tool_path = os.path.join(TT_METAL_RUNTIME_ROOT, "tracy-csvexport")
     tracy_file_path = log_dir + "/tracy_profile_log_host.tracy"
     tracy_ops_times_file_path = log_dir + "/tracy_ops_times.csv"
     tracy_ops_data_file_path = log_dir + "/tracy_ops_data.csv"

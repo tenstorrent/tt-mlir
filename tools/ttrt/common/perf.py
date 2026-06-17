@@ -214,10 +214,10 @@ class Perf:
         self.ttnn_binaries = []
         self.ttmetal_binaries = []
         self.tracy_capture_tool_path = (
-            f"{self.globals.get_ttmetal_home_path()}/capture-release"
+            f"{self.globals.get_ttmetal_home_path()}/tracy-capture"
         )
         self.tracy_csvexport_tool_path = (
-            f"{self.globals.get_ttmetal_home_path()}/csvexport-release"
+            f"{self.globals.get_ttmetal_home_path()}/tracy-csvexport"
         )
         self.tracy_capture_tool_process = None
         self.results = Results(self.logger, self.file_manager)
