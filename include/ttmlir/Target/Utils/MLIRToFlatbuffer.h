@@ -132,8 +132,7 @@ inline flatbuffers::Offset<::tt::target::DebugInfo> debugInfoToFlatbuffer(
 //       pattern yet - Pack can silently produce a null offset for types whose
 //       native table has empty vector fields, which causes errors unless a
 //       matching UnPackTo is in place on the deserialization side.
-inline ::tt::target::OOBVal toFlatbuffer(FlatbufferObjectCache &,
-                                         ttcore::OOBVal oobVal) {
+inline ::tt::target::OOBVal toNative(ttcore::OOBVal oobVal) {
   switch (oobVal) {
   case ttcore::OOBVal::Undef:
     return ::tt::target::OOBVal::Undef;
@@ -146,6 +145,11 @@ inline ::tt::target::OOBVal toFlatbuffer(FlatbufferObjectCache &,
   case ttcore::OOBVal::NegInf:
     return ::tt::target::OOBVal::NegInf;
   }
+}
+
+inline ::tt::target::OOBVal toFlatbuffer(FlatbufferObjectCache &,
+                                         ttcore::OOBVal oobVal) {
+  return toNative(oobVal);
 }
 
 inline std::uint64_t getElementSizeBytes(ttcore::DataType dtype) {
@@ -1252,13 +1256,11 @@ toFlatbuffer(FlatbufferObjectCache &cache,
   return ::tt::target::ttnn::MemoryConfig::Pack(*cache.fbb, &t);
 }
 
-inline flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
-toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
-             ttcore::TensorMeshAttr tensorMesh, ttnn::BufferType bufferType,
-             ttnn::TensorMemoryLayoutAttr memLayoutAttr,
-             ttnn::CoreRangeSetAttr coreRangeSetAttr) {
-  auto shapeInt64 = memref.getShape();
-  std::vector<int32_t> shape(shapeInt64.begin(), shapeInt64.end());
+inline ::tt::target::ttnn::MemoryDescT
+toNative(mlir::MemRefType memref, ttcore::TensorMeshAttr tensorMesh,
+         ttnn::BufferType bufferType,
+         ttnn::TensorMemoryLayoutAttr memLayoutAttr,
+         ttnn::CoreRangeSetAttr coreRangeSetAttr) {
   ttcore::DataType dtype = ttcore::DataType::Float32;
   ::tt::target::Dim2d tileShape(1, 1);
   mlir::Type elementType = memref.getElementType();
@@ -1270,16 +1272,16 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
     dtype = ttcore::elementTypeToDataType(elementType);
   }
 
-  ::tt::target::ttnn::StorageType storageType;
+  ::tt::target::ttnn::MemoryDescT memoryDesc;
   if (tensorMesh) {
-    storageType = ::tt::target::ttnn::StorageType::Device;
+    memoryDesc.storage_type = ::tt::target::ttnn::StorageType::Device;
   } else {
-    storageType = bufferType == ttnn::BufferType::SystemMemory
-                      ? ::tt::target::ttnn::StorageType::Host
-                      : ::tt::target::ttnn::StorageType::Device;
+    memoryDesc.storage_type = bufferType == ttnn::BufferType::SystemMemory
+                                  ? ::tt::target::ttnn::StorageType::Host
+                                  : ::tt::target::ttnn::StorageType::Device;
   }
-
-  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
+  memoryDesc.tile_shape = std::make_unique<::tt::target::Dim2d>(tileShape);
+  memoryDesc.data_type = toNative(dtype);
 
   // Only device tensors should have a memory config
   if (bufferType != ttnn::BufferType::SystemMemory) {
@@ -1304,12 +1306,33 @@ toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
     auto memoryConfigAttr = ::mlir::tt::ttnn::MemoryConfigAttr::get(
         ctx, memLayoutAttr, bufferTypeAttr, shardSpecAttr);
 
-    memoryConfig = toFlatbuffer(cache, memoryConfigAttr);
+    memoryDesc.memory_config =
+        std::make_unique<::tt::target::ttnn::MemoryConfigT>(
+            toNative(memoryConfigAttr));
   }
 
-  return ::tt::target::ttnn::CreateMemoryDesc(
-      *cache.fbb, storageType, &tileShape, toFlatbuffer(cache, dtype),
-      memoryConfig);
+  return memoryDesc;
+}
+
+inline flatbuffers::Offset<::tt::target::ttnn::MemoryDesc>
+toFlatbuffer(FlatbufferObjectCache &cache, mlir::MemRefType memref,
+             ttcore::TensorMeshAttr tensorMesh, ttnn::BufferType bufferType,
+             ttnn::TensorMemoryLayoutAttr memLayoutAttr,
+             ttnn::CoreRangeSetAttr coreRangeSetAttr) {
+  auto t = toNative(memref, tensorMesh, bufferType, memLayoutAttr,
+                    coreRangeSetAttr);
+  return ::tt::target::ttnn::MemoryDesc::Pack(*cache.fbb, &t);
+}
+
+inline ::tt::target::ttnn::LayoutDescT
+ttnnLayoutAttrToNative(ttnn::TTNNLayoutAttr layoutAttr) {
+  ::tt::target::ttnn::LayoutDescT layoutDesc;
+  layoutDesc.oob_val = toNative(ttcore::OOBVal::Undef);
+  layoutDesc.memory_desc = std::make_unique<::tt::target::ttnn::MemoryDescT>(
+      toNative(layoutAttr.getMemref(), layoutAttr.getTensorMesh(),
+               layoutAttr.getBufferType(), layoutAttr.getMemLayout(),
+               layoutAttr.getCoreRangeSet()));
+  return layoutDesc;
 }
 
 inline flatbuffers::Offset<::tt::target::ttnn::LayoutDesc>
@@ -1322,11 +1345,8 @@ ttnnLayoutAttrToFlatbuffer(FlatbufferObjectCache &cache,
   // Ideally, we establish one-to-one mapping between MLIR and FlatBuffer
   // that guarantees identical memrefs will always produce identical
   // flatbuffer LayoutDescs.
-  return ::tt::target::ttnn::CreateLayoutDesc(
-      *cache.fbb, toFlatbuffer(cache, ttcore::OOBVal::Undef),
-      toFlatbuffer(cache, layoutAttr.getMemref(), layoutAttr.getTensorMesh(),
-                   layoutAttr.getBufferType(), layoutAttr.getMemLayout(),
-                   layoutAttr.getCoreRangeSet()));
+  auto t = ttnnLayoutAttrToNative(layoutAttr);
+  return ::tt::target::ttnn::LayoutDesc::Pack(*cache.fbb, &t);
 }
 
 inline flatbuffers::Offset<::tt::target::ttnn::MemoryDesc> toFlatbuffer(

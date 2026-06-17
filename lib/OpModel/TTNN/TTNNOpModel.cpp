@@ -298,26 +298,7 @@ getOutputTensorRefT(TTNNLayoutAttr layout) {
 
   auto tensorRefNative = std::make_unique<::tt::target::ttnn::TensorRefT>();
   tensorRefNative->desc = std::make_unique<::tt::target::ttnn::TensorDescT>();
-  tensorRefNative->desc->layout =
-      std::make_unique<::tt::target::ttnn::LayoutDescT>();
-  tensorRefNative->desc->layout->memory_desc =
-      std::make_unique<::tt::target::ttnn::MemoryDescT>();
-  tensorRefNative->desc->layout->memory_desc->memory_config =
-      std::make_unique<::tt::target::ttnn::MemoryConfigT>(
-          memoryConfigNative.value());
-
-  tensorRefNative->desc->layout->memory_desc->data_type =
-      toNative(layout.getDataType());
-
-  if (auto tileType =
-          mlir::dyn_cast<ttcore::TileType>(layout.getElementType())) {
-    tensorRefNative->desc->layout->memory_desc->tile_shape =
-        std::make_unique<::tt::target::Dim2d>(tileType.getHeight(),
-                                              tileType.getWidth());
-  } else {
-    tensorRefNative->desc->layout->memory_desc->tile_shape =
-        std::make_unique<::tt::target::Dim2d>(1, 1);
-  }
+  tensorRefNative->desc->layout = std::make_unique<::tt::target::ttnn::LayoutDescT>(ttnnLayoutAttrToNative(layout));
 
   return tensorRefNative;
 }
