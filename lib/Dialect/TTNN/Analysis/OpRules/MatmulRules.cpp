@@ -27,8 +27,11 @@ namespace mlir::tt::ttnn {
 
 static constexpr int64_t kTileSize = 32;
 static constexpr int64_t kNumDRAMBanks = 12;
-static constexpr int64_t kNumStorageCores =
-    8; // empirically optimal for DS matmul activation grid
+// Single source of truth for how many cores the DS-matmul activation (in0) is
+// width-sharded across. Drives the in0 shard width, the K-divisibility
+// eligibility gate, and the in0 L1 tensor-buffer reservation in
+// computeShardParams. Keep these uses consistent.
+static constexpr int64_t kNumIn0Cores = 8;
 
 struct DRAMShardParams {
   int64_t K;
@@ -84,6 +87,8 @@ computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
   int64_t kWeightTile =
       (weightDataType == ttcore::DataType::BFP_BFloat4) ? kBfp4Tile : kBfp8Tile;
 
+  assert(p.kTiles % numIn0Cores == 0 &&
+         "kTiles must be divisible by numIn0Cores before the per-core divide");
   int64_t kPerCore = p.kTiles / numIn0Cores;
   // perCoreNCompute: tiles computed per DRAM-bank/compute core (= weight shard
   // width per bank). Used for CB sizing — this is what the compute kernel
@@ -204,10 +209,11 @@ static bool isDRAMShardEligible(MatmulOp matmulOp) {
   if (M % kTileSize != 0 || K % kTileSize != 0 || N % kTileSize != 0) {
     return false;
   }
-  if ((K / kTileSize) % kNumStorageCores != 0) {
-    return false;
-  }
-  if ((N / kTileSize) % kNumStorageCores != 0) {
+  // K is the contraction dim, width-sharded across the in0 cores, so it must
+  // divide evenly by the in0 core count (same requirement computeShardParams
+  // enforces via kTiles % numIn0Cores). Gate on it here so an ineligible op is
+  // rejected up front rather than deep in shard-param computation.
+  if ((K / kTileSize) % kNumIn0Cores != 0) {
     return false;
   }
   // Decode-only: factory asserts per_core_M == 1 when num_blocks_per_shard > 1.
@@ -242,26 +248,23 @@ static TTNNLayoutAttr buildDRAMShardedWeightLayout(MLIRContext *ctx,
                              /*ignorePhysicalLayout=*/false, crs);
 }
 
+// Build an L1 width-sharded layout for `tensorShape` over `numCores`, using
+// canonical core placement that wraps across the worker grid. A single-row
+// placement (0,0)-(numCores-1,0) would be invalid once numCores exceeds the
+// grid width (e.g. 16 cores on an 8x8 grid) — validateTensorSpec rejects it —
+// so canonical placement fills the grid row-by-row (16 cores -> 8x2), mirroring
+// the DS output-layout construction.
 static TTNNLayoutAttr buildL1ShardedLayout(MLIRContext *ctx,
                                            TTNNLayoutAttr origLayout,
-                                           int64_t shardHTiles,
-                                           int64_t shardWTiles,
-                                           int64_t numCores) {
-  auto startCoord = CoreCoordAttr::get(ctx, 0, 0);
-  auto endCoord = CoreCoordAttr::get(ctx, numCores - 1, 0);
-  auto coreRange = CoreRangeAttr::get(ctx, startCoord, endCoord);
-  auto crs = CoreRangeSetAttr::get(ctx, {coreRange});
-  auto tileType = ttcore::TileType::get(ctx, {kTileSize, kTileSize},
-                                        ttcore::DataType::BFloat16);
-  auto l1Space = BufferTypeAttr::get(ctx, BufferType::L1);
-  auto memrefType = MemRefType::get({shardHTiles, shardWTiles}, tileType,
-                                    MemRefLayoutAttrInterface{}, l1Space);
-  auto memLayout =
-      TensorMemoryLayoutAttr::get(ctx, TensorMemoryLayout::WidthSharded);
-  return TTNNLayoutAttr::get(ctx, origLayout.getLinear(),
-                             llvm::ArrayRef<int64_t>{1, numCores}, memrefType,
-                             memLayout, /*tensorMesh=*/nullptr,
-                             /*ignorePhysicalLayout=*/false, crs);
+                                           llvm::ArrayRef<int64_t> tensorShape,
+                                           int64_t numCores,
+                                           ttcore::DeviceAttr deviceAttr) {
+  return TTNNLayoutAttr::Builder(origLayout, tensorShape)
+      .setBufferType(BufferType::L1)
+      .setMemoryLayout(
+          TensorMemoryLayoutAttr::get(ctx, TensorMemoryLayout::WidthSharded))
+      .setGridShape({1, numCores})
+      .buildWithCanonicalCorePlacement(deviceAttr);
 }
 
 static MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr
@@ -348,15 +351,12 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
   auto [K, N] = getWeightKN(weightType);
   auto weightDataType = getWeightDataType(matmulOp.getB());
 
-  auto deviceOp = ttcore::lookupDeviceOp(op);
-  int64_t numAvailableCores = kNumStorageCores;
-  if (deviceOp) {
-    numAvailableCores = ttmlir::utils::volume(
-        deviceOp.getDeviceAttr().getWorkerGrid().getShape());
-  }
+  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
+  int64_t numAvailableCores =
+      ttmlir::utils::volume(deviceAttr.getWorkerGrid().getShape());
 
   auto pOpt =
-      computeShardParams(M, K, N, kNumDRAMBanks, kNumStorageCores,
+      computeShardParams(M, K, N, kNumDRAMBanks, kNumIn0Cores,
                          numAvailableCores, weightDataType, l1Available);
   if (!pOpt) {
     return std::nullopt;
@@ -368,26 +368,19 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
       mlir::cast<RankedTensorType>(op->getResult(0).getType()).getEncoding());
   auto resultType = mlir::cast<RankedTensorType>(op->getResult(0).getType());
 
-  int64_t outShardHTiles = M / kTileSize;
   // numOutputCores = div_up(N_tiles, per_core_N_storage): exactly how many
   // output cores compute_output_specs will allocate, ensuring no assertion
   // fire.
   int64_t numOutputCores = (N / kTileSize + p.perCoreN - 1) / p.perCoreN;
 
-  TTNNLayoutAttr l1OutLayout;
-  if (deviceOp) {
-    llvm::SmallVector<int64_t, 2> outputGrid = {1, numOutputCores};
-    l1OutLayout =
-        TTNNLayoutAttr::Builder(outLayout, resultType.getShape())
-            .setBufferType(BufferType::L1)
-            .setMemoryLayout(TensorMemoryLayoutAttr::get(
-                ctx, TensorMemoryLayout::WidthSharded))
-            .setGridShape(outputGrid)
-            .buildWithCanonicalCorePlacement(deviceOp.getDeviceAttr());
-  } else {
-    l1OutLayout = buildL1ShardedLayout(ctx, outLayout, outShardHTiles,
-                                       p.perCoreN, numOutputCores);
-  }
+  llvm::SmallVector<int64_t, 2> outputGrid = {1, numOutputCores};
+  TTNNLayoutAttr l1OutLayout =
+      TTNNLayoutAttr::Builder(outLayout, resultType.getShape())
+          .setBufferType(BufferType::L1)
+          .setMemoryLayout(TensorMemoryLayoutAttr::get(
+              ctx, TensorMemoryLayout::WidthSharded))
+          .setGridShape(outputGrid)
+          .buildWithCanonicalCorePlacement(deviceAttr);
 
   // Activation is handled as a separate elementwise op after the DS matmul
   // (see applyDRAMShardedTransformation). Fusing it into the DS kernel is
@@ -506,6 +499,31 @@ void MatmulRuleBook::applyDRAMShardedTransformation(
 // MatmulRuleBook::isValidOutputHintForInputs
 // ============================================================================
 
+// Reject in0 whose shard width is incompatible with the config's in0_block_w.
+// tt-metal needs (tiles): K % per_core_K == 0 and per_core_K % in0_block_w ==
+// 0. Guards all in0 candidates the cross-product pairs with the DS hint; though
+// our injected in0 is valid by construction. tt-metal should be patched to
+// reject a bad combo catchably — until then it TT_FATALs (uncatchable abort),
+// so we must gate here. per_core_K = in0 shard width (tiles); K (tiles) = in1
+// shard height.
+static bool dsIn0CompatibleWithConfig(
+    TTNNLayoutAttr in0, TTNNLayoutAttr in1,
+    MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr dsCfg) {
+  auto in0Shard = in0.getShardShape();
+  auto in1Shard = in1.getShardShape();
+  if (in0Shard.size() != 2 || in1Shard.size() != 2) {
+    // Cannot read the shard width, so cannot verify the combo is legal. A
+    // width-sharded in0/in1 for these matmuls is always 2-D (and our injected
+    // in0 always is), so reject rather than risk a tt-metal abort.
+    return false;
+  }
+  int64_t perCoreK = in0Shard[1];
+  int64_t kTiles = in1Shard[0];
+  int64_t in0BlockW = static_cast<int64_t>(dsCfg.getIn0BlockW());
+  return perCoreK != 0 && in0BlockW != 0 && kTiles % perCoreK == 0 &&
+         perCoreK % in0BlockW == 0;
+}
+
 bool MatmulRuleBook::isValidOutputHintForInputs(
     const OpConfig &hint, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
   const auto *attrs = std::get_if<MatmulAttrs>(&hint.opSpecificAttrs);
@@ -514,10 +532,12 @@ bool MatmulRuleBook::isValidOutputHintForInputs(
           attrs->matmulProgramConfig.value())) {
     return true;
   }
-  // DS hint: gate validation to only the correct DS input combination
-  // (L1 width-sharded in0, DRAM width-sharded in1). getOpConstraints has no
-  // layout pre-check — tt-metal's compute_output_specs hits TT_FATAL (abort,
-  // not a catchable exception) for incompatible layouts.
+  // DS hint: only the canonical DS input combination is valid — L1
+  // width-sharded in0, DRAM width-sharded in1, with an in0 shard width
+  // compatible with the config's in0_block_w (see dsIn0CompatibleWithConfig).
+  // This runs for every in0 the cross-product pairs with the DS hint, not just
+  // the one we inject in getExtraInputReshardCandidates (that one is valid by
+  // construction).
   if (inputLayouts.size() < 2) {
     return false;
   }
@@ -536,7 +556,10 @@ bool MatmulRuleBook::isValidOutputHintForInputs(
       *ml1 != TensorMemoryLayout::WidthSharded) {
     return false;
   }
-  return true;
+  auto dsCfg =
+      mlir::cast<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
+          attrs->matmulProgramConfig.value());
+  return dsIn0CompatibleWithConfig(in0, in1, dsCfg);
 }
 
 // ============================================================================
@@ -605,13 +628,10 @@ MatmulRuleBook::getExtraInputReshardCandidates(Operation *op,
   auto [K, N] = getWeightKN(weightType);
   auto weightDataType = getWeightDataType(matmulOp.getB());
 
-  int64_t numAvailCores = kNumStorageCores;
-  if (auto devOp = ttcore::lookupDeviceOp(op)) {
-    numAvailCores =
-        ttmlir::utils::volume(devOp.getDeviceAttr().getWorkerGrid().getShape());
-  }
-
-  auto pOpt = computeShardParams(M, K, N, kNumDRAMBanks, kNumStorageCores,
+  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
+  int64_t numAvailCores =
+      ttmlir::utils::volume(deviceAttr.getWorkerGrid().getShape());
+  auto pOpt = computeShardParams(M, K, N, kNumDRAMBanks, kNumIn0Cores,
                                  numAvailCores, weightDataType, l1Available);
   if (!pOpt) {
     return {};
@@ -622,9 +642,9 @@ MatmulRuleBook::getExtraInputReshardCandidates(Operation *op,
   if (operandIdx == 0) {
     auto in0Layout = mlir::cast<TTNNLayoutAttr>(in0Type.getEncoding());
     int64_t in0ShardHTiles = M / kTileSize;
-    int64_t in0ShardWTiles = (K / kTileSize) / kNumStorageCores;
-    return {buildL1ShardedLayout(ctx, in0Layout, in0ShardHTiles, in0ShardWTiles,
-                                 kNumStorageCores)};
+    int64_t in0ShardWTiles = (K / kTileSize) / kNumIn0Cores;
+    return {buildL1ShardedLayout(ctx, in0Layout, in0Type.getShape(),
+                                 kNumIn0Cores, deviceAttr)};
   }
   if (operandIdx == 1) {
     auto weightLayout = mlir::cast<TTNNLayoutAttr>(weightType.getEncoding());
