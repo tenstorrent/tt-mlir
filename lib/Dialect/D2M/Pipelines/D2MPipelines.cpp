@@ -297,6 +297,7 @@ void createD2MEmitCPipeline(OpPassManager &pm,
                             const D2MPipelineOptions &options) {
   pm.addPass(createConvertTTKernelToEmitC());
   pm.addPass(createCanonicalizerPassWithOptions(options));
+  pm.addPass(createRemoveDeadEmitCExpressionsPass());
   pm.addPass(mlir::emitc::createFormExpressionsPass());
 }
 

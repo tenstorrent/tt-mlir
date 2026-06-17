@@ -23,6 +23,8 @@ void createPyKernelCompilePipeline(
     pm.addPass(mlir::createCanonicalizerPass());
   }
 
+  pm.addPass(mlir::tt::createRemoveDeadEmitCExpressionsPass());
+
   if (options.enableFormExpressions) {
     pm.addPass(mlir::emitc::createFormExpressionsPass());
   }
