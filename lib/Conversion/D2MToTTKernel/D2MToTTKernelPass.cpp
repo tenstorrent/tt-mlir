@@ -56,6 +56,7 @@ struct ConvertD2MToTTKernel
     // Workaround: Passes are required to be copy-constructible but autogen'ed
     // base class copy constructors ignore Pass option fields.
     this->ttnnMode = rhs.ttnnMode;
+    this->hitKernelCache = rhs.hitKernelCache;
   }
 
   void runOnOperation() final {
@@ -174,11 +175,16 @@ struct ConvertD2MToTTKernel
     d2m::CBProducerConsumer cbProducerConsumer =
         getAnalysis<d2m::CBProducerConsumer>();
 
+    if (hitKernelCache) {
+      moduleOp->setAttr("ttkernel.hit_kernel_cache",
+                        UnitAttr::get(&getContext()));
+    }
+
     RewritePatternSet patterns(&getContext());
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);
     populateD2MToTTKernelPatterns(&getContext(), patterns, typeConverter,
-                                  cbProducerConsumer, ttnnMode);
+                                  cbProducerConsumer, ttnnMode, hitKernelCache);
     scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
                                                          patterns, target);
 

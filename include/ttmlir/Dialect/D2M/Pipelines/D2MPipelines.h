@@ -191,6 +191,13 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
                         llvm::cl::desc("D2M/TTNN integration mode."),
                         llvm::cl::init(false)};
 
+  Option<bool> hitKernelCache{
+      *this, "hit-kernel-cache",
+      llvm::cl::desc("Prefer TT-Metal kernel-cache hits by canonicalizing "
+                     "generated kernel source and lowering non-structural "
+                     "kernel inputs as runtime args when legal."),
+      llvm::cl::init(false)};
+
   // Option to set the target data format for the global data format conversion
   // pass.
   Option<std::string> globalDataFormatTarget{

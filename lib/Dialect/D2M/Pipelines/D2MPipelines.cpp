@@ -285,9 +285,12 @@ void createD2MToTTNNPipeline(OpPassManager &pm,
 // selection). Callers are responsible for adding them at the right point.
 void createD2MToTTKernelPreEmitCPipeline(OpPassManager &pm,
                                          const D2MPipelineOptions &options) {
-  d2m::ConvertD2MToTTKernelOptions D2MToTTKernelOptions;
-  { D2MToTTKernelOptions.ttnnMode = options.ttnnMode; }
-  pm.addPass(tt::createConvertD2MToTTKernelPass(D2MToTTKernelOptions));
+  d2m::ConvertD2MToTTKernelOptions d2mToTTKernelOptions;
+  {
+    d2mToTTKernelOptions.ttnnMode = options.ttnnMode;
+    d2mToTTKernelOptions.hitKernelCache = options.hitKernelCache;
+  }
+  pm.addPass(tt::createConvertD2MToTTKernelPass(d2mToTTKernelOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttkernel::createTTKernelControlDstSection());
   createOptimizationPasses(pm, options);

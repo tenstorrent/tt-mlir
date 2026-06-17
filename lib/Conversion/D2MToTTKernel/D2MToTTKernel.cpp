@@ -2892,9 +2892,9 @@ namespace {
 class D2MGetArgRewriter : public OpConversionPattern<d2m::GetArgOp> {
 public:
   D2MGetArgRewriter(TypeConverter &typeConverter, MLIRContext *context,
-                    bool ttnnMode)
+                    bool ttnnMode, bool hitKernelCache)
       : OpConversionPattern<d2m::GetArgOp>(typeConverter, context),
-        ttnnMode(ttnnMode) {}
+        ttnnMode(ttnnMode), hitKernelCache(hitKernelCache) {}
 
   LogicalResult
   matchAndRewrite(d2m::GetArgOp op, d2m::GetArgOpAdaptor adaptor,
@@ -2941,27 +2941,38 @@ public:
       return success();
     } else if (mlir::isa<IndexType, IntegerType, FloatType>(
                    op.getResult().getType())) {
-      // Scalar additional args are always stored as ui32 in the CT arg slot.
-      // If the declared type differs from ui32, a ReinterpretCastOp recovers
-      // the correct type.
+      // Scalar additional args are stored as ui32. If the declared type differs
+      // from ui32, a BitcastOp recovers the correct type.
       Type scalarType = op.getResult().getType();
       Type ui32Type =
           IntegerType::get(op.getContext(), 32, IntegerType::Unsigned);
 
       ArgAttr scalarArg =
           rewriter.getAttr<ArgAttr>(ArgType::Scalar, op.getOperandIndex());
-      size_t ctArgIdx;
+      size_t argIdx;
       rewriter.modifyOpInPlace(entry, [&]() {
-        ctArgIdx = ArgSpecAttr::appendCompileTimeArg(entry, scalarArg);
+        argIdx = shouldUseRuntimeArgs()
+                     ? ArgSpecAttr::appendRuntimeArg(entry, scalarArg)
+                     : ArgSpecAttr::appendCompileTimeArg(entry, scalarArg);
       });
 
-      Value ctArg = rewriter.create<ttkernel::GetCompileArgValOp>(
-          op.getLoc(), ui32Type, static_cast<int32_t>(ctArgIdx));
+      Value scalarArgValue =
+          shouldUseRuntimeArgs()
+              ? rewriter
+                    .create<ttkernel::GetArgValOp>(
+                        op.getLoc(), ui32Type,
+                        index(rewriter, op->getLoc(), argIdx))
+                    .getResult()
+              : rewriter
+                    .create<ttkernel::GetCompileArgValOp>(
+                        op.getLoc(), ui32Type, static_cast<int32_t>(argIdx))
+                    .getResult();
 
       if (scalarType == ui32Type) {
-        rewriter.replaceOp(op, ctArg);
+        rewriter.replaceOp(op, scalarArgValue);
       } else {
-        rewriter.replaceOpWithNewOp<ttkernel::BitcastOp>(op, scalarType, ctArg);
+        rewriter.replaceOpWithNewOp<ttkernel::BitcastOp>(op, scalarType,
+                                                         scalarArgValue);
       }
       return success();
     } else {
@@ -2975,6 +2986,13 @@ public:
       rewriter.replaceOpWithNewOp<ttkernel::GetCommonArgValOp>(
           op, argResultType, index(rewriter, op->getLoc(), argIndex));
 
+    } else if (hitKernelCache) {
+      rewriter.modifyOpInPlace(entry, [&]() {
+        argIndex = ArgSpecAttr::appendRuntimeArg(entry, arg);
+      });
+      rewriter.replaceOpWithNewOp<ttkernel::GetArgValOp>(
+          op, argResultType, index(rewriter, op->getLoc(), argIndex));
+
     } else {
       rewriter.modifyOpInPlace(entry, [&]() {
         argIndex = ArgSpecAttr::appendCompileTimeArg(entry, arg);
@@ -2986,7 +3004,10 @@ public:
   }
 
 private:
+  bool shouldUseRuntimeArgs() const { return hitKernelCache && !ttnnMode; }
+
   bool ttnnMode;
+  bool hitKernelCache;
 };
 
 class D2MGetCBRewriter : public OpConversionPattern<d2m::GetCBOp> {
@@ -3356,7 +3377,8 @@ namespace mlir::tt {
 
 void populateD2MToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
-    const d2m::CBProducerConsumer &cbProducerConsumer, bool ttnnMode) {
+    const d2m::CBProducerConsumer &cbProducerConsumer, bool ttnnMode,
+    bool hitKernelCache) {
   // clang-format off
   patterns.add<ttkernel::D2MKernelFunctionArgsRewriter,
                ttkernel::PassthroughRewriter<memref::CastOp>,
@@ -3478,8 +3500,8 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSemaphoreWaitRewriter,
                ttkernel::D2MDeviceSynchronizeRewriter>(typeConverter, ctx);
 
-  patterns.add<ttkernel::D2MGetArgRewriter>(typeConverter, ctx,
-                                                      ttnnMode);
+  patterns.add<ttkernel::D2MGetArgRewriter>(typeConverter, ctx, ttnnMode,
+                                            hitKernelCache);
   patterns.add<ttkernel::D2MGetCBRewriter>(typeConverter, ctx);
   patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &cbProducerConsumer);
   patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &cbProducerConsumer);

@@ -960,8 +960,11 @@ kernelConfigToFlatbuffer(FlatbufferObjectCache &cache,
   assert(kernelEntry);
   std::string source;
   llvm::raw_string_ostream stream(source);
-  LogicalResult result =
-      ttkernel::translateKernelFuncToCpp(kernelEntry, stream);
+  bool includeOriginalSymbolName =
+      !kernelEntry->getParentOfType<ModuleOp>()->hasAttr(
+          "ttkernel.hit_kernel_cache");
+  LogicalResult result = ttkernel::translateKernelFuncToCpp(
+      kernelEntry, stream, includeOriginalSymbolName);
   assert(result.succeeded());
   assert(source.size() > 0 && "empty kernel source");
 

@@ -308,7 +308,8 @@ private:
 } // namespace
 
 static FailureOr<mlir::ModuleOp>
-cloneEntryIntoStandaloneModule(func::FuncOp origEntry, ThreadType threadType) {
+cloneEntryIntoStandaloneModule(func::FuncOp origEntry, ThreadType threadType,
+                               bool includeOriginalSymbolName) {
   auto *ctx = origEntry.getContext();
   mlir::DialectRegistry registry;
   registry.insert<mlir::emitc::EmitCDialect>();
@@ -326,8 +327,10 @@ cloneEntryIntoStandaloneModule(func::FuncOp origEntry, ThreadType threadType) {
 
   Region *kernelMainRegion;
   {
+    StringRef originalSymbolName =
+        includeOriginalSymbolName ? origEntry.getName() : StringRef();
     ScopedModuleHelper threadConfigHelper(&builder, loc, region, threadType,
-                                          origEntry.getName());
+                                          originalSymbolName);
 
     // Clone 'region' into a new func op nested inside 'moduleWrapper':
     auto kernelMain = builder.create<func::FuncOp>(
@@ -342,15 +345,16 @@ cloneEntryIntoStandaloneModule(func::FuncOp origEntry, ThreadType threadType) {
 }
 
 LogicalResult translateKernelFuncToCpp(func::FuncOp entry,
-                                       llvm::raw_ostream &os) {
+                                       llvm::raw_ostream &os,
+                                       bool includeOriginalSymbolName) {
   if (!entry->hasAttr(ThreadTypeAttr::name)) {
     return failure();
   }
 
   ThreadType threadType =
       entry->getAttrOfType<ThreadTypeAttr>(ThreadTypeAttr::name).getValue();
-  FailureOr<mlir::ModuleOp> kernelModule =
-      cloneEntryIntoStandaloneModule(entry, threadType);
+  FailureOr<mlir::ModuleOp> kernelModule = cloneEntryIntoStandaloneModule(
+      entry, threadType, includeOriginalSymbolName);
   if (failed(kernelModule)) {
     return failure();
   }
@@ -360,13 +364,14 @@ LogicalResult translateKernelFuncToCpp(func::FuncOp entry,
 
 LogicalResult translateTopLevelKernelToCpp(ModuleOp moduleOp,
                                            llvm::raw_ostream &os,
-                                           StringRef symbolName) {
+                                           StringRef symbolName,
+                                           bool includeOriginalSymbolName) {
   SymbolTable symbolTable(moduleOp);
   auto entry = symbolTable.lookup<func::FuncOp>(symbolName);
   if (!entry) {
     return failure();
   }
-  return translateKernelFuncToCpp(entry, os);
+  return translateKernelFuncToCpp(entry, os, includeOriginalSymbolName);
 }
 
 LogicalResult translateTopLevelKernelsToCpp(ModuleOp moduleOp,

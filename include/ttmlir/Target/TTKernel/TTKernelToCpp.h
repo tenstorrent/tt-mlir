@@ -18,13 +18,15 @@ namespace mlir::tt::ttkernel {
 // Translates a top level TTKernel func op (already converted to EmitC) to C++
 // and writes it to the given stream.
 LogicalResult translateKernelFuncToCpp(func::FuncOp entry,
-                                       llvm::raw_ostream &os);
+                                       llvm::raw_ostream &os,
+                                       bool includeOriginalSymbolName = true);
 
 // Translates a top level TTKernel func op (already converted to EmitC) to C++
 // for the given symbol name and writes it to the given stream.
-LogicalResult translateTopLevelKernelToCpp(ModuleOp moduleOp,
-                                           llvm::raw_ostream &os,
-                                           StringRef symbolName);
+LogicalResult
+translateTopLevelKernelToCpp(ModuleOp moduleOp, llvm::raw_ostream &os,
+                             StringRef symbolName,
+                             bool includeOriginalSymbolName = true);
 
 // Walks over all top level TTKernel func ops (already converted to EmitC) in
 // the given module and writes them to the given stream.
