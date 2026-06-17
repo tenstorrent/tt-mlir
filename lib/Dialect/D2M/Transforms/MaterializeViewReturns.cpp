@@ -7,7 +7,11 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
+#include "ttmlir/Dialect/D2M/Utils/VirtualGrid.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -43,6 +47,38 @@ ttcore::GridAttr getGridFromType(RankedTensorType type) {
 
   MLIRContext *ctx = type.getContext();
   return ttcore::GridAttr::get(ctx, gridShape);
+}
+
+// Compute the full virtual-grid-mapping (VGM) forward/inverse affine maps for a
+// materialization generic whose execution grid is `gridShape`. Grids that do
+// not map directly onto the 2D physical worker grid (rank != 2, or any
+// dimension exceeding the device grid) require core virtualization; without it,
+// the d2m.core_index ops emitted per grid dimension cannot be lowered for dims
+// >= 2 (D2MToTTKernel's CoreIndexRewriter relies on the grid's
+// physical_to_virt_map, propagated by GenericRegionsToFuncs) and the generic
+// fails verification in D2MToTTMetal. Returns std::nullopt when the grid maps
+// directly onto the physical grid (no virtualization needed). The returned maps
+// are the (grid+shard) VGM maps as produced by createCoreVirtMaps, i.e. the
+// shape stored on EmptyOp/AllocOp VGM attributes.
+std::optional<std::pair<AffineMap, AffineMap>>
+computeViewVirtualGridMaps(OpBuilder &builder, Operation *op,
+                           ArrayRef<int64_t> gridShape) {
+  ttcore::DeviceAttr device = ttcore::lookupDevice(op);
+  ArrayRef<int64_t> deviceGridShape = device.getWorkerGrid().getShape();
+  if (!ttmlir::d2m::utils::grids::requiresVirtualGrid(gridShape,
+                                                      deviceGridShape)) {
+    return std::nullopt;
+  }
+  SmallVector<int64_t> physicalGridShape =
+      utils::findLegalPhysicalGridForVolume(
+          ttmlir::utils::volume<int64_t>(gridShape), deviceGridShape);
+  TT_assertv(!physicalGridShape.empty(),
+             "Unable to fit virtual grid {} onto device grid {} for view "
+             "materialization",
+             ttmlir::utils::formatIterable(gridShape, "x"),
+             ttmlir::utils::formatIterable(deviceGridShape, "x"));
+  return ttmlir::d2m::utils::grids::createCoreVirtMaps(
+      builder.getContext(), gridShape, physicalGridShape);
 }
 
 // Materialize an unmaterialized view by inserting a datamovement generic op.
@@ -113,12 +149,46 @@ Value materializeMemrefView(OpBuilder &builder, Location loc,
                             ViewLayoutOp viewOp) {
   Value viewResult = viewOp.getResult();
   auto memrefType = mlir::cast<MemRefType>(viewResult.getType());
-  Value materialized =
-      builder.create<memref::AllocOp>(loc, memrefType).getResult();
-
   SmallVector<int64_t> gridShape =
-      llvm::to_vector(ttcore::getGridShape(materialized));
-  auto gridAttr = builder.getAttr<ttcore::GridAttr>(gridShape);
+      llvm::to_vector(ttcore::getGridShape(viewResult));
+  SmallVector<int64_t> shardShape =
+      llvm::to_vector(ttcore::getShardShape(viewResult));
+  auto storageLayout =
+      ttcore::ShardLayoutAttr::get(shardShape, memrefType.getElementType(), 1);
+  SmallVector<int64_t> storageShape = gridShape;
+  storageShape.append(shardShape.begin(), shardShape.end());
+  auto storageType =
+      MemRefType::get(storageShape, memrefType.getElementType(), storageLayout,
+                      memrefType.getMemorySpace());
+
+  auto storageAlloc = builder.create<memref::AllocOp>(loc, storageType);
+
+  std::optional<std::pair<AffineMap, AffineMap>> vgm =
+      computeViewVirtualGridMaps(builder, viewOp, gridShape);
+
+  ttcore::GridAttr gridAttr;
+  if (vgm) {
+    // The grid requires core virtualization. Stamp the full VGM maps onto the
+    // output storage (the generic verifier requires the output operand to carry
+    // a VGM matching the grid) and derive the grid-only GridAttr maps from
+    // them.
+    auto [forwardMap, inverseMap] = *vgm;
+    storageAlloc->setAttr(utils::kVirtualGridForwardMappingAttr,
+                          AffineMapAttr::get(forwardMap));
+    storageAlloc->setAttr(utils::kVirtualGridInverseMappingAttr,
+                          AffineMapAttr::get(inverseMap));
+    std::optional<std::pair<AffineMap, AffineMap>> gridMaps =
+        utils::getGridMapsFromVirtualGridMapping(storageAlloc.getResult(),
+                                                 gridShape);
+    TT_assertv(gridMaps.has_value(),
+               "Failed to derive grid maps from virtual grid mapping for view "
+               "materialization");
+    gridAttr = ttcore::GridAttr::get(builder.getContext(), gridShape,
+                                     gridMaps->first, gridMaps->second);
+  } else {
+    gridAttr = builder.getAttr<ttcore::GridAttr>(gridShape);
+  }
+  Value materialized = storageAlloc.getResult();
   ArrayAttr emptyArray = builder.getArrayAttr({});
   ArrayAttr threads =
       builder.getArrayAttr(builder.getAttr<ThreadAttr>(ThreadType::Unified));
@@ -132,8 +202,6 @@ Value materializeMemrefView(OpBuilder &builder, Location loc,
   builder.createBlock(&region);
   builder.setInsertionPointToStart(&region.front());
 
-  SmallVector<int64_t> shardShape =
-      llvm::to_vector(ttcore::getShardShape(materialized));
   auto localType =
       MemRefType::get(shardShape, memrefType.getElementType(),
                       MemRefLayoutAttrInterface{}, memrefType.getMemorySpace());
