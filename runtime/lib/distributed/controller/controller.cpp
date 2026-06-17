@@ -12,21 +12,16 @@
 #include "tt/runtime/flatbuffer/types_generated.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
+#include <source_location.h>
+
 namespace tt::runtime::distributed::controller {
 
 namespace fb = ::tt::runtime::distributed::flatbuffer;
 
 
-tt::runtime::Tensor createDistributedTensorWithRefcountedHandle(){  
-  // class handleRefcounter{
-  //   public: 
-  //   handleRefcounter();
-  //   ~handleRefcounter(){
-  //     std::cout << "handleRefcounter destroyed" << std::endl;
-  //   };
-  //   private:
-  // };
-  std::shared_ptr<void> fakeHandle = std::shared_ptr<void>(nullptr, [](void *){ LOG_INFO("handle destroyed"); });
+tt::runtime::Tensor createDistributedTensorWithRefcountedHandle(std::string caller_name = std::source_location::current().function_name()){  
+  LOG_INFO("createDistributedTensorWithRefcountedHandle from", caller_name);
+  std::shared_ptr<void> fakeHandle = std::shared_ptr<void>(nullptr, [caller_name](void *){ LOG_INFO("handle destroyed | created by ", caller_name ); });
   tt::runtime::Tensor outputTensorHandle = tt::runtime::Tensor(fakeHandle, nullptr, DeviceRuntime::TTNN);
   return outputTensorHandle;
 }
