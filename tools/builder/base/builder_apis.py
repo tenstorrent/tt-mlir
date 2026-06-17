@@ -100,6 +100,8 @@ def _compile_and_execute(
         if is_deferred:
             device = deferred.open()
 
+        print(device)
+
         # Execute the flatbuffer, closing deferred devices after execution so that
         # the next test's compilation can use a mock device without conflict.
         if target in ["ttnn", "ttmetal", "ttnn-mode"]:

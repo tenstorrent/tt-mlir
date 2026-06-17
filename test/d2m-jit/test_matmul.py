@@ -20,6 +20,8 @@ Two flavours covered:
 import pytest
 import torch
 import d2m_jit as d2m
+from profiler import *
+import os
 
 
 @d2m.kernel
@@ -41,6 +43,7 @@ def _make_layout():
 
 
 def test_matmul_compiles_and_runs():
+    # with trace("z_prof_d2m", 8086):
     lhs = torch.eye(64, dtype=torch.float32)
     rhs = torch.eye(64, dtype=torch.float32)
     L = _make_layout()

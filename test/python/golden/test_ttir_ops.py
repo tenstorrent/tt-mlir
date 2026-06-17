@@ -10,7 +10,7 @@ from functools import reduce
 import operator
 from conftest import x86_only, get_request_kwargs
 
-from builder.base.builder_utils import Operand, Shape, TypeInfo
+from builder.base.builder_utils import Operand, Shape, TypeInfo, DeferredDevice
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir, build_module
 from builder.base.builder_enums import *
@@ -71,6 +71,9 @@ def test_hoisted_logical_not(
     )
 
 
+from profiler import *
+
+
 @pytest.mark.parametrize(
     "shapes,batch_dims_lhs,contract_dims_lhs,batch_dims_rhs,contract_dims_rhs",
     [
@@ -91,30 +94,31 @@ def test_dot_general(
     batch_dims_rhs: List[int],
     contract_dims_rhs: List[int],
     request,
-    device,
 ):
-    def module(builder: TTIRBuilder):
-        @builder.func(shapes, [torch.float32, torch.float32])
-        def dot_general(
-            in0: Operand,
-            in1: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.dot_general(
-                in0,
-                in1,
-                batch_dims_lhs,
-                contract_dims_lhs,
-                batch_dims_rhs,
-                contract_dims_rhs,
-            )
+    with trace("z_prof_builder_test", 8086):
 
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        device=device,
-    )
+        def module(builder: TTIRBuilder):
+            @builder.func(shapes, [torch.float32, torch.float32])
+            def dot_general(
+                in0: Operand,
+                in1: Operand,
+                builder: TTIRBuilder,
+                unit_attrs: Optional[List[str]] = None,
+            ):
+                return builder.dot_general(
+                    in0,
+                    in1,
+                    batch_dims_lhs,
+                    contract_dims_lhs,
+                    batch_dims_rhs,
+                    contract_dims_rhs,
+                )
+
+        compile_and_execute_ttir(
+            module,
+            **get_request_kwargs(request),
+            device=DeferredDevice(request),
+        )
 
 
 def gt(

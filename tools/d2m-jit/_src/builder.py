@@ -825,6 +825,8 @@ def _execute(b: _Builder, lts):
 
     device = runtime.open_mesh_device(device_options)
     submitted = runtime.submit(device, fbb, program_index, rt_inputs)
+    print("SUBMITTED")
+    print(submitted)
     runtime.wait(submitted)
     for i, rt_out in enumerate(submitted):
         host_view = runtime.to_host(rt_out, untilize=True)[0]
