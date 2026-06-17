@@ -1484,6 +1484,29 @@ private:
   }
 };
 
+// Build a slice of `value` that narrows a single dimension `dim` to
+// [from, to) and keeps every other dimension full. Shared by the operand and
+// bias rewrites below.
+static Value createSingleDimSlice(mlir::PatternRewriter &rewriter,
+                                  mlir::Location loc, Value value, int64_t dim,
+                                  int64_t from, int64_t to) {
+  auto type = mlir::cast<RankedTensorType>(value.getType());
+  ArrayRef<int64_t> shape = type.getShape();
+  int64_t rank = type.getRank();
+  SmallVector<int32_t> begins(rank, 0);
+  SmallVector<int32_t> ends(shape.begin(), shape.end());
+  SmallVector<int32_t> steps(rank, 1);
+  begins[dim] = static_cast<int32_t>(from);
+  ends[dim] = static_cast<int32_t>(to);
+  SmallVector<int64_t> slicedShape(shape);
+  slicedShape[dim] = to - from;
+  auto slicedType = RankedTensorType::get(slicedShape, type.getElementType(),
+                                          type.getEncoding());
+  return rewriter.create<SliceStaticOp>(
+      loc, slicedType, value, rewriter.getI32ArrayAttr(begins),
+      rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(steps));
+}
+
 // Push a matmul/linear output slice up into the operand producing the sliced
 // dim, so the matmul computes only the rows/columns that are used:
 //
@@ -1513,36 +1536,38 @@ public:
     Value sliceVal = slice.getInput();
     auto matmul = sliceVal.getDefiningOp<MatmulOp>();
     auto linear = sliceVal.getDefiningOp<LinearOp>();
-    Operation *producer = matmul ? matmul.getOperation()
-                                 : (linear ? linear.getOperation() : nullptr);
-    if (!producer) {
-      return rewriter.notifyMatchFailure(slice,
-                                         "producer is not a matmul or linear");
+    Operation *matmulOrLinearOp =
+        matmul ? matmul.getOperation()
+               : (linear ? linear.getOperation() : nullptr);
+    if (!matmulOrLinearOp) {
+      return rewriter.notifyMatchFailure(
+          slice, "slice input is not a matmul or linear");
     }
-    Value mmA = matmul ? matmul.getA() : linear.getA();
-    Value mmB = matmul ? matmul.getB() : linear.getB();
+    Value matmulAVal = matmul ? matmul.getA() : linear.getA();
+    Value matmulBVal = matmul ? matmul.getB() : linear.getB();
     bool transposeA = matmul ? matmul.getTransposeA() : linear.getTransposeA();
     bool transposeB = matmul ? matmul.getTransposeB() : linear.getTransposeB();
     Value bias = linear ? linear.getBias() : Value();
-    Location producerLoc = producer->getLoc();
+    Location matmulOrLinearLoc = matmulOrLinearOp->getLoc();
 
-    // Pushing the slice up only helps if the matmul/linear has no other user.
-    if (!producer->getResult(0).hasOneUse()) {
+    // Narrowing the output is only valid if this slice is its sole consumer:
+    // any other user would otherwise see the narrowed (wrong) result.
+    if (!matmulOrLinearOp->getResult(0).hasOneUse()) {
       return rewriter.notifyMatchFailure(slice,
                                          "matmul/linear result has other uses");
     }
 
-    auto matmulType =
-        mlir::cast<RankedTensorType>(producer->getResult(0).getType());
-    ArrayRef<int64_t> matmulShape = matmulType.getShape();
-    int64_t matmulRank = matmulType.getRank();
-    if (matmulRank < 2) {
-      return rewriter.notifyMatchFailure(slice, "matmul rank < 2");
+    auto outputType =
+        mlir::cast<RankedTensorType>(matmulOrLinearOp->getResult(0).getType());
+    ArrayRef<int64_t> outputShape = outputType.getShape();
+    int64_t outputRank = outputType.getRank();
+    if (outputRank < 2) {
+      return rewriter.notifyMatchFailure(slice, "matmul/linear rank < 2");
     }
 
     // Output row (M) dim is rank-2, col (N) dim is rank-1.
-    int64_t matmulRowDim = matmulRank - 2;
-    int64_t matmulColDim = matmulRank - 1;
+    int64_t outputRowDim = outputRank - 2;
+    int64_t outputColDim = outputRank - 1;
 
     // The slice must be full-range/step-1 on every dim but one row/col dim,
     // which it narrows with a contiguous sub-range.
@@ -1550,13 +1575,13 @@ public:
     auto sliceEnds = slice.getEnds().getValue();
     auto sliceSteps = slice.getStep().getValue();
 
-    int64_t narrowedDim = -1;           // the single slice dim that is narrowed
+    int64_t narrowedDim = -1;           // the single narrowed output dim
     int64_t sliceFrom = 0, sliceTo = 0; // [sliceFrom:sliceTo) on that dim
-    for (int64_t dim = 0; dim < matmulRank; ++dim) {
+    for (int64_t dim = 0; dim < outputRank; ++dim) {
       int64_t begin = mlir::cast<IntegerAttr>(sliceBegins[dim]).getInt();
       int64_t end = mlir::cast<IntegerAttr>(sliceEnds[dim]).getInt();
       int64_t step = mlir::cast<IntegerAttr>(sliceSteps[dim]).getInt();
-      int64_t dimSize = matmulShape[dim];
+      int64_t dimSize = outputShape[dim];
       if (begin < 0) {
         begin += dimSize;
       }
@@ -1576,98 +1601,73 @@ public:
       sliceFrom = begin;
       sliceTo = end;
     }
-    if (narrowedDim != matmulRowDim && narrowedDim != matmulColDim) {
+    if (narrowedDim != outputRowDim && narrowedDim != outputColDim) {
       return rewriter.notifyMatchFailure(slice, "slice not on row or col dim");
     }
 
-    bool sliceRows = (narrowedDim == matmulRowDim);
-    int64_t narrowedOutDim = sliceRows ? matmulRowDim : matmulColDim;
+    bool sliceRows = (narrowedDim == outputRowDim);
     // Reject empty slices (begin == end): legal TTIR but a 0-sized matmul is no
     // fusion. Inverted slices can't occur: step 1, verifier bars begin > end.
     if (sliceTo == sliceFrom) {
       return rewriter.notifyMatchFailure(slice, "empty slice");
     }
-    if (sliceTo - sliceFrom >= matmulShape[narrowedOutDim]) {
+    if (sliceTo - sliceFrom >= outputShape[narrowedDim]) {
       return rewriter.notifyMatchFailure(slice, "slice does not narrow");
     }
 
     // Operand and dim producing the narrowed output, honoring transpose:
     //   rows -> A: transpose_a ? last dim : rank-2 dim
     //   cols -> B: transpose_b ? rank-2 dim : last dim
-    Value matmulOperand = sliceRows ? mmA : mmB;
-    auto operandType = mlir::cast<RankedTensorType>(matmulOperand.getType());
-    int64_t operandRank = operandType.getRank();
+    Value slicedOperand = sliceRows ? matmulAVal : matmulBVal;
+    int64_t operandRank =
+        mlir::cast<RankedTensorType>(slicedOperand.getType()).getRank();
+    // A rank >= 2 output already implies rank >= 2 operands; guard regardless.
+    if (operandRank < 2) {
+      return rewriter.notifyMatchFailure(slice, "operand rank < 2");
+    }
     int64_t operandDim;
     if (sliceRows) {
       operandDim = transposeA ? operandRank - 1 : operandRank - 2;
     } else {
       operandDim = transposeB ? operandRank - 2 : operandRank - 1;
     }
-
-    // Build slice(operand) narrowing only operandDim to [sliceFrom:sliceTo).
-    ArrayRef<int64_t> operandShape = operandType.getShape();
-    SmallVector<int32_t> operandBegins(operandRank, 0);
-    SmallVector<int32_t> operandEnds(operandShape.begin(), operandShape.end());
-    SmallVector<int32_t> operandSteps(operandRank, 1);
-    operandBegins[operandDim] = static_cast<int32_t>(sliceFrom);
-    operandEnds[operandDim] = static_cast<int32_t>(sliceTo);
-
-    SmallVector<int64_t> operandSlicedShape(operandShape);
-    operandSlicedShape[operandDim] = sliceTo - sliceFrom;
-    auto operandSlicedType =
-        RankedTensorType::get(operandSlicedShape, operandType.getElementType(),
-                              operandType.getEncoding());
-    auto operandSlice = rewriter.create<SliceStaticOp>(
-        producerLoc, operandSlicedType, matmulOperand,
-        rewriter.getI32ArrayAttr(operandBegins),
-        rewriter.getI32ArrayAttr(operandEnds),
-        rewriter.getI32ArrayAttr(operandSteps));
+    Value operandSlice =
+        createSingleDimSlice(rewriter, matmulOrLinearLoc, slicedOperand,
+                             operandDim, sliceFrom, sliceTo);
 
     // Narrow the linear bias along the dim aligned with the sliced output dim.
-    // Right-aligned broadcast puts it at biasRank-(matmulRank-narrowedOutDim).
+    // Right-aligned broadcast puts it at biasRank-(outputRank-narrowedDim).
     // A missing or size-1 (broadcast) dim already spans the output, so skip it.
     Value newBias = bias;
     if (bias) {
       auto biasType = mlir::cast<RankedTensorType>(bias.getType());
-      ArrayRef<int64_t> biasShape = biasType.getShape();
       int64_t biasRank = biasType.getRank();
-      int64_t biasDim = biasRank - (matmulRank - narrowedOutDim);
-      if (biasDim >= 0 && biasShape[biasDim] != 1) {
-        SmallVector<int32_t> biasBegins(biasRank, 0);
-        SmallVector<int32_t> biasEnds(biasShape.begin(), biasShape.end());
-        SmallVector<int32_t> biasSteps(biasRank, 1);
-        biasBegins[biasDim] = static_cast<int32_t>(sliceFrom);
-        biasEnds[biasDim] = static_cast<int32_t>(sliceTo);
-        SmallVector<int64_t> biasSlicedShape(biasShape);
-        biasSlicedShape[biasDim] = sliceTo - sliceFrom;
-        auto biasSlicedType = RankedTensorType::get(
-            biasSlicedShape, biasType.getElementType(), biasType.getEncoding());
-        newBias =
-            rewriter.create<SliceStaticOp>(producerLoc, biasSlicedType, bias,
-                                           rewriter.getI32ArrayAttr(biasBegins),
-                                           rewriter.getI32ArrayAttr(biasEnds),
-                                           rewriter.getI32ArrayAttr(biasSteps));
+      int64_t biasDim = biasRank - (outputRank - narrowedDim);
+      if (biasDim >= 0 && biasType.getShape()[biasDim] != 1) {
+        newBias = createSingleDimSlice(rewriter, matmulOrLinearLoc, bias,
+                                       biasDim, sliceFrom, sliceTo);
       }
     }
 
     // Narrowed matmul/linear: sliced output dim becomes sliceTo - sliceFrom.
-    SmallVector<int64_t> narrowedOutShape(matmulShape);
-    narrowedOutShape[narrowedOutDim] = sliceTo - sliceFrom;
+    SmallVector<int64_t> narrowedOutShape(outputShape);
+    narrowedOutShape[narrowedDim] = sliceTo - sliceFrom;
     auto narrowedOutType =
-        RankedTensorType::get(narrowedOutShape, matmulType.getElementType(),
-                              matmulType.getEncoding());
-    Value newMatmulA = sliceRows ? operandSlice.getResult() : mmA;
-    Value newMatmulB = sliceRows ? mmB : operandSlice.getResult();
+        RankedTensorType::get(narrowedOutShape, outputType.getElementType(),
+                              outputType.getEncoding());
+    Value newMatmulAVal = sliceRows ? operandSlice : matmulAVal;
+    Value newMatmulBVal = sliceRows ? matmulBVal : operandSlice;
     Value narrowedResult =
-        matmul
-            ? rewriter
-                  .create<MatmulOp>(producerLoc, narrowedOutType, newMatmulA,
-                                    newMatmulB, transposeA, transposeB)
-                  .getResult()
-            : rewriter
-                  .create<LinearOp>(producerLoc, narrowedOutType, newMatmulA,
-                                    newMatmulB, newBias, transposeA, transposeB)
-                  .getResult();
+        matmul ? rewriter
+                     .create<MatmulOp>(matmulOrLinearLoc, narrowedOutType,
+                                       newMatmulAVal, newMatmulBVal, transposeA,
+                                       transposeB)
+                     .getResult()
+               : rewriter
+                     .create<LinearOp>(matmulOrLinearLoc, narrowedOutType,
+                                       newMatmulAVal, newMatmulBVal, newBias,
+                                       transposeA, transposeB)
+                     .getResult();
 
     // The narrowed output already has the slice's shape, so it replaces it.
     rewriter.replaceOp(slice, narrowedResult);
