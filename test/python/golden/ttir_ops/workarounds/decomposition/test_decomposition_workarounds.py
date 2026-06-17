@@ -1098,15 +1098,35 @@ def test_paged_sdpa_decode_l1_overflow_no_workaround(
         ]
     ],
 )
+# Exercise both optimization levels.  The fix that keeps the op within L1 is
+# applied by a different component at each level:
+#   - opt-level 0: PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern
+#     (the TTNN workarounds pass).
+#   - opt-level >= 1: generateSDPADecodeProgramConfig in the
+#     TTNNOperationValidationAndFallback (optimizer) pass.
+# Either way the same shape that overflows L1 under the default schedule must
+# compile and run.
+@pytest.mark.parametrize("optimizer_level", [0, 1])
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_paged_sdpa_decode_l1_overflow_with_workaround(
-    shapes: List[Shape], dtypes: List[torch.dtype], target: str, request, device
+    shapes: List[Shape],
+    dtypes: List[torch.dtype],
+    target: str,
+    optimizer_level: int,
+    request,
+    device,
 ):
     """
-    Positive coverage for the workaround: with the TTNN workarounds pass
-    enabled (default), the same shape that overflows L1 under the default
-    schedule must compile and run.
+    Positive coverage for the workaround: the same shape that overflows L1
+    under the default schedule must compile and run once the fix is applied.
+    At opt-level 0 the TTNN workarounds pass supplies the program config; at
+    opt-level >= 1 the optimizer's TTNNOperationValidationAndFallback pass
+    owns the decision and supplies it instead.
     """
+    # opt-level >= 1 runs the OpModel-backed optimizer, which requires an
+    # opmodel-enabled build.
+    if optimizer_level >= 1 and not request.config.getoption("--require-opmodel"):
+        pytest.skip("optimization-level>=1 requires an opmodel-enabled build")
 
     def module(builder: TTIRBuilder):
         @builder.func(shapes, dtypes)
@@ -1146,11 +1166,16 @@ def test_paged_sdpa_decode_l1_overflow_with_workaround(
                 unit_attrs=unit_attrs,
             )
 
+    pipeline_options = []
+    if optimizer_level >= 1:
+        pipeline_options.append(f"optimization-level={optimizer_level}")
+
     compile_and_execute_ttir(
         module,
         **get_request_kwargs(request),
         target=target,
         device=device,
+        pipeline_options=pipeline_options,
     )
 
 

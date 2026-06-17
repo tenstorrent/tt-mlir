@@ -3,6 +3,7 @@ add_mlir_dialect_library(MLIRTTNNAnalysis
         Conv2dConfigSearchSpace.cpp
         DFShardingPolicy.cpp
         MatmulProgramConfig.cpp
+        SDPAProgramConfig.cpp
         GreedyL1InterleavedPolicy.cpp
         L1ChainConfig.cpp
         L1InterleavedFallbackAnalysis.cpp

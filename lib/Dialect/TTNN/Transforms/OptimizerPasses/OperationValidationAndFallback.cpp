@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/Conv2dConfigSearchSpace.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAttrs.h"
+#include "ttmlir/Dialect/TTNN/Analysis/SDPAProgramConfig.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
@@ -128,6 +129,11 @@ bool tryConfigFallbacks(Operation *operation,
                         uint32_t maxAttempts = 0);
 
 void applyConfigChange(Operation *operation, Conv2dConfigAttr newConfig);
+
+// Set a program config attribute on an op that carries one. Pure IR mutation
+// mirroring applyConfigChange; the config itself is decided elsewhere (e.g.
+// generateSDPADecodeProgramConfig).
+void applyProgramConfig(Operation *operation, Attribute programConfig);
 } // namespace fallbacks
 
 class TTNNOperationValidationAndFallback
@@ -176,6 +182,17 @@ public:
         // eventually. Then this check becomes an assert.
         if (!mlir::dyn_cast<OpModel>(operation)) {
           return WalkResult::skip();
+        }
+
+        // This pass only runs at opt-level>=1, where it owns the paged SDPA
+        // decode program-config decision (the opt-level=0 workaround rewrite is
+        // disabled). Proactively generate a fixed SDPAProgramConfig from the
+        // op's attributes and tensor shapes and set it; the validation below
+        // then confirms the choice fits L1 and the regular fallbacks handle the
+        // case where it does not.
+        if (std::optional<SDPAProgramConfigAttr> sdpaProgramConfig =
+                generateSDPADecodeProgramConfig(operation)) {
+          fallbacks::applyProgramConfig(operation, *sdpaProgramConfig);
         }
 
         // Extract OpConfigs from IR
@@ -1081,6 +1098,26 @@ void applyConfigChange(Operation *operation, Conv2dConfigAttr newConfig) {
   TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
                "Applied config change to operation {} at {}: new config = {}",
                operation->getName(), operation->getLoc(), newConfig);
+}
+
+// Set a program config attribute on an op that carries one. Pure IR mutation
+// mirroring applyConfigChange; the config itself is decided elsewhere (e.g.
+// generateSDPADecodeProgramConfig).
+void applyProgramConfig(Operation *operation, Attribute programConfig) {
+  llvm::TypeSwitch<Operation *>(operation)
+      .Case<ttnn::PagedScaledDotProductAttentionDecodeOp>([&](auto sdpaOp) {
+        sdpaOp.setProgramConfigAttr(
+            mlir::cast<SDPAProgramConfigAttr>(programConfig));
+      })
+      .Default([&](Operation *unsupportedOp) {
+        llvm::llvm_unreachable_internal(
+            "applyProgramConfig called on an op without a known program "
+            "config attribute");
+      });
+
+  TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
+               "Applied program config to operation {} at {}: {}",
+               operation->getName(), operation->getLoc(), programConfig);
 }
 
 } // namespace fallbacks
