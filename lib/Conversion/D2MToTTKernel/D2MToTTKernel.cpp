@@ -2978,8 +2978,26 @@ public:
       remoteMemRefType = op.getDstMemRefType();
     }
 
-    ArrayRef<int64_t> shardShape = ttcore::getShardShape(remoteMemRef);
+    ArrayRef<int64_t> elemShardShape = ttcore::getShardShape(remoteMemRef);
+
+    // The runtime BufferDistributionSpec pages buffers and the TensorAccessor
+    // (plus the tensor strides) operate in PAGE units, so the read/write loop
+    // and pageId must be expressed in page units too.  For tiled buffers the
+    // element *is* a page (one tile), so the element shard shape and element
+    // size are already in page units.  For row-major (scalar-element) buffers
+    // the page is a stick of (1, shardWidth) -- matching
+    // createShardedBufferConfigForL1Memref -- so the innermost shard dim
+    // collapses to a single page and the page spans the full shard width.
+    // Without this, a scalar-element shard would be iterated per element while
+    // the tensor stride is stick-based, addressing the wrong pages.
+    SmallVector<int64_t> shardShape(elemShardShape.begin(),
+                                    elemShardShape.end());
     int64_t pageSizeBytes = getPageSizeBytes(remoteMemRefType);
+    if (!mlir::isa<ttcore::TileType>(remoteMemRefType.getElementType())) {
+      int64_t shardWidthElems = shardShape.back();
+      shardShape.back() = 1;
+      pageSizeBytes *= shardWidthElems;
+    }
 
     // Get the operand index for the remote memref (to set up ArgSpec).
     auto getArgOp = remoteMemRef.template getDefiningOp<d2m::GetArgOp>();
@@ -3113,6 +3131,23 @@ public:
           innerLoc, rewriter.getI32Type(), offset);
       Value localAddr =
           rewriter.create<arith::AddIOp>(innerLoc, localL1Base, offsetI32);
+
+      // Debug probe (set D2M_ACCESSOR_DPRINT): per-tile, print this core's
+      // logical coords + the page id and local L1 address fed to the accessor.
+      if (std::getenv("D2M_ACCESSOR_DPRINT")) {
+        Value myY = rewriter.create<ttkernel::MyLogicalYOp>(innerLoc);
+        Value myX = rewriter.create<ttkernel::MyLogicalXOp>(innerLoc);
+        Value zeroOff = intConstant<int32_t>(rewriter, innerLoc, 0);
+        Value resolvedNoc =
+            rewriter.create<ttkernel::TensorAccessorGetNocAddrOp>(
+                innerLoc, rewriter.getType<ttkernel::NocAddrType>(),
+                tensorAccessor, pageIdI32, zeroOff, /*noc=*/Value());
+        rewriter.create<ttkernel::DPrintOp>(
+            innerLoc,
+            IsRead ? "ACC RD y={} x={} page={} bank={} noc={}\\n"
+                   : "ACC WR y={} x={} page={} bank={} noc={}\\n",
+            myY, myX, pageIdI32, bankBaseAddress, resolvedNoc);
+      }
 
       if constexpr (IsRead) {
         rewriter.create<ttkernel::NocAsyncReadTileOp>(
