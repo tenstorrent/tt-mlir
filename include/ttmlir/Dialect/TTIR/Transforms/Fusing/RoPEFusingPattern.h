@@ -47,6 +47,32 @@ public:
                   mlir::PatternRewriter &rewriter) const override;
 };
 
+// Fuses interleaved-pair RoPE:
+//   x_   = reshape(x, [..., D/2, 1, 2])
+//   out  = reshape(freqs[..., 0] * x_[..., 0] + freqs[..., 1] * x_[..., 1],
+//                  [..., D])
+//   where freqs is shape (..., D/2, 2, 2) packing per-pair
+//   [[cos,-sin],[sin,cos]]
+//
+// Rewrites to rotate-half form so it lowers to the existing rotary_embedding
+// op:
+//   x_rh   = cat([x[..., 0::2], x[..., 1::2]], dim=-1)
+//   cos    = cat([freqs[..., 0, 0], freqs[..., 0, 0]], dim=-1)
+//   sin    = cat([freqs[..., 1, 0], freqs[..., 1, 0]], dim=-1)
+//   out_rh = rotary_embedding(x_rh, cos, sin)
+//   result = reshape(permute(reshape(out_rh, [..., 2, D/2]), [0,1,2,4,3]),
+//                    [..., D])
+//
+// Anchors on AddOp. Walks back through Broadcast/Reshape to identify the
+// 6D reshape of x and the freqs_cis slices.
+class RoPEInterleavedPairFusingPattern : public mlir::OpRewritePattern<AddOp> {
+public:
+  using OpRewritePattern<AddOp>::OpRewritePattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(AddOp srcOp, mlir::PatternRewriter &rewriter) const override;
+};
+
 } // namespace mlir::tt::ttir::fusing
 
 #endif // TTMLIR_DIALECT_TTIR_TRANSFORMS_FUSING_ROPEFUSINGPATTERN_H
