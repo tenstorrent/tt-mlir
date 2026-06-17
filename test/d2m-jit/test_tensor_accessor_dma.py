@@ -5,20 +5,18 @@
 """Validation tests for the TensorAccessor-based shard-level DMA lowering
 (`use-tensor-accessor-dma`).
 
-The fully-indexed DMA path computes a remote address via `getMemoryMap`, which
-calls `applyViews` to compose every intermediate `view_layout` (#ttcore.view)
-between the kernel operand and the device buffer into the index. The
-TensorAccessor path must do the same up to the device memory map (which the
-TensorAccessor itself handles): the views in between still have to go into the
-page-index calculation. `D2MDMAViaTensorAccessorRewriter` currently derives the
-page id from the raw DMA indices without composing those views, so any operand
-carrying a non-identity view (i.e. essentially every kernel operand, since
-NormalizeThreadArgs preserves the #ttcore.view on the get_arg memref) gets a
-wrong page id and the tiles are scrambled.
+The runtime BufferDistributionSpec, the TensorAccessor, and the tensor strides
+all operate in *page* units. For tiled buffers the element is itself a page
+(one tile), but for row-major (scalar-element) buffers the page is a stick of
+`(1, shardWidth)` (matching `createShardedBufferConfigForL1Memref`). The
+accessor read/write loop in `D2MDMAViaTensorAccessorRewriter` must therefore
+iterate in page units too: it previously looped over the *element* shard shape
+with an *element* page size while the tensor stride was stick-based, so a
+row-major shard was addressed with the wrong row stride and the tiles were
+scrambled (e.g. through to_layout's tilize, which reads the row-major source).
 
 `test_accessor_dma_copy_through_view` is the regression test: a pure copy
-(remote_load -> remote_store, no compute) through such a layout. It is xfail
-until the accessor path composes the views; remove the xfail once it passes.
+(remote_load -> remote_store, no compute) through such a layout.
 """
 
 import pytest
@@ -85,16 +83,6 @@ def test_fully_indexed_copy_through_view():
     assert_pcc(src, out)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "TensorAccessor DMA path drops intermediate views: "
-        "D2MDMAViaTensorAccessorRewriter computes the page id from the raw DMA "
-        "indices and never composes the operand's #ttcore.view maps (the "
-        "fully-indexed path does via getMemoryMap -> applyViews). Remove this "
-        "xfail once the accessor pageId calc applies the views."
-    ),
-)
 @pytest.mark.skipif(
     torch is None or runtime is None, reason="requires torch + ttmlir runtime"
 )
