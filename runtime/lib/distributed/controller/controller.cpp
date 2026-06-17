@@ -608,6 +608,8 @@ void Controller::setTensorRetainByGlobalId(std::uint64_t globalId,
     return;
   }
 
+  LOG_DEBUG("Setting retain of tensor global id ", globalId, " to ", retain);
+
   auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
 
   uint64_t commandId = CommandFactory::buildSetTensorRetainCommand(
@@ -783,6 +785,8 @@ void Controller::deallocateTensorByGlobalId(std::uint64_t globalId,
               " because controller is not accepting commands");
     return;
   }
+
+  LOG_DEBUG("Deallocating tensor global id ", globalId, " (force=", force, ")");
 
   auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
 
