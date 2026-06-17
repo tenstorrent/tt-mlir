@@ -131,4 +131,19 @@ module @test_distributed_rms_norm_decomposition attributes {} {
     %1 = "ttnn.distributed_rms_norm"(%arg0, %0) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 1>}> : (tensor<1x64x128xbf16, #ttnn_layout_supported_rank3_h64>, !ttnn.device) -> tensor<1x64x128xbf16, #ttnn_layout_supported_rank3_h64>
     return %1 : tensor<1x64x128xbf16, #ttnn_layout_supported_rank3_h64>
   }
+
+  // Cross-device mean of per-device sum(x^2) must be scaled by 1/N
+  // (N=128 -> 7.812500e-03) before adding epsilon.
+  func.func public @test_pre_all_gather_divides_stats_by_hidden_size(
+      %arg0: tensor<1x1x64x128xbf16, #ttnn_layout>,
+      %arg1: tensor<128xbf16, #ttnn_layout_weight>) -> tensor<1x1x64x128xbf16, #ttnn_layout> {
+    // CHECK-LABEL: func.func public @test_pre_all_gather_divides_stats_by_hidden_size
+    // CHECK: %[[MEAN:[0-9]+]] = "ttnn.mean"
+    // CHECK: %[[INVH:[0-9]+]] = "ttnn.full"(%{{[0-9]+}}) <{fill_value = 7.812500e-03 : f32
+    // CHECK: %[[EX2:[0-9]+]] = "ttnn.multiply"(%[[MEAN]], %[[INVH]])
+    // CHECK: "ttnn.add"(%[[EX2]],
+    %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
+    %1 = "ttnn.distributed_rms_norm"(%arg0, %arg1, %0) <{cluster_axis = 1 : ui32, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 1, 0, 0, 0, 1>}> : (tensor<1x1x64x128xbf16, #ttnn_layout>, tensor<128xbf16, #ttnn_layout_weight>, !ttnn.device) -> tensor<1x1x64x128xbf16, #ttnn_layout>
+    return %1 : tensor<1x1x64x128xbf16, #ttnn_layout>
+  }
 }

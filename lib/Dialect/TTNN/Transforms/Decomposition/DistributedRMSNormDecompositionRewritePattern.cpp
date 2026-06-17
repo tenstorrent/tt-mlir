@@ -352,10 +352,21 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
       scalarRowShape, inputType.getElementType(), scalarEncoding);
 
   ArrayAttr dimArg = rewriter.getI32ArrayAttr({static_cast<int32_t>(rank - 1)});
-  // global_stats = mean(flattened per-device E(x^2), dim=-1, keep_dim=true)
+  // mean of the per-device partial stats across devices.
   auto globalMeanOp = rewriter.create<ttnn::MeanOp>(
       ttmlir::utils::appendLocationSuffix(loc, "_global_mean"), scalarRowType,
       flattenedStats.getResult(), /*keep_dim=*/true, dimArg);
+
+  // Stats are per-device sum(x^2); divide by hidden size N to get E(x^2).
+  double invHiddenPerDevice = 1.0 / static_cast<double>(inputShape.back());
+  auto invHiddenTensor = rewriter.create<ttnn::FullOp>(
+      ttmlir::utils::appendLocationSuffix(loc, "_inv_hidden"), scalarRowType,
+      rewriter.getF32FloatAttr(static_cast<float>(invHiddenPerDevice)),
+      op.getDevice());
+  // global_stats = E(x^2) = mean_over_devices(sum(x^2)) / N
+  auto globalStatsOp = rewriter.create<ttnn::MultiplyOp>(
+      ttmlir::utils::appendLocationSuffix(loc, "_scale_ex2"), scalarRowType,
+      globalMeanOp.getResult(), invHiddenTensor.getResult());
 
   // eps_tensor = full(epsilon)
   auto epsTensor = rewriter.create<ttnn::FullOp>(
@@ -366,7 +377,7 @@ LogicalResult DistributedRMSNormDecompositionRewritePattern::matchAndRewrite(
   // stabilized = add(global_stats, eps_tensor)
   auto addEpsOp = rewriter.create<ttnn::AddOp>(
       ttmlir::utils::appendLocationSuffix(loc, "_add_eps"), scalarRowType,
-      globalMeanOp.getResult(), epsTensor.getResult());
+      globalStatsOp.getResult(), epsTensor.getResult());
 
   // inv_rms = rsqrt(stabilized)
   auto rsqrtOp = rewriter.create<ttnn::RsqrtOp>(
