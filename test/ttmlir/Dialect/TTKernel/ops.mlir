@@ -1,7 +1,27 @@
 // RUN: ttmlir-opt -o %t %s
+// RUN: ttmlir-opt %s -o - | ttmlir-opt -o /dev/null
 // RUN: FileCheck %s --input-file=%t
 
 #l1_ = #ttcore.memory_space<l1>
+
+// CHECK-LABEL: func.func @test_compute_kernel_hw_startup_unary
+func.func @test_compute_kernel_hw_startup_unary() {
+  %icb = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<1024, si32>
+  %ocb = ttkernel.get_compile_time_arg_val(1) : () -> !ttkernel.cb<1, !ttcore.tile<32x32, si32>>
+  ttkernel.compute_kernel_hw_startup(%icb, %ocb) : (!ttkernel.cb<1024, si32>, !ttkernel.cb<1, !ttcore.tile<32x32, si32>>) -> ()
+  // CHECK: ttkernel.compute_kernel_hw_startup(%{{.*}}, %{{.*}}) : (!ttkernel.cb<1024, si32>, !ttkernel.cb<1, !ttcore.tile<32x32, si32>>) -> ()
+  return
+}
+
+// CHECK-LABEL: func.func @test_compute_kernel_hw_startup_binary
+func.func @test_compute_kernel_hw_startup_binary() {
+  %icb0 = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<1024, si32>
+  %icb1 = ttkernel.get_compile_time_arg_val(1) : () -> !ttkernel.cb<1024, si32>
+  %ocb = ttkernel.get_compile_time_arg_val(2) : () -> !ttkernel.cb<1, !ttcore.tile<32x32, si32>>
+  ttkernel.compute_kernel_hw_startup(%icb0, %icb1, %ocb) : (!ttkernel.cb<1024, si32>, !ttkernel.cb<1024, si32>, !ttkernel.cb<1, !ttcore.tile<32x32, si32>>) -> ()
+  // CHECK: ttkernel.compute_kernel_hw_startup(%{{.*}}, %{{.*}}, %{{.*}}) : (!ttkernel.cb<1024, si32>, !ttkernel.cb<1024, si32>, !ttkernel.cb<1, !ttcore.tile<32x32, si32>>) -> ()
+  return
+}
 
 // CHECK-LABEL: func.func @test_tilize_uninit
 func.func @test_tilize_uninit() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>} {
@@ -232,8 +252,8 @@ func.func @test_remote_mailbox_protocol_ops(%mailbox: !ttkernel.l1_addr) {
   %value = arith.constant 64 : i32
   // CHECK: %[[SEM:.*]] = ttkernel.get_semaphore
   %sem = ttkernel.get_semaphore(%zero) : (i32) -> !ttkernel.local_semaphore
-  // CHECK: %[[PTR:.*]] = ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>
-  %sem_ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%sem) : (!ttkernel.local_semaphore) -> !ttkernel.l1_addr_ptr
+  // CHECK: %[[PTR:.*]] = ttkernel.reinterpret_cast
+  %sem_ptr = ttkernel.reinterpret_cast(%sem) : (!ttkernel.local_semaphore) -> !ttkernel.l1_addr_ptr
   // CHECK: ttkernel.store_to_l1
   ttkernel.store_to_l1(%value, %sem_ptr, %zero) : (i32, !ttkernel.l1_addr_ptr, i32) -> ()
   // CHECK: ttkernel.load_from_l1

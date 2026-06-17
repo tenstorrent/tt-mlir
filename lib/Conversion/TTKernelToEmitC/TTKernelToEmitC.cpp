@@ -91,6 +91,14 @@ static std::string datatypeToDataformatStr(ttcore::DataType dtype) {
   return expression;
 }
 
+static std::string getTTKernelCalleeName(llvm::StringRef opName) {
+  opName.consume_front("ttkernel.");
+  if (opName.consume_front("experimental.")) {
+    return ("experimental::" + opName).str();
+  }
+  return opName.str();
+}
+
 static emitc::OpaqueAttr
 datatypeToDataformatEnumNameOpaqueAttr(Builder &builder,
                                        ttcore::DataType dtype) {
@@ -558,13 +566,10 @@ public:
                                 MLIRContext *ctx, std::string opName = "")
       : OpConversionPattern<SourceOp>(typeConverter, ctx), opName(opName) {}
 
-  StringRef getOpName(SourceOp op) const {
+  std::string getOpName(SourceOp op) const {
     auto name =
         opName.empty() ? op.getOperation()->getName().getStringRef() : opName;
-    if (name.starts_with("ttkernel.")) {
-      return name.drop_front(9);
-    }
-    return name;
+    return getTTKernelCalleeName(name);
   }
 
   StringRef getReduceType(ttkernel::ReduceType reduceType) const {
@@ -1022,12 +1027,9 @@ class TTKernelToEmitCArgValRewriter : public OpConversionPattern<SourceOp> {
 public:
   using OpConversionPattern<SourceOp>::OpConversionPattern;
 
-  StringRef getOpName(SourceOp op) const {
+  std::string getOpName(SourceOp op) const {
     auto name = op.getOperation()->getName().getStringRef();
-    if (name.starts_with("ttkernel.")) {
-      return name.drop_front(9);
-    }
-    return name;
+    return getTTKernelCalleeName(name);
   }
 
   ArrayAttr getTemplateArgs(Builder &builder, SourceOp op) const {
@@ -1424,7 +1426,8 @@ public:
                                std::to_string(op.getDim()))
                            .getResult());
 
-    auto opName = op.getOperation()->getName().getStringRef().drop_front(9);
+    std::string opName =
+        getTTKernelCalleeName(op.getOperation()->getName().getStringRef());
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         op, getTypeConverter()->convertType(op.getResult().getType()), opName,
         nullptr, nullptr, operands);
@@ -1481,7 +1484,8 @@ public:
         rewriter, op, arrType, arrTypeStr, adaptor.getPositionIndices());
 
     // Call get_device_id_from_logical_mesh_position
-    auto opName = op.getOperation()->getName().getStringRef().drop_front(9);
+    std::string opName =
+        getTTKernelCalleeName(op.getOperation()->getName().getStringRef());
     rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
         op, getTypeConverter()->convertType(op.getResult().getType()), opName,
         nullptr, nullptr, ValueRange{adaptor.getFcm(), meshPositionArray});
@@ -1975,12 +1979,9 @@ public:
                                     MLIRContext *ctx)
       : OpConversionPattern<SourceOp>(typeConverter, ctx) {}
 
-  StringRef getOpName(SourceOp op) const {
+  std::string getOpName(SourceOp op) const {
     auto name = op.getOperation()->getName().getStringRef();
-    if (name.starts_with("ttkernel.")) {
-      return name.drop_front(9);
-    }
-    return name;
+    return getTTKernelCalleeName(name);
   }
 
   LogicalResult
@@ -2002,7 +2003,7 @@ public:
     // Emits: { volatile int32_t __s = <scalar>; <op>(<idx>, __s); }
     // Note that apparently "{{" produces "{" but "}" is not escaped in EmitC.
     std::string code =
-        "{{ volatile int32_t __s = {}; " + getOpName(op).str() + "({}, __s); }";
+        "{{ volatile int32_t __s = {}; " + getOpName(op) + "({}, __s); }";
     rewriter.create<emitc::VerbatimOp>(op->getLoc(),
                                        rewriter.getStringAttr(code),
                                        ValueRange{scalarParam, dstIndex});
