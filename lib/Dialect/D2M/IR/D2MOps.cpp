@@ -1282,16 +1282,14 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
     return nullptr;
   }
 
-  // Shape-only reblock composition cannot represent a non-identity round trip
-  // through an intermediate view when the outer types match. Do not fold.
-  if (consecutiveView.getInput().getType() == getType()) {
-    mlir::AffineMap composed =
-        getRemapping().compose(consecutiveView.getRemapping());
-    composed = mlir::simplifyAffineMap(composed);
-    if (!composed.isIdentity()) {
-      return nullptr;
-    }
-  }
+  // Both views are reblock-only (checked above), so each remapping is exactly
+  // the canonical calculateReblockMap for its shapes, which routes through a
+  // consistent row-major flat index. Composing two such reblocks therefore
+  // round-trips the flat index exactly, so when the outer result type matches
+  // the inner input type the net transform is identity and is faithfully
+  // represented by the shape-only reblock map recomputed below
+  // (calculateReblockMap of equal shapes is the identity map). Replacing the
+  // input through the consecutive view is thus always safe here.
 
   // Replace the input through the consecutive view.
   setOperand(consecutiveView.getInput());

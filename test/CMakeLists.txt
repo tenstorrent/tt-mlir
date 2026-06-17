@@ -41,9 +41,6 @@ set(TTMLIR_TEST_DEPENDS
 if(MLIR_ENABLE_BINDINGS_PYTHON AND TTMLIR_ENABLE_BINDINGS_PYTHON)
     list(APPEND TTMLIR_TEST_DEPENDS TTMLIRPythonModules)
 endif()
-if(TTMLIR_ENABLE_TTNN_JIT)
-    list(APPEND TTMLIR_TEST_DEPENDS ttnn-jit)
-endif()
 
 # Add custom target to compile everything needed for tests but not execute it
 add_custom_target(compile-ttmlir-tests DEPENDS ${TTMLIR_TEST_DEPENDS})
