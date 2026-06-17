@@ -87,6 +87,13 @@ class Builder(metaclass=BuilderMeta):
         # at set-time. See builder.func(presharded_args=...).
         self._presharded_arg_shard_dims: Dict[BlockArgument, Tuple[int, ...]] = {}
 
+        # Mirror of the above for presharded results: the returned op's MLIR
+        # type is already the per-device (local) shape, and the func result is
+        # annotated ttcore.shard_status<presharded> (no ShardToFull mesh_shard).
+        # This dict lets the golden machinery shard the user-supplied global
+        # golden into per-device shards. See builder.func(presharded_results=...).
+        self._presharded_result_shard_dims: Dict[OpResult, Tuple[int, ...]] = {}
+
         # Map from operand to its location string.
         self._operand_to_loc: Dict[Operand, str] = {}
 
@@ -351,6 +358,33 @@ class Builder(metaclass=BuilderMeta):
 
         func_op.arg_attrs = ArrayAttr.get(new_arg_attr_list)
 
+    def set_result_attribute(
+        self,
+        func_op: func.FuncOp,
+        result_index: int,
+        new_attr_name: str,
+        new_attr: Attribute,
+    ):
+        num_results = len(func_op.type.results)
+        try:
+            existing = list(func_op.result_attrs)
+        except KeyError:
+            existing = []
+
+        new_result_attr_list = []
+        for index in range(num_results):
+            result_attrs = (
+                existing[index] if index < len(existing) else DictAttr.get({})
+            )
+            if index == result_index:
+                new_result_attr = {attr.name: attr.attr for attr in result_attrs}
+                new_result_attr[new_attr_name] = new_attr
+                new_result_attr_list.append(DictAttr.get(new_result_attr))
+            else:
+                new_result_attr_list.append(result_attrs)
+
+        func_op.result_attrs = ArrayAttr.get(new_result_attr_list)
+
     @staticmethod
     def _local_shape_for_shard_dims(
         global_shape: Tuple[int, ...],
@@ -374,6 +408,17 @@ class Builder(metaclass=BuilderMeta):
         self._presharded_arg_shard_dims[arg] = shard_dims
         self.set_arg_attribute(
             arg,
+            "ttcore.shard_status",
+            ttcore.ir.ShardStatusAttr.get(self._ctx, ttcore.ir.ShardStatus.Presharded),
+        )
+
+    def _mark_presharded_result(self, func_op: func.FuncOp, result_index: int):
+        # The returned op already carries the per-device (local) shape, so the
+        # func result type needs no rewrite; we only annotate it presharded so
+        # no ShardToFull mesh_shard is emitted and the runtime gathers shards.
+        self.set_result_attribute(
+            func_op,
+            result_index,
             "ttcore.shard_status",
             ttcore.ir.ShardStatusAttr.get(self._ctx, ttcore.ir.ShardStatus.Presharded),
         )
@@ -697,18 +742,18 @@ class Builder(metaclass=BuilderMeta):
     def _set_golden_tensor(
         self,
         operand: Operand,
-        goldens: List[Union[GoldenMapTensor, str]],
+        goldens: Union[GoldenMapTensor, str],
     ):
-        if (
-            isinstance(goldens, GoldenMapTensor)
-            and operand in self._presharded_arg_shard_dims
-        ):
+        shard_dims = self._presharded_arg_shard_dims.get(
+            operand
+        ) or self._presharded_result_shard_dims.get(operand)
+        if isinstance(goldens, GoldenMapTensor) and shard_dims is not None:
             local_shape = tuple(self._get_type(operand).shape)
             if tuple(goldens.shard_at(0).shape) != local_shape:
                 goldens = apply_sharding(
                     goldens,
                     self._mesh_shape,
-                    self._presharded_arg_shard_dims[operand],
+                    shard_dims,
                 )
         if isinstance(goldens, str):
             self._deallocated_goldens[operand] = goldens
@@ -1557,6 +1602,7 @@ class Builder(metaclass=BuilderMeta):
         ttnn_inputs: bool = False,
         custom_inputs: Optional[List[dict]] = None,
         presharded_args: Optional[Dict[int, Tuple[int, ...]]] = None,
+        presharded_results: Optional[Dict[int, Tuple[int, ...]]] = None,
     ):
         if ttnn_inputs or custom_inputs:
             encoding_fn = self._create_ttnn_tensor_encoding
@@ -1564,6 +1610,7 @@ class Builder(metaclass=BuilderMeta):
             encoding_fn = self.create_tensor_encoding
 
         presharded_args = presharded_args or {}
+        presharded_results = presharded_results or {}
         # Global shapes are needed to shard goldens later; the function
         # signature uses local shapes for presharded args.
         global_input_shapes = [tuple(s) for s in input_shapes]
@@ -1633,6 +1680,14 @@ class Builder(metaclass=BuilderMeta):
 
                 outputs = result if hasattr(result, "__iter__") else [result]
 
+                # Record the result shard dims before storing their goldens so the
+                # user-supplied global golden gets sharded into per-device shards
+                # (mirrors the presharded_args path). The IR result attribute is
+                # stamped in the wrapper below, after @func.func finalizes the
+                # result types (it would otherwise clobber res_attrs set here).
+                for idx, shard_dims in presharded_results.items():
+                    self._presharded_result_shard_dims[outputs[idx]] = tuple(shard_dims)
+
                 output_goldens: Dict[Operand, GoldenMapTensor] = {}
                 for op in outputs:
                     output_goldens[op] = self._get_golden_tensor(op)
@@ -1642,6 +1697,11 @@ class Builder(metaclass=BuilderMeta):
                 return process_multi_return_result(result)
 
             new_func_op = decorated_func.func_op
+            # Stamp presharded result attributes now that @func.func has finalized
+            # the result types. The returned op already carries the local shape,
+            # so no result-type rewrite (and no ShardToFull mesh_shard) is needed.
+            for idx in presharded_results:
+                self._mark_presharded_result(new_func_op, idx)
             self._func_ops_generated[new_func_op] = [ordered_inputs, ordered_outputs]
             self._func_name_to_op[new_func_op.name.value] = new_func_op
             return new_func_op
