@@ -28,6 +28,11 @@ struct Controller::DistributedTensorToken {
     LOG_DEBUG("Releasing distributed tensor global id ", globalId,
               " created by ", callerName);
     if (controller != nullptr) {
+      // Tensors handed out by the controller are retained (the worker refuses
+      // to deallocate a retained tensor), so clear retain before requesting
+      // deallocation. Ordering is preserved across the two commands by the
+      // command submission queue.
+      controller->setTensorRetainByGlobalId(globalId, /*retain=*/false);
       controller->deallocateTensorByGlobalId(globalId);
     }
   }
@@ -588,10 +593,25 @@ bool Controller::getTensorRetain(const ::tt::runtime::Tensor &tensorHandle) {
 
 void Controller::setTensorRetain(const ::tt::runtime::Tensor &tensorHandle,
                                  bool retain) {
+  setTensorRetainByGlobalId(tensorHandle.getGlobalId(), retain);
+}
+
+void Controller::setTensorRetainByGlobalId(std::uint64_t globalId,
+                                           bool retain) {
+  ControllerState currentState =
+      controllerState_.load(std::memory_order_relaxed);
+  if (currentState == ControllerState::Uninitialized ||
+      currentState == ControllerState::ShuttingDown ||
+      currentState == ControllerState::Shutdown) {
+    LOG_DEBUG("Skipping set retain of tensor global id ", globalId,
+              " because controller is not accepting commands");
+    return;
+  }
+
   auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
 
   uint64_t commandId = CommandFactory::buildSetTensorRetainCommand(
-      *commandBuilder, tensorHandle, retain);
+      *commandBuilder, globalId, retain);
 
   pushToCommandAndResponseQueues(commandId,
                                  fb::CommandType::SetTensorRetainCommand,

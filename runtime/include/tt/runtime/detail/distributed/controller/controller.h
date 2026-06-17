@@ -207,6 +207,13 @@ private:
   // distributed runtime has been torn down.
   void deallocateTensorByGlobalId(std::uint64_t globalId, bool force = false);
 
+  // Sends a fire-and-forget SetTensorRetain command identified only by the
+  // tensor global id, with the same shutdown guard as
+  // deallocateTensorByGlobalId. Used to clear the retain flag before
+  // auto-deallocating a tensor (the worker refuses to deallocate a retained
+  // tensor).
+  void setTensorRetainByGlobalId(std::uint64_t globalId, bool retain);
+
   // Owns the lifetime of a distributed tensor handle. When the last copy of
   // the tensor (and thus this token) is released, the destructor asks the
   // controller to deallocate the tensor by its global id. Defined in the .cpp;
