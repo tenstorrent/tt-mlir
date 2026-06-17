@@ -99,6 +99,10 @@ public:
                               const ::tt::runtime::Tensor &tensor, bool retain);
 
   static uint64_t
+  buildSetTensorRetainCommand(::flatbuffers::FlatBufferBuilder &fbb,
+                              uint64_t globalId, bool retain);
+
+  static uint64_t
   buildGetLayoutCommand(::flatbuffers::FlatBufferBuilder &fbb,
                         const ::tt::runtime::Binary &binary,
                         uint32_t programIndex, uint32_t inputIndex,

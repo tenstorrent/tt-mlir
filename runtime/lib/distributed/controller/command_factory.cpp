@@ -326,11 +326,15 @@ uint64_t CommandFactory::buildGetTensorRetainCommand(
 uint64_t CommandFactory::buildSetTensorRetainCommand(
     ::flatbuffers::FlatBufferBuilder &fbb, const ::tt::runtime::Tensor &tensor,
     bool retain) {
+  return buildSetTensorRetainCommand(fbb, tensor.getGlobalId(), retain);
+}
+
+uint64_t CommandFactory::buildSetTensorRetainCommand(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t globalId, bool retain) {
 
   LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
 
-  uint64_t commandId =
-      BUILD_COMMAND(SetTensorRetain, fbb, tensor.getGlobalId(), retain);
+  uint64_t commandId = BUILD_COMMAND(SetTensorRetain, fbb, globalId, retain);
 
   return commandId;
 }
