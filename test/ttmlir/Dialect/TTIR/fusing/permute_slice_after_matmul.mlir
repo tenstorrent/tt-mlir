@@ -83,6 +83,16 @@ func.func @left_matrix_non_unit_step_negative(%arg0: tensor<1024x4096xbf16>, %ar
   return %1 : tensor<512x128256xbf16>
 }
 
+// Negative: a 1D operand makes the matmul output rank 1, so there is no row/col
+// dim to push the slice into; the output-rank guard leaves it alone.
+// CHECK-LABEL: func.func @vector_matmul_negative
+func.func @vector_matmul_negative(%arg0: tensor<4096xbf16>, %arg1: tensor<4096x128256xbf16>) -> tensor<64xbf16> {
+  // CHECK: "ttir.matmul"(%arg0, %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<4096xbf16>, tensor<4096x128256xbf16>) -> tensor<128256xbf16>
+  %0 = "ttir.matmul"(%arg0, %arg1) : (tensor<4096xbf16>, tensor<4096x128256xbf16>) -> tensor<128256xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [0 : i32], ends = [64 : i32], step = [1 : i32]}> : (tensor<128256xbf16>) -> tensor<64xbf16>
+  return %1 : tensor<64xbf16>
+}
+
 // A contiguous block of rows in the middle of the output ([5:17]) is pushed up
 // just like a single trailing row: only the selected rows feed the matmul.
 // CHECK-LABEL: func.func @left_matrix_middle_rows
