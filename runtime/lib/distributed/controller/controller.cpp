@@ -17,7 +17,7 @@ namespace tt::runtime::distributed::controller {
 namespace fb = ::tt::runtime::distributed::flatbuffer;
 
 
-tt::runtime::Tensor createDistributedTensorHandle(){  
+tt::runtime::Tensor createDistributedTensorWithRefcountedHandle(){  
   class handleRefcounter{
     public: 
     handleRefcounter();
@@ -440,7 +440,7 @@ Controller::getMeshShape(const ::tt::runtime::Device &deviceHandle) {
 
   auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
 
-  ::tt::runtime::Tensor outputTensorHandle;
+  ::tt::runtime::Tensor outputTensorHandle = createDistributedTensorWithRefcountedHandle();
 
   uint64_t commandId = CommandFactory::buildCreateHostTensorCommand(
       *commandBuilder, outputTensorHandle, data, shape, stride, itemsize,
@@ -459,7 +459,7 @@ Controller::getMeshShape(const ::tt::runtime::Device &deviceHandle) {
     const std::vector<uint32_t> &meshShape) {
   auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
 
-  ::tt::runtime::Tensor outputTensorHandle;
+  ::tt::runtime::Tensor outputTensorHandle = createDistributedTensorWithRefcountedHandle();
 
   uint64_t commandId =
       CommandFactory::buildCreateMultiDeviceHostTensorFromShardsCommand(
@@ -478,7 +478,7 @@ Controller::getMeshShape(const ::tt::runtime::Device &deviceHandle) {
 
   auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
 
-  ::tt::runtime::Tensor outputTensorHandle;
+  ::tt::runtime::Tensor outputTensorHandle = createDistributedTensorWithRefcountedHandle();
 
   uint64_t commandId =
       CommandFactory::buildCreateUnsafeBorrowedHostTensorCommand(
@@ -601,7 +601,7 @@ Controller::toLayout(const ::tt::runtime::Tensor &tensorHandle,
 
   auto commandBuilder = std::make_unique<::flatbuffers::FlatBufferBuilder>();
 
-  ::tt::runtime::Tensor outputTensorHandle;
+  ::tt::runtime::Tensor outputTensorHandle = createDistributedTensorWithRefcountedHandle();
 
   uint64_t commandId = CommandFactory::buildToLayoutCommand(
       *commandBuilder, tensorHandle, deviceHandle, layoutHandle,
