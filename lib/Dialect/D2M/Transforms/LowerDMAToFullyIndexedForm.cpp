@@ -279,6 +279,11 @@ public:
     if (op.isFullyIndexed()) {
       return failure();
     }
+    // When the TensorAccessor path is enabled, leave shard-level reads in
+    // shard form for D2MDMAViaTensorAccessorRewriter (D2MToTTKernel) to lower.
+    if (useTensorAccessorDMA) {
+      return failure();
+    }
 
     Location loc = op.getLoc();
     Value remoteMemref = op.getSrc();
@@ -348,6 +353,14 @@ public:
   LogicalResult matchAndRewrite(DMAWriteOp op,
                                 PatternRewriter &rewriter) const final {
     if (op.isFullyIndexed()) {
+      return failure();
+    }
+    // When the TensorAccessor path is enabled, leave plain (non-multicast,
+    // non-local-destination) shard-level writes in shard form for
+    // D2MDMAViaTensorAccessorRewriter (D2MToTTKernel). Multicast and
+    // local-destination writes are not handled by the accessor path, so they
+    // still lower to fully-indexed form here.
+    if (useTensorAccessorDMA && !op.isMcast() && !op.isDstLocal()) {
       return failure();
     }
 

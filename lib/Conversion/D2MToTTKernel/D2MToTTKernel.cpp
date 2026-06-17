@@ -3158,10 +3158,14 @@ public:
       return failure();
     }
 
-    // Write-only: skip local-to-local transfers (handled by the existing
-    // mcast lowering that uses raw NOC addresses).
+    // Write-only: skip local-to-local transfers and multicast writes; both
+    // are handled by D2MLowerDMAToFullyIndexedForm + the existing mcast
+    // lowering that uses raw NOC addresses, not the TensorAccessor path.
     if constexpr (!IsRead) {
       if (op.isDstLocal()) {
+        return failure();
+      }
+      if (op.isMcast()) {
         return failure();
       }
     }

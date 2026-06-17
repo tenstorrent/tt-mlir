@@ -101,7 +101,11 @@ def test_semaphore_inc_pinned_to_single_dm_thread():
     # Run the backend up to (not including) the d2m->ttkernel conversion, where
     # the per-thread region structure is final but still inspectable as d2m.
     passes = _build_pipeline().split(",")
-    cut = passes.index("d2m-to-ttkernel-pre-emitc-pipeline")
+    cut = next(
+        i
+        for i, p in enumerate(passes)
+        if p.startswith("d2m-to-ttkernel-pre-emitc-pipeline")
+    )
     PassManager.parse(f"builtin.module({','.join(passes[:cut])})", context=b.ctx).run(
         b.module.operation
     )
@@ -188,7 +192,11 @@ def test_scf_if_gated_fabric_lands_on_dm_thread():
         context=b.ctx,
     ).run(b.module.operation)
     passes = _build_pipeline().split(",")
-    cut = passes.index("d2m-to-ttkernel-pre-emitc-pipeline")
+    cut = next(
+        i
+        for i, p in enumerate(passes)
+        if p.startswith("d2m-to-ttkernel-pre-emitc-pipeline")
+    )
     PassManager.parse(f"builtin.module({','.join(passes[:cut])})", context=b.ctx).run(
         b.module.operation
     )

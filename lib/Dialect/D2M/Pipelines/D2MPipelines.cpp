@@ -259,8 +259,14 @@ void createD2MBackendPipeline(OpPassManager &pm,
   pm.addPass(d2m::createD2MLowerLoadStoreOpsToDMA());
   pm.addPass(d2m::createD2MOptimizeDMA());
   pm.addPass(d2m::createD2MExpandDMAReadCompositeView());
-  if (!options.useTensorAccessorDMA) {
-    pm.addPass(d2m::createD2MLowerDMAToFullyIndexedForm());
+  // Always lower DMAs to fully-indexed form. When the TensorAccessor path is
+  // enabled, this pass only lowers the DMAs the accessor path does not handle
+  // (multicast and local-destination writes); plain shard-level DMAs are left
+  // in shard form for D2MDMAViaTensorAccessorRewriter (D2MToTTKernel).
+  {
+    d2m::D2MLowerDMAToFullyIndexedFormOptions fullyIndexedOpts;
+    fullyIndexedOpts.useTensorAccessorDMA = options.useTensorAccessorDMA;
+    pm.addPass(d2m::createD2MLowerDMAToFullyIndexedForm(fullyIndexedOpts));
   }
 
   // Normalize thread argument access by inserting d2m.get_arg ops for any
