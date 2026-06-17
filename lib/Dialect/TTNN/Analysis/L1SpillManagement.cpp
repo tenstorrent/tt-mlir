@@ -579,11 +579,32 @@ void L1SpillManagement<MemoryTracker>::processDeadTensors(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
+bool L1SpillManagement<MemoryTracker>::willAliasSourceInL1(
+    Operation *op) const {
+  // canReshapeBeView already guarantees op is a ReshapeOp with operand(0).
+  // Use hasTensorAddress (not hasTensor): aliasing calls allocateAddressAt,
+  // which requires the source to occupy a simulated address slot. A tensor
+  // can be size-tracked but not address-tracked (e.g. zero-size or no-fit),
+  // in which case it cannot be aliased. This matches the replay path.
+  return canReshapeBeView(op) &&
+         memoryTracker.hasTensorAddress(op->getOperand(0));
+}
+
+template <typename MemoryTracker>
 uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(Operation *op,
                                                         int64_t pos,
                                                         ScheduleData &data,
                                                         uint64_t cbPeakUsage,
                                                         uint64_t l1Size) {
+  // A view-eligible reshape aliases its source's existing L1 slot
+  // (addResultsToLiveSet uses addTensorAtAddress), so it consumes no fresh
+  // L1. Skip the fit / CB-overlap checks that assume a new allocation —
+  // otherwise wouldAllocateAt(l1Size) can falsely report no-fit and evict
+  // the very source the reshape is about to alias.
+  if (willAliasSourceInL1(op)) {
+    return l1Size;
+  }
+
   auto speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
   if (!speculativeAddr) {
     l1Size = handleNoFit(op, pos, data, l1Size);
@@ -1329,10 +1350,10 @@ void L1SpillManagement<MemoryTracker>::run() {
             {L1Event::kAlloc, val, perResultL1, /*skipped=*/false});
 
         // View-eligible reshape: alias src's buffer instead of carving a
-        // fresh slot. See `addTensorAtAddress`.
+        // fresh slot. See `addTensorAtAddress`. Must stay in sync with the
+        // willAliasSourceInL1 short-circuit in ensureFitsL1.
         Operation *defOp = val.getDefiningOp();
-        if (defOp && canReshapeBeView(defOp) &&
-            memoryTracker.hasTensor(defOp->getOperand(0))) {
+        if (defOp && willAliasSourceInL1(defOp)) {
           memoryTracker.addTensorAtAddress(val, perResultL1,
                                            defOp->getOperand(0));
         } else {
