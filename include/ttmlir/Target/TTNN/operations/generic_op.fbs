@@ -95,18 +95,6 @@ table KernelArgScalar {
   operand_index: uint32;
 }
 
-// Placeholder for the compile-time args block produced by
-// ``tt::tt_metal::TensorAccessorArgs(buffer).get_compile_time_args()``.
-// The emitter writes one of these per operand of a ``tt_lang_op`` (in
-// operand declaration order) instead of baking the literal uint32s at
-// MLIR-translate time. ``operand_index`` is the index into the
-// surrounding ``GenericOp.io_tensors`` array; the runtime resolves it
-// to a ``::ttnn::Tensor``, calls ``TensorAccessorArgs`` against the
-// live buffer, and splices the resulting uint32 sequence into the
-// kernel's compile-time args. A single ``KernelArg`` here therefore
-// expands to ``N`` uint32 values (``N`` depends on the buffer's
-// shard/interleaved/DRAM/L1/dtype/rank configuration), in contrast
-// with the other ``KernelArg*`` variants which expand to exactly one.
 table KernelArgTensorAccessorArgs {
   operand_index: uint32;
 }

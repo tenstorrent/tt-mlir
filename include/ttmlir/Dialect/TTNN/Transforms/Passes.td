@@ -917,4 +917,48 @@ def TTNNResolveTtLangKernels : Pass<"ttnn-resolve-tt-lang-kernels", "::mlir::Mod
   ];
 }
 
+def TTNNLowerTtLangToGeneric : Pass<"ttnn-lower-tt-lang-to-generic", "::mlir::ModuleOp"> {
+  let summary = "Lower resolved ttnn.tt_lang_op kernels into ttnn.generic ops.";
+  let description = [{
+    This pass rewrites each `ttnn.tt_lang_op` whose `kernel_artifact`
+    attribute has been populated (by `--ttnn-resolve-tt-lang-kernels`)
+    into an equivalent `ttnn.generic` op carrying a `#ttnn.program`
+    descriptor.
+
+    The `kernel_artifact` is the UTF-8 JSON payload produced by tt-xla's
+    `tt_torch.tt_lang._serialize_compiled_operation`:
+
+    {
+      "format_version": 1,
+      "kernels": [
+        {"thread_type": "compute"|"noc",
+         "cpp_source":  "<embedded C++ source>",
+         "tensor_indices": [<int>, ...],
+         "kernel_config": {...}},
+        ...
+      ],
+      "core_range": {"start": [x, y], "end": [x, y]},
+      "cb_configs": [{buffer_index, data_format, page_size, total_size}, ...],
+      ...
+    }
+
+    Each kernel becomes a `#ttnn.compute_kernel` / `#ttnn.read_kernel` /
+    `#ttnn.write_kernel` attribute carrying the kernel's C++ source inline
+    (the `source` parameter), its CB-index / tensor-accessor compile-time
+    args, and its buffer-address common runtime args. `cb_configs` become
+    `#ttnn.kernel_cb` descriptors. The resulting `ttnn.generic` runs through
+    the same flatbuffer / runtime path as hand-written generic kernels, so
+    the TTNN-to-flatbuffer emitter needs no `tt_lang_op`-specific code.
+
+    The op is destination-passing style (`arg_roles == in* out+`), so the
+    `ttnn.generic`'s `inputs_and_outputs` operands are the `tt_lang_op`
+    operands in declaration order, and each `tt_lang_op` result is replaced
+    by its tied trailing "out" operand.
+
+    This pass must run after `--ttnn-resolve-tt-lang-kernels` and before
+    flatbuffer emission. A `ttnn.tt_lang_op` with an empty/unset
+    `kernel_artifact` is an error (the resolve pass must run first).
+  }];
+}
+
 #endif

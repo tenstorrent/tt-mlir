@@ -1,10 +1,14 @@
-// RUN: ttmlir-opt --ttcore-register-device -o %t.mlir %s
+// RUN: ttmlir-opt --ttcore-register-device --ttnn-lower-tt-lang-to-generic -o %t.mlir %s
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
-// Smoke-tests the `ttnn.tt_lang_op` -> `GenericOp` flatbuffer emitter
-// added in TTNNToFlatbuffer.cpp. This is a HOST-SIDE emitter test only:
-// it registers a mock device, FileChecks the MLIR, and confirms the
+// Smoke-tests the `--ttnn-lower-tt-lang-to-generic` pass and the
+// downstream `ttnn.generic` flatbuffer emission. The pass rewrites a
+// resolved `ttnn.tt_lang_op` (carrying its compiled `kernel_artifact`
+// JSON) into a `ttnn.generic` op with an inline-source `#ttnn.program`
+// descriptor; flatbuffer emission then reuses the generic-kernel path
+// with no tt-lang-specific handling. This is a HOST-SIDE test only: it
+// registers a mock device, FileChecks the lowered MLIR, and confirms the
 // flatbuffer translates without diagnostics. It is deliberately NOT
 // under `test/ttmlir/Silicon/` because the `kernel_artifact` below uses
 // stub kernel bodies (plain comments, no `kernel_main`) that cannot be
@@ -46,17 +50,19 @@
 //     "num_pipe_nets": 0
 //   }
 //
-// The emitter is expected to:
+// The pass is expected to:
 //   - Parse the JSON payload (no diagnostic errors).
-//   - Build a flatbuffer ProgramDescriptor with one KernelDescriptor per
-//     kernels[*] entry, populated with the matching KernelConfig and
-//     each kernel's compile_time_args / common_runtime_args.
-//   - Emit one KernelCBDescriptor per cb_configs[*] entry.
-//   - Use the existing GenericOp flatbuffer record as the carrier.
+//   - Build a `#ttnn.program` with one inline-source kernel attr per
+//     kernels[*] entry (source_compute_kernel / source_read_kernel /
+//     source_write_kernel), each carrying its C++ `source` inline plus
+//     its compile-time / common-runtime args.
+//   - Emit one `#ttnn.kernel_cb` per cb_configs[*] entry.
+//   - Replace the `ttnn.tt_lang_op` with a `ttnn.generic` op and rewire
+//     the result to the tied "out" operand.
 //
 // We only FileCheck the MLIR side here (the flatbuffer is a binary blob
-// that lit can't easily inspect inline). If the emitter throws/errors
-// the third RUN line will fail.
+// that lit can't easily inspect inline). If emission throws/errors the
+// third RUN line will fail.
 
 #dram = #ttnn.buffer_type<dram>
 
@@ -78,10 +84,15 @@ module {
                             %arg2: tensor<32x32xf32, #dram_layout>)
       -> tensor<32x32xf32, #dram_layout>
       attributes {tt.function_type = "forward_device"} {
-    // CHECK: ttnn.tt_lang_op
-    // CHECK-SAME: arg_roles = "in,in,out"
-    // CHECK-SAME: kernel_id = "test.add::v1"
-    // CHECK-SAME: version_tag = "1.0"
+    // The tt_lang_op is gone; lowering produced a ttnn.generic carrying an
+    // inline-source program, and the result was rewired to the "out"
+    // operand (%arg2).
+    // CHECK-NOT: ttnn.tt_lang_op
+    // CHECK: "ttnn.generic"(%arg0, %arg1, %arg2)
+    // CHECK-SAME: #ttnn.source_compute_kernel<source = "// compute kernel stub"
+    // CHECK-SAME: #ttnn.source_read_kernel<source = "// reader kernel stub"
+    // CHECK-SAME: #ttnn.source_write_kernel<source = "// writer kernel stub"
+    // CHECK: return %arg2
     %0 = "ttnn.tt_lang_op"(%arg0, %arg1, %arg2) <{
       kernel_id = "test.add::v1",
       version_tag = "1.0",
