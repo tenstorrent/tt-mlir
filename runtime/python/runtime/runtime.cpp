@@ -156,14 +156,7 @@ void registerRuntimeBindings(nb::module_ &m) {
            nb::rv_policy::reference_internal)
       .def("with_tracy", &tt::runtime::MultiProcessArgs::withTracy,
            nb::rv_policy::reference_internal)
-      .def("with_tracy_base_port",
-           &tt::runtime::MultiProcessArgs::withTracyBasePort,
-           nb::rv_policy::reference_internal)
-      .def("with_tracy_output_folder",
-           &tt::runtime::MultiProcessArgs::withTracyOutputFolder,
-           nb::rv_policy::reference_internal)
-      .def("with_tracy_extra_args",
-           &tt::runtime::MultiProcessArgs::withTracyExtraArgs,
+      .def("with_tracy_args", &tt::runtime::MultiProcessArgs::withTracyArgs,
            nb::rv_policy::reference_internal)
       .def("to_arg_string", &tt::runtime::MultiProcessArgs::toArgString);
 

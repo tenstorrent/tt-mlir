@@ -81,17 +81,8 @@ MultiProcessArgs &MultiProcessArgs::withTracy(bool enabled) {
   __builtin_trap();
 }
 
-MultiProcessArgs &MultiProcessArgs::withTracyBasePort(uint16_t port) {
-  __builtin_trap();
-}
-
 MultiProcessArgs &
-MultiProcessArgs::withTracyOutputFolder(std::string_view path) {
-  __builtin_trap();
-}
-
-MultiProcessArgs &
-MultiProcessArgs::withTracyExtraArgs(const std::vector<std::string> &args) {
+MultiProcessArgs::withTracyArgs(const std::vector<std::string> &args) {
   __builtin_trap();
 }
 

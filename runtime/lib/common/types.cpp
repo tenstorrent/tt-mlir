@@ -127,20 +127,9 @@ MultiProcessArgs &MultiProcessArgs::withTracy(bool enabled) {
   return *this;
 }
 
-MultiProcessArgs &MultiProcessArgs::withTracyBasePort(uint16_t port) {
-  tracyBasePort_ = port;
-  return *this;
-}
-
 MultiProcessArgs &
-MultiProcessArgs::withTracyOutputFolder(std::string_view path) {
-  tracyOutputFolder_ = std::string(path);
-  return *this;
-}
-
-MultiProcessArgs &
-MultiProcessArgs::withTracyExtraArgs(const std::vector<std::string> &args) {
-  tracyExtraArgs_ = args;
+MultiProcessArgs::withTracyArgs(const std::vector<std::string> &args) {
+  tracyArgs_ = args;
   return *this;
 }
 
@@ -166,26 +155,18 @@ std::string MultiProcessArgs::toArgString() const {
 
   // Tracy multi-host profiling, tt-run specific. The --tracy value is a single
   // quoted string forwarded to python -m tracy; empty string enables defaults.
+  // ttrun re-splits this blob on whitespace, so callers must quote args
+  // containing spaces at the source.
   if (tracyEnabled_) {
     oss << " --tracy \"";
-    bool first = true;
-    auto sep = [&]() {
-      if (!first) {
-        oss << " ";
-      }
-      first = false;
-    };
-    if (tracyBasePort_.has_value()) {
-      sep();
-      oss << "--port " << tracyBasePort_.value();
+
+    if (tracyArgs_.size() != 0) {
+      oss << tracyArgs_[0];
     }
-    if (tracyOutputFolder_.has_value()) {
-      sep();
-      oss << "--output-folder " << tracyOutputFolder_.value();
-    }
-    for (const auto &arg : tracyExtraArgs_) {
-      sep();
-      oss << arg;
+
+    for (size_t i = 1; i < tracyArgs_.size(); ++i) {
+      oss << " ";
+      oss << tracyArgs_[i];
     }
     oss << "\"";
   }

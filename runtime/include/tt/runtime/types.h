@@ -243,11 +243,7 @@ public:
 
   MultiProcessArgs &withTracy(bool enabled);
 
-  MultiProcessArgs &withTracyBasePort(uint16_t port);
-
-  MultiProcessArgs &withTracyOutputFolder(std::string_view path);
-
-  MultiProcessArgs &withTracyExtraArgs(const std::vector<std::string> &args);
+  MultiProcessArgs &withTracyArgs(const std::vector<std::string> &args);
 
   MultiProcessArgs &withTcpInterface(std::string_view interfaceName);
 
@@ -279,11 +275,7 @@ private:
 
   bool tracyEnabled_ = false;
 
-  std::optional<uint16_t> tracyBasePort_;
-
-  std::optional<std::string> tracyOutputFolder_;
-
-  std::vector<std::string> tracyExtraArgs_;
+  std::vector<std::string> tracyArgs_;
 };
 
 struct DistributedOptions {
