@@ -8,7 +8,7 @@ module {
     d2m.semaphore_set %sem0, %c1 : !d2m.local_semaphore
     // CHECK: %[[CTARG:[0-9]+]] = ttkernel.get_compile_time_arg_val(0) : () -> i32
     // CHECK: %[[SEM:[0-9]+]] = ttkernel.get_semaphore(%[[CTARG]])
-    // CHECK: %[[PTR:[0-9]+]] = ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>(%[[SEM]])
+    // CHECK: %[[PTR:[0-9]+]] = ttkernel.reinterpret_cast(%[[SEM]])
     // CHECK: ttkernel.noc_semaphore_set(%[[PTR]], %c1)
     return
   }
@@ -41,7 +41,7 @@ module {
     // CHECK: %[[SEM:[0-9]+]] = ttkernel.get_semaphore(%[[CTARG]])
     // CHECK: %[[NOC:[a-zA-Z0-9_]+]] = arith.constant 0 : i8
     // CHECK: %[[MADDR:[0-9]+]] = ttkernel.get_noc_multicast_addr({{.*}}, {{.*}}, {{.*}}, {{.*}}, %[[SEM]], %[[NOC]])
-    // CHECK: %[[PTR:[0-9]+]] = ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>(%[[SEM]])
+    // CHECK: %[[PTR:[0-9]+]] = ttkernel.reinterpret_cast(%[[SEM]])
     // CHECK: ttkernel.noc_semaphore_set(%[[PTR]], %c7)
     // CHECK: ttkernel.noc_semaphore_set_multicast(%[[SEM]], %[[MADDR]], {{.*}})
     return
@@ -59,10 +59,10 @@ module {
     d2m.semaphore_set %sem0, %c7, core[%y, %x] mcast[%h, %w] : !d2m.local_semaphore
     // CHECK-LABEL: func.func private @mcast_set_noc1
     // CHECK: %[[SEM:[0-9]+]] = ttkernel.get_semaphore
-    // CHECK: %[[START_Y:[0-9]+]] = ttkernel.experimental::convert_logical_y_to_translated
-    // CHECK: %[[START_X:[0-9]+]] = ttkernel.experimental::convert_logical_x_to_translated
-    // CHECK: %[[END_Y:[0-9]+]] = ttkernel.experimental::convert_logical_y_to_translated
-    // CHECK: %[[END_X:[0-9]+]] = ttkernel.experimental::convert_logical_x_to_translated
+    // CHECK: %[[START_Y:[0-9]+]] = ttkernel.experimental.convert_logical_y_to_translated
+    // CHECK: %[[START_X:[0-9]+]] = ttkernel.experimental.convert_logical_x_to_translated
+    // CHECK: %[[END_Y:[0-9]+]] = ttkernel.experimental.convert_logical_y_to_translated
+    // CHECK: %[[END_X:[0-9]+]] = ttkernel.experimental.convert_logical_x_to_translated
     // CHECK: %[[NOC:[a-zA-Z0-9_]+]] = arith.constant 1 : i8
     // CHECK: ttkernel.get_noc_multicast_addr(%[[END_X]], %[[END_Y]], %[[START_X]], %[[START_Y]], %[[SEM]], %[[NOC]])
     return
@@ -75,8 +75,8 @@ module {
     d2m.semaphore_wait %sem0, %c2 : !d2m.local_semaphore
     // CHECK: %[[CTARG:[0-9]+]] = ttkernel.get_compile_time_arg_val(0) : () -> i32
     // CHECK: %[[SEM:[0-9]+]] = ttkernel.get_semaphore(%[[CTARG]])
-    // CHECK: %[[PTR:[0-9]+]] = ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>(%[[SEM]])
-    // CHECK: ttkernel.experimental::semaphore_wait(%[[PTR]], %c2)
+    // CHECK: %[[PTR:[0-9]+]] = ttkernel.reinterpret_cast(%[[SEM]])
+    // CHECK: ttkernel.experimental.semaphore_wait(%[[PTR]], %c2)
     return
   }
 
@@ -88,8 +88,8 @@ module {
     d2m.semaphore_wait %sem0, %c2 reset %c0 : !d2m.local_semaphore
     // CHECK: %[[CTARG:[0-9]+]] = ttkernel.get_compile_time_arg_val(0) : () -> i32
     // CHECK: %[[SEM:[0-9]+]] = ttkernel.get_semaphore(%[[CTARG]])
-    // CHECK: %[[PTR:[0-9]+]] = ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>(%[[SEM]])
-    // CHECK: ttkernel.experimental::semaphore_wait(%[[PTR]], %c2)
+    // CHECK: %[[PTR:[0-9]+]] = ttkernel.reinterpret_cast(%[[SEM]])
+    // CHECK: ttkernel.experimental.semaphore_wait(%[[PTR]], %c2)
     // CHECK: ttkernel.noc_semaphore_set(%[[PTR]], %c0)
     return
   }

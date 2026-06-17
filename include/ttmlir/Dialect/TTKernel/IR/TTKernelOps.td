@@ -33,9 +33,7 @@ def TTKernel_ComputeKernelHWStartupOp : TTKernel_InitOp<"compute_kernel_hw_start
                          Optional<TTKernel_CB>:$icb1,
                          TTKernel_CB:$ocb);
 
-    let assemblyFormat = [{
-      `(` $icb0 (`,` $icb1^)? `,` $ocb `)` attr-dict `:` functional-type(operands, results)
-    }];
+    let hasCustomAssemblyFormat = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -43,7 +41,7 @@ def TTKernel_ComputeKernelHWStartupOp : TTKernel_InitOp<"compute_kernel_hw_start
 //===----------------------------------------------------------------------===//
 
 def TTKernel_UnpackStallOnPackOp
-    : TTKernel_Op<"experimental::unpack_stall_on_pack"> {
+    : TTKernel_Op<"experimental.unpack_stall_on_pack"> {
   let summary = "Stall UNPACK thread until previous PACK write is committed to L1.";
   let description = [{
     Issues a hardware semaphore wait on the MATH_PACK semaphore from the
@@ -405,7 +403,7 @@ def TTKernel_MatmulBlockOp : TTKernel_FPUOp<"matmul_block", [TTKernel_TernaryOpT
     }];
 }
 
-def TTKernel_ExperimentalMatmulBlockOp : TTKernel_FPUOp<"experimental::matmul_block", [TTKernel_TernaryOpTrait]> {
+def TTKernel_ExperimentalMatmulBlockOp : TTKernel_FPUOp<"experimental.matmul_block", [TTKernel_TernaryOpTrait]> {
     let summary = "Matmul tiles operation";
     let description = [{
       Performs block-sized matrix multiplication *C=A\*B* between the blocks in two
@@ -3196,7 +3194,7 @@ def TTKernel_TilizeBlockOp : TTKernel_Op<"tilize_block", [TTKernel_LayoutOpTrait
     }];
 }
 
-def TTKernel_ExperimentalTilizeBlockOp : TTKernel_Op<"experimental::tilize_block", [TTKernel_LayoutOpTrait]> {
+def TTKernel_ExperimentalTilizeBlockOp : TTKernel_Op<"experimental.tilize_block", [TTKernel_LayoutOpTrait]> {
     let summary = "Experimental TilizeBlockOp call.";
     let description = [{
       This is a custom tilize block LLK that takes the dimensions of the block, and properly tilizes each row.
@@ -3255,7 +3253,7 @@ def TTKernel_UntilizeBlockOp : TTKernel_Op<"untilize_block", [TTKernel_LayoutOpT
     }];
 }
 
-def TTKernel_ExperimentalUntilizeBlockOp : TTKernel_Op<"experimental::untilize_block", [TTKernel_LayoutOpTrait]> {
+def TTKernel_ExperimentalUntilizeBlockOp : TTKernel_Op<"experimental.untilize_block", [TTKernel_LayoutOpTrait]> {
     let summary = "Experimental UntilizeBlockOp call.";
     let description = [{
       This is a custom untilize block LLK that takes the dimensions of the block.
@@ -3283,7 +3281,7 @@ def TTKernel_PackUntilizeInitOp : TTKernel_InitOp<"pack_untilize_init", [TTKerne
       `cols_per_dst_pass` must fit
       in DST capacity for the target data type. Both default to 1.
       This op is expected to be paired with
-      `experimental::pack_untilize_block` and finalized by
+      `experimental.pack_untilize_block` and finalized by
       `pack_untilize_uninit`.
     }];
 
@@ -3312,7 +3310,7 @@ def TTKernel_PackUntilizeUninitOp : TTKernel_Op<"pack_untilize_uninit", [TTKerne
     }];
 }
 
-def TTKernel_ExperimentalPackUntilizeBlockOp : TTKernel_Op<"experimental::pack_untilize_block", [TTKernel_LayoutOpTrait]> {
+def TTKernel_ExperimentalPackUntilizeBlockOp : TTKernel_Op<"experimental.pack_untilize_block", [TTKernel_LayoutOpTrait]> {
     let summary = "Experimental PackUntilizeBlockOp call.";
     let description = [{
       Custom pack untilize block LLK that takes the dimensions of the block.
@@ -3326,7 +3324,7 @@ def TTKernel_ExperimentalPackUntilizeBlockOp : TTKernel_Op<"experimental::pack_u
       `cols_per_dst_pass` (the implementation processes
       `block_c / cols_per_dst_pass` column blocks).
       Use this op in the sequence:
-      `pack_untilize_init -> experimental::pack_untilize_block -> pack_untilize_uninit`.
+      `pack_untilize_init -> experimental.pack_untilize_block -> pack_untilize_uninit`.
     }];
 
     let arguments = (ins TTKernel_CB:$cbIn, TTKernel_CB:$cbOut, I32:$blockR, I32:$blockC,
@@ -3339,7 +3337,7 @@ def TTKernel_ExperimentalPackUntilizeBlockOp : TTKernel_Op<"experimental::pack_u
     }];
 }
 
-def TTKernel_ExperimentalWriteRowMaskTileOp : TTKernel_Op<"experimental::write_row_mask_tile"> {
+def TTKernel_ExperimentalWriteRowMaskTileOp : TTKernel_Op<"experimental.write_row_mask_tile"> {
     let summary = "Experimental Write Row Mask Tile Op";
     let description = [{
       Writes a row mask tile pattern to a CB, where element[i,j] = 1.0 if i < validRows, else 0.0.
@@ -3354,7 +3352,7 @@ def TTKernel_ExperimentalWriteRowMaskTileOp : TTKernel_Op<"experimental::write_r
     }];
 }
 
-def TTKernel_ExperimentalWriteColMaskTileOp : TTKernel_Op<"experimental::write_col_mask_tile"> {
+def TTKernel_ExperimentalWriteColMaskTileOp : TTKernel_Op<"experimental.write_col_mask_tile"> {
     let summary = "Experimental Write Col Mask Tile Op";
     let description = [{
       Writes a column mask tile pattern to a CB, where element[i,j] = 1.0 if j < validCols, else 0.0.
@@ -3370,7 +3368,7 @@ def TTKernel_ExperimentalWriteColMaskTileOp : TTKernel_Op<"experimental::write_c
 }
 
 
-def TTKernel_ExperimentalFillArangeTileOp : TTKernel_Op<"experimental::fill_arange_tile"> {
+def TTKernel_ExperimentalFillArangeTileOp : TTKernel_Op<"experimental.fill_arange_tile"> {
     let summary = "Experimental Write Full Linear Index Tile Op";
     let description = [{
       Writes a full linear index tile pattern to a CB, where element[i,j] = i * 32 + j
@@ -3884,7 +3882,7 @@ def TTKernel_NocInlineDwWriteOp : TTKernel_Op<"noc_inline_dw_write"> {
     }];
 }
 
-def TTKernel_SemaphoreWaitOp : TTKernel_Op<"experimental::semaphore_wait"> {
+def TTKernel_SemaphoreWaitOp : TTKernel_Op<"experimental.semaphore_wait"> {
     let summary = "SemaphoreWait";
     let description = [{
       A blocking call that waits until the value of a local L1 memory address on
@@ -3900,7 +3898,7 @@ def TTKernel_SemaphoreWaitOp : TTKernel_Op<"experimental::semaphore_wait"> {
     }];
 }
 
-def TTKernel_SemaphoreWaitMinOp : TTKernel_Op<"experimental::semaphore_wait_min"> {
+def TTKernel_SemaphoreWaitMinOp : TTKernel_Op<"experimental.semaphore_wait_min"> {
     let summary = "SemaphoreWaitMin";
     let description = [{
       A blocking call that waits until the value of a local L1 memory address on
@@ -3980,7 +3978,7 @@ def TTKernel_NocSemaphoreIncMulticastOp : TTKernel_Op<"noc_semaphore_inc_multica
       encoded in a uint64_t produced by *get_noc_multicast_addr* covering the
       NOC coordinate range (x_start, y_start, x_end, y_end) and the target L1
       address. Used for cumulative synchronization across multiple senders
-      sharing receivers, paired with *experimental::semaphore_wait_min*.
+      sharing receivers, paired with *experimental.semaphore_wait_min*.
 
       The sender must not be a member of the multicast destination set; for
       including the sender there is no corresponding loopback variant in
@@ -4089,7 +4087,7 @@ def TTKernel_BitcastOp : TTKernel_Op<"bitcast", [Pure]> {
     }];
 }
 
-def TTKernel_CastToL1PtrOp : TTKernel_Op<"reinterpret_cast<tt_l1_ptr uint32_t*>"> {
+def TTKernel_CastToL1PtrOp : TTKernel_Op<"reinterpret_cast"> {
     let summary = "CastToL1Ptr";
     let description = [{
       Cast specified addr to L1 pointer.
@@ -4218,7 +4216,7 @@ def TTKernel_MyLogicalYOp : TTKernel_Op<"my_logical_y_",
     }];
 }
 
-def TTKernel_ConvertLogicalXToTranslatedOp : TTKernel_Op<"experimental::convert_logical_x_to_translated", [Pure]> {
+def TTKernel_ConvertLogicalXToTranslatedOp : TTKernel_Op<"experimental.convert_logical_x_to_translated", [Pure]> {
   let summary = "ConvertLogicalToTranslatedX";
   let description = [{
     this converts the x coordinate from the LOGICAL coordinate system to TRANSLATED
@@ -4232,7 +4230,7 @@ def TTKernel_ConvertLogicalXToTranslatedOp : TTKernel_Op<"experimental::convert_
   }];
 }
 
-def TTKernel_ConvertLogicalYToTranslatedOp : TTKernel_Op<"experimental::convert_logical_y_to_translated", [Pure]> {
+def TTKernel_ConvertLogicalYToTranslatedOp : TTKernel_Op<"experimental.convert_logical_y_to_translated", [Pure]> {
   let summary = "ConvertLogicalToTranslatedY";
   let description = [{
     this converts the y coordinate from the LOGICAL coordinate system to TRANSLATED
@@ -4250,7 +4248,7 @@ def TTKernel_ConvertLogicalYToTranslatedOp : TTKernel_Op<"experimental::convert_
 // TTKernel Fabric API operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_GetMyDeviceIdOp : TTKernel_Op<"experimental::get_my_device_id", [Pure]> {
+def TTKernel_GetMyDeviceIdOp : TTKernel_Op<"experimental.get_my_device_id", [Pure]> {
   let summary = "GetMyDeviceId";
   let description = [{
     Get my device id. This is a 16 bit value.
@@ -4264,7 +4262,7 @@ def TTKernel_GetMyDeviceIdOp : TTKernel_Op<"experimental::get_my_device_id", [Pu
   }];
 }
 
-def TTKernel_FabricWriteOp : TTKernel_Op<"experimental::fabric_fast_write_any_len"> {
+def TTKernel_FabricWriteOp : TTKernel_Op<"experimental.fabric_fast_write_any_len"> {
   let summary = "FabricWriteOp";
   let description = [{
     FabricWriteOp
@@ -4278,7 +4276,7 @@ def TTKernel_FabricWriteOp : TTKernel_Op<"experimental::fabric_fast_write_any_le
   }];
 }
 
-def TTKernel_FabricMulticastWriteOp : TTKernel_Op<"experimental::fabric_mcast_fast_write_any_len"> {
+def TTKernel_FabricMulticastWriteOp : TTKernel_Op<"experimental.fabric_mcast_fast_write_any_len"> {
   let summary = "FabricMulticastWriteOp";
   let description = [{
     FabricMulticastWriteOp
@@ -4292,7 +4290,7 @@ def TTKernel_FabricMulticastWriteOp : TTKernel_Op<"experimental::fabric_mcast_fa
   }];
 }
 
-def TTKernel_FabricSemIncOp : TTKernel_Op<"experimental::fabric_sem_inc"> {
+def TTKernel_FabricSemIncOp : TTKernel_Op<"experimental.fabric_sem_inc"> {
   let summary = "FabricSemIncOp";
   let description = [{
     FabricSemIncOp. This operation increments a semaphore on a remote device.
@@ -4306,7 +4304,7 @@ def TTKernel_FabricSemIncOp : TTKernel_Op<"experimental::fabric_sem_inc"> {
   }];
 }
 
-def TTKernel_FabricMulticastSemIncOp : TTKernel_Op<"experimental::fabric_mcast_sem_inc"> {
+def TTKernel_FabricMulticastSemIncOp : TTKernel_Op<"experimental.fabric_mcast_sem_inc"> {
   let summary = "FabricMulticastSemIncOp";
   let description = [{
     FabricMulticastSemIncOp. This operation increments a semaphore on a range of remote devices.
@@ -4320,7 +4318,7 @@ def TTKernel_FabricMulticastSemIncOp : TTKernel_Op<"experimental::fabric_mcast_s
   }];
 }
 
-def TTKernel_CreateFabricConnectionManagerOp : TTKernel_Op<"experimental::create_fabric_connection_manager"> {
+def TTKernel_CreateFabricConnectionManagerOp : TTKernel_Op<"experimental.create_fabric_connection_manager"> {
   let summary = "CreateFabricConnectionManager";
   let description = [{
     Create fabric connection manager. The fabric connection manager is required for all fabric operations.
@@ -4334,7 +4332,7 @@ def TTKernel_CreateFabricConnectionManagerOp : TTKernel_Op<"experimental::create
   }];
 }
 
-def TTKernel_SetupFabricConnectionsOp : TTKernel_Op<"experimental::setup_fabric_connections"> {
+def TTKernel_SetupFabricConnectionsOp : TTKernel_Op<"experimental.setup_fabric_connections"> {
   let summary = "SetupFabricConnections";
   let description = [{
     Setup fabric connections for inter-device communication. The connection scheme
@@ -4359,7 +4357,7 @@ def TTKernel_SetupFabricConnectionsOp : TTKernel_Op<"experimental::setup_fabric_
   }];
 }
 
-def TTKernel_CloseFabricConnectionsOp : TTKernel_Op<"experimental::close_fabric_connections"> {
+def TTKernel_CloseFabricConnectionsOp : TTKernel_Op<"experimental.close_fabric_connections"> {
   let summary = "CloseFabricConnections";
   let description = [{
     Close fabric connections.
@@ -4377,7 +4375,7 @@ def TTKernel_CloseFabricConnectionsOp : TTKernel_Op<"experimental::close_fabric_
 // TTKernel Logical Mesh Position operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_GetMyLogicalMeshPositionOp : TTKernel_Op<"experimental::get_my_logical_mesh_position", [Pure]> {
+def TTKernel_GetMyLogicalMeshPositionOp : TTKernel_Op<"experimental.get_my_logical_mesh_position", [Pure]> {
   let summary = "GetMyLogicalMeshPosition";
   let description = [{
     Get the mesh position for the current device at the given dimension.
@@ -4391,7 +4389,7 @@ def TTKernel_GetMyLogicalMeshPositionOp : TTKernel_Op<"experimental::get_my_logi
   }];
 }
 
-def TTKernel_GetDeviceIdFromLogicalMeshPositionOp : TTKernel_Op<"experimental::get_device_id_from_logical_mesh_position", [Pure]> {
+def TTKernel_GetDeviceIdFromLogicalMeshPositionOp : TTKernel_Op<"experimental.get_device_id_from_logical_mesh_position", [Pure]> {
   let summary = "GetDeviceIdFromLogicalMeshPosition";
   let description = [{
     Get the device ID for a given logical mesh position.

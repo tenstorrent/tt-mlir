@@ -583,7 +583,7 @@ func.func private @compute_kernel8() attributes {
     "ttkernel.mm_block_init_short"(%0, %1, %c0_i32, %c1_i32_1, %c1_i32, %c1_i32_0) : (!ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, !ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, i32, i32, i32, i32) -> ()
     %c0_7 = arith.constant 0 : index
     %c0_8 = arith.constant 0 : index
-    "ttkernel.experimental::matmul_block"(%0, %1, %c0_7, %c0_8, %c0, %c0_i32, %c1_i32_1, %c1_i32, %c1_i32_0, %c1_i32_2) : (!ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, !ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, index, index, index, i32, i32, i32, i32, i32) -> ()
+    "ttkernel.experimental.matmul_block"(%0, %1, %c0_7, %c0_8, %c0, %c0_i32, %c1_i32_1, %c1_i32, %c1_i32_0, %c1_i32_2) : (!ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, !ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, index, index, index, i32, i32, i32, i32, i32) -> ()
     ttkernel.pack_tile(%c0_3, %2, %c0_3, true) : (index, !ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, index) -> ()
     ttkernel.cb_pop_front(%0, %c1_i32_4) : (!ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, i32) -> ()
     ttkernel.cb_pop_front(%1, %c1_i32_5) : (!ttkernel.cb&lt;1, !ttcore.tile&lt;32x32, bf16>>, i32) -> ()

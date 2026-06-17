@@ -94,7 +94,7 @@ func.func @trid_barrier_default_noc() -> () attributes {ttkernel.thread = #ttker
 func.func @trid_barrier_dynamic_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
   %trid = arith.constant 3 : i32
   %noc_arg = arith.constant 262400 : i32
-  %noc_ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%noc_arg) : (i32) -> (!ttkernel.l1_addr_ptr<8>)
+  %noc_ptr = ttkernel.reinterpret_cast(%noc_arg) : (i32) -> (!ttkernel.l1_addr_ptr<8>)
   %noc_offset = arith.constant 0 : i32
   %noc = ttkernel.load_from_l1(%noc_ptr, %noc_offset) : (!ttkernel.l1_addr_ptr<8>, i32) -> i8
   "ttkernel.noc_async_read_barrier_with_trid"(%trid, %noc) : (i32, i8) -> ()
