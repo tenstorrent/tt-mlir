@@ -12,7 +12,7 @@
 #include "tt/runtime/flatbuffer/types_generated.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
-#include <source_location.h>
+#include <source_location>
 
 namespace tt::runtime::distributed::controller {
 
