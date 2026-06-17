@@ -18,16 +18,16 @@ namespace fb = ::tt::runtime::distributed::flatbuffer;
 
 
 tt::runtime::Tensor createDistributedTensorWithRefcountedHandle(){  
-  class handleRefcounter{
-    public: 
-    handleRefcounter();
-    ~handleRefcounter(){
-      std::cout << "handleRefcounter destroyed" << std::endl;
-    };
-    private:
-  };
-
-  tt::runtime::Tensor outputTensorHandle = tt::runtime::Tensor(std::make_shared<handleRefcounter>(), nullptr, DeviceRuntime::TTNN);
+  // class handleRefcounter{
+  //   public: 
+  //   handleRefcounter();
+  //   ~handleRefcounter(){
+  //     std::cout << "handleRefcounter destroyed" << std::endl;
+  //   };
+  //   private:
+  // };
+  std::shared_ptr<void> fakeHandle = std::shared_ptr<void>(nullptr, [](void *){ LOG_INFO("handle destroyed"); });
+  tt::runtime::Tensor outputTensorHandle = tt::runtime::Tensor(fakeHandle, nullptr, DeviceRuntime::TTNN);
   return outputTensorHandle;
 }
 
