@@ -17,20 +17,6 @@ func.func @left_matrix(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x128256x
   return %1 : tensor<1x128256xbf16>
 }
 
-// Same, but with a leading-unit-dim reshape between matmul and slice (the
-// rank-3 logits tensor [1, seq, vocab] produced by HF causal-LM heads).
-// CHECK-LABEL: func.func @left_matrix_reshape
-func.func @left_matrix_reshape(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x128256xbf16>) -> tensor<1x1x128256xbf16> {
-  // CHECK: %[[A:.*]] = "ttir.slice_static"(%arg0) <{begins = [1023 : i32, 0 : i32], ends = [1024 : i32, 4096 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x4096xbf16>) -> tensor<1x4096xbf16>
-  // CHECK: %[[M:.*]] = "ttir.matmul"(%[[A]], %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<1x4096xbf16>, tensor<4096x128256xbf16>) -> tensor<1x128256xbf16>
-  // CHECK: "ttir.reshape"(%[[M]]) <{shape = [1 : i32, 1 : i32, 128256 : i32]}>
-  // CHECK-NOT: tensor<1024x128256xbf16>
-  %0 = "ttir.matmul"(%arg0, %arg1) : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>) -> tensor<1024x128256xbf16>
-  %1 = "ttir.reshape"(%0) <{shape = [1 : i32, 1024 : i32, 128256 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1x1024x128256xbf16>
-  %2 = "ttir.slice_static"(%1) <{begins = [0 : i32, 1023 : i32, 0 : i32], ends = [1 : i32, 1024 : i32, 128256 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1024x128256xbf16>) -> tensor<1x1x128256xbf16>
-  return %2 : tensor<1x1x128256xbf16>
-}
-
 // Negative: the matmul result has another user, so narrowing would force the
 // full matmul to be recomputed. Leave it alone.
 // CHECK-LABEL: func.func @left_matrix_multiple_uses_negative
@@ -75,21 +61,6 @@ func.func @right_matrix_transpose(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<1
   %0 = "ttir.matmul"(%arg0, %arg1) <{transpose_a = false, transpose_b = true}> : (tensor<1024x4096xbf16>, tensor<128256x4096xbf16>) -> tensor<1024x128256xbf16>
   %1 = "ttir.slice_static"(%0) <{begins = [0 : i32, 0 : i32], ends = [1024 : i32, 64 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1024x64xbf16>
   return %1 : tensor<1024x64xbf16>
-}
-
-// A column (N) slice through a leading-unit-dim reshape is pushed into B just
-// like a direct column slice; the reshape is looked through and re-applied to
-// the narrowed result.
-// CHECK-LABEL: func.func @right_matrix_reshape
-func.func @right_matrix_reshape(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x128256xbf16>) -> tensor<1x1024x64xbf16> {
-  // CHECK: %[[B:.*]] = "ttir.slice_static"(%arg1) <{begins = [0 : i32, 0 : i32], ends = [4096 : i32, 64 : i32], step = [1 : i32, 1 : i32]}> : (tensor<4096x128256xbf16>) -> tensor<4096x64xbf16>
-  // CHECK: %[[M:.*]] = "ttir.matmul"(%arg0, %[[B]]) <{transpose_a = false, transpose_b = false}> : (tensor<1024x4096xbf16>, tensor<4096x64xbf16>) -> tensor<1024x64xbf16>
-  // CHECK: "ttir.reshape"(%[[M]]) <{shape = [1 : i32, 1024 : i32, 64 : i32]}>
-  // CHECK-NOT: tensor<1024x128256xbf16>
-  %0 = "ttir.matmul"(%arg0, %arg1) : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>) -> tensor<1024x128256xbf16>
-  %1 = "ttir.reshape"(%0) <{shape = [1 : i32, 1024 : i32, 128256 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1x1024x128256xbf16>
-  %2 = "ttir.slice_static"(%1) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [1 : i32, 1024 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1024x128256xbf16>) -> tensor<1x1024x64xbf16>
-  return %2 : tensor<1x1024x64xbf16>
 }
 
 // Negative: the slice narrows both the row and column dims at once. The pattern
@@ -172,85 +143,6 @@ func.func @left_matrix_transpose_both(%arg0: tensor<4096x1024xbf16>, %arg1: tens
   %0 = "ttir.matmul"(%arg0, %arg1) <{transpose_a = true, transpose_b = true}> : (tensor<4096x1024xbf16>, tensor<128256x4096xbf16>) -> tensor<1024x128256xbf16>
   %1 = "ttir.slice_static"(%0) <{begins = [1023 : i32, 0 : i32], ends = [1024 : i32, 128256 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1x128256xbf16>
   return %1 : tensor<1x128256xbf16>
-}
-
-// transpose_a=true row slice *through* a leading-unit-dim reshape: the reshape's
-// dim offset and the transpose flag are honored together. The slice is pushed
-// into A's trailing (M) dim and the reshape is re-applied to the result.
-// CHECK-LABEL: func.func @left_matrix_transpose_reshape
-func.func @left_matrix_transpose_reshape(%arg0: tensor<4096x1024xbf16>, %arg1: tensor<4096x128256xbf16>) -> tensor<1x1x128256xbf16> {
-  // CHECK: %[[A:.*]] = "ttir.slice_static"(%arg0) <{begins = [0 : i32, 1023 : i32], ends = [4096 : i32, 1024 : i32], step = [1 : i32, 1 : i32]}> : (tensor<4096x1024xbf16>) -> tensor<4096x1xbf16>
-  // CHECK: %[[M:.*]] = "ttir.matmul"(%[[A]], %arg1) <{transpose_a = true, transpose_b = false}> : (tensor<4096x1xbf16>, tensor<4096x128256xbf16>) -> tensor<1x128256xbf16>
-  // CHECK: "ttir.reshape"(%[[M]]) <{shape = [1 : i32, 1 : i32, 128256 : i32]}>
-  // CHECK-NOT: tensor<1024x128256xbf16>
-  %0 = "ttir.matmul"(%arg0, %arg1) <{transpose_a = true, transpose_b = false}> : (tensor<4096x1024xbf16>, tensor<4096x128256xbf16>) -> tensor<1024x128256xbf16>
-  %1 = "ttir.reshape"(%0) <{shape = [1 : i32, 1024 : i32, 128256 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1x1024x128256xbf16>
-  %2 = "ttir.slice_static"(%1) <{begins = [0 : i32, 1023 : i32, 0 : i32], ends = [1 : i32, 1024 : i32, 128256 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1024x128256xbf16>) -> tensor<1x1x128256xbf16>
-  return %2 : tensor<1x1x128256xbf16>
-}
-
-// Negative: the reshape is a "real" reshape that rearranges the matmul output
-// dims (here [1024, 128256] -> [1, 2048, 64128]). Even though it prepends a
-// leading 1, the trailing dims no longer match the matmul shape, so the slice
-// dims do not map 1:1 onto the matmul output dims and the fusion is skipped.
-// CHECK-LABEL: func.func @left_matrix_real_reshape_negative
-func.func @left_matrix_real_reshape_negative(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x128256xbf16>) -> tensor<1x1x64128xbf16> {
-  // CHECK: "ttir.matmul"(%arg0, %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>) -> tensor<1024x128256xbf16>
-  %0 = "ttir.matmul"(%arg0, %arg1) : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>) -> tensor<1024x128256xbf16>
-  %1 = "ttir.reshape"(%0) <{shape = [1 : i32, 2048 : i32, 64128 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1x2048x64128xbf16>
-  %2 = "ttir.slice_static"(%1) <{begins = [0 : i32, 2047 : i32, 0 : i32], ends = [1 : i32, 2048 : i32, 64128 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x2048x64128xbf16>) -> tensor<1x1x64128xbf16>
-  return %2 : tensor<1x1x64128xbf16>
-}
-
-// Negative: the reshape inflates the row dim into a leading non-unit dim
-// ([1024, 128256] -> [2, 512, 128256]). The leading pad dim is 2, not 1, so the
-// slice dims cannot be mapped back to the matmul output and fusion is skipped.
-// CHECK-LABEL: func.func @left_matrix_reshape_inflate_leading_negative
-func.func @left_matrix_reshape_inflate_leading_negative(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x128256xbf16>) -> tensor<1x1x128256xbf16> {
-  // CHECK: "ttir.matmul"(%arg0, %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>) -> tensor<1024x128256xbf16>
-  %0 = "ttir.matmul"(%arg0, %arg1) : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>) -> tensor<1024x128256xbf16>
-  %1 = "ttir.reshape"(%0) <{shape = [2 : i32, 512 : i32, 128256 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<2x512x128256xbf16>
-  %2 = "ttir.slice_static"(%1) <{begins = [0 : i32, 511 : i32, 0 : i32], ends = [1 : i32, 512 : i32, 128256 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<2x512x128256xbf16>) -> tensor<1x1x128256xbf16>
-  return %2 : tensor<1x1x128256xbf16>
-}
-
-// Negative: the reshape inflates a non-unit dim in the middle of the leading
-// pad region ([1024, 128256] -> [1, 2, 512, 128256]). A pad dim (the 2) is not
-// 1, so the slice dims do not line up with the matmul output and fusion is
-// skipped.
-// CHECK-LABEL: func.func @left_matrix_reshape_inflate_middle_negative
-func.func @left_matrix_reshape_inflate_middle_negative(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x128256xbf16>) -> tensor<1x1x1x128256xbf16> {
-  // CHECK: "ttir.matmul"(%arg0, %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>) -> tensor<1024x128256xbf16>
-  %0 = "ttir.matmul"(%arg0, %arg1) : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>) -> tensor<1024x128256xbf16>
-  %1 = "ttir.reshape"(%0) <{shape = [1 : i32, 2 : i32, 512 : i32, 128256 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1x2x512x128256xbf16>
-  %2 = "ttir.slice_static"(%1) <{begins = [0 : i32, 0 : i32, 511 : i32, 0 : i32], ends = [1 : i32, 1 : i32, 512 : i32, 128256 : i32], step = [1 : i32, 1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x2x512x128256xbf16>) -> tensor<1x1x1x128256xbf16>
-  return %2 : tensor<1x1x1x128256xbf16>
-}
-
-// Negative: a leading-unit dim is *deflated* away by the reshape
-// ([1, 1024, 128256] -> [1024, 128256]) so the slice has lower rank than the
-// matmul output. The pattern only looks through a reshape that prepends size-1
-// dims, not one that removes them, so this is left untouched.
-// CHECK-LABEL: func.func @left_matrix_reshape_deflate_negative
-func.func @left_matrix_reshape_deflate_negative(%arg0: tensor<1x1024x4096xbf16>, %arg1: tensor<1x4096x128256xbf16>) -> tensor<1x128256xbf16> {
-  // CHECK: "ttir.matmul"(%arg0, %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<1x1024x4096xbf16>, tensor<1x4096x128256xbf16>) -> tensor<1x1024x128256xbf16>
-  %0 = "ttir.matmul"(%arg0, %arg1) : (tensor<1x1024x4096xbf16>, tensor<1x4096x128256xbf16>) -> tensor<1x1024x128256xbf16>
-  %1 = "ttir.reshape"(%0) <{shape = [1024 : i32, 128256 : i32]}> : (tensor<1x1024x128256xbf16>) -> tensor<1024x128256xbf16>
-  %2 = "ttir.slice_static"(%1) <{begins = [1023 : i32, 0 : i32], ends = [1024 : i32, 128256 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1x128256xbf16>
-  return %2 : tensor<1x128256xbf16>
-}
-
-// Negative: the leading-unit reshape between the matmul and the slice has a
-// second consumer, so narrowing the matmul would force the reshape's full
-// result to be recomputed. The reshape's single-use guard leaves it alone (the
-// matmul itself still has a single use, so this isolates the reshape guard).
-// CHECK-LABEL: func.func @left_matrix_reshape_multiple_uses_negative
-func.func @left_matrix_reshape_multiple_uses_negative(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x128256xbf16>) -> (tensor<1x1x128256xbf16>, tensor<1x1024x128256xbf16>) {
-  // CHECK: "ttir.matmul"(%arg0, %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>) -> tensor<1024x128256xbf16>
-  %0 = "ttir.matmul"(%arg0, %arg1) : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>) -> tensor<1024x128256xbf16>
-  %1 = "ttir.reshape"(%0) <{shape = [1 : i32, 1024 : i32, 128256 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1x1024x128256xbf16>
-  %2 = "ttir.slice_static"(%1) <{begins = [0 : i32, 1023 : i32, 0 : i32], ends = [1 : i32, 1024 : i32, 128256 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1024x128256xbf16>) -> tensor<1x1x128256xbf16>
-  return %2, %1 : tensor<1x1x128256xbf16>, tensor<1x1024x128256xbf16>
 }
 
 // The same fusion applies to ttir.linear (matmul + bias). For a row (M) slice
@@ -482,11 +374,11 @@ func.func @shared_lhs_fusion_with_final_slice(%arg0: tensor<32x512xbf16>, %arg1:
 
 // Collision: all three matmuls share the same LHS (%arg0) *and* the last one's
 // output is sliced -- so both SharedLHSMatmulFusion (wants to fuse the three)
-// and SliceBeforeMatmul (wants to push the slice into %arg0) match. With the
-// pass's top-down traversal the matmuls are visited before the slice, so
+// and PermuteSliceAfterMatmul (wants to push the slice into %arg0) match. With
+// the pass's top-down traversal the matmuls are visited before the slice, so
 // SharedLHSMatmulFusion fires first and fuses all three into one matmul over
 // the concatenated weights. The fused result then has three uses, so
-// SliceBeforeMatmul's single-use guard blocks it: the row slice simply composes
+// PermuteSliceAfterMatmul's single-use guard blocks it: the row slice composes
 // with the fused output's column slice ([31:32, 0:384]) rather than being
 // pushed into %arg0. SharedLHS wins, and only one matmul remains.
 // CHECK-LABEL: func.func @shared_lhs_wins_collision
@@ -497,7 +389,7 @@ func.func @shared_lhs_wins_collision(%arg0: tensor<32x512xbf16>, %arg1: tensor<5
   // CHECK: "ttir.slice_static"(%[[FUSED]]) <{begins = [0 : i32, 768 : i32], ends = [32 : i32, 1152 : i32], step = [1 : i32, 1 : i32]}>
   // The sliced output composes the row slice with the fused column slice.
   // CHECK: "ttir.slice_static"(%[[FUSED]]) <{begins = [31 : i32, 0 : i32], ends = [32 : i32, 384 : i32], step = [1 : i32, 1 : i32]}> : (tensor<32x1152xbf16>) -> tensor<1x384xbf16>
-  // SliceBeforeMatmul did not fire: no second, narrowed matmul was split off.
+  // PermuteSliceAfterMatmul did not fire: no second, narrowed matmul split off.
   // CHECK-NOT: "ttir.matmul"
   %0 = "ttir.matmul"(%arg0, %arg1) : (tensor<32x512xbf16>, tensor<512x384xbf16>) -> tensor<32x384xbf16>
   %1 = "ttir.matmul"(%arg0, %arg2) : (tensor<32x512xbf16>, tensor<512x384xbf16>) -> tensor<32x384xbf16>

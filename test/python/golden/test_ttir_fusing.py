@@ -23,7 +23,7 @@ def check_op(mlir_file: str, op_name: str) -> bool:
 
 
 def slice_precedes_matmul(mlir_file: str, mm_ops: tuple = ("matmul", "linear")) -> bool:
-    # After SliceBeforeMatmul fusion the output slice is pushed up into a
+    # After PermuteSliceAfterMatmul fusion the output slice is pushed up into a
     # matmul/linear operand, so a slice now feeds the op instead of consuming it.
     # (A linear lowers to ttnn.linear for 2D and to ttnn.matmul + add when
     # batched, so accept either as the consuming op.)
@@ -504,7 +504,7 @@ def test_matmul_with_bias_fusing(
     ],
 )
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 2])
-def test_slice_before_matmul_fusing(
+def test_permute_slice_after_matmul_fusing(
     shape_a: Shape,
     shape_b: Shape,
     transpose_a: bool,
@@ -619,7 +619,7 @@ def test_slice_before_matmul_fusing(
     ],
 )
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 3])
-def test_slice_before_linear_fusing(
+def test_permute_slice_after_linear_fusing(
     shape_a: Shape,
     shape_b: Shape,
     bias_shape: Shape,
@@ -675,13 +675,13 @@ def test_slice_before_linear_fusing(
 
 
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 4])
-def test_slice_before_matmul_cascade_fusing(
+def test_permute_slice_after_matmul_cascade_fusing(
     dtypes: List[torch.dtype],
     request,
     device,
 ):
     # Chain of three matmuls, each result feeding the next as its single-use
-    # LHS, with a row (M) slice at the bottom. SliceBeforeMatmul pushes the row
+    # LHS, with a row (M) slice at the bottom. PermuteSliceAfterMatmul pushes the row
     # slice up one level into the LHS, which is itself a matmul -- re-matching
     # the pattern -- so the greedy driver cascades it to the top: the slice ends
     # up on the original input and every matmul is narrowed to a single row.
@@ -730,7 +730,7 @@ def test_shared_lhs_fusion_not_undone(
     # Three matmuls sharing the same LHS are fused by SharedLHSMatmulFusion into
     # one matmul over the concatenated weights, split back out with per-output
     # slices. Those slices feed a matmul result with multiple uses, so
-    # SliceBeforeMatmul's single-use guard must leave them alone (pushing them
+    # PermuteSliceAfterMatmul's single-use guard must leave them alone (pushing them
     # into the concatenated RHS would undo the concatenation). This verifies the
     # two fusions coexist and the result stays numerically correct.
     shapes = [(32, 512), (512, 384), (512, 384), (512, 384)]
@@ -765,7 +765,7 @@ def test_shared_lhs_fusion_not_undone(
         "ttnn_compiled.mlir",
     )
     # SharedLHSMatmulFusion fired and was preserved: the weights are concatenated
-    # and fed to a single matmul (not pulled back apart by SliceBeforeMatmul).
+    # and fed to a single matmul (not pulled back apart by PermuteSliceAfterMatmul).
     assert check_op(output_path, "matmul") and check_op(output_path, "concat")
 
 
@@ -818,17 +818,17 @@ def test_shared_lhs_fusion_with_final_slice(
 
 
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 4])
-def test_shared_lhs_vs_slice_before_matmul_collision(
+def test_shared_lhs_vs_permute_slice_after_matmul_collision(
     dtypes: List[torch.dtype],
     request,
     device,
 ):
     # Direct collision: all three matmuls share the same LHS (so
     # SharedLHSMatmulFusion wants to fuse them) AND the last one's output is
-    # sliced (so SliceBeforeMatmul wants to push the slice into the LHS). With
+    # sliced (so PermuteSliceAfterMatmul wants to push the slice into the LHS). With
     # the pass's top-down traversal the matmuls are visited before the slice, so
     # SharedLHSMatmulFusion fires first; the fused result then has multiple uses
-    # and SliceBeforeMatmul's single-use guard blocks it. SharedLHS wins -- the
+    # and PermuteSliceAfterMatmul's single-use guard blocks it. SharedLHS wins -- the
     # row slice just composes with the fused output column slice. Either outcome
     # is numerically correct; this pins the winner and the numerics.
     shapes = [(32, 512), (512, 384), (512, 384), (512, 384)]
@@ -863,7 +863,7 @@ def test_shared_lhs_vs_slice_before_matmul_collision(
     )
     # SharedLHS won: the weights are concatenated into a single fused matmul, and
     # the slices land on its output (so a slice does NOT precede the matmul, as
-    # it would have if SliceBeforeMatmul had fired instead).
+    # it would have if PermuteSliceAfterMatmul had fired instead).
     assert (
         check_op(output_path, "matmul")
         and check_op(output_path, "concat")
