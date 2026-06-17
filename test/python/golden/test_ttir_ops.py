@@ -2984,23 +2984,11 @@ def test_presharded_arg(target, mesh_shape, request, device):
             presharded_results={0: (-1, 3)},
         )
         def model(in0: Operand, in1: Operand, builder: TTIRBuilder):
-            # Goldens are set on the logical (global) tensors; the builder shards
-            # them into per-device shards for both inputs and the result. Use
-            # non-uniform values that vary along the sharded dim (3) so the
-            # per-device shards differ - this actually exercises the global ->
-            # per-device split rather than letting identical shards mask a bug.
-            torch_in0 = torch.arange(1 * 1 * 256 * 512, dtype=torch.float32).reshape(
-                1, 1, 256, 512
-            )
-            torch_in1 = torch_in0 * 2.0
-            builder.set_goldens({in0: torch_in0, in1: torch_in1}, {})
-
-            result = builder.add(in0, in1)
-
-            torch_sum = torch_in0 + torch_in1
-            builder.set_goldens({}, {result: torch_sum})
-
-            return result
+            # Rely on the builder's default (random) goldens: the global input
+            # goldens are sharded into per-device shards, and the result golden
+            # is checked per-device. Random non-uniform values vary across the
+            # sharded dim, so a wrong global -> per-device split would fail PCC.
+            return builder.add(in0, in1)
 
     compile_and_execute_ttir(
         module,
