@@ -92,11 +92,9 @@ static std::string datatypeToDataformatStr(ttcore::DataType dtype) {
 }
 
 static std::string getTTKernelCalleeName(llvm::StringRef opName) {
-  if (opName.starts_with("ttkernel.")) {
-    opName = opName.drop_front(9);
-  }
-  if (opName.starts_with("experimental.")) {
-    return ("experimental::" + opName.drop_front(13)).str();
+  opName.consume_front("ttkernel.");
+  if (opName.consume_front("experimental.")) {
+    return ("experimental::" + opName).str();
   }
   return opName.str();
 }
