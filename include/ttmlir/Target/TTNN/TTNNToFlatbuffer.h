@@ -253,6 +253,13 @@ template <typename EmbeddingBackwardOpTy>
 createEmbeddingBackwardOp(::mlir::tt::FlatbufferObjectCache &cache,
                           EmbeddingBackwardOpTy op);
 
+::flatbuffers::Offset<::tt::target::ttnn::DropoutOp>
+createDropoutOp(::mlir::tt::FlatbufferObjectCache &cache, DropoutOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOp>
+createExperimentalEltwiseBinaryBackwardOp(
+    ::mlir::tt::FlatbufferObjectCache &cache, GeluBackwardOp op);
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_TARGET_TTNN_TTNNTOFLATBUFFER_H

@@ -4,12 +4,8 @@
 
 #include "operations/experimental/gelu_bw.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-#include "tt/runtime/detail/ttnn/utils.h"
-#include "ttmlir/Target/TTNN/program_generated.h"
-#include "ttnn/operations/experimental/unary_backward/gelu_backward/gelu_backward.hpp"
-#include "ttnn/tensor/tensor.hpp"
+#include "ttmlir/OpInvoke/TTNN/Experimental/ExperimentalEltwiseBinaryBackwardOp.h"
+#include <variant>
 
 namespace tt::runtime::ttnn::operations::experimental {
 
@@ -21,22 +17,22 @@ void run(const ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOp *op,
   const ::ttnn::Tensor &input =
       tensorPool.getTTNNTensorAndValidate(op->input());
 
-  LOG_ASSERT(
-      op->type() ==
-          ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOpType::GeluBW,
-      "Expected GeluBW operation");
+  ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOpT opNative;
+  op->UnPackTo(&opNative);
 
-  std::string approximate =
-      op->approximate() ? op->approximate()->str() : "none";
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  std::optional<::ttnn::MemoryConfig> memoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
+  ttnn_op_invoke::ExperimentalEltwiseBinaryBackwardOpResult result =
+      ttnn_op_invoke::callExperimentalEltwiseBinaryBackward(
+          ttnn_op_invoke::CallType::EXECUTE, opNative, &grad, &input,
+          &targetDevice);
 
-  ::ttnn::Tensor out =
-      ::ttnn::experimental::gelu_bw(grad, input, approximate, memoryConfig);
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callExperimentalEltwiseBinaryBackward "
+             "execution");
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
 } // namespace tt::runtime::ttnn::operations::experimental

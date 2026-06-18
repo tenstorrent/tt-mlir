@@ -7080,4 +7080,196 @@ INSTANTIATE_TEST_SUITE_P(EmbeddingBackwardOpTPathParityTest,
                          EmbeddingBackwardOpTPathParityTest,
                          ::testing::ValuesIn(embeddingBackwardOpList));
 
+//===----------------------------------------------------------------------===//
+// DropoutOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::DropoutOpT &opNativeOpModel,
+                       ::tt::target::ttnn::DropoutOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::DropoutOpT &op) {
+    op.in.reset();
+    op.output_dtype.reset();
+    op.memory_config.reset();
+    op.out.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::DropoutOp
+buildTestDropoutOp(llvm::APFloat prob = llvm::APFloat(0.0f),
+                   llvm::APFloat scale = llvm::APFloat(1.0f), uint32_t seed = 0,
+                   bool usePerDeviceSeed = true,
+                   mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto inputType = tiledL1BF16Type(defaultShape);
+  mlir::Value input =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{inputType},
+                                          mlir::ValueRange{})
+          .getResult();
+
+  mlir::RankedTensorType outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(defaultShape, outputMemoryConfig)
+          : tiledL1BF16Type(defaultShape);
+
+  return e.builder.create<mlir::tt::ttnn::DropoutOp>(
+      loc, outputType, input, prob, scale, seed, usePerDeviceSeed);
+}
+
+} // namespace
+
+using DropoutOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::DropoutOp>;
+
+TEST_P(DropoutOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::DropoutOp dropoutOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::DropoutOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildDropoutOpTFromMLIR(
+          dropoutOp.getProb(), dropoutOp.getScale(), dropoutOp.getSeed(),
+          dropoutOp.getUsePerDeviceSeed(), resolveOutputLayout(dropoutOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, dropoutOp.getInput());
+
+  auto fbOffset = mlir::tt::ttnn::createDropoutOp(cache, dropoutOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::DropoutOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::DropoutOp> dropoutOpList = {
+    buildTestDropoutOp(),
+    buildTestDropoutOp(/*prob=*/llvm::APFloat(0.5f)),
+    buildTestDropoutOp(/*prob=*/llvm::APFloat(0.0f),
+                       /*scale=*/llvm::APFloat(1.25f)),
+    buildTestDropoutOp(/*prob=*/llvm::APFloat(0.0f),
+                       /*scale=*/llvm::APFloat(1.0f), /*seed=*/42),
+    buildTestDropoutOp(/*prob=*/llvm::APFloat(0.0f),
+                       /*scale=*/llvm::APFloat(1.0f), /*seed=*/0,
+                       /*usePerDeviceSeed=*/false),
+    buildTestDropoutOp(/*prob=*/llvm::APFloat(0.0f),
+                       /*scale=*/llvm::APFloat(1.0f),
+                       /*seed=*/0, /*usePerDeviceSeed=*/true,
+                       /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+    buildTestDropoutOp(/*prob=*/llvm::APFloat(0.5f),
+                       /*scale=*/llvm::APFloat(1.25f), /*seed=*/42,
+                       /*usePerDeviceSeed=*/false,
+                       /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(DropoutOpTPathParityTest, DropoutOpTPathParityTest,
+                         ::testing::ValuesIn(dropoutOpList));
+
+//===----------------------------------------------------------------------===//
+// GeluBackwardOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(
+    ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOpT &opNativeOpModel,
+    ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOpT &opNativeFB) {
+  auto helper =
+      [](::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOpT &op) {
+        op.grad.reset();
+        op.input.reset();
+        op.output_dtype.reset();
+        op.memory_config.reset();
+        op.out.reset();
+      };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::GeluBackwardOp buildTestGeluBackwardOp(
+    llvm::StringRef approximate = "none",
+    mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto inputType = tiledL1BF16Type(defaultShape);
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{inputType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  mlir::RankedTensorType outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(defaultShape, outputMemoryConfig)
+          : tiledL1BF16Type(defaultShape);
+
+  return e.builder.create<mlir::tt::ttnn::GeluBackwardOp>(
+      loc, outputType, makeOnes(), makeOnes(), approximate);
+}
+
+} // namespace
+
+using GeluBackwardOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::GeluBackwardOp>;
+
+TEST_P(GeluBackwardOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::GeluBackwardOp geluBackwardOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::
+          buildExperimentalEltwiseBinaryBackwardOpTFromMLIR(
+              geluBackwardOp.getApproximate().str(),
+              resolveOutputLayout(geluBackwardOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, geluBackwardOp.getLhs(),
+                               geluBackwardOp.getRhs());
+
+  auto fbOffset = mlir::tt::ttnn::createExperimentalEltwiseBinaryBackwardOp(
+      cache, geluBackwardOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::GeluBackwardOp> geluBackwardOpList =
+    {
+        buildTestGeluBackwardOp(),
+        buildTestGeluBackwardOp(/*approximate=*/"tanh"),
+        buildTestGeluBackwardOp(/*approximate=*/"none",
+                                /*outputMemoryConfig=*/
+                                nonDefaultInputMemoryConfigAttr),
+        buildTestGeluBackwardOp(/*approximate=*/"tanh",
+                                /*outputMemoryConfig=*/
+                                nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(GeluBackwardOpTPathParityTest,
+                         GeluBackwardOpTPathParityTest,
+                         ::testing::ValuesIn(geluBackwardOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL
