@@ -212,9 +212,26 @@ A no-kernel-change repro recipe lives at `/tmp/stream_mm_ag_1x4_dram.py`
   a DRAM dest seems not to complete (vs L1). See the
   `remote-store-dram-deadlock-repro` memory for the full bisection + next probes.
 
-**Next:** confirm via injected/EDM DPRINT whether the EDM receives the DRAM write;
-evaluate a DRAM-capable fabric write path, or stage Option 2 through remote L1 +
-a local copy to DRAM. This is the gate to much-larger shards (Option 2) / 8×8.
+**Root cause found (2026-06-18)** by comparing to tt-metal's production CCL
+`broadcast_tile_writer.cpp` (an all_gather/broadcast that mcasts to DRAM). The
+EDM **connection setup is identical** (both use `RoutingPlaneConnectionManager`
+via `append_routing_plane_connection_manager_rt_args`) — so the connection is not
+the issue. The fabric **write** differs: production uses the official
+`linear::experimental::fabric_multicast_noc_unicast_write_*` API with the dst
+computed by a **TensorAccessor** (`linear::addrgen_detail::get_noc_address`),
+whereas d2m uses a hand-rolled `fabric_mcast_fast_write_any_len` LLK with the dst
+computed manually via `get_noc_addr_from_bank_id` (hard-coded round-robin
+banking). The manual address works for L1 (noc-independent worker coords) but is
+not a fabric-deliverable DRAM address → the receive-side write never completes →
+backpressure → hang. (Consistent with every negative result: not noc-encoding,
+mcast/unicast, ring/line, flush, or semaphore.)
+
+**Next:** lower d2m DRAM fabric writes through a TensorAccessor-computed
+destination noc address (the accessor DMA path already computes correct DRAM
+addresses for local writes — reuse it for the fabric dst), ideally via the
+official `linear::experimental` fabric write API like broadcast_tile_writer.cpp.
+This unblocks Option 2 / much-larger shards / 8×8. See the
+`remote-store-dram-deadlock-repro` memory.
 
 - The fabric→DRAM track (and the deadlock) now has a working fabric handshake to
   build on (use the full mesh). The single-device matmul→DRAM-scratch half can be
