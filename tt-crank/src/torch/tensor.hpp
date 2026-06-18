@@ -115,13 +115,11 @@ template <typename... Tensors> at::Device tt_device_of(const Tensors &...tensors
 // "tt" c10d backend's collective methods. They live here (not in _native.cpp)
 // so the binding layer stays a thin unwrap-and-forward shim.
 
-// Bundle per-rank chunks into a multi-device tt tensor (chip i ← chunks[i])
-// and replace `output`'s storage. `chunks` are coerced to CPU (tt tensors
-// are gathered first). Each chunk must match `output`'s shape and dtype.
-// The at::Tensor shape stays the per-chip shape; the underlying
-// ttnn TensorTopology is marked Shard so per-chip data is distinct.
-// Used by `TTProcessGroup.scatter` to materialize DTensor's `[Shard(dim)]`.
-void scatter_into(const at::Tensor &output, const std::vector<at::Tensor> &chunks);
+// Scatter `chunks` over runtime mesh axis `cluster_axis` into a multi-device tt
+// tensor and replace `output`'s storage. `chunks` holds one entry per
+// coordinate on that axis (`mesh_shape[cluster_axis]` of them).
+// Each chunk must match `output`'s shape and dtype.
+void scatter_into(const at::Tensor &output, const std::vector<at::Tensor> &chunks, std::uint32_t cluster_axis);
 
 // Run an on-device `ttir.all_gather` over `input` (per-rank shape, Shard
 // data on the underlying mesh) and stuff the gathered result into

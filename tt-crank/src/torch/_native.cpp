@@ -463,16 +463,16 @@ NB_MODULE(_native, m) {
 
     m.def(
         "scatter_into",
-        [](nb::handle py_output, nb::list py_chunks) {
+        [](nb::handle py_output, nb::list py_chunks, std::uint32_t cluster_axis) {
             at::Tensor output = unpack_torch_tensor(py_output);
             std::vector<at::Tensor> chunks;
             chunks.reserve(nb::len(py_chunks));
             for (auto h : py_chunks) {
                 chunks.push_back(unpack_torch_tensor(h));
             }
-            tk::scatter_into(output, chunks);
+            tk::scatter_into(output, chunks, cluster_axis);
         },
-        "output"_a, "chunks"_a);
+        "output"_a, "chunks"_a, "cluster_axis"_a);
 
     m.def(
         "allgather_into",
