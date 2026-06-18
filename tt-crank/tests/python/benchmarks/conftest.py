@@ -28,7 +28,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     group.addoption(
         "--mode",
         action="store",
-        default="eager",
+        default="compile",
         choices=["eager", "compile"],
         help="Model execution mode. 'compile' wraps the model with "
         "torch.compile(backend='tt'); 'eager' runs the model as-is.",
