@@ -1146,6 +1146,112 @@ def test_streaming_matmul_all_gather():
     assert_pcc(expected, result)
 
 
+@d2m.kernel
+def _all_gather_stream_1x4(in0, out0, start_sem, end_sem, n_tiles):
+    # Streaming all_gather on the full 1x4 mesh: the link core reads ONE tile of
+    # the per-device shard at a time and fabric-mcasts it across the 4-device
+    # line immediately, reusing a single 1-tile buffer (bounded L1 regardless of
+    # n_tiles). The Python `for` unrolls at trace time (n_tiles is a kernel arg).
+    dy = mesh_position(0)
+    cy = core_index(0)
+    cx = core_index(1)
+    device_synchronize(
+        start_sem,
+        start_device=[dy, 0],
+        mcast_shape=[1, 4],
+        num_receivers=3,
+        core_indices=[cy, cx],
+    )
+    dx = mesh_position(1)
+    for t in range(n_tiles):
+        bt = empty([1, 1])
+        bt = remote_load(bt, in0, [t, 0])
+        remote_store(
+            out0,
+            [dx * n_tiles + t, 0],
+            bt,
+            start_device=[dy, 0],
+            device_mcast_shape=[1, 4],
+            semaphore=end_sem,
+            semaphore_indices=[cy, 0],
+        )
+    semaphore_wait(end_sem, 4 * n_tiles)  # n_tiles sends x (3 remote + 1 self)
+
+
+@pytest.mark.skipif(
+    torch is None or runtime is None, reason="requires torch + ttmlir runtime"
+)
+@pytest.mark.skipif(_num_devices() < 4, reason="requires a >=4-device mesh")
+def test_streaming_matmul_all_gather_1x4():
+    """Streaming multicore matmul + all_gather on the full 1x4 mesh -- the
+    full-mesh generalization of `test_streaming_matmul_all_gather`.
+
+    A grid-(N,1) matmul produces an N-row-tile per-device shard C_d; the
+    all_gather generic then *streams* it, reading one tile of C_d and
+    fabric-mcasting it across the 4-device line, reusing a single 1-tile buffer.
+    The link core therefore never holds more than one tile -- the L1-bounded
+    mechanism that lets the per-device matmul grow without an atomic N-tile
+    gather pressuring the link core's L1.
+
+    N=2 here keeps the *gathered* output (4 devices x N tiles, stacked in a
+    column) within the worker-grid height. Scaling the gathered output beyond
+    the worker grid needs a DRAM-staged output (Option 2); that path currently
+    deadlocks in the fabric remote_store->DRAM and is the next blocker (see
+    STATUS_fused_matmul_allgather.md)."""
+    N = 2
+    d2m.mesh((1, 4), topology=("linear", "linear"))
+    L_in = d2m.Layout(
+        shape=(N * 32, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[N, 1]
+    )
+    L_out = d2m.Layout(
+        shape=(4 * N * 32, 32),
+        dtype=d2m.float32,
+        block_shape=[1, 1],
+        grid_shape=[4 * N, 1],
+    )
+    full_a = torch.randn(N * 32, 128, dtype=torch.float32)
+    full_b = torch.randn(N * 32, 128, dtype=torch.float32)
+    a_s = d2m.reblock(
+        d2m.mesh_shard(full_a, L_in, shard_dims=[0, 1], shard_shape=[1, 4]), [N, 1]
+    )
+    b_s = d2m.reblock(
+        d2m.mesh_shard(full_b, L_in, shard_dims=[0, 1], shard_shape=[1, 4]), [N, 1]
+    )
+    c_d = d2m.empty(L_in)
+    out_s = d2m.reblock(d2m.empty(L_out), [4 * N, 1])
+    ss = d2m.global_semaphore()
+    es = d2m.global_semaphore()
+    _mm_col(a_s, b_s, c_d, grid=(N, 1))
+    _all_gather_stream_1x4(
+        c_d,
+        out_s,
+        ss,
+        es,
+        N,
+        grid=(1, 1),
+        fabric=d2m.fabric_config(
+            cluster_axis=1, topology="linear", routing="bidir_line_mesh"
+        ),
+    )
+    out_s = d2m.mesh_gather(out_s, shard_dims=[0, 1], shard_shape=[1, 4])
+    result = out_s.to_host()
+
+    per_device = []
+    for d in range(4):
+        a_d = full_a[:, 32 * d : 32 * (d + 1)]
+        b_d = full_b[:, 32 * d : 32 * (d + 1)]
+        cd = torch.zeros(N * 32, 32, dtype=torch.float32)
+        for cy in range(N):
+            cd[32 * cy : 32 * (cy + 1), :] = (
+                a_d[32 * cy : 32 * (cy + 1), :] @ b_d[32 * cy : 32 * (cy + 1), :]
+            )
+        per_device.append(cd)
+    stacked = torch.cat(per_device, dim=0)  # (4*N*32, 32)
+    expected = torch.cat([stacked] * 4, dim=1)  # (4*N*32, 128)
+    assert tuple(result.shape) == (4 * N * 32, 128), result.shape
+    assert_pcc(expected, result)
+
+
 # ---------------------------------------------------------------------------
 # Compute-isolation references for the fused matmul + all_gather
 # ---------------------------------------------------------------------------
