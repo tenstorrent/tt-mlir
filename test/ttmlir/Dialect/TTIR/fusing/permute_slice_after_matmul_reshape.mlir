@@ -3,21 +3,6 @@
 // RUN: ttmlir-opt --ttir-erase-inverse-ops --ttir-fusing %s -o %t2.mlir
 // RUN: FileCheck %s --input-file=%t2.mlir
 
-// PermuteSliceAfterMatmulPattern deliberately does not look through a reshape
-// that sits between the matmul and the slice. It does not need to: EraseInverseOps
-// (EIO) already commutes a leading-unit-dim reshape *down* below the slice,
-// turning `matmul -> reshape -> slice` into `matmul -> slice -> reshape`. The
-// fusing pass then matches the plain `matmul -> slice` and narrows the matmul.
-//
-// Each test pins both halves of that contract: the EIO prefix shows the reshape
-// commuted below the slice (no fusion yet), and the default prefix shows the
-// end-to-end result after fusing -- identical to what the pattern used to
-// produce when it looked through the reshape itself. If EIO ever stops
-// inverting the reshape and the slice, the EIO checks break, which is the
-// signal that the fusion would need to grow reshape handling again.
-
-// Row (M) slice through a leading-unit-dim reshape (the rank-3 logits tensor
-// [1, seq, vocab] produced by HF causal-LM heads).
 // EIO-LABEL: func.func @left_matrix_reshape
 // EIO: %[[M:.*]] = "ttir.matmul"(%arg0, %arg1)
 // EIO: %[[S:.*]] = "ttir.slice_static"(%[[M]])
@@ -34,8 +19,6 @@ func.func @left_matrix_reshape(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096
   return %2 : tensor<1x1x128256xbf16>
 }
 
-// A column (N) slice through a leading-unit-dim reshape is pushed into B just
-// like a direct column slice.
 // EIO-LABEL: func.func @right_matrix_reshape
 // EIO: %[[M:.*]] = "ttir.matmul"(%arg0, %arg1)
 // EIO: %[[S:.*]] = "ttir.slice_static"(%[[M]])
@@ -52,9 +35,6 @@ func.func @right_matrix_reshape(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<409
   return %2 : tensor<1x1024x64xbf16>
 }
 
-// transpose_a=true row slice through a leading-unit-dim reshape: the transpose
-// flag is honored when locating A's producing dim, and EIO still inverts the
-// reshape and the slice so the fusion sees a plain matmul -> slice.
 // EIO-LABEL: func.func @left_matrix_transpose_reshape
 // EIO: %[[M:.*]] = "ttir.matmul"(%arg0, %arg1)
 // EIO: %[[S:.*]] = "ttir.slice_static"(%[[M]])
