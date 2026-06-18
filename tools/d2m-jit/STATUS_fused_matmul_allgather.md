@@ -195,12 +195,26 @@ destination, *after* a healthy bringup — distinct from the (now-fixed) accesso
 mcast-drop and the (resolved) sub-mesh bringup timeout.
 
 A no-kernel-change repro recipe lives at `/tmp/stream_mm_ag_1x4_dram.py`
-(`N=2 MEM=dram`). Root cause not yet found; the fabric write reaches DRAM
-addresses differently than L1 — the prime suspect is the DRAM NOC-endpoint /
-flush path in the fabric write lowering.
+(`N=2 MEM=dram`).
 
-**Next:** root-cause the `remote_store`→DRAM deadlock — it is the gate to
-much-larger shards (Option 2) and the 8×8 grid.
+**Root-cause narrowed (2026-06-18)** by bisection:
+- single-device **local** DRAM write works; fabric write to **L1** works; only
+  the fabric write to a **DRAM** destination hangs.
+- propagation: the stalled data fabric-write blocks the fabric connection, so the
+  subsequent fabric `sem_inc`s never send and every device's trailing
+  `semaphore_wait` hangs.
+- **NOC-encoding ruled out:** the DRAM kernel runs on noc1 and the dst is
+  `get_noc_addr_from_bank_id(bank, addr, noc_index)`; forcing it to noc0 did NOT
+  fix the hang (reverted). (L1 fabric dst uses noc-independent translated coords.)
+- remaining suspect is tt-metal-side: the EDM receiver writes the payload via
+  `noc_async_write_one_packet_with_trid(dest, …, forward_and_local_write_noc_vc)`
+  (`fabric_edm_packet_transmission.hpp`); the trid-tracked single-packet write to
+  a DRAM dest seems not to complete (vs L1). See the
+  `remote-store-dram-deadlock-repro` memory for the full bisection + next probes.
+
+**Next:** confirm via injected/EDM DPRINT whether the EDM receives the DRAM write;
+evaluate a DRAM-capable fabric write path, or stage Option 2 through remote L1 +
+a local copy to DRAM. This is the gate to much-larger shards (Option 2) / 8×8.
 
 - The fabric→DRAM track (and the deadlock) now has a working fabric handshake to
   build on (use the full mesh). The single-device matmul→DRAM-scratch half can be
