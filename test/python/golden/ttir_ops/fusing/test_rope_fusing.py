@@ -4,7 +4,6 @@
 
 import pytest
 import torch
-from typing import List
 from builder.base.builder_utils import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
@@ -281,7 +280,10 @@ def test_rope_rotate_half(input_shape, cos_sin_shape, dtype, target, request, de
         target=target,
         **get_request_kwargs(request),
         device=device,
-        pipeline_options=["enable-ttnn-decomposition-pass=false"],
+        pipeline_options=[
+            "enable-ttnn-decomposition-pass=false",
+            "composite-resolution=force-promote",
+        ],
         save_artifacts=True,
     )
 
@@ -344,11 +346,102 @@ def test_rope_complex_rotation(
         target=target,
         **get_request_kwargs(request),
         device=device,
-        pipeline_options=["enable-ttnn-decomposition-pass=false"],
+        pipeline_options=[
+            "enable-ttnn-decomposition-pass=false",
+            "composite-resolution=force-promote",
+        ],
         save_artifacts=True,
     )
 
     assert check_op(output, "rotary_embedding")
+
+
+# ---------------------------------------------------------------------------
+# Decomposition quality: verify the composite decomposition produces the
+# complex rotation form (half-D ops, no neg) when inlined, matching PR #8580.
+#
+# Uses Qwen3-0.6B shapes from tt-xla#4886 — decode (1,4,1,128) followed by
+# prefill (1,4,64,128) on the same device. With the rotate_half fallback,
+# decode emits concat(1,1,1,64) which collides in the tt-metal program cache
+# with prefill's rotate_half concat(1,4,64,64) (tt-metal#45089). The complex
+# rotation form avoids this by never emitting the (1,1,1,D/2) concat.
+# ---------------------------------------------------------------------------
+
+
+def _build_and_run_complex_rotation(
+    input_shape, cos_sin_half_shape, dtype, target, request, device
+):
+    """Helper: build complex rotation RoPE, compile, and execute."""
+    shapes = [input_shape, cos_sin_half_shape, cos_sin_half_shape]
+    dtypes = [dtype] * 3
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def rotary_embedding(
+            input: Operand,
+            cos_half_input: Operand,
+            sin_half_input: Operand,
+            builder: TTIRBuilder,
+        ):
+            input_data = torch.randn(input_shape, dtype=dtype)
+            cos_half_data = torch.randn(cos_sin_half_shape, dtype=dtype)
+            sin_half_data = torch.randn(cos_sin_half_shape, dtype=dtype)
+
+            cos_full = torch.cat([cos_half_data, cos_half_data], dim=-1)
+            sin_full = torch.cat([sin_half_data, sin_half_data], dim=-1)
+            golden = torch_rope(
+                input_data, cos_full.unsqueeze(0), sin_full.unsqueeze(0)
+            )
+
+            result = build_rope_complex_rotation(
+                input, cos_half_input, sin_half_input, builder
+            )
+
+            builder.set_goldens(
+                {
+                    input: input_data,
+                    cos_half_input: cos_half_data,
+                    sin_half_input: sin_half_data,
+                },
+                {result: golden},
+            )
+            return result
+
+    return compile_and_execute_ttir(
+        module,
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        save_artifacts=True,
+    )
+
+
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_rope_complex_rotation_decomposition(dtype, target, request, device):
+    """
+    Run decode then prefill on the same device (shared program cache) using
+    Qwen3-0.6B shapes from tt-xla#4886. Verifies:
+    1. The inlined decomposition uses complex rotation form (subtract, no neg).
+    2. Both shapes execute without tt-metal#45089 program-cache collision.
+    """
+    # Decode: seq=1, 4 KV heads, head_dim=128, cos/sin half-dim=64
+    decode_output = _build_and_run_complex_rotation(
+        (1, 4, 1, 128), (1, 1, 64), dtype, target, request, device
+    )
+    # Prefill: seq=64
+    prefill_output = _build_and_run_complex_rotation(
+        (1, 4, 64, 128), (1, 64, 64), dtype, target, request, device
+    )
+
+    # Both should be inlined (not promoted) — no ttnn.rotary_embedding.
+    assert not check_op(decode_output, "rotary_embedding")
+    assert not check_op(prefill_output, "rotary_embedding")
+    # Complex rotation form uses subtract, not neg.
+    assert check_op(decode_output, "subtract")
+    assert not check_op(decode_output, "neg")
+    assert check_op(prefill_output, "subtract")
+    assert not check_op(prefill_output, "neg")
 
 
 # ---------------------------------------------------------------------------
@@ -514,7 +607,10 @@ def test_rope_interleaved_pair(
         target=target,
         **get_request_kwargs(request),
         device=device,
-        pipeline_options=["enable-ttnn-decomposition-pass=false"],
+        pipeline_options=[
+            "enable-ttnn-decomposition-pass=false",
+            "composite-resolution=force-promote",
+        ],
         save_artifacts=True,
     )
 

@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTNN/Utils/BFPDtypeParser.h"
+#include "ttmlir/Dialect/TTNN/Utils/CompositeResolution.h"
 #include "ttmlir/Dialect/TTNN/Utils/MathFidelityParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
@@ -287,6 +288,22 @@ struct TTIRToTTNNCommonPipelineOptions
   Option<bool> ttnnDecompositionEnabled{
       *this, "enable-ttnn-decomposition-pass",
       llvm::cl::desc("Enable TTNN decomposition pass."), llvm::cl::init(true)};
+
+  Option<ttnn::CompositeResolution> compositeResolution{
+      *this, "composite-resolution",
+      llvm::cl::desc("How to resolve composites."),
+      llvm::cl::values(
+          clEnumValN(ttnn::CompositeResolution::Auto, "auto",
+                     "Pipeline decides: validate when optimizer+OpModel "
+                     "available, else inline (default)."),
+          clEnumValN(
+              ttnn::CompositeResolution::Inline, "inline",
+              "Always inline decomposition; never upgraded by pipeline."),
+          clEnumValN(ttnn::CompositeResolution::Validate, "validate",
+                     "Promote if OpModel validates, else inline."),
+          clEnumValN(ttnn::CompositeResolution::ForcePromote, "force-promote",
+                     "Unconditionally promote (testing only).")),
+      llvm::cl::init(ttnn::CompositeResolution::Auto)};
 
   Option<bool> implicitBroadcastFoldingEnabled{
       *this, "enable-implicit-broadcast-folding-pass",
