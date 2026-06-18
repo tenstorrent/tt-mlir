@@ -51,8 +51,13 @@ def _find_per_rank(output_root, pattern):
     """Recursive glob under each rank<N>/ for files matching `pattern`."""
     matches = set()
     matches.update(
-        glob.glob(os.path.join(output_root, "rank*", "**", pattern), recursive=True)
+        glob.glob(
+            os.path.join(output_root, "rank*", "**", pattern),
+            recursive=True,
+            include_hidden=True,
+        )
     )
+    matches.update(glob.glob(os.path.join(output_root, "rank*", ".logs", pattern)))
     matches.update(glob.glob(os.path.join(output_root, f"rank*{pattern}")))
     return sorted(matches)
 
@@ -77,7 +82,9 @@ def test_tracy_multi_host_smoke():
     """
     os.makedirs(TRACY_OUTPUT_DIR, exist_ok=True)
 
-    _launch_distributed_runtime_with_tracy(["--output-folder", TRACY_OUTPUT_DIR])
+    TRACY_ARGS = ["--output-folder", TRACY_OUTPUT_DIR, "-r"]
+
+    _launch_distributed_runtime_with_tracy(TRACY_ARGS)
     try:
         # Workload: confirm the mesh is visible, then open a mesh device so
         # tracy captures real device-init activity on the workers (mirrors
