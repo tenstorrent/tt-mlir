@@ -73,14 +73,52 @@ func.func @both_matrix_negative(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<409
   return %1 : tensor<1x64xbf16>
 }
 
-// Negative: the row slice uses a non-unit step, so the selected rows are not a
-// contiguous range and cannot be pushed into A. Leave it alone.
-// CHECK-LABEL: func.func @left_matrix_non_unit_step_negative
-func.func @left_matrix_non_unit_step_negative(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x128256xbf16>) -> tensor<512x128256xbf16> {
-  // CHECK: "ttir.matmul"(%arg0, %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>) -> tensor<1024x128256xbf16>
+// A strided row slice (step 2) is pushed into A with the same stride: the
+// selected rows of the output are exactly matmul(A's selected rows, B).
+// CHECK-LABEL: func.func @left_matrix_strided_rows
+func.func @left_matrix_strided_rows(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x128256xbf16>) -> tensor<512x128256xbf16> {
+  // CHECK: %[[A:.*]] = "ttir.slice_static"(%arg0) <{begins = [0 : i32, 0 : i32], ends = [1024 : i32, 4096 : i32], step = [2 : i32, 1 : i32]}> : (tensor<1024x4096xbf16>) -> tensor<512x4096xbf16>
+  // CHECK: "ttir.matmul"(%[[A]], %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<512x4096xbf16>, tensor<4096x128256xbf16>) -> tensor<512x128256xbf16>
+  // CHECK-NOT: tensor<1024x128256xbf16>
   %0 = "ttir.matmul"(%arg0, %arg1) : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>) -> tensor<1024x128256xbf16>
   %1 = "ttir.slice_static"(%0) <{begins = [0 : i32, 0 : i32], ends = [1024 : i32, 128256 : i32], step = [2 : i32, 1 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<512x128256xbf16>
   return %1 : tensor<512x128256xbf16>
+}
+
+// A strided column slice (step 3) is pushed into B with the same stride.
+// CHECK-LABEL: func.func @right_matrix_strided_cols
+func.func @right_matrix_strided_cols(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x128256xbf16>) -> tensor<1024x42752xbf16> {
+  // CHECK: %[[B:.*]] = "ttir.slice_static"(%arg1) <{begins = [0 : i32, 0 : i32], ends = [4096 : i32, 128256 : i32], step = [1 : i32, 3 : i32]}> : (tensor<4096x128256xbf16>) -> tensor<4096x42752xbf16>
+  // CHECK: "ttir.matmul"(%arg0, %[[B]]) <{transpose_a = false, transpose_b = false}> : (tensor<1024x4096xbf16>, tensor<4096x42752xbf16>) -> tensor<1024x42752xbf16>
+  // CHECK-NOT: tensor<1024x128256xbf16>
+  %0 = "ttir.matmul"(%arg0, %arg1) : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>) -> tensor<1024x128256xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [0 : i32, 0 : i32], ends = [1024 : i32, 128256 : i32], step = [1 : i32, 3 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1024x42752xbf16>
+  return %1 : tensor<1024x42752xbf16>
+}
+
+// A strided row slice over a sub-range ([1022:1024:2] -> just row 1022) is
+// pushed into A with the same begin/end/step; the matmul narrows to one row.
+// CHECK-LABEL: func.func @left_matrix_strided_rows_offset
+func.func @left_matrix_strided_rows_offset(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x128256xbf16>) -> tensor<1x128256xbf16> {
+  // CHECK: %[[A:.*]] = "ttir.slice_static"(%arg0) <{begins = [1022 : i32, 0 : i32], ends = [1024 : i32, 4096 : i32], step = [2 : i32, 1 : i32]}> : (tensor<1024x4096xbf16>) -> tensor<1x4096xbf16>
+  // CHECK: "ttir.matmul"(%[[A]], %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<1x4096xbf16>, tensor<4096x128256xbf16>) -> tensor<1x128256xbf16>
+  // CHECK-NOT: tensor<1024x128256xbf16>
+  %0 = "ttir.matmul"(%arg0, %arg1) : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>) -> tensor<1024x128256xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [1022 : i32, 0 : i32], ends = [1024 : i32, 128256 : i32], step = [2 : i32, 1 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1x128256xbf16>
+  return %1 : tensor<1x128256xbf16>
+}
+
+// transpose_a=true variant of the strided sub-range row slice: A is [K, M], so
+// the [1022:1024:2] slice is pushed into A's trailing (M) dim and transpose_a
+// is preserved.
+// CHECK-LABEL: func.func @left_matrix_strided_rows_offset_transpose
+func.func @left_matrix_strided_rows_offset_transpose(%arg0: tensor<4096x1024xbf16>, %arg1: tensor<4096x128256xbf16>) -> tensor<1x128256xbf16> {
+  // CHECK: %[[A:.*]] = "ttir.slice_static"(%arg0) <{begins = [0 : i32, 1022 : i32], ends = [4096 : i32, 1024 : i32], step = [1 : i32, 2 : i32]}> : (tensor<4096x1024xbf16>) -> tensor<4096x1xbf16>
+  // CHECK: "ttir.matmul"(%[[A]], %arg1) <{transpose_a = true, transpose_b = false}> : (tensor<4096x1xbf16>, tensor<4096x128256xbf16>) -> tensor<1x128256xbf16>
+  // CHECK-NOT: tensor<1024x128256xbf16>
+  %0 = "ttir.matmul"(%arg0, %arg1) <{transpose_a = true, transpose_b = false}> : (tensor<4096x1024xbf16>, tensor<4096x128256xbf16>) -> tensor<1024x128256xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [1022 : i32, 0 : i32], ends = [1024 : i32, 128256 : i32], step = [2 : i32, 1 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1x128256xbf16>
+  return %1 : tensor<1x128256xbf16>
 }
 
 // Negative: a 1D operand makes the matmul output rank 1, so there is no row/col
@@ -264,6 +302,33 @@ func.func @linear_right_transpose(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<1
   %0 = "ttir.linear"(%arg0, %arg1, %arg2) <{transpose_a = false, transpose_b = true}> : (tensor<1024x4096xbf16>, tensor<128256x4096xbf16>, tensor<128256xbf16>) -> tensor<1024x128256xbf16>
   %1 = "ttir.slice_static"(%0) <{begins = [0 : i32, 0 : i32], ends = [1024 : i32, 64 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1024x64xbf16>
   return %1 : tensor<1024x64xbf16>
+}
+
+// A strided column slice (step 3) on a linear is pushed into B, and the [N]
+// bias is sliced along the same strided N range.
+// CHECK-LABEL: func.func @linear_right_strided
+func.func @linear_right_strided(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x128256xbf16>, %arg2: tensor<128256xbf16>) -> tensor<1024x42752xbf16> {
+  // CHECK: %[[B:.*]] = "ttir.slice_static"(%arg1) <{begins = [0 : i32, 0 : i32], ends = [4096 : i32, 128256 : i32], step = [1 : i32, 3 : i32]}> : (tensor<4096x128256xbf16>) -> tensor<4096x42752xbf16>
+  // CHECK: %[[BIAS:.*]] = "ttir.slice_static"(%arg2) <{begins = [0 : i32], ends = [128256 : i32], step = [3 : i32]}> : (tensor<128256xbf16>) -> tensor<42752xbf16>
+  // CHECK: "ttir.linear"(%arg0, %[[B]], %[[BIAS]]) <{transpose_a = false, transpose_b = false}> : (tensor<1024x4096xbf16>, tensor<4096x42752xbf16>, tensor<42752xbf16>) -> tensor<1024x42752xbf16>
+  // CHECK-NOT: tensor<1024x128256xbf16>
+  %0 = "ttir.linear"(%arg0, %arg1, %arg2) : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>, tensor<128256xbf16>) -> tensor<1024x128256xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [0 : i32, 0 : i32], ends = [1024 : i32, 128256 : i32], step = [1 : i32, 3 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1024x42752xbf16>
+  return %1 : tensor<1024x42752xbf16>
+}
+
+// transpose_b=true strided column slice on a linear with a real [N] bias: B is
+// [N, K] so the strided slice is pushed into B's rank-2 dim, the [N] bias is
+// sliced along the same strided range, and transpose_b is preserved.
+// CHECK-LABEL: func.func @linear_right_strided_transpose_bias
+func.func @linear_right_strided_transpose_bias(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<128256x4096xbf16>, %arg2: tensor<128256xbf16>) -> tensor<1024x42752xbf16> {
+  // CHECK: %[[B:.*]] = "ttir.slice_static"(%arg1) <{begins = [0 : i32, 0 : i32], ends = [128256 : i32, 4096 : i32], step = [3 : i32, 1 : i32]}> : (tensor<128256x4096xbf16>) -> tensor<42752x4096xbf16>
+  // CHECK: %[[BIAS:.*]] = "ttir.slice_static"(%arg2) <{begins = [0 : i32], ends = [128256 : i32], step = [3 : i32]}> : (tensor<128256xbf16>) -> tensor<42752xbf16>
+  // CHECK: "ttir.linear"(%arg0, %[[B]], %[[BIAS]]) <{transpose_a = false, transpose_b = true}> : (tensor<1024x4096xbf16>, tensor<42752x4096xbf16>, tensor<42752xbf16>) -> tensor<1024x42752xbf16>
+  // CHECK-NOT: tensor<1024x128256xbf16>
+  %0 = "ttir.linear"(%arg0, %arg1, %arg2) <{transpose_a = false, transpose_b = true}> : (tensor<1024x4096xbf16>, tensor<128256x4096xbf16>, tensor<128256xbf16>) -> tensor<1024x128256xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [0 : i32, 0 : i32], ends = [1024 : i32, 128256 : i32], step = [1 : i32, 3 : i32]}> : (tensor<1024x128256xbf16>) -> tensor<1024x42752xbf16>
+  return %1 : tensor<1024x42752xbf16>
 }
 
 // Negative: the slice narrows both the row and column dims of a linear output

@@ -160,6 +160,67 @@ def test_permute_slice_after_matmul_fusing(
 
 
 @pytest.mark.parametrize(
+    "shape_a,shape_b,transpose_a,transpose_b,begins,ends,step",
+    [
+        # Strided row slice (step 2) -> pushed into A with the same stride; the
+        # selected output rows are exactly matmul(A's selected rows, B).
+        ((256, 512), (512, 1024), False, False, [0, 0], [256, 1024], [2, 1]),
+        # Strided column slice (step 3) -> pushed into B with the same stride.
+        ((256, 512), (512, 1024), False, False, [0, 0], [256, 1024], [1, 3]),
+        # transpose_a=true strided row slice -> pushed into A's trailing dim.
+        ((512, 256), (512, 1024), True, False, [0, 0], [256, 1024], [2, 1]),
+        # transpose_b=true strided column slice -> pushed into B's rank-2 dim.
+        ((256, 512), (1024, 512), False, True, [0, 0], [256, 1024], [1, 3]),
+        # Strided row slice over a sub-range ([1022:1024:2] -> just row 1022):
+        # stride combined with a non-zero begin, narrowing to a single row.
+        ((1024, 512), (512, 1024), False, False, [1022, 0], [1024, 1024], [2, 1]),
+        # transpose_a=true variant of the above: A is [K, M], so the strided
+        # sub-range slice is pushed into A's trailing dim.
+        ((512, 1024), (512, 1024), True, False, [1022, 0], [1024, 1024], [2, 1]),
+    ],
+)
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 2])
+def test_permute_slice_after_matmul_strided_fusing(
+    shape_a: Shape,
+    shape_b: Shape,
+    transpose_a: bool,
+    transpose_b: bool,
+    begins: List[int],
+    ends: List[int],
+    step: List[int],
+    dtypes: List[torch.dtype],
+    request,
+    device,
+):
+    shapes = [shape_a, shape_b]
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def matmul_strided_slice(
+            input_tensor: Operand,
+            weight: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            matmul_result = builder.matmul(
+                input_tensor, weight, transpose_a=transpose_a, transpose_b=transpose_b
+            )
+            return builder.slice(matmul_result, begins, ends, step)
+
+    # PCC (default 0.99) confirms the strided slice pushed into the operand
+    # preserves numerics end to end.
+    output_path = compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        save_artifacts=True,
+        check_pcc=True,
+    )
+    # The fusion fired: a strided slice now feeds the matmul instead of consuming it.
+    assert check_op(output_path, "matmul") and slice_precedes_matmul(output_path)
+
+
+@pytest.mark.parametrize(
     "shape_a,shape_b,bias_shape,transpose_a,transpose_b,begins,ends",
     [
         # Row (M) slice -> pushed into A; the [N] bias is indexed by N, so it
@@ -268,6 +329,78 @@ def test_permute_slice_after_linear_fusing(
     # The fusion fired: a slice now feeds the narrowed op instead of consuming
     # it. A 2D linear stays ttnn.linear; a batched linear lowers to ttnn.matmul
     # + add, so accept either.
+    assert (
+        check_op(output_path, "linear") or check_op(output_path, "matmul")
+    ) and slice_precedes_matmul(output_path)
+
+
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 3])
+def test_permute_slice_after_linear_strided_fusing(
+    dtypes: List[torch.dtype],
+    request,
+    device,
+):
+    # Quick check that a strided slice also fuses through ttir.linear: a strided
+    # column slice (step 3) is pushed into B, and the [N] bias is sliced along
+    # the same strided N range.
+    shapes = [(256, 512), (512, 1024), (1024,)]
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def linear_strided_slice(
+            input_tensor: Operand,
+            weight: Operand,
+            bias: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            linear_result = builder.linear(input_tensor, weight, bias=bias)
+            return builder.slice(linear_result, [0, 0], [256, 1024], [1, 3])
+
+    output_path = compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        save_artifacts=True,
+        check_pcc=True,
+    )
+    assert (
+        check_op(output_path, "linear") or check_op(output_path, "matmul")
+    ) and slice_precedes_matmul(output_path)
+
+
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 3])
+def test_permute_slice_after_linear_strided_transpose_bias_fusing(
+    dtypes: List[torch.dtype],
+    request,
+    device,
+):
+    # Combined: transpose_b=true (B is [N, K]) strided column slice (step 3) with
+    # a real [N] bias. The slice is pushed into B's rank-2 dim, the bias is
+    # sliced along the same strided N range, and transpose_b is preserved.
+    shapes = [(256, 512), (1024, 512), (1024,)]
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def linear_strided_transpose_slice(
+            input_tensor: Operand,
+            weight: Operand,
+            bias: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            linear_result = builder.linear(
+                input_tensor, weight, bias=bias, transpose_b=True
+            )
+            return builder.slice(linear_result, [0, 0], [256, 1024], [1, 3])
+
+    output_path = compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        save_artifacts=True,
+        check_pcc=True,
+    )
     assert (
         check_op(output_path, "linear") or check_op(output_path, "matmul")
     ) and slice_precedes_matmul(output_path)
