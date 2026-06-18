@@ -25,6 +25,19 @@ func.func @test_expression_yield_no_value(%arg0: !emitpy.opaque<"float">) -> !em
 
 // -----
 
+// Test: Terminator must be emitpy.yield
+func.func @test_expression_wrong_terminator(%arg0: !emitpy.opaque<"int">) -> !emitpy.opaque<"int"> {
+  // expected-error @+1 {{must yield a value at termination}}
+  %0 = "emitpy.expression"(%arg0) ({
+  ^bb0(%a: !emitpy.opaque<"int">):
+    %1 = emitpy.call_opaque "relu"(%a) : (!emitpy.opaque<"int">) -> !emitpy.opaque<"int">
+    func.return %1 : !emitpy.opaque<"int">
+  }) : (!emitpy.opaque<"int">) -> !emitpy.opaque<"int">
+  return %0 : !emitpy.opaque<"int">
+}
+
+// -----
+
 // Test: Yielded value must have a defining op
 func.func @test_expression_yield_block_arg(%arg0: !emitpy.opaque<"int">) -> !emitpy.opaque<"int"> {
   // expected-error @+1 {{yielded value has no defining op}}

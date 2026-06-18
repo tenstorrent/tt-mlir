@@ -937,14 +937,13 @@ LogicalResult ExpressionOp::verify() {
     return emitOpError("must yield a value at termination");
   }
 
-  // Ensure the terminator is a yield op
-  auto yield = cast<YieldOp>(body.getTerminator());
-
-  // YieldOp's auto-generated operand-count invariant is checked only after
-  // this verifier runs (parent's verify() before children's invariants), so
-  // reading getResult() on a malformed zero-operand yield would be a UB OOB
-  // read into operand storage. Guard here.
-  if (yield->getNumOperands() != 1) {
+  // The SingleBlockImplicitTerminator trait's region-trait check runs in a
+  // separate verifyRegionInvariants hook called *after* this verifier, and
+  // YieldOp's own operand-count invariant runs only when children are
+  // descended into. So at this point the terminator may be a non-YieldOp or
+  // a malformed zero-operand YieldOp; guard both before reading the operand.
+  auto yield = dyn_cast<YieldOp>(body.getTerminator());
+  if (!yield || yield->getNumOperands() != 1) {
     return emitOpError("must yield a value at termination");
   }
 
