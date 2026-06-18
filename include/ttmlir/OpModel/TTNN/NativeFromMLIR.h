@@ -350,6 +350,9 @@ buildFillCacheOpTFromMLIR(uint32_t batchOffset);
 ::tt::target::ttnn::PagedUpdateCacheOpT
 buildPagedUpdateCacheOpTFromMLIR(bool shareCache);
 
+::tt::target::ttnn::EmbeddingBackwardOpT
+buildEmbeddingBackwardOpTFromMLIR(TTNNLayoutAttr outputLayout);
+
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_ENABLE_OPMODEL
 

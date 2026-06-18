@@ -1368,6 +1368,13 @@ buildPagedUpdateCacheOpTFromMLIR(bool shareCache) {
   return pagedFillCacheOp;
 }
 
+::tt::target::ttnn::EmbeddingBackwardOpT
+buildEmbeddingBackwardOpTFromMLIR(TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::EmbeddingBackwardOpT op;
+  op.out = detail::getOutputTensorRefT(outputLayout);
+  return op;
+}
+
 } // namespace mlir::tt::ttnn::op_model
 
 #endif // TTMLIR_ENABLE_OPMODEL

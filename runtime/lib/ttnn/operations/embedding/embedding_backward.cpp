@@ -4,13 +4,7 @@
 
 #include "operations/embedding/embedding_backward.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
-#include "ttmlir/Target/TTNN/program_generated.h"
-#include "ttnn/operations/embedding_backward/embedding_backward.hpp"
-#include "ttnn/tensor/tensor.hpp"
+#include "ttmlir/OpInvoke/TTNN/Embedding/EmbeddingBackwardOp.h"
 
 namespace tt::runtime::ttnn::operations::embedding_backward {
 void run(const ::tt::target::ttnn::EmbeddingBackwardOp *op,
@@ -24,16 +18,20 @@ void run(const ::tt::target::ttnn::EmbeddingBackwardOp *op,
   const ::ttnn::Tensor &inGrad =
       tensorPool.getTTNNTensorAndValidate(op->in_grad());
 
-  std::optional<::ttnn::MemoryConfig> memoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
+  ::tt::target::ttnn::EmbeddingBackwardOpT opNative;
+  op->UnPackTo(&opNative);
 
-  std::optional<::ttnn::DataType> dtype = std::nullopt;
-  if (op->dtype()) {
-    dtype = ttnn_op_invoke::operations::utils::toTTNNDataType(*(op->dtype()));
-  }
-  ::ttnn::Tensor out =
-      ::ttnn::embedding_bw(input, weight, inGrad, dtype, memoryConfig);
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  ttnn_op_invoke::EmbeddingBackwardOpResult result =
+      ttnn_op_invoke::callEmbeddingBackward(ttnn_op_invoke::CallType::EXECUTE,
+                                            opNative, &input, &weight, &inGrad,
+                                            &targetDevice);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callEmbeddingBackward execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 } // namespace tt::runtime::ttnn::operations::embedding_backward
