@@ -289,11 +289,7 @@ def D2M_GenericOp
   let results = (outs Variadic<AnyRankedTensor>:$results);
   let regions = (region VariadicRegion<AnyRegion>:$regions);
 
-  let assemblyFormat = [{ attr-dict `\n`
-    ` ` ` ` ` ` ` ` `ins` `(` $inputs (`:` type($inputs)^)? `)` `\n`
-    ` ` ` ` ` ` ` ` `outs` `(` $outputs  `:` type($outputs) `)` `\n`
-    (` ` ` ` ` ` ` ` `additionalArgs` `(` $additionalArgs `:` type($additionalArgs)^ `)` `\n`)? $regions (`:`  type($results)^ )?
-    }];
+  let hasCustomAssemblyFormat = 1;
 
   let hasVerifier = 1;
   let hasCanonicalizer = 1;
