@@ -588,7 +588,7 @@ MatmulRuleBook::adjustScore(Operation * /*op*/, LayoutScore base,
       if (ml && *ml == TensorMemoryLayout::WidthSharded) {
         auto shape = in0.getGridShape();
         if (shape.size() == 2 && shape[0] == 1 &&
-            shape[1] == kNumStorageCores) {
+            shape[1] == kNumIn0Cores) {
           base.hasCanonicalDSIn0 = true;
         }
       }
@@ -641,8 +641,6 @@ MatmulRuleBook::getExtraInputReshardCandidates(Operation *op,
   auto *ctx = op->getContext();
   if (operandIdx == 0) {
     auto in0Layout = mlir::cast<TTNNLayoutAttr>(in0Type.getEncoding());
-    int64_t in0ShardHTiles = M / kTileSize;
-    int64_t in0ShardWTiles = (K / kTileSize) / kNumIn0Cores;
     return {buildL1ShardedLayout(ctx, in0Layout, in0Type.getShape(),
                                  kNumIn0Cores, deviceAttr)};
   }
