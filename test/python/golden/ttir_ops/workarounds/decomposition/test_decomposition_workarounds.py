@@ -981,28 +981,21 @@ def test_slice_l1_cb_workaround_disabled(
     [
         # Gemma-4 31B global attention shape on BHQB 4-chip TP=4, per-chip:
         # num_heads=32/4=8, num_kv_heads=4/4=1, head_dim=512, max_model_len=1024,
-        # block_size=32 -> 32 page-table blocks. Triggers per-core L1 overflow
-        # on the default schedule.
+        # block_size=32 -> 32 page-table blocks. head_dim >= 256 used to overflow
+        # per-core L1 under the default schedule; tt-metal #44311 fixed it.
         # Q: [1, batch, num_heads, head_dim]
         # K/V: [num_blocks, num_kv_heads, page_tokens, head_dim]
         # page_table: [batch, num_blocks_per_user]
         # output: same shape as Q
         # cur_pos_tensor: [batch]
-        pytest.param(
-            [
-                (1, 1, 8, 512),
-                (32, 1, 32, 512),
-                (32, 1, 32, 512),
-                (1, 32),
-                (1, 1, 8, 512),
-                (1,),
-            ],
-            marks=pytest.mark.xfail(
-                reason="PagedSdpaDecode default schedule overflows per-core L1 "
-                "when head_dim >= 256. Metal issue: "
-                "https://github.com/tenstorrent/tt-metal/issues/44311"
-            ),
-        ),
+        [
+            (1, 1, 8, 512),
+            (32, 1, 32, 512),
+            (32, 1, 32, 512),
+            (1, 32),
+            (1, 1, 8, 512),
+            (1,),
+        ],
     ],
     ids=shapes_list_str,
 )
@@ -1024,12 +1017,10 @@ def test_paged_sdpa_decode_l1_overflow_no_workaround(
     shapes: List[Shape], dtypes: List[torch.dtype], target: str, request, device
 ):
     """
-    Test that PagedSdpaDecode with large head_dim (Gemma-4 31B global
-    attention) hits per-core L1 overflow under the default schedule with
-    the workaround disabled.  When tt-metal fixes the default schedule's
-    L1 footprint for head_dim >= 256, this xfail flips to xpass and the
-    PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern can be
-    removed.
+    Regression guard for tt-metal #44311: PagedSdpaDecode with large head_dim
+    (Gemma-4 31B global attention) must compile and run under the default
+    schedule with workarounds disabled. This previously overflowed per-core L1
+    for head_dim >= 256 and was covered by a now-removed TTNN workaround pattern.
     """
 
     def module(builder: TTIRBuilder):
@@ -1076,90 +1067,6 @@ def test_paged_sdpa_decode_l1_overflow_no_workaround(
         target=target,
         device=device,
         pipeline_options=["disable-workarounds=true"],
-    )
-
-
-@pytest.mark.parametrize(
-    "shapes",
-    [
-        # Same Gemma-4 31B global attention shape as the no-workaround case.
-        [
-            (1, 1, 8, 512),
-            (32, 1, 32, 512),
-            (32, 1, 32, 512),
-            (1, 32),
-            (1, 1, 8, 512),
-            (1,),
-        ],
-    ],
-    ids=shapes_list_str,
-)
-@pytest.mark.parametrize(
-    "dtypes",
-    [
-        [
-            torch.bfloat16,
-            torch.bfloat16,
-            torch.bfloat16,
-            torch.int32,
-            torch.bfloat16,
-            torch.int32,
-        ]
-    ],
-)
-@pytest.mark.parametrize("target", ["ttnn"])
-def test_paged_sdpa_decode_l1_overflow_with_workaround(
-    shapes: List[Shape], dtypes: List[torch.dtype], target: str, request, device
-):
-    """
-    Positive coverage for the workaround: with the TTNN workarounds pass
-    enabled (default), the same shape that overflows L1 under the default
-    schedule must compile and run.
-    """
-
-    def module(builder: TTIRBuilder):
-        @builder.func(shapes, dtypes)
-        def paged_sdpa_decode_with_workaround(
-            query: Operand,
-            key: Operand,
-            value: Operand,
-            page_table: Operand,
-            output: Operand,
-            cur_pos: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            head_dim = shapes[0][-1]
-            scale = 1.0 / math.sqrt(head_dim)
-            num_blocks_per_user = shapes[3][-1]
-            batch = shapes[3][0]
-            valid_page_table = (
-                torch.arange(num_blocks_per_user, dtype=torch.int32)
-                .unsqueeze(0)
-                .expand(batch, -1)
-                .contiguous()
-            )
-            valid_cur_pos = torch.zeros(batch, dtype=torch.int32)
-            builder.set_goldens(
-                {page_table: valid_page_table, cur_pos: valid_cur_pos}, {}
-            )
-            return builder.paged_scaled_dot_product_attention_decode(
-                query,
-                key,
-                value,
-                page_table,
-                output,
-                is_causal=True,
-                cur_pos_tensor=cur_pos,
-                scale=scale,
-                unit_attrs=unit_attrs,
-            )
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
     )
 
 
