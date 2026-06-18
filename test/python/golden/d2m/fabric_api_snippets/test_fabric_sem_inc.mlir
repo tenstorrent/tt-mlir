@@ -21,8 +21,8 @@ module attributes {} {
 
   func.func private @datamovement_kernel0() attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = global_semaphore, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<noc>} {
     // Setup fabric connections
-    %fabric_connection_manager = "ttkernel.experimental::create_fabric_connection_manager"() : () -> !ttkernel.fabric_connection_manager
-    "ttkernel.experimental::setup_fabric_connections"(%fabric_connection_manager) : (!ttkernel.fabric_connection_manager) -> ()
+    %fabric_connection_manager = "ttkernel.experimental.create_fabric_connection_manager"() : () -> !ttkernel.fabric_connection_manager
+    "ttkernel.experimental.setup_fabric_connections"(%fabric_connection_manager) : (!ttkernel.fabric_connection_manager) -> ()
 
     // Constants
     %len_bytes = arith.constant 2048 : i32
@@ -33,33 +33,33 @@ module attributes {} {
     // Get logical coordinates of current core and convert logical coords to translated coords
     %logical_x = ttkernel.my_logical_x_ : () -> index
     %logical_y = ttkernel.my_logical_y_ : () -> index
-    %translated_x = "ttkernel.experimental::convert_logical_x_to_translated"(%logical_x) : (index) -> index
-    %translated_y = "ttkernel.experimental::convert_logical_y_to_translated"(%logical_y) : (index) -> index
+    %translated_x = "ttkernel.experimental.convert_logical_x_to_translated"(%logical_x) : (index) -> index
+    %translated_y = "ttkernel.experimental.convert_logical_y_to_translated"(%logical_y) : (index) -> index
 
     // Get noc address
     %global_semaphore = ttkernel.get_compile_time_arg_val(1) : () -> !ttkernel.l1_addr
-    %global_semaphore_ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%global_semaphore) : (!ttkernel.l1_addr) -> !ttkernel.l1_addr_ptr
+    %global_semaphore_ptr = ttkernel.reinterpret_cast(%global_semaphore) : (!ttkernel.l1_addr) -> !ttkernel.l1_addr_ptr
     %global_semaphore_noc_addr = ttkernel.get_noc_addr(%translated_x, %translated_y, %global_semaphore) : (index, index, !ttkernel.l1_addr) -> !ttkernel.noc_addr
     %incr = arith.constant 1 : index
 
     // Get my device id
-    %my_device_id = "ttkernel.experimental::get_my_device_id"() : () -> i16
+    %my_device_id = "ttkernel.experimental.get_my_device_id"() : () -> i16
 
     // Check if device is 0 and send to device 1 if it is
     %is_device_0 = arith.cmpi eq, %my_device_id, %src_dev_id : i16
     scf.if %is_device_0 {
       // Device 0 sends to device 1
-      "ttkernel.experimental::fabric_sem_inc"(%fabric_connection_manager, %dst_mesh_id, %dst_dev_id, %global_semaphore_noc_addr, %incr) : (!ttkernel.fabric_connection_manager, i16, i16, !ttkernel.noc_addr, index) -> ()
+      "ttkernel.experimental.fabric_sem_inc"(%fabric_connection_manager, %dst_mesh_id, %dst_dev_id, %global_semaphore_noc_addr, %incr) : (!ttkernel.fabric_connection_manager, i16, i16, !ttkernel.noc_addr, index) -> ()
     }
 
     %is_dst_device = arith.cmpi eq, %my_device_id, %dst_dev_id : i16
     scf.if %is_dst_device {
       // Destination device waits for semaphore inc
-      "ttkernel.experimental::semaphore_wait"(%global_semaphore_ptr, %incr) : (!ttkernel.l1_addr_ptr, index) -> ()
+      "ttkernel.experimental.semaphore_wait"(%global_semaphore_ptr, %incr) : (!ttkernel.l1_addr_ptr, index) -> ()
     }
 
     // Close fabric connections
-    "ttkernel.experimental::close_fabric_connections"(%fabric_connection_manager) : (!ttkernel.fabric_connection_manager) -> ()
+    "ttkernel.experimental.close_fabric_connections"(%fabric_connection_manager) : (!ttkernel.fabric_connection_manager) -> ()
 
     return
   }

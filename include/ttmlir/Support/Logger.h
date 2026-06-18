@@ -42,7 +42,8 @@ enum class LogComponent {
   General,
   D2MFusion,
   IsolatedIRValidationWrapper,
-  GreedyOptimizer
+  GreedyOptimizer,
+  PerfTargets
 };
 
 // Log levels in order of verbosity
@@ -79,6 +80,8 @@ inline constexpr const char *getLogComponentStr(LogComponent type) {
     return "isolated-ir-validation-wrapper";
   case LogComponent::GreedyOptimizer:
     return "greedy-optimizer";
+  case LogComponent::PerfTargets:
+    return "perf-targets";
   }
   return "unknown";
 }

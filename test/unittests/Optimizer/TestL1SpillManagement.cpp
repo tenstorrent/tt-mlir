@@ -658,22 +658,14 @@ TEST_F(HandleNoFitTest, AllocFreeReallocCoalesces) {
 
 class ViewEligibleReshapeAliasTest : public L1SpillTestFixture {};
 
-// DISABLED — reproducer for
-// https://github.com/tenstorrent/tt-mlir/issues/8625
+// Regression test for https://github.com/tenstorrent/tt-mlir/issues/8625.
 //
-// The alias path (`addTensorAtAddress` at L1SpillManagement.cpp:1124-1133)
-// runs only AFTER `ensureFitsL1` queries `wouldAllocateAt(perResultL1)`
-// using the reshape's full output size — ignoring that a view-eligible
-// reshape would not consume a fresh slot. So in any scenario where the
-// would-be alias size would otherwise force eviction, the pass evicts
-// the input instead of recognising the alias.
-//
-// To meaningfully test the alias path, the pass needs to consult
-// canReshapeBeView (or an analogous predicate) before the fit/CB
-// checks. Until then, this test reproduces the limitation: opA is
-// spilled even though the reshape SHOULD alias it.
-TEST_F(ViewEligibleReshapeAliasTest,
-       DISABLED_ReshapeAliasesInputNoDoubleCount) {
+// A view-eligible reshape aliases its source's existing L1 slot, so it
+// consumes no fresh L1. Without the willAliasSourceInL1 short-circuit in
+// ensureFitsL1, the pass would query wouldAllocateAt() with the reshape's
+// full output size, find no contiguous block (the source already fills
+// most of L1), and evict the very source the reshape is about to alias.
+TEST_F(ViewEligibleReshapeAliasTest, ReshapeAliasesInputNoDoubleCount) {
   l1BudgetPerCore = 1300 * kKiB;
 
   // 1024 = 32 × 32 (tile-aligned). 256 = 32 × 8 (tile-aligned).
@@ -695,13 +687,14 @@ TEST_F(ViewEligibleReshapeAliasTest,
   finishFunc({opConsumer->getResult(0)});
 
   auto [obs] = run();
-  (void)obs;
 
   EXPECT_EQ(obs->evictions.size(), 0u)
       << "view-eligible reshape must alias opA's slot — no eviction expected";
   EXPECT_EQ(countSpills(), 0u);
   EXPECT_FALSE(wasSpilled(opA->getResult(0)))
       << "opA must stay in L1; reshape aliases its slot";
+  EXPECT_TRUE(resultIsL1(opReshape->getResult(0)))
+      << "reshape output stays L1 (aliased), not demoted";
 }
 
 //===----------------------------------------------------------------------===//

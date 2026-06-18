@@ -21,6 +21,65 @@
 
 namespace mlir::tt::ttkernel {
 
+void ComputeKernelHWStartupOp::print(::mlir::OpAsmPrinter &printer) {
+  printer << "(" << getIcb0();
+  if (getIcb1()) {
+    printer << ", " << getIcb1();
+  }
+  printer << ", " << getOcb() << ")";
+  printer.printOptionalAttrDict((*this)->getAttrs());
+  printer << " : ";
+  printer.printFunctionalType(getOperation()->getOperandTypes(),
+                              getOperation()->getResultTypes());
+}
+
+::mlir::ParseResult
+ComputeKernelHWStartupOp::parse(::mlir::OpAsmParser &parser,
+                                ::mlir::OperationState &result) {
+  SmallVector<OpAsmParser::UnresolvedOperand, 3> operands;
+  OpAsmParser::UnresolvedOperand operand;
+
+  if (parser.parseLParen() || parser.parseOperand(operand)) {
+    return failure();
+  }
+  operands.push_back(operand);
+
+  while (succeeded(parser.parseOptionalComma())) {
+    if (parser.parseOperand(operand)) {
+      return failure();
+    }
+    operands.push_back(operand);
+  }
+
+  if (operands.size() != 2 && operands.size() != 3) {
+    return parser.emitError(parser.getNameLoc()) << "expected 2 or 3 operands";
+  }
+
+  if (parser.parseRParen() || parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColon()) {
+    return failure();
+  }
+
+  FunctionType functionType;
+  if (parser.parseType(functionType)) {
+    return failure();
+  }
+
+  ArrayRef<Type> operandTypes = functionType.getInputs();
+  if (operandTypes.size() != operands.size()) {
+    return parser.emitError(parser.getNameLoc())
+           << "expected " << operands.size() << " operand types";
+  }
+
+  result.addTypes(functionType.getResults());
+  if (parser.resolveOperands(operands, operandTypes, parser.getNameLoc(),
+                             result.operands)) {
+    return failure();
+  }
+
+  return success();
+}
+
 static bool insideEnqueueProgramOpRegion(mlir::Operation *op) {
   mlir::Operation *parentOp = op->getParentOp();
 

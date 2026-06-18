@@ -20,7 +20,12 @@ from ttmlir.dialects import stablehlo, sdy, mpmd, func
 from builder.base.builder import *
 from builder.base.builder_utils import *
 
-from golden import get_golden_function, apply_sharding, apply_unsharding
+from golden import (
+    get_golden_function,
+    get_custom_call_golden_function,
+    apply_sharding,
+    apply_unsharding,
+)
 
 
 class StableHLOBuilder(Builder):
@@ -9771,6 +9776,93 @@ class StableHLOBuilder(Builder):
             output_types_in_self_ctx.append(new_result)
 
         return output_types_in_self_ctx
+
+    ############### stablehlo.CustomCallOp @tt.flash_mla_prefill ###############
+
+    @tag(stablehlo.CustomCallOp)
+    def flash_mla_prefill(
+        self,
+        query: Operand,
+        key: Operand,
+        head_dim_v: int,
+        value: Optional[Operand] = None,
+        attention_mask: Optional[Operand] = None,
+        is_causal: bool = True,
+        scale: Optional[float] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        """
+        Emit a `stablehlo.custom_call @tt.flash_mla_prefill`.
+
+        Operands are passed in canonical order: query, key, [value],
+        [attention_mask]. Whether `value`/`attention_mask` are present is encoded
+        in the `has_value`/`has_attention_mask` frontend attributes. When `value` is
+        omitted, V is derived from the first `head_dim_v` features of K.
+        The output has the query shape with its last dim replaced by head_dim_v.
+        """
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.flash_mla_prefill)
+
+        has_value = value is not None
+        has_attention_mask = attention_mask is not None
+
+        inputs = [query, key]
+        if has_value:
+            inputs.append(value)
+        if has_attention_mask:
+            inputs.append(attention_mask)
+
+        # Output is the query shape with the last (head) dim replaced by head_dim_v.
+        output_shape = list(self.get_shape(query))[:-1] + [head_dim_v]
+        output_type = self._create_ranked_tensor_type(
+            output_shape, self.get_type(query)
+        )
+
+        # tt.flash_mla_prefill carries its parameters as string-valued
+        frontend_attrs = {
+            "head_dim_v": StringAttr.get(str(head_dim_v)),
+            "is_causal": StringAttr.get("True" if is_causal else "False"),
+            "has_value": StringAttr.get("True" if has_value else "False"),
+            "has_attention_mask": StringAttr.get(
+                "True" if has_attention_mask else "False"
+            ),
+        }
+        if scale is not None:
+            frontend_attrs["scale"] = StringAttr.get(str(scale))
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            [output_type],
+            inputs,
+            "tt.flash_mla_prefill",
+            api_version=IntegerAttr.get(IntegerType.get_signless(32), 0),
+            loc=loc,
+        )
+        op.operation.attributes["mhlo.frontend_attributes"] = DictAttr.get(
+            frontend_attrs, self._ctx
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        op_golden_function = get_custom_call_golden_function("tt.flash_mla_prefill")
+        golden_output = op_golden_function(
+            self._get_golden_tensor(query),
+            self._get_golden_tensor(key),
+            self._get_golden_tensor(value) if has_value else None,
+            self._get_golden_tensor(attention_mask) if has_attention_mask else None,
+            head_dim_v,
+            is_causal,
+            scale,
+        )
+        self._set_golden_tensor(op.result, golden_output)
+
+        return op.result
 
     # ----- Public Shardy Attribute Generators ----
 

@@ -377,6 +377,13 @@ private:
   uint64_t ensureFitsL1(Operation *op, int64_t pos, ScheduleData &data,
                         uint64_t cbPeakUsage, uint64_t l1Size);
 
+  /// True when `op` is a view-eligible reshape whose source operand is still
+  /// resident in L1. Its output will alias the source's existing slot
+  /// (addTensorAtAddress) instead of carving a fresh one, so it consumes no
+  /// additional L1 and the fit / CB-overlap checks must not treat it as a
+  /// new allocation.
+  bool willAliasSourceInL1(Operation *op) const;
+
   /// OOM recovery: evict farthest-last-use tensors or demote self to DRAM.
   void handleOOM(Operation *op, int64_t pos,
                  llvm::ArrayRef<OpResult> tensorResults, ScheduleData &data,

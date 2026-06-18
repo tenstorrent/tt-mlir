@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
 
 #include "llvm/Support/Error.h"
+#include <shardy/dialect/sdy/ir/enums.h>
 
 namespace mlir::tt::stablehlo {
 #define GEN_PASS_DEF_REGISTERCUSTOMSHARDINGRULEPASS
@@ -37,6 +38,9 @@ static constexpr llvm::StringLiteral allToAllCombineTargetName =
 
 static constexpr llvm::StringLiteral moeExpertTokenRemapTargetName =
     "tt.moe_expert_token_remap";
+
+static constexpr llvm::StringLiteral flashMlaPrefillTargetName =
+    "tt.flash_mla_prefill";
 
 static mlir::sdy::OpShardingRuleAttr
 getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
@@ -285,6 +289,209 @@ getSDPAShardingRule(mlir::stablehlo::CustomCallOp op) {
   // Hidden size (dim 3): kNeedReplication — cannot shard.
   builder.addFactor(makeOpDims(3, 3, 3), {3}, qShape[3],
                     sdy::FactorType::kNeedReplication);
+
+  return builder.build();
+}
+
+// Sharding rule for the `tt.flash_mla_prefill` custom_call.
+//
+// Tensor layout (matches the StableHLO conversion at
+// StableHLOToTTIRPatterns.cpp:8618):
+//   Q   : [B, Hq,  S, dh_qk]      required
+//   K   : [B, Hkv, S, dh_qk]      required, Hq % Hkv == 0
+//   V   : [B, Hkv, S, head_dim_v] optional (`has_value`)
+//   mask: [1|B, 1, S, S]          optional (`has_attention_mask`)
+//   Out : [B, Hq,  S, head_dim_v]
+//
+// Factor design (mirrors SDPA prefill but with separate factors for the
+// asymmetric Q/K vs V/Out head dims that MLA requires):
+//   - Batch    (kPassThrough,    size B)        : Q/K/V/Out dim 0; mask dim 0
+//                                                 only if mask.shape[0] == B.
+//   - Heads    (kPassThrough,    size qHeads)   : Q/Out dim 1, K/V dim 1.
+//                                                 Shardy handles the GQA ratio
+//                                                 proportionally (same trick
+//                                                 as getSDPAShardingRule).
+//   - Sequence (kNeedReplication, size S)       : Q/K/V/Out dim 2, mask dim 2.
+//   - dh_qk    (kNeedReplication, size dh_qk)   : Q/K dim 3 only.
+//   - head_dim_v (kNeedReplication, size hdv)   : V/Out dim 3 only.
+//   - Mask key (kNeedReplication, size S)       : mask dim 3 only.
+static mlir::sdy::OpShardingRuleAttr
+getFlashMlaPrefillShardingRule(mlir::stablehlo::CustomCallOp op) {
+  // Recover has_value / has_attention_mask from mhlo.frontend_attributes so we
+  // can map the variable-length operand list to roles.
+  mlir::DictionaryAttr frontendAttrs =
+      mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+          op->getDiscardableAttr("mhlo.frontend_attributes"));
+
+  auto readBool = [&](llvm::StringRef key) -> bool {
+    if (!frontendAttrs) {
+      return false;
+    }
+    if (auto s = frontendAttrs.getAs<mlir::StringAttr>(key)) {
+      return s.getValue().equals_insensitive("true");
+    }
+    return false;
+  };
+  bool hasValue = readBool("has_value");
+  bool hasAttentionMask = readBool("has_attention_mask");
+
+  int64_t expectedNumOperands =
+      2 + (hasValue ? 1 : 0) + (hasAttentionMask ? 1 : 0);
+  if (static_cast<int64_t>(op.getNumOperands()) != expectedNumOperands ||
+      op.getNumResults() != 1) {
+    op.getOperation()->emitWarning()
+        << "flash_mla_prefill operand count does not match has_value / "
+           "has_attention_mask flags";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // Operand index layout: Q=0, K=1, then V and/or mask in declaration order.
+  int64_t qIdx = 0;
+  int64_t kIdx = 1;
+  int64_t vIdx = hasValue ? 2 : sdy::kNullDim;
+  int64_t mIdx = hasAttentionMask ? (hasValue ? 3 : 2) : sdy::kNullDim;
+
+  auto qType = llvm::dyn_cast<RankedTensorType>(op.getOperand(qIdx).getType());
+  auto kType = llvm::dyn_cast<RankedTensorType>(op.getOperand(kIdx).getType());
+  auto outType = llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
+  RankedTensorType vType, mType;
+  if (hasValue) {
+    vType = llvm::dyn_cast<RankedTensorType>(op.getOperand(vIdx).getType());
+  }
+  if (hasAttentionMask) {
+    mType = llvm::dyn_cast<RankedTensorType>(op.getOperand(mIdx).getType());
+  }
+
+  if (!qType || !kType || !outType || (hasValue && !vType) ||
+      (hasAttentionMask && !mType)) {
+    op.getOperation()->emitWarning()
+        << "flash_mla_prefill requires ranked tensor types";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  if (qType.getRank() != 4 || kType.getRank() != 4 || outType.getRank() != 4 ||
+      (hasValue && vType.getRank() != 4) ||
+      (hasAttentionMask && mType.getRank() != 4)) {
+    op.getOperation()->emitWarning() << "flash_mla_prefill requires 4D tensors";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  ArrayRef<int64_t> qShape = qType.getShape();
+  ArrayRef<int64_t> kShape = kType.getShape();
+  ArrayRef<int64_t> outShape = outType.getShape();
+
+  int64_t B = qShape[0];
+  int64_t qHeads = qShape[1];
+  int64_t kvHeads = kShape[1];
+  int64_t S = qShape[2];
+  int64_t dhQK = qShape[3];
+  int64_t headDimV = outShape[3];
+
+  auto isStaticPositiveDim = [](int64_t dim) {
+    return !ShapedType::isDynamic(dim) && dim > 0;
+  };
+  if (!isStaticPositiveDim(B) || !isStaticPositiveDim(qHeads) ||
+      !isStaticPositiveDim(kvHeads) || !isStaticPositiveDim(S) ||
+      !isStaticPositiveDim(dhQK) || !isStaticPositiveDim(headDimV)) {
+    op.getOperation()->emitWarning()
+        << "flash_mla_prefill requires static, positive dimensions";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // Cross-operand shape consistency: B/S match across all tensors; Q/K share
+  // dh_qk; Q/Out share Hq; K/V share Hkv and S; V's dim 3 == head_dim_v.
+  if (kShape[0] != B || outShape[0] != B || kShape[2] != S ||
+      outShape[2] != S || kShape[3] != dhQK || outShape[1] != qHeads) {
+    op.getOperation()->emitWarning()
+        << "flash_mla_prefill shape validation failed (B/S/Hq/dh_qk mismatch)";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+  if (hasValue) {
+    ArrayRef<int64_t> vShape = vType.getShape();
+    if (vShape[0] != B || vShape[1] != kvHeads || vShape[2] != S ||
+        vShape[3] != headDimV) {
+      op.getOperation()->emitWarning()
+          << "flash_mla_prefill V shape inconsistent with K/Out";
+      return mlir::sdy::OpShardingRuleAttr();
+    }
+  }
+  if (qHeads % kvHeads != 0) {
+    op.getOperation()->emitWarning()
+        << "flash_mla_prefill: num_q_heads (" << qHeads
+        << ") must be divisible by num_kv_heads (" << kvHeads << ")";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  int64_t maskBatch = sdy::kNullDim;
+  if (hasAttentionMask) {
+    ArrayRef<int64_t> mShape = mType.getShape();
+    // Mask shape: [1|B, 1, S, S]. Heads dim is always 1.
+    if (!isStaticPositiveDim(mShape[0]) || mShape[1] != 1 || mShape[2] != S ||
+        mShape[3] != S) {
+      op.getOperation()->emitWarning()
+          << "flash_mla_prefill mask must be [1|B, 1, S, S]";
+      return mlir::sdy::OpShardingRuleAttr();
+    }
+    if (mShape[0] == B) {
+      maskBatch = 0; // mask participates in Batch factor.
+    } else if (mShape[0] != 1) {
+      op.getOperation()->emitWarning()
+          << "flash_mla_prefill mask batch dim must be 1 or " << B;
+      return mlir::sdy::OpShardingRuleAttr();
+    }
+  }
+
+  int64_t numOperands = op.getNumOperands();
+  sdy::OpShardingRuleBuilder builder(op);
+
+  // Helper: build operand-dim vector with the named operands set, rest
+  // kNullDim.
+  auto makeOpDims = [&](int64_t qDim, int64_t kDim, int64_t vDim,
+                        int64_t maskDim) -> SmallVector<int64_t> {
+    SmallVector<int64_t> dims(numOperands, sdy::kNullDim);
+    dims[qIdx] = qDim;
+    dims[kIdx] = kDim;
+    if (hasValue) {
+      dims[vIdx] = vDim;
+    }
+    if (hasAttentionMask) {
+      dims[mIdx] = maskDim;
+    }
+    return dims;
+  };
+
+  // Batch (dim 0): kPassThrough.
+  builder.addFactor(makeOpDims(0, 0, 0, maskBatch), {0}, B,
+                    sdy::FactorType::kPassThrough);
+
+  // Heads (dim 1): kPassThrough, factor size qHeads. Mask heads are always 1
+  // so the mask sits out of this factor (kNullDim).
+  // When MLA's compressed latent K/V is a single shared head (kvHeads == 1),
+  // it is broadcast across every query head and must stay replicated when the
+  // query heads are sharded.
+  int64_t kvHeadDim = (kvHeads == 1) ? sdy::kNullDim : 1;
+  builder.addFactor(makeOpDims(1, kvHeadDim, kvHeadDim, sdy::kNullDim), {1},
+                    qHeads, sdy::FactorType::kPassThrough);
+
+  // Sequence (dim 2): kNeedReplication, shared across Q/K/V/Out/mask.
+  builder.addFactor(makeOpDims(2, 2, 2, 2), {2}, S,
+                    sdy::FactorType::kNeedReplication);
+
+  // dh_qk (dim 3 on Q/K only): kNeedReplication.
+  builder.addFactor(makeOpDims(3, 3, sdy::kNullDim, sdy::kNullDim),
+                    {sdy::kNullDim}, dhQK, sdy::FactorType::kNeedReplication);
+
+  // head_dim_v (dim 3 on V/Out only): kNeedReplication.
+  builder.addFactor(makeOpDims(sdy::kNullDim, sdy::kNullDim, 3, sdy::kNullDim),
+                    {3}, headDimV, sdy::FactorType::kNeedReplication);
+
+  // Mask key sequence (dim 3 on mask only): kNeedReplication.
+  if (hasAttentionMask) {
+    SmallVector<int64_t> maskDims(numOperands, sdy::kNullDim);
+    maskDims[mIdx] = 3;
+    builder.addFactor(maskDims, {sdy::kNullDim}, S,
+                      sdy::FactorType::kNeedReplication);
+  }
 
   return builder.build();
 }
@@ -1232,6 +1439,7 @@ private:
           {allToAllCombineTargetName, getAllToAllCombineShardingRule},
           {moeExpertTokenRemapTargetName, getMoeExpertTokenRemapShardingRule},
           {utils::kTTRMSNormCustomCallTargetName, getRMSNormShardingRule},
+          {flashMlaPrefillTargetName, getFlashMlaPrefillShardingRule},
           {utils::kTTGatherDimCustomCallTargetName, getGatherDimShardingRule},
           {utils::kTTGatherCustomCallTargetName, getGatherDimShardingRule},
       };

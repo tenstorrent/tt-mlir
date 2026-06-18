@@ -8792,6 +8792,377 @@ public:
 } // namespace
 
 namespace {
+// Builds the full primitive attention decomposition function
+// for the ttcore.composite op for Flash MLA Prefill. This is
+// a fallback that gets inlined by the TTNNResolveComposites pass when
+// the composite op cannot be lowered to ttnn.flash_mla_prefill.
+static Value buildFlashMlaPrefillDecompositionBody(
+    OpBuilder &builder, Location loc, Value query, Value key, Value value,
+    Value attentionMask, uint32_t headDimV, bool isCausal,
+    std::optional<float> scale) {
+  auto reshapeTo = [&](Value v, ArrayRef<int64_t> newShape, Type elemType,
+                       Attribute encoding) -> Value {
+    auto newType = RankedTensorType::get(newShape, elemType, encoding);
+    SmallVector<int32_t> shapeI32(newShape.begin(), newShape.end());
+    return builder
+        .create<ttir::ReshapeOp>(loc, newType, v,
+                                 builder.getI32ArrayAttr(shapeI32))
+        .getResult();
+  };
+
+  auto queryType = mlir::cast<RankedTensorType>(query.getType());
+  auto keyType = mlir::cast<RankedTensorType>(key.getType());
+  ArrayRef<int64_t> qShape = queryType.getShape();
+  ArrayRef<int64_t> kShape = keyType.getShape();
+
+  int64_t batch = qShape[0];
+  int64_t numHeads = qShape[1];
+  int64_t querySeqLen = qShape[2];
+  int64_t qkHeadSize = qShape[3];
+  int64_t numKVHeads = kShape[1];
+  int64_t kvSeqLen = kShape[2];
+  int64_t vHeadDim = static_cast<int64_t>(headDimV);
+
+  Type elemType = queryType.getElementType();
+  Attribute encoding = queryType.getEncoding();
+
+  // Derive V. When absent (MLA-from-latent), V is the first `head_dim_v`
+  // features of K (K and V share the compressed latent representation).
+  Value v = value;
+  if (!v) {
+    auto vType = RankedTensorType::get({batch, numKVHeads, kvSeqLen, vHeadDim},
+                                       elemType, keyType.getEncoding());
+    v = builder
+            .create<ttir::SliceStaticOp>(
+                loc, vType, key, builder.getI32ArrayAttr({0, 0, 0, 0}),
+                builder.getI32ArrayAttr({static_cast<int32_t>(batch),
+                                         static_cast<int32_t>(numKVHeads),
+                                         static_cast<int32_t>(kvSeqLen),
+                                         static_cast<int32_t>(vHeadDim)}),
+                builder.getI32ArrayAttr({1, 1, 1, 1}))
+            .getResult();
+  }
+
+  bool isGQA = (numHeads != numKVHeads);
+  int64_t groups = isGQA ? numHeads / numKVHeads : 1;
+
+  // For GQA, fold the query-head groups into the sequence dim so a single
+  // batched matmul against K's kv-heads works without expanding K.
+  Value q = query;
+  if (isGQA) {
+    q = reshapeTo(q, {batch, numKVHeads, groups * querySeqLen, qkHeadSize},
+                  elemType, encoding);
+  }
+
+  // Transpose K: [B, NKV, Sk, dh_qk] -> [B, NKV, dh_qk, Sk].
+  auto keyTransposedType =
+      RankedTensorType::get({kShape[0], kShape[1], kShape[3], kShape[2]},
+                            elemType, keyType.getEncoding());
+  Value keyT =
+      builder
+          .create<ttir::PermuteOp>(loc, keyTransposedType, key,
+                                   builder.getDenseI64ArrayAttr({0, 1, 3, 2}))
+          .getResult();
+
+  // scores = matmul(Q, K^T) -> [B, Hq, Sq, Sk] (grouped form if GQA).
+  auto fullScoresType = RankedTensorType::get(
+      {batch, numHeads, querySeqLen, kvSeqLen}, elemType, encoding);
+  auto matmulScoresType =
+      isGQA ? RankedTensorType::get(
+                  {batch, numKVHeads, groups * querySeqLen, kvSeqLen}, elemType,
+                  encoding)
+            : fullScoresType;
+  Value scoresVal =
+      builder.create<ttir::MatmulOp>(loc, matmulScoresType, q, keyT)
+          .getResult();
+  if (isGQA) {
+    scoresVal = reshapeTo(scoresVal, {batch, numHeads, querySeqLen, kvSeqLen},
+                          elemType, encoding);
+  }
+
+  // softmax(QK * scale + mask). Scale QK first; the additive masks are added
+  // after scaling so they are not themselves scaled.
+  float scaleVal =
+      scale ? *scale : 1.0f / std::sqrt(static_cast<float>(qkHeadSize));
+  Value scaleConst =
+      builder
+          .create<ttir::FullOp>(loc, fullScoresType,
+                                builder.getF32FloatAttr(scaleVal))
+          .getResult();
+  Value attnInput =
+      builder
+          .create<ttir::MultiplyOp>(loc, fullScoresType, scoresVal, scaleConst)
+          .getResult();
+
+  if (attentionMask) {
+    attnInput =
+        builder
+            .create<ttir::AddOp>(loc, fullScoresType, attnInput, attentionMask)
+            .getResult();
+  }
+
+  // Causal mask: additive lower-triangular mask where future positions
+  // (j > i) are set to -inf so softmax drives them to zero probability.
+  if (isCausal) {
+    auto maskType = RankedTensorType::get({1, 1, querySeqLen, kvSeqLen},
+                                          elemType, encoding);
+    Value rowIdx = builder
+                       .create<ttir::ArangeOp>(loc, maskType, /*start=*/0,
+                                               /*end=*/querySeqLen, /*step=*/1,
+                                               /*arange_dimension=*/2)
+                       .getResult();
+    Value colIdx = builder
+                       .create<ttir::ArangeOp>(loc, maskType, /*start=*/0,
+                                               /*end=*/kvSeqLen, /*step=*/1,
+                                               /*arange_dimension=*/3)
+                       .getResult();
+    Value causalBool =
+        builder.create<ttir::GreaterEqualOp>(loc, maskType, rowIdx, colIdx)
+            .getResult();
+    Value zeros =
+        builder
+            .create<ttir::FullOp>(loc, maskType, builder.getF32FloatAttr(0.0f))
+            .getResult();
+    Value negInf =
+        builder
+            .create<ttir::FullOp>(loc, maskType,
+                                  builder.getF32FloatAttr(
+                                      -std::numeric_limits<float>::infinity()))
+            .getResult();
+    Value causalMask =
+        builder.create<ttir::WhereOp>(loc, maskType, causalBool, zeros, negInf)
+            .getResult();
+    attnInput =
+        builder.create<ttir::AddOp>(loc, fullScoresType, attnInput, causalMask)
+            .getResult();
+  }
+
+  int32_t softmaxDim = static_cast<int32_t>(fullScoresType.getRank() - 1);
+  Value probsVal =
+      builder
+          .create<ttir::SoftmaxOp>(loc, fullScoresType, attnInput,
+                                   builder.getSI32IntegerAttr(softmaxDim),
+                                   builder.getBoolAttr(true))
+          .getResult();
+  if (isGQA) {
+    probsVal =
+        reshapeTo(probsVal, {batch, numKVHeads, groups * querySeqLen, kvSeqLen},
+                  elemType, encoding);
+  }
+
+  // output = matmul(probs, V) -> [B, Hq, Sq, head_dim_v].
+  auto outputType = RankedTensorType::get(
+      {batch, numHeads, querySeqLen, vHeadDim}, elemType, encoding);
+  auto matmulOutType =
+      isGQA ? RankedTensorType::get(
+                  {batch, numKVHeads, groups * querySeqLen, vHeadDim}, elemType,
+                  encoding)
+            : outputType;
+  Value result = builder.create<ttir::MatmulOp>(loc, matmulOutType, probsVal, v)
+                     .getResult();
+  if (isGQA) {
+    result = reshapeTo(result, {batch, numHeads, querySeqLen, vHeadDim},
+                       elemType, encoding);
+  }
+  return result;
+}
+
+class StableHLOToTTCoreFlashMlaPrefillOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.flash_mla_prefill") {
+      return failure();
+    }
+
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "FlashMlaPrefill op must have mhlo.frontend_attributes attribute.");
+    }
+
+    // Required: head_dim_v (string -> uint32).
+    auto headDimVStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("head_dim_v");
+    if (!headDimVStringAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "FlashMlaPrefill op requires head_dim_v attribute.");
+    }
+    uint32_t headDimV;
+    if (!llvm::to_integer(headDimVStringAttr.getValue(), headDimV) ||
+        headDimV <= 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "head_dim_v attribute must be a positive integer. Received \"" +
+              headDimVStringAttr.getValue() + "\".");
+    }
+    IntegerAttr headDimVAttr = rewriter.getUI32IntegerAttr(headDimV);
+
+    // is_causal (defaults to true).
+    auto isCausalStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("is_causal");
+    bool isCausal = true;
+    if (isCausalStringAttr) {
+      if (failed(parseBoolFromStringAttr(isCausalStringAttr, isCausal))) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "is_causal attribute must be true or false. Received \"" +
+                       isCausalStringAttr.getValue() + "\".");
+      }
+    }
+    BoolAttr isCausalAttr = rewriter.getBoolAttr(isCausal);
+
+    // scale (optional float).
+    auto scaleStringAttr = frontendAttributes.getAs<mlir::StringAttr>("scale");
+    std::optional<float> scale = std::nullopt;
+    if (scaleStringAttr) {
+      float _scale;
+      if (failed(parseFloatFromStringAttr(scaleStringAttr, _scale))) {
+        return rewriter.notifyMatchFailure(
+            srcOp,
+            "scale attribute string must be convertible to float. Received \"" +
+                scaleStringAttr.getValue() + "\".");
+      }
+      scale = _scale;
+    }
+    FloatAttr scaleAttr =
+        scale ? rewriter.getF32FloatAttr(scale.value()) : nullptr;
+
+    // has_value flag
+    auto hasValueStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("has_value");
+    bool hasValue = false;
+    if (hasValueStringAttr) {
+      if (failed(parseBoolFromStringAttr(hasValueStringAttr, hasValue))) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Failed to parse has_value attribute.");
+      }
+    }
+
+    // has_attention_mask flag
+    auto hasAttentionMaskStringAttr =
+        frontendAttributes.getAs<mlir::StringAttr>("has_attention_mask");
+    bool hasAttentionMask = false;
+    if (hasAttentionMaskStringAttr) {
+      if (failed(parseBoolFromStringAttr(hasAttentionMaskStringAttr,
+                                         hasAttentionMask))) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "Failed to parse has_attention_mask attribute.");
+      }
+    }
+
+    auto operands = adaptor.getOperands();
+    unsigned expectedNumOperands =
+        2 + (hasValue ? 1 : 0) + (hasAttentionMask ? 1 : 0);
+    if (expectedNumOperands != operands.size()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Mismatch between operands and has_value/has_attention_mask "
+                 "attributes.");
+    }
+
+    Value query = operands[0];
+    Value key = operands[1];
+    Value value = nullptr;
+    Value attentionMask = nullptr;
+    size_t operandIndex = 2;
+    if (hasValue) {
+      value = operands[operandIndex++];
+    }
+    if (hasAttentionMask) {
+      attentionMask = operands[operandIndex++];
+    }
+
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+
+    // Collect composite inputs in canonical order: query, key, [value],
+    // [attention_mask].
+    SmallVector<Value> compositeInputs = {query, key};
+    if (value) {
+      compositeInputs.push_back(value);
+    }
+    if (attentionMask) {
+      compositeInputs.push_back(attentionMask);
+    }
+
+    // Synthesize a private decomposition function holding the full primitive
+    // lowering. The ttcore.composite op is promoted to ttnn.flash_mla_prefill
+    // by TTNNResolveComposites; this body is the fallback inlined when that
+    // typed promotion is not possible (e.g. builds without OpModel).
+    ModuleOp moduleOp = srcOp->getParentOfType<ModuleOp>();
+    std::string decompFuncName = "flash_mla_prefill_decomp";
+    {
+      unsigned counter = 0;
+      while (SymbolTable::lookupSymbolIn(moduleOp, decompFuncName)) {
+        decompFuncName =
+            "flash_mla_prefill_decomp_" + std::to_string(counter++);
+      }
+    }
+
+    SmallVector<Type> argTypes =
+        llvm::to_vector(ValueRange(compositeInputs).getTypes());
+    {
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToEnd(moduleOp.getBody());
+      auto decompFunc = rewriter.create<func::FuncOp>(
+          srcOp.getLoc(), decompFuncName,
+          rewriter.getFunctionType(argTypes, {outputType}));
+      decompFunc.setPrivate();
+      Block *entry = decompFunc.addEntryBlock();
+      rewriter.setInsertionPointToStart(entry);
+
+      Value qArg = entry->getArgument(0);
+      Value kArg = entry->getArgument(1);
+      Value vArg = nullptr;
+      Value maskArg = nullptr;
+      unsigned argIdx = 2;
+      if (value) {
+        vArg = entry->getArgument(argIdx++);
+      }
+      if (attentionMask) {
+        maskArg = entry->getArgument(argIdx++);
+      }
+
+      Value decompResult = buildFlashMlaPrefillDecompositionBody(
+          rewriter, srcOp.getLoc(), qArg, kArg, vArg, maskArg, headDimV,
+          isCausal, scale);
+      rewriter.create<mlir::func::ReturnOp>(srcOp.getLoc(), decompResult);
+    }
+
+    // Copy the original custom_op's frontend attributes to the new composite op
+    SmallVector<NamedAttribute> compositeAttrList;
+    compositeAttrList.push_back(
+        rewriter.getNamedAttr("head_dim_v", headDimVAttr));
+    compositeAttrList.push_back(
+        rewriter.getNamedAttr("is_causal", isCausalAttr));
+    if (scaleAttr) {
+      compositeAttrList.push_back(rewriter.getNamedAttr("scale", scaleAttr));
+    }
+    compositeAttrList.push_back(
+        rewriter.getNamedAttr("has_value", rewriter.getBoolAttr(hasValue)));
+    compositeAttrList.push_back(rewriter.getNamedAttr(
+        "has_attention_mask", rewriter.getBoolAttr(hasAttentionMask)));
+
+    rewriter.replaceOpWithNewOp<ttcore::CompositeOp>(
+        srcOp, TypeRange{outputType}, ValueRange(compositeInputs),
+        rewriter.getStringAttr("flash_mla_prefill"),
+        FlatSymbolRefAttr::get(rewriter.getContext(), decompFuncName),
+        rewriter.getDictionaryAttr(compositeAttrList));
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 // Pattern to convert mhlo.topk to ttir.topk
 class StableHLOTopKOpMHLOConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
@@ -9252,8 +9623,8 @@ static void addScaledDotProductAttentionDecodeOpConversionPattern(
   patterns.add<
       StableHLOToTTIRScaledDotProductAttentionDecodeOpConversionPattern,
       StableHLOToTTIRScaledDotProductAttentionOpConversionPattern,
-      StableHLOToTTIRPagedScaledDotProductAttentionDecodeOpConversionPattern>(
-      typeConverter, ctx);
+      StableHLOToTTIRPagedScaledDotProductAttentionDecodeOpConversionPattern,
+      StableHLOToTTCoreFlashMlaPrefillOpConversionPattern>(typeConverter, ctx);
 }
 
 namespace {

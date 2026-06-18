@@ -146,7 +146,17 @@ if config.enable_ttnn_jit:
     # Add test/ttnn-jit to PYTHONPATH so tests can import utils module
     llvm_config.with_environment(
         "PYTHONPATH",
-        os.path.join(config.test_source_root, "ttnn-jit"),
+        [
+            os.path.join(config.test_source_root, "ttnn-jit"),
+            os.path.join(
+                config.ttmlir_source_dir,
+                "third_party",
+                "tt-metal",
+                "src",
+                "tt-metal",
+                "tools",
+            ),
+        ],
         append_path=True,
     )
 

@@ -305,6 +305,7 @@ void createD2MToTTKernelPipeline(OpPassManager &pm,
                                  const D2MPipelineOptions &options) {
   createD2MToTTKernelPreEmitCPipeline(pm, options);
   pm.addPass(ttkernel::createTTKernelHoistInits());
+  pm.addPass(ttkernel::createTTKernelDedupInits());
   if (options.insertProfilerTraces) {
     ttkernel::TTKernelInsertDeviceZoneScopesOptions passOpts;
     if (options.profilerTraits.empty()) {
@@ -353,6 +354,7 @@ void createTTIRToTTMetalPipeline(OpPassManager &pm,
   // loop structure (e.g. TypecastTileOp locality for BFP8 unpack-mode
   // selection).
   devicePm.addPass(ttkernel::createTTKernelHoistInits());
+  devicePm.addPass(ttkernel::createTTKernelDedupInits());
   if (options.insertProfilerTraces) {
     ttkernel::TTKernelInsertDeviceZoneScopesOptions passOpts;
     if (options.profilerTraits.empty()) {
