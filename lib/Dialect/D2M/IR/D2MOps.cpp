@@ -1479,6 +1479,151 @@ mlir::LogicalResult d2m::CompositeViewOp::verify() {
 // GenericOp
 //===----------------------------------------------------------------------===//
 
+static ParseResult parseGenericOpOperandList(
+    OpAsmParser &parser, StringRef keyword,
+    SmallVectorImpl<OpAsmParser::UnresolvedOperand> &operands,
+    SmallVectorImpl<Type> &types, bool requireTypes) {
+  if (parser.parseKeyword(keyword) || parser.parseLParen() ||
+      parser.parseOperandList(operands)) {
+    return failure();
+  }
+
+  if (succeeded(parser.parseOptionalColonTypeList(types))) {
+    if (operands.size() != types.size()) {
+      return parser.emitError(parser.getNameLoc())
+             << "expected " << operands.size() << " type"
+             << (operands.size() == 1 ? "" : "s") << " for " << keyword;
+    }
+  } else if (requireTypes && !operands.empty()) {
+    return parser.emitError(parser.getNameLoc())
+           << "expected ':' followed by " << keyword << " operand types";
+  }
+
+  return parser.parseRParen();
+}
+
+static void printGenericOpOperandList(OpAsmPrinter &printer, StringRef keyword,
+                                      ValueRange operands, bool printTypes) {
+  printer << "\n        " << keyword << "(";
+  printer.printOperands(operands);
+  if (printTypes && !operands.empty()) {
+    printer << " : ";
+    llvm::interleaveComma(operands, printer, [&](Value operand) {
+      printer.printType(operand.getType());
+    });
+  }
+  printer << ")";
+}
+
+ParseResult GenericOp::parse(OpAsmParser &parser, OperationState &result) {
+  Builder &builder = parser.getBuilder();
+  SmallVector<OpAsmParser::UnresolvedOperand> inputOperands;
+  SmallVector<OpAsmParser::UnresolvedOperand> outputOperands;
+  SmallVector<OpAsmParser::UnresolvedOperand> additionalArgOperands;
+  SmallVector<Type> inputTypes;
+  SmallVector<Type> outputTypes;
+  SmallVector<Type> additionalArgTypes;
+  SmallVector<Type> resultTypes;
+
+  if (parser.parseOptionalAttrDict(result.attributes) ||
+      parseGenericOpOperandList(parser, "ins", inputOperands, inputTypes,
+                                /*requireTypes=*/true) ||
+      parseGenericOpOperandList(parser, "outs", outputOperands, outputTypes,
+                                /*requireTypes=*/true)) {
+    return failure();
+  }
+
+  if (succeeded(parser.parseOptionalKeyword("additionalArgs"))) {
+    if (parser.parseLParen() ||
+        parser.parseOperandList(additionalArgOperands)) {
+      return failure();
+    }
+
+    if (succeeded(parser.parseOptionalColonTypeList(additionalArgTypes))) {
+      if (additionalArgOperands.size() != additionalArgTypes.size()) {
+        return parser.emitError(parser.getNameLoc())
+               << "expected " << additionalArgOperands.size()
+               << " additionalArgs operand type"
+               << (additionalArgOperands.size() == 1 ? "" : "s");
+      }
+    } else if (!additionalArgOperands.empty()) {
+      return parser.emitError(parser.getNameLoc())
+             << "expected ':' followed by additionalArgs operand types";
+    }
+
+    if (parser.parseRParen()) {
+      return failure();
+    }
+  }
+
+  while (true) {
+    std::unique_ptr<Region> region;
+    OptionalParseResult parseResult = parser.parseOptionalRegion(region);
+    if (!parseResult.has_value()) {
+      break;
+    }
+    if (failed(*parseResult)) {
+      return failure();
+    }
+    result.addRegion(std::move(region));
+
+    if (failed(parser.parseOptionalComma())) {
+      break;
+    }
+  }
+
+  (void)parser.parseOptionalColonTypeList(resultTypes);
+
+  if (parser.resolveOperands(inputOperands, inputTypes, parser.getNameLoc(),
+                             result.operands) ||
+      parser.resolveOperands(outputOperands, outputTypes, parser.getNameLoc(),
+                             result.operands) ||
+      parser.resolveOperands(additionalArgOperands, additionalArgTypes,
+                             parser.getNameLoc(), result.operands)) {
+    return failure();
+  }
+
+  result.addTypes(resultTypes);
+  result.addAttribute(
+      GenericOp::getOperandSegmentSizesAttrName(result.name),
+      builder.getDenseI32ArrayAttr(
+          {static_cast<int32_t>(inputOperands.size()),
+           static_cast<int32_t>(outputOperands.size()),
+           static_cast<int32_t>(additionalArgOperands.size())}));
+  return success();
+}
+
+void GenericOp::print(OpAsmPrinter &printer) {
+  printer.printOptionalAttrDict(
+      (*this)->getAttrs(),
+      /*elidedAttrs=*/{getOperandSegmentSizesAttrName().getValue()});
+
+  printGenericOpOperandList(printer, "ins", getInputs(),
+                            /*printTypes=*/!getInputs().empty());
+  printGenericOpOperandList(printer, "outs", getOutputs(),
+                            /*printTypes=*/true);
+  if (!getAdditionalArgs().empty()) {
+    printGenericOpOperandList(printer, "additionalArgs", getAdditionalArgs(),
+                              /*printTypes=*/true);
+  }
+
+  printer << "\n        ";
+  llvm::interleaveComma(getRegions(), printer, [&](Region &region) {
+    // Preserve present-but-empty blocks in the printed form. Without this, MLIR
+    // prints a one-empty-block region as `{}`, which parses back as a
+    // zero-block region and violates GenericOp's verifier invariant.
+    printer.printRegion(region, /*printEntryBlockArgs=*/true,
+                        /*printBlockTerminators=*/true,
+                        /*printEmptyBlock=*/true);
+  });
+
+  if (getNumResults() > 0) {
+    printer << " : ";
+    llvm::interleaveComma(getResultTypes(), printer,
+                          [&](Type type) { printer.printType(type); });
+  }
+}
+
 void d2m::GenericOp::build(
     mlir::OpBuilder &builder, mlir::OperationState &state, ValueRange inputs,
     ValueRange outputs, ValueRange additionalArgs, ArrayAttr indexingMaps,
