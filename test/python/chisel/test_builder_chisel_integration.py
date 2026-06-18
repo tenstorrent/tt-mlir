@@ -178,18 +178,21 @@ def test_chisel_dumps_debug_artifacts_on_pcc_fail(request, device, tmp_path):
 def test_chisel_records_chisel_bug_on_callback_raise(
     request, device, tmp_path, monkeypatch
 ):
-    # Monkey-patch the numerics check that _default_post_op calls so it
-    # raises. chisel_safe should swallow the exception, write a chisel_bug
-    # record carrying the traceback, and the ttmlir runtime should finish
-    # the program normally so the test exits the session cleanly.
-    import chisel.callbacks as chisel_callbacks
+    # Monkey-patch the numerics check that _default_post_op drives (via
+    # emit_pcc) so it raises. chisel_safe should swallow the exception, write
+    # a chisel_bug record carrying the traceback, and the ttmlir runtime
+    # should finish the program normally so the test exits the session
+    # cleanly. emit_pcc resolves check_numerics from the validators module
+    # globals at call time, so the patch must target validators, not the
+    # re-export in callbacks.
+    import chisel.validators as chisel_validators
 
     boom_message = "synthetic chisel bug for testing chisel_safe"
 
     def boom(*args, **kwargs):
         raise RuntimeError(boom_message)
 
-    monkeypatch.setattr(chisel_callbacks, "check_numerics", boom)
+    monkeypatch.setattr(chisel_validators, "check_numerics", boom)
 
     x_shape = (64, 128)
     w_shape = (256, 128)

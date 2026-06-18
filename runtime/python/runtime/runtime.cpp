@@ -245,10 +245,9 @@ void registerRuntimeBindings(nb::module_ &m) {
            })
       .def("get_global_id",
            [](tt::runtime::Tensor self) { return self.getGlobalId(); })
-      .def("get_layout",
-           [](tt::runtime::Tensor self) {
-             return tt::runtime::getTensorLayout(self);
-           });
+      .def("get_layout", [](tt::runtime::Tensor self) {
+        return tt::runtime::getTensorLayout(self);
+      });
 
   nb::class_<tt::runtime::TensorRef>(m, "TensorRef")
       .def(
@@ -583,7 +582,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       [](tt::runtime::CallbackContext program_context_handle,
          tt::runtime::TensorRef tensor_ref, nb::callable callback) {
         // The destroy callback fires from ~TTNNTensorWrapper(), which runs on
-        // the runtime thread that doesn't always without holding the GIL. 
+        // the runtime thread that doesn't always without holding the GIL.
         // Decref'ing a Python object without the GIL segfaults, so wrap
         // the callable in a shared_ptr whose deleter re-acquires the GIL.
         auto guarded_callback = std::shared_ptr<nb::callable>(

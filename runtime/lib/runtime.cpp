@@ -1191,8 +1191,8 @@ retrieveTensorFromPool(CallbackContext programContextHandle,
                                                          tensorRef);
       },
       [&]() -> RetType {
-        return tt::runtime::ttmetal::retrieveTensorFromPool(programContextHandle,
-                                                            tensorRef);
+        return tt::runtime::ttmetal::retrieveTensorFromPool(
+            programContextHandle, tensorRef);
       },
       [&]() -> RetType {
         detail::fatalNotImplemented("retrieveTensorFromPool",
