@@ -307,6 +307,26 @@ func.func @linear_batched_bias_broadcast_batch(%arg0: tensor<2x1024x4096xbf16>, 
   return %1 : tensor<2x1024x64xbf16>
 }
 
+// CHECK-LABEL: func.func @linear_batched_bias_broadcast_m_row
+func.func @linear_batched_bias_broadcast_m_row(%arg0: tensor<2x1024x4096xbf16>, %arg1: tensor<2x4096x128256xbf16>, %arg2: tensor<2x1x128256xbf16>) -> tensor<2x1x128256xbf16> {
+  // CHECK: %[[A:.*]] = "ttir.slice_static"(%arg0) <{begins = [0 : i32, 1023 : i32, 0 : i32], ends = [2 : i32, 1024 : i32, 4096 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<2x1024x4096xbf16>) -> tensor<2x1x4096xbf16>
+  // CHECK: "ttir.linear"(%[[A]], %arg1, %arg2) <{transpose_a = false, transpose_b = false}> : (tensor<2x1x4096xbf16>, tensor<2x4096x128256xbf16>, tensor<2x1x128256xbf16>) -> tensor<2x1x128256xbf16>
+  // CHECK-NOT: tensor<2x1024x128256xbf16>
+  %0 = "ttir.linear"(%arg0, %arg1, %arg2) : (tensor<2x1024x4096xbf16>, tensor<2x4096x128256xbf16>, tensor<2x1x128256xbf16>) -> tensor<2x1024x128256xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [0 : i32, 1023 : i32, 0 : i32], ends = [2 : i32, 1024 : i32, 128256 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<2x1024x128256xbf16>) -> tensor<2x1x128256xbf16>
+  return %1 : tensor<2x1x128256xbf16>
+}
+
+// CHECK-LABEL: func.func @linear_batched_bias_broadcast_n_col
+func.func @linear_batched_bias_broadcast_n_col(%arg0: tensor<2x1024x4096xbf16>, %arg1: tensor<2x4096x128256xbf16>, %arg2: tensor<2x1024x1xbf16>) -> tensor<2x1024x64xbf16> {
+  // CHECK: %[[B:.*]] = "ttir.slice_static"(%arg1) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [2 : i32, 4096 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<2x4096x128256xbf16>) -> tensor<2x4096x64xbf16>
+  // CHECK: "ttir.linear"(%arg0, %[[B]], %arg2) <{transpose_a = false, transpose_b = false}> : (tensor<2x1024x4096xbf16>, tensor<2x4096x64xbf16>, tensor<2x1024x1xbf16>) -> tensor<2x1024x64xbf16>
+  // CHECK-NOT: tensor<2x1024x128256xbf16>
+  %0 = "ttir.linear"(%arg0, %arg1, %arg2) : (tensor<2x1024x4096xbf16>, tensor<2x4096x128256xbf16>, tensor<2x1024x1xbf16>) -> tensor<2x1024x128256xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [2 : i32, 1024 : i32, 64 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<2x1024x128256xbf16>) -> tensor<2x1024x64xbf16>
+  return %1 : tensor<2x1024x64xbf16>
+}
+
 // CHECK-LABEL: func.func @linear_multiple_uses_negative
 func.func @linear_multiple_uses_negative(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x128256xbf16>, %arg2: tensor<128256xbf16>) -> (tensor<1x128256xbf16>, tensor<1024x128256xbf16>) {
   // CHECK: "ttir.linear"(%arg0, %arg1, %arg2) <{transpose_a = false, transpose_b = false}> : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>, tensor<128256xbf16>) -> tensor<1024x128256xbf16>

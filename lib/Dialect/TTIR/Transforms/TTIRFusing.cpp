@@ -1513,15 +1513,16 @@ static Value createSingleDimSlice(mlir::PatternRewriter &rewriter,
       rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(steps));
 }
 
-// Push a matmul/linear output slice up into the operand producing the sliced
+// Move a matmul/linear output slice into the operand producing the sliced
 // dim, so the matmul computes only the rows/columns that are used:
 //
 //   row (M) slice of matmul(A, B):  -> matmul(slice(A) down M, B)
 //   col (N) slice of matmul(A, B):  -> matmul(A, slice(B) down N)
 //
-// For a linear the bias broadcasts onto [..., M, N] right-aligned; a column
-// slice narrows the bias dim aligned with N (a row slice leaves it alone),
-// unless that dim is missing or a size-1 broadcast.
+// Slice the linear bias on the dim right-aligned with the sliced output dim:
+//   [N]    -> sliced for a column slice; left as is for a row slice
+//   [M, N] -> the matching M or N dim is sliced
+//   higher -> same, by right-alignment; a missing or size-1 dim is left as is
 //
 // A reshape between matmul and slice is not handled here: EraseInverseOps
 // commutes it below the slice first, leaving a direct matmul -> slice to match.

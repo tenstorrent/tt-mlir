@@ -282,6 +282,12 @@ def test_permute_slice_after_matmul_strided_fusing(
         # Column slice with a scalar bias [1] (broadcast over everything): the
         # aligned dim is size-1, so the bias is left untouched while B is narrowed.
         ((256, 512), (512, 1024), (1,), False, False, [0, 5], [256, 17]),
+        # Batched 3D linear with a [B, 1, N] bias (broadcast over M), row slice:
+        # the M-aligned bias dim is size-1, so the bias is left untouched.
+        ((2, 256, 512), (2, 512, 1024), (2, 1, 1024), False, False, [0, 255, 0], [2, 256, 1024]),
+        # Batched 3D linear with a [B, M, 1] bias (broadcast over N), column slice:
+        # the N-aligned bias dim is size-1, so the bias is left untouched.
+        ((2, 256, 512), (2, 512, 1024), (2, 256, 1), False, False, [0, 0, 5], [2, 256, 17]),
     ],
 )
 @pytest.mark.parametrize("dtypes", [[torch.float32] * 3])
