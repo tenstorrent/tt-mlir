@@ -849,6 +849,32 @@ struct OpModel<ScaledDotProductAttentionOp> {
                TTNNLayoutAttr outputLayout);
 };
 
+//===----------------------------------------------------------------------===//
+// FlashMlaPrefillOp
+//===----------------------------------------------------------------------===//
+template <>
+struct OpModel<FlashMlaPrefillOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+      llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+      std::optional<llvm::ArrayRef<int64_t>> valueShape,
+      std::optional<TTNNLayoutAttr> valueLayout,
+      std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+      std::optional<TTNNLayoutAttr> attentionMaskLayout, uint32_t headDimV,
+      bool isCausal, std::optional<llvm::APFloat> scale,
+      TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+               llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+               std::optional<llvm::ArrayRef<int64_t>> valueShape,
+               std::optional<TTNNLayoutAttr> valueLayout,
+               std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+               std::optional<TTNNLayoutAttr> attentionMaskLayout,
+               uint32_t headDimV, bool isCausal,
+               std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
+};
+
 //===-----------------------------------------------------------------------===//
 // RotaryEmbeddingLlamaOp
 // ===----------------------------------------------------------------------===//

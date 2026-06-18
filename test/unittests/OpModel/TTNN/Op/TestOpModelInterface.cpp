@@ -6433,6 +6433,218 @@ TEST_F(OpModelBase, PagedFlashMultiLatentAttentionDecodeOpInterface) {
 }
 
 //===----------------------------------------------------------------------===//
+// FlashMlaPrefillOp
+//===----------------------------------------------------------------------===//
+
+namespace {
+// Shared MLA prefill config: batch=1, n_query_heads=16, n_kv_heads=1 (MLA),
+// seq_len=32, qk_head_size=128, head_dim_v=64.
+struct FlashMlaPrefillShapes {
+  int64_t batch = 1;
+  int64_t nQueryHeads = 16;
+  int64_t nKVHeads = 1;
+  int64_t seqLen = 32;
+  int64_t qkHeadSize = 128;
+  int64_t headDimV = 64;
+
+  llvm::SmallVector<int64_t> queryShape() const {
+    return {batch, nQueryHeads, seqLen, qkHeadSize};
+  }
+  llvm::SmallVector<int64_t> keyShape() const {
+    return {batch, nKVHeads, seqLen, qkHeadSize};
+  }
+  llvm::SmallVector<int64_t> valueShape() const {
+    return {batch, nKVHeads, seqLen, headDimV};
+  }
+  llvm::SmallVector<int64_t> maskShape() const {
+    return {batch, 1, seqLen, seqLen};
+  }
+  llvm::SmallVector<int64_t> outputShape() const {
+    return {batch, nQueryHeads, seqLen, headDimV};
+  }
+};
+} // namespace
+
+// Causal, MLA-from-latent (no value, no mask).
+TEST_F(OpModelBase, FlashMlaPrefillOpInterface) {
+  FlashMlaPrefillShapes s;
+
+  auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
+
+  llvm::SmallVector<int64_t> gridAttr{1, 1};
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  auto makeDramLayout = [&](llvm::ArrayRef<int64_t> shape, mlir::Type elem) {
+    return TTNNLayoutAttr::Builder(&context, shape, elem)
+        .setBufferType(BufferType::DRAM)
+        .setMemoryLayout(tensorMemoryLayoutAttr)
+        .setGridShape(gridAttr)
+        .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+  };
+
+  auto queryLayout = makeDramLayout(s.queryShape(), tiledElemType);
+  auto keyLayout = makeDramLayout(s.keyShape(), tiledElemType);
+
+  auto query = createEmptyTensor(s.queryShape(), tiledElemType, queryLayout);
+  auto key = createEmptyTensor(s.keyShape(), tiledElemType, keyLayout);
+
+  auto outputType =
+      createRankedTensorType(s.outputShape(), tiledElemType, queryLayout);
+
+  auto mlaOp = builder.create<FlashMlaPrefillOp>(builder.getUnknownLoc(),
+                                                 outputType, query, key,
+                                                 /*value=*/nullptr,
+                                                 /*attention_mask=*/nullptr,
+                                                 /*head_dim_v=*/s.headDimV,
+                                                 /*is_causal=*/true,
+                                                 /*scale=*/nullptr);
+
+  mlaOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(mlaOp.getOperation());
+  if (constraintsExp) {
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+        constraintsExp.get();
+    EXPECT_GE(cbSize, 0);
+    EXPECT_GE(l1PeakSize, 0);
+    EXPECT_GE(totalPeakSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for FlashMlaPrefillOp; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(mlaOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for FlashMlaPrefillOp; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+// Causal, with explicit value tensor.
+TEST_F(OpModelBase, FlashMlaPrefillOpInterfaceWithValue) {
+  FlashMlaPrefillShapes s;
+
+  auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
+
+  llvm::SmallVector<int64_t> gridAttr{1, 1};
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  auto makeDramLayout = [&](llvm::ArrayRef<int64_t> shape, mlir::Type elem) {
+    return TTNNLayoutAttr::Builder(&context, shape, elem)
+        .setBufferType(BufferType::DRAM)
+        .setMemoryLayout(tensorMemoryLayoutAttr)
+        .setGridShape(gridAttr)
+        .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+  };
+
+  auto queryLayout = makeDramLayout(s.queryShape(), tiledElemType);
+  auto keyLayout = makeDramLayout(s.keyShape(), tiledElemType);
+  auto valueLayout = makeDramLayout(s.valueShape(), tiledElemType);
+
+  auto query = createEmptyTensor(s.queryShape(), tiledElemType, queryLayout);
+  auto key = createEmptyTensor(s.keyShape(), tiledElemType, keyLayout);
+  auto value = createEmptyTensor(s.valueShape(), tiledElemType, valueLayout);
+
+  auto outputType =
+      createRankedTensorType(s.outputShape(), tiledElemType, queryLayout);
+
+  auto mlaOp = builder.create<FlashMlaPrefillOp>(builder.getUnknownLoc(),
+                                                 outputType, query, key,
+                                                 /*value=*/value,
+                                                 /*attention_mask=*/nullptr,
+                                                 /*head_dim_v=*/s.headDimV,
+                                                 /*is_causal=*/true,
+                                                 /*scale=*/nullptr);
+
+  mlaOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(mlaOp.getOperation());
+  if (constraintsExp) {
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+        constraintsExp.get();
+    EXPECT_GE(cbSize, 0);
+    EXPECT_GE(l1PeakSize, 0);
+    EXPECT_GE(totalPeakSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for FlashMlaPrefillOp with value; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(mlaOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for FlashMlaPrefillOp with value; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+// Non-causal, with an attention mask.
+TEST_F(OpModelBase, FlashMlaPrefillOpInterfaceWithMask) {
+  FlashMlaPrefillShapes s;
+
+  auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
+
+  llvm::SmallVector<int64_t> gridAttr{1, 1};
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  auto makeDramLayout = [&](llvm::ArrayRef<int64_t> shape, mlir::Type elem) {
+    return TTNNLayoutAttr::Builder(&context, shape, elem)
+        .setBufferType(BufferType::DRAM)
+        .setMemoryLayout(tensorMemoryLayoutAttr)
+        .setGridShape(gridAttr)
+        .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+  };
+
+  auto queryLayout = makeDramLayout(s.queryShape(), tiledElemType);
+  auto keyLayout = makeDramLayout(s.keyShape(), tiledElemType);
+  auto maskLayout = makeDramLayout(s.maskShape(), tiledElemType);
+
+  auto query = createEmptyTensor(s.queryShape(), tiledElemType, queryLayout);
+  auto key = createEmptyTensor(s.keyShape(), tiledElemType, keyLayout);
+  auto attentionMask =
+      createEmptyTensor(s.maskShape(), tiledElemType, maskLayout);
+
+  auto outputType =
+      createRankedTensorType(s.outputShape(), tiledElemType, queryLayout);
+
+  auto mlaOp = builder.create<FlashMlaPrefillOp>(
+      builder.getUnknownLoc(), outputType, query, key,
+      /*value=*/nullptr,
+      /*attention_mask=*/attentionMask,
+      /*head_dim_v=*/s.headDimV,
+      /*is_causal=*/false,
+      /*scale=*/nullptr);
+
+  mlaOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(mlaOp.getOperation());
+  if (constraintsExp) {
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+        constraintsExp.get();
+    EXPECT_GE(cbSize, 0);
+    EXPECT_GE(l1PeakSize, 0);
+    EXPECT_GE(totalPeakSize, 0);
+  } else {
+    FAIL() << "Missing L1 constraints for FlashMlaPrefillOp with mask; Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = getOpRuntime(mlaOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    FAIL() << "Runtime test failed for FlashMlaPrefillOp with mask; Error="
+           << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+//===----------------------------------------------------------------------===//
 // SamplingOp
 //===----------------------------------------------------------------------===//
 
