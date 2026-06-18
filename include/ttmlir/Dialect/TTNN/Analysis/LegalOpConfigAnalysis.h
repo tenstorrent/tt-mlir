@@ -20,17 +20,25 @@ struct LegalOpConfigAnalysisInput {
   // Conv2d config overrides.
   llvm::StringMap<Conv2dConfigOverrideParams> *conv2dConfigOverrides;
 
-  LegalOpConfigAnalysisInput() : conv2dConfigOverrides(nullptr) {}
+  // Conv3d config overrides.
+  llvm::StringMap<Conv3dConfigOverrideParams> *conv3dConfigOverrides;
+
+  LegalOpConfigAnalysisInput()
+      : conv2dConfigOverrides(nullptr), conv3dConfigOverrides(nullptr) {}
 
   LegalOpConfigAnalysisInput(
       std::vector<OpConfig> legalConfigs,
-      llvm::StringMap<Conv2dConfigOverrideParams> *conv2dConfigOverrides)
+      llvm::StringMap<Conv2dConfigOverrideParams> *conv2dConfigOverrides,
+      llvm::StringMap<Conv3dConfigOverrideParams> *conv3dConfigOverrides =
+          nullptr)
       : legalConfigs(legalConfigs),
-        conv2dConfigOverrides(conv2dConfigOverrides) {}
+        conv2dConfigOverrides(conv2dConfigOverrides),
+        conv3dConfigOverrides(conv3dConfigOverrides) {}
 
   bool operator==(const LegalOpConfigAnalysisInput &rhs) const {
     return legalConfigs == rhs.legalConfigs &&
-           conv2dConfigOverrides == rhs.conv2dConfigOverrides;
+           conv2dConfigOverrides == rhs.conv2dConfigOverrides &&
+           conv3dConfigOverrides == rhs.conv3dConfigOverrides;
   }
 
   bool operator!=(const LegalOpConfigAnalysisInput &rhs) const {

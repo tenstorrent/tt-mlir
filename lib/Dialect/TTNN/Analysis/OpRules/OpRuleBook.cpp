@@ -66,6 +66,7 @@ bool OpRuleBook::preferCandidate(Operation * /*op*/, const BeamCandidate &a,
 const OpRuleBook &getRuleBook(Operation *op) {
   static OpRuleBook defaultRules;
   static Conv2dRuleBook conv2d;
+  static Conv3dRuleBook conv3d;
   static MatmulRuleBook matmul;
   static ConcatRuleBook concat;
   static SliceRuleBook slice;
@@ -94,6 +95,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
     };
     reg(Conv2dOp::getOperationName(), &conv2d);
     reg(ConvTranspose2dOp::getOperationName(), &conv2d);
+    reg(Conv3dOp::getOperationName(), &conv3d);
     reg(MatmulOp::getOperationName(), &matmul);
     reg(LinearOp::getOperationName(), &matmul);
     reg(ConcatOp::getOperationName(), &concat);

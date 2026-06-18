@@ -16,6 +16,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         OptimizerPasses/RowMajorLayoutPropagation.cpp
         OptimizerPasses/TTNNPrepareConv2dWeightsAndBias.cpp
         OptimizerPasses/TTNNDeduceMoEComputeLayouts.cpp
+        OptimizerPasses/TTNNPrepareConv3dWeights.cpp
         TTNNAdjustDeallocs.cpp
         TTNNAllocateDistributedOpBuffers.cpp
         TTNNAllocateDistributedOpSemaphores.cpp

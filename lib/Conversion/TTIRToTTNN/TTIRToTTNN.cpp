@@ -2025,43 +2025,7 @@ public:
 
     auto paddingModeAttr = adaptor.getPaddingModeAttr();
 
-    // Preserve TT-Metal's default conv3d behavior when no config is attached to
-    // the lowered TTNN op. Weight preparation must use C_in_block = 0 as well,
-    // otherwise the weights are pre-blocked differently from runtime defaults.
-    // Current tt-metal default conv3d config sets C_in_block = TILE_WIDTH.
     constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
-    constexpr int64_t ALIGNMENT = TILE_WIDTH;
-
-    auto weightShape = weightTy.getShape();
-    int64_t outChannels = weightShape[0];
-    int64_t inChannelsPerGroup = weightShape[1];
-    int64_t kernelDepth = weightShape[2];
-    int64_t kernelHeight = weightShape[3];
-    int64_t kernelWidth = weightShape[4];
-    int64_t cInAligned =
-        llvm::divideCeil(inChannelsPerGroup, ALIGNMENT) * ALIGNMENT;
-    int64_t numCInBlocks = cInAligned / TILE_WIDTH;
-    llvm::SmallVector<int64_t> preparedWeightShape = {
-        numCInBlocks * kernelDepth * kernelHeight * kernelWidth * TILE_WIDTH,
-        outChannels};
-    auto oldWeightLayout =
-        mlir::cast<ttnn::TTNNLayoutAttr>(weightTy.getEncoding());
-    auto preparedWeightLayout =
-        ttnn::TTNNLayoutAttr::Builder(rewriter.getContext(),
-                                      preparedWeightShape,
-                                      oldWeightLayout.getScalarElementType())
-            .setBufferType(ttnn::BufferType::DRAM)
-            .setMemoryLayout(ttnn::TensorMemoryLayout::Interleaved)
-            .build();
-    auto preparedWeightType = mlir::RankedTensorType::get(
-        preparedWeightShape, oldWeightLayout.getScalarElementType(),
-        preparedWeightLayout);
-    Value reshapedWeight = rewriter.create<ttnn::PrepareConv3dWeightsOp>(
-        ttmlir::utils::appendLocationSuffix(op.getLoc(),
-                                            "_prepare_conv3d_weight"),
-        preparedWeightType, adaptor.getWeight(), groupsAttr,
-        rewriter.getI32IntegerAttr(TILE_WIDTH),
-        rewriter.getI32IntegerAttr(ALIGNMENT), device);
 
     // Reshape bias tensor: (1, 1, 1, 1, O) → (1, O)
     Value reshapedBias = adaptor.getBias();
@@ -2089,11 +2053,36 @@ public:
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(op.getResult().getType()));
 
+    // Attach a *complete* default Conv3dConfigAttr. tt-metal only auto-derives
+    // a full default config when conv3d_config is entirely absent (conv3d.cpp
+    // `config_opt.value_or(<full default>)`); given any partial config it
+    // leaves the unset fields at their C++ struct defaults (C_out_block = 0,
+    // compute grid = {1, 1}), which violate the kernel's blocking invariants
+    // for some shapes (C_out_block = 0 collapses to the full padded output
+    // channels, breaking `matmul_N_t % out_subblock_w`; a 1x1 grid breaks
+    // `C_in_blocks <= total_cores`). So mirror tt-metal's own defaults here —
+    // spatial out-blocks = 1, c_out_block = TILE_WIDTH, c_in_block =
+    // TILE_WIDTH, and the compute grid taken from the device's worker grid — so
+    // the op's config is the single source of truth on every backend. This is
+    // the one place that encodes tt-metal's default knowledge; the optimizer
+    // may refine fields later (its overrides merge onto this config, preserving
+    // the rest), and TTNNPrepareConv3dWeights only reads c_in_block back out.
+    auto computeGrid = ttcore::GridAttr::get(
+        getContext(), ttcore::lookupDevice(op).getWorkerGrid().getShape());
+    auto defaultConv3dConfig = ttnn::Conv3dConfigAttr::get(
+        getContext(), /*weights_dtype=*/std::nullopt, /*t_out_block=*/1,
+        /*w_out_block=*/1, /*h_out_block=*/1, /*c_out_block=*/TILE_WIDTH,
+        /*c_in_block=*/TILE_WIDTH,
+        /*compute_with_storage_grid_size=*/computeGrid);
+
+    // The raw 5D weight is passed through unchanged; TTNNPrepareConv3dWeights
+    // (a post-optimizer pass) inserts the PrepareConv3dWeightsOp once the
+    // optimizer has chosen (or kept) the Conv3dConfigAttr.
     auto convOp = rewriter.create<ttnn::Conv3dOp>(
-        op.getLoc(), outputType, input, reshapedWeight, reshapedBias, device,
-        inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
+        op.getLoc(), outputType, input, adaptor.getWeight(), reshapedBias,
+        device, inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
         inputHeightAttr, inputWidthAttr, kernelSizeAttr, *strideAttr,
-        *paddingAttr, paddingModeAttr, groupsAttr, /*conv3d_config=*/nullptr,
+        *paddingAttr, paddingModeAttr, groupsAttr, defaultConv3dConfig,
         /*compute_config=*/nullptr);
 
     rewriter.replaceOp(op, convOp.getResult());
