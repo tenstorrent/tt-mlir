@@ -8557,10 +8557,10 @@ static bool anyZero(mlir::ElementsAttr elems) {
 }
 
 //===----------------------------------------------------------------------===//
-// TtLangOp
+// TTLangOp
 //===----------------------------------------------------------------------===//
 
-::mlir::LogicalResult mlir::tt::ttir::TtLangOp::verify() {
+::mlir::LogicalResult mlir::tt::ttir::TTLangOp::verify() {
   if (getInputs().empty()) {
     return emitOpError("tt-lang kernel must have at least one input operand.");
   }

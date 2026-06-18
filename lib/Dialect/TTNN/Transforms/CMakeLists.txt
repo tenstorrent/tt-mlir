@@ -7,9 +7,9 @@ if (TTMLIR_ENABLE_OPMODEL)
 endif()
 
 # Embedded-Python tt-lang resolver. The pass class itself
-# (TTNNResolveTtLangKernels.cpp) is `-fno-rtti -fno-exceptions` like the
+# (TTNNResolveTTLangKernels.cpp) is `-fno-rtti -fno-exceptions` like the
 # rest of MLIR; the pybind11 call surface is split out into
-# TTNNResolveTtLangKernelsPython.cpp so that single file can be compiled
+# TTNNResolveTTLangKernelsPython.cpp so that single file can be compiled
 # `-frtti -fexceptions` (required by pybind11) without leaking RTTI into
 # the `mlir::Pass` hierarchy, which would trip `undefined typeinfo for
 # mlir::Pass` at link time because the rest of MLIR is `-fno-rtti`.
@@ -38,9 +38,9 @@ find_package(pybind11 CONFIG REQUIRED)
 
 add_mlir_dialect_library(MLIRTTNNTransforms
         Passes.cpp
-        TTNNResolveTtLangKernels.cpp
-        TTNNResolveTtLangKernelsPython.cpp
-        TTNNLowerTtLangToGeneric.cpp
+        TTNNResolveTTLangKernels.cpp
+        TTNNResolveTTLangKernelsPython.cpp
+        TTNNLowerTTLangToGeneric.cpp
         OptimizerPasses/OperationValidationAndFallback.cpp
         OptimizerPasses/Optimizer.cpp
         OptimizerPasses/DevicePassesWrapper.cpp
@@ -154,7 +154,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
 #                        via `throw`; LLVM/MLIR libraries default
 #                        to `-fno-exceptions`.
 set_source_files_properties(
-    "TTNNResolveTtLangKernelsPython.cpp"
+    "TTNNResolveTTLangKernelsPython.cpp"
     PROPERTIES
         COMPILE_OPTIONS "-frtti;-fexceptions"
 )

@@ -6610,10 +6610,10 @@ void mlir::tt::ttnn::D2MSubgraphOp::getEffects(
 }
 
 //===----------------------------------------------------------------------===//
-// TtLangOp
+// TTLangOp
 //===----------------------------------------------------------------------===//
 
-::mlir::LogicalResult TtLangOp::verify() {
+::mlir::LogicalResult TTLangOp::verify() {
   if (getInputs().empty()) {
     return emitOpError("tt-lang kernel must have at least one input operand.");
   }

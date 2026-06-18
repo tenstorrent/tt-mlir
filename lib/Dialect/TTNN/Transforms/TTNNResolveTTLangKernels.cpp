@@ -16,17 +16,17 @@
 // hierarchy in a `-frtti` TU, but the typeinfo *definition* is
 // only emitted by the TU that owns the base. So we split:
 //
-//   * TTNNResolveTtLangKernels.cpp   (this file, default `-fno-rtti`
+//   * TTNNResolveTTLangKernels.cpp   (this file, default `-fno-rtti`
 //                                     -fno-exceptions): owns the
 //                                     `mlir::Pass`-derived class and
 //                                     the IR walk. Knows nothing
 //                                     about pybind11.
-//   * TTNNResolveTtLangKernelsPython.cpp (`-frtti -fexceptions`):
+//   * TTNNResolveTTLangKernelsPython.cpp (`-frtti -fexceptions`):
 //                                         owns all the pybind11 calls
 //                                         and exposes a plain C++
 //                                         entry point.
 //
-// The two TUs talk through `resolveTtLangKernelsViaPython` declared
+// The two TUs talk through `resolveTTLangKernelsViaPython` declared
 // below.
 
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
@@ -50,9 +50,9 @@ namespace mlir::tt::ttnn {
 
 // Invokes the tt-xla-side kernel resolver (the tt-lang compiler) on the
 // set of ops with an unset `kernel_artifact` collected in `unresolvedOps`.
-// Note: This function is defined in TTNNResolveTtLangKernelsPython.cpp
+// Note: This function is defined in TTNNResolveTTLangKernelsPython.cpp
 mlir::LogicalResult
-resolveTtLangKernelsViaPython(llvm::ArrayRef<TtLangOp> unresolvedOps,
+resolveTTLangKernelsViaPython(llvm::ArrayRef<TTLangOp> unresolvedOps,
                               llvm::ArrayRef<std::uint32_t> meshShape,
                               llvm::StringRef pythonModule,
                               llvm::StringRef pythonFunction);
@@ -89,11 +89,11 @@ parseMeshShape(llvm::StringRef s, mlir::Operation *errorAnchor) {
   return out;
 }
 
-class TTNNResolveTtLangKernels
-    : public impl::TTNNResolveTtLangKernelsBase<TTNNResolveTtLangKernels> {
+class TTNNResolveTTLangKernels
+    : public impl::TTNNResolveTTLangKernelsBase<TTNNResolveTTLangKernels> {
 public:
-  using impl::TTNNResolveTtLangKernelsBase<
-      TTNNResolveTtLangKernels>::TTNNResolveTtLangKernelsBase;
+  using impl::TTNNResolveTTLangKernelsBase<
+      TTNNResolveTTLangKernels>::TTNNResolveTTLangKernelsBase;
 
   void runOnOperation() final {
     mlir::ModuleOp moduleOp = getOperation();
@@ -102,8 +102,8 @@ public:
     // `kernel_artifact` is already populated are skipped -- e.g. by a
     // pre-bake step or by a previous invocation of this pass -- so the
     // pass is composable with future ahead-of-time artifact paths.
-    llvm::SmallVector<TtLangOp> unresolvedOps;
-    moduleOp.walk([&](TtLangOp op) {
+    llvm::SmallVector<TTLangOp> unresolvedOps;
+    moduleOp.walk([&](TTLangOp op) {
       if (auto attr = op.getKernelArtifactAttr();
           !attr || attr.getValue().empty()) {
         unresolvedOps.push_back(op);
@@ -121,7 +121,7 @@ public:
       return signalPassFailure();
     }
 
-    if (mlir::failed(resolveTtLangKernelsViaPython(
+    if (mlir::failed(resolveTTLangKernelsViaPython(
             unresolvedOps, *meshOr, pythonModule, pythonFunction))) {
       return signalPassFailure();
     }

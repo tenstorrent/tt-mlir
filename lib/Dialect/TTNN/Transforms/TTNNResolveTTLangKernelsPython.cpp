@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // pybind11-backed implementation of
-// `mlir::tt::ttnn::resolveTtLangKernelsViaPython`. Compiled with
+// `mlir::tt::ttnn::resolveTTLangKernelsViaPython`. Compiled with
 // `-frtti -fexceptions` (see lib/Dialect/TTNN/Transforms/CMakeLists.txt)
 // so it stays isolated from the rest of `MLIRTTNNTransforms`, which is
 // `-fno-rtti -fno-exceptions` along with the bulk of MLIR.
@@ -67,7 +67,7 @@ std::string mlirTypeToString(mlir::Type type) {
 // `success`. On any failure (missing required attribute, raising
 // resolver, empty artifact) emits a diagnostic on `op` and returns
 // `failure` -- the caller signalPassFailure()s.
-mlir::LogicalResult resolveOneKernel(TtLangOp op,
+mlir::LogicalResult resolveOneKernel(TTLangOp op,
                                      pybind11::object &resolveKernel,
                                      llvm::ArrayRef<std::uint32_t> meshShape) {
   namespace py = pybind11;
@@ -176,7 +176,7 @@ mlir::LogicalResult resolveOneKernel(TtLangOp op,
 } // namespace
 
 mlir::LogicalResult
-resolveTtLangKernelsViaPython(llvm::ArrayRef<TtLangOp> unresolvedOps,
+resolveTTLangKernelsViaPython(llvm::ArrayRef<TTLangOp> unresolvedOps,
                               llvm::ArrayRef<std::uint32_t> meshShape,
                               llvm::StringRef pythonModule,
                               llvm::StringRef pythonFunction) {
@@ -199,10 +199,10 @@ resolveTtLangKernelsViaPython(llvm::ArrayRef<TtLangOp> unresolvedOps,
     resolveKernel = py::module_::import(pythonModule.str().c_str())
                         .attr(pythonFunction.str().c_str());
   } catch (const std::exception &e) {
-    // `TtLangOp` is a thin handle (it holds an `Operation*`); we need
+    // `TTLangOp` is a thin handle (it holds an `Operation*`); we need
     // a non-const local because `emitError()` is non-const, and
-    // `ArrayRef::front()` returns `const TtLangOp&`.
-    TtLangOp firstOp = unresolvedOps.front();
+    // `ArrayRef::front()` returns `const TTLangOp&`.
+    TTLangOp firstOp = unresolvedOps.front();
     firstOp.emitError()
         << "module contains " << unresolvedOps.size()
         << " unresolved ttnn.tt_lang_op(s) but the tt-lang resolver "
@@ -215,7 +215,7 @@ resolveTtLangKernelsViaPython(llvm::ArrayRef<TtLangOp> unresolvedOps,
     return mlir::failure();
   }
 
-  for (TtLangOp op : unresolvedOps) {
+  for (TTLangOp op : unresolvedOps) {
     if (mlir::failed(resolveOneKernel(op, resolveKernel, meshShape))) {
       return mlir::failure();
     }

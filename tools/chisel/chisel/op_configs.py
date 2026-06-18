@@ -42,7 +42,7 @@ def default_configs() -> Dict[Type[OpView], ChiselOpConfig]:
         # record. It has IR results, but the runtime reports GenericOp as
         # having no output refs (same bucket as ttnn.generic), and it has
         # no golden to validate against.
-        ttnn.TtLangOp: ChiselOpConfig(no_golden=True),
+        ttnn.TTLangOp: ChiselOpConfig(no_golden=True),
         # Non-executable ops (device handles, I/O, control flow): no golden to run.
         func.CallOp: ChiselOpConfig(no_golden=True),
         ttnn.GetDeviceOp: ChiselOpConfig(no_golden=True),

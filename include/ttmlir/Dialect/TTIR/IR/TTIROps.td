@@ -6678,7 +6678,7 @@ def TTIR_MoeComputeOp : TTIR_NamedOp<"moe_compute", [TTIR_CCL, AttrSizedOperandS
     let hasVerifier = 1;
 }
 
-def TTIR_TtLangOp : TTIR_Op<"tt_lang_op",
+def TTIR_TTLangOp : TTIR_Op<"tt_lang_op",
     [TTIROpInterface, DestinationStyleOpInterface]> {
   let summary = "Opaque tt-lang custom kernel placeholder.";
   let description = [{

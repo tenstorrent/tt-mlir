@@ -9617,7 +9617,7 @@ namespace {
 // `mhlo.frontend_attributes` onto the op so it survives the TTIR pipeline
 // (in particular Shardy / shape refinement on adjacent ops) with the right
 // number of typed operands and results.
-class StableHLOTtLangOpConversionPattern
+class StableHLOTTLangOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
   using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
 
@@ -9686,7 +9686,7 @@ public:
       resultTypes.push_back(converted);
     }
 
-    rewriter.replaceOpWithNewOp<ttir::TtLangOp>(srcOp, resultTypes,
+    rewriter.replaceOpWithNewOp<ttir::TTLangOp>(srcOp, resultTypes,
                                                 adaptor.getOperands(),
                                                 /*kernel_id=*/kernelIdAttr,
                                                 /*version_tag=*/versionTagAttr,
@@ -9698,10 +9698,10 @@ public:
 };
 } // namespace
 
-static void addTtLangOpConversionPattern(MLIRContext *ctx,
+static void addTTLangOpConversionPattern(MLIRContext *ctx,
                                          RewritePatternSet &patterns,
                                          TypeConverter &typeConverter) {
-  patterns.add<StableHLOTtLangOpConversionPattern>(typeConverter, ctx);
+  patterns.add<StableHLOTTLangOpConversionPattern>(typeConverter, ctx);
 }
 
 static void
@@ -10228,7 +10228,7 @@ void populateStableHLOToTTIRPatterns(MLIRContext *ctx,
                                                         typeConverter);
   addSparseMatmulOpConversionPattern(ctx, patterns, typeConverter);
   addAllToAllOpsConversionPattern(ctx, patterns, typeConverter);
-  addTtLangOpConversionPattern(ctx, patterns, typeConverter);
+  addTTLangOpConversionPattern(ctx, patterns, typeConverter);
 }
 
 } // namespace mlir::tt

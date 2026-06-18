@@ -93,7 +93,7 @@ parseMathFidelity(llvm::StringRef name) {
 // Parse `core_range`: {"start": [x, y], "end": [x, y]} into a
 // CoreRangeSetAttr covering the inclusive rectangle. tt-lang currently
 // emits a single rectangle, so we wrap it in a one-element range set.
-CoreRangeSetAttr parseCoreRange(TtLangOp op, MLIRContext *ctx,
+CoreRangeSetAttr parseCoreRange(TTLangOp op, MLIRContext *ctx,
                                 const llvm::json::Object *root) {
   const llvm::json::Object *cr = root->getObject("core_range");
   if (!cr) {
@@ -144,7 +144,7 @@ CoreRangeSetAttr parseCoreRange(TtLangOp op, MLIRContext *ctx,
 // to the kernel's core range. Page/total sizes pass through verbatim --
 // the Python emitter already did the byte arithmetic.
 std::optional<llvm::SmallVector<KernelCBAttr>>
-parseCbConfigs(TtLangOp op, MLIRContext *ctx, const llvm::json::Array *cbs,
+parseCbConfigs(TTLangOp op, MLIRContext *ctx, const llvm::json::Array *cbs,
                CoreRangeSetAttr coreRanges) {
   if (!cbs) {
     op.emitError("kernel_artifact is missing required `cb_configs` array.");
@@ -214,7 +214,7 @@ parseCbConfigs(TtLangOp op, MLIRContext *ctx, const llvm::json::Array *cbs,
 // * `common_rt_args` maps each kernel's `tensor_indices` to
 //   `kernel_arg_address_of_tensor` records.
 mlir::LogicalResult
-buildKernelArgs(TtLangOp op, MLIRContext *ctx,
+buildKernelArgs(TTLangOp op, MLIRContext *ctx,
                 const llvm::json::Object *kernelObj, llvm::StringRef threadType,
                 uint32_t numCbs, unsigned numOperands,
                 llvm::SmallVectorImpl<mlir::Attribute> &ctArgs,
@@ -251,7 +251,7 @@ buildKernelArgs(TtLangOp op, MLIRContext *ctx,
 
 // Build the kernel descriptor attribute (compute/read/write) for one
 // `kernels[i]` JSON entry.
-mlir::Attribute buildKernelAttr(TtLangOp op, MLIRContext *ctx,
+mlir::Attribute buildKernelAttr(TTLangOp op, MLIRContext *ctx,
                                 const llvm::json::Object *kobj,
                                 CoreRangeSetAttr coreRanges, uint32_t numCbs,
                                 unsigned numOperands, size_t i) {
@@ -345,7 +345,7 @@ mlir::Attribute buildKernelAttr(TtLangOp op, MLIRContext *ctx,
 }
 
 // Build a `#ttnn.program` from the `kernel_artifact` JSON.
-ProgramAttr buildProgramAttr(TtLangOp op, MLIRContext *ctx,
+ProgramAttr buildProgramAttr(TTLangOp op, MLIRContext *ctx,
                              llvm::StringRef artifactJson,
                              unsigned numOperands) {
   llvm::Expected<llvm::json::Value> parsed = llvm::json::parse(artifactJson);
@@ -417,7 +417,7 @@ ProgramAttr buildProgramAttr(TtLangOp op, MLIRContext *ctx,
 
 // Lower one `ttnn.tt_lang_op` to a `ttnn.generic`. Returns failure (with
 // a diagnostic already emitted) on a malformed/unset artifact.
-mlir::LogicalResult lowerTTLangOpToGeneric(TtLangOp op) {
+mlir::LogicalResult lowerTTLangOpToGeneric(TTLangOp op) {
   MLIRContext *ctx = op.getContext();
 
   mlir::StringAttr artifactAttr = op.getKernelArtifactAttr();
@@ -458,17 +458,17 @@ mlir::LogicalResult lowerTTLangOpToGeneric(TtLangOp op) {
   return mlir::success();
 }
 
-class TTNNLowerTtLangToGeneric
-    : public impl::TTNNLowerTtLangToGenericBase<TTNNLowerTtLangToGeneric> {
+class TTNNLowerTTLangToGeneric
+    : public impl::TTNNLowerTTLangToGenericBase<TTNNLowerTTLangToGeneric> {
 public:
-  using impl::TTNNLowerTtLangToGenericBase<
-      TTNNLowerTtLangToGeneric>::TTNNLowerTtLangToGenericBase;
+  using impl::TTNNLowerTTLangToGenericBase<
+      TTNNLowerTTLangToGeneric>::TTNNLowerTTLangToGenericBase;
 
   void runOnOperation() final {
-    llvm::SmallVector<TtLangOp> ops;
-    getOperation().walk([&](TtLangOp op) { ops.push_back(op); });
+    llvm::SmallVector<TTLangOp> ops;
+    getOperation().walk([&](TTLangOp op) { ops.push_back(op); });
 
-    for (TtLangOp op : ops) {
+    for (TTLangOp op : ops) {
       if (mlir::failed(lowerTTLangOpToGeneric(op))) {
         return signalPassFailure();
       }

@@ -871,7 +871,7 @@ def TTNNGreedyMemoryLayoutPropagation : Pass<"ttnn-greedy-memory-layout-propagat
   ];
 }
 
-def TTNNResolveTtLangKernels : Pass<"ttnn-resolve-tt-lang-kernels", "::mlir::ModuleOp"> {
+def TTNNResolveTTLangKernels : Pass<"ttnn-resolve-tt-lang-kernels", "::mlir::ModuleOp"> {
   let summary = "Resolve deferred ttnn.tt_lang_op kernels via the tt-lang Python compiler.";
   let description = [{
     This pass walks the module for `ttnn.tt_lang_op` operations with an
@@ -917,7 +917,7 @@ def TTNNResolveTtLangKernels : Pass<"ttnn-resolve-tt-lang-kernels", "::mlir::Mod
   ];
 }
 
-def TTNNLowerTtLangToGeneric : Pass<"ttnn-lower-tt-lang-to-generic", "::mlir::ModuleOp"> {
+def TTNNLowerTTLangToGeneric : Pass<"ttnn-lower-tt-lang-to-generic", "::mlir::ModuleOp"> {
   let summary = "Lower resolved ttnn.tt_lang_op kernels into ttnn.generic ops.";
   let description = [{
     This pass rewrites each `ttnn.tt_lang_op` whose `kernel_artifact`

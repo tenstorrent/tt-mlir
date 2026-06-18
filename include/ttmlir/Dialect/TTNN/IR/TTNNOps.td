@@ -4269,7 +4269,7 @@ def TTNN_ResetGlobalSemaphoreOp : TTNN_Op<"reset_global_semaphore", [OpModelExem
 // TTNN tt-lang kernel op
 //===----------------------------------------------------------------------===//
 
-def TTNN_TtLangOp : Op<TTNN_Dialect, "tt_lang_op",
+def TTNN_TTLangOp : Op<TTNN_Dialect, "tt_lang_op",
     [TTNN_WorkaroundInterface,
      DestinationStyleOpInterface,
      OpModelExempt]> {
@@ -4280,7 +4280,7 @@ def TTNN_TtLangOp : Op<TTNN_Dialect, "tt_lang_op",
     `arg_roles` / `shard_spec` attributes verbatim. The kernel body is
     deferred: the optional `kernel_artifact` attribute is empty post-conversion
     and is populated by the `--ttnn-resolve-tt-lang-kernels` pass (driven from
-    the tt-xla plugin's `ModuleBuilder::resolveTtLangKernels`) after the
+    the tt-xla plugin's `ModuleBuilder::resolveTTLangKernels`) after the
     TTIR -> TTNN pipeline finishes by calling the tt-lang Python resolver with
     the now-final shard-local operand types. The artifact is the resolver's
     JSON payload stored as a `StringAttr`. Subsequent flatbuffer emission

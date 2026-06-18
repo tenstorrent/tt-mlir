@@ -806,12 +806,12 @@ namespace {
 // compiler: we forward all metadata attributes (`kernel_id`, `version_tag`,
 // `arg_roles`, `shard_spec`) verbatim and leave `kernel_artifact` empty for
 // the tt-xla plugin to populate after the pipeline completes.
-class TtLangOpConversionPattern : public OpConversionPattern<ttir::TtLangOp> {
+class TTLangOpConversionPattern : public OpConversionPattern<ttir::TTLangOp> {
 public:
-  using OpConversionPattern<ttir::TtLangOp>::OpConversionPattern;
+  using OpConversionPattern<ttir::TTLangOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ttir::TtLangOp op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::TTLangOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     SmallVector<Type> resultTypes;
     resultTypes.reserve(op.getNumResults());
@@ -824,7 +824,7 @@ public:
       resultTypes.push_back(converted);
     }
 
-    rewriter.replaceOpWithNewOp<ttnn::TtLangOp>(
+    rewriter.replaceOpWithNewOp<ttnn::TTLangOp>(
         op, resultTypes, adaptor.getInputs(),
         /*kernel_id=*/op.getKernelIdAttr(),
         /*version_tag=*/op.getVersionTagAttr(),
@@ -3737,7 +3737,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            DebugOpConversionPattern<debug::DumpOp, ttnn::DumpTensorOp>,
            TopKOpConversionPattern,
            TopKRouterGptOpConversionPattern,
-           TtLangOpConversionPattern
+           TTLangOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

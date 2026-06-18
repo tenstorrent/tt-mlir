@@ -673,7 +673,7 @@ private:
 
     for (Operation *user : arg.getUsers()) {
       // MeshShardOp inputs should be tiled.
-      if (mlir::isa<ttir::MeshShardOp, ttir::TtLangOp>(user)) {
+      if (mlir::isa<ttir::MeshShardOp, ttir::TTLangOp>(user)) {
         return false;
       }
     }
