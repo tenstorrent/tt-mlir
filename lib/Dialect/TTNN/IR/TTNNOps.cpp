@@ -5781,6 +5781,14 @@ mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp::verify() {
     return emitOpError("Page table must be an integer tensor.");
   }
 
+  // MLA keeps a single compressed latent KV cache that is shared across all
+  // query heads, so the number of KV heads (nkv, dim 1 of the key cache) must
+  // be 1.
+  if (keyType.getShape()[1] != 1) {
+    return emitOpError("Key num KV heads (nkv) must be 1, got ")
+           << keyType.getShape()[1] << ".";
+  }
+
   // Verify value if present.
   if (getValue()) {
     RankedTensorType valueType = getValue().getType();
@@ -5789,6 +5797,10 @@ mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp::verify() {
     }
     if (queryType.getElementType() != valueType.getElementType()) {
       return emitOpError("Query and value must have the same element type.");
+    }
+    if (valueType.getShape()[1] != 1) {
+      return emitOpError("Value num KV heads (nkv) must be 1, got ")
+             << valueType.getShape()[1] << ".";
     }
   }
 

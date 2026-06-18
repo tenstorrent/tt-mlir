@@ -3646,6 +3646,10 @@ def TTNN_PagedFlashMultiLatentAttentionDecodeOp : TTNN_Op<"paged_flash_multi_lat
     Key difference from PagedScaledDotProductAttentionDecode: the value tensor
     is optional (may be null for latent-only MLA) and head_dim_v specifies the
     value head dimension separately.
+
+    The key/value cache is laid out as `[max_num_blocks, nkv, block_size,
+    head_dim]`. MLA keeps a single compressed latent KV cache shared across all
+    query heads, so the number of KV heads `nkv` (dim 1) must be 1.
   }];
 
   let arguments = (ins AnyRankedTensor:$query,
