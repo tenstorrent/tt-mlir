@@ -8410,8 +8410,8 @@ public:
     uint32_t headDimV;
     if (!llvm::to_integer(headDimVStringAttr.getValue(), headDimV)) {
       return rewriter.notifyMatchFailure(
-          srcOp, "head_dim_v attribute string must be convertible to a "
-                 "non-negative integer. Received \"" +
+          srcOp, llvm::Twine("head_dim_v attribute string must be convertible "
+                             "to a non-negative integer. Received \"") +
                      headDimVStringAttr.getValue() + "\".");
     }
     IntegerAttr headDimVAttr = rewriter.getUI32IntegerAttr(headDimV);
@@ -8442,11 +8442,11 @@ public:
       auto strAttr = frontendAttributes.getAs<mlir::StringAttr>(name);
       if (!strAttr) {
         return rewriter.notifyMatchFailure(
-            srcOp, name + " attribute must be present.");
+            srcOp, llvm::Twine(name) + " attribute must be present.");
       }
       if (failed(parseBoolFromStringAttr(strAttr, out))) {
-        return rewriter.notifyMatchFailure(srcOp, "Failed to parse " + name +
-                                                      " attribute.");
+        return rewriter.notifyMatchFailure(
+            srcOp, llvm::Twine("Failed to parse ") + name + " attribute.");
       }
       return success();
     };
