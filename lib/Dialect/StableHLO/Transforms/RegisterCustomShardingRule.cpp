@@ -613,11 +613,36 @@ getPagedAttentionShardingRule(mlir::stablehlo::CustomCallOp op) {
     SmallVector<int64_t> usersOperandDims(numOperands, mlir::sdy::kNullDim);
     SmallVector<int64_t> usersResultDims(numResults, mlir::sdy::kNullDim);
     usersOperandDims[0] = queryUsersDim; // query
-    if (numOperands > 3) {
-      usersOperandDims[3] = 0; // page_table
+
+    // Operand layout (see tt_torch/custom_ops.py): the base operands are
+    // [query, key, value, page_table]; an optional attention_mask, then an
+    // optional cur_pos_tensor, then an optional attention_sink follow. Only
+    // page_table (fixed at index 3) and cur_pos_tensor carry the users/batch
+    // dim, so we must not assume cur_pos_tensor is at index 4 -- with an
+    // attention_mask present, index 4 is the mask and cur_pos_tensor shifts
+    // to 5. Use the has_* frontend flags to locate it.
+    mlir::DictionaryAttr frontendAttrs =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            op->getDiscardableAttr("mhlo.frontend_attributes"));
+    auto hasFlag = [&](llvm::StringRef name) {
+      if (frontendAttrs) {
+        if (auto strAttr = frontendAttrs.getAs<mlir::StringAttr>(name)) {
+          return strAttr.getValue().equals_insensitive("true");
+        }
+      }
+      return false;
+    };
+
+    constexpr int64_t pageTableIdx = 3;
+    if (numOperands > pageTableIdx) {
+      usersOperandDims[pageTableIdx] = 0; // page_table
     }
-    if (numOperands > 4) {
-      usersOperandDims[4] = 0; // cur_pos_tensor
+    if (hasFlag("has_cur_pos_tensor")) {
+      const int64_t curPosIdx =
+          pageTableIdx + 1 + (hasFlag("has_attention_mask") ? 1 : 0);
+      if (curPosIdx < numOperands) {
+        usersOperandDims[curPosIdx] = 0; // cur_pos_tensor
+      }
     }
     usersResultDims[0] = outputUsersDim; // output
     builder.addFactor(usersOperandDims, usersResultDims, numUsers,
