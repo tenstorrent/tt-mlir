@@ -577,4 +577,3 @@ def test_shared_lhs_vs_permute_slice_after_matmul_collision(
         and check_op(output_path, "concat")
         and not slice_precedes_matmul(output_path)
     )
-
