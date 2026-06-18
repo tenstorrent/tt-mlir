@@ -17,6 +17,18 @@ FS_WITH_ENABLER(monitor_verbose_print, false, "TT_KURBLA_MONITOR_VERBOSE_PRINT_E
 // Enables compiler cache.
 FS_WITH_DISABLER(comp_cache, true, "TT_KURBLA_COMP_CACHE_DISABLED");
 
+// Enables tt ir printing.
+FS_WITH_ENABLER(print_tt_ir, false, "TT_KURBLA_PRINT_TT_IR_ENABLED");
+
+// Enables ttnn ir printing.
+FS_WITH_ENABLER(print_ttnn_ir, false, "TT_KURBLA_PRINT_TTNN_IR_ENABLED");
+
+// Enables tt-sim simulator.
+FS_WITH_ENABLER(use_sim, false, "TT_KURBLA_USE_SIMULATOR");
+
+// Enables logging of a CPU fallbacked ops.
+FS_WITH_ENABLER(log_fallback, false, "TT_KURBLA_LOG_FALLBACK_ENABLED");
+
 // Config section.
 
 constexpr size_t cfg_monitor_max_slots = 64;

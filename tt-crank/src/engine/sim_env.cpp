@@ -10,6 +10,7 @@
 // static in execution_payload.cpp's runtime_device() can be initialized), so
 // tt-metal's first device open sees the simulator env.
 
+#include "config.hpp"
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -22,17 +23,9 @@
 
 namespace {
 
-bool env_flag_is_set(const char *name) {
-    const char *raw = std::getenv(name);
-    if (raw == nullptr) {
-        return false;
-    }
-    return std::strcmp(raw, "1") == 0 || std::strcmp(raw, "true") == 0 || std::strcmp(raw, "on") == 0;
-}
-
 struct SimEnvSetter {
     SimEnvSetter() {
-        if (!env_flag_is_set("TT_KURBLA_USE_SIMULATOR")) {
+        if (!use_sim_enabled()) {
             return;
         }
 

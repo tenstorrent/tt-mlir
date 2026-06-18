@@ -140,6 +140,25 @@ std::string calc_compilation_key(mlir::ModuleOp module_op,
     return key;
 }
 
+// Opt-in dump of the TTIR — useful when debugging.
+void print_tt_ir(mlir::ModuleOp module_op) {
+    if (print_tt_ir_enabled()) {
+        llvm::errs() << "[tt_kurbla] ===== TTIR module =====\n";
+        module_op.print(llvm::errs());
+        llvm::errs() << "\n[tt_kurbla] ========================\n";
+    }
+}
+
+// Opt-in dump of the post-pipeline TTNN IR — useful when debugging op
+// lowerings from the torch frontend without rebuilding with verbose passes.
+void print_ttnn_ir(mlir::ModuleOp module_op) {
+    if (print_ttnn_ir_enabled()) {
+        llvm::errs() << "[tt_kurbla] ===== TTNN module =====\n";
+        module_op.print(llvm::errs());
+        llvm::errs() << "\n[tt_kurbla] ========================\n";
+    }
+}
+
 // Runs the TTIR-to-TTNN runtime pipeline on `module` and emits a flatbuffer.
 // Assumes the caller has already installed a ScopedDiagnosticHandler that
 // writes captured diagnostics into `diag_buffer`. The module is mutated in
@@ -147,6 +166,8 @@ std::string calc_compilation_key(mlir::ModuleOp module_op,
 CompiledProgram run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const CompileOptions &options,
                                           const std::string &diag_buffer) {
     MLIRCompileGuard guard;
+
+    print_tt_ir(module_op);
 
     const auto mesh_shape = ::tt::kurbla::runtime_device_mesh_shape();
     const auto &mesh_fabric = ::tt::kurbla::runtime_mesh_fabric_config(mesh_shape);
@@ -197,13 +218,7 @@ CompiledProgram run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const Compil
                  make_error_message("ttir-to-ttnn pipeline failed", diag_buffer));
     }
 
-    // Opt-in dump of the post-pipeline TTNN IR — useful when debugging op
-    // lowerings from the torch frontend without rebuilding with verbose passes.
-    if (std::getenv("TT_KURBLA_PRINT_TTNN_IR") != nullptr) {
-        llvm::errs() << "[tt_kurbla] ===== TTNN module =====\n";
-        module_op.print(llvm::errs());
-        llvm::errs() << "\n[tt_kurbla] ========================\n";
-    }
+    print_ttnn_ir(module_op);
 
     std::shared_ptr<void> fb;
     {
