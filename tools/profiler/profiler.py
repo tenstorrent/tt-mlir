@@ -66,7 +66,7 @@ def trace(log_dir: str, port: int):
             child_calls = ["CompileProgram", "HWCommandQueue_write_buffer"]
             child_calls_str = f"-x {','.join(child_calls)}"
             subprocess.run(
-                f"{tracy_csvexport_tool_path} -u -p TT_DNN {child_calls_str} {tracy_file_path}",
+                f"{tracy_csvexport_tool_path} -u -t TT_DNN {child_calls_str} {tracy_file_path}",
                 shell=True,
                 check=True,
                 stdout=csv_file,
