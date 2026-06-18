@@ -366,7 +366,7 @@ void registerRuntimeBindings(nb::module_ &m) {
   m.def(
       "create_borrowed_host_tensor",
       [](std::uintptr_t ptr, const std::vector<std::uint32_t> &shape,
-         const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+         const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
          ::tt::target::DataType dataType) {
         return tt::runtime::createBorrowedHostTensor(
             reinterpret_cast<void *>(ptr), shape, stride, itemsize, dataType);
@@ -375,7 +375,7 @@ void registerRuntimeBindings(nb::module_ &m) {
   m.def(
       "create_owned_host_tensor",
       [](std::uintptr_t ptr, const std::vector<std::uint32_t> &shape,
-         const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+         const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
          ::tt::target::DataType dataType) {
         return tt::runtime::createOwnedHostTensor(
             reinterpret_cast<const void *>(ptr), shape, stride, itemsize,
@@ -392,7 +392,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       "create_empty_tensor",
       [](::tt::runtime::Device device, ::tt::runtime::Layout layout,
          const std::vector<std::uint32_t> &shape,
-         const std::vector<std::uint32_t> &stride, std::uint32_t itemsize) {
+         const std::vector<std::int64_t> &stride, std::uint32_t itemsize) {
         return tt::runtime::createEmptyTensor(device, layout, shape, stride,
                                               itemsize);
       },
@@ -403,7 +403,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       "create_multi_device_host_tensor",
       [](std::vector<std::uintptr_t> &ptrs,
          const std::vector<std::uint32_t> &shape,
-         const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+         const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
          ::tt::target::DataType dataType,
          const std::unordered_map<std::string, std::string> &strategy,
          const std::vector<uint32_t> &meshShape) {
@@ -430,7 +430,7 @@ void registerRuntimeBindings(nb::module_ &m) {
       "create_multi_device_borrowed_host_tensor",
       [](std::vector<std::uintptr_t> &ptrs,
          const std::vector<std::uint32_t> &shape,
-         const std::vector<std::uint32_t> &stride, std::uint32_t itemsize,
+         const std::vector<std::int64_t> &stride, std::uint32_t itemsize,
          ::tt::target::DataType dataType,
          const std::unordered_map<std::string, std::string> &strategy,
          const std::vector<uint32_t> &meshShape) {

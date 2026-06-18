@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "e4f47ae9b424a0bfe59cc4942f433255f54d3186")
+set(TT_METAL_VERSION "881ddfabc74a7a5df6b70a514efda6b4bb2f8e74")
 
 set(TTMLIR_TTMETAL_SOURCE_DIR "" CACHE PATH
     "Path to a user-managed tt-metal checkout. If empty, ExternalProject clones tt-metal at TT_METAL_VERSION.")
@@ -366,8 +366,8 @@ if (TT_RUNTIME_ENABLE_PERF_TRACE)
       MESSAGE(STATUS \"Installing tt-metal profiler binaries to ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}\")
       file(
           INSTALL
-          ${TRACY_BINARY_DIR}/csvexport-release
-          ${TRACY_BINARY_DIR}/capture-release
+          ${TRACY_BINARY_DIR}/tracy-csvexport
+          ${TRACY_BINARY_DIR}/tracy-capture
           DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}
           TYPE SHARED_LIBRARY
           USE_SOURCE_PERMISSIONS

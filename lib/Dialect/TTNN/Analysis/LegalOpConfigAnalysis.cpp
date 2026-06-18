@@ -4,7 +4,6 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpConfigAnalysis.h"
 
-#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MatmulProgramConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAttrs.h"
@@ -21,8 +20,8 @@ namespace mlir::tt::ttnn {
 
 static bool isOpEnabledForAnalysis(Operation *op) {
   // Enable only for specific ops.
-  if (llvm::isa<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp, ttnn::MatmulOp,
-                ttnn::LinearOp>(op)) {
+  if (llvm::isa<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp, ttnn::Conv3dOp,
+                ttnn::MatmulOp, ttnn::LinearOp>(op)) {
     return true;
   }
 
@@ -126,6 +125,42 @@ applyConv2dConfigOverrides(ConvOpT op,
   }
 }
 
+static void
+applyConv3dConfigOverrides(ttnn::Conv3dOp op,
+                           const Conv3dConfigOverrideParams &overrides,
+                           std::vector<OpConfig> &analysisResult) {
+  // Build a Conv3dConfigAttr from the op's current config plus overrides.
+  // If the op has no config yet, start from an empty one (all fields unset).
+  Conv3dConfigAttr base = op.getConv3dConfigAttr();
+  if (!base) {
+    base = Conv3dConfigAttr::get(op.getContext(), std::nullopt, std::nullopt,
+                                 std::nullopt, std::nullopt, std::nullopt,
+                                 std::nullopt, std::nullopt);
+  }
+
+  auto pick = [](auto overrideVal, auto existingVal) {
+    return overrideVal.has_value() ? overrideVal : existingVal;
+  };
+
+  auto built = Conv3dConfigAttr::get(
+      op.getContext(), pick(overrides.weightsDtype, base.getWeightsDtype()),
+      pick(overrides.tOutBlock, base.getTOutBlock()),
+      pick(overrides.wOutBlock, base.getWOutBlock()),
+      pick(overrides.hOutBlock, base.getHOutBlock()),
+      pick(overrides.cOutBlock, base.getCOutBlock()),
+      pick(overrides.cInBlock, base.getCInBlock()),
+      base.getComputeWithStorageGridSize());
+
+  TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+               "Conv3d config after overrides: {}", built);
+
+  for (OpConfig &opConfig : analysisResult) {
+    assert(opConfig.isAttrUninitialized() &&
+           "OpConfig should not have a config set before applying overrides");
+    opConfig.opSpecificAttrs = Conv3dAttrs{built, std::nullopt};
+  }
+}
+
 bool LegalOpConfigAnalysis::applyOverrides() {
   // For now, easiest way to initialize analysisResult is to copy the legal
   // configs here. Proper solution is that init() method is overridden in child
@@ -136,12 +171,11 @@ bool LegalOpConfigAnalysis::applyOverrides() {
     return true;
   }
 
-  if (!analysisInput.conv2dConfigOverrides) {
-    return false;
-  }
-
   return llvm::TypeSwitch<Operation *, bool>(op)
       .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&](auto convOp) {
+        if (!analysisInput.conv2dConfigOverrides) {
+          return false;
+        }
         Conv2dConfigOverrideParams conv2dConfigOverrides;
         if (!isa<NameLoc>(op->getLoc())) {
           return false;
@@ -162,6 +196,22 @@ bool LegalOpConfigAnalysis::applyOverrides() {
       })
       .Case<ttnn::MatmulOp, ttnn::LinearOp>([](auto) {
         // Matmul/Linear ops don't use conv2d config overrides.
+        return false;
+      })
+      .Case<ttnn::Conv3dOp>([&](ttnn::Conv3dOp convOp) {
+        if (!analysisInput.conv3dConfigOverrides ||
+            !isa<NameLoc>(op->getLoc())) {
+          return false;
+        }
+        StringRef opLocName = mlir::cast<NameLoc>(op->getLoc()).getName();
+        auto it = analysisInput.conv3dConfigOverrides->find(opLocName);
+        if (it == analysisInput.conv3dConfigOverrides->end()) {
+          return false;
+        }
+        const Conv3dConfigOverrideParams &overrides = it->getValue();
+        applyConv3dConfigOverrides(convOp, overrides, analysisResult);
+        // Never skip fillOpSpecificAttrs: it preserves the override config
+        // and attaches the default compute kernel config.
         return false;
       })
       .Default([](Operation *op) {
@@ -243,6 +293,49 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
         TTMLIR_TRACE(
             ttmlir::LogComponent::Optimizer,
             "Filled op specific attrs for conv2d op {}, ending with {} configs",
+            convOp, analysisResult.size());
+      })
+      .Case<ttnn::Conv3dOp>([&](auto convOp) {
+        assert(!analysisResult.empty() &&
+               "Analysis result should not be empty after applying overrides");
+        TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                     "Filling op specific attrs for conv3d op {}, starting "
+                     "with {} configs",
+                     convOp, analysisResult.size());
+
+        // If applyConv3dConfigOverrides ran, the analysisResult's first
+        // entry already carries the override config — keep it as the base.
+        // Otherwise fall back to the config already attached to the op (if
+        // any). There is no config search; the override (or the op default)
+        // is taken as-is.
+        std::optional<Conv3dConfigAttr> conv3dConfig;
+        if (const Conv3dAttrs *attrs = std::get_if<Conv3dAttrs>(
+                &analysisResult.begin()->opSpecificAttrs)) {
+          conv3dConfig = attrs->conv3dConfig;
+        }
+        if (!conv3dConfig.has_value() && convOp.getConv3dConfigAttr()) {
+          conv3dConfig = convOp.getConv3dConfigAttr();
+        }
+
+        // Default compute config attached to every emitted Conv3dOp.
+        // TTNNSetComputeKernelConfig runs before the optimizer but only
+        // materializes a compute_config when fidelity/fp32 fields are set, so
+        // it can leave Conv3dOp without one; the chosen Conv3dAttrs here
+        // supersede it regardless. Conv3dOp's runtime kernel rejects IR
+        // without compute_config, so attach a default.
+        auto defaultComputeCfg =
+            DeviceComputeKernelConfigAttr::get(op->getContext())
+                .withMathFidelity(MathFidelity::HiFi4)
+                .withFp32DestAccEn(true);
+
+        for (OpConfig &opConfig : analysisResult) {
+          opConfig.opSpecificAttrs =
+              Conv3dAttrs{conv3dConfig, defaultComputeCfg};
+        }
+
+        TTMLIR_TRACE(
+            ttmlir::LogComponent::Optimizer,
+            "Filled op specific attrs for conv3d op {}, ending with {} configs",
             convOp, analysisResult.size());
       })
       .Case<ttnn::MatmulOp, ttnn::LinearOp>([&](auto matmulOp) {

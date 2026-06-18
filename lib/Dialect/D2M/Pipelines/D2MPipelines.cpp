@@ -150,6 +150,14 @@ void createD2MFrontendPipeline(OpPassManager &pm,
   { decomposeMaskingOptions.numStreamBuffers = options.numStreamBuffers; }
   pm.addPass(d2m::createD2MDecomposeMasking(decomposeMaskingOptions));
 
+  d2m::D2MReblockGenericsOptions reblockGenericsOptions;
+  {
+    reblockGenericsOptions.numStreamBuffers = options.numStreamBuffers;
+    reblockGenericsOptions.testBufferSizePolicy = options.testBufferSizePolicy;
+  }
+  pm.addPass(d2m::createD2MReblockGenerics(reblockGenericsOptions));
+  pm.addPass(d2m::createD2MMaterializeViewReturns());
+
   // Run right before allocate to mark synchronized buffers
   d2m::D2MMarkSynchronizedBuffersOptions markSyncBuffersOptions;
   { markSyncBuffersOptions.numStreamBuffers = options.numStreamBuffers; }
@@ -165,7 +173,6 @@ void createD2MFrontendPipeline(OpPassManager &pm,
         options.availableL1AddrRange.end());
     allocateOptions.forceSpillToDramIfLegal = options.forceSpillToDramIfLegal;
     allocateOptions.testAssumeL1Capacity = options.testAssumel1Capacity;
-    allocateOptions.testBufferSizePolicy = options.testBufferSizePolicy;
   }
   pm.addPass(d2m::createD2MAllocate(allocateOptions));
   pm.addPass(d2m::createD2MLowerMulticastLoads());
@@ -278,13 +285,13 @@ void createD2MToTTNNPipeline(OpPassManager &pm,
 // Adds the D2M→TTKernel conversion and TTKernel optimisation passes, but
 // intentionally stops short of EmitC lowering. Callers that need dispatch-level
 // D2M passes (e.g. ConvertD2MToTTMetalPass) to inspect TTKernel ops must run
-// those passes between here and addEmitCPasses(). TTKernelHoistInits and
-// TTKernelInsertDeviceZoneScopes are intentionally excluded: they must run
+// those passes between here and createD2MEmitCPipeline(). TTKernelHoistInits
+// and TTKernelInsertDeviceZoneScopes are intentionally excluded: they must run
 // AFTER dispatch-level conversion passes so those passes see the TTKernel op
 // structure intact (e.g. TypecastTileOp locality for BFP8 unpack-mode
 // selection). Callers are responsible for adding them at the right point.
-static void addD2MToTTKernelPreEmitCPasses(OpPassManager &pm,
-                                           const D2MPipelineOptions &options) {
+void createD2MToTTKernelPreEmitCPipeline(OpPassManager &pm,
+                                         const D2MPipelineOptions &options) {
   d2m::ConvertD2MToTTKernelOptions D2MToTTKernelOptions;
   { D2MToTTKernelOptions.ttnnMode = options.ttnnMode; }
   pm.addPass(tt::createConvertD2MToTTKernelPass(D2MToTTKernelOptions));
@@ -293,21 +300,31 @@ static void addD2MToTTKernelPreEmitCPasses(OpPassManager &pm,
   createOptimizationPasses(pm, options);
 }
 
-static void addEmitCPasses(OpPassManager &pm,
-                           const D2MPipelineOptions &options) {
+void createD2MEmitCPipeline(OpPassManager &pm,
+                            const D2MPipelineOptions &options) {
   pm.addPass(createConvertTTKernelToEmitC());
   pm.addPass(createCanonicalizerPassWithOptions(options));
+  pm.addPass(createRemoveDeadEmitCExpressionsPass());
   pm.addPass(mlir::emitc::createFormExpressionsPass());
 }
 
 void createD2MToTTKernelPipeline(OpPassManager &pm,
                                  const D2MPipelineOptions &options) {
-  addD2MToTTKernelPreEmitCPasses(pm, options);
+  createD2MToTTKernelPreEmitCPipeline(pm, options);
   pm.addPass(ttkernel::createTTKernelHoistInits());
+  pm.addPass(ttkernel::createTTKernelDedupInits());
   if (options.insertProfilerTraces) {
-    pm.addPass(ttkernel::createTTKernelInsertDeviceZoneScopes());
+    ttkernel::TTKernelInsertDeviceZoneScopesOptions passOpts;
+    if (options.profilerTraits.empty()) {
+      passOpts.traitNames.push_back("device-zone");
+    } else {
+      for (const std::string &n : options.profilerTraits) {
+        passOpts.traitNames.push_back(n);
+      }
+    }
+    pm.addPass(ttkernel::createTTKernelInsertDeviceZoneScopes(passOpts));
   }
-  addEmitCPasses(pm, options);
+  createD2MEmitCPipeline(pm, options);
 }
 
 void createTTIRToTTMetalPipeline(OpPassManager &pm,
@@ -333,7 +350,7 @@ void createTTIRToTTMetalPipeline(OpPassManager &pm,
   // TypecastTileOp) to configure hardware unpack modes, so the dispatch-level
   // D2M→TTMetal/TTNN conversion must see the TTKernel ops before they are
   // lowered away by EmitC.
-  addD2MToTTKernelPreEmitCPasses(devicePm, options);
+  createD2MToTTKernelPreEmitCPipeline(devicePm, options);
   if (options.ttnnMode) {
     createD2MToTTNNPipeline(devicePm, options);
   } else {
@@ -344,10 +361,19 @@ void createTTIRToTTMetalPipeline(OpPassManager &pm,
   // loop structure (e.g. TypecastTileOp locality for BFP8 unpack-mode
   // selection).
   devicePm.addPass(ttkernel::createTTKernelHoistInits());
+  devicePm.addPass(ttkernel::createTTKernelDedupInits());
   if (options.insertProfilerTraces) {
-    devicePm.addPass(ttkernel::createTTKernelInsertDeviceZoneScopes());
+    ttkernel::TTKernelInsertDeviceZoneScopesOptions passOpts;
+    if (options.profilerTraits.empty()) {
+      passOpts.traitNames.push_back("device-zone");
+    } else {
+      for (const std::string &n : options.profilerTraits) {
+        passOpts.traitNames.push_back(n);
+      }
+    }
+    devicePm.addPass(ttkernel::createTTKernelInsertDeviceZoneScopes(passOpts));
   }
-  addEmitCPasses(devicePm, options);
+  createD2MEmitCPipeline(devicePm, options);
 
   // Run pipeline for lowering the CPU module to LLVM.
   OpPassManager &cpuPm = pm.nest<ttcore::CPUModuleOp>().nest<mlir::ModuleOp>();
@@ -373,6 +399,18 @@ void registerD2MPipelines() {
   mlir::PassPipelineRegistration<tt::ttmetal::D2MPipelineOptions>(
       "d2m-to-ttkernel-pipeline", "Convert D2M to TTKernel + EmitC.",
       tt::ttmetal::createD2MToTTKernelPipeline);
+  mlir::PassPipelineRegistration<tt::ttmetal::D2MPipelineOptions>(
+      "d2m-to-ttkernel-pre-emitc-pipeline",
+      "D2M -> TTKernel passes, stopping short of EmitC so dispatch-level "
+      "conversion passes (e.g. ConvertD2MToTTMetalPass) can still inspect "
+      "TTKernel ops (e.g. TypecastTileOp for fp32 unpack-mode selection).",
+      tt::ttmetal::createD2MToTTKernelPreEmitCPipeline);
+  mlir::PassPipelineRegistration<tt::ttmetal::D2MPipelineOptions>(
+      "d2m-emitc-pipeline",
+      "Lower TTKernel ops to EmitC. Pair with d2m-to-ttkernel-pre-emitc-"
+      "pipeline (plus dispatch-level conversion + ttkernel-hoist-inits "
+      "in between) to reproduce the full d2m-to-ttkernel-pipeline.",
+      tt::ttmetal::createD2MEmitCPipeline);
   mlir::PassPipelineRegistration<tt::ttmetal::D2MPipelineOptions>(
       "d2m-to-ttmetal-pipeline", "Convert D2M to TTMetal.",
       tt::ttmetal::createD2MToTTMetalPipeline);

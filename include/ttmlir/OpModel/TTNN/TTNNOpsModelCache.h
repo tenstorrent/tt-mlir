@@ -6,6 +6,9 @@
 #define TTMLIR_OPMODEL_TTNN_TTNNOPSMODELCACHE_H
 
 #include "ttmlir/OpModel/TTNN/TTNNOpConstraints.h"
+// Self-guards on TTMLIR_ENABLE_OPMODEL (expands to nothing when OpModel is
+// disabled); the device-generation lookup below is guarded separately.
+#include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 
 #include "mlir/IR/Operation.h"
 #include "llvm/ADT/DenseMap.h"
@@ -91,6 +94,26 @@ public:
   llvm::Expected<ValueT> getOrCompute(Callable &&computeFunc, Operation *op,
                                       Args &&...args) {
     assert(op != nullptr);
+    // Cached values may contain MLIR attributes/types, which are owned by the
+    // MLIRContext that created them. Drop entries before crossing context
+    // boundaries.
+    MLIRContext *opContext = op->getContext();
+    if (opContext != context) {
+      clear();
+      context = opContext;
+    }
+#ifdef TTMLIR_ENABLE_OPMODEL
+    // Cached entries are computed against the active device's grid. If the
+    // device session's grid changed, drop the now-stale entries. The device
+    // context owns the change signal (a generation counter) and knows nothing
+    // about this cache.
+    const uint64_t deviceGen =
+        op_model::SingletonDeviceContext::getInstance().getDeviceGeneration();
+    if (deviceGen != generation) {
+      clear();
+      generation = deviceGen;
+    }
+#endif
     // The following line attempts to combine the arguments into a single
     // hash_code. For user-defined types it attempts to call a hash_value
     // overload (via ADL) for the type (provided at the end of this file).
@@ -154,6 +177,10 @@ private:
 
   Cache cache;
   CacheStats stats;
+  // MLIR context that owns any attributes/types stored in cached values.
+  MLIRContext *context = nullptr;
+  // Device generation this cache was last filled under; see getOrCompute.
+  uint64_t generation = 0;
 };
 
 // Singleton accessor implementations

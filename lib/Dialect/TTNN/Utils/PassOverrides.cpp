@@ -330,6 +330,142 @@ void Conv2dConfigOverrideParser::print(
   os << "\n";
 }
 
+// Example:
+// "conv3d_1=weights_dtype#bf16:t_out_block#3:h_out_block#2:w_out_block#2:c_in_block#128:c_out_block#32"
+bool Conv3dConfigOverrideParser::parse(
+    llvm::cl::Option &opt, StringRef argName, StringRef arg,
+    llvm::StringMap<Conv3dConfigOverrideParams> &value) {
+  SmallVector<StringRef> opOverrideList;
+  constexpr size_t kvPairSize = 2;
+  constexpr size_t iOpName = 0;
+  constexpr size_t iConv3dConfigOverrideParams = 1;
+  constexpr char opSeparator = ',';
+  constexpr char opNameSeparator = '=';
+  constexpr char paramSeparator = ':';
+  constexpr char paramNameValueSeparator = '#';
+
+  auto parseUint = [&](StringRef paramName, StringRef paramValue,
+                       std::optional<uint32_t> &slot) -> bool {
+    uint32_t v;
+    if (paramValue.getAsInteger<uint32_t>(10, v)) {
+      opt.error("Invalid " + paramName + ": " + paramValue);
+      return true;
+    }
+    if (slot.has_value()) {
+      opt.error("Duplicate " + paramName + ": " + paramValue);
+      return true;
+    }
+    slot = v;
+    return false;
+  };
+
+  arg.split(opOverrideList, opSeparator);
+  for (StringRef opOverrides : opOverrideList) {
+    SmallVector<StringRef, kvPairSize> opOverrideParts;
+    opOverrides.split(opOverrideParts, opNameSeparator);
+    if (opOverrideParts.size() != kvPairSize) {
+      opt.error("Invalid override format " + opOverrides);
+      return true;
+    }
+
+    SmallVector<StringRef> conv3dConfigParams;
+    opOverrideParts[iConv3dConfigOverrideParams].split(conv3dConfigParams,
+                                                       paramSeparator,
+                                                       /*MaxSplit=*/-1,
+                                                       /*KeepEmpty=*/false);
+
+    Conv3dConfigOverrideParams params;
+
+    for (StringRef param : conv3dConfigParams) {
+      auto [paramName, paramValue] = param.split(paramNameValueSeparator);
+      if (paramName == "weights_dtype") {
+        auto dt = mlir::tt::ttcore::DataTypeStringToEnum(paramValue);
+        if (!dt) {
+          opt.error("Invalid weights_dtype: " + paramValue);
+          return true;
+        }
+        if (params.weightsDtype.has_value()) {
+          opt.error("Duplicate weights_dtype: " + paramValue);
+          return true;
+        }
+        params.weightsDtype = dt;
+      } else if (paramName == "t_out_block") {
+        if (parseUint("t_out_block", paramValue, params.tOutBlock)) {
+          return true;
+        }
+      } else if (paramName == "w_out_block") {
+        if (parseUint("w_out_block", paramValue, params.wOutBlock)) {
+          return true;
+        }
+      } else if (paramName == "h_out_block") {
+        if (parseUint("h_out_block", paramValue, params.hOutBlock)) {
+          return true;
+        }
+      } else if (paramName == "c_out_block") {
+        if (parseUint("c_out_block", paramValue, params.cOutBlock)) {
+          return true;
+        }
+      } else if (paramName == "c_in_block") {
+        if (parseUint("c_in_block", paramValue, params.cInBlock)) {
+          return true;
+        }
+      } else {
+        opt.error("Invalid override parameter: " + paramName);
+        return true;
+      }
+    }
+
+    value[opOverrideParts[iOpName]] = params;
+  }
+  return false;
+}
+
+std::string Conv3dConfigOverrideParser::toString(
+    const llvm::StringMap<Conv3dConfigOverrideParams> &value) {
+  std::string res;
+  size_t count = 0;
+  for (const auto &[opLoc, params] : value) {
+    std::string s;
+    llvm::raw_string_ostream rso(s);
+    if (params.weightsDtype.has_value()) {
+      rso << "weights_dtype#"
+          << DataTypeEnumToString(params.weightsDtype.value()) << ":";
+    }
+    if (params.tOutBlock.has_value()) {
+      rso << "t_out_block#" << params.tOutBlock.value() << ":";
+    }
+    if (params.wOutBlock.has_value()) {
+      rso << "w_out_block#" << params.wOutBlock.value() << ":";
+    }
+    if (params.hOutBlock.has_value()) {
+      rso << "h_out_block#" << params.hOutBlock.value() << ":";
+    }
+    if (params.cOutBlock.has_value()) {
+      rso << "c_out_block#" << params.cOutBlock.value() << ":";
+    }
+    if (params.cInBlock.has_value()) {
+      rso << "c_in_block#" << params.cInBlock.value() << ":";
+    }
+    rso.flush();
+    if (!s.empty()) {
+      s.pop_back(); // trailing ':'
+    }
+    res += (opLoc.str() + "=" + s);
+    if (++count < value.size()) {
+      res += ",";
+    }
+  }
+  return res;
+}
+
+void Conv3dConfigOverrideParser::print(
+    llvm::raw_ostream &os,
+    const llvm::StringMap<Conv3dConfigOverrideParams> &value) {
+  os << OptionNames::overrideConv3dConfig << "=";
+  os << Conv3dConfigOverrideParser::toString(value);
+  os << "\n";
+}
+
 bool OutputLayoutOverrideParser::parse(
     llvm::cl::Option &opt, StringRef argName, StringRef arg,
     llvm::StringMap<OutputLayoutOverrideParams> &value) {

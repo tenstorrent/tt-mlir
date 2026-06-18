@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/DataMovementRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/EmbeddingRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/MatmulRules.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/MoeRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/NormalizationRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/TransformerRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/TypecastRules.h"
@@ -65,6 +66,7 @@ bool OpRuleBook::preferCandidate(Operation * /*op*/, const BeamCandidate &a,
 const OpRuleBook &getRuleBook(Operation *op) {
   static OpRuleBook defaultRules;
   static Conv2dRuleBook conv2d;
+  static Conv3dRuleBook conv3d;
   static MatmulRuleBook matmul;
   static ConcatRuleBook concat;
   static SliceRuleBook slice;
@@ -79,6 +81,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static SplitQKVRuleBook splitQKV;
   static RmsNormRuleBook rmsNorm;
   static MeshPartitionRuleBook meshPartition;
+  static MoeRuleBook moe;
   static PagedUpdateCacheRuleBook pagedUpdateCache;
   static FillCacheRuleBook fillCache;
   static PagedFillCacheRuleBook pagedFillCache;
@@ -92,6 +95,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
     };
     reg(Conv2dOp::getOperationName(), &conv2d);
     reg(ConvTranspose2dOp::getOperationName(), &conv2d);
+    reg(Conv3dOp::getOperationName(), &conv3d);
     reg(MatmulOp::getOperationName(), &matmul);
     reg(LinearOp::getOperationName(), &matmul);
     reg(ConcatOp::getOperationName(), &concat);
@@ -117,6 +121,8 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(SplitQueryKeyValueAndSplitHeadsOp::getOperationName(), &splitQKV);
     reg(RMSNormOp::getOperationName(), &rmsNorm);
     reg(MeshPartitionOp::getOperationName(), &meshPartition);
+    reg(PrepareMoEComputeW0W1WeightsOp::getOperationName(), &moe);
+    reg(PrepareMoEComputeW2WeightsOp::getOperationName(), &moe);
     reg(PagedUpdateCacheOp::getOperationName(), &pagedUpdateCache);
     reg(FillCacheOp::getOperationName(), &fillCache);
     reg(PagedFillCacheOp::getOperationName(), &pagedFillCache);

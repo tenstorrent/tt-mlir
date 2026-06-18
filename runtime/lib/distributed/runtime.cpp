@@ -114,7 +114,7 @@ std::vector<uint32_t> getMeshShape(const ::tt::runtime::Device &meshDevice) {
 
 ::tt::runtime::Tensor
 createOwnedHostTensor(const void *data, const std::vector<std::uint32_t> &shape,
-                      const std::vector<std::uint32_t> &stride,
+                      const std::vector<std::int64_t> &stride,
                       std::uint32_t itemsize, ::tt::target::DataType dataType) {
   assertControllerLaunched();
   return ControllerSingleton::get().createOwnedHostTensor(data, shape, stride,

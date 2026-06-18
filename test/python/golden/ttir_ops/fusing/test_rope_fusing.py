@@ -4,7 +4,6 @@
 
 import pytest
 import torch
-from typing import List
 from builder.base.builder_utils import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
 from builder.base.builder_apis import compile_and_execute_ttir
@@ -281,7 +280,10 @@ def test_rope_rotate_half(input_shape, cos_sin_shape, dtype, target, request, de
         target=target,
         **get_request_kwargs(request),
         device=device,
-        pipeline_options=["enable-ttnn-decomposition-pass=false"],
+        pipeline_options=[
+            "enable-ttnn-decomposition-pass=false",
+            "composite-resolution=force-promote",
+        ],
         save_artifacts=True,
     )
 
@@ -344,7 +346,271 @@ def test_rope_complex_rotation(
         target=target,
         **get_request_kwargs(request),
         device=device,
-        pipeline_options=["enable-ttnn-decomposition-pass=false"],
+        pipeline_options=[
+            "enable-ttnn-decomposition-pass=false",
+            "composite-resolution=force-promote",
+        ],
+        save_artifacts=True,
+    )
+
+    assert check_op(output, "rotary_embedding")
+
+
+# ---------------------------------------------------------------------------
+# Decomposition quality: verify the composite decomposition produces the
+# complex rotation form (half-D ops, no neg) when inlined, matching PR #8580.
+#
+# Uses Qwen3-0.6B shapes from tt-xla#4886 — decode (1,4,1,128) followed by
+# prefill (1,4,64,128) on the same device. With the rotate_half fallback,
+# decode emits concat(1,1,1,64) which collides in the tt-metal program cache
+# with prefill's rotate_half concat(1,4,64,64) (tt-metal#45089). The complex
+# rotation form avoids this by never emitting the (1,1,1,D/2) concat.
+# ---------------------------------------------------------------------------
+
+
+def _build_and_run_complex_rotation(
+    input_shape, cos_sin_half_shape, dtype, target, request, device
+):
+    """Helper: build complex rotation RoPE, compile, and execute."""
+    shapes = [input_shape, cos_sin_half_shape, cos_sin_half_shape]
+    dtypes = [dtype] * 3
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def rotary_embedding(
+            input: Operand,
+            cos_half_input: Operand,
+            sin_half_input: Operand,
+            builder: TTIRBuilder,
+        ):
+            input_data = torch.randn(input_shape, dtype=dtype)
+            cos_half_data = torch.randn(cos_sin_half_shape, dtype=dtype)
+            sin_half_data = torch.randn(cos_sin_half_shape, dtype=dtype)
+
+            cos_full = torch.cat([cos_half_data, cos_half_data], dim=-1)
+            sin_full = torch.cat([sin_half_data, sin_half_data], dim=-1)
+            golden = torch_rope(
+                input_data, cos_full.unsqueeze(0), sin_full.unsqueeze(0)
+            )
+
+            result = build_rope_complex_rotation(
+                input, cos_half_input, sin_half_input, builder
+            )
+
+            builder.set_goldens(
+                {
+                    input: input_data,
+                    cos_half_input: cos_half_data,
+                    sin_half_input: sin_half_data,
+                },
+                {result: golden},
+            )
+            return result
+
+    return compile_and_execute_ttir(
+        module,
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        save_artifacts=True,
+    )
+
+
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_rope_complex_rotation_decomposition(dtype, target, request, device):
+    """
+    Run decode then prefill on the same device (shared program cache) using
+    Qwen3-0.6B shapes from tt-xla#4886. Verifies:
+    1. The inlined decomposition uses complex rotation form (subtract, no neg).
+    2. Both shapes execute without tt-metal#45089 program-cache collision.
+    """
+    # Decode: seq=1, 4 KV heads, head_dim=128, cos/sin half-dim=64
+    decode_output = _build_and_run_complex_rotation(
+        (1, 4, 1, 128), (1, 1, 64), dtype, target, request, device
+    )
+    # Prefill: seq=64
+    prefill_output = _build_and_run_complex_rotation(
+        (1, 4, 64, 128), (1, 64, 64), dtype, target, request, device
+    )
+
+    # Both should be inlined (not promoted) — no ttnn.rotary_embedding.
+    assert not check_op(decode_output, "rotary_embedding")
+    assert not check_op(prefill_output, "rotary_embedding")
+    # Complex rotation form uses subtract, not neg.
+    assert check_op(decode_output, "subtract")
+    assert not check_op(decode_output, "neg")
+    assert check_op(prefill_output, "subtract")
+    assert not check_op(prefill_output, "neg")
+
+
+# ---------------------------------------------------------------------------
+# Pattern 3: interleaved-pair
+#   x_   = reshape(x, [..., D/2, 1, 2])
+#   out  = reshape(freqs[..., 0] * x_[..., 0] + freqs[..., 1] * x_[..., 1],
+#                  [..., D])
+#   where freqs is shape (..., D/2, 2, 2) packing per-pair [[cos,-sin],[sin,cos]]
+# ---------------------------------------------------------------------------
+
+
+def torch_rope_interleaved_pair(x, freqs):
+    """Golden reference for interleaved-pair RoPE."""
+    x_ = x.float().reshape(*x.shape[:-1], -1, 1, 2)
+    out = freqs[..., 0] * x_[..., 0] + freqs[..., 1] * x_[..., 1]
+    return out.reshape(*x.shape).type_as(x)
+
+
+def build_rope_interleaved_pair(
+    input: Operand,
+    freqs_input: Operand,
+    builder: TTIRBuilder,
+):
+    """Build Pattern 3 (interleaved-pair) as a sequence of TTIR ops.
+
+    input is [B, H, S, D]; freqs is [B, 1, S, D/2, 2, 2] with heads=1 broadcast
+    across H.
+    """
+    input_shape = list(input.type.shape)
+    freqs_shape = list(freqs_input.type.shape)
+    B, H, S, D = input_shape
+    half_dim = D // 2
+
+    # x_ = reshape(x, [..., D/2, 1, 2])
+    x_6d = builder.reshape(input, shape=[B, H, S, half_dim, 1, 2])
+
+    # x_[..., 0] (real) and x_[..., 1] (imag) — slice + reshape + broadcast
+    # to align with the (..., D/2, 2) shape used by the multiplies.
+    x_p0 = builder.slice(
+        x_6d,
+        begins=[0, 0, 0, 0, 0, 0],
+        ends=[B, H, S, half_dim, 1, 1],
+        step=[1, 1, 1, 1, 1, 1],
+    )
+    x_p1 = builder.slice(
+        x_6d,
+        begins=[0, 0, 0, 0, 0, 1],
+        ends=[B, H, S, half_dim, 1, 2],
+        step=[1, 1, 1, 1, 1, 1],
+    )
+    x_real_bc = builder.broadcast(
+        builder.reshape(
+            builder.reshape(x_p0, shape=[B, H, S, half_dim]),
+            shape=[B, H, S, half_dim, 1],
+        ),
+        broadcast_dimensions=[1, 1, 1, 1, 2],
+    )
+    x_imag_bc = builder.broadcast(
+        builder.reshape(
+            builder.reshape(x_p1, shape=[B, H, S, half_dim]),
+            shape=[B, H, S, half_dim, 1],
+        ),
+        broadcast_dimensions=[1, 1, 1, 1, 2],
+    )
+
+    # freqs[..., 0] = [cos, sin] and freqs[..., 1] = [-sin, cos]
+    # — slice the last dim, then broadcast over the heads dim.
+    freqs_c0 = builder.slice(
+        freqs_input,
+        begins=[0, 0, 0, 0, 0, 0],
+        ends=[freqs_shape[0], freqs_shape[1], freqs_shape[2], half_dim, 2, 1],
+        step=[1, 1, 1, 1, 1, 1],
+    )
+    freqs_c1 = builder.slice(
+        freqs_input,
+        begins=[0, 0, 0, 0, 0, 1],
+        ends=[freqs_shape[0], freqs_shape[1], freqs_shape[2], half_dim, 2, 2],
+        step=[1, 1, 1, 1, 1, 1],
+    )
+    # Squeeze the size-1 heads-broadcast dim (position [1]) and the trailing
+    # size-1 dim from the column slice, then re-add the heads-broadcast dim.
+    cos_bc = builder.broadcast(
+        builder.reshape(
+            builder.reshape(
+                freqs_c0, shape=[freqs_shape[0], freqs_shape[2], half_dim, 2]
+            ),
+            shape=[freqs_shape[0], 1, freqs_shape[2], half_dim, 2],
+        ),
+        broadcast_dimensions=[1, H, 1, 1, 1],
+    )
+    sin_bc = builder.broadcast(
+        builder.reshape(
+            builder.reshape(
+                freqs_c1, shape=[freqs_shape[0], freqs_shape[2], half_dim, 2]
+            ),
+            shape=[freqs_shape[0], 1, freqs_shape[2], half_dim, 2],
+        ),
+        broadcast_dimensions=[1, H, 1, 1, 1],
+    )
+
+    # freqs[..., 0] * x_[..., 0] + freqs[..., 1] * x_[..., 1], reshaped to [..., D]
+    sum_5d = builder.add(
+        builder.multiply(cos_bc, x_real_bc),
+        builder.multiply(sin_bc, x_imag_bc),
+    )
+    return builder.reshape(sum_5d, shape=input_shape)
+
+
+# Representative shapes for Pattern 3 (interleaved-pair)
+INTERLEAVED_PAIR_SHAPES = [
+    pytest.param(
+        (1, 20, 128, 128),
+        (1, 1, 128, 64, 2, 2),
+        id="hidream_i1_fast-prefill",
+    ),
+]
+
+
+@pytest.mark.parametrize("input_shape, freqs_shape", INTERLEAVED_PAIR_SHAPES)
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_rope_interleaved_pair(
+    input_shape, freqs_shape, dtype, target, request, device
+):
+    """
+    Pattern 3: interleaved-pair RoPE.
+    Used by HiDream-I1.
+
+    Verifies that the decomposed RoPE pattern fuses into ttnn.rotary_embedding
+    through the full pipeline.
+    """
+    shapes = [input_shape, freqs_shape]
+    dtypes = [dtype] * 2
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def rotary_embedding(
+            input: Operand,
+            freqs_input: Operand,
+            builder: TTIRBuilder,
+        ):
+            input_data = torch.randn(input_shape, dtype=dtype)
+
+            # Build a valid freqs_cis: per pair, 2x2 = [[c, -s], [s, c]].
+            angles = torch.randn(freqs_shape[:-2], dtype=torch.float32)
+            c, s = torch.cos(angles), torch.sin(angles)
+            freqs_data = (
+                torch.stack([c, -s, s, c], dim=-1).reshape(freqs_shape).to(dtype)
+            )
+
+            golden = torch_rope_interleaved_pair(input_data, freqs_data)
+
+            result = build_rope_interleaved_pair(input, freqs_input, builder)
+
+            builder.set_goldens(
+                {input: input_data, freqs_input: freqs_data},
+                {result: golden},
+            )
+            return result
+
+    output = compile_and_execute_ttir(
+        module,
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        pipeline_options=[
+            "enable-ttnn-decomposition-pass=false",
+            "composite-resolution=force-promote",
+        ],
         save_artifacts=True,
     )
 

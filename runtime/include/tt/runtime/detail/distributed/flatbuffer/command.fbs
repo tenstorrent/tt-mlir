@@ -60,7 +60,7 @@ table CreateHostTensorCommand {
   output_global_id: uint64;
   data: [ubyte];
   shape: [uint32];
-  stride: [uint32];
+  stride: [int64];
   item_size: uint32;
   data_type: tt.target.DataType;
 }

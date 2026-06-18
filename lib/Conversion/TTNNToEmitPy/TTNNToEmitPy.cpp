@@ -21,7 +21,6 @@
 
 using namespace mlir;
 using namespace mlir::tt;
-using ttnn_to_emitpy::operator|;
 
 // Base class for TTNN to EmitPy OpConversionPattern.
 //
@@ -890,6 +889,37 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::CumSumOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getDim()),
+        emitter.emit(srcOp.getDtypeAttr(), "dtype"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
+// CumProd op conversion pattern
+//
+namespace {
+class CumProdOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::CumProdOp> {
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::CumProdOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::CumProdOp srcOp,
+                  mlir::tt::ttnn::CumProdOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::CumProdOp> emitter(
         srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
@@ -2258,7 +2288,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getDim()),
+        emitter.emit(static_cast<int32_t>(srcOp.getDim())),
         emitter.emit(srcOp.getIndex()),
         emitter.emit(/*sparse_grad=*/false, "sparse_grad"),
         emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
@@ -2673,6 +2703,43 @@ public:
         emitter.emit(srcOp.getUpdateIndex(), "update_idxs_tensor"),
         emitter.emit(srcOp.getShareCache(), "share_cache"),
         emitter.emit(srcOp.getPageTable(), "page_table")};
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// PagedFillCacheOp
+//
+namespace {
+class PagedFillCacheOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::PagedFillCacheOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.paged_fill_cache";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.paged_fill_cache";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::PagedFillCacheOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PagedFillCacheOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::PagedFillCacheOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getCache()), emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getPageTable()),
+        emitter.emit(srcOp.getBatchIdxTensor(), "batch_idx_tensor")};
 
     emitter.replaceOp(*this, args);
 
@@ -3848,6 +3915,49 @@ public:
 };
 } // namespace
 
+// MoeGptOp conversion pattern
+//
+namespace {
+class MoeGptOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::MoeGptOp> {
+private:
+  std::string getPrefixSearchPattern() const override { return "ttnn.moe_gpt"; }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.moe_gpt";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::MoeGptOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::MoeGptOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::MoeGptOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInputTensor()),
+        emitter.emit(srcOp.getExpertIndices(), "expert_indices"),
+        emitter.emit(srcOp.getExpertScores(), "expert_scores"),
+        emitter.emit(srcOp.getExpertMapping(), "expert_mapping"),
+        emitter.emit(srcOp.getW0W1Tensor(), "w0_w1_tensor"),
+        emitter.emit(srcOp.getW2Tensor(), "w2_tensor"),
+        emitter.emit(srcOp.getOutputHeightShardDim(),
+                     "output_height_shard_dim"),
+        emitter.emit(srcOp.getOutputWidthShardDim(), "output_width_shard_dim"),
+        emitter.emit(srcOp.getHiddenSize(), "hidden_size"),
+        emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // RMSNormOp conversion pattern
 //
 namespace {
@@ -4321,7 +4431,56 @@ public:
         emitter.emit<float>(srcOp.getScaleAttr(), "scale"),
         emitter.emit(srcOp.getSlidingWindowSize(), "sliding_window_size"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
+        emitter.emit(std::nullopt, "program_config"),
+        emitter.emit(std::nullopt, "compute_kernel_config"),
+        emitter.emit(srcOp.getAttentionSink(), "attention_sink"),
     };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// FlashMlaPrefillOp conversion pattern
+//
+namespace {
+class FlashMlaPrefillOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::FlashMlaPrefillOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.flash_mla_prefill";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.transformer.flash_mla_prefill";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::FlashMlaPrefillOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::FlashMlaPrefillOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::FlashMlaPrefillOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getQuery()),
+        emitter.emit(srcOp.getKey()),
+        srcOp.getValue() ? emitter.emit(srcOp.getValue())
+                         : emitter.emit(srcOp.getHeadDimV()),
+        emitter.emit(srcOp.getAttentionMask(), "attn_mask"),
+        emitter.emit(srcOp.getIsCausal(), "is_causal"),
+        emitter.emit<float>(srcOp.getScaleAttr(), "scale"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
+    };
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 
     emitter.replaceOp(*this, args);
 
@@ -5230,6 +5389,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<EmbeddingOpConversionPattern,
                EmbeddingBackwardOpConversionPattern,
                CumSumOpConversionPattern,
+               CumProdOpConversionPattern,
                SoftmaxOpConversionPattern
               >(typeConverter, ctx);
   // clang-format on
@@ -5268,7 +5428,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                AllToAllDispatchOpConversionPattern,
                AllToAllDispatchMetadataOpConversionPattern,
                AllToAllCombineOpConversionPattern,
-               MoeExpertTokenRemapOpConversionPattern
+               MoeExpertTokenRemapOpConversionPattern,
+               MoeGptOpConversionPattern
               >(typeConverter, ctx);
   // clang-format on
 
@@ -5277,6 +5438,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<FillCacheOpConversionPattern>(typeConverter, ctx);
   patterns.add<UpdateCacheOpConversionPattern>(typeConverter, ctx);
   patterns.add<PagedUpdateCacheOpConversionPattern>(typeConverter, ctx);
+  patterns.add<PagedFillCacheOpConversionPattern>(typeConverter, ctx);
   patterns.add<SamplingOpConversionPattern>(typeConverter, ctx);
 
   // Trace ops
@@ -5323,6 +5485,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<RotaryEmbeddingOpConversionPattern>(typeConverter, ctx);
   patterns.add<ScaledDotProductAttentionOpConversionPattern>(typeConverter,
                                                              ctx);
+  patterns.add<FlashMlaPrefillOpConversionPattern>(typeConverter, ctx);
   patterns.add<ScaledDotProductAttentionDecodeOpConversionPattern>(
       typeConverter, ctx);
   patterns.add<PagedScaledDotProductAttentionDecodeOpConversionPattern>(

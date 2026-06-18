@@ -11,10 +11,14 @@ RUN dnf install --refresh -y wget python3.12 python3.12-pip python3.12-devel
 
 RUN echo "TT_METAL_VERSION: ${TT_METAL_VERSION}"
 
+# Import older Intel GPG signing key needed by intel-oneapi-mpi-2021.1.1
+RUN rpm --import https://yum.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS-2019.PUB
+
 # Setup / install metal dependencies
 RUN wget https://raw.githubusercontent.com/tenstorrent/tt-metal/${TT_METAL_VERSION}/{install_dependencies.sh,tt_metal/sfpi-info.sh,tt_metal/sfpi-version} && \
     chmod u+x sfpi-info.sh && \
-    bash install_dependencies.sh --docker
+    bash install_dependencies.sh --docker && \
+    bash install_dependencies.sh --sfpi
 
 FROM ciwheel-base AS toolchain-source
 SHELL ["/bin/bash", "-c"]

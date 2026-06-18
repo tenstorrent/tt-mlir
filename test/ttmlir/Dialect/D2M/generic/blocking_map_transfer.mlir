@@ -1,6 +1,6 @@
 // RUN: ttmlir-opt --ttcore-register-device --d2m-mark-synchronized-buffers --d2m-insert-scratch-buffers --d2m-generic-apply-interchange --d2m-generate-outer-loops %s | FileCheck %s
-// RUN: ttmlir-opt --ttcore-register-device --d2m-mark-synchronized-buffers --d2m-insert-scratch-buffers --d2m-generic-apply-interchange --d2m-generate-outer-loops "--d2m-allocate=test-assume-l1-capacity=8388608 test-buffer-size-policy=max" %s | FileCheck %s --check-prefix=CHECK-ALLOC
-// RUN: ttmlir-opt --ttcore-register-device --d2m-mark-synchronized-buffers --d2m-insert-scratch-buffers --d2m-generic-apply-interchange --d2m-generate-outer-loops "--d2m-allocate=test-assume-l1-capacity=8388608" %s | FileCheck %s --check-prefix=CHECK-FUSED-AUTO
+// RUN: ttmlir-opt --ttcore-register-device --d2m-mark-synchronized-buffers --d2m-insert-scratch-buffers --d2m-generic-apply-interchange --d2m-generate-outer-loops "--d2m-reblock-generics=test-buffer-size-policy=max" "--d2m-allocate=test-assume-l1-capacity=8388608" %s | FileCheck %s --check-prefix=CHECK-ALLOC
+// RUN: ttmlir-opt --ttcore-register-device --d2m-mark-synchronized-buffers --d2m-insert-scratch-buffers --d2m-generic-apply-interchange --d2m-generate-outer-loops --d2m-reblock-generics "--d2m-allocate=test-assume-l1-capacity=8388608" %s | FileCheck %s --check-prefix=CHECK-FUSED-AUTO
 
 #l1 = #ttcore.memory_space<l1>
 #dram = #ttcore.memory_space<dram>

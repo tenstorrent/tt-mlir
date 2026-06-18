@@ -25,7 +25,7 @@ func.func @ttkernel_noc_cb() -> () attributes {ttkernel.arg_spec = #ttkernel.arg
     %wptr = "ttkernel.get_write_ptr"(%cb) : (!ttkernel.cb<8, !ttcore.tile<32x32, f32>>) -> i32
     // CHECK: [[NOC]].async_read([[EP]], CoreLocalMem<uint32_t>([[CB]].get_write_ptr()), [[C0]]
     ttkernel.noc_async_read core[%c0_idx, %c0_idx], %c262144_i32, %wptr, %c32_i32 : (index, index, i32, i32, i32) -> ()
-    // CHECK: [[NOC]].async_read_barrier<Noc::BarrierMode::FULL>()
+    // CHECK: [[NOC]].async_read_barrier()
     ttkernel.noc_async_read_barrier() : () -> ()
     // CHECK: [[CB]].push_back
     "ttkernel.cb_push_back"(%cb, %c1_i32) : (!ttkernel.cb<8, !ttcore.tile<32x32, f32>>, i32) -> ()
@@ -65,13 +65,13 @@ func.func @ttkernel_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<n
     %inline_value = arith.constant 7 : i32
     %be = arith.constant 15 : i8
     %noc = arith.constant 1 : i8
-    // CHECK: noc_inline_dw_write<InlineWriteDst::L1>([[NOCADDR1]], [[INLINE_VALUE]], [[BE]], [[NOC]])
-    ttkernel.noc_inline_dw_write(%4, %inline_value, %be, %noc) : (!ttkernel.noc_addr, i32, i8, i8) -> ()
+    // CHECK: noc1.inline_dw_write<NocOptions::INLINE_L1>([[EP1]], [[INLINE_VALUE]]
+    ttkernel.noc_inline_dw_write(core[%c0_idx, %c0_idx], %c262208_i32, %inline_value, %be, noc %noc) : (index, index, i32, i32, i8, i8) -> ()
     // CHECK: [[NOC1]].async_atomic_barrier()
     ttkernel.noc_async_atomic_barrier() : () -> ()
     // CHECK: noc1.async_atomic_barrier()
     ttkernel.noc_async_atomic_barrier(%noc) : (i8) -> ()
-    // CHECK: [[NOC1]].async_read_barrier<Noc::BarrierMode::FULL>()
+    // CHECK: [[NOC1]].async_read_barrier()
     ttkernel.noc_async_read_barrier() : () -> ()
     // CHECK: return
     func.return
@@ -91,10 +91,69 @@ func.func @ttkernel_noc_with_noc_id() -> () attributes {ttkernel.thread = #ttker
     %noc_id = arith.constant 1 : i8
     // CHECK: uint64_t [[EXPLICIT_NOC_ADDR:.*]] = [[EXPLICIT_EP]].get_noc_unicast_addr(static_cast<uint32_t>([[EXPLICIT_X]]), static_cast<uint32_t>([[EXPLICIT_Y]]), static_cast<uint32_t>([[EXPLICIT_ADDR]]), [[EXPLICIT_NOC]].get_noc_id())
     %noc_addr = ttkernel.get_noc_addr(%x, %y, %addr, %noc_id) : (index, index, i32, i8) -> !ttkernel.noc_addr
-    // CHECK: [[EXPLICIT_NOC]].async_read_barrier<Noc::BarrierMode::FULL>()
+    // CHECK: [[EXPLICIT_NOC]].async_read_barrier()
     ttkernel.noc_async_read_barrier(%noc_id) : (i8) -> ()
-    // CHECK: [[EXPLICIT_NOC]].async_write_barrier<Noc::BarrierMode::FULL>()
+    // CHECK: [[EXPLICIT_NOC]].async_write_barrier()
     ttkernel.noc_async_write_barrier(%noc_id) : (i8) -> ()
+    // CHECK: return
+    func.return
+}
+
+// Render the non-D2M NoC emissions (stateful one-packet, TRID write/barrier,
+// multicast one-packet, tile read/write) all the way to C++ so that brace
+// balance in the emitted OO calls is actually checked. Checking the verbatim
+// format string alone cannot catch a malformed `NocOptVals{...}}` because the
+// `}}` is only collapsed at C++ rendering time, not in the verbatim op.
+// CHECK: void kernel_main
+func.func @ttkernel_noc_oo_render() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+    // CHECK-DAG: UnicastEndpoint [[EP:unicast_ep]]
+    // CHECK-DAG: MulticastEndpoint [[MEP:mcast_ep]]
+    // CHECK-DAG: Noc [[NOC:noc]]
+    %trid = arith.constant 3 : i32
+    %x = arith.constant 0 : index
+    %y = arith.constant 1 : index
+    %addr = arith.constant 512 : i32
+    %size = arith.constant 128 : i32
+    %dstl1 = arith.constant 262400 : i32
+    %num = arith.constant 7 : i32
+    %xe = arith.constant 3 : index
+    %ye = arith.constant 3 : index
+
+    // CHECK: [[NOC]].set_async_read_state<NocOptions::DEFAULT, NOC_MAX_BURST_SIZE>([[EP]], {{.*}}, {.noc_x = {{.*}}, .noc_y = {{.*}}, .addr = static_cast<uint32_t>({{.*}})});
+    ttkernel.noc_async_read_one_packet_set_state(core[%x, %y], %addr, %size) : (index, index, i32, i32) -> ()
+
+    // CHECK: [[NOC]].async_read_with_state<NocOptions::DEFAULT, NOC_MAX_BURST_SIZE>([[EP]], CoreLocalMem<uint32_t>({{.*}}), {{.*}}, {.noc_x = {{.*}}, .noc_y = {{.*}}, .addr = static_cast<uint32_t>({{.*}})}, {});
+    ttkernel.noc_async_read_one_packet_with_state(core[%x, %y], %addr, %dstl1, %size) : (index, index, i32, i32, i32) -> ()
+
+    // The TRID write must close with a single balanced `NocOptVals{...}`.
+    // CHECK: [[NOC]].async_write<NocOptions::TXN_ID, NOC_MAX_BURST_SIZE>(CoreLocalMem<uint32_t>({{.*}}), [[EP]], {{.*}}, {} , {.noc_x = {{.*}}, .noc_y = {{.*}}, .addr = static_cast<uint32_t>({{.*}})}, NocOptVals{.trid = {{[^}]*}}});
+    ttkernel.noc_async_write_one_packet_with_trid(%dstl1, core[%x, %y], %addr, %size, %trid) : (i32, index, index, i32, i32, i32) -> ()
+
+    // CHECK: [[NOC]].async_write_multicast<NocOptions::DEFAULT, NOC_MAX_BURST_SIZE>(CoreLocalMem<uint32_t>({{.*}}), [[MEP]], {{.*}}, {{.*}}, {} , noc_traits_t<MulticastEndpoint>::dst_args_mcast_type{.noc_x_start = {{.*}}, .noc_y_start = {{.*}}, .noc_x_end = {{.*}}, .noc_y_end = {{.*}}, .addr = static_cast<uint32_t>({{.*}})}, false);
+    ttkernel.noc_async_write_multicast_one_packet(%dstl1, %size, %num, start_xy[%x, %y], end_xy[%xe, %ye], %addr) : (i32, i32, i32, index, index, index, index, i32) -> ()
+
+    // The TRID barrier must close with a single balanced `NocOptVals{...}`.
+    // CHECK: [[NOC]].async_read_barrier<NocOptions::TXN_ID>(NocOptVals{.trid = {{[^}]*}}});
+    ttkernel.noc_async_read_barrier_with_trid(%trid) : (i32) -> ()
+    // CHECK: return
+    func.return
+}
+
+// CHECK: void kernel_main
+func.func @ttkernel_noc_oo_tile_render() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+    // CHECK: Noc [[NOC:noc]]
+    %cta = arith.constant 2 : i32
+    %crta = arith.constant 0 : i32
+    %addr = arith.constant 262400 : i32
+    %tile_size = arith.constant 8 : i32
+    %tile = arith.constant 1 : i32
+    %args = ttkernel.TensorAccessorArgs(%cta, %crta)
+    // CHECK: TensorAccessor [[ACC:v[0-9]+]] = TensorAccessor(
+    %s = "ttkernel.TensorAccessor"(%args, %addr, %tile_size) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessor
+    // CHECK: [[NOC]].async_read([[ACC]], CoreLocalMem<uint32_t>({{.*}}), [[ACC]].get_aligned_page_size(), {.page_id = static_cast<uint32_t>({{.*}})}, {});
+    "ttkernel.noc_async_read_tile"(%tile, %s, %addr) : (i32, !ttkernel.TensorAccessor, i32) -> ()
+    // CHECK: [[NOC]].async_write(CoreLocalMem<uint32_t>({{.*}}), [[ACC]], [[ACC]].get_aligned_page_size(), {} , {.page_id = static_cast<uint32_t>({{.*}})});
+    "ttkernel.noc_async_write_tile"(%tile, %s, %addr) : (i32, !ttkernel.TensorAccessor, i32) -> ()
     // CHECK: return
     func.return
 }

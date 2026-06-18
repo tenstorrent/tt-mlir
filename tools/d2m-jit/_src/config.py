@@ -42,9 +42,26 @@ class _Config:
     print_ir_debug_info: bool = _env_bool("D2M_JIT_PRINT_IR_DEBUG_INFO")
     # PassManager.enable_verifier toggle. Default True.
     verify_passes: bool = _env_bool("D2M_JIT_VERIFY", default=True)
+    # Convert all tensor inputs and out-params to DRAM before each kernel call.
+    kernel_io_in_dram: bool = _env_bool("D2M_JIT_KERNEL_IO_IN_DRAM")
     # If set, write the post-pipeline flatbuffer to this path before
     # device submit. Useful for offline inspection with ttrt.
     save_flatbuffer_path: Optional[str] = os.environ.get("D2M_JIT_SAVE_FLATBUFFER_PATH")
+    # Insert TTKernel device-zone profiler scopes so the compiled kernels
+    # auto-instrument their ops (DeviceZoneScopedN markers picked up by the
+    # device profiler / tracy). Mirrors the `insert-profiler-traces` option of
+    # createTTIRToTTMetalPipeline. Requires a perf-trace runtime build.
+    insert_profiler_traces: bool = _env_bool("D2M_JIT_INSERT_PROFILER_TRACES")
+    # Comma-separated TTKernel traits to instrument when insert_profiler_traces
+    # is on (e.g. "device-zone", "fpu,sfpu", "all"). Empty -> "device-zone".
+    profiler_traits: str = os.environ.get("D2M_JIT_PROFILER_TRAITS", "")
+    # Enable runtime device-profiler collection during execution: flips the
+    # perf::Env singleton so the ttmetal executor reads device profiler results
+    # after each workload (-> $TT_METAL_HOME/generated/profiler/.logs/
+    # profile_log_device.csv). Requires a TT_RUNTIME_ENABLE_PERF_TRACE=ON build
+    # and TT_METAL_DEVICE_PROFILER=1 (set automatically if unset). Pairs with
+    # insert_profiler_traces to capture the inserted DeviceZoneScopedN zones.
+    enable_perf_trace: bool = _env_bool("D2M_JIT_ENABLE_PERF_TRACE")
 
 
 # Process-level singleton. Mutate fields directly.

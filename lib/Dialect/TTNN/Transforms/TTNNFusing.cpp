@@ -186,9 +186,14 @@ private:
 //   permute([1, 2, 0, 3])  :  [S, B, H, D] -> [B, H, S, D]
 //   reshape                 :  [B, H, S, D] -> [B, H*D]  (or similar collapse)
 //
-// This sequence shuffles the multi-head attention output back into a single
-// hidden dimension. It is replaced by the optimized hardware op
-// nlp_concat_heads_decode which performs:
+// Canonicalization may fold the permute into a reshape when S==1 (since only
+// size-1 dims move). In that case the pattern becomes:
+//
+//   reshape                 :  [S=1, B, H, D] -> [B, H, 1, D]
+//   reshape                 :  [B, H, 1, D]   -> [B, H*D]
+//
+// Both variants are matched. The sequence is replaced by the optimized
+// hardware op nlp_concat_heads_decode which performs:
 //
 //   [S, B, H_padded, D] -> [S, 1, B, num_heads * D]
 //
@@ -202,23 +207,59 @@ class NLPConcatHeadsDecodeFusing : public mlir::OpRewritePattern<ReshapeOp> {
   static constexpr std::array<int64_t, 4> kConcatHeadsDecodePermutation = {
       1, 2, 0, 3};
 
+  // Try to match the concat-heads-decode input pattern.
+  // Returns the original [S, B, H, D] input value, or nullptr on failure.
+  //
+  // Matches two cases:
+  //   1. permute([1,2,0,3]) on [S, B, H, D] — the un-canonicalized pattern.
+  //   2. Direct reshape input with shape [S=1, B, H, D] — the canonicalized
+  //      pattern where permute([1,2,0,3]) was folded into a reshape (since
+  //      only size-1 dims moved) and then the two reshapes were merged into
+  //      one. We detect this by checking the reshape's input is 4D with S==1
+  //      and its output collapses the last three dims (B*H*D or similar).
+  static Value matchConcatHeadsInput(ReshapeOp reshapeOp) {
+    Value reshapeInput = reshapeOp.getInput();
+
+    // Case 1: explicit permute op.
+    if (auto permuteOp = reshapeInput.getDefiningOp<PermuteOp>()) {
+      auto permutation = permuteOp.getPermutation();
+      if (llvm::equal(permutation,
+                      ArrayRef<int64_t>(kConcatHeadsDecodePermutation))) {
+        return permuteOp.getInput();
+      }
+      return nullptr;
+    }
+
+    // Case 2: canonicalized — the permute was folded away because S==1,
+    // leaving a single reshape from [1, B, H, D] -> [B, H*D].
+    // We recognise this by checking the reshape's own input is 4D with
+    // dim-0 == 1, and the output is a 2D collapse of [B, H*D].
+    auto inputType = mlir::cast<RankedTensorType>(reshapeInput.getType());
+    auto inputShape = inputType.getShape();
+
+    if (inputShape.size() == 4 && inputShape[0] == 1) {
+      auto outShape =
+          mlir::cast<RankedTensorType>(reshapeOp.getResult().getType())
+              .getShape();
+      // Output must be 2D: [B, H*D].
+      if (outShape.size() == 2 && outShape[0] == inputShape[1] &&
+          outShape[1] == inputShape[2] * inputShape[3]) {
+        return reshapeInput;
+      }
+    }
+
+    return nullptr;
+  }
+
 public:
   mlir::LogicalResult
   matchAndRewrite(ReshapeOp reshapeOp,
                   mlir::PatternRewriter &rewriter) const override {
-    auto permuteOp = reshapeOp.getInput().getDefiningOp<PermuteOp>();
-    if (!permuteOp) {
+    Value input = matchConcatHeadsInput(reshapeOp);
+    if (!input) {
       return failure();
     }
 
-    // Check permutation is [1, 2, 0, 3].
-    auto permutation = permuteOp.getPermutation();
-    if (!llvm::equal(permutation,
-                     ArrayRef<int64_t>(kConcatHeadsDecodePermutation))) {
-      return failure();
-    }
-
-    Value input = permuteOp.getInput();
     auto inputType = mlir::cast<RankedTensorType>(input.getType());
 
     auto inputShape = inputType.getShape();

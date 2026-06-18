@@ -68,7 +68,7 @@ func.func private @datamovement_kernel1() attributes {d2m.thread = #d2m.thread<d
       d2m.pop %arg1 : <memref<2x2x!ttcore.tile<32x32, f32>, #l1>>
     }
   }
-  // CHECK: %2 = ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>(%1) : (!ttkernel.l1_addr) -> !ttkernel.l1_addr_ptr
+  // CHECK: %2 = ttkernel.reinterpret_cast(%1) : (!ttkernel.l1_addr) -> !ttkernel.l1_addr_ptr
   d2m.semaphore_wait %arg3, %c1 : !d2m.global_semaphore
   return
 }
@@ -80,7 +80,7 @@ func.func private @datamovement_kernel1() attributes {d2m.thread = #d2m.thread<d
 #map1 = affine_map<() -> ()>
 
 // CHECK: ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = local_semaphore, operand_index = 5>, <arg_type = local_semaphore, operand_index = 6>, <arg_type = buffer_address, operand_index = 0>]>
-func.func private @datamovement_kernel4() attributes {d2m.thread = #d2m.thread<datamovement, processor = 1>, tt.function_type = "kernel"} {
+func.func private @datamovement_kernel4() attributes {d2m.thread = #d2m.thread<datamovement, dm_core = 1>, tt.function_type = "kernel"} {
   // CHECK: %0 = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<1, !ttcore.tile<32x32, f32>>
   // CHECK: %1 = ttkernel.get_compile_time_arg_val(1) : () -> i32
   // CHECK: %2 = ttkernel.get_semaphore(%1) : (i32) -> !ttkernel.local_semaphore
@@ -104,15 +104,15 @@ func.func private @datamovement_kernel4() attributes {d2m.thread = #d2m.thread<d
       %2 = d2m.get_arg(0) : memref<8x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>
       %tx = d2m.dma_read %2[%core0, %arg7, %c0], %1[%c0], <1> : (memref<8x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx<read>
       d2m.dma_wait %tx : !d2m.mem_tx<read>
-      // CHECK: %19 = ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>(%2) : (!ttkernel.local_semaphore) -> !ttkernel.l1_addr_ptr
+      // CHECK: %19 = ttkernel.reinterpret_cast(%2) : (!ttkernel.local_semaphore) -> !ttkernel.l1_addr_ptr
       d2m.semaphore_wait %arg5, %c7 reset %c0 : !d2m.local_semaphore
       %tx_0 = d2m.dma_write %1[%c0], %1[%c0] core[%core0, %c0] mcast[%c1, %c8], <1> : (memref<1x1x!ttcore.tile<32x32, f32>, #l1>, memref<1x1x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx<write>
       d2m.dma_wait %tx_0 : !d2m.mem_tx<write>
-      // CHECK: %45 = ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>(%4) : (!ttkernel.local_semaphore) -> !ttkernel.l1_addr_ptr
+      // CHECK: %45 = ttkernel.reinterpret_cast(%4) : (!ttkernel.local_semaphore) -> !ttkernel.l1_addr_ptr
       d2m.semaphore_set %arg6, %c1, core[%core0, %c0] mcast[%c1, %c8] : !d2m.local_semaphore
     } else {
       d2m.semaphore_inc %arg5, %c1, core[%core0, %c0] : !d2m.local_semaphore
-      // CHECK: %13 = ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>(%4) : (!ttkernel.local_semaphore) -> !ttkernel.l1_addr_ptr
+      // CHECK: %13 = ttkernel.reinterpret_cast(%4) : (!ttkernel.local_semaphore) -> !ttkernel.l1_addr_ptr
       d2m.semaphore_wait %arg6, %c1 reset %c0 : !d2m.local_semaphore
     }
     d2m.push %arg0 : <memref<1x1x!ttcore.tile<32x32, f32>, #l1>>

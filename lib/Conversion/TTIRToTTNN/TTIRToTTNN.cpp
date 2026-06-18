@@ -487,6 +487,23 @@ public:
 } // namespace
 
 namespace {
+class CumProdOpConversionPattern : public OpConversionPattern<ttir::CumProdOp> {
+public:
+  using OpConversionPattern<ttir::CumProdOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::CumProdOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::CumProdOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(),
+        rewriter.getI32IntegerAttr(static_cast<int32_t>(adaptor.getDim())));
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class RepeatInterleaveOpConversionPattern
     : public OpConversionPattern<ttir::RepeatInterleaveOp> {
 public:
@@ -1748,6 +1765,107 @@ public:
 } // namespace
 
 namespace {
+class MoeGptOpConversionPattern : public OpConversionPattern<ttir::MoeGptOp> {
+public:
+  using OpConversionPattern<ttir::MoeGptOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::MoeGptOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto tokenCountsType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getTokenCounts().getType()));
+    auto activationRecordsType =
+        cast<RankedTensorType>(this->getTypeConverter()->convertType(
+            op.getActivationRecords().getType()));
+    auto tokenIndicesType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getTokenIndices().getType()));
+    auto tilizeOutType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getTilizeOut().getType()));
+    auto tilizeOutRmType = cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getTilizeOutRm().getType()));
+
+    rewriter.replaceOpWithNewOp<ttnn::MoeGptOp>(
+        op, tokenCountsType, activationRecordsType, tokenIndicesType,
+        tilizeOutType, tilizeOutRmType, adaptor.getInputTensor(),
+        adaptor.getExpertIndices(), adaptor.getExpertScores(),
+        adaptor.getExpertMapping(), adaptor.getW0W1Tensor(),
+        adaptor.getW2Tensor(), op.getOutputHeightShardDimAttr(),
+        op.getOutputWidthShardDimAttr(), op.getHiddenSizeAttr(),
+        op.getClusterAxisAttr());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class MoeComputeOpConversionPattern
+    : public OpConversionPattern<ttir::MoeComputeOp> {
+public:
+  using OpConversionPattern<ttir::MoeComputeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::MoeComputeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    llvm::SmallVector<Type, 6> resultTypes;
+    resultTypes.reserve(op->getNumResults());
+    for (Value result : op->getResults()) {
+      resultTypes.push_back(
+          this->getTypeConverter()->convertType(result.getType()));
+    }
+
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    // Weight prepacking is a TTNN concern (mirrors prepare_conv2d/3d_weights):
+    // insert the device-specific ttnn.prepare_moe_compute_* ops here from the
+    // raw weights. Their result type is bank-sharded and device-dependent
+    // (num_cores), so unlike conv weight prep it can't be computed statically;
+    // create them with a placeholder type and let TTNNDeduceMoEComputeLayouts
+    // refine it via OpModel (see that pass).
+    auto w0Type = cast<RankedTensorType>(adaptor.getW0().getType());
+    auto w2Type = cast<RankedTensorType>(adaptor.getW2().getType());
+    // w0 logical shape is (L, E, K=hidden_size, N=intermediate_size).
+    auto u32Ty = rewriter.getIntegerType(32, /*isSigned=*/false);
+    auto hiddenSizeAttr = rewriter.getIntegerAttr(u32Ty, w0Type.getShape()[2]);
+    auto intermediateSizeAttr = op.getIntermediateSizeAttr();
+
+    auto w0w1Prepared = rewriter.create<ttnn::PrepareMoEComputeW0W1WeightsOp>(
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_prepare_w0_w1"),
+        /*placeholder type, refined by TTNNDeduceMoEComputeLayouts=*/w0Type,
+        adaptor.getW0(), adaptor.getW1(), adaptor.getBias_0(),
+        adaptor.getBias_1(), device, hiddenSizeAttr, intermediateSizeAttr,
+        op.getBhRingSizeAttr());
+
+    auto w2Prepared = rewriter.create<ttnn::PrepareMoEComputeW2WeightsOp>(
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_prepare_w2"),
+        /*placeholder type, refined by TTNNDeduceMoEComputeLayouts=*/w2Type,
+        adaptor.getW2(), adaptor.getBias_2(), device, hiddenSizeAttr,
+        intermediateSizeAttr, op.getBhRingSizeAttr());
+
+    // The TTNN op (mirroring tt-metal) carries has_bias; derive it from the
+    // bias operands.
+    auto hasBiasAttr =
+        rewriter.getBoolAttr(static_cast<bool>(adaptor.getBias_0()));
+
+    // Only the compute_only path is supported (verifier-enforced): the
+    // combine-path operands/attrs (including cluster_axis) stay unset.
+    rewriter.replaceOpWithNewOp<ttnn::MoeComputeOp>(
+        op, resultTypes, adaptor.getTilizeInputTensor(),
+        adaptor.getTilizeExpertIndicesTensor(),
+        adaptor.getTilizeExpertScoresTensor(),
+        adaptor.getTilizeExpertMappingTensor(), w0w1Prepared.getResult(),
+        w2Prepared.getResult(), /*optional_output_tensor=*/Value(),
+        /*cross_device_semaphore=*/Value(), device, op.getLayerIdAttr(),
+        op.getOutputHeightShardDimAttr(), op.getIntermediateSizeAttr(),
+        hasBiasAttr, op.getActivationFunctionAttr(), op.getBhRingSizeAttr(),
+        op.getComputeOnlyAttr(), op.getClusterAxisAttr(),
+        /*num_links=*/mlir::IntegerAttr(), /*topology=*/ttcore::TopologyAttr(),
+        /*mux_core_range_set=*/ttnn::CoreRangeSetAttr());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class Conv2dOpConversionPattern : public OpConversionPattern<ttir::Conv2dOp> {
 public:
   using OpConversionPattern<ttir::Conv2dOp>::OpConversionPattern;
@@ -1907,43 +2025,7 @@ public:
 
     auto paddingModeAttr = adaptor.getPaddingModeAttr();
 
-    // Preserve TT-Metal's default conv3d behavior when no config is attached to
-    // the lowered TTNN op. Weight preparation must use C_in_block = 0 as well,
-    // otherwise the weights are pre-blocked differently from runtime defaults.
-    // Current tt-metal default conv3d config sets C_in_block = TILE_WIDTH.
     constexpr int64_t TILE_WIDTH = ttcore::TileType::getDefaultShape()[1];
-    constexpr int64_t ALIGNMENT = TILE_WIDTH;
-
-    auto weightShape = weightTy.getShape();
-    int64_t outChannels = weightShape[0];
-    int64_t inChannelsPerGroup = weightShape[1];
-    int64_t kernelDepth = weightShape[2];
-    int64_t kernelHeight = weightShape[3];
-    int64_t kernelWidth = weightShape[4];
-    int64_t cInAligned =
-        llvm::divideCeil(inChannelsPerGroup, ALIGNMENT) * ALIGNMENT;
-    int64_t numCInBlocks = cInAligned / TILE_WIDTH;
-    llvm::SmallVector<int64_t> preparedWeightShape = {
-        numCInBlocks * kernelDepth * kernelHeight * kernelWidth * TILE_WIDTH,
-        outChannels};
-    auto oldWeightLayout =
-        mlir::cast<ttnn::TTNNLayoutAttr>(weightTy.getEncoding());
-    auto preparedWeightLayout =
-        ttnn::TTNNLayoutAttr::Builder(rewriter.getContext(),
-                                      preparedWeightShape,
-                                      oldWeightLayout.getScalarElementType())
-            .setBufferType(ttnn::BufferType::DRAM)
-            .setMemoryLayout(ttnn::TensorMemoryLayout::Interleaved)
-            .build();
-    auto preparedWeightType = mlir::RankedTensorType::get(
-        preparedWeightShape, oldWeightLayout.getScalarElementType(),
-        preparedWeightLayout);
-    Value reshapedWeight = rewriter.create<ttnn::PrepareConv3dWeightsOp>(
-        ttmlir::utils::appendLocationSuffix(op.getLoc(),
-                                            "_prepare_conv3d_weight"),
-        preparedWeightType, adaptor.getWeight(), groupsAttr,
-        rewriter.getI32IntegerAttr(TILE_WIDTH),
-        rewriter.getI32IntegerAttr(ALIGNMENT), device);
 
     // Reshape bias tensor: (1, 1, 1, 1, O) → (1, O)
     Value reshapedBias = adaptor.getBias();
@@ -1971,11 +2053,36 @@ public:
     RankedTensorType outputType = mlir::cast<RankedTensorType>(
         getTypeConverter()->convertType(op.getResult().getType()));
 
+    // Attach a *complete* default Conv3dConfigAttr. tt-metal only auto-derives
+    // a full default config when conv3d_config is entirely absent (conv3d.cpp
+    // `config_opt.value_or(<full default>)`); given any partial config it
+    // leaves the unset fields at their C++ struct defaults (C_out_block = 0,
+    // compute grid = {1, 1}), which violate the kernel's blocking invariants
+    // for some shapes (C_out_block = 0 collapses to the full padded output
+    // channels, breaking `matmul_N_t % out_subblock_w`; a 1x1 grid breaks
+    // `C_in_blocks <= total_cores`). So mirror tt-metal's own defaults here —
+    // spatial out-blocks = 1, c_out_block = TILE_WIDTH, c_in_block =
+    // TILE_WIDTH, and the compute grid taken from the device's worker grid — so
+    // the op's config is the single source of truth on every backend. This is
+    // the one place that encodes tt-metal's default knowledge; the optimizer
+    // may refine fields later (its overrides merge onto this config, preserving
+    // the rest), and TTNNPrepareConv3dWeights only reads c_in_block back out.
+    auto computeGrid = ttcore::GridAttr::get(
+        getContext(), ttcore::lookupDevice(op).getWorkerGrid().getShape());
+    auto defaultConv3dConfig = ttnn::Conv3dConfigAttr::get(
+        getContext(), /*weights_dtype=*/std::nullopt, /*t_out_block=*/1,
+        /*w_out_block=*/1, /*h_out_block=*/1, /*c_out_block=*/TILE_WIDTH,
+        /*c_in_block=*/TILE_WIDTH,
+        /*compute_with_storage_grid_size=*/computeGrid);
+
+    // The raw 5D weight is passed through unchanged; TTNNPrepareConv3dWeights
+    // (a post-optimizer pass) inserts the PrepareConv3dWeightsOp once the
+    // optimizer has chosen (or kept) the Conv3dConfigAttr.
     auto convOp = rewriter.create<ttnn::Conv3dOp>(
-        op.getLoc(), outputType, input, reshapedWeight, reshapedBias, device,
-        inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
+        op.getLoc(), outputType, input, adaptor.getWeight(), reshapedBias,
+        device, inChannelsAttr, outChannelsAttr, batchSizeAttr, inputDepthAttr,
         inputHeightAttr, inputWidthAttr, kernelSizeAttr, *strideAttr,
-        *paddingAttr, paddingModeAttr, groupsAttr, /*conv3d_config=*/nullptr,
+        *paddingAttr, paddingModeAttr, groupsAttr, defaultConv3dConfig,
         /*compute_config=*/nullptr);
 
     rewriter.replaceOp(op, convOp.getResult());
@@ -3251,10 +3358,31 @@ private:
   LogicalResult lowerToSDPAOp(ttir::ScaledDotProductAttentionOp op,
                               OpAdaptor adaptor,
                               ConversionPatternRewriter &rewriter) const {
+    // The TTNN SDPA kernel streams over the query dim and cannot broadcast it,
+    // so materialize a query-broadcast mask ([.., 1, Sk]) to [.., Sq, Sk].
+    Value mask = adaptor.getAttentionMask();
+    if (mask) {
+      auto maskType = mlir::cast<RankedTensorType>(mask.getType());
+      int64_t seqLen =
+          mlir::cast<RankedTensorType>(adaptor.getQuery().getType())
+              .getDimSize(kSeqLenDim);
+      if (maskType.getDimSize(kSeqLenDim) == 1 && seqLen != 1) {
+        SmallVector<int64_t> broadcastShape(maskType.getShape());
+        broadcastShape[kSeqLenDim] = seqLen;
+        auto broadcastType = ttnn::utils::RankedTensorTypeFactory::create(
+            maskType, broadcastShape);
+        auto broadcastDims = ttmlir::utils::getBroadcastDimensions<int64_t>(
+            maskType.getShape(), broadcastShape);
+        mask = rewriter.create<ttnn::RepeatOp>(
+            op.getLoc(), broadcastType, mask,
+            ttnn::ShapeAttr::get(rewriter.getContext(), broadcastDims));
+      }
+    }
+
     rewriter.replaceOpWithNewOp<ttnn::ScaledDotProductAttentionOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
-        adaptor.getAttentionMask(), op.getIsCausal(), adaptor.getScaleAttr(),
+        adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(), mask,
+        op.getIsCausal(), adaptor.getScaleAttr(),
         adaptor.getSlidingWindowSizeAttr(), adaptor.getAttentionSink());
 
     return success();
@@ -3399,28 +3527,6 @@ public:
   }
 };
 
-class RotaryEmbeddingOpConversionPattern
-    : public OpConversionPattern<ttir::RotaryEmbeddingOp> {
-public:
-  using OpConversionPattern<ttir::RotaryEmbeddingOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::RotaryEmbeddingOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    auto resultType =
-        this->getTypeConverter()->convertType(op.getResult().getType());
-    if (!resultType) {
-      return failure();
-    }
-    rewriter.replaceOpWithNewOp<ttnn::RotaryEmbeddingOp>(
-        op, resultType, adaptor.getInput(), adaptor.getCosCache(),
-        adaptor.getSinCache(),
-        /*token_index=*/mlir::IntegerAttr(),
-        /*compute_config=*/nullptr);
-    return success();
-  }
-};
-
 class TopKOpConversionPattern : public OpConversionPattern<ttir::TopKOp> {
 public:
   using OpConversionPattern<ttir::TopKOp>::OpConversionPattern;
@@ -3530,6 +3636,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            EmbeddingBackwardOpConversionPattern,
            RepeatOpConversionPattern,
            CumSumOpConversionPattern,
+           CumProdOpConversionPattern,
            RepeatInterleaveOpConversionPattern,
            SoftmaxOpConversionPattern,
            SortOpConversionPattern,
@@ -3559,6 +3666,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            AllToAllCombineOpConversionPattern,
            SelectiveReduceCombineOpConversionPattern,
            MoeExpertTokenRemapOpConversionPattern,
+           MoeGptOpConversionPattern,
+           MoeComputeOpConversionPattern,
            Conv2dOpConversionPattern,
            Conv3dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,
@@ -3591,7 +3700,6 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            GeluBackwardOpConversionPattern,
            DropoutOpConversionPattern,
            DebugOpConversionPattern<debug::DumpOp, ttnn::DumpTensorOp>,
-           RotaryEmbeddingOpConversionPattern,
            TopKOpConversionPattern,
            TopKRouterGptOpConversionPattern
            >(typeConverter, ctx);

@@ -2631,7 +2631,7 @@ public:
     auto lookThroughSafeOps = [normalizedDimSize](mlir::Value value) {
       return utils::lookThroughLayoutOpsIf(
           value, [normalizedDimSize](mlir::Operation *op) {
-            if (utils::preservesDim(op, -1)) {
+            if (utils::preservesDimUpToOnes(op, -1)) {
               return true;
             }
             // Allow broadcasts that expand to normalized size.
@@ -3126,6 +3126,7 @@ public:
       patterns.add<ReshapeBroadcastReshapeToRepeatPattern>(&getContext());
       patterns.add<fusing::RoPERotateHalfFusingPattern>(&getContext());
       patterns.add<fusing::RoPEComplexRotationFusingPattern>(&getContext());
+      patterns.add<fusing::RoPEInterleavedPairFusingPattern>(&getContext());
       patterns.add<fusing::TopKFusingPattern>(&getContext());
 
       GreedyRewriteConfig config;

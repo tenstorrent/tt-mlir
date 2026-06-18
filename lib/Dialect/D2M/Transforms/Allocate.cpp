@@ -8,7 +8,6 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Planner.h"
 #include "ttmlir/Dialect/D2M/Analysis/Allocation/Utils.h"
-#include "ttmlir/Dialect/D2M/Analysis/BlockFactorAnalysis.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Utils.h"
@@ -16,11 +15,12 @@
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/OpDefinition.h"
+#include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/TypeSwitch.h"
 
@@ -159,9 +159,15 @@ struct MemrefValueContext {
   // Such allocs are L1-only (no spilling) and do not participate in
   // stream insertion or dealloc insertion at the func-body level.
   bool isInsideGeneric = false;
+  // `true` iff this in-generic alloc is a speculative stream buffer that was
+  // skipped during aliasing because its root intermediate might be spilled.
+  // Once the planner decides, the post-planner step will either alias it away
+  // (root stayed in L1) or keep it for streaming (root was spilled).
+  bool speculativeStreamBuffer = false;
 };
 
 using OperandDefChain = llvm::SmallVector<Operation *, 4>;
+using OperationSet = llvm::SmallPtrSet<Operation *, 4>;
 
 // The single root discovered by `analyzeOperandDefChain`.
 // Normal operands produce one; composite views produce one per input tensor.
@@ -257,12 +263,10 @@ namespace {
 class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   using Base = impl::D2MAllocateBase<D2MAllocate>;
   using Base::Base;
-  using BufferSizePolicy = BlockFactorAnalysis::BufferSizePolicy;
 
   MemorySpaces memSpaces;
   ttcore::MemorySpaceAttr L1Attr = nullptr;
   ttcore::MemorySpaceAttr DRAMAttr = nullptr;
-  BufferSizePolicy bufferSizePolicy = BufferSizePolicy::Auto;
 
   [[maybe_unused]] friend std::string to_string(const D2MAllocate &obj) {
     // std::stringstream s;
@@ -277,7 +281,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     s << "\tavailable-l1-addr-range: "
       << asSeq(llvm::to_vector(obj.availableL1AddrRange)) << "\n";
     s << "\ttest-assume-l1-capacity: " << obj.testAssumeL1Capacity << "\n";
-    s << "\ttest-buffer-size-policy: " << obj.testBufferSizePolicy << "\n";
     s << "}";
     return s.str();
   }
@@ -286,33 +289,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return (streamInsertPolicy == "always");
   }
 
-  static std::optional<BufferSizePolicy>
-  parseBufferSizePolicy(StringRef policy) {
-    return llvm::StringSwitch<std::optional<BufferSizePolicy>>(policy)
-        .Case("auto", BufferSizePolicy::Auto)
-        .Case("bounded", BufferSizePolicy::Bounded)
-        .Case("auto-mn", BufferSizePolicy::AutoMN)
-        .Case("min", BufferSizePolicy::Min)
-        .Case("max", BufferSizePolicy::Max)
-        .Default(std::nullopt);
-  }
-
   void runOnOperation() override {
     TT_ALLOC_DEBUG("configured with options: {}", to_string(*this));
 
     // Set some instance state:
 
     ModuleOp moduleOp = getOperation();
-
-    const std::optional<BufferSizePolicy> parsedBufferSizePolicy =
-        parseBufferSizePolicy(testBufferSizePolicy);
-    if (!parsedBufferSizePolicy.has_value()) {
-      moduleOp.emitOpError()
-          << "invalid test-buffer-size-policy '" << testBufferSizePolicy
-          << "' (expected one of: auto, bounded, auto-mn, min, max)";
-      return signalPassFailure();
-    }
-    bufferSizePolicy = *parsedBufferSizePolicy;
 
     memSpaces = [this, moduleOp]() {
       ttcore::SystemDescAttr systemDesc =
@@ -381,10 +363,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       return failure();
     }
 
-    if (failed(reblockGenerics(funcOp, analysis))) {
-      return failure();
-    }
-
     if (failed(materializeAliasedLoadStore(funcOp, analysis))) {
       return failure();
     }
@@ -398,6 +376,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     }
 
     if (failed(runMemoryPlanner(funcOp, analysis))) {
+      return failure();
+    }
+
+    if (failed(materializeUnspilledIntermediateAliasedLoadStore(funcOp,
+                                                                analysis))) {
       return failure();
     }
 
@@ -475,10 +458,26 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
             // Check if this is a compute operation with results
             if (op->getNumResults() > 0) {
-              // Update result types for operations that produce values
+              // Re-type only the DPS result that aliases this alloc.
+              auto dpsOp = mlir::dyn_cast<DestinationStyleOpInterface>(op);
+              llvm::SmallVector<unsigned, 2> resultsToRetype;
+              if (dpsOp && op->getNumResults() == dpsOp.getNumDpsInits()) {
+                for (OpOperand &init : dpsOp.getDpsInitsMutable()) {
+                  if (init.get() == allocResult) {
+                    resultsToRetype.push_back(
+                        dpsOp.getTiedOpResult(&init).getResultNumber());
+                  }
+                }
+              } else {
+                // Preserve legacy behavior for non-DPS/asymmetric ops.
+                for (unsigned i = 0; i < op->getNumResults(); ++i) {
+                  resultsToRetype.push_back(i);
+                }
+              }
+
               rewriter.modifyOpInPlace(op, [&]() {
-                for (OpResult result : op->getResults()) {
-                  // Only update if the result is a memref type
+                for (unsigned idx : resultsToRetype) {
+                  OpResult result = op->getResult(idx);
                   if (mlir::isa<MemRefType>(result.getType())) {
                     result.setType(allocType);
                   }
@@ -540,6 +539,10 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
       analysis.sequencing.operationMap[op] = position;
       analysis.sequencing.positionMap.emplace_back(op);
+
+      if (op->getBlock() != &funcBody) {
+        return;
+      }
 
       if (llvm::isa<memref::AllocOp, d2m::ViewLayoutOp, d2m::CompositeViewOp,
                     d2m::CreateGlobalSemaphoreOp>(op)) {
@@ -653,6 +656,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           ctx.live = {genericSeqPos, genericSeqPos};
           ctx.isInsideGeneric = true;
           ctx.isMemspaceBound = true;
+          ctx.speculativeStreamBuffer =
+              allocOp->hasAttr("d2m.speculative_stream_buffer");
+          if (ctx.speculativeStreamBuffer) {
+            allocOp->removeAttr("d2m.speculative_stream_buffer");
+          }
           TT_assertv(ttcore::getMemorySpace(allocOp.getType()) ==
                          ttcore::MemorySpace::DeviceL1,
                      "generic allocs must be allocated in L1");
@@ -720,11 +728,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   }
 
   // Internal helper used by `analyzeGenericOps()` to create analysis entries
-  // for each operand of `genericOp`.
-  void createOperandContexts(FuncAnalysisData &analysis,
-                             d2m::GenericOp genericOp,
-                             GenericOpContext &genericCtx,
-                             const BlockFactorAnalysis &blockFactorAnalysis) {
+  // and allocation usage closure for each operand of `genericOp`.
+  void createOperandContexts(
+      FuncAnalysisData &analysis, d2m::GenericOp genericOp,
+      GenericOpContext &genericCtx,
+      llvm::DenseMap<memref::AllocOp, OperationSet> &genericUseClosure) {
     [[maybe_unused]] AsOperandPrinter asOperand{genericOp->getParentOp()};
     [[maybe_unused]] ttcore::DeviceAttr device =
         ttcore::lookupDevice(genericOp);
@@ -732,16 +740,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     IRRewriter rewriter(genericOp->getContext());
 
     const bool haveIterationSpaceInfo = !genericCtx.isExplicitDatamovement;
-
-    using OperationSet = llvm::SmallPtrSet<Operation *, 4>;
-
-    // This is temp state to help set `MemrefValueContext::isMemspaceBound`.
-    // This maps every `memref::AllocOp` to a union set of `Operation`s
-    // that are seen on the use/def paths leading to their downstream
-    // `d2m::GenericOp`s. Later, these sets will be intersected
-    // with `memref::AllocOp->getUsers()` to detect if there are
-    // any user not contained within the union sets.
-    llvm::DenseMap<memref::AllocOp, OperationSet> genericUseClosure;
 
     SmallVector<AffineMap> indexingMaps;
     SmallVector<ttcore::IteratorType> iteratorTypes;
@@ -772,12 +770,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
           asSeq(gridExtents), asSeq(shardExtents),
           asSeq(getShardBlockFactors(genericOp)),
           getParticipatingDimMask(genericOp));
-
-      // Look up pre-computed execution blocking from the block factor
-      // analysis.
-      if (const auto *bfResult = blockFactorAnalysis.lookup(genericOp)) {
-        blockFactors = bfResult->reblockedFactors;
-      }
 
       for (std::size_t d = 0; d < rank; ++d) {
         TT_assert(blockFactors[d] % originalBlockFactors[d] == 0);
@@ -844,17 +836,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     }
     TT_assert(genericCtx.operands.size() ==
               genericOp.getInputsAndOutputs().size());
-
-    // `genericUseClosure` is complete, use it to update
-    // `MemrefValueContext::isMemspaceBound`:
-
-    for (auto &[allocOp, users] : genericUseClosure) {
-      for (Operation *user : allocOp->getUsers()) {
-        if (!llvm::isa<func::ReturnOp>(user) && !users.contains(user)) {
-          analysis.memrefs[allocOp].isMemspaceBound |= true;
-        }
-      }
-    }
   }
 
   /// Populate `analysis.generics`:
@@ -868,10 +849,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
   ///   - Each operand's context memoizes the buffer type which determines
   ///     the allocation size and shard shape for the in-generic CB alloc.
   ///
-  /// Note that each decision to spill a memref alloc is binary while the stream
-  /// buffer sizing decision is in theory k-ary. `testBufferSizePolicy`
-  /// selects between the `min` / `max` / `auto` policies.
-  ///
   LogicalResult analyzeGenericOps(func::FuncOp funcOp,
                                   FuncAnalysisData &analysis) {
 
@@ -882,16 +859,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     MLIRContext *ctx = &getContext();
     IRRewriter rewriter(ctx);
 
-    // Select execution blocking for would-be operand streams.
-    // `max` preserves the original blocking,
-    // `min` shrinks all non-participating dims
-    // `auto` considers legal divisors of the reduction shard factor and
-    // rejects candidates that shrink tuned-input shards below 4 tiles.
-    BlockFactorAnalysis::Options bfOpts;
-    bfOpts.policy = bufferSizePolicy;
-    bfOpts.numBuffers = numStreamBuffers;
-    BlockFactorAnalysis blockFactorAnalysis(funcOp, bfOpts);
-
+    // Collect the full union set of generic users plus def/use-chain ops for
+    // each root alloc across the function. After all generics have contributed,
+    // these sets will be intersected with `memref::AllocOp->getUsers()` to tell
+    // whether an alloc has true non-generic external users and is thus bound.
+    llvm::DenseMap<memref::AllocOp, OperationSet> genericUseClosure;
     [[maybe_unused]] int32_t genericsInExplicitDatamovementForm = 0;
 
     funcBody.walk([&](d2m::GenericOp genericOp) {
@@ -899,9 +871,26 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
       genericsInExplicitDatamovementForm += genericCtx.isExplicitDatamovement;
 
-      createOperandContexts(analysis, genericOp, genericCtx,
-                            blockFactorAnalysis);
+      createOperandContexts(analysis, genericOp, genericCtx, genericUseClosure);
     });
+
+    // `genericUseClosure` is complete, use it to update
+    // `MemrefValueContext::isMemspaceBound`.
+    for (auto &[allocOp, users] : genericUseClosure) {
+      for (Operation *user : allocOp->getUsers()) {
+        // Nested remote ops are part of the surrounding generic op's operand
+        // path even though they also directly use the root alloc, skip them.
+        if (llvm::isa<d2m::RemoteLoadOp, d2m::RemoteStoreOp>(user)) {
+          if (auto parentGeneric = user->getParentOfType<d2m::GenericOp>();
+              parentGeneric && users.contains(parentGeneric.getOperation())) {
+            continue;
+          }
+        }
+        if (!llvm::isa<func::ReturnOp>(user) && !users.contains(user)) {
+          analysis.memrefs[allocOp.getResult()].isMemspaceBound = true;
+        }
+      }
+    }
 
     if (TT_DEBUG_ENABLED()) {
       for ([[maybe_unused]] auto &[value, valueCtx] : analysis.memrefs) {
@@ -974,14 +963,20 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             //  - if the incoming IR indicates that this alloc should be pinned
             //    to its current memspace in any other explicit way (aggregated
             //    into `isMemspaceBound`);
-            //  - if it is the output of a generic op and the enabled pass
-            //    options do not allow output spilling;
+            //  - if it is a generic output and output spilling is disabled, or
+            //    if it is a terminal generic output. When output spilling is
+            //    enabled, only outputs with downstream generic users remain
+            //    spillable because the allocator can remap their def/use chain
+            //    and insert producer/consumer streams as needed;
             //  - (edge case) if it has zero generic op users;
-            const bool bound =
-                (memspace == MemorySpace::DeviceDRAM) ||
-                memrefCtx.isMemspaceBound ||
-                (memrefCtx.usedForOutput && !allowL1OutputSpilling) ||
-                memrefCtx.genericUsers.empty();
+            const bool isIntermediateMemref =
+                memrefCtx.usedForOutput && memrefCtx.genericUsers.size() > 1;
+            const bool bindOutputToL1 =
+                memrefCtx.usedForOutput &&
+                (!allowL1OutputSpilling || !isIntermediateMemref);
+            const bool bound = (memspace == MemorySpace::DeviceDRAM) ||
+                               memrefCtx.isMemspaceBound || bindOutputToL1 ||
+                               memrefCtx.genericUsers.empty();
             const bool forceSpillToDram = forceSpillToDramIfLegal && !bound;
             if (bound) {
               b.bind(asPlannerSpace(memspace));
@@ -1111,102 +1106,6 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return success();
   }
 
-  /// Rebuild generic ops using the planned block factors.
-  LogicalResult reblockGenerics(func::FuncOp funcOp,
-                                FuncAnalysisData &analysis) {
-    IRRewriter rewriter(funcOp->getContext());
-    llvm::MapVector<d2m::GenericOp, GenericOpContext> updatedGenerics;
-
-    for (auto &[genericOp, genericCtx] : analysis.generics) {
-      d2m::GenericOp oldGenericOp = genericOp;
-      // Skip generics whose execution shape is already final.
-      if (genericCtx.isExplicitDatamovement ||
-          oldGenericOp.getBlockFactorsValue() == genericCtx.reblockedFactors) {
-        updatedGenerics.insert({oldGenericOp, std::move(genericCtx)});
-        continue;
-      }
-
-      // Rebuild the generic so its types match allocator-chosen factors.
-      rewriter.setInsertionPoint(oldGenericOp);
-      FailureOr<d2m::ParallelizedGeneric> reblocked =
-          oldGenericOp.withParallelization(rewriter, std::nullopt,
-                                           genericCtx.reblockedFactors,
-                                           /*generateReturnView=*/true);
-      if (failed(reblocked)) {
-        oldGenericOp.emitOpError()
-            << "Allocator failed to rebuild generic op with updated block "
-               "factors";
-        return failure();
-      }
-
-      TT_assertv(oldGenericOp.getOutputs().size() == 1u,
-                 "Allocator reblocking expects a single output operand");
-      Operation *sequenceAnchor = reblocked->returnView.getOperation();
-      Value newOutput = reblocked->returnView.getResult();
-
-      // Move sequencing metadata to the new anchor op produced by the rewrite.
-      SequenceT sequencePosition = analysis.sequencing[oldGenericOp];
-      analysis.sequencing.positionMap[sequencePosition] = sequenceAnchor;
-      analysis.sequencing.operationMap.erase(oldGenericOp.getOperation());
-      analysis.sequencing.operationMap[sequenceAnchor] = sequencePosition;
-      // Also register the new generic op with the same sequence position so
-      // subsequent passes (e.g. analyzeGenericRegionAllocs) can look it up.
-      analysis.sequencing.operationMap[reblocked->genericOp.getOperation()] =
-          sequencePosition;
-
-      // Redirect the single externally visible output to the rebuilt view.
-      if (oldGenericOp.getNumResults() > 0) {
-        TT_assert(oldGenericOp.getNumResults() == 1u);
-        oldGenericOp.getResult(0).replaceAllUsesWith(newOutput);
-      } else {
-        auto getContainingOpInBlock = [&](Operation *op) -> Operation * {
-          Operation *current = op;
-          while (current && current->getBlock() != sequenceAnchor->getBlock()) {
-            current = current->getParentOp();
-          }
-          return current;
-        };
-        // Update nested uses inside regions of later ops in the same block.
-        oldGenericOp.getOutputs().front().replaceUsesWithIf(
-            newOutput, [&](OpOperand &use) {
-              Operation *ownerInBlock = getContainingOpInBlock(use.getOwner());
-              return ownerInBlock &&
-                     ownerInBlock != oldGenericOp.getOperation() &&
-                     sequenceAnchor->isBeforeInBlock(ownerInBlock);
-            });
-      }
-
-      // Recompute operand def-chains against the rebuilt generic operands.
-      OperandContextList oldOperandContexts = genericCtx.operands;
-      GenericOpContext updatedCtx = std::move(genericCtx);
-      updatedCtx.operands.clear();
-      updatedCtx.operands.reserve(oldOperandContexts.size());
-
-      MutableArrayRef<OpOperand> newOperands =
-          reblocked->genericOp.getInputsAndOutputsMutable();
-      TT_assert(newOperands.size() == oldOperandContexts.size());
-      for (auto [operandIndex, operand] : llvm::enumerate(newOperands)) {
-        OperandContext operandCtx = oldOperandContexts[operandIndex];
-        operandCtx.operand = &operand;
-        operandCtx.chainRoots.clear();
-
-        SmallVector<ChainRoot> chainRoots =
-            analyzeOperandDefChain(reblocked->genericOp, operand.get());
-        operandCtx.chainRoots = chainRoots;
-        operandCtx.primaryRoot = chainRoots.front().root;
-
-        updatedCtx.operands.push_back(std::move(operandCtx));
-      }
-
-      // Replace the old generic entry in analysis with the rebuilt one.
-      updatedGenerics.insert({reblocked->genericOp, std::move(updatedCtx)});
-      rewriter.eraseOp(oldGenericOp);
-    }
-
-    analysis.generics = std::move(updatedGenerics);
-    return success();
-  }
-
   /// Sweep through all collected generic ops and modify root
   /// alloc ops and any view layout ops to be in the final
   /// memspace decided by the planner.
@@ -1255,15 +1154,56 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     return success();
   }
 
+  void markSynchronizedBuffer(RewriterBase &rewriter, Value buffer) const {
+    if (auto allocOp = buffer.getDefiningOp<memref::AllocOp>()) {
+      allocOp->setAttr("d2m.synchronized_buffer",
+                       rewriter.getI32IntegerAttr(numStreamBuffers));
+    }
+  }
+
+  static void markSpeculativeStreamBuffer(RewriterBase &rewriter,
+                                          Value buffer) {
+    if (auto allocOp = buffer.getDefiningOp<memref::AllocOp>()) {
+      allocOp->setAttr("d2m.speculative_stream_buffer", rewriter.getUnitAttr());
+    }
+  }
+
+  static bool isIntermediateGenericOutput(const FuncAnalysisData &analysis,
+                                          const OperandContext &operandCtx) {
+    return llvm::any_of(operandCtx.chainRoots, [&](const ChainRoot &chainRoot) {
+      const auto *memrefIt = analysis.memrefs.find(chainRoot.root);
+      TT_debug(memrefIt != analysis.memrefs.end());
+      const MemrefValueContext &memrefCtx = memrefIt->second;
+      return memrefCtx.usedForOutput && memrefCtx.genericUsers.size() > 1;
+    });
+  }
+
   LogicalResult materializeAliasedLoadStore(func::FuncOp funcOp,
                                             FuncAnalysisData &analysis) {
     IRRewriter rewriter(funcOp->getContext());
+    auto markStreamBufferIfNeeded = [&](Value localBuffer) {
+      auto allocOp = localBuffer.getDefiningOp<memref::AllocOp>();
+      if (!allocOp || allocOp->getAttr("d2m.scratch_buffer") ||
+          allocOp->getAttr("d2m.synchronized_buffer")) {
+        return;
+      }
+      allocOp->setAttr("d2m.synchronized_buffer",
+                       rewriter.getI32IntegerAttr(numStreamBuffers));
+    };
+
     for (const auto &[genericOp, genericCtx] : analysis.generics) {
       const auto &genericOpRef = genericOp;
       for (const OperandContext &operandCtx : genericCtx.operands) {
         genericOpRef->walk([&](RemoteLoadOp remoteLoadOp) {
           if (remoteLoadOp.getMemref() == operandCtx.operand->get() &&
               isAliasedLoad(remoteLoadOp)) {
+            if (allowL1OutputSpilling &&
+                isIntermediateGenericOutput(analysis, operandCtx)) {
+              markSynchronizedBuffer(rewriter, remoteLoadOp.getLocalBuffer());
+              markSpeculativeStreamBuffer(rewriter,
+                                          remoteLoadOp.getLocalBuffer());
+              return;
+            }
             // Replace memref.alloc with operand alias op
             auto *allocOp = remoteLoadOp.getLocalBuffer().getDefiningOp();
             rewriter.setInsertionPoint(allocOp);
@@ -1287,6 +1227,13 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
           if (remoteStoreOp.getMemref() == operandCtx.operand->get() &&
               isAliasedStore(remoteStoreOp)) {
+            if (allowL1OutputSpilling &&
+                isIntermediateGenericOutput(analysis, operandCtx)) {
+              markSynchronizedBuffer(rewriter, remoteStoreOp.getLocalBuffer());
+              markSpeculativeStreamBuffer(rewriter,
+                                          remoteStoreOp.getLocalBuffer());
+              return WalkResult::advance();
+            }
             auto *allocOp = remoteStoreOp.getLocalBuffer().getDefiningOp();
             TT_assertv(mlir::isa<memref::AllocOp>(allocOp),
                        "Expected memref::AllocOp");
@@ -1299,12 +1246,94 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
       }
     }
 
+    // Any remaining remote load/store local buffers could not be aliased (for
+    // example, after reblocking introduced operand views), so they are real
+    // stream buffers that must be visible to the allocator.
+    for (const auto &[genericOp, _] : analysis.generics) {
+      genericOp->walk([&](RemoteLoadOp remoteLoadOp) {
+        markStreamBufferIfNeeded(remoteLoadOp.getLocalBuffer());
+      });
+      genericOp->walk([&](RemoteStoreOp remoteStoreOp) {
+        markStreamBufferIfNeeded(remoteStoreOp.getLocalBuffer());
+      });
+    }
+
     // Remove in-generic allocs that are not used
     for (const auto &[genericOp, genericCtx] : analysis.generics) {
       genericOp->walk([&](memref::AllocOp allocOp) {
         if (allocOp.getResult().getUsers().empty()) {
           rewriter.eraseOp(allocOp);
         }
+      });
+    }
+
+    return success();
+  }
+
+  LogicalResult
+  materializeUnspilledIntermediateAliasedLoadStore(func::FuncOp funcOp,
+                                                   FuncAnalysisData &analysis) {
+    // After the planner has made the decisions, alias speculative stream
+    // buffers whose root intermediate stayed in L1.
+    IRRewriter rewriter(funcOp->getContext());
+
+    for (const auto &[genericOp, genericCtx] : analysis.generics) {
+      genericOp->walk([&](RemoteLoadOp remoteLoadOp) {
+        auto allocOp =
+            remoteLoadOp.getLocalBuffer().getDefiningOp<memref::AllocOp>();
+        if (!allocOp) {
+          return;
+        }
+        auto *it = analysis.memrefs.find(allocOp.getResult());
+        if (it == analysis.memrefs.end() ||
+            !it->second.speculativeStreamBuffer) {
+          return;
+        }
+
+        Value rootMemref = remoteLoadOp.getMemref();
+        auto *rootIt = analysis.memrefs.find(rootMemref);
+        if (rootIt != analysis.memrefs.end() &&
+            rootIt->second.remappedMemSpace == MemorySpace::DeviceDRAM) {
+          return;
+        }
+
+        rewriter.setInsertionPoint(allocOp);
+        analysis.memrefs.erase(allocOp.getResult());
+        rewriter.replaceOpWithNewOp<d2m::OperandAliasOp>(
+            allocOp, allocOp->getResultTypes(), remoteLoadOp.getMemref());
+      });
+    }
+
+    for (const auto &[genericOp, genericCtx] : analysis.generics) {
+      genericOp->walk([&](RemoteStoreOp remoteStoreOp) {
+        if (mlir::isa<d2m::OperandAliasOp>(
+                remoteStoreOp.getLocalBuffer().getDefiningOp())) {
+          return WalkResult::advance();
+        }
+
+        auto allocOp =
+            remoteStoreOp.getLocalBuffer().getDefiningOp<memref::AllocOp>();
+        if (!allocOp) {
+          return WalkResult::advance();
+        }
+        auto *it = analysis.memrefs.find(allocOp.getResult());
+        if (it == analysis.memrefs.end() ||
+            !it->second.speculativeStreamBuffer) {
+          return WalkResult::advance();
+        }
+
+        Value rootMemref = remoteStoreOp.getMemref();
+        auto *rootIt = analysis.memrefs.find(rootMemref);
+        if (rootIt != analysis.memrefs.end() &&
+            rootIt->second.remappedMemSpace == MemorySpace::DeviceDRAM) {
+          return WalkResult::advance();
+        }
+
+        rewriter.setInsertionPoint(allocOp);
+        analysis.memrefs.erase(allocOp.getResult());
+        rewriter.replaceOpWithNewOp<d2m::OperandAliasOp>(
+            allocOp, allocOp->getResultTypes(), remoteStoreOp.getMemref());
+        return WalkResult::advance();
       });
     }
 

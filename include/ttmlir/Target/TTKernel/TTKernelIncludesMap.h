@@ -33,7 +33,6 @@ inline const llvm::StringMap<HeaderRequirement> &getCalleeToHeadersMap() {
         {"get_compile_time_arg_val",                       {"api/compile_time_args.h", "api/compile_time_args.h"}},
 
         // NoC.
-        // The "get_interleaved_addr_gen_fast" op materializes as "InterleavedAddrGenFast<true>".
         {"get_dataformat",                                 {"", "api/dataflow/dataflow_api.h"}},
         {"get_noc_addr",                                   {"", "api/dataflow/dataflow_api.h"}},
         {"get_noc_addr_from_bank_id",                      {"", "api/dataflow/dataflow_api.h"}},
@@ -42,22 +41,13 @@ inline const llvm::StringMap<HeaderRequirement> &getCalleeToHeadersMap() {
         {"get_tile_size",                                  {"", "api/dataflow/dataflow_api.h"}},
         {"get_write_ptr",                                  {"", "api/dataflow/dataflow_api.h"}},
         {"get_read_ptr",                                   {"", "api/dataflow/dataflow_api.h"}},
-        {"noc_async_read_one_packet_set_state",            {"", "api/dataflow/dataflow_api.h"}},
-        {"noc_async_read_one_packet_with_state",           {"", "api/dataflow/dataflow_api.h"}},
-        {"noc_async_read_one_packet_with_state_with_trid", {"", "api/dataflow/dataflow_api.h"}},
-        {"noc_async_read_set_trid",                        {"", "api/dataflow/dataflow_api.h"}},
-        {"noc_async_read_tile",                            {"", "api/dataflow/dataflow_api.h"}},
-        {"noc_async_write_multicast_one_packet",           {"", "api/dataflow/dataflow_api.h"}},
-        {"noc_async_write_one_packet_with_trid",           {"", "api/dataflow/dataflow_api.h"}},
-        {"noc_async_write_set_trid",                       {"", "api/dataflow/dataflow_api.h"}},
-        {"noc_async_write_tile",                           {"", "api/dataflow/dataflow_api.h"}},
-        {"noc_inline_dw_write",                            {"", "api/dataflow/dataflow_api.h"}},
+        {"TensorAccessor",                                 {"", "api/tensor/noc_traits.h"}},
+        {"TensorAccessorArgs",                             {"", "api/tensor/tensor_accessor_args.h"}},
         {"noc_semaphore_inc",                              {"", "api/dataflow/dataflow_api.h"}},
         {"noc_semaphore_set",                              {"", "api/dataflow/dataflow_api.h"}},
         {"noc_semaphore_set_remote",                       {"", "api/dataflow/dataflow_api.h"}},
         {"noc_semaphore_set_multicast",                    {"", "api/dataflow/dataflow_api.h"}},
         {"noc_semaphore_set_multicast_loopback_src",       {"", "api/dataflow/dataflow_api.h"}},
-        {"reset_noc_trid_barrier_counter",                 {"", "api/dataflow/dataflow_api.h"}},
 
         // Compute.
         {"abs_tile",                                       {"api/compute/compute_kernel_api.h", ""}},
@@ -238,8 +228,8 @@ inline const llvm::StringMap<HeaderRequirement> &getCalleeToHeadersMap() {
         {"sub_unary_tile_int32",                           {"api/compute/eltwise_unary/binop_with_scalar.h", ""}},
         {"tan_tile",                                       {"api/compute/eltwise_unary/trigonometry.h", ""}},
         {"tan_tile_init",                                  {"api/compute/eltwise_unary/trigonometry.h", ""}},
-        {"tanh_tile",                                      {"api/compute/eltwise_unary/trigonometry.h", ""}},
-        {"tanh_tile_init",                                 {"api/compute/eltwise_unary/trigonometry.h", ""}},
+        {"tanh_tile",                                      {"api/compute/compute_kernel_api.h", ""}},
+        {"tanh_tile_init",                                 {"api/compute/compute_kernel_api.h", ""}},
         {"tile_regs_acquire",                              {"api/compute/reg_api.h", ""}},
         {"tile_regs_commit",                               {"api/compute/reg_api.h", ""}},
         {"tile_regs_release",                              {"api/compute/reg_api.h", ""}},
@@ -264,6 +254,10 @@ inline const llvm::StringMap<HeaderRequirement> &getCalleeToHeadersMap() {
         {"experimental::tilize_block",                     {"api/compute/tilize.h", ""}},
         {"experimental::untilize_block",                   {"api/compute/untilize.h", ""}},
         {"experimental::pack_untilize_block",              {"api/compute/pack_untilize.h", ""}},
+
+        // Numeric.
+        {"bfloat16_greater",                               {"api/numeric/bfloat16.h", "api/numeric/bfloat16.h"}},
+        {"float32_greater",                                {"api/numeric/float32.h", "api/numeric/float32.h"}},
 
         // System.
         // These size_t specializations are hard-coded in TTKernelToEmitC.

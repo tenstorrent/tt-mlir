@@ -3025,6 +3025,8 @@ def TTIR_ProdOp : TTIR_ReductionOp<"prod"> {
     Output:
     - `result` (Tensor): The result tensor after applying the reduction.
   }];
+
+  let hasCanonicalizer = 1;
 }
 
 def TTIR_EmbeddingOp : TTIR_NamedOp<"embedding"> {
@@ -3189,6 +3191,58 @@ def TTIR_CumSumOp : TTIR_NamedOp<"cumsum"> {
   let hasFolder = 1;
 }
 
+def TTIR_CumProdOp : TTIR_NamedOp<"cumprod"> {
+  let summary = "Cumulative product operation.";
+  let description = [{
+    The `cumprod` operation computes the cumulative product of elements along a specified dimension of the input tensor.
+
+    For each position in the output tensor, this operation computes the product of all elements in the input tensor
+    along the specified dimension up to and including that position. The shape of the output tensor matches
+    the shape of the input tensor.
+
+    Example:
+    ```mlir
+    // Cumulative product along dimension 0
+    %input = ... : tensor<2x3xf32>
+    %result = ttir.cumprod(%input) {dim = 0 : i64} : (tensor<2x3xf32>) -> tensor<2x3xf32>
+    // Input tensor:
+    // [[2, 3, 4],
+    //  [5, 6, 7]]
+    // Output tensor:
+    // [[2, 3, 4],        // first row remains the same
+    //  [10, 18, 28]]     // each element is the product of the corresponding column up to this point
+
+    // Cumulative product along dimension 1
+    %input = ... : tensor<2x3xf32>
+    %result = ttir.cumprod(%input) {dim = 1 : i64} : (tensor<2x3xf32>) -> tensor<2x3xf32>
+    // Input tensor:
+    // [[2, 3, 4],
+    //  [5, 6, 7]]
+    // Output tensor:
+    // [[2, 6, 24],       // each element is the product of the corresponding row up to this point
+    //  [5, 30, 210]]
+    ```
+
+    Inputs:
+    - `input` (Tensor): The input tensor.
+
+    Attributes:
+    - `dim` (Integer): The dimension along which to compute the cumulative product.
+
+    Output:
+    - `result` (Tensor): The tensor containing the cumulative products.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       I64Attr:$dim);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+
+  let hasFolder = 1;
+}
+
 def TTIR_SoftmaxOp : TTIR_NamedOp<"softmax"> {
     let summary = "Softmax normalization operation.";
     let description = [{
@@ -3235,35 +3289,6 @@ def TTIR_SoftmaxOp : TTIR_NamedOp<"softmax"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
-}
-
-def TTIR_RotaryEmbeddingOp : TTIR_NamedOp<"rotary_embedding"> {
-  let summary = "Rotary position embedding operation.";
-  let description = [{
-    Applies rotary position embedding (RoPE) to the input tensor using
-    precomputed cosine and sine caches.
-
-    Formula:
-      result = x * cos + rotate_half(x) * sin
-      where rotate_half(x) = concat(neg(x[D/2:]), x[:D/2])
-
-    The input tensor must be 4D [batch, heads, seq_len, head_dim].
-    cos_cache and sin_cache must be 4D and broadcastable to the input shape,
-    with the last dimension (head_dim) matching the input exactly.
-
-    Example:
-      %result = "ttir.rotary_embedding"(%input, %cos_cache, %sin_cache)
-        : (tensor<1x32x128x64xbf16>, tensor<1x1x128x64xbf16>,
-           tensor<1x1x128x64xbf16>) -> tensor<1x32x128x64xbf16>
-  }];
-
-  let arguments = (ins AnyRankedTensor:$input,
-                       AnyRankedTensor:$cos_cache,
-                       AnyRankedTensor:$sin_cache);
-
-  let results = (outs AnyRankedTensor:$result);
-
-  let hasVerifier = 1;
 }
 
 def TTIR_SortOp : TTIR_NamedOp<"sort"> {
@@ -6528,6 +6553,131 @@ def TTIR_MoeExpertTokenRemapOp : TTIR_NamedOp<"moe_expert_token_remap"> {
                          I64Attr:$reduction_size);
 
     let results = (outs AnyRankedTensor:$mapping, AnyRankedTensor:$reduced);
+
+    let hasVerifier = 1;
+}
+
+def TTIR_MoeGptOp : TTIR_NamedOp<"moe_gpt"> {
+    let summary = "Fused MoE compute kernel for GPT-OSS models.";
+    let description = [{
+      Fused Mixture-of-Experts compute kernel for GPT-OSS-style models.
+      Performs the full MoE compute pipeline in a single kernel: selective
+      tilize, gate/up projection (w0_w1), SwiGLU activation, all-to-all ring
+      exchange, down projection (w2), and combine. Typically follows
+      all_to_all_dispatch_metadata in the MoE dispatch/compute/combine flow.
+
+      Dimensions:
+        T         = total_tokens across the dispatch ring
+        K         = hidden_size
+        N         = intermediate_size
+        K_sel     = selected experts per token (top-k)
+        E         = experts per device
+        D         = total devices
+        C_dram    = DRAM-bank-aligned compute cores used for weight sharding
+        C_worker  = worker cores in the compute grid
+        L         = layers per weight tensor (typically 1)
+        G         = weight groups per core (gate/up interleaved pairs)
+        TILE_SIZE = compute tile size
+        L1_ALIGN  = L1 alignment
+
+      Input shapes (per device, after mesh sharding):
+      - input_tensor:   [T, K]                              (bf16)
+      - expert_indices: [T, K_sel]                          (uint16)
+      - expert_scores:  [T, K_sel]                          (bf16)
+      - expert_mapping: [1, E*D]                            (uint16;
+          flattened mapping, entry [0, i] = device ID owning expert i)
+      - w0_w1_tensor:   [C_dram, L, E, G, K, 4*TILE_SIZE]   (interleaved gate+up)
+      - w2_tensor:      [C_dram, L, E, 2, N, 4*TILE_SIZE]   (down projection)
+
+      Output shapes:
+      - token_counts:       [1, align(E*sizeof(u32), L1_ALIGN) / sizeof(u32)]                      (uint32)
+      - activation_records: [1, (T+1) * align((2*E+1)*sizeof(u32), L1_ALIGN) / sizeof(u32)]        (uint32)
+      - token_indices:      [E, (T+1) * align(sizeof(u32), L1_ALIGN) / sizeof(u32)]                (uint32)
+      - tilize_out:         [C_worker, 2, TILE_SIZE, K]     (bf16, tiled)
+      - tilize_out_rm:      [C_worker, 2, TILE_SIZE, K]     (bf16, row-major)
+      where align(n, a) = ceil(n/a) * a.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input_tensor,
+                         AnyRankedTensor:$expert_indices,
+                         AnyRankedTensor:$expert_scores,
+                         AnyRankedTensor:$expert_mapping,
+                         AnyRankedTensor:$w0_w1_tensor,
+                         AnyRankedTensor:$w2_tensor,
+                         DefaultValuedAttr<UI32Attr, "4">:$output_height_shard_dim,
+                         DefaultValuedAttr<UI32Attr, "3">:$output_width_shard_dim,
+                         DefaultValuedAttr<UI32Attr, "2880">:$hidden_size,
+                         OptionalAttr<UI32Attr>:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$token_counts,
+                        AnyRankedTensor:$activation_records,
+                        AnyRankedTensor:$token_indices,
+                        AnyRankedTensor:$tilize_out,
+                        AnyRankedTensor:$tilize_out_rm);
+
+    let hasVerifier = 1;
+}
+
+def TTIR_MoeComputeOp : TTIR_NamedOp<"moe_compute", [TTIR_CCL, AttrSizedOperandSegments]> {
+    let summary = "Fused MoE expert compute (selective tilize + experts + combine).";
+    let description = [{
+      Composite operation that performs the MoE expert FFN in a single fused
+      kernel: selective tilize of dispatched tokens, the gate/up matmul (W0/W1)
+      followed by SILU or SwiGLU activation, the down matmul (W2), and an
+      A2A selective-reduce-combine. Maps to
+      `ttnn.experimental.moe_compute` at runtime.
+
+      Takes the raw per-expert weights `w0` / `w1` / `w2` (logical shapes
+      `(L, E, K, N)`, `(L, E, K, N)`, `(L, E, N, K)` with `K = hidden_size`,
+      `N = intermediate_size`) and optional per-expert biases `bias_0` /
+      `bias_1` / `bias_2`.
+
+      Inputs:
+      - `tilize_input_tensor`: dense per-token activations dispatched via
+        all_to_all_dispatch.
+      - `tilize_expert_indices_tensor`: per-token expert indices.
+      - `tilize_expert_scores_tensor`: per-token expert routing scores.
+      - `tilize_expert_mapping_tensor`: global expert-to-device mapping.
+      - `w0` / `w1` / `w2`: raw per-expert gate / up / down weights.
+      - `bias_0` / `bias_1` / `bias_2`: optional per-expert biases.
+
+      Outputs (6, in declaration order):
+        0. `per_expert_total_tokens`     routing metadata: per-expert token counts
+        1. `expert_activation`           routing metadata: per-token activation records
+        2. `expert_to_token`             routing metadata: per-expert token lists
+        3. `tilize_output`               selective-tilize staging buffer
+        4. `matmul_output`               expert-FFN result (final output in compute_only)
+        5. `combine_output`              A2A-combined result (aliases matmul_output
+           in compute_only)
+    }];
+
+    let arguments = (ins AnyRankedTensor:$tilize_input_tensor,
+                         AnyRankedTensor:$tilize_expert_indices_tensor,
+                         AnyRankedTensor:$tilize_expert_scores_tensor,
+                         AnyRankedTensor:$tilize_expert_mapping_tensor,
+                         AnyRankedTensor:$w0,
+                         AnyRankedTensor:$w1,
+                         AnyRankedTensor:$w2,
+                         Optional<AnyRankedTensor>:$bias_0,
+                         Optional<AnyRankedTensor>:$bias_1,
+                         Optional<AnyRankedTensor>:$bias_2,
+                         UI32Attr:$layer_id,
+                         UI32Attr:$output_height_shard_dim,
+                         UI32Attr:$intermediate_size,
+                         DefaultValuedAttr<TTCore_MoEActivationFunctionAttr,
+                             "::mlir::tt::ttcore::MoEActivationFunction::Silu">:$activation_function,
+                         OptionalAttr<UI32Attr>:$bh_ring_size,
+                         DefaultValuedAttr<BoolAttr, "true">:$compute_only,
+
+                         // Full-path-only inputs, unused when compute_only == true.
+                         OptionalAttr<UI32Attr>:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$per_expert_total_tokens,
+                        AnyRankedTensor:$expert_activation,
+                        AnyRankedTensor:$expert_to_token,
+                        AnyRankedTensor:$tilize_output,
+                        AnyRankedTensor:$matmul_output,
+                        AnyRankedTensor:$combine_output);
 
     let hasVerifier = 1;
 }

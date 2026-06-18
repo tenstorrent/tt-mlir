@@ -21,6 +21,65 @@
 
 namespace mlir::tt::ttkernel {
 
+void ComputeKernelHWStartupOp::print(::mlir::OpAsmPrinter &printer) {
+  printer << "(" << getIcb0();
+  if (getIcb1()) {
+    printer << ", " << getIcb1();
+  }
+  printer << ", " << getOcb() << ")";
+  printer.printOptionalAttrDict((*this)->getAttrs());
+  printer << " : ";
+  printer.printFunctionalType(getOperation()->getOperandTypes(),
+                              getOperation()->getResultTypes());
+}
+
+::mlir::ParseResult
+ComputeKernelHWStartupOp::parse(::mlir::OpAsmParser &parser,
+                                ::mlir::OperationState &result) {
+  SmallVector<OpAsmParser::UnresolvedOperand, 3> operands;
+  OpAsmParser::UnresolvedOperand operand;
+
+  if (parser.parseLParen() || parser.parseOperand(operand)) {
+    return failure();
+  }
+  operands.push_back(operand);
+
+  while (succeeded(parser.parseOptionalComma())) {
+    if (parser.parseOperand(operand)) {
+      return failure();
+    }
+    operands.push_back(operand);
+  }
+
+  if (operands.size() != 2 && operands.size() != 3) {
+    return parser.emitError(parser.getNameLoc()) << "expected 2 or 3 operands";
+  }
+
+  if (parser.parseRParen() || parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColon()) {
+    return failure();
+  }
+
+  FunctionType functionType;
+  if (parser.parseType(functionType)) {
+    return failure();
+  }
+
+  ArrayRef<Type> operandTypes = functionType.getInputs();
+  if (operandTypes.size() != operands.size()) {
+    return parser.emitError(parser.getNameLoc())
+           << "expected " << operands.size() << " operand types";
+  }
+
+  result.addTypes(functionType.getResults());
+  if (parser.resolveOperands(operands, operandTypes, parser.getNameLoc(),
+                             result.operands)) {
+    return failure();
+  }
+
+  return success();
+}
+
 static bool insideEnqueueProgramOpRegion(mlir::Operation *op) {
   mlir::Operation *parentOp = op->getParentOp();
 
@@ -305,19 +364,6 @@ static bool isSFPUReduceDataFormatSupported(ttcore::DataType dt) {
   }
   return success();
 }
-::mlir::LogicalResult ResetNocTridBarrierCounterOp::verify() {
-  Value noc = getNoc();
-  if (noc) {
-    auto nocValue = getConstantIntValue(noc);
-    constexpr int32_t kNumNocs =
-        TTKernelTridNocOpTrait<ResetNocTridBarrierCounterOp>::kNumNocs;
-    if (nocValue && (*nocValue < 0 || *nocValue >= kNumNocs)) {
-      return emitOpError() << "noc must be in [0, " << (kNumNocs - 1) << "].";
-    }
-  }
-  return success();
-}
-
 static ::mlir::LogicalResult verifyNocAsyncAddressMode(Operation *op,
                                                        OperandRange core,
                                                        OperandRange bankId) {
@@ -339,6 +385,21 @@ static ::mlir::LogicalResult verifyNocAsyncAddressMode(Operation *op,
 }
 
 ::mlir::LogicalResult NocAsyncWriteOp::verify() {
+  return verifyNocAsyncAddressMode(getOperation(), getDstCoreXY(),
+                                   getDstBankId());
+}
+
+::mlir::LogicalResult NocAsyncReadOnePacketSetStateOp::verify() {
+  return verifyNocAsyncAddressMode(getOperation(), getSrcCoreXY(),
+                                   getSrcBankId());
+}
+
+::mlir::LogicalResult NocAsyncReadOnePacketWithStateOp::verify() {
+  return verifyNocAsyncAddressMode(getOperation(), getSrcCoreXY(),
+                                   getSrcBankId());
+}
+
+::mlir::LogicalResult NocAsyncWriteOnePacketWithTridOp::verify() {
   return verifyNocAsyncAddressMode(getOperation(), getDstCoreXY(),
                                    getDstBankId());
 }
@@ -536,8 +597,7 @@ void NocAsyncReadBarrierOp::getCanonicalizationPatterns(
       }
       if (mlir::isa<NocAsyncReadOp, NocAsyncReadTileOp,
                     NocAsyncReadOnePacketSetStateOp,
-                    NocAsyncReadOnePacketWithStateOp, NocAsyncReadSetTridOp,
-                    NocAsyncReadOnePacketWithStateWithTridOp>(it) ||
+                    NocAsyncReadOnePacketWithStateOp>(it) ||
           it->getNumRegions() > 0) {
         break;
       }
@@ -560,8 +620,8 @@ void NocAsyncWriteBarrierOp::getCanonicalizationPatterns(
         }
       }
       if (mlir::isa<NocAsyncWriteOp, NocAsyncWriteTileOp,
-                    NocAsyncWriteSetTridOp, NocAsyncWriteOnePacketWithTridOp,
-                    NocAsyncWriteMulticastOp, NocAsyncWriteMulticastOnePacketOp,
+                    NocAsyncWriteOnePacketWithTridOp, NocAsyncWriteMulticastOp,
+                    NocAsyncWriteMulticastOnePacketOp,
                     NocAsyncWriteMulticastLoopbackSrcOp, NocInlineDwWriteOp>(
               it) ||
           it->getNumRegions() > 0) {

@@ -44,6 +44,12 @@ def TTNNWorkarounds : Pass<"ttnn-workaround", "::mlir::ModuleOp"> {
              "ttnn-enable-decomposition-workaround-pass",
              "bool", /*default=*/"true",
              "TTNN Decompsition Workarounds Pass">,
+      Option<"allReduceWorkaroundEnabled",
+             "ttnn-enable-all-reduce-workaround",
+             "bool", /*default=*/"true",
+             "Enable the all_reduce decomposition workaround which breaks "
+             "all_reduce down into reduce_scatter + all_gather (or "
+             "all_gather + local reduce).">,
       Option<"optimizationLevel",
              "ttnn-optimization-level",
              "int", /*default=*/"0",
@@ -312,6 +318,33 @@ def TTNNPrepareConv2dWeightsAndBias : Pass<"ttnn-prepare-conv2d-weights-and-bias
   }];
 }
 
+def TTNNDeduceMoEComputeLayouts : Pass<"ttnn-deduce-moe-compute-layouts", "::mlir::ModuleOp"> {
+  let summary = "Refine result layouts of the moe_compute weight-prep and compute ops using OpModel.";
+  let description = [{
+    The prepare_moe_compute_*_weights ops produce a 6-D packed tensor with a
+    bank-permuted DRAM HEIGHT_SHARDED memory config, and ttnn.moe_compute
+    produces height-sharded outputs on the device compute grid. The exact
+    shapes and layouts depend on the target device and the hidden/intermediate
+    sizes, so the TTIR caller cannot know them up front. This pass walks those
+    ops emerging from TTIR->TTNN conversion and replaces their (placeholder)
+    result layouts with the OpModel-derived specs obtained via graph-captured
+    query of the corresponding tt-metal invocation.
+    Requires -DTTMLIR_ENABLE_OPMODEL=ON.
+  }];
+}
+
+def TTNNPrepareConv3dWeights : Pass<"ttnn-prepare-conv3d-weights", "::mlir::ModuleOp"> {
+  let summary = "Insert PrepareConv3dWeightsOp before every Conv3dOp.";
+  let description = [{
+    TTIRToTTNN lowers ttir.conv3d to ttnn.conv3d with the raw 5D weight still attached.
+    This pass walks every Conv3dOp, derives c_in_block from the optimizer's
+    Conv3dConfigAttr (or falls back to TILE_WIDTH = 32), and inserts a
+    PrepareConv3dWeightsOp that reshapes the raw 5D weight into the 2D layout the
+    tt-metal runtime expects. The Conv3dOp's weight operand is then rewired to the
+    prepared result. Mirrors TTNNPrepareConv2dWeightsAndBias.
+  }];
+}
+
 def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
 {
   let summary = "TTNN fusing pass.";
@@ -482,6 +515,38 @@ def TTNNWeightDtypeConversion: Pass<"ttnn-weight-dtype-conversion", "::mlir::Mod
   ];
 }
 
+def TTNNCCLActivationDtypeLowering: Pass<"ttnn-ccl-activation-dtype-lowering", "::mlir::ModuleOp"> {
+  let summary = "Lower activation precision to bfp_bf8 around CCL ops.";
+  let description = [{
+    This pass is part of the Mixed Precision effort in compiler.
+    This pass reduces ethernet traffic for collective communication (CCL) ops
+    in large transformer models by lowering activation precision from bf16 to
+    bfp_bf8 across the CCL boundary. Producer matmul ops have their result
+    tensor's layout encoding rewritten to bfp_bf8 so no explicit ttnn.typecast is
+    required at the producer side. On the consumer side, some patterns allow for
+    implicit casting back to bf16 (e.g. residual add). Currently we added only patterns
+    that don't require explicit casts on both sides.
+
+    The pass implements two strict per-pattern matchers, each modeled after a
+    Llama-style sub-graph:
+      - Projection matmul (attention output / MLP down) -> [view / CCL]* ->
+        residual add. The residual add's result encoding stays bf16 (it was
+        constructed from the bf16 residual operand), so TTNN restores bf16
+        at the block output by combining the bfp_bf8 CCL output with the
+        bf16 residual — no exit-side cast needed.
+      - MLP up / gate matmuls -> [view / CCL]* -> silu / multiply. The
+        multiply's result encoding is rewritten to bfp_bf8 so the downstream
+        FF2 matmul receives bfp_bf8 input; the FF2 residual add then
+        restores bf16 via the projection-residual matcher when FF2 itself is
+        lowered.
+
+    A matmul only matches a pattern when the entire downstream chain shape
+    matches the template, so the pass under-triggers by design. The idea is
+    to add new patterns as we get more multichip models running and fuse patterns
+    to more general ones as we get more cases.
+  }];
+}
+
 def TTNNKVCacheDtypeConversion: Pass<"ttnn-kv-cache-dtype-conversion", "::mlir::ModuleOp"> {
   let summary = "Convert KV cache tensors to a lower precision dtype.";
   let description = [{
@@ -560,19 +625,22 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
 def TTNNSetComputeKernelConfig: Pass<"ttnn-set-compute-kernel-config", "::mlir::ModuleOp"> {
   let summary = "Set default ComputeKernelConfig attributes for operations.";
   let description = [{
-    This pass sets default ComputeKernelConfig attributes for TTNN operations that support
-    the ComputeKernelConfigOpInterface. It only sets parameter values that are not already
-    defined, preserving any existing configuration decisions made by earlier compiler passes.
+    This pass sets ComputeKernelConfig attributes for TTNN operations that implement
+    ComputeKernelConfigOpInterface.
 
-    Behaviour:
-    - If an operation has no compute_config attribute, a new compute config is created with override values
-    - If an operation has a compute_config but a specific parameter (e.g., math_fidelity) is
-      unset (std::nullopt), the override value is applied for that parameter only
-    - If a parameter is already set in the compute_config, it is not overridden, preserving
-      the existing compiler decision
+    Pipeline behaviour:
+    - If an operation has no compute_config attribute, a new config is created and pipeline
+      option values are applied.
+    - If a parameter is already set on the operation's compute_config, pipeline options do
+      not override it.
+    - If a parameter is unset (std::nullopt for math_fidelity, false for bool options),
+      the corresponding pipeline option is applied.
 
-    This allows setting default values for ComputeKernelConfig parameters while respecting
-    any explicit configuration choices made by prior passes.
+    Large-inner-dimension bf16 matmul/linear correctness fix (tenstorrent/tt-metal#46101):
+    For `ttnn.matmul` and `ttnn.linear` with inner dimension > 50000 and bf16 output,
+    always sets `fp32_dest_acc_en = true` and `packer_l1_acc = true`, even when those
+    parameters are already set to false. This rule runs after pipeline option defaults
+    and takes precedence over explicit values on the op.
 
     Example usage:
     ttmlir-opt --ttnn-set-compute-kernel-config="math-fidelity=hifi4" input.mlir
@@ -665,16 +733,44 @@ def TTNNResolveComposites : Pass<"ttnn-resolve-composites", "::mlir::ModuleOp"> 
   let summary = "Resolve composite ops into typed ops or inline decompositions.";
   let description = [{
     This pass resolves `ttcore.composite` ops by attempting to replace each one
-    with a dedicated typed TTNN op (e.g. `ttnn.topk_router_gpt`). If the typed
-    op fails verification or OpModel validation, the decomposition function body
-    is inlined as a fallback.
+    with a dedicated typed TTNN op (e.g. `ttnn.rotary_embedding`).
 
-    Typed op promotion requires OpModel validation. If OpModel is not available
-    all composites are unconditionally decomposed into their primitive equivalents.
+    Resolution mode is controlled by the `composite-resolution` option:
+
+    - `inline` (default): All composites are unconditionally inlined (decomposed
+      into primitives). This is the safe default — downstream TTNN fusing
+      patterns can still create typed ops from the inlined primitives.
+
+    - `validate`: The typed op is validated via OpModel before promotion. If
+      validation fails, the decomposition function body is inlined as a
+      fallback. Requires TTMLIR_ENABLE_OPMODEL.
+
+    - `force-promote`: Unconditionally promote registered composites to typed
+      ops without validation. Intended for testing only.
 
     After resolution, decomposition functions that are no longer referenced are
     erased from the module.
   }];
+
+  let options = [
+    Option<"compositeResolution",
+            "composite-resolution",
+            "CompositeResolution",
+            /*default=*/"CompositeResolution::Auto",
+            "How to resolve composites.",
+            [{::llvm::cl::values(
+              clEnumValN(CompositeResolution::Auto, "auto",
+                "Pipeline decides: validate when optimizer+OpModel available, "
+                "else inline (default)."),
+              clEnumValN(CompositeResolution::Inline, "inline",
+                "Always inline decomposition; never upgraded by pipeline."),
+              clEnumValN(CompositeResolution::Validate, "validate",
+                "Promote if OpModel validates, else inline "
+                "(requires TTMLIR_ENABLE_OPMODEL)."),
+              clEnumValN(CompositeResolution::ForcePromote, "force-promote",
+                "Unconditionally promote (testing only).")
+            )}]>,
+  ];
 }
 
 def TTNNCollaspeD2M : Pass<"ttnn-collaspe-d2m", "::mlir::ModuleOp"> {

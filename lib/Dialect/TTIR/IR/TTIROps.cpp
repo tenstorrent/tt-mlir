@@ -5356,52 +5356,6 @@ mlir::OpFoldResult mlir::tt::ttir::RepeatInterleaveOp::fold(FoldAdaptor fold) {
 }
 
 //===----------------------------------------------------------------------===//
-// RotaryEmbeddingOp
-//===----------------------------------------------------------------------===//
-
-::mlir::LogicalResult mlir::tt::ttir::RotaryEmbeddingOp::verify() {
-  auto inputType = mlir::cast<RankedTensorType>(getInput().getType());
-  auto cosType = mlir::cast<RankedTensorType>(getCosCache().getType());
-  auto sinType = mlir::cast<RankedTensorType>(getSinCache().getType());
-  auto resultType = mlir::cast<RankedTensorType>(getResult().getType());
-
-  // All tensors must be rank 4.
-  if (inputType.getRank() != 4) {
-    return emitOpError("input tensor must be rank 4, got rank ")
-           << inputType.getRank();
-  }
-  if (cosType.getRank() != 4) {
-    return emitOpError("cos_cache tensor must be rank 4, got rank ")
-           << cosType.getRank();
-  }
-  if (sinType.getRank() != 4) {
-    return emitOpError("sin_cache tensor must be rank 4, got rank ")
-           << sinType.getRank();
-  }
-
-  // cos and sin must have the same shape.
-  if (cosType.getShape() != sinType.getShape()) {
-    return emitOpError("cos_cache and sin_cache must have the same shape, got ")
-           << cosType.getShape() << " and " << sinType.getShape();
-  }
-
-  // Last dimension (head_dim) must match between input and cos/sin.
-  auto inputShape = inputType.getShape();
-  auto cosShape = cosType.getShape();
-  if (inputShape[3] != cosShape[3]) {
-    return emitOpError("head_dim mismatch: input has ")
-           << inputShape[3] << " but cos/sin caches have " << cosShape[3];
-  }
-
-  // Result shape must match input shape.
-  if (inputType.getShape() != resultType.getShape()) {
-    return emitOpError("result shape must match input shape");
-  }
-
-  return success();
-}
-
-//===----------------------------------------------------------------------===//
 // SortOp
 //===----------------------------------------------------------------------===//
 
@@ -5674,6 +5628,12 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
            << "Input tensor and index tensor must have the same rank. "
            << "Got input rank = " << inputRank
            << ", index rank = " << indexRank;
+  }
+
+  if (inputRank < 1) {
+    return emitOpError()
+           << "Input tensor and index tensor must have rank >= 1. "
+           << "Got rank = " << inputRank;
   }
 
   int32_t dim = getDim();
@@ -6012,14 +5972,33 @@ void mlir::tt::ttir::UpdateCacheOp::getCanonicalizationPatterns(
     if (batchIdxTensorType.getShape().size() != 1) {
       return emitOpError("Batch index tensor must be a 1D tensor");
     }
-    if (batchIdxTensorType.getShape()[0] != 1) {
+    // batch_idx_tensor must carry one batch_idx per input batch row. The
+    // legacy single-batch case (inputShape[0] == 1, tensor.shape == [1])
+    // is covered by the same rule.
+    int64_t batchIdxLen = batchIdxTensorType.getShape()[0];
+    if (!mlir::ShapedType::isDynamic(batchIdxLen) &&
+        !mlir::ShapedType::isDynamic(inputShape[0]) &&
+        batchIdxLen != inputShape[0]) {
       return emitOpError(
-          "Batch index tensor must have dim 0 be equal to 1, got " +
-          std::to_string(batchIdxTensorType.getShape()[0]));
+          "Batch index tensor must have dim 0 equal to input batch (" +
+          std::to_string(inputShape[0]) + "), got " +
+          std::to_string(batchIdxLen));
     }
     if (!batchIdxTensorType.getElementType().isInteger()) {
       return emitOpError("Batch index tensor must be an integer type");
     }
+  } else if (mlir::ShapedType::isDynamic(inputShape[0]) || inputShape[0] != 1) {
+    // Without a batch_idx_tensor the TTIR -> TTNN lowering hard-codes
+    // batch_idx = 0 in the tt-metal call, which only addresses
+    // page-table row 0. Require the input batch to be statically 1
+    // here; a dynamic batch dim could resolve to >1 after shape
+    // inference and produce undefined writes at runtime.
+    return emitOpError(
+        "Input batch must be statically 1 when no batch_idx_tensor is "
+        "provided, got " +
+        (mlir::ShapedType::isDynamic(inputShape[0])
+             ? std::string("dynamic")
+             : std::to_string(inputShape[0])));
   }
 
   int64_t numCacheHeads = cacheShape[1];
@@ -6524,6 +6503,30 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
                         getDimArg(), getKeepDim(), getType().getShape());
 }
 
+// ProdOp canonicalization: prod(bool) -> min(bool).
+//
+// For inputs restricted to {0, 1} (e.g. the result of a comparison/logical op),
+// the product reduction is equivalent to a logical AND, which is exactly a min
+// reduction. We rewrite to MinOp because tt-metal's ttnn::prod reduces along a
+// dimension by first permuting that dimension, materializing a full-size copy
+// of the input (which OOMs for large tensors such as attention masks). The
+// generic min reduction reduces the last dimension in place and avoids that
+// extra allocation, while producing identical results for boolean inputs.
+void mlir::tt::ttir::ProdOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+  patterns.add(+[](mlir::tt::ttir::ProdOp op, mlir::PatternRewriter &rewriter) {
+    if (!isBooleanValued(op.getInput())) {
+      return mlir::failure();
+    }
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::MinOp>(
+        op, op.getResult().getType(), op.getInput(), op.getKeepDim(),
+        op.getDimArgAttr());
+    return mlir::success();
+  });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
+}
+
 //===----------------------------------------------------------------------===//
 // ReduceAndOp
 //===----------------------------------------------------------------------===//
@@ -6697,6 +6700,35 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 
 // CumSumOp folding
 ::mlir::OpFoldResult mlir::tt::ttir::CumSumOp::fold(FoldAdaptor adaptor) {
+  // Normalize `dim` to be in range [0, rank).
+  int64_t dim = getDim();
+  int64_t rank = getInput().getType().getRank();
+  if (dim < 0) {
+    setDim(dim + rank);
+    return getResult();
+  }
+  return {};
+}
+
+//===----------------------------------------------------------------------===//
+// CumProdOp
+//===----------------------------------------------------------------------===//
+
+// CumProdOp verification
+::mlir::LogicalResult mlir::tt::ttir::CumProdOp::verify() {
+  int64_t dim = getDim();
+  int64_t inputRank = getInput().getType().getRank();
+  if (dim < -inputRank || dim >= inputRank) {
+    return emitOpError() << "specified dimension should be between "
+                         << -inputRank << " and " << (inputRank - 1)
+                         << ", but got: " << dim;
+  }
+
+  return success();
+}
+
+// CumProdOp folding
+::mlir::OpFoldResult mlir::tt::ttir::CumProdOp::fold(FoldAdaptor adaptor) {
   // Normalize `dim` to be in range [0, rank).
   int64_t dim = getDim();
   int64_t rank = getInput().getType().getRank();
@@ -7549,9 +7581,10 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
       return emitOpError("Attention mask dim 1 must be 1 (broadcast) or match "
                          "query num heads");
     }
-    if (attentionMaskType.getShape()[2] != seqLen) {
-      return emitOpError(
-          "Attention mask at dim 2 must match query sequence length");
+    if (attentionMaskType.getShape()[2] != 1 &&
+        attentionMaskType.getShape()[2] != seqLen) {
+      return emitOpError("Attention mask dim 2 must be 1 (broadcast) or match "
+                         "query sequence length");
     }
     if (attentionMaskType.getShape()[3] != maxSeqLen) {
       return emitOpError("Attention mask at dim 3 must match key/value "
@@ -7948,6 +7981,112 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
 
   if (getReductionSize() <= 0) {
     return emitOpError("reduction_size must be positive");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// MoeComputeOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::MoeComputeOp::verify() {
+  if (getIntermediateSize() == 0 || getIntermediateSize() % 32 != 0) {
+    return emitOpError("intermediate_size must be a positive multiple of 32");
+  }
+  // Per-expert biases fuse into the prepacked weights, so they are all present
+  // together or all absent.
+  const bool anyBias = getBias_0() || getBias_1() || getBias_2();
+  if (anyBias && (!getBias_0() || !getBias_1() || !getBias_2())) {
+    return emitOpError(
+        "bias_0, bias_1, and bias_2 must be all present or all absent");
+  }
+  // The tt-metal packers consume biases in PyTorch (L, E, *) format, so the
+  // weight-prep wrapper forwards them verbatim — require that exact shape here
+  // rather than reshaping at runtime. w0 is (L, E, K=hidden, N=intermediate).
+  if (anyBias) {
+    llvm::ArrayRef<int64_t> w0Shape =
+        mlir::cast<RankedTensorType>(getW0().getType()).getShape();
+    if (w0Shape.size() != 4) {
+      return emitOpError("w0 must have rank 4 (L, E, hidden, intermediate)");
+    }
+    int64_t L = w0Shape[0], E = w0Shape[1], hidden = w0Shape[2],
+            intermediate = w0Shape[3];
+    auto checkBias = [&](mlir::Value bias, int64_t lastDim,
+                         llvm::StringRef name) -> ::mlir::LogicalResult {
+      llvm::ArrayRef<int64_t> shape =
+          mlir::cast<RankedTensorType>(bias.getType()).getShape();
+      if (shape != llvm::ArrayRef<int64_t>{L, E, lastDim}) {
+        return emitOpError() << name << " must have shape (" << L << ", " << E
+                             << ", " << lastDim << ")";
+      }
+      return success();
+    };
+    if (failed(checkBias(getBias_0(), intermediate, "bias_0")) ||
+        failed(checkBias(getBias_1(), intermediate, "bias_1")) ||
+        failed(checkBias(getBias_2(), hidden, "bias_2"))) {
+      return failure();
+    }
+  }
+  if (getOutputHeightShardDim() == 0) {
+    return emitOpError("output_height_shard_dim must be positive");
+  }
+  // Only the compute_only path is supported: the A2A selective-reduce-combine
+  // (and all multi-device routing it implies) is intentionally not wired, so
+  // the full-path-only input (cluster_axis) must be unset. compute_only must be
+  // set.
+  if (!getComputeOnly()) {
+    return emitOpError("only the compute_only path is supported; compute_only "
+                       "must be set");
+  }
+  if (getClusterAxis()) {
+    return emitOpError("compute_only moe_compute must not set cluster_axis");
+  }
+  if (getBhRingSize() && *getBhRingSize() != 8 && *getBhRingSize() != 12 &&
+      *getBhRingSize() != 16) {
+    return emitOpError("bh_ring_size must be 8, 12, or 16");
+  }
+
+  ::mlir::RankedTensorType inputType = getTilizeInputTensor().getType();
+  if (inputType.getRank() < 2) {
+    return emitOpError("tilize_input_tensor must have rank >= 2");
+  }
+  int64_t hiddenSize = inputType.getShape().back();
+  if (hiddenSize <= 0 || hiddenSize % 32 != 0) {
+    return emitOpError(
+        "tilize_input_tensor last dim (hidden_size) must be a positive "
+        "multiple of 32");
+  }
+
+  // w0 is (L, E, K=hidden, N=intermediate); its K must match the activation
+  // hidden_size, otherwise the gate/up matmul contracts mismatched dims.
+  llvm::ArrayRef<int64_t> w0Shape =
+      mlir::cast<RankedTensorType>(getW0().getType()).getShape();
+  if (w0Shape.size() != 4) {
+    return emitOpError("w0 must have rank 4 (L, E, hidden, intermediate)");
+  }
+  if (w0Shape[2] != hiddenSize) {
+    return emitOpError() << "w0 hidden dim (" << w0Shape[2]
+                         << ") must match tilize_input_tensor hidden_size ("
+                         << hiddenSize << ")";
+  }
+
+  // The W0/W1 and W2 matmuls shard their contraction (intermediate_size) and
+  // the W2 output (hidden_size) across the matmul ring (bh_ring_size cores on
+  // BH, default 12; WH is always 12). If either dim has fewer than ring-size
+  // tiles, the per-core shard distribution degenerates and leaves output tiles
+  // uncomputed, so require at least one tile per ring core in both dims.
+  int64_t ringSize = getBhRingSize() ? *getBhRingSize() : 12;
+  int64_t minSize = ringSize * 32;
+  if (hiddenSize < minSize) {
+    return emitOpError() << "hidden_size (" << hiddenSize
+                         << ") must be at least bh_ring_size*32 = " << minSize
+                         << " (one tile per matmul-ring core)";
+  }
+  if (static_cast<int64_t>(getIntermediateSize()) < minSize) {
+    return emitOpError() << "intermediate_size (" << getIntermediateSize()
+                         << ") must be at least bh_ring_size*32 = " << minSize
+                         << " (one tile per matmul-ring core)";
   }
 
   return success();
@@ -8389,6 +8528,44 @@ static bool anyZero(mlir::ElementsAttr elems) {
   auto subtract = std::minus<>();
   return constantFoldEltwiseBinary(*this, adaptor.getLhs(), adaptor.getRhs(),
                                    subtract, subtract);
+}
+
+//===----------------------------------------------------------------------===//
+// MoeGptOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult MoeGptOp::verify() {
+  ::mlir::RankedTensorType w0w1Type = getW0W1Tensor().getType();
+  ::mlir::RankedTensorType w2Type = getW2Tensor().getType();
+
+  if (w0w1Type.getRank() != 6) {
+    return emitOpError("w0_w1_tensor must be a rank 6 tensor");
+  }
+  if (w2Type.getRank() != 6) {
+    return emitOpError("w2_tensor must be a rank 6 tensor");
+  }
+  if (w0w1Type.getDimSize(5) != 128) {
+    return emitOpError("w0_w1_tensor dim[5] must be 128 (4*TILE_SIZE)");
+  }
+  if (w2Type.getDimSize(5) != 128) {
+    return emitOpError("w2_tensor dim[5] must be 128 (4*TILE_SIZE)");
+  }
+  if (w0w1Type.getDimSize(0) != w2Type.getDimSize(0)) {
+    return emitOpError(
+        "w0_w1_tensor and w2_tensor must have same dim[0] (num_cores)");
+  }
+  if (w0w1Type.getDimSize(2) != w2Type.getDimSize(2)) {
+    return emitOpError("w0_w1_tensor and w2_tensor must have same dim[2] "
+                       "(experts_per_device)");
+  }
+  if (getExpertIndices().getType().getRank() < 2) {
+    return emitOpError("expert_indices must have rank >= 2");
+  }
+  if (getExpertScores().getType().getRank() < 2) {
+    return emitOpError("expert_scores must have rank >= 2");
+  }
+
+  return success();
 }
 
 } // namespace mlir::tt::ttir

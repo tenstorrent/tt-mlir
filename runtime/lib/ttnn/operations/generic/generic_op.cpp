@@ -41,7 +41,8 @@ static ::tt::tt_metal::SemaphoreDescriptor createSemaphoreDescriptor(
       .buffer_index = bufferIndex,
       .data_format = dataFormat,
       .page_size = pageSize,
-      .tile = std::nullopt};
+      .tile = std::nullopt,
+      .face_geometry = std::nullopt};
   return cbFormatDescriptor;
 }
 

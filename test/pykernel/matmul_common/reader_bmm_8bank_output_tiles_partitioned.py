@@ -38,16 +38,11 @@ def reader_bmm_8bank_output_tiles_partitioned(
     num_output_tiles = get_arg_val(int, 10)
     MtNt = get_arg_val(int, 11)
 
-    src0_is_dram = get_compile_time_arg_val(int, 0) == 1
-    src1_is_dram = get_compile_time_arg_val(int, 1) == 1
-
     itileA: int = output_tile_start_id  # should be: output_tile_start_id / Nt * Kt
 
     onetile = 1
     in0_tile_bytes = get_tile_size(cb_id_in0)
-    in0_data_format = get_dataformat(cb_id_in0)
     in1_tile_bytes = get_tile_size(cb_id_in1)
-    in1_data_format = get_dataformat(cb_id_in1)
 
     outbatch: int = (
         output_tile_start_id * MtNt
@@ -57,12 +52,10 @@ def reader_bmm_8bank_output_tiles_partitioned(
     )  # should be: output_tile_start_id % Nt
     itileB: int = itileB_batch + 0
 
-    s0 = get_interleaved_addr_gen_fast(
-        src0_is_dram, src0_addr, in0_tile_bytes, in0_data_format
-    )
-    s1 = get_interleaved_addr_gen_fast(
-        src1_is_dram, src1_addr, in1_tile_bytes, in1_data_format
-    )
+    tensor_accessor_args = TensorAccessorArgs(cta_base=2, crta_base=0)
+    s0 = TensorAccessor(tensor_accessor_args, src0_addr, in0_tile_bytes)
+    tensor_accessor_args = TensorAccessorArgs(cta_base=3, crta_base=0)
+    s1 = TensorAccessor(tensor_accessor_args, src1_addr, in1_tile_bytes)
 
     for n in range(0, num_output_tiles, 1):
         for kt in range(0, Kt, 1):

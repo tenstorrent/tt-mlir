@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/FunctionTypes.h"
 
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
@@ -102,24 +103,29 @@ materializeCoreCoordinateOperandsInPhysicalSpace(GenericOp generic,
   });
 }
 
-static int32_t resolveDmProcessorIndex(ThreadAttr thread,
-                                       ttcore::ChipDescAttr chipDesc,
-                                       int &unassignedDmProcessorCounter) {
-  int32_t processorIdx = thread.getProcessorIndex();
+static int32_t resolveDmCoreIndex(ThreadAttr thread,
+                                  ttcore::ChipDescAttr chipDesc,
+                                  int &unassignedDmCoreCounter) {
+  int32_t dmCoreIndex = thread.getDmCoreIndex();
   // Handle unassigned DM core.
-  if (thread.getThreadType() == ThreadType::Datamovement && processorIdx < 0) {
+  if (thread.getThreadType() == ThreadType::Datamovement && dmCoreIndex < 0) {
     const auto arch = chipDesc.getArch().getValue();
     const auto nDmCores = chipDesc.getNumDatamovementThreads();
     if (arch == ttcore::Arch::Quasar) {
       // For Quasar, the downstream passes will force assign NoC0.
-      processorIdx = unassignedDmProcessorCounter++ % nDmCores;
+      dmCoreIndex = unassignedDmCoreCounter++ % nDmCores;
     } else {
       // For WH & BH, alternate between Core1-NoC0 and Core0-NoC1.
-      const int32_t nocIdx = unassignedDmProcessorCounter++ % nDmCores;
-      processorIdx = 1 - nocIdx;
+      const int32_t nocIdx = unassignedDmCoreCounter++ % nDmCores;
+      dmCoreIndex = 1 - nocIdx;
+      // Make sure this is the inverse of ttcore::getDmCoreDefaultNoc.
+      TT_assertv(static_cast<int32_t>(
+                     ttcore::getDmCoreDefaultNoc(arch, dmCoreIndex)) == nocIdx,
+                 "Fallback DM-core assignment disagrees with "
+                 "ttcore::getDmCoreDefaultNoc.");
     }
   }
-  return processorIdx;
+  return dmCoreIndex;
 }
 
 static void materializeCapturedConstants(func::FuncOp func) {
@@ -166,22 +172,22 @@ public:
       SmallVector<Attribute> threads;
       auto origThreads = generic.getThreadsAttr().getValue();
       const auto chipDesc = ttcore::getOpChipDescAttr(generic);
-      int unassignedDmProcessorCounter = 0;
+      int unassignedDmCoreCounter = 0;
       for (Region &region : generic.getRegions()) {
         builder.setInsertionPoint(moduleOp.getBody(),
                                   moduleOp.getBody()->end());
         auto origThreadAttr =
             mlir::cast<ThreadAttr>(origThreads[region.getRegionNumber()]);
         ThreadType threadType = origThreadAttr.getThreadType();
-        const int32_t processorIdx = resolveDmProcessorIndex(
-            origThreadAttr, chipDesc, unassignedDmProcessorCounter);
+        const int32_t dmCoreIndex = resolveDmCoreIndex(origThreadAttr, chipDesc,
+                                                       unassignedDmCoreCounter);
         std::string symbolName =
             stringifyEnum(threadType).str() + "_kernel" + Twine(unique++).str();
         auto threadAttrWithSym = builder.getAttr<ThreadAttr>(
             threadType, builder.getAttr<SymbolRefAttr>(symbolName),
-            processorIdx);
+            dmCoreIndex);
         auto threadAttrWithoutSym =
-            builder.getAttr<ThreadAttr>(threadType, nullptr, processorIdx);
+            builder.getAttr<ThreadAttr>(threadType, nullptr, dmCoreIndex);
         Location loc = region.getNumArguments() > 0
                            ? region.getArgument(0).getLoc()
                            : generic.getLoc();

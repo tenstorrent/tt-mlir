@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTCore/Utils/PopulateArgumentTypes.h"
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTNN/Utils/BFPDtypeParser.h"
+#include "ttmlir/Dialect/TTNN/Utils/CompositeResolution.h"
 #include "ttmlir/Dialect/TTNN/Utils/MathFidelityParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
@@ -165,6 +166,20 @@ struct TTIRToTTNNCommonPipelineOptions
           llvm::cl::desc("Override Conv2d configuration for specific ops."),
           llvm::cl::init(llvm::StringMap<Conv2dConfigOverrideParams>())};
 
+  // Override Conv3d block sizes / weights_dtype per op (matched by NameLoc).
+  // Grammar mirrors override-conv2d-config:
+  //   "loc1=t_out_block#3:h_out_block#2:c_in_block#128,loc2=weights_dtype#bf16"
+  //
+  // Recognized parameters:
+  //   weights_dtype, t_out_block, w_out_block, h_out_block, c_out_block,
+  //   c_in_block
+  Option<llvm::StringMap<Conv3dConfigOverrideParams>,
+         Conv3dConfigOverrideParser>
+      overrideConv3dConfig{
+          *this, OptionNames::overrideConv3dConfig,
+          llvm::cl::desc("Override Conv3d configuration for specific ops."),
+          llvm::cl::init(llvm::StringMap<Conv3dConfigOverrideParams>())};
+
   // Enable memory layout analysis for performant tensor layouts (sharding).
   // If not explicitly set, determined by optimization_level.
   mutable Option<bool> memoryLayoutAnalysisEnabled{
@@ -277,9 +292,32 @@ struct TTIRToTTNNCommonPipelineOptions
       llvm::cl::desc("Enable decomposition workaround pass."),
       llvm::cl::init(true)};
 
+  Option<bool> allReduceWorkaroundEnabled{
+      *this, "enable-all-reduce-workaround",
+      llvm::cl::desc("Enable the all_reduce decomposition workaround which "
+                     "breaks all_reduce down into reduce_scatter + all_gather "
+                     "(or all_gather + local reduce)."),
+      llvm::cl::init(true)};
+
   Option<bool> ttnnDecompositionEnabled{
       *this, "enable-ttnn-decomposition-pass",
       llvm::cl::desc("Enable TTNN decomposition pass."), llvm::cl::init(true)};
+
+  Option<ttnn::CompositeResolution> compositeResolution{
+      *this, "composite-resolution",
+      llvm::cl::desc("How to resolve composites."),
+      llvm::cl::values(
+          clEnumValN(ttnn::CompositeResolution::Auto, "auto",
+                     "Pipeline decides: validate when optimizer+OpModel "
+                     "available, else inline (default)."),
+          clEnumValN(
+              ttnn::CompositeResolution::Inline, "inline",
+              "Always inline decomposition; never upgraded by pipeline."),
+          clEnumValN(ttnn::CompositeResolution::Validate, "validate",
+                     "Promote if OpModel validates, else inline."),
+          clEnumValN(ttnn::CompositeResolution::ForcePromote, "force-promote",
+                     "Unconditionally promote (testing only).")),
+      llvm::cl::init(ttnn::CompositeResolution::Auto)};
 
   Option<bool> implicitBroadcastFoldingEnabled{
       *this, "enable-implicit-broadcast-folding-pass",
@@ -409,6 +447,15 @@ struct TTIRToTTNNCommonPipelineOptions
           clEnumValN(BFPDtype::BFP_BFloat8, "bfp_bf8", "BFP BFloat8 format"),
           clEnumValN(BFPDtype::BFP_BFloat4, "bfp_bf4", "BFP BFloat4 format")),
       llvm::cl::init(BFPDtype::None)};
+
+  Option<bool> enableActivationDtypeLowering{
+      *this, "enable-activation-dtype-lowering",
+      llvm::cl::desc(
+          "Lower activation precision to bfp_bf8 across CCL "
+          "boundaries (matmul -> reduce_scatter/all_gather -> consumer). "
+          "Pattern-matches Llama-style sub-graphs (O-proj+residual,"
+          "MLP + residual)."),
+      llvm::cl::init(false)};
 
   // ComputeKernelConfig options
   // Note: computeCfgMathFidelity default value is HiFi4
