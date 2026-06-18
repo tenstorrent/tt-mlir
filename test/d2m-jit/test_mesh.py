@@ -334,8 +334,8 @@ def test_all_gather_1x2_lowers():
         [2, 1],
     )
     out_s = d2m.reblock(d2m.empty(L_out), [4, 1])
-    ss = d2m.global_semaphore(grid_shape=(8, 8))
-    es = d2m.global_semaphore(grid_shape=(8, 8))
+    ss = d2m.global_semaphore()
+    es = d2m.global_semaphore()
     all_gather(
         in_s, out_s, ss, es, grid=(2, 1), fabric=d2m.fabric_config(cluster_axis=1)
     )
@@ -441,8 +441,8 @@ def test_all_gather_1x2_roundtrip():
         [1, 1],
     )
     out_s = d2m.reblock(d2m.empty(L_out), [2, 1])
-    ss = d2m.global_semaphore(grid_shape=(8, 8))
-    es = d2m.global_semaphore(grid_shape=(8, 8))
+    ss = d2m.global_semaphore()
+    es = d2m.global_semaphore()
     all_gather(
         in_s,
         out_s,
@@ -463,6 +463,96 @@ def test_all_gather_1x2_roundtrip():
     assert tuple(result.shape) == (128, 128), result.shape
     diff = (expected - result).abs().max().item()
     assert diff < 0.05, f"1x2 all_gather max abs diff {diff}"
+
+
+@pytest.mark.skipif(
+    torch is None or runtime is None,
+    reason="requires torch + ttmlir runtime",
+)
+@pytest.mark.skipif(_num_devices() < 4, reason="requires a >=4-device mesh")
+def test_all_gather_1x4_roundtrip():
+    """A 1x4 line-config all_gather -- the multi-hop generalization of
+    `test_all_gather_1x2_roundtrip`.
+
+    Distinct from 1x2 because the cross-device mcast must distribute payload
+    across >=2 hops in both directions. It is a regression guard for the
+    TensorAccessor-DMA write path silently swallowing the fabric multicast:
+    when `use-tensor-accessor-dma` is on (the default), a cross-device
+    `remote_store` must still lower to a fabric mcast write, not a local-only
+    NOC write -- otherwise every device keeps only its own shard (a
+    block-diagonal result, PCC ~0.5) instead of the full gather. See
+    D2MLowerDMAToFullyIndexedForm (the `getStartDevice().empty()` guard).
+
+    1x2 cannot run on a 4-chip ring box anyway: opening a 2-chip sub-mesh leaves
+    the out-of-mesh ethernet cores unhandshaked and fabric bringup times out, so
+    the full mesh (here 1x4) is required.
+
+    Data flow mirrors the 1x2 case scaled to 4 devices: full (64,256), shard
+    dim 1 by 4, gather dim 0; device d's shard is full[:, 64*d:64*(d+1)]; after
+    the gather every device holds vstack(shard0..shard3) (256,64); shard_to_full
+    column-concats the four identical quarters -> (256,256)."""
+
+    @d2m.kernel
+    def all_gather(in0, out0, start_sem, end_sem):
+        dy = mesh_position(0)
+        cy = core_index(0)
+        cx = core_index(1)
+        device_synchronize(
+            start_sem,
+            start_device=[dy, 0],
+            mcast_shape=[1, 4],
+            num_receivers=3,
+            core_indices=[cy, cx],
+        )
+        buf = empty([2, 2])  # whole 64x64 shard (2x2 tiles) on one core
+        buf = remote_load(buf, in0, [0, 0])
+        dx = mesh_position(1)
+        remote_store(
+            out0,
+            [dx, 0],
+            buf,
+            start_device=[dy, 0],
+            device_mcast_shape=[1, 4],
+            semaphore=end_sem,
+            semaphore_indices=[cy, 0],
+        )
+        # num_devices (3 remote + 1 local self-inc), not num_devices - 1.
+        semaphore_wait(end_sem, 4)
+
+    d2m.mesh((1, 4), topology=("linear", "linear"))
+    L_in = d2m.Layout(
+        shape=(64, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[2, 2]
+    )
+    L_out = d2m.Layout(
+        shape=(256, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[8, 2]
+    )
+    full = torch.randn(64, 256, dtype=torch.float32)
+    in_s = d2m.reblock(
+        d2m.mesh_shard(full, L_in, shard_dims=[0, 1], shard_shape=[1, 4]),
+        [1, 1],
+    )
+    out_s = d2m.reblock(d2m.empty(L_out), [4, 1])
+    ss = d2m.global_semaphore()
+    es = d2m.global_semaphore()
+    all_gather(
+        in_s,
+        out_s,
+        ss,
+        es,
+        grid=(1, 1),
+        fabric=d2m.fabric_config(
+            cluster_axis=1, topology="linear", routing="bidir_line_mesh"
+        ),
+    )
+    out_s = d2m.mesh_gather(out_s, shard_dims=[0, 1], shard_shape=[1, 4])
+    result = out_s.to_host()
+
+    shards = [full[:, i * 64 : (i + 1) * 64] for i in range(4)]
+    vstack = torch.cat(shards, dim=0)  # (256, 64)
+    expected = torch.cat([vstack] * 4, dim=1)  # (256, 256)
+    assert tuple(result.shape) == (256, 256), result.shape
+    diff = (expected - result).abs().max().item()
+    assert diff < 0.05, f"1x4 all_gather max abs diff {diff}"
 
 
 @pytest.mark.skipif(
@@ -554,8 +644,8 @@ def test_matmul_all_gather_fused_1x2_roundtrip():
         [1, 1],
     )
     out_s = d2m.reblock(d2m.empty(L_out), [2, 1])
-    ss = d2m.global_semaphore(grid_shape=(8, 8))
-    es = d2m.global_semaphore(grid_shape=(8, 8))
+    ss = d2m.global_semaphore()
+    es = d2m.global_semaphore()
     matmul_all_gather(
         a_s,
         b_s,
@@ -729,8 +819,8 @@ def test_multicore_matmul_all_gather():
     )
     c_d = d2m.empty(L_in)
     out_s = d2m.reblock(d2m.empty(L_out), [2, 1])
-    ss = d2m.global_semaphore(grid_shape=(8, 8))
-    es = d2m.global_semaphore(grid_shape=(8, 8))
+    ss = d2m.global_semaphore()
+    es = d2m.global_semaphore()
     _mm_col(a_s, b_s, c_d, grid=(2, 1))
     c_rb = d2m.reblock(c_d, [1, 1])
     _all_gather_mc(
@@ -843,8 +933,8 @@ def test_streaming_matmul_all_gather():
     )
     c_d = d2m.empty(L_in)
     out_s = d2m.reblock(d2m.empty(L_out), [4, 1])
-    ss = d2m.global_semaphore(grid_shape=(8, 8))
-    es = d2m.global_semaphore(grid_shape=(8, 8))
+    ss = d2m.global_semaphore()
+    es = d2m.global_semaphore()
     _mm_col(a_s, b_s, c_d, grid=(2, 1))
     _all_gather_stream(
         c_d,
@@ -963,9 +1053,9 @@ def test_fused_zeros_all_gather():
         d2m.mesh_shard(full_a, L_in, shard_dims=[0, 1], shard_shape=[1, 2]), [2, 1]
     )
     out_s = d2m.reblock(d2m.empty(L_out), [4, 1])
-    ss = d2m.global_semaphore(grid_shape=(8, 8))
-    ready = d2m.global_semaphore(grid_shape=(8, 8), init=0)
-    es = d2m.global_semaphore(grid_shape=(8, 8))
+    ss = d2m.global_semaphore()
+    ready = d2m.global_semaphore(init=0)
+    es = d2m.global_semaphore()
     _fused_zeros_all_gather(
         a_s,
         out_s,
@@ -1055,9 +1145,9 @@ def test_fused_eltwise_all_gather():
         d2m.mesh_shard(full_a, L_in, shard_dims=[0, 1], shard_shape=[1, 2]), [2, 1]
     )
     out_s = d2m.reblock(d2m.empty(L_out), [4, 1])
-    ss = d2m.global_semaphore(grid_shape=(8, 8))
-    ready = d2m.global_semaphore(grid_shape=(8, 8), init=0)
-    es = d2m.global_semaphore(grid_shape=(8, 8))
+    ss = d2m.global_semaphore()
+    ready = d2m.global_semaphore(init=0)
+    es = d2m.global_semaphore()
     _fused_eltwise_all_gather(
         a_s,
         out_s,
@@ -1172,9 +1262,9 @@ def test_fused_matmul_all_gather():
         d2m.mesh_shard(full_b, L_in, shard_dims=[0, 1], shard_shape=[1, 2]), [2, 1]
     )
     out_s = d2m.reblock(d2m.empty(L_out), [4, 1])
-    ss = d2m.global_semaphore(grid_shape=(8, 8))
-    ready = d2m.global_semaphore(grid_shape=(8, 8), init=0)
-    es = d2m.global_semaphore(grid_shape=(8, 8))
+    ss = d2m.global_semaphore()
+    ready = d2m.global_semaphore(init=0)
+    es = d2m.global_semaphore()
     _fused_matmul_all_gather(
         a_s,
         b_s,
@@ -1285,9 +1375,9 @@ def test_fused_matmul_all_gather_grid_4x4():
         d2m.mesh_shard(full_b, L_in, shard_dims=[0, 1], shard_shape=[1, 2]), [GY, GX]
     )
     out_s = d2m.reblock(d2m.empty(L_out), [2 * GY, GX])
-    ss = d2m.global_semaphore(grid_shape=(8, 8))
-    ready = d2m.global_semaphore(grid_shape=(8, 8), init=0)
-    es = d2m.global_semaphore(grid_shape=(8, 8))
+    ss = d2m.global_semaphore()
+    ready = d2m.global_semaphore(init=0)
+    es = d2m.global_semaphore()
     _fused_matmul_all_gather_grid(
         a_s,
         b_s,

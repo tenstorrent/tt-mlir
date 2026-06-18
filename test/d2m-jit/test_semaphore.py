@@ -84,7 +84,7 @@ def test_semaphore_inc_pinned_to_single_dm_thread():
     lhs = torch.randn(32, 32, dtype=torch.float32)
     rhs = torch.randn(32, 32, dtype=torch.float32)
     out_d = d2m.empty(L)
-    sem = d2m.global_semaphore(grid_shape=(8, 8), init=0)
+    sem = d2m.global_semaphore(init=0)
     matmul_barrier(
         d2m.to_layout(lhs, L), d2m.to_layout(rhs, L), out_d, sem, grid=(1, 1)
     )
@@ -167,8 +167,8 @@ def test_scf_if_gated_fabric_lands_on_dm_thread():
     full = torch.randn(32, 128, dtype=torch.float32)
     in_s = d2m.mesh_shard(full, L, shard_dims=[0, 1], shard_shape=[1, 2])
     out_s = d2m.empty(L)
-    ss = d2m.global_semaphore(grid_shape=(8, 8))
-    es = d2m.global_semaphore(grid_shape=(8, 8))
+    ss = d2m.global_semaphore()
+    es = d2m.global_semaphore()
     gated_fabric(
         in_s,
         out_s,
@@ -231,7 +231,7 @@ def test_matmul_semaphore_barrier_runs():
     lhs = torch.randn(32, 32, dtype=torch.float32)
     rhs = torch.randn(32, 32, dtype=torch.float32)
     out_d = d2m.empty(L)
-    sem = d2m.global_semaphore(grid_shape=(8, 8), init=0)
+    sem = d2m.global_semaphore(init=0)
     matmul_barrier(
         d2m.to_layout(lhs, L), d2m.to_layout(rhs, L), out_d, sem, grid=(1, 1)
     )
@@ -273,7 +273,7 @@ def test_core_read_cross_core_gather():
     )
     full = torch.randn(32, 64, dtype=torch.float32)
     out_d = d2m.empty(L)
-    bar = d2m.global_semaphore(grid_shape=(8, 8), init=0)
+    bar = d2m.global_semaphore(init=0)
     core_read_gather(d2m.to_layout(full, L), out_d, bar, grid=(1, 2))
     result = out_d.to_host()
 
@@ -316,7 +316,7 @@ def test_core_write_cross_core_scatter():
     )
     full = torch.randn(32, 64, dtype=torch.float32)
     out_d = d2m.empty(L)
-    done = d2m.global_semaphore(grid_shape=(8, 8), init=0)
+    done = d2m.global_semaphore(init=0)
     core_write_scatter(d2m.to_layout(full, L), out_d, done, grid=(1, 2))
     result = out_d.to_host()
     # out's second column (core 1) holds core 0's shard, delivered via core_write.
@@ -368,7 +368,7 @@ def test_matmul_core_read_gather():
     a_full = torch.randn(32, 64, dtype=torch.float32)
     b_full = torch.randn(32, 64, dtype=torch.float32)
     out_d = d2m.empty(L)
-    ready = d2m.global_semaphore(grid_shape=(8, 8), init=0)
+    ready = d2m.global_semaphore(init=0)
     matmul_core_read_gather(
         d2m.to_layout(a_full, L), d2m.to_layout(b_full, L), out_d, ready, grid=(1, 2)
     )
