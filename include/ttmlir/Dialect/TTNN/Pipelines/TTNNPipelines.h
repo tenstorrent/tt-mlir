@@ -165,6 +165,20 @@ struct TTIRToTTNNCommonPipelineOptions
           llvm::cl::desc("Override Conv2d configuration for specific ops."),
           llvm::cl::init(llvm::StringMap<Conv2dConfigOverrideParams>())};
 
+  // Override Conv3d block sizes / weights_dtype per op (matched by NameLoc).
+  // Grammar mirrors override-conv2d-config:
+  //   "loc1=t_out_block#3:h_out_block#2:c_in_block#128,loc2=weights_dtype#bf16"
+  //
+  // Recognized parameters:
+  //   weights_dtype, t_out_block, w_out_block, h_out_block, c_out_block,
+  //   c_in_block
+  Option<llvm::StringMap<Conv3dConfigOverrideParams>,
+         Conv3dConfigOverrideParser>
+      overrideConv3dConfig{
+          *this, OptionNames::overrideConv3dConfig,
+          llvm::cl::desc("Override Conv3d configuration for specific ops."),
+          llvm::cl::init(llvm::StringMap<Conv3dConfigOverrideParams>())};
+
   // Enable memory layout analysis for performant tensor layouts (sharding).
   // If not explicitly set, determined by optimization_level.
   mutable Option<bool> memoryLayoutAnalysisEnabled{
