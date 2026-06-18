@@ -25,7 +25,7 @@ module attributes {} {
     // CHECK-SAME: -> tensor<1x1x32x32xbf16,
     // CHECK-NEXT: "ttnn.argmax"
 
-    %1 = "ttnn.argmax"(%arg0) <{dim = 3 : i32, keep_dim = false}> : (tensor<1x1x32x32xf32, #ttnn_layout_tile_f32>) -> tensor<1x1x32xui32, #ttnn_layout_row_major_uint32>
+    %1 = "ttnn.argmax"(%arg0) <{dim = 3 : si32, keep_dim = false}> : (tensor<1x1x32x32xf32, #ttnn_layout_tile_f32>) -> tensor<1x1x32xui32, #ttnn_layout_row_major_uint32>
 
     return %1 : tensor<1x1x32xui32, #ttnn_layout_row_major_uint32>
   }

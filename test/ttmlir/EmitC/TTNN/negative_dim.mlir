@@ -6,10 +6,9 @@
 // RUN: ttmlir-translate --mlir-to-cpp %t.mlir | FileCheck %s
 
 // Regression test for negative dim/axis emission in TTNN->EmitC.
-// These ops declare their dim as a signless I32Attr/I64Attr, so the generated
-// getter returns an unsigned value; without a signed cast a dim of -1 would be
-// emitted as 4294967295 (or 18446744073709551615 for the i64 dim_arg). The
-// conversion casts to a signed type so the negative dim is preserved as -1.
+// These ops declare their dim/dim_arg as a signed SI32Attr/SI64Attr, so the
+// generated getter returns a signed value and a dim of -1 is emitted directly
+// as -1.
 
 #dram = #ttnn.buffer_type<dram>
 #tile_2d_f32 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
@@ -25,7 +24,7 @@
 func.func @gather_neg(%a: tensor<32x32xf32, #tile_2d_f32>, %i: tensor<32x32xui32, #tile_2d_u32>) -> tensor<32x32xf32, #tile_2d_f32> {
   // CHECK: ttnn::gather(
   // CHECK-SAME: -1
-  %0 = "ttnn.gather"(%a, %i) <{dim = -1 : i32}> : (tensor<32x32xf32, #tile_2d_f32>, tensor<32x32xui32, #tile_2d_u32>) -> tensor<32x32xf32, #tile_2d_f32>
+  %0 = "ttnn.gather"(%a, %i) <{dim = -1 : si32}> : (tensor<32x32xf32, #tile_2d_f32>, tensor<32x32xui32, #tile_2d_u32>) -> tensor<32x32xf32, #tile_2d_f32>
   return %0 : tensor<32x32xf32, #tile_2d_f32>
 }
 
@@ -33,7 +32,7 @@ func.func @gather_neg(%a: tensor<32x32xf32, #tile_2d_f32>, %i: tensor<32x32xui32
 func.func @scatter_neg(%a: tensor<32x32xf32, #tile_2d_f32>, %i: tensor<32x32xi32, #tile_2d_si32>, %s: tensor<32x32xf32, #tile_2d_f32>) -> tensor<32x32xf32, #tile_2d_f32> {
   // CHECK: ttnn::scatter(
   // CHECK-SAME: -1
-  %0 = "ttnn.scatter"(%a, %i, %s) <{dim = -1 : i32, scatter_reduce_type = #ttcore.reduce_type<invalid>}> : (tensor<32x32xf32, #tile_2d_f32>, tensor<32x32xi32, #tile_2d_si32>, tensor<32x32xf32, #tile_2d_f32>) -> tensor<32x32xf32, #tile_2d_f32>
+  %0 = "ttnn.scatter"(%a, %i, %s) <{dim = -1 : si32, scatter_reduce_type = #ttcore.reduce_type<invalid>}> : (tensor<32x32xf32, #tile_2d_f32>, tensor<32x32xi32, #tile_2d_si32>, tensor<32x32xf32, #tile_2d_f32>) -> tensor<32x32xf32, #tile_2d_f32>
   return %0 : tensor<32x32xf32, #tile_2d_f32>
 }
 
@@ -41,7 +40,7 @@ func.func @scatter_neg(%a: tensor<32x32xf32, #tile_2d_f32>, %i: tensor<32x32xi32
 func.func @cumsum_neg(%a: tensor<32x32xf32, #tile_2d_f32>) -> tensor<32x32xf32, #tile_2d_f32> {
   // CHECK: ttnn::cumsum(
   // CHECK-SAME: -1
-  %0 = "ttnn.cumsum"(%a) <{dim = -1 : i32}> : (tensor<32x32xf32, #tile_2d_f32>) -> tensor<32x32xf32, #tile_2d_f32>
+  %0 = "ttnn.cumsum"(%a) <{dim = -1 : si32}> : (tensor<32x32xf32, #tile_2d_f32>) -> tensor<32x32xf32, #tile_2d_f32>
   return %0 : tensor<32x32xf32, #tile_2d_f32>
 }
 
@@ -49,7 +48,7 @@ func.func @cumsum_neg(%a: tensor<32x32xf32, #tile_2d_f32>) -> tensor<32x32xf32, 
 func.func @cumprod_neg(%a: tensor<32x32xf32, #tile_2d_f32>) -> tensor<32x32xf32, #tile_2d_f32> {
   // CHECK: ttnn::cumprod(
   // CHECK-SAME: -1
-  %0 = "ttnn.cumprod"(%a) <{dim = -1 : i32}> : (tensor<32x32xf32, #tile_2d_f32>) -> tensor<32x32xf32, #tile_2d_f32>
+  %0 = "ttnn.cumprod"(%a) <{dim = -1 : si32}> : (tensor<32x32xf32, #tile_2d_f32>) -> tensor<32x32xf32, #tile_2d_f32>
   return %0 : tensor<32x32xf32, #tile_2d_f32>
 }
 
@@ -57,7 +56,7 @@ func.func @cumprod_neg(%a: tensor<32x32xf32, #tile_2d_f32>) -> tensor<32x32xf32,
 func.func @argmax_neg(%a: tensor<1x1x32x32xf32, #tile_4d_f32>) -> tensor<1x1x32xui32, #row_major_3d_u32> {
   // CHECK: ttnn::argmax(
   // CHECK-SAME: -1
-  %0 = "ttnn.argmax"(%a) <{dim = -1 : i32, keep_dim = false, use_multicore = false}> : (tensor<1x1x32x32xf32, #tile_4d_f32>) -> tensor<1x1x32xui32, #row_major_3d_u32>
+  %0 = "ttnn.argmax"(%a) <{dim = -1 : si32, keep_dim = false, use_multicore = false}> : (tensor<1x1x32x32xf32, #tile_4d_f32>) -> tensor<1x1x32xui32, #row_major_3d_u32>
   return %0 : tensor<1x1x32xui32, #row_major_3d_u32>
 }
 
@@ -65,7 +64,7 @@ func.func @argmax_neg(%a: tensor<1x1x32x32xf32, #tile_4d_f32>) -> tensor<1x1x32x
 func.func @prod_neg(%a: tensor<1x1x32x32xf32, #tile_4d_f32>) -> tensor<1x1x32xf32, #row_major_3d_f32> {
   // CHECK: ttnn::prod(
   // CHECK-SAME: -1
-  %0 = "ttnn.prod"(%a) <{dim_arg = -1 : i64, keep_dim = false}> : (tensor<1x1x32x32xf32, #tile_4d_f32>) -> tensor<1x1x32xf32, #row_major_3d_f32>
+  %0 = "ttnn.prod"(%a) <{dim_arg = -1 : si64, keep_dim = false}> : (tensor<1x1x32x32xf32, #tile_4d_f32>) -> tensor<1x1x32xf32, #row_major_3d_f32>
   return %0 : tensor<1x1x32xf32, #row_major_3d_f32>
 }
 
@@ -73,6 +72,6 @@ func.func @prod_neg(%a: tensor<1x1x32x32xf32, #tile_4d_f32>) -> tensor<1x1x32xf3
 func.func @topk_neg(%a: tensor<1x1x32x64xf32, #tile_4d_f32_x64>) -> (tensor<1x1x32x4xf32, #tile_4d_f32>, tensor<1x1x32x4xui32, #tile_4d_u32>) {
   // CHECK: ttnn::topk(
   // CHECK-SAME: -1
-  %v, %i = "ttnn.topk"(%a) <{k = 4 : i32, dim = -1 : i32, largest = true, sorted = true}> : (tensor<1x1x32x64xf32, #tile_4d_f32_x64>) -> (tensor<1x1x32x4xf32, #tile_4d_f32>, tensor<1x1x32x4xui32, #tile_4d_u32>)
+  %v, %i = "ttnn.topk"(%a) <{k = 4 : i32, dim = -1 : si32, largest = true, sorted = true}> : (tensor<1x1x32x64xf32, #tile_4d_f32_x64>) -> (tensor<1x1x32x4xf32, #tile_4d_f32>, tensor<1x1x32x4xui32, #tile_4d_u32>)
   return %v, %i : tensor<1x1x32x4xf32, #tile_4d_f32>, tensor<1x1x32x4xui32, #tile_4d_u32>
 }

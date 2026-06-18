@@ -889,7 +889,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit(static_cast<int32_t>(srcOp.getDim())),
+        emitter.emit(srcOp.getDim()),
         emitter.emit(srcOp.getDtypeAttr(), "dtype"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
@@ -920,7 +920,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit(static_cast<int32_t>(srcOp.getDim())),
+        emitter.emit(srcOp.getDim()),
         emitter.emit(srcOp.getDtypeAttr(), "dtype"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
@@ -1559,7 +1559,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit<int32_t>(srcOp.getDimArg()),
+        emitter.emit(srcOp.getDimArg()),
         emitter.emit(srcOp.getKeepDim()),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
@@ -1626,7 +1626,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit<int32_t>(srcOp.getDim()),
+        emitter.emit(srcOp.getDim()),
         emitter.emit(srcOp.getKeepDim()),
         emitter.emit(std::nullopt, "sub_core_grids"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
@@ -2282,7 +2282,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput(), "input"),
-        emitter.emit(static_cast<int32_t>(srcOp.getDim()), "dim"),
+        emitter.emit(srcOp.getDim(), "dim"),
         emitter.emit(srcOp.getIndex(), "index"),
         emitter.emit(srcOp.getSource(), "src"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
@@ -2313,7 +2313,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit(static_cast<int32_t>(srcOp.getDim())),
+        emitter.emit(srcOp.getDim()),
         emitter.emit(srcOp.getIndex()),
         emitter.emit(/*sparse_grad=*/false, "sparse_grad"),
         emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
@@ -4864,7 +4864,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInputTensor()),
         emitter.emit(srcOp.getK()),
-        emitter.emit<int32_t>(srcOp.getDim()),
+        emitter.emit(srcOp.getDim()),
         emitter.emit(srcOp.getLargest()),
         emitter.emit(srcOp.getSorted()),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),

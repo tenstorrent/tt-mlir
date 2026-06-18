@@ -18,12 +18,12 @@ module {
     // CHECK-SAME: shape = [1 : i32, 2 : i32]
     // CHECK-SAME: -> tensor<1x2xui32
     // CHECK: "ttnn.gather"
-    // CHECK-SAME: dim = 1 : i32
+    // CHECK-SAME: dim = 1 : si32
     // CHECK-SAME: (tensor<1x5xf32, {{.*}}>, tensor<1x2xui32, {{.*}}>) -> tensor<1x2xf32
     // CHECK: "ttnn.reshape"
     // CHECK-SAME: shape = [2 : i32]
     // CHECK-SAME: -> tensor<2xf32
-    %0 = "ttnn.gather"(%arg0, %arg1) <{dim = 0 : i32}> : (tensor<5xf32>, tensor<2xui32>) -> tensor<2xf32>
+    %0 = "ttnn.gather"(%arg0, %arg1) <{dim = 0 : si32}> : (tensor<5xf32>, tensor<2xui32>) -> tensor<2xf32>
     return %0 : tensor<2xf32>
   }
 
@@ -38,12 +38,12 @@ module {
     // CHECK-SAME: shape = [1 : i32, 2 : i32]
     // CHECK-SAME: -> tensor<1x2xui32
     // CHECK: "ttnn.gather"
-    // CHECK-SAME: dim = -1 : i32
+    // CHECK-SAME: dim = -1 : si32
     // CHECK-SAME: (tensor<1x5xf32, {{.*}}>, tensor<1x2xui32, {{.*}}>) -> tensor<1x2xf32
     // CHECK: "ttnn.reshape"
     // CHECK-SAME: shape = [2 : i32]
     // CHECK-SAME: -> tensor<2xf32
-    %0 = "ttnn.gather"(%arg0, %arg1) <{dim = -1 : i32}> : (tensor<5xf32>, tensor<2xui32>) -> tensor<2xf32>
+    %0 = "ttnn.gather"(%arg0, %arg1) <{dim = -1 : si32}> : (tensor<5xf32>, tensor<2xui32>) -> tensor<2xf32>
     return %0 : tensor<2xf32>
   }
 
@@ -52,8 +52,8 @@ module {
     // CHECK-LABEL: func.func public @gather_rank2_noop
     // CHECK-NOT: "ttnn.reshape"
     // CHECK: "ttnn.gather"
-    // CHECK-SAME: dim = 0 : i32
-    %0 = "ttnn.gather"(%arg0, %arg1) <{dim = 0 : i32}> : (tensor<5x3xf32>, tensor<2x3xui32>) -> tensor<2x3xf32>
+    // CHECK-SAME: dim = 0 : si32
+    %0 = "ttnn.gather"(%arg0, %arg1) <{dim = 0 : si32}> : (tensor<5x3xf32>, tensor<2x3xui32>) -> tensor<2x3xf32>
     return %0 : tensor<2x3xf32>
   }
 }

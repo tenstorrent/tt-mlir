@@ -944,7 +944,7 @@ def TTNN_ArgMaxOp : TTNN_Op<"argmax"> {
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                       OptionalAttr<I32Attr>:$dim,
+                       OptionalAttr<SI32Attr>:$dim,
                        DefaultValuedAttr<BoolAttr, "false">:$keep_dim);
 
   let extraClassDeclaration = [{
@@ -980,7 +980,7 @@ def TTNN_ProdOp : TTNN_Op<"prod"> {
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                       OptionalAttr<I64Attr>:$dim_arg,
+                       OptionalAttr<SI64Attr>:$dim_arg,
                        BoolAttr:$keep_dim);
 
   let results = (outs AnyRankedTensor:$result);
@@ -1135,7 +1135,7 @@ def TTNN_CumSumOp : TTNN_Op<"cumsum"> {
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                       I32Attr:$dim);
+                       SI32Attr:$dim);
 
   let results = (outs AnyRankedTensor:$result);
 }
@@ -1159,7 +1159,7 @@ def TTNN_CumProdOp : TTNN_Op<"cumprod"> {
   }];
 
   let arguments = (ins AnyRankedTensor:$input,
-                       I32Attr:$dim);
+                       SI32Attr:$dim);
 
   let results = (outs AnyRankedTensor:$result);
 }
@@ -3114,7 +3114,7 @@ def TTNN_ScatterOp : TTNN_Op<"scatter">{
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$index,
                          AnyRankedTensor:$source,
-                         I32Attr:$dim,
+                         SI32Attr:$dim,
                          TTCore_ReduceTypeAttr:$scatter_reduce_type);
 
     let results = (outs AnyRankedTensor:$result);
@@ -3143,7 +3143,7 @@ def TTNN_GatherOp : TTNN_Op<"gather"> {
 
     let arguments = (ins AnyRankedTensor:$input,
                          AnyRankedTensor:$index,
-                         I32Attr:$dim);
+                         SI32Attr:$dim);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -4201,7 +4201,7 @@ def TTNN_TopKOp : TTNN_Op<"topk"> {
 
   let arguments = (ins AnyRankedTensor:$input_tensor,
                        I32Attr:$k,
-                       DefaultValuedAttr<I32Attr, "-1">:$dim,
+                       DefaultValuedAttr<SI32Attr, "-1">:$dim,
                        DefaultValuedAttr<BoolAttr, "true">:$largest,
                        DefaultValuedAttr<BoolAttr, "false">:$sorted);
 
