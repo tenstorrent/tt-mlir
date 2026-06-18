@@ -1,8 +1,8 @@
-// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=force-spill-to-dram-if-legal=true test-buffer-size-policy=max" -o %t.no_spill %s
+// RUN: ttmlir-opt --ttcore-register-device "--d2m-reblock-generics=test-buffer-size-policy=max" "--d2m-allocate=force-spill-to-dram-if-legal=true" -o %t.no_spill %s
 // RUN: FileCheck %s --check-prefix=NO-SPILL --input-file=%t.no_spill
-// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=allow-l1-output-spilling=true test-assume-l1-capacity=12288 test-buffer-size-policy=max" -o %t.spill %s
+// RUN: ttmlir-opt --ttcore-register-device "--d2m-reblock-generics=test-buffer-size-policy=max" "--d2m-allocate=allow-l1-output-spilling=true test-assume-l1-capacity=12288" -o %t.spill %s
 // RUN: FileCheck %s --check-prefix=SPILL --input-file=%t.spill
-// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=allow-l1-output-spilling=true test-assume-l1-capacity=24576 test-buffer-size-policy=max" -o %t.l1 %s
+// RUN: ttmlir-opt --ttcore-register-device "--d2m-reblock-generics=test-buffer-size-policy=max" "--d2m-allocate=allow-l1-output-spilling=true test-assume-l1-capacity=24576" -o %t.l1 %s
 // RUN: FileCheck %s --check-prefix=L1 --input-file=%t.l1
 
 // Validate the two allocator decisions needed for internal generic outputs:

@@ -15,6 +15,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/Utils.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/AffineExpr.h"
 
 #include <cassert>

@@ -1282,6 +1282,15 @@ mlir::OpFoldResult d2m::ViewLayoutOp::fold(FoldAdaptor adaptor) {
     return nullptr;
   }
 
+  // Both views are reblock-only (checked above), so each remapping is exactly
+  // the canonical calculateReblockMap for its shapes, which routes through a
+  // consistent row-major flat index. Composing two such reblocks therefore
+  // round-trips the flat index exactly, so when the outer result type matches
+  // the inner input type the net transform is identity and is faithfully
+  // represented by the shape-only reblock map recomputed below
+  // (calculateReblockMap of equal shapes is the identity map). Replacing the
+  // input through the consecutive view is thus always safe here.
+
   // Replace the input through the consecutive view.
   setOperand(consecutiveView.getInput());
 
