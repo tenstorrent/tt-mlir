@@ -221,6 +221,53 @@ def test_permute_slice_after_matmul_strided_fusing(
 
 
 @pytest.mark.parametrize(
+    "shape_a,shape_b,begins,ends",
+    [
+        # 1D A (vector) x 2D B: output is [N] (M dropped); slicing N is pushed
+        # into B.
+        ((512,), (512, 1024), [0], [64]),
+        # 2D A x 1D B (vector): output is [M] (N dropped); slicing M is pushed
+        # into A.
+        ((256, 512), (512,), [0], [64]),
+        # Batched A x 1D B: output is [batch, M]; slicing M is pushed into A and
+        # the batch dim is kept full.
+        ((2, 256, 512), (512,), [0, 0], [2, 64]),
+    ],
+)
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 2])
+def test_permute_slice_after_matmul_1d_fusing(
+    shape_a: Shape,
+    shape_b: Shape,
+    begins: List[int],
+    ends: List[int],
+    dtypes: List[torch.dtype],
+    request,
+    device,
+):
+    shapes = [shape_a, shape_b]
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def matmul_1d_slice(
+            input_tensor: Operand,
+            weight: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            matmul_result = builder.matmul(input_tensor, weight)
+            return builder.slice(matmul_result, begins, ends)
+
+    output_path = compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        save_artifacts=True,
+        check_pcc=True,
+    )
+    assert check_op(output_path, "matmul") and slice_precedes_matmul(output_path)
+
+
+@pytest.mark.parametrize(
     "shape_a,shape_b,bias_shape,transpose_a,transpose_b,begins,ends",
     [
         # Row (M) slice -> pushed into A; the [N] bias is indexed by N, so it

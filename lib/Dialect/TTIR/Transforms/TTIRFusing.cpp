@@ -1569,13 +1569,21 @@ public:
         mlir::cast<RankedTensorType>(matmulOrLinearOp->getResult(0).getType());
     ArrayRef<int64_t> outputShape = outputType.getShape();
     int64_t outputRank = outputType.getRank();
-    if (outputRank < 2) {
-      return rewriter.notifyMatchFailure(slice, "matmul/linear rank < 2");
-    }
 
-    // Output row (M) dim is rank-2, col (N) dim is rank-1.
-    int64_t outputRowDim = outputRank - 2;
-    int64_t outputColDim = outputRank - 1;
+    // The output is [batch..., (M), (N)] where M comes from A and N from B. A
+    // 1D operand drops its dim (numpy-style): M is present iff A is rank >= 2,
+    // N iff B is rank >= 2. N, when present, is the last output dim; M is the
+    // dim just before N, or the last output dim when N is absent.
+    int64_t matmulARank =
+        mlir::cast<RankedTensorType>(matmulAVal.getType()).getRank();
+    int64_t matmulBRank =
+        mlir::cast<RankedTensorType>(matmulBVal.getType()).getRank();
+    int64_t outputColDim = (matmulBRank >= 2) ? outputRank - 1 : -1;
+    int64_t outputRowDim =
+        (matmulARank >= 2) ? (matmulBRank >= 2 ? outputRank - 2 : outputRank - 1) : -1;
+    if (outputRowDim < 0 && outputColDim < 0) {
+      return rewriter.notifyMatchFailure(slice, "no row/col dim to slice");
+    }
 
     // The slice must keep every dim full except one row/col dim, which it
     // narrows to a sub-range. A strided (non-unit step) narrowing is fine: each
@@ -1613,11 +1621,12 @@ public:
       sliceTo = end;
       sliceStep = step;
     }
-    if (narrowedDim != outputRowDim && narrowedDim != outputColDim) {
+    bool sliceRows = (outputRowDim >= 0 && narrowedDim == outputRowDim);
+    bool sliceCols = (outputColDim >= 0 && narrowedDim == outputColDim);
+    if (!sliceRows && !sliceCols) {
       return rewriter.notifyMatchFailure(slice, "slice not on row or col dim");
     }
 
-    bool sliceRows = (narrowedDim == outputRowDim);
     int64_t narrowedSize = slicedDimSize(sliceFrom, sliceTo, sliceStep);
     // Reject empty slices (no elements): legal TTIR but a 0-sized matmul is no
     // fusion. (Inverted ranges can't occur: the verifier bars begin > end for a
@@ -1635,10 +1644,6 @@ public:
     Value slicedOperand = sliceRows ? matmulAVal : matmulBVal;
     int64_t operandRank =
         mlir::cast<RankedTensorType>(slicedOperand.getType()).getRank();
-    // A rank >= 2 output already implies rank >= 2 operands; guard regardless.
-    if (operandRank < 2) {
-      return rewriter.notifyMatchFailure(slice, "operand rank < 2");
-    }
     int64_t operandDim;
     if (sliceRows) {
       operandDim = transposeA ? operandRank - 1 : operandRank - 2;

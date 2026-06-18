@@ -97,12 +97,42 @@ func.func @left_matrix_strided_rows_offset_transpose(%arg0: tensor<4096x1024xbf1
   return %1 : tensor<1x128256xbf16>
 }
 
-// CHECK-LABEL: func.func @vector_matmul_negative
-func.func @vector_matmul_negative(%arg0: tensor<4096xbf16>, %arg1: tensor<4096x128256xbf16>) -> tensor<64xbf16> {
-  // CHECK: "ttir.matmul"(%arg0, %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<4096xbf16>, tensor<4096x128256xbf16>) -> tensor<128256xbf16>
+// CHECK-LABEL: func.func @left_vector_matmul
+func.func @left_vector_matmul(%arg0: tensor<4096xbf16>, %arg1: tensor<4096x128256xbf16>) -> tensor<64xbf16> {
+  // CHECK: %[[B:.*]] = "ttir.slice_static"(%arg1) <{begins = [0 : i32, 0 : i32], ends = [4096 : i32, 64 : i32], step = [1 : i32, 1 : i32]}> : (tensor<4096x128256xbf16>) -> tensor<4096x64xbf16>
+  // CHECK: "ttir.matmul"(%arg0, %[[B]]) <{transpose_a = false, transpose_b = false}> : (tensor<4096xbf16>, tensor<4096x64xbf16>) -> tensor<64xbf16>
+  // CHECK-NOT: tensor<128256xbf16>
   %0 = "ttir.matmul"(%arg0, %arg1) : (tensor<4096xbf16>, tensor<4096x128256xbf16>) -> tensor<128256xbf16>
   %1 = "ttir.slice_static"(%0) <{begins = [0 : i32], ends = [64 : i32], step = [1 : i32]}> : (tensor<128256xbf16>) -> tensor<64xbf16>
   return %1 : tensor<64xbf16>
+}
+
+// CHECK-LABEL: func.func @right_vector_matmul
+func.func @right_vector_matmul(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096xbf16>) -> tensor<64xbf16> {
+  // CHECK: %[[A:.*]] = "ttir.slice_static"(%arg0) <{begins = [0 : i32, 0 : i32], ends = [64 : i32, 4096 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x4096xbf16>) -> tensor<64x4096xbf16>
+  // CHECK: "ttir.matmul"(%[[A]], %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<64x4096xbf16>, tensor<4096xbf16>) -> tensor<64xbf16>
+  // CHECK-NOT: tensor<1024xbf16>
+  %0 = "ttir.matmul"(%arg0, %arg1) : (tensor<1024x4096xbf16>, tensor<4096xbf16>) -> tensor<1024xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [0 : i32], ends = [64 : i32], step = [1 : i32]}> : (tensor<1024xbf16>) -> tensor<64xbf16>
+  return %1 : tensor<64xbf16>
+}
+
+// CHECK-LABEL: func.func @batched_right_vector_matmul
+func.func @batched_right_vector_matmul(%arg0: tensor<2x1024x4096xbf16>, %arg1: tensor<4096xbf16>) -> tensor<2x64xbf16> {
+  // CHECK: %[[A:.*]] = "ttir.slice_static"(%arg0) <{begins = [0 : i32, 0 : i32, 0 : i32], ends = [2 : i32, 64 : i32, 4096 : i32], step = [1 : i32, 1 : i32, 1 : i32]}> : (tensor<2x1024x4096xbf16>) -> tensor<2x64x4096xbf16>
+  // CHECK: "ttir.matmul"(%[[A]], %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<2x64x4096xbf16>, tensor<4096xbf16>) -> tensor<2x64xbf16>
+  // CHECK-NOT: tensor<2x1024xbf16>
+  %0 = "ttir.matmul"(%arg0, %arg1) : (tensor<2x1024x4096xbf16>, tensor<4096xbf16>) -> tensor<2x1024xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [0 : i32, 0 : i32], ends = [2 : i32, 64 : i32], step = [1 : i32, 1 : i32]}> : (tensor<2x1024xbf16>) -> tensor<2x64xbf16>
+  return %1 : tensor<2x64xbf16>
+}
+
+// CHECK-LABEL: func.func @both_vector_matmul_negative
+func.func @both_vector_matmul_negative(%arg0: tensor<4096xbf16>, %arg1: tensor<4096xbf16>) -> tensor<1xbf16> {
+  // CHECK: "ttir.matmul"(%arg0, %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<4096xbf16>, tensor<4096xbf16>) -> tensor<1xbf16>
+  %0 = "ttir.matmul"(%arg0, %arg1) : (tensor<4096xbf16>, tensor<4096xbf16>) -> tensor<1xbf16>
+  %1 = "ttir.slice_static"(%0) <{begins = [0 : i32], ends = [1 : i32], step = [1 : i32]}> : (tensor<1xbf16>) -> tensor<1xbf16>
+  return %1 : tensor<1xbf16>
 }
 
 // CHECK-LABEL: func.func @left_matrix_middle_rows
