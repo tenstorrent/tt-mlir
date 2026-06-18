@@ -160,6 +160,51 @@ def test_permute_slice_after_matmul_fusing(
 
 
 @pytest.mark.parametrize(
+    "shape_a,shape_b,begins,ends",
+    [
+        # Same row (M) slice as the first positive case above, but with the
+        # fusion turned off via its pipeline flag.
+        ((256, 512), (512, 1024), [255, 0], [256, 1024]),
+    ],
+)
+@pytest.mark.parametrize("dtypes", [[torch.float32] * 2])
+def test_permute_slice_after_matmul_fusion_disabled(
+    shape_a: Shape,
+    shape_b: Shape,
+    begins: List[int],
+    ends: List[int],
+    dtypes: List[torch.dtype],
+    request,
+    device,
+):
+    shapes = [shape_a, shape_b]
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def matmul_slice(
+            input_tensor: Operand,
+            weight: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            matmul_result = builder.matmul(input_tensor, weight)
+            return builder.slice(matmul_result, begins, ends)
+
+    output_path = compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        save_artifacts=True,
+        check_pcc=True,
+        pipeline_options=["enable-permute-slice-after-matmul-fusion=false"],
+    )
+    # Fusion is off: the matmul computes the full output and the slice still
+    # consumes it, so no slice precedes the matmul.
+    assert check_op(output_path, "matmul")
+    assert not slice_precedes_matmul(output_path)
+
+
+@pytest.mark.parametrize(
     "shape_a,shape_b,transpose_a,transpose_b,begins,ends,step",
     [
         # Strided row slice (step 2) -> pushed into A with the same stride; the

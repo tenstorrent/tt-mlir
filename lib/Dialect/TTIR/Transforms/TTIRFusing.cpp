@@ -3329,7 +3329,9 @@ public:
       patterns.add<SpatialMeanOptimizationPattern>(&getContext());
       patterns.add<SharedLHSMatmulFusion<MatmulOp>>(&getContext());
       patterns.add<SharedLHSMatmulFusion<LinearOp>>(&getContext());
-      patterns.add<PermuteSliceAfterMatmulPattern>(&getContext());
+      if (permuteSliceAfterMatmulEnabled) {
+        patterns.add<PermuteSliceAfterMatmulPattern>(&getContext());
+      }
       patterns.add<RMSNormFusionPattern>(&getContext());
 
       patterns.add<GeluFusionPattern>(&getContext());
