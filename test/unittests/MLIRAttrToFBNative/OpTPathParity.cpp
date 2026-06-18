@@ -7747,4 +7747,108 @@ INSTANTIATE_TEST_SUITE_P(PagedUpdateCacheOpTPathParityTest,
                          PagedUpdateCacheOpTPathParityTest,
                          ::testing::ValuesIn(pagedUpdateCacheOpList));
 
+//===----------------------------------------------------------------------===//
+// EmbeddingBackwardOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace mlir::tt::ttnn {
+template <typename EmbeddingBackwardOpTy>
+::flatbuffers::Offset<::tt::target::ttnn::EmbeddingBackwardOp>
+createEmbeddingBackwardOp(::mlir::tt::FlatbufferObjectCache &cache,
+                          EmbeddingBackwardOpTy op);
+} // namespace mlir::tt::ttnn
+
+namespace mlir::tt::ttnn::op_model {
+#ifdef TTMLIR_ENABLE_OPMODEL
+::tt::target::ttnn::EmbeddingBackwardOpT
+buildEmbeddingBackwardOpTFromMLIR(TTNNLayoutAttr outputLayout);
+#endif // TTMLIR_ENABLE_OPMODEL
+} // namespace mlir::tt::ttnn::op_model
+
+namespace {
+
+void resetUnusedFields(
+    ::tt::target::ttnn::EmbeddingBackwardOpT &opNativeOpModel,
+    ::tt::target::ttnn::EmbeddingBackwardOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::EmbeddingBackwardOpT &op) {
+    op.input.reset();
+    op.weight.reset();
+    op.in_grad.reset();
+    op.dtype.reset();
+    op.memcfg.reset();
+    resetOutputTensorRefT(op.out);
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::EmbeddingBackwardOp buildTestEmbeddingBackwardOp(
+    mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  auto outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(defaultShape, outputMemoryConfig)
+          : tiledL1BF16Type(defaultShape);
+
+  return e.builder.create<mlir::tt::ttnn::EmbeddingBackwardOp>(
+      loc, outputType, mlir::ValueRange{makeOnes(), makeOnes(), makeOnes()});
+}
+
+} // namespace
+
+using EmbeddingBackwardOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::EmbeddingBackwardOp>;
+
+TEST_P(EmbeddingBackwardOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::EmbeddingBackwardOp embeddingBackwardOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::EmbeddingBackwardOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildEmbeddingBackwardOpTFromMLIR(
+          resolveOutputLayout(embeddingBackwardOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, embeddingBackwardOp.getInput(),
+                               embeddingBackwardOp.getWeight(),
+                               embeddingBackwardOp.getInGradient());
+
+  auto fbOffset =
+      mlir::tt::ttnn::createEmbeddingBackwardOp(cache, embeddingBackwardOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::EmbeddingBackwardOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::EmbeddingBackwardOp>
+    embeddingBackwardOpList = {
+        buildTestEmbeddingBackwardOp(),
+        buildTestEmbeddingBackwardOp(
+            /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+        buildTestEmbeddingBackwardOp(
+            /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(EmbeddingBackwardOpTPathParityTest,
+                         EmbeddingBackwardOpTPathParityTest,
+                         ::testing::ValuesIn(embeddingBackwardOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL
