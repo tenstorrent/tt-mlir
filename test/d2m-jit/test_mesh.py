@@ -670,6 +670,97 @@ def test_matmul_all_gather_fused_1x2_roundtrip():
     assert_pcc(expected, result)
 
 
+@pytest.mark.skipif(
+    torch is None or runtime is None,
+    reason="requires torch + ttmlir runtime",
+)
+@pytest.mark.skipif(_num_devices() < 4, reason="requires a >=4-device mesh")
+def test_matmul_all_gather_fused_1x4_roundtrip():
+    """The fused distributed-matmul + all_gather of
+    `test_matmul_all_gather_fused_1x2_roundtrip` scaled to the full 1x4 mesh.
+
+    Each device d computes its local product C_d = A_d @ B_d (one 32x32 tile),
+    then all-gathers C_d across the 4-device line so every device ends holding
+    vstack(C_0..C_3) (128,32); shard_to_full column-concats the four identical
+    quarters -> (128,128).
+
+    Beyond the 1x2 case this exercises the multi-hop fabric mcast of a
+    compute-produced CB on the full mesh -- i.e. the fused-matmul source feeding
+    the cross-device write that D2MLowerDMAToFullyIndexedForm must keep as a
+    fabric mcast (not defer to the local accessor write). 1x2 cannot run on a
+    4-chip ring box (sub-mesh fabric bringup times out), so the full mesh is
+    required to validate the fused path on this hardware at all."""
+
+    @d2m.kernel
+    def matmul_all_gather(lhs, rhs, out, start_sem, end_sem):
+        dy = mesh_position(0)
+        cy = core_index(0)
+        cx = core_index(1)
+        device_synchronize(
+            start_sem,
+            start_device=[dy, 0],
+            mcast_shape=[1, 4],
+            num_receivers=3,
+            core_indices=[cy, cx],
+        )
+        a = remote_load(lhs, [0, 0])
+        b = remote_load(rhs, [0, 0])
+        c = a @ b
+        dx = mesh_position(1)
+        remote_store(
+            out,
+            [dx, 0],
+            c,
+            start_device=[dy, 0],
+            device_mcast_shape=[1, 4],
+            semaphore=end_sem,
+            semaphore_indices=[cy, 0],
+        )
+        # num_devices (3 remote + 1 local self-inc), not num_devices - 1.
+        semaphore_wait(end_sem, 4)
+
+    d2m.mesh((1, 4), topology=("linear", "linear"))
+    L_in = d2m.Layout(
+        shape=(32, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1]
+    )
+    L_out = d2m.Layout(
+        shape=(128, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[4, 1]
+    )
+    full_a = torch.randn(32, 128, dtype=torch.float32)
+    full_b = torch.randn(32, 128, dtype=torch.float32)
+    a_s = d2m.reblock(
+        d2m.mesh_shard(full_a, L_in, shard_dims=[0, 1], shard_shape=[1, 4]),
+        [1, 1],
+    )
+    b_s = d2m.reblock(
+        d2m.mesh_shard(full_b, L_in, shard_dims=[0, 1], shard_shape=[1, 4]),
+        [1, 1],
+    )
+    out_s = d2m.reblock(d2m.empty(L_out), [4, 1])
+    ss = d2m.global_semaphore()
+    es = d2m.global_semaphore()
+    matmul_all_gather(
+        a_s,
+        b_s,
+        out_s,
+        ss,
+        es,
+        grid=(1, 1),
+        fabric=d2m.fabric_config(
+            cluster_axis=1, topology="linear", routing="bidir_line_mesh"
+        ),
+    )
+    out_s = d2m.mesh_gather(out_s, shard_dims=[0, 1], shard_shape=[1, 4])
+    result = out_s.to_host()
+
+    cs = [full_a[:, i * 32 : (i + 1) * 32] @ full_b[:, i * 32 : (i + 1) * 32]
+          for i in range(4)]
+    vstack = torch.cat(cs, dim=0)  # (128, 32)
+    expected = torch.cat([vstack] * 4, dim=1)  # (128, 128)
+    assert tuple(result.shape) == (128, 128), result.shape
+    assert_pcc(expected, result)
+
+
 @d2m.kernel
 def _mm_shard(lhs, rhs, c):
     cy = core_index(0)
