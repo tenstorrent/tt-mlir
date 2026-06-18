@@ -4325,18 +4325,27 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   auto tempType = getTemp().getType();
   auto resultType = getResult().getType();
 
-  if (inputValuesType.getRank() != 2) {
-    return emitOpError("input_values must be 2D [batch, candidates]");
+  // The ttnn::sampling kernel operates on rank-4 tensors. TTIRToTTNN inserts
+  // reshape ops to bridge from TTIR's rank-2 view; ttnn.sampling itself is
+  // strict about the kernel-true shape to keep the IR aligned with what the
+  // runtime / EmitPy / EmitC paths will actually dispatch.
+  if (inputValuesType.getRank() != 4) {
+    return emitOpError("input_values must be 4D [1, 1, batch, candidates]");
   }
-  if (inputIndicesType.getRank() != 2) {
-    return emitOpError("input_indices must be 2D [batch, candidates]");
+  if (inputIndicesType.getRank() != 4) {
+    return emitOpError("input_indices must be 4D [1, 1, batch, candidates]");
   }
   if (inputValuesType.getShape() != inputIndicesType.getShape()) {
     return emitOpError(
         "input_values and input_indices must have the same shape");
   }
+  auto valuesShape = inputValuesType.getShape();
+  if (valuesShape[0] != 1 || valuesShape[1] != 1) {
+    return emitOpError(
+        "input_values leading dims must be [1, 1, batch, candidates]");
+  }
 
-  int64_t batch = inputValuesType.getShape()[0];
+  int64_t batch = valuesShape[2];
 
   // k, p, temp must be 1D with the same batch dimension.
   for (auto [tensor, name] :
@@ -4353,9 +4362,11 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
     }
   }
 
-  // Result must be 1D [batch].
-  if (resultType.getRank() != 1 || resultType.getShape()[0] != batch) {
-    return emitOpError("result must be 1D [batch]");
+  // Result must be 4D [1, 1, 1, batch].
+  auto resultShape = resultType.getShape();
+  if (resultType.getRank() != 4 || resultShape[0] != 1 || resultShape[1] != 1 ||
+      resultShape[2] != 1 || resultShape[3] != batch) {
+    return emitOpError("result must be 4D [1, 1, 1, batch]");
   }
 
   return success();
