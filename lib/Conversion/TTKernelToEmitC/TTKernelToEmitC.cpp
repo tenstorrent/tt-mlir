@@ -8,7 +8,6 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
-#include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
 #include "mlir/Conversion/ArithToEmitC/ArithToEmitC.h"
@@ -19,7 +18,6 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
-#include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Value.h"
@@ -34,6 +32,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <array>
+#include <functional>
 #include <optional>
 #include <string>
 
@@ -165,13 +164,13 @@ static void assignRuntimeCBArgIndices(func::FuncOp funcOp) {
 
 static bool mayHaveRuntimeCBArgs(func::FuncOp funcOp) {
   auto argSpec =
-      funcOp->getAttrOfType<ttkernel::ArgSpecAttr>("ttkernel.arg_spec");
+      funcOp->getAttrOfType<ttkernel::ArgSpecAttr>(ttkernel::ArgSpecAttr::name);
   return !argSpec || !argSpec.getRtArgs().empty();
 }
 
 namespace {
 struct TTKernelToEmitCConversionState {
-  llvm::DenseMap<Value, std::string> cbDeclarations;
+  llvm::DenseMap<Block *, llvm::StringSet<>> cbDeclarations;
   llvm::DenseMap<Operation *, llvm::StringSet<>> functionScopedDeclarations;
   llvm::DenseMap<Operation *, std::optional<int64_t>> staticNocIndices;
   llvm::DenseMap<Operation *, std::array<bool, 2>> staticNocDeclarations;
@@ -195,12 +194,13 @@ static void setInsertionPointAfterDefOrBlockStart(Value value,
 static std::string ensureCBDeclaration(Value cb, Operation *useOp,
                                        ConversionPatternRewriter &rewriter,
                                        TTKernelToEmitCConversionState &state) {
-  if (auto it = state.cbDeclarations.find(cb);
-      it != state.cbDeclarations.end()) {
-    return it->second;
-  }
-
   std::string cbName = getCBName(cb);
+  Block *declarationBlock =
+      cb.getDefiningOp() ? cb.getDefiningOp()->getBlock() : cb.getParentBlock();
+  auto &declarations = state.cbDeclarations[declarationBlock];
+  if (declarations.contains(cbName)) {
+    return cbName;
+  }
 
   // Place the declaration right after the value's definition so it dominates
   // every use site, including those in nested regions (e.g. loop bodies).
@@ -209,7 +209,7 @@ static std::string ensureCBDeclaration(Value cb, Operation *useOp,
 
   std::string cbDecl = "CircularBuffer " + cbName + "({});";
   rewriter.create<emitc::VerbatimOp>(useOp->getLoc(), cbDecl, ValueRange{cb});
-  state.cbDeclarations.try_emplace(cb, cbName);
+  declarations.insert(cbName);
   return cbName;
 }
 
@@ -415,11 +415,9 @@ static std::string ensureNocDeclaration(Operation *useOp,
 // runtime NoC value inlined as `Noc({})` (which would perturb operand order).
 // Fails the match with `opDesc` in the diagnostic when the NoC index is not
 // statically resolvable.
-static FailureOr<std::string>
-ensureStaticNocDeclaration(Operation *useOp,
-                           ConversionPatternRewriter &rewriter,
-                           TTKernelToEmitCConversionState &state, Value nocId,
-                           llvm::StringRef opDesc) {
+static FailureOr<std::string> ensureStaticNocDeclaration(
+    Operation *useOp, ConversionPatternRewriter &rewriter, Value nocId,
+    llvm::StringRef opDesc, TTKernelToEmitCConversionState &state) {
   SmallVector<Value, 1> nocOperands;
   std::string nocName =
       ensureNocDeclaration(useOp, rewriter, state, nocOperands, nocId);
@@ -432,8 +430,8 @@ ensureStaticNocDeclaration(Operation *useOp,
 
 static std::string
 ensureEndpointDeclaration(Operation *useOp, ConversionPatternRewriter &rewriter,
-                          TTKernelToEmitCConversionState &state,
-                          llvm::StringRef type, llvm::StringRef name) {
+                          llvm::StringRef type, llvm::StringRef name,
+                          TTKernelToEmitCConversionState &state) {
   std::string decl = (type + " " + name + ";").str();
   return ensureFunctionScopedDeclaration(useOp, rewriter, state, decl, name);
 }
@@ -443,18 +441,17 @@ struct NocEndpointEmission {
   std::string args;
 };
 
-static NocEndpointEmission emitNocEndpoint(Operation *useOp,
-                                           ConversionPatternRewriter &rewriter,
-                                           TTKernelToEmitCConversionState &state,
-                                           ValueRange coreXY, ValueRange bankId,
-                                           Value address,
-                                           SmallVectorImpl<Value> &operands) {
+static NocEndpointEmission
+emitNocEndpoint(Operation *useOp, ConversionPatternRewriter &rewriter,
+                ValueRange coreXY, ValueRange bankId, Value address,
+                SmallVectorImpl<Value> &operands,
+                TTKernelToEmitCConversionState &state) {
   if (!coreXY.empty()) {
     TT_assert(coreXY.size() == 2u);
     operands.append(coreXY.begin(), coreXY.end());
     operands.push_back(address);
-    return {ensureEndpointDeclaration(useOp, rewriter, state, "UnicastEndpoint",
-                                      "unicast_ep"),
+    return {ensureEndpointDeclaration(useOp, rewriter, "UnicastEndpoint",
+                                      "unicast_ep", state),
             "{{.noc_x = {}, .noc_y = {}, "
             ".addr = static_cast<uint32_t>({})}"};
   }
@@ -462,9 +459,9 @@ static NocEndpointEmission emitNocEndpoint(Operation *useOp,
   TT_assert(bankId.size() == 1u);
   operands.push_back(bankId.front());
   operands.push_back(address);
-  return {ensureEndpointDeclaration(useOp, rewriter, state,
+  return {ensureEndpointDeclaration(useOp, rewriter,
                                     "AllocatorBank<AllocatorBankType::DRAM>",
-                                    "dram_ep"),
+                                    "dram_ep", state),
           "{{.bank_id = static_cast<uint32_t>({}), "
           ".addr = static_cast<uint32_t>({})}"};
 }
@@ -1191,7 +1188,7 @@ public:
   }
 
 private:
-  TTKernelToEmitCConversionState &state;
+  std::reference_wrapper<TTKernelToEmitCConversionState> state;
   std::string methodName;
 };
 } // namespace
@@ -1224,7 +1221,7 @@ public:
   }
 
 private:
-  TTKernelToEmitCConversionState &state;
+  std::reference_wrapper<TTKernelToEmitCConversionState> state;
   std::string methodName;
 };
 } // namespace
@@ -1251,7 +1248,7 @@ public:
     std::string nocName = ensureNocDeclaration(
         op.getOperation(), rewriter, state, nocOperands, adaptor.getNoc());
     std::string endpoint = ensureEndpointDeclaration(
-        op.getOperation(), rewriter, state, "UnicastEndpoint", "unicast_ep");
+        op.getOperation(), rewriter, "UnicastEndpoint", "unicast_ep", state);
     SmallVector<Value, 4> operands = {adaptor.getX(), adaptor.getY(),
                                       adaptor.getL1Address()};
     operands.append(nocOperands);
@@ -1272,7 +1269,7 @@ public:
   }
 
 private:
-  TTKernelToEmitCConversionState &state;
+  std::reference_wrapper<TTKernelToEmitCConversionState> state;
 };
 
 class TTKernelToEmitCNocAtomicBarrierRewriter
@@ -1300,7 +1297,7 @@ public:
   }
 
 private:
-  TTKernelToEmitCConversionState &state;
+  std::reference_wrapper<TTKernelToEmitCConversionState> state;
 };
 
 template <typename SourceOp>
@@ -1327,7 +1324,7 @@ public:
   }
 
 private:
-  TTKernelToEmitCConversionState &state;
+  std::reference_wrapper<TTKernelToEmitCConversionState> state;
   std::string methodName;
 };
 
@@ -1357,7 +1354,7 @@ public:
   }
 
 private:
-  TTKernelToEmitCConversionState &state;
+  std::reference_wrapper<TTKernelToEmitCConversionState> state;
   std::string methodName;
 };
 
@@ -1392,18 +1389,18 @@ public:
       remoteAddr = adaptor.getDstAddress();
     }
 
-    FailureOr<std::string> nocName = ensureStaticNocDeclaration(
-        op.getOperation(), rewriter, state, adaptor.getNoc(),
-        "async read/write");
+    FailureOr<std::string> nocName =
+        ensureStaticNocDeclaration(op.getOperation(), rewriter,
+                                   adaptor.getNoc(), "async read/write", state);
     if (failed(nocName)) {
       return failure();
     }
     SmallVector<Value, 5> operands{localL1Addr, adaptor.getSize()};
     std::string callStr;
 
-    NocEndpointEmission endpoint = emitNocEndpoint(
-        op.getOperation(), rewriter, state, coreXY, bankId, remoteAddr,
-        operands);
+    NocEndpointEmission endpoint =
+        emitNocEndpoint(op.getOperation(), rewriter, coreXY, bankId, remoteAddr,
+                        operands, state);
     if constexpr (isRead) {
       callStr = *nocName + ".async_read(" + endpoint.endpointName +
                 ", CoreLocalMem<uint32_t>({}), {}, " + endpoint.args +
@@ -1417,6 +1414,9 @@ public:
     rewriter.eraseOp(op);
     return success();
   }
+
+private:
+  std::reference_wrapper<TTKernelToEmitCConversionState> state;
 };
 
 class TTKernelToEmitCNocAsyncReadOnePacketSetStateRewriter
@@ -1432,16 +1432,16 @@ public:
                   OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     FailureOr<std::string> nocName = ensureStaticNocDeclaration(
-        op.getOperation(), rewriter, state, adaptor.getNoc(),
-        "stateful async read");
+        op.getOperation(), rewriter, adaptor.getNoc(), "stateful async read",
+        state);
     if (failed(nocName)) {
       return failure();
     }
 
     SmallVector<Value, 4> operands{adaptor.getSize()};
     NocEndpointEmission endpoint = emitNocEndpoint(
-        op.getOperation(), rewriter, state, adaptor.getSrcCoreXY(),
-        adaptor.getSrcBankId(), adaptor.getSrcAddress(), operands);
+        op.getOperation(), rewriter, adaptor.getSrcCoreXY(),
+        adaptor.getSrcBankId(), adaptor.getSrcAddress(), operands, state);
     std::string callStr =
         *nocName +
         ".set_async_read_state<NocOptions::DEFAULT, NOC_MAX_BURST_SIZE>(" +
@@ -1453,7 +1453,7 @@ public:
   }
 
 private:
-  TTKernelToEmitCConversionState &state;
+  std::reference_wrapper<TTKernelToEmitCConversionState> state;
 };
 
 class TTKernelToEmitCNocAsyncReadOnePacketWithStateRewriter
@@ -1469,8 +1469,8 @@ public:
                   OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     FailureOr<std::string> nocName = ensureStaticNocDeclaration(
-        op.getOperation(), rewriter, state, adaptor.getNoc(),
-        "stateful async read");
+        op.getOperation(), rewriter, adaptor.getNoc(), "stateful async read",
+        state);
     if (failed(nocName)) {
       return failure();
     }
@@ -1478,8 +1478,8 @@ public:
     SmallVector<Value, 5> operands{adaptor.getDstLocalL1Addr(),
                                    adaptor.getSize()};
     NocEndpointEmission endpoint = emitNocEndpoint(
-        op.getOperation(), rewriter, state, adaptor.getSrcCoreXY(),
-        adaptor.getSrcBankId(), adaptor.getSrcAddress(), operands);
+        op.getOperation(), rewriter, adaptor.getSrcCoreXY(),
+        adaptor.getSrcBankId(), adaptor.getSrcAddress(), operands, state);
     std::string callStr =
         *nocName +
         ".async_read_with_state<NocOptions::DEFAULT, NOC_MAX_BURST_SIZE>(" +
@@ -1492,7 +1492,7 @@ public:
   }
 
 private:
-  TTKernelToEmitCConversionState &state;
+  std::reference_wrapper<TTKernelToEmitCConversionState> state;
 };
 
 class TTKernelToEmitCNocAsyncWriteOnePacketWithTridRewriter
@@ -1508,8 +1508,8 @@ public:
                   OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     FailureOr<std::string> nocName = ensureStaticNocDeclaration(
-        op.getOperation(), rewriter, state, adaptor.getNoc(),
-        "async write with TRID");
+        op.getOperation(), rewriter, adaptor.getNoc(), "async write with TRID",
+        state);
     if (failed(nocName)) {
       return failure();
     }
@@ -1517,8 +1517,8 @@ public:
     SmallVector<Value, 6> operands{adaptor.getSrcLocalL1Addr(),
                                    adaptor.getSize()};
     NocEndpointEmission endpoint = emitNocEndpoint(
-        op.getOperation(), rewriter, state, adaptor.getDstCoreXY(),
-        adaptor.getDstBankId(), adaptor.getDstAddress(), operands);
+        op.getOperation(), rewriter, adaptor.getDstCoreXY(),
+        adaptor.getDstBankId(), adaptor.getDstAddress(), operands, state);
     operands.push_back(adaptor.getTrid());
 
     std::string callStr =
@@ -1534,7 +1534,7 @@ public:
   }
 
 private:
-  TTKernelToEmitCConversionState &state;
+  std::reference_wrapper<TTKernelToEmitCConversionState> state;
 };
 
 class TTKernelToEmitCNocInlineDwWriteRewriter
@@ -1549,13 +1549,13 @@ public:
   matchAndRewrite(ttkernel::NocInlineDwWriteOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     FailureOr<std::string> nocName = ensureStaticNocDeclaration(
-        op.getOperation(), rewriter, state, adaptor.getNoc(), "inline write");
+        op.getOperation(), rewriter, adaptor.getNoc(), "inline write", state);
     if (failed(nocName)) {
       return failure();
     }
 
     std::string endpoint = ensureEndpointDeclaration(
-        op.getOperation(), rewriter, state, "UnicastEndpoint", "unicast_ep");
+        op.getOperation(), rewriter, "UnicastEndpoint", "unicast_ep", state);
     SmallVector<Value, 5> operands{
         adaptor.getVal(), adaptor.getDstNocX(), adaptor.getDstNocY(),
         adaptor.getDstAddress(), adaptor.getByteEnable()};
@@ -1570,7 +1570,7 @@ public:
   }
 
 private:
-  TTKernelToEmitCConversionState &state;
+  std::reference_wrapper<TTKernelToEmitCConversionState> state;
 };
 
 template <typename SourceOp>
@@ -1589,8 +1589,8 @@ public:
   matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     FailureOr<std::string> nocName = ensureStaticNocDeclaration(
-        op.getOperation(), rewriter, state, adaptor.getNoc(),
-        "tile async read/write");
+        op.getOperation(), rewriter, adaptor.getNoc(), "tile async read/write",
+        state);
     if (failed(nocName)) {
       return failure();
     }
@@ -1617,7 +1617,7 @@ public:
   }
 
 private:
-  TTKernelToEmitCConversionState &state;
+  std::reference_wrapper<TTKernelToEmitCConversionState> state;
 };
 
 template <typename SourceOp>
@@ -1641,7 +1641,7 @@ public:
     std::string nocName = ensureNocDeclaration(
         op.getOperation(), rewriter, state, operands, adaptor.getNoc());
     std::string endpoint = ensureEndpointDeclaration(
-        op.getOperation(), rewriter, state, "MulticastEndpoint", "mcast_ep");
+        op.getOperation(), rewriter, "MulticastEndpoint", "mcast_ep", state);
 
     // EXCLUDE_SRC maps to default NocOptions (no MCAST_INCL_SRC flag), so we
     // omit the template argument entirely. INCLUDE_SRC maps to
@@ -1675,7 +1675,7 @@ public:
   }
 
 private:
-  TTKernelToEmitCConversionState &state;
+  std::reference_wrapper<TTKernelToEmitCConversionState> state;
 };
 
 } // namespace
@@ -1771,7 +1771,7 @@ public:
   }
 
 private:
-  TTKernelToEmitCConversionState &state;
+  std::reference_wrapper<TTKernelToEmitCConversionState> state;
 };
 } // namespace
 
@@ -1920,57 +1920,6 @@ public:
 } // namespace
 
 namespace {
-class TTKernelGetInterleavedAddrGenFastOpRewriter
-    : public OpConversionPattern<ttkernel::GetInterleavedAddrGenFastOp> {
-  using Op = ttkernel::GetInterleavedAddrGenFastOp;
-
-public:
-  TTKernelGetInterleavedAddrGenFastOpRewriter(
-      const TypeConverter &typeConverter, MLIRContext *context,
-      TTKernelToEmitCConversionState &state)
-      : OpConversionPattern(typeConverter, context), state(state) {}
-
-  LogicalResult
-  matchAndRewrite(Op op, ttkernel::GetInterleavedAddrGenFastOp::Adaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const final {
-    if (op.getResult().use_empty()) {
-      rewriter.eraseOp(op);
-      return success();
-    }
-
-    mlir::Type opaqueStructType =
-        this->getTypeConverter()->convertType(op->getResultTypes()[0]);
-    if (!opaqueStructType) {
-      return rewriter.notifyMatchFailure(op, "Failed to convert result type");
-    }
-
-    std::string varName =
-        getResultVariableName(op.getResult(), state, "interleaved_addr_gen_");
-    rewriter.create<emitc::VerbatimOp>(
-        op.getLoc(), "InterleavedAddrGenFast<true> " + varName + ";");
-    rewriter.create<emitc::VerbatimOp>(
-        op.getLoc(), varName + ".bank_base_address = {};",
-        ValueRange{adaptor.getBankBaseAddress()});
-    rewriter.create<emitc::VerbatimOp>(op.getLoc(),
-                                       varName + ".page_size = {};",
-                                       ValueRange{adaptor.getPageSize()});
-    rewriter.create<emitc::VerbatimOp>(op.getLoc(),
-                                       varName + ".data_format = {};",
-                                       ValueRange{adaptor.getDataFormat()});
-
-    rewriter.replaceOp(op, rewriter
-                               .create<emitc::LiteralOp>(
-                                   op.getLoc(), opaqueStructType, varName)
-                               .getResult());
-    return success();
-  }
-
-private:
-  TTKernelToEmitCConversionState &state;
-};
-} // namespace
-
-namespace {
 class TTKernelTensorAccessorArgsOpRewriter
     : public OpConversionPattern<ttkernel::TensorAccessorArgsOp> {
   using Op = ttkernel::TensorAccessorArgsOp;
@@ -2035,7 +1984,7 @@ public:
   }
 
 private:
-  TTKernelToEmitCConversionState &state;
+  std::reference_wrapper<TTKernelToEmitCConversionState> state;
 };
 } // namespace
 
@@ -2079,7 +2028,7 @@ public:
   }
 
 private:
-  TTKernelToEmitCConversionState &state;
+  std::reference_wrapper<TTKernelToEmitCConversionState> state;
 };
 } // namespace
 
@@ -2171,7 +2120,7 @@ public:
   }
 
 private:
-  TTKernelToEmitCConversionState &state;
+  std::reference_wrapper<TTKernelToEmitCConversionState> state;
 };
 } // namespace
 
@@ -2470,7 +2419,7 @@ public:
       target.addIllegalDialect<memref::MemRefDialect>();
       target.addIllegalDialect<ttkernel::TTKernelDialect>();
 
-      target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) -> bool {
+      target.addDynamicallyLegalOp<func::FuncOp>([](func::FuncOp op) -> bool {
         // Converting func op (kernel main) will result it having 0
         // arguments. At that point it becomes legal.
         return op.getNumArguments() == 0;
@@ -2843,9 +2792,6 @@ public:
     patterns.add<TTKernelStoreToL1OpToEmitCOpRewriter>(typeConverter, context);
     patterns.add<TTKernelLoadFromL1OpToEmitCOpRewriter>(typeConverter, context);
 
-    patterns.add<TTKernelGetInterleavedAddrGenFastOpRewriter>(typeConverter,
-                                                              context, state);
-
     patterns.add<TTKernelTensorAccessorArgsOpRewriter>(typeConverter, context,
                                                        state);
 
@@ -2859,10 +2805,8 @@ public:
         TTKernelClassMethodRewriter<ttkernel::TensorAccessorIsLocalBankOp>,
         TTKernelClassMethodRewriter<ttkernel::TensorAccessorIsLocalAddrOp>,
         TTKernelClassMethodRewriter<ttkernel::TensorAccessorIsLocalPageOp>,
-        TTKernelClassMethodRewriter<ttkernel::TensorAccessorIsLocalShardOp>,
-        TTKernelClassMethodRewriter<
-            ttkernel::InterleavedAddrGenFastGetNocAddrOp>>(typeConverter,
-                                                           context, state);
+        TTKernelClassMethodRewriter<ttkernel::TensorAccessorIsLocalShardOp>>(
+        typeConverter, context, state);
 
     patterns
         .add<ArithFloorDivRewriter, ArithBitcastRewriter, ArithMaxUIRewriter,
