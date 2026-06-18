@@ -91,11 +91,7 @@ def _session_pool_records(records):
     ]
 
 
-def _records_for_op(records, op_name: str):
-    return [r for r in records if r.op == op_name]
-
-
-def test_load_cached_cache_miss_chains_through_subprogram(device, tmp_path):
+def test_cache_miss_chains_through_subprogram(device, tmp_path):
     """argument_types_string tags two args as parameters; the const-eval hoist
     pass moves the parameter-only subgraph into a ttcore.load_cached call.
     First submit is a cache miss: the sub-function runs and its goldens flow
@@ -164,7 +160,7 @@ def test_load_cached_cache_miss_chains_through_subprogram(device, tmp_path):
     )
 
 
-def test_load_cached_cache_hit_chains_through_subprogram(device, tmp_path):
+def test_cache_hit_chains_through_subprogram(device, tmp_path):
     """Submit the same program twice in one session, reusing the same device
     tensor wrappers as inputs on the second submit so wrapper versions are
     unchanged and the LoadCachedOp hits its cache. On the cache hit the

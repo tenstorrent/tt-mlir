@@ -242,12 +242,12 @@ void registerRuntimeBindings(nb::module_ &m) {
            [](tt::runtime::Tensor self, tt::runtime::Layout layout) {
              return tt::runtime::hasLayout(self, layout);
            })
+      .def("get_global_id",
+           [](tt::runtime::Tensor self) { return self.getGlobalId(); })
       .def("get_layout",
            [](tt::runtime::Tensor self) {
              return tt::runtime::getTensorLayout(self);
-           })
-      .def("get_global_id",
-           [](tt::runtime::Tensor self) { return self.getGlobalId(); });
+           });
 
   nb::class_<tt::runtime::TensorRef>(m, "TensorRef")
       .def(
@@ -557,12 +557,11 @@ void registerRuntimeBindings(nb::module_ &m) {
   m.def(
       "retrieve_tensor_from_pool",
       [](tt::runtime::CallbackContext program_context_handle,
-         tt::runtime::TensorRef tensor_ref, bool untilize = true) {
+         tt::runtime::TensorRef tensor_ref) {
         return tt::runtime::retrieveTensorFromPool(program_context_handle,
-                                                   tensor_ref, untilize);
+                                                   tensor_ref);
       },
       nb::arg("program_context_handle"), nb::arg("tensor_ref"),
-      nb::arg("untilize") = true,
       R"(
     Returns the tensor from the tensor pool that is referenced by the given tensor reference.
 
@@ -571,8 +570,6 @@ void registerRuntimeBindings(nb::module_ &m) {
     program_context_handle : ttrt.runtime.CallbackContext
     tensor_ref : ttrt.runtime.TensorRef
         Reference to the tensor of interest (from get_op_output_refs/get_op_input_refs).
-    untilize : bool, default ``True``
-        If the tensor is stored in a tilized format, de-tilize it before returning. If the untilize flag is ``False``, tensor will be with padding so shape will be different from the original shape
 
     Returns
     -------
@@ -591,7 +588,8 @@ void registerRuntimeBindings(nb::module_ &m) {
               try {
                 callback(tensor);
               } catch (const std::exception &e) {
-                std::cerr << "chisel destroy callback: " << e.what() << "\n";
+                std::cerr << "pool tensor destroy callback: " << e.what()
+                          << "\n";
               }
             });
       },

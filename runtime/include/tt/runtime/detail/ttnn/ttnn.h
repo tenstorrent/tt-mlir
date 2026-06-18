@@ -285,7 +285,7 @@ void walkProgram(tt::runtime::Binary executableHandle, uint32_t programIndex,
 // pool.
 std::optional<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
-                       tt::runtime::TensorRef tensorRef, bool untilize);
+                       tt::runtime::TensorRef tensorRef);
 
 // Registers a destroy callback on the underlying TTNNTensorWrapper of the
 // pool-resident Tensor for `tensorRef`. Returns false if the tensorRef is

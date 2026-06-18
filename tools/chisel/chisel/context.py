@@ -260,7 +260,7 @@ class ChiselContext:
         self.binaries.clear()
 
     def clear_session_pool(self) -> None:
-        """Drop all cross-program golden cache entries."""
+        """Drop all session-pool golden cache entries."""
         self._session_pool.clear()
 
     def preprogram(

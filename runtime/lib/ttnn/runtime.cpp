@@ -2366,7 +2366,7 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
 
 std::optional<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
-                       tt::runtime::TensorRef tensorRef, bool untilize) {
+                       tt::runtime::TensorRef tensorRef) {
   const auto &programContext =
       programContextHandle.as<tt::runtime::ttnn::ProgramContext>(
           DeviceRuntime::TTNN);

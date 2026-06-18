@@ -1182,17 +1182,17 @@ void walkProgram(Binary executableHandle, uint32_t programIndex,
 
 std::optional<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
-                       TensorRef tensorRef, bool untilize) {
+                       TensorRef tensorRef) {
   using RetType = std::optional<Tensor>;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
         return tt::runtime::ttnn::retrieveTensorFromPool(programContextHandle,
-                                                         tensorRef, untilize);
+                                                         tensorRef);
       },
       [&]() -> RetType {
-        return tt::runtime::ttmetal::retrieveTensorFromPool(
-            programContextHandle, tensorRef, untilize);
+        return tt::runtime::ttmetal::retrieveTensorFromPool(programContextHandle,
+                                                            tensorRef);
       },
       [&]() -> RetType {
         detail::fatalNotImplemented("retrieveTensorFromPool",

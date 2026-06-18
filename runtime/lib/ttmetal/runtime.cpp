@@ -790,7 +790,7 @@ getOpOutputTensor(OpContext opContextHandle,
 
 std::optional<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
-                       TensorRef tensorRef, bool untilize) {
+                       TensorRef tensorRef) {
   // Not implemented
   LOG_FATAL(
       "Obtaining tensor from device for metal runtime is not implemented");

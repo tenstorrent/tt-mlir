@@ -144,11 +144,7 @@ def test_session_pool_chains_a_to_b(device, tmp_path):
         records = list(report.records)
 
     pool_records = _session_pool_records(records)
-    assert pool_records, (
-        "expected at least one golden_promoted record with source='session_pool' "
-        "on program B's first op; promotions seen: "
-        f"{[(r.op, r.ssa, r.payload.source) for r in records if r.check == 'golden_promoted']}"
-    )
+    assert pool_records, "expected a session_pool promotion on program B's first op"
 
 
 def test_session_pool_chains_a_to_a_to_a(device, tmp_path):
@@ -177,10 +173,7 @@ def test_session_pool_chains_a_to_a_to_a(device, tmp_path):
         out1 = _submit_with_layout_convert(device, fbb, [x_host, y_host])
         ctx = chisel.context.get_instance()
         pool_size_after_run1 = len(ctx.session_pool)
-        assert pool_size_after_run1 >= 1, (
-            "expected at least one entry in session_pool after run 1, "
-            f"got {pool_size_after_run1}"
-        )
+        assert pool_size_after_run1 >= 1, "expected a session_pool entry after run 1"
 
         # Pre-layout y for the subsequent submits so it matches what slot 1
         # expects; slot 0 takes the prior run's device output as-is.
@@ -196,15 +189,9 @@ def test_session_pool_chains_a_to_a_to_a(device, tmp_path):
     # Runs 2 and 3 should each contribute at least one session_pool promotion
     # on the first op (the chained input arg).
     pool_records = _session_pool_records(records)
-    assert len(pool_records) >= 2, (
-        f"expected at least 2 session_pool promotions across 3 runs, got "
-        f"{len(pool_records)}: {[(r.op, r.ssa) for r in pool_records]}"
-    )
+    assert len(pool_records) >= 2, "expected session_pool promotions across runs"
 
     # Sanity: device-seeded promotions still happen for run 1 and for the
     # never-chained `y` input across runs.
     device_records = _device_seeded_records(records)
-    assert device_records, (
-        "expected at least one device-seeded golden_promoted record "
-        "(e.g. for fresh inputs of the first run)"
-    )
+    assert device_records, "expected device-seeded golden_promoted records"

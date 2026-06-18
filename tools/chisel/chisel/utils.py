@@ -17,7 +17,12 @@ from _ttmlir_runtime.runtime import CallbackContext, Tensor, TensorRef
 from golden import GoldenMapTensor
 from golden.mapping import mlir_datatype_to_torch_dtype
 
-from .report import ChiselRecord, GoldenPromotedPayload, GoldenPromotionSource
+from .report import (
+    ChiselBugPayload,
+    ChiselRecord,
+    GoldenPromotedPayload,
+    GoldenPromotionSource,
+)
 
 logger = logging.getLogger("chisel")
 
@@ -99,7 +104,7 @@ def invalidate_device_cache(ctx, ssa: str) -> None:
 def publish_to_session_pool(
     ctx, tensor_ref: TensorRef, golden: GoldenMapTensor
 ) -> None:
-    """Write `golden` into the cross-program pool keyed by the stored runtime
+    """Write `golden` into the session pool keyed by the stored runtime
     tensor's globalId, and register a destroy-callback evictor so the entry
     dies with the underlying TTNNTensorWrapper."""
     rt_program_context = ctx.rt_program_context
@@ -115,13 +120,36 @@ def publish_to_session_pool(
     ) -> None:
         _pool.pop(_gid, None)
 
-    tt_runtime.register_pool_tensor_destroy_callback(
+    registered = tt_runtime.register_pool_tensor_destroy_callback(
         rt_program_context, tensor_ref, _evict
+    )
+    if registered:
+        return
+
+    # No evictor installed: drop the entry so it can't leak or go stale.
+    # The accumulation chain breaks at this tensor; surface it in the report.
+    session_pool.pop(global_id, None)
+    logger.warning(
+        "session pool publish failed for globalId %s: destroy-callback "
+        "registration failed, golden not chained",
+        global_id,
+    )
+    ctx.write_record(
+        ChiselRecord(
+            op=ctx.op.name,
+            check="session_pool_publish_failed",
+            payload=ChiselBugPayload(
+                traceback=(
+                    f"destroy-callback registration failed for globalId "
+                    f"{global_id}: tensor was live but not in session pool, golden not chained"
+                ),
+            ),
+        )
     )
 
 
 def lookup_from_session_pool(ctx, tensor_ref: TensorRef) -> Optional[GoldenMapTensor]:
-    """Return the cross-program golden for the given tensor_ref, or None if not yet published"""
+    """Return the session-pool golden for the given tensor_ref, or None if not yet published"""
     global_id = _get_live_tensor(ctx.rt_program_context, tensor_ref).get_global_id()
     return ctx.session_pool.get(global_id)
 

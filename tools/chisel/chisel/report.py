@@ -104,7 +104,7 @@ class GoldenPromotionSource(str, Enum):
     """Where a promoted golden came from.
 
     DEVICE: seeded from the device tensor's current contents.
-    SESSION_POOL: seeded from a prior program's accumulated golden (multi-program chain).
+    SESSION_POOL: seeded from the session pool — a golden a prior program accumulated and chained forward.
     """
 
     DEVICE = "device"
@@ -112,7 +112,9 @@ class GoldenPromotionSource(str, Enum):
 
 
 class GoldenPromotedPayload(_Payload):
-    """Audit-only: emitted when a device tensor is seeded into the golden pool.
+    """Audit-only: emitted when a golden is seeded into the golden pool.
+
+    `source` records where the golden came from (see GoldenPromotionSource)
 
     Ideally only function args are promoted; intermediate-SSA promotions
     mean a producer op is missing a golden.
