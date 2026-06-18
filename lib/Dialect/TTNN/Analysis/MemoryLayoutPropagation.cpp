@@ -879,8 +879,7 @@ void MemoryLayoutPropagation::addReshardCandidates(
         it->second = validateReshard(op, tensorType.getShape(), producerOutput,
                                      reshardLayout);
       }
-      bool valid = it->second;
-      if (!valid) {
+      if (!it->second) {
         continue;
       }
       InputCandidate ic;
