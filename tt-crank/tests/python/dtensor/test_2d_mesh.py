@@ -36,26 +36,18 @@ def test_all_reduce_per_axis(tt_pg, mesh_2d_shape, axis: int) -> None:
     torch.testing.assert_close(full, local * axis_size, atol=0.05, rtol=0.05)
 
 
-@pytest.mark.xfail(
-    reason="The topology fix removed the fabric routing crash (single-axis "
-    "Shard(0)/Shard(1) now pass), but two-axis sharding still collapses one "
-    "axis. DTensor performs a 2-axis shard as a sequence of single-axis "
-    "scatters; our scatter_into rebuilds and *replaces* the whole multi-device "
-    "storage per call, so the scatters don't compose — only the last mesh "
-    "axis survives. The earlier axis's chunk is taken from rank 0's local "
-    "tensor, which (single-coordinate fake PG, coordinate 0 on every axis) is "
-    "always chunk 0 — so that axis ends up chunk-0-replicated. Needs the "
-    "scatter seam to place chunks at full mesh coordinates.",
-    strict=True,
-)
-def test_shard_both_axes(tt_pg, mesh_2d_shape) -> None:
-    """`[Shard(0), Shard(1)]` — one shard per chip; `full_tensor()` gathers
-    over both axes back to the global tensor."""
+@pytest.mark.parametrize("shard_dims", [(0, 1), (1, 0)])
+def test_shard_both_axes(tt_pg, mesh_2d_shape, shard_dims: tuple[int, int]) -> None:
+    """`[Shard(a), Shard(b)]` - one shard per chip; `full_tensor()` gathers
+    over both axes back to the global tensor. Covers both axis orderings:
+    mesh axis 0 splitting tensor dim 0 or 1."""
     mesh = torch.tt.init_device_mesh(mesh_2d_shape, mesh_dim_names=("rows", "cols"))
     rows, cols = mesh.shape
 
-    x = torch.randn(32 * rows, 32 * cols, dtype=torch.bfloat16)
-    dx = distribute_tensor(x.to("tt"), mesh, [Shard(0), Shard(1)])
+    # Each tensor dim must be evenly divisible by the mesh axis sharding it.
+    dim0_axis, dim1_axis = (rows, cols) if shard_dims == (0, 1) else (cols, rows)
+    x = torch.randn(32 * dim0_axis, 32 * dim1_axis, dtype=torch.bfloat16)
+    dx = distribute_tensor(x.to("tt"), mesh, [Shard(shard_dims[0]), Shard(shard_dims[1])])
 
     full = dx.full_tensor().cpu()
     torch.testing.assert_close(full, x, atol=0.05, rtol=0.05)

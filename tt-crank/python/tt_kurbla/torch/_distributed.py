@@ -94,34 +94,19 @@ class TTProcessGroup(dist.ProcessGroup):
         return FakeWork()
 
     def scatter(self, output_tensors, input_tensors, opts):
-        """Scatter the source rank's chunks across the mesh (chip i ← chunks[i]).
+        """Scatter the source rank's chunks across this group's mesh axis.
 
-        DTensor's `_shard_tensor` reaches here via `mesh_scatter` → `dist.scatter`;
-        `input_tensors[0]` is the scatter_list (the global tensor split along the
-        shard dim). `_native.scatter_into` bundles the chunks into one multi-device
-        ttnn tensor and replaces `output_tensors[0]`'s storage.
-
-        On a 2D mesh DTensor scatters over one dimension's subgroup, handing us
-        `mesh_shape[axis]` chunks instead of one per chip; we replicate them along
-        the orthogonal axis so every chip gets its coordinate's slab.
+        DTensor's `_shard_tensor` reaches here via `mesh_scatter` -> `dist.scatter`.
+        `input_tensors` is a list of scatter-lists (one per output tensor, for
+        coalesced scatter); we scatter a single tensor, so `input_tensors[0]` is
+        the scatter-list: the global tensor split along the shard dim into one
+        chunk per coordinate on the axis. `_native.scatter_into` places each chunk
+        at its axis coordinate (every chip on the orthogonal axis takes its own
+        shard) and replaces `output_tensors[0]`'s storage.
         """
         assert len(output_tensors) == 1, "tt.scatter: only single-output scatter supported"
         chunks = list(input_tensors[0]) if input_tensors else []
-
-        rows, cols = _native.runtime_device_mesh_shape()
-        mesh_size = rows * cols
-        if len(chunks) < mesh_size:
-            # Subgroup scatter: replicate chunks along the orthogonal axis so
-            # every chip gets its coordinate's slab (see docstring).
-            axis = self.cluster_axis
-            axis_len = rows if axis == 0 else cols
-            assert len(chunks) == axis_len, (
-                f"tt.scatter: expected {axis_len} chunks for mesh axis {axis} "
-                f"(mesh {rows}x{cols}), got {len(chunks)}"
-            )
-            chunks = [chunks[r if axis == 0 else c] for r in range(rows) for c in range(cols)]
-
-        _native.scatter_into(output_tensors[0], chunks)
+        _native.scatter_into(output_tensors[0], chunks, self.cluster_axis)
         return FakeWork()
 
     def _allgather_base(self, output, input, opts):
