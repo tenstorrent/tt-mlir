@@ -286,10 +286,16 @@ public:
     }
     // When the TensorAccessor path is enabled, leave plain (non-multicast,
     // non-local-destination) shard-level writes in shard form for
-    // D2MDMAViaTensorAccessorRewriter (D2MToTTKernel). Multicast and
-    // local-destination writes are not handled by the accessor path, so they
-    // still lower to fully-indexed form here.
-    if (useTensorAccessorDMA && !op.isMcast() && !op.isDstLocal()) {
+    // D2MDMAViaTensorAccessorRewriter (D2MToTTKernel). Multicast,
+    // local-destination, and cross-device fabric writes are not handled by the
+    // accessor path, so they still lower to fully-indexed form here.
+    // Cross-device fabric writes (non-empty startDevice) carry
+    // startDevice/deviceMcastShape into the fully-indexed DMAWriteOp below,
+    // which D2MToTTKernel lowers to a fabric (multicast) write. Deferring them
+    // to the accessor would silently drop the fabric write and emit only a
+    // local NOC write, leaving every device with just its own shard.
+    if (useTensorAccessorDMA && !op.isMcast() && !op.isDstLocal() &&
+        op.getStartDevice().empty()) {
       return failure();
     }
 

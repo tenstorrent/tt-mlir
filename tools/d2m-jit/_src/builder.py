@@ -726,17 +726,58 @@ class GlobalSemaphore:
         return self.value
 
 
-def global_semaphore(grid_shape=(8, 8), init=0) -> GlobalSemaphore:
+_g_worker_grid = None
+
+
+def _device_worker_grid():
+    """Return the device worker grid as `(rows, cols)` from the system desc.
+
+    `create_global_semaphore`'s verifier requires the semaphore backing tensor
+    to span the full device worker grid, which is arch-dependent (8x8 on
+    Wormhole, 10x11 on Blackhole p300c). Read it from the system descriptor's
+    `grid_size` so `global_semaphore()` is portable across architectures rather
+    than hardcoding a single arch's grid. Cached after the first call.
+    """
+    global _g_worker_grid
+    if _g_worker_grid is not None:
+        return _g_worker_grid
+    import json
+
+    # Use the already-imported `_ttmlir_runtime` bindings, NOT `ttrt.binary`:
+    # importing the ttrt wrapper here pulls in a second copy of the runtime
+    # extension and double-initialises it, aborting the process.
+    sd_path = _get_system_desc_path()
+    if binary is not None and sd_path:
+        sd = binary.load_system_desc_from_path(sd_path)
+    elif runtime is not None:
+        sd = runtime.get_current_system_desc()
+    else:
+        raise RuntimeError(
+            "global_semaphore() needs a system descriptor to size the worker "
+            "grid; set SYSTEM_DESC_PATH or pass grid_shape explicitly."
+        )
+    desc = json.loads(sd.as_json())
+    root = desc.get("system_desc", desc)
+    grid = root["chip_descs"][0]["grid_size"]
+    _g_worker_grid = (int(grid["y"]), int(grid["x"]))
+    return _g_worker_grid
+
+
+def global_semaphore(grid_shape=None, init=0) -> GlobalSemaphore:
     """Allocate a global semaphore over the device worker grid.
 
-    `grid_shape` must equal the device worker grid (8x8 on Wormhole) — the
-    `create_global_semaphore` verifier checks this. `init` is the initial
-    value (default 0).
+    `grid_shape` must equal the device worker grid (8x8 on Wormhole, 10x11 on
+    Blackhole p300c) — the `create_global_semaphore` verifier checks this. When
+    omitted (`None`), it is read from the system descriptor via
+    `_device_worker_grid()` so the same call is portable across architectures.
+    `init` is the initial value (default 0).
 
     Emits an uninitialised `ui32` backing buffer plus
     `d2m.create_global_semaphore`, and returns a `GlobalSemaphore` handle to
     pass to a kernel.
     """
+    if grid_shape is None:
+        grid_shape = _device_worker_grid()
     b = _get_scope()
     with b.ctx, b.loc, b.insert_point:
         backing_ty = _semaphore_backing_type(b.ctx, grid_shape)

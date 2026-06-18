@@ -89,19 +89,82 @@ machine:
 
 ---
 
-## Hard constraint: hardware
+## Hardware (two boxes)
 
-The `nsmith/d2m-ccl` localdev box (`/localdev/nsmith/src/tt-mlir`) is a
-**single-device Wormhole n150** (one chip, no inter-device fabric links).
+There are now **two** machines in play:
 
-- Fabric / multi-device-mesh work **cannot run or be validated there** —
-  `ttcore-register-device{mesh-shape=1,2}` aborts (no 2nd device). All
-  fabric/mesh d2m-jit tests (`test_mesh`, `test_scf_if_gated_fabric`, the 1×2
-  all_gather) abort there for this reason; **this is environmental, not a code
-  bug.**
-- The fabric→DRAM track (and the deadlock) therefore needs a **multi-device
-  machine**. The single-device matmul→DRAM-scratch half can be prototyped on the
-  n150.
+1. The `nsmith/d2m-ccl` localdev box (`/localdev/nsmith/src/tt-mlir`) is a
+   **single-device Wormhole n150** (one chip, no inter-device fabric links).
+   Fabric / multi-device-mesh work cannot be validated there — all fabric/mesh
+   d2m-jit tests abort for lack of a 2nd device (environmental, not a code bug).
+2. **`qb2-120-p04t06` (`/home/ttuser/src/tt-mlir`) is a 4-chip Blackhole p300c**
+   with real inter-chip ethernet/fabric (the 4 chips form a degree-2 ring). This
+   box **can** run multi-device/fabric work — the n150's hardware constraint no
+   longer applies here. (_Added 2026-06-17._)
+
+Caveats on the Blackhole box:
+- **Worker grid is 10×11, not Wormhole's 8×8.** `global_semaphore()` used to
+  hardcode `grid_shape=(8,8)`; it now defaults to reading the device worker grid
+  from the system descriptor (`_device_worker_grid()` in `builder.py`), so it is
+  arch-portable. The device tests were updated to drop the explicit `(8,8)`; the
+  lit tests keep `(8,8)` because they register a **mock Wormhole** device.
+- **Build/env gotchas** (must do every fresh session here): the d2m-jit Python
+  pkg symlinks to source, but the C++ build (`build-d2m-jit/`) and the system
+  descriptor must be rebuilt/regenerated to match HEAD or you get
+  `no such option use-tensor-accessor-dma` / `system desc schema mismatch`. Run:
+  `cmake --build build-d2m-jit --target d2m-jit ttrt` then `ttrt query
+  --save-artifacts`, and add `build-d2m-jit/{python_packages,runtime/python}` to
+  `PYTHONPATH` (env/activate points at `build/`, the wrong dir name).
+
+### Multi-device test status on Blackhole (2026-06-17)
+
+After rebuild + grid fix, `test/d2m-jit/test_mesh.py`:
+- ✅ Pass: `test_mesh_shard*_1x2`, `test_mesh_compute_roundtrip_1x2`,
+  `test_two_generic_matmul_gather`, `test_all_gather_1x2_lowers` (compile-only),
+  and all of `test_semaphore.py`.
+- ⚠️ **All fabric-enabled CCL tests** (`test_all_gather_1x2_roundtrip`,
+  `test_*matmul_all_gather*`, `test_fused_*_all_gather`, multicore/streaming)
+  failed at **device-open** with a **Fabric Router Sync timeout** in
+  `initialize_fabric_and_dispatch_fw()`. **Root-caused (not a hardware/link
+  problem): the tests hardcode `mesh((1,2))`, a 2-chip _subset_ of the 4-chip
+  ring.** Device 0's ethernet cores wired to the out-of-mesh chips hang at
+  `STARTED` (no partner kernel on the unopened chips). A no-kernel probe
+  confirms: **1×2 throws for FABRIC_1D/1D_RING, but 1×4 and 2×2 bring up fine
+  with any fabric config.** → On this box, **open the full physical mesh
+  (1×4 / 2×2); sub-meshes can't train fabric.**
+
+### Fabric works on the full mesh; 4-device all_gather FIXED (2026-06-18)
+
+A 1×4 all_gather kernel (adapted from `test_all_gather_1x2_roundtrip`) **runs
+end-to-end on Blackhole with no timeout/deadlock** — proving the CCL fabric path
+works on the full mesh, and that the `remote_store`→DRAM deadlock is *not* what
+was blocking here.
+
+The 1×4 result was first a **block-diagonal** (PCC 0.5): device `d` held only its
+own shard `s_d` at row-band `d`, zeros elsewhere — the cross-device mcast wasn't
+distributing payload. **Root cause (a latent regression from enabling the
+TensorAccessor DMA by default, `6125f5e13`):** `D2MLowerDMAToFullyIndexedForm`
+deferred *all* non-mcast/non-local shard writes to the accessor path, including
+cross-device fabric `remote_store`s. The accessor lowers a write to a **local
+NOC write**, silently dropping the fabric multicast — so only the local
+self-write landed (the sem-inc still went cross-device, which is why the kernel
+didn't hang). The 1×2 tests never caught it because they never ran on real
+multi-device hardware.
+
+**Fix:** in `LowerDMAToFullyIndexedForm.cpp`, the accessor-deferral guard now
+also excludes cross-device writes (`&& op.getStartDevice().empty()`), so fabric
+writes lower to the fully-indexed form that `D2MToTTKernel` turns into a
+`fabric_mcast_fast_write_any_len`. With the accessor on (default), the 1×4
+all_gather is now correct (PCC 0.9999, full vstack on every column-band) and the
+kernel emits the real cross-device payload write. Regression guard:
+`test_mesh.py::test_all_gather_1x4_roundtrip` (gated ≥4 devices).
+
+**Next:** extend to fused matmul+all_gather on the full mesh; revisit ring
+topology and the DRAM-staging (`remote_store`→DRAM) deadlock.
+
+- The fabric→DRAM track (and the deadlock) now has a working fabric handshake to
+  build on (use the full mesh). The single-device matmul→DRAM-scratch half can be
+  prototyped on either box.
 
 ---
 
