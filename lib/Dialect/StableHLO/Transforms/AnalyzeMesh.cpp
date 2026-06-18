@@ -268,8 +268,7 @@ public:
     if (shardy_utils::getMeshOps(rootModule).empty()) {
       if (gspmd_utils::gspmdAnnotationsExist(rootModule)) {
         llvm::Expected<llvm::SmallVector<llvm::SmallVector<int64_t>>>
-            parsedMeshes =
-                gspmd_utils::parseMeshesFromGspmdModule(rootModule);
+            parsedMeshes = gspmd_utils::parseMeshesFromGspmdModule(rootModule);
         if (auto err = parsedMeshes.takeError()) {
           rootModule.emitError("Could not query meshes from gspmd module");
           signalPassFailure();
