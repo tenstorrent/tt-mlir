@@ -2288,7 +2288,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getDim()),
+        emitter.emit(static_cast<int32_t>(srcOp.getDim())),
         emitter.emit(srcOp.getIndex()),
         emitter.emit(/*sparse_grad=*/false, "sparse_grad"),
         emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
@@ -2703,6 +2703,43 @@ public:
         emitter.emit(srcOp.getUpdateIndex(), "update_idxs_tensor"),
         emitter.emit(srcOp.getShareCache(), "share_cache"),
         emitter.emit(srcOp.getPageTable(), "page_table")};
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// PagedFillCacheOp
+//
+namespace {
+class PagedFillCacheOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::PagedFillCacheOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.paged_fill_cache";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.experimental.paged_fill_cache";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::PagedFillCacheOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PagedFillCacheOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::PagedFillCacheOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getCache()), emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getPageTable()),
+        emitter.emit(srcOp.getBatchIdxTensor(), "batch_idx_tensor")};
 
     emitter.replaceOp(*this, args);
 
@@ -5401,6 +5438,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<FillCacheOpConversionPattern>(typeConverter, ctx);
   patterns.add<UpdateCacheOpConversionPattern>(typeConverter, ctx);
   patterns.add<PagedUpdateCacheOpConversionPattern>(typeConverter, ctx);
+  patterns.add<PagedFillCacheOpConversionPattern>(typeConverter, ctx);
   patterns.add<SamplingOpConversionPattern>(typeConverter, ctx);
 
   // Trace ops
