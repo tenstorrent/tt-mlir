@@ -289,6 +289,17 @@ def D2M_GenericOp
   let results = (outs Variadic<AnyRankedTensor>:$results);
   let regions = (region VariadicRegion<AnyRegion>:$regions);
 
+  // Keep this format in sync with GenericOp::parse/print. Empty blocks must
+  // print their block label so a present-but-empty region roundtrips as a
+  // one-block region:
+  //
+  //   d2m.generic {threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+  //       ins()
+  //       outs(%arg0 : memref<1xf32, #l1>) {
+  //   ^datamovement0:
+  //   }, {
+  //   ^compute0:
+  //   }
   let hasCustomAssemblyFormat = 1;
 
   let hasVerifier = 1;
