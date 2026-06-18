@@ -4623,6 +4623,65 @@ public:
                                enableMulticastInference) {}
 
 private:
+  /// Casts `input` elementwise to `resultType` via `d2m.tile_typecast`.
+  /// Emitted inline instead of going through `ttir.typecast` so we don't
+  /// rely on the conversion driver revisiting a freshly-created op.
+  mlir::Value buildTypecastGeneric(ConversionPatternRewriter &rewriter,
+                                   Location loc, mlir::Value input,
+                                   RankedTensorType resultType) const {
+    SmallVector<Value> origInputs{input};
+    SmallVector<Value> origOutputs =
+        createDpsOutputs(loc, rewriter, {resultType});
+    auto [inputs, outputs] = toLayoutOperandsAndResults(
+        rewriter, {origInputs, origOutputs}, /*tiled*/ true);
+    assert(inputs.size() == 1 && outputs.size() == 1);
+
+    const std::size_t physicalRank =
+        ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
+    SmallVector<AffineMap> indexingMaps =
+        getIdentityAffineMapsArray(rewriter, 2, physicalRank);
+    auto parallel = ttcore::IteratorTypeAttr::get(
+        rewriter.getContext(), ttcore::IteratorType::Parallel);
+    SmallVector<Attribute> iteratorTypes(physicalRank, parallel);
+
+    auto generic = rewriter.create<d2m::GenericOp>(
+        loc, inputs, outputs, /*additionalArgs=*/ValueRange(),
+        rewriter.getAffineMapArrayAttr(indexingMaps),
+        rewriter.getArrayAttr(iteratorTypes));
+
+    withD2MGenericRegion(
+        rewriter, loc, generic, inputs, outputs,
+        [&](mlir::ArrayRef<mlir::Value> blockArgs) -> SmallVector<Value> {
+          SmallVector<mlir::utils::IteratorType> linalgIteratorTypes =
+              iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
+
+          auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
+              loc,
+              llvm::to_vector(
+                  mlir::ValueRange(blockArgs.take_back(1)).getTypes()),
+              /*inputs=*/blockArgs.take_front(1),
+              /*outs=*/blockArgs.take_back(1), indexingMaps,
+              linalgIteratorTypes,
+              [&](mlir::OpBuilder &bbBuilder, mlir::Location bbLoc,
+                  mlir::ValueRange bbArgs) {
+                auto outShardTy =
+                    mlir::cast<RankedTensorType>(blockArgs.back().getType());
+                auto outTileTy =
+                    mlir::cast<ttcore::TileType>(outShardTy.getElementType());
+                mlir::Value casted = bbBuilder
+                                         .create<d2m::TileTypecastOp>(
+                                             bbLoc, outTileTy, bbArgs.front())
+                                         .getResult();
+                bbBuilder.create<mlir::linalg::YieldOp>(bbLoc, casted);
+              });
+
+          return {linalgGeneric.getResult(0)};
+        });
+
+    return unLayoutResult(rewriter, generic->getResult(0), resultType)
+        ->getResult(0);
+  }
+
   d2m::GenericOp buildGenericLinAlg(
       mlir::ConversionPatternRewriter &rewriter, mlir::Location loc,
       mlir::ValueRange inputs, mlir::ValueRange outputs,
@@ -4787,19 +4846,19 @@ private:
     // layout)
     auto scaler = createScaler(rewriter, loc, inputType);
     auto maxOrigOutputs = createDpsOutputs(loc, rewriter, {reducedType});
-    SmallVector<Value> origInputs = {adaptor.getInput(), scaler};
-
-    auto [maxInputs, maxOutputs] =
-        toLayoutOperandsAndResults(rewriter, {origInputs, maxOrigOutputs}, true,
-                                   noCollapse, ttcore::OOBVal::NegInf);
+    auto [maskedMaxInput, maxOutputs] = toLayoutOperandsAndResults(
+        rewriter, {SmallVector<Value>{adaptor.getInput()}, maxOrigOutputs},
+        true, noCollapse, ttcore::OOBVal::NegInf);
+    auto [scalerLaidOut, maxouts] = toLayoutOperandsAndResults(
+        rewriter, {SmallVector<Value>{scaler}, SmallVector<Value>{}}, true,
+        noCollapse);
+    SmallVector<Value> maxInputs = {maskedMaxInput[0], scalerLaidOut[0]};
 
     // build affine maps
     const std::size_t physicalRank =
         ttcore::getDeviceLayout(maxOutputs[0]).getRank() /
         2; // physical rank is device layout / 2
 
-    mlir::AffineExpr d0 = rewriter.getAffineDimExpr(0); // dim 0
-    mlir::AffineExpr d1 = rewriter.getAffineDimExpr(1); // dim 1
     mlir::AffineExpr zero =
         rewriter.getAffineConstantExpr(0); // for reductions (collapse to 0)
 
@@ -4887,7 +4946,6 @@ private:
 
     // make affine maps
     AffineMap bcastInputMap = outputAccum.getAffineMap();
-    ;
     AffineMap bcastOutputMap = rewriter.getMultiDimIdentityMap(physicalRank);
 
     SmallVector<AffineMap> bcastMaps = {bcastInputMap, bcastOutputMap};
@@ -4950,11 +5008,6 @@ private:
 
     // === setup for arange ===
     // ROW-WISE OR COLUMN-WISE ONLY
-    // figure out dimensions of output tensor (1 x should be reduced dim or a
-    // single row)
-    SmallVector<int64_t> arangeShape(physicalRank, 1);
-    arangeShape[0] = inputType.getDimSize(dim);
-
     auto arangeOrigOutputs = createDpsOutputs(loc, rewriter, {inputType});
     auto [arangeins, arangeOutputs] = toLayoutOperandsAndResults(
         rewriter, {SmallVector<Value>{}, arangeOrigOutputs}, true, noCollapse);
@@ -5019,10 +5072,133 @@ private:
           return {result};
         });
 
-    (void)eq1;
-    (void)outputType;
-    (void)d0;
-    (void)d1;
+    // setup for bcast
+    d2m::TileBcastType postArangeBcastType;
+    switch (reduceDim) {
+    case d2m::ReduceDim::R:
+      postArangeBcastType = d2m::TileBcastType::Row;
+      break;
+    // ReduceDim::R reduced along columns -> result tile is a row-tile ->
+    // broadcast as Row
+    case d2m::ReduceDim::C:
+      postArangeBcastType = d2m::TileBcastType::Col;
+      break;
+    // ReduceDim::C reduced along rows -> result tile is a col-tile -> broadcast
+    // as Col
+    case d2m::ReduceDim::RC:
+      postArangeBcastType = d2m::TileBcastType::Scalar;
+      break;
+      // ReduceDim::RC reduced everything -> result is a scalar tile ->
+      // broadcast as Scalar
+    }
+    d2m::TileBcastTypeAttr postArangeBcastTypeAttr =
+        d2m::TileBcastTypeAttr::get(ctx, postArangeBcastType);
+    SmallVector<Value> postArangeBcastInputs(arange.getResults().begin(),
+                                             arange.getResults().end());
+    auto postArangeBcastOrigOutputs =
+        createDpsOutputs(loc, rewriter, {inputType});
+    auto [postArangeBcastins, postArangeBcastOutputs] =
+        toLayoutOperandsAndResults(
+            rewriter, {SmallVector<Value>{}, postArangeBcastOrigOutputs}, true,
+            noCollapse);
+
+    AffineMap postArangeBcastInputMap =
+        rewriter.getMultiDimIdentityMap(physicalRank);
+    AffineMap postArangeBcastOutputMap =
+        rewriter.getMultiDimIdentityMap(physicalRank);
+    SmallVector<AffineMap> postArangeBcastMaps = {postArangeBcastInputMap,
+                                                  postArangeBcastOutputMap};
+
+    SmallVector<Attribute> postArangeBcastIters(
+        physicalRank,
+        ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel));
+
+    d2m::GenericOp postArangeBcast = buildGenericLinAlg(
+        rewriter, loc, postArangeBcastInputs, postArangeBcastOutputs,
+        postArangeBcastMaps, postArangeBcastIters,
+        [&](mlir::OpBuilder &bb, mlir::Location l, mlir::ValueRange bbArgs) {
+          // bbArgs[0] = arange output [[0...31],[32...63],...]
+          // bbArgs[1] = output tile with row 0 copied across
+          return bb
+              .create<d2m::TileBcastOp>(
+                  l,
+                  bbArgs[1].getType(),    // result type = full tile type
+                  bbArgs[0],              // input = arange tile
+                  postArangeBcastTypeAttr // how to expand it
+                  )
+              .getResult();
+        });
+
+    // setup for tile_mul
+    AffineMap mulInputMap = rewriter.getMultiDimIdentityMap(physicalRank);
+    AffineMap mulOutputMap = rewriter.getMultiDimIdentityMap(physicalRank);
+    SmallVector<AffineMap> mulMaps = {mulInputMap, mulInputMap, mulOutputMap};
+
+    SmallVector<Attribute> mulIters(
+        physicalRank,
+        ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel));
+
+    auto mulOrigOutputs = createDpsOutputs(loc, rewriter, {inputType});
+    SmallVector<Value> mulInputs{postArangeBcast->getResult(0),
+                                 eq1->getResult(0)};
+    auto [mulins, mulOutputs] = toLayoutOperandsAndResults(
+        rewriter, {SmallVector<Value>{}, mulOrigOutputs}, true, noCollapse);
+
+    d2m::GenericOp mul = buildGenericLinAlg(
+        rewriter, loc, mulInputs, mulOutputs, mulMaps, mulIters,
+        [&](mlir::OpBuilder &bb, mlir::Location l, mlir::ValueRange bbArgs) {
+          return bb
+              .create<d2m::TileMulOp>(
+                  l,
+                  bbArgs[0].getType(), // result type = same tile type
+                  bbArgs[0],           // lhs = result of bcast
+                  bbArgs[1]            // rhs = result of eq
+                  )
+              .getResult();
+        });
+
+    // === setup for reduceMax2 ====
+    SmallVector<Value> max2Inputs = {mul->getResult(0), maxInputs[1]};
+    auto max2OrigOutputs = createDpsOutputs(loc, rewriter, {reducedType});
+    auto [max2ins, max2Outputs] = toLayoutOperandsAndResults(
+        rewriter, {SmallVector<Value>{}, max2OrigOutputs}, true, noCollapse);
+
+    // === build generic op for reduceMax2 ===
+    d2m::GenericOp reduceMax2 = buildGenericLinAlg(
+        rewriter, loc, max2Inputs, max2Outputs, indexingMaps, iteratorTypes,
+        [&](mlir::OpBuilder &bb, mlir::Location l, mlir::ValueRange bbArgs) {
+          // bbArgs[0] = one mul(eq1, arange) tile (a)
+          // bbArgs[1] = one scaler tile (b)
+          // bbArgs[2] = one output tile (c, the accumulator)
+          return bb
+              .create<d2m::TileReduceMaxOp>(
+                  l,
+                  bbArgs[2].getType(), // result type = same as accumulator
+                  bbArgs[0],           // a = mul tile
+                  bbArgs[1],           // b = scaler tile
+                  bbArgs[2],           // c = accumulator tile
+                  reduceDimAttr        // ReduceDim::R / ::C / ::RC
+                  )
+              .getResult();
+        });
+
+    // Convert the reduced bf16 index back to the plain (untiled) host layout
+    // first, then typecast to si32. buildTypecastGeneric re-lays-out its input,
+    // which on an already-device-tiled reduced tensor would pick a fresh
+    // optimal layout (e.g. collapsing 32x1 -> 1x1x1x1) and emit a to_layout
+    // between mismatched logical shapes, tripping the same-logical-shape assert
+    // in buildLayoutTransformMap. Unlaying-out to a plain tensor first keeps
+    // the typecast on the host-tensor path the helper expects.
+    auto reducedHostType = RankedTensorType::get(reducedType.getShape(),
+                                                 inputType.getElementType());
+    Value reducedHost =
+        unLayoutResult(rewriter, reduceMax2->getResult(0), reducedHostType)
+            ->getResult(0);
+
+    // Cast the reduced bf16 index to the si32 result type.
+    Value result = buildTypecastGeneric(rewriter, loc, reducedHost, outputType);
+
+    rewriter.replaceOp(op, result);
     return success();
   }
 };
@@ -5114,6 +5290,8 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     // Data movement.
     D2MNamedElementwiseRewriter<ttir::TypecastOp,        d2m::TileTypecastOp>,
     D2MBroadcastRewriter,
+    // Argmax
+    D2MArgMaxRewriter,
     // Tensor manipulation/View ops.
     D2MConcatRewriter,
     D2MTensorManipulationOpRewriter<ttir::RearrangeOp,        rearrangeLogicalInfo>,
@@ -5129,8 +5307,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MConstantFillOpRewriter<ttir::ZerosOp>,
     D2MConstantFillOpRewriter<ttir::OnesOp>,
     // CCL
-    D2MAllGatherRewriter,
-    D2MArgMaxRewriter
+    D2MAllGatherRewriter
   >(typeConverter, ctx, defaultInputMemSpace, defaultOutputMemSpace, ttnnMode, collapseTensors, enableMulticastInference);
 
   // Handle SliceStatic cases that need a transpose-based rewrite to satisfy
