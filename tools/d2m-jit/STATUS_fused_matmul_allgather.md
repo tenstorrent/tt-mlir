@@ -159,8 +159,17 @@ all_gather is now correct (PCC 0.9999, full vstack on every column-band) and the
 kernel emits the real cross-device payload write. Regression guard:
 `test_mesh.py::test_all_gather_1x4_roundtrip` (gated ≥4 devices).
 
-**Next:** extend to fused matmul+all_gather on the full mesh; revisit ring
-topology and the DRAM-staging (`remote_store`→DRAM) deadlock.
+**Fused matmul+all_gather on the full mesh — WORKS (2026-06-18).** With the
+fabric-write fix above, a fused distributed-matmul + all_gather (each device
+computes `C_d = A_d @ B_d`, then all-gathers `C_d`) runs correctly on the 1×4
+mesh: every device ends with `vstack(C_0..C_3)`, PCC passes. This is the
+compute-produced-CB source feeding the multi-hop fabric mcast (the
+`split-unified-thread-v2` compute→DM handoff) on the full mesh. Regression guard:
+`test_mesh.py::test_matmul_all_gather_fused_1x4_roundtrip` (gated ≥4 devices),
+alongside `test_all_gather_1x4_roundtrip`.
+
+**Next:** revisit ring topology and the DRAM-staging (`remote_store`→DRAM)
+deadlock; scale the fused path toward the 8×8 worker grid / larger shards.
 
 - The fabric→DRAM track (and the deadlock) now has a working fabric handshake to
   build on (use the full mesh). The single-device matmul→DRAM-scratch half can be
