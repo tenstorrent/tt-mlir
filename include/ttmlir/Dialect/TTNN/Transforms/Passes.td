@@ -333,6 +333,18 @@ def TTNNDeduceMoEComputeLayouts : Pass<"ttnn-deduce-moe-compute-layouts", "::mli
   }];
 }
 
+def TTNNPrepareConv3dWeights : Pass<"ttnn-prepare-conv3d-weights", "::mlir::ModuleOp"> {
+  let summary = "Insert PrepareConv3dWeightsOp before every Conv3dOp.";
+  let description = [{
+    TTIRToTTNN lowers ttir.conv3d to ttnn.conv3d with the raw 5D weight still attached.
+    This pass walks every Conv3dOp, derives c_in_block from the optimizer's
+    Conv3dConfigAttr (or falls back to TILE_WIDTH = 32), and inserts a
+    PrepareConv3dWeightsOp that reshapes the raw 5D weight into the 2D layout the
+    tt-metal runtime expects. The Conv3dOp's weight operand is then rewired to the
+    prepared result. Mirrors TTNNPrepareConv2dWeightsAndBias.
+  }];
+}
+
 def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
 {
   let summary = "TTNN fusing pass.";
@@ -721,16 +733,44 @@ def TTNNResolveComposites : Pass<"ttnn-resolve-composites", "::mlir::ModuleOp"> 
   let summary = "Resolve composite ops into typed ops or inline decompositions.";
   let description = [{
     This pass resolves `ttcore.composite` ops by attempting to replace each one
-    with a dedicated typed TTNN op (e.g. `ttnn.topk_router_gpt`). If the typed
-    op fails verification or OpModel validation, the decomposition function body
-    is inlined as a fallback.
+    with a dedicated typed TTNN op (e.g. `ttnn.rotary_embedding`).
 
-    Typed op promotion requires OpModel validation. If OpModel is not available
-    all composites are unconditionally decomposed into their primitive equivalents.
+    Resolution mode is controlled by the `composite-resolution` option:
+
+    - `inline` (default): All composites are unconditionally inlined (decomposed
+      into primitives). This is the safe default — downstream TTNN fusing
+      patterns can still create typed ops from the inlined primitives.
+
+    - `validate`: The typed op is validated via OpModel before promotion. If
+      validation fails, the decomposition function body is inlined as a
+      fallback. Requires TTMLIR_ENABLE_OPMODEL.
+
+    - `force-promote`: Unconditionally promote registered composites to typed
+      ops without validation. Intended for testing only.
 
     After resolution, decomposition functions that are no longer referenced are
     erased from the module.
   }];
+
+  let options = [
+    Option<"compositeResolution",
+            "composite-resolution",
+            "CompositeResolution",
+            /*default=*/"CompositeResolution::Auto",
+            "How to resolve composites.",
+            [{::llvm::cl::values(
+              clEnumValN(CompositeResolution::Auto, "auto",
+                "Pipeline decides: validate when optimizer+OpModel available, "
+                "else inline (default)."),
+              clEnumValN(CompositeResolution::Inline, "inline",
+                "Always inline decomposition; never upgraded by pipeline."),
+              clEnumValN(CompositeResolution::Validate, "validate",
+                "Promote if OpModel validates, else inline "
+                "(requires TTMLIR_ENABLE_OPMODEL)."),
+              clEnumValN(CompositeResolution::ForcePromote, "force-promote",
+                "Unconditionally promote (testing only).")
+            )}]>,
+  ];
 }
 
 def TTNNCollaspeD2M : Pass<"ttnn-collaspe-d2m", "::mlir::ModuleOp"> {

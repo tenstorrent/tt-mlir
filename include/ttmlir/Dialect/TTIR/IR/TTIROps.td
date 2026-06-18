@@ -3291,35 +3291,6 @@ def TTIR_SoftmaxOp : TTIR_NamedOp<"softmax"> {
     let hasVerifier = 1;
 }
 
-def TTIR_RotaryEmbeddingOp : TTIR_NamedOp<"rotary_embedding"> {
-  let summary = "Rotary position embedding operation.";
-  let description = [{
-    Applies rotary position embedding (RoPE) to the input tensor using
-    precomputed cosine and sine caches.
-
-    Formula:
-      result = x * cos + rotate_half(x) * sin
-      where rotate_half(x) = concat(neg(x[D/2:]), x[:D/2])
-
-    The input tensor must be 4D [batch, heads, seq_len, head_dim].
-    cos_cache and sin_cache must be 4D and broadcastable to the input shape,
-    with the last dimension (head_dim) matching the input exactly.
-
-    Example:
-      %result = "ttir.rotary_embedding"(%input, %cos_cache, %sin_cache)
-        : (tensor<1x32x128x64xbf16>, tensor<1x1x128x64xbf16>,
-           tensor<1x1x128x64xbf16>) -> tensor<1x32x128x64xbf16>
-  }];
-
-  let arguments = (ins AnyRankedTensor:$input,
-                       AnyRankedTensor:$cos_cache,
-                       AnyRankedTensor:$sin_cache);
-
-  let results = (outs AnyRankedTensor:$result);
-
-  let hasVerifier = 1;
-}
-
 def TTIR_SortOp : TTIR_NamedOp<"sort"> {
   let summary = "Sort operation.";
   let description = [{

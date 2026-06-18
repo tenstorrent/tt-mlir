@@ -133,6 +133,30 @@ void applyConvSliceConfig(ModuleOp moduleOp) {
   });
 }
 
+//===----------------------------------------------------------------------===//
+// Conv3dRuleBook
+//===----------------------------------------------------------------------===//
+
+void Conv3dRuleBook::applyOpSpecificAttrs(
+    Operation *op, const BeamCandidate &candidate) const {
+  auto conv3d = dyn_cast<Conv3dOp>(op);
+  if (!conv3d) {
+    return;
+  }
+  if (!std::holds_alternative<Conv3dAttrs>(
+          candidate.configHint.opSpecificAttrs)) {
+    return;
+  }
+  Conv3dAttrs attrs =
+      std::get<Conv3dAttrs>(candidate.configHint.opSpecificAttrs);
+  if (attrs.conv3dConfig.has_value()) {
+    conv3d.setConv3dConfigAttr(attrs.conv3dConfig.value());
+  }
+  if (attrs.deviceComputeKernelConfig.has_value()) {
+    conv3d.setComputeConfigAttr(attrs.deviceComputeKernelConfig.value());
+  }
+}
+
 void fixupConvDeallocate(func::FuncOp func) {
   func->walk([&](Operation *op) {
     auto disableDeallocIfMultiUser = [](auto convOp) {

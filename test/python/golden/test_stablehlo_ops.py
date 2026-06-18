@@ -19,6 +19,15 @@ from test_utils import shape_str, Marks
 pytestmark = pytest.mark.frontend("shlo")
 
 
+def check_op(mlir_file: str, op_name: str) -> bool:
+    op_name = "ttnn." + op_name
+    with open(mlir_file, "r") as f:
+        for line in f:
+            if op_name in line:
+                return True
+    return False
+
+
 def module_abs(builder: StableHLOBuilder):
     @builder.func([(128, 128)], [torch.float32])
     def abs(
@@ -2351,12 +2360,16 @@ def test_flash_mla_prefill_causal_no_value(
                 unit_attrs=unit_attrs,
             )
 
-    compile_and_execute_shlo(
+    output = compile_and_execute_shlo(
         module,
         **get_request_kwargs(request),
         target=target,
         device=DeferredDevice(request),
+        ttir_pipeline_options=["composite-resolution=force-promote"],
+        save_artifacts=True,
     )
+
+    check_op(output, "flash_mla_prefill")
 
 
 # Causal with explicit value: exercises has_value=true.
@@ -2399,12 +2412,16 @@ def test_flash_mla_prefill_causal_with_value(
                 unit_attrs=unit_attrs,
             )
 
-    compile_and_execute_shlo(
+    output = compile_and_execute_shlo(
         module,
         **get_request_kwargs(request),
         target=target,
         device=DeferredDevice(request),
+        ttir_pipeline_options=["composite-resolution=force-promote"],
+        save_artifacts=True,
     )
+
+    check_op(output, "flash_mla_prefill")
 
 
 # Non-causal with attention mask (no value): exercises has_attention_mask=true,
@@ -2453,12 +2470,16 @@ def test_flash_mla_prefill_with_mask(
                 unit_attrs=unit_attrs,
             )
 
-    compile_and_execute_shlo(
+    output = compile_and_execute_shlo(
         module,
         **get_request_kwargs(request),
         target=target,
         device=DeferredDevice(request),
+        ttir_pipeline_options=["composite-resolution=force-promote"],
+        save_artifacts=True,
     )
+
+    check_op(output, "flash_mla_prefill")
 
 
 # All four operands present (query, key, value, mask) with explicit scale.
@@ -2506,9 +2527,13 @@ def test_flash_mla_prefill_value_mask_scale(
                 unit_attrs=unit_attrs,
             )
 
-    compile_and_execute_shlo(
+    output = compile_and_execute_shlo(
         module,
         **get_request_kwargs(request),
         target=target,
         device=DeferredDevice(request),
+        ttir_pipeline_options=["composite-resolution=force-promote"],
+        save_artifacts=True,
     )
+
+    check_op(output, "flash_mla_prefill")
