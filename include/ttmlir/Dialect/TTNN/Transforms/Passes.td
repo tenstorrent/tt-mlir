@@ -946,18 +946,11 @@ def TTNNLowerTTLangToGeneric : Pass<"ttnn-lower-tt-lang-to-generic", "::mlir::Mo
     `#ttnn.write_kernel` attribute carrying the kernel's C++ source inline
     (the `source` parameter), its CB-index / tensor-accessor compile-time
     args, and its buffer-address common runtime args. `cb_configs` become
-    `#ttnn.kernel_cb` descriptors. The resulting `ttnn.generic` runs through
-    the same flatbuffer / runtime path as hand-written generic kernels, so
-    the TTNN-to-flatbuffer emitter needs no `tt_lang_op`-specific code.
-
-    The op is destination-passing style (`arg_roles == in* out+`), so the
-    `ttnn.generic`'s `inputs_and_outputs` operands are the `tt_lang_op`
-    operands in declaration order, and each `tt_lang_op` result is replaced
-    by its tied trailing "out" operand.
+    `#ttnn.kernel_cb` descriptors.
 
     This pass must run after `--ttnn-resolve-tt-lang-kernels` and before
     flatbuffer emission. A `ttnn.tt_lang_op` with an empty/unset
-    `kernel_artifact` is an error (the resolve pass must run first).
+    `kernel_artifact` is not allowed and will result in an error.
   }];
 }
 

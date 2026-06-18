@@ -62,6 +62,14 @@ namespace mlir::tt::ttnn {
 
 namespace {
 
+// Schema version of the `kernel_artifact` JSON this pass understands. The
+// emitter inserts tensor-accessor markers into every NOC kernel's
+// compile-time args and the runtime expands each at launch time, so the
+// artifact carries no pre-baked TensorAccessor values. Anything other than
+// this version is fatal so the build fails loudly on schema drift. Bump
+// this when the artifact schema changes.
+constexpr int64_t EXPECTED_FORMAT_VERSION = 1;
+
 // Map the JSON `data_format` spelling (e.g. "BFloat16") to a
 // `ttcore::DataType`. The names match the enum's C++ symbol spelling 1:1.
 std::optional<ttcore::DataType> parseDataType(llvm::StringRef name) {
@@ -360,16 +368,11 @@ ProgramAttr buildProgramAttr(TTLangOp op, MLIRContext *ctx,
     return {};
   }
 
-  // Schema version gate. The emitter inserts tensor-accessor markers into
-  // every NOC kernel's compile-time args and the runtime expands each at
-  // launch time, so the artifact carries no pre-baked TensorAccessor
-  // values. Anything other than the current version is fatal so the build
-  // fails loudly on schema drift.
-  constexpr int64_t kFormatVersion = 1;
+  // Schema version gate: anything other than the expected version is fatal.
   auto fv = root->getInteger("format_version");
-  if (!fv || *fv != kFormatVersion) {
+  if (!fv || *fv != EXPECTED_FORMAT_VERSION) {
     op.emitError("kernel_artifact has unsupported format_version (expected ")
-        << kFormatVersion << ").";
+        << EXPECTED_FORMAT_VERSION << ").";
     return {};
   }
 
