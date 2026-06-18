@@ -33,7 +33,6 @@ inline const llvm::StringMap<HeaderRequirement> &getCalleeToHeadersMap() {
         {"get_compile_time_arg_val",                       {"api/compile_time_args.h", "api/compile_time_args.h"}},
 
         // NoC.
-        // The "get_interleaved_addr_gen_fast" op materializes as "InterleavedAddrGenFast<true>".
         {"get_dataformat",                                 {"", "api/dataflow/dataflow_api.h"}},
         {"get_noc_addr",                                   {"", "api/dataflow/dataflow_api.h"}},
         {"get_noc_addr_from_bank_id",                      {"", "api/dataflow/dataflow_api.h"}},
@@ -42,22 +41,13 @@ inline const llvm::StringMap<HeaderRequirement> &getCalleeToHeadersMap() {
         {"get_tile_size",                                  {"", "api/dataflow/dataflow_api.h"}},
         {"get_write_ptr",                                  {"", "api/dataflow/dataflow_api.h"}},
         {"get_read_ptr",                                   {"", "api/dataflow/dataflow_api.h"}},
-        {"noc_async_read_one_packet_set_state",            {"", "api/dataflow/dataflow_api.h"}},
-        {"noc_async_read_one_packet_with_state",           {"", "api/dataflow/dataflow_api.h"}},
-        {"noc_async_read_one_packet_with_state_with_trid", {"", "api/dataflow/dataflow_api.h"}},
-        {"noc_async_read_set_trid",                        {"", "api/dataflow/dataflow_api.h"}},
-        {"noc_async_read_tile",                            {"", "api/dataflow/dataflow_api.h"}},
-        {"noc_async_write_multicast_one_packet",           {"", "api/dataflow/dataflow_api.h"}},
-        {"noc_async_write_one_packet_with_trid",           {"", "api/dataflow/dataflow_api.h"}},
-        {"noc_async_write_set_trid",                       {"", "api/dataflow/dataflow_api.h"}},
-        {"noc_async_write_tile",                           {"", "api/dataflow/dataflow_api.h"}},
-        {"noc_inline_dw_write",                            {"", "api/dataflow/dataflow_api.h"}},
+        {"TensorAccessor",                                 {"", "api/tensor/noc_traits.h"}},
+        {"TensorAccessorArgs",                             {"", "api/tensor/tensor_accessor_args.h"}},
         {"noc_semaphore_inc",                              {"", "api/dataflow/dataflow_api.h"}},
         {"noc_semaphore_set",                              {"", "api/dataflow/dataflow_api.h"}},
         {"noc_semaphore_set_remote",                       {"", "api/dataflow/dataflow_api.h"}},
         {"noc_semaphore_set_multicast",                    {"", "api/dataflow/dataflow_api.h"}},
         {"noc_semaphore_set_multicast_loopback_src",       {"", "api/dataflow/dataflow_api.h"}},
-        {"reset_noc_trid_barrier_counter",                 {"", "api/dataflow/dataflow_api.h"}},
 
         // Compute.
         {"abs_tile",                                       {"api/compute/compute_kernel_api.h", ""}},
