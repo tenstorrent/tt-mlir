@@ -1302,7 +1302,6 @@ public:
         emitter.emit(srcOp.getDim()),
         /*keepdim=*/emitter.emit(srcOp.getKeepDim()),
         /*sub_core_grids=*/emitter.emit(std::nullopt),
-        emitter.emit(srcOp.getUseMulticore()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
     };
 

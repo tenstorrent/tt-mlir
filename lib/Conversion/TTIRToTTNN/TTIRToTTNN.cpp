@@ -323,8 +323,7 @@ public:
     }
     rewriter.replaceOpWithNewOp<ttnn::ArgMaxOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), reductionAxis, adaptor.getKeepDim(),
-        /*use_multicore=*/true);
+        adaptor.getInput(), reductionAxis, adaptor.getKeepDim());
     return success();
   }
 };

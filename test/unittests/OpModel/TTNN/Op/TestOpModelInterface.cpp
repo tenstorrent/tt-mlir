@@ -1212,7 +1212,7 @@ TEST_F(OpModelBase, ArgMaxOpInterface) {
 
   auto argMax =
       builder.create<ArgMaxOp>(builder.getUnknownLoc(), outputType, input,
-                               builder.getI32IntegerAttr(1), false, false);
+                               builder.getI32IntegerAttr(1), false);
 
   // getOutputLayout() hardcodes tiled L1 layout, so we cannot use it
   OpModel backend = dyn_cast<OpModel>(argMax.getOperation());

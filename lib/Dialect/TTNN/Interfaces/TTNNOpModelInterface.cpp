@@ -2822,8 +2822,7 @@ ArgMaxOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ArgMaxOp>::getOpConstraints, *this, inputShape,
-      inputs[0], getDim(), getKeepDim(), getUseMulticore(),
-      opConfig.outputLayout);
+      inputs[0], getDim(), getKeepDim(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -2835,7 +2834,7 @@ ArgMaxOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<ArgMaxOp>::getOpRuntime, *this, inputShape, inputs[0],
-      getDim(), getKeepDim(), getUseMulticore(), opConfig.outputLayout);
+      getDim(), getKeepDim(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

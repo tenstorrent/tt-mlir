@@ -4004,8 +4004,7 @@ llvm::Expected<size_t> OpModel<TopKRouterGptOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<ArgMaxOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    std::optional<int32_t> dim, bool keepDim, bool multicore,
-    TTNNLayoutAttr outputLayout) {
+    std::optional<int32_t> dim, bool keepDim, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -4018,7 +4017,7 @@ llvm::Expected<OpConstraints> OpModel<ArgMaxOp>::getOpConstraints(
   auto argMaxOpQuery = [=]() {
     return QUERY_OP_CONSTRAINTS(
         ::ttnn::argmax, device, inputSpec, dim, keepDim, std::nullopt,
-        multicore, detail::getNullableMemoryConfig(outputLayout), std::nullopt);
+        detail::getNullableMemoryConfig(outputLayout), std::nullopt);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), argMaxOpQuery);
@@ -4027,11 +4026,9 @@ llvm::Expected<OpConstraints> OpModel<ArgMaxOp>::getOpConstraints(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-llvm::Expected<size_t>
-OpModel<ArgMaxOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
-                                TTNNLayoutAttr inputLayout,
-                                std::optional<int32_t> dim, bool keepDim,
-                                bool multicore, TTNNLayoutAttr outputLayout) {
+llvm::Expected<size_t> OpModel<ArgMaxOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<int32_t> dim, bool keepDim, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -4044,7 +4041,7 @@ OpModel<ArgMaxOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   auto argMaxOpQuery = [=]() {
     return QUERY_OP_RUNTIME(
         ::ttnn::argmax, device, inputSpec, dim, keepDim, std::nullopt,
-        multicore, detail::getNullableMemoryConfig(outputLayout), std::nullopt);
+        detail::getNullableMemoryConfig(outputLayout), std::nullopt);
   };
 
   return operation::getOpRuntime(argMaxOpQuery);

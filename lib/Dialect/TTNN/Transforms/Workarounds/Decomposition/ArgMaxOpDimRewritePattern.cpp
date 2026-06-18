@@ -88,7 +88,7 @@ ArgMaxOpDimRewritePattern::matchAndRewrite(ttnn::ArgMaxOp srcOp,
       mlir::IntegerType::get(getContext(), 32), rank - 1);
   auto argMaxOp = rewriter.create<ttnn::ArgMaxOp>(
       srcOp->getLoc(), permutedOutputType, forwardPermute, lastDimAttr,
-      srcOp.getKeepDimAttr(), srcOp.getUseMulticoreAttr());
+      srcOp.getKeepDimAttr());
 
   // Inverse permute to restore original dimension order.
   auto inversePermute = rewriter.replaceOpWithNewOp<ttnn::PermuteOp>(

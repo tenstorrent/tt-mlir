@@ -82,7 +82,7 @@ module {
 
         // CHECK: %{{[0-9]+}} = "ttir.argmax"(%{{[0-9]+}}) <{dim_arg = [0 : i32], keep_dim = false}> : (tensor<64x32xbf16, #ttnn_layout{{[0-9]+}}>) -> tensor<32xi32, #ttnn_layout{{[0-9]+}}>
         // CHECK-NOT: "ttnn.argmax"
-        %2 = "ttnn.argmax"(%1) {ttnn.hoist_generic_via_d2m, dim = 0 : i32, keep_dim = false, use_multicore = true} : (tensor<64x32xbf16, #l1_layout>) -> tensor<32xi32, #l1_layout>
+        %2 = "ttnn.argmax"(%1) {ttnn.hoist_generic_via_d2m, dim = 0 : i32, keep_dim = false} : (tensor<64x32xbf16, #l1_layout>) -> tensor<32xi32, #l1_layout>
 
         %3 = "ttnn.to_memory_config"(%2) : (tensor<32xi32, #l1_layout>) -> tensor<32xi32, #dram_layout>
 
@@ -166,7 +166,7 @@ module {
 
         // CHECK: %{{[0-9]+}} = "ttir.argmax"(%{{[0-9]+}}) <{keep_dim = true}> : (tensor<64x96xbf16, #ttnn_layout{{[0-9]+}}>) -> tensor<1x1xi32, #ttnn_layout{{[0-9]+}}>
         // CHECK-NOT: "ttnn.argmax"
-        %2 = "ttnn.argmax"(%1) {ttnn.hoist_generic_via_d2m, keep_dim = true, use_multicore = true} : (tensor<64x96xbf16, #l1_layout>) -> tensor<1x1xi32, #l1_layout>
+        %2 = "ttnn.argmax"(%1) {ttnn.hoist_generic_via_d2m, keep_dim = true} : (tensor<64x96xbf16, #l1_layout>) -> tensor<1x1xi32, #l1_layout>
 
         %3 = "ttnn.to_memory_config"(%2) : (tensor<1x1xi32, #l1_layout>) -> tensor<1x1xi32, #dram_layout>
 
