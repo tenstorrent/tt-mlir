@@ -258,8 +258,17 @@ static void cacheKernelNocIndices(ModuleOp moduleOp,
         nocIdx = 1;
         break;
       }
-      state.kernelNocIndices.try_emplace(
-          nocConfig.getKernelSymbol().getRootReference(), nocIdx);
+      std::string kernelSymbol =
+          nocConfig.getKernelSymbol().getRootReference().str();
+      auto it = state.kernelNocIndices.find(kernelSymbol);
+      if (it != state.kernelNocIndices.end()) {
+        TT_assertv(it->second == nocIdx,
+                   "malformed IR: kernel symbol `{}` has conflicting NoC "
+                   "indices {} and {}",
+                   kernelSymbol, it->second, nocIdx);
+        continue;
+      }
+      state.kernelNocIndices.try_emplace(kernelSymbol, nocIdx);
     }
   });
 }
@@ -1012,7 +1021,10 @@ namespace {
 class TTKernelBitcastOpRewriter
     : public OpConversionPattern<ttkernel::BitcastOp> {
 public:
-  using OpConversionPattern<ttkernel::BitcastOp>::OpConversionPattern;
+  TTKernelBitcastOpRewriter(const TypeConverter &typeConverter,
+                            MLIRContext *context,
+                            TTKernelToEmitCConversionState *state)
+      : OpConversionPattern(typeConverter, context), state(state) {}
 
   LogicalResult
   matchAndRewrite(ttkernel::BitcastOp op, OpAdaptor adaptor,
@@ -1033,15 +1045,7 @@ public:
     }
 
     // Float types: bit-cast via __builtin_memcpy (well-defined, avoids UB).
-    // Derive a unique variable name from the SSA result number.
-    std::string ssaName;
-    {
-      llvm::raw_string_ostream os(ssaName);
-      mlir::OpPrintingFlags flags;
-      op.getResult().printAsOperand(os, flags);
-      os.flush();
-    }
-    std::string varName = "_rc" + ssaName.substr(1);
+    std::string varName = getResultVariableName(op.getResult(), *state, "_rc");
 
     // Emits: uint32_t <var>_src = <srcInit>; float <var>;
     //        __builtin_memcpy(&<var>, &<var>_src, sizeof(<var>));
@@ -1088,6 +1092,9 @@ public:
 
     return rewriter.notifyMatchFailure(op, "unsupported float type");
   }
+
+private:
+  TTKernelToEmitCConversionState *state;
 };
 } // namespace
 
@@ -2455,8 +2462,8 @@ public:
     populateMemRefToEmitCTypeConversion(typeConverter);
     populateMemRefToEmitCConversionPatterns(patterns, typeConverter);
 
+    patterns.add<TTKernelBitcastOpRewriter>(typeConverter, context, &state);
     patterns.add<
-        TTKernelBitcastOpRewriter,
         TTKernelToEmitCArgValRewriter<ttkernel::GetCompileArgValOp>,
         TTKernelToEmitCArgValRewriter<ttkernel::GetArgValOp>,
         TTKernelToEmitCArgValRewriter<ttkernel::GetCommonArgValOp>,
