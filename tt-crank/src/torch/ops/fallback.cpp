@@ -2,7 +2,7 @@
 // PrivateUse1 kernel routes through here: tensors get materialized to CPU, the
 // op runs on CPU, results are copied back to tt. Slow, but correct.
 //
-// For debugging, TT_KURBLA_LOG_FALLBACK=1 environment variable can be used
+// For debugging, TT_KURBLA_LOG_FALLBACK_ENABLED=1 environment variable can be used
 // which causes us to log every operation that triggers a fallback.
 
 #include <atomic>
@@ -14,6 +14,7 @@
 #include <torch/library.h>
 #include <tt-logger/tt-logger.hpp>
 
+#include "config.hpp"
 #include "torch/ops/fallback.hpp"
 
 namespace tt::kurbla::torch_backend {
@@ -24,14 +25,6 @@ namespace {
 // used by `strict_no_fallback()` in tests to assert "this code path stays on
 // the native tt kernels".
 std::atomic<bool> g_fallback_strict{false};
-
-bool log_fallback_enabled() {
-    static const bool enabled = [] {
-        const char *v = std::getenv("TT_KURBLA_LOG_FALLBACK");
-        return v != nullptr && std::strcmp(v, "0") != 0 && v[0] != '\0';
-    }();
-    return enabled;
-}
 
 void tt_cpu_fallback(const c10::OperatorHandle &op, torch::jit::Stack *stack) {
     TORCH_CHECK(!g_fallback_strict, "tt-kurbla strict-fallback: op `", op.operator_name(),
