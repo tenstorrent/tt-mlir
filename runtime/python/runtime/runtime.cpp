@@ -588,7 +588,7 @@ void registerRuntimeBindings(nb::module_ &m) {
         auto guarded_callback = std::shared_ptr<nb::callable>(
             new nb::callable(std::move(callback)), [](nb::callable *cb) {
               nb::gil_scoped_acquire gil;
-              delete cb;
+              delete cb; // NOLINT(cppcoreguidelines-owning-memory)
             });
         return tt::runtime::registerPoolTensorDestroyCallback(
             program_context_handle, tensor_ref,
