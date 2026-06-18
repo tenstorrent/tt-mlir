@@ -1580,7 +1580,9 @@ public:
         mlir::cast<RankedTensorType>(matmulBVal.getType()).getRank();
     int64_t outputColDim = (matmulBRank >= 2) ? outputRank - 1 : -1;
     int64_t outputRowDim =
-        (matmulARank >= 2) ? (matmulBRank >= 2 ? outputRank - 2 : outputRank - 1) : -1;
+        (matmulARank >= 2)
+            ? (matmulBRank >= 2 ? outputRank - 2 : outputRank - 1)
+            : -1;
     if (outputRowDim < 0 && outputColDim < 0) {
       return rewriter.notifyMatchFailure(slice, "no row/col dim to slice");
     }
