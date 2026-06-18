@@ -84,7 +84,7 @@ if enable_ttmetal:
 if enable_ttnn or enable_ttmetal:
     runlibs += ["libtt-umd.so.0"]
     runlibs += ["libtt_stl.so"]
-    runlibs += ["libtracy.so.0.10.0"]
+    runlibs += ["libtracy.so.0.13.3"]
 
 if enable_perf:
     perflibs += ["tracy-capture"]
