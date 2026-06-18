@@ -366,8 +366,8 @@ if (TT_RUNTIME_ENABLE_PERF_TRACE)
       MESSAGE(STATUS \"Installing tt-metal profiler binaries to ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}\")
       file(
           INSTALL
-          ${TRACY_BINARY_DIR}/csvexport-release
-          ${TRACY_BINARY_DIR}/capture-release
+          ${TRACY_BINARY_DIR}/tracy-csvexport
+          ${TRACY_BINARY_DIR}/tracy-capture
           DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR}
           TYPE SHARED_LIBRARY
           USE_SOURCE_PERMISSIONS
