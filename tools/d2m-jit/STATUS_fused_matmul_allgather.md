@@ -176,9 +176,31 @@ to 4×4-tile / K=4 shards (128×128 per device → 512×512 gathered, PCC 1.0).
 Regression guard: `test_matmul_all_gather_fused_1x4_large_shards_roundtrip`
 (2×2/K=2, gated ≥4 devices).
 
-**Next:** revisit ring topology and the DRAM-staging (`remote_store`→DRAM)
-deadlock; the multi-tile path is the stepping stone toward the 8×8 worker grid
-and shards large enough to need DRAM staging (Option 2).
+**Streaming all_gather on the full mesh — WORKS (2026-06-18).** Two-generic
+streaming (grid-N `_mm_col` matmul writes `C_d`; a grid-1 link core streams it,
+reading ONE tile and fabric-mcasting it across the 4-device line, reusing a
+single 1-tile buffer) runs correctly on 1×4. The link core's L1 stays bounded to
+one tile regardless of shard size. Regression guard:
+`test_mesh.py::test_streaming_matmul_all_gather_1x4` (gated ≥4 devices).
+
+**The `remote_store`→DRAM deadlock is now REPRODUCED (2026-06-18).** "Much larger
+shards" needs the *gathered* output (num_devices × per-device tiles, stacked in a
+column) to exceed the worker-grid height — which forces a **DRAM-staged output**
+(Option 2). Minimal repro: take the working 1×4 streaming all_gather, N=2, and
+flip `L_out` to `mem_space="dram"`. Fabric initializes fine on all 4 devices
+(FABRIC_1D_RING), the program launches, then the kernel **hangs in the fabric
+`remote_store`→DRAM** — no `Finish`, no completion (killed at timeout; the device
+recovers cleanly afterward). So the hang is in the fabric write to a DRAM
+destination, *after* a healthy bringup — distinct from the (now-fixed) accessor
+mcast-drop and the (resolved) sub-mesh bringup timeout.
+
+A no-kernel-change repro recipe lives at `/tmp/stream_mm_ag_1x4_dram.py`
+(`N=2 MEM=dram`). Root cause not yet found; the fabric write reaches DRAM
+addresses differently than L1 — the prime suspect is the DRAM NOC-endpoint /
+flush path in the fabric write lowering.
+
+**Next:** root-cause the `remote_store`→DRAM deadlock — it is the gate to
+much-larger shards (Option 2) and the 8×8 grid.
 
 - The fabric→DRAM track (and the deadlock) now has a working fabric handshake to
   build on (use the full mesh). The single-device matmul→DRAM-scratch half can be
