@@ -763,13 +763,51 @@ class SamplingOpConversionPattern
 public:
   using OpConversionPattern<ttir::SamplingOp>::OpConversionPattern;
 
+  // The ttnn::sampling kernel operates on a rank-4 [1, 1, batch, candidates]
+  // input and produces a rank-4 [1, 1, 1, batch] output, while the TTIR-level
+  // op is rank-2 in / rank-1 out. Bridge the two by inserting explicit reshape
+  // ops here so the resulting TTNN IR matches the kernel exactly. Previously
+  // this adaptation lived only inside the flatbuffer runtime handler, which
+  // meant EmitPy / EmitC codegen emitted a bare rank-2 ttnn.sampling that
+  // crashed at execution (tt-metal #8836).
   LogicalResult
   matchAndRewrite(ttir::SamplingOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    rewriter.replaceOpWithNewOp<ttnn::SamplingOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInputValues(), adaptor.getInputIndices(), adaptor.getK(),
-        adaptor.getP(), adaptor.getTemp(), adaptor.getSeedAttr());
+    Location loc = op.getLoc();
+    auto inputValues =
+        mlir::cast<TypedValue<RankedTensorType>>(adaptor.getInputValues());
+    auto inputIndices =
+        mlir::cast<TypedValue<RankedTensorType>>(adaptor.getInputIndices());
+
+    auto inputShape = inputValues.getType().getShape();
+    int64_t batch = inputShape[0];
+    int64_t candidates = inputShape[1];
+
+    llvm::SmallVector<int64_t, 4> shape4D = {1, 1, batch, candidates};
+    ttnn::ReshapeOp inputValues4D = ttir_to_ttnn::utils::generateReshape(
+        inputValues, shape4D, rewriter,
+        ttmlir::utils::appendLocationSuffix(loc, "_values_reshape"));
+    ttnn::ReshapeOp inputIndices4D = ttir_to_ttnn::utils::generateReshape(
+        inputIndices, shape4D, rewriter,
+        ttmlir::utils::appendLocationSuffix(loc, "_indices_reshape"));
+
+    auto resultType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getType()));
+    llvm::SmallVector<int64_t, 4> sampling4DShape = {1, 1, 1, batch};
+    RankedTensorType sampling4DResultType =
+        ttnn::utils::RankedTensorTypeFactory::create(resultType,
+                                                     sampling4DShape);
+
+    auto sampling4D = rewriter.create<ttnn::SamplingOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_sampling"),
+        sampling4DResultType, inputValues4D.getResult(),
+        inputIndices4D.getResult(), adaptor.getK(), adaptor.getP(),
+        adaptor.getTemp(), adaptor.getSeedAttr());
+
+    llvm::SmallVector<int32_t, 1> finalShapeI32 = {static_cast<int32_t>(batch)};
+    rewriter.replaceOpWithNewOp<ttnn::ReshapeOp>(
+        op, resultType, sampling4D.getResult(),
+        rewriter.getI32ArrayAttr(finalShapeI32));
     return success();
   }
 };
