@@ -802,6 +802,41 @@ public:
 } // namespace
 
 namespace {
+// Converts `ttir.tt_lang_op` to `ttnn.tt_lang_op`. The op is opaque to the
+// compiler: we forward all metadata attributes (`kernel_id`, `version_tag`,
+// `arg_roles`, `shard_spec`) verbatim and leave `kernel_artifact` empty for
+// the tt-xla plugin to populate after the pipeline completes.
+class TTLangOpConversionPattern : public OpConversionPattern<ttir::TTLangOp> {
+public:
+  using OpConversionPattern<ttir::TTLangOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::TTLangOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> resultTypes;
+    resultTypes.reserve(op.getNumResults());
+    for (Type resultType : op.getResultTypes()) {
+      Type converted = this->getTypeConverter()->convertType(resultType);
+      if (!converted) {
+        return rewriter.notifyMatchFailure(
+            op, "Failed to convert ttir.tt_lang_op result type.");
+      }
+      resultTypes.push_back(converted);
+    }
+
+    rewriter.replaceOpWithNewOp<ttnn::TTLangOp>(
+        op, resultTypes, adaptor.getInputs(),
+        /*kernel_id=*/op.getKernelIdAttr(),
+        /*version_tag=*/op.getVersionTagAttr(),
+        /*arg_roles=*/op.getArgRolesAttr(),
+        /*shard_spec=*/op.getShardSpecAttr(),
+        /*kernel_artifact=*/mlir::StringAttr{});
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class FillCacheOpConversionPattern
     : public OpConversionPattern<ttir::FillCacheOp> {
 public:
@@ -3701,7 +3736,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            DropoutOpConversionPattern,
            DebugOpConversionPattern<debug::DumpOp, ttnn::DumpTensorOp>,
            TopKOpConversionPattern,
-           TopKRouterGptOpConversionPattern
+           TopKRouterGptOpConversionPattern,
+           TTLangOpConversionPattern
            >(typeConverter, ctx);
   // ANCHOR_END: op_rewriter_pattern_set
   // clang-format on

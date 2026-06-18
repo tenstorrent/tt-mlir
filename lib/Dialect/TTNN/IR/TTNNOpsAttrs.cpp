@@ -936,7 +936,10 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
     if (!llvm::isa<mlir::tt::ttnn::ComputeKernelAttr,
                    mlir::tt::ttnn::ReadKernelAttr,
                    mlir::tt::ttnn::WriteKernelAttr,
-                   mlir::tt::ttnn::DataMovementKernelAttr>(kernel)) {
+                   mlir::tt::ttnn::DataMovementKernelAttr,
+                   mlir::tt::ttnn::SourceComputeKernelAttr,
+                   mlir::tt::ttnn::SourceReadKernelAttr,
+                   mlir::tt::ttnn::SourceWriteKernelAttr>(kernel)) {
       return emitError() << "Unexpected kernel";
     }
   }
@@ -1001,7 +1004,8 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
   for (auto arg : args) {
     if (!llvm::isa<mlir::tt::ttnn::KernelArgCBBufferIndexAttr,
                    mlir::tt::ttnn::KernelArgScalarAttr,
-                   mlir::tt::ttnn::KernelArgSemaphoreAtAttr>(arg)) {
+                   mlir::tt::ttnn::KernelArgSemaphoreAtAttr,
+                   mlir::tt::ttnn::KernelArgTensorAccessorArgsAttr>(arg)) {
       return emitError() << "Unexpected compile time argument";
     }
   }
@@ -1072,6 +1076,64 @@ DeviceComputeKernelConfigAttr::withDstFullSyncEn(bool value) const {
     return ::llvm::failure();
   }
 
+  return ::llvm::success();
+}
+
+static ::llvm::LogicalResult verifyInlineKernelSource(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    mlir::StringAttr source) {
+  if (!source || source.getValue().empty()) {
+    return emitError() << "inline-source kernel requires a non-empty `source`";
+  }
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult SourceComputeKernelAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    mlir::StringAttr source, ::mlir::tt::ttnn::CoreRangeSetAttr coreRanges,
+    ComputeKernelMathFidelity mathFidelity, bool fp32DestAccEn,
+    bool dstFullSyncEn,
+    ::llvm::ArrayRef<ComputeKernelUnpackToDestMode> unpackToDestModes,
+    bool bfp8PackPrecise, bool mathApproxMode,
+    ::llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    ::llvm::ArrayRef<mlir::tt::ttnn::CoreRuntimeArgsAttr> rtArgs,
+    ::llvm::ArrayRef<mlir::Attribute> ctArgs) {
+  if (failed(verifyInlineKernelSource(emitError, source)) ||
+      failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyRuntimeArgs(emitError, rtArgs)) ||
+      failed(verifyCompileTimeArgs(emitError, ctArgs))) {
+    return ::llvm::failure();
+  }
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult SourceReadKernelAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    mlir::StringAttr source, CoreRangeSetAttr coreRanges,
+    ::llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    ::llvm::ArrayRef<mlir::tt::ttnn::CoreRuntimeArgsAttr> rtArgs,
+    ::llvm::ArrayRef<mlir::Attribute> ctArgs) {
+  if (failed(verifyInlineKernelSource(emitError, source)) ||
+      failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyRuntimeArgs(emitError, rtArgs)) ||
+      failed(verifyCompileTimeArgs(emitError, ctArgs))) {
+    return ::llvm::failure();
+  }
+  return ::llvm::success();
+}
+
+::llvm::LogicalResult SourceWriteKernelAttr::verify(
+    ::llvm::function_ref<::mlir::InFlightDiagnostic()> emitError,
+    mlir::StringAttr source, CoreRangeSetAttr coreRanges,
+    ::llvm::ArrayRef<mlir::Attribute> commonRtArgs,
+    ::llvm::ArrayRef<mlir::tt::ttnn::CoreRuntimeArgsAttr> rtArgs,
+    ::llvm::ArrayRef<mlir::Attribute> ctArgs) {
+  if (failed(verifyInlineKernelSource(emitError, source)) ||
+      failed(verifyCommonRuntimeArgs(emitError, commonRtArgs)) ||
+      failed(verifyRuntimeArgs(emitError, rtArgs)) ||
+      failed(verifyCompileTimeArgs(emitError, ctArgs))) {
+    return ::llvm::failure();
+  }
   return ::llvm::success();
 }
 
