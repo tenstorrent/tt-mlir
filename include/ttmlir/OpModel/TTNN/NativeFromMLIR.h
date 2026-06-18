@@ -353,6 +353,14 @@ buildPagedUpdateCacheOpTFromMLIR(bool shareCache);
 ::tt::target::ttnn::EmbeddingBackwardOpT
 buildEmbeddingBackwardOpTFromMLIR(TTNNLayoutAttr outputLayout);
 
+::tt::target::ttnn::DropoutOpT
+buildDropoutOpTFromMLIR(llvm::APFloat prob, llvm::APFloat scale, uint32_t seed,
+                        bool usePerDeviceSeed, TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOpT
+buildExperimentalEltwiseBinaryBackwardOpTFromMLIR(std::string approximate,
+                                                  TTNNLayoutAttr outputLayout);
+
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_ENABLE_OPMODEL
 

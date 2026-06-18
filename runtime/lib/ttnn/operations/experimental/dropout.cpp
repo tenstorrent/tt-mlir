@@ -4,12 +4,8 @@
 
 #include "operations/experimental/dropout.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-#include "tt/runtime/detail/ttnn/utils.h"
-#include "ttmlir/Target/TTNN/program_generated.h"
-#include "ttnn/operations/experimental/dropout/dropout.hpp"
-#include "ttnn/tensor/tensor.hpp"
+#include "ttmlir/OpInvoke/TTNN/Experimental/DropoutOp.h"
+#include <variant>
 
 namespace tt::runtime::ttnn::operations::experimental {
 
@@ -18,15 +14,20 @@ void run(const ::tt::target::ttnn::DropoutOp *op, ProgramContext &context) {
 
   const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  float prob = op->prob();
-  float scale = op->scale();
-  uint32_t seed = op->seed();
-  bool usePerDeviceSeed = op->use_per_device_seed();
+  ::tt::target::ttnn::DropoutOpT dropoutOpNative;
+  op->UnPackTo(&dropoutOpNative);
 
-  ::ttnn::Tensor out =
-      ::ttnn::experimental::dropout(input, prob, scale, seed, usePerDeviceSeed);
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  ttnn_op_invoke::DropoutOpResult result =
+      ttnn_op_invoke::callDropout(ttnn_op_invoke::CallType::EXECUTE,
+                                  dropoutOpNative, &input, &targetDevice);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callDropout execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
 } // namespace tt::runtime::ttnn::operations::experimental

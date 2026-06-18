@@ -1375,6 +1375,28 @@ buildEmbeddingBackwardOpTFromMLIR(TTNNLayoutAttr outputLayout) {
   return op;
 }
 
+::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOpT
+buildExperimentalEltwiseBinaryBackwardOpTFromMLIR(std::string approximate,
+                                                  TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOpT op;
+  op.type = ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOpType::GeluBW;
+  op.approximate = approximate;
+  op.out = detail::getOutputTensorRefT(outputLayout);
+  return op;
+}
+
+::tt::target::ttnn::DropoutOpT
+buildDropoutOpTFromMLIR(llvm::APFloat prob, llvm::APFloat scale, uint32_t seed,
+                        bool usePerDeviceSeed, TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::DropoutOpT dropoutOp;
+  dropoutOp.prob = prob.convertToFloat();
+  dropoutOp.scale = scale.convertToFloat();
+  dropoutOp.seed = seed;
+  dropoutOp.use_per_device_seed = usePerDeviceSeed;
+  dropoutOp.out = detail::getOutputTensorRefT(outputLayout);
+  return dropoutOp;
+}
+
 } // namespace mlir::tt::ttnn::op_model
 
 #endif // TTMLIR_ENABLE_OPMODEL

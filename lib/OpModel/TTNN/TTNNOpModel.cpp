@@ -37,6 +37,8 @@
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Unary/EltwiseUnaryCompositeOp.h"
 #include "ttmlir/OpInvoke/TTNN/Eltwise/Unary/EltwiseUnaryOp.h"
 #include "ttmlir/OpInvoke/TTNN/Embedding/EmbeddingBackwardOp.h"
+#include "ttmlir/OpInvoke/TTNN/Experimental/DropoutOp.h"
+#include "ttmlir/OpInvoke/TTNN/Experimental/ExperimentalEltwiseBinaryBackwardOp.h"
 #include "ttmlir/OpInvoke/TTNN/KVCache/FillCacheOp.h"
 #include "ttmlir/OpInvoke/TTNN/KVCache/PagedFillCacheOp.h"
 #include "ttmlir/OpInvoke/TTNN/KVCache/PagedUpdateCacheOp.h"
@@ -1785,14 +1787,21 @@ llvm::Expected<OpConstraints> OpModel<GeluBackwardOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
+  ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOpT opNative =
+      buildExperimentalEltwiseBinaryBackwardOpTFromMLIR(approximate,
+                                                        outputLayout);
 
-  // Create query closure
   auto query = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::experimental::gelu_bw, device,
-                                inputSpecA, inputSpecB, approximate,
-                                outputMemoryConfig);
+    ttnn_op_invoke::ExperimentalEltwiseBinaryBackwardOpResult result =
+        ttnn_op_invoke::callExperimentalEltwiseBinaryBackward(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, opNative,
+            inputSpecA, inputSpecB, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected GeluBackwardOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayoutA.getContext(), query);
@@ -1817,19 +1826,25 @@ llvm::Expected<size_t> OpModel<GeluBackwardOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
-  std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
-      detail::getNullableMemoryConfig(outputLayout);
+  ::tt::target::ttnn::ExperimentalEltwiseBinaryBackwardOpT opNative =
+      buildExperimentalEltwiseBinaryBackwardOpTFromMLIR(approximate,
+                                                        outputLayout);
 
-  // Create query closure
   auto query = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::experimental::gelu_bw, device, inputSpecA,
-                            inputSpecB, approximate, outputMemoryConfig);
+    ttnn_op_invoke::ExperimentalEltwiseBinaryBackwardOpResult result =
+        ttnn_op_invoke::callExperimentalEltwiseBinaryBackward(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, opNative, inputSpecA,
+            inputSpecB, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected GeluBackwardOp runtime query to return RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(query);
 #else
-  return llvm::createStringError(llvm::inconvertibleErrorCode(),
-                                 "OpRuntime not yet implemented for gelu_bw");
+  return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
@@ -8311,15 +8326,19 @@ OpModel<mlir::tt::ttnn::DropoutOp>::getOpConstraints(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  float probVal = prob.convertToFloat();
-  float scaleVal = scale.convertToFloat();
+  ::tt::target::ttnn::DropoutOpT dropoutOpNative = buildDropoutOpTFromMLIR(
+      prob, scale, seed, usePerDeviceSeed, outputLayout);
 
-  // Create query closure
   auto dropoutOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::experimental::dropout, device, inputSpec, probVal, scaleVal,
-        seed, usePerDeviceSeed, detail::getNullableMemoryConfig(outputLayout),
-        std::nullopt);
+    ttnn_op_invoke::DropoutOpResult result = ttnn_op_invoke::callDropout(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, dropoutOpNative,
+        inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected DropoutOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), dropoutOpQuery);
@@ -8340,15 +8359,18 @@ llvm::Expected<size_t> OpModel<mlir::tt::ttnn::DropoutOp>::getOpRuntime(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  float probVal = prob.convertToFloat();
-  float scaleVal = scale.convertToFloat();
+  ::tt::target::ttnn::DropoutOpT dropoutOpNative = buildDropoutOpTFromMLIR(
+      prob, scale, seed, usePerDeviceSeed, outputLayout);
 
-  // Create query closure
   auto dropoutOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::experimental::dropout, device, inputSpec,
-                            probVal, scaleVal, seed, usePerDeviceSeed,
-                            detail::getNullableMemoryConfig(outputLayout),
-                            std::nullopt);
+    ttnn_op_invoke::DropoutOpResult result =
+        ttnn_op_invoke::callDropout(ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+                                    dropoutOpNative, inputSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected DropoutOp runtime query to return RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(dropoutOpQuery);
