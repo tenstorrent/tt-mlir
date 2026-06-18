@@ -1629,15 +1629,13 @@ public:
       return rewriter.notifyMatchFailure(slice, "slice not on row or col dim");
     }
 
-    int64_t narrowedSize = slicedDimSize(sliceFrom, sliceTo, sliceStep);
-    // Reject empty slices (no elements): legal TTIR but a 0-sized matmul is no
-    // fusion. (Inverted ranges can't occur: the verifier bars begin > end for a
-    // positive step.) A slice that keeps the whole dim is a no-op.
+    // The slice op already encodes the narrowed dim size in its result type.
+    int64_t narrowedSize =
+        mlir::cast<RankedTensorType>(slice.getResult().getType())
+            .getShape()[narrowedDim];
+
     if (narrowedSize <= 0) {
       return rewriter.notifyMatchFailure(slice, "empty slice");
-    }
-    if (narrowedSize >= outputShape[narrowedDim]) {
-      return rewriter.notifyMatchFailure(slice, "slice does not narrow");
     }
 
     // Operand and dim producing the narrowed output, honoring transpose:
