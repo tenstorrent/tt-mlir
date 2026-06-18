@@ -6113,9 +6113,8 @@ def TTIR_ChunkedScaledDotProductAttentionOp : TTIR_NamedOp<"chunked_scaled_dot_p
     Chunked-prefill attention. A prefill chunk of `query` attends
     causally over the prefix tokens `[0, chunk_start_idx + chunk_len)` that are
     resident in the paged K/V cache, read on device via `page_table`. The prefix
-    offset is supplied by the device tensor `chunk_start_idx` (`[1]` int32), so the
-    op is trace-compatible (page table consumed on device). Causal masking is
-    handled internally; no host attention mask.
+    offset is supplied by the device tensor `chunk_start_idx` (`[1]` int32). Causal
+    masking is handled internally; no host attention mask.
 
     Args:
         query (AnyRankedTensor): `[B x Hq x chunk_len x D]`.

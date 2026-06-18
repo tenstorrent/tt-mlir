@@ -3712,7 +3712,12 @@ def TTNN_ChunkedScaledDotProductAttentionOp : TTNN_Op<"chunked_scaled_dot_produc
     Chunked-prefill attention. A prefill chunk of `query` attends
     causally over the prefix `[0, chunk_start_idx + chunk_len)` resident in the
     paged K/V cache, read on device via `page_table`, with the prefix offset given
-    by the device tensor `chunk_start_idx` (`[1]` int32). Trace-compatible.
+    by the device tensor `chunk_start_idx` (`[1]` int32).
+
+    Because the prefix offset is a device tensor (not a host scalar) and the page
+    table is consumed on device, the op holds no host-side state: it can be
+    captured inside a trace and replayed across invocations with a different
+    `chunk_start_idx` without recompiling.
   }];
 
   let arguments = (ins AnyRankedTensor:$query,

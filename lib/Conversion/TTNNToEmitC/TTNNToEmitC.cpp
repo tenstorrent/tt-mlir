@@ -3554,8 +3554,6 @@ public:
         emitter(srcOp, adaptor, rewriter);
 
     // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
-    // Matches the "flexible" ttnn overload: the prefix offset is a device
-    // tensor (chunk_start_idx) rather than a scalar, so the op is trace-safe.
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getQuery()),
         emitter.emit(srcOp.getKey()),
