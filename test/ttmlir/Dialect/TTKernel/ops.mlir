@@ -123,8 +123,8 @@ func.func @test_copy_dest_values() -> () {
 // CHECK-LABEL: func.func @test_noc_trid_and_noc_nonconst
 // CHECK-SAME: (%[[TRID:.*]]: i32, %[[NOC:.*]]: i8)
 func.func @test_noc_trid_and_noc_nonconst(%trid: i32, %noc: i8) {
-  // CHECK: ttkernel.noc_async_read_set_trid(%[[TRID]], %[[NOC]]) : (i32, i8) -> ()
-  ttkernel.noc_async_read_set_trid(%trid, %noc) : (i32, i8) -> ()
+  // CHECK: ttkernel.noc_async_read_barrier_with_trid(%[[TRID]], %[[NOC]]) : (i32, i8) -> ()
+  ttkernel.noc_async_read_barrier_with_trid(%trid, %noc) : (i32, i8) -> ()
   return
 }
 
@@ -198,14 +198,12 @@ func.func @test_tensor_accessor_args_chaining_with_crta_override() -> !ttkernel.
   return %args2 : !ttkernel.TensorAccessorArgs
 }
 
-// CHECK-LABEL: func.func @test_noc_trid_with_implicit_noc
-// CHECK-SAME: (%[[TRID:.*]]: i32)
-func.func @test_noc_trid_with_implicit_noc(%trid: i32) {
-  // CHECK: %[[C0:.*]] = arith.constant 0 : i32
-  // CHECK: ttkernel.noc_async_read_one_packet_with_state_with_trid(%[[C0]], %[[C0]], %[[C0]], %[[TRID]]) : (i32, i32, i32, i32) -> ()
-  %c0 = arith.constant 0 : i32
-  "ttkernel.noc_async_read_one_packet_with_state_with_trid"(%c0, %c0, %c0, %trid)
-      : (i32, i32, i32, i32) -> ()
+// CHECK-LABEL: func.func @test_noc_write_one_packet_with_trid_implicit_noc
+// CHECK-SAME: (%[[TRID:.*]]: i32, %[[SRC:.*]]: i32, %[[X:.*]]: index, %[[Y:.*]]: index, %[[DST:.*]]: i32, %[[SIZE:.*]]: i32)
+func.func @test_noc_write_one_packet_with_trid_implicit_noc(%trid: i32, %src: i32, %x: index, %y: index, %dst: i32, %size: i32) {
+  // CHECK: ttkernel.noc_async_write_one_packet_with_trid(%[[SRC]], core[%[[X]], %[[Y]]], %[[DST]], %[[SIZE]], %[[TRID]]) : (i32, index, index, i32, i32, i32) -> ()
+  ttkernel.noc_async_write_one_packet_with_trid(%src, core[%x, %y], %dst, %size, %trid)
+      : (i32, index, index, i32, i32, i32) -> ()
   return
 }
 
@@ -230,10 +228,10 @@ func.func @test_remote_sram_write_u32_computed_sram_addr(%base: i32, %dst: !ttke
 }
 
 // CHECK-LABEL: func.func @test_noc_inline_dw_write
-// CHECK-SAME: (%[[DST:.*]]: !ttkernel.noc_addr, %[[VAL:.*]]: i32, %[[BE:.*]]: i8, %[[NOC:.*]]: i8)
-func.func @test_noc_inline_dw_write(%dst: !ttkernel.noc_addr, %val: i32, %be: i8, %noc: i8) {
-  // CHECK: ttkernel.noc_inline_dw_write(%[[DST]], %[[VAL]], %[[BE]], %[[NOC]]) : (!ttkernel.noc_addr, i32, i8, i8) -> ()
-  ttkernel.noc_inline_dw_write(%dst, %val, %be, %noc) : (!ttkernel.noc_addr, i32, i8, i8) -> ()
+// CHECK-SAME: (%[[X:.*]]: index, %[[Y:.*]]: index, %[[DST:.*]]: i32, %[[VAL:.*]]: i32, %[[BE:.*]]: i8, %[[NOC:.*]]: i8)
+func.func @test_noc_inline_dw_write(%x: index, %y: index, %dst: i32, %val: i32, %be: i8, %noc: i8) {
+  // CHECK: ttkernel.noc_inline_dw_write(core[%[[X]], %[[Y]]], %[[DST]], %[[VAL]], %[[BE]], noc %[[NOC]]) : (index, index, i32, i32, i8, i8) -> ()
+  ttkernel.noc_inline_dw_write(core[%x, %y], %dst, %val, %be, noc %noc) : (index, index, i32, i32, i8, i8) -> ()
   return
 }
 

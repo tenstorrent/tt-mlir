@@ -643,6 +643,12 @@ static LogicalResult convertSemaphores(ModuleOp moduleOp,
 }
 
 static Value findIOTensor(Value operand, DenseMap<Value, Value> &valueMapping) {
+  if (auto tensorType = dyn_cast<RankedTensorType>(operand.getType())) {
+    if (isa<ttnn::TTNNLayoutAttr>(tensorType.getEncoding())) {
+      return operand;
+    }
+  }
+
   auto iter = valueMapping.find(operand);
   if (iter != valueMapping.end()) {
     auto tensorType = dyn_cast<RankedTensorType>(iter->second.getType());
