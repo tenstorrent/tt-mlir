@@ -41,7 +41,7 @@ echo "cleaning up previous logs at $LOG_PATH/.logs"
 rm -rf "$LOG_PATH/.logs"
 
 # python -m tracy wraps the run under a Tracy capture server, then post-processes:
-#   -r  generate report (starts capture-release, writes the .tracy file)
+#   -r  generate report (starts tracy-capture, writes the .tracy file)
 #   -m  treat the target as a module (runpy: equivalent to `python -m pytest`)
 #   -o  profiler artifacts output folder (its .logs/ is wiped per run)
 #   -v  verbose output
