@@ -13,7 +13,7 @@ module @chunked_sdpa attributes {} {
     return %0 : tensor<1x12x64x64xbf16>
   }
 
-  // No scale frontend attribute: defaults to 1/sqrt(head_size) inside the op.
+  // No scale frontend attribute.
   func.func public @chunked_sdpa_no_scale(%query: tensor<1x12x64x64xbf16>, %key: tensor<128x12x32x64xbf16>, %value: tensor<128x12x32x64xbf16>, %page_table: tensor<1x4xi32>, %chunk_start_idx: tensor<1xi32>) -> tensor<1x12x64x64xbf16> {
     // CHECK-LABEL: @chunked_sdpa_no_scale
     // CHECK: "ttir.chunked_scaled_dot_product_attention"

@@ -4586,7 +4586,6 @@ public:
         emitter(srcOp, adaptor, rewriter);
 
     // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
-    // Flexible ttnn overload: chunk_start_idx is a device tensor (trace-safe).
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getQuery()),
         emitter.emit(srcOp.getKey()),
