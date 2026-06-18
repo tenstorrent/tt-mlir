@@ -16,6 +16,7 @@ import ttrt.binary
 import sys
 import os
 from ttrt.common.api import API
+from ttrt.common.util import get_ttrt_metal_home_path
 from importlib.metadata import version
 
 
@@ -30,6 +31,10 @@ def main():
     if "--gdb" in sys.argv:
         relaunch_as_gdb(sys.argv)
 
+    if "--metal-home-path" in sys.argv:
+        print(get_ttrt_metal_home_path())
+        sys.exit(0)
+
     parser = argparse.ArgumentParser(
         description="ttrt: a runtime tool for parsing and executing flatbuffer binaries"
     )
@@ -37,6 +42,11 @@ def main():
         "-V", "--version", action="version", version=f"ttrt {version('ttrt')}"
     )
     parser.add_argument("--gdb", action="store_true", help="launch ttrt with gdb")
+    parser.add_argument(
+        "--metal-home-path",
+        action="store_true",
+        help="Print the metal home path and exit",
+    )
     subparsers = parser.add_subparsers(required=True)
 
     API.initialize_apis()

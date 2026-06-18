@@ -14,6 +14,10 @@ echo "Running TTRT tests"
 # to test directory names (e.g. n300-llmbox runner uses the llmbox test directory)
 TTRT_TEST_PATH=$(eval echo "$2")
 TTRT_TEST_PATH="${TTRT_TEST_PATH//n300-llmbox/llmbox}"
-ttrt "$1" "$BUILD_DIR/test/ttmlir/$TTRT_TEST_PATH" "${@:3}"
+if [ "$1" == "perf" ]; then
+  python -m tracy -r -v --output-folder prof -m ttrt run "$BUILD_DIR/test/ttmlir/$TTRT_TEST_PATH" "${@:3}"
+else
+  ttrt "$1" "$BUILD_DIR/test/ttmlir/$TTRT_TEST_PATH" "${@:3}"
+fi
 cp ${1}_results.json ${TTRT_REPORT_PATH} || true
 cp ttrt_report.xml $TEST_REPORT_PATH || true

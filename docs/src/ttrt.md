@@ -18,7 +18,7 @@ Add the following flags when building the compiler
 ```
 
 ### Building perf mode
-Add the following flags when building the compiler
+Add the following flags when building the compiler. This is required for collecting performance traces using `python -m tracy`.
 ```bash
 -DTTMLIR_ENABLE_RUNTIME=ON
 -DTT_RUNTIME_ENABLE_PERF_TRACE=ON
@@ -135,7 +135,7 @@ ttrt --help
 ttrt read
 ttrt run
 ttrt query
-ttrt perf
+ttrt perf    # deprecated, see below
 ttrt check
 ttrt emitpy
 ```
@@ -369,30 +369,16 @@ ttrt query --save-artifacts --artifact-dir /path/to/some/dir
 ttrt query --result-file result.json
 ```
 
-### perf
-Run performance mode of a binary file or a directory of binary files
-Note: It's required to be on a system with silicon and to have a runtime enabled build `-DTTMLIR_ENABLE_RUNTIME=ON`. Also need perf enabled build `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`.
-Note: You can collect host only related performance data via `--host-only` flag. By default, host and device side performance data are both collected.
-If the saving artifacts flag is provided, perf mode will dump the following files in the artifacts directory
-```bash
-ops_perf_results.csv : compiled op performance results
-```
-
-<details>
-
-```bash
-OP CODE,OP TYPE,GLOBAL CALL COUNT,DEVICE ID,ATTRIBUTES,MATH FIDELITY,CORE COUNT,PARALLELIZATION STRATEGY,HOST START TS,HOST END TS,HOST DURATION [ns],DEVICE FW START CYCLE,DEVICE FW END CYCLE,OP TO OP LATENCY [ns],OP TO OP LATENCY BR/NRISC START [ns],DEVICE FW DURATION [ns],DEVICE KERNEL DURATION [ns],DEVICE KERNEL DURATION DM START [ns],DEVICE KERNEL DURATION PER CORE MIN [ns],DEVICE KERNEL DURATION PER CORE MAX [ns],DEVICE KERNEL DURATION PER CORE AVG [ns],DEVICE KERNEL FIRST TO LAST START [ns],DEVICE BRISC KERNEL DURATION [ns],DEVICE NCRISC KERNEL DURATION [ns],DEVICE TRISC0 KERNEL DURATION [ns],DEVICE TRISC1 KERNEL DURATION [ns],DEVICE TRISC2 KERNEL DURATION [ns],DEVICE ERISC KERNEL DURATION [ns],DEVICE COMPUTE CB WAIT FRONT [ns],DEVICE COMPUTE CB RESERVE BACK [ns],DISPATCH TOTAL CQ CMD OP TIME [ns],DISPATCH GO SEND WAIT TIME [ns],INPUT_0_W,INPUT_0_Z,INPUT_0_Y,INPUT_0_X,INPUT_0_LAYOUT,INPUT_0_DATATYPE,INPUT_0_MEMORY,OUTPUT_0_W,OUTPUT_0_Z,OUTPUT_0_Y,OUTPUT_0_X,OUTPUT_0_LAYOUT,OUTPUT_0_DATATYPE,OUTPUT_0_MEMORY,METAL TRACE ID,METAL TRACE REPLAY SESSION ID,COMPUTE KERNEL SOURCE,COMPUTE KERNEL HASH,DATA MOVEMENT KERNEL SOURCE,DATA MOVEMENT KERNEL HASH,BRISC MAX KERNEL SIZE [B],NCRISC MAX KERNEL SIZE [B],TRISC 0 MAX KERNEL SIZE [B],TRISC 1 MAX KERNEL SIZE [B],TRISC 2 MAX KERNEL SIZE [B],ERISC MAX KERNEL SIZE [B],PM IDEAL [ns],PM COMPUTE [ns],PM BANDWIDTH [ns],PM REQ I BW,PM REQ O BW,PM FPU UTIL (%),NOC UTIL (%),DRAM BW UTIL (%),NPE CONG IMPACT (%),LOC,CONST_EVAL_OP,PROGRAM_METADATA
-UnaryDeviceOperation,tt_dnn_device,1024,0,{'bfp8_pack_precise': 'false'; 'fp32_dest_acc_en': 'true'; 'op_chain': '{UnaryWithParam(op_type=UnaryOpType::TAN;param={})}'; 'output_dtype': 'DataType::FLOAT32'; 'output_memory_config': 'MemoryConfig(memory_layout=TensorMemoryLayout::INTERLEAVED;buffer_type=BufferType::DRAM;shard_spec=std::nullopt;nd_shard_spec=std::nullopt;created_with_nd_shard_spec=0)'; 'preserve_fp32_precision': 'true'},HiFi4,16,,4556959654,4557518500,558846,9815181939513,9815181946491,0,0,6978,6314,6126,4982,6216,5652,335,6087,1375,1656,4957,465,,,,,,1,1,128,128,TILE,FLOAT32,DEV_1_DRAM_INTERLEAVED,1,1,128,128,TILE,FLOAT32,DEV_1_DRAM_INTERLEAVED,,,['ttnn/cpp/ttnn/operations/eltwise/unary/device/kernels/compute//eltwise_sfpu.cpp'],['eltwise_sfpu/3265258334475852953/'],['ttnn/cpp/ttnn/operations/eltwise/unary/device/kernels/dataflow/reader_unary_interleaved_start_id.cpp'; 'ttnn/cpp/ttnn/operations/eltwise/unary/device/kernels/dataflow/writer_unary_interleaved_start_id.cpp'],['reader_unary_interleaved_start_id/1146610629329498539/'; 'writer_unary_interleaved_start_id/1727642094059197364/'],708,736,1344,1568,1380,0,1,1,1,[],[],0.016,,,,"loc(""/home/$USER/tt-mlir/test/python/golden/test_ttir_ops.py:74:id(0)"")",false,"{'loop_number': 0, 'program_index': 0, 'disable_eth_dispatch': False, 'enable_program_cache': False, 'dump_device_rate': 1000}"
-```
-
-</details>
-
-```bash
-profile_log_device.csv : dump of all device side profiled results
-tracy_ops_data.csv : op data results dumped in a readable format
-tracy_ops_times.csv : op time results dumped in a readable format
-tracy_profile_log_host.tracy : tracy profiled results file, this file can be fed into the tracy GUI
-```
+### perf (deprecated)
+> **Deprecated:** The `ttrt perf` subcommand has been deprecated. Use the following command to collect performance reports:
+>
+> ```bash
+> python -m tracy -r -v --output-folder prof -m ttrt run ...
+> ```
+>
+> Note: the `--output-folder` flag is required.
+>
+> This requires a perf-enabled build (`-DTTMLIR_ENABLE_RUNTIME=ON -DTT_RUNTIME_ENABLE_PERF_TRACE=ON`).
 
 ### check
 Check a binary file or a directory of binary files against a system desc (by default, uses the host machine)
@@ -506,7 +492,6 @@ runtime components.
 
 ```bash
 ttrt --gdb run ...
-ttrt --gdb perf ...
 ```
 
 ## Using as a python package
@@ -672,7 +657,7 @@ ttrt run build/test/ttmlir/Silicon
 
 6. (Optional) Run perf test cases
 ```bash
-ttrt perf build/test/ttmlir/Silicon
+python -m tracy -r -v --output-folder prof -m ttrt run build/test/ttmlir/Silicon
 ```
 
 ### TTRT yields an ambiguous segmentation fault!

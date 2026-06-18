@@ -107,10 +107,14 @@ if enable_runtime:
             f"{ttmlir_build_dir}/python_packages/ttrt/runtime",
         )
 
+    perflib_install_dir = (
+        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/build/tools/profiler/bin"
+    )
+    os.makedirs(perflib_install_dir, exist_ok=True)
     for dylib in perflibs:
         shutil.copy(
             f"{metaldir}/tools/profiler/bin/{dylib}",
-            f"{ttmlir_build_dir}/python_packages/ttrt/runtime",
+            perflib_install_dir,
         )
         shutil.copy(
             f"{metaldir}/tools/profiler/bin/{dylib}",
