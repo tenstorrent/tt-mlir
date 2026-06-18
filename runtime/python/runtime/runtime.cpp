@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <iostream>
+#include <memory>
 #include <sstream>
 
 #include "tt/runtime/debug.h"
@@ -581,12 +582,21 @@ void registerRuntimeBindings(nb::module_ &m) {
       "register_pool_tensor_destroy_callback",
       [](tt::runtime::CallbackContext program_context_handle,
          tt::runtime::TensorRef tensor_ref, nb::callable callback) {
+        // The destroy callback fires from ~TTNNTensorWrapper(), which runs on
+        // the runtime thread that doesn't always without holding the GIL. 
+        // Decref'ing a Python object without the GIL segfaults, so wrap
+        // the callable in a shared_ptr whose deleter re-acquires the GIL.
+        auto guarded_callback = std::shared_ptr<nb::callable>(
+            new nb::callable(std::move(callback)), [](nb::callable *cb) {
+              nb::gil_scoped_acquire gil;
+              delete cb;
+            });
         return tt::runtime::registerPoolTensorDestroyCallback(
             program_context_handle, tensor_ref,
-            [callback](tt::runtime::Tensor tensor) {
+            [guarded_callback](tt::runtime::Tensor tensor) {
               nb::gil_scoped_acquire gil;
               try {
-                callback(tensor);
+                (*guarded_callback)(tensor);
               } catch (const std::exception &e) {
                 std::cerr << "pool tensor destroy callback: " << e.what()
                           << "\n";
