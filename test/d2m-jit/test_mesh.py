@@ -761,6 +761,96 @@ def test_matmul_all_gather_fused_1x4_roundtrip():
     assert_pcc(expected, result)
 
 
+@pytest.mark.skipif(
+    torch is None or runtime is None,
+    reason="requires torch + ttmlir runtime",
+)
+@pytest.mark.skipif(_num_devices() < 4, reason="requires a >=4-device mesh")
+def test_matmul_all_gather_fused_1x4_large_shards_roundtrip():
+    """`test_matmul_all_gather_fused_1x4_roundtrip` with larger per-device
+    shards: each device's matmul is a 2x2-tile output with a K=2 reduction
+    (A_d, B_d, C_d are each 64x64), instead of a single 32x32 tile.
+
+    This scales the fused path on two axes at once: the local matmul is now a
+    genuine multi-tile M=N=K=2 product (the K=2 reduction accumulates in DST and
+    routes through the SFPU, hence PCC -- not tight abs-diff -- per the f32
+    K-reduction precision note in fused_matmul_allgather_8x8_design.md), and the
+    all_gather payload grows to a 2x2 tile block mcast across the line. Each
+    device ends holding vstack(C_0..C_3) (256,64); shard_to_full column-concats
+    the four identical quarters -> (256,256). (Verified to scale further to
+    4x4-tile / K=4 shards -> 512x512; 2x2 is kept here as a fast regression.)"""
+
+    @d2m.kernel
+    def matmul_all_gather(lhs, rhs, out, start_sem, end_sem):
+        dy = mesh_position(0)
+        cy = core_index(0)
+        cx = core_index(1)
+        device_synchronize(
+            start_sem,
+            start_device=[dy, 0],
+            mcast_shape=[1, 4],
+            num_receivers=3,
+            core_indices=[cy, cx],
+        )
+        a = remote_load(lhs, [0, 0])  # (64,64) = 2x2 tiles (M=2, K=2)
+        b = remote_load(rhs, [0, 0])  # (64,64) = 2x2 tiles (K=2, N=2)
+        c = a @ b  # (64,64), reduces over K=2
+        dx = mesh_position(1)
+        remote_store(
+            out,
+            [dx, 0],
+            c,
+            start_device=[dy, 0],
+            device_mcast_shape=[1, 4],
+            semaphore=end_sem,
+            semaphore_indices=[cy, 0],
+        )
+        semaphore_wait(end_sem, 4)
+
+    d2m.mesh((1, 4), topology=("linear", "linear"))
+    # Per-device A_d/B_d/C_d are 64x64 (2x2 tiles).
+    L_in = d2m.Layout(
+        shape=(64, 64), dtype=d2m.float32, block_shape=[2, 2], grid_shape=[1, 1]
+    )
+    # Output: 4 device slots stacked on the gather dim -> 256x64, each a 2x2 block.
+    L_out = d2m.Layout(
+        shape=(256, 64), dtype=d2m.float32, block_shape=[2, 2], grid_shape=[4, 1]
+    )
+    full_a = torch.randn(64, 256, dtype=torch.float32)
+    full_b = torch.randn(64, 256, dtype=torch.float32)
+    a_s = d2m.reblock(
+        d2m.mesh_shard(full_a, L_in, shard_dims=[0, 1], shard_shape=[1, 4]),
+        [1, 1],
+    )
+    b_s = d2m.reblock(
+        d2m.mesh_shard(full_b, L_in, shard_dims=[0, 1], shard_shape=[1, 4]),
+        [1, 1],
+    )
+    out_s = d2m.reblock(d2m.empty(L_out), [4, 1])
+    ss = d2m.global_semaphore()
+    es = d2m.global_semaphore()
+    matmul_all_gather(
+        a_s,
+        b_s,
+        out_s,
+        ss,
+        es,
+        grid=(1, 1),
+        fabric=d2m.fabric_config(
+            cluster_axis=1, topology="linear", routing="bidir_line_mesh"
+        ),
+    )
+    out_s = d2m.mesh_gather(out_s, shard_dims=[0, 1], shard_shape=[1, 4])
+    result = out_s.to_host()
+
+    cs = [full_a[:, i * 64 : (i + 1) * 64] @ full_b[:, i * 64 : (i + 1) * 64]
+          for i in range(4)]  # each (64, 64)
+    vstack = torch.cat(cs, dim=0)  # (256, 64)
+    expected = torch.cat([vstack] * 4, dim=1)  # (256, 256)
+    assert tuple(result.shape) == (256, 256), result.shape
+    assert_pcc(expected, result)
+
+
 @d2m.kernel
 def _mm_shard(lhs, rhs, c):
     cy = core_index(0)

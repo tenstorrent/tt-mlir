@@ -168,8 +168,17 @@ compute-produced-CB source feeding the multi-hop fabric mcast (the
 `test_mesh.py::test_matmul_all_gather_fused_1x4_roundtrip` (gated ≥4 devices),
 alongside `test_all_gather_1x4_roundtrip`.
 
+**Larger shards — WORKS (2026-06-18).** The fused 1×4 path scales beyond a
+single tile per device: each device computing a 2×2-tile output with a K=2
+reduction (A_d/B_d/C_d = 64×64) all-gathers correctly (PCC ~1.0; abs-diff ~0.07
+because the f32 K-reduction routes through the SFPU). Verified to scale further
+to 4×4-tile / K=4 shards (128×128 per device → 512×512 gathered, PCC 1.0).
+Regression guard: `test_matmul_all_gather_fused_1x4_large_shards_roundtrip`
+(2×2/K=2, gated ≥4 devices).
+
 **Next:** revisit ring topology and the DRAM-staging (`remote_store`→DRAM)
-deadlock; scale the fused path toward the 8×8 worker grid / larger shards.
+deadlock; the multi-tile path is the stepping stone toward the 8×8 worker grid
+and shards large enough to need DRAM staging (Option 2).
 
 - The fabric→DRAM track (and the deadlock) now has a working fabric handshake to
   build on (use the full mesh). The single-device matmul→DRAM-scratch half can be
