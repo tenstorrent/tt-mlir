@@ -18,7 +18,11 @@ namespace tt::runtime::ttnn::debug {
 static ::ttnn::MemoryConfig
 normalizeMemoryConfigForTensor(const ::ttnn::Tensor &tensor,
                                const ::ttnn::MemoryConfig &memoryConfig) {
-  return tensor.tensor_spec().with_memory_config(memoryConfig).memory_config();
+  const ::ttnn::TensorSpec &spec = tensor.tensor_spec();
+  return ::ttnn::TensorSpec(
+             spec.logical_shape(),
+             spec.tensor_layout().with_memory_config(memoryConfig))
+      .memory_config();
 }
 
 void checkTensorRefMatchesTTNNTensor(

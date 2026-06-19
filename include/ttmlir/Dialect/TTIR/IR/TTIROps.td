@@ -6132,6 +6132,40 @@ def TTIR_PagedScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"paged_scaled_dot
   let hasVerifier = 1;
 }
 
+def TTIR_ChunkedScaledDotProductAttentionOp : TTIR_NamedOp<"chunked_scaled_dot_product_attention"> {
+  let summary = "Chunked prefill scaled dot product attention over a paged KV cache.";
+  let description = [{
+    Chunked-prefill attention. A prefill chunk of `query` attends
+    causally over the prefix tokens `[0, chunk_start_idx + chunk_len)` that are
+    resident in the paged K/V cache, read on device via `page_table`. The prefix
+    offset is supplied by the device tensor `chunk_start_idx` (`[1]` int32). Causal
+    masking is handled internally; no host attention mask.
+
+    Args:
+        query (AnyRankedTensor): `[B x Hq x chunk_len x D]`.
+        key (AnyRankedTensor): paged K cache `[num_blocks x Hkv x block_size x D]`.
+        value (AnyRankedTensor): paged V cache, same layout as `key`.
+        page_table (AnyRankedTensor): `[B x num_blocks_per_user]` int32.
+        chunk_start_idx (AnyRankedTensor): `[1]` int32 prefix offset.
+        scale (float, optional): Softmax scale. Defaults to `1 / sqrt(D)`.
+
+    Returns:
+        AnyRankedTensor: same shape/type as `query`.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$query,
+                       AnyRankedTensor:$key,
+                       AnyRankedTensor:$value,
+                       AnyRankedTensor:$page_table,
+                       AnyRankedTensor:$chunk_start_idx,
+                       AnyRankedTensor:$output,
+                       OptionalAttr<F32Attr>:$scale);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_PagedFlashMultiLatentAttentionDecodeOp : TTIR_NamedOp<"paged_flash_multi_latent_attention_decode", [AttrSizedOperandSegments]> {
   let summary = "Paged flash multi-latent attention decode operation.";
   let description = [{
@@ -6676,6 +6710,74 @@ def TTIR_MoeComputeOp : TTIR_NamedOp<"moe_compute", [TTIR_CCL, AttrSizedOperandS
                         AnyRankedTensor:$combine_output);
 
     let hasVerifier = 1;
+}
+
+def TTIR_TTLangOp : TTIR_Op<"tt_lang_op",
+    [TTIROpInterface, DestinationStyleOpInterface]> {
+  let summary = "Opaque tt-lang custom kernel placeholder.";
+  let description = [{
+    Represents an invocation of a user-defined tt-lang operation registered via
+    `@tt_torch.tt_lang_operation`. The kernel body is opaque to TTIR: its operands and
+    results are fully typed so type / shape / layout inference on adjacent ops
+    still works (in particular through Shardy and shape refinement), but TTIR
+    does not look inside the kernel body. The kernel is materialised later by
+    the tt-xla plugin via a Python bridge into tt-lang.
+
+    NOTE: tt-lang kernels expect 32x32 tile layout. Attaching `TTIROpInterface`
+    allows TTNN's `TTNNLayoutRewriter` to correct this ops operands and output
+    to have the same matching correct layout type.
+
+    Lowered from `stablehlo.custom_call @tt.tt_lang_op` (carrying the same
+    metadata in `mhlo.frontend_attributes`) and to `ttnn.tt_lang_op` by the
+    TTIR -> TTNN conversion.
+
+    Attributes:
+    - `kernel_id`: stable identifier of the @tt_torch.tt_lang_operation registration
+      (e.g. `"my_module.my_kernel::v1"`).
+    - `version_tag`: identifier the kernel author bumps to force recompile.
+    - `arg_roles`: comma-separated roles for `inputs` (e.g. `"in,in,out"`).
+      Constrained to the form `in* out+` (all inputs first, then all
+      outputs). The `out`-roled operands are the trailing
+      destination-passing-style init operands and tie positionally to
+      `results`.
+    - `shard_spec`: optional opaque shard description forwarded to the
+      resolver. Empty string means "no spec".
+
+    Example:
+    ```mlir
+    %0 = ttir.tt_lang_op(%a, %b) {
+      kernel_id = "my_pkg.softmax::v1",
+      version_tag = "1.0",
+      arg_roles = "in,out",
+      shard_spec = ""
+    } : (tensor<1x32xf32>, tensor<1x32xf32>) -> (tensor<1x32xf32>)
+    ```
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                       StrAttr:$kernel_id,
+                       StrAttr:$version_tag,
+                       StrAttr:$arg_roles,
+                       DefaultValuedStrAttr<StrAttr, "">:$shard_spec);
+  let results = (outs Variadic<AnyRankedTensor>:$results);
+
+  let extraClassDeclaration = [{
+    // DPS init operands are the trailing `"out"`-roled operands. The
+    // verifier enforces `arg_roles == in* out+` and `#out == #results`,
+    // so the inits are the last `getResults().size()` operands and tie
+    // positionally to the results.
+    ::mlir::MutableOperandRange getDpsInitsMutable() {
+      unsigned numOuts = getResults().size();
+      unsigned numIns = getInputs().size() - numOuts;
+      return ::mlir::MutableOperandRange(*this, numIns, numOuts);
+    }
+  }];
+
+  let assemblyFormat = [{
+    `(` $inputs `)` attr-dict `:` `(` type($inputs) `)` `->` `(` type($results) `)`
+  }];
+
+  let hasVerifier = 1;
 }
 
 #endif
