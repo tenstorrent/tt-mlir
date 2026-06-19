@@ -6763,15 +6763,17 @@ TEST_F(OpModelBase, FlashMlaPrefillOpInterfaceWithMask) {
 
 TEST_F(OpModelBase, SamplingOp) {
   // Typical vLLM non-greedy sampling shapes: batch=32, candidates=128.
-  // ttnn.sampling is rank-4 in / rank-4 out — TTIRToTTNN inserts reshape
-  // ops to bridge from TTIR's rank-2 view.
+  // ttnn.sampling carries TTIR's rank-2 in / rank-1 out shape at the point
+  // where the optimizer queries OpModel; the OpModel internally pads to
+  // rank-4 for the kernel query (SamplingOpRank2RewritePattern handles the
+  // IR-side rewrite later in the workaround pass).
   const int64_t batch = 32;
   const int64_t candidates = 128;
 
-  llvm::SmallVector<int64_t> valuesShape = {1, 1, batch, candidates};
-  llvm::SmallVector<int64_t> indicesShape = {1, 1, batch, candidates};
+  llvm::SmallVector<int64_t> valuesShape = {batch, candidates};
+  llvm::SmallVector<int64_t> indicesShape = {batch, candidates};
   llvm::SmallVector<int64_t> paramShape = {batch}; // k, p, temp
-  llvm::SmallVector<int64_t> outputShape = {1, 1, 1, batch};
+  llvm::SmallVector<int64_t> outputShape = {batch};
 
   llvm::SmallVector<int64_t> gridAttr{1, 1};
   auto tensorMemoryLayoutAttr =

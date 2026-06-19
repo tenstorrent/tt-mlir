@@ -4,11 +4,10 @@
 
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
 
-// ttnn.sampling operates on rank-4 [1, 1, batch, candidates] inputs and
-// produces a rank-4 [1, 1, 1, batch] result (matching the ttnn::sampling
-// kernel). TTIR's rank-2 in / rank-1 out view is bridged here by explicit
-// reshape ops inserted in TTIRToTTNN — required so EmitPy / EmitC codegen
-// paths see the kernel-true shape (issue #8836).
+// End-to-end TTIR -> TTNN check for ttir.sampling. TTIRToTTNN itself is a 1:1
+// lowering; the rank-2 -> rank-4 / rank-1 -> rank-4 reshape ops required by
+// the ttnn::sampling kernel are inserted later by SamplingOpRank2RewritePattern
+// (a workaround-pass decomposition added for issue #8836).
 
 // CHECK-LABEL: func.func @sampling
 // CHECK: "ttnn.reshape"

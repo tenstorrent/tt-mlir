@@ -7838,11 +7838,27 @@ llvm::Expected<OpConstraints> OpModel<SamplingOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
+  // OpModel queries happen before the workaround pass (where
+  // SamplingOpRank2RewritePattern unsqueezes rank-2 inputs to the kernel-true
+  // rank-4 form). Pad to rank-4 here so the constraint query sees the shape
+  // ttnn::sampling actually accepts.
+  llvm::SmallVector<int64_t, 4> values4D, indices4D;
+  llvm::ArrayRef<int64_t> valuesQueryShape = inputValuesShape;
+  llvm::ArrayRef<int64_t> indicesQueryShape = inputIndicesShape;
+  if (inputValuesShape.size() == 2) {
+    values4D = {1, 1, inputValuesShape[0], inputValuesShape[1]};
+    valuesQueryShape = values4D;
+  }
+  if (inputIndicesShape.size() == 2) {
+    indices4D = {1, 1, inputIndicesShape[0], inputIndicesShape[1]};
+    indicesQueryShape = indices4D;
+  }
+
   ASSIGN_OR_RETURN(
       ::ttnn::TensorSpec valuesSpec,
-      detail::convertToTensorSpec(device, inputValuesShape, inputValuesLayout));
+      detail::convertToTensorSpec(device, valuesQueryShape, inputValuesLayout));
   ASSIGN_OR_RETURN(::ttnn::TensorSpec indicesSpec,
-                   detail::convertToTensorSpec(device, inputIndicesShape,
+                   detail::convertToTensorSpec(device, indicesQueryShape,
                                                inputIndicesLayout));
   ASSIGN_OR_RETURN(::ttnn::TensorSpec kSpec,
                    detail::convertToTensorSpec(device, kShape, kLayout));
@@ -7876,11 +7892,25 @@ llvm::Expected<size_t> OpModel<SamplingOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
+  // See getOpConstraints: rank-2 IR is padded to rank-4 for the kernel query
+  // because the workaround pass runs after OpModel queries.
+  llvm::SmallVector<int64_t, 4> values4D, indices4D;
+  llvm::ArrayRef<int64_t> valuesQueryShape = inputValuesShape;
+  llvm::ArrayRef<int64_t> indicesQueryShape = inputIndicesShape;
+  if (inputValuesShape.size() == 2) {
+    values4D = {1, 1, inputValuesShape[0], inputValuesShape[1]};
+    valuesQueryShape = values4D;
+  }
+  if (inputIndicesShape.size() == 2) {
+    indices4D = {1, 1, inputIndicesShape[0], inputIndicesShape[1]};
+    indicesQueryShape = indices4D;
+  }
+
   ASSIGN_OR_RETURN(
       ::ttnn::TensorSpec valuesSpec,
-      detail::convertToTensorSpec(device, inputValuesShape, inputValuesLayout));
+      detail::convertToTensorSpec(device, valuesQueryShape, inputValuesLayout));
   ASSIGN_OR_RETURN(::ttnn::TensorSpec indicesSpec,
-                   detail::convertToTensorSpec(device, inputIndicesShape,
+                   detail::convertToTensorSpec(device, indicesQueryShape,
                                                inputIndicesLayout));
   ASSIGN_OR_RETURN(::ttnn::TensorSpec kSpec,
                    detail::convertToTensorSpec(device, kShape, kLayout));

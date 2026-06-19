@@ -4325,27 +4325,40 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   auto tempType = getTemp().getType();
   auto resultType = getResult().getType();
 
-  // The ttnn::sampling kernel operates on rank-4 tensors. TTIRToTTNN inserts
-  // reshape ops to bridge from TTIR's rank-2 view; ttnn.sampling itself is
-  // strict about the kernel-true shape to keep the IR aligned with what the
-  // runtime / EmitPy / EmitC paths will actually dispatch.
-  if (inputValuesType.getRank() != 4) {
-    return emitOpError("input_values must be 4D [1, 1, batch, candidates]");
+  // Two valid forms:
+  //   * rank-2 [batch, candidates] in / rank-1 [batch] out — the user-facing
+  //     TTIR-equivalent shape produced by TTIRToTTNN.
+  //   * rank-4 [1, 1, batch, candidates] in / rank-4 [1, 1, 1, batch] out —
+  //     the kernel-true shape produced by SamplingOpRank2RewritePattern
+  //     (decomposition workaround). Required because tt-metal's sampling
+  //     kernel only accepts rank-4 tensors.
+  int64_t inputRank = inputValuesType.getRank();
+  if (inputRank != 2 && inputRank != 4) {
+    return emitOpError("input_values must be 2D [batch, candidates] or 4D "
+                       "[1, 1, batch, candidates]");
   }
-  if (inputIndicesType.getRank() != 4) {
-    return emitOpError("input_indices must be 4D [1, 1, batch, candidates]");
+  if (inputIndicesType.getRank() != inputRank) {
+    return emitOpError("input_indices rank must match input_values rank");
   }
   if (inputValuesType.getShape() != inputIndicesType.getShape()) {
     return emitOpError(
         "input_values and input_indices must have the same shape");
   }
-  auto valuesShape = inputValuesType.getShape();
-  if (valuesShape[0] != 1 || valuesShape[1] != 1) {
-    return emitOpError(
-        "input_values leading dims must be [1, 1, batch, candidates]");
-  }
 
-  int64_t batch = valuesShape[2];
+  auto valuesShape = inputValuesType.getShape();
+  int64_t batch;
+  int64_t expectedResultRank;
+  if (inputRank == 2) {
+    batch = valuesShape[0];
+    expectedResultRank = 1;
+  } else {
+    if (valuesShape[0] != 1 || valuesShape[1] != 1) {
+      return emitOpError(
+          "rank-4 input_values leading dims must be [1, 1, batch, candidates]");
+    }
+    batch = valuesShape[2];
+    expectedResultRank = 4;
+  }
 
   // k, p, temp must be 1D with the same batch dimension.
   for (auto [tensor, name] :
@@ -4362,11 +4375,20 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
     }
   }
 
-  // Result must be 4D [1, 1, 1, batch].
   auto resultShape = resultType.getShape();
-  if (resultType.getRank() != 4 || resultShape[0] != 1 || resultShape[1] != 1 ||
-      resultShape[2] != 1 || resultShape[3] != batch) {
-    return emitOpError("result must be 4D [1, 1, 1, batch]");
+  if (resultType.getRank() != expectedResultRank) {
+    return emitOpError("result rank must match input_values rank "
+                       "(rank-1 for rank-2 input, rank-4 for rank-4 input)");
+  }
+  if (expectedResultRank == 1) {
+    if (resultShape[0] != batch) {
+      return emitOpError("result must be 1D [batch]");
+    }
+  } else {
+    if (resultShape[0] != 1 || resultShape[1] != 1 || resultShape[2] != 1 ||
+        resultShape[3] != batch) {
+      return emitOpError("result must be 4D [1, 1, 1, batch]");
+    }
   }
 
   return success();

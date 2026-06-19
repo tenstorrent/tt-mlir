@@ -4124,21 +4124,25 @@ def TTNN_SamplingOp : TTNN_Op<"sampling"> {
     Performs fused top-k + top-p + multinomial sampling on pre-filtered
     candidate logits using the ttnn::sampling kernel.
 
-    The shape contract mirrors the ttnn::sampling kernel exactly. The TTIR-level
-    op is rank-2 in / rank-1 out; TTIRToTTNN inserts explicit reshape ops to
-    bridge to the rank-4 kernel layout, so downstream codegen (flatbuffer /
-    EmitPy / EmitC) sees the kernel-true shape directly.
+    The op accepts two shape forms, transformed by the
+    SamplingOpRank2RewritePattern decomposition workaround:
 
-    Inputs:
-      - `input_values`: Pre-filtered candidate logit values [1, 1, batch, candidates] bf16, TILE layout
-      - `input_indices`: Global vocab indices for each candidate [1, 1, batch, candidates] int32, ROW_MAJOR
+    Pre-decomposition (matches TTIR view):
+      - `input_values`:  [batch, candidates]      bf16
+      - `input_indices`: [batch, candidates]      int32
+      - `result`:        [batch]                  int32
+
+    Post-decomposition (matches ttnn::sampling kernel — required for runtime
+    dispatch, flatbuffer / EmitPy / EmitC codegen):
+      - `input_values`:  [1, 1, batch, candidates]  bf16, TILE
+      - `input_indices`: [1, 1, batch, candidates]  int32, ROW_MAJOR
+      - `result`:        [1, 1, 1, batch]           int32, ROW_MAJOR
+
+    Common to both forms:
       - `k`: Per-request top-k values [batch] uint32, ROW_MAJOR
       - `p`: Per-request top-p values [batch] bf16, ROW_MAJOR
       - `temp`: Per-request temperature values [batch] bf16, ROW_MAJOR
       - `seed`: Optional random seed (uint32 scalar attribute)
-
-    Output:
-      - `result`: Sampled global token indices [1, 1, 1, batch] int32, ROW_MAJOR
   }];
 
   let arguments = (ins AnyRankedTensor:$input_values,

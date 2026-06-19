@@ -66,6 +66,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.cpp
         Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.cpp
         Workarounds/Decomposition/GatherOpRank1RewritePattern.cpp
+        Workarounds/Decomposition/SamplingOpRank2RewritePattern.cpp
         Workarounds/Decomposition/GroupNormAffineReshapeRewritePattern.cpp
         Workarounds/Decomposition/GroupNormChannelPadRewritePattern.cpp
         Workarounds/Decomposition/IntegerProdOpRewritePattern.cpp
