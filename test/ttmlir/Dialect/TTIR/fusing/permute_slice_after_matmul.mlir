@@ -147,7 +147,7 @@ func.func @left_matrix_middle_rows(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<
 
 // CHECK-LABEL: func.func @left_matrix_negative_indices
 func.func @left_matrix_negative_indices(%arg0: tensor<1024x4096xbf16>, %arg1: tensor<4096x128256xbf16>) -> tensor<3x128256xbf16> {
-  // CHECK: %[[A:.*]] = "ttir.slice_static"(%arg0) <{begins = [1020 : i32, 0 : i32], ends = [1023 : i32, 4096 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x4096xbf16>) -> tensor<3x4096xbf16>
+  // CHECK: %[[A:.*]] = "ttir.slice_static"(%arg0) <{begins = [-4 : i32, 0 : i32], ends = [-1 : i32, 4096 : i32], step = [1 : i32, 1 : i32]}> : (tensor<1024x4096xbf16>) -> tensor<3x4096xbf16>
   // CHECK: "ttir.matmul"(%[[A]], %arg1) <{transpose_a = false, transpose_b = false}> : (tensor<3x4096xbf16>, tensor<4096x128256xbf16>) -> tensor<3x128256xbf16>
   // CHECK-NOT: tensor<1024x128256xbf16>
   %0 = "ttir.matmul"(%arg0, %arg1) : (tensor<1024x4096xbf16>, tensor<4096x128256xbf16>) -> tensor<1024x128256xbf16>
