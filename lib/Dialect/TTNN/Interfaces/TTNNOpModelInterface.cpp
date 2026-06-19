@@ -3707,8 +3707,9 @@ PrepareConvTranspose2dWeightsOp::getOpConstraints(
       *this, inputs[0], weightShape, getInputMemoryConfig(),
       getInputTensorLayout(), getWeightsFormat(), getInChannels(),
       getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
-      getKernelSize(), getStride(), getPadding(), getDilation(), getHasBias(),
-      getGroups(), getInputDtype(), getOutputDtype(), conv2dAttrs.conv2dConfig,
+      getKernelSize(), getStride(), getPadding(), getOutputPadding(),
+      getDilation(), getHasBias(), getGroups(), getInputDtype(),
+      getOutputDtype(), conv2dAttrs.conv2dConfig,
       conv2dAttrs.deviceComputeKernelConfig, getConv2dSliceConfig(),
       getMirrorKernel(), opConfig.outputLayout);
 }
