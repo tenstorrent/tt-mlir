@@ -4,10 +4,9 @@
 
 #include "operations/layout/to_layout.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-
-#include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+#include "ttmlir/OpInvoke/TTNN/Layout/ToLayoutOp.h"
+#include <variant>
 
 namespace tt::runtime::ttnn::operations::layout {
 void run(const ::tt::target::ttnn::ToLayoutOp *op, ProgramContext &context) {
@@ -20,20 +19,19 @@ void run(const ::tt::target::ttnn::ToLayoutOp *op, ProgramContext &context) {
   LOG_ASSERT(::tt::runtime::ttnn::utils::isValidTileShape(targetTileShape),
              "Invalid tile shape");
 
-  ::ttnn::Layout layout =
-      ::ttnn_op_invoke::operations::utils::toTTNNLayout(op->layout());
-  std::optional<::ttnn::MemoryConfig> memoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
-  std::optional<::ttnn::DataType> dtype = std::nullopt;
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  if (op->dtype()) {
-    dtype = ttnn_op_invoke::operations::utils::toTTNNDataType(*(op->dtype()));
-  }
+  ::tt::target::ttnn::ToLayoutOpT opNative;
+  op->UnPackTo(&opNative);
 
-  ::ttnn::Tensor out =
-      ::ttnn::to_layout(inputTensor, layout, dtype, memoryConfig);
+  ttnn_op_invoke::ToLayoutOpResult result = ttnn_op_invoke::callToLayout(
+      ttnn_op_invoke::CallType::EXECUTE, opNative, &inputTensor, &targetDevice);
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callToLayout execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
 } // namespace tt::runtime::ttnn::operations::layout

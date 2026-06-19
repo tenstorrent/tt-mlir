@@ -33,6 +33,10 @@ add_library(TTNNOpInvokeLib STATIC
   KVCache/FillCacheOp.cpp
   KVCache/PagedFillCacheOp.cpp
   KVCache/PagedUpdateCacheOp.cpp
+  Layout/BitcastConvertOp.cpp
+  Layout/ToLayoutOp.cpp
+  Layout/ToMemoryConfigOp.cpp
+  Layout/TypecastOp.cpp
   Matmul/MatmulOp.cpp
   Normalization/BatchNormOp.cpp
   Normalization/DistributedRMSNormOp.cpp

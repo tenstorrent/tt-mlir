@@ -4,10 +4,8 @@
 
 #include "operations/layout/bitcast_convert.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
+#include "ttmlir/OpInvoke/TTNN/Layout/BitcastConvertOp.h"
+#include <variant>
 
 namespace tt::runtime::ttnn::operations::layout {
 void run(const ::tt::target::ttnn::BitcastConvertOp *op,
@@ -15,17 +13,20 @@ void run(const ::tt::target::ttnn::BitcastConvertOp *op,
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &inputTensor =
       tensorPool.getTTNNTensorAndValidate(op->in());
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  ::ttnn::DataType targetDataType =
-      ttnn_op_invoke::operations::utils::toTTNNDataType(op->dtype());
+  ::tt::target::ttnn::BitcastConvertOpT opNative;
+  op->UnPackTo(&opNative);
 
-  std::optional<::ttnn::MemoryConfig> memoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
+  ttnn_op_invoke::BitcastConvertOpResult result =
+      ttnn_op_invoke::callBitcastConvert(ttnn_op_invoke::CallType::EXECUTE,
+                                         opNative, &inputTensor, &targetDevice);
 
-  ::ttnn::Tensor out =
-      ::ttnn::bitcast(inputTensor, targetDataType, memoryConfig);
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callBitcastConvert execution");
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
 } // namespace tt::runtime::ttnn::operations::layout
