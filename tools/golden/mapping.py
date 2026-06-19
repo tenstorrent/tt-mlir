@@ -2409,15 +2409,10 @@ def linear_golden(
     b = torch.transpose(b, -2, -1) if transpose_b else b
     output = torch.matmul(a, b)
 
-    if bias is None:
-        bias = torch.zeros(list(output.shape))
+    if bias is not None:
+        output = torch.add(output, bias)
 
-    bias = (
-        torch.broadcast_to(bias, list(output.shape))
-        if bias.shape != output.shape
-        else bias
-    )
-    return torch.add(output, bias)
+    return output
 
 
 def sdpa_decode_golden(
@@ -7756,15 +7751,9 @@ def ttnn_linear_golden(
     b = torch.transpose(other_tensor, -2, -1) if transpose_b else other_tensor
     output = torch.matmul(a, b)
 
-    if bias_tensor is None:
-        bias_tensor = torch.zeros(list(output.shape))
+    if bias_tensor is not None:
+        output = torch.add(output, bias_tensor)
 
-    bias_tensor = (
-        torch.broadcast_to(bias_tensor, list(output.shape))
-        if bias_tensor.shape != output.shape
-        else bias_tensor
-    )
-    output = torch.add(output, bias_tensor)
     activation_fn = _get_fused_activation_fn(activation_attr)
     if activation_fn is not None:
         output = activation_fn(output)

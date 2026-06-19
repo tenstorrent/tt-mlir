@@ -23,7 +23,6 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GroupNormAffineReshapeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GroupNormChannelPadRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/IntegerProdOpRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MoeComputeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MoeGptLayoutRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.h"
@@ -691,8 +690,6 @@ public:
           workarounds::decomposition::ConcatOpRewritePattern,
           workarounds::decomposition::MoeGptLayoutRewritePattern>(
           &getContext());
-      patterns.add<workarounds::decomposition::LinearOpRewritePattern>(
-          &getContext(), /*benefit=*/2);
 
       // The all_reduce decomposition workaround can be disabled via a pass
       // option, e.g. once TTNN provides stable native all_reduce support.
