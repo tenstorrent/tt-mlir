@@ -1652,9 +1652,8 @@ public:
     } else {
       operandDim = transposeB ? operandRank - 2 : operandRank - 1;
     }
-    Value operandSlice =
-        createSingleDimSlice(rewriter, slice, narrowedDim, slicedOperand,
-                             operandDim);
+    Value operandSlice = createSingleDimSlice(rewriter, slice, narrowedDim,
+                                              slicedOperand, operandDim);
 
     // Narrow the linear bias along the dim aligned with the sliced output dim
     // (with the same step). Right-aligned broadcast puts it at
