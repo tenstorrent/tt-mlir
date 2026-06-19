@@ -14,6 +14,11 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
+// Workaround for tt-metal's rank-4-only sampling kernel: unsqueeze rank-2
+// [batch, candidates] input_values/input_indices to [1, 1, batch, candidates],
+// run the rank-4 ttnn.sampling, reshape the [1, 1, 1, batch] result back to
+// rank-1 [batch].
+// tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/47522
 LogicalResult SamplingOpRank2RewritePattern::matchAndRewrite(
     ttnn::SamplingOp srcOp, PatternRewriter &rewriter) const {
   RankedTensorType inputValuesType = srcOp.getInputValues().getType();

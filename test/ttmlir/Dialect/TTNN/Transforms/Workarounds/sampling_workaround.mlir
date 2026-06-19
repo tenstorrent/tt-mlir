@@ -11,6 +11,7 @@
 #ttnn_layout_vals_tile  = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 #ttnn_layout_idx_tile   = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, si32>, #dram>, <interleaved>>
 #ttnn_layout_k_tile     = #ttnn.ttnn_layout<(d0) -> (0, d0), <1x1>, memref<1x1x!ttcore.tile<32x32, u32>, #dram>, <interleaved>>
+#ttnn_layout_k_si32_rm  = #ttnn.ttnn_layout<(d0) -> (0, d0), <1x1>, memref<1x1xsi32, #dram>, <interleaved>>
 #ttnn_layout_p_tile     = #ttnn.ttnn_layout<(d0) -> (0, d0), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
 #ttnn_layout_out        = #ttnn.ttnn_layout<(d0) -> (0, d0), <1x1>, memref<1x1xsi32, #dram>, <interleaved>>
 
@@ -54,6 +55,33 @@ module attributes {} {
         : (tensor<1x32xbf16, #ttnn_layout_vals_tile>,
            tensor<1x32xi32, #ttnn_layout_idx_tile>,
            tensor<1xui32, #ttnn_layout_k_tile>,
+           tensor<1xbf16, #ttnn_layout_p_tile>,
+           tensor<1xbf16, #ttnn_layout_p_tile>)
+        -> tensor<1xsi32, #ttnn_layout_out>
+    return %0 : tensor<1xsi32, #ttnn_layout_out>
+  }
+
+  // The ttnn::sampling kernel requires k as UINT32. When k arrives as a
+  // different dtype (here: SI32), the operand workaround must produce a
+  // UINT32 k before the sampling op (the workaround pass folds the layout
+  // and dtype change into a single ttnn.to_layout). The runtime handler
+  // used to do this implicitly; expressing it as IR keeps EmitPy / EmitC
+  // codegen paths correct.
+  func.func @sampling_k_si32_gets_retyped_to_ui32(
+      %arg0: tensor<1x32xbf16, #ttnn_layout_vals_tile>,
+      %arg1: tensor<1x32xi32, #ttnn_layout_idx_tile>,
+      %arg2: tensor<1xsi32, #ttnn_layout_k_si32_rm>,
+      %arg3: tensor<1xbf16, #ttnn_layout_p_tile>,
+      %arg4: tensor<1xbf16, #ttnn_layout_p_tile>)
+      -> tensor<1xsi32, #ttnn_layout_out> {
+    // CHECK-LABEL: func.func @sampling_k_si32_gets_retyped_to_ui32
+    // CHECK: "ttnn.to_layout"(%arg2)
+    // CHECK-SAME: (tensor<1xsi32{{.*}}>) -> tensor<1xui32
+    // CHECK: "ttnn.sampling"
+    %0 = "ttnn.sampling"(%arg0, %arg1, %arg2, %arg3, %arg4)
+        : (tensor<1x32xbf16, #ttnn_layout_vals_tile>,
+           tensor<1x32xi32, #ttnn_layout_idx_tile>,
+           tensor<1xsi32, #ttnn_layout_k_si32_rm>,
            tensor<1xbf16, #ttnn_layout_p_tile>,
            tensor<1xbf16, #ttnn_layout_p_tile>)
         -> tensor<1xsi32, #ttnn_layout_out>

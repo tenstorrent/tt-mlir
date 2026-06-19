@@ -316,23 +316,31 @@ def test_gather_si32_negative_index_workaround(
     ],
     ids=["llama", "opt"],
 )
+@pytest.mark.parametrize(
+    "k_dtype",
+    [torch.uint32, torch.int32],
+    ids=["k_ui32", "k_si32"],
+)
 def test_sampling(
     candidates: int,
     vocab_size: int,
+    k_dtype: torch.dtype,
     request,
     device,
 ):
     """Builder test for ttnn.sampling: fused top-k/p multinomial sampling.
 
     Verifies that the op compiles and returns global token indices in the
-    valid range [0, vocab_size) for each of the 32 users.
+    valid range [0, vocab_size) for each of the 32 users. The k_si32 variant
+    additionally exercises the workaround that retypes a non-uint32 k tensor
+    to uint32 before the kernel call.
     """
     batch = 32
 
     def module(builder: TTNNBuilder):
         @builder.func(
             [(batch, candidates), (batch, candidates), (batch,), (batch,), (batch,)],
-            [torch.bfloat16, torch.int32, torch.uint32, torch.bfloat16, torch.bfloat16],
+            [torch.bfloat16, torch.int32, k_dtype, torch.bfloat16, torch.bfloat16],
         )
         def sampling_fn(
             vals: Operand,
@@ -346,7 +354,7 @@ def test_sampling(
             valid_indices = torch.stack(
                 [torch.randperm(vocab_size)[:candidates] for _ in range(batch)]
             ).to(torch.int32)
-            valid_k = torch.full((batch,), candidates, dtype=torch.uint32)
+            valid_k = torch.full((batch,), candidates, dtype=k_dtype)
             valid_p = torch.ones(batch, dtype=torch.bfloat16)
             valid_temp = torch.full((batch,), 1.667, dtype=torch.bfloat16)
             builder.set_goldens(

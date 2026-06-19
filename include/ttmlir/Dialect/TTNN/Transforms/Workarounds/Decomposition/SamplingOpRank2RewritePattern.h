@@ -22,6 +22,7 @@ namespace mlir::tt::ttnn::workarounds::decomposition {
 // reshape implicitly, which meant EmitPy / EmitC codegen — which doesn't go
 // through that handler — emitted a bare rank-2 ttnn.sampling that crashed
 // inside SamplingDeviceOperation::compute_output_specs (issue #8836).
+// tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/47522
 class SamplingOpRank2RewritePattern
     : public OpRewritePattern<ttnn::SamplingOp> {
 public:

@@ -8,6 +8,7 @@
 // lowering; the rank-2 -> rank-4 / rank-1 -> rank-4 reshape ops required by
 // the ttnn::sampling kernel are inserted later by SamplingOpRank2RewritePattern
 // (a workaround-pass decomposition added for issue #8836).
+// tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/47522
 
 // CHECK-LABEL: func.func @sampling
 // CHECK: "ttnn.reshape"
