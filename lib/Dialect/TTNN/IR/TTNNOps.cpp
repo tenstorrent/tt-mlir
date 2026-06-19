@@ -4376,19 +4376,13 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   }
 
   auto resultShape = resultType.getShape();
-  if (resultType.getRank() != expectedResultRank) {
-    return emitOpError("result rank must match input_values rank "
-                       "(rank-1 for rank-2 input, rank-4 for rank-4 input)");
-  }
-  if (expectedResultRank == 1) {
-    if (resultShape[0] != batch) {
-      return emitOpError("result must be 1D [batch]");
-    }
-  } else {
-    if (resultShape[0] != 1 || resultShape[1] != 1 || resultShape[2] != 1 ||
-        resultShape[3] != batch) {
-      return emitOpError("result must be 4D [1, 1, 1, batch]");
-    }
+  // Check that all leading dims are 1 and the last dim is batch.
+  if (!llvm::all_of(resultShape.drop_back(1),
+                    [](int64_t d) { return d == 1; }) ||
+      resultShape.back() != batch) {
+    return emitOpError("result must be ")
+           << expectedResultRank << "D ["
+           << (expectedResultRank == 1 ? "batch" : "1, 1, 1, batch") << "]";
   }
 
   return success();
