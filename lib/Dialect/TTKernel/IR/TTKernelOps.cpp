@@ -364,19 +364,6 @@ static bool isSFPUReduceDataFormatSupported(ttcore::DataType dt) {
   }
   return success();
 }
-::mlir::LogicalResult ResetNocTridBarrierCounterOp::verify() {
-  Value noc = getNoc();
-  if (noc) {
-    auto nocValue = getConstantIntValue(noc);
-    constexpr int32_t kNumNocs =
-        TTKernelTridNocOpTrait<ResetNocTridBarrierCounterOp>::kNumNocs;
-    if (nocValue && (*nocValue < 0 || *nocValue >= kNumNocs)) {
-      return emitOpError() << "noc must be in [0, " << (kNumNocs - 1) << "].";
-    }
-  }
-  return success();
-}
-
 static ::mlir::LogicalResult verifyNocAsyncAddressMode(Operation *op,
                                                        OperandRange core,
                                                        OperandRange bankId) {
@@ -398,6 +385,21 @@ static ::mlir::LogicalResult verifyNocAsyncAddressMode(Operation *op,
 }
 
 ::mlir::LogicalResult NocAsyncWriteOp::verify() {
+  return verifyNocAsyncAddressMode(getOperation(), getDstCoreXY(),
+                                   getDstBankId());
+}
+
+::mlir::LogicalResult NocAsyncReadOnePacketSetStateOp::verify() {
+  return verifyNocAsyncAddressMode(getOperation(), getSrcCoreXY(),
+                                   getSrcBankId());
+}
+
+::mlir::LogicalResult NocAsyncReadOnePacketWithStateOp::verify() {
+  return verifyNocAsyncAddressMode(getOperation(), getSrcCoreXY(),
+                                   getSrcBankId());
+}
+
+::mlir::LogicalResult NocAsyncWriteOnePacketWithTridOp::verify() {
   return verifyNocAsyncAddressMode(getOperation(), getDstCoreXY(),
                                    getDstBankId());
 }
@@ -595,8 +597,7 @@ void NocAsyncReadBarrierOp::getCanonicalizationPatterns(
       }
       if (mlir::isa<NocAsyncReadOp, NocAsyncReadTileOp,
                     NocAsyncReadOnePacketSetStateOp,
-                    NocAsyncReadOnePacketWithStateOp, NocAsyncReadSetTridOp,
-                    NocAsyncReadOnePacketWithStateWithTridOp>(it) ||
+                    NocAsyncReadOnePacketWithStateOp>(it) ||
           it->getNumRegions() > 0) {
         break;
       }
@@ -619,8 +620,8 @@ void NocAsyncWriteBarrierOp::getCanonicalizationPatterns(
         }
       }
       if (mlir::isa<NocAsyncWriteOp, NocAsyncWriteTileOp,
-                    NocAsyncWriteSetTridOp, NocAsyncWriteOnePacketWithTridOp,
-                    NocAsyncWriteMulticastOp, NocAsyncWriteMulticastOnePacketOp,
+                    NocAsyncWriteOnePacketWithTridOp, NocAsyncWriteMulticastOp,
+                    NocAsyncWriteMulticastOnePacketOp,
                     NocAsyncWriteMulticastLoopbackSrcOp, NocInlineDwWriteOp>(
               it) ||
           it->getNumRegions() > 0) {

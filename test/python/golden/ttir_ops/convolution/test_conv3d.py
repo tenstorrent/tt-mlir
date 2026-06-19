@@ -151,3 +151,112 @@ def test_conv3d(
         device=device,
         target=target,
     )
+
+
+@pytest.mark.parametrize("enable_greedy", [False, True], ids=["chain", "greedy"])
+def test_conv3d_optimizer(enable_greedy: bool, request, device):
+    """Golden execution of conv3d through the optimizer-enabled pipeline.
+
+    Covers the path introduced alongside post-optimizer conv3d weight
+    preparation: Conv3dOp is handled by LegalOpConfigAnalysis, a Conv3dConfigAttr
+    (here pinned via --override-conv3d-config) is applied, and the
+    TTNNPrepareConv3dWeights pass materializes the prepare op using the
+    optimizer-chosen c_in_block. The default (no-optimizer) pipeline exercised by
+    test_conv3d above never runs the optimizer, so this is the only golden
+    coverage of that path.
+
+    Note: c_in_block only changes how the input-channel reduction is tiled, not
+    the conv result, so this golden test cannot distinguish whether the override
+    was applied — it would pass even if c_in_block were ignored. It validates
+    that the optimizer / override pipeline compiles and executes with correct
+    numerics; that c_in_block=64 was actually selected is verified at the IR
+    level.
+    """
+    # in_channels=128 => c_in_aligned=128, so c_in_block=64 is a legal block.
+    input_shape = (1, 8, 28, 28, 128)
+    weight_shape = (32, 128, 3, 3, 3)
+    input_shapes = [input_shape, weight_shape]
+    input_types = [torch.bfloat16, torch.bfloat16]
+
+    def module(builder: TTIRBuilder):
+        @builder.func(input_shapes, input_types)
+        def conv3d_optimizer_wrapper(
+            in0: Operand,
+            weight: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.conv3d(
+                in0,
+                weight,
+                None,
+                stride=[1, 1, 1],
+                padding=[0, 0, 0],
+                groups=1,
+                loc="conv3d_opt",
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        target="ttnn",
+        pipeline_options=[
+            "optimization-level=1",
+            f"enable-greedy-optimizer={'true' if enable_greedy else 'false'}",
+            "override-conv3d-config=conv3d_opt=c_in_block#64",
+        ],
+    )
+
+
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+def test_conv3d_c_in_block_divergent(dtype, target, request, device):
+    """Conv3d whose kernel volume is even, so tt-metal's auto-derived c_in_block
+    differs from the TILE_WIDTH=32 the compiler pins.
+
+    tt-metal derives its default c_in_block as
+        lcm(l1_alignment, TILE_WIDTH / gcd(kernel_vol, TILE_WIDTH)).
+    For an even kernel volume that gcd is > 1, so the default is 16, not 32.
+    Here kernel = (2, 2, 2) => kernel_vol = 8, gcd(8, 32) = 8, giving
+        lcm(16, 32 / 8) = lcm(16, 4) = 16  !=  32.
+
+    This guards the "config is the single source of truth" invariant: the weight
+    is prepared with the same c_in_block the runtime kernel consumes (the pinned
+    32), so the result stays numerically correct even when that diverges from
+    the value tt-metal would have chosen on its own (16). It also pins the rest
+    of the config (c_out_block, spatial out-blocks, compute grid); before that
+    fix this path handed tt-metal a partial config and tripped its struct
+    defaults (C_out_block=0 / 1x1 grid).
+    """
+    # in_channels=32 => C_in % c_in_block == 0 for the pinned c_in_block=32.
+    input_shape = (1, 4, 16, 16, 32)
+    weight_shape = (16, 32, 2, 2, 2)
+    input_shapes = [input_shape, weight_shape]
+    input_types = [dtype, dtype]
+
+    def module(builder: TTIRBuilder):
+        @builder.func(input_shapes, input_types)
+        def conv3d_wrapper(
+            in0: Operand,
+            weight: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.conv3d(
+                in0,
+                weight,
+                None,
+                stride=[1, 1, 1],
+                padding=[0, 0, 0],
+                groups=1,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        target=target,
+    )

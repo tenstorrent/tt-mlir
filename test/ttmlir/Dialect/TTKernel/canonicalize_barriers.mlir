@@ -120,10 +120,10 @@ func.func @test_write_barrier_with_intervening_write(
 
 // CHECK-LABEL: func.func @test_write_barrier_with_intervening_inline_write
 func.func @test_write_barrier_with_intervening_inline_write(
-    %noc_addr: !ttkernel.noc_addr, %val: i32, %byte_enable: i8, %noc_id: i8) {
+    %x: index, %y: index, %dst_addr: i32, %val: i32, %byte_enable: i8, %noc_id: i8) {
   // CHECK: ttkernel.noc_async_write_barrier
   ttkernel.noc_async_write_barrier() : () -> ()
-  ttkernel.noc_inline_dw_write(%noc_addr, %val, %byte_enable, %noc_id) : (!ttkernel.noc_addr, i32, i8, i8) -> ()
+  ttkernel.noc_inline_dw_write(core[%x, %y], %dst_addr, %val, %byte_enable, noc %noc_id) : (index, index, i32, i32, i8, i8) -> ()
   // CHECK: ttkernel.noc_async_write_barrier
   ttkernel.noc_async_write_barrier() : () -> ()
   // CHECK: return

@@ -1209,6 +1209,39 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
 }
 
 // Factory method to create workarounds for
+// chunked_scaled_dot_product_attention op operands.
+// page_table and chunk_start_idx require ROW_MAJOR layout.
+TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
+    createChunkedScaledDotProductAttentionOpOperandsWorkarounds(Operation *op) {
+  TTNNOperandWorkarounds emptyWorkaround;
+  TTNNOperandWorkarounds rowMajorLayoutWorkaround;
+  rowMajorLayoutWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+
+  TTNNOperandsWorkarounds operandsWorkaround =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
+
+  // Query, key, and value need no workarounds.
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+
+  // page_table and chunk_start_idx require ROW_MAJOR layout.
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);
+
+  // Need no workaround for output tensor.
+  operandsWorkaround =
+      operandsWorkaround.addOutputOperandWorkaround(emptyWorkaround);
+
+  return operandsWorkaround;
+}
+
+// Factory method to create workarounds for
 // paged_flash_multi_latent_attention_decode op operands.
 // page_table and cur_pos_tensor require ROW_MAJOR layout.
 TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
@@ -1729,7 +1762,8 @@ TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
 
 // TT-Metal's Conv3d has operand format constraints:
 // - input must be row-major bf16
-// - weight must be tile bf16
+// - weight must be bf16 (layout is enforced by TTNNPrepareConv3dWeights,
+//   which inserts a prepare op + to_layout(Tile) before Conv3dOp)
 // - bias must be tile bf16 when present
 // - output is forced to bf16
 // Tracked in: https://github.com/tenstorrent/tt-metal/issues/35436
@@ -1739,6 +1773,9 @@ TTNNOperandsWorkaroundsFactory::createConv3dOpOperandsWorkarounds(
   TTNNOperandWorkarounds inputWorkaround;
   inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
   inputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  TTNNOperandWorkarounds weightWorkaround;
+  weightWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
 
   TTNNOperandWorkarounds tiledBf16Workaround;
   tiledBf16Workaround.tensorLayoutWorkaround = Layout::Tile;
@@ -1750,7 +1787,7 @@ TTNNOperandsWorkaroundsFactory::createConv3dOpOperandsWorkarounds(
   auto workaround =
       wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
           .addInputOperandWorkaround(inputWorkaround)
-          .addInputOperandWorkaround(tiledBf16Workaround)
+          .addInputOperandWorkaround(weightWorkaround)
           .addOutputOperandWorkaround(outputWorkaround);
 
   if (op.getBias()) {

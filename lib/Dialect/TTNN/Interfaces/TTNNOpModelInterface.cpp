@@ -14,6 +14,7 @@
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/OpModel/TTNN/D2MOpCostModel.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
+#include "ttmlir/OpModel/TTNN/TTNNOutputTensorInference.h"
 
 #include "mlir/IR/Block.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -2821,8 +2822,7 @@ ArgMaxOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ArgMaxOp>::getOpConstraints, *this, inputShape,
-      inputs[0], getDim(), getKeepDim(), getUseMulticore(),
-      opConfig.outputLayout);
+      inputs[0], getDim(), getKeepDim(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -2834,7 +2834,7 @@ ArgMaxOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<ArgMaxOp>::getOpRuntime, *this, inputShape, inputs[0],
-      getDim(), getKeepDim(), getUseMulticore(), opConfig.outputLayout);
+      getDim(), getKeepDim(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3451,13 +3451,38 @@ Conv2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // Conv3dOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+// If a config has been specified, use that. Otherwise, use the op property.
+static Conv3dAttrs unpackConv3dAttrs(const OpConfig::OpSpecificAttrs &attrs,
+                                     Conv3dOp op) {
+  assert((std::holds_alternative<Conv3dAttrs>(attrs) ||
+          std::holds_alternative<UninitializedAttrs>(attrs)) &&
+         "Please create a Conv3dAttrs or leave it to be uninitialized.");
+
+  if (std::holds_alternative<UninitializedAttrs>(attrs)) {
+    return Conv3dAttrs{op.getConv3dConfig(), op.getComputeConfig()};
+  }
+
+  Conv3dAttrs conv3dAttrs = std::get<Conv3dAttrs>(attrs);
+
+  return Conv3dAttrs{conv3dAttrs.conv3dConfig ? conv3dAttrs.conv3dConfig
+                                              : op.getConv3dConfig(),
+                     conv3dAttrs.deviceComputeKernelConfig
+                         ? conv3dAttrs.deviceComputeKernelConfig
+                         : op.getComputeConfig()};
+}
+
 llvm::Expected<op_model::OpConstraints>
 Conv3dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                            const OpConfig &opConfig) {
   assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
 
   const auto inputShape = getInput().getType().getShape();
-  const auto weightShape = getWeight().getType().getShape();
+  // tt-metal's conv3d kernel consumes the prepared 2D weight; the in-IR
+  // weight may still be raw 5D (before TTNNPrepareConv3dWeights runs), so
+  // pass the prepared shape/layout regardless of what's currently in IR.
+  auto preparedWeight = op_model::getPreparedConv3dWeightsOutputTensor(this);
+  const auto weightShape = preparedWeight.getShape();
+  auto weightLayout = mlir::cast<TTNNLayoutAttr>(preparedWeight.getEncoding());
   std::optional<llvm::ArrayRef<int64_t>> biasShape;
   std::optional<TTNNLayoutAttr> biasLayout;
 
@@ -3466,13 +3491,15 @@ Conv3dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
     biasLayout = inputs[2];
   }
 
+  Conv3dAttrs attr = unpackConv3dAttrs(opConfig.opSpecificAttrs, *this);
+
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<Conv3dOp>::getOpConstraints, *this, inputShape,
-      inputs[0], weightShape, inputs[1], biasShape, biasLayout, getInChannels(),
-      getOutChannels(), getBatchSize(), getInputDepth(), getInputHeight(),
-      getInputWidth(), getKernelSize(), getStride(), getPadding(), getGroups(),
-      getPaddingMode(), getDtypeAttr(), getConv3dConfig(), getComputeConfig(),
-      opConfig.outputLayout);
+      inputs[0], weightShape, weightLayout, biasShape, biasLayout,
+      getInChannels(), getOutChannels(), getBatchSize(), getInputDepth(),
+      getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
+      getPadding(), getGroups(), getPaddingMode(), getDtypeAttr(),
+      attr.conv3dConfig, attr.deviceComputeKernelConfig, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3481,7 +3508,9 @@ Conv3dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
 
   const auto inputShape = getInput().getType().getShape();
-  const auto weightShape = getWeight().getType().getShape();
+  auto preparedWeight = op_model::getPreparedConv3dWeightsOutputTensor(this);
+  const auto weightShape = preparedWeight.getShape();
+  auto weightLayout = mlir::cast<TTNNLayoutAttr>(preparedWeight.getEncoding());
   std::optional<llvm::ArrayRef<int64_t>> biasShape;
   std::optional<TTNNLayoutAttr> biasLayout;
 
@@ -3490,13 +3519,15 @@ Conv3dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
     biasLayout = inputs[2];
   }
 
+  Conv3dAttrs attr = unpackConv3dAttrs(opConfig.opSpecificAttrs, *this);
+
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<Conv3dOp>::getOpRuntime, *this, inputShape, inputs[0],
-      weightShape, inputs[1], biasShape, biasLayout, getInChannels(),
+      weightShape, weightLayout, biasShape, biasLayout, getInChannels(),
       getOutChannels(), getBatchSize(), getInputDepth(), getInputHeight(),
       getInputWidth(), getKernelSize(), getStride(), getPadding(), getGroups(),
-      getPaddingMode(), getDtypeAttr(), getConv3dConfig(), getComputeConfig(),
-      opConfig.outputLayout);
+      getPaddingMode(), getDtypeAttr(), attr.conv3dConfig,
+      attr.deviceComputeKernelConfig, opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

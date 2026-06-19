@@ -3515,7 +3515,7 @@ def TTKernel_NocAsyncReadTileOp : TTKernel_Op<"noc_async_read_tile"> {
     }];
 
     let arguments = (ins I32:$id,
-                         AnyTypeOf<[TTKernel_InterleavedAddrGenFast, TTKernel_TensorAccessor]>:$addrGenStruct,
+                         TTKernel_TensorAccessor:$addrGenStruct,
                          I32:$dstLocalL1Addr,
                          Optional<I8>:$noc);
 
@@ -3524,70 +3524,45 @@ def TTKernel_NocAsyncReadTileOp : TTKernel_Op<"noc_async_read_tile"> {
     }];
 }
 
-def TTKernel_NocAsyncReadOnePacketSetStateOp : TTKernel_Op<"noc_async_read_one_packet_set_state"> {
+def TTKernel_NocAsyncReadOnePacketSetStateOp : TTKernel_Op<"noc_async_read_one_packet_set_state",
+                                                           [AttrSizedOperandSegments]> {
     let summary = "NocAsyncReadOnePacketSetState";
     let description = [{
       NocAsyncReadOnePacketSetState
     }];
 
-    let arguments = (ins TTKernel_NocAddr:$srcNocAddr, I32:$size, Optional<I8>:$noc);
+    let arguments = (ins Variadic<IndexLike>:$srcCoreXY,
+                         Variadic<I32>:$srcBankId,
+                         I32:$srcAddress,
+                         I32:$size,
+                         Optional<I8>:$noc);
 
     let assemblyFormat = [{
-      `(` $srcNocAddr `,` $size (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+      `(` (`core` `[` $srcCoreXY^ `]`)? (`bank` `[` $srcBankId^ `]`)? `,` $srcAddress `,` $size (`,` `noc` $noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
+
+    let hasVerifier = 1;
 }
 
-def TTKernel_NocAsyncReadOnePacketWithStateOp : TTKernel_Op<"noc_async_read_one_packet_with_state"> {
+def TTKernel_NocAsyncReadOnePacketWithStateOp : TTKernel_Op<"noc_async_read_one_packet_with_state",
+                                                            [AttrSizedOperandSegments]> {
     let summary = "NocAsyncReadOnePacketWithState";
     let description = [{
       NocAsyncReadOnePacketWithState
     }];
 
-    let arguments = (ins TTKernel_NocAddr:$srcNocAddr, AnyTypeOf<[I32, TTKernel_L1Addr]>:$dstLocalL1Addr, Optional<I8>:$noc);
+    let arguments = (ins Variadic<IndexLike>:$srcCoreXY,
+                         Variadic<I32>:$srcBankId,
+                         I32:$srcAddress,
+                         AnyTypeOf<[I32, TTKernel_L1Addr]>:$dstLocalL1Addr,
+                         I32:$size,
+                         Optional<I8>:$noc);
 
     let assemblyFormat = [{
-      `(` $srcNocAddr `,` $dstLocalL1Addr (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-def TTKernel_NocAsyncReadSetTridOp : TTKernel_Op<"noc_async_read_set_trid", [TTKernel_TridNocOpTrait]> {
-    let summary = "NocAsyncReadSetTrid";
-    let description = [{
-      Sets the transaction ID for subsequent NOC reads. TRID is 0-15, NOC is 0 or 1.
-
-      Example:
-      ```
-      ttkernel.noc_async_read_set_trid(%trid, %noc_idx) : (i32, i8) -> ()
-      ```
+      `(` (`core` `[` $srcCoreXY^ `]`)? (`bank` `[` $srcBankId^ `]`)? `,` $srcAddress `,` $dstLocalL1Addr `,` $size (`,` `noc` $noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 
-    let arguments = (ins I32:$trid, Optional<I8>:$noc);
-
-    let assemblyFormat = [{
-      `(` $trid (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-def TTKernel_NocAsyncReadOnePacketWithStateWithTridOp : TTKernel_Op<"noc_async_read_one_packet_with_state_with_trid", [TTKernel_TridNocOpTrait]> {
-    let summary = "NocAsyncReadOnePacketWithStateWithTrid";
-    let description = [{
-      Issues a one-packet NOC read with a specific transaction ID. TRID is 0-15, NOC is 0 or 1.
-
-      Example:
-      ```
-      // Must set TRID before calling.
-      // ttkernel.noc_async_read_set_trid(%trid, %noc_idx) : (i32, i8) -> ()
-      ttkernel.noc_async_read_one_packet_with_state_with_trid(%src_base, %src_addr, %dst_l1, %trid, %noc_idx) : (i32, i32, i32, i32, i8) -> ()
-      // TRID-specific barrier should follow.
-      // ttkernel.noc_async_read_barrier_with_trid(%trid, %noc_idx) : (i32, i8) -> ()
-      ```
-    }];
-
-    let arguments = (ins I32:$srcBaseAddr, I32:$srcAddr, AnyTypeOf<[I32, TTKernel_L1Addr]>:$dstLocalL1Addr, I32:$trid, Optional<I8>:$noc);
-
-    let assemblyFormat = [{
-      `(` $srcBaseAddr `,` $srcAddr `,` $dstLocalL1Addr `,` $trid (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
-    }];
+    let hasVerifier = 1;
 }
 
 def TTKernel_NocAsyncReadBarrierOp : TTKernel_Op<"noc_async_read_barrier", [TTKernel_DeviceZoneOpTrait]> {
@@ -3656,7 +3631,7 @@ def TTKernel_NocAsyncWriteTileOp : TTKernel_Op<"noc_async_write_tile"> {
     }];
 
     let arguments = (ins IndexLike:$id,
-                         AnyTypeOf<[TTKernel_InterleavedAddrGenFast, TTKernel_TensorAccessor]>:$addrGenStruct,
+                         TTKernel_TensorAccessor:$addrGenStruct,
                          I32:$srcLocalL1Addr,
                          Optional<I8>:$noc);
 
@@ -3665,44 +3640,33 @@ def TTKernel_NocAsyncWriteTileOp : TTKernel_Op<"noc_async_write_tile"> {
     }];
 }
 
-def TTKernel_NocAsyncWriteSetTridOp : TTKernel_Op<"noc_async_write_set_trid", [TTKernel_TridNocOpTrait]> {
-    let summary = "NocAsyncWriteSetTrid";
-    let description = [{
-      Sets the transaction ID for subsequent NOC writes. TRID is 0-15, NOC is 0 or 1.
-
-      Example:
-      ```
-      ttkernel.noc_async_write_set_trid(%trid, %noc_idx) : (i32, i8) -> ()
-      ```
-    }];
-
-    let arguments = (ins I32:$trid, Optional<I8>:$noc);
-
-    let assemblyFormat = [{
-      `(` $trid (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-def TTKernel_NocAsyncWriteOnePacketWithTridOp : TTKernel_Op<"noc_async_write_one_packet_with_trid", [TTKernel_TridNocOpTrait]> {
+def TTKernel_NocAsyncWriteOnePacketWithTridOp : TTKernel_Op<"noc_async_write_one_packet_with_trid",
+                                                            [TTKernel_TridNocOpTrait, AttrSizedOperandSegments]> {
     let summary = "NocAsyncWriteOnePacketWithTrid";
     let description = [{
       Issues a one-packet NOC write with a specific transaction ID. TRID is 0-15, NOC is 0 or 1.
 
       Example:
       ```
-      // Must set TRID before calling.
-      // ttkernel.noc_async_write_set_trid(%trid, %noc_idx) : (i32, i8) -> ()
-      ttkernel.noc_async_write_one_packet_with_trid(%l1_src, %dst_noc, %size, %trid, %noc_idx) : (i32, !ttkernel.noc_addr, i32, i32, i8) -> ()
+      ttkernel.noc_async_write_one_packet_with_trid(%l1_src, core[%x, %y], %dst_addr, %size, %trid, noc %noc_idx) : (i32, index, index, i32, i32, i32, i8) -> ()
       // TRID-specific barrier should follow.
       // ttkernel.noc_async_write_barrier_with_trid(%trid, %noc_idx) : (i32, i8) -> ()
       ```
     }];
 
-    let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddr, I32:$size, I32:$trid, Optional<I8>:$noc);
+    let arguments = (ins I32:$srcLocalL1Addr,
+                         Variadic<IndexLike>:$dstCoreXY,
+                         Variadic<I32>:$dstBankId,
+                         I32:$dstAddress,
+                         I32:$size,
+                         I32:$trid,
+                         Optional<I8>:$noc);
 
     let assemblyFormat = [{
-      `(` $srcLocalL1Addr `,` $dstNocAddr `,` $size `,` $trid (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+      `(` $srcLocalL1Addr `,` (`core` `[` $dstCoreXY^ `]`)? (`bank` `[` $dstBankId^ `]`)? `,` $dstAddress `,` $size `,` $trid (`,` `noc` $noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
+
+    let hasVerifier = 1;
 }
 
 def TTKernel_NocAsyncWriteBarrierOp : TTKernel_Op<"noc_async_write_barrier", [TTKernel_DeviceZoneOpTrait]> {
@@ -3756,26 +3720,6 @@ def TTKernel_NocAsyncWriteBarrierWithTridOp : TTKernel_Op<"noc_async_write_barri
 
     let assemblyFormat = [{
       `(` $trid (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-def TTKernel_ResetNocTridBarrierCounterOp : TTKernel_Op<"reset_noc_trid_barrier_counter"> {
-    let summary = "ResetNocTridBarrierCounter";
-    let description = [{
-      Resets the barrier counters for a set of transaction IDs on a given NOC. Mask bits correspond to TRIDs 0-15; NOC is 0 or 1.
-
-      Example:
-      ```
-      ttkernel.reset_noc_trid_barrier_counter(%mask, %noc_idx) : (i32, i8) -> ()
-      ```
-    }];
-
-    let arguments = (ins I32:$idMask, Optional<I8>:$noc);
-
-    let hasVerifier = 1;
-
-    let assemblyFormat = [{
-      `(` $idMask (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -3872,13 +3816,15 @@ def TTKernel_NocInlineDwWriteOp : TTKernel_Op<"noc_inline_dw_write"> {
       staging word.
     }];
 
-    let arguments = (ins TTKernel_NocAddr:$dst_noc_addr,
+    let arguments = (ins IndexLike:$dstNocX,
+                         IndexLike:$dstNocY,
+                         I32:$dstAddress,
                          I32:$val,
                          I8:$byte_enable,
                          Optional<I8>:$noc);
 
     let assemblyFormat = [{
-      `(` $dst_noc_addr `,` $val `,` $byte_enable (`,` $noc^)? `)` attr-dict `:` functional-type(operands, results)
+      `(` `core` `[` $dstNocX `,` $dstNocY `]` `,` $dstAddress `,` $val `,` $byte_enable (`,` `noc` $noc^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -4127,34 +4073,6 @@ def TTKernel_LoadFromL1Op : TTKernel_Op<"load_from_l1"> {
 
     let assemblyFormat = [{
       `(` $l1_ptr `,` $offset `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-def TTKernel_GetInterleavedAddrGenFastOp : TTKernel_Op<"get_interleaved_addr_gen_fast"> {
-    let summary = "GetInterleavedAddrGenFastOp";
-    let description = [{
-      Returns an InterleavedAddrGenFast type.
-    }];
-
-    let arguments = (ins I1:$DRAM, I32:$bank_base_address, I32:$page_size, TTKernel_DataFormat:$data_format);
-    let results = (outs TTKernel_InterleavedAddrGenFast:$result);
-
-    let assemblyFormat = [{
-      `(` $DRAM `,` $bank_base_address `,` $page_size `,` $data_format `)` attr-dict `:` functional-type(operands, results)
-    }];
-}
-
-def TTKernel_InterleavedAddrGenFastGetNocAddrOp : TTKernel_Op<"interleaved_addr_gen_fast.get_noc_addr"> {
-    let summary = "InterleavedAddrGenFastGetNocAddr";
-    let description = [{
-      Returns an raw noc address from an interleaved addr gen struct.
-    }];
-
-    let arguments = (ins TTKernel_InterleavedAddrGenFast:$self, I32:$id, I32:$offset, Optional<I8>:$noc);
-    let results = (outs TTKernel_NocAddr:$result);
-
-    let assemblyFormat = [{
-      `(` $self `,` $id `,` $offset `,` $noc `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 
@@ -4433,10 +4351,22 @@ def TTKernel_NocAsyncWriteMulticastOnePacketOp : TTKernel_Op<"noc_async_write_mu
     this issues only a single packet with size <= NOC_MAX_BURST_SIZE (ie maximum packet size)
   }];
 
-  let arguments = (ins I32:$srcLocalL1Addr, TTKernel_NocAddr:$dstNocAddrMulticast, I32:$size, I32:$num_dests, OptionalAttr<BoolAttr>:$linked, Optional<I8>:$noc);
+  let arguments = (ins I32:$srcLocalL1Addr,
+                       I32:$size,
+                       I32:$num_dests,
+                       IndexLike:$dstNocXStart,
+                       IndexLike:$dstNocYStart,
+                       IndexLike:$dstNocXEnd,
+                       IndexLike:$dstNocYEnd,
+                       I32:$dstLocalL1Addr,
+                       Optional<I8>:$noc,
+                       OptionalAttr<BoolAttr>:$linked);
 
     let assemblyFormat = [{
-      `(` $srcLocalL1Addr `,` $dstNocAddrMulticast `,` $size `,` $num_dests (`,` `noc` $noc^)? (`,` `linked` $linked^)? `)` attr-dict `:` functional-type(operands, results)
+      `(` $srcLocalL1Addr `,` $size `,` $num_dests `,`
+          `start_xy` `[` $dstNocXStart `,` $dstNocYStart `]` `,`
+          `end_xy` `[` $dstNocXEnd `,` $dstNocYEnd `]` `,`
+          $dstLocalL1Addr (`,` `noc` $noc^)? (`,` `linked` $linked^)? `)` attr-dict `:` functional-type(operands, results)
     }];
 }
 

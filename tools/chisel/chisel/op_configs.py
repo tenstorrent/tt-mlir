@@ -43,6 +43,11 @@ def default_configs() -> Dict[Type[OpView], ChiselOpConfig]:
         ttnn.EmptyOp: ChiselOpConfig(skip_pcc=True),
         # ttnn.generic: IR output count = 0 but FB output count = 1.
         ttnn.GenericOp: ChiselOpConfig(no_golden=True),
+        # ttnn.tt_lang_op: opaque tt-lang kernel lowered to a GenericOp FB
+        # record. It has IR results, but the runtime reports GenericOp as
+        # having no output refs (same bucket as ttnn.generic), and it has
+        # no golden to validate against.
+        ttnn.TTLangOp: ChiselOpConfig(no_golden=True),
         # Non-executable ops (device handles, I/O, control flow): no golden to run.
         ttnn.GetDeviceOp: ChiselOpConfig(no_golden=True),
         ttnn.LoadTensorOp: ChiselOpConfig(no_golden=True),

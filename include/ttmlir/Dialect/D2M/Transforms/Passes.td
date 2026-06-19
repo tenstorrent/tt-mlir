@@ -588,6 +588,26 @@ defvar D2MNumStreamBuffersOption = [
          "Number of backing buffers to allocate per stream storage (>=1). Default is 2.">,
 ];
 
+def D2MReblockGenerics : Pass<"d2m-reblock-generics", "::mlir::ModuleOp"> {
+  let summary = "Rebuild d2m.generic ops using block-factor analysis.";
+  let description = [{
+    This pass uses
+    BlockFactorAnalysis to select block factors for affine blocked d2m.generic
+    ops, then rebuilds those generics with the selected factors.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::tt::ttcore::TTCoreDialect",
+    "::mlir::memref::MemRefDialect"
+  ];
+  let options = D2MNumStreamBuffersOption # [
+    Option<"testBufferSizePolicy",
+          "test-buffer-size-policy",
+          "std::string", /*default=*/"\"auto\"",
+          "Set policy for sizing stream buffers ('auto', 'auto-mn', 'bounded', 'min', 'max').">,
+  ];
+}
+
 def D2MMarkSynchronizedBuffers : Pass<"d2m-mark-synchronized-buffers", "::mlir::ModuleOp"> {
   let summary = "Mark in-generic allocs that require synchronization with d2m.synchronized_buffer attribute.";
   let description = [{
@@ -672,10 +692,6 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
           "test-assume-l1-capacity",
           "std::int64_t", /*default=*/"0",
           "Assume given L1 capacity.">,
-    Option<"testBufferSizePolicy",
-          "test-buffer-size-policy",
-          "std::string", /*default=*/"\"auto\"",
-          "Set policy for sizing stream buffers ('auto', 'auto-mn', 'bounded', 'min', 'max').">,
   ];
 }
 
@@ -738,7 +754,7 @@ def D2MGenericReplaceGlobals : Pass<"d2m-generic-replace-globals", "::mlir::Modu
 def D2MMaterializeViewReturns : Pass<"d2m-materialize-view-returns", "::mlir::ModuleOp"> {
   let summary = "Materialize unmaterialized views before return operations";
   let description = [{
-    This pass detects when a return value is an unmaterialized tensor view
+    This pass detects when a return value is an unmaterialized tensor or memref view
     (produced by view operations like d2m.view_layout)
     and emits a d2m.generic op to consume and materialize the view before
     returning it.
@@ -775,7 +791,9 @@ def D2MMaterializeViewReturns : Pass<"d2m-materialize-view-returns", "::mlir::Mo
     }
     ```
 
-    This pass should run after layout lowering and before bufferization.
+    This pass can run before or after bufferization. Tensor views are
+    materialized with tensor outputs and memref views are materialized with a
+    device allocation plus datamovement-only generic.
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::tt::ttcore::TTCoreDialect"];
 }
