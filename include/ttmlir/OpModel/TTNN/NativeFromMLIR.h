@@ -391,6 +391,13 @@ buildMaxPool2dWithIndicesOpTFromMLIR(
 buildUpsampleOpTFromMLIR(mlir::Attribute scaleFactor, llvm::StringRef mode,
                          TTNNLayoutAttr outputLayout);
 
+::tt::target::ttnn::RandOpT buildRandOpTFromMLIR(mlir::tt::ttnn::ShapeAttr size,
+                                                 mlir::tt::ttnn::Layout layout,
+                                                 llvm::APFloat low,
+                                                 llvm::APFloat high,
+                                                 uint32_t seed,
+                                                 TTNNLayoutAttr outputLayout);
+
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_ENABLE_OPMODEL
 

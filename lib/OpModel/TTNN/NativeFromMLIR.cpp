@@ -1508,6 +1508,23 @@ buildUpsampleOpTFromMLIR(mlir::Attribute scaleFactor, llvm::StringRef mode,
   return op;
 }
 
+::tt::target::ttnn::RandOpT
+buildRandOpTFromMLIR(mlir::tt::ttnn::ShapeAttr size,
+                     mlir::tt::ttnn::Layout layout, llvm::APFloat low,
+                     llvm::APFloat high, uint32_t seed,
+                     mlir::tt::ttnn::TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::RandOpT op;
+  for (int64_t dim : size.getShape()) {
+    op.size.push_back(dim);
+  }
+  op.low = low.convertToFloat();
+  op.high = high.convertToFloat();
+  op.seed = seed;
+  op.layout = toNative(layout);
+  op.out = detail::getOutputTensorRefT(outputLayout);
+  return op;
+}
+
 } // namespace mlir::tt::ttnn::op_model
 
 #endif // TTMLIR_ENABLE_OPMODEL
