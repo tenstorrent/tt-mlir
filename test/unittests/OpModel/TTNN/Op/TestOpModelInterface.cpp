@@ -6763,10 +6763,6 @@ TEST_F(OpModelBase, FlashMlaPrefillOpInterfaceWithMask) {
 
 TEST_F(OpModelBase, SamplingOp) {
   // Typical vLLM non-greedy sampling shapes: batch=32, candidates=128.
-  // ttnn.sampling carries TTIR's rank-2 in / rank-1 out shape at the point
-  // where the optimizer queries OpModel; the OpModel internally pads to
-  // rank-4 for the kernel query (SamplingOpRank2RewritePattern handles the
-  // IR-side rewrite later in the workaround pass).
   const int64_t batch = 32;
   const int64_t candidates = 128;
 

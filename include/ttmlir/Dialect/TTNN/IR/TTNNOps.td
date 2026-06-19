@@ -4124,24 +4124,28 @@ def TTNN_SamplingOp : TTNN_Op<"sampling"> {
     Performs fused top-k + top-p + multinomial sampling on pre-filtered
     candidate logits using the ttnn::sampling kernel.
 
-    The op accepts two shape forms, transformed by the
-    SamplingOpRank2RewritePattern decomposition workaround:
+    The op accepts two SHAPE forms; SamplingOpRank2RewritePattern (a
+    decomposition workaround) transforms the first into the second so the
+    ttnn::sampling kernel sees the rank it requires. Dtype and layout
+    adaptation are handled separately by operand workarounds.
 
     Pre-decomposition (matches TTIR view):
       - `input_values`:  [batch, candidates]      bf16
       - `input_indices`: [batch, candidates]      int32
       - `result`:        [batch]                  int32
 
-    Post-decomposition (matches ttnn::sampling kernel — required for runtime
-    dispatch, flatbuffer / EmitPy / EmitC codegen):
-      - `input_values`:  [1, 1, batch, candidates]  bf16, TILE
-      - `input_indices`: [1, 1, batch, candidates]  int32, ROW_MAJOR
-      - `result`:        [1, 1, 1, batch]           int32, ROW_MAJOR
+    Post-decomposition (rank matches the kernel; dtype/layout are still the
+    IR's user-facing types — operand workarounds insert any needed to_layout
+    and typecast ops, e.g. retyping the result to uint32 to match the kernel
+    and converting back to int32 for consumers):
+      - `input_values`:  [1, 1, batch, candidates]  bf16
+      - `input_indices`: [1, 1, batch, candidates]  int32
+      - `result`:        [1, 1, 1, batch]           int32
 
     Common to both forms:
-      - `k`: Per-request top-k values [batch] uint32, ROW_MAJOR
-      - `p`: Per-request top-p values [batch] bf16, ROW_MAJOR
-      - `temp`: Per-request temperature values [batch] bf16, ROW_MAJOR
+      - `k`: Per-request top-k values [batch] uint32
+      - `p`: Per-request top-p values [batch] bf16
+      - `temp`: Per-request temperature values [batch] bf16
       - `seed`: Optional random seed (uint32 scalar attribute)
   }];
 
