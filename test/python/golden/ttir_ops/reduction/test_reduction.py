@@ -230,6 +230,46 @@ def test_hoisted_cumsum(
     )
 
 
+@pytest.mark.parametrize(
+    "shape",
+    [
+        (32, 128, 128),
+        (128, 128),
+    ],
+    ids=shape_str,
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("dim", [0])
+@pytest.mark.parametrize("keep_dim", [True, False])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_argmax_low_rank(
+    shape: Shape,
+    dtype: torch.dtype,
+    dim: int,
+    keep_dim: bool,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def argmax_low_rank_wrapper(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.argmax(
+                in0, dim_arg=[dim], keep_dim=keep_dim, unit_attrs=unit_attrs
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
 @pytest.mark.parametrize("shape", [(128, 128), (62, 243)], ids=shape_str)
 @pytest.mark.parametrize("dtype", [torch.bfloat16], ids=["bf16"])
 @pytest.mark.parametrize("k", [1, 10, 32])
