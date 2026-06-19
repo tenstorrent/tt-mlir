@@ -47,6 +47,7 @@ union OpType {
   BitcastConvertOp,
   BeginTraceCaptureOp,
   CaptureOrExecuteTraceOp,
+  ChunkedScaledDotProductAttentionOp,
   ConcatOp,
   ConcatenateHeadsOp,
   RotaryEmbeddingLlamaOp,
