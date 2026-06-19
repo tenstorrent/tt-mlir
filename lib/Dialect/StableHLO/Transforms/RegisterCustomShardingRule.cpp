@@ -20,6 +20,9 @@ static constexpr llvm::StringLiteral sdpaTargetName =
 static constexpr llvm::StringLiteral pagedSdpaDecodeTargetName =
     "tt.paged_scaled_dot_product_attention_decode";
 
+static constexpr llvm::StringLiteral chunkedSdpaTargetName =
+    "tt.chunked_scaled_dot_product_attention";
+
 static constexpr llvm::StringLiteral pagedUpdateCacheTargetName =
     "tt.paged_update_cache";
 
@@ -308,6 +311,55 @@ static mlir::sdy::OpShardingRuleAttr buildHeadShardedCustomCallRule(
 
 // Dispatch function for paged attention CustomCall sharding rules.
 static mlir::sdy::OpShardingRuleAttr
+getChunkedSdpaShardingRule(mlir::stablehlo::CustomCallOp op) {
+  // Chunked prefill SDPA over paged K/V:
+  //  0: query  [num_users, num_heads, chunk_len, head_size]
+  //  1: key    [num_blocks_total, num_kv_heads, block_size, head_size]
+  //  2: value  [num_blocks_total, num_kv_heads, block_size, head_size]
+  //  3: page_table, 4: chunk_start_idx (null-shardable)
+  auto queryType = llvm::cast<RankedTensorType>(op.getOperand(0).getType());
+  auto keyType = llvm::cast<RankedTensorType>(op.getOperand(1).getType());
+  auto valueType = llvm::cast<RankedTensorType>(op.getOperand(2).getType());
+  auto outputType = llvm::cast<RankedTensorType>(op.getResult(0).getType());
+
+  if (queryType.getShape() != outputType.getShape()) {
+    op.getOperation()->emitWarning()
+        << "Chunked SDPA: query and output shapes must match.";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  llvm::SmallVector<RankedTensorType> qkvTypes = {queryType, keyType,
+                                                  valueType};
+  if (llvm::any_of(qkvTypes, [&](RankedTensorType type) {
+        return type.getRank() != 4;
+      })) {
+    op.getOperation()->emitWarning()
+        << "Chunked SDPA: unexpected Q/K/V layouts, q rank: "
+        << queryType.getRank() << ", key rank: " << keyType.getRank()
+        << ", value rank: " << valueType.getRank();
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // Query [U, H, chunk_len, D], K/V [B, H, S, D], and output all carry the
+  // head dim at index 1.
+  const int64_t headDim = 1;
+
+  int64_t headSize = queryType.getShape()[headDim];
+
+  SmallVector<int64_t> operandHeadDims(op.getNumOperands(),
+                                       mlir::sdy::kNullDim);
+  SmallVector<int64_t> resultHeadDims(op.getNumResults(), mlir::sdy::kNullDim);
+
+  operandHeadDims[0] = headDim; // query
+  operandHeadDims[1] = headDim; // key
+  operandHeadDims[2] = headDim; // value
+  resultHeadDims[0] = headDim;  // output
+
+  return buildHeadShardedCustomCallRule(op, operandHeadDims, resultHeadDims,
+                                        headSize);
+}
+
+static mlir::sdy::OpShardingRuleAttr
 getPagedAttentionShardingRule(mlir::stablehlo::CustomCallOp op) {
   llvm::StringRef target = op.getCallTargetName();
 
@@ -358,6 +410,10 @@ getPagedAttentionShardingRule(mlir::stablehlo::CustomCallOp op) {
 
     return buildHeadShardedCustomCallRule(op, operandHeadDims, resultHeadDims,
                                           headSize);
+  }
+
+  if (target == chunkedSdpaTargetName) {
+    return getChunkedSdpaShardingRule(op);
   }
 
   if (target == pagedUpdateCacheTargetName) {
@@ -1128,6 +1184,7 @@ private:
       customCallShardingRules = {
           {sdpaTargetName, getSDPAShardingRule},
           {pagedSdpaDecodeTargetName, getPagedAttentionShardingRule},
+          {chunkedSdpaTargetName, getPagedAttentionShardingRule},
           {pagedUpdateCacheTargetName, getPagedAttentionShardingRule},
           {pagedFillCacheTargetName, getPagedAttentionShardingRule},
           {sparseMatmulTargetName, getSparseMatmulShardingRule},
