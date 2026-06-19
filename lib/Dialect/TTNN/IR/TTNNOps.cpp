@@ -4360,6 +4360,14 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
     expectedResultRank = 4;
   }
 
+  // The ttnn::sampling kernel uses one core per user and supports between 1
+  // and 32 users (see sampling_device_operation.cpp). Fail-fast at verifier
+  // time so out-of-range batches don't fault deeper in the kernel.
+  if (batch < 1 || batch > 32) {
+    return emitOpError() << "batch (" << batch
+                         << ") must be in [1, 32] (kernel limit)";
+  }
+
   // Check output rank matches corresponding input rank.
   if (resultType.getRank() != expectedResultRank) {
     return emitOpError("result rank (")
