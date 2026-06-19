@@ -73,9 +73,6 @@ def _build_inputs(fbb, program_index, device, tt_runtime):
     input_dict = json.loads(fbb.get_program_inputs_as_json(program_index))
 
     inputs = []
-    # Keep host torch tensors alive for the duration of the submit so the
-    # owned-host-tensor pointers remain valid.
-    keepalive = []
     for i, spec in enumerate(input_dict):
         shape = spec["desc"]["shape"]
         dtype_str = spec["desc"]["layout"]["memory_desc"]["data_type"]
@@ -85,7 +82,6 @@ def _build_inputs(fbb, program_index, device, tt_runtime):
             host_tensor = torch.randn(shape, dtype=torch_dtype)
         else:
             host_tensor = torch.zeros(shape, dtype=torch_dtype)
-        keepalive.append(host_tensor)
 
         rt_tensor = tt_runtime.runtime.create_owned_host_tensor(
             host_tensor.data_ptr(),
@@ -99,7 +95,7 @@ def _build_inputs(fbb, program_index, device, tt_runtime):
         rt_tensor = tt_runtime.runtime.to_layout(rt_tensor, device, layout, True)
         inputs.append(rt_tensor)
 
-    return inputs, keepalive
+    return inputs
 
 
 def _run_flatbuffer(flatbuffer_path):
@@ -119,7 +115,7 @@ def _run_flatbuffer(flatbuffer_path):
             if fbb.is_program_private(program_index):
                 continue
 
-            inputs, _keepalive = _build_inputs(fbb, program_index, device, tt_runtime)
+            inputs = _build_inputs(fbb, program_index, device, tt_runtime)
 
             outputs = tt_runtime.runtime.submit(device, fbb, program_index, inputs)
             tt_runtime.runtime.wait(outputs)
