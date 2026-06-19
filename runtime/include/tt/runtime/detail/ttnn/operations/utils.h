@@ -8,6 +8,7 @@
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+#include "ttmlir/OpInvoke/TTNN/utils/utils.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "types_generated.h"
 #include <concepts>
@@ -67,12 +68,8 @@ std::vector<::tt::runtime::GlobalSemaphore> collectSemaphoreInputs(
 
 template <std::integral T>
 inline ::ttnn::Shape toTTNNShape(const flatbuffers::Vector<T> &vec) {
-  std::vector<uint32_t> rawShape;
-  rawShape.reserve(vec.size());
-  std::transform(
-      vec.begin(), vec.end(), std::back_inserter(rawShape),
-      [](const T &x) -> uint32_t { return static_cast<uint32_t>(x); });
-  return ::ttnn::Shape(rawShape);
+  return ::ttnn_op_invoke::operations::utils::toTTNNShape(
+      std::vector<T>(vec.begin(), vec.end()));
 }
 
 } // namespace tt::runtime::ttnn::operations::utils

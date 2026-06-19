@@ -16,6 +16,12 @@
 
 #include "llvm/Support/ErrorHandling.h"
 
+#include <algorithm>
+#include <cstdint>
+#include <iterator>
+#include <type_traits>
+#include <vector>
+
 // Macros to wrap overloaded functions for use with
 // query_op_constraints/runtime. These create a generic lambda that forwards
 // arguments, letting the compiler resolve the correct overload based on the
@@ -168,6 +174,15 @@ createLayerNormShardedMultiCoreProgramConfig(
     const ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfigT &config);
 
 ::tt::tt_fabric::Topology toMetalTopology(::tt::target::Topology topology);
+
+template <std::integral T>
+inline ::ttnn::Shape toTTNNShape(const std::vector<T> &vec) {
+  std::vector<uint32_t> rawShape;
+  rawShape.reserve(vec.size());
+  std::transform(vec.begin(), vec.end(), std::back_inserter(rawShape),
+                 [](auto x) -> uint32_t { return static_cast<uint32_t>(x); });
+  return ::ttnn::Shape(rawShape);
+}
 
 } // namespace ttnn_op_invoke::operations::utils
 
