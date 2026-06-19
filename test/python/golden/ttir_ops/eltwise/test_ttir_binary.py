@@ -813,7 +813,7 @@ def test_hoisted_logical_shift_ops(
         remainder,
         maximum,
         minimum,
-        pow | Marks(pytest.mark.xfail(reason="Golden Failure")),
+        pow | Marks(pytest.mark.xfail(strict = False, reason="Golden Failure")),
         logical_and,
         logical_or,
         logical_xor,
