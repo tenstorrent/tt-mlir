@@ -37,6 +37,24 @@ static const fb::Command *getCommand(const SizedBuffer &command) {
   return fb::GetCommand(command.data());
 }
 
+// Debug helper: scan the tensor pool for any *other* global id whose
+// tt::runtime::Tensor handle aliases the same underlying TTNNTensorWrapper as
+// `gid`. If two distinct global ids share one wrapper, a retain/dealloc issued
+// against one of them silently mutates the other -- which is the suspected
+// cause of gid losing retain with no explicit command targeting it.
+static void
+logWrapperAliases(const std::unordered_map<uint64_t, ::tt::runtime::Tensor>
+                      &tensorPool,
+                  uint64_t gid, const void *wrapper, const char *context) {
+  for (const auto &[otherGid, otherTensor] : tensorPool) {
+    if (otherGid != gid &&
+        static_cast<const void *>(otherTensor.handle.get()) == wrapper) {
+      LOG_INFO("[worker] ALIAS (", context, "): gid=", gid,
+               " shares wrapper=", wrapper, " with gid=", otherGid);
+    }
+  }
+}
+
 static std::string getWorkerHostname() {
   std::array<char, 256> hostnameBuffer{};
   if (gethostname(hostnameBuffer.data(), hostnameBuffer.size()) != 0) {
@@ -474,6 +492,12 @@ void CommandExecutor::execute(uint64_t commandId,
 
   bool retain = ::tt::runtime::getTensorRetain(tensor);
 
+  LOG_INFO("[worker] get retain gid=", tensorGlobalId, " value=", retain,
+           " wrapper=", static_cast<const void *>(tensor.handle.get()));
+  logWrapperAliases(tensorPool_, tensorGlobalId,
+                    static_cast<const void *>(tensor.handle.get()),
+                    "get retain");
+
   std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
       buildResponse(ResponseFactory::buildGetTensorRetainResponse, commandId,
                     retain);
@@ -487,6 +511,13 @@ void CommandExecutor::execute(uint64_t commandId,
   ::tt::runtime::Tensor tensor = tensorPool_.at(tensorGlobalId);
 
   ::tt::runtime::setTensorRetain(tensor, command->retain());
+
+  LOG_INFO("[worker] set retain gid=", tensorGlobalId,
+           " value=", command->retain(),
+           " wrapper=", static_cast<const void *>(tensor.handle.get()));
+  logWrapperAliases(tensorPool_, tensorGlobalId,
+                    static_cast<const void *>(tensor.handle.get()),
+                    "set retain");
 
   std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
       buildResponse(ResponseFactory::buildSetTensorRetainResponse, commandId);
@@ -564,9 +595,18 @@ void CommandExecutor::execute(uint64_t commandId,
              " != ", command->output_global_ids()->size());
 
   for (size_t i = 0; i < outputTensors.size(); i++) {
-    outputTensors[i].setGlobalId(command->output_global_ids()->Get(i));
-    tensorPool_.insert_or_assign(command->output_global_ids()->Get(i),
-                                 outputTensors[i]);
+    uint64_t outputGlobalId = command->output_global_ids()->Get(i);
+    bool overwrote = tensorPool_.find(outputGlobalId) != tensorPool_.end();
+    outputTensors[i].setGlobalId(outputGlobalId);
+    tensorPool_.insert_or_assign(outputGlobalId, outputTensors[i]);
+    LOG_INFO("[worker] submit output assign gid=", outputGlobalId,
+             " wrapper=",
+             static_cast<const void *>(outputTensors[i].handle.get()),
+             " retain=", ::tt::runtime::getTensorRetain(outputTensors[i]),
+             " overwrote_existing=", overwrote);
+    logWrapperAliases(tensorPool_, outputGlobalId,
+                      static_cast<const void *>(outputTensors[i].handle.get()),
+                      "submit output");
   }
 
   std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
@@ -660,6 +700,14 @@ void CommandExecutor::execute(uint64_t commandId,
                               const fb::DeallocateTensorCommand *command) {
   uint64_t tensorGlobalId = command->tensor_global_id();
   ::tt::runtime::Tensor tensor = tensorPool_.at(tensorGlobalId);
+
+  LOG_INFO("[worker] deallocate gid=", tensorGlobalId,
+           " force=", command->force(),
+           " retain=", ::tt::runtime::getTensorRetain(tensor),
+           " wrapper=", static_cast<const void *>(tensor.handle.get()));
+  logWrapperAliases(tensorPool_, tensorGlobalId,
+                    static_cast<const void *>(tensor.handle.get()),
+                    "deallocate");
 
   if (::tt::runtime::getTensorRetain(tensor)) {
     LOG_WARNING("Tensor is retained, will not be deallocated");
