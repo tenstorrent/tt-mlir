@@ -66,9 +66,7 @@ def _ensure_system_desc() -> None:
             f"(subprocess exit {e.returncode}): {e.stderr}"
         ) from e
     except subprocess.TimeoutExpired as e:
-        raise RuntimeError(
-            f"System descriptor generation timed out: {e}"
-        ) from e
+        raise RuntimeError(f"System descriptor generation timed out: {e}") from e
 
     if not os.path.exists(path):
         raise RuntimeError(

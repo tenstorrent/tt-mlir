@@ -38,12 +38,15 @@ def stablehlo_to_ttir(module: Module | str) -> Module:
     return run_compilation_process(stablehlo_to_ttir_pipeline_worker, (m,))
 
 
+def _resolve_system_desc(system_desc: str | None) -> str:
+    if system_desc is not None:
+        return system_desc
+    return os.getenv("SYSTEM_DESC_PATH", "ttrt-artifacts/system_desc.ttsys")
+
+
 def ttir_to_ttnn(
     module: Module | str,
-    system_desc: str = os.getenv(
-        "SYSTEM_DESC_PATH",
-        "ttrt-artifacts/system_desc.ttsys",
-    ),
+    system_desc: str | None = None,
 ) -> Module:
     """
     Runs `ttir-to-ttnn-runtime-pipeline` compiler pass on `module` in a safe way.
@@ -62,16 +65,13 @@ def ttir_to_ttnn(
     """
     m = module if isinstance(module, str) else str(module)
     return run_compilation_process(
-        ttir_to_ttnn_runtime_pipeline_worker, (m, system_desc)
+        ttir_to_ttnn_runtime_pipeline_worker, (m, _resolve_system_desc(system_desc))
     )
 
 
 def ttir_to_ttmetal(
     module: Module | str,
-    system_desc: str = os.getenv(
-        "SYSTEM_DESC_PATH",
-        "ttrt-artifacts/system_desc.ttsys",
-    ),
+    system_desc: str | None = None,
 ) -> Module:
     """
     Runs `ttir-to-ttmetal-pipeline` compiler pass on `module` in a safe way.
@@ -90,13 +90,11 @@ def ttir_to_ttmetal(
     """
     m = module if isinstance(module, str) else str(module)
     return run_compilation_process(
-        ttir_to_ttmetal_backend_pipeline_worker, (m, system_desc)
+        ttir_to_ttmetal_backend_pipeline_worker, (m, _resolve_system_desc(system_desc))
     )
 
 
-def ttnn_to_flatbuffer(
-    module: Module, output_file_name: str = "ttnn_fb.ttnn"
-) -> str:
+def ttnn_to_flatbuffer(module: Module, output_file_name: str = "ttnn_fb.ttnn") -> str:
     """
     Converts TTNN module to flatbuffer in a safe way and saves to file.
 

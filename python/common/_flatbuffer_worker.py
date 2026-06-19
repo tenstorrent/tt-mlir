@@ -119,13 +119,9 @@ def _run_flatbuffer(flatbuffer_path):
             if fbb.is_program_private(program_index):
                 continue
 
-            inputs, _keepalive = _build_inputs(
-                fbb, program_index, device, tt_runtime
-            )
+            inputs, _keepalive = _build_inputs(fbb, program_index, device, tt_runtime)
 
-            outputs = tt_runtime.runtime.submit(
-                device, fbb, program_index, inputs
-            )
+            outputs = tt_runtime.runtime.submit(device, fbb, program_index, inputs)
             tt_runtime.runtime.wait(outputs)
 
             for out in outputs:
