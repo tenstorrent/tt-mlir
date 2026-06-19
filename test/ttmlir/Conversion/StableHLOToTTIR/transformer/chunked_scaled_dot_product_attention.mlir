@@ -11,10 +11,12 @@ module @chunked_sdpa attributes {} {
   // [num_blocks, num_kv_heads, block_size, head_size].
   func.func public @chunked_sdpa(%query: tensor<1x12x64x64xbf16>, %key: tensor<128x12x32x64xbf16>, %value: tensor<128x12x32x64xbf16>, %page_table: tensor<1x4xi32>, %chunk_start_idx: tensor<1xi32>) -> tensor<1x12x64x64xbf16> {
     // CHECK-LABEL: @chunked_sdpa
+    // Attributes print alphabetically: composite_attributes (carrying scale),
+    // then composite_name, then decomposition.
     // CHECK: "ttcore.composite"(%arg0, %arg1, %arg2, %arg3, %arg4)
+    // CHECK-SAME: composite_attributes = {scale = 1.250000e-01 : f32}
     // CHECK-SAME: composite_name = "chunked_scaled_dot_product_attention"
     // CHECK-SAME: decomposition = @chunked_scaled_dot_product_attention_decomp
-    // CHECK-SAME: scale = 1.250000e-01 : f32
     %0 = stablehlo.custom_call @tt.chunked_scaled_dot_product_attention(%query, %key, %value, %page_table, %chunk_start_idx) {api_version = 0 : i32, mhlo.frontend_attributes = {scale = "0.125"}} : (tensor<1x12x64x64xbf16>, tensor<128x12x32x64xbf16>, tensor<128x12x32x64xbf16>, tensor<1x4xi32>, tensor<1xi32>) -> tensor<1x12x64x64xbf16>
     return %0 : tensor<1x12x64x64xbf16>
   }
@@ -22,9 +24,10 @@ module @chunked_sdpa attributes {} {
   // No scale frontend attribute.
   func.func public @chunked_sdpa_no_scale(%query: tensor<1x12x64x64xbf16>, %key: tensor<128x12x32x64xbf16>, %value: tensor<128x12x32x64xbf16>, %page_table: tensor<1x4xi32>, %chunk_start_idx: tensor<1xi32>) -> tensor<1x12x64x64xbf16> {
     // CHECK-LABEL: @chunked_sdpa_no_scale
+    // With no scale frontend attribute the composite carries empty attributes.
     // CHECK: "ttcore.composite"(%arg0, %arg1, %arg2, %arg3, %arg4)
+    // CHECK-SAME: composite_attributes = {}
     // CHECK-SAME: composite_name = "chunked_scaled_dot_product_attention"
-    // CHECK-NOT: scale
     %0 = stablehlo.custom_call @tt.chunked_scaled_dot_product_attention(%query, %key, %value, %page_table, %chunk_start_idx) {api_version = 0 : i32} : (tensor<1x12x64x64xbf16>, tensor<128x12x32x64xbf16>, tensor<128x12x32x64xbf16>, tensor<1x4xi32>, tensor<1xi32>) -> tensor<1x12x64x64xbf16>
     return %0 : tensor<1x12x64x64xbf16>
   }
