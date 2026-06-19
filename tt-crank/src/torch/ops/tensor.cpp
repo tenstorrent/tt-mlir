@@ -187,6 +187,13 @@ at::Tensor &fill_scalar(at::Tensor &self, const at::Scalar &value) {
     return self;
 }
 
+// aten::zero_ - fill every element of `self` with 0 in place. Shares the
+// cpu→tt upload path with fill_.Scalar.
+at::Tensor &zero_(at::Tensor &self) {
+    TORCH_CHECK(is_tt(self), "tt-kurbla aten::zero_: tensor must be on tt backend");
+    return fill_scalar(self, 0);
+}
+
 // Resizes the tensor in-place to a new size - the new size can have different
 // number of elements than the original tensor.
 //
@@ -361,6 +368,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("empty.memory_format", TORCH_FN(empty_memory_format));
     m.impl("resize_", TORCH_FN(resize_));
     m.impl("fill_.Scalar", TORCH_FN(fill_scalar));
+    m.impl("zero_", TORCH_FN(zero_));
     m.impl("_copy_from", TORCH_FN(copy_from));
     m.impl("_copy_from_and_resize", TORCH_FN(copy_from_and_resize));
     m.impl("set_.source_Tensor", TORCH_FN(set_source_Tensor));

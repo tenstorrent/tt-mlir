@@ -11,6 +11,8 @@ import gc
 import pytest
 import torch
 
+from tt_kurbla.torch.testing import strict_no_fallback
+
 
 # -----------------------------------------------------------------------------
 # empty.memory_format
@@ -121,6 +123,27 @@ def test_resize_same_numel_no_realloc() -> None:
     t.resize_((4, 16))
     assert tuple(t.shape) == (4, 16)
     torch.testing.assert_close(t.cpu(), src.reshape(4, 16), atol=0, rtol=0)
+
+
+# -----------------------------------------------------------------------------
+# zero_
+# -----------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32, torch.int32])
+def test_zero_inplace(dtype: torch.dtype) -> None:
+    # zero_ fills in place via the cpu→tt upload path (no device kernel), so it
+    # works across dtypes on sim and silicon alike. Assert correctness and that
+    # the mutation lands in self's storage.
+    if dtype.is_floating_point:
+        a = torch.randn((32, 32), dtype=dtype)
+    else:
+        a = torch.randint(1, 9, (32, 32), dtype=dtype)
+    tt = a.to("tt")
+    with strict_no_fallback():
+        ret = tt.zero_()
+    assert ret is tt, "zero_ must return self"
+    torch.testing.assert_close(tt.cpu(), torch.zeros((32, 32), dtype=dtype), atol=0, rtol=0)
 
 
 # -----------------------------------------------------------------------------
