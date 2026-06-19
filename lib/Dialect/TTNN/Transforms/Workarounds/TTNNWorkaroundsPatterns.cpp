@@ -788,5 +788,10 @@ const std::set<mlir::StringRef>
         // (LegalOpConfigAnalysis, OperationValidationAndFallback) see
         // an inconsistent view between in-IR layouts and runtime
         // contract.
-        ttnn::Conv3dOp::getOperationName()};
+        ttnn::Conv3dOp::getOperationName(),
+        // Sampling's operands workaround forces ROW_MAJOR layout on
+        // index/param tensors, UINT32 dtype on k, and ROW_MAJOR+UINT32 on
+        // the result (the kernel hard-rejects anything else and produces
+        // UINT32).
+        ttnn::SamplingOp::getOperationName()};
 } // namespace mlir::tt::ttnn

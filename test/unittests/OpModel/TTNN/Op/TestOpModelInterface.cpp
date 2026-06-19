@@ -6762,7 +6762,7 @@ TEST_F(OpModelBase, FlashMlaPrefillOpInterfaceWithMask) {
 //===----------------------------------------------------------------------===//
 
 TEST_F(OpModelBase, SamplingOp) {
-  // Typical vLLM non-greedy sampling shapes: batch=32, candidates=128.
+  // Typical vLLM non-greedy sampling shapes: batch=32, candidates=128
   const int64_t batch = 32;
   const int64_t candidates = 128;
 
