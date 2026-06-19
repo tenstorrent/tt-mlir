@@ -174,8 +174,7 @@ module {
   // CHECK: "ttnn.zeros"
   // CHECK: "ttnn.ones"
   // CHECK: "ttnn.arange"
-  // CHECK: "ttnn.matmul"
-  // CHECK: "ttnn.add"
+  // CHECK: "ttnn.linear"
 
   // CHECK-LABEL: func.func @creation_ops(
   func.func @creation_ops() -> tensor<4x4xbf16> {
