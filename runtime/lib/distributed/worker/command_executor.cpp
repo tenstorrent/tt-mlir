@@ -55,6 +55,32 @@ logWrapperAliases(const std::unordered_map<uint64_t, ::tt::runtime::Tensor>
   }
 }
 
+// Returns true if some *other* live pool entry holds a tt::runtime::Tensor whose
+// handle aliases the same underlying TTNNTensorWrapper as `gid`.
+//
+// HACK (input/output aliasing): the compiler can thread a tensor through a
+// program in place, so submit returns an output tensor that shares its
+// TTNNTensorWrapper with one of the inputs. The controller registers that
+// output under a fresh global id while the old input id still maps to the same
+// wrapper, so the two ids are physically one tensor. Tearing down the old id
+// (setTensorRetain(false) + deallocate) would then clear retain and free the
+// buffer out from under the still-live output id. Until input/output donation
+// is modeled properly, we treat the pool itself as the wrapper refcount: while
+// another live id aliases the wrapper, we refuse to clear retain or physically
+// deallocate. The last id referencing the wrapper becomes the sole owner and
+// performs the real teardown, so this neither leaks nor frees prematurely.
+static bool wrapperSharedByOtherGid(
+    const std::unordered_map<uint64_t, ::tt::runtime::Tensor> &tensorPool,
+    uint64_t gid, const void *wrapper) {
+  for (const auto &[otherGid, otherTensor] : tensorPool) {
+    if (otherGid != gid &&
+        static_cast<const void *>(otherTensor.handle.get()) == wrapper) {
+      return true;
+    }
+  }
+  return false;
+}
+
 static std::string getWorkerHostname() {
   std::array<char, 256> hostnameBuffer{};
   if (gethostname(hostnameBuffer.data(), hostnameBuffer.size()) != 0) {
@@ -510,7 +536,21 @@ void CommandExecutor::execute(uint64_t commandId,
   uint64_t tensorGlobalId = command->tensor_global_id();
   ::tt::runtime::Tensor tensor = tensorPool_.at(tensorGlobalId);
 
-  ::tt::runtime::setTensorRetain(tensor, command->retain());
+  // HACK (input/output aliasing): clearing retain is destructive on a shared
+  // wrapper, so skip retain=false while another live id still aliases it. The
+  // sole remaining owner will apply the clear when it is finally torn down.
+  bool clearingRetainWhileAliased =
+      !command->retain() &&
+      wrapperSharedByOtherGid(tensorPool_, tensorGlobalId,
+                              static_cast<const void *>(tensor.handle.get()));
+  if (clearingRetainWhileAliased) {
+    LOG_WARNING("[worker] skipping retain=false on gid=", tensorGlobalId,
+                " because wrapper=",
+                static_cast<const void *>(tensor.handle.get()),
+                " is still aliased by another live global id");
+  } else {
+    ::tt::runtime::setTensorRetain(tensor, command->retain());
+  }
 
   LOG_INFO("[worker] set retain gid=", tensorGlobalId,
            " value=", command->retain(),
@@ -715,7 +755,18 @@ void CommandExecutor::execute(uint64_t commandId,
                     static_cast<const void *>(tensor.handle.get()),
                     "deallocate");
 
-  if (::tt::runtime::getTensorRetain(tensor)) {
+  // HACK (input/output aliasing): if another live id still aliases this
+  // wrapper, dropping this id must not physically free the shared buffer. Drop
+  // only this pool entry; the sole remaining owner will perform the real free
+  // when it is torn down.
+  if (wrapperSharedByOtherGid(tensorPool_, tensorGlobalId,
+                              static_cast<const void *>(tensor.handle.get()))) {
+    LOG_WARNING("[worker] skipping deallocate of gid=", tensorGlobalId,
+                " (wrapper=", static_cast<const void *>(tensor.handle.get()),
+                " still aliased by another live global id); dropping pool entry "
+                "only");
+    tensorPool_.erase(tensorGlobalId);
+  } else if (::tt::runtime::getTensorRetain(tensor)) {
     LOG_WARNING("Tensor is retained, will not be deallocated");
   } else {
     ::tt::runtime::deallocateTensor(tensor, command->force());
