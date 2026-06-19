@@ -2546,3 +2546,115 @@ def test_flash_mla_prefill_value_mask_scale(
     )
 
     check_op(output, "flash_mla_prefill")
+
+
+# Chunked-prefill SDPA over a paged KV cache. The custom_call converts to a
+# ttcore.composite "chunked_scaled_dot_product_attention" and is promoted to the
+# typed ttnn op. Ported from the (removed) TTIR-builder golden test in
+# ttir_ops/attention/test_sdpa.py (issue #8843); covers MHA, GQA, and MQA.
+@pytest.mark.parametrize(
+    "batch,num_heads,num_kv_heads,head_dim,chunk_len,chunk_start_idx,block_size,blocks_per_user,scale",
+    [
+        # MHA: heads=8, head_dim=64, prefix=128, chunk=128, seq_len=256.
+        (1, 8, 8, 64, 128, 128, 32, 8, 0.125),
+        # MHA: heads=8, head_dim=128.
+        (1, 8, 8, 128, 128, 128, 32, 8, 0.0883883387),
+        # GQA (4:1): heads=8, kv_heads=2, head_dim=64.
+        (1, 8, 2, 64, 128, 128, 32, 8, 0.125),
+        # GQA (4:1): heads=8, kv_heads=2, head_dim=128.
+        (1, 8, 2, 128, 128, 128, 32, 8, 0.0883883387),
+        # MQA: heads=8, kv_heads=1, head_dim=64.
+        (1, 8, 1, 64, 128, 128, 32, 8, 0.125),
+        # MQA: heads=8, kv_heads=1, head_dim=128.
+        (1, 8, 1, 128, 128, 128, 32, 8, 0.0883883387),
+    ],
+    ids=[
+        "mha_d64",
+        "mha_d128",
+        "gqa_d64",
+        "gqa_d128",
+        "mqa_d64",
+        "mqa_d128",
+    ],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_chunked_sdpa(
+    batch: int,
+    num_heads: int,
+    num_kv_heads: int,
+    head_dim: int,
+    chunk_len: int,
+    chunk_start_idx: int,
+    block_size: int,
+    blocks_per_user: int,
+    scale: float,
+    target: str,
+    request,
+):
+    seq_len = blocks_per_user * block_size
+    assert chunk_start_idx + chunk_len <= seq_len
+    num_blocks = batch * blocks_per_user
+
+    query_shape = (batch, num_heads, chunk_len, head_dim)
+    kv_shape = (num_blocks, num_kv_heads, block_size, head_dim)
+    page_table_shape = (batch, blocks_per_user)
+    chunk_start_idx_shape = (1,)
+
+    shapes = [
+        query_shape,
+        kv_shape,
+        kv_shape,
+        page_table_shape,
+        chunk_start_idx_shape,
+    ]
+    dtypes = [
+        torch.bfloat16,
+        torch.bfloat16,
+        torch.bfloat16,
+        torch.int32,
+        torch.int32,
+    ]
+
+    def module(builder: StableHLOBuilder):
+        @builder.func(shapes, dtypes)
+        def chunked_sdpa(
+            query: Operand,
+            key: Operand,
+            value: Operand,
+            page_table: Operand,
+            chunk_start: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # Page table maps each user's logical blocks to physical blocks.
+            valid_page_table = (
+                torch.arange(blocks_per_user, dtype=torch.int32)
+                .unsqueeze(0)
+                .expand(batch, -1)
+                .contiguous()
+            )
+            valid_chunk_start = torch.tensor([chunk_start_idx], dtype=torch.int32)
+            builder.set_goldens(
+                {page_table: valid_page_table, chunk_start: valid_chunk_start}
+            )
+
+            return builder.chunked_scaled_dot_product_attention(
+                query,
+                key,
+                value,
+                page_table,
+                chunk_start,
+                scale=scale,
+                unit_attrs=unit_attrs,
+            )
+
+    output = compile_and_execute_shlo(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=DeferredDevice(request),
+        ttir_pipeline_options=["composite-resolution=force-promote"],
+        save_artifacts=True,
+    )
+
+    check_op(output, "chunked_scaled_dot_product_attention")
