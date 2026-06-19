@@ -1530,6 +1530,11 @@ def module_batch_norm_grad(builder: StableHLOBuilder):
         unit_attrs: Optional[List[str]] = None,
     ):
         builder.set_graph_level_check(True)
+        # variance must be non-negative (it represents E[(x-mean)^2]).
+        # torch.randn can produce negative values causing sqrt(negative) = NaN.
+        builder.set_goldens(
+            {variance: torch.rand(builder.get_shape(variance), dtype=torch.float32)}
+        )
         return builder.batch_norm_grad(
             operand,
             scale,

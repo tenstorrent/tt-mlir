@@ -2648,8 +2648,7 @@ createReductionArgMaxOp(FlatbufferObjectCache &cache, ReductionOp op) {
   auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
 
   return ::tt::target::ttnn::CreateReductionArgMaxOp(
-      *cache.fbb, in, output, dim, op.getKeepDim(), op.getUseMulticore(),
-      memoryConfig);
+      *cache.fbb, in, output, dim, op.getKeepDim(), memoryConfig);
 }
 
 template <typename ReductionOp>
