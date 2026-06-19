@@ -182,6 +182,25 @@ public:
           }
         }
 
+        // Skip operations whose first ranked-tensor input is on the host
+        // (SystemMemory).  These appear in const_eval functions where weight/
+        // bias packing ops (e.g. repeat_interleave, multiply, reshape) operate
+        // on parameter tensors before they are moved to device.  Validation
+        // via the op model requires device tensors; host-side ops are
+        // evaluated correctly at const-eval time without device validation.
+        // This mirrors the existing SliceStaticOp skip above.
+        for (Value operand : operation->getOperands()) {
+          if (auto rankedTy =
+                  mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
+            if (auto layout = mlir::dyn_cast_or_null<ttnn::TTNNLayoutAttr>(
+                    rankedTy.getEncoding())) {
+              if (layout.getBufferType() == BufferType::SystemMemory) {
+                return WalkResult::skip();
+              }
+            }
+          }
+        }
+
         // Skip operations that are not OpModel castable (can't be validated)
         // TODO(rpavlovic): we should have all ops implement OpModel interface
         // eventually. Then this check becomes an assert.

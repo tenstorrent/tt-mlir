@@ -735,8 +735,29 @@ def TTNNGridSampleLayoutOptimizer : Pass<"ttnn-grid-sample-layout-opt", "::mlir:
   let dependentDialects = ["mlir::tt::ttnn::TTNNDialect"];
 }
 
-def TTNNNarrowKConv2dTileOptimisation : Pass<"ttnn-narrow-k-conv2d-tile-opt", "::mlir::ModuleOp"> {
-  let summary = "Narrow-K conv2d tile optimization (stub — blocked by tilize kernel TILE_WIDTH=32).";
+
+def TTNNSpatialPackActivationRowMajorOpt : Pass<"ttnn-spatial-pack-activation-rm-opt", "::mlir::ModuleOp"> {
+  let summary = "Move to_layout(TILE) to after the spatial packing reshape+permute+reshape chain.";
+  let description = [{
+    TTNNDecomposeLayouts propagates TILE backward through the activation packing chain,
+    inserting to_layout(TILE) BEFORE the first reshape. This is wrong: the reshapes and
+    permute should operate on ROW_MAJOR so the first two reshapes are free views and the
+    permute writes only 17.7 MB instead of 151 MB.
+
+    Pattern matched (after DecomposeLayouts):
+      to_layout(%input, TILE)                 <- inserted too early by DecomposeLayouts
+      reshape([N, C*K, H/K, W])               <- should be free ROW_MAJOR view
+      permute({0,2,3,1})                      <- should write only 17.7 MB in ROW_MAJOR
+      reshape([N, 1, H/K*W, C*K])             <- should be free ROW_MAJOR view
+      linear(...)
+
+    After this pass:
+      reshape([N, C*K, H/K, W])               <- free ROW_MAJOR view (zero copy)
+      permute({0,2,3,1})                      <- ROW_MAJOR: 17.7 MB write (C*K fills tiles 100%)
+      reshape([N, 1, H/K*W, C*K])             <- free ROW_MAJOR view (zero copy)
+      to_layout(%packed, TILE)                <- tilize HERE on the smaller packed tensor
+      linear(...)
+  }];
   let dependentDialects = ["mlir::tt::ttnn::TTNNDialect"];
 }
 

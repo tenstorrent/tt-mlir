@@ -74,6 +74,14 @@ void createTTNNPipelineTTIRPasses(
   // Propagate per-arg weight_dtype annotations through TM ops to consumers.
   pm.addPass(mlir::tt::ttir::createTTIRPropagateWeightDtype());
 
+  // Spatial row-group packing for narrow-channel 1x1 conv2d.
+  // Runs before FlattenSlidingWindow so we see the original pattern:
+  //   transpose(-3,-2) → transpose(-2,-1) → conv2d{channel_last} → transpose × 2
+  // Weight/bias packing ops reference constant parameters, so
+  // ConstEvalHoistTransform (which runs after all TTIR passes) automatically
+  // lifts them into const_eval functions — computed once, cached forever.
+  pm.addPass(mlir::tt::ttir::createTTIRSpatialRowGroupPackingOpt());
+
   // Flattening sliding window ops for compatibility with conversion to TTNN
   pm.addPass(mlir::tt::ttir::createTTIRFlattenSlidingWindow());
 
@@ -252,6 +260,14 @@ void createTTNNPipelineLayoutDecompositionPass(
   pm.addPass(createTTNNGridSampleLayoutOptimizer());
 
   pm.addPass(createTTNNDecomposeLayouts());
+
+  // Move to_layout(TILE) from before the spatial packing reshape+permute+reshape
+  // chain to AFTER it. DecomposeLayouts propagates TILE backward through the chain
+  // (because linear needs TILE input), tilizing the activation before the reshapes.
+  // This pass moves the tilize to after the chain so the reshapes and permute
+  // operate in ROW_MAJOR (free views + 17.7 MB permute instead of 151 MB).
+  pm.addPass(createTTNNSpatialPackActivationRowMajorOpt());
+
 }
 
 void createTTNNPipelineDeallocPass(

@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Conv2dConfigParams.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Support/Logger.h"
 
 namespace mlir::tt::ttnn {
@@ -126,10 +127,59 @@ bool Conv2dRuleBook::isValidOutputHintForInputs(
   return true;
 }
 
+// Compute the activation tensor size in bytes when stored as TILE-format bf16
+// and height-sharded across all cores. Used to decide whether L1Full is safe.
+static uint64_t computeActBytesPerCore(Conv2dOp op) {
+  static constexpr uint64_t kTileWidth     = 32;
+  static constexpr uint64_t kBytesPerElem  = 2;  // bf16
+  static constexpr uint64_t kDefaultCores  = 64;  // 8×8 Wormhole grid
+
+  uint64_t inH     = static_cast<uint64_t>(op.getInputHeight());
+  uint64_t inW     = static_cast<uint64_t>(op.getInputWidth());
+  uint64_t inC     = static_cast<uint64_t>(op.getInChannels());
+  uint64_t cPadded = ((inC + kTileWidth - 1) / kTileWidth) * kTileWidth;
+
+  uint64_t totalBytes = inH * inW * cPadded * kBytesPerElem;
+  return totalBytes / kDefaultCores;
+}
+
+// Set the conv2d_slice_config attribute on every Conv2dOp before the
+// OperationValidationAndFallback pass runs.
+//
+// Default: L1Full — the optimizer attempts to fit the entire activation in L1
+// (best performance when it fits).
+//
+// Guard: switch to DramHeight when the activation, if height-sharded across
+// all 64 cores in TILE-format bf16, would exceed the per-core usable L1.
+// Without this guard the mock-device validation in
+// OperationValidationAndFallback may incorrectly mark L1Full as valid, only
+// for the real device to TT_FATAL at runtime.
+//
+// Example that triggers the guard:
+//   UV downsampling depthwise conv2d: in_channels=2, H=1280, W=2304
+//   Activation in TILE: 1280 × 2304 × 32 × 2 B = 188 MB total
+//   Per core (64):      2,949,120 B  >  1,329,888 B (usable L1)  → OOM
 void applyConvSliceConfig(ModuleOp moduleOp) {
   moduleOp->walk([](Conv2dOp conv2dOp) {
-    conv2dOp.setConv2dSliceConfigAttr(Conv2dSliceConfigAttr::get(
-        conv2dOp.getContext(), Conv2dSliceType::L1Full, 0));
+    Conv2dSliceType sliceType = Conv2dSliceType::L1Full;
+
+    if (auto chipDesc = ttcore::getOpChipDescAttr(conv2dOp)) {
+      uint64_t l1PerCore    = chipDesc.getUsableL1Size();
+      uint64_t perCoreBytes = computeActBytesPerCore(conv2dOp);
+
+      if (perCoreBytes > l1PerCore) {
+        sliceType = Conv2dSliceType::DramHeight;
+        TTMLIR_DEBUG(
+            ttmlir::LogComponent::GreedyOptimizer,
+            "applyConvSliceConfig: Conv2d (H={}, W={}, C={}) activation "
+            "{}B/core exceeds L1 {}B — using DramHeight",
+            conv2dOp.getInputHeight(), conv2dOp.getInputWidth(),
+            conv2dOp.getInChannels(), perCoreBytes, l1PerCore);
+      }
+    }
+
+    conv2dOp.setConv2dSliceConfigAttr(
+        Conv2dSliceConfigAttr::get(conv2dOp.getContext(), sliceType, 0));
   });
 }
 
