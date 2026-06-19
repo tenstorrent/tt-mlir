@@ -1134,6 +1134,39 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
 }
 
 // Factory method to create workarounds for
+// chunked_scaled_dot_product_attention op operands.
+// page_table and chunk_start_idx require ROW_MAJOR layout.
+TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
+    createChunkedScaledDotProductAttentionOpOperandsWorkarounds(Operation *op) {
+  TTNNOperandWorkarounds emptyWorkaround;
+  TTNNOperandWorkarounds rowMajorLayoutWorkaround;
+  rowMajorLayoutWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+
+  TTNNOperandsWorkarounds operandsWorkaround =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
+
+  // Query, key, and value need no workarounds.
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+
+  // page_table and chunk_start_idx require ROW_MAJOR layout.
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);
+
+  // Need no workaround for output tensor.
+  operandsWorkaround =
+      operandsWorkaround.addOutputOperandWorkaround(emptyWorkaround);
+
+  return operandsWorkaround;
+}
+
+// Factory method to create workarounds for
 // paged_flash_multi_latent_attention_decode op operands.
 // page_table and cur_pos_tensor require ROW_MAJOR layout.
 TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
