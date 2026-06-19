@@ -36,44 +36,6 @@ def check_op(mlir_file: str, op_name: str) -> bool:
 
 
 @pytest.mark.parametrize(
-    "shapes", [((3, 128, 128), (3, 128, 128), (128,))], ids=shapes_list_str
-)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("transpose_a", [False, True])
-@pytest.mark.parametrize("transpose_b", [False, True])
-@pytest.mark.parametrize("target", ["ttnn"])
-def test_linear_without_workaround(
-    shapes: List[Shape],
-    dtype: torch.dtype,
-    transpose_a: bool,
-    transpose_b: bool,
-    target: str,
-    request,
-    device,
-):
-    def module(builder: TTIRBuilder):
-        @builder.func(shapes, [dtype, dtype, dtype])
-        def linear_wrapper(
-            in0: Operand,
-            weight: Operand,
-            bias: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.linear(
-                in0, weight, bias, transpose_a, transpose_b, unit_attrs=unit_attrs
-            )
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-        pipeline_options=["enable-decomposition-workaround-pass=false"],
-    )
-
-
-@pytest.mark.parametrize(
     "shape",
     [
         # 3D input triggers the workaround (rank < 4)
@@ -225,70 +187,6 @@ def test_pad_high_dim_without_workaround(
             unit_attrs: Optional[List[str]] = None,
         ):
             return builder.pad(in0, padding=padding, value=0)
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-        pipeline_options=["enable-decomposition-workaround-pass=false"],
-    )
-
-
-@pytest.mark.parametrize(
-    "shapes",
-    [
-        # Multi-row bias: bias shape [17, 32] has 17 rows.
-        # The fused bias kernel (add_tiles_bcast_rows) only broadcasts row 0,
-        # silently ignoring rows 1-16 and producing incorrect results.
-        # Small K=32 so bias error is not masked by matmul output variance.
-        pytest.param(
-            ((17, 32), (32, 32), (17, 32)),
-        ),
-        # Batched bias [2, 1, 1] with non-batched weight.
-        # Bias batch dim > 1 triggers TT_FATAL(bias_batch_size == 1).
-        pytest.param(
-            ((2, 33, 1024), (1024, 1024), (2, 1, 1)),
-        ),
-        # Output shape mismatch on fused kernel path.
-        # When bias is effectively 1D (padded height == TILE_HEIGHT) and the
-        # broadcasted output shape differs from the matmul shape, the fused
-        # kernel produces output with matmul shape [256, 512] instead of the
-        # expected broadcasted shape [1, 256, 512].
-        pytest.param(
-            ((256, 1024), (1024, 512), (1, 1, 512)),
-        ),
-    ],
-    ids=shapes_list_str,
-)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
-def test_linear_bias_decomposition_without_workaround(
-    shapes: List[Shape],
-    dtype: torch.dtype,
-    target: str,
-    request,
-    device,
-):
-    """
-    Test linear op bias decomposition scenarios with workarounds disabled.
-    Each param tests a different reason the bias cannot stay fused:
-    - Multi-row bias (silent correctness bug in fused kernel)
-    - Batched bias with non-batched weight
-    """
-
-    def module(builder: TTIRBuilder):
-        @builder.func(shapes, [dtype, dtype, dtype])
-        def linear_bias_decomp_wrapper(
-            in0: Operand,
-            weight: Operand,
-            bias: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.linear(
-                in0, weight, bias, False, False, unit_attrs=unit_attrs
-            )
 
     compile_and_execute_ttir(
         module,

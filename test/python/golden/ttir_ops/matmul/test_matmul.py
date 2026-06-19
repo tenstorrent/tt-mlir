@@ -158,6 +158,89 @@ def test_linear(
     )
 
 
+@pytest.mark.parametrize(
+    "shapes", [((3, 128, 128), (3, 128, 128), (128,))], ids=shapes_list_str
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("transpose_a", [False, True])
+@pytest.mark.parametrize("transpose_b", [False, True])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_linear_batched_weight(
+    shapes: List[Shape],
+    dtype: torch.dtype,
+    transpose_a: bool,
+    transpose_b: bool,
+    target: str,
+    request,
+    device,
+):
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype, dtype, dtype])
+        def linear_wrapper(
+            in0: Operand,
+            weight: Operand,
+            bias: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.linear(
+                in0, weight, bias, transpose_a, transpose_b, unit_attrs=unit_attrs
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        ((17, 32), (32, 32), (17, 32)),
+        ((2, 33, 1024), (1024, 1024), (2, 1, 1)),
+        ((256, 1024), (1024, 512), (1, 1, 512)),
+    ],
+    ids=shapes_list_str,
+)
+@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_linear_bias_shapes(
+    shapes: List[Shape],
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """
+    Exercise linear with bias shapes that previously hit fused-kernel limitations:
+    - Multi-row bias (silent correctness bug in fused kernel)
+    - Batched bias with non-batched weight
+    - Bias whose broadcasted output shape differs from the matmul shape
+    """
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, [dtype, dtype, dtype])
+        def linear_bias_wrapper(
+            in0: Operand,
+            weight: Operand,
+            bias: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.linear(
+                in0, weight, bias, False, False, unit_attrs=unit_attrs
+            )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+    )
+
+
 @x86_only
 @pytest.mark.parametrize(
     "shapes",
