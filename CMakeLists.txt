@@ -47,9 +47,8 @@ option(TTMLIR_ENABLE_TOOLS "Enable building core tools (ttmlir-opt, ttmlir-lsp-s
 option(TTMLIR_ENABLE_ALCHEMIST "Enable tt-alchemist lib" ON)
 option(TTMLIR_ENABLE_ALCHEMIST_WHEEL "Enable tt-alchemist wheel" OFF)  # Expensive to build
 option(CODE_COVERAGE "Enable coverage reporting" OFF)
+option(TT_USE_SYSTEM_SFPI "Use system path for SFPI. SFPI is used to compile firmware." OFF)
 
-# Temporarily set this to try to force CI to get correct SFPI version
-set(TT_USE_SYSTEM_SFPI OFF CACHE BOOL "Use system path for SFPI. SFPI is used to compile firmware." FORCE)
 
 if (TTMLIR_ENABLE_RUNTIME)
   option(TT_RUNTIME_ENABLE_TTNN "Enable TTNN Runtime (requires TTMLIR_ENABLE_RUNTIME)" ON)
