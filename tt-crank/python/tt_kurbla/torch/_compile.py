@@ -458,6 +458,20 @@ def _(mb, input, group_size, group_name):
     return mb.all_gather(input, group_size, _cluster_axis_for_group(group_name))
 
 
+@_lowering(_funcol.reduce_scatter_tensor.default)
+def _(mb, input, reduce_op, group_size, group_name):
+    # The c10d functional reduce_scatter always scatters dim 0 (funcol moves any
+    # other dim there itself). Sum only, matching build_reduce_scatter.
+    return mb.reduce_scatter(input, group_size, _cluster_axis_for_group(group_name), 0)
+
+
+@_lowering(torch.ops.tt_kurbla.reduce_scatter.default)
+def _(mb, input, group_name, group_size, scatter_dim):
+    # Our own reduce_scatter carries the real shard dim (used by the
+    # Replicate->Shard redistribute patch); scatter it directly.
+    return mb.reduce_scatter(input, group_size, _cluster_axis_for_group(group_name), scatter_dim)
+
+
 @_lowering(_funcol.wait_tensor.default)
 def _(mb, input):
     # TODO: Should we wait here?

@@ -1,5 +1,7 @@
 #include "torch/ops/builders.hpp"
 
+#include "cast.hpp"
+
 #include <cstdint>
 #include <utility>
 #include <vector>
@@ -397,6 +399,32 @@ mlir::Value build_all_reduce(ModuleBuilder &mb, mlir::Value input, const std::st
     return mb
         .create<mlir::tt::ttir::AllReduceOp>(result_type, input, reduce_type_attr,
                                              mb.attrs().getUI32IntegerAttr(cluster_axis))
+        .getResult();
+}
+
+mlir::Value build_reduce_scatter(ModuleBuilder &mb, mlir::Value input, std::int64_t group_size,
+                                 std::uint32_t cluster_axis, std::int64_t scatter_dim) {
+    // Inverse of build_all_gather: scatter `scatter_dim` across the group,
+    // summing the per-chip contributions. Sum is the only wired reduce op
+    // (mirrors build_all_reduce). TTIR/TTNN reduce_scatter carry an arbitrary
+    // scatter_dim, so we scatter the requested dim directly.
+    auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    std::vector<std::int64_t> out_shape(input_type.getShape().begin(), input_type.getShape().end());
+    const auto rank = as<std::int64_t>(out_shape.size());
+    TORCH_CHECK(rank > 0, "tt-kurbla build_reduce_scatter: input must be at least 1-D");
+    const auto dim = scatter_dim < 0 ? scatter_dim + rank : scatter_dim;
+    TORCH_CHECK(dim >= 0 && dim < rank, "tt-kurbla build_reduce_scatter: scatter_dim ", scatter_dim,
+                " out of range for rank ", rank);
+    TORCH_CHECK(out_shape[as<std::size_t>(dim)] % group_size == 0, "tt-kurbla build_reduce_scatter: dim ", dim, " (",
+                out_shape[as<std::size_t>(dim)], ") not divisible by group size ", group_size);
+    out_shape[as<std::size_t>(dim)] /= group_size;
+    auto result_type = mlir::RankedTensorType::get(out_shape, input_type.getElementType());
+    auto reduce_type_attr =
+        ::mlir::tt::ttcore::ReduceTypeAttr::get(result_type.getContext(), ::mlir::tt::ttcore::ReduceType::Sum);
+    return mb
+        .create<mlir::tt::ttir::ReduceScatterOp>(result_type, input, reduce_type_attr,
+                                                 mb.attrs().getSI32IntegerAttr(as<std::int32_t>(dim)),
+                                                 mb.attrs().getUI32IntegerAttr(cluster_axis))
         .getResult();
 }
 
