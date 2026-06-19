@@ -7272,4 +7272,543 @@ INSTANTIATE_TEST_SUITE_P(GeluBackwardOpTPathParityTest,
                          GeluBackwardOpTPathParityTest,
                          ::testing::ValuesIn(geluBackwardOpList));
 
+//===----------------------------------------------------------------------===//
+// Pool2dOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::Pool2dOpT &opNativeOpModel,
+                       ::tt::target::ttnn::Pool2dOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::Pool2dOpT &op) {
+    op.in.reset();
+    op.memory_config.reset();
+    op.out.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+const mlir::tt::ttnn::TensorMemoryLayoutAttr nonDefaultShardSchemeAttr =
+    mlir::tt::ttnn::TensorMemoryLayoutAttr::get(
+        getContext(), mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
+
+mlir::tt::ttnn::AvgPool2dOp buildTestAvgPool2dOp(
+    int32_t batchSize = 1, int32_t inputHeight = 4, int32_t inputWidth = 4,
+    int32_t channels = 4, llvm::ArrayRef<int32_t> kernelSize = {2, 2},
+    llvm::ArrayRef<int32_t> stride = {1, 1},
+    llvm::ArrayRef<int32_t> padding = {0, 0},
+    llvm::ArrayRef<int32_t> dilation = {1, 1},
+    mlir::tt::ttnn::TensorMemoryLayoutAttr appliedShardScheme = {},
+    bool ceilMode = false, bool reallocateHaloOutput = true,
+    bool countIncludePad = true, mlir::BoolAttr configTensorsInDram = {},
+    mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto inputType = tiledL1BF16Type(defaultShape);
+  mlir::Value input =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{inputType},
+                                          mlir::ValueRange{})
+          .getResult();
+
+  mlir::RankedTensorType outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(defaultShape, outputMemoryConfig)
+          : tiledL1BF16Type(defaultShape);
+
+  return e.builder.create<mlir::tt::ttnn::AvgPool2dOp>(
+      loc, outputType, input, batchSize, inputHeight, inputWidth, channels,
+      kernelSize, stride, padding, dilation, appliedShardScheme, ceilMode,
+      reallocateHaloOutput, countIncludePad, configTensorsInDram);
+}
+
+mlir::tt::ttnn::MaxPool2dOp buildTestMaxPool2dOp(
+    int32_t batchSize = 1, int32_t inputHeight = 4, int32_t inputWidth = 4,
+    int32_t channels = 4, llvm::ArrayRef<int32_t> kernelSize = {2, 2},
+    llvm::ArrayRef<int32_t> stride = {1, 1},
+    llvm::ArrayRef<int32_t> padding = {0, 0},
+    llvm::ArrayRef<int32_t> dilation = {1, 1},
+    mlir::tt::ttnn::TensorMemoryLayoutAttr appliedShardScheme = {},
+    bool ceilMode = false, bool reallocateHaloOutput = true,
+    mlir::BoolAttr configTensorsInDram = {},
+    mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto inputType = tiledL1BF16Type(defaultShape);
+  mlir::Value input =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{inputType},
+                                          mlir::ValueRange{})
+          .getResult();
+
+  mlir::RankedTensorType outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(defaultShape, outputMemoryConfig)
+          : tiledL1BF16Type(defaultShape);
+
+  return e.builder.create<mlir::tt::ttnn::MaxPool2dOp>(
+      loc, outputType, input, batchSize, inputHeight, inputWidth, channels,
+      kernelSize, stride, padding, dilation, appliedShardScheme, ceilMode,
+      reallocateHaloOutput, configTensorsInDram);
+}
+
+} // namespace
+
+using AvgPool2dOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::AvgPool2dOp>;
+
+TEST_P(AvgPool2dOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::AvgPool2dOp avgPool2dOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::Pool2dOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildAvgPool2dOpTFromMLIR(
+          avgPool2dOp.getBatchSize(), avgPool2dOp.getInputHeight(),
+          avgPool2dOp.getInputWidth(), avgPool2dOp.getChannels(),
+          avgPool2dOp.getKernelSize(), avgPool2dOp.getStride(),
+          avgPool2dOp.getPadding(), avgPool2dOp.getDilation(),
+          avgPool2dOp.getCeilMode(), avgPool2dOp.getReallocateHaloOutput(),
+          avgPool2dOp.getCountIncludePad(), avgPool2dOp.getAppliedShardScheme(),
+          avgPool2dOp.getConfigTensorsInDram(),
+          resolveOutputLayout(avgPool2dOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, avgPool2dOp.getInput());
+
+  auto fbOffset = mlir::tt::ttnn::createPool2dOp(cache, avgPool2dOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::Pool2dOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::AvgPool2dOp> avgPool2dOpList = {
+    buildTestAvgPool2dOp(),
+    buildTestAvgPool2dOp(/*batchSize=*/2),
+    buildTestAvgPool2dOp(/*batchSize=*/1, /*inputHeight=*/8),
+    buildTestAvgPool2dOp(/*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/8),
+    buildTestAvgPool2dOp(/*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+                         /*channels=*/8),
+    buildTestAvgPool2dOp(/*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+                         /*channels=*/4,
+                         /*kernelSize=*/llvm::ArrayRef<int32_t>{3, 3}),
+    buildTestAvgPool2dOp(/*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+                         /*channels=*/4, /*kernelSize=*/{2, 2},
+                         /*stride=*/llvm::ArrayRef<int32_t>{2, 2}),
+    buildTestAvgPool2dOp(/*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+                         /*channels=*/4, /*kernelSize=*/{2, 2},
+                         /*stride=*/{1, 1},
+                         /*padding=*/llvm::ArrayRef<int32_t>{1, 1}),
+    buildTestAvgPool2dOp(/*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+                         /*channels=*/4, /*kernelSize=*/{2, 2},
+                         /*stride=*/{1, 1}, /*padding=*/{0, 0},
+                         /*dilation=*/llvm::ArrayRef<int32_t>{2, 2}),
+    buildTestAvgPool2dOp(/*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+                         /*channels=*/4, /*kernelSize=*/{2, 2},
+                         /*stride=*/{1, 1}, /*padding=*/{0, 0},
+                         /*dilation=*/{1, 1},
+                         /*appliedShardScheme=*/nonDefaultShardSchemeAttr),
+    buildTestAvgPool2dOp(/*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+                         /*channels=*/4, /*kernelSize=*/{2, 2},
+                         /*stride=*/{1, 1}, /*padding=*/{0, 0},
+                         /*dilation=*/{1, 1}, /*appliedShardScheme=*/{},
+                         /*ceilMode=*/true),
+    buildTestAvgPool2dOp(/*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+                         /*channels=*/4, /*kernelSize=*/{2, 2},
+                         /*stride=*/{1, 1}, /*padding=*/{0, 0},
+                         /*dilation=*/{1, 1}, /*appliedShardScheme=*/{},
+                         /*ceilMode=*/false, /*reallocateHaloOutput=*/false),
+    buildTestAvgPool2dOp(/*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+                         /*channels=*/4, /*kernelSize=*/{2, 2},
+                         /*stride=*/{1, 1}, /*padding=*/{0, 0},
+                         /*dilation=*/{1, 1}, /*appliedShardScheme=*/{},
+                         /*ceilMode=*/false, /*reallocateHaloOutput=*/true,
+                         /*countIncludePad=*/false),
+    buildTestAvgPool2dOp(
+        /*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4, /*channels=*/4,
+        /*kernelSize=*/{2, 2}, /*stride=*/{1, 1}, /*padding=*/{0, 0},
+        /*dilation=*/{1, 1}, /*appliedShardScheme=*/{}, /*ceilMode=*/false,
+        /*reallocateHaloOutput=*/true, /*countIncludePad=*/true,
+        /*configTensorsInDram=*/mlir::BoolAttr::get(getContext(), true)),
+    buildTestAvgPool2dOp(
+        /*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4, /*channels=*/4,
+        /*kernelSize=*/{2, 2}, /*stride=*/{1, 1}, /*padding=*/{0, 0},
+        /*dilation=*/{1, 1}, /*appliedShardScheme=*/{}, /*ceilMode=*/false,
+        /*reallocateHaloOutput=*/true, /*countIncludePad=*/true,
+        /*configTensorsInDram=*/{},
+        /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+    buildTestAvgPool2dOp(
+        /*batchSize=*/2, /*inputHeight=*/8, /*inputWidth=*/8, /*channels=*/8,
+        /*kernelSize=*/llvm::ArrayRef<int32_t>{3, 3},
+        /*stride=*/llvm::ArrayRef<int32_t>{2, 2},
+        /*padding=*/llvm::ArrayRef<int32_t>{1, 1},
+        /*dilation=*/llvm::ArrayRef<int32_t>{2, 2},
+        /*appliedShardScheme=*/nonDefaultShardSchemeAttr, /*ceilMode=*/true,
+        /*reallocateHaloOutput=*/false, /*countIncludePad=*/false,
+        /*configTensorsInDram=*/mlir::BoolAttr::get(getContext(), true),
+        /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(AvgPool2dOpTPathParityTest, AvgPool2dOpTPathParityTest,
+                         ::testing::ValuesIn(avgPool2dOpList));
+
+using MaxPool2dOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::MaxPool2dOp>;
+
+TEST_P(MaxPool2dOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::MaxPool2dOp maxPool2dOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::Pool2dOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildMaxPool2dOpTFromMLIR(
+          maxPool2dOp.getBatchSize(), maxPool2dOp.getInputHeight(),
+          maxPool2dOp.getInputWidth(), maxPool2dOp.getChannels(),
+          maxPool2dOp.getKernelSize(), maxPool2dOp.getStride(),
+          maxPool2dOp.getPadding(), maxPool2dOp.getDilation(),
+          maxPool2dOp.getCeilMode(), maxPool2dOp.getReallocateHaloOutput(),
+          maxPool2dOp.getAppliedShardScheme(),
+          maxPool2dOp.getConfigTensorsInDram(),
+          resolveOutputLayout(maxPool2dOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, maxPool2dOp.getInput());
+
+  auto fbOffset = mlir::tt::ttnn::createPool2dOp(cache, maxPool2dOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::Pool2dOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::MaxPool2dOp> maxPool2dOpList = {
+    buildTestMaxPool2dOp(),
+    buildTestMaxPool2dOp(/*batchSize=*/2),
+    buildTestMaxPool2dOp(/*batchSize=*/1, /*inputHeight=*/8),
+    buildTestMaxPool2dOp(/*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/8),
+    buildTestMaxPool2dOp(/*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+                         /*channels=*/8),
+    buildTestMaxPool2dOp(/*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+                         /*channels=*/4,
+                         /*kernelSize=*/llvm::ArrayRef<int32_t>{3, 3}),
+    buildTestMaxPool2dOp(/*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+                         /*channels=*/4, /*kernelSize=*/{2, 2},
+                         /*stride=*/llvm::ArrayRef<int32_t>{2, 2}),
+    buildTestMaxPool2dOp(/*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+                         /*channels=*/4, /*kernelSize=*/{2, 2},
+                         /*stride=*/{1, 1},
+                         /*padding=*/llvm::ArrayRef<int32_t>{1, 1}),
+    buildTestMaxPool2dOp(/*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+                         /*channels=*/4, /*kernelSize=*/{2, 2},
+                         /*stride=*/{1, 1}, /*padding=*/{0, 0},
+                         /*dilation=*/llvm::ArrayRef<int32_t>{2, 2}),
+    buildTestMaxPool2dOp(/*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+                         /*channels=*/4, /*kernelSize=*/{2, 2},
+                         /*stride=*/{1, 1}, /*padding=*/{0, 0},
+                         /*dilation=*/{1, 1},
+                         /*appliedShardScheme=*/nonDefaultShardSchemeAttr),
+    buildTestMaxPool2dOp(/*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+                         /*channels=*/4, /*kernelSize=*/{2, 2},
+                         /*stride=*/{1, 1}, /*padding=*/{0, 0},
+                         /*dilation=*/{1, 1}, /*appliedShardScheme=*/{},
+                         /*ceilMode=*/true),
+    buildTestMaxPool2dOp(/*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+                         /*channels=*/4, /*kernelSize=*/{2, 2},
+                         /*stride=*/{1, 1}, /*padding=*/{0, 0},
+                         /*dilation=*/{1, 1}, /*appliedShardScheme=*/{},
+                         /*ceilMode=*/false, /*reallocateHaloOutput=*/false),
+    buildTestMaxPool2dOp(
+        /*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4, /*channels=*/4,
+        /*kernelSize=*/{2, 2}, /*stride=*/{1, 1}, /*padding=*/{0, 0},
+        /*dilation=*/{1, 1}, /*appliedShardScheme=*/{}, /*ceilMode=*/false,
+        /*reallocateHaloOutput=*/true,
+        /*configTensorsInDram=*/mlir::BoolAttr::get(getContext(), true)),
+    buildTestMaxPool2dOp(
+        /*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4, /*channels=*/4,
+        /*kernelSize=*/{2, 2}, /*stride=*/{1, 1}, /*padding=*/{0, 0},
+        /*dilation=*/{1, 1}, /*appliedShardScheme=*/{}, /*ceilMode=*/false,
+        /*reallocateHaloOutput=*/true, /*configTensorsInDram=*/{},
+        /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+    buildTestMaxPool2dOp(
+        /*batchSize=*/2, /*inputHeight=*/8, /*inputWidth=*/8, /*channels=*/8,
+        /*kernelSize=*/llvm::ArrayRef<int32_t>{3, 3},
+        /*stride=*/llvm::ArrayRef<int32_t>{2, 2},
+        /*padding=*/llvm::ArrayRef<int32_t>{1, 1},
+        /*dilation=*/llvm::ArrayRef<int32_t>{2, 2},
+        /*appliedShardScheme=*/nonDefaultShardSchemeAttr, /*ceilMode=*/true,
+        /*reallocateHaloOutput=*/false,
+        /*configTensorsInDram=*/mlir::BoolAttr::get(getContext(), true),
+        /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(MaxPool2dOpTPathParityTest, MaxPool2dOpTPathParityTest,
+                         ::testing::ValuesIn(maxPool2dOpList));
+
+//===----------------------------------------------------------------------===//
+// MaxPool2dWithIndicesOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(
+    ::tt::target::ttnn::MaxPool2dWithIndicesOpT &opNativeOpModel,
+    ::tt::target::ttnn::MaxPool2dWithIndicesOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::MaxPool2dWithIndicesOpT &op) {
+    op.in.reset();
+    op.memory_config.reset();
+    op.result.reset();
+    op.result_indices.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::MaxPool2dWithIndicesOp buildTestMaxPool2dWithIndicesOp(
+    int32_t batchSize = 1, int32_t inputHeight = 4, int32_t inputWidth = 4,
+    int32_t channels = 4, llvm::ArrayRef<int32_t> kernelSize = {2, 2},
+    llvm::ArrayRef<int32_t> stride = {1, 1},
+    llvm::ArrayRef<int32_t> padding = {0, 0},
+    llvm::ArrayRef<int32_t> dilation = {1, 1},
+    mlir::tt::ttnn::TensorMemoryLayoutAttr appliedShardScheme = {},
+    bool ceilMode = false, bool reallocateHaloOutput = true,
+    mlir::BoolAttr configTensorsInDram = {},
+    mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto inputType = tiledL1BF16Type(defaultShape);
+  mlir::Value input =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{inputType},
+                                          mlir::ValueRange{})
+          .getResult();
+
+  mlir::RankedTensorType outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(defaultShape, outputMemoryConfig)
+          : tiledL1BF16Type(defaultShape);
+
+  return e.builder.create<mlir::tt::ttnn::MaxPool2dWithIndicesOp>(
+      loc, outputType, outputType, input, batchSize, inputHeight, inputWidth,
+      channels, kernelSize, stride, padding, dilation, appliedShardScheme,
+      ceilMode, reallocateHaloOutput, configTensorsInDram);
+}
+
+} // namespace
+
+using MaxPool2dWithIndicesOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::MaxPool2dWithIndicesOp>;
+
+TEST_P(MaxPool2dWithIndicesOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::MaxPool2dWithIndicesOp op = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::MaxPool2dWithIndicesOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildMaxPool2dWithIndicesOpTFromMLIR(
+          op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
+          op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
+          op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
+          op.getAppliedShardScheme(), op.getConfigTensorsInDram(),
+          resolveOutputLayout(op));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, op.getInput());
+
+  auto fbOffset = mlir::tt::ttnn::createMaxPool2dWithIndicesOp(cache, op);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::MaxPool2dWithIndicesOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.result, opNativeFB.result);
+  compareOutputTensorRefT(opNativeOpModel.result_indices,
+                          opNativeFB.result_indices);
+}
+
+const std::initializer_list<mlir::tt::ttnn::MaxPool2dWithIndicesOp>
+    maxPool2dWithIndicesOpList = {
+        buildTestMaxPool2dWithIndicesOp(),
+        buildTestMaxPool2dWithIndicesOp(/*batchSize=*/2),
+        buildTestMaxPool2dWithIndicesOp(/*batchSize=*/1, /*inputHeight=*/8),
+        buildTestMaxPool2dWithIndicesOp(/*batchSize=*/1, /*inputHeight=*/4,
+                                        /*inputWidth=*/8),
+        buildTestMaxPool2dWithIndicesOp(/*batchSize=*/1, /*inputHeight=*/4,
+                                        /*inputWidth=*/4, /*channels=*/8),
+        buildTestMaxPool2dWithIndicesOp(
+            /*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+            /*channels=*/4, /*kernelSize=*/llvm::ArrayRef<int32_t>{3, 3}),
+        buildTestMaxPool2dWithIndicesOp(
+            /*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+            /*channels=*/4, /*kernelSize=*/{2, 2},
+            /*stride=*/llvm::ArrayRef<int32_t>{2, 2}),
+        buildTestMaxPool2dWithIndicesOp(
+            /*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+            /*channels=*/4, /*kernelSize=*/{2, 2}, /*stride=*/{1, 1},
+            /*padding=*/llvm::ArrayRef<int32_t>{1, 1}),
+        buildTestMaxPool2dWithIndicesOp(
+            /*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+            /*channels=*/4, /*kernelSize=*/{2, 2}, /*stride=*/{1, 1},
+            /*padding=*/{0, 0}, /*dilation=*/llvm::ArrayRef<int32_t>{2, 2}),
+        buildTestMaxPool2dWithIndicesOp(
+            /*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+            /*channels=*/4, /*kernelSize=*/{2, 2}, /*stride=*/{1, 1},
+            /*padding=*/{0, 0}, /*dilation=*/{1, 1},
+            /*appliedShardScheme=*/nonDefaultShardSchemeAttr),
+        buildTestMaxPool2dWithIndicesOp(
+            /*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+            /*channels=*/4, /*kernelSize=*/{2, 2}, /*stride=*/{1, 1},
+            /*padding=*/{0, 0}, /*dilation=*/{1, 1}, /*appliedShardScheme=*/{},
+            /*ceilMode=*/true),
+        buildTestMaxPool2dWithIndicesOp(
+            /*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+            /*channels=*/4, /*kernelSize=*/{2, 2}, /*stride=*/{1, 1},
+            /*padding=*/{0, 0}, /*dilation=*/{1, 1}, /*appliedShardScheme=*/{},
+            /*ceilMode=*/false, /*reallocateHaloOutput=*/false),
+        buildTestMaxPool2dWithIndicesOp(
+            /*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+            /*channels=*/4, /*kernelSize=*/{2, 2}, /*stride=*/{1, 1},
+            /*padding=*/{0, 0}, /*dilation=*/{1, 1}, /*appliedShardScheme=*/{},
+            /*ceilMode=*/false, /*reallocateHaloOutput=*/true,
+            /*configTensorsInDram=*/mlir::BoolAttr::get(getContext(), true)),
+        buildTestMaxPool2dWithIndicesOp(
+            /*batchSize=*/1, /*inputHeight=*/4, /*inputWidth=*/4,
+            /*channels=*/4, /*kernelSize=*/{2, 2}, /*stride=*/{1, 1},
+            /*padding=*/{0, 0}, /*dilation=*/{1, 1}, /*appliedShardScheme=*/{},
+            /*ceilMode=*/false, /*reallocateHaloOutput=*/true,
+            /*configTensorsInDram=*/{},
+            /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+        buildTestMaxPool2dWithIndicesOp(
+            /*batchSize=*/2, /*inputHeight=*/8, /*inputWidth=*/8,
+            /*channels=*/8, /*kernelSize=*/llvm::ArrayRef<int32_t>{3, 3},
+            /*stride=*/llvm::ArrayRef<int32_t>{2, 2},
+            /*padding=*/llvm::ArrayRef<int32_t>{1, 1},
+            /*dilation=*/llvm::ArrayRef<int32_t>{2, 2},
+            /*appliedShardScheme=*/nonDefaultShardSchemeAttr, /*ceilMode=*/true,
+            /*reallocateHaloOutput=*/false,
+            /*configTensorsInDram=*/mlir::BoolAttr::get(getContext(), true),
+            /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(MaxPool2dWithIndicesOpTPathParityTest,
+                         MaxPool2dWithIndicesOpTPathParityTest,
+                         ::testing::ValuesIn(maxPool2dWithIndicesOpList));
+
+//===----------------------------------------------------------------------===//
+// UpsampleOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::UpsampleOpT &opNativeOpModel,
+                       ::tt::target::ttnn::UpsampleOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::UpsampleOpT &op) {
+    op.in.reset();
+    op.memory_config.reset();
+    op.out.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::UpsampleOp
+buildTestUpsampleOp(mlir::Attribute scaleFactor,
+                    llvm::StringRef mode = "nearest",
+                    mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto inputType = tiledL1BF16Type(defaultShape);
+  mlir::Value input =
+      e.builder
+          .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{inputType},
+                                          mlir::ValueRange{})
+          .getResult();
+
+  mlir::RankedTensorType outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(defaultShape, outputMemoryConfig)
+          : tiledL1BF16Type(defaultShape);
+
+  return e.builder.create<mlir::tt::ttnn::UpsampleOp>(loc, outputType, input,
+                                                      scaleFactor, mode);
+}
+
+mlir::Attribute makeUniformScale(int32_t scale) {
+  return mlir::IntegerAttr::get(
+      mlir::IntegerType::get(getContext(), 32, mlir::IntegerType::Signed),
+      scale);
+}
+
+mlir::Attribute makeNonUniformScale(int32_t scaleH, int32_t scaleW) {
+  return mlir::DenseI32ArrayAttr::get(getContext(), {scaleH, scaleW});
+}
+
+} // namespace
+
+using UpsampleOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::UpsampleOp>;
+
+TEST_P(UpsampleOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::UpsampleOp upsampleOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::UpsampleOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildUpsampleOpTFromMLIR(
+          upsampleOp.getScaleFactor(), upsampleOp.getMode(),
+          resolveOutputLayout(upsampleOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, upsampleOp.getInput());
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, upsampleOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::UpsampleOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::UpsampleOp> upsampleOpList = {
+    buildTestUpsampleOp(makeUniformScale(2)),
+    buildTestUpsampleOp(makeNonUniformScale(2, 4)),
+    buildTestUpsampleOp(makeUniformScale(2), /*mode=*/"bilinear"),
+    buildTestUpsampleOp(makeUniformScale(2), /*mode=*/"nearest",
+                        /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+    buildTestUpsampleOp(makeNonUniformScale(2, 4), /*mode=*/"bilinear",
+                        /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(UpsampleOpTPathParityTest, UpsampleOpTPathParityTest,
+                         ::testing::ValuesIn(upsampleOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL

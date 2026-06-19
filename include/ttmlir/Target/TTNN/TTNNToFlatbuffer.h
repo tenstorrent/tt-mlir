@@ -260,6 +260,17 @@ createDropoutOp(::mlir::tt::FlatbufferObjectCache &cache, DropoutOp op);
 createExperimentalEltwiseBinaryBackwardOp(
     ::mlir::tt::FlatbufferObjectCache &cache, GeluBackwardOp op);
 
+template <typename Pool2dOpTy>
+::flatbuffers::Offset<::tt::target::ttnn::Pool2dOp>
+createPool2dOp(::mlir::tt::FlatbufferObjectCache &cache, Pool2dOpTy op);
+
+::flatbuffers::Offset<::tt::target::ttnn::MaxPool2dWithIndicesOp>
+createMaxPool2dWithIndicesOp(::mlir::tt::FlatbufferObjectCache &cache,
+                             MaxPool2dWithIndicesOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::UpsampleOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, UpsampleOp op);
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_TARGET_TTNN_TTNNTOFLATBUFFER_H

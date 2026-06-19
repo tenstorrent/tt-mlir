@@ -361,6 +361,36 @@ buildDropoutOpTFromMLIR(llvm::APFloat prob, llvm::APFloat scale, uint32_t seed,
 buildExperimentalEltwiseBinaryBackwardOpTFromMLIR(std::string approximate,
                                                   TTNNLayoutAttr outputLayout);
 
+::tt::target::ttnn::Pool2dOpT buildAvgPool2dOpTFromMLIR(
+    int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
+    int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
+    llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
+    llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool reallocateHaloOutput,
+    bool countIncludePad,
+    std::optional<mlir::tt::ttnn::TensorMemoryLayout> appliedShardScheme,
+    std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::Pool2dOpT buildMaxPool2dOpTFromMLIR(
+    int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
+    int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
+    llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
+    llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool reallocateHaloOutput,
+    std::optional<mlir::tt::ttnn::TensorMemoryLayout> appliedShardScheme,
+    std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::MaxPool2dWithIndicesOpT
+buildMaxPool2dWithIndicesOpTFromMLIR(
+    int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
+    int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
+    llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
+    llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool reallocateHaloOutput,
+    std::optional<mlir::tt::ttnn::TensorMemoryLayout> appliedShardScheme,
+    std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::UpsampleOpT
+buildUpsampleOpTFromMLIR(mlir::Attribute scaleFactor, llvm::StringRef mode,
+                         TTNNLayoutAttr outputLayout);
+
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_ENABLE_OPMODEL
 

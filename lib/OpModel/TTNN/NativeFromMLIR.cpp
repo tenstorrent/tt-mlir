@@ -1397,6 +1397,117 @@ buildDropoutOpTFromMLIR(llvm::APFloat prob, llvm::APFloat scale, uint32_t seed,
   return dropoutOp;
 }
 
+::tt::target::ttnn::Pool2dOpT buildMaxPool2dOpTFromMLIR(
+    int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
+    int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
+    llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
+    llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool reallocateHaloOutput,
+    std::optional<mlir::tt::ttnn::TensorMemoryLayout> appliedShardScheme,
+    std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::Pool2dOpT pool2dOp;
+  pool2dOp.type = ::tt::target::ttnn::Pool2dOpType::MaxPool2d;
+  pool2dOp.batch_size = static_cast<uint32_t>(batchSize);
+  pool2dOp.input_height = static_cast<uint32_t>(inputHeight);
+  pool2dOp.input_width = static_cast<uint32_t>(inputWidth);
+  pool2dOp.channels = static_cast<uint32_t>(inputChannels);
+  pool2dOp.kernel_size = {kernelSize.begin(), kernelSize.end()};
+  pool2dOp.stride = {stride.begin(), stride.end()};
+  pool2dOp.padding = {padding.begin(), padding.end()};
+  pool2dOp.dilation = {dilation.begin(), dilation.end()};
+  pool2dOp.extra_params.Set(::tt::target::ttnn::MaxPool2dExtraParamsT{});
+  if (appliedShardScheme.has_value()) {
+    pool2dOp.applied_shard_scheme = toNative(*appliedShardScheme);
+  }
+  pool2dOp.ceil_mode = ceilMode;
+  pool2dOp.reallocate_halo_output = reallocateHaloOutput;
+  pool2dOp.config_tensors_in_dram = configTensorsInDram.value_or(false);
+  pool2dOp.out = detail::getOutputTensorRefT(outputLayout);
+  return pool2dOp;
+}
+
+::tt::target::ttnn::MaxPool2dWithIndicesOpT
+buildMaxPool2dWithIndicesOpTFromMLIR(
+    int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
+    int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
+    llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
+    llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool reallocateHaloOutput,
+    std::optional<mlir::tt::ttnn::TensorMemoryLayout> appliedShardScheme,
+    std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::MaxPool2dWithIndicesOpT op;
+  op.batch_size = static_cast<uint32_t>(batchSize);
+  op.input_height = static_cast<uint32_t>(inputHeight);
+  op.input_width = static_cast<uint32_t>(inputWidth);
+  op.channels = static_cast<uint32_t>(inputChannels);
+  op.kernel_size = {kernelSize.begin(), kernelSize.end()};
+  op.stride = {stride.begin(), stride.end()};
+  op.padding = {padding.begin(), padding.end()};
+  op.dilation = {dilation.begin(), dilation.end()};
+  if (appliedShardScheme.has_value()) {
+    op.applied_shard_scheme = toNative(*appliedShardScheme);
+  }
+  op.ceil_mode = ceilMode;
+  op.reallocate_halo_output = reallocateHaloOutput;
+  op.config_tensors_in_dram = configTensorsInDram.value_or(false);
+  op.result = detail::getOutputTensorRefT(outputLayout);
+  op.result_indices = detail::getOutputTensorRefT(outputLayout);
+  return op;
+}
+
+::tt::target::ttnn::Pool2dOpT buildAvgPool2dOpTFromMLIR(
+    int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
+    int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
+    llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
+    llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool reallocateHaloOutput,
+    bool countIncludePad,
+    std::optional<mlir::tt::ttnn::TensorMemoryLayout> appliedShardScheme,
+    std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::Pool2dOpT pool2dOp;
+  pool2dOp.type = ::tt::target::ttnn::Pool2dOpType::AvgPool2d;
+  pool2dOp.batch_size = static_cast<uint32_t>(batchSize);
+  pool2dOp.input_height = static_cast<uint32_t>(inputHeight);
+  pool2dOp.input_width = static_cast<uint32_t>(inputWidth);
+  pool2dOp.channels = static_cast<uint32_t>(inputChannels);
+  pool2dOp.kernel_size = {kernelSize.begin(), kernelSize.end()};
+  pool2dOp.stride = {stride.begin(), stride.end()};
+  pool2dOp.padding = {padding.begin(), padding.end()};
+  pool2dOp.dilation = {dilation.begin(), dilation.end()};
+  ::tt::target::ttnn::AvgPool2dExtraParamsT avgParams;
+  avgParams.count_include_pad = countIncludePad;
+  pool2dOp.extra_params.Set(avgParams);
+  if (appliedShardScheme.has_value()) {
+    pool2dOp.applied_shard_scheme = toNative(*appliedShardScheme);
+  }
+  pool2dOp.ceil_mode = ceilMode;
+  pool2dOp.reallocate_halo_output = reallocateHaloOutput;
+  pool2dOp.config_tensors_in_dram = configTensorsInDram.value_or(false);
+  pool2dOp.out = detail::getOutputTensorRefT(outputLayout);
+  return pool2dOp;
+}
+
+::tt::target::ttnn::UpsampleOpT
+buildUpsampleOpTFromMLIR(mlir::Attribute scaleFactor, llvm::StringRef mode,
+                         TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::UpsampleOpT op;
+
+  if (auto uniform = mlir::dyn_cast<mlir::IntegerAttr>(scaleFactor)) {
+    ::tt::target::ttnn::UniformScale2DT uniformScale;
+    uniformScale.scale = static_cast<int32_t>(uniform.getSInt());
+    op.scale_factor.Set(uniformScale);
+  } else if (auto nonUniform =
+                 mlir::dyn_cast<mlir::DenseI32ArrayAttr>(scaleFactor);
+             nonUniform.size() == 2) {
+    ::tt::target::ttnn::NonUniformScale2DT nonUniformScale;
+    nonUniformScale.scale = {nonUniform[0], nonUniform[1]};
+    op.scale_factor.Set(nonUniformScale);
+  } else {
+    llvm_unreachable("Invalid scaleFactor");
+  }
+
+  op.mode = mode.str();
+  op.out = detail::getOutputTensorRefT(outputLayout);
+  return op;
+}
+
 } // namespace mlir::tt::ttnn::op_model
 
 #endif // TTMLIR_ENABLE_OPMODEL
