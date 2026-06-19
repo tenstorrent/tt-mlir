@@ -27,13 +27,16 @@ struct Controller::DistributedTensorToken {
   ~DistributedTensorToken() {
     LOG_DEBUG("Releasing distributed tensor global id ", globalId,
               " created by ", callerName);
-    if (controller != nullptr && std::getenv("TT_PROPAGATE_DEALLOCATION") != nullptr && std::getenv("TT_PROPAGATE_DEALLOCATION") == "1") {
-      // Tensors handed out by the controller are retained (the worker refuses
-      // to deallocate a retained tensor), so clear retain before requesting
-      // deallocation. Ordering is preserved across the two commands by the
-      // command submission queue.
-      controller->setTensorRetainByGlobalId(globalId, /*retain=*/false);
-      controller->deallocateTensorByGlobalId(globalId);
+    if (controller != nullptr) {
+        const char* env = std::getenv("TT_PROPAGATE_DEALLOCATION");
+        if (env != nullptr && std::strcmp(env, "1") == 0) {
+            // Tensors handed out by the controller are retained (the worker refuses
+            // to deallocate a retained tensor), so clear retain before requesting
+            // deallocation. Ordering is preserved across the two commands by the
+            // command submission queue.
+            controller->setTensorRetainByGlobalId(globalId, /*retain=*/false);
+            controller->deallocateTensorByGlobalId(globalId);
+        }
     }
   }
 };
