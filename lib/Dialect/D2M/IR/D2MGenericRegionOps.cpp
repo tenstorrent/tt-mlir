@@ -1364,6 +1364,7 @@ mlir::LogicalResult ArangeBlockOp::bufferize(
                                                      *maybeOutputBuffer);
   return mlir::success();
 }
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
 //===----------------------------------------------------------------------===//
 // TopkBlockOp Implementation
