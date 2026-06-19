@@ -131,9 +131,16 @@ void allgather_into(const at::Tensor &output, const at::Tensor &input, std::uint
 // In-place on-device `ttir.all_reduce` (sum) over `tensor` across runtime mesh
 // axis `cluster_axis`. Used by `TTProcessGroup.allreduce` to materialize the
 // Partial → Replicate redistribute that DTensor inserts after row-parallel-style
-// matmuls. After the call, every chip's slab holds the elementwise sum over the
+// matmuls. After the call, every chip's chunk holds the elementwise sum over the
 // chips along that axis.
 void allreduce_into(const at::Tensor &tensor, std::uint32_t cluster_axis);
+
+// Run an on-device `ttir.reduce_scatter` (sum) over `input`: sum each chip's
+// contribution and scatter the result along `scatter_dim` over runtime mesh
+// axis `cluster_axis`. `output` receives this chip's chunk — `input`'s shape
+// with `scatter_dim` divided by the axis length.
+void reduce_scatter_into(const at::Tensor &output, const at::Tensor &input, std::uint32_t cluster_axis,
+                         std::int64_t scatter_dim);
 
 // Stream-formatted dump of the underlying ttnn::Tensor TensorTopology
 // (distribution_shape / placements / mesh_coords). Pure metadata — no host

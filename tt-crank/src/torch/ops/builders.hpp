@@ -103,6 +103,13 @@ mlir::Value build_all_reduce(ModuleBuilder &mb, mlir::Value input, const std::st
 // `all_gather_into_tensor` / `_allgather_base` contract.
 mlir::Value build_all_gather(ModuleBuilder &mb, mlir::Value input, std::int64_t group_size, std::uint32_t cluster_axis);
 
+// Emit `ttir.reduce_scatter(reduce_type=Sum, scatter_dim, cluster_axis)`.
+// Output dim `scatter_dim` is `input dim / group_size`. Sum only, matching
+// `build_all_reduce`. TTIR/TTNN reduce_scatter carry an arbitrary scatter_dim,
+// so we scatter the requested dim directly (no transpose-to-0 dance).
+mlir::Value build_reduce_scatter(ModuleBuilder &mb, mlir::Value input, std::int64_t group_size,
+                                 std::uint32_t cluster_axis, std::int64_t scatter_dim);
+
 // Emit `value * tensor` as a TTIR subgraph: a `ttir.constant` at `tensor`'s
 // element type, then a `ttir.multiply`. Shared cross-op helper.
 mlir::Value scale_tensor(ModuleBuilder &mb, mlir::Value tensor, double value);

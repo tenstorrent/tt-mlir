@@ -254,6 +254,19 @@ void allreduce_into(const at::Tensor &tensor, std::uint32_t cluster_axis) {
                    [&](ModuleBuilder &mb, auto arg) { return build_all_reduce(mb, arg, "sum", cluster_axis); });
 }
 
+void reduce_scatter_into(const at::Tensor &output, const at::Tensor &input, std::uint32_t cluster_axis,
+                         std::int64_t scatter_dim) {
+    // ttir.reduce_scatter(Sum) via the shared `build_reduce_scatter` lowering
+    // (same one the compile path uses); the inverse of allgather_into. Scatters
+    // `scatter_dim` across the chips on `cluster_axis`, summing contributions, so
+    // chip i gets the sum of chunk i over the axis. Like allgather_into, the
+    // group size is the chip count *along* cluster_axis.
+    const auto group_size = runtime_device_mesh_shape()[cluster_axis];
+    run_single_ccl(output, input, "reduce_scatter_into", [&](ModuleBuilder &mb, auto arg) {
+        return build_reduce_scatter(mb, arg, group_size, cluster_axis, scatter_dim);
+    });
+}
+
 std::string describe_tensor(const at::Tensor &t) {
     auto &storage = storage_of(t);
     std::ostringstream oss;

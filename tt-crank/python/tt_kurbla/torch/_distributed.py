@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import functools
 
+import torch
 import torch.distributed as dist
 from torch._C._distributed_c10d import FakeWork
 
@@ -124,6 +125,27 @@ class TTProcessGroup(dist.ProcessGroup):
             self._allgather_base(o, i, opts)
         return FakeWork()
 
+    def _reduce_scatter_base(self, output, input, opts):
+        """Sum-reduce-scatter `input` into `output`, emitting `ttir.reduce_scatter`.
+        The inverse of `_allgather_base`. This is the c10d entry torch drives, so
+        it always scatters dim 0 (the `_reduce_scatter_base` contract). The
+        Replicate -> Shard redistribute does not go through here — it calls
+        `tt_kurbla.reduce_scatter` directly with the real shard dim (see
+        `_install_replicate_to_shard_patch`).
+        """
+        if opts.reduceOp != dist.ReduceOp.SUM:
+            raise NotImplementedError(
+                f"tt reduce_scatter: only ReduceOp.SUM is supported, got {opts.reduceOp}"
+            )
+        _native.reduce_scatter_into(output, input, self.cluster_axis, 0)
+        return FakeWork()
+
+    def reduce_scatter_tensor_coalesced(self, output_tensors, input_tensors, opts):
+        """Functional-collective entry. Just iterates `_reduce_scatter_base`."""
+        for o, i in zip(output_tensors, input_tensors, strict=True):
+            self._reduce_scatter_base(o, i, opts)
+        return FakeWork()
+
     def allreduce(self, tensors, opts):
         """In-place elementwise sum over this group's mesh axis (emits
         `ttir.all_reduce`). DTensor's `Partial → Replicate` redistribute calls
@@ -147,3 +169,79 @@ def _create_tt_pg(prefix_store, rank, world_size, timeout):
 # signature is (prefix_store, rank, world_size, timeout), which matches
 # the pattern `multi_threaded_pg.py` uses for Python-subclass PGs.
 dist.Backend.register_backend("tt", _create_tt_pg, devices=["tt", "cpu"])
+
+
+def _reduce_scatter_out_shape(shape, group_size: int, scatter_dim: int) -> list[int]:
+    """Output shape of a reduce-scatter: `scatter_dim` shrinks by `group_size`.
+
+    Requires an even split (the only case the kernel handles); a clear error here
+    beats a deeper TTIR verifier failure on an indivisible dim.
+    """
+    out = list(shape)
+    dim = scatter_dim % len(out)
+    if out[dim] % group_size:
+        raise ValueError(
+            f"tt_kurbla.reduce_scatter: dim {dim} (size {out[dim]}) is not "
+            f"divisible by the group size {group_size}"
+        )
+    out[dim] //= group_size
+    return out
+
+
+# Collective that scatters the *real* shard dim. funcol's reduce_scatter_tensor
+# only scatters dim 0 (faking other dims with a split we'd have to lower), so we
+# expose our own op instead: TTIR/TTNN reduce_scatter carry an arbitrary
+# scatter_dim, so we pass it straight through.
+@torch.library.custom_op("tt_kurbla::reduce_scatter", mutates_args=())
+def reduce_scatter(input: torch.Tensor, group_name: str, group_size: int, scatter_dim: int) -> torch.Tensor:
+    from torch.distributed.distributed_c10d import _resolve_process_group
+
+    out_shape = _reduce_scatter_out_shape(input.shape, group_size, scatter_dim)
+    output = torch.empty(out_shape, dtype=input.dtype, device=input.device)
+    cluster_axis = _resolve_process_group(group_name).cluster_axis
+    _native.reduce_scatter_into(output, input, cluster_axis, scatter_dim)
+    return output
+
+
+# Define the shape of the custom `reduce_scatter` op.
+@reduce_scatter.register_fake
+def _(input, group_name, group_size, scatter_dim):
+    return input.new_empty(_reduce_scatter_out_shape(input.shape, group_size, scatter_dim))
+
+
+def _install_replicate_to_shard_patch() -> None:
+    """Fix DTensor's Replicate->Shard redistribute for the single-process (rank) mesh.
+
+    DTensor implements Replicate->Shard as a local rank operation (each rank
+    already holds the whole tensor, so it can just keep its own chunk to
+    create the shard). The tt backend drives the whole N-chip mesh from one
+    fake rank whose coordinate is 0 (we are single-process) - so we cannot
+    do the same, we need to create the whole tensor from the single process.
+
+    Replace it with a reduce-scatter on the shard dim: the input is *replicated*,
+    so a SUM reduce-scatter hands chip d `N * chunk_d`; dividing by N recovers
+    `chunk_d`.
+
+    Scoped to the tt mesh; every other backend keeps the stock local-chunk path.
+
+    This patches a private DTensor method (`Shard._replicate_to_shard`), so it is
+    coupled to that internal signature `(local_tensor, mesh, mesh_dim,
+    shard_index)`.
+    """
+    from torch.distributed._functional_collectives import _resolve_group_name
+    from torch.distributed.tensor.placement_types import Shard
+
+    _orig = Shard._replicate_to_shard
+
+    def _replicate_to_shard(self, local_tensor, mesh, mesh_dim, shard_index):
+        if getattr(mesh, "device_type", None) != "tt":
+            return _orig(self, local_tensor, mesh, mesh_dim, shard_index)
+        num_chunks = mesh.size(mesh_dim)
+        group_name = _resolve_group_name((mesh, mesh_dim))
+        scattered = torch.ops.tt_kurbla.reduce_scatter(local_tensor, group_name, num_chunks, self.dim)
+        return scattered / num_chunks
+
+    Shard._replicate_to_shard = _replicate_to_shard
+
+
+_install_replicate_to_shard_patch()

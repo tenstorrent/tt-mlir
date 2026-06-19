@@ -84,6 +84,12 @@ public:
         return tk::build_all_gather(*mb_, input, group_size, cluster_axis);
     }
 
+    mlir::Value reduce_scatter(mlir::Value input, std::int64_t group_size, std::uint32_t cluster_axis,
+                               std::int64_t scatter_dim) {
+        assert_builder();
+        return tk::build_reduce_scatter(*mb_, input, group_size, cluster_axis, scatter_dim);
+    }
+
     mlir::Value addmm(mlir::Value bias, mlir::Value mat1, mlir::Value mat2, double beta, double alpha) {
         assert_builder();
         return tk::build_addmm(*mb_, bias, mat1, mat2, beta, alpha);
@@ -489,6 +495,14 @@ NB_MODULE(_native, m) {
         "tensor"_a, "cluster_axis"_a);
 
     m.def(
+        "reduce_scatter_into",
+        [](nb::handle py_output, nb::handle py_input, std::uint32_t cluster_axis, std::int64_t scatter_dim) {
+            tk::reduce_scatter_into(unpack_torch_tensor(py_output), unpack_torch_tensor(py_input), cluster_axis,
+                                    scatter_dim);
+        },
+        "output"_a, "input"_a, "cluster_axis"_a, "scatter_dim"_a);
+
+    m.def(
         "describe_tensor",
         [](nb::handle py_t) -> std::string { return tk::describe_tensor(unpack_torch_tensor(py_t)); }, "py_t"_a);
 
@@ -536,6 +550,8 @@ NB_MODULE(_native, m) {
         .def("mm", &PyModuleBuilder::mm, "lhs"_a, "rhs"_a)
         .def("all_reduce", &PyModuleBuilder::all_reduce, "input"_a, "reduce_op"_a, "cluster_axis"_a)
         .def("all_gather", &PyModuleBuilder::all_gather, "input"_a, "group_size"_a, "cluster_axis"_a)
+        .def("reduce_scatter", &PyModuleBuilder::reduce_scatter, "input"_a, "group_size"_a, "cluster_axis"_a,
+             "scatter_dim"_a)
         .def("addmm", &PyModuleBuilder::addmm, "bias"_a, "mat1"_a, "mat2"_a, "beta"_a = 1.0, "alpha"_a = 1.0)
         .def("t", &PyModuleBuilder::t, "input"_a)
         .def("relu", &PyModuleBuilder::relu, "input"_a)
