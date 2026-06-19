@@ -855,6 +855,9 @@ uint32_t getNumShards(::tt::runtime::Tensor tensor) {
 
 std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
                                           bool untilize, bool blocking) {
+  LOG_INFO("[toHost] BEGIN globalId=", tensor.getGlobalId(),
+           " untilize=", untilize, " blocking=", blocking);
+
   const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper =
       tensor.as<::tt::runtime::ttnn::TTNNTensorWrapper>(DeviceRuntime::TTNN);
 
@@ -874,6 +877,9 @@ std::vector<::tt::runtime::Tensor> toHost(::tt::runtime::Tensor tensor,
     hostTensors.push_back(utils::createRuntimeTensorFromTTNN(
         tensor, meshEvent, tensorWrapper.shouldRetain()));
   }
+
+  LOG_INFO("[toHost] END globalId=", tensor.getGlobalId(),
+           " numHostShards=", hostTensors.size());
 
   return hostTensors;
 }
@@ -2281,6 +2287,9 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
       "Device memory state before submit");
 #endif
 
+  LOG_INFO("[submit] BEGIN programIndex=", programIndex,
+           " numInputs=", inputs.size());
+
   std::unique_ptr<ProgramExecutor> executor = std::make_unique<ProgramExecutor>(
       deviceHandle, executableHandle, programIndex, inputs);
 
@@ -2288,6 +2297,10 @@ submit(Device deviceHandle, Binary executableHandle, std::uint32_t programIndex,
   std::vector<::tt::runtime::Tensor> outputTensors =
       executor->gatherOutputTensors();
   executor.reset();
+
+  LOG_INFO("[submit] END programIndex=", programIndex,
+           " numOutputs=", outputTensors.size(),
+           " (outputs gathered; device work may still be in flight)");
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   ::tt::runtime::utils::logMemoryStateIfNeeded(

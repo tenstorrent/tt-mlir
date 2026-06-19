@@ -208,8 +208,9 @@ void ProgramExecutor::runProgramCallback(
 void ProgramExecutor::execute() {
   ZoneScopedN("program_execute");
   ZoneText(program->name()->c_str(), std::strlen(program->name()->c_str()));
-  LOG_DEBUG(LogType::LogRuntimeTTNN,
-            "Starting execution of program: ", program->name()->c_str());
+  LOG_INFO("[exec] Starting execution of program: ", program->name()->c_str(),
+           " inputs=", program->inputs()->size(),
+           " outputs=", program->outputs()->size());
   runProgramCallback(debug::Hooks::get().getpreProgramCallback(),
                      executableHandle, context.get());
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
@@ -247,8 +248,9 @@ void ProgramExecutor::execute() {
   // `--op-support-count` flag in `tracy` CLI tool).
   readProfilerDataIfNeeded(/*force=*/true);
 
-  LOG_DEBUG(LogType::LogRuntimeTTNN,
-            "Finished execution of program: ", program->name()->c_str());
+  LOG_INFO("[exec] Finished dispatching program (device work may still be "
+           "in flight): ",
+           program->name()->c_str());
 }
 
 std::vector<::tt::runtime::Tensor> ProgramExecutor::gatherOutputTensors() {

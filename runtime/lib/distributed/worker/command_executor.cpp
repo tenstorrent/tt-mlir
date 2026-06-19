@@ -578,9 +578,15 @@ void CommandExecutor::execute(uint64_t commandId,
   ::tt::runtime::Device device = devicePool_.at(command->device()->global_id());
 
   std::vector<::tt::runtime::Tensor> inputTensors;
+  std::string inputGidList;
   for (const auto &inputGlobalId : *command->input_global_ids()) {
     inputTensors.push_back(tensorPool_.at(inputGlobalId));
+    inputGidList +=
+        (inputGidList.empty() ? "" : ",") + std::to_string(inputGlobalId);
   }
+
+  LOG_INFO("[worker] submit BEGIN program_id=", command->program_id(),
+           " inputs=[", inputGidList, "]");
 
   ::tt::runtime::Binary executable =
       getOrCreateBinary(command->binary(), command->binary_id());
