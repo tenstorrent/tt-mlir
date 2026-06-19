@@ -9864,6 +9864,81 @@ class StableHLOBuilder(Builder):
 
         return op.result
 
+    ####### stablehlo.CustomCallOp @tt.chunked_scaled_dot_product_attention #######
+
+    def chunked_scaled_dot_product_attention(
+        self,
+        query: Operand,
+        key: Operand,
+        value: Operand,
+        page_table: Operand,
+        chunk_start_idx: Operand,
+        scale: Optional[float] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        """
+        Emit a `stablehlo.custom_call @tt.chunked_scaled_dot_product_attention`.
+
+        A prefill chunk of `query` attends causally over the prefix tokens
+        [0, chunk_start_idx + chunk_len) resident in the paged K/V cache, read on
+        device via `page_table`, with the prefix offset given by the device tensor
+        `chunk_start_idx` ([1] int32). Operands are passed in canonical order:
+        query, key, value, page_table, chunk_start_idx. Scale is the only
+        (optional) frontend attribute; causal masking is internal. The output
+        mirrors the query shape.
+        """
+        stablehlo_op = self.get_opview_from_method(
+            StableHLOBuilder.chunked_scaled_dot_product_attention
+        )
+
+        inputs = [query, key, value, page_table, chunk_start_idx]
+
+        # The output mirrors the query shape/type.
+        output_type = self._create_ranked_tensor_type(
+            list(self.get_shape(query)), self.get_type(query)
+        )
+
+        frontend_attrs = {}
+        if scale is not None:
+            frontend_attrs["scale"] = StringAttr.get(str(scale))
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            [output_type],
+            inputs,
+            "tt.chunked_scaled_dot_product_attention",
+            api_version=IntegerAttr.get(IntegerType.get_signless(32), 0),
+            loc=loc,
+        )
+        if frontend_attrs:
+            op.operation.attributes["mhlo.frontend_attributes"] = DictAttr.get(
+                frontend_attrs, self._ctx
+            )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        op_golden_function = get_custom_call_golden_function(
+            "tt.chunked_scaled_dot_product_attention"
+        )
+        golden_output = op_golden_function(
+            self._get_golden_tensor(query),
+            self._get_golden_tensor(key),
+            self._get_golden_tensor(value),
+            self._get_golden_tensor(page_table),
+            self._get_golden_tensor(chunk_start_idx),
+            scale,
+        )
+        self._set_golden_tensor(op.result, golden_output)
+
+        return op.result
+
     # ----- Public Shardy Attribute Generators ----
 
     def mesh_axis_attr(

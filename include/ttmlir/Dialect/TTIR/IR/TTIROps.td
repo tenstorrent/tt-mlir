@@ -6217,39 +6217,6 @@ def TTIR_PagedScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"paged_scaled_dot
   let hasVerifier = 1;
 }
 
-def TTIR_ChunkedScaledDotProductAttentionOp : TTIR_NamedOp<"chunked_scaled_dot_product_attention"> {
-  let summary = "Chunked prefill scaled dot product attention over a paged KV cache.";
-  let description = [{
-    Chunked-prefill attention. A prefill chunk of `query` attends
-    causally over the prefix tokens `[0, chunk_start_idx + chunk_len)` that are
-    resident in the paged K/V cache, read on device via `page_table`. The prefix
-    offset is supplied by the device tensor `chunk_start_idx` (`[1]` int32). Causal
-    masking is handled internally; no host attention mask.
-
-    Args:
-        query (AnyRankedTensor): `[B x Hq x chunk_len x D]`.
-        key (AnyRankedTensor): paged K cache `[num_blocks x Hkv x block_size x D]`.
-        value (AnyRankedTensor): paged V cache, same layout as `key`.
-        page_table (AnyRankedTensor): `[B x num_blocks_per_user]` int32.
-        chunk_start_idx (AnyRankedTensor): `[1]` int32 prefix offset.
-        scale (float, optional): Softmax scale. Defaults to `1 / sqrt(D)`.
-
-    Returns:
-        AnyRankedTensor: same shape/type as `query`.
-  }];
-
-  let arguments = (ins AnyRankedTensor:$query,
-                       AnyRankedTensor:$key,
-                       AnyRankedTensor:$value,
-                       AnyRankedTensor:$page_table,
-                       AnyRankedTensor:$chunk_start_idx,
-                       AnyRankedTensor:$output,
-                       OptionalAttr<F32Attr>:$scale);
-
-  let results = (outs AnyRankedTensor:$result);
-
-  let hasVerifier = 1;
-}
 
 def TTIR_PagedFlashMultiLatentAttentionDecodeOp : TTIR_NamedOp<"paged_flash_multi_latent_attention_decode", [AttrSizedOperandSegments]> {
   let summary = "Paged flash multi-latent attention decode operation.";

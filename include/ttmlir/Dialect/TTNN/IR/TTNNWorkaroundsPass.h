@@ -359,18 +359,10 @@ public:
   static TTNNOperandsWorkarounds
   createScaledDotProductAttentionDecodeOpOperandsWorkarounds(Operation *op);
 
-  static TTNNOperandsWorkarounds
-  createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds(
-      Operation *op);
-
-  // TODO(#8842): The ROW_MAJOR coercion of page_table /
-  // chunk_start_idx / cur_pos_tensor for the chunked and paged SDPA decode
-  // factories below is a permanent tt-metal kernel ABI, not a temporary
-  // workaround. Move it to TTNNLayout's shouldForceInputRowMajor (this op and
-  // the paged SDPA decode op above) and drop these factories.
-  static TTNNOperandsWorkarounds
-  createChunkedScaledDotProductAttentionOpOperandsWorkarounds(Operation *op);
-
+  // Note: The page_table / chunk_start_idx / cur_pos_tensor ROW_MAJOR coercion
+  // for the chunked and paged SDPA decode ops is a permanent tt-metal kernel
+  // ABI (not a workaround) and now lives in TTNNLayout (see issue #8842), so no
+  // operands-workaround factory is provided for those ops.
   static TTNNOperandsWorkarounds
   createPagedFlashMultiLatentAttentionDecodeOpOperandsWorkarounds(
       Operation *op);

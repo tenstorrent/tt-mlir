@@ -1153,86 +1153,11 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
   return operandsWorkaround;
 }
 
-TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
-    createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds(
-        Operation *op) {
-  TTNNOperandWorkarounds emptyWorkaround;
-  TTNNOperandWorkarounds rowMajorLayoutWorkaround;
-  rowMajorLayoutWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
-
-  auto sdpaOp = cast<PagedScaledDotProductAttentionDecodeOp>(op);
-
-  TTNNOperandsWorkarounds operandsWorkaround =
-      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
-
-  // Query, key, and value need no workarounds.
-  operandsWorkaround =
-      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
-  operandsWorkaround =
-      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
-  operandsWorkaround =
-      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
-
-  if (sdpaOp.getPageTable()) {
-    operandsWorkaround =
-        operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);
-  }
-
-  // Attention mask needs no workaround.
-  if (sdpaOp.getAttentionMask()) {
-    operandsWorkaround =
-        operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
-  }
-
-  if (sdpaOp.getCurPosTensor()) {
-    operandsWorkaround =
-        operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);
-  }
-
-  if (sdpaOp.getAttentionSink()) {
-    operandsWorkaround =
-        operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
-  }
-
-  // Need no workaround for output tensor.
-  operandsWorkaround =
-      operandsWorkaround.addOutputOperandWorkaround(emptyWorkaround);
-
-  return operandsWorkaround;
-}
-
-// Factory method to create workarounds for
-// chunked_scaled_dot_product_attention op operands.
-// page_table and chunk_start_idx require ROW_MAJOR layout.
-TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
-    createChunkedScaledDotProductAttentionOpOperandsWorkarounds(Operation *op) {
-  TTNNOperandWorkarounds emptyWorkaround;
-  TTNNOperandWorkarounds rowMajorLayoutWorkaround;
-  rowMajorLayoutWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
-
-  TTNNOperandsWorkarounds operandsWorkaround =
-      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
-
-  // Query, key, and value need no workarounds.
-  operandsWorkaround =
-      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
-  operandsWorkaround =
-      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
-  operandsWorkaround =
-      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
-
-  // page_table and chunk_start_idx require ROW_MAJOR layout.
-  operandsWorkaround =
-      operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);
-  operandsWorkaround =
-      operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);
-
-  // Need no workaround for output tensor.
-  operandsWorkaround =
-      operandsWorkaround.addOutputOperandWorkaround(emptyWorkaround);
-
-  return operandsWorkaround;
-}
+// Note: createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds and
+// createChunkedScaledDotProductAttentionOpOperandsWorkarounds were removed in
+// issue #8842. The page_table / chunk_start_idx / cur_pos_tensor ROW_MAJOR
+// coercion they performed is a permanent tt-metal kernel ABI (not a temporary
+// workaround) and now lives in TTNNLayout.
 
 // Factory method to create workarounds for
 // paged_flash_multi_latent_attention_decode op operands.
