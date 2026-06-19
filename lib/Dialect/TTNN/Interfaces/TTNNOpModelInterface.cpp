@@ -238,38 +238,6 @@ getReductionOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
 
 template <typename OpT>
 llvm::Expected<op_model::OpConstraints>
-getPoolingOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
-                        const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
-
-  const auto inputShape = op.getInput().getType().getShape();
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<OpT>::getOpConstraints, op, inputShape, inputs[0],
-      op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
-      op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
-      op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
-      op.getConfigTensorsInDram(), opConfig.outputLayout);
-}
-
-template <typename OpT>
-llvm::Expected<size_t>
-getPoolingOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
-                    const OpConfig &opConfig) {
-  assert(inputs.size() == 1);
-
-  const auto inputShape = op.getInput().getType().getShape();
-
-  return opRuntimeCache().getOrCompute(
-      op_model::OpModel<OpT>::getOpRuntime, op, inputShape, inputs[0],
-      op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
-      op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
-      op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
-      op.getConfigTensorsInDram(), opConfig.outputLayout);
-}
-
-template <typename OpT>
-llvm::Expected<op_model::OpConstraints>
 getMaxPool2dWithIndicesOpConstraints(OpT op,
                                      const std::vector<TTNNLayoutAttr> &inputs,
                                      const OpConfig &opConfig) {
@@ -283,7 +251,8 @@ getMaxPool2dWithIndicesOpConstraints(OpT op,
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
       op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
       /*deallocate_input*/ false, /*return_indices*/ true,
-      op.getConfigTensorsInDram(), opConfig.outputLayout);
+      op.getAppliedShardScheme(), op.getConfigTensorsInDram(),
+      opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -301,7 +270,8 @@ getMaxPool2dWithIndicesOpRuntime(OpT op,
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
       op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
       /*deallocate_input*/ false, /*return_indices*/ true,
-      op.getConfigTensorsInDram(), opConfig.outputLayout);
+      op.getAppliedShardScheme(), op.getConfigTensorsInDram(),
+      opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -3560,13 +3530,31 @@ llvm::Expected<size_t> PrepareConvTranspose2dBiasOp::getOpRuntime(
 llvm::Expected<op_model::OpConstraints>
 MaxPool2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
-  return detail::getPoolingOpConstraints(*this, inputs, opConfig);
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<MaxPool2dOp>::getOpConstraints, *this, inputShape,
+      inputs[0], getBatchSize(), getInputHeight(), getInputWidth(),
+      getChannels(), getKernelSize(), getStride(), getPadding(), getDilation(),
+      getCeilMode(), getReallocateHaloOutput(), getAppliedShardScheme(),
+      getConfigTensorsInDram(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
 MaxPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                           const OpConfig &opConfig) {
-  return detail::getPoolingOpRuntime(*this, inputs, opConfig);
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<MaxPool2dOp>::getOpRuntime, *this, inputShape,
+      inputs[0], getBatchSize(), getInputHeight(), getInputWidth(),
+      getChannels(), getKernelSize(), getStride(), getPadding(), getDilation(),
+      getCeilMode(), getReallocateHaloOutput(), getAppliedShardScheme(),
+      getConfigTensorsInDram(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3592,13 +3580,31 @@ MaxPool2dWithIndicesOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 AvgPool2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
-  return detail::getPoolingOpConstraints(*this, inputs, opConfig);
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<AvgPool2dOp>::getOpConstraints, *this, inputShape,
+      inputs[0], getBatchSize(), getInputHeight(), getInputWidth(),
+      getChannels(), getKernelSize(), getStride(), getPadding(), getDilation(),
+      getCeilMode(), getReallocateHaloOutput(), getAppliedShardScheme(),
+      getCountIncludePad(), getConfigTensorsInDram(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
 AvgPool2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                           const OpConfig &opConfig) {
-  return detail::getPoolingOpRuntime(*this, inputs, opConfig);
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<AvgPool2dOp>::getOpRuntime, *this, inputShape,
+      inputs[0], getBatchSize(), getInputHeight(), getInputWidth(),
+      getChannels(), getKernelSize(), getStride(), getPadding(), getDilation(),
+      getCeilMode(), getReallocateHaloOutput(), getAppliedShardScheme(),
+      getCountIncludePad(), getConfigTensorsInDram(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

@@ -3,11 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/pool/upsample.h"
-
 #include "tt/runtime/detail/common/logger.h"
-
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
+#include "ttmlir/OpInvoke/TTNN/Pool/UpsampleOp.h"
+#include <variant>
 
 namespace tt::runtime::ttnn::operations::pool {
 void run(const ::tt::target::ttnn::UpsampleOp *op, ProgramContext &context) {
@@ -15,34 +13,18 @@ void run(const ::tt::target::ttnn::UpsampleOp *op, ProgramContext &context) {
 
   ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  std::variant<int, std::array<int, 2>, float, std::array<float, 2>>
-      scaleFactor;
-  if (op->scale_factor_type() == ::tt::target::ttnn::Scale2D::UniformScale2D) {
-    scaleFactor = op->scale_factor_as_UniformScale2D()->scale();
-  } else if (op->scale_factor_type() ==
-             ::tt::target::ttnn::Scale2D::NonUniformScale2D) {
-    std::array<int, 2> scaleHW;
-    const ::flatbuffers::Vector<int32_t> *fbScaleFactor =
-        op->scale_factor_as_NonUniformScale2D()->scale();
-    std::copy(fbScaleFactor->begin(), fbScaleFactor->end(), scaleHW.begin());
-    scaleFactor = scaleHW;
-  } else {
-    LOG_FATAL("Invalid scale factor type");
-  }
+  ::tt::target::ttnn::UpsampleOpT opNative;
+  op->UnPackTo(&opNative);
 
-  std::string mode = op->mode()->str();
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  std::optional<::ttnn::MemoryConfig> memoryConfig =
-      op->memory_config()
-          ? ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-                op->memory_config())
-          : ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-                ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(
-                    op->out()));
+  ttnn_op_invoke::UpsampleOpResult result = ttnn_op_invoke::callUpsample(
+      ttnn_op_invoke::CallType::EXECUTE, opNative, &input, &targetDevice);
 
-  ::ttnn::Tensor output =
-      ::ttnn::upsample(input, scaleFactor, mode, memoryConfig);
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callUpsample execution");
 
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
   tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 } // namespace tt::runtime::ttnn::operations::pool
