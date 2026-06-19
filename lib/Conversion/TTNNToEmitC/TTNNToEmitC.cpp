@@ -3527,6 +3527,54 @@ public:
 } // namespace
 
 namespace {
+class ChunkedScaledDotProductAttentionOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::ChunkedScaledDotProductAttentionOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.chunked_scaled_dot_product_attention";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::transformer::chunked_scaled_dot_product_attention";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::ChunkedScaledDotProductAttentionOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ChunkedScaledDotProductAttentionOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<
+        mlir::tt::ttnn::ChunkedScaledDotProductAttentionOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getQuery()),
+        emitter.emit(srcOp.getKey()),
+        emitter.emit(srcOp.getValue()),
+        emitter.emit(srcOp.getPageTable()),
+        emitter.emit(srcOp.getChunkStartIdx()),
+        emitter.emit(srcOp.getScale()),
+        emitter.emit(srcOp.getMemoryConfig()),
+        emitter.emit(srcOp.getProgramConfig()),
+        emitter.emit(/*compute_kernel_config=*/std::nullopt),
+    };
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class PagedFlashMultiLatentAttentionDecodeOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<
           mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp> {
@@ -5622,6 +5670,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<RotaryEmbeddingOpConversionPattern>(typeConverter, ctx);
   patterns.add<NLPConcatHeadsDecodeOpConversionPattern>(typeConverter, ctx);
   patterns.add<PagedScaledDotProductAttentionDecodeOpConversionPattern>(
+      typeConverter, ctx);
+  patterns.add<ChunkedScaledDotProductAttentionOpConversionPattern>(
       typeConverter, ctx);
   patterns.add<PagedFlashMultiLatentAttentionDecodeOpConversionPattern>(
       typeConverter, ctx);
