@@ -92,7 +92,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/MoeGptLayoutRewritePattern.cpp
         Workarounds/Decomposition/ArgMaxOpDimRewritePattern.cpp
         Workarounds/Decomposition/MoeComputeRewritePattern.cpp
-        Workarounds/Decomposition/ConcatOpRewritePattern.cpp
         Workarounds/Decomposition/PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern.cpp
         Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.cpp
         Workarounds/Decomposition/PointToPointOpRewritePattern.cpp
