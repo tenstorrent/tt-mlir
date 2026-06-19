@@ -651,7 +651,6 @@ public:
           workarounds::decomposition::GroupNormChannelPadRewritePattern,
           workarounds::decomposition::GroupNormAffineReshapeRewritePattern,
           workarounds::decomposition::IntegerProdOpRewritePattern,
-          workarounds::decomposition::ArgMaxOpDimRewritePattern,
           workarounds::decomposition::RotaryEmbeddingOpRewritePattern,
           workarounds::decomposition::FillCacheInputPadRewritePattern<
               ttnn::FillCacheOp>,
