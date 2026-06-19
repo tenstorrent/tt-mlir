@@ -7811,4 +7811,100 @@ const std::initializer_list<mlir::tt::ttnn::UpsampleOp> upsampleOpList = {
 INSTANTIATE_TEST_SUITE_P(UpsampleOpTPathParityTest, UpsampleOpTPathParityTest,
                          ::testing::ValuesIn(upsampleOpList));
 
+//===----------------------------------------------------------------------===//
+// RandOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::RandOpT &opNativeOpModel,
+                       ::tt::target::ttnn::RandOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::RandOpT &op) {
+    op.device.reset();
+    op.dtype = ::tt::target::DataType::Float32;
+    op.memcfg.reset();
+    op.out.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::RandOp
+buildTestRandOp(float low = 0.0f, float high = 1.0f, uint32_t seed = 0,
+                mlir::tt::ttnn::Layout layout = mlir::tt::ttnn::Layout::Tile,
+                mlir::tt::ttnn::MemoryConfigAttr outputMemoryConfig = {}) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  mlir::Value device =
+      e.builder
+          .create<mlir::tt::ttnn::GetDeviceOp>(
+              loc, e.builder.getType<mlir::tt::ttnn::DeviceType>(),
+              mlir::tt::ttnn::MeshShapeAttr::get(&e.context, 1, 1),
+              mlir::tt::ttnn::MeshOffsetAttr::get(&e.context, 0, 0))
+          .getResult();
+
+  auto shapeAttr = mlir::tt::ttnn::ShapeAttr::get(&e.context, defaultShape);
+  auto layoutAttr = mlir::tt::ttnn::LayoutAttr::get(&e.context, layout);
+
+  mlir::RankedTensorType outputType =
+      outputMemoryConfig
+          ? tiledBF16TypeFromMemoryConfig(defaultShape, outputMemoryConfig)
+          : tiledL1BF16Type(defaultShape);
+
+  return e.builder.create<mlir::tt::ttnn::RandOp>(
+      loc, outputType, device, shapeAttr, e.builder.getF32FloatAttr(low),
+      e.builder.getF32FloatAttr(high), e.builder.getUI32IntegerAttr(seed),
+      layoutAttr);
+}
+
+} // namespace
+
+using RandOpTPathParityTest = ::testing::TestWithParam<mlir::tt::ttnn::RandOp>;
+
+TEST_P(RandOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::RandOp randOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::RandOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildRandOpTFromMLIR(
+          randOp.getSize(), randOp.getLayout(), randOp.getLow(),
+          randOp.getHigh(), randOp.getSeed(), resolveOutputLayout(randOp));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  cache.getOrCreate(randOp.getDevice(), mlir::tt::ttnn::createDeviceRef);
+
+  auto fbOffset = mlir::tt::ttnn::createRandOp(cache, randOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::RandOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+  compareOutputTensorRefT(opNativeOpModel.out, opNativeFB.out);
+}
+
+const std::initializer_list<mlir::tt::ttnn::RandOp> randOpList = {
+    buildTestRandOp(),
+    buildTestRandOp(/*low=*/-1.0f),
+    buildTestRandOp(/*low=*/0.0f, /*high=*/2.0f),
+    buildTestRandOp(/*low=*/0.0f, /*high=*/1.0f, /*seed=*/42),
+    buildTestRandOp(/*low=*/0.0f, /*high=*/1.0f, /*seed=*/0,
+                    /*layout=*/mlir::tt::ttnn::Layout::RowMajor),
+    buildTestRandOp(/*low=*/0.0f, /*high=*/1.0f, /*seed=*/0,
+                    /*layout=*/mlir::tt::ttnn::Layout::Tile,
+                    /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+    buildTestRandOp(/*low=*/-1.0f, /*high=*/2.0f, /*seed=*/42,
+                    /*layout=*/mlir::tt::ttnn::Layout::RowMajor,
+                    /*outputMemoryConfig=*/nonDefaultInputMemoryConfigAttr),
+};
+
+INSTANTIATE_TEST_SUITE_P(RandOpTPathParityTest, RandOpTPathParityTest,
+                         ::testing::ValuesIn(randOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL

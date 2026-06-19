@@ -271,6 +271,9 @@ createMaxPool2dWithIndicesOp(::mlir::tt::FlatbufferObjectCache &cache,
 ::flatbuffers::Offset<::tt::target::ttnn::UpsampleOp>
 createOp(::mlir::tt::FlatbufferObjectCache &cache, UpsampleOp op);
 
+::flatbuffers::Offset<::tt::target::ttnn::RandOp>
+createRandOp(::mlir::tt::FlatbufferObjectCache &cache, RandOp op);
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_TARGET_TTNN_TTNNTOFLATBUFFER_H

@@ -5,41 +5,24 @@
 #include "operations/rand/rand.h"
 
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-#include "tt/runtime/detail/ttnn/utils.h"
-
-#include "ttmlir/Target/TTNN/operations/rand_generated.h"
-#include "ttmlir/Target/TTNN/program_generated.h"
-#include <optional>
-#include <vector>
+#include "ttmlir/OpInvoke/TTNN/Rand/RandOp.h"
+#include <variant>
 
 namespace tt::runtime::ttnn::operations::rand {
 void run(const ::tt::target::ttnn::RandOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  const ::ttnn::Shape size =
-      ::tt::runtime::ttnn::operations::utils::toTTNNShape(*op->size());
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
-  ::ttnn::DataType dtype =
-      ttnn_op_invoke::operations::utils::toTTNNDataType(op->dtype());
 
-  ::ttnn::Layout layout =
-      ::ttnn_op_invoke::operations::utils::toTTNNLayout(op->layout());
+  ::tt::target::ttnn::RandOpT randOpNative;
+  op->UnPackTo(&randOpNative);
 
-  ::ttnn::MemoryConfig memoryConfig =
-      ::ttnn::DRAM_MEMORY_CONFIG; // Default in rand implementation
-  if (op->memcfg()) {
-    memoryConfig =
-        ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg())
-            .value();
-  }
-  float low = op->low();
-  float high = op->high();
-  uint32_t seed = op->seed();
+  ttnn_op_invoke::RandOpResult result = ttnn_op_invoke::callRand(
+      ttnn_op_invoke::CallType::EXECUTE, randOpNative, &targetDevice);
 
-  ::ttnn::Tensor out = ::ttnn::rand(size, targetDevice, dtype, layout,
-                                    memoryConfig, low, high, seed);
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callRand execution");
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 } // namespace tt::runtime::ttnn::operations::rand

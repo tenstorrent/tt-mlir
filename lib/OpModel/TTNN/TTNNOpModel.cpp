@@ -5,7 +5,6 @@
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Utils.h"
 #include "llvm/ADT/SmallVector.h"
-#include <mlir/IR/BuiltinAttributes.h>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -54,6 +53,7 @@
 #include "ttmlir/OpInvoke/TTNN/Normalization/SoftmaxOp.h"
 #include "ttmlir/OpInvoke/TTNN/Pool/Pool2dOp.h"
 #include "ttmlir/OpInvoke/TTNN/Pool/UpsampleOp.h"
+#include "ttmlir/OpInvoke/TTNN/Rand/RandOp.h"
 #include "ttmlir/OpInvoke/TTNN/Reduction/ArgMaxOp.h"
 #include "ttmlir/OpInvoke/TTNN/Reduction/CumSumOp.h"
 #include "ttmlir/OpInvoke/TTNN/Reduction/ProdOp.h"
@@ -8223,18 +8223,17 @@ llvm::Expected<OpConstraints> OpModel<mlir::tt::ttnn::RandOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  ::ttnn::MemoryConfig metalMemConfig = ::ttnn::DRAM_MEMORY_CONFIG;
-  if (outputLayout) {
-    metalMemConfig =
-        conversion::getMemoryConfig(MemoryConfigAttr::get(outputLayout));
-  }
+  ::tt::target::ttnn::RandOpT randOpNative =
+      buildRandOpTFromMLIR(size, layout, low, high, seed, outputLayout);
 
   auto randOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::rand, device, conversion::getShape(size.getShape()),
-        std::ref(*device), conversion::getDataType(dtype),
-        conversion::getPageLayout(layout), metalMemConfig, low.convertToFloat(),
-        high.convertToFloat(), seed);
+    ttnn_op_invoke::RandOpResult result = ttnn_op_invoke::callRand(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, randOpNative, device);
+    assert(
+        std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+            result) &&
+        "Expected RandOp constraints query to return ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(size.getContext(), randOpQuery);

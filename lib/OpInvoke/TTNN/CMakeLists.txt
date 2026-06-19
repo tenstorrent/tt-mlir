@@ -45,6 +45,7 @@ add_library(TTNNOpInvokeLib STATIC
   Normalization/SoftmaxOp.cpp
   Pool/Pool2dOp.cpp
   Pool/UpsampleOp.cpp
+  Rand/RandOp.cpp
   Reduction/ArgMaxOp.cpp
   Reduction/CumSumOp.cpp
   Reduction/ProdOp.cpp
