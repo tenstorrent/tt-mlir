@@ -5,6 +5,7 @@
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Utils.h"
 #include "llvm/ADT/SmallVector.h"
+#include <mlir/IR/BuiltinAttributes.h>
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -51,6 +52,8 @@
 #include "ttmlir/OpInvoke/TTNN/Normalization/RMSNormOp.h"
 #include "ttmlir/OpInvoke/TTNN/Normalization/RMSNormPreAllGatherOp.h"
 #include "ttmlir/OpInvoke/TTNN/Normalization/SoftmaxOp.h"
+#include "ttmlir/OpInvoke/TTNN/Pool/Pool2dOp.h"
+#include "ttmlir/OpInvoke/TTNN/Pool/UpsampleOp.h"
 #include "ttmlir/OpInvoke/TTNN/Reduction/ArgMaxOp.h"
 #include "ttmlir/OpInvoke/TTNN/Reduction/CumSumOp.h"
 #include "ttmlir/OpInvoke/TTNN/Reduction/ProdOp.h"
@@ -6320,45 +6323,38 @@ OpModel<PrepareConvTranspose2dBiasOp>::getOpConstraints(
 //===----------------------------------------------------------------------===//
 // MaxPool2D
 //===----------------------------------------------------------------------===//
+
 llvm::Expected<OpConstraints> OpModel<MaxPool2dOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
     int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
     llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
     llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool reallocateHaloOutput,
+    std::optional<mlir::tt::ttnn::TensorMemoryLayout> appliedShardScheme,
     std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout) {
-
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
-
-  // convert all signed integers to unsigned integers
-  uint32_t batchSizeU = static_cast<uint32_t>(batchSize);
-  uint32_t inputHeightU = static_cast<uint32_t>(inputHeight);
-
-  uint32_t inputWidthU = static_cast<uint32_t>(inputWidth);
-
-  uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
 
   ASSIGN_OR_RETURN(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::Pool2dOpT pool2dOpNative = buildMaxPool2dOpTFromMLIR(
+      batchSize, inputHeight, inputWidth, inputChannels, kernelSize, stride,
+      padding, dilation, ceilMode, reallocateHaloOutput, appliedShardScheme,
+      configTensorsInDram, outputLayout);
+
   auto maxPool2DQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::max_pool2d, device, inputSpec, batchSizeU, inputHeightU,
-        inputWidthU, inputChannelsU,
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        detail::reorderPool2dPadding(padding),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        ceilMode, detail::getNullableMemoryConfig(outputLayout),
-        std::nullopt /* dram_slice_config */,
-        std::nullopt /* applied_shard_scheme */, false /* deallocate_input */,
-        reallocateHaloOutput, false /* return_indices */,
-        ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::ROW_MAJOR,
-        configTensorsInDram.value_or(false) /* config_tensors_in_dram */);
+    ttnn_op_invoke::MaxPool2dOpResult result = ttnn_op_invoke::callMaxPool2d(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, pool2dOpNative,
+        inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected MaxPool2dOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), maxPool2DQuery);
@@ -6373,38 +6369,30 @@ llvm::Expected<size_t> OpModel<MaxPool2dOp>::getOpRuntime(
     int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
     llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
     llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool reallocateHaloOutput,
+    std::optional<mlir::tt::ttnn::TensorMemoryLayout> appliedShardScheme,
     std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // convert all signed integers to unsigned integers
-  uint32_t batchSizeU = static_cast<uint32_t>(batchSize);
-  uint32_t inputHeightU = static_cast<uint32_t>(inputHeight);
-
-  uint32_t inputWidthU = static_cast<uint32_t>(inputWidth);
-
-  uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
-
   ASSIGN_OR_RETURN(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::Pool2dOpT pool2dOpNative = buildMaxPool2dOpTFromMLIR(
+      batchSize, inputHeight, inputWidth, inputChannels, kernelSize, stride,
+      padding, dilation, ceilMode, reallocateHaloOutput, appliedShardScheme,
+      configTensorsInDram, outputLayout);
+
   auto maxPool2DQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::max_pool2d, device, inputSpec, batchSizeU, inputHeightU,
-        inputWidthU, inputChannelsU,
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        detail::reorderPool2dPadding(padding),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        ceilMode, detail::getNullableMemoryConfig(outputLayout),
-        std::nullopt /* dram_slice_config */,
-        std::nullopt /* applied_shard_scheme */, false /* deallocate_input */,
-        reallocateHaloOutput, false /* return_indices */,
-        ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::ROW_MAJOR,
-        configTensorsInDram.value_or(false) /* config_tensors_in_dram */);
+    ttnn_op_invoke::MaxPool2dOpResult result = ttnn_op_invoke::callMaxPool2d(
+        ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, pool2dOpNative, inputSpec,
+        device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected MaxPool2dOp runtime query to return RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(maxPool2DQuery);
@@ -6416,6 +6404,7 @@ llvm::Expected<size_t> OpModel<MaxPool2dOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // MaxPool2DWithIndices
 //===----------------------------------------------------------------------===//
+
 llvm::Expected<OpConstraints> OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
@@ -6423,39 +6412,34 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
     llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
     llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool reallocateHaloOutput,
     bool deallocateInput, bool returnIndices,
+    std::optional<mlir::tt::ttnn::TensorMemoryLayout> appliedShardScheme,
     std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout) {
-
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
-
-  // convert all signed integers to unsigned integers
-  uint32_t batchSizeU = static_cast<uint32_t>(batchSize);
-  uint32_t inputHeightU = static_cast<uint32_t>(inputHeight);
-
-  uint32_t inputWidthU = static_cast<uint32_t>(inputWidth);
-
-  uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
 
   ASSIGN_OR_RETURN(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
-  // When return_indices=true, tt-metal requires ROW_MAJOR layout and BFLOAT16
+  ::tt::target::ttnn::MaxPool2dWithIndicesOpT opNative =
+      buildMaxPool2dWithIndicesOpTFromMLIR(
+          batchSize, inputHeight, inputWidth, inputChannels, kernelSize, stride,
+          padding, dilation, ceilMode, reallocateHaloOutput, appliedShardScheme,
+          configTensorsInDram, outputLayout);
+
+  // When return_indices=true, tt-metal requires ROW_MAJOR layout and BFLOAT16.
   auto maxPool2DWithIndicesQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::max_pool2d, device, inputSpec, batchSizeU, inputHeightU,
-        inputWidthU, inputChannelsU,
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        detail::reorderPool2dPadding(padding),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        ceilMode, detail::getNullableMemoryConfig(outputLayout),
-        std::nullopt /* dram_slice_config */,
-        std::nullopt /* applied_shard_scheme */, deallocateInput,
-        reallocateHaloOutput, returnIndices, ::ttnn::DataType::BFLOAT16,
-        ::ttnn::Layout::ROW_MAJOR, configTensorsInDram.value_or(false));
+    ttnn_op_invoke::MaxPool2dWithIndicesOpResult result =
+        ttnn_op_invoke::callMaxPool2dWithIndices(
+            ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, opNative, inputSpec,
+            device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected MaxPool2dWithIndicesOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(),
@@ -6472,38 +6456,33 @@ llvm::Expected<size_t> OpModel<MaxPool2dWithIndicesOp>::getOpRuntime(
     llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
     llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool reallocateHaloOutput,
     bool deallocateInput, bool returnIndices,
+    std::optional<mlir::tt::ttnn::TensorMemoryLayout> appliedShardScheme,
     std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // convert all signed integers to unsigned integers
-  uint32_t batchSizeU = static_cast<uint32_t>(batchSize);
-  uint32_t inputHeightU = static_cast<uint32_t>(inputHeight);
-
-  uint32_t inputWidthU = static_cast<uint32_t>(inputWidth);
-
-  uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
-
   ASSIGN_OR_RETURN(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
-  // When return_indices=true, tt-metal requires ROW_MAJOR layout and BFLOAT16
+  ::tt::target::ttnn::MaxPool2dWithIndicesOpT opNative =
+      buildMaxPool2dWithIndicesOpTFromMLIR(
+          batchSize, inputHeight, inputWidth, inputChannels, kernelSize, stride,
+          padding, dilation, ceilMode, reallocateHaloOutput, appliedShardScheme,
+          configTensorsInDram, outputLayout);
+
   auto maxPool2DWithIndicesQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::max_pool2d, device, inputSpec, batchSizeU, inputHeightU,
-        inputWidthU, inputChannelsU,
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        detail::reorderPool2dPadding(padding),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
-        ceilMode, detail::getNullableMemoryConfig(outputLayout),
-        std::nullopt /* dram_slice_config */,
-        std::nullopt /* applied_shard_scheme */, deallocateInput,
-        reallocateHaloOutput, returnIndices, ::ttnn::DataType::BFLOAT16,
-        ::ttnn::Layout::ROW_MAJOR, configTensorsInDram.value_or(false));
+    ttnn_op_invoke::MaxPool2dWithIndicesOpResult result =
+        ttnn_op_invoke::callMaxPool2dWithIndices(
+            ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, opNative, inputSpec,
+            device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected MaxPool2dWithIndicesOp runtime query to return "
+        "RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(maxPool2DWithIndicesQuery);
@@ -6515,51 +6494,39 @@ llvm::Expected<size_t> OpModel<MaxPool2dWithIndicesOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // AvgPool2D
 //===----------------------------------------------------------------------===//
+
 llvm::Expected<OpConstraints> OpModel<AvgPool2dOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
     int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
     llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
     llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool reallocateHaloOutput,
-    std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout) {
-
+    std::optional<mlir::tt::ttnn::TensorMemoryLayout> appliedShardScheme,
+    bool countIncludePad, std::optional<bool> configTensorsInDram,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
-
-  // convert all signed integers to unsigned integers
-  uint32_t batchSizeU = static_cast<uint32_t>(batchSize);
-  uint32_t inputHeightU = static_cast<uint32_t>(inputHeight);
-
-  uint32_t inputWidthU = static_cast<uint32_t>(inputWidth);
-
-  uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
 
   ASSIGN_OR_RETURN(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // default values for the variables that are received by the op's invoke
-  // method in tt-metal but do not exist in the op's definition in TTNNOps.td:
-  bool countIncludePad = true;
-  std::optional<int32_t> divisorOverride = std::nullopt;
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
-      std::nullopt;
+  ::tt::target::ttnn::Pool2dOpT pool2dOpNative = buildAvgPool2dOpTFromMLIR(
+      batchSize, inputHeight, inputWidth, inputChannels, kernelSize, stride,
+      padding, dilation, ceilMode, reallocateHaloOutput, countIncludePad,
+      appliedShardScheme, configTensorsInDram, outputLayout);
 
-  // Create query closure
   auto avgPool2DQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::avg_pool2d, device, inputSpec, batchSizeU, inputHeightU,
-        inputWidthU, inputChannelsU,
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        detail::reorderPool2dPadding(padding), ceilMode, countIncludePad,
-        divisorOverride, detail::getNullableMemoryConfig(outputLayout),
-        std::nullopt /* dram_slice_config */,
-        std::nullopt /* applied_shard_scheme */, computeKernelConfig,
-        false /* deallocate_input */, reallocateHaloOutput,
-        ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::ROW_MAJOR,
-        configTensorsInDram.value_or(false) /* config_tensors_in_dram */);
+    ttnn_op_invoke::AvgPool2dOpResult result = ttnn_op_invoke::callAvgPool2d(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, pool2dOpNative,
+        inputSpec, device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected AvgPool2dOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), avgPool2DQuery);
@@ -6574,44 +6541,31 @@ llvm::Expected<size_t> OpModel<AvgPool2dOp>::getOpRuntime(
     int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
     llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
     llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool reallocateHaloOutput,
-    std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout) {
+    std::optional<mlir::tt::ttnn::TensorMemoryLayout> appliedShardScheme,
+    bool countIncludePad, std::optional<bool> configTensorsInDram,
+    TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
-
-  // convert all signed integers to unsigned integers
-  uint32_t batchSizeU = static_cast<uint32_t>(batchSize);
-  uint32_t inputHeightU = static_cast<uint32_t>(inputHeight);
-
-  uint32_t inputWidthU = static_cast<uint32_t>(inputWidth);
-
-  uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
 
   ASSIGN_OR_RETURN(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // default values for the variables that are received by the op's invoke
-  // method in tt-metal but do not exist in the op's definition in TTNNOps.td:
-  bool countIncludePad = true;
-  std::optional<int32_t> divisorOverride = std::nullopt;
-  std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
-      std::nullopt;
+  ::tt::target::ttnn::Pool2dOpT pool2dOpNative = buildAvgPool2dOpTFromMLIR(
+      batchSize, inputHeight, inputWidth, inputChannels, kernelSize, stride,
+      padding, dilation, ceilMode, reallocateHaloOutput, countIncludePad,
+      appliedShardScheme, configTensorsInDram, outputLayout);
 
-  // Create query closure
   auto avgPool2DQuery = [=]() {
-    return QUERY_OP_RUNTIME(
-        ::ttnn::avg_pool2d, device, inputSpec, batchSizeU, inputHeightU,
-        inputWidthU, inputChannelsU,
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
-        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        detail::reorderPool2dPadding(padding), ceilMode, countIncludePad,
-        divisorOverride, detail::getNullableMemoryConfig(outputLayout),
-        std::nullopt /* dram_slice_config */,
-        std::nullopt /* applied_shard_scheme */, computeKernelConfig,
-        false /* deallocate_input */, reallocateHaloOutput,
-        ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::ROW_MAJOR,
-        configTensorsInDram.value_or(false) /* config_tensors_in_dram */);
+    ttnn_op_invoke::AvgPool2dOpResult result = ttnn_op_invoke::callAvgPool2d(
+        ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, pool2dOpNative, inputSpec,
+        device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected AvgPool2dOp runtime query to return RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(avgPool2DQuery);
@@ -7764,6 +7718,7 @@ llvm::Expected<size_t> OpModel<PermuteOp>::getOpRuntime(
 //===----------------------------------------------------------------------===//
 // Upsample
 //===----------------------------------------------------------------------===//
+
 llvm::Expected<OpConstraints> OpModel<UpsampleOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     mlir::Attribute scaleFactor, llvm::StringRef mode,
@@ -7773,33 +7728,23 @@ llvm::Expected<OpConstraints> OpModel<UpsampleOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Convert params
-  std::variant<int, std::array<int, 2>, float, std::array<float, 2>>
-      convertedScaleFactor;
-  if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(scaleFactor)) {
-    convertedScaleFactor = static_cast<int>(value.getSInt());
-  } else if (auto tuple =
-                 mlir::dyn_cast<::mlir::detail::DenseArrayAttrImpl<int32_t>>(
-                     scaleFactor);
-             tuple.size() == 2) {
-    std::array<int, 2> arr;
-    arr[0] = static_cast<int>(tuple[0]);
-    arr[1] = static_cast<int>(tuple[1]);
-    convertedScaleFactor = arr;
-  } else {
-    return llvm::createStringError("Invalid scaleFactor");
-  }
-
   ASSIGN_OR_RETURN(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::UpsampleOpT opNative =
+      buildUpsampleOpTFromMLIR(scaleFactor, mode, outputLayout);
+
   auto upsampleQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::upsample, device, inputSpec,
-                                convertedScaleFactor, std::string(mode),
-                                detail::getNullableMemoryConfig(outputLayout),
-                                /*compute_kernel_config=*/std::nullopt);
+    ttnn_op_invoke::UpsampleOpResult result = ttnn_op_invoke::callUpsample(
+        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, opNative, inputSpec,
+        device);
+
+    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
+               result) &&
+           "Expected UpsampleOp constraints query to return "
+           "ConstraintQueryResponse");
+    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(), upsampleQuery);
@@ -7817,33 +7762,22 @@ llvm::Expected<size_t> OpModel<UpsampleOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // Convert parameters
-  std::variant<int, std::array<int, 2>, float, std::array<float, 2>>
-      convertedScaleFactor;
-  if (auto value = mlir::dyn_cast<mlir::IntegerAttr>(scaleFactor)) {
-    convertedScaleFactor = static_cast<int>(value.getSInt());
-  } else if (auto tuple =
-                 mlir::dyn_cast<::mlir::detail::DenseArrayAttrImpl<int32_t>>(
-                     scaleFactor);
-             tuple.size() == 2) {
-    std::array<int, 2> arr;
-    arr[0] = static_cast<int>(tuple[0]);
-    arr[1] = static_cast<int>(tuple[1]);
-    convertedScaleFactor = arr;
-  } else {
-    return llvm::createStringError("Invalid scaleFactor");
-  }
-
   ASSIGN_OR_RETURN(
       ::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // Create query closure
+  ::tt::target::ttnn::UpsampleOpT opNative =
+      buildUpsampleOpTFromMLIR(scaleFactor, mode, outputLayout);
+
   auto upsampleQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::upsample, device, inputSpec,
-                            convertedScaleFactor, std::string(mode),
-                            detail::getNullableMemoryConfig(outputLayout),
-                            /*compute_kernel_config=*/std::nullopt);
+    ttnn_op_invoke::UpsampleOpResult result =
+        ttnn_op_invoke::callUpsample(ttnn_op_invoke::CallType::QUERY_OP_RUNTIME,
+                                     opNative, inputSpec, device);
+
+    assert(
+        std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
+        "Expected UpsampleOp runtime query to return RuntimeQueryResponse");
+    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
   };
 
   return operation::getOpRuntime(upsampleQuery);

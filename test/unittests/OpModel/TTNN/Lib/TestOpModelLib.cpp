@@ -1616,7 +1616,7 @@ TEST_F(OpModelTest, MaxPool2dWithIndices) {
           inputShape, layoutDRAM, batchSize, inputHeight, inputWidth,
           inputChannels, kernelSize, stride, padding, dilation, ceilMode,
           reallocateHaloOutput, deallocateInput, returnIndices, std::nullopt,
-          layoutDRAM);
+          std::nullopt, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -1627,7 +1627,7 @@ TEST_F(OpModelTest, MaxPool2dWithIndices) {
   constraintsExp = op_model::OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
       inputShape, layoutDRAM, batchSize, inputHeight, inputWidth, inputChannels,
       kernelSize, stride, padding, dilation, ceilMode, reallocateHaloOutput,
-      deallocateInput, returnIndices, std::nullopt, layoutDRAM);
+      deallocateInput, returnIndices, std::nullopt, std::nullopt, layoutDRAM);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -1639,7 +1639,7 @@ TEST_F(OpModelTest, MaxPool2dWithIndices) {
       inputShape, layoutL1Interleaved, batchSize, inputHeight, inputWidth,
       inputChannels, kernelSize, stride, padding, dilation, ceilMode,
       reallocateHaloOutput, deallocateInput, returnIndices, std::nullopt,
-      layoutL1WSharded);
+      std::nullopt, layoutL1WSharded);
   EXPECT_FALSE(static_cast<bool>(constraintsExp));
   llvm::consumeError(constraintsExp.takeError());
 }
@@ -3128,7 +3128,7 @@ protected:
     auto constraintsExp = OpModel<OpTy>::getOpConstraints(
         inputShape, inputLayout, batchSize, inputHeight, inputWidth,
         inputChannels, kernelSize, stride, padding, dilation, ceilMode,
-        reallocateHaloOutput, std::nullopt, outputLayout);
+        reallocateHaloOutput, std::nullopt, std::nullopt, outputLayout);
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
 
     if (constraintsExp) {
@@ -3145,13 +3145,66 @@ protected:
     auto runtimeExp = OpModel<OpTy>::getOpRuntime(
         inputShape, inputLayout, batchSize, inputHeight, inputWidth,
         inputChannels, kernelSize, stride, padding, dilation, ceilMode,
-        reallocateHaloOutput, std::nullopt, outputLayout);
+        reallocateHaloOutput, std::nullopt, std::nullopt, outputLayout);
     EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
     if (runtimeExp) {
       EXPECT_TRUE(runtimeExp.get() > 0);
     } else {
       llvm::consumeError(runtimeExp.takeError());
     }
+  }
+};
+
+template <>
+void OpModelPool2DParam<AvgPool2dOp>::RunTest() {
+  auto params = this->GetParam();
+  const auto [inputShape, inputTensorLayout, inputBufferType,
+              inputVirtualGrid] = std::get<0>(params);
+  const auto [outputShape, outputTensorLayout, outputBufferType,
+              outputVirtualGrid] = std::get<1>(params);
+  const auto batchSize = std::get<2>(params);
+  const auto inputHeight = std::get<3>(params);
+  const auto inputWidth = std::get<4>(params);
+  const auto inputChannels = std::get<5>(params);
+  const auto kernelSize = std::get<6>(params);
+  const auto stride = std::get<7>(params);
+  const auto padding = std::get<8>(params);
+  const auto dilation = std::get<9>(params);
+  const auto ceilMode = std::get<10>(params);
+  const auto reallocateHaloOutput = std::get<11>(params);
+  const auto expectedLegal = std::get<12>(params);
+
+  const TTNNLayoutAttr inputLayout = this->CreateTiledLayout(
+      inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid);
+  const TTNNLayoutAttr outputLayout = this->CreateTiledLayout(
+      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+  auto constraintsExp = OpModel<AvgPool2dOp>::getOpConstraints(
+      inputShape, inputLayout, batchSize, inputHeight, inputWidth,
+      inputChannels, kernelSize, stride, padding, dilation, ceilMode,
+      reallocateHaloOutput, std::nullopt, false, std::nullopt, outputLayout);
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+
+  if (constraintsExp) {
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBacks] = constraintsExp.get();
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GT(l1PeakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+  } else {
+    // Must clean up the error
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = OpModel<AvgPool2dOp>::getOpRuntime(
+      inputShape, inputLayout, batchSize, inputHeight, inputWidth,
+      inputChannels, kernelSize, stride, padding, dilation, ceilMode,
+      reallocateHaloOutput, std::nullopt, false, std::nullopt, outputLayout);
+  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    llvm::consumeError(runtimeExp.takeError());
   }
 };
 
