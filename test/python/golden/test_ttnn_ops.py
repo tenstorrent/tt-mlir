@@ -321,17 +321,20 @@ def test_gather_si32_negative_index_workaround(
     [torch.uint32, torch.int32],
     ids=["k_ui32", "k_si32"],
 )
+@pytest.mark.parametrize("target", ["ttnn", "emitc", "emitpy"])
 def test_sampling(
     candidates: int,
     vocab_size: int,
     k_dtype: torch.dtype,
+    target: str,
     request,
     device,
 ):
     """Builder test for ttnn.sampling: fused top-k/p multinomial sampling.
 
     Verifies that the op compiles and returns global token indices in the
-    valid range [0, vocab_size) for each of the 32 users. The k_si32 variant
+    valid range [0, vocab_size) for each of the 32 users, across the TTNN
+    flatbuffer, EmitC (C++), and EmitPy (Python) backends. The k_si32 variant
     additionally exercises the workaround that retypes a non-uint32 k tensor
     to uint32 before the kernel call.
     """
@@ -369,6 +372,7 @@ def test_sampling(
     compile_and_execute_ttnn(
         module,
         **kwargs,
+        target=target,
         device=device,
     )
 
