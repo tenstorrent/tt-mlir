@@ -8618,6 +8618,61 @@ public:
 } // namespace
 
 namespace {
+class StableHLOToTTIRChunkedScaledDotProductAttentionOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.chunked_scaled_dot_product_attention") {
+      return failure();
+    }
+
+    // scale is the only (optional) frontend attribute; causal masking is
+    // internal and there are no optional operands.
+    FloatAttr scaleAttr = nullptr;
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (frontendAttributes) {
+      auto scaleStringAttr =
+          frontendAttributes.getAs<mlir::StringAttr>("scale");
+      if (scaleStringAttr) {
+        float scale;
+        if (failed(parseFloatFromStringAttr(scaleStringAttr, scale))) {
+          return rewriter.notifyMatchFailure(
+              srcOp, "Failed to parse scale attribute.");
+        }
+        scaleAttr = rewriter.getF32FloatAttr(scale);
+      }
+    }
+
+    Value query = adaptor.getOperands()[0];
+    Value key = adaptor.getOperands()[1];
+    Value value = adaptor.getOperands()[2];
+    Value pageTable = adaptor.getOperands()[3];
+    Value chunkStartIdx = adaptor.getOperands()[4];
+
+    RankedTensorType outputType = cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+    ttir::EmptyOp outputTensor = rewriter.create<ttir::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType());
+
+    rewriter
+        .replaceOpWithNewOp<mlir::tt::ttir::ChunkedScaledDotProductAttentionOp>(
+            srcOp, outputType, query, key, value, pageTable, chunkStartIdx,
+            outputTensor, scaleAttr);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class StableHLOToTTIROpOptimizationBarrierOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::OptimizationBarrierOp> {
   using OpConversionPattern<
@@ -9719,7 +9774,9 @@ static void addScaledDotProductAttentionDecodeOpConversionPattern(
       StableHLOToTTIRScaledDotProductAttentionDecodeOpConversionPattern,
       StableHLOToTTIRScaledDotProductAttentionOpConversionPattern,
       StableHLOToTTIRPagedScaledDotProductAttentionDecodeOpConversionPattern,
-      StableHLOToTTCoreFlashMlaPrefillOpConversionPattern>(typeConverter, ctx);
+      StableHLOToTTCoreFlashMlaPrefillOpConversionPattern,
+      StableHLOToTTIRChunkedScaledDotProductAttentionOpConversionPattern>(
+      typeConverter, ctx);
 }
 
 namespace {
