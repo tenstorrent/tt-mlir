@@ -174,6 +174,13 @@ at::Tensor &write_result_into(at::Tensor &out, const at::Tensor &result) {
     return out;
 }
 
+// relu_: in-place ReLU. Runs the functional kernel and swaps self's storage for
+// the result — same storage-swap pattern as the `.out` ops below. self and the
+// result share shape and dtype, so write_result_into's checks always hold.
+at::Tensor &tt_relu_(at::Tensor &self) {
+    return write_result_into(self, tt_relu(self));
+}
+
 // mse_loss.out: forward loss. `reduction == mean` produces a rank-0 scalar.
 at::Tensor &tt_mse_loss_out(const at::Tensor &self_in, const at::Tensor &target_in, int64_t reduction,
                             at::Tensor &out) {
@@ -1166,6 +1173,33 @@ mlir::Value build_le(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
     return mb.create<mlir::tt::ttir::LessEqualOp>(result_type, lhs, rhs).getResult();
 }
 
+mlir::Value build_gt(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
+    auto lhs_type = mlir::cast<mlir::RankedTensorType>(lhs.getType());
+    auto rhs_type = mlir::cast<mlir::RankedTensorType>(rhs.getType());
+    auto out_shape = at::infer_size(at::IntArrayRef(lhs_type.getShape().data(), lhs_type.getShape().size()),
+                                    at::IntArrayRef(rhs_type.getShape().data(), rhs_type.getShape().size()));
+    auto result_type = mlir::RankedTensorType::get(out_shape, mb.attrs().getI1Type());
+    return mb.create<mlir::tt::ttir::GreaterThanOp>(result_type, lhs, rhs).getResult();
+}
+
+mlir::Value build_bitwise_and(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
+    auto lhs_type = mlir::cast<mlir::RankedTensorType>(lhs.getType());
+    auto rhs_type = mlir::cast<mlir::RankedTensorType>(rhs.getType());
+    auto elem_type = lhs_type.getElementType();
+    TT_FATAL(elem_type == rhs_type.getElementType(),
+             "build_bitwise_and: lhs and rhs must share element type — callers must promote first");
+    auto out_shape = at::infer_size(at::IntArrayRef(lhs_type.getShape().data(), lhs_type.getShape().size()),
+                                    at::IntArrayRef(rhs_type.getShape().data(), rhs_type.getShape().size()));
+    auto result_type = mlir::RankedTensorType::get(out_shape, elem_type);
+    // On Bool operands, `bitwise_and` is exactly logical AND, and the FPU only
+    // supports the logical kernel — ttnn.bitwise_and rejects i1. Integer bitwise
+    // AND uses the genuine BitwiseAndOp.
+    if (elem_type.isInteger(1)) {
+        return mb.create<mlir::tt::ttir::LogicalAndOp>(result_type, lhs, rhs).getResult();
+    }
+    return mb.create<mlir::tt::ttir::BitwiseAndOp>(result_type, lhs, rhs).getResult();
+}
+
 mlir::Value build_index_copy(ModuleBuilder &mb, mlir::Value input, int64_t dim, mlir::Value index, mlir::Value source) {
     auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
     auto source_type = mlir::cast<mlir::RankedTensorType>(source.getType());
@@ -1253,6 +1287,82 @@ at::Tensor &tt_where_out(const at::Tensor &condition_in, const at::Tensor &self_
     return write_result_into(out, tt_where(condition_in, self_in, other_in));
 }
 
+// index_copy: out-of-place scatter of `source` rows into a copy of `self` at the
+// positions named by the 1-D integer `index` along `dim`. build_index_copy wants
+// a non-negative dim and source rank == self rank (the aten contract guarantees
+// the latter).
+at::Tensor tt_index_copy(const at::Tensor &self_in, int64_t dim, const at::Tensor &index_in,
+                         const at::Tensor &source_in) {
+    auto [self, index, source] = align_on_tt(self_in, index_in, source_in);
+    int64_t rank = self.dim();
+    int64_t norm_dim = (dim + rank) % rank;
+    auto mb = ModuleBuilder::init({spec_for(self), spec_for(index), spec_for(source)});
+    auto result_v = build_index_copy(mb, mb.args()[0], norm_dim, mb.args()[1], mb.args()[2]);
+    auto module_op = std::move(mb).finalize({result_v});
+    auto outputs = compile_and_run(std::move(module_op), {self, index, source});
+    return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
+}
+
+// index_copy.out: scatter into `out`. `index_copy_` (in-place) also routes here
+// with out aliasing self.
+at::Tensor &tt_index_copy_out(const at::Tensor &self, int64_t dim, const at::Tensor &index, const at::Tensor &source,
+                              at::Tensor &out) {
+    return write_result_into(out, tt_index_copy(self, dim, index, source));
+}
+
+// le.Tensor: element-wise `self <= other`, producing a Bool tensor.
+at::Tensor tt_le_tensor(const at::Tensor &self_in, const at::Tensor &other_in) {
+    auto [self, other] = align_on_tt(self_in, other_in);
+    auto mb = ModuleBuilder::init({spec_for(self), spec_for(other)});
+    auto [promoted, lhs, rhs] = promote_inputs(mb, self, other);
+    auto result_v = build_le(mb, lhs, rhs);
+    auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result_v.getType()).getShape();
+    std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
+    auto module_op = std::move(mb).finalize({result_v});
+    auto outputs = compile_and_run(std::move(module_op), {self, other});
+    return wrap_tt_tensor(std::move(outputs[0]), out_shape, at::ScalarType::Bool);
+}
+
+at::Tensor &tt_le_tensor_out(const at::Tensor &self, const at::Tensor &other, at::Tensor &out) {
+    return write_result_into(out, tt_le_tensor(self, other));
+}
+
+// gt.Tensor: element-wise `self > other`, producing a Bool tensor.
+at::Tensor tt_gt_tensor(const at::Tensor &self_in, const at::Tensor &other_in) {
+    auto [self, other] = align_on_tt(self_in, other_in);
+    auto mb = ModuleBuilder::init({spec_for(self), spec_for(other)});
+    auto [promoted, lhs, rhs] = promote_inputs(mb, self, other);
+    auto result_v = build_gt(mb, lhs, rhs);
+    auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result_v.getType()).getShape();
+    std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
+    auto module_op = std::move(mb).finalize({result_v});
+    auto outputs = compile_and_run(std::move(module_op), {self, other});
+    return wrap_tt_tensor(std::move(outputs[0]), out_shape, at::ScalarType::Bool);
+}
+
+at::Tensor &tt_gt_tensor_out(const at::Tensor &self, const at::Tensor &other, at::Tensor &out) {
+    return write_result_into(out, tt_gt_tensor(self, other));
+}
+
+// bitwise_and.Tensor: element-wise `self & other`. On Bool operands this is the
+// logical AND used to combine attention masks; the result keeps the promoted
+// integer/bool element type.
+at::Tensor tt_bitwise_and_tensor(const at::Tensor &self_in, const at::Tensor &other_in) {
+    auto [self, other] = align_on_tt(self_in, other_in);
+    auto mb = ModuleBuilder::init({spec_for(self), spec_for(other)});
+    auto [promoted, lhs, rhs] = promote_inputs(mb, self, other);
+    auto result_v = build_bitwise_and(mb, lhs, rhs);
+    auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result_v.getType()).getShape();
+    std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
+    auto module_op = std::move(mb).finalize({result_v});
+    auto outputs = compile_and_run(std::move(module_op), {self, other});
+    return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
+}
+
+at::Tensor &tt_bitwise_and_tensor_out(const at::Tensor &self, const at::Tensor &other, at::Tensor &out) {
+    return write_result_into(out, tt_bitwise_and_tensor(self, other));
+}
+
 // tril.out: lower-triangular part of self, written into `out`.
 at::Tensor &tt_tril_out(const at::Tensor &self_in, int64_t diagonal, at::Tensor &out) {
     TORCH_CHECK(is_tt(self_in), "tt-kurbla aten::tril.out: tensor must be on tt backend");
@@ -1300,6 +1410,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("mul.Tensor", TORCH_FN(tt_mul));
     m.impl("mul.Scalar", TORCH_FN(tt_mul_scalar));
     m.impl("relu", TORCH_FN(tt_relu));
+    m.impl("relu_", TORCH_FN(tt_relu_));
     m.impl("rsqrt", TORCH_FN(tt_rsqrt));
     m.impl("mean.dim", TORCH_FN(tt_mean));
     m.impl("batch_norm", TORCH_FN(tt_batch_norm_inference));
@@ -1334,6 +1445,10 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("isneginf.out", TORCH_FN(tt_isneginf_out));
     m.impl("all.out", TORCH_FN(tt_all_out));
     m.impl("tril.out", TORCH_FN(tt_tril_out));
+    m.impl("index_copy.out", TORCH_FN(tt_index_copy_out));
+    m.impl("le.Tensor_out", TORCH_FN(tt_le_tensor_out));
+    m.impl("gt.Tensor_out", TORCH_FN(tt_gt_tensor_out));
+    m.impl("bitwise_and.Tensor_out", TORCH_FN(tt_bitwise_and_tensor_out));
 }
 
 } // namespace tt::kurbla::torch_backend

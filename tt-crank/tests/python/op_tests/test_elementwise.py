@@ -2,7 +2,7 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from tt_kurbla.torch.testing import assert_close_cpu_vs_tt
+from tt_kurbla.torch.testing import assert_close_cpu_vs_tt, strict_no_fallback
 
 _REDUCTIONS = ["none", "mean", "sum"]
 
@@ -178,3 +178,86 @@ def test_isneginf(shape: tuple[int, ...]) -> None:
 def test_all(dim: int, keepdim: bool) -> None:
     x = torch.randn((64, 128), dtype=torch.bfloat16) > 0
     assert_close_cpu_vs_tt(lambda t: torch.all(t, dim=dim, keepdim=keepdim), x)
+
+
+# in-place relu_: the result aliases self, so assert correctness AND that the
+# returned tensor is the same object whose storage was mutated.
+@pytest.mark.parametrize("shape", [(64, 128), (32, 32), (32, 64, 32)])
+def test_relu_inplace(shape: tuple[int, ...]) -> None:
+    a = torch.randn(shape, dtype=torch.bfloat16)
+    expected = torch.relu(a)
+    tt = a.to("tt")
+    with strict_no_fallback():
+        ret = tt.relu_()
+    assert ret is tt, "relu_ must return self"
+    torch.testing.assert_close(tt.cpu(), expected)
+
+
+@pytest.mark.parametrize("shape", [(64, 128), (32, 32), (32, 64, 32)])
+def test_le_tensor(shape: tuple[int, ...]) -> None:
+    a = torch.randn(shape, dtype=torch.bfloat16)
+    b = torch.randn(shape, dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(torch.le, a, b)
+
+
+def test_le_tensor_equal_boundary() -> None:
+    # `<=` (not `<`): equal operands must come back all-True, pinning the
+    # boundary that distinguishes le from lt.
+    a = torch.randn((32, 32), dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(torch.le, a, a.clone())
+
+
+def test_le_tensor_out() -> None:
+    # Drive the registered le.Tensor_out kernel directly (write_result_into path).
+    a = torch.randn((32, 32), dtype=torch.bfloat16)
+    b = torch.randn((32, 32), dtype=torch.bfloat16)
+    expected = torch.le(a, b)
+    out = torch.empty((32, 32), dtype=torch.bool, device="tt")
+    with strict_no_fallback():
+        ret = torch.le(a.to("tt"), b.to("tt"), out=out)
+    assert ret is out, "le.Tensor_out must return the provided out tensor"
+    torch.testing.assert_close(out.cpu(), expected)
+
+
+@pytest.mark.parametrize("shape", [(64, 128), (32, 32), (32, 64, 32)])
+def test_gt_tensor(shape: tuple[int, ...]) -> None:
+    a = torch.randn(shape, dtype=torch.bfloat16)
+    b = torch.randn(shape, dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(torch.gt, a, b)
+
+
+@pytest.mark.parametrize("shape", [(64, 128), (32, 32)])
+def test_bitwise_and_bool(shape: tuple[int, ...]) -> None:
+    # On Bool operands bitwise_and is logical AND — the form attention-mask
+    # combination uses, and the only case the FPU kernel supports.
+    a = torch.randn(shape, dtype=torch.bfloat16) > 0
+    b = torch.randn(shape, dtype=torch.bfloat16) > 0
+    assert_close_cpu_vs_tt(torch.bitwise_and, a, b)
+
+
+# index_copy lowers to ttir.ScatterOp, which ttsim doesn't support (it aborts
+# the simulator process) — exercise it on silicon only.
+@pytest.mark.usefixtures("skip_if_sim")
+@pytest.mark.parametrize("dim", [0, 1, -1], ids=["dim0", "dim1", "dim_neg1"])
+def test_index_copy(dim: int) -> None:
+    self_t = torch.randn((32, 64), dtype=torch.bfloat16)
+    index = torch.tensor([0, 2, 5])
+    src_shape = list(self_t.shape)
+    src_shape[dim] = index.numel()
+    source = torch.randn(src_shape, dtype=torch.bfloat16)
+    assert_close_cpu_vs_tt(lambda s, i, src: torch.index_copy(s, dim, i, src), self_t, index, source)
+
+
+@pytest.mark.usefixtures("skip_if_sim")
+def test_index_copy_inplace_kv_cache_like() -> None:
+    # Mirrors the Llama StaticCache update: scatter new key/value slabs into a
+    # [batch, heads, cache_len, head_dim] cache along the sequence dim.
+    cache = torch.zeros((2, 4, 32, 16), dtype=torch.bfloat16)
+    positions = torch.tensor([0, 1, 2])
+    values = torch.randn((2, 4, positions.numel(), 16), dtype=torch.bfloat16)
+    expected = cache.clone().index_copy_(2, positions, values)
+    tt = cache.to("tt")
+    with strict_no_fallback():
+        ret = tt.index_copy_(2, positions.to("tt"), values.to("tt"))
+    assert ret is tt, "index_copy_ must return self"
+    torch.testing.assert_close(tt.cpu(), expected)

@@ -48,6 +48,13 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Number of timed iterations per benchmark.",
     )
     group.addoption(
+        "--strict-no-fallback",
+        action="store_true",
+        default=False,
+        help="Enforce that every benchmark op runs natively on tt: any op that "
+        "would route through the CPU fallback raises instead. Eager mode only.",
+    )
+    group.addoption(
         "--cpu-baseline",
         action="store_true",
         default=False,
@@ -140,6 +147,21 @@ def llm_batch_size(request: pytest.FixtureRequest) -> int:
 def llm_max_output_tokens(request: pytest.FixtureRequest) -> int | None:
     value = request.config.getoption("--llm-max-output-tokens")
     return None if value is None else int(value)
+
+
+@pytest.fixture(autouse=True)
+def _strict_no_fallback(request: pytest.FixtureRequest) -> Any:
+    """When --strict-no-fallback is set, run each benchmark with the CPU
+    fallback flipped to raise, so any op that isn't natively implemented on tt
+    fails the benchmark instead of silently running on host.
+    """
+    if not request.config.getoption("--strict-no-fallback"):
+        yield
+        return
+    from tt_kurbla.torch.testing import strict_no_fallback
+
+    with strict_no_fallback():
+        yield
 
 
 @pytest.fixture

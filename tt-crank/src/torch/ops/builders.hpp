@@ -237,6 +237,18 @@ mlir::Value build_all(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<int64
 // Output is Bool (i1), broadcast-shaped from lhs and rhs.
 mlir::Value build_le(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
 
+// Emit TTIR for element-wise greater-than comparison:
+//   result[i] = (lhs[i] > rhs[i])
+// `lhs` and `rhs` must share element type — callers must promote first.
+// Output is Bool (i1), broadcast-shaped from lhs and rhs.
+mlir::Value build_gt(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
+
+// Emit TTIR for element-wise bitwise AND:
+//   result[i] = lhs[i] & rhs[i]
+// `lhs` and `rhs` must share element type — callers must promote first. Output
+// keeps that element type (Bool operands give logical AND).
+mlir::Value build_bitwise_and(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
+
 // Emit TTIR for index_copy (aten::index_copy.default):
 //   result = self with source values scattered in at `index` positions along `dim`.
 // `index` must be a 1D integer tensor; `source` must be rank == self.rank.
