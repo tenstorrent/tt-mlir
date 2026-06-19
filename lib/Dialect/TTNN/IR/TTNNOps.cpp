@@ -4360,6 +4360,13 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
     expectedResultRank = 4;
   }
 
+  // Check output rank matches corresponding input rank.
+  if (resultType.getRank() != expectedResultRank) {
+    return emitOpError("result rank (")
+           << resultType.getRank() << ") must match expected rank ("
+           << expectedResultRank << ") for input_values rank " << inputRank;
+  }
+
   // k, p, temp must be 1D with the same batch dimension.
   for (auto [tensor, name] :
        llvm::zip(std::array<mlir::RankedTensorType, 3>{kType, pType, tempType},
@@ -4375,8 +4382,9 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
     }
   }
 
+  // All leading dims of result tensor must be 1 and the last dim must equal
+  // batch.
   auto resultShape = resultType.getShape();
-  // Check that all leading dims are 1 and the last dim is batch.
   if (!llvm::all_of(resultShape.drop_back(1),
                     [](int64_t d) { return d == 1; }) ||
       resultShape.back() != batch) {
