@@ -248,11 +248,27 @@ Validated: the minimal repro (`MEM=dram`) and a **1×4 streaming all_gather to a
 DRAM output** now pass (PCC ~1.0); all 1×4 fabric tests + `test_semaphore` still
 pass. **Option 2 (DRAM staging) is unblocked.**
 
-**Next:** scale much-larger DRAM shards. The fabric path works now, but the
-gather `reblock` still materializes a worker-grid intermediate whose grid can
-exceed the 10-row worker grid (e.g. `[32,1]` for N=8) — a separate
-gather-geometry issue needing a 2D reblock (or DRAM-resident staging without the
-tall reblock). Then revisit ring topology and the 8×8 grid.
+**Gather-geometry scaling — done for L1-resident shards (2026-06-20).** The naive
+streaming gather laid the output on a `[num_devices*tiles, 1]` grid (one worker
+core per tile), which exceeds the worker grid's ~10 rows once tiles/device grows.
+A 2D reblock can't fix this (the gather dim maps to grid rows; the output is one
+tile wide). The fix is **block-packing**: put each device's whole shard on ONE
+core — input `[1,1]` grid + `block_shape=[N,1]`, output `[num_devices,1]` grid +
+`block_shape=[N,1]`. The grid stays tiny (1 / num_devices cores) while
+`block_shape` carries the N tiles, so the gather scales to large shards bounded by
+per-core L1 (verified to N=32 = 4096×128 gathered; ~hundreds of tiles/device fit).
+Regression guard: `test_all_gather_1x4_large_block_roundtrip` (N=16).
+
+**Beyond per-core L1 → DRAM (still blocked at runtime).** For shards exceeding one
+core's L1, the gather must be DRAM-resident. Commit 699b980fe lets DRAM tensors
+exceed the worker-grid volume at the IR level, but a large DRAM output still fails
+at **execution** (`get_virtual_coordinate_from_logical_coordinates(... TENSIX
+row 31 ...)`) — the runtime places the DRAM tensor's grid on worker cores despite
+the compile-time fix. So DRAM-resident gathers >10 row-tiles need a runtime
+fix (extend 699b980fe's skip-worker-virtualization to the execution/buffer path).
+
+**Next:** the runtime DRAM-placement fix above (for shards beyond per-core L1);
+then ring topology and the 8×8 grid.
 
 - The fabric→DRAM track (and the deadlock) now has a working fabric handshake to
   build on (use the full mesh). The single-device matmul→DRAM-scratch half can be
