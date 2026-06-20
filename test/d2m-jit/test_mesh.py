@@ -559,6 +559,88 @@ def test_all_gather_1x4_roundtrip():
     torch is None or runtime is None,
     reason="requires torch + ttmlir runtime",
 )
+@pytest.mark.skipif(_num_devices() < 4, reason="requires a >=4-device mesh")
+def test_all_gather_1x4_dram_roundtrip():
+    """`test_all_gather_1x4_roundtrip` with the gathered output staged in DRAM.
+
+    Regression guard for the fabric remote_store->DRAM deadlock: a fabric
+    datamovement thread that lands on NoC1 cannot talk to the EDM and blocks at
+    its first send. ScheduleDMA's single-DM-thread path used `writesDRAM ? 0 : 1`
+    (processorIndex 0 -> NoC1), so a fabric store to DRAM deadlocked while the
+    same store to L1 (NoC0) worked. The fix pins cross-device (fabric) stores to
+    NoC0. Identical to the L1 1x4 all_gather except the output Layout is
+    `mem_space="dram"`, exercising the fabric mcast write to a DRAM destination."""
+
+    @d2m.kernel
+    def all_gather(in0, out0, start_sem, end_sem):
+        dy = mesh_position(0)
+        cy = core_index(0)
+        cx = core_index(1)
+        device_synchronize(
+            start_sem,
+            start_device=[dy, 0],
+            mcast_shape=[1, 4],
+            num_receivers=3,
+            core_indices=[cy, cx],
+        )
+        buf = empty([2, 2])
+        buf = remote_load(buf, in0, [0, 0])
+        dx = mesh_position(1)
+        remote_store(
+            out0,
+            [dx, 0],
+            buf,
+            start_device=[dy, 0],
+            device_mcast_shape=[1, 4],
+            semaphore=end_sem,
+            semaphore_indices=[cy, 0],
+        )
+        semaphore_wait(end_sem, 4)
+
+    d2m.mesh((1, 4), topology=("linear", "linear"))
+    L_in = d2m.Layout(
+        shape=(64, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[2, 2]
+    )
+    L_out = d2m.Layout(
+        shape=(256, 64),
+        dtype=d2m.float32,
+        block_shape=[1, 1],
+        grid_shape=[8, 2],
+        mem_space="dram",
+    )
+    full = torch.randn(64, 256, dtype=torch.float32)
+    in_s = d2m.reblock(
+        d2m.mesh_shard(full, L_in, shard_dims=[0, 1], shard_shape=[1, 4]),
+        [1, 1],
+    )
+    out_s = d2m.reblock(d2m.empty(L_out), [4, 1])
+    ss = d2m.global_semaphore()
+    es = d2m.global_semaphore()
+    all_gather(
+        in_s,
+        out_s,
+        ss,
+        es,
+        grid=(1, 1),
+        fabric=d2m.fabric_config(
+            cluster_axis=1, topology="linear", routing="bidir_line_mesh"
+        ),
+    )
+    out_s = d2m.mesh_gather(out_s, shard_dims=[0, 1], shard_shape=[1, 4])
+    result = out_s.to_host()
+
+    shards = [full[:, i * 64 : (i + 1) * 64] for i in range(4)]
+    vstack = torch.cat(shards, dim=0)  # (256, 64)
+    expected = torch.cat([vstack] * 4, dim=1)  # (256, 256)
+    assert tuple(result.shape) == (256, 256), result.shape
+    diff = (expected - result).abs().max().item()
+    assert diff < 0.05, f"1x4 all_gather->DRAM max abs diff {diff}"
+
+
+@pytest.mark.skipif(
+    torch is None or runtime is None,
+    reason="requires torch + ttmlir runtime",
+)
 @pytest.mark.skipif(_num_devices() < 2, reason="requires a >=2-device mesh")
 def test_matmul_all_gather_fused_1x2_roundtrip():
     """A *fused* distributed-matmul + all_gather in a single `unified` kernel.
