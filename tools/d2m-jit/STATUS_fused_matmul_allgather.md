@@ -226,12 +226,24 @@ not a fabric-deliverable DRAM address → the receive-side write never completes
 backpressure → hang. (Consistent with every negative result: not noc-encoding,
 mcast/unicast, ring/line, flush, or semaphore.)
 
-**Next:** lower d2m DRAM fabric writes through a TensorAccessor-computed
-destination noc address (the accessor DMA path already computes correct DRAM
-addresses for local writes — reuse it for the fabric dst), ideally via the
-official `linear::experimental` fabric write API like broadcast_tile_writer.cpp.
-This unblocks Option 2 / much-larger shards / 8×8. See the
-`remote-store-dram-deadlock-repro` memory.
+**REAL root cause found via EDM DPRINT trace (2026-06-20).** Instrumenting the
+EDM receive path + a verified during-hang DPRINT flush shows: for a DRAM output
+the receiving EDM gets **zero** packets (no writes, no sem-incs), while L1 shows
+full traffic. So the hang is **sender-side** — the DRAM kernel blocks at its
+*first* fabric send (the `device_synchronize` barrier, before the data write).
+Cause: the fabric datamovement thread runs on **NoC1** for DRAM output vs **NoC0**
+for L1 (`nocIdx = 1 - processorIdx`; changing the output to DRAM shifts the DMA
+lowering → processor index → NoC1), and the worker↔EDM fabric connection doesn't
+work on NoC1 (the EDM expects worker comms on `edm_fabric_write_noc_index = 0`).
+The "fabric write to DRAM" framing was wrong — the write is never reached; every
+kernel-write-path fix failed because the problem is upstream.
+
+**Next:** pin the fabric datamovement thread to **NoC0** (force its processor
+index so `nocIdx == 0`) in the d2m scheduling/lowering, or make the worker↔EDM
+connection NoC-agnostic. Verify by forcing an L1 fabric kernel onto NoC1 (should
+hang) and a DRAM kernel onto NoC0 (should work). This unblocks Option 2 /
+much-larger shards / 8×8. Minimal repro: `repro_dram_fabric_deadlock.py`
+(`MEM=l1` passes, `MEM=dram` hangs). See `remote-store-dram-deadlock-repro` memory.
 
 - The fabric→DRAM track (and the deadlock) now has a working fabric handshake to
   build on (use the full mesh). The single-device matmul→DRAM-scratch half can be
