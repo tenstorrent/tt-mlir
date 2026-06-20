@@ -58,13 +58,7 @@ getTTRunCommand(uint16_t port,
                 const std::optional<std::string> &workerPathOpt) {
   std::ostringstream oss;
 
-  // ttrun auto-propagates TT_* environment variables to the MPI worker ranks
-  // (tracy, for one, locates its profiling tools under
-  // TT_METAL_HOME/build/tools/profiler/bin). The runtime already knows the
-  // metal home, so set TT_METAL_HOME explicitly for the ttrun invocation
-  // instead of relying on it surviving the ambient environment.
-  const std::string metalHome = RuntimeContext::instance().getMetalHome();
-  oss << "cd " << metalHome << " && TT_METAL_HOME=" << metalHome << " ";
+  oss << "cd " << RuntimeContext::instance().getMetalHome() << " && ";
 
   std::optional<std::string> hostnameOpt =
       multiProcessArgs.getControllerHostname();

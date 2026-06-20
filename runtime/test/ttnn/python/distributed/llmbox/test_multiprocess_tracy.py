@@ -4,13 +4,28 @@
 #
 
 import glob
+import json
 import os
 
 import pytest
 import ttrt
 import ttrt.runtime
+from ttrt.common.util import *
 
-from ...utils import DeviceContext, TT_METAL_RUNTIME_ROOT_EXTERNAL, TT_MLIR_HOME
+from ...utils import (
+    DeviceContext,
+    ProgramTestConfig,
+    ProgramTestRunner,
+    TT_METAL_RUNTIME_ROOT_EXTERNAL,
+    TT_MLIR_HOME,
+    assert_pcc,
+    get_torch_output_container,
+    subprocess_get_system_descriptor,
+)
+
+FLATBUFFER_BASE_PATH = (
+    f"{TT_MLIR_HOME}/build/test/ttmlir/Runtime/TTNN/llmbox/binary/Output"
+)
 
 TRACY_OUTPUT_DIR = "/tmp/tt_mlir_tracy_smoke_test"
 
@@ -72,27 +87,56 @@ def _find_perf_csv_files(output_root):
     return _find_per_rank(output_root, "*ops_perf*.csv")
 
 
-def test_tracy_multi_host_smoke():
-    """End-to-end check that --tracy plumbing produces per-rank Tracy captures.
-
-    Asserts:
-      - Distributed runtime launches successfully with tracy enabled.
-      - A trivial runtime call (get_num_available_devices) sees the full mesh.
-      - After shutdown, per-rank .tracy files exist on disk and are non-empty.
-    """
+def test_tracy_multi_host_smoke(request):
+    """Run simple_add on the [2,4] mesh under --tracy; assert each rank produces
+    a non-empty .tracy capture and ops_perf CSV. A real op (not just device init)
+    is needed or the perf CSV comes back empty."""
     os.makedirs(TRACY_OUTPUT_DIR, exist_ok=True)
 
-    TRACY_ARGS = ["--output-folder", TRACY_OUTPUT_DIR, "-r"]
+    binary_path = os.path.join(FLATBUFFER_BASE_PATH, "simple_add_2x4.mlir.tmp.ttnn")
+    assert os.path.exists(binary_path), (
+        f"Binary not found: {binary_path}\n"
+        "Generate it with: llvm-lit "
+        "test/ttmlir/Runtime/TTNN/llmbox/binary/simple_add_2x4.mlir"
+    )
+
+    test_config = ProgramTestConfig(
+        name="simple_add_tracy",
+        expected_num_inputs=2,
+        compute_golden=lambda inputs: (inputs[0] + inputs[1]),
+        description="Simple add under tracy profiling",
+    )
+    logger = Logger()
+    file_manager = FileManager(logger)
+    binary = Binary(logger, file_manager, binary_path)
+
+    curr_system_desc = json.loads(subprocess_get_system_descriptor(request).as_json())
+    assert (
+        curr_system_desc["system_desc"] == binary.system_desc_dict
+    ), "System descriptor mismatch — regenerate the flatbuffer for this machine"
+
+    test_runner = ProgramTestRunner(test_config, binary, 0)
+
+    # -r generates the per-rank captures/reports
+    TRACY_ARGS = [
+        "--output-folder",
+        TRACY_OUTPUT_DIR,
+        "-r",
+    ]
 
     _launch_distributed_runtime_with_tracy(TRACY_ARGS)
     try:
-        # Workload: confirm the mesh is visible, then open a mesh device so
-        # tracy captures real device-init activity on the workers (mirrors
-        # what test_get_mesh_shape does in the sibling test_multiprocess.py).
         num_devices = ttrt.runtime.get_num_available_devices()
         assert num_devices == 8, f"expected 8 devices on a llmbox, got {num_devices}"
         with DeviceContext(mesh_shape=[2, 4]) as device:
             assert device.get_mesh_shape() == [2, 4]
+            inputs_runtime_with_layout, golden, _ = test_runner.get_inputs_and_golden(
+                device, borrow=False
+            )
+            for _ in range(4):
+                test_runner.run_program_and_compare_golden(
+                    device, inputs_runtime_with_layout, golden
+                )
     finally:
         _shutdown_distributed_runtime()
 
