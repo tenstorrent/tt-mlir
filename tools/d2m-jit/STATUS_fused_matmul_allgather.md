@@ -238,12 +238,21 @@ work on NoC1 (the EDM expects worker comms on `edm_fabric_write_noc_index = 0`).
 The "fabric write to DRAM" framing was wrong — the write is never reached; every
 kernel-write-path fix failed because the problem is upstream.
 
-**Next:** pin the fabric datamovement thread to **NoC0** (force its processor
-index so `nocIdx == 0`) in the d2m scheduling/lowering, or make the worker↔EDM
-connection NoC-agnostic. Verify by forcing an L1 fabric kernel onto NoC1 (should
-hang) and a DRAM kernel onto NoC0 (should work). This unblocks Option 2 /
-much-larger shards / 8×8. Minimal repro: `repro_dram_fabric_deadlock.py`
-(`MEM=l1` passes, `MEM=dram` hangs). See `remote-store-dram-deadlock-repro` memory.
+**FIXED (2026-06-20).** Hypothesis confirmed by a bidirectional NoC-swap test
+(forcing the L1 fabric kernel onto NoC1 also hangs; forcing DRAM onto NoC0 works).
+The fix is in `ScheduleDMA.cpp`: its single-DM-thread path assigned
+`processorIndex = writesDRAM ? 0 : 1` (procIdx 0 → NoC1), so a fabric store to
+DRAM ran on NoC1 and deadlocked. Now a cross-device (fabric) store forces
+procIdx 1 (NoC0); the NoC1 preference applies only to non-fabric DRAM writes.
+Validated: the minimal repro (`MEM=dram`) and a **1×4 streaming all_gather to a
+DRAM output** now pass (PCC ~1.0); all 1×4 fabric tests + `test_semaphore` still
+pass. **Option 2 (DRAM staging) is unblocked.**
+
+**Next:** scale much-larger DRAM shards. The fabric path works now, but the
+gather `reblock` still materializes a worker-grid intermediate whose grid can
+exceed the 10-row worker grid (e.g. `[32,1]` for N=8) — a separate
+gather-geometry issue needing a 2D reblock (or DRAM-resident staging without the
+tall reblock). Then revisit ring topology and the 8×8 grid.
 
 - The fabric→DRAM track (and the deadlock) now has a working fabric handshake to
   build on (use the full mesh). The single-device matmul→DRAM-scratch half can be
