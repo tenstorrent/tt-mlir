@@ -499,6 +499,26 @@ getFlashMlaPrefillShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
+static mlir::sdy::OpShardingRuleAttr buildHeadShardedCustomCallRule(
+    mlir::stablehlo::CustomCallOp op, llvm::ArrayRef<int64_t> operandHeadDims,
+    llvm::ArrayRef<int64_t> resultHeadDims, int64_t headSize) {
+  assert(static_cast<int64_t>(operandHeadDims.size()) == op.getNumOperands() &&
+         "operandHeadDims size must match number of operands");
+  assert(static_cast<int64_t>(resultHeadDims.size()) == op.getNumResults() &&
+         "resultHeadDims size must match number of results");
+
+  mlir::sdy::OpShardingRuleBuilder builder(op);
+
+  SmallVector<int64_t> resolvedOperandDims(operandHeadDims.begin(),
+                                           operandHeadDims.end());
+  SmallVector<int64_t> resolvedResultDims(resultHeadDims.begin(),
+                                          resultHeadDims.end());
+
+  builder.addFactor(resolvedOperandDims, resolvedResultDims, headSize,
+                    mlir::sdy::FactorType::kPassThrough);
+  return builder.build();
+}
+
 // Dispatch function for paged attention CustomCall sharding rules.
 static mlir::sdy::OpShardingRuleAttr
 getChunkedSdpaShardingRule(mlir::stablehlo::CustomCallOp op) {
