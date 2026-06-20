@@ -357,9 +357,19 @@ public:
         return store && ttcore::getMemorySpace(store.getMemref()) ==
                             ttcore::MemorySpace::DeviceDRAM;
       });
+      // A cross-device (fabric) store must run on NoC0 (processorIndex 1): the
+      // worker<->EDM fabric connection does not function on NoC1, so a fabric
+      // send issued from a NoC1 thread blocks at its first wait_for_empty_write_
+      // slot and the program deadlocks. This overrides the DRAM->NoC1 preference
+      // below, which otherwise hangs any fabric remote_store to DRAM (the local
+      // DRAM-write NoC1 preference only applies to non-fabric stores).
+      bool writesFabric = llvm::any_of(dmaOps, [](const auto &entry) {
+        auto store = mlir::dyn_cast_or_null<RemoteStoreOp>(entry.first);
+        return store && !store.getStartDevice().empty();
+      });
       int32_t processorIndex;
       if (numDatamovementThreads == 2) {
-        processorIndex = writesDRAM ? 0 : 1;
+        processorIndex = (writesDRAM && !writesFabric) ? 0 : 1;
       } else {
         processorIndex = 0;
       }
