@@ -259,16 +259,24 @@ core — input `[1,1]` grid + `block_shape=[N,1]`, output `[num_devices,1]` grid
 per-core L1 (verified to N=32 = 4096×128 gathered; ~hundreds of tiles/device fit).
 Regression guard: `test_all_gather_1x4_large_block_roundtrip` (N=16).
 
-**Beyond per-core L1 → DRAM (still blocked at runtime).** For shards exceeding one
-core's L1, the gather must be DRAM-resident. Commit 699b980fe lets DRAM tensors
-exceed the worker-grid volume at the IR level, but a large DRAM output still fails
-at **execution** (`get_virtual_coordinate_from_logical_coordinates(... TENSIX
-row 31 ...)`) — the runtime places the DRAM tensor's grid on worker cores despite
-the compile-time fix. So DRAM-resident gathers >10 row-tiles need a runtime
-fix (extend 699b980fe's skip-worker-virtualization to the execution/buffer path).
+**Beyond per-core L1 → DRAM (still blocked; precisely localized 2026-06-20).** For
+shards exceeding one core's L1, the gather must be DRAM-resident. A large DRAM
+output (grid e.g. `[32,1]`) fails at execution with
+`get_virtual_coordinate_from_logical_coordinates(... TENSIX row 31 ...)`. Localized:
+the DRAM **buffer** itself is fine (createShardedBufferConfigForDRAMMemref uses
+DRAM bank cores `(0,0)..(0,7)`; no buffer has a core ≥10). The failure is the
+**`to_host` read-back**: `_emit_returns_and_finalise` lowers the gathered DRAM
+tensor through `ToLayout`/`shard_to_full`, and that read-back path materializes it
+as an **L1-sharded** `[32,1]` layout → 32 worker cores → row 31 invalid. Commit
+699b980fe's DRAM "skip worker-grid virtualization" covered `EmptyOp::build`,
+`getMemoryMapImpl`, `getDramMapShapeSymbols` — but NOT the `ToLayout`/`from_device`/
+`shard_to_full` read-back lowering that `to_host` emits.
 
-**Next:** the runtime DRAM-placement fix above (for shards beyond per-core L1);
-then ring topology and the 8×8 grid.
+**Next:** extend the DRAM grid-skip to the `to_host`/`ToLayout` read-back lowering
+(so a gathered DRAM tensor's `[G,1]` grid maps to banks, not worker cores) — the
+remaining piece for DRAM-resident gathers beyond per-core L1. Then ring topology
+and the 8×8 grid. (Note: much-larger shards within per-core L1 already work via the
+block-packing gather above — `test_all_gather_1x4_large_block_roundtrip`.)
 
 - The fabric→DRAM track (and the deadlock) now has a working fabric handshake to
   build on (use the full mesh). The single-device matmul→DRAM-scratch half can be
