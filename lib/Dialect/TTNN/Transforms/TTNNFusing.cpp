@@ -254,7 +254,20 @@ public:
       }
       input = reorderReshape.getInput();
     } else {
-      return failure();
+      // Merged form: a [1, 2, 0, 3] permute that only relocates the unit seq
+      // dim is canonicalized to a reshape and then folded into this collapse
+      // (PermuteOp::getCanonicalizationPatterns + foldConsecutiveReshape), so
+      // there is no separate reorder op — `reshapeOp` itself collapses
+      // [1, B, H, D] -> [B, H*D] and `reorderResult` is the [S, B, H, D] input.
+      auto inTy = mlir::dyn_cast<RankedTensorType>(reorderResult.getType());
+      auto outTy = mlir::dyn_cast<RankedTensorType>(reshapeOp.getType());
+      if (!inTy || !outTy || inTy.getRank() != 4 || outTy.getRank() != 2 ||
+          inTy.getShape()[0] != 1 ||
+          outTy.getShape()[0] != inTy.getShape()[1] ||
+          outTy.getShape()[1] != inTy.getShape()[2] * inTy.getShape()[3]) {
+        return failure();
+      }
+      input = reorderResult;
     }
 
     auto inputType = mlir::cast<RankedTensorType>(input.getType());
