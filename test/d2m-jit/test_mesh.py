@@ -641,6 +641,89 @@ def test_all_gather_1x4_dram_roundtrip():
     torch is None or runtime is None,
     reason="requires torch + ttmlir runtime",
 )
+@pytest.mark.skipif(_num_devices() < 4, reason="requires a >=4-device mesh")
+def test_all_gather_1x4_large_block_roundtrip():
+    """Gather-geometry scaling: a much larger per-device shard (16 row-tiles)
+    gathered via the [num_devices, 1] *block* layout.
+
+    The naive streaming gather lays the gathered output on a [num_devices*tiles,
+    1] grid -- one worker core per tile -- which exceeds the worker grid's row
+    count (~10) once tiles_per_device grows. Instead, block-pack each device's
+    whole shard onto ONE core: input on a [1,1] grid with block_shape=[N,1] and
+    output on a [num_devices,1] grid with block_shape=[N,1]. The grid stays tiny
+    (1 / num_devices cores) while block_shape carries the N tiles, so the gather
+    scales to large shards (bounded by per-core L1, not the worker-grid rows).
+    Here N=16 -> per-device 512x32, gathered 2048x32 (128 tiles). Each device
+    mcasts its whole 16-tile shard to output slot [dx,0]."""
+    N = 16
+    d2m.mesh((1, 4), topology=("linear", "linear"))
+    L_in = d2m.Layout(
+        shape=(N * 32, 32), dtype=d2m.float32, block_shape=[N, 1], grid_shape=[1, 1]
+    )
+    L_out = d2m.Layout(
+        shape=(4 * N * 32, 32),
+        dtype=d2m.float32,
+        block_shape=[N, 1],
+        grid_shape=[4, 1],
+    )
+
+    @d2m.kernel
+    def all_gather(in0, out0, start_sem, end_sem):
+        dy = mesh_position(0)
+        cy = core_index(0)
+        cx = core_index(1)
+        device_synchronize(
+            start_sem,
+            start_device=[dy, 0],
+            mcast_shape=[1, 4],
+            num_receivers=3,
+            core_indices=[cy, cx],
+        )
+        buf = empty([16, 1])  # whole 16-tile shard on one core
+        buf = remote_load(buf, in0, [0, 0])
+        dx = mesh_position(1)
+        remote_store(
+            out0,
+            [dx, 0],
+            buf,
+            start_device=[dy, 0],
+            device_mcast_shape=[1, 4],
+            semaphore=end_sem,
+            semaphore_indices=[cy, 0],
+        )
+        semaphore_wait(end_sem, 4)
+
+    full = torch.randn(N * 32, 128, dtype=torch.float32)
+    in_s = d2m.reblock(
+        d2m.mesh_shard(full, L_in, shard_dims=[0, 1], shard_shape=[1, 4]), [1, 1]
+    )
+    out_s = d2m.reblock(d2m.empty(L_out), [4, 1])
+    ss = d2m.global_semaphore()
+    es = d2m.global_semaphore()
+    all_gather(
+        in_s,
+        out_s,
+        ss,
+        es,
+        grid=(1, 1),
+        fabric=d2m.fabric_config(
+            cluster_axis=1, topology="linear", routing="bidir_line_mesh"
+        ),
+    )
+    out_s = d2m.mesh_gather(out_s, shard_dims=[0, 1], shard_shape=[1, 4])
+    result = out_s.to_host()
+
+    shards = [full[:, i * 32 : (i + 1) * 32] for i in range(4)]  # each (512, 32)
+    vstack = torch.cat(shards, dim=0)  # (2048, 32)
+    expected = torch.cat([vstack] * 4, dim=1)  # (2048, 128)
+    assert tuple(result.shape) == (2048, 128), result.shape
+    assert_pcc(expected, result)
+
+
+@pytest.mark.skipif(
+    torch is None or runtime is None,
+    reason="requires torch + ttmlir runtime",
+)
 @pytest.mark.skipif(_num_devices() < 2, reason="requires a >=2-device mesh")
 def test_matmul_all_gather_fused_1x2_roundtrip():
     """A *fused* distributed-matmul + all_gather in a single `unified` kernel.
