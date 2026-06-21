@@ -272,11 +272,22 @@ as an **L1-sharded** `[32,1]` layout → 32 worker cores → row 31 invalid. Com
 `getMemoryMapImpl`, `getDramMapShapeSymbols` — but NOT the `ToLayout`/`from_device`/
 `shard_to_full` read-back lowering that `to_host` emits.
 
-**Next:** extend the DRAM grid-skip to the `to_host`/`ToLayout` read-back lowering
-(so a gathered DRAM tensor's `[G,1]` grid maps to banks, not worker cores) — the
-remaining piece for DRAM-resident gathers beyond per-core L1. Then ring topology
-and the 8×8 grid. (Note: much-larger shards within per-core L1 already work via the
-block-packing gather above — `test_all_gather_1x4_large_block_roundtrip`.)
+**Localization REVISED (2026-06-21) — it is NOT the read-back.** Isolation shows
+the DRAM read-back works on its own: a single-device DRAM `[32,1]` round-trip
+(`to_layout`+`to_host`) and a mesh DRAM `[32,1]` `mesh_shard`→`mesh_gather`→
+`to_host` both succeed (maxdiff 0.0). The failure only appears when a **generic op
+(kernel) writes** the large DRAM output and that result is then gathered. So the
+blocker is the generic-op-writes-large-DRAM-output lowering, not `to_host`. NOT
+yet pinned down: a minimal single-device kernel writing a DRAM `[16,1]` output
+**timed out** (hang or very slow compile of the large unrolled DRAM-write kernel),
+so there may be a *second* issue (slow-compile/hang of big DRAM-write kernels) on
+top of the placement question. Needs a less flaky, deeper investigation.
+
+**Next:** characterize the generic-op-writes-large-DRAM path (why the minimal
+kernel hangs/compiles slowly; whether the placement still maps to worker cores).
+Then ring topology and the 8×8 grid. (Much-larger shards within per-core L1
+already work via the block-packing gather above —
+`test_all_gather_1x4_large_block_roundtrip`.)
 
 - The fabric→DRAM track (and the deadlock) now has a working fabric handshake to
   build on (use the full mesh). The single-device matmul→DRAM-scratch half can be
