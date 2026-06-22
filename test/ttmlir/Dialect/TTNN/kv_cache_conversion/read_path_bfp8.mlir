@@ -28,11 +28,10 @@ module attributes {} {
         tensor<1x1x32x64xbf16, #permuted>
     ) -> tensor<1x2x32x64xbf16, #repeated>
 
-    // CHECK: %[[CAST:.*]] = "ttnn.typecast"(%arg1)
-    // CHECK-SAME: dtype = #ttcore.supportedDataTypes<bfp_bf8>
-    // CHECK-SAME: -> tensor<1x2x32x64x!ttcore.tile<32x32, bfp_bf8>,
-    // CHECK: "ttnn.concat"(%[[CAST]], %[[REPEAT]])
-    // CHECK-SAME: -> tensor<1x2x64x64x!ttcore.tile<32x32, bfp_bf8>,
+    // CHECK: %[[CAST:.*]] = "ttnn.typecast"(%[[REPEAT]])
+    // CHECK-SAME: -> tensor<1x2x32x64xbf16,
+    // CHECK: "ttnn.concat"(%arg1, %[[CAST]])
+    // CHECK-SAME: -> tensor<1x2x64x64xbf16,
     %2 = "ttnn.concat"(%arg1, %1) <{dim = 2 : si32}> : (
         tensor<1x2x32x64xbf16, #repeated>,
         tensor<1x2x32x64xbf16, #repeated>
