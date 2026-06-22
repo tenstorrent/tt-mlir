@@ -20,6 +20,7 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/Support/LogicalResult.h"
 
 #include "llvm/ADT/DenseMap.h"
@@ -46,8 +47,10 @@ static bool kernelContainsOp(const SymbolTable &symbolTable,
 
 class D2MGenericRewriter : public OpConversionPattern<d2m::GenericOp> {
 public:
-  D2MGenericRewriter(MLIRContext *ctx, ttmetal::MathFidelity mathFidelity)
-      : OpConversionPattern<d2m::GenericOp>(ctx), mathFidelity_(mathFidelity) {}
+  D2MGenericRewriter(MLIRContext *ctx, SymbolTable &symbolTable,
+                     ttcore::Arch arch, ttmetal::MathFidelity mathFidelity)
+      : OpConversionPattern<d2m::GenericOp>(ctx), symbolTable_(&symbolTable),
+        arch_(arch), mathFidelity_(mathFidelity) {}
 
   static KernelArgsAttr
   evalKernelArgsFromSpec(Builder &builder, const SymbolTable &symbolTable,
@@ -90,19 +93,18 @@ public:
     return builder.getAttr<ttmetal::KernelArgsAttr>(crtArgs, rtArgs, ctArgs);
   }
 
-  static ArrayAttr convertThreadsToKernelConfigs(
+  ArrayAttr convertThreadsToKernelConfigs(
       Builder &builder, mlir::ValueRange inputOutputOperands, ArrayAttr threads,
-      CoreRangeAttr coreRange, const SymbolTable &symbolTable,
-      ttmetal::MathFidelity mathFidelity,
+      CoreRangeAttr coreRange, ttmetal::MathFidelity mathFidelity,
       const DenseMap<size_t, size_t> &cbOperandIndexToPort,
-      const DenseMap<uint32_t, uint32_t> &argMapping, const ttcore::Arch arch) {
+      const DenseMap<uint32_t, uint32_t> &argMapping) const {
     SmallVector<Attribute> kernelConfigs;
 
     for (Attribute threadAttr : threads) {
       d2m::ThreadAttr thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
-      KernelArgsAttr kernelArgs =
-          evalKernelArgsFromSpec(builder, symbolTable, thread.getKernelSymbol(),
-                                 cbOperandIndexToPort, argMapping);
+      KernelArgsAttr kernelArgs = evalKernelArgsFromSpec(
+          builder, *symbolTable_, thread.getKernelSymbol(),
+          cbOperandIndexToPort, argMapping);
       Attribute kernelConfig = nullptr;
       switch (thread.getThreadType()) {
       case d2m::ThreadType::Compute: {
@@ -119,8 +121,7 @@ public:
         constexpr bool dstFullSyncEn = false;
         // Enable fp32 unpack mode for typecast kernels.
         // TODO(ckaravasilisTT): Enable fp32 unpack mode in the general case.
-        bool isTypecast = kernelContainsOp<ttkernel::TypecastTileOp>(
-            symbolTable, thread.getKernelSymbol());
+        bool isTypecast = kernelContainsTypecast(thread.getKernelSymbol());
         UnpackToDestMode mode = (fp32DestAccum && isTypecast)
                                     ? UnpackToDestMode::Fp32
                                     : UnpackToDestMode::Default;
@@ -133,7 +134,7 @@ public:
       case d2m::ThreadType::Datamovement: {
         const int32_t dmCoreIndex = thread.getDmCoreIndex();
         TT_assert(dmCoreIndex >= 0);
-        const auto nocIdx = ttcore::getDmCoreDefaultNoc(arch, dmCoreIndex);
+        const auto nocIdx = ttcore::getDmCoreDefaultNoc(arch_, dmCoreIndex);
         kernelConfig = builder.getAttr<ttmetal::NocConfigAttr>(
             thread.getKernelSymbol(), coreRange, kernelArgs, dmCoreIndex,
             nocIdx);
@@ -164,17 +165,12 @@ public:
   LogicalResult
   matchAndRewrite(d2m::GenericOp op, d2m::GenericOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
-    SymbolTable symbolTable(op->getParentOfType<ModuleOp>());
-
-    llvm::SmallVector<Value> remappedBuffers;
     llvm::SmallVector<Value> args;
     DenseMap<uint32_t, uint32_t> argMapping;
     for (unsigned i = 0; i < op.getInputsAndOutputs().size(); ++i) {
       auto operand = adaptor.getOperands()[i];
       argMapping[i] = args.size();
       args.push_back(getUnderlyingMemref(operand));
-      remappedBuffers.push_back(
-          rewriter.getRemappedValue(getUnderlyingMemref(operand)));
     }
 
     // Add additional args.
@@ -230,10 +226,9 @@ public:
 
     ArrayAttr threads = op.getThreads();
     CoreRangeAttr coreRange = coreRangeAttrFromOp(rewriter, op);
-    const auto arch = ttcore::getOpChipDescAttr(op).getArch().getValue();
     auto kernelConfigs = convertThreadsToKernelConfigs(
-        rewriter, op.getInputsAndOutputs(), threads, coreRange, symbolTable,
-        mathFidelity_, cbOperandIndexToPort, argMapping, arch);
+        rewriter, op.getInputsAndOutputs(), threads, coreRange, mathFidelity_,
+        cbOperandIndexToPort, argMapping);
     rewriter.replaceOpWithNewOp<ttmetal::EnqueueProgramOp>(
         op, args, cbs, cbPorts, kernelConfigs,
         op.getFabricConnectionConfigAttr());
@@ -243,6 +238,22 @@ public:
 private:
   static CoreRangeAttr coreRangeAttrFromOp(Builder &builder, d2m::GenericOp op);
 
+  bool kernelContainsTypecast(SymbolRefAttr kernelSymbol) const {
+    StringAttr kernelName = kernelSymbol.getRootReference();
+    auto it = typecastKernelCache_.find(kernelName);
+    if (it != typecastKernelCache_.end()) {
+      return it->second;
+    }
+
+    bool containsTypecast =
+        kernelContainsOp<ttkernel::TypecastTileOp>(*symbolTable_, kernelSymbol);
+    typecastKernelCache_.try_emplace(kernelName, containsTypecast);
+    return containsTypecast;
+  }
+
+  const SymbolTable *symbolTable_;
+  mutable DenseMap<StringAttr, bool> typecastKernelCache_;
+  ttcore::Arch arch_;
   ttmetal::MathFidelity mathFidelity_;
 };
 
@@ -894,6 +905,7 @@ namespace mlir::tt {
 
 void populateD2MToTTMetalPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                                   TypeConverter & /*typeConverter*/,
+                                  SymbolTable &symbolTable, ttcore::Arch arch,
                                   ttmetal::MathFidelity mathFidelity) {
   patterns.add<
       ttmetal::MemrefAllocRewriter, ttmetal::MemrefDeallocRewriter,
@@ -902,7 +914,8 @@ void populateD2MToTTMetalPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       ttmetal::D2MResetGlobalSemaphoreRewriter,
       ttmetal::D2MCreateLocalSemaphoreRewriter, ttmetal::D2MViewLayoutRewriter>(
       ctx);
-  patterns.add<ttmetal::D2MGenericRewriter>(ctx, mathFidelity);
+  patterns.add<ttmetal::D2MGenericRewriter>(ctx, symbolTable, arch,
+                                            mathFidelity);
   patterns.add<ttmetal::D2MOperandAliasRewriter>(ctx);
 }
 
