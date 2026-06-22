@@ -627,7 +627,7 @@ llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
     llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
     uint32_t groups, std::optional<Conv2dConfigAttr> conv2dConfig,
     std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig, bool hasBias,
-    bool transpose) {
+    bool transpose, llvm::ArrayRef<int32_t> output_padding = {}) {
   if (weightLayout.getBufferType() != BufferType::SystemMemory) {
     return llvm::createStringError(
         llvm::inconvertibleErrorCode(),
@@ -678,6 +678,11 @@ llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
         /* compute_config_ */ std::nullopt, sliceConfigConverted);
   };
 
+  std::array<uint32_t, 2> outputPaddingArr = {0, 0};
+  if (!output_padding.empty()) {
+    outputPaddingArr =
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(output_padding);
+  }
   auto prepareConvTranspose2dWeightsOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         &::ttnn::operations::conv::conv_transpose2d::
@@ -687,7 +692,7 @@ llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
         input_width,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        detail::reorderPool2dPadding(padding),
+        detail::reorderPool2dPadding(padding), outputPaddingArr,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         hasBias, groups, device, *inputDtype, outputDtype,
         conv2dConfigConverted,
@@ -5249,7 +5254,7 @@ llvm::Expected<OpConstraints> OpModel<ConvTranspose2dOp>::getOpConstraints(
           inputShape, inputLayout, weightShape, weightLayout, in_channels,
           out_channels, batch_size, input_height, input_width, kernel_size,
           stride, padding, dilation, groups, conv2dConfig, conv2dSliceConfig,
-          biasLayout.has_value(), /*transpose*/ true);
+          biasLayout.has_value(), /*transpose*/ true, output_padding);
   if (!preparedWeightExp) {
     return preparedWeightExp.takeError();
   }
@@ -5520,9 +5525,9 @@ OpModel<PrepareConvTranspose2dWeightsOp>::getOpConstraints(
     llvm::StringRef weightsFormat, int32_t inChannels, int32_t outChannels,
     int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
     llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
-    llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
-    bool hasBias, int32_t groups, ttcore::DataType inputDtype,
-    std::optional<ttcore::DataType> outputDtype,
+    llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> output_padding,
+    llvm::ArrayRef<int32_t> dilation, bool hasBias, int32_t groups,
+    ttcore::DataType inputDtype, std::optional<ttcore::DataType> outputDtype,
     std::optional<Conv2dConfigAttr> conv2dConfig,
     std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
     std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig, bool mirrorKernel,
@@ -5554,6 +5559,7 @@ OpModel<PrepareConvTranspose2dWeightsOp>::getOpConstraints(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
         detail::reorderPool2dPadding(padding),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(output_padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         hasBias, groups, device, conversion::getDataType(inputDtype),
         convertedOutputDtype, conversion::getConv2dConfig(conv2dConfig),
