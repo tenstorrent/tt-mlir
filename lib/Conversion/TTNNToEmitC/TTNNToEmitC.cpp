@@ -3750,6 +3750,47 @@ public:
 };
 } // namespace
 
+// IndexerScoreOp conversion pattern
+//
+namespace {
+class IndexerScoreOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::IndexerScoreOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.indexer_score";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::experimental::indexer_score";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::IndexerScoreOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::IndexerScoreOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::IndexerScoreOp> emitter(
+        srcOp, adaptor, rewriter);
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getQuery()),
+        emitter.emit(srcOp.getKey()),
+        emitter.emit(srcOp.getWeights()),
+        emitter.emit(srcOp.getChunkStartIdx()),
+    };
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // RMSNormOp conversion pattern
 //
 namespace {
@@ -5757,6 +5798,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<ScaledDotProductAttentionOpConversionPattern>(typeConverter,
                                                              ctx);
   patterns.add<FlashMlaPrefillOpConversionPattern>(typeConverter, ctx);
+  patterns.add<IndexerScoreOpConversionPattern>(typeConverter, ctx);
   patterns.add<NLPCreateQKVHeadsDecodeOpConversionPattern>(typeConverter, ctx);
 }
 // ANCHOR_END: op_rewriter_pattern_set_emitc

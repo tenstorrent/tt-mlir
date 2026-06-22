@@ -2482,6 +2482,24 @@ FlashMlaPrefillOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// IndexerScoreOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+IndexerScoreOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                 const OpConfig &opConfig) {
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+llvm::Expected<size_t>
+IndexerScoreOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+//===----------------------------------------------------------------------===//
 // RotaryEmbeddingLlamaOp - TTNN Op Model Interface
 // ===----------------------------------------------------------------------===//
 

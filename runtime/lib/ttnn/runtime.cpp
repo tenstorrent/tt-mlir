@@ -1481,6 +1481,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_FlashMlaPrefillOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::IndexerScoreOp: {
+    tensorRefs = {opContext.type_as_IndexerScoreOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::NLPConcatHeadsDecodeOp: {
     tensorRefs = {opContext.type_as_NLPConcatHeadsDecodeOp()->out()};
     break;
@@ -2237,6 +2241,11 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     if (op->attention_mask()) {
       tensorRefs.push_back(op->attention_mask());
     }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::IndexerScoreOp: {
+    auto *op = opContext.type_as_IndexerScoreOp();
+    tensorRefs = {op->query(), op->key(), op->weights()};
     break;
   }
   case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
