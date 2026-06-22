@@ -19,6 +19,9 @@
 #include "mlir/Interfaces/ViewLikeInterface.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/MapVector.h"
+
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MSPLITUNIFIEDTHREAD
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
@@ -100,8 +103,16 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
       opsWithSynchronizableOps.insert(op->getParentOp());
     }
   });
-  assert(opsWithSynchronizableOps.size() == 1 &&
-         "synchronized scope must be unambiguous");
+  // More than one enclosing op means the synchronizable compute ops live in
+  // distinct loop nests (an ambiguous synchronization scope). A CB shared by
+  // consumers in different nests cannot be balanced with a single per-block
+  // wait/pop pair; reject it cleanly instead of asserting / miscompiling.
+  if (opsWithSynchronizableOps.size() != 1) {
+    return genericOp.emitOpError()
+           << "compute ops span multiple synchronization scopes (e.g. a CB "
+              "consumed across distinct loop nests); cross-nest fan-out is not "
+              "yet supported";
+  }
 
   DenseSet<Operation *> outermostOps;
   bool walkFailed = false;
@@ -240,8 +251,13 @@ static LogicalResult processSharedBufferPairs(
     Block *computeBlock, PatternRewriter &rewriter,
     llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
   for (auto [localBuffer, usageInfo] : cbUsageInfo) {
-    assert(usageInfo.producers.size() == 1 && usageInfo.consumers.size() == 1 &&
-           "Expected exactly one producer and one consumer for CB");
+    // This pass stage only rewrites RemoteLoad->RemoteStore alias pairs, which
+    // are always 1-producer/1-consumer. CBs with fan-out (multiple compute
+    // consumers, e.g. softmax reusing `scores`) or that are produced/consumed
+    // by compute ops are handled by insertCBOpsForCompute; skip them here.
+    if (usageInfo.producers.size() != 1 || usageInfo.consumers.size() != 1) {
+      continue;
+    }
     auto *producer = usageInfo.producers.front();
     auto *consumer = usageInfo.consumers.front();
 
@@ -281,89 +297,137 @@ static LogicalResult processSharedBufferPairs(
   return success();
 }
 
+// Return the block that all `ops` are direct children of, or nullptr if they
+// do not all share one parent block.
+//
+// CB synchronization must be emitted at the same loop scope as the data
+// movement thread, which pushes/pops the buffer once per blocking-loop
+// iteration. A CB shared by multiple compute consumers (e.g. softmax reuses
+// `scores` for both the max-reduction and the subtract) is balanced by exactly
+// one wait/pop pair wrapping the first..last consumer -- but only if those
+// consumers live in the same block, so the single wait/pop executes at the same
+// cadence as the producer's push. Consumers split across distinct loop nests
+// would need per-nest buffering / CB-depth reasoning and are not yet supported;
+// this returns nullptr for them so the caller can diagnose rather than emit a
+// deadlocking cadence mismatch.
+static Block *commonParentBlock(ArrayRef<Operation *> ops) {
+  Block *block = ops.front()->getBlock();
+  for (Operation *op : ArrayRef<Operation *>(ops).drop_front()) {
+    if (op->getBlock() != block) {
+      return nullptr;
+    }
+  }
+  return block;
+}
+
 static LogicalResult
 insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
                       llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
-  SmallVector<RemoteLoadOp> loads;
-
+  // Collect, per CB local buffer, the compute synchronizable ops that consume
+  // or produce it, in program order. A CB may legitimately have multiple
+  // consumers: softmax reuses `scores` for both the max-reduction and the
+  // subtract, and reuses the exp result for both the sum-reduction and the
+  // divide. The producer pushes the buffer once, so it must be balanced by
+  // exactly one wait (before the first consumer) and one pop (after the last
+  // consumer) -- not one wait/pop per consumer, which would starve later
+  // consumers of a depth-1 CB.
+  llvm::MapVector<Value, SmallVector<Operation *>> consumersByCB;
+  llvm::MapVector<Value, SmallVector<Operation *>> producersByCB;
   computeBlock->walk([&](Operation *op) {
-    if (dyn_cast<SynchronizableOpInterface>(op) &&
-        !op->hasTrait<D2MGenericRegionDatamovementOpTrait>()) {
-      auto synchronizedOp = mlir::cast<SynchronizableOpInterface>(op);
-      // get consumers and insert wait+pop
-      for (auto &operand : synchronizedOp->getOpOperands()) {
-        if (synchronizedOp.isConsumer(operand)) {
-          Location loc = synchronizedOp.getLoc();
-          Value localBuffer = operand.get();
-          unsigned cbOperandIdx =
-              synchronizedOp->getParentOfType<GenericOp>().getOperandIndex(
-                  localBuffer);
-
-          // get the associated producer for this operand
-          // Assumes only one producer for this local buffer
-          assert(cbUsageInfo[localBuffer].producers.size() == 1 &&
-                 cbUsageInfo[localBuffer].consumers.size() == 1 &&
-                 "Expected exactly one producer and one consumer for CB");
-          auto *associatedProducer = cbUsageInfo[localBuffer].producers.front();
-          rewriter.setInsertionPoint(synchronizedOp);
-          auto cb = d2m::getOrCreateCB(
-              rewriter, synchronizedOp->getParentOfType<GenericOp>(),
-              computeBlock, cbOperandIdx);
-
-          if (mlir::isa<RemoteLoadOp>(associatedProducer) &&
-              isAliasedLoad(mlir::cast<RemoteLoadOp>(associatedProducer))) {
-            rewriter.create<ReserveOp>(loc, cb);
-            rewriter.create<PushOp>(loc, cb);
-          }
-          WaitOp waitOp = rewriter.create<WaitOp>(loc, cb);
-          rewriter.setInsertionPointAfter(synchronizedOp);
-          rewriter.create<PopOp>(loc, cb);
-
-          // Replace uses of the local buffer in compute consumer
-          localBuffer.replaceUsesWithIf(
-              waitOp.getResult(),
-              [&](OpOperand &use) { return use.getOwner() == synchronizedOp; });
-        }
+    auto synchronizedOp = dyn_cast<SynchronizableOpInterface>(op);
+    if (!synchronizedOp ||
+        op->hasTrait<D2MGenericRegionDatamovementOpTrait>()) {
+      return WalkResult::advance();
+    }
+    for (auto &operand : op->getOpOperands()) {
+      if (synchronizedOp.isConsumer(operand)) {
+        consumersByCB[operand.get()].push_back(op);
       }
-
-      // Get producers and insert reserve+push.
-      for (auto &operand : synchronizedOp->getOpOperands()) {
-        if (synchronizedOp.isProducer(operand)) {
-          Location loc = synchronizedOp.getLoc();
-          Value localBuffer = operand.get();
-          unsigned cbOperandIdx =
-              synchronizedOp->getParentOfType<GenericOp>().getOperandIndex(
-                  localBuffer);
-
-          // Get the associated consumer for this operand.
-          // Assumes only one consumer for this local buffer
-          assert(cbUsageInfo[localBuffer].consumers.size() == 1 &&
-                 cbUsageInfo[localBuffer].producers.size() == 1 &&
-                 "Expected exactly one producer and one consumer for CB");
-          auto *associatedConsumer = cbUsageInfo[localBuffer].consumers.front();
-          rewriter.setInsertionPoint(synchronizedOp);
-          auto cb = d2m::getOrCreateCB(
-              rewriter, synchronizedOp->getParentOfType<GenericOp>(),
-              computeBlock, cbOperandIdx);
-          auto reserveOp = rewriter.create<ReserveOp>(loc, cb);
-          rewriter.setInsertionPointAfter(synchronizedOp);
-          rewriter.create<PushOp>(loc, cb);
-          if (mlir::isa<RemoteStoreOp>(associatedConsumer) &&
-              isAliasedStore(mlir::cast<RemoteStoreOp>(associatedConsumer))) {
-            rewriter.create<WaitOp>(loc, cb);
-            rewriter.create<PopOp>(loc, cb);
-          }
-
-          // Replace uses of the local buffer in compute consumer
-          localBuffer.replaceUsesWithIf(
-              reserveOp.getResult(),
-              [&](OpOperand &use) { return use.getOwner() == synchronizedOp; });
-        }
+      if (synchronizedOp.isProducer(operand)) {
+        producersByCB[operand.get()].push_back(op);
       }
     }
-
     return WalkResult::advance();
   });
+
+  auto generic = cast<GenericOp>(computeBlock->getParentOp());
+
+  // Consumers: wait once before the first consumer, pop once after the last.
+  // The walk above visits consumers in program order, so ops.front()/back() are
+  // the first/last uses; they must share a block (see commonParentBlock) so the
+  // single wait/pop matches the producer's per-block push cadence.
+  for (auto &[localBuffer, ops] : consumersByCB) {
+    if (!commonParentBlock(ops)) {
+      return generic.emitOpError()
+             << "CB has consumers across distinct loop nests; cross-nest "
+                "fan-out is not yet supported (would deadlock on a "
+                "wait/pop cadence mismatch)";
+    }
+    unsigned cbOperandIdx = generic.getOperandIndex(localBuffer);
+    Operation *first = ops.front();
+    Operation *last = ops.back();
+    Location loc = first->getLoc();
+
+    rewriter.setInsertionPoint(first);
+    auto cb = d2m::getOrCreateCB(rewriter, generic, computeBlock, cbOperandIdx);
+
+    // If produced by an aliased remote_load (no DMA), the compute side must
+    // reserve+push to mark the buffer available.
+    bool aliasedLoadProducer =
+        llvm::any_of(cbUsageInfo[localBuffer].producers, [](Operation *p) {
+          auto load = mlir::dyn_cast<RemoteLoadOp>(p);
+          return load && isAliasedLoad(load);
+        });
+    if (aliasedLoadProducer) {
+      rewriter.create<ReserveOp>(loc, cb);
+      rewriter.create<PushOp>(loc, cb);
+    }
+    WaitOp waitOp = rewriter.create<WaitOp>(loc, cb);
+    rewriter.setInsertionPointAfter(last);
+    rewriter.create<PopOp>(last->getLoc(), cb);
+
+    llvm::DenseSet<Operation *> consumerSet(ops.begin(), ops.end());
+    localBuffer.replaceUsesWithIf(waitOp.getResult(), [&](OpOperand &use) {
+      return consumerSet.contains(use.getOwner());
+    });
+  }
+
+  // Producers: reserve once before the first producer, push once after last.
+  for (auto &[localBuffer, ops] : producersByCB) {
+    if (!commonParentBlock(ops)) {
+      return generic.emitOpError()
+             << "CB has producers across distinct loop nests; cross-nest "
+                "fan-out is not yet supported (would deadlock on a "
+                "reserve/push cadence mismatch)";
+    }
+    unsigned cbOperandIdx = generic.getOperandIndex(localBuffer);
+    Operation *first = ops.front();
+    Operation *last = ops.back();
+    Location loc = first->getLoc();
+
+    rewriter.setInsertionPoint(first);
+    auto cb = d2m::getOrCreateCB(rewriter, generic, computeBlock, cbOperandIdx);
+    auto reserveOp = rewriter.create<ReserveOp>(loc, cb);
+    rewriter.setInsertionPointAfter(last);
+    rewriter.create<PushOp>(last->getLoc(), cb);
+
+    // If consumed by an aliased remote_store (no DMA), the compute side must
+    // wait+pop to drain the buffer.
+    bool aliasedStoreConsumer =
+        llvm::any_of(cbUsageInfo[localBuffer].consumers, [](Operation *c) {
+          auto store = mlir::dyn_cast<RemoteStoreOp>(c);
+          return store && isAliasedStore(store);
+        });
+    if (aliasedStoreConsumer) {
+      rewriter.create<WaitOp>(last->getLoc(), cb);
+      rewriter.create<PopOp>(last->getLoc(), cb);
+    }
+
+    llvm::DenseSet<Operation *> producerSet(ops.begin(), ops.end());
+    localBuffer.replaceUsesWithIf(reserveOp.getResult(), [&](OpOperand &use) {
+      return producerSet.contains(use.getOwner());
+    });
+  }
 
   return success();
 }
@@ -377,8 +441,11 @@ static LogicalResult eraseAliasedLoadStoreOps(
     PatternRewriter &rewriter,
     llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
   for (auto [localBuffer, usageInfo] : cbUsageInfo) {
-    assert(usageInfo.producers.size() == 1 && usageInfo.consumers.size() == 1 &&
-           "Expected exactly one producer and one consumer for CB");
+    // Only aliased RemoteLoad/RemoteStore pairs are erased here; those are
+    // always 1-producer/1-consumer. Skip fan-out / compute-handled CBs.
+    if (usageInfo.producers.size() != 1 || usageInfo.consumers.size() != 1) {
+      continue;
+    }
     auto *producer = usageInfo.producers.front();
     auto *consumer = usageInfo.consumers.front();
 
