@@ -55,13 +55,13 @@ struct SumL1MemoryTracker {
 
   uint64_t getOccupiedL1() const;
 
-  /// Total per-core bytes that `allocateAddress` could not place (no
-  /// contiguous free block). Accumulates on every no-fit; reset by `init`
-  /// and carried in snapshots so it reflects the current (replayed)
-  /// schedule. Nonzero means the simulated live set is over-subscribed and
-  /// any FRAG_RESOLVED / "output fits" check is reading a phantom-free list.
-  uint64_t getUnplacedBytes() const;
-  bool isOverSubscribed() const;
+  /// True when `allocateAddress` could not place some tensor in any
+  /// contiguous free block (a no-fit). Set on every no-fit, reset by `init`,
+  /// and carried in snapshots so it reflects the current (replayed) schedule.
+  /// While set, the free list is "phantom-free" — it still advertises the
+  /// unplaced tensor's slot as available — so any FRAG_RESOLVED / "output
+  /// fits" check is reading a live set that actually overflows.
+  bool isStillFragmented() const;
 
   void addTensor(Value result, uint64_t l1SizePerCore);
 
@@ -122,7 +122,7 @@ struct SumL1MemoryTracker {
     llvm::DenseMap<Value, std::pair<uint64_t, uint64_t>> tensorAddresses;
     llvm::DenseMap<uint64_t, AliasGroup> aliasGroups;
     uint64_t currentOccupied;
-    uint64_t unplacedBytes;
+    bool stillFragmented;
   };
 
   /// Take a snapshot of the current address simulation state.
@@ -158,8 +158,8 @@ struct SumL1MemoryTracker {
 
 private:
   uint64_t currentOccupied = 0;
-  // Per-core bytes that allocateAddress could not place (sum over no-fits).
-  uint64_t unplacedBytes = 0;
+  // Set when allocateAddress hit a no-fit (no contiguous free block).
+  bool stillFragmented = false;
   llvm::DenseMap<Value, uint64_t> tensorSizes;
 
   // --- Address simulation state ---
