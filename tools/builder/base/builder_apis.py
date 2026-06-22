@@ -28,6 +28,7 @@ from ttmlir.passes import (
     stablehlo_pipeline,
     stablehlo_to_ttir_pipeline,
     ttir_to_emitpy_pipeline,
+    ttir_to_emitc_pipeline,
     ttnn_to_flatbuffer_bin,
     ttmetal_to_flatbuffer_bin,
     ttnn_to_flatbuffer_file,
@@ -1308,11 +1309,10 @@ def compile_ttir_module_to_flatbuffer(
         to_file = ttmetal_to_flatbuffer_file
         target_extension = "ttm"
     elif target == "emitc":
-        ttir_to_ttnn_emitc_pipeline = create_custom_ttir_pipeline_fn(
-            "ttir-to-emitc-pipeline", print_ir=print_ir
-        )
         pipeline_fn = (
-            custom_pipeline if custom_pipeline else ttir_to_ttnn_emitc_pipeline
+            custom_pipeline
+            if custom_pipeline
+            else wrap_pipeline_with_print_ir(ttir_to_emitc_pipeline)
         )
         to_target = emitc_to_executable
         target_extension = "cpp"
