@@ -20306,3 +20306,209 @@ class TTIRBuilder(Builder):
                 ]
 
         return group_norm_module, group_norm_builder
+
+    ############### ttir.SamplingOp ###############
+
+    @tag(ttir.SamplingOp)
+    def sampling(
+        self,
+        input_values: Operand,
+        input_indices: Operand,
+        k: Operand,
+        p: Operand,
+        temp: Operand,
+        seed: Optional[int] = None,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.sampling)
+
+        seed_attr = None
+        if seed is not None:
+            seed_attr = IntegerAttr.get(IntegerType.get_unsigned(32), seed)
+
+        # Sampling returns global token indices; the result is int32 by default.
+        if output_type is None:
+            mlir_output_type = self._get_type_from_torch_dtype(torch.int32)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input_values0 = self._get_golden_tensor(input_values)
+        input_indices0 = self._get_golden_tensor(input_indices)
+        k0 = self._get_golden_tensor(k)
+        p0 = self._get_golden_tensor(p)
+        temp0 = self._get_golden_tensor(temp)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input_values0,
+            input_indices0,
+            k0,
+            p0,
+            temp0,
+            seed_attr,
+            mlir_output_type,
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            input_values,
+            input_indices,
+            k,
+            p,
+            temp,
+            seed=seed_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.SamplingOp)
+    def sampling_parser(
+        self,
+        old_op: ttir.SamplingOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(TTIRBuilder.sampling_parser)
+        input_values = global_dict[old_op.input_values]
+        input_indices = global_dict[old_op.input_indices]
+        k = global_dict[old_op.k]
+        p = global_dict[old_op.p]
+        temp = global_dict[old_op.temp]
+        seed_attr = old_op.seed
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            input_values,
+            input_indices,
+            k,
+            p,
+            temp,
+            seed=seed_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input_values0 = self._get_golden_tensor(input_values)
+        input_indices0 = self._get_golden_tensor(input_indices)
+        k0 = self._get_golden_tensor(k)
+        p0 = self._get_golden_tensor(p)
+        temp0 = self._get_golden_tensor(temp)
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input_values0,
+            input_indices0,
+            k0,
+            p0,
+            temp0,
+            seed_attr,
+            result.element_type,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.SamplingOp)
+    def sampling_split(
+        self,
+        old_op: ttir.SamplingOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.sampling_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            sampling_module = Module.create()
+            sampling_builder = TTIRBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+            op_input_types = [
+                old_op.input_values.type,
+                old_op.input_indices.type,
+                old_op.k.type,
+                old_op.p.type,
+                old_op.temp.type,
+            ]
+
+            with InsertionPoint(sampling_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="sampling_module")
+                def decorated_func(*inputs):
+                    input_values = inputs[0]
+                    input_indices = inputs[1]
+                    k = inputs[2]
+                    p = inputs[3]
+                    temp = inputs[4]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(
+                        result,
+                        input_values,
+                        input_indices,
+                        k,
+                        p,
+                        temp,
+                        seed=old_op.seed,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    input_values0 = self._get_golden_tensor(old_op.input_values)
+                    input_indices0 = self._get_golden_tensor(old_op.input_indices)
+                    k0 = self._get_golden_tensor(old_op.k)
+                    p0 = self._get_golden_tensor(old_op.p)
+                    temp0 = self._get_golden_tensor(old_op.temp)
+
+                    op_golden_function = get_golden_function(ttir_op)
+                    golden_output = op_golden_function(
+                        input_values0,
+                        input_indices0,
+                        k0,
+                        p0,
+                        temp0,
+                        old_op.seed,
+                        result.element_type,
+                    )
+                    sampling_builder._set_golden_tensor(new_op_result, golden_output)
+                    sampling_builder._set_golden_tensor(input_values, input_values0)
+                    sampling_builder._set_golden_tensor(input_indices, input_indices0)
+                    sampling_builder._set_golden_tensor(k, k0)
+                    sampling_builder._set_golden_tensor(p, p0)
+                    sampling_builder._set_golden_tensor(temp, temp0)
+                    sampling_builder._annotate_presharded_arg(input_values)
+                    sampling_builder._annotate_presharded_arg(input_indices)
+                    sampling_builder._annotate_presharded_arg(k)
+                    sampling_builder._annotate_presharded_arg(p)
+                    sampling_builder._annotate_presharded_arg(temp)
+                    ordered_inputs.extend(
+                        [input_values, input_indices, k, p, temp]
+                    )
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                sampling_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return sampling_module, sampling_builder

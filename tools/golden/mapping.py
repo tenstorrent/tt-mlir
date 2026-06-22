@@ -6012,6 +6012,26 @@ def ttnn_sampling_golden(
     )
 
 
+def ttir_sampling_golden(
+    input_values: GoldenMapTensor,
+    input_indices: GoldenMapTensor,
+    k: GoldenMapTensor,
+    p: GoldenMapTensor,
+    temp: GoldenMapTensor,
+    seed: Optional[IntegerAttr],
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    """CPU golden for ttir.sampling.
+
+    ttir.sampling lowers 1:1 to ttnn.sampling, so the reference is identical;
+    delegate to ttnn_sampling_golden. Stochastic on device (hardware RNG), so
+    callers should disable PCC comparison.
+    """
+    return ttnn_sampling_golden(
+        input_values, input_indices, k, p, temp, seed, output_type_mlir
+    )
+
+
 ################ StableHLO Op Golden Functions ###############
 
 
@@ -8962,6 +8982,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.PagedFlashMultiLatentAttentionDecodeOp: ttir_paged_flash_multi_latent_attention_decode_golden,
     ttir.PagedScaledDotProductAttentionDecodeOp: ttir_paged_sdpa_decode_golden,
     ttir.ChunkedScaledDotProductAttentionOp: ttir_chunked_scaled_dot_product_attention_golden,
+    ttir.SamplingOp: ttir_sampling_golden,
     # ----- D2M OPS -----
     # D2M Layout operations (identity functions)
     d2m.ToLayoutOp: (lambda x, **kwargs: x),
