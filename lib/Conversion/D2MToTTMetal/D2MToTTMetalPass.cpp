@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetal.h"
 
@@ -21,6 +22,7 @@
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -89,6 +91,11 @@ struct ConvertD2MToTTMetal
       return;
     }
 
+    const bool hasSpatialOps =
+        getOperation()
+            .walk([](d2m::SpatialOp) { return WalkResult::interrupt(); })
+            .wasInterrupted();
+
     ConversionTarget target(getContext());
     addD2MToTTMetalConversionTargetBase(target);
     target.addLegalOp<d2m::SpatialOp>();
@@ -97,12 +104,19 @@ struct ConvertD2MToTTMetal
     typeConverter.addConversion([](Type type) { return type; });
 
     RewritePatternSet patterns(&getContext());
+    SymbolTable symbolTable(getOperation());
+    const auto arch =
+        ttcore::getOpChipDescAttr(getOperation()).getArch().getValue();
     populateD2MToTTMetalPatterns(&getContext(), patterns, typeConverter,
-                                 mathFidelity);
+                                 symbolTable, arch, mathFidelity);
 
     if (failed(
             applyFullConversion(getOperation(), target, std::move(patterns)))) {
       signalPassFailure();
+      return;
+    }
+
+    if (!hasSpatialOps) {
       return;
     }
 
