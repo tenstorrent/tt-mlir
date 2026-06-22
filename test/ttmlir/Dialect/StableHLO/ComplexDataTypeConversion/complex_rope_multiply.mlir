@@ -1,12 +1,14 @@
-// RUN: ttmlir-opt --stablehlo-complex-data-type-conversion -o %t %s
+// RUN: ttmlir-opt --stablehlo-complex-math-expander --stablehlo-complex-data-type-conversion -o %t %s
 // RUN: FileCheck %s --input-file=%t
 // REQUIRES: stablehlo
 
 // The Lumina RoPE rotary embedding builds a complex value (view_as_complex),
 // upcasts it, multiplies by the complex freqs_cis, then extracts real/imag.
-// The complex-math-expander leaves complex.multiply/convert intact, so this
-// pass must decompose them onto the float-pair (...x2) representation:
+// The complex-math-expander decomposes complex.multiply into real FOIL
+// arithmetic:
 //   (xr + i*xi) * (yr + i*yi) = (xr*yr - xi*yi) + i*(xr*yi + xi*yr)
+// and the complex-data-type-conversion pass then lowers the resulting
+// complex/real/imag ops onto the float-pair (...x2) representation.
 // No complex type may survive after conversion.
 
 module @complex_rope_multiply {
