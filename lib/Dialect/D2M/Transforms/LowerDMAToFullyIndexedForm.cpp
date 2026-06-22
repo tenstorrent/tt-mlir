@@ -15,10 +15,68 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Transforms/WalkPatternRewriteDriver.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/Hashing.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MLOWERDMATOFULLYINDEXEDFORM
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
+
+struct CoalescingCacheKey {
+  AffineMap map;
+  SmallVector<int64_t, 8> shape;
+  unsigned numGridDims = 0;
+  size_t elemSizeBytes = 0;
+
+  bool operator==(const CoalescingCacheKey &other) const {
+    return map == other.map && shape == other.shape &&
+           numGridDims == other.numGridDims &&
+           elemSizeBytes == other.elemSizeBytes;
+  }
+};
+
+struct CoalescingCacheKeyInfo {
+  static CoalescingCacheKey getEmptyKey() {
+    return CoalescingCacheKey{AffineMap::getFromOpaquePointer(
+                                  DenseMapInfo<const void *>::getEmptyKey()),
+                              {},
+                              0,
+                              0};
+  }
+
+  static CoalescingCacheKey getTombstoneKey() {
+    return CoalescingCacheKey{
+        AffineMap::getFromOpaquePointer(
+            DenseMapInfo<const void *>::getTombstoneKey()),
+        {},
+        0,
+        0};
+  }
+
+  static unsigned getHashValue(const CoalescingCacheKey &key) {
+    return static_cast<unsigned>(llvm::hash_combine(
+        key.map.getAsOpaquePointer(), key.numGridDims, key.elemSizeBytes,
+        llvm::hash_combine_range(key.shape.begin(), key.shape.end())));
+  }
+
+  static bool isEqual(const CoalescingCacheKey &lhs,
+                      const CoalescingCacheKey &rhs) {
+    return lhs == rhs;
+  }
+};
+
+using CoalescingCache =
+    DenseMap<CoalescingCacheKey, size_t, CoalescingCacheKeyInfo>;
+
+class CoalescingFactorCache {
+public:
+  size_t get(AffineMap memoryMap, ArrayRef<int64_t> gridShape,
+             ArrayRef<int64_t> shardShape, size_t elemSizeBytes,
+             bool debugCoalescingInference);
+
+private:
+  CoalescingCache cache;
+};
 
 static size_t getElementSizeBytes(MemRefType memref) {
   mlir::Type elementType = memref.getElementType();
@@ -109,6 +167,27 @@ static size_t calculateCoalescingFactorWithFallback(
   }
 
   return coalescingFactor;
+}
+
+size_t CoalescingFactorCache::get(AffineMap memoryMap,
+                                  ArrayRef<int64_t> gridShape,
+                                  ArrayRef<int64_t> shardShape,
+                                  size_t elemSizeBytes,
+                                  bool debugCoalescingInference) {
+  CoalescingCacheKey key;
+  key.map = memoryMap;
+  key.shape.append(gridShape.begin(), gridShape.end());
+  key.shape.append(shardShape.begin(), shardShape.end());
+  key.numGridDims = gridShape.size();
+  key.elemSizeBytes = elemSizeBytes;
+
+  auto [it, inserted] = cache.try_emplace(std::move(key));
+  if (inserted) {
+    it->second = calculateCoalescingFactorWithFallback(
+        memoryMap, gridShape, shardShape, elemSizeBytes,
+        debugCoalescingInference);
+  }
+  return it->second;
 }
 
 // Core loop generation with coalescing guard.  Handles both the fully
@@ -206,12 +285,15 @@ private:
 class D2MLowerDMAReadToFullyIndexed : public OpRewritePattern<DMAReadOp> {
 public:
   D2MLowerDMAReadToFullyIndexed(MLIRContext *context,
-                                bool debugCoalescingInference)
+                                bool debugCoalescingInference,
+                                CoalescingFactorCache *coalescingCache)
       : OpRewritePattern<DMAReadOp>(context),
-        debugCoalescingInference(debugCoalescingInference) {}
+        debugCoalescingInference(debugCoalescingInference),
+        coalescingCache(coalescingCache) {}
 
 private:
   bool debugCoalescingInference;
+  CoalescingFactorCache *coalescingCache = nullptr;
 
 public:
   LogicalResult matchAndRewrite(DMAReadOp op,
@@ -243,9 +325,9 @@ public:
     AffineMap localMemoryMap = utils::getMemoryMap(device, localMemref, false);
 
     size_t elemSizeBytes = getElementSizeBytes(remoteMemrefType);
-    size_t coalescingFactor = calculateCoalescingFactorWithFallback(
-        remoteMemoryMap, gridShape, shardShape, elemSizeBytes,
-        debugCoalescingInference);
+    size_t coalescingFactor =
+        coalescingCache->get(remoteMemoryMap, gridShape, shardShape,
+                             elemSizeBytes, debugCoalescingInference);
 
     SmallVector<Value> gridIndices(op.getSrcIndices());
 
@@ -274,12 +356,15 @@ public:
 class D2MLowerDMAWriteToFullyIndexed : public OpRewritePattern<DMAWriteOp> {
 public:
   D2MLowerDMAWriteToFullyIndexed(MLIRContext *context,
-                                 bool debugCoalescingInference)
+                                 bool debugCoalescingInference,
+                                 CoalescingFactorCache *coalescingCache)
       : OpRewritePattern<DMAWriteOp>(context),
-        debugCoalescingInference(debugCoalescingInference) {}
+        debugCoalescingInference(debugCoalescingInference),
+        coalescingCache(coalescingCache) {}
 
 private:
   bool debugCoalescingInference;
+  CoalescingFactorCache *coalescingCache = nullptr;
 
 public:
   LogicalResult matchAndRewrite(DMAWriteOp op,
@@ -338,9 +423,9 @@ public:
     AffineMap localMemoryMap = utils::getMemoryMap(device, localMemref, false);
 
     size_t elemSizeBytes = getElementSizeBytes(remoteMemrefType);
-    size_t coalescingFactor = calculateCoalescingFactorWithFallback(
-        remoteMemoryMap, gridShape, shardShape, elemSizeBytes,
-        debugCoalescingInference);
+    size_t coalescingFactor =
+        coalescingCache->get(remoteMemoryMap, gridShape, shardShape,
+                             elemSizeBytes, debugCoalescingInference);
 
     SmallVector<Value> gridIndices(op.getDstIndices());
     SmallVector<Value> startDevice(op.getStartDevice());
@@ -502,11 +587,12 @@ public:
       D2MLowerDMAToFullyIndexedForm>::D2MLowerDMAToFullyIndexedFormBase;
 
   void runOnOperation() final {
+    CoalescingFactorCache coalescingCache;
     RewritePatternSet dmaPatterns(&getContext());
-    dmaPatterns.add<D2MLowerDMAReadToFullyIndexed>(&getContext(),
-                                                   debugCoalescingInference);
-    dmaPatterns.add<D2MLowerDMAWriteToFullyIndexed>(&getContext(),
-                                                    debugCoalescingInference);
+    dmaPatterns.add<D2MLowerDMAReadToFullyIndexed>(
+        &getContext(), debugCoalescingInference, &coalescingCache);
+    dmaPatterns.add<D2MLowerDMAWriteToFullyIndexed>(
+        &getContext(), debugCoalescingInference, &coalescingCache);
     dmaPatterns.add<D2MLowerLocalCopyToFullyIndexed>(&getContext(),
                                                      debugCoalescingInference);
     AffineApplyCreatedListener listener;
