@@ -57,7 +57,6 @@ public:
     headers.insert("<cstdint>");
     switch (threadType) {
     case ThreadType::Compute:
-      headers.insert("api/compute/compute_kernel_api.h");
       headers.insert("api/compute/common.h");
       break;
     case ThreadType::Noc:
@@ -191,6 +190,15 @@ public:
       if (value.starts_with("experimental::invoke_sfpi")) {
         emitLlk(experimental_invoke_sfpi_llks_generated,
                 experimental_invoke_sfpi_llks_generated_len);
+      }
+    });
+
+    region->walk([&](emitc::LiteralOp literalOp) {
+      llvm::StringRef value = literalOp.getValue();
+      for (const auto &[callee, reqs] : headerMap) {
+        if (value.starts_with(callee)) {
+          insertHeaders(reqs);
+        }
       }
     });
 

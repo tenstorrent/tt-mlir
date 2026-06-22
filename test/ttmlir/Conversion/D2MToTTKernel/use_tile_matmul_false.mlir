@@ -17,8 +17,8 @@ module {
     // CHECK-DAG: emitc.verbatim "Noc noc1(1);"
     // CHECK-DAG: noc1.async_write_multicast
     // CHECK-NOT: noc_async_write_barrier
-    // CHECK: mm_block_init
-    // CHECK: mm_block_init_short
+    // CHECK: compute_kernel_hw_startup
+    // CHECK: matmul_block_init
     // CHECK: matmul_block
     %r = "ttir.matmul"(%lhs, %rhs) : (!lhs, !rhs) -> (!matmul_result)
     return %r : !matmul_result
