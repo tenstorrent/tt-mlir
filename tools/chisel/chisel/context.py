@@ -16,7 +16,7 @@ from .exceptions import UnexpectedStateError
 from .op_configs import ChiselOpConfig, default_configs
 from .ops import IRModule, SSAName
 from .recorder import ChiselRecorder, _UNSET
-from .report import ChiselRecord, ChiselReport
+from .report import ChiselRecord, ChiselReport, NumericsPayload
 from .validators import ChiselChecksConfig
 
 logger = logging.getLogger("chisel")
@@ -169,6 +169,21 @@ class ChiselContext:
             raise UnexpectedStateError("pre_failed")
         program._pre_failed = value
 
+    @property
+    def op_numerics(self) -> Optional[List[NumericsPayload]]:
+        # Numerics payloads (pcc/atol/rtol/mode/status) for each shard checked in
+        # the current op's POST handler, in check order. Reset per op;
+        program = self._current_callback_program
+        if program is None:
+            return None
+        return program._op_numerics
+
+    def record_numerics(self, payload: NumericsPayload) -> None:
+        program = self._current_callback_program
+        if program is None or program._op_numerics is None:
+            return
+        program._op_numerics.append(payload)
+
     def begin_callback(
         self,
         rt_binary: Binary,
@@ -218,6 +233,11 @@ class ChiselContext:
         )
         if checks_config is not _UNSET:
             self.checks_config = checks_config
+            if checks_config.skip_op is not None and not checks_config.accumulation:
+                logger.warning(
+                    "chisel: skip_op is set but accumulation is disabled; skip mode "
+                    "is accumulation-only and will never fire. Set accumulation=True."
+                )
 
     def write_record(self, record: ChiselRecord) -> None:
         self.recorder.write(
@@ -300,6 +320,7 @@ class ProgramState:
         self._current_output_refs: Optional[List[TensorRef]] = None
         self._stashed_inputs: Optional[Dict[SSAName, GoldenMapTensor]] = None
         self._pre_failed: bool = False
+        self._op_numerics: Optional[List[NumericsPayload]] = None
         # Both pools persist across ops within a program; not reset per op.
         self._golden_tensor_pool: Dict[SSAName, GoldenMapTensor] = {}
         self._device_tensor_pool: Dict[SSAName, GoldenMapTensor] = {}
@@ -310,6 +331,7 @@ class ProgramState:
         self._current_output_refs = tt_runtime.get_op_output_refs(self._rt_op_context)
         self._stashed_inputs = {}
         self._pre_failed = False
+        self._op_numerics = []
 
     def end_op(self) -> None:
         self._current_op = None
@@ -317,3 +339,4 @@ class ProgramState:
         self._current_output_refs = None
         self._stashed_inputs = None
         self._pre_failed = False
+        self._op_numerics = None

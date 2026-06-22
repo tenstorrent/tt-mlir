@@ -29,6 +29,7 @@ class RecordStatus(str, Enum):
     CHISEL_BUG = "chisel_bug"
     GOLDEN_PROMOTED = "golden_promoted"
     GOLDEN_EVICTED = "golden_evicted"
+    SKIPPED_OP = "skipped_op"
 
 
 PASS_STATUS = frozenset(
@@ -38,6 +39,7 @@ PASS_STATUS = frozenset(
         RecordStatus.NO_GOLDEN,
         RecordStatus.GOLDEN_PROMOTED,
         RecordStatus.GOLDEN_EVICTED,
+        RecordStatus.SKIPPED_OP,
     }
 )
 
@@ -116,6 +118,13 @@ class GoldenEvictedPayload(_Payload):
     status: Literal[RecordStatus.GOLDEN_EVICTED] = RecordStatus.GOLDEN_EVICTED
 
 
+class SkippedOpPayload(_Payload):
+    """Emitted when an op's device output was substituted with the isolation
+    golden (skip mode). The op was "skipped" - simulated as numerically correct."""
+
+    status: Literal[RecordStatus.SKIPPED_OP] = RecordStatus.SKIPPED_OP
+
+
 class IrRuntimeMismatchPayload(_Payload):
     status: Literal[RecordStatus.IR_RUNTIME_MISMATCH] = RecordStatus.IR_RUNTIME_MISMATCH
     runtime_debug: str
@@ -138,6 +147,7 @@ Payload = Annotated[
         ChiselBugPayload,
         GoldenPromotedPayload,
         GoldenEvictedPayload,
+        SkippedOpPayload,
     ],
     Field(discriminator="status"),
 ]
