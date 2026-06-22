@@ -703,7 +703,7 @@ public:
   }
 
   static bool hasNonDefaultExpTileScale(IntegerAttr scaleAttr) {
-    constexpr uint32_t defaultScale = 0x3F80u; // 1.0 encoded for exp_tile().
+    constexpr uint32_t defaultScale = 0x3F800000u; // 1.0 encoded as fp32.
     return scaleAttr &&
            static_cast<uint32_t>(scaleAttr.getInt()) != defaultScale;
   }
@@ -982,11 +982,15 @@ public:
       }
       SmallVector<Attribute, 3> args;
       args.push_back(builder.getIndexAttr(0)); // idst (operand 0)
+      args.push_back(emitc::OpaqueAttr::get(op.getContext(), "VectorMode::RC"));
+      // The exp_tile runtime scale arg is uint16_t and must be the FP16b
+      // (bfloat16) encoding of the scale, i.e. the top 16 bits of the fp32 bit
+      // pattern. (exp_tile_init's scale template param is the full uint32 fp32
+      // bits, so that emission is handled separately.)
+      uint16_t scaleFp16b = static_cast<uint16_t>(
+          static_cast<uint32_t>(scaleAttr.getInt()) >> 16);
       args.push_back(
-          emitc::OpaqueAttr::get(op.getContext(), "(int)VectorMode::RC"));
-      args.push_back(emitc::OpaqueAttr::get(
-          op.getContext(),
-          std::to_string(static_cast<uint32_t>(scaleAttr.getInt()))));
+          emitc::OpaqueAttr::get(op.getContext(), std::to_string(scaleFp16b)));
       return ArrayAttr::get(op.getContext(), args);
     }
     return ArrayAttr();
