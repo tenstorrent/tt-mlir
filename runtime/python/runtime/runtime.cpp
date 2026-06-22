@@ -2,7 +2,16 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <iterator>
+#include <map>
+#include <optional>
 #include <sstream>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "tt/runtime/debug.h"
 #include "tt/runtime/perf.h"
