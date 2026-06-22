@@ -165,6 +165,9 @@ inline ::tt::runtime::Tensor createEmptyTensor(Device device, Layout layout,
       device, layout, desc.shape, desc.stride, desc.elementSize());
 }
 
+::tt::runtime::Tensor createEmptyTensorLike(Device device,
+                                            ::tt::runtime::Tensor reference);
+
 bool isTensorAllocated(::tt::runtime::Tensor tensor);
 tt::target::DataType getTensorDataType(::tt::runtime::Tensor tensor);
 std::vector<std::byte> getTensorDataBuffer(::tt::runtime::Tensor tensor);
@@ -220,6 +223,15 @@ std::unordered_map<tt::runtime::MemoryBufferType, tt::runtime::MemoryView>
 getMemoryView(Device device);
 
 void setFabricConfig(tt::runtime::FabricConfig config);
+
+std::pair<MeshSocketHandle, MeshSocketHandle>
+createSocketPair(Device senderMesh, Device receiverMesh,
+                 const std::vector<uint32_t> &senderCore,
+                 const std::vector<uint32_t> &receiverCore, uint32_t fifoSize);
+void socketSend(MeshSocketHandle senderSocket, Tensor input);
+void socketRecv(MeshSocketHandle receiverSocket, Tensor output);
+void closeSocket(MeshSocketHandle socket);
+void synchronizeDevice(Device meshDevice);
 
 void wait(Event event);
 

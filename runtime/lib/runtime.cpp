@@ -442,6 +442,23 @@ Tensor createEmptyTensor(Device device, Layout layout,
       });
 }
 
+Tensor createEmptyTensorLike(Device device, Tensor reference) {
+  using RetType = Tensor;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::createEmptyTensorLike(device, reference);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("createEmptyTensorLike",
+                                    DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("createEmptyTensorLike",
+                                    HostRuntime::Distributed);
+      });
+}
+
 Tensor createScalarTensor(Scalar scalar) {
   using RetType = Tensor;
   return DISPATCH_TO_CURRENT_RUNTIME(
@@ -1283,6 +1300,85 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
       [&]() -> RetType {
         return ::tt::runtime::distributed::submit(
             deviceHandle, executableHandle, programIndex, inputs);
+      });
+}
+
+std::pair<MeshSocketHandle, MeshSocketHandle>
+createSocketPair(Device senderMesh, Device receiverMesh,
+                 const std::vector<uint32_t> &senderCore,
+                 const std::vector<uint32_t> &receiverCore, uint32_t fifoSize) {
+  using RetType = std::pair<MeshSocketHandle, MeshSocketHandle>;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::createSocketPair(
+            senderMesh, receiverMesh, senderCore, receiverCore, fifoSize);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("createSocketPair", DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("createSocketPair",
+                                    HostRuntime::Distributed);
+      });
+}
+
+void socketSend(MeshSocketHandle senderSocket, Tensor input) {
+  using RetType = void;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::socketSend(senderSocket, input);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("socketSend", DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("socketSend", HostRuntime::Distributed);
+      });
+}
+
+void socketRecv(MeshSocketHandle receiverSocket, Tensor output) {
+  using RetType = void;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::socketRecv(receiverSocket, output);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("socketRecv", DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("socketRecv", HostRuntime::Distributed);
+      });
+}
+
+void closeSocket(MeshSocketHandle socket) {
+  using RetType = void;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType { return ::tt::runtime::ttnn::closeSocket(socket); },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("closeSocket", DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("closeSocket", HostRuntime::Distributed);
+      });
+}
+
+void synchronizeDevice(Device meshDevice) {
+  using RetType = void;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return ::tt::runtime::ttnn::synchronizeDevice(meshDevice);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("synchronizeDevice", DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("synchronizeDevice",
+                                    HostRuntime::Distributed);
       });
 }
 
