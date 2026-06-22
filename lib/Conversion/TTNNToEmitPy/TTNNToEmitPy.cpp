@@ -1604,7 +1604,6 @@ public:
         emitter.emit(srcOp.getDim()),
         emitter.emit(srcOp.getKeepDim()),
         emitter.emit(std::nullopt, "sub_core_grids"),
-        emitter.emit(srcOp.getUseMulticore(), "use_multicore"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
@@ -2020,6 +2019,8 @@ public:
         emitter.emit<
             std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
             srcOp.getPaddingAttr(), "padding"),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getOutputPaddingAttr(),
+                                              "output_padding"),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr(),
                                               "dilation"),
         emitter.emit(srcOp.getHasBias(), "has_bias"),

@@ -461,7 +461,7 @@ TEST_F(OpModelTest, ArgMax) {
 
   // Test case 1: no keepDim
   auto constraintsExp = OpModel<ArgMaxOp>::getOpConstraints(
-      tensorShape, layoutDRAMRowMajor, 1, false, false, layoutDRAMRowMajor);
+      tensorShape, layoutDRAMRowMajor, 1, false, layoutDRAMRowMajor);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   OpConstraints &opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -469,21 +469,21 @@ TEST_F(OpModelTest, ArgMax) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   auto runtimeExp = OpModel<ArgMaxOp>::getOpRuntime(
-      tensorShape, layoutDRAMRowMajor, 1, false, false, layoutDRAMRowMajor);
+      tensorShape, layoutDRAMRowMajor, 1, false, layoutDRAMRowMajor);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
   // Test case 2: with keepDim
   constraintsExp = OpModel<ArgMaxOp>::getOpConstraints(
-      tensorShape, layoutDRAMRowMajor, 1, true, false, layoutDRAMRowMajor);
+      tensorShape, layoutDRAMRowMajor, 1, true, layoutDRAMRowMajor);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
   EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
-  runtimeExp = OpModel<ArgMaxOp>::getOpRuntime(
-      tensorShape, layoutDRAMRowMajor, 1, true, false, layoutDRAMRowMajor);
+  runtimeExp = OpModel<ArgMaxOp>::getOpRuntime(tensorShape, layoutDRAMRowMajor,
+                                               1, true, layoutDRAMRowMajor);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 
@@ -493,7 +493,7 @@ TEST_F(OpModelTest, ArgMax) {
       tensorShape2, BufferType::DRAM, TensorMemoryLayout::Interleaved);
 
   constraintsExp = OpModel<ArgMaxOp>::getOpConstraints(
-      tensorShape2, layoutDRAMRowMajor2, 1, false, false, layoutDRAMRowMajor2);
+      tensorShape2, layoutDRAMRowMajor2, 1, false, layoutDRAMRowMajor2);
   EXPECT_TRUE(static_cast<bool>(constraintsExp));
   opCstr = constraintsExp.get();
   EXPECT_GT(opCstr.cbL1PeakSize, 0);
@@ -501,7 +501,7 @@ TEST_F(OpModelTest, ArgMax) {
   EXPECT_EQ(opCstr.outputL1BufferSize, 0);
 
   runtimeExp = OpModel<ArgMaxOp>::getOpRuntime(
-      tensorShape2, layoutDRAMRowMajor2, 1, false, false, layoutDRAMRowMajor2);
+      tensorShape2, layoutDRAMRowMajor2, 1, false, layoutDRAMRowMajor2);
   EXPECT_TRUE(static_cast<bool>(runtimeExp));
   EXPECT_TRUE(runtimeExp.get() > 0);
 }

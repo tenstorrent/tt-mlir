@@ -920,14 +920,13 @@ def TTNN_ArgMaxOp : TTNN_Op<"argmax"> {
       - `input`: The input tensor.
       - `dim`: Specifies the dimension along which the argmax is applied.
       - `keep_dim`: If set to true, the output tensor will have the same number of dimensions as the input tensor.
-      - `use_multicore`: Whether to use multiple cores or not.
 
     IR usage:
     // Input tensor of shape (128, 28, 28, 64)
     %input = ... : tensor<128x28x28x64xbf16>
 
     %empty = "ttnn.empty"(%0) <{....}> : -> tensor<128x28x28xi32>
-    %4 = "ttnn.argmax"(%input, %empty) <{dim = 3 : i32, use_multicore = false}> : (tensor<128x28x28xbf16>, tensor<128x28x28xi32) -> tensor<128x28x28xi32>
+    %4 = "ttnn.argmax"(%input, %empty) <{dim = 3 : i32}> : (tensor<128x28x28xbf16>, tensor<128x28x28xi32) -> tensor<128x28x28xi32>
 
     Example:
       input: [[1, 5, 3],
@@ -945,8 +944,7 @@ def TTNN_ArgMaxOp : TTNN_Op<"argmax"> {
 
   let arguments = (ins AnyRankedTensor:$input,
                        OptionalAttr<I32Attr>:$dim,
-                       DefaultValuedAttr<BoolAttr, "false">:$keep_dim,
-                       BoolAttr:$use_multicore);
+                       DefaultValuedAttr<BoolAttr, "false">:$keep_dim);
 
   let extraClassDeclaration = [{
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
@@ -2031,6 +2029,7 @@ def TTNN_PrepareConvTranspose2dWeightsOp : TTNN_Op<"prepare_conv_transpose2d_wei
                          DenseI32ArrayAttr:$kernel_size,
                          DenseI32ArrayAttr:$stride,
                          DenseI32ArrayAttr:$padding,
+                         DefaultValuedAttr<DenseI32ArrayAttr, "{0, 0}">:$output_padding,
                          DenseI32ArrayAttr:$dilation,
                          BoolAttr:$has_bias,
                          I32Attr:$groups,

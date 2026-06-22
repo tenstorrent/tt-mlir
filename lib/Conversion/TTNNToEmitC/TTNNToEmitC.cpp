@@ -1302,7 +1302,6 @@ public:
         emitter.emit(srcOp.getDim()),
         /*keepdim=*/emitter.emit(srcOp.getKeepDim()),
         /*sub_core_grids=*/emitter.emit(std::nullopt),
-        emitter.emit(srcOp.getUseMulticore()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
     };
 
@@ -1552,6 +1551,7 @@ public:
         emitter.emit<
             std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
             srcOp.getPaddingAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getOutputPaddingAttr()),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getHasBias()),
         emitter.emit(srcOp.getGroups()),

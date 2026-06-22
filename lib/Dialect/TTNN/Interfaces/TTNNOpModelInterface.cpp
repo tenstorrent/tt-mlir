@@ -2822,8 +2822,7 @@ ArgMaxOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ArgMaxOp>::getOpConstraints, *this, inputShape,
-      inputs[0], getDim(), getKeepDim(), getUseMulticore(),
-      opConfig.outputLayout);
+      inputs[0], getDim(), getKeepDim(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -2835,7 +2834,7 @@ ArgMaxOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<ArgMaxOp>::getOpRuntime, *this, inputShape, inputs[0],
-      getDim(), getKeepDim(), getUseMulticore(), opConfig.outputLayout);
+      getDim(), getKeepDim(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3708,8 +3707,9 @@ PrepareConvTranspose2dWeightsOp::getOpConstraints(
       *this, inputs[0], weightShape, getInputMemoryConfig(),
       getInputTensorLayout(), getWeightsFormat(), getInChannels(),
       getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
-      getKernelSize(), getStride(), getPadding(), getDilation(), getHasBias(),
-      getGroups(), getInputDtype(), getOutputDtype(), conv2dAttrs.conv2dConfig,
+      getKernelSize(), getStride(), getPadding(), getOutputPadding(),
+      getDilation(), getHasBias(), getGroups(), getInputDtype(),
+      getOutputDtype(), conv2dAttrs.conv2dConfig,
       conv2dAttrs.deviceComputeKernelConfig, getConv2dSliceConfig(),
       getMirrorKernel(), opConfig.outputLayout);
 }
