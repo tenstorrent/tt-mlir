@@ -21,7 +21,7 @@ class DeviceGetter:
 
     @classmethod
     def get_device(cls, mesh_shape, fabric_config=None):
-        if cls._instance == None:
+        if cls._instance is None:
             if (
                 not isinstance(mesh_shape, (list, tuple))
                 or len(mesh_shape) == 0
@@ -42,8 +42,7 @@ class DeviceGetter:
                 )
             cls._fabric_config = fabric_config
 
-            if fabric_config != ttnn.FabricConfig.DISABLED:
-                ttnn.set_fabric_config(fabric_config)
+            ttnn.set_fabric_config(fabric_config)
             cls._instance = ttnn.open_mesh_device(
                 mesh_shape=ttnn.MeshShape(mesh_shape),
                 l1_small_size=cls.l1_small_size,
