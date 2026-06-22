@@ -2131,6 +2131,13 @@ static void emitTopkGroupStartIfNeeded(ConversionPatternRewriter &rewriter,
       op.getReadFromOutput() ? cbOutVals : getCB(rewriter, op.getValues());
   Value cbSrcIdx =
       op.getReadFromOutput() ? cbOutIdx : getCB(rewriter, op.getIndices());
+
+  // rfo=true: T0 reads output CB tiles that T2 just wrote. Fence so T0 sees
+  // all pack_tile L1 writes before copy_tile executes.
+  if (op.getReadFromOutput()) {
+    rewriter.create<ttkernel::UnpackStallOnPackOp>(loc);
+  }
+
   emitTopkGroupStart(rewriter, loc, cbSrcVals, cbSrcIdx, cbOutVals, tileA,
                      tileB);
 }
