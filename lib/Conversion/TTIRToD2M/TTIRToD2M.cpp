@@ -4920,15 +4920,15 @@ private:
     d2m::TileBcastType tileBcastType;
     switch (reduceDim) {
     case d2m::ReduceDim::R:
-      tileBcastType = d2m::TileBcastType::Row;
-      break;
-    // ReduceDim::R reduced along columns -> result tile is a row-tile ->
-    // broadcast as Row
-    case d2m::ReduceDim::C:
+      // ReduceDim::R reduces the last dim (W) -> result is one value per row,
+      // i.e. a filled 0-column -> broadcast as Col (replicate across columns).
       tileBcastType = d2m::TileBcastType::Col;
       break;
-    // ReduceDim::C reduced along rows -> result tile is a col-tile -> broadcast
-    // as Col
+    case d2m::ReduceDim::C:
+      // ReduceDim::C reduces the second-to-last dim (H) -> result is one value
+      // per column, i.e. a filled 0-row -> broadcast as Row (replicate down).
+      tileBcastType = d2m::TileBcastType::Row;
+      break;
     case d2m::ReduceDim::RC:
       tileBcastType = d2m::TileBcastType::Scalar;
       break;
@@ -5072,19 +5072,21 @@ private:
           return {result};
         });
 
-    // setup for bcast
+    // setup for bcast.
+    // NOTE: this is intentionally the *opposite* mapping from the max bcast
+    // above. arange_block fills the tile with the linear index r*32+c (row 0 =
+    // [0..31], row 1 = [32..63], ...). For ReduceDim::R we want each row to
+    // hold the per-column index [0..31], so we replicate row 0 down -> Row.
     d2m::TileBcastType postArangeBcastType;
     switch (reduceDim) {
     case d2m::ReduceDim::R:
+      // Replicate row 0 ([0..31]) down so every row holds the column index.
       postArangeBcastType = d2m::TileBcastType::Row;
       break;
-    // ReduceDim::R reduced along columns -> result tile is a row-tile ->
-    // broadcast as Row
     case d2m::ReduceDim::C:
+      // Replicate column 0 across so every column holds the row index.
       postArangeBcastType = d2m::TileBcastType::Col;
       break;
-    // ReduceDim::C reduced along rows -> result tile is a col-tile -> broadcast
-    // as Col
     case d2m::ReduceDim::RC:
       postArangeBcastType = d2m::TileBcastType::Scalar;
       break;

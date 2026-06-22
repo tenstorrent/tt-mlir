@@ -37,7 +37,7 @@ def test_argmax_2d_rowwise_bf16(target: str, request, device):
     shape = (32, 32)
 
     compile_and_execute_ttir(
-        create_argmax_inputs(shape, dim_arg=[1], keep_dim=True, dtype=torch.bfloat16),
+        create_argmax_inputs(shape, dim_arg=[1], keep_dim=False, dtype=torch.bfloat16),
         target=target,
         **get_request_kwargs(request),
         device=device,
