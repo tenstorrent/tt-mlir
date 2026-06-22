@@ -1,5 +1,7 @@
 """Benchmark: small MNIST linear classifier forward pass."""
 
+import copy
+
 import pytest
 import torch
 
@@ -15,9 +17,10 @@ _CLASSES = 10
 _DTYPE = torch.bfloat16
 
 
-def _build_inputs(device: torch.device | str) -> tuple[torch.nn.Module, tuple[torch.Tensor]]:
-    model = MNISTLinear(_FEAT, _HIDDEN, _CLASSES).to(_DTYPE).eval().to(device)
-    x = torch.randn(_BATCH, _FEAT, dtype=_DTYPE).to(device)
+def _build() -> tuple[torch.nn.Module, tuple[torch.Tensor]]:
+    """Build the model and inputs once, on CPU."""
+    model = MNISTLinear(_FEAT, _HIDDEN, _CLASSES).to(_DTYPE).eval()
+    x = torch.randn(_BATCH, _FEAT, dtype=_DTYPE)
     return model, (x,)
 
 
@@ -33,27 +36,26 @@ def test_mnist_linear(
     record_bench,
     tt_device: torch.device,
 ) -> None:
-    model, inputs = _build_inputs(tt_device)
-    model = prepare_model(model, mode)
+    model, inputs = _build()
 
-    ref_model, ref_inputs = (None, None)
-    if accuracy:
-        ref_model, ref_inputs = _build_inputs("cpu")
+    # deepcopy because Module.to() is in-place; keep the CPU originals as the reference.
+    device_model = prepare_model(copy.deepcopy(model).to(tt_device), mode)
+    device_inputs = tuple(t.to(tt_device) for t in inputs)
 
     record_bench(
         run_benchmark(
-            model, inputs, warmup=warmup, iters=iters,
+            device_model, device_inputs, warmup=warmup, iters=iters,
             label="mnist_linear", mode=mode, device="tt",
-            reference_model=ref_model, reference_inputs=ref_inputs,
+            reference_model=model if accuracy else None,
+            reference_inputs=inputs if accuracy else None,
             profile_enabled=profile_enabled, profile_dir=profile_dir,
         )
     )
 
     if cpu_baseline:
-        cpu_model, cpu_inputs = _build_inputs("cpu")
         record_bench(
             run_benchmark(
-                cpu_model, cpu_inputs, warmup=warmup, iters=iters,
+                model, inputs, warmup=warmup, iters=iters,
                 label="mnist_linear", mode="eager", device="cpu",
             )
         )

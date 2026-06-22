@@ -1,10 +1,10 @@
 """
 Benchmarking helpers for the tt-kurbla torch backend.
 
-Every measurement uses host-side wall-clock via ``time.perf_counter_ns`` with
-explicit fences via ``_sync`` (recursive ``.cpu()`` on tensor leaves).
+Every measurement uses host-side wall-clock via `time.perf_counter_ns` with
+explicit fences via `_sync` (recursive `.cpu()` on tensor leaves).
 
-Results carry a ``measurements`` array of ``{name, value, unit, target}``
+Results carry a `measurements` array of `{name, value, unit, target}`
 entries rather than a fixed set of fields, so new metrics (TTFT, ITL
 percentiles, device kernel duration from tracy, etc.) can be added without
 breaking the JSON schema that downstream dashboards key on.
@@ -45,7 +45,7 @@ def _signpost(name: str) -> None:
 
 @contextmanager
 def _maybe_profile(trace_path: str | None) -> Iterator[None]:
-    """If ``trace_path`` is set, capture a torch.profiler trace into it."""
+    """If `trace_path` is set, capture a torch.profiler trace into it."""
     if not trace_path:
         yield
         return
@@ -71,10 +71,10 @@ def _resolve_trace_path(
 
 
 def prepare_model(model: nn.Module, mode: str) -> nn.Module:
-    """Return ``model`` wrapped according to the requested execution mode.
+    """Return `model` wrapped according to the requested execution mode.
 
-    ``"eager"`` returns the model unchanged. ``"compile"`` wraps it with
-    ``torch.compile(backend="tt")`` after freezing gradients.
+    `"eager"` returns the model unchanged. `"compile"` wraps it with
+    `torch.compile(backend="tt")` after freezing gradients.
     """
     if mode == "eager":
         return model
@@ -89,7 +89,7 @@ def prepare_model(model: nn.Module, mode: str) -> nn.Module:
 def _sync(obj: Any) -> None:
     """Force a host-side fence by materializing every tensor leaf on CPU.
 
-    Raises ``TypeError`` for unrecognized container types - otherwise a new
+    Raises `TypeError` for unrecognized container types - otherwise a new
     output shape (e.g. a custom Cache class with tensor attributes that
     isn't iterable) could silently skip the fence and quietly produce bogus
     timings.
@@ -174,7 +174,7 @@ def _percentile(sorted_values: Sequence[float], pct: float) -> float:
 
 
 def _infer_batch_size(inputs: Sequence[Any]) -> int:
-    """Pick the batch dim from the first tensor in ``inputs``.
+    """Pick the batch dim from the first tensor in `inputs`.
 
     Throughput is reported per-sample, so a benchmark with batch 64 and 1500
     iters/s shows up as 96000 samples/s.
@@ -188,7 +188,7 @@ def _infer_batch_size(inputs: Sequence[Any]) -> int:
 def _extract_primary_tensor(out: Any) -> torch.Tensor:
     """Pick the canonical comparison tensor out of a model forward result.
 
-    nn.Module → the tensor itself. HF causal-LM output → ``.logits``. Tuple/
+    nn.Module → the tensor itself. HF causal-LM output → `.logits`. Tuple/
     list → first element. Anything else is a benchmark-author bug.
     """
     if isinstance(out, torch.Tensor):
@@ -208,14 +208,10 @@ def _extract_primary_tensor(out: Any) -> torch.Tensor:
 def compute_pcc(a: torch.Tensor, b: torch.Tensor) -> float:
     """Pearson correlation coefficient between two tensors of matching shape.
 
-    Robust to bf16 precision noise: brings operands to CPU first, *then*
-    casts to f32 so the dtype conversion never has to go through a device
-    backend that may not support it. Returns 1.0 for the degenerate case
-    where one operand has zero variance and the two operands are
-    elementwise close.
+    Operands go to CPU then f64 (for more robust pcc calculation).
     """
-    a = a.detach().cpu().to(torch.float32).flatten()
-    b = b.detach().cpu().to(torch.float32).flatten()
+    a = a.detach().cpu().to(torch.float64).flatten()
+    b = b.detach().cpu().to(torch.float64).flatten()
     a = a - a.mean()
     b = b - b.mean()
     denom = float((a.norm() * b.norm()).item())
@@ -227,10 +223,13 @@ def compute_pcc(a: torch.Tensor, b: torch.Tensor) -> float:
 def _pcc_against_reference(
     device_out: Any, ref_model: nn.Module, ref_inputs: Sequence[Any]
 ) -> float:
-    """Run ``ref_model`` once and PCC its primary tensor against ``device_out``."""
+    """Run `ref_model` once and PCC its primary tensor against `device_out`."""
     with torch.no_grad():
         ref_out = ref_model(*ref_inputs)
     return compute_pcc(_extract_primary_tensor(device_out), _extract_primary_tensor(ref_out))
+
+
+_PCC_TARGET = 0.94  # default accuracy gate for the --accuracy reference check
 
 
 def run_benchmark(
@@ -244,36 +243,37 @@ def run_benchmark(
     device: str,
     reference_model: nn.Module | None = None,
     reference_inputs: Sequence[Any] | None = None,
+    pcc_target: float = _PCC_TARGET,
     profile_enabled: bool = False,
     profile_dir: str = "./profile_data",
 ) -> BenchmarkResult:
-    """Time ``iters`` forward passes dispatched back-to-back with a single
+    """Time `iters` forward passes dispatched back-to-back with a single
     final sync.
 
-    Issues every ``model(*inputs)`` call without waiting in between, so an
+    Issues every `model(*inputs)` call without waiting in between, so an
     async runtime can pipeline them. Then materializes every output on CPU
-    in a single fenced pass - that final ``_sync`` is where pipelined device
+    in a single fenced pass - that final `_sync` is where pipelined device
     work actually drains.
 
-    If ``reference_model`` is given, runs an extra (untimed) forward pass
-    before and after warmup, and emits ``pcc_before_warmup`` /
-    ``pcc_after_warmup`` measurements against the reference's output. The
-    reference is expected to live on CPU with the same weights and inputs.
+    If `reference_model` is given, runs an extra (untimed) forward pass
+    before and after warmup, emits `pcc_before_warmup` / `pcc_after_warmup`
+    measurements against the reference's output, and asserts both clear
+    `pcc_target` so a regression fails the run. The reference is expected to
+    live on CPU with the same weights and inputs.
 
-    When ``profile_enabled`` is true, the timed region is captured into a
-    Chrome trace at ``<profile_dir>/<label>_perf.json``.
+    When `profile_enabled` is true, the timed region is captured into a
+    Chrome trace at `<profile_dir>/<label>_perf.json`.
     """
     accuracy_measurements: list[Measurement] = []
     have_ref = reference_model is not None and reference_inputs is not None
     outputs: list[Any] = []
     trace_path = _resolve_trace_path(profile_enabled, profile_dir, label, "perf")
 
+    cold_out = warm_out = None
     with torch.no_grad():
         if have_ref:
             cold_out = model(*inputs)
             _sync(cold_out)
-            pcc_before = _pcc_against_reference(cold_out, reference_model, reference_inputs)
-            accuracy_measurements.append(Measurement("pcc_before_warmup", pcc_before, "pcc"))
 
         _signpost("warmup_start")
         for _ in range(warmup):
@@ -284,8 +284,6 @@ def run_benchmark(
         if have_ref:
             warm_out = model(*inputs)
             _sync(warm_out)
-            pcc_after = _pcc_against_reference(warm_out, reference_model, reference_inputs)
-            accuracy_measurements.append(Measurement("pcc_after_warmup", pcc_after, "pcc"))
 
         _signpost("dispatch_start")
         with _maybe_profile(trace_path):
@@ -297,6 +295,16 @@ def run_benchmark(
                 _sync(out)
             total_ns = time.perf_counter_ns() - t0
         _signpost("end")
+
+    # PCC + gate outside the timed region so the reference run and assert don't
+    # perturb the measurement.
+    if have_ref:
+        pcc_before = _pcc_against_reference(cold_out, reference_model, reference_inputs)
+        pcc_after = _pcc_against_reference(warm_out, reference_model, reference_inputs)
+        accuracy_measurements.append(Measurement("pcc_before_warmup", pcc_before, "pcc", target=pcc_target))
+        accuracy_measurements.append(Measurement("pcc_after_warmup", pcc_after, "pcc", target=pcc_target))
+        assert pcc_before >= pcc_target, f"{label}: pcc_before_warmup {pcc_before:.4f} < {pcc_target}"
+        assert pcc_after >= pcc_target, f"{label}: pcc_after_warmup {pcc_after:.4f} < {pcc_target}"
 
     total_ms = total_ns / 1e6
     iter_mean_ms = total_ms / iters if iters > 0 else 0.0
@@ -334,15 +342,15 @@ def run_llm_benchmark(
 ) -> BenchmarkResult:
     """Autoregressive generate loop over one StaticCache; step 0 = prefill.
 
-    ``model`` is an ``LLMSamplingWrapper`` returning ``(next_token,
-    next_cache_position)``, so between steps only the next token crosses to
+    `model` is an `LLMSamplingWrapper` returning `(next_token,
+    next_cache_position)`, so between steps only the next token crosses to
     host - that transfer is the per-step fence. Step 0 prefills the full
-    prompt into the pre-allocated cache (-> ``ttft_ms``); the remaining
-    ``total_steps - 1`` decode steps yield the inter-token-latency
-    distribution and ``tokens_per_sec`` (per user, so batch-size independent).
+    prompt into the pre-allocated cache (-> `ttft_ms`); the remaining
+    `total_steps - 1` decode steps yield the inter-token-latency
+    distribution and `tokens_per_sec` (per user, so batch-size independent).
 
-    Warmup runs the same loop for ``warmup_steps``, then the cache is
-    ``reset()`` outside the timed region so timing starts from a clean cache.
+    Warmup runs the same loop for `warmup_steps`, then the cache is
+    `reset()` outside the timed region so timing starts from a clean cache.
     """
 
     def _generate(steps: int) -> list[int]:
