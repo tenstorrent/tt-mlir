@@ -48,35 +48,66 @@ def _get_live_tensor(
     return tensor
 
 
+# Inverse of golden.mapping.mlir_datatype_to_torch_dtype, narrowed to the torch
+# dtypes goldens produce. Used to construct runtime host tensors for write-back.
+# TODO(ndrakulic): merge this with same builder dict
+_TORCH_TO_RUNTIME_DTYPE = {
+    torch.float32: tt_runtime.DataType.Float32,
+    torch.float16: tt_runtime.DataType.Float16,
+    torch.bfloat16: tt_runtime.DataType.BFloat16,
+    torch.float64: tt_runtime.DataType.Float64,
+    torch.int8: tt_runtime.DataType.Int8,
+    torch.int16: tt_runtime.DataType.Int16,
+    torch.int32: tt_runtime.DataType.Int32,
+    torch.int64: tt_runtime.DataType.Int64,
+    torch.uint8: tt_runtime.DataType.UInt8,
+    torch.uint16: tt_runtime.DataType.UInt16,
+    torch.uint32: tt_runtime.DataType.UInt32,
+    torch.uint64: tt_runtime.DataType.UInt64,
+    torch.bool: tt_runtime.DataType.Bool,
+}
+
+
+def torch_dtype_to_runtime_dtype(dtype: torch.dtype):
+    try:
+        return _TORCH_TO_RUNTIME_DTYPE[dtype]
+    except KeyError:
+        raise ValueError(f"no runtime DataType for torch dtype {dtype}")
+
+
+def tensor_to_golden(
+    tensor: Tensor, mesh_shape: Tuple[int, ...]
+) -> GoldenMapTensor:
+    """Move `tensor` to host (untilized, row-major) and wrap its shards as a
+    GoldenMapTensor, asserting the shard count matches `mesh_shape`.
+
+    `tensor` may live on device or already on host: to_host short-circuits the
+    host case (no device transfer), so this also wraps CPU-op outputs.
+    """
+    shards = tt_runtime.to_host(tensor, untilize=True)
+    if shards is None:
+        raise RuntimeError("to_host returned no shards for the requested tensor")
+
+    # Fail loudly if a submesh / unexpected shard count appears.
+    expected_shards = math.prod(mesh_shape) if mesh_shape else -1
+    if len(shards) != expected_shards:
+        raise RuntimeError(
+            f"to_host shard count ({len(shards)}) does not match mesh_shape "
+            f"{mesh_shape} (expected {expected_shards})"
+        )
+
+    shard_map = {i: get_torch_tensor(t) for i, t in enumerate(shards)}
+    return GoldenMapTensor(shard_map, mesh_shape)
+
+
 def retrieve_tensor(
     rt_program_context: CallbackContext,
     rt_tensor_ref: TensorRef,
     mesh_shape: Tuple[int, ...],
 ) -> GoldenMapTensor:
-    """Pull the pool entry for `rt_tensor_ref` and wrap it as a GoldenMapTensor.
-
-    The runtime returns one host tensor per device shard (single entry for single-device tensors).
-    Shards are keyed 0..N-1 and `mesh_shape` reflects the binary's compiled mesh so downstream
-    shape/dtype/PCC checks operate over the right grid.
-    """
+    """Pull the pool entry for `rt_tensor_ref` and wrap it as a GoldenMapTensor."""
     tensor = _get_live_tensor(rt_program_context, rt_tensor_ref)
-
-    shards = tt_runtime.to_host(tensor, untilize=True)
-    if shards is None:
-        raise RuntimeError(
-            "retrieve_tensor_from_pool returned no shards for the requested tensor"
-        )
-
-    # Making sure we fail if submesh program appear.
-    expected_shards = math.prod(mesh_shape) if mesh_shape else -1
-    if len(shards) != expected_shards:
-        raise RuntimeError(
-            f"retrieve_tensor_from_pool shard count ({len(shards)}) does not "
-            f"match mesh_shape {mesh_shape} (expected {expected_shards})"
-        )
-
-    shard_map = {i: get_torch_tensor(t) for i, t in enumerate(shards)}
-    return GoldenMapTensor(shard_map, mesh_shape)
+    return tensor_to_golden(tensor, mesh_shape)
 
 
 def cached_retrieve_tensor(
@@ -177,6 +208,31 @@ def promote_golden(
             ssa=ssa,
             payload=GoldenPromotedPayload(source=source),
         )
+    )
+
+
+def golden_to_runtime_tensor(golden: GoldenMapTensor) -> Tensor:
+    """Build a host runtime.Tensor from a GoldenMapTensor"""
+    shard_ids = sorted(golden.shard_map)
+    shards = [golden.shard_map[i].contiguous() for i in shard_ids]
+    first = shards[0]
+    shape = list(first.shape)
+    stride = list(first.stride())
+    itemsize = first.element_size()
+    data_type = torch_dtype_to_runtime_dtype(first.dtype)
+
+    if len(shards) == 1:
+        return tt_runtime.create_owned_host_tensor(
+            shards[0].data_ptr(), shape, stride, itemsize, data_type
+        )
+    return tt_runtime.create_multi_device_host_tensor(
+        [s.data_ptr() for s in shards],
+        shape,
+        stride,
+        itemsize,
+        data_type,
+        {},  # strategy: unused for explicit per-shard data
+        list(golden.mesh_shape),
     )
 
 

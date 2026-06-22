@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import torch
+from _ttmlir_runtime.runtime import TensorRef
+from ttmlir.ir import Value
 
 from golden import GoldenMapTensor
 from golden.mapping import mlir_datatype_to_torch_dtype, mlir_type_to_torch_dtype
@@ -19,6 +21,7 @@ from .report import (
     RecordStatus,
     SkippedNumericsPayload,
 )
+from .utils import cached_retrieve_tensor
 
 logger = logging.getLogger("chisel")
 
@@ -113,6 +116,20 @@ def check_shape_dtype(op, check: str, expected, actual) -> None:
         raise ShapeMismatch(op, check, exp_shape, act_shape)
     if exp_dtype != act_dtype:
         raise DtypeMismatch(op, check, exp_dtype, act_dtype)
+
+
+def validate_and_retrieve_tensor(
+    ctx, mlir_value: Value, rt_tensor_ref: TensorRef
+) -> GoldenMapTensor:
+    """Shape/dtype-check `rt_tensor_ref` against the IR, pull a host copy
+    (cached by SSA), and re-check it. Shared by the default callbacks and the
+    per-op handlers (op_handlers.py)."""
+    op = ctx.op
+    check_shape_dtype(op, "mlir_vs_tensor_ref", mlir_value, rt_tensor_ref)
+    ssa = mlir_value.get_name(ctx.asm_state)
+    tensor = cached_retrieve_tensor(ctx, ssa, rt_tensor_ref, ctx.mesh_shape)
+    check_shape_dtype(op, "mlir_vs_runtime_tensor", mlir_value, tensor)
+    return tensor
 
 
 def check_numerics(

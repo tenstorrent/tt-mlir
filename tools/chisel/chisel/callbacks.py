@@ -4,9 +4,9 @@
 """Per-op chisel callbacks driven by the ttmlir runtime debug hooks.
 
 Validators raise ChiselFailure on the first failed shape/dtype/PCC check.
-chisel_safe wraps the per-op handler and turns the failure into a structured
-record - any subsequent checks on the same op are skipped. Other exceptions
-are recorded as chisel_bug.
+chisel_safe wraps the per-op handler and turns the failure into a
+structured record - any subsequent checks on the same op are skipped. Other
+exceptions are recorded as chisel_bug.
 """
 import logging
 from contextlib import contextmanager
@@ -18,34 +18,25 @@ from _ttmlir_runtime.binary import Binary
 from _ttmlir_runtime.runtime import CallbackContext, OpContext, TensorRef
 from ttmlir.ir import Value
 
-from golden import GoldenMapTensor
-
 from .context import ChiselContext, get_instance
 from .exceptions import IrRuntimeMismatch
 from .executor import execute_golden_with_ssa_inputs
 from .op_configs import ChiselOpConfig
-from .ops import (
-    SSAName,
-    get_inplace_vals,
-    get_op_inputs,
-    get_op_outputs,
-)
+from .ops import get_inplace_vals, get_op_inputs, get_op_outputs
 from .report import (
     ChiselRecord,
     GoldenEvictedPayload,
     NoGoldenPayload,
     NumericsMode,
-    SkippedNumericsPayload,
 )
 from .safety import chisel_safe
 from .utils import (
-    promote_golden,
-    publish_to_session_pool,
-    cached_retrieve_tensor,
     get_op_asm,
     invalidate_device_cache,
+    promote_golden,
+    publish_to_session_pool,
 )
-from .validators import check_numerics, check_shape_dtype, emit_pcc
+from .validators import emit_pcc, validate_and_retrieve_tensor
 
 logger = logging.getLogger("chisel")
 
@@ -85,17 +76,6 @@ def _assert_op_matches_runtime(ctx: ChiselContext) -> None:
     raise IrRuntimeMismatch(op, "ir_vs_runtime_op", rt_debug)
 
 
-def _validate_and_retrieve_tensor(
-    ctx: ChiselContext, mlir_value: Value, rt_tensor_ref: TensorRef
-) -> GoldenMapTensor:
-    op = ctx.op
-    check_shape_dtype(op, "mlir_vs_tensor_ref", mlir_value, rt_tensor_ref)
-    ssa = mlir_value.get_name(ctx.asm_state)
-    tensor = cached_retrieve_tensor(ctx, ssa, rt_tensor_ref, ctx.mesh_shape)
-    check_shape_dtype(op, "mlir_vs_runtime_tensor", mlir_value, tensor)
-    return tensor
-
-
 @chisel_safe
 def _default_pre_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
     """Stash host copies of device inputs and seed function args into the pool."""
@@ -117,7 +97,7 @@ def _default_pre_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
 
     mlir_op_inputs = get_op_inputs(op)
     for mlir_input, rt_tensor_ref in zip(mlir_op_inputs, ctx.input_refs, strict=True):
-        tensor = _validate_and_retrieve_tensor(ctx, mlir_input, rt_tensor_ref)
+        tensor = validate_and_retrieve_tensor(ctx, mlir_input, rt_tensor_ref)
         ssa = mlir_input.get_name(asm_state)
         ctx.stashed_inputs[ssa] = tensor
         # Seed only SSAs not yet produced by a prior op's golden (i.e. function args).
@@ -201,7 +181,7 @@ def _default_post_op(ctx: ChiselContext, config: ChiselOpConfig) -> None:
     for ssa in entry_ssas:
         invalidate_device_cache(ctx, ssa)
     device_tensors = [
-        _validate_and_retrieve_tensor(ctx, mlir_value, tensor_ref)
+        validate_and_retrieve_tensor(ctx, mlir_value, tensor_ref)
         for mlir_value, tensor_ref in entries
     ]
 

@@ -9,6 +9,8 @@ from ttmlir.dialects import func, ttcore, ttnn
 from ttmlir.ir import OpView
 
 from .op_handlers import (
+    _cpu_hoist_post_op,
+    _cpu_hoist_pre_op,
     _deallocate_pre_op,
     _noop_post_op,
     _subprogram_post_op,
@@ -43,6 +45,13 @@ def default_configs() -> Dict[Type[OpView], ChiselOpConfig]:
         ttnn.EmptyOp: ChiselOpConfig(skip_pcc=True),
         # ttnn.generic: IR output count = 0 but FB output count = 1.
         ttnn.GenericOp: ChiselOpConfig(no_golden=True),
+        # CPU-hoisted func.CallOps re-run the dylib via invoke_cpu_op for the
+        # accumulated golden; plain func.CallOps fall back to no_golden inside
+        # the handler.
+        func.CallOp: ChiselOpConfig(
+            pre_op=_cpu_hoist_pre_op,
+            post_op=_cpu_hoist_post_op,
+        ),
         # Non-executable ops (device handles, I/O, control flow): no golden to run.
         ttnn.GetDeviceOp: ChiselOpConfig(no_golden=True),
         ttnn.LoadTensorOp: ChiselOpConfig(no_golden=True),
@@ -51,7 +60,6 @@ def default_configs() -> Dict[Type[OpView], ChiselOpConfig]:
             pre_op=_deallocate_pre_op,
             post_op=_noop_post_op,
         ),
-        func.CallOp: ChiselOpConfig(no_golden=True),
         # Sub-program ops: chain the parent's golden through the callee via
         # the session pool keyed by globalId. Pre-op publishes parent inputs by
         # globalId; post-op reads sub-program outputs by globalId.

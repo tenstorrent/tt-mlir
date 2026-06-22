@@ -32,6 +32,17 @@ SSAName = NewType("SSAName", str)
 RoleName = NewType("RoleName", str)
 
 
+# Mirror of ttmlir::utils::g_cpuHoistFuncCallAttrName (include/ttmlir/Utils.h).
+_CPU_HOIST_CALL_ATTR_NAME = "ttir.cpu_hoist_call"
+
+
+def is_cpu_hoist_call(op) -> bool:
+    """True if `op` is a func.CallOp tagged for CPU hoisting (lowered to CpuOp)."""
+    if not isinstance(op, func.CallOp):
+        return False
+    return any(a.name == _CPU_HOIST_CALL_ATTR_NAME for a in op.operation.attributes)
+
+
 def is_tensor_value(val: Value) -> bool:
     """True if `val` is a tensor-like MLIR Value (has shape and element_type)."""
     return hasattr(val.type, "shape") and hasattr(val.type, "element_type")
