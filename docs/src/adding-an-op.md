@@ -360,8 +360,10 @@ Note: If the above `ttrt` command yields a segfault, a clean build of your works
 
 ## 7. Add runtime support for the Op
 
-Next, we want to add runtime support for the Op by parsing the flatbuffer and
-invoking the TTNN API.
+Next, we want to add runtime support for the Op. The runtime doesn't call the TTNN API
+directly anymore. Instead it calls the op's OpInvoke function `ttnn_op_invoke::call<Op>(...)` 
+with `CallType::EXECUTE`, so make sure the op already has an entry in the OpInvoke library (see
+[The TTNN OpInvoke pattern](./ttnn-op-invoke.md)) before doing this step.
 
 #### `runtime/lib/ttnn/operations/matmul/matmul.cpp`
 ```cpp
@@ -375,6 +377,11 @@ A couple things to note from above:
 - `tensorPool.at(op->in0()->global_id())`: `global_id` is a unique identifier
   for the tensor that was generated and managed by the `FlatbufferObjectCache`.
   This is how it's intended to be used by the runtime.
+- The flow is always the same: get the input tensors from the pool with
+  `tensorPool.getTTNNTensorAndValidate(...)`, unpack the flatbuffer op into its NativeTable
+   struct with `op->UnPackTo(...)`, call `ttnn_op_invoke::call<Op>(...)` with
+  `CallType::EXECUTE`, pull the output `::ttnn::Tensor` out of the result variant, and put 
+  it back in the pool with `tensorPool.insertTTNNTensorAndValidate(...)`.
 - Some operations may belong to a larger set of operations. For example, any eltwise unary operations can
   be added in `runtime/lib/ttnn/operations/eltwise/unary.cpp` directly without needing to create a new file.
 

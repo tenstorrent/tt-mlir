@@ -45,6 +45,7 @@
   - [Coding Guidelines](./coding-guidelines.md)
   - [TTNN Dialect Guidelines](./ttnn-dialect-guidelines.md)
 - [Adding an op](./adding-an-op.md)
+  - [TTNN OpInvoke pattern](./ttnn-op-invoke.md)
   - [Adding constraints/runtime APIs](./ttnn-op-constraints.md)
 - [Decomposing an op in TTIR](./decomposing-an-op-in-ttir.md)
 - [Docs & Doxygen](./docs.md)

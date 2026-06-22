@@ -30,15 +30,33 @@ TTNNOpModelInterface.cpp (Operation-specific implementations)
     ↓
 TTNNOpModel.h/.cpp (Core model implementations and helpers)
     ↓
-TTNNOpInvokeLib (Shared call<Op> function: execute or query)
-    ↓
 Metal Backend (Runtime execution and constraint validation)
 ```
 
-Important note: the constraint/runtime queries and the regular op execution path now share
-the same code. Both call the op's OpInvoke function, `ttnn_op_invoke::call<Op>(...)`, just
-with a different `CallType`. See [The TTNN OpInvoke pattern](./ttnn-op-invoke.md) for how 
-that function is written.
+Important note: `getOpConstraints` and `getOpRuntime` API calls should be identical to regular op invocation path through runtime.
+The only difference is that one call is generated from the IR while the other is from serialised FB. For example, you can compare:
+
+The runtime code `runtime/lib/ttnn/operations/conv/conv2d.cpp`:
+```cpp
+void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
+  // ...
+}
+```
+
+With the constraint API implementation code `lib/OpModel/TTNN/TTNNOpModel.cpp`:
+
+```cpp
+llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(/* args */){
+  // ...
+}
+// and:
+llvm::Expected<size_t> OpModel<Conv2dOp>::getOpRuntime(/* args */){
+  // ...
+}
+
+```
+And observe the similarities. This is very important to maintain throughout the lifetime of the project to guarantee
+consistency and functional correctness.
 
 ## Implementation Steps
 
@@ -141,32 +159,26 @@ OpModel<YourOp>::getOpConstraints(
   ASSIGN_OR_RETURN(::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  // 2. Build the op's native struct from the IR.
-  // The OpInvoke function takes the op as NativeTable type. 
-  // We build that from the MLIR layouts
-  // and attributes with a small helper, buildYourOpTFromMLIR(...).
-  ::tt::target::ttnn::YourOpT yourOpNative =
-      buildYourOpTFromMLIR(/* attrs */);
-
-  // 3. Create the query closure.
-  // Instead of calling the tt-metal op here, we call the op's OpInvoke
-  // function with CallType::QUERY_OP_CONSTRAINTS. That single function
-  // knows how to build the op's arguments and call the tt-metal op, and
-  // it's the same one the runtime uses to execute the op. We just pull
-  // the ConstraintQueryResponse out of the result variant.
+  // 2. Create query closure
+  // Here the ultimate goal is to enable the optimizer to call the
+  // invoke method of the op in tt-metal. This is achieved through
+  // creating a lambda that calls `query_op_constraints` which
+  // receives 3 arguments:
+  //   1. An op (eg. ::ttnn::yourOp). This is the op's backend
+  //      found under tt-metal/src/tt-metal/ttnn/. The op usually
+  //      has an 'invoke' method.
+  //   2. The device,
+  //   3. A variadic number of inputs that are converted to match
+  //      the metal's definitions. The order and the types of these
+  //      inputs are expected to match the invoke function of the
+  //      op in metal.
   auto yourOpQuery = [=]() {
-    ttnn_op_invoke::YourOpResult result = ttnn_op_invoke::callYourOp(
-        ttnn_op_invoke::CallType::QUERY_OP_CONSTRAINTS, yourOpNative, inputSpec,
-        device);
-
-    assert(std::holds_alternative<::ttnn::graph::ConstraintQueryResponse>(
-               result) &&
-           "Expected ConstraintQueryResponse from YourOp query");
-
-    return std::get<::ttnn::graph::ConstraintQueryResponse>(result);
+    return QUERY_OP_CONSTRAINTS(
+        ::ttnn::yourOp, device, inputSpec,
+        /* other converted parameters */);
   };
 
-  // 4. Call getOpConstraints and pass the callable.
+  // 3. Call getOpConstraints and pass the callable.
   return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
                                      yourOpQuery);
 #else
@@ -186,20 +198,10 @@ OpModel<YourOp>::getOpRuntime(
   ASSIGN_OR_RETURN(::ttnn::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  ::tt::target::ttnn::YourOpT yourOpNative =
-      buildYourOpTFromMLIR(/* attrs */);
-
-  // Same as above, but with CallType::QUERY_OP_RUNTIME, and we pull the
-  // RuntimeQueryResponse out of the result variant.
   auto yourOpQuery = [=]() {
-    ttnn_op_invoke::YourOpResult result = ttnn_op_invoke::callYourOp(
-        ttnn_op_invoke::CallType::QUERY_OP_RUNTIME, yourOpNative, inputSpec,
-        device);
-
-    assert(std::holds_alternative<::ttnn::graph::RuntimeQueryResponse>(result) &&
-           "Expected RuntimeQueryResponse from YourOp query");
-
-    return std::get<::ttnn::graph::RuntimeQueryResponse>(result);
+    return QUERY_OP_RUNTIME(
+        ::ttnn::yourOp, device, inputSpec,
+        /* other converted parameters */);
   };
 
   return operation::getOpRuntime(yourOpQuery);
@@ -208,13 +210,6 @@ OpModel<YourOp>::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 ```
-
-The `buildYourOpTFromMLIR(...)` helper builds the NativeTable struct from the MLIR op. Assign
-plain scalars directly, and use `toNative(...)` to convert the more complex
-attributes (dtypes, compute configs, program configs, …) into their native form. Build the output tensor ref
-from the output layout with `detail::getOutputTensorRefT(...)`, and guard the helper with
-`TTMLIR_ENABLE_OPMODEL`.
-
 Note: If the op's definition cannot be found by `gcc` you might need to `#include` the
 related header file in `OpModel/TTNN/MetalHeaders.h`.
 
