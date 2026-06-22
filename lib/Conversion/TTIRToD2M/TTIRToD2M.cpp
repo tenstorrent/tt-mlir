@@ -5073,19 +5073,19 @@ private:
         });
 
     // setup for bcast.
-    // NOTE: this is intentionally the *opposite* mapping from the max bcast
-    // above. arange_block fills the tile with the linear index r*32+c (row 0 =
-    // [0..31], row 1 = [32..63], ...). For ReduceDim::R we want each row to
-    // hold the per-column index [0..31], so we replicate row 0 down -> Row.
+    // arange_block fills the tile with the linear index r*32+c (row 0 =
+    // [0..31], row 1 = [32..63], ...). We always replicate row 0 ([0..31])
+    // down via a Row broadcast so every row holds the unscaled index [0..31].
+    // For ReduceDim::C the [0..31] is then transposed into a column below;
+    // broadcasting column 0 instead would bake in the *32 row scaling.
     d2m::TileBcastType postArangeBcastType;
     switch (reduceDim) {
     case d2m::ReduceDim::R:
-      // Replicate row 0 ([0..31]) down so every row holds the column index.
       postArangeBcastType = d2m::TileBcastType::Row;
       break;
     case d2m::ReduceDim::C:
-      // Replicate column 0 across so every column holds the row index.
-      postArangeBcastType = d2m::TileBcastType::Col;
+      // Replicate row 0 ([0..31]) down so every row holds the unscaled index.
+      postArangeBcastType = d2m::TileBcastType::Row;
       break;
     case d2m::ReduceDim::RC:
       postArangeBcastType = d2m::TileBcastType::Scalar;
@@ -5131,6 +5131,33 @@ private:
               .getResult();
         });
 
+    Value indexOperand = postArangeBcast->getResult(0);
+
+    if (reduceDim == d2m::ReduceDim::C) {
+      // arange row-bcast gives [0..31] across every row; transpose to make it
+      // [[0],[1],...,[31]] down every column so reduceMax2 over H picks the row
+      // index.
+      AffineMap idMap = rewriter.getMultiDimIdentityMap(physicalRank);
+      SmallVector<AffineMap> tposeMaps = {idMap, idMap};
+      SmallVector<Attribute> tposeIters(
+          physicalRank,
+          ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel));
+
+      auto tposeOrigOutputs = createDpsOutputs(loc, rewriter, {inputType});
+      auto [tposeIns, tposeOutputs] = toLayoutOperandsAndResults(
+          rewriter, {SmallVector<Value>{}, tposeOrigOutputs}, true, noCollapse);
+
+      d2m::GenericOp transpose = buildGenericLinAlg(
+          rewriter, loc, SmallVector<Value>{indexOperand}, tposeOutputs,
+          tposeMaps, tposeIters,
+          [&](mlir::OpBuilder &bb, mlir::Location l, mlir::ValueRange bbArgs) {
+            return bb
+                .create<d2m::TileTransposeOp>(l, bbArgs[1].getType(), bbArgs[0])
+                .getResult();
+          });
+      indexOperand = transpose->getResult(0);
+    }
+
     // setup for tile_mul
     AffineMap mulInputMap = rewriter.getMultiDimIdentityMap(physicalRank);
     AffineMap mulOutputMap = rewriter.getMultiDimIdentityMap(physicalRank);
@@ -5141,8 +5168,7 @@ private:
         ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel));
 
     auto mulOrigOutputs = createDpsOutputs(loc, rewriter, {inputType});
-    SmallVector<Value> mulInputs{postArangeBcast->getResult(0),
-                                 eq1->getResult(0)};
+    SmallVector<Value> mulInputs{indexOperand, eq1->getResult(0)};
     auto [mulins, mulOutputs] = toLayoutOperandsAndResults(
         rewriter, {SmallVector<Value>{}, mulOrigOutputs}, true, noCollapse);
 
