@@ -4325,18 +4325,55 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   auto tempType = getTemp().getType();
   auto resultType = getResult().getType();
 
-  if (inputValuesType.getRank() != 2) {
-    return emitOpError("input_values must be 2D [batch, candidates]");
+  // Two valid forms:
+  //   * rank-2 [batch, candidates] in / rank-1 [batch] out — the user-facing
+  //     TTIR-equivalent shape produced by TTIRToTTNN.
+  //   * rank-4 [1, 1, batch, candidates] in / rank-4 [1, 1, 1, batch] out —
+  //     the kernel-true shape produced by SamplingOpRank2RewritePattern
+  //     (decomposition workaround). Required because tt-metal's sampling
+  //     kernel only accepts rank-4 tensors.
+  int64_t inputRank = inputValuesType.getRank();
+  if (inputRank != 2 && inputRank != 4) {
+    return emitOpError("input_values must be 2D [batch, candidates] or 4D "
+                       "[1, 1, batch, candidates]");
   }
-  if (inputIndicesType.getRank() != 2) {
-    return emitOpError("input_indices must be 2D [batch, candidates]");
+  if (inputIndicesType.getRank() != inputRank) {
+    return emitOpError("input_indices rank must match input_values rank");
   }
   if (inputValuesType.getShape() != inputIndicesType.getShape()) {
     return emitOpError(
         "input_values and input_indices must have the same shape");
   }
 
-  int64_t batch = inputValuesType.getShape()[0];
+  auto valuesShape = inputValuesType.getShape();
+  int64_t batch;
+  int64_t expectedResultRank;
+  if (inputRank == 2) {
+    batch = valuesShape[0];
+    expectedResultRank = 1;
+  } else {
+    if (valuesShape[0] != 1 || valuesShape[1] != 1) {
+      return emitOpError(
+          "rank-4 input_values leading dims must be [1, 1, batch, candidates]");
+    }
+    batch = valuesShape[2];
+    expectedResultRank = 4;
+  }
+
+  // The ttnn::sampling kernel uses one core per user and supports between 1
+  // and 32 users (see sampling_device_operation.cpp). Fail-fast at verifier
+  // time so out-of-range batches don't fault deeper in the kernel.
+  if (batch < 1 || batch > 32) {
+    return emitOpError() << "batch (" << batch
+                         << ") must be in [1, 32] (kernel limit)";
+  }
+
+  // Check output rank matches corresponding input rank.
+  if (resultType.getRank() != expectedResultRank) {
+    return emitOpError("result rank (")
+           << resultType.getRank() << ") must match expected rank ("
+           << expectedResultRank << ") for input_values rank " << inputRank;
+  }
 
   // k, p, temp must be 1D with the same batch dimension.
   for (auto [tensor, name] :
@@ -4353,9 +4390,15 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
     }
   }
 
-  // Result must be 1D [batch].
-  if (resultType.getRank() != 1 || resultType.getShape()[0] != batch) {
-    return emitOpError("result must be 1D [batch]");
+  // All leading dims of result tensor must be 1 and the last dim must equal
+  // batch.
+  auto resultShape = resultType.getShape();
+  if (!llvm::all_of(resultShape.drop_back(1),
+                    [](int64_t d) { return d == 1; }) ||
+      resultShape.back() != batch) {
+    return emitOpError("result must be ")
+           << expectedResultRank << "D ["
+           << (expectedResultRank == 1 ? "batch" : "1, 1, 1, batch") << "]";
   }
 
   return success();

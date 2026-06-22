@@ -34,6 +34,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterConfigRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SamplingOpRank2RewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionDecodeAttentionSinkRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.h"
@@ -645,6 +646,7 @@ public:
       patterns.add<
           GatherSi32Workaround,
           workarounds::decomposition::GatherOpRank1RewritePattern,
+          workarounds::decomposition::SamplingOpRank2RewritePattern,
           workarounds::decomposition::TTNNAllReduceReshapeWorkarounds,
           workarounds::decomposition::TTNNAllGatherWorkarounds,
           workarounds::decomposition::TTNNReduceScatterWorkarounds,
@@ -784,5 +786,10 @@ const std::set<mlir::StringRef>
         // (LegalOpConfigAnalysis, OperationValidationAndFallback) see
         // an inconsistent view between in-IR layouts and runtime
         // contract.
-        ttnn::Conv3dOp::getOperationName()};
+        ttnn::Conv3dOp::getOperationName(),
+        // Sampling's operands workaround forces ROW_MAJOR layout on
+        // index/param tensors, UINT32 dtype on k, and ROW_MAJOR+UINT32 on
+        // the result (the kernel hard-rejects anything else and produces
+        // UINT32).
+        ttnn::SamplingOp::getOperationName()};
 } // namespace mlir::tt::ttnn
