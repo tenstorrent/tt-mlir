@@ -118,21 +118,20 @@ def _run_decode_benchmark(
             cache_position,
             force_second_token=cpu_prefill_token.to(tt_device),
         )
+        pcc_prefill = compute_pcc(dev_prefill_logits, cpu_prefill_logits)
+        pcc_first_decode = compute_pcc(dev_decode_logits, cpu_decode_logits)
+        result.measurements.append(Measurement("pcc_prefill", pcc_prefill, "pcc", target=_PCC_TARGET))
         result.measurements.append(
-            Measurement(
-                "pcc_prefill",
-                compute_pcc(dev_prefill_logits, cpu_prefill_logits),
-                "pcc",
-                target=_PCC_TARGET,
-            )
+            Measurement("pcc_first_decode", pcc_first_decode, "pcc", target=_PCC_TARGET)
         )
-        result.measurements.append(
-            Measurement(
-                "pcc_first_decode",
-                compute_pcc(dev_decode_logits, cpu_decode_logits),
-                "pcc",
-                target=_PCC_TARGET,
-            )
+        # Fail the run on a correctness regression rather than only recording the
+        # number: an accuracy drop would otherwise be a green run with a bad metric
+        # buried in the card.
+        assert pcc_prefill >= _PCC_TARGET, (
+            f"{llm_model_id}: prefill PCC {pcc_prefill:.4f} < {_PCC_TARGET}"
+        )
+        assert pcc_first_decode >= _PCC_TARGET, (
+            f"{llm_model_id}: first-decode PCC {pcc_first_decode:.4f} < {_PCC_TARGET}"
         )
 
     record_bench(result)

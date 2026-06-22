@@ -1,5 +1,7 @@
 """Benchmark: ResNet50 forward pass (random weights, real shapes)."""
 
+import copy
+
 import pytest
 import torch
 
@@ -12,9 +14,10 @@ from torchvision.models import resnet50  # noqa: E402
 _DTYPE = torch.bfloat16
 
 
-def _build_inputs(device: torch.device | str) -> tuple[torch.nn.Module, tuple[torch.Tensor]]:
-    model = resnet50(weights=None).to(_DTYPE).eval().to(device)
-    x = torch.randn(1, 3, 224, 224, dtype=_DTYPE).to(device)
+def _build() -> tuple[torch.nn.Module, tuple[torch.Tensor]]:
+    """Build the model and inputs once, on CPU."""
+    model = resnet50(weights=None).to(_DTYPE).eval()
+    x = torch.randn(1, 3, 224, 224, dtype=_DTYPE)
     return model, (x,)
 
 
@@ -28,26 +31,25 @@ def test_resnet50(
     record_bench,
     tt_device: torch.device,
 ) -> None:
-    model, inputs = _build_inputs(tt_device)
-    model = prepare_model(model, mode)
+    model, inputs = _build()
 
-    ref_model, ref_inputs = (None, None)
-    if accuracy:
-        ref_model, ref_inputs = _build_inputs("cpu")
+    # deepcopy because Module.to() is in-place; keep the CPU originals as the reference.
+    device_model = prepare_model(copy.deepcopy(model).to(tt_device), mode)
+    device_inputs = tuple(t.to(tt_device) for t in inputs)
 
     record_bench(
         run_benchmark(
-            model, inputs, warmup=warmup, iters=iters,
+            device_model, device_inputs, warmup=warmup, iters=iters,
             label="resnet50", mode=mode, device="tt",
-            reference_model=ref_model, reference_inputs=ref_inputs,
+            reference_model=model if accuracy else None,
+            reference_inputs=inputs if accuracy else None,
         )
     )
 
     if cpu_baseline:
-        cpu_model, cpu_inputs = _build_inputs("cpu")
         record_bench(
             run_benchmark(
-                cpu_model, cpu_inputs, warmup=warmup, iters=iters,
+                model, inputs, warmup=warmup, iters=iters,
                 label="resnet50", mode="eager", device="cpu",
             )
         )
