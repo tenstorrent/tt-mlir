@@ -86,9 +86,10 @@ ttrt query --save-artifacts --artifact-dir "$TT_METAL_SIMULATOR_HOME/ttrt-artifa
 1. Inspect simulator skips in the exact files passed by the workflow.
 2. Triage with existing `sim` skips disabled, but do not leave triage-only edits in the final diff. A temporary edit to `test/python/golden/conftest.py` can make `_get_current_environment()` return `"silicon"` while `TT_METAL_SIMULATOR` remains set; restore it before final verification.
 3. Prefer precise marks: skip a dtype, shape, op, or arch-specific case instead of an entire file/test.
-4. Keep non-simulator skips intact. For example, `SkipIf("ttnn", "emitc", "emitpy", "sim")` should usually become `SkipIf("ttnn", "emitc", "emitpy")` if the op now passes on WH/BH TTSim.
-5. If a run aborts inside TTSim, isolate with a single pytest node or a narrow `-k` expression and keep/add the smallest simulator skip that avoids the abort.
-6. When validating a skip refresh, collect the simulator-only node IDs and run them in isolated pytest subprocesses. This keeps one TTSim `UndefinedBehavior` abort from hiding the rest of the skip list. Exclude unconditional `pytest.mark.skip` cases from the executable checklist, but record them separately so they are not mistaken for validated simulator passes.
+4. A single config list is AND'd (subset match), while separate args/groups are OR'd: `skip_config(["n150", "sim"])` skips only WH-sim (single-chip WH `board_id` is `n150`, not `wh`), whereas `SkipIf("n150", "sim")` would skip on WH *or* sim — keep the inner brackets.
+5. Keep non-simulator skips intact. For example, `SkipIf("ttnn", "emitc", "emitpy", "sim")` should usually become `SkipIf("ttnn", "emitc", "emitpy")` if the op now passes on WH/BH TTSim.
+6. If a run aborts inside TTSim, isolate with a single pytest node or a narrow `-k` expression and keep/add the smallest simulator skip that avoids the abort.
+7. When validating a skip refresh, collect the simulator-only node IDs and run them in isolated pytest subprocesses. This keeps one TTSim `UndefinedBehavior` abort from hiding the rest of the skip list. Exclude unconditional `pytest.mark.skip` cases from the executable checklist, but record them separately so they are not mistaken for validated simulator passes.
 
 Run raw pytest through the venv Python for readable output; the local `pytest` console script may summarize through tools like `rtk` and hide details:
 
