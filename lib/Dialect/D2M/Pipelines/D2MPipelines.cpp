@@ -293,7 +293,10 @@ void createD2MToTTNNPipeline(OpPassManager &pm,
 void createD2MToTTKernelPreEmitCPipeline(OpPassManager &pm,
                                          const D2MPipelineOptions &options) {
   d2m::ConvertD2MToTTKernelOptions D2MToTTKernelOptions;
-  { D2MToTTKernelOptions.ttnnMode = options.ttnnMode; }
+  {
+    D2MToTTKernelOptions.ttnnMode = options.ttnnMode;
+    D2MToTTKernelOptions.forceCompileTimeArgs = options.forceCompileTimeArgs;
+  }
   pm.addPass(tt::createConvertD2MToTTKernelPass(D2MToTTKernelOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(ttkernel::createTTKernelControlDstSection());

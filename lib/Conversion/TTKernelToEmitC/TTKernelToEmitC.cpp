@@ -4,7 +4,7 @@
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
 
 #include "ttmlir/Asserts.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
@@ -29,7 +29,6 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSet.h"
-#include "llvm/Support/raw_ostream.h"
 
 #include <array>
 #include <functional>
@@ -487,7 +486,7 @@ public:
       return Builder(ctx).getI64Type();
     });
     addConversion([ctx](mlir::tt::ttkernel::CBType type) -> Type {
-      return Builder(ctx).getType<emitc::OpaqueType>("::tt::CB");
+      return IntegerType::get(ctx, 32, IntegerType::Unsigned);
     });
     addConversion([ctx](mlir::tt::ttkernel::LocalSemaphoreType type) -> Type {
       // Convert semaphore to an address type. (i32)
@@ -1135,12 +1134,12 @@ public:
       return literal.getResult();
     }
 
+    const bool isCBArg = mlir::isa<ttkernel::CBType>(op.getResult().getType());
     auto call = rewriter.create<emitc::CallOpaqueOp>(
         op.getLoc(), resultType, getOpName(op), nullptr,
         getTemplateArgs(rewriter, op), adaptor.getOperands());
 
-    // Relay the preassigned CB runtime arg index.
-    if (mlir::isa<ttkernel::CBType>(op.getResult().getType())) {
+    if (isCBArg) {
       auto idxAttr =
           op->template getAttrOfType<IntegerAttr>("ttkernel.cb_arg_idx");
       assert(idxAttr && "CB runtime arg must have a stable lowering name");
