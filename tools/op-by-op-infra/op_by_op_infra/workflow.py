@@ -9,6 +9,9 @@ It is meant to simplify and abstract away all complexities of the infra.
 
 import os
 import re
+import subprocess
+import sys
+import tempfile
 from typing import List, Optional
 
 from ttmlir.ir import Module
@@ -17,6 +20,62 @@ from . import workflow_internal
 from .mlir_module_splitter import MLIRModuleSplitter
 from .pydantic_models import OpTest
 from .utils import OpWrapper
+
+_SYSTEM_DESC_PATH: Optional[str] = None
+
+
+def _ensure_system_desc() -> None:
+    """
+    Generates the system descriptor via `_ttmlir_runtime` in a subprocess and
+    points `SYSTEM_DESC_PATH` at it so the compiler pipeline can consume it.
+
+    The subprocess is used so that device resources opened during descriptor
+    generation are released cleanly when the subprocess exits, freeing the
+    hardware for per-op flatbuffer runs later in the session.
+
+    Generates once per Python process; subsequent calls are no-ops. Unconditionally
+    overrides any pre-existing `SYSTEM_DESC_PATH`.
+    """
+    global _SYSTEM_DESC_PATH
+
+    if _SYSTEM_DESC_PATH is not None and os.path.exists(_SYSTEM_DESC_PATH):
+        os.environ["SYSTEM_DESC_PATH"] = _SYSTEM_DESC_PATH
+        return
+
+    path = os.path.join(
+        tempfile.gettempdir(), f"op_by_op_system_desc_{os.getpid()}.ttsys"
+    )
+
+    from ttmlir import compile_and_run
+
+    worker_path = os.path.join(
+        os.path.dirname(compile_and_run.__file__), "_system_desc_worker.py"
+    )
+
+    try:
+        subprocess.run(
+            [sys.executable, worker_path, path],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            f"Could not obtain system descriptor from _ttmlir_runtime "
+            f"(subprocess exit {e.returncode}): {e.stderr}"
+        ) from e
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"System descriptor generation timed out: {e}") from e
+
+    if not os.path.exists(path):
+        raise RuntimeError(
+            f"System descriptor subprocess returned successfully but no file "
+            f"was written at {path}"
+        )
+
+    _SYSTEM_DESC_PATH = path
+    os.environ["SYSTEM_DESC_PATH"] = path
 
 
 def run_op_by_op_workflow(
@@ -57,6 +116,7 @@ def run_op_by_op_workflow(
     List[OpTest]
         List of `OpTest` pydantic models
     """
+    _ensure_system_desc()
 
     if compile_before_split:
         assert compile_each_submodule_after_split is not True, (
@@ -167,6 +227,8 @@ def execute_extracted_ops(
     List[OpTest]
         List of OpTest pydantic models with execution results
     """
+    _ensure_system_desc()
+
     executor = workflow_internal.MLIRModuleExecutor(
         compile_only, debug_print=debug_print
     )

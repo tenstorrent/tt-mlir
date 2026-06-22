@@ -13,7 +13,6 @@ from ttmlir.compile_and_run import (
     ttir_to_ttnn,
     ttnn_to_flatbuffer,
 )
-from ttrt.common.util import Binary
 
 from .execution_result import ExecutionPhase, ExecutionResult
 from .utils import (
@@ -113,15 +112,15 @@ class MLIRModuleExecutor:
         self,
         new_phase: ExecutionPhase,
         generated_module: Optional[ModuleWrapper] = None,
-        generated_flatbuffer: Optional[Binary] = None,
+        generated_flatbuffer_path: Optional[str] = None,
         run_passed: Optional[bool] = None,
     ) -> None:
         """Marks execution progress."""
         self._execution_result.execution_phase = new_phase
         if generated_module is not None:
             self._execution_result.last_generated_module = generated_module
-        if generated_flatbuffer is not None:
-            self._execution_result.flatbuffer = generated_flatbuffer
+        if generated_flatbuffer_path is not None:
+            self._execution_result.flatbuffer_path = generated_flatbuffer_path
         if run_passed is not None:
             self._execution_result.device_run_passed = run_passed
 
@@ -215,23 +214,24 @@ class MLIRModuleExecutor:
 
     def _generate_flatbuffer(
         self, flatbuffer_name: str = "ttnn_fb.ttnn"
-    ) -> Optional[Binary]:
+    ) -> Optional[str]:
         """
         Attempts generating flatbuffer from TTNN module.
 
-        Returns flatbuffer if successfully generated, None otherwise.
+        Returns flatbuffer file path if successfully generated, None otherwise.
         """
         assert self._execution_result.compilation_finished
 
         try:
-            flatbuffer = ttnn_to_flatbuffer(
+            flatbuffer_path = ttnn_to_flatbuffer(
                 self._execution_result.last_generated_module.module, flatbuffer_name
             )
             self._mark_execution_step(
-                ExecutionPhase.GENERATED_FLATBUFFER, generated_flatbuffer=flatbuffer
+                ExecutionPhase.GENERATED_FLATBUFFER,
+                generated_flatbuffer_path=flatbuffer_path,
             )
         finally:
-            return self._execution_result.flatbuffer
+            return self._execution_result.flatbuffer_path
 
     def _run(self) -> bool:
         """
@@ -243,7 +243,7 @@ class MLIRModuleExecutor:
         assert self._execution_result.flatbuffer_generated
 
         try:
-            return_code = run_flatbuffer(self._execution_result.flatbuffer)
+            return_code = run_flatbuffer(self._execution_result.flatbuffer_path)
             if return_code == 0:
                 self._mark_execution_step(
                     ExecutionPhase.EXECUTED_FLATBUFFER, run_passed=True
