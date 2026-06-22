@@ -20,7 +20,8 @@ namespace mlir::tt {
 
 void populateD2MToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
-    const d2m::CBProducerConsumer &cbProducerConsumer);
+    const d2m::CBProducerConsumer &cbProducerConsumer,
+    bool forceCompileTimeArgs = false);
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertD2MToTTKernelPass();
 std::unique_ptr<OperationPass<ModuleOp>>

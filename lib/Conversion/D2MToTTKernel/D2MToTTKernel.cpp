@@ -2909,9 +2909,29 @@ static int64_t appendRuntimeArg(func::FuncOp entry, ArgAttr arg,
   llvm_unreachable("runtime arg missing from arg spec");
 }
 
-static void replaceOpWithRuntimeArg(Operation *op, Type resultType,
-                                    func::FuncOp entry, ArgAttr arg,
+static int64_t appendCompileTimeArg(func::FuncOp entry, ArgAttr arg,
                                     ConversionPatternRewriter &rewriter) {
+  size_t argIdx = 0;
+  rewriter.modifyOpInPlace(
+      entry, [&]() { argIdx = ArgSpecAttr::appendCompileTimeArg(entry, arg); });
+  return static_cast<int64_t>(argIdx);
+}
+
+static bool shouldUseCompileTimeArg(ArgAttr arg, bool forceCompileTimeArgs) {
+  return forceCompileTimeArgs && arg.getIsUniform();
+}
+
+static void replaceOpWithKernelArg(Operation *op, Type resultType,
+                                   func::FuncOp entry, ArgAttr arg,
+                                   bool forceCompileTimeArgs,
+                                   ConversionPatternRewriter &rewriter) {
+  if (shouldUseCompileTimeArg(arg, forceCompileTimeArgs)) {
+    const int64_t argIdx = appendCompileTimeArg(entry, arg, rewriter);
+    rewriter.replaceOpWithNewOp<ttkernel::GetCompileArgValOp>(
+        op, resultType, static_cast<int32_t>(argIdx));
+    return;
+  }
+
   const int64_t argIdx = appendRuntimeArg(entry, arg, rewriter);
   Value indexValue = index(rewriter, op->getLoc(), argIdx);
   if (arg.getIsUniform()) {
@@ -2923,9 +2943,15 @@ static void replaceOpWithRuntimeArg(Operation *op, Type resultType,
                                                      indexValue);
 }
 
-static Value createRuntimeArg(Location loc, Type resultType, func::FuncOp entry,
-                              ArgAttr arg,
-                              ConversionPatternRewriter &rewriter) {
+static Value createKernelArg(Location loc, Type resultType, func::FuncOp entry,
+                             ArgAttr arg, bool forceCompileTimeArgs,
+                             ConversionPatternRewriter &rewriter) {
+  if (shouldUseCompileTimeArg(arg, forceCompileTimeArgs)) {
+    const int64_t argIdx = appendCompileTimeArg(entry, arg, rewriter);
+    return rewriter.create<ttkernel::GetCompileArgValOp>(
+        loc, resultType, static_cast<int32_t>(argIdx));
+  }
+
   const int64_t argIdx = appendRuntimeArg(entry, arg, rewriter);
   Value indexValue = index(rewriter, loc, argIdx);
   if (arg.getIsUniform()) {
@@ -2937,7 +2963,10 @@ static Value createRuntimeArg(Location loc, Type resultType, func::FuncOp entry,
 
 class D2MGetArgRewriter : public OpConversionPattern<d2m::GetArgOp> {
 public:
-  using OpConversionPattern<d2m::GetArgOp>::OpConversionPattern;
+  D2MGetArgRewriter(TypeConverter &typeConverter, MLIRContext *context,
+                    bool forceCompileTimeArgs)
+      : OpConversionPattern<d2m::GetArgOp>(typeConverter, context),
+        forceCompileTimeArgs(forceCompileTimeArgs) {}
 
   LogicalResult
   matchAndRewrite(d2m::GetArgOp op, d2m::GetArgOpAdaptor adaptor,
@@ -2951,12 +2980,12 @@ public:
       Type convertedType = getTypeConverter()->convertType(memrefType);
       if (mlir::isa<ttkernel::CBType>(convertedType)) {
         // CB-backed memref (e.g. scratch buffer with CBLayoutAttr).
-        // Handle identically to D2MGetCBRewriter: CBPort run-time arg.
+        // Handle identically to D2MGetCBRewriter: CBPort kernel arg.
         arg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, op.getOperandIndex());
         argResultType = convertedType;
 
-        replaceOpWithRuntimeArg(op.getOperation(), argResultType, entry, arg,
-                                rewriter);
+        replaceOpWithKernelArg(op.getOperation(), argResultType, entry, arg,
+                               forceCompileTimeArgs, rewriter);
         return success();
       }
 
@@ -2970,8 +2999,9 @@ public:
     } else if (mlir::isa<d2m::LocalSemaphoreType>(op.getResult().getType())) {
       ArgAttr semArg = rewriter.getAttr<ArgAttr>(ArgType::LocalSemaphore,
                                                  op.getOperandIndex());
-      Value semaphoreIndex = createRuntimeArg(
-          op.getLoc(), rewriter.getI32Type(), entry, semArg, rewriter);
+      Value semaphoreIndex =
+          createKernelArg(op.getLoc(), rewriter.getI32Type(), entry, semArg,
+                          forceCompileTimeArgs, rewriter);
       rewriter.replaceOpWithNewOp<ttkernel::GetSemaphoreOp>(op, semaphoreIndex);
       return success();
     } else if (mlir::isa<IndexType, IntegerType, FloatType>(
@@ -2986,7 +3016,8 @@ public:
           rewriter.getAttr<ArgAttr>(ArgType::Scalar, op.getOperandIndex());
 
       Value scalarArgValue =
-          createRuntimeArg(op.getLoc(), ui32Type, entry, scalarArg, rewriter);
+          createKernelArg(op.getLoc(), ui32Type, entry, scalarArg,
+                          forceCompileTimeArgs, rewriter);
 
       if (scalarType == ui32Type) {
         rewriter.replaceOp(op, scalarArgValue);
@@ -2999,15 +3030,21 @@ public:
       llvm_unreachable("unexpected arg type to GetArgOp");
     }
 
-    replaceOpWithRuntimeArg(op.getOperation(), argResultType, entry, arg,
-                            rewriter);
+    replaceOpWithKernelArg(op.getOperation(), argResultType, entry, arg,
+                           forceCompileTimeArgs, rewriter);
     return success();
   }
+
+private:
+  bool forceCompileTimeArgs;
 };
 
 class D2MGetCBRewriter : public OpConversionPattern<d2m::GetCBOp> {
 public:
-  using OpConversionPattern<d2m::GetCBOp>::OpConversionPattern;
+  D2MGetCBRewriter(TypeConverter &typeConverter, MLIRContext *context,
+                   bool forceCompileTimeArgs)
+      : OpConversionPattern<d2m::GetCBOp>(typeConverter, context),
+        forceCompileTimeArgs(forceCompileTimeArgs) {}
 
   LogicalResult
   matchAndRewrite(d2m::GetCBOp op, d2m::GetCBOpAdaptor adaptor,
@@ -3019,9 +3056,13 @@ public:
         rewriter.getAttr<ArgAttr>(ArgType::CBPort, op.getCbOperandIdx());
     Type cbType = getTypeConverter()->convertType(op.getResult().getType());
 
-    replaceOpWithRuntimeArg(op.getOperation(), cbType, entry, cbArg, rewriter);
+    replaceOpWithKernelArg(op.getOperation(), cbType, entry, cbArg,
+                           forceCompileTimeArgs, rewriter);
     return success();
   }
+
+private:
+  bool forceCompileTimeArgs;
 };
 } // namespace
 
@@ -3059,7 +3100,10 @@ public:
 namespace {
 class D2MKernelFunctionArgsRewriter : public OpConversionPattern<func::FuncOp> {
 public:
-  using OpConversionPattern<func::FuncOp>::OpConversionPattern;
+  D2MKernelFunctionArgsRewriter(TypeConverter &typeConverter,
+                                MLIRContext *context, bool forceCompileTimeArgs)
+      : OpConversionPattern<func::FuncOp>(typeConverter, context),
+        forceCompileTimeArgs(forceCompileTimeArgs) {}
 
   static ThreadType getTTKernelThreadType(func::FuncOp op) {
     d2m::ThreadAttr threadAttr =
@@ -3101,12 +3145,21 @@ public:
     args.insert(it, arg);
   }
 
+  void insertKernelArg(SmallVectorImpl<ArgAttr> &rtArgs,
+                       SmallVectorImpl<ArgAttr> &ctArgs, ArgAttr arg) const {
+    if (shouldUseCompileTimeArg(arg, forceCompileTimeArgs)) {
+      insertSortedUnique(ctArgs, arg);
+      return;
+    }
+    insertSortedUnique(rtArgs, arg);
+  }
+
   void collectArgSpecs(Builder &builder, func::FuncOp op,
                        SmallVectorImpl<ArgAttr> &rtArgs,
                        SmallVectorImpl<ArgAttr> &ctArgs) const {
     op.walk([&](d2m::GetCBOp getCBOp) {
-      insertSortedUnique(
-          rtArgs,
+      insertKernelArg(
+          rtArgs, ctArgs,
           builder.getAttr<ArgAttr>(ArgType::CBPort, getCBOp.getCbOperandIdx()));
     });
 
@@ -3115,36 +3168,36 @@ public:
       if (auto memrefType = mlir::dyn_cast<MemRefType>(argType)) {
         Type convertedType = getTypeConverter()->convertType(memrefType);
         if (mlir::isa<ttkernel::CBType>(convertedType)) {
-          insertSortedUnique(
-              rtArgs, builder.getAttr<ArgAttr>(ArgType::CBPort,
-                                               getArgOp.getOperandIndex()));
+          insertKernelArg(rtArgs, ctArgs,
+                          builder.getAttr<ArgAttr>(ArgType::CBPort,
+                                                   getArgOp.getOperandIndex()));
           return;
         }
 
         ArgAttr arg = builder.getAttr<ArgAttr>(ArgType::BufferAddress,
                                                getArgOp.getOperandIndex());
-        insertSortedUnique(rtArgs, arg);
+        insertKernelArg(rtArgs, ctArgs, arg);
         return;
       }
 
       if (mlir::isa<d2m::GlobalSemaphoreType>(argType)) {
         ArgAttr arg = builder.getAttr<ArgAttr>(ArgType::GlobalSemaphore,
                                                getArgOp.getOperandIndex());
-        insertSortedUnique(rtArgs, arg);
+        insertKernelArg(rtArgs, ctArgs, arg);
         return;
       }
 
       if (mlir::isa<d2m::LocalSemaphoreType>(argType)) {
-        insertSortedUnique(
-            rtArgs, builder.getAttr<ArgAttr>(ArgType::LocalSemaphore,
-                                             getArgOp.getOperandIndex()));
+        insertKernelArg(rtArgs, ctArgs,
+                        builder.getAttr<ArgAttr>(ArgType::LocalSemaphore,
+                                                 getArgOp.getOperandIndex()));
         return;
       }
 
       if (mlir::isa<IndexType, IntegerType, FloatType>(argType)) {
         ArgAttr arg = builder.getAttr<ArgAttr>(ArgType::Scalar,
                                                getArgOp.getOperandIndex());
-        insertSortedUnique(rtArgs, arg);
+        insertKernelArg(rtArgs, ctArgs, arg);
       }
     });
   }
@@ -3167,6 +3220,9 @@ public:
     });
     return success();
   }
+
+private:
+  bool forceCompileTimeArgs;
 };
 } // namespace
 
@@ -3413,9 +3469,11 @@ namespace mlir::tt {
 
 void populateD2MToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
-    const d2m::CBProducerConsumer &cbProducerConsumer) {
+    const d2m::CBProducerConsumer &cbProducerConsumer,
+    bool forceCompileTimeArgs) {
   // clang-format off
-  patterns.add<ttkernel::D2MKernelFunctionArgsRewriter>(typeConverter, ctx);
+  patterns.add<ttkernel::D2MKernelFunctionArgsRewriter>(
+      typeConverter, ctx, forceCompileTimeArgs);
   patterns.add<ttkernel::PassthroughRewriter<memref::CastOp>,
                ttkernel::MemRefSubviewRewriter,
 
@@ -3535,8 +3593,10 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MSemaphoreWaitRewriter,
                ttkernel::D2MDeviceSynchronizeRewriter>(typeConverter, ctx);
 
-  patterns.add<ttkernel::D2MGetArgRewriter>(typeConverter, ctx);
-  patterns.add<ttkernel::D2MGetCBRewriter>(typeConverter, ctx);
+  patterns.add<ttkernel::D2MGetArgRewriter>(typeConverter, ctx,
+                                            forceCompileTimeArgs);
+  patterns.add<ttkernel::D2MGetCBRewriter>(typeConverter, ctx,
+                                           forceCompileTimeArgs);
   patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &cbProducerConsumer);
   patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &cbProducerConsumer);
 
