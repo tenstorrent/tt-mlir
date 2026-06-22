@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/OpValidator.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
@@ -30,10 +31,17 @@ using CompositeValidatorFn =
     std::function<OpValidationResult(ttcore::CompositeOp, OpBuilder &)>;
 using CompositeBuilderFn =
     std::function<Operation *(ttcore::CompositeOp, OpBuilder &)>;
+// A hard precondition checked before the inline/promote decision. When it
+// returns failure (after emitting its own diagnostic), the pass fails instead
+// of silently falling back to inlining the decomposition. Used for composites
+// that are only valid on a specific architecture.
+using CompositePreconditionFn =
+    std::function<LogicalResult(ttcore::CompositeOp)>;
 
 struct CompositeEntry {
   CompositeValidatorFn validate;
   CompositeBuilderFn build;
+  CompositePreconditionFn precondition; // may be empty
 };
 
 static llvm::StringMap<CompositeEntry> &getCompositeRegistry() {
@@ -78,6 +86,19 @@ extractFlashMlaPrefillArgs(ttcore::CompositeOp compositeOp) {
   args.isCausal = attrs.getAs<BoolAttr>("is_causal");
   args.scale = attrs.getAs<FloatAttr>("scale");
   return args;
+}
+
+// Recover the chunk_start_idx attribute from an "indexer_score" composite,
+// defaulting to 0 when absent. Shared by its validate and build callbacks.
+static uint32_t getIndexerScoreChunkStartIdx(ttcore::CompositeOp compositeOp) {
+  DictionaryAttr attrs = compositeOp.getCompositeAttributes().value_or(nullptr);
+  if (!attrs) {
+    return 0;
+  }
+  auto chunkStartIdxAttr = attrs.getAs<mlir::IntegerAttr>("chunk_start_idx");
+  return chunkStartIdxAttr
+             ? static_cast<uint32_t>(chunkStartIdxAttr.getValue().getZExtValue())
+             : 0;
 }
 
 static void registerBuiltinComposites() {
@@ -176,6 +197,51 @@ static void registerBuiltinComposites() {
             static_cast<uint32_t>(args.headDimV.getValue().getZExtValue()),
             args.isCausal.getValue(), args.scale);
       }};
+
+  registry["indexer_score"] = CompositeEntry{
+      // Validate
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
+        TT_assert(compositeOp.getInputs().size() == 3u);
+
+        uint32_t chunkStartIdx = getIndexerScoreChunkStartIdx(compositeOp);
+        SmallVector<Type> resultTypes(compositeOp.getResultTypes());
+        IsolatedIRValidationWrapper validator(compositeOp.getContext());
+        return validator.validateOp<IndexerScoreOp>(
+            compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2], chunkStartIdx);
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        uint32_t chunkStartIdx = getIndexerScoreChunkStartIdx(compositeOp);
+        return builder.create<IndexerScoreOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(),
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2], chunkStartIdx);
+      },
+      // Precondition: ttnn.experimental.indexer_score is Blackhole-only.
+      [](ttcore::CompositeOp compositeOp) -> LogicalResult {
+        ModuleOp moduleOp = compositeOp->getParentOfType<ModuleOp>();
+        auto sysDesc =
+            moduleOp ? moduleOp->getAttrOfType<ttcore::SystemDescAttr>(
+                           ttcore::SystemDescAttr::name)
+                     : nullptr;
+        // Without a system descriptor in scope (e.g. running the pass in
+        // isolation) the architecture is unknown; defer the check to the
+        // metal runtime, which fails on non-Blackhole devices.
+        if (!sysDesc) {
+          return success();
+        }
+        ttcore::Arch arch = sysDesc.getChipDesc(0).getArch().getValue();
+        if (arch != ttcore::Arch::Blackhole) {
+          return compositeOp.emitOpError()
+                 << "ttnn.experimental.indexer_score is only supported on "
+                    "Blackhole, but the target architecture is "
+                 << ttcore::stringifyArch(arch) << ".";
+        }
+        return success();
+      }};
 }
 
 // Inline the decomposition function body at the composite ops location,
@@ -269,6 +335,18 @@ public:
       auto decompName = compositeOp.getDecomposition();
       auto *symbolOp = SymbolTable::lookupSymbolIn(moduleOp, decompName);
       auto decompFunc = dyn_cast<func::FuncOp>(symbolOp);
+
+      // Hard preconditions (e.g. architecture requirements) are enforced
+      // regardless of the resolution mode, before deciding to promote or
+      // inline. A failed precondition emits a diagnostic and fails the pass.
+      auto &registry = getCompositeRegistry();
+      auto regIt = registry.find(compositeOp.getCompositeName());
+      if (regIt != registry.end() && regIt->second.precondition) {
+        if (mlir::failed(regIt->second.precondition(compositeOp))) {
+          passFailed = true;
+          return;
+        }
+      }
 
       OpBuilder builder(compositeOp);
       Operation *typedOp =
