@@ -808,3 +808,58 @@ TEST_F(ReshardCbOverlapTest, OverlapWithReshardInputFailsCompilation) {
   EXPECT_NE(diag.find("cannot be placed"), std::string::npos)
       << "expected a clear placement error; got: " << diag;
 }
+
+//===----------------------------------------------------------------------===//
+// OverSubscriptionTrackerTest
+//===----------------------------------------------------------------------===//
+
+class OverSubscriptionTrackerTest : public L1SpillTestFixture {};
+
+// Regression for the address-simulator "silent drop" bug. When allocateAddress
+// cannot place a tensor in any contiguous free block it used to log and return,
+// recording no address and leaving currentOccupied / the free list optimistic.
+// That made the dropped tensor invisible to getOccupiedL1 and
+// getLowestOccupiedAddress, so a downstream eviction stop predicate
+// (wouldAllocateAt + "output fits" / FRAG_RESOLVED) would read a phantom-free
+// list and accept a layout that overflows at runtime (the phi2 circular-buffer
+// clash). The fix records the unplaced bytes so over-subscription is
+// observable; the eviction loops consult isOverSubscribed() to keep spilling.
+// This pins that tracker contract (the eviction-loop integration is covered
+// end-to-end by the phi2 repro, which needs geometric fragmentation this
+// sum-based fixture cannot easily construct).
+TEST_F(OverSubscriptionTrackerTest, NoFitRecordsUnplacedBytesAndRoundTrips) {
+  l1BudgetPerCore = 100 * kKiB;
+  auto tt = tensorType({1, 1, 1024, 1024}, makeL1Sharded({1, 1, 1024, 1024}));
+  auto args = beginFunc({tt, tt});
+  finishFunc({args[0]});
+
+  mlir::tt::ttnn::SumL1MemoryTracker tracker;
+  tracker.init(l1BudgetPerCore);
+  EXPECT_FALSE(tracker.isOverSubscribed());
+  EXPECT_EQ(tracker.getUnplacedBytes(), 0u);
+
+  // First tensor fits (60 KiB of a 100 KiB budget).
+  tracker.addTensor(args[0], 60 * kKiB);
+  EXPECT_FALSE(tracker.isOverSubscribed());
+  EXPECT_EQ(tracker.getOccupiedL1(), 60 * kKiB);
+
+  // Second 60 KiB tensor cannot fit in the remaining 40 KiB → no-fit. It must
+  // be recorded as unplaced, NOT silently dropped: currentOccupied stays at the
+  // placed 60 KiB and over-subscription becomes observable.
+  tracker.addTensor(args[1], 60 * kKiB);
+  EXPECT_TRUE(tracker.isOverSubscribed());
+  EXPECT_EQ(tracker.getUnplacedBytes(), 60 * kKiB);
+  EXPECT_EQ(tracker.getOccupiedL1(), 60 * kKiB)
+      << "currentOccupied must not count the unplaced tensor";
+
+  // The over-subscription is carried by snapshots (so replay-based eviction
+  // reflects the current counterfactual), cleared by init, and round-trips
+  // through restore.
+  auto snap = tracker.takeSnapshot();
+  tracker.init(l1BudgetPerCore);
+  EXPECT_FALSE(tracker.isOverSubscribed());
+  EXPECT_EQ(tracker.getUnplacedBytes(), 0u);
+  tracker.restoreSnapshot(snap);
+  EXPECT_TRUE(tracker.isOverSubscribed());
+  EXPECT_EQ(tracker.getUnplacedBytes(), 60 * kKiB);
+}

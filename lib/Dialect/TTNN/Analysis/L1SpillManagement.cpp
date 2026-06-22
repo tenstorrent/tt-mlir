@@ -76,9 +76,14 @@ SumL1MemoryTracker::validateBackendDirect(
 
 uint64_t SumL1MemoryTracker::getOccupiedL1() const { return currentOccupied; }
 
+uint64_t SumL1MemoryTracker::getUnplacedBytes() const { return unplacedBytes; }
+
+bool SumL1MemoryTracker::isOverSubscribed() const { return unplacedBytes > 0; }
+
 void SumL1MemoryTracker::init(uint64_t l1BudgetPerCore) {
   l1Budget = l1BudgetPerCore;
   currentOccupied = 0;
+  unplacedBytes = 0;
   tensorSizes.clear();
   freeList.clear();
   freeList.push_back({0, l1Budget});
@@ -87,7 +92,7 @@ void SumL1MemoryTracker::init(uint64_t l1BudgetPerCore) {
 }
 
 SumL1MemoryTracker::Snapshot SumL1MemoryTracker::takeSnapshot() const {
-  return {freeList, tensorAddresses, aliasGroups, currentOccupied};
+  return {freeList, tensorAddresses, aliasGroups, currentOccupied, unplacedBytes};
 }
 
 void SumL1MemoryTracker::restoreSnapshot(const Snapshot &snapshot) {
@@ -95,6 +100,7 @@ void SumL1MemoryTracker::restoreSnapshot(const Snapshot &snapshot) {
   tensorAddresses = snapshot.tensorAddresses;
   aliasGroups = snapshot.aliasGroups;
   currentOccupied = snapshot.currentOccupied;
+  unplacedBytes = snapshot.unplacedBytes;
 }
 
 void SumL1MemoryTracker::allocateAddress(Value result, uint64_t l1SizePerCore) {
@@ -125,7 +131,13 @@ void SumL1MemoryTracker::allocateAddress(Value result, uint64_t l1SizePerCore) {
       return;
     }
   }
-  // No fit — log warning. Sum tracker still works; frag check will catch it.
+  // No fit: the tensor cannot be placed in any contiguous free block. Do NOT
+  // silently drop it — record the unplaced bytes so callers can detect that
+  // the simulated live set is over-subscribed (getLowestOccupiedAddress /
+  // wouldAllocateAt would otherwise read a phantom-free list that still
+  // advertises this tensor's slot as available, leading to a false
+  // FRAG_RESOLVED). Leave freeList/tensorAddresses/currentOccupied untouched.
+  unplacedBytes += l1SizePerCore;
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                "Address simulator: no fit for {} bytes (aligned {})",
                l1SizePerCore, alignedSize);
@@ -641,10 +653,17 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
   evictUntil(pos, data, [&]() {
     inputLayouts = utils::extractInputLayouts(op);
     result = memoryTracker.validate(op, inputLayouts, config);
-    return result.isSuccess();
+    // validate() is sum-based and can succeed while a replay dropped a
+    // still-live tensor (over-subscribed free list); keep evicting until the
+    // live set genuinely fits.
+    return result.isSuccess() && !memoryTracker.isOverSubscribed();
   });
 
-  if (result.isSuccess()) {
+  // Treat an over-subscribed simulator as a failure even if the sum-based
+  // validate() reported success: eviction was exhausted (only reshards / empty
+  // live set) yet a replay could not place every live tensor. Fall through to
+  // the self-demote branch rather than adding an op whose layout overflows.
+  if (result.isSuccess() && !memoryTracker.isOverSubscribed()) {
     uint64_t l1Size = result.outputL1Usage;
     if (l1Size > 0) {
       l1Size = ensureFitsL1(op, pos, data, result.cbPeakUsage, l1Size);
@@ -1024,8 +1043,13 @@ uint64_t L1SpillManagement<MemoryTracker>::handleNoFit(Operation *op,
                "    NO_FIT: output {0} bytes can't fit contiguously, evicting",
                outputL1Size);
 
+  // Require both a contiguous fit for this op's output AND a non-over-subscribed
+  // live set: a replay during eviction may have dropped another still-live
+  // tensor (no-fit), which leaves the free list phantom-free and would let a
+  // bare wouldAllocateAt succeed on a layout that actually overflows.
   bool resolved = evictUntil(pos, data, [&]() {
-    return memoryTracker.wouldAllocateAt(outputL1Size).has_value();
+    return memoryTracker.wouldAllocateAt(outputL1Size).has_value() &&
+           !memoryTracker.isOverSubscribed();
   });
   if (!resolved) {
     demoteToDram(op);
@@ -1068,7 +1092,13 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
   // unmodeled runtime fragmentation from transient internal op allocations.
   uint64_t cushionedCBUsage = cbPeakUsage + cbFragCushion;
 
-  // Evict tensors (farthest last-use first) until CB overlap resolves.
+  // Evict tensors (farthest last-use first) until CB overlap resolves AND the
+  // whole replayed live set is placeable. isOverSubscribed() guards against a
+  // replay (markEvictedAndRebuild) having dropped a still-live tensor that no
+  // longer fits: without it, wouldAllocateAt/getLowestOccupiedAddress read a
+  // phantom-free list and the loop would stop while the live set actually
+  // overflows. Keep evicting (which can spill the offending large tensor) until
+  // it genuinely fits.
   evictUntil(pos, data, [&]() {
     auto specAddr = memoryTracker.wouldAllocateAt(outputL1Size);
     if (!specAddr) {
@@ -1076,8 +1106,24 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
     }
     uint64_t effLowest =
         std::min(*specAddr, memoryTracker.getLowestOccupiedAddress());
-    return cushionedCBUsage <= effLowest;
+    return !memoryTracker.isOverSubscribed() && cushionedCBUsage <= effLowest;
   });
+
+  // Eviction may have been exhausted (only inserted reshards left, or empty
+  // live set) while the live set is still over-subscribed. In that case the
+  // free list is phantom-free (a dropped tensor's slot looks available), so the
+  // checks below would falsely resolve. Demote this op's output to DRAM as a
+  // best-effort fallback and surface the unresolved over-subscription instead
+  // of silently shipping a layout that clashes on device.
+  if (memoryTracker.isOverSubscribed()) {
+    demoteToDram(op);
+    evictForDramCBGrowth(op, pos, data);
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    FRAG_DEMOTE (live set still over-subscribed by {0} B after "
+                 "exhausting eviction): output to DRAM",
+                 memoryTracker.getUnplacedBytes());
+    return 0;
+  }
 
   // After eviction, re-check both conditions with the updated free list.
   auto freshOutputAddr = memoryTracker.wouldAllocateAt(outputL1Size);
