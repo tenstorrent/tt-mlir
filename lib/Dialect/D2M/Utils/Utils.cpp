@@ -868,6 +868,11 @@ SmallVector<Value> applyMap(Builder &builder, Location loc, AffineMap map,
     SmallVector<int64_t> constantOperands;
     constantOperands.reserve(index.size());
     for (Value operand : index) {
+      if (auto constantIndexOp =
+              operand.getDefiningOp<arith::ConstantIndexOp>()) {
+        constantOperands.push_back(constantIndexOp.value());
+        continue;
+      }
       auto constantOp = operand.getDefiningOp<arith::ConstantOp>();
       if (!constantOp || !mlir::isa<IndexType>(constantOp.getType())) {
         constantOperands.clear();
