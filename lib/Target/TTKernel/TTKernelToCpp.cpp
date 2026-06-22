@@ -32,6 +32,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Target/Cpp/CppEmitter.h"
 #include "llvm/ADT/ScopeExit.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <set>
@@ -195,10 +196,11 @@ public:
 
     region->walk([&](emitc::LiteralOp literalOp) {
       llvm::StringRef value = literalOp.getValue();
-      for (const auto &[callee, reqs] : headerMap) {
-        if (value.starts_with(callee)) {
-          insertHeaders(reqs);
-        }
+      llvm::StringRef callee =
+          value.take_until([](char c) { return c == '(' || llvm::isSpace(c); });
+      auto it = headerMap.find(callee);
+      if (it != headerMap.end()) {
+        insertHeaders(it->second);
       }
     });
 
