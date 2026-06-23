@@ -9866,6 +9866,7 @@ class StableHLOBuilder(Builder):
 
     ####### stablehlo.CustomCallOp @tt.chunked_scaled_dot_product_attention #######
 
+    @tag(stablehlo.CustomCallOp)
     def chunked_scaled_dot_product_attention(
         self,
         query: Operand,
