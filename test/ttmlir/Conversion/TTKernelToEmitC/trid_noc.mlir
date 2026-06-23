@@ -42,15 +42,17 @@ func.func @trid_write_path() -> () attributes {ttkernel.thread = #ttkernel.threa
 
 // -----
 
-// A TRID barrier with no NOC operand uses the default `noc` object. The trid is
-// the sole verbatim argument.
-// CHECK-LABEL: func @trid_barrier_default_noc
-// CHECK: emitc.verbatim "Noc noc(noc_index);"
+// A TRID barrier with an explicit NOC operand uses the selected static NoC
+// object. The trid is the sole verbatim argument.
+// CHECK-LABEL: func @trid_barrier_explicit_noc
+// CHECK: emitc.verbatim "Noc noc0(0);"
 // CHECK: %[[TRID:.*]] = "emitc.constant"() <{value = 3 : i32}> : () -> i32
-// CHECK: emitc.verbatim "noc.async_write_barrier<NocOptions::TXN_ID>(NocOptVals{{[{][{]}}.trid = {}{{[}]}});" args %[[TRID]] : i32
-func.func @trid_barrier_default_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
+// CHECK: %[[NOC_IDX:.*]] = "emitc.constant"() <{value = 0 : i8}> : () -> i8
+// CHECK: emitc.verbatim "noc0.async_write_barrier<NocOptions::TXN_ID>(NocOptVals{{[{][{]}}.trid = {}{{[}]}});" args %[[TRID]] : i32
+func.func @trid_barrier_explicit_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
   %trid = arith.constant 3 : i32
-  "ttkernel.noc_async_write_barrier_with_trid"(%trid) : (i32) -> ()
+  %noc_idx = arith.constant 0 : i8
+  "ttkernel.noc_async_write_barrier_with_trid"(%trid, %noc_idx) : (i32, i8) -> ()
   return
 }
 

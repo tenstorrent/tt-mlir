@@ -308,15 +308,14 @@ static std::string getResultVariableName(Value result,
 // For a non-constant `nocId` (determined at runtime), splice into an inline
 // temporary `Noc({})`.
 //
-// When the optional `noc` op operand is absent and there is no way to
-// statically resolve the NoC index, fall back to the NoC the kernel ultimately
-// launches on (its `noc_index` global variable) with the explicit `Noc
-// noc(noc_index);` declaration.
-static std::string ensureNocDeclaration(Operation *useOp,
-                                        ConversionPatternRewriter &rewriter,
-                                        TTKernelToEmitCConversionState &state,
-                                        SmallVectorImpl<Value> &operands,
-                                        Value nocId = {}) {
+// When the NoC index is not statically known and the operand is not present,
+// fail the conversion. D2M-generated TTKernel IR should materialize this
+// operand explicitly, and hand-authored TTKernel IR must do the same before
+// EmitC.
+static FailureOr<std::string>
+ensureNocDeclaration(Operation *useOp, ConversionPatternRewriter &rewriter,
+                     TTKernelToEmitCConversionState &state,
+                     SmallVectorImpl<Value> &operands, Value nocId = {}) {
   FailureOr<int64_t> nocIdx = getStaticNocIndex(useOp, state, nocId);
   if (succeeded(nocIdx)) {
     std::string nocName = "noc" + std::to_string(*nocIdx);
@@ -345,15 +344,12 @@ static std::string ensureNocDeclaration(Operation *useOp,
   if (nocId) {
     // Explicit but non-constant nocId: splice the runtime value inline.
     operands.push_back(nocId);
-    return "Noc({})";
+    return std::string("Noc({})");
   }
 
-  // Unresolvable and no per-op override: construct from the `noc_index` kernel
-  // global variable, defined by the Metalium DM core config and the
-  // `-DNOC_INDEX` SFPI cmdline flag.
-  return ensureFunctionScopedDeclaration(useOp, rewriter, state,
-                                         "Noc noc(noc_index);", "noc",
-                                         /*duplicateCheckPrefix=*/"Noc noc(");
+  (void)rewriter.notifyMatchFailure(
+      useOp, "NoC operand is required for TTKernel-to-EmitC conversion");
+  return failure();
 }
 
 // Like `ensureNocDeclaration`, but for rewriters that splice the endpoint and
@@ -365,13 +361,16 @@ static FailureOr<std::string> ensureStaticNocDeclaration(
     Operation *useOp, ConversionPatternRewriter &rewriter, Value nocId,
     llvm::StringRef opDesc, TTKernelToEmitCConversionState &state) {
   SmallVector<Value, 1> nocOperands;
-  std::string nocName =
+  FailureOr<std::string> nocName =
       ensureNocDeclaration(useOp, rewriter, state, nocOperands, nocId);
+  if (failed(nocName)) {
+    return failure();
+  }
   if (!nocOperands.empty()) {
     return rewriter.notifyMatchFailure(
         useOp, "dynamic NoC ID is not supported for " + opDesc.str());
   }
-  return nocName;
+  return *nocName;
 }
 
 static std::string
@@ -1231,8 +1230,11 @@ public:
     TT_assert(resultType);
 
     SmallVector<Value, 1> nocOperands;
-    std::string nocName = ensureNocDeclaration(
+    FailureOr<std::string> nocName = ensureNocDeclaration(
         op.getOperation(), rewriter, state, nocOperands, adaptor.getNoc());
+    if (failed(nocName)) {
+      return failure();
+    }
     std::string endpoint = ensureEndpointDeclaration(
         op.getOperation(), rewriter, "UnicastEndpoint", "unicast_ep", state);
     SmallVector<Value, 4> operands = {adaptor.getX(), adaptor.getY(),
@@ -1245,7 +1247,7 @@ public:
         "uint64_t " + varName + " = " + endpoint +
         ".get_noc_unicast_addr(static_cast<uint32_t>({}), "
         "static_cast<uint32_t>({}), static_cast<uint32_t>({}), " +
-        nocName + ".get_noc_id());";
+        *nocName + ".get_noc_id());";
 
     rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr, operands);
     rewriter.replaceOp(
@@ -1273,9 +1275,12 @@ public:
                   ttkernel::NocAsyncAtomicBarrierOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     SmallVector<Value, 1> operands;
-    std::string nocName = ensureNocDeclaration(
+    FailureOr<std::string> nocName = ensureNocDeclaration(
         op.getOperation(), rewriter, state, operands, adaptor.getNoc());
-    std::string callStr = nocName + ".async_atomic_barrier();";
+    if (failed(nocName)) {
+      return failure();
+    }
+    std::string callStr = *nocName + ".async_atomic_barrier();";
 
     rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr, operands);
     rewriter.eraseOp(op);
@@ -1300,9 +1305,12 @@ public:
   matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     SmallVector<Value, 1> operands;
-    std::string nocName = ensureNocDeclaration(
+    FailureOr<std::string> nocName = ensureNocDeclaration(
         op.getOperation(), rewriter, state, operands, adaptor.getNoc());
-    std::string callStr = nocName + "." + methodName + "();";
+    if (failed(nocName)) {
+      return failure();
+    }
+    std::string callStr = *nocName + "." + methodName + "();";
 
     rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr, operands);
     rewriter.eraseOp(op);
@@ -1328,10 +1336,13 @@ public:
   matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     SmallVector<Value, 2> operands;
-    std::string nocName = ensureNocDeclaration(
+    FailureOr<std::string> nocName = ensureNocDeclaration(
         op.getOperation(), rewriter, state, operands, adaptor.getNoc());
+    if (failed(nocName)) {
+      return failure();
+    }
     operands.push_back(adaptor.getTrid());
-    std::string callStr = nocName + "." + methodName +
+    std::string callStr = *nocName + "." + methodName +
                           "<NocOptions::TXN_ID>(NocOptVals{{.trid = {}});";
 
     rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr, operands);
@@ -1624,8 +1635,11 @@ public:
   matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     SmallVector<Value, 9> operands;
-    std::string nocName = ensureNocDeclaration(
+    FailureOr<std::string> nocName = ensureNocDeclaration(
         op.getOperation(), rewriter, state, operands, adaptor.getNoc());
+    if (failed(nocName)) {
+      return failure();
+    }
     std::string endpoint = ensureEndpointDeclaration(
         op.getOperation(), rewriter, "MulticastEndpoint", "mcast_ep", state);
 
@@ -1650,7 +1664,7 @@ public:
         ".noc_x_end = {}, .noc_y_end = {}, "
         ".addr = static_cast<uint32_t>({})}";
 
-    std::string callStr = nocName + ".async_write_multicast" + templateArg +
+    std::string callStr = *nocName + ".async_write_multicast" + templateArg +
                           "(CoreLocalMem<uint32_t>({}), " + endpoint +
                           ", {}, {}, {{} , " + dstArgs + ", " +
                           (linked ? "true" : "false") + ");";
