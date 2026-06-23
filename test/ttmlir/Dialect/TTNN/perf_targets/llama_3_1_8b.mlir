@@ -23,8 +23,9 @@
 
 // Llama 3.1 8B single decoder layer on Wormhole B0. SDPA is fused at opt=1
 // so the 6 weight projections (q/k/v/o + gate/up/down) and the SDPA op
-// itself are all DRAM-bound; one small ephemeral RoPE-helper matmul is
-// correctly skipped.
+// itself are all DRAM-bound. The small ephemeral RoPE-helper, a degenerate
+// K=1 dot_general, now lowers to a broadcast multiply rather than a matmul,
+// so it is no longer counted as a skipped matmul (skipped_ops drops to 0).
 
 // CHECK: "perf_targets":
 // CHECK: "aiclk_hz": 1000000000
@@ -37,5 +38,5 @@
 // CHECK: "params_count": 751828992
 // CHECK: "params_memory_bytes": 798818304
 // CHECK: "roofline_ms": 2.773674
-// CHECK: "skipped_ops": 1
+// CHECK: "skipped_ops": 0
 // CHECK: "top_perf_estimate_ms": 3.962392
