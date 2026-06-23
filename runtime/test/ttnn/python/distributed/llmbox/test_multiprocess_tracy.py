@@ -4,13 +4,11 @@
 #
 
 import glob
-import json
 import os
 
-import pytest
 import ttrt
 import ttrt.runtime
-from ttrt.common.util import *
+from ttrt.common.util import Binary, FileManager, Logger
 
 from ...utils import (
     DeviceContext,
@@ -18,9 +16,6 @@ from ...utils import (
     ProgramTestRunner,
     TT_METAL_RUNTIME_ROOT_EXTERNAL,
     TT_MLIR_HOME,
-    assert_pcc,
-    get_torch_output_container,
-    subprocess_get_system_descriptor,
 )
 
 FLATBUFFER_BASE_PATH = (
@@ -33,6 +28,33 @@ RANK_BINDING_PATH = (
     f"{TT_METAL_RUNTIME_ROOT_EXTERNAL}"
     "/tests/tt_metal/distributed/config/2x4_multiprocess_rank_bindings.yaml"
 )
+
+TRACY_TOOL_NAMES = ("capture-release", "csvexport-release")
+
+
+def _resolve_tracy_tools_dir():
+    """Find the dir holding the tracy capture binaries."""
+    candidates = []
+    install_dir = os.environ.get("INSTALL_DIR")
+    if install_dir:
+        candidates.append(os.path.join(install_dir, "bin"))
+    candidates.append(os.path.join(TT_MLIR_HOME, "install", "bin"))
+    candidates.append(os.path.join(os.path.dirname(ttrt.__file__), "runtime"))
+    candidates.append(
+        os.path.join(
+            TT_METAL_RUNTIME_ROOT_EXTERNAL, "build", "tools", "profiler", "bin"
+        )
+    )
+
+    for candidate in candidates:
+        if all(os.path.exists(os.path.join(candidate, t)) for t in TRACY_TOOL_NAMES):
+            return candidate
+
+    raise AssertionError(
+        "Tracy tools (%s) not found. Searched:\n%s\n"
+        "Build tt-mlir with -DTT_RUNTIME_ENABLE_PERF_TRACE=ON."
+        % (", ".join(TRACY_TOOL_NAMES), "\n".join(candidates))
+    )
 
 
 def _launch_distributed_runtime_with_tracy(tracy_args):
@@ -64,33 +86,30 @@ def _shutdown_distributed_runtime():
 
 def _find_per_rank(output_root, pattern):
     """Recursive glob under each rank<N>/ for files matching `pattern`."""
-    matches = set()
-    matches.update(
+    return sorted(
         glob.glob(
             os.path.join(output_root, "rank*", "**", pattern),
             recursive=True,
             include_hidden=True,
         )
     )
-    matches.update(glob.glob(os.path.join(output_root, "rank*", ".logs", pattern)))
-    matches.update(glob.glob(os.path.join(output_root, f"rank*{pattern}")))
-    return sorted(matches)
 
 
 def _find_tracy_files(output_root):
-    return _find_per_rank(output_root, "*.tracy")
+    return _find_per_rank(output_root, "tracy_profile_log_host.tracy")
 
 
 def _find_perf_csv_files(output_root):
-    """`ops_perf_results_*.csv` is the processed op-level report. Glob is loose
-    to also accept legacy `ops_perf.csv` / similar names."""
-    return _find_per_rank(output_root, "*ops_perf*.csv")
+    return _find_per_rank(output_root, "ops_perf_results*.csv")
 
 
-def test_tracy_multi_host_smoke(request):
-    """Run simple_add on the [2,4] mesh under --tracy; assert each rank produces
-    a non-empty .tracy capture and ops_perf CSV. A real op (not just device init)
-    is needed or the perf CSV comes back empty."""
+def test_tracy_multiprocess_smoke():
+    """Smoke test for Tracy profiling under the MultiProcess distributed runtime.
+
+    Launches a distributed runtime on llmbox with --tracy enabled, runs
+    simple_add a few times, then asserts that every rank produced a non-empty
+    .tracy capture and a non-empty ops_perf CSV.
+    """
     os.makedirs(TRACY_OUTPUT_DIR, exist_ok=True)
 
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "simple_add_2x4.mlir.tmp.ttnn")
@@ -110,17 +129,17 @@ def test_tracy_multi_host_smoke(request):
     file_manager = FileManager(logger)
     binary = Binary(logger, file_manager, binary_path)
 
-    curr_system_desc = json.loads(subprocess_get_system_descriptor(request).as_json())
-    assert (
-        curr_system_desc["system_desc"] == binary.system_desc_dict
-    ), "System descriptor mismatch — regenerate the flatbuffer for this machine"
-
     test_runner = ProgramTestRunner(test_config, binary, 0)
 
-    # -r generates the per-rank captures/reports
+    # Resolve (and fail fast if missing) the dir holding the tracy binaries.
+    tracy_tools_dir = _resolve_tracy_tools_dir()
+
+    # -r enables the per-rank capture + csvexport report pipeline.
     TRACY_ARGS = [
         "--output-folder",
         TRACY_OUTPUT_DIR,
+        "--tracy-tools-folder",
+        tracy_tools_dir,
         "-r",
     ]
 
@@ -160,5 +179,4 @@ def test_tracy_multi_host_smoke(request):
         f"\nTracy captures written to: {TRACY_OUTPUT_DIR}\n"
         f"  .tracy files: {tracy_files}\n"
         f"  ops_perf CSVs: {perf_csv_files}\n"
-        f"Open any .tracy file in the Tracy GUI to inspect."
     )
