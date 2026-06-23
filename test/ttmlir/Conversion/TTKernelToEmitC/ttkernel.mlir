@@ -365,7 +365,8 @@ module {
       %cb_C = "ttkernel.get_compile_time_arg_val"() <{arg_index = 2 : i32}> : () -> !cb2_tiles
       // CHECK: %[[TRANSPOSE:.*]] = "emitc.constant"
       %transpose = arith.constant 0 : i32
-      // CHECK: emitc.call_opaque "mm_init"(%[[CB_A]], %[[CB_B]], %[[CB_C]], %[[TRANSPOSE]])
+      // CHECK: emitc.call_opaque "compute_kernel_hw_startup"(%[[CB_A]], %[[CB_B]], %[[CB_C]]) {template_args = [#emitc.opaque<"SrcOrder::Reverse">]}
+      // CHECK: emitc.call_opaque "matmul_init"(%[[CB_A]], %[[CB_B]], %[[TRANSPOSE]])
       "ttkernel.mm_init"(%cb_A, %cb_B, %cb_C, %transpose) : (!cb0_tiles, !cb1_tiles, !cb2_tiles, i32) -> ()
       return
     }
@@ -378,7 +379,7 @@ module {
       %cb_B = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
       // CHECK: %[[TRANSPOSE:.*]] = "emitc.constant"
       %transpose = arith.constant 0 : i32
-      // CHECK: emitc.call_opaque "mm_init_short"(%[[CB_A]], %[[CB_B]], %[[TRANSPOSE]])
+      // CHECK: emitc.call_opaque "matmul_init"(%[[CB_A]], %[[CB_B]], %[[TRANSPOSE]])
       "ttkernel.mm_init_short"(%cb_A, %cb_B, %transpose) : (!cb0_tiles, !cb1_tiles, i32) -> ()
       return
     }
@@ -418,7 +419,8 @@ module {
       %ct_dim = arith.constant 1 : i32
       %rt_dim = arith.constant 2 : i32
       %kt_dim = arith.constant 3 : i32
-      // CHECK: emitc.call_opaque "mm_block_init"(%[[CB_A]], %[[CB_B]], %[[CB_C]], %[[TRANSPOSE]], %[[CT_DIM]], %[[RT_DIM]], %[[KT_DIM]])
+      // CHECK: emitc.call_opaque "compute_kernel_hw_startup"(%[[CB_A]], %[[CB_B]], %[[CB_C]]) {template_args = [#emitc.opaque<"SrcOrder::Reverse">]}
+      // CHECK: emitc.call_opaque "matmul_block_init"(%[[CB_A]], %[[CB_B]], %[[TRANSPOSE]], %[[CT_DIM]], %[[RT_DIM]], %[[KT_DIM]])
       "ttkernel.mm_block_init"(%cb_A, %cb_B, %cb_C, %transpose, %ct_dim, %rt_dim, %kt_dim) : (!cb0_tiles, !cb1_tiles, !cb2_tiles, i32, i32, i32, i32) -> ()
       return
     }
@@ -437,7 +439,7 @@ module {
       %ct_dim = arith.constant 1 : i32
       %rt_dim = arith.constant 2 : i32
       %kt_dim = arith.constant 3 : i32
-      // CHECK: emitc.call_opaque "mm_block_init_short"(%[[CB_A]], %[[CB_B]], %[[TRANSPOSE]], %[[CT_DIM]], %[[RT_DIM]], %[[KT_DIM]])
+      // CHECK: emitc.call_opaque "matmul_block_init"(%[[CB_A]], %[[CB_B]], %[[TRANSPOSE]], %[[CT_DIM]], %[[RT_DIM]], %[[KT_DIM]])
       "ttkernel.mm_block_init_short"(%cb_A, %cb_B, %transpose, %ct_dim, %rt_dim, %kt_dim) : (!cb0_tiles, !cb1_tiles, i32, i32, i32, i32) -> ()
       return
     }

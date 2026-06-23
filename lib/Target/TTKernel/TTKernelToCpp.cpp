@@ -32,6 +32,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Target/Cpp/CppEmitter.h"
 #include "llvm/ADT/ScopeExit.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <set>
@@ -52,7 +53,6 @@ public:
     headers.insert("<cstdint>");
     switch (threadType) {
     case ThreadType::Compute:
-      headers.insert("api/compute/compute_kernel_api.h");
       headers.insert("api/compute/common.h");
       break;
     case ThreadType::Noc:
@@ -186,6 +186,16 @@ public:
       if (value.starts_with("experimental::invoke_sfpi")) {
         emitLlk(experimental_invoke_sfpi_llks_generated,
                 experimental_invoke_sfpi_llks_generated_len);
+      }
+    });
+
+    region->walk([&](emitc::LiteralOp literalOp) {
+      llvm::StringRef value = literalOp.getValue();
+      llvm::StringRef callee =
+          value.take_until([](char c) { return c == '(' || llvm::isSpace(c); });
+      auto it = headerMap.find(callee);
+      if (it != headerMap.end()) {
+        insertHeaders(it->second);
       }
     });
 

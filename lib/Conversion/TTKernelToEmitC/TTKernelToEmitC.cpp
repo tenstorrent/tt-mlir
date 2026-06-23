@@ -1021,6 +1021,44 @@ private:
 } // namespace
 
 namespace {
+template <typename SourceOp>
+class TTKernelMatmulInitToEmitCRewriter : public OpConversionPattern<SourceOp> {
+public:
+  using OpConversionPattern<SourceOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(SourceOp op, typename SourceOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    ValueRange operands = adaptor.getOperands();
+    SmallVector<Attribute, 1> templateArgs;
+    templateArgs.push_back(
+        emitc::OpaqueAttr::get(op.getContext(), "SrcOrder::Reverse"));
+    auto reverseSrcOrder = ArrayAttr::get(op.getContext(), templateArgs);
+
+    rewriter.create<emitc::CallOpaqueOp>(
+        op.getLoc(), TypeRange{}, "compute_kernel_hw_startup", ArrayAttr(),
+        reverseSrcOrder, ValueRange{operands[0], operands[1], operands[2]});
+
+    if constexpr (std::is_same_v<SourceOp, ttkernel::MatmulInitOp>) {
+      rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(), TypeRange{}, "matmul_init", ArrayAttr(), ArrayAttr(),
+          ValueRange{operands[0], operands[1], operands[3]});
+    } else {
+      static_assert(std::is_same_v<SourceOp, ttkernel::MatmulBlockInitOp>);
+      rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(), TypeRange{}, "matmul_block_init", ArrayAttr(),
+          ArrayAttr(),
+          ValueRange{operands[0], operands[1], operands[3], operands[4],
+                     operands[5], operands[6]});
+    }
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class TTKernelBitcastOpRewriter
     : public OpConversionPattern<ttkernel::BitcastOp> {
 public:
@@ -2466,6 +2504,15 @@ public:
     populateMemRefToEmitCConversionPatterns(patterns, typeConverter);
 
     patterns.add<TTKernelBitcastOpRewriter>(typeConverter, context, &state);
+    patterns
+        .add<TTKernelMatmulInitToEmitCRewriter<ttkernel::MatmulInitOp>,
+             TTKernelMatmulInitToEmitCRewriter<ttkernel::MatmulBlockInitOp>>(
+            typeConverter, context);
+    patterns.add<TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulInitShortOp>>(
+        typeConverter, context, "matmul_init");
+    patterns
+        .add<TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulBlockInitShortOp>>(
+            typeConverter, context, "matmul_block_init");
     patterns.add<
         TTKernelToEmitCArgValRewriter<ttkernel::GetCompileArgValOp>,
         TTKernelToEmitCArgValRewriter<ttkernel::GetArgValOp>,
@@ -2525,11 +2572,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::BinaryOpInitCommonOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::AddTilesOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulInitOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulInitShortOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulTilesOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulBlockInitOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulBlockInitShortOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalMatmulBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulTilesInitOp>,
