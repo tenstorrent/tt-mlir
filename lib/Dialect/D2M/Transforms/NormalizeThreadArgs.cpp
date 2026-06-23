@@ -23,6 +23,16 @@ namespace mlir::tt::d2m {
 
 namespace {
 
+static ResolutionStageAttr getResolutionStageForArg(MLIRContext *ctx,
+                                                    Type argType) {
+  const bool runtimeResolved =
+      mlir::isa<MemRefType, d2m::GlobalSemaphoreType, d2m::LocalSemaphoreType,
+                IndexType, IntegerType, FloatType>(argType);
+  return ResolutionStageAttr::get(ctx, runtimeResolved
+                                           ? ResolutionStage::Runtime
+                                           : ResolutionStage::Compile);
+}
+
 static void rewriteOperand(IRRewriter &rewriter, Operation *op,
                            OpOperand &operand, unsigned operandIndex) {
   MemRefType memref = mlir::cast<MemRefType>(operand.get().getType());
@@ -32,8 +42,7 @@ static void rewriteOperand(IRRewriter &rewriter, Operation *op,
   rewriter.setInsertionPoint(op);
   Operation *buf = rewriter.create<GetArgOp>(
       op->getLoc(), memref, operandIndex,
-      ResolutionStageAttr::get(rewriter.getContext(),
-                               ResolutionStage::Compile));
+      getResolutionStageForArg(rewriter.getContext(), memref));
   operand.set(buf->getResult(0));
 }
 
@@ -82,8 +91,8 @@ public:
     ModuleOp moduleOp = getOperation();
     IRRewriter rewriter(&getContext());
 
-    // Fill in resolution_stage = compile on any existing get_* ops that don't
-    // already have the attribute set.
+    // Fill in resolution_stage on any existing get_* ops that don't already
+    // have the attribute set.
     auto compileAttr =
         ResolutionStageAttr::get(&getContext(), ResolutionStage::Compile);
     moduleOp->walk([&](Operation *op) {
@@ -96,8 +105,11 @@ public:
           })
           .Case<GetArgOp>([&](GetArgOp argOp) {
             if (!argOp.getResolutionStageAttr()) {
-              rewriter.modifyOpInPlace(
-                  argOp, [&]() { argOp.setResolutionStageAttr(compileAttr); });
+              auto resolutionStage =
+                  getResolutionStageForArg(&getContext(), argOp.getType());
+              rewriter.modifyOpInPlace(argOp, [&]() {
+                argOp.setResolutionStageAttr(resolutionStage);
+              });
             }
           });
     });
@@ -135,10 +147,9 @@ public:
           for (auto &block : region) {
             rewriter.setInsertionPointToStart(&block);
 
-            auto compileTimeAttr = ResolutionStageAttr::get(
-                &getContext(), ResolutionStage::Compile);
-            Value replacement = rewriter.create<GetArgOp>(arg.getLoc(), argType,
-                                                          i, compileTimeAttr);
+            Value replacement = rewriter.create<GetArgOp>(
+                arg.getLoc(), argType, i,
+                getResolutionStageForArg(&getContext(), argType));
             rewriter.setInsertionPointAfter(replacement.getDefiningOp());
 
             rewriter.replaceUsesWithIf(arg, replacement, [&](OpOperand &use) {

@@ -9,6 +9,7 @@ enum EthType : ushort {
 }
 
 table NocConfig {
+  processor: DataMovementProcessor;
   noc_index: NocIndex;
 }
 
@@ -99,6 +100,7 @@ table KernelArg {
 }
 
 table KernelArgs {
+  crt_args: [KernelArg];
   rt_args: [KernelArg];
   ct_args: [KernelArg];
 }

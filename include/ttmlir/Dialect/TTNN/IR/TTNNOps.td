@@ -920,14 +920,13 @@ def TTNN_ArgMaxOp : TTNN_Op<"argmax"> {
       - `input`: The input tensor.
       - `dim`: Specifies the dimension along which the argmax is applied.
       - `keep_dim`: If set to true, the output tensor will have the same number of dimensions as the input tensor.
-      - `use_multicore`: Whether to use multiple cores or not.
 
     IR usage:
     // Input tensor of shape (128, 28, 28, 64)
     %input = ... : tensor<128x28x28x64xbf16>
 
     %empty = "ttnn.empty"(%0) <{....}> : -> tensor<128x28x28xi32>
-    %4 = "ttnn.argmax"(%input, %empty) <{dim = 3 : i32, use_multicore = false}> : (tensor<128x28x28xbf16>, tensor<128x28x28xi32) -> tensor<128x28x28xi32>
+    %4 = "ttnn.argmax"(%input, %empty) <{dim = 3 : i32}> : (tensor<128x28x28xbf16>, tensor<128x28x28xi32) -> tensor<128x28x28xi32>
 
     Example:
       input: [[1, 5, 3],
@@ -945,8 +944,7 @@ def TTNN_ArgMaxOp : TTNN_Op<"argmax"> {
 
   let arguments = (ins AnyRankedTensor:$input,
                        OptionalAttr<I32Attr>:$dim,
-                       DefaultValuedAttr<BoolAttr, "false">:$keep_dim,
-                       BoolAttr:$use_multicore);
+                       DefaultValuedAttr<BoolAttr, "false">:$keep_dim);
 
   let extraClassDeclaration = [{
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
@@ -1436,6 +1434,8 @@ def TTNN_SliceStaticOp: TTNN_Op<"slice_static"> {
     }];
 
     let hasVerifier = 1;
+
+    let hasFolder = 1;
 }
 
 def TTNN_SliceDynamicOp: TTNN_Op<"slice_dynamic"> {
@@ -1535,6 +1535,7 @@ def TTNN_MatmulOp : TTNN_Op<"matmul", [TTNN_ComputeKernelConfigOpInterface]> {
     ];
 
     let hasVerifier = 1;
+    let hasCanonicalizer = 1;
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn
 
@@ -1799,6 +1800,141 @@ def TTNN_MoeGptOp : TTNN_Op<"moe_gpt"> {
     let hasVerifier = 1;
 }
 
+def TTNN_PrepareMoEComputeW0W1WeightsOp :
+    TTNN_Op<"prepare_moe_compute_w0_w1_weights",
+    [AttrSizedOperandSegments]> {
+    let summary = "Prepack gate (W0) and up (W1) expert weights for moe_compute.";
+    let description = [{
+      Interleaves W0 / W1 and reorders the result into the bank-aware sharded
+      layout `ttnn.moe_compute`'s `matmul_w0_w1_tensor` operand consumes.
+      Optional `bias_0` / `bias_1` fuse per-expert biases along K (their
+      presence must match `has_bias` on the downstream `moe_compute`). The
+      result shape and memory layout are derived at compile time by the
+      TTNNDeduceMoEComputeLayouts pass via a TTNN graph-capture query.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$w0,
+                         AnyRankedTensor:$w1,
+                         Optional<AnyRankedTensor>:$bias_0,
+                         Optional<AnyRankedTensor>:$bias_1,
+                         TTNN_Device:$device,
+                         UI32Attr:$hidden_size,
+                         UI32Attr:$intermediate_size,
+                         OptionalAttr<UI32Attr>:$bh_ring_size);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createPrepareMoEComputeW0W1WeightsOpOperandsWorkarounds(*this);
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_PrepareMoEComputeW2WeightsOp :
+    TTNN_Op<"prepare_moe_compute_w2_weights"> {
+    let summary = "Prepack down (W2) expert weight for moe_compute.";
+    let description = [{
+      Reorders W2 into the bank-aware sharded layout `ttnn.moe_compute`'s
+      `matmul_w2_tensor` operand consumes. Optional `bias_2` fuses the
+      per-expert bias along N without ring-rotation (its presence must match
+      `has_bias` on the downstream `moe_compute`). Result shape comes from the
+      TTNN graph capture query.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$w2,
+                         Optional<AnyRankedTensor>:$bias_2,
+                         TTNN_Device:$device,
+                         UI32Attr:$hidden_size,
+                         UI32Attr:$intermediate_size,
+                         OptionalAttr<UI32Attr>:$bh_ring_size);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createPrepareMoEComputeW2WeightsOpOperandsWorkarounds(*this);
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_MoeComputeOp : TTNN_Op<"moe_compute",
+    [AttrSizedOperandSegments, TTNN_DistributedOpInterface, OpModelExempt]> {
+    let summary = "Fused MoE expert compute (selective tilize + experts + combine).";
+    let description = [{
+      Composite operation that performs the MoE expert FFN in a single fused
+      kernel: selective tilize of dispatched tokens, the gate/up matmul (W0/W1)
+      followed by SILU or SwiGLU activation, the down matmul (W2), and an
+      A2A selective-reduce-combine. Maps to
+      `ttnn::experimental::moe_compute` at runtime.
+
+      `optional_output_tensor` is the caller-allocated combine-output buffer;
+      `cross_device_semaphore` synchronizes the A2A combine across devices.
+      Both are optional in source MLIR but must be bound before the runtime
+      can lower the op. They are populated by the
+      `TTNNAllocateDistributedOpBuffers` / `TTNNAllocateDistributedOpSemaphores`
+      passes via the `DistributedOpInterface`.
+
+      When `compute_only` is set, the A2A combine is skipped (single-device /
+      no-CCL bring-up): tt-metal returns only the first five tensors and
+      `matmul_output` is the final user-visible output. In that mode
+      `cluster_axis`, `topology`, `num_links`, `mux_core_range_set`,
+      `optional_output_tensor`, and `cross_device_semaphore` are unused, and
+      `combine_output` aliases `matmul_output`. `bh_ring_size` pins the
+      Blackhole matmul ring size (8, 12, or 16; default 12) and is ignored on
+      Wormhole.
+
+      See `TTIR_MoeComputeOp` for input/output shapes and dtypes.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$tilize_input_tensor,
+                         AnyRankedTensor:$tilize_expert_indices_tensor,
+                         AnyRankedTensor:$tilize_expert_scores_tensor,
+                         AnyRankedTensor:$tilize_expert_mapping_tensor,
+                         AnyRankedTensor:$matmul_w0_w1_tensor,
+                         AnyRankedTensor:$matmul_w2_tensor,
+                         Optional<AnyRankedTensor>:$optional_output_tensor,
+                         Optional<TTNN_GlobalSemaphore>:$cross_device_semaphore,
+                         TTNN_Device:$device,
+                         UI32Attr:$layer_id,
+                         UI32Attr:$output_height_shard_dim,
+                         UI32Attr:$intermediate_size,
+                         BoolAttr:$has_bias,
+                         DefaultValuedAttr<TTCore_MoEActivationFunctionAttr,
+                             "::mlir::tt::ttcore::MoEActivationFunction::Silu">:$activation_function,
+                         OptionalAttr<UI32Attr>:$bh_ring_size,
+                         DefaultValuedAttr<BoolAttr, "true">:$compute_only,
+
+                         // Full-path-only inputs, unused when compute_only == true.
+                         OptionalAttr<UI32Attr>:$cluster_axis,
+                         OptionalAttr<UI32Attr>:$num_links,
+                         OptionalAttr<TTCore_TopologyAttr>:$topology,
+                         OptionalAttr<TTNN_CoreRangeSetAttr>:$mux_core_range_set);
+
+    let results = (outs AnyRankedTensor:$per_expert_total_tokens,
+                        AnyRankedTensor:$expert_activation,
+                        AnyRankedTensor:$expert_to_token,
+                        AnyRankedTensor:$tilize_output,
+                        AnyRankedTensor:$matmul_output,
+                        AnyRankedTensor:$combine_output);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createMoeComputeOpOperandsWorkarounds(*this);
+      }
+      bool hasUnboundBuffers();
+      void allocateBuffers(::mlir::RewriterBase &rewriter);
+      bool hasUnboundSemaphores();
+      void allocateSemaphores(::mlir::RewriterBase &rewriter);
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights", [TTNN_ComputeKernelConfigOpInterface]> {
     let summary = "Prepares conv2d weights so that they can be consumed by the conv2d op.";
 
@@ -1893,6 +2029,7 @@ def TTNN_PrepareConvTranspose2dWeightsOp : TTNN_Op<"prepare_conv_transpose2d_wei
                          DenseI32ArrayAttr:$kernel_size,
                          DenseI32ArrayAttr:$stride,
                          DenseI32ArrayAttr:$padding,
+                         DefaultValuedAttr<DenseI32ArrayAttr, "{0, 0}">:$output_padding,
                          DenseI32ArrayAttr:$dilation,
                          BoolAttr:$has_bias,
                          I32Attr:$groups,
@@ -3730,6 +3867,39 @@ def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_prod
   let hasVerifier = 1;
 }
 
+def TTNN_ChunkedScaledDotProductAttentionOp : TTNN_Op<"chunked_scaled_dot_product_attention", [OpModelExempt]> {
+  let summary = "Chunked prefill scaled dot product attention over a paged KV cache.";
+  let description = [{
+    Chunked-prefill attention. A prefill chunk of `query` attends
+    causally over the prefix `[0, chunk_start_idx + chunk_len)` resident in the
+    paged K/V cache, read on device via `page_table`, with the prefix offset given
+    by the device tensor `chunk_start_idx` (`[1]` int32).
+
+    Because the prefix offset is a device tensor (not a host scalar) and the page
+    table is consumed on device, the op holds no host-side state: it can be
+    captured inside a trace and replayed across invocations with a different
+    `chunk_start_idx` without recompiling.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$query,
+                       AnyRankedTensor:$key,
+                       AnyRankedTensor:$value,
+                       AnyRankedTensor:$page_table,
+                       AnyRankedTensor:$chunk_start_idx,
+                       OptionalAttr<F32Attr>:$scale,
+                       OptionalAttr<TTNN_SDPAProgramConfigAttr>:$program_config);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createChunkedScaledDotProductAttentionOpOperandsWorkarounds(getOperation());
+    }
+  }];
+
+  let hasVerifier = 1;
+}
+
 def TTNN_PagedFlashMultiLatentAttentionDecodeOp : TTNN_Op<"paged_flash_multi_latent_attention_decode", [AttrSizedOperandSegments]> {
   let summary = "Paged flash multi-latent attention decode operation.";
   let description = [{
@@ -3807,6 +3977,52 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createScaledDotProductAttentionOpOperandsWorkarounds(getOperation());
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_FlashMlaPrefillOp : TTNN_Op<"flash_mla_prefill", [AttrSizedOperandSegments]> {
+    let summary = "Flash Multi-head Latent Attention prefill operation.";
+    let description = [{
+      Multi-head Latent Attention (MLA) prefill. Mirrors
+      `ttnn::transformer::flash_mla_prefill`.
+
+      Shapes use `B` (batch), `Hq`/`Hkv` (query/kv heads), `Sq` (sequence
+      length; must equal `Sk` for prefill), `dh_qk` (Q/K head size), and
+      `head_dim_v` (V/output head size).
+
+      Args:
+          query (AnyRankedTensor): `[B x Hq x Sq x dh_qk]`.
+          key (AnyRankedTensor): `[B x Hkv x Sq x dh_qk]`.
+          value (AnyRankedTensor, optional): `[B x Hkv x Sq x head_dim_v]`.
+              When absent (MLA-from-latent), V is taken from the first
+              `head_dim_v` features of K.
+          attention_mask (AnyRankedTensor, optional): `[1|B x 1 x Sq x Sq]`.
+              Only valid when `is_causal` is `false`.
+          head_dim_v (uint): Head dimension of V/output.
+          is_causal (bool): Defaults to `true`. Cannot be `true` when
+              `attention_mask` is provided.
+          scale (float, optional): Softmax scale. Defaults to `1 / sqrt(dh_qk)`.
+
+      Returns:
+          AnyRankedTensor: `[B x Hq x Sq x head_dim_v]` (same dtype as `query`).
+    }];
+
+    let arguments = (ins AnyRankedTensor:$query,
+                         AnyRankedTensor:$key,
+                         Optional<AnyRankedTensor>:$value,
+                         Optional<AnyRankedTensor>:$attention_mask,
+                         UI32Attr:$head_dim_v,
+                         DefaultValuedAttr<BoolAttr, "true">:$is_causal,
+                         OptionalAttr<F32Attr>:$scale);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::createFlashMlaPrefillOpOperandsWorkarounds(getOperation());
       }
     }];
 
@@ -3940,16 +4156,29 @@ def TTNN_SamplingOp : TTNN_Op<"sampling"> {
     Performs fused top-k + top-p + multinomial sampling on pre-filtered
     candidate logits using the ttnn::sampling kernel.
 
-    Inputs:
-      - `input_values`: Pre-filtered candidate logit values [batch, candidates] bf16, TILE layout
-      - `input_indices`: Global vocab indices for each candidate [batch, candidates] int32, ROW_MAJOR
-      - `k`: Per-request top-k values [batch] uint32, ROW_MAJOR
-      - `p`: Per-request top-p values [batch] bf16, ROW_MAJOR
-      - `temp`: Per-request temperature values [batch] bf16, ROW_MAJOR
-      - `seed`: Optional random seed (uint32 scalar attribute)
+    The op accepts two SHAPE forms; SamplingOpRank2RewritePattern (a
+    decomposition workaround) transforms the first into the second so the
+    ttnn::sampling kernel sees the rank it requires. Dtype and layout
+    adaptation are handled separately by operand workarounds.
 
-    Output:
-      - `result`: Sampled global token indices [batch] int32, ROW_MAJOR
+    Pre-decomposition (matches TTIR view):
+      - `input_values`:  [batch, candidates]      bf16
+      - `input_indices`: [batch, candidates]      int32
+      - `result`:        [batch]                  int32
+
+    Post-decomposition (rank matches the kernel; dtype/layout are still the
+    IR's user-facing types — operand workarounds insert any needed to_layout
+    and typecast ops, e.g. retyping the result to uint32 to match the kernel
+    and converting back to int32 for consumers):
+      - `input_values`:  [1, 1, batch, candidates]  bf16
+      - `input_indices`: [1, 1, batch, candidates]  int32
+      - `result`:        [1, 1, 1, batch]           int32
+
+    Common to both forms:
+      - `k`: Per-request top-k values [batch] uint32
+      - `p`: Per-request top-p values [batch] bf16
+      - `temp`: Per-request temperature values [batch] bf16
+      - `seed`: Optional random seed (uint32 scalar attribute)
   }];
 
   let arguments = (ins AnyRankedTensor:$input_values,
@@ -4079,6 +4308,74 @@ def TTNN_ResetGlobalSemaphoreOp : TTNN_Op<"reset_global_semaphore", [OpModelExem
 
     let arguments = (ins TTNN_GlobalSemaphore:$semaphore,
                          UI32Attr:$value);
+}
+
+//===----------------------------------------------------------------------===//
+// TTNN tt-lang kernel op
+//===----------------------------------------------------------------------===//
+
+def TTNN_TTLangOp : Op<TTNN_Dialect, "tt_lang_op",
+    [TTNN_WorkaroundInterface,
+     DestinationStyleOpInterface,
+     OpModelExempt]> {
+  let summary = "Opaque tt-lang custom kernel call.";
+  let description = [{
+    TTNN-level representation for a user-defined tt-lang kernel. Lowered from
+    `ttir.tt_lang_op` and carries the same `kernel_id` / `version_tag` /
+    `arg_roles` / `shard_spec` attributes verbatim. The kernel body is
+    deferred: the optional `kernel_artifact` attribute is empty post-conversion
+    and is populated by the `--ttnn-resolve-tt-lang-kernels` pass (driven from
+    the tt-xla plugin's `ModuleBuilder::resolveTTLangKernels`) after the
+    TTIR -> TTNN pipeline finishes by calling the tt-lang Python resolver with
+    the now-final shard-local operand types. The artifact is the resolver's
+    JSON payload stored as a `StringAttr`. Subsequent flatbuffer emission
+    consumes `kernel_artifact` to embed the compiled kernel into the
+    executable.
+
+    This op is intentionally opaque to the TTNN optimizer: it is exempt
+    from the op-model cost interface via the `OpModelExempt` trait (its
+    kernel body is not authored in TTNN dialects, so neither op constraints
+    nor runtime can be queried from inside tt-mlir). TT-Lang kernels expect
+    32x32 tile layout so there is a hard `Layout::Tile` requirement on
+    every input and result so the layout pipeline materialises tilized
+    buffers for the kernel's reader/writer threads.
+
+    The op is destination-passing style (`DestinationStyleOpInterface`):
+    the `"out"`-roled operands are the trailing DPS init operands and tie
+    positionally to the op's results (result `i` aliases the `i`-th `"out"`
+    operand's buffer). `arg_roles` is therefore constrained to the form
+    `in* out+` -- all `"in"` operands first, then all `"out"` operands --
+    which is enforced by the verifier and by the `@tt_torch.tt_lang_operation`
+    decorator. Generic MLIR analyses (the TTNN deallocate pass, etc.)
+    follow the DPS operand->result tie directly, so the op needs no
+    name-keyed special-casing.
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                       StrAttr:$kernel_id,
+                       StrAttr:$version_tag,
+                       StrAttr:$arg_roles,
+                       DefaultValuedStrAttr<StrAttr, "">:$shard_spec,
+                       OptionalAttr<StrAttr>:$kernel_artifact);
+  let results = (outs Variadic<AnyRankedTensor>:$results);
+
+  let extraClassDeclaration = [{
+    // DPS init operands are the trailing `"out"`-roled operands. The
+    // verifier enforces `arg_roles == in* out+` and `#out == #results`,
+    // so the inits are the last `getResults().size()` operands and tie
+    // positionally to the results.
+    ::mlir::MutableOperandRange getDpsInitsMutable() {
+      unsigned numOuts = getResults().size();
+      unsigned numIns = getInputs().size() - numOuts;
+      return ::mlir::MutableOperandRange(*this, numIns, numOuts);
+    }
+  }];
+
+  let assemblyFormat = [{
+    `(` $inputs `)` attr-dict `:` `(` type($inputs) `)` `->` `(` type($results) `)`
+  }];
+
+  let hasVerifier = 1;
 }
 
 #endif

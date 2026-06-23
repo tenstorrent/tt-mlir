@@ -183,7 +183,9 @@ def ConvertD2MToTTKernel: Pass<"convert-d2m-to-ttkernel", "::mlir::ModuleOp"> {
   let constructor = "createConvertD2MToTTKernelPass()";
   let dependentDialects = ["mlir::tt::d2m::D2MDialect", "mlir::tt::ttmetal::TTMetalDialect", "mlir::tt::ttkernel::TTKernelDialect", "mlir::arith::ArithDialect"];
   let options = [
-    Option<"ttnnMode", "ttnn-mode", "bool", /*default=*/"false", "Enable TTNN mode">
+    Option<"ttnnMode", "ttnn-mode", "bool", /*default=*/"false", "Enable TTNN mode">,
+    Option<"forceCompileTimeArgs", "force-compile-time-args", "bool", /*default=*/"false",
+           "Force uniform D2M kernel arguments into compile-time args when legal for CRTA performance comparison.">
   ];
 }
 
@@ -323,6 +325,20 @@ def ConvertTTKernelToEmitC : Pass<"convert-ttkernel-to-emitc", "::mlir::ModuleOp
   let summary = "Convert TTKernel dialect to EmitC dialect.";
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::func::FuncDialect",
                            "mlir::tt::ttkernel::TTKernelDialect"];
+}
+
+def RemoveDeadEmitCExpressions : Pass<"remove-dead-emitc-expressions", "::mlir::ModuleOp"> {
+  let summary = "Remove unused side-effect-free EmitC operations.";
+  let description = [{
+    Remove unused EmitC operations that implement CExpressionInterface or wrap
+    expression bodies in emitc.expression and report no side effects. Also
+    remove EmitC variables whose only uses are writes, together with the dead
+    assignments. This covers pure C expression fragments and write-only locals
+    that MLIR's generic DCE cannot see because EmitC models expression effects
+    through CExpressionInterface and variables carry memory effects.
+  }];
+  let constructor = "createRemoveDeadEmitCExpressionsPass()";
+  let dependentDialects = ["mlir::emitc::EmitCDialect"];
 }
 
 def ConvertSFPIToEmitC : Pass<"convert-sfpi-to-emitc", "::mlir::ModuleOp"> {

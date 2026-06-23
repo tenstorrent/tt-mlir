@@ -777,6 +777,82 @@ public:
 //   2. `attention_sink` is hard-coded to operand-segment size 0; the frontend
 //      cannot supply it yet. Tracked by
 //      https://github.com/tenstorrent/tt-xla/issues/4030.
+// Shared lowering of scaled_dot_product_attention (composite or custom_call
+// form) to ttir.scaled_dot_product_attention. Operands are [query, key, value]
+// and optionally a 4th attention_mask; is_causal/scale come from the composite
+// attribute dictionary.
+static LogicalResult convertToTTIRScaledDotProductAttention(
+    mlir::Operation *srcOp, mlir::ValueRange operands,
+    DictionaryAttr compositeAttrs, RankedTensorType outputType,
+    ConversionPatternRewriter &rewriter) {
+  size_t numOperands = operands.size();
+  if (numOperands < 3) {
+    return rewriter.notifyMatchFailure(
+        srcOp, "scaled_dot_product_attention must have at least 3 operands "
+               "(query, key, value).");
+  }
+
+  // For now, frontend composite doesnt support attention_sink.
+  // Issue: https://github.com/tenstorrent/tt-xla/issues/4030
+  if (numOperands > 4) {
+    return rewriter.notifyMatchFailure(
+        srcOp, "scaled_dot_product_attention must have at most 4 operands "
+               "(query, key, value, attention_mask). "
+               "Attention sink is not supported yet.");
+  }
+
+  SmallVector<NamedAttribute> namedAttrs;
+
+  bool isCausal = true;
+  if (compositeAttrs) {
+    if (auto attr = compositeAttrs.getAs<BoolAttr>("is_causal")) {
+      isCausal = attr.getValue();
+      namedAttrs.push_back(rewriter.getNamedAttr("is_causal", attr));
+    }
+    if (auto attr = compositeAttrs.getAs<FloatAttr>("scale")) {
+      namedAttrs.push_back(rewriter.getNamedAttr(
+          "scale", rewriter.getF32FloatAttr(
+                       static_cast<float>(attr.getValueAsDouble()))));
+    }
+  }
+
+  // The first 3 operands are always query, key, value. A 4th operand
+  // (attention_mask) is present only when is_causal is false.
+  bool hasAttnMask = !isCausal && numOperands == 4;
+  SmallVector<Value> sdpaOperands = {operands[0], operands[1], operands[2]};
+  if (hasAttnMask) {
+    // Left-pad mask with unit dims to 4D — matches PyTorch broadcast semantics.
+    Value mask = operands[3];
+    auto maskType = mlir::cast<RankedTensorType>(mask.getType());
+    int64_t maskRank = maskType.getRank();
+    if (maskRank > 4) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "attention_mask rank must be <= 4");
+    }
+    if (maskRank < 4) {
+      SmallVector<int64_t> paddedShape(4 - maskRank, 1);
+      paddedShape.append(maskType.getShape().begin(),
+                         maskType.getShape().end());
+      auto paddedType =
+          RankedTensorType::get(paddedShape, maskType.getElementType());
+      mask = rewriter.create<ttir::ReshapeOp>(
+          srcOp->getLoc(), paddedType, mask,
+          rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(paddedShape)));
+    }
+    sdpaOperands.push_back(mask);
+  }
+
+  // ttir.scaled_dot_product_attention has AttrSizedOperandSegments:
+  //   [query, key, value, attention_mask, attention_sink]
+  SmallVector<int32_t> segmentSizes = {1, 1, 1, hasAttnMask ? 1 : 0, 0};
+  namedAttrs.push_back(rewriter.getNamedAttr(
+      "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
+
+  rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
+      srcOp, outputType, sdpaOperands, namedAttrs);
+  return success();
+}
+
 class TenstorrentScaledDotProductAttentionConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
 
@@ -797,85 +873,89 @@ public:
           srcOp, "CompositeOp must have exactly one result.");
     }
 
-    size_t numOperands = adaptor.getOperands().size();
-    if (numOperands < 3) {
-      return rewriter.notifyMatchFailure(
-          srcOp,
-          "tenstorrent.scaled_dot_product_attention composite op must have "
-          "at least 3 operands (query, key, value).");
-    }
-
-    // For now, frontend composite doesnt support attention_sink.
-    // Issue: https://github.com/tenstorrent/tt-xla/issues/4030
-    if (numOperands > 4) {
-      return rewriter.notifyMatchFailure(
-          srcOp,
-          "tenstorrent.scaled_dot_product_attention composite op must have "
-          "at most 4 operands (query, key, value, attention_mask). "
-          "Attention sink is not supported yet.");
-    }
-
     auto outputType =
         mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
 
-    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
-
-    SmallVector<NamedAttribute> namedAttrs;
-
-    bool isCausal = true;
-    if (compositeAttrs) {
-      if (auto attr = compositeAttrs.getAs<BoolAttr>("is_causal")) {
-        isCausal = attr.getValue();
-        namedAttrs.push_back(rewriter.getNamedAttr("is_causal", attr));
-      }
-      if (auto attr = compositeAttrs.getAs<FloatAttr>("scale")) {
-        namedAttrs.push_back(rewriter.getNamedAttr(
-            "scale", rewriter.getF32FloatAttr(
-                         static_cast<float>(attr.getValueAsDouble()))));
-      }
-    }
-
-    // The composite's first 3 operands are always query, key, value.
-    // A 4th boundary input (attention_mask) is present only when
-    // is_causal is false and the frontend marked 4 inputs.
-    bool hasAttnMask = !isCausal && numOperands == 4;
-    SmallVector<Value> sdpaOperands = {adaptor.getOperands()[0],
-                                       adaptor.getOperands()[1],
-                                       adaptor.getOperands()[2]};
-    if (hasAttnMask) {
-      // Left-pad mask with unit dims to 4D — matches PyTorch broadcast
-      // semantics.
-      Value mask = adaptor.getOperands()[3];
-      auto maskType = mlir::cast<RankedTensorType>(mask.getType());
-      int64_t maskRank = maskType.getRank();
-      if (maskRank > 4) {
-        return rewriter.notifyMatchFailure(srcOp,
-                                           "attention_mask rank must be <= 4");
-      }
-      if (maskRank < 4) {
-        SmallVector<int64_t> paddedShape(4 - maskRank, 1);
-        paddedShape.append(maskType.getShape().begin(),
-                           maskType.getShape().end());
-        auto paddedType =
-            RankedTensorType::get(paddedShape, maskType.getElementType());
-        mask = rewriter.create<ttir::ReshapeOp>(
-            srcOp.getLoc(), paddedType, mask,
-            rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(paddedShape)));
-      }
-      sdpaOperands.push_back(mask);
-    }
-
-    // ttir.scaled_dot_product_attention has AttrSizedOperandSegments:
-    //   [query, key, value, attention_mask, attention_sink]
-    SmallVector<int32_t> segmentSizes = {1, 1, 1, hasAttnMask ? 1 : 0, 0};
-    namedAttrs.push_back(rewriter.getNamedAttr(
-        "operandSegmentSizes", rewriter.getDenseI32ArrayAttr(segmentSizes)));
-
-    rewriter.replaceOpWithNewOp<ttir::ScaledDotProductAttentionOp>(
-        srcOp, outputType, sdpaOperands, namedAttrs);
-    return success();
+    return convertToTTIRScaledDotProductAttention(
+        srcOp, adaptor.getOperands(), srcOp.getCompositeAttributes(),
+        outputType, rewriter);
   }
 };
+
+// Converts the sharded form, stablehlo.custom_call
+// @tenstorrent.scaled_dot_product_attention, to
+// ttir.scaled_dot_product_attention. FlattenOrConvertCompositesPass converts
+// the composite into this custom_call so Shardy can propagate the head
+// sharding; this lowers it back, mirroring CustomCallRMSNormConversionPattern.
+class CustomCallScaledDotProductAttentionConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+
+public:
+  CustomCallScaledDotProductAttentionConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CustomCallOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (adaptor.getCallTargetNameAttr() != kTTSDPACompositeName ||
+        !srcOp->hasAttr(kHasCustomShardingAttr)) {
+      return failure();
+    }
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "CustomCallOp must have exactly one result.");
+    }
+    auto compositeAttrs = mlir::dyn_cast_or_null<DictionaryAttr>(
+        srcOp->getDiscardableAttr(kCustomCallCompositeAttrsKey));
+    if (!compositeAttrs) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "missing attributes on converted custom_call op");
+    }
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+    return convertToTTIRScaledDotProductAttention(
+        srcOp, adaptor.getOperands(), compositeAttrs, outputType, rewriter);
+  }
+};
+
+// Shared helper: builds a ttir.gather from an (input, index) pair, casting the
+// index to UInt32 when needed.
+static LogicalResult convertToTTIRGather(mlir::Operation *srcOp,
+                                         mlir::Value input, mlir::Value index,
+                                         RankedTensorType outputType,
+                                         int32_t dim,
+                                         ConversionPatternRewriter &rewriter) {
+  // Cast the index tensor to UInt32 type if it isn't already UInt32 or UInt16.
+  auto indexType = mlir::cast<RankedTensorType>(index.getType());
+  if (!indexType.getElementType().isInteger()) {
+    return rewriter.notifyMatchFailure(
+        srcOp, "Index tensor must be of an integer type");
+  }
+  if (!indexType.getElementType().isUnsignedInteger(32) &&
+      !indexType.getElementType().isUnsignedInteger(16)) {
+    auto ui32Type = RankedTensorType::get(indexType.getShape(),
+                                          rewriter.getIntegerType(32, false));
+    index = rewriter.create<ttir::TypecastOp>(srcOp->getLoc(), ui32Type, index);
+    indexType = mlir::cast<RankedTensorType>(index.getType());
+  }
+
+  auto inputType = mlir::cast<RankedTensorType>(input.getType());
+  int64_t inputRank = inputType.getRank();
+  int64_t indexRank = indexType.getRank();
+  if (inputRank != indexRank) {
+    return rewriter.notifyMatchFailure(
+        srcOp, "Index and Input tensors must have same rank");
+  }
+  if (inputRank == 0) {
+    return rewriter.notifyMatchFailure(
+        srcOp, "0-rank tensors (scalars) are not supported.");
+  }
+
+  rewriter.replaceOpWithNewOp<ttir::GatherOp>(srcOp, outputType, input, index,
+                                              rewriter.getI32IntegerAttr(dim));
+  return success();
+}
 
 class TenstorrentGatherConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
@@ -887,54 +967,88 @@ public:
   matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
                   mlir::stablehlo::CompositeOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (srcOp.getName() != "tenstorrent.gather") {
+    if (srcOp.getName() != kTTGatherCustomCallTargetName &&
+        srcOp.getName() != kTTGatherDimCustomCallTargetName) {
       return failure();
     }
 
+    llvm::StringRef name = srcOp.getName();
     if (adaptor.getOperands().size() != 2) {
       return rewriter.notifyMatchFailure(
-          srcOp, "tenstorrent.gather must have exactly 2 operands");
+          srcOp, llvm::Twine(name) + " must have exactly 2 operands");
     }
 
     if (srcOp.getNumResults() != 1) {
       return rewriter.notifyMatchFailure(
-          srcOp, "tenstorrent.gather must have exactly one result");
+          srcOp, llvm::Twine(name) + " must have exactly one result");
     }
 
     auto outputType =
         mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
 
     DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
-
-    IntegerAttr dimAttr = rewriter.getI32IntegerAttr(0);
-
-    if (compositeAttrs) {
-      if (auto attr = compositeAttrs.getAs<IntegerAttr>("dim")) {
-        dimAttr =
-            rewriter.getI32IntegerAttr(static_cast<int32_t>(attr.getInt()));
-      }
-    }
-
-    auto input = adaptor.getOperands()[0];
-    auto index = adaptor.getOperands()[1];
-
-    // Cast the index tensor to UInt32 type if it isn't already UInt32 or UInt16
-    auto indexType = mlir::cast<RankedTensorType>(index.getType());
-    if (!indexType.getElementType().isInteger()) {
+    auto dimIntAttr =
+        compositeAttrs ? compositeAttrs.getAs<IntegerAttr>("dim") : nullptr;
+    if (!dimIntAttr) {
       return rewriter.notifyMatchFailure(
-          srcOp, "Index tensor must be of an integer type");
+          srcOp, llvm::Twine(name) + " requires integer 'dim' attribute");
     }
-    if (!indexType.getElementType().isUnsignedInteger(32) &&
-        !indexType.getElementType().isUnsignedInteger(16)) {
-      auto ui32Type = RankedTensorType::get(indexType.getShape(),
-                                            rewriter.getIntegerType(32, false));
-      index =
-          rewriter.create<ttir::TypecastOp>(srcOp.getLoc(), ui32Type, index);
+    int32_t dim = static_cast<int32_t>(dimIntAttr.getInt());
+
+    return convertToTTIRGather(srcOp, adaptor.getOperands()[0],
+                               adaptor.getOperands()[1], outputType, dim,
+                               rewriter);
+  }
+};
+
+// Converts stablehlo.custom_call @tenstorrent.gather_dim -> ttir.gather.
+// This handles custom_calls created by FlattenOrConvertCompositesPass from the
+// tenstorrent.gather composite (so Shardy can propagate shardings through it).
+class CustomCallGatherConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+
+public:
+  CustomCallGatherConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CustomCallOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if ((adaptor.getCallTargetNameAttr() != kTTGatherCustomCallTargetName &&
+         adaptor.getCallTargetNameAttr() != kTTGatherDimCustomCallTargetName) ||
+        !srcOp->hasAttr(kHasCustomShardingAttr)) {
+      return failure();
+    }
+    llvm::StringRef targetName = adaptor.getCallTargetNameAttr().getValue();
+    if (adaptor.getOperands().size() != 2) {
+      return rewriter.notifyMatchFailure(
+          srcOp, llvm::Twine(targetName) + " must have exactly 2 operands");
+    }
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, llvm::Twine(targetName) + " must have exactly one result");
     }
 
-    rewriter.replaceOpWithNewOp<ttir::GatherOp>(srcOp, outputType, input, index,
-                                                dimAttr);
-    return success();
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+
+    auto compositeAttrs = mlir::dyn_cast_or_null<DictionaryAttr>(
+        srcOp->getDiscardableAttr(kCustomCallCompositeAttrsKey));
+    if (!compositeAttrs) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "missing attributes on converted custom_call op");
+    }
+    auto dimIntAttr = compositeAttrs.getAs<IntegerAttr>("dim");
+    if (!dimIntAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, llvm::Twine(targetName) + " requires integer 'dim' attribute");
+    }
+    int32_t dim = static_cast<int32_t>(dimIntAttr.getInt());
+
+    return convertToTTIRGather(srcOp, adaptor.getOperands()[0],
+                               adaptor.getOperands()[1], outputType, dim,
+                               rewriter);
   }
 };
 
@@ -980,7 +1094,9 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<TenstorrentUniformToRandConversionPattern>(context);
   patterns.add<TenstorrentTopKConversionPattern>(context);
   patterns.add<TenstorrentScaledDotProductAttentionConversionPattern>(context);
+  patterns.add<CustomCallScaledDotProductAttentionConversionPattern>(context);
   patterns.add<TenstorrentGatherConversionPattern>(context);
+  patterns.add<CustomCallGatherConversionPattern>(context);
   patterns.add<ShardyAllSliceToTTIRMeshPartitionConversionPattern>(context);
 }
 } // namespace mlir::tt

@@ -44,14 +44,11 @@ inline std::string getOpLocInfo(mlir::Operation *op) {
 
 inline Value getOperandThroughDPSOps(Value value) {
   auto *op = value.getDefiningOp();
-  if (!op) {
-    return value;
-  }
-  while (isa<DestinationStyleOpInterface>(op)) {
-    assert(op->getResults().size() == 1);
+  while (isa_and_nonnull<DestinationStyleOpInterface>(op)) {
     auto dps = cast<DestinationStyleOpInterface>(op);
-    assert(dps.getNumDpsInits() == 1);
-    auto *opOperand = dps.getDpsInitOperand(0);
+    OpOperand *opOperand = dps.getTiedOpOperand(cast<OpResult>(value));
+    assert(opOperand &&
+           "DPS op result must be tied to a destination init operand");
     value = opOperand->get();
     op = value.getDefiningOp();
   }

@@ -80,6 +80,18 @@ table ScaledDotProductAttentionOp {
   memcfg: tt.target.ttnn.MemoryConfig;
 }
 
+table FlashMlaPrefillOp {
+  query: tt.target.ttnn.TensorRef;
+  key: tt.target.ttnn.TensorRef;
+  value: tt.target.ttnn.TensorRef;        // optional (0 if absent)
+  attention_mask: tt.target.ttnn.TensorRef; // optional (0 if absent)
+  head_dim_v: uint32;
+  is_causal: bool;
+  scale: float = null;
+  out: tt.target.ttnn.TensorRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+}
+
 table NLPCreateQKVHeadsDecodeOp {
   input: tt.target.ttnn.TensorRef;
   q_out: tt.target.ttnn.TensorRef;
@@ -116,6 +128,18 @@ table PagedScaledDotProductAttentionDecodeOp {
   attention_sink: tt.target.ttnn.TensorRef;
   scale: float = null;
   sliding_window_size: uint32 = null;
+  out: tt.target.ttnn.TensorRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+  program_config: tt.target.ttnn.SDPAConfig;
+}
+
+table ChunkedScaledDotProductAttentionOp {
+  query: tt.target.ttnn.TensorRef;
+  key: tt.target.ttnn.TensorRef;
+  value: tt.target.ttnn.TensorRef;
+  page_table: tt.target.ttnn.TensorRef;
+  chunk_start_idx: tt.target.ttnn.TensorRef;
+  scale: float = null;
   out: tt.target.ttnn.TensorRef;
   memcfg: tt.target.ttnn.MemoryConfig;
   program_config: tt.target.ttnn.SDPAConfig;

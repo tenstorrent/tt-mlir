@@ -27,6 +27,8 @@ struct TTNNOptimizerOptions {
       llvm::StringMap<OutputLayoutOverrideParams>();
   llvm::StringMap<Conv2dConfigOverrideParams> overrideConv2dConfig =
       llvm::StringMap<Conv2dConfigOverrideParams>();
+  llvm::StringMap<Conv3dConfigOverrideParams> overrideConv3dConfig =
+      llvm::StringMap<Conv3dConfigOverrideParams>();
   bool memoryLayoutAnalysisEnabled = false;
   bool l1InterleavedFallbackAnalysisEnabled = false;
   MemoryLayoutAnalysisPolicyType memoryLayoutAnalysisPolicy =

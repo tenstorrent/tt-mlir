@@ -98,6 +98,20 @@ class SkipExecIf(SkipIf):
         super().__init__(*marks_groups, mark_fn=pytest.mark.skip_exec)
 
 
+class XFail:
+    """Append a non-strict xfail mark to a parametrize case, e.g.
+    ``case | XFail("reason")``."""
+
+    def __init__(self, reason):
+        self.reason = reason
+
+    def __ror__(self, lhs):
+        mark = pytest.mark.xfail(reason=self.reason, strict=False)
+        if not isinstance(lhs, tuple):
+            lhs = (lhs,)
+        return pytest.param(*lhs, marks=[mark])
+
+
 def shape_str(shape):
     """
     Converts shape tuple to string.

@@ -15,6 +15,7 @@
 #include <tt-metalium/experimental/mesh_program_descriptor.hpp>
 #include <tt-metalium/mesh_coord.hpp>
 #include <tt-metalium/program_descriptors.hpp>
+#include <tt-metalium/tensor_accessor_args.hpp>
 
 #include <unordered_map>
 #include <vector>
@@ -148,22 +149,37 @@ createKernelConfigDescriptor(
   }
 }
 
+// Materialise a kernel's flatbuffer arg list (compile-time or runtime)
+// into the uint32 vector that tt-metal's KernelDescriptor expects.
+//
+// All variants except ``KernelArgTensorAccessorArgs`` expand 1:1 -- one
+// flatbuffer entry produces exactly one uint32. ``TensorAccessorArgs``
+// is *variadic*: it expands to N uint32s where N depends on the live
+// buffer's shape, layout, sharding, and DRAM/L1 placement (see
+// ``tt::tt_metal::TensorAccessorArgs::get_compile_time_args``). The
+// expansion happens here at execute time, against the actual
+// ``Buffer*`` the runtime owns, so the kernel's compile-time args
+// match the buffer it will be launched against; no synthesizer / no
+// metadata duplication / no Python in this path.
 static std::vector<uint32_t>
 createKernelArgs(const ::tt::target::ttnn::KernelCoreArgs &args,
+                 const std::vector<::ttnn::Tensor> &ioTensors,
                  std::vector<const void *> &argRefs,
                  const ProgramTensorPool &tensorPool,
                  ProgramGlobalSemaphorePool &globalSemaphorePool) {
   auto size = args.args()->size();
-  std::vector<uint32_t> coreArgs(size);
+  std::vector<uint32_t> coreArgs;
+  coreArgs.reserve(size);
   for (unsigned int i = 0; i < size; i++) {
     const auto *kernelArg = args.args()->Get(i);
     switch (kernelArg->arg_type()) {
     case ::tt::target::ttnn::KernelArgType::KernelArgCBBufferIndex: {
-      coreArgs[i] = kernelArg->arg_as_KernelArgCBBufferIndex()->buffer_index();
+      coreArgs.push_back(
+          kernelArg->arg_as_KernelArgCBBufferIndex()->buffer_index());
       break;
     }
     case ::tt::target::ttnn::KernelArgType::KernelArgBufferAddress: {
-      coreArgs[i] = kernelArg->arg_as_KernelArgBufferAddress()->address();
+      coreArgs.push_back(kernelArg->arg_as_KernelArgBufferAddress()->address());
       break;
     }
     case ::tt::target::ttnn::KernelArgType::KernelArgBufferAddressOfTensor: {
@@ -172,20 +188,22 @@ createKernelArgs(const ::tt::target::ttnn::KernelCoreArgs &args,
       LOG_ASSERT(operandIndex < argRefs.size(),
                  "KernelArgBufferAddressOfTensor operand_index out of bounds: ",
                  operandIndex, " >= ", argRefs.size());
-      coreArgs[i] = tensorPool
-                        .getTTNNTensorAndValidate(
-                            reinterpret_cast<const target::ttnn::TensorRef *>(
-                                argRefs[operandIndex]))
-                        .buffer()
-                        ->address();
+      coreArgs.push_back(
+          tensorPool
+              .getTTNNTensorAndValidate(
+                  reinterpret_cast<const target::ttnn::TensorRef *>(
+                      argRefs[operandIndex]))
+              .buffer()
+              ->address());
       break;
     }
     case ::tt::target::ttnn::KernelArgType::KernelArgSemaphoreAt: {
-      coreArgs[i] = kernelArg->arg_as_KernelArgSemaphoreAt()->semaphore_index();
+      coreArgs.push_back(
+          kernelArg->arg_as_KernelArgSemaphoreAt()->semaphore_index());
       break;
     }
     case ::tt::target::ttnn::KernelArgType::KernelArgNamedArgument: {
-      coreArgs[i] = kernelArg->arg_as_KernelArgNamedArgument()->value();
+      coreArgs.push_back(kernelArg->arg_as_KernelArgNamedArgument()->value());
       break;
     }
     case ::tt::target::ttnn::KernelArgType::KernelArgGlobalSemaphore: {
@@ -194,12 +212,26 @@ createKernelArgs(const ::tt::target::ttnn::KernelCoreArgs &args,
       LOG_ASSERT(operandIndex < argRefs.size(),
                  "KernelArgGlobalSemaphore operand_index out of bounds: ",
                  operandIndex, " >= ", argRefs.size());
-      coreArgs[i] =
+      coreArgs.push_back(
           globalSemaphorePool
               .getTTNNGlobalSemaphoreAndValidate(
                   reinterpret_cast<const target::ttnn::GlobalSemaphoreRef *>(
                       argRefs[operandIndex]))
-              .address();
+              .address());
+      break;
+    }
+    case ::tt::target::ttnn::KernelArgType::KernelArgTensorAccessorArgs: {
+      uint32_t operandIndex =
+          kernelArg->arg_as_KernelArgTensorAccessorArgs()->operand_index();
+      LOG_ASSERT(operandIndex < ioTensors.size(),
+                 "KernelArgTensorAccessorArgs operand_index ", operandIndex,
+                 " is out of range for io_tensors of size ", ioTensors.size());
+      const ::tt::tt_metal::Buffer *buffer = ioTensors[operandIndex].buffer();
+      LOG_ASSERT(buffer != nullptr, "KernelArgTensorAccessorArgs: io_tensors[",
+                 operandIndex, "] has no backing buffer.");
+      auto cta =
+          ::tt::tt_metal::TensorAccessorArgs(buffer).get_compile_time_args();
+      coreArgs.insert(coreArgs.end(), cta.begin(), cta.end());
       break;
     }
     case ::tt::target::ttnn::KernelArgType::KernelArgScalar: {
@@ -211,7 +243,7 @@ createKernelArgs(const ::tt::target::ttnn::KernelCoreArgs &args,
       const auto *tensorRef =
           reinterpret_cast<const ::tt::target::ttnn::TensorRef *>(
               argRefs[operandIndex]);
-      coreArgs[i] = tensorPool.getScalarKernelArgAndValidate(tensorRef);
+      coreArgs.push_back(tensorPool.getScalarKernelArgAndValidate(tensorRef));
       break;
     }
     default: {
@@ -225,6 +257,7 @@ createKernelArgs(const ::tt::target::ttnn::KernelCoreArgs &args,
 static ::tt::tt_metal::KernelDescriptor::RuntimeArgs createRuntimeArgs(
     const flatbuffers::Vector<
         flatbuffers::Offset<::tt::target::ttnn::CoreRuntimeArgs>> *rtArgs,
+    const std::vector<::ttnn::Tensor> &ioTensors,
     std::vector<const void *> &argRefs, ProgramTensorPool &tensorPool,
     ProgramGlobalSemaphorePool &globalSemaphorePool) {
   ::tt::tt_metal::KernelDescriptor::RuntimeArgs runtimeArgs;
@@ -233,7 +266,7 @@ static ::tt::tt_metal::KernelDescriptor::RuntimeArgs createRuntimeArgs(
       const auto *coreCoord = coreRtArgs->core_coord();
       ::tt::tt_metal::CoreCoord coord(coreCoord->x(), coreCoord->y());
       ::tt::tt_metal::KernelDescriptor::CoreRuntimeArgs coreArgs =
-          createKernelArgs(*coreRtArgs->args(), argRefs, tensorPool,
+          createKernelArgs(*coreRtArgs->args(), ioTensors, argRefs, tensorPool,
                            globalSemaphorePool);
       runtimeArgs.emplace_back(coord, std::move(coreArgs));
     }
@@ -243,6 +276,7 @@ static ::tt::tt_metal::KernelDescriptor::RuntimeArgs createRuntimeArgs(
 
 static ::tt::tt_metal::KernelDescriptor
 createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernelDesc,
+                       const std::vector<::ttnn::Tensor> &ioTensors,
                        std::vector<const void *> &argRefs,
                        ProgramTensorPool &tensorPool,
                        ProgramGlobalSemaphorePool &globalSemaphorePool) {
@@ -250,13 +284,14 @@ createKernelDescriptor(const ::tt::target::ttnn::KernelDescriptor &kernelDesc,
   tt::tt_metal::CoreRangeSet coreRanges =
       tt::runtime::ttnn::utils::toTTNNCoreRangeSet(*kernelDesc.core_ranges());
   ::tt::tt_metal::KernelDescriptor::CommonRuntimeArgs commonRuntimeArgs =
-      createKernelArgs(*kernelDesc.common_rt_args(), argRefs, tensorPool,
-                       globalSemaphorePool);
+      createKernelArgs(*kernelDesc.common_rt_args(), ioTensors, argRefs,
+                       tensorPool, globalSemaphorePool);
   ::tt::tt_metal::KernelDescriptor::CompileTimeArgs compileTimeArgs =
-      createKernelArgs(*kernelDesc.ct_args(), argRefs, tensorPool,
+      createKernelArgs(*kernelDesc.ct_args(), ioTensors, argRefs, tensorPool,
                        globalSemaphorePool);
-  ::tt::tt_metal::KernelDescriptor::RuntimeArgs runtimeArgs = createRuntimeArgs(
-      kernelDesc.rt_args(), argRefs, tensorPool, globalSemaphorePool);
+  ::tt::tt_metal::KernelDescriptor::RuntimeArgs runtimeArgs =
+      createRuntimeArgs(kernelDesc.rt_args(), ioTensors, argRefs, tensorPool,
+                        globalSemaphorePool);
 
   ::tt::tt_metal::KernelDescriptor kernelDescriptor = {
       .kernel_source = kernelSource,
@@ -286,7 +321,7 @@ createProgramDescriptor(
   for (const tt::target::ttnn::KernelDescriptor *kernelDesc :
        *programDesc->kernels()) {
     programDescriptor->kernels.push_back(createKernelDescriptor(
-        *kernelDesc, argRefs, tensorPool, globalSemaphorePool));
+        *kernelDesc, ioTensors, argRefs, tensorPool, globalSemaphorePool));
   }
   for (const tt::target::ttnn::KernelCBDescriptor *cbDesc :
        *programDesc->cbs()) {
@@ -402,13 +437,15 @@ void overrideArgs(
   for (size_t i = 0; i < programDescriptor->kernels.size(); ++i) {
     const auto *kernelDesc = programDesc->kernels()->Get(i);
     auto &kernel = programDescriptor->kernels[i];
-    kernel.compile_time_args = createKernelArgs(
-        *kernelDesc->ct_args(), argRefs, tensorPool, globalSemaphorePool);
-    kernel.common_runtime_args =
-        createKernelArgs(*kernelDesc->common_rt_args(), argRefs, tensorPool,
+    kernel.compile_time_args =
+        createKernelArgs(*kernelDesc->ct_args(), ioTensors, argRefs, tensorPool,
                          globalSemaphorePool);
-    kernel.runtime_args = createRuntimeArgs(kernelDesc->rt_args(), argRefs,
-                                            tensorPool, globalSemaphorePool);
+    kernel.common_runtime_args =
+        createKernelArgs(*kernelDesc->common_rt_args(), ioTensors, argRefs,
+                         tensorPool, globalSemaphorePool);
+    kernel.runtime_args =
+        createRuntimeArgs(kernelDesc->rt_args(), ioTensors, argRefs, tensorPool,
+                          globalSemaphorePool);
   }
   for (size_t i = 0; i < programDescriptor->cbs.size(); ++i) {
     const auto *cbDesc = programDesc->cbs()->Get(i);

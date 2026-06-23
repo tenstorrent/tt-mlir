@@ -14,6 +14,7 @@
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/OpModel/TTNN/D2MOpCostModel.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
+#include "ttmlir/OpModel/TTNN/TTNNOutputTensorInference.h"
 
 #include "mlir/IR/Block.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -2398,6 +2399,88 @@ llvm::Expected<size_t> ScaledDotProductAttentionOp::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// FlashMlaPrefillOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+struct FlashMlaPrefillArgs {
+  llvm::SmallVector<int64_t> queryShape;
+  TTNNLayoutAttr queryLayout;
+  llvm::SmallVector<int64_t> keyShape;
+  TTNNLayoutAttr keyLayout;
+  std::optional<llvm::SmallVector<int64_t>> valueShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> valueLayout = std::nullopt;
+  std::optional<llvm::SmallVector<int64_t>> attentionMaskShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> attentionMaskLayout = std::nullopt;
+  uint32_t headDimV;
+  bool isCausal;
+};
+
+static FlashMlaPrefillArgs
+unpackFlashMlaPrefillArgs(const std::vector<TTNNLayoutAttr> &inputs,
+                          FlashMlaPrefillOp op) {
+  FlashMlaPrefillArgs ret;
+  ret.queryShape =
+      llvm::SmallVector<int64_t>(op.getQuery().getType().getShape());
+  ret.queryLayout = inputs[0];
+  ret.keyShape = llvm::SmallVector<int64_t>(op.getKey().getType().getShape());
+  ret.keyLayout = inputs[1];
+
+  size_t idx = 2;
+  if (op.getValue()) {
+    ret.valueShape =
+        llvm::SmallVector<int64_t>(op.getValue().getType().getShape());
+    assert(idx < inputs.size() &&
+           "Op has value but no value layout was provided.");
+    ret.valueLayout = inputs[idx++];
+  }
+  if (op.getAttentionMask()) {
+    ret.attentionMaskShape =
+        llvm::SmallVector<int64_t>(op.getAttentionMask().getType().getShape());
+    assert(idx < inputs.size() &&
+           "Op has attention mask but no attention mask layout was provided.");
+    ret.attentionMaskLayout = inputs[idx++];
+  }
+
+  ret.headDimV = op.getHeadDimV();
+  ret.isCausal = op.getIsCausal();
+
+  return ret;
+}
+
+llvm::Expected<op_model::OpConstraints>
+FlashMlaPrefillOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                    const OpConfig &opConfig) {
+  assert(inputs.size() >= 2 && inputs.size() <= 4 &&
+         "ttnn::flash_mla_prefill can have 2 to 4 input tensors "
+         "(q, k, optional value, optional mask)");
+
+  FlashMlaPrefillArgs args = unpackFlashMlaPrefillArgs(inputs, *this);
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<FlashMlaPrefillOp>::getOpConstraints, *this,
+      args.queryShape, args.queryLayout, args.keyShape, args.keyLayout,
+      args.valueShape, args.valueLayout, args.attentionMaskShape,
+      args.attentionMaskLayout, args.headDimV, args.isCausal, getScale(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+FlashMlaPrefillOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
+  assert(inputs.size() >= 2 && inputs.size() <= 4 &&
+         "ttnn::flash_mla_prefill can have 2 to 4 input tensors");
+
+  FlashMlaPrefillArgs args = unpackFlashMlaPrefillArgs(inputs, *this);
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<FlashMlaPrefillOp>::getOpRuntime, *this,
+      args.queryShape, args.queryLayout, args.keyShape, args.keyLayout,
+      args.valueShape, args.valueLayout, args.attentionMaskShape,
+      args.attentionMaskLayout, args.headDimV, args.isCausal, getScale(),
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // RotaryEmbeddingLlamaOp - TTNN Op Model Interface
 // ===----------------------------------------------------------------------===//
 
@@ -2739,8 +2822,7 @@ ArgMaxOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ArgMaxOp>::getOpConstraints, *this, inputShape,
-      inputs[0], getDim(), getKeepDim(), getUseMulticore(),
-      opConfig.outputLayout);
+      inputs[0], getDim(), getKeepDim(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -2752,7 +2834,7 @@ ArgMaxOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<ArgMaxOp>::getOpRuntime, *this, inputShape, inputs[0],
-      getDim(), getKeepDim(), getUseMulticore(), opConfig.outputLayout);
+      getDim(), getKeepDim(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3025,6 +3107,68 @@ MoeGptOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                        const OpConfig &opConfig) {
   return issueErrorForGetOpRuntime(
       getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+}
+
+//===----------------------------------------------------------------------===//
+// PrepareMoEComputeW0W1WeightsOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+PrepareMoEComputeW0W1WeightsOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  const bool hasBias = getBias_0() != nullptr;
+  assert(inputs.size() == (hasBias ? 4u : 2u));
+
+  std::optional<llvm::ArrayRef<int64_t>> bias0Shape, bias1Shape;
+  std::optional<TTNNLayoutAttr> bias0Layout, bias1Layout;
+  if (hasBias) {
+    bias0Shape = getBias_0().getType().getShape();
+    bias1Shape = getBias_1().getType().getShape();
+    bias0Layout = inputs[2];
+    bias1Layout = inputs[3];
+  }
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<PrepareMoEComputeW0W1WeightsOp>::getOpConstraints,
+      *this, getW0().getType().getShape(), inputs[0],
+      getW1().getType().getShape(), inputs[1], bias0Shape, bias0Layout,
+      bias1Shape, bias1Layout, getHiddenSize(), getIntermediateSize(),
+      getBhRingSize());
+}
+
+llvm::Expected<size_t> PrepareMoEComputeW0W1WeightsOp::getOpRuntime(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
+}
+
+//===----------------------------------------------------------------------===//
+// PrepareMoEComputeW2WeightsOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+PrepareMoEComputeW2WeightsOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  const bool hasBias = getBias_2() != nullptr;
+  assert(inputs.size() == (hasBias ? 2u : 1u));
+
+  std::optional<llvm::ArrayRef<int64_t>> bias2Shape;
+  std::optional<TTNNLayoutAttr> bias2Layout;
+  if (hasBias) {
+    bias2Shape = getBias_2().getType().getShape();
+    bias2Layout = inputs[1];
+  }
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<PrepareMoEComputeW2WeightsOp>::getOpConstraints, *this,
+      getW2().getType().getShape(), inputs[0], bias2Shape, bias2Layout,
+      getHiddenSize(), getIntermediateSize(), getBhRingSize());
+}
+
+llvm::Expected<size_t> PrepareMoEComputeW2WeightsOp::getOpRuntime(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::NeedsMemoryIO);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3307,13 +3451,38 @@ Conv2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // Conv3dOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
+// If a config has been specified, use that. Otherwise, use the op property.
+static Conv3dAttrs unpackConv3dAttrs(const OpConfig::OpSpecificAttrs &attrs,
+                                     Conv3dOp op) {
+  assert((std::holds_alternative<Conv3dAttrs>(attrs) ||
+          std::holds_alternative<UninitializedAttrs>(attrs)) &&
+         "Please create a Conv3dAttrs or leave it to be uninitialized.");
+
+  if (std::holds_alternative<UninitializedAttrs>(attrs)) {
+    return Conv3dAttrs{op.getConv3dConfig(), op.getComputeConfig()};
+  }
+
+  Conv3dAttrs conv3dAttrs = std::get<Conv3dAttrs>(attrs);
+
+  return Conv3dAttrs{conv3dAttrs.conv3dConfig ? conv3dAttrs.conv3dConfig
+                                              : op.getConv3dConfig(),
+                     conv3dAttrs.deviceComputeKernelConfig
+                         ? conv3dAttrs.deviceComputeKernelConfig
+                         : op.getComputeConfig()};
+}
+
 llvm::Expected<op_model::OpConstraints>
 Conv3dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                            const OpConfig &opConfig) {
   assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
 
   const auto inputShape = getInput().getType().getShape();
-  const auto weightShape = getWeight().getType().getShape();
+  // tt-metal's conv3d kernel consumes the prepared 2D weight; the in-IR
+  // weight may still be raw 5D (before TTNNPrepareConv3dWeights runs), so
+  // pass the prepared shape/layout regardless of what's currently in IR.
+  auto preparedWeight = op_model::getPreparedConv3dWeightsOutputTensor(this);
+  const auto weightShape = preparedWeight.getShape();
+  auto weightLayout = mlir::cast<TTNNLayoutAttr>(preparedWeight.getEncoding());
   std::optional<llvm::ArrayRef<int64_t>> biasShape;
   std::optional<TTNNLayoutAttr> biasLayout;
 
@@ -3322,13 +3491,15 @@ Conv3dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
     biasLayout = inputs[2];
   }
 
+  Conv3dAttrs attr = unpackConv3dAttrs(opConfig.opSpecificAttrs, *this);
+
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<Conv3dOp>::getOpConstraints, *this, inputShape,
-      inputs[0], weightShape, inputs[1], biasShape, biasLayout, getInChannels(),
-      getOutChannels(), getBatchSize(), getInputDepth(), getInputHeight(),
-      getInputWidth(), getKernelSize(), getStride(), getPadding(), getGroups(),
-      getPaddingMode(), getDtypeAttr(), getConv3dConfig(), getComputeConfig(),
-      opConfig.outputLayout);
+      inputs[0], weightShape, weightLayout, biasShape, biasLayout,
+      getInChannels(), getOutChannels(), getBatchSize(), getInputDepth(),
+      getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
+      getPadding(), getGroups(), getPaddingMode(), getDtypeAttr(),
+      attr.conv3dConfig, attr.deviceComputeKernelConfig, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -3337,7 +3508,9 @@ Conv3dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
 
   const auto inputShape = getInput().getType().getShape();
-  const auto weightShape = getWeight().getType().getShape();
+  auto preparedWeight = op_model::getPreparedConv3dWeightsOutputTensor(this);
+  const auto weightShape = preparedWeight.getShape();
+  auto weightLayout = mlir::cast<TTNNLayoutAttr>(preparedWeight.getEncoding());
   std::optional<llvm::ArrayRef<int64_t>> biasShape;
   std::optional<TTNNLayoutAttr> biasLayout;
 
@@ -3346,13 +3519,15 @@ Conv3dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
     biasLayout = inputs[2];
   }
 
+  Conv3dAttrs attr = unpackConv3dAttrs(opConfig.opSpecificAttrs, *this);
+
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<Conv3dOp>::getOpRuntime, *this, inputShape, inputs[0],
-      weightShape, inputs[1], biasShape, biasLayout, getInChannels(),
+      weightShape, weightLayout, biasShape, biasLayout, getInChannels(),
       getOutChannels(), getBatchSize(), getInputDepth(), getInputHeight(),
       getInputWidth(), getKernelSize(), getStride(), getPadding(), getGroups(),
-      getPaddingMode(), getDtypeAttr(), getConv3dConfig(), getComputeConfig(),
-      opConfig.outputLayout);
+      getPaddingMode(), getDtypeAttr(), attr.conv3dConfig,
+      attr.deviceComputeKernelConfig, opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3532,8 +3707,9 @@ PrepareConvTranspose2dWeightsOp::getOpConstraints(
       *this, inputs[0], weightShape, getInputMemoryConfig(),
       getInputTensorLayout(), getWeightsFormat(), getInChannels(),
       getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
-      getKernelSize(), getStride(), getPadding(), getDilation(), getHasBias(),
-      getGroups(), getInputDtype(), getOutputDtype(), conv2dAttrs.conv2dConfig,
+      getKernelSize(), getStride(), getPadding(), getOutputPadding(),
+      getDilation(), getHasBias(), getGroups(), getInputDtype(),
+      getOutputDtype(), conv2dAttrs.conv2dConfig,
       conv2dAttrs.deviceComputeKernelConfig, getConv2dSliceConfig(),
       getMirrorKernel(), opConfig.outputLayout);
 }

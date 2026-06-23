@@ -228,7 +228,8 @@ convertKernelArg(Builder &builder, const ttkernel::ArgAttr &arg,
         additionalArgMapping.at(arg.getOperandIndex()));
   }
   case ttkernel::ArgType::Scalar: {
-    return builder.getAttr<ttnn::KernelArgScalarAttr>(arg.getOperandIndex());
+    return builder.getAttr<ttnn::KernelArgScalarAttr>(
+        additionalArgMapping.at(arg.getOperandIndex()));
   }
   }
   llvm_unreachable("Invalid ArgType");
@@ -255,10 +256,16 @@ createSemaphoreDescriptors(Builder &builder, const ArrayAttr &threads,
       continue;
     }
 
-    for (auto ctArg : kernelSpec.getCtArgs()) {
-      if (ctArg.getArgType() == ttkernel::ArgType::LocalSemaphore) {
-        seenSemaphoreIndices.insert(ctArg.getOperandIndex());
+    auto collectLocalSemaphore = [&](ttkernel::ArgAttr arg) {
+      if (arg.getArgType() == ttkernel::ArgType::LocalSemaphore) {
+        seenSemaphoreIndices.insert(arg.getOperandIndex());
       }
+    };
+    for (auto rtArg : kernelSpec.getRtArgs()) {
+      collectLocalSemaphore(rtArg);
+    }
+    for (auto ctArg : kernelSpec.getCtArgs()) {
+      collectLocalSemaphore(ctArg);
     }
   }
 
@@ -303,10 +310,8 @@ static SmallVector<mlir::Attribute> createKernelDescriptors(
     auto kernelSpec = kernelFunc->getAttrOfType<ttkernel::ArgSpecAttr>(
         ttkernel::ArgSpecAttr::name);
 
-    // Note: D2MToTTKernel will only populate kernelSpec with rtargs in the
-    // ttnn-mode, however despite the name, they are actually common runtime
-    // args. TTKernel ArgSpec does not have crt field, and the normal tt-metal
-    // path doesn't use rt args at all.
+    // Uniform TTKernel runtime args are modeled as common runtime args in
+    // TTNN generic descriptors.
     auto crtArgs = kernelSpec.getRtArgs();
     auto ctArgs = kernelSpec.getCtArgs();
     llvm::SmallVector<mlir::Attribute> kernelCTArgs(ctArgs.size());
@@ -339,15 +344,13 @@ static SmallVector<mlir::Attribute> createKernelDescriptors(
       break;
     }
     case d2m::ThreadType::Datamovement: {
-      const int32_t processorIdx = threadAttr.getProcessorIndex();
-      TT_assert(processorIdx >= 0);
-      const auto nocIdx = (arch == ttcore::Arch::Quasar || processorIdx == 1)
-                              ? ttcore::NocIndex::Noc0
-                              : ttcore::NocIndex::Noc1;
-      auto processor = processorIdx == 0 ? ttnn::DataMovementProcessor::RiscV0
-                                         : ttnn::DataMovementProcessor::RiscV1;
+      const int32_t dmCoreIndex = threadAttr.getDmCoreIndex();
+      TT_assert(dmCoreIndex >= 0);
+      const auto nocIndex = ttcore::getDmCoreDefaultNoc(arch, dmCoreIndex);
+      auto processor = dmCoreIndex == 0 ? ttnn::DataMovementProcessor::RiscV0
+                                        : ttnn::DataMovementProcessor::RiscV1;
       kernelConfigs[i] = builder.getAttr<ttnn::DataMovementKernelAttr>(
-          kernelSymbol, coreRangeSet, processor, nocIdx,
+          kernelSymbol, coreRangeSet, processor, nocIndex,
           ttnn::NocMode::DedicatedNoc, kernelCRTArgs, kernelCTArgs);
       break;
     }
@@ -644,6 +647,12 @@ static LogicalResult convertSemaphores(ModuleOp moduleOp,
 }
 
 static Value findIOTensor(Value operand, DenseMap<Value, Value> &valueMapping) {
+  if (auto tensorType = dyn_cast<RankedTensorType>(operand.getType())) {
+    if (isa<ttnn::TTNNLayoutAttr>(tensorType.getEncoding())) {
+      return operand;
+    }
+  }
+
   auto iter = valueMapping.find(operand);
   if (iter != valueMapping.end()) {
     auto tensorType = dyn_cast<RankedTensorType>(iter->second.getType());
@@ -695,6 +704,10 @@ static LogicalResult convertSingleGeneric(d2m::GenericOp op,
       // Local semaphores are described via createSemaphoreDescriptors; skip.
     } else if (isa<MemRefType>(arg.getType())) {
       // CBs are described via createCBDescriptors; skip.
+    } else if (mlir::isa<IntegerType, IndexType, FloatType>(arg.getType())) {
+      additionalArgMapping[op.getInputsAndOutputs().size() + idx] =
+          op.getInputsAndOutputs().size() + ttnnGenericAdditionalArgs.size();
+      ttnnGenericAdditionalArgs.push_back(arg);
     } else {
       return op.emitOpError(
                  "unexpected operand type in d2m.generic's additionalArgs: ")
@@ -854,6 +867,11 @@ remapSpatialKernelArgs(MLIRContext *ctx, ArrayRef<Attribute> args,
       if (auto unified = remapTable.lookupAdditional(
               generic, globalSem.getGlobalSemaphoreIndex())) {
         mapped = ttnn::KernelArgGlobalSemaphoreAttr::get(ctx, *unified);
+      }
+    } else if (auto scalar = mlir::dyn_cast<ttnn::KernelArgScalarAttr>(arg)) {
+      if (auto unified =
+              remapTable.lookupAdditional(generic, scalar.getOperandIndex())) {
+        mapped = ttnn::KernelArgScalarAttr::get(ctx, *unified);
       }
     }
     out.push_back(mapped);

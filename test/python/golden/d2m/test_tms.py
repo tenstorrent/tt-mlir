@@ -53,7 +53,7 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
             (32, 128 * 500),
             [1, 0],
             marks=pytest.mark.skip_config(
-                ["sim"],
+                ["n150", "sim"],
                 reason="L1 memory usage exceeds capacity on non-square grid (see #8079)",
             ),
         ),
@@ -160,10 +160,6 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
                     ["p300"],
                     reason="L1 memory usage exceeds capacity on p150/p300",
                 ),
-                pytest.mark.skip_config(
-                    ["sim"],
-                    reason="L1 memory usage exceeds capacity on non-square grid (see #8079)",
-                ),
             ],
         ),
         # 4d complex permutes (llama3-70b, qwen3-32b)
@@ -177,14 +173,7 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
         [(1, 32, 8, 128), [0, 2, 1, 3]],
         [(1, 32, 96, 128), [0, 2, 1, 3]],
         # 4d inner permutes (glm-358b)
-        pytest.param(
-            (1, 96, 32, 128),
-            [0, 1, 3, 2],
-            marks=pytest.mark.skip_config(
-                ["sim"],
-                reason="L1 memory usage exceeds capacity on non-square grid (see #8079)",
-            ),
-        ),
+        [(1, 96, 32, 128), [0, 1, 3, 2]],
         # 3d inner permutes (gpt_oss-120b)
         [(1, 128, 32), [0, 2, 1]],
         # 4d outer permutes (gpt_oss-120b)
@@ -930,7 +919,7 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
     )
 
 
-# Skipping sim due to issue https://github.com/tenstorrent/ttsim-private/issues/291
+# Skipping WH sim due to issue https://github.com/tenstorrent/ttsim-private/issues/291
 @pytest.mark.parametrize(
     "shape,repeat_dims",
     [
@@ -946,7 +935,7 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
 @pytest.mark.parametrize(
     "dtype", [torch.float32, torch.int32, torch.bfloat16], ids=["f32", "i32", "bf16"]
 )
-@pytest.mark.parametrize("target", ["ttmetal" | SkipIf("sim")])
+@pytest.mark.parametrize("target", ["ttmetal" | SkipIf(["n150", "sim"])])
 def test_repeat(shape: Shape, repeat_dims: List[int], dtype, target, request, device):
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
@@ -1107,12 +1096,14 @@ def test_transpose(
     "from_type,to_type",
     [
         pytest.param(
-            torch.int32, torch.float32, marks=pytest.mark.skip_config(["sim"])
+            torch.int32, torch.float32, marks=pytest.mark.skip_config(["n150", "sim"])
         ),
         (torch.float32, torch.int32),
         (torch.bfloat16, torch.float32),
         pytest.param(
-            torch.float32, torch.bfloat16, marks=pytest.mark.skip_config(["sim"])
+            torch.float32,
+            torch.bfloat16,
+            marks=pytest.mark.skip_config(["n150", "sim"]),
         ),
     ],
     ids=["i32-f32", "f32-i32", "bf16-f32", "f32-bf16"],

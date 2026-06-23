@@ -380,12 +380,12 @@ struct OpModel<ArgMaxOp> {
   static llvm::Expected<OpConstraints>
   getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
                    TTNNLayoutAttr inputLayout, std::optional<int32_t> dim,
-                   bool keepDim, bool multicore, TTNNLayoutAttr outputLayout);
+                   bool keepDim, TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
                                              TTNNLayoutAttr inputLayout,
                                              std::optional<int32_t> dim,
-                                             bool keepDim, bool multicore,
+                                             bool keepDim,
                                              TTNNLayoutAttr outputLayout);
 };
 
@@ -847,6 +847,32 @@ struct OpModel<ScaledDotProductAttentionOp> {
                std::optional<llvm::APFloat> scale,
                std::optional<uint32_t> slidingWindowSize,
                TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// FlashMlaPrefillOp
+//===----------------------------------------------------------------------===//
+template <>
+struct OpModel<FlashMlaPrefillOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+      llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+      std::optional<llvm::ArrayRef<int64_t>> valueShape,
+      std::optional<TTNNLayoutAttr> valueLayout,
+      std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+      std::optional<TTNNLayoutAttr> attentionMaskLayout, uint32_t headDimV,
+      bool isCausal, std::optional<llvm::APFloat> scale,
+      TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+               llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+               std::optional<llvm::ArrayRef<int64_t>> valueShape,
+               std::optional<TTNNLayoutAttr> valueLayout,
+               std::optional<llvm::ArrayRef<int64_t>> attentionMaskShape,
+               std::optional<TTNNLayoutAttr> attentionMaskLayout,
+               uint32_t headDimV, bool isCausal,
+               std::optional<llvm::APFloat> scale, TTNNLayoutAttr outputLayout);
 };
 
 //===-----------------------------------------------------------------------===//
@@ -1359,9 +1385,9 @@ struct OpModel<PrepareConvTranspose2dWeightsOp> {
       int32_t inChannels, int32_t outChannels, int32_t batchSize,
       int32_t inputHeight, int32_t inputWidth,
       llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
-      llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
-      bool hasBias, int32_t groups, ttcore::DataType inputDtype,
-      std::optional<ttcore::DataType> outputDtype,
+      llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> output_padding,
+      llvm::ArrayRef<int32_t> dilation, bool hasBias, int32_t groups,
+      ttcore::DataType inputDtype, std::optional<ttcore::DataType> outputDtype,
       std::optional<Conv2dConfigAttr> conv2dConfig,
       std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
       std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig, bool mirrorKernel,
@@ -1387,6 +1413,37 @@ struct OpModel<PrepareConvTranspose2dBiasOp> {
       std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
       std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
       TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+// PrepareMoEComputeW0W1WeightsOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<PrepareMoEComputeW0W1WeightsOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(llvm::ArrayRef<int64_t> w0Shape, TTNNLayoutAttr w0Layout,
+                   llvm::ArrayRef<int64_t> w1Shape, TTNNLayoutAttr w1Layout,
+                   std::optional<llvm::ArrayRef<int64_t>> bias0Shape,
+                   std::optional<TTNNLayoutAttr> bias0Layout,
+                   std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
+                   std::optional<TTNNLayoutAttr> bias1Layout,
+                   uint32_t hiddenSize, uint32_t intermediateSize,
+                   std::optional<uint32_t> bhRingSize);
+};
+
+//===----------------------------------------------------------------------===//
+// PrepareMoEComputeW2WeightsOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<PrepareMoEComputeW2WeightsOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
+                   std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
+                   std::optional<TTNNLayoutAttr> bias2Layout,
+                   uint32_t hiddenSize, uint32_t intermediateSize,
+                   std::optional<uint32_t> bhRingSize);
 };
 
 //===----------------------------------------------------------------------===//

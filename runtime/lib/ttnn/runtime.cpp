@@ -1449,6 +1449,11 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
         opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::ChunkedScaledDotProductAttentionOp: {
+    tensorRefs = {
+        opContext.type_as_ChunkedScaledDotProductAttentionOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::PagedFlashMultiLatentAttentionDecodeOp: {
     tensorRefs = {
         opContext.type_as_PagedFlashMultiLatentAttentionDecodeOp()->out()};
@@ -1456,6 +1461,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::ScaledDotProductAttentionOp: {
     tensorRefs = {opContext.type_as_ScaledDotProductAttentionOp()->out()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::FlashMlaPrefillOp: {
+    tensorRefs = {opContext.type_as_FlashMlaPrefillOp()->out()};
     break;
   }
   case ::tt::target::ttnn::OpType::NLPConcatHeadsDecodeOp: {
@@ -1526,6 +1535,21 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     auto *op = opContext.type_as_MoeGptOp();
     tensorRefs = {op->token_counts(), op->activation_records(),
                   op->token_indices(), op->tilize_out(), op->tilize_out_rm()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareMoEComputeW0W1WeightsOp: {
+    tensorRefs = {opContext.type_as_PrepareMoEComputeW0W1WeightsOp()->out()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareMoEComputeW2WeightsOp: {
+    tensorRefs = {opContext.type_as_PrepareMoEComputeW2WeightsOp()->out()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MoeComputeOp: {
+    auto *op = opContext.type_as_MoeComputeOp();
+    tensorRefs = {op->per_expert_total_tokens(), op->expert_activation(),
+                  op->expert_to_token(),         op->tilize_output(),
+                  op->matmul_output(),           op->combine_output()};
     break;
   }
   case ::tt::target::ttnn::OpType::TopKOp: {
@@ -2020,6 +2044,33 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
                   opContext.type_as_MoeGptOp()->w2_tensor()};
     break;
   }
+  case ::tt::target::ttnn::OpType::PrepareMoEComputeW0W1WeightsOp: {
+    auto *op = opContext.type_as_PrepareMoEComputeW0W1WeightsOp();
+    tensorRefs = {op->w0(), op->w1()};
+    if (op->bias_0() != nullptr) {
+      tensorRefs.push_back(op->bias_0());
+    }
+    if (op->bias_1() != nullptr) {
+      tensorRefs.push_back(op->bias_1());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PrepareMoEComputeW2WeightsOp: {
+    auto *op = opContext.type_as_PrepareMoEComputeW2WeightsOp();
+    tensorRefs = {op->w2()};
+    if (op->bias_2() != nullptr) {
+      tensorRefs.push_back(op->bias_2());
+    }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MoeComputeOp: {
+    auto *op = opContext.type_as_MoeComputeOp();
+    tensorRefs = {
+        op->tilize_input_tensor(),         op->tilize_expert_indices_tensor(),
+        op->tilize_expert_scores_tensor(), op->tilize_expert_mapping_tensor(),
+        op->matmul_w0_w1_tensor(),         op->matmul_w2_tensor()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::UpsampleOp: {
     tensorRefs = {opContext.type_as_UpsampleOp()->in()};
     break;
@@ -2163,6 +2214,17 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     }
     break;
   }
+  case ::tt::target::ttnn::OpType::FlashMlaPrefillOp: {
+    auto *op = opContext.type_as_FlashMlaPrefillOp();
+    tensorRefs = {op->query(), op->key()};
+    if (op->value()) {
+      tensorRefs.push_back(op->value());
+    }
+    if (op->attention_mask()) {
+      tensorRefs.push_back(op->attention_mask());
+    }
+    break;
+  }
   case ::tt::target::ttnn::OpType::PagedScaledDotProductAttentionDecodeOp: {
     tensorRefs = {
         opContext.type_as_PagedScaledDotProductAttentionDecodeOp()->query(),
@@ -2176,6 +2238,12 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
             ->cur_pos_tensor(),
         opContext.type_as_PagedScaledDotProductAttentionDecodeOp()
             ->attention_sink()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::ChunkedScaledDotProductAttentionOp: {
+    auto *chunkedOp = opContext.type_as_ChunkedScaledDotProductAttentionOp();
+    tensorRefs = {chunkedOp->query(), chunkedOp->key(), chunkedOp->value(),
+                  chunkedOp->page_table(), chunkedOp->chunk_start_idx()};
     break;
   }
   case ::tt::target::ttnn::OpType::PagedFlashMultiLatentAttentionDecodeOp: {

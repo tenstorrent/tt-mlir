@@ -3291,35 +3291,6 @@ def TTIR_SoftmaxOp : TTIR_NamedOp<"softmax"> {
     let hasVerifier = 1;
 }
 
-def TTIR_RotaryEmbeddingOp : TTIR_NamedOp<"rotary_embedding"> {
-  let summary = "Rotary position embedding operation.";
-  let description = [{
-    Applies rotary position embedding (RoPE) to the input tensor using
-    precomputed cosine and sine caches.
-
-    Formula:
-      result = x * cos + rotate_half(x) * sin
-      where rotate_half(x) = concat(neg(x[D/2:]), x[:D/2])
-
-    The input tensor must be 4D [batch, heads, seq_len, head_dim].
-    cos_cache and sin_cache must be 4D and broadcastable to the input shape,
-    with the last dimension (head_dim) matching the input exactly.
-
-    Example:
-      %result = "ttir.rotary_embedding"(%input, %cos_cache, %sin_cache)
-        : (tensor<1x32x128x64xbf16>, tensor<1x1x128x64xbf16>,
-           tensor<1x1x128x64xbf16>) -> tensor<1x32x128x64xbf16>
-  }];
-
-  let arguments = (ins AnyRankedTensor:$input,
-                       AnyRankedTensor:$cos_cache,
-                       AnyRankedTensor:$sin_cache);
-
-  let results = (outs AnyRankedTensor:$result);
-
-  let hasVerifier = 1;
-}
-
 def TTIR_SortOp : TTIR_NamedOp<"sort"> {
   let summary = "Sort operation.";
   let description = [{
@@ -6161,6 +6132,40 @@ def TTIR_PagedScaledDotProductAttentionDecodeOp : TTIR_NamedOp<"paged_scaled_dot
   let hasVerifier = 1;
 }
 
+def TTIR_ChunkedScaledDotProductAttentionOp : TTIR_NamedOp<"chunked_scaled_dot_product_attention"> {
+  let summary = "Chunked prefill scaled dot product attention over a paged KV cache.";
+  let description = [{
+    Chunked-prefill attention. A prefill chunk of `query` attends
+    causally over the prefix tokens `[0, chunk_start_idx + chunk_len)` that are
+    resident in the paged K/V cache, read on device via `page_table`. The prefix
+    offset is supplied by the device tensor `chunk_start_idx` (`[1]` int32). Causal
+    masking is handled internally; no host attention mask.
+
+    Args:
+        query (AnyRankedTensor): `[B x Hq x chunk_len x D]`.
+        key (AnyRankedTensor): paged K cache `[num_blocks x Hkv x block_size x D]`.
+        value (AnyRankedTensor): paged V cache, same layout as `key`.
+        page_table (AnyRankedTensor): `[B x num_blocks_per_user]` int32.
+        chunk_start_idx (AnyRankedTensor): `[1]` int32 prefix offset.
+        scale (float, optional): Softmax scale. Defaults to `1 / sqrt(D)`.
+
+    Returns:
+        AnyRankedTensor: same shape/type as `query`.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$query,
+                       AnyRankedTensor:$key,
+                       AnyRankedTensor:$value,
+                       AnyRankedTensor:$page_table,
+                       AnyRankedTensor:$chunk_start_idx,
+                       AnyRankedTensor:$output,
+                       OptionalAttr<F32Attr>:$scale);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_PagedFlashMultiLatentAttentionDecodeOp : TTIR_NamedOp<"paged_flash_multi_latent_attention_decode", [AttrSizedOperandSegments]> {
   let summary = "Paged flash multi-latent attention decode operation.";
   let description = [{
@@ -6641,6 +6646,138 @@ def TTIR_MoeGptOp : TTIR_NamedOp<"moe_gpt"> {
                         AnyRankedTensor:$tilize_out_rm);
 
     let hasVerifier = 1;
+}
+
+def TTIR_MoeComputeOp : TTIR_NamedOp<"moe_compute", [TTIR_CCL, AttrSizedOperandSegments]> {
+    let summary = "Fused MoE expert compute (selective tilize + experts + combine).";
+    let description = [{
+      Composite operation that performs the MoE expert FFN in a single fused
+      kernel: selective tilize of dispatched tokens, the gate/up matmul (W0/W1)
+      followed by SILU or SwiGLU activation, the down matmul (W2), and an
+      A2A selective-reduce-combine. Maps to
+      `ttnn.experimental.moe_compute` at runtime.
+
+      Takes the raw per-expert weights `w0` / `w1` / `w2` (logical shapes
+      `(L, E, K, N)`, `(L, E, K, N)`, `(L, E, N, K)` with `K = hidden_size`,
+      `N = intermediate_size`) and optional per-expert biases `bias_0` /
+      `bias_1` / `bias_2`.
+
+      Inputs:
+      - `tilize_input_tensor`: dense per-token activations dispatched via
+        all_to_all_dispatch.
+      - `tilize_expert_indices_tensor`: per-token expert indices.
+      - `tilize_expert_scores_tensor`: per-token expert routing scores.
+      - `tilize_expert_mapping_tensor`: global expert-to-device mapping.
+      - `w0` / `w1` / `w2`: raw per-expert gate / up / down weights.
+      - `bias_0` / `bias_1` / `bias_2`: optional per-expert biases.
+
+      Outputs (6, in declaration order):
+        0. `per_expert_total_tokens`     routing metadata: per-expert token counts
+        1. `expert_activation`           routing metadata: per-token activation records
+        2. `expert_to_token`             routing metadata: per-expert token lists
+        3. `tilize_output`               selective-tilize staging buffer
+        4. `matmul_output`               expert-FFN result (final output in compute_only)
+        5. `combine_output`              A2A-combined result (aliases matmul_output
+           in compute_only)
+    }];
+
+    let arguments = (ins AnyRankedTensor:$tilize_input_tensor,
+                         AnyRankedTensor:$tilize_expert_indices_tensor,
+                         AnyRankedTensor:$tilize_expert_scores_tensor,
+                         AnyRankedTensor:$tilize_expert_mapping_tensor,
+                         AnyRankedTensor:$w0,
+                         AnyRankedTensor:$w1,
+                         AnyRankedTensor:$w2,
+                         Optional<AnyRankedTensor>:$bias_0,
+                         Optional<AnyRankedTensor>:$bias_1,
+                         Optional<AnyRankedTensor>:$bias_2,
+                         UI32Attr:$layer_id,
+                         UI32Attr:$output_height_shard_dim,
+                         UI32Attr:$intermediate_size,
+                         DefaultValuedAttr<TTCore_MoEActivationFunctionAttr,
+                             "::mlir::tt::ttcore::MoEActivationFunction::Silu">:$activation_function,
+                         OptionalAttr<UI32Attr>:$bh_ring_size,
+                         DefaultValuedAttr<BoolAttr, "true">:$compute_only,
+
+                         // Full-path-only inputs, unused when compute_only == true.
+                         OptionalAttr<UI32Attr>:$cluster_axis);
+
+    let results = (outs AnyRankedTensor:$per_expert_total_tokens,
+                        AnyRankedTensor:$expert_activation,
+                        AnyRankedTensor:$expert_to_token,
+                        AnyRankedTensor:$tilize_output,
+                        AnyRankedTensor:$matmul_output,
+                        AnyRankedTensor:$combine_output);
+
+    let hasVerifier = 1;
+}
+
+def TTIR_TTLangOp : TTIR_Op<"tt_lang_op",
+    [TTIROpInterface, DestinationStyleOpInterface]> {
+  let summary = "Opaque tt-lang custom kernel placeholder.";
+  let description = [{
+    Represents an invocation of a user-defined tt-lang operation registered via
+    `@tt_torch.tt_lang_operation`. The kernel body is opaque to TTIR: its operands and
+    results are fully typed so type / shape / layout inference on adjacent ops
+    still works (in particular through Shardy and shape refinement), but TTIR
+    does not look inside the kernel body. The kernel is materialised later by
+    the tt-xla plugin via a Python bridge into tt-lang.
+
+    NOTE: tt-lang kernels expect 32x32 tile layout. Attaching `TTIROpInterface`
+    allows TTNN's `TTNNLayoutRewriter` to correct this ops operands and output
+    to have the same matching correct layout type.
+
+    Lowered from `stablehlo.custom_call @tt.tt_lang_op` (carrying the same
+    metadata in `mhlo.frontend_attributes`) and to `ttnn.tt_lang_op` by the
+    TTIR -> TTNN conversion.
+
+    Attributes:
+    - `kernel_id`: stable identifier of the @tt_torch.tt_lang_operation registration
+      (e.g. `"my_module.my_kernel::v1"`).
+    - `version_tag`: identifier the kernel author bumps to force recompile.
+    - `arg_roles`: comma-separated roles for `inputs` (e.g. `"in,in,out"`).
+      Constrained to the form `in* out+` (all inputs first, then all
+      outputs). The `out`-roled operands are the trailing
+      destination-passing-style init operands and tie positionally to
+      `results`.
+    - `shard_spec`: optional opaque shard description forwarded to the
+      resolver. Empty string means "no spec".
+
+    Example:
+    ```mlir
+    %0 = ttir.tt_lang_op(%a, %b) {
+      kernel_id = "my_pkg.softmax::v1",
+      version_tag = "1.0",
+      arg_roles = "in,out",
+      shard_spec = ""
+    } : (tensor<1x32xf32>, tensor<1x32xf32>) -> (tensor<1x32xf32>)
+    ```
+  }];
+
+  let arguments = (ins Variadic<AnyRankedTensor>:$inputs,
+                       StrAttr:$kernel_id,
+                       StrAttr:$version_tag,
+                       StrAttr:$arg_roles,
+                       DefaultValuedStrAttr<StrAttr, "">:$shard_spec);
+  let results = (outs Variadic<AnyRankedTensor>:$results);
+
+  let extraClassDeclaration = [{
+    // DPS init operands are the trailing `"out"`-roled operands. The
+    // verifier enforces `arg_roles == in* out+` and `#out == #results`,
+    // so the inits are the last `getResults().size()` operands and tie
+    // positionally to the results.
+    ::mlir::MutableOperandRange getDpsInitsMutable() {
+      unsigned numOuts = getResults().size();
+      unsigned numIns = getInputs().size() - numOuts;
+      return ::mlir::MutableOperandRange(*this, numIns, numOuts);
+    }
+  }];
+
+  let assemblyFormat = [{
+    `(` $inputs `)` attr-dict `:` `(` type($inputs) `)` `->` `(` type($results) `)`
+  }];
+
+  let hasVerifier = 1;
 }
 
 #endif

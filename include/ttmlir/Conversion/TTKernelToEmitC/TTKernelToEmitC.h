@@ -15,6 +15,8 @@
 namespace mlir::tt {
 #define GEN_PASS_DECL_CONVERTTTKERNELTOEMITC
 #include "ttmlir/Conversion/Passes.h.inc"
+
+std::unique_ptr<OperationPass<ModuleOp>> createRemoveDeadEmitCExpressionsPass();
 } // namespace mlir::tt
 
 #endif

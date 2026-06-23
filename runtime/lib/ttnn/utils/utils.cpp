@@ -103,7 +103,7 @@ bool canTilizeOnDevice(
          canTilizeMemoryLayoutOnDevice(memoryConfig);
 }
 
-// tt-metal untilize supports: bfloat16, float32, uint32, int32
+// tt-metal untilize supports: bfloat16, float32, uint32, int32, uint16
 // (requires use_pack_untilize for uint32/int32)
 // See: ttnn/operations/data_movement/untilize/device/untilize_op.cpp
 // FP32 untilize fix: https://github.com/tenstorrent/tt-metal/pull/33904
@@ -113,6 +113,7 @@ bool canUntilizeDataTypeOnDevice(const ::ttnn::DataType &dataType) {
   return dataType == ::ttnn::DataType::BFLOAT16 ||
          dataType == ::ttnn::DataType::FLOAT32 ||
          dataType == ::ttnn::DataType::UINT32 ||
+         dataType == ::ttnn::DataType::UINT16 ||
          dataType == ::ttnn::DataType::INT32;
 }
 

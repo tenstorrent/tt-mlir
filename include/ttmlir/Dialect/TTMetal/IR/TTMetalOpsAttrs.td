@@ -55,12 +55,14 @@ def TTMetal_KernelArgAttr : TTMetal_Attr<"KernelArg", "kernel_arg"> {
 def TTMetal_KernelArgsAttr : TTMetal_Attr<"KernelArgs", "kernel_args"> {
   let summary = "TTMetal kernel arguments attribute.";
   let description = [{
-    Holds two lists of kernel arguments, one for runtime and one for compile time.
+    Holds kernel argument bindings for common runtime (CRTA), per-core runtime (RTA),
+    and compile-time (CTA) arguments.
   }];
 
-  let parameters = (ins OptionalArrayRefParameter<"KernelArgAttr">:$rt_args,
+  let parameters = (ins OptionalArrayRefParameter<"KernelArgAttr">:$common_rt_args,
+                        OptionalArrayRefParameter<"KernelArgAttr">:$rt_args,
                         OptionalArrayRefParameter<"KernelArgAttr">:$ct_args);
-  let assemblyFormat = "`<` (`rt_args` `=` `[` $rt_args^ `]`)? ` ` (`ct_args` `=` `[` $ct_args^ `]`)? `>`";
+  let assemblyFormat = "`<` (`common_rt_args` `=` `[` $common_rt_args^ `]`)? ` ` (`rt_args` `=` `[` $rt_args^ `]`)? ` ` (`ct_args` `=` `[` $ct_args^ `]`)? `>`";
 }
 
 
@@ -107,12 +109,17 @@ def TTMetal_NocConfigAttr: TTMetal_Attr<"NocConfig", "noc_config", [TTMetal_Kern
   let summary = "TTMetal NocConfig attribute.";
   let description = [{
     Structure for configuring noc kernels.
+
+    The dm_core_index selects the DM core this kernel launches on; noc_index
+    selects the NoC it drives. See ttcore::getDmCoreDefaultNoc for the default
+    DM core -> NoC convention.
   }];
   let parameters = (ins "SymbolRefAttr":$kernel_symbol,
                         "CoreRangeAttr":$core_range,
                         "KernelArgsAttr":$kernel_args,
+                        "int32_t":$dm_core_index,
                         "mlir::tt::ttcore::NocIndex":$noc_index);
-  let assemblyFormat = "`<` $kernel_symbol `,` qualified($core_range) `,` qualified($kernel_args) `,` $noc_index `>`";
+  let assemblyFormat = "`<` $kernel_symbol `,` qualified($core_range) `,` qualified($kernel_args) `,` `dm_core` `=` $dm_core_index `,` $noc_index `>`";
   let extraClassDeclaration = [{
     mlir::tt::ttkernel::ThreadType getThreadType() const { return mlir::tt::ttkernel::ThreadType::Noc; }
   }];

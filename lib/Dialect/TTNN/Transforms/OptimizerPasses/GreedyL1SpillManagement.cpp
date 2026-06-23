@@ -55,9 +55,9 @@ public:
                  utils::getTensorL1UsageCap(moduleOp),
                  utils::getReservedL1Usage(moduleOp));
 
-    moduleOp->walk([&](func::FuncOp func) {
+    moduleOp->walk([&](func::FuncOp func) -> WalkResult {
       if (!ttmlir::utils::isForwardDeviceFunc(func)) {
-        return;
+        return WalkResult::advance();
       }
 
       // Create observer if tracing is enabled.
@@ -69,6 +69,16 @@ public:
       L1SpillManagement<SumL1MemoryTracker> spill(
           func, deviceGrid, l1BudgetPerCore, std::move(observer));
       spill.run();
+
+      // run() emits a diagnostic but cannot fail the pass on its own; surface
+      // any unrecoverable condition (e.g. an op whose CBs overlap a required
+      // inserted-reshard input) as a pass failure. Interrupt the walk too: the
+      // pass is already doomed, so don't keep mutating later forward-device
+      // funcs.
+      if (spill.hasFailed()) {
+        signalPassFailure();
+        return WalkResult::interrupt();
+      }
 
       // Sync D2M subgraph function types to match dispatch op's current inputs
       // (e.g. after spill, operand types may have changed to DRAM).
@@ -91,6 +101,8 @@ public:
           }
         }
       }
+
+      return WalkResult::advance();
     });
 #endif
   }

@@ -15,14 +15,12 @@ def writer_bmm_8bank(cb_id_out0: CircularBuffer):
     Nt = get_arg_val(int, 4)
     batch = get_arg_val(int, 7)
 
-    dst_is_dram = get_compile_time_arg_val(int, 0) == 1
-
     onetile = 1
     tile_bytes = get_tile_size(cb_id_out0)
-    data_format = get_dataformat(cb_id_out0)
     itileC: int = 0
 
-    s = get_interleaved_addr_gen_fast(dst_is_dram, dst_addr, tile_bytes, data_format)
+    tensor_accessor_args = TensorAccessorArgs(cta_base=1, crta_base=0)
+    s = TensorAccessor(tensor_accessor_args, dst_addr, tile_bytes)
 
     for nb in range(0, batch, 1):
         for mt_C in range(0, Mt, 1):

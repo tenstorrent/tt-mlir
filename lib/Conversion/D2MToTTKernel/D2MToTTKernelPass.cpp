@@ -56,6 +56,7 @@ struct ConvertD2MToTTKernel
     // Workaround: Passes are required to be copy-constructible but autogen'ed
     // base class copy constructors ignore Pass option fields.
     this->ttnnMode = rhs.ttnnMode;
+    this->forceCompileTimeArgs = rhs.forceCompileTimeArgs;
   }
 
   void runOnOperation() final {
@@ -126,8 +127,8 @@ struct ConvertD2MToTTKernel
              op->hasAttr(ttkernel::ThreadTypeAttr::name);
     });
 
-    if (failed(d2m::utils::checkBackendDatamovementProcessorSupport(
-            moduleOp, "D2MToTTKernel"))) {
+    if (failed(
+            d2m::utils::checkBackendDmCoreSupport(moduleOp, "D2MToTTKernel"))) {
       signalPassFailure();
       return;
     }
@@ -178,7 +179,7 @@ struct ConvertD2MToTTKernel
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);
     populateD2MToTTKernelPatterns(&getContext(), patterns, typeConverter,
-                                  cbProducerConsumer, ttnnMode);
+                                  cbProducerConsumer, forceCompileTimeArgs);
     scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
                                                          patterns, target);
 

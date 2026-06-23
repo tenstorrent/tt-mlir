@@ -24,6 +24,9 @@ class RotaryEmbeddingOp;
 class Conv3dOp;
 class TopKOp;
 class TopKRouterGptOp;
+class MoeComputeOp;
+class PrepareMoEComputeW0W1WeightsOp;
+class PrepareMoEComputeW2WeightsOp;
 } // namespace mlir::tt::ttnn
 
 namespace mlir::tt::ttnn::wa {
@@ -47,6 +50,11 @@ struct TTNNOperandWorkarounds {
 
   // Tensor data format workaround.
   TensorDataTypeWorkaround tensorDataTypeWorkaround;
+
+  // Tags the inserted ToLayoutOp with "ttnn.const_eval_allowed" so
+  // ConstEvalHoist may hoist its L1-resident result. Opt in only for constant
+  // operands whose L1 residency is meant to be const-eval'd.
+  bool allowL1ConstEval = false;
 
   // Default constructor.
   TTNNOperandWorkarounds() = default;
@@ -101,7 +109,8 @@ struct TTNNOperandWorkarounds {
     return tensorLayoutWorkaround == rhs.tensorLayoutWorkaround &&
            tensorBufferTypeWorkaround == rhs.tensorBufferTypeWorkaround &&
            tensorMemoryLayoutWorkaround == rhs.tensorMemoryLayoutWorkaround &&
-           tensorDataTypeWorkaround == rhs.tensorDataTypeWorkaround;
+           tensorDataTypeWorkaround == rhs.tensorDataTypeWorkaround &&
+           allowL1ConstEval == rhs.allowL1ConstEval;
   }
 
   // Inequality operator.
@@ -112,7 +121,8 @@ struct TTNNOperandWorkarounds {
   // Returns true if any of the workarounds is set.
   bool hasAnyWorkaround() const {
     return tensorLayoutWorkaround || tensorBufferTypeWorkaround ||
-           tensorMemoryLayoutWorkaround || tensorDataTypeWorkaround;
+           tensorMemoryLayoutWorkaround || tensorDataTypeWorkaround ||
+           allowL1ConstEval;
   }
 };
 
@@ -359,9 +369,20 @@ public:
   createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds(
       Operation *op);
 
+  // TODO(#8842): The ROW_MAJOR coercion of page_table /
+  // chunk_start_idx / cur_pos_tensor for the chunked and paged SDPA decode
+  // factories below is a permanent tt-metal kernel ABI, not a temporary
+  // workaround. Move it to TTNNLayout's shouldForceInputRowMajor (this op and
+  // the paged SDPA decode op above) and drop these factories.
+  static TTNNOperandsWorkarounds
+  createChunkedScaledDotProductAttentionOpOperandsWorkarounds(Operation *op);
+
   static TTNNOperandsWorkarounds
   createPagedFlashMultiLatentAttentionDecodeOpOperandsWorkarounds(
       Operation *op);
+
+  static TTNNOperandsWorkarounds
+  createFlashMlaPrefillOpOperandsWorkarounds(Operation *op);
 
   // Create workarounds for sparse_matmul op operands.
   // Sparsity tensor must be in ROW_MAJOR layout.
@@ -401,6 +422,22 @@ public:
   // Issue page: https://github.com/tenstorrent/tt-metal/issues/39128
   static TTNNOperandsWorkarounds
   createMoeExpertTokenRemapOpOperandsWorkarounds();
+
+  // Create workarounds for moe_compute op operands.
+  // Inputs are bfloat16 / uint16 ROW_MAJOR; outputs are a mix of uint32 and
+  // bfloat16 in ROW_MAJOR and TILE layouts.
+  static TTNNOperandsWorkarounds
+  createMoeComputeOpOperandsWorkarounds(ttnn::MoeComputeOp op);
+
+  // Create workarounds for the moe_compute weight-prep op operands: the
+  // tt-metal packers require ROW_MAJOR weights/biases.
+  static TTNNOperandsWorkarounds
+  createPrepareMoEComputeW0W1WeightsOpOperandsWorkarounds(
+      ttnn::PrepareMoEComputeW0W1WeightsOp op);
+
+  static TTNNOperandsWorkarounds
+  createPrepareMoEComputeW2WeightsOpOperandsWorkarounds(
+      ttnn::PrepareMoEComputeW2WeightsOp op);
 
   // Create workarounds for topk ops.
   // Input must be BFloat16 or BFP_BFloat8.

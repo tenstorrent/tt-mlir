@@ -14245,6 +14245,233 @@ class TTIRBuilder(Builder):
 
         return psdpad_module, psdpad_builder
 
+    ############### ttir.ChunkedScaledDotProductAttentionOp ###############
+
+    @tag(ttir.ChunkedScaledDotProductAttentionOp)
+    def chunked_scaled_dot_product_attention(
+        self,
+        query: Operand,
+        key: Operand,
+        value: Operand,
+        page_table: Operand,
+        chunk_start_idx: Operand,
+        output: Operand,
+        scale: Optional[float] = None,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(
+            TTIRBuilder.chunked_scaled_dot_product_attention
+        )
+
+        if output_type is None:
+            mlir_output_type = self.get_type(query)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        scale_attr = FloatAttr.get_f32(scale) if scale is not None else None
+
+        golden_args = [
+            self._get_golden_tensor(query),
+            self._get_golden_tensor(key),
+            self._get_golden_tensor(value),
+            self._get_golden_tensor(page_table),
+            self._get_golden_tensor(chunk_start_idx),
+            self._get_golden_tensor(output),
+        ]
+
+        golden_kwargs = {
+            "scale_attr": scale_attr,
+            "output_type_mlir": mlir_output_type,
+        }
+
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(*golden_args, **golden_kwargs)
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            query,
+            key,
+            value,
+            page_table,
+            chunk_start_idx,
+            output,
+            scale=scale_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.ChunkedScaledDotProductAttentionOp)
+    def chunked_scaled_dot_product_attention_parser(
+        self,
+        old_op: ttir.ChunkedScaledDotProductAttentionOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(
+            TTIRBuilder.chunked_scaled_dot_product_attention_parser
+        )
+
+        query = global_dict[old_op.query]
+        key = global_dict[old_op.key]
+        value = global_dict[old_op.value]
+        page_table = global_dict[old_op.page_table]
+        chunk_start_idx = global_dict[old_op.chunk_start_idx]
+        output = global_dict[old_op.output]
+        result = old_op.result.type
+        scale_attr = old_op.scale if "scale" in old_op.attributes else None
+
+        new_op = ttir_op(
+            result,
+            query,
+            key,
+            value,
+            page_table,
+            chunk_start_idx,
+            output,
+            scale=scale_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        golden_args = [
+            self._get_golden_tensor(query),
+            self._get_golden_tensor(key),
+            self._get_golden_tensor(value),
+            self._get_golden_tensor(page_table),
+            self._get_golden_tensor(chunk_start_idx),
+            self._get_golden_tensor(output),
+        ]
+        golden_kwargs = {
+            "scale_attr": scale_attr,
+            "output_type_mlir": result.element_type,
+        }
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(*golden_args, **golden_kwargs)
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {}
+        op_map_dictionary[old_op.result] = new_op_result
+        return new_op, op_map_dictionary
+
+    @split(ttir.ChunkedScaledDotProductAttentionOp)
+    def chunked_scaled_dot_product_attention_split(
+        self,
+        old_op: ttir.ChunkedScaledDotProductAttentionOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(
+            TTIRBuilder.chunked_scaled_dot_product_attention_split
+        )
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            csdpa_module = Module.create()
+            csdpa_builder = TTIRBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+
+            op_input_types = [
+                old_op.query.type,
+                old_op.key.type,
+                old_op.value.type,
+                old_op.page_table.type,
+                old_op.chunk_start_idx.type,
+                old_op.output.type,
+            ]
+
+            with InsertionPoint(csdpa_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(
+                    *op_input_types,
+                    name="chunked_scaled_dot_product_attention_module",
+                )
+                def decorated_func(*inputs):
+                    query = inputs[0]
+                    key = inputs[1]
+                    value = inputs[2]
+                    page_table = inputs[3]
+                    chunk_start_idx = inputs[4]
+                    output = inputs[5]
+
+                    result = old_op.result.type
+                    scale_attr = old_op.scale if "scale" in old_op.attributes else None
+
+                    new_op = ttir_op(
+                        result,
+                        query,
+                        key,
+                        value,
+                        page_table,
+                        chunk_start_idx,
+                        output,
+                        scale=scale_attr,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    csdpa_builder._set_golden_tensor(new_op_result, old_op_result)
+
+                    csdpa_builder._set_golden_tensor(
+                        query, self._get_golden_tensor(old_op.query)
+                    )
+                    ordered_inputs.append(query)
+
+                    csdpa_builder._set_golden_tensor(
+                        key, self._get_golden_tensor(old_op.key)
+                    )
+                    ordered_inputs.append(key)
+
+                    csdpa_builder._set_golden_tensor(
+                        value, self._get_golden_tensor(old_op.value)
+                    )
+                    ordered_inputs.append(value)
+
+                    csdpa_builder._set_golden_tensor(
+                        page_table, self._get_golden_tensor(old_op.page_table)
+                    )
+                    ordered_inputs.append(page_table)
+
+                    csdpa_builder._set_golden_tensor(
+                        chunk_start_idx,
+                        self._get_golden_tensor(old_op.chunk_start_idx),
+                    )
+                    ordered_inputs.append(chunk_start_idx)
+
+                    csdpa_builder._set_golden_tensor(
+                        output, self._get_golden_tensor(old_op.output)
+                    )
+                    ordered_inputs.append(output)
+
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                csdpa_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return csdpa_module, csdpa_builder
+
     @tag(ttir.Conv2dOp)
     def conv2d(
         self,
@@ -17286,6 +17513,123 @@ class TTIRBuilder(Builder):
                 ]
 
         return moe_gpt_module, moe_gpt_builder
+
+    ############### ttir.MoeComputeOp ###############
+
+    @tag(ttir.MoeComputeOp)
+    def moe_compute(
+        self,
+        tilize_input_tensor: Operand,
+        tilize_expert_indices_tensor: Operand,
+        tilize_expert_scores_tensor: Operand,
+        tilize_expert_mapping_tensor: Operand,
+        w0: Operand,
+        w1: Operand,
+        w2: Operand,
+        layer_id: int,
+        output_height_shard_dim: int,
+        intermediate_size: int,
+        bias_0: Optional[Operand] = None,
+        bias_1: Optional[Operand] = None,
+        bias_2: Optional[Operand] = None,
+        activation_function: str = "silu",
+        compute_only: bool = True,
+        bh_ring_size: Optional[int] = None,
+        output_shapes: Optional[List[Shape]] = None,
+        output_types: Optional[List[torch.dtype]] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> Tuple[OpResult, OpResult, OpResult, OpResult, OpResult, OpResult]:
+        assert (
+            output_shapes is not None and len(output_shapes) == 6
+        ), "output_shapes must be a list of 6 shapes for moe_compute"
+        assert (
+            output_types is not None and len(output_types) == 6
+        ), "output_types must be a list of 6 dtypes for moe_compute"
+
+        result_types = [
+            self._create_ranked_tensor_type(
+                shape, self._get_type_from_torch_dtype(dtype)
+            )
+            for shape, dtype in zip(output_shapes, output_types)
+        ]
+
+        u32 = IntegerType.get_unsigned(32)
+        layer_id_attr = IntegerAttr.get(u32, layer_id)
+        output_height_shard_dim_attr = IntegerAttr.get(u32, output_height_shard_dim)
+        intermediate_size_attr = IntegerAttr.get(u32, intermediate_size)
+        activation_attr = Attribute.parse(
+            f"#ttcore.moe_activation_function<{activation_function}>"
+        )
+        compute_only_attr = BoolAttr.get(compute_only)
+        bh_ring_size_attr = (
+            IntegerAttr.get(u32, bh_ring_size) if bh_ring_size is not None else None
+        )
+
+        loc = self._get_location()
+
+        op = ttir.MoeComputeOp(
+            result_types[0],
+            result_types[1],
+            result_types[2],
+            result_types[3],
+            result_types[4],
+            result_types[5],
+            tilize_input_tensor,
+            tilize_expert_indices_tensor,
+            tilize_expert_scores_tensor,
+            tilize_expert_mapping_tensor,
+            w0,
+            w1,
+            w2,
+            layer_id_attr,
+            output_height_shard_dim_attr,
+            intermediate_size_attr,
+            bias_0=bias_0,
+            bias_1=bias_1,
+            bias_2=bias_2,
+            activation_function=activation_attr,
+            compute_only=compute_only_attr,
+            bh_ring_size=bh_ring_size_attr,
+            loc=loc,
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        # Compute goldens via the registered reference from the raw weight
+        # operands (the SiLU/SwiGLU MLP reference). Device-specific weight
+        # prepacking happens in TTNN; the golden works directly off w0/w1/w2.
+        def _maybe_golden(v):
+            return self._get_golden_tensor(v) if v is not None else None
+
+        op_golden_function = get_golden_function(ttir.MoeComputeOp)
+        golden_outputs = op_golden_function(
+            self._get_golden_tensor(tilize_input_tensor),
+            self._get_golden_tensor(tilize_expert_indices_tensor),
+            self._get_golden_tensor(tilize_expert_scores_tensor),
+            self._get_golden_tensor(tilize_expert_mapping_tensor),
+            self._get_golden_tensor(w0),
+            self._get_golden_tensor(w1),
+            self._get_golden_tensor(w2),
+            bias_0=_maybe_golden(bias_0),
+            bias_1=_maybe_golden(bias_1),
+            bias_2=_maybe_golden(bias_2),
+            layer_id=layer_id,
+            output_height_shard_dim=output_height_shard_dim,
+            intermediate_size=intermediate_size,
+            has_bias=any(b is not None for b in (bias_0, bias_1, bias_2)),
+            # cluster_axis is full-path routing, unused in compute_only.
+            cluster_axis=0,
+            activation_function=activation_function,
+            compute_only=compute_only,
+            bh_ring_size=bh_ring_size,
+            output_types_mlir=[r.type for r in op.results],
+        )
+        for result, golden in zip(op.results, golden_outputs):
+            self._set_golden_tensor(result, golden)
+
+        return tuple(op.results)
 
     def upsample2d(
         self,

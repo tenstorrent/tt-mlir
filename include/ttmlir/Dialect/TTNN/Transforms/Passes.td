@@ -44,6 +44,12 @@ def TTNNWorkarounds : Pass<"ttnn-workaround", "::mlir::ModuleOp"> {
              "ttnn-enable-decomposition-workaround-pass",
              "bool", /*default=*/"true",
              "TTNN Decompsition Workarounds Pass">,
+      Option<"allReduceWorkaroundEnabled",
+             "ttnn-enable-all-reduce-workaround",
+             "bool", /*default=*/"true",
+             "Enable the all_reduce decomposition workaround which breaks "
+             "all_reduce down into reduce_scatter + all_gather (or "
+             "all_gather + local reduce).">,
       Option<"optimizationLevel",
              "ttnn-optimization-level",
              "int", /*default=*/"0",
@@ -309,6 +315,33 @@ def TTNNPrepareConv2dWeightsAndBias : Pass<"ttnn-prepare-conv2d-weights-and-bias
     This pass inserts a PrepareConv2dWeights and a PrepareConv2dBias operation before each Conv2d op, which preprocess the weights and bias used by the Conv2d operations.
     These operations can then be const-evaluated, leading to improved performance.
     To use this pass, the project must be built with the op model library by setting -DTTMLIR_ENABLE_OPMODEL=ON during the build process.
+  }];
+}
+
+def TTNNDeduceMoEComputeLayouts : Pass<"ttnn-deduce-moe-compute-layouts", "::mlir::ModuleOp"> {
+  let summary = "Refine result layouts of the moe_compute weight-prep and compute ops using OpModel.";
+  let description = [{
+    The prepare_moe_compute_*_weights ops produce a 6-D packed tensor with a
+    bank-permuted DRAM HEIGHT_SHARDED memory config, and ttnn.moe_compute
+    produces height-sharded outputs on the device compute grid. The exact
+    shapes and layouts depend on the target device and the hidden/intermediate
+    sizes, so the TTIR caller cannot know them up front. This pass walks those
+    ops emerging from TTIR->TTNN conversion and replaces their (placeholder)
+    result layouts with the OpModel-derived specs obtained via graph-captured
+    query of the corresponding tt-metal invocation.
+    Requires -DTTMLIR_ENABLE_OPMODEL=ON.
+  }];
+}
+
+def TTNNPrepareConv3dWeights : Pass<"ttnn-prepare-conv3d-weights", "::mlir::ModuleOp"> {
+  let summary = "Insert PrepareConv3dWeightsOp before every Conv3dOp.";
+  let description = [{
+    TTIRToTTNN lowers ttir.conv3d to ttnn.conv3d with the raw 5D weight still attached.
+    This pass walks every Conv3dOp, derives c_in_block from the optimizer's
+    Conv3dConfigAttr (or falls back to TILE_WIDTH = 32), and inserts a
+    PrepareConv3dWeightsOp that reshapes the raw 5D weight into the 2D layout the
+    tt-metal runtime expects. The Conv3dOp's weight operand is then rewired to the
+    prepared result. Mirrors TTNNPrepareConv2dWeightsAndBias.
   }];
 }
 
@@ -700,16 +733,44 @@ def TTNNResolveComposites : Pass<"ttnn-resolve-composites", "::mlir::ModuleOp"> 
   let summary = "Resolve composite ops into typed ops or inline decompositions.";
   let description = [{
     This pass resolves `ttcore.composite` ops by attempting to replace each one
-    with a dedicated typed TTNN op (e.g. `ttnn.topk_router_gpt`). If the typed
-    op fails verification or OpModel validation, the decomposition function body
-    is inlined as a fallback.
+    with a dedicated typed TTNN op (e.g. `ttnn.rotary_embedding`).
 
-    Typed op promotion requires OpModel validation. If OpModel is not available
-    all composites are unconditionally decomposed into their primitive equivalents.
+    Resolution mode is controlled by the `composite-resolution` option:
+
+    - `inline` (default): All composites are unconditionally inlined (decomposed
+      into primitives). This is the safe default — downstream TTNN fusing
+      patterns can still create typed ops from the inlined primitives.
+
+    - `validate`: The typed op is validated via OpModel before promotion. If
+      validation fails, the decomposition function body is inlined as a
+      fallback. Requires TTMLIR_ENABLE_OPMODEL.
+
+    - `force-promote`: Unconditionally promote registered composites to typed
+      ops without validation. Intended for testing only.
 
     After resolution, decomposition functions that are no longer referenced are
     erased from the module.
   }];
+
+  let options = [
+    Option<"compositeResolution",
+            "composite-resolution",
+            "CompositeResolution",
+            /*default=*/"CompositeResolution::Auto",
+            "How to resolve composites.",
+            [{::llvm::cl::values(
+              clEnumValN(CompositeResolution::Auto, "auto",
+                "Pipeline decides: validate when optimizer+OpModel available, "
+                "else inline (default)."),
+              clEnumValN(CompositeResolution::Inline, "inline",
+                "Always inline decomposition; never upgraded by pipeline."),
+              clEnumValN(CompositeResolution::Validate, "validate",
+                "Promote if OpModel validates, else inline "
+                "(requires TTMLIR_ENABLE_OPMODEL)."),
+              clEnumValN(CompositeResolution::ForcePromote, "force-promote",
+                "Unconditionally promote (testing only).")
+            )}]>,
+  ];
 }
 
 def TTNNCollaspeD2M : Pass<"ttnn-collaspe-d2m", "::mlir::ModuleOp"> {
@@ -808,6 +869,89 @@ def TTNNGreedyMemoryLayoutPropagation : Pass<"ttnn-greedy-memory-layout-propagat
     Option<"enableCompileTimeStats", "enable-compile-time-stats", "bool", "false",
            "Print per-op compile-time statistics at DEBUG level.">,
   ];
+}
+
+def TTNNResolveTTLangKernels : Pass<"ttnn-resolve-tt-lang-kernels", "::mlir::ModuleOp"> {
+  let summary = "Resolve deferred ttnn.tt_lang_op kernels via the tt-lang Python compiler.";
+  let description = [{
+    This pass walks the module for `ttnn.tt_lang_op` operations with an
+    empty `kernel_artifact` attribute and invokes
+    `tt_torch.tt_lang.resolve_operation` through the host process's Python
+    interpreter, passing the (now-final, post-TTIR->TTNN) shard-local
+    operand types and `arg_roles` / `shard_spec`. The
+    `tt_torch.tt_lang.resolve_operation` resolver lives in tt-xla's
+    `tt_torch` Python package and returns a `CompiledTTNNKernel` JSON
+    artifact, which the pass attaches back onto the op as the
+    `kernel_artifact` `StringAttr`. This attribute is later consumed by
+    the downstream TTNN-to-flatbuffer emitter to materialise a
+    `ttnn.generic_op` descriptor.
+
+    Important Notes:
+    This pass must be run after all TTNN layout-decomposition and
+    workaround passes (so each operand carries its final
+    `#ttnn.ttnn_layout` encoding) and before flatbuffer emission.
+
+    The Python interpreter's GIL is acquired via
+    `pybind11::gil_scoped_acquire`; this pass does NOT call
+    `Py_Initialize`. The host process is expected to already be running
+    CPython (typical when this pass runs inside `pjrt_plugin_tt.so`,
+    loaded from a `jax` / `torch_xla` Python program). When
+    `ttmlir-translate` or `ttmlir-opt` is invoked from a non-Python
+    parent the `tt_torch.tt_lang` import fails and the pass emits a
+    diagnostic to that effect. A module with no `ttnn.tt_lang_op` is
+    unaffected: the pass returns before touching Python at all.
+  }];
+
+  let options = [
+    Option<"meshShape", "mesh-shape", "std::string",
+           /*default=*/"\"\"",
+           "Comma-separated mesh shape (e.g. 1,1 or 2,4) "
+           "forwarded to `resolve_operation` so the Python compiler sees "
+           "the active mesh. Empty defaults to [1].">,
+    Option<"pythonModule", "python-module", "std::string",
+           /*default=*/"\"tt_torch.tt_lang\"",
+           "Python module exposing the resolver entry point.">,
+    Option<"pythonFunction", "python-function", "std::string",
+           /*default=*/"\"resolve_operation\"",
+           "Function in `python-module` to invoke per op.">,
+  ];
+}
+
+def TTNNLowerTTLangToGeneric : Pass<"ttnn-lower-tt-lang-to-generic", "::mlir::ModuleOp"> {
+  let summary = "Lower resolved ttnn.tt_lang_op kernels into ttnn.generic ops.";
+  let description = [{
+    This pass rewrites each `ttnn.tt_lang_op` whose `kernel_artifact`
+    attribute has been populated (by `--ttnn-resolve-tt-lang-kernels`)
+    into an equivalent `ttnn.generic` op carrying a `#ttnn.program`
+    descriptor.
+
+    The `kernel_artifact` is the UTF-8 JSON payload produced by tt-xla's
+    `tt_torch.tt_lang._serialize_compiled_operation`:
+
+    {
+      "format_version": 1,
+      "kernels": [
+        {"thread_type": "compute"|"noc",
+         "cpp_source":  "<embedded C++ source>",
+         "tensor_indices": [<int>, ...],
+         "kernel_config": {...}},
+        ...
+      ],
+      "core_range": {"start": [x, y], "end": [x, y]},
+      "cb_configs": [{buffer_index, data_format, page_size, total_size}, ...],
+      ...
+    }
+
+    Each kernel becomes a `#ttnn.compute_kernel` / `#ttnn.read_kernel` /
+    `#ttnn.write_kernel` attribute carrying the kernel's C++ source inline
+    (the `source` parameter), its CB-index / tensor-accessor compile-time
+    args, and its buffer-address common runtime args. `cb_configs` become
+    `#ttnn.kernel_cb` descriptors.
+
+    This pass must run after `--ttnn-resolve-tt-lang-kernels` and before
+    flatbuffer emission. A `ttnn.tt_lang_op` with an empty/unset
+    `kernel_artifact` is not allowed and will result in an error.
+  }];
 }
 
 #endif

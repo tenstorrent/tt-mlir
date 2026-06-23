@@ -25,6 +25,7 @@ from builder.base.builder_utils import (
     split,
     derive_canonical_core_range_set,
 )
+from builder.base.input_range_constraints import infer_arg_ranges
 
 
 class BuilderMeta(type):
@@ -85,6 +86,13 @@ class Builder(metaclass=BuilderMeta):
         # dict lets the golden machinery shard incoming global-shape tensors
         # at set-time. See builder.func(presharded_args=...).
         self._presharded_arg_shard_dims: Dict[BlockArgument, Tuple[int, ...]] = {}
+
+        # Mirror of the above for presharded results: the returned op's MLIR
+        # type is already the per-device (local) shape, and the func result is
+        # annotated ttcore.shard_status<presharded> (no ShardToFull mesh_shard).
+        # This dict lets the golden machinery shard the user-supplied global
+        # golden into per-device shards. See builder.func(presharded_results=...).
+        self._presharded_result_shard_dims: Dict[OpResult, Tuple[int, ...]] = {}
 
         # Map from operand to its location string.
         self._operand_to_loc: Dict[Operand, str] = {}
@@ -350,6 +358,33 @@ class Builder(metaclass=BuilderMeta):
 
         func_op.arg_attrs = ArrayAttr.get(new_arg_attr_list)
 
+    def set_result_attribute(
+        self,
+        func_op: func.FuncOp,
+        result_index: int,
+        new_attr_name: str,
+        new_attr: Attribute,
+    ):
+        num_results = len(func_op.type.results)
+        try:
+            existing = list(func_op.result_attrs)
+        except KeyError:
+            existing = []
+
+        new_result_attr_list = []
+        for index in range(num_results):
+            result_attrs = (
+                existing[index] if index < len(existing) else DictAttr.get({})
+            )
+            if index == result_index:
+                new_result_attr = {attr.name: attr.attr for attr in result_attrs}
+                new_result_attr[new_attr_name] = new_attr
+                new_result_attr_list.append(DictAttr.get(new_result_attr))
+            else:
+                new_result_attr_list.append(result_attrs)
+
+        func_op.result_attrs = ArrayAttr.get(new_result_attr_list)
+
     @staticmethod
     def _local_shape_for_shard_dims(
         global_shape: Tuple[int, ...],
@@ -373,6 +408,17 @@ class Builder(metaclass=BuilderMeta):
         self._presharded_arg_shard_dims[arg] = shard_dims
         self.set_arg_attribute(
             arg,
+            "ttcore.shard_status",
+            ttcore.ir.ShardStatusAttr.get(self._ctx, ttcore.ir.ShardStatus.Presharded),
+        )
+
+    def _mark_presharded_result(self, func_op: func.FuncOp, result_index: int):
+        # The returned op already carries the per-device (local) shape, so the
+        # func result type needs no rewrite; we only annotate it presharded so
+        # no ShardToFull mesh_shard is emitted and the runtime gathers shards.
+        self.set_result_attribute(
+            func_op,
+            result_index,
             "ttcore.shard_status",
             ttcore.ir.ShardStatusAttr.get(self._ctx, ttcore.ir.ShardStatus.Presharded),
         )
@@ -696,18 +742,18 @@ class Builder(metaclass=BuilderMeta):
     def _set_golden_tensor(
         self,
         operand: Operand,
-        goldens: List[Union[GoldenMapTensor, str]],
+        goldens: Union[GoldenMapTensor, str],
     ):
-        if (
-            isinstance(goldens, GoldenMapTensor)
-            and operand in self._presharded_arg_shard_dims
-        ):
+        shard_dims = self._presharded_arg_shard_dims.get(
+            operand
+        ) or self._presharded_result_shard_dims.get(operand)
+        if isinstance(goldens, GoldenMapTensor) and shard_dims is not None:
             local_shape = tuple(self._get_type(operand).shape)
             if tuple(goldens.shard_at(0).shape) != local_shape:
                 goldens = apply_sharding(
                     goldens,
                     self._mesh_shape,
-                    self._presharded_arg_shard_dims[operand],
+                    shard_dims,
                 )
         if isinstance(goldens, str):
             self._deallocated_goldens[operand] = goldens
@@ -1076,12 +1122,15 @@ class Builder(metaclass=BuilderMeta):
     ) -> List[Dict[int, torch.Tensor]]:
         golden_inputs = []
 
+        arg_ranges = infer_arg_ranges(parsed_func)
+
         arg_attr_list = parsed_func.arg_attrs
         for arg_number, arg_attrs in enumerate(arg_attr_list):
             arg = parsed_func.arguments[arg_number]
             ranked_tensor_type = arg.type
             is_presharded = False
             local_shape = ranked_tensor_type.shape
+            value_range = arg_ranges.get(arg_number)
 
             for named_attr in arg_attrs:
                 if named_attr.name == "ttcore.shard_status":
@@ -1104,18 +1153,54 @@ class Builder(metaclass=BuilderMeta):
                 device_golden_info = {}
                 for device_id in range(self._mesh_shape[0] * self._mesh_shape[1]):
                     device_golden_info[device_id] = self.generate_random_tensor(
-                        local_shape, ranked_tensor_type.element_type
+                        local_shape,
+                        ranked_tensor_type.element_type,
+                        value_range=value_range,
                     )
                 golden_inputs.append(device_golden_info)
             else:
                 golden_input = self.generate_random_tensor(
-                    local_shape, ranked_tensor_type.element_type
+                    local_shape,
+                    ranked_tensor_type.element_type,
+                    value_range=value_range,
                 )
                 golden_inputs.append({0: golden_input})
 
         return golden_inputs
 
-    def generate_random_tensor(self, shape: Shape, dtype: Type) -> torch.Tensor:
+    def _warn_if_outside_arg_ranges(
+        self,
+        parsed_func: func.FuncOp,
+        supplied_inputs: List[Dict[int, torch.Tensor]],
+    ) -> None:
+        arg_ranges = infer_arg_ranges(parsed_func)
+        if not arg_ranges:
+            return
+        for arg_number, shard_map in enumerate(supplied_inputs):
+            value_range = arg_ranges.get(arg_number)
+            if value_range is None:
+                continue
+            low, high = value_range
+            for shard_tensor in shard_map.values():
+                if shard_tensor.numel() == 0:
+                    continue
+                t_min = int(shard_tensor.min())
+                t_max = int(shard_tensor.max())
+                if t_min < low or t_max >= high:
+                    print(
+                        f"WARNING: caller-supplied golden for "
+                        f"{parsed_func.name.value} arg{arg_number} has values "
+                        f"in [{t_min}, {t_max}] but the consumer op requires "
+                        f"[{low}, {high})."
+                    )
+                    break
+
+    def generate_random_tensor(
+        self,
+        shape: Shape,
+        dtype: Type,
+        value_range: Optional[Tuple[int, int]] = None,
+    ) -> torch.Tensor:
         torch_dtype = self._get_torch_dtype_from_type(dtype)
 
         if torch_dtype.is_floating_point or torch_dtype.is_complex:
@@ -1129,10 +1214,11 @@ class Builder(metaclass=BuilderMeta):
             else:
                 return torch.randint(0, 2, shape, dtype=torch.bool)
         else:
+            low, high = value_range if value_range is not None else (0, 256)
             if len(shape) == 0:
-                return torch.randint(0, 256, (), dtype=torch_dtype)
+                return torch.randint(low, high, (), dtype=torch_dtype)
             else:
-                return torch.randint(0, 256, shape, dtype=torch_dtype)
+                return torch.randint(low, high, shape, dtype=torch_dtype)
 
     def parse_root_module(
         self,
@@ -1235,6 +1321,7 @@ class Builder(metaclass=BuilderMeta):
         parsed_func_golden_inputs = []
         if parsed_func.name.value in golden_inputs.keys():
             parsed_func_golden_inputs.extend(golden_inputs[parsed_func.name.value])
+            self._warn_if_outside_arg_ranges(parsed_func, parsed_func_golden_inputs)
         else:
             parsed_func_golden_inputs.extend(self.generate_golden_tensors(parsed_func))
 
@@ -1515,6 +1602,7 @@ class Builder(metaclass=BuilderMeta):
         ttnn_inputs: bool = False,
         custom_inputs: Optional[List[dict]] = None,
         presharded_args: Optional[Dict[int, Tuple[int, ...]]] = None,
+        presharded_results: Optional[Dict[int, Tuple[int, ...]]] = None,
     ):
         if ttnn_inputs or custom_inputs:
             encoding_fn = self._create_ttnn_tensor_encoding
@@ -1522,6 +1610,7 @@ class Builder(metaclass=BuilderMeta):
             encoding_fn = self.create_tensor_encoding
 
         presharded_args = presharded_args or {}
+        presharded_results = presharded_results or {}
         # Global shapes are needed to shard goldens later; the function
         # signature uses local shapes for presharded args.
         global_input_shapes = [tuple(s) for s in input_shapes]
@@ -1591,6 +1680,14 @@ class Builder(metaclass=BuilderMeta):
 
                 outputs = result if hasattr(result, "__iter__") else [result]
 
+                # Record the result shard dims before storing their goldens so the
+                # user-supplied global golden gets sharded into per-device shards
+                # (mirrors the presharded_args path). The IR result attribute is
+                # stamped in the wrapper below, after @func.func finalizes the
+                # result types (it would otherwise clobber res_attrs set here).
+                for idx, shard_dims in presharded_results.items():
+                    self._presharded_result_shard_dims[outputs[idx]] = tuple(shard_dims)
+
                 output_goldens: Dict[Operand, GoldenMapTensor] = {}
                 for op in outputs:
                     output_goldens[op] = self._get_golden_tensor(op)
@@ -1600,6 +1697,11 @@ class Builder(metaclass=BuilderMeta):
                 return process_multi_return_result(result)
 
             new_func_op = decorated_func.func_op
+            # Stamp presharded result attributes now that @func.func has finalized
+            # the result types. The returned op already carries the local shape,
+            # so no result-type rewrite (and no ShardToFull mesh_shard) is needed.
+            for idx in presharded_results:
+                self._mark_presharded_result(new_func_op, idx)
             self._func_ops_generated[new_func_op] = [ordered_inputs, ordered_outputs]
             self._func_name_to_op[new_func_op.name.value] = new_func_op
             return new_func_op

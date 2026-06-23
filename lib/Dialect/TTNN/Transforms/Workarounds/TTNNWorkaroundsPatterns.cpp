@@ -12,17 +12,17 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllGatherOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllReduceReshapeOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ArgMaxOpDimRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ConcatOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dEnableKernelStrideFoldingRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/DistributedRMSNormWidthShardInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/FillCacheInputPadRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GatherOpRank1RewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GroupNormAffineReshapeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GroupNormChannelPadRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/IntegerProdOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MoeComputeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MoeGptLayoutRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PadHighDimRewritePattern.h"
@@ -33,10 +33,10 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterConfigRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ReduceScatterOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SamplingOpRank2RewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionDecodeAttentionSinkRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScaledDotProductAttentionPadTileDimsRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/ScatterOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SliceStaticOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/TopKRouterGptDecompositionRewritePattern.h"
@@ -129,6 +129,14 @@ static bool workaroundInputOperand(
       inputWorkaroundResults.tensorBufferTypeResult.targetValue,
       inputWorkaroundResults.tensorMemoryLayoutResult.targetValue,
       inputWorkaroundResults.tensorDataTypeResult.targetValue, "_workaround");
+
+  // When the operand is a const-eval'able constant whose L1 residency is
+  // intended, tag the inserted op so ConstEvalHoist permits hoisting it
+  // despite the L1-resident result.
+  if (inputWorkaround.allowL1ConstEval) {
+    insertedToLayoutOpValue.getDefiningOp()->setAttr(
+        utils::g_ConstEvalAllowedAttrName, rewriter.getUnitAttr());
+  }
 
   // Insert to layout op between the current op and the input operand
   // to convert the input operand to the desired tensor layout, buffer type.
@@ -635,16 +643,16 @@ public:
     if (decompositionWorkaroundsEnabled) {
       RewritePatternSet patterns(&getContext());
       patterns.add<
-          GatherSi32Workaround, TTNNAllReduceWorkarounds,
+          GatherSi32Workaround,
+          workarounds::decomposition::GatherOpRank1RewritePattern,
+          workarounds::decomposition::SamplingOpRank2RewritePattern,
           workarounds::decomposition::TTNNAllReduceReshapeWorkarounds,
           workarounds::decomposition::TTNNAllGatherWorkarounds,
           workarounds::decomposition::TTNNReduceScatterWorkarounds,
-          workarounds::decomposition::TTNNScatterWorkarounds,
           workarounds::decomposition::EmbeddingOpSqueezeWeightRewritePattern,
           workarounds::decomposition::GroupNormChannelPadRewritePattern,
           workarounds::decomposition::GroupNormAffineReshapeRewritePattern,
           workarounds::decomposition::IntegerProdOpRewritePattern,
-          workarounds::decomposition::ArgMaxOpDimRewritePattern,
           workarounds::decomposition::UpsampleOpBilinearPaddingRewritePattern,
           workarounds::decomposition::RotaryEmbeddingOpRewritePattern,
           workarounds::decomposition::FillCacheInputPadRewritePattern<
@@ -677,17 +685,24 @@ public:
           workarounds::decomposition::TopKRouterGptDecompositionRewritePattern,
           workarounds::decomposition::
               AllToAllDispatchMetadataDrainCoreRewritePattern,
+          workarounds::decomposition::MoeComputeRewritePattern,
           workarounds::decomposition::SliceStaticOpRewritePattern,
-          workarounds::decomposition::ConcatOpRewritePattern,
           workarounds::decomposition::MoeGptLayoutRewritePattern>(
           &getContext());
       patterns.add<workarounds::decomposition::LinearOpRewritePattern>(
           &getContext(), /*benefit=*/2);
 
+      // The all_reduce decomposition workaround can be disabled via a pass
+      // option, e.g. once TTNN provides stable native all_reduce support.
+      if (allReduceWorkaroundEnabled) {
+        patterns.add<TTNNAllReduceWorkarounds>(&getContext());
+      }
+
       // PagedUpdateCacheOpRewritePattern is only needed below opt-level 2.
-      // At level >= 2 the greedy sharding optimizer (PagedUpdateCacheRuleBook
-      // constraint sink) drives the upstream producer to L1 height-sharded
-      // and inserts a proper ToMemoryConfigOp via beam search.
+      // At level >= 2 the greedy sharding optimizer drives the upstream
+      // producer to L1 height-sharded and inserts a proper ToMemoryConfigOp
+      // via beam search: metal's own grid TT_FATAL (tt-metal #45016) makes the
+      // constraint query reject any other operand-1 layout.
       if (optimizationLevel < 2) {
         patterns
             .add<workarounds::decomposition::PagedUpdateCacheOpRewritePattern>(
@@ -754,7 +769,26 @@ const std::set<mlir::StringRef>
         // TopK's operands workaround forces input bf16 + indices ui16/ui32;
         // without it, opt_level>=1 dtype propagation picks f32. See #8141.
         ttnn::TopKOp::getOperationName(),
-        // PrepareConv3dWeightsOp is needed for conv3d and it requires ROW_MAJOR
-        // layout. See #8411.
-        ttnn::PrepareConv3dWeightsOp::getOperationName()};
+        // FlashMlaPrefill's operands workaround forces Q/K/V/output to a
+        // tt-metal SDPA-supported dtype (bf16). Without it, opt_level>=1 leaves
+        // f32 operands
+        ttnn::FlashMlaPrefillOp::getOperationName(),
+        // The moe_compute weight packers and the op itself require
+        // layout and data type workarounds.
+        ttnn::PrepareMoEComputeW0W1WeightsOp::getOperationName(),
+        ttnn::PrepareMoEComputeW2WeightsOp::getOperationName(),
+        ttnn::MoeComputeOp::getOperationName(),
+        // Conv3d's runtime kernel hard-rejects Tile input
+        // (TT_FATAL @ conv3d_device_operation.cpp:49); without the
+        // workaround running here, the optimizer's layout propagation
+        // picks Tile for the input and downstream OpModel queries
+        // (LegalOpConfigAnalysis, OperationValidationAndFallback) see
+        // an inconsistent view between in-IR layouts and runtime
+        // contract.
+        ttnn::Conv3dOp::getOperationName(),
+        // Sampling's operands workaround forces ROW_MAJOR layout on
+        // index/param tensors, UINT32 dtype on k, and ROW_MAJOR+UINT32 on
+        // the result (the kernel hard-rejects anything else and produces
+        // UINT32).
+        ttnn::SamplingOp::getOperationName()};
 } // namespace mlir::tt::ttnn

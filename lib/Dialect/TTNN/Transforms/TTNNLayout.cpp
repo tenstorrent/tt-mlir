@@ -396,6 +396,7 @@ public:
 
     bool modified = false;
 
+    // Sync result types: update composite result types to match decomp func.
     for (auto [idx, resultType] :
          llvm::enumerate(compositeOp->getResultTypes())) {
       if (idx >= funcOp.getResultTypes().size()) {
@@ -404,6 +405,34 @@ public:
       auto funcResultType = funcOp.getResultTypes()[idx];
       if (resultType != funcResultType) {
         compositeOp->getResult(idx).setType(funcResultType);
+        modified = true;
+      }
+    }
+
+    // Sync input types: insert to_layout ops where the composite's input layout
+    // differs from the decomposition function's parameter layout. This can
+    // happen when e.g. a main-function `input`-typed argument is forced to
+    // row-major while the decomp function's internal ops prefer tiled layout.
+    for (auto [idx, input] : llvm::enumerate(compositeOp.getInputs())) {
+      if (idx >= funcOp.getNumArguments()) {
+        break;
+      }
+      auto funcArgType =
+          mlir::cast<RankedTensorType>(funcOp.getArgumentTypes()[idx]);
+      if (input.getType() == funcArgType) {
+        continue;
+      }
+      auto funcArgLayout =
+          mlir::dyn_cast<TTNNLayoutAttr>(funcArgType.getEncoding());
+      if (!funcArgLayout) {
+        continue;
+      }
+      Location newLoc = appendInputSuffix(compositeOp->getLoc(), idx);
+      std::optional<Value> desiredLayout = createToLayoutOp(
+          rewriter, newLoc, input, funcArgLayout.getBufferType(),
+          mlir::isa<ttcore::TileType>(funcArgLayout.getElementType()));
+      if (desiredLayout) {
+        compositeOp->setOperand(idx, *desiredLayout);
         modified = true;
       }
     }
@@ -644,7 +673,7 @@ private:
 
     for (Operation *user : arg.getUsers()) {
       // MeshShardOp inputs should be tiled.
-      if (mlir::isa<ttir::MeshShardOp>(user)) {
+      if (mlir::isa<ttir::MeshShardOp, ttir::TTLangOp>(user)) {
         return false;
       }
     }

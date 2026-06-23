@@ -1767,6 +1767,87 @@ static mlir::OpFoldResult foldConsecutiveReshape(mlir::tt::ttnn::ReshapeOp op) {
   return success();
 }
 
+// Fold slice(concat(...), ...) → concat operand when the slice exactly extracts
+// one operand of the concat along the concat dimension.
+static mlir::OpFoldResult
+foldSliceOfConcat(mlir::tt::ttnn::SliceStaticOp sliceOp) {
+  auto concatOp = sliceOp.getInput().getDefiningOp<mlir::tt::ttnn::ConcatOp>();
+  if (!concatOp) {
+    return nullptr;
+  }
+
+  mlir::ArrayAttr beginsAttr = sliceOp.getBeginsAttr();
+  mlir::ArrayAttr endsAttr = sliceOp.getEndsAttr();
+  mlir::ArrayAttr stepsAttr = sliceOp.getStepAttr();
+
+  if (!beginsAttr || !endsAttr || !stepsAttr ||
+      beginsAttr.size() != endsAttr.size() ||
+      beginsAttr.size() != stepsAttr.size()) {
+    return nullptr;
+  }
+
+  int32_t concatDim = concatOp.getDim();
+  // Normalize negative concat dimension.
+  if (concatDim < 0) {
+    concatDim += beginsAttr.size();
+  }
+
+  // Track offset along the concat dimension.
+  int64_t offset = 0;
+
+  for (auto curInput : concatOp.getInputs()) {
+    auto curInputType =
+        mlir::dyn_cast<mlir::RankedTensorType>(curInput.getType());
+    if (!curInputType ||
+        curInputType.getRank() != static_cast<int64_t>(beginsAttr.size()) ||
+        concatDim >= curInputType.getRank()) {
+      continue;
+    }
+
+    int64_t curInputSize = curInputType.getShape()[concatDim];
+    if (curInputSize == mlir::ShapedType::kDynamic) {
+      continue;
+    }
+
+    // Check if the slice covers this operand entirely.
+    bool matches = llvm::all_of(
+        llvm::enumerate(llvm::zip(beginsAttr, endsAttr, stepsAttr,
+                                  curInputType.getShape())),
+        [&](auto pair) {
+          auto [dimIdx, tuple] = pair;
+          auto [dimBegin, dimEnd, dimStep, inputDimSize] = tuple;
+
+          int32_t begin = mlir::cast<mlir::IntegerAttr>(dimBegin).getInt();
+          int32_t end = mlir::cast<mlir::IntegerAttr>(dimEnd).getInt();
+          int32_t step = mlir::cast<mlir::IntegerAttr>(dimStep).getInt();
+
+          int32_t expectedBegin =
+              (dimIdx == static_cast<size_t>(concatDim)) ? offset : 0;
+          int32_t expectedEnd = (dimIdx == static_cast<size_t>(concatDim))
+                                    ? offset + curInputSize
+                                    : inputDimSize;
+
+          return begin == expectedBegin && end == expectedEnd && step == 1;
+        });
+
+    if (matches) {
+      return curInput;
+    }
+    offset += curInputSize;
+  }
+
+  return nullptr;
+}
+
+// SliceStaticOp Folder
+mlir::OpFoldResult mlir::tt::ttnn::SliceStaticOp::fold(FoldAdaptor adaptor) {
+  if (auto foldResult = foldSliceOfConcat(*this)) {
+    return foldResult;
+  }
+
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // SliceDynamicOp
 //===----------------------------------------------------------------------===//
@@ -2593,6 +2674,66 @@ std::optional<int64_t> getMatmulInnerDim(::mlir::RankedTensorType inputA,
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn_verify
 
+// Drop a `ttnn.repeat` feeding the RHS of a `ttnn.matmul` when TTNN's matmul
+// will implicitly reproduce that broadcast.
+//
+// TTNN's matmul broadcasting is in general basically unsupported, albeit a few
+// cases might work. This canonicalization only handles one case: with 4Dx4D
+// operands, dim 1 (the second batch dimension) on the RHS can be broadcast to
+// match the LHS when the unbroadcast RHS is a single batch (its outer dim 0 is
+// 1). Other cases are explicitly out of scope.
+//
+// `ttir.broadcast` lowers to `ttnn.repeat`, so the redundant op matched here is
+// a `ttnn.repeat` whose repeat_dims expand exactly dim 1.
+void mlir::tt::ttnn::MatmulOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext * /*context*/) {
+  patterns.add(+[](MatmulOp op,
+                   mlir::PatternRewriter &rewriter) -> mlir::LogicalResult {
+    auto repeat = op.getB().getDefiningOp<RepeatOp>();
+    if (!repeat) {
+      return mlir::failure();
+    }
+
+    llvm::ArrayRef<int64_t> repeatDims = repeat.getRepeatDims().getShape();
+    llvm::ArrayRef<int64_t> rhsShape = op.getB().getType().getShape();
+    llvm::ArrayRef<int64_t> lhsShape = op.getA().getType().getShape();
+
+    constexpr int64_t kMatmulRank = 4;
+    constexpr int64_t kBatchDim = 1;
+
+    if (static_cast<int64_t>(repeatDims.size()) != kMatmulRank ||
+        static_cast<int64_t>(lhsShape.size()) != kMatmulRank) {
+      return mlir::failure();
+    }
+
+    // The repeat must expand exactly dim 1 and leave every other dim (including
+    // the inner contraction dims) untouched.
+    for (int64_t i = 0; i < kMatmulRank; ++i) {
+      bool expanded = repeatDims[i] != 1;
+      if (expanded != (i == kBatchDim)) {
+        return mlir::failure();
+      }
+    }
+
+    // TTNN only implicitly broadcasts the RHS batch when the folded RHS is a
+    // single batch. dim 1 is repeated (so its pre-repeat size is 1) and dim 0
+    // is untouched, so this reduces to the outer dim 0 being 1.
+    if (rhsShape[0] != 1) {
+      return mlir::failure();
+    }
+
+    // The LHS must already supply dim 1 so dropping the repeat leaves the
+    // matmul result shape unchanged.
+    if (lhsShape[kBatchDim] != rhsShape[kBatchDim]) {
+      return mlir::failure();
+    }
+
+    rewriter.modifyOpInPlace(op,
+                             [&]() { op.setOperand(1, repeat.getInput()); });
+    return mlir::success();
+  });
+}
+
 //===----------------------------------------------------------------------===//
 // SparseMatmulOp
 //===----------------------------------------------------------------------===//
@@ -2938,6 +3079,111 @@ std::optional<int64_t> getMatmulInnerDim(::mlir::RankedTensorType inputA,
 
   return success();
 }
+
+//===----------------------------------------------------------------------===//
+// PrepareMoEComputeW0W1WeightsOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult PrepareMoEComputeW0W1WeightsOp::verify() {
+  if (getHiddenSize() == 0 || getHiddenSize() % 32 != 0) {
+    return emitOpError("hidden_size must be a positive multiple of 32");
+  }
+  if (getIntermediateSize() == 0 || getIntermediateSize() % 32 != 0) {
+    return emitOpError("intermediate_size must be a positive multiple of 32");
+  }
+  if (static_cast<bool>(getBias_0()) != static_cast<bool>(getBias_1())) {
+    return emitOpError("bias_0 and bias_1 must be both present or both absent");
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// PrepareMoEComputeW2WeightsOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult PrepareMoEComputeW2WeightsOp::verify() {
+  if (getHiddenSize() == 0 || getHiddenSize() % 32 != 0) {
+    return emitOpError("hidden_size must be a positive multiple of 32");
+  }
+  if (getIntermediateSize() == 0 || getIntermediateSize() % 32 != 0) {
+    return emitOpError("intermediate_size must be a positive multiple of 32");
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// MoeComputeOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult MoeComputeOp::verify() {
+  if (getIntermediateSize() == 0 || getIntermediateSize() % 32 != 0) {
+    return emitOpError("intermediate_size must be a positive multiple of 32");
+  }
+  if (getOutputHeightShardDim() == 0) {
+    return emitOpError("output_height_shard_dim must be positive");
+  }
+  // Only the compute_only path is supported: the A2A selective-reduce-combine
+  // (and the multi-device routing it implies) is intentionally not wired.
+  if (!getComputeOnly()) {
+    return emitOpError("only the compute_only path is supported; compute_only "
+                       "must be set");
+  }
+  if (getClusterAxis() || getTopology() || getNumLinks() ||
+      getMuxCoreRangeSet() || getOptionalOutputTensor() ||
+      getCrossDeviceSemaphore()) {
+    return emitOpError(
+        "compute_only moe_compute must not set cluster_axis, topology, "
+        "num_links, mux_core_range_set, optional_output_tensor, or "
+        "cross_device_semaphore");
+  }
+  if (getBhRingSize() && *getBhRingSize() != 8 && *getBhRingSize() != 12 &&
+      *getBhRingSize() != 16) {
+    return emitOpError("bh_ring_size must be 8, 12, or 16");
+  }
+
+  RankedTensorType inputType = getTilizeInputTensor().getType();
+  if (inputType.getRank() < 2) {
+    return emitOpError("tilize_input_tensor must have rank >= 2");
+  }
+  int64_t hiddenSize = inputType.getShape().back();
+  if (hiddenSize <= 0 || hiddenSize % 32 != 0) {
+    return emitOpError(
+        "tilize_input_tensor last dim (hidden_size) must be a positive "
+        "multiple of 32");
+  }
+
+  // The W0/W1 and W2 matmuls shard their contraction (intermediate_size) and
+  // the W2 output (hidden_size) across the matmul ring (bh_ring_size cores on
+  // BH, default 12; WH is always 12). If either dim has fewer than ring-size
+  // tiles, the per-core shard distribution degenerates and leaves output tiles
+  // uncomputed, so require at least one tile per ring core in both dims.
+  int64_t ringSize = getBhRingSize() ? *getBhRingSize() : 12;
+  int64_t minSize = ringSize * 32;
+  if (hiddenSize < minSize) {
+    return emitOpError() << "hidden_size (" << hiddenSize
+                         << ") must be at least bh_ring_size*32 = " << minSize
+                         << " (one tile per matmul-ring core)";
+  }
+  if (static_cast<int64_t>(getIntermediateSize()) < minSize) {
+    return emitOpError() << "intermediate_size (" << getIntermediateSize()
+                         << ") must be at least bh_ring_size*32 = " << minSize
+                         << " (one tile per matmul-ring core)";
+  }
+
+  return success();
+}
+
+// Only the compute_only path is supported: it skips the A2A combine, so there
+// is no combine-output buffer to materialize (optional_output_tensor stays
+// unset, enforced by the verifier).
+bool MoeComputeOp::hasUnboundBuffers() { return false; }
+
+void MoeComputeOp::allocateBuffers(::mlir::RewriterBase &rewriter) {}
+
+// compute_only has no A2A combine, hence no cross-device semaphore.
+bool MoeComputeOp::hasUnboundSemaphores() { return false; }
+
+void MoeComputeOp::allocateSemaphores(::mlir::RewriterBase &rewriter) {}
 
 //===----------------------------------------------------------------------===//
 // AllocOp
@@ -3843,6 +4089,12 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
            << ", index rank = " << indexRank;
   }
 
+  if (inputRank < 1) {
+    return emitOpError()
+           << "Input tensor and index tensor must have rank >= 1. "
+           << "Got rank = " << inputRank;
+  }
+
   int32_t dim = getDim();
   if (dim >= inputRank || dim < -inputRank) {
     return emitOpError() << "Dimension must be in the range [-" << inputRank
@@ -4073,18 +4325,55 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
   auto tempType = getTemp().getType();
   auto resultType = getResult().getType();
 
-  if (inputValuesType.getRank() != 2) {
-    return emitOpError("input_values must be 2D [batch, candidates]");
+  // Two valid forms:
+  //   * rank-2 [batch, candidates] in / rank-1 [batch] out — the user-facing
+  //     TTIR-equivalent shape produced by TTIRToTTNN.
+  //   * rank-4 [1, 1, batch, candidates] in / rank-4 [1, 1, 1, batch] out —
+  //     the kernel-true shape produced by SamplingOpRank2RewritePattern
+  //     (decomposition workaround). Required because tt-metal's sampling
+  //     kernel only accepts rank-4 tensors.
+  int64_t inputRank = inputValuesType.getRank();
+  if (inputRank != 2 && inputRank != 4) {
+    return emitOpError("input_values must be 2D [batch, candidates] or 4D "
+                       "[1, 1, batch, candidates]");
   }
-  if (inputIndicesType.getRank() != 2) {
-    return emitOpError("input_indices must be 2D [batch, candidates]");
+  if (inputIndicesType.getRank() != inputRank) {
+    return emitOpError("input_indices rank must match input_values rank");
   }
   if (inputValuesType.getShape() != inputIndicesType.getShape()) {
     return emitOpError(
         "input_values and input_indices must have the same shape");
   }
 
-  int64_t batch = inputValuesType.getShape()[0];
+  auto valuesShape = inputValuesType.getShape();
+  int64_t batch;
+  int64_t expectedResultRank;
+  if (inputRank == 2) {
+    batch = valuesShape[0];
+    expectedResultRank = 1;
+  } else {
+    if (valuesShape[0] != 1 || valuesShape[1] != 1) {
+      return emitOpError(
+          "rank-4 input_values leading dims must be [1, 1, batch, candidates]");
+    }
+    batch = valuesShape[2];
+    expectedResultRank = 4;
+  }
+
+  // The ttnn::sampling kernel uses one core per user and supports between 1
+  // and 32 users (see sampling_device_operation.cpp). Fail-fast at verifier
+  // time so out-of-range batches don't fault deeper in the kernel.
+  if (batch < 1 || batch > 32) {
+    return emitOpError() << "batch (" << batch
+                         << ") must be in [1, 32] (kernel limit)";
+  }
+
+  // Check output rank matches corresponding input rank.
+  if (resultType.getRank() != expectedResultRank) {
+    return emitOpError("result rank (")
+           << resultType.getRank() << ") must match expected rank ("
+           << expectedResultRank << ") for input_values rank " << inputRank;
+  }
 
   // k, p, temp must be 1D with the same batch dimension.
   for (auto [tensor, name] :
@@ -4101,9 +4390,15 @@ mlir::tt::ttnn::ReduceScatterOp::fold(FoldAdaptor adaptor) {
     }
   }
 
-  // Result must be 1D [batch].
-  if (resultType.getRank() != 1 || resultType.getShape()[0] != batch) {
-    return emitOpError("result must be 1D [batch]");
+  // All leading dims of result tensor must be 1 and the last dim must equal
+  // batch.
+  auto resultShape = resultType.getShape();
+  if (!llvm::all_of(resultShape.drop_back(1),
+                    [](int64_t d) { return d == 1; }) ||
+      resultShape.back() != batch) {
+    return emitOpError("result must be ")
+           << expectedResultRank << "D ["
+           << (expectedResultRank == 1 ? "batch" : "1, 1, 1, batch") << "]";
   }
 
   return success();
@@ -5842,6 +6137,92 @@ mlir::tt::ttnn::PagedScaledDotProductAttentionDecodeOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// ChunkedScaledDotProductAttentionOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult
+mlir::tt::ttnn::ChunkedScaledDotProductAttentionOp::verify() {
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType valueType = getValue().getType();
+  RankedTensorType pageTableType = getPageTable().getType();
+  RankedTensorType chunkStartIdxType = getChunkStartIdx().getType();
+  RankedTensorType resultType = getResult().getType();
+
+  // Verify ranks. query: [num_users, num_heads, chunk_len, head_size];
+  // key/value: paged cache [num_blocks, num_kv_heads, block_size, head_size].
+  if (queryType.getRank() != 4) {
+    return emitOpError("Query must be a 4D tensor.");
+  }
+  if (keyType.getRank() != 4 || valueType.getRank() != 4) {
+    return emitOpError("Key and value must be 4D tensors.");
+  }
+  if (pageTableType.getRank() != 2) {
+    return emitOpError("Page table must be a 2D tensor.");
+  }
+  if (chunkStartIdxType.getRank() != 1) {
+    return emitOpError("Chunk start index must be a 1D tensor.");
+  }
+  if (chunkStartIdxType.getDimSize(0) != 1) {
+    return emitOpError("Chunk start index must have shape [1] (a single prefix "
+                       "offset shared by all users).");
+  }
+
+  // The query may be higher precision than the key/value: the kernel reads a
+  // BFP8/BFP4 paged cache with a BF16 query. Require float here; key/value
+  // dtype equality is enforced separately below.
+  if (!queryType.getElementType().isFloat() ||
+      !keyType.getElementType().isFloat() ||
+      !valueType.getElementType().isFloat()) {
+    return emitOpError("Query, key, and value must be float tensors.");
+  }
+  if (!pageTableType.getElementType().isInteger()) {
+    return emitOpError("Page table must be an integer tensor.");
+  }
+  if (!chunkStartIdxType.getElementType().isInteger()) {
+    return emitOpError("Chunk start index must be an integer tensor.");
+  }
+
+  // Verify key and value are identical shapes/dtypes.
+  if (keyType != valueType) {
+    return emitOpError("Key and value must have the same shape and data type.");
+  }
+
+  ArrayRef<int64_t> queryShape = queryType.getShape();
+  ArrayRef<int64_t> keyShape = keyType.getShape();
+  int64_t numUsers = queryShape[0];
+  int64_t numQueryHeads = queryShape[1];
+  int64_t queryHeadSize = queryShape[3];
+  int64_t numKVHeads = keyShape[1];
+  int64_t blockSize = keyShape[2];
+  int64_t keyHeadSize = keyShape[3];
+
+  // Verify shapes.
+  if (queryHeadSize != keyHeadSize) {
+    return emitOpError("Query head size must match key/value head size.");
+  }
+  if (numKVHeads == 0 || numQueryHeads % numKVHeads != 0) {
+    return emitOpError(
+        "Query num heads must be divisible by key/value num heads.");
+  }
+  // The ttnn kernel reads the paged cache by 32-element sticks.
+  if (blockSize % 32 != 0) {
+    return emitOpError("Key/value block size must be divisible by 32.");
+  }
+  if (pageTableType.getShape()[0] != numUsers) {
+    return emitOpError(
+        "Page table number of users must match query number of users.");
+  }
+
+  // The result is the attended query chunk and mirrors the query shape.
+  if (resultType.getShape() != queryShape) {
+    return emitOpError("Result shape must match query shape.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // PagedFlashMultiLatentAttentionDecodeOp
 //===----------------------------------------------------------------------===//
 
@@ -5996,6 +6377,126 @@ mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp::verify() {
       return emitOpError("Sequence length must match key/value sequence length "
                          "when is_causal is true");
     }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// FlashMlaPrefillOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttnn::FlashMlaPrefillOp::verify() {
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType resultType = getResult().getType();
+
+  if (queryType.getRank() != 4) {
+    return emitOpError("Query must be a 4D tensor");
+  }
+  if (keyType.getRank() != 4) {
+    return emitOpError("Key must be a 4D tensor");
+  }
+  if (resultType.getRank() != 4) {
+    return emitOpError("Output must be a 4D tensor");
+  }
+
+  if (queryType.getElementType() != resultType.getElementType()) {
+    return emitOpError("Query and result must have the same element type");
+  }
+  if (queryType.getElementType() != keyType.getElementType()) {
+    return emitOpError("Query and key must have the same element type");
+  }
+
+  int64_t batchSize = queryType.getShape()[0];
+  int64_t nQueryHeads = queryType.getShape()[1];
+  int64_t nKVHeads = keyType.getShape()[1];
+  int64_t seqLen = queryType.getShape()[2];
+  int64_t qkHeadSize = queryType.getShape()[3];
+  int64_t kSeqLen = keyType.getShape()[2];
+  int64_t headDimV = static_cast<int64_t>(getHeadDimV());
+
+  if (keyType.getShape()[0] != batchSize) {
+    return emitOpError("Key batch size must match query batch size");
+  }
+  if (keyType.getShape()[3] != qkHeadSize) {
+    return emitOpError("Key head size must match query head size");
+  }
+  if (seqLen != kSeqLen) {
+    return emitOpError("Query and key must have the same sequence length");
+  }
+  if (nQueryHeads % nKVHeads != 0) {
+    return emitOpError(
+        "Query num heads must be divisible by key num heads (GQA/MQA/MLA)");
+  }
+
+  if (getValue()) {
+    RankedTensorType valueType = getValue().getType();
+    if (valueType.getRank() != 4) {
+      return emitOpError("Value must be a 4D tensor");
+    }
+    if (queryType.getElementType() != valueType.getElementType()) {
+      return emitOpError("Query and value must have the same element type");
+    }
+    if (valueType.getShape()[0] != batchSize) {
+      return emitOpError("Value batch size must match query batch size");
+    }
+    if (valueType.getShape()[1] != nKVHeads) {
+      return emitOpError("Value num heads must match key num heads");
+    }
+    if (valueType.getShape()[2] != seqLen) {
+      return emitOpError(
+          "Value sequence length must match query/key sequence length");
+    }
+    if (valueType.getShape()[3] != headDimV) {
+      return emitOpError("Value head size must equal head_dim_v");
+    }
+  } else {
+    if (headDimV > qkHeadSize) {
+      return emitOpError("head_dim_v cannot exceed key's head dim when value "
+                         "is not provided");
+    }
+  }
+
+  if (headDimV <= 0) {
+    return emitOpError("head_dim_v must be greater than 0");
+  }
+
+  if (getAttentionMask()) {
+    if (getIsCausal()) {
+      return emitOpError(
+          "Attention mask is not allowed when is_causal is true");
+    }
+    RankedTensorType attentionMaskType = getAttentionMask().getType();
+    if (attentionMaskType.getRank() != 4) {
+      return emitOpError("Attention mask must be a 4D tensor");
+    }
+    if (attentionMaskType.getShape()[0] != 1 &&
+        attentionMaskType.getShape()[0] != batchSize) {
+      return emitOpError("Attention mask batch size must be 1 (broadcast) or "
+                         "match query batch size");
+    }
+    if (attentionMaskType.getShape()[1] != 1 &&
+        attentionMaskType.getShape()[1] != nQueryHeads) {
+      return emitOpError("Attention mask dim 1 must be 1 (broadcast) or match "
+                         "query num heads");
+    }
+    if (attentionMaskType.getShape()[2] != seqLen) {
+      return emitOpError(
+          "Attention mask at dim 2 must match query sequence length");
+    }
+    if (attentionMaskType.getShape()[3] != seqLen) {
+      return emitOpError(
+          "Attention mask at dim 3 must match key sequence length");
+    }
+  }
+
+  if (resultType.getShape()[0] != batchSize ||
+      resultType.getShape()[1] != nQueryHeads ||
+      resultType.getShape()[2] != seqLen ||
+      resultType.getShape()[3] != headDimV) {
+    return emitOpError(
+        "Result shape must be [batch, num_query_heads, seq_len, head_dim_v]");
   }
 
   return success();
@@ -6232,6 +6733,77 @@ void mlir::tt::ttnn::D2MSubgraphOp::getEffects(
     return emitOpError() << "expert_weights dim 1 ("
                          << weightsType.getDimSize(1) << ") must equal k (" << k
                          << ")";
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// TTLangOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult TTLangOp::verify() {
+  if (getInputs().empty()) {
+    return emitOpError("tt-lang kernel must have at least one input operand.");
+  }
+
+  llvm::StringRef rolesStr = getArgRoles();
+  if (rolesStr.empty()) {
+    return emitOpError("`arg_roles` attribute must not be empty.");
+  }
+
+  llvm::SmallVector<llvm::StringRef> tokens;
+  rolesStr.split(tokens, ',');
+  if (tokens.size() != getInputs().size()) {
+    return emitOpError("`arg_roles` token count (")
+           << tokens.size() << ") must match number of inputs ("
+           << getInputs().size() << ").";
+  }
+
+  size_t outCount = 0;
+  bool seenOut = false;
+  for (llvm::StringRef token : tokens) {
+    llvm::StringRef trimmed = token.trim();
+    if (trimmed == "out") {
+      ++outCount;
+      seenOut = true;
+    } else if (trimmed == "in") {
+      // DPS ordering: every "out" operand is a trailing init operand that
+      // ties positionally to a result, so no "in" may follow an "out".
+      if (seenOut) {
+        return emitOpError(
+            "`arg_roles` must list all \"in\" operands before any \"out\" "
+            "operand (destination-passing-style ordering).");
+      }
+    } else {
+      return emitOpError("`arg_roles` token must be \"in\" or \"out\", got: \"")
+             << trimmed << "\".";
+    }
+  }
+
+  if (outCount != getResults().size()) {
+    return emitOpError("number of \"out\" roles (")
+           << outCount << ") must match number of results ("
+           << getResults().size() << ").";
+  }
+  // Every tt-lang kernel must declare at least one "out"-roled operand:
+  // the runtime aliases the kernel's SSA result(s) to that operand's
+  // `TensorRef` so `gatherOutputTensors()` can find the buffer the
+  // kernel wrote into at program end. An op with zero "out" operands
+  // would compile (verifier-OK) but fail later in the flatbuffer
+  // emitter; reject it here so the diagnostic points at the op.
+  if (outCount == 0) {
+    return emitOpError(
+        "tt-lang kernel must have at least one operand tagged \"out\" "
+        "(the destination buffer the runtime returns as the kernel's "
+        "output).");
+  }
+
+  if (getKernelId().empty()) {
+    return emitOpError("`kernel_id` attribute must not be empty.");
+  }
+  if (getVersionTag().empty()) {
+    return emitOpError("`version_tag` attribute must not be empty.");
   }
 
   return success();

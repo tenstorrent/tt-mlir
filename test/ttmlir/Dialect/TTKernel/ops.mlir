@@ -1,7 +1,27 @@
 // RUN: ttmlir-opt -o %t %s
+// RUN: ttmlir-opt %s -o - | ttmlir-opt -o /dev/null
 // RUN: FileCheck %s --input-file=%t
 
 #l1_ = #ttcore.memory_space<l1>
+
+// CHECK-LABEL: func.func @test_compute_kernel_hw_startup_unary
+func.func @test_compute_kernel_hw_startup_unary() {
+  %icb = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<1024, si32>
+  %ocb = ttkernel.get_compile_time_arg_val(1) : () -> !ttkernel.cb<1, !ttcore.tile<32x32, si32>>
+  ttkernel.compute_kernel_hw_startup(%icb, %ocb) : (!ttkernel.cb<1024, si32>, !ttkernel.cb<1, !ttcore.tile<32x32, si32>>) -> ()
+  // CHECK: ttkernel.compute_kernel_hw_startup(%{{.*}}, %{{.*}}) : (!ttkernel.cb<1024, si32>, !ttkernel.cb<1, !ttcore.tile<32x32, si32>>) -> ()
+  return
+}
+
+// CHECK-LABEL: func.func @test_compute_kernel_hw_startup_binary
+func.func @test_compute_kernel_hw_startup_binary() {
+  %icb0 = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<1024, si32>
+  %icb1 = ttkernel.get_compile_time_arg_val(1) : () -> !ttkernel.cb<1024, si32>
+  %ocb = ttkernel.get_compile_time_arg_val(2) : () -> !ttkernel.cb<1, !ttcore.tile<32x32, si32>>
+  ttkernel.compute_kernel_hw_startup(%icb0, %icb1, %ocb) : (!ttkernel.cb<1024, si32>, !ttkernel.cb<1024, si32>, !ttkernel.cb<1, !ttcore.tile<32x32, si32>>) -> ()
+  // CHECK: ttkernel.compute_kernel_hw_startup(%{{.*}}, %{{.*}}, %{{.*}}) : (!ttkernel.cb<1024, si32>, !ttkernel.cb<1024, si32>, !ttkernel.cb<1, !ttcore.tile<32x32, si32>>) -> ()
+  return
+}
 
 // CHECK-LABEL: func.func @test_tilize_uninit
 func.func @test_tilize_uninit() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>} {
@@ -95,16 +115,16 @@ func.func @test_copy_dest_values_init() -> () {
 // CHECK-LABEL: func.func @test_copy_dest_values
 func.func @test_copy_dest_values() -> () {
   %c0 = arith.constant 0 : index
-  ttkernel.copy_dest_values(%c0, %c0) : (index, index) -> ()
-  // CHECK: ttkernel.copy_dest_values(%{{.*}}, %{{.*}}) : (index, index) -> ()
+  ttkernel.copy_dest_values(%c0, %c0, <f32>) : (index, index) -> ()
+  // CHECK: ttkernel.copy_dest_values(%{{.*}}, %{{.*}}, <f32>) : (index, index) -> ()
   return
 }
 
 // CHECK-LABEL: func.func @test_noc_trid_and_noc_nonconst
 // CHECK-SAME: (%[[TRID:.*]]: i32, %[[NOC:.*]]: i8)
 func.func @test_noc_trid_and_noc_nonconst(%trid: i32, %noc: i8) {
-  // CHECK: ttkernel.noc_async_read_set_trid(%[[TRID]], %[[NOC]]) : (i32, i8) -> ()
-  ttkernel.noc_async_read_set_trid(%trid, %noc) : (i32, i8) -> ()
+  // CHECK: ttkernel.noc_async_read_barrier_with_trid(%[[TRID]], %[[NOC]]) : (i32, i8) -> ()
+  ttkernel.noc_async_read_barrier_with_trid(%trid, %noc) : (i32, i8) -> ()
   return
 }
 
@@ -178,14 +198,12 @@ func.func @test_tensor_accessor_args_chaining_with_crta_override() -> !ttkernel.
   return %args2 : !ttkernel.TensorAccessorArgs
 }
 
-// CHECK-LABEL: func.func @test_noc_trid_with_implicit_noc
-// CHECK-SAME: (%[[TRID:.*]]: i32)
-func.func @test_noc_trid_with_implicit_noc(%trid: i32) {
-  // CHECK: %[[C0:.*]] = arith.constant 0 : i32
-  // CHECK: ttkernel.noc_async_read_one_packet_with_state_with_trid(%[[C0]], %[[C0]], %[[C0]], %[[TRID]]) : (i32, i32, i32, i32) -> ()
-  %c0 = arith.constant 0 : i32
-  "ttkernel.noc_async_read_one_packet_with_state_with_trid"(%c0, %c0, %c0, %trid)
-      : (i32, i32, i32, i32) -> ()
+// CHECK-LABEL: func.func @test_noc_write_one_packet_with_trid_implicit_noc
+// CHECK-SAME: (%[[TRID:.*]]: i32, %[[SRC:.*]]: i32, %[[X:.*]]: index, %[[Y:.*]]: index, %[[DST:.*]]: i32, %[[SIZE:.*]]: i32)
+func.func @test_noc_write_one_packet_with_trid_implicit_noc(%trid: i32, %src: i32, %x: index, %y: index, %dst: i32, %size: i32) {
+  // CHECK: ttkernel.noc_async_write_one_packet_with_trid(%[[SRC]], core[%[[X]], %[[Y]]], %[[DST]], %[[SIZE]], %[[TRID]]) : (i32, index, index, i32, i32, i32) -> ()
+  ttkernel.noc_async_write_one_packet_with_trid(%src, core[%x, %y], %dst, %size, %trid)
+      : (i32, index, index, i32, i32, i32) -> ()
   return
 }
 
@@ -210,10 +228,10 @@ func.func @test_remote_sram_write_u32_computed_sram_addr(%base: i32, %dst: !ttke
 }
 
 // CHECK-LABEL: func.func @test_noc_inline_dw_write
-// CHECK-SAME: (%[[DST:.*]]: !ttkernel.noc_addr, %[[VAL:.*]]: i32, %[[BE:.*]]: i8, %[[NOC:.*]]: i8)
-func.func @test_noc_inline_dw_write(%dst: !ttkernel.noc_addr, %val: i32, %be: i8, %noc: i8) {
-  // CHECK: ttkernel.noc_inline_dw_write(%[[DST]], %[[VAL]], %[[BE]], %[[NOC]]) : (!ttkernel.noc_addr, i32, i8, i8) -> ()
-  ttkernel.noc_inline_dw_write(%dst, %val, %be, %noc) : (!ttkernel.noc_addr, i32, i8, i8) -> ()
+// CHECK-SAME: (%[[X:.*]]: index, %[[Y:.*]]: index, %[[DST:.*]]: i32, %[[VAL:.*]]: i32, %[[BE:.*]]: i8, %[[NOC:.*]]: i8)
+func.func @test_noc_inline_dw_write(%x: index, %y: index, %dst: i32, %val: i32, %be: i8, %noc: i8) {
+  // CHECK: ttkernel.noc_inline_dw_write(core[%[[X]], %[[Y]]], %[[DST]], %[[VAL]], %[[BE]], noc %[[NOC]]) : (index, index, i32, i32, i8, i8) -> ()
+  ttkernel.noc_inline_dw_write(core[%x, %y], %dst, %val, %be, noc %noc) : (index, index, i32, i32, i8, i8) -> ()
   return
 }
 
@@ -232,8 +250,8 @@ func.func @test_remote_mailbox_protocol_ops(%mailbox: !ttkernel.l1_addr) {
   %value = arith.constant 64 : i32
   // CHECK: %[[SEM:.*]] = ttkernel.get_semaphore
   %sem = ttkernel.get_semaphore(%zero) : (i32) -> !ttkernel.local_semaphore
-  // CHECK: %[[PTR:.*]] = ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>
-  %sem_ptr = "ttkernel.reinterpret_cast<tt_l1_ptr uint32_t*>"(%sem) : (!ttkernel.local_semaphore) -> !ttkernel.l1_addr_ptr
+  // CHECK: %[[PTR:.*]] = ttkernel.reinterpret_cast
+  %sem_ptr = ttkernel.reinterpret_cast(%sem) : (!ttkernel.local_semaphore) -> !ttkernel.l1_addr_ptr
   // CHECK: ttkernel.store_to_l1
   ttkernel.store_to_l1(%value, %sem_ptr, %zero) : (i32, !ttkernel.l1_addr_ptr, i32) -> ()
   // CHECK: ttkernel.load_from_l1

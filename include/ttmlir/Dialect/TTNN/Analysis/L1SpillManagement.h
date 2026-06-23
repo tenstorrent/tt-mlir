@@ -196,6 +196,11 @@ public:
   MemoryTracker &getMemoryTracker() { return memoryTracker; }
   const MemoryTracker &getMemoryTracker() const { return memoryTracker; }
 
+  /// True if run() hit an unrecoverable condition and emitted an error. The
+  /// driving pass must signalPassFailure() when this is set (emitError alone
+  /// does not fail the pass).
+  bool hasFailed() const { return compilationFailed; }
+
 private:
   func::FuncOp func;
   ttcore::GridAttr deviceGrid;
@@ -203,6 +208,9 @@ private:
 
   /// Precomputed CB fragmentation cushion (bytes). See kCBFragCushionFraction.
   uint64_t cbFragCushion;
+
+  /// Set when run() emits an error for an unrecoverable condition.
+  bool compilationFailed = false;
 
   /// Observer (NullObject pattern: always non-null).
   std::unique_ptr<L1SpillObserver> observer_;
@@ -368,6 +376,13 @@ private:
   /// or 0 if the output was demoted to DRAM.
   uint64_t ensureFitsL1(Operation *op, int64_t pos, ScheduleData &data,
                         uint64_t cbPeakUsage, uint64_t l1Size);
+
+  /// True when `op` is a view-eligible reshape whose source operand is still
+  /// resident in L1. Its output will alias the source's existing slot
+  /// (addTensorAtAddress) instead of carving a fresh one, so it consumes no
+  /// additional L1 and the fit / CB-overlap checks must not treat it as a
+  /// new allocation.
+  bool willAliasSourceInL1(Operation *op) const;
 
   /// OOM recovery: evict farthest-last-use tensors or demote self to DRAM.
   void handleOOM(Operation *op, int64_t pos,
