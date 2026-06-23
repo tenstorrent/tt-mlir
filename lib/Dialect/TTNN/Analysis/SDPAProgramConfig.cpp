@@ -16,7 +16,8 @@ namespace mlir::tt::ttnn {
 
 std::optional<SDPAProgramConfigAttr>
 generateSDPADecodeProgramConfig(Operation *op) {
-  auto sdpaOp = mlir::dyn_cast<ttnn::PagedScaledDotProductAttentionDecodeOp>(op);
+  auto sdpaOp =
+      mlir::dyn_cast<ttnn::PagedScaledDotProductAttentionDecodeOp>(op);
   if (!sdpaOp) {
     return std::nullopt;
   }
@@ -33,6 +34,12 @@ generateSDPADecodeProgramConfig(Operation *op) {
 
   // queryShape: [1, B, Hq, head_dim] -- pick head_dim from last dim.
   const int64_t headDim = queryType.getShape().back();
+  // Only head_dim >= 256 overflows L1 under the default schedule.
+  constexpr int64_t kOverrideHeadDimThreshold = 256;
+  if (headDim < kOverrideHeadDimThreshold) {
+    return std::nullopt;
+  }
+
   // pageTableShape: [B, num_blocks] -- pick block count from last dim.
   const int64_t pageTableBlocks = pageTableType.getShape().back();
 
@@ -59,10 +66,9 @@ generateSDPADecodeProgramConfig(Operation *op) {
   const uint32_t maxCoresPerHeadBatch =
       std::min(static_cast<uint32_t>(pageTableBlocks), cappedCores);
 
-  // TODO(#44311): head_dim currently only informs whether the config is needed
+  // TODO(#44311): head_dim currently only gates whether the config is needed
   // (large head_dim overflows the default schedule). Once the cost model
   // lands, use it to size q/k chunking.
-  (void)headDim;
 
   auto computeGrid = CoreCoordAttr::get(context, /*x=*/gridX, /*y=*/gridY);
   return SDPAProgramConfigAttr::get(
