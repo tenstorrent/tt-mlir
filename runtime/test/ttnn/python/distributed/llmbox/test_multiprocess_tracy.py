@@ -29,7 +29,16 @@ RANK_BINDING_PATH = (
     "/tests/tt_metal/distributed/config/2x4_multiprocess_rank_bindings.yaml"
 )
 
-TRACY_TOOL_NAMES = ("capture-release", "csvexport-release")
+def _tracy_tool_names():
+    try:
+        from tracy.common import TRACY_CAPTURE_TOOL, TRACY_CSVEXPROT_TOOL
+
+        return (TRACY_CAPTURE_TOOL, TRACY_CSVEXPROT_TOOL)
+    except Exception:
+        return ("tracy-capture", "tracy-csvexport")
+
+
+TRACY_TOOL_NAMES = _tracy_tool_names()
 
 
 def _resolve_tracy_tools_dir():
