@@ -16,7 +16,13 @@
 #include <tt-metalium/experimental/context/metal_env.hpp>
 #include <tt-metalium/experimental/mock_device.hpp>
 
+#include <umd/device/cluster.hpp>
+#include <umd/device/cluster_descriptor.hpp>
+
 #include <cstdlib>
+#include <exception>
+#include <filesystem>
+#include <optional>
 #include <string>
 
 namespace mlir::tt::ttnn::op_model {
@@ -61,6 +67,31 @@ makeEnvDescriptor(bool isMock, ttcore::Arch arch, uint32_t numChips) {
   if (!isMock) {
     return ::tt::tt_metal::MetalEnvDescriptor{};
   }
+
+  // The canned mock cluster descriptor models an *unharvested* board, so on a
+  // harvested chip the op-model places ops on harvested-out cores and deadlocks
+  // the first launch. Prefer live UMD topology discovery, which serializes the
+  // real chip's descriptor (with its true harvest masks); it is read-only, safe
+  // during compilation, and cached per process. Fall back to the canned board
+  // for headless/no-hardware (CI) flows.
+  static const std::optional<std::string> discoveredClusterDescPath =
+      []() -> std::optional<std::string> {
+    try {
+      std::unique_ptr<::tt::umd::ClusterDescriptor> desc =
+          ::tt::umd::Cluster::create_cluster_descriptor();
+      if (!desc || desc->get_number_of_chips() == 0) {
+        return std::nullopt;
+      }
+      return desc->serialize_to_file().string();
+    } catch (const std::exception &) {
+      // No hardware / discovery failed (e.g. headless CI): fall back below.
+      return std::nullopt;
+    }
+  }();
+  if (discoveredClusterDescPath) {
+    return ::tt::tt_metal::MetalEnvDescriptor{*discoveredClusterDescPath};
+  }
+
   auto mockClusterPath =
       ::tt::tt_metal::experimental::get_mock_cluster_desc_name(
           toMetalArch(arch), numChips);
