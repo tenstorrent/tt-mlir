@@ -55,19 +55,19 @@ module attributes {} {
 
     // Test case when we move tensor from host to device for row-major case.
     func.func @from_host_to_device_layout_to_layout_create_data_cast_op_rm(%arg0: tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_device_rm_bf16> {
-        // Typecast on device only works for tile layout. Verify that for the row-major case we insert the typecast op to cast the data type on host and than move the tensor to device.
+        // Device typecast supports row-major tensors, so for the row-major case we move the tensor to device and cast the data type on device.
         // CHECK: %[[GET_DEVICE_OP:.*]] = "ttnn.get_device"()
-        // CHECK-NEXT: %[[CASTING_OP:.*]] = "ttnn.typecast"(%arg0)
+        // CHECK-NEXT: %[[TO_DEVICE_OP:.*]] = "ttnn.to_device"(%arg0, %[[GET_DEVICE_OP]])
+        // CHECK-NEXT: %[[CASTING_OP:.*]] = "ttnn.typecast"(%[[TO_DEVICE_OP]])
         // CHECK-SAME: -> tensor<{{.*}}xbf16,
-        // CHECK: %[[TO_DEVICE_OP:.*]] = "ttnn.to_device"(%[[CASTING_OP]], %[[GET_DEVICE_OP]])
-        // CHECK-NEXT: return %[[TO_DEVICE_OP]]
-        %0 = "ttnn.to_layout"(%arg0)  : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
+        // CHECK-NEXT: return %[[CASTING_OP]]
+        %0 = "ttnn.to_layout"(%arg0) : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
         return %0 : tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
     }
 
     // Test case when we move tensor from host to device for tile case.
     func.func @from_host_to_device_layout_to_layout_create_data_cast_op_tile(%arg0: tensor<64x128xf32, #ttnn_layout_host_tile>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16> {
-        // Typecast on device only works for tile layout. Verify that for the tile case we insert the to_device op and the typecast op to cast the data type on device.
+        // Verify that for the tile case we insert the to_device op and the typecast op to cast the data type on device.
         // CHECK: %[[GET_DEVICE_OP:.*]] = "ttnn.get_device"()
         // CHECK-NEXT: %[[TO_DEVICE_OP:.*]] = "ttnn.to_device"(%arg0, %[[GET_DEVICE_OP]])
         // CHECK-NEXT: %[[CASTING_OP:.*]] = "ttnn.typecast"(%[[TO_DEVICE_OP]])
@@ -193,31 +193,29 @@ module attributes {} {
 
     // Test case when we move tensor from host to device for row-major -> tile case and cast input from bf16.
     func.func @from_host_to_device_data_type_from_bf16_to_f32_from_rm_to_tile(%arg0: tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>) -> tensor<64x128xf32, #ttnn_layout_device_tile> {
-        // This test verifies that the `to_device`, `to_layout` and `typecast` operations are correctly inserted to change the layout from row-major to tile and cast
-        // data type from bf16 to f32 on device.
+        // bf16 -> f32 is a float-family conversion, so the tilize and the cast fuse
+        // into a single device `to_layout` that changes both layout and dtype.
         // CHECK: %[[GET_DEVICE_OP:.*]] = "ttnn.get_device"()
         // CHECK-NEXT: %[[TO_DEVICE_OP:.*]] = "ttnn.to_device"(%arg0, %[[GET_DEVICE_OP]])
         // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[TO_DEVICE_OP]])
-        // CHECK-SAME: !ttcore.tile<32x32,
-        // CHECK-NEXT: %[[CASTING_OP:.*]] = "ttnn.typecast"(%[[TO_LAYOUT_OP]])
         // CHECK-SAME: -> tensor<{{.*}}f32
-        // CHECK-NEXT: return %[[CASTING_OP]]
-        %0 = "ttnn.to_layout"(%arg0)  : (tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>) -> tensor<64x128xf32, #ttnn_layout_device_tile>
+        // CHECK-NOT: "ttnn.typecast"
+        // CHECK: return %[[TO_LAYOUT_OP]]
+        %0 = "ttnn.to_layout"(%arg0) : (tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>) -> tensor<64x128xf32, #ttnn_layout_device_tile>
         return %0 : tensor<64x128xf32, #ttnn_layout_device_tile>
     }
 
     // Test case when we move tensor from host to device for row-major -> tile case and cast input to bf16.
     func.func @from_host_to_device_data_type_from_f32_to_bf16_from_rm_to_tile(%arg0: tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16> {
-        // This test verifies that the `to_device`, `to_layout` and `typecast` operations are correctly inserted to move f32 tensor to device,
-        // change layout from row-major to tile on device (now possible with F32), and then cast to bf16 on device.
+        // f32 -> bf16 is a float-family conversion, so the tilize and the cast fuse
+        // into a single device `to_layout` that changes both layout and dtype.
         // CHECK: %[[GET_DEVICE_OP:.*]] = "ttnn.get_device"()
         // CHECK-NEXT: %[[TO_DEVICE_OP:.*]] = "ttnn.to_device"(%arg0, %[[GET_DEVICE_OP]])
         // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[TO_DEVICE_OP]])
-        // CHECK-SAME: !ttcore.tile<32x32,
-        // CHECK-NEXT: %[[CASTING_OP:.*]] = "ttnn.typecast"(%[[TO_LAYOUT_OP]])
         // CHECK-SAME: -> tensor<{{.*}}bf16
-        // CHECK-NEXT: return %[[CASTING_OP]]
-        %0 = "ttnn.to_layout"(%arg0)  : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
+        // CHECK-NOT: "ttnn.typecast"
+        // CHECK: return %[[TO_LAYOUT_OP]]
+        %0 = "ttnn.to_layout"(%arg0) : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
         return %0 : tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
     }
 
@@ -237,13 +235,15 @@ module attributes {} {
     }
 
     // Test case when we move tensor from l1 sharded to dram tile with typecast.
+    // L1 block-sharded is the preferred memory, so the typecast runs in place on
+    // the sharded input and a single to_memory_config then unshards to DRAM.
     func.func @from_l1_sharded_to_dram_tile_bf16(%arg0: tensor<1x1x784x512xf32, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <7x8>, memref<4x2x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<l1>>, <block_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,6)>]>>>) -> tensor<1x1x784x512xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <1x1>, memref<25x16x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>> {
         // CHECK-LABEL: func.func @from_l1_sharded_to_dram_tile_bf16
-        // CHECK: %[[MEM_CONFIG:.*]] = "ttnn.to_memory_config"(%arg0)
-        // CHECK: %[[TYPECAST:.*]] = "ttnn.typecast"(%[[MEM_CONFIG]])
+        // CHECK: %[[TYPECAST:.*]] = "ttnn.typecast"(%arg0)
         // CHECK-SAME: -> tensor<{{.*}}bf16
-        // CHECK: return %[[TYPECAST]]
-        %0 = "ttnn.to_layout"(%arg0)  : (tensor<1x1x784x512xf32, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <7x8>, memref<4x2x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<l1>>, <block_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,6)>]>>>) -> tensor<1x1x784x512xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <1x1>, memref<25x16x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
+        // CHECK: %[[MEM_CONFIG:.*]] = "ttnn.to_memory_config"(%[[TYPECAST]])
+        // CHECK: return %[[MEM_CONFIG]]
+        %0 = "ttnn.to_layout"(%arg0) : (tensor<1x1x784x512xf32, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <7x8>, memref<4x2x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<l1>>, <block_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,6)>]>>>) -> tensor<1x1x784x512xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <1x1>, memref<25x16x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
         return %0 : tensor<1x1x784x512xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <1x1>, memref<25x16x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
     }
 
