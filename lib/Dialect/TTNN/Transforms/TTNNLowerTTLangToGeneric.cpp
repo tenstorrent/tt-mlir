@@ -37,11 +37,14 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/Pass/Pass.h"
 
 #include "llvm/ADT/ArrayRef.h"
@@ -51,6 +54,7 @@
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/JSON.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <limits>
 #include <optional>
@@ -216,15 +220,20 @@ parseCbConfigs(TTLangOp op, MLIRContext *ctx, const llvm::json::Array *cbs,
 //
 // * `ct_args` starts with the CB-index prefix (one entry per CB). For NOC
 //   kernels we then append one `kernel_arg_tensor_accessor_args` marker
-//   per operand (declaration order == io-tensors order, so the marker's
-//   operand_index is the identity index). Compute kernels read/write
-//   through CBs and so get the CB-index prefix only.
+//   per *user* operand (declaration order == io-tensors order). Compute
+//   kernels read/write through CBs and so get the CB-index prefix only.
 // * `common_rt_args` maps each kernel's `tensor_indices` to
-//   `kernel_arg_address_of_tensor` records.
+//   `kernel_arg_address_of_tensor` records, then (when present) appends
+//   the PipeNet SRAM-scratch tensor address, then GlobalSemaphore markers
+//   -- matching `kernel_runner.build_pipe_runtime_resources`'s
+//   `extra_common_runtime_args` order (scratch addresses, then global
+//   semaphore addresses).
 mlir::LogicalResult
 buildKernelArgs(TTLangOp op, MLIRContext *ctx,
                 const llvm::json::Object *kernelObj, llvm::StringRef threadType,
-                uint32_t numCbs, unsigned numOperands,
+                uint32_t numCbs, unsigned numUserOperands,
+                std::optional<uint64_t> pipeScratchOperandIndex,
+                llvm::ArrayRef<uint64_t> pipeGlobalSemaphoreOperandIndices,
                 llvm::SmallVectorImpl<mlir::Attribute> &ctArgs,
                 llvm::SmallVectorImpl<mlir::Attribute> &commonRtArgs) {
   for (uint32_t cb = 0; cb < numCbs; ++cb) {
@@ -232,7 +241,7 @@ buildKernelArgs(TTLangOp op, MLIRContext *ctx,
   }
 
   if (threadType == "noc") {
-    for (unsigned i = 0; i < numOperands; ++i) {
+    for (unsigned i = 0; i < numUserOperands; ++i) {
       ctArgs.push_back(KernelArgTensorAccessorArgsAttr::get(ctx, i));
     }
   }
@@ -254,15 +263,24 @@ buildKernelArgs(TTLangOp op, MLIRContext *ctx,
           KernelArgAddressOfTensorAttr::get(ctx, static_cast<uint64_t>(*idx)));
     }
   }
+  if (pipeScratchOperandIndex) {
+    commonRtArgs.push_back(
+        KernelArgAddressOfTensorAttr::get(ctx, *pipeScratchOperandIndex));
+  }
+  for (uint64_t semIdx : pipeGlobalSemaphoreOperandIndices) {
+    // Index is into GenericOp argRefs = io_tensors ++ additional_args.
+    commonRtArgs.push_back(KernelArgGlobalSemaphoreAttr::get(ctx, semIdx));
+  }
   return mlir::success();
 }
 
 // Build the kernel descriptor attribute (compute/read/write) for one
 // `kernels[i]` JSON entry.
-mlir::Attribute buildKernelAttr(TTLangOp op, MLIRContext *ctx,
-                                const llvm::json::Object *kobj,
-                                CoreRangeSetAttr coreRanges, uint32_t numCbs,
-                                unsigned numOperands, size_t i) {
+mlir::Attribute buildKernelAttr(
+    TTLangOp op, MLIRContext *ctx, const llvm::json::Object *kobj,
+    CoreRangeSetAttr coreRanges, uint32_t numCbs, unsigned numUserOperands,
+    std::optional<uint64_t> pipeScratchOperandIndex,
+    llvm::ArrayRef<uint64_t> pipeGlobalSemaphoreOperandIndices, size_t i) {
   std::optional<llvm::StringRef> src = kobj->getString("cpp_source");
   std::optional<llvm::StringRef> thr = kobj->getString("thread_type");
   if (!src || !thr) {
@@ -320,8 +338,9 @@ mlir::Attribute buildKernelAttr(TTLangOp op, MLIRContext *ctx,
 
   llvm::SmallVector<mlir::Attribute> ctArgs;
   llvm::SmallVector<mlir::Attribute> commonRtArgs;
-  if (mlir::failed(buildKernelArgs(op, ctx, kobj, *thr, numCbs, numOperands,
-                                   ctArgs, commonRtArgs))) {
+  if (mlir::failed(buildKernelArgs(
+          op, ctx, kobj, *thr, numCbs, numUserOperands, pipeScratchOperandIndex,
+          pipeGlobalSemaphoreOperandIndices, ctArgs, commonRtArgs))) {
     return {};
   }
 
@@ -353,9 +372,18 @@ mlir::Attribute buildKernelAttr(TTLangOp op, MLIRContext *ctx,
 }
 
 // Build a `#ttnn.program` from the `kernel_artifact` JSON.
-ProgramAttr buildProgramAttr(TTLangOp op, MLIRContext *ctx,
-                             llvm::StringRef artifactJson,
-                             unsigned numOperands) {
+//
+// `numUserOperands` is the count of user-facing tt_lang_op inputs (ins+outs).
+// When `pipeScratchOperandIndex` is set, every kernel's common_rt_args also
+// gets an address-of-tensor marker for that scratch operand (appended after
+// the kernel's own tensor_indices). When `pipeGlobalSemaphoreOperandIndices`
+// is non-empty, GlobalSemaphore markers follow (indices into GenericOp
+// argRefs = io_tensors ++ additional_args). Both match tt-lang's native
+// `build_pipe_runtime_resources` launch path.
+ProgramAttr buildProgramAttr(
+    TTLangOp op, MLIRContext *ctx, llvm::StringRef artifactJson,
+    unsigned numUserOperands, std::optional<uint64_t> pipeScratchOperandIndex,
+    llvm::ArrayRef<uint64_t> pipeGlobalSemaphoreOperandIndices) {
   llvm::Expected<llvm::json::Value> parsed = llvm::json::parse(artifactJson);
   if (!parsed) {
     op.emitError("kernel_artifact is not valid JSON: ")
@@ -403,19 +431,96 @@ ProgramAttr buildProgramAttr(TTLangOp op, MLIRContext *ctx,
       op.emitError("kernels[") << i << "] is not a JSON object.";
       return {};
     }
-    mlir::Attribute kernel =
-        buildKernelAttr(op, ctx, kobj, coreRanges, numCbs, numOperands, i);
+    mlir::Attribute kernel = buildKernelAttr(
+        op, ctx, kobj, coreRanges, numCbs, numUserOperands,
+        pipeScratchOperandIndex, pipeGlobalSemaphoreOperandIndices, i);
     if (!kernel) {
       return {};
     }
     kernels.push_back(kernel);
   }
 
-  // PipeNet semaphores are not yet plumbed through the artifact; emit an
-  // empty list. A future schema bump will carry the structured semaphore
-  // layout (`num_pipe_nets`, IDs, core ranges).
-  return ProgramAttr::get(ctx, kernels, *cbs,
-                          /*semaphores=*/llvm::ArrayRef<KernelSemaphoreAttr>{});
+  std::optional<int64_t> numPipeSync =
+      root->getInteger("num_pipe_sync_semaphores");
+  if (!numPipeSync) {
+    op.emitError("kernel_artifact is missing required integer key "
+                 "`num_pipe_sync_semaphores`.");
+    return {};
+  }
+  if (*numPipeSync < 0 || static_cast<uint64_t>(*numPipeSync) >
+                              std::numeric_limits<uint32_t>::max()) {
+    op.emitError("kernel_artifact `num_pipe_sync_semaphores` = ")
+        << *numPipeSync << " is out of range for uint32_t.";
+    return {};
+  }
+  llvm::SmallVector<KernelSemaphoreAttr> semaphores;
+  const uint32_t numSemaphores = static_cast<uint32_t>(*numPipeSync);
+  semaphores.reserve(numSemaphores);
+  for (uint32_t id = 0; id < numSemaphores; ++id) {
+    semaphores.push_back(
+        KernelSemaphoreAttr::get(ctx, id, KernelCoreType::Worker, coreRanges,
+                                 /*initial_value=*/0));
+  }
+
+  return ProgramAttr::get(ctx, kernels, *cbs, semaphores);
+}
+
+// Align up to `alignment` (power-of-two friendly), matching
+// `kernel_runner._align_up`.
+static int64_t alignUp(int64_t value, int64_t alignment) {
+  return ((value + alignment - 1) / alignment) * alignment;
+}
+
+// Allocate a HEIGHT_SHARDED L1 float32 scratch tensor matching
+// `kernel_runner.build_pipe_sram_scratch_tensors`: shape
+// `(num_cores, elements_per_core)` with one shard per core over the
+// program's core range. Returns null on failure (diagnostic already
+// emitted).
+static Value createPipeSramScratchTensor(TTLangOp op, OpBuilder &builder,
+                                         CoreRangeSetAttr coreRanges,
+                                         int64_t scratchBytes) {
+  MLIRContext *ctx = op.getContext();
+  if (coreRanges.getCoreRanges().empty()) {
+    op.emitError("pipe SRAM scratch requires a non-empty core_range");
+    return {};
+  }
+
+  // Bounding box over the (single) rectangle the artifact currently emits.
+  CoreRangeAttr range = coreRanges.getCoreRanges().front();
+  const int64_t startX = range.getStartCoord().getX();
+  const int64_t startY = range.getStartCoord().getY();
+  const int64_t endX = range.getEndCoord().getX();
+  const int64_t endY = range.getEndCoord().getY();
+  const int64_t gridCols = endX - startX + 1;
+  const int64_t gridRows = endY - startY + 1;
+  const int64_t numCores = gridCols * gridRows;
+  if (numCores <= 0) {
+    op.emitError("pipe SRAM scratch core_range has non-positive volume");
+    return {};
+  }
+
+  const int64_t alignedBytes = alignUp(scratchBytes, /*alignment=*/32);
+  const int64_t elementsPerCore = std::max<int64_t>(1, alignedBytes / 4);
+  llvm::SmallVector<int64_t, 2> tensorShape{numCores, elementsPerCore};
+
+  // HEIGHT_SHARDED L1 ROW_MAJOR: one shard per core, grid [numCores, 1].
+  TTNNLayoutAttr layout =
+      TTNNLayoutAttr::Builder(ctx, tensorShape, builder.getF32Type())
+          .setBufferType(BufferType::L1)
+          .setMemoryLayout(TensorMemoryLayout::HeightSharded)
+          .setLayout(Layout::RowMajor)
+          .setGridShape({numCores, 1})
+          .setCoreRangeSet(coreRanges)
+          .build();
+  auto tensorType =
+      RankedTensorType::get(tensorShape, builder.getF32Type(), layout);
+
+  mlir::IRRewriter rewriter(builder);
+  rewriter.setInsertionPoint(op);
+  GetDeviceOp device = utils::getOrInsertDevice(rewriter, op);
+  return rewriter.create<EmptyOp>(
+      op.getLoc(), tensorType, device.getResult(),
+      ShapeAttr::get(ctx, tensorShape));
 }
 
 // Lower one `ttnn.tt_lang_op` to a `ttnn.generic`. Returns failure (with
@@ -441,18 +546,92 @@ mlir::LogicalResult lowerTTLangOpToGeneric(TTLangOp op) {
          "tt_lang_op verifier guarantees 1..=numOperands DPS results");
   unsigned numIns = numOperands - numResults;
 
-  ProgramAttr program =
-      buildProgramAttr(op, ctx, artifactAttr.getValue(), numOperands);
+  // Peek pipe resource counts from the artifact so we can allocate scratch
+  // *before* building the program (common_rt_args need the scratch index).
+  llvm::Expected<llvm::json::Value> parsed =
+      llvm::json::parse(artifactAttr.getValue());
+  if (!parsed) {
+    return op.emitError("kernel_artifact is not valid JSON: ")
+           << llvm::toString(parsed.takeError());
+  }
+  const llvm::json::Object *root = parsed->getAsObject();
+  if (!root) {
+    return op.emitError("kernel_artifact root is not a JSON object.");
+  }
+
+  const int64_t pipeScratchBytes =
+      root->getInteger("pipe_sram_scratch_bytes").value_or(0);
+  const int64_t numPipeGlobal =
+      root->getInteger("num_pipe_global_semaphores").value_or(0);
+  if (pipeScratchBytes < 0) {
+    return op.emitError("kernel_artifact `pipe_sram_scratch_bytes` = ")
+           << pipeScratchBytes << " is negative.";
+  }
+  if (numPipeGlobal < 0 || static_cast<uint64_t>(numPipeGlobal) >
+                               std::numeric_limits<uint32_t>::max()) {
+    return op.emitError("kernel_artifact `num_pipe_global_semaphores` = ")
+           << numPipeGlobal << " is out of range for uint32_t.";
+  }
+
+  OpBuilder builder(op);
+  llvm::SmallVector<Value> ioTensors(op.getInputs().begin(),
+                                     op.getInputs().end());
+  llvm::SmallVector<Value> additionalArgs;
+  std::optional<uint64_t> pipeScratchOperandIndex;
+  llvm::SmallVector<uint64_t> pipeGlobalSemaphoreOperandIndices;
+
+  const bool needsCoreRanges = pipeScratchBytes > 0 || numPipeGlobal > 0;
+  CoreRangeSetAttr coreRanges;
+  if (needsCoreRanges) {
+    coreRanges = parseCoreRange(op, ctx, root);
+    if (!coreRanges) {
+      return mlir::failure();
+    }
+  }
+
+  if (pipeScratchBytes > 0) {
+    Value scratch = createPipeSramScratchTensor(op, builder, coreRanges,
+                                                pipeScratchBytes);
+    if (!scratch) {
+      return mlir::failure();
+    }
+    pipeScratchOperandIndex = static_cast<uint64_t>(ioTensors.size());
+    ioTensors.push_back(scratch);
+  }
+
+  // GlobalSemaphore ready counters live in GenericOp `additional_args`
+  // (not io_tensors). Kernel common_rt_args index into the flat argRefs
+  // list = io_tensors ++ additional_args, matching D2MToTTNN and the
+  // runtime's generic_op.cpp.
+  if (numPipeGlobal > 0) {
+    mlir::IRRewriter rewriter(builder);
+    rewriter.setInsertionPoint(op);
+    GetDeviceOp device = utils::getOrInsertDevice(rewriter, op);
+    auto initialValue = rewriter.getUI32IntegerAttr(0);
+    const uint32_t numGlobals = static_cast<uint32_t>(numPipeGlobal);
+    pipeGlobalSemaphoreOperandIndices.reserve(numGlobals);
+    additionalArgs.reserve(numGlobals);
+    for (uint32_t i = 0; i < numGlobals; ++i) {
+      auto sem = rewriter.create<CreateGlobalSemaphoreOp>(
+          op.getLoc(), device.getResult(), initialValue, coreRanges);
+      // Flat index into argRefs after all io_tensors (including scratch).
+      pipeGlobalSemaphoreOperandIndices.push_back(
+          static_cast<uint64_t>(ioTensors.size() + additionalArgs.size()));
+      additionalArgs.push_back(sem.getResult());
+    }
+  }
+
+  ProgramAttr program = buildProgramAttr(
+      op, ctx, artifactAttr.getValue(), numOperands, pipeScratchOperandIndex,
+      pipeGlobalSemaphoreOperandIndices);
   if (!program) {
     return mlir::failure();
   }
 
-  OpBuilder builder(op);
   // `ttnn.generic` writes in place into its "out" operands and has no
   // results; downstream IR references the out operands directly. Replace
   // each tt_lang_op result with its tied "out" operand before erasing.
-  builder.create<GenericOp>(op.getLoc(), op.getInputs(),
-                            /*additional_args=*/ValueRange{}, program);
+  builder.create<GenericOp>(op.getLoc(), ioTensors, additionalArgs, program);
 
   for (unsigned r = 0; r < numResults; ++r) {
     op.getResult(r).replaceAllUsesWith(op.getInputs()[numIns + r]);
