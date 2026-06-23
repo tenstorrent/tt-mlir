@@ -306,6 +306,23 @@ public:
     return globalSemaphorePool;
   }
 
+  // Returns a cached `GlobalSemaphore` for the given op-pointer key, creating it
+  // via `factory` on the first call. Ported from the GPT-OSS e2e branch: some
+  // CCL ops (all_to_all_dispatch_metadata, selective_reduce_combine) need a
+  // cross-device semaphore created via `create_global_semaphore` (a host->device
+  // L1 write); caching by op key avoids re-creating it on every invocation.
+  // (The e2e parentContext forwarding for trace nesting is omitted — this
+  // runtime does not nest ProgramContexts via FuncCallOp.)
+  ::ttnn::GlobalSemaphore getOrCreateImplicitGlobalSemaphore(
+      uintptr_t opKey,
+      const std::function<::ttnn::GlobalSemaphore()> &factory) {
+    auto it = implicitOpSemaphores.find(opKey);
+    if (it == implicitOpSemaphores.end()) {
+      it = implicitOpSemaphores.emplace(opKey, factory()).first;
+    }
+    return it->second;
+  }
+
   Binary &getExecutableHandle() { return executableHandle; }
 
   //
@@ -317,6 +334,9 @@ private:
   ProgramTensorPool tensorPool;
 
   ProgramGlobalSemaphorePool globalSemaphorePool;
+
+  // Cache of implicitly-created cross-device semaphores, keyed by op pointer.
+  std::unordered_map<uintptr_t, ::ttnn::GlobalSemaphore> implicitOpSemaphores;
 
   common::DylibManager dylibManager;
 
