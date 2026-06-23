@@ -17,6 +17,7 @@
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/EmitC/Transforms/Passes.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Linalg/Passes.h"
 #include "mlir/Dialect/MemRef/Transforms/Passes.h"
 #include "mlir/Pass/PassManager.h"
@@ -65,11 +66,12 @@ void createTTIRBufferizationPipeline(OpPassManager &pm,
 void createOptimizationPasses(OpPassManager &pm,
                               const D2MPipelineOptions &options) {
   pm.addPass(createCanonicalizerPassWithOptions(options));
-  pm.addPass(mlir::createLoopInvariantCodeMotionPass());
-  pm.addPass(mlir::createSCCPPass());
-  pm.addPass(mlir::createCSEPass());
-  pm.addPass(mlir::arith::createIntRangeOptimizationsPass());
-  pm.addPass(mlir::createLoopInvariantCodeMotionPass());
+  OpPassManager &funcPm = pm.nest<func::FuncOp>();
+  funcPm.addPass(mlir::createLoopInvariantCodeMotionPass());
+  funcPm.addPass(mlir::createSCCPPass());
+  funcPm.addPass(mlir::createCSEPass());
+  funcPm.addPass(mlir::arith::createIntRangeOptimizationsPass());
+  funcPm.addPass(mlir::createLoopInvariantCodeMotionPass());
 }
 
 void createD2MFrontendPipeline(OpPassManager &pm,
