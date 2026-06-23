@@ -2204,7 +2204,7 @@ static NocEndpoint buildNocEndpoint(OpBuilder &rewriter, Location loc, Value cb,
 
 static Value materializeTranslatedNocAddr(OpBuilder &rewriter, Location loc,
                                           const NocEndpoint &endpoint,
-                                          Value nocId) {
+                                          Value nocId = {}) {
   if (endpoint.memorySpace == ttcore::MemorySpace::DeviceDRAM) {
     return rewriter.create<ttkernel::GetNocAddrFromBankIDOp>(
         loc, endpoint.bankId, endpoint.address);
@@ -3242,11 +3242,11 @@ public:
 
     Value value = op.getValue();
     Value semaphoreAddr = adaptor.getSemaphore();
+    Value nocId = materializeKernelNocId(rewriter, op.getOperation());
 
     if (op.getStartDevice().size() > 0) {
       assert(mlir::isa<d2m::SemaphoreIncOp>(op) &&
              "only d2m.semaphore_inc to remote device is allowed.");
-      Value nocId = materializeKernelNocId(rewriter, op.getOperation());
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), ttcore::getOpChipDescAttr(op),
           op.getDstCoreIndex());
@@ -3307,7 +3307,6 @@ public:
     } else if (op.getMcastShape().empty()) {
       assert(!mlir::isa<d2m::SemaphoreSetOp>(op) &&
              "d2m.semaphore_set to single remote core is illegal.");
-      Value nocId = materializeKernelNocId(rewriter, op.getOperation());
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), chipDesc, op.getDstCoreIndex());
       auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(

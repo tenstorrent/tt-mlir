@@ -417,7 +417,8 @@ void populatePassesModule(nb::module_ &m) {
 
         // Convert to EmitC
         mlir::PassManager pm(moduleOp->getName());
-        pm.addPass(mlir::tt::createConvertTTKernelToEmitC());
+        pm.nest<func::FuncOp>().addPass(
+            mlir::tt::createConvertTTKernelToEmitC());
         if (mlir::failed(pm.run(moduleOp))) {
           throw std::runtime_error("Failed to run pass manager");
         }
@@ -441,7 +442,8 @@ void populatePassesModule(nb::module_ &m) {
 
         // Convert to EmitC
         mlir::PassManager pm(moduleOp->getName());
-        pm.addPass(mlir::tt::createConvertTTKernelToEmitC());
+        pm.nest<func::FuncOp>().addPass(
+            mlir::tt::createConvertTTKernelToEmitC());
         if (mlir::failed(pm.run(moduleOp))) {
           throw std::runtime_error("Failed to run pass manager");
         }
@@ -471,7 +473,8 @@ void populatePassesModule(nb::module_ &m) {
 
         // Convert to EmitC
         mlir::PassManager pm(moduleOp->getName());
-        pm.addPass(mlir::tt::createConvertTTKernelToEmitC());
+        pm.nest<func::FuncOp>().addPass(
+            mlir::tt::createConvertTTKernelToEmitC());
         if (mlir::failed(pm.run(moduleOp))) {
           throw std::runtime_error("Failed to run pass manager");
         }

@@ -131,7 +131,7 @@ public:
 
 } // namespace
 
-std::unique_ptr<OperationPass<ModuleOp>>
+std::unique_ptr<OperationPass<func::FuncOp>>
 createRemoveDeadEmitCExpressionsPass() {
   return std::make_unique<RemoveDeadEmitCExpressions>();
 }

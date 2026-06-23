@@ -85,15 +85,16 @@ struct ConvertD2MToTTMetal
     // enqueue_program per spatial region); SpatialOpRewriter in the second pass
     // merges those enqueue_program ops and then erases the spatial wrapper.
 
-    if (failed(d2m::utils::checkBackendDmCoreSupport(getOperation(),
-                                                     "D2MToTTMetal"))) {
+    ModuleOp moduleOp = getOperation();
+
+    if (failed(
+            d2m::utils::checkBackendDmCoreSupport(moduleOp, "D2MToTTMetal"))) {
       signalPassFailure();
       return;
     }
 
     const bool hasSpatialOps =
-        getOperation()
-            .walk([](d2m::SpatialOp) { return WalkResult::interrupt(); })
+        moduleOp.walk([](d2m::SpatialOp) { return WalkResult::interrupt(); })
             .wasInterrupted();
 
     ConversionTarget target(getContext());
@@ -104,9 +105,8 @@ struct ConvertD2MToTTMetal
     typeConverter.addConversion([](Type type) { return type; });
 
     RewritePatternSet patterns(&getContext());
-    SymbolTable symbolTable(getOperation());
-    const auto arch =
-        ttcore::getOpChipDescAttr(getOperation()).getArch().getValue();
+    SymbolTable symbolTable(moduleOp);
+    const auto arch = ttcore::getOpChipDescAttr(moduleOp).getArch().getValue();
     populateD2MToTTMetalPatterns(&getContext(), patterns, typeConverter,
                                  symbolTable, arch, mathFidelity);
 

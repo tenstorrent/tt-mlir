@@ -24,10 +24,10 @@ void createPyKernelCompilePipeline(
     pm.addPass(mlir::createCanonicalizerPass());
   }
 
-  pm.addPass(mlir::tt::createRemoveDeadEmitCExpressionsPass());
+  OpPassManager &funcPm = pm.nest<func::FuncOp>();
+  funcPm.addPass(mlir::tt::createRemoveDeadEmitCExpressionsPass());
 
   if (options.enableFormExpressions) {
-    OpPassManager &funcPm = pm.nest<func::FuncOp>();
     funcPm.addPass(mlir::emitc::createFormExpressionsPass());
   }
 }
