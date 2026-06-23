@@ -1340,6 +1340,56 @@ getTopKShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
+// Sharding rule for tenstorrent.argmax custom_call op (converted from
+// composite by FlattenOrConvertCompositesPass).
+//
+// Input:  [batch, N]   — N is the reduction dimension
+// Output: [batch] (keepdim=false) or [batch, 1] (keepdim=true)
+//
+// Batch dim: kPassThrough.
+// Reduction dim: passthrough on input with no output dim, telling Shardy
+//   the op handles the distributed argmax internally (local argmax +
+//   all_gather + shard-offset + merge) so it must not insert an all_gather
+//   before the op.
+// keepdim dim in output (if present): kNeedReplication.
+static mlir::sdy::OpShardingRuleAttr
+getArgMaxShardingRule(mlir::stablehlo::CustomCallOp op) {
+  if (op.getNumOperands() != 1 || op.getNumResults() != 1) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto inputType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto resultType =
+      llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
+  if (!inputType || !resultType || inputType.getRank() != 2) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  int64_t batchSize = inputType.getShape()[0];
+  int64_t reductionSize = inputType.getShape()[1];
+  bool keepdim = (resultType.getRank() == 2);
+
+  mlir::sdy::OpShardingRuleBuilder builder(op);
+
+  // Batch dim: passthrough input[0] → result[0].
+  builder.addFactor({0}, {0}, batchSize,
+                    mlir::sdy::FactorType::kPassThrough);
+
+  // Reduction dim: passthrough on input, null on result. Tells Shardy
+  // the op handles distributed argmax internally (local argmax +
+  // all_gather + shard-offset + merge).
+  builder.addFactor({1}, {mlir::sdy::kNullDim}, reductionSize,
+                    mlir::sdy::FactorType::kPassThrough);
+
+  // keepdim=true: result dim 1 (size 1) must not be sharded.
+  if (keepdim) {
+    builder.addFactor({mlir::sdy::kNullDim}, {1}, resultType.getShape()[1],
+                      mlir::sdy::FactorType::kNeedReplication);
+  }
+
+  return builder.build();
+}
+
 // Sharding rule for RMS norm custom_call (converted from composite).
 //
 // Operands:
@@ -1554,6 +1604,7 @@ private:
           {utils::kTTTopKCustomCallTargetName, getTopKShardingRule},
           {utils::kTTTopKValuesCustomCallTargetName, getTopKShardingRule},
           {utils::kTTTopKIndicesCustomCallTargetName, getTopKShardingRule},
+          {utils::kTTArgMaxCustomCallTargetName, getArgMaxShardingRule},
           {utils::kTTGatherDimCustomCallTargetName, getGatherDimShardingRule},
           {utils::kTTGatherCustomCallTargetName, getGatherDimShardingRule},
       };

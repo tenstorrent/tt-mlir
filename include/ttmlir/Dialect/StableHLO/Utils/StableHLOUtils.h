@@ -59,6 +59,10 @@ inline constexpr llvm::StringLiteral
     kTTGatherDimCustomCallTargetName("tenstorrent.gather_dim");
 inline constexpr llvm::StringLiteral
     kTTGatherCustomCallTargetName("tenstorrent.gather");
+
+// Target name for the ArgMax custom_call op.
+inline constexpr llvm::StringLiteral
+    kTTArgMaxCustomCallTargetName("tenstorrent.argmax");
 // Composite name emitted by the frontend for scaled_dot_product_attention.
 inline constexpr llvm::StringLiteral
     kTTSDPACompositeName("tenstorrent.scaled_dot_product_attention");
@@ -74,6 +78,7 @@ inline constexpr llvm::StringLiteral kCompositesWithCustomSharding[] = {
     kTTTopKCustomCallTargetName,
     kTTTopKValuesCustomCallTargetName,
     kTTTopKIndicesCustomCallTargetName,
+    kTTArgMaxCustomCallTargetName,
     kTTSDPACompositeName,
     kTTGatherCustomCallTargetName,
     kTTGatherDimCustomCallTargetName,
