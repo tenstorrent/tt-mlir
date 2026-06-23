@@ -116,10 +116,8 @@ public:
         return nullptr;
     }
 
-    void insert(const std::string &key, CompiledProgram cp) {
-        if (comp_cache_enabled()) {
-            m_cache.emplace(key, std::move(cp));
-        }
+    CompiledProgram &insert(const std::string &key, CompiledProgram cp) {
+        return m_cache.emplace(key, std::move(cp)).first->second;
     }
 
 private:
@@ -163,8 +161,8 @@ void print_ttnn_ir(mlir::ModuleOp module_op) {
 // Assumes the caller has already installed a ScopedDiagnosticHandler that
 // writes captured diagnostics into `diag_buffer`. The module is mutated in
 // place; on success it contains TTNN ops.
-CompiledProgram run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const CompileOptions &options,
-                                          const std::string &diag_buffer) {
+CompiledProgram &run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const CompileOptions &options,
+                                           const std::string &diag_buffer) {
     MLIRCompileGuard guard;
 
     print_tt_ir(module_op);
@@ -227,9 +225,7 @@ CompiledProgram run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const Compil
         TT_FATAL(fb != nullptr, "{}", make_error_message("ttnnToFlatbuffer returned null", diag_buffer));
     }
 
-    CompiledProgram prog{std::move(fb)};
-    cache.insert(key, prog);
-
+    CompiledProgram &prog = cache.insert(key, CompiledProgram(std::move(fb)));
     return prog;
 }
 
@@ -239,7 +235,16 @@ mlir::MLIRContext &mlir_context() {
     return engine_state().context;
 }
 
-CompiledProgram compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module_op, const CompileOptions &options) {
+CompiledProgram::CompiledProgram(tt::runtime::Binary bin)
+    : binary(std::move(bin)), input_descs(binary.getProgramInputs(0)), output_descs(binary.getProgramOutputs(0)),
+      num_inputs(input_descs.size()) {
+    input_layouts.reserve(num_inputs);
+    for (std::uint32_t i = 0; i < num_inputs; ++i) {
+        input_layouts.push_back(tt::runtime::getLayout(binary, /*program_index=*/0, i));
+    }
+}
+
+CompiledProgram &compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module_op, const CompileOptions &options) {
     mlir::MLIRContext *ctx = module_op.getContext();
 
     std::string diag_buffer;
@@ -253,7 +258,7 @@ CompiledProgram compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module_op, const 
     return run_ttir_to_ttnn_and_emit(module_op, options, diag_buffer);
 }
 
-CompiledProgram compile_ttir_to_ttnn_flatbuffer(std::string_view ttir, const CompileOptions &options) {
+CompiledProgram &compile_ttir_to_ttnn_flatbuffer(std::string_view ttir, const CompileOptions &options) {
     mlir::MLIRContext &ctx = engine_state().context;
 
     std::string diag_buffer;

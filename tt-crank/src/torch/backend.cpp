@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <llvm/ADT/ArrayRef.h>
 #include <memory>
 #include <new>
 #include <stdexcept>
@@ -98,15 +99,13 @@ static bool register_hooks_flag [[maybe_unused]] = []() {
 
 } // namespace
 
-std::shared_ptr<::tt::kurbla::CompiledProgram> compile_module(mlir::OwningOpRef<mlir::ModuleOp> module_op) {
+::tt::kurbla::CompiledProgram &compile_module(mlir::OwningOpRef<mlir::ModuleOp> module_op) {
     ::tt::kurbla::CompileOptions opts;
     opts.system_desc = ::tt::kurbla::runtime_system_desc();
-    return std::make_shared<::tt::kurbla::CompiledProgram>(
-        ::tt::kurbla::compile_ttir_to_ttnn_flatbuffer(module_op.get(), opts));
+    return ::tt::kurbla::compile_ttir_to_ttnn_flatbuffer(module_op.get(), opts);
 }
 
-std::vector<at::Tensor> run_compiled_program(const std::shared_ptr<::tt::kurbla::CompiledProgram> &program,
-                                             llvm::ArrayRef<at::Tensor> inputs,
+std::vector<at::Tensor> run_compiled_program(::tt::kurbla::CompiledProgram &program, llvm::ArrayRef<at::Tensor> inputs,
                                              llvm::ArrayRef<::tt::target::DataType> logical_output_dtypes) {
     ::tt::kurbla::ExecutionPayload payload(program);
     for (std::uint32_t i = 0; i < inputs.size(); ++i) {
@@ -114,7 +113,7 @@ std::vector<at::Tensor> run_compiled_program(const std::shared_ptr<::tt::kurbla:
     }
 
     std::vector<::tt::runtime::Tensor> raw_outputs = payload.run();
-    auto output_descs = program->output_descs(payload.program_index());
+    const auto &output_descs = program.output_descs;
     TORCH_INTERNAL_ASSERT(raw_outputs.size() == output_descs.size(),
                           "run_compiled_program: output count mismatch between runtime and program metadata");
     TORCH_CHECK(raw_outputs.size() == logical_output_dtypes.size(), "run_compiled_program: caller provided ",
@@ -137,7 +136,7 @@ std::vector<at::Tensor> run_compiled_program(const std::shared_ptr<::tt::kurbla:
 
 std::vector<::tt::runtime::Tensor> compile_and_run(mlir::OwningOpRef<mlir::ModuleOp> module_op,
                                                    llvm::ArrayRef<at::Tensor> inputs) {
-    auto program = compile_module(std::move(module_op));
+    ::tt::kurbla::CompiledProgram &program = compile_module(std::move(module_op));
     ::tt::kurbla::ExecutionPayload payload(program);
     for (std::uint32_t i = 0; i < inputs.size(); ++i) {
         payload.bind_tensor(storage_of(inputs[i]).tensor(), i);
