@@ -165,12 +165,14 @@ static bool mayHaveRuntimeCBArgs(func::FuncOp funcOp) {
   return !argSpec || !argSpec.getRtArgs().empty();
 }
 
+namespace {
 struct TTKernelToEmitCConversionState {
   llvm::DenseMap<Block *, llvm::StringSet<>> cbDeclarations;
   llvm::DenseMap<Operation *, llvm::StringSet<>> functionScopedDeclarations;
   llvm::DenseMap<Operation *, std::array<bool, 2>> staticNocDeclarations;
   llvm::DenseMap<Operation *, uint64_t> resultVariableCounters;
 };
+} // namespace
 
 static void setInsertionPointAfterDefOrBlockStart(Value value,
                                                   OpBuilder &builder) {
@@ -233,9 +235,7 @@ static FailureOr<int64_t> extractNocIndex(Attribute value) {
   return nocIdx;
 }
 
-static FailureOr<int64_t> getStaticNocIndex(Operation *,
-                                            TTKernelToEmitCConversionState &,
-                                            Value nocId = {}) {
+static FailureOr<int64_t> getStaticNocIndex(Value nocId) {
   if (nocId) {
     if (auto constantOp = nocId.getDefiningOp<arith::ConstantOp>()) {
       return extractNocIndex(constantOp.getValue());
@@ -316,7 +316,7 @@ static FailureOr<std::string>
 ensureNocDeclaration(Operation *useOp, ConversionPatternRewriter &rewriter,
                      TTKernelToEmitCConversionState &state,
                      SmallVectorImpl<Value> &operands, Value nocId = {}) {
-  FailureOr<int64_t> nocIdx = getStaticNocIndex(useOp, state, nocId);
+  FailureOr<int64_t> nocIdx = getStaticNocIndex(nocId);
   if (succeeded(nocIdx)) {
     std::string nocName = "noc" + std::to_string(*nocIdx);
     auto funcOp = useOp->getParentOfType<func::FuncOp>();
