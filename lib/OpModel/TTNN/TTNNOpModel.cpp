@@ -828,40 +828,39 @@ static ::ttnn::Tensor
 moeComputePackW0W1(const ::ttnn::Tensor &w0, const ::ttnn::Tensor &w1,
                    std::optional<::ttnn::Tensor> b0,
                    std::optional<::ttnn::Tensor> b1, uint32_t hiddenSize,
-                   uint32_t intermediateSize, uint32_t bhRingSize,
-                   ::ttnn::MeshDevice *device) {
+                   uint32_t intermediateSize, ::ttnn::MeshDevice *device) {
   uint32_t L = w0.logical_shape()[0];
   uint32_t E = w0.logical_shape()[1];
   bool hasBias = b0.has_value();
   ::ttnn::Tensor packed =
       hasBias ? ::ttnn::experimental::prepare_w0_w1_tensor_with_bias(
-                    w0, w1, *b0, *b1, L, E, hiddenSize, intermediateSize,
-                    bhRingSize)
+                    w0, w1, *b0, *b1, L, E, hiddenSize, intermediateSize)
               : ::ttnn::experimental::prepare_w0_w1_tensor_for_moe_compute(
-                    w0, w1, L, E, hiddenSize, intermediateSize, bhRingSize);
+                    w0, w1, L, E, hiddenSize, intermediateSize);
   return ::ttnn::experimental::quantize_weights_via_host(
       packed, ::tt::tt_metal::DataType::BFLOAT4_B,
-      ::ttnn::experimental::get_weight_mem_configs(
-          device, L, E, hiddenSize, intermediateSize, hasBias, bhRingSize)
+      ::ttnn::experimental::get_weight_mem_configs(device, L, E, hiddenSize,
+                                                   intermediateSize, hasBias)
           .w0_w1);
 }
 
-static ::ttnn::Tensor
-moeComputePackW2(const ::ttnn::Tensor &w2, std::optional<::ttnn::Tensor> b2,
-                 uint32_t hiddenSize, uint32_t intermediateSize,
-                 uint32_t bhRingSize, ::ttnn::MeshDevice *device) {
+static ::ttnn::Tensor moeComputePackW2(const ::ttnn::Tensor &w2,
+                                       std::optional<::ttnn::Tensor> b2,
+                                       uint32_t hiddenSize,
+                                       uint32_t intermediateSize,
+                                       ::ttnn::MeshDevice *device) {
   uint32_t L = w2.logical_shape()[0];
   uint32_t E = w2.logical_shape()[1];
   bool hasBias = b2.has_value();
   ::ttnn::Tensor packed =
       hasBias ? ::ttnn::experimental::prepare_w2_tensor_with_bias(
-                    w2, *b2, L, E, intermediateSize, hiddenSize, bhRingSize)
+                    w2, *b2, L, E, intermediateSize, hiddenSize)
               : ::ttnn::experimental::prepare_w2_tensor_for_moe_compute(
-                    w2, L, E, intermediateSize, hiddenSize, bhRingSize);
+                    w2, L, E, intermediateSize, hiddenSize);
   return ::ttnn::experimental::quantize_weights_via_host(
       packed, ::tt::tt_metal::DataType::BFLOAT4_B,
-      ::ttnn::experimental::get_weight_mem_configs(
-          device, L, E, hiddenSize, intermediateSize, hasBias, bhRingSize)
+      ::ttnn::experimental::get_weight_mem_configs(device, L, E, hiddenSize,
+                                                   intermediateSize, hasBias)
           .w2);
 }
 
@@ -877,8 +876,6 @@ static auto makePrepareMoEComputeW0W1WeightsQuery(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  uint32_t ring = bhRingSize.value_or(12);
-
   return [=]() {
     ::ttnn::TensorSpec w0Spec = conversion::getTensorSpec(w0Shape, w0Layout);
     ::ttnn::TensorSpec w1Spec = conversion::getTensorSpec(w1Shape, w1Layout);
@@ -892,7 +889,7 @@ static auto makePrepareMoEComputeW0W1WeightsQuery(
     }
     return ::ttnn::graph::query_op_constraints(
         WRAP_OP(moeComputePackW0W1), device, w0Spec, w1Spec, b0Spec, b1Spec,
-        hiddenSize, intermediateSize, ring, device);
+        hiddenSize, intermediateSize, device);
   };
 }
 
@@ -925,7 +922,6 @@ static auto makePrepareMoEComputeW2WeightsQuery(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  uint32_t ring = bhRingSize.value_or(12);
   return [=]() {
     ::ttnn::TensorSpec w2Spec = conversion::getTensorSpec(w2Shape, w2Layout);
     std::optional<::ttnn::TensorSpec> b2Spec;
@@ -934,7 +930,7 @@ static auto makePrepareMoEComputeW2WeightsQuery(
     }
     return ::ttnn::graph::query_op_constraints(
         WRAP_OP(moeComputePackW2), device, w2Spec, b2Spec, hiddenSize,
-        intermediateSize, ring, device);
+        intermediateSize, device);
   };
 }
 
