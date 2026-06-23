@@ -22,8 +22,9 @@ module {
     d2m.semaphore_inc %sem0, %c1, core[%y, %x] : !d2m.local_semaphore
     // CHECK: %[[ARG:[0-9]+]] = ttkernel.get_common_arg_val
     // CHECK: %[[SEM:[0-9]+]] = ttkernel.get_semaphore(%[[ARG]])
-    // CHECK: %[[NOC:[0-9]+]] = ttkernel.get_noc_addr({{.*}}, {{.*}}, %[[SEM]])
-    // CHECK: ttkernel.noc_semaphore_inc(%[[NOC]], %c1) :
+    // CHECK: %[[NOC_ID:[a-zA-Z0-9_]+]] = arith.constant 1 : i8
+    // CHECK: %[[NOC:[0-9]+]] = ttkernel.get_noc_addr({{.*}}, {{.*}}, %[[SEM]], %[[NOC_ID]])
+    // CHECK: ttkernel.noc_semaphore_inc(%[[NOC]], %c1, %[[NOC_ID]]) :
     // CHECK-NOT: posted
     return
   }

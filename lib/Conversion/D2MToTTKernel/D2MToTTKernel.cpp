@@ -68,12 +68,8 @@ static FailureOr<int32_t> getKernelNocIndex(Operation *op) {
 }
 
 // Early resolution & materialization of the DM kernel's NoC index in the
-// pipeline (before TTKernelToEmitC & D2MToTTMetal).
-//
-// Returns null when the NoC index cannot be resolved (e.g. a function with no
-// d2m.thread attribute). Callers pass the null Value straight through as an
-// absent optional `noc` operand, so TTKernelToEmitC falls back to the kernel's
-// default `noc_index` global variable.
+// pipeline (before TTKernelToEmitC & D2MToTTMetal). Returns null when the NoC
+// index cannot be resolved (e.g. a function with no d2m.thread attribute).
 static Value materializeKernelNocId(OpBuilder &rewriter, Operation *op) {
   FailureOr<int32_t> nocIdx = getKernelNocIndex(op);
   if (failed(nocIdx)) {
@@ -2207,7 +2203,8 @@ static NocEndpoint buildNocEndpoint(OpBuilder &rewriter, Location loc, Value cb,
 }
 
 static Value materializeTranslatedNocAddr(OpBuilder &rewriter, Location loc,
-                                          const NocEndpoint &endpoint) {
+                                          const NocEndpoint &endpoint,
+                                          Value nocId = {}) {
   if (endpoint.memorySpace == ttcore::MemorySpace::DeviceDRAM) {
     return rewriter.create<ttkernel::GetNocAddrFromBankIDOp>(
         loc, endpoint.bankId, endpoint.address);
@@ -2215,7 +2212,7 @@ static Value materializeTranslatedNocAddr(OpBuilder &rewriter, Location loc,
 
   TT_assert(endpoint.memorySpace == ttcore::MemorySpace::DeviceL1);
   return rewriter.create<ttkernel::GetNocAddrOp>(
-      loc, endpoint.coreXY[0], endpoint.coreXY[1], endpoint.address);
+      loc, endpoint.coreXY[0], endpoint.coreXY[1], endpoint.address, nocId);
 }
 
 static SmallVector<Value> decomposeLinearIndex(OpBuilder &rewriter,
@@ -2464,8 +2461,8 @@ public:
       auto dstEndpoint = buildNocEndpoint(rewriter, op.getLoc(),
                                           adaptor.getDst(), op.getDstIndices(),
                                           chipDesc, op.getDstMemorySpace());
-      auto dstNocAddr =
-          materializeTranslatedNocAddr(rewriter, op.getLoc(), dstEndpoint);
+      auto dstNocAddr = materializeTranslatedNocAddr(rewriter, op.getLoc(),
+                                                     dstEndpoint, nocId);
       auto size =
           intConstant<int32_t>(rewriter, op->getLoc(), op.getSizeBytes());
       auto meshId = intConstant<int16_t>(rewriter, op->getLoc(), 0);
@@ -3249,11 +3246,12 @@ public:
     if (op.getStartDevice().size() > 0) {
       assert(mlir::isa<d2m::SemaphoreIncOp>(op) &&
              "only d2m.semaphore_inc to remote device is allowed.");
+      Value nocId = materializeKernelNocId(rewriter, op.getOperation());
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), ttcore::getOpChipDescAttr(op),
           op.getDstCoreIndex());
       auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
-          op.getLoc(), virtX, virtY, semaphoreAddr);
+          op.getLoc(), virtX, virtY, semaphoreAddr, nocId);
       auto meshId = intConstant<int16_t>(rewriter, op->getLoc(), 0);
       auto fcm = getFabricConnectionManager(op);
 
@@ -3291,7 +3289,7 @@ public:
           OpBuilder::InsertionGuard guard(rewriter);
           rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
           rewriter.create<ttkernel::NocSemaphoreIncOp>(op.getLoc(), nocAddr,
-                                                       value);
+                                                       value, nocId);
           rewriter.create<scf::YieldOp>(op.getLoc());
         }
       }
@@ -3309,12 +3307,13 @@ public:
     } else if (op.getMcastShape().empty()) {
       assert(!mlir::isa<d2m::SemaphoreSetOp>(op) &&
              "d2m.semaphore_set to single remote core is illegal.");
+      Value nocId = materializeKernelNocId(rewriter, op.getOperation());
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), chipDesc, op.getDstCoreIndex());
       auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
-          op.getLoc(), virtX, virtY, semaphoreAddr);
+          op.getLoc(), virtX, virtY, semaphoreAddr, nocId);
       rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreIncOp>(op, nocAddr,
-                                                               value);
+                                                               value, nocId);
     } else {
       assert(!mlir::isa<d2m::SemaphoreIncOp>(op) &&
              "d2m.semaphore_inc multicast is illegal.");
@@ -3341,13 +3340,13 @@ public:
         return rewriter.notifyMatchFailure(
             op, "unable to resolve datamovement kernel NoC index");
       }
-      Value nocId = intConstant<int8_t>(rewriter, op->getLoc(), *nocIdx);
+      Value mcastNocId = intConstant<int8_t>(rewriter, op->getLoc(), *nocIdx);
 
       flipMcastCoordsIfNoc1(*nocIdx, virtX, virtY, virtMcastEndX,
                             virtMcastEndY);
       auto mcastAddr = rewriter.create<ttkernel::GetNocMulticastAddrOp>(
           op.getLoc(), virtX, virtY, virtMcastEndX, virtMcastEndY,
-          semaphoreAddr, nocId);
+          semaphoreAddr, mcastNocId);
 
       auto semaphorePtr = rewriter.create<ttkernel::CastToL1PtrOp>(
           op.getLoc(), ttkernel::L1AddrPtrType::get(rewriter.getContext(), 32),
@@ -3405,8 +3404,9 @@ public:
     auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
         rewriter, op.getLoc(), ttcore::getOpChipDescAttr(op),
         op.getCoreIndices());
+    Value nocId = materializeKernelNocId(rewriter, op.getOperation());
     auto globalSemAddr = rewriter.create<ttkernel::GetNocAddrOp>(
-        op.getLoc(), virtX, virtY, adaptor.getSyncSemaphore());
+        op.getLoc(), virtX, virtY, adaptor.getSyncSemaphore(), nocId);
     auto globalSemPtr = rewriter.create<ttkernel::CastToL1PtrOp>(
         op.getLoc(), ttkernel::L1AddrPtrType::get(rewriter.getContext(), 32),
         adaptor.getSyncSemaphore());

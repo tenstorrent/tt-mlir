@@ -8,7 +8,6 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
-#include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
 #include "mlir/Conversion/ArithToEmitC/ArithToEmitC.h"
 #include "mlir/Conversion/MemRefToEmitC/MemRefToEmitC.h"
@@ -32,7 +31,6 @@
 
 #include <array>
 #include <functional>
-#include <optional>
 #include <string>
 
 using namespace mlir;
@@ -167,16 +165,12 @@ static bool mayHaveRuntimeCBArgs(func::FuncOp funcOp) {
   return !argSpec || !argSpec.getRtArgs().empty();
 }
 
-namespace {
 struct TTKernelToEmitCConversionState {
   llvm::DenseMap<Block *, llvm::StringSet<>> cbDeclarations;
   llvm::DenseMap<Operation *, llvm::StringSet<>> functionScopedDeclarations;
-  llvm::DenseMap<Operation *, std::optional<int64_t>> staticNocIndices;
   llvm::DenseMap<Operation *, std::array<bool, 2>> staticNocDeclarations;
   llvm::DenseMap<Operation *, uint64_t> resultVariableCounters;
-  llvm::StringMap<int64_t> kernelNocIndices;
 };
-} // namespace
 
 static void setInsertionPointAfterDefOrBlockStart(Value value,
                                                   OpBuilder &builder) {
@@ -239,42 +233,9 @@ static FailureOr<int64_t> extractNocIndex(Attribute value) {
   return nocIdx;
 }
 
-static void cacheKernelNocIndices(ModuleOp moduleOp,
-                                  TTKernelToEmitCConversionState &state) {
-  moduleOp.walk([&](ttmetal::EnqueueProgramOp enqueueProgram) {
-    for (Attribute kernelConfig : enqueueProgram.getKernelConfigs()) {
-      auto nocConfig = mlir::dyn_cast<ttmetal::NocConfigAttr>(kernelConfig);
-      if (!nocConfig) {
-        continue;
-      }
-
-      int64_t nocIdx = -1;
-      switch (nocConfig.getNocIndex()) {
-      case ttcore::NocIndex::Noc0:
-        nocIdx = 0;
-        break;
-      case ttcore::NocIndex::Noc1:
-        nocIdx = 1;
-        break;
-      }
-      std::string kernelSymbol =
-          nocConfig.getKernelSymbol().getRootReference().str();
-      auto it = state.kernelNocIndices.find(kernelSymbol);
-      if (it != state.kernelNocIndices.end()) {
-        TT_assertv(it->second == nocIdx,
-                   "malformed IR: kernel symbol `{}` has conflicting NoC "
-                   "indices {} and {}",
-                   kernelSymbol, it->second, nocIdx);
-        continue;
-      }
-      state.kernelNocIndices.try_emplace(kernelSymbol, nocIdx);
-    }
-  });
-}
-
-static FailureOr<int64_t>
-getStaticNocIndex(Operation *useOp, TTKernelToEmitCConversionState &state,
-                  Value nocId = {}) {
+static FailureOr<int64_t> getStaticNocIndex(Operation *,
+                                            TTKernelToEmitCConversionState &,
+                                            Value nocId = {}) {
   if (nocId) {
     if (auto constantOp = nocId.getDefiningOp<arith::ConstantOp>()) {
       return extractNocIndex(constantOp.getValue());
@@ -285,30 +246,7 @@ getStaticNocIndex(Operation *useOp, TTKernelToEmitCConversionState &state,
     return failure();
   }
 
-  auto funcOp = useOp->getParentOfType<func::FuncOp>();
-  if (!funcOp) {
-    return failure();
-  }
-
-  Operation *func = funcOp.getOperation();
-  if (auto it = state.staticNocIndices.find(func);
-      it != state.staticNocIndices.end()) {
-    if (it->second) {
-      return *it->second;
-    }
-    return failure();
-  }
-
-  StringRef kernelSymbol = funcOp.getSymName();
-  FailureOr<int64_t> nocIdx = failure();
-  auto nocIt = state.kernelNocIndices.find(kernelSymbol);
-  if (nocIt != state.kernelNocIndices.end()) {
-    nocIdx = nocIt->second;
-  }
-
-  state.staticNocIndices.try_emplace(
-      func, succeeded(nocIdx) ? std::optional<int64_t>(*nocIdx) : std::nullopt);
-  return nocIdx;
+  return failure();
 }
 
 static void setInsertionPointToFunctionStart(Operation *useOp,
@@ -2439,7 +2377,6 @@ public:
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
     TTKernelToEmitCConversionState state;
-    cacheKernelNocIndices(moduleOp, state);
     ConversionPlan config(moduleOp.getContext(), state);
     bool failedConversion = false;
     moduleOp.walk([&](func::FuncOp funcOp) {
