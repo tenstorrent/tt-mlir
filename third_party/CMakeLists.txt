@@ -159,7 +159,7 @@ ExternalProject_Add(
   PREFIX ${TTMLIR_SOURCE_DIR}/third_party/tt-metal
   BINARY_DIR ${TTMETAL_BUILD_DIR}
   # This patch command creates the build dir that otherwise doesn't get created
-  PATCH_COMMAND ${CMAKE_COMMAND} -E make_directory ${TTMETAL_BUILD_DIR}
+   PATCH_COMMAND ${CMAKE_COMMAND} -E make_directory ${TTMETAL_BUILD_DIR} && git config user.email "tt-mlir@tenstorrent.com" && git config user.name "tenstorrent" && git apply --index "${CMAKE_CURRENT_LIST_DIR}/disable_tracy_wasm.patch" && git commit -m "tt-mlir related patch"
   CMAKE_ARGS
     -DCMAKE_INSTALL_MESSAGE=NEVER
   CMAKE_GENERATOR Ninja

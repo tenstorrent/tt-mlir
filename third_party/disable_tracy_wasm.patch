@@ -1,0 +1,26 @@
+diff --git a/tt_metal/third_party/CMakeLists.txt b/tt_metal/third_party/CMakeLists.txt
+index 9c2fec2fd2e..f34039219eb 100644
+--- a/tt_metal/third_party/CMakeLists.txt
++++ b/tt_metal/third_party/CMakeLists.txt
+@@ -199,12 +199,12 @@ endif()
+ # Keep output path aligned with Python tooling and CI packaging/tests.
+ # No EXCLUDE_FROM_ALL: Ninja's install target depends on all, so cmake --build --target install
+ # builds this automatically when Tracy is enabled.
+-ExternalProject_Add(
+-    tracy_profiler_wasm
+-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tracy/profiler
+-    BINARY_DIR ${CMAKE_BINARY_DIR}/profiler/build_wasm
+-    CMAKE_ARGS
+-        -DCMAKE_TOOLCHAIN_FILE=${EMSCRIPTEN_TOOLCHAIN_FILE} -DCMAKE_BUILD_TYPE=MinSizeRel
+-    INSTALL_COMMAND
+-        "" # Suppress default cmake --install: artifacts stay in BINARY_DIR for CI packaging to pick up.
+-)
++# ExternalProject_Add(
++#     tracy_profiler_wasm
++#     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/tracy/profiler
++#     BINARY_DIR ${CMAKE_BINARY_DIR}/profiler/build_wasm
++#     CMAKE_ARGS
++#         -DCMAKE_TOOLCHAIN_FILE=${EMSCRIPTEN_TOOLCHAIN_FILE} -DCMAKE_BUILD_TYPE=MinSizeRel
++#     INSTALL_COMMAND
++#         "" # Suppress default cmake --install: artifacts stay in BINARY_DIR for CI packaging to pick up.
++# )
