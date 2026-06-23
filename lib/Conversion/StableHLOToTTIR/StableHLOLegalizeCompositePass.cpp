@@ -331,9 +331,277 @@ static LogicalResult convertToTTIRRMSNorm(mlir::Operation *srcOp,
   return success();
 }
 
-// Converts stablehlo.composite @tenstorrent.rms_norm -> ttir.rms_norm.
-// Used in the non-sharded path where composites are not converted to
-// custom_calls.
+// Special handling for tenstorrent.moe_gpt_decode -> ttir.moe_gpt_decode.
+//
+// The composite carries 11 operands (5 routing/activation tensors, 4 unfused
+// gate_up/down expert weights, and the 2 mandatory fused 6D kernel weights).
+// ttir.moe_gpt_decode is fused-only, so this dedicated pattern selects the 7
+// fused-only operands (dropping the unfused weights) and strips the legacy
+// `has_fused_weights` attribute the op does not declare.
+class TenstorrentMoeGPTDecodeConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+public:
+  TenstorrentMoeGPTDecodeConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != "tenstorrent.moe_gpt_decode") {
+      return failure();
+    }
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tenstorrent.moe_gpt_decode composite must have exactly one result.");
+    }
+
+    // The frontend composite carries 11 operands so the flatten -> shard ->
+    // re-outline path keeps a contiguous group (operands 0-4 routing/activation,
+    // 5-8 the unfused gate_up/down expert weights, 9-10 the fused 6D kernel
+    // weights). ttir.moe_gpt_decode is fused-only (7 operands), so we drop the
+    // 4 unfused weights here and let them DCE: the kernel computes on the fused
+    // weights and the decomposition derives the per-device expert count from
+    // fused_w0_w1 dim 2.
+    ValueRange operands = adaptor.getOperands();
+    size_t numOperands = operands.size();
+    if (numOperands != 11) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.moe_gpt_decode composite expects 11 operands "
+                 "(5 routing/activation + 4 unfused expert weights + "
+                 "fused_w0_w1 + fused_w2).");
+    }
+    SmallVector<Value> fusedOnlyOperands = {
+        operands[0], operands[1], operands[2], operands[3],
+        operands[4], operands[9], operands[10]};
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+
+    // Copy the composite attributes (num_devices, cluster_axis, num_experts,
+    // num_experts_per_tok, intermediate_size, alpha, limit) to the TTIR op.
+    // Drop the legacy `has_fused_weights` marker if present: the fused weights
+    // are now mandatory operands, so it carries no information and the op does
+    // not declare it.
+    SmallVector<NamedAttribute> namedAttrs;
+    if (auto compositeAttrs = srcOp.getCompositeAttributes()) {
+      for (const auto &attr : compositeAttrs) {
+        if (attr.getName() == "has_fused_weights") {
+          continue;
+        }
+        namedAttrs.push_back(attr);
+      }
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::MoeGPTDecodeOp>(
+        srcOp, outputType, fusedOnlyOperands, namedAttrs);
+    return success();
+  }
+};
+
+// Special handling for tenstorrent.topk_router_gpt -> ttir.topk_router_gpt.
+//
+// The frontend composite takes:
+//   - hidden_states: [..., H] bf16 (typically 3D [B, 1, H] in decode)
+//   - router_weight: [E, H] bf16
+//   - router_bias:   [E] bf16
+// and returns
+//   - topk_indices: [..., k] i64 (same leading dims as hidden_states)
+//   - topk_scores:  [..., k] bf16
+//
+// ttir::TopKRouterGptOp requires:
+//   - input: [B, H] bf16 (2D)
+//   - weight: [H, E] bf16 (2D)
+//   - bias: [B, E] bf16 (2D, pre-broadcast across batch)
+//   - expert_indices: [B, k] ui16
+//   - expert_weights: [B, k] bf16
+//
+// This pattern emits the shape/layout adapters (reshape/permute/broadcast/
+// typecast) required to bridge the two contracts.
+class TenstorrentTopKRouterGptConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+
+public:
+  TenstorrentTopKRouterGptConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != "tenstorrent.topk_router_gpt") {
+      return failure();
+    }
+
+    if (srcOp.getNumResults() != 2) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.topk_router_gpt composite must have exactly two "
+                 "results.");
+    }
+
+    ValueRange operands = adaptor.getOperands();
+    if (operands.size() != 3) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.topk_router_gpt composite expects exactly three "
+                 "operands: (hidden_states, router_weight, router_bias).");
+    }
+
+    Value hidden = operands[0];
+    Value weight = operands[1];
+    Value bias = operands[2];
+
+    auto hiddenType = mlir::cast<RankedTensorType>(hidden.getType());
+    auto weightType = mlir::cast<RankedTensorType>(weight.getType());
+    auto biasType = mlir::cast<RankedTensorType>(bias.getType());
+
+    if (hiddenType.getRank() < 2) {
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "hidden_states must have rank >= 2.");
+    }
+    if (weightType.getRank() != 2) {
+      return rewriter.notifyMatchFailure(srcOp, "router_weight must be 2D.");
+    }
+    if (biasType.getRank() != 1) {
+      return rewriter.notifyMatchFailure(srcOp, "router_bias must be 1D.");
+    }
+
+    ArrayRef<int64_t> hiddenShape = hiddenType.getShape();
+    int64_t H = hiddenShape.back();
+    int64_t B = 1;
+    for (size_t i = 0; i + 1 < hiddenShape.size(); ++i) {
+      if (hiddenShape[i] == ShapedType::kDynamic) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "hidden_states leading dims must be static.");
+      }
+      B *= hiddenShape[i];
+    }
+
+    // torch.nn.Linear stores weights as [out_features=E, in_features=H], so
+    // router_weight is expected to be [E, H].
+    if (weightType.getDimSize(1) != H) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "router_weight dim 1 must match hidden_dim.");
+    }
+    int64_t E = weightType.getDimSize(0);
+    if (biasType.getDimSize(0) != E) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "router_bias dim 0 must match num_experts.");
+    }
+
+    // Derive num_experts from composite attrs when available; fall back to
+    // inferred E from weight.
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+    int32_t kAttr = 0;
+    int32_t numExpertsAttr = static_cast<int32_t>(E);
+    if (compositeAttrs) {
+      if (auto attr = compositeAttrs.getAs<IntegerAttr>("k")) {
+        if (!llvm::isInt<32>(attr.getInt())) {
+          return rewriter.notifyMatchFailure(srcOp, "k is too large for i32.");
+        }
+        kAttr = static_cast<int32_t>(attr.getInt());
+      }
+      if (auto attr = compositeAttrs.getAs<IntegerAttr>("num_experts")) {
+        if (!llvm::isInt<32>(attr.getInt())) {
+          return rewriter.notifyMatchFailure(
+              srcOp, "num_experts is too large for i32.");
+        }
+        numExpertsAttr = static_cast<int32_t>(attr.getInt());
+      }
+    }
+    if (kAttr <= 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tenstorrent.topk_router_gpt must provide a positive k attribute.");
+    }
+
+    Location loc = srcOp.getLoc();
+    Type bf16 = rewriter.getBF16Type();
+
+    // 1. Flatten hidden_states to 2D [B, H].
+    auto flatHiddenType = RankedTensorType::get({B, H}, bf16);
+    Value flatHidden = hidden;
+    if (hiddenType.getRank() != 2 || hiddenType.getDimSize(0) != B) {
+      flatHidden = rewriter.create<ttir::ReshapeOp>(
+          loc, flatHiddenType, hidden,
+          rewriter.getI32ArrayAttr(
+              {static_cast<int32_t>(B), static_cast<int32_t>(H)}));
+    }
+
+    // 2. Transpose router_weight from [E, H] to [H, E].
+    auto transposedWeightType = RankedTensorType::get({H, E}, bf16);
+    Value transposedWeight =
+        rewriter.create<ttir::PermuteOp>(loc, transposedWeightType, weight,
+                                         rewriter.getDenseI64ArrayAttr({1, 0}));
+
+    // 3. Broadcast router_bias from [E] to [B, E]: reshape [E] -> [1, E], then
+    //    broadcast the leading dim.
+    auto biasReshapedType = RankedTensorType::get({1, E}, bf16);
+    Value biasReshaped = rewriter.create<ttir::ReshapeOp>(
+        loc, biasReshapedType, bias,
+        rewriter.getI32ArrayAttr({1, static_cast<int32_t>(E)}));
+    auto broadcastedBiasType = RankedTensorType::get({B, E}, bf16);
+    Value broadcastedBias = rewriter.create<ttir::BroadcastOp>(
+        loc, broadcastedBiasType, biasReshaped,
+        rewriter.getDenseI64ArrayAttr({B, 1}));
+
+    // 4. Create ttir.topk_router_gpt with 2D outputs. The kernel produces
+    //    ui16 indices; we bridge back to the composite's i64 contract via a
+    //    typecast.
+    Type ui16 = rewriter.getIntegerType(16, /*isSigned=*/false);
+    auto ttirIndicesType = RankedTensorType::get({B, kAttr}, ui16);
+    auto ttirWeightsType = RankedTensorType::get({B, kAttr}, bf16);
+
+    auto topkOp = rewriter.create<ttir::TopKRouterGptOp>(
+        loc, TypeRange{ttirIndicesType, ttirWeightsType}, flatHidden,
+        transposedWeight, broadcastedBias, rewriter.getI32IntegerAttr(kAttr),
+        rewriter.getI32IntegerAttr(numExpertsAttr));
+
+    auto compositeIndicesType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+    auto compositeScoresType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(1).getType());
+
+    // 5. Typecast indices to the composite's integer type (usually i64).
+    auto castIndicesType = RankedTensorType::get(
+        {B, kAttr}, compositeIndicesType.getElementType());
+    Value castedIndices = rewriter.create<ttir::TypecastOp>(
+        loc, castIndicesType, topkOp.getExpertIndices());
+
+    // 6. Reshape both outputs back to the composite's expected shapes
+    //    (typically [..., k] matching the hidden_states leading dims).
+    Value indicesResult = castedIndices;
+    if (compositeIndicesType.getRank() != 2 ||
+        compositeIndicesType.getShape() != castIndicesType.getShape()) {
+      SmallVector<int32_t> indicesShape;
+      for (int64_t d : compositeIndicesType.getShape()) {
+        indicesShape.push_back(static_cast<int32_t>(d));
+      }
+      indicesResult = rewriter.create<ttir::ReshapeOp>(
+          loc, compositeIndicesType, castedIndices,
+          rewriter.getI32ArrayAttr(indicesShape));
+    }
+
+    Value scoresResult = topkOp.getExpertWeights();
+    if (compositeScoresType.getRank() != 2 ||
+        compositeScoresType.getShape() != ttirWeightsType.getShape()) {
+      SmallVector<int32_t> scoresShape;
+      for (int64_t d : compositeScoresType.getShape()) {
+        scoresShape.push_back(static_cast<int32_t>(d));
+      }
+      scoresResult = rewriter.create<ttir::ReshapeOp>(
+          loc, compositeScoresType, topkOp.getExpertWeights(),
+          rewriter.getI32ArrayAttr(scoresShape));
+    }
+
+    rewriter.replaceOp(srcOp, {indicesResult, scoresResult});
+    return success();
+  }
+};
+
+// Special handling for tenstorrent.rms_norm -> ttir.rms_norm
+// Converts normalized_shape tensor attribute to DenseI64ArrayAttr
+// and sets operandSegmentSizes for AttrSizedOperandSegments
 class TenstorrentRMSNormConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
 
@@ -1086,6 +1354,8 @@ void populateStableHLOCompositeLegalizationPatterns(
       context, "tenstorrent.gelu");
   patterns.add<StableHLOToTTIRCompositeOpConversionPattern<ttir::GeluOp>>(
       context, "tenstorrent.gelu_tanh");
+  patterns.add<TenstorrentMoeGPTDecodeConversionPattern>(context);
+  patterns.add<TenstorrentTopKRouterGptConversionPattern>(context);
   patterns.add<TenstorrentRMSNormConversionPattern>(context);
   patterns.add<CustomCallRMSNormConversionPattern>(context);
   patterns.add<CustomCallDistributedRMSNormConversionPattern>(context);
