@@ -94,6 +94,56 @@ protected:
            "TTIR reduction lowering expects keep_dim=true");
   }
 
+  // Apply permutation mapping to affine map, physical shape, logical shape, and
+  // dimension alignments to get permuted versions.
+  struct PermutationResult {
+    AffineMap transposeMap;
+    SmallVector<int64_t> physicalShape;
+    SmallVector<int64_t> logicalShape;
+    SmallVector<int64_t> dimAlignments;
+  };
+
+  PermutationResult
+  computePermutation(mlir::ConversionPatternRewriter &rewriter,
+                     ArrayRef<int64_t> permutation,
+                     ArrayRef<int64_t> inputPhysicalShape, unsigned deviceRank,
+                     ArrayRef<int64_t> inputLogicalShape,
+                     ArrayRef<int64_t> inputDimAlignments) const {
+
+    unsigned logicalRank = deviceRank / 2;
+    assert(logicalRank == permutation.size());
+    assert(inputLogicalShape.size() == permutation.size());
+    assert(inputDimAlignments.size() == permutation.size());
+
+    SmallVector<AffineExpr> results(deviceRank);
+    SmallVector<int64_t> resultPhysicalShape(deviceRank);
+    SmallVector<int64_t> resultLogicalShape(logicalRank);
+    SmallVector<int64_t> resultDimAlignments(logicalRank);
+
+    for (auto [dstIdx, srcIdx] : llvm::enumerate(permutation)) {
+      // Permute grid mapping.
+      results[dstIdx] = rewriter.getAffineDimExpr(srcIdx);
+      // Permute shard mapping.
+      results[logicalRank + dstIdx] =
+          rewriter.getAffineDimExpr(logicalRank + srcIdx);
+
+      // Permute grid shape.
+      resultPhysicalShape[dstIdx] = inputPhysicalShape[srcIdx];
+      // Permute shard shape.
+      resultPhysicalShape[dstIdx + logicalRank] =
+          inputPhysicalShape[srcIdx + logicalRank];
+
+      // Permute logical shape and dimension alignments.
+      resultLogicalShape[dstIdx] = inputLogicalShape[srcIdx];
+      resultDimAlignments[dstIdx] = inputDimAlignments[srcIdx];
+    }
+
+    AffineMap transposeMap =
+        AffineMap::get(deviceRank, 0, results, rewriter.getContext());
+    return {transposeMap, resultPhysicalShape, resultLogicalShape,
+            resultDimAlignments};
+  }
+
   /// Normalize a possibly negative `dim_arg` entry into `[0, rank)`. `rank`
   /// must be non-zero (callers assert physical iterator rank >= 2 before
   /// lowering).
@@ -2874,55 +2924,6 @@ public:
   }
 
 private:
-  // Apply permutation mapping to affine map, physical shape, logical shape, and
-  // dimension alignments to get permuted versions.
-  struct PermutationResult {
-    AffineMap transposeMap;
-    SmallVector<int64_t> physicalShape;
-    SmallVector<int64_t> logicalShape;
-    SmallVector<int64_t> dimAlignments;
-  };
-
-  PermutationResult
-  computePermutation(mlir::ConversionPatternRewriter &rewriter,
-                     ArrayRef<int64_t> permutation,
-                     ArrayRef<int64_t> inputPhysicalShape, unsigned deviceRank,
-                     ArrayRef<int64_t> inputLogicalShape,
-                     ArrayRef<int64_t> inputDimAlignments) const {
-
-    unsigned logicalRank = deviceRank / 2;
-    assert(logicalRank == permutation.size());
-    assert(inputLogicalShape.size() == permutation.size());
-    assert(inputDimAlignments.size() == permutation.size());
-
-    SmallVector<AffineExpr> results(deviceRank);
-    SmallVector<int64_t> resultPhysicalShape(deviceRank);
-    SmallVector<int64_t> resultLogicalShape(logicalRank);
-    SmallVector<int64_t> resultDimAlignments(logicalRank);
-
-    for (auto [dstIdx, srcIdx] : llvm::enumerate(permutation)) {
-      // Permute grid mapping.
-      results[dstIdx] = rewriter.getAffineDimExpr(srcIdx);
-      // Permute shard mapping.
-      results[logicalRank + dstIdx] =
-          rewriter.getAffineDimExpr(logicalRank + srcIdx);
-
-      // Permute grid shape.
-      resultPhysicalShape[dstIdx] = inputPhysicalShape[srcIdx];
-      // Permute shard shape.
-      resultPhysicalShape[dstIdx + logicalRank] =
-          inputPhysicalShape[srcIdx + logicalRank];
-
-      // Permute logical shape and dimension alignments.
-      resultLogicalShape[dstIdx] = inputLogicalShape[srcIdx];
-      resultDimAlignments[dstIdx] = inputDimAlignments[srcIdx];
-    }
-
-    AffineMap transposeMap =
-        AffineMap::get(deviceRank, 0, results, rewriter.getContext());
-    return {transposeMap, resultPhysicalShape, resultLogicalShape,
-            resultDimAlignments};
-  }
 };
 } // namespace
 
@@ -4986,8 +4987,15 @@ private:
         ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel));
 
     auto eqOrigOutputs = createDpsOutputs(loc, rewriter, {inputType});
-    // get the only output of bcast
-    SmallVector<Value> eqInputs = {maxInputs[0], bcast1->getResult(0)};
+    // GridSelection requires each laid-out ToLayout result to feed exactly one
+    // GenericOp, so give eq1 its own layout of the input rather than reusing
+    // reduceMax1's maxInputs[0]. Mask padding with NegInf so padded lanes don't
+    // spuriously compare equal to the broadcast max.
+    auto [eqLaidOutInput, eqInputUnused] = toLayoutOperandsAndResults(
+        rewriter,
+        {SmallVector<Value>{adaptor.getInput()}, SmallVector<Value>{}}, true,
+        noCollapse, ttcore::OOBVal::NegInf);
+    SmallVector<Value> eqInputs = {eqLaidOutInput[0], bcast1->getResult(0)};
     auto [eqin, eqOutputs] = toLayoutOperandsAndResults(
         rewriter, {SmallVector<Value>{}, eqOrigOutputs}, true, noCollapse);
 
@@ -5036,7 +5044,8 @@ private:
                                   scratchLayout)
             .getResult();
 
-    // numElements depends on which case we're in
+    // numElements depends on which case we're in (full reduction not
+    // implemented yet)
     int64_t numElements;
     numElements =
         inputType.getDimSize(normalizeReductionDimIndex(dim, logicalRank));
@@ -5059,6 +5068,7 @@ private:
         rewriter.getAffineMapArrayAttr(arangeMaps),
         rewriter.getArrayAttr(arangeIters));
 
+    // arange fills in reflected indices
     withD2MGenericRegion(
         rewriter, loc, arange, arangeGenericInputs, arangeOutputs,
         [&](ArrayRef<Value> blockArgs) -> SmallVector<Value> {
@@ -5104,8 +5114,10 @@ private:
             rewriter, {SmallVector<Value>{}, postArangeBcastOrigOutputs}, true,
             noCollapse);
 
-    AffineMap postArangeBcastInputMap =
-        rewriter.getMultiDimIdentityMap(physicalRank);
+    mlir::MutableAffineMap postArangeInMap(
+        rewriter.getMultiDimIdentityMap(physicalRank));
+    postArangeInMap.setResult(physicalRank - 2, zero);
+    AffineMap postArangeBcastInputMap = postArangeInMap.getAffineMap();
     AffineMap postArangeBcastOutputMap =
         rewriter.getMultiDimIdentityMap(physicalRank);
     SmallVector<AffineMap> postArangeBcastMaps = {postArangeBcastInputMap,
@@ -5137,13 +5149,36 @@ private:
       // arange row-bcast gives [0..31] across every row; transpose to make it
       // [[0],[1],...,[31]] down every column so reduceMax2 over H picks the row
       // index.
+      // view layout grid transpose
+      auto idxTensorType = mlir::cast<RankedTensorType>(indexOperand.getType());
+      llvm::errs() << indexOperand.getType() << "\n";
+      auto idxLayout =
+          mlir::cast<ttcore::MetalLayoutAttr>(idxTensorType.getEncoding());
+      unsigned deviceRank = idxTensorType.getRank();
+      auto permuted = computePermutation(
+          rewriter, {1, 0}, idxTensorType.getShape(), deviceRank,
+          idxLayout.getLogicalShape(), idxLayout.getDimAlignments());
+      auto resultLayout = ttcore::MetalLayoutAttr::get(
+          ctx, permuted.logicalShape, idxLayout.getMemorySpace(),
+          idxLayout.getMemoryLayout(), idxLayout.getCollapsedIntervals(),
+          permuted.dimAlignments);
+      auto viewType = RankedTensorType::get(
+          permuted.physicalShape, idxTensorType.getElementType(), resultLayout);
+      auto view = rewriter.create<d2m::ViewLayoutOp>(
+          loc, viewType, indexOperand, permuted.transposeMap, false);
+      indexOperand = view.getResult();
+
+      // per-tile transpose
       AffineMap idMap = rewriter.getMultiDimIdentityMap(physicalRank);
       SmallVector<AffineMap> tposeMaps = {idMap, idMap};
       SmallVector<Attribute> tposeIters(
           physicalRank,
           ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel));
 
-      auto tposeOrigOutputs = createDpsOutputs(loc, rewriter, {inputType});
+      auto tposeOrigOutputs = createDpsOutputs(
+          loc, rewriter,
+          {RankedTensorType::get(permuted.logicalShape,
+                                 idxTensorType.getElementType())});
       auto [tposeIns, tposeOutputs] = toLayoutOperandsAndResults(
           rewriter, {SmallVector<Value>{}, tposeOrigOutputs}, true, noCollapse);
 
@@ -5186,7 +5221,14 @@ private:
         });
 
     // === setup for reduceMax2 ====
-    SmallVector<Value> max2Inputs = {mul->getResult(0), maxInputs[1]};
+    // Give reduceMax2 its own laid-out scaler rather than reusing reduceMax1's
+    // maxInputs[1]: GridSelection requires each ToLayout result to feed exactly
+    // one GenericOp, otherwise hits assertion and fails
+    auto scaler2 = createScaler(rewriter, loc, inputType);
+    auto [scaler2LaidOut, scaler2Unused] = toLayoutOperandsAndResults(
+        rewriter, {SmallVector<Value>{scaler2}, SmallVector<Value>{}}, true,
+        noCollapse);
+    SmallVector<Value> max2Inputs = {mul->getResult(0), scaler2LaidOut[0]};
     auto max2OrigOutputs = createDpsOutputs(loc, rewriter, {reducedType});
     auto [max2ins, max2Outputs] = toLayoutOperandsAndResults(
         rewriter, {SmallVector<Value>{}, max2OrigOutputs}, true, noCollapse);

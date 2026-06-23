@@ -14,7 +14,6 @@ from builder.base.builder_apis import compile_and_execute_ttir
 from conftest import get_request_kwargs
 
 pytestmark = pytest.mark.frontend("ttir")
-torch.manual_seed(17617319950514170034)
 
 
 def create_argmax_inputs(input_shape, dim_arg, keep_dim, dtype):
@@ -38,7 +37,7 @@ def create_argmax_inputs(input_shape, dim_arg, keep_dim, dtype):
 def test_argmax_2d_rowwise_bf16(
     target: str, dim_arg: list[int] | None, keep_dim: bool, request, device
 ):
-    shape = (32, 32)
+    shape = (64, 64)
 
     compile_and_execute_ttir(
         create_argmax_inputs(
