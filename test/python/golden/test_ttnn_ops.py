@@ -333,8 +333,7 @@ def test_sampling(
     """Builder test for ttnn.sampling: fused top-k/p multinomial sampling.
 
     Verifies that the op compiles and returns global token indices in the
-    valid range [0, vocab_size) for each of the 32 users, across the TTNN
-    flatbuffer, EmitC (C++), and EmitPy (Python) backends. The k_si32 variant
+    valid range [0, vocab_size) for each of the 32 users. The k_si32 variant
     additionally exercises the workaround that retypes a non-uint32 k tensor
     to uint32 before the kernel call.
     """

@@ -38,8 +38,7 @@ def test_sampling(
     """TTIR builder test for ttir.sampling: fused top-k/p multinomial sampling.
 
     Exercises the full TTIR -> TTNN lowering (ttir.sampling -> ttnn.sampling,
-    including the rank-2 -> rank-4 workaround) across the TTNN flatbuffer,
-    EmitC (C++), and EmitPy (Python) backends. The k_si32 variant additionally
+    including the rank-2 -> rank-4 workaround). The k_si32 variant additionally
     exercises the workaround that retypes a non-uint32 k tensor to uint32
     before the kernel call.
     """

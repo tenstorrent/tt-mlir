@@ -20318,7 +20318,6 @@ class TTIRBuilder(Builder):
         p: Operand,
         temp: Operand,
         seed: Optional[int] = None,
-        output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
@@ -20328,11 +20327,7 @@ class TTIRBuilder(Builder):
         if seed is not None:
             seed_attr = IntegerAttr.get(IntegerType.get_unsigned(32), seed)
 
-        # Sampling returns global token indices; the result is int32 by default.
-        if output_type is None:
-            mlir_output_type = self._get_type_from_torch_dtype(torch.int32)
-        else:
-            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+        mlir_output_type = self._get_type_from_torch_dtype(torch.int32)
 
         input_values0 = self._get_golden_tensor(input_values)
         input_indices0 = self._get_golden_tensor(input_indices)
@@ -20390,6 +20385,7 @@ class TTIRBuilder(Builder):
         temp = global_dict[old_op.temp]
         seed_attr = old_op.seed
         result = old_op.result.type
+        loc = old_op.location
 
         new_op = ttir_op(
             result,
@@ -20399,7 +20395,7 @@ class TTIRBuilder(Builder):
             p,
             temp,
             seed=seed_attr,
-            loc=old_op.location,
+            loc=loc,
         )
         new_op_result = new_op.result
 
@@ -20457,7 +20453,9 @@ class TTIRBuilder(Builder):
                     k = inputs[2]
                     p = inputs[3]
                     temp = inputs[4]
+                    seed_attr = old_op.seed
                     result = old_op.result.type
+                    loc = old_op.location
 
                     new_op = ttir_op(
                         result,
@@ -20466,8 +20464,8 @@ class TTIRBuilder(Builder):
                         k,
                         p,
                         temp,
-                        seed=old_op.seed,
-                        loc=old_op.location,
+                        seed=seed_attr,
+                        loc=loc,
                     )
                     new_op_result = new_op.result
 
@@ -20476,7 +20474,6 @@ class TTIRBuilder(Builder):
                     k0 = self._get_golden_tensor(old_op.k)
                     p0 = self._get_golden_tensor(old_op.p)
                     temp0 = self._get_golden_tensor(old_op.temp)
-
                     op_golden_function = get_golden_function(ttir_op)
                     golden_output = op_golden_function(
                         input_values0,
@@ -20484,7 +20481,7 @@ class TTIRBuilder(Builder):
                         k0,
                         p0,
                         temp0,
-                        old_op.seed,
+                        seed_attr,
                         result.element_type,
                     )
                     sampling_builder._set_golden_tensor(new_op_result, golden_output)
@@ -20498,9 +20495,7 @@ class TTIRBuilder(Builder):
                     sampling_builder._annotate_presharded_arg(k)
                     sampling_builder._annotate_presharded_arg(p)
                     sampling_builder._annotate_presharded_arg(temp)
-                    ordered_inputs.extend(
-                        [input_values, input_indices, k, p, temp]
-                    )
+                    ordered_inputs.extend([input_values, input_indices, k, p, temp])
                     ordered_outputs.append(new_op_result)
 
                     return new_op
