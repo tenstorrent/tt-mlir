@@ -1971,6 +1971,19 @@ llvm::Expected<OpConstraints> OpModel<SliceStaticOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> begins, llvm::ArrayRef<int64_t> ends,
     llvm::ArrayRef<int64_t> step, TTNNLayoutAttr outputLayout) {
+  // Force RowMajor for non-tile-aligned slices. tt-metal's slice kernel
+  // requires tile-aligned begin and output shape on dim[-2].
+  if ((inputLayout.getLayout() == Layout::Tile ||
+       outputLayout.getLayout() == Layout::Tile) && inputShape.size() >= 2) {
+    int64_t hDim = inputShape.size() - 2;
+    int64_t beginH = begins[hDim];
+    int64_t sliceH = ends[hDim] - begins[hDim];
+    if (beginH % 32 != 0 || sliceH % 32 != 0) {
+      // Return empty constraints - optimizer will treat TILE as invalid
+      // and fall back to another layout.
+      return OpConstraints{};
+    }
+  }
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
