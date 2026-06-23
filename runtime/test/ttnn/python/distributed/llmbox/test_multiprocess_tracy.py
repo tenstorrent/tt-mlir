@@ -33,18 +33,30 @@ TRACY_TOOL_NAMES = ("capture-release", "csvexport-release")
 
 
 def _resolve_tracy_tools_dir():
-    """Find the dir holding the tracy capture binaries."""
+    """Find the dir containing the tracy capture binaries (capture-release,
+    csvexport-release).
+    """
     candidates = []
+
+    def add(path):
+        if path and path not in candidates:
+            candidates.append(path)
+
+    add(os.path.join(os.environ.get("TT_METAL_HOME", ""), "build/tools/profiler/bin"))
+
+    for var in ("TT_METAL_RUNTIME_ROOT", "TT_METAL_RUNTIME_ROOT_EXTERNAL"):
+        root = os.environ.get(var)
+        if root:
+            add(root)
+            add(os.path.join(root, "build/tools/profiler/bin"))
+
+    for base in list(getattr(ttrt, "__path__", [])):
+        add(os.path.join(base, "runtime"))
+
     install_dir = os.environ.get("INSTALL_DIR")
     if install_dir:
-        candidates.append(os.path.join(install_dir, "bin"))
-    candidates.append(os.path.join(TT_MLIR_HOME, "install", "bin"))
-    candidates.append(os.path.join(os.path.dirname(ttrt.__file__), "runtime"))
-    candidates.append(
-        os.path.join(
-            TT_METAL_RUNTIME_ROOT_EXTERNAL, "build", "tools", "profiler", "bin"
-        )
-    )
+        add(os.path.join(install_dir, "bin"))
+    add(os.path.join(TT_MLIR_HOME, "install", "bin"))
 
     for candidate in candidates:
         if all(os.path.exists(os.path.join(candidate, t)) for t in TRACY_TOOL_NAMES):
@@ -53,7 +65,7 @@ def _resolve_tracy_tools_dir():
     raise AssertionError(
         "Tracy tools (%s) not found. Searched:\n%s\n"
         "Build tt-mlir with -DTT_RUNTIME_ENABLE_PERF_TRACE=ON."
-        % (", ".join(TRACY_TOOL_NAMES), "\n".join(candidates))
+        % (", ".join(TRACY_TOOL_NAMES), "\n".join("  " + c for c in candidates))
     )
 
 
