@@ -96,7 +96,9 @@ Value buildPreparedWeight(PatternRewriter &rewriter, Operation *anchor,
   Value hostTiled =
       rewriter.create<ToLayoutOp>(loc, hostTiledType, hostWeight, Layout::Tile);
 
-  // Step 3: typecast to bfp4 on host.
+  // Step 3: typecast to bfp4 on host. bfp4 (4-bit) quantization is the dominant
+  // decode-PCC deficit vs the bf16 reference; bfp8 is more accurate but
+  // currently overflows the moe_gpt reader's 8KB NOC packet, so keep bfp4.
   auto hostBfp4Type = utils::RankedTensorTypeFactory::create(
       hostTiledType, ttcore::DataType::BFP_BFloat4);
   Value hostBfp4 = rewriter.create<TypecastOp>(loc, hostBfp4Type, hostTiled);

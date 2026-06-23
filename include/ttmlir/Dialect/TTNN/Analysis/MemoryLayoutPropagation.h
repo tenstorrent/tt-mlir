@@ -111,6 +111,12 @@ private:
   /// Create a DRAM interleaved fallback layout for an op.
   TTNNLayoutAttr getDRAMInterleavedFallback(Operation *op);
 
+  /// Read the current output layouts of an op's tensor results. Intended as a
+  /// no-op fallback for ops without OpModel support (custom MoE ops): we leave
+  /// whatever TTNNWorkaroundsPass / earlier passes set for each result, rather
+  /// than forcing DRAM interleaved and breaking kernel-required layouts.
+  llvm::SmallVector<TTNNLayoutAttr> getCurrentLayoutsPerResult(Operation *op);
+
   /// Apply all resolved configs to IR.
   void applyToIR();
 

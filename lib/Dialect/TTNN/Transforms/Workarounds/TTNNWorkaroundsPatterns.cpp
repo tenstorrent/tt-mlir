@@ -781,5 +781,28 @@ const std::set<mlir::StringRef>
         // layout and data type workarounds.
         ttnn::PrepareMoEComputeW0W1WeightsOp::getOperationName(),
         ttnn::PrepareMoEComputeW2WeightsOp::getOperationName(),
-        ttnn::MoeComputeOp::getOperationName()};
+        ttnn::MoeComputeOp::getOperationName(),
+        // Experimental MoE CCL ops require explicit operand workarounds
+        // (RowMajor/UInt16 inputs, HeightSharded L1 outputs) to satisfy the
+        // tt-metal kernel layout requirements. Without workarounds, the
+        // optimizer may assign DRAM INTERLEAVED TILE layouts that trip the
+        // runtime sharded-tilize assert (tt-metal#30541).
+        ttnn::AllToAllDispatchMetadataOp::getOperationName(),
+        ttnn::MoeGptOp::getOperationName(),
+        ttnn::SelectiveReduceCombineOp::getOperationName(),
+        // Expert-parallel (prefill) MoE CCL ops have the same row-major /
+        // uint16 operand requirements as their decode counterparts. Without
+        // these in the optimizer allowlist, opt_level>=1 leaves their inputs
+        // TILE-laid-out and the tt-metal kernels assert "Input tensor must be
+        // in row major layout" (all_to_all_dispatch) at runtime.
+        ttnn::AllToAllDispatchOp::getOperationName(),
+        ttnn::AllToAllCombineOp::getOperationName(),
+        ttnn::SparseMatmulOp::getOperationName(),
+        ttnn::MoeExpertTokenRemapOp::getOperationName(),
+        // MeshPartition (SPMD reshard/scatter) must run on ROW_MAJOR operands
+        // (tt-metal#37676). At opt_level>=1 the optimizer otherwise leaves a
+        // TILE layout, so a model-sharded expert reshard slices a tilized dim
+        // to a non-32-multiple (128 experts -> 16/device) and asserts
+        // "Can only slice tilized tensor with ..." in the MoE dense prefill.
+        ttnn::MeshPartitionOp::getOperationName()};
 } // namespace mlir::tt::ttnn

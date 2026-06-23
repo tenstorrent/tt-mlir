@@ -1704,6 +1704,14 @@ def TTNN_SelectiveReduceCombineOp : TTNN_Op<"selective_reduce_combine", [OpModel
 
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createSelectiveReduceCombineOpOperandsWorkarounds(
+                getOperation());
+      }
+    }];
+
     let hasVerifier = 1;
 }
 
@@ -1730,7 +1738,7 @@ def TTNN_MoeExpertTokenRemapOp : TTNN_Op<"moe_expert_token_remap", [OpModelExemp
     let hasVerifier = 1;
 }
 
-def TTNN_MoeGptOp : TTNN_Op<"moe_gpt"> {
+def TTNN_MoeGptOp : TTNN_Op<"moe_gpt", [OpModelExempt]> {
     let summary = "Fused MoE compute kernel for GPT-OSS models.";
     let description = [{
       Fused Mixture-of-Experts compute kernel for GPT-OSS-style models. Runs

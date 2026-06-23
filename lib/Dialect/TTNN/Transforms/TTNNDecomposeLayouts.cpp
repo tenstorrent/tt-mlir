@@ -158,13 +158,14 @@ private:
   }
 
   bool canUntilizeDataTypeOnDevice(const ttcore::DataType &dataType) const {
-    // tt-metal untilize supports: bfloat16, float32, uint32, int32, uint16.
+    // tt-metal untilize supports: bfloat16, float32, uint32, int32.
     // (requires use_pack_untilize for uint32/int32)
     // See: ttnn/operations/data_movement/untilize/device/untilize_op.cpp
+    // UInt16 excluded: device untilize of uint16 corrupts the moe_gpt routing
+    // index tensors, so route uint16 untilize through host instead.
     return dataType == ttcore::DataType::BFloat16 ||
            dataType == ttcore::DataType::Float32 ||
            dataType == ttcore::DataType::UInt32 ||
-           dataType == ttcore::DataType::UInt16 ||
            dataType == ttcore::DataType::Int32;
   }
 
@@ -429,7 +430,10 @@ private:
     // Cast to uint32 first, perform the memory config change, then cast back.
     // Metal issue reference:
     // https://github.com/tenstorrent/tt-metal/issues/41689
-    bool needsWorkaround = dataType == ttcore::DataType::UInt16;
+    // Disabled: the ui16->ui32->ui16 round-trip corrupts the const-eval'd
+    // moe_gpt routing index; uint16 layout ops are handled on host instead.
+    bool needsWorkaround = false;
+
     if (needsWorkaround) {
       ttcore::DataType workaroundDtype = ttcore::DataType::UInt32;
       RankedTensorType workaroundType = utils::RankedTensorTypeFactory::create(
@@ -1263,6 +1267,21 @@ private:
                                                 IRRewriter &rewriter) const {
     auto [input, output] = getInputOutputLayouts(op);
     OpsToCreate opsToCreate = determineRequiredOps(input, output);
+    // A ToLayoutOp that requires no actual layout ops is a genuine no-op. This
+    // arises when an operand workaround forces a layout the producer already
+    // provides (e.g. MeshPartition's ROW_MAJOR operands fed by an already
+    // row-major reduce). determineRequiredOps has established the input and
+    // output layouts are equivalent, so fold the op away — rewire its consumers
+    // to the producer — instead of failing the pass. If the result type differs
+    // only nominally from the input (same layout per determineRequiredOps),
+    // first relax the result type to the input's so the rewire verifies.
+    if (not opsToCreate.createSomeOp()) {
+      if (op.getResult().getType() != op.getInput().getType()) {
+        op.getResult().setType(op.getInput().getType());
+      }
+      rewriter.replaceAllUsesWith(op.getResult(), op.getInput());
+      return success();
+    }
     if (not isCreationValid(op, input, output, opsToCreate)) {
       return failure();
     }
