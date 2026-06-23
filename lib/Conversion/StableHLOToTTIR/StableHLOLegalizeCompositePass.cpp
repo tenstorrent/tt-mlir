@@ -217,6 +217,356 @@ private:
   };
 };
 
+// Converts stablehlo.composite @tenstorrent.argmax -> ttir.argmax.
+// Used in the non-sharded path where composites are not converted to
+// custom_calls.
+class TenstorrentArgMaxConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+public:
+  TenstorrentArgMaxConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != kTTArgMaxCustomCallTargetName) {
+      return failure();
+    }
+    if (adaptor.getOperands().size() != 1 || srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.argmax must have 1 operand and 1 result");
+    }
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+    int32_t dim = -1;
+    bool keepdim = false;
+    if (compositeAttrs) {
+      if (auto attr = compositeAttrs.getAs<IntegerAttr>("dim")) {
+        dim = static_cast<int32_t>(attr.getInt());
+      }
+      if (auto attr = compositeAttrs.getAs<BoolAttr>("keepdim")) {
+        keepdim = attr.getValue();
+      }
+    }
+
+    auto dimArg = rewriter.getI32ArrayAttr({dim});
+    rewriter.replaceOpWithNewOp<ttir::ArgMaxOp>(
+        srcOp, outputType, adaptor.getOperands()[0], keepdim, dimArg);
+    return success();
+  }
+};
+
+// Lowers tenstorrent.argmax custom_call ops that were converted from composites
+// by FlattenOrConvertCompositesPass (kCompositesWithCustomSharding path).
+//
+// Two execution paths:
+//   Single-device (not inside sdy.manual_computation, or reduction dim
+//   replicated):
+//     → plain ttir.argmax.
+//
+//   Distributed (inside sdy.manual_computation with reduction dim sharded):
+//     Each chip holds a local shard of the reduction dim. Uses O(n) max
+//     reduction + argmax instead of O(n log²n) bitonic sort from topk.
+//     The distributed sequence is:
+//       1. ttir.max (local)       → [batch, 1] local max values
+//       2. ttir.argmax (local)    → [batch, 1] local indices
+//       3. ttir.all_gather        → [batch, N] values + indices
+//       4. add compile-time shard offset → [batch, N] global indices
+//       5. ttir.argmax (merge)    → [batch, 1] which shard won
+//       6. ttir.gather            → [batch, 1] aligned global index
+class CustomCallArgMaxConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+public:
+  CustomCallArgMaxConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CustomCallOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getCallTargetName() != kTTArgMaxCustomCallTargetName ||
+        !srcOp->hasAttr(kHasCustomShardingAttr)) {
+      return failure();
+    }
+    if (adaptor.getOperands().size() != 1 || srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "argmax custom_call must have 1 operand and 1 result");
+    }
+
+    auto compositeAttrs = mlir::dyn_cast_or_null<DictionaryAttr>(
+        srcOp->getDiscardableAttr(kCustomCallCompositeAttrsKey));
+    if (!compositeAttrs) {
+      return rewriter.notifyMatchFailure(srcOp, "missing composite attributes");
+    }
+
+    int32_t dim = -1;
+    bool keepdim = false;
+    if (auto attr = compositeAttrs.getAs<IntegerAttr>("dim")) {
+      dim = static_cast<int32_t>(attr.getInt());
+    }
+    if (auto attr = compositeAttrs.getAs<BoolAttr>("keepdim")) {
+      keepdim = attr.getValue();
+    }
+
+    Value input = adaptor.getOperands()[0];
+    auto inputType = mlir::cast<RankedTensorType>(input.getType());
+    int64_t rank = inputType.getRank();
+    int64_t batch = inputType.getShape()[0];
+    mlir::Type elemType = inputType.getElementType();
+
+    int64_t reductionDim = (dim >= 0) ? dim : rank + dim;
+    int64_t numItemsLocal = inputType.getShape()[reductionDim];
+
+    auto resultType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+    auto loc = srcOp.getLoc();
+
+    // Distributed iff inside sdy.manual_computation with the reduction dim
+    // sharded. Same walk-back logic as CustomCallTopKConversionPattern.
+    int64_t numShards = 0;
+    uint32_t clusterAxis = 0;
+
+    if (srcOp->getParentOfType<mlir::sdy::ManualComputationOp>()) {
+      auto moduleOp = srcOp->getParentOfType<mlir::ModuleOp>();
+      auto meshOps = shardy_utils::getMeshOps(moduleOp);
+      if (!meshOps.empty()) {
+        Value shardingSource = srcOp.getOperand(0);
+        int64_t trackedDim = reductionDim;
+        auto findReshapeMappedDim =
+            [](llvm::ArrayRef<int64_t> outShape,
+               llvm::ArrayRef<int64_t> inShape,
+               int64_t outDim) -> std::optional<int64_t> {
+          if (outDim < 0 || outDim >= static_cast<int64_t>(outShape.size())) {
+            return std::nullopt;
+          }
+          if (outShape[outDim] == 1) {
+            return std::nullopt;
+          }
+          int64_t nonUnitPos = 0;
+          for (int64_t i = 0; i < outDim; ++i) {
+            if (outShape[i] != 1) {
+              nonUnitPos++;
+            }
+          }
+          int64_t count = 0;
+          for (int64_t i = 0; i < static_cast<int64_t>(inShape.size()); ++i) {
+            if (inShape[i] == 1) {
+              continue;
+            }
+            if (count == nonUnitPos) {
+              return inShape[i] == outShape[outDim] ? std::optional<int64_t>(i)
+                                                    : std::nullopt;
+            }
+            count++;
+          }
+          return std::nullopt;
+        };
+        bool walkOk = true;
+        while (walkOk) {
+          mlir::Operation *def = shardingSource.getDefiningOp();
+          if (!def) {
+            break;
+          }
+          if (auto reshape = llvm::dyn_cast<mlir::stablehlo::ReshapeOp>(def)) {
+            auto outShape =
+                mlir::cast<mlir::RankedTensorType>(reshape.getType())
+                    .getShape();
+            auto inShape = mlir::cast<mlir::RankedTensorType>(
+                               reshape.getOperand().getType())
+                               .getShape();
+            auto mapped = findReshapeMappedDim(outShape, inShape, trackedDim);
+            if (!mapped) {
+              walkOk = false;
+              break;
+            }
+            trackedDim = *mapped;
+            shardingSource = reshape.getOperand();
+            continue;
+          }
+          if (auto transpose =
+                  llvm::dyn_cast<mlir::stablehlo::TransposeOp>(def)) {
+            auto perm = transpose.getPermutation();
+            if (trackedDim < 0 ||
+                trackedDim >= static_cast<int64_t>(perm.size())) {
+              walkOk = false;
+              break;
+            }
+            trackedDim = perm[trackedDim];
+            shardingSource = transpose.getOperand();
+            continue;
+          }
+          if (auto sel = llvm::dyn_cast<mlir::stablehlo::SelectOp>(def)) {
+            shardingSource = sel.getOnTrue();
+            continue;
+          }
+          if (auto dot = llvm::dyn_cast<mlir::stablehlo::DotGeneralOp>(def)) {
+            auto dnums = dot.getDotDimensionNumbers();
+            auto batchLhs = dnums.getLhsBatchingDimensions();
+            auto batchRhs = dnums.getRhsBatchingDimensions();
+            auto contractLhs = dnums.getLhsContractingDimensions();
+            auto contractRhs = dnums.getRhsContractingDimensions();
+            auto lhsShape =
+                mlir::cast<mlir::RankedTensorType>(dot.getLhs().getType())
+                    .getShape();
+            auto rhsShape =
+                mlir::cast<mlir::RankedTensorType>(dot.getRhs().getType())
+                    .getShape();
+            int64_t numBatch = batchLhs.size();
+            if (trackedDim < numBatch) {
+              trackedDim = batchLhs[trackedDim];
+              shardingSource = dot.getLhs();
+              continue;
+            }
+            int64_t pos = trackedDim - numBatch;
+            llvm::SmallVector<int64_t> lhsOther;
+            for (int64_t i = 0; i < static_cast<int64_t>(lhsShape.size());
+                 ++i) {
+              if (!llvm::is_contained(batchLhs, i) &&
+                  !llvm::is_contained(contractLhs, i)) {
+                lhsOther.push_back(i);
+              }
+            }
+            if (pos < static_cast<int64_t>(lhsOther.size())) {
+              trackedDim = lhsOther[pos];
+              shardingSource = dot.getLhs();
+              continue;
+            }
+            llvm::SmallVector<int64_t> rhsOther;
+            for (int64_t i = 0; i < static_cast<int64_t>(rhsShape.size());
+                 ++i) {
+              if (!llvm::is_contained(batchRhs, i) &&
+                  !llvm::is_contained(contractRhs, i)) {
+                rhsOther.push_back(i);
+              }
+            }
+            int64_t rhsPos = pos - lhsOther.size();
+            if (rhsPos < static_cast<int64_t>(rhsOther.size())) {
+              trackedDim = rhsOther[rhsPos];
+              shardingSource = dot.getRhs();
+              continue;
+            }
+            walkOk = false;
+            break;
+          }
+          break;
+        }
+        if (walkOk && shardingSource.use_empty()) {
+          walkOk = false;
+        }
+        auto sharding = walkOk ? shardy_utils::getOperandShardingAttr(
+                                     *shardingSource.use_begin(), meshOps[0])
+                               : shardy_utils::getOperandShardingAttr(
+                                     srcOp->getOpOperand(0), meshOps[0]);
+        int64_t queryDim = walkOk ? trackedDim : reductionDim;
+        auto dimShardings = sharding.getDimShardings();
+        if (queryDim < static_cast<int64_t>(dimShardings.size()) &&
+            !dimShardings[queryDim].getAxes().empty()) {
+          llvm::StringRef axisName =
+              dimShardings[queryDim].getAxes()[0].getName();
+          for (auto [idx, axis] :
+               llvm::enumerate(meshOps[0].getMeshAttr().getAxes())) {
+            if (axis.getName() == axisName) {
+              numShards = axis.getSize();
+              clusterAxis = static_cast<uint32_t>(idx);
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    bool isDistributed = numShards > 1;
+
+    if (!isDistributed) {
+      auto dimArg = rewriter.getI32ArrayAttr(
+          {static_cast<int32_t>(reductionDim)});
+      rewriter.replaceOpWithNewOp<ttir::ArgMaxOp>(srcOp, resultType, input,
+                                                  keepdim, dimArg);
+      return success();
+    }
+
+    // Distributed argmax: local max/argmax → all_gather → shard offset →
+    // merge argmax → gather.
+    auto dimArgAttr = rewriter.getI32ArrayAttr(
+        {static_cast<int32_t>(reductionDim)});
+    auto dimI32 =
+        rewriter.getI32IntegerAttr(static_cast<int32_t>(reductionDim));
+
+    // 1. Local max + argmax (O(n) scan — no bitonic sort).
+    auto localMaxType = RankedTensorType::get({batch, 1}, elemType);
+    auto localIdxType =
+        RankedTensorType::get({batch, 1}, rewriter.getI32Type());
+    Value localMax = rewriter.create<ttir::MaxOp>(loc, localMaxType, input,
+                                                  true /*keep_dim*/, dimArgAttr);
+    Value localIdx = rewriter.create<ttir::ArgMaxOp>(
+        loc, localIdxType, input, true /*keep_dim*/, dimArgAttr);
+
+    // 2. All_gather: [batch, 1] → [batch, numShards].
+    auto gatheredMaxType =
+        RankedTensorType::get({batch, numShards}, elemType);
+    auto gatheredIdxType =
+        RankedTensorType::get({batch, numShards}, rewriter.getI32Type());
+    Value gatheredMax = rewriter.create<ttir::AllGatherOp>(
+        loc, gatheredMaxType, localMax,
+        static_cast<int32_t>(reductionDim), clusterAxis);
+    Value gatheredIdx = rewriter.create<ttir::AllGatherOp>(
+        loc, gatheredIdxType, localIdx,
+        static_cast<int32_t>(reductionDim), clusterAxis);
+
+    // 3. Add shard offsets to make indices global.
+    SmallVector<int32_t> offsetValues;
+    offsetValues.reserve(batch * numShards);
+    for (int64_t b = 0; b < batch; ++b) {
+      for (int64_t shard = 0; shard < numShards; ++shard) {
+        offsetValues.push_back(
+            static_cast<int32_t>(shard * numItemsLocal));
+      }
+    }
+    auto offsetAttr = DenseElementsAttr::get(gatheredIdxType,
+                                             llvm::ArrayRef<int32_t>(offsetValues));
+    Value offsetConst =
+        rewriter.create<ttir::ConstantOp>(loc, gatheredIdxType, offsetAttr);
+    Value globalIdx = rewriter.create<ttir::AddOp>(loc, gatheredIdxType,
+                                                   gatheredIdx, offsetConst);
+
+    // 4. Merge: argmax on gathered values to find which shard won.
+    auto mergeIdxType =
+        RankedTensorType::get({batch, 1}, rewriter.getI32Type());
+    Value mergeIdx = rewriter.create<ttir::ArgMaxOp>(
+        loc, mergeIdxType, gatheredMax, true /*keep_dim*/, dimArgAttr);
+
+    // 5. Gather the global index of the winning shard.
+    auto ui32Type =
+        RankedTensorType::get({batch, 1}, rewriter.getIntegerType(32, false));
+    Value mergeIdxU32 =
+        rewriter.create<ttir::TypecastOp>(loc, ui32Type, mergeIdx);
+    auto finalIdxType =
+        RankedTensorType::get({batch, 1}, rewriter.getI32Type());
+    Value result = rewriter.create<ttir::GatherOp>(loc, finalIdxType, globalIdx,
+                                                   mergeIdxU32, dimI32);
+
+    // 6. Handle keepdim and type casting.
+    if (!keepdim) {
+      auto reshapedType =
+          RankedTensorType::get({batch}, rewriter.getI32Type());
+      result = rewriter.create<ttir::ReshapeOp>(
+          loc, reshapedType, result,
+          rewriter.getI32ArrayAttr({static_cast<int32_t>(batch)}));
+    }
+
+    if (resultType.getElementType() != rewriter.getI32Type()) {
+      result = rewriter.create<ttir::TypecastOp>(loc, resultType, result);
+    }
+
+    rewriter.replaceOp(srcOp, {result});
+    return success();
+  }
+};
+
 // Lowers tenstorrent.topk* custom_call ops that were converted from composites
 // by FlattenOrConvertCompositesPass (kCompositesWithCustomSharding path).
 //
@@ -1513,6 +1863,8 @@ void populateStableHLOCompositeLegalizationPatterns(
   patterns.add<TenstorrentUniformToRandConversionPattern>(context);
   patterns.add<TenstorrentTopKConversionPattern>(context);
   patterns.add<CustomCallTopKConversionPattern>(context);
+  patterns.add<TenstorrentArgMaxConversionPattern>(context);
+  patterns.add<CustomCallArgMaxConversionPattern>(context);
   patterns.add<TenstorrentScaledDotProductAttentionConversionPattern>(context);
   patterns.add<CustomCallScaledDotProductAttentionConversionPattern>(context);
   patterns.add<TenstorrentGatherConversionPattern>(context);
