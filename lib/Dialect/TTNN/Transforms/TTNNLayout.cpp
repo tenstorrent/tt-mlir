@@ -491,6 +491,27 @@ public:
           compositeOp->setOperand(idx, *rowMajorLayout);
           modified = true;
         }
+        // The ttcore.composite verifier requires each input type to match the
+        // decomposition function's parameter type. The generic sync below
+        // pushes operand -> param, but here the operand's ROW_MAJOR layout is a
+        // hard kernel-ABI constraint, so sync the other way: force the
+        // decomposition parameter (and block argument) to the row-major operand
+        // type. Safe for the lean decomposition, whose body never consumes
+        // page_table / chunk_start_idx. Each composite has its own uniquely
+        // named decomposition function, so this cannot collide.
+        Type rowMajorType = compositeOp->getOperand(idx).getType();
+        if (funcOp.getArgumentTypes()[idx] != rowMajorType) {
+          SmallVector<Type> argTypes(funcOp.getArgumentTypes());
+          argTypes[idx] = rowMajorType;
+          rewriter.modifyOpInPlace(funcOp, [&] {
+            funcOp.setFunctionType(
+                rewriter.getFunctionType(argTypes, funcOp.getResultTypes()));
+            if (!funcOp.getBody().empty()) {
+              funcOp.getArgument(idx).setType(rowMajorType);
+            }
+          });
+          modified = true;
+        }
         continue;
       }
 
