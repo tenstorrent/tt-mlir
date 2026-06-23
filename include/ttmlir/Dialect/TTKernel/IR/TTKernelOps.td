@@ -3454,7 +3454,7 @@ def TTKernel_TransposeTileOp : TTKernel_Op<"transpose_wh_tile"> {
 // TTKernel NOC operations
 //===----------------------------------------------------------------------===//
 
-def TTKernel_GetNocAddrOp : TTKernel_Op<"get_noc_addr"> {
+def TTKernel_GetNocAddrOp : TTKernel_Op<"get_noc_addr", [Pure]> {
     let summary = "GetNocAddr";
     let description = [{
       GetNocAddr api including core coordinates.
@@ -3474,7 +3474,7 @@ def TTKernel_GetNocAddrOp : TTKernel_Op<"get_noc_addr"> {
     ];
 }
 
-def TTKernel_GetNocAddrFromBankIDOp: TTKernel_Op<"get_noc_addr_from_bank_id"> {
+def TTKernel_GetNocAddrFromBankIDOp: TTKernel_Op<"get_noc_addr_from_bank_id", [Pure]> {
     let summary = "GetNocAddrFromBankID";
     let description = [{
       GetNocAddrFromBankID api

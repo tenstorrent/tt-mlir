@@ -161,6 +161,11 @@ size_t CoalescingFactorCache::get(AffineMap memoryMap,
                                   ArrayRef<int64_t> shardShape,
                                   size_t elemSizeBytes,
                                   bool debugCoalescingInference) {
+  if (debugCoalescingInference) {
+    return calculateCoalescingFactor(memoryMap, gridShape, shardShape,
+                                     elemSizeBytes, debugCoalescingInference);
+  }
+
   CoalescingCacheKey key;
   key.map = memoryMap.getAsOpaquePointer();
   key.shape.append(gridShape.begin(), gridShape.end());
@@ -170,9 +175,9 @@ size_t CoalescingFactorCache::get(AffineMap memoryMap,
 
   auto [it, inserted] = cache.try_emplace(std::move(key));
   if (inserted) {
-    it->second = calculateCoalescingFactorWithFallback(
-        memoryMap, gridShape, shardShape, elemSizeBytes,
-        debugCoalescingInference);
+    it->second =
+        calculateCoalescingFactor(memoryMap, gridShape, shardShape,
+                                  elemSizeBytes, debugCoalescingInference);
   }
   return it->second;
 }
@@ -202,6 +207,18 @@ static Value generateDMAWithCoalescing(OpBuilder &builder, Location loc,
   auto [lbs, ubs, steps] = utils::getLoopBounds(builder, loc, iterShape);
   auto nullDmaTx = builder.create<NullTxOp>(loc, txType);
 
+  if (coalescingFactor == 1) {
+    scf::LoopNest loopNest = scf::buildLoopNest(
+        builder, loc, lbs, ubs, steps, ValueRange(nullDmaTx),
+        [&](OpBuilder &loopBuilder, Location innerLoc, ValueRange iters,
+            ValueRange) {
+          return SmallVector<Value>{
+              emitDMA(loopBuilder, innerLoc, iters, coalescingFactor)};
+        });
+
+    return loopNest.results.front();
+  }
+
   scf::LoopNest loopNest = scf::buildLoopNest(
       builder, loc, lbs, ubs, steps, ValueRange(nullDmaTx),
       [&](OpBuilder &loopBuilder, Location innerLoc, ValueRange iters,
@@ -213,20 +230,26 @@ static Value generateDMAWithCoalescing(OpBuilder &builder, Location loc,
             innerLoc, loopBuilder.getIndexType(),
             loopBuilder.getIntegerAttr(loopBuilder.getIndexType(), 0));
 
-        auto totalIterCount = zero;
+        Value totalIterCount;
         size_t currStride = 1;
         for (int i = iters.size() - 1; i >= 0; i--) {
-          Value currStrideExpr = loopBuilder.create<arith::ConstantOp>(
-              innerLoc, loopBuilder.getIndexType(),
-              loopBuilder.getIndexAttr(currStride));
-          auto scaledCount =
-              loopBuilder
-                  .create<arith::MulIOp>(innerLoc, currStrideExpr, iters[i])
-                  .getResult();
+          Value scaledCount = iters[i];
+          if (currStride != 1) {
+            Value currStrideExpr = loopBuilder.create<arith::ConstantOp>(
+                innerLoc, loopBuilder.getIndexType(),
+                loopBuilder.getIndexAttr(currStride));
+            scaledCount =
+                loopBuilder
+                    .create<arith::MulIOp>(innerLoc, currStrideExpr, iters[i])
+                    .getResult();
+          }
+
           totalIterCount =
-              loopBuilder
-                  .create<arith::AddIOp>(innerLoc, scaledCount, totalIterCount)
-                  .getResult();
+              totalIterCount ? loopBuilder
+                                   .create<arith::AddIOp>(innerLoc, scaledCount,
+                                                          totalIterCount)
+                                   .getResult()
+                             : scaledCount;
           currStride *= iterShape[i];
         }
         auto moduloIterCount =

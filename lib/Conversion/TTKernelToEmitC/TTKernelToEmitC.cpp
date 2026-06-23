@@ -221,18 +221,21 @@ static StringRef getL1PtrOpaqueTypeName(unsigned elementWidth) {
   }
 }
 
+static FailureOr<int64_t> extractNocIndex(int64_t nocIdx) {
+  if (nocIdx != 0 && nocIdx != 1) {
+    return failure();
+  }
+
+  return nocIdx;
+}
+
 static FailureOr<int64_t> extractNocIndex(Attribute value) {
   auto nocIdxAttr = mlir::dyn_cast_if_present<IntegerAttr>(value);
   if (!nocIdxAttr) {
     return failure();
   }
 
-  const int64_t nocIdx = nocIdxAttr.getInt();
-  if (nocIdx != 0 && nocIdx != 1) {
-    return failure();
-  }
-
-  return nocIdx;
+  return extractNocIndex(nocIdxAttr.getInt());
 }
 
 static FailureOr<int64_t> getStaticNocIndex(Value nocId) {
@@ -242,6 +245,13 @@ static FailureOr<int64_t> getStaticNocIndex(Value nocId) {
     }
     if (auto constantOp = nocId.getDefiningOp<emitc::ConstantOp>()) {
       return extractNocIndex(constantOp.getValue());
+    }
+    if (auto literalOp = nocId.getDefiningOp<emitc::LiteralOp>()) {
+      int64_t nocIdx = -1;
+      if (literalOp.getValue().getAsInteger(/*Radix=*/10, nocIdx)) {
+        return failure();
+      }
+      return extractNocIndex(nocIdx);
     }
     return failure();
   }
@@ -481,6 +491,37 @@ public:
     double val = floatAttr.getValueAsDouble();
     auto f32Attr = rewriter.getF32FloatAttr(static_cast<float>(val));
     rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, f32Attr);
+    return success();
+  }
+};
+
+class ArithIntegerConstantToEmitCLiteralRewriter
+    : public OpConversionPattern<arith::ConstantOp> {
+public:
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(arith::ConstantOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto valueAttr = dyn_cast<IntegerAttr>(op.getValue());
+    if (!valueAttr) {
+      return rewriter.notifyMatchFailure(op, "not an integer constant");
+    }
+
+    Type convertedType = getTypeConverter()->convertType(op.getType());
+    if (!convertedType) {
+      return rewriter.notifyMatchFailure(op, "failed to convert result type");
+    }
+
+    bool isSigned = true;
+    if (auto intType = dyn_cast<IntegerType>(op.getType())) {
+      isSigned = !intType.isUnsigned();
+    }
+
+    SmallString<32> literal;
+    valueAttr.getValue().toString(literal, /*Radix=*/10, isSigned);
+    rewriter.replaceOpWithNewOp<emitc::LiteralOp>(op, convertedType,
+                                                  literal.str());
     return success();
   }
 };
@@ -2438,6 +2479,8 @@ public:
                 TTKernelToEmitCConversionState &state) {
     RewritePatternSet patterns(context);
 
+    patterns.add<ArithIntegerConstantToEmitCLiteralRewriter>(
+        typeConverter, context, /*benefit=*/3);
     patterns.add<ArithConstantBF16ToF32Rewriter>(typeConverter, context,
                                                  /*benefit=*/2);
     populateArithToEmitCPatterns(typeConverter, patterns);
