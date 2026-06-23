@@ -5067,7 +5067,7 @@ private:
           Value result = rewriter
                              .create<d2m::ArangeBlockOp>(
                                  loc, idxTile, outTile, numElements,
-                                 /*start=*/0, /*step=*/1)
+                                 /*start=*/numElements, /*step=*/-1)
                              .getResult();
           return {result};
         });
@@ -5210,6 +5210,34 @@ private:
               .getResult();
         });
 
+    // The arange produces a *descending* index (start=N, step=-1), so
+    // reduceMax2 returns `N - smallestMatchingIndex` (ties resolve to the
+    // smallest index, matching torch's argmax). Recover the actual index with
+    // `result = N - result` via an elementwise `tile_sub(fill(N), reduced)`.
+    SmallVector<AffineMap> reflectMaps = {
+        rewriter.getMultiDimIdentityMap(physicalRank),
+        rewriter.getMultiDimIdentityMap(physicalRank)};
+    SmallVector<mlir::Attribute> reflectIters(
+        physicalRank,
+        ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel));
+    auto reflectOrigOutputs = createDpsOutputs(loc, rewriter, {reducedType});
+    auto [reflectIns, reflectOutputs] = toLayoutOperandsAndResults(
+        rewriter, {SmallVector<Value>{}, reflectOrigOutputs}, true, noCollapse);
+    SmallVector<Value> reflectInputs = {reduceMax2->getResult(0)};
+    d2m::GenericOp reflect = buildGenericLinAlg(
+        rewriter, loc, reflectInputs, reflectOutputs, reflectMaps, reflectIters,
+        [&](mlir::OpBuilder &bb, mlir::Location l, mlir::ValueRange bbArgs) {
+          auto tileTy = bbArgs[0].getType();
+          auto elemTy = mlir::cast<ttcore::TileType>(tileTy).getElementType();
+          auto nAttr =
+              mlir::FloatAttr::get(elemTy, static_cast<double>(numElements));
+          Value nScalar = bb.create<mlir::arith::ConstantOp>(l, elemTy, nAttr);
+          Value nTile =
+              bb.create<d2m::TileFillOp>(l, tileTy, nScalar).getResult();
+          return bb.create<d2m::TileSubOp>(l, tileTy, nTile, bbArgs[0])
+              .getResult();
+        });
+
     // Convert the reduced bf16 index back to the plain (untiled) host layout
     // first, then typecast to si32. buildTypecastGeneric re-lays-out its input,
     // which on an already-device-tiled reduced tensor would pick a fresh
@@ -5220,7 +5248,7 @@ private:
     auto reducedHostType = RankedTensorType::get(reducedType.getShape(),
                                                  inputType.getElementType());
     Value reducedHost =
-        unLayoutResult(rewriter, reduceMax2->getResult(0), reducedHostType)
+        unLayoutResult(rewriter, reflect->getResult(0), reducedHostType)
             ->getResult(0);
 
     // Cast the reduced bf16 index to the si32 result type.

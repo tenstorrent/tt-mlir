@@ -14,7 +14,7 @@ from builder.base.builder_apis import compile_and_execute_ttir
 from conftest import get_request_kwargs
 
 pytestmark = pytest.mark.frontend("ttir")
-torch.manual_seed(0)
+torch.manual_seed(17617319950514170034)
 
 
 def create_argmax_inputs(input_shape, dim_arg, keep_dim, dtype):
@@ -33,11 +33,17 @@ def create_argmax_inputs(input_shape, dim_arg, keep_dim, dtype):
 # Single case: 32x32 tensor, row-wise reduction (argmax over dim 1), bf16 input.
 # argmax returns int32 indices, so the golden comparison is exact (atol=0).
 @pytest.mark.parametrize("target", ["ttmetal"])
-def test_argmax_2d_rowwise_bf16(target: str, request, device):
+@pytest.mark.parametrize("dim_arg", [[0], [1]])
+@pytest.mark.parametrize("keep_dim", [True, False])
+def test_argmax_2d_rowwise_bf16(
+    target: str, dim_arg: list[int] | None, keep_dim: bool, request, device
+):
     shape = (32, 32)
 
     compile_and_execute_ttir(
-        create_argmax_inputs(shape, dim_arg=[0], keep_dim=False, dtype=torch.bfloat16),
+        create_argmax_inputs(
+            shape, dim_arg=dim_arg, keep_dim=keep_dim, dtype=torch.bfloat16
+        ),
         target=target,
         **get_request_kwargs(request),
         device=device,
