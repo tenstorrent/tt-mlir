@@ -66,24 +66,6 @@ public:
                   mlir::PatternRewriter &rewriter) const override;
 };
 
-class DecodeRoPELayoutOptimization
-    : public mlir::OpRewritePattern<RotaryEmbeddingOp> {
-public:
-  using OpRewritePattern<RotaryEmbeddingOp>::OpRewritePattern;
-  mlir::LogicalResult
-  matchAndRewrite(RotaryEmbeddingOp ropeOp,
-                  mlir::PatternRewriter &rewriter) const override;
-};
-
-class DecodePartialRoPELayoutOptimization
-    : public mlir::OpRewritePattern<ConcatOp> {
-public:
-  using OpRewritePattern<ConcatOp>::OpRewritePattern;
-  mlir::LogicalResult
-  matchAndRewrite(ConcatOp concatOp,
-                  mlir::PatternRewriter &rewriter) const override;
-};
-
 } // namespace mlir::tt::ttnn::fusing
 
 #endif // TTMLIR_DIALECT_TTNN_TRANSFORMS_FUSING_ROPEFUSINGPATTERN_H

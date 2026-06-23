@@ -4492,19 +4492,6 @@ mlir::OpFoldResult foldConsecutivePermutes(mlir::tt::ttnn::PermuteOp op) {
   llvm::SmallVector<int64_t> combinedPerm = ttmlir::utils::applyPermutation(
       permuteOperand.getPermutation(), op.getPermutation());
 
-  // If the combined permutation is identity, the two permutes cancel out.
-  // Return the original input directly (before either permute).
-  // This avoids type mismatches when the intermediate permute has a
-  // different encoding (e.g. TTNNLayoutAttr with shape-dependent affine maps).
-  if (llvm::equal(combinedPerm, llvm::seq<int64_t>(0, combinedPerm.size()))) {
-    // Only fold if types match (encoding included). TTNNLayoutAttr affine
-    // maps are provenance-dependent; same shape can have different maps.
-    if (permuteOperand.getInput().getType() == op.getResult().getType()) {
-      return permuteOperand.getInput();
-    }
-    // Can't fold due to encoding mismatch — fall through to combine permutes.
-  }
-
   mlir::Value newInput = permuteOperand.getInput();
   op->setOperand(0, newInput);
   op.setPermutation(combinedPerm);

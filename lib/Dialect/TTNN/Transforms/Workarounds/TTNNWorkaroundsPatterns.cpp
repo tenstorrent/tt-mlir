@@ -781,5 +781,7 @@ const std::set<mlir::StringRef>
         // layout and data type workarounds.
         ttnn::PrepareMoEComputeW0W1WeightsOp::getOperationName(),
         ttnn::PrepareMoEComputeW2WeightsOp::getOperationName(),
-        ttnn::MoeComputeOp::getOperationName()};
+        ttnn::MoeComputeOp::getOperationName(),
+        // SliceStaticOp needs RowMajor for non-tile-aligned slices.
+        ttnn::SliceStaticOp::getOperationName()};
 } // namespace mlir::tt::ttnn

@@ -303,6 +303,19 @@ TTNNOperandsWorkaroundsFactory::createSliceStaticOpOperandsWorkarounds(
   TTNNOperandWorkarounds workaround;
   Type inputType = op.getInput().getType().getElementType();
   uint32_t bitWidth = inputType.getIntOrFloatBitWidth();
+  // Force RowMajor for non-tile-aligned slices on the height dim.
+  // tilized tensors require tile-aligned begin/shape on dim -2.
+  {
+    auto inShape = mlir::cast<RankedTensorType>(op.getInput().getType()).getShape();
+    if (inShape.size() >= 2) {
+      int64_t hDim = inShape.size() - 2;
+      int64_t bH = mlir::cast<mlir::IntegerAttr>(op.getBegins()[hDim]).getInt();
+      int64_t eH = mlir::cast<mlir::IntegerAttr>(op.getEnds()[hDim]).getInt();
+      if (bH % 32 != 0 || (eH - bH) % 32 != 0) {
+        workaround.tensorLayoutWorkaround = Layout::RowMajor;
+      }
+    }
+  }
   if (inputType.isUnsignedInteger() && bitWidth < 32 && isStridedSliceOp) {
     workaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
   }

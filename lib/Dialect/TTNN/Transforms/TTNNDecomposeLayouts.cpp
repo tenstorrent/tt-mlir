@@ -29,6 +29,7 @@ public:
       TTNNDecomposeLayouts>::TTNNDecomposeLayoutsBase;
 
   void runOnOperation() final {
+
     ModuleOp module = getOperation();
     IRRewriter rewriter(&getContext());
     llvm::SmallVector<Operation *> opsToReplace;
@@ -53,6 +54,60 @@ public:
       }
       rewriter.eraseOp(op);
     }
+
+    // Post-pass: fix non-tile-aligned slices that are still on TILE layout.
+    // This can happen when the optimizer assigns TILE layout to slice inputs
+    // that have non-tile-aligned begins or output shapes.
+    getOperation()->walk([](ttnn::SliceStaticOp op) {
+      auto inType = mlir::cast<RankedTensorType>(op.getInput().getType());
+      auto encoding = mlir::dyn_cast_or_null<TTNNLayoutAttr>(inType.getEncoding());
+      if (!encoding || encoding.getLayout() != Layout::Tile) return;
+      int64_t rank = inType.getRank();
+      if (rank < 2) return;
+      int64_t hDim = rank - 2;
+      int64_t bH = mlir::cast<mlir::IntegerAttr>(op.getBegins()[hDim]).getInt();
+      auto outType = mlir::cast<RankedTensorType>(op.getResult().getType());
+      int64_t sliceH = outType.getShape()[hDim];
+      if (bH % 32 == 0 && sliceH % 32 == 0) return;
+
+      mlir::OpBuilder builder(op);
+      auto rmInType = utils::RankedTensorTypeFactory::create(inType, Layout::RowMajor);
+      auto toRM = builder.create<ttnn::ToLayoutOp>(
+          op.getLoc(), rmInType, op.getInput(),
+          ttnn::LayoutAttr::get(op.getContext(), Layout::RowMajor));
+      op.getInputMutable().assign(toRM.getResult());
+
+      auto outEnc = mlir::dyn_cast_or_null<TTNNLayoutAttr>(outType.getEncoding());
+      if (outEnc && outEnc.getLayout() == Layout::Tile) {
+        auto rmOutType = utils::RankedTensorTypeFactory::create(outType, Layout::RowMajor);
+        op.getResult().setType(rmOutType);
+        builder.setInsertionPointAfter(op);
+        auto toTile = builder.create<ttnn::ToLayoutOp>(
+            op.getLoc(), outType, op.getResult(),
+            ttnn::LayoutAttr::get(op.getContext(), Layout::Tile));
+        op.getResult().replaceAllUsesExcept(toTile.getResult(), toTile);
+      }
+    });
+
+    // Second pass: process any new ToLayoutOps created by the slice fix.
+    llvm::SmallVector<Operation *> newOpsToReplace;
+    module->walk([&](func::FuncOp func) {
+      if (func.isDeclaration()) return;
+      func->walk([&](Operation *op) {
+        if (!isa<ttnn::ToLayoutOp>(op)) return;
+        newOpsToReplace.push_back(op);
+      });
+    });
+    for (Operation *op : newOpsToReplace) {
+      if (failed(createLayoutConversionOps(mlir::cast<ttnn::ToLayoutOp>(op),
+                                           rewriter))) {
+        signalPassFailure();
+        return;
+      }
+      rewriter.eraseOp(op);
+    }
+
+
   }
 
 private:
