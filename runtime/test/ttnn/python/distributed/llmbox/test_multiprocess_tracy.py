@@ -33,9 +33,22 @@ TRACY_TOOL_NAMES = ("capture-release", "csvexport-release")
 
 
 def _resolve_tracy_tools_dir():
-    """Find the dir containing the tracy capture binaries (capture-release,
-    csvexport-release).
-    """
+    """Find the dir containing the tracy capture binaries"""
+    import importlib.metadata as importlib_metadata
+
+    # Primary: the installed ttrt wheel's bundled copies (site-packages).
+    try:
+        for f in importlib_metadata.files("ttrt") or []:
+            if os.path.basename(str(f)) in TRACY_TOOL_NAMES:
+                tools_dir = os.path.dirname(str(f.locate()))
+                if all(
+                    os.path.exists(os.path.join(tools_dir, t)) for t in TRACY_TOOL_NAMES
+                ):
+                    return tools_dir
+    except Exception:
+        pass
+
+    # Fallbacks: env-driven build / install layouts.
     candidates = []
 
     def add(path):
@@ -43,6 +56,9 @@ def _resolve_tracy_tools_dir():
             candidates.append(path)
 
     add(os.path.join(os.environ.get("TT_METAL_HOME", ""), "build/tools/profiler/bin"))
+    build_home = os.environ.get("TT_METAL_BUILD_HOME")
+    if build_home:
+        add(os.path.join(build_home, "tools/profiler/bin"))
 
     for var in ("TT_METAL_RUNTIME_ROOT", "TT_METAL_RUNTIME_ROOT_EXTERNAL"):
         root = os.environ.get(var)
@@ -63,7 +79,7 @@ def _resolve_tracy_tools_dir():
             return candidate
 
     raise AssertionError(
-        "Tracy tools (%s) not found. Searched:\n%s\n"
+        "Tracy tools (%s) not found. Searched (after importlib.metadata):\n%s\n"
         "Build tt-mlir with -DTT_RUNTIME_ENABLE_PERF_TRACE=ON."
         % (", ".join(TRACY_TOOL_NAMES), "\n".join("  " + c for c in candidates))
     )
