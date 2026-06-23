@@ -20,3 +20,20 @@ def _reset_builder():
     compile (negative tests) doesn't leak MLIR state into the next test."""
     yield
     _Builder.reset()
+
+
+def pytest_generate_tests(metafunc):
+    """Parametrize the generic pattern tests over every spec declared in the
+    bundled pattern files (d2m_jit/patterns/*.py). Adding a pattern file with
+    PATTERN_TESTS / KERNEL_BENCHES is picked up here with no harness edits."""
+    from d2m_jit.testing import discover
+
+    pattern_tests, kernel_benches = discover()
+    if "pattern_test" in metafunc.fixturenames:
+        metafunc.parametrize(
+            "pattern_test", pattern_tests, ids=[t.name for t in pattern_tests]
+        )
+    if "kernel_bench" in metafunc.fixturenames:
+        metafunc.parametrize(
+            "kernel_bench", kernel_benches, ids=[b.name for b in kernel_benches]
+        )
