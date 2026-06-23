@@ -310,7 +310,8 @@ void createD2MEmitCPipeline(OpPassManager &pm,
   pm.addPass(createConvertTTKernelToEmitC());
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(createRemoveDeadEmitCExpressionsPass());
-  pm.addPass(mlir::emitc::createFormExpressionsPass());
+  OpPassManager &funcPm = pm.nest<func::FuncOp>();
+  funcPm.addPass(mlir::emitc::createFormExpressionsPass());
 }
 
 void createD2MToTTKernelPipeline(OpPassManager &pm,

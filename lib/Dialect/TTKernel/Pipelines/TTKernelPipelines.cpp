@@ -7,6 +7,7 @@
 #include "ttmlir/Conversion/Passes.h"
 
 #include "mlir/Dialect/EmitC/Transforms/Passes.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/Transforms/Passes.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Transforms/Passes.h"
@@ -26,7 +27,8 @@ void createPyKernelCompilePipeline(
   pm.addPass(mlir::tt::createRemoveDeadEmitCExpressionsPass());
 
   if (options.enableFormExpressions) {
-    pm.addPass(mlir::emitc::createFormExpressionsPass());
+    OpPassManager &funcPm = pm.nest<func::FuncOp>();
+    funcPm.addPass(mlir::emitc::createFormExpressionsPass());
   }
 }
 
