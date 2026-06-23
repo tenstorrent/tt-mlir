@@ -14,7 +14,13 @@ hand-written, per-pattern test_pattern_eltwise.py + lit/*_pattern.py files.
                          On silicon (direct-kernel path).
 """
 
-from d2m_jit.testing import assert_pcc, filecheck, run_bench, run_rewrite
+from d2m_jit.testing import (
+    assert_pcc,
+    filecheck,
+    run_bench,
+    run_e2e,
+    run_rewrite,
+)
 
 
 def test_pattern_rewrite(pattern_test):
@@ -28,3 +34,11 @@ def test_kernel_device(kernel_bench):
     """Run the kernel on device at its default config and PCC-compare."""
     actual, expected = run_bench(kernel_bench)
     assert_pcc(expected, actual, kernel_bench.pcc)
+
+
+def test_e2e_device(e2e_spec, e2e_device):
+    """True e2e: the rewritten module is compiled to a flatbuffer and run on
+    device IN-PROCESS (no ttrt subprocess, no files). PCC the device output
+    against the golden computed from the deterministic inputs."""
+    pcc, _, _ = run_e2e(e2e_spec, e2e_device)
+    assert pcc >= e2e_spec.pcc, f"e2e PCC {pcc} < {e2e_spec.pcc} for {e2e_spec.name}"

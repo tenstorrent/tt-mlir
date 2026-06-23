@@ -99,18 +99,31 @@ CHECK:       ttir.exp
 CHECK-NOT:   d2m.generic
 ```
 
+## True e2e device tests (`e2e=True`)
+
+Set `e2e=True` on a `PatternTest` (with a `golden`) to additionally run the
+*rewritten* module on silicon: it's compiled to a flatbuffer held **in memory**
+and executed **in-process** (no ttrt subprocess, no files), then the device
+output is PCC-checked against the golden. Inputs are generated deterministically
+from the `ttir` signature and the golden is computed from those same inputs. See
+`eltwise_exp_e2e_to_kernel.py` for a worked example.
+
+One requirement: **no runtime scalar args** in the kernel — bake block counts /
+loop bounds as Python constants. Runtime scalars lower to inline
+`arith.constant`s the flatbuffer translator can't serialize. (The
+`eltwise_*_to_kernel.py` kernels take `m_blocks, n_blocks` params, so they are
+*not* e2e-ready; their direct-kernel `KERNEL_BENCHES` path handles them.)
+
+Runs in the normal suite — no separate invocation or marker needed:
+
+```bash
+pytest test/d2m-jit/test_patterns.py -v
+```
+
+For large-scale CI, prefer a single batch driver that opens one device and
+loops over all e2e specs in-process, rather than one pytest case per pattern.
+
 ## What's deferred (don't rely on yet)
 
 - **Autotuning** — `KernelBench.space` is parsed but not swept. The eventual
   autotuner will iterate the config product, take perf traces, and compare.
-- **True e2e device execution** — today `KERNEL_BENCHES` drive the kernel
-  *directly* (the matcher is out of the loop on device). Running the
-  *rewritten* module end-to-end on silicon (rewrite → compile → `.ttm`
-  flatbuffer → `ttrt run`) is **proven to work** and is the planned device
-  backend; it slots behind this same spec with no spec change. One authoring
-  constraint makes a pattern e2e-ready: **the kernel must take no runtime
-  scalar args** — bake block counts / loop bounds as Python constants.
-  Runtime scalars lower to inline `arith.constant`s the flatbuffer translator
-  can't serialize, aborting the `.ttm` write. (The two bundled eltwise
-  kernels still take `m_blocks, n_blocks` params and so are not yet
-  e2e-ready; the direct-kernel `KERNEL_BENCHES` path handles them fine.)

@@ -37,3 +37,22 @@ def pytest_generate_tests(metafunc):
         metafunc.parametrize(
             "kernel_bench", kernel_benches, ids=[b.name for b in kernel_benches]
         )
+    if "e2e_spec" in metafunc.fixturenames:
+        e2e = [t for t in pattern_tests if t.e2e and t.golden]
+        metafunc.parametrize("e2e_spec", e2e, ids=[t.name for t in e2e])
+
+
+@pytest.fixture(scope="function")
+def e2e_device():
+    """An in-process mesh-device handle for one e2e test, opened lazily on first
+    use and closed afterwards. Function-scoped so at most one device is open at
+    a time (the in-process builder device tests open/close their own per call),
+    avoiding any cross-test device contention — no subprocess, no marker split.
+
+    For large-scale CI, prefer a single batch driver that opens one device and
+    loops over all specs in-process, rather than one pytest case per pattern."""
+    from d2m_jit.testing import E2EDevice
+
+    holder = E2EDevice()
+    yield holder
+    holder.close()

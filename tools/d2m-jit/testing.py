@@ -18,22 +18,31 @@ Two declaration kinds:
   IR through the real ``FileCheck`` binary. Replaces the hand-written
   ``test/d2m-jit/lit/*_pattern.py`` files. No device needed.
 
-* ``KERNEL_BENCHES = [KernelBench(...)]`` — on-device numerics. Each bench
-  drives the ``@d2m.kernel`` entrypoint directly with an explicit
+* ``KERNEL_BENCHES = [KernelBench(...)]`` — on-device numerics, **in-process**.
+  Each bench drives the ``@d2m.kernel`` entrypoint directly with an explicit
   ``(layout, block_shape, grid_shape)`` config and PCC-compares against a
   torch golden. Replaces ``test/d2m-jit/test_pattern_eltwise.py``.
 
-The ``KernelBench`` shape is forward-compatible with two things we do *not*
-implement yet:
+* ``PatternTest(..., e2e=True)`` — **true e2e device execution**, IN-PROCESS.
+  The rewritten module is compiled to a flatbuffer held *in memory* and run on
+  device via the in-process tt-metal runtime (no ttrt subprocess, no flatbuffer
+  or tensor files on disk); the device output is read straight back into a torch
+  tensor and PCC-checked against the golden. Disk footprint is ~zero regardless
+  of pattern count, and one device handle is reused per run. Inputs are
+  generated deterministically from the ttir signature and the golden is computed
+  from those same inputs. See ``compile_spec_to_fbb`` / ``execute_ttm_in_process``
+  / ``run_e2e`` below (modelled on builder_runtime.py::execute_fb, plain-torch).
 
-* **Autotuning** — ``space`` declares axes (block_shape / grid_shape /
-  dtype) an autotuner sweeps, taking perf traces per config.
-* **True e2e device execution** — running the *rewritten* module on silicon
-  (rewrite -> compile -> ttrt run). The d2m->ttmetal pipeline already lowers
-  a rewritten module fully; the remaining blocker is flatbuffer
-  serialization of scalar program args (see TTMetalToFlatbuffer.cpp). Once
-  that lands, a new device backend slots in behind this same spec — no spec
-  change.
+  Constraint: the pattern's kernel must take **no runtime scalar args** — bake
+  block counts / loop bounds as Python constants. Runtime scalars lower to
+  inline ``arith.constant`` index values the flatbuffer translator can't
+  serialize. (The in-process lazy builder dodges this by promoting them to
+  function params, which the rewrite flow can't.)
+
+Not implemented yet:
+
+* **Autotuning** — ``KernelBench.space`` declares axes (block_shape /
+  grid_shape / dtype) an autotuner would sweep, taking perf traces per config.
 """
 
 from __future__ import annotations
@@ -86,6 +95,11 @@ class PatternTest:
     inputs: InputSpec = field(default_factory=InputSpec)
     pcc: float = 0.99
     expect_match: bool = True
+    # Opt in to true e2e device execution (rewrite -> compile -> in-process run).
+    # Requires the pattern's kernel to take no runtime scalar args (see
+    # AUTHORING.md) and a `golden`. Inputs are generated from `inputs` and the
+    # golden is computed from those same inputs.
+    e2e: bool = False
     tags: tuple = ()
     source_file: str = ""  # set by discovery
 
@@ -309,6 +323,190 @@ def run_bench(bench: KernelBench, cfg: Optional[dict] = None):
 
 
 # ----------------------------------------------------------------------
+# True e2e device backend: rewrite -> compile -> IN-PROCESS run -> PCC.
+#
+# The rewritten module is compiled to a flatbuffer held *in memory* and run on
+# device via the in-process tt-metal runtime (``_ttmlir_runtime``) — no ttrt
+# subprocess, no flatbuffer/tensor files on disk. The device output is read
+# straight back into a torch tensor and PCC-compared against the golden. Disk
+# footprint is ~zero regardless of pattern count, and one device handle is
+# reused across every pattern (open once per session).
+#
+# This mirrors ``tools/builder/base/builder_runtime.py::execute_fb`` but with
+# plain-torch I/O (no GoldenMapTensor dependency); the comparison is done here
+# with ``assert_pcc``. The kernel must take no runtime scalar args (the same
+# flatbuffer-serialization constraint as before).
+# ----------------------------------------------------------------------
+
+# torch <-> runtime DataType (subset; mirrors builder_runtime).
+_TORCH_TO_RT = {}
+_RT_STR_TO_TORCH = {}
+
+
+def _rt():
+    from _ttmlir_runtime import runtime
+
+    if not _TORCH_TO_RT:
+        dt = runtime.DataType
+        _TORCH_TO_RT.update(
+            {
+                torch.float32: dt.Float32,
+                torch.float16: dt.Float16,
+                torch.bfloat16: dt.BFloat16,
+                torch.int32: dt.Int32,
+                torch.uint32: dt.UInt32,
+                torch.uint16: dt.UInt16,
+                torch.uint8: dt.UInt8,
+            }
+        )
+        _RT_STR_TO_TORCH.update(
+            {
+                "Float32": torch.float32,
+                "Float16": torch.float16,
+                "BFloat16": torch.bfloat16,
+                "Int32": torch.int32,
+                "UInt32": torch.uint32,
+                "UInt16": torch.uint16,
+                "UInt8": torch.uint8,
+            }
+        )
+    return runtime
+
+
+def compile_spec_to_fbb(spec: PatternTest):
+    """Rewrite ``spec.ttir`` with its pattern, lower to ttmetal, and return the
+    loaded flatbuffer Binary held *in memory* (no file written).
+
+    Requires the pattern's kernel to take no runtime scalar args; otherwise the
+    flatbuffer translator aborts on unregistered scalar program args.
+    """
+    from ttmlir.passes import ttmetal_to_flatbuffer_bin
+    from ttmlir.passmanager import PassManager
+
+    from _ttmlir_runtime import binary as _rt_binary
+    from d2m_jit._src.builder import _get_system_desc_path, _pipeline_passes
+
+    # run_rewrite already applies *only* this file's pattern(s), in isolation.
+    rewritten = run_rewrite(spec)
+    ctx = ir.Context()
+    ctx.load_all_available_dialects()
+    module = ir.Module.parse(rewritten, ctx)
+
+    sd = _get_system_desc_path()
+    register = "ttcore-register-device"
+    if sd:
+        register += f"{{system-desc-path={sd}}}"
+    pipeline_str = f"builtin.module({register},{','.join(_pipeline_passes())})"
+    pm = PassManager.parse(pipeline_str, context=ctx)
+    pm.enable_verifier(True)
+    pm.run(module.operation)
+
+    capsule = ttmetal_to_flatbuffer_bin(module)
+    return _rt_binary.load_binary_from_capsule(capsule)
+
+
+class E2EDevice:
+    """Lazily opens a single mesh device and reuses it across all e2e runs.
+
+    The device is opened on first use (with the first flatbuffer's mesh shape)
+    and closed at session teardown — one device-open amortized across every
+    pattern, all in-process."""
+
+    def __init__(self):
+        self.device = None
+
+    def get(self, fbb, program_index: int = 0):
+        runtime = _rt()
+        if self.device is None:
+            opts = runtime.MeshDeviceOptions()
+            opts.mesh_shape = fbb.get_program_mesh_shape(program_index)
+            runtime.set_compatible_device_runtime(fbb)
+            self.device = runtime.open_mesh_device(opts)
+        return self.device
+
+    def close(self):
+        if self.device is not None:
+            _rt().close_mesh_device(self.device)
+            self.device = None
+
+
+def execute_ttm_in_process(fbb, inputs, device, program_index: int = 0):
+    """Submit ``fbb`` on ``device`` with torch ``inputs``; return torch outputs.
+
+    No files, no subprocess. Inputs are marshalled to borrowed host tensors and
+    converted to each program input's expected layout; outputs are copied back
+    into freshly allocated torch tensors (shape/dtype from the program output
+    descriptors). Mirrors the core of ``execute_fb`` for a single device.
+    """
+    import json
+    import re
+
+    runtime = _rt()
+
+    rt_inputs = []
+    for t in inputs:
+        t = t.contiguous()
+        rt_in = runtime.create_borrowed_host_tensor(
+            t.data_ptr(),
+            list(t.shape),
+            list(t.stride()),
+            t.element_size(),
+            _TORCH_TO_RT[t.dtype],
+        )
+        layout = runtime.get_layout(fbb, program_index, len(rt_inputs))
+        rt_inputs.append(runtime.to_layout(rt_in, device, layout, True))
+
+    runtime.set_compatible_device_runtime(fbb)
+    rt_outputs = runtime.submit(device, fbb, program_index, rt_inputs)
+    runtime.wait(rt_outputs)
+
+    out_json = fbb.get_program_outputs_as_json(program_index)
+    out_descs = json.loads(
+        re.sub(r"\binf\b", "Infinity", re.sub(r"\bnan\b", "NaN", out_json))
+    )
+
+    results = []
+    for i, rt_out in enumerate(rt_outputs):
+        desc = out_descs[i]["desc"]
+        shape = desc["shape"]
+        dtype = _RT_STR_TO_TORCH[desc["layout"]["memory_desc"]["data_type"]]
+        t_out = torch.empty(shape, dtype=dtype)
+        rt_host = runtime.create_borrowed_host_tensor(
+            t_out.data_ptr(),
+            list(t_out.shape),
+            list(t_out.stride()),
+            t_out.element_size(),
+            _TORCH_TO_RT[dtype],
+        )
+        host_view = runtime.to_host(rt_out, untilize=True)[0]
+        runtime.memcpy(rt_host, host_view)
+        runtime.deallocate_tensor(rt_out, force=True)
+        results.append(t_out)
+    return results
+
+
+def run_e2e(spec: PatternTest, e2e_device: "E2EDevice"):
+    """Compile ``spec`` to a flatbuffer, run it in-process, and return
+    ``(pcc, expected, actual)`` for output 0. Inputs are generated
+    deterministically from the spec's ttir signature; the golden is computed
+    from those same inputs (so determinism is exact, no read-back needed)."""
+    io = parse_func_io(spec.ttir)
+    shapes = [shape for shape, _ in io]
+    td = io[0][1] if io else torch.float32
+    inputs = make_inputs(shapes, td, spec.inputs)
+
+    fbb = compile_spec_to_fbb(spec)
+    device = e2e_device.get(fbb)
+    outputs = execute_ttm_in_process(fbb, inputs, device)
+
+    expected = spec.golden(*[t.float() for t in inputs])
+    actual = outputs[0].float()
+    combined = torch.stack([expected.flatten(), actual.flatten()])
+    pcc = torch.corrcoef(combined)[0, 1].item()
+    return pcc, expected, actual
+
+
+# ----------------------------------------------------------------------
 # Discovery
 # ----------------------------------------------------------------------
 
@@ -332,7 +530,10 @@ def discover(force: bool = False):
     pkg_dir = os.path.dirname(patterns_pkg.__file__)
     pattern_tests, kernel_benches = [], []
     for fn in sorted(os.listdir(pkg_dir)):
-        if not fn.endswith(".py") or fn == "__init__.py":
+        # Underscore-prefixed files are scaffolding (templates, shared
+        # helpers), not discoverable patterns. Copy `_template.py` to a
+        # non-underscore name to activate it.
+        if not fn.endswith(".py") or fn.startswith("_"):
             continue
         mod = importlib.import_module(f"d2m_jit.patterns.{fn[:-3]}")
         for t in getattr(mod, "PATTERN_TESTS", []):
