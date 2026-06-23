@@ -9922,8 +9922,7 @@ static void addScaledDotProductAttentionDecodeOpConversionPattern(
       StableHLOToTTCoreFlashMlaPrefillOpConversionPattern,
       StableHLOToTTIRPagedFlashMLADecodeOpConversionPattern,
       StableHLOToTTIRChunkedScaledDotProductAttentionOpConversionPattern>(
-      typeConverter,
-                                                             ctx);
+      typeConverter, ctx);
 }
 
 namespace {
