@@ -4209,6 +4209,7 @@ public:
     unsigned outputSyntheticRank = outputPhysicalRank - outputLogicalRank;
     unsigned inputSyntheticRank = inputPhysicalRank - inputLogicalRank;
     unsigned outputDeviceRank = outputPhysicalRank * 2;
+    unsigned inputDeviceRank = inputPhysicalRank * 2;
 
     // Compose the logical map with the unit-grid device shard coordinates.
     // Rank-1 logical tensors have a synthetic leading physical row dimension,
@@ -4225,27 +4226,12 @@ public:
         logicalMap.compose(outputDeviceToLogical);
 
     SmallVector<AffineExpr> deviceExprs;
+    deviceExprs.reserve(inputDeviceRank);
 
     // Grid coordinate mapping (first inputPhysicalRank results).
     for (unsigned i = 0; i < inputPhysicalRank; ++i) {
-      if (inputPhysicalRank == outputPhysicalRank) {
-        // Same physical rank: identity mapping for grid.
-        deviceExprs.push_back(builder.getAffineDimExpr(i));
-      } else if (inputPhysicalRank < outputPhysicalRank) {
-        // Expanding: map input grid dims to output's last inputPhysicalRank
-        // grid dims.
-        unsigned outputGridIdx = outputPhysicalRank - inputPhysicalRank + i;
-        deviceExprs.push_back(builder.getAffineDimExpr(outputGridIdx));
-      } else {
-        // Contracting: map last outputPhysicalRank input grid
-        // dims to output grid, pad the rest with 0.
-        if (i < inputPhysicalRank - outputPhysicalRank) {
-          deviceExprs.push_back(builder.getAffineConstantExpr(0));
-        } else {
-          unsigned outputGridIdx = i - (inputPhysicalRank - outputPhysicalRank);
-          deviceExprs.push_back(builder.getAffineDimExpr(outputGridIdx));
-        }
-      }
+      // The indexing is all zeros on the unit grid.
+      deviceExprs.push_back(builder.getAffineConstantExpr(0));
     }
 
     // Shard coordinate mapping. Synthetic rank-1 row dims are fixed to zero;
