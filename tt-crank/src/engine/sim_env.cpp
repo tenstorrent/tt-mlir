@@ -7,7 +7,7 @@
 // (see cmake/TTsim.cmake).
 //
 // The setenv() calls run at library-load time (before the function-local
-// static in execution_payload.cpp's runtime_device() can be initialized), so
+// static in engine's runtime_device() can be initialized), so
 // tt-metal's first device open sees the simulator env.
 
 #include "config.hpp"

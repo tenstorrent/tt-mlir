@@ -21,6 +21,7 @@
 #include <ttmlir/Target/Common/types_generated.h>
 
 #include "cast.hpp"
+#include "engine/compile.hpp"
 #include "engine/device.hpp"
 #include "torch/backend.hpp"
 #include "torch/ops/builders.hpp"
@@ -189,7 +190,7 @@ public:
         return mb_->insert_typecast(value, tk::mlir_element_type_for(tk::to_torch_dtype(dtype)));
     }
 
-    std::shared_ptr<::tt::kurbla::CompiledProgram> compile(std::vector<mlir::Value> outputs) {
+    ::tt::kurbla::CompiledProgram &compile(const std::vector<mlir::Value> &outputs) {
         assert_builder();
         auto module_op = std::move(*mb_).finalize(outputs);
         mb_.reset();
@@ -407,8 +408,8 @@ nb::object wrap_torch_tensor(at::Tensor t) {
     return nb::steal<nb::object>(p);
 }
 
-nb::list run_program(std::shared_ptr<::tt::kurbla::CompiledProgram> program, nb::list inputs,
-                     std::vector<::tt::target::DataType> output_dtypes) {
+nb::list run_program(::tt::kurbla::CompiledProgram &program, nb::list &inputs,
+                     std::vector<::tt::target::DataType> &output_dtypes) {
     std::vector<at::Tensor> at_inputs;
     at_inputs.reserve(nb::len(inputs));
     for (auto item : inputs) {
@@ -598,7 +599,7 @@ NB_MODULE(_native, m) {
         .def("index_copy", &PyModuleBuilder::index_copy, "input"_a, "dim"_a, "index"_a, "source"_a)
         .def("tril", &PyModuleBuilder::tril, "input"_a, "diagonal"_a = 0)
         // Consumes the builder. Subsequent calls on `self` raise.
-        .def("compile", &PyModuleBuilder::compile, "outputs"_a);
+        .def("compile", &PyModuleBuilder::compile, "outputs"_a, nb::rv_policy::reference);
 
     nb::class_<::tt::kurbla::CompiledProgram>(m, "CompiledProgram");
 

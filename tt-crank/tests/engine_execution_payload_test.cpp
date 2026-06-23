@@ -16,7 +16,6 @@
 #include <bit>
 #include <cstdint>
 #include <cstring>
-#include <memory>
 #include <string_view>
 #include <vector>
 
@@ -37,11 +36,12 @@ bool device_available() {
     return tt::runtime::getNumAvailableDevices() > 0;
 }
 
-std::shared_ptr<tt::kurbla::CompiledProgram> compile_for_current_device() {
+// Returns the cached CompiledProgram by reference; sibling payloads compiled
+// from the same TTIR share one program instance (the compile cache dedupes).
+tt::kurbla::CompiledProgram &compile_for_current_device() {
     tt::kurbla::CompileOptions opts;
     opts.system_desc = tt::kurbla::runtime_system_desc();
-    return std::make_shared<tt::kurbla::CompiledProgram>(
-        tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir, opts));
+    return tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir, opts);
 }
 
 // bf16 has the same sign+exponent encoding as f32; truncating the low 16 bits
@@ -57,6 +57,15 @@ float bf16_to_float(std::uint16_t b) {
 tt::runtime::Tensor make_filled_host_tensor(const tt::runtime::TensorDesc &desc, float fill) {
     std::vector<std::uint16_t> buf(desc.volume(), float_to_bf16(fill));
     return tt::runtime::createOwnedHostTensor(buf.data(), desc);
+}
+
+// bind_tensor takes a non-const Tensor& (it may rewrite the tensor's layout in
+// place), so the make_filled_host_tensor temporary must be materialized as an
+// lvalue before binding.
+void bind_filled(tt::kurbla::ExecutionPayload &payload, const tt::runtime::TensorDesc &desc, float fill,
+                 std::uint32_t index) {
+    tt::runtime::Tensor tensor = make_filled_host_tensor(desc, fill);
+    payload.bind_tensor(tensor, index);
 }
 
 std::vector<float> readback_floats(const tt::runtime::Tensor &device_tensor) {
@@ -78,14 +87,14 @@ TEST(EngineExecutionPayloadTest, RunsTrivialAdd) {
         GTEST_SKIP() << "no Tenstorrent device available.";
     }
 
-    auto program = compile_for_current_device();
+    auto &program = compile_for_current_device();
     tt::kurbla::ExecutionPayload payload(program);
 
-    const auto input_descs = program->input_descs(0);
+    const auto &input_descs = program.input_descs;
     ASSERT_EQ(input_descs.size(), 2U);
 
-    payload.bind_tensor(make_filled_host_tensor(input_descs[0], 0.0F), 0);
-    payload.bind_tensor(make_filled_host_tensor(input_descs[1], 0.0F), 1);
+    bind_filled(payload, input_descs[0], 0.0F, 0);
+    bind_filled(payload, input_descs[1], 0.0F, 1);
 
     std::vector<tt::runtime::Tensor> outputs = payload.run();
     ASSERT_EQ(outputs.size(), 1U);
@@ -102,14 +111,14 @@ TEST(EngineExecutionPayloadTest, RunsMultipleAdds) {
     }
 
     for (size_t i = 0; i < 16; ++i) {
-        auto program = compile_for_current_device();
+        auto &program = compile_for_current_device();
         tt::kurbla::ExecutionPayload payload(program);
 
-        const auto input_descs = program->input_descs(0);
+        const auto &input_descs = program.input_descs;
         ASSERT_EQ(input_descs.size(), 2U);
 
-        payload.bind_tensor(make_filled_host_tensor(input_descs[0], 2.0F), 0);
-        payload.bind_tensor(make_filled_host_tensor(input_descs[1], 2.0F), 1);
+        bind_filled(payload, input_descs[0], 2.0F, 0);
+        bind_filled(payload, input_descs[1], 2.0F, 1);
 
         std::vector<tt::runtime::Tensor> outputs = payload.run();
         ASSERT_EQ(outputs.size(), 1U);
@@ -126,12 +135,12 @@ TEST(EngineExecutionPayloadTest, ReuseAcrossRuns) {
         GTEST_SKIP() << "no Tenstorrent device available.";
     }
 
-    auto program = compile_for_current_device();
+    auto &program = compile_for_current_device();
     tt::kurbla::ExecutionPayload payload(program);
 
-    const auto input_descs = program->input_descs(0);
-    payload.bind_tensor(make_filled_host_tensor(input_descs[0], 1.0F), 0);
-    payload.bind_tensor(make_filled_host_tensor(input_descs[1], 2.0F), 1);
+    const auto &input_descs = program.input_descs;
+    bind_filled(payload, input_descs[0], 1.0F, 0);
+    bind_filled(payload, input_descs[1], 2.0F, 1);
 
     auto outputs_a = payload.run();
     auto outputs_b = payload.run();
@@ -146,16 +155,16 @@ TEST(EngineExecutionPayloadTest, RebindSlotReplacesTensor) {
         GTEST_SKIP() << "no Tenstorrent device available.";
     }
 
-    auto program = compile_for_current_device();
+    auto &program = compile_for_current_device();
     tt::kurbla::ExecutionPayload payload(program);
 
-    const auto input_descs = program->input_descs(0);
-    payload.bind_tensor(make_filled_host_tensor(input_descs[0], 0.0F), 0);
-    payload.bind_tensor(make_filled_host_tensor(input_descs[1], 0.0F), 1);
+    const auto &input_descs = program.input_descs;
+    bind_filled(payload, input_descs[0], 0.0F, 0);
+    bind_filled(payload, input_descs[1], 0.0F, 1);
 
     auto zeros = readback_floats(payload.run()[0]);
 
-    payload.bind_tensor(make_filled_host_tensor(input_descs[0], 3.0F), 0);
+    bind_filled(payload, input_descs[0], 3.0F, 0);
     auto threes = readback_floats(payload.run()[0]);
 
     EXPECT_NE(zeros, threes);
@@ -166,17 +175,17 @@ TEST(EngineExecutionPayloadTest, SiblingPayloadsShareProgram) {
         GTEST_SKIP() << "no Tenstorrent device available.";
     }
 
-    auto program = compile_for_current_device();
+    auto &program = compile_for_current_device();
     tt::kurbla::ExecutionPayload a(program);
     tt::kurbla::ExecutionPayload b(program);
 
-    EXPECT_EQ(a.compiled_program().get(), b.compiled_program().get());
+    EXPECT_EQ(&a.compiled_program(), &b.compiled_program());
 
-    const auto input_descs = program->input_descs(0);
-    a.bind_tensor(make_filled_host_tensor(input_descs[0], 1.0F), 0);
-    a.bind_tensor(make_filled_host_tensor(input_descs[1], 1.0F), 1);
-    b.bind_tensor(make_filled_host_tensor(input_descs[0], 4.0F), 0);
-    b.bind_tensor(make_filled_host_tensor(input_descs[1], 4.0F), 1);
+    const auto &input_descs = program.input_descs;
+    bind_filled(a, input_descs[0], 1.0F, 0);
+    bind_filled(a, input_descs[1], 1.0F, 1);
+    bind_filled(b, input_descs[0], 4.0F, 0);
+    bind_filled(b, input_descs[1], 4.0F, 1);
 
     EXPECT_NE(readback_floats(a.run()[0]), readback_floats(b.run()[0]));
 }
@@ -186,14 +195,13 @@ TEST(EngineExecutionPayloadTest, RejectsWrongShape) {
         GTEST_SKIP() << "no Tenstorrent device available.";
     }
 
-    auto program = compile_for_current_device();
+    auto &program = compile_for_current_device();
     tt::kurbla::ExecutionPayload payload(program);
 
     // Build a desc with deliberately wrong shape (64x64 instead of 64x128).
-    tt::runtime::TensorDesc wrong = program->input_descs(0)[0];
+    tt::runtime::TensorDesc wrong = program.input_descs[0];
     wrong.shape = {64, 64};
-    std::vector<float> buf(wrong.volume(), 0.0F);
-    auto wrong_tensor = tt::runtime::createOwnedHostTensor(buf.data(), wrong);
+    auto wrong_tensor = make_filled_host_tensor(wrong, 0.0F);
 
     EXPECT_THROW(payload.bind_tensor(wrong_tensor, 0), std::runtime_error);
 }
@@ -203,11 +211,11 @@ TEST(EngineExecutionPayloadTest, RejectsMissingInput) {
         GTEST_SKIP() << "no Tenstorrent device available.";
     }
 
-    auto program = compile_for_current_device();
+    auto &program = compile_for_current_device();
     tt::kurbla::ExecutionPayload payload(program);
 
-    const auto input_descs = program->input_descs(0);
-    payload.bind_tensor(make_filled_host_tensor(input_descs[0], 0.0F), 0);
+    const auto &input_descs = program.input_descs;
+    bind_filled(payload, input_descs[0], 0.0F, 0);
     // Slot 1 deliberately left unbound.
 
     EXPECT_THROW(payload.run(), std::runtime_error);

@@ -11,15 +11,15 @@
 
 namespace tt::kurbla {
 
-// Binds inputs to a shared CompiledProgram and runs it. Holds the program via
-// shared_ptr so multiple payloads can target the same compiled binary with
-// different inputs. Input layout conversion happens at bind_tensor time, not
-// at run() time, so a "bind once, run many" loop only re-toLayouts slots that
-// get rebound between runs. Not thread-safe in v1 — the runtime device
-// singleton has no internal locking.
+// Binds inputs to a CompiledProgram and runs it. Holds a non-owning reference to
+// the program (owned by the compile cache) so multiple payloads can target the
+// same compiled binary with different inputs. Input layout conversion happens at
+// bind_tensor time, not at run() time, so a "bind once, run many" loop only
+// re-toLayouts slots that get rebound between runs. Not thread-safe in v1 — the
+// runtime device singleton has no internal locking.
 class TT_KURBLA_API ExecutionPayload {
 public:
-    explicit ExecutionPayload(std::shared_ptr<CompiledProgram> program, std::uint32_t program_index = 0);
+    explicit ExecutionPayload(CompiledProgram &program);
 
     ~ExecutionPayload();
     ExecutionPayload(const ExecutionPayload &) = delete;
@@ -27,12 +27,11 @@ public:
     ExecutionPayload(ExecutionPayload &&) noexcept;
     ExecutionPayload &operator=(ExecutionPayload &&) noexcept;
 
-    const std::shared_ptr<CompiledProgram> &compiled_program() const;
-    std::uint32_t program_index() const;
+    CompiledProgram &compiled_program() const;
 
-    // Calls tt::runtime::toLayout immediately and stores the device tensor in
-    // slot `index`. Rebinding overwrites.
-    void bind_tensor(const tt::runtime::Tensor &tensor, std::uint32_t index);
+    // Calls tt::runtime::toLayout if tensor is in wrong layout and stores the device tensor in
+    // slot `index`.
+    void bind_tensor(tt::runtime::Tensor &tensor, std::uint32_t index);
 
     // Returns device-resident outputs; caller does toHost.
     std::vector<tt::runtime::Tensor> run();

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "assert.hpp"
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -14,20 +15,30 @@
 
 namespace tt::kurbla {
 
-// Output of a successful compile. Wraps tt::runtime::Binary so we can attach
-// tt-kurbla-specific metadata later (compile stats, source identity, cache
-// key) without changing the public function signature.
 struct TT_KURBLA_API CompiledProgram {
+    CompiledProgram(tt::runtime::Binary binary);
+
     tt::runtime::Binary binary;
+
+    // Input tensors descriptors.
+    std::vector<tt::runtime::TensorDesc> input_descs;
+
+    // Output tensors descriptors.
+    std::vector<tt::runtime::TensorDesc> output_descs;
+
+    // Number of program inputs.
+    std::size_t num_inputs;
+
+    // Input layouts for @main function.
+    std::vector<tt::runtime::Layout> input_layouts;
+
+    const tt::runtime::Layout &input_layout_at(std::size_t idx) const {
+        TT_FATAL(idx < input_layouts.size(), "Index out of bounds.");
+        return input_layouts[idx];
+    }
 
     std::uint32_t num_programs() const { return binary.getNumPrograms(); }
     std::string program_name(std::uint32_t program_index) const { return binary.getProgramName(program_index); }
-    std::vector<tt::runtime::TensorDesc> input_descs(std::uint32_t program_index) const {
-        return binary.getProgramInputs(program_index);
-    }
-    std::vector<tt::runtime::TensorDesc> output_descs(std::uint32_t program_index) const {
-        return binary.getProgramOutputs(program_index);
-    }
 };
 
 // Options for TTIR-starting pipelines. Shared across all current pipelines
@@ -60,8 +71,8 @@ TT_KURBLA_API mlir::MLIRContext &mlir_context();
 // Not safe to call from multiple threads concurrently in v1 — the underlying
 // MLIRContext is a process-wide singleton without internal locking. Callers
 // must serialize.
-TT_KURBLA_API CompiledProgram compile_ttir_to_ttnn_flatbuffer(std::string_view ttir,
-                                                              const CompileOptions &options = {});
+TT_KURBLA_API CompiledProgram &compile_ttir_to_ttnn_flatbuffer(std::string_view ttir,
+                                                               const CompileOptions &options = {});
 
 // Compile a pre-built TTIR ModuleOp. The module must live in mlir_context()
 // and is mutated in place — on success it holds TTNN ops, not TTIR.
@@ -70,7 +81,7 @@ TT_KURBLA_API CompiledProgram compile_ttir_to_ttnn_flatbuffer(std::string_view t
 // than serializing it to text first (e.g. a PyTorch FX → TTIR lowering).
 //
 // Same threading caveat as the string overload: serialize calls.
-TT_KURBLA_API CompiledProgram compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module_op,
-                                                              const CompileOptions &options = {});
+TT_KURBLA_API CompiledProgram &compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module_op,
+                                                               const CompileOptions &options = {});
 
 } // namespace tt::kurbla

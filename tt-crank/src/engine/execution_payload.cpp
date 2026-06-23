@@ -30,51 +30,31 @@ template <class T> std::string to_string(const std::vector<T> &vec) {
 } // namespace
 
 struct ExecutionPayload::Impl {
-    std::shared_ptr<CompiledProgram> program;
-    std::uint32_t program_index{};
-    std::vector<tt::runtime::TensorDesc> input_descs;
-    std::vector<tt::runtime::Layout> input_layouts;
+    CompiledProgram *program{};
     std::vector<std::optional<tt::runtime::Tensor>> input_slots;
 };
 
-ExecutionPayload::ExecutionPayload(std::shared_ptr<CompiledProgram> program, std::uint32_t program_index)
-    : impl_(std::make_unique<Impl>()) {
-    TT_FATAL(program != nullptr, "ExecutionPayload: program must not be null");
-    TT_FATAL(program_index < program->num_programs(),
-             "ExecutionPayload: program_index {} out of range (binary has {} program(s))", program_index,
-             program->num_programs());
-
-    impl_->program = std::move(program);
-    impl_->program_index = program_index;
-    impl_->input_descs = impl_->program->input_descs(program_index);
-    impl_->input_slots.resize(impl_->input_descs.size());
-
-    impl_->input_layouts.reserve(impl_->input_descs.size());
-    for (std::uint32_t i = 0; i < impl_->input_descs.size(); ++i) {
-        impl_->input_layouts.push_back(tt::runtime::getLayout(impl_->program->binary, program_index, i));
-    }
+ExecutionPayload::ExecutionPayload(CompiledProgram &program) : impl_(std::make_unique<Impl>()) {
+    impl_->program = &program;
+    impl_->input_slots.resize(program.num_inputs);
 }
 
 ExecutionPayload::~ExecutionPayload() = default;
 ExecutionPayload::ExecutionPayload(ExecutionPayload &&) noexcept = default;
 ExecutionPayload &ExecutionPayload::operator=(ExecutionPayload &&) noexcept = default;
 
-const std::shared_ptr<CompiledProgram> &ExecutionPayload::compiled_program() const {
-    return impl_->program;
+CompiledProgram &ExecutionPayload::compiled_program() const {
+    return *impl_->program;
 }
 
-std::uint32_t ExecutionPayload::program_index() const {
-    return impl_->program_index;
-}
-
-void ExecutionPayload::bind_tensor(const tt::runtime::Tensor &tensor, std::uint32_t index) {
+void ExecutionPayload::bind_tensor(tt::runtime::Tensor &tensor, std::uint32_t index) {
     TT_FATAL(index < impl_->input_slots.size(), "bind_tensor: index {} out of range (program has {} input(s))", index,
              impl_->input_slots.size());
 
     // Stride/physicalVolume legitimately differ between the user's host tensor
     // and the binary's padded device layout — that's what toLayout reconciles.
     const tt::runtime::TensorDesc actual = tt::runtime::getTensorDesc(tensor);
-    const tt::runtime::TensorDesc &expected = impl_->input_descs[index];
+    const tt::runtime::TensorDesc &expected = impl_->program->input_descs[index];
     TT_FATAL(actual.shape == expected.shape && actual.dataType == expected.dataType,
              "bind_tensor: tensor for input {} does not match the program's expected desc. "
              "expected shape={} dtype={}; got shape={} dtype={}",
@@ -82,8 +62,12 @@ void ExecutionPayload::bind_tensor(const tt::runtime::Tensor &tensor, std::uint3
              as<int>(actual.dataType));
 
     try {
-        impl_->input_slots[index] =
-            tt::runtime::toLayout(tensor, runtime_device(), impl_->input_layouts[index], /*retain=*/true);
+        const auto &layout = impl_->program->input_layout_at(index);
+        if (!tt::runtime::hasLayout(tensor, layout)) {
+            tensor = tt::runtime::toLayout(tensor, runtime_device(), layout, /*retain=*/true);
+        }
+
+        impl_->input_slots[index] = tensor;
     } catch (const std::exception &e) {
         TT_THROW("bind_tensor: toLayout failed: {}", e.what());
     }
@@ -108,7 +92,11 @@ std::vector<tt::runtime::Tensor> ExecutionPayload::run() {
     }
 
     try {
-        return tt::runtime::submit(runtime_device(), impl_->program->binary, impl_->program_index, inputs);
+        auto out = tt::runtime::submit(runtime_device(), impl_->program->binary, /*program_index=*/0, inputs);
+        for (auto &tensor : out) {
+            tt::runtime::setTensorRetain(tensor, true);
+        }
+        return out;
     } catch (const std::exception &e) {
         TT_THROW("run: submit failed: {}", e.what());
     }

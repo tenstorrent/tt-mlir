@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstddef>
-#include <memory>
 #include <vector>
 
 #include <ATen/core/ScalarType.h>
@@ -29,7 +28,7 @@ std::vector<::tt::runtime::Tensor> compile_and_run(mlir::OwningOpRef<mlir::Modul
 
 // Compile a finalized TTIR module into a `CompiledProgram` that can back
 // many `run_compiled_program` calls — compile once, bind-and-run many.
-std::shared_ptr<::tt::kurbla::CompiledProgram> compile_module(mlir::OwningOpRef<mlir::ModuleOp> module_op);
+::tt::kurbla::CompiledProgram &compile_module(mlir::OwningOpRef<mlir::ModuleOp> module_op);
 
 // Bind `inputs` to an already-compiled program, execute it, and wrap the
 // device-resident outputs as tt-backend `at::Tensor`s. Output shapes come
@@ -37,8 +36,7 @@ std::shared_ptr<::tt::kurbla::CompiledProgram> compile_module(mlir::OwningOpRef<
 // `logical_output_dtypes` the caller provides — the caller knows the
 // user-facing dtype (e.g. i64) which may differ from the program's physical
 // dtype after the rewriter demotes wide types (e.g. i64 → i32).
-std::vector<at::Tensor> run_compiled_program(const std::shared_ptr<::tt::kurbla::CompiledProgram> &program,
-                                             llvm::ArrayRef<at::Tensor> inputs,
+std::vector<at::Tensor> run_compiled_program(::tt::kurbla::CompiledProgram &program, llvm::ArrayRef<at::Tensor> inputs,
                                              llvm::ArrayRef<::tt::target::DataType> logical_output_dtypes);
 
 // Installs the PrivateUse1 allocator with c10. Idempotent; safe to call from
