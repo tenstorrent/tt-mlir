@@ -411,11 +411,36 @@ ProgramAttr buildProgramAttr(TTLangOp op, MLIRContext *ctx,
     kernels.push_back(kernel);
   }
 
-  // PipeNet semaphores are not yet plumbed through the artifact; emit an
-  // empty list. A future schema bump will carry the structured semaphore
-  // layout (`num_pipe_nets`, IDs, core ranges).
-  return ProgramAttr::get(ctx, kernels, *cbs,
-                          /*semaphores=*/llvm::ArrayRef<KernelSemaphoreAttr>{});
+  // PipeNet sync semaphores. tt-lang's compile path allocates a flat set
+  // of `num_pipe_nets` worker semaphores with ids 0..N-1 (the artifact key
+  // carries tt-lang's `num_pipe_sync_semaphores` count). Each is scoped to
+  // the program's full core range with an initial value of 0 -- mirroring
+  // tt-lang's own native launch path
+  // (`kernel_runner.run_kernel_on_device`, which builds one
+  // `ttnn.SemaphoreDescriptor(id, core_ranges, initial_value=0)` per
+  // semaphore). The generated kernel sources reference these by baked-in id
+  // literals (e.g. `get_semaphore(<id>)` / `noc_semaphore_*`), not via
+  // kernel args, so declaring them in the `#ttnn.program` is all that's
+  // needed: the runtime materialises them from the program descriptor and
+  // tt-metal assigns each id its L1 address.
+  llvm::SmallVector<KernelSemaphoreAttr> semaphores;
+  if (std::optional<int64_t> numPipeNets = root->getInteger("num_pipe_nets")) {
+    if (*numPipeNets < 0 || static_cast<uint64_t>(*numPipeNets) >
+                                std::numeric_limits<uint32_t>::max()) {
+      op.emitError("kernel_artifact `num_pipe_nets` = ")
+          << *numPipeNets << " is out of range for uint32_t.";
+      return {};
+    }
+    const uint32_t numSemaphores = static_cast<uint32_t>(*numPipeNets);
+    semaphores.reserve(numSemaphores);
+    for (uint32_t id = 0; id < numSemaphores; ++id) {
+      semaphores.push_back(
+          KernelSemaphoreAttr::get(ctx, id, KernelCoreType::Worker, coreRanges,
+                                   /*initial_value=*/0));
+    }
+  }
+
+  return ProgramAttr::get(ctx, kernels, *cbs, semaphores);
 }
 
 // Lower one `ttnn.tt_lang_op` to a `ttnn.generic`. Returns failure (with
