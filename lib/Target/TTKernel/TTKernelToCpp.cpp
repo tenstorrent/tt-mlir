@@ -45,12 +45,7 @@ namespace {
 class ScopedModuleHelper {
 public:
   ScopedModuleHelper(OpBuilder *builder, Location loc, Region *region,
-                     ThreadType threadType, StringRef originalSymbolName = "")
-      : builder(builder), loc(loc) {
-    if (!originalSymbolName.empty()) {
-      emitComment(originalSymbolName);
-    }
-
+                     ThreadType threadType) {
     std::set<llvm::StringRef> headers;
 
     // Baseline, always required.
@@ -232,10 +227,6 @@ public:
 
   ~ScopedModuleHelper() = default;
 
-  void emitComment(StringRef str) {
-    builder->create<emitc::VerbatimOp>(loc, (Twine("// ") + str).str());
-  }
-
   void emitLlk(const char *generated, unsigned int len) {
     llvm::StringRef snippet(generated, len);
     // Prevent duplicated emissions.
@@ -300,8 +291,6 @@ void dprint(Arg &&arg, ArgV&&... argv) {
   }
 
 private:
-  OpBuilder *builder;
-  Location loc;
   std::set<llvm::StringRef> emittedLlks;
   llvm::SmallVector<llvm::StringRef> llksToEmit;
 };
@@ -326,8 +315,7 @@ cloneEntryIntoStandaloneModule(func::FuncOp origEntry, ThreadType threadType) {
 
   Region *kernelMainRegion;
   {
-    ScopedModuleHelper threadConfigHelper(&builder, loc, region, threadType,
-                                          origEntry.getName());
+    ScopedModuleHelper threadConfigHelper(&builder, loc, region, threadType);
 
     // Clone 'region' into a new func op nested inside 'moduleWrapper':
     auto kernelMain = builder.create<func::FuncOp>(

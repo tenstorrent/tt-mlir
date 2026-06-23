@@ -78,14 +78,6 @@ struct SplitQKVRuleBook : OpRuleBook {
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
-/// PagedUpdateCache constraint: the fill-value (operand 1) must be L1
-/// height-sharded on a {numUsers, 1} virtual grid, where numUsers is the
-/// batch size (input1.shape[1]).
-struct PagedUpdateCacheRuleBook : OpRuleBook {
-  LayoutFilterFn getInputLayoutFilter(RankedTensorType inputType,
-                                      unsigned operandIdx) const override;
-};
-
 /// FillCache / PagedFillCache constraint: the cache buffer (operand 0) is
 /// modified in-place and must remain in DRAM interleaved storage. If the
 /// beam search picks an L1 layout, the optimizer inserts a to_memory_config

@@ -1047,6 +1047,30 @@ private:
     return "utils.DeviceGetter.get_device";
   }
 
+  // Emit a `fabric_config=...` keyword argument based on the
+  // device's `meshTopology`:
+  //   - Linear / Mesh  axes (no wraparound): `FABRIC_1D`.
+  //   - Ring   / Torus axes (wraparound):    `FABRIC_1D_RING`.
+  // Only 1D fabrics are set, matching the runtime classifier.
+  static std::optional<llvm::StringRef>
+  getFabricConfigExpression(mlir::Operation *op) {
+    auto deviceOp = ttcore::lookupDeviceOp(op);
+    if (!deviceOp) {
+      return std::nullopt;
+    }
+    auto deviceAttr = deviceOp.getDeviceAttr();
+    if (deviceAttr.getChipIds().size() <= 1) {
+      return llvm::StringRef("ttnn.FabricConfig.DISABLED");
+    }
+    bool anyAxisWraps =
+        llvm::any_of(deviceAttr.getMeshTopology(), [](ttcore::Topology t) {
+          return t == ttcore::Topology::Ring || t == ttcore::Topology::Torus;
+        });
+
+    return anyAxisWraps ? llvm::StringRef("ttnn.FabricConfig.FABRIC_1D_RING")
+                        : llvm::StringRef("ttnn.FabricConfig.FABRIC_1D");
+  }
+
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
       mlir::tt::ttnn::GetDeviceOp>::TTNNToEmitPyBaseOpConversionPattern;
@@ -1061,6 +1085,11 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(getDeviceOp.getMeshShapeAttr()),
     };
+
+    if (auto fabricConfigExpr = getFabricConfigExpression(getDeviceOp)) {
+      args.push_back(
+          emitter.emitExpression(*fabricConfigExpr, "fabric_config"));
+    }
 
     emitter.replaceOp(*this, args);
 
@@ -1604,7 +1633,6 @@ public:
         emitter.emit(srcOp.getDim()),
         emitter.emit(srcOp.getKeepDim()),
         emitter.emit(std::nullopt, "sub_core_grids"),
-        emitter.emit(srcOp.getUseMulticore(), "use_multicore"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
@@ -2020,6 +2048,8 @@ public:
         emitter.emit<
             std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
             srcOp.getPaddingAttr(), "padding"),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getOutputPaddingAttr(),
+                                              "output_padding"),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr(),
                                               "dilation"),
         emitter.emit(srcOp.getHasBias(), "has_bias"),
@@ -4593,6 +4623,55 @@ public:
 };
 } // namespace
 
+// ChunkedScaledDotProductAttentionOp conversion pattern
+//
+namespace {
+class ChunkedScaledDotProductAttentionOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::ChunkedScaledDotProductAttentionOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.chunked_scaled_dot_product_attention";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn.transformer.chunked_scaled_dot_product_attention";
+  }
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::ChunkedScaledDotProductAttentionOp>::
+      TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ChunkedScaledDotProductAttentionOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<
+        mlir::tt::ttnn::ChunkedScaledDotProductAttentionOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getQuery()),
+        emitter.emit(srcOp.getKey()),
+        emitter.emit(srcOp.getValue()),
+        emitter.emit(srcOp.getPageTable(), "page_table_tensor"),
+        emitter.emit(srcOp.getChunkStartIdx(), "chunk_start_idx_tensor"),
+        emitter.emit(srcOp.getScale(), "scale"),
+        emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
+        emitter.emit(srcOp.getProgramConfig(), "program_config"),
+    };
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // PagedFlashMultiLatentAttentionDecodeOp conversion pattern
 //
 namespace {
@@ -5489,6 +5568,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<ScaledDotProductAttentionDecodeOpConversionPattern>(
       typeConverter, ctx);
   patterns.add<PagedScaledDotProductAttentionDecodeOpConversionPattern>(
+      typeConverter, ctx);
+  patterns.add<ChunkedScaledDotProductAttentionOpConversionPattern>(
       typeConverter, ctx);
   patterns.add<PagedFlashMultiLatentAttentionDecodeOpConversionPattern>(
       typeConverter, ctx);

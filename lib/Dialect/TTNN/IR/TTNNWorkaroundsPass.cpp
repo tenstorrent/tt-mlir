@@ -489,9 +489,10 @@ TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(
 
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSamplingOpOperandsWorkarounds() {
-  // ttnn::sampling kernel requires ROW_MAJOR layout for index/param tensors
-  // and produces a ROW_MAJOR uint32 result (token indices). Declare these so
-  // the pass inserts to_layout/typecast ops to reconcile with neighbours.
+  // ttnn::sampling kernel requires ROW_MAJOR layout for index/param tensors,
+  // UINT32 dtype for k, and produces a ROW_MAJOR uint32 result (token
+  // indices). Declare these so the pass inserts to_layout / typecast ops to
+  // reconcile with neighbours.
   TTNNOperandWorkarounds empty;
   TTNNOperandWorkarounds rowMajor;
   rowMajor.tensorLayoutWorkaround = Layout::RowMajor;
@@ -503,7 +504,7 @@ TTNNOperandsWorkaroundsFactory::createSamplingOpOperandsWorkarounds() {
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(empty)            // input_values
       .addInputOperandWorkaround(rowMajor)         // input_indices
-      .addInputOperandWorkaround(rowMajor)         // k
+      .addInputOperandWorkaround(rowMajorUInt32)   // k
       .addInputOperandWorkaround(rowMajor)         // p
       .addInputOperandWorkaround(rowMajor)         // temp
       .addOutputOperandWorkaround(rowMajorUInt32); // result
@@ -1200,6 +1201,39 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
     operandsWorkaround =
         operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
   }
+
+  // Need no workaround for output tensor.
+  operandsWorkaround =
+      operandsWorkaround.addOutputOperandWorkaround(emptyWorkaround);
+
+  return operandsWorkaround;
+}
+
+// Factory method to create workarounds for
+// chunked_scaled_dot_product_attention op operands.
+// page_table and chunk_start_idx require ROW_MAJOR layout.
+TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
+    createChunkedScaledDotProductAttentionOpOperandsWorkarounds(Operation *op) {
+  TTNNOperandWorkarounds emptyWorkaround;
+  TTNNOperandWorkarounds rowMajorLayoutWorkaround;
+  rowMajorLayoutWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+
+  TTNNOperandsWorkarounds operandsWorkaround =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
+
+  // Query, key, and value need no workarounds.
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+
+  // page_table and chunk_start_idx require ROW_MAJOR layout.
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);
+  operandsWorkaround =
+      operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);
 
   // Need no workaround for output tensor.
   operandsWorkaround =

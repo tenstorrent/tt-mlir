@@ -183,7 +183,9 @@ def ConvertD2MToTTKernel: Pass<"convert-d2m-to-ttkernel", "::mlir::ModuleOp"> {
   let constructor = "createConvertD2MToTTKernelPass()";
   let dependentDialects = ["mlir::tt::d2m::D2MDialect", "mlir::tt::ttmetal::TTMetalDialect", "mlir::tt::ttkernel::TTKernelDialect", "mlir::arith::ArithDialect"];
   let options = [
-    Option<"ttnnMode", "ttnn-mode", "bool", /*default=*/"false", "Enable TTNN mode">
+    Option<"ttnnMode", "ttnn-mode", "bool", /*default=*/"false", "Enable TTNN mode">,
+    Option<"forceCompileTimeArgs", "force-compile-time-args", "bool", /*default=*/"false",
+           "Force uniform D2M kernel arguments into compile-time args when legal for CRTA performance comparison.">
   ];
 }
 

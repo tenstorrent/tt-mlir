@@ -4,7 +4,7 @@
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
 
 #include "ttmlir/Asserts.h"
-#include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
@@ -29,7 +29,6 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/StringSet.h"
-#include "llvm/Support/raw_ostream.h"
 
 #include <array>
 #include <functional>
@@ -487,7 +486,7 @@ public:
       return Builder(ctx).getI64Type();
     });
     addConversion([ctx](mlir::tt::ttkernel::CBType type) -> Type {
-      return Builder(ctx).getType<emitc::OpaqueType>("::tt::CB");
+      return IntegerType::get(ctx, 32, IntegerType::Unsigned);
     });
     addConversion([ctx](mlir::tt::ttkernel::LocalSemaphoreType type) -> Type {
       // Convert semaphore to an address type. (i32)
@@ -704,7 +703,7 @@ public:
   }
 
   static bool hasNonDefaultExpTileScale(IntegerAttr scaleAttr) {
-    constexpr uint32_t defaultScale = 0x3F80u; // 1.0 encoded for exp_tile().
+    constexpr uint32_t defaultScale = 0x3F800000u; // 1.0 encoded as fp32.
     return scaleAttr &&
            static_cast<uint32_t>(scaleAttr.getInt()) != defaultScale;
   }
@@ -983,11 +982,15 @@ public:
       }
       SmallVector<Attribute, 3> args;
       args.push_back(builder.getIndexAttr(0)); // idst (operand 0)
+      args.push_back(emitc::OpaqueAttr::get(op.getContext(), "VectorMode::RC"));
+      // The exp_tile runtime scale arg is uint16_t and must be the FP16b
+      // (bfloat16) encoding of the scale, i.e. the top 16 bits of the fp32 bit
+      // pattern. (exp_tile_init's scale template param is the full uint32 fp32
+      // bits, so that emission is handled separately.)
+      uint16_t scaleFp16b = static_cast<uint16_t>(
+          static_cast<uint32_t>(scaleAttr.getInt()) >> 16);
       args.push_back(
-          emitc::OpaqueAttr::get(op.getContext(), "(int)VectorMode::RC"));
-      args.push_back(emitc::OpaqueAttr::get(
-          op.getContext(),
-          std::to_string(static_cast<uint32_t>(scaleAttr.getInt()))));
+          emitc::OpaqueAttr::get(op.getContext(), std::to_string(scaleFp16b)));
       return ArrayAttr::get(op.getContext(), args);
     }
     return ArrayAttr();
@@ -1135,12 +1138,12 @@ public:
       return literal.getResult();
     }
 
+    const bool isCBArg = mlir::isa<ttkernel::CBType>(op.getResult().getType());
     auto call = rewriter.create<emitc::CallOpaqueOp>(
         op.getLoc(), resultType, getOpName(op), nullptr,
         getTemplateArgs(rewriter, op), adaptor.getOperands());
 
-    // Relay the preassigned CB runtime arg index.
-    if (mlir::isa<ttkernel::CBType>(op.getResult().getType())) {
+    if (isCBArg) {
       auto idxAttr =
           op->template getAttrOfType<IntegerAttr>("ttkernel.cb_arg_idx");
       assert(idxAttr && "CB runtime arg must have a stable lowering name");

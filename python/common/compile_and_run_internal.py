@@ -15,7 +15,6 @@ from ttmlir.passes import (
     ttmetal_to_flatbuffer_file,
     ttnn_to_flatbuffer_file,
 )
-from ttrt.common.util import Binary, FileManager, Logger
 
 from .compile_and_run_utils import *
 
@@ -125,9 +124,6 @@ def ttmetal_to_flatbuffer_file_worker(
         result_queue.put(TranslationProcessResult.error(str(e)))
 
 
-# ---------- Utility wrappers around ttrt ----------
-
-
 # ---------- Public API ----------
 
 
@@ -149,23 +145,17 @@ def run_compilation_process(
 def run_translation_process(
     worker_fn: Callable,
     worker_args_without_queue: Tuple = (),
-) -> Binary:
+) -> str:
     """
     Runs `worker_fn` (function doing some translation pass) in a separate process,
-    returns produced flatbuffer `Binary` instance if no errors happened, otherwise
+    returns path to produced flatbuffer file if no errors happened, otherwise
     raises RuntimeError.
     """
-
-    def create_binary_from_fb_file(fb_file_path: str) -> Binary:
-        logger = Logger()
-        file_manager = FileManager(logger)
-        return Binary(logger, file_manager, fb_file_path)
-
     process_manager = get_process_manager()
     result: TranslationProcessResult = process_manager.run(
         worker_fn, worker_args_without_queue
     )
-    return create_binary_from_fb_file(result.fb_file_path)
+    return result.fb_file_path
 
 
 def run_flatbuffer_execution_process(

@@ -1302,7 +1302,6 @@ public:
         emitter.emit(srcOp.getDim()),
         /*keepdim=*/emitter.emit(srcOp.getKeepDim()),
         /*sub_core_grids=*/emitter.emit(std::nullopt),
-        emitter.emit(srcOp.getUseMulticore()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
     };
 
@@ -1552,6 +1551,7 @@ public:
         emitter.emit<
             std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
             srcOp.getPaddingAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getOutputPaddingAttr()),
         emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getHasBias()),
         emitter.emit(srcOp.getGroups()),
@@ -3546,6 +3546,54 @@ public:
         emitter.emit(srcOp.getAttentionSink()),
         emitter.emit(srcOp.getScale()),
         emitter.emit(srcOp.getSlidingWindowSize()),
+        emitter.emit(srcOp.getMemoryConfig()),
+        emitter.emit(srcOp.getProgramConfig()),
+        emitter.emit(/*compute_kernel_config=*/std::nullopt),
+    };
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class ChunkedScaledDotProductAttentionOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::ChunkedScaledDotProductAttentionOp> {
+
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.chunked_scaled_dot_product_attention";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttnn::transformer::chunked_scaled_dot_product_attention";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::ChunkedScaledDotProductAttentionOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ChunkedScaledDotProductAttentionOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<
+        mlir::tt::ttnn::ChunkedScaledDotProductAttentionOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getQuery()),
+        emitter.emit(srcOp.getKey()),
+        emitter.emit(srcOp.getValue()),
+        emitter.emit(srcOp.getPageTable()),
+        emitter.emit(srcOp.getChunkStartIdx()),
+        emitter.emit(srcOp.getScale()),
         emitter.emit(srcOp.getMemoryConfig()),
         emitter.emit(srcOp.getProgramConfig()),
         emitter.emit(/*compute_kernel_config=*/std::nullopt),
@@ -5701,6 +5749,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<RotaryEmbeddingOpConversionPattern>(typeConverter, ctx);
   patterns.add<NLPConcatHeadsDecodeOpConversionPattern>(typeConverter, ctx);
   patterns.add<PagedScaledDotProductAttentionDecodeOpConversionPattern>(
+      typeConverter, ctx);
+  patterns.add<ChunkedScaledDotProductAttentionOpConversionPattern>(
       typeConverter, ctx);
   patterns.add<PagedFlashMultiLatentAttentionDecodeOpConversionPattern>(
       typeConverter, ctx);

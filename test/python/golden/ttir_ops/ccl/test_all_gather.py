@@ -27,10 +27,8 @@ pytestmark = pytest.mark.frontend("ttir")
         (32, 32),
         (32, 40),
         (40, 32),
-        pytest.param((1, 1, 32, 32, 32), marks=pytest.mark.xfail(reason="run error")),
-        pytest.param(
-            (1, 1, 1, 1, 1, 1, 32, 32, 32), marks=pytest.mark.xfail(reason="run error")
-        ),
+        (1, 1, 32, 32, 32),
+        (1, 1, 1, 1, 1, 1, 32, 32, 32),
     ],
     ids=shape_str,
 )

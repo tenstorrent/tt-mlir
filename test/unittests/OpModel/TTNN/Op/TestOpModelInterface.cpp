@@ -1212,7 +1212,7 @@ TEST_F(OpModelBase, ArgMaxOpInterface) {
 
   auto argMax =
       builder.create<ArgMaxOp>(builder.getUnknownLoc(), outputType, input,
-                               builder.getI32IntegerAttr(1), false, false);
+                               builder.getI32IntegerAttr(1), false);
 
   // getOutputLayout() hardcodes tiled L1 layout, so we cannot use it
   OpModel backend = dyn_cast<OpModel>(argMax.getOperation());
@@ -6833,6 +6833,75 @@ TEST_F(OpModelBase, SamplingOp) {
   } else {
     FAIL() << "Runtime test failed for SamplingOp; Error="
            << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+// Sentinel test: tt-metal's sampling kernel rejects num_users > 32. The
+// SamplingOp verifier in TTNNOps.cpp mirrors this with a hard-coded [1, 32]
+// check, which goes stale if the kernel limit ever relaxes. This test checks if
+// num_users=64 passes. It is expected to fail.
+// Bypass the verifier (OpBuilder::create does not verify) and query the kernel
+// directly via OpModel: a passing constraint query here means the limit has
+// been relaxed upstream and the verifier of the op needs to be updated. Once
+// the limitation has been removed, this test can be removed completely.
+TEST_F(OpModelBase, SamplingOpKernelLimitBatch64) {
+  const int64_t batch = 64; // intentionally above the kernel's 32-user limit
+  const int64_t candidates = 128;
+
+  llvm::SmallVector<int64_t> valuesShape = {batch, candidates};
+  llvm::SmallVector<int64_t> indicesShape = {batch, candidates};
+  llvm::SmallVector<int64_t> paramShape = {batch};
+  llvm::SmallVector<int64_t> outputShape = {batch};
+
+  llvm::SmallVector<int64_t> gridAttr{1, 1};
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  auto bf16TileType = ttcore::TileType::get(builder.getBF16Type());
+  auto bf16Type = builder.getBF16Type();
+  auto si32Type = builder.getIntegerType(32, true);
+  auto ui32Type = builder.getIntegerType(32, false);
+
+  auto makeDramLayout = [&](llvm::ArrayRef<int64_t> shape, mlir::Type elem) {
+    return TTNNLayoutAttr::Builder(&context, shape, elem)
+        .setBufferType(BufferType::DRAM)
+        .setMemoryLayout(tensorMemoryLayoutAttr)
+        .setGridShape(gridAttr)
+        .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+  };
+
+  auto valuesLayout = makeDramLayout(valuesShape, bf16TileType);
+  auto indicesLayout = makeDramLayout(indicesShape, si32Type);
+  auto kLayout = makeDramLayout(paramShape, ui32Type);
+  auto paramLayout = makeDramLayout(paramShape, bf16Type);
+  auto outputLayout = makeDramLayout(outputShape, si32Type);
+
+  auto inputValues = createEmptyTensor(valuesShape, bf16TileType, valuesLayout);
+  auto inputIndices = createEmptyTensor(indicesShape, si32Type, indicesLayout);
+  auto k = createEmptyTensor(paramShape, ui32Type, kLayout);
+  auto p = createEmptyTensor(paramShape, bf16Type, paramLayout);
+  auto temp = createEmptyTensor(paramShape, bf16Type, paramLayout);
+
+  auto outputType = createRankedTensorType(outputShape, si32Type, outputLayout);
+
+  // OpBuilder::create does NOT run op verify(), so the SamplingOp verifier's
+  // [1, 32] check is intentionally bypassed for this sentinel.
+  auto samplingOp =
+      builder.create<SamplingOp>(builder.getUnknownLoc(), outputType,
+                                 inputValues, inputIndices, k, p, temp,
+                                 /*seed=*/mlir::IntegerAttr{});
+  samplingOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(samplingOp.getOperation());
+  EXPECT_FALSE(static_cast<bool>(constraintsExp))
+      << "ttnn::sampling kernel accepted batch=64; the kernel's [1, 32] "
+         "num_users limit has been relaxed upstream. Update the verifier "
+         "in lib/Dialect/TTNN/IR/TTNNOps.cpp (SamplingOp::verify) to match, "
+         "and check sampling_device_operation.cpp for the new bound.";
+  if (!constraintsExp) {
+    // Swallow the expected error so the test runner doesn't treat it as
+    // an unhandled llvm::Error.
+    llvm::consumeError(constraintsExp.takeError());
   }
 }
 

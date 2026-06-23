@@ -13,9 +13,6 @@ from conftest import get_request_kwargs
 
 pytestmark = pytest.mark.frontend("ttir")
 
-# Needed as the default pipeline options set fp32_dest_acc_en=true.
-_PIPELINE_OPTIONS = ["compute-cfg-fp32-dest-acc-en=false"]
-
 
 def _matmul_module(in_lhs: torch.Tensor, in_rhs: torch.Tensor) -> Callable:
     lhs_shape = tuple(in_lhs.shape)
@@ -63,6 +60,7 @@ def test_bf16_matmul_compute_config_passes_pcc(k: int, pcc: float, request, devi
         **kwargs,
         target="ttnn",
         device=device,
-        pipeline_options=_PIPELINE_OPTIONS,
+        # Needed as the default pipeline options set fp32_dest_acc_en=true.
+        pipeline_options=["compute-cfg-fp32-dest-acc-en=false"],
         pcc=pcc,
     )
