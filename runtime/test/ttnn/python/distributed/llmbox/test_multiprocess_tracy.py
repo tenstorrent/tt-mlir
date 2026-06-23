@@ -29,6 +29,7 @@ RANK_BINDING_PATH = (
     "/tests/tt_metal/distributed/config/2x4_multiprocess_rank_bindings.yaml"
 )
 
+
 def _tracy_tool_names():
     try:
         from tracy.common import TRACY_CAPTURE_TOOL, TRACY_CSVEXPROT_TOOL
