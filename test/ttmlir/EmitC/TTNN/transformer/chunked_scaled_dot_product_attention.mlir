@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-common-pipeline="enable-cpu-hoisted-const-eval=false system-desc-path=%system_desc_path%" %s > %t.mlir
+// RUN: ttmlir-opt --ttir-to-ttnn-common-pipeline="enable-cpu-hoisted-const-eval=false system-desc-path=%system_desc_path% composite-resolution=force-promote" %s > %t.mlir
 //
 // RUN: ttmlir-opt --ttnn-common-to-runtime-pipeline %t.mlir > %t_rt.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer %t_rt.mlir > %basename_t.ttnn
