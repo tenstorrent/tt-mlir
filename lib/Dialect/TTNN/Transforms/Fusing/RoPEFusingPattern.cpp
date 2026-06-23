@@ -1128,4 +1128,326 @@ RoPEDecodeFusing::matchAndRewrite(PermuteOp permuteOp,
   return success();
 }
 
+// =============================================================================
+// DecodeRoPELayoutOptimization
+// =============================================================================
+
+mlir::LogicalResult DecodeRoPELayoutOptimization::matchAndRewrite(
+    RotaryEmbeddingOp ropeOp, mlir::PatternRewriter &rewriter) const {
+  // Already in decode mode (token_index set) — nothing to do.
+  if (ropeOp.getTokenIndex()) {
+    return failure();
+  }
+
+  // Input must be rank 4 with S dim (dim 2) == 1 (decode mode).
+  auto inputType = mlir::cast<RankedTensorType>(ropeOp.getInput().getType());
+  if (inputType.getRank() != 4 || inputType.getShape()[2] != 1) {
+    return failure();
+  }
+
+  // cos/sin must be single-position (dim -2 == 1).
+  auto cosType = mlir::cast<RankedTensorType>(ropeOp.getCosCache().getType());
+  if (cosType.getShape()[cosType.getRank() - 2] != 1) {
+    return failure();
+  }
+
+  // Check that there is no downstream permute {2,0,1,3} — if there is,
+  // the existing RoPEDecodeFusing pattern should handle it instead.
+  for (Operation *user : ropeOp.getResult().getUsers()) {
+    if (auto permuteUser = dyn_cast<PermuteOp>(user)) {
+      auto perm = permuteUser.getPermutation();
+      if (perm.size() == 4 && perm[0] == 2) {
+        return failure();
+      }
+    }
+  }
+
+  // Permutation: BHSD -> SBHD  (move S=1 to front).
+  SmallVector<int64_t, 4> fwdPerm = {2, 0, 1, 3};
+
+  // Create pre-permute. Build type manually since TTNN layout encoding
+  // may not be assigned yet at fusing time.
+  auto inShape = inputType.getShape();
+  SmallVector<int64_t> preShape =
+      ttmlir::utils::applyPermutation(inShape, fwdPerm);
+  auto preType = RankedTensorType::get(preShape, inputType.getElementType(),
+                                       inputType.getEncoding());
+  auto prePermute = rewriter.create<PermuteOp>(
+      ropeOp.getLoc(), preType, ropeOp.getInput(),
+      rewriter.getDenseI64ArrayAttr(fwdPerm), mlir::FloatAttr());
+
+  auto tokenIndex = rewriter.getIntegerAttr(
+      rewriter.getIntegerType(32, /*isSigned=*/false), 0);
+
+  auto newRope = rewriter.create<RotaryEmbeddingOp>(
+      ropeOp.getLoc(), prePermute.getType(), prePermute.getResult(),
+      ropeOp.getCosCache(), ropeOp.getSinCache(), tokenIndex,
+      ropeOp.getComputeConfigAttr());
+
+  // Validate the fused op if layout attributes are available.
+  auto resultType = mlir::cast<RankedTensorType>(newRope.getType());
+  if (auto layoutAttr =
+          mlir::dyn_cast_or_null<TTNNLayoutAttr>(resultType.getEncoding())) {
+    op_model::ScopedSingletonDeviceGuard deviceGuard(ropeOp.getOperation());
+    std::vector<TTNNLayoutAttr> inputLayouts =
+        utils::extractInputLayouts(newRope.getOperation());
+    OpConfig config(layoutAttr);
+    auto validationResult = op_constraint_validation::validateOperation(
+        newRope.getOperation(), inputLayouts, config);
+
+    if (!validationResult.isSuccess()) {
+      auto workaround =
+          workarounds::decomposition::getWorkaroundedOp(newRope, rewriter);
+      if (workaround) {
+        auto paddedOp = workaround->first;
+        auto sliceOp = workaround->second;
+        inputLayouts = utils::extractInputLayouts(paddedOp.getOperation());
+        auto paddedType = mlir::cast<RankedTensorType>(paddedOp.getType());
+        OpConfig paddedConfig(
+            mlir::cast<TTNNLayoutAttr>(paddedType.getEncoding()));
+        validationResult = op_constraint_validation::validateOperation(
+            paddedOp.getOperation(), inputLayouts, paddedConfig);
+        rewriter.eraseOp(sliceOp);
+        rewriter.eraseOp(paddedOp);
+      }
+
+      if (!validationResult.isSuccess()) {
+        rewriter.eraseOp(newRope);
+        rewriter.eraseOp(prePermute);
+        return failure();
+      }
+    }
+  }
+
+  // Inverse permutation: SBHD -> BHSD.
+  SmallVector<int64_t, 4> invPerm = {1, 2, 0, 3};
+  auto postPermute = ttir_to_ttnn::utils::generatePermute(
+      mlir::cast<TypedValue<RankedTensorType>>(newRope.getResult()),
+      llvm::ArrayRef(invPerm), rewriter, ropeOp.getLoc());
+  rewriter.replaceOp(ropeOp, postPermute.getResult());
+  return success();
+}
+
+// =============================================================================
+// DecodePartialRoPELayoutOptimization
+// =============================================================================
+
+// Helper: check if a SliceStaticOp is a last-dim prefix slice [0:R].
+// Returns R if it is, or -1 if not.
+static int64_t getLastDimPrefixSliceEnd(SliceStaticOp sliceOp) {
+  auto inputType = mlir::cast<RankedTensorType>(sliceOp.getInput().getType());
+  int64_t rank = inputType.getRank();
+  auto begins = sliceOp.getBegins();
+  auto ends = sliceOp.getEnds();
+  auto steps = sliceOp.getStep();
+
+  for (int64_t i = 0; i < rank; ++i) {
+    auto begin = mlir::cast<IntegerAttr>(begins[i]).getInt();
+    auto end = mlir::cast<IntegerAttr>(ends[i]).getInt();
+    auto step = mlir::cast<IntegerAttr>(steps[i]).getInt();
+    if (step != 1) {
+      return -1;
+    }
+    if (i < rank - 1) {
+      // Non-last dims must be identity slices.
+      if (begin != 0 || end != inputType.getShape()[i]) {
+        return -1;
+      }
+    }
+  }
+  auto lastBegin = mlir::cast<IntegerAttr>(begins[rank - 1]).getInt();
+  auto lastEnd = mlir::cast<IntegerAttr>(ends[rank - 1]).getInt();
+  if (lastBegin != 0) {
+    return -1;
+  }
+  return lastEnd;
+}
+
+// Helper: check if a SliceStaticOp is a last-dim suffix slice [R:D].
+// Returns R if it is, or -1 if not.
+static int64_t getLastDimSuffixSliceBegin(SliceStaticOp sliceOp) {
+  auto inputType = mlir::cast<RankedTensorType>(sliceOp.getInput().getType());
+  int64_t rank = inputType.getRank();
+  auto begins = sliceOp.getBegins();
+  auto ends = sliceOp.getEnds();
+  auto steps = sliceOp.getStep();
+
+  for (int64_t i = 0; i < rank; ++i) {
+    auto begin = mlir::cast<IntegerAttr>(begins[i]).getInt();
+    auto end = mlir::cast<IntegerAttr>(ends[i]).getInt();
+    auto step = mlir::cast<IntegerAttr>(steps[i]).getInt();
+    if (step != 1) {
+      return -1;
+    }
+    if (i < rank - 1) {
+      if (begin != 0 || end != inputType.getShape()[i]) {
+        return -1;
+      }
+    }
+  }
+  auto lastEnd = mlir::cast<IntegerAttr>(ends[rank - 1]).getInt();
+  if (lastEnd != inputType.getShape()[rank - 1]) {
+    return -1;
+  }
+  auto lastBegin = mlir::cast<IntegerAttr>(begins[rank - 1]).getInt();
+  return lastBegin;
+}
+
+mlir::LogicalResult DecodePartialRoPELayoutOptimization::matchAndRewrite(
+    ConcatOp concatOp, mlir::PatternRewriter &rewriter) const {
+  // Must concat on the last dimension with exactly 2 operands.
+  auto resultType = mlir::cast<RankedTensorType>(concatOp.getType());
+  if (resultType.getRank() != 4) {
+    return failure();
+  }
+  if (concatOp.getDim() != resultType.getRank() - 1) {
+    return failure();
+  }
+  if (concatOp.getNumOperands() != 2) {
+    return failure();
+  }
+
+  // Decode mode: dim2 (sequence) must be 1.
+  if (resultType.getShape()[2] != 1) {
+    return failure();
+  }
+
+  // First operand must be a RotaryEmbeddingOp (the rotated prefix).
+  auto ropeOp =
+      concatOp.getOperand(0).getDefiningOp<RotaryEmbeddingOp>();
+  if (!ropeOp) {
+    return failure();
+  }
+
+  // RoPE must not already be in decode mode.
+  if (ropeOp.getTokenIndex()) {
+    return failure();
+  }
+
+  // RoPE result must only feed into this concat.
+  if (!ropeOp.getResult().hasOneUse()) {
+    return failure();
+  }
+
+  // RoPE input must be a prefix slice of some source tensor.
+  auto rotarySlice =
+      ropeOp.getInput().getDefiningOp<SliceStaticOp>();
+  if (!rotarySlice) {
+    return failure();
+  }
+  int64_t rotaryDim = getLastDimPrefixSliceEnd(rotarySlice);
+  if (rotaryDim < 0) {
+    return failure();
+  }
+
+  // Second operand must be a suffix slice of the SAME source tensor.
+  auto passSlice =
+      concatOp.getOperand(1).getDefiningOp<SliceStaticOp>();
+  if (!passSlice) {
+    return failure();
+  }
+  int64_t passDimBegin = getLastDimSuffixSliceBegin(passSlice);
+  if (passDimBegin != rotaryDim) {
+    return failure();
+  }
+
+  // Both slices must come from the same source.
+  Value source = rotarySlice.getInput();
+  if (passSlice.getInput() != source) {
+    return failure();
+  }
+
+  // Source must be rank 4 with dim2=1.
+  auto sourceType = mlir::cast<RankedTensorType>(source.getType());
+  if (sourceType.getRank() != 4 || sourceType.getShape()[2] != 1) {
+    return failure();
+  }
+
+  // cos/sin must be single-position (dim -2 == 1).
+  auto cosType =
+      mlir::cast<RankedTensorType>(ropeOp.getCosCache().getType());
+  if (cosType.getShape()[cosType.getRank() - 2] != 1) {
+    return failure();
+  }
+
+  // Permute the source from [B,H,1,D] to [1,B,H,D].
+  SmallVector<int64_t, 4> fwdPerm = {2, 0, 1, 3};
+  SmallVector<int64_t> permSrcShape =
+      ttmlir::utils::applyPermutation(sourceType.getShape(), fwdPerm);
+  auto permSrcType = RankedTensorType::get(
+      permSrcShape, sourceType.getElementType(), sourceType.getEncoding());
+  auto sourcePermuted = rewriter.create<PermuteOp>(
+      concatOp.getLoc(), permSrcType, source,
+      rewriter.getDenseI64ArrayAttr(fwdPerm), mlir::FloatAttr());
+
+  // Recreate the prefix slice on the permuted source.
+  auto permSourceType =
+      mlir::cast<RankedTensorType>(sourcePermuted.getType());
+  int64_t permRank = permSourceType.getRank();
+  SmallVector<int32_t> newRotaryBegins(permRank, 0);
+  SmallVector<int32_t> newRotaryEnds;
+  for (int64_t i = 0; i < permRank; ++i) {
+    newRotaryEnds.push_back(
+        i < permRank - 1 ? permSourceType.getShape()[i] : rotaryDim);
+  }
+  SmallVector<int32_t> newSteps(permRank, 1);
+  SmallVector<int64_t> newRotaryShape(permSourceType.getShape());
+  newRotaryShape.back() = rotaryDim;
+  auto newRotaryType = RankedTensorType::get(
+      newRotaryShape, permSourceType.getElementType(),
+      permSourceType.getEncoding());
+  auto newRotarySlice = rewriter.create<SliceStaticOp>(
+      rotarySlice.getLoc(), newRotaryType, sourcePermuted.getResult(),
+      rewriter.getI32ArrayAttr(newRotaryBegins),
+      rewriter.getI32ArrayAttr(newRotaryEnds),
+      rewriter.getI32ArrayAttr(newSteps));
+
+  // Create RoPE on the permuted, sliced input with token_index=0.
+  auto tokenIndex = rewriter.getIntegerAttr(
+      rewriter.getIntegerType(32, /*isSigned=*/false), 0);
+  auto newRope = rewriter.create<RotaryEmbeddingOp>(
+      ropeOp.getLoc(), newRotaryType, newRotarySlice.getResult(),
+      ropeOp.getCosCache(), ropeOp.getSinCache(), tokenIndex,
+      ropeOp.getComputeConfigAttr());
+
+  // Recreate the suffix slice on the permuted source.
+  SmallVector<int32_t> newPassBegins(permRank, 0);
+  newPassBegins.back() = rotaryDim;
+  SmallVector<int32_t> newPassEnds;
+  for (int64_t i = 0; i < permRank; ++i) {
+    newPassEnds.push_back(permSourceType.getShape()[i]);
+  }
+  SmallVector<int64_t> newPassShape(permSourceType.getShape());
+  newPassShape.back() = permSourceType.getShape().back() - rotaryDim;
+  auto newPassType = RankedTensorType::get(
+      newPassShape, permSourceType.getElementType(),
+      permSourceType.getEncoding());
+  auto newPassSlice = rewriter.create<SliceStaticOp>(
+      passSlice.getLoc(), newPassType, sourcePermuted.getResult(),
+      rewriter.getI32ArrayAttr(newPassBegins),
+      rewriter.getI32ArrayAttr(newPassEnds),
+      rewriter.getI32ArrayAttr(newSteps));
+
+  // Concat the rotated prefix and passthrough suffix on the permuted layout.
+  auto newConcatType = RankedTensorType::get(
+      permSourceType.getShape(), permSourceType.getElementType(),
+      permSourceType.getEncoding());
+  auto newConcat = rewriter.create<ConcatOp>(
+      concatOp.getLoc(), newConcatType,
+      ValueRange{newRope.getResult(), newPassSlice.getResult()},
+      rewriter.getSI32IntegerAttr(permRank - 1));
+
+  // Permute back from [1,B,H,D] to [B,H,1,D].
+  SmallVector<int64_t, 4> invPerm = {1, 2, 0, 3};
+  auto newConcatType2 = mlir::cast<RankedTensorType>(newConcat.getType());
+  SmallVector<int64_t> postShape =
+      ttmlir::utils::applyPermutation(newConcatType2.getShape(), invPerm);
+  auto postPermute = ttir_to_ttnn::utils::generatePermute(
+      mlir::cast<TypedValue<RankedTensorType>>(newConcat.getResult()),
+      llvm::ArrayRef(invPerm), rewriter, concatOp.getLoc());
+
+  rewriter.replaceOp(concatOp, postPermute.getResult());
+  return success();
+}
+
 } // namespace mlir::tt::ttnn::fusing

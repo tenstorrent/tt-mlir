@@ -346,6 +346,11 @@ public:
     }
 #endif // TTMLIR_ENABLE_OPMODEL
 
+    // Decode-mode layout optimizations for RoPE. Run at all optimization levels.
+    // TODO: Enable after fixing PermuteOp fold type mismatch
+    // patterns.add<fusing::DecodeRoPELayoutOptimization>(&getContext());
+    // patterns.add<fusing::DecodePartialRoPELayoutOptimization>(&getContext());
+
     // Add TypecastOp canonicalization patterns to fold consecutive typecasts
     // (e.g. bf16->f32->bf16) that appear after SDPA fusing, enabling
     // patterns like NLPConcatHeadsDecodeFusing to match cleanly.

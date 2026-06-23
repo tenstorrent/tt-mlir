@@ -37,6 +37,14 @@ static std::optional<Value> matchSelfConcatLastDim(Value value) {
 LogicalResult RotaryEmbeddingDecompositionRewritePattern::matchAndRewrite(
     ttnn::RotaryEmbeddingOp ropeOp, PatternRewriter &rewriter) const {
 
+  // Don't decompose decode-mode RoPE (token_index set). These are
+  // intentionally created by DecodeRoPELayoutOptimization and should be
+  // preserved for efficient decode execution.
+  if (ropeOp.getTokenIndex()) {
+    return failure();
+  }
+
+
   auto inputType = mlir::cast<RankedTensorType>(ropeOp.getInput().getType());
   auto resultType = mlir::cast<RankedTensorType>(ropeOp.getResult().getType());
 
