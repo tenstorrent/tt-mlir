@@ -935,8 +935,7 @@ def D2MDecomposeTopk : Pass<"d2m-decompose-topk", "::mlir::ModuleOp"> {
     rebuild.
 
     The decomposition:
-    1. Allocate scratch buffers for intermediate results (buf_idx,
-       sorted_vals, sorted_idx, merged_vals, merged_idx)
+    1. Allocate an index scratch buffer (buf_idx)
     2. Generate initial indices via arange_block
     3. Bitonic sort each tile independently via tile_topk_local_sort
     4. Merge sorted tile pairs to find top-K via tile_topk_merge

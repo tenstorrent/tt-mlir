@@ -3609,6 +3609,7 @@ public:
     auto indicesType = cast<RankedTensorType>(op.getIndices().getType());
 
     int32_t k = op.getK();
+    assert(k <= 64 && "D2M topk only supports k <= 64");
     int32_t dim = op.getDim();
     int64_t rank = inputType.getRank();
     if (dim < 0) {
@@ -3644,6 +3645,16 @@ public:
     }
 
     int64_t numReductionTiles = (dim == 1) ? wt : ht;
+    if (numReductionTiles < 2) {
+      return rewriter.notifyMatchFailure(
+          op,
+          "D2M topk requires at least 2 tiles along the reduction dimension");
+    }
+    auto isPowerOfTwo = [](int64_t x) { return x > 0 && (x & (x - 1)) == 0; };
+    if (!isPowerOfTwo(numReductionTiles)) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M topk requires reduction dim tile count to be a power of 2");
+    }
     int64_t lastStride =
         numReductionTiles / 2; // final loser tile after tree reduction
 
