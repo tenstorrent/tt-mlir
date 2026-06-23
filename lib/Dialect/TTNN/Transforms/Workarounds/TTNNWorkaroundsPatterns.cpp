@@ -699,9 +699,10 @@ public:
       }
 
       // PagedUpdateCacheOpRewritePattern is only needed below opt-level 2.
-      // At level >= 2 the greedy sharding optimizer (PagedUpdateCacheRuleBook
-      // constraint sink) drives the upstream producer to L1 height-sharded
-      // and inserts a proper ToMemoryConfigOp via beam search.
+      // At level >= 2 the greedy sharding optimizer drives the upstream
+      // producer to L1 height-sharded and inserts a proper ToMemoryConfigOp
+      // via beam search: metal's own grid TT_FATAL (tt-metal #45016) makes the
+      // constraint query reject any other operand-1 layout.
       if (optimizationLevel < 2) {
         patterns
             .add<workarounds::decomposition::PagedUpdateCacheOpRewritePattern>(
