@@ -1857,8 +1857,18 @@ bool RemoteStoreOp::bufferizesToMemoryRead(
 
 bool RemoteStoreOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  // The memref operand is written to
-  return operand.get() == getMemref();
+  if (operand.get() != getMemref()) {
+    return false;
+  }
+  // A cross-device store (startDevice set) writes a REMOTE device's buffer; the
+  // local memref operand is only the fabric destination address (the local recv
+  // side is written externally by peers, ordered via semaphores). Modeling it as
+  // a local write creates a false read+write conflict when the same operand is
+  // also read back in-kernel (the reduce_scatter accumulate-on-receive pattern),
+  // forcing one-shot-bufferize to copy the store out-of-place into a fresh
+  // buffer that drops the #ttcore.shard device layout. Only a LOCAL store
+  // (no startDevice) writes the local buffer.
+  return getStartDevice().empty();
 }
 
 mlir::bufferization::AliasingValueList
