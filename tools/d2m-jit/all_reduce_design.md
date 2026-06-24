@@ -401,3 +401,37 @@ emits NO `noc_async_read` for the recv, and the result is correct), then 3b (the
 This is a focused multi-file op-implementation effort; the foundation (recv as an
 input operand, cross-device store into it) and the precise lowering shape are now
 pinned, so it can be built directly against this plan.
+
+### Step 1 build status (2026-06-24)
+
+Parts 1-3 are committed and compile (additive; existing all_gather / fused-matmul
+/ matmul suites still pass):
+- **Part 1** (`da8adf193`): `d2m.fabric_recv` op (verifier, BufferizableOpInterface,
+  ShardDMA/Synchronizable interfaces).
+- **Part 2** (`5dd2e2cba`): split-v2 recognition -- convert to explicit-CB form on
+  the memref operand's own CB; `CBComputeInfo.dmRecv` makes it an input-CB producer
+  (compute gets wait/pop).
+- **Part 3** (`9ce8a90ca`): `LowerLoadStoreOpsToDMA` reserve+push (no `dma_read`);
+  `api.py` `fabric_recv` primitive; bufferize exposes the shard via
+  `memref.reinterpret_cast`; split-v2 view-walk follows `reinterpret_cast`.
+
+**Milestone 3a is NOT green yet — one blocker.** The bufferized
+`memref.reinterpret_cast` of the `#ttcore.shard` recv operand survives to
+`D2MToTTKernel`, which fails to legalize it (source still the `#shard` operand --
+the view wasn't rewired to recv's CB nor erased by split). Root issue: `#shard`
+operands aren't memref-viewable (subview's stride inference asserts;
+reinterpret_cast lowers nowhere), and `remote_load` only sidesteps this by
+copying. Repro: `test/d2m-jit/_m3a.py` (1-step recv via `fabric_recv`).
+
+**Next options to unblock 3a:**
+1. In split-v2, after the input-CB rewiring, ensure the recv view (reinterpret_cast)
+   is rewired to / replaced by the CB wait result and erased on BOTH threads (the
+   dead DM-side clone currently survives) -- then the compute reads the CB directly
+   and no reinterpret_cast reaches D2MToTTKernel.
+2. Or add a `D2MToTTKernel` rewriter for `memref.reinterpret_cast` of a CB
+   (resolve to the CB read pointer, like `MemRefSubviewRewriter`).
+3. Or a shard-exposure mechanism that doesn't emit a memref view at all (let
+   split-v2 map the fabric_recv result directly to `getOrCreateCB(recv)` without a
+   bufferize-time view).
+Option 1 or 3 is cleanest (no new conversion surface); the grid-[N,1] dynamic
+recv-slot offset (currently hardcoded 0) is a separate follow-up after 3a.
