@@ -1369,6 +1369,15 @@ public:
         addOp.getLoc(), linearOutputType, matmulOp.getA(), matmulOp.getB(),
         bias, matmulOp.getTransposeA(), matmulOp.getTransposeB());
 
+    // Carry over the per-tensor weight dtype override (lifted from
+    // tt.weight_dtype_override) so it survives the matmul->linear rewrite.
+    // Without this, weights followed by a residual add (e.g. o_proj,
+    // down_proj) silently fall back to the global weight dtype.
+    if (auto weightDtype =
+            matmulOp->getAttrOfType<mlir::StringAttr>("ttcore.weight_dtype")) {
+      linearOp->setAttr("ttcore.weight_dtype", weightDtype);
+    }
+
     Value result = linearOp.getResult();
 
     if (!llvm::equal(broadcastShape, addOutputShape)) {
@@ -2854,16 +2863,27 @@ public:
     bool newTransposeB =
         inputBCanonical ? !op.getTransposeB() : op.getTransposeB();
 
+    // Preserve the per-tensor weight dtype override across the rewrite (read
+    // before the op is erased). Without this, weights whose permute is fused
+    // into the matmul would fall back to the global weight dtype.
+    auto weightDtype =
+        op->template getAttrOfType<mlir::StringAttr>("ttcore.weight_dtype");
+
+    mlir::Operation *newOp;
     if constexpr (std::is_same_v<OpType, MatmulOp>) {
-      rewriter.replaceOpWithNewOp<MatmulOp>(op, op.getType(), newA, newB,
-                                            newTransposeA, newTransposeB);
+      newOp = rewriter.replaceOpWithNewOp<MatmulOp>(
+          op, op.getType(), newA, newB, newTransposeA, newTransposeB);
     } else if constexpr (std::is_same_v<OpType, LinearOp>) {
-      rewriter.replaceOpWithNewOp<LinearOp>(op, op.getType(), newA, newB,
-                                            op.getBias(), newTransposeA,
-                                            newTransposeB);
+      newOp = rewriter.replaceOpWithNewOp<LinearOp>(
+          op, op.getType(), newA, newB, op.getBias(), newTransposeA,
+          newTransposeB);
     } else {
       static_assert(ttmlir::utils::always_false<OpType>(),
                     "Unsupported OpType for PermuteMatmulFusionPattern");
+    }
+
+    if (weightDtype) {
+      newOp->setAttr("ttcore.weight_dtype", weightDtype);
     }
 
     return mlir::success();
