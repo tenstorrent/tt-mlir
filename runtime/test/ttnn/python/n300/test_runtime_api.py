@@ -33,7 +33,12 @@ from ..utils import DeviceContext, assert_pcc
 )
 @pytest.mark.parametrize(
     "trace_region_size",
-    [0, 1024, 2048],
+    # tt-metal #47122 changed trace_region_size from per-DRAM-bank reservation to a
+    # total trace budget across all banks. get_trace_region_size() reports the total
+    # physically reserved TRACE DRAM (num_banks * per_bank_size), not the per-bank
+    # pool size. On Wormhole N300 (12 DRAM banks, 32-byte alignment) use multiples of
+    # 384 so reserved total matches the requested budget in the assertion below.
+    [0, 768, 1536],
 )
 def test_open_mesh_device(
     helper,
