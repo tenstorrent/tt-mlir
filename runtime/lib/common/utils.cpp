@@ -311,19 +311,11 @@ void handleBufferCast(const void *oldBuffer, void *newBuffer,
         static_cast<uint64_t *>(newBuffer), numElements);
   } else if (oldDataType == tt::target::DataType::UInt32 &&
              newDataType == tt::target::DataType::Int64) {
-    // ttnn ops such as argmax return UInt32 indices, but the host (e.g. torch)
-    // expects Int64. Int64's supported alias is Int32, so the readback path
-    // accepts a UInt32 source for an Int64 destination (see memcpy in
-    // runtime.cpp). Zero-extend into the 64-bit signed buffer; index values
-    // are non-negative so the value is preserved.
     detail::handleIntegerBufferCast<uint32_t, int64_t>(
         static_cast<const uint32_t *>(oldBuffer),
         static_cast<int64_t *>(newBuffer), numElements);
   } else if (oldDataType == tt::target::DataType::Int32 &&
              newDataType == tt::target::DataType::UInt64) {
-    // Symmetric to the UInt32 -> Int64 case: the same-width-integer readback
-    // relaxation also accepts an Int32 source for a UInt64 destination
-    // (UInt64's supported alias is UInt32).
     detail::handleIntegerBufferCast<int32_t, uint64_t>(
         static_cast<const int32_t *>(oldBuffer),
         static_cast<uint64_t *>(newBuffer), numElements);
