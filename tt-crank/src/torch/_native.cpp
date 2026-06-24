@@ -28,6 +28,7 @@
 #include "torch/ops/fallback.hpp"
 #include "torch/tensor.hpp"
 #include "torch/ttir_module_builder.hpp"
+#include <ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h>
 
 namespace nb = nanobind;
 using namespace nb::literals; // for `"name"_a` argument literals
@@ -40,7 +41,9 @@ namespace {
 // after compile() raise — the underlying MLIR module has been moved out.
 class PyModuleBuilder {
 public:
-    explicit PyModuleBuilder(std::vector<tk::TensorTypeSpec> specs) : mb_(tk::ModuleBuilder::init(specs)) {}
+    explicit PyModuleBuilder(std::vector<tk::TensorTypeSpec> specs,
+                             const std::vector<mlir::tt::ttcore::ArgumentType> &argument_roles = {})
+        : mb_(tk::ModuleBuilder::init(specs, argument_roles)) {}
 
     PyModuleBuilder(PyModuleBuilder &&) = default;
     PyModuleBuilder &operator=(PyModuleBuilder &&) = default;
@@ -529,6 +532,11 @@ NB_MODULE(_native, m) {
         .value("Bool", ::tt::target::DataType::Bool)
         .value("UInt8", ::tt::target::DataType::UInt8);
 
+    nb::enum_<mlir::tt::ttcore::ArgumentType>(m, "ArgumentType")
+        .value("Input", mlir::tt::ttcore::ArgumentType::Input)
+        .value("Parameter", mlir::tt::ttcore::ArgumentType::Parameter)
+        .value("Constant", mlir::tt::ttcore::ArgumentType::Constant);
+
     nb::class_<tk::TensorTypeSpec>(m, "TensorTypeSpec")
         .def(
             "__init__",
@@ -543,7 +551,8 @@ NB_MODULE(_native, m) {
     nb::class_<mlir::Value>(m, "Value");
 
     nb::class_<PyModuleBuilder>(m, "ModuleBuilder")
-        .def(nb::init<std::vector<tk::TensorTypeSpec>>(), "input_specs"_a)
+        .def(nb::init<std::vector<tk::TensorTypeSpec>, const std::vector<mlir::tt::ttcore::ArgumentType> &>(),
+             "input_specs"_a, "argument_roles"_a = std::vector<mlir::tt::ttcore::ArgumentType>{})
         .def("arg", &PyModuleBuilder::arg, "index"_a)
         .def("add", &PyModuleBuilder::add, "lhs"_a, "rhs"_a, "alpha"_a = 1.0)
         .def("sub", &PyModuleBuilder::sub, "lhs"_a, "rhs"_a, "alpha"_a = 1.0)

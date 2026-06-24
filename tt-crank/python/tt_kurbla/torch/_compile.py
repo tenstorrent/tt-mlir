@@ -9,10 +9,10 @@ Pipeline::
 
     torch.compile(model, backend="tt")
       -> dynamo trace
-      -> aot_module_simplified
-      -> _fw_compiler: torch.fx.Interpreter walks the post-aot FX graph,
-                       dispatching each call_function to a decorator-registered
-                       lowering that emits TTIR via _native.ModuleBuilder
+      -> aot_module_simplified (fw_compiler + bw_compiler)
+      -> _lower_and_compile: torch.fx.Interpreter walks the post-aot FX graph,
+                             dispatching each call_function to a decorator-registered
+                             lowering that emits TTIR via _native.ModuleBuilder
       -> _native.ModuleBuilder.compile() produces a CompiledProgram
       -> runner(*inputs) -> _native.run_program(...)
 """
@@ -509,6 +509,40 @@ def _prepare_op_args(
 
     return tuple(out)
 
+def _fw_args_roles(num_inputs: int, fw_meta) -> list["_native.ArgumentType"]:
+    """Tags the forward graph's lifted weight/buffer args ``Parameter``.
+
+    aot_module_simplified lifts module params/buffers as leading graph args; their
+    indices are in fw_metadata.static_input_indices and align 1:1 with the forward
+    placeholders. Tagging them ``Parameter`` lets tt-mlir's const-eval hoist fold
+    weight-only subgraphs - the compiler does its own per-function dataflow over
+    these args, so only the args (not interior nodes) need marking. Graph-mutated
+    args (e.g. KV caches written via index_copy_) stay ``Input``: freezing them
+    would serve stale values.
+    """
+    roles = [_native.ArgumentType.Input] * num_inputs
+    if fw_meta is None:
+        return roles
+    mutated = {i for i, info in enumerate(fw_meta.input_info) if info.mutates_data}
+    for i in fw_meta.static_input_indices:
+        if i < num_inputs and i not in mutated:
+            roles[i] = _native.ArgumentType.Parameter
+    return roles
+
+def _bw_args_roles(num_inputs: int) -> list["_native.ArgumentType"]:
+    """Tags the backward graph's args as ``Input``.
+
+    aot_module_simplified runs the backward compile under the *forward* tracing context,
+    so the only metadata available describes forward inputs, not the backward graph's
+    own inputs (saved values + tangents).
+
+    More fundamentally, const-eval pays off only when a weight-derived value is
+    stable across calls - but in training the optimizer re-versions every weight
+    each step, so weight-derived backward const-eval entries are written then
+    invalidated before they are read (~zero benefit), and any mis-tag there is the
+    one path to a stale-gradient wrong result. So we don't tag it.
+    """
+    return [_native.ArgumentType.Input] * num_inputs
 
 class _TTIRInterpreter(torch.fx.Interpreter):
     """Walks the post-aot FX graph, dispatching each call_function to its
@@ -549,16 +583,20 @@ class _TTIRInterpreter(torch.fx.Interpreter):
         return self._call_operator(target, args, kwargs)
 
 
-def _fw_compiler(gm: torch.fx.GraphModule, example_inputs: list[torch.Tensor]) -> Callable:
-    """aot_module_simplified's fw_compiler hook.
+def _lower_and_compile(
+    gm: torch.fx.GraphModule,
+    example_inputs: list[torch.Tensor],
+    roles: list["_native.ArgumentType"],
+) -> Callable:
+    """Lower one post-aot FX graph (forward or backward) to a runnable program.
 
-    Walks the post-aot FX graph once via _TTIRInterpreter, finalizes the
-    accumulated TTIR module, compiles it to a flatbuffer, and returns a
-    runner closure that binds inputs and runs the compiled program on each
-    call.
+    Walks the graph once via _TTIRInterpreter, finalizes the accumulated TTIR
+    module, compiles it to a flatbuffer, and returns a runner closure that binds
+    inputs and runs the compiled program on each call. `roles` tags each graph
+    arg for const-eval (see tt_backend / _forward_parameter_roles).
     """
     specs = [_spec_from_tensor(t) for t in example_inputs]
-    mb = _native.ModuleBuilder(specs)
+    mb = _native.ModuleBuilder(specs, roles)
     placeholder_values = [mb.arg(i) for i in range(len(specs))]
 
     # Read each output's user-facing dtype from FX meta. The program's
@@ -606,7 +644,19 @@ def _fw_compiler(gm: torch.fx.GraphModule, example_inputs: list[torch.Tensor]) -
 
 def tt_backend(gm: torch.fx.GraphModule, example_inputs: list[torch.Tensor]):
     """Top-level dynamo backend. Delegates to aot_module_simplified."""
-    return aot_module_simplified(gm, example_inputs, fw_compiler=_fw_compiler)
+
+    def fw_compiler(fw_gm: torch.fx.GraphModule, fw_inputs: list[torch.Tensor]) -> Callable:
+        fw_meta = getattr(torch._guards.TracingContext.try_get(), "fw_metadata", None)
+        roles = _fw_args_roles(len(fw_inputs), fw_meta)
+        return _lower_and_compile(fw_gm, fw_inputs, roles)
+
+    def bw_compiler(bw_gm: torch.fx.GraphModule, bw_inputs: list[torch.Tensor]) -> Callable:
+        roles = _bw_args_roles(len(bw_inputs))
+        return _lower_and_compile(bw_gm, bw_inputs, roles)
+
+    return aot_module_simplified(
+        gm, example_inputs, fw_compiler=fw_compiler, bw_compiler=bw_compiler
+    )
 
 
 # Self-register on import. After this, `torch.compile(model, backend="tt")` works.
