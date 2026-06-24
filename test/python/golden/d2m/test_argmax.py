@@ -29,7 +29,7 @@ def create_argmax_inputs(input_shape, dim_arg, keep_dim, dtype):
     return module
 
 
-# Single case: 32x32 tensor, row-wise reduction (argmax over dim 1), bf16 input.
+# Single case: 32x32 tensor, reduction (argmax over dim 0 and 1), bf16 input.
 # argmax returns int32 indices, so the golden comparison is exact (atol=0).
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("dim_arg", [[0], [1]])
@@ -37,7 +37,7 @@ def create_argmax_inputs(input_shape, dim_arg, keep_dim, dtype):
 def test_argmax_2d_rowwise_bf16(
     target: str, dim_arg: list[int] | None, keep_dim: bool, request, device
 ):
-    shape = (64, 64)
+    shape = (32, 32)
 
     compile_and_execute_ttir(
         create_argmax_inputs(

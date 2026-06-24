@@ -3170,7 +3170,8 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
       AnyRankedTensorOrMemRef:$output,
       I64Attr:$num_elements,
       I64Attr:$start,
-      I64Attr:$step);
+      I64Attr:$step,
+      DefaultValuedAttr<BoolAttr, "false">:$colMajor);
 
   let results = (outs AnyRankedTensorOrMemRef:$result);
 
@@ -3183,7 +3184,17 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
             $_builder.getI64IntegerAttr(numElements),
             $_builder.getI64IntegerAttr(start),
             $_builder.getI64IntegerAttr(step));
-    }]>
+    }]>,
+    OpBuilder<(ins "Value":$indexTileTensor, "Value":$output,
+                    "int64_t":$numElements, "int64_t":$start, "int64_t":$step, "bool":$colMajor), [{
+      // Result type is the same as the output type.
+      Type resultType = output.getType();
+      build($_builder, $_state, resultType, indexTileTensor, output,
+            $_builder.getI64IntegerAttr(numElements),
+            $_builder.getI64IntegerAttr(start),
+            $_builder.getI64IntegerAttr(step),
+            $_builder.getBoolAttr(colMajor));
+    }]>,
   ];
 
   let extraClassDeclaration = [{
