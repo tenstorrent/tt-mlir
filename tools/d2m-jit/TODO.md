@@ -12,43 +12,6 @@ have.
 
 ## Pipeline gaps
 
-### 🔴 Matmul accumulator init breaks `d2m → ttkernel` lowering
-
-**Where:** `_matmul_block` in `api.py`, when the `outs` operand to the
-inner `linalg.generic { d2m.tile_matmul }` is anything other than a
-fresh `d2m.empty`.
-
-**Symptom:** wiring a `linalg.generic { d2m.tile_fill }` as the
-accumulator producer fails late in the pipeline:
-
-```
-error: failed to legalize unresolved materialization from
-  ('memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>')
-  to ('!ttkernel.cb<1, !ttcore.tile<32x32, f32>>')
-  that remained live after conversion
- note: see existing live user here:
-  ttkernel.pack_tile(%c0, %8, %c0, true)
-    : (index, !ttkernel.cb<1, !ttcore.tile<32x32, f32>>, index) -> ()
-```
-
-**Root cause:** `D2MToTTKernel` doesn't recognise the
-`linalg.generic { d2m.tile_fill }` pattern as the producer of the
-matmul accumulator. The conversion emits an
-`unrealized_conversion_cast` from `memref<...>` to `!ttkernel.cb<...>`
-that no later pass can fold away, while `ttkernel.pack_tile` keeps
-using the CB form.
-
-**Workaround for users:** pre-fill the output via `out = d2m.zeros(L)`
-and pass it as the out-param to a kernel that calls `@`. The current
-test `test_matmul.py::test_matmul_correctness_via_zeros` does this.
-
-**Fix shape:** teach `D2MToTTKernel` to handle a fill-pattern producer
-(or to emit a CB-init prologue for the matmul kernel when one is
-detected). A `tile_matmul` op that internally zero-initialises on the
-first reduction step would also work.
-
----
-
 ### 🔴 Multicast kernels hit `SplitUnifiedThread` assertion
 
 **Where:** any kernel that uses the multicast form of `remote_load`

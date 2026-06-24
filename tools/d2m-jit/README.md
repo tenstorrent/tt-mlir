@@ -324,12 +324,9 @@ lhs @ rhs              # operator form
 Emits `linalg.generic` with the standard matmul indexing maps
 (parallel/parallel/reduction over M/N/K) and `d2m.tile_matmul` in the body.
 
-> **Caveat:** the generated `linalg.generic` accumulates into the output
-> operand, which is currently a fresh `d2m.empty` (undefined-init). Pre-fill
-> the output with `d2m.zeros(L)` and pass it as the out-param to the kernel
-> that calls `@` to get correct values. A device-side fill inside
-> `_matmul_block` is tracked but blocked on a downstream
-> `d2m → ttkernel` materialisation issue.
+`D2MToTTKernel` emits a device-side zero tile for `d2m.tile_matmul`
+accumulators. For multi-K blocks, it guards that fill to the first reduction
+iteration so later K steps accumulate into the same DST tile.
 
 ### Debug knobs (`d2m.config`)
 
@@ -342,6 +339,7 @@ d2m.config.print_ir_after_pipeline  # bool: dump the module after passes
 d2m.config.print_ir_after_each_pass # bool: enable_ir_printing(print_after_all=True)
 d2m.config.print_ir_debug_info      # bool: include locations
 d2m.config.verify_passes            # bool, default True
+d2m.config.use_tile_matmul          # bool: keep explicit tile_matmul loops
 d2m.config.save_flatbuffer_path     # str | None: write fbb to disk before submit
 ```
 
@@ -420,7 +418,8 @@ have been dropped — the DSL emits the post-legalisation form directly.
 - **Spent `LazyTensor`s.** After `to_host`, anything from the previous
   generation that was not passed to `to_host` raises on re-use. If you need
   multiple values out, pass them all to a single `to_host`.
-- **Matmul accumulator is currently undefined.** See the matmul note above.
+- **Matmul accumulator is seeded in the generated kernel.** Multi-K blocks
+  rely on the `D2MToTTKernel` first-reduction guard for the zero fill.
 - **Float reductions are per tile/per core.** Use `reduction_layout` for reduced
   outputs. Reductions spanning multiple cores need a core gather/redistribute
   op.
