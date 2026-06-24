@@ -71,20 +71,6 @@ void addFunctionOptimizationPasses(OpPassManager &funcPm) {
   funcPm.addPass(mlir::createLoopInvariantCodeMotionPass());
 }
 
-void createOptimizationPasses(OpPassManager &pm,
-                              const D2MPipelineOptions &options) {
-  pm.addPass(createCanonicalizerPassWithOptions(options));
-  OpPassManager &funcPm = pm.nest<func::FuncOp>();
-  addFunctionOptimizationPasses(funcPm);
-}
-
-void createNestedFunctionOptimizationPasses(OpPassManager &pm,
-                                            const D2MPipelineOptions &options) {
-  OpPassManager &funcPm = pm.nest<func::FuncOp>();
-  funcPm.addPass(createCanonicalizerPassWithOptions(options));
-  addFunctionOptimizationPasses(funcPm);
-}
-
 void createD2MFrontendPipeline(OpPassManager &pm,
                                const D2MPipelineOptions &options) {
   // Create multi-device tensor annotation for graph with mesh.
@@ -278,7 +264,8 @@ void createD2MBackendPipeline(OpPassManager &pm,
   pm.addPass(d2m::createD2MNormalizeThreadArgs());
 
   pm.addPass(d2m::createD2MGenericRegionsToFuncs());
-  createNestedFunctionOptimizationPasses(pm, options);
+  pm.addPass(createCanonicalizerPassWithOptions(options));
+  addFunctionOptimizationPasses(pm.nest<func::FuncOp>());
 }
 
 void createD2MToTTMetalPipeline(OpPassManager &pm,

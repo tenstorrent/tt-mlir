@@ -36,6 +36,14 @@ void registerTTNNToFlatbuffer();
 
 namespace mlir::ttmlir::python {
 
+static void convertTTKernelToEmitC(mlir::Operation *moduleOp) {
+  mlir::PassManager pm(moduleOp->getName());
+  pm.nest<func::FuncOp>().addPass(mlir::tt::createConvertTTKernelToEmitC());
+  if (mlir::failed(pm.run(moduleOp))) {
+    throw std::runtime_error("Failed to run pass manager");
+  }
+}
+
 void populatePassesModule(nb::module_ &m) {
   // When populating passes, need to first register them
 
@@ -416,12 +424,7 @@ void populatePassesModule(nb::module_ &m) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
 
         // Convert to EmitC
-        mlir::PassManager pm(moduleOp->getName());
-        pm.nest<func::FuncOp>().addPass(
-            mlir::tt::createConvertTTKernelToEmitC());
-        if (mlir::failed(pm.run(moduleOp))) {
-          throw std::runtime_error("Failed to run pass manager");
-        }
+        convertTTKernelToEmitC(moduleOp);
 
         // Translate to C++
         std::string output;
@@ -441,12 +444,7 @@ void populatePassesModule(nb::module_ &m) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
 
         // Convert to EmitC
-        mlir::PassManager pm(moduleOp->getName());
-        pm.nest<func::FuncOp>().addPass(
-            mlir::tt::createConvertTTKernelToEmitC());
-        if (mlir::failed(pm.run(moduleOp))) {
-          throw std::runtime_error("Failed to run pass manager");
-        }
+        convertTTKernelToEmitC(moduleOp);
 
         // Translate each kernel to C++ and dump to file
         moduleOp->walk([&](func::FuncOp entry) {
@@ -472,12 +470,7 @@ void populatePassesModule(nb::module_ &m) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
 
         // Convert to EmitC
-        mlir::PassManager pm(moduleOp->getName());
-        pm.nest<func::FuncOp>().addPass(
-            mlir::tt::createConvertTTKernelToEmitC());
-        if (mlir::failed(pm.run(moduleOp))) {
-          throw std::runtime_error("Failed to run pass manager");
-        }
+        convertTTKernelToEmitC(moduleOp);
 
         // Translate single kernel to C++
         std::string output;

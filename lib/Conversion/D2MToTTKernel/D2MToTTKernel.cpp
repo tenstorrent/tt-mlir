@@ -2204,7 +2204,7 @@ static NocEndpoint buildNocEndpoint(OpBuilder &rewriter, Location loc, Value cb,
 
 static Value materializeTranslatedNocAddr(OpBuilder &rewriter, Location loc,
                                           const NocEndpoint &endpoint,
-                                          Value nocId = {}) {
+                                          Value nocId) {
   if (endpoint.memorySpace == ttcore::MemorySpace::DeviceDRAM) {
     return rewriter.create<ttkernel::GetNocAddrFromBankIDOp>(
         loc, endpoint.bankId, endpoint.address);
