@@ -46,7 +46,7 @@ module attributes {} {
 
     // CHECK: "ttnn.add"
     // CHECK-NOT: ttnn.typecast
-    %out = "ttnn.add"(%residual, %ag)
+    %out = "ttnn.add"(%residual, %ag) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}>
         : (tensor<32x256xbf16, #bf16_2d_out>, tensor<32x256xbf16, #bf16_2d_out>)
        -> tensor<32x256xbf16, #bf16_2d_out>
 
