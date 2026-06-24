@@ -552,3 +552,19 @@ scratch path). Implemented edits (committed):
 Next: 3b (2-step ring that hung before -> should now be hang-free since the recv
 is view-free and never reads back over NoC), then 3c (full reduce_scatter ->
 all_reduce). Follow-up: grid-[N,1] dynamic recv-slot offset (still 0).
+
+### Milestone 3b — HANGS (2026-06-24): compute-thread mis-scheduling deadlock
+
+`test/d2m-jit/_m3b.py` (2-step chained ring, view-free fabric_recv, separate sems
+es0/es1) deadlocks on device though it compiles. The read-back is gone, so it was
+not the sole cause. NEW root cause (from `python _m3b.py dump`): the COMPUTE thread
+of the unrolled 2-step ring is mis-ordered --
+  wait(es0); wait(tmp0); reserve(acc1); wait(es1); wait(tmp1); reserve(acc2);
+  ...; push(acc1); push(acc2)
+It waits es1 BEFORE pushing acc1. The DM thread needs acc1 (cb_wait_front) to send1
+-> inc peer's es1. Circular across the ring -> deadlock. The compute scheduler
+hoisted both steps' reserves/waits ahead of both steps' pushes, breaking the ring's
+per-step producer ordering (step t push must precede step t+1 recv-wait). The DM
+fabric thread itself is correctly ordered. FIX: keep per-step compute order
+(push acc_t before step t+1's semaphore_wait/recv reserve). Detailed in memory
+[[d2m-ring-interleaved-fabric-hang]]. Then 3c.
