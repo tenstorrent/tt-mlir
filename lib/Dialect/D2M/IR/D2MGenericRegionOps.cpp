@@ -1613,6 +1613,160 @@ bool RemoteLoadOp::hasTensorSemantics() {
 }
 
 //===----------------------------------------------------------------------===//
+// FabricRecvOp Implementation
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult FabricRecvOp::verify() {
+  ShapedType shapedType = getShapedType();
+  bool hasCb = static_cast<bool>(getCb());
+  bool hasResult = static_cast<bool>(getResult());
+
+  // Explicit CB form must not carry a result; the data is exposed via the CB.
+  if (hasCb && hasResult) {
+    return emitOpError("explicit CB form cannot have a result");
+  }
+
+  // The operand must be a device (sharded) tensor/memref -- it is the fabric
+  // write destination shared across devices.
+  if (!ttcore::hasDeviceLayout(getMemref())) {
+    return emitOpError("memref/tensor must be remote (have a device layout)");
+  }
+
+  // Even rank (grid + shard dims); indices select the grid coordinate.
+  if (shapedType.getRank() % 2 != 0) {
+    return emitOpError("memref/tensor rank must be even for device shape (grid "
+                       "+ shard dimensions)");
+  }
+  int64_t gridRank = shapedType.getRank() / 2;
+  if (static_cast<int64_t>(getIndices().size()) != gridRank) {
+    return emitOpError("number of indices must equal grid rank (N/2 where N is "
+                       "memref/tensor rank), got ")
+           << getIndices().size() << " indices but expected " << gridRank;
+  }
+
+  // The memref operand must reference a parent-generic operand or scratch.
+  if (auto genericOp = getOperation()->getParentOfType<GenericOp>()) {
+    Value memrefOperand = getMemref();
+    bool found = llvm::is_contained(genericOp.getOperands(), memrefOperand);
+    if (!found) {
+      Operation *def = memrefOperand.getDefiningOp();
+      found = def && def->hasAttr("d2m.scratch_buffer");
+    }
+    if (!found) {
+      return emitOpError(
+          "memref operand must reference one of the parent generic op's "
+          "operands or a scratch allocation");
+    }
+  }
+  return success();
+}
+
+bool FabricRecvOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  // Reads the operand's (fabric-written) shard.
+  return operand.get() == getMemref();
+}
+
+bool FabricRecvOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  // No local write: the operand's shard is written by peers over the fabric
+  // (ordered via semaphores), not by this op.
+  return false;
+}
+
+mlir::bufferization::AliasingValueList
+FabricRecvOp::getAliasingValues(mlir::OpOperand &operand,
+                                const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList aliasList;
+  Value resultValue = getResult();
+  // The result is a shard view into the operand buffer (a subset, not the whole
+  // buffer) -> an unknown (may-alias) relation.
+  if (resultValue && operand.get() == getMemref()) {
+    aliasList.addAlias(
+        {resultValue, mlir::bufferization::BufferRelation::Unknown});
+  }
+  return aliasList;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+FabricRecvOp::getBufferType(mlir::Value value,
+                            const mlir::bufferization::BufferizationOptions &,
+                            const mlir::bufferization::BufferizationState &,
+                            ::llvm::SmallVector<mlir::Value> &) {
+  if (getCb()) {
+    return mlir::failure();
+  }
+  if (value == getMemref() || value == getResult()) {
+    return ttcore::getBufferType(value.getType(), /*isView=*/false);
+  }
+  return mlir::failure();
+}
+
+bool FabricRecvOp::hasTensorSemantics() {
+  if (getCb()) {
+    return false;
+  }
+  bool memrefIsTensor = mlir::isa<RankedTensorType>(getMemref().getType());
+  Value result = getResult();
+  bool resultIsTensor = result && mlir::isa<RankedTensorType>(result.getType());
+  return memrefIsTensor || resultIsTensor;
+}
+
+mlir::LogicalResult FabricRecvOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+  if (getCb()) {
+    return emitOpError(
+        "FabricRecvOp with CB should not exist during bufferization");
+  }
+  Value result = getResult();
+  if (!result) {
+    return emitOpError("Expected result when CB is not present");
+  }
+
+  mlir::FailureOr<Value> memrefBuffer =
+      mlir::bufferization::getBuffer(rewriter, getMemref(), options, state);
+  if (failed(memrefBuffer)) {
+    return memrefBuffer;
+  }
+
+  // Memref-form op (no result): the operand's shard is exposed in place (no
+  // copy). Split + lowering map this to a reserve/push on the operand's CB.
+  rewriter.create<FabricRecvOp>(getLoc(), *memrefBuffer, getIndices());
+
+  // The result shard is a rank-reduced subview of the operand buffer at the
+  // grid [indices] (the grid dims are size-1 and dropped).
+  mlir::FailureOr<mlir::bufferization::BufferLikeType> bufType =
+      ttcore::getBufferType(result.getType(), /*isView=*/false);
+  if (failed(bufType)) {
+    return failure();
+  }
+  auto shardType = mlir::cast<MemRefType>(*bufType);
+  auto fullType = mlir::cast<MemRefType>((*memrefBuffer).getType());
+  int64_t rank = fullType.getRank();
+  int64_t gridRank = static_cast<int64_t>(getIndices().size());
+  SmallVector<OpFoldResult> offsets, sizes, strides;
+  for (int64_t i = 0; i < rank; ++i) {
+    if (i < gridRank) {
+      offsets.push_back(getIndices()[i]);
+      sizes.push_back(rewriter.getIndexAttr(1));
+    } else {
+      offsets.push_back(rewriter.getIndexAttr(0));
+      sizes.push_back(rewriter.getIndexAttr(fullType.getShape()[i]));
+    }
+    strides.push_back(rewriter.getIndexAttr(1));
+  }
+  Value shard = rewriter.create<memref::SubViewOp>(
+      getLoc(), shardType, *memrefBuffer, offsets, sizes, strides);
+  auto toTensor = rewriter.create<bufferization::ToTensorOp>(
+      getLoc(), result.getType(), shard);
+  rewriter.replaceAllUsesWith(result, toTensor.getResult());
+  rewriter.eraseOp(*this);
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
 // CoreReadOp Implementation
 //===----------------------------------------------------------------------===//
 

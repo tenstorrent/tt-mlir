@@ -2172,6 +2172,118 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
     }];
 }
 
+def D2M_FabricRecvOp : D2M_GenericRegionDatamovementOp<"fabric_recv",
+  [ AttrSizedOperandSegments
+  , MemoryEffects<[MemRead]>
+  , D2M_ShardDMAOpInterface
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType",
+      "hasTensorSemantics"
+    ]>
+  , D2M_SynchronizableOpInterface
+  ]> {
+    let summary = "D2M fabric recv: expose a fabric-written input shard to compute (no NoC read)";
+    let description = [{
+      Exposes the shard at `memref[indices]` -- already written into the operand's
+      circular buffer by a peer's cross-device `remote_store` (arrival ordered by
+      a `semaphore_wait`) -- to the compute thread WITHOUT a NoC read. Lowers to
+      `cb_reserve_back` + `cb_push_back` on the operand's CB; the compute consumes
+      the result via the normal input-CB `cb_wait_front`/`cb_pop_front`. This is
+      the receiver dual of a cross-device `remote_store` for ring CCL, and avoids
+      the NoC read-back that contends with the open fabric connection.
+
+      `indices` are grid indices (first N/2 dims of the operand). Forms mirror
+      `remote_load` minus the local buffer and the DMA copy:
+      - tensor form (pre-bufferization): `result` is the shard tensor (aliases the
+        operand's shard at `[indices]`);
+      - explicit CB form: produces into the operand's CB (`cb` from `d2m.get_cb`),
+        no result;
+      - memref form (post-bufferization): no result, no CB.
+    }];
+
+    let arguments = (ins
+        Arg<AnyRankedTensorOrMemRef, "the fabric-written operand to expose",
+            [MemRead]>:$memref,
+        Variadic<Index>:$indices,
+        Optional<D2M_CB>:$cb);
+
+    let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
+
+    let builders = [
+      // Tensor form (with result, no CB).
+      OpBuilder<(ins "Type":$resultType, "Value":$memref, "ValueRange":$indices),
+      [{
+        build($_builder, $_state, resultType, memref, indices, /*cb=*/Value{});
+      }]>,
+      // Explicit CB form (no result, with CB).
+      OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb),
+      [{
+        build($_builder, $_state, /*result=*/TypeRange{}, memref, indices, cb);
+      }]>,
+      // Memref form (no result, no CB; post-bufferization).
+      OpBuilder<(ins "Value":$memref, "ValueRange":$indices),
+      [{
+        build($_builder, $_state, /*result=*/TypeRange{}, memref, indices, /*cb=*/Value{});
+      }]>
+    ];
+
+    let assemblyFormat = [{
+      $memref `[` $indices `]` (`into` $cb^)? attr-dict `:`
+      type($memref) (`into` type($cb)^)? (`->` type($result)^)?
+    }];
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      /// The memref/tensor operand index (always 0 -- no local buffer).
+      unsigned getMemRefOperandIndex() { return 0; }
+      void setMemRef(Value value) { setOperand(getMemRefOperandIndex(), value); }
+
+      /// Shaped type of the memref operand.
+      ShapedType getShapedType() { return cast<ShapedType>(getMemref().getType()); }
+      MemRefType getMemRefType() {
+        return cast<MemRefType>(getMemref().getType());
+      }
+
+      /// CB type, or null CBType if CB absent.
+      CBType getCbType() {
+        Value cb = getCb();
+        if (!cb) return CBType();
+        return mlir::cast<CBType>(cb.getType());
+      }
+
+      bool isExplicitCBForm() { return static_cast<bool>(getCb()); }
+      bool hasResultForm() { return static_cast<bool>(getResult()); }
+
+      /// ShardDMAOpInterface: the CB port is the operand's own CB. Body in
+      /// extraClassDefinition (GetCBOp is incomplete in the generated header).
+      unsigned getCBPort();
+
+      /// SynchronizableOpInterface: fabric_recv PRODUCES the operand's CB
+      /// content (reserve+push) for the compute thread to consume; it consumes
+      /// nothing locally.
+      bool isProducer(mlir::OpOperand &operand) {
+        return false;
+      }
+      bool isConsumer(mlir::OpOperand &operand) {
+        return false;
+      }
+    }];
+
+    let extraClassDefinition = [{
+      unsigned $cppClass::getCBPort() {
+        assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
+        auto getCBOp = getCb().getDefiningOp<GetCBOp>();
+        assert(getCBOp && "CB operand must be defined by a GetCBOp");
+        return getCBOp.getCbOperandIdx();
+      }
+    }];
+}
+
 def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
   [ AttrSizedOperandSegments
   , MemoryEffects<[MemRead, MemWrite]>
