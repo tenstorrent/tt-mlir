@@ -38,7 +38,9 @@ def pytest_generate_tests(metafunc):
             "kernel_bench", kernel_benches, ids=[b.name for b in kernel_benches]
         )
     if "e2e_spec" in metafunc.fixturenames:
-        e2e = [t for t in pattern_tests if t.e2e and t.golden]
+        # `golden` is optional: a spec with no golden cross-checks against the
+        # ttnn device baseline of its original TTIR (see run_e2e).
+        e2e = [t for t in pattern_tests if t.e2e]
         metafunc.parametrize("e2e_spec", e2e, ids=[t.name for t in e2e])
 
 

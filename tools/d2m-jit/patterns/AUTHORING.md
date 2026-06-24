@@ -101,18 +101,24 @@ CHECK-NOT:   d2m.generic
 
 ## True e2e device tests (`e2e=True`)
 
-Set `e2e=True` on a `PatternTest` (with a `golden`) to additionally run the
-*rewritten* module on silicon: it's compiled to a flatbuffer held **in memory**
-and executed **in-process** (no ttrt subprocess, no files), then the device
-output is PCC-checked against the golden. Inputs are generated deterministically
-from the `ttir` signature and the golden is computed from those same inputs. See
-`eltwise_exp_e2e_to_kernel.py` for a worked example.
+Set `e2e=True` on a `PatternTest` to additionally run the *rewritten* module on
+silicon: it's compiled to a flatbuffer held **in memory** and executed
+**in-process** (no ttrt subprocess, no files), then the device output is
+PCC-checked against a reference. Inputs are generated deterministically from the
+`ttir` signature. The reference is the spec's `golden` if given, otherwise the
+**ttnn device baseline** of the original (pre-pattern) TTIR — compiled via
+`ttir -> ttnn` and run on device, cached per (module, inputs) — so a
+hand-written `golden` is optional. See `eltwise_exp_to_kernel.py` for a worked
+example.
 
-One requirement: **no runtime scalar args** in the kernel — bake block counts /
-loop bounds as Python constants. Runtime scalars lower to inline
-`arith.constant`s the flatbuffer translator can't serialize. (The
-`eltwise_*_to_kernel.py` kernels take `m_blocks, n_blocks` params, so they are
-*not* e2e-ready; their direct-kernel `KERNEL_BENCHES` path handles them.)
+Scalar kernel args are fine here. In a rewrite scope, scalars passed to a
+kernel call (e.g. `m_blocks, n_blocks`) are always Python int constants, so the
+emitter **bakes them into the kernel body as in-region constants** rather than
+host-scope `additionalArgs` — there is nothing for the flatbuffer translator to
+choke on, and the loop bounds fold. So `eltwise_*_to_kernel.py` kernels with
+`m_blocks, n_blocks` params are e2e-ready. (The lazy `_Builder` path keeps the
+opposite convention: there a scalar becomes an `index` *function argument* so the
+binary stays parameterised and the runtime supplies the value per call.)
 
 Runs in the normal suite — no separate invocation or marker needed:
 

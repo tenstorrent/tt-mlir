@@ -27,17 +27,22 @@ Two declaration kinds:
   The rewritten module is compiled to a flatbuffer held *in memory* and run on
   device via the in-process tt-metal runtime (no ttrt subprocess, no flatbuffer
   or tensor files on disk); the device output is read straight back into a torch
-  tensor and PCC-checked against the golden. Disk footprint is ~zero regardless
+  tensor and PCC-checked against a reference. Disk footprint is ~zero regardless
   of pattern count, and one device handle is reused per run. Inputs are
-  generated deterministically from the ttir signature and the golden is computed
-  from those same inputs. See ``compile_spec_to_fbb`` / ``execute_ttm_in_process``
-  / ``run_e2e`` below (modelled on builder_runtime.py::execute_fb, plain-torch).
+  generated deterministically from the ttir signature. The reference is the
+  spec's ``golden`` if given, else the **ttnn device baseline** of the original
+  (pre-pattern) TTIR — compiled via ``ttir -> ttnn`` and run on device, cached
+  per (module, inputs). So a hand-written golden is optional. See
+  ``compile_spec_to_fbb`` / ``compile_ttir_to_ttnn_fbb`` /
+  ``execute_ttm_in_process`` / ``ttnn_baseline_outputs`` / ``run_e2e`` below
+  (modelled on builder_runtime.py::execute_fb, plain-torch).
 
-  Constraint: the pattern's kernel must take **no runtime scalar args** — bake
-  block counts / loop bounds as Python constants. Runtime scalars lower to
-  inline ``arith.constant`` index values the flatbuffer translator can't
-  serialize. (The in-process lazy builder dodges this by promoting them to
-  function params, which the rewrite flow can't.)
+  Scalar kernel args are supported: in a rewrite scope they are always Python
+  int constants, so the emitter bakes them into the kernel body as in-region
+  constants (not host-scope ``additionalArgs``), leaving nothing for the
+  flatbuffer translator to choke on. The in-process lazy builder takes the
+  opposite route — there a scalar becomes an ``index`` function param so the
+  binary stays parameterised and the runtime supplies its value per call.
 
 Not implemented yet:
 
@@ -96,9 +101,9 @@ class PatternTest:
     pcc: float = 0.99
     expect_match: bool = True
     # Opt in to true e2e device execution (rewrite -> compile -> in-process run).
-    # Requires the pattern's kernel to take no runtime scalar args (see
-    # AUTHORING.md) and a `golden`. Inputs are generated from `inputs` and the
-    # golden is computed from those same inputs.
+    # Requires a `golden`. Scalar kernel args are fine — in a rewrite scope they
+    # are baked into the kernel body as constants (see AUTHORING.md). Inputs are
+    # generated from `inputs` and the golden is computed from those same inputs.
     e2e: bool = False
     tags: tuple = ()
     source_file: str = ""  # set by discovery
@@ -334,8 +339,9 @@ def run_bench(bench: KernelBench, cfg: Optional[dict] = None):
 #
 # This mirrors ``tools/builder/base/builder_runtime.py::execute_fb`` but with
 # plain-torch I/O (no GoldenMapTensor dependency); the comparison is done here
-# with ``assert_pcc``. The kernel must take no runtime scalar args (the same
-# flatbuffer-serialization constraint as before).
+# with ``assert_pcc``. Scalar kernel args are supported: in a rewrite scope they
+# are baked into the kernel body as in-region constants, so the flatbuffer has
+# no unserialisable scalar program args.
 # ----------------------------------------------------------------------
 
 # torch <-> runtime DataType (subset; mirrors builder_runtime).
@@ -377,8 +383,8 @@ def compile_spec_to_fbb(spec: PatternTest):
     """Rewrite ``spec.ttir`` with its pattern, lower to ttmetal, and return the
     loaded flatbuffer Binary held *in memory* (no file written).
 
-    Requires the pattern's kernel to take no runtime scalar args; otherwise the
-    flatbuffer translator aborts on unregistered scalar program args.
+    Scalar kernel args are baked into the kernel body as in-region constants by
+    the rewrite-scope emitter, so the flatbuffer has no scalar program args.
     """
     from ttmlir.passes import ttmetal_to_flatbuffer_bin
     from ttmlir.passmanager import PassManager
@@ -485,21 +491,112 @@ def execute_ttm_in_process(fbb, inputs, device, program_index: int = 0):
     return results
 
 
+# ----------------------------------------------------------------------
+# TTNN reference baseline (golden-free cross-check)
+#
+# When a PatternTest has no hand-written ``golden``, the e2e runner falls back
+# to a *device* reference: the ORIGINAL (pre-pattern) TTIR compiled straight
+# through the standard ``ttir -> ttnn`` pipeline and run on device. The
+# pattern's ttmetal output is PCC-checked against this ttnn output, so a golden
+# is optional.
+#
+# A device handle is bound to the runtime it was opened under (ttnn and ttmetal
+# cannot share one -- the runtime asserts on a cross-runtime cast), so the
+# baseline runs in its own short-lived ttnn device session, with the shared
+# ttmetal device closed first. Baseline outputs are cached (keyed by the TTIR
+# text + the input bytes), so the cross-check runs ttnn on device only once per
+# unique (module, inputs) -- repeat runs do no baseline device work at all.
+# ----------------------------------------------------------------------
+
+_BASELINE_CACHE = {}
+
+
+def compile_ttir_to_ttnn_fbb(ttir_text: str):
+    """Compile pre-pattern TTIR through the standard ``ttir -> ttnn`` pipeline
+    and return the loaded ttnn flatbuffer Binary held *in memory* (no file).
+
+    This is the reference path for the golden-free cross-check and for perf
+    comparison against the pattern-lowered ttmetal result of the same TTIR."""
+    from _ttmlir_runtime import binary as _rt_binary
+    from ttmlir.passes import ttir_to_ttnn_runtime_pipeline, ttnn_to_flatbuffer_bin
+
+    from d2m_jit._src.builder import _get_system_desc_path
+
+    ctx = ir.Context()
+    ctx.load_all_available_dialects()
+    module = ir.Module.parse(ttir_text, ctx)
+    sd = _get_system_desc_path()
+    ttir_to_ttnn_runtime_pipeline(module, f"system-desc-path={sd}")
+    return _rt_binary.load_binary_from_capsule(ttnn_to_flatbuffer_bin(module))
+
+
+def _inputs_cache_key(inputs):
+    """Stable key for a list of torch input tensors (shape/dtype/bytes)."""
+    import hashlib
+
+    h = hashlib.sha1()
+    for t in inputs:
+        tc = t.detach().contiguous().cpu()
+        h.update(str(tuple(tc.shape)).encode())
+        h.update(str(tc.dtype).encode())
+        h.update(tc.numpy().tobytes())
+    return h.hexdigest()
+
+
+def ttnn_baseline_outputs(ttir_text: str, inputs, e2e_device: "E2EDevice"):
+    """Return the ttnn device reference outputs for ``ttir_text`` on ``inputs``.
+
+    Cached by ``(ttir_text, input-bytes)``: on a miss, the shared ttmetal
+    ``e2e_device`` is closed (the two runtimes can't hold a device open at
+    once), the ttnn baseline is compiled and run in its own device session, and
+    its torch outputs are cached. On a hit, no device is touched."""
+    key = (ttir_text, _inputs_cache_key(inputs))
+    if key in _BASELINE_CACHE:
+        return _BASELINE_CACHE[key]
+
+    runtime = _rt()
+    # Free the shared ttmetal device so ttnn and ttmetal are never open at once.
+    e2e_device.close()
+    fbb = compile_ttir_to_ttnn_fbb(ttir_text)
+    runtime.set_compatible_device_runtime(fbb)
+    opts = runtime.MeshDeviceOptions()
+    opts.mesh_shape = fbb.get_program_mesh_shape(0)
+    device = runtime.open_mesh_device(opts)
+    try:
+        outs = execute_ttm_in_process(fbb, inputs, device)
+    finally:
+        runtime.close_mesh_device(device)
+
+    _BASELINE_CACHE[key] = outs
+    return outs
+
+
 def run_e2e(spec: PatternTest, e2e_device: "E2EDevice"):
     """Compile ``spec`` to a flatbuffer, run it in-process, and return
     ``(pcc, expected, actual)`` for output 0. Inputs are generated
-    deterministically from the spec's ttir signature; the golden is computed
-    from those same inputs (so determinism is exact, no read-back needed)."""
+    deterministically from the spec's ttir signature.
+
+    The reference (``expected``) is either the spec's ``golden`` evaluated on
+    those inputs, or -- when no ``golden`` is given -- the cached ttnn device
+    baseline of the original TTIR (see ``ttnn_baseline_outputs``). The baseline
+    is computed before the ttmetal device is opened, so the two runtimes never
+    contend for a device."""
     io = parse_func_io(spec.ttir)
     shapes = [shape for shape, _ in io]
     td = io[0][1] if io else torch.float32
     inputs = make_inputs(shapes, td, spec.inputs)
 
+    if spec.golden is not None:
+        expected = spec.golden(*[t.float() for t in inputs])
+    else:
+        # Golden-free cross-check: device reference via the ttnn baseline.
+        baseline = ttnn_baseline_outputs(spec.ttir, inputs, e2e_device)
+        expected = baseline[0].float()
+
     fbb = compile_spec_to_fbb(spec)
     device = e2e_device.get(fbb)
     outputs = execute_ttm_in_process(fbb, inputs, device)
 
-    expected = spec.golden(*[t.float() for t in inputs])
     actual = outputs[0].float()
     combined = torch.stack([expected.flatten(), actual.flatten()])
     pcc = torch.corrcoef(combined)[0, 1].item()

@@ -86,6 +86,10 @@ PATTERN_TESTS = [
         """,
         golden=_golden,
         inputs=InputSpec("uniform(-1,1)"),
+        # The kernel's `m_blocks, n_blocks` runtime scalars are baked into the
+        # kernel body as constants in the rewrite scope (see AUTHORING.md), so
+        # this compiles to a flatbuffer and runs e2e on device directly.
+        e2e=True,
         check="""
         CHECK-LABEL: func.func @forward
         CHECK-NOT:   ttir.exp
