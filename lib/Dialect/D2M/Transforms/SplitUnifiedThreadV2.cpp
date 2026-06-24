@@ -111,12 +111,14 @@ static LogicalResult convertDMAToExplicitCBForm(Block *dmBlock,
                                                 PatternRewriter &rewriter) {
   SmallVector<RemoteLoadOp> loads;
   SmallVector<RemoteStoreOp> stores;
+  SmallVector<FabricRecvOp> fabricRecvs;
   SmallVector<LocalCopyOp> localCopies;
   SmallVector<CoreReadOp> coreReads;
   SmallVector<CoreWriteOp> coreWrites;
   SmallVector<SemaphoreIncOp> computeSignalIncs;
   dmBlock->walk([&](RemoteLoadOp op) { loads.push_back(op); });
   dmBlock->walk([&](RemoteStoreOp op) { stores.push_back(op); });
+  dmBlock->walk([&](FabricRecvOp op) { fabricRecvs.push_back(op); });
   dmBlock->walk([&](LocalCopyOp op) { localCopies.push_back(op); });
   dmBlock->walk([&](CoreReadOp op) { coreReads.push_back(op); });
   dmBlock->walk([&](CoreWriteOp op) { coreWrites.push_back(op); });
@@ -181,6 +183,24 @@ static LogicalResult convertDMAToExplicitCBForm(Block *dmBlock,
 
     loadOp->dropAllUses();
     rewriter.eraseOp(loadOp);
+  }
+
+  // fabric_recv: convert to explicit-CB form using the MEMREF operand's own CB
+  // (not a localBuffer -- fabric_recv has none; the operand IS the recv buffer
+  // the peer fabric-wrote). LowerLoadStoreOpsToDMA then lowers this to
+  // reserve+push (no dma_read / noc_async_read).
+  for (FabricRecvOp recvOp : fabricRecvs) {
+    if (recvOp.isExplicitCBForm()) {
+      continue;
+    }
+    GenericOp generic = recvOp->getParentOfType<GenericOp>();
+    unsigned cbOperandIdx = generic.getOperandIndex(recvOp.getMemref());
+    rewriter.setInsertionPoint(recvOp);
+    auto cb = d2m::getOrCreateCB(rewriter, generic, dmBlock, cbOperandIdx);
+    rewriter.create<FabricRecvOp>(recvOp.getLoc(), recvOp.getMemref(),
+                                  recvOp.getIndices(), cb);
+    recvOp->dropAllUses();
+    rewriter.eraseOp(recvOp);
   }
 
   for (RemoteStoreOp storeOp : stores) {
@@ -428,6 +448,10 @@ struct CBComputeInfo {
       false;           // compute writes it (memref.store / tile_*_block output)
   RemoteLoadOp dmLoad; // DM partner that loads into it, if any
   RemoteStoreOp dmStore; // DM partner that stores from it, if any
+  // DM partner (fabric_recv) that produces this CB from a peer's fabric write
+  // (no NoC read). Acts like a dmLoad for input-CB handshaking: the compute
+  // side waits/pops, the DM side reserves/pushes (the operand's own CB).
+  FabricRecvOp dmRecv;
   // A `d2m.compute_signal` semaphore_inc that fences on this CB (a fused
   // producer-done signal: the inc waits for this compute output before
   // signaling a gatherer). Acts like a dmStore for output-CB handshaking, so
@@ -467,6 +491,9 @@ static LogicalResult insertComputeCBOpsV2(GenericOp generic,
       [&](RemoteLoadOp op) { cbs[op.getLocalBuffer()].dmLoad = op; });
   computeBlock->walk(
       [&](RemoteStoreOp op) { cbs[op.getLocalBuffer()].dmStore = op; });
+  // fabric_recv produces the operand's own CB (keyed by the memref operand).
+  computeBlock->walk(
+      [&](FabricRecvOp op) { cbs[op.getMemref()].dmRecv = op; });
 
   // A `d2m.compute_signal` inc fences on the compute output that a gatherer
   // will read -- i.e. core_read's src. Register it as that CB's dmFence so the
@@ -548,7 +575,7 @@ static LogicalResult insertComputeCBOpsV2(GenericOp generic,
     // paired with the DM load. Buffers with no DM partner are compute-local
     // (e.g. dst-register intermediates) and need no handshake.
     bool outputCB = info.produced && (info.dmStore || info.dmFence);
-    bool inputCB = !outputCB && info.consumed && info.dmLoad;
+    bool inputCB = !outputCB && info.consumed && (info.dmLoad || info.dmRecv);
     if (!outputCB && !inputCB) {
       continue;
     }
@@ -557,9 +584,11 @@ static LogicalResult insertComputeCBOpsV2(GenericOp generic,
     // access inside a loop gets a per-iteration handshake matching the
     // per-iteration DMA, while an accumulator whose store sits outside the
     // reduction loop gets a single handshake around it.
-    Block *partnerBlock = outputCB ? (info.dmStore ? info.dmStore->getBlock()
-                                                   : info.dmFence->getBlock())
-                                   : info.dmLoad->getBlock();
+    Block *partnerBlock =
+        outputCB ? (info.dmStore ? info.dmStore->getBlock()
+                                 : info.dmFence->getBlock())
+                 : (info.dmLoad ? info.dmLoad->getBlock()
+                                : info.dmRecv->getBlock());
     auto climbToPartner = [&](Operation *op) -> Operation * {
       Operation *cur = op;
       while (cur && cur->getBlock() != partnerBlock) {
@@ -578,7 +607,8 @@ static LogicalResult insertComputeCBOpsV2(GenericOp generic,
     for (OpOperand &use : cb.getUses()) {
       Operation *owner = use.getOwner();
       if (isInRegion(computeRegion, owner) &&
-          !isa<RemoteLoadOp, RemoteStoreOp, CoreReadOp, CoreWriteOp>(owner)) {
+          !isa<RemoteLoadOp, RemoteStoreOp, FabricRecvOp, CoreReadOp,
+               CoreWriteOp>(owner)) {
         uses.push_back(&use);
       }
     }
@@ -597,7 +627,8 @@ static LogicalResult insertComputeCBOpsV2(GenericOp generic,
         Value v = worklist.pop_back_val();
         for (Operation *user : v.getUsers()) {
           if (!isInRegion(computeRegion, user) ||
-              isa<RemoteLoadOp, RemoteStoreOp, CoreReadOp, CoreWriteOp>(user) ||
+              isa<RemoteLoadOp, RemoteStoreOp, FabricRecvOp, CoreReadOp,
+                  CoreWriteOp>(user) ||
               !visited.insert(user).second) {
             continue;
           }
