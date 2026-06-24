@@ -1,5 +1,6 @@
 #include "torch/ttir_module_builder.hpp"
 
+#include "config.hpp"
 #include <utility>
 
 #include <c10/util/Exception.h>
@@ -47,7 +48,11 @@ ModuleBuilder::ModuleBuilder(mlir::OwningOpRef<mlir::ModuleOp> module_op, mlir::
                              mlir::OpBuilder builder, mlir::Location loc, llvm::SmallVector<mlir::Value> args)
     : module_op_(std::move(module_op)), func_(func), builder_(std::move(builder)), loc_(loc), args_(std::move(args)) {}
 
-ModuleBuilder ModuleBuilder::init(llvm::ArrayRef<TensorTypeSpec> inputs) {
+ModuleBuilder ModuleBuilder::init(llvm::ArrayRef<TensorTypeSpec> inputs,
+                                  llvm::ArrayRef<mlir::tt::ttcore::ArgumentType> arg_types) {
+    TORCH_CHECK(arg_types.empty() || arg_types.size() == inputs.size(),
+                "Inputs and arg_types size missmatch: ", inputs.size(), " vs ", arg_types.size());
+
     auto &ctx = ::tt::kurbla::mlir_context();
     auto loc = mlir::UnknownLoc::get(&ctx);
 
@@ -61,6 +66,17 @@ ModuleBuilder ModuleBuilder::init(llvm::ArrayRef<TensorTypeSpec> inputs) {
     mlir::OpBuilder module_builder(module_op.getBodyRegion());
     auto fn_type = mlir::FunctionType::get(&ctx, input_types, /*results=*/{});
     auto func = module_builder.create<mlir::func::FuncOp>(loc, "main", fn_type);
+
+    // Tag non-Input args so tt-mlir's const-eval hoist can fold weight-only
+    // subgraphs into cached funcs. Untagged args default to Input.
+    if (comp_consteval_enabled()) {
+        for (std::size_t i = 0; i < arg_types.size(); ++i) {
+            if (arg_types[i] != mlir::tt::ttcore::ArgumentType::Input) {
+                func.setArgAttr(as<unsigned>(i), mlir::tt::ttcore::ArgumentTypeAttr::name,
+                                mlir::tt::ttcore::ArgumentTypeAttr::get(&ctx, arg_types[i]));
+            }
+        }
+    }
 
     mlir::Block *entry = func.addEntryBlock();
     mlir::OpBuilder body_builder(&ctx);

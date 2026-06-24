@@ -19,6 +19,7 @@
 #include <mlir/IR/Types.h>
 #include <mlir/IR/Value.h>
 #include <tt/runtime/types.h>
+#include <ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h>
 
 namespace tt::kurbla::torch_backend {
 
@@ -36,7 +37,8 @@ struct TensorTypeSpec {
 // makes accidental post-finalize use a compile error rather than a silent bug.
 class ModuleBuilder {
 public:
-    static ModuleBuilder init(llvm::ArrayRef<TensorTypeSpec> inputs);
+    static ModuleBuilder init(llvm::ArrayRef<TensorTypeSpec> inputs,
+                              llvm::ArrayRef<mlir::tt::ttcore::ArgumentType> arg_types = {});
 
     ModuleBuilder(const ModuleBuilder &) = delete;
     ModuleBuilder &operator=(const ModuleBuilder &) = delete;

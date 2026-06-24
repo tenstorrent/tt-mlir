@@ -11,6 +11,7 @@
 #include <tt-logger/tt-logger.hpp>
 
 #include <tt/runtime/runtime.h>
+#include <ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h>
 
 #include "assert.hpp"
 #include "cast.hpp"
