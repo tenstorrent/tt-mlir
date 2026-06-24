@@ -1417,6 +1417,142 @@ def test_streaming_matmul_all_gather_1x4():
     assert_pcc(expected, result)
 
 
+@d2m.kernel
+def _fused_chunked_matmul_all_gather_1x4(lhs, rhs, out, start_sem, end_sem, n_tiles):
+    # Fused single-generic matmul + all_gather with the matmul BLOCKED into
+    # n_tiles chunks, each chunk streamed across the 1x4 line the moment it is
+    # produced -- compute and communication interleave on the single link core.
+    #
+    # Contrast with test_streaming_matmul_all_gather_1x4: there a grid-(N,1)
+    # matmul generic computes the whole C_d first, and a *separate* grid-1
+    # all_gather generic streams the precomputed shard -- two chained generics,
+    # so compute fully precedes comm. Here the matmul of chunk t and the fabric
+    # mcast of chunk t live in ONE generic: split-unified-thread-v2 hands each
+    # chunk's matmul-output CB from the compute thread to the DM thread, so the
+    # compute thread can produce chunk t+1 while the DM thread still has chunk t
+    # in flight on the fabric. That per-block compute/comm overlap is the d2m
+    # analog of tt-metal's MatmulFusedOpSignaler (fused_matmul_allgather_8x8_
+    # design.md): the matmul is chunked and the collective streams each chunk
+    # interleaved, rather than a barrier between the two phases.
+    #
+    # The matmul runs only on the single grid-(1,1) core (which is also the link
+    # core), so unlike _fused_matmul_all_gather there is no cross-core gather and
+    # no producer-done `ready` fence -- the structure is
+    # test_matmul_all_gather_fused_1x4_roundtrip's grid-1 fused body wrapped in
+    # the per-tile streaming loop of _all_gather_stream_1x4.
+    dy = mesh_position(0)
+    cy = core_index(0)
+    cx = core_index(1)
+    device_synchronize(
+        start_sem,
+        start_device=[dy, 0],
+        mcast_shape=[1, 4],
+        num_receivers=3,
+        core_indices=[cy, cx],
+    )
+    dx = mesh_position(1)
+    for t in range(n_tiles):
+        a = remote_load(lhs, [t, 0])  # chunk t of A_d (one row-tile)
+        b = remote_load(rhs, [t, 0])  # chunk t of B_d
+        c = a @ b  # matmul this chunk
+        remote_store(  # stream it immediately, before computing chunk t+1
+            out,
+            [dx * n_tiles + t, 0],
+            c,
+            start_device=[dy, 0],
+            device_mcast_shape=[1, 4],
+            semaphore=end_sem,
+            semaphore_indices=[cy, 0],
+        )
+    semaphore_wait(end_sem, 4 * n_tiles)  # n_tiles sends x (3 remote + 1 self)
+
+
+@pytest.mark.skipif(
+    torch is None or runtime is None, reason="requires torch + ttmlir runtime"
+)
+@pytest.mark.skipif(_num_devices() < 4, reason="requires a >=4-device mesh")
+def test_fused_chunked_matmul_all_gather_1x4():
+    """Fused *single-generic* chunked matmul + all_gather on the full 1x4 mesh --
+    the compute/comm-overlap form of test_streaming_matmul_all_gather_1x4.
+
+    The per-device matmul C_d (an N-row-tile shard) is blocked into N chunks;
+    the single link core computes chunk t (C_d[t] = A_d[t] @ B_d[t]) and
+    fabric-mcasts it across the 4-device line *immediately*, then moves on to
+    chunk t+1, reusing one tile of L1. The intent is that, because the matmul
+    and the fabric send are fused into one generic, split-unified-thread-v2's
+    compute->DM CB handoff lets chunk t+1 compute while chunk t is still
+    streaming -- the block-granular overlap the 8x8 design targets (the
+    MatmulFusedOpSignaler analog), vs the two-generic streaming test where the
+    matmul fully precedes the gather.
+
+    Every device ends with vstack(C_0..C_3) (4*N row-tiles); mesh_gather
+    column-concats the four identical device copies. Result is identical to
+    test_streaming_matmul_all_gather_1x4 -- only the fusion/interleaving differs.
+
+    Regression guard for the matmul-in-a-streaming-loop accumulate bug: the
+    matmul L1-accumulate guard in D2MInsertDstRegisterAccess used to pick the
+    enclosing per-chunk loop as the matmul's reduction loop, so chunk t>0
+    accumulated onto stale output (every chunk after the first was garbage).
+    Fixed by excluding loops that index the generic's output store
+    (genericOutputStoreDependsOnIV in InsertDstRegisterAccess/Shared.cpp) from
+    the accumulate-guard / L1-acc trigger selection.
+
+    N=2 keeps the gathered output (4*N row-tiles) within the worker-grid height;
+    larger N needs the block-packed gather output (see
+    test_all_gather_1x4_large_block_roundtrip) or a DRAM-staged output."""
+    N = 2
+    d2m.mesh((1, 4), topology=("linear", "linear"))
+    L_in = d2m.Layout(
+        shape=(N * 32, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[N, 1]
+    )
+    L_out = d2m.Layout(
+        shape=(4 * N * 32, 32),
+        dtype=d2m.float32,
+        block_shape=[1, 1],
+        grid_shape=[4 * N, 1],
+    )
+    full_a = torch.randn(N * 32, 128, dtype=torch.float32)
+    full_b = torch.randn(N * 32, 128, dtype=torch.float32)
+    a_s = d2m.reblock(
+        d2m.mesh_shard(full_a, L_in, shard_dims=[0, 1], shard_shape=[1, 4]), [N, 1]
+    )
+    b_s = d2m.reblock(
+        d2m.mesh_shard(full_b, L_in, shard_dims=[0, 1], shard_shape=[1, 4]), [N, 1]
+    )
+    out_s = d2m.reblock(d2m.empty(L_out), [4 * N, 1])
+    ss = d2m.global_semaphore()
+    es = d2m.global_semaphore()
+    _fused_chunked_matmul_all_gather_1x4(
+        a_s,
+        b_s,
+        out_s,
+        ss,
+        es,
+        N,
+        grid=(1, 1),
+        fabric=d2m.fabric_config(
+            cluster_axis=1, topology="linear", routing="bidir_line_mesh"
+        ),
+    )
+    out_s = d2m.mesh_gather(out_s, shard_dims=[0, 1], shard_shape=[1, 4])
+    result = out_s.to_host()
+
+    per_device = []
+    for d in range(4):
+        a_d = full_a[:, 32 * d : 32 * (d + 1)]
+        b_d = full_b[:, 32 * d : 32 * (d + 1)]
+        cd = torch.zeros(N * 32, 32, dtype=torch.float32)
+        for cy in range(N):
+            cd[32 * cy : 32 * (cy + 1), :] = (
+                a_d[32 * cy : 32 * (cy + 1), :] @ b_d[32 * cy : 32 * (cy + 1), :]
+            )
+        per_device.append(cd)
+    stacked = torch.cat(per_device, dim=0)  # (4*N*32, 32)
+    expected = torch.cat([stacked] * 4, dim=1)  # (4*N*32, 128)
+    assert tuple(result.shape) == (4 * N * 32, 128), result.shape
+    assert_pcc(expected, result)
+
+
 # ---------------------------------------------------------------------------
 # Compute-isolation references for the fused matmul + all_gather
 # ---------------------------------------------------------------------------
