@@ -10,6 +10,7 @@
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/OpImplementation.h"
@@ -109,9 +110,15 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
     constexpr int64_t kExpectedIndicesRemote = 3;
     constexpr int64_t kExpectedIndicesLocal = 1;
 
-    if (isDstRemote()) {
+    // A cross-device fabric write into a gridless #l1 scratch (the CCL
+    // tmp-buffer) has a local-layout dst but is addressed like a remote one
+    // (gridY, gridX, offset) so buildNocEndpoint can resolve the peer's
+    // symmetric scratch address.
+    bool isFabricScratch = !getStartDevice().empty() && !isDstRemote();
+    if (isDstRemote() || isFabricScratch) {
       if (numDstIndices != kExpectedIndicesRemote) {
-        return emitOpError("Must have 3 dst indices for remote dst operand");
+        return emitOpError("Must have 3 dst indices for remote/fabric-scratch "
+                           "dst operand");
       }
     } else {
       if (numDstIndices != kExpectedIndicesLocal) {
@@ -861,28 +868,52 @@ void WriteColMaskTileOp::getEffects(
     }
   }
 
-  // Verify that the memref/tensor is remote (has device layout)
-  if (!ttcore::hasDeviceLayout(getMemref())) {
-    return emitOpError("memref/tensor must be remote (have a device layout)");
-  }
+  // Scratch-dst mode: a cross-device store into a gridless #l1 scratch (the CCL
+  // tmp-buffer). The scratch IS the shard -- no grid dims, no grid indices --
+  // and the symmetric L1 offset (every device runs the same SPMD kernel) makes
+  // the fabric dst address valid on the peer. Detected by a non-device-layout
+  // destination together with a cross-device store.
+  bool isScratchDst =
+      !ttcore::hasDeviceLayout(getMemref()) && !getStartDevice().empty();
 
-  // Verify memref/tensor rank is even (grid + shard dimensions)
-  if (shapedType.getRank() % 2 != 0) {
-    return emitOpError("memref/tensor rank must be even for device shape (grid "
-                       "+ shard dimensions)");
-  }
+  SmallVector<int64_t> shardShape;
+  if (isScratchDst) {
+    if (!getIndices().empty()) {
+      return emitOpError(
+          "scratch-dst cross-device store takes no grid indices");
+    }
+    // The whole scratch is the shard.
+    shardShape = llvm::to_vector(shapedType.getShape());
+  } else {
+    // Verify that the memref/tensor is remote (has device layout)
+    if (!ttcore::hasDeviceLayout(getMemref())) {
+      return emitOpError("memref/tensor must be remote (have a device layout)");
+    }
 
-  // Verify indices count matches grid dimensions (first N/2 dimensions)
-  int64_t gridRank = shapedType.getRank() / 2;
-  if (static_cast<int64_t>(getIndices().size()) != gridRank) {
-    return emitOpError("number of indices must equal grid rank (N/2 where N is "
-                       "memref/tensor rank), got ")
-           << getIndices().size() << " indices but expected " << gridRank;
+    // Verify memref/tensor rank is even (grid + shard dimensions)
+    if (shapedType.getRank() % 2 != 0) {
+      return emitOpError(
+          "memref/tensor rank must be even for device shape (grid "
+          "+ shard dimensions)");
+    }
+
+    // Verify indices count matches grid dimensions (first N/2 dimensions)
+    int64_t gridRank = shapedType.getRank() / 2;
+    if (static_cast<int64_t>(getIndices().size()) != gridRank) {
+      return emitOpError(
+                 "number of indices must equal grid rank (N/2 where N is "
+                 "memref/tensor rank), got ")
+             << getIndices().size() << " indices but expected " << gridRank;
+    }
   }
 
   // Verify that memref references a generic op operand or scratch allocation
-  // when inside a generic.
-  if (auto genericOp = getOperation()->getParentOfType<GenericOp>()) {
+  // when inside a generic. The scratch-dst CCL tmp-buffer is, by definition, a
+  // local scratch (an in-kernel `tensor.empty`/`d2m.empty` pre-bufferization, an
+  // alloc/to_buffer after) -- not a generic operand -- so this check is skipped
+  // for it.
+  if (auto genericOp = getOperation()->getParentOfType<GenericOp>();
+      genericOp && !isScratchDst) {
     Value memrefOperand = getMemref();
     bool foundInOperands = false;
     for (Value operand : genericOp.getOperands()) {
@@ -891,7 +922,7 @@ void WriteColMaskTileOp::getEffects(
         break;
       }
     }
-    // Also allow scratch allocations
+    // Also allow scratch allocations.
     if (!foundInOperands &&
         !isa_and_nonnull<ScratchAllocateOp>(memrefOperand.getDefiningOp())) {
       return emitOpError(
@@ -900,12 +931,14 @@ void WriteColMaskTileOp::getEffects(
     }
   }
 
-  // Get device layout for shape verification
-  auto deviceLayout = ttcore::getDeviceLayout(getMemref());
-  if (!deviceLayout) {
-    return emitOpError("failed to get device layout from memref/tensor");
+  if (!isScratchDst) {
+    // Get device layout for shape verification
+    auto deviceLayout = ttcore::getDeviceLayout(getMemref());
+    if (!deviceLayout) {
+      return emitOpError("failed to get device layout from memref/tensor");
+    }
+    shardShape = llvm::to_vector(deviceLayout.getShardShape(shapedType));
   }
-  auto shardShape = deviceLayout.getShardShape(shapedType);
 
   // CB-specific verification (only when CB is present)
   if (hasCbOperand) {
@@ -1492,26 +1525,38 @@ bool RemoteLoadOp::hasTensorSemantics() {
     return emitOpError("explicit CB form cannot have a result");
   }
 
-  // The operand must be a device (sharded) tensor/memref -- it is the fabric
-  // write destination shared across devices.
-  if (!ttcore::hasDeviceLayout(getMemref())) {
-    return emitOpError("memref/tensor must be remote (have a device layout)");
+  // Two operand forms:
+  //  - device (sharded) operand: the fabric write destination shared across
+  //    devices; grid indices select the shard.
+  //  - gridless #l1 scratch (CCL tmp-buffer): the scratch IS the shard -- no
+  //    grid dims, no grid indices -- already fabric-written by a peer. This is
+  //    the receiver dual of a scratch-dst remote_store.
+  bool isScratch = !ttcore::hasDeviceLayout(getMemref());
+  if (isScratch) {
+    if (!getIndices().empty()) {
+      return emitOpError("scratch (gridless) fabric_recv takes no grid indices");
+    }
+  } else {
+    // Even rank (grid + shard dims); indices select the grid coordinate.
+    if (shapedType.getRank() % 2 != 0) {
+      return emitOpError(
+          "memref/tensor rank must be even for device shape (grid "
+          "+ shard dimensions)");
+    }
+    int64_t gridRank = shapedType.getRank() / 2;
+    if (static_cast<int64_t>(getIndices().size()) != gridRank) {
+      return emitOpError(
+                 "number of indices must equal grid rank (N/2 where N is "
+                 "memref/tensor rank), got ")
+             << getIndices().size() << " indices but expected " << gridRank;
+    }
   }
 
-  // Even rank (grid + shard dims); indices select the grid coordinate.
-  if (shapedType.getRank() % 2 != 0) {
-    return emitOpError("memref/tensor rank must be even for device shape (grid "
-                       "+ shard dimensions)");
-  }
-  int64_t gridRank = shapedType.getRank() / 2;
-  if (static_cast<int64_t>(getIndices().size()) != gridRank) {
-    return emitOpError("number of indices must equal grid rank (N/2 where N is "
-                       "memref/tensor rank), got ")
-           << getIndices().size() << " indices but expected " << gridRank;
-  }
-
-  // The memref operand must reference a parent-generic operand or scratch.
-  if (auto genericOp = getOperation()->getParentOfType<GenericOp>()) {
+  // The memref operand must reference a parent-generic operand or scratch. The
+  // gridless #l1 scratch (CCL tmp-buffer) is a local scratch, not a generic
+  // operand, so this check is skipped for it.
+  if (auto genericOp = getOperation()->getParentOfType<GenericOp>();
+      genericOp && !isScratch) {
     Value memrefOperand = getMemref();
     bool found = llvm::is_contained(genericOp.getOperands(), memrefOperand);
     if (!found) {
@@ -1600,6 +1645,18 @@ mlir::LogicalResult FabricRecvOp::bufferize(
   // Memref-form op (no result): the operand's shard is exposed in place (no
   // copy). Split + lowering map this to a reserve/push on the operand's CB.
   rewriter.create<FabricRecvOp>(getLoc(), *memrefBuffer, getIndices());
+
+  // Gridless #l1 scratch (CCL tmp-buffer): the operand IS already the shard, so
+  // there is NO view to take -- expose the buffer directly (like remote_load's
+  // localBuffer). This avoids the memref.reinterpret_cast below, which is not
+  // legalizable in the D2MToTTKernel conversion and is anyway unnecessary here.
+  if (getIndices().empty()) {
+    auto toTensor = rewriter.create<bufferization::ToTensorOp>(
+        getLoc(), result.getType(), *memrefBuffer);
+    rewriter.replaceAllUsesWith(result, toTensor.getResult());
+    rewriter.eraseOp(*this);
+    return mlir::success();
+  }
 
   // The result shard aliases the operand buffer's shard at the grid [indices].
   // The operand carries a #ttcore.shard layout (not a standard strided layout),

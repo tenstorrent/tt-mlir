@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -271,9 +272,32 @@ public:
              "remote_store must have either a CB or a local buffer");
     }
 
-    Value dmaTx =
-        rewriter.create<DMAWriteOp>(loc, localMemref, remoteMemref, gridIndices,
-                                    startDevice, deviceMcastShape);
+    // Scratch-dst mode: a cross-device store into a gridless #l1 scratch (the
+    // CCL tmp-buffer). The scratch has no device layout / grid memory-map, so we
+    // emit a fully-indexed write with explicit [0,0,0] dst indices (core 0,0,
+    // offset 0) -- bypassing the grid memory-map expansion. buildNocEndpoint
+    // then resolves the dst to castCBTypeAsAddress(scratchCB) at the peer's
+    // core (0,0), i.e. the symmetric scratch (every device runs the same SPMD
+    // kernel, so the scratch CB sits at the same L1 offset everywhere).
+    bool isScratchDst = !ttcore::hasDeviceLayout(remoteMemref) &&
+                        !startDevice.empty();
+    Value dmaTx;
+    if (isScratchDst) {
+      Value c0 = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+      SmallVector<Value> srcIdx = {c0};
+      SmallVector<Value> dstIdx = {c0, c0, c0};
+      int64_t numElems = 1;
+      for (int64_t d : remoteMemrefType.getShape()) {
+        numElems *= d;
+      }
+      dmaTx = rewriter.create<DMAWriteOp>(
+          loc, localMemref, ValueRange(srcIdx), remoteMemref, ValueRange(dstIdx),
+          static_cast<size_t>(numElems), startDevice, deviceMcastShape);
+    } else {
+      dmaTx =
+          rewriter.create<DMAWriteOp>(loc, localMemref, remoteMemref, gridIndices,
+                                      startDevice, deviceMcastShape);
+    }
 
     if (remoteStore.getSemaphore()) {
       auto incr = rewriter.create<arith::ConstantIndexOp>(loc, 1);

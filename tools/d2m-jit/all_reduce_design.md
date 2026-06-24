@@ -465,3 +465,90 @@ rewired to the CB wait result. Concretely this needs:
    DM op, so they should skip it -- verify).
 
 The grid-[N,1] dynamic recv-slot offset is still a separate follow-up after 3a.
+
+---
+
+## Milestone 3a — PIVOT to the tmp-scratch approach (2026-06-24, locked)
+
+The `#shard` recv operand is fundamentally not memref-viewable, and reading it
+back over NoC contends with the open fabric connection. Both problems vanish if
+the recv buffer is a plain gridless `#l1` scratch instead of a `#shard` operand.
+
+### De-risk: symmetric scratch addressing is correct *by construction*
+
+The fabric-write dst address is computed in `D2MDMAWriteRewriter`
+(`D2MToTTKernel.cpp`) via `buildNocEndpoint(dst, dstIndices, DeviceL1)` =
+`castCBTypeAsAddress(dst_CB) + offset` at the dst-core's virtual coords. All
+devices run the same SPMD kernel, so a given scratch CB is allocated at the SAME
+L1 offset on every device. Therefore the sender's `castCBTypeAsAddress(scratchCB)`
+already equals the peer's address for that same scratch — symmetric addressing
+needs no probe. (No device run required to confirm; it falls straight out of the
+CB→address lowering + SPMD allocation.)
+
+### The shape that makes both sides trivial
+
+- **tmp scratch**: an in-kernel `d2m.empty(<shard>)` → gridless `#l1`,
+  shard-shaped. The recv consumes it *view-free* (it IS already the shard).
+- **recv** `fabric_recv(tmp)` with EMPTY indices: bufferize → `ToTensorOp(tmp)`
+  directly (skip the reinterpret_cast entirely when gridRank==0). No memref view
+  ⇒ no `memref.reinterpret_cast` ⇒ no legalization failure. Lowering unchanged
+  (reserve+push on tmp's CB, no dma_read).
+- **send** = `remote_store` learning a **scratch-dst mode**, NOT a new op
+  (remote_store already has all the bufferize/split/DPS machinery):
+  - detect scratch-dst by `!hasDeviceLayout(dst) && !startDevice.empty()`;
+  - relax `RemoteStoreOp::verify` to allow that case (skip device-layout +
+    grid-rank checks);
+  - in `LowerLoadStoreOpsToDMA`, for scratch-dst emit a **fully-indexed**
+    `DMAWriteOp(src, scratch, dstIndices=[0,0,0], numElems=shardVolume,
+    startDevice, deviceMcastShape)` (NOT the shard-level form) + `SemaphoreInc`.
+    `[0,0,0]` ⇒ `buildNocEndpoint` returns `castCBTypeAsAddress(scratchCB)` at
+    core (0,0) = the peer's symmetric scratch. Reuses the existing
+    `D2MDMAWriteRewriter` fabric path with ZERO new D2MToTTKernel code and no
+    memoryMap dependency (we supply the 3 indices directly).
+
+This avoids a whole new op (the earlier "dedicated fabric_send" idea) — the only
+genuinely new op stays `fabric_recv`, now repointed at the gridless `#l1` scratch.
+
+### Ring step (target shape)
+```
+tmp = empty(<shard>)                 # gridless #l1 scratch
+remote_store(tmp, [], partial, start_device=[dy,nbr], device_mcast_shape=[1,1],
+             semaphore=es, semaphore_indices=[cy,0])   # write peer's tmp
+semaphore_wait(es, 1)
+s = fabric_recv(tmp, []) + remote_load(in0, [idx])     # view-free consume
+```
+
+### Edits
+1. `RemoteStoreOp::verify` — allow gridless `#l1` dst when `startDevice` present.
+2. `LowerLoadStoreOpsToDMA` `D2MLowerRemoteStoreRewritePattern` — scratch-dst ⇒
+   fully-indexed `dma_write([0,0,0], numElems=vol)`.
+3. `FabricRecvOp::verify` — allow gridless `#l1` operand (empty indices).
+4. `FabricRecvOp::bufferize` — gridRank==0 ⇒ `ToTensorOp(buffer)` directly (no view).
+5. Confirm split-v2 gives the scratch (remote_store DST + fabric_recv operand) a CB.
+6. `_m3a.py` — rewrite to the tmp-scratch form above.
+
+Follow-up after 3a: grid-[N,1] dynamic recv-slot offset (still hardcoded 0).
+
+### Milestone 3a — DONE (2026-06-24): tmp-scratch fabric_recv PASSES on device
+
+`test/d2m-jit/_m3a.py` PASSES on the 4-chip Blackhole ring (all devices
+maxdiff ~0.005). The cross-device fabric write into a peer's gridless #l1 scratch
++ the view-free `fabric_recv` consume (NO noc_async_read) both work on silicon.
+Existing #shard-path all_gather tests still pass (changes are gated to the new
+scratch path). Implemented edits (committed):
+1. `RemoteStoreOp::verify` — scratch-dst branch (gridless #l1 dst + no grid
+   indices + skip operand-reference check when startDevice present).
+2. `DMAWriteOp::verify` — a cross-device write with a local-layout dst (fabric
+   scratch) requires 3 dst indices like a remote dst.
+3. `LowerLoadStoreOpsToDMA` — scratch-dst remote_store -> fully-indexed
+   `dma_write(srcIdx=[0], dstIdx=[0,0,0], numElems=vol)`.
+4. `D2MDMAWriteRewriter` (D2MToTTKernel) — fabric write to a LOCAL #l1 scratch
+   dst uses `get_write_ptr(scratchCB)` for the base address (NOT
+   castCBTypeAsAddress, which only resolves for remote/compile-time operands);
+   coords from dstIndices[0,1], offset dstIndices[2].
+5. `FabricRecvOp::verify`/`bufferize` — gridless #l1 scratch operand: no grid
+   indices, and bufferize exposes the buffer directly (no reinterpret_cast).
+
+Next: 3b (2-step ring that hung before -> should now be hang-free since the recv
+is view-free and never reads back over NoC), then 3c (full reduce_scatter ->
+all_reduce). Follow-up: grid-[N,1] dynamic recv-slot offset (still 0).
