@@ -32,6 +32,10 @@ void run(const ::tt::target::ttnn::PagedFillCacheOp *op,
   // single-program factory, which under DP partitioning runs the kernel on
   // the mesh root only - so per-rank cache writes from non-root devices are
   // silently dropped.
+  //
+  // TODO(#47955): ttnn could infer these coords from the cache tensor (it is
+  // already an op input) and select the MeshWorkloadFactory by default, letting
+  // us drop this explicit pass. Tracked in tenstorrent/tt-metal#47955.
   const auto &coordVec = cacheTensor.tensor_topology().mesh_coords();
   std::set<::ttnn::MeshCoordinate> meshCoords(coordVec.begin(), coordVec.end());
 

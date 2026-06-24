@@ -38,6 +38,10 @@ void run(const ::tt::target::ttnn::PagedUpdateCacheOp *op,
   // the mesh root only - so per-rank cache writes from non-root devices are
   // silently dropped. Per-rank divergent updates require one program per
   // mesh coordinate, which is what the MeshWorkloadFactory provides.
+  //
+  // TODO(#47955): ttnn could infer these coords from the cache tensor (it is
+  // already an op input) and select the MeshWorkloadFactory by default, letting
+  // us drop this explicit pass. Tracked in tenstorrent/tt-metal#47955.
   const auto &coordVec = cacheTensor.tensor_topology().mesh_coords();
   std::set<::ttnn::MeshCoordinate> meshCoords(coordVec.begin(), coordVec.end());
 
