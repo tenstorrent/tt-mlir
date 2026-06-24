@@ -17,6 +17,7 @@ add_mlir_dialect_library(MLIRStableHLOTransforms
   ShardyCCLCanonicalization.cpp
   ShardyCCLToStableHLOCCLPatterns.cpp
   StableHLOFusing.cpp
+  StableHLOSimplify.cpp
   UnsolvedGraphPasses.cpp
   UpdateGlobalToLocalShapes.cpp
   WrapUnderManualComputation.cpp

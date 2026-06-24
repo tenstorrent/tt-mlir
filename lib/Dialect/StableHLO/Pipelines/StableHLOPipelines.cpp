@@ -31,6 +31,9 @@ void createStableHLOPipeline(OpPassManager &pm,
     pm.addPass(mlir::stablehlo::createStablehloAggressiveSimplificationPass());
   }
 
+  // Simplify StableHLO ops into shard-friendly canonical forms before sharding.
+  pm.addPass(mlir::tt::stablehlo::createStableHLOSimplifyPass());
+
   // Apply StableHLO fusing pass.
   pm.addPass(mlir::tt::stablehlo::createStableHLOFusingPass());
 

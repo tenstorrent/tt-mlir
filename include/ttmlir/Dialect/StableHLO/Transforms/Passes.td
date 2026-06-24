@@ -172,6 +172,25 @@ def StableHLOFusingPass : Pass<"stablehlo-fusing", "::mlir::ModuleOp">
   ];
 }
 
+def StableHLOSimplifyPass : Pass<"stablehlo-simplify", "::mlir::ModuleOp">
+{
+  let summary = "Pre-sharding StableHLO simplification rewrites.";
+  let description = [{
+    This pass re-expresses StableHLO operations in the canonical form that
+    shards cleanly and reaches the optimized downstream lowering. It runs before
+    Shardy/SPMD partitioning, so it must only rely on the pre-partition graph.
+
+    For example, it collapses a multi-dim scatter whose column index is a
+    positional iota -- really a single-axis row scatter -- so it reaches the
+    embedding-backward lowering instead of the generic 1D-flatten path that
+    lands on a single core and clashes in L1 under sharding.
+  }];
+
+  let dependentDialects = [
+    "::mlir::stablehlo::StablehloDialect"
+  ];
+}
+
 def PartiallyConvertSdyToStableHLOPass : Pass<"partially-convert-sdy-to-stablehlo", "::mlir::ModuleOp">
 {
   let summary = "Partially convert Shardy operations to StableHLO operations.";
