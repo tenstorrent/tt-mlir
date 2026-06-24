@@ -7,6 +7,7 @@
 
 // Include for Metal buffer allocation APIs
 #include "tt-metalium/allocator.hpp"
+#include "tt-metalium/experimental/tensor/mesh_tensor.hpp"
 
 namespace nb = nanobind;
 
@@ -51,38 +52,55 @@ void registerRuntimeUtilsBindings(nb::module_ &m) {
   // with the ttnn.BufferType enum already exposed by ttnn. The functions below
   // use the buffer type directly (L1 or DRAM) without requiring enum access.
 
-  // Wrapper class to hold the MeshBuffer and expose its properties
-  // We need this because MeshBuffer is a shared_ptr internally
-  struct MeshBufferWrapper {
-    std::shared_ptr<distributed::MeshBuffer> buffer;
+  // Wrapper class to hold the MeshTensor and expose its backing allocation.
+  struct MeshTensorWrapper {
+    std::shared_ptr<tt_metal::MeshTensor> tensor;
 
-    MeshBufferWrapper(std::shared_ptr<distributed::MeshBuffer> buf)
-        : buffer(std::move(buf)) {}
+    MeshTensorWrapper(std::shared_ptr<tt_metal::MeshTensor> tensor)
+        : tensor(std::move(tensor)) {}
 
-    uint32_t address() const { return buffer->address(); }
+    uint32_t address() const { return tensor->address(); }
 
-    size_t size() const { return buffer->size(); }
+    size_t size() const { return tensor->mesh_buffer().size(); }
 
-    void deallocate() { buffer->deallocate(); }
+    void deallocate() { tensor.reset(); }
 
-    bool is_allocated() const { return buffer != nullptr; }
+    bool is_allocated() const { return tensor != nullptr; }
   };
 
-  nb::class_<MeshBufferWrapper>(m, "MeshBuffer")
-      .def("address", &MeshBufferWrapper::address,
+  nb::class_<MeshTensorWrapper>(m, "MeshTensor")
+      .def("address", &MeshTensorWrapper::address,
            "Get the starting address of the buffer")
-      .def("size", &MeshBufferWrapper::size, "Get the size of the buffer")
-      .def("deallocate", &MeshBufferWrapper::deallocate,
+      .def("size", &MeshTensorWrapper::size, "Get the size of the buffer")
+      .def("deallocate", &MeshTensorWrapper::deallocate,
            "Deallocate the buffer from device memory")
-      .def("is_allocated", &MeshBufferWrapper::is_allocated,
+      .def("is_allocated", &MeshTensorWrapper::is_allocated,
            "Check if the buffer is still allocated");
+
+  auto wrapMeshBuffer =
+      [](std::shared_ptr<distributed::MeshBuffer> mesh_buffer,
+         tt_metal::BufferType buffer_type,
+         distributed::MeshDevice *mesh_device) -> MeshTensorWrapper {
+    tt_metal::TensorSpec spec(
+        tt_metal::Shape({static_cast<uint32_t>(mesh_buffer->size())}),
+        tt_metal::TensorLayout(
+            tt_metal::DataType::UINT8,
+            tt_metal::PageConfig(tt_metal::Layout::ROW_MAJOR),
+            tt_metal::MemoryConfig(tt_metal::TensorMemoryLayout::INTERLEAVED,
+                                   buffer_type)));
+    auto topology =
+        tt_metal::TensorTopology::create_fully_replicated_tensor_topology(
+            mesh_device->shape());
+    return MeshTensorWrapper(std::make_shared<tt_metal::MeshTensor>(
+        std::move(mesh_buffer), std::move(spec), std::move(topology)));
+  };
 
   // Function to allocate an L1 buffer on the device
   // This is the main API the user will call
   m.def(
       "allocate_l1_buffer",
-      [](::ttnn::MeshDevice *mesh_device, size_t buffer_size,
-         size_t page_size) -> MeshBufferWrapper {
+      [wrapMeshBuffer](::ttnn::MeshDevice *mesh_device, size_t buffer_size,
+                       size_t page_size) -> MeshTensorWrapper {
         // Create device-local buffer config for L1
         tt_metal::BufferShardingArgs bufferShardingArgs(std::nullopt);
 
@@ -96,11 +114,12 @@ void registerRuntimeUtilsBindings(nb::module_ &m) {
         // Create replicated buffer config
         distributed::ReplicatedBufferConfig buffer_config{.size = buffer_size};
 
-        // Create the MeshBuffer
+        // Create the MeshTensor from a buffer with the requested page size.
         auto mesh_buffer = distributed::MeshBuffer::create(
             buffer_config, local_config, mesh_device);
 
-        return MeshBufferWrapper(mesh_buffer);
+        return wrapMeshBuffer(std::move(mesh_buffer), tt_metal::BufferType::L1,
+                              mesh_device);
       },
       nb::arg("mesh_device"), nb::arg("buffer_size"), nb::arg("page_size"),
       R"(
@@ -117,7 +136,7 @@ void registerRuntimeUtilsBindings(nb::module_ &m) {
 
     Returns
     -------
-    MeshBuffer
+    MeshTensor
         A buffer object with address(), size(), and deallocate() methods
 
     Example
@@ -131,8 +150,8 @@ void registerRuntimeUtilsBindings(nb::module_ &m) {
   // Function to allocate a DRAM buffer on the device
   m.def(
       "allocate_dram_buffer",
-      [](::ttnn::MeshDevice *mesh_device, size_t buffer_size,
-         size_t page_size) -> MeshBufferWrapper {
+      [wrapMeshBuffer](::ttnn::MeshDevice *mesh_device, size_t buffer_size,
+                       size_t page_size) -> MeshTensorWrapper {
         // Create device-local buffer config for DRAM
         tt_metal::BufferShardingArgs bufferShardingArgs(std::nullopt);
 
@@ -146,11 +165,12 @@ void registerRuntimeUtilsBindings(nb::module_ &m) {
         // Create replicated buffer config
         distributed::ReplicatedBufferConfig buffer_config{.size = buffer_size};
 
-        // Create the MeshBuffer
+        // Create the MeshTensor from a buffer with the requested page size.
         auto mesh_buffer = distributed::MeshBuffer::create(
             buffer_config, local_config, mesh_device);
 
-        return MeshBufferWrapper(mesh_buffer);
+        return wrapMeshBuffer(std::move(mesh_buffer),
+                              tt_metal::BufferType::DRAM, mesh_device);
       },
       nb::arg("mesh_device"), nb::arg("buffer_size"), nb::arg("page_size"),
       R"(
@@ -167,7 +187,7 @@ void registerRuntimeUtilsBindings(nb::module_ &m) {
 
     Returns
     -------
-    MeshBuffer
+    MeshTensor
         A buffer object with address(), size(), and deallocate() methods
     )");
 

@@ -320,8 +320,8 @@ std::shared_ptr<tt_metal::DistributedHostBuffer> tensorFullToShard(
             return std::make_shared<tt_metal::DistributedHostBuffer>(
                 tt_metal::DistributedHostBuffer::create(meshShape));
           },
-          [&](const MeshBuffer &meshBuffer) {
-            LOG_FATAL("tensorFullToShard from MeshBuffer not supported.");
+          [&](const MeshTensor &) {
+            LOG_FATAL("tensorFullToShard from MeshTensor not supported.");
             return std::make_shared<tt_metal::DistributedHostBuffer>(
                 tt_metal::DistributedHostBuffer::create(meshShape));
           },
@@ -356,8 +356,8 @@ std::shared_ptr<tt_metal::HostBuffer> tensorShardToFull(
                     *distributedHostBuffer, meshShape, dataType, tensorShape,
                     meshShardType, meshShardDims));
           },
-          [&](const MeshBuffer &meshBuffer) {
-            LOG_FATAL("tensorShardToFull from MeshBuffer not supported.");
+          [&](const MeshTensor &) {
+            LOG_FATAL("tensorShardToFull from MeshTensor not supported.");
             return std::make_shared<tt_metal::HostBuffer>();
           },
       },

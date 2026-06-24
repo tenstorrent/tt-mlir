@@ -134,8 +134,7 @@ createKernelConfig(
     const target::metal::KernelConfig *kernelConfig,
     const flatbuffers::Vector<target::metal::ArgRef> *argRefsType,
     const flatbuffers::Vector<flatbuffers::Offset<void>> *argRefs,
-    const std::unordered_map<
-        std::uint32_t, std::shared_ptr<distributed::MeshBuffer>> &meshBuffers,
+    const std::unordered_map<std::uint32_t, MeshTensor> &meshTensors,
     const std::unordered_map<std::uint32_t, tt_metal::GlobalSemaphore>
         &global_semaphores_cache,
     const std::unordered_map<std::uint32_t, std::uint32_t>
@@ -146,7 +145,7 @@ createKernelConfig(
     std::function<std::uint32_t(std::uint32_t)> createSemaphoreFn,
     const std::unordered_map<std::uint32_t, Tensor> &hostBuffers) {
   std::vector<uint32_t> compileArgs = processCompileArgs(
-      kernelConfig->args()->ct_args(), argRefsType, argRefs, meshBuffers,
+      kernelConfig->args()->ct_args(), argRefsType, argRefs, meshTensors,
       global_semaphores_cache, local_semaphores_cache, cbs,
       deviceAddressValidator, createSemaphoreFn, hostBuffers);
   switch (kernelConfig->type_type()) {

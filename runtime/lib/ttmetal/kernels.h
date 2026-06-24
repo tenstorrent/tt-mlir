@@ -40,8 +40,7 @@ createKernelConfig(
     const target::metal::KernelConfig *kernelConfig,
     const flatbuffers::Vector<target::metal::ArgRef> *argRefsType,
     const flatbuffers::Vector<flatbuffers::Offset<void>> *argRefs,
-    const std::unordered_map<
-        std::uint32_t, std::shared_ptr<distributed::MeshBuffer>> &meshBuffers,
+    const std::unordered_map<std::uint32_t, MeshTensor> &meshTensors,
     const std::unordered_map<std::uint32_t, tt_metal::GlobalSemaphore>
         &global_semaphores_cache,
     const std::unordered_map<std::uint32_t, std::uint32_t>

@@ -79,8 +79,7 @@ private:
 private:
   distributed::MeshDevice *meshDevice;
   std::vector<std::shared_ptr<distributed::MeshEvent>> initMeshEvents;
-  std::unordered_map<std::uint32_t, std::shared_ptr<distributed::MeshBuffer>>
-      meshBuffers;
+  std::unordered_map<std::uint32_t, MeshTensor> meshTensors;
   std::unordered_map<std::uint32_t, tt_metal::GlobalSemaphore>
       global_semaphores;
 
@@ -137,9 +136,9 @@ MCQExecutor::MCQExecutor(
                          hostBuffers.try_emplace(ref->global_id(), input);
                      LOG_ASSERT(inserted);
                    },
-                   [&](const MeshBuffer &meshBuffer) {
+                   [&](const MeshTensor &meshTensor) {
                      auto [_, inserted] =
-                         meshBuffers.try_emplace(ref->global_id(), meshBuffer);
+                         meshTensors.try_emplace(ref->global_id(), meshTensor);
                      LOG_ASSERT(inserted);
                    },
                },
@@ -300,14 +299,14 @@ void MCQExecutor::execute(const target::metal::ReturnCommand *command) {
              "Unexpected outputs, multiple returns not supported");
   outputs.reserve(command->results()->size());
   for (const auto *result : *command->results()) {
-    auto meshBufferIter = meshBuffers.find(result->global_id());
-    bool meshBufferFound = meshBufferIter != meshBuffers.end();
+    auto meshTensorIter = meshTensors.find(result->global_id());
+    bool meshTensorFound = meshTensorIter != meshTensors.end();
     auto hostBufferIter = hostBuffers.find(result->global_id());
     bool hostBufferFound = hostBufferIter != hostBuffers.end();
-    LOG_ASSERT(meshBufferFound != hostBufferFound);
-    if (meshBufferFound) {
+    LOG_ASSERT(meshTensorFound != hostBufferFound);
+    if (meshTensorFound) {
       outputs.emplace_back(
-          std::static_pointer_cast<void>(meshBufferIter->second), nullptr,
+          std::static_pointer_cast<void>(meshTensorIter->second), nullptr,
           DeviceRuntime::TTMetal, std::static_pointer_cast<void>(meshEvent));
     } else {
       outputs.emplace_back(hostBufferIter->second);
@@ -384,7 +383,7 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
       tt_metal::KernelHandle handle = createKernel(
           program, kernelSourceString, coreRangeSet,
           createKernelConfig(kernelConfig, command->arg_refs_type(),
-                             command->arg_refs(), meshBuffers,
+                             command->arg_refs(), meshTensors,
                              global_semaphores, local_semaphore_initializer,
                              command->cbs(), deviceAddressValidator,
                              createSemaphore, hostBuffers),
@@ -393,14 +392,14 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
 
       std::vector<uint32_t> commonRtArgsVec = processRuntimeArgs(
           kernelConfig->args()->crt_args(), command->arg_refs_type(),
-          command->arg_refs(), meshBuffers, global_semaphores,
+          command->arg_refs(), meshTensors, global_semaphores,
           local_semaphore_initializer, command->cbs(), deviceAddressValidator,
           createSemaphore, hostBuffers);
       tt_metal::SetCommonRuntimeArgs(program, handle, commonRtArgsVec);
 
       std::vector<uint32_t> rtArgsVec = processRuntimeArgs(
           kernelConfig->args()->rt_args(), command->arg_refs_type(),
-          command->arg_refs(), meshBuffers, global_semaphores,
+          command->arg_refs(), meshTensors, global_semaphores,
           local_semaphore_initializer, command->cbs(), deviceAddressValidator,
           createSemaphore, hostBuffers);
 
@@ -442,7 +441,7 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
       tt::tt_metal::CoreRangeSet coreRangeSet = common::toCoreRangeSet(
           metalBuffer->circular_buffer_config()->core_range_set());
       tt_metal::CircularBufferConfig config =
-          createCircularBufferConfig(cbRef, meshBuffers);
+          createCircularBufferConfig(cbRef, meshTensors);
       tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
     }
 
@@ -485,9 +484,9 @@ void MCQExecutor::execute(
   ZoneScopedN("EnqueueWriteBufferCommand");
 
   auto &input = hostBuffers.at(command->src()->global_id());
-  auto meshBuffer = meshBuffers.at(command->dst()->global_id());
-  checkHostTensorSizeMatchWithMeshBufferSize(input, meshBuffer);
-  writeHostTensorToMeshBuffer(mcq, input, meshBuffer, blockingCQ);
+  auto meshTensor = meshTensors.at(command->dst()->global_id());
+  checkHostTensorSizeMatchWithMeshBufferSize(input, meshTensor);
+  writeHostTensorToMeshBuffer(mcq, input, meshTensor, blockingCQ);
 }
 
 void MCQExecutor::execute(
@@ -495,15 +494,15 @@ void MCQExecutor::execute(
   ZoneScopedN("EnqueueReadBufferCommand");
 
   auto &output = hostBuffers.at(command->dst()->global_id());
-  auto meshBuffer = meshBuffers.at(command->src()->global_id());
-  checkHostTensorSizeMatchWithMeshBufferSize(output, meshBuffer);
-  readHostTensorFromMeshBuffer(mcq, meshBuffer, output, blockingCQ);
+  auto meshTensor = meshTensors.at(command->src()->global_id());
+  checkHostTensorSizeMatchWithMeshBufferSize(output, meshTensor);
+  readHostTensorFromMeshTensor(mcq, meshTensor, output, blockingCQ);
 }
 
 void MCQExecutor::execute(const target::metal::CreateBufferCommand *command) {
   ZoneScopedN("CreateBufferCommand");
-  if (meshBuffers.find(command->ref()->global_id()) == meshBuffers.end()) {
-    meshBuffers[command->ref()->global_id()] = createMeshBufferFromBufferRef(
+  if (meshTensors.find(command->ref()->global_id()) == meshTensors.end()) {
+    meshTensors[command->ref()->global_id()] = createMeshTensorFromBufferRef(
         meshDevice, command->ref(), deviceAddressValidator);
   }
 }
@@ -511,12 +510,10 @@ void MCQExecutor::execute(const target::metal::CreateBufferCommand *command) {
 void MCQExecutor::execute(
     const target::metal::DeallocateBufferCommand *command) {
   ZoneScopedN("DeallocateBufferCommand");
-  auto meshBufferIter = meshBuffers.find(command->ref()->global_id());
-  LOG_ASSERT(meshBufferIter != meshBuffers.end(), "Buffer not allocated");
-  LOG_ASSERT(meshBufferIter->second != nullptr, "Buffer already deallocated");
-  auto meshBuffer = meshBufferIter->second;
-  meshBuffer->deallocate();
-  meshBuffers.erase(meshBufferIter);
+  auto meshTensorIter = meshTensors.find(command->ref()->global_id());
+  LOG_ASSERT(meshTensorIter != meshTensors.end(), "Buffer not allocated");
+  LOG_ASSERT(meshTensorIter->second != nullptr, "Buffer already deallocated");
+  meshTensors.erase(meshTensorIter);
 }
 
 void MCQExecutor::execute(

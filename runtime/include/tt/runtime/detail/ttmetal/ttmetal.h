@@ -9,6 +9,7 @@
 #include "tt-metalium/circular_buffer.hpp"
 #include "tt-metalium/distributed_host_buffer.hpp"
 #include "tt-metalium/experimental/forge_backdoor/global_semaphore.hpp"
+#include "tt-metalium/experimental/tensor/mesh_tensor.hpp"
 #include "tt-metalium/hal.hpp"
 #include "tt-metalium/host_api.hpp"
 #include "tt-metalium/memory_reporter.hpp"
@@ -27,9 +28,9 @@ namespace tt::runtime::ttmetal {
 using HostBuffer = std::shared_ptr<::tt::tt_metal::HostBuffer>;
 using DistributedHostBuffer =
     std::shared_ptr<::tt::tt_metal::DistributedHostBuffer>;
-using MeshBuffer = std::shared_ptr<::tt::tt_metal::distributed::MeshBuffer>;
+using MeshTensor = std::shared_ptr<::tt::tt_metal::MeshTensor>;
 using MetalTensor = std::variant<TensorDesc, HostBuffer, DistributedHostBuffer,
-                                 MeshBuffer, std::uint32_t>;
+                                 MeshTensor, std::uint32_t>;
 
 Tensor createBorrowedHostTensor(std::shared_ptr<void> data,
                                 const TensorDesc &desc);

@@ -53,8 +53,8 @@ Tensor toLayout(Tensor tensor, Device, Layout layout, std::optional<bool>) {
           [&](const DistributedHostBuffer &) {
             LOG_FATAL("toLayout not yet implemented for DistributedHostBuffer");
           },
-          [&](const MeshBuffer &) {
-            LOG_FATAL("getTensorDesc from MeshBuffer not supported.");
+          [&](const MeshTensor &) {
+            LOG_FATAL("getTensorDesc from MeshTensor not supported.");
           },
       },
       tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
@@ -255,8 +255,8 @@ target::DataType getTensorDataType(Tensor tensor) {
                       "supported yet.");
             return target::DataType::Float32;
           },
-          [&](const MeshBuffer &buffer) {
-            LOG_FATAL("Datatype mapping from MeshBuffer not supported yet.");
+          [&](const MeshTensor &) {
+            LOG_FATAL("Datatype mapping from MeshTensor not supported yet.");
             return target::DataType::Float32;
           },
       },
@@ -543,23 +543,23 @@ void wait(const std::vector<Tensor> &tensors, std::optional<uint8_t> cqId) {
 }
 
 uint32_t getNumShards(Tensor tensor) {
-  return std::visit(
-      utils::overloaded{
-          [&](const std::uint32_t &) -> uint32_t {
-            LOG_FATAL("Unsupported variant type");
-          },
-          [&](const TensorDesc &) -> uint32_t { return 1; },
-          [&](const HostBuffer &) -> uint32_t { return 1; },
-          [&](const DistributedHostBuffer &buffer) -> uint32_t {
-            // Count populated shards.
-            return static_cast<uint32_t>(buffer->shard_coords().size());
-          },
-          [&](const MeshBuffer &buffer) -> uint32_t {
-            // MeshBuffer spans the full mesh shape.
-            return static_cast<uint32_t>(buffer->device()->shape().mesh_size());
-          },
-      },
-      tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
+  return std::visit(utils::overloaded{
+                        [&](const std::uint32_t &) -> uint32_t {
+                          LOG_FATAL("Unsupported variant type");
+                        },
+                        [&](const TensorDesc &) -> uint32_t { return 1; },
+                        [&](const HostBuffer &) -> uint32_t { return 1; },
+                        [&](const DistributedHostBuffer &buffer) -> uint32_t {
+                          // Count populated shards.
+                          return static_cast<uint32_t>(
+                              buffer->shard_coords().size());
+                        },
+                        [&](const MeshTensor &meshTensor) -> uint32_t {
+                          return static_cast<uint32_t>(
+                              meshTensor->device().shape().mesh_size());
+                        },
+                    },
+                    tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
 }
 
 std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
@@ -572,8 +572,8 @@ std::vector<Tensor> toHost(Tensor tensor, bool untilize, bool blocking) {
           [&](const DistributedHostBuffer &) {
             LOG_FATAL("toHost not yet implemented for DistributedHostBuffer");
           },
-          [&](const MeshBuffer &) {
-            LOG_FATAL("toHost not yet implemented for MeshBuffer");
+          [&](const MeshTensor &) {
+            LOG_FATAL("toHost not yet implemented for MeshTensor");
           },
       },
       tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
@@ -658,8 +658,8 @@ void memcpy(void *dst, Tensor src,
           [&](const DistributedHostBuffer &) {
             LOG_FATAL("memcpy not yet implemented for DistributedHostBuffer");
           },
-          [&](const MeshBuffer &) {
-            LOG_FATAL("memcpy not yet implemented for MeshBuffer");
+          [&](const MeshTensor &) {
+            LOG_FATAL("memcpy not yet implemented for MeshTensor");
           },
       },
       src.as<MetalTensor>(DeviceRuntime::TTMetal));
@@ -683,8 +683,8 @@ void memcpy(Tensor dst, Tensor src) {
           [&](const DistributedHostBuffer &) {
             LOG_FATAL("memcpy not yet implemented for DistributedHostBuffer");
           },
-          [&](const MeshBuffer &) {
-            LOG_FATAL("memcpy not yet implemented for MeshBuffer");
+          [&](const MeshTensor &) {
+            LOG_FATAL("memcpy not yet implemented for MeshTensor");
           },
       },
       src.as<MetalTensor>(DeviceRuntime::TTMetal));
@@ -747,8 +747,8 @@ void memcpy(Tensor dst, TensorDesc dstDesc, Tensor src, TensorDesc srcDesc) {
               }
             }
           },
-          [&](const MeshBuffer &) {
-            LOG_FATAL("memcpy not yet implemented for MeshBuffer");
+          [&](const MeshTensor &) {
+            LOG_FATAL("memcpy not yet implemented for MeshTensor");
           },
       },
       dst.as<MetalTensor>(DeviceRuntime::TTMetal));
@@ -761,9 +761,7 @@ void deallocateTensor(Tensor &tensor, bool) {
           [&](const TensorDesc &) { /* no-op */ },
           [&](const HostBuffer &) { /* no-op */ },
           [&](const DistributedHostBuffer &) { /* no-op */ },
-          [&](const MeshBuffer &) {
-            LOG_FATAL("deallocateTensor not yet implemented for MeshBuffer");
-          },
+          [&](const MeshTensor &) { tensor.handle.reset(); },
       },
       tensor.as<MetalTensor>(DeviceRuntime::TTMetal));
 }
@@ -825,8 +823,8 @@ std::vector<std::byte> getTensorDataBuffer(Tensor tensor) {
                       "supported.");
             return std::vector<std::byte>{};
           },
-          [&](const MeshBuffer &buffer) {
-            LOG_FATAL("getTensorDataBuffer from MeshBuffer not supported.");
+          [&](const MeshTensor &) {
+            LOG_FATAL("getTensorDataBuffer from MeshTensor not supported.");
             return std::vector<std::byte>{};
           },
       },
@@ -852,8 +850,8 @@ std::vector<std::uint32_t> getTensorShape(Tensor tensor) {
                 "getTensorShape from DistributedHostBuffer not supported.");
             return std::vector<std::uint32_t>{};
           },
-          [&](const MeshBuffer &buffer) {
-            LOG_FATAL("getTensorShape from MeshBuffer not supported.");
+          [&](const MeshTensor &) {
+            LOG_FATAL("getTensorShape from MeshTensor not supported.");
             return std::vector<std::uint32_t>{};
           },
       },
@@ -879,8 +877,8 @@ std::vector<std::int64_t> getTensorStride(Tensor tensor) {
                 "getTensorStride from DistributedHostBuffer not supported.");
             return std::vector<std::int64_t>{};
           },
-          [&](const MeshBuffer &buffer) {
-            LOG_FATAL("getTensorStride from MeshBuffer not supported.");
+          [&](const MeshTensor &) {
+            LOG_FATAL("getTensorStride from MeshTensor not supported.");
             return std::vector<std::int64_t>{};
           },
       },
@@ -908,8 +906,8 @@ std::uint32_t getTensorElementSize(Tensor tensor) {
                       "supported.");
             return static_cast<std::uint32_t>(0);
           },
-          [&](const MeshBuffer &buffer) {
-            LOG_FATAL("getTensorElementSize from MeshBuffer not supported.");
+          [&](const MeshTensor &) {
+            LOG_FATAL("getTensorElementSize from MeshTensor not supported.");
             return static_cast<std::uint32_t>(0);
           },
       },
@@ -936,8 +934,8 @@ std::uint32_t getTensorVolume(Tensor tensor) {
                 "getTensorVolume from DistributedHostBuffer not supported.");
             return static_cast<std::uint32_t>(0);
           },
-          [&](const MeshBuffer &buffer) {
-            LOG_FATAL("getTensorVolume from MeshBuffer not supported.");
+          [&](const MeshTensor &) {
+            LOG_FATAL("getTensorVolume from MeshTensor not supported.");
             return static_cast<std::uint32_t>(0);
           },
       },
@@ -961,8 +959,8 @@ TensorDesc getTensorDesc(Tensor tensor) {
                 "getTensorDesc from DistributedHostBuffer not supported.");
             return TensorDesc{};
           },
-          [&](const MeshBuffer &buffer) {
-            LOG_FATAL("getTensorDesc from MeshBuffer not supported.");
+          [&](const MeshTensor &) {
+            LOG_FATAL("getTensorDesc from MeshTensor not supported.");
             return TensorDesc{};
           },
       },
@@ -986,8 +984,8 @@ HostBuffer getHostBuffer(Tensor tensor) {
                       "not supported.");
             return HostBuffer{};
           },
-          [&](const MeshBuffer &buffer) {
-            LOG_FATAL("getHostBuffer from MeshBuffer not supported.");
+          [&](const MeshTensor &) {
+            LOG_FATAL("getHostBuffer from MeshTensor not supported.");
             return HostBuffer{};
           },
       },
@@ -1012,8 +1010,8 @@ DistributedHostBuffer getDistributedHostBuffer(Tensor tensor) {
             return DistributedHostBuffer{};
           },
           [&](const DistributedHostBuffer &buffer) { return buffer; },
-          [&](const MeshBuffer &buffer) {
-            LOG_FATAL("getDistributedHostBufferFromMetalTensor from MeshBuffer "
+          [&](const MeshTensor &) {
+            LOG_FATAL("getDistributedHostBufferFromMetalTensor from MeshTensor "
                       "not supported.");
             return DistributedHostBuffer{};
           },

@@ -24,6 +24,14 @@ namespace target = ::tt::target;
 namespace tt_metal = ::tt::tt_metal;
 namespace distributed = ::tt::tt_metal::distributed;
 
+inline std::shared_ptr<distributed::MeshBuffer>
+borrowMeshBuffer(const MeshTensor &meshTensor) {
+  LOG_ASSERT(meshTensor);
+  return std::shared_ptr<distributed::MeshBuffer>(
+      meshTensor,
+      const_cast<distributed::MeshBuffer *>(&meshTensor->mesh_buffer()));
+}
+
 class DeviceAddressValidator {
 public:
   DeviceAddressValidator(tt_metal::IDevice *device) {
@@ -269,6 +277,44 @@ inline std::shared_ptr<distributed::MeshBuffer> createMeshBufferFromBufferRef(
 }
 #pragma clang diagnostic pop
 
+inline tt_metal::TensorSpec
+createMeshTensorStorageSpec(const distributed::MeshBuffer &meshBuffer) {
+  // D2M kernels and command queues consume the MeshBuffer layout directly. The
+  // MeshTensor spec only needs to describe an owning storage object large
+  // enough to keep the backing allocation alive.
+  tt_metal::TensorLayout tensorLayout(
+      tt_metal::DataType::UINT8,
+      tt_metal::PageConfig(tt_metal::Layout::ROW_MAJOR),
+      tt_metal::MemoryConfig(meshBuffer.device_local_config().buffer_type));
+  return tt_metal::TensorSpec(
+      tt_metal::Shape({static_cast<uint32_t>(meshBuffer.size())}),
+      tensorLayout);
+}
+
+inline tt_metal::TensorTopology
+createMeshTensorTopology(const distributed::MeshShape &meshShape,
+                         const target::metal::BufferRef *bufferRef) {
+  const target::metal::MetalBuffer *metalBuffer =
+      bufferRef->desc()->buffer_detail_as_MetalBuffer();
+  if (metalBuffer->buffer_config_type() ==
+      target::metal::BufferConfig::ShardedBufferConfig) {
+    return tt_metal::TensorTopology::create_sharded_tensor_topology(meshShape);
+  }
+  return tt_metal::TensorTopology::create_fully_replicated_tensor_topology(
+      meshShape);
+}
+
+inline MeshTensor createMeshTensorFromBufferRef(
+    distributed::MeshDevice *meshDevice,
+    const target::metal::BufferRef *bufferRef,
+    const DeviceAddressValidator &deviceAddressValidator) {
+  auto meshBuffer = createMeshBufferFromBufferRef(meshDevice, bufferRef,
+                                                  deviceAddressValidator);
+  return std::make_shared<tt_metal::MeshTensor>(
+      meshBuffer, createMeshTensorStorageSpec(*meshBuffer),
+      createMeshTensorTopology(meshDevice->shape(), bufferRef));
+}
+
 // Produces string representation of tt::tt_metal::CoreRangeSet that is suitable
 // for embedding in file name. Encode core range set so that ranges are
 // separated by double underscore '__'. Range is represented with start and end
@@ -299,8 +345,7 @@ inline void writeFile(const std::string &fileName, const std::string &source) {
 
 inline tt_metal::CircularBufferConfig createCircularBufferConfig(
     const target::metal::CBRef *cbRef,
-    const std::unordered_map<
-        std::uint32_t, std::shared_ptr<distributed::MeshBuffer>> &meshBuffers) {
+    const std::unordered_map<std::uint32_t, MeshTensor> &meshTensors) {
   const auto *bufferDesc = cbRef->buffer_ref()->desc();
   LOG_ASSERT(cbRef->buffer_ref());
   LOG_ASSERT(bufferDesc->buffer_detail_type() ==
@@ -316,17 +361,20 @@ inline tt_metal::CircularBufferConfig createCircularBufferConfig(
             logger::Buffer(cbRef->buffer_ref()->global_id()), " ",
             logger::Address(cbRef->buffer_ref()->address()), ": ",
             metalBuffer->circular_buffer_config());
-  auto meshBuffer = meshBuffers.at(cbRef->buffer_ref()->global_id());
+  auto meshTensor = meshTensors.at(cbRef->buffer_ref()->global_id());
   return tt_metal::CircularBufferConfig(
              metalBuffer->circular_buffer_config()->total_size(),
-             {{cbRef->port(), dataFormat}}, *meshBuffer->get_reference_buffer())
+             {{cbRef->port(), dataFormat}},
+             *meshTensor->mesh_buffer().get_reference_buffer())
       .set_page_size(cbRef->port(),
                      metalBuffer->circular_buffer_config()->page_size());
 }
 
-inline void writeHostTensorToMeshBuffer(
-    distributed::MeshCommandQueue *mcq, const Tensor &input,
-    std::shared_ptr<distributed::MeshBuffer> meshBuffer, bool blockingCQ) {
+inline void writeHostTensorToMeshBuffer(distributed::MeshCommandQueue *mcq,
+                                        const Tensor &input,
+                                        const MeshTensor &meshTensor,
+                                        bool blockingCQ) {
+  auto meshBuffer = borrowMeshBuffer(meshTensor);
   std::visit(
       utils::overloaded{
           [&](const std::uint32_t &) { LOG_FATAL("Unsupported variant type"); },
@@ -342,17 +390,17 @@ inline void writeHostTensorToMeshBuffer(
           [&](const DistributedHostBuffer &distributedHostBuffer) {
             mcq->enqueue_write(meshBuffer, *distributedHostBuffer, blockingCQ);
           },
-          [&](const MeshBuffer &meshBuffer) {
-            LOG_FATAL("writeTensorToMeshBuffer from MeshBuffer not supported.");
+          [&](const MeshTensor &) {
+            LOG_FATAL("writeTensorToMeshBuffer from MeshTensor not supported.");
           },
       },
       input.as<MetalTensor>(DeviceRuntime::TTMetal));
 }
 
-inline void readHostTensorFromMeshBuffer(
-    distributed::MeshCommandQueue *mcq,
-    std::shared_ptr<distributed::MeshBuffer> meshBuffer, Tensor &output,
-    bool blockingCQ) {
+inline void readHostTensorFromMeshTensor(distributed::MeshCommandQueue *mcq,
+                                         const MeshTensor &meshTensor,
+                                         Tensor &output, bool blockingCQ) {
+  auto meshBuffer = borrowMeshBuffer(meshTensor);
   std::visit(
       utils::overloaded{
           [&](const std::uint32_t &) { LOG_FATAL("Unsupported variant type"); },
@@ -368,15 +416,17 @@ inline void readHostTensorFromMeshBuffer(
             mcq->enqueue_read(meshBuffer, *distributedHostBuffer, std::nullopt,
                               blockingCQ);
           },
-          [&](const MeshBuffer &meshBuffer) {
-            LOG_FATAL("readTensorFromMeshBuffer to MeshBuffer not supported.");
+          [&](const MeshTensor &) {
+            LOG_FATAL("readTensorFromMeshBuffer to MeshTensor not supported.");
           },
       },
       output.as<MetalTensor>(DeviceRuntime::TTMetal));
 }
 
-inline void checkHostTensorSizeMatchWithMeshBufferSize(
-    const Tensor &tensor, std::shared_ptr<distributed::MeshBuffer> meshBuffer) {
+inline void
+checkHostTensorSizeMatchWithMeshBufferSize(const Tensor &tensor,
+                                           const MeshTensor &meshTensor) {
+  auto meshBuffer = borrowMeshBuffer(meshTensor);
   std::visit(
       utils::overloaded{
           [&](const std::uint32_t &) { LOG_FATAL("Unsupported variant type"); },
@@ -395,9 +445,9 @@ inline void checkHostTensorSizeMatchWithMeshBufferSize(
             tt_metal::Buffer *buffer = meshBuffer->get_device_buffer(coord);
             LOG_ASSERT(buffer->size() == hostBuffer->view_bytes().size_bytes());
           },
-          [&](const MeshBuffer &meshBuffer) {
+          [&](const MeshTensor &) {
             LOG_FATAL("checkHostTensorSizeMatchWithMeshBufferSize() with "
-                      "MeshBuffer not supported.");
+                      "MeshTensor not supported.");
           },
       },
       tensor.as<MetalTensor>(DeviceRuntime::TTMetal));

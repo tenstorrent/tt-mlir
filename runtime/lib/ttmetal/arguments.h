@@ -29,8 +29,7 @@ std::vector<std::uint32_t> processKernelArgs(
         *args,
     const flatbuffers::Vector<target::metal::ArgRef> *argRefsType,
     const flatbuffers::Vector<flatbuffers::Offset<void>> *argRefs,
-    const std::unordered_map<
-        std::uint32_t, std::shared_ptr<distributed::MeshBuffer>> &meshBuffers,
+    const std::unordered_map<std::uint32_t, MeshTensor> &meshTensors,
     const std::unordered_map<std::uint32_t, tt_metal::GlobalSemaphore>
         &globalSemaphoresCache,
     const std::unordered_map<std::uint32_t, std::uint32_t>
@@ -61,7 +60,7 @@ std::vector<std::uint32_t> processKernelArgs(
       const target::metal::BufferRef *buffer =
           reinterpret_cast<const target::metal::BufferRef *>(
               argRefs->Get(arg->operand_idx()));
-      LOG_ASSERT(meshBuffers.find(buffer->global_id()) != meshBuffers.end(),
+      LOG_ASSERT(meshTensors.find(buffer->global_id()) != meshTensors.end(),
                  "Buffer id referenced by rt args is no longer alive or was "
                  "never created ",
                  logger::Buffer(buffer->global_id()));
