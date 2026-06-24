@@ -136,6 +136,7 @@ public:
 
   unsigned getCurrSliceIndex() const;
   unsigned getFirstInputSliceIndex() const;
+  void deallocateIntermediate(unsigned id);
   void deallocateAllButFirstInput();
 
 private:
