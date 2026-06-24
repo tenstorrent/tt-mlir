@@ -323,3 +323,39 @@ sender already lowers to `fabric_mcast_fast_write_any_len` + `fabric_mcast_sem_i
   slot per step. Depth interacts with how far ahead peers may send.
 - **Ordering:** `cb_wait_front` replaces `semaphore_wait`; ensure the start
   barrier (`device_synchronize`) and the per-step ordering still compose.
+
+### Milestone 3 progress (2026-06-24)
+
+- **No shortcut confirmed.** There is no pure-L1 (no-NoC) read path
+  (`core_read` also lowers to `createNocAsyncRead`), and `ttkernel.noc_async_read`
+  has no per-op NoC-index override (`getKernelNocIndex` = `1 - processorIndex`,
+  uniform per DM thread). The fabric thread is processor 1 → NoC0, so *any*
+  DM-thread read-back of the recv uses NoC0 and contends with the fabric. The
+  fix must therefore eliminate the read-back, not relocate it.
+- **Foundation validated: recv as a generic INPUT operand.**
+  `_recv_input_probe.py` — a cross-device `remote_store` targeting a generic
+  *input* operand (the peer's recv), with the receiver reading its own recv,
+  compiles and runs correctly on the 1×4 ring (1 step). So the recv can be a
+  separate input operand (a compute-input CB) distinct from the result output
+  operand — the "one output operand" rule is satisfied, and the cross-device
+  store to an input bufferizes fine (builds on the cross-device-store-non-local-
+  write fix). NOTE this alone does NOT fix the hang: a `remote_load(recv)`
+  read-back is still a NoC0 read; recv-as-input is the clean *foundation* for the
+  no-NoC consume below.
+
+**Refined design (recv as input CB, no-NoC consume):**
+  - `recv` is a generic **input** operand = a compute-input CB at a uniform
+    (fabric-addressable) L1 offset. The peer's `remote_store(recv, start_device=…)`
+    fabric-writes directly into that CB's slot, and its `fabric_mcast_sem_inc`
+    signals arrival.
+  - Receiver consume lowers to: `semaphore_wait` (arrival) → `cb_push_back(recv)`
+    — a pointer update, **no `noc_async_read`** — then compute `cb_wait_front` /
+    `cb_pop_front`. This removes the NoC0 op that deadlocks at the 2nd read-back.
+  - Remaining work (the hard part): (1) a DSL primitive / lowering so consuming a
+    fabric-written input operand emits `sem_wait + cb_push_back` instead of
+    `remote_load`→`noc_async_read`; (2) coordinate the fabric write target address
+    with the recv CB's reserve/push pointers (the fabric must write into the slot
+    the CB front will expose — deterministic uniform offset, depth ≥ pipeline);
+    (3) confirm split-v2 treats the recv CB as a compute input whose producer is
+    the fabric (no DM load partner) and ScheduleDMA leaves the (send-only) fabric
+    ops pinned while the recv consume needs no NoC.
