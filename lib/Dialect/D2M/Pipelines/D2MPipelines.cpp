@@ -63,7 +63,9 @@ void createTTIRBufferizationPipeline(OpPassManager &pm,
   //    pm, bufferDeallocationOptions);
 }
 
-void addFunctionOptimizationPasses(OpPassManager &funcPm) {
+void addFunctionOptimizationPasses(OpPassManager &funcPm,
+                                   const D2MPipelineOptions &options) {
+  funcPm.addPass(createCanonicalizerPassWithOptions(options));
   funcPm.addPass(mlir::createLoopInvariantCodeMotionPass());
   funcPm.addPass(mlir::createSCCPPass());
   funcPm.addPass(mlir::createCSEPass());
@@ -264,8 +266,8 @@ void createD2MBackendPipeline(OpPassManager &pm,
   pm.addPass(d2m::createD2MNormalizeThreadArgs());
 
   pm.addPass(d2m::createD2MGenericRegionsToFuncs());
-  pm.addPass(createCanonicalizerPassWithOptions(options));
-  addFunctionOptimizationPasses(pm.nest<func::FuncOp>());
+  OpPassManager &postGenericRegionsFuncPm = pm.nest<func::FuncOp>();
+  addFunctionOptimizationPasses(postGenericRegionsFuncPm, options);
 }
 
 void createD2MToTTMetalPipeline(OpPassManager &pm,
@@ -301,7 +303,7 @@ void createD2MToTTKernelPreEmitCPipeline(OpPassManager &pm,
   funcPm.addPass(tt::createConvertD2MToTTKernelPass(D2MToTTKernelOptions));
   funcPm.addPass(createCanonicalizerPassWithOptions(options));
   funcPm.addPass(ttkernel::createTTKernelControlDstSection());
-  addFunctionOptimizationPasses(funcPm);
+  addFunctionOptimizationPasses(funcPm, options);
 }
 
 void createD2MEmitCPipeline(OpPassManager &pm,
