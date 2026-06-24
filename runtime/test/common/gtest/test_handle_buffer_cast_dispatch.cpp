@@ -9,8 +9,10 @@
 // buffer (Int64's supported alias is Int32). Without the UInt32 -> Int64 (and
 // symmetric Int32 -> UInt64) branches the dispatcher would throw.
 #include "tt/runtime/utils.h"
+
 #include <cstdint>
 #include <gtest/gtest.h>
+#include <limits>
 #include <vector>
 
 namespace {
