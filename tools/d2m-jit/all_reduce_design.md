@@ -435,3 +435,33 @@ copying. Repro: `test/d2m-jit/_m3a.py` (1-step recv via `fabric_recv`).
    bufferize-time view).
 Option 1 or 3 is cleanest (no new conversion surface); the grid-[N,1] dynamic
 recv-slot offset (currently hardcoded 0) is a separate follow-up after 3a.
+
+### 3a blocker re-diagnosed (2026-06-24): option 1 is moot; need a no-view bufferize
+
+The bufferized `memref.reinterpret_cast` of the `#shard` recv operand fails
+**pre-split** -- a be-pipeline dialect-conversion pass before
+`d2m-split-unified-thread-v2` rejects `memref.reinterpret_cast` ("failed to
+legalize"). Confirmed by running be-pipeline up to (not including) split: it
+already fails. So option 1 (erase the view in split-v2) cannot help -- split
+never runs on it. `memref.subview` is worse (its stride inference asserts on the
+`#ttcore.shard` layout, failing at bufferize). The `#shard` operand is simply not
+memref-viewable, and `remote_load` only avoids this by COPYING into a plain #l1
+shard buffer.
+
+**Corrected fix (no view op):** `fabric_recv`'s bufferize must NOT emit any memref
+view (subview/reinterpret_cast). Instead the op produces the shard via its OWN
+result -- a memref-result form `%shard = d2m.fabric_recv %recvBuf[%i] : memref<shard>`
+whose result aliases the recv operand's allocation (getAliasingValues already says
+so). split-v2 then maps that result to `getOrCreateCB(recv)` and the
+reserve+push lowering exposes the fabric-written CB; the compute reads `%shard`,
+rewired to the CB wait result. Concretely this needs:
+1. a memref-result builder/form on `FabricRecvOp` (no localBuffer, result = shard
+   memref);
+2. bufferize emits that form + `ToTensorOp(result)` (no subview/reinterpret_cast);
+3. `traceComputeMemrefToCB` recognizes a memref defined by `FabricRecvOp` and
+   returns its recv operand (so compute consumption is tied to recv's CB);
+4. confirm the pre-split be-pipeline passes (dst-register-access, linalg-to-affine,
+   generic-linearize-memref) pass through `fabric_recv` (it is a ShardDMAOpInterface
+   DM op, so they should skip it -- verify).
+
+The grid-[N,1] dynamic recv-slot offset is still a separate follow-up after 3a.
