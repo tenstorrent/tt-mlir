@@ -178,7 +178,7 @@ def ConvertD2MToTTMetal: Pass<"convert-d2m-to-ttmetal", "::mlir::ModuleOp"> {
   ];
 }
 
-def ConvertD2MToTTKernel: Pass<"convert-d2m-to-ttkernel", "::mlir::ModuleOp"> {
+def ConvertD2MToTTKernel: Pass<"convert-d2m-to-ttkernel", "::mlir::func::FuncOp"> {
   let summary = "Convert D2M dialect to TTKernel dialect.";
   let constructor = "createConvertD2MToTTKernelPass()";
   let dependentDialects = ["mlir::tt::d2m::D2MDialect", "mlir::tt::ttmetal::TTMetalDialect", "mlir::tt::ttkernel::TTKernelDialect", "mlir::arith::ArithDialect"];
@@ -321,13 +321,13 @@ def EmitPyAddImports : Pass<"emitpy-add-imports", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::emitpy::EmitPyDialect"];
 }
 
-def ConvertTTKernelToEmitC : Pass<"convert-ttkernel-to-emitc", "::mlir::ModuleOp"> {
+def ConvertTTKernelToEmitC : Pass<"convert-ttkernel-to-emitc", "::mlir::func::FuncOp"> {
   let summary = "Convert TTKernel dialect to EmitC dialect.";
   let dependentDialects = ["mlir::emitc::EmitCDialect", "mlir::func::FuncDialect",
                            "mlir::tt::ttkernel::TTKernelDialect"];
 }
 
-def RemoveDeadEmitCExpressions : Pass<"remove-dead-emitc-expressions", "::mlir::ModuleOp"> {
+def RemoveDeadEmitCExpressions : Pass<"remove-dead-emitc-expressions", "::mlir::func::FuncOp"> {
   let summary = "Remove unused side-effect-free EmitC operations.";
   let description = [{
     Remove unused EmitC operations that implement CExpressionInterface or wrap

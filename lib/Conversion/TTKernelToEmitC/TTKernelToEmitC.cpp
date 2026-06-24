@@ -2389,21 +2389,12 @@ public:
       ConvertTTKernelToEmitCPass>::ConvertTTKernelToEmitCBase;
 
   void runOnOperation() final {
-    ModuleOp moduleOp = getOperation();
+    func::FuncOp funcOp = getOperation();
     TTKernelToEmitCConversionState state;
-    ConversionPlan config(moduleOp.getContext(), state);
-    bool failedConversion = false;
-    moduleOp.walk([&](func::FuncOp funcOp) {
-      if (failedConversion) {
-        return;
-      }
-      if (failed(visit(funcOp, config))) {
-        failedConversion = true;
-      }
-    });
-
-    if (failedConversion) {
+    ConversionPlan config(funcOp.getContext(), state);
+    if (failed(visit(funcOp, config))) {
       signalPassFailure();
+      return;
     }
   }
 

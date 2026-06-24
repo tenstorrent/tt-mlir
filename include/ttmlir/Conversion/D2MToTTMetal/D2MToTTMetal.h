@@ -5,9 +5,10 @@
 #ifndef TTMLIR_CONVERSION_D2MTOTTMETAL_D2MTOTTMETAL_H
 #define TTMLIR_CONVERSION_D2MTOTTMETAL_D2MTOTTMETAL_H
 
+#include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
+
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
 
 namespace mlir {
 class SymbolTable;

@@ -46,9 +46,6 @@ module {
   // TTKernel Register operations
   //===----------------------------------------------------------------------===//
 
-  // CHECK-LABEL: ttkernel_register_operations
-  module @ttkernel_register_operations {
-
     // CHECK-LABEL: func @tile_regs_acquire
     func.func @tile_regs_acquire() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: emitc.call_opaque "tile_regs_acquire"()
@@ -201,15 +198,9 @@ module {
       "ttkernel.typecast_tile"(%dst0_index) <{in_dtype = #ttcore.supportedDataTypes<u16>, out_dtype = #ttcore.supportedDataTypes<u8>}> : (i32) -> ()
       return
     }
-
-  } // module
-
   //===----------------------------------------------------------------------===//
   // TTKernel FPU operations
   //===----------------------------------------------------------------------===//
-
-  // CHECK-LABEL: ttkernel_fpu_operations
-  module @ttkernel_fpu_operations {
 
     // CHECK-LABEL: func @unary_op_init_common
     func.func @unary_op_init_common() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
@@ -566,15 +557,9 @@ module {
         }> : (!cb0_tiles, !cb1_tiles, i32, i32, i32) -> ()
       return
     }
-
-  } // module
-
   //===----------------------------------------------------------------------===//
   // TTKernel SFPU operations
   //===----------------------------------------------------------------------===//
-
-  // CHECK-LABEL: ttkernel_sfpu_operations
-  module @ttkernel_sfpu_operations {
 
     // CHECK-LABEL: func @init_sfpu
     func.func @init_sfpu() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
@@ -1694,14 +1679,9 @@ module {
       "ttkernel.where_tile"(%cond_index, %true_index, %false_index, %odst_index) {dtype = #ttcore.supportedDataTypes<f32>} : (index, index, index, index) -> ()
       return
     }
-  } // module
-
   //===----------------------------------------------------------------------===//
   // TTKernel CB operations
   //===----------------------------------------------------------------------===//
-
-  // CHECK-LABEL: ttkernel_cb_operations
-  module @ttkernel_cb_operations {
 
     // CHECK-LABEL: func @cb_push_back
     func.func @cb_push_back() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>]>, ttkernel.thread = #ttkernel.thread<compute>} {
@@ -1836,15 +1816,9 @@ module {
       }
       return
     }
-
-  } // module
-
   //===----------------------------------------------------------------------===//
   // TTKernel Tile operations
   //===----------------------------------------------------------------------===//
-
-  // CHECK-LABEL: ttkernel_tile_operations
-  module @ttkernel_tile_operations {
 
     // CHECK-LABEL: func @tilize_init
     func.func @tilize_init() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = cb_port, operand_index = 0>, <arg_type = cb_port, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
@@ -1914,15 +1888,9 @@ module {
       "ttkernel.untilize_block"(%in_cb, %num_tiles, %out_cb) : (!cb0_tiles, i32, !cb1_scalar) -> ()
       return
     }
-
-  } // module
-
   //===----------------------------------------------------------------------===//
   // TTKernel NOC operations
   //===----------------------------------------------------------------------===//
-
-  // CHECK-LABEL: ttkernel_noc_operations
-  module @ttkernel_noc_operations {
 
     // CHECK-LABEL: func @get_noc_addr
     func.func @get_noc_addr() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
@@ -2962,14 +2930,9 @@ module {
       "ttkernel.experimental.close_fabric_connections"(%fcm) : (!ttkernel.fabric_connection_manager) -> ()
       return
     }
-
-  } // module
-
   //===----------------------------------------------------------------------===//
   // TTKernel Arith operations
   //===----------------------------------------------------------------------===//
-
-  module @ttkernel_arith_operations {
 
     // CHECK-LABEL: func @bool_logical_andi_ori
     func.func @bool_logical_andi_ori() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = scalar, operand_index = 0>, <arg_type = scalar, operand_index = 1>, <arg_type = scalar, operand_index = 2>]>, ttkernel.thread = #ttkernel.thread<noc>} {
@@ -2990,14 +2953,9 @@ module {
       %bitwise_and = arith.andi %arg0, %arg2 : i32
       return
     }
-
-  } // module
-
   //===----------------------------------------------------------------------===//
   // TTKernel Numeric operations
   //===----------------------------------------------------------------------===//
-
-  module @ttkernel_numeric_operations {
 
     // CHECK-LABEL: func @bfloat16_greater
     func.func @bfloat16_greater() -> () attributes {ttkernel.arg_spec = #ttkernel.arg_spec< ct_args = [<arg_type = scalar, operand_index = 0>, <arg_type = scalar, operand_index = 1>]>, ttkernel.thread = #ttkernel.thread<compute>} {
@@ -3018,7 +2976,4 @@ module {
       %0 = ttkernel.float32_greater(%arg0, %arg1) : (i32, i32) -> i1
       return
     }
-
-  } // module
-
 } // module
