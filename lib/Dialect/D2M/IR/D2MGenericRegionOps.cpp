@@ -1601,30 +1601,32 @@ mlir::LogicalResult FabricRecvOp::bufferize(
   // copy). Split + lowering map this to a reserve/push on the operand's CB.
   rewriter.create<FabricRecvOp>(getLoc(), *memrefBuffer, getIndices());
 
-  // The result shard is a rank-reduced subview of the operand buffer at the
-  // grid [indices] (the grid dims are size-1 and dropped).
-  mlir::FailureOr<mlir::bufferization::BufferLikeType> bufType =
-      ttcore::getBufferType(result.getType(), /*isView=*/false);
-  if (failed(bufType)) {
-    return failure();
-  }
-  auto shardType = mlir::cast<MemRefType>(*bufType);
+  // The result shard aliases the operand buffer's shard at the grid [indices].
+  // The operand carries a #ttcore.shard layout (not a standard strided layout),
+  // so memref.subview's stride inference fails; instead reinterpret_cast the
+  // base with an explicit row-major shard view. NOTE: offset is fixed to 0,
+  // which is correct for a grid-1 recv operand (the CCL link-core case). The
+  // general grid-[N,1] dynamic-index recv (offset = index * shard-stride) is a
+  // follow-up.
   auto fullType = mlir::cast<MemRefType>((*memrefBuffer).getType());
-  int64_t rank = fullType.getRank();
   int64_t gridRank = static_cast<int64_t>(getIndices().size());
-  SmallVector<OpFoldResult> offsets, sizes, strides;
-  for (int64_t i = 0; i < rank; ++i) {
-    if (i < gridRank) {
-      offsets.push_back(getIndices()[i]);
-      sizes.push_back(rewriter.getIndexAttr(1));
-    } else {
-      offsets.push_back(rewriter.getIndexAttr(0));
-      sizes.push_back(rewriter.getIndexAttr(fullType.getShape()[i]));
-    }
-    strides.push_back(rewriter.getIndexAttr(1));
+  SmallVector<int64_t> shardShape(fullType.getShape().begin() + gridRank,
+                                  fullType.getShape().end());
+  SmallVector<int64_t> shardStrides(shardShape.size(), 1);
+  for (int64_t i = static_cast<int64_t>(shardShape.size()) - 2; i >= 0; --i) {
+    shardStrides[i] = shardStrides[i + 1] * shardShape[i + 1];
   }
-  Value shard = rewriter.create<memref::SubViewOp>(
-      getLoc(), shardType, *memrefBuffer, offsets, sizes, strides);
+  auto layout = StridedLayoutAttr::get(getContext(), /*offset=*/0, shardStrides);
+  auto shardType = MemRefType::get(shardShape, fullType.getElementType(), layout,
+                                   fullType.getMemorySpace());
+  SmallVector<OpFoldResult> sizes, strides;
+  for (auto [s, st] : llvm::zip(shardShape, shardStrides)) {
+    sizes.push_back(rewriter.getIndexAttr(s));
+    strides.push_back(rewriter.getIndexAttr(st));
+  }
+  Value shard = rewriter.create<memref::ReinterpretCastOp>(
+      getLoc(), shardType, *memrefBuffer, /*offset=*/rewriter.getIndexAttr(0),
+      sizes, strides);
   auto toTensor = rewriter.create<bufferization::ToTensorOp>(
       getLoc(), result.getType(), shard);
   rewriter.replaceAllUsesWith(result, toTensor.getResult());
