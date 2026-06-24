@@ -325,6 +325,35 @@ public:
   }
 };
 
+// fabric_recv: the operand's CB slot was already written by a peer's
+// cross-device remote_store (arrival ordered by a preceding semaphore_wait), so
+// there is NO local read. Just expose the slot to the consumer: reserve the
+// CB write slot and push it. This is the whole point of fabric_recv -- it
+// avoids the NoC read-back (noc_async_read) that contends with the open fabric
+// connection on the single DM thread.
+class D2MLowerFabricRecvRewritePattern
+    : public OpRewritePattern<FabricRecvOp> {
+public:
+  using OpRewritePattern<FabricRecvOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(FabricRecvOp recvOp,
+                                PatternRewriter &rewriter) const final {
+    if (!recvOp.isExplicitCBForm()) {
+      return rewriter.notifyMatchFailure(
+          recvOp, "fabric_recv must be in explicit CB form (split-v2 converts "
+                  "it); the implicit form should not reach this pass");
+    }
+    Location loc = recvOp.getLoc();
+    Value cb = recvOp.getCb();
+    // Reserve the slot the peer fabric-wrote, then push it to the consumer.
+    // No dma_read / noc_async_read.
+    rewriter.create<ReserveOp>(loc, cb);
+    rewriter.create<PushOp>(loc, cb);
+    rewriter.eraseOp(recvOp);
+    return success();
+  }
+};
+
 class D2MLowerLoadStoreOpsToDMA
     : public impl::D2MLowerLoadStoreOpsToDMABase<D2MLowerLoadStoreOpsToDMA> {
 public:
@@ -335,6 +364,7 @@ public:
     RewritePatternSet patterns(&getContext());
     patterns.add<D2MLowerRemoteLoadRewritePattern>(&getContext());
     patterns.add<D2MLowerRemoteStoreRewritePattern>(&getContext());
+    patterns.add<D2MLowerFabricRecvRewritePattern>(&getContext());
     patterns.add<D2MLowerDMACopyRewritePattern>(&getContext());
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();

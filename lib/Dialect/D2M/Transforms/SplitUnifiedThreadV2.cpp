@@ -95,6 +95,11 @@ Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
       value = castOp.getSource();
       continue;
     }
+    if (auto reinterpretOp =
+            mlir::dyn_cast<memref::ReinterpretCastOp>(definingOp)) {
+      value = reinterpretOp.getSource();
+      continue;
+    }
     return nullptr;
   }
   return nullptr;
@@ -632,8 +637,8 @@ static LogicalResult insertComputeCBOpsV2(GenericOp generic,
               !visited.insert(user).second) {
             continue;
           }
-          if (isa<memref::CollapseShapeOp, memref::SubViewOp, memref::CastOp>(
-                  user)) {
+          if (isa<memref::CollapseShapeOp, memref::SubViewOp, memref::CastOp,
+                  memref::ReinterpretCastOp>(user)) {
             worklist.push_back(user->getResult(0));
           } else {
             accesses.push_back(user);

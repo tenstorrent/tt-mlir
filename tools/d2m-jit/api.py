@@ -162,6 +162,26 @@ def remote_load(
     )
 
 
+@syntax("fabric_recv")
+def fabric_recv(recv, indices) -> MemTx:
+    """Expose a fabric-written input shard `recv[indices]` to compute WITHOUT a
+    NoC read.
+
+    `recv` is a generic *input* operand whose shard at the grid `indices` was
+    written by a peer's cross-device `remote_store` (arrival must be ordered by a
+    preceding `semaphore_wait`). Lowers to `cb_reserve_back`/`cb_push_back` on
+    `recv`'s own CB (no `dma_read`); compute consumes the result via the normal
+    input-CB `cb_wait_front`/`cb_pop_front`. The receiver dual of a cross-device
+    `remote_store` for ring CCL; avoids the NoC read-back that contends with the
+    open fabric connection.
+
+    `indices` are grid indices (length N/2 of the operand rank)."""
+    dst_type = RankedTensorType.get(
+        recv.type.shape[len(indices) :], recv.type.element_type
+    )
+    return d2m.fabric_recv(dst_type, recv, indices)
+
+
 @syntax("remote_store")
 def remote_store(
     dst,
