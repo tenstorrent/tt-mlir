@@ -28,9 +28,15 @@ set before the first device interaction -- run the tuner in a fresh process):
 and a perf-trace runtime build (TT_RUNTIME_ENABLE_PERF_TRACE=ON). ``tune()`` sets
 the two env vars via ``setdefault`` and flips the matching ``config`` flags.
 
-MVP scope: the swept knob is ``grid_shape`` (block_shape/dtype held fixed). The
-config is a plain dict so adding axes (block_shape, dtype, mem_space, ...) later
-is additive -- see ``grid_space`` for the enumeration/feasibility pattern.
+Knobs: ``grid_shape`` and ``dtype`` (the config is a plain dict, so adding axes
+-- mem_space, a block-aware block_shape, ... -- is additive; see ``grid_space``).
+
+Two entry points share the same per-config evaluation:
+  * ``tune(space)``   -- evaluate every config, rank + Pareto over the results.
+  * ``search(proposer)`` -- guided: a proposer chooses the next configs from what
+    it has observed, in propose/evaluate/observe rounds. The proposer is the
+    optimizer: ``hill_climb_proposer`` (autonomous heuristic) or
+    ``make_agent_proposer`` (an LLM reasons over the JSON diagnostics history).
 """
 
 from __future__ import annotations
@@ -216,7 +222,122 @@ class TuneResult:
         pathlib.Path(path).write_text(json.dumps(self.to_dict(), indent=2))
 
 
-# --- Sweep -------------------------------------------------------------------
+# --- Evaluation core (shared by exhaustive `tune` and guided `search`) -------
+
+
+def _mean(by_core: dict):
+    vals = [v for v in by_core.values() if v is not None]
+    return sum(vals) / len(vals) if vals else None
+
+
+def _diagnostics(rep: dict) -> dict:
+    """The actionable scalars from a build_report -- the observation space a
+    guided/agentic proposer reasons over to tell compute-bound from wait-bound
+    from memory-bound."""
+    stats = rep.get("stats", {})
+    longest = rep["waits"]["longest"]
+    return {
+        "device_wall_ns": rep["metadata"]["device_wall_time"]["ns"],
+        "wait_share_of_envelope": (
+            longest["share_of_kernel_envelope"] if longest else None
+        ),
+        "mean_sfpu_util": _mean(stats.get("sfpu utilization", {})),
+        "mean_fpu_util": _mean(stats.get("fpu utilization", {})),
+        "mean_noc_vs_compute": _mean(stats.get("noc vs compute", {})),
+    }
+
+
+@dataclass
+class _EvalContext:
+    kernel: object
+    run: Callable
+    canonical: list
+    ref: object
+    pa: object
+    csv: pathlib.Path
+    out_root: pathlib.Path
+    check_pcc: bool
+    pcc: float
+
+
+def _setup(
+    kernel, input_shapes, run, golden, check_pcc, pcc, out_dir, seed
+) -> _EvalContext:
+    """Shared one-time setup: profiler env/flags, perf-analyzer, canonical
+    inputs + reference. Used by both `tune` and `search`."""
+    # Profiler env must be present before device-open; flip the matching flags.
+    os.environ.setdefault("TT_METAL_DEVICE_PROFILER", "1")
+    os.environ.setdefault("TT_METAL_DEVICE_PROFILER_DISPATCH", "0")
+    config.enable_perf_trace = True
+    config.insert_profiler_traces = True
+
+    if check_pcc and golden is None:
+        raise ValueError("check_pcc=True requires a golden reference callable")
+
+    out_root = pathlib.Path(out_dir)
+    out_root.mkdir(parents=True, exist_ok=True)
+    # Canonical f32 inputs are fixed across the sweep; the reference is computed
+    # once. Each config runs on the SAME values cast to its dtype, so the PCC
+    # gate measures that config's numerical error against one f32 golden.
+    canonical = make_inputs(input_shapes, torch.float32, _Seeded(seed))
+    ref = golden(*[t.float() for t in canonical]) if golden is not None else None
+    return _EvalContext(
+        kernel,
+        run,
+        canonical,
+        ref,
+        _load_perf_analyzer(),
+        _device_csv(),
+        out_root,
+        check_pcc,
+        pcc,
+    )
+
+
+def _evaluate(cfg: dict, idx: int, ctx: _EvalContext) -> TuneRecord:
+    """Run one config: cast inputs -> profiled device run -> report -> PCC gate.
+
+    Never raises: a compile/run failure becomes a ``valid=False`` record (signal),
+    so a sweep or search keeps going. Resets the builder afterwards so a failed
+    config can't leak MLIR state into the next."""
+    cfg_dir = ctx.out_root / f"cfg_{idx:03d}"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        cfg_inputs = [
+            t.to(torch_dtype(cfg.get("dtype", "float32"))) for t in ctx.canonical
+        ]
+        if ctx.csv.exists():
+            ctx.csv.unlink()
+        actual = ctx.run(ctx.kernel, cfg_inputs, cfg)
+        if not ctx.csv.exists():
+            raise RuntimeError("no profiler CSV produced for this config")
+        snapshot = cfg_dir / "profile_log_device.csv"
+        shutil.copy(ctx.csv, snapshot)
+        rep = ctx.pa.build_report(snapshot)
+        cfg_pcc = None
+        valid = True
+        if ctx.check_pcc:
+            cfg_pcc = torch.corrcoef(
+                torch.stack([ctx.ref.flatten(), actual.float().flatten()])
+            )[0, 1].item()
+            valid = cfg_pcc >= ctx.pcc
+        return TuneRecord(
+            config=cfg,
+            valid=valid,
+            pcc=cfg_pcc,
+            kernel_ns=rep["runtimes"]["device_kernel_time"]["ns"],
+            diagnostics=_diagnostics(rep),
+            report_path=str(snapshot),
+        )
+    except Exception as e:  # compile/run failure -> prune, keep as signal
+        return TuneRecord(config=cfg, valid=False, error=f"{type(e).__name__}: {e}")
+    finally:
+        from d2m_jit._src.builder import _Builder
+
+        _Builder.reset()
+
+
+# --- Exhaustive sweep --------------------------------------------------------
 
 
 def tune(
@@ -232,96 +353,240 @@ def tune(
     out_dir: str = "prof_tune",
     seed: int = 0,
 ) -> TuneResult:
-    """Sweep ``space`` over ``kernel`` and rank by device kernel time.
+    """Evaluate every config in ``space`` and rank by device kernel time.
 
     Parameters
     ----------
     kernel        : the ``@d2m.kernel`` to tune.
     input_shapes  : one shape per kernel input (fixed across the sweep).
     space         : list of config dicts (see ``grid_space``).
-    golden        : optional ``(*inputs) -> tensor`` reference for the PCC gate.
-                    Computed once. Required when ``check_pcc`` is True.
-    run           : ``(kernel, inputs, cfg) -> host tensor`` materializer
-                    (default: the eltwise-block convention).
+    golden        : ``(*inputs) -> tensor`` reference for the PCC gate (required
+                    when ``check_pcc``). Computed once.
+    run           : ``(kernel, inputs, cfg) -> host tensor`` materializer.
     check_pcc     : gate each config on PCC (default on; near-free, see module doc).
     pcc           : PCC threshold for a config to count as ``valid``.
     out_dir       : root for per-config profiler snapshots + the leaderboard JSON.
     """
-    # Profiler env must be present before device-open; flip the matching flags.
-    os.environ.setdefault("TT_METAL_DEVICE_PROFILER", "1")
-    os.environ.setdefault("TT_METAL_DEVICE_PROFILER_DISPATCH", "0")
-    config.enable_perf_trace = True
-    config.insert_profiler_traces = True
-
-    if check_pcc and golden is None:
-        raise ValueError("check_pcc=True requires a golden reference callable")
-
-    pa = _load_perf_analyzer()
-    csv = _device_csv()
-    out_root = pathlib.Path(out_dir)
-    out_root.mkdir(parents=True, exist_ok=True)
-
-    # Canonical f32 inputs are fixed across the sweep; the reference is computed
-    # once from them. Each config runs on the SAME values cast to its dtype, so
-    # the PCC gate measures that config's numerical error against one f32 golden
-    # (this is what makes dtype a meaningful, gated knob).
-    canonical = make_inputs(input_shapes, torch.float32, _Seeded(seed))
-    ref = golden(*[t.float() for t in canonical]) if golden is not None else None
-
-    records: list[TuneRecord] = []
-    for i, cfg in enumerate(space):
-        cfg_dir = out_root / f"cfg_{i:03d}"
-        cfg_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            cfg_inputs = [
-                t.to(torch_dtype(cfg.get("dtype", "float32"))) for t in canonical
-            ]
-            if csv.exists():
-                csv.unlink()
-            actual = run(kernel, cfg_inputs, cfg)
-            if not csv.exists():
-                raise RuntimeError("no profiler CSV produced for this config")
-            snapshot = cfg_dir / "profile_log_device.csv"
-            shutil.copy(csv, snapshot)
-            rep = pa.build_report(snapshot)
-            kernel_ns = rep["runtimes"]["device_kernel_time"]["ns"]
-            longest = rep["waits"]["longest"]
-            diagnostics = {
-                "device_wall_ns": rep["metadata"]["device_wall_time"]["ns"],
-                "longest_wait_share_of_envelope": (
-                    longest["share_of_kernel_envelope"] if longest else None
-                ),
-            }
-            cfg_pcc = None
-            valid = True
-            if check_pcc:
-                cfg_pcc = torch.corrcoef(
-                    torch.stack([ref.flatten(), actual.float().flatten()])
-                )[0, 1].item()
-                valid = cfg_pcc >= pcc
-            records.append(
-                TuneRecord(
-                    config=cfg,
-                    valid=valid,
-                    pcc=cfg_pcc,
-                    kernel_ns=kernel_ns,
-                    diagnostics=diagnostics,
-                    report_path=str(snapshot),
-                )
-            )
-        except Exception as e:  # compile/run failure -> prune, keep as signal
-            records.append(
-                TuneRecord(config=cfg, valid=False, error=f"{type(e).__name__}: {e}")
-            )
-        finally:
-            # Drop the per-builder state so a failed config can't leak into the next.
-            from d2m_jit._src.builder import _Builder
-
-            _Builder.reset()
-
+    ctx = _setup(kernel, input_shapes, run, golden, check_pcc, pcc, out_dir, seed)
+    records = [_evaluate(cfg, i, ctx) for i, cfg in enumerate(space)]
     result = TuneResult(objective=objective, records=records)
-    result.write_json(out_root / "leaderboard.json")
+    result.write_json(ctx.out_root / "leaderboard.json")
     return result
+
+
+# --- Guided / agentic search -------------------------------------------------
+#
+# Instead of evaluating the whole space, `search` runs propose -> evaluate ->
+# observe rounds: a proposer chooses the next configs from the results observed
+# so far; returning [] stops the loop. The proposer IS the optimizer -- a
+# heuristic (`hill_climb_proposer`) for autonomous runs, or an LLM agent
+# (`make_agent_proposer`) that reasons over the JSON observation history and the
+# per-config diagnostics. The driver dedups re-proposed configs and enforces a
+# `max_evals` budget, so any proposer (including a fuzzy agent) is safe to drive.
+#
+# Proposer protocol:
+#     proposer(history: list[TuneRecord], meta: dict) -> list[config dict]
+#   history : every record so far, in evaluation order (valid + invalid).
+#   meta    : {"round", "evaluated", "input_shapes", "objective"}.
+#   returns : next configs to evaluate; [] to stop.
+
+
+def config_key(cfg: dict):
+    """Hashable identity of a config (for cross-round dedup)."""
+    return (tuple(cfg["grid_shape"]), tuple(cfg["block_shape"]), cfg["dtype"])
+
+
+def observations_json(history: Sequence[TuneRecord]) -> list[dict]:
+    """The history as plain JSON dicts -- exactly what an agent proposer sees."""
+    return [
+        {
+            "config": r.config,
+            "valid": r.valid,
+            "pcc": r.pcc,
+            "kernel_ns": r.kernel_ns,
+            "diagnostics": r.diagnostics,
+            "error": r.error,
+        }
+        for r in history
+    ]
+
+
+def search(
+    kernel,
+    input_shapes: Sequence[tuple],
+    proposer: Callable,
+    *,
+    golden: Optional[Callable] = None,
+    run: Callable = eltwise_block_run,
+    check_pcc: bool = True,
+    pcc: float = 0.99,
+    objective: str = "device_kernel_time",
+    max_evals: Optional[int] = None,
+    out_dir: str = "prof_search",
+    seed: int = 0,
+    on_round: Optional[Callable] = None,
+) -> TuneResult:
+    """Guided search: drive ``proposer`` in propose/evaluate/observe rounds.
+
+    Stops when the proposer returns ``[]`` or ``max_evals`` device evaluations
+    have run. Already-evaluated configs are skipped (dedup), so a proposer may
+    re-propose freely. ``on_round(round_idx, history)`` is an optional progress
+    hook. Returns a ``TuneResult`` over the evaluated configs (so leaderboard /
+    pareto / JSON all work the same as for an exhaustive ``tune``)."""
+    ctx = _setup(kernel, input_shapes, run, golden, check_pcc, pcc, out_dir, seed)
+    history: list[TuneRecord] = []
+    seen: set = set()
+    round_i = 0
+    while max_evals is None or len(history) < max_evals:
+        meta = {
+            "round": round_i,
+            "evaluated": len(history),
+            "input_shapes": [list(s) for s in input_shapes],
+            "objective": objective,
+        }
+        proposed = proposer(history, meta)
+        if not proposed:
+            break
+        for cfg in proposed:
+            if max_evals is not None and len(history) >= max_evals:
+                break
+            key = config_key(cfg)
+            if key in seen:  # robust to re-proposals (esp. from an agent)
+                continue
+            seen.add(key)
+            history.append(_evaluate(cfg, len(history), ctx))
+        round_i += 1
+        if on_round is not None:
+            on_round(round_i, history)
+
+    result = TuneResult(objective=objective, records=history)
+    result.write_json(ctx.out_root / "search.json")
+    return result
+
+
+# --- Heuristic proposer: latency hill-climb over (grid, dtype) ---------------
+
+
+def grid_dtype_neighbors(cfg: dict, candidates: Sequence[dict]) -> list[dict]:
+    """Neighbors of ``cfg``: same-dtype grids with DOUBLE the core count (every
+    aspect ratio at the next parallelism level), plus the same grid in each
+    other dtype. Forward-only on cores (more cores trends faster), so the climb
+    marches toward parallelism and tries the cheaper dtype along the way."""
+    cores = cfg["grid_shape"][0] * cfg["grid_shape"][1]
+    out = []
+    for c in candidates:
+        cc = c["grid_shape"][0] * c["grid_shape"][1]
+        same_grid = c["grid_shape"] == cfg["grid_shape"]
+        if c["dtype"] == cfg["dtype"] and not same_grid and cc == cores * 2:
+            out.append(c)
+        elif same_grid and c["dtype"] != cfg["dtype"]:
+            out.append(c)
+    return out
+
+
+def hill_climb_proposer(
+    candidates: Sequence[dict],
+    *,
+    objective: Objective = LATENCY,
+    seed: Optional[dict] = None,
+    neighbors: Callable = grid_dtype_neighbors,
+) -> Callable:
+    """A latency-guided hill climb as a proposer.
+
+    From a seed config, each round proposes the current best's unevaluated
+    neighbors; the loop ends when none remain (a local optimum). Stateless --
+    it reconstructs its position from ``history`` every round, so it drops into
+    ``search`` exactly where an agent proposer would."""
+    cands = list(candidates)
+
+    def propose(history, meta):
+        evaluated = {config_key(r.config) for r in history}
+        if not history:
+            return [seed or cands[0]]
+        valid = [r for r in history if r.valid and objective.extract(r) is not None]
+        if not valid:  # nothing valid yet -> probe the next untried candidate
+            return [c for c in cands if config_key(c) not in evaluated][:1]
+        pick = min if objective.direction == "min" else max
+        best = pick(valid, key=lambda r: objective.extract(r))
+        return [
+            c for c in neighbors(best.config, cands) if config_key(c) not in evaluated
+        ]
+
+    return propose
+
+
+# --- Agentic proposer: an LLM is the optimizer -------------------------------
+
+
+def make_agent_proposer(
+    complete: Callable[[str], str],
+    candidates: Optional[Sequence[dict]] = None,
+    batch: int = 4,
+) -> Callable:
+    """Adapt an LLM ``complete(prompt) -> str`` into a search proposer.
+
+    Each round it serializes the observation history (and the optional candidate
+    pool) into a prompt, asks the model for up to ``batch`` next configs as a
+    JSON list (or ``STOP``), and parses them. The ``search`` driver dedups and
+    budgets, so the agent may re-propose freely. ``complete`` is your own model
+    call -- this module stays LLM-client-agnostic."""
+    pool = list(candidates) if candidates is not None else None
+
+    def propose(history, meta):
+        prompt = _agent_prompt(observations_json(history), meta, pool, batch)
+        reply = complete(prompt)
+        if "{" not in reply and "STOP" in reply.upper():
+            return []
+        return _parse_configs(reply)
+
+    return propose
+
+
+def _agent_prompt(observations, meta, pool, batch) -> str:
+    parts = [
+        "You are autotuning a d2m-jit compute kernel on a Tenstorrent device. "
+        f"Objective: MINIMIZE `{meta['objective']}` (device kernel time, ns).",
+        'A config is JSON: {"grid_shape": [gy, gx], "block_shape": [1, 1], '
+        '"dtype": "float32" | "bfloat16"}. grid_shape = compute cores (more cores '
+        "is usually faster, with diminishing returns); bfloat16 ~halves data "
+        "movement vs float32. Read each config's `diagnostics` to decide the next "
+        "move: high wait_share_of_envelope => stalled, add parallelism; high "
+        "mean_sfpu_util/mean_fpu_util => compute-bound (more cores won't help, try "
+        "dtype); high mean_noc_vs_compute => memory-bound.",
+        f"Observations so far ({len(observations)} configs):",
+        json.dumps(observations, indent=2),
+    ]
+    if pool is not None:
+        keys = {config_key(o["config"]) for o in observations}
+        uneval = [c for c in pool if config_key(c) not in keys]
+        parts.append(f"Unevaluated feasible candidates:\n{json.dumps(uneval)}")
+    parts.append(
+        f"Reply with up to {batch} next configs to evaluate as a JSON list, or "
+        "the single word STOP if further search is unlikely to beat the best so "
+        "far. Output JSON only."
+    )
+    return "\n\n".join(parts)
+
+
+def _parse_configs(text: str) -> list[dict]:
+    """Extract a JSON list of config dicts from an LLM reply (tolerant of
+    surrounding prose / code fences)."""
+    import re
+
+    match = re.search(r"\[.*\]", text, re.DOTALL)
+    if not match:
+        return []
+    try:
+        data = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return []
+    out = []
+    for c in data if isinstance(data, list) else []:
+        if isinstance(c, dict) and "grid_shape" in c:
+            c.setdefault("block_shape", [1, 1])
+            c.setdefault("dtype", "float32")
+            out.append(c)
+    return out
 
 
 class _Seeded:
@@ -397,8 +662,7 @@ def format_pareto(result, objectives=DEFAULT_OBJECTIVES, label=str) -> str:
 # --- Demo --------------------------------------------------------------------
 
 
-def _demo() -> None:
-    """Tune `exp_fused` over the feasible grids for a 256x256 input."""
+def _exp_kernel():
     import d2m_jit as d2m
 
     @d2m.kernel
@@ -410,43 +674,80 @@ def _demo() -> None:
                 shard = remote_load(in_t, [m_off + m, n_off + n])  # noqa: F821
                 remote_store(out_t, [m_off + m, n_off + n], shard.exp())  # noqa: F821
 
+    return exp_fused
+
+
+def _label(cfg):
+    return f'{"x".join(map(str, cfg["grid_shape"]))}/{cfg["dtype"]}'
+
+
+def _demo() -> None:
+    """Exhaustive tune of `exp_fused` over (grid x dtype) for a 256x256 input."""
     shape = (256, 256)
     space = grid_space(shape, dtypes=("float32", "bfloat16"))
     print(f"tuning exp_fused over {len(space)} (grid x dtype) configs for {shape} ...")
     result = tune(
-        exp_fused,
-        input_shapes=[shape],
-        space=space,
-        golden=torch.exp,
-        out_dir="prof_tune_exp",
+        _exp_kernel(), [shape], space, golden=torch.exp, out_dir="prof_tune_exp"
     )
-
-    def label(cfg):
-        return f'{"x".join(map(str, cfg["grid_shape"]))}/{cfg["dtype"]}'
 
     print(f"\nobjective: {result.objective} (lower = faster)\n")
     print(f"{'rank':>4}  {'grid/dtype':>16}  {'kernel_ns':>12}  {'pcc':>9}")
     print("-" * 48)
     for rank, r in enumerate(result.leaderboard()):
-        print(f"{rank:>4}  {label(r.config):>16}  {r.kernel_ns:>12.1f}  {r.pcc:>9.5f}")
-    invalid = [r for r in result.records if not r.valid]
-    if invalid:
-        print(f"\n{len(invalid)} invalid config(s):")
-        for r in invalid:
-            why = r.error or f"pcc {r.pcc:.5f} < threshold"
-            print(f"  {label(r.config)}: {why}")
+        print(f"{rank:>4}  {_label(r.config):>16}  {r.kernel_ns:>12.1f}  {r.pcc:>9.5f}")
     if result.best:
-        print(f"\nbest: {label(result.best.config)} @ {result.best.kernel_ns:.1f} ns")
+        print(f"\nbest: {_label(result.best.config)} @ {result.best.kernel_ns:.1f} ns")
 
     # Pareto views: 2-way (latency vs cores) with a scatter, then the 3-way
-    # front that keeps accuracy in play (where bf16's speed trades against
-    # f32's precision instead of one strictly dominating).
+    # front that keeps accuracy in play (bf16's speed vs f32's precision).
     print("\n" + "=" * 48)
-    print(format_pareto(result, (LATENCY, CORES), label=label))
+    print(format_pareto(result, (LATENCY, CORES), label=_label))
     print("\n" + "=" * 48)
-    print(format_pareto(result, (LATENCY, CORES, PCC), label=label))
+    print(format_pareto(result, (LATENCY, CORES, PCC), label=_label))
     print("\nleaderboard.json (with pareto front) written under prof_tune_exp/")
 
 
+def _demo_search() -> None:
+    """Guided search: hill-climb `exp_fused` from 1x1/float32 toward the best
+    config, evaluating a path through the space instead of all of it."""
+    shape = (256, 256)
+    candidates = grid_space(shape, dtypes=("float32", "bfloat16"))
+    seed = {"grid_shape": [1, 1], "block_shape": [1, 1], "dtype": "float32"}
+    proposer = hill_climb_proposer(candidates, seed=seed)
+
+    print(
+        f"guided search over a {len(candidates)}-config space "
+        f"(latency hill-climb from {_label(seed)}) for {shape} ...\n"
+    )
+    result = search(
+        _exp_kernel(), [shape], proposer, golden=torch.exp, out_dir="prof_search_exp"
+    )
+
+    print("evaluation path (in order proposed):")
+    for i, r in enumerate(result.records):
+        if r.valid:
+            wait = r.diagnostics.get("wait_share_of_envelope")
+            wtxt = f"  wait={wait:.0%}" if wait is not None else ""
+            print(f"  {i:>2}. {_label(r.config):>16}  {r.kernel_ns:>10.0f} ns{wtxt}")
+        else:
+            print(f"  {i:>2}. {_label(r.config):>16}  invalid: {r.error}")
+
+    print(
+        f"\nevaluated {len(result.records)} of {len(candidates)} configs "
+        f"({100 * len(result.records) / len(candidates):.0f}% of the space)"
+    )
+    if result.best:
+        print(
+            f"best found: {_label(result.best.config)} "
+            f"@ {result.best.kernel_ns:.0f} ns"
+        )
+    print("search.json written under prof_search_exp/")
+
+
 if __name__ == "__main__":
-    _demo()
+    import sys
+
+    if "--exhaustive" in sys.argv:
+        _demo()
+    else:
+        _demo_search()
