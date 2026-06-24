@@ -33,7 +33,6 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
     int64_t start = op.getStart();
     int64_t step = op.getStep();
     bool col_major = op.getColMajor();
-    (void)col_major;
 
     auto outputType = dyn_cast<MemRefType>(output.getType());
     TT_assertv(outputType, "output must be a memref, run after bufferization");
@@ -143,19 +142,10 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
 
     Value tileOffsetIdx;
     if (col_major) {
-      // Column-major arange is consumed by a Col broadcast that reads only
-      // column 0 of each tile. The scratch fill is row-major: element (r,c) =
-      // r*32 + c, so its column 0 is [0,32,64,...], which would bake a stride
-      // of 32 into the index sequence. Transpose below makes column 0 carry the
-      // consecutive within-tile row position r ([0,1,...,31]) instead.
-      //
-      // Per-tile base for tile (tr, tc): column 0 should hold global indices
-      //   tc*32 + tr  (down the column), so:
-      //   offset = globalTileCol * 32 + globalTileRow
-      Value colScaled =
-          rewriter.create<arith::MulIOp>(loc, globalTileCol, const32Idx);
+      // Tile offset is 32 * globalTileRow when going down a column (for column
+      // major).
       tileOffsetIdx =
-          rewriter.create<arith::AddIOp>(loc, colScaled, globalTileRow);
+          rewriter.create<arith::MulIOp>(loc, globalTileRow, const32Idx);
     } else {
       // Row contribution: globalTileRow * totalTileCols * 32 * 32
       Value rowContrib = rewriter.create<arith::MulIOp>(
