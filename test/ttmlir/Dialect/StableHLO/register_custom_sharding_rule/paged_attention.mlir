@@ -101,3 +101,24 @@ module @PagedFillCacheSeqlenSharding attributes {mhlo.cross_program_prefetches =
     return %2 : tensor<4x16x32x16xbf16>
   }
 }
+
+// -----
+
+// When an attention_mask is present (has_attention_mask = "True"), the optional
+// cur_pos_tensor shifts from operand index 4 to index 5. The users factor must
+// still attach to cur_pos (and page_table), NOT to the attention_mask: the mask
+// stays replicated (full tensor<2x12x1x32xbf16>) while the head dim shards
+// 12 -> 6. This guards the operand-index logic in getPagedAttentionShardingRule.
+module @PagedSDPADecodeWithMaskQUserSharding attributes {mhlo.cross_program_prefetches = [], mhlo.frontend_attributes = {xla.sdy.meshes = "{mesh = #sdy.mesh<[\22_axis_0\22=2]>}"}, mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
+  func.func @main(%arg0: tensor<2xi64> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}]>"}, mhlo.sharding = "{replicated}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "args_0"}, %arg1: tensor<2x4xi64> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {}]>"}, mhlo.sharding = "{replicated}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "args_1"}, %arg2: tensor<8x12x32x16xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {\22_axis_0\22}, {}, {}]>"}, mhlo.sharding = "{devices=[1,2,1,1]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "args_2"}, %arg3: tensor<8x12x32x16xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {\22_axis_0\22}, {}, {}]>"}, mhlo.sharding = "{devices=[1,2,1,1]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "args_3"}, %arg4: tensor<1x2x12x16xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {\22_axis_0\22}, {}, {}]>"}, mhlo.sharding = "{devices=[1,2,1,1]<=[2]}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "args_4"}, %arg5: tensor<2x12x1x32xbf16> {mhlo.frontend_attributes = {xla.sdy.sharding = "#sdy.sharding<@mesh, [{}, {}, {}, {}]>"}, mhlo.sharding = "{replicated}", ttcore.argument_type = #ttcore.argument_type<input>, ttir.name = "args_5"}) -> tensor<1x2x12x16xbf16> {
+    %0 = stablehlo.reshape %arg1 : (tensor<2x4xi64>) -> tensor<1x2x4xi64>
+    %1 = stablehlo.reshape %0 : (tensor<1x2x4xi64>) -> tensor<2x4xi64>
+    %2 = stablehlo.reshape %arg0 : (tensor<2xi64>) -> tensor<1x1x2xi64>
+    %3 = stablehlo.reshape %2 : (tensor<1x1x2xi64>) -> tensor<2xi64>
+    // CHECK: stablehlo.custom_call @tt.paged_scaled_dot_product_attention_decode
+    // CHECK-SAME: tensor<1x2x6x16xbf16>, tensor<8x6x32x16xbf16>, tensor<8x6x32x16xbf16>, tensor<2x4xi64>, tensor<2x12x1x32xbf16>, tensor<2xi64>
+    // CHECK-SAME: -> tensor<1x2x6x16xbf16>
+    %4 = stablehlo.custom_call @tt.paged_scaled_dot_product_attention_decode(%arg4, %arg3, %arg2, %1, %arg5, %3) {api_version = 0 : i32, mhlo.frontend_attributes = {has_attention_mask = "True", has_attention_sink = "False", has_cur_pos_tensor = "True", is_causal = "False", scale = "1.0"}} : (tensor<1x2x12x16xbf16>, tensor<8x12x32x16xbf16>, tensor<8x12x32x16xbf16>, tensor<2x4xi64>, tensor<2x12x1x32xbf16>, tensor<2xi64>) -> tensor<1x2x12x16xbf16>
+    return %4 : tensor<1x2x12x16xbf16>
+  }
+}

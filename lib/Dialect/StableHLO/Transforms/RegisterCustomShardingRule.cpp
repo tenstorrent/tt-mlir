@@ -637,13 +637,14 @@ getPagedAttentionShardingRule(mlir::stablehlo::CustomCallOp op) {
     SmallVector<int64_t> usersResultDims(numResults, mlir::sdy::kNullDim);
     usersOperandDims[0] = queryUsersDim; // query
 
-    // Operand layout (see tt_torch/custom_ops.py): the base operands are
-    // [query, key, value, page_table]; an optional attention_mask, then an
-    // optional cur_pos_tensor, then an optional attention_sink follow. Only
-    // page_table (fixed at index 3) and cur_pos_tensor carry the users/batch
-    // dim, so we must not assume cur_pos_tensor is at index 4 -- with an
-    // attention_mask present, index 4 is the mask and cur_pos_tensor shifts
-    // to 5. Use the has_* frontend flags to locate it.
+    // Operand layout (see TTIR_PagedScaledDotProductAttentionDecodeOp in
+    // TTIROps.td): the base operands are [query, key, value, page_table];
+    // an optional attention_mask, then an optional cur_pos_tensor, then an
+    // optional attention_sink follow in that order. Only page_table (fixed at
+    // index 3) and cur_pos_tensor carry the users/batch dim, so we must not
+    // assume cur_pos_tensor is at index 4 -- with an attention_mask present,
+    // index 4 is the mask and cur_pos_tensor shifts to 5. Use the has_*
+    // frontend flags to locate it.
     mlir::DictionaryAttr frontendAttrs =
         mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
             op->getDiscardableAttr("mhlo.frontend_attributes"));
