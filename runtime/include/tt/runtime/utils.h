@@ -176,6 +176,8 @@ uint64_t blockFormatTileSizeBytes(::tt::target::DataType dataType);
 
 bool isSupportedDataType(::tt::target::DataType dataType);
 
+bool isIntegerDataType(::tt::target::DataType dataType);
+
 ::tt::target::DataType
 getUnsupportedDataTypeAlias(::tt::target::DataType unsupportedDataType);
 

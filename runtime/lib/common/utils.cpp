@@ -235,6 +235,22 @@ bool isSupportedDataType(::tt::target::DataType dataType) {
   }
 }
 
+bool isIntegerDataType(::tt::target::DataType dataType) {
+  switch (dataType) {
+  case ::tt::target::DataType::Int64:
+  case ::tt::target::DataType::Int32:
+  case ::tt::target::DataType::Int16:
+  case ::tt::target::DataType::Int8:
+  case ::tt::target::DataType::UInt64:
+  case ::tt::target::DataType::UInt32:
+  case ::tt::target::DataType::UInt16:
+  case ::tt::target::DataType::UInt8:
+    return true;
+  default:
+    return false;
+  }
+}
+
 ::tt::target::DataType
 getUnsupportedDataTypeAlias(::tt::target::DataType unsupportedDataType) {
   switch (unsupportedDataType) {
@@ -293,6 +309,16 @@ void handleBufferCast(const void *oldBuffer, void *newBuffer,
     detail::handleIntegerBufferCast<uint32_t, uint64_t>(
         static_cast<const uint32_t *>(oldBuffer),
         static_cast<uint64_t *>(newBuffer), numElements);
+  } else if (oldDataType == tt::target::DataType::UInt32 &&
+             newDataType == tt::target::DataType::Int64) {
+    // ttnn ops such as argmax return UInt32 indices, but the host (e.g. torch)
+    // expects Int64. Int64's supported alias is Int32, so the readback path
+    // accepts a UInt32 source for an Int64 destination (see memcpy in
+    // runtime.cpp). Zero-extend into the 64-bit signed buffer; index values
+    // are non-negative so the value is preserved.
+    detail::handleIntegerBufferCast<uint32_t, int64_t>(
+        static_cast<const uint32_t *>(oldBuffer),
+        static_cast<int64_t *>(newBuffer), numElements);
   } else if (oldDataType == tt::target::DataType::Int16 &&
              newDataType == tt::target::DataType::UInt16) {
     detail::handleIntegerBufferCast<int16_t, uint16_t>(

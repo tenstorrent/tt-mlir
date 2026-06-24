@@ -1001,8 +1001,19 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
     ::tt::target::DataType unsupportedDataTypeAlias =
         tt::runtime::utils::getUnsupportedDataTypeAlias(dstDataType.value());
 
+    // A device integer tensor of the same width as the canonical alias is a
+    // valid source regardless of signedness: ttnn ops such as argmax return
+    // UInt32 indices while Int64's alias is Int32. handleBufferCast widens the
+    // source to the destination dtype below; for the non-negative index
+    // tensors this applies to, the signed/unsigned bit patterns are identical.
+    bool sameWidthIntegerAlias =
+        tt::runtime::utils::isIntegerDataType(srcDataType) &&
+        tt::runtime::utils::isIntegerDataType(unsupportedDataTypeAlias) &&
+        tt::runtime::utils::dataTypeElementSize(srcDataType) ==
+            tt::runtime::utils::dataTypeElementSize(unsupportedDataTypeAlias);
+
     LOG_ASSERT(
-        srcDataType == unsupportedDataTypeAlias,
+        srcDataType == unsupportedDataTypeAlias || sameWidthIntegerAlias,
         "Tensor data type must be the alias of the unsupported data type: " +
             std::string(target::EnumNameDataType(unsupportedDataTypeAlias)));
 
