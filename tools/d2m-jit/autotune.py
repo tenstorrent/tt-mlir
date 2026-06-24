@@ -28,8 +28,9 @@ set before the first device interaction -- run the tuner in a fresh process):
 and a perf-trace runtime build (TT_RUNTIME_ENABLE_PERF_TRACE=ON). ``tune()`` sets
 the two env vars via ``setdefault`` and flips the matching ``config`` flags.
 
-Knobs: ``grid_shape`` and ``dtype`` (the config is a plain dict, so adding axes
--- mem_space, a block-aware block_shape, ... -- is additive; see ``grid_space``).
+Knobs: ``grid_shape`` (cores), ``block_shape`` (tiles per shard a core processes
+per remote_load), and ``dtype``. The config is a plain dict, so further axes
+(mem_space, ...) are additive. See ``grid_space`` / ``block_space`` to enumerate.
 
 Two entry points share the same per-config evaluation:
   * ``tune(space)``   -- evaluate every config, rank + Pareto over the results.
@@ -53,7 +54,7 @@ from typing import Callable, Optional, Sequence
 import torch
 
 from d2m_jit import config
-from d2m_jit.testing import eltwise_block_run, make_inputs, torch_dtype
+from d2m_jit.testing import d2m_dtype, make_inputs, torch_dtype
 
 # --- perf-analyzer (hyphenated filename / sibling tool -> load by path) ------
 
@@ -96,10 +97,8 @@ def grid_space(
     ``(shape[-2]//32, shape[-1]//32)`` and ``gy*gx <= max_cores`` (physical grid
     bound). The space is the product of feasible grids and ``dtypes``.
 
-    block_shape is held at ``[1, 1]``: the eltwise kernels load single tiles, so
-    a larger block would change the device sharding without the kernel reading
-    it. block_shape becomes a real knob only with a block-aware kernel that
-    loads multi-tile shards.
+    block_shape is held at ``[1, 1]`` here (one tile per shard). To also tune
+    block_shape, use ``block_space`` with the ``block_aware_run`` materializer.
     """
     ty, tx = shape[-2] // 32, shape[-1] // 32
     cfgs = []
@@ -114,6 +113,76 @@ def grid_space(
                     {"grid_shape": [gy, gx], "block_shape": [1, 1], "dtype": dt}
                 )
     return cfgs
+
+
+def _divisors(n: int) -> list[int]:
+    return [d for d in range(1, n + 1) if n % d == 0]
+
+
+def block_space(
+    shape, dtypes: Sequence[str] = ("float32",), max_cores: int = 64
+) -> list[dict]:
+    """Enumerate feasible ``(grid_shape, block_shape, dtype)`` configs.
+
+    ``block_shape`` ``(bh, bw)`` (in tiles) is the multi-tile shard each
+    ``remote_load`` pulls and the kernel computes over. Feasibility:
+      * ``bh | tiles_y`` and ``bw | tiles_x`` (block tiles the tensor),
+      * the blocked grid ``(tiles_y//bh, tiles_x//bw)`` is divisible by
+        ``grid_shape`` (blocks distribute evenly across cores),
+      * ``gy*gx <= max_cores``.
+    The space is the product over feasible blocks, grids, and dtypes -- so
+    block_shape is a genuine third knob alongside grid_shape and dtype.
+    """
+    ty, tx = shape[-2] // 32, shape[-1] // 32
+    cfgs = []
+    for bh in _divisors(ty):
+        for bw in _divisors(tx):
+            by, bx = ty // bh, tx // bw  # blocked grid (blocks per dim)
+            for gy in _divisors(by):
+                for gx in _divisors(bx):
+                    if gy * gx > max_cores:
+                        continue
+                    for dt in dtypes:
+                        cfgs.append(
+                            {
+                                "grid_shape": [gy, gx],
+                                "block_shape": [bh, bw],
+                                "dtype": dt,
+                            }
+                        )
+    return cfgs
+
+
+# --- Materializer ------------------------------------------------------------
+
+
+def block_aware_run(kernel, inputs, cfg):
+    """``(kernel, inputs, cfg) -> host tensor`` honouring ``block_shape``.
+
+    Builds the Layout at the config's block_shape and computes the per-core
+    block sweep as ``(tiles // block) // grid`` -- so each ``remote_load`` pulls
+    a ``block_shape``-tile shard the kernel computes over. Generalises
+    ``testing.eltwise_block_run`` (which assumes 1x1 blocks); identical when
+    ``block_shape == [1, 1]``."""
+    import d2m_jit as d2m
+
+    ref = inputs[0]
+    gy, gx = cfg["grid_shape"]
+    bh, bw = cfg["block_shape"]
+    layout = d2m.Layout(
+        shape=tuple(ref.shape),
+        dtype=d2m_dtype(cfg["dtype"]),
+        block_shape=[bh, bw],
+        grid_shape=[gy, gx],
+        tiled=True,
+    )
+    ins = [d2m.to_layout(t, layout) for t in inputs]
+    out = d2m.empty(layout)
+    ty, tx = ref.shape[-2] // 32, ref.shape[-1] // 32
+    m_blocks = (ty // bh) // gy
+    n_blocks = (tx // bw) // gx
+    kernel(*ins, out, m_blocks, n_blocks, grid=(gy, gx))
+    return out.to_host()
 
 
 # --- Result model ------------------------------------------------------------
@@ -346,7 +415,7 @@ def tune(
     space: Sequence[dict],
     *,
     golden: Optional[Callable] = None,
-    run: Callable = eltwise_block_run,
+    run: Callable = block_aware_run,
     check_pcc: bool = True,
     pcc: float = 0.99,
     objective: str = "device_kernel_time",
@@ -417,7 +486,7 @@ def search(
     proposer: Callable,
     *,
     golden: Optional[Callable] = None,
-    run: Callable = eltwise_block_run,
+    run: Callable = block_aware_run,
     check_pcc: bool = True,
     pcc: float = 0.99,
     objective: str = "device_kernel_time",
@@ -464,23 +533,43 @@ def search(
     return result
 
 
-# --- Heuristic proposer: latency hill-climb over (grid, dtype) ---------------
+# --- Heuristic proposer: latency hill-climb over (grid, block, dtype) --------
 
 
-def grid_dtype_neighbors(cfg: dict, candidates: Sequence[dict]) -> list[dict]:
-    """Neighbors of ``cfg``: same-dtype grids with DOUBLE the core count (every
-    aspect ratio at the next parallelism level), plus the same grid in each
-    other dtype. Forward-only on cores (more cores trends faster), so the climb
-    marches toward parallelism and tries the cheaper dtype along the way."""
+def knob_neighbors(cfg: dict, candidates: Sequence[dict]) -> list[dict]:
+    """Coordinate-step neighbors of ``cfg`` (each differs in ONE knob):
+
+      * grid  : same block & dtype, DOUBLE the core count (every aspect),
+      * block : same grid & dtype, block tiles doubled OR halved (every aspect),
+      * dtype : same grid & block, the other dtype.
+
+    Grid is forward-only (more cores trends faster); block is bidirectional
+    (the sweet spot for DMA granularity is not monotone). All steps are taken
+    from ``candidates``, so only feasible neighbors appear."""
     cores = cfg["grid_shape"][0] * cfg["grid_shape"][1]
+    btiles = cfg["block_shape"][0] * cfg["block_shape"][1]
     out = []
     for c in candidates:
         cc = c["grid_shape"][0] * c["grid_shape"][1]
+        cb = c["block_shape"][0] * c["block_shape"][1]
         same_grid = c["grid_shape"] == cfg["grid_shape"]
-        if c["dtype"] == cfg["dtype"] and not same_grid and cc == cores * 2:
-            out.append(c)
-        elif same_grid and c["dtype"] != cfg["dtype"]:
-            out.append(c)
+        same_block = c["block_shape"] == cfg["block_shape"]
+        same_dtype = c["dtype"] == cfg["dtype"]
+        if same_block and same_dtype and not same_grid and cc == cores * 2:
+            out.append(c)  # grid step: more parallelism
+        elif (
+            same_grid
+            and same_dtype
+            and not same_block
+            and cb
+            in (
+                btiles * 2,
+                max(btiles // 2, 1),
+            )
+        ):
+            out.append(c)  # block step: coarser/finer DMA granularity
+        elif same_grid and same_block and not same_dtype:
+            out.append(c)  # dtype flip
     return out
 
 
@@ -489,7 +578,7 @@ def hill_climb_proposer(
     *,
     objective: Objective = LATENCY,
     seed: Optional[dict] = None,
-    neighbors: Callable = grid_dtype_neighbors,
+    neighbors: Callable = knob_neighbors,
 ) -> Callable:
     """A latency-guided hill climb as a proposer.
 
@@ -546,13 +635,16 @@ def _agent_prompt(observations, meta, pool, batch) -> str:
     parts = [
         "You are autotuning a d2m-jit compute kernel on a Tenstorrent device. "
         f"Objective: MINIMIZE `{meta['objective']}` (device kernel time, ns).",
-        'A config is JSON: {"grid_shape": [gy, gx], "block_shape": [1, 1], '
+        'A config is JSON: {"grid_shape": [gy, gx], "block_shape": [bh, bw], '
         '"dtype": "float32" | "bfloat16"}. grid_shape = compute cores (more cores '
-        "is usually faster, with diminishing returns); bfloat16 ~halves data "
-        "movement vs float32. Read each config's `diagnostics` to decide the next "
-        "move: high wait_share_of_envelope => stalled, add parallelism; high "
-        "mean_sfpu_util/mean_fpu_util => compute-bound (more cores won't help, try "
-        "dtype); high mean_noc_vs_compute => memory-bound.",
+        "is usually faster, with diminishing returns); block_shape = tiles per "
+        "shard each core processes per remote_load (larger = fewer, coarser DMA "
+        "transfers); bfloat16 ~halves data movement vs float32. Read each config's "
+        "`diagnostics` to decide the next move: high wait_share_of_envelope => "
+        "stalled, add parallelism or coarsen the block; high mean_sfpu_util/"
+        "mean_fpu_util => compute-bound (more cores won't help, try dtype); high "
+        "mean_noc_vs_compute => memory-bound (coarsen block or try bfloat16). Pick "
+        "only from the unevaluated feasible candidates listed below.",
         f"Observations so far ({len(observations)} configs):",
         json.dumps(observations, indent=2),
     ]
@@ -678,40 +770,44 @@ def _exp_kernel():
 
 
 def _label(cfg):
-    return f'{"x".join(map(str, cfg["grid_shape"]))}/{cfg["dtype"]}'
+    g = "x".join(map(str, cfg["grid_shape"]))
+    b = "x".join(map(str, cfg["block_shape"]))
+    return f"{g}|{b}/{cfg['dtype']}"  # grid|block/dtype
 
 
 def _demo() -> None:
-    """Exhaustive tune of `exp_fused` over (grid x dtype) for a 256x256 input."""
-    shape = (256, 256)
-    space = grid_space(shape, dtypes=("float32", "bfloat16"))
-    print(f"tuning exp_fused over {len(space)} (grid x dtype) configs for {shape} ...")
+    """Exhaustive tune of `exp_fused` over (grid x block x dtype) for 128x128."""
+    shape = (128, 128)
+    space = block_space(shape, dtypes=("float32", "bfloat16"))
+    print(
+        f"tuning exp_fused over {len(space)} (grid x block x dtype) cfgs, {shape} ..."
+    )
     result = tune(
         _exp_kernel(), [shape], space, golden=torch.exp, out_dir="prof_tune_exp"
     )
 
     print(f"\nobjective: {result.objective} (lower = faster)\n")
-    print(f"{'rank':>4}  {'grid/dtype':>16}  {'kernel_ns':>12}  {'pcc':>9}")
-    print("-" * 48)
-    for rank, r in enumerate(result.leaderboard()):
-        print(f"{rank:>4}  {_label(r.config):>16}  {r.kernel_ns:>12.1f}  {r.pcc:>9.5f}")
+    print(f"{'rank':>4}  {'grid|block/dtype':>22}  {'kernel_ns':>12}  {'pcc':>9}")
+    print("-" * 54)
+    for rank, r in enumerate(result.leaderboard()[:12]):
+        print(f"{rank:>4}  {_label(r.config):>22}  {r.kernel_ns:>12.1f}  {r.pcc:>9.5f}")
     if result.best:
         print(f"\nbest: {_label(result.best.config)} @ {result.best.kernel_ns:.1f} ns")
 
     # Pareto views: 2-way (latency vs cores) with a scatter, then the 3-way
     # front that keeps accuracy in play (bf16's speed vs f32's precision).
-    print("\n" + "=" * 48)
+    print("\n" + "=" * 54)
     print(format_pareto(result, (LATENCY, CORES), label=_label))
-    print("\n" + "=" * 48)
+    print("\n" + "=" * 54)
     print(format_pareto(result, (LATENCY, CORES, PCC), label=_label))
     print("\nleaderboard.json (with pareto front) written under prof_tune_exp/")
 
 
 def _demo_search() -> None:
-    """Guided search: hill-climb `exp_fused` from 1x1/float32 toward the best
-    config, evaluating a path through the space instead of all of it."""
-    shape = (256, 256)
-    candidates = grid_space(shape, dtypes=("float32", "bfloat16"))
+    """Guided search: hill-climb `exp_fused` over (grid x block x dtype) toward
+    the best config, evaluating a path through the space instead of all of it."""
+    shape = (128, 128)
+    candidates = block_space(shape, dtypes=("float32", "bfloat16"))
     seed = {"grid_shape": [1, 1], "block_shape": [1, 1], "dtype": "float32"}
     proposer = hill_climb_proposer(candidates, seed=seed)
 
@@ -728,9 +824,9 @@ def _demo_search() -> None:
         if r.valid:
             wait = r.diagnostics.get("wait_share_of_envelope")
             wtxt = f"  wait={wait:.0%}" if wait is not None else ""
-            print(f"  {i:>2}. {_label(r.config):>16}  {r.kernel_ns:>10.0f} ns{wtxt}")
+            print(f"  {i:>2}. {_label(r.config):>22}  {r.kernel_ns:>10.0f} ns{wtxt}")
         else:
-            print(f"  {i:>2}. {_label(r.config):>16}  invalid: {r.error}")
+            print(f"  {i:>2}. {_label(r.config):>22}  invalid: {r.error}")
 
     print(
         f"\nevaluated {len(result.records)} of {len(candidates)} configs "
