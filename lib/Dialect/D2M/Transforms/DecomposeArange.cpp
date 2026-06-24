@@ -55,7 +55,6 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
     int64_t numTileCols = outputShape[outputShape.size() - 1];
     // Total tiles across all cores.
     int64_t totalTileCols = numTileCols * gridShape[gridShape.size() - 1];
-    int64_t totalTileRows = numTileRows * gridShape[gridShape.size() - 2];
 
     Value zeroIdx = rewriter.create<arith::ConstantIndexOp>(loc, 0);
     Value oneIdx = rewriter.create<arith::ConstantIndexOp>(loc, 1);
@@ -132,8 +131,6 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
         rewriter.create<arith::ConstantIndexOp>(loc, numTileCols);
     Value totalTileColsIdx =
         rewriter.create<arith::ConstantIndexOp>(loc, totalTileCols);
-    Value totalTileRowsIdx =
-        rewriter.create<arith::ConstantIndexOp>(loc, totalTileRows);
     Value const32Idx = rewriter.create<arith::ConstantIndexOp>(loc, 32);
     // globalTileRow = coreY * shardTileRows + localTileRow
     Value globalTileRow = rewriter.create<arith::AddIOp>(
@@ -144,23 +141,24 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
         loc, rewriter.create<arith::MulIOp>(loc, coreX, shardTileColsIdx),
         tileColIdx);
 
-    Value rowContrib, colContrib;
+    Value tileOffsetIdx;
     if (col_major) {
-      // Now row contribution is: globalTileRow * 32
-      // Column contribution is: globalTileCol * totalTileRows * 32 * 32
-      rowContrib =
-          rewriter.create<arith::MulIOp>(loc, globalTileRow, const32Idx);
-      colContrib = rewriter.create<arith::MulIOp>(
-          loc,
-          rewriter.create<arith::MulIOp>(
-              loc,
-              rewriter.create<arith::MulIOp>(loc, globalTileCol,
-                                             totalTileRowsIdx),
-              const32Idx),
-          const32Idx);
+      // Column-major arange is consumed by a Col broadcast that reads only
+      // column 0 of each tile. The scratch fill is row-major: element (r,c) =
+      // r*32 + c, so its column 0 is [0,32,64,...], which would bake a stride
+      // of 32 into the index sequence. Transpose below makes column 0 carry the
+      // consecutive within-tile row position r ([0,1,...,31]) instead.
+      //
+      // Per-tile base for tile (tr, tc): column 0 should hold global indices
+      //   tc*32 + tr  (down the column), so:
+      //   offset = globalTileCol * 32 + globalTileRow
+      Value colScaled =
+          rewriter.create<arith::MulIOp>(loc, globalTileCol, const32Idx);
+      tileOffsetIdx =
+          rewriter.create<arith::AddIOp>(loc, colScaled, globalTileRow);
     } else {
       // Row contribution: globalTileRow * totalTileCols * 32 * 32
-      rowContrib = rewriter.create<arith::MulIOp>(
+      Value rowContrib = rewriter.create<arith::MulIOp>(
           loc,
           rewriter.create<arith::MulIOp>(
               loc,
@@ -169,12 +167,12 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
               const32Idx),
           const32Idx);
       // Column contribution: globalTileCol * 32
-      colContrib =
+      Value colContrib =
           rewriter.create<arith::MulIOp>(loc, globalTileCol, const32Idx);
+      // Total offset (index type)
+      tileOffsetIdx =
+          rewriter.create<arith::AddIOp>(loc, rowContrib, colContrib);
     }
-    // Total offset (index type)
-    Value tileOffsetIdx =
-        rewriter.create<arith::AddIOp>(loc, rowContrib, colContrib);
     Value tileOffsetScalar;
     if (isIntElem) {
       tileOffsetScalar =
@@ -187,6 +185,15 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
     }
 
     // === STEP 6: Tile arithmetic with scalar RHS ===
+    // For column-major, transpose the scratch tile so column 0 carries the
+    // consecutive within-tile row index [0,1,...,31] instead of [0,32,...,992].
+    // The downstream Col broadcast reads only column 0, so this makes the
+    // generated index sequence count down columns with stride 1.
+    if (col_major) {
+      localIndexTile =
+          rewriter.create<TileTransposeOp>(loc, tileType, localIndexTile)
+              .getResult();
+    }
     Value globalIndexTile =
         rewriter
             .create<TileAddOp>(loc, tileType, localIndexTile, tileOffsetScalar)

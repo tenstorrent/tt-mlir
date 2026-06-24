@@ -1357,7 +1357,7 @@ mlir::LogicalResult ArangeBlockOp::bufferize(
   // Create new op with memref operands.
   rewriter.create<ArangeBlockOp>(getLoc(), *maybeIndexTileBuffer,
                                  *maybeOutputBuffer, getNumElements(),
-                                 getStart(), getStep());
+                                 getStart(), getStep(), getColMajor());
 
   // Replace uses and erase (DPS pattern - result aliases output buffer).
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, getOperation(),
