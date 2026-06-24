@@ -165,12 +165,14 @@ static bool mayHaveRuntimeCBArgs(func::FuncOp funcOp) {
   return !argSpec || !argSpec.getRtArgs().empty();
 }
 
+namespace {
 struct TTKernelToEmitCConversionState {
   llvm::DenseMap<Block *, llvm::StringSet<>> cbDeclarations;
   llvm::DenseMap<Operation *, llvm::StringSet<>> functionScopedDeclarations;
   llvm::DenseMap<Operation *, std::array<bool, 2>> staticNocDeclarations;
   llvm::DenseMap<Operation *, uint64_t> resultVariableCounters;
 };
+} // namespace
 
 static void setInsertionPointAfterDefOrBlockStart(Value value,
                                                   OpBuilder &builder) {
