@@ -233,6 +233,17 @@ static Value getDeviceInMcastRange(OpBuilder &rewriter, Location loc,
 }
 
 static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
+  // After D2MSplitUnifiedThread, operands may point to the memref extracted
+  // by d2m.wait or d2m.reserve rather than the CB itself. Unwrap to get the
+  // underlying CB.
+  if (auto waitOp = cb.getDefiningOp<d2m::WaitOp>()) {
+    return rewriter.getRemappedValue(waitOp.getCb());
+  }
+
+  if (auto reserveOp = cb.getDefiningOp<d2m::ReserveOp>()) {
+    return rewriter.getRemappedValue(reserveOp.getCb());
+  }
+
   if (auto loadOp = cb.getDefiningOp<memref::LoadOp>()) {
     assert(loadOp.getIndices().size() == 1 &&
            "Expected single index in load op, failing.");

@@ -3598,6 +3598,84 @@ public:
                                ttnnMode, collapseTensors,
                                enableMulticastInference) {}
 
+  // Extracts top-k results from topkResult into extractOutput, collapsing
+  // extractProjectDim to tile 0. Transposes (dim=1) or typecasts (dim=0)
+  // each tile to handle row/column orientation.
+  d2m::GenericOp createExtractGeneric(ConversionPatternRewriter &rewriter,
+                                      Location loc, MLIRContext *ctx,
+                                      Value topkResult, Value extractOutput,
+                                      std::size_t extractProjectDim,
+                                      int64_t outputReductionTiles,
+                                      int64_t lastStride, int32_t dim) const {
+    std::size_t extractRank =
+        ttcore::getDeviceLayout(extractOutput).getRank() / 2;
+    AffineMap extractIdentity = rewriter.getMultiDimIdentityMap(extractRank);
+    SmallVector<Attribute> extractIters(
+        extractRank,
+        ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel));
+
+    SmallVector<AffineExpr> inputMapExprs;
+    for (std::size_t i = 0; i < extractRank; ++i) {
+      inputMapExprs.push_back(i == extractProjectDim
+                                  ? rewriter.getAffineConstantExpr(0)
+                                  : rewriter.getAffineDimExpr(i));
+    }
+    AffineMap inputProjectedMap =
+        AffineMap::get(extractRank, 0, inputMapExprs, ctx);
+
+    SmallVector<Value> extractInputs = {topkResult};
+    SmallVector<Value> extractOutputs = {extractOutput};
+    auto generic = rewriter.create<d2m::GenericOp>(
+        loc, extractInputs, extractOutputs, /*additionalArgs=*/ValueRange(),
+        rewriter.getAffineMapArrayAttr(
+            SmallVector<AffineMap>{inputProjectedMap, extractIdentity}),
+        rewriter.getArrayAttr(extractIters));
+
+    withD2MGenericRegion(
+        rewriter, loc, generic, extractInputs, extractOutputs,
+        [&](ArrayRef<Value> blockArgs) -> SmallVector<Value> {
+          Value input = blockArgs[0];
+          Value output = blockArgs[1];
+          std::size_t outShardRank =
+              cast<RankedTensorType>(output.getType()).getRank();
+
+          AffineExpr projExpr =
+              outputReductionTiles == 1
+                  ? rewriter.getAffineConstantExpr(0)
+                  : rewriter.getAffineDimExpr(extractProjectDim) * lastStride;
+          SmallVector<AffineExpr> mapFirstExprs;
+          for (std::size_t i = 0; i < outShardRank; ++i) {
+            mapFirstExprs.push_back(i == extractProjectDim
+                                        ? projExpr
+                                        : rewriter.getAffineDimExpr(i));
+          }
+          AffineMap mapFirst =
+              AffineMap::get(outShardRank, 0, mapFirstExprs, ctx);
+          AffineMap outIdentity = rewriter.getMultiDimIdentityMap(outShardRank);
+          SmallVector<mlir::utils::IteratorType> linalgIters(
+              outShardRank, mlir::utils::IteratorType::parallel);
+
+          auto linalgOp = rewriter.create<linalg::GenericOp>(
+              loc, output.getType(), input, output,
+              SmallVector<AffineMap>{mapFirst, outIdentity}, linalgIters,
+              [&](OpBuilder &b, Location bodyLoc, ValueRange args) {
+                Value result;
+                if (dim == 1) {
+                  result = b.create<d2m::TileTransposeOp>(
+                      bodyLoc, args[1].getType(), args[0]);
+                } else {
+                  // dim=0: copy tile via typecast
+                  result = b.create<d2m::TileTypecastOp>(
+                      bodyLoc, args[1].getType(), args[0]);
+                }
+                b.create<linalg::YieldOp>(bodyLoc, result);
+              });
+          return {linalgOp->getResult(0)};
+        });
+
+    return generic;
+  }
+
   LogicalResult
   matchAndRewrite(ttir::TopKOp op, ttir::TopKOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
@@ -3655,8 +3733,11 @@ public:
       return rewriter.notifyMatchFailure(
           op, "D2M topk requires reduction dim tile count to be a power of 2");
     }
-    int64_t lastStride =
-        numReductionTiles / 2; // final loser tile after tree reduction
+    // After the merge tree, the top-k result occupies tile 0 (winner) and,
+    // for k>32, tile numReductionTiles/2 (the last loser tile, which holds the
+    // second half of the top-k). The lastStride variable stores the index of
+    // that second tile.
+    int64_t lastStride = numReductionTiles / 2;
 
     Type si32Type = IntegerType::get(ctx, 32, IntegerType::Signed);
     auto si32TileType = ttcore::TileType::get(si32Type, f32TileType.getShape());
@@ -3688,8 +3769,8 @@ public:
     SmallVector<Attribute> iteratorTypes(physicalRank, parallel);
     AffineMap identityMap = rewriter.getMultiDimIdentityMap(physicalRank);
 
-    // dim=1 sorts along tile rows — transpose tiles so the sort dimension lands
-    // in tile columns (the dimension TopkBlockOp operates on).
+    // When dim=1, the sort dimension falls along tile rows, but TopkBlockOp
+    // operates on tile columns, so we transpose the tiles first.
     Value topkInput = layoutedInput;
     if (dim == 1) {
       auto transposeEmpty = rewriter.create<d2m::EmptyOp>(
@@ -3714,6 +3795,8 @@ public:
                 rewriter.getMultiDimIdentityMap(shardRank);
             SmallVector<mlir::utils::IteratorType> linalgIters(
                 shardRank, mlir::utils::IteratorType::parallel);
+            // TileTransposeOp operates on a single tile. linalg::GenericOp
+            // iterates over all tiles in the shard to apply it to each.
             auto linalgOp = rewriter.create<linalg::GenericOp>(
                 loc, output.getType(), input, output,
                 SmallVector<AffineMap>{shardIdentity, shardIdentity},
@@ -3765,85 +3848,16 @@ public:
         origIdxOutputs[0], memorySpaces[1], /*tiled=*/true,
         /*noCollapse=*/false, rewriter);
 
-    int64_t outputReductionTiles = (k + 31) / 32; // 1 for k<=32, 2 for k<=64
+    // Need 1 output tile for k <= 32 and 2 tiles for k > 32
+    int64_t outputReductionTiles = (k + 31) / 32;
     std::size_t extractProjectDim = (dim == 1) ? (physicalRank - 1) : 0;
 
-    auto createExtractGeneric = [&](Value topkResult,
-                                    Value extractOutput) -> d2m::GenericOp {
-      std::size_t extractRank =
-          ttcore::getDeviceLayout(extractOutput).getRank() / 2;
-      AffineMap extractIdentity = rewriter.getMultiDimIdentityMap(extractRank);
-      SmallVector<Attribute> extractIters(
-          extractRank,
-          ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel));
-
-      SmallVector<AffineExpr> inputMapExprs;
-      for (std::size_t i = 0; i < extractRank; ++i) {
-        inputMapExprs.push_back(i == extractProjectDim
-                                    ? rewriter.getAffineConstantExpr(0)
-                                    : rewriter.getAffineDimExpr(i));
-      }
-      AffineMap inputProjectedMap =
-          AffineMap::get(extractRank, 0, inputMapExprs, ctx);
-
-      SmallVector<Value> extractInputs = {topkResult};
-      SmallVector<Value> extractOutputs = {extractOutput};
-      auto generic = rewriter.create<d2m::GenericOp>(
-          loc, extractInputs, extractOutputs, /*additionalArgs=*/ValueRange(),
-          rewriter.getAffineMapArrayAttr(
-              SmallVector<AffineMap>{inputProjectedMap, extractIdentity}),
-          rewriter.getArrayAttr(extractIters));
-
-      withD2MGenericRegion(
-          rewriter, loc, generic, extractInputs, extractOutputs,
-          [&](ArrayRef<Value> blockArgs) -> SmallVector<Value> {
-            Value input = blockArgs[0];
-            Value output = blockArgs[1];
-            std::size_t outShardRank =
-                cast<RankedTensorType>(output.getType()).getRank();
-
-            AffineExpr projExpr =
-                outputReductionTiles == 1
-                    ? rewriter.getAffineConstantExpr(0)
-                    : rewriter.getAffineDimExpr(extractProjectDim) * lastStride;
-            SmallVector<AffineExpr> mapFirstExprs;
-            for (std::size_t i = 0; i < outShardRank; ++i) {
-              mapFirstExprs.push_back(i == extractProjectDim
-                                          ? projExpr
-                                          : rewriter.getAffineDimExpr(i));
-            }
-            AffineMap mapFirst =
-                AffineMap::get(outShardRank, 0, mapFirstExprs, ctx);
-            AffineMap outIdentity =
-                rewriter.getMultiDimIdentityMap(outShardRank);
-            SmallVector<mlir::utils::IteratorType> linalgIters(
-                outShardRank, mlir::utils::IteratorType::parallel);
-
-            auto linalgOp = rewriter.create<linalg::GenericOp>(
-                loc, output.getType(), input, output,
-                SmallVector<AffineMap>{mapFirst, outIdentity}, linalgIters,
-                [&](OpBuilder &b, Location bodyLoc, ValueRange args) {
-                  Value result;
-                  if (dim == 1) {
-                    result = b.create<d2m::TileTransposeOp>(
-                        bodyLoc, args[1].getType(), args[0]);
-                  } else {
-                    // dim=0: copy tile via typecast
-                    result = b.create<d2m::TileTypecastOp>(
-                        bodyLoc, args[1].getType(), args[0]);
-                  }
-                  b.create<linalg::YieldOp>(bodyLoc, result);
-                });
-            return {linalgOp->getResult(0)};
-          });
-
-      return generic;
-    };
-
-    auto extractValsGeneric =
-        createExtractGeneric(topkValsRelayouted, extractValsLayout);
-    auto extractIdxGeneric =
-        createExtractGeneric(topkIdxRelayouted, extractIdxLayout);
+    auto extractValsGeneric = createExtractGeneric(
+        rewriter, loc, ctx, topkValsRelayouted, extractValsLayout,
+        extractProjectDim, outputReductionTiles, lastStride, dim);
+    auto extractIdxGeneric = createExtractGeneric(
+        rewriter, loc, ctx, topkIdxRelayouted, extractIdxLayout,
+        extractProjectDim, outputReductionTiles, lastStride, dim);
 
     Operation *valResult =
         unLayoutResult(rewriter, extractValsGeneric->getResult(0), valuesType);

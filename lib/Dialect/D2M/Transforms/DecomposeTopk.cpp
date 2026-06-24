@@ -27,7 +27,7 @@ static int32_t floorLog2(T n) {
   return result;
 }
 
-// Decomposes TopkBlockOp into arange_block +
+// Decomposes TopkBlockOp into arange_block and
 // tile_topk_{local_sort,merge,rebuild} ops.
 struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
   using OpRewritePattern<TopkBlockOp>::OpRewritePattern;
@@ -76,19 +76,18 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
     int32_t logk = floorLog2(k);
 
     int64_t numTilesInner = inputShape[dim];
-    // logWt is the number of iterations in the merge tree
-    // since we double the distance between tiles in each iteration
-    // numTilesInner must be a power of 2 for the current implementation
+    // logWt is the number of merge-tree iterations. Each iteration doubles the
+    // distance between paired tiles, so numTilesInner must be a power of 2.
     int32_t logWt = floorLog2(numTilesInner);
 
-    // k>32: result spans 2 tiles, use 3-sub-merge tree reduction.
+    // When k>32 the result spans 2 tiles, requiring a 3-sub-merge reduction.
     bool useLargeK = (k > 32);
 
     auto i32Attr = [&](int32_t v) { return rewriter.getI32IntegerAttr(v); };
     auto i64Attr = [&](int64_t v) { return rewriter.getI64IntegerAttr(v); };
     auto boolAttr = [&](bool v) { return rewriter.getBoolAttr(v); };
 
-    // Emit local_sort + merge + rebuild for an initial pair.
+    // Emit the local_sort, merge, and rebuild stages.
     auto emitSortMergeRebuild = [&](int64_t tA, int64_t tB, int32_t mK,
                                     int32_t mLogk, int32_t mIter,
                                     int32_t skipSecond, bool rfo) {
@@ -120,22 +119,35 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
 
         if (useLargeK) {
           if (isFirst) {
-            emitSortMergeRebuild(tileA, tileB, k, logk, /*mIter=*/0,
+            emitSortMergeRebuild(tileA, tileB, k, logk, /*mIter=*/mIter,
                                  /*skipSecond=*/0, /*rfo=*/false);
           } else {
-            // Perform a 3-sub-merge to compute top-k across 4 tiles within the
-            // 2-tile DST constraint.
+            // DST only holds 2 tiles at a time, so we cannot merge all 4 tiles
+            // directly. Instead, we use 3 sub-merges to compute the top-k.
             int64_t prevDist = distance / 2;
 
+            // Step 1: Merge the winner tiles (tileA, tileB) from the previous
+            // iteration; tileA holds the best-k across both afterward.
             emitSortMergeRebuild(tileA, tileB, k, logk, /*mIter=*/0,
                                  /*skipSecond=*/0, /*rfo=*/true);
+
+            // Step 2: Merge the loser tiles; (tileA+prevDist) holds the best-k
+            // across both losers afterward.
             emitSortMergeRebuild(tileA + prevDist, tileB + prevDist, k, logk,
                                  /*mIter=*/0, /*skipSecond=*/0, /*rfo=*/true);
+
+            // Step 3: Merge winners against losers; tileB holds the final top-k
+            // across all four tiles afterward.
             emitSortMergeRebuild(tileB, tileA + prevDist, k, logk,
                                  /*mIter=*/0, /*skipSecond=*/0, /*rfo=*/true);
           }
         } else {
-          // k<=32: always use K=32/logk=5 to force cross-tile work.
+          // K=32/logk=5 is used so that sorting spans both tiles; a smaller K
+          // would confine it to a single tile, preventing cross-tile merges.
+
+          // Rebuild only on the last iteration. Skip it when k==32 with a
+          // single iteration since the merge output is already exactly k
+          // elements. The !isFirst check handles the case when logWt = 1.
           bool needsRebuild = isLast && (!isFirst || k < 32);
 
           rewriter.create<TileTopkLocalSortOp>(
@@ -152,7 +164,7 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
           if (needsRebuild) {
             rewriter.create<TileTopkRebuildOp>(
                 loc, inputValues, bufIdxFilled, outValues, outIndices,
-                i32Attr(0), i32Attr(mIter), i32Attr(32), i32Attr(5), i32Attr(1),
+                i32Attr(0), i32Attr(mIter), i32Attr(k), i32Attr(5), i32Attr(1),
                 i64Attr(tileA), i64Attr(tileB), boolAttr(false), boolAttr(true),
                 boolAttr(readFromOutput));
           }
