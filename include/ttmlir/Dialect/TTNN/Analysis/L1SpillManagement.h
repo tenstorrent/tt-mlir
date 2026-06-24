@@ -55,12 +55,11 @@ struct SumL1MemoryTracker {
 
   uint64_t getOccupiedL1() const;
 
-  /// True when `allocateAddress` could not place some tensor in any
-  /// contiguous free block (a no-fit). Set on every no-fit, reset by `init`,
-  /// and carried in snapshots so it reflects the current (replayed) schedule.
-  /// While set, the free list is "phantom-free" — it still advertises the
-  /// unplaced tensor's slot as available — so any FRAG_RESOLVED / "output
-  /// fits" check is reading a live set that actually overflows.
+  /// True when `allocateAddress` hit a no-fit (no contiguous free block for
+  /// some tensor). Set on every no-fit, reset by `init`, carried in snapshots
+  /// so it tracks the replayed schedule. While set, the free list is
+  /// "phantom-free" (it still advertises the unplaced tensor's slot), so any
+  /// "output fits" check is reading a live set that actually overflows.
   bool isStillFragmented() const;
 
   void addTensor(Value result, uint64_t l1SizePerCore);

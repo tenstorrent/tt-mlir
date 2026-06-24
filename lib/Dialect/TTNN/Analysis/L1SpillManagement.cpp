@@ -130,12 +130,8 @@ void SumL1MemoryTracker::allocateAddress(Value result, uint64_t l1SizePerCore) {
       return;
     }
   }
-  // No fit: the tensor cannot be placed in any contiguous free block. Do NOT
-  // silently drop it — flag the live set as fragmented so callers can detect
-  // that it does not actually fit (getLowestOccupiedAddress / wouldAllocateAt
-  // would otherwise read a phantom-free list that still advertises this
-  // tensor's slot as available, leading to a false FRAG_RESOLVED). Leave
-  // freeList/tensorAddresses/currentOccupied untouched.
+  // No contiguous free block fits. Flag over-subscription rather than silently
+  // dropping the tensor; state is left unchanged. See isStillFragmented().
   stillFragmented = true;
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                "Address simulator: no fit for {} bytes (aligned {})",
@@ -1092,13 +1088,9 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
   // unmodeled runtime fragmentation from transient internal op allocations.
   uint64_t cushionedCBUsage = cbPeakUsage + cbFragCushion;
 
-  // Evict tensors (farthest last-use first) until CB overlap resolves AND the
-  // whole replayed live set is placeable. isStillFragmented() guards against a
-  // replay (markEvictedAndRebuild) having dropped a still-live tensor that no
-  // longer fits: without it, wouldAllocateAt/getLowestOccupiedAddress read a
-  // phantom-free list and the loop would stop while the live set actually
-  // overflows. Keep evicting (which can spill the offending large tensor) until
-  // it genuinely fits.
+  // Evict (farthest last-use first) until CB overlap clears AND the replayed
+  // live set genuinely fits. The isStillFragmented() guard is load-bearing —
+  // without it the loop stops on a phantom-free list (see its doc).
   evictUntil(pos, data, [&]() {
     auto specAddr = memoryTracker.wouldAllocateAt(outputL1Size);
     if (!specAddr) {
@@ -1109,13 +1101,9 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
     return !memoryTracker.isStillFragmented() && cushionedCBUsage <= effLowest;
   });
 
-  // Eviction may have been exhausted (only inserted reshards left, or empty
-  // live set) while the live set is still fragmented (a replay left a tensor
-  // unplaced). In that case the free list is phantom-free (the dropped tensor's
-  // slot looks available), so the checks below would falsely resolve. Demote
-  // this op's output to DRAM as a best-effort fallback and surface the
-  // unresolved fragmentation instead of silently shipping a layout that clashes
-  // on device.
+  // Eviction couldn't place the whole live set (only reshards left, or empty).
+  // Demote this op's output to DRAM rather than ship a layout that clashes on
+  // device — without this, the phantom-free list would falsely resolve below.
   if (memoryTracker.isStillFragmented()) {
     demoteToDram(op);
     evictForDramCBGrowth(op, pos, data);
