@@ -818,6 +818,40 @@ def reduce_mean(input, dim):
     )
 
 
+@syntax("reduce_sum_pair", args_as_attr=[False, False, _int_attr_from_ast])
+def reduce_sum_pair(lhs, rhs, dim):
+    """Block-level float sum reduction over one tile axis for two blocks.
+
+    This is equivalent to `reduce_sum(lhs, dim) + reduce_sum(rhs, dim)`,
+    but emits a single reduction generic and scaler tile.
+    """
+    return _reduce_pair_block(
+        lambda a, b, c, reduce_dim: d2m.tile_reduce_sum(a.type, a, b, c, reduce_dim),
+        lhs,
+        rhs,
+        dim,
+        1.0,
+        0.0,
+    )
+
+
+@syntax("reduce_max_pair", args_as_attr=[False, False, _int_attr_from_ast])
+def reduce_max_pair(lhs, rhs, dim):
+    """Block-level float max reduction over one tile axis for two blocks.
+
+    This is equivalent to `maximum(reduce_max(lhs, dim), reduce_max(rhs, dim))`,
+    but emits a single reduction generic and scaler tile.
+    """
+    return _reduce_pair_block(
+        lambda a, b, c, reduce_dim: d2m.tile_reduce_max(a.type, a, b, c, reduce_dim),
+        lhs,
+        rhs,
+        dim,
+        1.0,
+        float("-inf"),
+    )
+
+
 @syntax("!tensor")
 class TensorBlock:
     """The DSL-side host class for a tile-typed tensor block.
@@ -1523,6 +1557,55 @@ def _reduce_block_axis_explicit(
         linalg.yield_([accumulator])
     _set_reduced_axes(generic.result, {reduce_axis})
 
+    return generic.result
+
+
+def _reduce_pair_block(tile_op_fn, lhs, rhs, dim, scaler_value, identity_value):
+    lhs_ty = lhs.type
+    rhs_ty = rhs.type
+    if not isinstance(lhs_ty, RankedTensorType) or not isinstance(
+        rhs_ty, RankedTensorType
+    ):
+        raise TypeError(
+            f"reduce pair inputs must be ranked tensors, got {lhs_ty} and {rhs_ty}"
+        )
+    if lhs_ty != rhs_ty:
+        raise ValueError(f"reduce pair input types must match: {lhs_ty} vs {rhs_ty}")
+
+    rank = lhs_ty.rank
+    elem_ty = lhs_ty.element_type
+    reduce_axis = _normalize_reduce_axis(dim, rank)
+    reduce_dim = _dim_to_reduce_dim_attr(dim)
+
+    output = d2m.empty(lhs_ty)
+    scaler = _reduction_scaler_block(lhs_ty, scaler_value)
+    identity = AffineMap.get_identity(rank)
+    indexing_maps = ArrayAttr.get([AffineMapAttr.get(identity)] * 4)
+    parallel = Attribute.parse("#linalg.iterator_type<parallel>")
+
+    generic = linalg.GenericOp(
+        [lhs_ty],
+        [lhs, rhs, scaler],
+        [output],
+        indexing_maps,
+        ArrayAttr.get([parallel] * rank),
+    )
+    body = Block.create_at_start(
+        generic.regions[0],
+        [elem_ty, elem_ty, elem_ty, elem_ty],
+        [Location.unknown()] * 4,
+    )
+    with InsertionPoint(body):
+        lhs_tile, rhs_tile, scaler_tile, _ = body.arguments
+        accumulator = _tile_fill_float(elem_ty, identity_value)
+        result = tile_op_fn(lhs_tile, scaler_tile, accumulator, reduce_dim)
+        if hasattr(result, "result"):
+            result = result.result
+        result = tile_op_fn(rhs_tile, scaler_tile, result, reduce_dim)
+        if hasattr(result, "result"):
+            result = result.result
+        linalg.yield_([result])
+    _set_reduced_axes(generic.result, {reduce_axis})
     return generic.result
 
 
