@@ -319,6 +319,14 @@ void handleBufferCast(const void *oldBuffer, void *newBuffer,
     detail::handleIntegerBufferCast<uint32_t, int64_t>(
         static_cast<const uint32_t *>(oldBuffer),
         static_cast<int64_t *>(newBuffer), numElements);
+  } else if (oldDataType == tt::target::DataType::Int32 &&
+             newDataType == tt::target::DataType::UInt64) {
+    // Symmetric to the UInt32 -> Int64 case: the same-width-integer readback
+    // relaxation also accepts an Int32 source for a UInt64 destination
+    // (UInt64's supported alias is UInt32).
+    detail::handleIntegerBufferCast<int32_t, uint64_t>(
+        static_cast<const int32_t *>(oldBuffer),
+        static_cast<uint64_t *>(newBuffer), numElements);
   } else if (oldDataType == tt::target::DataType::Int16 &&
              newDataType == tt::target::DataType::UInt16) {
     detail::handleIntegerBufferCast<int16_t, uint16_t>(
