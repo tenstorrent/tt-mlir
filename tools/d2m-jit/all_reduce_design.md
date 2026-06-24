@@ -359,3 +359,45 @@ sender already lowers to `fabric_mcast_fast_write_any_len` + `fabric_mcast_sem_i
     (3) confirm split-v2 treats the recv CB as a compute input whose producer is
     the fabric (no DM load partner) and ScheduleDMA leaves the (send-only) fabric
     ops pinned while the recv consume needs no NoC.
+
+### Step 1 implementation finding (2026-06-24): needs a dedicated op
+
+Attempting to implement the no-NoC consume by marking a `remote_load` (attr
+`d2m.local_recv`) and skipping its `dma_read` does NOT work: `remote_load` couples
+its result CB to a *separate* localBuffer operand (the `dma_read` copies
+`src -> localBuffer`'s CB, and compute reads that copy). Skipping the `dma_read`
+leaves compute reading an unfilled localBuffer CB, not the fabric-written recv.
+Passing the recv operand itself as the localBuffer gives the wrong result type
+(the full sharded operand vs the per-tile shard) and conflates two operand CBs.
+
+So step 1 requires a **dedicated `d2m.fabric_recv` op** whose *result is the recv
+operand's own CB front* (no separate buffer, no copy):
+
+```
+%tile = d2m.fabric_recv %recv[%t]      # recv: a generic INPUT operand (device layout)
+```
+- **Semantics:** the tile at `recv[t]` has already been written into recv's CB by
+  a peer's cross-device `remote_store` (arrival gated by the existing
+  `semaphore_wait`); `fabric_recv` exposes it to compute. Compute consumes the
+  result via the normal input-CB `cb_wait_front`/`cb_pop_front`.
+- **Lowering (LowerLoadStoreOpsToDMA / D2MToTTKernel):** `reserve(recv_cb)` →
+  `push(recv_cb)` — NO `dma_read`, NO `noc_async_read`. This is the whole point:
+  no NoC op on the fabric thread.
+- **split-v2 (`insertComputeCBOpsV2`):** treat `fabric_recv`'s recv CB as a
+  compute-consumed input whose *producer is the DM-side push* (not a `dma_read`).
+  It is the input-CB `dmLoad`-equivalent for the wait/pop handshake.
+- **Bufferization:** `fabric_recv` reads nothing locally (the recv operand is
+  written by peers, like the cross-device store); result aliases the recv CB.
+- **DSL (`api.py`):** a `fabric_recv(recv, [t])` `@syntax` primitive emitting the
+  op; the kernel does `s = fabric_recv(recv, [t]) + remote_load(in0, [idx])`.
+
+Files to touch: `D2MGenericRegionOps.td` (op def + verifier + BufferizableOp
+interface), `D2MGenericRegionOps.cpp` (interface impl), `SplitUnifiedThreadV2.cpp`
+(recognize it as an input-CB producer), `LowerLoadStoreOpsToDMA.cpp` (reserve→push),
+`api.py` (primitive). Validate on milestone 3a (1 step: confirm the ttkernel IR
+emits NO `noc_async_read` for the recv, and the result is correct), then 3b (the
+2-read-back case that hangs today should pass), then 3c (full reduce_scatter).
+
+This is a focused multi-file op-implementation effort; the foundation (recv as an
+input operand, cross-device store into it) and the precise lowering shape are now
+pinned, so it can be built directly against this plan.
