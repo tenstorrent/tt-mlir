@@ -267,10 +267,11 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
            !opsWithSynchronizableOps.contains(outermostOp->getParentOp())) {
       outermostOp = outermostOp->getParentOp();
       if (!mlir::isa<scf::ForOp>(outermostOp) &&
+          !mlir::isa<scf::IfOp>(outermostOp) &&
           !mlir::isa<linalg::GenericOp>(outermostOp)) {
-        (void)rewriter.notifyMatchFailure(
-            genericOp, "parent ops containing compute ops must be scf.for or "
-                       "linalg.generic");
+        outermostOp->emitOpError(
+            "Parent ops containing compute ops must be scf.for, scf.if, or "
+            "linalg.generic");
         walkFailed = true;
         return WalkResult::interrupt();
       }
@@ -686,6 +687,13 @@ static void collectOpsToErase(Block *block, DenseSet<Operation *> &eraseSet,
     }
     if (auto forOp = dyn_cast<scf::ForOp>(&op)) {
       collectOpsToErase(forOp.getBody(), eraseSet, isDatamovementThread);
+      continue;
+    }
+    if (auto ifOp = dyn_cast<scf::IfOp>(&op)) {
+      collectOpsToErase(ifOp.thenBlock(), eraseSet, isDatamovementThread);
+      if (Block *elseBlock = ifOp.elseBlock()) {
+        collectOpsToErase(elseBlock, eraseSet, isDatamovementThread);
+      }
       continue;
     }
 
