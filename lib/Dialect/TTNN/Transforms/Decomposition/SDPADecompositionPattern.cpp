@@ -44,17 +44,8 @@ static Value generateCausalMask(PatternRewriter &rewriter, Location loc,
   auto plainMaskType = RankedTensorType::get(maskShape, rewriter.getF32Type());
   auto denseAttr = DenseFPElementsAttr::get(plainMaskType, maskData);
 
-  // Create ConstantOp with TTNN-encoded result type.
-  // Extract layout from encoding for the verifier.
   auto maskType = createResultType(referenceType, maskShape);
-  LayoutAttr tensorLayoutAttr;
-  if (auto layoutAttr = mlir::dyn_cast_if_present<TTNNLayoutAttr>(
-          referenceType.getEncoding())) {
-    tensorLayoutAttr =
-        LayoutAttr::get(rewriter.getContext(), layoutAttr.getLayout());
-  }
-  return rewriter.create<ConstantOp>(loc, maskType, device, denseAttr,
-                                     tensorLayoutAttr);
+  return rewriter.create<ConstantOp>(loc, maskType, device, denseAttr);
 }
 
 /// Generate a sliding window mask [1, 1, Sq, Skv] as a compile-time constant.
@@ -90,14 +81,7 @@ static Value generateSlidingWindowMask(PatternRewriter &rewriter, Location loc,
   auto denseAttr = DenseFPElementsAttr::get(plainMaskType, maskData);
 
   auto maskType = createResultType(referenceType, maskShape);
-  LayoutAttr tensorLayoutAttr;
-  if (auto layoutAttr = mlir::dyn_cast_if_present<TTNNLayoutAttr>(
-          referenceType.getEncoding())) {
-    tensorLayoutAttr =
-        LayoutAttr::get(rewriter.getContext(), layoutAttr.getLayout());
-  }
-  return rewriter.create<ConstantOp>(loc, maskType, device, denseAttr,
-                                     tensorLayoutAttr);
+  return rewriter.create<ConstantOp>(loc, maskType, device, denseAttr);
 }
 
 LogicalResult

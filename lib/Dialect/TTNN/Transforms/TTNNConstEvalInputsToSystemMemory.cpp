@@ -172,13 +172,10 @@ static void convertArgumentOfConstEvalFunc(func::FuncOp constEvalFuncOp,
 
     auto deviceTensorType =
         mlir::cast<RankedTensorType>(blockArgument.getType());
-    auto deviceTensorLayout =
-        mlir::cast<TTNNLayoutAttr>(deviceTensorType.getEncoding());
 
     // Create to_layout op to convert the argument to the original layout.
     auto toLayoutOp = builder.create<ttnn::ToLayoutOp>(
-        blockArgument.getLoc(), deviceTensorType, blockArgument,
-        deviceTensorLayout.getLayout());
+        blockArgument.getLoc(), deviceTensorType, blockArgument);
 
     // Replace the argument usages with the to_layout op result.
     //

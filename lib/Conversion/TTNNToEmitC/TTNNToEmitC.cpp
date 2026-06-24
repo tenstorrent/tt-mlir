@@ -2258,7 +2258,7 @@ public:
                                    : emitter.emit(std::nullopt);
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit(srcOp.getLayout()),
+        emitter.emit(srcOp.getLayoutAttr()),
         dtypeArg,
         emitter.emit(srcOp.getMemoryConfigAttr()),
     };
@@ -2290,7 +2290,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getShape()),
         emitter.emit(srcOp.getDtypeAttr()),
-        emitter.emit(srcOp.getLayout()),
+        emitter.emit(srcOp.getLayoutAttr().getValue()),
         emitter.emit(srcOp.getDevice()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
     };
@@ -2323,7 +2323,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getShape()),
         emitter.emit(srcOp.getDtypeAttr()),
-        emitter.emit(srcOp.getLayout()),
+        emitter.emit(srcOp.getLayoutAttr().getValue()),
         emitter.template emit<
             ::ttnn::operations::creation::detail::OptionalMeshDevice>(
             srcOp.getDevice()),
@@ -2375,7 +2375,7 @@ private:
         emitter.emit(srcOp.getShape()),
         emitter.emit(fillValue),
         emitter.emit(srcOp.getDtypeAttr()),
-        emitter.emit(srcOp.getLayout()),
+        emitter.emit(srcOp.getLayoutAttr().getValue()),
         emitter.emit<::ttnn::operations::creation::detail::OptionalMeshDevice>(
             srcOp.getDevice()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
@@ -2408,7 +2408,7 @@ public:
         emitter.emit(srcOp.getSize()),
         emitter.emit<::ttnn::distributed::MeshDevice>(srcOp.getDevice()),
         emitter.emit(srcOp.getDtypeAttr()),
-        emitter.emit(srcOp.getLayout()),
+        emitter.emit(srcOp.getLayoutAttr().getValue()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
         emitter.emit(srcOp.getLow()),
         emitter.emit(srcOp.getHigh()),

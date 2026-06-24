@@ -100,13 +100,11 @@ public:
     // Create two input tensors using OnesOp (simpler than EmptyOp)
     auto input1 = builder.create<OnesOp>(builder.getUnknownLoc(), tensorType,
                                          /*device=*/nullptr,
-                                         ShapeAttr::get(&context, inputShape),
-                                         /*layout=*/nullptr);
+                                         ShapeAttr::get(&context, inputShape));
 
     auto input2 = builder.create<OnesOp>(builder.getUnknownLoc(), tensorType,
                                          /*device=*/nullptr,
-                                         ShapeAttr::get(&context, inputShape),
-                                         /*layout=*/nullptr);
+                                         ShapeAttr::get(&context, inputShape));
 
     // Create AddOp
     return builder.create<AddOp>(builder.getUnknownLoc(), tensorType,
@@ -179,8 +177,7 @@ TEST_F(OpConstraintValidationTest, UpdateCacheOpWithInvalidUpdateIndexType) {
       cacheShape, builder.getBF16Type(), cacheLayout);
   auto cacheOp = builder.create<OnesOp>(
       builder.getUnknownLoc(), cacheTensorType,
-      /*device=*/nullptr, ShapeAttr::get(&context, cacheShape),
-      /*layout=*/nullptr);
+      /*device=*/nullptr, ShapeAttr::get(&context, cacheShape));
 
   // Create input tensor (4D tensor with dim 2 = 1)
   llvm::SmallVector<int64_t> inputShape = {1, 1, 1, 32};
@@ -190,8 +187,7 @@ TEST_F(OpConstraintValidationTest, UpdateCacheOpWithInvalidUpdateIndexType) {
       inputShape, builder.getBF16Type(), inputLayout);
   auto inputOp = builder.create<OnesOp>(
       builder.getUnknownLoc(), inputTensorType,
-      /*device=*/nullptr, ShapeAttr::get(&context, inputShape),
-      /*layout=*/nullptr);
+      /*device=*/nullptr, ShapeAttr::get(&context, inputShape));
 
   // Create update_index tensor with WRONG type (BF16 instead of uint32)
   // This should cause validation to fail
@@ -202,8 +198,7 @@ TEST_F(OpConstraintValidationTest, UpdateCacheOpWithInvalidUpdateIndexType) {
       updateIndexShape, builder.getBF16Type(), updateIndexLayout);
   auto updateIndexOp = builder.create<OnesOp>(
       builder.getUnknownLoc(), updateIndexTensorType,
-      /*device=*/nullptr, ShapeAttr::get(&context, updateIndexShape),
-      /*layout=*/nullptr);
+      /*device=*/nullptr, ShapeAttr::get(&context, updateIndexShape));
 
   // Create UpdateCacheOp (inplace operation, no result type)
   auto updateCacheOp = builder.create<ttnn::UpdateCacheOp>(
@@ -233,8 +228,7 @@ TEST_F(OpConstraintValidationTest, UpdateCacheOpWithInvalidUpdateIndexType) {
       updateIndexShape, uint32Type, uint32UpdateIndexLayout);
   auto uint32UpdateIndexOp = builder.create<OnesOp>(
       builder.getUnknownLoc(), uint32UpdateIndexTensorType,
-      /*device=*/nullptr, ShapeAttr::get(&context, updateIndexShape),
-      /*layout=*/nullptr);
+      /*device=*/nullptr, ShapeAttr::get(&context, updateIndexShape));
 
   // Create UpdateCacheOp with correct uint32 type
   auto validUpdateCacheOp = builder.create<ttnn::UpdateCacheOp>(
@@ -394,8 +388,7 @@ TEST_F(OpConstraintValidationTest, ValidationStatusMetalBackendError) {
 
   auto input = builder.create<OnesOp>(builder.getUnknownLoc(), inputTensorType,
                                       /*device=*/nullptr,
-                                      ShapeAttr::get(&context, tensorShape),
-                                      /*layout=*/nullptr);
+                                      ShapeAttr::get(&context, tensorShape));
 
   // Output: L1 RowMajor HeightSharded layout (incompatible with DRAM Tiled)
   auto outputLayout = createRowMajorHSLayout(tensorShape, BufferType::L1,
@@ -405,8 +398,7 @@ TEST_F(OpConstraintValidationTest, ValidationStatusMetalBackendError) {
 
   // Create ToLayoutOp with incompatible input/output layouts
   auto toLayoutOp = builder.create<ToLayoutOp>(
-      builder.getUnknownLoc(), outputTensorType, input.getResult(),
-      LayoutAttr::get(&context, Layout::RowMajor));
+      builder.getUnknownLoc(), outputTensorType, input.getResult());
 
   auto layouts = ttnn::utils::extractInputLayouts(toLayoutOp);
   OpConfig config(outputLayout, OpConfig::OpSpecificAttrs{});
@@ -439,13 +431,11 @@ TEST_F(OpConstraintValidationTest, ValidationStatusOutOfMemoryError) {
 
   auto input1 = builder.create<OnesOp>(builder.getUnknownLoc(), tensorType,
                                        /*device=*/nullptr,
-                                       ShapeAttr::get(&context, largeShape),
-                                       /*layout=*/nullptr);
+                                       ShapeAttr::get(&context, largeShape));
 
   auto input2 = builder.create<OnesOp>(builder.getUnknownLoc(), tensorType,
                                        /*device=*/nullptr,
-                                       ShapeAttr::get(&context, largeShape),
-                                       /*layout=*/nullptr);
+                                       ShapeAttr::get(&context, largeShape));
 
   auto addOp = builder.create<AddOp>(builder.getUnknownLoc(), tensorType,
                                      input1.getResult(), input2.getResult());

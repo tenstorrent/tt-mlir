@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttnn-workaround -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttnn-workaround --mlir-print-local-scope -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 #dram = #ttnn.buffer_type<dram>
@@ -22,12 +22,12 @@ module attributes {} {
     // CHECK-LABEL: func.func @gather_row_major_inputs
     // Check that the input operand is converted to tiled layout.
     // CHECK: %[[TO_LAYOUT_INPUT:.*]] = "ttnn.to_layout"(%arg0)
-    // CHECK-SAME: layout = #ttnn.layout<tile>
     // CHECK-SAME: -> tensor<5x3xf32,
+    // CHECK-SAME: !ttcore.tile<32x32,
     // Check that the index operand is converted to tiled layout.
     // CHECK-NEXT: %[[TO_LAYOUT_INDEX:.*]] = "ttnn.to_layout"(%arg1)
-    // CHECK-SAME: layout = #ttnn.layout<tile>
     // CHECK-SAME: -> tensor<2x3xui32,
+    // CHECK-SAME: !ttcore.tile<32x32,
     %0 = "ttnn.gather"(%arg0, %arg1)
         <{dim = 0 : i32}>
         : (tensor<5x3xf32, #ttnn_layout_input_rm>,

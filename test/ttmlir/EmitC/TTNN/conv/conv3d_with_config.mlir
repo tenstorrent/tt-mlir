@@ -31,7 +31,7 @@ func.func @conv3d_with_config(%arg0: tensor<1x8x28x28x32xbf16, #ttnn_layout>, %a
   "ttnn.deallocate"(%arg1) <{force = false}> : (tensor<32x32x3x3x3xbf16, #ttnn_layout1>) -> ()
   %2 = "ttnn.reshape"(%arg2) <{shape = [1 : i32, 32 : i32]}> : (tensor<1x1x1x1x32xbf16, #ttnn_layout2>) -> tensor<1x32xbf16, #ttnn_layout5>
   "ttnn.deallocate"(%arg2) <{force = false}> : (tensor<1x1x1x1x32xbf16, #ttnn_layout2>) -> ()
-  %3 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<row_major>}> : (tensor<1x8x28x28x32xbf16, #ttnn_layout>) -> tensor<1x8x28x28x32xbf16, #ttnn_layout6>
+  %3 = "ttnn.to_layout"(%arg0)  : (tensor<1x8x28x28x32xbf16, #ttnn_layout>) -> tensor<1x8x28x28x32xbf16, #ttnn_layout6>
   "ttnn.deallocate"(%arg0) <{force = false}> : (tensor<1x8x28x28x32xbf16, #ttnn_layout>) -> ()
   %4 = "ttnn.conv3d"(%3, %1, %2, %0) <{
     batch_size = 1 : i32,

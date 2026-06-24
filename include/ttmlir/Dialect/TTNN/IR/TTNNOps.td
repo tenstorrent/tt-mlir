@@ -55,7 +55,7 @@ def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config"> {
     let hasVerifier = 1;
 }
 
-def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
+def TTNN_ToLayoutOp : TTNN_Op<"to_layout", [TTNN_LayoutOpInterface]> {
     let summary = "ToLayout op.";
     let description = [{
       This op wraps all layout information gathered from ttir.toLayout. It is used/updated by the optimizer
@@ -64,16 +64,17 @@ def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
       Once ttnn::to_layout supports other attrs, we can remove the optional tag.
 
       The output data type is derived from the result tensor's TTNNLayoutAttr
-      encoding via the TTNN_DtypeOpInterface. Whether this op actually changes dtype can
-      be queried via `hasDtypeChange()`.
+      encoding via the TTNN_DtypeOpInterface. The target page layout (tile vs
+      row-major) is also derived from the encoding. Whether this op actually
+      changes dtype can be queried via `hasDtypeChange()`.
     }];
 
-    let arguments = (ins AnyRankedTensor:$input,
-                         TTNN_LayoutAttr:$layout);
+    let arguments = (ins AnyRankedTensor:$input);
     let results = (outs AnyRankedTensor:$result);
 
     let hasFolder = 1;
     let hasCanonicalizer = 1;
+    let hasVerifier = 1;
 
     let extraClassDeclaration = [{
       // Returns true iff the input and result element data types differ,
@@ -2875,7 +2876,7 @@ def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor"> {
 }
 
 class TTNN_CreationOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [TTCore_CreationOpTrait, TTNN_TensorSpecInterface, TTNN_DeviceOperandInterface] # traits>;
+    TTNN_Op<mnemonic, [TTCore_CreationOpTrait, TTNN_TensorSpecInterface, TTNN_DeviceOperandInterface, TTNN_LayoutOpInterface] # traits>;
 
 def TTNN_EmptyOp : TTNN_CreationOp<"empty", [TTCore_NonCacheableTrait]> {
     let summary = "Empty op.";
@@ -2884,8 +2885,7 @@ def TTNN_EmptyOp : TTNN_CreationOp<"empty", [TTCore_NonCacheableTrait]> {
     }];
 
     let arguments = (ins TTNN_Device:$device,
-                         TTNN_ShapeAttr:$shape,
-                         TTNN_LayoutAttr:$layout);
+                         TTNN_ShapeAttr:$shape);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -2910,8 +2910,7 @@ def TTNN_ArangeOp : TTNN_CreationOp<"arange", [CanExecuteOnHostTrait]> {
   let arguments = (ins Optional<TTNN_Device>:$device,
                        I64Attr:$start,
                        I64Attr:$end,
-                       I64Attr:$step,
-                       OptionalAttr<TTNN_LayoutAttr>:$layout);
+                       I64Attr:$step);
 
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;
@@ -2929,7 +2928,6 @@ def TTNN_RandOp : TTNN_CreationOp<"rand", [TTCore_NonCacheableTrait]> {
     Attributes:
       - `size` (TTNN_ShapeAttr): The shape of the tensor to create.
       - `device` (TTNN_Device): The device where the trace was captured.
-      - `layout` (TTNN_LayoutAttr): The layout for the output tensor.
       - `low` (Float): The lower bound of the range (inclusive) [Default: 0.0].
       - `high` (Float): The upper bound of the range (exclusive) [Default: 1.0].
       - `seed` (Integer): Value to initialize the random number generator for reproducible results [Default: 0].
@@ -2942,8 +2940,7 @@ def TTNN_RandOp : TTNN_CreationOp<"rand", [TTCore_NonCacheableTrait]> {
                        TTNN_ShapeAttr:$size,
                        DefaultValuedAttr<F32Attr, "0.0">:$low,
                        DefaultValuedAttr<F32Attr, "1.0">:$high,
-                       DefaultValuedAttr<UI32Attr, "0">:$seed,
-                       DefaultValuedAttr<TTNN_LayoutAttr, "mlir::tt::ttnn::Layout::Tile">:$layout);
+                       DefaultValuedAttr<UI32Attr, "0">:$seed);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -2991,8 +2988,7 @@ def TTNN_DropoutOp : TTNN_Op<"dropout", [TTCore_NonCacheableTrait]> {
 class TTNN_NamedFullOp<string mnemonic, list<Trait> traits = []> :
   TTNN_CreationOp<mnemonic, [CanExecuteOnHostTrait] # traits> {
   let arguments = (ins Optional<TTNN_Device>:$device,
-                       TTNN_ShapeAttr:$shape,
-                       OptionalAttr<TTNN_LayoutAttr>:$layout);
+                       TTNN_ShapeAttr:$shape);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -3036,16 +3032,14 @@ def TTNN_FullOp : TTNN_CreationOp<"full", [CanExecuteOnHostTrait]> {
     Example:
       %0 = "ttnn.full"() <{
         fill_value = 7 : i32,
-        layout = #ttnn.layout<tile>,
         shape = #ttnn.shape<64x128>
-      }> : () -> tensor<64x128xui32>
+      }> : () -> tensor<64x128xui32, #ttnn_layout>
       // %0: [[[7, 7, 7, ..., 7], [7, 7, 7, ..., 7], ..., [7, 7, 7, ..., 7]]]
   }];
 
   let arguments = (ins Optional<TTNN_Device>:$device,
                        TTNN_ShapeAttr:$shape,
-                       AnyAttrOf<[F32Attr, I32Attr]>:$fill_value,
-                       OptionalAttr<TTNN_LayoutAttr>:$layout);
+                       AnyAttrOf<[F32Attr, I32Attr]>:$fill_value);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -3069,8 +3063,7 @@ def TTNN_ConstantOp : TTNN_CreationOp<"constant", [AllShapesMatch<["value", "res
     }];
 
     let arguments = (ins Optional<TTNN_Device>:$device,
-                         ElementsAttr:$value,
-                         OptionalAttr<TTNN_LayoutAttr>:$layout);
+                         ElementsAttr:$value);
 
     let results = (outs AnyRankedTensor:$result);
 

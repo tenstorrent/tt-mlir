@@ -46,22 +46,15 @@ def TTNN_LayoutOpInterface : OpInterface<"TTNNLayoutOpInterface"> {
   let methods = [
     InterfaceMethod<
       /*desc=*/[{
+        Returns the target page layout as a LayoutAttr, derived from the first
+        result's TTNN(ND)LayoutAttr encoding.
         }],
       /*retTy=*/"LayoutAttr",
       /*methodName=*/"getLayoutAttr",
       /*args=*/(ins),
-      /*methodBody=*/[{
-        return $_op.getLayoutAttr();
-      }]
-    >,
-    InterfaceMethod<
-      /*desc=*/[{
-        }],
-      /*retTy=*/"void",
-      /*methodName=*/"setLayoutAttr",
-      /*args=*/(ins "LayoutAttr": $layoutAttr),
-      /*methodBody=*/[{
-        $_op.setLayoutAttr(layoutAttr);
+      /*methodBody=*/"",
+      /*defaultImplementation=*/[{
+        return ::mlir::tt::ttnn::getLayoutAttrFromResult($_op.getOperation());
       }]
     >,
   ];

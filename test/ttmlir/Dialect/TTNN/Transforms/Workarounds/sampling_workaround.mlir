@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttnn-workaround -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttnn-workaround --mlir-print-local-scope -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 #dram = #ttnn.buffer_type<dram>
@@ -33,14 +33,10 @@ module attributes {} {
     // CHECK-LABEL: func.func @sampling_rank2_input_decomposes_to_rank4
     // CHECK-DAG: "ttnn.reshape"
     // CHECK-DAG-SAME: shape = [1 : i32, 1 : i32, 1 : i32, 32 : i32]
-    // CHECK: "ttnn.to_layout"
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
-    // CHECK: "ttnn.to_layout"
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
-    // CHECK: "ttnn.to_layout"
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
-    // CHECK: "ttnn.to_layout"
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
+    // CHECK-DAG: "ttnn.to_layout"{{.*}}memref<{{[0-9x]+}}si32,
+    // CHECK-DAG: "ttnn.to_layout"{{.*}}memref<{{[0-9x]+}}ui32,
+    // CHECK-DAG: "ttnn.to_layout"{{.*}}memref<{{[0-9x]+}}bf16,
+    // CHECK-DAG: "ttnn.to_layout"{{.*}}memref<{{[0-9x]+}}bf16,
     // ttnn.sampling now operates on the kernel-true rank-4 shape and yields ui32.
     // CHECK: "ttnn.sampling"
     // CHECK-SAME: (tensor<1x1x1x32xbf16{{.*}}>, tensor<1x1x1x32xsi32{{.*}}>, tensor<1xui32{{.*}}>, tensor<1xbf16{{.*}}>, tensor<1xbf16{{.*}}>)

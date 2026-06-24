@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttcore-register-device --ttcore-mark-functions-as-forward --ttnn-operation-validation-and-fallback %s -o %t.mlir
+// RUN: ttmlir-opt --ttcore-register-device --ttcore-mark-functions-as-forward --ttnn-operation-validation-and-fallback %s --mlir-print-local-scope -o %t.mlir
 // RUN: FileCheck %s --input-file %t.mlir
 
 #dram = #ttnn.buffer_type<dram>
@@ -16,8 +16,8 @@ module attributes {} {
     // CHECK: %[[SUM_RES:.*]] = "ttnn.sum"
     // CHECK: "ttnn.to_layout"
     // CHECK-SAME: (%[[SUM_RES]]
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: -> tensor<1x1x1x1xbf16,
+    // CHECK-SAME: memref<{{.*}}x{{.*}}, #ttnn.buffer_type
 
     %1 = "ttnn.sum"(%arg0) <{
       dim_list = [2 : i32, 3 : i32],

@@ -224,7 +224,8 @@ createOp(FlatbufferObjectCache &cache, ToMemoryConfigOp op) {
 createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
-  ::tt::target::TensorLayout layout = toFlatbuffer(cache, op.getLayout());
+  ::tt::target::TensorLayout layout =
+      toFlatbuffer(cache, op.getLayoutAttr().getValue());
   auto output =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
                                   /*local_shape*/ std::nullopt);
@@ -325,7 +326,8 @@ createCpuOp(FlatbufferObjectCache &cache, func::CallOp op, uint32_t dylib_id) {
 createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   ::llvm::ArrayRef<int64_t> shape = op.getShape().getShape();
   ::tt::target::DataType dtype = toFlatbuffer(cache, op.getDtypeAttr());
-  ::tt::target::TensorLayout layout = toFlatbuffer(cache, op.getLayout());
+  ::tt::target::TensorLayout layout =
+      toFlatbuffer(cache, op.getLayoutAttr().getValue());
 
   auto output = getOperandThroughDPSOps(op.getResult());
   auto device = getOperandThroughDPSOps(op.getDevice());
@@ -379,7 +381,7 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
     llvm_unreachable("fill value must be float or integer");
   }
   auto dtype = toFlatbuffer(cache, op.getDtypeAttr());
-  auto layout = toFlatbuffer(cache, op.getLayout());
+  auto layout = toFlatbuffer(cache, op.getLayoutAttr().getValue());
   auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
   auto output =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
@@ -395,7 +397,7 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
 createOp(FlatbufferObjectCache &cache, ArangeOp op) {
   auto dtype = toFlatbuffer(cache, op.getDtypeAttr());
   flatbuffers::Optional<::tt::target::TensorLayout> layout =
-      toFlatbuffer(cache, op.getLayout());
+      toFlatbuffer(cache, op.getLayoutAttr().getValue());
   auto device =
       op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
 
@@ -432,7 +434,7 @@ createNamedFullOp(FlatbufferObjectCache &cache, OpTy op) {
   auto dtype = toFlatbuffer(cache, op.getDtypeAttr());
 
   ::flatbuffers::Optional<::tt::target::TensorLayout> layout =
-      toFlatbuffer(cache, op.getLayout());
+      toFlatbuffer(cache, op.getLayoutAttr().getValue());
 
   flatbuffers::Offset<::tt::target::DeviceRef> device =
       op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
@@ -1990,7 +1992,7 @@ createOp(FlatbufferObjectCache &cache, ttnn::ConstantOp op) {
       cache, ttcore::elementTypeToDataType(op.getValue().getElementType()));
   auto dtype = toFlatbuffer(cache, op.getDtypeAttr());
   flatbuffers::Optional<::tt::target::TensorLayout> layout =
-      toFlatbuffer(cache, op.getLayout());
+      toFlatbuffer(cache, op.getLayoutAttr().getValue());
   auto device =
       op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
 
@@ -2762,7 +2764,8 @@ createRandOp(FlatbufferObjectCache &cache, RandOp op) {
   auto size = cache.fbb->CreateVector<int64_t>(op.getSize().getShape());
   auto device = getOperandThroughDPSOps(op.getDevice());
   ::tt::target::DataType dtype = toFlatbuffer(cache, op.getDtypeAttr());
-  ::tt::target::TensorLayout layout = toFlatbuffer(cache, op.getLayout());
+  ::tt::target::TensorLayout layout =
+      toFlatbuffer(cache, op.getLayoutAttr().getValue());
   auto out =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
 

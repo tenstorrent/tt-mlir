@@ -352,14 +352,12 @@ private:
     if (!info.opsToCreate.createToLayoutOp) {
       return currentInput;
     }
-    ttnn::LayoutAttr layoutAttr =
-        ttnn::LayoutAttr::get(op.getContext(), info.output.layoutEnum);
     RankedTensorType newResultType = utils::RankedTensorTypeFactory::create(
         mlir::cast<RankedTensorType>(currentInput.getType()),
         info.output.layoutEnum);
 
     return this->createOp<ttnn::ToLayoutOp>(rewriter, op, newResultType,
-                                            currentInput, layoutAttr);
+                                            currentInput);
   }
 
   mlir::Value createDataTypeCastingOp(ttnn::ToLayoutOp op, IRRewriter &rewriter,
@@ -550,10 +548,8 @@ private:
     RankedTensorType paddedTiledType = utils::RankedTensorTypeFactory::create(
         mlir::cast<RankedTensorType>(currentInput.getType()),
         info.output.layoutEnum);
-    ttnn::LayoutAttr layoutAttr =
-        ttnn::LayoutAttr::get(op.getContext(), info.output.layoutEnum);
     currentInput = rewriter.create<ttnn::ToLayoutOp>(
-        op.getLoc(), paddedTiledType, currentInput, layoutAttr);
+        op.getLoc(), paddedTiledType, currentInput);
 
     // Step 4: Slice back to original shape.
     SmallVector<int32_t> begins(rank, 0);
