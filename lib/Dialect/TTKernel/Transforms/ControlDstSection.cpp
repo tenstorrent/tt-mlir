@@ -29,6 +29,14 @@ static Block *findBlockContaining(Operation *op) {
   return block;
 }
 
+// Returns true if `op` is a pack_tile that already lives inside a
+// self-managed DST section. Topk group ops emit a complete
+// commit/wait/pack/release sequence in the same block as the pack_tile, so
+// this pass must not wrap them again.
+static bool isSelfManagedPackTile(Operation *op) {
+  return !op->getBlock()->getOps<ttkernel::TileRegsReleaseOp>().empty();
+}
+
 static Operation *parentOpAtBlock(Operation *child, Block *atBlock) {
   Operation *parent = child;
   while (parent->getBlock() != atBlock) {
@@ -69,6 +77,11 @@ public:
 
     getOperation()->walk([&](Operation *op) {
       if (!isa<ttkernel::PackTileOp, ttkernel::PackTileBlockOp>(op)) {
+        return;
+      }
+
+      // Topk group ops self-manage their DST section; don't wrap them.
+      if (isSelfManagedPackTile(op)) {
         return;
       }
 

@@ -2093,82 +2093,88 @@ namespace {
 
 static void emitTopkGroupStart(OpBuilder &rewriter, Location loc,
                                Value cbSrcVals, Value cbSrcIdx, Value cbOutVals,
-                               int64_t tileA, int64_t tileB) {
+                               Value tileA, Value tileB) {
   Value dst0 = index(rewriter, loc, 0);
   Value dst1 = index(rewriter, loc, 1);
   Value dst2 = index(rewriter, loc, 2);
   Value dst3 = index(rewriter, loc, 3);
-  Value tA = index(rewriter, loc, tileA);
-  Value tB = index(rewriter, loc, tileB);
 
   rewriter.create<ttkernel::TileRegsAcquireOp>(loc);
   rewriter.create<ttkernel::TopkTileInitOp>(loc);
   rewriter.create<ttkernel::InitSFPUOp>(loc, cbSrcVals, cbOutVals);
   rewriter.create<ttkernel::CopyTileInitOp>(loc, cbSrcVals);
-  rewriter.create<ttkernel::CopyTileOp>(loc, cbSrcVals, tA, dst0);
-  rewriter.create<ttkernel::CopyTileOp>(loc, cbSrcVals, tB, dst1);
+  rewriter.create<ttkernel::CopyTileOp>(loc, cbSrcVals, tileA, dst0);
+  rewriter.create<ttkernel::CopyTileOp>(loc, cbSrcVals, tileB, dst1);
   rewriter.create<ttkernel::CopyTileInitOp>(loc, cbSrcIdx);
-  rewriter.create<ttkernel::CopyTileOp>(loc, cbSrcIdx, tA, dst2);
-  rewriter.create<ttkernel::CopyTileOp>(loc, cbSrcIdx, tB, dst3);
+  rewriter.create<ttkernel::CopyTileOp>(loc, cbSrcIdx, tileA, dst2);
+  rewriter.create<ttkernel::CopyTileOp>(loc, cbSrcIdx, tileB, dst3);
 }
 
 static void emitTopkGroupEnd(OpBuilder &rewriter, Location loc, Value cbOutVals,
-                             Value cbOutIdx, int64_t tileA, int64_t tileB) {
+                             Value cbOutIdx, Value tileA, Value tileB) {
   Value dst0 = index(rewriter, loc, 0);
   Value dst1 = index(rewriter, loc, 1);
   Value dst2 = index(rewriter, loc, 2);
   Value dst3 = index(rewriter, loc, 3);
-  Value tA = index(rewriter, loc, tileA);
-  Value tB = index(rewriter, loc, tileB);
 
   rewriter.create<ttkernel::TileRegsCommitOp>(loc);
   rewriter.create<ttkernel::TileRegsWaitOp>(loc);
   rewriter.create<ttkernel::PackReconfigDataFormatOp>(loc, cbOutVals);
-  rewriter.create<ttkernel::PackTileOp>(loc, dst0, cbOutVals, tA,
+  rewriter.create<ttkernel::PackTileOp>(loc, dst0, cbOutVals, tileA,
                                         rewriter.getBoolAttr(true));
-  rewriter.create<ttkernel::PackTileOp>(loc, dst1, cbOutVals, tB,
+  rewriter.create<ttkernel::PackTileOp>(loc, dst1, cbOutVals, tileB,
                                         rewriter.getBoolAttr(true));
   rewriter.create<ttkernel::PackReconfigDataFormatOp>(loc, cbOutIdx);
-  rewriter.create<ttkernel::PackTileOp>(loc, dst2, cbOutIdx, tA,
+  rewriter.create<ttkernel::PackTileOp>(loc, dst2, cbOutIdx, tileA,
                                         rewriter.getBoolAttr(true));
-  rewriter.create<ttkernel::PackTileOp>(loc, dst3, cbOutIdx, tB,
+  rewriter.create<ttkernel::PackTileOp>(loc, dst3, cbOutIdx, tileB,
                                         rewriter.getBoolAttr(true));
   rewriter.create<ttkernel::TileRegsReleaseOp>(loc);
 }
 
 template <typename OpTy>
 static void emitTopkGroupStartIfNeeded(ConversionPatternRewriter &rewriter,
-                                       Location loc, OpTy op, int64_t tileA,
-                                       int64_t tileB) {
+                                       Location loc, OpTy op, Value tileA,
+                                       Value tileB) {
   if (!op.getIsGroupStart()) {
     return;
   }
   Value cbOutVals = getCB(rewriter, op.getOutValues());
   Value cbOutIdx = getCB(rewriter, op.getOutIndices());
-  Value cbSrcVals =
-      op.getReadFromOutput() ? cbOutVals : getCB(rewriter, op.getValues());
-  Value cbSrcIdx =
-      op.getReadFromOutput() ? cbOutIdx : getCB(rewriter, op.getIndices());
+  Value cbInVals = getCB(rewriter, op.getValues());
+  Value cbInIdx = getCB(rewriter, op.getIndices());
 
   // rfo=true: T0 reads output CB tiles that T2 just wrote. Fence so T0 sees
   // all pack_tile L1 writes before copy_tile executes.
-  if (op.getReadFromOutput()) {
-    rewriter.create<ttkernel::UnpackStallOnPackOp>(loc);
-  }
-
-  emitTopkGroupStart(rewriter, loc, cbSrcVals, cbSrcIdx, cbOutVals, tileA,
-                     tileB);
+  Value rfo = op.getReadFromOutput();
+  rewriter.create<scf::IfOp>(
+      loc, rfo,
+      /*thenBuilder=*/
+      [&](OpBuilder &b, Location l) {
+        b.create<ttkernel::UnpackStallOnPackOp>(l);
+        emitTopkGroupStart(b, l, cbOutVals, cbOutIdx, cbOutVals, tileA, tileB);
+        b.create<scf::YieldOp>(l);
+      },
+      /*elseBuilder=*/
+      [&](OpBuilder &b, Location l) {
+        emitTopkGroupStart(b, l, cbInVals, cbInIdx, cbOutVals, tileA, tileB);
+        b.create<scf::YieldOp>(l);
+      });
 }
 
 template <typename OpTy>
 static void emitTopkGroupEndIfNeeded(ConversionPatternRewriter &rewriter,
-                                     Location loc, OpTy op, int64_t tileA,
-                                     int64_t tileB) {
-  if (!op.getIsGroupEnd()) {
-    return;
-  }
-  emitTopkGroupEnd(rewriter, loc, getCB(rewriter, op.getOutValues()),
-                   getCB(rewriter, op.getOutIndices()), tileA, tileB);
+                                     Location loc, OpTy op, Value tileA,
+                                     Value tileB) {
+  Value isGroupEnd = op.getIsGroupEnd();
+  rewriter.create<scf::IfOp>(
+      loc, isGroupEnd,
+      /*thenBuilder=*/
+      [&](OpBuilder &b, Location l) {
+        emitTopkGroupEnd(b, l, getCB(rewriter, op.getOutValues()),
+                         getCB(rewriter, op.getOutIndices()), tileA, tileB);
+        b.create<scf::YieldOp>(l);
+      });
 }
 
 class D2MTopkLocalSortRewriter
@@ -2181,12 +2187,12 @@ public:
                   d2m::TileTopkLocalSortOp::Adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     Location loc = op->getLoc();
-    int64_t tileA = op.getTileA(), tileB = op.getTileB();
+    Value tileA = op.getTileA(), tileB = op.getTileB();
     auto i32 = [&](auto v) { return intConstant<int32_t>(rewriter, loc, v); };
 
     emitTopkGroupStartIfNeeded(rewriter, loc, op, tileA, tileB);
     rewriter.create<ttkernel::TopkLocalSortOp>(
-        loc, index(rewriter, loc, 0), i32(op.getIdir()), i32(op.getIEndPhase()),
+        loc, index(rewriter, loc, 0), op.getIdir(), i32(op.getIEndPhase()),
         i32(op.getIStartPhase()));
     emitTopkGroupEndIfNeeded(rewriter, loc, op, tileA, tileB);
 
@@ -2203,12 +2209,12 @@ public:
   matchAndRewrite(d2m::TileTopkMergeOp op, d2m::TileTopkMergeOp::Adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     Location loc = op->getLoc();
-    int64_t tileA = op.getTileA(), tileB = op.getTileB();
+    Value tileA = op.getTileA(), tileB = op.getTileB();
     auto i32 = [&](auto v) { return intConstant<int32_t>(rewriter, loc, v); };
 
     emitTopkGroupStartIfNeeded(rewriter, loc, op, tileA, tileB);
     rewriter.create<ttkernel::TopkMergeOp>(loc, index(rewriter, loc, 0),
-                                           i32(op.getMIter()), i32(op.getK()));
+                                           op.getMIter(), i32(op.getK()));
     emitTopkGroupEndIfNeeded(rewriter, loc, op, tileA, tileB);
 
     rewriter.eraseOp(op);
@@ -2225,12 +2231,12 @@ public:
   matchAndRewrite(d2m::TileTopkRebuildOp op, d2m::TileTopkRebuildOp::Adaptor,
                   ConversionPatternRewriter &rewriter) const final {
     Location loc = op->getLoc();
-    int64_t tileA = op.getTileA(), tileB = op.getTileB();
+    Value tileA = op.getTileA(), tileB = op.getTileB();
     auto i32 = [&](auto v) { return intConstant<int32_t>(rewriter, loc, v); };
 
     emitTopkGroupStartIfNeeded(rewriter, loc, op, tileA, tileB);
     rewriter.create<ttkernel::TopkRebuildOp>(
-        loc, index(rewriter, loc, 0), i32(op.getIdir()), i32(op.getMIter()),
+        loc, index(rewriter, loc, 0), i32(op.getIdir()), op.getMIter(),
         i32(op.getK()), i32(op.getLogk()), i32(op.getSkipSecond()));
     emitTopkGroupEndIfNeeded(rewriter, loc, op, tileA, tileB);
 

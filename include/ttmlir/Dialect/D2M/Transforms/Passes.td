@@ -971,7 +971,8 @@ def D2MDecomposeTopk : Pass<"d2m-decompose-topk", "::mlir::ModuleOp"> {
   let dependentDialects = [
     "::mlir::tt::d2m::D2MDialect",
     "::mlir::memref::MemRefDialect",
-    "::mlir::arith::ArithDialect"
+    "::mlir::arith::ArithDialect",
+    "::mlir::scf::SCFDialect"
   ];
 }
 

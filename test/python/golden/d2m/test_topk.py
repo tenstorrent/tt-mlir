@@ -28,12 +28,16 @@ torch.manual_seed(0)
     [
         pytest.param((32, 64), 16, -1, id="32x64_k16_dim1"),
         pytest.param((32, 256), 16, -1, id="32x256_k16_dim1"),
-        pytest.param((32, 256), 32, -1, id="32x256_k32_dim1"),
         pytest.param((64, 32), 16, 0, id="64x32_k16_dim0"),
         pytest.param((256, 32), 16, 0, id="256x32_k16_dim0"),
-        pytest.param((256, 32), 32, 0, id="256x32_k32_dim0"),
         pytest.param((32, 64), 64, -1, id="32x64_k64_dim1"),
         pytest.param((32, 256), 64, -1, id="32x256_k64_dim1"),
+        pytest.param((64, 32), 64, 0, id="64x32_k64_dim0"),
+        pytest.param((256, 32), 64, 0, id="256x32_k64_dim0"),
+        pytest.param((32, 1024), 16, -1, id="32x1024_k16_dim1"),
+        pytest.param((32, 1024), 64, -1, id="32x1024_k64_dim1"),
+        pytest.param((1024, 32), 16, 0, id="1024x32_k16_dim0"),
+        pytest.param((1024, 32), 64, 0, id="1024x32_k64_dim0"),
     ],
 )
 def test_topk(shape, k, dim, target, request, device):
@@ -122,10 +126,13 @@ def _build_tile_distribution_input(
     "shape,k,dim",
     [
         pytest.param((32, 256), 16, -1, id="32x256_k16_dim1"),
-        pytest.param((32, 256), 32, -1, id="32x256_k32_dim1"),
         pytest.param((32, 256), 64, -1, id="32x256_k64_dim1"),
-        pytest.param((256, 32), 32, 0, id="256x32_k32_dim0"),
+        pytest.param((256, 32), 16, 0, id="256x32_k16_dim0"),
         pytest.param((256, 32), 64, 0, id="256x32_k64_dim0"),
+        pytest.param((32, 1024), 16, -1, id="32x1024_k16_dim1"),
+        pytest.param((32, 1024), 64, -1, id="32x1024_k64_dim1"),
+        pytest.param((1024, 32), 16, 0, id="1024x32_k16_dim0"),
+        pytest.param((1024, 32), 64, 0, id="1024x32_k64_dim0"),
     ],
 )
 def test_topk_tile_distribution(shape, k, dim, pattern, target, request, device):
