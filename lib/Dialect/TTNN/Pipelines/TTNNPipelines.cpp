@@ -81,6 +81,10 @@ void createTTNNPipelineTTIRPasses(
   // ConstEvalHoistTransform (which runs after all TTIR passes) automatically
   // lifts them into const_eval functions — computed once, cached forever.
   pm.addPass(mlir::tt::ttir::createTTIRSpatialRowGroupPackingOpt());
+  // Spatial packing for narrow-channel depthwise conv2d (e.g. UV AveragePool
+  // IC=2, K=16): eliminates K=2→32 TILE padding waste (93.8%) on NCHW→NHWC
+  // permute. Packed IC=TILE_WIDTH=32 → zero waste, permute writes to L1.
+  pm.addPass(mlir::tt::ttir::createTTIRDepthwiseConvSpatialPackingOpt());
 
   // Flattening sliding window ops for compatibility with conversion to TTNN
   pm.addPass(mlir::tt::ttir::createTTIRFlattenSlidingWindow());
@@ -267,6 +271,8 @@ void createTTNNPipelineLayoutDecompositionPass(
   // This pass moves the tilize to after the chain so the reshapes and permute
   // operate in ROW_MAJOR (free views + 17.7 MB permute instead of 151 MB).
   pm.addPass(createTTNNSpatialPackActivationRowMajorOpt());
+
+
 
 }
 

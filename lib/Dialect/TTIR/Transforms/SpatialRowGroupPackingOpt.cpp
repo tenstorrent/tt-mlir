@@ -68,6 +68,7 @@
 
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRSPATIALROWGROUPPACKINGOPT
+#define GEN_PASS_DEF_TTIRDEPTHWISECONVSPATIALPACKINGOPT
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
@@ -405,6 +406,230 @@ private:
             .getResult();
 
     // ── 4. Replace old chain ──────────────────────────────────────────────
+    postPerm.getResult().replaceAllUsesWith(finalOut);
+    postPerm.erase();
+    convOp.erase();
+    prePerm.erase();
+  }
+};
+
+// ── TTIRDepthwiseConvSpatialPackingOpt ──────────────────────────────────────
+//
+// Handles the UV AveragePool pattern:
+//   permute({0,2,3,1}) → conv2d{groups=IC, channel_last=true} → permute({0,3,1,2})
+// where IC < TILE_WIDTH and TILE_WIDTH % IC == 0.
+//
+// K = TILE_WIDTH / IC.  packed_IC = IC * K = TILE_WIDTH (tile-aligned, zero waste).
+//
+// Weight packing: repeat_interleave(K, dim=0) on [IC,1,kH,kW] → [IC*K,1,kH,kW]
+//   Each original filter is replicated K times so each of the K spatial row
+//   groups applies the same kernel.
+//
+// The packed permute reads packed_IC=TILE_WIDTH columns per tile → zero padding
+// waste (vs IC=2 → padded to 32 = 93.8% zeros at baseline).
+//
+// Math correctness (for the reshape-based unpack):
+//   Original output: [N, out_H, out_W, IC]
+//   Packed output:   [N, packed_out_H, out_W, IC*K]
+//   where packed_out_H = (H/K - kH) / sH + 1
+//   Guard: K * packed_out_H == out_H  (checked at match time).
+//
+//   Packed NCHW [N, IC*K, packed_out_H, out_W] reshapes to [N, IC, out_H, out_W]
+//   because flat index for packed channel (orig_ic*K+k) at row hp maps to
+//   original (orig_ic, k*packed_out_H + hp).  In ROW_MAJOR this is a pure
+//   contiguous view.
+
+class TTIRDepthwiseConvSpatialPackingOptPass
+    : public impl::TTIRDepthwiseConvSpatialPackingOptBase<
+          TTIRDepthwiseConvSpatialPackingOptPass> {
+public:
+  using impl::TTIRDepthwiseConvSpatialPackingOptBase<
+      TTIRDepthwiseConvSpatialPackingOptPass>::
+      TTIRDepthwiseConvSpatialPackingOptBase;
+
+  void runOnOperation() final {
+    ModuleOp mod = getOperation();
+    MLIRContext *ctx = &getContext();
+
+    SmallVector<ttir::Conv2dOp, 4> candidates;
+    mod.walk([&](ttir::Conv2dOp op) { candidates.push_back(op); });
+
+    for (ttir::Conv2dOp convOp : candidates)
+      process(convOp, ctx);
+  }
+
+private:
+  void process(ttir::Conv2dOp convOp, MLIRContext *ctx) {
+    static const int64_t kNCHWtoNHWC[] = {0, 2, 3, 1};
+    static const int64_t kNHWCtoNCHW[] = {0, 3, 1, 2};
+
+    // ── 1. Match permute → depthwise conv2d → permute ────────────────────
+    // By the time this pass runs (after CanonicalizerPass), two consecutive
+    // TransposeOps have been converted to PermuteOps and folded into one:
+    //   transpose(-3,-2) → transpose(-2,-1) → conv2d  becomes:
+    //   permute({0,2,3,1})                  → conv2d
+
+    auto *prePermuteOp = convOp.getInput().getDefiningOp();
+    if (!isPermute(prePermuteOp, kNCHWtoNHWC))
+      return;
+    auto prePerm = mlir::cast<ttir::PermuteOp>(prePermuteOp);
+    Value origInput = prePerm.getInput(); // [N,IC,H,W] NCHW
+
+    ttir::PermuteOp postPerm;
+    for (Operation *u : convOp.getResult().getUsers()) {
+      if (isPermute(u, kNHWCtoNCHW)) {
+        postPerm = mlir::cast<ttir::PermuteOp>(u);
+        break;
+      }
+    }
+    if (!postPerm)
+      return;
+
+    // ── 2. Guard checks ──────────────────────────────────────────────────
+    // Weight OIHW: [OC, IC_per_group, kH, kW].  For depthwise OC=IC, IC_per_group=1.
+    auto weightType = mlir::cast<RankedTensorType>(convOp.getWeight().getType());
+    if (weightType.getRank() != 4)
+      return;
+    int64_t IC      = weightType.getDimSize(0); // = OC for depthwise
+    int64_t icGroup = weightType.getDimSize(1); // must be 1 for depthwise
+    int64_t kH      = weightType.getDimSize(2);
+    int64_t kW      = weightType.getDimSize(3);
+    if (icGroup != 1)
+      return;
+
+    // Must be depthwise: groups == IC.
+    if (static_cast<int64_t>(convOp.getGroups()) != IC)
+      return;
+
+    // IC must be narrow and TILE_WIDTH must divide by IC exactly.
+    if (IC >= TILE_WIDTH || (TILE_WIDTH % IC) != 0)
+      return;
+
+    // Extract stride and padding.
+    SmallVector<int32_t> stride, padding, dilation;
+    if (auto arr = mlir::dyn_cast<DenseI32ArrayAttr>(convOp.getStride()))
+      stride.assign(arr.asArrayRef().begin(), arr.asArrayRef().end());
+    if (auto arr = mlir::dyn_cast<DenseI32ArrayAttr>(convOp.getPadding()))
+      padding.assign(arr.asArrayRef().begin(), arr.asArrayRef().end());
+    if (auto arr = mlir::dyn_cast<DenseI32ArrayAttr>(convOp.getDilation()))
+      dilation.assign(arr.asArrayRef().begin(), arr.asArrayRef().end());
+    if (stride.size() < 2 || padding.size() < 4 || dilation.size() < 2)
+      return;
+    int32_t sH = stride[0], sW = stride[1];
+
+    // Verify input and output shapes.
+    auto inputType = mlir::cast<RankedTensorType>(origInput.getType());
+    if (inputType.getRank() != 4)
+      return;
+    int64_t N = inputType.getDimSize(0);
+    int64_t H = inputType.getDimSize(2);
+    int64_t W = inputType.getDimSize(3);
+
+    // Get original output dims from the conv2d result (channel_last: [N,H',W',IC]).
+    auto resultType = mlir::cast<RankedTensorType>(convOp.getResult().getType());
+    if (resultType.getRank() != 4)
+      return;
+    int64_t out_H = resultType.getDimSize(1);
+    int64_t out_W = resultType.getDimSize(2);
+
+    int64_t K        = TILE_WIDTH / IC;
+    int64_t packedIC = IC * K; // == TILE_WIDTH
+
+    if (H % K != 0)
+      return;
+    int64_t packedH     = H / K;
+    int64_t packedOut_H = (packedH - kH) / sH + 1;
+
+    // Verify the unpack reshape is mathematically correct.
+    if (K * packedOut_H != out_H)
+      return;
+
+    auto bf16 = BFloat16Type::get(ctx);
+    Value origWeight = convOp.getWeight(); // [IC, 1, kH, kW]
+
+    // ── 3. Build new ops ─────────────────────────────────────────────────
+    OpBuilder b(convOp);
+    Location loc = convOp.getLoc();
+
+    // ── 3a. Weight packing (auto const-eval'd) ───────────────────────────
+    // repeat_interleave(K, dim=0): [IC,1,kH,kW] → [IC*K,1,kH,kW]
+    // Each original filter replicated K times so every spatial row group
+    // applies the same depthwise kernel.
+    auto wPackedTy = RankedTensorType::get({packedIC, 1, kH, kW}, bf16);
+    Value wPacked  =
+        b.create<ttir::RepeatInterleaveOp>(
+             loc, wPackedTy, origWeight,
+             b.getUI32IntegerAttr((uint32_t)K),
+             b.getSI32IntegerAttr(0)) // dim=0
+            .getResult();
+
+    // ── 3b. Activation packing (runtime) ─────────────────────────────────
+    // reshape [N,IC,H,W] → [N,IC*K,H/K,W]  free view — row groups → channels
+    auto aPkTy = RankedTensorType::get({N, packedIC, packedH, W}, bf16);
+    Value aPk  =
+        b.create<ttir::ReshapeOp>(
+             loc, aPkTy, origInput,
+             b.getI32ArrayAttr({(int32_t)N, (int32_t)packedIC,
+                                (int32_t)packedH, (int32_t)W}))
+            .getResult();
+
+    // permute({0,2,3,1}): [N,IC*K,H/K,W] → [N,H/K,W,IC*K]  NHWC packed
+    // IC*K = TILE_WIDTH → zero tile-column padding, no DRAM inflation.
+    auto aPkNhwcTy = RankedTensorType::get({N, packedH, W, packedIC}, bf16);
+    Value aPkNhwc  =
+        b.create<ttir::PermuteOp>(
+             loc, aPkNhwcTy, aPk,
+             b.getDenseI64ArrayAttr({0, 2, 3, 1}))
+            .getResult();
+
+    // ── 3c. Packed depthwise conv2d ──────────────────────────────────────
+    // Input:  [N, H/K, W, IC*K]  NHWC  (channel_last=true)
+    // Weight: [IC*K, 1, kH, kW]  OIHW  groups=IC*K  (still fully depthwise)
+    // Output: [N, packed_out_H, out_W, IC*K]  NHWC
+    // Use the custom builder: (resultType, input, weight, bias, stride,
+    //   padding, dilation, uint32_t groups, FlattenedCompatInfoAttr=nullptr)
+    // Default batch_dim=0, height_dim=1, width_dim=2, channel_dim=3 (NHWC).
+    auto convPackedTy =
+        RankedTensorType::get({N, packedOut_H, out_W, packedIC}, bf16);
+    auto convPackedOp =
+        b.create<ttir::Conv2dOp>(
+             loc, convPackedTy,
+             /*input=*/aPkNhwc,
+             /*weight=*/wPacked,
+             /*bias=*/Value(),
+             /*stride=*/
+             b.getDenseI32ArrayAttr({sH, sW}),
+             /*padding=*/
+             b.getDenseI32ArrayAttr({padding[0], padding[1],
+                                     padding[2], padding[3]}),
+             /*dilation=*/
+             b.getDenseI32ArrayAttr({dilation[0], dilation[1]}),
+             /*groups=*/(uint32_t)packedIC,
+             /*flattened_compat_info=*/nullptr);
+    convPackedOp->setAttr("channel_last", b.getUnitAttr());
+    Value convPacked = convPackedOp.getResult();
+
+    // ── 3d. Output unpack ────────────────────────────────────────────────
+    // permute({0,3,1,2}): [N,packed_out_H,out_W,IC*K] → [N,IC*K,packed_out_H,out_W]
+    auto oNchwTy = RankedTensorType::get({N, packedIC, packedOut_H, out_W}, bf16);
+    Value oNchw  =
+        b.create<ttir::PermuteOp>(
+             loc, oNchwTy, convPacked,
+             b.getDenseI64ArrayAttr({0, 3, 1, 2}))
+            .getResult();
+
+    // reshape [N,IC*K,packed_out_H,out_W] → [N,IC,out_H,out_W]  free view unpack
+    // In ROW_MAJOR: element [cp, hp_out] where cp=orig_ic*K+k maps to
+    // output [orig_ic, k*packed_out_H+hp_out] — mathematically correct.
+    auto finalTy = RankedTensorType::get({N, IC, out_H, out_W}, bf16);
+    Value finalOut =
+        b.create<ttir::ReshapeOp>(
+             loc, finalTy, oNchw,
+             b.getI32ArrayAttr({(int32_t)N, (int32_t)IC,
+                                (int32_t)out_H, (int32_t)out_W}))
+            .getResult();
+
+    // ── 4. Replace old chain ─────────────────────────────────────────────
     postPerm.getResult().replaceAllUsesWith(finalOut);
     postPerm.erase();
     convOp.erase();

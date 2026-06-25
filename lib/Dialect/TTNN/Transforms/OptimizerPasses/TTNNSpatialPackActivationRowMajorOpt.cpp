@@ -271,6 +271,13 @@ private:
     //   Change perm_out result  → DRAM ROW_MAJOR
     //   Change r_final result   → DRAM ROW_MAJOR
     //   (mc_dram_final stays — it tilizes the ROW_MAJOR result for downstream)
+    //
+    // Note on ReshapeViewDeviceOperation: r_out reshapes L1_sharded TILE data.
+    // While this appears as a device op (0.7ms), reordering mc_l1 before r_out
+    // to make it a ROW_MAJOR free view is counterproductive: perm_out then
+    // permutes within DRAM (non-contiguous output) making r_final a larger
+    // device op (~0.9ms). The original order keeps r_final as a free view
+    // because perm_out writes L1→DRAM contiguously. Keep this order.
 
     // Find r_out (reshape immediately after linear)
     ttnn::ReshapeOp r_out;
