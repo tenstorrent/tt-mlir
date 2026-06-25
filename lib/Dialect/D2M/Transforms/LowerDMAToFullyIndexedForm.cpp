@@ -161,11 +161,6 @@ size_t CoalescingFactorCache::get(AffineMap memoryMap,
                                   ArrayRef<int64_t> shardShape,
                                   size_t elemSizeBytes,
                                   bool debugCoalescingInference) {
-  if (debugCoalescingInference) {
-    return calculateCoalescingFactor(memoryMap, gridShape, shardShape,
-                                     elemSizeBytes, debugCoalescingInference);
-  }
-
   CoalescingCacheKey key;
   key.map = memoryMap.getAsOpaquePointer();
   key.shape.append(gridShape.begin(), gridShape.end());
