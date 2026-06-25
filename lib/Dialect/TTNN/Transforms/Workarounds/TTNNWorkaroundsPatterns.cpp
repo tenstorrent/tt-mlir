@@ -792,5 +792,10 @@ const std::set<mlir::StringRef>
         ttnn::AllToAllCombineOp::getOperationName(),
         ttnn::MoeExpertTokenRemapOp::getOperationName(),
         ttnn::MoeGptOp::getOperationName(),
-        ttnn::SelectiveReduceCombineOp::getOperationName()};
+        ttnn::SelectiveReduceCombineOp::getOperationName(),
+        // SparseMatmulOp (MoE expert compute) operand workaround forces the
+        // sparsity operand to ROW_MAJOR + bf16. Without whitelisting, opt_level>=1
+        // leaves the sparsity operand f32/tiled, so the expert sparse_matmul
+        // masks experts incorrectly -> wrong MoE output (GLM decode PCC 0.886).
+        ttnn::SparseMatmulOp::getOperationName()};
 } // namespace mlir::tt::ttnn
