@@ -71,6 +71,10 @@ void createTTNNPipelineTTIRPasses(
   // Infer kv_cache argument types from cache operations.
   pm.addPass(mlir::tt::ttir::createTTIRInferKVCacheArgumentTypes());
 
+  // Hoist normalization ops from KV cache read paths to write paths.
+  // Runs immediately after kv_cache attributes are set.
+  pm.addPass(mlir::tt::ttir::createTTIRKVCacheWritePathNorm());
+
   // Propagate per-arg weight_dtype annotations through TM ops to consumers.
   pm.addPass(mlir::tt::ttir::createTTIRPropagateWeightDtype());
 
@@ -380,14 +384,6 @@ void createTTIRToTTNNCommonPipeline(
       devicePm.addPass(createTTNNWeightDtypeConversion(convOpts));
     }
 
-    // KV cache dtype conversion runs before analysis passes so that the
-    // optimizer sees the target dtype and can make informed sharding decisions.
-    if (options.experimentalKVCacheDtype != BFPDtype::None) {
-      TTNNKVCacheDtypeConversionOptions convOpts;
-      convOpts.targetDtype = options.experimentalKVCacheDtype;
-      devicePm.addPass(createTTNNKVCacheDtypeConversion(convOpts));
-    }
-
     // Activation dtype lowering runs after weight dtype conversion and KV
     // cache dtype conversion. This is important because activation dtype can
     // be influenced by weight and KV cache dtype.
@@ -423,6 +419,14 @@ void createTTIRToTTNNCommonPipeline(
     // const-evaled in the later const-eval pass.
     if (options.enableConstEval) {
       devicePm.addPass(transforms::createConstEvalHoistTransform());
+    }
+
+    // KV cache dtype conversion runs before analysis passes so that the
+    // optimizer sees the target dtype and can make informed sharding decisions.
+    if (options.experimentalKVCacheDtype != BFPDtype::None) {
+      TTNNKVCacheDtypeConversionOptions convOpts;
+      convOpts.targetDtype = options.experimentalKVCacheDtype;
+      devicePm.addPass(createTTNNKVCacheDtypeConversion(convOpts));
     }
 
     createTTNNPipelineAnalysisPasses(devicePm, options);

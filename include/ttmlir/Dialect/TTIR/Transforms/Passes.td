@@ -406,6 +406,25 @@ def TTIRInferKVCacheArgumentTypes: Pass<"ttir-infer-kv-cache-argument-types", ":
   let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect", "mlir::tt::ttir::TTIRDialect"];
 }
 
+def TTIRKVCacheWritePathNorm: Pass<"ttir-kv-cache-write-path-norm", "::mlir::ModuleOp"> {
+  let summary = "Move rms_norm from the KV cache read path to the write path.";
+  let description = [{
+    Detects the pattern where an rms_norm sits on the KV cache read path
+    (cache → rms_norm → ...) and moves it to the write path, so each 
+    cache-write op stores pre-normalised tokens instead.
+
+    This is semantically equivalent: normalising at write time vs. read time 
+    produces identical results.
+
+    Normalising before the write ensures rms_norm always operates on full
+    precision (bfloat16) input even when the cache is stored at a lower
+    precision (e.g. bfp8).
+  }];
+
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect",
+                           "mlir::tt::ttir::TTIRDialect"];
+}
+
 def TTIRDecomposeComplexReshape: Pass<"ttir-decompose-complex-reshape", "::mlir::ModuleOp"> {
   let summary = "Decompose reshapes that flip trailing 1s into permute + reshape.";
   let description = [{
