@@ -691,3 +691,30 @@ follow-up). The bandwidth-optimal CHUNKED ring can't be loop-written this way: i
 needs runtime-indexed chunk slots (operand RMW -> the #l1 wall above; SSA chunk
 vars can't be indexed by a loop var in the tracer), so the chunked variant stays
 the unrolled _m3d.
+
+### Runtime-loop (scf.for) investigation — in-place accumulate (2026-06-25)
+
+Tried to enable a TRUE runtime `for k in range(N-1)` ring (not `static_range`
+unroll) via an in-place eltwise accumulate, the eltwise dual of `c += a@b`:
+`__add_acc__` (linalg `outs(acc)`), `copy_` (in-place replace via `dst += src-dst`
+since a pure identity-copy linalg gets canonicalized away), and a `visit_AugAssign`
+branch routing `acc += <eltwise>` to it. Findings (all on the 1x4 Blackhole):
+
+- It DOES fix the bufferization error: `acc += r` makes a loop-carried accumulator
+  yield a buffer equivalent to its iter_arg, so the minimal runtime loop COMPILES
+  (where `acc = acc + r` failed "Yield operand not equivalent to iter bbArg").
+- Single (non-loop) in-place `+=` computes CORRECTLY (maxdiff ~0.005).
+- BUT a LOOP-CARRIED in-place accumulate MISCOMPUTES: it runs without hanging but
+  `acc` doesn't accumulate across iterations (stays ~initial). matmul `c += a@b`
+  works in a loop because tile_matmul accumulates through the DST/L1-acc path
+  (cf. [[chunked-matmul-l1acc-loop-bug]]); plain eltwise has no equivalent, so the
+  loop-carried buffer isn't threaded at runtime. This is a silent wrong-answer, so
+  auto-routing `+=` to in-place is worse than the loud bufferization error.
+- Fabric ops inside an scf.for: compile (with a single in-place carry) but HANG on
+  device.
+
+Conclusion: a real runtime-loop ring needs compiler work on BOTH (a) loop-carried
+eltwise accumulate lowering (DST/L1-acc threading, like the matmul path) and (b)
+fabric-ops-in-scf.for runtime support. The experimental DSL ops were reverted (not
+landed) since they silently miscompute in loops. The `static_range` unroll
+(milestone 3e) remains the working generic-over-N, loop-written approach.
