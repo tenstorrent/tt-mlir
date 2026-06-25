@@ -651,3 +651,43 @@ Follow-ups: (1) compiler support for a recv buffer feeding both compute and a DM
 forward (would remove the double-load / copy workarounds in _m3c/_m3d); (2)
 grid-[N,1] dynamic recv-slot offset (still 0); (3) generalize N / chunk size and
 fold into a reusable `all_reduce` DSL primitive.
+
+### Milestone 3e — DONE (2026-06-25): GENERIC, loop-written ring all_reduce + `static_range`
+
+`test/d2m-jit/_m3e.py` PASSES on the 1x4 Blackhole ring: a ring all_reduce written
+with a `for k in static_range(N-1)` loop and parameterized over the mesh volume N
+(a closed-over int capture) instead of hand-unrolling for N=4.
+
+New DSL feature `static_range` (lib `_src/ast.py` `visit_For`): a loop marker that
+UNROLLS the body at trace time (Python-level), with bounds evaluated from int
+literals / int captures (`_eval_static_int`). Regular `range()` still lowers to
+`scf.for`. This is additive -- existing range/scf.for loops are unaffected
+(streaming/chunked matmul regression pass).
+
+Why unroll rather than a real runtime `scf.for`: a runtime loop carrying the ring's
+cross-iteration state is blocked two ways --
+1. loop-carried *tensor* iter_args fail one-shot-bufferize ("Yield operand not
+   equivalent to iter bbArg": each tile op yields a fresh buffer != the iter_arg);
+2. keeping state in an operand (RMW in the loop) instead: the runtime loop forms
+   (`scf.for` with fabric ops inside -- verified), but the DSL re-allocs the
+   operand per store and reading a grid OUTPUT operand back demotes it to #l1,
+   where a local `remote_store` is rejected ("must be remote").
+`static_range` sidesteps both: unrolled, the accumulators are plain SSA
+reassignments (like _m3c/_m3d) and there is no loop-carried iter_arg / operand RMW.
+
+Algorithm = circulate-and-accumulate (O(N) bandwidth, SSA state): `acc`, `acc_prev`
+reassigned each step; forward `acc - acc_prev` (== last recv, send-only compute
+output), then `acc += r`. `acc_prev` is seeded from an opaque ZEROS operand (NOT
+`v - v`, which folds to a literal zero -> `acc - acc_prev` canonicalizes to `v` and
+sends `v` directly while compute also reads it -> illegal compute+DM CB share).
+Cumulative semaphore counts (`wait(es, k+1)`) now work -- the earlier "cumulative
+hangs" was the read-back/fusion confound, fixed in 3a/3b.
+
+Genericity: the algorithm (steps, indices `(p+1)%N`, `static_range(N-1)`,
+`mcast_shape=[1,N]`) is generic over N; only `device_synchronize`'s `num_receivers`
+stays a literal (it lowers to an i32 attribute; the kwargs_as_attr lambda sees only
+the AST node, not the int captures -- folding captured constants there is a small
+follow-up). The bandwidth-optimal CHUNKED ring can't be loop-written this way: it
+needs runtime-indexed chunk slots (operand RMW -> the #l1 wall above; SSA chunk
+vars can't be indexed by a loop var in the tracer), so the chunked variant stays
+the unrolled _m3d.
