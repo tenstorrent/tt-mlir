@@ -6708,21 +6708,33 @@ llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
     llvm::APFloat epsilon, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  // tt-metal's group_norm hangs on a ROW_MAJOR input (the TILE path works), but
-  // its op-constraint query reports both layouts as legal, so the optimizer
-  // would otherwise pick row-major. Reject row-major input here to force the
-  // optimizer to select a TILE input layout. This must live in getOpConstraints
-  // (not an OpRules filter): validateOperation -> getOpConstraints is the
-  // single legality chokepoint both the row-major propagation pass (opt_level
-  // >= 1) and the greedy validation respect, whereas the rule book only prunes
-  // candidates for the greedy pass and cannot undo an input the earlier pass
-  // already pinned. Remove once tt-metal fixes the row-major group_norm path.
+  // tt-metal's group_norm hangs on a ROW_MAJOR input, reject row-major input
+  // here to force the optimizer to select a TILE input layout. tt-metal#47972
+  // tracks this issue. The raw query lives in getOpConstraintsRaw so the
+  // tripwire test can observe tt-metal's unguarded verdict; remove both once
+  // tt-metal#47972 is fixed.
   if (inputLayout.getLayout() == mlir::tt::ttnn::Layout::RowMajor) {
     return llvm::createStringError(
         llvm::inconvertibleErrorCode(),
         "group_norm ROW_MAJOR input is unsupported (hangs); requires TILE");
   }
+#endif // TTMLIR_ENABLE_OPMODEL
+  return getOpConstraintsRaw(inputShape, inputLayout, inputMaskShape,
+                             inputMaskLayout, weightShape, weightLayout,
+                             biasShape, biasLayout, numGroups, epsilon,
+                             outputLayout);
+}
 
+llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraintsRaw(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> inputMaskShape,
+    std::optional<TTNNLayoutAttr> inputMaskLayout,
+    std::optional<llvm::ArrayRef<int64_t>> weightShape,
+    std::optional<TTNNLayoutAttr> weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
+    llvm::APFloat epsilon, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -6773,15 +6785,8 @@ llvm::Expected<size_t> OpModel<GroupNormOp>::getOpRuntime(
     std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
     llvm::APFloat epsilon, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  // tt-metal's group_norm hangs on a ROW_MAJOR input (the TILE path works), but
-  // its op-constraint query reports both layouts as legal, so the optimizer
-  // would otherwise pick row-major. Reject row-major input here to force the
-  // optimizer to select a TILE input layout. This must live in getOpConstraints
-  // (not an OpRules filter): validateOperation -> getOpConstraints is the
-  // single legality chokepoint both the row-major propagation pass (opt_level
-  // >= 1) and the greedy validation respect, whereas the rule book only prunes
-  // candidates for the greedy pass and cannot undo an input the earlier pass
-  // already pinned. Remove once tt-metal fixes the row-major group_norm path.
+  // tt-metal's group_norm hangs on a ROW_MAJOR input, reject row-major input here to force the
+  // optimizer to select a TILE input layout. tt-metal#47972 tracks this issue.
   if (inputLayout.getLayout() == mlir::tt::ttnn::Layout::RowMajor) {
     return llvm::createStringError(
         llvm::inconvertibleErrorCode(),

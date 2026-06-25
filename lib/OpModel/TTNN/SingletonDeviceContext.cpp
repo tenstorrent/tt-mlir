@@ -68,28 +68,56 @@ makeEnvDescriptor(bool isMock, ttcore::Arch arch, uint32_t numChips) {
     return ::tt::tt_metal::MetalEnvDescriptor{};
   }
 
-  // The canned mock cluster descriptor models an *unharvested* board, so on a
-  // harvested chip the op-model places ops on harvested-out cores and deadlocks
-  // the first launch. Prefer live UMD topology discovery, which serializes the
-  // real chip's descriptor (with its true harvest masks); it is read-only, safe
-  // during compilation, and cached per process. Fall back to the canned board
-  // for headless/no-hardware (CI) flows.
-  static const std::optional<std::string> discoveredClusterDescPath =
-      []() -> std::optional<std::string> {
+  // Prefer the live machine's real cluster descriptor over the canned mock
+  // board, but only when it matches the requested (arch, numChips) mock —
+  // discovery describes the physical box, which may differ (multi-chip mock on
+  // a single-chip box, or a cross-arch mock). Discovery is process-global and
+  // not free, so cache it once and decide per call. Arch is compared via the
+  // total toMetalArch(), so an unmappable live arch falls back to the canned
+  // board instead of aborting.
+  struct DiscoveredCluster {
+    std::string path;
+    ::tt::ARCH arch;
+    uint32_t numChips;
+  };
+  static const std::optional<DiscoveredCluster> discovered =
+      []() -> std::optional<DiscoveredCluster> {
     try {
       std::unique_ptr<::tt::umd::ClusterDescriptor> desc =
           ::tt::umd::Cluster::create_cluster_descriptor();
       if (!desc || desc->get_number_of_chips() == 0) {
         return std::nullopt;
       }
-      return desc->serialize_to_file().string();
+      return DiscoveredCluster{
+          desc->serialize_to_file().string(), desc->get_arch(),
+          static_cast<uint32_t>(desc->get_number_of_chips())};
     } catch (const std::exception &) {
       // No hardware / discovery failed (e.g. headless CI): fall back below.
       return std::nullopt;
     }
   }();
-  if (discoveredClusterDescPath) {
-    return ::tt::tt_metal::MetalEnvDescriptor{*discoveredClusterDescPath};
+  // TODO(jazpur): debug print, remove before merge.
+  if (discovered) {
+    llvm::errs() << "[makeEnvDescriptor] discovered cluster: path="
+                 << discovered->path
+                 << " arch=" << static_cast<int>(discovered->arch)
+                 << " numChips=" << discovered->numChips
+                 << " | requested arch="
+                 << static_cast<int>(toMetalArch(arch))
+                 << " numChips=" << numChips << " -> "
+                 << ((discovered->arch == toMetalArch(arch) &&
+                      discovered->numChips == numChips)
+                         ? "USING discovered"
+                         : "MISMATCH, falling back to canned")
+                 << "\n";
+  } else {
+    llvm::errs() << "[makeEnvDescriptor] no discovered cluster (no hardware / "
+                    "discovery failed); using canned board\n";
+  }
+
+  if (discovered && discovered->arch == toMetalArch(arch) &&
+      discovered->numChips == numChips) {
+    return ::tt::tt_metal::MetalEnvDescriptor{discovered->path};
   }
 
   auto mockClusterPath =
