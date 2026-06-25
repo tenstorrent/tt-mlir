@@ -11,7 +11,8 @@ import pytest
 import torch
 import torch.nn as nn
 
-from tt_kurbla.torch.testing import DeviceType
+from tt_kurbla.torch.testing import DeviceType, ExecutionMode, assert_close_cpu_vs_tt
+from tt_kurbla.torch._compile import _compile_options, CompileOption
 from _models import MNISTLinear
 
 
@@ -27,6 +28,7 @@ def _assert_compile_matches_eager(
     *cpu_inputs: torch.Tensor,
     atol: float | None = None,
     rtol: float | None = None,
+    options: dict [CompileOption, str | int | bool] | None = None,
 ) -> None:
     """Compile `model` with the tt dynamo backend and compare its output to
     eager-CPU.
@@ -40,7 +42,7 @@ def _assert_compile_matches_eager(
         cpu_out = model(*cpu_inputs)
 
         model_tt = model.to("tt")
-        compiled = torch.compile(model_tt, backend="tt")
+        compiled = torch.compile(model_tt, backend="tt", options=options)
         tt_inputs = tuple(t.to("tt") for t in cpu_inputs)
         tt_out = compiled(*tt_inputs).cpu()
 
@@ -917,3 +919,42 @@ def test_compile_mse_loss_backward(reduction: int) -> None:
     target = torch.randn((32, 32), dtype=torch.bfloat16)
     grad = torch.randn((32, 32) if reduction == 0 else (1,), dtype=torch.bfloat16)
     _assert_compile_matches_eager(_MSELossBwd(reduction), grad, pred, target, atol=0.05, rtol=0.05)
+
+
+@pytest.mark.parametrize("options,expected", [(None, 0), ({}, 0), ({CompileOption.OPT_LEVEL: 1}, 1), ({CompileOption.OPT_LEVEL: 2}, 2)])
+def test_compile_options_parses_optimization_level(options: dict | None, expected: int) -> None:
+    """Valid options parse into a CompileOptions carrying the requested level;
+    an absent or empty dict defaults to 0."""
+    assert _compile_options(options).optimization_level == expected
+
+
+def test_compile_options_invalid_compile_option() -> None:
+    """Test that invalid compile option throws."""
+    with pytest.raises(Exception):
+        _compile_options({"invalid": 0})
+
+
+@pytest.mark.parametrize(
+    "level",
+    [-1, 3, 99, True, 1.0, "2"],
+    ids=["negative", "too_high", "way_high", "bool", "float", "str"],
+)
+def test_compile_options_rejects_invalid_optimization_level(level) -> None:
+    """optimization_level must be an int in [0, 2]: bool, float, str, and
+    out-of-range values are rejected before reaching the pipeline."""
+    with pytest.raises(ValueError):
+        _compile_options({CompileOption.OPT_LEVEL: level})
+
+
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_with_opt_level_0(shape: tuple[int, ...]) -> None:
+    """This is just a sanity compile options API test.
+    It tests different functions that we use is tests with compile options."""
+    class _ReLU(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.relu(x)
+
+    x = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_ReLU(), x, options={CompileOption.OPT_LEVEL: 0})
+    assert_close_cpu_vs_tt(_ReLU(), x, mode=ExecutionMode.EAGER, options={CompileOption.OPT_LEVEL: 0})
+    assert_close_cpu_vs_tt(_ReLU(), x, mode=ExecutionMode.COMPILE, options={CompileOption.OPT_LEVEL: 0})

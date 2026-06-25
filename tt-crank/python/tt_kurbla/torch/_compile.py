@@ -19,8 +19,10 @@ Pipeline::
 
 from __future__ import annotations
 
+import functools
 import operator
 from collections.abc import Callable
+from enum import StrEnum
 
 import torch
 import torch.fx
@@ -509,6 +511,37 @@ def _prepare_op_args(
 
     return tuple(out)
 
+
+class CompileOption(StrEnum):
+    OPT_LEVEL = "optimization_level"
+
+COMPILE_OPTIONS = [opt for opt in CompileOption]
+
+def _compile_options(options: dict [CompileOption, str | int | bool] | None) -> _native.CompileOptions:
+    """Validate the torch.compile `options` dict and build a CompileOptions.
+
+    A custom backend receives `options` as an arbitrary, unvalidated dict (torch
+    schema-checks only the inductor backend), so we check it here and pass to the compiler.
+    """
+    opts = _native.CompileOptions() # default options from config.hpp
+    if (options is None):
+        return opts
+
+    unknown = options.keys() - COMPILE_OPTIONS
+    if unknown:
+        raise ValueError(f"tt backend: unknown compile option(s) {sorted(unknown)}; supported: {sorted(COMPILE_OPTIONS)}")
+
+    if (CompileOption.OPT_LEVEL in options):
+        level = options[CompileOption.OPT_LEVEL]
+        if isinstance(level, bool) or not isinstance(level, int) or not 0 <= level <= 2:
+            raise ValueError(f"tt backend: optimization_level must be an int in [0, 2], got {level!r}")
+
+        opts.optimization_level = level
+
+    return opts
+
+
+
 def _fw_args_roles(num_inputs: int, fw_meta) -> list["_native.ArgumentType"]:
     """Tags the forward graph's lifted weight/buffer args ``Parameter``.
 
@@ -587,6 +620,8 @@ def _lower_and_compile(
     gm: torch.fx.GraphModule,
     example_inputs: list[torch.Tensor],
     roles: list["_native.ArgumentType"],
+    *,
+    options: _native.CompileOptions
 ) -> Callable:
     """Lower one post-aot FX graph (forward or backward) to a runnable program.
 
@@ -633,7 +668,7 @@ def _lower_and_compile(
         outputs.append(v)
         output_dtypes.append(_to_runtime_dtype(fx_node.meta["val"].dtype))
 
-    program = mb.compile(outputs)
+    program = mb.compile(outputs, options)
 
     def runner(*inputs: torch.Tensor) -> list:
         produced = iter(_native.run_program(program, list(inputs), output_dtypes))
@@ -642,17 +677,23 @@ def _lower_and_compile(
     return runner
 
 
-def tt_backend(gm: torch.fx.GraphModule, example_inputs: list[torch.Tensor]):
+def tt_backend(
+    gm: torch.fx.GraphModule,
+    example_inputs: list[torch.Tensor],
+    *,
+    options: dict [CompileOption, str | int | bool] | None = None,
+):
     """Top-level dynamo backend. Delegates to aot_module_simplified."""
+    lower_and_compile = functools.partial(_lower_and_compile, options=_compile_options(options))
 
     def fw_compiler(fw_gm: torch.fx.GraphModule, fw_inputs: list[torch.Tensor]) -> Callable:
         fw_meta = getattr(torch._guards.TracingContext.try_get(), "fw_metadata", None)
         roles = _fw_args_roles(len(fw_inputs), fw_meta)
-        return _lower_and_compile(fw_gm, fw_inputs, roles)
+        return lower_and_compile(fw_gm, fw_inputs, roles)
 
     def bw_compiler(bw_gm: torch.fx.GraphModule, bw_inputs: list[torch.Tensor]) -> Callable:
         roles = _bw_args_roles(len(bw_inputs))
-        return _lower_and_compile(bw_gm, bw_inputs, roles)
+        return lower_and_compile(bw_gm, bw_inputs, roles)
 
     return aot_module_simplified(
         gm, example_inputs, fw_compiler=fw_compiler, bw_compiler=bw_compiler

@@ -3,6 +3,7 @@
 #include "assert.hpp"
 #include <cstdint>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -11,6 +12,7 @@
 #include <mlir/IR/MLIRContext.h>
 #include <tt/runtime/types.h>
 
+#include "config.hpp"
 #include "tt_kurbla_export.hpp"
 
 namespace tt::kurbla {
@@ -57,6 +59,15 @@ struct TT_KURBLA_API CompileOptions {
     std::optional<tt::runtime::SystemDesc> system_desc;
     std::string system_desc_path;
     MockArch mock_arch = MockArch::WormholeB0;
+
+    std::string to_string() const {
+        std::stringstream ss;
+        ss << "{ ";
+        ss << "optimization_level: " << optimization_level;
+        ss << " }";
+
+        return ss.str();
+    }
 };
 
 // Returns the process-wide MLIRContext used by tt-kurbla's compile pipelines.

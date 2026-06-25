@@ -99,10 +99,10 @@ static bool register_hooks_flag [[maybe_unused]] = []() {
 
 } // namespace
 
-::tt::kurbla::CompiledProgram &compile_module(mlir::OwningOpRef<mlir::ModuleOp> module_op) {
-    ::tt::kurbla::CompileOptions opts;
-    opts.system_desc = ::tt::kurbla::runtime_system_desc();
-    return ::tt::kurbla::compile_ttir_to_ttnn_flatbuffer(module_op.get(), opts);
+::tt::kurbla::CompiledProgram &compile_module(mlir::OwningOpRef<mlir::ModuleOp> module_op,
+                                              ::tt::kurbla::CompileOptions options) {
+    options.system_desc = ::tt::kurbla::runtime_system_desc();
+    return ::tt::kurbla::compile_ttir_to_ttnn_flatbuffer(module_op.get(), options);
 }
 
 std::vector<at::Tensor> run_compiled_program(::tt::kurbla::CompiledProgram &program, llvm::ArrayRef<at::Tensor> inputs,

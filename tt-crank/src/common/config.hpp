@@ -23,6 +23,9 @@ FS_WITH_ENABLER(print_tt_ir, false, "TT_KURBLA_PRINT_TT_IR_ENABLED");
 // Enables ttnn ir printing.
 FS_WITH_ENABLER(print_ttnn_ir, false, "TT_KURBLA_PRINT_TTNN_IR_ENABLED");
 
+// Enables printing of compile options.
+FS_WITH_ENABLER(print_compile_options, false, "TT_KURBLA_PRINT_COMPILE_OPTIONS_ENABLED");
+
 // Enables tt-sim simulator.
 FS_WITH_ENABLER(use_sim, false, "TT_KURBLA_USE_SIMULATOR");
 

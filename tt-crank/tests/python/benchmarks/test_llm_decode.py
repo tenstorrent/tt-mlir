@@ -19,6 +19,7 @@ token count and the step count is set by cache capacity.
 
 import pytest
 import torch
+from tt_kurbla.torch._compile import CompileOption
 
 from ._runner import Measurement, compute_pcc, prepare_model, run_llm_benchmark
 
@@ -57,6 +58,7 @@ def _run_decode_benchmark(
     profile_dir: str,
     record_bench,
     tt_device: torch.device,
+    options: dict [CompileOption, str | int | bool] | None = None,
 ) -> None:
     model = load_model(llm_model_id)
     tokenizer = load_tokenizer(llm_model_id)
@@ -92,7 +94,7 @@ def _run_decode_benchmark(
     input_ids = prompt_ids.to(tt_device)
     cache_position = torch.arange(prompt_len).to(tt_device)
 
-    perf_model = prepare_model(LLMSamplingWrapper(model), mode)
+    perf_model = prepare_model(LLMSamplingWrapper(model), mode, options=options)
     result = run_llm_benchmark(
         perf_model,
         input_ids,

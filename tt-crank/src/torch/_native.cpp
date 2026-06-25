@@ -193,11 +193,12 @@ public:
         return mb_->insert_typecast(value, tk::mlir_element_type_for(tk::to_torch_dtype(dtype)));
     }
 
-    ::tt::kurbla::CompiledProgram &compile(const std::vector<mlir::Value> &outputs) {
+    ::tt::kurbla::CompiledProgram &compile(const std::vector<mlir::Value> &outputs,
+                                           const ::tt::kurbla::CompileOptions &options) {
         assert_builder();
         auto module_op = std::move(*mb_).finalize(outputs);
         mb_.reset();
-        return tk::compile_module(std::move(module_op));
+        return tk::compile_module(std::move(module_op), options);
     }
 
     // Unary elementwise
@@ -550,6 +551,13 @@ NB_MODULE(_native, m) {
     // back from ModuleBuilder.arg() / per-op methods.
     nb::class_<mlir::Value>(m, "Value");
 
+    // Compile knobs threaded from `torch.compile(..., options=...)` into the
+    // TTIR->TTNN pipeline. Only the user-facing field is exposed; system_desc
+    // is filled in by the backend, not the caller.
+    nb::class_<::tt::kurbla::CompileOptions>(m, "CompileOptions")
+        .def("__init__", [](::tt::kurbla::CompileOptions *self) { new (self)::tt::kurbla::CompileOptions{}; })
+        .def_rw("optimization_level", &::tt::kurbla::CompileOptions::optimization_level);
+
     nb::class_<PyModuleBuilder>(m, "ModuleBuilder")
         .def(nb::init<std::vector<tk::TensorTypeSpec>, const std::vector<mlir::tt::ttcore::ArgumentType> &>(),
              "input_specs"_a, "argument_roles"_a = std::vector<mlir::tt::ttcore::ArgumentType>{})
@@ -608,7 +616,7 @@ NB_MODULE(_native, m) {
         .def("index_copy", &PyModuleBuilder::index_copy, "input"_a, "dim"_a, "index"_a, "source"_a)
         .def("tril", &PyModuleBuilder::tril, "input"_a, "diagonal"_a = 0)
         // Consumes the builder. Subsequent calls on `self` raise.
-        .def("compile", &PyModuleBuilder::compile, "outputs"_a, nb::rv_policy::reference);
+        .def("compile", &PyModuleBuilder::compile, "outputs"_a, "options"_a, nb::rv_policy::reference);
 
     nb::class_<::tt::kurbla::CompiledProgram>(m, "CompiledProgram");
 
