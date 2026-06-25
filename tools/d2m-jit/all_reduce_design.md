@@ -868,3 +868,25 @@ InsertDstRegisterAccess (Scheduled.cpp disablePackerL1Acc = ...||!hasTileMatmul|
 eltwise add accumulator. Bonus: first-iter-overwrite makes the explicit zeros-init
 and the split-v2 wait-fix unnecessary (matmul needs neither). Supersedes the prior
 diagnoses in this doc.
+
+### CORRECTION (2026-06-25): it's user-loop (scf.for iter_arg) accumulation, not eltwise/copy_tile
+
+Per the suggestion, dumped+RAN the matmul accumulator loop with L1-acc DISABLED.
+disable-l1-acc forces the copy_tile-reload path (copy_tile(acc) + matmul_block +
+pack_tile(acc)) -- structurally identical to the eltwise loop. Device results for a
+USER-loop accumulator (`acc = a@b; for k: acc += a@b`, N=4):
+- matmul, L1-acc DISABLED (copy_tile-reload): FAIL (maxdiff ~19)
+- matmul, L1-acc ENABLED (packer):            FAIL (maxdiff ~20)
+- eltwise (copy_tile-reload):                 FAIL (maxdiff ~10)
+
+So the bug is NOT copy_tile-vs-packer and NOT eltwise-specific: a LOOP-CARRIED
+ACCUMULATOR IN A USER scf.for is broken for BOTH ops and BOTH L1-acc modes. (And
+the 1-iteration loop passes for all -- so it's specifically the cross-iteration
+carry of an scf.for iter_arg accumulator.) The matmul tests that PASS use the
+matmul block's INTERNAL K-reduction, which is not a user scf.for iter_arg.
+
+This supersedes the earlier copy_tile / packer-L1-acc / read-write-pointer
+diagnoses. The real blocker for a runtime-loop ring is correct lowering of an
+scf.for iter_arg accumulator (the CB handshake / DST handling across iterations),
+affecting any user-loop accumulation regardless of the compute op. static_range
+unroll (which has no iter_arg) remains the only working path.
