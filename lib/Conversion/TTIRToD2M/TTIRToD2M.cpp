@@ -17,26 +17,26 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Utils.h"
 
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/LogicalResult.h"
+
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
-#include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/TypeRange.h"
-#include "mlir/IR/ValueRange.h"
-#include "mlir/Transforms/DialectConversion.h"
-#include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/LogicalResult.h"
-
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/TypeRange.h"
 #include "mlir/IR/Value.h"
+#include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LLVM.h"
+#include "mlir/Transforms/DialectConversion.h"
 #include <array>
 #include <cstddef>
 #include <limits>
@@ -4797,6 +4797,27 @@ private:
 
     // Convert dimArg into a reduceDim enum.
     d2m::ReduceDim reduceDim = dimArgAsReduceDim(op, logicalRank);
+    if (inputType.getRank() < 1 || inputType.getRank() > 2) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M Argmax only works on 1D or 2D tensors at the moment.");
+    }
+    if (reduceDim == d2m::ReduceDim::RC) {
+      return rewriter.notifyMatchFailure(
+          op, "D2M Argmax lowering supports only ReduceDim::R and ReduceDim::C "
+              "at the moment.");
+    }
+    if (op.getDimArg()) {
+      auto dimAttrs = *op.getDimArg();
+      for (mlir::Attribute dimAttr : dimAttrs) {
+        int64_t d = mlir::cast<mlir::IntegerAttr>(dimAttr).getInt();
+        std::size_t nd = normalizeReductionDimIndex(d, logicalRank);
+        if (nd < logicalRank - 2) {
+          return rewriter.notifyMatchFailure(
+              op, "D2M Argmax lowering only supports reducing over the last "
+                  "two dims");
+        }
+      }
+    }
     auto reduceDimAttr = d2m::ReduceDimAttr::get(ctx, reduceDim);
 
     // Compute the shape of the reduced output (reduced dims become 1).

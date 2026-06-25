@@ -54,6 +54,7 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
     int64_t numTileCols = outputShape[outputShape.size() - 1];
     // Total tiles across all cores.
     int64_t totalTileCols = numTileCols * gridShape[gridShape.size() - 1];
+    int64_t totalTileRows = numTileRows * gridShape[gridShape.size() - 2];
 
     Value zeroIdx = rewriter.create<arith::ConstantIndexOp>(loc, 0);
     Value oneIdx = rewriter.create<arith::ConstantIndexOp>(loc, 1);
@@ -130,6 +131,8 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
         rewriter.create<arith::ConstantIndexOp>(loc, numTileCols);
     Value totalTileColsIdx =
         rewriter.create<arith::ConstantIndexOp>(loc, totalTileCols);
+    Value totalTileRowsIdx =
+        rewriter.create<arith::ConstantIndexOp>(loc, totalTileRows);
     Value const32Idx = rewriter.create<arith::ConstantIndexOp>(loc, 32);
     // globalTileRow = coreY * shardTileRows + localTileRow
     Value globalTileRow = rewriter.create<arith::AddIOp>(
@@ -144,8 +147,19 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
     if (col_major) {
       // Tile offset is 32 * globalTileRow when going down a column (for column
       // major).
-      tileOffsetIdx =
+      Value rowContrib =
           rewriter.create<arith::MulIOp>(loc, globalTileRow, const32Idx);
+      // Column contribution: globalTileCol * totalTileRows * 32 * 32
+      Value colContrib = rewriter.create<arith::MulIOp>(
+          loc,
+          rewriter.create<arith::MulIOp>(
+              loc,
+              rewriter.create<arith::MulIOp>(loc, globalTileCol,
+                                             totalTileRowsIdx),
+              const32Idx),
+          const32Idx);
+      tileOffsetIdx =
+          rewriter.create<arith::AddIOp>(loc, rowContrib, colContrib);
     } else {
       // Row contribution: globalTileRow * totalTileCols * 32 * 32
       Value rowContrib = rewriter.create<arith::MulIOp>(

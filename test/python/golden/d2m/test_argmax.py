@@ -41,7 +41,6 @@ def test_argmax_2d_rowwise_bf16(
     request,
     device,
 ):
-    print(torch.initial_seed())
 
     compile_and_execute_ttir(
         create_argmax_inputs(
