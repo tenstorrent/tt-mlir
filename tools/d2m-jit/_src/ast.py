@@ -370,8 +370,66 @@ class D2MCompiler(ast.NodeVisitor):
                         names.append(target.id)
         return names
 
+    def _eval_static_int(self, node):
+        """Evaluate a compile-time integer AST expression using int captures.
+
+        Used for `static_range(...)` bounds so a loop over a captured mesh size
+        can be unrolled at trace time. Supports literals, captured int names, and
+        +, -, *, //, % over them."""
+        if isinstance(node, ast.Constant) and isinstance(node.value, int):
+            return node.value
+        if isinstance(node, ast.Name):
+            if node.id in self.captures and isinstance(self.captures[node.id], int):
+                return self.captures[node.id]
+            raise ValueError(
+                f"static_range bound references '{node.id}', which is not a "
+                f"compile-time int capture (closed-over int)")
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+            return -self._eval_static_int(node.operand)
+        if isinstance(node, ast.BinOp):
+            lhs = self._eval_static_int(node.left)
+            rhs = self._eval_static_int(node.right)
+            if isinstance(node.op, ast.Add):
+                return lhs + rhs
+            if isinstance(node.op, ast.Sub):
+                return lhs - rhs
+            if isinstance(node.op, ast.Mult):
+                return lhs * rhs
+            if isinstance(node.op, ast.FloorDiv):
+                return lhs // rhs
+            if isinstance(node.op, ast.Mod):
+                return lhs % rhs
+        raise ValueError("static_range bounds must be compile-time integer "
+                         "expressions over literals and int captures")
+
     def visit_For(self, node):
-        assert node.iter.func.id == "range", "Only range() supported in for loops"
+        iter_fn = getattr(node.iter.func, "id", None)
+        assert iter_fn in ("range", "static_range"), \
+            "Only range()/static_range() supported in for loops"
+
+        # static_range: unroll at trace time (Python-level), so loop-carried
+        # tensor accumulators and operand stores behave exactly as if the body
+        # were hand-unrolled -- avoiding the scf.for loop-carried-tensor
+        # bufferization failure and the operand-store-in-loop re-alloc. The
+        # bounds must be compile-time ints (literals or closed-over int captures,
+        # e.g. the mesh volume N). Regular range() still lowers to scf.for below.
+        if iter_fn == "static_range":
+            args = node.iter.args
+            if len(args) == 1:
+                lo, up, st = 0, self._eval_static_int(args[0]), 1
+            elif len(args) == 2:
+                lo, up, st = (self._eval_static_int(args[0]),
+                              self._eval_static_int(args[1]), 1)
+            else:
+                lo, up, st = (self._eval_static_int(args[0]),
+                              self._eval_static_int(args[1]),
+                              self._eval_static_int(args[2]))
+            for kval in range(lo, up, st):
+                self.symbol_tables[-1][node.target.id] = arith.ConstantOp(
+                    IndexType.get(self.ctx), kval)
+                for stmt in node.body:
+                    self.visit(stmt)
+            return
 
         if len(node.iter.args) == 1:
             lower_bound = arith.ConstantOp(IndexType.get(self.ctx), 0)
