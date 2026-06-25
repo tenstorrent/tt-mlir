@@ -753,3 +753,32 @@ Fix: the compute lowering (InsertDstRegisterAccess + CB-sync scheduling) must ke
 a loop-carried eltwise accumulator in DST across the loop body (or give the acc CB
 a correct per-iteration read<->write handshake + load its init), i.e. extend the
 matmul DST/L1-acc treatment to eltwise. A real C++ change, not a DSL fix.
+
+### Root cause CORRECTED (2026-06-25): it's the init handshake, not the carry
+
+The earlier "carry doesn't propagate" framing was wrong. For a single-tile
+accumulator the CB read/write pointers coincide at the base slot, so keeping them
+INVARIANT over the loop (no per-iteration push/pop) is correct -- the in-place
+add accumulates fine. The real bug is INITIALIZATION, confirmed in the post-split
+(be-pipeline) IR of the accumulate generic:
+- `datamovement_kernel6` (DM): reserve(accCB); dma_read zin -> accCB (the ZEROS);
+  push(accCB) -- the init IS loaded and pushed.
+- `compute_kernel8` (compute): **`d2m.reserve(accCB)`** before the loop, then the
+  in-place accumulate loop, then push(accCB).
+
+The compute opens the accumulator CB with `reserve` (producer/write side -> fresh
+uninitialized slot) instead of `wait` (consumer/read side -> the zeros the DM
+thread just pushed). So the pushed init is never consumed; iter 0 reads an
+uninitialized slot and the result is `garbage + N*input` instead of `0 + N*input`.
+
+Why: the accumulator is BOTH a consumer (of the DM-pushed init) AND the output
+(compute produces, DM later stores), but split-v2's compute-side CB classification
+is binary input(wait/pop) XOR output(reserve/push). Because compute WRITES the
+accumulator (the in-place add's outs(acc)), it's classed output-only -> reserve+
+push, dropping the init-consuming wait.
+
+Fix: teach split-v2's CB-sync that a loop-carried, externally-initialized in-place
+accumulator is a consume-then-reproduce CB: emit `wait(accCB)` (consume the init)
+ONCE before the loop, the invariant-pointer in-place loop, then `push(accCB)` once
+after -- i.e. wait, NOT reserve, before the loop. Supersedes the earlier
+"DST-resident/CB-round-trip" diagnosis above.
