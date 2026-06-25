@@ -23,8 +23,20 @@ LogicalResult PagedUpdateCacheOpRewritePattern::matchAndRewrite(
   RankedTensorType inputType =
       mlir::cast<RankedTensorType>(op.getInput().getType());
 
-  // The height sharded virtual grid must be [num_users, 1]
+  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op.getOperation());
+
+  // The height sharded virtual grid must be [num_users, 1].
   int64_t numUsers = inputType.getShape()[1];
+  // Under data parallelism the fill value's user (batch) dim is sharded across
+  // the DP (batch) mesh axis (mesh dim 0), so each device only updates
+  // numUsers / dp_size users. Use the per-device count so the height-shard
+  // grid fits the worker grid; otherwise a full batch larger than the worker
+  // grid core count fails canonical core placement.
+  llvm::ArrayRef<int64_t> meshShape = deviceAttr.getMeshShape();
+  int64_t dpSize = meshShape.empty() ? 1 : meshShape.front();
+  if (dpSize > 1 && numUsers % dpSize == 0) {
+    numUsers /= dpSize;
+  }
   SmallVector<int64_t> virtualGridSize = {numUsers, 1};
 
   auto inputElementType = inputType.getElementType();
@@ -32,8 +44,6 @@ LogicalResult PagedUpdateCacheOpRewritePattern::matchAndRewrite(
           mlir::dyn_cast_or_null<ttcore::TileType>(inputElementType)) {
     inputElementType = inputTileType.getElementType();
   }
-
-  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op.getOperation());
 
   // Create layout attribute for the input tensor using the specific memory
   // config with desired grid.
