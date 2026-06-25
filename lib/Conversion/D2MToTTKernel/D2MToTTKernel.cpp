@@ -1016,7 +1016,9 @@ public:
       Value dstIdx = getDstIdxFromResult(op.getResult());
       ensureDominatesInsertionPoint(rewriter, dstIdx);
 
-      auto emitSeed = [&]() {
+      // tile_matmul lowers as dst = a @ b + dst, so initialize the
+      // accumulator once before the first K iteration.
+      auto emitZeroAccumulator = [&]() {
         auto zero = rewriter.create<arith::ConstantOp>(
             op->getLoc(), rewriter.getF32FloatAttr(0.0));
         rewriter.create<ttkernel::FillTileInitOp>(op->getLoc());
@@ -1028,7 +1030,7 @@ public:
                                                /*withElseRegion=*/false);
         OpBuilder::InsertionGuard guard(rewriter);
         rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
-        emitSeed();
+        emitZeroAccumulator();
       }
 
       rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
