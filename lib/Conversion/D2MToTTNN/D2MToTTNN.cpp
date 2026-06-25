@@ -256,10 +256,16 @@ createSemaphoreDescriptors(Builder &builder, const ArrayAttr &threads,
       continue;
     }
 
-    for (auto ctArg : kernelSpec.getCtArgs()) {
-      if (ctArg.getArgType() == ttkernel::ArgType::LocalSemaphore) {
-        seenSemaphoreIndices.insert(ctArg.getOperandIndex());
+    auto collectLocalSemaphore = [&](ttkernel::ArgAttr arg) {
+      if (arg.getArgType() == ttkernel::ArgType::LocalSemaphore) {
+        seenSemaphoreIndices.insert(arg.getOperandIndex());
       }
+    };
+    for (auto rtArg : kernelSpec.getRtArgs()) {
+      collectLocalSemaphore(rtArg);
+    }
+    for (auto ctArg : kernelSpec.getCtArgs()) {
+      collectLocalSemaphore(ctArg);
     }
   }
 
@@ -304,10 +310,8 @@ static SmallVector<mlir::Attribute> createKernelDescriptors(
     auto kernelSpec = kernelFunc->getAttrOfType<ttkernel::ArgSpecAttr>(
         ttkernel::ArgSpecAttr::name);
 
-    // Note: D2MToTTKernel will only populate kernelSpec with rtargs in the
-    // ttnn-mode, however despite the name, they are actually common runtime
-    // args. TTKernel ArgSpec does not have crt field, and the normal tt-metal
-    // path doesn't use rt args at all.
+    // Uniform TTKernel runtime args are modeled as common runtime args in
+    // TTNN generic descriptors.
     auto crtArgs = kernelSpec.getRtArgs();
     auto ctArgs = kernelSpec.getCtArgs();
     llvm::SmallVector<mlir::Attribute> kernelCTArgs(ctArgs.size());
@@ -480,16 +484,13 @@ materializeIntermediateTensor(memref::AllocOp op, IRRewriter &rewriter,
       emptyTensorType = castResultType;
     }
 
-    auto emptyLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(emptyTensorType.getEncoding());
     auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
 
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPointAfter(op);
     auto emptyOp = rewriter.create<ttnn::EmptyOp>(
         loc, emptyTensorType, device,
-        ttnn::ShapeAttr::get(ctx, emptyTensorType.getShape()),
-        ttnn::LayoutAttr::get(ctx, emptyLayoutAttr.getLayout()));
+        ttnn::ShapeAttr::get(ctx, emptyTensorType.getShape()));
 
     valueMapping[op.getResult()] = emptyOp.getResult();
     for (auto castOp : castsToMap) {
@@ -528,8 +529,8 @@ static LogicalResult convertD2MEmpty(d2m::EmptyOp op, IRRewriter &rewriter,
 
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPointAfter(op);
-  auto emptyOp = rewriter.create<ttnn::EmptyOp>(op.getLoc(), tensorType, device,
-                                                shape, *layout);
+  auto emptyOp =
+      rewriter.create<ttnn::EmptyOp>(op.getLoc(), tensorType, device, shape);
   valueMapping[op.getResult()] = emptyOp.getResult();
   return success();
 }
@@ -863,6 +864,11 @@ remapSpatialKernelArgs(MLIRContext *ctx, ArrayRef<Attribute> args,
       if (auto unified = remapTable.lookupAdditional(
               generic, globalSem.getGlobalSemaphoreIndex())) {
         mapped = ttnn::KernelArgGlobalSemaphoreAttr::get(ctx, *unified);
+      }
+    } else if (auto scalar = mlir::dyn_cast<ttnn::KernelArgScalarAttr>(arg)) {
+      if (auto unified =
+              remapTable.lookupAdditional(generic, scalar.getOperandIndex())) {
+        mapped = ttnn::KernelArgScalarAttr::get(ctx, *unified);
       }
     }
     out.push_back(mapped);

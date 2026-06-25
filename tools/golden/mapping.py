@@ -6012,6 +6012,26 @@ def ttnn_sampling_golden(
     )
 
 
+def ttir_sampling_golden(
+    input_values: GoldenMapTensor,
+    input_indices: GoldenMapTensor,
+    k: GoldenMapTensor,
+    p: GoldenMapTensor,
+    temp: GoldenMapTensor,
+    seed: Optional[IntegerAttr],
+    output_type_mlir: Type,
+) -> GoldenMapTensor:
+    """CPU golden for ttir.sampling.
+
+    ttir.sampling lowers 1:1 to ttnn.sampling, so the reference is identical;
+    delegate to ttnn_sampling_golden. Stochastic on device (hardware RNG), so
+    callers should disable PCC comparison.
+    """
+    return ttnn_sampling_golden(
+        input_values, input_indices, k, p, temp, seed, output_type_mlir
+    )
+
+
 ################ StableHLO Op Golden Functions ###############
 
 
@@ -8596,6 +8616,77 @@ def ttir_paged_sdpa_decode_golden(
     )
 
 
+def ttir_chunked_scaled_dot_product_attention_golden(
+    query: GoldenMapTensor,
+    key: GoldenMapTensor,
+    value: GoldenMapTensor,
+    page_table: GoldenMapTensor,
+    chunk_start_idx: GoldenMapTensor,
+    output: GoldenMapTensor,
+    scale_attr: Optional[FloatAttr] = None,
+    output_type_mlir: Optional[Type] = None,
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    scale_val = unpack_mlir_attr(scale_attr) if scale_attr is not None else None
+
+    query_t = _gmt_leaf_torch(query)
+    key_t = _gmt_leaf_torch(key)
+    value_t = _gmt_leaf_torch(value)
+    pt = _gmt_leaf_torch(page_table.long())
+    start_t = _gmt_leaf_torch(chunk_start_idx.long())
+
+    # Query is already [B, H, S, D] for chunked prefill (no permute).
+    q = query_t.float()
+    b, nh, s_q, d = q.shape
+
+    # K/V are paged: [num_blocks, num_kv_heads, block_size, head_dim].
+    num_blocks, nkv, block_size, _ = key_t.shape
+    blocks_per_user = pt.shape[-1]
+    seq_len = blocks_per_user * block_size
+
+    # Clamp indices so random golden page tables stay in-range (parse tests only).
+    pt_flat = pt.view(-1).clamp(0, num_blocks - 1)
+
+    # Unpage K using page table -> [B, num_kv_heads, seq_len, D].
+    k_unpaged = key_t[pt_flat]
+    k_unpaged = k_unpaged.reshape(b, blocks_per_user, nkv, block_size, d)
+    k_unpaged = k_unpaged.transpose(1, 2).reshape(b, nkv, seq_len, d).float()
+
+    # Unpage V using page table.
+    dv = value_t.shape[-1]
+    v_unpaged = value_t[pt_flat]
+    v_unpaged = v_unpaged.reshape(b, blocks_per_user, nkv, block_size, dv)
+    v_unpaged = v_unpaged.transpose(1, 2).reshape(b, nkv, seq_len, dv).float()
+
+    # GQA expansion.
+    head_rep = nh // nkv
+    if head_rep > 1:
+        k_unpaged = k_unpaged.repeat_interleave(head_rep, dim=1)
+        v_unpaged = v_unpaged.repeat_interleave(head_rep, dim=1)
+
+    # Causal mask: query row j (absolute position start + j) attends to key
+    # columns [0, start + j] inclusive; everything else is masked.
+    start = int(start_t.view(-1)[0].item())
+    col = torch.arange(seq_len).view(1, seq_len)
+    row = (start + torch.arange(s_q)).view(s_q, 1)
+    allowed = col <= row
+    attn_mask = torch.zeros((1, 1, s_q, seq_len), dtype=torch.float32)
+    attn_mask.masked_fill_(
+        ~allowed.view(1, 1, s_q, seq_len), torch.finfo(torch.float32).min
+    )
+
+    out = torch.nn.functional.scaled_dot_product_attention(
+        q, k_unpaged, v_unpaged, attn_mask=attn_mask, scale=scale_val, is_causal=False
+    )
+
+    # Output mirrors query shape [B, H, S, D].
+    out = out.to(output_dtype)
+    return GoldenMapTensor(
+        {k: out.clone() for k in query.shard_map.keys()},
+        query.mesh_shape,
+    )
+
+
 def _gmt_leaf_torch(t: Union[GoldenMapTensor, torch.Tensor]) -> torch.Tensor:
     """Resolve GoldenMapTensor (recursively) to a torch.Tensor for scalar/index ops."""
     while isinstance(t, GoldenMapTensor):
@@ -8890,6 +8981,8 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Attention operations
     ttir.PagedFlashMultiLatentAttentionDecodeOp: ttir_paged_flash_multi_latent_attention_decode_golden,
     ttir.PagedScaledDotProductAttentionDecodeOp: ttir_paged_sdpa_decode_golden,
+    ttir.ChunkedScaledDotProductAttentionOp: ttir_chunked_scaled_dot_product_attention_golden,
+    ttir.SamplingOp: ttir_sampling_golden,
     # ----- D2M OPS -----
     # D2M Layout operations (identity functions)
     d2m.ToLayoutOp: (lambda x, **kwargs: x),

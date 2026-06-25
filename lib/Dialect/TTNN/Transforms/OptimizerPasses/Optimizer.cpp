@@ -455,11 +455,6 @@ public:
           RankedTensorType newTensorType =
               RankedTensorType::get(tensorShape, newElementType, chosenLayout);
 
-          // Update the memory space and layout of the op.
-          //
-          TTNNLayoutAttr layoutAttr =
-              mlir::cast<TTNNLayoutAttr>(newTensorType.getEncoding());
-
           // D2MSubgraphOp: apply chosen layout to result(s), output buffer(s),
           // and D2M subgraph.
           if (auto dispatchOp = dyn_cast<D2MSubgraphOp>(op)) {
@@ -468,26 +463,15 @@ public:
             return;
           }
 
-          // Update layout attribute for ops that have layout attribute.
-          if (TTNNLayoutOpInterface opWithLayoutIF =
-                  mlir::dyn_cast<TTNNLayoutOpInterface>(op)) {
-            opWithLayoutIF.setLayoutAttr(
-                LayoutAttr::get(op->getContext(), layoutAttr.getLayout()));
-          }
-
           op->getResult(0).setType(newTensorType);
 
           // Update DPS operand layout as well.
           //
           if (isa<mlir::DestinationStyleOpInterface>(op)) {
             op->getOperands().back().setType(newTensorType);
-            EmptyOp emptyOp =
-                mlir::cast<EmptyOp>(op->getOperands().back().getDefiningOp());
-
-            if (layoutAttr.isTiled()) {
-              emptyOp.setLayout(ttnn::Layout::Tile);
-            } else {
-              emptyOp.setLayout(ttnn::Layout::RowMajor);
+            if (EmptyOp emptyOp = mlir::dyn_cast<EmptyOp>(
+                    op->getOperands().back().getDefiningOp())) {
+              emptyOp.getResult().setType(newTensorType);
             }
           }
 
@@ -783,7 +767,6 @@ private:
       //
       if (isa_and_nonnull<ToLayoutOp>(producerOp)) {
         ToLayoutOp toLayoutOp = llvm::cast<ToLayoutOp>(producerOp);
-        toLayoutOp.setLayout(reshardOpLayout.getLayout());
         toLayoutOp.getResult().setType(newTensorType);
       } else {
         OpBuilder builder(consumerOp);
@@ -791,10 +774,8 @@ private:
                                                            "_mem_reconfig");
         ToLayoutOp memoryReconfigOp = builder.create<ToLayoutOp>(
             loc,
-            newTensorType,                             // output type
-            consumerOp->getOperand(edge.operandIndex), // input value
-            LayoutAttr::get(consumerOp->getContext(),
-                            reshardOpLayout.getLayout()));
+            newTensorType,                              // output type
+            consumerOp->getOperand(edge.operandIndex)); // input value
 
         consumerOp->setOperand(edge.operandIndex,
                                memoryReconfigOp->getResult(0));
@@ -844,8 +825,6 @@ private:
 
       // Create a ToLayoutOp with the new DRAM layout.
       OpBuilder builder(spilledOp->getContext());
-      LayoutAttr newLayout =
-          LayoutAttr::get(spilledOp->getContext(), dramLayout.getLayout());
 
       builder.setInsertionPointAfter(spilledOp);
       Location loc =
@@ -859,7 +838,7 @@ private:
 
       // Step 2: Insert spilling to DRAM.
       Operation *spillToDRAMOp = builder.create<ToLayoutOp>(
-          loc, newTensorType, spilledOp->getResult(0), newLayout);
+          loc, newTensorType, spilledOp->getResult(0));
 
       // Step 3: Reconnect uses.
       for (auto &use : uses) {
@@ -952,8 +931,6 @@ private:
           l1InterleavedLayout);
 
       OpBuilder builder(spilledOp->getContext());
-      LayoutAttr newLayout = LayoutAttr::get(spilledOp->getContext(),
-                                             l1InterleavedLayout.getLayout());
       builder.setInsertionPointAfter(spilledOp);
       Location loc = ttmlir::utils::appendLocationSuffix(spilledOp->getLoc(),
                                                          "_to_l1_interleaved");
@@ -965,7 +942,7 @@ private:
       }
 
       Operation *toLayoutOp = builder.create<ToLayoutOp>(
-          loc, newTensorType, spilledOp->getResult(0), newLayout);
+          loc, newTensorType, spilledOp->getResult(0));
 
       for (auto &[useOp, operandIdx] : uses) {
         useOp->setOperand(operandIdx, toLayoutOp->getResult(0));

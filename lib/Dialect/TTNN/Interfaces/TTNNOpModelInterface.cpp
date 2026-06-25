@@ -314,7 +314,8 @@ getNamedFullOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
   const mlir::tt::ttnn::ShapeAttr shape = op.getShape();
   const std::optional<mlir::tt::ttcore::DataType> dtype =
       dataTypeAttrToOptional(op.getDtypeAttr());
-  const std::optional<mlir::tt::ttnn::Layout> layout = op.getLayout();
+  const std::optional<mlir::tt::ttnn::Layout> layout =
+      layoutAttrToOptional(op.getLayoutAttr());
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<OpT>::getOpConstraints, op, shape, dtype, layout,
@@ -1716,7 +1717,7 @@ ToLayoutOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                              const OpConfig &opConfig) {
   assert(inputs.size() == 1);
   assert(opConfig.outputLayout && "ToLayoutOp requires output layout");
-  assert(opConfig.outputLayout.getLayout() == getLayout());
+  assert(opConfig.outputLayout.getLayout() == getLayoutAttr().getValue());
 
   const auto inputShape = getInput().getType().getShape();
 
@@ -1741,7 +1742,7 @@ ToLayoutOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                          const OpConfig &opConfig) {
   assert(inputs.size() == 1);
   assert(opConfig.outputLayout && "ToLayoutOp requires output layout");
-  assert(opConfig.outputLayout.getLayout() == getLayout());
+  assert(opConfig.outputLayout.getLayout() == getLayoutAttr().getValue());
 
   const auto inputShape = getInput().getType().getShape();
 
@@ -2822,8 +2823,7 @@ ArgMaxOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<ArgMaxOp>::getOpConstraints, *this, inputShape,
-      inputs[0], getDim(), getKeepDim(), getUseMulticore(),
-      opConfig.outputLayout);
+      inputs[0], getDim(), getKeepDim(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
@@ -2835,7 +2835,7 @@ ArgMaxOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<ArgMaxOp>::getOpRuntime, *this, inputShape, inputs[0],
-      getDim(), getKeepDim(), getUseMulticore(), opConfig.outputLayout);
+      getDim(), getKeepDim(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
@@ -3708,8 +3708,9 @@ PrepareConvTranspose2dWeightsOp::getOpConstraints(
       *this, inputs[0], weightShape, getInputMemoryConfig(),
       getInputTensorLayout(), getWeightsFormat(), getInChannels(),
       getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
-      getKernelSize(), getStride(), getPadding(), getDilation(), getHasBias(),
-      getGroups(), getInputDtype(), getOutputDtype(), conv2dAttrs.conv2dConfig,
+      getKernelSize(), getStride(), getPadding(), getOutputPadding(),
+      getDilation(), getHasBias(), getGroups(), getInputDtype(),
+      getOutputDtype(), conv2dAttrs.conv2dConfig,
       conv2dAttrs.deviceComputeKernelConfig, getConv2dSliceConfig(),
       getMirrorKernel(), opConfig.outputLayout);
 }
@@ -4597,7 +4598,8 @@ FullOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   const mlir::Attribute fillValue = getFillValue();
   const std::optional<mlir::tt::ttcore::DataType> dtype =
       dataTypeAttrToOptional(getDtypeAttr());
-  const std::optional<mlir::tt::ttnn::Layout> layout = getLayout();
+  const std::optional<mlir::tt::ttnn::Layout> layout =
+      layoutAttrToOptional(getLayoutAttr());
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<mlir::tt::ttnn::FullOp>::getOpConstraints, *this, shape,
@@ -4675,8 +4677,8 @@ RandOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
 
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<mlir::tt::ttnn::RandOp>::getOpConstraints, *this,
-      getSize(), dtype.getValue(), getLayout(), getLow(), getHigh(), getSeed(),
-      opConfig.outputLayout);
+      getSize(), dtype.getValue(), getLayoutAttr().getValue(), getLow(),
+      getHigh(), getSeed(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>

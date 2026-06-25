@@ -1414,7 +1414,7 @@ def test_max_pool_2d(
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "emitc"])
 def test_avg_pool_2d(
     shape: Shape,
     dtype: torch.dtype,
@@ -1530,6 +1530,11 @@ def module_batch_norm_grad(builder: StableHLOBuilder):
         unit_attrs: Optional[List[str]] = None,
     ):
         builder.set_graph_level_check(True)
+        # variance must be non-negative (it represents E[(x-mean)^2]).
+        # torch.randn can produce negative values causing sqrt(negative) = NaN.
+        builder.set_goldens(
+            {variance: torch.rand(builder.get_shape(variance), dtype=torch.float32)}
+        )
         return builder.batch_norm_grad(
             operand,
             scale,

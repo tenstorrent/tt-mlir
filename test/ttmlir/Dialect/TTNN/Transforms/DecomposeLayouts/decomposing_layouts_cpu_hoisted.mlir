@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttnn-decompose-layouts -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttnn-decompose-layouts --mlir-print-local-scope -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Verify that CPU-hoisted function outputs are tilized/typecast on host before
@@ -26,12 +26,12 @@ module attributes {} {
     // CHECK: %[[GET_DEVICE:.*]] = "ttnn.get_device"()
     // CHECK: %[[CALL:.*]] = call @cpu_hoisted_rm()
     // CHECK-NEXT: %[[TO_LAYOUT:.*]] = "ttnn.to_layout"(%[[CALL]])
-    // CHECK-SAME: layout = #ttnn.layout<tile>
+    // CHECK-SAME: !ttcore.tile<32x32,
     // CHECK-NEXT: %[[TO_DEVICE:.*]] = "ttnn.to_device"(%[[TO_LAYOUT]], %[[GET_DEVICE]])
     // CHECK-NOT: "ttnn.to_layout"
     // CHECK: return %[[TO_DEVICE]]
     %0 = func.call @cpu_hoisted_rm() {ttir.cpu_hoist_call = unit} : () -> tensor<64x128xf32, #ttnn_layout_host_rm>
-    %1 = "ttnn.to_layout"(%0) <{layout = #ttnn.layout<tile>}> : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xf32, #ttnn_layout_device_tile>
+    %1 = "ttnn.to_layout"(%0)  : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xf32, #ttnn_layout_device_tile>
     return %1 : tensor<64x128xf32, #ttnn_layout_device_tile>
   }
 
@@ -46,7 +46,7 @@ module attributes {} {
     // CHECK-NOT: "ttnn.typecast"
     // CHECK: return %[[TO_DEVICE]]
     %0 = func.call @cpu_hoisted_rm() {ttir.cpu_hoist_call = unit} : () -> tensor<64x128xf32, #ttnn_layout_host_rm>
-    %1 = "ttnn.to_layout"(%0) <{layout = #ttnn.layout<row_major>}> : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
+    %1 = "ttnn.to_layout"(%0)  : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
     return %1 : tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
   }
 
@@ -58,11 +58,11 @@ module attributes {} {
     // CHECK-NEXT: %[[TYPECAST:.*]] = "ttnn.typecast"(%[[CALL]])
     // CHECK-SAME: -> tensor<{{.*}}xbf16,
     // CHECK-NEXT: %[[TO_LAYOUT:.*]] = "ttnn.to_layout"(%[[TYPECAST]])
-    // CHECK-SAME: layout = #ttnn.layout<tile>
+    // CHECK-SAME: !ttcore.tile<32x32,
     // CHECK-NEXT: %[[TO_DEVICE:.*]] = "ttnn.to_device"(%[[TO_LAYOUT]], %[[GET_DEVICE]])
     // CHECK: return %[[TO_DEVICE]]
     %0 = func.call @cpu_hoisted_rm() {ttir.cpu_hoist_call = unit} : () -> tensor<64x128xf32, #ttnn_layout_host_rm>
-    %1 = "ttnn.to_layout"(%0) <{layout = #ttnn.layout<tile>}> : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
+    %1 = "ttnn.to_layout"(%0)  : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
     return %1 : tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
   }
 
@@ -71,11 +71,11 @@ module attributes {} {
     // CHECK-LABEL: func.func @cpu_hoisted_input_layout_no_typecast_tile_to_rm
     // CHECK: %[[FROM_DEVICE:.*]] = "ttnn.from_device"(%arg0)
     // CHECK-NEXT: %[[TO_LAYOUT:.*]] = "ttnn.to_layout"(%[[FROM_DEVICE]])
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
+    // CHECK-SAME: memref<{{.*}}x{{.*}}, #ttnn.buffer_type
     // CHECK-NEXT: %[[CALL:.*]] = call @cpu_hoisted_input_rm(%[[TO_LAYOUT]])
     // CHECK-NOT: "ttnn.to_layout"
     // CHECK: return %[[CALL]]
-    %0 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<row_major>}> : (tensor<64x128xf32, #ttnn_layout_device_tile>) -> tensor<64x128xf32, #ttnn_layout_host_rm>
+    %0 = "ttnn.to_layout"(%arg0)  : (tensor<64x128xf32, #ttnn_layout_device_tile>) -> tensor<64x128xf32, #ttnn_layout_host_rm>
     %1 = func.call @cpu_hoisted_input_rm(%0) {ttir.cpu_hoist_call = unit} : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xf32, #ttnn_layout_host_rm>
     return %1 : tensor<64x128xf32, #ttnn_layout_host_rm>
   }
@@ -87,10 +87,10 @@ module attributes {} {
     // CHECK-NEXT: %[[TYPECAST:.*]] = "ttnn.typecast"(%[[FROM_DEVICE]])
     // CHECK-SAME: -> tensor<{{.*}}xf32,
     // CHECK-NEXT: %[[TO_LAYOUT:.*]] = "ttnn.to_layout"(%[[TYPECAST]])
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
+    // CHECK-SAME: memref<{{.*}}x{{.*}}, #ttnn.buffer_type
     // CHECK-NEXT: %[[CALL:.*]] = call @cpu_hoisted_input_rm(%[[TO_LAYOUT]])
     // CHECK: return %[[CALL]]
-    %0 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<row_major>}> : (tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>) -> tensor<64x128xf32, #ttnn_layout_host_rm>
+    %0 = "ttnn.to_layout"(%arg0)  : (tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>) -> tensor<64x128xf32, #ttnn_layout_host_rm>
     %1 = func.call @cpu_hoisted_input_rm(%0) {ttir.cpu_hoist_call = unit} : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xf32, #ttnn_layout_host_rm>
     return %1 : tensor<64x128xf32, #ttnn_layout_host_rm>
   }

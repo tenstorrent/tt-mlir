@@ -16,9 +16,9 @@ module {
     // CHECK-NOT: ttir.matmul
     // The kernel-side transpose arg is a compile-time 1 (i.e. true).
     // CHECK: "emitc.constant"() <{value = 1 : i32}>
-    // CHECK: mm_block_init
-    // CHECK: mm_block_init_short
-    // CHECK: matmul_block
+    // CHECK: compute_kernel_hw_startup
+    // CHECK: matmul_block_init
+    // CHECK: experimental::matmul_block
     // TILE-ERR: 'd2m.tile_matmul' op transpose_b is only supported by tile_matmul_block lowering
     %r = "ttir.matmul"(%lhs, %rhs) <{transpose_b = true}> : (!lhs, !rhs) -> (!matmul_result)
     return %r : !matmul_result

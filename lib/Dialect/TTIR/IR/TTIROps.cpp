@@ -7445,6 +7445,94 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// ChunkedScaledDotProductAttentionOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult
+mlir::tt::ttir::ChunkedScaledDotProductAttentionOp::verify() {
+  RankedTensorType queryType = getQuery().getType();
+  RankedTensorType keyType = getKey().getType();
+  RankedTensorType valueType = getValue().getType();
+  RankedTensorType pageTableType = getPageTable().getType();
+  RankedTensorType chunkStartIdxType = getChunkStartIdx().getType();
+  RankedTensorType resultType = getResult().getType();
+
+  // Verify ranks. query: [num_users, num_heads, chunk_len, head_size];
+  // key/value: paged cache [num_blocks, num_kv_heads, block_size, head_size].
+  if (queryType.getRank() != 4) {
+    return emitOpError("Query must be a 4D tensor.");
+  }
+  if (keyType.getRank() != 4 || valueType.getRank() != 4) {
+    return emitOpError("Key and value must be 4D tensors.");
+  }
+  if (pageTableType.getRank() != 2) {
+    return emitOpError("Page table must be a 2D tensor.");
+  }
+  if (chunkStartIdxType.getRank() != 1) {
+    return emitOpError("Chunk start index must be a 1D tensor.");
+  }
+  if (chunkStartIdxType.getDimSize(0) != 1) {
+    return emitOpError("Chunk start index must have shape [1] (a single prefix "
+                       "offset shared by all users).");
+  }
+
+  // Verify element types. The BFP8/BFP4 KV cache typecast happens later in the
+  // TTNN pipeline, so at TTIR query/key/value share one float element type.
+  if (queryType.getElementType() != keyType.getElementType() ||
+      queryType.getElementType() != valueType.getElementType()) {
+    return emitOpError(
+        "Query, key, and value must have the same element type.");
+  }
+  if (!queryType.getElementType().isFloat()) {
+    return emitOpError("Query, key, and value must be float tensors.");
+  }
+  if (!pageTableType.getElementType().isInteger()) {
+    return emitOpError("Page table must be an integer tensor.");
+  }
+  if (!chunkStartIdxType.getElementType().isInteger()) {
+    return emitOpError("Chunk start index must be an integer tensor.");
+  }
+
+  // Verify key and value are identical shapes/dtypes.
+  if (keyType != valueType) {
+    return emitOpError("Key and value must have the same shape and data type.");
+  }
+
+  ArrayRef<int64_t> queryShape = queryType.getShape();
+  ArrayRef<int64_t> keyShape = keyType.getShape();
+  int64_t numUsers = queryShape[0];
+  int64_t numQueryHeads = queryShape[1];
+  int64_t queryHeadSize = queryShape[3];
+  int64_t numKVHeads = keyShape[1];
+  int64_t blockSize = keyShape[2];
+  int64_t keyHeadSize = keyShape[3];
+
+  // Verify shapes.
+  if (queryHeadSize != keyHeadSize) {
+    return emitOpError("Query head size must match key/value head size.");
+  }
+  if (numKVHeads == 0 || numQueryHeads % numKVHeads != 0) {
+    return emitOpError(
+        "Query num heads must be divisible by key/value num heads.");
+  }
+  // The ttnn kernel reads the paged cache by 32-element sticks.
+  if (blockSize % 32 != 0) {
+    return emitOpError("Key/value block size must be divisible by 32.");
+  }
+  if (pageTableType.getShape()[0] != numUsers) {
+    return emitOpError(
+        "Page table number of users must match query number of users.");
+  }
+
+  // The result is the attended query chunk and mirrors the query shape.
+  if (resultType.getShape() != queryShape) {
+    return emitOpError("Result shape must match query shape.");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // PagedFlashMultiLatentAttentionDecodeOp
 //===----------------------------------------------------------------------===//
 
@@ -7477,6 +7565,14 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
     return emitOpError("Page table must be an integer tensor.");
   }
 
+  // MLA keeps a single compressed latent KV cache that is shared across all
+  // query heads, so the number of KV heads (nkv, dim 1 of the key cache) must
+  // be 1.
+  if (keyType.getShape()[1] != 1) {
+    return emitOpError("Key num KV heads (nkv) must be 1, got ")
+           << keyType.getShape()[1] << ".";
+  }
+
   // Verify value if present.
   if (getValue()) {
     RankedTensorType valueType = getValue().getType();
@@ -7485,6 +7581,10 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
     }
     if (queryType.getElementType() != valueType.getElementType()) {
       return emitOpError("Query and value must have the same element type.");
+    }
+    if (valueType.getShape()[1] != 1) {
+      return emitOpError("Value num KV heads (nkv) must be 1, got ")
+             << valueType.getShape()[1] << ".";
     }
   }
 
@@ -8551,6 +8651,81 @@ static bool anyZero(mlir::ElementsAttr elems) {
   }
   if (getExpertScores().getType().getRank() < 2) {
     return emitOpError("expert_scores must have rank >= 2");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// TTLangOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::TTLangOp::verify() {
+  if (getInputs().empty()) {
+    return emitOpError("tt-lang kernel must have at least one input operand.");
+  }
+
+  // arg_roles is a comma-separated list of "in" / "out" tokens. Each entry
+  // corresponds positionally to `inputs`; entries marked "out" correspond
+  // positionally to `results` (so the number of "out" tokens must equal
+  // numResults).
+  llvm::StringRef rolesStr = getArgRoles();
+  if (rolesStr.empty()) {
+    return emitOpError("`arg_roles` attribute must not be empty.");
+  }
+
+  llvm::SmallVector<llvm::StringRef> tokens;
+  rolesStr.split(tokens, ',');
+  if (tokens.size() != getInputs().size()) {
+    return emitOpError("`arg_roles` token count (")
+           << tokens.size() << ") must match number of inputs ("
+           << getInputs().size() << ").";
+  }
+
+  size_t outCount = 0;
+  bool seenOut = false;
+  for (llvm::StringRef token : tokens) {
+    llvm::StringRef trimmed = token.trim();
+    if (trimmed == "out") {
+      ++outCount;
+      seenOut = true;
+    } else if (trimmed == "in") {
+      // DPS ordering: every "out" operand is a trailing init operand that
+      // ties positionally to a result, so no "in" may follow an "out".
+      if (seenOut) {
+        return emitOpError(
+            "`arg_roles` must list all \"in\" operands before any \"out\" "
+            "operand (destination-passing-style ordering).");
+      }
+    } else {
+      return emitOpError("`arg_roles` token must be \"in\" or \"out\", got: \"")
+             << trimmed << "\".";
+    }
+  }
+
+  if (outCount != getResults().size()) {
+    return emitOpError("number of \"out\" roles (")
+           << outCount << ") must match number of results ("
+           << getResults().size() << ").";
+  }
+  // At least one "out" operand is required: a tt-lang kernel must write to
+  // a destination buffer that the runtime hands back as the kernel's output,
+  // so we enforce that semantics for the op here at the TTIR level.
+  // Catching this here also means the StableHLOToTTIR conversion can never
+  // produce an op that the TTNN verifier or flatbuffer emitter would reject
+  // downstream; the diagnostic surfaces at the same layer that built the op.
+  if (outCount == 0) {
+    return emitOpError(
+        "tt-lang kernel must have at least one operand tagged \"out\" "
+        "(the destination buffer the runtime returns as the kernel's "
+        "output).");
+  }
+
+  if (getKernelId().empty()) {
+    return emitOpError("`kernel_id` attribute must not be empty.");
+  }
+  if (getVersionTag().empty()) {
+    return emitOpError("`version_tag` attribute must not be empty.");
   }
 
   return success();

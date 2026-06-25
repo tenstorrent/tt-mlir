@@ -224,7 +224,8 @@ createOp(FlatbufferObjectCache &cache, ToMemoryConfigOp op) {
 createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getInput()));
-  ::tt::target::TensorLayout layout = toFlatbuffer(cache, op.getLayout());
+  ::tt::target::TensorLayout layout =
+      toFlatbuffer(cache, op.getLayoutAttr().getValue());
   auto output =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
                                   /*local_shape*/ std::nullopt);
@@ -325,7 +326,8 @@ createCpuOp(FlatbufferObjectCache &cache, func::CallOp op, uint32_t dylib_id) {
 createOp(FlatbufferObjectCache &cache, EmptyOp op) {
   ::llvm::ArrayRef<int64_t> shape = op.getShape().getShape();
   ::tt::target::DataType dtype = toFlatbuffer(cache, op.getDtypeAttr());
-  ::tt::target::TensorLayout layout = toFlatbuffer(cache, op.getLayout());
+  ::tt::target::TensorLayout layout =
+      toFlatbuffer(cache, op.getLayoutAttr().getValue());
 
   auto output = getOperandThroughDPSOps(op.getResult());
   auto device = getOperandThroughDPSOps(op.getDevice());
@@ -379,7 +381,7 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
     llvm_unreachable("fill value must be float or integer");
   }
   auto dtype = toFlatbuffer(cache, op.getDtypeAttr());
-  auto layout = toFlatbuffer(cache, op.getLayout());
+  auto layout = toFlatbuffer(cache, op.getLayoutAttr().getValue());
   auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
   auto output =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
@@ -395,7 +397,7 @@ createOp(FlatbufferObjectCache &cache, FullOp op) {
 createOp(FlatbufferObjectCache &cache, ArangeOp op) {
   auto dtype = toFlatbuffer(cache, op.getDtypeAttr());
   flatbuffers::Optional<::tt::target::TensorLayout> layout =
-      toFlatbuffer(cache, op.getLayout());
+      toFlatbuffer(cache, op.getLayoutAttr().getValue());
   auto device =
       op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
 
@@ -432,7 +434,7 @@ createNamedFullOp(FlatbufferObjectCache &cache, OpTy op) {
   auto dtype = toFlatbuffer(cache, op.getDtypeAttr());
 
   ::flatbuffers::Optional<::tt::target::TensorLayout> layout =
-      toFlatbuffer(cache, op.getLayout());
+      toFlatbuffer(cache, op.getLayoutAttr().getValue());
 
   flatbuffers::Offset<::tt::target::DeviceRef> device =
       op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
@@ -808,6 +810,8 @@ createOp(FlatbufferObjectCache &cache, PrepareConvTranspose2dWeightsOp op) {
       toFlatbuffer(cache, op.getStride());
   ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> padding =
       toFlatbuffer(cache, op.getPadding());
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> outputPadding =
+      toFlatbuffer(cache, op.getOutputPadding());
   ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> dilation =
       toFlatbuffer(cache, op.getDilation());
   auto device = getOperandThroughDPSOps(op.getDevice());
@@ -833,7 +837,7 @@ createOp(FlatbufferObjectCache &cache, PrepareConvTranspose2dWeightsOp op) {
       *cache.fbb, weightTensor, output, memoryConfig, inputTensorLayout,
       weightsFormat, op.getInChannels(), op.getOutChannels(), op.getBatchSize(),
       op.getInputHeight(), op.getInputWidth(), kernelSize, stride, padding,
-      dilation, op.getHasBias(), op.getGroups(),
+      outputPadding, dilation, op.getHasBias(), op.getGroups(),
       cache.at<::tt::target::DeviceRef>(device), inputDtype, outputDtype,
       conv2dConfig.value_or(0), computeConfig.value_or(0),
       sliceConfig.value_or(0), op.getMirrorKernel());
@@ -1988,7 +1992,7 @@ createOp(FlatbufferObjectCache &cache, ttnn::ConstantOp op) {
       cache, ttcore::elementTypeToDataType(op.getValue().getElementType()));
   auto dtype = toFlatbuffer(cache, op.getDtypeAttr());
   flatbuffers::Optional<::tt::target::TensorLayout> layout =
-      toFlatbuffer(cache, op.getLayout());
+      toFlatbuffer(cache, op.getLayoutAttr().getValue());
   auto device =
       op.getDevice() ? cache.at<::tt::target::DeviceRef>(op.getDevice()) : 0;
 
@@ -2648,8 +2652,7 @@ createReductionArgMaxOp(FlatbufferObjectCache &cache, ReductionOp op) {
   auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
 
   return ::tt::target::ttnn::CreateReductionArgMaxOp(
-      *cache.fbb, in, output, dim, op.getKeepDim(), op.getUseMulticore(),
-      memoryConfig);
+      *cache.fbb, in, output, dim, op.getKeepDim(), memoryConfig);
 }
 
 template <typename ReductionOp>
@@ -2761,7 +2764,8 @@ createRandOp(FlatbufferObjectCache &cache, RandOp op) {
   auto size = cache.fbb->CreateVector<int64_t>(op.getSize().getShape());
   auto device = getOperandThroughDPSOps(op.getDevice());
   ::tt::target::DataType dtype = toFlatbuffer(cache, op.getDtypeAttr());
-  ::tt::target::TensorLayout layout = toFlatbuffer(cache, op.getLayout());
+  ::tt::target::TensorLayout layout =
+      toFlatbuffer(cache, op.getLayoutAttr().getValue());
   auto out =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
 
@@ -3343,6 +3347,39 @@ createOp(FlatbufferObjectCache &cache,
       programConfig.value_or(0));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ChunkedScaledDotProductAttentionOp>
+createOp(FlatbufferObjectCache &cache, ChunkedScaledDotProductAttentionOp op) {
+  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+  auto query = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getQuery()));
+  auto key = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getKey()));
+  auto value = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getValue()));
+  auto pageTable = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getPageTable()));
+  auto chunkStartIdx = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getChunkStartIdx()));
+
+  auto scale = toFlatbuffer(
+      cache, op.getScale()
+                 ? std::make_optional(op.getScale().value().convertToFloat())
+                 : std::nullopt);
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
+
+  auto out =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::SDPAConfig>>
+      programConfig = toFlatbuffer(cache, op.getProgramConfig());
+  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+
+  return ::tt::target::ttnn::CreateChunkedScaledDotProductAttentionOp(
+      *cache.fbb, query, key, value, pageTable, chunkStartIdx, scale, out,
+      memoryConfig, programConfig.value_or(0));
+}
+
 ::flatbuffers::Offset<
     ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOp>
 createOp(FlatbufferObjectCache &cache,
@@ -3520,6 +3557,13 @@ createKernelArgs(FlatbufferObjectCache &cache,
       arg = ::tt::target::ttnn::CreateKernelArgScalar(
                 *cache.fbb, kernelArgScalar.getOperandIndex())
                 .Union();
+    } else if (auto kernelArgTensorAccessor =
+                   llvm::dyn_cast<KernelArgTensorAccessorArgsAttr>(argAttr);
+               kernelArgTensorAccessor) {
+      argType = ::tt::target::ttnn::KernelArgType::KernelArgTensorAccessorArgs;
+      arg = ::tt::target::ttnn::CreateKernelArgTensorAccessorArgs(
+                *cache.fbb, kernelArgTensorAccessor.getOperandIndex())
+                .Union();
     } else {
       llvm_unreachable("Unsupported kernel argument attribute");
     }
@@ -3539,13 +3583,20 @@ createProgramDescriptor(FlatbufferObjectCache &cache, ProgramAttr programAttr,
 
   for (auto kernelAttr : programAttr.getKernels()) {
     auto kernelInterface = llvm::cast<KernelInterface>(kernelAttr);
-    StringRef kernelSymbol = kernelInterface.getSymbolRef().getRootReference();
 
+    // A kernel source can either be inlined by the tt-lang compiler or
+    // referenced by a symbol
     std::string source;
-    llvm::raw_string_ostream stream(source);
-    LogicalResult result =
-        ttkernel::translateTopLevelKernelToCpp(moduleOp, stream, kernelSymbol);
-    assert(result.succeeded());
+    if (mlir::StringAttr inlineSource = kernelInterface.getSource()) {
+      source = inlineSource.getValue().str();
+    } else {
+      StringRef kernelSymbol =
+          kernelInterface.getSymbolRef().getRootReference();
+      llvm::raw_string_ostream stream(source);
+      LogicalResult result = ttkernel::translateTopLevelKernelToCpp(
+          moduleOp, stream, kernelSymbol);
+      assert(result.succeeded());
+    }
     assert(source.size() > 0 && "empty kernel source");
 
     ::tt::target::ttnn::KernelConfig configType =
@@ -3586,6 +3637,31 @@ createProgramDescriptor(FlatbufferObjectCache &cache, ProgramAttr programAttr,
     } else if (auto writeKernelAttr =
                    llvm::dyn_cast<WriteKernelAttr>(kernelAttr);
                writeKernelAttr) {
+      configType = ::tt::target::ttnn::KernelConfig::WriterKernelConfig;
+      config = ::tt::target::ttnn::CreateWriterKernelConfig(*cache.fbb).Union();
+      // The following cases are for source kernels generated by TT-lang
+    } else if (auto srcComputeKernelAttr =
+                   llvm::dyn_cast<SourceComputeKernelAttr>(kernelAttr);
+               srcComputeKernelAttr) {
+      std::vector<::tt::target::UnpackToDestMode> unpackToDestModes =
+          toFlatbuffer(cache, srcComputeKernelAttr.getUnpackToDestModes());
+      configType = ::tt::target::ttnn::KernelConfig::ComputeKernelConfig;
+      config = ::tt::target::ttnn::CreateComputeKernelConfigDirect(
+                   *cache.fbb,
+                   toFlatbuffer(cache, srcComputeKernelAttr.getMathFidelity()),
+                   srcComputeKernelAttr.getFp32DestAccEn(),
+                   srcComputeKernelAttr.getDstFullSyncEn(), &unpackToDestModes,
+                   srcComputeKernelAttr.getBfp8PackPrecise(),
+                   srcComputeKernelAttr.getMathApproxMode())
+                   .Union();
+    } else if (auto srcReadKernelAttr =
+                   llvm::dyn_cast<SourceReadKernelAttr>(kernelAttr);
+               srcReadKernelAttr) {
+      configType = ::tt::target::ttnn::KernelConfig::ReaderKernelConfig;
+      config = ::tt::target::ttnn::CreateReaderKernelConfig(*cache.fbb).Union();
+    } else if (auto srcWriteKernelAttr =
+                   llvm::dyn_cast<SourceWriteKernelAttr>(kernelAttr);
+               srcWriteKernelAttr) {
       configType = ::tt::target::ttnn::KernelConfig::WriterKernelConfig;
       config = ::tt::target::ttnn::CreateWriterKernelConfig(*cache.fbb).Union();
     } else {
@@ -4866,6 +4942,13 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(
         cache, createOp(cache, pagedScaledDotProductAttentionDecodeOp),
         debugString, locInfo);
+  }
+  if (auto chunkedScaledDotProductAttentionOp =
+          dyn_cast<ChunkedScaledDotProductAttentionOp>(op);
+      chunkedScaledDotProductAttentionOp) {
+    return createOperation(cache,
+                           createOp(cache, chunkedScaledDotProductAttentionOp),
+                           debugString, locInfo);
   }
   if (auto pagedFlashMlaDecodeOp =
           dyn_cast<PagedFlashMultiLatentAttentionDecodeOp>(op);

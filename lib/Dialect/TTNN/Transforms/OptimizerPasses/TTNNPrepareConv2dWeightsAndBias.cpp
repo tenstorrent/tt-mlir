@@ -198,7 +198,7 @@ private:
           convOp.getBatchSizeAttr(), convOp.getInputHeightAttr(),
           convOp.getInputWidthAttr(), convOp.getKernelSizeAttr(),
           convOp.getStrideAttr(), convOp.getPaddingAttr(),
-          convOp.getDilationAttr(),
+          convOp.getOutputPaddingAttr(), convOp.getDilationAttr(),
           rewriter.getBoolAttr(convOp.getBias() != nullptr),
           convOp.getGroupsAttr(), convOp.getDevice(), inputDtypeAttr,
           outputDtypeAttr, conv2dConfig, convOp.getComputeConfigAttr(),

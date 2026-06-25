@@ -23,14 +23,13 @@ module attributes {} {
     func.func @device_l1_rm_ui16_to_dram_tile_ui16_inserts_typecast_workaround(%arg0: tensor<64x128xui16, #ttnn_layout_l1_rm_ui16>) -> tensor<64x128xui16, #ttnn_layout_dram_tile_ui16> {
         // CHECK-LABEL: func.func @device_l1_rm_ui16_to_dram_tile_ui16_inserts_typecast_workaround
         // CHECK: %[[TO_LAYOUT:.*]] = "ttnn.to_layout"(%arg0)
-        // CHECK-SAME: layout = #ttnn.layout<tile>
         // CHECK-NEXT: %[[TYPECAST_U32:.*]] = "ttnn.typecast"(%[[TO_LAYOUT]])
         // CHECK-SAME: -> tensor<64x128xui32
         // CHECK-NEXT: %[[TO_MEM_CONFIG:.*]] = "ttnn.to_memory_config"(%[[TYPECAST_U32]])
         // CHECK-NEXT: %[[TYPECAST_U16:.*]] = "ttnn.typecast"(%[[TO_MEM_CONFIG]])
         // CHECK-SAME: -> tensor<64x128xui16
         // CHECK-NEXT: return %[[TYPECAST_U16]]
-        %0 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}> : (tensor<64x128xui16, #ttnn_layout_l1_rm_ui16>) -> tensor<64x128xui16, #ttnn_layout_dram_tile_ui16>
+        %0 = "ttnn.to_layout"(%arg0)  : (tensor<64x128xui16, #ttnn_layout_l1_rm_ui16>) -> tensor<64x128xui16, #ttnn_layout_dram_tile_ui16>
         return %0 : tensor<64x128xui16, #ttnn_layout_dram_tile_ui16>
     }
 }

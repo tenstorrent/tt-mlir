@@ -12,63 +12,58 @@ module attributes {} {
   func.func @merge_to_layout_op_layout(%arg0: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout2> {
     // Verify that the to_layout op is canonicalized to a single to_layout op and the attributes are merged.
     // CHECK: "ttnn.to_layout"(%arg0)
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: -> tensor<32x32xbf16, #ttnn_layout1>
     // CHECK-NEXT: return
-    %0 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}> : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout1>
-    %1 = "ttnn.to_layout"(%0) <{layout = #ttnn.layout<row_major>}> : (tensor<32x32xbf16, #ttnn_layout1>) -> tensor<32x32xbf16, #ttnn_layout2>
+    %0 = "ttnn.to_layout"(%arg0)  : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout1>
+    %1 = "ttnn.to_layout"(%0)  : (tensor<32x32xbf16, #ttnn_layout1>) -> tensor<32x32xbf16, #ttnn_layout2>
     return %1 : tensor<32x32xbf16, #ttnn_layout2>
   }
 
   func.func @merge_to_layout_op_data_type(%arg0: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout3> {
     // Verify that the to_layout op is canonicalized to a single to_layout op and the attributes are merged.
     // CHECK: "ttnn.to_layout"(%arg0)
-    // CHECK-SAME: layout = #ttnn.layout<tile>
     // CHECK-SAME: -> tensor<32x32xf32, #ttnn_layout2>
     // CHECK-NEXT: return
-    %0 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}> : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout1>
-    %1 = "ttnn.to_layout"(%0) <{layout = #ttnn.layout<tile>}> : (tensor<32x32xbf16, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout3>
+    %0 = "ttnn.to_layout"(%arg0)  : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout1>
+    %1 = "ttnn.to_layout"(%0)  : (tensor<32x32xbf16, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout3>
     return %1 : tensor<32x32xf32, #ttnn_layout3>
   }
 
   func.func @merge_to_layout_op_memory_config(%arg0: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout4> {
     // Verify that the to_layout op is canonicalized to a single to_layout op and the attributes are merged.
     // CHECK: "ttnn.to_layout"(%arg0)
-    // CHECK-SAME: layout = #ttnn.layout<tile>
     // CHECK-SAME: -> tensor<32x32xbf16, #ttnn_layout3>
     // CHECK-NEXT: return
-    %0 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}> : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout1>
-    %1 = "ttnn.to_layout"(%0) <{layout = #ttnn.layout<tile>}> : (tensor<32x32xbf16, #ttnn_layout1>) -> tensor<32x32xbf16, #ttnn_layout4>
+    %0 = "ttnn.to_layout"(%arg0)  : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout1>
+    %1 = "ttnn.to_layout"(%0)  : (tensor<32x32xbf16, #ttnn_layout1>) -> tensor<32x32xbf16, #ttnn_layout4>
     return %1 : tensor<32x32xbf16, #ttnn_layout4>
   }
 
   func.func @merge_to_layout_op_all(%arg0: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout5> {
     // Verify that the to_layout op is canonicalized to a single to_layout op and the attributes are merged.
     // CHECK: "ttnn.to_layout"(%arg0)
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: -> tensor<32x32xf32, #ttnn_layout4>
     // CHECK-NEXT: return
-    %0 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}> : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout1>
-    %1 = "ttnn.to_layout"(%0) <{layout = #ttnn.layout<row_major>}> : (tensor<32x32xbf16, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout5>
+    %0 = "ttnn.to_layout"(%arg0)  : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout1>
+    %1 = "ttnn.to_layout"(%0)  : (tensor<32x32xbf16, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout5>
     return %1 : tensor<32x32xf32, #ttnn_layout5>
   }
 
   func.func @merge_to_layout_op_4x(%arg0: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout5> {
     // Verify that the to_layout op is canonicalized to a single to_layout op and the attributes are merged.
     // CHECK: "ttnn.to_layout"(%arg0)
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: -> tensor<32x32xf32, #ttnn_layout4>
     // CHECK-NEXT: return
-    %0 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}> : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout1>
-    %1 = "ttnn.to_layout"(%0) <{layout = #ttnn.layout<row_major>}> : (tensor<32x32xbf16, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout5>
-    %2 = "ttnn.to_layout"(%1) <{layout = #ttnn.layout<tile>}> : (tensor<32x32xf32, #ttnn_layout5>) -> tensor<32x32xf32, #ttnn_layout3>
-    %3 = "ttnn.to_layout"(%2) <{layout = #ttnn.layout<row_major>}> : (tensor<32x32xf32, #ttnn_layout3>) -> tensor<32x32xf32, #ttnn_layout5>
+    %0 = "ttnn.to_layout"(%arg0)  : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout1>
+    %1 = "ttnn.to_layout"(%0)  : (tensor<32x32xbf16, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout5>
+    %2 = "ttnn.to_layout"(%1)  : (tensor<32x32xf32, #ttnn_layout5>) -> tensor<32x32xf32, #ttnn_layout3>
+    %3 = "ttnn.to_layout"(%2)  : (tensor<32x32xf32, #ttnn_layout3>) -> tensor<32x32xf32, #ttnn_layout5>
     return %3 : tensor<32x32xf32, #ttnn_layout5>
   }
 
   func.func @fold_to_layout_op(%arg0: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout> {
     // Verify folding of to_layout_op.
-    %0 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<row_major>}> : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+    %0 = "ttnn.to_layout"(%arg0)  : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
     // CHECK-NOT: "ttnn.to_layout"
     return %0 : tensor<32x32xbf16, #ttnn_layout>
     // CHECK: return %arg0 : tensor<32x32xbf16

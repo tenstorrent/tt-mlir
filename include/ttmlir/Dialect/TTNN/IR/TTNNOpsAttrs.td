@@ -1063,6 +1063,21 @@ def TTNN_KernelArgScalarAttr : TTNN_Attr<"KernelArgScalar", "kernel_arg_scalar">
   let assemblyFormat = "`<` $operand_index `>`";
 }
 
+def TTNN_KernelArgTensorAccessorArgsAttr : TTNN_Attr<"KernelArgTensorAccessorArgs", "kernel_arg_tensor_accessor_args"> {
+  let summary = "Tensor-accessor compile-time args marker";
+  let description = [{
+    TTNN generic kernel compile-time argument marker. At launch time the
+    runtime resolves the operand at `operand_index` (an index into the
+    op's io_tensors array) to its live `Buffer*`, calls
+    `tt::tt_metal::TensorAccessorArgs(buffer).get_compile_time_args()`, and
+    splices the resulting uint32 sequence into the kernel binary's
+    compile-time args.
+  }];
+
+  let parameters = (ins "size_t":$operand_index);
+  let assemblyFormat = "`<` $operand_index `>`";
+}
+
 def TTNN_CoreRuntimeArgsAttr : TTNN_Attr<"CoreRuntimeArgs", "core_runtime_args"> {
   let summary = "Per-core runtime arguments";
   let description = [{
@@ -1210,6 +1225,99 @@ def TTNN_WriteKernelAttr: TTNN_Attr<"WriteKernel", "write_kernel", [TTNN_KernelI
   ];
 
   let assemblyFormat = "`<` struct($symbol_ref, $core_ranges) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)?  `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `,` `rt_args` `=` `[` (`]`) : ($rt_args^ `]`)? `>`";
+
+  let genVerifyDecl = 1;
+}
+
+// ----------------------------------------------------------------------------
+// Inline-source kernel descriptors.
+//
+// The compute/read/write kernel attrs above reference a ttkernel function by
+// symbol; the TTNN-to-flatbuffer pass then derives each kernel's C++ by
+// translating that symbol. The Source* variants below instead carry the C++
+// kernel body inline as a `source` string, for kernels that are compiled
+// outside tt-mlir (e.g. tt-lang kernels resolved by
+// `--ttnn-resolve-tt-lang-kernels` and lowered by
+// `--ttnn-lower-tt-lang-to-generic`). They implement the same
+// `KernelInterface` and flow through the identical `ttnn.generic`
+// flatbuffer/runtime path; the only difference is `getSource()` returns the
+// inline body and `getSymbolRef()` is null.
+// ----------------------------------------------------------------------------
+
+def TTNN_SourceComputeKernelAttr: TTNN_Attr<"SourceComputeKernel", "source_compute_kernel", [TTNN_KernelInterface]> {
+  let summary = "Compute kernel with inline C++ source";
+  let description = [{
+    Like `#ttnn.compute_kernel`, but carries the compute kernel's C++ body
+    inline via `source` instead of referencing a ttkernel function symbol.
+  }];
+
+  let parameters = (ins "mlir::StringAttr":$source,
+                        TTNN_CoreRangeSetAttr:$core_ranges,
+                        "ComputeKernelMathFidelity":$math_fidelity,
+                        "bool":$fp32_dest_acc_en,
+                        "bool":$dst_full_sync_en,
+                        OptionalArrayRefParameter<"ComputeKernelUnpackToDestMode">:$unpack_to_dest_modes,
+                        "bool":$bfp8_pack_precise,
+                        "bool":$math_approx_mode,
+                        OptionalArrayRefParameter<"mlir::Attribute">:$common_rt_args,
+                        OptionalArrayRefParameter<"CoreRuntimeArgsAttr">:$rt_args,
+                        OptionalArrayRefParameter<"mlir::Attribute">:$ct_args);
+
+  let assemblyFormat = "`<` `source` `=` $source `,` struct($core_ranges, $math_fidelity, $fp32_dest_acc_en, $dst_full_sync_en) `,` `unpack_to_dest_modes` `=` `[` (`]`) : ($unpack_to_dest_modes^ `]`)? `,` struct($bfp8_pack_precise, $math_approx_mode) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)? `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `,` `rt_args` `=` `[` (`]`) : ($rt_args^ `]`)? `>`";
+
+  // This kernel carries its body inline via `source`, so it references no
+  // ttkernel symbol; return a null getSymbolRef() to satisfy KernelInterface.
+  let extraClassDeclaration = [{
+    mlir::SymbolRefAttr getSymbolRef() const { return mlir::SymbolRefAttr(); }
+  }];
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_SourceReadKernelAttr: TTNN_Attr<"SourceReadKernel", "source_read_kernel", [TTNN_KernelInterface]> {
+  let summary = "Read kernel with inline C++ source";
+  let description = [{
+    Like `#ttnn.read_kernel`, but carries the reader kernel's C++ body inline
+    via `source` instead of referencing a ttkernel function symbol.
+  }];
+
+  let parameters = (ins "mlir::StringAttr":$source,
+                        TTNN_CoreRangeSetAttr:$core_ranges,
+                        OptionalArrayRefParameter<"mlir::Attribute">:$common_rt_args,
+                        OptionalArrayRefParameter<"CoreRuntimeArgsAttr">:$rt_args,
+                        OptionalArrayRefParameter<"mlir::Attribute">:$ct_args);
+
+  let assemblyFormat = "`<` `source` `=` $source `,` struct($core_ranges) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)? `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `,` `rt_args` `=` `[` (`]`) : ($rt_args^ `]`)? `>`";
+
+  // This kernel carries its body inline via `source`, so it references no
+  // ttkernel symbol; return a null getSymbolRef() to satisfy KernelInterface.
+  let extraClassDeclaration = [{
+    mlir::SymbolRefAttr getSymbolRef() const { return mlir::SymbolRefAttr(); }
+  }];
+
+  let genVerifyDecl = 1;
+}
+
+def TTNN_SourceWriteKernelAttr: TTNN_Attr<"SourceWriteKernel", "source_write_kernel", [TTNN_KernelInterface]> {
+  let summary = "Write kernel with inline C++ source";
+  let description = [{
+    Like `#ttnn.write_kernel`, but carries the writer kernel's C++ body inline
+    via `source` instead of referencing a ttkernel function symbol.
+  }];
+
+  let parameters = (ins "mlir::StringAttr":$source,
+                        TTNN_CoreRangeSetAttr:$core_ranges,
+                        OptionalArrayRefParameter<"mlir::Attribute">:$common_rt_args,
+                        OptionalArrayRefParameter<"CoreRuntimeArgsAttr">:$rt_args,
+                        OptionalArrayRefParameter<"mlir::Attribute">:$ct_args);
+
+  let assemblyFormat = "`<` `source` `=` $source `,` struct($core_ranges) `,` `ct_args` `=` `[` (`]`) : ($ct_args^ `]`)? `,` `common_rt_args` `=` `[` (`]`) : ($common_rt_args^ `]`)? `,` `rt_args` `=` `[` (`]`) : ($rt_args^ `]`)? `>`";
+
+  // This kernel carries its body inline via `source`, so it references no
+  // ttkernel symbol; return a null getSymbolRef() to satisfy KernelInterface.
+  let extraClassDeclaration = [{
+    mlir::SymbolRefAttr getSymbolRef() const { return mlir::SymbolRefAttr(); }
+  }];
 
   let genVerifyDecl = 1;
 }

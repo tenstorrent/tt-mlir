@@ -300,7 +300,7 @@ def TTNNPrepareModuleForExport : Pass<"ttnn-prepare-module-for-export", "::mlir:
     // After:
     %0 = ttcore.get_tuple_element %arg0[0]
         : (tuple<tensor<32x32xbf16, #host>, ...>)   -> tensor<32x32xbf16, #host>
-    %1 = "ttnn.to_layout"(%0) <{layout = #ttnn.layout<tile>}>
+    %1 = "ttnn.to_layout"(%0)
         : (tensor<32x32xbf16, #host>) -> tensor<32x32xbf16, #host_staged>
     %2 = "ttnn.to_device"(%1, %arg1)
         : (tensor<32x32xbf16, #host_staged>, !ttnn.device)
@@ -869,6 +869,89 @@ def TTNNGreedyMemoryLayoutPropagation : Pass<"ttnn-greedy-memory-layout-propagat
     Option<"enableCompileTimeStats", "enable-compile-time-stats", "bool", "false",
            "Print per-op compile-time statistics at DEBUG level.">,
   ];
+}
+
+def TTNNResolveTTLangKernels : Pass<"ttnn-resolve-tt-lang-kernels", "::mlir::ModuleOp"> {
+  let summary = "Resolve deferred ttnn.tt_lang_op kernels via the tt-lang Python compiler.";
+  let description = [{
+    This pass walks the module for `ttnn.tt_lang_op` operations with an
+    empty `kernel_artifact` attribute and invokes
+    `tt_torch.tt_lang.resolve_operation` through the host process's Python
+    interpreter, passing the (now-final, post-TTIR->TTNN) shard-local
+    operand types and `arg_roles` / `shard_spec`. The
+    `tt_torch.tt_lang.resolve_operation` resolver lives in tt-xla's
+    `tt_torch` Python package and returns a `CompiledTTNNKernel` JSON
+    artifact, which the pass attaches back onto the op as the
+    `kernel_artifact` `StringAttr`. This attribute is later consumed by
+    the downstream TTNN-to-flatbuffer emitter to materialise a
+    `ttnn.generic_op` descriptor.
+
+    Important Notes:
+    This pass must be run after all TTNN layout-decomposition and
+    workaround passes (so each operand carries its final
+    `#ttnn.ttnn_layout` encoding) and before flatbuffer emission.
+
+    The Python interpreter's GIL is acquired via
+    `pybind11::gil_scoped_acquire`; this pass does NOT call
+    `Py_Initialize`. The host process is expected to already be running
+    CPython (typical when this pass runs inside `pjrt_plugin_tt.so`,
+    loaded from a `jax` / `torch_xla` Python program). When
+    `ttmlir-translate` or `ttmlir-opt` is invoked from a non-Python
+    parent the `tt_torch.tt_lang` import fails and the pass emits a
+    diagnostic to that effect. A module with no `ttnn.tt_lang_op` is
+    unaffected: the pass returns before touching Python at all.
+  }];
+
+  let options = [
+    Option<"meshShape", "mesh-shape", "std::string",
+           /*default=*/"\"\"",
+           "Comma-separated mesh shape (e.g. 1,1 or 2,4) "
+           "forwarded to `resolve_operation` so the Python compiler sees "
+           "the active mesh. Empty defaults to [1].">,
+    Option<"pythonModule", "python-module", "std::string",
+           /*default=*/"\"tt_torch.tt_lang\"",
+           "Python module exposing the resolver entry point.">,
+    Option<"pythonFunction", "python-function", "std::string",
+           /*default=*/"\"resolve_operation\"",
+           "Function in `python-module` to invoke per op.">,
+  ];
+}
+
+def TTNNLowerTTLangToGeneric : Pass<"ttnn-lower-tt-lang-to-generic", "::mlir::ModuleOp"> {
+  let summary = "Lower resolved ttnn.tt_lang_op kernels into ttnn.generic ops.";
+  let description = [{
+    This pass rewrites each `ttnn.tt_lang_op` whose `kernel_artifact`
+    attribute has been populated (by `--ttnn-resolve-tt-lang-kernels`)
+    into an equivalent `ttnn.generic` op carrying a `#ttnn.program`
+    descriptor.
+
+    The `kernel_artifact` is the UTF-8 JSON payload produced by tt-xla's
+    `tt_torch.tt_lang._serialize_compiled_operation`:
+
+    {
+      "format_version": 1,
+      "kernels": [
+        {"thread_type": "compute"|"noc",
+         "cpp_source":  "<embedded C++ source>",
+         "tensor_indices": [<int>, ...],
+         "kernel_config": {...}},
+        ...
+      ],
+      "core_range": {"start": [x, y], "end": [x, y]},
+      "cb_configs": [{buffer_index, data_format, page_size, total_size}, ...],
+      ...
+    }
+
+    Each kernel becomes a `#ttnn.compute_kernel` / `#ttnn.read_kernel` /
+    `#ttnn.write_kernel` attribute carrying the kernel's C++ source inline
+    (the `source` parameter), its CB-index / tensor-accessor compile-time
+    args, and its buffer-address common runtime args. `cb_configs` become
+    `#ttnn.kernel_cb` descriptors.
+
+    This pass must run after `--ttnn-resolve-tt-lang-kernels` and before
+    flatbuffer emission. A `ttnn.tt_lang_op` with an empty/unset
+    `kernel_artifact` is not allowed and will result in an error.
+  }];
 }
 
 #endif

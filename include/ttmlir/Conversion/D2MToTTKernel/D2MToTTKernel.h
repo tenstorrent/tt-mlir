@@ -7,6 +7,7 @@
 
 #include "ttmlir/Dialect/D2M/Analysis/CBProducerConsumer.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
 
@@ -20,10 +21,11 @@ namespace mlir::tt {
 
 void populateD2MToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
-    const d2m::CBProducerConsumer &cbProducerConsumer, bool ttnnMode);
+    const d2m::CBProducerConsumer &cbProducerConsumer,
+    bool forceCompileTimeArgs = false);
 
-std::unique_ptr<OperationPass<ModuleOp>> createConvertD2MToTTKernelPass();
-std::unique_ptr<OperationPass<ModuleOp>>
+std::unique_ptr<OperationPass<func::FuncOp>> createConvertD2MToTTKernelPass();
+std::unique_ptr<OperationPass<func::FuncOp>>
 createConvertD2MToTTKernelPass(const d2m::ConvertD2MToTTKernelOptions &options);
 
 } // namespace mlir::tt

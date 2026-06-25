@@ -155,6 +155,8 @@ inline const llvm::StringMap<HeaderRequirement> &getCalleeToHeadersMap() {
         {"ltz_tile_init",                                  {"api/compute/eltwise_unary/comp.h", ""}},
         {"ltz_tile_int32",                                 {"api/compute/eltwise_unary/comp.h", ""}},
         {"matmul_block",                                   {"api/compute/matmul.h", ""}},
+        {"matmul_block_init",                              {"api/compute/matmul.h", ""}},
+        {"matmul_init",                                    {"api/compute/matmul.h", ""}},
         {"matmul_tiles",                                   {"api/compute/matmul.h", ""}},
         {"mm_block_init",                                  {"api/compute/matmul.h", ""}},
         {"mm_block_init_short",                            {"api/compute/matmul.h", ""}},

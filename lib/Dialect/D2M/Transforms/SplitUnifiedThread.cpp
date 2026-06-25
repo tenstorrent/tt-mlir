@@ -16,7 +16,6 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/IRMapping.h"
-#include "mlir/Interfaces/ViewLikeInterface.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/ADT/DenseSet.h"
@@ -31,6 +30,12 @@ namespace {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+static void appendUnique(SmallVectorImpl<Value> &values, Value value) {
+  if (!llvm::is_contained(values, value)) {
+    values.push_back(value);
+  }
+}
 
 bool isAliasedStore(RemoteStoreOp storeOp) {
   auto operandAliasOp =
@@ -181,8 +186,8 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
 
   for (auto [start, end] : computeRegions) {
 
-    DenseSet<Value> loadedCBOperands;
-    DenseSet<Value> storedCBOperands;
+    SmallVector<Value> loadedCBOperands;
+    SmallVector<Value> storedCBOperands;
 
     // For memref load and stores, trace to cb operand to get producers and
     // consumers for syncrhonized region.
@@ -192,7 +197,7 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
       op.walk([&](memref::LoadOp loadOp) {
         Value cb = traceComputeMemrefToCB(loadOp.getMemref(), genericOp);
         if (cb) {
-          loadedCBOperands.insert(cb);
+          appendUnique(loadedCBOperands, cb);
         }
         return WalkResult::advance();
       });
@@ -202,7 +207,7 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
       op.walk([&](memref::StoreOp storeOp) {
         Value cb = traceComputeMemrefToCB(storeOp.getMemref(), genericOp);
         if (cb) {
-          storedCBOperands.insert(cb);
+          appendUnique(storedCBOperands, cb);
         }
         return WalkResult::advance();
       });
@@ -214,13 +219,13 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
         Value cbOutput =
             traceComputeMemrefToCB(tileMatmulBlockOp.getOutput(), genericOp);
         if (cbA) {
-          loadedCBOperands.insert(cbA);
+          appendUnique(loadedCBOperands, cbA);
         }
         if (cbB) {
-          loadedCBOperands.insert(cbB);
+          appendUnique(loadedCBOperands, cbB);
         }
         if (cbOutput) {
-          storedCBOperands.insert(cbOutput);
+          appendUnique(storedCBOperands, cbOutput);
         }
         return WalkResult::advance();
       });
@@ -228,16 +233,14 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
 
     // Remove allocs in load that are also in store since this is output cb
     // reuse and not an actual input.
-    for (Value storedCBOperand : storedCBOperands) {
-      if (loadedCBOperands.contains(storedCBOperand)) {
-        loadedCBOperands.erase(storedCBOperand);
-      }
-    }
+    DenseSet<Value> storedCBOperandSet(storedCBOperands.begin(),
+                                       storedCBOperands.end());
+    llvm::erase_if(loadedCBOperands, [&](Value loadedCBOperand) {
+      return storedCBOperandSet.contains(loadedCBOperand);
+    });
 
-    utils::wrapInSynchronizedRegion(
-        rewriter, start, end,
-        SmallVector<Value>(loadedCBOperands.begin(), loadedCBOperands.end()),
-        SmallVector<Value>(storedCBOperands.begin(), storedCBOperands.end()));
+    utils::wrapInSynchronizedRegion(rewriter, start, end, loadedCBOperands,
+                                    storedCBOperands);
   }
 
   return success();

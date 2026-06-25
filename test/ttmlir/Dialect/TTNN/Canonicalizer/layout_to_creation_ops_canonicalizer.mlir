@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --canonicalize -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --canonicalize --mlir-print-local-scope -o %t %s
 // RUN: FileCheck %s --input-file=%t
 //
 // Test cases to verify that the to_layout op merges correctly with creation ops.
@@ -18,185 +18,185 @@ module attributes {} {
   // Verify that to_layout op merges into empty op.
   func.func @to_layout_merge_into_empty_on_device() -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile> {
     // CHECK: "ttnn.empty"
-    // CHECK-SAME: layout = #ttnn.layout<tile>
     // CHECK-SAME: -> tensor<32x32xbf16,
+    // CHECK-SAME: !ttcore.tile<32x32, bf16>
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.empty"(%0) <{layout = #ttnn.layout<row_major>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #ttnn_layout_dram_f32_rm>
-    %2 = "ttnn.to_layout"(%1) <{layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xf32, #ttnn_layout_dram_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
+    %1 = "ttnn.empty"(%0) <{ shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #ttnn_layout_dram_f32_rm>
+    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xf32, #ttnn_layout_dram_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
     return %2 : tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
   }
 
   //Verify that to_layout op doesn't merge into empty op if to layout moves the tensor to host.
   func.func @to_layout_not_merge_into_empty_from_device_to_host() -> tensor<32x32xbf16, #ttnn_layout_host_bf16_tile> {
     // CHECK: "ttnn.zeros"
-    // CHECK-SAME: layout = #ttnn.layout<tile>
     // CHECK-SAME: -> tensor<32x32xbf16,
+    // CHECK-SAME: !ttcore.tile<32x32,
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.empty"(%0) <{layout = #ttnn.layout<row_major>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #ttnn_layout_dram_f32_rm>
-    %2 = "ttnn.to_layout"(%1) <{layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#system_memory>}> : (tensor<32x32xf32, #ttnn_layout_dram_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_host_bf16_tile>
+    %1 = "ttnn.empty"(%0) <{ shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #ttnn_layout_dram_f32_rm>
+    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xf32, #ttnn_layout_dram_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_host_bf16_tile>
     return %2 : tensor<32x32xbf16, #ttnn_layout_host_bf16_tile>
   }
 
   // Verify that to_layout op merges into empty op.
   func.func @to_layout_merge_into_rand_on_device() -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile> {
     // CHECK: "ttnn.rand"
-    // CHECK-SAME: layout = #ttnn.layout<tile>
     // CHECK-SAME: -> tensor<32x32xbf16,
+    // CHECK-SAME: !ttcore.tile<32x32,
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.rand"(%0) <{size = #ttnn.shape<32x32>, layout = #ttnn.layout<row_major>}> : (!ttnn.device) -> tensor<32x32xf32, #ttnn_layout_dram_f32_rm>
-    %2 = "ttnn.to_layout"(%1) <{layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xf32, #ttnn_layout_dram_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
+    %1 = "ttnn.rand"(%0) <{size = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #ttnn_layout_dram_f32_rm>
+    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xf32, #ttnn_layout_dram_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
     return %2 : tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
   }
 
   //Verify that to_layout op doesn't merge into empty op if to layout moves the tensor to host.
   func.func @to_layout_not_merge_into_rand_from_device_to_host() -> tensor<32x32xbf16, #ttnn_layout_host_bf16_tile> {
     // CHECK: "ttnn.rand"
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: -> tensor<32x32xf32,
+    // CHECK-SAME: memref<32x32x
     // CHECK-NOT: "ttnn.to_layout"
     // CHECK: "ttnn.to_layout"
-    // CHECK-SAME: layout = #ttnn.layout<tile>
     // CHECK-SAME: -> tensor<32x32xbf16,
+    // CHECK-SAME: !ttcore.tile<32x32,
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.rand"(%0) <{size = #ttnn.shape<32x32>, layout = #ttnn.layout<row_major>}> : (!ttnn.device) -> tensor<32x32xf32, #ttnn_layout_dram_f32_rm>
-    %2 = "ttnn.to_layout"(%1) <{layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#system_memory>}> : (tensor<32x32xf32, #ttnn_layout_dram_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_host_bf16_tile>
+    %1 = "ttnn.rand"(%0) <{size = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #ttnn_layout_dram_f32_rm>
+    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xf32, #ttnn_layout_dram_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_host_bf16_tile>
     return %2 : tensor<32x32xbf16, #ttnn_layout_host_bf16_tile>
   }
 
   // Verify that to_layout op merges into arange op.
   func.func @to_layout_merge_into_arange_from_host_to_device() -> tensor<32xbf16, #ttnn_layout_1_device_bf16_tile> {
     // CHECK: "ttnn.arange"
-    // CHECK-SAME: layout = #ttnn.layout<tile>
     // CHECK-SAME: -> tensor<32xbf16,
+    // CHECK-SAME: !ttcore.tile<32x32,
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.arange"() <{layout = #ttnn.layout<row_major>, start = 0 : i64, step = 1 : i64, end = 32 : i64}> : () -> tensor<32xf32, #ttnn_layout_1_host_f32_rm>
-    %2 = "ttnn.to_layout"(%1) <{layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32xf32, #ttnn_layout_1_host_f32_rm>) -> tensor<32xbf16, #ttnn_layout_1_device_bf16_tile>
+    %1 = "ttnn.arange"() <{ start = 0 : i64, step = 1 : i64, end = 32 : i64}> : () -> tensor<32xf32, #ttnn_layout_1_host_f32_rm>
+    %2 = "ttnn.to_layout"(%1) : (tensor<32xf32, #ttnn_layout_1_host_f32_rm>) -> tensor<32xbf16, #ttnn_layout_1_device_bf16_tile>
     return %2 : tensor<32xbf16, #ttnn_layout_1_device_bf16_tile>
   }
 
   // Verify that to_layout op merges into arange op.
   func.func @to_layout_merge_into_arange_from_device_to_host() -> tensor<32xf32, #ttnn_layout_1_host_f32_rm> {
     // CHECK: "ttnn.arange"
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: -> tensor<32xf32,
+    // CHECK-SAME: memref<32x
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.arange"() <{layout = #ttnn.layout<tile>, start = 0 : i64, step = 1 : i64, end = 32 : i64}> : () -> tensor<32xf32, #ttnn_layout_1_device_bf16_tile>
-    %2 = "ttnn.to_layout"(%1) <{layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory>}> : (tensor<32xf32, #ttnn_layout_1_device_bf16_tile>) -> tensor<32xf32, #ttnn_layout_1_host_f32_rm>
+    %1 = "ttnn.arange"() <{ start = 0 : i64, step = 1 : i64, end = 32 : i64}> : () -> tensor<32xf32, #ttnn_layout_1_device_bf16_tile>
+    %2 = "ttnn.to_layout"(%1) : (tensor<32xf32, #ttnn_layout_1_device_bf16_tile>) -> tensor<32xf32, #ttnn_layout_1_host_f32_rm>
     return %2 : tensor<32xf32, #ttnn_layout_1_host_f32_rm>
   }
 
   // Verify that to_layout op merges into zeros op.
   func.func @to_layout_merge_into_zeros_from_host_to_device() -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile> {
     // CHECK: "ttnn.zeros"
-    // CHECK-SAME: layout = #ttnn.layout<tile>
     // CHECK-SAME: -> tensor<32x32xbf16,
+    // CHECK-SAME: !ttcore.tile<32x32,
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.zeros"() <{layout = #ttnn.layout<row_major>, shape = #ttnn.shape<32x32>}> : () -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
-    %2 = "ttnn.to_layout"(%1) <{layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xf32, #ttnn_layout_host_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
+    %1 = "ttnn.zeros"() <{ shape = #ttnn.shape<32x32>}> : () -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
+    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xf32, #ttnn_layout_host_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
     return %2 : tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
   }
 
   // Verify that to_layout op merges into zeros op.
   func.func @to_layout_merge_into_zeros_from_device_to_host() -> tensor<32x32xf32, #ttnn_layout_host_f32_rm> {
     // CHECK: "ttnn.zeros"
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: -> tensor<32x32xf32,
+    // CHECK-SAME: memref<32x32x
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.zeros"() <{layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> : () -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
-    %2 = "ttnn.to_layout"(%1) <{layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory>}> : (tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>) -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
+    %1 = "ttnn.zeros"() <{ shape = #ttnn.shape<32x32>}> : () -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
+    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>) -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
     return %2 : tensor<32x32xf32, #ttnn_layout_host_f32_rm>
   }
 
   // Verify that to_layout op merges into ones op.
   func.func @to_layout_merge_into_ones_from_host_to_device() -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile> {
     // CHECK: "ttnn.ones"
-    // CHECK-SAME: layout = #ttnn.layout<tile>
     // CHECK-SAME: -> tensor<32x32xbf16,
+    // CHECK-SAME: !ttcore.tile<32x32,
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.ones"() <{layout = #ttnn.layout<row_major>, shape = #ttnn.shape<32x32>}> : () -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
-    %2 = "ttnn.to_layout"(%1) <{layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xf32, #ttnn_layout_host_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
+    %1 = "ttnn.ones"() <{ shape = #ttnn.shape<32x32>}> : () -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
+    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xf32, #ttnn_layout_host_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
     return %2 : tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
   }
 
   // Verify that to_layout op merges into ones op.
   func.func @to_layout_merge_into_ones_from_device_to_host() -> tensor<32x32xf32, #ttnn_layout_host_f32_rm> {
     // CHECK: "ttnn.ones"
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: -> tensor<32x32xf32,
+    // CHECK-SAME: memref<32x32x
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.ones"() <{layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> : () -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
-    %2 = "ttnn.to_layout"(%1) <{layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory>}> : (tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>) -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
+    %1 = "ttnn.ones"() <{ shape = #ttnn.shape<32x32>}> : () -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
+    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>) -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
     return %2 : tensor<32x32xf32, #ttnn_layout_host_f32_rm>
   }
 
   // Verify that to_layout op merges into ones op.
   func.func @to_layout_merge_into_full_from_host_to_device() -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile> {
     // CHECK: "ttnn.full"
-    // CHECK-SAME: layout = #ttnn.layout<tile>
     // CHECK-SAME: -> tensor<32x32xbf16,
+    // CHECK-SAME: !ttcore.tile<32x32,
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.full"() <{layout = #ttnn.layout<row_major>, shape = #ttnn.shape<32x32>, fill_value = 7.0 : f32}> : () -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
-    %2 = "ttnn.to_layout"(%1) <{layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xf32, #ttnn_layout_host_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
+    %1 = "ttnn.full"() <{ shape = #ttnn.shape<32x32>, fill_value = 7.0 : f32}> : () -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
+    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xf32, #ttnn_layout_host_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
     return %2 : tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
   }
 
   // Verify that to_layout op merges into full op.
   func.func @to_layout_merge_into_full_from_device_to_host() -> tensor<32x32xf32, #ttnn_layout_host_f32_rm> {
     // CHECK: "ttnn.full"
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: -> tensor<32x32xf32,
+    // CHECK-SAME: memref<32x32x
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.full"() <{layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>, fill_value = 7.0 : f32}> : () -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
-    %2 = "ttnn.to_layout"(%1) <{layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory>}> : (tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>) -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
+    %1 = "ttnn.full"() <{ shape = #ttnn.shape<32x32>, fill_value = 7.0 : f32}> : () -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
+    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>) -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
     return %2 : tensor<32x32xf32, #ttnn_layout_host_f32_rm>
   }
 
   // Verify that to_layout op merges into constant op.
   func.func @to_layout_merge_into_constant_from_host_to_device() -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile> {
     // CHECK: "ttnn.constant"
-    // CHECK-SAME: layout = #ttnn.layout<tile>
     // CHECK-SAME: -> tensor<32x32xbf16,
+    // CHECK-SAME: !ttcore.tile<32x32,
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.constant"() <{value = dense_resource<dense_attr_f32> : tensor<32x32xf32>, layout = #ttnn.layout<row_major>}> : () -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
-    %2 = "ttnn.to_layout"(%1) <{layout = #ttnn.layout<tile>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xf32, #ttnn_layout_host_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
+    %1 = "ttnn.constant"() <{value = dense_resource<dense_attr_f32> : tensor<32x32xf32>}> : () -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
+    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xf32, #ttnn_layout_host_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
     return %2 : tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
   }
 
   // Verify that to_layout op merges into constant op.
   func.func @to_layout_merge_into_constant_from_device_to_host() -> tensor<32x32xf32, #ttnn_layout_host_f32_rm> {
     // CHECK: "ttnn.constant"
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: -> tensor<32x32xf32,
+    // CHECK-SAME: memref<32x32x
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.constant"(%0) <{value = dense_resource<dense_attr_bf16> : tensor<32x32xbf16>, layout = #ttnn.layout<tile>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
-    %2 = "ttnn.to_layout"(%1) <{layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory>}> : (tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>) -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
+    %1 = "ttnn.constant"(%0) <{value = dense_resource<dense_attr_bf16> : tensor<32x32xbf16>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
+    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>) -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
     return %2 : tensor<32x32xf32, #ttnn_layout_host_f32_rm>
   }
 
   // Verify that the canonicalization shouldn't happen if the creation op has more than one use.
   func.func @to_layout_not_merge_into_constant_with_more_than_one_use() -> (tensor<32x32xf32, #ttnn_layout_host_f32_rm>, tensor<32x32xf32, #ttnn_layout_dram_bf16_rm>) {
     // CHECK: "ttnn.constant"
-    // CHECK-SAME: layout = #ttnn.layout<tile>
     // CHECK-SAME: -> tensor<32x32xbf16,
+    // CHECK-SAME: !ttcore.tile<32x32,
     // CHECK: "ttnn.to_layout"
     // CHECK: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.constant"(%0) <{value = dense_resource<dense_attr_bf16> : tensor<32x32xbf16>, layout = #ttnn.layout<tile>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
-    %2 = "ttnn.to_layout"(%1) <{layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory>}> : (tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>) -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
-    %3 = "ttnn.to_layout"(%1) <{layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#dram, <interleaved>>}> : (tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>) -> tensor<32x32xf32, #ttnn_layout_dram_bf16_rm>
+    %1 = "ttnn.constant"(%0) <{value = dense_resource<dense_attr_bf16> : tensor<32x32xbf16>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
+    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>) -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
+    %3 = "ttnn.to_layout"(%1) : (tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>) -> tensor<32x32xf32, #ttnn_layout_dram_bf16_rm>
     return %2, %3 : tensor<32x32xf32, #ttnn_layout_host_f32_rm>, tensor<32x32xf32, #ttnn_layout_dram_bf16_rm>
   }
 }

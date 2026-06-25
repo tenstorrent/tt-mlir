@@ -398,12 +398,6 @@ void L1SpillManagement<MemoryTracker>::applyOutputConfig(
         RankedTensorType::get(tensorShape, newElementType, resultLayout);
     opResult.setType(newTensorType);
   }
-
-  // Update layout attribute for ops that have layout interface (op-level).
-  if (auto opWithLayoutIF = mlir::dyn_cast<TTNNLayoutOpInterface>(op)) {
-    opWithLayoutIF.setLayoutAttr(
-        LayoutAttr::get(op->getContext(), chosenLayout.getLayout()));
-  }
 }
 
 //===----------------------------------------------------------------------===//
