@@ -782,3 +782,29 @@ accumulator is a consume-then-reproduce CB: emit `wait(accCB)` (consume the init
 ONCE before the loop, the invariant-pointer in-place loop, then `push(accCB)` once
 after -- i.e. wait, NOT reserve, before the loop. Supersedes the earlier
 "DST-resident/CB-round-trip" diagnosis above.
+
+### split-v2 wait-fix: implemented + tried (2026-06-25) — necessary but NOT sufficient
+
+Implemented the split-v2 fix (in insertComputeCBOpsV2): an `initAccumulator`
+(outputCB && info.consumed && info.dmLoad) acquires with `WaitOp` (consume the
+DM-pushed init) instead of `ReserveOp`. IR confirms compute_kernel now does
+`cb_wait_front(acc)` before the loop. Device results:
+- 1-iteration loop: PASSES (init consumed -> got = 0 + 1*input). So the init bug
+  IS fixed by the wait.
+- N-iteration loop: still FAILS. The accumulator round-trips through its CB every
+  iteration (copy_tile reads FRONT, pack_tile writes BACK) and the CB is
+  double-buffered (#ttcore.cb_layout<...,2>), so front != back -> each iteration
+  re-reads the stale init front instead of the prior result. The cross-iteration
+  carry is lost.
+
+So BOTH fixes are needed: (1) split-v2 wait (init-consume, done & confirmed) AND
+(2) keep the eltwise accumulator RESIDENT in DST across the loop (load init into
+DST once before, accumulate in DST each iter, pack once after) so it doesn't
+round-trip the CB -- the matmul L1-acc treatment, currently gated to matmul in
+InsertDstRegisterAccess (hasTileMatmul / d2m.reduction_loop / packer-L1-acc). That
+is a substantial change to a 2.4k-line pass. The split-v2 change alone leaves
+multi-iter eltwise accumulate SILENTLY wrong and could also affect matmul
+accumulators (same outputCB+consumed+dmLoad shape), so it was reverted. The
+`static_range` unroll (3e) remains the working generic-over-N approach. A true
+runtime-loop ring needs the InsertDstRegisterAccess DST-resident-eltwise work
+(plus the earlier fabric-ops-in-scf.for runtime support).
