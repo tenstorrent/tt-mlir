@@ -657,7 +657,8 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
         if (numBuffers.has_value()) {
           AllocSizeT allocSize = ttmlir::utils::alignUp(
-              numBuffers.value() * getMemrefSizeBytes(allocOp.getType(), device),
+              numBuffers.value() *
+                  getMemrefSizeBytes(allocOp.getType(), device),
               L1memInfo.alignment);
 
           // Fused intermediates can carry a blocking map that describes how
@@ -691,12 +692,13 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                   canonicalMap.compose(gridExtents);
               SmallVector<int64_t> intermediateShardShape =
                   canonicalMap.compose(shardExtents);
-              MemRefType bufferType = getCBBufferType(
-                  intermediateGridShape, intermediateShardShape,
-                  allocOp.getType().getElementType(), L1Attr,
-                  numBuffers.value());
+              MemRefType bufferType =
+                  getCBBufferType(intermediateGridShape, intermediateShardShape,
+                                  allocOp.getType().getElementType(), L1Attr,
+                                  numBuffers.value());
               allocSize = ttmlir::utils::alignUp(
-                  getCBBufferSizeBytes(bufferType, device), L1memInfo.alignment);
+                  getCBBufferSizeBytes(bufferType, device),
+                  L1memInfo.alignment);
             }
           }
 
