@@ -73,7 +73,7 @@ def _capture_roles(model: nn.Module, sample: torch.Tensor, *, backward: bool) ->
     captured graph as the backward one)."""
     captured: dict = {}
 
-    def fake_lower(gm, example_inputs, roles):
+    def fake_lower(gm, example_inputs, roles, *, options=None):
         names = [n.name for n in gm.graph.nodes if n.op == "placeholder"]
         kind = "backward" if any(n.startswith("tangents") for n in names) else "forward"
         captured[kind] = dict(zip(names, roles))

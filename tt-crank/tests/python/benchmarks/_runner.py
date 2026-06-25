@@ -23,6 +23,7 @@ from typing import Any, Iterator
 
 import torch
 import torch.nn as nn
+from tt_kurbla.torch._compile import CompileOption
 
 try:
     import tracy as _tracy
@@ -70,7 +71,7 @@ def _resolve_trace_path(
     return os.path.join(profile_dir, f"{safe}_{suffix}.json")
 
 
-def prepare_model(model: nn.Module, mode: str) -> nn.Module:
+def prepare_model(model: nn.Module, mode: str, options: dict [CompileOption, str | int | bool] | None = None) -> nn.Module:
     """Return `model` wrapped according to the requested execution mode.
 
     `"eager"` returns the model unchanged. `"compile"` wraps it with
@@ -82,7 +83,7 @@ def prepare_model(model: nn.Module, mode: str) -> nn.Module:
         model.requires_grad_(False)
         # dynamic=False is needed for the --accuracy path: causes SymInts to appear
         # in our graph, which we don't support at the moment.
-        return torch.compile(model, backend="tt", dynamic=False)
+        return torch.compile(model, backend="tt", dynamic=False, options=options)
     raise ValueError(f"unknown mode {mode!r}; expected 'eager' or 'compile'")
 
 

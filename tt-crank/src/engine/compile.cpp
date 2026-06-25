@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <memory>
 #include <mutex>
+#include <tt-logger/tt-logger.hpp>
 #include <utility>
 #include <vector>
 
@@ -157,6 +158,13 @@ void print_ttnn_ir(mlir::ModuleOp module_op) {
     }
 }
 
+// Prints compile options.
+void print_compile_options(const CompileOptions &options) {
+    if (print_compile_options_enabled()) {
+        log_info(tt::LogAlways, "Compile options: {}", options.to_string());
+    }
+}
+
 // Runs the TTIR-to-TTNN runtime pipeline on `module` and emits a flatbuffer.
 // Assumes the caller has already installed a ScopedDiagnosticHandler that
 // writes captured diagnostics into `diag_buffer`. The module is mutated in
@@ -166,14 +174,15 @@ CompiledProgram &run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const Compi
     MLIRCompileGuard guard;
 
     print_tt_ir(module_op);
-
-    const auto mesh_shape = ::tt::kurbla::runtime_device_mesh_shape();
-    const auto &mesh_fabric = ::tt::kurbla::runtime_mesh_fabric_config(mesh_shape);
+    print_compile_options(options);
 
     mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions pm_opts;
     pm_opts.optimizationLevel = options.optimization_level;
     pm_opts.systemDescPath = options.system_desc.has_value() ? std::string{} : options.system_desc_path;
     pm_opts.mockSystemDescArch = to_ttcore_arch(options.mock_arch);
+
+    const auto mesh_shape = ::tt::kurbla::runtime_device_mesh_shape();
+    const auto &mesh_fabric = ::tt::kurbla::runtime_mesh_fabric_config(mesh_shape);
 
     // Pass in the currently opened device mesh shape - otherwise the CCL ops will hit issues during compilation.
     pm_opts.meshShape = std::vector<std::int64_t>(mesh_shape.begin(), mesh_shape.end());

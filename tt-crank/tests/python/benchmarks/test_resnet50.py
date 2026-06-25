@@ -4,6 +4,7 @@ import copy
 
 import pytest
 import torch
+from tt_kurbla.torch._compile import CompileOption
 
 from ._runner import prepare_model, run_benchmark
 
@@ -30,11 +31,12 @@ def test_resnet50(
     accuracy: bool,
     record_bench,
     tt_device: torch.device,
+    options: dict [CompileOption, str | int | bool] | None = None
 ) -> None:
     model, inputs = _build()
 
     # deepcopy because Module.to() is in-place; keep the CPU originals as the reference.
-    device_model = prepare_model(copy.deepcopy(model).to(tt_device), mode)
+    device_model = prepare_model(copy.deepcopy(model).to(tt_device), mode, options=options)
     device_inputs = tuple(t.to(tt_device) for t in inputs)
 
     record_bench(

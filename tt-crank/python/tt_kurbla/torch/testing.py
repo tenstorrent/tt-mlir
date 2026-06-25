@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from typing import Any
 
 import torch
+from tt_kurbla.torch._compile import CompileOption
 
 from . import _native
 
@@ -58,6 +59,7 @@ def assert_close_cpu_vs_tt(
     rtol: float | None = None,
     assert_native: bool = True,
     mode: ExecutionMode = ExecutionMode.EAGER,
+    options: dict [CompileOption, str | int | bool] | None = None,
 ) -> None:
     """Run ``fn`` on CPU and on tt with mirrored args; assert the outputs match.
 
@@ -81,10 +83,13 @@ def assert_close_cpu_vs_tt(
         testing the fallback path itself).
       - :attr:`ExecutionMode.COMPILE`: wraps ``fn`` in an ``nn.Module``
         (unless it already is one), moves the module to tt, runs it through
-        ``torch.compile(backend="tt")``, and compares. The
+        ``torch.compile(backend="tt", options=options)``, and compares. The
         compile path doesn't share the strict-fallback toggle — dynamo
         graph-breaks surface as logs/warnings, not as a captured exception
         from the eager dispatcher — so ``assert_native`` is ignored here.
+
+    ``options`` is forwarded to ``torch.compile`` and applies only to ``COMPILE`` mode;
+    it is ignored in ``EAGER`` mode.
     """
     cpu_out = fn(*cpu_args)
 
@@ -100,7 +105,7 @@ def assert_close_cpu_vs_tt(
             tt_out = fn(*tt_args).cpu()
     elif mode is ExecutionMode.COMPILE:
         model = fn if isinstance(fn, torch.nn.Module) else _wrap_callable_as_module(fn)
-        compiled = torch.compile(model.to("tt"), backend="tt")
+        compiled = torch.compile(model.to("tt"), backend="tt", options=options)
         with torch.no_grad():
             tt_out = compiled(*tt_args).cpu()
     else:
