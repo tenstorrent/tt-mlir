@@ -55,10 +55,10 @@ static void runPagedScaledDotProductAttentionDecodeOp(
     programConfig->compute_with_storage_grid_size = computeGrid;
   } else if (query.device()->arch() == ::tt::ARCH::BLACKHOLE) {
     programConfig.emplace();
-    programConfig->q_chunk_size = 0;
-    programConfig->k_chunk_size = 0;
+    programConfig->q_chunk_size = 32;
+    programConfig->k_chunk_size = 32;
     programConfig->compute_with_storage_grid_size = computeGrid;
-    programConfig->max_cores_per_head_batch = computeGrid.x * computeGrid.y;
+    programConfig->max_cores_per_head_batch = 1;
   }
 
   // Blackhole's SDPA decode default approx-exp path fails SFPI compile
