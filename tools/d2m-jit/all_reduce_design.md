@@ -618,3 +618,36 @@ data vs the chunked reduce-scatter's O(1)). Follow-ups:
 2. Compiler support for a recv buffer consumed by both compute and a DM forward
    (materialize once), which would remove the double-load / subtraction workaround.
 3. grid-[N,1] dynamic recv-slot offset (still hardcoded 0).
+
+### Milestone 3d — DONE (2026-06-25): bandwidth-optimal CHUNKED ring all_reduce
+
+`test/d2m-jit/_m3d.py` PASSES on the 1x4 Blackhole ring: full ring reduce-scatter
+(N-1 steps) + all-gather (N-1 steps), moving ONE chunk per step (O(1) vs _m3c's
+O(N) whole-vector). Every device ends with the identical full sum, maxdiff ~0.01,
+no hang. Three techniques made it work:
+
+1. **p-relative chunk indexing.** The ring's per-step chunk indices depend on the
+   runtime device id p. Track chunks in p-RELATIVE order (`c[r]`, r=0..N-1) so the
+   per-step send/accumulate logic uses CONSTANT rel-indices (unrollable in Python);
+   only the operand load/store use the runtime actual index `(p+r)%N`
+   (`remote_load`/`remote_store` accept dynamic indices). Send rel `-k`, accumulate
+   into rel `-k-1` (reduce-scatter); send rel `1-k`, place into rel `-k`
+   (all-gather). Send-from-peer lands in the same ACTUAL chunk on the neighbor, so
+   the reduction is correct.
+
+2. **Reduce-scatter is naturally clean.** Each forwarded chunk is either an
+   original load (step 0) or the previous step's accumulate output, and is
+   send-only at its step (the step's add targets a different chunk). No copies.
+
+3. **All-gather send/store split.** A reduced chunk must be both FORWARDED (fabric
+   send) and kept for the final local store, but a value cannot feed two DM ops --
+   the first pops the CB and the second's `cb_wait_front` hangs (this was the
+   initial _m3d deadlock). Fix: for each such chunk make TWO independent
+   add-to-zero compute copies (a send-only one + a store-only one) from the raw
+   recv; the recv stays a compute-only consumer. Needs a `zeros` operand for the
+   add-to-zero placement copies.
+
+Follow-ups: (1) compiler support for a recv buffer feeding both compute and a DM
+forward (would remove the double-load / copy workarounds in _m3c/_m3d); (2)
+grid-[N,1] dynamic recv-slot offset (still 0); (3) generalize N / chunk size and
+fold into a reusable `all_reduce` DSL primitive.
