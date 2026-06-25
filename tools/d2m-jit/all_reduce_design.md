@@ -808,3 +808,27 @@ accumulators (same outputCB+consumed+dmLoad shape), so it was reverted. The
 `static_range` unroll (3e) remains the working generic-over-N approach. A true
 runtime-loop ring needs the InsertDstRegisterAccess DST-resident-eltwise work
 (plus the earlier fabric-ops-in-scf.for runtime support).
+
+### Race hypothesis RULED OUT (2026-06-25): it's CB read/write pointer divergence
+
+Checked whether the multi-iter carry failure was a pack->unpack race: extended
+GenericTileComputeLoops to insert `unpack_stall_on_pack` for a self-RMW linalg
+(ins aliases outs, e.g. `acc += x`). The stall IS now emitted before the in-loop
+`copy_tile(acc)` -- and the multi-iteration loop STILL fails. So it is NOT a race.
+
+The real mechanism: after the DM pushes the init, `cb_wait_front` puts the READ
+pointer at the init page W, so `copy_tile(acc)` reads page W; but the push advanced
+the WRITE pointer to W+1, so `pack_tile(acc)` writes page W+1. Read and write target
+DIFFERENT pages, so every iteration re-reads the init page W -- a CB round-trip
+(read-front / write-back) fundamentally cannot do in-place read-modify-write, and a
+stall can't fix a different-page read/write. (Combined with the split-v2 wait-fix
+the 1-iteration loop passes -- one step needs no carry.)
+
+Therefore the ONLY correct carry fix is DST-resident accumulation (the matmul
+path): load the accumulator into DST once BEFORE the loop, accumulate in DST each
+iteration, pack once AFTER -- no per-iteration copy_tile/pack_tile of the
+accumulator. This is an InsertDstRegisterAccess change (generalize its
+loop-resident-DST-accumulator handling, currently gated to matmul via
+hasTileMatmul / d2m.reduction_loop, to a loop-carried eltwise accumulator). Plus
+the split-v2 wait-fix for the init. All experiments reverted; static_range unroll
+remains the working generic approach.
