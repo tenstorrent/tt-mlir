@@ -116,6 +116,19 @@ def D2MSFPUTileLoopFission : Pass<"d2m-sfpu-tile-loop-fission", "::mlir::ModuleO
   ];
 }
 
+def D2MAffineLICM : Pass<"d2m-affine-licm", "::mlir::ModuleOp"> {
+  let summary = "Hoist loop-invariant operations from affine loops at module scope";
+  let description = [{
+    Runs loop-invariant code motion over affine loop-like operations from a
+    ModuleOp pass, avoiding the implicit func.func pass adaptor used by the
+    stock affine-loop-invariant-code-motion pass.
+  }];
+
+  let dependentDialects = [
+    "::mlir::affine::AffineDialect"
+  ];
+}
+
 def D2MGenericTileComputeLoops : Pass<"d2m-generic-tile-compute-loops", "::mlir::ModuleOp"> {
   let summary = "Tile linalg.generic compute loops to fit DST register capacity.";
   let description = [{

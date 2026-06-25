@@ -1,5 +1,6 @@
 add_mlir_dialect_library(MLIRD2MTransforms
         Allocate.cpp
+        AffineLICM.cpp
         DMAOptimizations.cpp
         DecomposeArange.cpp
         DecomposeMasking.cpp

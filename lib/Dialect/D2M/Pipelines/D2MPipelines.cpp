@@ -13,7 +13,6 @@
 #include "ttmlir/Transforms/Passes.h"
 
 #include "mlir/Conversion/AffineToStandard/AffineToStandard.h"
-#include "mlir/Dialect/Affine/Passes.h"
 #include "mlir/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Bufferization/Transforms/Passes.h"
 #include "mlir/Dialect/EmitC/Transforms/Passes.h"
@@ -225,7 +224,7 @@ void createD2MBackendPipeline(OpPassManager &pm,
   }
   pm.addPass(mlir::createCanonicalizerPass());
 
-  pm.addPass(affine::createAffineLoopInvariantCodeMotionPass());
+  pm.addPass(d2m::createD2MAffineLICM());
   pm.addPass(mlir::createLowerAffinePass());
   pm.addPass(memref::createFoldMemRefAliasOpsPass());
   pm.addPass(mlir::createLowerAffinePass());
