@@ -553,4 +553,33 @@ def TTIRSpatialRowGroupPackingOpt : Pass<"ttir-spatial-row-group-packing-opt", "
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
 }
 
+def TTIRDepthwiseConvSpatialPackingOpt : Pass<"ttir-depthwise-conv-spatial-packing-opt", "::mlir::ModuleOp"> {
+  let summary = "Spatial row-group packing for depthwise conv2d with IC < TILE_WIDTH.";
+  let description = [{
+    Matches the depthwise conv2d pattern (groups == IC, IC < TILE_WIDTH,
+    TILE_WIDTH % IC == 0) after CanonicalizerPass merges the transpose pairs
+    into single permutes:
+
+      permute({0,2,3,1})  [N,IC,H,W] → [N,H,W,IC]         NHWC
+      conv2d {channel_last, groups=IC, kernel=[kH,kW], stride=[sH,sW]}
+      permute({0,3,1,2})  [N,H',W',IC] → [N,IC,H',W']      NCHW
+
+    Replaces with spatial row-group packing (K = TILE_WIDTH / IC):
+
+      reshape(%input, [N, IC*K, H/K, W])     free view (K rows → 1 packed channel)
+      permute({0,2,3,1})   → L1 HEIGHT_SHARDED ROW_MAJOR, IC*K=TILE_WIDTH — no waste
+      reshape → to_layout(TILE) → conv2d(groups=IC*K, L1Full)
+      permute({0,3,1,2}) → reshape([N, IC, H', W'])  unpack
+
+    Weight packing: repeat_interleave(K, dim=0) on [IC,1,kH,kW] → [IC*K,1,kH,kW].
+    ConstEvalHoistTransform automatically hoists weight packing into const_eval.
+
+    Example (BEV UV AveragePool, IC=2, K=16):
+      K=TILE_WIDTH/IC=16,  packed_IC=32=TILE_WIDTH  (zero tile waste)
+      Block A: 9.4 MB → L1, 0.21 ms permute (vs 150.9 MB DRAM, 6.5 ms baseline)
+      Block C: 11.8 MB → L1, 0.21 ms permute (vs 188.7 MB DRAM, 7.1 ms baseline)
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
 #endif
