@@ -178,6 +178,8 @@ bool isSupportedDataType(::tt::target::DataType dataType);
 
 bool isIntegerDataType(::tt::target::DataType dataType);
 
+bool isUnsignedIntegerDataType(::tt::target::DataType dataType);
+
 ::tt::target::DataType
 getUnsupportedDataTypeAlias(::tt::target::DataType unsupportedDataType);
 

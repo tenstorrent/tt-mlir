@@ -1001,23 +1001,23 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
     ::tt::target::DataType unsupportedDataTypeAlias =
         tt::runtime::utils::getUnsupportedDataTypeAlias(dstDataType.value());
 
-    // A same-width integer source is valid regardless of signedness: ttnn ops
-    // such as argmax return UInt32 indices while Int64's alias is Int32. The
-    // source here is a host copy of the (possibly device-produced) tensor;
-    // handleBufferCast widens it to the destination dtype below. For the
-    // non-negative index tensors this applies to, the signed/unsigned bit
-    // patterns are identical.
-    bool sameWidthIntegerAlias =
-        tt::runtime::utils::isIntegerDataType(srcDataType) &&
+    // An unsigned integer source the same width as the alias is also valid:
+    // ttnn ops such as argmax return UInt32 indices while Int64's alias is the
+    // (signed) Int32. Widening an unsigned source into the wider destination is
+    // always value-preserving, so this only relaxes the unsigned-source
+    // direction (a signed source into an unsigned destination would clamp
+    // negatives and is intentionally not accepted here).
+    bool unsignedSrcSameWidthAlias =
+        tt::runtime::utils::isUnsignedIntegerDataType(srcDataType) &&
         tt::runtime::utils::isIntegerDataType(unsupportedDataTypeAlias) &&
         tt::runtime::utils::dataTypeElementSize(srcDataType) ==
             tt::runtime::utils::dataTypeElementSize(unsupportedDataTypeAlias);
 
     LOG_ASSERT(
-        srcDataType == unsupportedDataTypeAlias || sameWidthIntegerAlias,
+        srcDataType == unsupportedDataTypeAlias || unsignedSrcSameWidthAlias,
         "Tensor data type must be the alias of the unsupported data type (" +
             std::string(target::EnumNameDataType(unsupportedDataTypeAlias)) +
-            ") or a same-width integer type, but got " +
+            ") or an unsigned integer of the same width, but got " +
             std::string(target::EnumNameDataType(srcDataType)));
 
     LOG_DEBUG(
