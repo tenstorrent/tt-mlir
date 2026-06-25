@@ -15,10 +15,18 @@
 
 namespace mlir::tt {
 #define GEN_PASS_DECL_CONVERTTTKERNELTOEMITC
+#define GEN_PASS_DECL_DEDUPLICATEEMITCEXPRESSIONOPERANDS
+#define GEN_PASS_DECL_FORMDEDUPLICATEDEMITCEXPRESSIONS
 #include "ttmlir/Conversion/Passes.h.inc"
 
 std::unique_ptr<OperationPass<func::FuncOp>>
 createRemoveDeadEmitCExpressionsPass();
+
+std::unique_ptr<OperationPass<func::FuncOp>>
+createDeduplicateEmitCExpressionOperandsPass();
+
+std::unique_ptr<OperationPass<func::FuncOp>>
+createFormDeduplicatedEmitCExpressionsPass();
 } // namespace mlir::tt
 
 #endif

@@ -341,6 +341,28 @@ def RemoveDeadEmitCExpressions : Pass<"remove-dead-emitc-expressions", "::mlir::
   let dependentDialects = ["mlir::emitc::EmitCDialect"];
 }
 
+def DeduplicateEmitCExpressionOperands : Pass<"deduplicate-emitc-expression-operands", "::mlir::func::FuncOp"> {
+  let summary = "Deduplicate captured operands of EmitC expression operations.";
+  let description = [{
+    Normalize emitc.expression operations by removing duplicate captured
+    operands. Repeated uses in the expression body are remapped to the first
+    corresponding block argument so the printed MLIR remains parser-valid.
+  }];
+  let constructor = "createDeduplicateEmitCExpressionOperandsPass()";
+  let dependentDialects = ["mlir::emitc::EmitCDialect"];
+}
+
+def FormDeduplicatedEmitCExpressions : Pass<"form-deduplicated-emitc-expressions", "::mlir::func::FuncOp"> {
+  let summary = "Form EmitC expressions with parser-valid captured operands.";
+  let description = [{
+    Run EmitC form-expressions and normalize the resulting emitc.expression
+    operations so duplicate captured operands are represented only once. This
+    keeps pipeline-visible IR parser-valid while preserving form-expressions.
+  }];
+  let constructor = "createFormDeduplicatedEmitCExpressionsPass()";
+  let dependentDialects = ["mlir::emitc::EmitCDialect"];
+}
+
 def ConvertSFPIToEmitC : Pass<"convert-sfpi-to-emitc", "::mlir::ModuleOp"> {
   let summary = "Convert SFPI dialect to EmitC dialect using GCC RISC-V Tenstorrent builtins.";
   let description = [{

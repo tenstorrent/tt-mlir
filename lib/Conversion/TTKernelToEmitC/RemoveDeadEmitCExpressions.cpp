@@ -5,7 +5,9 @@
 #include "ttmlir/Conversion/TTKernelToEmitC/TTKernelToEmitC.h"
 
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LLVM.h"
@@ -15,9 +17,137 @@
 namespace mlir::tt {
 
 #define GEN_PASS_DEF_REMOVEDEADEMITCEXPRESSIONS
+#define GEN_PASS_DEF_DEDUPLICATEEMITCEXPRESSIONOPERANDS
+#define GEN_PASS_DEF_FORMDEDUPLICATEDEMITCEXPRESSIONS
 #include "ttmlir/Conversion/Passes.h.inc"
 
 namespace {
+
+struct UniqueOperands {
+  SmallVector<Value> values;
+  SmallVector<unsigned> remappedIndices;
+  bool hasDuplicates = false;
+};
+
+static UniqueOperands collectUniqueOperands(ValueRange operands) {
+  UniqueOperands uniqueOperands;
+  uniqueOperands.remappedIndices.reserve(operands.size());
+
+  for (Value operand : operands) {
+    unsigned uniqueIndex = uniqueOperands.values.size();
+    for (auto [index, current] : llvm::enumerate(uniqueOperands.values)) {
+      if (current == operand) {
+        uniqueIndex = index;
+        uniqueOperands.hasDuplicates = true;
+        break;
+      }
+    }
+
+    if (uniqueIndex == uniqueOperands.values.size()) {
+      uniqueOperands.values.push_back(operand);
+    }
+    uniqueOperands.remappedIndices.push_back(uniqueIndex);
+  }
+
+  return uniqueOperands;
+}
+
+static void collectEmitCExpressions(func::FuncOp func,
+                                    SmallVectorImpl<emitc::ExpressionOp> &ops) {
+  func.walk([&](emitc::ExpressionOp expression) { ops.push_back(expression); });
+}
+
+static bool deduplicateExpressionOperands(emitc::ExpressionOp expression);
+
+static bool isFormableExpressionOp(Operation *op) {
+  auto expression = dyn_cast<emitc::CExpressionInterface>(op);
+  if (!expression || isa<emitc::LiteralOp>(op)) {
+    return false;
+  }
+
+  if (isa_and_nonnull<emitc::ExpressionOp>(op->getParentOp())) {
+    return false;
+  }
+
+  return op->getNumResults() == 1 && op->getResult(0).hasOneUse();
+}
+
+static bool formDeduplicatedExpression(Operation *op) {
+  if (!isFormableExpressionOp(op)) {
+    return false;
+  }
+
+  UniqueOperands uniqueOperands = collectUniqueOperands(op->getOperands());
+  OpBuilder builder(op);
+  auto expression = builder.create<emitc::ExpressionOp>(
+      op->getLoc(), op->getResult(0).getType(), uniqueOperands.values);
+  Block &body = expression.createBody();
+
+  op->getResult(0).replaceAllUsesWith(expression.getResult());
+  op->moveBefore(&body, body.end());
+
+  for (auto [index, uniqueIndex] :
+       llvm::enumerate(uniqueOperands.remappedIndices)) {
+    op->setOperand(index, body.getArgument(uniqueIndex));
+  }
+
+  builder.setInsertionPointAfter(op);
+  builder.create<emitc::YieldOp>(op->getLoc(), op->getResult(0));
+  return true;
+}
+
+static void formDeduplicatedExpressions(func::FuncOp func) {
+  SmallVector<Operation *> candidates;
+  func.walk<WalkOrder::PreOrder>([&](Operation *op) {
+    if (isFormableExpressionOp(op)) {
+      candidates.push_back(op);
+    }
+  });
+
+  for (Operation *op : candidates) {
+    formDeduplicatedExpression(op);
+  }
+}
+
+static void deduplicateAllExpressionOperands(func::FuncOp func) {
+  SmallVector<emitc::ExpressionOp> expressions;
+  collectEmitCExpressions(func, expressions);
+  for (emitc::ExpressionOp expression : expressions) {
+    deduplicateExpressionOperands(expression);
+  }
+}
+
+static bool deduplicateExpressionOperands(emitc::ExpressionOp expression) {
+  UniqueOperands uniqueOperands =
+      collectUniqueOperands(expression->getOperands());
+  if (!uniqueOperands.hasDuplicates) {
+    return false;
+  }
+
+  OpBuilder builder(expression);
+  auto newExpression = builder.create<emitc::ExpressionOp>(
+      expression.getLoc(), expression.getResult().getType(),
+      uniqueOperands.values, expression.getDoNotInlineAttr());
+  Block &newBody = newExpression.createBody();
+
+  IRMapping mapping;
+  Block &oldBody = expression.getRegion().front();
+  for (auto [index, oldArgument] : llvm::enumerate(oldBody.getArguments())) {
+    mapping.map(oldArgument,
+                newBody.getArgument(uniqueOperands.remappedIndices[index]));
+  }
+
+  builder.setInsertionPointToEnd(&newBody);
+  for (Operation &op : oldBody.getOperations()) {
+    builder.clone(op, mapping);
+  }
+
+  expression.getResult().replaceAllUsesWith(newExpression.getResult());
+  expression.erase();
+  return true;
+}
+
+static bool isDeadEmitCExpression(Operation *op);
 
 static bool hasNoUses(Operation *op) {
   return op->getNumResults() > 0 &&
@@ -95,6 +225,32 @@ static void eraseDeadVariable(emitc::VariableOp variable,
   }
 }
 
+class DeduplicateEmitCExpressionOperands
+    : public impl::DeduplicateEmitCExpressionOperandsBase<
+          DeduplicateEmitCExpressionOperands> {
+public:
+  using impl::DeduplicateEmitCExpressionOperandsBase<
+      DeduplicateEmitCExpressionOperands>::
+      DeduplicateEmitCExpressionOperandsBase;
+
+  void runOnOperation() final {
+    deduplicateAllExpressionOperands(getOperation());
+  }
+};
+
+class FormDeduplicatedEmitCExpressions
+    : public impl::FormDeduplicatedEmitCExpressionsBase<
+          FormDeduplicatedEmitCExpressions> {
+public:
+  using impl::FormDeduplicatedEmitCExpressionsBase<
+      FormDeduplicatedEmitCExpressions>::FormDeduplicatedEmitCExpressionsBase;
+
+  void runOnOperation() final {
+    formDeduplicatedExpressions(getOperation());
+    deduplicateAllExpressionOperands(getOperation());
+  }
+};
+
 class RemoveDeadEmitCExpressions
     : public impl::RemoveDeadEmitCExpressionsBase<RemoveDeadEmitCExpressions> {
 public:
@@ -134,6 +290,16 @@ public:
 std::unique_ptr<OperationPass<func::FuncOp>>
 createRemoveDeadEmitCExpressionsPass() {
   return std::make_unique<RemoveDeadEmitCExpressions>();
+}
+
+std::unique_ptr<OperationPass<func::FuncOp>>
+createDeduplicateEmitCExpressionOperandsPass() {
+  return std::make_unique<DeduplicateEmitCExpressionOperands>();
+}
+
+std::unique_ptr<OperationPass<func::FuncOp>>
+createFormDeduplicatedEmitCExpressionsPass() {
+  return std::make_unique<FormDeduplicatedEmitCExpressions>();
 }
 
 } // namespace mlir::tt
