@@ -607,12 +607,15 @@ struct TTIRToTTNNCommonPipelineOptions
     if (enableGreedyOptimizer.getNumOccurrences() == 0) {
       enableGreedyOptimizer = (optimizationLevel >= 1);
     }
-    if (computeCfgMathFidelity.getNumOccurrences() == 0 &&
-        optimizationLevel > 0) {
+    // Use hasValue() (the MLIR PassOptions "explicitly set" signal, flipped by
+    // the assignment callback) rather than getNumOccurrences(), which only
+    // counts command-line/string parsing and stays 0 when a frontend sets the
+    // option programmatically in C++. Otherwise a frontend-provided fidelity is
+    // silently downgraded at optimization levels > 0.
+    if (!computeCfgMathFidelity.hasValue() && optimizationLevel > 0) {
       computeCfgMathFidelity = OptionalMathFidelity::Undefined;
     }
-    if (computeCfgFp32DestAccEn.getNumOccurrences() == 0 &&
-        optimizationLevel > 0) {
+    if (!computeCfgFp32DestAccEn.hasValue() && optimizationLevel > 0) {
       computeCfgFp32DestAccEn = std::optional<bool>(std::nullopt);
     }
   }
