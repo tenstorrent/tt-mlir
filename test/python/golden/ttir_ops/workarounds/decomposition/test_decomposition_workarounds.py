@@ -979,21 +979,14 @@ def test_slice_l1_cb_workaround_disabled(
         # page_table: [batch, num_blocks_per_user]
         # output: same shape as Q
         # cur_pos_tensor: [batch]
-        pytest.param(
-            [
-                (1, 1, 8, 512),
-                (32, 1, 32, 512),
-                (32, 1, 32, 512),
-                (1, 32),
-                (1, 1, 8, 512),
-                (1,),
-            ],
-            marks=pytest.mark.xfail(
-                reason="PagedSdpaDecode default schedule overflows per-core L1 "
-                "when head_dim >= 256. Metal issue: "
-                "https://github.com/tenstorrent/tt-metal/issues/44311"
-            ),
-        ),
+        [
+            (1, 1, 8, 512),
+            (32, 1, 32, 512),
+            (32, 1, 32, 512),
+            (1, 32),
+            (1, 1, 8, 512),
+            (1,),
+        ],
     ],
     ids=shapes_list_str,
 )
@@ -1010,17 +1003,52 @@ def test_slice_l1_cb_workaround_disabled(
         ]
     ],
 )
+@pytest.mark.parametrize(
+    "optimization_level",
+    [
+        # At opt-level 0 the program-config workaround is the only thing that
+        # keeps PagedSdpaDecode off the overflowing default schedule, so with
+        # it disabled this xfails. At opt-level >= 1 OpValidationAndFallback /
+        # the optimizer owns the program-config decision and picks an L1-safe
+        # config, so the same shape compiles and runs.
+        pytest.param(
+            0,
+            marks=pytest.mark.xfail(
+                reason="PagedSdpaDecode default schedule overflows per-core L1 "
+                "when head_dim >= 256 and the opt-level-0 program-config "
+                "workaround is disabled. Metal issue: "
+                "https://github.com/tenstorrent/tt-metal/issues/44311"
+            ),
+        ),
+        1,
+        2,
+    ],
+    ids=lambda lvl: f"opt{lvl}",
+)
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_paged_sdpa_decode_l1_overflow_no_workaround(
-    shapes: List[Shape], dtypes: List[torch.dtype], target: str, request, device
+    shapes: List[Shape],
+    dtypes: List[torch.dtype],
+    optimization_level: int,
+    target: str,
+    request,
+    device,
 ):
     """
     Test that PagedSdpaDecode with large head_dim (Gemma-4 31B global
     attention) hits per-core L1 overflow under the default schedule with
-    the workaround disabled.  When tt-metal fixes the default schedule's
-    L1 footprint for head_dim >= 256, this xfail flips to xpass and the
+    the program-config workaround disabled.
+
+    At opt-level 0 this xfails: the workaround is the only thing steering
+    PagedSdpaDecode off the overflowing default schedule.  When tt-metal
+    fixes the default schedule's L1 footprint for head_dim >= 256, this
+    xfail flips to xpass and the
     PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern can be
     removed.
+
+    At opt-level 1 and 2 OpValidationAndFallback / the optimizer owns the
+    program-config decision, so the same shape is expected to compile and
+    run even with the opt-level-0 workaround disabled.
     """
 
     def module(builder: TTIRBuilder):
@@ -1066,7 +1094,10 @@ def test_paged_sdpa_decode_l1_overflow_no_workaround(
         **get_request_kwargs(request),
         target=target,
         device=device,
-        pipeline_options=["disable-workarounds=true"],
+        pipeline_options=[
+            "enable-paged-sdpa-decode-program-config-workaround=false",
+            f"optimization-level={optimization_level}",
+        ],
     )
 
 

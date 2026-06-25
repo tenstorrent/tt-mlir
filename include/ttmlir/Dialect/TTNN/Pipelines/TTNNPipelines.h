@@ -299,6 +299,15 @@ struct TTIRToTTNNCommonPipelineOptions
                      "(or all_gather + local reduce)."),
       llvm::cl::init(true)};
 
+  Option<bool> pagedSdpaDecodeProgramConfigWorkaroundEnabled{
+      *this, "enable-paged-sdpa-decode-program-config-workaround",
+      llvm::cl::desc(
+          "Enable the PagedScaledDotProductAttentionDecodeOp program config "
+          "workaround which sets an explicit SDPAProgramConfig for "
+          "head_dim >= 256, where the default TTNN schedule overflows "
+          "per-core L1."),
+      llvm::cl::init(true)};
+
   Option<bool> ttnnDecompositionEnabled{
       *this, "enable-ttnn-decomposition-pass",
       llvm::cl::desc("Enable TTNN decomposition pass."), llvm::cl::init(true)};

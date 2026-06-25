@@ -50,6 +50,13 @@ def TTNNWorkarounds : Pass<"ttnn-workaround", "::mlir::ModuleOp"> {
              "Enable the all_reduce decomposition workaround which breaks "
              "all_reduce down into reduce_scatter + all_gather (or "
              "all_gather + local reduce).">,
+      Option<"pagedSdpaDecodeProgramConfigWorkaroundEnabled",
+             "ttnn-enable-paged-sdpa-decode-program-config-workaround",
+             "bool", /*default=*/"true",
+             "Enable the PagedScaledDotProductAttentionDecodeOp program config "
+             "workaround which sets an explicit SDPAProgramConfig for "
+             "head_dim >= 256, where the default TTNN schedule overflows "
+             "per-core L1.">,
       Option<"optimizationLevel",
              "ttnn-optimization-level",
              "int", /*default=*/"0",

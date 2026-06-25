@@ -698,10 +698,15 @@ public:
                 &getContext());
       }
 
-      patterns.add<
-          workarounds::decomposition::
-              PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern>(
-          &getContext(), optimizationLevel);
+      // The PagedScaledDotProductAttentionDecodeOp program config workaround
+      // can be disabled via a pass option, e.g. once tt-metal fixes the
+      // default schedule's L1 footprint for head_dim >= 256 (metal #44311).
+      if (pagedSdpaDecodeProgramConfigWorkaroundEnabled) {
+        patterns.add<
+            workarounds::decomposition::
+                PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern>(
+            &getContext(), optimizationLevel);
+      }
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);

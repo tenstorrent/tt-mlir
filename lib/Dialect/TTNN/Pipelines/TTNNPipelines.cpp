@@ -303,6 +303,8 @@ void createTTNNPipelineWorkaroundPass(
 
   workaroundOptions.allReduceWorkaroundEnabled =
       options.allReduceWorkaroundEnabled;
+  workaroundOptions.pagedSdpaDecodeProgramConfigWorkaroundEnabled =
+      options.pagedSdpaDecodeProgramConfigWorkaroundEnabled;
   workaroundOptions.optimizationLevel = options.optimizationLevel;
 
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
