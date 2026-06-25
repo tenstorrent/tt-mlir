@@ -282,11 +282,11 @@ public:
                                 CoalescingFactorCache &coalescingCache)
       : OpRewritePattern<DMAReadOp>(context),
         debugCoalescingInference(debugCoalescingInference),
-        coalescingCache(coalescingCache) {}
+        coalescingCache(&coalescingCache) {}
 
 private:
   bool debugCoalescingInference;
-  CoalescingFactorCache &coalescingCache;
+  CoalescingFactorCache *coalescingCache = nullptr;
 
 public:
   LogicalResult matchAndRewrite(DMAReadOp op,
@@ -319,8 +319,8 @@ public:
 
     size_t elemSizeBytes = getElementSizeBytes(remoteMemrefType);
     size_t coalescingFactor =
-        coalescingCache.get(remoteMemoryMap, gridShape, shardShape,
-                            elemSizeBytes, debugCoalescingInference);
+        coalescingCache->get(remoteMemoryMap, gridShape, shardShape,
+                             elemSizeBytes, debugCoalescingInference);
 
     SmallVector<Value> gridIndices(op.getSrcIndices());
 
@@ -353,11 +353,11 @@ public:
                                  CoalescingFactorCache &coalescingCache)
       : OpRewritePattern<DMAWriteOp>(context),
         debugCoalescingInference(debugCoalescingInference),
-        coalescingCache(coalescingCache) {}
+        coalescingCache(&coalescingCache) {}
 
 private:
   bool debugCoalescingInference;
-  CoalescingFactorCache &coalescingCache;
+  CoalescingFactorCache *coalescingCache = nullptr;
 
 public:
   LogicalResult matchAndRewrite(DMAWriteOp op,
@@ -417,8 +417,8 @@ public:
 
     size_t elemSizeBytes = getElementSizeBytes(remoteMemrefType);
     size_t coalescingFactor =
-        coalescingCache.get(remoteMemoryMap, gridShape, shardShape,
-                            elemSizeBytes, debugCoalescingInference);
+        coalescingCache->get(remoteMemoryMap, gridShape, shardShape,
+                             elemSizeBytes, debugCoalescingInference);
 
     SmallVector<Value> gridIndices(op.getDstIndices());
     SmallVector<Value> startDevice(op.getStartDevice());
