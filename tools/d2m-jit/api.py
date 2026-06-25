@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import ast
+import functools
 
 from ttmlir.ir import *
 from ttmlir.dialects import d2m, ttcore, arith, linalg
@@ -14,21 +15,11 @@ from ._src.ast import syntax
 from ._src.config import config
 from ._src.errors import D2mJitError
 from ._src.tensor_layout import Layout, float32, float16, bfloat16, _to_data_type
+from ._src import builder as _builder
 from ._src.builder import (
     CompiledKernel,
     LazyTensor,
-    kernel,
-    to_layout,
-    tilize,
-    untilize,
-    empty,
-    zeros,
-    full,
     reduction_layout,
-    view_layout,
-    view,
-    permute,
-    to_host,
 )
 from ._src.rewrite import (
     pattern,
@@ -37,6 +28,90 @@ from ._src.rewrite import (
     infer_layout,
     apply_patterns,
 )
+
+
+# --- Backend dispatch (config.backend) --------------------------------------
+#
+# The canonical `import d2m_jit` surface dispatches each call to either the
+# device builder or the pure-Python/torch simulator based on `config.backend`,
+# resolved at *call time*. The simulator package (`_src.sim`) is imported
+# lazily so a) `import d2m_jit` stays cheap and b) the device package does not
+# hard-require torch just to be imported. The `import d2m_jit.sim` shadow
+# module bypasses all of this and always simulates.
+
+_SIM_MODULE = None
+
+
+def _sim():
+    global _SIM_MODULE
+    if _SIM_MODULE is None:
+        from ._src import sim as _sim_pkg
+
+        _SIM_MODULE = _sim_pkg
+    return _SIM_MODULE
+
+
+def _use_sim():
+    b = config.backend
+    if b not in ("device", "sim"):
+        raise ValueError(f"config.backend must be 'device' or 'sim', got {b!r}")
+    return b == "sim"
+
+
+def _dispatch(name):
+    """Build a host-function wrapper that routes to the device or sim impl of
+    `name` based on `config.backend` at call time."""
+    device_fn = getattr(_builder, name)
+
+    @functools.wraps(device_fn)
+    def wrapper(*args, **kwargs):
+        impl = getattr(_sim(), name) if _use_sim() else device_fn
+        return impl(*args, **kwargs)
+
+    return wrapper
+
+
+to_layout = _dispatch("to_layout")
+tilize = _dispatch("tilize")
+untilize = _dispatch("untilize")
+empty = _dispatch("empty")
+zeros = _dispatch("zeros")
+full = _dispatch("full")
+view_layout = _dispatch("view_layout")
+view = _dispatch("view")
+permute = _dispatch("permute")
+to_host = _dispatch("to_host")
+
+
+class _DispatchKernel:
+    """`@d2m.kernel` result that picks the device or sim implementation at
+    call time. The backend is decided per-call (not at decoration time), since
+    decoration happens at import -- before the user sets `config.backend`. Each
+    backend's concrete kernel object is built lazily and cached."""
+
+    def __init__(self, fn):
+        functools.update_wrapper(self, fn)
+        self.fn = fn
+        self._device = None
+        self._sim = None
+
+    def _impl(self):
+        if _use_sim():
+            if self._sim is None:
+                self._sim = _sim().kernel(self.fn)
+            return self._sim
+        if self._device is None:
+            self._device = _builder.kernel(self.fn)
+        return self._device
+
+    def __call__(self, *args, **kwargs):
+        return self._impl()(*args, **kwargs)
+
+
+def kernel(fn):
+    """Decorate a user function as a d2m_jit kernel (backend-dispatching)."""
+    return _DispatchKernel(fn)
+
 
 TileBcastType = d2m.TileBcastType
 _REDUCTION_SCALER_ATTR = "d2m.reduction_scaler"

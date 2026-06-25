@@ -8,6 +8,14 @@ import torch
 from d2m_jit._src.builder import _Builder
 
 
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "parity: sim-vs-device PCC parity test (runs a kernel on both backends; "
+        "requires a device). Select with `-m parity`, skip with `-m 'not parity'`.",
+    )
+
+
 @pytest.fixture(scope="function", autouse=True)
 def _set_seed():
     """Deterministic torch RNG per-test for reproducibility."""

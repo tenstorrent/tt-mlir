@@ -336,6 +336,7 @@ Emits `linalg.generic` with the standard matmul indexing maps
 A process-level singleton. Each flag also reads a `D2M_JIT_*` env var.
 
 ```python
+d2m.config.backend                  # str: "device" (default) or "sim"; env D2M_JIT_BACKEND
 d2m.config.print_pipeline           # bool: print the pipeline string
 d2m.config.print_ir_before_pipeline # bool: dump the module before passes
 d2m.config.print_ir_after_pipeline  # bool: dump the module after passes
@@ -427,6 +428,32 @@ have been dropped — the DSL emits the post-legalisation form directly.
 - **Argument order in a `@kernel` call.** All `LazyTensor` arguments first,
   then any `int` scalar arguments. Mixing raises a `TypeError`. The last
   `num_outs` `LazyTensor`s (default 1) are treated as outputs.
+
+## Simulator (no device)
+
+`d2m_jit.sim` runs a kernel as **regular Python on torch** — no MLIR context,
+no pass pipeline, no silicon. Swap one import and the rest of your code is
+unchanged:
+
+```python
+import d2m_jit.sim as d2m   # instead of: import d2m_jit as d2m
+```
+
+Or keep the canonical import and flip the backend (per-call, runtime-toggleable):
+
+```python
+import d2m_jit as d2m
+d2m.config.backend = "sim"   # or env D2M_JIT_BACKEND=sim ; default "device"
+```
+
+The kernel body executes on the host (so `print` / `breakpoint()` work inside
+it), and `to_host()` returns a `torch.Tensor` matching the *intended*
+semantics — useful as a fast inner loop and as a golden oracle for device
+tests. It imports without `_ttmlir_runtime`, so it works with no tt-metal
+build. See [SIMULATOR_SPEC.md](SIMULATOR_SPEC.md) for the design and the list
+of intended device divergences (e.g. `empty` is zero, matmul is correct
+without a zeros-prefill, multicast runs). Tests: `test/d2m-jit/test_sim.py`
+(pure pytest, device-free).
 
 ## Related
 

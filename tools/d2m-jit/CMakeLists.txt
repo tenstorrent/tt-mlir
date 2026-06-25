@@ -7,6 +7,7 @@ declare_mlir_python_sources(TTD2MJitSources
     SOURCES
         __init__.py
         api.py
+        sim.py
         _src/__init__.py
         _src/ast.py
         _src/builder.py
@@ -15,6 +16,11 @@ declare_mlir_python_sources(TTD2MJitSources
         _src/rewrite.py
         _src/tensor_layout.py
         _src/utils.py
+        _src/sim/__init__.py
+        _src/sim/tensors.py
+        _src/sim/ops.py
+        _src/sim/host.py
+        _src/sim/run.py
         patterns/__init__.py
         patterns/eltwise_add_exp_to_kernel.py
         patterns/eltwise_exp_to_kernel.py
