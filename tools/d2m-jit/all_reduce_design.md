@@ -568,3 +568,28 @@ per-step producer ordering (step t push must precede step t+1 recv-wait). The DM
 fabric thread itself is correctly ordered. FIX: keep per-step compute order
 (push acc_t before step t+1's semaphore_wait/recv reserve). Detailed in memory
 [[d2m-ring-interleaved-fabric-hang]]. Then 3c.
+
+### Milestone 3b — FIXED (2026-06-25): loop-fusion barrier on semaphore_wait
+
+Root cause of the 2-step deadlock: `D2MInsertSpillAndScratch::fuseOuterScfLoops`
+fuses the two structurally-identical compute nests (acc1, acc2) and hoists the ops
+sitting BETWEEN them -- including the ring's `semaphore_wait(es1)` -- to before the
+first nest (as "setup" ops). After thread-split, the compute thread then waits on
+es1 before pushing acc1; since es1 is only satisfied by a peer that first consumed
+acc1, the ring deadlocks. (DM thread was correctly ordered; CB handshakes cover its
+hoisted send.)
+
+Fix: in `fuseOuterScfLoops`, after sorting chains into source order, bail out of
+fusion (`return false`) if a `d2m.semaphore_wait` sits between consecutive nests.
+A consume-side wait carries cross-thread/cross-device ordering; a produce-side
+`semaphore_inc`/`set` (fused all_gather's cross-device store signalling a peer) does
+NOT and those kernels rely on fusion -- so the barrier is `SemaphoreWaitOp` only.
+The ring nests write distinct buffers and need no fusion, so skipping it is correct.
+
+After the fix the compute thread is correctly ordered (push acc1 BEFORE wait es1,
+and the recv CBs get their cb_pop_front). `_m3b.py` PASSES on the 1x4 Blackhole ring
+(all devices maxdiff ~0.007, no hang). Fusion-heavy matmul all_gather tests
+(chunked, streaming) still pass; the remaining suite failures are the environmental
+fabric-router-sync bringup timeout (reproduces on baseline without this change).
+
+Next: 3c -- the full (N-1)-step reduce_scatter, then + all_gather = all_reduce.
