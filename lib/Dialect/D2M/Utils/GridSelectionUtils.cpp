@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Utils.h"
 
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
 
 #include <array>
@@ -151,25 +152,44 @@ computeOptimalVirtualGrid(ArrayRef<int64_t> physicalShape,
           return ttmlir::utils::getFactors(dim);
         }));
 
-    auto factorCombinations =
-        ttmlir::utils::computeCartesianProduct<int64_t>(factors);
-
     // Find grid with the greatest volume that is less than or equal to the
     // target grid volume.
     SmallVector<int64_t> bestGrid = {0};
     int64_t bestGridVolume = 0;
-    for (const auto &grid : factorCombinations) {
-      int64_t gridVolume = ttmlir::utils::volume<int64_t>(grid);
-      if (gridVolume <= targetGridVolume && gridVolume > bestGridVolume) {
-        auto physGrid =
-            utils::findLegalPhysicalGridForVolume(gridVolume, targetGrid);
-        if (!physGrid.empty()) {
 
-          bestGrid = grid;
-          bestGridVolume = ttmlir::utils::volume<int64_t>(bestGrid);
-        }
+    llvm::DenseMap<int64_t, bool> legalVolumeCache;
+    auto isLegalVolume = [&](int64_t gridVolume) {
+      auto it = legalVolumeCache.find(gridVolume);
+      if (it != legalVolumeCache.end()) {
+        return it->second;
       }
-    }
+      bool isLegal =
+          !utils::findLegalPhysicalGridForVolume(gridVolume, targetGrid)
+               .empty();
+      legalVolumeCache[gridVolume] = isLegal;
+      return isLegal;
+    };
+
+    SmallVector<int64_t> candidateGrid(physicalShape.size(), 1);
+    auto enumerateGrids = [&](auto &&self, size_t dim,
+                              int64_t currentVolume) -> void {
+      if (currentVolume > targetGridVolume) {
+        return;
+      }
+      if (dim == factors.size()) {
+        if (currentVolume > bestGridVolume && isLegalVolume(currentVolume)) {
+          bestGrid.assign(candidateGrid.begin(), candidateGrid.end());
+          bestGridVolume = currentVolume;
+        }
+        return;
+      }
+
+      for (int64_t factor : factors[dim]) {
+        candidateGrid[dim] = factor;
+        self(self, dim + 1, currentVolume * factor);
+      }
+    };
+    enumerateGrids(enumerateGrids, /*dim=*/0, /*currentVolume=*/1);
     return bestGrid;
   }
 
