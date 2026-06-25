@@ -139,13 +139,23 @@ void applyConvSliceConfig(ModuleOp moduleOp) {
 
 OutputHints Conv3dRuleBook::getOutputHints(
     Operation * /*op*/, const std::vector<OpConfig> &legalConfigs) const {
-  // Forward the full legal configs (which carry Conv3dConfig, including any
-  // --override-conv3d-config) as primary hints. Conv3d is interleaved-only, so
-  // unlike Conv2d there is no shard layout to embed. Without this, the base
+  // Forward the interleaved legal configs (which carry Conv3dConfig, including
+  // any --override-conv3d-config) as primary hints. Without this, the base
   // OpRuleBook::getOutputHints emits a null primary hint that drops
   // opSpecificAttrs, so applyOpSpecificAttrs never sees the Conv3dAttrs and the
   // override is silently lost under the greedy optimizer.
-  return OutputHints{legalConfigs, {}};
+  std::vector<OpConfig> configs;
+  configs.reserve(legalConfigs.size());
+  for (const auto &config : legalConfigs) {
+    if (config.outputLayout) {
+      auto ml = config.outputLayout.getMemLayout();
+      if (ml && isShardedMemoryLayout(ml.getValue())) {
+        continue;
+      }
+    }
+    configs.push_back(config);
+  }
+  return OutputHints{configs, {}};
 }
 
 void Conv3dRuleBook::applyOpSpecificAttrs(
