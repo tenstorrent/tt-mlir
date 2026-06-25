@@ -467,6 +467,9 @@ NB_MODULE(_native, m) {
     m.def("runtime_device_mesh_shape", &::tt::kurbla::runtime_device_mesh_shape,
           "Current runtime mesh shape as [rows, cols].");
 
+    m.def("close_runtime_device_mesh", &::tt::kurbla::close_runtime_device_mesh,
+          "Close the process-wide MeshDevice if open.");
+
     // Thin binding wrappers over the distributed primitives in tensor.cpp:
     // unwrap Python objects to at::Tensor, forward, that's it. The actual
     // logic (TTIR construction, runtime calls, storage manipulation) lives
