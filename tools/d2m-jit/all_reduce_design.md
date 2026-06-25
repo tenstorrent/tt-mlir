@@ -832,3 +832,39 @@ loop-resident-DST-accumulator handling, currently gated to matmul via
 hasTileMatmul / d2m.reduction_loop, to a loop-carried eltwise accumulator). Plus
 the split-v2 wait-fix for the init. All experiments reverted; static_range unroll
 remains the working generic approach.
+
+### DEFINITIVE root cause via matmul contrast (2026-06-25)
+
+(Pointers do NOT move in the loop -- correct.) Dumped a matmul-acc user loop
+(`acc = a@b; for k: acc += a@b`) and compared its compute kernel to the eltwise one:
+
+matmul loop body (works):
+```
+pack_reconfig_l1_acc(%k != first)     # packer L1-acc: off iter0 (overwrite), on after
+matmul_block(a, b) -> DST
+pack_tile(%acc)                        # packer adds DST into %acc IN PLACE
+```
+NO copy_tile(%acc) -- the accumulator is never read back; the running sum lives in
+the CB and is accumulated by the hardware packer.
+
+eltwise loop body (broken):
+```
+copy_tile(%acc) -> DST0                # READS the accumulator back
+copy_tile(%in)  -> DST1
+add_binary_tile -> DST0
+pack_tile(%acc)                        # overwrite (no pack_reconfig_l1_acc)
+```
+copy_tile reads the CB READ pointer (front = the DM-pushed init page); pack_tile
+writes the WRITE pointer (a different page). Both fixed across the loop, so every
+iteration re-reads the init -> %acc = init + input (overwritten), store reads the
+init page -> got ~= init. The earlier "carry/race/divergence-in-loop" framings were
+imprecise: the real issue is that eltwise READS the accumulator back at all.
+
+FIX: lower a loop-carried eltwise accumulate like matmul -- drop the copy_tile(acc)
+read; DST = input; pack_reconfig_l1_acc(k != first) + pack_tile(acc) so the packer
+does acc += input in place. This is the packer-L1-acc path, gated to matmul in
+InsertDstRegisterAccess (Scheduled.cpp disablePackerL1Acc = ...||!hasTileMatmul||...
++ allTileMatmulOutputsSupportPackerL1Acc); extend it to recognize a loop-carried
+eltwise add accumulator. Bonus: first-iter-overwrite makes the explicit zeros-init
+and the split-v2 wait-fix unnecessary (matmul needs neither). Supersedes the prior
+diagnoses in this doc.
