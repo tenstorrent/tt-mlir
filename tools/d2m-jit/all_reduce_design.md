@@ -890,3 +890,32 @@ diagnoses. The real blocker for a runtime-loop ring is correct lowering of an
 scf.for iter_arg accumulator (the CB handshake / DST handling across iterations),
 affecting any user-loop accumulation regardless of the compute op. static_range
 unroll (which has no iter_arg) remains the only working path.
+
+### COMPLETE root cause (2026-06-25): scf.for iter_arg accumulator -> FIFO page-split
+
+Confirmed the user-loop accumulator is broken for ALL variants (eltwise, matmul
+copy_tile-reload, matmul packer-l1-acc, peeled AND non-peeled). Dug into the
+lowering:
+
+- The L1-acc / DST-resident accumulation in InsertDstRegisterAccess is gated to the
+  matmul's `d2m.reduction_loop` / `d2m.blocking_loop` (Shared.cpp
+  isReductionBlockingLoop). A USER scf.for iter_arg accumulator has neither attr, so
+  it takes the GENERIC per-iteration path: tile_regs_acquire / copy_tile(acc) /
+  compute / pack_tile(acc) / tile_regs_release INSIDE the loop, round-tripping the
+  accumulator through its CB every iteration.
+- The accumulator CB is then used as a FIFO across threads: the DM pushes the init
+  (acc = remote_load(zeros)) to page0, compute packs the result to page1 (the push
+  advanced the write ptr past page0), and the DM store does cb_wait_front -> reads
+  page0 (the init, first in FIFO), not page1. => got ~= init. The standard matmul
+  reduction works because the K-reduction lives INSIDE matmul_block (no compute-level
+  scf.for accumulator, no per-iteration CB round-trip, one pack -> one FIFO entry).
+
+FIX (substantial): give a loop-carried scf.for iter_arg accumulator the
+matmul-reduction treatment -- keep it DST-resident across the loop (tile_regs_acquire
+BEFORE the loop, init in-register on the first iteration, accumulate in DST inside,
+ONE pack AFTER the loop), and DROP the DM init-load (no separate FIFO entry). That is
+a real InsertDstRegisterAccess feature (recognize the iter_arg accumulator, hoist DST
+acquire/pack out of the loop), plus matching CB-handshake changes -- not a localized
+fix, and it must not regress the matmul reduction_loop path. static_range unroll
+(no iter_arg accumulator -> no per-iteration CB round-trip) remains the working path
+and is what the shipped all_reduce kernels (_m3c/_m3d/_m3e) use.
