@@ -23,6 +23,8 @@
 #include "shardy/dialect/sdy/ir/dialect.h"
 #include "stablehlo/dialect/StablehloOps.h"
 
+#include <limits>
+
 using namespace mlir;
 using namespace mlir::tt;
 using namespace mlir::tt::stablehlo::utils;
@@ -847,40 +849,64 @@ public:
       return success();
     }
 
-    // Pad intermediates to tile-aligned: each chip emits `effectiveK >= k`
-    // candidates so that `effectiveK * numShards` is a multiple of the
-    // tile width (32). Without this, the all_gather'd (B, k*N) tensor is
-    // sub-tile-size when k*N < 32, and downstream TTNN ops (gather, add,
-    // topk, slice) don't handle sub-tile layouts cleanly. After the
-    // tile-aligned merge_topk + gather, slice down to the user's k.
+    // Multi-core eligibility: ttnn.topk only uses its multi-core program
+    // factory when k <= 64 AND the topk-dim width is a power of 2 (it needs an
+    // even power-of-2 core split); otherwise it falls back to a single core
+    // (~10x slower, e.g. ~14.7ms vs ~1.3ms for a 16k-wide shard). So the
+    // per-shard LOCAL topk must keep k small (localK <= 64) and run on a
+    // power-of-2 width, while a separate MERGE topk produces the user's k from
+    // the gathered candidates. Decoupling localK (per-shard) from outK (output)
+    // is what keeps the local topk multi-core; the merge runs over a tiny width
+    // (numShards*localK), so its single-core cost is negligible.
     constexpr int64_t kTileWidth = 32;
-    int64_t effectiveK = k;
-    int64_t paddedTotal = k * numShards;
-    if (paddedTotal < kTileWidth || paddedTotal % kTileWidth != 0) {
-      paddedTotal =
-          ((std::max(paddedTotal, kTileWidth) + kTileWidth - 1) / kTileWidth) *
-          kTileWidth;
-      while (paddedTotal % numShards != 0) {
-        paddedTotal += kTileWidth;
-      }
-      effectiveK = paddedTotal / numShards;
-    }
-    // Cap effectiveK at numItemsLocal so the per-chip topk has enough items.
-    if (effectiveK > numItemsLocal) {
-      effectiveK = numItemsLocal;
-      paddedTotal = effectiveK * numShards;
-    }
-    bool padded = effectiveK != k;
-    int64_t totalCandidates = paddedTotal;
-    auto dimI32 = rewriter.getI32IntegerAttr(static_cast<int32_t>(topkDim));
-    auto effectiveKAttr =
-        rewriter.getI32IntegerAttr(static_cast<int32_t>(effectiveK));
+    constexpr int64_t kMaxMultiCoreK = 64;
+    auto roundUpTo = [](int64_t v, int64_t m) { return ((v + m - 1) / m) * m; };
 
-    auto localValType = RankedTensorType::get({batch, effectiveK}, elemType);
+    // Output/merge candidate count: tile-aligned, >= k.
+    int64_t outK = std::max(kTileWidth, roundUpTo(k, kTileWidth));
+    // Per-shard local candidate count: smallest tile-multiple with
+    // localK*numShards >= outK, capped at kMaxMultiCoreK for multi-core.
+    int64_t localK = std::min(
+        kMaxMultiCoreK,
+        roundUpTo((outK + numShards - 1) / numShards, kTileWidth));
+    localK = std::min(localK, numItemsLocal);
+    // If numShards*localK still can't cover outK (very large k), grow localK
+    // even if it costs single-core — correctness over speed.
+    while (localK * numShards < outK && localK < numItemsLocal) {
+      localK = std::min(localK + kTileWidth, numItemsLocal);
+    }
+    int64_t totalCandidates = localK * numShards;
+    outK = std::min(outK, totalCandidates);
+    bool padded = outK != k;
+    auto dimI32 = rewriter.getI32IntegerAttr(static_cast<int32_t>(topkDim));
+    auto localKAttr = rewriter.getI32IntegerAttr(static_cast<int32_t>(localK));
+    auto outKAttr = rewriter.getI32IntegerAttr(static_cast<int32_t>(outK));
+
+    // Pad the local shard width up to a power of 2 so the local topk is
+    // multi-core eligible. -inf padding can never win, so the returned local
+    // indices stay in [0, numItemsLocal) and need no offset correction.
+    Value localInput = input;
+    int64_t pow2Width = 1;
+    while (pow2Width < numItemsLocal) {
+      pow2Width <<= 1;
+    }
+    if (pow2Width != numItemsLocal) {
+      SmallVector<int64_t> padShape(inputType.getShape().begin(),
+                                    inputType.getShape().end());
+      padShape[topkDim] = pow2Width;
+      SmallVector<int32_t> padCfg(2 * rank, 0);
+      padCfg[2 * topkDim + 1] = static_cast<int32_t>(pow2Width - numItemsLocal);
+      localInput = rewriter.create<ttir::PadOp>(
+          loc, RankedTensorType::get(padShape, elemType), input,
+          rewriter.getDenseI32ArrayAttr(padCfg),
+          rewriter.getF32FloatAttr(-std::numeric_limits<float>::infinity()));
+    }
+
+    auto localValType = RankedTensorType::get({batch, localK}, elemType);
     auto localIndType =
-        RankedTensorType::get({batch, effectiveK}, rewriter.getI32Type());
+        RankedTensorType::get({batch, localK}, rewriter.getI32Type());
     auto localTopK = rewriter.create<ttir::TopKOp>(
-        loc, localValType, localIndType, input, effectiveKAttr, dimI32,
+        loc, localValType, localIndType, localInput, localKAttr, dimI32,
         largestAttr, BoolAttr::get(rewriter.getContext(), false));
 
     auto gatheredValType =
@@ -895,15 +921,15 @@ public:
         loc, gatheredIndType, localTopK.getIndices(),
         static_cast<int32_t>(topkDim), clusterAxis);
 
-    // After all_gather, block [shard*effectiveK : (shard+1)*effectiveK] holds
-    // chip `shard`'s effectiveK candidates with local indices in
+    // After all_gather, block [shard*localK : (shard+1)*localK] holds
+    // chip `shard`'s localK candidates with local indices in
     // [0, numItemsLocal). Adding shard*numItemsLocal makes them global.
     SmallVector<int32_t> offsetValues;
     offsetValues.reserve(batch * totalCandidates);
     for (int64_t b = 0; b < batch; ++b) {
       for (int64_t shard = 0; shard < numShards; ++shard) {
         int32_t shardOffset = static_cast<int32_t>(shard * numItemsLocal);
-        for (int32_t j = 0; j < effectiveK; ++j) {
+        for (int32_t j = 0; j < localK; ++j) {
           offsetValues.push_back(shardOffset);
         }
       }
@@ -916,23 +942,23 @@ public:
     Value globalInds = rewriter.create<ttir::AddOp>(loc, gatheredIndType,
                                                     gatheredInds, offsetConst);
 
-    // Merge with effectiveK to keep the merge output tile-aligned; slice
-    // down to the user's k after the gather. (If padded==false, this is
-    // the same as the original merge with K=k.)
-    auto mergedValType = RankedTensorType::get({batch, effectiveK}, elemType);
+    // Merge with outK (tile-aligned >= k) over the small gathered candidate
+    // set; slice down to the user's k after the gather. (If padded==false this
+    // is the same as the original merge with K=k.)
+    auto mergedValType = RankedTensorType::get({batch, outK}, elemType);
     auto sortOrderType =
-        RankedTensorType::get({batch, effectiveK}, rewriter.getI32Type());
+        RankedTensorType::get({batch, outK}, rewriter.getI32Type());
     auto mergeTopK = rewriter.create<ttir::TopKOp>(
-        loc, mergedValType, sortOrderType, gatheredVals, effectiveKAttr, dimI32,
+        loc, mergedValType, sortOrderType, gatheredVals, outKAttr, dimI32,
         largestAttr, BoolAttr::get(rewriter.getContext(), true));
 
     // GatherOp requires unsigned indices.
-    auto ui32Type = RankedTensorType::get({batch, effectiveK},
+    auto ui32Type = RankedTensorType::get({batch, outK},
                                           rewriter.getIntegerType(32, false));
     Value sortOrderUi32 = rewriter.create<ttir::TypecastOp>(
         loc, ui32Type, mergeTopK.getIndices());
     Value alignedInds = rewriter.create<ttir::GatherOp>(
-        loc, RankedTensorType::get({batch, effectiveK}, rewriter.getI32Type()),
+        loc, RankedTensorType::get({batch, outK}, rewriter.getI32Type()),
         globalInds, sortOrderUi32, dimI32);
 
     Value finalValues = mergeTopK.getValues();
