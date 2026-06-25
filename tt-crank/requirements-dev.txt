@@ -28,3 +28,4 @@ numpy>=1.24.4,<2
 graphviz
 networkx==3.1
 pydantic==2.9.2
+websockets==16.0

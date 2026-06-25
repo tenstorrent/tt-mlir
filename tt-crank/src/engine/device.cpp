@@ -66,19 +66,7 @@ private:
         // to stay in sync with the mesh we're about to open.
         ::tt::runtime::setFabricConfig(runtime_mesh_fabric_config(mesh_shape).globalConfig);
 
-        auto device = ::tt::runtime::openMeshDevice(::tt::runtime::MeshDeviceOptions{.meshShape = mesh_shape});
-
-        // Schedule the close at process exit, registered AFTER this first open
-        // (hence after tt-metal's own atexit handlers) so it runs before tt-metal
-        // teardown — atexit is LIFO; registering earlier aborts in tt-metal. Once
-        // per process.
-        static const bool s_close_at_exit = [] {
-            std::atexit(close_runtime_device_mesh);
-            return true;
-        }();
-        (void)s_close_at_exit;
-
-        return device;
+        return ::tt::runtime::openMeshDevice(::tt::runtime::MeshDeviceOptions{.meshShape = mesh_shape});
     }
     static ::tt::runtime::SystemDesc probe_system_desc(::tt::runtime::Device &d) {
         return ::tt::runtime::getCurrentSystemDesc(/*dispatchCoreType=*/std::nullopt, d);

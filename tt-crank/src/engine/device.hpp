@@ -14,8 +14,7 @@ struct MeshFabricConfig;
 namespace tt::kurbla {
 
 // Process-wide MeshDevice, opened lazily on first call, may be reopened with a
-// different mesh via open_runtime_device_mesh(). Closed at process exit via an
-// atexit handler.
+// different mesh via open_runtime_device_mesh().
 TT_KURBLA_API ::tt::runtime::Device &runtime_device();
 
 // Process-wide SystemDesc - matches the actually-open mesh's topology so
@@ -50,8 +49,7 @@ TT_KURBLA_API std::uint32_t runtime_device_mesh_size();
 TT_KURBLA_API const ::tt::runtime::MeshFabricConfig &
 runtime_mesh_fabric_config(const std::vector<std::uint32_t> &mesh_shape);
 
-// Close the mesh device if open. Call from atexit: closing from the C++ static
-// dtor races tt-metal's teardown and aborts in ~FDMeshCommandQueue.
+// Close the mesh device if open.
 TT_KURBLA_API void close_runtime_device_mesh();
 
 // Default mesh shape when no explicit shape was requested: a single device.

@@ -80,7 +80,7 @@ target_link_libraries(tt_kurbla
 # CLI itself is independent of this option (see cmake/Tracy.cmake).
 target_link_libraries(tt_kurbla PUBLIC tt_kurbla::tracy_headers)
 if(TT_KURBLA_TRACY_ZONES)
-    target_compile_definitions(tt_kurbla PUBLIC TRACY_ENABLE)
+    target_compile_definitions(tt_kurbla PUBLIC TRACY_ENABLE TRACY_TIMER_FALLBACK)
     target_link_libraries(tt_kurbla PUBLIC tt_kurbla::tracy)
 endif()
 

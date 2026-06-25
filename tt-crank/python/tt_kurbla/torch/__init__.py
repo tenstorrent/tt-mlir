@@ -1,7 +1,14 @@
+import atexit
+
 import torch  # noqa: F401  — load libtorch before importing the _native extension
 
 from . import _native  # noqa: F401  — loading the .so runs c10::register_privateuse1_backend("tt")
 from ._device import register
+
+# Close the process-wide MeshDevice before interpreter finalization. Python's
+# atexit runs while threads and thread-locals are still alive, unlike a
+# C-runtime atexit handler.
+atexit.register(_native.close_runtime_device_mesh)
 from tt_kurbla._runtime_env import setup_tt_metal_home
 
 setup_tt_metal_home()
