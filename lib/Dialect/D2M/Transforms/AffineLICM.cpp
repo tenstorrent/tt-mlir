@@ -7,6 +7,8 @@
 #include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Interfaces/LoopLikeInterface.h"
 #include "mlir/Transforms/LoopInvariantCodeMotionUtils.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MAFFINELICM
@@ -21,10 +23,11 @@ struct D2MAffineLICM
 
   void runOnOperation() override {
     llvm::SmallVector<mlir::LoopLikeOpInterface> loops;
-    getOperation().walk(
-        [&](mlir::affine::AffineForOp forOp) { loops.push_back(forOp); });
-    getOperation().walk([&](mlir::affine::AffineParallelOp parallelOp) {
-      loops.push_back(parallelOp);
+    getOperation().walk([&](mlir::Operation *op) {
+      if (mlir::isa<mlir::affine::AffineForOp, mlir::affine::AffineParallelOp>(
+              op)) {
+        loops.push_back(mlir::cast<mlir::LoopLikeOpInterface>(op));
+      }
     });
 
     // Process inner loops first so newly hoisted operations can be hoisted
