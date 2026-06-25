@@ -593,3 +593,28 @@ and the recv CBs get their cb_pop_front). `_m3b.py` PASSES on the 1x4 Blackhole 
 fabric-router-sync bringup timeout (reproduces on baseline without this change).
 
 Next: 3c -- the full (N-1)-step reduce_scatter, then + all_gather = all_reduce.
+
+### Milestone 3c — DONE (2026-06-25): full ring all_reduce PASSES on device
+
+`test/d2m-jit/_m3c.py` PASSES on the 1x4 Blackhole ring: a 3-step (N-1) chained
+ring all_reduce where every device ends with the identical full sum
+(sum over all devices), maxdiff ~0.01, no hang. This composes all the milestone-3
+pieces: tmp-scratch `fabric_recv` (3a, view-free, no NoC read-back), the
+fusion-barrier fix (3b, no compute-thread deadlock), and:
+
+**Send-only forwarding (new constraint learned).** A value that is fabric-sent
+must be send-only -- a CB consumed by BOTH a DM `remote_store` and a compute op
+fails to legalize ("unresolved materialization memref->cb ... live user"). The
+circulate-and-accumulate ring inherently wants to forward each received value
+(needed by compute for the accumulate too). Worked around by making every
+forwarded value a send-only compute output:
+- load in0[0] TWICE (a send-only copy `v_send` for step 1 + a compute copy `v`);
+- forward each received r_k as `acc_k - acc_{k-1}` (== r_k) -- a send-only compute
+  output -- so the raw recv result stays single-(compute-)consumer.
+
+This is correct but NOT bandwidth-optimal (sends the whole shard each step, O(N)
+data vs the chunked reduce-scatter's O(1)). Follow-ups:
+1. Bandwidth-optimal chunked reduce-scatter + all-gather (each step moves 1/N).
+2. Compiler support for a recv buffer consumed by both compute and a DM forward
+   (materialize once), which would remove the double-load / subtraction workaround.
+3. grid-[N,1] dynamic recv-slot offset (still hardcoded 0).
