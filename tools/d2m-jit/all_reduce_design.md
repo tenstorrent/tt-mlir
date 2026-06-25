@@ -718,3 +718,38 @@ eltwise accumulate lowering (DST/L1-acc threading, like the matmul path) and (b)
 fabric-ops-in-scf.for runtime support. The experimental DSL ops were reverted (not
 landed) since they silently miscompute in loops. The `static_range` unroll
 (milestone 3e) remains the working generic-over-N, loop-written approach.
+
+### Root cause of the loop-carried eltwise miscompute (2026-06-25)
+
+Dumping the final ttkernel compute kernel for a minimal `acc += r` runtime loop
+pins it exactly. The accumulator is lowered to round-trip through its output CB
+every iteration, with DST acquired/released INSIDE the loop:
+```
+cb_reserve_back(%acc)                 # reserved ONCE, before the loop
+scf.for k {
+  cb_wait_front(%in)
+  tile_regs_acquire()                 # DST per-iteration
+  copy_tile(%acc,0,0)                 # DST0 <- acc CB (read)
+  copy_tile(%in,0,1); add_binary_tile(0,1,0)
+  pack_tile(0,%acc,0)                 # acc CB <- DST0 (write)
+  tile_regs_release(); cb_pop_front(%in)
+}
+cb_push_back(%acc)                    # pushed ONCE, after the loop
+```
+The acc CB is `reserve`d once / `push`ed once with NO per-iteration push/pop and NO
+`cb_wait_front`. So (1) `copy_tile(%acc)` reads the CB front, which the in-loop
+`pack_tile` (writing the reserved back) never updates without cycling the CB -> the
+carry doesn't propagate (iter k doesn't see iter k-1's result); and (2) the initial
+value (`acc = remote_load(zin)`) is never threaded into %acc (no wait_front before
+the loop). Both are silent -- the IR is well-formed and bufferization is satisfied
+(the outs(acc) aliasing is locally valid), so nothing flags it.
+
+matmul `c += a@b` works in a loop because it keeps the accumulator RESIDENT in DST
+across the whole reduction (tile_regs_acquire before the loop, accumulate in DST
+each iter via the L1-acc/DST path, pack once after) -- no per-iteration CB
+round-trip. Eltwise has no such DST-resident-across-loop accumulation.
+
+Fix: the compute lowering (InsertDstRegisterAccess + CB-sync scheduling) must keep
+a loop-carried eltwise accumulator in DST across the loop body (or give the acc CB
+a correct per-iteration read<->write handshake + load its init), i.e. extend the
+matmul DST/L1-acc treatment to eltwise. A real C++ change, not a DSL fix.
