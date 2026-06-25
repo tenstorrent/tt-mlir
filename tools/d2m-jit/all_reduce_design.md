@@ -919,3 +919,15 @@ acquire/pack out of the loop), plus matching CB-handshake changes -- not a local
 fix, and it must not regress the matmul reduction_loop path. static_range unroll
 (no iter_arg accumulator -> no per-iteration CB round-trip) remains the working path
 and is what the shipped all_reduce kernels (_m3c/_m3d/_m3e) use.
+
+### Single-buffered CB: tried, does NOT fix it (2026-06-25)
+
+Forced all synchronized CBs to single-buffered (HoistCBAllocs: attach
+CBLayoutAttr numBuffers=1; confirmed all cb_layout became <4096x4096, 1>), with the
+in-place op + split-v2 wait-fix re-applied. The multi-iteration eltwise loop STILL
+fails (maxdiff ~10, got ~= init), and does NOT deadlock. So CB buffer depth is not
+the lever -- the per-iteration CB round-trip of a loop-carried accumulator
+(copy_tile read / pack_tile write across the thread-crossing accumulator CB) is
+broken for both single- and double-buffered CBs. Reinforces that the fix must avoid
+the per-iteration CB round-trip entirely (DST-resident accumulation, the
+matmul-reduction treatment), not tune the CB depth. Reverted.
