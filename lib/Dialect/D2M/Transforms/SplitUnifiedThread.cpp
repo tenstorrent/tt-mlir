@@ -103,10 +103,8 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
       opsWithSynchronizableOps.insert(op->getParentOp());
     }
   });
-  // More than one enclosing op means the synchronizable compute ops live in
-  // distinct loop nests (an ambiguous synchronization scope). A CB shared by
-  // consumers in different nests cannot be balanced with a single per-block
-  // wait/pop pair; reject it cleanly instead of asserting / miscompiling.
+  // Compute ops in distinct loop nests give an ambiguous sync scope: a single
+  // per-block wait/pop pair can't balance a CB shared across nests.
   if (opsWithSynchronizableOps.size() != 1) {
     return genericOp.emitOpError()
            << "compute ops span multiple synchronization scopes (e.g. a CB "
@@ -251,10 +249,8 @@ static LogicalResult processSharedBufferPairs(
     Block *computeBlock, PatternRewriter &rewriter,
     llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
   for (auto [localBuffer, usageInfo] : cbUsageInfo) {
-    // This pass stage only rewrites RemoteLoad->RemoteStore alias pairs, which
-    // are always 1-producer/1-consumer. CBs with fan-out (multiple compute
-    // consumers, e.g. softmax reusing `scores`) or that are produced/consumed
-    // by compute ops are handled by insertCBOpsForCompute; skip them here.
+    // Only handles 1:1 RemoteLoad->RemoteStore alias pairs; fan-out CBs are
+    // handled by insertCBOpsForCompute.
     if (usageInfo.producers.size() != 1 || usageInfo.consumers.size() != 1) {
       continue;
     }
@@ -297,19 +293,9 @@ static LogicalResult processSharedBufferPairs(
   return success();
 }
 
-// Return the block that all `ops` are direct children of, or nullptr if they
-// do not all share one parent block.
-//
-// CB synchronization must be emitted at the same loop scope as the data
-// movement thread, which pushes/pops the buffer once per blocking-loop
-// iteration. A CB shared by multiple compute consumers (e.g. softmax reuses
-// `scores` for both the max-reduction and the subtract) is balanced by exactly
-// one wait/pop pair wrapping the first..last consumer -- but only if those
-// consumers live in the same block, so the single wait/pop executes at the same
-// cadence as the producer's push. Consumers split across distinct loop nests
-// would need per-nest buffering / CB-depth reasoning and are not yet supported;
-// this returns nullptr for them so the caller can diagnose rather than emit a
-// deadlocking cadence mismatch.
+// Return the block all `ops` are direct children of, or nullptr otherwise. The
+// single wait/pop pair must sit in the same block to match the producer's
+// per-block push cadence; ops split across nests would deadlock.
 static Block *commonParentBlock(ArrayRef<Operation *> ops) {
   Block *block = ops.front()->getBlock();
   for (Operation *op : ArrayRef<Operation *>(ops).drop_front()) {
@@ -324,13 +310,9 @@ static LogicalResult
 insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
                       llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
   // Collect, per CB local buffer, the compute synchronizable ops that consume
-  // or produce it, in program order. A CB may legitimately have multiple
-  // consumers: softmax reuses `scores` for both the max-reduction and the
-  // subtract, and reuses the exp result for both the sum-reduction and the
-  // divide. The producer pushes the buffer once, so it must be balanced by
-  // exactly one wait (before the first consumer) and one pop (after the last
-  // consumer) -- not one wait/pop per consumer, which would starve later
-  // consumers of a depth-1 CB.
+  // or produce it, in program order. A CB may have multiple consumers (fan-out,
+  // e.g. softmax reusing `scores`); the producer pushes once, so it's balanced
+  // by one wait before the first consumer and one pop after the last.
   llvm::MapVector<Value, SmallVector<Operation *>> consumersByCB;
   llvm::MapVector<Value, SmallVector<Operation *>> producersByCB;
   computeBlock->walk([&](Operation *op) {
@@ -353,9 +335,6 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
   auto generic = cast<GenericOp>(computeBlock->getParentOp());
 
   // Consumers: wait once before the first consumer, pop once after the last.
-  // The walk above visits consumers in program order, so ops.front()/back() are
-  // the first/last uses; they must share a block (see commonParentBlock) so the
-  // single wait/pop matches the producer's per-block push cadence.
   for (auto &[localBuffer, ops] : consumersByCB) {
     if (!commonParentBlock(ops)) {
       return generic.emitOpError()
@@ -371,8 +350,7 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
     rewriter.setInsertionPoint(first);
     auto cb = d2m::getOrCreateCB(rewriter, generic, computeBlock, cbOperandIdx);
 
-    // If produced by an aliased remote_load (no DMA), the compute side must
-    // reserve+push to mark the buffer available.
+    // Aliased remote_load producer has no DMA, so compute reserves+pushes.
     bool aliasedLoadProducer =
         llvm::any_of(cbUsageInfo[localBuffer].producers, [](Operation *p) {
           auto load = mlir::dyn_cast<RemoteLoadOp>(p);
@@ -411,8 +389,7 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
     rewriter.setInsertionPointAfter(last);
     rewriter.create<PushOp>(last->getLoc(), cb);
 
-    // If consumed by an aliased remote_store (no DMA), the compute side must
-    // wait+pop to drain the buffer.
+    // Aliased remote_store consumer has no DMA, so compute waits+pops.
     bool aliasedStoreConsumer =
         llvm::any_of(cbUsageInfo[localBuffer].consumers, [](Operation *c) {
           auto store = mlir::dyn_cast<RemoteStoreOp>(c);
@@ -441,8 +418,7 @@ static LogicalResult eraseAliasedLoadStoreOps(
     PatternRewriter &rewriter,
     llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
   for (auto [localBuffer, usageInfo] : cbUsageInfo) {
-    // Only aliased RemoteLoad/RemoteStore pairs are erased here; those are
-    // always 1-producer/1-consumer. Skip fan-out / compute-handled CBs.
+    // Only erases 1:1 aliased RemoteLoad/RemoteStore pairs; skip fan-out CBs.
     if (usageInfo.producers.size() != 1 || usageInfo.consumers.size() != 1) {
       continue;
     }
