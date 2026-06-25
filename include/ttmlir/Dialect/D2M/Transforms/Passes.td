@@ -91,7 +91,7 @@ def D2MOpScheduler : Pass<"d2m-op-scheduler", "::mlir::ModuleOp"> {
 
   list<Option> options = [
     Option<"enableOpScheduler", "enable-op-scheduler", "bool", "true",
-           "Enable operation scheduling optimization (currently hard-wired to true internally)">,
+           "Enable operation scheduling optimization">,
   ];
 
   let dependentDialects = [

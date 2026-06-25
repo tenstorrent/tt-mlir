@@ -195,15 +195,11 @@ void createD2MBackendPipeline(OpPassManager &pm,
   { linalgToAffineOptions.markRootLoops = true; }
   pm.addPass(d2m::createD2MLinalgToAffine(linalgToAffineOptions));
 
-  d2m::D2MOpSchedulerOptions opSchedulerOptions;
-  {
-    // TODO(mbagherbeikTT)
-    // Has to be hard enabled for now until DST allocation is made fully
-    // consistent with elementwise fusion
-    opSchedulerOptions.enableOpScheduler = true; /* options.enableOpScheduler */
-    ;
+  if (options.enableOpScheduler) {
+    d2m::D2MOpSchedulerOptions opSchedulerOptions;
+    { opSchedulerOptions.enableOpScheduler = options.enableOpScheduler; }
+    pm.addPass(d2m::createD2MOpScheduler(opSchedulerOptions));
   }
-  pm.addPass(d2m::createD2MOpScheduler(opSchedulerOptions));
   pm.addPass(d2m::createD2MInsertSpillAndScratch());
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(d2m::createD2MLowerScratchAllocate());
@@ -224,12 +220,12 @@ void createD2MBackendPipeline(OpPassManager &pm,
   { insertTileMatmulBlockOptions.useTileMatmul = options.useTileMatmul; }
   pm.addPass(d2m::createD2MInsertTileMatmulBlock(insertTileMatmulBlockOptions));
 
-  pm.addPass(d2m::createD2MSFPUTileLoopFission());
+  if (options.enableElementwiseFusion || options.enableEltwiseReductionFusion) {
+    pm.addPass(d2m::createD2MSFPUTileLoopFission());
+  }
   pm.addPass(mlir::createCanonicalizerPass());
 
-  OpPassManager &funcPm = pm.nest<func::FuncOp>();
-  funcPm.addPass(affine::createAffineLoopInvariantCodeMotionPass());
-
+  pm.addPass(affine::createAffineLoopInvariantCodeMotionPass());
   pm.addPass(mlir::createLowerAffinePass());
   pm.addPass(memref::createFoldMemRefAliasOpsPass());
   pm.addPass(mlir::createLowerAffinePass());
