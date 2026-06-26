@@ -141,9 +141,32 @@ gets all the way through EXCEPT the per-row output store (#3).
    CB. This is the same family as the send-only-forwarding wall
    ([[d2m-ccl-send-only-forwarding]]) but now with a matmul consumer.
 
-Net: blockers #1/#2 are solved at the DSL level; #3 and #4 are genuine
-d2m-to-ttkernel gaps. Peeling back #1→#2→#3 only to hit #4 confirms a fused AGMM
-needs compiler (C++) work, not more DSL restructuring.
+Net: blockers #1/#2 are solved at the DSL level; #3 and #4 are genuine compiler
+gaps.
+
+### Wall #3 FIXED (2026-06-26, commit 4a0140ad1)
+
+#3 was NOT d2m-to-ttkernel — it was a null-deref CRASH in **d2m-allocate**
+(`materializeAliasedLoadStore`, Allocate.cpp:1324, confirmed via a Debug build
+backtrace): `isa<OperandAliasOp>(remoteStoreOp.getLocalBuffer().getDefiningOp())`
+where the in-loop store's local buffer is a loop-carried scf.for iter_arg (a block
+argument, `getDefiningOp()==null`). Fixed with `isa_and_nonnull`. Regression:
+`test/d2m-jit/test_inloop_output_store.py` (lower-only). The minimal in-loop-store
+repro now compiles; the circulate-matmul `agf_circ.py` now passes d2m-allocate.
+
+### Wall #5 (the NEXT crash, after #3): d2m-to-ttkernel on matmul-of-fabric-recv
+
+With #3 fixed, `agf_circ.py` (single-core circulate-MATMUL with in-loop store)
+crashes one stage later, in `d2m-to-ttkernel-pre-emitc-pipeline` (pass #14,
+OperationLegalizer::legalize) — the gridless `fabric_recv(t,[]) @ w` + in-loop
+matmul lowering. This is the same area as wall #4 (the hand-unroll
+`copy_(fabric_recv)`->matmul+forward materialization). So after #3, the remaining
+fused-kernel blocker is the matmul consuming a fabric-received tile through the
+d2m-to-ttkernel conversion. (The gather-only circulate WITHOUT matmul compiles end
+to end now.)
+
+Peeling #1→#2→#3 (and #3 now fixed) leaves the matmul-of-fabric-recv lowering as
+the last gap for a single-core fused AGMM.
 
 IR INSIGHT (`scratchpad/agfdump2.py`): a single `@d2m.kernel` with AG +
 `static_range(N)` matmuls does NOT become one generic -- it DECOMPOSES into the AG
