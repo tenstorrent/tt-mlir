@@ -97,11 +97,53 @@ devices' gathered `g` (`[N,1]` row-block grid), `semaphore_wait(N-1)`, then a
   -- split-v2 likely allocates these as DIFFERENT buffers, so the matmul reads an
   unwritten `g`. The non-fused version is correct only because the AG kernel fully
   completes (program boundary) before the MM kernel.
-- **matmul reads `g` via `fabric_recv`** (`fabric_recv(g,[r]) @ weight`, the
-  proper fabric-write consume that the ring uses): FAILS to legalize
-  `memref.reinterpret_cast`. Same with `copy_(tmp, fabric_recv(g,[r]))` then
-  matmul. `fabric_recv` composes only with the eltwise tile ops (the ring's
-  `acc += r`), not with matmul or `copy_`.
+- **matmul reads `g` via `fabric_recv`** (`fabric_recv(g,[r]) @ weight`): FAILS to
+  legalize `memref.reinterpret_cast`. (Old claim "fabric_recv composes only with
+  eltwise, not matmul/copy_" is WRONG — see the 2026-06-26 re-investigation below.)
+
+### Re-investigation (2026-06-26): the three blockers are narrower than thought
+
+Probed each wall in isolation (`scratchpad/agf_bridge.py`, `agf_grid_probe.py`,
+`agf_circ.py`, `agf_circ_storeonce.py`, `agf_circ_fixedloopstore.py`), compile-only
+through d2m-to-ttkernel. The earlier "fabric_recv can't feed matmul" conclusion was
+wrong. The real, separable facts:
+
+1. **`fabric_recv` lowering IGNORES its indices** (LowerLoadStoreOpsToDMA
+   `D2MLowerFabricRecvRewritePattern` = just `cb_reserve` + `cb_push`, no index).
+   The `memref.reinterpret_cast` that fails is the **compute side** subviewing a
+   block of a *multi-block grid operand* — it appears for ANY index kind (runtime
+   `g[r]` AND grid `g[cy]`), because `g` has grid `[N,1]` (4 blocks). `remote_load`
+   dodges it only by NoC-reading the block into a fresh local buffer.
+   -> AVOIDABLE: receive into a **gridless `t = empty([MT,KT])` scratch** and
+   `fabric_recv(t, [])` (no index, single block) — then `fabric_recv(t,[]) @ w`
+   COMPILES. **Gridless fabric_recv DOES feed a matmul.**
+2. **Fabric-sending a loop-carried value directly crashes** d2m-to-ttkernel (the
+   `m3i` crash). AVOIDABLE the same way the ring does: forward a fresh **send-only
+   copy** (`fwd = copy_(empty, cur)`), keep `cur` for compute only (also satisfies
+   "a CB value feeds at most one DM op").
+3. **An in-loop `remote_store` to an OUTPUT operand crashes** d2m-to-ttkernel —
+   `agf_circ_storeonce.py` (store once AFTER the loop) COMPILES; moving that same
+   store INSIDE the loop crashes, even at a FIXED index `out[0,0]`. This is the
+   real, last blocker: the working ring stores its output exactly once after the
+   loop; a fused AGMM must emit N output row-blocks (one per gathered row), which
+   is inherently per-iteration / multi-block output.
+
+So a single-core circulate-and-matmul fused kernel (`agf_circ.py`: compute-owned
+`cur`, send-only `fwd` copy, `cur = copy_(cur, fabric_recv(t,[]))`, `cur @ w`)
+gets all the way through EXCEPT the per-row output store (#3).
+
+4. **HAND-UNROLLING to dodge #3 hits a fourth wall** (`agf_unroll.py`,
+   `agf_unroll2.py`): with straight-line steps (no scf.for) the in-loop-store crash
+   is gone, but a `copy_(c, fabric_recv(t,[]))` whose result `c` then feeds BOTH a
+   matmul (`c @ w`) AND a forward-copy fails — "failed to legalize unresolved
+   materialization from memref<...l1> to !ttkernel.cb". A fabric-received value
+   bridged through `copy_` and fanned out to a matmul + a send doesn't resolve to a
+   CB. This is the same family as the send-only-forwarding wall
+   ([[d2m-ccl-send-only-forwarding]]) but now with a matmul consumer.
+
+Net: blockers #1/#2 are solved at the DSL level; #3 and #4 are genuine
+d2m-to-ttkernel gaps. Peeling back #1→#2→#3 only to hit #4 confirms a fused AGMM
+needs compiler (C++) work, not more DSL restructuring.
 
 IR INSIGHT (`scratchpad/agfdump2.py`): a single `@d2m.kernel` with AG +
 `static_range(N)` matmuls does NOT become one generic -- it DECOMPOSES into the AG
@@ -118,17 +160,24 @@ above; or (ii) keep AG-generic -> matmul-generic but add a cross-generic
 fabric-write->compute-read barrier within the program (analogous to the
 InsertSpillAndScratch fusion barrier in [[d2m-ring-interleaved-fabric-hang]]).
 
-CONCLUSION: fusing CCL all_gather + matmul in ONE d2m-jit kernel needs framework
-support, one of:
-1. make `fabric_recv`'s result a legal matmul operand (fix the
-   `memref.reinterpret_cast` left after lowering a fabric_recv -> tile_matmul), OR
-2. a compute<->DM barrier so a compute `remote_load` of a fabric-written operand
-   is ordered after the DM writes (and the AG-output `g` and matmul-input `g`
-   resolve to the SAME buffer).
+CONCLUSION (updated 2026-06-26): the circulate-and-matmul fused kernel
+(`scratchpad/agf_circ.py`) is correct-by-construction and compiles through every
+stage EXCEPT the per-row output store. The ONE remaining framework gap is:
+
+  **(C) d2m-to-ttkernel must support an in-loop / per-iteration `remote_store` to
+  an output operand** (today only a single post-loop store works, as in the ring).
+
+With (C), the single-core fused AGMM works for small shapes immediately. Two
+alternative framework fixes also unblock fusion but are heavier:
+  (A) handle the multi-block grid-operand `reinterpret_cast` so compute can consume
+      a grid `g[cy]` via `fabric_recv` (enables a grid=(N,1) fused form), or
+  (B) a cross-generic fabric-write->compute-read barrier so the natural
+      AG-generic -> MM-generic `remote_load(g)` is ordered (+ g aliases) — the
+      remote_load path otherwise races (rel 1.37).
 This mirrors how the TTNN op solves it: dedicated fabric workers gather into
-compute-readable buffers with explicit cross-core sync, rather than one core
-doing both. The WORKING port stays the non-fused two-kernel
-`test_all_gather_matmul.py`.
+compute-readable buffers with explicit cross-core sync. The WORKING port stays the
+non-fused two-kernel `test_all_gather_matmul.py`; the fused single-kernel is gated
+on fix (C) (smallest) or (A)/(B).
 
 ## Designs for the fused single-kernel AGMM (after the mesh matmul works)
 
