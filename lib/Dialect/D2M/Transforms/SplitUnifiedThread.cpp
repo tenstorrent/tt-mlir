@@ -421,17 +421,19 @@ static LogicalResult eraseAliasedLoadStoreOps(
     PatternRewriter &rewriter,
     llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
   for (auto [localBuffer, usageInfo] : cbUsageInfo) {
-    // Only erases 1:1 aliased RemoteLoad/RemoteStore pairs; skip fan-out CBs.
-    if (usageInfo.producers.size() != 1 || usageInfo.consumers.size() != 1) {
-      continue;
-    }
-    auto *producer = usageInfo.producers.front();
-    auto *consumer = usageInfo.consumers.front();
+    // Erases aliased RemoteLoad/RemoteStore ops. The aliased producer and
+    // consumer are handled independently (rather than requiring a single 1:1
+    // pair) so CBs whose other side fans out still get their aliased half
+    // erased.
+    auto *producer =
+        usageInfo.producers.size() == 1 ? usageInfo.producers.front() : nullptr;
+    auto *consumer =
+        usageInfo.consumers.size() == 1 ? usageInfo.consumers.front() : nullptr;
 
-    if (mlir::isa<RemoteStoreOp>(consumer) &&
+    if (mlir::isa_and_nonnull<RemoteStoreOp>(consumer) &&
         isAliasedStore(mlir::cast<RemoteStoreOp>(consumer))) {
       rewriter.eraseOp(consumer);
-    } else if (mlir::isa<RemoteLoadOp>(producer) &&
+    } else if (mlir::isa_and_nonnull<RemoteLoadOp>(producer) &&
                isAliasedLoad(mlir::cast<RemoteLoadOp>(producer))) {
       rewriter.eraseOp(producer);
     }
