@@ -168,6 +168,39 @@ to end now.)
 Peeling #1→#2→#3 (and #3 now fixed) leaves the matmul-of-fabric-recv lowering as
 the last gap for a single-core fused AGMM.
 
+### Wall #5 FIXED (2026-06-26, commit ff918d716): mesh_position without an fcm
+
+The pass-#14 crash was NOT matmul-specific. Debug-build backtrace:
+`D2MToTTKernel.cpp:174 getFabricConnectionManager: Assertion 'fcm' failed` via
+`D2MMeshPositionRewriter`. The fused kernel's output store index is
+`(mesh_position(1) - 1 - k) % N`; after split-v2 that LOCAL store + its
+mesh_position land on a different NoC thread than the fabric send, so its func had
+no fabric op and D2MToTTKernelPass skipped fcm creation (it gated on `fabricOps`,
+not `fcmUsers`). Fixed: create the fcm when a func has any fcm user (mesh_position
+included) -- `setup_fabric_connections` opens only `num_send_dir` (=0) connections
+for a non-sending thread, so it is just the topology build mesh_position needs.
+Regression `test/d2m-jit/test_meshpos_local_store.py`.
+
+### Walls remaining for the fused kernel (2026-06-26)
+
+With #3 and #5 fixed, the fused AGMM gets further but two issues remain:
+
+- **Wall #4 (compile, the last blocker)**: `c = copy_(c, fabric_recv(t,[]))` whose
+  `c` is then consumed by a matmul AND a forward-copy fails d2m-to-ttkernel:
+  "failed to legalize unresolved materialization from memref<1x2xtile,l1> to
+  !ttkernel.cb that remained live" (both the hand-unrolled `agf_unroll2.py` and the
+  scf.for `agf_circ.py`). This is the send-only-forwarding materialization wall
+  ([[d2m-ccl-send-only-forwarding]]) extended to a matmul consumer -- a deeper
+  d2m-to-ttkernel/split-v2 conversion change, not a localized null/gate fix.
+- **Runtime hang (scf.for variant only)**: an in-loop `remote_store` to a grid
+  output compiles now (wall #3 fixed) but HANGS on device (the output CB handshake
+  per iteration). The HAND-UNROLLED variant (straight-line stores) avoids this, so
+  it is the better target -- its only remaining blocker is wall #4.
+
+So the path to a working single-core fused AGMM is: fix wall #4, then the
+hand-unrolled `agf_unroll2.py` should compile and run (it sidesteps the runtime
+hang). Non-fused two-kernel port remains the shipped deliverable.
+
 IR INSIGHT (`scratchpad/agfdump2.py`): a single `@d2m.kernel` with AG +
 `static_range(N)` matmuls does NOT become one generic -- it DECOMPOSES into the AG
 generic + N matmul generics (one per UNROLLED iter; this was the trace-time unroll,
