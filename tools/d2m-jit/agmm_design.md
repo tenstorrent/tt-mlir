@@ -71,6 +71,39 @@ BLOCKERS (the matmul half):
   fails too, the root cause is the multi-device-mesh matmul, not composition per
   se. Re-test chaining once the mesh matmul works.
 
+## Fusing AG+MM into ONE kernel — attempted, blocked at framework level
+
+`scratchpad/agf.py` — single-core fused kernel: AG mcasts the shard to all
+devices' gathered `g` (`[N,1]` row-block grid), `semaphore_wait(N-1)`, then a
+`static_range(N)` loop matmuls each gathered row `g[r] @ weight_slice` and stores
+`out[r]`. Findings:
+
+- **matmul reads `g` via `remote_load`**: COMPILES + RUNS (no hang/crash) but
+  WRONG (rel ~0.54). Two root issues: (a) no compute<->DM barrier within one
+  kernel -- the compute thread's `remote_load(g)` races the DM thread's fabric
+  writes (`semaphore_wait` is DM-side; compute doesn't wait for it); (b) `g` is
+  both the AG output (remote_store/DM) and the matmul input (remote_load/DM-read)
+  -- split-v2 likely allocates these as DIFFERENT buffers, so the matmul reads an
+  unwritten `g`. The non-fused version is correct only because the AG kernel fully
+  completes (program boundary) before the MM kernel.
+- **matmul reads `g` via `fabric_recv`** (`fabric_recv(g,[r]) @ weight`, the
+  proper fabric-write consume that the ring uses): FAILS to legalize
+  `memref.reinterpret_cast`. Same with `copy_(tmp, fabric_recv(g,[r]))` then
+  matmul. `fabric_recv` composes only with the eltwise tile ops (the ring's
+  `acc += r`), not with matmul or `copy_`.
+
+CONCLUSION: fusing CCL all_gather + matmul in ONE d2m-jit kernel needs framework
+support, one of:
+1. make `fabric_recv`'s result a legal matmul operand (fix the
+   `memref.reinterpret_cast` left after lowering a fabric_recv -> tile_matmul), OR
+2. a compute<->DM barrier so a compute `remote_load` of a fabric-written operand
+   is ordered after the DM writes (and the AG-output `g` and matmul-input `g`
+   resolve to the SAME buffer).
+This mirrors how the TTNN op solves it: dedicated fabric workers gather into
+compute-readable buffers with explicit cross-core sync, rather than one core
+doing both. The WORKING port stays the non-fused two-kernel
+`test_all_gather_matmul.py`.
+
 ## Designs for the fused single-kernel AGMM (after the mesh matmul works)
 
 Two reconciliation points for AG (writes `[1,K]` rows on an `[N,1]` grid) vs MM:
