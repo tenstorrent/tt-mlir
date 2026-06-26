@@ -1,0 +1,269 @@
+// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
+#include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+
+#include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MTraits.h"
+#include "ttmlir/Dialect/D2M/Utils/DMAUtils.h"
+
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/IRMapping.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+
+#include "llvm/ADT/DenseSet.h"
+
+namespace mlir::tt::d2m {
+#define GEN_PASS_DEF_D2MSPLITTHREADS
+#include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
+
+namespace {
+
+static constexpr StringRef kThreadAttrName = "d2m.thread";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+// Verify all compute lives in a single synchronization scope. Compute ops in
+// distinct loop nests give an ambiguous sync scope: a single per-block wait/pop
+// pair can't balance a CB shared across nests, so this is diagnosed up front
+// (before splitting, while the full set of synchronizable ops is visible).
+static LogicalResult checkComputeSyncScope(GenericOp generic) {
+  DenseSet<Operation *> opsWithSynchronizableOps;
+  generic.getRegion(0).walk([&](Operation *op) {
+    if (dyn_cast<SynchronizableOpInterface>(op)) {
+      opsWithSynchronizableOps.insert(op->getParentOp());
+    }
+  });
+  if (opsWithSynchronizableOps.size() != 1) {
+    return generic.emitOpError()
+           << "compute ops span multiple synchronization scopes (e.g. a CB "
+              "consumed across distinct loop nests); cross-nest fan-out is not "
+              "yet supported";
+  }
+
+  LogicalResult result = success();
+  generic.getRegion(0).walk([&](Operation *op) {
+    if (!op->hasTrait<D2MGenericRegionComputeOpTrait>()) {
+      return WalkResult::advance();
+    }
+    Operation *outermostOp = op;
+    while (outermostOp->getParentOp() != generic.getOperation() &&
+           !opsWithSynchronizableOps.contains(outermostOp->getParentOp())) {
+      outermostOp = outermostOp->getParentOp();
+      if (!mlir::isa<scf::ForOp>(outermostOp) &&
+          !mlir::isa<linalg::GenericOp>(outermostOp)) {
+        outermostOp->emitOpError("Parent ops containing compute ops must be "
+                                 "scf.for or linalg.generic");
+        result = failure();
+        return WalkResult::interrupt();
+      }
+    }
+    return WalkResult::advance();
+  });
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// DMA thread cleanup
+// ---------------------------------------------------------------------------
+
+// Recursively collect non-DMA ops to erase from the datamovement thread.
+static void collectComputeOpsToErase(Block *block,
+                                     DenseSet<Operation *> &eraseSet) {
+  for (Operation &op : block->getOperations()) {
+    if (op.hasTrait<OpTrait::IsTerminator>()) {
+      continue;
+    }
+    if (auto forOp = dyn_cast<scf::ForOp>(&op)) {
+      collectComputeOpsToErase(forOp.getBody(), eraseSet);
+      continue;
+    }
+    bool isDMAOp = isa<ShardDMAOpInterface, DeviceSynchronizeOp>(&op);
+    bool isReplicated = isa<SemaphoreWaitOp>(&op);
+    if (!isDMAOp && !isReplicated) {
+      eraseSet.insert(&op);
+    }
+  }
+}
+
+// Iteratively erase compute (non-DMA) ops from the datamovement thread until
+// fixpoint. Side-effecting compute ops (memref.store into #dst etc.) are not
+// trivially dead, so this targets them by thread membership rather than
+// dead-code analysis.
+static void eraseComputeOpsInDMThread(RewriterBase &rewriter, Block *dmBlock) {
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    DenseSet<Operation *> eraseSet;
+    collectComputeOpsToErase(dmBlock, eraseSet);
+    SmallVector<Operation *> toErase;
+    for (Operation *op : eraseSet) {
+      if (op->use_empty()) {
+        toErase.push_back(op);
+        changed = true;
+      }
+    }
+    for (Operation *op : llvm::reverse(toErase)) {
+      rewriter.eraseOp(op);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Compute thread cleanup
+// ---------------------------------------------------------------------------
+
+// Drop the data-movement-tagged ops (streaming remote_load/store, local_copy,
+// DMA) from the compute thread, then DCE their now-dead structural feeders.
+// Aliased remote markers are tagged compute, so they are preserved as
+// compute-side CB obligations for d2m-insert-compute-cb.
+static void eraseDMOpsInComputeThread(RewriterBase &rewriter,
+                                      Block *computeBlock) {
+  SmallVector<Operation *> dmOps;
+  computeBlock->walk([&](Operation *op) {
+    if (auto thread = op->getAttrOfType<ThreadAttr>(kThreadAttrName)) {
+      if (thread.getThreadType() == ThreadType::Datamovement) {
+        dmOps.push_back(op);
+      }
+    }
+  });
+  for (Operation *op : dmOps) {
+    op->dropAllUses();
+    rewriter.eraseOp(op);
+  }
+
+  // Drop trivially-dead structural feeders. Erase one at a time so erasing a
+  // dead parent never dangles a dead child collected earlier.
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    Operation *dead = nullptr;
+    computeBlock->walk([&](Operation *op) {
+      if (isOpTriviallyDead(op)) {
+        dead = op;
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
+    if (dead) {
+      rewriter.eraseOp(dead);
+      changed = true;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Main rewriter
+// ---------------------------------------------------------------------------
+
+class D2MSplitThreadsRewriter : public OpRewritePattern<GenericOp> {
+public:
+  using OpRewritePattern<GenericOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(GenericOp generic,
+                                PatternRewriter &rewriter) const final {
+    if (generic.getNumRegions() != 1) {
+      return failure();
+    }
+    if (generic.getRegionThreadType(0) != ThreadType::Unified) {
+      return failure();
+    }
+
+    if (failed(checkComputeSyncScope(generic))) {
+      return failure();
+    }
+
+    Region &originalRegion = generic.getRegion(0);
+    if (originalRegion.empty()) {
+      return failure();
+    }
+    Block *originalBlock = &originalRegion.front();
+
+    if (failed(utils::checkForIllegalSemaphoreOps(originalBlock))) {
+      return failure();
+    }
+
+    // Create new 2-region GenericOp: datamovement + compute.
+    auto newGeneric = rewriter.create<GenericOp>(
+        generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
+        generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
+        generic.getBlockFactors(), generic.getIndexingMaps(),
+        generic.getIteratorTypes(),
+        rewriter.getArrayAttr(
+            {rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement),
+             rewriter.getAttr<ThreadAttr>(ThreadType::Compute)}),
+        generic.getFabricConnectionConfigAttr(),
+        /*numRegions*/ 2);
+
+    Block *dmBlock = &newGeneric.getRegion(0).emplaceBlock();
+    Block *computeBlock = &newGeneric.getRegion(1).emplaceBlock();
+
+    // Map semaphore block arguments to both new blocks.
+    IRMapping dmMapping, computeMapping;
+    for (unsigned i = 0; i < originalBlock->getNumArguments(); ++i) {
+      BlockArgument arg = originalBlock->getArgument(i);
+      assert(mlir::isa<d2m::LocalSemaphoreType>(arg.getType()) &&
+             "region block arguments must be of local semaphore type");
+      dmMapping.map(arg, dmBlock->addArgument(arg.getType(), generic.getLoc()));
+      computeMapping.map(
+          arg, computeBlock->addArgument(arg.getType(), generic.getLoc()));
+    }
+
+    // Clone all ops into both regions, then drop each thread's non-members.
+    rewriter.setInsertionPointToStart(dmBlock);
+    for (Operation &op : originalBlock->without_terminator()) {
+      rewriter.clone(op, dmMapping);
+    }
+    rewriter.setInsertionPointToStart(computeBlock);
+    for (Operation &op : originalBlock->without_terminator()) {
+      rewriter.clone(op, computeMapping);
+    }
+    if (originalBlock->mightHaveTerminator()) {
+      Operation *term = originalBlock->getTerminator();
+      rewriter.setInsertionPointToEnd(dmBlock);
+      rewriter.clone(*term, dmMapping);
+      rewriter.setInsertionPointToEnd(computeBlock);
+      rewriter.clone(*term, computeMapping);
+    }
+
+    // Datamovement thread: drop all compute ops; keep DMA (including aliased
+    // remote markers, which d2m-insert-compute-cb consumes) + replicated ops.
+    eraseComputeOpsInDMThread(rewriter, dmBlock);
+
+    // Compute thread: drop all data-movement ops (streaming and aliased remote
+    // ops alike -- the verifier requires remote ops to live on the datamovement
+    // thread).
+    eraseDMOpsInComputeThread(rewriter, computeBlock);
+
+    // Strip the thread-assignment annotations; they are an internal handoff.
+    newGeneric->walk([](Operation *op) { op->removeAttr(kThreadAttrName); });
+
+    rewriter.replaceOp(generic, newGeneric.getResults());
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class D2MSplitThreads : public impl::D2MSplitThreadsBase<D2MSplitThreads> {
+public:
+  using impl::D2MSplitThreadsBase<D2MSplitThreads>::D2MSplitThreadsBase;
+
+  void runOnOperation() final {
+    RewritePatternSet patterns(&getContext());
+    patterns.add<D2MSplitThreadsRewriter>(&getContext());
+    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
+      signalPassFailure();
+    }
+  }
+};
+} // namespace
+
+} // namespace mlir::tt::d2m

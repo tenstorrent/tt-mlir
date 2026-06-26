@@ -2403,60 +2403,6 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
     }];
 }
 
-def D2M_SynchronizedRegionOp : D2M_GenericRegionOp<"synchronized_region", [
-  MemoryEffects<[MemRead, MemWrite]>,
-  AttrSizedOperandSegments,
-  DestinationStyleOpInterface,
-  NoTerminator,
-  SingleBlock,
-  D2M_SynchronizableOpInterface
-  ]> {
-
-  let summary = "D2M Synchronized Region Op";
-  let description = [{
-    This is a generic op to wrap a region of non synchronized ops to be synchronizable.
-  }];
-
-  let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$consumers, Variadic<AnyRankedTensorOrMemRef>:$producers);
-  let regions = (region SizedRegion<1>:$region);
-
-  let assemblyFormat = [{
-    `consumers` `(` $consumers `)` `producers` `(` $producers `)` $region attr-dict `:` type($consumers) type($producers)
-  }];
-
-  let builders = [
-    OpBuilder<(ins "TypeRange":$resultTypes, "ValueRange":$consumers, "ValueRange":$producers,
-      "function_ref<void(OpBuilder &, Location, ValueRange)>":$regionBuilder),
-    [{
-      build($_builder, $_state, resultTypes, consumers, producers);
-      Region &region = *$_state.regions.front().get();
-      {
-        OpBuilder::InsertionGuard guard($_builder);
-        Block *block = $_builder.createBlock(&region, region.end());
-        for (Value consumer : consumers)
-          block->addArgument(consumer.getType(), consumer.getLoc());
-        for (Value producer : producers)
-          block->addArgument(producer.getType(), producer.getLoc());
-        $_builder.setInsertionPointToStart(block);
-        regionBuilder($_builder, $_state.location, block->getArguments());
-      }
-    }]>
-  ];
-
-  let extraClassDeclaration = [{
-    MutableOperandRange getDpsInitsMutable() { return getProducersMutable(); }
-
-    bool isProducer(mlir::OpOperand &operand) {
-      return llvm::any_of(getProducersMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
-    }
-
-    bool isConsumer(mlir::OpOperand &operand) {
-      return llvm::any_of(getConsumersMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
-    }
-  }];
-
-}
-
 //===----------------------------------------------------------------------===//
 // D2M Generic Region Semaphore Ops (Used in TTMetal Lowering)
 //===----------------------------------------------------------------------===//
