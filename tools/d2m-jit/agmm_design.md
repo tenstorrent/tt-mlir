@@ -76,9 +76,13 @@ BLOCKERS (the matmul half):
 NOTE (2026-06-26): the `static_range` DSL marker used below has since been REMOVED
 (runtime `range()` loops now work — see all_reduce_design.md "BREAKTHROUGH"). The
 fused-kernel investigation below predates that and was written against the
-trace-time unroll; the row-loop should be retried with a runtime `for r in
-range(N)` (one matmul generic with an scf.for, instead of N decomposed generics),
-which may sidestep the cross-generic ordering issue noted here.
+trace-time unroll. RETRIED with a runtime `for r in range(N)` (one matmul generic
+with an scf.for, `scratchpad/agf_range.py`): it does NOT sidestep the ordering
+issue — `rel=1.37`, WORSE than the unrolled `rel=0.54`. The matmul's
+`remote_load(g)` still races the DM fabric writes with no compute<->DM ordering
+(the runtime-indexed `g[r]` read is unordered w.r.t. the AG's fabric writes). So
+the conclusion stands regardless of unroll-vs-runtime-loop: fusion needs the
+framework fix below.
 
 `scratchpad/agf.py` — single-core fused kernel: AG mcasts the shard to all
 devices' gathered `g` (`[N,1]` row-block grid), `semaphore_wait(N-1)`, then a
