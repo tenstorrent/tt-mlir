@@ -3151,8 +3151,15 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
       The index_tile_tensor is a scratch tensor (1x1 tile) handled by
       the FillArangeTileOp.
 
+      The colMajor option specifies whether values should be filled in a column major order instead (default is row major).
+
       For each tile at position (tile_row, tile_col), the computation is:
       1. tile_offset = (tile_row * num_tile_cols * 32 + tile_col) * 32
+      2. global_idx = tile_add(tile_offset, local_idx)
+      3. result = tile_add(tile_mul(global_idx, step), start)
+
+      If colMajor is true, then the computation is:
+      1. tile_offset = (tile_col * num_tile_rows * 32 + tile_row) * 32
       2. global_idx = tile_add(tile_offset, local_idx)
       3. result = tile_add(tile_mul(global_idx, step), start)
 
