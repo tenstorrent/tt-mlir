@@ -132,6 +132,7 @@ static bool hasCrossNestComputeConsumerFanout(GenericOp genericOp) {
 
 static LogicalResult expandRangeToCoverNonPureResultUses(Block::iterator &start,
                                                          Block::iterator &end) {
+  DenseMap<Operation *, bool> purelyDerivedOps;
   bool changed = true;
   while (changed) {
     changed = false;
@@ -143,7 +144,7 @@ static LogicalResult expandRangeToCoverNonPureResultUses(Block::iterator &start,
 
     for (Operation &rootOp : llvm::make_range(start, end)) {
       WalkResult walkResult = rootOp.walk([&](Operation *op) {
-        if (mlir::isPure(op)) {
+        if (utils::isPurelyDerivedOp(op, purelyDerivedOps)) {
           return WalkResult::advance();
         }
         for (Value result : op->getResults()) {
@@ -333,6 +334,9 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
     Block::iterator wrappedEnd = std::next(end);
     if (failed(expandRangeToCoverNonPureResultUses(start, wrappedEnd))) {
       return failure();
+    }
+    for (Operation &op : llvm::make_range(start, wrappedEnd)) {
+      outermostOps.erase(&op);
     }
     computeRegions.push_back({start, wrappedEnd});
   }
