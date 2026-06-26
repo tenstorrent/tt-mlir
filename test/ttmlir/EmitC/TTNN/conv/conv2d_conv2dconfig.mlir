@@ -51,7 +51,7 @@ func.func @conv2d_conv2dconfig(%arg0: tensor<1x1x1024x64xbf16, #ttnn_layout>, %a
   "ttnn.deallocate"(%1) <{force = false}> : (tensor<1x1x900x64xbf16, #ttnn_layout4>) -> ()
   %3 = "ttnn.from_device"(%2) : (tensor<1x30x30x64xbf16, #ttnn_layout4>) -> tensor<1x30x30x64xbf16, #ttnn_layout5>
   "ttnn.deallocate"(%2) <{force = false}> : (tensor<1x30x30x64xbf16, #ttnn_layout4>) -> ()
-  %4 = "ttnn.to_layout"(%3) <{layout = #ttnn.layout<row_major>}> : (tensor<1x30x30x64xbf16, #ttnn_layout5>) -> tensor<1x30x30x64xbf16, #ttnn_layout3>
+  %4 = "ttnn.to_layout"(%3)  : (tensor<1x30x30x64xbf16, #ttnn_layout5>) -> tensor<1x30x30x64xbf16, #ttnn_layout3>
   "ttnn.deallocate"(%3) <{force = false}> : (tensor<1x30x30x64xbf16, #ttnn_layout5>) -> ()
   return %4 : tensor<1x30x30x64xbf16, #ttnn_layout3>
 }

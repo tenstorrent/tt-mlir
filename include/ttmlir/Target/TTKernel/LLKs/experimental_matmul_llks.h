@@ -13,7 +13,7 @@ ALWI void matmul_block(uint32_t in0_cb_id, uint32_t in1_cb_id,
                        uint32_t rt_dim, uint32_t kt_dim,
                        uint32_t in1_k_stride) {
   if (transpose) {
-    ckernel::mm_block_init_short(in0_cb_id, in1_cb_id, transpose, 1, 1, 1);
+    ckernel::matmul_block_init(in0_cb_id, in1_cb_id, transpose, 1, 1, 1);
     for (uint32_t r = 0; r < rt_dim; r++) {
       for (uint32_t c = 0; c < ct_dim; c++) {
         uint32_t out_tile_index = idst + r * ct_dim + c;

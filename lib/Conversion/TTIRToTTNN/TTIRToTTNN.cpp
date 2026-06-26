@@ -57,14 +57,6 @@ public:
         rewriter.getContext(),
         mlir::cast<RankedTensorType>(op->getResult(0).getType()).getShape());
 
-    ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
-
-    if (layoutAttr.isTiled()) {
-      ttnnLayoutEnum = ttnn::Layout::Tile;
-    }
-    ttnn::LayoutAttr tensorLayoutAttr =
-        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
-
     // Due to API constraints, we need to use a host_empty op if tensor is in
     // system_memory.
     if (mlir::tt::ttnn::isSystemBufferType(layoutAttr.getBufferType())) {
@@ -72,7 +64,7 @@ public:
       //
       rewriter.replaceOpWithNewOp<ttnn::ZerosOp>(
           op, this->getTypeConverter()->convertType(op.getType()),
-          /*device=*/nullptr, shapeAttr, tensorLayoutAttr);
+          /*device=*/nullptr, shapeAttr);
       // Otherwise, we use regular empty op, with device-specific fields.
     } else {
       // Device
@@ -83,7 +75,7 @@ public:
       //
       rewriter.replaceOpWithNewOp<ttnn::EmptyOp>(
           op, this->getTypeConverter()->convertType(op.getType()), device,
-          shapeAttr, tensorLayoutAttr);
+          shapeAttr);
     }
     return success();
   }
@@ -114,9 +106,6 @@ public:
         rewriter.getContext(), llvm::SmallVector<int64_t, 4>(
                                    op.getShape().begin(), op.getShape().end()));
 
-    // Get tensor layout, device and memory config
-    ttnn::LayoutAttr tensorLayoutAttr =
-        ttnn::LayoutAttr::get(op.getContext(), layoutAttr.getLayout());
     ttnn::TensorMemoryLayoutAttr memLayout = layoutAttr.getMemLayout();
 
     // Device only exists if memLayout is *not* null
@@ -127,7 +116,7 @@ public:
 
     rewriter.replaceOpWithNewOp<TTNNType>(
         op, this->getTypeConverter()->convertType(op.getType()), device,
-        shapeAttr, tensorLayoutAttr);
+        shapeAttr);
 
     return success();
   }
@@ -180,21 +169,10 @@ public:
     assert(mlir::isa<mlir::RankedTensorType>(adaptor.getInput().getType()) &&
            "Expected RankedTensorType for ToLayoutOp input");
 
-    auto outputLayoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
-        mlir::cast<mlir::RankedTensorType>(op.getResult(0).getType())
-            .getEncoding());
-
-    // Determine the output layout (tile or row major)
-    ttnn::Layout outputLayoutEnum = outputLayoutAttr.getLayout();
-
     RankedTensorType result = mlir::cast<RankedTensorType>(op.getType(0));
 
-    ttnn::LayoutAttr outputLayout =
-        ttnn::LayoutAttr::get(rewriter.getContext(), outputLayoutEnum);
-
     rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
-        op, this->getTypeConverter()->convertType(result), adaptor.getInput(),
-        outputLayout);
+        op, this->getTypeConverter()->convertType(result), adaptor.getInput());
 
     return success();
   }
@@ -323,8 +301,7 @@ public:
     }
     rewriter.replaceOpWithNewOp<ttnn::ArgMaxOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), reductionAxis, adaptor.getKeepDim(),
-        /*use_multicore=*/true);
+        adaptor.getInput(), reductionAxis, adaptor.getKeepDim());
     return success();
   }
 };
@@ -1122,16 +1099,6 @@ public:
     ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
         op.getResult().getType().getEncoding());
 
-    // Get tensor layout
-    //
-    ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
-
-    if (layoutAttr.isTiled()) {
-      ttnnLayoutEnum = ttnn::Layout::Tile;
-    }
-    ttnn::LayoutAttr tensorLayoutAttr =
-        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
-
     mlir::Value device = nullptr;
 
     if (!mlir::tt::ttnn::isSystemBufferType(layoutAttr.getBufferType())) {
@@ -1140,7 +1107,7 @@ public:
 
     rewriter.replaceOpWithNewOp<ttnn::ConstantOp>(
         op, this->getTypeConverter()->convertType(op.getType()), device,
-        adaptor.getValue(), tensorLayoutAttr);
+        adaptor.getValue());
 
     return success();
   }
@@ -1489,26 +1456,22 @@ public:
           mlir::cast<ttnn::TTNNLayoutAttr>(affineType.getEncoding());
       auto affineShapeAttr =
           ttnn::ShapeAttr::get(rewriter.getContext(), affineType.getShape());
-      auto affineTensorLayoutAttr =
-          ttnn::LayoutAttr::get(op.getContext(), affineLayoutAttr.getLayout());
       Value affineDevice =
           affineLayoutAttr.isDeviceBufferType()
               ? mlir::Value(::ttnn::utils::getOrInsertDevice(rewriter, op))
               : nullptr;
 
       if (!weight) {
-        weight =
-            rewriter
-                .create<ttnn::OnesOp>(loc, affineType, affineDevice,
-                                      affineShapeAttr, affineTensorLayoutAttr)
-                .getResult();
+        weight = rewriter
+                     .create<ttnn::OnesOp>(loc, affineType, affineDevice,
+                                           affineShapeAttr)
+                     .getResult();
       }
       if (!bias) {
-        bias =
-            rewriter
-                .create<ttnn::ZerosOp>(loc, affineType, affineDevice,
-                                       affineShapeAttr, affineTensorLayoutAttr)
-                .getResult();
+        bias = rewriter
+                   .create<ttnn::ZerosOp>(loc, affineType, affineDevice,
+                                          affineShapeAttr)
+                   .getResult();
       }
     }
 
@@ -2920,17 +2883,9 @@ public:
             ? mlir::Value(::ttnn::utils::getOrInsertDevice(rewriter, op))
             : nullptr;
 
-    ttnn::Layout ttnnLayoutEnum = ttnn::Layout::RowMajor;
-
-    if (ttnnLayoutAttr.isTiled()) {
-      ttnnLayoutEnum = ttnn::Layout::Tile;
-    }
-    ttnn::LayoutAttr tensorLayoutAttr =
-        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
-
     rewriter.replaceOpWithNewOp<ttnn::ArangeOp>(
         op, outputType, device, adaptor.getStart(), adaptor.getEnd(),
-        adaptor.getStep(), tensorLayoutAttr);
+        adaptor.getStep());
 
     return success();
   }
@@ -2948,14 +2903,6 @@ public:
 
     // Get ttnn::TTNNLayoutAttr of the result type.
     //
-    ttnn::TTNNLayoutAttr layoutAttr = mlir::cast<ttnn::TTNNLayoutAttr>(
-        op.getResult().getType().getEncoding());
-
-    ttnn::Layout ttnnLayoutEnum =
-        layoutAttr.isTiled() ? ttnn::Layout::Tile : ttnn::Layout::RowMajor;
-    ttnn::LayoutAttr tensorLayoutAttr =
-        ttnn::LayoutAttr::get(op.getContext(), ttnnLayoutEnum);
-
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
 
     ttnn::ShapeAttr sizeAttr = ttnn::ShapeAttr::get(
@@ -2964,7 +2911,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::RandOp>(
         op, this->getTypeConverter()->convertType(op.getType()), device,
         sizeAttr, adaptor.getLowAttr(), adaptor.getHighAttr(),
-        adaptor.getSeedAttr(), tensorLayoutAttr);
+        adaptor.getSeedAttr());
     return success();
   }
 };

@@ -14,7 +14,6 @@ raising RuntimeError that can be handled with a try-except block in caller.
 import os
 
 from ttmlir.ir import Module
-from ttrt.common.util import Binary
 
 from .compile_and_run_internal import *
 
@@ -39,12 +38,15 @@ def stablehlo_to_ttir(module: Module | str) -> Module:
     return run_compilation_process(stablehlo_to_ttir_pipeline_worker, (m,))
 
 
+def _resolve_system_desc(system_desc: str | None) -> str:
+    if system_desc is not None:
+        return system_desc
+    return os.getenv("SYSTEM_DESC_PATH", "ttrt-artifacts/system_desc.ttsys")
+
+
 def ttir_to_ttnn(
     module: Module | str,
-    system_desc: str = os.getenv(
-        "SYSTEM_DESC_PATH",
-        "ttrt-artifacts/system_desc.ttsys",
-    ),
+    system_desc: str | None = None,
 ) -> Module:
     """
     Runs `ttir-to-ttnn-runtime-pipeline` compiler pass on `module` in a safe way.
@@ -63,16 +65,13 @@ def ttir_to_ttnn(
     """
     m = module if isinstance(module, str) else str(module)
     return run_compilation_process(
-        ttir_to_ttnn_runtime_pipeline_worker, (m, system_desc)
+        ttir_to_ttnn_runtime_pipeline_worker, (m, _resolve_system_desc(system_desc))
     )
 
 
 def ttir_to_ttmetal(
     module: Module | str,
-    system_desc: str = os.getenv(
-        "SYSTEM_DESC_PATH",
-        "ttrt-artifacts/system_desc.ttsys",
-    ),
+    system_desc: str | None = None,
 ) -> Module:
     """
     Runs `ttir-to-ttmetal-pipeline` compiler pass on `module` in a safe way.
@@ -91,13 +90,11 @@ def ttir_to_ttmetal(
     """
     m = module if isinstance(module, str) else str(module)
     return run_compilation_process(
-        ttir_to_ttmetal_backend_pipeline_worker, (m, system_desc)
+        ttir_to_ttmetal_backend_pipeline_worker, (m, _resolve_system_desc(system_desc))
     )
 
 
-def ttnn_to_flatbuffer(
-    module: Module, output_file_name: str = "ttnn_fb.ttnn"
-) -> Binary:
+def ttnn_to_flatbuffer(module: Module, output_file_name: str = "ttnn_fb.ttnn") -> str:
     """
     Converts TTNN module to flatbuffer in a safe way and saves to file.
 
@@ -107,7 +104,7 @@ def ttnn_to_flatbuffer(
 
     Returns
     -------
-    Flatbuffer `Binary` instance for convenience.
+    Path to the generated flatbuffer file.
 
     Raises
     ------
@@ -121,7 +118,7 @@ def ttnn_to_flatbuffer(
 
 def ttmetal_to_flatbuffer(
     module: Module, output_file_name: str = "ttmetal_fb.ttm"
-) -> Binary:
+) -> str:
     """
     Converts ttmetal module to flatbuffer in a safe way and saves to file.
 
@@ -131,7 +128,7 @@ def ttmetal_to_flatbuffer(
 
     Returns
     -------
-    Flatbuffer `Binary` instance for convenience.
+    Path to the generated flatbuffer file.
 
     Raises
     ------
@@ -143,20 +140,20 @@ def ttmetal_to_flatbuffer(
     )
 
 
-def run_flatbuffer(flatbuffer: Binary) -> int:
+def run_flatbuffer(flatbuffer_path: str) -> int:
     """
-    Runs `flatbuffer` on device in a safe way.
+    Runs flatbuffer at `flatbuffer_path` on device in a safe way.
 
-    This is a segfault resistant function. It runs the pybound translation pass in a
-    separate process, thus protecting the caller of this function from any unpredictable
-    (those that cannot be caught with a try-except) errors.
+    This is a segfault resistant function. It runs the device execution in a
+    separate subprocess, thus protecting the caller of this function from any
+    unpredictable (those that cannot be caught with a try-except) errors.
 
     Returns
     -------
-    Return code of `ttrt run flatbuffer.file_path` process.
+    Return code of the device run subprocess (0 on success).
 
     Raises
     ------
     RuntimeError if any errors happen.
     """
-    return run_flatbuffer_execution_process(flatbuffer.file_path)
+    return run_flatbuffer_execution_process(flatbuffer_path)

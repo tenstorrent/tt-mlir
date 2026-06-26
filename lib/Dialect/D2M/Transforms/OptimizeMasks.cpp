@@ -15,6 +15,7 @@
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallPtrSet.h"
 
 #include <limits>
 #include <optional>
@@ -1329,6 +1330,21 @@ static bool canReplaceMaskWithInput(MaskOp maskOp) {
   return maskOp.getInput().getType() == maskOp.getResult().getType();
 }
 
+static void eraseDeadTensorEmptyOps(ArrayRef<EmptyOp> emptyOps) {
+  llvm::SmallPtrSet<Operation *, 8> seen;
+  for (EmptyOp emptyOp : emptyOps) {
+    if (!seen.insert(emptyOp).second) {
+      continue;
+    }
+
+    // Tensor d2m.empty ops are destination placeholders. Once the mask using
+    // one is erased, the placeholder should not be left for canonicalization.
+    if (emptyOp->use_empty()) {
+      emptyOp.erase();
+    }
+  }
+}
+
 class D2MOptimizeMasksPass
     : public impl::D2MOptimizeMasksBase<D2MOptimizeMasksPass> {
 public:
@@ -1337,6 +1353,7 @@ public:
   void runOnOperation() override {
     OOBStateMap states;
     SmallVector<MaskOp> masksToErase;
+    SmallVector<EmptyOp> maybeDeadMaskOutputs;
 
     // Pre-order scan: producer ops update `states`; each mask is checked
     // against the state known for its input at that point.
@@ -1356,6 +1373,10 @@ public:
         }
 
         if (redundant) {
+          if (auto output = maskOp.getOutput().getDefiningOp<EmptyOp>();
+              output && isa<RankedTensorType>(output.getResult().getType())) {
+            maybeDeadMaskOutputs.push_back(output);
+          }
           maskOp.getResult().replaceAllUsesWith(maskOp.getInput());
           masksToErase.push_back(maskOp);
         } else {
@@ -1384,6 +1405,7 @@ public:
     for (MaskOp maskOp : masksToErase) {
       maskOp.erase();
     }
+    eraseDeadTensorEmptyOps(maybeDeadMaskOutputs);
   }
 };
 

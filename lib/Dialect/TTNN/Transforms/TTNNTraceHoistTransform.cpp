@@ -493,12 +493,9 @@ private:
       RankedTensorType deviceTensorType =
           mlir::cast<RankedTensorType>(traceInputSlotType);
 
-      ttnn::TTNNLayoutAttr ttnnLayoutAttr =
-          mlir::cast<ttnn::TTNNLayoutAttr>(deviceTensorType.getEncoding());
       auto emptyOp = builder.create<ttnn::EmptyOp>(
           runAndCaptureTraceFunc.getLoc(), deviceTensorType, deviceOp,
-          ttnn::ShapeAttr::get(context, deviceTensorType.getShape()),
-          ttnn::LayoutAttr::get(context, ttnnLayoutAttr.getLayout()));
+          ttnn::ShapeAttr::get(context, deviceTensorType.getShape()));
 
       traceInputSlots.push_back(emptyOp.getResult());
       traceCallArgs.push_back(emptyOp.getResult());
@@ -799,8 +796,7 @@ private:
                 tensorType, ttnn::BufferType::SystemMemory);
 
         auto toLayoutOp = builder.create<ttnn::ToLayoutOp>(
-            funcOp.getLoc(), systemMemoryTileType, input,
-            /*layout=*/LayoutAttr::get(context, layout.getLayout()));
+            funcOp.getLoc(), systemMemoryTileType, input);
         tensorInputs.push_back(toLayoutOp.getResult());
       } else {
         // Already on system memory

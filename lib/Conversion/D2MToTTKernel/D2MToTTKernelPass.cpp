@@ -56,10 +56,11 @@ struct ConvertD2MToTTKernel
     // Workaround: Passes are required to be copy-constructible but autogen'ed
     // base class copy constructors ignore Pass option fields.
     this->ttnnMode = rhs.ttnnMode;
+    this->forceCompileTimeArgs = rhs.forceCompileTimeArgs;
   }
 
   void runOnOperation() final {
-    ModuleOp moduleOp = getOperation();
+    func::FuncOp funcOp = getOperation();
     mlir::ConversionTarget target(getContext());
     target.addLegalDialect<BuiltinDialect>();
     target.addLegalDialect<arith::ArithDialect>();
@@ -127,7 +128,7 @@ struct ConvertD2MToTTKernel
     });
 
     if (failed(
-            d2m::utils::checkBackendDmCoreSupport(moduleOp, "D2MToTTKernel"))) {
+            d2m::utils::checkBackendDmCoreSupport(funcOp, "D2MToTTKernel"))) {
       signalPassFailure();
       return;
     }
@@ -178,61 +179,57 @@ struct ConvertD2MToTTKernel
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);
     populateD2MToTTKernelPatterns(&getContext(), patterns, typeConverter,
-                                  cbProducerConsumer, ttnnMode);
+                                  cbProducerConsumer, forceCompileTimeArgs);
     scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
                                                          patterns, target);
 
     // If there is any fabric related writes,
     // insert fabric connection manager ops and setup fabric connections at the
     // start of the function and close at the end.
-    moduleOp->walk([&](func::FuncOp func) {
-      bool fabric_write_present = false;
-      func.walk([&](d2m::DMAWriteOp dmaWriteOp) {
-        if (dmaWriteOp.getStartDevice().size() > 0) {
-          fabric_write_present = true;
-          return WalkResult::interrupt();
-        }
-        return WalkResult::advance();
-      });
-
-      if (fabric_write_present) {
-        OpBuilder builder(func.getContext());
-        builder.setInsertionPointToStart(&func.getBody().front());
-        auto fabricConnectionManager =
-            builder
-                .create<ttkernel::CreateFabricConnectionManagerOp>(
-                    func.getLoc())
-                .getResult();
-        builder.create<ttkernel::SetupFabricConnectionsOp>(
-            func.getLoc(), fabricConnectionManager);
-        Operation *terminator = func.getBody().front().getTerminator();
-        builder.setInsertionPoint(terminator);
-        builder.create<ttkernel::CloseFabricConnectionsOp>(
-            func.getLoc(), fabricConnectionManager);
+    bool fabric_write_present = false;
+    funcOp.walk([&](d2m::DMAWriteOp dmaWriteOp) {
+      if (dmaWriteOp.getStartDevice().size() > 0) {
+        fabric_write_present = true;
+        return WalkResult::interrupt();
       }
+      return WalkResult::advance();
     });
 
-    if (failed(
-            applyFullConversion(getOperation(), target, std::move(patterns)))) {
+    if (fabric_write_present) {
+      OpBuilder builder(funcOp.getContext());
+      builder.setInsertionPointToStart(&funcOp.getBody().front());
+      auto fabricConnectionManager =
+          builder
+              .create<ttkernel::CreateFabricConnectionManagerOp>(
+                  funcOp.getLoc())
+              .getResult();
+      builder.create<ttkernel::SetupFabricConnectionsOp>(
+          funcOp.getLoc(), fabricConnectionManager);
+      Operation *terminator = funcOp.getBody().front().getTerminator();
+      builder.setInsertionPoint(terminator);
+      builder.create<ttkernel::CloseFabricConnectionsOp>(
+          funcOp.getLoc(), fabricConnectionManager);
+    }
+
+    if (failed(applyFullConversion(funcOp, target, std::move(patterns)))) {
       signalPassFailure();
       return;
     }
 
     // The d2m.thread attr is kept until the end of this pass, when body
     // rewrites have consumed nocIndex.
-    getOperation()->walk(
-        [](func::FuncOp funcOp) { funcOp->removeAttr(d2m::ThreadAttr::name); });
+    funcOp->removeAttr(d2m::ThreadAttr::name);
   };
 };
 } // namespace
 
 namespace mlir::tt {
 
-std::unique_ptr<OperationPass<ModuleOp>> createConvertD2MToTTKernelPass() {
+std::unique_ptr<OperationPass<func::FuncOp>> createConvertD2MToTTKernelPass() {
   return std::make_unique<ConvertD2MToTTKernel>();
 }
 
-std::unique_ptr<OperationPass<ModuleOp>> createConvertD2MToTTKernelPass(
+std::unique_ptr<OperationPass<func::FuncOp>> createConvertD2MToTTKernelPass(
     const d2m::ConvertD2MToTTKernelOptions &options) {
   return std::make_unique<ConvertD2MToTTKernel>(options);
 }

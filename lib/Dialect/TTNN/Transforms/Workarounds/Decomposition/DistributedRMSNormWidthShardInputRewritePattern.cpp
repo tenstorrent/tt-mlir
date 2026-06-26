@@ -104,9 +104,8 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   // Apply ToLayoutOp to convert the input tensor to width-sharded L1.
   RankedTensorType memoryConfigedInputType =
       inputType.cloneWithEncoding(desiredInputLayout);
-  auto inputToLayoutOp =
-      rewriter.create<ttnn::ToLayoutOp>(op.getLoc(), memoryConfigedInputType,
-                                        op.getInput(), tt::ttnn::Layout::Tile);
+  auto inputToLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
+      op.getLoc(), memoryConfigedInputType, op.getInput());
 
   // The fused kernel requires the weight in ROW_MAJOR layout. The 1D->2D
   // shape reshape is handled by the decomposition pattern; here we only
@@ -131,7 +130,7 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
       RankedTensorType rowMajorWeightType =
           weightType.cloneWithEncoding(rowMajorLayout);
       auto weightToLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
-          op.getLoc(), rowMajorWeightType, weight, tt::ttnn::Layout::RowMajor);
+          op.getLoc(), rowMajorWeightType, weight);
       weight = weightToLayoutOp.getResult();
     }
   }
@@ -148,7 +147,7 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
       RankedTensorType shardedResidualType =
           residualType.cloneWithEncoding(desiredInputLayout);
       auto residualToLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
-          op.getLoc(), shardedResidualType, residual, tt::ttnn::Layout::Tile);
+          op.getLoc(), shardedResidualType, residual);
       residual = residualToLayoutOp.getResult();
     }
   }

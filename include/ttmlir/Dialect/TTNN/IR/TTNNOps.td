@@ -55,7 +55,7 @@ def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config"> {
     let hasVerifier = 1;
 }
 
-def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
+def TTNN_ToLayoutOp : TTNN_Op<"to_layout", [TTNN_LayoutOpInterface]> {
     let summary = "ToLayout op.";
     let description = [{
       This op wraps all layout information gathered from ttir.toLayout. It is used/updated by the optimizer
@@ -64,16 +64,17 @@ def TTNN_ToLayoutOp : TTNN_Op<"to_layout"> {
       Once ttnn::to_layout supports other attrs, we can remove the optional tag.
 
       The output data type is derived from the result tensor's TTNNLayoutAttr
-      encoding via the TTNN_DtypeOpInterface. Whether this op actually changes dtype can
-      be queried via `hasDtypeChange()`.
+      encoding via the TTNN_DtypeOpInterface. The target page layout (tile vs
+      row-major) is also derived from the encoding. Whether this op actually
+      changes dtype can be queried via `hasDtypeChange()`.
     }];
 
-    let arguments = (ins AnyRankedTensor:$input,
-                         TTNN_LayoutAttr:$layout);
+    let arguments = (ins AnyRankedTensor:$input);
     let results = (outs AnyRankedTensor:$result);
 
     let hasFolder = 1;
     let hasCanonicalizer = 1;
+    let hasVerifier = 1;
 
     let extraClassDeclaration = [{
       // Returns true iff the input and result element data types differ,
@@ -920,14 +921,13 @@ def TTNN_ArgMaxOp : TTNN_Op<"argmax"> {
       - `input`: The input tensor.
       - `dim`: Specifies the dimension along which the argmax is applied.
       - `keep_dim`: If set to true, the output tensor will have the same number of dimensions as the input tensor.
-      - `use_multicore`: Whether to use multiple cores or not.
 
     IR usage:
     // Input tensor of shape (128, 28, 28, 64)
     %input = ... : tensor<128x28x28x64xbf16>
 
     %empty = "ttnn.empty"(%0) <{....}> : -> tensor<128x28x28xi32>
-    %4 = "ttnn.argmax"(%input, %empty) <{dim = 3 : i32, use_multicore = false}> : (tensor<128x28x28xbf16>, tensor<128x28x28xi32) -> tensor<128x28x28xi32>
+    %4 = "ttnn.argmax"(%input, %empty) <{dim = 3 : i32}> : (tensor<128x28x28xbf16>, tensor<128x28x28xi32) -> tensor<128x28x28xi32>
 
     Example:
       input: [[1, 5, 3],
@@ -945,8 +945,7 @@ def TTNN_ArgMaxOp : TTNN_Op<"argmax"> {
 
   let arguments = (ins AnyRankedTensor:$input,
                        OptionalAttr<I32Attr>:$dim,
-                       DefaultValuedAttr<BoolAttr, "false">:$keep_dim,
-                       BoolAttr:$use_multicore);
+                       DefaultValuedAttr<BoolAttr, "false">:$keep_dim);
 
   let extraClassDeclaration = [{
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
@@ -2031,6 +2030,7 @@ def TTNN_PrepareConvTranspose2dWeightsOp : TTNN_Op<"prepare_conv_transpose2d_wei
                          DenseI32ArrayAttr:$kernel_size,
                          DenseI32ArrayAttr:$stride,
                          DenseI32ArrayAttr:$padding,
+                         DefaultValuedAttr<DenseI32ArrayAttr, "{0, 0}">:$output_padding,
                          DenseI32ArrayAttr:$dilation,
                          BoolAttr:$has_bias,
                          I32Attr:$groups,
@@ -2876,7 +2876,7 @@ def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor"> {
 }
 
 class TTNN_CreationOp<string mnemonic, list<Trait> traits = []> :
-    TTNN_Op<mnemonic, [TTCore_CreationOpTrait, TTNN_TensorSpecInterface, TTNN_DeviceOperandInterface] # traits>;
+    TTNN_Op<mnemonic, [TTCore_CreationOpTrait, TTNN_TensorSpecInterface, TTNN_DeviceOperandInterface, TTNN_LayoutOpInterface] # traits>;
 
 def TTNN_EmptyOp : TTNN_CreationOp<"empty", [TTCore_NonCacheableTrait]> {
     let summary = "Empty op.";
@@ -2885,8 +2885,7 @@ def TTNN_EmptyOp : TTNN_CreationOp<"empty", [TTCore_NonCacheableTrait]> {
     }];
 
     let arguments = (ins TTNN_Device:$device,
-                         TTNN_ShapeAttr:$shape,
-                         TTNN_LayoutAttr:$layout);
+                         TTNN_ShapeAttr:$shape);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -2911,8 +2910,7 @@ def TTNN_ArangeOp : TTNN_CreationOp<"arange", [CanExecuteOnHostTrait]> {
   let arguments = (ins Optional<TTNN_Device>:$device,
                        I64Attr:$start,
                        I64Attr:$end,
-                       I64Attr:$step,
-                       OptionalAttr<TTNN_LayoutAttr>:$layout);
+                       I64Attr:$step);
 
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;
@@ -2930,7 +2928,6 @@ def TTNN_RandOp : TTNN_CreationOp<"rand", [TTCore_NonCacheableTrait]> {
     Attributes:
       - `size` (TTNN_ShapeAttr): The shape of the tensor to create.
       - `device` (TTNN_Device): The device where the trace was captured.
-      - `layout` (TTNN_LayoutAttr): The layout for the output tensor.
       - `low` (Float): The lower bound of the range (inclusive) [Default: 0.0].
       - `high` (Float): The upper bound of the range (exclusive) [Default: 1.0].
       - `seed` (Integer): Value to initialize the random number generator for reproducible results [Default: 0].
@@ -2943,8 +2940,7 @@ def TTNN_RandOp : TTNN_CreationOp<"rand", [TTCore_NonCacheableTrait]> {
                        TTNN_ShapeAttr:$size,
                        DefaultValuedAttr<F32Attr, "0.0">:$low,
                        DefaultValuedAttr<F32Attr, "1.0">:$high,
-                       DefaultValuedAttr<UI32Attr, "0">:$seed,
-                       DefaultValuedAttr<TTNN_LayoutAttr, "mlir::tt::ttnn::Layout::Tile">:$layout);
+                       DefaultValuedAttr<UI32Attr, "0">:$seed);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -2992,8 +2988,7 @@ def TTNN_DropoutOp : TTNN_Op<"dropout", [TTCore_NonCacheableTrait]> {
 class TTNN_NamedFullOp<string mnemonic, list<Trait> traits = []> :
   TTNN_CreationOp<mnemonic, [CanExecuteOnHostTrait] # traits> {
   let arguments = (ins Optional<TTNN_Device>:$device,
-                       TTNN_ShapeAttr:$shape,
-                       OptionalAttr<TTNN_LayoutAttr>:$layout);
+                       TTNN_ShapeAttr:$shape);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -3037,16 +3032,14 @@ def TTNN_FullOp : TTNN_CreationOp<"full", [CanExecuteOnHostTrait]> {
     Example:
       %0 = "ttnn.full"() <{
         fill_value = 7 : i32,
-        layout = #ttnn.layout<tile>,
         shape = #ttnn.shape<64x128>
-      }> : () -> tensor<64x128xui32>
+      }> : () -> tensor<64x128xui32, #ttnn_layout>
       // %0: [[[7, 7, 7, ..., 7], [7, 7, 7, ..., 7], ..., [7, 7, 7, ..., 7]]]
   }];
 
   let arguments = (ins Optional<TTNN_Device>:$device,
                        TTNN_ShapeAttr:$shape,
-                       AnyAttrOf<[F32Attr, I32Attr]>:$fill_value,
-                       OptionalAttr<TTNN_LayoutAttr>:$layout);
+                       AnyAttrOf<[F32Attr, I32Attr]>:$fill_value);
 
   let results = (outs AnyRankedTensor:$result);
 
@@ -3070,8 +3063,7 @@ def TTNN_ConstantOp : TTNN_CreationOp<"constant", [AllShapesMatch<["value", "res
     }];
 
     let arguments = (ins Optional<TTNN_Device>:$device,
-                         ElementsAttr:$value,
-                         OptionalAttr<TTNN_LayoutAttr>:$layout);
+                         ElementsAttr:$value);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -3911,6 +3903,10 @@ def TTNN_PagedFlashMultiLatentAttentionDecodeOp : TTNN_Op<"paged_flash_multi_lat
     Key difference from PagedScaledDotProductAttentionDecode: the value tensor
     is optional (may be null for latent-only MLA) and head_dim_v specifies the
     value head dimension separately.
+
+    The key/value cache is laid out as `[max_num_blocks, nkv, block_size,
+    head_dim]`. MLA keeps a single compressed latent KV cache shared across all
+    query heads, so the number of KV heads `nkv` (dim 1) must be 1.
   }];
 
   let arguments = (ins AnyRankedTensor:$query,
@@ -4157,16 +4153,29 @@ def TTNN_SamplingOp : TTNN_Op<"sampling"> {
     Performs fused top-k + top-p + multinomial sampling on pre-filtered
     candidate logits using the ttnn::sampling kernel.
 
-    Inputs:
-      - `input_values`: Pre-filtered candidate logit values [batch, candidates] bf16, TILE layout
-      - `input_indices`: Global vocab indices for each candidate [batch, candidates] int32, ROW_MAJOR
-      - `k`: Per-request top-k values [batch] uint32, ROW_MAJOR
-      - `p`: Per-request top-p values [batch] bf16, ROW_MAJOR
-      - `temp`: Per-request temperature values [batch] bf16, ROW_MAJOR
-      - `seed`: Optional random seed (uint32 scalar attribute)
+    The op accepts two SHAPE forms; SamplingOpRank2RewritePattern (a
+    decomposition workaround) transforms the first into the second so the
+    ttnn::sampling kernel sees the rank it requires. Dtype and layout
+    adaptation are handled separately by operand workarounds.
 
-    Output:
-      - `result`: Sampled global token indices [batch] int32, ROW_MAJOR
+    Pre-decomposition (matches TTIR view):
+      - `input_values`:  [batch, candidates]      bf16
+      - `input_indices`: [batch, candidates]      int32
+      - `result`:        [batch]                  int32
+
+    Post-decomposition (rank matches the kernel; dtype/layout are still the
+    IR's user-facing types — operand workarounds insert any needed to_layout
+    and typecast ops, e.g. retyping the result to uint32 to match the kernel
+    and converting back to int32 for consumers):
+      - `input_values`:  [1, 1, batch, candidates]  bf16
+      - `input_indices`: [1, 1, batch, candidates]  int32
+      - `result`:        [1, 1, 1, batch]           int32
+
+    Common to both forms:
+      - `k`: Per-request top-k values [batch] uint32
+      - `p`: Per-request top-p values [batch] bf16
+      - `temp`: Per-request temperature values [batch] bf16
+      - `seed`: Optional random seed (uint32 scalar attribute)
   }];
 
   let arguments = (ins AnyRankedTensor:$input_values,
