@@ -272,7 +272,16 @@ struct ConvertD2MToTTKernel
           fcmUsers.push_back(op);
         }
       });
-      if (fabricOps.empty()) {
+      // Create the fcm whenever the func has any fcm user, not just a fabric
+      // op: a thread can use mesh_position (an fcm user, lowers to
+      // get_my_logical_mesh_position(fcm)) without itself doing a cross-device
+      // fabric op -- e.g. a local output store whose grid index is derived from
+      // mesh_position lands on a different NoC thread than the fabric send. Such
+      // a thread still needs the fcm to dominate the mesh_position. The setup
+      // only opens `num_send_dir` connections, which is 0 for a non-sending
+      // thread, so this is just the (cheap) topology build that mesh_position
+      // needs -- no stray fabric connection.
+      if (fcmUsers.empty()) {
         return;
       }
 
