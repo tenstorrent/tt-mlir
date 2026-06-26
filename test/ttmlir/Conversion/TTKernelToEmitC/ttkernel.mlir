@@ -918,8 +918,9 @@ module {
     func.func @exp_tile_runtime_scale() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
       %dst_index = arith.constant 3 : i32
-      // CHECK: emitc.call_opaque "exp_tile"(%[[DST_INDEX]])
-      // CHECK-SAME: args = [0 : index, #emitc.opaque<"VectorMode::RC">, #emitc.opaque<"16384">]
+      // CHECK: %[[VECTOR_MODE:.*]] = emitc.literal "VectorMode::RC" : !emitc.opaque<"VectorMode">
+      // CHECK: %[[SCALE:.*]] = emitc.literal "static_cast<uint16_t>(16384u)" : !emitc.opaque<"uint16_t">
+      // CHECK: emitc.call_opaque "exp_tile"(%[[DST_INDEX]], %[[VECTOR_MODE]], %[[SCALE]])
       // CHECK-SAME: template_args = [#emitc.opaque<"true">, #emitc.opaque<"true">, #emitc.opaque<"InputClamping::None">]
       "ttkernel.exp_tile"(%dst_index) <{approx = true, input_clamping = #ttkernel.input_clamping<none>, scale = 1073741824 : i32}> : (i32) -> ()
       return
