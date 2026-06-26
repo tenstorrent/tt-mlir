@@ -167,7 +167,6 @@ table PrepareMoEComputeW0W1WeightsOp {
   device: tt.target.DeviceRef;
   hidden_size: uint32;
   intermediate_size: uint32;
-  bh_ring_size: uint32 = null;
   out: tt.target.ttnn.TensorRef;
 }
 
@@ -177,7 +176,6 @@ table PrepareMoEComputeW2WeightsOp {
   device: tt.target.DeviceRef;
   hidden_size: uint32;
   intermediate_size: uint32;
-  bh_ring_size: uint32 = null;
   out: tt.target.ttnn.TensorRef;
 }
 
@@ -201,7 +199,6 @@ table MoeComputeOp {
   topology: tt.target.Topology = null;
   mux_core_range_set: tt.target.ttnn.CoreRangeSet;
   compute_only: bool;
-  bh_ring_size: uint32 = null;
   per_expert_total_tokens: tt.target.ttnn.TensorRef;
   expert_activation: tt.target.ttnn.TensorRef;
   expert_to_token: tt.target.ttnn.TensorRef;

@@ -3137,10 +3137,6 @@ void mlir::tt::ttnn::MatmulOp::getCanonicalizationPatterns(
         "num_links, mux_core_range_set, optional_output_tensor, or "
         "cross_device_semaphore");
   }
-  if (getBhRingSize() && *getBhRingSize() != 8 && *getBhRingSize() != 12 &&
-      *getBhRingSize() != 16) {
-    return emitOpError("bh_ring_size must be 8, 12, or 16");
-  }
 
   RankedTensorType inputType = getTilizeInputTensor().getType();
   if (inputType.getRank() < 2) {
@@ -3151,24 +3147,6 @@ void mlir::tt::ttnn::MatmulOp::getCanonicalizationPatterns(
     return emitOpError(
         "tilize_input_tensor last dim (hidden_size) must be a positive "
         "multiple of 32");
-  }
-
-  // The W0/W1 and W2 matmuls shard their contraction (intermediate_size) and
-  // the W2 output (hidden_size) across the matmul ring (bh_ring_size cores on
-  // BH, default 12; WH is always 12). If either dim has fewer than ring-size
-  // tiles, the per-core shard distribution degenerates and leaves output tiles
-  // uncomputed, so require at least one tile per ring core in both dims.
-  int64_t ringSize = getBhRingSize() ? *getBhRingSize() : 12;
-  int64_t minSize = ringSize * 32;
-  if (hiddenSize < minSize) {
-    return emitOpError() << "hidden_size (" << hiddenSize
-                         << ") must be at least bh_ring_size*32 = " << minSize
-                         << " (one tile per matmul-ring core)";
-  }
-  if (static_cast<int64_t>(getIntermediateSize()) < minSize) {
-    return emitOpError() << "intermediate_size (" << getIntermediateSize()
-                         << ") must be at least bh_ring_size*32 = " << minSize
-                         << " (one tile per matmul-ring core)";
   }
 
   return success();

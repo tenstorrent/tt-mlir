@@ -6705,7 +6705,6 @@ def TTIR_MoeComputeOp : TTIR_NamedOp<"moe_compute", [TTIR_CCL, AttrSizedOperandS
                          UI32Attr:$intermediate_size,
                          DefaultValuedAttr<TTCore_MoEActivationFunctionAttr,
                              "::mlir::tt::ttcore::MoEActivationFunction::Silu">:$activation_function,
-                         OptionalAttr<UI32Attr>:$bh_ring_size,
                          DefaultValuedAttr<BoolAttr, "true">:$compute_only,
 
                          // Full-path-only inputs, unused when compute_only == true.
