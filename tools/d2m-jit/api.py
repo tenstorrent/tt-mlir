@@ -1054,6 +1054,22 @@ def _matmul_acc(acc, lhs, rhs):
     return _matmul_block(lhs, rhs, acc=acc)
 
 
+@syntax("copy_")
+def _copy_(dst, src):
+    """In-place copy of `src` into `dst`'s buffer (linalg.generic outs(dst)).
+
+    For a loop-carried snapshot, e.g. `acc_prev = copy_(acc_prev, acc)`: the
+    result aliases `dst`'s buffer, so when `dst` is an scf.for iter_arg the yield
+    is buffer-equivalent and bufferizes (a plain `acc_prev = acc` would yield a
+    fresh buffer -> "Yield operand not equivalent to iter bbArg").
+
+    Implemented as `dst = src + 0` (not an identity yield): a genuine
+    elementwise op forces the write into `outs(dst)`, whereas an identity body
+    lets bufferization alias the result back to the input."""
+    z = _zeros_block(_as_value(src).type)
+    return _eltwise_block(lambda s, zz: d2m.tile_add(s.type, s, zz), src, z, out=dst)
+
+
 @syntax("__add_acc__")
 def _add_acc(acc, rhs):
     """Eltwise add accumulating into `acc`: `acc + rhs`, in place.
