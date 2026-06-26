@@ -35,6 +35,14 @@ static bool isPureDataMovementOp(mlir::Operation *op) {
   return op->hasTrait<TensorManipulation::Trait>() || mlir::isa<TypecastOp>(op);
 }
 
+// Check if an op rearranges data layout/shape (transpose, reshape, permute,
+// rearrange). Unlike a bare typecast, such an op produces a differently-shaped
+// tensor that downstream device passes may want to handle (e.g. folding a
+// weight transpose into a matmul's transpose_b).
+static bool isTensorManipulationOp(mlir::Operation *op) {
+  return op->hasTrait<TensorManipulation::Trait>();
+}
+
 // Walk backward from a value through transparent ops in a single traversal.
 // If the chain terminates at a creation skippable op, return it.
 static llvm::SmallVector<mlir::Operation *> traceCreationOpChain(Value v) {
@@ -134,16 +142,21 @@ analyzeConstEval(func::FuncOp funcOp) {
     return {};
   }
 
-  // Skip CPU-hoisting of const-eval subgraphs that perform no arithmetic -
-  // i.e. pure data-movement/retype graphs (transpose, permute, reshape,
-  // typecast). Neither motivation for CPU-hoisting applies to such graphs:
-  // a permutation/retype is exact regardless of element type, so there is no
-  // precision benefit, and there are no compute intermediates whose host
-  // storage would reduce peak DRAM/L1. Hoisting them only adds a
-  // bf16->f32->bf16 typecast round-trip plus a host round-trip, and prevents
-  // on-device handling of the movement op (e.g. folding a weight transpose
-  // into a matmul's transpose_b). Keep these on device.
-  if (llvm::all_of(descriptor.operations, isPureDataMovementOp)) {
+  // Skip CPU-hoisting of const-eval subgraphs that perform no arithmetic and
+  // include at least one shape/layout-changing op - i.e. pure data-movement
+  // graphs (transpose, permute, reshape; optionally interleaved with
+  // typecast). The precision motivation for CPU-hoisting does not apply: a
+  // permutation/retype is exact regardless of element type. Hoisting them only
+  // adds a bf16->f32->bf16 typecast round-trip plus a host round-trip, and
+  // prevents on-device handling of the movement op (e.g. folding a weight
+  // transpose into a matmul's transpose_b). Keep these on device.
+  //
+  // Note: a subgraph that is *only* typecast(s) is intentionally still hoisted.
+  // For those the host-storage motivation can still apply - the conversion can
+  // produce a narrower-dtype tensor on host, lowering what is materialized on
+  // device - so it is left to the existing hoisting path.
+  if (llvm::all_of(descriptor.operations, isPureDataMovementOp) &&
+      llvm::any_of(descriptor.operations, isTensorManipulationOp)) {
     return {};
   }
 

@@ -4,6 +4,9 @@
 
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-cpu-hoisted-const-eval=true" -o %t %s
 // RUN: FileCheck %s --input-file=%t
+// Assert exactly one const-eval subgraph is hoisted across the whole module
+// (the arithmetic one); the pure transpose contributes no hoisted call.
+// RUN: FileCheck %s --input-file=%t --check-prefix=HOISTCOUNT
 
 // A const-eval subgraph that performs no arithmetic (pure data movement /
 // retype, e.g. a weight transpose) must NOT be CPU-hoisted: f32 execution
@@ -49,4 +52,9 @@ module {
   }
 
   // CHECK: ttcore.cpu_module {
+
+  // Exactly one hoisted call site (marked by ttir.cpu_hoist_call) exists - the
+  // arithmetic subgraph; the pure transpose contributes none.
+  // HOISTCOUNT-COUNT-1: ttir.cpu_hoist_call
+  // HOISTCOUNT-NOT: ttir.cpu_hoist_call
 }
