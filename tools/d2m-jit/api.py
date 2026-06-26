@@ -906,8 +906,8 @@ def _shape_literal(node):
     if isinstance(node, (ast.List, ast.Tuple)):
         return [int(_const_value(element)) for element in node.elts]
     raise D2mJitError(
-        "expected a literal block shape, e.g. [m_tiles, n_tiles]; "
-        f"got {type(node).__name__}"
+        "expected a block shape [m_tiles, n_tiles] of compile-time ints "
+        f"(literals or int captures); got {type(node).__name__}"
     )
 
 
