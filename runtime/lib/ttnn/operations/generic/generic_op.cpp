@@ -8,6 +8,7 @@
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/types/program_desc_cache.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+#include "ttmlir/OpInvoke/TTNN/utils/utils.h"
 #include "ttmlir/Target/TTNN/operations/generic_op_generated.h"
 #include "ttmlir/Target/TTNN/types_generated.h"
 
@@ -120,7 +121,7 @@ createKernelConfigDescriptor(
     std::vector<::tt::tt_metal::UnpackToDestMode> unpackToDestModes =
         common::toUnpackToDestModes(computeConfig->unpack_to_dest_modes());
     return ::tt::tt_metal::ComputeConfigDescriptor{
-        .math_fidelity = tt::runtime::ttnn::utils::toTTNNMathFidelity(
+        .math_fidelity = ttnn_op_invoke::operations::utils::toTTNNMathFidelity(
             computeConfig->math_fidelity()),
         .fp32_dest_acc_en = computeConfig->fp32_dest_acc_en(),
         .dst_full_sync_en = computeConfig->dst_full_sync_en(),

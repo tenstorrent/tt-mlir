@@ -50,12 +50,12 @@ void run(const ::tt::target::ttnn::PrepareConvTranspose2dWeightsOp *op,
   }
 
   ::ttnn::DataType inputDtype =
-      ::tt::runtime::ttnn::utils::toTTNNDataType(op->input_dtype());
+      ttnn_op_invoke::operations::utils::toTTNNDataType(op->input_dtype());
 
   std::optional<::ttnn::DataType> outputDtype;
   if (op->output_dtype()) {
-    outputDtype =
-        ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
+    outputDtype = ttnn_op_invoke::operations::utils::toTTNNDataType(
+        *(op->output_dtype()));
   }
 
   std::optional<::ttnn::Conv2dConfig> conv2dConfig;
@@ -78,7 +78,8 @@ void run(const ::tt::target::ttnn::PrepareConvTranspose2dWeightsOp *op,
   ::ttnn::Tensor out = ::ttnn::operations::conv::conv_transpose2d::
       prepare_conv_transpose2d_weights(
           weightTensor, *inputMemoryConfig,
-          ::tt::runtime::ttnn::utils::toTTNNLayout(op->input_tensor_layout()),
+          ::ttnn_op_invoke::operations::utils::toTTNNLayout(
+              op->input_tensor_layout()),
           op->weights_format()->str(), op->in_channels(), op->out_channels(),
           op->batch_size(), op->input_height(), op->input_width(), kernelSize,
           stride, padding, outputPadding, dilation, op->has_bias(),

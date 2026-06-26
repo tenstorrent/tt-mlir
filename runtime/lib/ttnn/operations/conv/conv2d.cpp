@@ -51,8 +51,8 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
 
   std::optional<::ttnn::DataType> outputDtype;
   if (op->output_dtype()) {
-    outputDtype =
-        ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
+    outputDtype = ttnn_op_invoke::operations::utils::toTTNNDataType(
+        *(op->output_dtype()));
   }
 
   ::ttnn::Conv2dConfig conv2dConfig;
