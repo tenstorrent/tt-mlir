@@ -111,8 +111,21 @@ public:
               usageInfo.producers.size() == 1) {
             auto *consumer = usageInfo.consumers.front();
             auto *producer = usageInfo.producers.front();
+            // A `compute_intermediate` buffer is assumed dead in L1 (the
+            // producer->consumer value stays DST-resident, so Allocate /
+            // HoistCBAllocs skip it). That assumption is violated when the
+            // producer is a fill/zeros init feeding an in-place accumulate
+            // (e.g. `acc = zeros(); acc += remote_load(...)` before a loop):
+            // InsertDstRegisterAccess routes that value through L1, so the
+            // buffer is genuinely used and must get a real CB. Don't tag it.
+            bool producerIsFill =
+                producer
+                    ->walk([](d2m::TileFillOp) {
+                      return WalkResult::interrupt();
+                    })
+                    .wasInterrupted();
             if (mlir::isa<linalg::GenericOp>(consumer) &&
-                mlir::isa<linalg::GenericOp>(producer)) {
+                mlir::isa<linalg::GenericOp>(producer) && !producerIsFill) {
               allocOp->setAttr("d2m.compute_intermediate",
                                rewriter.getUnitAttr());
             }
