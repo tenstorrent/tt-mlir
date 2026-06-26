@@ -1335,13 +1335,9 @@ createOp(FlatbufferObjectCache &cache, PrepareMoEComputeW0W1WeightsOp op) {
   auto out = cache.getOrCreateNoSharding(op.getResult(),
                                          tensorValueToFlatbuffer, std::nullopt);
 
-  // `bh_ring_size` is schema-optional (uint32 = null); same absent-marker
-  // handling as the downstream moe_compute op.
-  auto bhRingSize = toFlatbuffer(cache, op.getBhRingSize());
-
   return ::tt::target::ttnn::CreatePrepareMoEComputeW0W1WeightsOp(
       *cache.fbb, w0, w1, bias0, bias1, deviceRef, op.getHiddenSize(),
-      op.getIntermediateSize(), bhRingSize, out);
+      op.getIntermediateSize(), out);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::PrepareMoEComputeW2WeightsOp>
@@ -1358,13 +1354,9 @@ createOp(FlatbufferObjectCache &cache, PrepareMoEComputeW2WeightsOp op) {
   auto out = cache.getOrCreateNoSharding(op.getResult(),
                                          tensorValueToFlatbuffer, std::nullopt);
 
-  // `bh_ring_size` is schema-optional (uint32 = null); same absent-marker
-  // handling as the downstream moe_compute op.
-  auto bhRingSize = toFlatbuffer(cache, op.getBhRingSize());
-
   return ::tt::target::ttnn::CreatePrepareMoEComputeW2WeightsOp(
       *cache.fbb, w2, bias2, deviceRef, op.getHiddenSize(),
-      op.getIntermediateSize(), bhRingSize, out);
+      op.getIntermediateSize(), out);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::MoeComputeOp>
@@ -1409,10 +1401,6 @@ createOp(FlatbufferObjectCache &cache, MoeComputeOp op) {
   auto numLinks = toFlatbuffer(cache, op.getNumLinks());
   auto topology = toFlatbuffer(cache, op.getTopology());
 
-  // `bh_ring_size` is schema-optional (uint32 = null); same absent-marker
-  // handling as num_links above.
-  auto bhRingSize = toFlatbuffer(cache, op.getBhRingSize());
-
   ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet> muxCoreRangeSet = 0;
   if (op.getMuxCoreRangeSetAttr()) {
     muxCoreRangeSet = toFlatbuffer(cache, op.getMuxCoreRangeSetAttr());
@@ -1436,8 +1424,8 @@ createOp(FlatbufferObjectCache &cache, MoeComputeOp op) {
       w2, optionalOutput, crossDeviceSemaphore, deviceRef, op.getLayerId(),
       op.getOutputHeightShardDim(), op.getIntermediateSize(), op.getHasBias(),
       clusterAxis, activation, numLinks, topology, muxCoreRangeSet,
-      op.getComputeOnly(), bhRingSize, perExpertTokens, expertActivation,
-      expertToToken, tilizeOutput, matmulOutput, combineOutput);
+      op.getComputeOnly(), perExpertTokens, expertActivation, expertToToken,
+      tilizeOutput, matmulOutput, combineOutput);
 }
 
 // Convert ttcore::ReduceType to tt::target::ttnn::ScatterReduceType
