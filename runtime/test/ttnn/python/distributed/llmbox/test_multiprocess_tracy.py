@@ -4,7 +4,10 @@
 #
 
 import glob
+import importlib.metadata
+import importlib.util
 import os
+import shutil
 
 import ttrt
 import ttrt.runtime
@@ -24,12 +27,21 @@ FLATBUFFER_BASE_PATH = (
 
 TRACY_OUTPUT_DIR = "/tmp/tt_mlir_tracy_smoke_test"
 
+# Per-rank artifact names emitted by `python -m tracy -r`.
+TRACY_CAPTURE_GLOB = "tracy_profile_log_host.tracy"
+PERF_CSV_GLOB = "ops_perf_results*.csv"
+
+# The 2x4 multiprocess rank binding maps to 2 host ranks (4 devices each).
+EXPECTED_NUM_RANKS = 2
+
 RANK_BINDING_PATH = (
     f"{TT_METAL_RUNTIME_ROOT_EXTERNAL}"
     "/tests/tt_metal/distributed/config/2x4_multiprocess_rank_bindings.yaml"
 )
 
 
+# Directly receive the name of tracy tools found in import
+# Default to a common known name
 def _tracy_tool_names():
     try:
         from tracy.common import TRACY_CAPTURE_TOOL, TRACY_CSVEXPROT_TOOL
@@ -41,14 +53,12 @@ def _tracy_tool_names():
 
 TRACY_TOOL_NAMES = _tracy_tool_names()
 
-
+# Directly find the tracy tools directory
 def _resolve_tracy_tools_dir():
     """Find the dir containing the tracy capture binaries"""
-    import importlib.metadata as importlib_metadata
-
     # Primary: the installed ttrt wheel's bundled copies (site-packages).
     try:
-        for f in importlib_metadata.files("ttrt") or []:
+        for f in importlib.metadata.files("ttrt") or []:
             if os.path.basename(str(f)) in TRACY_TOOL_NAMES:
                 tools_dir = os.path.dirname(str(f.locate()))
                 if all(
@@ -122,23 +132,15 @@ def _shutdown_distributed_runtime():
     ttrt.runtime.set_current_host_runtime(ttrt.runtime.HostRuntime.Local)
 
 
-def _find_per_rank(output_root, pattern):
-    """Recursive glob under each rank<N>/ for files matching `pattern`."""
+def _find_in_dir(root, pattern):
+    """Recursive glob under `root` (incl. hidden dirs) for files matching `pattern`."""
     return sorted(
         glob.glob(
-            os.path.join(output_root, "rank*", "**", pattern),
+            os.path.join(root, "**", pattern),
             recursive=True,
             include_hidden=True,
         )
     )
-
-
-def _find_tracy_files(output_root):
-    return _find_per_rank(output_root, "tracy_profile_log_host.tracy")
-
-
-def _find_perf_csv_files(output_root):
-    return _find_per_rank(output_root, "ops_perf_results*.csv")
 
 
 def test_tracy_multiprocess_smoke():
@@ -148,13 +150,16 @@ def test_tracy_multiprocess_smoke():
     simple_add a few times, then asserts that every rank produced a non-empty
     .tracy capture and a non-empty ops_perf CSV.
     """
+    # Start from a clean output dir so the assertions below can only pass on
+    # artifacts produced by this run, disregarding any possible stale captures.
+    shutil.rmtree(TRACY_OUTPUT_DIR, ignore_errors=True)
     os.makedirs(TRACY_OUTPUT_DIR, exist_ok=True)
 
     binary_path = os.path.join(FLATBUFFER_BASE_PATH, "simple_add_2x4.mlir.tmp.ttnn")
     assert os.path.exists(binary_path), (
         f"Binary not found: {binary_path}\n"
-        "Generate it with: llvm-lit "
-        "test/ttmlir/Runtime/TTNN/llmbox/binary/simple_add_2x4.mlir"
+        "Expected to be produced by the lit test "
+        "test/ttmlir/Runtime/TTNN/llmbox/binary/simple_add_2x4.mlir."
     )
 
     test_config = ProgramTestConfig(
@@ -171,6 +176,15 @@ def test_tracy_multiprocess_smoke():
 
     # Resolve (and fail fast if missing) the dir holding the tracy binaries.
     tracy_tools_dir = _resolve_tracy_tools_dir()
+
+    # The workers run `python -m tracy`, so the tracy module must be importable
+    # in this environment (it ships in the ttrt wheel). Fail clearly here rather
+    # than with an opaque "No module named tracy" crash inside the workers.
+    assert importlib.util.find_spec("tracy") is not None, (
+        "tracy module is not importable, so the workers cannot run "
+        "`python -m tracy`. Ensure the ttrt wheel (which bundles the tracy "
+        "package) is installed in this environment."
+    )
 
     # -r enables the per-rank capture + csvexport report pipeline.
     TRACY_ARGS = [
@@ -197,24 +211,27 @@ def test_tracy_multiprocess_smoke():
     finally:
         _shutdown_distributed_runtime()
 
-    tracy_files = _find_tracy_files(TRACY_OUTPUT_DIR)
-    assert len(tracy_files) >= 2, (
-        f"expected >=2 per-rank .tracy files under {TRACY_OUTPUT_DIR}, "
-        f"found {tracy_files}"
+    # Verify per rank produced a non-empty .tracy capture and ops_perf CSV
+    rank_dirs = sorted(glob.glob(os.path.join(TRACY_OUTPUT_DIR, "rank*")))
+    assert len(rank_dirs) >= EXPECTED_NUM_RANKS, (
+        f"expected output for >={EXPECTED_NUM_RANKS} ranks under {TRACY_OUTPUT_DIR}, "
+        f"found rank dirs: {rank_dirs}"
     )
-    for f in tracy_files:
-        assert os.path.getsize(f) > 0, f"tracy file is empty: {f}"
 
-    perf_csv_files = _find_perf_csv_files(TRACY_OUTPUT_DIR)
-    assert len(perf_csv_files) >= 2, (
-        f"expected >=2 per-rank ops_perf CSV files under {TRACY_OUTPUT_DIR}, "
-        f"found {perf_csv_files}"
-    )
-    for f in perf_csv_files:
-        assert os.path.getsize(f) > 0, f"perf CSV is empty: {f}"
+    for rank_dir in rank_dirs:
+        rank = os.path.basename(rank_dir)
 
-    print(
-        f"\nTracy captures written to: {TRACY_OUTPUT_DIR}\n"
-        f"  .tracy files: {tracy_files}\n"
-        f"  ops_perf CSVs: {perf_csv_files}\n"
-    )
+        tracy_files = _find_in_dir(rank_dir, TRACY_CAPTURE_GLOB)
+        assert tracy_files, f"{rank}: no .tracy capture under {rank_dir}"
+        for f in tracy_files:
+            assert os.path.getsize(f) > 0, f"{rank}: empty .tracy capture: {f}"
+
+        perf_csv_files = _find_in_dir(rank_dir, PERF_CSV_GLOB)
+        assert perf_csv_files, f"{rank}: no ops_perf CSV under {rank_dir}"
+        for f in perf_csv_files:
+            assert os.path.getsize(f) > 0, f"{rank}: empty perf CSV: {f}"
+
+        print(
+            f"{rank}: {len(tracy_files)} .tracy capture(s), "
+            f"{len(perf_csv_files)} ops_perf CSV(s)"
+        )
