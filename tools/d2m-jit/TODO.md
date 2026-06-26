@@ -83,14 +83,14 @@ but they're meaningful only in generic-op forms we haven't surfaced
 
 ### 🟡 Init helpers
 
-- `arange_block(layout)` — fill a block with `0, 1, 2, …` (per the
-  d2m op).
+- Kernel-body `full([m, n], value)` for block literals. `zeros([m, n])` exists
+  for accumulator blocks; a general fill helper would make the pattern reusable.
+- `arange_block(layout)` — fill a block with `0, 1, 2, ...` (per the d2m op).
 - `fill_arange_tile()` — per-tile arange.
 
 Useful for golden tests and for replacing the current
-`test/d2m-jit/utils.py:arange_tile` host-side helper with a true
-device-side fill. Need the same plumbing the device-side `zeros`/`full`
-fill would need (see the host-scope linalg gap above).
+`test/d2m-jit/utils.py:arange_tile` host-side helper with a true device-side
+fill.
 
 ### 🟡 Kernel-side `print`
 

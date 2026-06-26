@@ -324,9 +324,20 @@ lhs @ rhs              # operator form
 Emits `linalg.generic` with the standard matmul indexing maps
 (parallel/parallel/reduction over M/N/K) and `d2m.tile_matmul` in the body.
 
-`D2MToTTKernel` emits a device-side zero tile for `d2m.tile_matmul`
-accumulators. For multi-K blocks, it guards that fill to the first reduction
-iteration so later K steps accumulate into the same DST tile.
+Standalone `a @ b` generates an in-kernel zero block and uses it as the
+`linalg.generic` DPS init, so tile matmul starts from a defined accumulator.
+For explicit K loops, use a loop-carried accumulator and `+=` so the matmul
+maps directly onto `tile_matmul`'s accumulate operand:
+
+```python
+c = zeros([1, 1])
+for k in range(k_blocks):
+    c += remote_load(lhs, [m, k]) @ remote_load(rhs, [k, n])
+```
+
+The kernel-body `zeros([m, n])` helper takes a literal tile-block shape. It is
+separate from host-side `d2m.zeros(layout)`, which still allocates/fills a full
+layout tensor outside the kernel body.
 
 ### Debug knobs (`d2m.config`)
 
@@ -418,8 +429,8 @@ have been dropped — the DSL emits the post-legalisation form directly.
 - **Spent `LazyTensor`s.** After `to_host`, anything from the previous
   generation that was not passed to `to_host` raises on re-use. If you need
   multiple values out, pass them all to a single `to_host`.
-- **Matmul accumulator is seeded in the generated kernel.** Multi-K blocks
-  rely on the `D2MToTTKernel` first-reduction guard for the zero fill.
+- **Matmul accumulation is explicit in IR.** Standalone `a @ b` gets a
+  generated zero block; explicit K loops should use `zeros([...])` plus `+=`.
 - **Float reductions are per tile/per core.** Use `reduction_layout` for reduced
   outputs. Reductions spanning multiple cores need a core gather/redistribute
   op.
@@ -439,6 +450,5 @@ have been dropped — the DSL emits the post-legalisation form directly.
 
 ## Known issues / TODO
 
-See [TODO.md](TODO.md) for active pipeline gaps (matmul accumulator init,
-host-scope `linalg.generic`), missing API surface (in-kernel typecast, DMA
-primitives, ...), and other follow-ups.
+See [TODO.md](TODO.md) for active pipeline gaps, missing API surface
+(in-kernel typecast, DMA primitives, init helpers, ...), and other follow-ups.

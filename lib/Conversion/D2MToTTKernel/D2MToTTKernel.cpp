@@ -1013,32 +1013,12 @@ public:
       }
 
       rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
-      Value dstIdx = getDstIdxFromResult(op.getResult());
-      ensureDominatesInsertionPoint(rewriter, dstIdx);
-
-      // tile_matmul lowers as dst = a @ b + dst, so initialize the
-      // accumulator once before the first K iteration.
-      auto emitZeroAccumulator = [&]() {
-        auto zero = rewriter.create<arith::ConstantOp>(
-            op->getLoc(), rewriter.getF32FloatAttr(0.0));
-        rewriter.create<ttkernel::FillTileInitOp>(op->getLoc());
-        rewriter.create<ttkernel::FillTileOp>(op->getLoc(), dstIdx, zero);
-      };
-      if (Value seedGuard = buildFirstReductionIterationGuard(
-              rewriter, op->getLoc(), op, dstIdx)) {
-        auto ifOp = rewriter.create<scf::IfOp>(op->getLoc(), seedGuard,
-                                               /*withElseRegion=*/false);
-        OpBuilder::InsertionGuard guard(rewriter);
-        rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
-        emitZeroAccumulator();
-      }
-
-      rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
       auto transpose = intConstant<int32_t>(rewriter, op->getLoc(), 0);
       rewriter.create<ttkernel::MatmulInitShortOp>(op->getLoc(), cbA, cbB,
                                                    transpose);
-      rewriter.create<ttkernel::MatmulTilesOp>(
-          op->getLoc(), cbA, cbB, adaptor.getA(), adaptor.getB(), dstIdx);
+      rewriter.create<ttkernel::MatmulTilesOp>(op->getLoc(), cbA, cbB,
+                                               adaptor.getA(), adaptor.getB(),
+                                               adaptor.getC());
     } else if constexpr (std::is_same_v<ConcreteOp, d2m::TileMatmulBlockOp>) {
       auto insertionPoint = rewriter.getInsertionPoint();
       auto cbA = getCB(rewriter, op.getA());

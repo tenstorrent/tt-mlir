@@ -15,6 +15,7 @@
 #include "mlir/Analysis/Liveness.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/OpDefinition.h"
@@ -487,6 +488,20 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               // Continue tracing through this operation's results
               for (OpResult result : op->getResults()) {
                 for (Operation *userOp : result.getUsers()) {
+                  worklist.push_back(userOp);
+                }
+              }
+            }
+
+            if (auto forOp = mlir::dyn_cast<scf::ForOp>(op)) {
+              rewriter.modifyOpInPlace(op, [&]() {
+                for (auto [init, iterArg] : llvm::zip_equal(
+                         forOp.getInitArgs(), forOp.getRegionIterArgs())) {
+                  iterArg.setType(init.getType());
+                }
+              });
+              for (BlockArgument iterArg : forOp.getRegionIterArgs()) {
+                for (Operation *userOp : iterArg.getUsers()) {
                   worklist.push_back(userOp);
                 }
               }
@@ -1235,8 +1250,9 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
               return WalkResult::advance();
             }
             auto *allocOp = remoteStoreOp.getLocalBuffer().getDefiningOp();
-            TT_assertv(mlir::isa<memref::AllocOp>(allocOp),
-                       "Expected memref::AllocOp");
+            if (!mlir::isa_and_nonnull<memref::AllocOp>(allocOp)) {
+              return WalkResult::advance();
+            }
             rewriter.setInsertionPoint(allocOp);
             rewriter.replaceOpWithNewOp<d2m::OperandAliasOp>(
                 allocOp, allocOp->getResultTypes(), remoteStoreOp.getMemref());

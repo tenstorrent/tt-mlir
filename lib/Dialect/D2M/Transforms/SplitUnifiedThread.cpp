@@ -34,6 +34,123 @@ static void appendUnique(SmallVectorImpl<Value> &values, Value value) {
   }
 }
 
+static bool isSynchronizableBoundaryOp(
+    Operation *op, const DenseSet<Operation *> &opsWithSynchronizableOps) {
+  return dyn_cast<SynchronizableOpInterface>(op) ||
+         opsWithSynchronizableOps.contains(op);
+}
+
+static bool containsComputeOp(Operation *op) {
+  if (op->hasTrait<D2MGenericRegionComputeOpTrait>()) {
+    return true;
+  }
+  bool containsCompute = false;
+  op->walk([&](Operation *nestedOp) {
+    if (nestedOp != op &&
+        nestedOp->hasTrait<D2MGenericRegionComputeOpTrait>()) {
+      containsCompute = true;
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
+  });
+  return containsCompute;
+}
+
+static bool canMergeIntoComputeRegion(
+    Operation *op, const DenseSet<Operation *> &opsWithSynchronizableOps) {
+  return !isSynchronizableBoundaryOp(op, opsWithSynchronizableOps) &&
+         containsComputeOp(op);
+}
+
+static bool hasSynchronizableAncestor(Operation *op, GenericOp genericOp) {
+  for (Operation *parent = op->getParentOp();
+       parent && parent != genericOp.getOperation();
+       parent = parent->getParentOp()) {
+    if (dyn_cast<SynchronizableOpInterface>(parent)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static Operation *getAncestorInBlock(Operation *op, Block *block) {
+  Operation *current = op;
+  while (current && current->getBlock() != block) {
+    current = current->getParentOp();
+  }
+  return current;
+}
+
+static bool getSiblingOpsInNearestCommonBlock(Operation *producer,
+                                              Operation *consumer,
+                                              Operation *&producerBoundary,
+                                              Operation *&consumerBoundary) {
+  for (Operation *producerAncestor = producer; producerAncestor;
+       producerAncestor = producerAncestor->getParentOp()) {
+    if (Operation *candidateConsumerBoundary =
+            getAncestorInBlock(consumer, producerAncestor->getBlock())) {
+      producerBoundary = producerAncestor;
+      consumerBoundary = candidateConsumerBoundary;
+      return true;
+    }
+  }
+  return false;
+}
+
+static LogicalResult expandRangeToCoverNonPureResultUses(Block::iterator &start,
+                                                         Block::iterator &end) {
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    Block *block = start->getBlock();
+    DenseSet<Operation *> opsInRange;
+    for (Operation &op : llvm::make_range(start, end)) {
+      opsInRange.insert(&op);
+    }
+
+    for (Operation &rootOp : llvm::make_range(start, end)) {
+      WalkResult walkResult = rootOp.walk([&](Operation *op) {
+        if (mlir::isPure(op)) {
+          return WalkResult::advance();
+        }
+        for (Value result : op->getResults()) {
+          for (Operation *user : result.getUsers()) {
+            if (llvm::any_of(opsInRange, [&](Operation *rangeOp) {
+                  return rangeOp->isAncestor(user);
+                })) {
+              continue;
+            }
+
+            Operation *userBoundary = getAncestorInBlock(user, block);
+            if (!userBoundary) {
+              return WalkResult::interrupt();
+            }
+            if (userBoundary->isBeforeInBlock(&*start)) {
+              start = userBoundary->getIterator();
+              changed = true;
+              return WalkResult::interrupt();
+            }
+            if (end != block->end() && !userBoundary->isBeforeInBlock(&*end)) {
+              end = std::next(userBoundary->getIterator());
+              changed = true;
+              return WalkResult::interrupt();
+            }
+          }
+        }
+        return WalkResult::advance();
+      });
+      if (walkResult.wasInterrupted()) {
+        if (!changed) {
+          return failure();
+        }
+        break;
+      }
+    }
+  }
+
+  return success();
+}
+
 bool isAliasedStore(RemoteStoreOp storeOp) {
   auto operandAliasOp =
       mlir::dyn_cast<OperandAliasOp>(storeOp.getLocalBuffer().getDefiningOp());
@@ -96,22 +213,22 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
   OpBuilder::InsertionGuard guard(rewriter);
 
   // Collect the ops that directly contain SynchronizableOpInterface ops.
-  // These delimit the scope where compute is synchronized: the outermost
-  // compute ancestor is a direct child of such an op, alongside the
-  // synchronizable ops that bound it.
+  // These delimit scopes where compute is synchronized: the outermost compute
+  // ancestor is a direct child of such an op, alongside the synchronizable ops
+  // that bound it. A unified region may have multiple such scopes when, for
+  // example, a pre-loop zero fill feeds a loop-carried matmul accumulator.
   DenseSet<Operation *> opsWithSynchronizableOps;
   genericOp.getRegion(0).walk([&](Operation *op) {
     if (dyn_cast<SynchronizableOpInterface>(op)) {
       opsWithSynchronizableOps.insert(op->getParentOp());
     }
   });
-  assert(opsWithSynchronizableOps.size() == 1 &&
-         "synchronized scope must be unambiguous");
 
   DenseSet<Operation *> outermostOps;
   bool walkFailed = false;
   genericOp.getRegion(0).walk([&](Operation *op) {
-    if (!op->hasTrait<D2MGenericRegionComputeOpTrait>()) {
+    if (!op->hasTrait<D2MGenericRegionComputeOpTrait>() ||
+        hasSynchronizableAncestor(op, genericOp)) {
       return WalkResult::advance();
     }
 
@@ -156,7 +273,8 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
 
     // Expand above.
     while (start != outermostOp->getBlock()->begin() &&
-           !dyn_cast<SynchronizableOpInterface>(std::prev(start))) {
+           canMergeIntoComputeRegion(&*std::prev(start),
+                                     opsWithSynchronizableOps)) {
       start--;
       if (outermostOps.contains(&*start)) {
         outermostOps.erase(&*start);
@@ -164,15 +282,20 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
     }
 
     // Expand below.
-    while (std::next(end) != outermostOp->getBlock()->end() &&
-           !dyn_cast<SynchronizableOpInterface>(std::next(end))) {
+    while (
+        std::next(end) != outermostOp->getBlock()->end() &&
+        canMergeIntoComputeRegion(&*std::next(end), opsWithSynchronizableOps)) {
       end++;
       if (outermostOps.contains(&*end)) {
         outermostOps.erase(&*end);
       }
     }
 
-    computeRegions.push_back({start, std::next(end)});
+    Block::iterator wrappedEnd = std::next(end);
+    if (failed(expandRangeToCoverNonPureResultUses(start, wrappedEnd))) {
+      return failure();
+    }
+    computeRegions.push_back({start, wrappedEnd});
   }
 
   for (auto [start, end] : computeRegions) {
@@ -243,8 +366,9 @@ static LogicalResult processSharedBufferPairs(
     Block *computeBlock, PatternRewriter &rewriter,
     llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
   for (auto [localBuffer, usageInfo] : cbUsageInfo) {
-    assert(usageInfo.producers.size() == 1 && usageInfo.consumers.size() == 1 &&
-           "Expected exactly one producer and one consumer for CB");
+    if (usageInfo.producers.size() != 1 || usageInfo.consumers.size() != 1) {
+      continue;
+    }
     auto *producer = usageInfo.producers.front();
     auto *consumer = usageInfo.consumers.front();
 
@@ -287,13 +411,13 @@ static LogicalResult processSharedBufferPairs(
 static LogicalResult
 insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
                       llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
-  SmallVector<RemoteLoadOp> loads;
+  DenseSet<Value> processedProducerBuffers;
 
   computeBlock->walk([&](Operation *op) {
     if (dyn_cast<SynchronizableOpInterface>(op) &&
         !op->hasTrait<D2MGenericRegionDatamovementOpTrait>()) {
       auto synchronizedOp = mlir::cast<SynchronizableOpInterface>(op);
-      // get consumers and insert wait+pop
+      // Get consumers and insert wait+pop.
       for (auto &operand : synchronizedOp->getOpOperands()) {
         if (synchronizedOp.isConsumer(operand)) {
           Location loc = synchronizedOp.getLoc();
@@ -302,12 +426,13 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
               synchronizedOp->getParentOfType<GenericOp>().getOperandIndex(
                   localBuffer);
 
-          // get the associated producer for this operand
-          // Assumes only one producer for this local buffer
-          assert(cbUsageInfo[localBuffer].producers.size() == 1 &&
-                 cbUsageInfo[localBuffer].consumers.size() == 1 &&
-                 "Expected exactly one producer and one consumer for CB");
-          auto *associatedProducer = cbUsageInfo[localBuffer].producers.front();
+          auto usageIt = cbUsageInfo.find(localBuffer);
+          if (usageIt == cbUsageInfo.end() ||
+              usageIt->second.producers.size() != 1 ||
+              usageIt->second.consumers.size() != 1) {
+            continue;
+          }
+          auto *associatedProducer = usageIt->second.producers.front();
           rewriter.setInsertionPoint(synchronizedOp);
           auto cb = d2m::getOrCreateCB(
               rewriter, synchronizedOp->getParentOfType<GenericOp>(),
@@ -322,34 +447,85 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
           rewriter.setInsertionPointAfter(synchronizedOp);
           rewriter.create<PopOp>(loc, cb);
 
-          // Replace uses of the local buffer in compute consumer
+          // Replace uses of the local buffer in compute consumer.
           localBuffer.replaceUsesWithIf(
               waitOp.getResult(),
               [&](OpOperand &use) { return use.getOwner() == synchronizedOp; });
         }
       }
 
-      // Get producers and insert reserve+push.
+      // Get producers and insert reserve+push. Multiple compute producers can
+      // write the same local buffer before a single DMA consumer, e.g. a zero
+      // fill followed by a loop-carried matmul accumulator. Reserve once before
+      // the first producer and push once after the last producer boundary.
       for (auto &operand : synchronizedOp->getOpOperands()) {
         if (synchronizedOp.isProducer(operand)) {
-          Location loc = synchronizedOp.getLoc();
           Value localBuffer = operand.get();
+          if (!processedProducerBuffers.insert(localBuffer).second) {
+            continue;
+          }
+
+          auto usageIt = cbUsageInfo.find(localBuffer);
+          if (usageIt == cbUsageInfo.end() ||
+              usageIt->second.consumers.size() != 1) {
+            continue;
+          }
+
+          SmallVector<Operation *> computeProducers;
+          for (Operation *producer : usageIt->second.producers) {
+            if (!producer->hasTrait<D2MGenericRegionDatamovementOpTrait>()) {
+              computeProducers.push_back(producer);
+            }
+          }
+          if (computeProducers.empty()) {
+            continue;
+          }
+
+          Operation *associatedConsumer = usageIt->second.consumers.front();
+          Operation *sharedConsumerBoundary = nullptr;
+          Operation *firstBoundary = nullptr;
+          Operation *lastBoundary = nullptr;
+          bool skipProducerGroup = false;
+          for (Operation *producer : computeProducers) {
+            Operation *producerBoundary = nullptr;
+            Operation *consumerBoundary = nullptr;
+            if (!getSiblingOpsInNearestCommonBlock(producer, associatedConsumer,
+                                                   producerBoundary,
+                                                   consumerBoundary)) {
+              skipProducerGroup = true;
+              break;
+            }
+            if ((sharedConsumerBoundary &&
+                 sharedConsumerBoundary != consumerBoundary) ||
+                (firstBoundary &&
+                 firstBoundary->getBlock() != producerBoundary->getBlock())) {
+              skipProducerGroup = true;
+              break;
+            }
+            sharedConsumerBoundary = consumerBoundary;
+            if (!firstBoundary ||
+                producerBoundary->isBeforeInBlock(firstBoundary)) {
+              firstBoundary = producerBoundary;
+            }
+            if (!lastBoundary ||
+                lastBoundary->isBeforeInBlock(producerBoundary)) {
+              lastBoundary = producerBoundary;
+            }
+          }
+          if (skipProducerGroup) {
+            continue;
+          }
+
           unsigned cbOperandIdx =
               synchronizedOp->getParentOfType<GenericOp>().getOperandIndex(
                   localBuffer);
-
-          // Get the associated consumer for this operand.
-          // Assumes only one consumer for this local buffer
-          assert(cbUsageInfo[localBuffer].consumers.size() == 1 &&
-                 cbUsageInfo[localBuffer].producers.size() == 1 &&
-                 "Expected exactly one producer and one consumer for CB");
-          auto *associatedConsumer = cbUsageInfo[localBuffer].consumers.front();
-          rewriter.setInsertionPoint(synchronizedOp);
+          Location loc = firstBoundary->getLoc();
+          rewriter.setInsertionPoint(firstBoundary);
           auto cb = d2m::getOrCreateCB(
               rewriter, synchronizedOp->getParentOfType<GenericOp>(),
               computeBlock, cbOperandIdx);
           auto reserveOp = rewriter.create<ReserveOp>(loc, cb);
-          rewriter.setInsertionPointAfter(synchronizedOp);
+          rewriter.setInsertionPointAfter(lastBoundary);
           rewriter.create<PushOp>(loc, cb);
           if (mlir::isa<RemoteStoreOp>(associatedConsumer) &&
               isAliasedStore(mlir::cast<RemoteStoreOp>(associatedConsumer))) {
@@ -357,10 +533,11 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
             rewriter.create<PopOp>(loc, cb);
           }
 
-          // Replace uses of the local buffer in compute consumer
-          localBuffer.replaceUsesWithIf(
-              reserveOp.getResult(),
-              [&](OpOperand &use) { return use.getOwner() == synchronizedOp; });
+          for (Operation *producer : computeProducers) {
+            localBuffer.replaceUsesWithIf(
+                reserveOp.getResult(),
+                [&](OpOperand &use) { return use.getOwner() == producer; });
+          }
         }
       }
     }
@@ -380,8 +557,9 @@ static LogicalResult eraseAliasedLoadStoreOps(
     PatternRewriter &rewriter,
     llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
   for (auto [localBuffer, usageInfo] : cbUsageInfo) {
-    assert(usageInfo.producers.size() == 1 && usageInfo.consumers.size() == 1 &&
-           "Expected exactly one producer and one consumer for CB");
+    if (usageInfo.producers.size() != 1 || usageInfo.consumers.size() != 1) {
+      continue;
+    }
     auto *producer = usageInfo.producers.front();
     auto *consumer = usageInfo.consumers.front();
 

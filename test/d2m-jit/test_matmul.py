@@ -5,8 +5,8 @@
 """`__matmul__` via `linalg.generic` + `d2m.tile_matmul`.
 
 Coverage includes single-tile matmul on a multicore grid, transpose-b
-variants, and a multi-K block matmul that relies on the device-side accumulator
-seed emitted by `D2MToTTKernel`.
+variants, and an explicit multi-K loop-carried accumulator initialized with a
+kernel-body zero block.
 """
 
 import pytest
@@ -29,10 +29,12 @@ def matmul_kernel(lhs, rhs, out, m_blocks, n_blocks):
 
 
 @d2m.kernel
-def matmul_multi_k_kernel(lhs, rhs, out):
-    a = remote_load(lhs, [0, 0])
-    b = remote_load(rhs, [0, 0])
-    c = a @ b
+def matmul_multi_k_kernel(lhs, rhs, out, k_blocks):
+    c = zeros([1, 1])
+    for k in range(k_blocks):
+        a = remote_load(lhs, [0, k])
+        b = remote_load(rhs, [k, 0])
+        c += a @ b
     remote_store(out, [0, 0], c)
 
 
@@ -96,16 +98,16 @@ def test_matmul_correctness_single_tile_multicore():
     assert diff < 0.05, f"per-shard matmul: max diff {diff} too large"
 
 
-def test_matmul_correctness_multi_k_device_seed():
+def test_matmul_correctness_multi_k_loop_carried_accumulator():
     torch.manual_seed(0)
     lhs = torch.randn(32, 64, dtype=torch.float32) * 0.25
     rhs = torch.randn(64, 32, dtype=torch.float32) * 0.25
 
     lhs_layout = d2m.Layout(
-        shape=(32, 64), dtype=d2m.float32, block_shape=[1, 2], grid_shape=[1, 1]
+        shape=(32, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1]
     )
     rhs_layout = d2m.Layout(
-        shape=(64, 32), dtype=d2m.float32, block_shape=[2, 1], grid_shape=[1, 1]
+        shape=(64, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1]
     )
     out_layout = d2m.Layout(
         shape=(32, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1]
@@ -119,6 +121,7 @@ def test_matmul_correctness_multi_k_device_seed():
             d2m.to_layout(lhs, lhs_layout),
             d2m.to_layout(rhs, rhs_layout),
             out_d,
+            2,
             grid=(1, 1),
         )
         assert_pcc(lhs @ rhs, out_d.to_host(), threshold=0.99)
