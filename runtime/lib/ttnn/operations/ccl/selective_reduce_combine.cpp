@@ -7,6 +7,7 @@
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 #include "ttnn/global_semaphore.hpp"
+#include "ttnn/operations/core/to_layout/to_layout_op.hpp"
 
 #include <tt-metalium/experimental/tensor/topology/tensor_topology.hpp>
 #include <tt-metalium/mesh_coord.hpp>
@@ -22,8 +23,8 @@ static constexpr uint32_t kDefaultNumLinks = 4;
 // (B factor = kPassThrough), so total ring tokens = 128 and the combine
 // circular buffer fits the L1 bank on 12 cores. (An earlier replicated-batch
 // layout forced 512 tokens and needed 40 cores, which broke the combine.)
-static constexpr uint32_t kCombineTokenParallelCoreDim = 4; // rows
-static constexpr uint32_t kCombineDataParallelCoreDim = 3;  // cols
+static constexpr uint32_t kCombineTokenParallelCoreDim = 4; // rows (= moe_gpt output_height_shard_dim)
+static constexpr uint32_t kCombineDataParallelCoreDim = 3;  // cols (= moe_gpt output_width_shard_dim)
 
 namespace {
 // Allocate a zero-initialized output buffer matching `tensorRef`'s shape/dtype.
@@ -37,8 +38,29 @@ namespace {
       *tensorRef->desc()->shape());
   ::ttnn::DataType dtype =
       ::tt::runtime::ttnn::operations::utils::getDataType(tensorRef);
-  ::ttnn::Layout layout =
-      ::tt::runtime::ttnn::utils::inferLayoutFromTileShape(tensorRef);
+  // The selective_reduce_combine kernel writes its output in ROW_MAJOR layout:
+  // the writer computes a row-major output page index (k * tokens_per_device +
+  // token, where a page == one hidden row of H bf16) per (k, token) and
+  // noc/fabric-writes the DP-split hidden-row segments there via the output
+  // TensorAccessor (see writer.cpp get_output_page_idx + the row page
+  // granularity, and selective_reduce_combine_device_operation.cpp
+  // compute_output_specs, which pins PageConfig(ROW_MAJOR)). The compiled graph
+  // correspondingly feeds this op a ROW_MAJOR pre-zeroed optional output
+  // (ttnn.full layout=row_major).
+  //
+  // op->out() (tensorRef) is the op's *result* type, which carries the
+  // compiler-planned TILE layout for downstream consumers, so
+  // inferLayoutFromTileShape(tensorRef) returns TILE. If we pre-zero the output
+  // as TILE, the output TensorAccessor is paged by 32x32 tiles instead of by
+  // hidden rows, so the writer's row-major page index + intra-page byte offset
+  // address the wrong tiles: writes scramble across logical rows and the high
+  // k pages fall outside the addressed tile range (empirically combine_out
+  // nonzero rows/k = [512,532,0,0] -- k0/k1 4x-inflated scramble, k2/k3 dropped
+  // -- vs the correct ~[127,213,144,37]; ~half the MoE expert mass corrupted,
+  // decode logits PCC ~0.97). Force ROW_MAJOR here to match the kernel; the
+  // result is reconciled back to the expected (TILE) layout below before it is
+  // handed to downstream consumers.
+  ::ttnn::Layout layout = ::ttnn::Layout::ROW_MAJOR;
   std::optional<::ttnn::MemoryConfig> memoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(tensorRef));
@@ -130,8 +152,18 @@ void run(const ::tt::target::ttnn::SelectiveReduceCombineOp *op,
       ::ttnn::global_semaphore::create_global_semaphore(
           meshDevicePtr, semaphoreCores, /*initial_value=*/0);
 
+  // moe_gpt output[4] is a ROW_MAJOR alias of the HEIGHT_SHARDED activation
+  // buffer. The TTNN graph may insert a to_layout(TILE) before this op to satisfy
+  // generic layout planning, but the selective_reduce_combine kernel aliases the
+  // dense input buffer and uses row-major page/byte addressing. Feed it a
+  // ROW_MAJOR tensor here so the physical layout matches the kernel contract.
+  ::ttnn::Tensor denseInputForKernel =
+      denseInputTensor.layout() == ::ttnn::Layout::ROW_MAJOR
+          ? denseInputTensor
+          : ::ttnn::to_layout(denseInputTensor, ::ttnn::Layout::ROW_MAJOR);
+
   ::ttnn::Tensor output = ::ttnn::prim::selective_reduce_combine(
-      denseInputTensor, denseActivationsTensor, denseTokenMapsTensor,
+      denseInputForKernel, denseActivationsTensor, denseTokenMapsTensor,
       denseTokenCountsTensor, op->hidden_size(), op->batch_size(),
       op->seq_size(), op->select_experts_k(),
       /*axis=*/kDefaultClusterAxis,

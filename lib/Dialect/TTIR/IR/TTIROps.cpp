@@ -6767,12 +6767,9 @@ void mlir::tt::ttir::ProdOp::getCanonicalizationPatterns(
     return emitOpError(
         "dispatch_mapping and moe_gpt_mapping leading dimensions must be 1");
   }
-  // Result comes from selective_reduce_combine, which outputs either
-  // [K, B, S, H] (output_shard_dim=1) or [K, S, B, H] (output_shard_dim=2).
-  // Both are 4D with K at dim 0 and H at the last dim.
-  if (resultType.getRank() != 4) {
-    return emitOpError(
-        "result must be a 4D tensor [K, B, S, H] or [K, S, B, H]");
+  // Result is the score-weighted, K-reduced, TP-reduced MoE output [B_local, H].
+  if (resultType.getRank() != 2) {
+    return emitOpError("result must be a 2D tensor [B_local, H]");
   }
 
   if (numDevices <= 0) {
@@ -6828,36 +6825,16 @@ void mlir::tt::ttir::ProdOp::getCanonicalizationPatterns(
   // intermediate size, so no separate unfused-weight shape checks are needed.
   int64_t hiddenSize = hiddenType.getShape()[3];
 
-  // Result layout is [K, B, S, H] or [K, S, B, H] from
-  // selective_reduce_combine. Check the invariants that do not depend on
-  // output_shard_dim: K at dim 0, H at the last dim, and the (B,S) pair
-  // permuted across dims 1-2.
+  // Result layout is [B_local, H].
   int64_t batchSize = hiddenType.getShape()[0];
-  int64_t seqLen = hiddenType.getShape()[2];
-  if (resultType.getShape()[0] != numExpertsPerTok) {
-    return emitOpError("result dim 0 must equal num_experts_per_tok (K)");
-  }
-  if (resultType.getShape()[3] != hiddenSize) {
+  if (resultType.getShape()[1] != hiddenSize) {
     return emitOpError("result hidden dimension must match hidden_states");
   }
-  // The batch slot of the result carries a PassThrough sharding factor (see
-  // the comment on `bDim` in RegisterCustomShardingRule.cpp's
-  // getSelectiveReduceCombineShardingRule), while hidden_states' batch sharding
-  // is independent. After SPMD partitioning, the per-device result batch slot
-  // can therefore be any positive divisor of the per-device hidden_states
-  // batch slot, not just an exact match. The sequence slot is not sharded and
-  // must match hidden_states' S on the same positional encoding.
-  int64_t mid1 = resultType.getShape()[1];
-  int64_t mid2 = resultType.getShape()[2];
-  // [K, B_local, S, H] (output_shard_dim == 1 at the custom call level).
-  bool matchesBS = mid2 == seqLen && mid1 > 0 && batchSize % mid1 == 0;
-  // [K, S, B_local, H] (output_shard_dim == 2 at the custom call level).
-  bool matchesSB = mid1 == seqLen && mid2 > 0 && batchSize % mid2 == 0;
-  if (!matchesBS && !matchesSB) {
+  int64_t resultBatch = resultType.getShape()[0];
+  if (resultBatch <= 0 || batchSize % resultBatch != 0) {
     return emitOpError(
-        "result middle dimensions must be [B_local, S] or [S, B_local] where "
-        "B_local is a positive divisor of hidden_states batch size (the "
-        "combine output batch slot may be further sharded by SPMD)");
+        "result batch dimension must be a positive divisor of hidden_states "
+        "batch size");
   }
 
   // Preprocessed 6D fused kernel weights (required). The decomposition uses

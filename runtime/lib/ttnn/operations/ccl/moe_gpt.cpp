@@ -9,6 +9,13 @@
 
 namespace tt::runtime::ttnn::operations::ccl {
 
+// NOTE: the (B) "optional pre-zeroed activation output" fix is DISABLED here.
+// It was a band-aid for a pre-(A) bug where selective_reduce_combine read the
+// moe_gpt activation buffer's stale-inf padding (decode PCC 0.969 -> 0.920).
+// With the (A) combine ROW_MAJOR-layout fix the combine reads only valid rows,
+// and the e2e reference runs without zeroing moe_gpt's activation output, so the
+// pre-zeroed buffer is redundant. The tt-metal moe_gpt op currently exposes only
+// 10 params (no optional_activation_output), so this matches the op's API.
 void run(const ::tt::target::ttnn::MoeGptOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 

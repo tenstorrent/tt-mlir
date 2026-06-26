@@ -2026,7 +2026,7 @@ struct MoeGPTDecodeDecompositionPattern
         cast<RankedTensorType>(adaptor.getDispatchMapping().getType());
     auto moeGptMappingType =
         cast<RankedTensorType>(adaptor.getMoeGptMapping().getType());
-    auto resultType = cast<RankedTensorType>(op.getResult().getType());
+    auto finalResultType = cast<RankedTensorType>(op.getResult().getType());
 
     Type bf16 = rewriter.getBF16Type();
     Type ui16 = rewriter.getIntegerType(16, /*isSigned=*/false);
@@ -2228,8 +2228,10 @@ struct MoeGPTDecodeDecompositionPattern
     // for the output shape. Passing only B (pre-dispatch) mis-sizes the stride
     // against `activation_records` which is allocated with (Dring*B*S + 1)
     // rows in moe_gpt's compute_output_specs.
+    auto rawCombineType =
+        RankedTensorType::get({numExpertsPerTok, S, B, H}, bf16);
     auto combineOp = rewriter.create<ttir::SelectiveReduceCombineOp>(
-        loc, resultType, moeGptOp.getTilizeOutRm(),
+        loc, rawCombineType, moeGptOp.getTilizeOutRm(),
         moeGptOp.getActivationRecords(), moeGptOp.getTokenIndices(),
         moeGptOp.getTokenCounts(),
         /*hidden_size=*/rewriter.getUI32IntegerAttr(H),
@@ -2238,12 +2240,41 @@ struct MoeGPTDecodeDecompositionPattern
         /*select_experts_k=*/rewriter.getUI32IntegerAttr(numExpertsPerTok),
         /*experts=*/rewriter.getUI32IntegerAttr(numExperts));
 
-    // The TP-axis all_reduce(sum) that completes the cross-column MoE reduction
-    // (each column's selective_reduce_combine output is only a partial sum over
-    // the experts in that column) is inserted by Shardy from the combine's
-    // kReduction expert factor in getSelectiveReduceCombineShardingRule, not
-    // emitted here.
-    rewriter.replaceOp(op, combineOp.getResult());
+    // Step 8: Apply score weighting, reduce over K, then all_reduce over the
+    // TP axis. This mirrors tt-metal fused_decode.py:
+    //   selective_reduce_combine -> score weighting -> sum -> all_reduce.
+    auto scoresKBT1Type =
+        RankedTensorType::get({numExpertsPerTok, S, B, 1},
+                              scoresType.getElementType());
+    Value scoresKBT1 = rewriter.create<ttir::PermuteOp>(
+        loc, scoresKBT1Type, adaptor.getTopkScores(),
+        rewriter.getDenseI64ArrayAttr({3, 1, 0, 2}));
+
+    auto scoresBcastType =
+        RankedTensorType::get({numExpertsPerTok, S, B, H},
+                              scoresType.getElementType());
+    Value scoresBcast = rewriter.create<ttir::BroadcastOp>(
+        loc, scoresBcastType, scoresKBT1,
+        rewriter.getDenseI64ArrayAttr({1, 1, 1, H}));
+
+    Value weighted = rewriter.create<ttir::MultiplyOp>(
+        loc, rawCombineType, combineOp.getResult(), scoresBcast);
+
+    auto sumType = RankedTensorType::get({S, B, H}, bf16);
+    Value weightedSum = rewriter.create<ttir::SumOp>(
+        loc, sumType, weighted, /*keep_dim=*/rewriter.getBoolAttr(false),
+        rewriter.getI32ArrayAttr({0}));
+
+    // TP-axis all_reduce on the bf16 weighted sum. (Previously this typecast the
+    // sum to BFP_BFloat8 before the all_reduce; that bf8 round-trip is
+    // unnecessary and is not part of the reference graph.)
+    uint32_t tpClusterAxis = (clusterAxis == 0) ? 1 : 0;
+    Value allReduce = rewriter.create<ttir::AllReduceOp>(
+        loc, sumType, weightedSum, ttcore::ReduceType::Sum, tpClusterAxis);
+
+    Value output = rewriter.create<ttir::ReshapeOp>(
+        loc, finalResultType, allReduce, i32Arr(finalResultType.getShape()));
+    rewriter.replaceOp(op, output);
     return success();
   }
 };
