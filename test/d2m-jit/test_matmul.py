@@ -39,6 +39,18 @@ def matmul_multi_k_kernel(lhs, rhs, out, k_blocks):
 
 
 @d2m.kernel
+def matmul_tiled_multi_k_kernel(lhs, rhs, out, m_blocks, n_blocks, k_blocks):
+    for m in range(m_blocks):
+        for n in range(n_blocks):
+            acc = zeros([1, 1])
+            for k in range(k_blocks):
+                a = remote_load(lhs, [m, k])
+                b = remote_load(rhs, [k, n])
+                acc += a @ b
+            remote_store(out, [m, n], acc)
+
+
+@d2m.kernel
 def matmul_transpose_b_kernel(lhs, rhs, out):
     a = remote_load(lhs, [0, 0])
     b = remote_load(rhs, [0, 0])
@@ -122,6 +134,39 @@ def test_matmul_correctness_multi_k_loop_carried_accumulator():
             d2m.to_layout(rhs, rhs_layout),
             out_d,
             2,
+            grid=(1, 1),
+        )
+        assert_pcc(lhs @ rhs, out_d.to_host(), threshold=0.99)
+    finally:
+        d2m.config.use_tile_matmul = old_use_tile_matmul
+
+
+def test_matmul_correctness_tiled_mnk_loop_carried_accumulator():
+    torch.manual_seed(0)
+    lhs = torch.randn(64, 96, dtype=torch.float32) * 0.125
+    rhs = torch.randn(96, 64, dtype=torch.float32) * 0.125
+
+    lhs_layout = d2m.Layout(
+        shape=(64, 96), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1]
+    )
+    rhs_layout = d2m.Layout(
+        shape=(96, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1]
+    )
+    out_layout = d2m.Layout(
+        shape=(64, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1]
+    )
+    out_d = d2m.empty(out_layout)
+
+    old_use_tile_matmul = d2m.config.use_tile_matmul
+    d2m.config.use_tile_matmul = True
+    try:
+        matmul_tiled_multi_k_kernel(
+            d2m.to_layout(lhs, lhs_layout),
+            d2m.to_layout(rhs, rhs_layout),
+            out_d,
+            2,
+            2,
+            3,
             grid=(1, 1),
         )
         assert_pcc(lhs @ rhs, out_d.to_host(), threshold=0.99)
