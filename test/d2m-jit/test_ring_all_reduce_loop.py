@@ -2,7 +2,8 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-"""Ring all_reduce written as a TRUE runtime `for k in range(N-1)` loop.
+"""Ring all_reduce written as a TRUE runtime `for k in range(N-1)` loop,
+generic over the mesh volume N.
 
 Unlike the unrolled `static_range` rings, this is a genuine `scf.for` with fabric
 ops (remote_store + semaphore_wait + fabric_recv) inside, and two loop-carried
@@ -15,16 +16,16 @@ accumulators updated in place:
   send-only compute output produced inside the loop, so its send CB is balanced).
 
 The own shard enters via a PRE-loop `acc += remote_load(in0)`; that compute
-intermediate is now correctly materialized (the MarkSynchronizedBuffers fix:
-a fill/zeros-produced buffer feeding an in-place accumulate is not treated as a
-dead `compute_intermediate`). After N-1 steps every device holds the full sum.
+intermediate is correctly materialized (the MarkSynchronizedBuffers fix). The
+kernel is generic over N (a closed-over int): `range(N - 1)`, `mcast_shape=[1, N]`,
+and `num_receivers=N - 1` (resolved at trace time via _eval_static_int). After
+N-1 steps every device holds the full sum.
 """
 
+import pytest
 import torch
 import d2m_jit as d2m
 from utils import assert_pcc
-
-N = 4
 
 
 def _make(N):
@@ -35,7 +36,7 @@ def _make(N):
         cy = core_index(0)
         cx = core_index(1)
         device_synchronize(ss, start_device=[dy, 0], mcast_shape=[1, N],
-                           num_receivers=3, core_indices=[cy, cx])
+                           num_receivers=N - 1, core_indices=[cy, cx])
         nbr = (p + 1) % N
         acc = zeros([1, 1])
         acc += remote_load(in0, [0, 0])        # own shard (compute-owned)
@@ -54,7 +55,11 @@ def _make(N):
     return _k
 
 
-def test_ring_all_reduce_runtime_loop():
+# N is the mesh volume (1xN ring). The kernel is generic over N; this 4-chip
+# Blackhole runs the full mesh (N=4) -- fabric needs the whole mesh, so smaller
+# sub-meshes don't train here. On a larger box add more N to this list.
+@pytest.mark.parametrize("N", [4])
+def test_ring_all_reduce_runtime_loop(N):
     d2m.mesh((1, N), topology=("linear", "ring"))
     L = d2m.Layout(shape=(32, 32), dtype=d2m.float32, block_shape=[1, 1],
                    grid_shape=[1, 1])

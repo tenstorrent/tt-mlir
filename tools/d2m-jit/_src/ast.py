@@ -635,6 +635,14 @@ class D2MCompiler(ast.NodeVisitor):
             # generalises to any AST shape the callable wants to handle.
             as_attr = getattr(arg, "_ttkernel_as_attr", False)
             if callable(as_attr):
+                # An as_attr callable may optionally take the visitor as a 2nd
+                # argument so it can resolve compile-time int captures (e.g.
+                # `num_receivers=N-1` with N a closed-over int) via
+                # self._eval_static_int. 1-arg callables get just the AST node.
+                argcount = getattr(getattr(as_attr, "__code__", None),
+                                   "co_argcount", 1)
+                if argcount >= 2:
+                    return as_attr(arg, self)
                 return as_attr(arg)
             v = self.visit(arg)
             if v is None:

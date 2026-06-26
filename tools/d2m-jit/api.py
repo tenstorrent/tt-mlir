@@ -276,8 +276,11 @@ def semaphore_wait(semaphore, value, reset=None):
 @syntax(
     "device_synchronize",
     kwargs_as_attr={
-        "num_receivers": lambda node: IntegerAttr.get(
-            IntegerType.get_signless(32), node.value
+        # Two-arg form: receives the visitor so the value can be a compile-time
+        # int expression over closed-over int captures (e.g. `num_receivers=N-1`
+        # for a mesh-volume-generic ring), not only a bare literal.
+        "num_receivers": lambda node, visitor: IntegerAttr.get(
+            IntegerType.get_signless(32), visitor._eval_static_int(node)
         )
     },
 )
@@ -294,8 +297,9 @@ def device_synchronize(
     device) that they have started the op; senders wait for all `num_receivers`
     receivers before sending data. `start_device` / `mcast_shape` describe the
     sender device range (from this device's perspective); `core_indices` is the
-    current core. `num_receivers` must be a compile-time literal (it lowers to
-    an i32 attribute).
+    current core. `num_receivers` must be a compile-time int (it lowers to an
+    i32 attribute) -- a literal or an expression over closed-over int captures
+    (e.g. `N - 1` for a mesh-volume-generic ring), resolved at trace time.
 
     Authored in a `@d2m.kernel` (unified) like every other op; the backend
     pins this barrier to a single datamovement thread when it splits the kernel.
