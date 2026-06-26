@@ -73,9 +73,16 @@ BLOCKERS (the matmul half):
 
 ## Fusing AG+MM into ONE kernel — attempted, blocked at framework level
 
+NOTE (2026-06-26): the `static_range` DSL marker used below has since been REMOVED
+(runtime `range()` loops now work — see all_reduce_design.md "BREAKTHROUGH"). The
+fused-kernel investigation below predates that and was written against the
+trace-time unroll; the row-loop should be retried with a runtime `for r in
+range(N)` (one matmul generic with an scf.for, instead of N decomposed generics),
+which may sidestep the cross-generic ordering issue noted here.
+
 `scratchpad/agf.py` — single-core fused kernel: AG mcasts the shard to all
 devices' gathered `g` (`[N,1]` row-block grid), `semaphore_wait(N-1)`, then a
-`static_range(N)` loop matmuls each gathered row `g[r] @ weight_slice` and stores
+`range(N)` loop matmuls each gathered row `g[r] @ weight_slice` and stores
 `out[r]`. Findings:
 
 - **matmul reads `g` via `remote_load`**: COMPILES + RUNS (no hang/crash) but
@@ -94,7 +101,9 @@ devices' gathered `g` (`[N,1]` row-block grid), `semaphore_wait(N-1)`, then a
 
 IR INSIGHT (`scratchpad/agfdump2.py`): a single `@d2m.kernel` with AG +
 `static_range(N)` matmuls does NOT become one generic -- it DECOMPOSES into the AG
-generic + N matmul generics (one per unrolled iter), with `g` flowing between them
+generic + N matmul generics (one per UNROLLED iter; this was the trace-time unroll,
+now removed -- a runtime `range(N)` would instead be ONE matmul generic with an
+scf.for, which is the retry path noted above), with `g` flowing between them
 *within one program*. That is exactly why the non-fused two-kernel version is
 correct (the AG kernel hits a program boundary / device_synchronize before the MM
 kernel) while this is not (no ordering between the AG generic's fabric writes and

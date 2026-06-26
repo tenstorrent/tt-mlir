@@ -931,3 +931,50 @@ the lever -- the per-iteration CB round-trip of a loop-carried accumulator
 broken for both single- and double-buffered CBs. Reinforces that the fix must avoid
 the per-iteration CB round-trip entirely (DST-resident accumulation, the
 matmul-reduction treatment), not tune the CB depth. Reverted.
+
+### BREAKTHROUGH (2026-06-26): runtime-loop ring works — the init must be COMPUTE-owned
+
+The whole "scf.for iter_arg accumulator is broken" diagnosis above had ONE missing
+piece: the accumulator was being **DM-seeded** (`acc = remote_load(zeros)`), which is
+exactly what put the init on a separate CB FIFO page from the compute pack -> the
+page-split miscompute. The fix is NOT a new InsertDstRegisterAccess feature; it is to
+make the accumulator **compute-initialized**:
+
+```
+acc = zeros([M, K])      # compute-owned init (a TileFillOp), NOT remote_load
+own = empty([M, K]); remote_load(own, in0, [cy, cx])
+acc += own               # __add_acc__  (linalg outs(acc))
+acc_prev = zeros([M, K])
+for k in range(N - 1):   # GENUINE runtime scf.for
+    fwd = acc - acc_prev
+    remote_store(t, [], fwd, ...); semaphore_wait(es, k + 1)
+    r = fabric_recv(t, [])
+    acc_prev = copy_(acc_prev, acc)
+    acc += r
+remote_store(out, [cy, cx], acc)
+```
+
+A compute-owned `zeros` init and the compute pack land on the SAME CB page, so the
+loop-carried iter_arg threads correctly. Two supporting fixes landed with it:
+- a **DM-seed guard** in `visit_AugAssign`/`visit_For` (ast.py): `acc = remote_load(...)`
+  / `fabric_recv(...)` followed by an in-loop `acc += ...` now raises a clear
+  D2mJitError instead of silently miscompiling (the page-split trap above);
+- `MarkSynchronizedBuffers` no longer tags the zeros-fill (TileFillOp producer) as a
+  dead `compute_intermediate`, so Allocate/HoistCBAllocs keep the init buffer live
+  (wall #1).
+
+Shipped as `test/d2m-jit/test_ring_all_reduce_loop.py` (single-core) and
+`test_all_reduce_grid.py` (multi-core grid, with the my_logical scratch-fabric-write
+fix). Both PASS on the 1x4 Blackhole.
+
+### `static_range` REMOVED (2026-06-26)
+
+With the runtime `range()` ring working, the trace-time-unroll `static_range` marker
+is no longer needed and has been **deleted** from the DSL (`_src/ast.py` `visit_For`
+now accepts only `range`; `_eval_static_int` stays — it is still used for compile-time
+attrs like shape literals / `num_receivers`). `_m3e.py` was migrated to `for k in
+range(N-1)` (PASSES). The bandwidth-optimal chunked ring `_m3d` stays hand-unrolled
+(it needs runtime-indexed chunk slots, an operand-RMW pattern the runtime loop still
+can't express); it never used `static_range`, so the removal does not affect it. All
+the milestone-3e-and-later "static_range unroll remains the only working path"
+conclusions above are SUPERSEDED by the runtime-loop breakthrough.
