@@ -1,23 +1,20 @@
 """Milestone 3e: GENERIC, LOOP-WRITTEN ring all_reduce for any mesh volume N.
 
-Written with a `for k in static_range(N-1)` loop (unrolled at trace time) and
-parameterized over the mesh volume N (a closed-over int capture), rather than
-hand-unrolling for N=4. `static_range` is a DSL marker (see _src/ast.py) that
-unrolls the loop body in the tracer -- so loop-carried accumulators stay plain
-SSA reassignments (no scf.for iter_args -> no loop-carried-tensor bufferization
-failure, no operand-store-in-loop re-alloc).
+Written with a genuine `for k in range(N-1)` runtime `scf.for` loop (NOT the old
+trace-time `static_range` unroll, which has been removed) and parameterized over
+the mesh volume N. Loop-carried accumulators (`acc`, `acc_prev`) become scf.for
+iter_args; the bufferization/operand-store issues that originally motivated the
+unroll are resolved by the compute-initialized accumulator path (zeros-init +
+`__add_acc__`, with the DM-seed guard rejecting `acc = remote_load(...)`).
 
 Algorithm: the circulate-and-accumulate ring (O(N) bandwidth -- sends the whole
-shard each step). It keeps state in SSA (`acc`, `acc_prev`), avoiding the
-operand read-modify-write that the bandwidth-optimal CHUNKED ring needs (which
-requires runtime-indexed chunk slots -- not expressible as SSA, and reading a
-grid operand back demotes it to #l1 where a local remote_store is rejected). So
-the chunked variant stays the unrolled _m3d for now.
+shard each step). Per step k: forward `acc - acc_prev` (== the value received
+last step, a send-only compute output), receive r, then acc += r. With acc_prev
+seeded to 0, step 0 forwards the device's own shard. After N-1 steps every device
+holds the full sum.
 
-Per step k: forward `acc - acc_prev` (== the value received last step, a
-send-only compute output), receive r, then acc += r. With acc_prev seeded to 0,
-step 0 forwards the device's own shard. After N-1 steps every device holds the
-full sum.
+Superseded as a test by `test_ring_all_reduce_loop.py`; kept as the milestone-3e
+repro.
 """
 import sys
 import torch
@@ -27,35 +24,32 @@ N = 4
 
 
 def make_kernel(N):
-    # N is closed over -> captured as a compile-time int, so static_range(N-1)
-    # and (p+1)%N are generic over the mesh volume. (device_synchronize's
-    # num_receivers/mcast_shape are compile-time attrs that need literals; set
-    # them to match the mesh.)
+    # N is closed over -> generic over the mesh volume for the loop bound and
+    # (p+1)%N. device_synchronize's num_receivers/mcast_shape are compile-time
+    # attrs that need literals; set them to match the mesh.
     @d2m.kernel
-    def _k(in0, zin, out, ss, es):
+    def _k(in0, out, ss, es):
         dy = mesh_position(0)
         p = mesh_position(1)
         cy = core_index(0)
         cx = core_index(1)
-        # mcast_shape is generic ([1, N]); num_receivers must be a compile-time
-        # literal (an i32 attribute) so it stays hardcoded to N-1 for this mesh.
         device_synchronize(ss, start_device=[dy, 0], mcast_shape=[1, N],
                            num_receivers=3, core_indices=[cy, cx])
         nbr = (p + 1) % N
-        v = remote_load(in0, [0, 0])
-        acc = v
-        # Seed acc_prev from an opaque zeros operand (NOT `v - v`, which folds to a
-        # literal zero -> `acc - acc_prev` would canonicalize to `v` and send `v`
-        # directly while compute also reads it: an illegal compute+DM CB share).
-        acc_prev = remote_load(zin, [0, 0])
-        for k in static_range(N - 1):
+        acc = zeros([1, 1])
+        own = empty([1, 1])
+        remote_load(own, in0, [0, 0])
+        acc += own
+        acc_prev = zeros([1, 1])
+        for k in range(N - 1):
+            fwd = acc - acc_prev
             t = empty([1, 1])
-            remote_store(t, [], acc - acc_prev, start_device=[dy, nbr],
+            remote_store(t, [], fwd, start_device=[dy, nbr],
                          device_mcast_shape=[1, 1], semaphore=es, semaphore_indices=[cy, 0])
             semaphore_wait(es, k + 1)
             r = fabric_recv(t, [])
-            acc_prev = acc
-            acc = acc + r
+            acc_prev = copy_(acc_prev, acc)
+            acc += r
         remote_store(out, [0, 0], acc)
     return _k
 
@@ -65,14 +59,12 @@ def build():
     L = d2m.Layout(shape=(32, 32), dtype=d2m.float32, block_shape=[1, 1],
                    grid_shape=[1, 1])
     fi = torch.randn(32, N * 32, dtype=torch.float32)
-    zr = torch.zeros(32, N * 32, dtype=torch.float32)
     in_s = d2m.reblock(d2m.mesh_shard(fi, L, shard_dims=[0, 1], shard_shape=[1, N]), [1, 1])
-    z_s = d2m.reblock(d2m.mesh_shard(zr, L, shard_dims=[0, 1], shard_shape=[1, N]), [1, 1])
     out_s = d2m.reblock(d2m.empty(L), [1, 1])
     ss = d2m.global_semaphore()
     es = d2m.global_semaphore()
     _k = make_kernel(N)
-    _k(in_s, z_s, out_s, ss, es, grid=(1, 1),
+    _k(in_s, out_s, ss, es, grid=(1, 1),
        fabric=d2m.fabric_config(cluster_axis=1, topology="ring", routing="unidir_ring_torus"))
     out = d2m.mesh_gather(out_s, shard_dims=[0, 1], shard_shape=[1, N])
     return out, fi
