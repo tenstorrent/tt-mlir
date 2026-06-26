@@ -92,6 +92,19 @@ devices' gathered `g` (`[N,1]` row-block grid), `semaphore_wait(N-1)`, then a
   matmul. `fabric_recv` composes only with the eltwise tile ops (the ring's
   `acc += r`), not with matmul or `copy_`.
 
+IR INSIGHT (`scratchpad/agfdump2.py`): a single `@d2m.kernel` with AG +
+`static_range(N)` matmuls does NOT become one generic -- it DECOMPOSES into the AG
+generic + N matmul generics (one per unrolled iter), with `g` flowing between them
+*within one program*. That is exactly why the non-fused two-kernel version is
+correct (the AG kernel hits a program boundary / device_synchronize before the MM
+kernel) while this is not (no ordering between the AG generic's fabric writes and
+the matmul generics' reads of `g` inside one program). So "fuse into one kernel"
+splits into two sub-problems: (i) one TRUE fused generic (DM gathers, compute
+matmuls via fabric_recv) -- blocked by the fabric_recv->matmul legalization wall
+above; or (ii) keep AG-generic -> matmul-generic but add a cross-generic
+fabric-write->compute-read barrier within the program (analogous to the
+InsertSpillAndScratch fusion barrier in [[d2m-ring-interleaved-fabric-hang]]).
+
 CONCLUSION: fusing CCL all_gather + matmul in ONE d2m-jit kernel needs framework
 support, one of:
 1. make `fabric_recv`'s result a legal matmul operand (fix the
