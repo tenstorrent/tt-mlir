@@ -25,22 +25,40 @@ void run(const ::tt::target::ttnn::AllToAllDispatchMetadataOp *op,
   std::optional<uint32_t> axis =
       std::make_optional<uint32_t>(op->cluster_axis());
 
-  // The metal kernel requires drain_sync_tilizer_core to be provided explicitly
-  // when persistent output tensors are not supplied. Read from flatbuffer.
-  std::optional<tt::tt_metal::CoreCoord> drainCore;
-  if (op->drain_core()) {
-    drainCore =
-        tt::tt_metal::CoreCoord(op->drain_core()->x(), op->drain_core()->y());
-  }
+  // This op runs in persistent mode only: the three output buffers and the
+  // cross-device semaphore are bound in the prelude. Passing them makes
+  // tt-metal set SKIP_INIT_SEMAPHORE; the drain core is left nullopt (the
+  // kernel derives it from the shard spec).
+  LOG_ASSERT(op->dispatched_buffer() && op->indices_buffer() &&
+                 op->scores_buffer() && op->cross_device_semaphore(),
+             "all_to_all_dispatch_metadata requires the persistent output "
+             "buffers and cross-device semaphore to be bound");
+
+  std::array<::ttnn::Tensor, 3> optionalOutputs{
+      tensorPool.getTTNNTensorAndValidate(op->dispatched_buffer()),
+      tensorPool.getTTNNTensorAndValidate(op->indices_buffer()),
+      tensorPool.getTTNNTensorAndValidate(op->scores_buffer())};
+
+  ::ttnn::GlobalSemaphore crossDeviceSemaphore =
+      context.getGlobalSemaphorePool().getTTNNGlobalSemaphoreAndValidate(
+          op->cross_device_semaphore());
 
   auto [dispatched, indices, scores] =
       ::ttnn::experimental::all_to_all_dispatch_metadata(
           input, expertIndices, expertScores, expertMapping,
           /*shared_expert_ids=*/std::nullopt,
           /*axis=*/axis,
-          /*optional_output_tensors=*/std::nullopt,
+          /*optional_output_tensors=*/optionalOutputs,
           /*num_links=*/std::nullopt,
-          /*drain_sync_tilizer_core=*/drainCore);
+          /*drain_sync_tilizer_core=*/std::nullopt,
+          /*worker_mode=*/
+          ::ttnn::operations::experimental::ccl::WorkerMode::DIRECT,
+          /*dispatch_algorithm=*/
+          ::ttnn::operations::experimental::ccl::DispatchAlgorithm::
+              SPARSE_MCAST_SHORTEST_PATH,
+          /*worker_core_range_set=*/std::nullopt,
+          /*mux_core_range_set=*/std::nullopt,
+          /*cross_device_semaphore=*/crossDeviceSemaphore);
 
   tensorPool.insertTTNNTensorAndValidate(op->dispatched(), dispatched);
   tensorPool.insertTTNNTensorAndValidate(op->indices(), indices);

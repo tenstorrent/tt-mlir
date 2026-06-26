@@ -1613,7 +1613,8 @@ def TTNN_AllToAllDispatchOp : TTNN_Op<"all_to_all_dispatch", [OpModelExempt]> {
     let hasVerifier = 1;
 }
 
-def TTNN_AllToAllDispatchMetadataOp : TTNN_Op<"all_to_all_dispatch_metadata", [OpModelExempt]> {
+def TTNN_AllToAllDispatchMetadataOp : TTNN_Op<"all_to_all_dispatch_metadata",
+    [AttrSizedOperandSegments, TTNN_DistributedOpInterface, OpModelExempt]> {
     let summary = "Dispatch tokens with metadata to expert devices for MoE computation.";
     let description = [{
       Routes tokens along with expert scores to devices holding their selected
@@ -1636,15 +1637,30 @@ def TTNN_AllToAllDispatchMetadataOp : TTNN_Op<"all_to_all_dispatch_metadata", [O
         - dispatched: [1, tokens_global, H]
         - indices:    [1, tokens_global, K]  (all-gathered across ring)
         - scores:     [1, tokens_global, K]  (all-gathered across ring)
+
+      This op runs in tt-metal persistent mode only: the three output buffers
+      (`dispatched_buffer`/`indices_buffer`/`scores_buffer`) and the
+      `cross_device_semaphore` are materialized in the function prelude by the
+      `DistributedOpInterface` hooks and passed to the kernel. They are modeled
+      as `Optional` only because conversion emits them unbound and the prelude
+      pass binds them later; a finalized op always has all four bound. The drain
+      core (where indices/scores are sharded) is fixed internally, so it is not
+      an op input — the kernel derives it from the shard spec.
     }];
 
     let arguments = (ins AnyRankedTensor:$input_tensor,
                          AnyRankedTensor:$expert_indices,
                          AnyRankedTensor:$expert_scores,
                          AnyRankedTensor:$expert_mapping,
+
+                         Optional<AnyRankedTensor>:$dispatched_buffer,
+                         Optional<AnyRankedTensor>:$indices_buffer,
+                         Optional<AnyRankedTensor>:$scores_buffer,
+
+                         Optional<TTNN_GlobalSemaphore>:$cross_device_semaphore,
+
                          I64Attr:$num_devices,
-                         I64Attr:$cluster_axis,
-                         OptionalAttr<TTNN_CoreCoordAttr>:$drain_core);
+                         I64Attr:$cluster_axis);
 
     let results = (outs AnyRankedTensor:$dispatched,
                        AnyRankedTensor:$indices,
@@ -1654,6 +1670,10 @@ def TTNN_AllToAllDispatchMetadataOp : TTNN_Op<"all_to_all_dispatch_metadata", [O
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createAllToAllDispatchMetadataOpOperandsWorkarounds(getOperation());
       }
+      bool hasUnboundBuffers();
+      void allocateBuffers(::mlir::RewriterBase &rewriter);
+      bool hasUnboundSemaphores();
+      void allocateSemaphores(::mlir::RewriterBase &rewriter);
     }];
 
     let hasVerifier = 1;
