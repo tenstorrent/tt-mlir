@@ -92,6 +92,10 @@ struct BeamCandidate {
   /// Quality score for this candidate.
   LayoutScore score;
 
+  /// Accumulated analytical-time path cost (filled by the AnalyticalTime cost
+  /// model; unused by the default Heuristic model). Lower is better.
+  double accumulatedCost = 0.0;
+
   /// Backend validation result.
   op_constraint_validation::ValidationResult validationResult;
 
