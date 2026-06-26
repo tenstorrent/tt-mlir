@@ -37,7 +37,8 @@ MemoryLayoutPropagation::MemoryLayoutPropagation(
     const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
     const TensorTypeLayoutsMap *tensorTypePossibleLayouts, size_t beamWidth,
     size_t maxInputCandidatesPerOperand, size_t maxReshardCandidatesPerType,
-    std::unique_ptr<LayoutPropagationObserver> observer)
+    std::unique_ptr<LayoutPropagationObserver> observer,
+    LayoutCostModelKind costModelKind)
     : func(func), deviceAttr(ttcore::lookupDevice(func)),
       legalConfigs(legalConfigs),
       tensorTypePossibleLayouts(tensorTypePossibleLayouts),
@@ -49,9 +50,10 @@ MemoryLayoutPropagation::MemoryLayoutPropagation(
   } else {
     this->observer = std::make_unique<LayoutPropagationObserver>();
   }
-  // Default to the historical local heuristic. Alternative cost models are
-  // selected here once wired to a pipeline option.
-  costModel = createLayoutCostModel(LayoutCostModelKind::Heuristic);
+  // Cost model selects the beam objective (local heuristic by default; the
+  // analytical-time model is selected via the layout-cost-model pipeline
+  // option). Every candidate comparison funnels through it.
+  costModel = createLayoutCostModel(costModelKind);
 }
 
 MemoryLayoutPropagation::~MemoryLayoutPropagation() = default;
@@ -177,6 +179,11 @@ std::optional<BeamCandidate> MemoryLayoutPropagation::evaluateHint(
     candidate.producerCandidateIndices = producerCandidateIndices;
     candidate.reshardLayouts = reshardLayouts;
     candidate.outputLayouts = result.actualOutputLayouts;
+
+    // Let the cost model attach any path-dependent data (e.g. accumulated
+    // analytical-time cost over the producer chain). No-op for the heuristic.
+    costModel->annotate(op, candidate,
+                        resolveProducerChoices(op, producerCandidateIndices));
 
     TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                  "    VALID candidate for {0}: hint[{1}]={2} "
@@ -1119,6 +1126,30 @@ MemoryLayoutPropagation::getProducerForOperandIdx(Operation *op,
   return nullptr;
 }
 
+llvm::SmallVector<const BeamCandidate *>
+MemoryLayoutPropagation::resolveProducerChoices(
+    Operation *op,
+    const llvm::SmallVector<size_t> &producerCandidateIndices) {
+  llvm::SmallVector<const BeamCandidate *> producers;
+  producers.reserve(producerCandidateIndices.size());
+  for (size_t operandIdx = 0; operandIdx < producerCandidateIndices.size();
+       ++operandIdx) {
+    Operation *producerOp = getProducerForOperandIdx(op, operandIdx);
+    const BeamCandidate *producer = nullptr;
+    if (producerOp) {
+      auto it = beamState.find(producerOp);
+      if (it != beamState.end()) {
+        size_t prodIdx = producerCandidateIndices[operandIdx];
+        if (prodIdx < it->second.size()) {
+          producer = &it->second[prodIdx];
+        }
+      }
+    }
+    producers.push_back(producer);
+  }
+  return producers;
+}
+
 void MemoryLayoutPropagation::consolidateBeam() {
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                "consolidateBeam: starting backward pass for {0} ops in beam",
@@ -1246,9 +1277,11 @@ size_t MemoryLayoutPropagation::resolveForForkPoint(
         }
       }
     }
+    // Primary objective at a fork is reshard reuse (freeCount); the cost model
+    // breaks ties between equally-reusable producer candidates.
     if (freeCount > bestFreeCount ||
         (freeCount == bestFreeCount &&
-         forkBeam[k].score > forkBeam[bestK].score)) {
+         costModel->better(forkOp, forkBeam[k], forkBeam[bestK]))) {
       bestFreeCount = freeCount;
       bestK = k;
     }
