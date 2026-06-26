@@ -43,7 +43,8 @@ public:
       const TensorTypeLayoutsMap *tensorTypePossibleLayouts = nullptr,
       size_t beamWidth = 8, size_t maxInputCandidatesPerOperand = 64,
       size_t maxReshardCandidatesPerType = 4,
-      std::unique_ptr<LayoutPropagationObserver> observer = nullptr);
+      std::unique_ptr<LayoutPropagationObserver> observer = nullptr,
+      LayoutCostModelKind costModelKind = LayoutCostModelKind::Heuristic);
 
   /// Destructor defined in .cpp (observer is forward-declared).
   ~MemoryLayoutPropagation();
@@ -149,6 +150,15 @@ private:
   /// Map from tensor-operand index (used in producerCandidateIndices) back to
   /// the actual defining op. Skips non-tensor operands.
   Operation *getProducerForOperandIdx(Operation *op, size_t tensorOperandIdx);
+
+  /// Resolve the chosen producer beam candidate behind each tensor operand of
+  /// `op`, given the per-operand producer indices recorded on a candidate.
+  /// `result[i]` is the producer `BeamCandidate*` feeding tensor operand `i`,
+  /// or nullptr when the operand has no in-beam producer (block arg / constant /
+  /// stale index). Used by the cost model to read accumulated path cost.
+  llvm::SmallVector<const BeamCandidate *> resolveProducerChoices(
+      Operation *op,
+      const llvm::SmallVector<size_t> &producerCandidateIndices);
 
   /// Look up the chosen BeamCandidate for an op (using finalChoice index into
   /// beamState). Returns nullptr if op is not in beamState or beam is empty.
