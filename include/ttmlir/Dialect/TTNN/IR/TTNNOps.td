@@ -1820,8 +1820,7 @@ def TTNN_PrepareMoEComputeW0W1WeightsOp :
                          Optional<AnyRankedTensor>:$bias_1,
                          TTNN_Device:$device,
                          UI32Attr:$hidden_size,
-                         UI32Attr:$intermediate_size,
-                         OptionalAttr<UI32Attr>:$bh_ring_size);
+                         UI32Attr:$intermediate_size);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1849,8 +1848,7 @@ def TTNN_PrepareMoEComputeW2WeightsOp :
                          Optional<AnyRankedTensor>:$bias_2,
                          TTNN_Device:$device,
                          UI32Attr:$hidden_size,
-                         UI32Attr:$intermediate_size,
-                         OptionalAttr<UI32Attr>:$bh_ring_size);
+                         UI32Attr:$intermediate_size);
 
     let results = (outs AnyRankedTensor:$result);
 
@@ -1885,9 +1883,7 @@ def TTNN_MoeComputeOp : TTNN_Op<"moe_compute",
       `matmul_output` is the final user-visible output. In that mode
       `cluster_axis`, `topology`, `num_links`, `mux_core_range_set`,
       `optional_output_tensor`, and `cross_device_semaphore` are unused, and
-      `combine_output` aliases `matmul_output`. `bh_ring_size` pins the
-      Blackhole matmul ring size (8, 12, or 16; default 12) and is ignored on
-      Wormhole.
+      `combine_output` aliases `matmul_output`.
 
       See `TTIR_MoeComputeOp` for input/output shapes and dtypes.
     }];
@@ -1907,7 +1903,6 @@ def TTNN_MoeComputeOp : TTNN_Op<"moe_compute",
                          BoolAttr:$has_bias,
                          DefaultValuedAttr<TTCore_MoEActivationFunctionAttr,
                              "::mlir::tt::ttcore::MoEActivationFunction::Silu">:$activation_function,
-                         OptionalAttr<UI32Attr>:$bh_ring_size,
                          DefaultValuedAttr<BoolAttr, "true">:$compute_only,
 
                          // Full-path-only inputs, unused when compute_only == true.

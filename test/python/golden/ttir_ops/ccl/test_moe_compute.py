@@ -138,26 +138,26 @@ def _moe_compute_valid_masks(
 
 
 # Self-consistent configs covering every generality axis (NOT a cross-product:
-# the op verifier requires matmul_num_cores (= bh_ring_size on BH) % width == 0,
+# the op verifier requires matmul_num_cores (= matmul_ring_size on BH) % width == 0,
 # so width=3 is pinned to ring=12). hidden selects width via
 # auto_output_width_shard_dim (largest divisor of hidden/32 that is <= 4):
 # hidden=512 -> width=4, hidden=576 -> width=3. hidden and intermediate must
-# each be >= bh_ring_size*32 (the W2 output is sharded across the ring;
+# each be >= matmul_ring_size*32 (the W2 output is sharded across the ring;
 # w2_shard_tiles in moe_ring_common.h).
 _MOE_CONFIGS = [
-    # id, hidden, intermediate, activation, has_bias, bh_ring_size
-    ("w4_silu_nobias_r16", 512, 512, "silu", False, 16),
-    ("w4_silu_nobias_r8", 512, 512, "silu", False, 8),
-    ("w4_swiglu_bias_r12", 512, 512, "swiglu", True, 12),
-    ("w3_silu_bias_r12", 576, 576, "silu", True, 12),
-    ("w3_swiglu_nobias_r12", 576, 576, "swiglu", False, 12),
+    # id, hidden, intermediate, activation, has_bias
+    ("w4_silu_nobias_r16", 512, 512, "silu", False),
+    ("w4_silu_nobias_r8", 512, 512, "silu", False),
+    ("w4_swiglu_bias_r12", 512, 512, "swiglu", True),
+    ("w3_silu_bias_r12", 576, 576, "silu", True),
+    ("w3_swiglu_nobias_r12", 576, 576, "swiglu", False),
     # Real-model-derived configs: same structural fingerprint as the shipped
     # single-card MoE models (activation, output width_shard_dim, has_bias,
     # hidden/intermediate ratio), scaled down to hidden <= 2048 with a balanced Ht
     # or a single W2 group.
-    ("ds_w4_silu_bias_r8", 2048, 1024, "silu", True, 8),  # DeepSeek-like, H > N
-    ("ds_w4_silu_bias_r16", 2048, 2048, "silu", True, 16),  # DeepSeek-like, ring 16
-    ("gptoss_w3_swiglu_bias_r12", 1344, 1344, "swiglu", True, 12),  # GPT-OSS-like
+    ("ds_w4_silu_bias_r8", 2048, 1024, "silu", True),  # DeepSeek-like, H > N
+    ("ds_w4_silu_bias_r16", 2048, 2048, "silu", True),  # DeepSeek-like, ring 16
+    ("gptoss_w3_swiglu_bias_r12", 1344, 1344, "swiglu", True),  # GPT-OSS-like
 ]
 
 
@@ -169,12 +169,12 @@ _MOE_CONFIGS = [
     reason="Single-card moe_compute doesn't work on WH architecture",
 )
 @pytest.mark.parametrize(
-    "h_size, n_inter, activation, has_bias, bh_ring_size",
+    "h_size, n_inter, activation, has_bias",
     [c[1:] for c in _MOE_CONFIGS],
     ids=[c[0] for c in _MOE_CONFIGS],
 )
 def test_moe_compute_compute_only_verify(
-    h_size, n_inter, activation, has_bias, bh_ring_size, request, system_desc
+    h_size, n_inter, activation, has_bias, request, system_desc
 ):
     """Verify moe_compute compute_only outputs 0-4 on a single Blackhole card.
 
@@ -370,7 +370,6 @@ def test_moe_compute_compute_only_verify(
                 bias_2=bias_2,
                 activation_function=activation,
                 compute_only=True,
-                bh_ring_size=bh_ring_size,
                 output_shapes=[
                     out_per_expert_total_tokens,
                     out_expert_activation,
