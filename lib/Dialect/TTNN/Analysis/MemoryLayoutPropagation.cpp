@@ -49,6 +49,9 @@ MemoryLayoutPropagation::MemoryLayoutPropagation(
   } else {
     this->observer = std::make_unique<LayoutPropagationObserver>();
   }
+  // Default to the historical local heuristic. Alternative cost models are
+  // selected here once wired to a pipeline option.
+  costModel = createLayoutCostModel(LayoutCostModelKind::Heuristic);
 }
 
 MemoryLayoutPropagation::~MemoryLayoutPropagation() = default;
@@ -562,11 +565,8 @@ MemoryLayoutPropagation::processOp(Operation *op) {
   // downstream consumers (e.g. L1-spill's first-fit walk) see a fixed
   // beam-slot assignment across runs.
   std::stable_sort(candidates.begin(), candidates.end(),
-                   [op](const BeamCandidate &a, const BeamCandidate &b) {
-                     if (a.score != b.score) {
-                       return a.score > b.score;
-                     }
-                     return preferCandidate(op, a, b);
+                   [&](const BeamCandidate &a, const BeamCandidate &b) {
+                     return costModel->better(op, a, b);
                    });
 
   if (candidates.size() > beamWidth) {

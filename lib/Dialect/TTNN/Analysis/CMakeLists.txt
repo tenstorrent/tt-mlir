@@ -7,6 +7,7 @@ add_mlir_dialect_library(MLIRTTNNAnalysis
         L1ChainConfig.cpp
         L1InterleavedFallbackAnalysis.cpp
         L1SpillManagement.cpp
+        LayoutCostModel.cpp
         MemoryLayoutPropagation.cpp
         LegalOpConfigAnalysis.cpp
         LegalOpLayoutAnalysis.cpp

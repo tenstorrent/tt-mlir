@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_MEMORYLAYOUTPROPAGATION_H
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTNN/Analysis/LayoutCostModel.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemoryLayoutPropagationObserver.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
@@ -88,6 +89,10 @@ private:
   /// Observer (NullObject pattern: always non-null, no-op when tracing
   /// disabled).
   std::unique_ptr<LayoutPropagationObserver> observer;
+
+  /// Cost model used to rank beam candidates. Defaults to the local heuristic;
+  /// the comparator at every selection site funnels through this.
+  std::unique_ptr<LayoutCostModel> costModel;
 
   /// Process a single op. Returns top-K candidates sorted by score descending.
   llvm::SmallVector<BeamCandidate, 0> processOp(Operation *op);
