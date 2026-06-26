@@ -2533,9 +2533,17 @@ public:
             op.getLoc(), rewriter.getI32Type(), dstIndices[2]);
         Value addr =
             rewriter.create<arith::AddIOp>(op.getLoc(), baseAddr, offsetI32);
+        // A gridless #l1 scratch recv buffer is per-core: this core's fabric
+        // write must land on the SAME core of the peer device (where that core's
+        // fabric_recv reads it), NOT the hardcoded (0,0) carried in
+        // dstIndices[0,1] (a scratch-dst store takes no grid indices). Use the
+        // current core's logical coords -- matching the paired semaphore inc --
+        // so a ring CCL works on a multi-core grid, not only grid (1,1).
+        Value myLogicalY = rewriter.create<ttkernel::MyLogicalYOp>(op.getLoc());
+        Value myLogicalX = rewriter.create<ttkernel::MyLogicalXOp>(op.getLoc());
         auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
             rewriter, op.getLoc(), chipDesc,
-            ValueRange{dstIndices[0], dstIndices[1]});
+            ValueRange{myLogicalY, myLogicalX});
         dstEndpoint = NocEndpoint{ttcore::MemorySpace::DeviceL1,
                                   {virtX, virtY},
                                   nullptr,
