@@ -369,12 +369,11 @@ def mcast_overwrite_kernel(lhs, rhs, out, K, M, N, GY, GX):
 
 @pytest.mark.skip(
     reason=(
-        "Hits an expected assertion in "
-        "lib/Dialect/D2M/Transforms/SplitUnifiedThread.cpp:127 -- "
-        "wrapComputeInSynchronizedRegion expects exactly one op with a "
-        "synchronizable op, and the multicast remote_load pattern violates "
-        "that invariant. Tracked separately; un-skip once the pass handles "
-        "multi-op synchronized scopes."
+        "Hits the expected diagnostic in checkComputeSyncScope "
+        "(lib/Dialect/D2M/Transforms/SplitThreads.cpp): compute ops must live "
+        "in a single synchronization scope, and the multicast remote_load "
+        "pattern spans multiple. Tracked separately; un-skip once the pass "
+        "handles multi-scope compute."
     )
 )
 def test_mcast_overwrite_grid_2x2():
