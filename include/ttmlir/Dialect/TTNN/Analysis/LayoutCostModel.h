@@ -18,8 +18,11 @@ namespace mlir::tt::ttnn {
 enum class LayoutCostModelKind {
   /// Local lexicographic `LayoutScore` heuristic (historical default).
   Heuristic,
-  // Additional kinds (e.g. accumulated analytical-time cost) are added behind
-  // this seam without touching the beam machinery.
+  /// Accumulated analytical-time cost: per-op roofline (from the constraint
+  /// query's coreCount/residency) plus reshard `bytes / BW(slowest leg)`,
+  /// summed along the producer chain. Minimizes estimated time, so it trades
+  /// reshards against op parallelism instead of ranking a local tuple.
+  AnalyticalTime,
 };
 
 /// Strategy for ranking layout candidates during memory-layout propagation.
