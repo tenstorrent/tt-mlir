@@ -1251,8 +1251,11 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
         genericOpRef->walk([&](RemoteStoreOp remoteStoreOp) {
           //  Check we don't already have aliased load since we can't alias
-          //  DMA on both sides
-          if (mlir::isa<d2m::OperandAliasOp>(
+          //  DMA on both sides. Use isa_and_nonnull: the local buffer can be a
+          //  block argument (e.g. a loop-carried value threaded through an
+          //  scf.for iter_arg, as in an in-loop remote_store), whose
+          //  getDefiningOp() is null -- a plain isa<> would deref null.
+          if (mlir::isa_and_nonnull<d2m::OperandAliasOp>(
                   remoteStoreOp.getLocalBuffer().getDefiningOp())) {
             return WalkResult::advance();
           }
