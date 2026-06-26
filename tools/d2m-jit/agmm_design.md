@@ -185,13 +185,28 @@ Regression `test/d2m-jit/test_meshpos_local_store.py`.
 
 With #3 and #5 fixed, the fused AGMM gets further but two issues remain:
 
-- **Wall #4 (compile, the last blocker)**: `c = copy_(c, fabric_recv(t,[]))` whose
-  `c` is then consumed by a matmul AND a forward-copy fails d2m-to-ttkernel:
-  "failed to legalize unresolved materialization from memref<1x2xtile,l1> to
-  !ttkernel.cb that remained live" (both the hand-unrolled `agf_unroll2.py` and the
-  scf.for `agf_circ.py`). This is the send-only-forwarding materialization wall
-  ([[d2m-ccl-send-only-forwarding]]) extended to a matmul consumer -- a deeper
-  d2m-to-ttkernel/split-v2 conversion change, not a localized null/gate fix.
+- **Wall #4 (compile, the last blocker) — DEEP-DIAGNOSED 2026-06-26**: a matmul
+  that reads a fabric-received value fails d2m-to-ttkernel: "unresolved
+  materialization memref<1x2xtile,l1> -> !ttkernel.cb remained live", live user =
+  `ttkernel.copy_tile` (the matmul operand unpack). Isolation (`scratchpad/w4_iso.py`
+  MODE A/B/C): the trigger is the **matmul reading a fabric-recv'd operand itself** --
+  MODE A (`fabric_recv(t,[]) @ w`, no copy_, no fanout) fails identically to the
+  copy_-bridge and fanout variants. ROOT CAUSE (debug-build backtrace + unified-IR
+  inspection): the matmul's activation operand is a `remote_store`-DST scratch
+  (the ring send/recv buffer `t`; `fabric_recv` folds to reading `t` directly before
+  split-v2). Because `t` is a fabric-write target it is threaded as a GENERIC OPERAND
+  (`d2m.get_arg` -> a buffer ADDRESS), not a hoisted CB (`d2m.get_cb`). The weight
+  works because it comes from `remote_load` -> a proper hoisted CB read via `d2m.wait`.
+  d2m-to-ttkernel's matmul `getCB` then casts the operand memref to a CB, leaving the
+  unresolved cast. Eltwise (the ring) works because it reads the scratch via
+  `memref.load`->`copy_tile`, a different CB-resolution path than the matmul's
+  `getCB`/`tile_matmul_block` operand handling. FIX is NOT localized: a matmul
+  consuming a fabric-recv'd / `remote_store`-DST operand needs that operand
+  represented as a real CB (hoisted, with a wait) rather than a bare get_arg buffer
+  address -- a split-v2/HoistCBAllocs + d2m-to-ttkernel matmul-operand change, with
+  regression risk to the core matmul path. (A first attempt -- tracing through
+  `FabricRecvOp` in split-v2's `traceComputeMemrefToCB` -- was moot: `fabric_recv`
+  folds away before split-v2 runs.)
 - **Runtime hang (scf.for variant only)**: an in-loop `remote_store` to a grid
   output compiles now (wall #3 fixed) but HANGS on device (the output CB handshake
   per iteration). The HAND-UNROLLED variant (straight-line stores) avoids this, so
