@@ -872,7 +872,7 @@ static auto makePrepareMoEComputeW0W1WeightsQuery(
     std::optional<TTNNLayoutAttr> bias0Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
     std::optional<TTNNLayoutAttr> bias1Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -901,10 +901,10 @@ getPrepareMoEComputeW0W1WeightsOpOutputTensorSpec(
     std::optional<TTNNLayoutAttr> bias0Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
     std::optional<TTNNLayoutAttr> bias1Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
   auto query = makePrepareMoEComputeW0W1WeightsQuery(
       w0Shape, w0Layout, w1Shape, w1Layout, bias0Shape, bias0Layout, bias1Shape,
-      bias1Layout, hiddenSize, intermediateSize, bhRingSize);
+      bias1Layout, hiddenSize, intermediateSize);
   auto output = operation::executeConstraintQuery(query);
   if (!output) {
     return output.takeError();
@@ -918,7 +918,7 @@ static auto makePrepareMoEComputeW2WeightsQuery(
     llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
     std::optional<TTNNLayoutAttr> bias2Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -939,10 +939,9 @@ getPrepareMoEComputeW2WeightsOpOutputTensorSpec(
     llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
     std::optional<TTNNLayoutAttr> bias2Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
   auto query = makePrepareMoEComputeW2WeightsQuery(
-      w2Shape, w2Layout, bias2Shape, bias2Layout, hiddenSize, intermediateSize,
-      bhRingSize);
+      w2Shape, w2Layout, bias2Shape, bias2Layout, hiddenSize, intermediateSize);
   auto output = operation::executeConstraintQuery(query);
   if (!output) {
     return output.takeError();
@@ -962,11 +961,11 @@ OpModel<PrepareMoEComputeW0W1WeightsOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> bias0Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
     std::optional<TTNNLayoutAttr> bias1Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto query = makePrepareMoEComputeW0W1WeightsQuery(
       w0Shape, w0Layout, w1Shape, w1Layout, bias0Shape, bias0Layout, bias1Shape,
-      bias1Layout, hiddenSize, intermediateSize, bhRingSize);
+      bias1Layout, hiddenSize, intermediateSize);
   return operation::getOpConstraints(w0Layout.getContext(), query);
 #else
   return OpConstraints{};
@@ -978,11 +977,10 @@ OpModel<PrepareMoEComputeW2WeightsOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
     std::optional<TTNNLayoutAttr> bias2Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto query = makePrepareMoEComputeW2WeightsQuery(
-      w2Shape, w2Layout, bias2Shape, bias2Layout, hiddenSize, intermediateSize,
-      bhRingSize);
+      w2Shape, w2Layout, bias2Shape, bias2Layout, hiddenSize, intermediateSize);
   return operation::getOpConstraints(w2Layout.getContext(), query);
 #else
   return OpConstraints{};

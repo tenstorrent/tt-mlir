@@ -3132,8 +3132,7 @@ PrepareMoEComputeW0W1WeightsOp::getOpConstraints(
       op_model::OpModel<PrepareMoEComputeW0W1WeightsOp>::getOpConstraints,
       *this, getW0().getType().getShape(), inputs[0],
       getW1().getType().getShape(), inputs[1], bias0Shape, bias0Layout,
-      bias1Shape, bias1Layout, getHiddenSize(), getIntermediateSize(),
-      getBhRingSize());
+      bias1Shape, bias1Layout, getHiddenSize(), getIntermediateSize());
 }
 
 llvm::Expected<size_t> PrepareMoEComputeW0W1WeightsOp::getOpRuntime(
@@ -3162,7 +3161,7 @@ PrepareMoEComputeW2WeightsOp::getOpConstraints(
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<PrepareMoEComputeW2WeightsOp>::getOpConstraints, *this,
       getW2().getType().getShape(), inputs[0], bias2Shape, bias2Layout,
-      getHiddenSize(), getIntermediateSize(), getBhRingSize());
+      getHiddenSize(), getIntermediateSize());
 }
 
 llvm::Expected<size_t> PrepareMoEComputeW2WeightsOp::getOpRuntime(
