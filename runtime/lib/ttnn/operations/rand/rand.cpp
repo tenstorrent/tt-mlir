@@ -21,10 +21,10 @@ void run(const ::tt::target::ttnn::RandOp *op, ProgramContext &context) {
       ::tt::runtime::ttnn::operations::utils::toTTNNShape(*op->size());
   ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
   ::ttnn::DataType dtype =
-      ::tt::runtime::ttnn::utils::toTTNNDataType(op->dtype());
+      ttnn_op_invoke::operations::utils::toTTNNDataType(op->dtype());
 
   ::ttnn::Layout layout =
-      ::tt::runtime::ttnn::utils::toTTNNLayout(op->layout());
+      ::ttnn_op_invoke::operations::utils::toTTNNLayout(op->layout());
 
   ::ttnn::MemoryConfig memoryConfig =
       ::ttnn::DRAM_MEMORY_CONFIG; // Default in rand implementation
