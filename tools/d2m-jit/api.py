@@ -976,6 +976,17 @@ def _matmul_acc(acc, lhs, rhs):
     return _matmul_block(lhs, rhs, acc=acc)
 
 
+@syntax("__add_acc__")
+def _add_acc(acc, rhs):
+    """Eltwise add accumulating into `acc`: `acc + rhs`, in place.
+
+    Not user-facing. The AST visitor routes a non-matmul `acc += rhs` here so
+    the add writes through `acc`'s buffer (linalg.generic outs(acc)); this is
+    the eltwise dual of `__matmul_acc__` and is required for a loop-carried
+    (scf.for iter_arg) eltwise accumulator to bufferize."""
+    return _eltwise_block(lambda a, r: d2m.tile_add(a.type, a, r), acc, rhs, out=acc)
+
+
 @syntax("!tensor")
 class TensorBlock:
     """The DSL-side host class for a tile-typed tensor block.
@@ -1313,13 +1324,19 @@ class Semaphore:
 # --- Block-level eltwise helper -------------------------------------------
 
 
-def _eltwise_block(tile_op_fn, *blocks):
+def _eltwise_block(tile_op_fn, *blocks, out=None):
     """Wrap an N-ary per-tile op inside a `linalg.generic` over tensors of
     tiles.
 
     All `blocks` must have the same tensor type. `tile_op_fn` is called
     with the scalar (tile-typed) values for each input and must return
     the scalar output value (or an OpView whose .result is the value).
+
+    If `out` is given it is used as the DPS init (the `outs` operand) so the
+    op writes in place through `out`'s buffer; this is required for a
+    loop-carried (scf.for iter_arg) eltwise accumulator to bufferize (the
+    eltwise dual of `_matmul_block`'s `acc`). Otherwise a fresh `d2m.empty()`
+    output is allocated.
 
     Emits:
         %out = d2m.empty() : tensor<...x!ttcore.tile<...>>
@@ -1343,7 +1360,7 @@ def _eltwise_block(tile_op_fn, *blocks):
     rank = block_ty.rank
     elem_ty = block_ty.element_type
 
-    output = d2m.empty(block_ty)
+    output = _as_value(out) if out is not None else d2m.empty(block_ty)
     identity = AffineMap.get_identity(rank)
     n_args = len(blocks) + 1  # one input map per block + one output map
     indexing_maps = ArrayAttr.get([AffineMapAttr.get(identity)] * n_args)
