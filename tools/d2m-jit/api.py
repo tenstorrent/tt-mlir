@@ -896,17 +896,19 @@ def where(cond, true_value, false_value):
     )
 
 
-def _shape_literal(node):
-    """args_as_attr callback: pull a literal block shape out of `node`.
+def _shape_literal(node, visitor):
+    """args_as_attr callback: pull a compile-time block shape out of `node`.
 
-    Accepts `[m, n]` / `(m, n)` of Python-literal ints. The shape must be a
-    compile-time literal because the resulting tensor type's dimensions are
+    Accepts `[m, n]` / `(m, n)` whose elements are compile-time ints -- literals
+    OR closed-over int captures (resolved at trace time via _eval_static_int, so
+    a kernel can be generic over its block shape, e.g. `zeros([M, K])`). The
+    shape must be compile-time because the resulting tensor type's dimensions are
     static; runtime (index-typed) values cannot size a tensor type."""
     if isinstance(node, (ast.List, ast.Tuple)):
-        return [int(_const_value(elt)) for elt in node.elts]
+        return [visitor._eval_static_int(elt) for elt in node.elts]
     raise D2mJitError(
-        "expected a literal block shape, e.g. [m_tiles, n_tiles]; "
-        f"got {type(node).__name__}"
+        "expected a block shape [m_tiles, n_tiles] of compile-time ints "
+        f"(literals or int captures); got {type(node).__name__}"
     )
 
 
