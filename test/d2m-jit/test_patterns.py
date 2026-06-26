@@ -26,6 +26,10 @@ from d2m_jit.testing import (
 def test_pattern_rewrite(pattern_test):
     """Apply the pattern file's rewrites and FileCheck the resulting IR."""
     ir_text = run_rewrite(pattern_test)
+    if not pattern_test.expect_match and not pattern_test.check:
+        raise AssertionError(
+            "Negative PatternTest cases (expect_match=False) must provide FileCheck directives via `check`."
+        )
     if pattern_test.check:
         filecheck(pattern_test.check, ir_text)
 
