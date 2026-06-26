@@ -5,9 +5,8 @@
 """Ring all_reduce written as a TRUE runtime `for k in range(N-1)` loop,
 generic over the mesh volume N.
 
-Unlike the unrolled `static_range` rings, this is a genuine `scf.for` with fabric
-ops (remote_store + semaphore_wait + fabric_recv) inside, and two loop-carried
-accumulators updated in place:
+This is a genuine `scf.for` with fabric ops (remote_store + semaphore_wait +
+fabric_recv) inside, and two loop-carried accumulators updated in place:
 
 - `acc`     accumulates the received shards (`acc += r`, via __add_acc__);
 - `acc_prev` snapshots the previous `acc` (`acc_prev = copy_(acc_prev, acc)`, the
