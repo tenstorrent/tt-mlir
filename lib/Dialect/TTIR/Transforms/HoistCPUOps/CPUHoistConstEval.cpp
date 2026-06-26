@@ -26,6 +26,15 @@ static bool isTransparentOp(mlir::Operation *op) {
   return mlir::isa<ReshapeOp, TypecastOp>(op);
 }
 
+// Check if an op only rearranges or retypes data without performing any
+// arithmetic. This covers tensor-manipulation ops (transpose, reshape,
+// permute, rearrange) and typecast. For such ops f32 execution yields no
+// precision benefit, since a permutation/retype is exact regardless of the
+// element type.
+static bool isPureDataMovementOp(mlir::Operation *op) {
+  return op->hasTrait<TensorManipulation::Trait>() || mlir::isa<TypecastOp>(op);
+}
+
 // Walk backward from a value through transparent ops in a single traversal.
 // If the chain terminates at a creation skippable op, return it.
 static llvm::SmallVector<mlir::Operation *> traceCreationOpChain(Value v) {
@@ -122,6 +131,19 @@ analyzeConstEval(func::FuncOp funcOp) {
   });
 
   if (descriptor.operations.empty()) {
+    return {};
+  }
+
+  // Skip CPU-hoisting of const-eval subgraphs that perform no arithmetic -
+  // i.e. pure data-movement/retype graphs (transpose, permute, reshape,
+  // typecast). Neither motivation for CPU-hoisting applies to such graphs:
+  // a permutation/retype is exact regardless of element type, so there is no
+  // precision benefit, and there are no compute intermediates whose host
+  // storage would reduce peak DRAM/L1. Hoisting them only adds a
+  // bf16->f32->bf16 typecast round-trip plus a host round-trip, and prevents
+  // on-device handling of the movement op (e.g. folding a weight transpose
+  // into a matmul's transpose_b). Keep these on device.
+  if (llvm::all_of(descriptor.operations, isPureDataMovementOp)) {
     return {};
   }
 
