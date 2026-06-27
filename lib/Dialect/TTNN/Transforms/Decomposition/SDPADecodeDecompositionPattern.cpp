@@ -218,16 +218,13 @@ LogicalResult SDPADecodeDecompositionPattern::matchAndRewrite(
             mlir::dyn_cast_if_present<TTNNLayoutAttr>(refType.getEncoding())) {
       refDataType = refLayoutAttr.getDataType();
     }
-    ttnn::LayoutAttr tileLayoutAttr =
-        ttnn::LayoutAttr::get(rewriter.getContext(), ttnn::Layout::Tile);
-
     // indices = arange(Sk) reshaped to [1, 1, 1, Sk].
     auto arange1dType = ttnn::utils::RankedTensorTypeFactory::create(
         refType, llvm::SmallVector<int64_t>{seqLenKV});
     Value indices = rewriter
-                        .create<ttnn::ArangeOp>(
-                            loc, arange1dType, device, /*start=*/0,
-                            /*end=*/seqLenKV, /*step=*/1, tileLayoutAttr)
+                        .create<ttnn::ArangeOp>(loc, arange1dType, device,
+                                                /*start=*/0, /*end=*/seqLenKV,
+                                                /*step=*/1)
                         .getResult();
     indices =
         rewriter
