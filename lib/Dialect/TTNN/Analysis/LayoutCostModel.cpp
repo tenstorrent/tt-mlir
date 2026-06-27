@@ -67,25 +67,35 @@ public:
   }
 
 private:
-  // Per-op roofline (memory term) from the constraint result. coreCount is
-  // op-aware via RuleBook::adjustScore (e.g. RMSNorm is input-driven).
+  // Per-op roofline (memory term) from the constraint result: cost of reading
+  // DRAM inputs plus writing the output. coreCount is op-aware via
+  // RuleBook::adjustScore (e.g. RMSNorm is input-driven).
   // TODO: add the compute term (FLOPs/(cores*peak)) for compute-bound ops.
   static double nodeCost(const BeamCandidate &candidate) {
     const LayoutScore &s = candidate.score;
     double cores = static_cast<double>(std::max<int64_t>(s.coreCount, 1));
-    return static_cast<double>(s.inputDramBytes) / (cores * kBwDram) +
-           static_cast<double>(s.outputL1Usage) / (cores * kBwL1);
+    double inputTerm =
+        static_cast<double>(s.inputDramBytes) / (cores * kBwDram);
+    // Output write: an L1 output is written across `cores` at L1 bandwidth; a
+    // DRAM output pays the (much slower) DRAM bandwidth with no core
+    // parallelism. Critically, a DRAM output is NOT free -- otherwise the model
+    // demotes L1 glue ops to DRAM, shattering the on-chip chain into reshards.
+    double bytes = static_cast<double>(s.outputBytes);
+    double outputTerm =
+        s.isL1 ? bytes / (cores * kBwL1) : bytes / kBwDram;
+    return inputTerm + outputTerm;
   }
 
   // One reshard op per edge; cost = bytes / BW(slowest leg). Bytes proxied by
-  // the producer's output footprint; a DRAM leg (producer or target in DRAM)
-  // pays the DRAM penalty.
+  // the producer's buffer-agnostic output footprint (outputBytes, nonzero even
+  // for DRAM-resident producers); a DRAM leg (producer or target in DRAM) pays
+  // the DRAM penalty.
   static double reshardCost(const BeamCandidate *producer,
                             TTNNLayoutAttr targetLayout) {
     if (!producer) {
       return 0.0;
     }
-    double bytes = static_cast<double>(producer->score.outputL1Usage);
+    double bytes = static_cast<double>(producer->score.outputBytes);
     bool dramLeg = !producer->score.isL1 || !targetLayout.hasL1BufferType();
     return bytes * (dramLeg ? kDramPenalty : 1.0);
   }

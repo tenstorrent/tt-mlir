@@ -82,6 +82,14 @@ scoreCandidate(Operation *op, const OpConfig &config,
     score.coreCount *= dim;
   }
 
+  // Total output footprint (shard size * number of shards), independent of
+  // buffer type. For L1 outputs this matches outputL1Usage; for DRAM outputs
+  // outputL1Usage is 0 but this is the real tensor size.
+  score.outputBytes = layout.getShardSizeInBytes();
+  for (auto dim : layout.getGridShape()) {
+    score.outputBytes *= dim;
+  }
+
   return getRuleBook(op).adjustScore(op, score, config, inputLayouts,
                                      requiresReshard);
 }
