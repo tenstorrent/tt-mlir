@@ -37,6 +37,137 @@ static void appendUnique(SmallVectorImpl<Value> &values, Value value) {
   }
 }
 
+static bool isSynchronizableBoundaryOp(
+    Operation *op, const DenseSet<Operation *> &opsWithSynchronizableOps) {
+  return dyn_cast<SynchronizableOpInterface>(op) ||
+         opsWithSynchronizableOps.contains(op);
+}
+
+static bool canMergeIntoComputeRegion(
+    Operation *op, const DenseSet<Operation *> &opsWithSynchronizableOps) {
+  return !isSynchronizableBoundaryOp(op, opsWithSynchronizableOps);
+}
+
+static bool hasSynchronizableAncestor(Operation *op, GenericOp genericOp) {
+  for (Operation *parent = op->getParentOp();
+       parent && parent != genericOp.getOperation();
+       parent = parent->getParentOp()) {
+    if (dyn_cast<SynchronizableOpInterface>(parent)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static Operation *getAncestorInBlock(Operation *op, Block *block) {
+  Operation *current = op;
+  while (current && current->getBlock() != block) {
+    current = current->getParentOp();
+  }
+  return current;
+}
+
+static bool getSiblingOpsInNearestCommonBlock(Operation *first, Operation *last,
+                                              Operation *&firstBoundary,
+                                              Operation *&lastBoundary) {
+  for (Operation *firstAncestor = first; firstAncestor;
+       firstAncestor = firstAncestor->getParentOp()) {
+    if (Operation *candidateLastBoundary =
+            getAncestorInBlock(last, firstAncestor->getBlock())) {
+      firstBoundary = firstAncestor;
+      lastBoundary = candidateLastBoundary;
+      return true;
+    }
+  }
+  return false;
+}
+
+// Return the block all `ops` are direct children of, or nullptr otherwise. A
+// grouped CB op pair must sit in one block so its cadence matches the producer
+// or consumer cadence of that block.
+static Block *commonParentBlock(ArrayRef<Operation *> ops) {
+  Block *block = ops.front()->getBlock();
+  for (Operation *op : ArrayRef<Operation *>(ops).drop_front()) {
+    if (op->getBlock() != block) {
+      return nullptr;
+    }
+  }
+  return block;
+}
+
+static bool hasCrossNestComputeConsumerFanout(GenericOp genericOp) {
+  auto cbUsageInfo = utils::getCBUsageInfo(genericOp.getRegion(0));
+  for (auto &[localBuffer, usageInfo] : cbUsageInfo) {
+    (void)localBuffer;
+    SmallVector<Operation *> computeConsumers;
+    for (Operation *consumer : usageInfo.consumers) {
+      if (!consumer->hasTrait<D2MGenericRegionDatamovementOpTrait>()) {
+        computeConsumers.push_back(consumer);
+      }
+    }
+    if (computeConsumers.size() > 1 &&
+        commonParentBlock(computeConsumers) == nullptr) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static LogicalResult expandRangeToCoverNonPureResultUses(Block::iterator &start,
+                                                         Block::iterator &end) {
+  DenseMap<Operation *, bool> purelyDerivedOps;
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    Block *block = start->getBlock();
+    DenseSet<Operation *> opsInRange;
+    for (Operation &op : llvm::make_range(start, end)) {
+      opsInRange.insert(&op);
+    }
+
+    for (Operation &rootOp : llvm::make_range(start, end)) {
+      WalkResult walkResult = rootOp.walk([&](Operation *op) {
+        if (utils::isPurelyDerivedOp(op, purelyDerivedOps)) {
+          return WalkResult::advance();
+        }
+        for (Value result : op->getResults()) {
+          for (Operation *user : result.getUsers()) {
+            if (llvm::any_of(opsInRange, [&](Operation *rangeOp) {
+                  return rangeOp->isAncestor(user);
+                })) {
+              continue;
+            }
+
+            Operation *userBoundary = getAncestorInBlock(user, block);
+            if (!userBoundary) {
+              return WalkResult::interrupt();
+            }
+            if (userBoundary->isBeforeInBlock(&*start)) {
+              start = userBoundary->getIterator();
+              changed = true;
+              return WalkResult::interrupt();
+            }
+            if (end != block->end() && !userBoundary->isBeforeInBlock(&*end)) {
+              end = std::next(userBoundary->getIterator());
+              changed = true;
+              return WalkResult::interrupt();
+            }
+          }
+        }
+        return WalkResult::advance();
+      });
+      if (walkResult.wasInterrupted()) {
+        if (!changed) {
+          return failure();
+        }
+        break;
+      }
+    }
+  }
+
+  return success();
+}
+
 bool isAliasedStore(RemoteStoreOp storeOp) {
   auto operandAliasOp =
       mlir::dyn_cast<OperandAliasOp>(storeOp.getLocalBuffer().getDefiningOp());
@@ -99,18 +230,17 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
   OpBuilder::InsertionGuard guard(rewriter);
 
   // Collect the ops that directly contain SynchronizableOpInterface ops.
-  // These delimit the scope where compute is synchronized: the outermost
-  // compute ancestor is a direct child of such an op, alongside the
-  // synchronizable ops that bound it.
+  // These delimit scopes where compute is synchronized: the outermost compute
+  // ancestor is a direct child of such an op, alongside the synchronizable ops
+  // that bound it. A unified region may have multiple such scopes when, for
+  // example, a pre-loop zero fill feeds a loop-carried matmul accumulator.
   DenseSet<Operation *> opsWithSynchronizableOps;
   genericOp.getRegion(0).walk([&](Operation *op) {
     if (dyn_cast<SynchronizableOpInterface>(op)) {
       opsWithSynchronizableOps.insert(op->getParentOp());
     }
   });
-  // Compute ops in distinct loop nests give an ambiguous sync scope: a single
-  // per-block wait/pop pair can't balance a CB shared across nests.
-  if (opsWithSynchronizableOps.size() != 1) {
+  if (hasCrossNestComputeConsumerFanout(genericOp)) {
     return genericOp.emitOpError()
            << "compute ops span multiple synchronization scopes (e.g. a CB "
               "consumed across distinct loop nests); cross-nest fan-out is not "
@@ -120,7 +250,8 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
   DenseSet<Operation *> outermostOps;
   bool walkFailed = false;
   genericOp.getRegion(0).walk([&](Operation *op) {
-    if (!op->hasTrait<D2MGenericRegionComputeOpTrait>()) {
+    if (!op->hasTrait<D2MGenericRegionComputeOpTrait>() ||
+        hasSynchronizableAncestor(op, genericOp)) {
       return WalkResult::advance();
     }
 
@@ -165,7 +296,8 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
 
     // Expand above.
     while (start != outermostOp->getBlock()->begin() &&
-           !dyn_cast<SynchronizableOpInterface>(std::prev(start))) {
+           canMergeIntoComputeRegion(&*std::prev(start),
+                                     opsWithSynchronizableOps)) {
       start--;
       if (outermostOps.contains(&*start)) {
         outermostOps.erase(&*start);
@@ -173,15 +305,23 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
     }
 
     // Expand below.
-    while (std::next(end) != outermostOp->getBlock()->end() &&
-           !dyn_cast<SynchronizableOpInterface>(std::next(end))) {
+    while (
+        std::next(end) != outermostOp->getBlock()->end() &&
+        canMergeIntoComputeRegion(&*std::next(end), opsWithSynchronizableOps)) {
       end++;
       if (outermostOps.contains(&*end)) {
         outermostOps.erase(&*end);
       }
     }
 
-    computeRegions.push_back({start, std::next(end)});
+    Block::iterator wrappedEnd = std::next(end);
+    if (failed(expandRangeToCoverNonPureResultUses(start, wrappedEnd))) {
+      return failure();
+    }
+    for (Operation &op : llvm::make_range(start, wrappedEnd)) {
+      outermostOps.erase(&op);
+    }
+    computeRegions.push_back({start, wrappedEnd});
   }
 
   for (auto [start, end] : computeRegions) {
@@ -296,19 +436,6 @@ static LogicalResult processSharedBufferPairs(
   return success();
 }
 
-// Return the block all `ops` are direct children of, or nullptr otherwise. The
-// single wait/pop pair must sit in the same block to match the producer's
-// per-block push cadence; ops split across nests would deadlock.
-static Block *commonParentBlock(ArrayRef<Operation *> ops) {
-  Block *block = ops.front()->getBlock();
-  for (Operation *op : ArrayRef<Operation *>(ops).drop_front()) {
-    if (op->getBlock() != block) {
-      return nullptr;
-    }
-  }
-  return block;
-}
-
 static LogicalResult
 insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
                       llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
@@ -374,22 +501,32 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
   }
 
   // Producers: reserve once before the first producer, push once after last.
+  // Loop-carried accumulators may have their initial fill and repeated update
+  // in different loop scopes; that is still one logical produced value for the
+  // final DMA consumer, so wrap the nearest common syntactic range.
   for (auto &[localBuffer, ops] : producersByCB) {
-    if (!commonParentBlock(ops)) {
-      return generic.emitOpError()
-             << "CB has producers across distinct loop nests; cross-nest "
-                "fan-out is not yet supported (would deadlock on a "
-                "reserve/push cadence mismatch)";
-    }
     unsigned cbOperandIdx = generic.getOperandIndex(localBuffer);
     Operation *first = ops.front();
     Operation *last = ops.back();
+    Operation *reserveBefore = first;
+    Operation *pushAfter = last;
+    if (!commonParentBlock(ops)) {
+      auto &usageInfo = cbUsageInfo[localBuffer];
+      if (usageInfo.consumers.size() != 1 ||
+          !mlir::isa<RemoteStoreOp>(usageInfo.consumers.front()) ||
+          !getSiblingOpsInNearestCommonBlock(first, last, reserveBefore,
+                                             pushAfter)) {
+        return generic.emitOpError()
+               << "CB has producers across distinct loop nests; cross-nest "
+                  "producer fan-out is not yet supported";
+      }
+    }
     Location loc = first->getLoc();
 
-    rewriter.setInsertionPoint(first);
+    rewriter.setInsertionPoint(reserveBefore);
     auto cb = d2m::getOrCreateCB(rewriter, generic, computeBlock, cbOperandIdx);
     auto reserveOp = rewriter.create<ReserveOp>(loc, cb);
-    rewriter.setInsertionPointAfter(last);
+    rewriter.setInsertionPointAfter(pushAfter);
     rewriter.create<PushOp>(last->getLoc(), cb);
 
     // Aliased remote_store consumer has no DMA, so compute waits+pops.
