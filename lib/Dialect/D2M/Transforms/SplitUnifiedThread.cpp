@@ -43,26 +43,9 @@ static bool isSynchronizableBoundaryOp(
          opsWithSynchronizableOps.contains(op);
 }
 
-static bool containsComputeOp(Operation *op) {
-  if (op->hasTrait<D2MGenericRegionComputeOpTrait>()) {
-    return true;
-  }
-  bool containsCompute = false;
-  op->walk([&](Operation *nestedOp) {
-    if (nestedOp != op &&
-        nestedOp->hasTrait<D2MGenericRegionComputeOpTrait>()) {
-      containsCompute = true;
-      return WalkResult::interrupt();
-    }
-    return WalkResult::advance();
-  });
-  return containsCompute;
-}
-
 static bool canMergeIntoComputeRegion(
     Operation *op, const DenseSet<Operation *> &opsWithSynchronizableOps) {
-  return !isSynchronizableBoundaryOp(op, opsWithSynchronizableOps) &&
-         containsComputeOp(op);
+  return !isSynchronizableBoundaryOp(op, opsWithSynchronizableOps);
 }
 
 static bool hasSynchronizableAncestor(Operation *op, GenericOp genericOp) {
