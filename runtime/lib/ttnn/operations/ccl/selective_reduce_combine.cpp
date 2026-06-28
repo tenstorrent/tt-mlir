@@ -9,9 +9,6 @@
 #include "ttnn/global_semaphore.hpp"
 #include "ttnn/operations/core/to_layout/to_layout_op.hpp"
 
-#include <tt-metalium/experimental/tensor/topology/tensor_topology.hpp>
-#include <tt-metalium/mesh_coord.hpp>
-
 namespace tt::runtime::ttnn::operations::ccl {
 
 // GPT-OSS device-specific params not modeled in the IR.
@@ -25,85 +22,6 @@ static constexpr uint32_t kDefaultNumLinks = 4;
 // layout forced 512 tokens and needed 40 cores, which broke the combine.)
 static constexpr uint32_t kCombineTokenParallelCoreDim = 4; // rows (= moe_gpt output_height_shard_dim)
 static constexpr uint32_t kCombineDataParallelCoreDim = 3;  // cols (= moe_gpt output_width_shard_dim)
-
-namespace {
-// Allocate a zero-initialized output buffer matching `tensorRef`'s shape/dtype.
-// The combine kernel writes into this buffer in place via the fabric EDM
-// cross-device path; pre-zeroing guarantees unwritten (non-source) slots read
-// as zero instead of leaking stale data. (Ported from the GPT-OSS e2e branch /
-// d9679a709 "Fix for pcc issues".)
-::ttnn::Tensor createZeroOutput(const ::tt::target::ttnn::TensorRef *tensorRef,
-                                ProgramContext &context) {
-  ::ttnn::Shape shape = ::tt::runtime::ttnn::operations::utils::toTTNNShape(
-      *tensorRef->desc()->shape());
-  ::ttnn::DataType dtype =
-      ::tt::runtime::ttnn::operations::utils::getDataType(tensorRef);
-  // The selective_reduce_combine kernel writes its output in ROW_MAJOR layout:
-  // the writer computes a row-major output page index (k * tokens_per_device +
-  // token, where a page == one hidden row of H bf16) per (k, token) and
-  // noc/fabric-writes the DP-split hidden-row segments there via the output
-  // TensorAccessor (see writer.cpp get_output_page_idx + the row page
-  // granularity, and selective_reduce_combine_device_operation.cpp
-  // compute_output_specs, which pins PageConfig(ROW_MAJOR)). The compiled graph
-  // correspondingly feeds this op a ROW_MAJOR pre-zeroed optional output
-  // (ttnn.full layout=row_major).
-  //
-  // op->out() (tensorRef) is the op's *result* type, which carries the
-  // compiler-planned TILE layout for downstream consumers, so
-  // inferLayoutFromTileShape(tensorRef) returns TILE. If we pre-zero the output
-  // as TILE, the output TensorAccessor is paged by 32x32 tiles instead of by
-  // hidden rows, so the writer's row-major page index + intra-page byte offset
-  // address the wrong tiles: writes scramble across logical rows and the high
-  // k pages fall outside the addressed tile range (empirically combine_out
-  // nonzero rows/k = [512,532,0,0] -- k0/k1 4x-inflated scramble, k2/k3 dropped
-  // -- vs the correct ~[127,213,144,37]; ~half the MoE expert mass corrupted,
-  // decode logits PCC ~0.97). Force ROW_MAJOR here to match the kernel; the
-  // result is reconciled back to the expected (TILE) layout below before it is
-  // handed to downstream consumers.
-  ::ttnn::Layout layout = ::ttnn::Layout::ROW_MAJOR;
-  std::optional<::ttnn::MemoryConfig> memoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(tensorRef));
-
-  ::ttnn::MeshDevice *meshDevicePtr = context.getMeshDevicePtr().get();
-  ::tt::runtime::ttnn::OptionalMeshDeviceRef meshDevice =
-      std::ref(*meshDevicePtr);
-  return ::ttnn::zeros(shape, dtype, layout, meshDevice, memoryConfig);
-}
-
-// Override the tensor's mesh topology in-place to axis-0 sharded along the ring,
-// remaining axes replicated. Metadata-only (no device writes). `ttnn::zeros`
-// produces a fully-replicated topology, but the combine kernel expects an
-// axis-0 sharded view (it writes per-ring-position shards). (Ported from the
-// GPT-OSS e2e branch.)
-void overrideAxis0ShardedTopology(::ttnn::Tensor &tensor,
-                                  ProgramContext &context) {
-  ::ttnn::MeshDevice *meshDevicePtr = context.getMeshDevicePtr().get();
-  const auto &meshShape = meshDevicePtr->shape();
-  if (meshShape.dims() < 1) {
-    return;
-  }
-  ttsl::SmallVector<tt::tt_metal::distributed::MeshMapperConfig::Placement>
-      placements;
-  placements.reserve(meshShape.dims());
-  placements.push_back(tt::tt_metal::distributed::MeshMapperConfig::Shard{0});
-  for (size_t i = 1; i < meshShape.dims(); ++i) {
-    placements.push_back(
-        tt::tt_metal::distributed::MeshMapperConfig::Replicate{});
-  }
-
-  std::vector<tt::tt_metal::distributed::MeshCoordinate> coords;
-  coords.reserve(meshShape.mesh_size());
-  for (const auto &coord :
-       tt::tt_metal::distributed::MeshCoordinateRange(meshShape)) {
-    coords.push_back(coord);
-  }
-
-  tt::tt_metal::TensorTopology topology(meshShape, std::move(placements),
-                                        std::move(coords));
-  tensor.update_tensor_topology(std::move(topology));
-}
-} // namespace
 
 void run(const ::tt::target::ttnn::SelectiveReduceCombineOp *op,
          ProgramContext &context) {
@@ -131,18 +49,26 @@ void run(const ::tt::target::ttnn::SelectiveReduceCombineOp *op,
       {kCombineDataParallelCoreDim + 1, 0},
       {kCombineDataParallelCoreDim + 2, kCombineTokenParallelCoreDim - 1})});
 
-  // Both-path combine (matches e2e d9679a709 "Fix for pcc issues"). Our
-  // reconstruction's SelectiveReduceCombineOp has no optional_output_tensor
-  // flatbuffer operand, so we allocate the pre-zeroed output here instead of
-  // reading op->optional_output_tensor(). Providing BOTH a pre-zeroed output
-  // tensor AND a cross-device semaphore enables the optimized fabric-EDM path
-  // that performs the cross-device combine writes directly; without them the
-  // program factory falls back to the init-semaphore path, which leaves
-  // destination slots on remote ring devices untouched (residual-only outputs)
-  // and drops decode PCC (~0.947 vs ~0.969).
-  ::ttnn::Tensor zeroOutput = createZeroOutput(op->out(), context);
-  overrideAxis0ShardedTopology(zeroOutput, context);
+  // The combine kernel performs sparse writes into the output buffer; the
+  // compiler (TTIRToTTNN) provides a zero-initialized tensor via
+  // `optional_output_tensor` (emitted as `ttnn.full(0)` prior to this op, made
+  // per-combine-distinct so const-eval caches one buffer per layer rather than
+  // sharing a single buffer across all combines). Without this pre-zeroing,
+  // uninitialized DRAM slots would leak -inf / NaN into the downstream
+  // score-weighted sum and all_reduce.
+  std::optional<::ttnn::Tensor> optionalOutputTensor;
+  if (op->optional_output_tensor()) {
+    optionalOutputTensor =
+        tensorPool.getTTNNTensorAndValidate(op->optional_output_tensor());
+  }
 
+  // Cross-device semaphore for the both-path combine (matches e2e d9679a709
+  // "Fix for pcc issues"). Providing BOTH the pre-zeroed output AND this
+  // semaphore enables the optimized fabric-EDM path that performs the
+  // cross-device combine writes directly; without it the program factory falls
+  // back to the init-semaphore path, which leaves destination slots on remote
+  // ring devices untouched (residual-only outputs) and drops decode PCC
+  // (~0.947 vs ~0.969).
   ::ttnn::MeshDevice *meshDevicePtr = context.getMeshDevicePtr().get();
   auto computeGrid = meshDevicePtr->compute_with_storage_grid_size();
   ::tt::tt_metal::CoreRangeSet semaphoreCores(::tt::tt_metal::CoreRange(
@@ -167,6 +93,11 @@ void run(const ::tt::target::ttnn::SelectiveReduceCombineOp *op,
       denseTokenCountsTensor, op->hidden_size(), op->batch_size(),
       op->seq_size(), op->select_experts_k(),
       /*axis=*/kDefaultClusterAxis,
+      // Linear (not Ring): the combine performs per-ring-position cross-device
+      // scatter writes; under a Ring/FABRIC_1D_RING wrap the last->first wrap
+      // corrupts those writes and decode output diverges per batch (the auto
+      // FABRIC_1D_RING fabric is overridden to FABRIC_1D in tt-xla for the same
+      // reason). Linear maps the writes 1:1 to devices.
       /*topology=*/::tt::tt_fabric::Topology::Linear,
       /*num_links=*/kDefaultNumLinks,
       /*num_token_parallel_cores=*/kCombineTokenParallelCoreDim,
@@ -174,7 +105,7 @@ void run(const ::tt::target::ttnn::SelectiveReduceCombineOp *op,
       /*worker_cores=*/workerCores,
       /*mux_core_range_set=*/muxCores,
       /*output_memory_config=*/std::nullopt,
-      /*optional_output_tensor=*/std::make_optional(zeroOutput),
+      /*optional_output_tensor=*/optionalOutputTensor,
       /*optional_cross_device_semaphore=*/
       std::make_optional(crossDeviceSemaphore));
 

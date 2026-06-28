@@ -1527,6 +1527,17 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
   rowMajorL1InterleavedUint32Workaround.tensorMemoryLayoutWorkaround =
       interleaved;
 
+  // Pre-zeroed optional_output_tensor (emitted by the compiler as ttnn.full(0)):
+  // ROW_MAJOR, BF16, DRAM INTERLEAVED to match the combine kernel's output.
+  TTNNOperandWorkarounds rowMajorDramInterleavedBf16Workaround;
+  rowMajorDramInterleavedBf16Workaround.tensorLayoutWorkaround = Layout::RowMajor;
+  rowMajorDramInterleavedBf16Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::BFloat16;
+  rowMajorDramInterleavedBf16Workaround.tensorBufferTypeWorkaround =
+      BufferType::DRAM;
+  rowMajorDramInterleavedBf16Workaround.tensorMemoryLayoutWorkaround =
+      interleaved;
+
   // NOTE: the tt-metal selective_reduce_combine kernel writes its result in
   // ROW_MAJOR layout, but forcing the IR result to ROW_MAJOR via an output
   // workaround sends the layout optimizer into a non-terminating
@@ -1536,6 +1547,24 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
   // selective_reduce_combine.cpp), which keeps compile fast and the runtime
   // tensor-ref validation satisfied.
   TTNNOperandWorkarounds noOutputWorkaround;
+
+  // The compiler emits a pre-zeroed optional_output_tensor (ttnn.full(0)); when
+  // present, pin it to the ROW_MAJOR/BF16/DRAM layout the combine kernel writes.
+  auto selectiveOp = cast<ttnn::SelectiveReduceCombineOp>(op);
+  if (selectiveOp.getOptionalOutputTensor()) {
+    return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+        .addInputOperandWorkaround(
+            tileL1ShardedBf16Workaround) // dense_input_tensor
+        .addInputOperandWorkaround(
+            rowMajorL1InterleavedUint32Workaround) // dense_activations_tensor
+        .addInputOperandWorkaround(
+            rowMajorL1InterleavedUint32Workaround) // dense_token_maps_tensor
+        .addInputOperandWorkaround(
+            rowMajorL1InterleavedUint32Workaround) // dense_token_counts_tensor
+        .addInputOperandWorkaround(
+            rowMajorDramInterleavedBf16Workaround) // optional_output_tensor
+        .addOutputOperandWorkaround(noOutputWorkaround); // result
+  }
 
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(
