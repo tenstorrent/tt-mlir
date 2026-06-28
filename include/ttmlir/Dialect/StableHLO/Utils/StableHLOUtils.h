@@ -55,6 +55,12 @@ inline constexpr llvm::StringLiteral
 inline constexpr llvm::StringLiteral
     kTTSDPACompositeName("tenstorrent.scaled_dot_product_attention");
 
+// Composite name emitted by the frontend for the fused MoE decode block. Kept
+// as the StableHLOToTTIR conversion's custom_call target name too, so the
+// composite (after FlattenOrConvert -> custom_call) lowers to
+// ttcore.composite "moe_decode".
+inline constexpr llvm::StringLiteral kTTMoeDecodeCompositeName("tt.moe_decode");
+
 // Composite names that have custom sharding rules. These composites are
 // converted to stablehlo.custom_call ops so that Shardy can propagate shardings
 // defined by the custom sharding rule for that composite as if the composite
@@ -63,7 +69,8 @@ inline constexpr llvm::StringLiteral
 // FlattenOrConvertCompositesPass and RegisterCustomShardingRulePass).
 inline constexpr llvm::StringLiteral kCompositesWithCustomSharding[] = {
     kTTRMSNormCustomCallTargetName, kTTSDPACompositeName,
-    kTTGatherCustomCallTargetName, kTTGatherDimCustomCallTargetName};
+    kTTGatherCustomCallTargetName, kTTGatherDimCustomCallTargetName,
+    kTTMoeDecodeCompositeName};
 
 // Target name for the distributed RMS norm custom_call op.
 inline constexpr llvm::StringLiteral
