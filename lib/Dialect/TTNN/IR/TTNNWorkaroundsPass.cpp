@@ -1613,11 +1613,13 @@ TTNNOperandsWorkaroundsFactory::createMoeComputeOpOperandsWorkarounds(
 
   TTNNOperandWorkarounds none;
 
+  // Pin indices/scores ROW_MAJOR (the kernel reads them untilized) so layout
+  // propagation doesn't tilize them.
   TTNNOperandsWorkarounds w =
       TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
           .addInputOperandWorkaround(rmBf16) // tilize_input_tensor
-          .addInputOperandWorkaround(none)   // tilize_expert_indices_tensor
-          .addInputOperandWorkaround(none)   // tilize_expert_scores_tensor
+          .addInputOperandWorkaround(rmU16)  // tilize_expert_indices_tensor
+          .addInputOperandWorkaround(rmBf16) // tilize_expert_scores_tensor
           .addInputOperandWorkaround(rmU16)  // tilize_expert_mapping_tensor
           .addInputOperandWorkaround(none)   // matmul_w0_w1_tensor
           .addInputOperandWorkaround(none);  // matmul_w2_tensor
