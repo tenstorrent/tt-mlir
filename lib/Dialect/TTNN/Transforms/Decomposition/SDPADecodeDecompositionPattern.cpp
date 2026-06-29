@@ -10,6 +10,7 @@
 #include "ttmlir/Utils.h"
 
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 
 namespace mlir::tt::ttnn::decomposition {
@@ -55,7 +56,10 @@ LogicalResult SDPADecodeDecompositionPattern::matchAndRewrite(
             op.getCurPosTensor(), op.getAttentionSink(), op.getScaleAttr(),
             op.getProgramConfigAttr());
 
-    if (validationResult.isSuccess()) {
+    // Experiment: TT_DECOMPOSE_SDPA_DECODE=1 forces decode-SDPA decomposition
+    // even when the fused op validates, to A/B fused-vs-decomposed PCC at opt>0.
+    if (validationResult.isSuccess() &&
+        std::getenv("TT_DECOMPOSE_SDPA_DECODE") == nullptr) {
       return failure();
     }
 
