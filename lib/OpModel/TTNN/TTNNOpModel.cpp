@@ -2933,6 +2933,18 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime(
 // PagedFlashMultiLatentAttentionDecodeOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+static ::ttnn::operations::transformer::SDPAProgramConfig
+getPagedFlashMlaDecodeProgramConfig(
+    ::tt::tt_metal::distributed::MeshDevice *device) {
+  ::ttnn::operations::transformer::SDPAProgramConfig programConfig{};
+  programConfig.k_chunk_size = 32;
+  programConfig.compute_with_storage_grid_size =
+      device->compute_with_storage_grid_size();
+  return programConfig;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints>
 OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
@@ -2975,14 +2987,16 @@ OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpConstraints(
   std::optional<float> scaleFloat =
       scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
 
+  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+      programConfig = getPagedFlashMlaDecodeProgramConfig(device);
+
   auto pagedFlashMlaDecodeOpQuery = [=]() {
     return QUERY_OP_CONSTRAINTS(
         ::ttnn::transformer::paged_flash_multi_latent_attention_decode, device,
         querySpec, keySpec, valueSpec, headDimV, pageTableSpec, isCausal,
         attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
         /*slidingWindowSize=*/std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout), programConfig,
         /*compute_kernel_config=*/std::nullopt);
   };
 
@@ -3035,14 +3049,16 @@ OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpRuntime(
   std::optional<float> scaleFloat =
       scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
 
+  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+      programConfig = getPagedFlashMlaDecodeProgramConfig(device);
+
   auto pagedFlashMlaDecodeOpQuery = [=]() {
     return QUERY_OP_RUNTIME(
         ::ttnn::transformer::paged_flash_multi_latent_attention_decode, device,
         querySpec, keySpec, valueSpec, headDimV, pageTableSpec, isCausal,
         attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
         /*slidingWindowSize=*/std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout), programConfig,
         /*compute_kernel_config=*/std::nullopt);
   };
 
