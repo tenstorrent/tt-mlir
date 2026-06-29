@@ -2338,12 +2338,13 @@ _MLA_MASK_UNSUPPORTED = pytest.mark.xfail(
     ],
     ids=["mha", "mla_collapse", "gqa_head_dim_equal_qk"],
 )
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
 def test_flash_mla_prefill_causal_no_value(
     shapes: List[Shape],
     head_dim_v: int,
     scale: float,
     target: str,
+    device,
     request,
 ):
     dtypes = [torch.bfloat16] * len(shapes)
@@ -2369,7 +2370,7 @@ def test_flash_mla_prefill_causal_no_value(
         module,
         **get_request_kwargs(request),
         target=target,
-        device=DeferredDevice(request),
+        device=DeferredDevice(request) if target not in ("emitpy", "emitc") else device,
         ttir_pipeline_options=["composite-resolution=force-promote"],
         save_artifacts=True,
     )
@@ -2388,12 +2389,13 @@ def test_flash_mla_prefill_causal_no_value(
     ],
     ids=["mha_with_value", "gqa_with_value"],
 )
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
 def test_flash_mla_prefill_causal_with_value(
     shapes: List[Shape],
     head_dim_v: int,
     scale: float,
     target: str,
+    device,
     request,
 ):
     dtypes = [torch.bfloat16] * len(shapes)
@@ -2421,7 +2423,7 @@ def test_flash_mla_prefill_causal_with_value(
         module,
         **get_request_kwargs(request),
         target=target,
-        device=DeferredDevice(request),
+        device=DeferredDevice(request) if target not in ("emitpy", "emitc") else device,
         ttir_pipeline_options=["composite-resolution=force-promote"],
         save_artifacts=True,
     )
@@ -2443,7 +2445,7 @@ def test_flash_mla_prefill_causal_with_value(
     ],
     ids=["mask_broadcast_batch_and_heads", "mask_per_batch", "mask_per_head"],
 )
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
 @_MLA_MASK_UNSUPPORTED
 def test_flash_mla_prefill_with_mask(
     shapes: List[Shape],
@@ -2451,6 +2453,7 @@ def test_flash_mla_prefill_with_mask(
     head_dim_v: int,
     scale: float,
     target: str,
+    device,
     request,
 ):
     all_shapes = shapes + [mask_shape]
@@ -2479,7 +2482,7 @@ def test_flash_mla_prefill_with_mask(
         module,
         **get_request_kwargs(request),
         target=target,
-        device=DeferredDevice(request),
+        device=DeferredDevice(request) if target not in ("emitpy", "emitc") else device,
         ttir_pipeline_options=["composite-resolution=force-promote"],
         save_artifacts=True,
     )
@@ -2500,13 +2503,14 @@ def test_flash_mla_prefill_with_mask(
     ],
     ids=["mla_value_mask_scale_b2", "mla_value_mask_scale_b1"],
 )
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
 @_MLA_MASK_UNSUPPORTED
 def test_flash_mla_prefill_value_mask_scale(
     shapes: List[Shape],
     head_dim_v: int,
     scale: float,
     target: str,
+    device,
     request,
 ):
     dtypes = [torch.bfloat16] * len(shapes)
@@ -2536,7 +2540,7 @@ def test_flash_mla_prefill_value_mask_scale(
         module,
         **get_request_kwargs(request),
         target=target,
-        device=DeferredDevice(request),
+        device=DeferredDevice(request) if target not in ("emitpy", "emitc") else device,
         ttir_pipeline_options=["composite-resolution=force-promote"],
         save_artifacts=True,
     )
