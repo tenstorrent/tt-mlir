@@ -38,6 +38,13 @@ torch.manual_seed(0)
         pytest.param((32, 1024), 64, -1, id="32x1024_k64_dim1"),
         pytest.param((1024, 32), 16, 0, id="1024x32_k16_dim0"),
         pytest.param((1024, 32), 64, 0, id="1024x32_k64_dim0"),
+        # Non-power-of-2 tile counts
+        pytest.param((32, 96), 16, -1, id="32x96_k16_dim1"),
+        pytest.param((32, 1024), 64, -1, id="32x1024_k64_dim1"),
+        pytest.param((32, 192), 16, -1, id="32x192_k16_dim1"),
+        pytest.param((96, 32), 16, 0, id="96x32_k16_dim0"),
+        pytest.param((544, 32), 16, 0, id="544x32_k16_dim0"),
+        pytest.param((32, 1536), 32, 1, id="32x1536_k32_dim1"),
     ],
 )
 def test_topk(shape, k, dim, target, request, device):
@@ -133,6 +140,13 @@ def _build_tile_distribution_input(
         pytest.param((32, 1024), 64, -1, id="32x1024_k64_dim1"),
         pytest.param((1024, 32), 16, 0, id="1024x32_k16_dim0"),
         pytest.param((1024, 32), 64, 0, id="1024x32_k64_dim0"),
+        # Non-power-of-2 tile counts (ragged), k<=32. The strided/last_tiles
+        # patterns stress odd-tail propagation and carried-tile correctness.
+        pytest.param((32, 96), 16, -1, id="32x96_k16_dim1"),  # 3 tiles, odd
+        pytest.param((32, 192), 16, -1, id="32x192_k16_dim1"),  # 6 tiles, even
+        pytest.param((32, 1013), 64, -1, id="32x1013_k64_dim1"),  # 36 tiles, even
+        pytest.param((96, 32), 16, 0, id="96x32_k16_dim0"),  # 3 tiles, odd
+        pytest.param((544, 32), 16, 0, id="544x32_k16_dim0"),  # 17 tiles, odd
     ],
 )
 def test_topk_tile_distribution(shape, k, dim, pattern, target, request, device):

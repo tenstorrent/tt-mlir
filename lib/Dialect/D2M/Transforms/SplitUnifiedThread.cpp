@@ -689,13 +689,6 @@ static void collectOpsToErase(Block *block, DenseSet<Operation *> &eraseSet,
       collectOpsToErase(forOp.getBody(), eraseSet, isDatamovementThread);
       continue;
     }
-    if (auto ifOp = dyn_cast<scf::IfOp>(&op)) {
-      collectOpsToErase(ifOp.thenBlock(), eraseSet, isDatamovementThread);
-      if (Block *elseBlock = ifOp.elseBlock()) {
-        collectOpsToErase(elseBlock, eraseSet, isDatamovementThread);
-      }
-      continue;
-    }
 
     bool isDMAOp = isa<ShardDMAOpInterface, DeviceSynchronizeOp>(&op);
     bool isReplicated = isa<SemaphoreWaitOp>(&op);

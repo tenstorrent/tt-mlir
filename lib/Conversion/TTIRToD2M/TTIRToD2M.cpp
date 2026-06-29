@@ -3737,16 +3737,64 @@ public:
           op,
           "D2M topk requires at least 2 tiles along the reduction dimension");
     }
-    auto isPowerOfTwo = [](int64_t x) { return x > 0 && (x & (x - 1)) == 0; };
-    if (!isPowerOfTwo(numReductionTiles)) {
-      return rewriter.notifyMatchFailure(
-          op, "D2M topk requires reduction dim tile count to be a power of 2");
+    // For k>32, the reduction dim is padded to a power-of-2 tile count, so
+    // lastStride must use the padded count (not numReductionTiles/2).
+    int64_t nextPow2;
+    if (numReductionTiles <= 0 ||
+        (numReductionTiles & (numReductionTiles - 1)) == 0) {
+      nextPow2 = numReductionTiles;
+    } else {
+      int64_t p = 1;
+      while (p < numReductionTiles) {
+        p <<= 1;
+      }
+      nextPow2 = p;
     }
-    // After the merge tree, the top-k result occupies tile 0 (winner) and,
-    // for k>32, tile numReductionTiles/2 (the last loser tile, which holds the
-    // second half of the top-k). The lastStride variable stores the index of
-    // that second tile.
-    int64_t lastStride = numReductionTiles / 2;
+    int64_t paddedNumReductionTiles = (k > 32) ? nextPow2 : numReductionTiles;
+    int64_t lastStride = paddedNumReductionTiles / 2;
+
+    // For large-k with a non-pow2 tile count, pad the logical input shape to
+    // paddedNumReductionTiles*32 so GridSelection derives the correct tile
+    // count, then mask the padding region with -inf so those tiles are never
+    // top-k.
+    if (paddedNumReductionTiles != numReductionTiles) {
+      constexpr int64_t kTileDim = 32;
+      int64_t paddedDimElems = paddedNumReductionTiles * kTileDim;
+
+      // Build a padded logical type with the reduction dim grown to
+      // paddedDimElems.
+      SmallVector<int64_t> paddedLogicalShape(inputType.getShape().begin(),
+                                              inputType.getShape().end());
+      paddedLogicalShape[dim] = paddedDimElems;
+      auto paddedLogicalType =
+          RankedTensorType::get(paddedLogicalShape, inputType.getElementType());
+
+      Value paddedLayouted = createOptimalLayoutOp(
+          adaptor.getInputTensor(), memorySpaces[0], /*tiled=*/true,
+          /*noCollapse=*/false, rewriter, ttcore::OOBVal::Undef,
+          paddedLogicalType);
+
+      // Mask with the real logical shape so padding cols/rows get -inf.
+      auto paddedLayoutedType =
+          cast<RankedTensorType>(paddedLayouted.getType());
+      auto maskOutput =
+          rewriter.create<d2m::EmptyOp>(loc, paddedLayoutedType.getShape(),
+                                        paddedLayoutedType.getElementType(),
+                                        paddedLayoutedType.getEncoding());
+      SmallVector<int64_t> realLogicalShape(inputType.getShape().begin(),
+                                            inputType.getShape().end());
+      paddedLayouted =
+          rewriter
+              .create<d2m::MaskOp>(loc, paddedLayouted, maskOutput,
+                                   realLogicalShape, ttcore::OOBVal::NegInf)
+              .getResult();
+
+      layoutedInput = paddedLayouted;
+      layoutedType = cast<RankedTensorType>(layoutedInput.getType());
+      metalLayout = cast<ttcore::MetalLayoutAttr>(layoutedType.getEncoding());
+      deviceShape = layoutedType.getShape();
+      numReductionTiles = paddedNumReductionTiles;
+    }
 
     Type si32Type = IntegerType::get(ctx, 32, IntegerType::Signed);
     auto si32TileType = ttcore::TileType::get(si32Type, f32TileType.getShape());
