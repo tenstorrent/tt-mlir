@@ -806,5 +806,18 @@ void registerRuntimeBindings(nb::module_ &m) {
         tt::runtime::walkProgram(binary, program_index, cb);
       },
       nb::arg("binary"), nb::arg("program_index"), nb::arg("cb"));
+
+  m.def("begin_graph_capture", &tt::runtime::beginGraphCapture,
+        nb::arg("normal_mode") = true,
+        "Begin TTNN graph capture for the ttnn-visualizer. "
+        "When normal_mode is True (default), real device execution occurs "
+        "(RunMode::NORMAL). When False, simulated execution without dispatch "
+        "(RunMode::NO_DISPATCH).");
+  m.def("end_graph_capture_to_file", &tt::runtime::endGraphCaptureToFile,
+        nb::arg("file_path"),
+        "End TTNN graph capture and write the captured graph JSON report to "
+        "file_path. The report can then be imported into a visualizer "
+        "database with: python -m ttnn.graph_report <report.json> "
+        "<output_dir>/");
 }
 } // namespace tt::runtime::python
