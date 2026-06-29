@@ -222,8 +222,16 @@ OutputHints ReshapeRuleBook::getOutputHints(
     // upgrading DRAM→L1 and breaking the zero-cost view path.
     return layout_filter_utils::nullHintOnly();
   }
-  // Non-view reshape: sharded output not beneficial, use non-sharded configs.
-  return layout_filter_utils::nonShardedOutputHints(legalConfigs);
+  // Non-view reshape: block/height-sharded outputs are supported natively by
+  // tt-metal's tiled reshape program factory (ReshapeViewTiledProgramFactory),
+  // which operates at tile-address granularity and recomputes the output shard
+  // spec via recompute_shard_spec_for_output. Only width-sharded outputs are
+  // unsupported natively (reshape_tiled round-trips them through interleaved),
+  // so exclude only those. Preserving block-sharded layouts through reshape
+  // avoids unnecessary demotion to interleaved for downstream sharded kernels.
+  // See https://github.com/tenstorrent/tt-mlir/issues/8020 and tt-metal
+  // PRs #42770, #42904.
+  return layout_filter_utils::nonWidthShardedOutputHints(legalConfigs);
 }
 
 //===----------------------------------------------------------------------===//

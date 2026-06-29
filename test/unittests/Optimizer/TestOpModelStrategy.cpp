@@ -87,6 +87,20 @@ public:
                              TensorMemoryLayout::HeightSharded, gridShape);
   }
 
+  TTNNLayoutAttr
+  createL1WidthShardedLayout(const llvm::ArrayRef<int64_t> &tensorShape,
+                             const llvm::ArrayRef<int64_t> &gridShape = {1, 8}) {
+    return createTiledLayout(tensorShape, BufferType::L1,
+                             TensorMemoryLayout::WidthSharded, gridShape);
+  }
+
+  TTNNLayoutAttr
+  createL1BlockShardedLayout(const llvm::ArrayRef<int64_t> &tensorShape,
+                             const llvm::ArrayRef<int64_t> &gridShape = {8, 8}) {
+    return createTiledLayout(tensorShape, BufferType::L1,
+                             TensorMemoryLayout::BlockSharded, gridShape);
+  }
+
   // Create a simple AddOp for testing.
   AddOp createMockAddOp(const llvm::ArrayRef<int64_t> &inputShape = {1, 1, 32,
                                                                      32}) {
@@ -248,6 +262,46 @@ TEST_F(OpModelStrategyTest, ReshapeOpSkipsL1Sharding) {
           isShardedMemoryLayout(hint.outputLayout.getMemLayout().getValue()));
     }
   }
+}
+
+TEST_F(OpModelStrategyTest, ReshapeNonViewKeepsBlockAndHeightShardedDropsWidth) {
+  // Last dim changes (32 -> 64), so canReshapeBeView is false: this exercises
+  // the non-view path, which should keep interleaved + block/height-sharded
+  // outputs and drop only width-sharded (issue #8020).
+  // Output: 8 tiles tall, 4 tiles wide -> grids divide cleanly. Last dim
+  // changes (256 -> 128), so this is a non-view reshape.
+  llvm::SmallVector<int64_t> inputShape = {1, 1, 128, 256};
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 256, 128};
+  auto reshapeOp = createMockReshapeOp(inputShape, outputShape);
+
+  std::vector<OpConfig> legalConfigs;
+  legalConfigs.emplace_back(createDRAMInterleavedLayout(outputShape));
+  legalConfigs.emplace_back(createL1InterleavedLayout(outputShape));
+  legalConfigs.emplace_back(
+      createL1ShardedLayout(outputShape, {8, 1})); // height [M, 1]
+  legalConfigs.emplace_back(
+      createL1BlockShardedLayout(outputShape, {8, 4})); // block [M, N]
+  legalConfigs.emplace_back(
+      createL1WidthShardedLayout(outputShape, {1, 4})); // width [1, N]
+
+  OutputHints hints = getOutputHints(reshapeOp, legalConfigs);
+
+  bool sawBlockSharded = false;
+  bool sawHeightSharded = false;
+  for (const auto &hint : hints.hints) {
+    if (!hint.outputLayout || !hint.outputLayout.getMemLayout()) {
+      continue;
+    }
+    auto memLayout = hint.outputLayout.getMemLayout().getValue();
+    // Width-sharded must be filtered out.
+    EXPECT_NE(memLayout, TensorMemoryLayout::WidthSharded);
+    sawBlockSharded |= (memLayout == TensorMemoryLayout::BlockSharded);
+    sawHeightSharded |= (memLayout == TensorMemoryLayout::HeightSharded);
+  }
+
+  // Block- and height-sharded outputs are preserved (supported natively).
+  EXPECT_TRUE(sawBlockSharded);
+  EXPECT_TRUE(sawHeightSharded);
 }
 
 TEST_F(OpModelStrategyTest, UnknownOpUsesDefaultStrategy) {
