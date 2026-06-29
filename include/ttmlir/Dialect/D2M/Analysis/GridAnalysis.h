@@ -26,8 +26,27 @@ struct CompositeInputGridInfo {
 /// Per-operand analysis result describing the chosen grid for a GenericOp
 /// operand. The concrete update strategy is recovered at apply time from the
 /// operand's defining op.
+///
+/// Note: `operand` is the value captured during analysis, before any IR
+/// mutation. It is only safe to dereference during analysis. At apply time,
+/// earlier generics may have rewritten/erased producer ops, so the cached
+/// `operand`'s defining op can dangle. Apply-time code must resolve the live
+/// operand via `getLiveOperand()`, which reads it back from `owner` by index.
 struct OperandGridInfo {
   Value operand;
+  // The generic this operand belongs to, plus the operand index within
+  // `owner.getInputsAndOutputs()`. Used to re-fetch the live operand at apply
+  // time after upstream rewrites (replaceAllUsesWith) have updated it in place.
+  GenericOp owner;
+  unsigned operandIndex = 0;
+
+  // Re-fetch the current operand value from the owning generic. Safe to call
+  // after IR mutation; `operand` is not.
+  Value getLiveOperand() const {
+    GenericOp op = owner;
+    return op.getOperand(operandIndex);
+  }
+
   llvm::SmallVector<int64_t> selectedGrid;
   llvm::SmallVector<int64_t> targetGrid;
 

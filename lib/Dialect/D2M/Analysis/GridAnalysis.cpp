@@ -465,6 +465,8 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
 
     OperandGridInfo info;
     info.operand = operand;
+    info.owner = genericOp;
+    info.operandIndex = operandIndex;
     info.selectedGrid = optimalGrid; // Will be updated after normalization.
     info.targetGrid = perOperandTargetGrids[operandIndex];
 
