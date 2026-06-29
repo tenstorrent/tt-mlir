@@ -4,7 +4,11 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/OpRuleBook.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/Roofline.h"
+
+#include "llvm/ADT/TypeSwitch.h"
 
 namespace mlir::tt::ttnn {
 
@@ -64,6 +68,17 @@ scoreCandidate(Operation *op, const OpConfig &config,
   LayoutScore score;
   score.requiresReshard = requiresReshard;
   score.outputL1Usage = result.outputL1Usage;
+
+  // Matmul compute work (tile-multiplies), layout-independent. Lets the
+  // analytical-time cost model price the compute roofline so it does not trade
+  // away matmul parallelism. 0 for non-matmul ops.
+  score.tileMuls =
+      llvm::TypeSwitch<Operation *, uint64_t>(op)
+          .Case<MatmulOp, LinearOp>([](auto m) {
+            return roofline::getNumTileMatmuls(m.getA(), m.getResult(),
+                                               m.getTransposeA());
+          })
+          .Default(uint64_t{0});
 
   TTNNLayoutAttr layout = result.getFirstActualOutputLayout();
   if (!layout) {

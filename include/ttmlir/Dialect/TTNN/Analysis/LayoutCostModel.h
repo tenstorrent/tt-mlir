@@ -6,6 +6,7 @@
 #define TTMLIR_DIALECT_TTNN_ANALYSIS_LAYOUTCOSTMODEL_H
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpModelStrategy.h"
+#include "ttmlir/Dialect/TTNN/Utils/Roofline.h"
 
 #include "mlir/IR/Operation.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -51,8 +52,11 @@ public:
                       const BeamCandidate &b) const = 0;
 };
 
-/// Create the cost model for the given kind.
-std::unique_ptr<LayoutCostModel> createLayoutCostModel(LayoutCostModelKind kind);
+/// Create the cost model for the given kind. `hwSpec` supplies the hardware
+/// constants the AnalyticalTime model needs for its real-time roofline (ignored
+/// by the Heuristic model).
+std::unique_ptr<LayoutCostModel>
+createLayoutCostModel(LayoutCostModelKind kind, roofline::HwSpec hwSpec);
 
 } // namespace mlir::tt::ttnn
 

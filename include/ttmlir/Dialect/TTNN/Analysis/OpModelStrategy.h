@@ -76,6 +76,12 @@ struct LayoutScore {
   /// of the heuristic ordering (`operator>`/`operator==`).
   uint64_t outputBytes = 0;
 
+  /// Matmul compute work in 32x32x32 tile-multiplies (0 for non-matmul ops).
+  /// Lets the analytical-time model add a compute roofline term so it does not
+  /// trade away matmul parallelism for fewer reshards. Layout-independent (same
+  /// for every candidate of an op); not part of the heuristic ordering.
+  uint64_t tileMuls = 0;
+
   /// Higher score is better.
   bool operator>(const LayoutScore &other) const;
   bool operator==(const LayoutScore &other) const;

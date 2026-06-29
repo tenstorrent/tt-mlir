@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Utils/Roofline.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Support/Logger.h"
@@ -88,10 +89,8 @@ struct AggregatedMetrics {
 inline bool isValidWeightForTargetCalculation(mlir::Value v);
 bool constEvalDoesNotChangeTensorVolume(ttcore::LoadCachedOp loadCachedOp);
 uint64_t bytesAtBfp8(RankedTensorType t);
-uint64_t getNumTileMatmuls(Value lhs, Value result, bool transposeA);
 
-// Tile dimensions used to round matmul / SDPA dims up to whole 32x32 tiles.
-constexpr int64_t kTileHeight = ttcore::TileType::getDefaultShape()[0];
+// Tile width used to round matmul / SDPA dims up to whole 32-wide tiles.
 constexpr int64_t kTileWidth = ttcore::TileType::getDefaultShape()[1];
 
 // Round `x` up to a whole number of tiles along a 32-wide dimension.
@@ -197,8 +196,8 @@ struct PerfTargets {
           llvm::TypeSwitch<Operation *, bool>(op)
               .Case<MatmulOp, LinearOp>([&](auto m) {
                 weights = {m.getB()};
-                tileMuls = getNumTileMatmuls(m.getA(), m.getResult(),
-                                             m.getTransposeA());
+                tileMuls = roofline::getNumTileMatmuls(m.getA(), m.getResult(),
+                                                       m.getTransposeA());
                 return true;
               })
               .Case<ScaledDotProductAttentionDecodeOp,
@@ -455,35 +454,8 @@ uint64_t bytesAtBfp8(RankedTensorType t) {
       static_cast<double>(t.getNumElements()) * 17.0 / 16.0 + 0.5);
 }
 
-uint64_t getNumTileMatmuls(Value lhs, Value result, bool transposeA) {
-  ArrayRef<int64_t> lhsShape =
-      mlir::cast<RankedTensorType>(lhs.getType()).getShape();
-  ArrayRef<int64_t> resultShape =
-      mlir::cast<RankedTensorType>(result.getType()).getShape();
-
-  // Both operands must be at least rank 2 to extract M/K/N.
-  if (lhsShape.size() < 2 || resultShape.size() < 2) {
-    return 0;
-  }
-
-  int64_t M = resultShape[resultShape.size() - 2];
-  // The contraction dim K is the last dim of A, unless A is transposed, in
-  // which case it is the second-to-last dim.
-  int64_t K = transposeA ? lhsShape[lhsShape.size() - 2]
-                         : lhsShape[lhsShape.size() - 1];
-  int64_t N = resultShape[resultShape.size() - 1];
-  int64_t batch = 1;
-  for (size_t i = 0; i < resultShape.size() - 2; i++) {
-    batch *= resultShape[i];
-  }
-
-  // Tilize M, K, N
-  int64_t tilesM = (M + kTileHeight - 1) / kTileHeight;
-  int64_t tilesK = (K + kTileWidth - 1) / kTileWidth;
-  int64_t tilesN = (N + kTileWidth - 1) / kTileWidth;
-
-  return static_cast<uint64_t>(batch) * tilesM * tilesK * tilesN;
-}
+// getNumTileMatmuls moved to TTNN/Utils/Roofline.h (shared with the
+// analytical-time layout cost model).
 
 class TTNNCollectPerfMetrics
     : public impl::TTNNCollectPerfMetricsBase<TTNNCollectPerfMetrics> {
@@ -599,24 +571,17 @@ private:
     for (int64_t d : chipDesc.getGrid()) {
       t.numTensixCores *= static_cast<uint64_t>(d);
     }
-    // HiFi2 = 32 cycles / 32x32x32 tile-mul. Same on WH and BH per
-    // tech_reports/matrix_engine/matrix_engine.md.
-    t.cyclesPerTileMatmul = 32;
-    switch (t.arch) {
-    case ttcore::Arch::WormholeB0:
-      t.dramBandwidthBytesPerSec = 288ULL * 1000ULL * 1000ULL * 1000ULL;
-      t.aiclkHz = 1000ULL * 1000ULL * 1000ULL; // 1.0 GHz
-      return success();
-    case ttcore::Arch::Blackhole:
-      t.dramBandwidthBytesPerSec = 512ULL * 1000ULL * 1000ULL * 1000ULL;
-      t.aiclkHz = 1350ULL * 1000ULL * 1000ULL; // 1.35 GHz
-      return success();
-    case ttcore::Arch::Quasar:
+    std::optional<roofline::HwSpec> spec = roofline::getHwSpec(t.arch);
+    if (!spec) {
       return module.emitError()
              << "TTNNCollectPerfMetrics: perf target estimate not calibrated "
-                "for arch 'quasar'.";
+                "for arch '"
+             << ttcore::stringifyArch(t.arch) << "'.";
     }
-    llvm_unreachable("unknown ttcore::Arch value");
+    t.dramBandwidthBytesPerSec = spec->dramBandwidthBytesPerSec;
+    t.aiclkHz = spec->aiclkHz;
+    t.cyclesPerTileMatmul = spec->cyclesPerTileMatmul;
+    return success();
   }
 
   FailureOr<PerfTargets> computePerfTargets(ModuleOp module) {

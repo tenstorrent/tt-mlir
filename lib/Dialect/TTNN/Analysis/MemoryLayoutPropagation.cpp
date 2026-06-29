@@ -32,6 +32,26 @@
 
 namespace mlir::tt::ttnn {
 
+// Hardware roofline constants for the function's target arch, for the
+// analytical-time cost model. Falls back to Blackhole constants if the system
+// desc is missing or the arch is uncalibrated (the model is opt-in and only
+// WH/BH are calibrated today; the heuristic default never reaches here).
+static roofline::HwSpec getHwSpecForFunc(func::FuncOp func) {
+  if (auto module = func->getParentOfType<ModuleOp>()) {
+    if (auto sysDesc = module->getAttrOfType<ttcore::SystemDescAttr>(
+            ttcore::SystemDescAttr::name)) {
+      auto chipDescs = sysDesc.getChipDescs();
+      if (!chipDescs.empty()) {
+        if (auto spec =
+                roofline::getHwSpec(chipDescs[0].getArch().getValue())) {
+          return *spec;
+        }
+      }
+    }
+  }
+  return roofline::getHwSpec(ttcore::Arch::Blackhole).value();
+}
+
 MemoryLayoutPropagation::MemoryLayoutPropagation(
     func::FuncOp func,
     const llvm::DenseMap<Operation *, std::vector<OpConfig>> &legalConfigs,
@@ -53,7 +73,7 @@ MemoryLayoutPropagation::MemoryLayoutPropagation(
   // Cost model selects the beam objective (local heuristic by default; the
   // analytical-time model is selected via the layout-cost-model pipeline
   // option). Every candidate comparison funnels through it.
-  costModel = createLayoutCostModel(costModelKind);
+  costModel = createLayoutCostModel(costModelKind, getHwSpecForFunc(func));
 }
 
 MemoryLayoutPropagation::~MemoryLayoutPropagation() = default;
