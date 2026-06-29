@@ -5081,7 +5081,8 @@ public:
                          "ops.");
       auto flattenedIndices = flattenStartIndices(
           rewriter, inputPermuted.getType().getShape(), srcOp.getOperand(),
-          startIndices, originalStartIndexMap, indexVectorDim);
+          startIndices, originalStartIndexMap, /*flattenedIndexedDims=*/
+          startIndexMap, indexVectorDim);
       startIndices = mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(
           flattenedIndices.getResult());
     } else if (originalStartIndexMap.size() != numIndexingDims) {
@@ -5183,11 +5184,17 @@ public:
   // - then we add matmul to transform the indices
   // Example: indexingDimsSizes = [3, 5], startIndices[...] = (i, j) ->
   // startIndices[...] = 5 * i + j (because reshaped indexingDimSize is 15)
+  //
+  // `flattenedIndexedDims` are the operand dims actually flattened into the
+  // embedding row space (info.startIndexMap); it can differ from startIndexMap
+  // (permute/dropped dims) and the strides are derived from it -- see below.
   static ttir::MatmulOp
   flattenStartIndices(ConversionPatternRewriter &rewriter,
                       ArrayRef<int64_t> inputShape, Value originalOperand,
                       mlir::TypedValue<mlir::RankedTensorType> startIndices,
-                      ArrayRef<int64_t> startIndexMap, int64_t indexVectorDim) {
+                      ArrayRef<int64_t> startIndexMap,
+                      ArrayRef<int64_t> flattenedIndexedDims,
+                      int64_t indexVectorDim) {
     auto startIndicesType = startIndices.getType();
     auto numIndexingDims = startIndexMap.size();
     auto *ctx = rewriter.getContext();
@@ -5218,12 +5225,20 @@ public:
                                             "_typecast"),
         typecastResultType, startIndicesPermuted);
 
-    // Const op with correct strides to matmul indices with.
-    llvm::SmallVector<float> strides(numIndexingDims);
-    int dimensionOffset = 1;
-    for (int i = numIndexingDims - 1; i >= 0; i--) {
-      strides[i] = dimensionOffset;
-      dimensionOffset *= inputShape[i];
+    // Look up each component's stride by its ORIGINAL operand dim, not by
+    // position (permuteInput may reorder), and leave dropped dims at stride 0.
+    // Getting either wrong silently corrupts the gather. The flattened dims
+    // lead inputShape, so computeStrides of that block gives their strides.
+    size_t numFlattened = flattenedIndexedDims.size();
+    llvm::SmallVector<int64_t> strideForFlattenedDim =
+        mlir::computeStrides(inputShape.take_front(numFlattened));
+    llvm::SmallVector<float> strides(numIndexingDims, 0.0f);
+    for (size_t j = 0; j < numIndexingDims; ++j) {
+      const auto *it = llvm::find(flattenedIndexedDims, startIndexMap[j]);
+      if (it != flattenedIndexedDims.end()) {
+        strides[j] = static_cast<float>(
+            strideForFlattenedDim[it - flattenedIndexedDims.begin()]);
+      }
     }
     auto tensorType = mlir::RankedTensorType::get(
         {static_cast<long>(numIndexingDims), 1}, mlir::Float32Type::get(ctx));
@@ -6269,7 +6284,8 @@ public:
     auto flattenedIndices =
         StableHLOGatherToEmbeddingPattern::flattenStartIndices(
             rewriter, inputPermuted.getType().getShape(), srcOp.getOperand(),
-            startIndices, partialDims, indexVectorDim);
+            startIndices, partialDims, /*flattenedIndexedDims=*/partialDims,
+            indexVectorDim);
     auto reshapedIndices =
         StableHLOGatherToEmbeddingPattern::reshapeStartIndices(
             rewriter,
