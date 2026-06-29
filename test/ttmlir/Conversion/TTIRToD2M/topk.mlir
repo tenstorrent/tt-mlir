@@ -146,4 +146,29 @@ module {
     %values, %indices = "ttir.topk"(%arg0) <{k = 16 : i32, dim = 0 : i32, largest = true, sorted = false}> : (tensor<64x32xf32>) -> (tensor<16x32xf32>, tensor<16x32xsi32>)
     return %values, %indices : tensor<16x32xf32>, tensor<16x32xsi32>
   }
+
+  // ---- Non-power-of-2 tile counts (ragged), k<=32 ----
+
+  // 32x544 with k=16: Wt=17 (non-pow2) now converts successfully.
+  // CHECK-LABEL: func @topk_dim1_k16_nonpow2
+  func.func @topk_dim1_k16_nonpow2(%arg0: tensor<32x544xf32>) -> (tensor<32x16xf32>, tensor<32x16xsi32>) {
+    // Pre-transpose and topk_block emit normally.
+    // CHECK: d2m.generic
+    // CHECK: d2m.tile_transpose
+    // CHECK: d2m.generic
+    // CHECK: d2m.topk_block
+    // CHECK-SAME: k = 16
+    // CHECK-SAME: num_elements = 544
+    // CHECK: d2m.generic
+    // CHECK: d2m.tile_transpose
+    // CHECK: d2m.generic
+    // CHECK: d2m.tile_transpose
+    %values, %indices = "ttir.topk"(%arg0) <{k = 16 : i32, dim = -1 : i32, largest = true, sorted = false}> : (tensor<32x544xf32>) -> (tensor<32x16xf32>, tensor<32x16xsi32>)
+    return %values, %indices : tensor<32x16xf32>, tensor<32x16xsi32>
+  }
+
+  // Note: k>32 with non-pow2 reduction tiles is still rejected by the gate
+  // ("D2M topk requires a power-of-2 reduction tile count when k > 32").
+  // That negative case is not exercised here to avoid an unconverted op in the
+  // output; it can be tested via a separate -verify-diagnostics run.
 }

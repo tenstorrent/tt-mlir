@@ -1106,15 +1106,6 @@ def D2M_TileTopkLocalSortOp : D2M_GenericRegionComputeOp<"tile_topk_local_sort",
       MutableOperandRange getDpsInitsMutable() {
         return MutableOperandRange(getOperation(), 2, 2);
       }
-
-      bool isProducer(mlir::OpOperand &operand) {
-        return &getOutValuesMutable() == &operand ||
-               &getOutIndicesMutable() == &operand;
-      }
-      bool isConsumer(mlir::OpOperand &operand) {
-        return &getValuesMutable() == &operand ||
-               &getIndicesMutable() == &operand;
-      }
     }];
 
     let hasVerifier = 1;
@@ -1143,15 +1134,6 @@ def D2M_TileTopkMergeOp : D2M_GenericRegionComputeOp<"tile_topk_merge",
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() {
         return MutableOperandRange(getOperation(), 2, 2);
-      }
-
-      bool isProducer(mlir::OpOperand &operand) {
-        return &getOutValuesMutable() == &operand ||
-               &getOutIndicesMutable() == &operand;
-      }
-      bool isConsumer(mlir::OpOperand &operand) {
-        return &getValuesMutable() == &operand ||
-               &getIndicesMutable() == &operand;
       }
     }];
 
@@ -1184,15 +1166,6 @@ def D2M_TileTopkRebuildOp : D2M_GenericRegionComputeOp<"tile_topk_rebuild",
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() {
         return MutableOperandRange(getOperation(), 2, 2);
-      }
-
-      bool isProducer(mlir::OpOperand &operand) {
-        return &getOutValuesMutable() == &operand ||
-               &getOutIndicesMutable() == &operand;
-      }
-      bool isConsumer(mlir::OpOperand &operand) {
-        return &getValuesMutable() == &operand ||
-               &getIndicesMutable() == &operand;
       }
     }];
 
