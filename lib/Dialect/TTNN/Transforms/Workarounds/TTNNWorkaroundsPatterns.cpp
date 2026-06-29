@@ -779,5 +779,13 @@ const std::set<mlir::StringRef>
         // index/param tensors, UINT32 dtype on k, and ROW_MAJOR+UINT32 on
         // the result (the kernel hard-rejects anything else and produces
         // UINT32).
-        ttnn::SamplingOp::getOperationName()};
+        ttnn::SamplingOp::getOperationName(),
+        // MoE expert-parallel ops need ROW_MAJOR operands at opt_level>=1
+        // (all_to_all CCLs / moe_expert_token_remap / sparse_matmul); otherwise
+        // the runtime ROW_MAJOR assertion trips. Prerequisite for GLM opt1.
+        ttnn::AllToAllDispatchOp::getOperationName(),
+        ttnn::AllToAllDispatchMetadataOp::getOperationName(),
+        ttnn::AllToAllCombineOp::getOperationName(),
+        ttnn::MoeExpertTokenRemapOp::getOperationName(),
+        ttnn::SparseMatmulOp::getOperationName()};
 } // namespace mlir::tt::ttnn
