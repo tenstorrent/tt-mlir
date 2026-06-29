@@ -39,6 +39,7 @@ dim_arg_options = [
     [0],
     [2],
     [1, 2],
+    [-1],
     None,
 ]
 
@@ -163,6 +164,12 @@ def test_reduction_cpu_hoisted_ops(
     )
 
 
+cumulative_op_names = [
+    "cumsum",
+    "cumprod",
+]
+
+
 @pytest.mark.parametrize(
     "shapes, dim",
     [
@@ -172,18 +179,34 @@ def test_reduction_cpu_hoisted_ops(
         pytest.param([(4, 128)], 0, id="rank2_dim0"),
         pytest.param([(4, 4, 128)], 1, id="rank3_dim1"),
         pytest.param([(4, 4, 128)], 2, id="rank3_dim2"),
+        pytest.param([(4, 4, 128, 128)], -1, id="rank4_negdim"),
     ],
 )
-@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
-def test_cumsum(shapes: List[Shape], dim: int, request, target, device):
+@pytest.mark.parametrize("cumulative_op_name", cumulative_op_names)
+@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+def test_cumulative_ops(
+    shapes: List[Shape],
+    dim: int,
+    cumulative_op_name: str,
+    target: str,
+    request,
+    device,
+):
     def module(builder: TTIRBuilder):
         @builder.func(shapes, [torch.float32] * len(shapes))
-        def cumsum(
+        def cumulative_op_wrapper(
             in0: Operand,
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            return builder.cumsum(in0, dim=dim, unit_attrs=unit_attrs)
+            cumulative_op_builder_map = {
+                "cumsum": builder.cumsum,
+                "cumprod": builder.cumprod,
+            }
+
+            cumulative_func = cumulative_op_builder_map.get(cumulative_op_name)
+
+            return cumulative_func(in0, dim=dim, unit_attrs=unit_attrs)
 
     compile_and_execute_ttir(
         module,

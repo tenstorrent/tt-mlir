@@ -2286,6 +2286,9 @@ public:
         emitter.emit(srcOp.getIndex(), "index"),
         emitter.emit(srcOp.getSource(), "src"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
+        emitter.emit(ttnn_to_emitpy::reduceTypeToScatterString(
+                         srcOp.getScatterReduceType()),
+                     "reduce"),
     };
 
     emitter.replaceOp(*this, args);

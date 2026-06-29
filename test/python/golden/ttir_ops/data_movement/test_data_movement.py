@@ -624,8 +624,13 @@ def test_typecast(
         ((32,), (300,), 0),
         ((512,), (284,), 0),
         ((32, 64), (4, 64), 0),
+        # Negative dim: validates the signed SI32Attr dim end-to-end. Kept on the
+        # ttnn target only — scatter's emitpy/emitc execution has a pre-existing
+        # accuracy gap (fails for positive dims too); negative-dim *emission* is
+        # covered hermetically by test/ttmlir/Emit{C,Py}/TTNN/negative_dim.mlir.
+        ((32, 64), (32, 16), -1),
     ],
-    ids=["1d_small", "1d_index300", "1d_index284", "2d_dim0"],
+    ids=["1d_small", "1d_index300", "1d_index284", "2d_dim0", "2d_negdim"],
 )
 @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
 @pytest.mark.parametrize("target", ["ttnn"])

@@ -3003,8 +3003,9 @@ def test_presharded_arg(target, mesh_shape, request, device):
     [
         ((32, 64), (32, 16), 1),
         ((64, 32), (16, 32), 0),
+        ((32, 64), (32, 16), -1),
     ],
-    ids=["dim1", "dim0"],
+    ids=["dim1", "dim0", "negdim"],
 )
 @pytest.mark.parametrize(
     "target",

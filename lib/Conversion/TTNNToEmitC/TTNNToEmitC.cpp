@@ -3122,8 +3122,9 @@ public:
         emitter.emit(srcOp.getIndex()),
         emitter.emit(srcOp.getSource()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
-        emitter.emit(std::nullopt), // opt_reduction_string
-        emitter.emit(std::nullopt)  // sub_core_grid
+        emitter.emit(ttnn_to_emitc::reduceTypeToScatterString(
+            srcOp.getScatterReduceType())), // opt_reduction_string
+        emitter.emit(std::nullopt)          // sub_core_grid
     };
 
     emitter.replaceOp(*this, args);
