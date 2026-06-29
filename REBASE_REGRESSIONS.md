@@ -250,7 +250,37 @@ PASSING (the entire non-CCL compute suite + one CCL test):
 
 REMAINING FAILURES — one coherent cluster + the known fabric hang:
 
-## R16 (NOT yet fixed) — in-loop remote_store lowers to an unconvertible cb→i32 cast
+## R16 (FIXED) — fabric remote_store to a local-CB dest lost its get_write_ptr path
+
+`convert-d2m-to-ttkernel`'s `D2MDMAWriteRewriter` for a cross-device fabric
+write (`getStartDevice().size() > 0`) unconditionally called `buildNocEndpoint`
+→ `castCBTypeAsAddress`, which emits an `unrealized_conversion_cast cb→i32` that
+only resolves for genuinely remote/compile-time operands. For a fabric write
+whose destination is a LOCAL CB scratch (the CCL tmp-buffer / loop-carried
+output), that cast can't legalize → `failed to legalize
+'builtin.unrealized_conversion_cast'`. ORIG_HEAD branched on `op.isDstRemote()`
+and, for the local-CB case, used `GetWritePtrOp` (+ offset + the current core's
+logical coords) for the destination address; the rebase dropped that `else`
+branch.
+**FIX:** restored the `isDstRemote()` branch (merged with the new base's `nocId`
+threading). Confirmed: inloop_output_store, ring_all_reduce_loop,
+all_reduce_attention, all_reduce_grid all pass (the CCL ones run on device).
+
+## R17 (FIXED) — fcm not created for mesh_position-only threads (compile abort)
+
+`getFabricConnectionManager` asserts the fcm exists. The rebase reverted the
+pass's fcm-creation gate to "fabric write present" only. After
+split-unified-thread, a local output store with a mesh_position-derived grid
+index lands on a *different* NoC thread than the fabric send — that thread has
+no fabric op, so no fcm was created, and `mesh_position`'s lowering aborted
+(`Assertion 'fcm' failed`, D2MToTTKernel.cpp:182). ORIG_HEAD gated on `fcmUsers`
+= fabric ops OR `mesh_position`.
+**FIX:** broadened the gate in `D2MToTTKernelPass` to create the fcm when the
+func has a fabric write/semaphore-inc/semaphore-set (startDevice) OR a
+`MeshPositionOp`. Confirmed: meshpos_local_store passes; the rest of the cluster
+still passes (no regression).
+
+## (superseded) R16 original note — in-loop remote_store cb→i32 cast
 
 `inloop_output_store`, `all_reduce_attention`, `all_reduce_grid`,
 `ring_all_reduce_loop` all fail identically: `failed to legalize

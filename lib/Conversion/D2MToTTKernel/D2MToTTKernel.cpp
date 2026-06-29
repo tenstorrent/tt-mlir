@@ -2714,9 +2714,44 @@ public:
     if (op.getStartDevice().size() > 0) {
       auto srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
           rewriter, op.getLoc(), adaptor.getSrc(), op.getSrcIndices());
-      auto dstEndpoint = buildNocEndpoint(rewriter, op.getLoc(),
-                                          adaptor.getDst(), op.getDstIndices(),
-                                          chipDesc, op.getDstMemorySpace());
+      NocEndpoint dstEndpoint;
+      if (op.isDstRemote()) {
+        dstEndpoint = buildNocEndpoint(rewriter, op.getLoc(), adaptor.getDst(),
+                                       op.getDstIndices(), chipDesc,
+                                       op.getDstMemorySpace());
+      } else {
+        // Cross-device fabric write into a gridless #l1 scratch (the CCL
+        // tmp-buffer / loop-carried output). The dst is a LOCAL CB, so its base
+        // address is the runtime get_write_ptr (NOT castCBTypeAsAddress, which
+        // only resolves for remote/compile-time operands and would leave an
+        // unrealized cb->i32 cast). Every device runs the same SPMD kernel, so
+        // this device's scratch write pointer equals the peer's scratch
+        // address. dstIndices are [gridY, gridX, offset].
+        auto dstIndices = op.getDstIndices();
+        assert(dstIndices.size() == 3 &&
+               "fabric-scratch dst expects [gridY, gridX, offset]");
+        Value baseAddr = rewriter.create<ttkernel::GetWritePtrOp>(
+            op.getLoc(), adaptor.getDst());
+        Value offsetI32 = rewriter.create<arith::IndexCastOp>(
+            op.getLoc(), rewriter.getI32Type(), dstIndices[2]);
+        Value addr =
+            rewriter.create<arith::AddIOp>(op.getLoc(), baseAddr, offsetI32);
+        // A gridless #l1 scratch recv buffer is per-core: this core's fabric
+        // write must land on the SAME core of the peer device (where that
+        // core's fabric_recv reads it), NOT the hardcoded (0,0) carried in
+        // dstIndices[0,1]. Use the current core's logical coords -- matching
+        // the paired semaphore inc -- so a ring CCL works on a multi-core grid,
+        // not only grid (1,1).
+        Value myLogicalY = rewriter.create<ttkernel::MyLogicalYOp>(op.getLoc());
+        Value myLogicalX = rewriter.create<ttkernel::MyLogicalXOp>(op.getLoc());
+        auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
+            rewriter, op.getLoc(), chipDesc,
+            ValueRange{myLogicalY, myLogicalX});
+        dstEndpoint = NocEndpoint{ttcore::MemorySpace::DeviceL1,
+                                  {virtX, virtY},
+                                  nullptr,
+                                  addr};
+      }
       auto dstNocAddr = materializeTranslatedNocAddr(rewriter, op.getLoc(),
                                                      dstEndpoint, nocId);
       auto size =
