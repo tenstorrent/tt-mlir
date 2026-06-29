@@ -6,10 +6,6 @@
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
-// A pure data-movement const-eval (a weight transpose feeding a matmul) stays
-// on device: no CPU-hoisted call, no f32 typecast round-trip. This produces a
-// flatbuffer runnable on silicon to validate PCC for the on-device path.
-
 module {
   // CHECK: ttcore.device_module {
 
