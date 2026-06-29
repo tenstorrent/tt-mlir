@@ -8,7 +8,7 @@
 // function -- the full primitive attention lowering. This pathway is what a
 // no-OpModel build relies on.
 
-// RUN: ttmlir-opt --ttnn-resolve-composites %s | FileCheck %s
+// RUN: ttmlir-opt --ttnn-resolve-composites="composite-resolution=inline" %s | FileCheck %s
 
 // CHECK-LABEL: func.func @flash_mla_prefill_decompose
 // The composite is replaced by its primitive decomposition body...

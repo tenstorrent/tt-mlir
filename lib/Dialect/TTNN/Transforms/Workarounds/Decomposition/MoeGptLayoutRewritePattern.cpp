@@ -93,8 +93,7 @@ Value buildPreparedWeight(PatternRewriter &rewriter, Operation *anchor,
   // Step 2: to_layout TILE on host (no dtype).
   auto hostTiledType =
       utils::RankedTensorTypeFactory::create(hostType, Layout::Tile);
-  Value hostTiled =
-      rewriter.create<ToLayoutOp>(loc, hostTiledType, hostWeight, Layout::Tile);
+  Value hostTiled = rewriter.create<ToLayoutOp>(loc, hostTiledType, hostWeight);
 
   // Step 3: typecast to bfp4 on host.
   auto hostBfp4Type = utils::RankedTensorTypeFactory::create(

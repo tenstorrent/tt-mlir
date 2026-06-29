@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device "--d2m-allocate=test-assume-l1-capacity=9437184 test-buffer-size-policy=max" -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device "--d2m-reblock-generics=test-buffer-size-policy=max" "--d2m-allocate=test-assume-l1-capacity=9437184" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // This test uses max-sized stream buffers and verifies that in-generic

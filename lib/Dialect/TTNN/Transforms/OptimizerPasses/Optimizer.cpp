@@ -56,6 +56,7 @@ TTNNOptimizerOptions::TTNNOptimizerOptions(
     : insertMemReconfig(pipelineOptions.insertMemReconfig),
       overrideOutputLayout(pipelineOptions.overrideOutputLayout),
       overrideConv2dConfig(pipelineOptions.overrideConv2dConfig),
+      overrideConv3dConfig(pipelineOptions.overrideConv3dConfig),
       memoryLayoutAnalysisEnabled(pipelineOptions.memoryLayoutAnalysisEnabled),
       l1InterleavedFallbackAnalysisEnabled(
           pipelineOptions.l1InterleavedFallbackAnalysisEnabled),
@@ -133,6 +134,7 @@ public:
     insertMemReconfig = std::move(options.insertMemReconfig);
     overrideOutputLayout = std::move(options.overrideOutputLayout);
     overrideConv2dConfig = std::move(options.overrideConv2dConfig);
+    overrideConv3dConfig = std::move(options.overrideConv3dConfig);
     memoryLayoutAnalysisEnabled =
         std::move(options.memoryLayoutAnalysisEnabled);
     l1InterleavedFallbackAnalysisEnabled =
@@ -163,6 +165,12 @@ protected:
           *this, OptionNames::overrideConv2dConfig,
           ::llvm::cl::desc("Override Conv2d configuration for specific ops."),
           ::llvm::cl::init(llvm::StringMap<Conv2dConfigOverrideParams>())};
+  ::mlir::Pass::Option<llvm::StringMap<Conv3dConfigOverrideParams>,
+                       mlir::tt::ttnn::Conv3dConfigOverrideParser>
+      overrideConv3dConfig{
+          *this, OptionNames::overrideConv3dConfig,
+          ::llvm::cl::desc("Override Conv3d configuration for specific ops."),
+          ::llvm::cl::init(llvm::StringMap<Conv3dConfigOverrideParams>())};
   ::mlir::Pass::Option<bool> memoryLayoutAnalysisEnabled{
       *this, OptionNames::memoryLayoutAnalysisEnabled,
       ::llvm::cl::desc("Enable memory layout optimization."),
@@ -299,7 +307,8 @@ public:
         LegalOpConfigAnalysis legalOpConfigAnalysis =
             getChildAnalysis<LegalOpConfigAnalysis>(op);
         legalOpConfigAnalysis.init(LegalOpConfigAnalysisInput(
-            legalOpLayoutAnalysis.getResult(), &overrideConv2dConfig));
+            legalOpLayoutAnalysis.getResult(), &overrideConv2dConfig,
+            &overrideConv3dConfig));
         legalConfigs[op] = legalOpConfigAnalysis.getResult();
 
         // Save only L1 Interleaved legal configs in a separate map for
@@ -446,11 +455,6 @@ public:
           RankedTensorType newTensorType =
               RankedTensorType::get(tensorShape, newElementType, chosenLayout);
 
-          // Update the memory space and layout of the op.
-          //
-          TTNNLayoutAttr layoutAttr =
-              mlir::cast<TTNNLayoutAttr>(newTensorType.getEncoding());
-
           // D2MSubgraphOp: apply chosen layout to result(s), output buffer(s),
           // and D2M subgraph.
           if (auto dispatchOp = dyn_cast<D2MSubgraphOp>(op)) {
@@ -459,26 +463,15 @@ public:
             return;
           }
 
-          // Update layout attribute for ops that have layout attribute.
-          if (TTNNLayoutOpInterface opWithLayoutIF =
-                  mlir::dyn_cast<TTNNLayoutOpInterface>(op)) {
-            opWithLayoutIF.setLayoutAttr(
-                LayoutAttr::get(op->getContext(), layoutAttr.getLayout()));
-          }
-
           op->getResult(0).setType(newTensorType);
 
           // Update DPS operand layout as well.
           //
           if (isa<mlir::DestinationStyleOpInterface>(op)) {
             op->getOperands().back().setType(newTensorType);
-            EmptyOp emptyOp =
-                mlir::cast<EmptyOp>(op->getOperands().back().getDefiningOp());
-
-            if (layoutAttr.isTiled()) {
-              emptyOp.setLayout(ttnn::Layout::Tile);
-            } else {
-              emptyOp.setLayout(ttnn::Layout::RowMajor);
+            if (EmptyOp emptyOp = mlir::dyn_cast<EmptyOp>(
+                    op->getOperands().back().getDefiningOp())) {
+              emptyOp.getResult().setType(newTensorType);
             }
           }
 
@@ -520,6 +513,22 @@ public:
                       // well and merge with the Conv2dOp case above.
                     }
                   })
+              .Case<ttnn::Conv3dOp>([&](ttnn::Conv3dOp convOp) {
+                auto opAttributes = opConfigAnalysis.getResult().at(op);
+                if (std::holds_alternative<ttnn::Conv3dAttrs>(
+                        opAttributes.opSpecificAttrs)) {
+                  ttnn::Conv3dAttrs conv3dAttrs =
+                      std::get<ttnn::Conv3dAttrs>(opAttributes.opSpecificAttrs);
+                  if (conv3dAttrs.conv3dConfig.has_value()) {
+                    convOp.setConv3dConfigAttr(
+                        conv3dAttrs.conv3dConfig.value());
+                  }
+                  if (conv3dAttrs.deviceComputeKernelConfig.has_value()) {
+                    convOp.setComputeConfigAttr(
+                        conv3dAttrs.deviceComputeKernelConfig.value());
+                  }
+                }
+              })
               .Case<ttnn::MatmulOp, ttnn::LinearOp>([&](auto matmulOp) {
                 auto opAttributes = opConfigAnalysis.getResult().at(op);
                 if (std::holds_alternative<ttnn::MatmulAttrs>(
@@ -758,7 +767,6 @@ private:
       //
       if (isa_and_nonnull<ToLayoutOp>(producerOp)) {
         ToLayoutOp toLayoutOp = llvm::cast<ToLayoutOp>(producerOp);
-        toLayoutOp.setLayout(reshardOpLayout.getLayout());
         toLayoutOp.getResult().setType(newTensorType);
       } else {
         OpBuilder builder(consumerOp);
@@ -766,10 +774,8 @@ private:
                                                            "_mem_reconfig");
         ToLayoutOp memoryReconfigOp = builder.create<ToLayoutOp>(
             loc,
-            newTensorType,                             // output type
-            consumerOp->getOperand(edge.operandIndex), // input value
-            LayoutAttr::get(consumerOp->getContext(),
-                            reshardOpLayout.getLayout()));
+            newTensorType,                              // output type
+            consumerOp->getOperand(edge.operandIndex)); // input value
 
         consumerOp->setOperand(edge.operandIndex,
                                memoryReconfigOp->getResult(0));
@@ -819,8 +825,6 @@ private:
 
       // Create a ToLayoutOp with the new DRAM layout.
       OpBuilder builder(spilledOp->getContext());
-      LayoutAttr newLayout =
-          LayoutAttr::get(spilledOp->getContext(), dramLayout.getLayout());
 
       builder.setInsertionPointAfter(spilledOp);
       Location loc =
@@ -834,7 +838,7 @@ private:
 
       // Step 2: Insert spilling to DRAM.
       Operation *spillToDRAMOp = builder.create<ToLayoutOp>(
-          loc, newTensorType, spilledOp->getResult(0), newLayout);
+          loc, newTensorType, spilledOp->getResult(0));
 
       // Step 3: Reconnect uses.
       for (auto &use : uses) {
@@ -927,8 +931,6 @@ private:
           l1InterleavedLayout);
 
       OpBuilder builder(spilledOp->getContext());
-      LayoutAttr newLayout = LayoutAttr::get(spilledOp->getContext(),
-                                             l1InterleavedLayout.getLayout());
       builder.setInsertionPointAfter(spilledOp);
       Location loc = ttmlir::utils::appendLocationSuffix(spilledOp->getLoc(),
                                                          "_to_l1_interleaved");
@@ -940,7 +942,7 @@ private:
       }
 
       Operation *toLayoutOp = builder.create<ToLayoutOp>(
-          loc, newTensorType, spilledOp->getResult(0), newLayout);
+          loc, newTensorType, spilledOp->getResult(0));
 
       for (auto &[useOp, operandIdx] : uses) {
         useOp->setOperand(operandIdx, toLayoutOp->getResult(0));

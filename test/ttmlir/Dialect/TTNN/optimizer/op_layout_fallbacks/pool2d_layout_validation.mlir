@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttcore-register-device --ttcore-mark-functions-as-forward --ttnn-operation-validation-and-fallback %s -o %t.mlir
+// RUN: ttmlir-opt --ttcore-register-device --ttcore-mark-functions-as-forward --ttnn-operation-validation-and-fallback %s --mlir-print-local-scope -o %t.mlir
 // RUN: FileCheck %s --input-file %t.mlir
 
 // Test that the post-optimizer validation analysis automatically detects
@@ -23,7 +23,8 @@ module attributes {} {
     // CHECK-NEXT: "ttnn.max_pool2d"
     // CHECK-SAME: -> tensor<1x1x4096x32xbf16,
     // CHECK-NEXT: "ttnn.to_layout"
-    // CHECK-SAME: layout = #ttnn.layout<tile>
+    // CHECK-SAME: -> tensor<1x1x4096x32xbf16,
+    // CHECK-SAME: !ttcore.tile<32x32,
 
     %1 = "ttnn.max_pool2d"(%arg0) <{
       batch_size = 1 : si32,

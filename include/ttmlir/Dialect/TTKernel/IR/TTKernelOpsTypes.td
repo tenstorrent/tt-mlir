@@ -102,11 +102,6 @@ def TTKernel_L1AddrPtr : TTKernel_Type<"L1AddrPtr", "l1_addr_ptr"> {
     }];
 }
 
-def TTKernel_InterleavedAddrGenFast : TTKernel_Type<"InterleavedAddrGenFast", "interleaved_addr_gen_fast"> {
-    let summary = "TTKernel InterleavedAddrGenFast type";
-    let description = "InterleavedAddrGenFast type in TTKernel dialect";
-}
-
 def TTKernel_TensorAccessorArgs : TTKernel_Type<"TensorAccessorArgs", "TensorAccessorArgs"> {
   let summary = "TensorAccessorArgs type";
   let description = "TensorAccessor args type that stores compile + runtime information";
@@ -181,6 +176,11 @@ def TTKernel_ArgSpecAttr : TTKernel_Attr<"ArgSpec", "arg_spec"> {
 
   let extraClassDeclaration = [{
     static ArgSpecAttr setArgSpec(func::FuncOp func, ArgSpecAttr argSpec);
+
+    // For args sorting.
+    static bool isSameArg(ArgAttr lhs, ArgAttr rhs);
+    static bool isLessArg(ArgAttr lhs, ArgAttr rhs);
+
     // Returns the appended argument index.
     static size_t appendCompileTimeArg(func::FuncOp func, ArgAttr arg);
     // Returns the appended argument index.

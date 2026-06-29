@@ -37,6 +37,30 @@ inline MemoryConfigAttr getMemoryConfigFromResult(mlir::Operation *op) {
       .Default([](mlir::Attribute) { return MemoryConfigAttr(); });
 }
 
+// Derives the target page layout from the targeted result's TTNN(ND)LayoutAttr
+// encoding. Returns a null LayoutAttr if the result is missing encoding.
+inline LayoutAttr getLayoutAttrFromResult(mlir::Operation *op,
+                                          unsigned int resultIndex = 0) {
+  if (resultIndex >= op->getNumResults()) {
+    return nullptr;
+  }
+
+  auto output =
+      mlir::dyn_cast<RankedTensorType>(op->getResult(resultIndex).getType());
+  if (!output || !output.getEncoding()) {
+    return nullptr;
+  }
+
+  return llvm::TypeSwitch<mlir::Attribute, LayoutAttr>(output.getEncoding())
+      .Case<TTNNLayoutAttr>([](TTNNLayoutAttr layoutAttr) {
+        return LayoutAttr::get(layoutAttr.getContext(), layoutAttr.getLayout());
+      })
+      .Case<TTNNNDLayoutAttr>([](TTNNNDLayoutAttr layoutAttr) {
+        return LayoutAttr::get(layoutAttr.getContext(), layoutAttr.getLayout());
+      })
+      .Default([](mlir::Attribute) { return LayoutAttr(); });
+}
+
 // Derives the data type carried by a tensor-typed Value. Prefers the
 // TTNN(ND)LayoutAttr encoding's dataType when present, and otherwise falls
 // back to the tensor's element type. Returns a null DataTypeAttr only if the
@@ -89,39 +113,26 @@ dataTypeAttrToOptional(ttcore::DataTypeAttr attr) {
   return attr.getValue();
 }
 
-// Verifies the TTNNLayoutInterface
+inline std::optional<Layout> layoutAttrToOptional(LayoutAttr attr) {
+  if (!attr) {
+    return std::nullopt;
+  }
+  return attr.getValue();
+}
+
+// Verifies that tensor results carry a TTNN(ND)LayoutAttr encoding.
 template <typename ConcreteType>
 mlir::LogicalResult verifyTTNNLayoutInterface(mlir::Operation *op) {
-  // Check if the operation defines output layout attribute.
-  auto outputLayoutAttr = mlir::cast<ConcreteType>(op).getLayoutAttr();
-
-  // Retrieve output layout.
   for (Value result : op->getResults()) {
-    RankedTensorType output = mlir::cast<RankedTensorType>(result.getType());
-    TTNNLayoutAttr outputTTNNLayoutAttr =
-        mlir::dyn_cast_if_present<TTNNLayoutAttr>(output.getEncoding());
-
-    // If output layout isn't present, skip the verification.
-    if (!outputTTNNLayoutAttr) {
-      return mlir::success();
+    auto output = mlir::dyn_cast<RankedTensorType>(result.getType());
+    if (!output) {
+      continue;
     }
-
-    // Retrieve output layout attribute.
-    if (!outputLayoutAttr) {
-      return op->emitOpError("output layout attribute is not defined for op "
-                             "that has output layout attribute.");
-    }
-
-    // Compare output layout attribute with output tensor layout.
-    if (outputLayoutAttr.getValue() != outputTTNNLayoutAttr.getLayout()) {
-      return op->emitOpError()
-             << "output tensor layout "
-             << stringifyLayout(outputTTNNLayoutAttr.getLayout())
-             << " must match output layout attribute "
-             << stringifyLayout(outputLayoutAttr.getValue());
+    if (!mlir::dyn_cast_if_present<TTNNLayoutAttr>(output.getEncoding()) &&
+        !mlir::dyn_cast_if_present<TTNNNDLayoutAttr>(output.getEncoding())) {
+      return op->emitOpError("Output tensor type missing layout attribute");
     }
   }
-
   return mlir::success();
 }
 

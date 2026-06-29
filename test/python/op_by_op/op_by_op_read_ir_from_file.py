@@ -14,9 +14,6 @@ Requires:
     cmake -G Ninja -B build -DTTMLIR_ENABLE_RUNTIME=ON -DTTMLIR_ENABLE_STABLEHLO=ON
     cmake --build build
 
-    # Having system descriptor saved
-    ttrt query --save-artifacts
-
 Usage Examples:
     # Generate JSON report with pytest
     pytest -svv test/python/op_by_op/op_by_op_read_ir_from_file.py::test_op_by_op_inference_from_file --json-report --json-report-file=report.json

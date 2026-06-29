@@ -7653,7 +7653,6 @@ class TTNNBuilder(Builder):
         else:
             fill_value_attr = FloatAttr.get_f32(fill_value)
 
-        layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, layout)
         result = self.create_ttnn_tensor(
             shape, mlir_output_type, layout=layout, buffer_type=buffer_type
         )
@@ -7674,7 +7673,6 @@ class TTNNBuilder(Builder):
             shape=shape_attr,
             fill_value=fill_value_attr,
             device=device,
-            layout=layout_attr,
             loc=loc,
         )
         op_result = op.result
@@ -7702,7 +7700,6 @@ class TTNNBuilder(Builder):
             shape=old_op.shape,
             fill_value=old_op.fill_value,
             device=device,
-            layout=old_op.layout,
             loc=old_op.location,
         )
         new_op_result = new_op.result
@@ -7763,7 +7760,6 @@ class TTNNBuilder(Builder):
                         shape=old_op.shape,
                         fill_value=old_op.fill_value,
                         device=device,
-                        layout=old_op.layout,
                         loc=old_op.location,
                     )
                     new_op_result = new_op.result
@@ -7811,7 +7807,6 @@ class TTNNBuilder(Builder):
         value_shape = list(value.shape)
         mlir_value_type = RankedTensorType.get(value_shape, mlir_output_type)
 
-        layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, layout)
         result = self.create_ttnn_tensor(
             value_shape, mlir_output_type, layout=layout, buffer_type=buffer_type
         )
@@ -7837,7 +7832,6 @@ class TTNNBuilder(Builder):
             result,
             value=value_attr,
             device=device,
-            layout=layout_attr,
             loc=loc,
         )
         op_result = op.result
@@ -7864,7 +7858,6 @@ class TTNNBuilder(Builder):
             result,
             value=old_op.value,
             device=device,
-            layout=old_op.layout,
             loc=old_op.location,
         )
         new_op_result = new_op.result
@@ -7924,7 +7917,6 @@ class TTNNBuilder(Builder):
                         result,
                         value=old_op.value,
                         device=device,
-                        layout=old_op.layout,
                         loc=old_op.location,
                     )
                     new_op_result = new_op.result
@@ -8429,7 +8421,6 @@ class TTNNBuilder(Builder):
             output_to_dram = ttnn.ToLayoutOp(
                 final_output_type,
                 op.result,
-                layout=ttnn.ir.LayoutAttr.get(self._ctx, ttnn.Layout.Tile),
                 loc=loc,
             )
 
@@ -8605,7 +8596,6 @@ class TTNNBuilder(Builder):
         op = ttnn_op(
             result,
             input,
-            layout=layout_attr,
             loc=loc,
         )
         op_result = op.result
@@ -8623,18 +8613,24 @@ class TTNNBuilder(Builder):
         ttnn_op = self.get_opview_from_parser(TTNNBuilder.to_layout_parser)
         in0 = global_dict[old_op.input]
         result = old_op.result.type
-        layout_attr = old_op.layout
 
         new_op = ttnn_op(
             result,
             in0,
-            layout=layout_attr,
             loc=old_op.location,
         )
         new_op_result = new_op.result
 
         input0 = self._get_golden_tensor(in0)
         op_golden_function = get_golden_function(ttnn_op)
+        result_layout = ttnn.ir.TTNNLayoutAttr.maybe_downcast(result.encoding)
+        layout = (
+            ttnn.Layout.Tile
+            if result_layout is not None
+            and "ttcore.tile" in str(result_layout.memref.element_type)
+            else ttnn.Layout.RowMajor
+        )
+        layout_attr = ttnn.ir.LayoutAttr.get(self._ctx, layout)
         golden_output = op_golden_function(input0, layout_attr, result.element_type)
         self._set_golden_tensor(new_op_result, golden_output)
 
@@ -8665,12 +8661,10 @@ class TTNNBuilder(Builder):
                 def decorated_func(*inputs):
                     in0 = inputs[0]
                     result = old_op.result.type
-                    layout_attr = old_op.layout
 
                     new_op = ttnn_op(
                         result,
                         in0,
-                        layout=layout_attr,
                         loc=old_op.location,
                     )
                     new_op_result = new_op.result

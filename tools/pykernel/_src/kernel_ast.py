@@ -871,8 +871,16 @@ class TTKernelCompiler(TTCompilerBase):
         self._fn_map["noc_async_write_tile"] = self._wrap_noc_async_write_tile
         self._fn_map["noc_async_read"] = self._wrap_noc_async_read
         self._fn_map["noc_async_write"] = self._wrap_noc_async_write
+        self._fn_map["noc_async_read_barrier"] = self._wrap_noc_async_read_barrier
+        self._fn_map["noc_async_write_barrier"] = self._wrap_noc_async_write_barrier
 
-    def _wrap_noc_async_read_tile(self, tile_id, addr_gen, dst_addr):
+    def _default_noc_id(self):
+        return arith.ConstantOp(IntegerType.get_signless(8, self.ctx), 0)
+
+    def _noc_or_default(self, noc):
+        return self._default_noc_id() if noc is None else noc
+
+    def _wrap_noc_async_read_tile(self, tile_id, addr_gen, dst_addr, noc=None):
         """Cast tile_id to i32 for noc_async_read_tile operation."""
         if isinstance(tile_id, OpView):
             tile_id = tile_id.result
@@ -880,14 +888,18 @@ class TTKernelCompiler(TTCompilerBase):
         if hasattr(tile_id, "type") and isinstance(tile_id.type, IndexType):
             tile_id = arith.index_cast(IntegerType.get_signless(32), tile_id)
 
-        return ttkernel.noc_async_read_tile(tile_id, addr_gen, dst_addr)
+        return ttkernel.noc_async_read_tile(
+            tile_id, addr_gen, dst_addr, noc=self._noc_or_default(noc)
+        )
 
-    def _wrap_noc_async_write_tile(self, tile_id, addr_gen, src_addr):
+    def _wrap_noc_async_write_tile(self, tile_id, addr_gen, src_addr, noc=None):
         """Extract result from operations for noc_async_write_tile."""
         if isinstance(tile_id, OpView):
             tile_id = tile_id.result
 
-        return ttkernel.noc_async_write_tile(tile_id, addr_gen, src_addr)
+        return ttkernel.noc_async_write_tile(
+            tile_id, addr_gen, src_addr, noc=self._noc_or_default(noc)
+        )
 
     def _as_operand_list(self, operand_or_operands):
         if operand_or_operands is None:
@@ -897,7 +909,13 @@ class TTKernelCompiler(TTCompilerBase):
         return [operand_or_operands]
 
     def _wrap_noc_async_read(
-        self, src_address, dst_local_l1_addr, size, src_bank_id=None, src_core=None
+        self,
+        src_address,
+        dst_local_l1_addr,
+        size,
+        src_bank_id=None,
+        src_core=None,
+        noc=None,
     ):
         """Build modal noc_async_read using either a DRAM bank or L1 core."""
         if (src_bank_id is None) == (src_core is None):
@@ -911,10 +929,17 @@ class TTKernelCompiler(TTCompilerBase):
             src_address,
             dst_local_l1_addr,
             size,
+            noc=self._noc_or_default(noc),
         )
 
     def _wrap_noc_async_write(
-        self, src_local_l1_addr, dst_address, size, dst_bank_id=None, dst_core=None
+        self,
+        src_local_l1_addr,
+        dst_address,
+        size,
+        dst_bank_id=None,
+        dst_core=None,
+        noc=None,
     ):
         """Build modal noc_async_write using either a DRAM bank or L1 core."""
         if (dst_bank_id is None) == (dst_core is None):
@@ -928,7 +953,14 @@ class TTKernelCompiler(TTCompilerBase):
             self._as_operand_list(dst_bank_id),
             dst_address,
             size,
+            noc=self._noc_or_default(noc),
         )
+
+    def _wrap_noc_async_read_barrier(self, noc=None):
+        return ttkernel.noc_async_read_barrier(noc=self._noc_or_default(noc))
+
+    def _wrap_noc_async_write_barrier(self, noc=None):
+        return ttkernel.noc_async_write_barrier(noc=self._noc_or_default(noc))
 
     # Root Nodes
     def visit_FunctionDef(self, node):

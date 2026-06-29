@@ -191,6 +191,13 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
                         llvm::cl::desc("D2M/TTNN integration mode."),
                         llvm::cl::init(false)};
 
+  // Evaluation knob for comparing the CRTA path against compile-time args.
+  Option<bool> forceCompileTimeArgs{
+      *this, "force-compile-time-args",
+      llvm::cl::desc("Force uniform D2M kernel arguments into compile-time "
+                     "args when legal for CRTA performance comparison."),
+      llvm::cl::init(false)};
+
   // Option to set the target data format for the global data format conversion
   // pass.
   Option<std::string> globalDataFormatTarget{

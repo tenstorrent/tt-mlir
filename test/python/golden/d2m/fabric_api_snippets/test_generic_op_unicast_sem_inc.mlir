@@ -11,12 +11,12 @@ module attributes {} {
     %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 2x4>}> : () -> !ttnn.device
 
     // distribute input tensor
-    %1 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}> : (tensor<64x128xbf16, #ttnn_layout_host_row_major>) -> tensor<64x128xbf16, #ttnn_layout_host_tile>
+    %1 = "ttnn.to_layout"(%arg0)  : (tensor<64x128xbf16, #ttnn_layout_host_row_major>) -> tensor<64x128xbf16, #ttnn_layout_host_tile>
     %2 = "ttnn.distribute_tensor"(%1, %0) <{mapper_config = #ttnn.mesh_mapper_config<placements = [<shard, 0 : i64>, <shard, 1 : i64>]>}> : (tensor<64x128xbf16, #ttnn_layout_host_tile>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_host_tile_shard>
     %3 = "ttnn.to_device"(%2, %0) : (tensor<32x32xbf16, #ttnn_layout_host_tile_shard>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>
 
     // preallocate and distribute output tensor
-    %out1 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}> : (tensor<64x128xbf16, #ttnn_layout_host_row_major>) -> tensor<64x128xbf16, #ttnn_layout_host_tile>
+    %out1 = "ttnn.to_layout"(%arg0)  : (tensor<64x128xbf16, #ttnn_layout_host_row_major>) -> tensor<64x128xbf16, #ttnn_layout_host_tile>
     %out2 = "ttnn.distribute_tensor"(%out1, %0) <{mapper_config = #ttnn.mesh_mapper_config<placements = [<shard, 0 : i64>, <shard, 1 : i64>]>}> : (tensor<64x128xbf16, #ttnn_layout_host_tile>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_host_tile_shard>
     %out3 = "ttnn.to_device"(%out2, %0) : (tensor<32x32xbf16, #ttnn_layout_host_tile_shard>, !ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>
 
@@ -56,7 +56,7 @@ module attributes {} {
     %out4 = "ttnn.to_memory_config"(%out3) : (tensor<32x32xbf16, #ttnn_layout_device_tile_sharded>) -> tensor<32x32xbf16, #ttnn_layout_device_tile_interleaved>
     %4 = "ttnn.from_device"(%out4) : (tensor<32x32xbf16, #ttnn_layout_device_tile_interleaved>) -> tensor<32x32xbf16, #ttnn_layout_host_tile_shard>
     %5 = "ttnn.aggregate_tensor"(%4, %0) <{composer_config = #ttnn.mesh_composer_config<dims = [0 : i64, 1 : i64]>}> : (tensor<32x32xbf16, #ttnn_layout_host_tile_shard>, !ttnn.device) -> tensor<64x128xbf16, #ttnn_layout_host_tile>
-    %6 = "ttnn.to_layout"(%5) <{layout = #ttnn.layout<row_major>}> : (tensor<64x128xbf16, #ttnn_layout_host_tile>) -> tensor<64x128xbf16, #ttnn_layout_host_row_major>
+    %6 = "ttnn.to_layout"(%5)  : (tensor<64x128xbf16, #ttnn_layout_host_tile>) -> tensor<64x128xbf16, #ttnn_layout_host_row_major>
 
     return %6 : tensor<64x128xbf16, #ttnn_layout_host_row_major>
   }

@@ -5,9 +5,14 @@
 #ifndef TTMLIR_CONVERSION_D2MTOTTMETAL_D2MTOTTMETAL_H
 #define TTMLIR_CONVERSION_D2MTOTTMETAL_D2MTOTTMETAL_H
 
+#include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
+
 #include "mlir/Pass/Pass.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "ttmlir/Dialect/TTMetal/IR/TTMetalOpsTypes.h"
+
+namespace mlir {
+class SymbolTable;
+} // namespace mlir
 
 namespace mlir::tt::d2m {
 
@@ -20,6 +25,7 @@ namespace mlir::tt {
 
 void populateD2MToTTMetalPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
+    SymbolTable &symbolTable, ttcore::Arch arch,
     ttmetal::MathFidelity mathFidelity = ttmetal::MathFidelity::HiFi4);
 
 void populateD2MToTTMetalSpatialOpPattern(MLIRContext *ctx,

@@ -63,10 +63,6 @@ void populateTTKernelModule(nb::module_ &m) {
   tt_type_class<tt::ttkernel::L1AddrPtrType>(m, "L1AddrPtrType")
       .def_static("get", &ttmlirTTKernelL1AddrPtrTypeGet);
 
-  tt_type_class<tt::ttkernel::InterleavedAddrGenFastType>(
-      m, "InterleavedAddrGenFastType")
-      .def_static("get", &ttmlirTTKernelInterleavedAddrGenFastTypeGet);
-
   tt_type_class<tt::ttkernel::DataFormatType>(m, "DataFormatType")
       .def_static("get", &ttmlirTTKernelDataFormatTypeGet);
 

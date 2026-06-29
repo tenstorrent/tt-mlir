@@ -84,11 +84,11 @@ if enable_ttmetal:
 if enable_ttnn or enable_ttmetal:
     runlibs += ["libtt-umd.so.0"]
     runlibs += ["libtt_stl.so"]
-    runlibs += ["libtracy.so.0.10.0"]
+    runlibs += ["libtracy.so.0.13.3"]
 
 if enable_perf:
-    perflibs += ["capture-release"]
-    perflibs += ["csvexport-release"]
+    perflibs += ["tracy-capture"]
+    perflibs += ["tracy-csvexport"]
 
 if enable_runtime:
     shutil.copy(

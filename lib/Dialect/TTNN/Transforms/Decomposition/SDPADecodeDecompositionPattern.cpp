@@ -148,13 +148,11 @@ LogicalResult SDPADecodeDecompositionPattern::matchAndRewrite(
     // requires rank-1 output), then reshape to [1, 1, 1, Sk] for broadcast.
     auto arange1dType = ttnn::utils::RankedTensorTypeFactory::create(
         qType, llvm::SmallVector<int64_t>{seqLenKV});
-    ttnn::LayoutAttr tileLayoutAttr =
-        ttnn::LayoutAttr::get(rewriter.getContext(), ttnn::Layout::Tile);
-    Value indices = rewriter
-                        .create<ttnn::ArangeOp>(
-                            loc, arange1dType, device, /*start=*/0,
-                            /*end=*/seqLenKV, /*step=*/1, tileLayoutAttr)
-                        .getResult();
+    Value indices =
+        rewriter
+            .create<ttnn::ArangeOp>(loc, arange1dType, device, /*start=*/0,
+                                    /*end=*/seqLenKV, /*step=*/1)
+            .getResult();
 
     auto arange4dType = ttnn::utils::RankedTensorTypeFactory::create(
         qType, llvm::SmallVector<int64_t>{1, 1, 1, seqLenKV});

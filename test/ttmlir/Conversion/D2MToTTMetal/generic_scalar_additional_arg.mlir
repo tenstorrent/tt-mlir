@@ -20,7 +20,7 @@ module {
     // CHECK: "ttmetal.enqueue_program"
     // CHECK-SAME: cb_ports = array<i64: 0, 1>
     // CHECK-SAME: compute_config<@compute_kernel
-    // CHECK-SAME: ct_args = [<cb_port[0]>, <cb_port[1]>, <scalar[2]>]
+    // CHECK-SAME: common_rt_args = [<cb_port[0]>, <cb_port[1]>, <scalar[2]>]
     d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<compute, @compute_kernel>]}
         ins(%arg0 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>)
         outs(%alloc : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>)

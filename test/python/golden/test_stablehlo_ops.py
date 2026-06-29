@@ -19,6 +19,15 @@ from test_utils import shape_str, Marks
 pytestmark = pytest.mark.frontend("shlo")
 
 
+def check_op(mlir_file: str, op_name: str) -> bool:
+    op_name = "ttnn." + op_name
+    with open(mlir_file, "r") as f:
+        for line in f:
+            if op_name in line:
+                return True
+    return False
+
+
 def module_abs(builder: StableHLOBuilder):
     @builder.func([(128, 128)], [torch.float32])
     def abs(
@@ -1405,7 +1414,7 @@ def test_max_pool_2d(
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "emitc"])
 def test_avg_pool_2d(
     shape: Shape,
     dtype: torch.dtype,
@@ -1521,6 +1530,11 @@ def module_batch_norm_grad(builder: StableHLOBuilder):
         unit_attrs: Optional[List[str]] = None,
     ):
         builder.set_graph_level_check(True)
+        # variance must be non-negative (it represents E[(x-mean)^2]).
+        # torch.randn can produce negative values causing sqrt(negative) = NaN.
+        builder.set_goldens(
+            {variance: torch.rand(builder.get_shape(variance), dtype=torch.float32)}
+        )
         return builder.batch_norm_grad(
             operand,
             scale,
@@ -2351,12 +2365,16 @@ def test_flash_mla_prefill_causal_no_value(
                 unit_attrs=unit_attrs,
             )
 
-    compile_and_execute_shlo(
+    output = compile_and_execute_shlo(
         module,
         **get_request_kwargs(request),
         target=target,
         device=DeferredDevice(request),
+        ttir_pipeline_options=["composite-resolution=force-promote"],
+        save_artifacts=True,
     )
+
+    check_op(output, "flash_mla_prefill")
 
 
 # Causal with explicit value: exercises has_value=true.
@@ -2399,12 +2417,16 @@ def test_flash_mla_prefill_causal_with_value(
                 unit_attrs=unit_attrs,
             )
 
-    compile_and_execute_shlo(
+    output = compile_and_execute_shlo(
         module,
         **get_request_kwargs(request),
         target=target,
         device=DeferredDevice(request),
+        ttir_pipeline_options=["composite-resolution=force-promote"],
+        save_artifacts=True,
     )
+
+    check_op(output, "flash_mla_prefill")
 
 
 # Non-causal with attention mask (no value): exercises has_attention_mask=true,
@@ -2453,12 +2475,16 @@ def test_flash_mla_prefill_with_mask(
                 unit_attrs=unit_attrs,
             )
 
-    compile_and_execute_shlo(
+    output = compile_and_execute_shlo(
         module,
         **get_request_kwargs(request),
         target=target,
         device=DeferredDevice(request),
+        ttir_pipeline_options=["composite-resolution=force-promote"],
+        save_artifacts=True,
     )
+
+    check_op(output, "flash_mla_prefill")
 
 
 # All four operands present (query, key, value, mask) with explicit scale.
@@ -2506,9 +2532,13 @@ def test_flash_mla_prefill_value_mask_scale(
                 unit_attrs=unit_attrs,
             )
 
-    compile_and_execute_shlo(
+    output = compile_and_execute_shlo(
         module,
         **get_request_kwargs(request),
         target=target,
         device=DeferredDevice(request),
+        ttir_pipeline_options=["composite-resolution=force-promote"],
+        save_artifacts=True,
     )
+
+    check_op(output, "flash_mla_prefill")

@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="composite-resolution=force-promote" %s | FileCheck %s
 
 // Positive tests that resolve a ttcore.composite "flash_mla_prefill" through the
 // TTNN backend pipeline (TTNNResolveComposites) and verify it is promoted to the

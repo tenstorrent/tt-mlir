@@ -812,20 +812,6 @@ void applyFallbackTransformations(
   for (size_t i = 0; i < configs.size(); ++i) {
     applyOutputLayoutChange(operation, i, result, configs[i]);
   }
-
-  // Update the layout attribute for ops that have one (e.g., creation ops).
-  // The layout attribute must match the first result type's layout.
-  TTNNLayoutAttr firstActualOutputLayout =
-      result.checkAndGetFirstActualOutputLayout();
-
-  if (configs[0].outputLayout &&
-      firstActualOutputLayout != configs[0].outputLayout) {
-    if (TTNNLayoutOpInterface opWithLayoutIF =
-            mlir::dyn_cast<TTNNLayoutOpInterface>(operation)) {
-      opWithLayoutIF.setLayoutAttr(LayoutAttr::get(
-          operation->getContext(), firstActualOutputLayout.getLayout()));
-    }
-  }
 }
 
 // Apply a single input operand change by inserting ToLayoutOp
@@ -918,9 +904,7 @@ ToLayoutOp createToLayoutOp(OpBuilder &builder, Location loc,
   RankedTensorType resultType = RankedTensorType::get(
       currentResultType.getShape(), scalarElementType, targetLayout);
 
-  return builder.create<ToLayoutOp>(
-      loc, resultType, inputValue,
-      LayoutAttr::get(builder.getContext(), targetLayout.getLayout()));
+  return builder.create<ToLayoutOp>(loc, resultType, inputValue);
 }
 
 // Try config fallbacks for Conv2d-like operations

@@ -49,6 +49,7 @@ option(TTMLIR_ENABLE_ALCHEMIST_WHEEL "Enable tt-alchemist wheel" OFF)  # Expensi
 option(CODE_COVERAGE "Enable coverage reporting" OFF)
 option(TT_USE_SYSTEM_SFPI "Use system path for SFPI. SFPI is used to compile firmware." OFF)
 
+
 if (TTMLIR_ENABLE_RUNTIME)
   option(TT_RUNTIME_ENABLE_TTNN "Enable TTNN Runtime (requires TTMLIR_ENABLE_RUNTIME)" ON)
   option(TT_RUNTIME_ENABLE_TTMETAL "Enable TTMetal Runtime (requires TTMLIR_ENABLE_RUNTIME)" ON)

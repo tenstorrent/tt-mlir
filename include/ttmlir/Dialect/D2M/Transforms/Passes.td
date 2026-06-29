@@ -588,6 +588,26 @@ defvar D2MNumStreamBuffersOption = [
          "Number of backing buffers to allocate per stream storage (>=1). Default is 2.">,
 ];
 
+def D2MReblockGenerics : Pass<"d2m-reblock-generics", "::mlir::ModuleOp"> {
+  let summary = "Rebuild d2m.generic ops using block-factor analysis.";
+  let description = [{
+    This pass uses
+    BlockFactorAnalysis to select block factors for affine blocked d2m.generic
+    ops, then rebuilds those generics with the selected factors.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::tt::ttcore::TTCoreDialect",
+    "::mlir::memref::MemRefDialect"
+  ];
+  let options = D2MNumStreamBuffersOption # [
+    Option<"testBufferSizePolicy",
+          "test-buffer-size-policy",
+          "std::string", /*default=*/"\"auto\"",
+          "Set policy for sizing stream buffers ('auto', 'auto-mn', 'bounded', 'min', 'max').">,
+  ];
+}
+
 def D2MMarkSynchronizedBuffers : Pass<"d2m-mark-synchronized-buffers", "::mlir::ModuleOp"> {
   let summary = "Mark in-generic allocs that require synchronization with d2m.synchronized_buffer attribute.";
   let description = [{
@@ -672,10 +692,6 @@ def D2MAllocate: Pass<"d2m-allocate", "::mlir::ModuleOp"> {
           "test-assume-l1-capacity",
           "std::int64_t", /*default=*/"0",
           "Assume given L1 capacity.">,
-    Option<"testBufferSizePolicy",
-          "test-buffer-size-policy",
-          "std::string", /*default=*/"\"auto\"",
-          "Set policy for sizing stream buffers ('auto', 'auto-mn', 'bounded', 'min', 'max').">,
   ];
 }
 
@@ -738,7 +754,7 @@ def D2MGenericReplaceGlobals : Pass<"d2m-generic-replace-globals", "::mlir::Modu
 def D2MMaterializeViewReturns : Pass<"d2m-materialize-view-returns", "::mlir::ModuleOp"> {
   let summary = "Materialize unmaterialized views before return operations";
   let description = [{
-    This pass detects when a return value is an unmaterialized tensor view
+    This pass detects when a return value is an unmaterialized tensor or memref view
     (produced by view operations like d2m.view_layout)
     and emits a d2m.generic op to consume and materialize the view before
     returning it.
@@ -775,7 +791,9 @@ def D2MMaterializeViewReturns : Pass<"d2m-materialize-view-returns", "::mlir::Mo
     }
     ```
 
-    This pass should run after layout lowering and before bufferization.
+    This pass can run before or after bufferization. Tensor views are
+    materialized with tensor outputs and memref views are materialized with a
+    device allocation plus datamovement-only generic.
   }];
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect", "::mlir::tt::ttcore::TTCoreDialect"];
 }
@@ -903,6 +921,57 @@ def D2MDecomposeArange : Pass<"d2m-decompose-arange", "::mlir::ModuleOp"> {
     "::mlir::memref::MemRefDialect",
     "::mlir::arith::ArithDialect",
     "::mlir::scf::SCFDialect"
+  ];
+}
+
+def D2MDecomposeTopk : Pass<"d2m-decompose-topk", "::mlir::ModuleOp"> {
+  let summary = "Decompose topk_block ops into low-level tile operations";
+  let description = [{
+    This pass decomposes high-level `topk_block` operations into low-level
+    tile operations for computing top-K values and indices.
+
+    The topk_block op operates at block level (memref of tiles) and wraps
+    the full topk computation: index generation, bitonic sort, merge, and
+    rebuild.
+
+    The decomposition:
+    1. Allocate an index scratch buffer (buf_idx)
+    2. Generate initial indices via arange_block
+    3. Bitonic sort each tile independently via tile_topk_local_sort
+    4. Merge sorted tile pairs to find top-K via tile_topk_merge
+    5. Rebuild final sorted order via tile_topk_rebuild
+
+    Example transformation:
+    ```mlir
+    // Before:
+    %vals, %idx = d2m.topk_block(%input, %scratch, %out_vals, %out_idx)
+        {k = 16, num_elements = 64, stable_sort = false}
+        : (memref<1x2x!ttcore.tile<32x32, f32>>,
+           memref<1x1x!ttcore.tile<32x32, si32>>,
+           memref<1x2x!ttcore.tile<32x32, f32>>,
+           memref<1x2x!ttcore.tile<32x32, si32>>)
+        -> (memref<1x2x!ttcore.tile<32x32, f32>>,
+            memref<1x2x!ttcore.tile<32x32, si32>>)
+
+    // After:
+    %buf_idx = memref.alloc() : memref<1x2x!ttcore.tile<32x32, si32>, #l1>
+    %buf_idx_filled = d2m.arange_block(%scratch, %buf_idx) ...
+    %sorted_vals = memref.alloc() ...
+    %sorted_idx = memref.alloc() ...
+    d2m.tile_topk_local_sort(%input, %buf_idx_filled, %sorted_vals, %sorted_idx) ...
+    %merged_vals = memref.alloc() ...
+    %merged_idx = memref.alloc() ...
+    d2m.tile_topk_merge(%sorted_vals, %sorted_idx, %merged_vals, %merged_idx) ...
+    d2m.tile_topk_rebuild(%merged_vals, %merged_idx, %out_vals, %out_idx) ...
+    ```
+
+    This pass should run after bufferization and before
+    MarkSynchronizedBuffers.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::memref::MemRefDialect",
+    "::mlir::arith::ArithDialect"
   ];
 }
 

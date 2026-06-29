@@ -222,7 +222,7 @@ public:
     // Skip toLayout ops
     if (mlir::isa<ttir::ToLayoutOp>(op) ||
         op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>() ||
-        mlir::isa<ttir::MeshShardOp>(op)) {
+        mlir::isa<ttir::MeshShardOp, ttir::MeshPartitionOp>(op)) {
       return failure();
     }
 
@@ -396,6 +396,7 @@ public:
 
     bool modified = false;
 
+    // Sync result types: update composite result types to match decomp func.
     for (auto [idx, resultType] :
          llvm::enumerate(compositeOp->getResultTypes())) {
       if (idx >= funcOp.getResultTypes().size()) {
@@ -404,6 +405,34 @@ public:
       auto funcResultType = funcOp.getResultTypes()[idx];
       if (resultType != funcResultType) {
         compositeOp->getResult(idx).setType(funcResultType);
+        modified = true;
+      }
+    }
+
+    // Sync input types: insert to_layout ops where the composite's input layout
+    // differs from the decomposition function's parameter layout. This can
+    // happen when e.g. a main-function `input`-typed argument is forced to
+    // row-major while the decomp function's internal ops prefer tiled layout.
+    for (auto [idx, input] : llvm::enumerate(compositeOp.getInputs())) {
+      if (idx >= funcOp.getNumArguments()) {
+        break;
+      }
+      auto funcArgType =
+          mlir::cast<RankedTensorType>(funcOp.getArgumentTypes()[idx]);
+      if (input.getType() == funcArgType) {
+        continue;
+      }
+      auto funcArgLayout =
+          mlir::dyn_cast<TTNNLayoutAttr>(funcArgType.getEncoding());
+      if (!funcArgLayout) {
+        continue;
+      }
+      Location newLoc = appendInputSuffix(compositeOp->getLoc(), idx);
+      std::optional<Value> desiredLayout = createToLayoutOp(
+          rewriter, newLoc, input, funcArgLayout.getBufferType(),
+          mlir::isa<ttcore::TileType>(funcArgLayout.getElementType()));
+      if (desiredLayout) {
+        compositeOp->setOperand(idx, *desiredLayout);
         modified = true;
       }
     }
@@ -448,6 +477,49 @@ public:
           resultType.getShape(), resultType.getElementType(), newLayout);
       rewriter.modifyOpInPlace(
           op, [&]() { op->getResult(0).setType(resultSystemMemoryType); });
+      modified = true;
+    }
+    return success(modified);
+  }
+};
+} // namespace
+
+namespace {
+
+// Keep ttir::MeshPartitionOp I/O in row-major.
+//
+// MeshPartitionOp typically reslices weights/parameters and is const-eval'd, so
+// it runs once. Tiling pads the last two dims to 32x32, blowing up device
+// memory for small trailing dims (e.g. conv weights ...x3x3) with no compute
+// benefit. Consumers re-tilize as needed.
+class TTNNLayoutMeshPartitionRewriter
+    : public OpRewritePattern<ttir::MeshPartitionOp> {
+public:
+  TTNNLayoutMeshPartitionRewriter(MLIRContext *ctx)
+      : OpRewritePattern<ttir::MeshPartitionOp>(ctx) {}
+
+  LogicalResult matchAndRewrite(ttir::MeshPartitionOp op,
+                                PatternRewriter &rewriter) const override {
+    bool modified = false;
+    Value input = op.getOperand();
+    Location newLoc = appendInputSuffix(op.getLoc(), 0);
+    std::optional<Value> inputLayout = createToLayoutOp(
+        rewriter, newLoc, input, g_defaultMemorySpaceDevice, /* tiled */ false);
+    if (inputLayout.has_value()) {
+      rewriter.modifyOpInPlace(op, [&]() { op->setOperand(0, *inputLayout); });
+      modified = true;
+    }
+
+    RankedTensorType resultType =
+        mlir::cast<RankedTensorType>(op.getResult().getType());
+    TTNNLayoutAttr newLayout =
+        createLayoutAttr(rewriter.getContext(), resultType,
+                         g_defaultMemorySpaceDevice, /* isTiled */ false);
+    if (newLayout != resultType.getEncoding()) {
+      auto resultRowMajorType = RankedTensorType::get(
+          resultType.getShape(), resultType.getElementType(), newLayout);
+      rewriter.modifyOpInPlace(
+          op, [&]() { op->getResult(0).setType(resultRowMajorType); });
       modified = true;
     }
     return success(modified);
@@ -644,7 +716,7 @@ private:
 
     for (Operation *user : arg.getUsers()) {
       // MeshShardOp inputs should be tiled.
-      if (mlir::isa<ttir::MeshShardOp>(user)) {
+      if (mlir::isa<ttir::MeshShardOp, ttir::TTLangOp>(user)) {
         return false;
       }
     }
@@ -756,6 +828,7 @@ public:
       patterns.add<TTNNLayoutFuncReturnRewriter>(&getContext());
       patterns.add<TTNNLayoutHoistedFuncCallRewriter>(&getContext());
       patterns.add<TTNNLayoutMeshShardRewriter>(&getContext());
+      patterns.add<TTNNLayoutMeshPartitionRewriter>(&getContext());
 
       // Rewrite LoadCachedOp call sites to have correct result types matching
       // callee function signatures in case const-eval function signatures have

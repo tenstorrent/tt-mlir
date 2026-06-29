@@ -6,7 +6,6 @@ module attributes {} {
     // CHECK-LABEL: @test_rand
     // CHECK: "ttnn.rand"
     // CHECK-SAME: high = 1.000000e+00 : f32,
-    // CHECK-SAME: layout = #ttnn.layout<tile>,
     // CHECK-SAME: low = 0.000000e+00 : f32,
     // CHECK-SAME: seed = 0 : ui32,
     // CHECK-SAME: size = #ttnn.shape<32x32>

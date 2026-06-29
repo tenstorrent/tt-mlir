@@ -15,6 +15,8 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Affine/Utils.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/IR/AffineExpr.h"
 
 #include <cassert>
@@ -852,7 +854,42 @@ AffineMap getMemoryMap(ttcore::DeviceAttr device, Value input, bool isRemote) {
 template <typename Builder>
 SmallVector<Value> applyMap(Builder &builder, Location loc, AffineMap map,
                             ValueRange index, bool isRemote) {
-  auto affineApply = [&](AffineMap map, ValueRange index) {
+  auto affineApply = [&](AffineMap map, ValueRange index) -> Value {
+    map = mlir::simplifyAffineMap(map);
+    AffineExpr result = map.getResult(0);
+    if (auto constantExpr = dyn_cast<AffineConstantExpr>(result)) {
+      return builder.template create<arith::ConstantIndexOp>(
+          loc, constantExpr.getValue());
+    }
+    if (auto dimExpr = dyn_cast<AffineDimExpr>(result)) {
+      return index[dimExpr.getPosition()];
+    }
+
+    SmallVector<int64_t> constantOperands;
+    constantOperands.reserve(index.size());
+    for (Value operand : index) {
+      if (auto constantIndexOp =
+              operand.getDefiningOp<arith::ConstantIndexOp>()) {
+        constantOperands.push_back(constantIndexOp.value());
+        continue;
+      }
+      auto constantOp = operand.getDefiningOp<arith::ConstantOp>();
+      if (!constantOp || !mlir::isa<IndexType>(constantOp.getType())) {
+        constantOperands.clear();
+        break;
+      }
+      auto integerAttr = mlir::dyn_cast<IntegerAttr>(constantOp.getValue());
+      if (!integerAttr) {
+        constantOperands.clear();
+        break;
+      }
+      constantOperands.push_back(integerAttr.getInt());
+    }
+    if (constantOperands.size() == index.size() && map.getNumSymbols() == 0) {
+      SmallVector<int64_t> results = map.compose(constantOperands);
+      return builder.template create<arith::ConstantIndexOp>(loc, results[0]);
+    }
+
     return builder.template create<affine::AffineApplyOp>(loc, map, index);
   };
 

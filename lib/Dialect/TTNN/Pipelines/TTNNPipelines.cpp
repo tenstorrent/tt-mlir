@@ -47,7 +47,8 @@ void createTTNNPipelineTTIRPasses(
   pm.addPass(mlir::createCanonicalizerPass());
   ttir::TTIRFusingOptions fusingOptions{
       options.enableFusingConv2dWithMultiplyPattern,
-      options.enablePermuteMatmulFusion};
+      options.enablePermuteMatmulFusion,
+      options.enablePermuteSliceAfterMatmulFusion};
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
@@ -143,6 +144,7 @@ void createTTNNPipelineAnalysisPasses(
           options.memoryLayoutAnalysisEnabled;
       propagationOptions.overrideOutputLayout = options.overrideOutputLayout;
       propagationOptions.overrideConv2dConfig = options.overrideConv2dConfig;
+      propagationOptions.overrideConv3dConfig = options.overrideConv3dConfig;
       propagationOptions.enableDecisionTrace = options.enableDecisionTrace;
       propagationOptions.decisionTraceDir = options.decisionTraceDir;
       propagationOptions.enableCompileTimeStats =
@@ -189,13 +191,68 @@ void createTTNNPipelineLoweringPasses(OpPassManager &pm,
   pm.addPass(createTTNNLayout());
   // Add pass to convert TTIR to TTNN.
   pm.addPass(createConvertTTIRToTTNNPass());
-  // Resolve composite ops into typed ops (with OpModel) or inline their
-  // decompositions.
-  pm.addPass(createTTNNResolveComposites());
   // Add pass to remove unused values.
   if (removeDeadValuesEnabled) {
     pm.addPass(mlir::createRemoveDeadValuesPass());
   }
+}
+
+// Resolve composite ops into typed ops or inline their decompositions.
+//
+// Auto (the default) upgrades to Validate when the optimizer and OpModel are
+// available, otherwise falls back to Inline. Inline and ForcePromote are always
+// respected. Validate warns and falls back to Inline when prerequisites are
+// absent.
+void createTTNNResolveCompositesPass(
+    OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options) {
+  CompositeResolution resolution = options.compositeResolution;
+
+#ifdef TTMLIR_ENABLE_OPMODEL
+  const bool canValidate = options.optimizerPassEnabled;
+#else
+  const bool canValidate = false;
+#endif
+
+  // Resolve Auto to a concrete mode.
+  if (resolution == CompositeResolution::Auto) {
+    resolution = canValidate ? CompositeResolution::Validate
+                             : CompositeResolution::Inline;
+  }
+
+  // Warn if Validate was explicitly requested but prerequisites are absent.
+  if (resolution == CompositeResolution::Validate && !canValidate) {
+    mlir::emitWarning(
+        mlir::UnknownLoc::get(static_cast<PassManager &>(pm).getContext()),
+        "composite-resolution=validate requires the optimizer and "
+        "TTMLIR_ENABLE_OPMODEL; falling back to inline");
+    resolution = CompositeResolution::Inline;
+  }
+
+  // Validate: OpModel validation requires device access via
+  // DevicePassesWrapper.
+#ifdef TTMLIR_ENABLE_OPMODEL
+  if (resolution == CompositeResolution::Validate) {
+    DevicePassesWrapperOptions wrapperOptions;
+    wrapperOptions.devicePtr = options.devicePtr;
+    wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
+    pm.addPass(createDevicePassesWrapper(
+        [](OpPassManager &innerPm) {
+          TTNNResolveCompositesOptions resolveOptions;
+          resolveOptions.compositeResolution = CompositeResolution::Validate;
+          innerPm.addPass(createTTNNResolveComposites(resolveOptions));
+        },
+        wrapperOptions));
+
+    pm.addPass(mlir::createCanonicalizerPass());
+    return;
+  }
+#endif
+
+  // ForcePromote or Inline.
+  TTNNResolveCompositesOptions resolveOptions;
+  resolveOptions.compositeResolution = resolution;
+  pm.addPass(createTTNNResolveComposites(resolveOptions));
+  pm.addPass(mlir::createCanonicalizerPass());
 }
 
 // Create TTNN fusing pass.
@@ -337,6 +394,7 @@ void createTTIRToTTNNCommonPipeline(
 
     // Run TTNN lowering passes on Device module.
     createTTNNPipelineLoweringPasses(devicePm, options.removeDeadValuesEnabled);
+    createTTNNResolveCompositesPass(devicePm, options);
     createTTNNFusingPass(devicePm, options);
 
     // Create TTNN decomposition pass, optionally with op-model validation.
@@ -426,6 +484,12 @@ void createTTIRToTTNNCommonPipeline(
     }
 
     createTTNNPipelineAnalysisPasses(devicePm, options);
+
+    // Materialize PrepareConv3dWeightsOp for every Conv3dOp. Runs after the
+    // optimizer (so it can read the optimizer's chosen Conv3dConfigAttr) but
+    // unconditionally — at optimization-level=0 there's no Conv3dConfigAttr
+    // and the pass falls back to TILE_WIDTH for c_in_block.
+    devicePm.addPass(mlir::tt::ttnn::createTTNNPrepareConv3dWeights());
 
     if (options.enableCreateD2MSubgraphs) {
       TTNNPipelineD2MPassOptions d2mOptions;

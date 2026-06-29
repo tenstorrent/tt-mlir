@@ -257,12 +257,6 @@ public:
   // Create workarounds for upsample op operands.
   static TTNNOperandsWorkarounds createUpsampleOpOperandsWorkarounds();
 
-  // Create workarounds for mesh partition op operands. The input and output
-  // tensors are always in row-major layout.
-  // TODO (hshah): Remove once
-  // https://github.com/tenstorrent/tt-metal/issues/37676 is fixed.
-  static TTNNOperandsWorkarounds createMeshPartitionOpOperandsWorkarounds();
-
   // Create workarounds for gather op operands. The input and index tensors must
   // always be in TILED layout.
   // tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/41451
@@ -368,6 +362,14 @@ public:
   static TTNNOperandsWorkarounds
   createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds(
       Operation *op);
+
+  // TODO(#8842): The ROW_MAJOR coercion of page_table /
+  // chunk_start_idx / cur_pos_tensor for the chunked and paged SDPA decode
+  // factories below is a permanent tt-metal kernel ABI, not a temporary
+  // workaround. Move it to TTNNLayout's shouldForceInputRowMajor (this op and
+  // the paged SDPA decode op above) and drop these factories.
+  static TTNNOperandsWorkarounds
+  createChunkedScaledDotProductAttentionOpOperandsWorkarounds(Operation *op);
 
   static TTNNOperandsWorkarounds
   createPagedFlashMultiLatentAttentionDecodeOpOperandsWorkarounds(

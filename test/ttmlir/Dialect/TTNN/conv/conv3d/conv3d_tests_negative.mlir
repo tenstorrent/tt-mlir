@@ -29,7 +29,7 @@ module {
 module {
   func.func @conv3d_invalid_weight_shape(%arg0: tensor<1x8x28x28x4xbf16>, %arg1: tensor<108x3x16xbf16>, %arg2: tensor<1x16xbf16>) -> tensor<1x6x26x26x16xbf16> {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    // CHECK: error: 'ttnn.conv3d' op weight must be a 2D tensor [kD*kH*kW*C/G, O]
+    // CHECK: error: 'ttnn.conv3d' op weight must be either a 5D tensor [O, C/G, kD, kH, kW] (raw) or a 2D tensor [kD*kH*kW*C/G, O] (prepared)
     %1 = "ttnn.conv3d"(%arg0, %arg1, %arg2, %0)
             <{
               in_channels = 4: i32,

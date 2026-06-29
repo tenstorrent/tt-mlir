@@ -3,6 +3,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         DMAOptimizations.cpp
         DecomposeArange.cpp
         DecomposeMasking.cpp
+        DecomposeTopk.cpp
         GenericApplyInterchange.cpp
         GenericFusion.cpp
         GenericLinearizeMemref.cpp
@@ -23,6 +24,7 @@ add_mlir_dialect_library(MLIRD2MTransforms
         OptimizeMasks.cpp
         OpScheduler.cpp
         PythonRewritesPass.cpp
+        ReblockGenerics.cpp
         SFPUTileLoopFission.cpp
         InsertScratchBuffers.cpp
         InsertSpillAndScratch.cpp

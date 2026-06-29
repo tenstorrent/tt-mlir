@@ -22,11 +22,10 @@ module attributes {} {
     // 3. UInt32 data type for output
 
     // CHECK: "ttnn.to_layout"
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: -> tensor<1x1x32x32xbf16,
     // CHECK-NEXT: "ttnn.argmax"
 
-    %1 = "ttnn.argmax"(%arg0) <{dim = 3 : i32, keep_dim = false, use_multicore = false}> : (tensor<1x1x32x32xf32, #ttnn_layout_tile_f32>) -> tensor<1x1x32xui32, #ttnn_layout_row_major_uint32>
+    %1 = "ttnn.argmax"(%arg0) <{dim = 3 : i32, keep_dim = false}> : (tensor<1x1x32x32xf32, #ttnn_layout_tile_f32>) -> tensor<1x1x32xui32, #ttnn_layout_row_major_uint32>
 
     return %1 : tensor<1x1x32xui32, #ttnn_layout_row_major_uint32>
   }
