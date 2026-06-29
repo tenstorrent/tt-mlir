@@ -788,5 +788,11 @@ const std::set<mlir::StringRef>
         ttnn::AllToAllCombineOp::getOperationName(),
         ttnn::MoeExpertTokenRemapOp::getOperationName(),
         ttnn::SparseMatmulOp::getOperationName(),
+        // ArgMax's operands workaround forces ROW_MAJOR input/output. Since
+        // tt-metal #46340 the multicore argmax kernel is only selected for a
+        // ROW_MAJOR input (TILE silently falls back to single-core, ~100ms for
+        // a full-vocab reduction). Without this, opt_level>=1 layout
+        // propagation leaves the input TILE and we lose the multicore path.
+        ttnn::ArgMaxOp::getOperationName(),
 };
 } // namespace mlir::tt::ttnn
