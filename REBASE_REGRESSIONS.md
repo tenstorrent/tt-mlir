@@ -302,6 +302,32 @@ deliberately: a speculative change to `convert-d2m-to-ttkernel` would risk the
 now-green core suite (all of which goes through that pass). Needs a focused
 diff of the in-loop remote_store lowering ORIG_HEAD vs now.
 
+## R18 (NOT fixed — distinct from the rebase) — TensorAccessor-DMA gives PCC 0.0 on DRAM eltwise
+
+`test_simple::test_eltwise_dram` (a layout with `mem_space="dram"`) fails with
+PCC 0.0 when `use_tensor_accessor_dma=True` (the branch default) and PASSES with
+`D2M_JIT_USE_TENSOR_ACCESSOR_DMA=0`. This test is NEW from the base (absent at
+ORIG_HEAD); the base ran it via fully-indexed DMA (it never had the
+tensor-accessor-dma option), while the branch's TA-DMA work targeted L1 CCL
+scratch buffers (its own `test_tensor_accessor_dma` passes). So this is a
+TensorAccessor-DMA **DRAM-addressing** correctness gap newly exposed by combining
+the base's DRAM test with the branch's TA-DMA default — not a mechanical
+rebase-conflict like R1–R17. Workaround: `D2M_JIT_USE_TENSOR_ACCESSOR_DMA=0`.
+Real fix needs debugging the TA-DMA DRAM page/bank addressing; risky to patch
+blind (the L1 TA-DMA path is green). Tracked for focused follow-up.
+
+## FINAL FINAL STATUS (after R1–R17)
+
+The full d2m-jit suite is GREEN except:
+- `test_mesh`, `test_semaphore`: pre-existing fabric bring-up hang (timeout) —
+  not a rebase regression.
+- `test_simple::test_eltwise_dram`: R18 above (TA-DMA DRAM; passes with TA-DMA
+  off).
+Every other file passes, including the previously-broken CCL loop-carried
+cluster (all_gather_matmul, all_reduce_attention, all_reduce_grid,
+ring_all_reduce_loop on device; inloop_output_store, meshpos_local_store
+lower-only).
+
 ## Pre-existing (NOT a rebase regression) — fabric bring-up hang
 
 `test_mesh` and `test_semaphore` time out at 300s. Per
