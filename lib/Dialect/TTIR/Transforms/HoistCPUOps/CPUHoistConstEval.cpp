@@ -76,7 +76,7 @@ static llvm::SmallVector<mlir::Operation *> traceCreationOpChain(Value v) {
 //   in host memory. This is especially beneficial for tensors which would take
 //   up significantly more L1 if tilized (e.g. tensor<1024x1024x1x1).
 static llvm::SmallVector<CPUHoistedOpsDescriptor>
-analyzeConstEval(func::FuncOp funcOp) {
+analyzeConstEval(func::FuncOp funcOp, bool hoistDataMovement) {
   if (!ttmlir::utils::isConstEvalFunc(funcOp)) {
     return {};
   }
@@ -155,7 +155,11 @@ analyzeConstEval(func::FuncOp funcOp) {
   // For those the host-storage motivation can still apply - the conversion can
   // produce a narrower-dtype tensor on host, lowering what is materialized on
   // device - so it is left to the existing hoisting path.
-  if (llvm::all_of(descriptor.operations, isPureDataMovementOp) &&
+  //
+  // The hoist-data-movement option restores the legacy behavior (hoist these
+  // anyway) as an escape hatch for A/B comparison.
+  if (!hoistDataMovement &&
+      llvm::all_of(descriptor.operations, isPureDataMovementOp) &&
       llvm::any_of(descriptor.operations, isTensorManipulationOp)) {
     return {};
   }
@@ -188,7 +192,7 @@ public:
 
     llvm::SmallVector<CPUHoistedOpsDescriptor> descriptors;
     deviceInnerModule.walk([&](func::FuncOp funcOp) {
-      auto result = analyzeConstEval(funcOp);
+      auto result = analyzeConstEval(funcOp, hoistDataMovement);
       descriptors.append(std::make_move_iterator(result.begin()),
                          std::make_move_iterator(result.end()));
     });
