@@ -264,14 +264,17 @@ class D2MLowerDMAReadToFullyIndexed : public OpRewritePattern<DMAReadOp> {
 public:
   D2MLowerDMAReadToFullyIndexed(MLIRContext *context,
                                 bool debugCoalescingInference,
-                                CoalescingFactorCache &coalescingCache)
+                                CoalescingFactorCache &coalescingCache,
+                                bool useTensorAccessorDMA)
       : OpRewritePattern<DMAReadOp>(context),
         debugCoalescingInference(debugCoalescingInference),
-        coalescingCache(&coalescingCache) {}
+        coalescingCache(&coalescingCache),
+        useTensorAccessorDMA(useTensorAccessorDMA) {}
 
 private:
   bool debugCoalescingInference;
   CoalescingFactorCache *coalescingCache = nullptr;
+  bool useTensorAccessorDMA;
 
 public:
   LogicalResult matchAndRewrite(DMAReadOp op,
@@ -340,14 +343,17 @@ class D2MLowerDMAWriteToFullyIndexed : public OpRewritePattern<DMAWriteOp> {
 public:
   D2MLowerDMAWriteToFullyIndexed(MLIRContext *context,
                                  bool debugCoalescingInference,
-                                 CoalescingFactorCache &coalescingCache)
+                                 CoalescingFactorCache &coalescingCache,
+                                 bool useTensorAccessorDMA)
       : OpRewritePattern<DMAWriteOp>(context),
         debugCoalescingInference(debugCoalescingInference),
-        coalescingCache(&coalescingCache) {}
+        coalescingCache(&coalescingCache),
+        useTensorAccessorDMA(useTensorAccessorDMA) {}
 
 private:
   bool debugCoalescingInference;
   CoalescingFactorCache *coalescingCache = nullptr;
+  bool useTensorAccessorDMA;
 
 public:
   LogicalResult matchAndRewrite(DMAWriteOp op,
@@ -587,9 +593,11 @@ public:
     CoalescingFactorCache coalescingCache;
     RewritePatternSet dmaPatterns(&getContext());
     dmaPatterns.add<D2MLowerDMAReadToFullyIndexed>(
-        &getContext(), debugCoalescingInference, coalescingCache);
+        &getContext(), debugCoalescingInference, coalescingCache,
+        useTensorAccessorDMA);
     dmaPatterns.add<D2MLowerDMAWriteToFullyIndexed>(
-        &getContext(), debugCoalescingInference, coalescingCache);
+        &getContext(), debugCoalescingInference, coalescingCache,
+        useTensorAccessorDMA);
     dmaPatterns.add<D2MLowerLocalCopyToFullyIndexed>(&getContext(),
                                                      debugCoalescingInference);
     walkAndApplyPatterns(getOperation(), std::move(dmaPatterns));

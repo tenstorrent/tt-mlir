@@ -2643,8 +2643,9 @@ public:
         rewriter, loc, chipDesc, adaptor.getSrcCore());
     NocEndpoint srcEndpoint{
         ttcore::MemorySpace::DeviceL1, {virtX, virtY}, nullptr, srcL1Addr};
-    createNocAsyncRead(rewriter, loc, srcEndpoint, dstL1Addr, size);
-    rewriter.create<ttkernel::NocAsyncReadBarrierOp>(loc);
+    Value nocId = materializeKernelNocId(rewriter, op.getOperation());
+    createNocAsyncRead(rewriter, loc, srcEndpoint, dstL1Addr, size, nocId);
+    rewriter.create<ttkernel::NocAsyncReadBarrierOp>(loc, nocId);
 
     rewriter.eraseOp(op);
     return success();
@@ -2681,8 +2682,9 @@ public:
         rewriter, loc, chipDesc, adaptor.getDstCore());
     NocEndpoint dstEndpoint{
         ttcore::MemorySpace::DeviceL1, {virtX, virtY}, nullptr, dstL1Addr};
-    createNocAsyncWrite(rewriter, loc, srcL1Addr, dstEndpoint, size);
-    rewriter.create<ttkernel::NocAsyncWriteBarrierOp>(loc);
+    Value nocId = materializeKernelNocId(rewriter, op.getOperation());
+    createNocAsyncWrite(rewriter, loc, srcL1Addr, dstEndpoint, size, nocId);
+    rewriter.create<ttkernel::NocAsyncWriteBarrierOp>(loc, nocId);
 
     rewriter.eraseOp(op);
     return success();
@@ -3224,9 +3226,9 @@ public:
         appendTensorStrideArg(rewriter, entry, operandIndex, remoteMemRef);
 
     // Create TensorAccessorArgs with CTA base offset.
-    Value ctaBase =
-        i32(rewriter, loc, static_cast<int32_t>(ctaTensorAccessorArgIndex));
-    Value crtaBase = i32(rewriter, loc, 0);
+    Value ctaBase = intConstant<int32_t>(
+        rewriter, loc, static_cast<int32_t>(ctaTensorAccessorArgIndex));
+    Value crtaBase = intConstant<int32_t>(rewriter, loc, 0);
     auto argsOp = rewriter.create<ttkernel::TensorAccessorArgsOp>(
         loc, ctaBase, crtaBase, /*prev=*/Value(), /*ctaExpr=*/StringAttr(),
         /*crtaExpr=*/StringAttr());
@@ -3236,7 +3238,8 @@ public:
     Value bankBaseAddress = castCBTypeAsAddress(rewriter, loc, adaptedRemote);
 
     // Create the TensorAccessor.
-    Value pageSize = i32(rewriter, loc, static_cast<int32_t>(pageSizeBytes));
+    Value pageSize =
+        intConstant<int32_t>(rewriter, loc, static_cast<int32_t>(pageSizeBytes));
     auto tensorAccessor = rewriter.create<ttkernel::TensorAccessorOp>(
         loc, argsOp, bankBaseAddress, pageSize);
 
@@ -3354,12 +3357,16 @@ public:
             myY, myX, pageIdI32, bankBaseAddress, resolvedNoc);
       }
 
+      // The TTKernel-to-EmitC lowering requires the NoC operand to be
+      // materialized explicitly (it refuses to default it); use the kernel's
+      // statically-resolved NoC index, as the other NoC ops do.
+      Value nocId = materializeKernelNocId(rewriter, op.getOperation());
       if constexpr (IsRead) {
         rewriter.create<ttkernel::NocAsyncReadTileOp>(
-            innerLoc, pageIdI32, tensorAccessor, localAddr);
+            innerLoc, pageIdI32, tensorAccessor, localAddr, nocId);
       } else {
         rewriter.create<ttkernel::NocAsyncWriteTileOp>(
-            innerLoc, pageIdI32, tensorAccessor, localAddr);
+            innerLoc, pageIdI32, tensorAccessor, localAddr, nocId);
       }
     }
 
@@ -4179,7 +4186,7 @@ namespace mlir::tt {
 void populateD2MToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
     const d2m::CBProducerConsumer &cbProducerConsumer,
-    bool forceCompileTimeArgs) {
+    bool forceCompileTimeArgs, bool useTensorAccessorDMA) {
   // clang-format off
   patterns.add<ttkernel::D2MKernelFunctionArgsRewriter>(
       typeConverter, ctx, forceCompileTimeArgs);

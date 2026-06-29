@@ -47,6 +47,23 @@ class _Config:
     # Keep explicit d2m.tile_matmul loops instead of replacing them with
     # d2m.tile_matmul_block in the backend pipeline.
     use_tile_matmul: bool = _env_bool("D2M_JIT_USE_TILE_MATMUL")
+    # Use the d2m-split-unified-thread-v2 rewrite (passed through to
+    # d2m-be-pipeline as use-split-unified-thread-v2=1). Default on: v1 asserts
+    # on multi-synchronizable-op kernels (CCL: device_synchronize + remote_store
+    # + semaphore_wait), and v2 lowers the eltwise/matmul/CCL paths. Set
+    # D2M_JIT_SPLIT_UNIFIED_THREAD_V2=0 to fall back to the legacy split.
+    use_split_unified_thread_v2: bool = _env_bool(
+        "D2M_JIT_SPLIT_UNIFIED_THREAD_V2", default=True
+    )
+    # Use TensorAccessor-based DMA lowering (passed through to d2m-be-pipeline
+    # and d2m-to-ttkernel-pre-emitc-pipeline as use-tensor-accessor-dma=1):
+    # lowers plain shard-level dma_read/write to TTKernel TensorAccessor ops
+    # (multicast and local-destination DMAs still go through
+    # D2MLowerDMAToFullyIndexedForm). Default ON; opt out with
+    # D2M_JIT_USE_TENSOR_ACCESSOR_DMA=0.
+    use_tensor_accessor_dma: bool = _env_bool(
+        "D2M_JIT_USE_TENSOR_ACCESSOR_DMA", default=True
+    )
     # If set, write the post-pipeline flatbuffer to this path before
     # device submit. Useful for offline inspection with ttrt.
     save_flatbuffer_path: Optional[str] = os.environ.get("D2M_JIT_SAVE_FLATBUFFER_PATH")

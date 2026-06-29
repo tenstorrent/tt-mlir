@@ -185,7 +185,10 @@ def ConvertD2MToTTKernel: Pass<"convert-d2m-to-ttkernel", "::mlir::func::FuncOp"
   let options = [
     Option<"ttnnMode", "ttnn-mode", "bool", /*default=*/"false", "Enable TTNN mode">,
     Option<"forceCompileTimeArgs", "force-compile-time-args", "bool", /*default=*/"false",
-           "Force uniform D2M kernel arguments into compile-time args when legal for CRTA performance comparison.">
+           "Force uniform D2M kernel arguments into compile-time args when legal for CRTA performance comparison.">,
+    Option<"useTensorAccessorDMA", "use-tensor-accessor-dma", "bool", /*default=*/"false",
+           "Lower plain (non-multicast, non-local) shard-level DMAs to TensorAccessor "
+           "ops instead of fully-indexed form.">
   ];
 }
 

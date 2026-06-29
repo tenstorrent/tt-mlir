@@ -57,6 +57,7 @@ struct ConvertD2MToTTKernel
     // base class copy constructors ignore Pass option fields.
     this->ttnnMode = rhs.ttnnMode;
     this->forceCompileTimeArgs = rhs.forceCompileTimeArgs;
+    this->useTensorAccessorDMA = rhs.useTensorAccessorDMA;
   }
 
   void runOnOperation() final {
@@ -179,7 +180,8 @@ struct ConvertD2MToTTKernel
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);
     populateD2MToTTKernelPatterns(&getContext(), patterns, typeConverter,
-                                  cbProducerConsumer, forceCompileTimeArgs);
+                                  cbProducerConsumer, forceCompileTimeArgs,
+                                  useTensorAccessorDMA);
     scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
                                                          patterns, target);
 

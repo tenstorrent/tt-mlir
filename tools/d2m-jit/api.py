@@ -40,6 +40,7 @@ from ._src.builder import (
     empty,
     zeros,
     full,
+    arange,
     reduction_layout,
     view_layout,
     view,
@@ -902,9 +903,16 @@ def where(cond, true_value, false_value):
     )
 
 
-def _shape_literal(node):
+def _shape_literal(node, visitor):
+    """args_as_attr callback: pull a compile-time block shape out of `node`.
+
+    Accepts `[m, n]` / `(m, n)` whose elements are compile-time ints -- literals
+    OR closed-over int captures (resolved at trace time via _eval_static_int, so
+    a kernel can be generic over its block shape, e.g. `zeros([M, K])`). The
+    shape must be compile-time because the resulting tensor type's dimensions are
+    static; runtime (index-typed) values cannot size a tensor type."""
     if isinstance(node, (ast.List, ast.Tuple)):
-        return [int(_const_value(element)) for element in node.elts]
+        return [visitor._eval_static_int(elt) for elt in node.elts]
     raise D2mJitError(
         "expected a block shape [m_tiles, n_tiles] of compile-time ints "
         f"(literals or int captures); got {type(node).__name__}"
@@ -918,6 +926,33 @@ def _zeros_op(shape):
     tile_ty = ttcore.ir.TileType.get(ctx, 32, 32, float32)
     block_ty = RankedTensorType.get(list(shape), tile_ty)
     return _zeros_block(block_ty)
+
+
+@syntax("empty", args_as_attr=[_shape_literal])
+def _empty_op(shape):
+    """Block-level uninitialised L1 scratch buffer (kernel-body `empty`).
+
+    Registered as the kernel-body op `empty`; named `_empty_op` at module
+    scope so it does not shadow the host-side `empty(layout)` re-exported as
+    the public `d2m.empty`.
+
+    `shape` is a Python-literal list/tuple of block dimensions in tiles, e.g.
+    `empty([m_tiles, n_tiles])`. Produces an uninitialised
+    `tensor<shape x !ttcore.tile<32x32, f32>>` (via `tensor.empty`), intended as
+    an explicit destination buffer for `remote_load(buf, src, indices)`.
+
+    Uses `tensor.empty` (not `d2m.empty`): for a cross-device CCL kernel a
+    `d2m.empty` load buffer makes the backend split the datamovement work onto a
+    second NOC thread that ends up without the fabric write (the
+    `getFabricConnectionManager` lowering then fails); `tensor.empty` matches the
+    buffer the all_gather rewriter emits and keeps the fabric chain on one
+    thread.
+
+    The tile element type is f32; this matches `zeros(...)`. A dtype override
+    is a follow-up once a non-f32 CCL needs it."""
+    ctx = get_default_loc_context()
+    tile_ty = ttcore.ir.TileType.get(ctx, 32, 32, float32)
+    return tensor.empty(list(shape), tile_ty)
 
 
 def _bool_attr_from_ast(node):
@@ -1045,17 +1080,6 @@ def reduce_mean(input, dim):
         0.0,
         reduce_block_axis=True,
     )
-
-
-@syntax("__matmul_acc__")
-def _matmul_acc(acc, lhs, rhs):
-    """Matmul accumulating into `acc`: `acc + lhs @ rhs`, in place.
-
-    Not user-facing. The AST visitor routes `c += a @ b` here so the matmul
-    writes through `c`'s buffer (see `_matmul_block`'s `acc` argument); this
-    is required for a loop-carried `c` to bufferize and is the canonical
-    matmul K-reduction."""
-    return _matmul_block(lhs, rhs, acc=acc)
 
 
 @syntax("copy_")
@@ -1487,7 +1511,7 @@ def _common_reduced_axes(blocks):
     return frozenset()
 
 
-def _eltwise_block(tile_op_fn, *blocks, preserve_reduced_axes=True):
+def _eltwise_block(tile_op_fn, *blocks, out=None, preserve_reduced_axes=True):
     """Wrap an N-ary per-tile op inside a `linalg.generic` over tensors of
     tiles.
 
@@ -1525,7 +1549,7 @@ def _eltwise_block(tile_op_fn, *blocks, preserve_reduced_axes=True):
     output_shape = _broadcast_block_shape(blocks)
     output_ty = RankedTensorType.get(output_shape, elem_ty)
 
-    output = d2m.empty(output_ty)
+    output = _as_value(out) if out is not None else d2m.empty(output_ty)
     identity = AffineMap.get_identity(rank)
     n_args = len(blocks) + 1  # one input map per block + one output map
     indexing_maps = ArrayAttr.get(
@@ -1541,7 +1565,7 @@ def _eltwise_block(tile_op_fn, *blocks, preserve_reduced_axes=True):
     iterator_types = ArrayAttr.get([parallel] * rank)
 
     generic = linalg.GenericOp(
-        [output_ty],
+        [output.type],
         list(blocks),
         [output],
         indexing_maps,

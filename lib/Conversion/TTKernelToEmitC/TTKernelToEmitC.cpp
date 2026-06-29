@@ -3049,8 +3049,7 @@ public:
     patterns.add<TTKernelTensorAccessorArgsOpRewriter>(typeConverter, context,
                                                        state);
 
-    patterns.add<TTKernelTensorAccessorDSpecOpRewriter>(typeConverter,
-                                                        funcOp.getContext());
+    patterns.add<TTKernelTensorAccessorDSpecOpRewriter>(typeConverter, context);
 
     patterns.add<TTKernelCreateFabricConnectionManagerOpRewriter>(
         typeConverter, context, state);
