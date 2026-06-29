@@ -239,6 +239,39 @@ private:
     return toLayoutOp.getResult();
   }
 
+  // Inserts a Tile-converting ToLayoutOp on `user`'s operand `operandIdx` and
+  // rewires `user` to consume it. Used when propagation made `rowMajorOperand`
+  // RowMajor but `user` cannot accept a RowMajor operand and still declares a
+  // Tiled result (e.g. a layout-preserving CCL op like all_gather). Restoring
+  // the operand to Tile keeps the operand and result layouts consistent. No-op
+  // if the operand is not actually RowMajor.
+  void reconcileTiledOperand(IRRewriter &rewriter, Operation *user,
+                             unsigned operandIdx, Value rowMajorOperand) {
+    auto tensorType =
+        mlir::dyn_cast<RankedTensorType>(rowMajorOperand.getType());
+    if (!tensorType) {
+      return;
+    }
+    auto rmLayout =
+        mlir::dyn_cast_or_null<TTNNLayoutAttr>(tensorType.getEncoding());
+    if (!rmLayout || rmLayout.isTiled()) {
+      return;
+    }
+
+    TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
+                 "Re-tilizing RowMajor operand {} of op {} to match its Tiled "
+                 "result",
+                 operandIdx, ttmlir::opToString(user));
+
+    rewriter.setInsertionPoint(user);
+    auto toLayoutOp = utils::createToLayoutOp(
+        user, mlir::cast<mlir::TypedValue<RankedTensorType>>(rowMajorOperand),
+        rewriter, Layout::Tile, rmLayout.getBufferType(),
+        rmLayout.getMemLayout(), rmLayout.getDataType(), "_rm_reconcile");
+
+    user->setOperand(operandIdx, toLayoutOp.getResult());
+  }
+
   // Propagates RowMajor layout through the function starting from the given
   // argument values. Updates the operation result types in-place. Stops when
   // reaching operations that return Tiled layouts. Inserts ToLayoutOps before
@@ -260,20 +293,38 @@ private:
       Value current = worklist.front();
       worklist.pop();
 
-      for (auto &use : current.getUses()) {
-        Operation *user = use.getOwner();
+      // Snapshot the uses before processing them. Both handleReturnOp and the
+      // interior reconciliation below rewire operands of `current`, which would
+      // invalidate the use iterator if we walked it lazily.
+      llvm::SmallVector<std::pair<Operation *, unsigned>> uses;
+      for (OpOperand &use : current.getUses()) {
+        uses.emplace_back(use.getOwner(), use.getOperandNumber());
+      }
 
+      for (auto &[user, operandIdx] : uses) {
         if (auto returnOp = mlir::dyn_cast<func::ReturnOp>(user)) {
-          handleReturnOp(rewriter, funcType, returnOp, use.getOperandNumber(),
-                         current);
+          handleReturnOp(rewriter, funcType, returnOp, operandIdx, current);
           continue;
         }
 
+        bool consumerRejectsRowMajor = false;
         llvm::Expected<TTNNLayoutAttr> rmOutputLayout =
-            opStopsRowMajorPropagation(user, use.getOperandNumber());
+            opStopsRowMajorPropagation(user, operandIdx,
+                                       consumerRejectsRowMajor);
 
         if (!rmOutputLayout) {
           llvm::consumeError(rmOutputLayout.takeError());
+          // Propagation already flipped `current` (the producer's result) to
+          // RowMajor before visiting this consumer. If the consumer cannot
+          // accept a RowMajor operand -- e.g. an OpModelExempt, layout-
+          // preserving CCL op such as all_gather, whose result type is still
+          // Tiled -- it would be left with a RowMajor input paired with a
+          // Tiled output. That inconsistency is invisible to compilation but
+          // aborts at runtime ("Layout mismatch, expected TILE, got
+          // ROW_MAJOR"). Re-tilize the operand here to restore consistency.
+          if (consumerRejectsRowMajor) {
+            reconcileTiledOperand(rewriter, user, operandIdx, current);
+          }
           continue;
         }
 
@@ -304,8 +355,17 @@ private:
   // Checks if given operation is valid and returns RowMajor layout. If
   // operation is not valid with RowMajor layout on given operand, returns an
   // error. Returns the RowMajor output layout if operation is valid.
+  //
+  // `consumerRejectsRowMajor` is set to true only when propagation stops
+  // because the operation cannot consume a RowMajor operand (its constraints
+  // fail to validate, including OpModelExempt ops). It is left false when the
+  // operation accepts the RowMajor operand but simply produces a Tiled result,
+  // and for ToLayout/in-place ops that handle the operand themselves. Callers
+  // use it to decide whether the already-RowMajor operand must be re-tilized.
   llvm::Expected<TTNNLayoutAttr>
-  opStopsRowMajorPropagation(Operation *op, unsigned operandIdx) {
+  opStopsRowMajorPropagation(Operation *op, unsigned operandIdx,
+                             bool &consumerRejectsRowMajor) {
+    consumerRejectsRowMajor = false;
     if (auto toLayoutOp = mlir::dyn_cast<ttnn::ToLayoutOp>(op)) {
       TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
                    "Stopping RM propagation at ToLayoutOp {}", toLayoutOp);
@@ -344,6 +404,10 @@ private:
     op_constraint_validation::ValidationResult result =
         op_constraint_validation::validateOperation(op, inputLayouts, config);
     if (result.isError()) {
+      // The operation cannot consume the RowMajor operand. The producer has
+      // already been flipped to RowMajor, so the caller must re-tilize the
+      // operand to keep this consumer consistent.
+      consumerRejectsRowMajor = true;
       TTMLIR_DEBUG(ttmlir::LogComponent::RMPropagation,
                    "Stopping RM propagation at op {} as it fails validation "
                    "with RM layout on operand {},\n\t input layout: {}",
