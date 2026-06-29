@@ -127,4 +127,33 @@ module @gather_composite_tests attributes {mhlo.num_partitions = 1 : i32, mhlo.n
     %0 = stablehlo.constant dense<0.000000e+00> : tensor<2x3xf32>
     return %0 : tensor<2x3xf32>
   }
+
+  // Test: Complex gather — complex types are unpacked before this pass, which
+  // also reshapes + broadcasts the index up to the gather result rank (in the
+  // StableHLO domain), so this pass emits a rank-valid ttir.gather directly.
+  // CHECK-LABEL: func.func @gather_complex_dim1
+  func.func @gather_complex_dim1(%arg0: tensor<1x512x16xcomplex<f32>>, %arg1: tensor<1x4352x16xi64>) -> tensor<1x4352x16xcomplex<f32>> {
+    // CHECK: "ttir.reshape"
+    // CHECK-SAME: (tensor<1x4352x16xi64>) -> tensor<1x4352x16x1xi64>
+    // CHECK: "ttir.broadcast"
+    // CHECK-SAME: broadcast_dimensions = array<i64: 1, 1, 1, 2>
+    // CHECK-SAME: (tensor<1x4352x16x1xi64>) -> tensor<1x4352x16x2xi64>
+    // CHECK: "ttir.typecast"
+    // CHECK-SAME: (tensor<1x4352x16x2xi64>) -> tensor<1x4352x16x2xui32>
+    // CHECK: "ttir.gather"
+    // CHECK-SAME: dim = 1 : i32
+    // CHECK-SAME: (tensor<1x512x16x2xf32>, tensor<1x4352x16x2xui32>) -> tensor<1x4352x16x2xf32>
+    %0 = stablehlo.composite "tenstorrent.gather" %arg0, %arg1 {composite_attributes = {dim = 1 : i64, sparse_grad = false}, decomposition = @tenstorrent.gather.impl_complex} : (tensor<1x512x16xcomplex<f32>>, tensor<1x4352x16xi64>) -> tensor<1x4352x16xcomplex<f32>>
+    return %0 : tensor<1x4352x16xcomplex<f32>>
+  }
+  func.func private @tenstorrent.gather.impl_complex(%arg0: tensor<1x512x16xcomplex<f32>>, %arg1: tensor<1x4352x16xi64>) -> tensor<1x4352x16xcomplex<f32>> {
+    %c = stablehlo.constant dense<0> : tensor<1x4352x16x1xui32>
+    %0 = stablehlo.convert %arg1 : (tensor<1x4352x16xi64>) -> tensor<1x4352x16xui32>
+    %1 = stablehlo.reshape %0 : (tensor<1x4352x16xui32>) -> tensor<1x4352x16x1xui32>
+    %2 = stablehlo.iota dim = 0 : tensor<16xui32>
+    %3 = stablehlo.broadcast_in_dim %2, dims = [2] : (tensor<16xui32>) -> tensor<1x4352x16x1xui32>
+    %4 = stablehlo.concatenate %c, %1, %3, dim = 3 : (tensor<1x4352x16x1xui32>, tensor<1x4352x16x1xui32>, tensor<1x4352x16x1xui32>) -> tensor<1x4352x16x3xui32>
+    %5 = "stablehlo.gather"(%arg0, %4) <{dimension_numbers = #stablehlo.gather<collapsed_slice_dims = [0, 1, 2], start_index_map = [0, 1, 2], index_vector_dim = 3>, slice_sizes = array<i64: 1, 1, 1>}> : (tensor<1x512x16xcomplex<f32>>, tensor<1x4352x16x3xui32>) -> tensor<1x4352x16xcomplex<f32>>
+    return %5 : tensor<1x4352x16xcomplex<f32>>
+  }
 }

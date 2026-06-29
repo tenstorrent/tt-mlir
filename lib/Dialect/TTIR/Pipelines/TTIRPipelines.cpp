@@ -62,21 +62,26 @@ void createStableHLOToTTIRPipeline(
   if (options.arithDialectConversionsEnabled) {
     pm.addPass(createConvertArithToStableHLOPass());
   }
-  pm.addPass(createLegalizeStableHLOCompositeToTTIRPass());
-  if (options.legalizeCompositeToCallEnabled) {
-    pm.addPass(::mlir::stablehlo::createStablehloLegalizeCompositeToCallPass());
-  }
-  pm.addPass(mlir::createInlinerPass());
+  // Run aggressive simplification before the complex passes so complex op
+  // chains (e.g. real(complex(a,b)) -> a) are folded before the complex type
+  // is decomposed to a float-pair representation.
   if (options.enableAggressiveSimplification) {
     pm.addPass(
         ::mlir::stablehlo::createStablehloAggressiveSimplificationPass());
   }
+  // Run the complex passes before composite legalization so composites and
+  // their decompositions are converted consistently in the StableHLO domain.
   // Expand complex math ops (e.g. mul, sqrt, log) into real arithmetic before
   // converting complex types to float-pair representation.
   pm.addPass(::mlir::stablehlo::createStablehloComplexMathExpanderPass());
   // Convert complex types to float-pair representation before lowering.
   pm.addPass(
       mlir::tt::stablehlo::createStableHLOComplexDataTypeConversionPass());
+  pm.addPass(createLegalizeStableHLOCompositeToTTIRPass());
+  if (options.legalizeCompositeToCallEnabled) {
+    pm.addPass(::mlir::stablehlo::createStablehloLegalizeCompositeToCallPass());
+  }
+  pm.addPass(mlir::createInlinerPass());
 
   ttir::ConvertStableHLOToTTIROptions passOptions;
   passOptions.enablePartialConversion = options.enableCPUFallback;
