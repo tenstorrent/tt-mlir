@@ -163,10 +163,10 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /runtime/tools/ @jgrimTT @dlokeTT
 
 # PyKernel & ttnn-jit
-/tools/pykernel/ @xanderchin @vtangTT
-/test/pykernel/ @xanderchin @vtangTT
-/tools/ttnn-jit/ @xanderchin @vtangTT @arminaleTT @sgholamiTT
-/test/ttnn-jit/ @xanderchin @vtangTT @arminaleTT @sgholamiTT
+/tools/pykernel/ @tenstorrent/forge-developers-mlir-d2m
+/test/pykernel/ @tenstorrent/forge-developers-mlir-d2m
+/tools/ttnn-jit/ @tenstorrent/forge-developers-mlir-d2m
+/test/ttnn-jit/ @tenstorrent/forge-developers-mlir-d2m
 
 # Tooling
 /tools/builder @tenstorrent/forge-developers-mlir-tooling
