@@ -12,11 +12,63 @@
 #include "tt/runtime/flatbuffer/types_generated.h"
 #include "tt/runtime/runtime.h"
 #include "tt/runtime/utils.h"
+#include "ttmlir/Target/TTNN/Target.h"
 #include <source_location>
+#include <unordered_map>
 
 namespace tt::runtime::distributed::controller {
 
 namespace fb = ::tt::runtime::distributed::flatbuffer;
+
+namespace {
+
+// Builds a map of program output index -> aliased program input index. Only
+// outputs that are aliased to an input are present; a missing key means the
+// output is not aliased.
+//
+// The compiler expresses input/output aliasing (e.g. an in-place updated KV
+// cache that is both an input and a result) by giving the program output
+// TensorRef the same global id as the input TensorRef. Detecting this lets
+// Controller::submit donate the input handle to the aliased output instead of
+// minting an independent global id + lifetime for what is physically the same
+// tensor -- which otherwise leaves two ids mapping to one worker-side
+// TTNNTensorWrapper.
+std::unordered_map<uint32_t, uint32_t>
+computeOutputToInputAliasMap(const ::tt::runtime::Binary &executable,
+                             uint32_t programIndex) {
+  std::unordered_map<uint32_t, uint32_t> outputIndexToInputIndex;
+
+  if (executable.handle == nullptr ||
+      !::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(
+          executable.handle.get())) {
+    // Only the TTNN binary schema is supported here; without it we cannot
+    // inspect program tensor ids, so fall back to no-aliasing.
+    return outputIndexToInputIndex;
+  }
+
+  const ::tt::target::ttnn::TTNNBinary *ttnnBinary =
+      ::tt::target::ttnn::GetSizePrefixedTTNNBinary(executable.handle.get());
+  const ::tt::target::ttnn::Program *program =
+      ttnnBinary->programs()->Get(programIndex);
+
+  std::unordered_map<uint32_t, uint32_t> inputGlobalIdToIndex;
+  const auto *inputs = program->inputs();
+  for (uint32_t i = 0; i < inputs->size(); ++i) {
+    inputGlobalIdToIndex.emplace(inputs->Get(i)->global_id(), i);
+  }
+
+  const auto *outputs = program->outputs();
+  for (uint32_t j = 0; j < outputs->size(); ++j) {
+    auto it = inputGlobalIdToIndex.find(outputs->Get(j)->global_id());
+    if (it != inputGlobalIdToIndex.end()) {
+      outputIndexToInputIndex.emplace(j, it->second);
+    }
+  }
+
+  return outputIndexToInputIndex;
+}
+
+} // namespace
 
 
 struct Controller::DistributedTensorToken {
@@ -673,9 +725,25 @@ Controller::submit(const ::tt::runtime::Device &deviceHandle,
   outputHandles.reserve(numOutputs);
   DeviceRuntime currentRuntime = getCurrentDeviceRuntime();
 
+  // Outputs that the program aliases to an input (e.g. in-place KV cache) must
+  // reuse the input handle rather than minting a fresh global id, otherwise the
+  // controller hands out two independent ids/lifetimes for what is physically
+  // one tensor.
+  std::unordered_map<uint32_t, uint32_t> outputIndexToInputIndex =
+      computeOutputToInputAliasMap(executableHandle, programIndex);
+
   for (uint32_t i = 0; i < numOutputs; i++) {
-    outputHandles.push_back(
-        ::tt::runtime::Tensor(nullptr, nullptr, currentRuntime));
+    auto aliasIt = outputIndexToInputIndex.find(i);
+    if (aliasIt != outputIndexToInputIndex.end()) {
+      uint32_t aliasedInputIndex = aliasIt->second;
+      LOG_ASSERT(aliasedInputIndex < inputHandles.size(),
+                 "Aliased input index out of range: ", aliasedInputIndex,
+                 " >= ", inputHandles.size());
+      outputHandles.push_back(inputHandles[aliasedInputIndex]);
+    } else {
+      outputHandles.push_back(
+          ::tt::runtime::Tensor(nullptr, nullptr, currentRuntime));
+    }
   }
 
   uint64_t commandId = CommandFactory::buildSubmitCommand(
