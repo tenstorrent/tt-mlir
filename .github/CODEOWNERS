@@ -175,8 +175,8 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 /tools/ttrt @tenstorrent/forge-developers-mlir-tooling
 
 # d2m-jit
-/tools/d2m-jit/ @vwellsTT @nsmithtt @dlokeTT
-/test/d2m-jit/ @vwellsTT @nsmithtt @dlokeTT
+/tools/d2m-jit/ @tenstorrent/forge-developers-mlir-d2m
+/test/d2m-jit/ @tenstorrent/forge-developers-mlir-d2m
 
 # tt-explorer
 /tools/explorer/ @tenstorrent/forge-developers-mlir-explorer
@@ -189,9 +189,6 @@ test/ttmlir/Dialect/StableHLO @tenstorrent/forge-developers-mlir-stablehlo
 
 # Scripts
 /tools/scripts/ @nsmithtt @ddilbazTT
-
-# python golden tests
-test/python/golden/d2m/test_dma.py @vtangTT
 
 # model snippet tests
 test/python/golden/mlir_snippets/models/ @nsmithtt @dlokeTT
