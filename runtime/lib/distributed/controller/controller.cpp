@@ -59,11 +59,21 @@ computeOutputToInputAliasMap(const ::tt::runtime::Binary &executable,
 
   const auto *outputs = program->outputs();
   for (uint32_t j = 0; j < outputs->size(); ++j) {
-    auto it = inputGlobalIdToIndex.find(outputs->Get(j)->global_id());
+    uint32_t outputProgramGlobalId = outputs->Get(j)->global_id();
+    auto it = inputGlobalIdToIndex.find(outputProgramGlobalId);
     if (it != inputGlobalIdToIndex.end()) {
       outputIndexToInputIndex.emplace(j, it->second);
+      LOG_INFO("[submit] alias detected: program ", programIndex, " output #", j,
+               " (program_global_id=", outputProgramGlobalId,
+               ") aliases input #", it->second,
+               " (program_global_id=", inputs->Get(it->second)->global_id(),
+               ")");
     }
   }
+
+  LOG_INFO("[submit] program ", programIndex, " alias map: ", inputs->size(),
+           " inputs, ", outputs->size(), " outputs, ",
+           outputIndexToInputIndex.size(), " aliased output(s)");
 
   return outputIndexToInputIndex;
 }
@@ -739,11 +749,33 @@ Controller::submit(const ::tt::runtime::Device &deviceHandle,
       LOG_ASSERT(aliasedInputIndex < inputHandles.size(),
                  "Aliased input index out of range: ", aliasedInputIndex,
                  " >= ", inputHandles.size());
-      outputHandles.push_back(inputHandles[aliasedInputIndex]);
+      const ::tt::runtime::Tensor &donatedInput = inputHandles[aliasedInputIndex];
+      LOG_INFO("[submit] output #", i, " donating input #", aliasedInputIndex,
+               " handle (global_id=", donatedInput.getGlobalId(),
+               ") instead of minting a fresh output id");
+      outputHandles.push_back(donatedInput);
     } else {
-      outputHandles.push_back(
-          ::tt::runtime::Tensor(nullptr, nullptr, currentRuntime));
+      ::tt::runtime::Tensor freshOutput(nullptr, nullptr, currentRuntime);
+      LOG_INFO("[submit] output #", i,
+               " minting fresh handle (global_id=", freshOutput.getGlobalId(),
+               ")");
+      outputHandles.push_back(freshOutput);
     }
+  }
+
+  {
+    std::string inputGidList;
+    for (const auto &inputHandle : inputHandles) {
+      inputGidList += (inputGidList.empty() ? "" : ",") +
+                      std::to_string(inputHandle.getGlobalId());
+    }
+    std::string outputGidList;
+    for (const auto &outputHandle : outputHandles) {
+      outputGidList += (outputGidList.empty() ? "" : ",") +
+                       std::to_string(outputHandle.getGlobalId());
+    }
+    LOG_INFO("[submit] program ", programIndex, " inputs=[", inputGidList,
+             "] outputs=[", outputGidList, "]");
   }
 
   uint64_t commandId = CommandFactory::buildSubmitCommand(

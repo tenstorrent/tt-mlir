@@ -512,12 +512,12 @@ void CommandExecutor::execute(uint64_t commandId,
 
   ::tt::runtime::setTensorRetain(tensor, command->retain());
 
-  LOG_INFO("[worker] set retain gid=", tensorGlobalId,
-           " value=", command->retain(),
-           " wrapper=", static_cast<const void *>(tensor.handle.get()));
-  logWrapperAliases(tensorPool_, tensorGlobalId,
-                    static_cast<const void *>(tensor.handle.get()),
-                    "set retain");
+  // LOG_INFO("[worker] set retain gid=", tensorGlobalId,
+  //          " value=", command->retain(),
+  //          " wrapper=", static_cast<const void *>(tensor.handle.get()));
+  // logWrapperAliases(tensorPool_, tensorGlobalId,
+  //                   static_cast<const void *>(tensor.handle.get()),
+  //                   "set retain");
 
   std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
       buildResponse(ResponseFactory::buildSetTensorRetainResponse, commandId);
