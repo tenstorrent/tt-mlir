@@ -11,7 +11,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: pages-sphinx
   cancel-in-progress: false
 
 jobs:

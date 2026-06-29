@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Crawl the built docs in output/ and push them to the OpenSearch-backed
-docs search service so the in-page search modal has something to query.
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+"""Crawl built Sphinx HTML docs and push them to the OpenSearch-backed docs
+search service so the in-page search modal has something to query.
 
-Configured entirely through environment variables (see main()); intended to run
-as a step in the Pages deploy workflow after `python build_docs.py`."""
+Configured through environment variables (see main()); intended to run in CI after
+`sphinx-build` (or equivalent) has produced HTML output."""
 
 from __future__ import annotations
 
@@ -27,8 +30,12 @@ TIMEOUT_SECONDS = 30
 
 def _strip_html_to_text(content: str) -> str:
     # Remove script/style blocks first so they do not pollute search text.
-    content = re.sub(r"<script\b[^>]*>.*?</script>", " ", content, flags=re.IGNORECASE | re.DOTALL)
-    content = re.sub(r"<style\b[^>]*>.*?</style>", " ", content, flags=re.IGNORECASE | re.DOTALL)
+    content = re.sub(
+        r"<script\b[^>]*>.*?</script>", " ", content, flags=re.IGNORECASE | re.DOTALL
+    )
+    content = re.sub(
+        r"<style\b[^>]*>.*?</style>", " ", content, flags=re.IGNORECASE | re.DOTALL
+    )
     # Strip tags.
     content = re.sub(r"<[^>]+>", " ", content)
     # Decode entities and normalize whitespace.
@@ -38,7 +45,9 @@ def _strip_html_to_text(content: str) -> str:
 
 
 def _extract_title(content: str, fallback: str) -> str:
-    match = re.search(r"<title[^>]*>(.*?)</title>", content, flags=re.IGNORECASE | re.DOTALL)
+    match = re.search(
+        r"<title[^>]*>(.*?)</title>", content, flags=re.IGNORECASE | re.DOTALL
+    )
     if not match:
         return fallback
     return _strip_html_to_text(match.group(1)) or fallback
@@ -58,7 +67,9 @@ def _iter_html_files(output_root: Path) -> Iterable[Path]:
         yield path
 
 
-def _build_documents(output_root: Path, site_base_url: str, catalog: str, version: str, id_namespace: str) -> list[dict]:
+def _build_documents(
+    output_root: Path, site_base_url: str, catalog: str, version: str, id_namespace: str
+) -> list[dict]:
     site_base_url = site_base_url.rstrip("/")
     docs: list[dict] = []
 
@@ -95,6 +106,8 @@ def _post_json(url: str, payload: dict, api_key: str) -> tuple[int, str]:
             return response.getcode(), response.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as err:
         return err.code, err.read().decode("utf-8", errors="replace")
+    except urllib.error.URLError as err:
+        return 0, str(err)
 
 
 def main() -> int:
