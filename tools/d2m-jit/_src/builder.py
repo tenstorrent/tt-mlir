@@ -150,14 +150,14 @@ def _pipeline_passes():
         "d2m-lower-multicast-loads",
         "d2m-generic-lower-to-explicit-form",
         "canonicalize",
-        "d2m-be-pipeline{use-tile-matmul=0}",
+        f"d2m-be-pipeline{{use-tile-matmul={int(config.use_tile_matmul)}}}",
         "d2m-to-ttkernel-pre-emitc-pipeline",
         "d2m-to-ttmetal-pipeline",
-        "ttkernel-hoist-inits",
+        "func.func(ttkernel-hoist-inits)",
     ]
     if config.insert_profiler_traces:
         traits = config.profiler_traits.strip() or "device-zone"
-        passes.append("insert-device-zone-scopes{traits=" + traits + "}")
+        passes.append("func.func(insert-device-zone-scopes{traits=" + traits + "})")
     passes.append("d2m-emitc-pipeline")
     return passes
 

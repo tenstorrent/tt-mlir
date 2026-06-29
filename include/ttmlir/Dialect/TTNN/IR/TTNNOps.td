@@ -3250,12 +3250,6 @@ def TTNN_MeshPartitionOp: TTNN_Op<"mesh_partition"> {
                        OptionalAttr<UI32Attr>:$cluster_axis);
   let results = (outs AnyRankedTensor:$result);
   let hasVerifier = 1;
-
-  let extraClassDeclaration = [{
-    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
-      return wa::TTNNOperandsWorkaroundsFactory::createMeshPartitionOpOperandsWorkarounds();
-    }
-  }];
 }
 
 def TTNN_PermuteOp : TTNN_Op<"permute"> {

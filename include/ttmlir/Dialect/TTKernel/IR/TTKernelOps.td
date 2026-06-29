@@ -425,6 +425,56 @@ def TTKernel_ExperimentalMatmulBlockOp : TTKernel_FPUOp<"experimental.matmul_blo
                          I32:$in1_k_stride);
 }
 
+def TTKernel_TopkTileInitOp : TTKernel_InitOp<"topk_tile_init"> {
+    let summary = "TopK tile init function";
+    let description = [{
+      Initialization for the topk operations. Must be called before
+      topk_local_sort/topk_merge/topk_rebuild.
+    }];
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_TopkLocalSortOp : TTKernel_SFPUOp<"topk_local_sort"> {
+    let summary = "TopK local sort operation";
+    let description = [{
+      Bitonic local-sort stage of TopK over the value and index tiles pre-loaded in DST. Compute engine only.
+    }];
+
+    let arguments = (ins IndexLike:$idst, I32:$idir, I32:$i_end_phase, I32:$i_start_phase);
+
+    let assemblyFormat = [{
+      `(` $idst `,` $idir `,` $i_end_phase `,` $i_start_phase `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_TopkMergeOp : TTKernel_SFPUOp<"topk_merge"> {
+    let summary = "TopK merge operation";
+    let description = [{
+      Merge stage of TopK combining length-K subsequences in DST. Compute engine only.
+    }];
+
+    let arguments = (ins IndexLike:$idst, I32:$m_iter, I32:$k);
+
+    let assemblyFormat = [{
+      `(` $idst `,` $m_iter `,` $k `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_TopkRebuildOp : TTKernel_SFPUOp<"topk_rebuild"> {
+    let summary = "TopK rebuild operation";
+    let description = [{
+      Rebuild stage of TopK re-sorting the surviving subsequences in DST. Compute engine only.
+    }];
+
+    let arguments = (ins IndexLike:$idst, I32:$idir, I32:$m_iter, I32:$k, I32:$logk, I32:$skip_second);
+
+    let assemblyFormat = [{
+      `(` $idst `,` $idir `,` $m_iter `,` $k `,` $logk `,` $skip_second `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
 
 def TTKernel_AddTilesInitOp : TTKernel_InitOp<"add_tiles_init"> {
     let summary = "Short init function";

@@ -373,6 +373,14 @@ struct TTIRToTTNNCommonPipelineOptions
           "Fuse permute ops into matmul/linear transpose attributes."),
       llvm::cl::init(false)};
 
+  // Push a matmul/linear output slice into the operand producing the sliced
+  // dim so the op only computes the rows/columns that are used.
+  Option<bool> enablePermuteSliceAfterMatmulFusion{
+      *this, "enable-permute-slice-after-matmul-fusion",
+      llvm::cl::desc("Push a matmul/linear output slice into the operand "
+                     "producing the sliced dim."),
+      llvm::cl::init(true)};
+
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
       argumentTypeMap{
           *this, ttcore::OptionNames::argumentTypes,
