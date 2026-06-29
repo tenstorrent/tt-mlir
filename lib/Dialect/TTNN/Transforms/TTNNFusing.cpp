@@ -445,7 +445,9 @@ public:
       // TODO(sdjordjevic): #8598 Decouple NLPCreateQKVHeadsDecodeFusing from
       // RoPEDecodeFusing
       patterns.add<fusing::RoPEDecodeFusing>(&getContext());
-      patterns.add<fusing::SDPAFusing>(&getContext(), validationConfig);
+      if (enableSDPAFusion) {
+        patterns.add<fusing::SDPAFusing>(&getContext(), validationConfig);
+      }
       patterns.add<NLPConcatHeadsDecodeFusing>(&getContext());
       patterns.add<fusing::SplitQueryKeyValueAndSplitHeadsFusing<MatmulOp>>(
           &getContext(), validationConfig);
