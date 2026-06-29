@@ -426,10 +426,11 @@ OutputHints ReshapeRuleBook::getOutputHints(
   // Divergence guard: drop any sharded candidate that ttnn::reshape would not
   // return verbatim (it silently substitutes a different memory config in four
   // cases, and the consumer then runs against a layout the tensor does not
-  // have -- up to and including a device hang). Composed in ahead of the
-  // sharding policy below so that it stays load-bearing if that policy is ever
-  // relaxed to admit sharded reshape outputs (issue #8020); today every
-  // in-tree config already satisfies it.
+  // have -- up to and including a device hang). It is what makes the sharded
+  // policy below safe: with sharded outputs admitted, the guard is now
+  // load-bearing rather than latent. Measured on the n150 LLM decode/prefill
+  // layer tests, it is what keeps `ttnn::reshape` from returning a row-major
+  // BLOCK_SHARDED config the compiler did not declare.
   // https://github.com/tenstorrent/tt-mlir/issues/8020
   auto inputType =
       mlir::dyn_cast<RankedTensorType>(op->getOperand(0).getType());
@@ -444,8 +445,18 @@ OutputHints ReshapeRuleBook::getOutputHints(
             inputType.getShape(), outputType.getShape()));
   }
 
-  // Non-view reshape: sharded output not beneficial, use non-sharded configs.
-  return layout_filter_utils::nonShardedOutputHints(honoredConfigs);
+  // Non-view reshape: block/height-sharded outputs are supported natively by
+  // tt-metal's tiled reshape program factory (ReshapeViewTiledProgramFactory),
+  // which operates at tile-address granularity and recomputes the output shard
+  // spec via recompute_shard_spec_for_output. Only width-sharded outputs are
+  // unsupported natively (reshape_tiled round-trips them through interleaved),
+  // so exclude only those. Preserving block-sharded layouts through reshape
+  // avoids unnecessary demotion to interleaved for downstream sharded kernels.
+  // Only the candidates the guard above accepts are offered, so what survives
+  // here is the subset tt-metal returns verbatim.
+  // See https://github.com/tenstorrent/tt-mlir/issues/8020 and tt-metal
+  // PRs #42770, #42904.
+  return layout_filter_utils::nonWidthShardedOutputHints(honoredConfigs);
 }
 
 //===----------------------------------------------------------------------===//
