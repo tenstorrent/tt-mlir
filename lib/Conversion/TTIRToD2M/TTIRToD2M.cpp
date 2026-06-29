@@ -4789,6 +4789,7 @@ private:
   // repeated over and over -> eltwise multiply with eltwise eq result to
   // isolate indices of max elements -> Reduce max again over target dim, now
   // output is the correct shape -> typecast to i32.
+  // Each stage is its own generic for now.
   LogicalResult
   matchAndRewrite(ttir::ArgMaxOp op, OpAdaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
@@ -5033,7 +5034,6 @@ private:
         });
 
     // Setting up the arange op.
-    // Note: full reduction is WIP.
 
     auto arangeOrigOutputs = createDpsOutputs(loc, rewriter, {inputType});
     auto [arangeins, arangeOutputs] = toLayoutOperandsAndResults(

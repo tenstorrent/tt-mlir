@@ -725,9 +725,9 @@ static LogicalResult applyGridDecisions(d2m::GenericOp genericOp,
   llvm::SmallVector<Kind, 4> kinds;
   kinds.reserve(result.operandInfos.size());
   for (const auto &info : result.operandInfos) {
-    // Resolve the live operand: a prior generic's apply may have rewritten the
-    // producer (replaceAllUsesWith updates this operand in place), so the
-    // analysis-time `info.operand` snapshot can dangle. See OperandGridInfo.
+    // Resolve the operand live from the owning generic. A prior generic's apply
+    // may have rewritten this producer (replaceAllUsesWith updated the operand
+    // in place); reading it live reflects that. See OperandGridInfo.
     Value operand = info.getLiveOperand();
     if (GridAnalysis::isTTNNOperand(operand)) {
       kinds.push_back(Kind::TTNNTensor);
