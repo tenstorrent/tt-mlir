@@ -284,7 +284,11 @@ public:
     }
     // When the TensorAccessor path is enabled, leave shard-level reads in
     // shard form for D2MDMAViaTensorAccessorRewriter (D2MToTTKernel) to lower.
-    if (useTensorAccessorDMA) {
+    // The accessor path is only validated for L1-resident shards; on DRAM it
+    // mis-addresses the paged/interleaved buffer (PCC 0.0 on a DRAM eltwise),
+    // so route DRAM remote reads to the proven fully-indexed form instead.
+    if (useTensorAccessorDMA &&
+        op.getSrcMemorySpace() == ttcore::MemorySpace::DeviceL1) {
       return failure();
     }
 
@@ -371,8 +375,12 @@ public:
     // which D2MToTTKernel lowers to a fabric (multicast) write. Deferring them
     // to the accessor would silently drop the fabric write and emit only a
     // local NOC write, leaving every device with just its own shard.
-    if (useTensorAccessorDMA && !op.isMcast() && !op.isDstLocal() &&
-        op.getStartDevice().empty()) {
+    // The accessor path is only validated for L1-resident shards; on DRAM it
+    // mis-addresses the paged/interleaved buffer, so route DRAM remote writes
+    // to the proven fully-indexed form here.
+    if (useTensorAccessorDMA &&
+        op.getDstMemorySpace() == ttcore::MemorySpace::DeviceL1 &&
+        !op.isMcast() && !op.isDstLocal() && op.getStartDevice().empty()) {
       return failure();
     }
 

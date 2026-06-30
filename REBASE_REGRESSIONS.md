@@ -302,7 +302,7 @@ deliberately: a speculative change to `convert-d2m-to-ttkernel` would risk the
 now-green core suite (all of which goes through that pass). Needs a focused
 diff of the in-loop remote_store lowering ORIG_HEAD vs now.
 
-## R18 (NOT fixed — distinct from the rebase) — TensorAccessor-DMA gives PCC 0.0 on DRAM eltwise
+## R18 (FIXED) — TensorAccessor-DMA gave PCC 0.0 on DRAM operands
 
 `test_simple::test_eltwise_dram` (a layout with `mem_space="dram"`) fails with
 PCC 0.0 when `use_tensor_accessor_dma=True` (the branch default) and PASSES with
@@ -313,20 +313,30 @@ scratch buffers (its own `test_tensor_accessor_dma` passes). So this is a
 TensorAccessor-DMA **DRAM-addressing** correctness gap newly exposed by combining
 the base's DRAM test with the branch's TA-DMA default — not a mechanical
 rebase-conflict like R1–R17. Workaround: `D2M_JIT_USE_TENSOR_ACCESSOR_DMA=0`.
-Real fix needs debugging the TA-DMA DRAM page/bank addressing; risky to patch
-blind (the L1 TA-DMA path is green). Tracked for focused follow-up.
+**Root cause:** the TensorAccessor-DMA path is only validated for L1-resident
+shards; on DRAM the accessor mis-addresses the paged/interleaved buffer. Two
+layers were observed in the lowered IR: the row-major tilize/untilize staging
+read (page = a 256-byte stick) AND the kernel's tile reads (page 4096) both
+landed on the wrong DRAM pages, permuting the tiles (magnitudes correct, values
+swapped). No passing test uses DRAM TA-DMA — every L1-default TA test
+(tensor_accessor_dma, eltwise, all_gather_matmul, ring) is green — and the
+fully-indexed path handles DRAM correctly (the test passes with TA-DMA off).
+**FIX:** in `LowerDMAToFullyIndexedForm`, defer to the accessor path only for
+L1-resident remote operands (`getSrcMemorySpace`/`getDstMemorySpace` ==
+DeviceL1); DRAM remote operands lower to the proven fully-indexed form. Keeps
+the validated L1 TA-DMA path unchanged. Confirmed: test_eltwise_dram (and all of
+test_simple) passes; no regression on the L1 TA / CCL tests. (A future
+enhancement could fix the DRAM accessor addressing itself and re-enable TA-DMA
+for DRAM.)
 
-## FINAL FINAL STATUS (after R1–R17)
+## FINAL STATUS (after R1–R18)
 
-The full d2m-jit suite is GREEN except:
-- `test_mesh`, `test_semaphore`: pre-existing fabric bring-up hang (timeout) —
-  not a rebase regression.
-- `test_simple::test_eltwise_dram`: R18 above (TA-DMA DRAM; passes with TA-DMA
-  off).
+The full d2m-jit suite is GREEN except `test_mesh` / `test_semaphore`, which hit
+the pre-existing fabric bring-up hang (timeout) — not a rebase regression.
 Every other file passes, including the previously-broken CCL loop-carried
 cluster (all_gather_matmul, all_reduce_attention, all_reduce_grid,
 ring_all_reduce_loop on device; inloop_output_store, meshpos_local_store
-lower-only).
+lower-only) and the DRAM eltwise (R18).
 
 ## Pre-existing (NOT a rebase regression) — fabric bring-up hang
 
