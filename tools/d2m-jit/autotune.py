@@ -37,9 +37,9 @@ dict, so further axes are additive. See ``build_space`` to enumerate.
 Two entry points share the same per-config evaluation:
   * ``tune(space)``   -- evaluate every config, rank + Pareto over the results.
   * ``search(proposer)`` -- guided: a proposer chooses the next configs from what
-    it has observed, in propose/evaluate/observe rounds. The proposer is the
-    optimizer: ``hill_climb_proposer`` (autonomous heuristic) or
-    ``make_agent_proposer`` (an LLM reasons over the JSON diagnostics history).
+    it has observed, in propose/evaluate/observe rounds, so you can explore a
+    large space without running every config. The bundled proposer is the
+    ``hill_climb_proposer`` heuristic (latency-guided coordinate descent).
 """
 
 from __future__ import annotations
@@ -480,9 +480,9 @@ def _mean(by_core: dict):
 
 
 def _diagnostics(rep: dict) -> dict:
-    """The actionable scalars from a build_report -- the observation space a
-    guided/agentic proposer reasons over to tell compute-bound from wait-bound
-    from memory-bound."""
+    """The actionable scalars from a build_report -- what tells compute-bound
+    from wait-bound from memory-bound, for reading why a config is slow (and for
+    a guided proposer to steer on)."""
     stats = rep.get("stats", {})
     longest = rep["waits"]["longest"]
     return {
@@ -558,7 +558,7 @@ _DTYPE_SHORT = {"float32": "f32", "float16": "f16", "bfloat16": "bf16"}
 
 def _cfg_dirname(idx: int, cfg: dict) -> str:
     """Self-describing per-config dir name, e.g. ``cfg_000_g2x2_b1x1_f32``. The
-    numeric prefix preserves evaluation order (meaningful in search mode); the
+    numeric prefix preserves evaluation order (meaningful in guided mode); the
     rest names the config so a saved profiler CSV is identifiable without
     cross-referencing results.json."""
     g = "x".join(map(str, cfg["grid_shape"]))
@@ -685,15 +685,14 @@ def tune(
     return result
 
 
-# --- Guided / agentic search -------------------------------------------------
+# --- Guided search -----------------------------------------------------------
 #
 # Instead of evaluating the whole space, `search` runs propose -> evaluate ->
 # observe rounds: a proposer chooses the next configs from the results observed
-# so far; returning [] stops the loop. The proposer IS the optimizer -- a
-# heuristic (`hill_climb_proposer`) for autonomous runs, or an LLM agent
-# (`make_agent_proposer`) that reasons over the JSON observation history and the
-# per-config diagnostics. The driver dedups re-proposed configs and enforces a
-# `max_evals` budget, so any proposer (including a fuzzy agent) is safe to drive.
+# so far; returning [] stops the loop. The bundled proposer is the heuristic
+# `hill_climb_proposer` (latency-guided coordinate descent) -- it lets you
+# explore a large space without running every config. The driver dedups
+# re-proposed configs and enforces a `max_evals` budget.
 #
 # Proposer protocol:
 #     proposer(history: list[TuneRecord], meta: dict) -> list[config dict]
@@ -710,21 +709,6 @@ def config_key(cfg: dict):
         cfg["dtype"],
         cfg.get("mem_space", "l1"),
     )
-
-
-def observations_json(history: Sequence[TuneRecord]) -> list[dict]:
-    """The history as plain JSON dicts -- exactly what an agent proposer sees."""
-    return [
-        {
-            "config": r.config,
-            "valid": r.valid,
-            "pcc": r.pcc,
-            "kernel_ns": r.kernel_ns,
-            "diagnostics": r.diagnostics,
-            "error": r.error,
-        }
-        for r in history
-    ]
 
 
 def search(
@@ -778,7 +762,7 @@ def search(
             if max_evals is not None and len(history) >= max_evals:
                 break
             key = config_key(cfg)
-            if key in seen:  # robust to re-proposals (esp. from an agent)
+            if key in seen:  # robust to a proposer re-proposing a config
                 continue
             seen.add(key)
             history.append(_evaluate(cfg, len(history), ctx))
@@ -849,8 +833,7 @@ def hill_climb_proposer(
 
     From a seed config, each round proposes the current best's unevaluated
     neighbors; the loop ends when none remain (a local optimum). Stateless --
-    it reconstructs its position from ``history`` every round, so it drops into
-    ``search`` exactly where an agent proposer would."""
+    it reconstructs its position from ``history`` every round."""
     cands = list(candidates)
 
     def propose(history, meta):
@@ -867,85 +850,6 @@ def hill_climb_proposer(
         ]
 
     return propose
-
-
-# --- Agentic proposer: an LLM is the optimizer -------------------------------
-
-
-def make_agent_proposer(
-    complete: Callable[[str], str],
-    candidates: Optional[Sequence[dict]] = None,
-    batch: int = 4,
-) -> Callable:
-    """Adapt an LLM ``complete(prompt) -> str`` into a search proposer.
-
-    Each round it serializes the observation history (and the optional candidate
-    pool) into a prompt, asks the model for up to ``batch`` next configs as a
-    JSON list (or ``STOP``), and parses them. The ``search`` driver dedups and
-    budgets, so the agent may re-propose freely. ``complete`` is your own model
-    call -- this module stays LLM-client-agnostic."""
-    pool = list(candidates) if candidates is not None else None
-
-    def propose(history, meta):
-        prompt = _agent_prompt(observations_json(history), meta, pool, batch)
-        reply = complete(prompt)
-        if "{" not in reply and "STOP" in reply.upper():
-            return []
-        return _parse_configs(reply)
-
-    return propose
-
-
-def _agent_prompt(observations, meta, pool, batch) -> str:
-    parts = [
-        "You are autotuning a d2m-jit compute kernel on a Tenstorrent device. "
-        f"Objective: MINIMIZE `{meta['objective']}` (device kernel time, ns).",
-        'A config is JSON: {"grid_shape": [gy, gx], "block_shape": [bh, bw], '
-        '"dtype": "float32" | "bfloat16", "mem_space": "l1" | "dram"}. grid_shape '
-        "= compute cores (more cores is usually faster, with diminishing returns); "
-        "block_shape = tiles per shard each core processes per remote_load (larger "
-        "= fewer, coarser DMA transfers); bfloat16 ~halves data movement vs "
-        "float32; mem_space = where the kernel's I/O lives (l1 is fastest; dram "
-        "adds DRAM<->L1 movement but frees L1 capacity). Read each config's "
-        "`diagnostics` to decide the next move: high wait_share_of_envelope => "
-        "stalled, add parallelism or coarsen the block; high mean_sfpu_util/"
-        "mean_fpu_util => compute-bound (more cores won't help, try dtype); high "
-        "mean_noc_vs_compute => memory-bound (coarsen block or try bfloat16). Pick "
-        "only from the unevaluated feasible candidates listed below.",
-        f"Observations so far ({len(observations)} configs):",
-        json.dumps(observations, indent=2),
-    ]
-    if pool is not None:
-        keys = {config_key(o["config"]) for o in observations}
-        uneval = [c for c in pool if config_key(c) not in keys]
-        parts.append(f"Unevaluated feasible candidates:\n{json.dumps(uneval)}")
-    parts.append(
-        f"Reply with up to {batch} next configs to evaluate as a JSON list, or "
-        "the single word STOP if further search is unlikely to beat the best so "
-        "far. Output JSON only."
-    )
-    return "\n\n".join(parts)
-
-
-def _parse_configs(text: str) -> list[dict]:
-    """Extract a JSON list of config dicts from an LLM reply (tolerant of
-    surrounding prose / code fences)."""
-    import re
-
-    match = re.search(r"\[.*\]", text, re.DOTALL)
-    if not match:
-        return []
-    try:
-        data = json.loads(match.group(0))
-    except json.JSONDecodeError:
-        return []
-    out = []
-    for c in data if isinstance(data, list) else []:
-        if isinstance(c, dict) and "grid_shape" in c:
-            c.setdefault("block_shape", [1, 1])
-            c.setdefault("dtype", "float32")
-            out.append(c)
-    return out
 
 
 class _Seeded:
@@ -1037,8 +941,10 @@ def write_summary(result, path) -> None:
     lines += ["", "leaderboard (top 10):"]
     for rank, r in enumerate(valid[:10]):
         pcc = f"  pcc {r.pcc:.5f}" if r.pcc is not None else ""
+        wait = r.diagnostics.get("wait_share_of_envelope")
+        wtxt = f"  wait {wait:.0%}" if wait is not None else ""
         lines.append(
-            f"  {rank:>3}. {_label(r.config):>22}  {r.kernel_ns:>12.1f} ns{pcc}"
+            f"  {rank:>3}. {_label(r.config):>22}  {r.kernel_ns:>12.1f} ns{pcc}{wtxt}"
         )
 
     if n_invalid:
@@ -1095,7 +1001,7 @@ def _seed_config(space: Sequence[dict]) -> dict:
 def _print_results(result, mode: str, n_candidates: Optional[int] = None) -> None:
     """Shared reporting for both modes: ranking/eval-path + best + Pareto views."""
     print(f"\nobjective: {result.objective} (lower = faster)\n")
-    if mode == "search":
+    if mode == "guided":
         print("evaluation path (in order proposed):")
         for i, r in enumerate(result.records):
             if r.valid:
@@ -1112,13 +1018,17 @@ def _print_results(result, mode: str, n_candidates: Optional[int] = None) -> Non
                 f"({pct:.0f}% of the space)"
             )
     else:
-        print(
-            f"{'rank':>4}  {'grid|block/dtype@mem':>22}  {'kernel_ns':>12}  {'pcc':>9}"
+        hdr = (
+            f"{'rank':>4}  {'grid|block/dtype@mem':>22}  "
+            f"{'kernel_ns':>12}  {'pcc':>9}  {'wait%':>6}"
         )
-        print("-" * 54)
+        print(hdr)
+        print("-" * len(hdr))
         for rank, r in enumerate(result.leaderboard()[:12]):
             lat, p = f"{r.kernel_ns:>12.1f}", f"{r.pcc:>9.5f}"
-            print(f"{rank:>4}  {_label(r.config):>22}  {lat}  {p}")
+            wait = r.diagnostics.get("wait_share_of_envelope")
+            w = f"{wait:.0%}" if wait is not None else "-"
+            print(f"{rank:>4}  {_label(r.config):>22}  {lat}  {p}  {w:>6}")
 
     if result.best:
         print(f"\nbest: {_label(result.best.config)} @ {result.best.kernel_ns:.1f} ns")
@@ -1137,9 +1047,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     all); only dtype is opt-in -- it pins to float32 unless you pass ``--dtype``
     (as ``all`` or a list). For any knob: ``all`` sweeps everything, an explicit
     list sweeps those, a single value pins. So a bare run sweeps grid x block x
-    mem_space at float32. The resolved space feeds an exhaustive sweep or a guided
-    hill-climb search; use ``--list`` to preview the space (and its size) before
-    committing device time."""
+    mem_space at float32. The resolved space feeds ``--mode sweep`` (every config)
+    or ``--mode guided`` (a hill-climb path); use ``--list`` to preview the space
+    (and its size) before committing device time."""
     import argparse
 
     p = argparse.ArgumentParser(
@@ -1151,7 +1061,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             "  # bare run = grid x block x mem_space sweep at float32 (only dtype is opt-in):\n"
             "  python autotune.py --shape 128x128\n\n"
             "  # add the dtype axis (float32 + float16 + bfloat16):\n"
-            "  python autotune.py --shape 128x128 --dtype all --mode search\n\n"
+            "  python autotune.py --shape 128x128 --dtype all --mode guided\n\n"
             "  # every feasible grid in bf16, block pinned to 1x1:\n"
             "  python autotune.py --shape 256x256 --grid all --block 1x1 --dtype bfloat16\n\n"
             "  # pin block to 2x2, sweep a few grids, just show the space:\n"
@@ -1186,15 +1096,16 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     )
     p.add_argument(
         "--mode",
-        choices=("exhaustive", "search"),
-        default="exhaustive",
-        help="exhaustive sweep, or guided hill-climb search (default exhaustive)",
+        choices=("sweep", "guided"),
+        default="sweep",
+        help="'sweep' runs every config; 'guided' hill-climbs a path through "
+        "the space without running all of it (default sweep)",
     )
     p.add_argument(
         "--max-evals",
         type=int,
         default=None,
-        help="search mode: cap on device evaluations (budget)",
+        help="guided mode: cap on device evaluations (budget)",
     )
     p.add_argument(
         "--list",
@@ -1241,7 +1152,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     out_dir = args.out_dir or "autotune-artifacts/exp_fused"
     kernel = _exp_kernel()
-    if args.mode == "exhaustive":
+    if args.mode == "sweep":
         result = tune(
             kernel,
             [shape],
@@ -1251,7 +1162,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             seed=args.seed,
             save_profiler_logs=args.save_profiler_logs,
         )
-        _print_results(result, "exhaustive")
+        _print_results(result, "sweep")
     else:
         proposer = hill_climb_proposer(space, seed=_seed_config(space))
         result = search(
@@ -1264,7 +1175,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             seed=args.seed,
             save_profiler_logs=args.save_profiler_logs,
         )
-        _print_results(result, "search", n_candidates=len(space))
+        _print_results(result, "guided", n_candidates=len(space))
     print(f"\nresults.json + summary.txt written under {out_dir}/")
 
 
