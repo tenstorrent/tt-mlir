@@ -18,8 +18,9 @@ the leaderboard and from ``best``.
 
 Capture mechanics (validated): the in-process device profiler writes
 ``$TT_METAL_HOME/generated/profiler/.logs/profile_log_device.csv`` after each
-workload. The sweep clears that file before each config and snapshots it into a
-per-config directory afterwards, so each report holds exactly one config's zones.
+workload. The sweep clears that file before each config and builds the report
+straight from it; with ``--save-profiler-logs`` it also snapshots the CSV into a
+per-config ``cfg_NNN/`` dir (build output is always discarded, never saved).
 
 Requirements (the profiler env is read by tt-metal at device-open, so it must be
 set before the first device interaction -- run the tuner in a fresh process):
@@ -69,8 +70,9 @@ def _silence_build_output(log_path):
     profiler ``#pragma message`` notes reach the terminal through the inherited
     file descriptors, not Python's ``sys.stdout`` -- a ``contextlib.redirect_*``
     won't catch them. Redirecting the fds does. The profiler CSV is written to a
-    file and is unaffected, and the build output is kept in ``log_path`` so a
-    genuine compile failure is still inspectable."""
+    separate file and is unaffected. Callers pass ``os.devnull`` to discard the
+    build output; a genuine compile failure still surfaces via the raised
+    exception's message (captured in the config's ``error`` field)."""
     sys.stdout.flush()
     sys.stderr.flush()
     saved_out, saved_err = os.dup(1), os.dup(2)
@@ -180,6 +182,127 @@ def block_space(
                             }
                         )
     return cfgs
+
+
+# --- CLI config-space construction -------------------------------------------
+#
+# Per-knob candidate pools + a feasibility-filtered product. Both "which knobs
+# to parameterize" and "how many values each takes" reduce to pool size: a knob
+# omitted on the CLI gets a 1-element pool (pinned); a knob given a list or
+# "all" gets a multi-element pool (swept). The same constrained space then feeds
+# either tune() (exhaustive) or search() (the proposer's candidates).
+
+_ALL = "all"  # spec keyword: sweep every feasible value of this knob
+_DTYPES = ("float32", "float16", "bfloat16")
+
+
+def parse_shape(text: str) -> tuple:
+    """'256x256' -> (256, 256)."""
+    h, _, w = text.partition("x")
+    return (int(h), int(w))
+
+
+def _parse_pairs(text: str) -> list[list[int]]:
+    """'1x1,2x2,4x4' -> [[1, 1], [2, 2], [4, 4]]."""
+    out = []
+    for tok in text.split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        a, _, b = tok.partition("x")
+        out.append([int(a), int(b)])
+    return out
+
+
+def grid_candidates(shape, spec, max_cores: int = 64) -> list[list[int]]:
+    """Grid pool from a CLI spec: None (omitted) or ``"all"`` is every feasible
+    grid (divides the tile counts, <= max_cores); else an explicit ``"1x1,2x2"``
+    list. An unspecified knob means no filter -- sweep everything."""
+    if spec is None or spec == _ALL:
+        ty, tx = shape[-2] // 32, shape[-1] // 32
+        return [
+            [gy, gx]
+            for gy in _divisors(ty)
+            for gx in _divisors(tx)
+            if gy * gx <= max_cores
+        ]
+    return _parse_pairs(spec)
+
+
+def block_candidates(shape, spec) -> list[list[int]]:
+    """Block pool from a CLI spec: None (omitted) or ``"all"`` is every block
+    that tiles the tensor; else an explicit ``"1x1,2x2"`` list."""
+    if spec is None or spec == _ALL:
+        ty, tx = shape[-2] // 32, shape[-1] // 32
+        return [[bh, bw] for bh in _divisors(ty) for bw in _divisors(tx)]
+    return _parse_pairs(spec)
+
+
+def dtype_candidates(spec) -> list[str]:
+    """Dtype pool: None (omitted) pins to ``"float32"`` -- dtype is opt-in (grid
+    and block sweep by default, dtype does not); ``"all"`` is all supported;
+    else an explicit ``"float32,bfloat16"`` list (validated)."""
+    if spec is None:
+        return ["float32"]
+    if spec == _ALL:
+        return list(_DTYPES)
+    out = [d.strip() for d in spec.split(",") if d.strip()]
+    bad = [d for d in out if d not in _DTYPES]
+    if bad:
+        raise ValueError(f"unknown dtype(s) {bad}; choose from {list(_DTYPES)}")
+    return out
+
+
+def _feasible(shape, cfg, max_cores) -> bool:
+    """A (grid, block, dtype) cfg is feasible when the block tiles the tensor,
+    the blocked grid divides evenly across the grid, and cores <= max_cores."""
+    ty, tx = shape[-2] // 32, shape[-1] // 32
+    gy, gx = cfg["grid_shape"]
+    bh, bw = cfg["block_shape"]
+    if ty % bh or tx % bw:
+        return False
+    if (ty // bh) % gy or (tx // bw) % gx:
+        return False
+    return gy * gx <= max_cores
+
+
+def build_space(
+    shape, *, grid=None, block=None, dtype=None, max_cores: int = 64
+) -> tuple:
+    """Cartesian product of the per-knob candidate pools, filtered for
+    feasibility. Returns ``(configs, warnings)`` -- ``warnings`` flags any
+    *explicitly requested* grid/block value (not ``"all"``) that survived in no
+    feasible config, so the drop is surfaced rather than silent."""
+    grids = grid_candidates(shape, grid, max_cores)
+    blocks = block_candidates(shape, block)
+    dtypes = dtype_candidates(dtype)
+
+    configs = []
+    for g in grids:
+        for b in blocks:
+            for dt in dtypes:
+                cfg = {"grid_shape": list(g), "block_shape": list(b), "dtype": dt}
+                if _feasible(shape, cfg, max_cores):
+                    configs.append(cfg)
+
+    warnings = []
+    explicit = lambda s: s is not None and s != _ALL  # noqa: E731
+    if explicit(grid):
+        used = {tuple(c["grid_shape"]) for c in configs}
+        warnings += [
+            f"grid {g[0]}x{g[1]} infeasible for {shape[0]}x{shape[1]} (max_cores"
+            f"={max_cores}) -- dropped"
+            for g in grids
+            if tuple(g) not in used
+        ]
+    if explicit(block):
+        used = {tuple(c["block_shape"]) for c in configs}
+        warnings += [
+            f"block {b[0]}x{b[1]} infeasible for {shape[0]}x{shape[1]} -- dropped"
+            for b in blocks
+            if tuple(b) not in used
+        ]
+    return configs, warnings
 
 
 # --- Materializer ------------------------------------------------------------
@@ -356,7 +479,7 @@ class _EvalContext:
     out_root: pathlib.Path
     check_pcc: bool
     pcc: float
-    save_artifacts: bool
+    save_profiler_logs: bool
 
 
 def _setup(
@@ -368,7 +491,7 @@ def _setup(
     pcc,
     out_dir,
     seed,
-    save_artifacts=False,
+    save_profiler_logs=False,
 ) -> _EvalContext:
     """Shared one-time setup: profiler env/flags, perf-analyzer, canonical
     inputs + reference. Used by both `tune` and `search`."""
@@ -398,8 +521,22 @@ def _setup(
         out_root,
         check_pcc,
         pcc,
-        save_artifacts,
+        save_profiler_logs,
     )
+
+
+_DTYPE_SHORT = {"float32": "f32", "float16": "f16", "bfloat16": "bf16"}
+
+
+def _cfg_dirname(idx: int, cfg: dict) -> str:
+    """Self-describing per-config dir name, e.g. ``cfg_000_g2x2_b1x1_f32``. The
+    numeric prefix preserves evaluation order (meaningful in search mode); the
+    rest names the config so a saved profiler CSV is identifiable without
+    cross-referencing results.json."""
+    g = "x".join(map(str, cfg["grid_shape"]))
+    b = "x".join(map(str, cfg["block_shape"]))
+    dt = _DTYPE_SHORT.get(cfg["dtype"], cfg["dtype"])
+    return f"cfg_{idx:03d}_g{g}_b{b}_{dt}"
 
 
 def _evaluate(cfg: dict, idx: int, ctx: _EvalContext) -> TuneRecord:
@@ -408,26 +545,24 @@ def _evaluate(cfg: dict, idx: int, ctx: _EvalContext) -> TuneRecord:
     Never raises: a compile/run failure becomes a ``valid=False`` record (signal),
     so a sweep or search keeps going. Resets the builder afterwards so a failed
     config can't leak MLIR state into the next."""
-    # Per-config artifacts (cfg_NNN/ with build.log + a CSV snapshot) are only
-    # written when `save_artifacts` is set. Off by default: build output is
-    # discarded and the report is built straight from the live profiler CSV.
-    if ctx.save_artifacts:
-        cfg_dir = ctx.out_root / f"cfg_{idx:03d}"
+    # Build output (the profiler #pragma spam from JIT subprocesses) is always
+    # discarded to /dev/null. When `save_profiler_logs` is set, each config's
+    # device profiler CSV is snapshotted into cfg_NNN/; otherwise the report is
+    # built straight from the live CSV and nothing per-config is kept.
+    if ctx.save_profiler_logs:
+        cfg_dir = ctx.out_root / _cfg_dirname(idx, cfg)
         cfg_dir.mkdir(parents=True, exist_ok=True)
-        build_log = cfg_dir / "build.log"
-    else:
-        build_log = os.devnull
     try:
         cfg_inputs = [
             t.to(torch_dtype(cfg.get("dtype", "float32"))) for t in ctx.canonical
         ]
         if ctx.csv.exists():
             ctx.csv.unlink()
-        with _silence_build_output(build_log):
+        with _silence_build_output(os.devnull):
             actual = ctx.run(ctx.kernel, cfg_inputs, cfg)
         if not ctx.csv.exists():
             raise RuntimeError("no profiler CSV produced for this config")
-        if ctx.save_artifacts:
+        if ctx.save_profiler_logs:
             snapshot = cfg_dir / "profile_log_device.csv"
             shutil.copy(ctx.csv, snapshot)
         else:
@@ -446,7 +581,7 @@ def _evaluate(cfg: dict, idx: int, ctx: _EvalContext) -> TuneRecord:
             pcc=cfg_pcc,
             kernel_ns=rep["runtimes"]["device_kernel_time"]["ns"],
             diagnostics=_diagnostics(rep),
-            report_path=str(snapshot) if ctx.save_artifacts else None,
+            report_path=str(snapshot) if ctx.save_profiler_logs else None,
         )
     except Exception as e:  # compile/run failure -> prune, keep as signal
         return TuneRecord(config=cfg, valid=False, error=f"{type(e).__name__}: {e}")
@@ -469,25 +604,25 @@ def tune(
     check_pcc: bool = True,
     pcc: float = 0.99,
     objective: str = "device_kernel_time",
-    out_dir: str = "prof_tune",
+    out_dir: str = "autotune-artifacts",
     seed: int = 0,
-    save_artifacts: bool = False,
+    save_profiler_logs: bool = False,
 ) -> TuneResult:
     """Evaluate every config in ``space`` and rank by device kernel time.
 
     Parameters
     ----------
-    kernel        : the ``@d2m.kernel`` to tune.
-    input_shapes  : one shape per kernel input (fixed across the sweep).
-    space         : list of config dicts (see ``grid_space``).
-    golden        : ``(*inputs) -> tensor`` reference for the PCC gate (required
-                    when ``check_pcc``). Computed once.
-    run           : ``(kernel, inputs, cfg) -> host tensor`` materializer.
-    check_pcc     : gate each config on PCC (default on; near-free, see module doc).
-    pcc           : PCC threshold for a config to count as ``valid``.
-    out_dir       : root for per-config profiler snapshots + the leaderboard JSON.
-    save_artifacts: keep per-config ``cfg_NNN/`` dirs (build.log + CSV snapshot).
-                    Off by default; only the leaderboard JSON is written.
+    kernel            : the ``@d2m.kernel`` to tune.
+    input_shapes      : one shape per kernel input (fixed across the sweep).
+    space             : list of config dicts (see ``grid_space``).
+    golden            : ``(*inputs) -> tensor`` reference for the PCC gate
+                        (required when ``check_pcc``). Computed once.
+    run               : ``(kernel, inputs, cfg) -> host tensor`` materializer.
+    check_pcc         : gate each config on PCC (default on; near-free).
+    pcc               : PCC threshold for a config to count as ``valid``.
+    out_dir           : output root for ``results.json`` + ``summary.txt``.
+    save_profiler_logs: also keep each config's device profiler CSV under
+                        ``cfg_NNN/`` (off by default; build output is never kept).
     """
     ctx = _setup(
         kernel,
@@ -498,11 +633,12 @@ def tune(
         pcc,
         out_dir,
         seed,
-        save_artifacts,
+        save_profiler_logs,
     )
     records = [_evaluate(cfg, i, ctx) for i, cfg in enumerate(space)]
     result = TuneResult(objective=objective, records=records)
-    result.write_json(ctx.out_root / "leaderboard.json")
+    result.write_json(ctx.out_root / "results.json")
+    write_summary(result, ctx.out_root / "summary.txt")
     return result
 
 
@@ -554,10 +690,10 @@ def search(
     pcc: float = 0.99,
     objective: str = "device_kernel_time",
     max_evals: Optional[int] = None,
-    out_dir: str = "prof_search",
+    out_dir: str = "autotune-artifacts",
     seed: int = 0,
     on_round: Optional[Callable] = None,
-    save_artifacts: bool = False,
+    save_profiler_logs: bool = False,
 ) -> TuneResult:
     """Guided search: drive ``proposer`` in propose/evaluate/observe rounds.
 
@@ -575,7 +711,7 @@ def search(
         pcc,
         out_dir,
         seed,
-        save_artifacts,
+        save_profiler_logs,
     )
     history: list[TuneRecord] = []
     seen: set = set()
@@ -603,7 +739,8 @@ def search(
             on_round(round_i, history)
 
     result = TuneResult(objective=objective, records=history)
-    result.write_json(ctx.out_root / "search.json")
+    result.write_json(ctx.out_root / "results.json")
+    write_summary(result, ctx.out_root / "summary.txt")
     return result
 
 
@@ -825,6 +962,43 @@ def format_pareto(result, objectives=DEFAULT_OBJECTIVES, label=str) -> str:
     return "\n".join(lines)
 
 
+def write_summary(result, path) -> None:
+    """Write a concise human-readable digest (``summary.txt``) next to
+    ``results.json``: counts, best config, the top of the leaderboard, any
+    invalid configs with reasons, and the latency-vs-cores Pareto front."""
+    valid = result.leaderboard()
+    n_invalid = len(result.records) - len(valid)
+    lines = [
+        f"objective: {result.objective} (lower = faster)",
+        f"configs:   {len(result.records)} evaluated, {len(valid)} valid, "
+        f"{n_invalid} invalid",
+    ]
+    if result.best:
+        b = result.best
+        pcc = f"  (pcc {b.pcc:.5f})" if b.pcc is not None else ""
+        lines.append(f"best:      {_label(b.config)} @ {b.kernel_ns:.1f} ns{pcc}")
+
+    lines += ["", "leaderboard (top 10):"]
+    for rank, r in enumerate(valid[:10]):
+        pcc = f"  pcc {r.pcc:.5f}" if r.pcc is not None else ""
+        lines.append(
+            f"  {rank:>3}. {_label(r.config):>22}  {r.kernel_ns:>12.1f} ns{pcc}"
+        )
+
+    if n_invalid:
+        lines += ["", f"invalid ({n_invalid}):"]
+        for r in result.records:
+            if not r.valid:
+                why = r.error or (
+                    f"pcc {r.pcc:.5f} < threshold" if r.pcc is not None else "invalid"
+                )
+                lines.append(f"  {_label(r.config):>22}  {why}")
+
+    if valid:
+        lines += ["", format_pareto(result, (LATENCY, CORES), label=_label)]
+    pathlib.Path(path).write_text("\n".join(lines) + "\n")
+
+
 # --- Demo --------------------------------------------------------------------
 
 
@@ -849,86 +1023,184 @@ def _label(cfg):
     return f"{g}|{b}/{cfg['dtype']}"  # grid|block/dtype
 
 
-def _demo(save_artifacts: bool = False) -> None:
-    """Exhaustive tune of `exp_fused` over (grid x block x dtype) for 128x128."""
-    shape = (128, 128)
-    space = block_space(shape, dtypes=("float32", "bfloat16"))
-    print(
-        f"tuning exp_fused over {len(space)} (grid x block x dtype) cfgs, {shape} ..."
-    )
-    result = tune(
-        _exp_kernel(),
-        [shape],
+def _seed_config(space: Sequence[dict]) -> dict:
+    """Cheapest pool member (fewest cores, then smallest block) -- the natural
+    start for a forward hill climb."""
+    return min(
         space,
-        golden=torch.exp,
-        out_dir="prof_tune_exp",
-        save_artifacts=save_artifacts,
+        key=lambda c: (
+            c["grid_shape"][0] * c["grid_shape"][1],
+            c["block_shape"][0] * c["block_shape"][1],
+        ),
     )
 
+
+def _print_results(result, mode: str, n_candidates: Optional[int] = None) -> None:
+    """Shared reporting for both modes: ranking/eval-path + best + Pareto views."""
     print(f"\nobjective: {result.objective} (lower = faster)\n")
-    print(f"{'rank':>4}  {'grid|block/dtype':>22}  {'kernel_ns':>12}  {'pcc':>9}")
-    print("-" * 54)
-    for rank, r in enumerate(result.leaderboard()[:12]):
-        print(f"{rank:>4}  {_label(r.config):>22}  {r.kernel_ns:>12.1f}  {r.pcc:>9.5f}")
+    if mode == "search":
+        print("evaluation path (in order proposed):")
+        for i, r in enumerate(result.records):
+            if r.valid:
+                wait = r.diagnostics.get("wait_share_of_envelope")
+                wtxt = f"  wait={wait:.0%}" if wait is not None else ""
+                lat = f"{r.kernel_ns:>10.0f} ns"
+                print(f"  {i:>2}. {_label(r.config):>22}  {lat}{wtxt}")
+            else:
+                print(f"  {i:>2}. {_label(r.config):>22}  invalid: {r.error}")
+        if n_candidates:
+            pct = 100 * len(result.records) / n_candidates
+            print(
+                f"\nevaluated {len(result.records)} of {n_candidates} configs "
+                f"({pct:.0f}% of the space)"
+            )
+    else:
+        print(f"{'rank':>4}  {'grid|block/dtype':>22}  {'kernel_ns':>12}  {'pcc':>9}")
+        print("-" * 54)
+        for rank, r in enumerate(result.leaderboard()[:12]):
+            lat, p = f"{r.kernel_ns:>12.1f}", f"{r.pcc:>9.5f}"
+            print(f"{rank:>4}  {_label(r.config):>22}  {lat}  {p}")
+
     if result.best:
         print(f"\nbest: {_label(result.best.config)} @ {result.best.kernel_ns:.1f} ns")
-
-    # Pareto views: 2-way (latency vs cores) with a scatter, then the 3-way
-    # front that keeps accuracy in play (bf16's speed vs f32's precision).
+    # 2-way (latency vs cores) with a scatter, then the 3-way front that keeps
+    # accuracy in play (bf16's speed vs f32's precision).
     print("\n" + "=" * 54)
     print(format_pareto(result, (LATENCY, CORES), label=_label))
     print("\n" + "=" * 54)
     print(format_pareto(result, (LATENCY, CORES, PCC), label=_label))
-    print("\nleaderboard.json (with pareto front) written under prof_tune_exp/")
 
 
-def _demo_search(save_artifacts: bool = False) -> None:
-    """Guided search: hill-climb `exp_fused` over (grid x block x dtype) toward
-    the best config, evaluating a path through the space instead of all of it."""
-    shape = (128, 128)
-    candidates = block_space(shape, dtypes=("float32", "bfloat16"))
-    seed = {"grid_shape": [1, 1], "block_shape": [1, 1], "dtype": "float32"}
-    proposer = hill_climb_proposer(candidates, seed=seed)
+def main(argv: Optional[Sequence[str]] = None) -> None:
+    """CLI for autotuning the bundled ``exp_fused`` kernel.
 
-    print(
-        f"guided search over a {len(candidates)}-config space "
-        f"(latency hill-climb from {_label(seed)}) for {shape} ...\n"
+    grid and block sweep all feasible values by default (omitted == all); dtype
+    is opt-in -- it pins to float32 unless you pass ``--dtype all`` or a list.
+    For any knob: ``all`` sweeps everything, an explicit list sweeps those, a
+    single value pins. So a bare run sweeps grid x block at float32. The resolved
+    space feeds an exhaustive sweep or a guided hill-climb search; use ``--list``
+    to preview the space (and its size) before committing device time."""
+    import argparse
+
+    p = argparse.ArgumentParser(
+        prog="autotune",
+        description="Autotune the bundled exp_fused kernel over grid/block/dtype.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "examples:\n"
+            "  # bare run = grid x block sweep at float32 (dtype is opt-in):\n"
+            "  python autotune.py --shape 128x128\n\n"
+            "  # add the dtype axis (float32 + float16 + bfloat16):\n"
+            "  python autotune.py --shape 128x128 --dtype all --mode search\n\n"
+            "  # every feasible grid in bf16, block pinned to 1x1:\n"
+            "  python autotune.py --shape 256x256 --grid all --block 1x1 --dtype bfloat16\n\n"
+            "  # pin block to 2x2, sweep a few grids, just show the space:\n"
+            "  python autotune.py --shape 256x256 --grid 1x1,2x2,4x4 --block 2x2 --list\n"
+        ),
     )
-    result = search(
-        _exp_kernel(),
-        [shape],
-        proposer,
-        golden=torch.exp,
-        out_dir="prof_search_exp",
-        save_artifacts=save_artifacts,
+    p.add_argument(
+        "--shape", default="128x128", help="tensor shape HxW (default 128x128)"
     )
-
-    print("evaluation path (in order proposed):")
-    for i, r in enumerate(result.records):
-        if r.valid:
-            wait = r.diagnostics.get("wait_share_of_envelope")
-            wtxt = f"  wait={wait:.0%}" if wait is not None else ""
-            print(f"  {i:>2}. {_label(r.config):>22}  {r.kernel_ns:>10.0f} ns{wtxt}")
-        else:
-            print(f"  {i:>2}. {_label(r.config):>22}  invalid: {r.error}")
-
-    print(
-        f"\nevaluated {len(result.records)} of {len(candidates)} configs "
-        f"({100 * len(result.records) / len(candidates):.0f}% of the space)"
+    p.add_argument(
+        "--grid",
+        default=None,
+        help="grids: 'all' or a list like 1x1,2x2,4x4 (default: all feasible)",
     )
-    if result.best:
-        print(
-            f"best found: {_label(result.best.config)} "
-            f"@ {result.best.kernel_ns:.0f} ns"
+    p.add_argument(
+        "--block",
+        default=None,
+        help="block_shapes in tiles: 'all' or a list like 1x1,2x2 (default: all feasible)",
+    )
+    p.add_argument(
+        "--dtype",
+        default=None,
+        help="dtypes: 'all' or a list like float32,bfloat16 (default: float32 -- opt-in)",
+    )
+    p.add_argument(
+        "--max-cores", type=int, default=64, help="cap on grid cores (default 64)"
+    )
+    p.add_argument(
+        "--mode",
+        choices=("exhaustive", "search"),
+        default="exhaustive",
+        help="exhaustive sweep, or guided hill-climb search (default exhaustive)",
+    )
+    p.add_argument(
+        "--max-evals",
+        type=int,
+        default=None,
+        help="search mode: cap on device evaluations (budget)",
+    )
+    p.add_argument(
+        "--list",
+        action="store_true",
+        dest="list_only",
+        help="print the resolved config space and exit (no device)",
+    )
+    p.add_argument(
+        "--out-dir",
+        default=None,
+        help="output dir (default autotune-artifacts/<pattern>)",
+    )
+    p.add_argument("--seed", type=int, default=0, help="input RNG seed (default 0)")
+    p.add_argument(
+        "--save-profiler-logs",
+        action="store_true",
+        help="keep each config's device profiler CSV under cfg_NNN/ (off by default)",
+    )
+    args = p.parse_args(argv)
+
+    shape = parse_shape(args.shape)
+    try:
+        space, warnings = build_space(
+            shape,
+            grid=args.grid,
+            block=args.block,
+            dtype=args.dtype,
+            max_cores=args.max_cores,
         )
-    print("search.json written under prof_search_exp/")
+    except ValueError as e:
+        p.error(str(e))
+
+    for w in warnings:
+        print(f"warning: {w}")
+    print(f"resolved space: {len(space)} config(s) for shape {shape[0]}x{shape[1]}")
+
+    if args.list_only or not space:
+        for cfg in space:
+            print(f"  {_label(cfg)}")
+        if not space:
+            print("  (no feasible configs -- check --grid / --block / --shape)")
+        return
+
+    out_dir = args.out_dir or "autotune-artifacts/exp_fused"
+    kernel = _exp_kernel()
+    if args.mode == "exhaustive":
+        result = tune(
+            kernel,
+            [shape],
+            space,
+            golden=torch.exp,
+            out_dir=out_dir,
+            seed=args.seed,
+            save_profiler_logs=args.save_profiler_logs,
+        )
+        _print_results(result, "exhaustive")
+    else:
+        proposer = hill_climb_proposer(space, seed=_seed_config(space))
+        result = search(
+            kernel,
+            [shape],
+            proposer,
+            golden=torch.exp,
+            max_evals=args.max_evals,
+            out_dir=out_dir,
+            seed=args.seed,
+            save_profiler_logs=args.save_profiler_logs,
+        )
+        _print_results(result, "search", n_candidates=len(space))
+    print(f"\nresults.json + summary.txt written under {out_dir}/")
 
 
 if __name__ == "__main__":
-    import sys
-
-    save_artifacts = "--save-artifacts" in sys.argv
-    if "--exhaustive" in sys.argv:
-        _demo(save_artifacts=save_artifacts)
-    else:
-        _demo_search(save_artifacts=save_artifacts)
+    main()
