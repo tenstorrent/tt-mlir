@@ -76,12 +76,9 @@ SumL1MemoryTracker::validateBackendDirect(
 
 uint64_t SumL1MemoryTracker::getOccupiedL1() const { return currentOccupied; }
 
-bool SumL1MemoryTracker::isStillFragmented() const { return stillFragmented; }
-
 void SumL1MemoryTracker::init(uint64_t l1BudgetPerCore) {
   l1Budget = l1BudgetPerCore;
   currentOccupied = 0;
-  stillFragmented = false;
   tensorSizes.clear();
   freeList.clear();
   freeList.push_back({0, l1Budget});
@@ -90,8 +87,7 @@ void SumL1MemoryTracker::init(uint64_t l1BudgetPerCore) {
 }
 
 SumL1MemoryTracker::Snapshot SumL1MemoryTracker::takeSnapshot() const {
-  return {freeList, tensorAddresses, aliasGroups, currentOccupied,
-          stillFragmented};
+  return {freeList, tensorAddresses, aliasGroups, currentOccupied};
 }
 
 void SumL1MemoryTracker::restoreSnapshot(const Snapshot &snapshot) {
@@ -99,7 +95,6 @@ void SumL1MemoryTracker::restoreSnapshot(const Snapshot &snapshot) {
   tensorAddresses = snapshot.tensorAddresses;
   aliasGroups = snapshot.aliasGroups;
   currentOccupied = snapshot.currentOccupied;
-  stillFragmented = snapshot.stillFragmented;
 }
 
 void SumL1MemoryTracker::allocateAddress(Value result, uint64_t l1SizePerCore) {
@@ -130,12 +125,11 @@ void SumL1MemoryTracker::allocateAddress(Value result, uint64_t l1SizePerCore) {
       return;
     }
   }
-  // No contiguous free block fits. Flag over-subscription rather than silently
-  // dropping the tensor; state is left unchanged. See isStillFragmented().
-  stillFragmented = true;
-  TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-               "Address simulator: no fit for {} bytes (aligned {})",
-               l1SizePerCore, alignedSize);
+  // Unreachable: callers MUST pre-check `wouldAllocateAt` (the forward sweep
+  // via ensureFitsL1; the eviction replay via replayFrom). Reaching here means
+  // a placement bypassed that check — a precondition violation.
+  llvm_unreachable("allocateAddress: no contiguous free block; caller must "
+                   "pre-check wouldAllocateAt");
 }
 
 void SumL1MemoryTracker::addTensor(Value result, uint64_t l1SizePerCore) {
@@ -645,20 +639,20 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
   auto config = extractOpConfigFromIR(op);
   auto result =
       op_constraint_validation::ValidationResult::outOfMemoryError("");
-  evictUntil(pos, data, [&]() {
+  bool resolved = evictUntil(pos, data, [&]() {
     inputLayouts = utils::extractInputLayouts(op);
     result = memoryTracker.validate(op, inputLayouts, config);
-    // validate() is sum-based and can succeed while a replay dropped a
-    // still-live tensor (no contiguous fit); keep evicting until the live set
-    // genuinely fits.
-    return result.isSuccess() && !memoryTracker.isStillFragmented();
+    return result.isSuccess();
   });
+  // evictUntil already failed the pass on unresolvable fragmentation; bail
+  // before touching the truncated tracker.
+  if (compilationFailed) {
+    return;
+  }
 
-  // Treat a still-fragmented simulator as a failure even if the sum-based
-  // validate() reported success: eviction was exhausted (only reshards / empty
-  // live set) yet a replay could not place every live tensor. Fall through to
-  // the self-demote branch rather than adding an op whose layout overflows.
-  if (result.isSuccess() && !memoryTracker.isStillFragmented()) {
+  // resolved ⟹ validate() succeeded against a fully-placed live set; otherwise
+  // the op's own output doesn't fit, so self-demote below.
+  if (resolved) {
     uint64_t l1Size = result.outputL1Usage;
     if (l1Size > 0) {
       l1Size = ensureFitsL1(op, pos, data, result.cbPeakUsage, l1Size);
@@ -723,7 +717,7 @@ void L1SpillManagement<MemoryTracker>::insertEventIntoLog(size_t pos,
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::markEvictedAndRebuild(Value victim) {
+bool L1SpillManagement<MemoryTracker>::markEvictedAndRebuild(Value victim) {
   // O(1) lookup of victim's alloc event.
   auto idxIt = allocEventIndex.find(victim);
   assert(idxIt != allocEventIndex.end() &&
@@ -742,36 +736,62 @@ void L1SpillManagement<MemoryTracker>::markEvictedAndRebuild(Value victim) {
     }
   }
 
-  // Restore snapshot taken before the victim's allocation.
-  auto snapIt = addressSnapshots.find(allocIdx);
+  // Fold this victim into the campaign minimum and rebuild the whole suffix
+  // from there. Restoring from the per-victim allocIdx would be unsound:
+  // farthest-last-use victims are unordered w.r.t. alloc order, so a later
+  // victim could restore a base predating an earlier eviction and resurrect an
+  // already-spilled tensor. Replaying from the minimum with all accumulated
+  // skips re-applies every eviction.
+  campaignMinAllocIdx = std::min(campaignMinAllocIdx, allocIdx);
+  return replayFrom(campaignMinAllocIdx);
+}
+
+//===----------------------------------------------------------------------===//
+// replayFrom
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+bool L1SpillManagement<MemoryTracker>::replayFrom(size_t startIdx) {
+  auto snapIt = addressSnapshots.find(startIdx);
   assert(snapIt != addressSnapshots.end() &&
-         "snapshot not found for evicted tensor");
+         "snapshot not found for replay start index");
   memoryTracker.restoreSnapshot(snapIt->second);
 
-  // Replay events from the alloc point forward, skipping evicted tensors.
-  // Update snapshots during replay so future evictions see accurate state.
-  for (size_t i = allocIdx; i < l1EventLog.size(); ++i) {
+  // Replay events from startIdx forward, skipping evicted tensors. Update
+  // snapshots during replay so future restores see the current schedule.
+  for (size_t i = startIdx; i < l1EventLog.size(); ++i) {
     if (l1EventLog[i].skipped) {
       continue;
     }
-    if (l1EventLog[i].kind == L1Event::kAlloc) {
-      addressSnapshots[i] = memoryTracker.takeSnapshot();
-      // View-eligible reshape: alias if src is still address-tracked in
-      // this replay, otherwise fresh-allocate (the counterfactual when
-      // src was evicted to DRAM).
-      Operation *defOp = l1EventLog[i].tensor.getDefiningOp();
-      if (defOp && canReshapeBeView(defOp) &&
-          memoryTracker.hasTensorAddress(defOp->getOperand(0))) {
-        memoryTracker.allocateAddressAt(l1EventLog[i].tensor,
-                                        defOp->getOperand(0));
-      } else {
-        memoryTracker.allocateAddress(l1EventLog[i].tensor,
-                                      l1EventLog[i].sizePerCore);
-      }
-    } else {
+    if (l1EventLog[i].kind == L1Event::kDealloc) {
       memoryTracker.freeAddress(l1EventLog[i].tensor);
+      continue;
     }
+    addressSnapshots[i] = memoryTracker.takeSnapshot();
+    // View-eligible reshape: alias if src is still address-tracked in this
+    // replay (consumes no fresh L1), otherwise fresh-allocate (the
+    // counterfactual when src was evicted to DRAM).
+    Operation *defOp = l1EventLog[i].tensor.getDefiningOp();
+    if (defOp && canReshapeBeView(defOp) &&
+        memoryTracker.hasTensorAddress(defOp->getOperand(0))) {
+      memoryTracker.allocateAddressAt(l1EventLog[i].tensor,
+                                      defOp->getOperand(0));
+      continue;
+    }
+    // Pre-check allocateAddress's hard contract and stop at the first no-fit:
+    // a still-live tensor has no contiguous slot here (fragmentation). The
+    // partial tracker is discarded by the next eviction's restore-from-min
+    // (or, at terminal exhaustion, by failing the pass) — it is never trusted.
+    if (!memoryTracker.wouldAllocateAt(l1EventLog[i].sizePerCore)) {
+      TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                   "Replay: no contiguous fit for {0} bytes",
+                   l1EventLog[i].sizePerCore);
+      return false;
+    }
+    memoryTracker.allocateAddress(l1EventLog[i].tensor,
+                                  l1EventLog[i].sizePerCore);
   }
+  return true;
 }
 
 //===----------------------------------------------------------------------===//
@@ -779,7 +799,7 @@ void L1SpillManagement<MemoryTracker>::markEvictedAndRebuild(Value victim) {
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::evictValue(
+bool L1SpillManagement<MemoryTracker>::evictValue(
     Value victim, int64_t pos, ScheduleData &data,
     Operation *skipReshardConsumer) {
   liveValues.erase(victim);
@@ -956,7 +976,7 @@ void L1SpillManagement<MemoryTracker>::evictValue(
     insertEventIntoLog(ins.pos, ins.event);
   }
 
-  markEvictedAndRebuild(victim);
+  return markEvictedAndRebuild(victim);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1015,13 +1035,46 @@ bool L1SpillManagement<MemoryTracker>::evictUntil(
     });
   };
 
-  while (!shouldStop() && !liveValues.empty() && !onlyReshardsRemain()) {
+  // Start a fresh campaign: every rebuild restores from the minimum alloc
+  // index evicted in THIS campaign (see markEvictedAndRebuild).
+  campaignMinAllocIdx = SIZE_MAX;
+
+  // shouldStop() inspects tracker state, so it is only trustworthy after a
+  // rebuild that placed every live tensor. The entry state qualifies — the
+  // forward sweep placed everything via the infallible allocateAddress.
+  bool rebuildPlacedAll = true;
+  while (true) {
+    if (rebuildPlacedAll && shouldStop()) {
+      break;
+    }
+    if (liveValues.empty() || onlyReshardsRemain()) {
+      break;
+    }
     Value victim = evictFarthestUse();
     if (!victim) {
       break;
     }
-    evictValue(victim, pos, data);
+    rebuildPlacedAll = evictValue(victim, pos, data);
   }
+
+  // Unresolvable fragmentation: eviction is exhausted yet a still-live tensor
+  // has no contiguous L1 slot (the total may fit; the free space doesn't).
+  // Demoting the current op cannot help — the unplaceable tensor is in the
+  // already-scheduled suffix (or a non-evictable inserted reshard), independent
+  // of the op whose output is not yet added. Fail loudly instead of shipping a
+  // layout that clashes at runtime.
+  if (!rebuildPlacedAll) {
+    Operation *blockedOp = data.schedule[pos];
+    blockedOp->emitError(
+        "L1SpillManagement: a live tensor has no contiguous L1 placement even "
+        "after evicting every spillable tensor (fragmentation: a non-evictable "
+        "inserted reshard or irreducible working set cannot be relocated)");
+    compilationFailed = true;
+    return false;
+  }
+
+  // rebuildPlacedAll is true here, so the tracker reflects a clean rebuild and
+  // shouldStop() is trustworthy.
   return shouldStop();
 }
 
@@ -1038,15 +1091,14 @@ uint64_t L1SpillManagement<MemoryTracker>::handleNoFit(Operation *op,
                "    NO_FIT: output {0} bytes can't fit contiguously, evicting",
                outputL1Size);
 
-  // Require both a contiguous fit for this op's output AND a live set with no
-  // unplaced tensor: a replay during eviction may have dropped another
-  // still-live tensor (no-fit), which leaves the free list phantom-free and
-  // would let a bare wouldAllocateAt succeed on a layout that actually
-  // overflows.
   bool resolved = evictUntil(pos, data, [&]() {
-    return memoryTracker.wouldAllocateAt(outputL1Size).has_value() &&
-           !memoryTracker.isStillFragmented();
+    return memoryTracker.wouldAllocateAt(outputL1Size).has_value();
   });
+  // evictUntil already failed the pass on unresolvable fragmentation; bail
+  // before touching the truncated tracker.
+  if (compilationFailed) {
+    return 0;
+  }
   if (!resolved) {
     demoteToDram(op);
     evictForDramCBGrowth(op, pos, data);
@@ -1059,9 +1111,12 @@ uint64_t L1SpillManagement<MemoryTracker>::handleNoFit(Operation *op,
   auto freshInputLayouts = utils::extractInputLayouts(op);
   auto freshConfig = extractOpConfigFromIR(op);
   auto freshResult = memoryTracker.validate(op, freshInputLayouts, freshConfig);
-  if (freshResult.isSuccess()) {
+  uint64_t freshL1 = freshResult.outputL1Usage;
+  // Honor allocateAddress's contract: the size handed back must still fit
+  // (re-validate could in principle return a larger output than was checked).
+  if (freshResult.isSuccess() &&
+      (freshL1 == 0 || memoryTracker.wouldAllocateAt(freshL1))) {
     applyOutputConfig(op, freshResult);
-    uint64_t freshL1 = freshResult.outputL1Usage;
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "    NO_FIT resolved: L1 now {0}/{1}",
                  memoryTracker.getOccupiedL1(), l1BudgetPerCore);
@@ -1088,52 +1143,30 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
   // unmodeled runtime fragmentation from transient internal op allocations.
   uint64_t cushionedCBUsage = cbPeakUsage + cbFragCushion;
 
-  // Evict (farthest last-use first) until CB overlap clears AND the replayed
-  // live set genuinely fits. The isStillFragmented() guard is load-bearing —
-  // without it the loop stops on a phantom-free list (see its doc).
-  evictUntil(pos, data, [&]() {
+  // Evict (farthest last-use first) until the output has a contiguous fit AND
+  // the CB region no longer overlaps the lowest live tensor.
+  bool resolved = evictUntil(pos, data, [&]() {
     auto specAddr = memoryTracker.wouldAllocateAt(outputL1Size);
     if (!specAddr) {
       return false;
     }
     uint64_t effLowest =
         std::min(*specAddr, memoryTracker.getLowestOccupiedAddress());
-    return !memoryTracker.isStillFragmented() && cushionedCBUsage <= effLowest;
+    return cushionedCBUsage <= effLowest;
   });
-
-  // Eviction couldn't place the whole live set (only reshards left, or empty).
-  // Demote this op's output to DRAM rather than ship a layout that clashes on
-  // device — without this, the phantom-free list would falsely resolve below.
-  if (memoryTracker.isStillFragmented()) {
-    demoteToDram(op);
-    evictForDramCBGrowth(op, pos, data);
-    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "    FRAG_DEMOTE (live set still fragmented after exhausting "
-                 "eviction): output to DRAM");
+  // evictUntil already failed the pass on unresolvable fragmentation; bail
+  // before touching the truncated tracker.
+  if (compilationFailed) {
     return 0;
   }
 
-  // After eviction, re-check both conditions with the updated free list.
-  auto freshOutputAddr = memoryTracker.wouldAllocateAt(outputL1Size);
-  if (!freshOutputAddr) {
+  // Eviction was exhausted (op's own output won't fit / CB still overlaps).
+  // Demote this op's output to DRAM rather than ship a clashing layout.
+  if (!resolved) {
     demoteToDram(op);
     evictForDramCBGrowth(op, pos, data);
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "    FRAG_DEMOTE (still no-fit after eviction): output to "
-                 "DRAM");
-    return 0;
-  }
-
-  uint64_t freshEffectiveLowest =
-      std::min(*freshOutputAddr, memoryTracker.getLowestOccupiedAddress());
-  if (cushionedCBUsage > freshEffectiveLowest) {
-    demoteToDram(op);
-    evictForDramCBGrowth(op, pos, data);
-    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "    FRAG_DEMOTE (CB overlap persists): cb={0}+cushion={1}"
-                 "={2} > effectiveLowest={3}",
-                 cbPeakUsage, cbFragCushion, cushionedCBUsage,
-                 freshEffectiveLowest);
+                 "    FRAG_DEMOTE: eviction exhausted, output to DRAM");
     return 0;
   }
 
@@ -1141,13 +1174,15 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
   auto inputLayouts = utils::extractInputLayouts(op);
   auto config = extractOpConfigFromIR(op);
   auto freshResult = memoryTracker.validate(op, inputLayouts, config);
-  if (freshResult.isSuccess()) {
-    uint64_t freshL1 = freshResult.outputL1Usage;
+  uint64_t freshL1 = freshResult.outputL1Usage;
+  // Honor allocateAddress's contract: the size handed back must still fit
+  // largest free block.
+  if (freshResult.isSuccess() &&
+      (freshL1 == 0 || memoryTracker.wouldAllocateAt(freshL1))) {
     applyOutputConfig(op, freshResult);
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                  "    FRAG_RESOLVED: L1 now {0}/{1}",
                  memoryTracker.getOccupiedL1(), l1BudgetPerCore);
-    memoryTracker.logState();
     return freshL1;
   }
 
@@ -1267,6 +1302,11 @@ void L1SpillManagement<MemoryTracker>::run() {
   // Farthest-last-use eviction sweep with validation-based enforcement.
   for (int64_t pos = 0; pos < static_cast<int64_t>(data.schedule.size());
        ++pos) {
+    // A handler hit unresolvable fragmentation and failed the pass; stop the
+    // sweep rather than process further ops against a discarded result.
+    if (compilationFailed) {
+      break;
+    }
     Operation *op = data.schedule[pos];
 
     // Eviction can insert a reshard for `op`, shifting `op` past `pos`. Rewind

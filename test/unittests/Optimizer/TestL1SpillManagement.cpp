@@ -815,19 +815,16 @@ TEST_F(ReshardCbOverlapTest, OverlapWithReshardInputFailsCompilation) {
 
 class FragmentationTrackerTest : public L1SpillTestFixture {};
 
-// Regression for the address-simulator "silent drop" bug. When allocateAddress
-// cannot place a tensor in any contiguous free block it used to log and return,
-// recording no address and leaving currentOccupied / the free list optimistic.
-// That made the dropped tensor invisible to getOccupiedL1 and
-// getLowestOccupiedAddress, so a downstream eviction stop predicate
-// (wouldAllocateAt + "output fits" / FRAG_RESOLVED) would read a phantom-free
-// list and accept a layout that overflows at runtime (the phi2 circular-buffer
-// clash). The fix flags the no-fit so the unplaced tensor is observable; the
-// eviction loops consult isStillFragmented() to keep spilling. This pins that
-// tracker contract (the eviction-loop integration is covered end-to-end by the
-// phi2 repro, which needs geometric fragmentation this sum-based fixture cannot
-// easily construct).
-TEST_F(FragmentationTrackerTest, NoFitFlagsFragmentationAndRoundTrips) {
+// allocateAddress is an infallible contract: callers MUST pre-check
+// wouldAllocateAt and never place a tensor that does not fit. This pins that
+// pre-check — wouldAllocateAt reports nullopt exactly when no contiguous block
+// fits, which is what the forward sweep (ensureFitsL1) and the eviction replay
+// (replayFrom) rely on to avoid placing a tensor with no contiguous fit. The
+// eviction-loop integration (a replay that can't place a still-live tensor →
+// keep evicting, no false FRAG_RESOLVED) is covered end-to-end by the phi2
+// repro, which needs geometric fragmentation this sum-based fixture cannot
+// easily construct.
+TEST_F(FragmentationTrackerTest, WouldAllocateAtReportsNoFitAndRoundTrips) {
   l1BudgetPerCore = 100 * kKiB;
   auto tt = tensorType({1, 1, 1024, 1024}, makeL1Sharded({1, 1, 1024, 1024}));
   auto args = beginFunc({tt, tt});
@@ -835,27 +832,25 @@ TEST_F(FragmentationTrackerTest, NoFitFlagsFragmentationAndRoundTrips) {
 
   mlir::tt::ttnn::SumL1MemoryTracker tracker;
   tracker.init(l1BudgetPerCore);
-  EXPECT_FALSE(tracker.isStillFragmented());
 
-  // First tensor fits (60 KiB of a 100 KiB budget).
+  // 60 KiB fits in a fresh 100 KiB budget; place it (pre-check passes).
+  EXPECT_TRUE(tracker.wouldAllocateAt(60 * kKiB).has_value());
   tracker.addTensor(args[0], 60 * kKiB);
-  EXPECT_FALSE(tracker.isStillFragmented());
   EXPECT_EQ(tracker.getOccupiedL1(), 60 * kKiB);
 
-  // Second 60 KiB tensor cannot fit in the remaining 40 KiB → no-fit. It must
-  // be flagged, NOT silently dropped: currentOccupied stays at the placed
-  // 60 KiB and the fragmentation becomes observable.
-  tracker.addTensor(args[1], 60 * kKiB);
-  EXPECT_TRUE(tracker.isStillFragmented());
-  EXPECT_EQ(tracker.getOccupiedL1(), 60 * kKiB)
-      << "currentOccupied must not count the unplaced tensor";
+  // A second 60 KiB no longer fits the remaining 40 KiB — wouldAllocateAt says
+  // so, so a caller must NOT hand it to addTensor (that would trip the
+  // allocateAddress contract). A 30 KiB tensor still fits.
+  EXPECT_FALSE(tracker.wouldAllocateAt(60 * kKiB).has_value());
+  EXPECT_TRUE(tracker.wouldAllocateAt(30 * kKiB).has_value());
 
-  // The fragmentation flag is carried by snapshots (so replay-based eviction
-  // reflects the current counterfactual), cleared by init, and round-trips
-  // through restore.
+  // State round-trips through snapshot/restore (occupancy + free list), which
+  // the replay restore path depends on.
   auto snap = tracker.takeSnapshot();
   tracker.init(l1BudgetPerCore);
-  EXPECT_FALSE(tracker.isStillFragmented());
+  EXPECT_EQ(tracker.getOccupiedL1(), 0u);
+  EXPECT_TRUE(tracker.wouldAllocateAt(100 * kKiB).has_value());
   tracker.restoreSnapshot(snap);
-  EXPECT_TRUE(tracker.isStillFragmented());
+  EXPECT_EQ(tracker.getOccupiedL1(), 60 * kKiB);
+  EXPECT_FALSE(tracker.wouldAllocateAt(60 * kKiB).has_value());
 }
