@@ -79,7 +79,8 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
     // The reduction dim is padded to a power-of-2 tile count in TTIRToD2M
     // (-inf fill), so the large-k path always sees a power-of-2 tile count.
     bool useLargeK = (k > 32);
-    int64_t numTilesInner = inputShape[op.getDim()];
+    int64_t dimIdx = op.getDim();
+    int64_t numTilesInner = inputShape[dimIdx];
     // logWt is the merge-tree depth; ceilLog2 ensures the final fold always
     // runs for non-power-of-2 tile counts.
     bool numTilesPow2 =
@@ -87,6 +88,18 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
     int32_t fl = floorLog2(numTilesInner);
     int32_t logWt = numTilesPow2 ? fl : fl + 1;
     bool ragged = !numTilesPow2;
+
+    // The shard is row-major [htShard, wtShard]; flat(nt, r) =
+    // r*reductionStride
+    // + nt*ntStride, where strides depend on which dim is the reduction dim.
+    int64_t ntDimIdx = (dimIdx == (int64_t)inputShape.size() - 1)
+                           ? (int64_t)inputShape.size() - 2
+                           : (int64_t)inputShape.size() - 1;
+    int64_t nonTargetCount = inputShape[ntDimIdx];
+    int64_t reductionStride =
+        (dimIdx == (int64_t)inputShape.size() - 1) ? 1 : nonTargetCount;
+    int64_t ntStride =
+        (dimIdx == (int64_t)inputShape.size() - 1) ? numTilesInner : 1;
 
     auto i32Attr = [&](int32_t v) { return rewriter.getI32IntegerAttr(v); };
     auto boolAttr = [&](bool v) { return rewriter.getBoolAttr(v); };
@@ -104,6 +117,30 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
     auto i1Val = [&](bool v) -> Value {
       return rewriter.create<arith::ConstantOp>(
           loc, rewriter.getIntegerAttr(rewriter.getI1Type(), v ? 1 : 0));
+    };
+
+    Value zeroIdx = idxVal(0);
+    Value oneIdx = idxVal(1);
+    Value zeroI32 = i32Val(0);
+    Value trueVal = i1Val(true);
+    Value falseVal = i1Val(false);
+    Value numTilesIdx = idxVal(numTilesInner);
+    Value logWtIdx = idxVal(logWt);
+
+    Value reductionStrideIdx = idxVal(reductionStride);
+    Value ntStrideIdx = idxVal(ntStride);
+
+    // Each non-target row runs an independent merge tree with its tile indices
+    // offset by ntOffset.
+    auto ntLoop = rewriter.create<scf::ForOp>(loc, zeroIdx,
+                                              idxVal(nonTargetCount), oneIdx);
+    rewriter.setInsertionPointToStart(ntLoop.getBody());
+    Value ntIdxVar = ntLoop.getInductionVar();
+    Value ntOffset = rewriter.create<arith::MulIOp>(loc, ntIdxVar, ntStrideIdx);
+
+    auto flat = [&](Value r) -> Value {
+      Value scaled = rewriter.create<arith::MulIOp>(loc, r, reductionStrideIdx);
+      return rewriter.create<arith::AddIOp>(loc, scaled, ntOffset);
     };
 
     // Emit local_sort + merge + rebuild for the large-k path. The rebuild
@@ -128,14 +165,6 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
           tB, boolAttr(false), /*is_group_end=*/i1Val(true), rfo);
     };
 
-    Value zeroIdx = idxVal(0);
-    Value oneIdx = idxVal(1);
-    Value zeroI32 = i32Val(0);
-    Value trueVal = i1Val(true);
-    Value falseVal = i1Val(false);
-    Value numTilesIdx = idxVal(numTilesInner);
-    Value logWtIdx = idxVal(logWt);
-
     auto outerLoop =
         rewriter.create<scf::ForOp>(loc, zeroIdx, logWtIdx, oneIdx);
     rewriter.setInsertionPointToStart(outerLoop.getBody());
@@ -153,9 +182,13 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
         rewriter.create<scf::ForOp>(loc, zeroIdx, innerUB, innerStep);
     rewriter.setInsertionPointToStart(innerLoop.getBody());
 
+    // rA/rB are raw reduction indices; tileA/tileB are flat after adding
+    // ntOffset.
     Value baseIdx = innerLoop.getInductionVar();
-    Value tileA = baseIdx;
-    Value tileB = rewriter.create<arith::AddIOp>(loc, baseIdx, distanceIdx);
+    Value rA = baseIdx;
+    Value rB = rewriter.create<arith::AddIOp>(loc, baseIdx, distanceIdx);
+    Value tileA = flat(rA);
+    Value tileB = flat(rB);
 
     if (useLargeK) {
       // The first iteration performs a single sort-merge-rebuild. In later
@@ -179,6 +212,12 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
       Value prevDistIdx =
           rewriter.create<arith::ShRUIOp>(loc, distanceIdx, oneIdx);
 
+      // Loser indices derive from rA/rB to avoid double-applying the ntOffset.
+      Value rALoser = rewriter.create<arith::AddIOp>(loc, rA, prevDistIdx);
+      Value rBLoser = rewriter.create<arith::AddIOp>(loc, rB, prevDistIdx);
+      Value tileALoser = flat(rALoser);
+      Value tileBLoser = flat(rBLoser);
+
       // Step 1: Merge the winner tiles (tileA, tileB) from the previous
       // iteration; tileA holds the best-k across both afterward.
       emitSortMergeRebuild(tileA, tileB, /*mergeK=*/k, /*rebuildK=*/k, logk,
@@ -186,12 +225,8 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
                            /*sortEndPhase=*/logk - 1, /*mergeIter=*/zeroI32,
                            /*skipSecond=*/0, /*rfo=*/trueVal);
 
-      // Step 2: Merge the loser tiles; (tileA+prevDist) holds the best-k
+      // Step 2: Merge the loser tiles; (tileALoser) holds the best-k
       // across both losers afterward.
-      Value tileALoser =
-          rewriter.create<arith::AddIOp>(loc, tileA, prevDistIdx);
-      Value tileBLoser =
-          rewriter.create<arith::AddIOp>(loc, tileB, prevDistIdx);
       emitSortMergeRebuild(tileALoser, tileBLoser, /*mergeK=*/k, /*rebuildK=*/k,
                            logk, /*sortStartPhase=*/zeroI32,
                            /*sortEndPhase=*/logk - 1, /*mergeIter=*/zeroI32,
@@ -225,10 +260,9 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
           rewriter.create<arith::XOrIOp>(loc, needsRebuild, trueVal);
 
       // For ragged N, tileB may be out of bounds at the last level, so guard
-      // the sort+merge+rebuild with a bounds check; unpaired tiles are carried
-      // forward from the previous level. On the ragged path, always use
-      // sortStartPhase=0 since carried tiles may have skipped levels and need a
-      // full sort.
+      // the sort+merge+rebuild with a bounds check on rB (not the flat tileB).
+      // On the ragged path, always use sortStartPhase=0 since carried tiles may
+      // have skipped levels and need a full sort.
       Value sortStartPhase = ragged ? i32Val(0) : mIterI32;
 
       auto emitSortMergeRebuildSmallK = [&]() {
@@ -256,9 +290,11 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
       };
 
       if (ragged) {
-        Value tileBInBounds = rewriter.create<arith::CmpIOp>(
-            loc, arith::CmpIPredicate::ult, tileB, numTilesIdx);
-        auto mergeIf = rewriter.create<scf::IfOp>(loc, tileBInBounds,
+        // Guard on rB (the raw reduction index) rather than the flat tile
+        // index.
+        Value rBInBounds = rewriter.create<arith::CmpIOp>(
+            loc, arith::CmpIPredicate::ult, rB, numTilesIdx);
+        auto mergeIf = rewriter.create<scf::IfOp>(loc, rBInBounds,
                                                   /*withElseRegion=*/false);
         rewriter.setInsertionPointToStart(mergeIf.thenBlock());
         emitSortMergeRebuildSmallK();
@@ -275,7 +311,8 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
     // using tileB=tileA (sorts the same tile twice, harmlessly) so it is a
     // valid sorted run before level 1 tries to pair it.
     if (ragged && (numTilesInner % 2 == 1) && !useLargeK) {
-      Value tailTileIdx = idxVal(numTilesInner - 1);
+      Value tailRawIdx = idxVal(numTilesInner - 1);
+      Value tailTileIdx = flat(tailRawIdx);
       Value isLevelZero = rewriter.create<arith::CmpIOp>(
           loc, arith::CmpIPredicate::eq, mIterIdx, zeroIdx);
       auto tailSortIf = rewriter.create<scf::IfOp>(loc, isLevelZero,
@@ -291,6 +328,7 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
     }
 
     rewriter.setInsertionPointAfter(outerLoop);
+    rewriter.setInsertionPointAfter(ntLoop);
 
     rewriter.replaceOp(op, {outValues, outIndices});
     return success();

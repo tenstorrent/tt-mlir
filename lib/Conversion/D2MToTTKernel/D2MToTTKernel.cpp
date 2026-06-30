@@ -2104,6 +2104,11 @@ static void emitTopkGroupStart(OpBuilder &rewriter, Location loc,
   rewriter.create<ttkernel::CopyTileInitOp>(loc, cbSrcVals);
   rewriter.create<ttkernel::CopyTileOp>(loc, cbSrcVals, tileA, dst0);
   rewriter.create<ttkernel::CopyTileOp>(loc, cbSrcVals, tileB, dst1);
+  // The index tiles are si32 while the value tiles are f32. copy_tile_init
+  // does NOT reconfigure the unpacker data format, so the unpacker is still
+  // set up for the f32 value CB. Without re-running init_sfpu for the index
+  // CB, the si32 index tiles get unpacked as f32 and decay to all zeros.
+  rewriter.create<ttkernel::InitSFPUOp>(loc, cbSrcIdx, cbOutVals);
   rewriter.create<ttkernel::CopyTileInitOp>(loc, cbSrcIdx);
   rewriter.create<ttkernel::CopyTileOp>(loc, cbSrcIdx, tileA, dst2);
   rewriter.create<ttkernel::CopyTileOp>(loc, cbSrcIdx, tileB, dst3);
