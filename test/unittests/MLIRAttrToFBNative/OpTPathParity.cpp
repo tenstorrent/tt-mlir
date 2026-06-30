@@ -6742,4 +6742,251 @@ const std::initializer_list<mlir::tt::ttnn::TopKOp> topKOpList = {
 INSTANTIATE_TEST_SUITE_P(TopKOpTPathParityTest, TopKOpTPathParityTest,
                          ::testing::ValuesIn(topKOpList));
 
+//===----------------------------------------------------------------------===//
+// FillCacheOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::FillCacheOpT &opNativeOpModel,
+                       ::tt::target::ttnn::FillCacheOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::FillCacheOpT &op) {
+    op.cache.reset();
+    op.input.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::FillCacheOp buildTestFillCacheOp(int32_t batchOffset = 0) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  return e.builder.create<mlir::tt::ttnn::FillCacheOp>(
+      loc, makeOnes(), makeOnes(), e.builder.getI32IntegerAttr(batchOffset));
+}
+
+} // namespace
+
+using FillCacheOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::FillCacheOp>;
+
+TEST_P(FillCacheOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::FillCacheOp fillCacheOp = GetParam();
+
+  // Path A: OpModel-style construction.
+  ::tt::target::ttnn::FillCacheOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildFillCacheOpTFromMLIR(
+          static_cast<uint32_t>(fillCacheOp.getBatchOffset()));
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, fillCacheOp.getCache(),
+                               fillCacheOp.getInput());
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, fillCacheOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::FillCacheOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::FillCacheOp> fillCacheOpList = {
+    buildTestFillCacheOp(),
+    buildTestFillCacheOp(/*batchOffset=*/1),
+    buildTestFillCacheOp(/*batchOffset=*/1),
+};
+
+INSTANTIATE_TEST_SUITE_P(FillCacheOpTPathParityTest, FillCacheOpTPathParityTest,
+                         ::testing::ValuesIn(fillCacheOpList));
+
+//===----------------------------------------------------------------------===//
+// PagedFillCacheOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::PagedFillCacheOpT &opNativeOpModel,
+                       ::tt::target::ttnn::PagedFillCacheOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::PagedFillCacheOpT &op) {
+    op.cache.reset();
+    op.input.reset();
+    op.page_table.reset();
+    op.batch_idx_tensor.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::PagedFillCacheOp
+buildTestPagedFillCacheOp(bool withBatchIdxTensor = false) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  mlir::Value batchIdxValue;
+  if (withBatchIdxTensor) {
+    batchIdxValue = makeOnes();
+  }
+
+  return e.builder.create<mlir::tt::ttnn::PagedFillCacheOp>(
+      loc, makeOnes(), makeOnes(), makeOnes(), batchIdxValue);
+}
+
+} // namespace
+
+using PagedFillCacheOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::PagedFillCacheOp>;
+
+TEST_P(PagedFillCacheOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::PagedFillCacheOp pagedFillCacheOp = GetParam();
+
+  // Path A: OpModel-style construction (no scalar fields, no output TensorRef).
+  ::tt::target::ttnn::PagedFillCacheOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildPagedFillCacheOpTFromMLIR();
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, pagedFillCacheOp.getCache(),
+                               pagedFillCacheOp.getInput(),
+                               pagedFillCacheOp.getPageTable());
+  if (pagedFillCacheOp.getBatchIdxTensor()) {
+    prepopulateOperandTensorRefs(cache, pagedFillCacheOp.getBatchIdxTensor());
+  }
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, pagedFillCacheOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::PagedFillCacheOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::PagedFillCacheOp>
+    pagedFillCacheOpList = {
+        buildTestPagedFillCacheOp(),
+        buildTestPagedFillCacheOp(/*withBatchIdxTensor=*/true),
+};
+
+INSTANTIATE_TEST_SUITE_P(PagedFillCacheOpTPathParityTest,
+                         PagedFillCacheOpTPathParityTest,
+                         ::testing::ValuesIn(pagedFillCacheOpList));
+
+//===----------------------------------------------------------------------===//
+// PagedUpdateCacheOpTPathParity
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+void resetUnusedFields(::tt::target::ttnn::PagedUpdateCacheOpT &opNativeOpModel,
+                       ::tt::target::ttnn::PagedUpdateCacheOpT &opNativeFB) {
+  auto helper = [](::tt::target::ttnn::PagedUpdateCacheOpT &op) {
+    op.cache.reset();
+    op.input.reset();
+    op.update_index.reset();
+    op.page_table.reset();
+  };
+
+  helper(opNativeOpModel);
+  helper(opNativeFB);
+}
+
+mlir::tt::ttnn::PagedUpdateCacheOp
+buildTestPagedUpdateCacheOp(bool shareCache = false,
+                            bool withPageTable = false) {
+  auto &e = env();
+  auto loc = e.builder.getUnknownLoc();
+
+  auto tensorType = tiledL1BF16Type(defaultShape);
+  auto makeOnes = [&]() {
+    return e.builder
+        .create<mlir::tt::ttnn::OnesOp>(loc, mlir::TypeRange{tensorType},
+                                        mlir::ValueRange{})
+        .getResult();
+  };
+
+  mlir::Value pageTableValue;
+  if (withPageTable) {
+    pageTableValue = makeOnes();
+  }
+
+  return e.builder.create<mlir::tt::ttnn::PagedUpdateCacheOp>(
+      loc, makeOnes(), makeOnes(), makeOnes(),
+      e.builder.getBoolAttr(shareCache), pageTableValue);
+}
+
+} // namespace
+
+using PagedUpdateCacheOpTPathParityTest =
+    ::testing::TestWithParam<mlir::tt::ttnn::PagedUpdateCacheOp>;
+
+TEST_P(PagedUpdateCacheOpTPathParityTest, BuildEqualsFlatbufferRoundTrip) {
+  mlir::tt::ttnn::PagedUpdateCacheOp pagedUpdateCacheOp = GetParam();
+
+  // Path A: OpModel-style construction. Only share_cache survives the reset.
+  ::tt::target::ttnn::PagedUpdateCacheOpT opNativeOpModel =
+      mlir::tt::ttnn::op_model::buildPagedUpdateCacheOpTFromMLIR(
+          pagedUpdateCacheOp.getShareCache());
+
+  // Path B: FB serialization round-trip (what runtime sees).
+  ::flatbuffers::FlatBufferBuilder fbb;
+  mlir::tt::FlatbufferObjectCache cache(&fbb);
+  prepopulateOperandTensorRefs(cache, pagedUpdateCacheOp.getCache(),
+                               pagedUpdateCacheOp.getInput(),
+                               pagedUpdateCacheOp.getUpdateIndex());
+  if (pagedUpdateCacheOp.getPageTable()) {
+    prepopulateOperandTensorRefs(cache, pagedUpdateCacheOp.getPageTable());
+  }
+
+  auto fbOffset = mlir::tt::ttnn::createOp(cache, pagedUpdateCacheOp);
+  fbb.Finish(fbOffset);
+  auto *r = ::flatbuffers::GetTemporaryPointer(fbb, fbOffset);
+  ::tt::target::ttnn::PagedUpdateCacheOpT opNativeFB;
+  r->UnPackTo(&opNativeFB);
+
+  resetUnusedFields(opNativeOpModel, opNativeFB);
+
+  EXPECT_EQ(opNativeOpModel, opNativeFB);
+}
+
+const std::initializer_list<mlir::tt::ttnn::PagedUpdateCacheOp>
+    pagedUpdateCacheOpList = {
+        buildTestPagedUpdateCacheOp(),
+        buildTestPagedUpdateCacheOp(/*shareCache=*/true),
+        buildTestPagedUpdateCacheOp(/*shareCache=*/false,
+                                    /*withPageTable=*/true),
+        buildTestPagedUpdateCacheOp(/*shareCache=*/true,
+                                    /*withPageTable=*/true),
+};
+
+INSTANTIATE_TEST_SUITE_P(PagedUpdateCacheOpTPathParityTest,
+                         PagedUpdateCacheOpTPathParityTest,
+                         ::testing::ValuesIn(pagedUpdateCacheOpList));
+
 #endif // TTMLIR_ENABLE_OPMODEL
