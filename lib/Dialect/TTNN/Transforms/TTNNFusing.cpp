@@ -382,10 +382,6 @@ public:
           &getContext(), validationConfig);
       patterns.add<fusing::SplitQueryKeyValueAndSplitHeadsFusing<LinearOp>>(
           &getContext(), validationConfig);
-      patterns.add<fusing::DecodeRelabelThroughRMSNorm>(&getContext());
-      patterns.add<fusing::DecodeRelabelThroughConcat>(&getContext());
-      patterns.add<fusing::DecodeRelabelThroughSlice>(&getContext());
-      patterns.add<fusing::DecodeRelabelThroughRotary>(&getContext());
       patterns.add<fusing::NLPCreateQKVHeadsDecodeFusing>(&getContext(),
                                                           validationConfig);
     }
