@@ -767,17 +767,21 @@ const std::set<mlir::StringRef>
         ttnn::PrepareMoEComputeW0W1WeightsOp::getOperationName(),
         ttnn::PrepareMoEComputeW2WeightsOp::getOperationName(),
         ttnn::MoeComputeOp::getOperationName(),
-        // Conv3d's runtime kernel hard-rejects Tile input
-        // (TT_FATAL @ conv3d_device_operation.cpp:49); without the
-        // workaround running here, the optimizer's layout propagation
-        // picks Tile for the input and downstream OpModel queries
-        // (LegalOpConfigAnalysis, OperationValidationAndFallback) see
-        // an inconsistent view between in-IR layouts and runtime
-        // contract.
+        // Conv3d's runtime kernel hard-rejects Tile input (TT_FATAL @
+        // conv3d_device_operation.cpp:49).
         ttnn::Conv3dOp::getOperationName(),
-        // Sampling's operands workaround forces ROW_MAJOR layout on
-        // index/param tensors, UINT32 dtype on k, and ROW_MAJOR+UINT32 on
-        // the result (the kernel hard-rejects anything else and produces
-        // UINT32).
-        ttnn::SamplingOp::getOperationName()};
+        // Sampling forces ROW_MAJOR on index/param tensors, UINT32 on k.
+        ttnn::SamplingOp::getOperationName(),
+        // MoE all-to-all CCL + expert ops are OpModelExempt; their operands
+        // workarounds force ROW_MAJOR + dtypes (bf16/ui16) that tt-metal
+        // requires. Without whitelisting, opt_level>=1 leaves them tiled/wrong
+        // dtype and they fail at runtime ("Input tensor must be in row major
+        // layout") or mask experts wrongly (GLM decode PCC 0.886).
+        ttnn::AllToAllDispatchOp::getOperationName(),
+        ttnn::AllToAllDispatchMetadataOp::getOperationName(),
+        ttnn::AllToAllCombineOp::getOperationName(),
+        ttnn::MoeExpertTokenRemapOp::getOperationName(),
+        ttnn::MoeGptOp::getOperationName(),
+        ttnn::SelectiveReduceCombineOp::getOperationName(),
+        ttnn::SparseMatmulOp::getOperationName()};
 } // namespace mlir::tt::ttnn

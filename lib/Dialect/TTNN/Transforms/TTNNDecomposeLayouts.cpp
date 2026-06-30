@@ -1267,6 +1267,24 @@ private:
                                                 IRRewriter &rewriter) const {
     auto [input, output] = getInputOutputLayouts(op);
     OpsToCreate opsToCreate = determineRequiredOps(input, output);
+    // A ToLayoutOp that needs no underlying layout op can legally arise when
+    // layouts are force-pinned (e.g. the MeshPartitionOp RowMajor forcing makes
+    // a producer->consumer edge a no-op). Forward the input to consumers; if
+    // only the encoding differs (e.g. grid on an interleaved tensor) route it
+    // through a ToMemoryConfigOp so the result type is preserved. The original
+    // ToLayoutOp is erased by the caller (replaceAllUsesWith only here, matching
+    // the other handlers), avoiding a double-erase.
+    if (!opsToCreate.createSomeOp()) {
+      if (op.getInput().getType() == op.getResult().getType()) {
+        op.getResult().replaceAllUsesWith(op.getInput());
+      } else {
+        rewriter.setInsertionPoint(op);
+        auto toMemConfig = rewriter.create<ttnn::ToMemoryConfigOp>(
+            op.getLoc(), op.getResult().getType(), op.getInput());
+        op.getResult().replaceAllUsesWith(toMemConfig.getResult());
+      }
+      return success();
+    }
     if (not isCreationValid(op, input, output, opsToCreate)) {
       return failure();
     }
