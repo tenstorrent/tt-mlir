@@ -16,6 +16,7 @@
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/WithColor.h"
 
 #include <array>
 #include <cassert>
@@ -818,6 +819,191 @@ buildPrepareConvTranspose2dBiasOpTFromMLIR(
   prepareConvTranspose2dBiasOp.out = detail::getOutputTensorRefT(outputLayout);
 
   return prepareConvTranspose2dBiasOp;
+}
+
+::tt::target::ttnn::ConcatenateHeadsOpT
+buildConcatenateHeadsOpTFromMLIR(TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::ConcatenateHeadsOpT concatenateHeadsOp;
+  concatenateHeadsOp.out = detail::getOutputTensorRefT(outputLayout);
+  return concatenateHeadsOp;
+}
+
+::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT
+buildScaledDotProductAttentionDecodeOpTFromMLIR(
+    bool isCausal, std::optional<llvm::APFloat> scale,
+    std::optional<SDPAProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::ScaledDotProductAttentionDecodeOpT
+      scaledDotProductAttentionDecodeOp;
+  scaledDotProductAttentionDecodeOp.is_causal = isCausal;
+  if (scale.has_value()) {
+    scaledDotProductAttentionDecodeOp.scale = scale->convertToFloat();
+  }
+  if (programConfig.has_value() && *programConfig) {
+    scaledDotProductAttentionDecodeOp.program_config =
+        std::make_unique<::tt::target::ttnn::SDPAConfigT>(
+            toNative(*programConfig));
+  }
+  scaledDotProductAttentionDecodeOp.out =
+      detail::getOutputTensorRefT(outputLayout);
+  return scaledDotProductAttentionDecodeOp;
+}
+
+::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT
+buildPagedScaledDotProductAttentionDecodeOpTFromMLIR(
+    bool isCausal, std::optional<llvm::APFloat> scale,
+    std::optional<uint32_t> slidingWindowSize,
+    std::optional<SDPAProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT
+      pagedScaledDotProductAttentionDecodeOp;
+  pagedScaledDotProductAttentionDecodeOp.is_causal = isCausal;
+  if (scale.has_value()) {
+    pagedScaledDotProductAttentionDecodeOp.scale =
+        scale.value().convertToFloat();
+  }
+  if (slidingWindowSize.has_value()) {
+    pagedScaledDotProductAttentionDecodeOp.sliding_window_size =
+        *slidingWindowSize;
+  }
+  if (programConfig.has_value() && *programConfig) {
+    pagedScaledDotProductAttentionDecodeOp.program_config =
+        std::make_unique<::tt::target::ttnn::SDPAConfigT>(
+            toNative(*programConfig));
+  }
+  pagedScaledDotProductAttentionDecodeOp.out =
+      detail::getOutputTensorRefT(outputLayout);
+  return pagedScaledDotProductAttentionDecodeOp;
+}
+
+::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT
+buildPagedFlashMultiLatentAttentionDecodeOpTFromMLIR(
+    uint32_t headDimV, bool isCausal, std::optional<llvm::APFloat> scale,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOpT
+      pagedFlashMultiLatentAttentionDecodeOp;
+  pagedFlashMultiLatentAttentionDecodeOp.head_dim_v = headDimV;
+  pagedFlashMultiLatentAttentionDecodeOp.is_causal = isCausal;
+  if (scale.has_value()) {
+    pagedFlashMultiLatentAttentionDecodeOp.scale =
+        scale.value().convertToFloat();
+  }
+  pagedFlashMultiLatentAttentionDecodeOp.out =
+      detail::getOutputTensorRefT(outputLayout);
+  return pagedFlashMultiLatentAttentionDecodeOp;
+}
+
+::tt::target::ttnn::ScaledDotProductAttentionOpT
+buildScaledDotProductAttentionOpTFromMLIR(
+    bool isCausal, std::optional<llvm::APFloat> scale,
+    std::optional<uint32_t> slidingWindowSize, TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::ScaledDotProductAttentionOpT scaledDotProductAttentionOp;
+  scaledDotProductAttentionOp.is_causal = isCausal;
+  if (scale.has_value()) {
+    scaledDotProductAttentionOp.scale = scale->convertToFloat();
+  }
+  if (slidingWindowSize.has_value()) {
+    scaledDotProductAttentionOp.sliding_window_size = *slidingWindowSize;
+  }
+  scaledDotProductAttentionOp.out = detail::getOutputTensorRefT(outputLayout);
+  return scaledDotProductAttentionOp;
+}
+
+::tt::target::ttnn::RotaryEmbeddingLlamaOpT
+buildRotaryEmbeddingLlamaOpTFromMLIR(
+    bool isDecodeMode,
+    std::optional<::mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+        deviceComputeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::RotaryEmbeddingLlamaOpT rotaryEmbeddingLlamaOp;
+  rotaryEmbeddingLlamaOp.is_decode_mode = isDecodeMode;
+  rotaryEmbeddingLlamaOp.compute_config =
+      (deviceComputeKernelConfig.has_value() && *deviceComputeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*deviceComputeKernelConfig))
+          : nullptr;
+  rotaryEmbeddingLlamaOp.out = detail::getOutputTensorRefT(outputLayout);
+  return rotaryEmbeddingLlamaOp;
+}
+
+::tt::target::ttnn::RotaryEmbeddingOpT buildRotaryEmbeddingOpTFromMLIR(
+    std::optional<uint32_t> tokenIndex,
+    std::optional<::mlir::tt::ttnn::DeviceComputeKernelConfigAttr>
+        deviceComputeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::RotaryEmbeddingOpT rotaryEmbeddingOp;
+  if (tokenIndex.has_value()) {
+    rotaryEmbeddingOp.token_index = *tokenIndex;
+  }
+  rotaryEmbeddingOp.compute_config =
+      (deviceComputeKernelConfig.has_value() && *deviceComputeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*deviceComputeKernelConfig))
+          : nullptr;
+  rotaryEmbeddingOp.out = detail::getOutputTensorRefT(outputLayout);
+  return rotaryEmbeddingOp;
+}
+
+::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT
+buildNLPCreateQKVHeadsDecodeOpTFromMLIR(uint32_t numHeads,
+                                        std::optional<uint32_t> numKVHeads,
+                                        std::optional<bool> overlapQKCoregrid,
+                                        std::optional<uint32_t> sliceSize,
+                                        TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::NLPCreateQKVHeadsDecodeOpT nlpCreateQkvHeadsDecodeOp;
+  nlpCreateQkvHeadsDecodeOp.num_heads = numHeads;
+  if (numKVHeads.has_value()) {
+    nlpCreateQkvHeadsDecodeOp.num_kv_heads = *numKVHeads;
+  }
+  if (overlapQKCoregrid.has_value()) {
+    nlpCreateQkvHeadsDecodeOp.overlap_qk_coregrid = *overlapQKCoregrid;
+  }
+  if (sliceSize.has_value()) {
+    nlpCreateQkvHeadsDecodeOp.slice_size = *sliceSize;
+  }
+  auto memory_config = detail::getNullableMemoryConfigT(outputLayout);
+  if (memory_config.has_value()) {
+    nlpCreateQkvHeadsDecodeOp.memcfg =
+        std::make_unique<::tt::target::ttnn::MemoryConfigT>(
+            memory_config.value());
+    if (nlpCreateQkvHeadsDecodeOp.memcfg) {
+      llvm::WithColor::warning()
+          << "Memory config should be set to nullptr to match runtime";
+    }
+  }
+  return nlpCreateQkvHeadsDecodeOp;
+}
+
+::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT
+buildSplitQueryKeyValueAndSplitHeadsOpTFromMLIR(
+    uint32_t numHeads, std::optional<uint32_t> numKVHeads, bool transposeKey,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOpT
+      splitQueryKeyValueAndSplitHeadsOp;
+  splitQueryKeyValueAndSplitHeadsOp.num_heads = numHeads;
+  if (numKVHeads.has_value()) {
+    splitQueryKeyValueAndSplitHeadsOp.num_kv_heads = *numKVHeads;
+  }
+  splitQueryKeyValueAndSplitHeadsOp.transpose_key = transposeKey;
+  splitQueryKeyValueAndSplitHeadsOp.q_out =
+      detail::getOutputTensorRefT(outputLayout);
+  return splitQueryKeyValueAndSplitHeadsOp;
+}
+
+::tt::target::ttnn::NLPConcatHeadsOpT
+buildNLPConcatHeadsOpTFromMLIR(TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::NLPConcatHeadsOpT nlpConcatHeadsOp;
+  nlpConcatHeadsOp.out = detail::getOutputTensorRefT(outputLayout);
+  return nlpConcatHeadsOp;
+}
+
+::tt::target::ttnn::NLPConcatHeadsDecodeOpT
+buildNLPConcatHeadsDecodeOpTFromMLIR(uint32_t numHeads,
+                                     TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::NLPConcatHeadsDecodeOpT nlpConcatHeadsDecodeOp;
+  nlpConcatHeadsDecodeOp.num_heads = numHeads;
+  nlpConcatHeadsDecodeOp.out = detail::getOutputTensorRefT(outputLayout);
+  return nlpConcatHeadsDecodeOp;
 }
 
 } // namespace mlir::tt::ttnn::op_model

@@ -1,0 +1,72 @@
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+//
+// SPDX-License-Identifier: Apache-2.0
+
+#include "ttmlir/OpInvoke/TTNN/Transformer/ScaledDotProductAttentionOp.h"
+#include "ttmlir/OpInvoke/TTNN/utils/utils.h"
+#include "ttnn/operations/transformer/sdpa/sdpa.hpp"
+
+#include <optional>
+
+namespace ttnn_op_invoke {
+
+ScaledDotProductAttentionResolvedParams resolveScaledDotProductAttentionParams(
+    const ::tt::target::ttnn::ScaledDotProductAttentionOpT &op) {
+  ScaledDotProductAttentionResolvedParams params;
+  if (op.scale.has_value()) {
+    params.scale = *op.scale;
+  }
+  if (op.sliding_window_size.has_value()) {
+    params.slidingWindowSize = *op.sliding_window_size;
+  }
+
+  if (op.out) {
+    params.outputMemoryConfig = operations::utils::createMemoryConfigIfNeeded(
+        operations::utils::getTensorRefMemoryConfig(*op.out));
+    TT_INVOKE_ASSERT(operations::utils::inSystemMemory(*op.out) ||
+                         params.outputMemoryConfig.has_value(),
+                     "Memory config must exist for device tensors");
+  }
+
+  return params;
+}
+
+template <typename Tag>
+auto createScaledDotProductAttentionTuple(
+    Tag tag, const ::tt::target::ttnn::ScaledDotProductAttentionOpT &op,
+    TensorArg query, TensorArg key, TensorArg value,
+    std::optional<TensorArg> attentionMask,
+    std::optional<TensorArg> attentionSink,
+    const ScaledDotProductAttentionResolvedParams &params) {
+  return std::make_tuple(
+      resolveTensorArg(query, tag), resolveTensorArg(key, tag),
+      resolveTensorArg(value, tag),
+      attentionMask ? std::make_optional(resolveTensorArg(*attentionMask, tag))
+                    : std::nullopt,
+      op.is_causal, params.scale, params.slidingWindowSize,
+      params.outputMemoryConfig,
+      /*program_config=*/std::nullopt,
+      /*compute_kernel_config=*/std::nullopt,
+      attentionSink ? std::make_optional(resolveTensorArg(*attentionSink, tag))
+                    : std::nullopt);
+}
+
+ScaledDotProductAttentionOpResult callScaledDotProductAttention(
+    CallType callType,
+    const ::tt::target::ttnn::ScaledDotProductAttentionOpT &op, TensorArg query,
+    TensorArg key, TensorArg value, std::optional<TensorArg> attentionMask,
+    std::optional<TensorArg> attentionSink, ::ttnn::MeshDevice *device) {
+  ScaledDotProductAttentionResolvedParams params =
+      resolveScaledDotProductAttentionParams(op);
+
+  auto makeTuple = [&](auto tag) {
+    return createScaledDotProductAttentionTuple(
+        tag, op, query, key, value, attentionMask, attentionSink, params);
+  };
+
+  return callOp<ScaledDotProductAttentionOpResult>(
+      WRAP_OP(::ttnn::transformer::scaled_dot_product_attention), callType,
+      makeTuple, device);
+}
+
+} // namespace ttnn_op_invoke

@@ -109,6 +109,48 @@ template <typename EltwiseQuantizationOp>
 ::flatbuffers::Offset<::tt::target::ttnn::EltwiseQuantizationOp>
 createEltwiseQuantizationOp(::mlir::tt::FlatbufferObjectCache &cache,
                             EltwiseQuantizationOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::ConcatenateHeadsOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, ConcatenateHeadsOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::NLPConcatHeadsOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, NLPConcatHeadsOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::NLPCreateQKVHeadsDecodeOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache,
+         NLPCreateQKVHeadsDecodeOp op);
+
+::flatbuffers::Offset<
+    ::tt::target::ttnn::PagedFlashMultiLatentAttentionDecodeOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache,
+         PagedFlashMultiLatentAttentionDecodeOp op);
+
+::flatbuffers::Offset<
+    ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache,
+         PagedScaledDotProductAttentionDecodeOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::RotaryEmbeddingLlamaOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, RotaryEmbeddingLlamaOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::RotaryEmbeddingOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, RotaryEmbeddingOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::ScaledDotProductAttentionDecodeOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache,
+         ScaledDotProductAttentionDecodeOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::ScaledDotProductAttentionOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache,
+         ScaledDotProductAttentionOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::SplitQueryKeyValueAndSplitHeadsOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache,
+         SplitQueryKeyValueAndSplitHeadsOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::NLPConcatHeadsDecodeOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, NLPConcatHeadsDecodeOp op);
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_TARGET_TTNN_TTNNTOFLATBUFFER_H

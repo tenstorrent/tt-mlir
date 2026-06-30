@@ -3,17 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/transformer/paged_scaled_dot_product_attention_decode.h"
-
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
+#include "tt/runtime/detail/common/logger.h"
+#include "ttmlir/OpInvoke/TTNN/Transformer/PagedScaledDotProductAttentionDecodeOp.h"
+#include <variant>
 
 namespace tt::runtime::ttnn::operations::transformer {
 static void runPagedScaledDotProductAttentionDecodeOp(
     const ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOp *op,
-    ProgramTensorPool &tensorPool) {
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
-
+    ProgramTensorPool &tensorPool, ProgramContext &context) {
   const ::ttnn::Tensor &query =
       tensorPool.getTTNNTensorAndValidate(op->query());
   const ::ttnn::Tensor &key = tensorPool.getTTNNTensorAndValidate(op->key());
@@ -21,7 +18,6 @@ static void runPagedScaledDotProductAttentionDecodeOp(
       tensorPool.getTTNNTensorAndValidate(op->value());
   const ::ttnn::Tensor &pageTable =
       tensorPool.getTTNNTensorAndValidate(op->page_table());
-  bool isCausal = op->is_causal();
 
   std::optional<::ttnn::Tensor> attentionMask = std::nullopt;
   if (op->attention_mask()) {
@@ -41,46 +37,40 @@ static void runPagedScaledDotProductAttentionDecodeOp(
         tensorPool.getTTNNTensorAndValidate(op->attention_sink()));
   }
 
-  std::optional<float> scale = op->scale();
-  std::optional<uint32_t> slidingWindowSize = op->sliding_window_size();
-  const auto computeGrid = query.device()->compute_with_storage_grid_size();
+  ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOpT
+      pagedScaledDotProductAttentionDecodeOpNative;
+  op->UnPackTo(&pagedScaledDotProductAttentionDecodeOpNative);
 
-  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
-      programConfig = std::nullopt;
-  if (op->program_config()) {
-    programConfig = utils::createSDPAProgramConfig(op->program_config());
-  } else if (!isCausal) {
-    programConfig.emplace();
-    programConfig->k_chunk_size = 32; // Required for non-causal
-    programConfig->compute_with_storage_grid_size = computeGrid;
-  } else if (query.device()->arch() == ::tt::ARCH::BLACKHOLE) {
-    programConfig.emplace();
-    programConfig->q_chunk_size = 0;
-    programConfig->k_chunk_size = 0;
-    programConfig->compute_with_storage_grid_size = computeGrid;
-    programConfig->max_cores_per_head_batch = computeGrid.x * computeGrid.y;
-  }
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  // Blackhole's SDPA decode default approx-exp path fails SFPI compile
-  // (tt-metal #40301).
-  if (programConfig.has_value() &&
-      query.device()->arch() == ::tt::ARCH::BLACKHOLE) {
-    programConfig->exp_approx_mode = false;
-  }
+  ttnn_op_invoke::PagedScaledDotProductAttentionDecodeOpResult result =
+      ttnn_op_invoke::callPagedScaledDotProductAttentionDecode(
+          ttnn_op_invoke::CallType::EXECUTE,
+          pagedScaledDotProductAttentionDecodeOpNative, &query, &key, &value,
+          &pageTable,
+          attentionMask.has_value()
+              ? std::optional<ttnn_op_invoke::TensorArg>(&*attentionMask)
+              : std::nullopt,
+          curPosTensor.has_value()
+              ? std::optional<ttnn_op_invoke::TensorArg>(&*curPosTensor)
+              : std::nullopt,
+          attentionSink.has_value()
+              ? std::optional<ttnn_op_invoke::TensorArg>(&*attentionSink)
+              : std::nullopt,
+          &targetDevice);
 
-  ::ttnn::Tensor out =
-      ::ttnn::transformer::paged_scaled_dot_product_attention_decode(
-          query, key, value, pageTable, isCausal, attentionMask, curPosTensor,
-          attentionSink, scale, slidingWindowSize, outputMemoryConfig,
-          /*program_config=*/programConfig,
-          /*compute_kernel_config=*/std::nullopt);
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from "
+             "callPagedScaledDotProductAttentionDecode execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
 void run(const ::tt::target::ttnn::PagedScaledDotProductAttentionDecodeOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  runPagedScaledDotProductAttentionDecodeOp(op, tensorPool);
+  runPagedScaledDotProductAttentionDecodeOp(op, tensorPool, context);
 }
 
 } // namespace tt::runtime::ttnn::operations::transformer
