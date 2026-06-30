@@ -297,6 +297,22 @@ LayoutConverter::convertHostTensorLayout(const ::ttnn::Tensor &input,
   }
 
   if (!inputDesc.isTilized() && !shouldFromDevice) {
+    // tt-metal typecast requires a TILE-layout tensor on device. The input is
+    // device ROW_MAJOR, no layout change is requested, and the result stays on
+    // device, so tilize -> typecast -> untilize back to ROW_MAJOR on device.
+    // (This decode-loop input-prep path is exercised by GLM at opt>=1: a
+    // ROW_MAJOR device tensor whose dtype must change between iterations.)
+    if (utils::canTilizeOnDevice(inputDesc.dataType, inputDesc.memoryConfig) &&
+        utils::canUntilizeOnDevice(outputDesc.dataType,
+                                   outputDesc.memoryConfig)) {
+      ::ttnn::Tensor out = ::ttnn::to_layout(input, ::ttnn::Layout::TILE,
+                                             std::nullopt, std::nullopt);
+      out = typecastIfNeeded(out);
+      out = ::ttnn::to_layout(out, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
+                              std::nullopt);
+      out = toMemoryConfigIfNeeded(out);
+      return out;
+    }
     LOG_FATAL("Currently to_layout does not support device to device typecast "
               "for input layout: ",
               debug::toString(inputDesc.layout));

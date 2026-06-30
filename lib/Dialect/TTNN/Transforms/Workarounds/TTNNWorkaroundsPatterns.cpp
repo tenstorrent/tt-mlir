@@ -767,6 +767,20 @@ const std::set<mlir::StringRef>
         ttnn::PrepareMoEComputeW0W1WeightsOp::getOperationName(),
         ttnn::PrepareMoEComputeW2WeightsOp::getOperationName(),
         ttnn::MoeComputeOp::getOperationName(),
+        // MoE all-to-all CCL ops are OpModelExempt; their operand workarounds
+        // force ROW_MAJOR + specific dtypes (bf16/ui16) that tt-metal requires.
+        // Without whitelisting, opt_level>=1 leaves them tiled / wrong dtype and
+        // they fail at runtime ("Input tensor must be in row major layout").
+        ttnn::AllToAllDispatchOp::getOperationName(),
+        ttnn::AllToAllDispatchMetadataOp::getOperationName(),
+        ttnn::AllToAllCombineOp::getOperationName(),
+        ttnn::MoeExpertTokenRemapOp::getOperationName(),
+        ttnn::MoeGptOp::getOperationName(),
+        ttnn::SelectiveReduceCombineOp::getOperationName(),
+        // SparseMatmulOp (MoE expert compute) operand workaround forces the
+        // sparsity operand to ROW_MAJOR + bf16; without it opt_level>=1 masks
+        // experts incorrectly -> wrong MoE output.
+        ttnn::SparseMatmulOp::getOperationName(),
         // Conv3d's runtime kernel hard-rejects Tile input
         // (TT_FATAL @ conv3d_device_operation.cpp:49); without the
         // workaround running here, the optimizer's layout propagation
