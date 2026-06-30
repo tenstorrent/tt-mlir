@@ -386,7 +386,7 @@ void createTTIRToTTNNCommonPipeline(
   // CPU-hoisting pass for const-eval subgraphs.
   if (options.enableCPUHoistedConstEval) {
     ttir::CPUHoistConstEvalTransformOptions hoistOptions;
-    hoistOptions.hoistDataMovement = options.hoistDataMovementConstEval;
+    hoistOptions.dataMovementF32 = options.dataMovementConstEvalF32;
     pm.addPass(ttir::createCPUHoistConstEvalTransform(hoistOptions));
   }
 

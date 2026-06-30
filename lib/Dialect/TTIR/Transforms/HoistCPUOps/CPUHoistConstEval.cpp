@@ -76,7 +76,7 @@ static llvm::SmallVector<mlir::Operation *> traceCreationOpChain(Value v) {
 //   in host memory. This is especially beneficial for tensors which would take
 //   up significantly more L1 if tilized (e.g. tensor<1024x1024x1x1).
 static llvm::SmallVector<CPUHoistedOpsDescriptor>
-analyzeConstEval(func::FuncOp funcOp, bool hoistDataMovement) {
+analyzeConstEval(func::FuncOp funcOp, bool dataMovementF32) {
   if (!ttmlir::utils::isConstEvalFunc(funcOp)) {
     return {};
   }
@@ -142,26 +142,26 @@ analyzeConstEval(func::FuncOp funcOp, bool hoistDataMovement) {
     return {};
   }
 
-  // Skip CPU-hoisting of const-eval subgraphs that perform no arithmetic and
-  // include at least one shape/layout-changing op - i.e. pure data-movement
-  // graphs (transpose, permute, reshape; optionally interleaved with
-  // typecast). The precision motivation for CPU-hoisting does not apply: a
-  // permutation/retype is exact regardless of element type. Hoisting them only
-  // adds a bf16->f32->bf16 typecast round-trip plus a host round-trip, and
-  // prevents on-device handling of the movement op (e.g. folding a weight
-  // transpose into a matmul's transpose_b). Keep these on device.
+  // Hoist const-eval subgraphs that perform no arithmetic and include at least
+  // one shape/layout-changing op - i.e. pure data-movement graphs (transpose,
+  // permute, reshape; optionally interleaved with typecast) - while preserving
+  // their native element type. The precision motivation for f32 CPU execution
+  // does not apply: a permutation/retype is exact regardless of element type,
+  // so forcing f32 only adds a bf16->f32->bf16 typecast round-trip plus host
+  // round-trips. Keeping the original dtype avoids those conversions entirely
+  // (the subgraph still runs on host, which sidesteps on-device reshape/
+  // transpose issues).
   //
-  // Note: a subgraph that is *only* typecast(s) is intentionally still hoisted.
-  // For those the host-storage motivation can still apply - the conversion can
-  // produce a narrower-dtype tensor on host, lowering what is materialized on
-  // device - so it is left to the existing hoisting path.
+  // Note: a subgraph that is *only* typecast(s) is left on the f32 path. There
+  // the conversion can produce a narrower-dtype tensor on host, so the peak
+  // DRAM/L1 motivation still applies.
   //
-  // The hoist-data-movement option restores the legacy behavior (hoist these
-  // anyway) as an escape hatch for A/B comparison.
-  if (!hoistDataMovement &&
+  // The data-movement-f32 option restores the legacy behavior (force f32 for
+  // these too) as an escape hatch for A/B comparison.
+  if (!dataMovementF32 &&
       llvm::all_of(descriptor.operations, isPureDataMovementOp) &&
       llvm::any_of(descriptor.operations, isTensorManipulationOp)) {
-    return {};
+    descriptor.preserveElementType = true;
   }
 
   // Verify all ops in the descriptor can be lowered to Linalg.
@@ -192,7 +192,7 @@ public:
 
     llvm::SmallVector<CPUHoistedOpsDescriptor> descriptors;
     deviceInnerModule.walk([&](func::FuncOp funcOp) {
-      auto result = analyzeConstEval(funcOp, hoistDataMovement);
+      auto result = analyzeConstEval(funcOp, dataMovementF32);
       descriptors.append(std::make_move_iterator(result.begin()),
                          std::make_move_iterator(result.end()));
     });

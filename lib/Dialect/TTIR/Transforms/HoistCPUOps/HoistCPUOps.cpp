@@ -92,9 +92,15 @@ static mlir::Type getCPUCompatibleElementType(mlir::MLIRContext *context,
   return elementType;
 }
 
-// Converts a tensor type to its CPU-compatible equivalent.
+// Converts a tensor type to its CPU-compatible equivalent. When
+// preserveElementType is set, the element type is left untouched (used for
+// pure data-movement subgraphs which gain no precision benefit from f32).
 static mlir::RankedTensorType
-convertTensorType(mlir::RankedTensorType tensorType) {
+convertTensorType(mlir::RankedTensorType tensorType,
+                  bool preserveElementType = false) {
+  if (preserveElementType) {
+    return tensorType;
+  }
   auto elementType = tensorType.getElementType();
   auto convertedElementType =
       getCPUCompatibleElementType(tensorType.getContext(), elementType);
@@ -139,7 +145,8 @@ convertDenseElementsAttr(mlir::DenseElementsAttr denseAttr,
 // Helper function to convert constant op value attributes to CPU-compatible
 // types. This is needed because when we convert the result type of a constant
 // op, we also need to convert the underlying data in the value attribute.
-static void convertConstantOpValue(mlir::Operation *op) {
+static void convertConstantOpValue(mlir::Operation *op,
+                                   bool preserveElementType = false) {
   auto constantOp = mlir::dyn_cast<ttir::ConstantOp>(op);
   if (!constantOp) {
     return;
@@ -156,7 +163,7 @@ static void convertConstantOpValue(mlir::Operation *op) {
     return;
   }
 
-  auto targetType = convertTensorType(sourceType);
+  auto targetType = convertTensorType(sourceType, preserveElementType);
   if (sourceType == targetType) {
     return;
   }
@@ -170,7 +177,8 @@ static void convertConstantOpValue(mlir::Operation *op) {
 // inserting conversion ops as needed.
 static ValuesVectorType
 performInputArgumentsConversion(mlir::OpBuilder &opBuilder,
-                                const ValuesVectorType &inputArguments) {
+                                const ValuesVectorType &inputArguments,
+                                bool preserveElementType) {
   ValuesVectorType convertedArguments;
   for (auto argument : inputArguments) {
     auto tensorType =
@@ -178,7 +186,7 @@ performInputArgumentsConversion(mlir::OpBuilder &opBuilder,
 
     TT_assertv(tensorType, "Input argument is not a RankedTensorType.");
 
-    auto convertedType = convertTensorType(tensorType);
+    auto convertedType = convertTensorType(tensorType, preserveElementType);
 
     if (tensorType != convertedType) {
       // Create converted tensor value.
@@ -200,7 +208,8 @@ performInputArgumentsConversion(mlir::OpBuilder &opBuilder,
 
 // Helper function to convert result types to CPU-compatible types.
 static TypesVectorType
-performResultConversions(const ValuesVectorType &outputValues) {
+performResultConversions(const ValuesVectorType &outputValues,
+                         bool preserveElementType) {
   TypesVectorType resultTypes;
   for (auto outputValue : outputValues) {
     auto tensorType =
@@ -208,7 +217,7 @@ performResultConversions(const ValuesVectorType &outputValues) {
 
     TT_assertv(tensorType, "Output value is not a RankedTensorType.");
 
-    auto convertedType = convertTensorType(tensorType);
+    auto convertedType = convertTensorType(tensorType, preserveElementType);
     resultTypes.push_back(convertedType);
   }
   return resultTypes;
@@ -330,7 +339,8 @@ static func::FuncOp createCPUHoistedFunctionDefinition(
     for (auto operand : clonedOp->getOperands()) {
       if (auto tensorType =
               mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
-        auto convertedTensorType = convertTensorType(tensorType);
+        auto convertedTensorType =
+            convertTensorType(tensorType, descriptor.preserveElementType);
         operand.setType(dropSignInformation(convertedTensorType));
       }
     }
@@ -339,13 +349,14 @@ static func::FuncOp createCPUHoistedFunctionDefinition(
     for (auto result : clonedOp->getResults()) {
       if (auto tensorType =
               mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
-        auto convertedTensorType = convertTensorType(tensorType);
+        auto convertedTensorType =
+            convertTensorType(tensorType, descriptor.preserveElementType);
         result.setType(dropSignInformation(convertedTensorType));
       }
     }
 
     // Convert constant op value attributes to match the converted result type.
-    convertConstantOpValue(clonedOp);
+    convertConstantOpValue(clonedOp, descriptor.preserveElementType);
   }
 
   // Build return values by looking up the cloned counterpart of each output
@@ -458,8 +469,8 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
                                       mlir::ModuleOp cpuModule) {
   mlir::MLIRContext *context = deviceModule.getContext();
 
-  const TypesVectorType resultTypes =
-      performResultConversions(descriptor.outputValues);
+  const TypesVectorType resultTypes = performResultConversions(
+      descriptor.outputValues, descriptor.preserveElementType);
 
   const ValuesVectorType inputArguments =
       collectInputArguments(descriptor.operations);
@@ -471,7 +482,8 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
   opBuilder.setInsertionPointAfter(descriptor.operations.back());
 
   const ValuesVectorType convertedInputArguments =
-      performInputArgumentsConversion(opBuilder, inputArguments);
+      performInputArgumentsConversion(opBuilder, inputArguments,
+                                      descriptor.preserveElementType);
 
   // Create the CPU-hoisted function definition.
   func::FuncOp funcDefinition = createCPUHoistedFunctionDefinition(

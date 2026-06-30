@@ -93,12 +93,12 @@ def CPUHoistConstEvalTransform: Pass<"cpu-hoist-const-eval", "::mlir::ModuleOp">
   }];
 
   let options = [
-    Option<"hoistDataMovement", "hoist-data-movement", "bool", /*default=*/"false",
-           "Also hoist const-eval subgraphs that are pure data movement "
-           "(transpose/permute/reshape, optionally with typecast). This is the "
-           "legacy behavior and yields no precision/memory benefit for such "
-           "subgraphs; off by default keeps them on device. Intended as an "
-           "escape hatch to A/B the fix.">
+    Option<"dataMovementF32", "data-movement-f32", "bool", /*default=*/"false",
+           "Hoist pure data-movement const-eval subgraphs "
+           "(transpose/permute/reshape, optionally with typecast) on the legacy "
+           "f32 path, inserting the bf16->f32->bf16 typecast round-trip. Off by "
+           "default, such subgraphs are hoisted preserving their native element "
+           "type (no round-trip). Intended as an escape hatch to A/B the fix.">
   ];
 
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect",

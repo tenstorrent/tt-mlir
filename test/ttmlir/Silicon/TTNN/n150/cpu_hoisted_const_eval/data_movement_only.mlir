@@ -9,10 +9,12 @@
 module {
   // CHECK: ttcore.device_module {
 
-  // The transpose const-eval keeps a plain on-device permute and is not hoisted.
+  // The transpose const-eval is hoisted to the CPU module preserving its native
+  // bf16 dtype: the hoisted call takes/returns bf16 with no f32 typecast
+  // round-trip. This produces a flatbuffer runnable on silicon for PCC.
   // CHECK-LABEL: func.func private @forward_const_eval_0
-  // CHECK: "ttnn.permute"
-  // CHECK-NOT: call @cpu_hoisted_const_eval_
+  // CHECK-NOT: "ttnn.typecast"
+  // CHECK: call @cpu_hoisted_const_eval_{{.*}} : (tensor<32x64xbf16{{.*}}>) -> tensor<64x32xbf16
 
   // CHECK-LABEL: func.func @forward
   func.func @forward(%arg0: tensor<32x64xbf16> {ttcore.argument_type = #ttcore.argument_type<input>},
