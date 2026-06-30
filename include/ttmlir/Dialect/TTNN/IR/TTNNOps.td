@@ -3073,6 +3073,7 @@ def TTNN_ConstantOp : TTNN_CreationOp<"constant", [AllShapesMatch<["value", "res
       }
     }];
 
+    let hasCanonicalizer = 1;
     let hasVerifier = 1;
 }
 
