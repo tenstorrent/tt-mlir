@@ -30,8 +30,9 @@ and a perf-trace runtime build (TT_RUNTIME_ENABLE_PERF_TRACE=ON). ``tune()`` set
 the two env vars via ``setdefault`` and flips the matching ``config`` flags.
 
 Knobs: ``grid_shape`` (cores), ``block_shape`` (tiles per shard a core processes
-per remote_load), and ``dtype``. The config is a plain dict, so further axes
-(mem_space, ...) are additive. See ``grid_space`` / ``block_space`` to enumerate.
+per remote_load), ``dtype``, and ``mem_space`` (``l1``/``dram`` -- where kernel
+I/O lives, via the builder's ``kernel_io_in_dram`` path). The config is a plain
+dict, so further axes are additive. See ``build_space`` to enumerate.
 
 Two entry points share the same per-config evaluation:
   * ``tune(space)``   -- evaluate every config, rank + Pareto over the results.
@@ -253,6 +254,22 @@ def dtype_candidates(spec) -> list[str]:
     return out
 
 
+_MEM_SPACES = ("l1", "dram")
+
+
+def memspace_candidates(spec) -> list[str]:
+    """Mem-space pool: None (omitted) or ``"all"`` is both l1 and dram (l1 is the
+    default placement; dram I/O adds DRAM<->L1 movement); else an explicit
+    ``"l1,dram"`` list (validated)."""
+    if spec is None or spec == _ALL:
+        return list(_MEM_SPACES)
+    out = [m.strip() for m in spec.split(",") if m.strip()]
+    bad = [m for m in out if m not in _MEM_SPACES]
+    if bad:
+        raise ValueError(f"unknown mem_space(s) {bad}; choose from {list(_MEM_SPACES)}")
+    return out
+
+
 def _feasible(shape, cfg, max_cores) -> bool:
     """A (grid, block, dtype) cfg is feasible when the block tiles the tensor,
     the blocked grid divides evenly across the grid, and cores <= max_cores."""
@@ -267,23 +284,31 @@ def _feasible(shape, cfg, max_cores) -> bool:
 
 
 def build_space(
-    shape, *, grid=None, block=None, dtype=None, max_cores: int = 64
+    shape, *, grid=None, block=None, dtype=None, mem_space=None, max_cores: int = 64
 ) -> tuple:
     """Cartesian product of the per-knob candidate pools, filtered for
     feasibility. Returns ``(configs, warnings)`` -- ``warnings`` flags any
     *explicitly requested* grid/block value (not ``"all"``) that survived in no
-    feasible config, so the drop is surfaced rather than silent."""
+    feasible config, so the drop is surfaced rather than silent. dtype and
+    mem_space don't affect feasibility, so they never produce warnings."""
     grids = grid_candidates(shape, grid, max_cores)
     blocks = block_candidates(shape, block)
     dtypes = dtype_candidates(dtype)
+    mems = memspace_candidates(mem_space)
 
     configs = []
     for g in grids:
         for b in blocks:
             for dt in dtypes:
-                cfg = {"grid_shape": list(g), "block_shape": list(b), "dtype": dt}
-                if _feasible(shape, cfg, max_cores):
-                    configs.append(cfg)
+                for mem in mems:
+                    cfg = {
+                        "grid_shape": list(g),
+                        "block_shape": list(b),
+                        "dtype": dt,
+                        "mem_space": mem,
+                    }
+                    if _feasible(shape, cfg, max_cores):
+                        configs.append(cfg)
 
     warnings = []
     explicit = lambda s: s is not None and s != _ALL  # noqa: E731
@@ -309,13 +334,15 @@ def build_space(
 
 
 def block_aware_run(kernel, inputs, cfg):
-    """``(kernel, inputs, cfg) -> host tensor`` honouring ``block_shape``.
+    """``(kernel, inputs, cfg) -> host tensor`` honouring ``block_shape`` and
+    ``mem_space``.
 
     Builds the Layout at the config's block_shape and computes the per-core
     block sweep as ``(tiles // block) // grid`` -- so each ``remote_load`` pulls
-    a ``block_shape``-tile shard the kernel computes over. Generalises
-    ``testing.eltwise_block_run`` (which assumes 1x1 blocks); identical when
-    ``block_shape == [1, 1]``."""
+    a ``block_shape``-tile shard the kernel computes over. ``mem_space`` (``"l1"``
+    default, or ``"dram"``) selects where the kernel's I/O lives, via the
+    builder's ``kernel_io_in_dram`` path. Generalises ``testing.eltwise_block_run``
+    (1x1 blocks, L1 I/O); identical when ``block_shape == [1, 1]`` and L1."""
     import d2m_jit as d2m
 
     ref = inputs[0]
@@ -333,7 +360,8 @@ def block_aware_run(kernel, inputs, cfg):
     ty, tx = ref.shape[-2] // 32, ref.shape[-1] // 32
     m_blocks = (ty // bh) // gy
     n_blocks = (tx // bw) // gx
-    kernel(*ins, out, m_blocks, n_blocks, grid=(gy, gx))
+    in_dram = cfg.get("mem_space", "l1") == "dram"
+    kernel(*ins, out, m_blocks, n_blocks, grid=(gy, gx), kernel_io_in_dram=in_dram)
     return out.to_host()
 
 
@@ -536,7 +564,8 @@ def _cfg_dirname(idx: int, cfg: dict) -> str:
     g = "x".join(map(str, cfg["grid_shape"]))
     b = "x".join(map(str, cfg["block_shape"]))
     dt = _DTYPE_SHORT.get(cfg["dtype"], cfg["dtype"])
-    return f"cfg_{idx:03d}_g{g}_b{b}_{dt}"
+    mem = cfg.get("mem_space", "l1")
+    return f"cfg_{idx:03d}_g{g}_b{b}_{dt}_{mem}"
 
 
 def _evaluate(cfg: dict, idx: int, ctx: _EvalContext) -> TuneRecord:
@@ -552,6 +581,17 @@ def _evaluate(cfg: dict, idx: int, ctx: _EvalContext) -> TuneRecord:
     if ctx.save_profiler_logs:
         cfg_dir = ctx.out_root / _cfg_dirname(idx, cfg)
         cfg_dir.mkdir(parents=True, exist_ok=True)
+
+    # tt-metal's device profiler hashes inserted-zone source locations and aborts
+    # the *process* (a C++ terminate Python can't catch) when they collide -- which
+    # the extra DRAM<->L1 movement ops on the DRAM-I/O path trigger
+    # (profiler.cpp "Source location hashes are colliding"). For DRAM configs,
+    # drop the inserted fine-grained traces: the objective (kernel_ns) still comes
+    # from the always-on kernel zones; only the per-op diagnostics (wait_share,
+    # util) go dark. Restored in `finally` so L1 configs keep full diagnostics.
+    fine_grained = cfg.get("mem_space", "l1") != "dram"
+    prev_insert = config.insert_profiler_traces
+    config.insert_profiler_traces = prev_insert and fine_grained
     try:
         cfg_inputs = [
             t.to(torch_dtype(cfg.get("dtype", "float32"))) for t in ctx.canonical
@@ -575,17 +615,20 @@ def _evaluate(cfg: dict, idx: int, ctx: _EvalContext) -> TuneRecord:
                 torch.stack([ctx.ref.flatten(), actual.float().flatten()])
             )[0, 1].item()
             valid = cfg_pcc >= ctx.pcc
+        diagnostics = _diagnostics(rep)
+        diagnostics["fine_grained_traces"] = fine_grained
         return TuneRecord(
             config=cfg,
             valid=valid,
             pcc=cfg_pcc,
             kernel_ns=rep["runtimes"]["device_kernel_time"]["ns"],
-            diagnostics=_diagnostics(rep),
+            diagnostics=diagnostics,
             report_path=str(snapshot) if ctx.save_profiler_logs else None,
         )
     except Exception as e:  # compile/run failure -> prune, keep as signal
         return TuneRecord(config=cfg, valid=False, error=f"{type(e).__name__}: {e}")
     finally:
+        config.insert_profiler_traces = prev_insert
         from d2m_jit._src.builder import _Builder
 
         _Builder.reset()
@@ -661,7 +704,12 @@ def tune(
 
 def config_key(cfg: dict):
     """Hashable identity of a config (for cross-round dedup)."""
-    return (tuple(cfg["grid_shape"]), tuple(cfg["block_shape"]), cfg["dtype"])
+    return (
+        tuple(cfg["grid_shape"]),
+        tuple(cfg["block_shape"]),
+        cfg["dtype"],
+        cfg.get("mem_space", "l1"),
+    )
 
 
 def observations_json(history: Sequence[TuneRecord]) -> list[dict]:
@@ -750,15 +798,17 @@ def search(
 def knob_neighbors(cfg: dict, candidates: Sequence[dict]) -> list[dict]:
     """Coordinate-step neighbors of ``cfg`` (each differs in ONE knob):
 
-      * grid  : same block & dtype, DOUBLE the core count (every aspect),
-      * block : same grid & dtype, block tiles doubled OR halved (every aspect),
-      * dtype : same grid & block, the other dtype.
+      * grid     : same block/dtype/mem, DOUBLE the core count (every aspect),
+      * block    : same grid/dtype/mem, block tiles doubled OR halved,
+      * dtype    : same grid/block/mem, a different dtype,
+      * mem_space: same grid/block/dtype, the other mem space.
 
     Grid is forward-only (more cores trends faster); block is bidirectional
     (the sweet spot for DMA granularity is not monotone). All steps are taken
     from ``candidates``, so only feasible neighbors appear."""
     cores = cfg["grid_shape"][0] * cfg["grid_shape"][1]
     btiles = cfg["block_shape"][0] * cfg["block_shape"][1]
+    mem = cfg.get("mem_space", "l1")
     out = []
     for c in candidates:
         cc = c["grid_shape"][0] * c["grid_shape"][1]
@@ -766,11 +816,13 @@ def knob_neighbors(cfg: dict, candidates: Sequence[dict]) -> list[dict]:
         same_grid = c["grid_shape"] == cfg["grid_shape"]
         same_block = c["block_shape"] == cfg["block_shape"]
         same_dtype = c["dtype"] == cfg["dtype"]
-        if same_block and same_dtype and not same_grid and cc == cores * 2:
+        same_mem = c.get("mem_space", "l1") == mem
+        if same_block and same_dtype and same_mem and not same_grid and cc == cores * 2:
             out.append(c)  # grid step: more parallelism
         elif (
             same_grid
             and same_dtype
+            and same_mem
             and not same_block
             and cb
             in (
@@ -779,8 +831,10 @@ def knob_neighbors(cfg: dict, candidates: Sequence[dict]) -> list[dict]:
             )
         ):
             out.append(c)  # block step: coarser/finer DMA granularity
-        elif same_grid and same_block and not same_dtype:
+        elif same_grid and same_block and same_mem and not same_dtype:
             out.append(c)  # dtype flip
+        elif same_grid and same_block and same_dtype and not same_mem:
+            out.append(c)  # mem_space flip: L1 <-> DRAM I/O
     return out
 
 
@@ -847,10 +901,12 @@ def _agent_prompt(observations, meta, pool, batch) -> str:
         "You are autotuning a d2m-jit compute kernel on a Tenstorrent device. "
         f"Objective: MINIMIZE `{meta['objective']}` (device kernel time, ns).",
         'A config is JSON: {"grid_shape": [gy, gx], "block_shape": [bh, bw], '
-        '"dtype": "float32" | "bfloat16"}. grid_shape = compute cores (more cores '
-        "is usually faster, with diminishing returns); block_shape = tiles per "
-        "shard each core processes per remote_load (larger = fewer, coarser DMA "
-        "transfers); bfloat16 ~halves data movement vs float32. Read each config's "
+        '"dtype": "float32" | "bfloat16", "mem_space": "l1" | "dram"}. grid_shape '
+        "= compute cores (more cores is usually faster, with diminishing returns); "
+        "block_shape = tiles per shard each core processes per remote_load (larger "
+        "= fewer, coarser DMA transfers); bfloat16 ~halves data movement vs "
+        "float32; mem_space = where the kernel's I/O lives (l1 is fastest; dram "
+        "adds DRAM<->L1 movement but frees L1 capacity). Read each config's "
         "`diagnostics` to decide the next move: high wait_share_of_envelope => "
         "stalled, add parallelism or coarsen the block; high mean_sfpu_util/"
         "mean_fpu_util => compute-bound (more cores won't help, try dtype); high "
@@ -1020,7 +1076,8 @@ def _exp_kernel():
 def _label(cfg):
     g = "x".join(map(str, cfg["grid_shape"]))
     b = "x".join(map(str, cfg["block_shape"]))
-    return f"{g}|{b}/{cfg['dtype']}"  # grid|block/dtype
+    mem = cfg.get("mem_space", "l1")
+    return f"{g}|{b}/{cfg['dtype']}@{mem}"  # grid|block/dtype@mem
 
 
 def _seed_config(space: Sequence[dict]) -> dict:
@@ -1055,7 +1112,9 @@ def _print_results(result, mode: str, n_candidates: Optional[int] = None) -> Non
                 f"({pct:.0f}% of the space)"
             )
     else:
-        print(f"{'rank':>4}  {'grid|block/dtype':>22}  {'kernel_ns':>12}  {'pcc':>9}")
+        print(
+            f"{'rank':>4}  {'grid|block/dtype@mem':>22}  {'kernel_ns':>12}  {'pcc':>9}"
+        )
         print("-" * 54)
         for rank, r in enumerate(result.leaderboard()[:12]):
             lat, p = f"{r.kernel_ns:>12.1f}", f"{r.pcc:>9.5f}"
@@ -1074,12 +1133,13 @@ def _print_results(result, mode: str, n_candidates: Optional[int] = None) -> Non
 def main(argv: Optional[Sequence[str]] = None) -> None:
     """CLI for autotuning the bundled ``exp_fused`` kernel.
 
-    grid and block sweep all feasible values by default (omitted == all); dtype
-    is opt-in -- it pins to float32 unless you pass ``--dtype all`` or a list.
-    For any knob: ``all`` sweeps everything, an explicit list sweeps those, a
-    single value pins. So a bare run sweeps grid x block at float32. The resolved
-    space feeds an exhaustive sweep or a guided hill-climb search; use ``--list``
-    to preview the space (and its size) before committing device time."""
+    grid, block, and mem_space sweep all feasible values by default (omitted ==
+    all); only dtype is opt-in -- it pins to float32 unless you pass ``--dtype``
+    (as ``all`` or a list). For any knob: ``all`` sweeps everything, an explicit
+    list sweeps those, a single value pins. So a bare run sweeps grid x block x
+    mem_space at float32. The resolved space feeds an exhaustive sweep or a guided
+    hill-climb search; use ``--list`` to preview the space (and its size) before
+    committing device time."""
     import argparse
 
     p = argparse.ArgumentParser(
@@ -1088,7 +1148,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "examples:\n"
-            "  # bare run = grid x block sweep at float32 (dtype is opt-in):\n"
+            "  # bare run = grid x block x mem_space sweep at float32 (only dtype is opt-in):\n"
             "  python autotune.py --shape 128x128\n\n"
             "  # add the dtype axis (float32 + float16 + bfloat16):\n"
             "  python autotune.py --shape 128x128 --dtype all --mode search\n\n"
@@ -1115,6 +1175,11 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         "--dtype",
         default=None,
         help="dtypes: 'all' or a list like float32,bfloat16 (default: float32 -- opt-in)",
+    )
+    p.add_argument(
+        "--mem-space",
+        default=None,
+        help="kernel I/O placement: 'all' or a list like l1,dram (default: all feasible)",
     )
     p.add_argument(
         "--max-cores", type=int, default=64, help="cap on grid cores (default 64)"
@@ -1157,6 +1222,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             grid=args.grid,
             block=args.block,
             dtype=args.dtype,
+            mem_space=args.mem_space,
             max_cores=args.max_cores,
         )
     except ValueError as e:
