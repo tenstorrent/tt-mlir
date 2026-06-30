@@ -1979,7 +1979,20 @@ createOp(FlatbufferObjectCache &cache, ttnn::ConstantOp op) {
   } else if (auto data =
                  mlir::dyn_cast<mlir::DenseElementsAttr>(op.getValue())) {
     ArrayRef<char> rawData = data.getRawData();
-    inputRawVector = std::vector<uint8_t>(rawData.begin(), rawData.end());
+    if (data.isSplat()) {
+      // For a splat attribute getRawData() returns the bytes of a single
+      // element. Replicate it to the full element count so the serialized
+      // buffer matches the tensor shape the runtime expects; otherwise the
+      // runtime size check (numElements * elementSize == buffer size) fails
+      // with "Invalid data size".
+      inputRawVector.reserve(rawData.size() * data.getNumElements());
+      for (int64_t i = 0; i < data.getNumElements(); ++i) {
+        inputRawVector.insert(inputRawVector.end(), rawData.begin(),
+                              rawData.end());
+      }
+    } else {
+      inputRawVector = std::vector<uint8_t>(rawData.begin(), rawData.end());
+    }
   } else {
     llvm_unreachable("Unknown constant value attribute type");
   }
