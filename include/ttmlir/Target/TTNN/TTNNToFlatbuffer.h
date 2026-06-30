@@ -248,6 +248,11 @@ createOp(::mlir::tt::FlatbufferObjectCache &cache, PagedFillCacheOp op);
 ::flatbuffers::Offset<::tt::target::ttnn::PagedUpdateCacheOp>
 createOp(::mlir::tt::FlatbufferObjectCache &cache, PagedUpdateCacheOp op);
 
+template <typename EmbeddingBackwardOpTy>
+::flatbuffers::Offset<::tt::target::ttnn::EmbeddingBackwardOp>
+createEmbeddingBackwardOp(::mlir::tt::FlatbufferObjectCache &cache,
+                          EmbeddingBackwardOpTy op);
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_TARGET_TTNN_TTNNTOFLATBUFFER_H
