@@ -72,6 +72,28 @@ inline mlir::RankedTensorType tiledL1BF16Type(llvm::ArrayRef<int64_t> shape) {
                                      createTiledL1InterleavedLayout(shape));
 }
 
+inline mlir::tt::ttnn::TTNNLayoutAttr createTiledBF16LayoutFromMemoryConfig(
+    llvm::ArrayRef<int64_t> shape,
+    mlir::tt::ttnn::MemoryConfigAttr memoryConfig) {
+  auto &e = env();
+  auto device = mlir::tt::ttcore::lookupDevice(e.module.get());
+  auto tileType = mlir::tt::ttcore::TileType::get(e.builder.getBF16Type());
+  llvm::SmallVector<int64_t> gridShape = {1, 1, 32, 32};
+  return mlir::tt::ttnn::TTNNLayoutAttr::Builder(&e.context, shape, tileType)
+      .setBufferType(memoryConfig.getBufferType().getValue())
+      .setMemoryLayout(memoryConfig.getTensorMemoryLayout().getValue())
+      .setGridShape(gridShape)
+      .buildWithCanonicalCorePlacement(device);
+}
+
+inline mlir::RankedTensorType
+tiledBF16TypeFromMemoryConfig(llvm::ArrayRef<int64_t> shape,
+                              mlir::tt::ttnn::MemoryConfigAttr memoryConfig) {
+  return mlir::RankedTensorType::get(
+      shape, env().builder.getBF16Type(),
+      createTiledBF16LayoutFromMemoryConfig(shape, memoryConfig));
+}
+
 template <typename OpT>
 inline mlir::tt::ttnn::TTNNLayoutAttr resolveOutputLayout(OpT op) {
   return mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(
