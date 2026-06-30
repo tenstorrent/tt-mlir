@@ -68,12 +68,8 @@ static FailureOr<int32_t> getKernelNocIndex(Operation *op) {
 }
 
 // Early resolution & materialization of the DM kernel's NoC index in the
-// pipeline (before TTKernelToEmitC & D2MToTTMetal).
-//
-// Returns null when the NoC index cannot be resolved (e.g. a function with no
-// d2m.thread attribute). Callers pass the null Value straight through as an
-// absent optional `noc` operand, so TTKernelToEmitC falls back to the kernel's
-// default `noc_index` global variable.
+// pipeline (before TTKernelToEmitC & D2MToTTMetal). Returns null when the NoC
+// index cannot be resolved (e.g. a function with no d2m.thread attribute).
 static Value materializeKernelNocId(OpBuilder &rewriter, Operation *op) {
   FailureOr<int32_t> nocIdx = getKernelNocIndex(op);
   if (failed(nocIdx)) {
@@ -237,6 +233,17 @@ static Value getDeviceInMcastRange(OpBuilder &rewriter, Location loc,
 }
 
 static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
+  // After D2MSplitUnifiedThread, operands may point to the memref extracted
+  // by d2m.wait or d2m.reserve rather than the CB itself. Unwrap to get the
+  // underlying CB.
+  if (auto waitOp = cb.getDefiningOp<d2m::WaitOp>()) {
+    return rewriter.getRemappedValue(waitOp.getCb());
+  }
+
+  if (auto reserveOp = cb.getDefiningOp<d2m::ReserveOp>()) {
+    return rewriter.getRemappedValue(reserveOp.getCb());
+  }
+
   if (auto loadOp = cb.getDefiningOp<memref::LoadOp>()) {
     assert(loadOp.getIndices().size() == 1 &&
            "Expected single index in load op, failing.");
@@ -254,6 +261,11 @@ static Value getCB(ConversionPatternRewriter &rewriter, Value cb) {
   if (auto castOp = cb.getDefiningOp<memref::CastOp>()) {
     return rewriter.getRemappedValue(castOp.getSource());
   }
+
+  if (cb.getDefiningOp<d2m::GetArgOp>()) {
+    return rewriter.getRemappedValue(cb);
+  }
+
   llvm_unreachable("Expected load or subview op");
 }
 
@@ -2072,6 +2084,158 @@ public:
 
 namespace {
 
+static void emitTopkGroupStart(OpBuilder &rewriter, Location loc,
+                               Value cbSrcVals, Value cbSrcIdx, Value cbOutVals,
+                               int64_t tileA, int64_t tileB) {
+  Value dst0 = index(rewriter, loc, 0);
+  Value dst1 = index(rewriter, loc, 1);
+  Value dst2 = index(rewriter, loc, 2);
+  Value dst3 = index(rewriter, loc, 3);
+  Value tA = index(rewriter, loc, tileA);
+  Value tB = index(rewriter, loc, tileB);
+
+  rewriter.create<ttkernel::TileRegsAcquireOp>(loc);
+  rewriter.create<ttkernel::TopkTileInitOp>(loc);
+  rewriter.create<ttkernel::InitSFPUOp>(loc, cbSrcVals, cbOutVals);
+  rewriter.create<ttkernel::CopyTileInitOp>(loc, cbSrcVals);
+  rewriter.create<ttkernel::CopyTileOp>(loc, cbSrcVals, tA, dst0);
+  rewriter.create<ttkernel::CopyTileOp>(loc, cbSrcVals, tB, dst1);
+  rewriter.create<ttkernel::CopyTileInitOp>(loc, cbSrcIdx);
+  rewriter.create<ttkernel::CopyTileOp>(loc, cbSrcIdx, tA, dst2);
+  rewriter.create<ttkernel::CopyTileOp>(loc, cbSrcIdx, tB, dst3);
+}
+
+static void emitTopkGroupEnd(OpBuilder &rewriter, Location loc, Value cbOutVals,
+                             Value cbOutIdx, int64_t tileA, int64_t tileB) {
+  Value dst0 = index(rewriter, loc, 0);
+  Value dst1 = index(rewriter, loc, 1);
+  Value dst2 = index(rewriter, loc, 2);
+  Value dst3 = index(rewriter, loc, 3);
+  Value tA = index(rewriter, loc, tileA);
+  Value tB = index(rewriter, loc, tileB);
+
+  rewriter.create<ttkernel::TileRegsCommitOp>(loc);
+  rewriter.create<ttkernel::TileRegsWaitOp>(loc);
+  rewriter.create<ttkernel::PackReconfigDataFormatOp>(loc, cbOutVals);
+  rewriter.create<ttkernel::PackTileOp>(loc, dst0, cbOutVals, tA,
+                                        rewriter.getBoolAttr(true));
+  rewriter.create<ttkernel::PackTileOp>(loc, dst1, cbOutVals, tB,
+                                        rewriter.getBoolAttr(true));
+  rewriter.create<ttkernel::PackReconfigDataFormatOp>(loc, cbOutIdx);
+  rewriter.create<ttkernel::PackTileOp>(loc, dst2, cbOutIdx, tA,
+                                        rewriter.getBoolAttr(true));
+  rewriter.create<ttkernel::PackTileOp>(loc, dst3, cbOutIdx, tB,
+                                        rewriter.getBoolAttr(true));
+  rewriter.create<ttkernel::TileRegsReleaseOp>(loc);
+}
+
+template <typename OpTy>
+static void emitTopkGroupStartIfNeeded(ConversionPatternRewriter &rewriter,
+                                       Location loc, OpTy op, int64_t tileA,
+                                       int64_t tileB) {
+  if (!op.getIsGroupStart()) {
+    return;
+  }
+  Value cbOutVals = getCB(rewriter, op.getOutValues());
+  Value cbOutIdx = getCB(rewriter, op.getOutIndices());
+  Value cbSrcVals =
+      op.getReadFromOutput() ? cbOutVals : getCB(rewriter, op.getValues());
+  Value cbSrcIdx =
+      op.getReadFromOutput() ? cbOutIdx : getCB(rewriter, op.getIndices());
+
+  // rfo=true: T0 reads output CB tiles that T2 just wrote. Fence so T0 sees
+  // all pack_tile L1 writes before copy_tile executes.
+  if (op.getReadFromOutput()) {
+    rewriter.create<ttkernel::UnpackStallOnPackOp>(loc);
+  }
+
+  emitTopkGroupStart(rewriter, loc, cbSrcVals, cbSrcIdx, cbOutVals, tileA,
+                     tileB);
+}
+
+template <typename OpTy>
+static void emitTopkGroupEndIfNeeded(ConversionPatternRewriter &rewriter,
+                                     Location loc, OpTy op, int64_t tileA,
+                                     int64_t tileB) {
+  if (!op.getIsGroupEnd()) {
+    return;
+  }
+  emitTopkGroupEnd(rewriter, loc, getCB(rewriter, op.getOutValues()),
+                   getCB(rewriter, op.getOutIndices()), tileA, tileB);
+}
+
+class D2MTopkLocalSortRewriter
+    : public OpConversionPattern<d2m::TileTopkLocalSortOp> {
+public:
+  using OpConversionPattern<d2m::TileTopkLocalSortOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::TileTopkLocalSortOp op,
+                  d2m::TileTopkLocalSortOp::Adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op->getLoc();
+    int64_t tileA = op.getTileA(), tileB = op.getTileB();
+    auto i32 = [&](auto v) { return intConstant<int32_t>(rewriter, loc, v); };
+
+    emitTopkGroupStartIfNeeded(rewriter, loc, op, tileA, tileB);
+    rewriter.create<ttkernel::TopkLocalSortOp>(
+        loc, index(rewriter, loc, 0), i32(op.getIdir()), i32(op.getIEndPhase()),
+        i32(op.getIStartPhase()));
+    emitTopkGroupEndIfNeeded(rewriter, loc, op, tileA, tileB);
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class D2MTopkMergeRewriter : public OpConversionPattern<d2m::TileTopkMergeOp> {
+public:
+  using OpConversionPattern<d2m::TileTopkMergeOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::TileTopkMergeOp op, d2m::TileTopkMergeOp::Adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op->getLoc();
+    int64_t tileA = op.getTileA(), tileB = op.getTileB();
+    auto i32 = [&](auto v) { return intConstant<int32_t>(rewriter, loc, v); };
+
+    emitTopkGroupStartIfNeeded(rewriter, loc, op, tileA, tileB);
+    rewriter.create<ttkernel::TopkMergeOp>(loc, index(rewriter, loc, 0),
+                                           i32(op.getMIter()), i32(op.getK()));
+    emitTopkGroupEndIfNeeded(rewriter, loc, op, tileA, tileB);
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+class D2MTopkRebuildRewriter
+    : public OpConversionPattern<d2m::TileTopkRebuildOp> {
+public:
+  using OpConversionPattern<d2m::TileTopkRebuildOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::TileTopkRebuildOp op, d2m::TileTopkRebuildOp::Adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op->getLoc();
+    int64_t tileA = op.getTileA(), tileB = op.getTileB();
+    auto i32 = [&](auto v) { return intConstant<int32_t>(rewriter, loc, v); };
+
+    emitTopkGroupStartIfNeeded(rewriter, loc, op, tileA, tileB);
+    rewriter.create<ttkernel::TopkRebuildOp>(
+        loc, index(rewriter, loc, 0), i32(op.getIdir()), i32(op.getMIter()),
+        i32(op.getK()), i32(op.getLogk()), i32(op.getSkipSecond()));
+    emitTopkGroupEndIfNeeded(rewriter, loc, op, tileA, tileB);
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+} // namespace
+
+namespace {
+
 class D2MDstReinterpretCastRewriter
     : public OpConversionPattern<d2m::DstReinterpretCastOp> {
 public:
@@ -2207,7 +2371,8 @@ static NocEndpoint buildNocEndpoint(OpBuilder &rewriter, Location loc, Value cb,
 }
 
 static Value materializeTranslatedNocAddr(OpBuilder &rewriter, Location loc,
-                                          const NocEndpoint &endpoint) {
+                                          const NocEndpoint &endpoint,
+                                          Value nocId) {
   if (endpoint.memorySpace == ttcore::MemorySpace::DeviceDRAM) {
     return rewriter.create<ttkernel::GetNocAddrFromBankIDOp>(
         loc, endpoint.bankId, endpoint.address);
@@ -2215,7 +2380,7 @@ static Value materializeTranslatedNocAddr(OpBuilder &rewriter, Location loc,
 
   TT_assert(endpoint.memorySpace == ttcore::MemorySpace::DeviceL1);
   return rewriter.create<ttkernel::GetNocAddrOp>(
-      loc, endpoint.coreXY[0], endpoint.coreXY[1], endpoint.address);
+      loc, endpoint.coreXY[0], endpoint.coreXY[1], endpoint.address, nocId);
 }
 
 static SmallVector<Value> decomposeLinearIndex(OpBuilder &rewriter,
@@ -2464,8 +2629,8 @@ public:
       auto dstEndpoint = buildNocEndpoint(rewriter, op.getLoc(),
                                           adaptor.getDst(), op.getDstIndices(),
                                           chipDesc, op.getDstMemorySpace());
-      auto dstNocAddr =
-          materializeTranslatedNocAddr(rewriter, op.getLoc(), dstEndpoint);
+      auto dstNocAddr = materializeTranslatedNocAddr(rewriter, op.getLoc(),
+                                                     dstEndpoint, nocId);
       auto size =
           intConstant<int32_t>(rewriter, op->getLoc(), op.getSizeBytes());
       auto meshId = intConstant<int16_t>(rewriter, op->getLoc(), 0);
@@ -3249,11 +3414,12 @@ public:
     if (op.getStartDevice().size() > 0) {
       assert(mlir::isa<d2m::SemaphoreIncOp>(op) &&
              "only d2m.semaphore_inc to remote device is allowed.");
+      Value nocId = materializeKernelNocId(rewriter, op.getOperation());
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), ttcore::getOpChipDescAttr(op),
           op.getDstCoreIndex());
       auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
-          op.getLoc(), virtX, virtY, semaphoreAddr);
+          op.getLoc(), virtX, virtY, semaphoreAddr, nocId);
       auto meshId = intConstant<int16_t>(rewriter, op->getLoc(), 0);
       auto fcm = getFabricConnectionManager(op);
 
@@ -3291,7 +3457,7 @@ public:
           OpBuilder::InsertionGuard guard(rewriter);
           rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
           rewriter.create<ttkernel::NocSemaphoreIncOp>(op.getLoc(), nocAddr,
-                                                       value);
+                                                       value, nocId);
           rewriter.create<scf::YieldOp>(op.getLoc());
         }
       }
@@ -3309,12 +3475,13 @@ public:
     } else if (op.getMcastShape().empty()) {
       assert(!mlir::isa<d2m::SemaphoreSetOp>(op) &&
              "d2m.semaphore_set to single remote core is illegal.");
+      Value nocId = materializeKernelNocId(rewriter, op.getOperation());
       auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
           rewriter, op.getLoc(), chipDesc, op.getDstCoreIndex());
       auto nocAddr = rewriter.create<ttkernel::GetNocAddrOp>(
-          op.getLoc(), virtX, virtY, semaphoreAddr);
+          op.getLoc(), virtX, virtY, semaphoreAddr, nocId);
       rewriter.replaceOpWithNewOp<ttkernel::NocSemaphoreIncOp>(op, nocAddr,
-                                                               value);
+                                                               value, nocId);
     } else {
       assert(!mlir::isa<d2m::SemaphoreIncOp>(op) &&
              "d2m.semaphore_inc multicast is illegal.");
@@ -3341,13 +3508,13 @@ public:
         return rewriter.notifyMatchFailure(
             op, "unable to resolve datamovement kernel NoC index");
       }
-      Value nocId = intConstant<int8_t>(rewriter, op->getLoc(), *nocIdx);
+      Value mcastNocId = intConstant<int8_t>(rewriter, op->getLoc(), *nocIdx);
 
       flipMcastCoordsIfNoc1(*nocIdx, virtX, virtY, virtMcastEndX,
                             virtMcastEndY);
       auto mcastAddr = rewriter.create<ttkernel::GetNocMulticastAddrOp>(
           op.getLoc(), virtX, virtY, virtMcastEndX, virtMcastEndY,
-          semaphoreAddr, nocId);
+          semaphoreAddr, mcastNocId);
 
       auto semaphorePtr = rewriter.create<ttkernel::CastToL1PtrOp>(
           op.getLoc(), ttkernel::L1AddrPtrType::get(rewriter.getContext(), 32),
@@ -3405,8 +3572,9 @@ public:
     auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
         rewriter, op.getLoc(), ttcore::getOpChipDescAttr(op),
         op.getCoreIndices());
+    Value nocId = materializeKernelNocId(rewriter, op.getOperation());
     auto globalSemAddr = rewriter.create<ttkernel::GetNocAddrOp>(
-        op.getLoc(), virtX, virtY, adaptor.getSyncSemaphore());
+        op.getLoc(), virtX, virtY, adaptor.getSyncSemaphore(), nocId);
     auto globalSemPtr = rewriter.create<ttkernel::CastToL1PtrOp>(
         op.getLoc(), ttkernel::L1AddrPtrType::get(rewriter.getContext(), 32),
         adaptor.getSyncSemaphore());
@@ -3572,6 +3740,9 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MWriteColMaskTileRewriter,
                ttkernel::D2MExperimentalFillArangeTileRewriter,
                ttkernel::D2MTileTransposeRewriter,
+               ttkernel::D2MTopkLocalSortRewriter,
+               ttkernel::D2MTopkMergeRewriter,
+               ttkernel::D2MTopkRebuildRewriter,
                ttkernel::D2MDstReinterpretCastRewriter,
                ttkernel::AcquireDstRewriter,
                ttkernel::UnpackStallOnPackRewriter,

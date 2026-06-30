@@ -321,10 +321,12 @@ def test_gather_si32_negative_index_workaround(
     [torch.uint32, torch.int32],
     ids=["k_ui32", "k_si32"],
 )
+@pytest.mark.parametrize("target", ["ttnn", "emitc", "emitpy"])
 def test_sampling(
     candidates: int,
     vocab_size: int,
     k_dtype: torch.dtype,
+    target: str,
     request,
     device,
 ):
@@ -369,6 +371,7 @@ def test_sampling(
     compile_and_execute_ttnn(
         module,
         **kwargs,
+        target=target,
         device=device,
     )
 

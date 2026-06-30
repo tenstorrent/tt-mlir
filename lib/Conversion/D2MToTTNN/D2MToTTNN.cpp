@@ -484,16 +484,13 @@ materializeIntermediateTensor(memref::AllocOp op, IRRewriter &rewriter,
       emptyTensorType = castResultType;
     }
 
-    auto emptyLayoutAttr =
-        mlir::cast<ttnn::TTNNLayoutAttr>(emptyTensorType.getEncoding());
     auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
 
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPointAfter(op);
     auto emptyOp = rewriter.create<ttnn::EmptyOp>(
         loc, emptyTensorType, device,
-        ttnn::ShapeAttr::get(ctx, emptyTensorType.getShape()),
-        ttnn::LayoutAttr::get(ctx, emptyLayoutAttr.getLayout()));
+        ttnn::ShapeAttr::get(ctx, emptyTensorType.getShape()));
 
     valueMapping[op.getResult()] = emptyOp.getResult();
     for (auto castOp : castsToMap) {
@@ -532,8 +529,8 @@ static LogicalResult convertD2MEmpty(d2m::EmptyOp op, IRRewriter &rewriter,
 
   OpBuilder::InsertionGuard guard(rewriter);
   rewriter.setInsertionPointAfter(op);
-  auto emptyOp = rewriter.create<ttnn::EmptyOp>(op.getLoc(), tensorType, device,
-                                                shape, *layout);
+  auto emptyOp =
+      rewriter.create<ttnn::EmptyOp>(op.getLoc(), tensorType, device, shape);
   valueMapping[op.getResult()] = emptyOp.getResult();
   return success();
 }

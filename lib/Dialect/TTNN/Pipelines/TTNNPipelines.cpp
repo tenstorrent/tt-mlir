@@ -47,7 +47,8 @@ void createTTNNPipelineTTIRPasses(
   pm.addPass(mlir::createCanonicalizerPass());
   ttir::TTIRFusingOptions fusingOptions{
       options.enableFusingConv2dWithMultiplyPattern,
-      options.enablePermuteMatmulFusion};
+      options.enablePermuteMatmulFusion,
+      options.enablePermuteSliceAfterMatmulFusion};
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
@@ -394,6 +395,8 @@ void createTTIRToTTNNCommonPipeline(
     // Run TTNN lowering passes on Device module.
     createTTNNPipelineLoweringPasses(devicePm, options.removeDeadValuesEnabled);
     createTTNNResolveCompositesPass(devicePm, options);
+    // Add pass to clean up the leftover unreferenced symbols.
+    devicePm.addPass(mlir::createSymbolDCEPass());
     createTTNNFusingPass(devicePm, options);
 
     // Create TTNN decomposition pass, optionally with op-model validation.

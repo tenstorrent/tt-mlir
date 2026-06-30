@@ -46,28 +46,22 @@ public:
       selectedTraits.push_back(s);
     }
 
-    ModuleOp module = getOperation();
+    func::FuncOp func = getOperation();
 
     // Wrap each kernel function body with a DeviceZoneScopedN labeled by the
     // function's symbol name (e.g., "compute_kernel1", "datamovement_kernel0").
-    module.walk([&](mlir::func::FuncOp func) {
-      if (!func->hasAttr("ttkernel.thread")) {
-        return;
-      }
-      if (func.empty()) {
-        return;
-      }
+    if (func->hasAttr("ttkernel.thread") && !func.empty()) {
       Block &entry = func.getBody().front();
       OpBuilder builder(&entry, entry.begin());
       builder.create<emitc::VerbatimOp>(
           func.getLoc(),
           ("DeviceZoneScopedN(\"kernel_outer_" + func.getName() + "\");")
               .str());
-    });
+    }
 
     // Wrap each op with a selected trait in a "{ DeviceZoneScopedN(name); }"
     // scope.
-    module.walk([&](Operation *op) {
+    func.walk([&](Operation *op) {
       if (op->getDialect() !=
           getContext().getLoadedDialect<ttkernel::TTKernelDialect>()) {
         return;

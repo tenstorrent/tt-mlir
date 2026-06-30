@@ -583,8 +583,6 @@ private:
     // Get the shape of the tensor, tensor layout, and data type.
     //
     ShapeAttr shapeAttr = ttnn::ShapeAttr::get(ctx, tensorType.getShape());
-    ttnn::LayoutAttr tensorLayoutAttr =
-        ttnn::LayoutAttr::get(ctx, layoutAttr.getLayout());
 
     mlir::Value device;
     if (layoutAttr.isDeviceBufferType()) {
@@ -593,8 +591,8 @@ private:
     }
     // Create a new tensor of ones.
     //
-    ttnn::OnesOp onesOp = rewriter.create<ttnn::OnesOp>(
-        loc, tensorType, device, shapeAttr, tensorLayoutAttr);
+    ttnn::OnesOp onesOp =
+        rewriter.create<ttnn::OnesOp>(loc, tensorType, device, shapeAttr);
 
     return onesOp;
   }
@@ -1262,8 +1260,7 @@ private:
       // identity conversion the folder collapses the op to its input.
       //
       auto toLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
-          getElemOp.getLoc(), hostStagedTensorType, oldTupleElemResult,
-          LayoutAttr::get(ctx, targetLayout.getLayout()));
+          getElemOp.getLoc(), hostStagedTensorType, oldTupleElemResult);
 
       // Host-to-device transfer. The target memory config is conveyed via the
       // result tensor type's `TTNNLayoutAttr` encoding.

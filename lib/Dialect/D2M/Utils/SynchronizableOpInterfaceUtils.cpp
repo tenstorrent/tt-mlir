@@ -72,7 +72,7 @@ bool isPurelyDerivedOp(Operation *op,
 // relying on SynchronizableOpInterface, such as in SplitUnifiedThread pass to
 // identify CBs and insert correct CB ops on producer/consumer side).
 //
-// PRECONDITION: No op in [start, end) with a side effect (i.e. not pure) may
+// PRECONDITION: No op in [start, end) that is not purely derived may
 // produce SSA results that are used outside of [start, end).
 Operation *wrapInSynchronizedRegion(RewriterBase &rewriter,
                                     Block::iterator start, Block::iterator end,

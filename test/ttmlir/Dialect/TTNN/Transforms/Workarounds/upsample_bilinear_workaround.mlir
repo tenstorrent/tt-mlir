@@ -12,12 +12,10 @@ module {
     // CHECK: %[[PADDED:.*]] = "ttnn.pad"(%arg0)
     // CHECK-SAME: padding = array<i32: 0, 0, 0, 0, 0, 0, 0, 2>
     // CHECK: %[[TO_ROWMAJOR:.*]] = "ttnn.to_layout"(%[[PADDED]])
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: -> tensor<{{.*}}xbf16,
     // CHECK: %[[UPSAMPLE:.*]] = "ttnn.upsample"(%[[TO_ROWMAJOR]])
     // CHECK-SAME: mode = "bilinear"
     // CHECK: %[[TO_TILE:.*]] = "ttnn.to_layout"(%[[UPSAMPLE]])
-    // CHECK-SAME: layout = #ttnn.layout<tile>
     // CHECK-SAME: -> tensor<{{.*}}xf32,
     // CHECK: "ttnn.slice_static"(%[[TO_TILE]])
     // CHECK-SAME: begins = [0 : i32, 0 : i32, 0 : i32, 0 : i32]

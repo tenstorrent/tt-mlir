@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttnn-decompose-layouts -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device="system-desc-path=%system_desc_path%" --ttnn-decompose-layouts --mlir-print-local-scope -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Tests for device-to-device layout transformations in TTNNDecomposeLayouts.
@@ -27,14 +27,13 @@ module attributes {} {
     func.func @device_l1_rm_ui16_to_dram_tile_ui16_inserts_typecast_workaround(%arg0: tensor<64x128xui16, #ttnn_layout_l1_rm_ui16>) -> tensor<64x128xui16, #ttnn_layout_dram_tile_ui16> {
         // CHECK-LABEL: func.func @device_l1_rm_ui16_to_dram_tile_ui16_inserts_typecast_workaround
         // CHECK: %[[TO_LAYOUT:.*]] = "ttnn.to_layout"(%arg0)
-        // CHECK-SAME: layout = #ttnn.layout<tile>
         // CHECK-NEXT: %[[TYPECAST_U32:.*]] = "ttnn.typecast"(%[[TO_LAYOUT]])
         // CHECK-SAME: -> tensor<{{.*}}ui32
         // CHECK-NEXT: %[[TO_MEM_CONFIG:.*]] = "ttnn.to_memory_config"(%[[TYPECAST_U32]])
         // CHECK-NEXT: %[[TYPECAST_U16:.*]] = "ttnn.typecast"(%[[TO_MEM_CONFIG]])
         // CHECK-SAME: -> tensor<{{.*}}ui16
         // CHECK-NEXT: return %[[TYPECAST_U16]]
-        %0 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}> : (tensor<64x128xui16, #ttnn_layout_l1_rm_ui16>) -> tensor<64x128xui16, #ttnn_layout_dram_tile_ui16>
+        %0 = "ttnn.to_layout"(%arg0)  : (tensor<64x128xui16, #ttnn_layout_l1_rm_ui16>) -> tensor<64x128xui16, #ttnn_layout_dram_tile_ui16>
         return %0 : tensor<64x128xui16, #ttnn_layout_dram_tile_ui16>
     }
 
@@ -47,11 +46,11 @@ module attributes {} {
         // CHECK: %[[UNSHARD:.*]] = "ttnn.to_memory_config"(%arg0)
         // CHECK-NEXT: %[[PAD:.*]] = "ttnn.pad"(%[[UNSHARD]])
         // CHECK-NEXT: %[[TILIZE:.*]] = "ttnn.to_layout"(%[[PAD]])
-        // CHECK-SAME: layout = #ttnn.layout<tile>
+        // CHECK-SAME: !ttcore.tile<32x32,
         // CHECK-NEXT: %[[SLICE:.*]] = "ttnn.slice_static"(%[[TILIZE]])
         // CHECK-NEXT: %[[RESHARD:.*]] = "ttnn.to_memory_config"(%[[SLICE]])
         // CHECK-NEXT: return %[[RESHARD]]
-        %0 = "ttnn.to_layout"(%arg0) <{layout = #ttnn.layout<tile>}> : (tensor<32x4xbf16, #ttnn_layout_l1_hs_rm_bf16_nontile>) -> tensor<32x4xbf16, #ttnn_layout_l1_hs_tile_bf16_nontile>
+        %0 = "ttnn.to_layout"(%arg0)  : (tensor<32x4xbf16, #ttnn_layout_l1_hs_rm_bf16_nontile>) -> tensor<32x4xbf16, #ttnn_layout_l1_hs_tile_bf16_nontile>
         return %0 : tensor<32x4xbf16, #ttnn_layout_l1_hs_tile_bf16_nontile>
     }
 }

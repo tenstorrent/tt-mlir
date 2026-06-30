@@ -38,9 +38,10 @@ module attributes {} {
     // Get CB write pointers
     %cb0 = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<24, !ttcore.tile<32x32, bf16>>
     %write_ptr = ttkernel.get_write_ptr(%cb0) : (!ttkernel.cb<24, !ttcore.tile<32x32, bf16>>) -> i32
+    %noc_idx = arith.constant 0 : i8
 
     // Get noc address
-    %noc_addr = ttkernel.get_noc_addr(%translated_x, %translated_y, %write_ptr) : (index, index, i32) -> !ttkernel.noc_addr
+    %noc_addr = ttkernel.get_noc_addr(%translated_x, %translated_y, %write_ptr, %noc_idx) : (index, index, i32, i8) -> !ttkernel.noc_addr
 
     // Get my device id
     %my_device_id = "ttkernel.experimental.get_my_device_id"() : () -> i16

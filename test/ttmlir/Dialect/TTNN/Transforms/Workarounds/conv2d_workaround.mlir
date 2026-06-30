@@ -7,15 +7,12 @@ module attributes {} {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.reshape"(%arg0) <{shape = [1 : i32, 1 : i32, 1024 : i32, 64 : i32]}> : (tensor<1x32x32x64xbf16>) -> tensor<1x1x1024x64xbf16>
     // CHECK: %[[CONV2D_WEIGHTS:.*]] = "ttnn.to_layout"
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: -> tensor<{{.*}}xbf16,
     // CHECK-SAME: system_memory
     // CHECK: %[[CONV2D_BIAS:.*]] = "ttnn.to_layout"
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: -> tensor<{{.*}}xbf16,
     // CHECK-SAME: system_memory
     // CHECK: %[[CONV2D_INPUT:.*]] = "ttnn.to_layout"
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: -> tensor<{{.*}}xbf16,
     %2 = "ttnn.conv2d"(%1, %arg1, %arg2, %0)
           <{
@@ -40,15 +37,12 @@ module attributes {} {
     // CHECK: %[[DEVICE_OP:.*]] = "ttnn.get_device"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     // CHECK: %[[CONV2D_WEIGHTS:.*]] = "ttnn.to_layout"
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: -> tensor<{{.*}}xbf16,
     // CHECK-SAME: system_memory
     // CHECK: %[[CONV2D_BIAS:.*]] = "ttnn.to_layout"
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: -> tensor<{{.*}}xbf16,
     // CHECK-SAME: system_memory
     // CHECK: %[[CONV2D_INPUT:.*]] = "ttnn.to_layout"
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: -> tensor<{{.*}}xbf16,
     %1 = "ttnn.conv_transpose2d"(%arg0, %arg1, %arg2, %0)
           <{
@@ -76,11 +70,9 @@ module attributes {} {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.reshape"(%arg0) <{shape = [1 : i32, 1 : i32, 1024 : i32, 64 : i32]}> : (tensor<1x32x32x64xbf16>) -> tensor<1x1x1024x64xbf16>
     // CHECK: %[[CONV2D_WEIGHTS:.*]] = "ttnn.to_layout"
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: -> tensor<{{.*}}xbf16,
     // CHECK-SAME: system_memory
     // CHECK: %[[CONV2D_INPUT:.*]] = "ttnn.to_layout"
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: -> tensor<{{.*}}xbf16,
     %2 = "ttnn.conv2d"(%1, %arg1, %0)
           <{
@@ -106,11 +98,9 @@ module attributes {} {
     // CHECK: %[[DEVICE_OP:.*]] = "ttnn.get_device"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     // CHECK: %[[CONV2D_WEIGHTS:.*]] = "ttnn.to_layout"
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: -> tensor<{{.*}}xbf16,
     // CHECK-SAME: system_memory
     // CHECK: %[[CONV2D_INPUT:.*]] = "ttnn.to_layout"
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: -> tensor<{{.*}}xbf16,
     %1 = "ttnn.conv_transpose2d"(%arg0, %arg1, %0)
           <{
