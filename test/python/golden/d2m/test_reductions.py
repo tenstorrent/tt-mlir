@@ -260,7 +260,7 @@ def test_reduce_3d_inner(
     device,
 ):
     if len(dim_arg) >= 2 and not keep_dim:
-        pytest.skip(
+        pytest.xfail(
             "keep_dim=False not supported for multi-dim reductions on inner 2 dims because the reshape after the reduction is unsupported due to noc issue: https://github.com/tenstorrent/tt-mlir/issues/6377"
         )
 
@@ -291,7 +291,8 @@ _3D_OUTER_COMBOS = [
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.xfail(
-    reason="Out of place reduction not supported with blocking. See #8290"
+    reason="Out of place reduction not supported with blocking. See #8290",
+    strict=True,
 )
 def test_reduce_outer_3d(
     b: int,
@@ -353,7 +354,7 @@ def test_reduce_4d_inner(
     device,
 ):
     if len(dim_arg) >= 2 and not keep_dim:
-        pytest.skip(
+        pytest.xfail(
             "keep_dim=False not supported for multi-dim reductions on inner 2 dims because the reshape after the reduction is unsupported due to noc issue: https://github.com/tenstorrent/tt-mlir/issues/6377"
         )
 
@@ -384,7 +385,8 @@ _4D_OUTER_COMBOS = [
     _cycled_reduction_params(_4D_OUTER_COMBOS, keep_dims=[True]),
 )
 @pytest.mark.xfail(
-    reason="Out of place reduction not supported with blocking. See #8290"
+    reason="Out of place reduction not supported with blocking. See #8290",
+    strict=True,
 )
 @pytest.mark.parametrize("target", ["ttmetal"])
 def test_reduce_outer_4d(
@@ -415,7 +417,7 @@ def test_reduce_outer_4d(
     # non-square 10x13 grid. Re-enable once grid selection handles non-square
     # grids without inflating per-core L1.
     if reduce_dim == 1 and a == 3 and b == 8 and get_board_id(system_desc) == "p150":
-        pytest.skip("L1 OOM on non-square grid (see #8079)")
+        pytest.xfail("L1 OOM on non-square grid (see #8079)")
 
     tile_size = 32
     shape = (a, b, m * tile_size, n * tile_size)
@@ -553,7 +555,8 @@ def test_reduce_i32_3d_inner(
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("dtype", [torch.int32 | SkipIf(["n150", "sim"])], ids=["i32"])
 @pytest.mark.xfail(
-    reason="Out of place reduction not supported with blocking. See #8290"
+    reason="Out of place reduction not supported with blocking. See #8290",
+    strict=True,
 )
 def test_reduce_i32_outer_3d(
     b: int,

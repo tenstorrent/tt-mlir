@@ -210,8 +210,9 @@ def module_compare_lt(builder: StableHLOBuilder):
         module_mul,
         module_pow,
         module_subtract,
-        module_remainder | Marks(pytest.mark.skip_config(["ttmetal"])),
-        module_atan2 | Marks(pytest.mark.skip_config(["ttmetal"])),
+        module_remainder
+        | Marks(pytest.mark.xfail(reason="Not implemented", strict=True)),
+        module_atan2,
     ],
 )
 def test_binary_ops(test_fn: Callable, target: str, request, device):
@@ -227,12 +228,18 @@ def test_binary_ops(test_fn: Callable, target: str, request, device):
 @pytest.mark.parametrize(
     "test_fn",
     [
-        module_compare_eq | Marks(pytest.mark.skip_config(["ttmetal"])),
-        module_compare_ne | Marks(pytest.mark.skip_config(["ttmetal"])),
-        module_compare_ge | Marks(pytest.mark.skip_config(["ttmetal"])),
-        module_compare_gt | Marks(pytest.mark.skip_config(["ttmetal"])),
-        module_compare_le | Marks(pytest.mark.skip_config(["ttmetal"])),
-        module_compare_lt | Marks(pytest.mark.skip_config(["ttmetal"])),
+        module_compare_eq
+        | Marks(pytest.mark.xfail(reason="Not implemented", strict=True)),
+        module_compare_ne
+        | Marks(pytest.mark.xfail(reason="Not implemented", strict=True)),
+        module_compare_ge
+        | Marks(pytest.mark.xfail(reason="Not implemented", strict=True)),
+        module_compare_gt
+        | Marks(pytest.mark.xfail(reason="Not implemented", strict=True)),
+        module_compare_le
+        | Marks(pytest.mark.xfail(reason="Not implemented", strict=True)),
+        module_compare_lt
+        | Marks(pytest.mark.xfail(reason="Not implemented", strict=True)),
     ],
 )
 def test_compare_ops(test_fn: Callable, target: str, request, device):
@@ -292,9 +299,9 @@ def test_transpose(
     if len(shape) != len(permutation):
         pytest.skip(f"Permutation {permutation} doesn't match shape rank {len(shape)}")
 
-    # Skip ttmetal for dimensions > 2
+    # Xfail ttmetal for dimensions > 2.
     if target == "ttmetal" and len(shape) > 2:
-        pytest.skip(
+        pytest.xfail(
             f"ttmetal does not support transpose for dimensions > 2, got shape with {len(shape)} dimensions"
         )
 
@@ -323,8 +330,9 @@ def test_transpose(
     [
         pytest.param(
             "ttmetal",
-            marks=pytest.mark.skip(
-                reason="ttir.pad lowering not supported on ttmetal, failed to legalize"
+            marks=pytest.mark.xfail(
+                reason="ttir.pad lowering not supported on ttmetal, failed to legalize",
+                strict=True,
             ),
         )
     ],
@@ -392,38 +400,35 @@ def test_slice(
     )
 
 
-# ---------------------------------------------------------------------------
-# test_reshape ttmetal mirror — original used a dynamically-built
-# `_RESHAPE_PARAMS` list where every ttmetal entry was marked
-# `pytest.mark.skip(reason="reshape lowering not yet supported in TTMetal
-# backend")`. Preserve that here.
-# ---------------------------------------------------------------------------
-_RESHAPE_CASES_TTMETAL = [
-    ([(2, 3), (3, 2)], "swap"),
-    ([(2, 3), (6,)], "flatten"),
-    ([(1, 784), (1, 28, 28)], "unflatten"),
-    ([(4, 8, 16), (4, 128)], "3d_to_2d"),
-    ([(64, 512), (64, 1, 512)], "expand_dims"),
-    ([(128, 128), (64, 256)], "rearrange_2d"),
-    ([(10,), (10,)], "identity"),
-    ([(0, 6), (0, 2, 3)], "zero_dim"),
-]
-
-_RESHAPE_PARAMS_TTMETAL = [
-    pytest.param(
-        shapes,
-        "ttmetal",
-        id=f"{case_id}-ttmetal",
-        marks=pytest.mark.skip(
-            reason="reshape lowering not yet supported in TTMetal backend"
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        [(2, 3), (3, 2)] | Marks(pytest.mark.xfail(reason="Bad PCC", strict=True)),
+        [(2, 3), (6,)] | Marks(pytest.mark.xfail(reason="Bad PCC", strict=True)),
+        pytest.param(
+            [(1, 784), (1, 28, 28)],
+            marks=[pytest.mark.xfail_config(["n150"], reason="Bad PCC", strict=True)],
         ),
-    )
-    for shapes, case_id in _RESHAPE_CASES_TTMETAL
-]
-
-
-@pytest.mark.parametrize("shapes, target", _RESHAPE_PARAMS_TTMETAL)
+        [(4, 8, 16), (4, 128)],
+        [(64, 512), (64, 1, 512)],
+        [(128, 128), (64, 256)],
+        [(10,), (10,)],
+        [(0, 6), (0, 2, 3)]
+        | Marks(pytest.mark.xfail(reason="Compilation failure", strict=True)),
+    ],
+    ids=[
+        "swap",
+        "flatten",
+        "unflatten",
+        "3d_to_2d",
+        "expand_dims",
+        "rearrange_2d",
+        "identity",
+        "zero_dim",
+    ],
+)
 @pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_reshape(shapes: tuple, target: str, dtype: torch.dtype, request, device):
     input_shape, output_shape = shapes
 
