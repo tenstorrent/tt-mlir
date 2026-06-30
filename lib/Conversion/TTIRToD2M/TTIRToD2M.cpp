@@ -95,56 +95,6 @@ protected:
            "TTIR reduction lowering expects keep_dim=true");
   }
 
-  // Apply permutation mapping to affine map, physical shape, logical shape, and
-  // dimension alignments to get permuted versions.
-  struct PermutationResult {
-    AffineMap transposeMap;
-    SmallVector<int64_t> physicalShape;
-    SmallVector<int64_t> logicalShape;
-    SmallVector<int64_t> dimAlignments;
-  };
-
-  static PermutationResult
-  computePermutation(mlir::ConversionPatternRewriter &rewriter,
-                     ArrayRef<int64_t> permutation,
-                     ArrayRef<int64_t> inputPhysicalShape, unsigned deviceRank,
-                     ArrayRef<int64_t> inputLogicalShape,
-                     ArrayRef<int64_t> inputDimAlignments) {
-
-    unsigned logicalRank = deviceRank / 2;
-    assert(logicalRank == permutation.size());
-    assert(inputLogicalShape.size() == permutation.size());
-    assert(inputDimAlignments.size() == permutation.size());
-
-    SmallVector<AffineExpr> results(deviceRank);
-    SmallVector<int64_t> resultPhysicalShape(deviceRank);
-    SmallVector<int64_t> resultLogicalShape(logicalRank);
-    SmallVector<int64_t> resultDimAlignments(logicalRank);
-
-    for (auto [dstIdx, srcIdx] : llvm::enumerate(permutation)) {
-      // Permute grid mapping.
-      results[dstIdx] = rewriter.getAffineDimExpr(srcIdx);
-      // Permute shard mapping.
-      results[logicalRank + dstIdx] =
-          rewriter.getAffineDimExpr(logicalRank + srcIdx);
-
-      // Permute grid shape.
-      resultPhysicalShape[dstIdx] = inputPhysicalShape[srcIdx];
-      // Permute shard shape.
-      resultPhysicalShape[dstIdx + logicalRank] =
-          inputPhysicalShape[srcIdx + logicalRank];
-
-      // Permute logical shape and dimension alignments.
-      resultLogicalShape[dstIdx] = inputLogicalShape[srcIdx];
-      resultDimAlignments[dstIdx] = inputDimAlignments[srcIdx];
-    }
-
-    AffineMap transposeMap =
-        AffineMap::get(deviceRank, 0, results, rewriter.getContext());
-    return {transposeMap, resultPhysicalShape, resultLogicalShape,
-            resultDimAlignments};
-  }
-
   /// Normalize a possibly negative `dim_arg` entry into `[0, rank)`. `rank`
   /// must be non-zero (callers assert physical iterator rank >= 2 before
   /// lowering).
@@ -2925,6 +2875,55 @@ public:
   }
 
 private:
+  // Apply permutation mapping to affine map, physical shape, logical shape, and
+  // dimension alignments to get permuted versions.
+  struct PermutationResult {
+    AffineMap transposeMap;
+    SmallVector<int64_t> physicalShape;
+    SmallVector<int64_t> logicalShape;
+    SmallVector<int64_t> dimAlignments;
+  };
+
+  static PermutationResult
+  computePermutation(mlir::ConversionPatternRewriter &rewriter,
+                     ArrayRef<int64_t> permutation,
+                     ArrayRef<int64_t> inputPhysicalShape, unsigned deviceRank,
+                     ArrayRef<int64_t> inputLogicalShape,
+                     ArrayRef<int64_t> inputDimAlignments) {
+
+    unsigned logicalRank = deviceRank / 2;
+    assert(logicalRank == permutation.size());
+    assert(inputLogicalShape.size() == permutation.size());
+    assert(inputDimAlignments.size() == permutation.size());
+
+    SmallVector<AffineExpr> results(deviceRank);
+    SmallVector<int64_t> resultPhysicalShape(deviceRank);
+    SmallVector<int64_t> resultLogicalShape(logicalRank);
+    SmallVector<int64_t> resultDimAlignments(logicalRank);
+
+    for (auto [dstIdx, srcIdx] : llvm::enumerate(permutation)) {
+      // Permute grid mapping.
+      results[dstIdx] = rewriter.getAffineDimExpr(srcIdx);
+      // Permute shard mapping.
+      results[logicalRank + dstIdx] =
+          rewriter.getAffineDimExpr(logicalRank + srcIdx);
+
+      // Permute grid shape.
+      resultPhysicalShape[dstIdx] = inputPhysicalShape[srcIdx];
+      // Permute shard shape.
+      resultPhysicalShape[dstIdx + logicalRank] =
+          inputPhysicalShape[srcIdx + logicalRank];
+
+      // Permute logical shape and dimension alignments.
+      resultLogicalShape[dstIdx] = inputLogicalShape[srcIdx];
+      resultDimAlignments[dstIdx] = inputDimAlignments[srcIdx];
+    }
+
+    AffineMap transposeMap =
+        AffineMap::get(deviceRank, 0, results, rewriter.getContext());
+    return {transposeMap, resultPhysicalShape, resultLogicalShape,
+            resultDimAlignments};
+  }
 };
 } // namespace
 
