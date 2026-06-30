@@ -9,12 +9,14 @@ Sweeps a config space over a ``@d2m.kernel`` driven directly (the
 traces, and ranks by ``device_kernel_time.ns`` (parsed from the device profiler
 CSV via ``tools/perf-analyzer/perf-analyzer.py::build_report``).
 
-Each config is correctness-gated by PCC. The gate is cheap: the reference is
-computed once (the inputs are fixed across the sweep), and the device output is
-already returned by the same profiled run -- so gating is one ``corrcoef`` per
-config. A config that fails to compile/run, or whose PCC is below threshold,
-stays in the results with ``valid=False`` (useful signal) but is excluded from
-the leaderboard and from ``best``.
+A config that fails to compile/run stays in the results with ``valid=False``
+(useful signal) but is excluded from the leaderboard and from ``best``.
+
+An optional PCC correctness gate (``--check-pcc`` / ``check_pcc=True``, OFF by
+default) additionally drops any config whose output deviates from a golden. It's
+cheap when on -- the reference is computed once and the device output is already
+returned by the same profiled run, so gating is one ``corrcoef`` per config --
+but off by default for human-driven tuning where the kernel is trusted.
 
 Capture mechanics (validated): the in-process device profiler writes
 ``$TT_METAL_HOME/generated/profiler/.logs/profile_log_device.csv`` after each
@@ -30,9 +32,9 @@ and a perf-trace runtime build (TT_RUNTIME_ENABLE_PERF_TRACE=ON). ``tune()`` set
 the two env vars via ``setdefault`` and flips the matching ``config`` flags.
 
 Knobs: ``grid_shape`` (cores), ``block_shape`` (tiles per shard a core processes
-per remote_load), ``dtype``, and ``mem_space`` (``l1``/``dram`` -- where kernel
-I/O lives, via the builder's ``kernel_io_in_dram`` path). The config is a plain
-dict, so further axes are additive. See ``build_space`` to enumerate.
+per remote_load), ``dtype``, and ``mem_space`` (``l1``/``dram`` -- where the
+kernel's I/O tensors live, set on the Layout). The config is a plain dict, so
+further axes are additive. See ``build_space`` to enumerate.
 
 Two entry points share the same per-config evaluation:
   * ``tune(space)``   -- evaluate every config, rank + Pareto over the results.
@@ -239,21 +241,6 @@ def block_candidates(shape, spec) -> list[list[int]]:
     return _parse_pairs(spec)
 
 
-def dtype_candidates(spec) -> list[str]:
-    """Dtype pool: None (omitted) pins to ``"float32"`` -- dtype is opt-in (grid
-    and block sweep by default, dtype does not); ``"all"`` is all supported;
-    else an explicit ``"float32,bfloat16"`` list (validated)."""
-    if spec is None:
-        return ["float32"]
-    if spec == _ALL:
-        return list(_DTYPES)
-    out = [d.strip() for d in spec.split(",") if d.strip()]
-    bad = [d for d in out if d not in _DTYPES]
-    if bad:
-        raise ValueError(f"unknown dtype(s) {bad}; choose from {list(_DTYPES)}")
-    return out
-
-
 _MEM_SPACES = ("l1", "dram")
 
 
@@ -284,31 +271,38 @@ def _feasible(shape, cfg, max_cores) -> bool:
 
 
 def build_space(
-    shape, *, grid=None, block=None, dtype=None, mem_space=None, max_cores: int = 64
+    shape,
+    *,
+    grid=None,
+    block=None,
+    dtype="float32",
+    mem_space=None,
+    max_cores: int = 64,
 ) -> tuple:
-    """Cartesian product of the per-knob candidate pools, filtered for
-    feasibility. Returns ``(configs, warnings)`` -- ``warnings`` flags any
-    *explicitly requested* grid/block value (not ``"all"``) that survived in no
-    feasible config, so the drop is surfaced rather than silent. dtype and
-    mem_space don't affect feasibility, so they never produce warnings."""
+    """Cartesian product of the swept knob pools (grid x block x mem_space),
+    filtered for feasibility. ``dtype`` is NOT an axis -- it's a single run-level
+    value (like ``shape``) stamped into every config. Returns ``(configs,
+    warnings)`` -- ``warnings`` flags any *explicitly requested* grid/block value
+    (not ``"all"``) that survived in no feasible config, so the drop is surfaced
+    rather than silent. mem_space doesn't affect feasibility, so it never warns."""
+    if dtype not in _DTYPES:
+        raise ValueError(f"unknown dtype {dtype!r}; choose from {list(_DTYPES)}")
     grids = grid_candidates(shape, grid, max_cores)
     blocks = block_candidates(shape, block)
-    dtypes = dtype_candidates(dtype)
     mems = memspace_candidates(mem_space)
 
     configs = []
     for g in grids:
         for b in blocks:
-            for dt in dtypes:
-                for mem in mems:
-                    cfg = {
-                        "grid_shape": list(g),
-                        "block_shape": list(b),
-                        "dtype": dt,
-                        "mem_space": mem,
-                    }
-                    if _feasible(shape, cfg, max_cores):
-                        configs.append(cfg)
+            for mem in mems:
+                cfg = {
+                    "grid_shape": list(g),
+                    "block_shape": list(b),
+                    "dtype": dtype,
+                    "mem_space": mem,
+                }
+                if _feasible(shape, cfg, max_cores):
+                    configs.append(cfg)
 
     warnings = []
     explicit = lambda s: s is not None and s != _ALL  # noqa: E731
@@ -340,9 +334,9 @@ def block_aware_run(kernel, inputs, cfg):
     Builds the Layout at the config's block_shape and computes the per-core
     block sweep as ``(tiles // block) // grid`` -- so each ``remote_load`` pulls
     a ``block_shape``-tile shard the kernel computes over. ``mem_space`` (``"l1"``
-    default, or ``"dram"``) selects where the kernel's I/O lives, via the
-    builder's ``kernel_io_in_dram`` path. Generalises ``testing.eltwise_block_run``
-    (1x1 blocks, L1 I/O); identical when ``block_shape == [1, 1]`` and L1."""
+    default, or ``"dram"``) is set on the Layout, selecting where the kernel's
+    I/O tensors live. Generalises ``testing.eltwise_block_run`` (1x1 blocks, L1
+    I/O); identical when ``block_shape == [1, 1]`` and L1."""
     import d2m_jit as d2m
 
     ref = inputs[0]
@@ -354,14 +348,14 @@ def block_aware_run(kernel, inputs, cfg):
         block_shape=[bh, bw],
         grid_shape=[gy, gx],
         tiled=True,
+        mem_space=cfg.get("mem_space", "l1"),
     )
     ins = [d2m.to_layout(t, layout) for t in inputs]
     out = d2m.empty(layout)
     ty, tx = ref.shape[-2] // 32, ref.shape[-1] // 32
     m_blocks = (ty // bh) // gy
     n_blocks = (tx // bw) // gx
-    in_dram = cfg.get("mem_space", "l1") == "dram"
-    kernel(*ins, out, m_blocks, n_blocks, grid=(gy, gx), kernel_io_in_dram=in_dram)
+    kernel(*ins, out, m_blocks, n_blocks, grid=(gy, gx))
     return out.to_host()
 
 
@@ -534,11 +528,17 @@ def _setup(
 
     out_root = pathlib.Path(out_dir)
     out_root.mkdir(parents=True, exist_ok=True)
-    # Canonical f32 inputs are fixed across the sweep; the reference is computed
-    # once. Each config runs on the SAME values cast to its dtype, so the PCC
-    # gate measures that config's numerical error against one f32 golden.
+    # Canonical f32 inputs are fixed across the sweep. When the PCC gate is on,
+    # the reference is computed once from them; each config runs on the SAME
+    # values cast to its dtype, so the gate measures that config's numerical
+    # error against one f32 golden. With the gate off (the default), the golden
+    # is skipped entirely.
     canonical = make_inputs(input_shapes, torch.float32, _Seeded(seed))
-    ref = golden(*[t.float() for t in canonical]) if golden is not None else None
+    ref = (
+        golden(*[t.float() for t in canonical])
+        if (check_pcc and golden is not None)
+        else None
+    )
     return _EvalContext(
         kernel,
         run,
@@ -644,7 +644,7 @@ def tune(
     *,
     golden: Optional[Callable] = None,
     run: Callable = block_aware_run,
-    check_pcc: bool = True,
+    check_pcc: bool = False,
     pcc: float = 0.99,
     objective: str = "device_kernel_time",
     out_dir: str = "autotune-artifacts",
@@ -661,7 +661,8 @@ def tune(
     golden            : ``(*inputs) -> tensor`` reference for the PCC gate
                         (required when ``check_pcc``). Computed once.
     run               : ``(kernel, inputs, cfg) -> host tensor`` materializer.
-    check_pcc         : gate each config on PCC (default on; near-free).
+    check_pcc         : gate each config on PCC (default OFF; opt in to verify
+                        correctness, which requires a ``golden``).
     pcc               : PCC threshold for a config to count as ``valid``.
     out_dir           : output root for ``results.json`` + ``summary.txt``.
     save_profiler_logs: also keep each config's device profiler CSV under
@@ -718,7 +719,7 @@ def search(
     *,
     golden: Optional[Callable] = None,
     run: Callable = block_aware_run,
-    check_pcc: bool = True,
+    check_pcc: bool = False,
     pcc: float = 0.99,
     objective: str = "device_kernel_time",
     max_evals: Optional[int] = None,
@@ -776,20 +777,20 @@ def search(
     return result
 
 
-# --- Heuristic proposer: latency hill-climb over (grid, block, dtype) --------
+# --- Heuristic proposer: latency hill-climb over (grid, block, mem_space) ----
 
 
 def knob_neighbors(cfg: dict, candidates: Sequence[dict]) -> list[dict]:
     """Coordinate-step neighbors of ``cfg`` (each differs in ONE knob):
 
-      * grid     : same block/dtype/mem, DOUBLE the core count (every aspect),
-      * block    : same grid/dtype/mem, block tiles doubled OR halved,
-      * dtype    : same grid/block/mem, a different dtype,
-      * mem_space: same grid/block/dtype, the other mem space.
+      * grid     : same block & mem, DOUBLE the core count (every aspect),
+      * block    : same grid & mem, block tiles doubled OR halved,
+      * mem_space: same grid & block, the other mem space.
 
     Grid is forward-only (more cores trends faster); block is bidirectional
     (the sweet spot for DMA granularity is not monotone). All steps are taken
-    from ``candidates``, so only feasible neighbors appear."""
+    from ``candidates``, so only feasible neighbors appear. (dtype is a fixed
+    run-level value, not a knob, so it never varies across candidates.)"""
     cores = cfg["grid_shape"][0] * cfg["grid_shape"][1]
     btiles = cfg["block_shape"][0] * cfg["block_shape"][1]
     mem = cfg.get("mem_space", "l1")
@@ -799,25 +800,17 @@ def knob_neighbors(cfg: dict, candidates: Sequence[dict]) -> list[dict]:
         cb = c["block_shape"][0] * c["block_shape"][1]
         same_grid = c["grid_shape"] == cfg["grid_shape"]
         same_block = c["block_shape"] == cfg["block_shape"]
-        same_dtype = c["dtype"] == cfg["dtype"]
         same_mem = c.get("mem_space", "l1") == mem
-        if same_block and same_dtype and same_mem and not same_grid and cc == cores * 2:
+        if same_block and same_mem and not same_grid and cc == cores * 2:
             out.append(c)  # grid step: more parallelism
         elif (
             same_grid
-            and same_dtype
             and same_mem
             and not same_block
-            and cb
-            in (
-                btiles * 2,
-                max(btiles // 2, 1),
-            )
+            and cb in (btiles * 2, max(btiles // 2, 1))
         ):
             out.append(c)  # block step: coarser/finer DMA granularity
-        elif same_grid and same_block and same_mem and not same_dtype:
-            out.append(c)  # dtype flip
-        elif same_grid and same_block and same_dtype and not same_mem:
+        elif same_grid and same_block and not same_mem:
             out.append(c)  # mem_space flip: L1 <-> DRAM I/O
     return out
 
@@ -1025,7 +1018,8 @@ def _print_results(result, mode: str, n_candidates: Optional[int] = None) -> Non
         print(hdr)
         print("-" * len(hdr))
         for rank, r in enumerate(result.leaderboard()[:12]):
-            lat, p = f"{r.kernel_ns:>12.1f}", f"{r.pcc:>9.5f}"
+            lat = f"{r.kernel_ns:>12.1f}"
+            p = f"{r.pcc:>9.5f}" if r.pcc is not None else f"{'-':>9}"
             wait = r.diagnostics.get("wait_share_of_envelope")
             w = f"{wait:.0%}" if wait is not None else "-"
             print(f"{rank:>4}  {_label(r.config):>22}  {lat}  {p}  {w:>6}")
@@ -1043,27 +1037,28 @@ def _print_results(result, mode: str, n_candidates: Optional[int] = None) -> Non
 def main(argv: Optional[Sequence[str]] = None) -> None:
     """CLI for autotuning the bundled ``exp_fused`` kernel.
 
-    grid, block, and mem_space sweep all feasible values by default (omitted ==
-    all); only dtype is opt-in -- it pins to float32 unless you pass ``--dtype``
-    (as ``all`` or a list). For any knob: ``all`` sweeps everything, an explicit
-    list sweeps those, a single value pins. So a bare run sweeps grid x block x
-    mem_space at float32. The resolved space feeds ``--mode sweep`` (every config)
-    or ``--mode guided`` (a hill-climb path); use ``--list`` to preview the space
-    (and its size) before committing device time."""
+    grid, block, and mem_space are the swept knobs: each defaults to all feasible
+    values (omitted == all); pass ``all``, an explicit list, or a single value to
+    pin. ``--dtype`` and ``--shape`` are run-level flags (one value applied to
+    every config), not swept. So a bare run sweeps grid x block x mem_space at
+    float32. The resolved space feeds ``--mode sweep`` (every config) or
+    ``--mode guided`` (a hill-climb path); use ``--list`` to preview the space
+    (and its size) before committing device time. The PCC correctness gate is
+    off by default -- pass ``--check-pcc`` to verify each config against a golden."""
     import argparse
 
     p = argparse.ArgumentParser(
         prog="autotune",
-        description="Autotune the bundled exp_fused kernel over grid/block/dtype.",
+        description="Autotune the bundled exp_fused kernel over grid/block/mem_space.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "examples:\n"
-            "  # bare run = grid x block x mem_space sweep at float32 (only dtype is opt-in):\n"
+            "  # bare run = grid x block x mem_space sweep at float32:\n"
             "  python autotune.py --shape 128x128\n\n"
-            "  # add the dtype axis (float32 + float16 + bfloat16):\n"
-            "  python autotune.py --shape 128x128 --dtype all --mode guided\n\n"
-            "  # every feasible grid in bf16, block pinned to 1x1:\n"
-            "  python autotune.py --shape 256x256 --grid all --block 1x1 --dtype bfloat16\n\n"
+            "  # sweep in bfloat16 with the correctness gate on:\n"
+            "  python autotune.py --shape 128x128 --dtype bfloat16 --check-pcc\n\n"
+            "  # guided search over l1 only, block pinned to 1x1:\n"
+            "  python autotune.py --shape 256x256 --block 1x1 --mem-space l1 --mode guided\n\n"
             "  # pin block to 2x2, sweep a few grids, just show the space:\n"
             "  python autotune.py --shape 256x256 --grid 1x1,2x2,4x4 --block 2x2 --list\n"
         ),
@@ -1083,8 +1078,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     )
     p.add_argument(
         "--dtype",
-        default=None,
-        help="dtypes: 'all' or a list like float32,bfloat16 (default: float32 -- opt-in)",
+        choices=_DTYPES,
+        default="float32",
+        help="dtype for the whole run, applied to every config (default float32)",
     )
     p.add_argument(
         "--mem-space",
@@ -1119,6 +1115,12 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         help="output dir (default autotune-artifacts/<pattern>)",
     )
     p.add_argument("--seed", type=int, default=0, help="input RNG seed (default 0)")
+    p.add_argument(
+        "--check-pcc",
+        action="store_true",
+        help="gate each config on PCC vs a golden, dropping incorrect ones "
+        "(off by default)",
+    )
     p.add_argument(
         "--save-profiler-logs",
         action="store_true",
@@ -1158,6 +1160,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             [shape],
             space,
             golden=torch.exp,
+            check_pcc=args.check_pcc,
             out_dir=out_dir,
             seed=args.seed,
             save_profiler_logs=args.save_profiler_logs,
@@ -1170,6 +1173,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             [shape],
             proposer,
             golden=torch.exp,
+            check_pcc=args.check_pcc,
             max_evals=args.max_evals,
             out_dir=out_dir,
             seed=args.seed,
