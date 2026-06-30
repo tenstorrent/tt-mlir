@@ -329,18 +329,34 @@ def test_compile_mnist(batch: int, feat: int, hidden: int, classes: int) -> None
 
 
 @pytest.mark.parametrize(
-    "n,c_in,h,w,c_out,ksize,stride,padding,bias",
+    "n,c_in,h,w,c_out,ksize,stride,padding,dilation,groups,bias",
     [
-        (1, 32, 32, 32, 64, 3, 1, 1, False),
-        (1, 32, 32, 32, 64, 3, 2, 1, False),
-        (1, 32, 32, 32, 64, 1, 1, 0, True),
+        (1, 32, 32, 32, 64, 3, 1, 1, 1, 1, False),
+        (1, 32, 32, 32, 64, 3, 2, 1, 1, 1, False),
+        (1, 32, 32, 32, 64, 1, 1, 0, 1, 1, True),
+        # General configs: the NCHW Conv2dOp path (channel_dim=1) must handle grouped,
+        # depthwise, dilated, asymmetric, and rectangular-kernel convs, not just resnet's.
+        (1, 32, 32, 32, 64, 3, 1, 1, 1, 4, False),
+        (1, 32, 32, 32, 32, 3, 1, 1, 1, 32, False),
+        (1, 32, 32, 32, 64, 3, 1, 2, 2, 1, False),
+        (1, 32, 48, 32, 64, 3, 1, 1, 1, 1, False),
+        (1, 32, 32, 32, 64, (3, 5), (2, 1), (1, 2), 1, 1, False),
+        (1, 32, 32, 32, 64, 3, 1, 2, 2, 4, True),
+        (1, 16, 28, 28, 16, 3, 1, 1, 1, 16, True),
     ],
-    ids=["3x3_s1_nobias", "3x3_s2_nobias", "1x1_bias"],
+    ids=[
+        "3x3_s1_nobias", "3x3_s2_nobias", "1x1_bias",
+        "grouped", "depthwise", "dilation2", "asymmetric_hw",
+        "rect_kernel_asym_stride", "grouped_dilation_bias", "depthwise_bias",
+    ],
 )
-def test_compile_conv2d(n: int, c_in: int, h: int, w: int, c_out: int, ksize: int, stride: int, padding: int, bias: bool) -> None:
+def test_compile_conv2d(n: int, c_in: int, h: int, w: int, c_out: int, ksize: int | tuple[int, int],
+                        stride: int | tuple[int, int], padding: int | tuple[int, int], dilation: int,
+                        groups: int, bias: bool) -> None:
     """aten::convolution in a compiled graph — exercises Conv2dOp with NCHW dim
-    attrs and optional bias reshape."""
-    model = nn.Conv2d(c_in, c_out, ksize, stride=stride, padding=padding, bias=bias).to(torch.bfloat16)
+    attrs and optional bias reshape across grouped/depthwise/dilated/rectangular configs."""
+    model = nn.Conv2d(c_in, c_out, ksize, stride=stride, padding=padding,
+                      dilation=dilation, groups=groups, bias=bias).to(torch.bfloat16)
     x = torch.randn((n, c_in, h, w), dtype=torch.bfloat16)
     _assert_compile_matches_eager(model, x, atol=0.05, rtol=0.05)
 

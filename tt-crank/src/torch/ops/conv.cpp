@@ -76,13 +76,11 @@ mlir::Value build_conv2d(ModuleBuilder &mb, mlir::Value input, mlir::Value weigh
 
     auto elem_type = input_type.getElementType();
 
-    // Conv2dOp uses NHWC layout by default. Permute NCHW→NHWC, run conv, permute back.
-    auto nhwc_input = build_permute(mb, input, {0, 2, 3, 1});
-
-    // Reshape 1D bias (C_out,) → (1, 1, 1, C_out) for NHWC channel_dim=3.
+    // Reshape 1D bias (C_out,) so the channel sits at channel_dim=1: (1, C_out, 1, 1).
+    // The TTIR Conv2dOp verifier reads the bias output-channel count from channel_dim.
     mlir::Value bias_4d;
     if (bias) {
-        bias_4d = build_reshape(mb, bias, {1, 1, 1, wshape[0]});
+        bias_4d = build_reshape(mb, bias, {1, wshape[0], 1, 1});
     }
 
     auto stride_attr = mb.attrs().getDenseI32ArrayAttr({as<int32_t>(sH), as<int32_t>(sW)});
@@ -91,14 +89,14 @@ mlir::Value build_conv2d(ModuleBuilder &mb, mlir::Value input, mlir::Value weigh
         mb.attrs().getDenseI32ArrayAttr({as<int32_t>(pH), as<int32_t>(pW), as<int32_t>(pH), as<int32_t>(pW)});
     auto dilation_attr = mb.attrs().getDenseI32ArrayAttr({as<int32_t>(dH), as<int32_t>(dW)});
 
-    // NHWC output shape: [N, H_out, W_out, C_out].
-    auto nhwc_result_type = mlir::RankedTensorType::get({shape[0], H_out, W_out, wshape[0]}, elem_type);
-    auto nhwc_result = mb.create<mlir::tt::ttir::Conv2dOp>(nhwc_result_type, nhwc_input, weight, bias_4d, stride_attr,
-                                                           padding_attr, dilation_attr, as<uint32_t>(groups), nullptr)
-                           .getResult();
-
-    // Permute NHWC→NCHW: [N, H_out, W_out, C_out] → [N, C_out, H_out, W_out].
-    return build_permute(mb, nhwc_result, {0, 3, 1, 2});
+    // NCHW output shape: [N, C_out, H_out, W_out]; dims: batch=0, channel=1, height=2, width=3.
+    auto result_type = mlir::RankedTensorType::get({shape[0], wshape[0], H_out, W_out}, elem_type);
+    return mb
+        .create<mlir::tt::ttir::Conv2dOp>(result_type, input, weight, bias_4d, stride_attr, padding_attr, dilation_attr,
+                                          as<uint32_t>(groups), /*batch_dim=*/uint64_t{0},
+                                          /*height_dim=*/uint64_t{2}, /*width_dim=*/uint64_t{3},
+                                          /*channel_dim=*/uint64_t{1})
+        .getResult();
 }
 
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
