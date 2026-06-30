@@ -3,26 +3,26 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/data_movement/sort.h"
-
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-#include "tt/runtime/detail/ttnn/utils.h"
-
-#include "ttmlir/Target/TTNN/program_generated.h"
-#include <optional>
-#include <vector>
+#include "ttmlir/OpInvoke/TTNN/DataMovement/SortOp.h"
 
 namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::SortOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
+  ::tt::target::ttnn::SortOpT sortOpNative;
+  op->UnPackTo(&sortOpNative);
 
-  std::vector<::ttnn::Tensor> outputs =
-      ::ttnn::sort(in, op->dim(), op->descending(), op->stable(),
-                   outputMemoryConfig, std::nullopt);
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
+
+  ttnn_op_invoke::SortOpResult result = ttnn_op_invoke::callSort(
+      ttnn_op_invoke::CallType::EXECUTE, sortOpNative, &in, &targetDevice);
+
+  LOG_ASSERT(std::holds_alternative<std::vector<::ttnn::Tensor>>(result),
+             "Expected vector<Tensor> from callSort execution");
+
+  auto outputs = std::get<std::vector<::ttnn::Tensor>>(result);
 
   LOG_ASSERT(
       op->outputs()->size() == outputs.size(),

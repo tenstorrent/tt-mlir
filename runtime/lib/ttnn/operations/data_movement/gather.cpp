@@ -3,9 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/data_movement/gather.h"
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
-#include "tt/runtime/detail/ttnn/utils.h"
+#include "tt/runtime/detail/common/logger.h"
+#include "ttmlir/OpInvoke/TTNN/DataMovement/GatherOp.h"
 
 namespace tt::runtime::ttnn::operations::data_movement {
 
@@ -15,17 +14,21 @@ void run(const ::tt::target::ttnn::GatherOp *op, ProgramContext &context) {
       tensorPool.getTTNNTensorAndValidate(op->input());
   const ::ttnn::Tensor &index =
       tensorPool.getTTNNTensorAndValidate(op->index());
-  int32_t dim = op->dim();
 
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
+  ::tt::target::ttnn::GatherOpT gatherOpNative;
+  op->UnPackTo(&gatherOpNative);
 
-  ::ttnn::Tensor out =
-      ::ttnn::gather(input, dim, index, /*sparse_grad=*/false,
-                     outputMemoryConfig, std::nullopt, std::nullopt);
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  ttnn_op_invoke::GatherOpResult result =
+      ttnn_op_invoke::callGather(ttnn_op_invoke::CallType::EXECUTE,
+                                 gatherOpNative, &input, &index, &targetDevice);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callGather execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
 } // namespace tt::runtime::ttnn::operations::data_movement

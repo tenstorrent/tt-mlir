@@ -3,12 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "operations/data_movement/permute.h"
-
 #include "tt/runtime/detail/common/logger.h"
-
-#include "tt/runtime/detail/ttnn/operations/utils.h"
-#include "tt/runtime/detail/ttnn/utils.h"
-#include <vector>
+#include "ttmlir/OpInvoke/TTNN/DataMovement/PermuteOp.h"
 
 namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::PermuteOp *op, ProgramContext &context) {
@@ -16,15 +12,18 @@ void run(const ::tt::target::ttnn::PermuteOp *op, ProgramContext &context) {
 
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  ::ttsl::SmallVector<int64_t> permutation(op->permutation()->begin(),
-                                           op->permutation()->end());
-  std::optional<::ttnn::MemoryConfig> memoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
-          op->memory_config());
-  float padValue = op->pad_value();
+  ::tt::target::ttnn::PermuteOpT permuteOpNative;
+  op->UnPackTo(&permuteOpNative);
 
-  ::ttnn::Tensor out = ::ttnn::permute(in, permutation, memoryConfig, padValue);
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  ttnn_op_invoke::PermuteOpResult result = ttnn_op_invoke::callPermute(
+      ttnn_op_invoke::CallType::EXECUTE, permuteOpNative, &in, &targetDevice);
+
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callPermute execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement

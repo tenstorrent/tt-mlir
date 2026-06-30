@@ -271,6 +271,52 @@ buildLayerNormOpTFromMLIR(llvm::APFloat epsilon, TTNNLayoutAttr outputLayout);
     std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
     TTNNLayoutAttr outputLayout);
 
+::tt::target::ttnn::AssignOpT
+buildAssignOpTFromMLIR(TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::ConcatOpT
+buildConcatOpTFromMLIR(int32_t dim, TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::GatherOpT
+buildGatherOpTFromMLIR(int32_t dim, TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::PadOpT buildPadOpTFromMLIR(llvm::ArrayRef<int32_t> padding,
+                                               llvm::APFloat padValue,
+                                               bool useMulticore,
+                                               TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::PermuteOpT
+buildPermuteOpTFromMLIR(llvm::ArrayRef<int64_t> permutation,
+                        llvm::APFloat padValue, TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::RepeatInterleaveOpT
+buildRepeatInterleaveOpTFromMLIR(const unsigned int repeats, const int dim,
+                                 TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::RepeatOpT
+buildRepeatOpTFromMLIR(llvm::ArrayRef<int64_t> repeatDims,
+                       TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::ReshapeOpT
+buildReshapeOpTFromMLIR(llvm::ArrayRef<int64_t> outputShape,
+                        TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::ScatterOpT
+buildScatterOpTFromMLIR(int32_t dim, mlir::tt::ttcore::ReduceType reduceType,
+                        TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::SliceOpT buildSliceStaticOpTFromMLIR(
+    llvm::ArrayRef<int64_t> begins, llvm::ArrayRef<int64_t> ends,
+    llvm::ArrayRef<int64_t> step, TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::SortOpT buildSortOpTFromMLIR(int dim, bool descending,
+                                                 bool stable,
+                                                 TTNNLayoutAttr outputLayout);
+
+::tt::target::ttnn::TransposeOpT
+buildTransposeOpTFromMLIR(int32_t dim0, int32_t dim1,
+                          TTNNLayoutAttr outputLayout);
+
 } // namespace mlir::tt::ttnn::op_model
 #endif // TTMLIR_ENABLE_OPMODEL
 
