@@ -101,9 +101,8 @@ class PatternTest:
     pcc: float = 0.99
     expect_match: bool = True
     # Opt in to true e2e device execution (rewrite -> compile -> in-process run).
-    # Requires a `golden`. Scalar kernel args are fine — in a rewrite scope they
-    # are baked into the kernel body as constants (see AUTHORING.md). Inputs are
-    # generated from `inputs` and the golden is computed from those same inputs.
+    # `golden` is optional: when omitted, the runner cross-checks against the
+    # TTNN device baseline of the original (pre-pattern) TTIR.
     e2e: bool = False
     tags: tuple = ()
     source_file: str = ""  # set by discovery
@@ -539,6 +538,8 @@ def _inputs_cache_key(inputs):
         tc = t.detach().contiguous().cpu()
         h.update(str(tuple(tc.shape)).encode())
         h.update(str(tc.dtype).encode())
+        if tc.dtype == torch.bfloat16:
+            tc = tc.to(torch.float32)
         h.update(tc.numpy().tobytes())
     return h.hexdigest()
 
@@ -582,9 +583,9 @@ def run_e2e(spec: PatternTest, e2e_device: "E2EDevice"):
     is computed before the ttmetal device is opened, so the two runtimes never
     contend for a device."""
     io = parse_func_io(spec.ttir)
-    shapes = [shape for shape, _ in io]
-    td = io[0][1] if io else torch.float32
-    inputs = make_inputs(shapes, td, spec.inputs)
+    gen = torch.Generator()
+    gen.manual_seed(spec.inputs.seed)
+    inputs = [_gen_tensor(shape, td, spec.inputs.dist, gen) for shape, td in io]
 
     if spec.golden is not None:
         expected = spec.golden(*[t.float() for t in inputs])
