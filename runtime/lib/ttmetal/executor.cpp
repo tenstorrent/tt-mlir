@@ -391,6 +391,13 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
           currentProgramName, debugInfo, kernelConfig->debug_info()->c_str(),
           kernelConfig->loc() ? kernelConfig->loc()->c_str() : nullptr);
 
+      std::vector<uint32_t> commonRtArgsVec = processRuntimeArgs(
+          kernelConfig->args()->crt_args(), command->arg_refs_type(),
+          command->arg_refs(), meshBuffers, global_semaphores,
+          local_semaphore_initializer, command->cbs(), deviceAddressValidator,
+          createSemaphore, hostBuffers);
+      tt_metal::SetCommonRuntimeArgs(program, handle, commonRtArgsVec);
+
       std::vector<uint32_t> rtArgsVec = processRuntimeArgs(
           kernelConfig->args()->rt_args(), command->arg_refs_type(),
           command->arg_refs(), meshBuffers, global_semaphores,

@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOpsTypes.h"
 #include "ttmlir/Dialect/TTMetal/IR/TTMetalOps.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/SmallVector.h"
@@ -16,7 +17,8 @@ namespace mlir::tt {
 #define GEN_PASS_DECL_CONVERTTTKERNELTOEMITC
 #include "ttmlir/Conversion/Passes.h.inc"
 
-std::unique_ptr<OperationPass<ModuleOp>> createRemoveDeadEmitCExpressionsPass();
+std::unique_ptr<OperationPass<func::FuncOp>>
+createRemoveDeadEmitCExpressionsPass();
 } // namespace mlir::tt
 
 #endif

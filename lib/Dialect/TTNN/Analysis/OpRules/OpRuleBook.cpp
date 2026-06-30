@@ -82,7 +82,6 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static RmsNormRuleBook rmsNorm;
   static MeshPartitionRuleBook meshPartition;
   static MoeRuleBook moe;
-  static PagedUpdateCacheRuleBook pagedUpdateCache;
   static FillCacheRuleBook fillCache;
   static PagedFillCacheRuleBook pagedFillCache;
 
@@ -123,7 +122,6 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(MeshPartitionOp::getOperationName(), &meshPartition);
     reg(PrepareMoEComputeW0W1WeightsOp::getOperationName(), &moe);
     reg(PrepareMoEComputeW2WeightsOp::getOperationName(), &moe);
-    reg(PagedUpdateCacheOp::getOperationName(), &pagedUpdateCache);
     reg(FillCacheOp::getOperationName(), &fillCache);
     reg(PagedFillCacheOp::getOperationName(), &pagedFillCache);
   });

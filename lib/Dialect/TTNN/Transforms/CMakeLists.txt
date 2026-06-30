@@ -90,7 +90,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/AllReduceReshapeOpRewritePattern.cpp
         Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.cpp
         Workarounds/Decomposition/MoeGptLayoutRewritePattern.cpp
-        Workarounds/Decomposition/ArgMaxOpDimRewritePattern.cpp
         Workarounds/Decomposition/MoeComputeRewritePattern.cpp
         Workarounds/Decomposition/PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern.cpp
         Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.cpp
@@ -98,6 +97,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/SplitQueryKeyValueAndSplitHeadsOpRewritePattern.cpp
         Workarounds/Decomposition/EmbeddingOpSqueezeWeightRewritePattern.cpp
         Workarounds/Decomposition/GatherOpRank1RewritePattern.cpp
+        Workarounds/Decomposition/SamplingOpRank2RewritePattern.cpp
         Workarounds/Decomposition/GroupNormAffineReshapeRewritePattern.cpp
         Workarounds/Decomposition/GroupNormChannelPadRewritePattern.cpp
         Workarounds/Decomposition/IntegerProdOpRewritePattern.cpp

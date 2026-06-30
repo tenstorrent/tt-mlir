@@ -1414,7 +1414,7 @@ def test_max_pool_2d(
     ],
 )
 @pytest.mark.parametrize("dtype", [torch.bfloat16, torch.float32], ids=["bf16", "f32"])
-@pytest.mark.parametrize("target", ["ttnn"])
+@pytest.mark.parametrize("target", ["ttnn", "emitc"])
 def test_avg_pool_2d(
     shape: Shape,
     dtype: torch.dtype,

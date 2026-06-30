@@ -7,9 +7,10 @@
 #include "ttmlir/Dialect/TTKernel/IR/TTKernel.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
 
+#include "llvm/ADT/DenseSet.h"
+
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Support/LLVM.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 namespace mlir::tt::ttkernel {
 #define GEN_PASS_DEF_TTKERNELCONTROLDSTSECTION
@@ -17,66 +18,41 @@ namespace mlir::tt::ttkernel {
 
 namespace {
 
-template <typename PackOp>
-class TTKernelTileRegsRewriter : public OpRewritePattern<PackOp> {
-public:
-  using OpRewritePattern<PackOp>::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(PackOp op,
-                                PatternRewriter &rewriter) const final {
-    Block *acquireBlock = findBlockContaining<ttkernel::TileRegsAcquireOp>(op);
-    Operation *parent = parentOpAtBlock(op, acquireBlock);
-
-    // Guard against re-application: check for an existing commit between the
-    // nearest preceding acquire and `parent` in acquireBlock. If one exists,
-    // this pack has already been handled.
-    if (hasPrecedingCommit(parent)) {
-      return failure();
-    }
-
-    rewriter.setInsertionPoint(parent);
-    rewriter.create<ttkernel::TileRegsCommitOp>(op->getLoc());
-    rewriter.create<ttkernel::TileRegsWaitOp>(op->getLoc());
-    rewriter.setInsertionPointAfter(parent);
-    rewriter.create<ttkernel::TileRegsReleaseOp>(op->getLoc());
-
-    return success();
-  };
-
-  template <typename ConcreteOp>
-  static Block *findBlockContaining(Operation *op) {
-    Block *block = op->getBlock();
-    while (block->getOps<ConcreteOp>().empty()) {
-      block = block->getParentOp()->getBlock();
-    }
-    return block;
+template <typename ConcreteOp>
+static Block *findBlockContaining(Operation *op) {
+  Block *block = op->getBlock();
+  while (block->getOps<ConcreteOp>().empty()) {
+    Operation *parentOp = block->getParentOp();
+    assert(parentOp && "expected enclosing op before acquire block");
+    block = parentOp->getBlock();
   }
+  return block;
+}
 
-  static Operation *parentOpAtBlock(Operation *child, Block *atBlock) {
-    Operation *parent = child;
-    while (parent->getBlock() != atBlock) {
-      parent = parent->getParentOp();
-      assert(parent);
-    }
-    return parent;
+static Operation *parentOpAtBlock(Operation *child, Block *atBlock) {
+  Operation *parent = child;
+  while (parent->getBlock() != atBlock) {
+    parent = parent->getParentOp();
+    assert(parent);
   }
+  return parent;
+}
 
-  // Returns true if a TileRegsCommitOp exists between the most recent
-  // TileRegsAcquireOp before `op` (in `op`'s block) and `op` itself.
-  // Used to prevent double-insertion on re-application.
-  static bool hasPrecedingCommit(Operation *op) {
-    for (Operation *it = op->getPrevNode(); it != nullptr;
-         it = it->getPrevNode()) {
-      if (isa<ttkernel::TileRegsCommitOp>(it)) {
-        return true;
-      }
-      if (isa<ttkernel::TileRegsAcquireOp>(it)) {
-        return false;
-      }
+// Returns true if a TileRegsCommitOp exists between the most recent
+// TileRegsAcquireOp before `op` (in `op`'s block) and `op` itself. Used to
+// prevent double-insertion on re-application.
+static bool hasPrecedingCommit(Operation *op) {
+  for (Operation *it = op->getPrevNode(); it != nullptr;
+       it = it->getPrevNode()) {
+    if (isa<ttkernel::TileRegsCommitOp>(it)) {
+      return true;
     }
-    return false;
+    if (isa<ttkernel::TileRegsAcquireOp>(it)) {
+      return false;
+    }
   }
-};
+  return false;
+}
 
 } // namespace
 
@@ -88,14 +64,32 @@ public:
       TTKernelControlDstSection>::TTKernelControlDstSectionBase;
 
   void runOnOperation() final {
-    RewritePatternSet patterns(&getContext());
-    patterns.add<TTKernelTileRegsRewriter<ttkernel::PackTileOp>>(&getContext());
-    patterns.add<TTKernelTileRegsRewriter<ttkernel::PackTileBlockOp>>(
-        &getContext());
+    SmallVector<std::pair<Operation *, Location>> insertionPoints;
+    llvm::DenseSet<Operation *> visitedParents;
 
-    if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
-      signalPassFailure();
-      return;
+    getOperation()->walk([&](Operation *op) {
+      if (!isa<ttkernel::PackTileOp, ttkernel::PackTileBlockOp>(op)) {
+        return;
+      }
+
+      Block *acquireBlock =
+          findBlockContaining<ttkernel::TileRegsAcquireOp>(op);
+      Operation *parent = parentOpAtBlock(op, acquireBlock);
+
+      if (!visitedParents.insert(parent).second || hasPrecedingCommit(parent)) {
+        return;
+      }
+
+      insertionPoints.push_back({parent, op->getLoc()});
+    });
+
+    OpBuilder builder(&getContext());
+    for (auto [parent, loc] : insertionPoints) {
+      builder.setInsertionPoint(parent);
+      builder.create<ttkernel::TileRegsCommitOp>(loc);
+      builder.create<ttkernel::TileRegsWaitOp>(loc);
+      builder.setInsertionPointAfter(parent);
+      builder.create<ttkernel::TileRegsReleaseOp>(loc);
     }
   }
 };

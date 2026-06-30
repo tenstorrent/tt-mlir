@@ -32,6 +32,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Target/Cpp/CppEmitter.h"
 #include "llvm/ADT/ScopeExit.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <set>
@@ -45,19 +46,13 @@ namespace {
 class ScopedModuleHelper {
 public:
   ScopedModuleHelper(OpBuilder *builder, Location loc, Region *region,
-                     ThreadType threadType, StringRef originalSymbolName = "")
-      : builder(builder), loc(loc) {
-    if (!originalSymbolName.empty()) {
-      emitComment(originalSymbolName);
-    }
-
+                     ThreadType threadType) {
     std::set<llvm::StringRef> headers;
 
     // Baseline, always required.
     headers.insert("<cstdint>");
     switch (threadType) {
     case ThreadType::Compute:
-      headers.insert("api/compute/compute_kernel_api.h");
       headers.insert("api/compute/common.h");
       break;
     case ThreadType::Noc:
@@ -194,6 +189,16 @@ public:
       }
     });
 
+    region->walk([&](emitc::LiteralOp literalOp) {
+      llvm::StringRef value = literalOp.getValue();
+      llvm::StringRef callee =
+          value.take_until([](char c) { return c == '(' || llvm::isSpace(c); });
+      auto it = headerMap.find(callee);
+      if (it != headerMap.end()) {
+        insertHeaders(it->second);
+      }
+    });
+
     // Insert default template parameters before "reduce.h" inclusion.
     if (headers.count("api/compute/reduce.h")) {
       builder->create<emitc::VerbatimOp>(loc,
@@ -231,10 +236,6 @@ public:
   }
 
   ~ScopedModuleHelper() = default;
-
-  void emitComment(StringRef str) {
-    builder->create<emitc::VerbatimOp>(loc, (Twine("// ") + str).str());
-  }
 
   void emitLlk(const char *generated, unsigned int len) {
     llvm::StringRef snippet(generated, len);
@@ -300,8 +301,6 @@ void dprint(Arg &&arg, ArgV&&... argv) {
   }
 
 private:
-  OpBuilder *builder;
-  Location loc;
   std::set<llvm::StringRef> emittedLlks;
   llvm::SmallVector<llvm::StringRef> llksToEmit;
 };
@@ -326,8 +325,7 @@ cloneEntryIntoStandaloneModule(func::FuncOp origEntry, ThreadType threadType) {
 
   Region *kernelMainRegion;
   {
-    ScopedModuleHelper threadConfigHelper(&builder, loc, region, threadType,
-                                          origEntry.getName());
+    ScopedModuleHelper threadConfigHelper(&builder, loc, region, threadType);
 
     // Clone 'region' into a new func op nested inside 'moduleWrapper':
     auto kernelMain = builder.create<func::FuncOp>(

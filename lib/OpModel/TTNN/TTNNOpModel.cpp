@@ -627,7 +627,7 @@ llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
     llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
     uint32_t groups, std::optional<Conv2dConfigAttr> conv2dConfig,
     std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig, bool hasBias,
-    bool transpose) {
+    bool transpose, llvm::ArrayRef<int32_t> output_padding = {}) {
   if (weightLayout.getBufferType() != BufferType::SystemMemory) {
     return llvm::createStringError(
         llvm::inconvertibleErrorCode(),
@@ -678,6 +678,11 @@ llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
         /* compute_config_ */ std::nullopt, sliceConfigConverted);
   };
 
+  std::array<uint32_t, 2> outputPaddingArr = {0, 0};
+  if (!output_padding.empty()) {
+    outputPaddingArr =
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(output_padding);
+  }
   auto prepareConvTranspose2dWeightsOpQuery = [=]() {
     return ::ttnn::graph::query_op_constraints(
         &::ttnn::operations::conv::conv_transpose2d::
@@ -687,7 +692,7 @@ llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
         input_width,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernel_size),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
-        detail::reorderPool2dPadding(padding),
+        detail::reorderPool2dPadding(padding), outputPaddingArr,
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         hasBias, groups, device, *inputDtype, outputDtype,
         conv2dConfigConverted,
@@ -5249,7 +5254,7 @@ llvm::Expected<OpConstraints> OpModel<ConvTranspose2dOp>::getOpConstraints(
           inputShape, inputLayout, weightShape, weightLayout, in_channels,
           out_channels, batch_size, input_height, input_width, kernel_size,
           stride, padding, dilation, groups, conv2dConfig, conv2dSliceConfig,
-          biasLayout.has_value(), /*transpose*/ true);
+          biasLayout.has_value(), /*transpose*/ true, output_padding);
   if (!preparedWeightExp) {
     return preparedWeightExp.takeError();
   }
@@ -5520,9 +5525,9 @@ OpModel<PrepareConvTranspose2dWeightsOp>::getOpConstraints(
     llvm::StringRef weightsFormat, int32_t inChannels, int32_t outChannels,
     int32_t batchSize, int32_t inputHeight, int32_t inputWidth,
     llvm::ArrayRef<int32_t> kernelSize, llvm::ArrayRef<int32_t> stride,
-    llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
-    bool hasBias, int32_t groups, ttcore::DataType inputDtype,
-    std::optional<ttcore::DataType> outputDtype,
+    llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> output_padding,
+    llvm::ArrayRef<int32_t> dilation, bool hasBias, int32_t groups,
+    ttcore::DataType inputDtype, std::optional<ttcore::DataType> outputDtype,
     std::optional<Conv2dConfigAttr> conv2dConfig,
     std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
     std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig, bool mirrorKernel,
@@ -5554,6 +5559,7 @@ OpModel<PrepareConvTranspose2dWeightsOp>::getOpConstraints(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(kernelSize),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(stride),
         detail::reorderPool2dPadding(padding),
+        conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(output_padding),
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         hasBias, groups, device, conversion::getDataType(inputDtype),
         convertedOutputDtype, conversion::getConv2dConfig(conv2dConfig),
@@ -6705,6 +6711,32 @@ llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
     llvm::APFloat epsilon, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
+  // tt-metal's group_norm hangs on a ROW_MAJOR input, reject row-major input
+  // here to force the optimizer to select a TILE input layout. tt-metal#47972
+  // tracks this issue. The raw query lives in getOpConstraintsRaw so the
+  // tripwire test can observe tt-metal's unguarded verdict; remove both once
+  // tt-metal#47972 is fixed.
+  if (inputLayout.getLayout() == mlir::tt::ttnn::Layout::RowMajor) {
+    return llvm::createStringError(
+        llvm::inconvertibleErrorCode(),
+        "group_norm ROW_MAJOR input is unsupported (hangs); requires TILE");
+  }
+#endif // TTMLIR_ENABLE_OPMODEL
+  return getOpConstraintsRaw(
+      inputShape, inputLayout, inputMaskShape, inputMaskLayout, weightShape,
+      weightLayout, biasShape, biasLayout, numGroups, epsilon, outputLayout);
+}
+
+llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraintsRaw(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> inputMaskShape,
+    std::optional<TTNNLayoutAttr> inputMaskLayout,
+    std::optional<llvm::ArrayRef<int64_t>> weightShape,
+    std::optional<TTNNLayoutAttr> weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
+    llvm::APFloat epsilon, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -6755,6 +6787,15 @@ llvm::Expected<size_t> OpModel<GroupNormOp>::getOpRuntime(
     std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
     llvm::APFloat epsilon, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
+  // tt-metal's group_norm hangs on a ROW_MAJOR input, reject row-major input
+  // here to force the optimizer to select a TILE input layout. tt-metal#47972
+  // tracks this issue.
+  if (inputLayout.getLayout() == mlir::tt::ttnn::Layout::RowMajor) {
+    return llvm::createStringError(
+        llvm::inconvertibleErrorCode(),
+        "group_norm ROW_MAJOR input is unsupported (hangs); requires TILE");
+  }
+
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -7835,21 +7876,28 @@ llvm::Expected<OpConstraints> OpModel<SamplingOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // ttnn::sampling kernel expects 4D [N, C, H, W] with N*C*H==32. Runtime
-  // reshapes 2D [batch, candidates] -> [1, 1, batch, candidates] before
-  // dispatch; mirror that here so constraint queries see the kernel-expected
-  // shape.
-  llvm::SmallVector<int64_t, 4> values4D = {1, 1, inputValuesShape[0],
-                                            inputValuesShape[1]};
-  llvm::SmallVector<int64_t, 4> indices4D = {1, 1, inputIndicesShape[0],
-                                             inputIndicesShape[1]};
+  // OpModel queries happen before the workaround pass (where
+  // SamplingOpRank2RewritePattern unsqueezes rank-2 inputs to the kernel-true
+  // rank-4 form). Pad to rank-4 here so the constraint query sees the shape
+  // ttnn::sampling actually accepts.
+  llvm::SmallVector<int64_t, 4> values4D, indices4D;
+  llvm::ArrayRef<int64_t> valuesQueryShape = inputValuesShape;
+  llvm::ArrayRef<int64_t> indicesQueryShape = inputIndicesShape;
+  if (inputValuesShape.size() == 2) {
+    values4D = {1, 1, inputValuesShape[0], inputValuesShape[1]};
+    valuesQueryShape = values4D;
+  }
+  if (inputIndicesShape.size() == 2) {
+    indices4D = {1, 1, inputIndicesShape[0], inputIndicesShape[1]};
+    indicesQueryShape = indices4D;
+  }
 
   ASSIGN_OR_RETURN(
       ::ttnn::TensorSpec valuesSpec,
-      detail::convertToTensorSpec(device, values4D, inputValuesLayout));
-  ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec indicesSpec,
-      detail::convertToTensorSpec(device, indices4D, inputIndicesLayout));
+      detail::convertToTensorSpec(device, valuesQueryShape, inputValuesLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec indicesSpec,
+                   detail::convertToTensorSpec(device, indicesQueryShape,
+                                               inputIndicesLayout));
   ASSIGN_OR_RETURN(::ttnn::TensorSpec kSpec,
                    detail::convertToTensorSpec(device, kShape, kLayout));
   ASSIGN_OR_RETURN(::ttnn::TensorSpec pSpec,
@@ -7882,18 +7930,26 @@ llvm::Expected<size_t> OpModel<SamplingOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  // See getOpConstraints: reshape 2D -> 4D to match runtime dispatch.
-  llvm::SmallVector<int64_t, 4> values4D = {1, 1, inputValuesShape[0],
-                                            inputValuesShape[1]};
-  llvm::SmallVector<int64_t, 4> indices4D = {1, 1, inputIndicesShape[0],
-                                             inputIndicesShape[1]};
+  // See getOpConstraints: rank-2 IR is padded to rank-4 for the kernel query
+  // because the workaround pass runs after OpModel queries.
+  llvm::SmallVector<int64_t, 4> values4D, indices4D;
+  llvm::ArrayRef<int64_t> valuesQueryShape = inputValuesShape;
+  llvm::ArrayRef<int64_t> indicesQueryShape = inputIndicesShape;
+  if (inputValuesShape.size() == 2) {
+    values4D = {1, 1, inputValuesShape[0], inputValuesShape[1]};
+    valuesQueryShape = values4D;
+  }
+  if (inputIndicesShape.size() == 2) {
+    indices4D = {1, 1, inputIndicesShape[0], inputIndicesShape[1]};
+    indicesQueryShape = indices4D;
+  }
 
   ASSIGN_OR_RETURN(
       ::ttnn::TensorSpec valuesSpec,
-      detail::convertToTensorSpec(device, values4D, inputValuesLayout));
-  ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec indicesSpec,
-      detail::convertToTensorSpec(device, indices4D, inputIndicesLayout));
+      detail::convertToTensorSpec(device, valuesQueryShape, inputValuesLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec indicesSpec,
+                   detail::convertToTensorSpec(device, indicesQueryShape,
+                                               inputIndicesLayout));
   ASSIGN_OR_RETURN(::ttnn::TensorSpec kSpec,
                    detail::convertToTensorSpec(device, kShape, kLayout));
   ASSIGN_OR_RETURN(::ttnn::TensorSpec pSpec,

@@ -22,7 +22,6 @@ module attributes {} {
     // 3. UInt32 data type for output
 
     // CHECK: "ttnn.to_layout"
-    // CHECK-SAME: layout = #ttnn.layout<row_major>
     // CHECK-SAME: -> tensor<1x1x32x32xbf16,
     // CHECK-NEXT: "ttnn.argmax"
 

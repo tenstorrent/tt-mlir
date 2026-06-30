@@ -26,7 +26,7 @@ llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
     llvm::ArrayRef<int32_t> padding, llvm::ArrayRef<int32_t> dilation,
     uint32_t groups, std::optional<Conv2dConfigAttr> conv2dConfig,
     std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig, bool hasBias,
-    bool transpose);
+    bool transpose, llvm::ArrayRef<int32_t> output_padding = {});
 
 llvm::Expected<::ttnn::TensorSpec>
 getPrepareMoEComputeW0W1WeightsOpOutputTensorSpec(
@@ -108,7 +108,7 @@ getPreparedConvTranspose2dWeightsOutputTensor(ConvTranspose2dOp *op,
           op->getInputHeight(), op->getInputWidth(), op->getKernelSize(),
           op->getStride(), op->getPadding(), op->getDilation(), op->getGroups(),
           conv2dConfig, op->getConv2dSliceConfig(), op->getBias() != nullptr,
-          /* transpose */ true);
+          /* transpose */ true, op->getOutputPadding());
 
   if (!outputTensorSpec) {
     llvm::errs() << llvm::toString(outputTensorSpec.takeError());

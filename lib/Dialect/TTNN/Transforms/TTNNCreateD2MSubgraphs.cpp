@@ -254,13 +254,10 @@ private:
       auto tensorType = mlir::cast<RankedTensorType>(v.getType());
       outputTypes.push_back(tensorType);
 
-      auto layoutAttr = mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
       auto shapeAttr =
           ShapeAttr::get(rewriter.getContext(), tensorType.getShape());
-      auto tensorLayoutAttr =
-          LayoutAttr::get(rewriter.getContext(), layoutAttr.getLayout());
-      auto emptyOp = rewriter.create<EmptyOp>(loc, tensorType, device,
-                                              shapeAttr, tensorLayoutAttr);
+      auto emptyOp =
+          rewriter.create<EmptyOp>(loc, tensorType, device, shapeAttr);
       outputBuffers.push_back(emptyOp.getResult());
       lastEmptyOp = emptyOp.getOperation();
     }

@@ -106,9 +106,7 @@ MoeComputeRewritePattern::reshardTilizeInputs(MoeComputeOp srcOp,
                            .build();
     auto newType =
         RankedTensorType::get(t.getShape(), t.getElementType(), newEncoding);
-    return rewriter.create<ttnn::ToLayoutOp>(
-        srcOp.getLoc(), newType, oldInput,
-        LayoutAttr::get(ctx, Layout::RowMajor));
+    return rewriter.create<ttnn::ToLayoutOp>(srcOp.getLoc(), newType, oldInput);
   };
 
   Value newIndices = reshardToTilize(srcOp.getTilizeExpertIndicesTensor());

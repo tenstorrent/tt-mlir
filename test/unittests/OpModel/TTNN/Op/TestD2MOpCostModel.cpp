@@ -39,9 +39,9 @@ public:
     }
     auto rankedTensorType =
         createRankedTensorType(tensorShape, elementType, layout);
-    return builder.create<OnesOp>(
-        builder.getUnknownLoc(), rankedTensorType, /*device=*/nullptr,
-        ShapeAttr::get(&context, tensorShape), /*layout=*/nullptr);
+    return builder.create<OnesOp>(builder.getUnknownLoc(), rankedTensorType,
+                                  /*device=*/nullptr,
+                                  ShapeAttr::get(&context, tensorShape));
   }
 
   std::vector<TTNNLayoutAttr> getInputLayoutsFromOperands(mlir::Operation *op) {

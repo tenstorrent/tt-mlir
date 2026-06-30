@@ -36,6 +36,14 @@ void registerTTNNToFlatbuffer();
 
 namespace mlir::ttmlir::python {
 
+static void convertTTKernelToEmitC(mlir::Operation *moduleOp) {
+  mlir::PassManager pm(moduleOp->getName());
+  pm.nest<func::FuncOp>().addPass(mlir::tt::createConvertTTKernelToEmitC());
+  if (mlir::failed(pm.run(moduleOp))) {
+    throw std::runtime_error("Failed to run pass manager");
+  }
+}
+
 void populatePassesModule(nb::module_ &m) {
   // When populating passes, need to first register them
 
@@ -250,6 +258,36 @@ void populatePassesModule(nb::module_ &m) {
       },
       nb::arg("module"), nb::arg("options") = "", nb::arg("print_ir") = false);
 
+  m.def(
+      "ttir_to_emitc_pipeline",
+      [](MlirModule module, std::string options = "", bool printIr = false) {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getContext());
+
+        if (printIr) {
+          pm.getContext()->disableMultithreading();
+          pm.enableIRPrinting(
+              [](mlir::Pass *, mlir::Operation *) { return false; },
+              [](mlir::Pass *, mlir::Operation *) { return true; }, true,
+              false);
+        }
+
+        const auto *pipeline =
+            mlir::PassPipelineInfo::lookup("ttir-to-emitc-pipeline");
+
+        std::function<mlir::LogicalResult(const llvm::Twine &)> err_handler =
+            [](const llvm::Twine &) { return mlir::failure(); };
+
+        if (mlir::failed(pipeline->addToPipeline(pm, options, err_handler))) {
+          throw std::runtime_error("Failed to add pipeline to pass manager");
+        }
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      nb::arg("module"), nb::arg("options") = "", nb::arg("print_ir") = false);
+
   // This binds the vector into an interfaceable object in python and also an
   // opaquely passed one into other functions.
   nb::bind_vector<std::vector<std::pair<std::string, std::string>>>(
@@ -386,11 +424,7 @@ void populatePassesModule(nb::module_ &m) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
 
         // Convert to EmitC
-        mlir::PassManager pm(moduleOp->getName());
-        pm.addPass(mlir::tt::createConvertTTKernelToEmitC());
-        if (mlir::failed(pm.run(moduleOp))) {
-          throw std::runtime_error("Failed to run pass manager");
-        }
+        convertTTKernelToEmitC(moduleOp);
 
         // Translate to C++
         std::string output;
@@ -410,11 +444,7 @@ void populatePassesModule(nb::module_ &m) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
 
         // Convert to EmitC
-        mlir::PassManager pm(moduleOp->getName());
-        pm.addPass(mlir::tt::createConvertTTKernelToEmitC());
-        if (mlir::failed(pm.run(moduleOp))) {
-          throw std::runtime_error("Failed to run pass manager");
-        }
+        convertTTKernelToEmitC(moduleOp);
 
         // Translate each kernel to C++ and dump to file
         moduleOp->walk([&](func::FuncOp entry) {
@@ -440,11 +470,7 @@ void populatePassesModule(nb::module_ &m) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
 
         // Convert to EmitC
-        mlir::PassManager pm(moduleOp->getName());
-        pm.addPass(mlir::tt::createConvertTTKernelToEmitC());
-        if (mlir::failed(pm.run(moduleOp))) {
-          throw std::runtime_error("Failed to run pass manager");
-        }
+        convertTTKernelToEmitC(moduleOp);
 
         // Translate single kernel to C++
         std::string output;

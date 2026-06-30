@@ -116,6 +116,7 @@ table PrepareConvTranspose2dWeightsOp {
   kernel_size: [int32];
   stride: [int32];
   padding: [int32];
+  output_padding: [int32];
   dilation: [int32];
   has_bias: bool;
   groups: uint32;

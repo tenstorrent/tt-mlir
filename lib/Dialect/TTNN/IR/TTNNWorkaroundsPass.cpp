@@ -273,20 +273,6 @@ TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds(
       .addOutputOperandWorkaround(inputSourceWorkaround); // result
 }
 
-// Factory method to create a set of workarounds for mesh partition op operands.
-// The input and output tensors associated with the op should always be in
-// row-major layout.
-// TODO (hshah): Remove once
-// https://github.com/tenstorrent/tt-metal/issues/37676 is fixed.
-TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createMeshPartitionOpOperandsWorkarounds() {
-  wa::TTNNOperandWorkarounds rowMajorWorkaround;
-  rowMajorWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
-  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(rowMajorWorkaround)
-      .addOutputOperandWorkaround(rowMajorWorkaround);
-}
-
 // Factory method to create a set of workarounds for slice op input operands.
 // ttnn::SliceStaticOp requires uint32 on input if the slice is strided
 // and input is < uint32.
@@ -489,9 +475,10 @@ TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(
 
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createSamplingOpOperandsWorkarounds() {
-  // ttnn::sampling kernel requires ROW_MAJOR layout for index/param tensors
-  // and produces a ROW_MAJOR uint32 result (token indices). Declare these so
-  // the pass inserts to_layout/typecast ops to reconcile with neighbours.
+  // ttnn::sampling kernel requires ROW_MAJOR layout for index/param tensors,
+  // UINT32 dtype for k, and produces a ROW_MAJOR uint32 result (token
+  // indices). Declare these so the pass inserts to_layout / typecast ops to
+  // reconcile with neighbours.
   TTNNOperandWorkarounds empty;
   TTNNOperandWorkarounds rowMajor;
   rowMajor.tensorLayoutWorkaround = Layout::RowMajor;
@@ -503,7 +490,7 @@ TTNNOperandsWorkaroundsFactory::createSamplingOpOperandsWorkarounds() {
   return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
       .addInputOperandWorkaround(empty)            // input_values
       .addInputOperandWorkaround(rowMajor)         // input_indices
-      .addInputOperandWorkaround(rowMajor)         // k
+      .addInputOperandWorkaround(rowMajorUInt32)   // k
       .addInputOperandWorkaround(rowMajor)         // p
       .addInputOperandWorkaround(rowMajor)         // temp
       .addOutputOperandWorkaround(rowMajorUInt32); // result

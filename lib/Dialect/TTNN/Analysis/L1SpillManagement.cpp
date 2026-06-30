@@ -398,12 +398,6 @@ void L1SpillManagement<MemoryTracker>::applyOutputConfig(
         RankedTensorType::get(tensorShape, newElementType, resultLayout);
     opResult.setType(newTensorType);
   }
-
-  // Update layout attribute for ops that have layout interface (op-level).
-  if (auto opWithLayoutIF = mlir::dyn_cast<TTNNLayoutOpInterface>(op)) {
-    opWithLayoutIF.setLayoutAttr(
-        LayoutAttr::get(op->getContext(), chosenLayout.getLayout()));
-  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -1264,14 +1258,9 @@ void L1SpillManagement<MemoryTracker>::run() {
       continue;
     }
 
-    // ToLayoutOp with L1 output: workaround-inserted and always immediately
-    // consumed by the target op. MemoryLayoutPropagation skips these, and
-    // pre-decomposition OpModel is inaccurate.
-    // Use farthest-last-use eviction for live tensors if needed to create room,
-    // but do not add the output to liveValues — it is not a long-lived L1
-    // tenant and will be gone (or dead) before any subsequent eviction decision
-    // matters. Being absent from liveValues also means evictAllFromL1 (e.g.
-    // triggered by DistributedRMSNormOp's isNotImplemented) cannot spill it.
+    // ToLayoutOp requires special handling due to the fact it is a complex op
+    // which decomposes into few real TTNN ops. MemoryLayoutPropagation skips
+    // these, and pre-decomposition OpModel is impossible.
     if (isa<ToLayoutOp>(op)) {
       auto resultType =
           mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
@@ -1279,6 +1268,14 @@ void L1SpillManagement<MemoryTracker>::run() {
           mlir::dyn_cast_or_null<TTNNLayoutAttr>(resultType.getEncoding());
       assert(lo && "ToLayoutOp result must have TTNNLayoutAttr encoding");
       if (lo.hasL1BufferType()) {
+        // Case with L1 output: workaround-inserted and always immediately
+        // consumed by the target op.
+        // Use farthest-last-use eviction for live tensors if needed to create
+        // room, but do not add the output to liveValues — it is not a
+        // long-lived L1 tenant and will be gone (or dead) before any subsequent
+        // eviction decision matters. Being absent from liveValues also means
+        // evictAllFromL1 (e.g. triggered by DistributedRMSNormOp's
+        // isNotImplemented) cannot spill it.
         uint64_t derivedL1 = utils::getPerCoreL1Usage(
             lo, ttmlir::utils::volume(lo.getGridShape()));
         TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
@@ -1289,9 +1286,12 @@ void L1SpillManagement<MemoryTracker>::run() {
         // CBPeakUsage fixed to 0 as we have no validation result for ToLayoutOp
         // itself which is yet to be decomposed.
         ensureFitsL1(op, pos, data, /*cbPeakUsage=*/0, derivedL1);
-        continue;
       }
-      // DRAM ToLayoutOp: fall through to standard processing.
+
+      // Regardless of whether the ToLayoutOp's output is L1 or DRAM, we have no
+      // way of validating this op since it is yet to be decomposed. Usually
+      // this is workaround inserted op, so we can skip it.
+      continue;
     }
 
     // Determine if the op outputs to L1 by inspecting its result types

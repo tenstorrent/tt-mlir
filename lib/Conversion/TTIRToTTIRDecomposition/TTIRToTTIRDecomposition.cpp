@@ -283,10 +283,25 @@ struct DotGeneralToMatmulConversionPattern
     matmulDestinationShape.push_back(
         computeProductOfDims(rhsType.getShape(), rhsResultDims));
 
-    // Perform matmul operation.
-    auto matmulOp = rewriter.create<ttir::MatmulOp>(
-        op.getLoc(), RankedTensorType::get(matmulDestinationShape, elementType),
-        lhsMatmulInput, rhsMatmulInput);
+    // Perform the contraction. When every contracting dimension has extent 1
+    // the dot_general is a pure outer product, which we lower to a broadcast
+    // elementwise multiply to keep full f32 precision. lhsMatmulInput is
+    // [..., M, 1] and rhsMatmulInput is [..., 1, N], so they broadcast-multiply
+    // to the matmul destination shape [..., M, N].
+    int64_t contractionSize =
+        computeProductOfDims(lhsType.getShape(), lhsContractDims);
+    Value contractionResult;
+    if (contractionSize == 1) {
+      contractionResult = rewriter.create<ttir::MultiplyOp>(
+          op.getLoc(),
+          RankedTensorType::get(matmulDestinationShape, elementType),
+          lhsMatmulInput, rhsMatmulInput);
+    } else {
+      contractionResult = rewriter.create<ttir::MatmulOp>(
+          op.getLoc(),
+          RankedTensorType::get(matmulDestinationShape, elementType),
+          lhsMatmulInput, rhsMatmulInput);
+    }
 
     // Reshape the result by unrolling the prod(lhsResultDims) to original
     // lhsResultDims and likewise for rhsResultDims.
@@ -306,7 +321,7 @@ struct DotGeneralToMatmulConversionPattern
                                              resultShape.end());
 
     auto reshapeOutput = rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
-        op, RankedTensorType::get(resultShape, elementType), matmulOp,
+        op, RankedTensorType::get(resultShape, elementType), contractionResult,
         rewriter.getI32ArrayAttr(finalShapeI32));
 
     reshapeOutput->setLoc(ttmlir::utils::appendLocationSuffix(

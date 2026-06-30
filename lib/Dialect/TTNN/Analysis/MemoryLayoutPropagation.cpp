@@ -86,9 +86,7 @@ static TTNNLayoutAttr getOutputLayoutForResult(const BeamCandidate &c,
 /// Returns nullptr when no filtering is needed (all layouts accepted).
 /// Delegates to per-op rule files via OpRuleBook.
 static LayoutFilterFn getInputLayoutFilter(Operation *op, unsigned operandIdx) {
-  auto inputType =
-      mlir::cast<RankedTensorType>(op->getOperand(operandIdx).getType());
-  return getRuleBook(op).getInputLayoutFilter(inputType, operandIdx);
+  return getRuleBook(op).getInputLayoutFilter(operandIdx);
 }
 
 /// Returns true if the operand is already "constant" from the optimizer's
@@ -1407,14 +1405,6 @@ void MemoryLayoutPropagation::applyOpConfig(Operation *op,
     RankedTensorType newTensorType =
         RankedTensorType::get(tensorShape, newElementType, resultLayout);
     result.setType(newTensorType);
-  }
-
-  // Op-level attribute updates use result 0's layout (chosenLayout).
-
-  // Update layout attribute for ops that have layout interface.
-  if (auto opWithLayoutIF = mlir::dyn_cast<TTNNLayoutOpInterface>(op)) {
-    opWithLayoutIF.setLayoutAttr(
-        LayoutAttr::get(op->getContext(), chosenLayout.getLayout()));
   }
 
   applyOpSpecificAttrs(op, candidate);

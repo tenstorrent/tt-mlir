@@ -23,9 +23,14 @@ struct CBUsageInfo {
 
 llvm::DenseMap<Value, CBUsageInfo> getCBUsageInfo(Region &genericRegion);
 
+/// Returns true if `op` is pure and all operations defining its operands are
+/// also purely derived. Block arguments are considered pure roots.
+bool isPurelyDerivedOp(Operation *op,
+                       DenseMap<Operation *, bool> &purelyDerivedOps);
+
 /// Wraps a range of ops [start, end) in a SynchronizedRegionOp.
 ///
-/// PRECONDITION: No op in [start, end) with a side effect (i.e. not pure) may
+/// PRECONDITION: No op in [start, end) that is not purely derived may
 /// produce SSA results that are used outside of [start, end). Since
 /// SynchronizedRegionOp has no results, any such external uses would become
 /// invalid when the original ops are erased.

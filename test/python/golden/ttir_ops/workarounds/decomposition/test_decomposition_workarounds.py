@@ -77,61 +77,6 @@ def test_linear_without_workaround(
 
 
 @pytest.mark.parametrize(
-    "shape",
-    [
-        # 3D input triggers the workaround (rank < 4)
-        (32, 128, 128),
-        # 2D input also triggers the workaround
-        (128, 128),
-    ],
-    ids=shape_str,
-)
-@pytest.mark.parametrize("dtype", [torch.float32], ids=["f32"])
-@pytest.mark.parametrize("dim", [0])
-@pytest.mark.parametrize("keep_dim", [True, False])
-@pytest.mark.parametrize("target", ["ttnn"])
-@pytest.mark.xfail(
-    reason="ttnn.argmax requires 4D input tensors. Without the workaround, "
-    "input tensors with rank < 4 are not unsqueezed to 4D before the op. "
-    "Metal issue: https://github.com/tenstorrent/tt-metal/issues/18241"
-)
-def test_argmax_without_workaround(
-    shape: Shape,
-    dtype: torch.dtype,
-    dim: int,
-    keep_dim: bool,
-    target: str,
-    request,
-    device,
-):
-    """
-    Test argmax with workarounds disabled.
-    Workaround: ArgMaxOpRewritePattern - unsqueezes input to 4D and reshapes
-    output back to original rank.
-    Trigger condition: input tensor rank < 4.
-    """
-
-    def module(builder: TTIRBuilder):
-        @builder.func([shape], [dtype])
-        def argmax_no_workaround_wrapper(
-            in0: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            return builder.argmax(
-                in0, dim_arg=[dim], keep_dim=keep_dim, unit_attrs=unit_attrs
-            )
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-        pipeline_options=["enable-decomposition-workaround-pass=false"],
-    )
-
-
-@pytest.mark.parametrize(
     "shapes",
     [
         # 5D weight tensor triggers the workaround (rank > 4)

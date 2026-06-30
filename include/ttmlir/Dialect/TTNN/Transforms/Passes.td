@@ -300,7 +300,7 @@ def TTNNPrepareModuleForExport : Pass<"ttnn-prepare-module-for-export", "::mlir:
     // After:
     %0 = ttcore.get_tuple_element %arg0[0]
         : (tuple<tensor<32x32xbf16, #host>, ...>)   -> tensor<32x32xbf16, #host>
-    %1 = "ttnn.to_layout"(%0) <{layout = #ttnn.layout<tile>}>
+    %1 = "ttnn.to_layout"(%0)
         : (tensor<32x32xbf16, #host>) -> tensor<32x32xbf16, #host_staged>
     %2 = "ttnn.to_device"(%1, %arg1)
         : (tensor<32x32xbf16, #host_staged>, !ttnn.device)

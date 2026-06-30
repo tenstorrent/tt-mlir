@@ -7,7 +7,7 @@
 
 include "mlir/Pass/PassBase.td"
 
-def TTKernelControlDstSection: Pass<"ttkernel-control-dst-section", "::mlir::ModuleOp"> {
+def TTKernelControlDstSection: Pass<"ttkernel-control-dst-section", "::mlir::func::FuncOp"> {
   let summary = "Control Dst Register Critical Section";
   let description = [{
     Analyze the graph and insert tile_regs_* ops to control the dst critical section.
@@ -15,7 +15,7 @@ def TTKernelControlDstSection: Pass<"ttkernel-control-dst-section", "::mlir::Mod
   let dependentDialects = ["mlir::tt::ttkernel::TTKernelDialect"];
 }
 
-def TTKernelInsertDeviceZoneScopes: Pass<"insert-device-zone-scopes", "::mlir::ModuleOp"> {
+def TTKernelInsertDeviceZoneScopes: Pass<"insert-device-zone-scopes", "::mlir::func::FuncOp"> {
   let summary = "Insert DeviceZoneScopedN around selected TTKernel ops";
   let description = [{
     Insert scoping braces and DeviceZoneScopedN statements around TTKernel ops
@@ -28,7 +28,7 @@ def TTKernelInsertDeviceZoneScopes: Pass<"insert-device-zone-scopes", "::mlir::M
   ];
 }
 
-def TTKernelHoistInits: Pass<"ttkernel-hoist-inits", "::mlir::ModuleOp"> {
+def TTKernelHoistInits: Pass<"ttkernel-hoist-inits", "::mlir::func::FuncOp"> {
   let summary = "Hoist inits";
   let description = [{
     Analyze the graph and maximally hoist init ops to respective loop nests.
@@ -36,7 +36,7 @@ def TTKernelHoistInits: Pass<"ttkernel-hoist-inits", "::mlir::ModuleOp"> {
   let dependentDialects = ["mlir::tt::ttkernel::TTKernelDialect"];
 }
 
-def TTKernelDedupInits: Pass<"ttkernel-dedup-inits", "::mlir::ModuleOp"> {
+def TTKernelDedupInits: Pass<"ttkernel-dedup-inits", "::mlir::func::FuncOp"> {
   let summary = "Eliminate redundant TTKernel init ops in straight-line code";
   let description = [{
     A peephole that removes init ops left redundant by the per-op D2M->TTKernel
