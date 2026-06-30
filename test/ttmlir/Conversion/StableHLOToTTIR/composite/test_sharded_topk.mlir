@@ -132,18 +132,18 @@ func.func private @tenstorrent.topk.impl(%arg0: tensor<1x65536xf32>)
 }
 
 // Regression: K=1 (greedy) on a sharded input. k*numShards = 4 is below the
-// tt-metal tile width (32), so the lowering must pad per-shard candidates to
-// effectiveK=8 (with 4 shards) to keep the all_gather'd intermediate
-// tile-aligned, then slice down to k=1 at the end.
+// tt-metal tile width (32), so the lowering pads each shard's local topk to a
+// full tile (effectiveK=32) to keep the all_gather'd intermediate tile-aligned,
+// then slices down to k=1 at the end.
 // CHECK-LABEL: func.func public @topk_indices_k1_multi_device
 // CHECK: sdy.manual_computation
-// CHECK: "ttir.topk"{{.*}}k = 8 : i32{{.*}}tensor<1x16384xf32>{{.*}}tensor<1x8xf32>
-// CHECK: "ttir.all_gather"{{.*}}tensor<1x8xf32>{{.*}}tensor<1x32xf32>
-// CHECK: "ttir.all_gather"{{.*}}tensor<1x8xi32>{{.*}}tensor<1x32xi32>
-// CHECK: "ttir.add"{{.*}}tensor<1x32xi32>
-// CHECK: "ttir.topk"{{.*}}k = 8 : i32{{.*}}tensor<1x32xf32>{{.*}}tensor<1x8xf32>
-// CHECK: "ttir.gather"{{.*}}tensor<1x32xi32>{{.*}}tensor<1x8xi32>
-// CHECK: "ttir.slice_static"{{.*}}tensor<1x8xi32>{{.*}}tensor<1x1xi32>
+// CHECK: "ttir.topk"{{.*}}k = 32 : i32{{.*}}tensor<1x16384xf32>{{.*}}tensor<1x32xf32>
+// CHECK: "ttir.all_gather"{{.*}}tensor<1x32xf32>{{.*}}tensor<1x128xf32>
+// CHECK: "ttir.all_gather"{{.*}}tensor<1x32xi32>{{.*}}tensor<1x128xi32>
+// CHECK: "ttir.add"{{.*}}tensor<1x128xi32>
+// CHECK: "ttir.topk"{{.*}}k = 32 : i32{{.*}}tensor<1x128xf32>{{.*}}tensor<1x32xf32>
+// CHECK: "ttir.gather"{{.*}}tensor<1x128xi32>{{.*}}tensor<1x32xi32>
+// CHECK: "ttir.slice_static"{{.*}}tensor<1x32xi32>{{.*}}tensor<1x1xi32>
 func.func public @topk_indices_k1_multi_device(
     %arg0: tensor<1x65536xf32>
         {sdy.sharding = #sdy.sharding<@mesh, [{}, {"vocab"}]>})

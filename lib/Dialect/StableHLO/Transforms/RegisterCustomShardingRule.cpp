@@ -1595,8 +1595,7 @@ getArgMaxShardingRule(mlir::stablehlo::CustomCallOp op) {
   }
 
   auto inputType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
-  auto resultType =
-      llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
+  auto resultType = llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
   if (!inputType || !resultType || inputType.getRank() != 2) {
     return mlir::sdy::OpShardingRuleAttr();
   }
@@ -1608,8 +1607,7 @@ getArgMaxShardingRule(mlir::stablehlo::CustomCallOp op) {
   mlir::sdy::OpShardingRuleBuilder builder(op);
 
   // Batch dim: passthrough input[0] → result[0].
-  builder.addFactor({0}, {0}, batchSize,
-                    mlir::sdy::FactorType::kPassThrough);
+  builder.addFactor({0}, {0}, batchSize, mlir::sdy::FactorType::kPassThrough);
 
   // Reduction dim: passthrough on input, null on result. Tells Shardy
   // the op handles distributed argmax internally (local argmax +

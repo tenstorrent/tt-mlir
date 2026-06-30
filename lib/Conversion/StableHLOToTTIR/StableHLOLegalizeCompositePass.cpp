@@ -484,8 +484,8 @@ public:
     bool isDistributed = numShards > 1;
 
     if (!isDistributed) {
-      auto dimArg = rewriter.getI32ArrayAttr(
-          {static_cast<int32_t>(reductionDim)});
+      auto dimArg =
+          rewriter.getI32ArrayAttr({static_cast<int32_t>(reductionDim)});
       rewriter.replaceOpWithNewOp<ttir::ArgMaxOp>(srcOp, resultType, input,
                                                   keepdim, dimArg);
       return success();
@@ -493,8 +493,8 @@ public:
 
     // Distributed argmax: local max/argmax → all_gather → shard offset →
     // merge argmax → gather.
-    auto dimArgAttr = rewriter.getI32ArrayAttr(
-        {static_cast<int32_t>(reductionDim)});
+    auto dimArgAttr =
+        rewriter.getI32ArrayAttr({static_cast<int32_t>(reductionDim)});
     auto dimI32 =
         rewriter.getI32IntegerAttr(static_cast<int32_t>(reductionDim));
 
@@ -502,34 +502,32 @@ public:
     auto localMaxType = RankedTensorType::get({batch, 1}, elemType);
     auto localIdxType =
         RankedTensorType::get({batch, 1}, rewriter.getI32Type());
-    Value localMax = rewriter.create<ttir::MaxOp>(loc, localMaxType, input,
-                                                  true /*keep_dim*/, dimArgAttr);
+    Value localMax = rewriter.create<ttir::MaxOp>(
+        loc, localMaxType, input, true /*keep_dim*/, dimArgAttr);
     Value localIdx = rewriter.create<ttir::ArgMaxOp>(
         loc, localIdxType, input, true /*keep_dim*/, dimArgAttr);
 
     // 2. All_gather: [batch, 1] → [batch, numShards].
-    auto gatheredMaxType =
-        RankedTensorType::get({batch, numShards}, elemType);
+    auto gatheredMaxType = RankedTensorType::get({batch, numShards}, elemType);
     auto gatheredIdxType =
         RankedTensorType::get({batch, numShards}, rewriter.getI32Type());
     Value gatheredMax = rewriter.create<ttir::AllGatherOp>(
-        loc, gatheredMaxType, localMax,
-        static_cast<int32_t>(reductionDim), clusterAxis);
+        loc, gatheredMaxType, localMax, static_cast<int32_t>(reductionDim),
+        clusterAxis);
     Value gatheredIdx = rewriter.create<ttir::AllGatherOp>(
-        loc, gatheredIdxType, localIdx,
-        static_cast<int32_t>(reductionDim), clusterAxis);
+        loc, gatheredIdxType, localIdx, static_cast<int32_t>(reductionDim),
+        clusterAxis);
 
     // 3. Add shard offsets to make indices global.
     SmallVector<int32_t> offsetValues;
     offsetValues.reserve(batch * numShards);
     for (int64_t b = 0; b < batch; ++b) {
       for (int64_t shard = 0; shard < numShards; ++shard) {
-        offsetValues.push_back(
-            static_cast<int32_t>(shard * numItemsLocal));
+        offsetValues.push_back(static_cast<int32_t>(shard * numItemsLocal));
       }
     }
-    auto offsetAttr = DenseElementsAttr::get(gatheredIdxType,
-                                             llvm::ArrayRef<int32_t>(offsetValues));
+    auto offsetAttr = DenseElementsAttr::get(
+        gatheredIdxType, llvm::ArrayRef<int32_t>(offsetValues));
     Value offsetConst =
         rewriter.create<ttir::ConstantOp>(loc, gatheredIdxType, offsetAttr);
     Value globalIdx = rewriter.create<ttir::AddOp>(loc, gatheredIdxType,
@@ -553,8 +551,7 @@ public:
 
     // 6. Handle keepdim and type casting.
     if (!keepdim) {
-      auto reshapedType =
-          RankedTensorType::get({batch}, rewriter.getI32Type());
+      auto reshapedType = RankedTensorType::get({batch}, rewriter.getI32Type());
       result = rewriter.create<ttir::ReshapeOp>(
           loc, reshapedType, result,
           rewriter.getI32ArrayAttr({static_cast<int32_t>(batch)}));
@@ -866,9 +863,9 @@ public:
     int64_t outK = std::max(kTileWidth, roundUpTo(k, kTileWidth));
     // Per-shard local candidate count: smallest tile-multiple with
     // localK*numShards >= outK, capped at kMaxMultiCoreK for multi-core.
-    int64_t localK = std::min(
-        kMaxMultiCoreK,
-        roundUpTo((outK + numShards - 1) / numShards, kTileWidth));
+    int64_t localK =
+        std::min(kMaxMultiCoreK,
+                 roundUpTo((outK + numShards - 1) / numShards, kTileWidth));
     localK = std::min(localK, numItemsLocal);
     // If numShards*localK still can't cover outK (very large k), grow localK
     // even if it costs single-core — correctness over speed.
