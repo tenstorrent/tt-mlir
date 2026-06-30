@@ -257,12 +257,6 @@ public:
   // Create workarounds for upsample op operands.
   static TTNNOperandsWorkarounds createUpsampleOpOperandsWorkarounds();
 
-  // Create workarounds for mesh partition op operands. The input and output
-  // tensors are always in row-major layout.
-  // TODO (hshah): Remove once
-  // https://github.com/tenstorrent/tt-metal/issues/37676 is fixed.
-  static TTNNOperandsWorkarounds createMeshPartitionOpOperandsWorkarounds();
-
   // Create workarounds for gather op operands. The input and index tensors must
   // always be in TILED layout.
   // tt-metal issue: https://github.com/tenstorrent/tt-metal/issues/41451

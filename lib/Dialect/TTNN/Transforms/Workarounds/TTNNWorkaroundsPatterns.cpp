@@ -781,5 +781,21 @@ const std::set<mlir::StringRef>
         // layout and data type workarounds.
         ttnn::PrepareMoEComputeW0W1WeightsOp::getOperationName(),
         ttnn::PrepareMoEComputeW2WeightsOp::getOperationName(),
-        ttnn::MoeComputeOp::getOperationName()};
+        ttnn::MoeComputeOp::getOperationName(),
+        // MoE all-to-all CCL ops are OpModelExempt; their operands workarounds
+        // force ROW_MAJOR + specific dtypes (bf16/ui16) that tt-metal requires.
+        // Without whitelisting, opt_level>=1 leaves them tiled / wrong dtype and
+        // they fail at runtime ("Input tensor must be in row major layout" /
+        // "Indices tensor must be uint16").
+        ttnn::AllToAllDispatchOp::getOperationName(),
+        ttnn::AllToAllDispatchMetadataOp::getOperationName(),
+        ttnn::AllToAllCombineOp::getOperationName(),
+        ttnn::MoeExpertTokenRemapOp::getOperationName(),
+        ttnn::MoeGptOp::getOperationName(),
+        ttnn::SelectiveReduceCombineOp::getOperationName(),
+        // SparseMatmulOp (MoE expert compute) operand workaround forces the
+        // sparsity operand to ROW_MAJOR + bf16. Without whitelisting, opt_level>=1
+        // leaves the sparsity operand f32/tiled, so the expert sparse_matmul
+        // masks experts incorrectly -> wrong MoE output (GLM decode PCC 0.886).
+        ttnn::SparseMatmulOp::getOperationName()};
 } // namespace mlir::tt::ttnn
