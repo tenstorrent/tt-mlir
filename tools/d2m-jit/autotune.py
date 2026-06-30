@@ -42,12 +42,14 @@ Two entry points share the same per-config evaluation:
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import importlib.util
 import json
 import os
 import pathlib
 import shutil
+import sys
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Sequence
 
@@ -57,6 +59,33 @@ from d2m_jit import config
 from d2m_jit.testing import d2m_dtype, make_inputs, torch_dtype
 
 # --- perf-analyzer (hyphenated filename / sibling tool -> load by path) ------
+
+
+@contextlib.contextmanager
+def _silence_build_output(log_path):
+    """Redirect OS-level stdout/stderr (fds 1/2) to ``log_path`` for the duration.
+
+    Kernel JIT compilation runs in subprocesses spawned by tt-metal, so their
+    profiler ``#pragma message`` notes reach the terminal through the inherited
+    file descriptors, not Python's ``sys.stdout`` -- a ``contextlib.redirect_*``
+    won't catch them. Redirecting the fds does. The profiler CSV is written to a
+    file and is unaffected, and the build output is kept in ``log_path`` so a
+    genuine compile failure is still inspectable."""
+    sys.stdout.flush()
+    sys.stderr.flush()
+    saved_out, saved_err = os.dup(1), os.dup(2)
+    with open(log_path, "w") as log:
+        try:
+            os.dup2(log.fileno(), 1)
+            os.dup2(log.fileno(), 2)
+            yield
+        finally:
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os.dup2(saved_out, 1)
+            os.dup2(saved_err, 2)
+            os.close(saved_out)
+            os.close(saved_err)
 
 
 def _load_perf_analyzer():
@@ -327,10 +356,19 @@ class _EvalContext:
     out_root: pathlib.Path
     check_pcc: bool
     pcc: float
+    save_artifacts: bool
 
 
 def _setup(
-    kernel, input_shapes, run, golden, check_pcc, pcc, out_dir, seed
+    kernel,
+    input_shapes,
+    run,
+    golden,
+    check_pcc,
+    pcc,
+    out_dir,
+    seed,
+    save_artifacts=False,
 ) -> _EvalContext:
     """Shared one-time setup: profiler env/flags, perf-analyzer, canonical
     inputs + reference. Used by both `tune` and `search`."""
@@ -360,6 +398,7 @@ def _setup(
         out_root,
         check_pcc,
         pcc,
+        save_artifacts,
     )
 
 
@@ -369,19 +408,30 @@ def _evaluate(cfg: dict, idx: int, ctx: _EvalContext) -> TuneRecord:
     Never raises: a compile/run failure becomes a ``valid=False`` record (signal),
     so a sweep or search keeps going. Resets the builder afterwards so a failed
     config can't leak MLIR state into the next."""
-    cfg_dir = ctx.out_root / f"cfg_{idx:03d}"
-    cfg_dir.mkdir(parents=True, exist_ok=True)
+    # Per-config artifacts (cfg_NNN/ with build.log + a CSV snapshot) are only
+    # written when `save_artifacts` is set. Off by default: build output is
+    # discarded and the report is built straight from the live profiler CSV.
+    if ctx.save_artifacts:
+        cfg_dir = ctx.out_root / f"cfg_{idx:03d}"
+        cfg_dir.mkdir(parents=True, exist_ok=True)
+        build_log = cfg_dir / "build.log"
+    else:
+        build_log = os.devnull
     try:
         cfg_inputs = [
             t.to(torch_dtype(cfg.get("dtype", "float32"))) for t in ctx.canonical
         ]
         if ctx.csv.exists():
             ctx.csv.unlink()
-        actual = ctx.run(ctx.kernel, cfg_inputs, cfg)
+        with _silence_build_output(build_log):
+            actual = ctx.run(ctx.kernel, cfg_inputs, cfg)
         if not ctx.csv.exists():
             raise RuntimeError("no profiler CSV produced for this config")
-        snapshot = cfg_dir / "profile_log_device.csv"
-        shutil.copy(ctx.csv, snapshot)
+        if ctx.save_artifacts:
+            snapshot = cfg_dir / "profile_log_device.csv"
+            shutil.copy(ctx.csv, snapshot)
+        else:
+            snapshot = ctx.csv
         rep = ctx.pa.build_report(snapshot)
         cfg_pcc = None
         valid = True
@@ -396,7 +446,7 @@ def _evaluate(cfg: dict, idx: int, ctx: _EvalContext) -> TuneRecord:
             pcc=cfg_pcc,
             kernel_ns=rep["runtimes"]["device_kernel_time"]["ns"],
             diagnostics=_diagnostics(rep),
-            report_path=str(snapshot),
+            report_path=str(snapshot) if ctx.save_artifacts else None,
         )
     except Exception as e:  # compile/run failure -> prune, keep as signal
         return TuneRecord(config=cfg, valid=False, error=f"{type(e).__name__}: {e}")
@@ -421,6 +471,7 @@ def tune(
     objective: str = "device_kernel_time",
     out_dir: str = "prof_tune",
     seed: int = 0,
+    save_artifacts: bool = False,
 ) -> TuneResult:
     """Evaluate every config in ``space`` and rank by device kernel time.
 
@@ -435,8 +486,20 @@ def tune(
     check_pcc     : gate each config on PCC (default on; near-free, see module doc).
     pcc           : PCC threshold for a config to count as ``valid``.
     out_dir       : root for per-config profiler snapshots + the leaderboard JSON.
+    save_artifacts: keep per-config ``cfg_NNN/`` dirs (build.log + CSV snapshot).
+                    Off by default; only the leaderboard JSON is written.
     """
-    ctx = _setup(kernel, input_shapes, run, golden, check_pcc, pcc, out_dir, seed)
+    ctx = _setup(
+        kernel,
+        input_shapes,
+        run,
+        golden,
+        check_pcc,
+        pcc,
+        out_dir,
+        seed,
+        save_artifacts,
+    )
     records = [_evaluate(cfg, i, ctx) for i, cfg in enumerate(space)]
     result = TuneResult(objective=objective, records=records)
     result.write_json(ctx.out_root / "leaderboard.json")
@@ -494,6 +557,7 @@ def search(
     out_dir: str = "prof_search",
     seed: int = 0,
     on_round: Optional[Callable] = None,
+    save_artifacts: bool = False,
 ) -> TuneResult:
     """Guided search: drive ``proposer`` in propose/evaluate/observe rounds.
 
@@ -502,7 +566,17 @@ def search(
     re-propose freely. ``on_round(round_idx, history)`` is an optional progress
     hook. Returns a ``TuneResult`` over the evaluated configs (so leaderboard /
     pareto / JSON all work the same as for an exhaustive ``tune``)."""
-    ctx = _setup(kernel, input_shapes, run, golden, check_pcc, pcc, out_dir, seed)
+    ctx = _setup(
+        kernel,
+        input_shapes,
+        run,
+        golden,
+        check_pcc,
+        pcc,
+        out_dir,
+        seed,
+        save_artifacts,
+    )
     history: list[TuneRecord] = []
     seen: set = set()
     round_i = 0
@@ -775,7 +849,7 @@ def _label(cfg):
     return f"{g}|{b}/{cfg['dtype']}"  # grid|block/dtype
 
 
-def _demo() -> None:
+def _demo(save_artifacts: bool = False) -> None:
     """Exhaustive tune of `exp_fused` over (grid x block x dtype) for 128x128."""
     shape = (128, 128)
     space = block_space(shape, dtypes=("float32", "bfloat16"))
@@ -783,7 +857,12 @@ def _demo() -> None:
         f"tuning exp_fused over {len(space)} (grid x block x dtype) cfgs, {shape} ..."
     )
     result = tune(
-        _exp_kernel(), [shape], space, golden=torch.exp, out_dir="prof_tune_exp"
+        _exp_kernel(),
+        [shape],
+        space,
+        golden=torch.exp,
+        out_dir="prof_tune_exp",
+        save_artifacts=save_artifacts,
     )
 
     print(f"\nobjective: {result.objective} (lower = faster)\n")
@@ -803,7 +882,7 @@ def _demo() -> None:
     print("\nleaderboard.json (with pareto front) written under prof_tune_exp/")
 
 
-def _demo_search() -> None:
+def _demo_search(save_artifacts: bool = False) -> None:
     """Guided search: hill-climb `exp_fused` over (grid x block x dtype) toward
     the best config, evaluating a path through the space instead of all of it."""
     shape = (128, 128)
@@ -816,7 +895,12 @@ def _demo_search() -> None:
         f"(latency hill-climb from {_label(seed)}) for {shape} ...\n"
     )
     result = search(
-        _exp_kernel(), [shape], proposer, golden=torch.exp, out_dir="prof_search_exp"
+        _exp_kernel(),
+        [shape],
+        proposer,
+        golden=torch.exp,
+        out_dir="prof_search_exp",
+        save_artifacts=save_artifacts,
     )
 
     print("evaluation path (in order proposed):")
@@ -843,7 +927,8 @@ def _demo_search() -> None:
 if __name__ == "__main__":
     import sys
 
+    save_artifacts = "--save-artifacts" in sys.argv
     if "--exhaustive" in sys.argv:
-        _demo()
+        _demo(save_artifacts=save_artifacts)
     else:
-        _demo_search()
+        _demo_search(save_artifacts=save_artifacts)
