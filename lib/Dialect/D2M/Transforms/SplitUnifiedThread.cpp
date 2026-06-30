@@ -45,7 +45,8 @@ static bool isSynchronizableBoundaryOp(
 
 static bool canMergeIntoComputeRegion(
     Operation *op, const DenseSet<Operation *> &opsWithSynchronizableOps) {
-  return !isSynchronizableBoundaryOp(op, opsWithSynchronizableOps);
+  return !op->hasTrait<OpTrait::IsTerminator>() &&
+         !isSynchronizableBoundaryOp(op, opsWithSynchronizableOps);
 }
 
 static bool hasSynchronizableAncestor(Operation *op, GenericOp genericOp) {
@@ -240,11 +241,15 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
       opsWithSynchronizableOps.insert(op->getParentOp());
     }
   });
+  if (opsWithSynchronizableOps.empty()) {
+    return success();
+  }
+
   if (hasCrossNestComputeConsumerFanout(genericOp)) {
-    return genericOp.emitOpError()
-           << "compute ops span multiple synchronization scopes (e.g. a CB "
-              "consumed across distinct loop nests); cross-nest fan-out is not "
-              "yet supported";
+    return rewriter.notifyMatchFailure(
+        genericOp,
+        "compute ops span multiple synchronization scopes (e.g. a CB consumed "
+        "across distinct loop nests); cross-nest fan-out is not yet supported");
   }
 
   DenseSet<Operation *> outermostOps;
@@ -263,9 +268,9 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
       outermostOp = outermostOp->getParentOp();
       if (!mlir::isa<scf::ForOp>(outermostOp) &&
           !mlir::isa<linalg::GenericOp>(outermostOp)) {
-        outermostOp->emitOpError(
-            "Parent ops containing compute ops must be scf.for or "
-            "linalg.generic");
+        (void)rewriter.notifyMatchFailure(
+            genericOp, "parent ops containing compute ops must be scf.for or "
+                       "linalg.generic");
         walkFailed = true;
         return WalkResult::interrupt();
       }
@@ -467,10 +472,10 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
   // Consumers: wait once before the first consumer, pop once after the last.
   for (auto &[localBuffer, ops] : consumersByCB) {
     if (!commonParentBlock(ops)) {
-      return generic.emitOpError()
-             << "CB has consumers across distinct loop nests; cross-nest "
-                "fan-out is not yet supported (would deadlock on a "
-                "wait/pop cadence mismatch)";
+      return rewriter.notifyMatchFailure(
+          generic,
+          "CB has consumers across distinct loop nests; cross-nest fan-out is "
+          "not yet supported (would deadlock on a wait/pop cadence mismatch)");
     }
     unsigned cbOperandIdx = generic.getOperandIndex(localBuffer);
     Operation *first = ops.front();
@@ -516,9 +521,10 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
           !mlir::isa<RemoteStoreOp>(usageInfo.consumers.front()) ||
           !getSiblingOpsInNearestCommonBlock(first, last, reserveBefore,
                                              pushAfter)) {
-        return generic.emitOpError()
-               << "CB has producers across distinct loop nests; cross-nest "
-                  "producer fan-out is not yet supported";
+        return rewriter.notifyMatchFailure(
+            generic,
+            "CB has producers across distinct loop nests; cross-nest producer "
+            "fan-out is not yet supported");
       }
     }
     Location loc = first->getLoc();
