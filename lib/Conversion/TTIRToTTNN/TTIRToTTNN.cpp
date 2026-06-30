@@ -1864,6 +1864,100 @@ public:
 } // namespace
 
 namespace {
+class Conv1dOpConversionPattern : public OpConversionPattern<ttir::Conv1dOp> {
+public:
+  using OpConversionPattern<ttir::Conv1dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::Conv1dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    auto weightTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
+    auto inputShape = inputTy.getShape();
+
+    int64_t batchDim = op.getBatchDim();
+    int64_t lengthDim = op.getLengthDim();
+    int64_t channelDim = op.getChannelDim();
+
+    auto batchSizeAttr = rewriter.getI32IntegerAttr(inputShape[batchDim]);
+    auto inputLengthAttr = rewriter.getI32IntegerAttr(inputShape[lengthDim]);
+    auto inChannelsAttr = rewriter.getI32IntegerAttr(inputShape[channelDim]);
+    auto outChannelsAttr = rewriter.getI32IntegerAttr(
+        op.getResult().getType().getDimSize(channelDim));
+
+    // Weight is (O, C/G, K); the kernel length is the last dimension.
+    auto kernelSizeAttr =
+        rewriter.getI32IntegerAttr(weightTy.getDimSize(2));
+
+    // stride and dilation are scalars in the TTNN op. The TTIR op allows them
+    // to be either a scalar integer or a 1-element array.
+    auto scalarAttr =
+        [&](mlir::Attribute attr) -> std::optional<mlir::IntegerAttr> {
+      if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+        return rewriter.getI32IntegerAttr(intAttr.getInt());
+      }
+      if (auto arrAttr = mlir::dyn_cast<DenseI32ArrayAttr>(attr)) {
+        if (arrAttr.size() != 1) {
+          return std::nullopt;
+        }
+        return rewriter.getI32IntegerAttr(arrAttr[0]);
+      }
+      return std::nullopt;
+    };
+
+    auto strideAttr = scalarAttr(adaptor.getStride());
+    if (!strideAttr) {
+      return rewriter.notifyMatchFailure(
+          op, "conv1d stride must be a scalar or a 1-element array");
+    }
+    auto dilationAttr = scalarAttr(adaptor.getDilation());
+    if (!dilationAttr) {
+      return rewriter.notifyMatchFailure(
+          op, "conv1d dilation must be a scalar or a 1-element array");
+    }
+
+    // padding is normalized to a 2-element [pL, pR] array in the TTNN op.
+    DenseI32ArrayAttr paddingAttr;
+    mlir::Attribute padding = adaptor.getPadding();
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(padding)) {
+      int32_t p = static_cast<int32_t>(intAttr.getInt());
+      paddingAttr = rewriter.getDenseI32ArrayAttr({p, p});
+    } else if (auto arrAttr = mlir::dyn_cast<DenseI32ArrayAttr>(padding)) {
+      if (arrAttr.size() == 1) {
+        paddingAttr = rewriter.getDenseI32ArrayAttr({arrAttr[0], arrAttr[0]});
+      } else if (arrAttr.size() == 2) {
+        paddingAttr = arrAttr;
+      } else {
+        return rewriter.notifyMatchFailure(
+            op, "conv1d padding must be a scalar, 1-element, or 2-element "
+                "array");
+      }
+    } else {
+      return rewriter.notifyMatchFailure(op,
+                                         "unexpected conv1d padding attribute");
+    }
+
+    auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
+
+    // Config tensors are allocated in L1 by default in Metal. In the general
+    // path, we want to allocate them in DRAM to prevent OOM.
+    auto conv2dConfigAttr = ttnn::Conv2dConfigAttr::get(rewriter.getContext())
+                                .withConfigTensorsInDram(true);
+
+    rewriter.replaceOpWithNewOp<ttnn::Conv1dOp>(
+        op, getTypeConverter()->convertType(op.getResult().getType()),
+        adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(), device,
+        inChannelsAttr, outChannelsAttr, batchSizeAttr, inputLengthAttr,
+        kernelSizeAttr, *strideAttr, paddingAttr, *dilationAttr, groupsAttr,
+        conv2dConfigAttr, /*compute_config=*/nullptr,
+        /*conv2d_slice_config=*/nullptr);
+
+    return success();
+  }
+};
+
 class Conv2dOpConversionPattern : public OpConversionPattern<ttir::Conv2dOp> {
 public:
   using OpConversionPattern<ttir::Conv2dOp>::OpConversionPattern;
@@ -3671,6 +3765,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            MoeExpertTokenRemapOpConversionPattern,
            MoeGptOpConversionPattern,
            MoeComputeOpConversionPattern,
+           Conv1dOpConversionPattern,
            Conv2dOpConversionPattern,
            Conv3dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,
