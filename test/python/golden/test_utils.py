@@ -93,6 +93,11 @@ class OnlyIf(SkipIf):
         super().__init__(*marks_groups, mark_fn=pytest.mark.only_config)
 
 
+class XFailIf(SkipIf):
+    def __init__(self, *marks_groups, reason=None):
+        super().__init__(*marks_groups, mark_fn=pytest.mark.xfail_config, reason=reason)
+
+
 class SkipExecIf(SkipIf):
     def __init__(self, *marks_groups):
         super().__init__(*marks_groups, mark_fn=pytest.mark.skip_exec)

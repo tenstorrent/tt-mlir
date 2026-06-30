@@ -875,13 +875,24 @@ def pytest_collection_modifyitems(config, items):
                 )
             )
 
+        def xfail_config_handler(item):
+            reason = next(
+                (
+                    m.kwargs["reason"]
+                    for m in item.iter_markers("xfail_config")
+                    if "reason" in m.kwargs
+                ),
+                "Test marked as xfail for this platform/target combination",
+            )
+            item.add_marker(pytest.mark.xfail(reason=reason, strict=True))
+
         def skip_exec_handler(item):
             # Set skip_exec attribute on the item instead of marking as skipped
             item.skip_exec = True
             xfail_reason = f"Execution marked as skip"
             item.skip_exec_reason = xfail_reason
             # Mark test as xfail so it's expected to fail
-            item.add_marker(pytest.mark.xfail(reason=xfail_reason, strict=False))
+            item.add_marker(pytest.mark.xfail(reason=xfail_reason, strict=True))
 
         _mark_item_for_skip(
             item,
@@ -901,6 +912,15 @@ def pytest_collection_modifyitems(config, items):
             "only_config",
             only_config_handler,
             negate_check=True,
+        )
+        _mark_item_for_skip(
+            item,
+            current_target,
+            board_id,
+            current_environment,
+            current_image,
+            "xfail_config",
+            xfail_config_handler,
         )
         _mark_item_for_skip(
             item,
