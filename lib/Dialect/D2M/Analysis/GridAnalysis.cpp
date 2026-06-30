@@ -464,7 +464,8 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
     optimalOperandGrids.push_back(optimalGrid);
 
     OperandGridInfo info;
-    info.operand = operand;
+    info.setOwner(genericOp);
+    info.setOperandIndex(operandIndex);
     info.selectedGrid = optimalGrid; // Will be updated after normalization.
     info.targetGrid = perOperandTargetGrids[operandIndex];
 
@@ -510,9 +511,10 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
   }
   if (genericPaddingTileShape.empty()) {
     for (const OperandGridInfo &info : result.operandInfos) {
-      auto operandType = mlir::cast<RankedTensorType>(info.operand.getType());
+      auto operandType =
+          mlir::cast<RankedTensorType>(info.getLiveOperand().getType());
       if (!mlir::isa<ttcore::TileType>(operandType.getElementType()) &&
-          info.operand.getDefiningOp<d2m::CompositeViewOp>()) {
+          info.getLiveOperand().getDefiningOp<d2m::CompositeViewOp>()) {
         genericPaddingTileShape =
             llvm::to_vector(ttcore::TileType::getDefaultShape());
         break;
@@ -521,7 +523,8 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
   }
   if (!genericPaddingTileShape.empty()) {
     for (OperandGridInfo &info : result.operandInfos) {
-      auto operandType = mlir::cast<RankedTensorType>(info.operand.getType());
+      auto operandType =
+          mlir::cast<RankedTensorType>(info.getLiveOperand().getType());
       if (!mlir::isa<ttcore::TileType>(operandType.getElementType()) &&
           info.paddingTileShape.empty()) {
         info.paddingTileShape = genericPaddingTileShape;
@@ -539,10 +542,10 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
   // tensor can physically support.
   for (unsigned idx = 0; idx < result.operandInfos.size(); ++idx) {
     OperandGridInfo &info = result.operandInfos[idx];
-    if (isTTNNOperand(info.operand)) {
+    if (isTTNNOperand(info.getLiveOperand())) {
       continue;
     }
-    auto view = info.operand.getDefiningOp<d2m::ViewLayoutOp>();
+    auto view = info.getLiveOperand().getDefiningOp<d2m::ViewLayoutOp>();
     if (view && !view.getReinterpretLayout()) {
       info.selectedGrid = result.normalizedOperandGrids[idx];
     }
@@ -552,7 +555,8 @@ GenericGridAnalysisResult GridAnalysis::analyzeGenericOp(
   // composite input grids are derived from the parent operand's *final*
   // selected grid, not its pre-normalization optimal grid.
   for (OperandGridInfo &info : result.operandInfos) {
-    auto compositeView = info.operand.getDefiningOp<d2m::CompositeViewOp>();
+    auto compositeView =
+        info.getLiveOperand().getDefiningOp<d2m::CompositeViewOp>();
     if (!compositeView) {
       continue;
     }
