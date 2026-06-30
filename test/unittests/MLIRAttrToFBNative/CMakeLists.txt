@@ -3,6 +3,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_mlir_unittest(ToNativeConsistencyTests
     ToNativeConsistency.cpp
+    OpTPathParity.cpp
     PARTIAL_SOURCES_INTENDED
 )
 
@@ -24,4 +25,7 @@ target_link_libraries(ToNativeConsistencyTests
     gtest_main
     MLIRTTCoreDialect
     MLIRTTNNDialect
+    MLIRTTTransforms
+    TTNNTargetFlatbuffer
+    TTNNOpModelLib
 )
