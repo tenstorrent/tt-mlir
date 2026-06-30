@@ -1006,6 +1006,151 @@ buildNLPConcatHeadsDecodeOpTFromMLIR(uint32_t numHeads,
   return nlpConcatHeadsDecodeOp;
 }
 
+::tt::target::ttnn::SoftmaxOpT buildSoftmaxOpTFromMLIR(
+    int32_t dimension, bool numericStable,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::SoftmaxOpT softmaxOp;
+  softmaxOp.dimension = dimension;
+  softmaxOp.numeric_stable = numericStable;
+  softmaxOp.compute_config =
+      (computeKernelConfig.has_value() && *computeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*computeKernelConfig))
+          : nullptr;
+  softmaxOp.out = detail::getOutputTensorRefT(outputLayout);
+  return softmaxOp;
+}
+
+::tt::target::ttnn::BatchNormInferenceOpT buildBatchNormInferenceOpTFromMLIR(
+    llvm::APFloat epsilon,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::BatchNormInferenceOpT batchNormInferenceOp;
+  batchNormInferenceOp.epsilon = epsilon.convertToFloat();
+  batchNormInferenceOp.compute_config =
+      (computeKernelConfig.has_value() && *computeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*computeKernelConfig))
+          : nullptr;
+  batchNormInferenceOp.out = detail::getOutputTensorRefT(outputLayout);
+  return batchNormInferenceOp;
+}
+
+::tt::target::ttnn::BatchNormTrainingOpT buildBatchNormTrainingOpTFromMLIR(
+    llvm::APFloat epsilon, llvm::APFloat momentum,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::BatchNormTrainingOpT batchNormTrainingOp;
+  batchNormTrainingOp.epsilon = epsilon.convertToFloat();
+  batchNormTrainingOp.momentum = momentum.convertToFloat();
+  batchNormTrainingOp.compute_config =
+      (computeKernelConfig.has_value() && *computeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*computeKernelConfig))
+          : nullptr;
+  batchNormTrainingOp.out = detail::getOutputTensorRefT(outputLayout);
+  return batchNormTrainingOp;
+}
+
+::tt::target::ttnn::RMSNormOpT buildRMSNormOpTFromMLIR(
+    llvm::APFloat epsilon,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::RMSNormOpT rmsNormOp;
+  rmsNormOp.epsilon = epsilon.convertToFloat();
+  rmsNormOp.compute_config =
+      (computeKernelConfig.has_value() && *computeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*computeKernelConfig))
+          : nullptr;
+  rmsNormOp.out = detail::getOutputTensorRefT(outputLayout);
+  return rmsNormOp;
+}
+
+::tt::target::ttnn::RMSNormPreAllGatherOpT buildRMSNormPreAllGatherOpTFromMLIR(
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+    std::optional<bool> use2DCoreGrid, TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::RMSNormPreAllGatherOpT rmsNormPreAllGatherOp;
+  rmsNormPreAllGatherOp.use_2d_core_grid = use2DCoreGrid.value_or(false);
+  rmsNormPreAllGatherOp.compute_config =
+      (computeKernelConfig.has_value() && *computeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*computeKernelConfig))
+          : nullptr;
+  rmsNormPreAllGatherOp.program_config =
+      (programConfig.has_value() && *programConfig)
+          ? std::make_unique<
+                ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfigT>(
+                toNative(*programConfig))
+          : nullptr;
+  rmsNormPreAllGatherOp.out = detail::getOutputTensorRefT(outputLayout);
+  return rmsNormPreAllGatherOp;
+}
+
+::tt::target::ttnn::LayerNormOpT
+buildLayerNormOpTFromMLIR(llvm::APFloat epsilon, TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::LayerNormOpT layerNormOp;
+  layerNormOp.epsilon = epsilon.convertToFloat();
+  layerNormOp.out = detail::getOutputTensorRefT(outputLayout);
+  return layerNormOp;
+}
+
+::tt::target::ttnn::LayerNormPreAllGatherOpT
+buildLayerNormPreAllGatherOpTFromMLIR(
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::LayerNormPreAllGatherOpT layerNormPreAllGatherOp;
+  layerNormPreAllGatherOp.compute_config =
+      (computeKernelConfig.has_value() && *computeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*computeKernelConfig))
+          : nullptr;
+  layerNormPreAllGatherOp.program_config =
+      (programConfig.has_value() && *programConfig)
+          ? std::make_unique<
+                ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfigT>(
+                toNative(*programConfig))
+          : nullptr;
+  layerNormPreAllGatherOp.out = detail::getOutputTensorRefT(outputLayout);
+  return layerNormPreAllGatherOp;
+}
+
+::tt::target::ttnn::LayerNormPostAllGatherOpT
+buildLayerNormPostAllGatherOpTFromMLIR(
+    llvm::APFloat epsilon,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::LayerNormPostAllGatherOpT layerNormPostAllGatherOp;
+  layerNormPostAllGatherOp.epsilon = epsilon.convertToFloat();
+  layerNormPostAllGatherOp.compute_config =
+      (computeKernelConfig.has_value() && *computeKernelConfig)
+          ? std::make_unique<::tt::target::ttnn::DeviceComputeKernelConfigT>(
+                toNative(*computeKernelConfig))
+          : nullptr;
+  layerNormPostAllGatherOp.program_config =
+      (programConfig.has_value() && *programConfig)
+          ? std::make_unique<
+                ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfigT>(
+                toNative(*programConfig))
+          : nullptr;
+  layerNormPostAllGatherOp.out = detail::getOutputTensorRefT(outputLayout);
+  return layerNormPostAllGatherOp;
+}
+
+::tt::target::ttnn::GroupNormOpT
+buildGroupNormOpTFromMLIR(int64_t numGroups, llvm::APFloat epsilon,
+                          TTNNLayoutAttr outputLayout) {
+  ::tt::target::ttnn::GroupNormOpT groupNormOp;
+  groupNormOp.num_groups = numGroups;
+  groupNormOp.epsilon = epsilon.convertToFloat();
+  groupNormOp.out = detail::getOutputTensorRefT(outputLayout);
+  return groupNormOp;
+}
+
 } // namespace mlir::tt::ttnn::op_model
 
 #endif // TTMLIR_ENABLE_OPMODEL

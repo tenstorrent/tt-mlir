@@ -584,4 +584,33 @@ createSDPAProgramConfig(const ::tt::target::ttnn::SDPAConfigT &config) {
   return sdpaConfig;
 }
 
+::ttnn::prim::LayerNormProgramConfig
+createLayerNormShardedMultiCoreProgramConfig(
+    const ::tt::target::ttnn::LayerNormShardedMultiCoreProgramConfigT &config) {
+  ::ttnn::prim::LayerNormShardedMultiCoreProgramConfig layerNormConfig;
+
+  layerNormConfig.compute_with_storage_grid_size =
+      toTTNNCoreCoord(*config.compute_with_storage_grid_size);
+  layerNormConfig.subblock_w = config.subblock_w;
+  layerNormConfig.block_h = config.block_h;
+  layerNormConfig.block_w = config.block_w;
+  layerNormConfig.inplace = config.inplace;
+
+  return layerNormConfig;
+}
+
+::tt::tt_fabric::Topology toMetalTopology(::tt::target::Topology topology) {
+  switch (topology) {
+  case ::tt::target::Topology::Ring:
+    return ::tt::tt_fabric::Topology::Ring;
+  case ::tt::target::Topology::Linear:
+    return ::tt::tt_fabric::Topology::Linear;
+  case ::tt::target::Topology::Mesh:
+    return ::tt::tt_fabric::Topology::Mesh;
+  case ::tt::target::Topology::Torus:
+    return ::tt::tt_fabric::Topology::Torus;
+  }
+  llvm_unreachable("Unknown tt::target::Topology value");
+}
+
 } // namespace ttnn_op_invoke::operations::utils

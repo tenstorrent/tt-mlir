@@ -509,16 +509,17 @@ struct OpModel<RequantizeOp> {
 
 template <>
 struct OpModel<SoftmaxOp> {
-  static llvm::Expected<OpConstraints>
-  getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout, const int dimArg,
-                   bool numericStable, TTNNLayoutAttr outputLayout);
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      const int dimArg, bool numericStable,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+      TTNNLayoutAttr outputLayout);
 
-  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
-                                             TTNNLayoutAttr inputLayout,
-                                             const int dimArg,
-                                             bool numericStable,
-                                             TTNNLayoutAttr outputLayout);
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               const int dimArg, bool numericStable,
+               std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+               TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1604,18 +1605,18 @@ struct OpModel<GlobalAvgPool2dOp> {
 
 template <>
 struct OpModel<BatchNormInferenceOp> {
-  static llvm::Expected<OpConstraints>
-  getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
-                   TTNNLayoutAttr inputLayout,
-                   std::optional<llvm::ArrayRef<int64_t>> runningMeanShape,
-                   std::optional<TTNNLayoutAttr> runningMeanLayout,
-                   std::optional<llvm::ArrayRef<int64_t>> runningVarShape,
-                   std::optional<TTNNLayoutAttr> runningVarLayout,
-                   std::optional<llvm::ArrayRef<int64_t>> weightShape,
-                   std::optional<TTNNLayoutAttr> weightLayout,
-                   std::optional<llvm::ArrayRef<int64_t>> biasShape,
-                   std::optional<TTNNLayoutAttr> biasLayout,
-                   llvm::APFloat epsilon, TTNNLayoutAttr outputLayout);
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      std::optional<llvm::ArrayRef<int64_t>> runningMeanShape,
+      std::optional<TTNNLayoutAttr> runningMeanLayout,
+      std::optional<llvm::ArrayRef<int64_t>> runningVarShape,
+      std::optional<TTNNLayoutAttr> runningVarLayout,
+      std::optional<llvm::ArrayRef<int64_t>> weightShape,
+      std::optional<TTNNLayoutAttr> weightLayout,
+      std::optional<llvm::ArrayRef<int64_t>> biasShape,
+      std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+      TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1627,6 +1628,7 @@ struct OpModel<BatchNormInferenceOp> {
                std::optional<TTNNLayoutAttr> weightLayout,
                std::optional<llvm::ArrayRef<int64_t>> biasShape,
                std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+               std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
                TTNNLayoutAttr outputLayout);
 };
 
@@ -1646,7 +1648,9 @@ struct OpModel<BatchNormTrainingOp> {
       std::optional<TTNNLayoutAttr> weightLayout,
       std::optional<llvm::ArrayRef<int64_t>> biasShape,
       std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-      llvm::APFloat momentum, TTNNLayoutAttr outputLayout);
+      llvm::APFloat momentum,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+      TTNNLayoutAttr outputLayout);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1658,7 +1662,9 @@ struct OpModel<BatchNormTrainingOp> {
                std::optional<TTNNLayoutAttr> weightLayout,
                std::optional<llvm::ArrayRef<int64_t>> biasShape,
                std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-               llvm::APFloat momentum, TTNNLayoutAttr outputLayout);
+               llvm::APFloat momentum,
+               std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+               TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1699,14 +1705,18 @@ struct OpModel<RMSNormPreAllGatherOp> {
       std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
       std::optional<TTNNLayoutAttr> residualInputLayout,
       std::optional<ttcore::DataType> dtype, std::optional<bool> use2DCoreGrid,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+      std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
       TTNNLayoutAttr outputLayout);
 
-  static llvm::Expected<size_t>
-  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-               std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
-               std::optional<TTNNLayoutAttr> residualInputLayout,
-               std::optional<ttcore::DataType> dtype,
-               std::optional<bool> use2DCoreGrid, TTNNLayoutAttr outputLayout);
+  static llvm::Expected<size_t> getOpRuntime(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+      std::optional<TTNNLayoutAttr> residualInputLayout,
+      std::optional<ttcore::DataType> dtype, std::optional<bool> use2DCoreGrid,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+      std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+      TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1745,16 +1755,21 @@ struct OpModel<LayerNormPreAllGatherOp> {
       std::optional<TTNNLayoutAttr> residualInputLayout,
       std::optional<llvm::ArrayRef<int64_t>> recipShape,
       std::optional<TTNNLayoutAttr> recipLayout,
-      std::optional<ttcore::DataType> dtype, TTNNLayoutAttr outputLayout);
+      std::optional<ttcore::DataType> dtype,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+      std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+      TTNNLayoutAttr outputLayout);
 
-  static llvm::Expected<size_t>
-  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-               std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
-               std::optional<TTNNLayoutAttr> residualInputLayout,
-               std::optional<llvm::ArrayRef<int64_t>> recipShape,
-               std::optional<TTNNLayoutAttr> recipLayout,
-               std::optional<ttcore::DataType> dtype,
-               TTNNLayoutAttr outputLayout);
+  static llvm::Expected<size_t> getOpRuntime(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+      std::optional<TTNNLayoutAttr> residualInputLayout,
+      std::optional<llvm::ArrayRef<int64_t>> recipShape,
+      std::optional<TTNNLayoutAttr> recipLayout,
+      std::optional<ttcore::DataType> dtype,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+      std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+      TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1770,16 +1785,20 @@ struct OpModel<LayerNormPostAllGatherOp> {
       std::optional<TTNNLayoutAttr> weightLayout,
       std::optional<llvm::ArrayRef<int64_t>> biasShape,
       std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+      std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
       TTNNLayoutAttr outputLayout);
 
-  static llvm::Expected<size_t>
-  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-               llvm::ArrayRef<int64_t> statsShape, TTNNLayoutAttr statsLayout,
-               std::optional<llvm::ArrayRef<int64_t>> weightShape,
-               std::optional<TTNNLayoutAttr> weightLayout,
-               std::optional<llvm::ArrayRef<int64_t>> biasShape,
-               std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
-               TTNNLayoutAttr outputLayout);
+  static llvm::Expected<size_t> getOpRuntime(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      llvm::ArrayRef<int64_t> statsShape, TTNNLayoutAttr statsLayout,
+      std::optional<llvm::ArrayRef<int64_t>> weightShape,
+      std::optional<TTNNLayoutAttr> weightLayout,
+      std::optional<llvm::ArrayRef<int64_t>> biasShape,
+      std::optional<TTNNLayoutAttr> biasLayout, llvm::APFloat epsilon,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+      std::optional<LayerNormShardedMultiCoreProgramConfigAttr> programConfig,
+      TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
