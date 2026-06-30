@@ -217,6 +217,28 @@ createSortOp(::mlir::tt::FlatbufferObjectCache &cache, SortOp op);
 ::flatbuffers::Offset<::tt::target::ttnn::TransposeOp>
 createTransposeOp(::mlir::tt::FlatbufferObjectCache &cache, TransposeOp op);
 
+template <typename ReductionOp>
+::flatbuffers::Offset<::tt::target::ttnn::ReductionArgMaxOp>
+createReductionArgMaxOp(::mlir::tt::FlatbufferObjectCache &cache,
+                        ReductionOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::CumSumOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, CumSumOp op);
+
+template <typename ReductionOp>
+::flatbuffers::Offset<::tt::target::ttnn::ReductionProdOp>
+createReductionProdOp(::mlir::tt::FlatbufferObjectCache &cache, ReductionOp op);
+
+template <typename ReductionOp>
+::flatbuffers::Offset<::tt::target::ttnn::ReductionOp>
+createReductionOp(::mlir::tt::FlatbufferObjectCache &cache, ReductionOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::TopKRouterGptOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, TopKRouterGptOp op);
+
+::flatbuffers::Offset<::tt::target::ttnn::TopKOp>
+createOp(::mlir::tt::FlatbufferObjectCache &cache, TopKOp op);
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_TARGET_TTNN_TTNNTOFLATBUFFER_H

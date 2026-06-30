@@ -37,6 +37,12 @@ add_library(TTNNOpInvokeLib STATIC
   Normalization/RMSNormOp.cpp
   Normalization/RMSNormPreAllGatherOp.cpp
   Normalization/SoftmaxOp.cpp
+  Reduction/ArgMaxOp.cpp
+  Reduction/CumSumOp.cpp
+  Reduction/ProdOp.cpp
+  Reduction/ReductionOp.cpp
+  Reduction/TopKOp.cpp
+  Reduction/TopKRouterGptOp.cpp
   Transformer/ConcatenateHeadsOp.cpp
   Transformer/NLPConcatHeadsDecodeOp.cpp
   Transformer/NLPConcatHeadsOp.cpp

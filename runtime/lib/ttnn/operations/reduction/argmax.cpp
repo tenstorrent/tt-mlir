@@ -4,32 +4,33 @@
 
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
-
-#include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
-#include <optional>
+#include "ttmlir/OpInvoke/TTNN/Reduction/ArgMaxOp.h"
 
 namespace tt::runtime::ttnn::operations::reduction {
 static void
 runReductionArgMaxOp(const ::tt::target::ttnn::ReductionArgMaxOp *op,
-                     ProgramTensorPool &tensorPool) {
+                     ProgramTensorPool &tensorPool, ProgramContext &context) {
   const ::ttnn::Tensor &in = tensorPool.getTTNNTensorAndValidate(op->in());
 
-  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
-      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(op->memcfg());
+  ::tt::target::ttnn::ReductionArgMaxOpT reductionArgMaxOpNative;
+  op->UnPackTo(&reductionArgMaxOpNative);
 
-  ::ttnn::Tensor out = ::ttnn::argmax(in, op->dim(),
-                                      /*keepdim=*/op->keep_dim(),
-                                      /*sub_core_grids=*/std::nullopt,
-                                      /*memory_config_arg=*/outputMemoryConfig,
-                                      /*optional_output_tensor=*/std::nullopt);
+  ::ttnn::MeshDevice &targetDevice = context.getMeshDevice();
 
-  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+  ttnn_op_invoke::ArgMaxOpResult result =
+      ttnn_op_invoke::callArgMax(ttnn_op_invoke::CallType::EXECUTE,
+                                 reductionArgMaxOpNative, &in, &targetDevice);
+  LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result),
+             "Expected Tensor from callArgMax execution");
+
+  ::ttnn::Tensor output = std::get<::ttnn::Tensor>(result);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), output);
 }
 
 void run(const ::tt::target::ttnn::ReductionArgMaxOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
-  runReductionArgMaxOp(op, tensorPool);
+  runReductionArgMaxOp(op, tensorPool, context);
 }
 } // namespace tt::runtime::ttnn::operations::reduction

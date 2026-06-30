@@ -222,7 +222,7 @@ getReductionOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
   return opConstraintsCache().getOrCompute(
       op_model::OpModel<OpT>::getOpConstraints, op, inputShape, inputs[0],
       detail::convertOptionalArrayAttrToSmallVec(op.getDimArg()),
-      op.getKeepDim(), opConfig.outputLayout);
+      op.getKeepDim(), op.getComputeConfig(), opConfig.outputLayout);
 }
 
 template <typename OpT>
@@ -234,7 +234,7 @@ getReductionOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<OpT>::getOpRuntime, op, inputShape, inputs[0],
       detail::convertOptionalArrayAttrToSmallVec(op.getDimArg()),
-      op.getKeepDim(), opConfig.outputLayout);
+      op.getKeepDim(), op.getComputeConfig(), opConfig.outputLayout);
 }
 
 template <typename OpT>
