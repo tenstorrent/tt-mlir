@@ -324,7 +324,34 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
     computeRegions.push_back({start, wrappedEnd});
   }
 
-  for (auto [start, end] : computeRegions) {
+  // Avoids a use-after-free bug with nested regions by sorting them in
+  // ascending order of depth, block, and position first, then iterating in
+  // reverse order. This way, wrapInSynchronizedRegion doesn't invalidate
+  // iterators that haven't been reached yet.
+  auto nestingDepth = [&](Operation *op) {
+    int depth = 0;
+    for (Block *b = op->getBlock();
+         b && b->getParentOp() != genericOp.getOperation();
+         b = b->getParentOp() ? b->getParentOp()->getBlock() : nullptr) {
+      depth++;
+    }
+    return depth;
+  };
+  llvm::sort(computeRegions, [&](const auto &a, const auto &b) {
+    Operation *aOp = &(*a.first);
+    Operation *bOp = &(*b.first);
+    int aDepth = nestingDepth(aOp);
+    int bDepth = nestingDepth(bOp);
+    if (aDepth != bDepth) {
+      return aDepth < bDepth;
+    }
+    if (aOp->getBlock() != bOp->getBlock()) {
+      return std::less<Block *>()(aOp->getBlock(), bOp->getBlock());
+    }
+    return aOp->isBeforeInBlock(bOp);
+  });
+
+  for (auto [start, end] : llvm::reverse(computeRegions)) {
 
     SmallVector<Value> loadedCBOperands;
     SmallVector<Value> storedCBOperands;

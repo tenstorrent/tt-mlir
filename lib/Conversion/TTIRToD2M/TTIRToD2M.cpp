@@ -37,6 +37,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
 
+#include "mlir/IR/AsmState.h"
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -5047,17 +5048,334 @@ private:
     return d2m::ReduceDim::R;
   }
 
+  LogicalResult
+  matchAndRewriteFused(ttir::ArgMaxOp op, OpAdaptor adaptor,
+                       mlir::ConversionPatternRewriter &rewriter) const {
+    mlir::MLIRContext *ctx = rewriter.getContext();
+    mlir::Location loc = op.getLoc();
+
+    auto argMaxInputTy = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto argMaxOutputTy =
+        mlir::cast<RankedTensorType>(op.getResult().getType());
+
+    Value argMaxInput = adaptor.getInput();
+
+    std::size_t logicalRank = argMaxInputTy.getRank();
+    // Build affine maps for the first reduction.
+    const bool noCollapse = logicalRank > 2;
+
+    d2m::ReduceDim reduceDim = dimArgAsReduceDim(op, logicalRank);
+
+    // Stage 1: reduce_max over target dim
+    auto reduceDimAttr = d2m::ReduceDimAttr::get(ctx, reduceDim);
+
+    SmallVector<int64_t> reducedShape(logicalRank, 1);
+
+    SmallVector<bool> isReduced(logicalRank, false);
+    if (op.getDimArg()) {
+      auto dimAttrs = *op.getDimArg();
+      for (auto dimAttr : dimAttrs) {
+        int64_t dimension = mlir::cast<IntegerAttr>(dimAttr).getInt();
+        isReduced[normalizeReductionDimIndex(dimension, logicalRank)] = true;
+      }
+    }
+    for (std::size_t i = 0; i < logicalRank; ++i) {
+      if (!isReduced[i]) {
+        // Non-reduced dimensions restore their original size.
+        reducedShape[i] = argMaxInputTy.getDimSize(i);
+      }
+    }
+
+    auto reducedType =
+        RankedTensorType::get(reducedShape, argMaxInputTy.getElementType(),
+                              argMaxInputTy.getEncoding());
+
+    auto scaler = createScaler(rewriter, loc, argMaxInputTy);
+    auto stage1origOutputs = createDpsOutputs(loc, rewriter, {reducedType});
+    auto [argMaxMaskedInput, stage1outputs] = toLayoutOperandsAndResults(
+        rewriter, {SmallVector<Value>{argMaxInput}, stage1origOutputs}, true,
+        noCollapse, ttcore::OOBVal::NegInf);
+    auto [scalerLaidOut, maxouts] = toLayoutOperandsAndResults(
+        rewriter, {SmallVector<Value>{scaler}, SmallVector<Value>{}}, true,
+        noCollapse);
+    SmallVector<Value> stage1inputs = {argMaxMaskedInput[0], scalerLaidOut[0]};
+
+    const std::size_t physicalRank =
+        ttcore::getDeviceLayout(stage1outputs[0]).getRank() / 2;
+
+    mlir::AffineExpr zero = rewriter.getAffineConstantExpr(0);
+
+    AffineMap stage1inputMap = rewriter.getMultiDimIdentityMap(physicalRank);
+    AffineMap stage1scalerMap =
+        AffineMap::get(physicalRank, 0, {zero, zero}, ctx);
+    mlir::MutableAffineMap outputAccum(
+        rewriter.getMultiDimIdentityMap(physicalRank));
+    if (reduceDim == d2m::ReduceDim::R) {
+      outputAccum.setResult(physicalRank - 1, zero);
+    }
+    if (reduceDim == d2m::ReduceDim::C) {
+      outputAccum.setResult(physicalRank - 2, zero);
+    }
+    AffineMap stage1outputMap = outputAccum.getAffineMap();
+
+    SmallVector<AffineMap> stage1maps = {stage1inputMap, stage1scalerMap,
+                                         stage1outputMap};
+
+    // Build iterator types for reduce max: start with all parallel, then mark
+    // reduced dimensions.
+    SmallVector<mlir::Attribute> reduceDimIterTy(
+        physicalRank,
+        ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel));
+    if (reduceDim == d2m::ReduceDim::R) {
+      reduceDimIterTy[physicalRank - 1] =
+          ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Reduction);
+    }
+    if (reduceDim == d2m::ReduceDim::C) {
+      reduceDimIterTy[physicalRank - 2] =
+          ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Reduction);
+    }
+
+    d2m::GenericOp stage1 = buildGenericLinAlg(
+        rewriter, loc, stage1inputs, stage1outputs, stage1maps, reduceDimIterTy,
+        [&](mlir::OpBuilder &bb, mlir::Location l, mlir::ValueRange bbArgs) {
+          // bbArgs[0] = one input tile (a).
+          // bbArgs[1] = one scaler tile (b).
+          // bbArgs[2] = one output tile (c, the accumulator).
+          return bb
+              .create<d2m::TileReduceMaxOp>(l, bbArgs[2].getType(), bbArgs[0],
+                                            bbArgs[1], bbArgs[2], reduceDimAttr)
+              .getResult();
+        });
+
+    // Stage 2: arange.
+
+    auto stage2origOutputs = createDpsOutputs(loc, rewriter, {argMaxInputTy});
+    auto [stage2ins, stage2outputs] = toLayoutOperandsAndResults(
+        rewriter, {SmallVector<Value>{}, stage2origOutputs}, true, noCollapse);
+    Value stage2output = stage2outputs[0];
+
+    // Create a scratch tile (copied from D2MArangeOpRewriter).
+    auto arangeTensorType =
+        mlir::cast<RankedTensorType>(stage2output.getType());
+    auto arangeLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(arangeTensorType.getEncoding());
+    auto arangeTileType =
+        mlir::cast<ttcore::TileType>(arangeTensorType.getElementType());
+    Type arangeElemType = arangeTileType.getElementType();
+    ArrayRef<int64_t> arangeGridShape =
+        arangeLayout.getGridShape(arangeTensorType);
+    SmallVector<int64_t> scratchShape(arangeGridShape.begin(),
+                                      arangeGridShape.end());
+    scratchShape.append({1, 1});
+    auto scratchTileType = ttcore::TileType::get(arangeElemType);
+    auto scratchLayout = ttcore::MetalLayoutAttr::get(
+        ctx, SmallVector<int64_t>{1, 1}, ttcore::MemorySpace::DeviceL1,
+        ttcore::TensorMemoryLayout::Sharded);
+    Value indexTileTensor =
+        rewriter
+            .create<d2m::EmptyOp>(loc, scratchShape, scratchTileType,
+                                  scratchLayout)
+            .getResult();
+
+    // Compute numElements: for C (column reduction), we need all output
+    // columns; for R (row reduction), we need all output rows.
+    int64_t numElements = (reduceDim == d2m::ReduceDim::C)
+                              ? argMaxInputTy.getDimSize(logicalRank - 2)
+                              : argMaxInputTy.getDimSize(logicalRank - 1);
+
+    // Build affine maps: scratch input always at (0,0), output is identity.
+    AffineMap arangeConstMap =
+        AffineMap::get(physicalRank, 0, {zero, zero}, ctx);
+    AffineMap identityMap = rewriter.getMultiDimIdentityMap(physicalRank);
+    SmallVector<AffineMap> stage2maps = {arangeConstMap, identityMap};
+
+    // All iterators are parallel for arange.
+    SmallVector<Attribute> allParallelIterTy(
+        physicalRank,
+        ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel));
+
+    SmallVector<Value> stage2genericInputs = {indexTileTensor};
+    auto stage2 = rewriter.create<d2m::GenericOp>(
+        loc, stage2genericInputs, stage2outputs,
+        /*additionalArgs=*/ValueRange(),
+        rewriter.getAffineMapArrayAttr(stage2maps),
+        rewriter.getArrayAttr(allParallelIterTy));
+
+    // Fill the arange with descending indices (start=numElements, step=-1).
+    // Should fill column major if reduceDim is C (i.e. argmax over columns,
+    // output is a row).
+    // Descending indices are used to ensure that the lowest index is returned
+    // in case of a tie.
+    withD2MGenericRegion(
+        rewriter, loc, stage2, stage2genericInputs, stage2outputs,
+        [&](ArrayRef<Value> blockArgs) -> SmallVector<Value> {
+          Value idxTile = blockArgs[0];
+          Value outTile = blockArgs[1];
+          Value result =
+              rewriter
+                  .create<d2m::ArangeBlockOp>(
+                      loc, idxTile, outTile, numElements,
+                      /*start=*/numElements,
+                      /*step=*/-1,
+                      (reduceDim == d2m::ReduceDim::C ? true : false))
+                  .getResult();
+          return {result};
+        });
+
+    // Stage 3: bcast max -> eltwise_eq -> bcast arange -> eltwise_mul
+    auto stage3origOutputs = createDpsOutputs(loc, rewriter, {argMaxOutputTy});
+    auto [stage3inputs, stage3outputs] = toLayoutOperandsAndResults(
+        rewriter, {SmallVector<Value>{argMaxInput}, stage3origOutputs}, true,
+        noCollapse);
+
+    d2m::TileBcastType maxBcastTy, arangeBcastTy;
+    switch (reduceDim) {
+    case d2m::ReduceDim::R:
+      // ReduceDim::R reduces the last dim (W) -> result is one value per row
+      // (filled 0-column) -> broadcast as Col (replicate across columns).
+      maxBcastTy = d2m::TileBcastType::Col;
+      arangeBcastTy = d2m::TileBcastType::Row;
+      break;
+    case d2m::ReduceDim::C:
+      // ReduceDim::C reduces the second-to-last dim (H) -> result is one value
+      // per column (filled 0-row) -> broadcast as Row (replicate down).
+      maxBcastTy = d2m::TileBcastType::Row;
+      arangeBcastTy = d2m::TileBcastType::Col;
+      break;
+    case d2m::ReduceDim::RC:
+      // Should never hit. RC reduction is converted into an R reduction
+      // earlier.
+      maxBcastTy = d2m::TileBcastType::Scalar;
+      arangeBcastTy = d2m::TileBcastType::Scalar;
+      break;
+    }
+
+    AffineMap maxReducedMap = stage1outputMap;
+    mlir::MutableAffineMap arangeReducedMutable(
+        rewriter.getMultiDimIdentityMap(physicalRank));
+    switch (arangeBcastTy) {
+    case d2m::TileBcastType::Row:
+      arangeReducedMutable.setResult(physicalRank - 2, zero);
+      break;
+    case d2m::TileBcastType::Col:
+      arangeReducedMutable.setResult(physicalRank - 1, zero);
+      break;
+    default:
+      break;
+    }
+    AffineMap arangeReducedMap = arangeReducedMutable.getAffineMap();
+    SmallVector<AffineMap> stage3maps = {identityMap, maxReducedMap,
+                                         arangeReducedMap, identityMap};
+
+    auto maxBcastTyAttr = d2m::TileBcastTypeAttr::get(ctx, maxBcastTy);
+    auto arangeBcastTyAttr = d2m::TileBcastTypeAttr::get(ctx, arangeBcastTy);
+
+    auto stage3 = buildGenericLinAlg(
+        rewriter, loc,
+        SmallVector<Value>{stage3inputs[0], stage1.getResult(0),
+                           stage2.getResult(0)},
+        stage3outputs, stage3maps, allParallelIterTy,
+        [&](mlir::OpBuilder &bb, mlir::Location l, mlir::ValueRange bbArgs) {
+          Value bcastMax =
+              rewriter
+                  .create<d2m::TileBcastOp>(l, bbArgs[3].getType(), bbArgs[1],
+                                            maxBcastTyAttr)
+                  .getResult();
+          Value tileEq = rewriter
+                             .create<d2m::TileEqOp>(l, bbArgs[3].getType(),
+                                                    bbArgs[0], bcastMax)
+                             .getResult();
+          Value bcastArange =
+              rewriter
+                  .create<d2m::TileBcastOp>(l, bbArgs[3].getType(), bbArgs[2],
+                                            arangeBcastTyAttr)
+                  .getResult();
+          Value tileMul = rewriter
+                              .create<d2m::TileMulOp>(l, bbArgs[3].getType(),
+                                                      tileEq, bcastArange)
+                              .getResult();
+          return tileMul;
+        });
+
+    // Stage 4: reduce max again
+    auto scaler2 = createScaler(rewriter, loc, argMaxInputTy);
+    auto [scaler2LaidOut, scaler2Unused] = toLayoutOperandsAndResults(
+        rewriter, {SmallVector<Value>{scaler2}, SmallVector<Value>{}}, true,
+        noCollapse);
+    SmallVector<Value> stage4inputs = {stage3.getResult(0), scaler2LaidOut[0]};
+    auto stage4origOutputs = createDpsOutputs(loc, rewriter, {reducedType});
+    auto [stage4ins, max2Outputs] = toLayoutOperandsAndResults(
+        rewriter, {SmallVector<Value>{}, stage4origOutputs}, true, noCollapse);
+
+    // Building the generic op for the second reduce max.
+    d2m::GenericOp stage4 = buildGenericLinAlg(
+        rewriter, loc, stage4inputs, max2Outputs, stage1maps, reduceDimIterTy,
+        [&](mlir::OpBuilder &bb, mlir::Location l, mlir::ValueRange bbArgs) {
+          // bbArgs[0] = one mul(eq1, arange) tile (a).
+          // bbArgs[1] = one scaler tile (b).
+          // bbArgs[2] = one output tile (c, the accumulator).
+          return bb
+              .create<d2m::TileReduceMaxOp>(l, bbArgs[2].getType(), bbArgs[0],
+                                            bbArgs[1], bbArgs[2], reduceDimAttr)
+              .getResult();
+        });
+
+    // Stage 5: fill -> subtract -> typecast
+    auto stage5reducedIntType = RankedTensorType::get(
+        reducedType.getShape(), argMaxOutputTy.getElementType());
+    SmallVector<Value> stage5origInputs{stage4.getResult(0)};
+    SmallVector<Value> stage5origOutputs =
+        createDpsOutputs(loc, rewriter, {stage5reducedIntType});
+    auto [stage5inputs, stage5outputs] = toLayoutOperandsAndResults(
+        rewriter, {stage5origInputs, stage5origOutputs}, /*tiled=*/true,
+        noCollapse);
+
+    SmallVector<AffineMap> stage5maps =
+        getIdentityAffineMapsArray(rewriter, 2, physicalRank);
+
+    d2m::GenericOp stage5 = buildGenericLinAlg(
+        rewriter, loc, stage5inputs, stage5outputs, stage5maps,
+        allParallelIterTy,
+        [&](mlir::OpBuilder &bb, mlir::Location l, mlir::ValueRange bbArgs) {
+          // bbArgs[0] = reduced bf16 tile (= N - smallestIndex).
+          // bbArgs[1] = output tile (integer element type).
+          auto inTileTy = mlir::cast<ttcore::TileType>(bbArgs[0].getType());
+          auto inElemTy = inTileTy.getElementType();
+          auto outTileTy = mlir::cast<ttcore::TileType>(bbArgs[1].getType());
+
+          // Recover the index: tile_fill(N) then tile_sub(N, x), then typecast
+          // the bf16 index to the integer output type.
+          auto nAttr =
+              mlir::FloatAttr::get(inElemTy, static_cast<double>(numElements));
+          Value nScalar =
+              bb.create<mlir::arith::ConstantOp>(l, inElemTy, nAttr);
+          Value nTile =
+              bb.create<d2m::TileFillOp>(l, inTileTy, nScalar).getResult();
+          Value index = bb.create<d2m::TileSubOp>(l, inTileTy, nTile, bbArgs[0])
+                            .getResult();
+          return bb.create<d2m::TileTypecastOp>(l, outTileTy, index)
+              .getResult();
+        });
+
+    // Unlayout the reduced integer result back to the host output type and
+    // replace the original argmax.
+    Value result = unLayoutResult(rewriter, stage5.getResult(0), argMaxOutputTy)
+                       ->getResult(0);
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+
   /// Decompose `ttir.argmax` into a series of D2M ops.
   // dim_arg = 0 => collapse columns, output is a row (max of each column).
   // dim_arg = 1 => collapse rows, output is a column (max of each row).
   // Argmax is decomposed into:
-  // Reduce max over target dim -> broadcast back to full shape -> eltwise eq to
-  // isolate max elements only -> Arange block to enumerate indices -> broadcast
-  // arange row or column to full shape, result is rows or columns of indices
-  // repeated over and over -> eltwise multiply with eltwise eq result to
-  // isolate indices of max elements -> Reduce max again over target dim, now
-  // output is the correct shape -> typecast to i32.
-  // Each stage is its own generic for now.
+  // (Reduce max over target dim) -> (broadcast back to full shape -> eltwise eq
+  // to isolate max elements only -> [Arange block to enumerate indices] ->
+  // broadcast arange row or column to full shape, result is rows or columns of
+  // indices repeated over and over -> eltwise multiply with eltwise eq result
+  // to isolate indices of max elements) -> (Reduce max again over target dim,
+  // now output is the correct shape) -> (typecast to i32). Each stage is its
+  // own generic for now.
   LogicalResult
   matchAndRewrite(ttir::ArgMaxOp op, OpAdaptor adaptor,
                   mlir::ConversionPatternRewriter &rewriter) const final {
