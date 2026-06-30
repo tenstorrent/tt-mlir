@@ -19238,14 +19238,16 @@ class TTIRBuilder(Builder):
             loc=loc,
         )
         op_values = op.values
+        op_indices = op.indices
 
         if unit_attrs is not None:
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
         self._set_golden_tensor(op_values, golden_values)
+        self._set_golden_tensor(op_indices, golden_indices)
 
-        return op_values
+        return op_values, op_indices
 
     @parse(ttir.TopKOp)
     def topk_parser(

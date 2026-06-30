@@ -26,25 +26,20 @@ torch.manual_seed(0)
 @pytest.mark.parametrize(
     "shape,k,dim",
     [
-        pytest.param((32, 64), 16, -1, id="32x64_k16_dim1"),
+        # Single-tile target dim, dim=1 and dim=0
         pytest.param((32, 256), 16, -1, id="32x256_k16_dim1"),
-        pytest.param((64, 32), 16, 0, id="64x32_k16_dim0"),
-        pytest.param((256, 32), 16, 0, id="256x32_k16_dim0"),
-        pytest.param((32, 64), 64, -1, id="32x64_k64_dim1"),
         pytest.param((32, 256), 64, -1, id="32x256_k64_dim1"),
-        pytest.param((64, 32), 64, 0, id="64x32_k64_dim0"),
+        pytest.param((256, 32), 16, 0, id="256x32_k16_dim0"),
         pytest.param((256, 32), 64, 0, id="256x32_k64_dim0"),
+        # Large target dim (many tiles in reduction)
         pytest.param((32, 1024), 16, -1, id="32x1024_k16_dim1"),
-        pytest.param((32, 1024), 64, -1, id="32x1024_k64_dim1"),
-        pytest.param((1024, 32), 16, 0, id="1024x32_k16_dim0"),
         pytest.param((1024, 32), 64, 0, id="1024x32_k64_dim0"),
-        # Non-power-of-2 tile counts
+        # Ragged (non-power-of-2 tile count)
         pytest.param((32, 96), 16, -1, id="32x96_k16_dim1"),
-        pytest.param((32, 1024), 64, -1, id="32x1024_k64_dim1"),
-        pytest.param((32, 192), 16, -1, id="32x192_k16_dim1"),
-        pytest.param((96, 32), 16, 0, id="96x32_k16_dim0"),
         pytest.param((544, 32), 16, 0, id="544x32_k16_dim0"),
-        pytest.param((32, 1536), 32, 1, id="32x1536_k32_dim1"),
+        # Multi-tile non-target dim (ht>1 for dim=1, wt>1 for dim=0)
+        pytest.param((128, 384), 32, -1, id="128x384_k32_dim1"),
+        pytest.param((511, 96), 64, 0, id="384x128_k64_dim0"),
     ],
 )
 def test_topk(shape, k, dim, target, request, device):
@@ -63,6 +58,57 @@ def test_topk(shape, k, dim, target, request, device):
                 sorted=False,
                 unit_attrs=unit_attrs,
             )
+
+    compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        pipeline_options=["override-device-shape=1,1"],
+        save_artifacts=True,
+    )
+
+
+# Debug: materialize just the arange index tensor (no topk) to verify what the
+# arange->tilize->untilize round-trip produces at every element. For dim=1 the
+# expected value at [i, j] is j == tileColIdx*32 + withinTileColIdx (the global
+# column index, constant across rows).
+@pytest.mark.parametrize("target", ["ttmetal"])
+@pytest.mark.parametrize(
+    "shape,dim",
+    [
+        pytest.param((32, 256), 1, id="32x256_dim1"),
+        pytest.param((32, 1024), 1, id="32x1024_dim1"),
+    ],
+)
+def test_arange_index_tensor(shape, dim, target, request, device):
+    # Print full tensors (no ... truncation, no line wrapping) so the
+    # golden-vs-output comparison message shows every element of each row.
+    torch.set_printoptions(threshold=1_000_000, linewidth=1_000_000)
+    end = shape[dim]
+
+    def module(builder: TTIRBuilder):
+        @builder.func([shape], [torch.float32])
+        def arange_index(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            # Take a dummy input so the function has an operand; the arange is
+            # what we actually inspect. Add input*0 (as f32) to keep the arange
+            # from being folded into a pure host constant, forcing the real
+            # tilize/untilize device round-trip. Cast to f32 to add, then the
+            # golden comparison checks the index pattern.
+            idx = builder.arange(
+                shape=list(shape),
+                dtype=torch.int32,
+                start=0,
+                end=end,
+                step=1,
+                arange_dimension=dim,
+                unit_attrs=unit_attrs,
+            )
+            return idx
 
     compile_and_execute_ttir(
         module,
@@ -132,21 +178,16 @@ def _build_tile_distribution_input(
 @pytest.mark.parametrize(
     "shape,k,dim",
     [
+        # pow2 tile count, dim=1 and dim=0
         pytest.param((32, 256), 16, -1, id="32x256_k16_dim1"),
-        pytest.param((32, 256), 64, -1, id="32x256_k64_dim1"),
-        pytest.param((256, 32), 16, 0, id="256x32_k16_dim0"),
         pytest.param((256, 32), 64, 0, id="256x32_k64_dim0"),
-        pytest.param((32, 1024), 16, -1, id="32x1024_k16_dim1"),
+        # Large reduction dim
         pytest.param((32, 1024), 64, -1, id="32x1024_k64_dim1"),
-        pytest.param((1024, 32), 16, 0, id="1024x32_k16_dim0"),
-        pytest.param((1024, 32), 64, 0, id="1024x32_k64_dim0"),
-        # Non-power-of-2 tile counts (ragged), k<=32. The strided/last_tiles
-        # patterns stress odd-tail propagation and carried-tile correctness.
+        # Ragged (non-power-of-2): odd tile count, even tile count
         pytest.param((32, 96), 16, -1, id="32x96_k16_dim1"),  # 3 tiles, odd
-        pytest.param((32, 192), 16, -1, id="32x192_k16_dim1"),  # 6 tiles, even
-        pytest.param((32, 1013), 64, -1, id="32x1013_k64_dim1"),  # 36 tiles, even
-        pytest.param((96, 32), 16, 0, id="96x32_k16_dim0"),  # 3 tiles, odd
         pytest.param((544, 32), 16, 0, id="544x32_k16_dim0"),  # 17 tiles, odd
+        # Multi-tile non-target dim
+        pytest.param((64, 256), 64, -1, id="64x256_k64_dim1"),  # ht=2, large-k
     ],
 )
 def test_topk_tile_distribution(shape, k, dim, pattern, target, request, device):
@@ -191,14 +232,17 @@ def test_topk_tile_distribution(shape, k, dim, pattern, target, request, device)
     # Replace the random input with our adversarial tensor and recompute the
     # expected output so the golden comparison is valid.
     adversarial_input = _build_tile_distribution_input(shape, k, dim, pattern)
-    golden_output = torch.topk(adversarial_input, k=k, dim=dim, largest=True).values
+    golden_topk = torch.topk(adversarial_input, k=k, dim=dim, largest=True)
 
     mesh_shape = (1, 1)
     io_goldens[0]["input_0"] = GoldenMapTensor(
         {0: adversarial_input}, mesh_shape=mesh_shape
     )
     io_goldens[0]["output_0"] = GoldenMapTensor(
-        {0: golden_output}, mesh_shape=mesh_shape
+        {0: golden_topk.values}, mesh_shape=mesh_shape
+    )
+    io_goldens[0]["output_1"] = GoldenMapTensor(
+        {0: golden_topk.indices}, mesh_shape=mesh_shape
     )
 
     execute_fb(

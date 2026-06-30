@@ -3722,15 +3722,6 @@ public:
 
     int64_t ht = deviceShape[deviceShape.size() - 2];
     int64_t wt = deviceShape[deviceShape.size() - 1];
-    if (dim == 1 && ht != 1) {
-      return rewriter.notifyMatchFailure(
-          op, "D2M topk dim=1 requires input height = 32 (Ht=1)");
-    }
-    if (dim == 0 && wt != 1) {
-      return rewriter.notifyMatchFailure(
-          op, "D2M topk dim=0 requires input width = 32 (Wt=1)");
-    }
-
     int64_t numReductionTiles = (dim == 1) ? wt : ht;
     if (numReductionTiles < 2) {
       return rewriter.notifyMatchFailure(
@@ -3894,10 +3885,17 @@ public:
     Value topkValsRelayouted = wrapInToLayout(topkGeneric->getResult(0));
     Value topkIdxRelayouted = wrapInToLayout(topkGeneric->getResult(1));
 
+    // The index extract operates on the si32 topk index tiles; a typecast
+    // generic below converts the extracted si32 indices to the user index
+    // output element type (e.g. ui16) so the final untilize is
+    // width-preserving.
+    auto si32IndicesType =
+        RankedTensorType::get(indicesType.getShape(), si32Type);
+
     SmallVector<Value> origValOutputs =
         createDpsOutputs(loc, rewriter, {valuesType});
     SmallVector<Value> origIdxOutputs =
-        createDpsOutputs(loc, rewriter, {indicesType});
+        createDpsOutputs(loc, rewriter, {si32IndicesType});
     Value extractValsLayout = createOptimalLayoutOp(
         origValOutputs[0], memorySpaces[1], /*tiled=*/true,
         /*noCollapse=*/false, rewriter);
@@ -3916,10 +3914,61 @@ public:
         rewriter, loc, ctx, topkIdxRelayouted, extractIdxLayout,
         extractProjectDim, outputReductionTiles, lastStride, dim);
 
+    // Typecast the extracted si32 indices to the user index output element type
+    // (e.g. ui16). The element width MUST match the output: the final untilize
+    // is a pure layout op (tiled->row-major) with no numeric narrowing, so an
+    // si32 index tile untilized into a ui16 buffer drops the high half and
+    // zeroes small indices. Casting to the output width here keeps untilize a
+    // width-preserving copy. Modeled on the standalone transpose generic above:
+    // one tile op per region so the D2M->TTKernel store/DST-index lookup finds
+    // a single terminal compute op.
+    Value extractedIdx = extractIdxGeneric->getResult(0);
+    auto extractedIdxType = cast<RankedTensorType>(extractedIdx.getType());
+    Type idxOutElemType = indicesType.getElementType();
+    auto extractIdxTileType =
+        cast<ttcore::TileType>(extractedIdxType.getElementType());
+    auto idxCastTileType =
+        ttcore::TileType::get(idxOutElemType, extractIdxTileType.getShape());
+    auto idxCastEmpty = rewriter.create<d2m::EmptyOp>(
+        loc, extractedIdxType.getShape(), idxCastTileType,
+        extractedIdxType.getEncoding());
+    SmallVector<Value> castInputs = {extractedIdx};
+    SmallVector<Value> castOutputs = {idxCastEmpty.getResult()};
+    std::size_t castRank = extractedIdxType.getShape().size() / 2;
+    AffineMap castIdentity = rewriter.getMultiDimIdentityMap(castRank);
+    SmallVector<Attribute> castIters(
+        castRank,
+        ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel));
+    auto idxCastGeneric = rewriter.create<d2m::GenericOp>(
+        loc, castInputs, castOutputs, /*additionalArgs=*/ValueRange(),
+        rewriter.getAffineMapArrayAttr(
+            SmallVector<AffineMap>{castIdentity, castIdentity}),
+        rewriter.getArrayAttr(castIters));
+    withD2MGenericRegion(
+        rewriter, loc, idxCastGeneric, castInputs, castOutputs,
+        [&](ArrayRef<Value> blockArgs) -> SmallVector<Value> {
+          Value input = blockArgs[0];
+          Value output = blockArgs[1];
+          std::size_t shardRank =
+              cast<RankedTensorType>(input.getType()).getRank();
+          AffineMap shardIdentity = rewriter.getMultiDimIdentityMap(shardRank);
+          SmallVector<mlir::utils::IteratorType> linalgIters(
+              shardRank, mlir::utils::IteratorType::parallel);
+          auto linalgOp = rewriter.create<linalg::GenericOp>(
+              loc, output.getType(), input, output,
+              SmallVector<AffineMap>{shardIdentity, shardIdentity}, linalgIters,
+              [&](OpBuilder &b, Location bodyLoc, ValueRange args) {
+                Value casted = b.create<d2m::TileTypecastOp>(
+                    bodyLoc, args[1].getType(), args[0]);
+                b.create<linalg::YieldOp>(bodyLoc, casted);
+              });
+          return {linalgOp->getResult(0)};
+        });
+
     Operation *valResult =
         unLayoutResult(rewriter, extractValsGeneric->getResult(0), valuesType);
     Operation *idxResult =
-        unLayoutResult(rewriter, extractIdxGeneric->getResult(0), indicesType);
+        unLayoutResult(rewriter, idxCastGeneric->getResult(0), indicesType);
 
     rewriter.replaceOp(op, {valResult->getResult(0), idxResult->getResult(0)});
     return success();
