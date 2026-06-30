@@ -1818,12 +1818,6 @@ private:
     bool allSameTransposeB = true;
     bool firstTransposeB = false;
 
-    // Fuse any two or more matmuls/linears sharing the same LHS. Two-way
-    // fusion covers the SwiGLU gate/up MLP projections (gate and up share the
-    // activation input; the gate slice still feeds its downstream silu, the up
-    // slice its multiply). It was previously excluded (>= 3) because a pair of
-    // large projections could overflow per-core L1; kMaxFusedOutputDim now
-    // guards that pathological width, so two-way fusion is safe.
     bool isValid() const {
       return ops.size() >= 2 && totalOutputDim <= kMaxFusedOutputDim;
     }
