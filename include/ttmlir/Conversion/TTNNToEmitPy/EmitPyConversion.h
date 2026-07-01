@@ -458,11 +458,13 @@ struct EmitPyTypeConverter<mlir::tt::ttcore::ReduceType> {
 };
 
 // Maps a ttcore::ReduceType to the optional reduction string accepted by
-// `ttnn.scatter`'s `reduce` argument. This is distinct from the ttnn.ReduceType
+// `ttnn.scatter`'s reduce argument. This is distinct from the ttnn.ReduceType
 // enum that the reduce ops take (EmitPyTypeConverter<ReduceType> above), so it
 // is intentionally a separate helper rather than a converter overload. Mirrors
-// the runtime mapping (runtime/.../data_movement/scatter.cpp); reductions that
-// ttnn.scatter does not support map to std::nullopt (no reduction / overwrite).
+// the runtime mapping (runtime/.../data_movement/scatter.cpp). Invalid is the
+// no reduction mode and maps to std::nullopt (a plain overwrite scatter).
+// Reductions that ttnn.scatter cannot express (Mean/Std/Var) never reach
+// scatter.
 inline std::optional<std::string>
 reduceTypeToScatterString(::mlir::tt::ttcore::ReduceType type) {
   switch (type) {
@@ -474,11 +476,8 @@ reduceTypeToScatterString(::mlir::tt::ttcore::ReduceType type) {
     return "amax";
   case ::mlir::tt::ttcore::ReduceType::Min:
     return "amin";
-  // Invalid is the deliberate "no reduction" mode: a plain (overwrite) scatter.
   case ::mlir::tt::ttcore::ReduceType::Invalid:
     return std::nullopt;
-  // Not valid ttnn.scatter reductions; scatter never carries these (the
-  // StableHLO scatter region only yields add/mul/max/min/invalid).
   case ::mlir::tt::ttcore::ReduceType::Mean:
   case ::mlir::tt::ttcore::ReduceType::Std:
   case ::mlir::tt::ttcore::ReduceType::Var:

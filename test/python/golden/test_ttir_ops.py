@@ -974,8 +974,14 @@ def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request, devic
         pytest.param(
             (5, 3), torch.int64, 0, 3, 1, 1, marks=pytest.mark.skip_config(["sim"])
         ),
+        pytest.param(
+            (5,), torch.float32, -5, 0, 1, 0, marks=pytest.mark.skip_config(["sim"])
+        ),
     ],
 )
+# NOTE: emitc omitted — arange has no dedicated EmitC conversion (the generic
+# DefaultOpConversionPattern emits `ttnn::arange()` with no start/end/step args).
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_arange(
     shape: Shape,
     dtype: torch.dtype,
@@ -983,6 +989,7 @@ def test_arange(
     end: int,
     step: int,
     dim: int,
+    target: str,
     request,
     device,
 ):
@@ -999,6 +1006,7 @@ def test_arange(
         module,
         **get_request_kwargs(request),
         device=device,
+        target=target,
     )
 
 

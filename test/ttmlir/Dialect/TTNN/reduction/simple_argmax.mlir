@@ -16,7 +16,7 @@ module attributes {} {
     // CHECK-LABEL: func.func public @argmax_3d(
     // CHECK-NOT: "ttnn.permute"
     // CHECK: "ttnn.argmax"
-    // CHECK-SAME: {dim = 2 : i32, keep_dim = false, use_multicore = true}>
+    // CHECK-SAME: {dim = 1 : si32, keep_dim = false}>
     %1 = "ttir.argmax"(%arg0) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<128x28x28xf32>) -> tensor<128x28xi32>
     return %1 : tensor<128x28xi32>
   }
@@ -25,7 +25,7 @@ module attributes {} {
     // CHECK-LABEL: func.func public @argmax_3d_dim0(
     // CHECK-NOT: "ttnn.permute"
     // CHECK: "ttnn.argmax"
-    // CHECK-SAME: {dim = 0 : i32, keep_dim = false}>
+    // CHECK-SAME: {dim = 0 : si32, keep_dim = false}>
     %1 = "ttir.argmax"(%arg0) <{dim_arg = [0 : i32], keep_dim = false}> : (tensor<128x32x64xf32>) -> tensor<32x64xi32>
     return %1 : tensor<32x64xi32>
   }
@@ -34,7 +34,7 @@ module attributes {} {
     // CHECK-LABEL: func.func public @argmax_4d_dim1_keepdim(
     // CHECK-NOT: "ttnn.permute"
     // CHECK: "ttnn.argmax"
-    // CHECK-SAME: {dim = 1 : i32, keep_dim = true}>
+    // CHECK-SAME: {dim = 1 : si32, keep_dim = true}>
     %1 = "ttir.argmax"(%arg0) <{dim_arg = [1 : i32], keep_dim = true}> : (tensor<2x8x32x64xf32>) -> tensor<2x1x32x64xi32>
     return %1 : tensor<2x1x32x64xi32>
   }
@@ -43,7 +43,7 @@ module attributes {} {
     // CHECK-LABEL: func.func public @argmax_3d_last_dim(
     // CHECK-NOT: "ttnn.permute"
     // CHECK: "ttnn.argmax"
-    // CHECK-SAME: {dim = 2 : i32, keep_dim = false, use_multicore = true}>
+    // CHECK-SAME: {dim = 2 : si32, keep_dim = false}>
     // CHECK-SAME: tensor<128x28x28xf32
     // CHECK-SAME: -> tensor<128x28xui32
     %1 = "ttir.argmax"(%arg0) <{dim_arg = [2 : i32], keep_dim = false}> : (tensor<128x28x28xf32>) -> tensor<128x28xi32>
@@ -54,7 +54,7 @@ module attributes {} {
     // CHECK-LABEL: func.func public @argmax_4d(
     // CHECK-NOT: "ttnn.permute"
     // CHECK: "ttnn.argmax"
-    // CHECK-SAME: {dim = 3 : i32, keep_dim = false, use_multicore = true}>
+    // CHECK-SAME: {dim = 3 : si32, keep_dim = false}>
     // CHECK-SAME: tensor<4x8x128x64xf32
     // CHECK-SAME: -> tensor<4x8x128xui32
     %1 = "ttir.argmax"(%arg0) <{dim_arg = [3 : i32], keep_dim = false}> : (tensor<4x8x128x64xf32>) -> tensor<4x8x128xi32>

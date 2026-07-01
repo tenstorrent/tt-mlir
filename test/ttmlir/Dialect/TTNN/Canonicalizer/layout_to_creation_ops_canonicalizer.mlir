@@ -85,8 +85,8 @@ module attributes {} {
     // CHECK-SAME: memref<32x
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-    %1 = "ttnn.arange"() <{layout = #ttnn.layout<tile>, start = 0 : i64, step = 1 : i64, end = 32 : i64}> : () -> tensor<32xf32, #ttnn_layout_1_device_bf16_tile>
-    %2 = "ttnn.to_layout"(%1) <{layout = #ttnn.layout<row_major>, memory_config = #ttnn.memory_config<#system_memory>}> : (tensor<32xf32, #ttnn_layout_1_device_bf16_tile>) -> tensor<32xf32, #ttnn_layout_1_host_f32_rm>
+    %1 = "ttnn.arange"() <{ start = 0 : si64, step = 1 : si64, end = 32 : si64}> : () -> tensor<32xf32, #ttnn_layout_1_device_bf16_tile>
+    %2 = "ttnn.to_layout"(%1) : (tensor<32xf32, #ttnn_layout_1_device_bf16_tile>) -> tensor<32xf32, #ttnn_layout_1_host_f32_rm>
     return %2 : tensor<32xf32, #ttnn_layout_1_host_f32_rm>
   }
 

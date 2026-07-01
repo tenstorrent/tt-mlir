@@ -921,8 +921,9 @@ struct EmitCTypeConverter<ttcore::ReduceType> {
 // reduction_common::ReduceType enum that the reduce ops take
 // (EmitCTypeConverter<ReduceType> above), so it is intentionally a separate
 // helper rather than a converter overload. Mirrors the runtime mapping
-// (runtime/.../data_movement/scatter.cpp); reductions that ttnn::scatter does
-// not support map to std::nullopt (no reduction / plain overwrite).
+// (runtime/.../data_movement/scatter.cpp): Invalid is the no reduction mode
+// and maps to std::nullopt (a plain overwrite scatter). Reductions that
+// ttnn::scatter cannot express (Mean/Std/Var) never reach scatter.
 inline std::optional<std::string>
 reduceTypeToScatterString(ttcore::ReduceType type) {
   switch (type) {
@@ -934,11 +935,8 @@ reduceTypeToScatterString(ttcore::ReduceType type) {
     return "amax";
   case ttcore::ReduceType::Min:
     return "amin";
-  // Invalid is the deliberate "no reduction" mode: a plain (overwrite) scatter.
   case ttcore::ReduceType::Invalid:
     return std::nullopt;
-  // Not valid ttnn::scatter reductions; scatter never carries these (the
-  // StableHLO scatter region only yields add/mul/max/min/invalid).
   case ttcore::ReduceType::Mean:
   case ttcore::ReduceType::Std:
   case ttcore::ReduceType::Var:
