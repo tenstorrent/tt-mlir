@@ -11,7 +11,7 @@ from collections import OrderedDict
 from ttmlir.ir import StringAttr
 from ttmlir.dialects import stablehlo
 
-from builder.base.builder_utils import Operand, Shape, DeferredDevice
+from builder.base.builder_utils import Operand, Shape
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 from builder.base.builder_apis import compile_and_execute_shlo
 from test_utils import shape_str, Marks
@@ -2370,7 +2370,7 @@ def test_flash_mla_prefill_causal_no_value(
         module,
         **get_request_kwargs(request),
         target=target,
-        device=DeferredDevice(request) if target not in ("emitpy", "emitc") else device,
+        device=device,
         ttir_pipeline_options=["composite-resolution=force-promote"],
         save_artifacts=True,
     )
@@ -2423,7 +2423,7 @@ def test_flash_mla_prefill_causal_with_value(
         module,
         **get_request_kwargs(request),
         target=target,
-        device=DeferredDevice(request) if target not in ("emitpy", "emitc") else device,
+        device=device,
         ttir_pipeline_options=["composite-resolution=force-promote"],
         save_artifacts=True,
     )
@@ -2482,7 +2482,7 @@ def test_flash_mla_prefill_with_mask(
         module,
         **get_request_kwargs(request),
         target=target,
-        device=DeferredDevice(request) if target not in ("emitpy", "emitc") else device,
+        device=device,
         ttir_pipeline_options=["composite-resolution=force-promote"],
         save_artifacts=True,
     )
@@ -2540,7 +2540,7 @@ def test_flash_mla_prefill_value_mask_scale(
         module,
         **get_request_kwargs(request),
         target=target,
-        device=DeferredDevice(request) if target not in ("emitpy", "emitc") else device,
+        device=device,
         ttir_pipeline_options=["composite-resolution=force-promote"],
         save_artifacts=True,
     )
