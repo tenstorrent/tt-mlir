@@ -1830,14 +1830,13 @@ public:
         ttmlir::utils::appendLocationSuffix(op.getLoc(), "_prepare_w0_w1"),
         /*placeholder type, refined by TTNNDeduceMoEComputeLayouts=*/w0Type,
         adaptor.getW0(), adaptor.getW1(), adaptor.getBias_0(),
-        adaptor.getBias_1(), device, hiddenSizeAttr, intermediateSizeAttr,
-        op.getBhRingSizeAttr());
+        adaptor.getBias_1(), device, hiddenSizeAttr, intermediateSizeAttr);
 
     auto w2Prepared = rewriter.create<ttnn::PrepareMoEComputeW2WeightsOp>(
         ttmlir::utils::appendLocationSuffix(op.getLoc(), "_prepare_w2"),
         /*placeholder type, refined by TTNNDeduceMoEComputeLayouts=*/w2Type,
         adaptor.getW2(), adaptor.getBias_2(), device, hiddenSizeAttr,
-        intermediateSizeAttr, op.getBhRingSizeAttr());
+        intermediateSizeAttr);
 
     // The TTNN op (mirroring tt-metal) carries has_bias; derive it from the
     // bias operands.
@@ -1854,8 +1853,8 @@ public:
         w2Prepared.getResult(), /*optional_output_tensor=*/Value(),
         /*cross_device_semaphore=*/Value(), device, op.getLayerIdAttr(),
         op.getOutputHeightShardDimAttr(), op.getIntermediateSizeAttr(),
-        hasBiasAttr, op.getActivationFunctionAttr(), op.getBhRingSizeAttr(),
-        op.getComputeOnlyAttr(), op.getClusterAxisAttr(),
+        hasBiasAttr, op.getActivationFunctionAttr(), op.getComputeOnlyAttr(),
+        op.getClusterAxisAttr(),
         /*num_links=*/mlir::IntegerAttr(), /*topology=*/ttcore::TopologyAttr(),
         /*mux_core_range_set=*/ttnn::CoreRangeSetAttr());
     return success();
