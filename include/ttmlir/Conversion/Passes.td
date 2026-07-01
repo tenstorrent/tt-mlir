@@ -341,6 +341,17 @@ def RemoveDeadEmitCExpressions : Pass<"remove-dead-emitc-expressions", "::mlir::
   let dependentDialects = ["mlir::emitc::EmitCDialect"];
 }
 
+def FormDeduplicatedEmitCExpressions : Pass<"form-deduplicated-emitc-expressions", "::mlir::func::FuncOp"> {
+  let summary = "Form EmitC expressions with parser-valid captured operands.";
+  let description = [{
+    Form emitc.expression operations while removing duplicate captured
+    operands. Repeated uses in the expression body are remapped to the first
+    corresponding block argument so pipeline-visible IR remains parser-valid.
+  }];
+  let constructor = "createFormDeduplicatedEmitCExpressionsPass()";
+  let dependentDialects = ["mlir::emitc::EmitCDialect"];
+}
+
 def ConvertSFPIToEmitC : Pass<"convert-sfpi-to-emitc", "::mlir::ModuleOp"> {
   let summary = "Convert SFPI dialect to EmitC dialect using GCC RISC-V Tenstorrent builtins.";
   let description = [{
