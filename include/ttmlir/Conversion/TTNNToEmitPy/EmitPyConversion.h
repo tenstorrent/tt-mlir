@@ -457,6 +457,35 @@ struct EmitPyTypeConverter<mlir::tt::ttcore::ReduceType> {
   }
 };
 
+// Maps a ttcore::ReduceType to the optional reduction string accepted by
+// `ttnn.scatter`'s reduce argument. This is distinct from the ttnn.ReduceType
+// enum that the reduce ops take (EmitPyTypeConverter<ReduceType> above), so it
+// is intentionally a separate helper rather than a converter overload. Mirrors
+// the runtime mapping (runtime/.../data_movement/scatter.cpp). Invalid is the
+// no reduction mode and maps to std::nullopt (a plain overwrite scatter).
+// Reductions that ttnn.scatter cannot express (Mean/Std/Var) never reach
+// scatter.
+inline std::optional<std::string>
+reduceTypeToScatterString(::mlir::tt::ttcore::ReduceType type) {
+  switch (type) {
+  case ::mlir::tt::ttcore::ReduceType::Sum:
+    return "add";
+  case ::mlir::tt::ttcore::ReduceType::Prod:
+    return "multiply";
+  case ::mlir::tt::ttcore::ReduceType::Max:
+    return "amax";
+  case ::mlir::tt::ttcore::ReduceType::Min:
+    return "amin";
+  case ::mlir::tt::ttcore::ReduceType::Invalid:
+    return std::nullopt;
+  case ::mlir::tt::ttcore::ReduceType::Mean:
+  case ::mlir::tt::ttcore::ReduceType::Std:
+  case ::mlir::tt::ttcore::ReduceType::Var:
+    break;
+  }
+  llvm_unreachable("Unsupported ttnn.scatter reduction type");
+}
+
 // Converter for integral types.
 template <typename T>
 struct EmitPyTypeConverter<T, std::enable_if_t<std::is_integral_v<T>, void>> {

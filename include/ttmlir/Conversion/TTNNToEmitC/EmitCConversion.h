@@ -916,6 +916,35 @@ struct EmitCTypeConverter<ttcore::ReduceType> {
   }
 };
 
+// Maps a ttcore::ReduceType to the optional reduction string accepted by
+// `ttnn::scatter`'s reduction argument. This is distinct from the
+// reduction_common::ReduceType enum that the reduce ops take
+// (EmitCTypeConverter<ReduceType> above), so it is intentionally a separate
+// helper rather than a converter overload. Mirrors the runtime mapping
+// (runtime/.../data_movement/scatter.cpp): Invalid is the no reduction mode
+// and maps to std::nullopt (a plain overwrite scatter). Reductions that
+// ttnn::scatter cannot express (Mean/Std/Var) never reach scatter.
+inline std::optional<std::string>
+reduceTypeToScatterString(ttcore::ReduceType type) {
+  switch (type) {
+  case ttcore::ReduceType::Sum:
+    return "add";
+  case ttcore::ReduceType::Prod:
+    return "multiply";
+  case ttcore::ReduceType::Max:
+    return "amax";
+  case ttcore::ReduceType::Min:
+    return "amin";
+  case ttcore::ReduceType::Invalid:
+    return std::nullopt;
+  case ttcore::ReduceType::Mean:
+  case ttcore::ReduceType::Std:
+  case ttcore::ReduceType::Var:
+    break;
+  }
+  llvm_unreachable("Unsupported ttnn::scatter reduction type");
+}
+
 template <>
 struct EmitCTypeConverter<::ttnn::QueueId> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
