@@ -48,30 +48,11 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
     TT_assertv(inputShape.size() >= 2ul,
                "input must have at least 2 dimensions");
 
-    int64_t numElements = op.getNumElements();
     int32_t k = op.getK();
 
-    auto tileType = cast<ttcore::TileType>(inputType.getElementType());
-    Type si32Type =
-        IntegerType::get(rewriter.getContext(), 32, IntegerType::Signed);
-    auto idxTileType = ttcore::TileType::get(si32Type, tileType.getShape());
-    auto l1MemorySpace = ttcore::MemorySpaceAttr::get(
-        rewriter.getContext(), ttcore::MemorySpace::DeviceL1);
-
-    auto allocScratch = [&](ArrayRef<int64_t> shape,
-                            ttcore::TileType elemType) -> Value {
-      auto memrefType = MemRefType::get(
-          shape, elemType, MemRefLayoutAttrInterface{}, l1MemorySpace);
-      return rewriter.create<memref::AllocOp>(loc, memrefType).getResult();
-    };
-
-    Value bufIdx = allocScratch(inputShape, idxTileType);
-    Value bufIdxFilled =
-        rewriter
-            .create<ArangeBlockOp>(loc, scratchIdxTile, bufIdx, numElements,
-                                   /*start=*/0,
-                                   /*step=*/1)
-            .getResult();
+    // The index buffer is pre-filled upstream (in TTIRToD2M via arange +
+    // broadcast generics) and passed in as scratch_idx_tile.
+    Value bufIdxFilled = scratchIdxTile;
 
     int32_t logk = floorLog2(k);
 

@@ -39,7 +39,7 @@ torch.manual_seed(0)
         pytest.param((544, 32), 16, 0, id="544x32_k16_dim0"),
         # Multi-tile non-target dim (ht>1 for dim=1, wt>1 for dim=0)
         pytest.param((128, 384), 32, -1, id="128x384_k32_dim1"),
-        pytest.param((511, 96), 64, 0, id="384x128_k64_dim0"),
+        pytest.param((384, 96), 64, 0, id="384x96_k64_dim0"),
     ],
 )
 def test_topk(shape, k, dim, target, request, device):

@@ -3320,11 +3320,12 @@ def D2M_TopkBlockOp : D2M_GenericRegionComputeOp<"topk_block",
 
       This op operates at the block level (memref of tiles) and is
       decomposed post-bufferization by `d2m-decompose-topk` into
-      `arange_block`, `tile_topk_local_sort`, `tile_topk_merge`, and
-      `tile_topk_rebuild`.
+      `tile_topk_local_sort`, `tile_topk_merge`, and `tile_topk_rebuild`.
 
-      The scratch_idx_tile is a single-tile scratch buffer used by the
-      internal arange_block operation.
+      The scratch_idx_tile is a pre-filled full-shape index buffer containing
+      the arange of original element indices (generated upstream in TTIRToD2M
+      via arange + broadcast generics). `d2m-decompose-topk` consumes this
+      buffer directly; it no longer emits `arange_block`.
   }];
 
   let arguments = (ins
