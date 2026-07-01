@@ -1013,11 +1013,12 @@ func.func @test(
   }
   ASSERT_EQ(opsBeforeWrap, 8u);
   IRRewriter rewriter(&context);
-  Operation *synchronizedOp = d2m::utils::wrapInSynchronizedRegion(
+  FailureOr<Operation *> synchronizedOp = d2m::utils::wrapInSynchronizedRegion(
       rewriter, start, end, consumers, producers);
-  ASSERT_NE(synchronizedOp, nullptr);
-  ASSERT_TRUE(mlir::isa<d2m::SynchronizedRegionOp>(synchronizedOp));
-  auto syncOp = mlir::cast<d2m::SynchronizedRegionOp>(synchronizedOp);
+  ASSERT_TRUE(succeeded(synchronizedOp));
+  ASSERT_NE(*synchronizedOp, nullptr);
+  ASSERT_TRUE(mlir::isa<d2m::SynchronizedRegionOp>(*synchronizedOp));
+  auto syncOp = mlir::cast<d2m::SynchronizedRegionOp>(*synchronizedOp);
   // Verify the synchronized region has a body with ops
   // and consumer/producer operands are set correctly.
   ASSERT_EQ(syncOp.getRegion().getBlocks().size(), 1u);

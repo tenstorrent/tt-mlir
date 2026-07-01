@@ -384,8 +384,13 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
       return storedCBOperandSet.contains(loadedCBOperand);
     });
 
-    utils::wrapInSynchronizedRegion(rewriter, start, end, loadedCBOperands,
-                                    storedCBOperands);
+    std::string failureMessage;
+    FailureOr<Operation *> synchronizedOp =
+        utils::wrapInSynchronizedRegion(rewriter, start, end, loadedCBOperands,
+                                        storedCBOperands, &failureMessage);
+    if (failed(synchronizedOp)) {
+      return rewriter.notifyMatchFailure(genericOp, failureMessage);
+    }
   }
 
   return success();

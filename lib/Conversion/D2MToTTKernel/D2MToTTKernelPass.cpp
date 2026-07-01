@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Conversion/D2MToTTKernel/D2MToTTKernel.h"
+#include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
 
 #include "ttmlir/Dialect/D2M/Analysis/CBProducerConsumer.h"
 #include "ttmlir/Dialect/D2M/IR/D2M.h"
@@ -219,6 +220,7 @@ struct ConvertD2MToTTKernel
     // The d2m.thread attr is kept until the end of this pass, when body
     // rewrites have consumed nocIndex.
     funcOp->removeAttr(d2m::ThreadAttr::name);
+    funcOp->removeAttr(d2m::getPhysicalCBPortMapAttrName());
   };
 };
 } // namespace
