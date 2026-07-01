@@ -101,6 +101,13 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help="Override the generate-step count for the LLM decode benchmark. "
         "Default fills the 128-slot KV cache; use a small value for smoke runs.",
     )
+    group.addoption(
+        "--llm-num-layers",
+        action="store",
+        type=int,
+        default=None,
+        help="Truncate the model to this many decoder layers. Default keeps the full model.",
+    )
 
 
 @pytest.fixture(scope="session")
@@ -162,6 +169,12 @@ def _strict_no_fallback(request: pytest.FixtureRequest) -> Any:
 
     with strict_no_fallback():
         yield
+
+
+@pytest.fixture(scope="session")
+def llm_num_layers(request: pytest.FixtureRequest) -> int | None:
+    value = request.config.getoption("--llm-num-layers")
+    return None if value is None else int(value)
 
 
 @pytest.fixture
