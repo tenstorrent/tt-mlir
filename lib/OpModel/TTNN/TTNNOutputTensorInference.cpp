@@ -36,14 +36,18 @@ getPrepareMoEComputeW0W1WeightsOpOutputTensorSpec(
     std::optional<TTNNLayoutAttr> bias0Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
     std::optional<TTNNLayoutAttr> bias1Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize);
+    uint32_t intermediateSize);
 
 llvm::Expected<::ttnn::TensorSpec>
 getPrepareMoEComputeW2WeightsOpOutputTensorSpec(
     llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
     std::optional<TTNNLayoutAttr> bias2Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize);
+    uint32_t intermediateSize);
+
+CoreRangeSetAttr computeMoeTilizeDrainCoreRangeSet(
+    ::mlir::MLIRContext *context, uint32_t outputHeightShardDim,
+    uint32_t hiddenSize, CoreRangeSetAttr muxCoreRangeSet);
 } // namespace mlir::tt::ttnn::op_model
 
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -157,7 +161,7 @@ getPreparedMoEComputeW0W1WeightsOutputType(PrepareMoEComputeW0W1WeightsOp *op) {
   auto specOrErr = getPrepareMoEComputeW0W1WeightsOpOutputTensorSpec(
       w0Type.getShape(), w0Layout, w1Type.getShape(), w1Layout, bias0Shape,
       bias0Layout, bias1Shape, bias1Layout, op->getHiddenSize(),
-      op->getIntermediateSize(), op->getBhRingSize());
+      op->getIntermediateSize());
   if (!specOrErr) {
     llvm::errs() << llvm::toString(specOrErr.takeError());
     assert(false &&
@@ -196,7 +200,7 @@ getPreparedMoEComputeW2WeightsOutputType(PrepareMoEComputeW2WeightsOp *op) {
   }
   auto specOrErr = getPrepareMoEComputeW2WeightsOpOutputTensorSpec(
       w2Type.getShape(), w2Layout, bias2Shape, bias2Layout, op->getHiddenSize(),
-      op->getIntermediateSize(), op->getBhRingSize());
+      op->getIntermediateSize());
   if (!specOrErr) {
     llvm::errs() << llvm::toString(specOrErr.takeError());
     assert(false &&
@@ -217,6 +221,20 @@ getPreparedMoEComputeW2WeightsOutputType(PrepareMoEComputeW2WeightsOp *op) {
 #else
   assert(false && "Cannot calculate prepare_moe_compute_w2_weights shape "
                   "without op model");
+#endif
+}
+
+CoreRangeSetAttr getMoeTilizeDrainCoreRangeSet(MoeComputeOp *op) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  auto inputType =
+      mlir::cast<mlir::RankedTensorType>(op->getTilizeInputTensor().getType());
+  uint32_t hiddenSize = static_cast<uint32_t>(inputType.getShape().back());
+  return computeMoeTilizeDrainCoreRangeSet(
+      op->getContext(), op->getOutputHeightShardDim(), hiddenSize,
+      op->getMuxCoreRangeSet());
+#else
+  assert(false &&
+         "Cannot deduce moe_compute tilize drain core without op model");
 #endif
 }
 

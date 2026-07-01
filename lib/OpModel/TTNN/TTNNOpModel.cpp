@@ -14,6 +14,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
+#include "ttnn/operations/experimental/ccl/moe_compute/moe_compute.hpp"
 #include "ttnn/operations/experimental/ccl/moe_compute/moe_compute_utils.hpp"
 
 #include "mlir/IR/AttrTypeSubElements.h"
@@ -828,40 +829,39 @@ static ::ttnn::Tensor
 moeComputePackW0W1(const ::ttnn::Tensor &w0, const ::ttnn::Tensor &w1,
                    std::optional<::ttnn::Tensor> b0,
                    std::optional<::ttnn::Tensor> b1, uint32_t hiddenSize,
-                   uint32_t intermediateSize, uint32_t bhRingSize,
-                   ::ttnn::MeshDevice *device) {
+                   uint32_t intermediateSize, ::ttnn::MeshDevice *device) {
   uint32_t L = w0.logical_shape()[0];
   uint32_t E = w0.logical_shape()[1];
   bool hasBias = b0.has_value();
   ::ttnn::Tensor packed =
       hasBias ? ::ttnn::experimental::prepare_w0_w1_tensor_with_bias(
-                    w0, w1, *b0, *b1, L, E, hiddenSize, intermediateSize,
-                    bhRingSize)
+                    w0, w1, *b0, *b1, L, E, hiddenSize, intermediateSize)
               : ::ttnn::experimental::prepare_w0_w1_tensor_for_moe_compute(
-                    w0, w1, L, E, hiddenSize, intermediateSize, bhRingSize);
+                    w0, w1, L, E, hiddenSize, intermediateSize);
   return ::ttnn::experimental::quantize_weights_via_host(
       packed, ::tt::tt_metal::DataType::BFLOAT4_B,
-      ::ttnn::experimental::get_weight_mem_configs(
-          device, L, E, hiddenSize, intermediateSize, hasBias, bhRingSize)
+      ::ttnn::experimental::get_weight_mem_configs(device, L, E, hiddenSize,
+                                                   intermediateSize, hasBias)
           .w0_w1);
 }
 
-static ::ttnn::Tensor
-moeComputePackW2(const ::ttnn::Tensor &w2, std::optional<::ttnn::Tensor> b2,
-                 uint32_t hiddenSize, uint32_t intermediateSize,
-                 uint32_t bhRingSize, ::ttnn::MeshDevice *device) {
+static ::ttnn::Tensor moeComputePackW2(const ::ttnn::Tensor &w2,
+                                       std::optional<::ttnn::Tensor> b2,
+                                       uint32_t hiddenSize,
+                                       uint32_t intermediateSize,
+                                       ::ttnn::MeshDevice *device) {
   uint32_t L = w2.logical_shape()[0];
   uint32_t E = w2.logical_shape()[1];
   bool hasBias = b2.has_value();
   ::ttnn::Tensor packed =
       hasBias ? ::ttnn::experimental::prepare_w2_tensor_with_bias(
-                    w2, *b2, L, E, intermediateSize, hiddenSize, bhRingSize)
+                    w2, *b2, L, E, intermediateSize, hiddenSize)
               : ::ttnn::experimental::prepare_w2_tensor_for_moe_compute(
-                    w2, L, E, intermediateSize, hiddenSize, bhRingSize);
+                    w2, L, E, intermediateSize, hiddenSize);
   return ::ttnn::experimental::quantize_weights_via_host(
       packed, ::tt::tt_metal::DataType::BFLOAT4_B,
-      ::ttnn::experimental::get_weight_mem_configs(
-          device, L, E, hiddenSize, intermediateSize, hasBias, bhRingSize)
+      ::ttnn::experimental::get_weight_mem_configs(device, L, E, hiddenSize,
+                                                   intermediateSize, hasBias)
           .w2);
 }
 
@@ -873,11 +873,9 @@ static auto makePrepareMoEComputeW0W1WeightsQuery(
     std::optional<TTNNLayoutAttr> bias0Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
     std::optional<TTNNLayoutAttr> bias1Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
-
-  uint32_t ring = bhRingSize.value_or(12);
 
   return [=]() {
     ::ttnn::TensorSpec w0Spec = conversion::getTensorSpec(w0Shape, w0Layout);
@@ -892,7 +890,7 @@ static auto makePrepareMoEComputeW0W1WeightsQuery(
     }
     return ::ttnn::graph::query_op_constraints(
         WRAP_OP(moeComputePackW0W1), device, w0Spec, w1Spec, b0Spec, b1Spec,
-        hiddenSize, intermediateSize, ring, device);
+        hiddenSize, intermediateSize, device);
   };
 }
 
@@ -904,10 +902,10 @@ getPrepareMoEComputeW0W1WeightsOpOutputTensorSpec(
     std::optional<TTNNLayoutAttr> bias0Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
     std::optional<TTNNLayoutAttr> bias1Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
   auto query = makePrepareMoEComputeW0W1WeightsQuery(
       w0Shape, w0Layout, w1Shape, w1Layout, bias0Shape, bias0Layout, bias1Shape,
-      bias1Layout, hiddenSize, intermediateSize, bhRingSize);
+      bias1Layout, hiddenSize, intermediateSize);
   auto output = operation::executeConstraintQuery(query);
   if (!output) {
     return output.takeError();
@@ -921,11 +919,10 @@ static auto makePrepareMoEComputeW2WeightsQuery(
     llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
     std::optional<TTNNLayoutAttr> bias2Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  uint32_t ring = bhRingSize.value_or(12);
   return [=]() {
     ::ttnn::TensorSpec w2Spec = conversion::getTensorSpec(w2Shape, w2Layout);
     std::optional<::ttnn::TensorSpec> b2Spec;
@@ -934,7 +931,7 @@ static auto makePrepareMoEComputeW2WeightsQuery(
     }
     return ::ttnn::graph::query_op_constraints(
         WRAP_OP(moeComputePackW2), device, w2Spec, b2Spec, hiddenSize,
-        intermediateSize, ring, device);
+        intermediateSize, device);
   };
 }
 
@@ -943,10 +940,9 @@ getPrepareMoEComputeW2WeightsOpOutputTensorSpec(
     llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
     std::optional<TTNNLayoutAttr> bias2Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
   auto query = makePrepareMoEComputeW2WeightsQuery(
-      w2Shape, w2Layout, bias2Shape, bias2Layout, hiddenSize, intermediateSize,
-      bhRingSize);
+      w2Shape, w2Layout, bias2Shape, bias2Layout, hiddenSize, intermediateSize);
   auto output = operation::executeConstraintQuery(query);
   if (!output) {
     return output.takeError();
@@ -954,6 +950,37 @@ getPrepareMoEComputeW2WeightsOpOutputTensorSpec(
   assert(output.get().output_tensor_specs.has_value() &&
          !output.get().output_tensor_specs->empty());
   return output.get().output_tensor_specs.value()[0];
+}
+
+// Query tt-metal for the moe_compute tilize-drain core (the single L1 core the
+// fused kernel allocates its expert indices/scores CBs against) and return it
+// as a single-core CoreRangeSetAttr. The core depends on the device's DRAM-bank
+// to worker assignment + arch, so this must run against an initialized device.
+CoreRangeSetAttr computeMoeTilizeDrainCoreRangeSet(
+    ::mlir::MLIRContext *context, uint32_t outputHeightShardDim,
+    uint32_t hiddenSize, CoreRangeSetAttr muxCoreRangeSet) {
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // data-parallel cores = largest divisor of hidden_tiles <= 4 (mirrors the
+  // device op and the former runtime drain-core query).
+  uint32_t hiddenTiles = hiddenSize / 32;
+  uint32_t numDataParallelCores = 1;
+  for (uint32_t d = 4; d >= 1; --d) {
+    if (hiddenTiles % d == 0) {
+      numDataParallelCores = d;
+      break;
+    }
+  }
+
+  ::tt::tt_metal::CoreRangeSet muxCrs =
+      conversion::getCoreRangeSet(muxCoreRangeSet);
+  ::ttnn::CoreCoord drainCore = ::ttnn::experimental::get_moe_tilize_drain_core(
+      device, outputHeightShardDim, numDataParallelCores, hiddenSize, muxCrs);
+
+  ::tt::tt_metal::CoreRangeSet drainCrs(
+      ::tt::tt_metal::CoreRange(drainCore, drainCore));
+  return conversion::getCoreRangeSet(context, drainCrs);
 }
 
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -966,11 +993,11 @@ OpModel<PrepareMoEComputeW0W1WeightsOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> bias0Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
     std::optional<TTNNLayoutAttr> bias1Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto query = makePrepareMoEComputeW0W1WeightsQuery(
       w0Shape, w0Layout, w1Shape, w1Layout, bias0Shape, bias0Layout, bias1Shape,
-      bias1Layout, hiddenSize, intermediateSize, bhRingSize);
+      bias1Layout, hiddenSize, intermediateSize);
   return operation::getOpConstraints(w0Layout.getContext(), query);
 #else
   return OpConstraints{};
@@ -982,11 +1009,10 @@ OpModel<PrepareMoEComputeW2WeightsOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
     std::optional<TTNNLayoutAttr> bias2Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto query = makePrepareMoEComputeW2WeightsQuery(
-      w2Shape, w2Layout, bias2Shape, bias2Layout, hiddenSize, intermediateSize,
-      bhRingSize);
+      w2Shape, w2Layout, bias2Shape, bias2Layout, hiddenSize, intermediateSize);
   return operation::getOpConstraints(w2Layout.getContext(), query);
 #else
   return OpConstraints{};
