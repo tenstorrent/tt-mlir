@@ -500,6 +500,16 @@ module {
     return %0 : !ttype
   }
 
+  // CHECK-LABEL: func @named_relu6
+  func.func @named_relu6(%arg: !ttype) -> (!ttype) {
+    // named relu6 op, unary lowered to clamp_scalar with [0, 6] bounds:
+    // CHECK: d2m.generic{{.+}}iterator_types = [#parallel, #parallel]
+    // CHECK: linalg.generic{{.+}}iterator_types = ["parallel", "parallel"]
+    // CHECK: d2m.tile_clamp_scalar
+    %0 = "ttir.relu6"(%arg) : (!ttype) -> !ttype
+    return %0 : !ttype
+  }
+
   // CHECK-LABEL: func @named_logical_and
   func.func @named_logical_and(%lhs: !ttype, %rhs: !ttype) -> (!ttype) {
     // logical_and is decomposed into: NEZ(a) * NEZ(b) - both must be non-zero
