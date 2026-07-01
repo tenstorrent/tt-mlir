@@ -32,9 +32,6 @@ def check_sharded_input_output(mlir_file: str, op_name: str):
     return False
 
 
-@pytest.mark.skip(
-    "Causes segfault during pipeline, see https://github.com/tenstorrent/tt-mlir/issues/5283"
-)
 @pytest.mark.parametrize(
     "shapes",
     [
@@ -83,6 +80,7 @@ def test_conv2d_sharding(
         module,
         **get_request_kwargs(request),
         device=device,
+        save_artifacts=True,
         pipeline_options=[
             "optimization-level=2",
         ],
