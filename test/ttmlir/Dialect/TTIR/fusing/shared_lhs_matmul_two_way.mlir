@@ -1,7 +1,5 @@
-// Two-way shared-LHS fusion is opt-in; enable it for the CHECK run.
 // RUN: ttmlir-opt --ttir-fusing="enable-shared-lhs-double-matmul-fusion=true" %s -o %t.mlir
 // RUN: FileCheck %s --input-file=%t.mlir
-// With the flag off (default) the two-way pairs must NOT fuse.
 // RUN: ttmlir-opt --ttir-fusing %s -o %t.disabled.mlir
 // RUN: FileCheck %s --check-prefix=DISABLED --input-file=%t.disabled.mlir
 
