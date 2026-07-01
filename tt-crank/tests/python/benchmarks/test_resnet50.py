@@ -1,4 +1,4 @@
-"""Benchmark: ResNet50 forward pass (random weights, real shapes)."""
+"""Benchmark: ResNet50 forward pass (HF microsoft/resnet-50, real shapes)."""
 
 import copy
 
@@ -8,17 +8,21 @@ from tt_kurbla.torch._compile import CompileOption
 
 from ._runner import prepare_model, run_benchmark
 
-torchvision = pytest.importorskip("torchvision")
-from torchvision.models import resnet50  # noqa: E402
+transformers = pytest.importorskip("transformers")
+from transformers import ResNetForImageClassification  # noqa: E402
 
 
 _DTYPE = torch.bfloat16
 
 
 def _build() -> tuple[torch.nn.Module, tuple[torch.Tensor]]:
-    """Build the model and inputs once, on CPU."""
-    model = resnet50(weights=None).to(_DTYPE).eval()
-    x = torch.randn(1, 3, 224, 224, dtype=_DTYPE)
+    """Build the model and inputs once, on CPU.
+
+    Matches tt-xla's vision benchmark: HF microsoft/resnet-50
+    (ResNetForImageClassification), bfloat16, batch 8, 224x224.
+    """
+    model = ResNetForImageClassification.from_pretrained("microsoft/resnet-50").to(_DTYPE).eval()
+    x = torch.randn(8, 3, 224, 224, dtype=_DTYPE)
     return model, (x,)
 
 
