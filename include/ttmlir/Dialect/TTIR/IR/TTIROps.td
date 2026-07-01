@@ -6347,6 +6347,7 @@ def TTIR_TopKOp : TTIR_NamedOp<"topk"> {
                       AnyRankedTensor:$indices);
 
   let hasVerifier = 1;
+  let hasCanonicalizer = 1;
 }
 
 def TTIR_TopKRouterGptOp : TTIR_NamedOp<"topk_router_gpt"> {
