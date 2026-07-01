@@ -371,6 +371,27 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
   ];
 }
 
+def TTNNFoldToMemoryConfig: Pass<"ttnn-fold-to-memory-config", "::mlir::ModuleOp">
+{
+  let summary = "Fold redundant ttnn.to_memory_config ops.";
+  let description = [{
+    Eliminates ttnn.to_memory_config conversions that perform no meaningful
+    work:
+      - Identity: the input already has the target memory config.
+      - Consecutive: two back-to-back conversions collapse to the outer config
+        (which, combined with the identity fold, also erases
+        shard->stage->shard round-trips). Intentional DRAM->L1 staging with
+        ops in between is preserved unless it is a same-layout round-trip.
+  }];
+
+  let options = [
+    Option<"foldingEnabled",
+           "enable-to-memory-config-folding",
+           "bool", /*default=*/"true",
+           "Fold redundant ttnn.to_memory_config ops.">,
+  ];
+}
+
 def TTNNCreateD2MSubgraphs: Pass<"ttnn-create-d2m-subgraphs", "::mlir::ModuleOp"> {
   let summary = "TTNN create D2M subgraphs pass.";
   let description = [{

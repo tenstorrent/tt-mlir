@@ -429,6 +429,14 @@ void createTTIRToTTNNCommonPipeline(
         options.dramSpaceSavingOptimizationEnabled;
     devicePm.addPass(createTTNNMemoryManagement(memoryManagementOptions));
     createTTNNPipelineWorkaroundPass(devicePm, options);
+
+    // Fold redundant to_memory_config ops introduced by memory management and
+    // workarounds (identity/consecutive conversions, staging round-trips).
+    {
+      TTNNFoldToMemoryConfigOptions foldOptions;
+      foldOptions.foldingEnabled = options.enableToMemoryConfigFolding;
+      devicePm.addPass(createTTNNFoldToMemoryConfig(foldOptions));
+    }
     // Add weight dtype conversion pass before analysis passes.
     // Analysis passes need to know data formats to decide on shardings.
     // Always added: per-arg "ttcore.weight_dtype" annotations may exist even

@@ -2197,70 +2197,6 @@ mlir::OpFoldResult foldConsecutiveToLayoutOp(ttnn::ToLayoutOp op) {
   return op.getResult();
 }
 
-// Returns the TTNNLayoutAttr encoding of a value's ranked tensor type, or
-// nullptr if it has none. to_memory_config encodes its target memory config
-// in the result type's encoding (it has no memory-config attribute), so the
-// layout encoding is the source of truth for both folds below.
-static ttnn::TTNNLayoutAttr getTTNNLayout(mlir::Value value) {
-  auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(value.getType());
-  if (!tensorType) {
-    return nullptr;
-  }
-  return mlir::dyn_cast<ttnn::TTNNLayoutAttr>(tensorType.getEncoding());
-}
-
-// to_memory_config(x) whose input already has the target memory config is a
-// no-op and folds away to its input.
-mlir::OpFoldResult foldIdentityToMemoryConfigOp(ttnn::ToMemoryConfigOp op) {
-  ttnn::TTNNLayoutAttr inputLayout = getTTNNLayout(op.getInput());
-  ttnn::TTNNLayoutAttr outputLayout = getTTNNLayout(op.getResult());
-  if (!inputLayout || !outputLayout) {
-    return nullptr;
-  }
-  return inputLayout == outputLayout ? op.getInput() : nullptr;
-}
-
-// Two consecutive to_memory_config ops collapse to a single one targeting the
-// outer config, because the op depends only on (input data, target config) and
-// not the path taken:
-//
-//   %a = to_memory_config(%x)   // -> cfgA
-//   %b = to_memory_config(%a)   // -> cfgB     ==>   %b = to_memory_config(%x) // -> cfgB
-//
-// Combined with the identity fold above, this also erases shard->stage->shard
-// round-trips (where cfgB == the layout of %x).
-mlir::OpFoldResult foldConsecutiveToMemoryConfigOp(ttnn::ToMemoryConfigOp op) {
-  auto producerOp = op.getInput().getDefiningOp<ttnn::ToMemoryConfigOp>();
-  if (!producerOp) {
-    return nullptr;
-  }
-
-  // Preserve intentional DRAM staging (mirrors foldConsecutiveToLayoutOp): if
-  // there are ops between producer and consumer, and the producer parks the
-  // tensor in DRAM while the consumer moves it to L1, folding would bypass the
-  // DRAM staging that downstream scheduling may rely on. Only fold then if the
-  // net change (producer input -> consumer output) is a genuine no-op, i.e. the
-  // tensor round-trips back to the exact same layout it started in and the
-  // staging is truly redundant.
-  Operation *nextOp = producerOp->getNextNode();
-  bool hasOpsBetween = (nextOp != op.getOperation());
-  if (hasOpsBetween) {
-    ttnn::TTNNLayoutAttr producerOut = getTTNNLayout(producerOp.getResult());
-    ttnn::TTNNLayoutAttr consumerOut = getTTNNLayout(op.getResult());
-    if (producerOut && consumerOut &&
-        producerOut.getBufferType() == BufferType::DRAM &&
-        consumerOut.getBufferType() == BufferType::L1) {
-      ttnn::TTNNLayoutAttr producerIn = getTTNNLayout(producerOp.getInput());
-      bool isRoundTrip = producerIn && producerIn == consumerOut;
-      if (!isRoundTrip) {
-        return nullptr;
-      }
-    }
-  }
-
-  op.getInputMutable().set(producerOp.getInput());
-  return op.getResult();
-}
 } // namespace
 
 // Returns true iff input/result data types differ, i.e. this to_layout
@@ -2286,19 +2222,6 @@ mlir::OpFoldResult ttnn::ToLayoutOp::fold(FoldAdaptor adaptor) {
   }
 
   if (auto foldResult = foldConsecutiveToLayoutOp(*this)) {
-    return foldResult;
-  }
-
-  return nullptr;
-}
-
-// ToMemoryConfigOp folder
-mlir::OpFoldResult ttnn::ToMemoryConfigOp::fold(FoldAdaptor adaptor) {
-  if (auto foldResult = foldIdentityToMemoryConfigOp(*this)) {
-    return foldResult;
-  }
-
-  if (auto foldResult = foldConsecutiveToMemoryConfigOp(*this)) {
     return foldResult;
   }
 

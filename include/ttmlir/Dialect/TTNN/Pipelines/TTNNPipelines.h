@@ -381,6 +381,14 @@ struct TTIRToTTNNCommonPipelineOptions
                      "producing the sliced dim."),
       llvm::cl::init(true)};
 
+  // Fold redundant ttnn.to_memory_config ops (identity and consecutive
+  // conversions). Escape hatch: turn off to preserve all conversions if the
+  // folds regress downstream scheduling.
+  Option<bool> enableToMemoryConfigFolding{
+      *this, "enable-to-memory-config-folding",
+      llvm::cl::desc("Fold redundant ttnn.to_memory_config ops."),
+      llvm::cl::init(true)};
+
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
       argumentTypeMap{
           *this, ttcore::OptionNames::argumentTypes,
