@@ -106,6 +106,7 @@ void createTTNNPipelineAnalysisPasses(
   if (options.checkUniqueLocations) {
     pm.addPass(mlir::tt::ttnn::createTTNNUniqueLocations());
   }
+
   if (options.optimizerPassEnabled) {
 #ifdef TTMLIR_ENABLE_OPMODEL
     // Wrap all Optimizer passes with device lifecycle management.
@@ -484,6 +485,8 @@ void createTTIRToTTNNCommonPipeline(
     if (options.enableConstEval) {
       devicePm.addPass(transforms::createConstEvalHoistTransform());
     }
+
+    createTTNNPipelineLayoutDecompositionPass(devicePm, options);
 
     createTTNNPipelineAnalysisPasses(devicePm, options);
 
