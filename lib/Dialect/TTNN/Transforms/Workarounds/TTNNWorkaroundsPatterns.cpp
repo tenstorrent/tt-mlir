@@ -752,7 +752,8 @@ private:
 
 const std::set<mlir::StringRef>
     TTNNWorkarounds::TTNNWorkarounds::enabledOpsForWorkaroundWithOptimizer = {
-        ttnn::WhereOp::getOperationName(), ttnn::FullOp::getOperationName(),
+        ttnn::WhereOp::getOperationName(),
+        ttnn::FullOp::getOperationName(),
         ttnn::EmbeddingOp::getOperationName(),
         ttnn::ScatterOp::getOperationName(),
         // TopK's operands workaround forces input bf16 + indices ui16/ui32;
@@ -779,5 +780,13 @@ const std::set<mlir::StringRef>
         // index/param tensors, UINT32 dtype on k, and ROW_MAJOR+UINT32 on
         // the result (the kernel hard-rejects anything else and produces
         // UINT32).
-        ttnn::SamplingOp::getOperationName()};
+        ttnn::SamplingOp::getOperationName(),
+        // MoE ops have layout and dtype workarounds needed for
+        // optimization_level >= 1
+        ttnn::AllToAllDispatchOp::getOperationName(),
+        ttnn::AllToAllDispatchMetadataOp::getOperationName(),
+        ttnn::AllToAllCombineOp::getOperationName(),
+        ttnn::MoeExpertTokenRemapOp::getOperationName(),
+        ttnn::SparseMatmulOp::getOperationName(),
+};
 } // namespace mlir::tt::ttnn

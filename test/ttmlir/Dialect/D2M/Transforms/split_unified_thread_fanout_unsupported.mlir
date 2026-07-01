@@ -1,10 +1,10 @@
-// RUN: ttmlir-opt --ttcore-register-device --d2m-split-unified-thread --split-input-file --verify-diagnostics %s
+// RUN: ttmlir-opt --ttcore-register-device --d2m-split-unified-thread --split-input-file %s | FileCheck %s
 
 // Cross-nest fan-out: a CB consumed by compute ops living in two distinct loop
 // nests. The producer pushes the CB once per blocking-loop iteration, so a
 // single per-block wait/pop pair cannot dominate/post-dominate consumers spread
-// across separate nests. This is not yet supported and must be diagnosed (not
-// silently miscompiled into a deadlock).
+// across separate nests. This is not yet supported; the pattern must fail
+// without splitting the generic into a deadlocking DM/compute pair.
 
 #l1 = #ttcore.memory_space<l1>
 #dram = #ttcore.memory_space<dram>
@@ -19,7 +19,10 @@ module attributes {ttcore.system_desc = #system_desc} {
     %stream = d2m.view_layout %arg0 remapping = #map4 : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
     %cb_in = memref.alloc() {address = 5120 : i64, alignment = 16 : i64} : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
     %cb_a = memref.alloc() {address = 6144 : i64, alignment = 16 : i64} : memref<2x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 2>, #l1>
-    // expected-error @+1 {{compute ops span multiple synchronization scopes (e.g. a CB consumed across distinct loop nests); cross-nest fan-out is not yet supported}}
+    // CHECK-LABEL: func.func @fanout_cross_nest
+    // CHECK: d2m.generic
+    // CHECK-SAME: threads = [#d2m.thread<unified>]
+    // CHECK-NOT: threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]
     d2m.generic {block_factors = [], grid = #ttcore.grid<4x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
         ins(%stream : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
         outs(%res : memref<4x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>)
