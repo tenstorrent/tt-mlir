@@ -66,6 +66,23 @@ public:
                   mlir::PatternRewriter &rewriter) const override;
 };
 
+// Same as RoPEDecodeFusing, but rooted on the canonicalized (folded) form of
+// the decode permute: a layout-preserving reshape (BHSD with seq == 1 ->
+// SBHD). A canonicalizer that runs before fusing folds the layout-preserving
+// permute {2,0,1,3} into the adjacent reshape, so this sibling recognizes that
+// reshape and applies the same decode rewrite.
+//
+// Matches:  rotary_embedding(x, cos, sin) -> reshape {[1,B,H,D]}
+// Produces: permute(x, {2, 0, 1, 3}) -> rotary_embedding(..., token_index=0)
+class RoPEDecodeReshapeFusing : public mlir::OpRewritePattern<ReshapeOp> {
+public:
+  using OpRewritePattern<ReshapeOp>::OpRewritePattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(ReshapeOp reshapeOp,
+                  mlir::PatternRewriter &rewriter) const override;
+};
+
 } // namespace mlir::tt::ttnn::fusing
 
 #endif // TTMLIR_DIALECT_TTNN_TRANSFORMS_FUSING_ROPEFUSINGPATTERN_H
