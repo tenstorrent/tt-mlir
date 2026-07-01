@@ -4,44 +4,43 @@
 
 """Direct-kernel autotuner (Path A) for d2m-jit.
 
-Sweeps a config space over a ``@d2m.kernel`` driven directly (the
-``eltwise_block_run`` convention), runs each config on device with profiler
-traces, and ranks by ``device_kernel_time.ns`` (parsed from the device profiler
-CSV via ``tools/perf-analyzer/perf-analyzer.py::build_report``).
+Loads kernels from pattern files (KERNEL_BENCHES), sweeps a config space over
+``@d2m.kernel`` driven directly, runs each config on device with profiler traces,
+and ranks by ``device_kernel_time.ns`` (parsed from profiler CSV via
+``tools/perf-analyzer/perf-analyzer.py::build_report``).
+
+Kernels are defined in ``tools/d2m-jit/patterns/*.py`` files, each exporting a
+``KERNEL_BENCHES`` list. The autotuner dynamically loads patterns via
+``_load_pattern_file(path)`` which extracts the first KernelBench and passes it
+to ``tune()`` or ``search()``.
 
 A config that fails to compile/run stays in the results with ``valid=False``
 (useful signal) but is excluded from the leaderboard and from ``best``.
 
-An optional PCC correctness gate (``--check-pcc`` / ``check_pcc=True``, OFF by
-default) additionally drops any config whose output deviates from a golden. It's
-cheap when on -- the reference is computed once and the device output is already
-returned by the same profiled run, so gating is one ``corrcoef`` per config --
-but off by default for human-driven tuning where the kernel is trusted.
+An optional PCC correctness gate (``--check-pcc``, OFF by default) drops any
+config whose output deviates from a golden reference. It's cheap (one corrcoef
+per config) but off by default for human-driven tuning where kernels are trusted.
 
-Capture mechanics (validated): the in-process device profiler writes
+Capture mechanics: the in-process device profiler writes
 ``$TT_METAL_HOME/generated/profiler/.logs/profile_log_device.csv`` after each
 workload. The sweep clears that file before each config and builds the report
-straight from it; with ``--save-profiler-logs`` it also snapshots the CSV into a
-per-config ``cfg_NNN/`` dir (build output is always discarded, never saved).
+from it; with ``--save-profiler-logs`` it also snapshots the CSV into a per-config
+``cfg_NNN/`` dir (build output is always discarded).
 
-Requirements (the profiler env is read by tt-metal at device-open, so it must be
-set before the first device interaction -- run the tuner in a fresh process):
+Requirements (profiler env must be set before device-open):
     TT_METAL_DEVICE_PROFILER=1
     TT_METAL_DEVICE_PROFILER_DISPATCH=0
-and a perf-trace runtime build (TT_RUNTIME_ENABLE_PERF_TRACE=ON). ``tune()`` sets
-the two env vars via ``setdefault`` and flips the matching ``config`` flags.
+and a perf-trace runtime build (TT_RUNTIME_ENABLE_PERF_TRACE=ON). ``tune()`` and
+``search()`` set these env vars and config flags.
 
-Knobs: ``grid_shape`` (cores), ``block_shape`` (tiles per shard a core processes
-per remote_load), ``dtype``, and ``mem_space`` (``l1``/``dram`` -- where the
-kernel's I/O tensors live, set on the Layout). The config is a plain dict, so
-further axes are additive. See ``build_space`` to enumerate.
+Swept knobs: ``grid_shape`` (core grid), ``block_shape`` (tiles per shard),
+``mem_space`` (l1/dram -- where kernel I/O lives). Shape, dtype, and kernel
+come from the pattern's KernelBench and are NOT swept. Config is a plain dict.
 
 Two entry points share the same per-config evaluation:
-  * ``tune(space)``   -- evaluate every config, rank + Pareto over the results.
-  * ``search(proposer)`` -- guided: a proposer chooses the next configs from what
-    it has observed, in propose/evaluate/observe rounds, so you can explore a
-    large space without running every config. The bundled proposer is the
-    ``hill_climb_proposer`` heuristic (latency-guided coordinate descent).
+  * ``tune(bench, input_shapes, space)`` -- evaluate every config, rank + Pareto.
+  * ``search(bench, input_shapes, proposer)`` -- guided search via proposer,
+    using the bundled ``hill_climb_proposer`` heuristic (latency coordinate descent).
 """
 
 from __future__ import annotations
@@ -60,7 +59,7 @@ from typing import Callable, Optional, Sequence
 import torch
 
 from d2m_jit import config
-from d2m_jit.testing import d2m_dtype, make_inputs, torch_dtype
+from d2m_jit.testing import make_inputs, torch_dtype, KernelBench
 
 # --- perf-analyzer (hyphenated filename / sibling tool -> load by path) ------
 
@@ -122,17 +121,12 @@ def _device_csv() -> pathlib.Path:
 # --- Config space ------------------------------------------------------------
 
 
-def grid_space(
-    shape, dtypes: Sequence[str] = ("float32",), max_cores: int = 64
-) -> list[dict]:
-    """Enumerate feasible ``(grid_shape, dtype)`` configs for a 2D ``shape``.
+def grid_space(shape, max_cores: int = 64) -> list[dict]:
+    """Enumerate feasible ``grid_shape`` configs for a 2D ``shape``.
 
     A grid ``(gy, gx)`` is feasible when it evenly divides the tile counts
     ``(shape[-2]//32, shape[-1]//32)`` and ``gy*gx <= max_cores`` (physical grid
-    bound). The space is the product of feasible grids and ``dtypes``.
-
-    block_shape is held at ``[1, 1]`` here (one tile per shard). To also tune
-    block_shape, use ``block_space`` with the ``block_aware_run`` materializer.
+    bound). Returns a list of configs with grid_shape and block_shape=[1,1].
     """
     ty, tx = shape[-2] // 32, shape[-1] // 32
     cfgs = []
@@ -142,10 +136,7 @@ def grid_space(
         for gx in range(1, tx + 1):
             if tx % gx or gy * gx > max_cores:
                 continue
-            for dt in dtypes:
-                cfgs.append(
-                    {"grid_shape": [gy, gx], "block_shape": [1, 1], "dtype": dt}
-                )
+            cfgs.append({"grid_shape": [gy, gx], "block_shape": [1, 1]})
     return cfgs
 
 
@@ -153,10 +144,8 @@ def _divisors(n: int) -> list[int]:
     return [d for d in range(1, n + 1) if n % d == 0]
 
 
-def block_space(
-    shape, dtypes: Sequence[str] = ("float32",), max_cores: int = 64
-) -> list[dict]:
-    """Enumerate feasible ``(grid_shape, block_shape, dtype)`` configs.
+def block_space(shape, max_cores: int = 64) -> list[dict]:
+    """Enumerate feasible ``(grid_shape, block_shape)`` configs for a 2D ``shape``.
 
     ``block_shape`` ``(bh, bw)`` (in tiles) is the multi-tile shard each
     ``remote_load`` pulls and the kernel computes over. Feasibility:
@@ -164,8 +153,7 @@ def block_space(
       * the blocked grid ``(tiles_y//bh, tiles_x//bw)`` is divisible by
         ``grid_shape`` (blocks distribute evenly across cores),
       * ``gy*gx <= max_cores``.
-    The space is the product over feasible blocks, grids, and dtypes -- so
-    block_shape is a genuine third knob alongside grid_shape and dtype.
+    Returns list of configs.
     """
     ty, tx = shape[-2] // 32, shape[-1] // 32
     cfgs = []
@@ -176,14 +164,12 @@ def block_space(
                 for gx in _divisors(bx):
                     if gy * gx > max_cores:
                         continue
-                    for dt in dtypes:
-                        cfgs.append(
-                            {
-                                "grid_shape": [gy, gx],
-                                "block_shape": [bh, bw],
-                                "dtype": dt,
-                            }
-                        )
+                    cfgs.append(
+                        {
+                            "grid_shape": [gy, gx],
+                            "block_shape": [bh, bw],
+                        }
+                    )
     return cfgs
 
 
@@ -196,13 +182,6 @@ def block_space(
 # either tune() (exhaustive) or search() (the proposer's candidates).
 
 _ALL = "all"  # spec keyword: sweep every feasible value of this knob
-_DTYPES = ("float32", "float16", "bfloat16")
-
-
-def parse_shape(text: str) -> tuple:
-    """'256x256' -> (256, 256)."""
-    h, _, w = text.partition("x")
-    return (int(h), int(w))
 
 
 def _parse_pairs(text: str) -> list[list[int]]:
@@ -258,7 +237,7 @@ def memspace_candidates(spec) -> list[str]:
 
 
 def _feasible(shape, cfg, max_cores) -> bool:
-    """A (grid, block, dtype) cfg is feasible when the block tiles the tensor,
+    """A (grid, block) cfg is feasible when the block tiles the tensor,
     the blocked grid divides evenly across the grid, and cores <= max_cores."""
     ty, tx = shape[-2] // 32, shape[-1] // 32
     gy, gx = cfg["grid_shape"]
@@ -275,18 +254,14 @@ def build_space(
     *,
     grid=None,
     block=None,
-    dtype="float32",
     mem_space=None,
     max_cores: int = 64,
 ) -> tuple:
-    """Cartesian product of the swept knob pools (grid x block x mem_space),
-    filtered for feasibility. ``dtype`` is NOT an axis -- it's a single run-level
-    value (like ``shape``) stamped into every config. Returns ``(configs,
-    warnings)`` -- ``warnings`` flags any *explicitly requested* grid/block value
-    (not ``"all"``) that survived in no feasible config, so the drop is surfaced
-    rather than silent. mem_space doesn't affect feasibility, so it never warns."""
-    if dtype not in _DTYPES:
-        raise ValueError(f"unknown dtype {dtype!r}; choose from {list(_DTYPES)}")
+    """Cartesian product of swept knob pools (grid x block x mem_space),
+    filtered for feasibility. Returns ``(configs, warnings)`` -- warnings flag
+    any *explicitly requested* grid/block value (not ``"all"``) that survived
+    in no feasible config, so the drop is surfaced rather than silent. mem_space
+    doesn't affect feasibility so it never warns."""
     grids = grid_candidates(shape, grid, max_cores)
     blocks = block_candidates(shape, block)
     mems = memspace_candidates(mem_space)
@@ -298,7 +273,6 @@ def build_space(
                 cfg = {
                     "grid_shape": list(g),
                     "block_shape": list(b),
-                    "dtype": dtype,
                     "mem_space": mem,
                 }
                 if _feasible(shape, cfg, max_cores):
@@ -322,41 +296,6 @@ def build_space(
             if tuple(b) not in used
         ]
     return configs, warnings
-
-
-# --- Materializer ------------------------------------------------------------
-
-
-def block_aware_run(kernel, inputs, cfg):
-    """``(kernel, inputs, cfg) -> host tensor`` honouring ``block_shape`` and
-    ``mem_space``.
-
-    Builds the Layout at the config's block_shape and computes the per-core
-    block sweep as ``(tiles // block) // grid`` -- so each ``remote_load`` pulls
-    a ``block_shape``-tile shard the kernel computes over. ``mem_space`` (``"l1"``
-    default, or ``"dram"``) is set on the Layout, selecting where the kernel's
-    I/O tensors live. Generalises ``testing.eltwise_block_run`` (1x1 blocks, L1
-    I/O); identical when ``block_shape == [1, 1]`` and L1."""
-    import d2m_jit as d2m
-
-    ref = inputs[0]
-    gy, gx = cfg["grid_shape"]
-    bh, bw = cfg["block_shape"]
-    layout = d2m.Layout(
-        shape=tuple(ref.shape),
-        dtype=d2m_dtype(cfg["dtype"]),
-        block_shape=[bh, bw],
-        grid_shape=[gy, gx],
-        tiled=True,
-        mem_space=cfg.get("mem_space", "l1"),
-    )
-    ins = [d2m.to_layout(t, layout) for t in inputs]
-    out = d2m.empty(layout)
-    ty, tx = ref.shape[-2] // 32, ref.shape[-1] // 32
-    m_blocks = (ty // bh) // gy
-    n_blocks = (tx // bw) // gx
-    kernel(*ins, out, m_blocks, n_blocks, grid=(gy, gx))
-    return out.to_host()
 
 
 # --- Result model ------------------------------------------------------------
@@ -553,19 +492,15 @@ def _setup(
     )
 
 
-_DTYPE_SHORT = {"float32": "f32", "float16": "f16", "bfloat16": "bf16"}
-
-
 def _cfg_dirname(idx: int, cfg: dict) -> str:
-    """Self-describing per-config dir name, e.g. ``cfg_000_g2x2_b1x1_f32``. The
+    """Self-describing per-config dir name, e.g. ``cfg_000_g2x2_b1x1_l1``. The
     numeric prefix preserves evaluation order (meaningful in guided mode); the
     rest names the config so a saved profiler CSV is identifiable without
     cross-referencing results.json."""
     g = "x".join(map(str, cfg["grid_shape"]))
     b = "x".join(map(str, cfg["block_shape"]))
-    dt = _DTYPE_SHORT.get(cfg["dtype"], cfg["dtype"])
     mem = cfg.get("mem_space", "l1")
-    return f"cfg_{idx:03d}_g{g}_b{b}_{dt}_{mem}"
+    return f"cfg_{idx:03d}_g{g}_b{b}_{mem}"
 
 
 def _evaluate(cfg: dict, idx: int, ctx: _EvalContext) -> TuneRecord:
@@ -593,9 +528,7 @@ def _evaluate(cfg: dict, idx: int, ctx: _EvalContext) -> TuneRecord:
     prev_insert = config.insert_profiler_traces
     config.insert_profiler_traces = prev_insert and fine_grained
     try:
-        cfg_inputs = [
-            t.to(torch_dtype(cfg.get("dtype", "float32"))) for t in ctx.canonical
-        ]
+        cfg_inputs = [t.to(torch_dtype("float32")) for t in ctx.canonical]
         if ctx.csv.exists():
             ctx.csv.unlink()
         with _silence_build_output(os.devnull):
@@ -638,12 +571,10 @@ def _evaluate(cfg: dict, idx: int, ctx: _EvalContext) -> TuneRecord:
 
 
 def tune(
-    kernel,
+    bench: KernelBench,
     input_shapes: Sequence[tuple],
     space: Sequence[dict],
     *,
-    golden: Optional[Callable] = None,
-    run: Callable = block_aware_run,
     check_pcc: bool = False,
     pcc: float = 0.99,
     objective: str = "device_kernel_time",
@@ -655,24 +586,21 @@ def tune(
 
     Parameters
     ----------
-    kernel            : the ``@d2m.kernel`` to tune.
+    bench             : KernelBench with kernel, golden, run (materializer), and input_shapes.
     input_shapes      : one shape per kernel input (fixed across the sweep).
     space             : list of config dicts (see ``grid_space``).
-    golden            : ``(*inputs) -> tensor`` reference for the PCC gate
-                        (required when ``check_pcc``). Computed once.
-    run               : ``(kernel, inputs, cfg) -> host tensor`` materializer.
     check_pcc         : gate each config on PCC (default OFF; opt in to verify
-                        correctness, which requires a ``golden``).
+                        correctness).
     pcc               : PCC threshold for a config to count as ``valid``.
     out_dir           : output root for ``results.json`` + ``summary.txt``.
     save_profiler_logs: also keep each config's device profiler CSV under
                         ``cfg_NNN/`` (off by default; build output is never kept).
     """
     ctx = _setup(
-        kernel,
+        bench.kernel,
         input_shapes,
-        run,
-        golden,
+        bench.run,
+        bench.golden,
         check_pcc,
         pcc,
         out_dir,
@@ -707,18 +635,15 @@ def config_key(cfg: dict):
     return (
         tuple(cfg["grid_shape"]),
         tuple(cfg["block_shape"]),
-        cfg["dtype"],
         cfg.get("mem_space", "l1"),
     )
 
 
 def search(
-    kernel,
+    bench: KernelBench,
     input_shapes: Sequence[tuple],
     proposer: Callable,
     *,
-    golden: Optional[Callable] = None,
-    run: Callable = block_aware_run,
     check_pcc: bool = False,
     pcc: float = 0.99,
     objective: str = "device_kernel_time",
@@ -736,10 +661,10 @@ def search(
     hook. Returns a ``TuneResult`` over the evaluated configs (so leaderboard /
     pareto / JSON all work the same as for an exhaustive ``tune``)."""
     ctx = _setup(
-        kernel,
+        bench.kernel,
         input_shapes,
-        run,
-        golden,
+        bench.run,
+        bench.golden,
         check_pcc,
         pcc,
         out_dir,
@@ -789,8 +714,7 @@ def knob_neighbors(cfg: dict, candidates: Sequence[dict]) -> list[dict]:
 
     Grid is forward-only (more cores trends faster); block is bidirectional
     (the sweet spot for DMA granularity is not monotone). All steps are taken
-    from ``candidates``, so only feasible neighbors appear. (dtype is a fixed
-    run-level value, not a knob, so it never varies across candidates.)"""
+    from ``candidates``, so only feasible neighbors appear."""
     cores = cfg["grid_shape"][0] * cfg["grid_shape"][1]
     btiles = cfg["block_shape"][0] * cfg["block_shape"][1]
     mem = cfg.get("mem_space", "l1")
@@ -954,29 +878,50 @@ def write_summary(result, path) -> None:
     pathlib.Path(path).write_text("\n".join(lines) + "\n")
 
 
-# --- Demo --------------------------------------------------------------------
+# --- Pattern file loader ---------------------------------------------------
 
 
-def _exp_kernel():
-    import d2m_jit as d2m
+def _load_pattern_file(pattern_path: str) -> KernelBench:
+    """Load a pattern file and extract the first KernelBench.
 
-    @d2m.kernel
-    def exp_fused(in_t, out_t, m_blocks, n_blocks):
-        m_off = core_index(0) * m_blocks  # noqa: F821
-        n_off = core_index(1) * n_blocks  # noqa: F821
-        for m in range(m_blocks):
-            for n in range(n_blocks):
-                shard = remote_load(in_t, [m_off + m, n_off + n])  # noqa: F821
-                remote_store(out_t, [m_off + m, n_off + n], shard.exp())  # noqa: F821
+    Parameters
+    ----------
+    pattern_path : file path to pattern file (e.g., tools/d2m-jit/patterns/eltwise_exp_to_kernel.py)
 
-    return exp_fused
+    Returns
+    -------
+    KernelBench with kernel, golden, run (materializer), input_shapes, etc.
+    """
+    pattern_file = pathlib.Path(pattern_path)
+    if not pattern_file.exists():
+        raise FileNotFoundError(f"pattern file not found: {pattern_path}")
+
+    spec = importlib.util.spec_from_file_location(
+        f"pattern_{pattern_file.stem}", pattern_file
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"could not load pattern file: {pattern_path}")
+
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    if not hasattr(mod, "KERNEL_BENCHES"):
+        raise ValueError(
+            f"pattern file {pattern_path} does not export KERNEL_BENCHES list"
+        )
+
+    benches = mod.KERNEL_BENCHES
+    if not benches:
+        raise ValueError(f"pattern file {pattern_path} has empty KERNEL_BENCHES list")
+
+    return benches[0]
 
 
 def _label(cfg):
     g = "x".join(map(str, cfg["grid_shape"]))
     b = "x".join(map(str, cfg["block_shape"]))
     mem = cfg.get("mem_space", "l1")
-    return f"{g}|{b}/{cfg['dtype']}@{mem}"  # grid|block/dtype@mem
+    return f"{g}|{b}@{mem}"  # grid|block@mem
 
 
 def _seed_config(space: Sequence[dict]) -> dict:
@@ -1012,7 +957,7 @@ def _print_results(result, mode: str, n_candidates: Optional[int] = None) -> Non
             )
     else:
         hdr = (
-            f"{'rank':>4}  {'grid|block/dtype@mem':>22}  "
+            f"{'rank':>4}  {'grid|block@mem':>18}  "
             f"{'kernel_ns':>12}  {'pcc':>9}  {'wait%':>6}"
         )
         print(hdr)
@@ -1035,36 +980,37 @@ def _print_results(result, mode: str, n_candidates: Optional[int] = None) -> Non
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
-    """CLI for autotuning the bundled ``exp_fused`` kernel.
+    """CLI for autotuning d2m-jit kernels from pattern files.
 
     grid, block, and mem_space are the swept knobs: each defaults to all feasible
     values (omitted == all); pass ``all``, an explicit list, or a single value to
-    pin. ``--dtype`` and ``--shape`` are run-level flags (one value applied to
-    every config), not swept. So a bare run sweeps grid x block x mem_space at
-    float32. The resolved space feeds ``--mode sweep`` (every config) or
-    ``--mode guided`` (a hill-climb path); use ``--list`` to preview the space
+    pin. A bare run sweeps grid x block x mem_space (at float32, from the pattern).
+    The resolved space feeds ``--mode sweep`` (every config) or ``--mode guided``
+    (a hill-climb path); use ``--list`` to preview the space
     (and its size) before committing device time. The PCC correctness gate is
     off by default -- pass ``--check-pcc`` to verify each config against a golden."""
     import argparse
 
     p = argparse.ArgumentParser(
         prog="autotune",
-        description="Autotune the bundled exp_fused kernel over grid/block/mem_space.",
+        description="Autotune a d2m-jit kernel from a pattern file.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "examples:\n"
-            "  # bare run = grid x block x mem_space sweep at float32:\n"
-            "  python autotune.py --shape 128x128\n\n"
-            "  # sweep in bfloat16 with the correctness gate on:\n"
-            "  python autotune.py --shape 128x128 --dtype bfloat16 --check-pcc\n\n"
+            "  # sweep exp_fused pattern over all grid/block/mem configs:\n"
+            "  python autotune.py --pattern tools/d2m-jit/patterns/eltwise_exp_to_kernel.py\n\n"
+            "  # sweep add_exp pattern with correctness gate:\n"
+            "  python autotune.py --pattern tools/d2m-jit/patterns/eltwise_add_exp_to_kernel.py --check-pcc\n\n"
             "  # guided search over l1 only, block pinned to 1x1:\n"
-            "  python autotune.py --shape 256x256 --block 1x1 --mem-space l1 --mode guided\n\n"
-            "  # pin block to 2x2, sweep a few grids, just show the space:\n"
-            "  python autotune.py --shape 256x256 --grid 1x1,2x2,4x4 --block 2x2 --list\n"
+            "  python autotune.py --pattern tools/d2m-jit/patterns/eltwise_exp_to_kernel.py --block 1x1 --mem-space l1 --mode guided\n\n"
+            "  # preview the config space without running on device:\n"
+            "  python autotune.py --pattern tools/d2m-jit/patterns/eltwise_exp_to_kernel.py --grid 1x1,2x2,4x4 --block 2x2 --list\n"
         ),
     )
     p.add_argument(
-        "--shape", default="128x128", help="tensor shape HxW (default 128x128)"
+        "--pattern",
+        required=True,
+        help="path to pattern file (e.g., tools/d2m-jit/patterns/eltwise_exp_to_kernel.py)",
     )
     p.add_argument(
         "--grid",
@@ -1075,12 +1021,6 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         "--block",
         default=None,
         help="block_shapes in tiles: 'all' or a list like 1x1,2x2 (default: all feasible)",
-    )
-    p.add_argument(
-        "--dtype",
-        choices=_DTYPES,
-        default="float32",
-        help="dtype for the whole run, applied to every config (default float32)",
     )
     p.add_argument(
         "--mem-space",
@@ -1112,7 +1052,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     p.add_argument(
         "--out-dir",
         default=None,
-        help="output dir (default autotune-artifacts/<pattern>)",
+        help="output dir (default autotune-artifacts/<pattern_name>)",
     )
     p.add_argument("--seed", type=int, default=0, help="input RNG seed (default 0)")
     p.add_argument(
@@ -1128,13 +1068,19 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     )
     args = p.parse_args(argv)
 
-    shape = parse_shape(args.shape)
+    try:
+        bench = _load_pattern_file(args.pattern)
+    except (FileNotFoundError, ValueError, RuntimeError) as e:
+        p.error(str(e))
+
+    # Use pattern's input shapes and dtype (from KernelBench)
+    input_shapes = bench.input_shapes
+    shape = input_shapes[0]
     try:
         space, warnings = build_space(
             shape,
             grid=args.grid,
             block=args.block,
-            dtype=args.dtype,
             mem_space=args.mem_space,
             max_cores=args.max_cores,
         )
@@ -1149,17 +1095,16 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         for cfg in space:
             print(f"  {_label(cfg)}")
         if not space:
-            print("  (no feasible configs -- check --grid / --block / --shape)")
+            print("  (no feasible configs -- check --grid / --block)")
         return
 
-    out_dir = args.out_dir or "autotune-artifacts/exp_fused"
-    kernel = _exp_kernel()
+    pattern_name = pathlib.Path(args.pattern).stem
+    out_dir = args.out_dir or f"autotune-artifacts/{pattern_name}"
     if args.mode == "sweep":
         result = tune(
-            kernel,
-            [shape],
+            bench,
+            input_shapes,
             space,
-            golden=torch.exp,
             check_pcc=args.check_pcc,
             out_dir=out_dir,
             seed=args.seed,
@@ -1169,10 +1114,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     else:
         proposer = hill_climb_proposer(space, seed=_seed_config(space))
         result = search(
-            kernel,
-            [shape],
+            bench,
+            input_shapes,
             proposer,
-            golden=torch.exp,
             check_pcc=args.check_pcc,
             max_evals=args.max_evals,
             out_dir=out_dir,
