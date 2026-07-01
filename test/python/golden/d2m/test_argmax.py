@@ -32,7 +32,7 @@ def create_argmax_inputs(input_shape, dim_arg, keep_dim, dtype):
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("dim_arg", [[0], [1], None])
 @pytest.mark.parametrize("keep_dim", [True, False])
-@pytest.mark.parametrize("shape", [(32, 32), (32, 64), (64, 64), (128, 128)])
+@pytest.mark.parametrize("shape", [(32, 32), (32, 64), (64, 64), (128, 128), (32, 256)])
 def test_argmax_2d_rowwise_bf16(
     shape: tuple[int, int],
     target: str,

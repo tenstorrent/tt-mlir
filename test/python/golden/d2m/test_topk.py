@@ -69,57 +69,6 @@ def test_topk(shape, k, dim, target, request, device):
     )
 
 
-# Debug: materialize just the arange index tensor (no topk) to verify what the
-# arange->tilize->untilize round-trip produces at every element. For dim=1 the
-# expected value at [i, j] is j == tileColIdx*32 + withinTileColIdx (the global
-# column index, constant across rows).
-@pytest.mark.parametrize("target", ["ttmetal"])
-@pytest.mark.parametrize(
-    "shape,dim",
-    [
-        pytest.param((32, 256), 1, id="32x256_dim1"),
-        pytest.param((32, 1024), 1, id="32x1024_dim1"),
-    ],
-)
-def test_arange_index_tensor(shape, dim, target, request, device):
-    # Print full tensors (no ... truncation, no line wrapping) so the
-    # golden-vs-output comparison message shows every element of each row.
-    torch.set_printoptions(threshold=1_000_000, linewidth=1_000_000)
-    end = shape[dim]
-
-    def module(builder: TTIRBuilder):
-        @builder.func([shape], [torch.float32])
-        def arange_index(
-            in0: Operand,
-            builder: TTIRBuilder,
-            unit_attrs: Optional[List[str]] = None,
-        ):
-            # Take a dummy input so the function has an operand; the arange is
-            # what we actually inspect. Add input*0 (as f32) to keep the arange
-            # from being folded into a pure host constant, forcing the real
-            # tilize/untilize device round-trip. Cast to f32 to add, then the
-            # golden comparison checks the index pattern.
-            idx = builder.arange(
-                shape=list(shape),
-                dtype=torch.int32,
-                start=0,
-                end=end,
-                step=1,
-                arange_dimension=dim,
-                unit_attrs=unit_attrs,
-            )
-            return idx
-
-    compile_and_execute_ttir(
-        module,
-        **get_request_kwargs(request),
-        target=target,
-        device=device,
-        pipeline_options=["override-device-shape=1,1"],
-        save_artifacts=True,
-    )
-
-
 def _build_tile_distribution_input(
     shape: Tuple[int, ...], k: int, dim: int, pattern: str
 ) -> torch.Tensor:

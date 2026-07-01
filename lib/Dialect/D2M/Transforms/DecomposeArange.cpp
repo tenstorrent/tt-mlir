@@ -7,9 +7,11 @@
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 
+#include "mlir/Dialect/Affine/IR/AffineOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -52,9 +54,76 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
 
     int64_t numTileRows = outputShape[outputShape.size() - 2];
     int64_t numTileCols = outputShape[outputShape.size() - 1];
-    // Total tiles across all cores.
-    int64_t totalTileCols = numTileCols * gridShape[gridShape.size() - 1];
-    int64_t totalTileRows = numTileRows * gridShape[gridShape.size() - 2];
+
+    // This pass runs after D2MGenerateOuterLoops, so the arange region may be
+    // wrapped in one or more blocking loops (marked "d2m.blocking_loop") that
+    // iterate over the generic's block factors. Each blocking loop covers an
+    // additional `numTile{Rows,Cols}`-sized span of tiles per iteration, so the
+    // per-iteration shard shape (numTileRows/numTileCols) only describes ONE
+    // block. We must fold the blocking-loop induction variable into the global
+    // tile coordinate, and scale the total tile extents by the block factors,
+    // otherwise every blocking iteration recomputes the same tile-column range
+    // and the arange wraps/repeats (e.g. a 32x256 arange producing 0..127
+    // twice). See LowerDMAToFullyIndexedForm for the analogous handling.
+    //
+    // blockingDim indexes the generic's loop/grid dims: the last dim is the
+    // column dim, the second-to-last is the row dim.
+    // The blocking-loop attr stores the generic loop-dim index; the last loop
+    // dim is the column dim and the second-to-last is the row dim. We derive
+    // the block factor from the loop's own static trip count rather than
+    // indexing the generic's block-factor array, since that array is not
+    // necessarily indexed by loop-dim.
+    unsigned gridRank = static_cast<unsigned>(gridShape.size());
+    Value blockRowOffset;
+    Value blockColOffset;
+    int64_t rowBlockFactor = 1;
+    int64_t colBlockFactor = 1;
+    auto tripCount = [](int64_t lb, int64_t ub, int64_t step) -> int64_t {
+      return step > 0 ? (ub - lb + step - 1) / step : 1;
+    };
+    for (Operation *parent = op->getParentOp(); parent;
+         parent = parent->getParentOp()) {
+      IntegerAttr blockingAttr;
+      Value blockIV;
+      int64_t factor = 1;
+      if (auto forOp = dyn_cast<scf::ForOp>(parent)) {
+        blockingAttr = forOp->getAttrOfType<IntegerAttr>("d2m.blocking_loop");
+        blockIV = forOp.getInductionVar();
+        std::optional<int64_t> lb = getConstantIntValue(forOp.getLowerBound());
+        std::optional<int64_t> ub = getConstantIntValue(forOp.getUpperBound());
+        std::optional<int64_t> step = getConstantIntValue(forOp.getStep());
+        if (lb && ub && step) {
+          factor = tripCount(*lb, *ub, *step);
+        }
+      } else if (auto forOp = dyn_cast<affine::AffineForOp>(parent)) {
+        blockingAttr = forOp->getAttrOfType<IntegerAttr>("d2m.blocking_loop");
+        blockIV = forOp.getInductionVar();
+        if (forOp.hasConstantBounds()) {
+          factor =
+              tripCount(forOp.getConstantLowerBound(),
+                        forOp.getConstantUpperBound(), forOp.getStepAsInt());
+        }
+      } else if (isa<GenericOp>(parent)) {
+        break;
+      }
+      if (!blockingAttr) {
+        continue;
+      }
+      int64_t blockingDim = blockingAttr.getInt();
+      if (static_cast<unsigned>(blockingDim) == gridRank - 1) {
+        blockColOffset = blockIV;
+        colBlockFactor *= factor;
+      } else if (static_cast<unsigned>(blockingDim) == gridRank - 2) {
+        blockRowOffset = blockIV;
+        rowBlockFactor *= factor;
+      }
+    }
+
+    // Total tiles across all cores and all blocking iterations.
+    int64_t totalTileCols =
+        numTileCols * gridShape[gridShape.size() - 1] * colBlockFactor;
+    int64_t totalTileRows =
+        numTileRows * gridShape[gridShape.size() - 2] * rowBlockFactor;
 
     Value zeroIdx = rewriter.create<arith::ConstantIndexOp>(loc, 0);
     Value oneIdx = rewriter.create<arith::ConstantIndexOp>(loc, 1);
@@ -134,14 +203,28 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
     Value totalTileRowsIdx =
         rewriter.create<arith::ConstantIndexOp>(loc, totalTileRows);
     Value const32Idx = rewriter.create<arith::ConstantIndexOp>(loc, 32);
-    // globalTileRow = coreY * shardTileRows + localTileRow
+    // globalTileRow = coreY * shardTileRows + blockRow * shardTileRows +
+    //                 localTileRow
     Value globalTileRow = rewriter.create<arith::AddIOp>(
         loc, rewriter.create<arith::MulIOp>(loc, coreY, shardTileRowsIdx),
         tileRowIdx);
-    // globalTileCol = coreX * shardTileCols + localTileCol
+    if (blockRowOffset) {
+      globalTileRow = rewriter.create<arith::AddIOp>(
+          loc, globalTileRow,
+          rewriter.create<arith::MulIOp>(loc, blockRowOffset,
+                                         shardTileRowsIdx));
+    }
+    // globalTileCol = coreX * shardTileCols + blockCol * shardTileCols +
+    //                 localTileCol
     Value globalTileCol = rewriter.create<arith::AddIOp>(
         loc, rewriter.create<arith::MulIOp>(loc, coreX, shardTileColsIdx),
         tileColIdx);
+    if (blockColOffset) {
+      globalTileCol = rewriter.create<arith::AddIOp>(
+          loc, globalTileCol,
+          rewriter.create<arith::MulIOp>(loc, blockColOffset,
+                                         shardTileColsIdx));
+    }
 
     Value tileOffsetIdx;
     if (colMajor) {
