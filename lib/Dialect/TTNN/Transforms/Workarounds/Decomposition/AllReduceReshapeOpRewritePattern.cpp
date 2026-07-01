@@ -51,7 +51,7 @@ LogicalResult TTNNAllReduceReshapeWorkarounds::matchAndRewrite(
       ttmlir::utils::appendLocationSuffix(op.getLoc(), "_all_reduce_4d"),
       paddedOutputType, reshapeInput.getResult(), op.getReduceType(),
       op.getClusterAxis(), op.getSubDeviceIdAttr(), op.getNumLinksAttr(),
-      op.getTopologyAttr(), /*compute_config=*/nullptr);
+      op.getTopologyAttr());
 
   // Reshape back to original shape.
   rewriter.replaceOp(op, ttir_to_ttnn::utils::generateReshape(
