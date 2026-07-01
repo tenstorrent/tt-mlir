@@ -1514,6 +1514,111 @@ struct ConvChannelLastDecompositionPattern
   }
 };
 
+// A conv3d whose single window spans the whole spatial input is just a matmul:
+//   out[b, o] = sum_{c,d,h,w} in[b, c, d, h, w] * weight[o, c, d, h, w]
+// so we flatten each patch and the weight and contract them. We rewrite rather
+// than lower because ttnn.conv3d is wrong here (tt-xla #1662, device PCC ~0).
+// Guarded to the full-window case; overlapping/strided conv3d falls through.
+struct Conv3dPatchEmbedToMatmulPattern
+    : public OpConversionPattern<ttir::Conv3dOp> {
+  using OpConversionPattern<ttir::Conv3dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::Conv3dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    // Bias and grouping aren't part of the matmul equivalence we build here.
+    if (op.getGroups() != 1 || adaptor.getBias()) {
+      return failure();
+    }
+    // Any padding makes the conv touch elements the flat matmul wouldn't.
+    auto isAllZero = [](mlir::Attribute attr) -> bool {
+      if (auto arr = mlir::dyn_cast<mlir::DenseI32ArrayAttr>(attr)) {
+        return llvm::all_of(arr.asArrayRef(), [](int32_t p) { return p == 0; });
+      }
+      if (auto scalar = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+        return scalar.getInt() == 0;
+      }
+      return false;
+    };
+    if (!isAllZero(op.getPadding())) {
+      return failure();
+    }
+
+    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    auto weightType =
+        mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
+    auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
+
+    int64_t batchDim = op.getBatchDim();
+    int64_t channelDim = op.getChannelDim();
+    int64_t depthDim = op.getDepthDim();
+    int64_t heightDim = op.getHeightDim();
+    int64_t widthDim = op.getWidthDim();
+
+    ArrayRef<int64_t> inShape = inputType.getShape();
+    ArrayRef<int64_t> wShape = weightType.getShape(); // [O, I, Kd, Kh, Kw]
+    int64_t outChannels = wShape[0];
+    int64_t kernelDepth = wShape[2];
+    int64_t kernelHeight = wShape[3];
+    int64_t kernelWidth = wShape[4];
+
+    // Exact only when one window covers the whole spatial extent (so stride is
+    // irrelevant and no input element is dropped).
+    if (inShape[depthDim] != kernelDepth ||
+        inShape[heightDim] != kernelHeight ||
+        inShape[widthDim] != kernelWidth) {
+      return failure();
+    }
+
+    Location loc = op.getLoc();
+    Type elementType = inputType.getElementType();
+    Attribute encoding = inputType.getEncoding();
+    int64_t batch = inShape[batchDim];
+    int64_t patchSize =
+        wShape[1] * kernelDepth * kernelHeight * kernelWidth; // I*Kd*Kh*Kw
+
+    // Permute to canonical [B, C, D, H, W] so the flat reshape lays each patch
+    // out in the same [C, D, H, W] order as the weight.
+    SmallVector<int64_t, 5> toNCDHW{batchDim, channelDim, depthDim, heightDim,
+                                    widthDim};
+    SmallVector<int64_t> ncdhwShape =
+        ttmlir::utils::applyPermutation(inShape, toNCDHW);
+    auto ncdhwType = RankedTensorType::get(ncdhwShape, elementType, encoding);
+    Value ncdhwInput = rewriter.create<ttir::PermuteOp>(
+        loc, ncdhwType, adaptor.getInput(), toNCDHW);
+
+    auto flatInputType =
+        RankedTensorType::get({batch, patchSize}, elementType, encoding);
+    Value flatInput = rewriter.create<ttir::ReshapeOp>(
+        loc, flatInputType, ncdhwInput,
+        rewriter.getI32ArrayAttr(
+            {static_cast<int32_t>(batch), static_cast<int32_t>(patchSize)}));
+
+    auto flatWeightType = RankedTensorType::get(
+        {outChannels, patchSize}, elementType, weightType.getEncoding());
+    Value flatWeight = rewriter.create<ttir::ReshapeOp>(
+        loc, flatWeightType, adaptor.getWeight(),
+        rewriter.getI32ArrayAttr({static_cast<int32_t>(outChannels),
+                                  static_cast<int32_t>(patchSize)}));
+
+    // [B, K] x [O, K]^T -> [B, O].
+    auto matmulType =
+        RankedTensorType::get({batch, outChannels}, elementType, encoding);
+    Value matmul = rewriter.create<ttir::MatmulOp>(
+        loc, matmulType, flatInput, flatWeight, /*transpose_a=*/false,
+        /*transpose_b=*/true);
+
+    // Restore the conv's output shape (its spatial dims are all 1).
+    SmallVector<int32_t> outShapeI32(outputType.getShape().begin(),
+                                     outputType.getShape().end());
+    Value result = rewriter.create<ttir::ReshapeOp>(
+        loc, outputType, matmul, rewriter.getI32ArrayAttr(outShapeI32));
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
 struct Conv3dChannelLastDecompositionPattern
     : public OpConversionPattern<ttir::Conv3dOp> {
   using OpConversionPattern<ttir::Conv3dOp>::OpConversionPattern;
@@ -2035,6 +2140,10 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
       typeConverter, ctx);
   patterns.add<ConvChannelLastDecompositionPattern<ttir::ConvTranspose2dOp>>(
       typeConverter, ctx);
+  // Higher benefit than the channel-last normalization so a patchify conv3d is
+  // turned into a matmul before it would otherwise be reshaped into NDHWC.
+  patterns.add<Conv3dPatchEmbedToMatmulPattern>(typeConverter, ctx,
+                                                /*benefit=*/2);
   patterns.add<Conv3dChannelLastDecompositionPattern>(typeConverter, ctx);
 }
 
