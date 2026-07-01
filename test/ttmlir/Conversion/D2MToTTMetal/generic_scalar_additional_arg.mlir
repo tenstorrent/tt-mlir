@@ -16,6 +16,7 @@ module {
     %alloc = memref.alloc() {alignment = 64 : i64, address = 0x1000} : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>
     %cb_0 = memref.alloc() {address = 103712 : i64, alignment = 16 : i64} : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 1>, #l1_>
     %cb_1 = memref.alloc() {address = 107808 : i64, alignment = 16 : i64} : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 1>, #l1_>
+    %cb_unused = memref.alloc() {address = 111904 : i64, alignment = 16 : i64} : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 1>, #l1_>
 
     // CHECK: "ttmetal.enqueue_program"
     // CHECK-SAME: cb_ports = array<i64: 0, 1>
@@ -24,14 +25,14 @@ module {
     d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<compute, @compute_kernel>]}
         ins(%arg0 : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>)
         outs(%alloc : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>)
-        additionalArgs(%cb_0, %cb_1, %scalar : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 1>, #l1_>, memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 1>, #l1_>, i32)
+        additionalArgs(%cb_0, %cb_1, %cb_unused, %scalar : memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 1>, #l1_>, memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 1>, #l1_>, memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 1>, #l1_>, i32)
     return %alloc : memref<1x1x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<4096x4096, 1>, #l1_>
   }
 
   func.func private @compute_kernel() attributes {d2m.thread = #d2m.thread<compute>} {
     %cb0 = d2m.get_cb(2) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 1>, #l1_>>
     %cb1 = d2m.get_cb(3) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<4096x4096, 1>, #l1_>>
-    %s = d2m.get_arg(4) : i32
+    %s = d2m.get_arg(5) : i32
     return
   }
 }
