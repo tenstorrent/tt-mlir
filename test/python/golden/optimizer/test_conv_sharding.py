@@ -76,11 +76,15 @@ def test_conv2d_sharding(
                 unit_attrs=unit_attrs,
             )
 
+    # The sharding assertion below reads ttnn_compiled.mlir, which is only
+    # written when save_artifacts is enabled. Override the key in place so we
+    # don't collide with a save_artifacts already injected by --save-artifacts.
+    kwargs = get_request_kwargs(request)
+    kwargs["save_artifacts"] = True
     output_file_mlir = compile_and_execute_ttir(
         module,
-        **get_request_kwargs(request),
+        **kwargs,
         device=device,
-        save_artifacts=True,
         pipeline_options=[
             "optimization-level=2",
         ],
