@@ -17,6 +17,8 @@ public:
   static uint64_t buildSetMemoryLogLevelCommand(
       ::flatbuffers::FlatBufferBuilder &fbb,
       const ::tt::runtime::MemoryLogLevel &memoryLogLevel);
+  static uint64_t
+  buildGetWorkerDebugStatsCommand(::flatbuffers::FlatBufferBuilder &fbb);
 
   static uint64_t buildConfigureRuntimeContextCommand(
       ::flatbuffers::FlatBufferBuilder &fbb, const std::string &mlirHome,
