@@ -6585,6 +6585,36 @@ void mlir::tt::ttir::ProdOp::getCanonicalizationPatterns(
   return success();
 }
 
+// TopKOp canonicalization
+void mlir::tt::ttir::TopKOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
+
+  // A top-k over a dimension of size 1 is a no-op: there is only one element to
+  // select, so the values equal the input and the indices are always zero.
+  // Fold it away so downstream consumers of the (constant) indices can be
+  // constant-evaluated.
+  patterns.add(+[](mlir::tt::ttir::TopKOp op, mlir::PatternRewriter &rewriter) {
+    RankedTensorType inputType = op.getInputTensor().getType();
+    int64_t inputRank = inputType.getRank();
+    int32_t dim = op.getDim();
+    int64_t normalizedDim = dim < 0 ? dim + inputRank : dim;
+
+    if (inputType.getDimSize(normalizedDim) != 1) {
+      return failure();
+    }
+
+    // The values output equals the input (only one element along the reduced
+    // dimension). The verifier guarantees K == 1 here, so shapes match.
+    RankedTensorType indicesType = op.getIndices().getType();
+    auto zeros = rewriter.create<mlir::tt::ttir::ZerosOp>(
+        op.getLoc(), indicesType,
+        llvm::to_vector_of<int32_t>(indicesType.getShape()));
+
+    rewriter.replaceOp(op, {op.getInputTensor(), zeros.getResult()});
+    return success();
+  });
+}
+
 //===----------------------------------------------------------------------===//
 // TopKRouterGptOp
 //===----------------------------------------------------------------------===//
