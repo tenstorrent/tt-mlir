@@ -381,6 +381,13 @@ struct TTIRToTTNNCommonPipelineOptions
                      "producing the sliced dim."),
       llvm::cl::init(true)};
 
+  // Also fuse two-way shared-LHS matmul/linear groups (e.g. SwiGLU gate/up).
+  Option<bool> enableSharedLHSDoubleMatmulFusion{
+      *this, "enable-shared-lhs-double-matmul-fusion",
+      llvm::cl::desc("Also fuse two-way shared-LHS matmul/linear groups "
+                     "(e.g. SwiGLU gate/up)."),
+      llvm::cl::init(false)};
+
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
       argumentTypeMap{
           *this, ttcore::OptionNames::argumentTypes,
