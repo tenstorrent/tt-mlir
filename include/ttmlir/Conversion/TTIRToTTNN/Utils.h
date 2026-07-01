@@ -37,6 +37,21 @@ mlir::tt::ttnn::PadOp
 generatePad(mlir::TypedValue<mlir::RankedTensorType> input,
             llvm::ArrayRef<int32_t> padding, mlir::PatternRewriter &rewriter,
             mlir::Location newLoc);
+
+// Emits the primitive-op decomposition of a GroupNorm whose input is in the
+// canonical ttnn [N, 1, H*W, C] form, returning the normalized (and optionally
+// affine-scaled) result of type `resultType`. This is the single source of
+// truth for group-norm decomposition, shared by:
+//   * the TTIRToTTNN conversion, for shapes the fused ttnn.group_norm kernel
+//     cannot represent (e.g. non-tile-aligned flattened height N*H*W), and
+//   * GroupNormDecompositionRewritePattern.
+// `weight`/`bias` are optional 1-D [C] tensors (pass null to skip). `device
+// AnchorOp` is used only to locate/insert the device for the epsilon constant.
+mlir::Value decomposeGroupNorm(
+    mlir::TypedValue<mlir::RankedTensorType> input, mlir::Value weight,
+    mlir::Value bias, uint32_t numGroups, llvm::APFloat epsilon,
+    mlir::RankedTensorType resultType, mlir::Operation *deviceAnchorOp,
+    mlir::PatternRewriter &rewriter, mlir::Location loc);
 } // namespace mlir::tt::ttir_to_ttnn::utils
 
 #endif
