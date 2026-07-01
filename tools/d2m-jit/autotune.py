@@ -59,7 +59,7 @@ from typing import Callable, Optional, Sequence
 import torch
 
 from d2m_jit import config
-from d2m_jit.testing import make_inputs, torch_dtype, KernelBench
+from d2m_jit.testing import make_inputs, KernelBench
 
 # --- perf-analyzer (hyphenated filename / sibling tool -> load by path) ------
 
@@ -121,56 +121,8 @@ def _device_csv() -> pathlib.Path:
 # --- Config space ------------------------------------------------------------
 
 
-def grid_space(shape, max_cores: int = 64) -> list[dict]:
-    """Enumerate feasible ``grid_shape`` configs for a 2D ``shape``.
-
-    A grid ``(gy, gx)`` is feasible when it evenly divides the tile counts
-    ``(shape[-2]//32, shape[-1]//32)`` and ``gy*gx <= max_cores`` (physical grid
-    bound). Returns a list of configs with grid_shape and block_shape=[1,1].
-    """
-    ty, tx = shape[-2] // 32, shape[-1] // 32
-    cfgs = []
-    for gy in range(1, ty + 1):
-        if ty % gy:
-            continue
-        for gx in range(1, tx + 1):
-            if tx % gx or gy * gx > max_cores:
-                continue
-            cfgs.append({"grid_shape": [gy, gx], "block_shape": [1, 1]})
-    return cfgs
-
-
 def _divisors(n: int) -> list[int]:
     return [d for d in range(1, n + 1) if n % d == 0]
-
-
-def block_space(shape, max_cores: int = 64) -> list[dict]:
-    """Enumerate feasible ``(grid_shape, block_shape)`` configs for a 2D ``shape``.
-
-    ``block_shape`` ``(bh, bw)`` (in tiles) is the multi-tile shard each
-    ``remote_load`` pulls and the kernel computes over. Feasibility:
-      * ``bh | tiles_y`` and ``bw | tiles_x`` (block tiles the tensor),
-      * the blocked grid ``(tiles_y//bh, tiles_x//bw)`` is divisible by
-        ``grid_shape`` (blocks distribute evenly across cores),
-      * ``gy*gx <= max_cores``.
-    Returns list of configs.
-    """
-    ty, tx = shape[-2] // 32, shape[-1] // 32
-    cfgs = []
-    for bh in _divisors(ty):
-        for bw in _divisors(tx):
-            by, bx = ty // bh, tx // bw  # blocked grid (blocks per dim)
-            for gy in _divisors(by):
-                for gx in _divisors(bx):
-                    if gy * gx > max_cores:
-                        continue
-                    cfgs.append(
-                        {
-                            "grid_shape": [gy, gx],
-                            "block_shape": [bh, bw],
-                        }
-                    )
-    return cfgs
 
 
 # --- CLI config-space construction -------------------------------------------
@@ -468,10 +420,8 @@ def _setup(
     out_root = pathlib.Path(out_dir)
     out_root.mkdir(parents=True, exist_ok=True)
     # Canonical f32 inputs are fixed across the sweep. When the PCC gate is on,
-    # the reference is computed once from them; each config runs on the SAME
-    # values cast to its dtype, so the gate measures that config's numerical
-    # error against one f32 golden. With the gate off (the default), the golden
-    # is skipped entirely.
+    # the reference is computed once from them and each config is checked against
+    # it. With the gate off (the default), the golden is skipped entirely.
     canonical = make_inputs(input_shapes, torch.float32, _Seeded(seed))
     ref = (
         golden(*[t.float() for t in canonical])
@@ -528,7 +478,7 @@ def _evaluate(cfg: dict, idx: int, ctx: _EvalContext) -> TuneRecord:
     prev_insert = config.insert_profiler_traces
     config.insert_profiler_traces = prev_insert and fine_grained
     try:
-        cfg_inputs = [t.to(torch_dtype("float32")) for t in ctx.canonical]
+        cfg_inputs = list(ctx.canonical)
         if ctx.csv.exists():
             ctx.csv.unlink()
         with _silence_build_output(os.devnull):
@@ -861,7 +811,7 @@ def write_summary(result, path) -> None:
         wait = r.diagnostics.get("wait_share_of_envelope")
         wtxt = f"  wait {wait:.0%}" if wait is not None else ""
         lines.append(
-            f"  {rank:>3}. {_label(r.config):>22}  {r.kernel_ns:>12.1f} ns{pcc}{wtxt}"
+            f"  {rank:>3}. {_label(r.config):>18}  {r.kernel_ns:>12.1f} ns{pcc}{wtxt}"
         )
 
     if n_invalid:
@@ -871,7 +821,7 @@ def write_summary(result, path) -> None:
                 why = r.error or (
                     f"pcc {r.pcc:.5f} < threshold" if r.pcc is not None else "invalid"
                 )
-                lines.append(f"  {_label(r.config):>22}  {why}")
+                lines.append(f"  {_label(r.config):>18}  {why}")
 
     if valid:
         lines += ["", format_pareto(result, (LATENCY, CORES), label=_label)]
@@ -946,9 +896,9 @@ def _print_results(result, mode: str, n_candidates: Optional[int] = None) -> Non
                 wait = r.diagnostics.get("wait_share_of_envelope")
                 wtxt = f"  wait={wait:.0%}" if wait is not None else ""
                 lat = f"{r.kernel_ns:>10.0f} ns"
-                print(f"  {i:>2}. {_label(r.config):>22}  {lat}{wtxt}")
+                print(f"  {i:>2}. {_label(r.config):>18}  {lat}{wtxt}")
             else:
-                print(f"  {i:>2}. {_label(r.config):>22}  invalid: {r.error}")
+                print(f"  {i:>2}. {_label(r.config):>18}  invalid: {r.error}")
         if n_candidates:
             pct = 100 * len(result.records) / n_candidates
             print(
@@ -967,12 +917,12 @@ def _print_results(result, mode: str, n_candidates: Optional[int] = None) -> Non
             p = f"{r.pcc:>9.5f}" if r.pcc is not None else f"{'-':>9}"
             wait = r.diagnostics.get("wait_share_of_envelope")
             w = f"{wait:.0%}" if wait is not None else "-"
-            print(f"{rank:>4}  {_label(r.config):>22}  {lat}  {p}  {w:>6}")
+            print(f"{rank:>4}  {_label(r.config):>18}  {lat}  {p}  {w:>6}")
 
     if result.best:
         print(f"\nbest: {_label(result.best.config)} @ {result.best.kernel_ns:.1f} ns")
-    # 2-way (latency vs cores) with a scatter, then the 3-way front that keeps
-    # accuracy in play (bf16's speed vs f32's precision).
+    # 2-way (latency vs cores) with a scatter, then the 3-way front that adds
+    # accuracy (PCC) as a third axis when --check-pcc is on.
     print("\n" + "=" * 54)
     print(format_pareto(result, (LATENCY, CORES), label=_label))
     print("\n" + "=" * 54)
@@ -1073,7 +1023,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     except (FileNotFoundError, ValueError, RuntimeError) as e:
         p.error(str(e))
 
-    # Use pattern's input shapes and dtype (from KernelBench)
+    # Use pattern's input shapes (from KernelBench)
     input_shapes = bench.input_shapes
     shape = input_shapes[0]
     try:
