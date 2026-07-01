@@ -53,8 +53,8 @@ module attributes {} {
            tensor<1xui32, #ttnn_layout_k_tile>,
            tensor<1xbf16, #ttnn_layout_p_tile>,
            tensor<1xbf16, #ttnn_layout_p_tile>)
-        -> tensor<1xsi32, #ttnn_layout_out>
-    return %0 : tensor<1xsi32, #ttnn_layout_out>
+        -> tensor<1xi32, #ttnn_layout_out>
+    return %0 : tensor<1xi32, #ttnn_layout_out>
   }
 
   // The ttnn::sampling kernel requires k as UINT32. When k arrives as a
