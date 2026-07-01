@@ -149,6 +149,7 @@ void createTTNNPipelineAnalysisPasses(
       propagationOptions.decisionTraceDir = options.decisionTraceDir;
       propagationOptions.enableCompileTimeStats =
           options.enableCompileTimeStats;
+      propagationOptions.layoutCostModel = options.layoutCostModel;
 
       TTNNGreedyL1SpillManagementOptions spillOptions;
       spillOptions.enableDecisionTrace = options.enableDecisionTrace;
