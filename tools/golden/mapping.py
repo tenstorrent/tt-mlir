@@ -2103,7 +2103,6 @@ def ttir_moe_compute_golden(
     num_links=None,
     topology=None,
     compute_only=False,
-    bh_ring_size=None,
     num_worker_cores=0,
     output_types_mlir: Optional[List[Type]] = None,
 ) -> Tuple[

@@ -33,7 +33,10 @@ from ..utils import DeviceContext, assert_pcc
 )
 @pytest.mark.parametrize(
     "trace_region_size",
-    [0, 1024, 2048],
+    # tt-metal #47122: trace_region_size is a total budget; #47766 rounds per-bank
+    # reserve to kMaxTraceBufPageSize (8192). On N300 (12 banks) reserved total
+    # equals the request only for 0 or multiples of 12 * 8192 = 98304.
+    [0, 98304, 196608],
 )
 def test_open_mesh_device(
     helper,
