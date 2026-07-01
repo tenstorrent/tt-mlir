@@ -552,7 +552,11 @@ NB_MODULE(_native, m) {
     // Opaque handle to an `mlir::Value` living inside an in-flight
     // ModuleBuilder. Python should not construct these directly — they come
     // back from ModuleBuilder.arg() / per-op methods.
-    nb::class_<mlir::Value>(m, "Value");
+    nb::class_<mlir::Value>(m, "Value").def_prop_ro("shape", [](mlir::Value self) {
+        auto type = mlir::cast<mlir::RankedTensorType>(self.getType());
+        auto dims = type.getShape();
+        return std::vector<std::int64_t>(dims.begin(), dims.end());
+    });
 
     // Compile knobs threaded from `torch.compile(..., options=...)` into the
     // TTIR->TTNN pipeline. Only the user-facing field is exposed; system_desc

@@ -86,3 +86,39 @@ def _reset_dynamo_between_tests() -> None:
     starting from a clean recompile count.
     """
     torch._dynamo.reset()
+
+
+@pytest.fixture(autouse=True)
+def _reset_runtime_mesh() -> None:
+    """Return the process-global runtime MeshDevice to single-device after any
+    test that opened a multi-chip mesh.
+
+    Multichip tests open a mesh via ``torch.tt.init_device_mesh``; the runtime
+    mesh persists across tests, so without this it leaks into later single-chip
+    tests (model/op tests open no mesh of their own and would inherit it). The
+    guard skips the reopen for the common case where nothing touched the mesh.
+    """
+    yield
+    if torch.tt.mesh_shape() != (1, 1):
+        torch.tt.set_mesh_shape(1, 1)
+
+
+@pytest.fixture(scope="session")
+def tt_pg() -> None:
+    """Init the tt-backed c10d process group with world_size = num_chips().
+
+    DTensor's collective machinery dispatches to the "tt" backend; multichip
+    tests request this fixture to set it up. Single-chip tests never request it,
+    so the baseline path stays PG-free.
+    """
+    import torch.distributed as dist
+    from torch.testing._internal.distributed.fake_pg import FakeStore
+
+    n = torch.tt.num_chips()
+    os.environ.setdefault("MASTER_ADDR", "127.0.0.1")
+    os.environ.setdefault("MASTER_PORT", "29500")
+    os.environ.setdefault("RANK", "0")
+    os.environ.setdefault("WORLD_SIZE", str(n))
+    if not dist.is_initialized():
+        dist.init_process_group(backend="tt", rank=0, world_size=n, store=FakeStore())
+    yield

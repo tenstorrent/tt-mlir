@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, StaticCache
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, StaticCache
 
 _DTYPE = torch.bfloat16
 
@@ -19,16 +19,36 @@ BENCHMARK_PROMPT = (
 )
 
 
-def load_model(model_id: str) -> torch.nn.Module:
-    """Load a causal-LM in eval mode, skipping the test if unavailable."""
+def load_model(model_id: str, *, num_layers: int | None = None) -> torch.nn.Module:
+    """Load a causal-LM in eval mode, skipping the test if unavailable.
+
+    `num_layers` truncates the decoder stack (smoke-run knob): fewer layers
+    compile and run faster while still exercising the full per-layer code path.
+    Like tt-xla, the layer count is set on the config *before* instantiation so
+    HF only builds and loads the kept layers, rather than allocating the full
+    stack and weights and slicing the tail off afterward.
+    """
     try:
-        model = AutoModelForCausalLM.from_pretrained(model_id, dtype=_DTYPE).eval()
+        config = AutoConfig.from_pretrained(model_id)
+    except Exception as e:
+        pytest.skip(f"could not load config for {model_id!r}: {e}")
+    # Multimodal configs nest the decoder count under text_config; plain causal
+    # LMs expose it at the root. get_text_config() returns whichever applies.
+    layer_cfg = config.get_text_config() if hasattr(config, "get_text_config") else config
+    if num_layers is not None:
+        layer_cfg.num_hidden_layers = num_layers
+    # Force every layer to full attention so all models exercise one attention
+    # path (some configs declare per-layer sliding-window variants). Sized to the
+    # (possibly truncated) layer count, since setting num_hidden_layers does not
+    # recompute a pre-built layer_types list.
+    if getattr(layer_cfg, "layer_types", None):
+        layer_cfg.layer_types = ["full_attention"] * layer_cfg.num_hidden_layers
+    try:
+        model = AutoModelForCausalLM.from_pretrained(
+            model_id, config=config, dtype=_DTYPE
+        ).eval()
     except Exception as e:
         pytest.skip(f"could not load {model_id!r}: {e}")
-    # Force every layer to full attention so all models exercise one attention
-    # path (some configs declare per-layer sliding-window variants).
-    if getattr(model.config, "layer_types", None):
-        model.config.layer_types = ["full_attention"] * len(model.config.layer_types)
     return model
 
 

@@ -72,7 +72,14 @@ def _operator(*targets):
 @_operator(operator.getitem)
 def _(container, idx):
     if isinstance(container, tuple):
-        return container[idx]
+        item = container[idx]
+        if item is None:
+            # A multi-output lowering returns None for any slot it does not
+            # materialise. Reading such a slot is unsupported - raise here rather
+            # than letting the None flow on (it would otherwise be silently
+            # accepted as a graph output and returned to the caller).
+            raise NotImplementedError(f"tt-kurbla compile: output [{idx}] of a multi-output op is not lowered")
+        return item
     raise NotImplementedError(f"tt-kurbla compile: getitem on non-tuple {type(container).__name__}")
 
 
@@ -290,6 +297,13 @@ def _(mb, x, dim=None, keepdim=False):
     return mb.argmax(x, dim, keepdim)
 
 
+@_lowering(_aten.max.dim)
+def _(mb, x, dim, keepdim=False):
+    # Materialise only the indices (== argmax). The values slot is left None:
+    # no compile-path caller reads it, and getitem raises if one ever does.
+    return (None, mb.argmax(x, int(dim), bool(keepdim)))
+
+
 @_lowering(_aten.unsqueeze.default)
 def _(mb, x, dim):
     return mb.unsqueeze(x, dim)
@@ -327,6 +341,32 @@ def _(mb, tensors, dim=0):
 def _(mb, x, dim=0, start=None, end=None, step=1):
     return mb.slice(x, int(dim), start if start is None else int(start),
                     end if end is None else int(end), int(step))
+
+
+@_lowering(_aten.split.Tensor, _aten.split_with_sizes.default)
+def _(mb, x, split_size_or_sizes, dim=0):
+    # Multi-output: emit one contiguous slice per chunk. Chunk lengths come
+    # from split_with_sizes' explicit list, or for split.Tensor are derived
+    # from the input's dim length (the last chunk of an uneven split is
+    # shorter). x.shape reads the value's static ranked-tensor dims off the IR.
+    # Downstream getitem extracts the chunks. DTensor lowers rotary's
+    # rotate_half slice pair into a split, which is why this surfaces only on
+    # the multi-chip path.
+    shape = x.shape
+    d = int(dim) if int(dim) >= 0 else int(dim) + len(shape)
+    if isinstance(split_size_or_sizes, (list, tuple)):
+        sizes = [int(s) for s in split_size_or_sizes]
+    else:
+        size, dim_len = int(split_size_or_sizes), int(shape[d])
+        sizes = [size] * (dim_len // size)
+        if dim_len % size:
+            sizes.append(dim_len % size)
+    chunks = []
+    start = 0
+    for length in sizes:
+        chunks.append(mb.slice(x, d, start, start + length, 1))
+        start += length
+    return tuple(chunks)
 
 
 @_lowering(_aten.select.int)

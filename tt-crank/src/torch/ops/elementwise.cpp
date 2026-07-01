@@ -763,6 +763,27 @@ at::Tensor tt_argmax(const at::Tensor &self, std::optional<int64_t> dim, bool ke
     return wrap_tt_tensor(std::move(outputs[0]), out_shape, at::ScalarType::Long);
 }
 
+// max.dim_max: reduce `self` over `dim` into max values (`max`) and their indices
+// (`max_values`).
+std::tuple<at::Tensor &, at::Tensor &> tt_max_dim_max(const at::Tensor &self, int64_t dim, bool keepdim,
+                                                      at::Tensor &max, at::Tensor &max_values) {
+    TORCH_CHECK(is_tt(self), "tt-kurbla aten::max.dim_max: tensor must be on tt backend");
+    auto mb = ModuleBuilder::init({spec_for(self)});
+    auto values_v = build_reduce<mlir::tt::ttir::MaxOp>(mb, mb.args()[0], {dim}, keepdim);
+    auto indices_v = build_argmax(mb, mb.args()[0], dim, keepdim);
+    auto vshape_ref = mlir::cast<mlir::RankedTensorType>(values_v.getType()).getShape();
+    std::vector<int64_t> vshape(vshape_ref.begin(), vshape_ref.end());
+    auto ishape_ref = mlir::cast<mlir::RankedTensorType>(indices_v.getType()).getShape();
+    std::vector<int64_t> ishape(ishape_ref.begin(), ishape_ref.end());
+    auto module_op = std::move(mb).finalize({values_v, indices_v});
+    auto outputs = compile_and_run(std::move(module_op), {self});
+    auto values = wrap_tt_tensor(std::move(outputs[0]), vshape, self.scalar_type());
+    auto indices = wrap_tt_tensor(std::move(outputs[1]), ishape, at::ScalarType::Long);
+    write_result_into(max, values);
+    write_result_into(max_values, indices);
+    return {max, max_values};
+}
+
 at::Tensor tt_pow_tensor_scalar(const at::Tensor &self, const at::Scalar &exponent) {
     TORCH_CHECK(is_tt(self), "tt-kurbla aten::pow.Tensor_Scalar: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
@@ -1424,6 +1445,7 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("cat", TORCH_FN(tt_cat));
     m.impl("slice.Tensor", TORCH_FN(tt_slice));
     m.impl("argmax", TORCH_FN(tt_argmax));
+    m.impl("max.dim_max", TORCH_FN(tt_max_dim_max));
     m.impl("pow.Tensor_Scalar", TORCH_FN(tt_pow_tensor_scalar));
     m.impl("div.Tensor", TORCH_FN(tt_div_tensor));
     m.impl("div.Scalar", TORCH_FN(tt_div_scalar));
