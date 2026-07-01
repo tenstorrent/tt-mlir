@@ -54,6 +54,7 @@ struct SumL1MemoryTracker {
   void init(uint64_t l1BudgetPerCore);
 
   uint64_t getOccupiedL1() const;
+
   void addTensor(Value result, uint64_t l1SizePerCore);
 
   /// Add `result` as an alias of `srcAtSameAddr`'s buffer (e.g. a
@@ -127,6 +128,11 @@ struct SumL1MemoryTracker {
   /// Allocate an address block for a tensor (top-down first-fit, aligned),
   /// open a fresh alias group at refcount 1, and bump currentOccupied for
   /// the new slot. Does not touch tensorSizes (callers set it).
+  ///
+  /// HARD CONTRACT: the tensor MUST fit. Callers pre-check `wouldAllocateAt`
+  /// (the forward sweep via `ensureFitsL1`; the eviction replay via
+  /// `replayFrom`). A no-fit here is a precondition violation, not a
+  /// recoverable state — it traps.
   void allocateAddress(Value result, uint64_t l1SizePerCore);
 
   /// Add `result` to `srcAtSameAddr`'s alias group at the same address
@@ -258,6 +264,13 @@ private:
   /// selected as eviction victims.
   llvm::DenseMap<Value, size_t> allocEventIndex;
 
+  /// Smallest alloc-event index evicted in the current eviction campaign (one
+  /// evictUntil run). Every rebuild restores from this index and replays the
+  /// whole suffix with all accumulated skips, so out-of-order farthest-last-use
+  /// victims can never restore a base that resurrects an already-spilled
+  /// tensor. Reset to SIZE_MAX at the start of each campaign.
+  size_t campaignMinAllocIdx = SIZE_MAX;
+
   /// Results of reshards inserted by insertReshardIntoSchedule (future
   /// consumers). These must never be selected as eviction victims — evicting
   /// them defeats the purpose of the reshard. A DenseSet rather than checking
@@ -265,11 +278,19 @@ private:
   /// ops from MemoryLayoutPropagation, which ARE valid eviction candidates.
   llvm::DenseSet<Value> insertedReshardValues;
 
-  /// Mark victim's alloc/dealloc events as skipped, restore the snapshot
-  /// taken before victim's alloc, then replay all subsequent non-skipped
-  /// events to rebuild a consistent address-simulation state. Reshard
-  /// kAlloc/kDealloc pairs in the log are replayed naturally.
-  void markEvictedAndRebuild(Value victim);
+  /// Mark victim's alloc/dealloc events as skipped, fold its alloc index into
+  /// the current campaign minimum, then rebuild by replaying the whole suffix
+  /// from that minimum (see `replayFrom`). Returns true iff every still-live
+  /// tensor was placed; false means a still-live tensor has no contiguous fit
+  /// (fragmentation).
+  bool markEvictedAndRebuild(Value victim);
+
+  /// Restore the snapshot at `startIdx` and replay every non-skipped event in
+  /// [startIdx, end) top-down first-fit. Pre-checks `wouldAllocateAt` before
+  /// each fresh allocation so `allocateAddress`'s hard contract holds, and
+  /// returns false at the first no-fit (a still-live tensor has no contiguous
+  /// slot). Returns true iff every still-live tensor was placed.
+  bool replayFrom(size_t startIdx);
 
   /// Insert event at pos in l1EventLog and shift all allocEventIndex entries
   /// and addressSnapshots keys >= pos by 1, preserving the index invariants.
@@ -415,7 +436,9 @@ private:
   /// skipReshardConsumer is non-null, that one consumer is left reading the
   /// DRAM spill (no reshard inserted for it); all other consumers are still
   /// restored.
-  void evictValue(Value victim, int64_t pos, ScheduleData &data,
+  /// Returns markEvictedAndRebuild's result: true iff the post-eviction replay
+  /// placed every still-live tensor.
+  bool evictValue(Value victim, int64_t pos, ScheduleData &data,
                   Operation *skipReshardConsumer = nullptr);
 
   /// Insert a ToMemoryConfigOp before an already-processed consumer to
