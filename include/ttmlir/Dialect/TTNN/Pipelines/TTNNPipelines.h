@@ -418,6 +418,16 @@ struct TTIRToTTNNCommonPipelineOptions
       llvm::cl::desc("Enable hoisting const-eval ops to CPU module."),
       llvm::cl::init(true)};
 
+  // Legacy escape hatch: hoist pure data-movement const-eval subgraphs (weight
+  // transpose/permute/reshape) on the f32 path (with the bf16->f32->bf16
+  // typecast round-trip). Off by default, they are hoisted preserving their
+  // native dtype; flip on to A/B against the pre-fix behavior.
+  Option<bool> dataMovementConstEvalF32{
+      *this, "data-movement-const-eval-f32",
+      llvm::cl::desc("Hoist pure data-movement const-eval subgraphs on the "
+                     "legacy f32 path (with typecast round-trip)."),
+      llvm::cl::init(false)};
+
   // Force const-eval function inputs to system memory.
   Option<bool> enableConstEvalInputsToSystemMemory{
       *this, "enable-const-eval-inputs-to-system-memory",

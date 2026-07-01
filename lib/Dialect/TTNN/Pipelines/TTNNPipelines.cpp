@@ -385,7 +385,9 @@ void createTTIRToTTNNCommonPipeline(
 
   // CPU-hoisting pass for const-eval subgraphs.
   if (options.enableCPUHoistedConstEval) {
-    pm.addPass(ttir::createCPUHoistConstEvalTransform());
+    ttir::CPUHoistConstEvalTransformOptions hoistOptions;
+    hoistOptions.dataMovementF32 = options.dataMovementConstEvalF32;
+    pm.addPass(ttir::createCPUHoistConstEvalTransform(hoistOptions));
   }
 
   // Device module passes after const-eval CPU hoisting.

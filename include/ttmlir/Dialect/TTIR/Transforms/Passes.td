@@ -92,6 +92,15 @@ def CPUHoistConstEvalTransform: Pass<"cpu-hoist-const-eval", "::mlir::ModuleOp">
     and reduces peak DRAM/L1 usage by keeping intermediate tensors in host memory.
   }];
 
+  let options = [
+    Option<"dataMovementF32", "data-movement-f32", "bool", /*default=*/"false",
+           "Hoist pure data-movement const-eval subgraphs "
+           "(transpose/permute/reshape, optionally with typecast) on the legacy "
+           "f32 path, inserting the bf16->f32->bf16 typecast round-trip. Off by "
+           "default, such subgraphs are hoisted preserving their native element "
+           "type (no round-trip). Intended as an escape hatch to A/B the fix.">
+  ];
+
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect",
                            "::mlir::tt::ttir::TTIRDialect",
                            "::mlir::linalg::LinalgDialect",

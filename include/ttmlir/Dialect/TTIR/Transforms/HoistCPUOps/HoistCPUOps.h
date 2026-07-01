@@ -25,6 +25,12 @@ struct CPUHoistedOpsDescriptor {
   // Suffix for the hoisted function name (appears after "cpu_hoisted_",
   // and before the implementation hash).
   llvm::SmallString<64> funcNameSuffix;
+  // When true, the hoisted function keeps the original element type instead of
+  // converting floats/integers to their 32-bit CPU-compatible equivalents.
+  // This avoids the dtype-conversion ToLayout round-trip on the device side and
+  // is used for pure data-movement subgraphs (transpose/permute/reshape), where
+  // 32-bit execution yields no precision benefit.
+  bool preserveElementType = false;
 
   CPUHoistedOpsDescriptor(const OpsVectorType &ops,
                           const ValuesVectorType &outputs,
