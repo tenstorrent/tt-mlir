@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "llvm/ADT/DenseSet.h"
 
 namespace mlir::tt::d2m::utils {
 
@@ -97,25 +98,64 @@ Operation *wrapInSynchronizedRegion(RewriterBase &rewriter,
     opsInRange.insert(&op);
   }
 
-  DenseMap<Operation *, bool> purelyDerivedOps;
-  SmallVector<Operation *> opsToErase;
-  for (Operation &op : llvm::make_range(start, end)) {
-    if (!isPurelyDerivedOp(&op, purelyDerivedOps)) {
-      opsToErase.push_back(&op);
-      for (Value result : op.getResults()) {
-        for (Operation *user : result.getUsers()) {
-          if (!llvm::any_of(opsInRange, [&](Operation *op) {
-                return op->isAncestor(user);
-              })) {
-            std::string msg;
-            llvm::raw_string_ostream os(msg);
-            os << "Found use of non-pure op result outside the range of ops "
-                  "being wrapped: "
-               << *user;
-            llvm::report_fatal_error(llvm::StringRef(os.str()));
-          }
+  auto hasUserOutsideRange = [&](Operation *op) -> Operation * {
+    for (Value result : op->getResults()) {
+      for (Operation *user : result.getUsers()) {
+        if (!llvm::any_of(opsInRange, [&](Operation *rangeOp) {
+              return rangeOp->isAncestor(user);
+            })) {
+          return user;
         }
       }
+    }
+    return nullptr;
+  };
+
+  auto reportOutsideUse = [](Operation *op, Operation *user) {
+    std::string msg;
+    llvm::raw_string_ostream os(msg);
+    os << "Found use of op result outside the range of ops being wrapped: "
+       << *user << "\nproducer: " << *op;
+    llvm::report_fatal_error(llvm::StringRef(os.str()));
+  };
+
+  DenseMap<Operation *, bool> purelyDerivedOps;
+  llvm::DenseSet<Operation *> opsToEraseSet;
+  for (Operation &op : llvm::make_range(start, end)) {
+    if (!isPurelyDerivedOp(&op, purelyDerivedOps)) {
+      opsToEraseSet.insert(&op);
+      if (Operation *user = hasUserOutsideRange(&op)) {
+        reportOutsideUse(&op, user);
+      }
+    }
+  }
+
+  auto isDefinedByErasedOp = [&](Value value) {
+    Operation *definingOp = value.getDefiningOp();
+    if (!definingOp) {
+      return false;
+    }
+    return llvm::any_of(opsToEraseSet, [&](Operation *erasedOp) {
+      return erasedOp == definingOp || erasedOp->isAncestor(definingOp);
+    });
+  };
+
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    for (Operation &op : llvm::make_range(start, end)) {
+      if (opsToEraseSet.contains(&op) ||
+          !isPurelyDerivedOp(&op, purelyDerivedOps)) {
+        continue;
+      }
+      if (!llvm::any_of(op.getOperands(), isDefinedByErasedOp)) {
+        continue;
+      }
+      if (Operation *user = hasUserOutsideRange(&op)) {
+        reportOutsideUse(&op, user);
+      }
+      opsToEraseSet.insert(&op);
+      changed = true;
     }
   }
 
@@ -137,8 +177,15 @@ Operation *wrapInSynchronizedRegion(RewriterBase &rewriter,
         }
       });
 
-  // Erase only the non-pure ops
-  for (Operation *op : llvm::reverse(opsToErase)) {
+  // Erase wrapped ops in reverse program order so nested uses in later
+  // compute ops are removed before their view-like producers.
+  SmallVector<Operation *> opsToEraseInBlockOrder;
+  for (Operation &op : llvm::make_range(start, end)) {
+    if (opsToEraseSet.contains(&op)) {
+      opsToEraseInBlockOrder.push_back(&op);
+    }
+  }
+  for (Operation *op : llvm::reverse(opsToEraseInBlockOrder)) {
     rewriter.eraseOp(op);
   }
 
