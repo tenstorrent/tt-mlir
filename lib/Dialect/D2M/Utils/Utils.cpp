@@ -442,7 +442,26 @@ std::optional<AffineMap> getVirtualGridInverseMapping(Value val) {
     // Trace through view/stream ops via ViewOpInterface.
     if (auto viewOp = mlir::dyn_cast<ViewOpInterface>(defOp)) {
       if (viewOp.isComposite()) {
-        return std::nullopt;
+        // Propagate only when every composite input agrees on the inverse
+        // VGM (or none carry one).
+        auto inputs = viewOp.getCompositeInputs();
+        if (inputs.empty()) {
+          return std::nullopt;
+        }
+        std::optional<AffineMap> shared;
+        bool sharedSet = false;
+        for (Value input : inputs) {
+          auto inputMap = getVirtualGridInverseMapping(input);
+          if (!sharedSet) {
+            shared = inputMap;
+            sharedSet = true;
+            continue;
+          }
+          if (inputMap != shared) {
+            return std::nullopt;
+          }
+        }
+        return shared;
       }
       return getVirtualGridInverseMapping(viewOp.getInput());
     }
@@ -506,7 +525,25 @@ std::optional<AffineMap> getVirtualGridForwardMapping(Value val) {
     // Trace through view/stream ops via ViewOpInterface.
     if (auto viewOp = mlir::dyn_cast<ViewOpInterface>(defOp)) {
       if (viewOp.isComposite()) {
-        return std::nullopt;
+        // Only propagate when every input agrees, otherwise return nullopt.
+        auto inputs = viewOp.getCompositeInputs();
+        if (inputs.empty()) {
+          return std::nullopt;
+        }
+        std::optional<AffineMap> shared;
+        bool sharedSet = false;
+        for (Value input : inputs) {
+          auto inputMap = getVirtualGridForwardMapping(input);
+          if (!sharedSet) {
+            shared = inputMap;
+            sharedSet = true;
+            continue;
+          }
+          if (inputMap != shared) {
+            return std::nullopt;
+          }
+        }
+        return shared;
       }
       return getVirtualGridForwardMapping(viewOp.getInput());
     }
