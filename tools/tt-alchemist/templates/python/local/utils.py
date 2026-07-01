@@ -89,6 +89,67 @@ def load_tensor(file_path: str, layout, dtype, device, memory_config) -> ttnn.Te
     return loaded_tensor
 
 
+# Heavy-lifting helper for CPU-hoisted functions. Mirrors the runtime logic in
+# runtime/lib/ttnn/operations/cpu/cpu.cpp (runSingleChip / runMultiChip):
+# CPU-hoisted segments are barrier-free local compute, so each device's shard is
+# computed independently on the host and the per-shard results are reassembled
+# into a multi-device tensor.
+def execute_cpu_hoisted_function(inputs, function):
+    """Run a pure-torch CPU-hoisted body shard-by-shard over a mesh.
+
+    inputs:   list of ttnn.Tensor operands (device-resident, possibly sharded).
+    function: pure-torch callable mapping torch tensors -> torch tensor(s).
+    Returns a single ttnn.Tensor, or a tuple of them for multi-output bodies.
+    """
+
+    def _wrap_outputs(result):
+        return result if isinstance(result, (list, tuple)) else (result,)
+
+    # The mesh device comes from the program context (the DeviceGetter
+    # singleton), not from the inputs: CPU-hoisted inputs have already been
+    # brought to host by the device program, so their .device() is None. This
+    # mirrors how the runtime obtains the mesh device from the ProgramContext.
+    mesh_device = DeviceGetter._instance
+
+    # No mesh context: run the body once on the host and return host tensor(s).
+    if mesh_device is None:
+        torch_inputs = [ttnn.to_torch(tensor) for tensor in inputs]
+        outputs = _wrap_outputs(function(*torch_inputs))
+        host_outputs = [ttnn.from_torch(out) for out in outputs]
+        return host_outputs[0] if len(host_outputs) == 1 else tuple(host_outputs)
+
+    mesh_shape = mesh_device.shape
+    num_shards = mesh_device.get_num_devices()
+
+    # Split each input into per-device torch shards. get_device_tensors returns
+    # one shard per device for a sharded tensor, or a single shard for an
+    # unsharded (replicated) tensor, which is then reused across devices.
+    input_shards = []
+    for tensor in inputs:
+        if tensor.device() is not None:
+            tensor = ttnn.from_device(tensor)
+        shards = ttnn.get_device_tensors(tensor)
+        input_shards.append([ttnn.to_torch(shard) for shard in shards])
+
+    # Run the body once per device shard.
+    output_shards = []
+    for shard_idx in range(num_shards):
+        args = [
+            shards[shard_idx] if len(shards) > 1 else shards[0]
+            for shards in input_shards
+        ]
+        output_shards.append(_wrap_outputs(function(*args)))
+
+    # Reassemble each output across shards into a multi-device host tensor.
+    num_outputs = len(output_shards[0])
+    results = []
+    for out_idx in range(num_outputs):
+        torch_shards = [output_shards[s][out_idx] for s in range(num_shards)]
+        ttnn_shards = [ttnn.from_torch(shard) for shard in torch_shards]
+        results.append(ttnn.from_host_shards(ttnn_shards, mesh_shape))
+    return results[0] if num_outputs == 1 else tuple(results)
+
+
 # Helpers for distributed RMS norm EmitPy support.
 # These mirror the runtime logic in
 # runtime/lib/ttnn/operations/normalization/distributed_rms_norm.cpp
