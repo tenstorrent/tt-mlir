@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <iostream>
+#include <memory>
 #include <sstream>
 
 #include "tt/runtime/debug.h"
@@ -241,6 +243,8 @@ void registerRuntimeBindings(nb::module_ &m) {
            [](tt::runtime::Tensor self, tt::runtime::Layout layout) {
              return tt::runtime::hasLayout(self, layout);
            })
+      .def("get_global_id",
+           [](tt::runtime::Tensor self) { return self.getGlobalId(); })
       .def("get_layout", [](tt::runtime::Tensor self) {
         return tt::runtime::getTensorLayout(self);
       });
@@ -553,12 +557,11 @@ void registerRuntimeBindings(nb::module_ &m) {
   m.def(
       "retrieve_tensor_from_pool",
       [](tt::runtime::CallbackContext program_context_handle,
-         tt::runtime::TensorRef tensor_ref, bool untilize = true) {
+         tt::runtime::TensorRef tensor_ref) {
         return tt::runtime::retrieveTensorFromPool(program_context_handle,
-                                                   tensor_ref, untilize);
+                                                   tensor_ref);
       },
       nb::arg("program_context_handle"), nb::arg("tensor_ref"),
-      nb::arg("untilize") = true,
       R"(
     Returns the tensor from the tensor pool that is referenced by the given tensor reference.
 
@@ -567,13 +570,46 @@ void registerRuntimeBindings(nb::module_ &m) {
     program_context_handle : ttrt.runtime.CallbackContext
     tensor_ref : ttrt.runtime.TensorRef
         Reference to the tensor of interest (from get_op_output_refs/get_op_input_refs).
-    untilize : bool, default ``True``
-        If the tensor is stored in a tilized format, de-tilize it before returning. If the untilize flag is ``False``, tensor will be with padding so shape will be different from the original shape
 
     Returns
     -------
     Optional[tt.runtime.Tensor]
         The tensor from the tensor pool that is referenced by the given tensor reference, or ``None`` when the tensor is not present in the pool (e.g., it was deallocated).
+    )");
+
+  m.def(
+      "register_pool_tensor_destroy_callback",
+      [](tt::runtime::CallbackContext program_context_handle,
+         tt::runtime::TensorRef tensor_ref, nb::callable callback) {
+        // The destroy callback fires from ~TTNNTensorWrapper(), which runs on
+        // the runtime thread that doesn't always without holding the GIL.
+        // Decref'ing a Python object without the GIL segfaults, so wrap
+        // the callable in a shared_ptr whose deleter re-acquires the GIL.
+        auto guarded_callback = std::shared_ptr<nb::callable>(
+            new nb::callable(std::move(callback)), [](nb::callable *cb) {
+              nb::gil_scoped_acquire gil;
+              delete cb; // NOLINT(cppcoreguidelines-owning-memory)
+            });
+        return tt::runtime::registerPoolTensorDestroyCallback(
+            program_context_handle, tensor_ref,
+            [guarded_callback](tt::runtime::Tensor tensor) {
+              nb::gil_scoped_acquire gil;
+              try {
+                (*guarded_callback)(tensor);
+              } catch (const std::exception &e) {
+                std::cerr << "pool tensor destroy callback: " << e.what()
+                          << "\n";
+              }
+            });
+      },
+      nb::arg("program_context_handle"), nb::arg("tensor_ref"),
+      nb::arg("callback"),
+      R"(
+    Register a Python callback to fire when the underlying tensor wrapper of
+    the pool-resident tensor referenced by *tensor_ref* is destroyed.
+
+    Returns True if the callback was registered (tensor was in the pool),
+    False otherwise.
     )");
 
   m.def(

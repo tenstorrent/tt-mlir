@@ -260,7 +260,12 @@ void releaseTrace(Device meshDevice, std::uint64_t binaryId,
 }
 std::optional<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
-                       TensorRef tensorRef, bool untilize) {
+                       TensorRef tensorRef) {
+  __builtin_trap();
+}
+bool registerPoolTensorDestroyCallback(CallbackContext programContextHandle,
+                                       TensorRef tensorRef,
+                                       std::function<void(Tensor)> callback) {
   __builtin_trap();
 }
 std::vector<uint32_t> getTensorRefShape(TensorRef) { __builtin_trap(); }
