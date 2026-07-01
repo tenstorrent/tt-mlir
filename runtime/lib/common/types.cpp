@@ -158,16 +158,22 @@ std::string MultiProcessArgs::toArgString() const {
     }
   }
 
-  // Hosts file
+  // Hosts file (default to /etc/mpirun/hostfile when no hosts or hostfile set)
   if (!hostsFilePath_.empty()) {
     oss << " ";
     oss << "--hostfile " << hostsFilePath_;
+  } else if (hosts_.empty()) {
+    oss << " ";
+    oss << "--hostfile /etc/mpirun/hostfile";
   }
 
-  // Rank file
+  // Rank file (default to /etc/mpirun/rankfile)
   if (!rankFilePath_.empty()) {
     oss << " ";
     oss << "--rankfile " << rankFilePath_;
+  } else {
+    oss << " ";
+    oss << "--rankfile /etc/mpirun/rankfile";
   }
 
   // MCA options
