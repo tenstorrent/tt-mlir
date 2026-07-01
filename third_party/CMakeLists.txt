@@ -70,6 +70,8 @@ set(TTMETAL_INCLUDE_DIRS
   ${TTMETAL_SOURCE_DIR}
   ${TTMETAL_SOURCE_DIR}/tt_metal
   ${TTMETAL_SOURCE_DIR}/tt_metal/api
+  ${TTMETAL_SOURCE_DIR}/tt_metal/api/tt-metalium
+  ${TTMETAL_SOURCE_DIR}/tt_metal/include
   ${TTMETAL_SOURCE_DIR}/tt_metal/hostdevcommon/api
   ${TTMETAL_SOURCE_DIR}/tt_metal/third_party/umd
   ${TTMETAL_SOURCE_DIR}/tt_metal/third_party/umd/device/api
