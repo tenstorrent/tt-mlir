@@ -316,6 +316,13 @@ def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
              "enable-permute-slice-after-matmul-fusion",
              "bool", /*default=*/"true",
              "Push a matmul/linear output slice into the operand producing the sliced dim">,
+      Option<"enableSharedLHSDoubleMatmulFusion",
+             "enable-shared-lhs-double-matmul-fusion",
+             "bool", /*default=*/"false",
+             "Also fuse two-way shared-LHS matmul/linear groups (e.g. SwiGLU gate/up). "
+             "Off by default: a standalone gate matmul fuses its silu into the matmul kernel "
+             "at the TTNN level, and merging gate+up forces that activation back out into a "
+             "standalone op; benchmark before enabling.">,
   ];
 }
 

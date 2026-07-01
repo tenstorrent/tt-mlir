@@ -1740,7 +1740,7 @@ public:
 //   %v = slice(%fused, [0:32, 512:1024])
 //   %q = slice(%fused, [0:32, 1024:3072])
 //
-template <typename OpType>
+template <typename OpType, unsigned MinOps = 3>
 class SharedLHSMatmulFusion : public mlir::OpRewritePattern<OpType> {
 public:
   using mlir::OpRewritePattern<OpType>::OpRewritePattern;
@@ -1819,7 +1819,7 @@ private:
     bool firstTransposeB = false;
 
     bool isValid() const {
-      return ops.size() >= 2 && totalOutputDim <= kMaxFusedOutputDim;
+      return ops.size() >= MinOps && totalOutputDim <= kMaxFusedOutputDim;
     }
 
     bool getTargetTransposeB() const {
@@ -3356,8 +3356,13 @@ public:
       patterns.add<ConcatenateHeadsUpdatePattern>(&getContext());
       patterns.add<ScaledSumToMeanPattern>(&getContext());
       patterns.add<SpatialMeanOptimizationPattern>(&getContext());
-      patterns.add<SharedLHSMatmulFusion<MatmulOp>>(&getContext());
-      patterns.add<SharedLHSMatmulFusion<LinearOp>>(&getContext());
+      if (enableSharedLHSDoubleMatmulFusion) {
+        patterns.add<SharedLHSMatmulFusion<MatmulOp, 2>>(&getContext());
+        patterns.add<SharedLHSMatmulFusion<LinearOp, 2>>(&getContext());
+      } else {
+        patterns.add<SharedLHSMatmulFusion<MatmulOp>>(&getContext());
+        patterns.add<SharedLHSMatmulFusion<LinearOp>>(&getContext());
+      }
       if (permuteSliceAfterMatmulEnabled) {
         patterns.add<PermuteSliceAfterMatmulPattern>(&getContext());
       }
