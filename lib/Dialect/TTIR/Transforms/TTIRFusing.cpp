@@ -1804,13 +1804,23 @@ public:
   }
 
 private:
+  // Upper bound on the fused output (feature) dimension. Many-way fusions
+  // concatenate every RHS weight/bias along this dim; a rank-1 bias concat
+  // lowers to ttnn.concat's row-major path where one page is the whole row, so
+  // a large fused width overflows per-core L1. Cap keeps even an f32 bias page
+  // (262144 * 4 B = 1 MB) within L1, staying well above realistic QKV/MLP
+  // fusion.
+  static constexpr int64_t kMaxFusedOutputDim = 262144;
+
   struct FusionCandidates {
     SmallVector<OpType> ops;
     int64_t totalOutputDim = 0;
     bool allSameTransposeB = true;
     bool firstTransposeB = false;
 
-    bool isValid() const { return ops.size() >= 3; }
+    bool isValid() const {
+      return ops.size() >= 3 && totalOutputDim <= kMaxFusedOutputDim;
+    }
 
     bool getTargetTransposeB() const {
       return allSameTransposeB ? firstTransposeB : false;

@@ -13,7 +13,10 @@ Python driver. The pattern's emission targets the rewriter's insertion
 point — no rebuild needed when this file changes.
 """
 
+import torch
+
 import d2m_jit as d2m
+from d2m_jit.testing import InputSpec, KernelBench, PatternTest, eltwise_block_run
 from ttmlir.dialects import ttir
 
 
@@ -58,3 +61,52 @@ def lower_exp(op, rewriter):
     out = d2m.empty(L)
     exp_fused(x, out, 1, 1, grid=(1, 1))
     return d2m.from_device(out)
+
+
+# ----------------------------------------------------------------------
+# Co-located tests. See d2m_jit.testing for the runner contract.
+# ----------------------------------------------------------------------
+
+
+def _golden(x):
+    return torch.exp(x)
+
+
+# Rewrite correctness (replaces test/d2m-jit/lit/eltwise_exp_pattern.py).
+PATTERN_TESTS = [
+    PatternTest(
+        name="exp_positive",
+        ttir="""
+        module {
+          func.func @forward(%x: tensor<32x32xf32>) -> tensor<32x32xf32> {
+            %r = "ttir.exp"(%x) : (tensor<32x32xf32>) -> tensor<32x32xf32>
+            return %r : tensor<32x32xf32>
+          }
+        }
+        """,
+        golden=_golden,
+        inputs=InputSpec("uniform(-1,1)"),
+        # The kernel's `m_blocks, n_blocks` runtime scalars are baked into the
+        # kernel body as constants in the rewrite scope (see AUTHORING.md), so
+        # this compiles to a flatbuffer and runs e2e on device directly.
+        e2e=True,
+        check="""
+        CHECK-LABEL: func.func @forward
+        CHECK-NOT:   ttir.exp
+        CHECK:       d2m.generic
+        CHECK:       return %{{.*}} : tensor<32x32xf32>
+        """,
+    ),
+]
+
+# On-device numerics (replaces test_pattern_exp_kernel_on_device).
+KERNEL_BENCHES = [
+    KernelBench(
+        name="exp",
+        kernel=exp_fused,
+        golden=_golden,
+        input_shapes=[(32, 32)],
+        run=eltwise_block_run,
+        inputs=InputSpec("uniform(-1,1)"),
+    ),
+]

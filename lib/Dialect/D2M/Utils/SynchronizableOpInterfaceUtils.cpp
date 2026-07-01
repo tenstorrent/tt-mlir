@@ -8,6 +8,8 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOpsInterfaces.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+
 namespace mlir::tt::d2m::utils {
 
 // Note: This function must be used post-bufferization but before converting
@@ -45,6 +47,15 @@ bool isPurelyDerivedOp(Operation *op,
   // check if the result is already cached
   if (purelyDerivedOps.contains(op)) {
     return purelyDerivedOps[op];
+  }
+
+  // View-like memref ops only derive aliases/metadata. Keep the original op
+  // outside the synchronized region for later users and clone it inside the
+  // region for local users. Requiring their source allocs to be pure would
+  // incorrectly force all downstream users into one synchronized region.
+  if (isa<memref::CollapseShapeOp, memref::SubViewOp>(op)) {
+    purelyDerivedOps[op] = true;
+    return true;
   }
 
   // if not, compute the result

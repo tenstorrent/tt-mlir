@@ -15,7 +15,10 @@ the producer for us). If the add has other users besides the exp, those
 keep working — the add stays alive in that case.
 """
 
+import torch
+
 import d2m_jit as d2m
+from d2m_jit.testing import InputSpec, KernelBench, PatternTest, eltwise_block_run
 from ttmlir import ir
 from ttmlir.dialects import ttir
 
@@ -62,3 +65,78 @@ def fuse_add_exp(op, rewriter):
     out = d2m.empty(L)
     add_exp_fused(a, b, out, 1, 1, grid=(1, 1))
     return d2m.from_device(out)
+
+
+# ----------------------------------------------------------------------
+# Co-located tests. See d2m_jit.testing for the runner contract.
+# ----------------------------------------------------------------------
+
+
+def _golden(a, b):
+    return torch.exp(a + b)
+
+
+# Rewrite correctness (replaces test/d2m-jit/lit/eltwise_add_exp_pattern.py).
+PATTERN_TESTS = [
+    # add -> exp chain. The DAG match fires; the d2m.generic body holds both
+    # tile_add and tile_exp (fully fused, no intermediate tensor).
+    PatternTest(
+        name="add_exp_positive",
+        ttir="""
+        module {
+          func.func @f(%a: tensor<32x32xf32>, %b: tensor<32x32xf32>)
+              -> tensor<32x32xf32> {
+            %sum = "ttir.add"(%a, %b) :
+                (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+            %r = "ttir.exp"(%sum) : (tensor<32x32xf32>) -> tensor<32x32xf32>
+            return %r : tensor<32x32xf32>
+          }
+        }
+        """,
+        golden=_golden,
+        inputs=InputSpec("uniform(-1,1)"),
+        # `m_blocks, n_blocks` runtime scalars are baked into the kernel body as
+        # constants in the rewrite scope (see AUTHORING.md), so this compiles to
+        # a flatbuffer and runs e2e on device directly.
+        e2e=True,
+        check="""
+        CHECK-LABEL: func.func @f
+        CHECK-NOT:   ttir.exp
+        CHECK:       d2m.generic
+        CHECK:       d2m.tile_add
+        CHECK:       d2m.tile_exp
+        CHECK:       return %{{.*}} : tensor<32x32xf32>
+        """,
+    ),
+    # exp with no upstream add: the match= predicate fails, nothing rewrites.
+    # Only this file's pattern is loaded, so there is no single-exp fallthrough.
+    PatternTest(
+        name="add_exp_negative",
+        ttir="""
+        module {
+          func.func @g(%x: tensor<32x32xf32>) -> tensor<32x32xf32> {
+            %r = "ttir.exp"(%x) : (tensor<32x32xf32>) -> tensor<32x32xf32>
+            return %r : tensor<32x32xf32>
+          }
+        }
+        """,
+        expect_match=False,
+        check="""
+        CHECK-LABEL: func.func @g
+        CHECK:       ttir.exp
+        CHECK-NOT:   d2m.generic
+        """,
+    ),
+]
+
+# On-device numerics (replaces test_pattern_add_exp_kernel_on_device).
+KERNEL_BENCHES = [
+    KernelBench(
+        name="add_exp",
+        kernel=add_exp_fused,
+        golden=_golden,
+        input_shapes=[(32, 32), (32, 32)],
+        run=eltwise_block_run,
+        inputs=InputSpec("uniform(-1,1)"),
+    ),
+]

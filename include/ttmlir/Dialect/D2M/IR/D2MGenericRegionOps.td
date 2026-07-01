@@ -3272,8 +3272,15 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
       The index_tile_tensor is a scratch tensor (1x1 tile) handled by
       the FillArangeTileOp.
 
+      The colMajor option specifies whether values should be filled in a column major order instead (default is row major).
+
       For each tile at position (tile_row, tile_col), the computation is:
       1. tile_offset = (tile_row * num_tile_cols * 32 + tile_col) * 32
+      2. global_idx = tile_add(tile_offset, local_idx)
+      3. result = tile_add(tile_mul(global_idx, step), start)
+
+      If colMajor is true, then the computation is:
+      1. tile_offset = (tile_col * num_tile_rows * 32 + tile_row) * 32
       2. global_idx = tile_add(tile_offset, local_idx)
       3. result = tile_add(tile_mul(global_idx, step), start)
 
@@ -3291,7 +3298,8 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
       AnyRankedTensorOrMemRef:$output,
       I64Attr:$num_elements,
       I64Attr:$start,
-      I64Attr:$step);
+      I64Attr:$step,
+      DefaultValuedAttr<BoolAttr, "false">:$colMajor);
 
   let results = (outs AnyRankedTensorOrMemRef:$result);
 
@@ -3304,7 +3312,17 @@ def D2M_ArangeBlockOp : D2M_GenericRegionComputeOp<"arange_block",
             $_builder.getI64IntegerAttr(numElements),
             $_builder.getI64IntegerAttr(start),
             $_builder.getI64IntegerAttr(step));
-    }]>
+    }]>,
+    OpBuilder<(ins "Value":$indexTileTensor, "Value":$output,
+                    "int64_t":$numElements, "int64_t":$start, "int64_t":$step, "bool":$colMajor), [{
+      // Result type is the same as the output type.
+      Type resultType = output.getType();
+      build($_builder, $_state, resultType, indexTileTensor, output,
+            $_builder.getI64IntegerAttr(numElements),
+            $_builder.getI64IntegerAttr(start),
+            $_builder.getI64IntegerAttr(step),
+            $_builder.getBoolAttr(colMajor));
+    }]>,
   ];
 
   let extraClassDeclaration = [{

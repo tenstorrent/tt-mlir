@@ -338,7 +338,7 @@ static void
 applyToLayoutUpdate(const OperandGridInfo &info,
                     const EffectiveTargetGridRange &effectiveTargetGridRange,
                     bool ttnnMode, OpBuilder &builder) {
-  auto toLayoutOp = info.operand.getDefiningOp<d2m::ToLayoutOp>();
+  auto toLayoutOp = info.getLiveOperand().getDefiningOp<d2m::ToLayoutOp>();
   optimizeToLayoutGrid(toLayoutOp, info.targetGrid, effectiveTargetGridRange,
                        ttnnMode, info.selectedGrid, builder);
 }
@@ -347,7 +347,8 @@ static void applyBehindViewToLayoutUpdate(
     const OperandGridInfo &info,
     const EffectiveTargetGridRange &effectiveTargetGridRange, bool ttnnMode,
     OpBuilder &builder) {
-  auto toLayoutOp = utils::getToLayoutProducerBehindViews(info.operand);
+  auto toLayoutOp =
+      utils::getToLayoutProducerBehindViews(info.getLiveOperand());
   TT_assert(toLayoutOp);
   optimizeToLayoutGrid(toLayoutOp, info.targetGrid, effectiveTargetGridRange,
                        ttnnMode, info.viewSourceGrid, builder);
@@ -357,7 +358,7 @@ static void
 applyMaskUpdate(const OperandGridInfo &info,
                 const EffectiveTargetGridRange &effectiveTargetGridRange,
                 bool ttnnMode, OpBuilder &builder) {
-  auto maskOp = info.operand.getDefiningOp<d2m::MaskOp>();
+  auto maskOp = info.getLiveOperand().getDefiningOp<d2m::MaskOp>();
   if (!maskOp) {
     return;
   }
@@ -411,7 +412,7 @@ applyMaskUpdate(const OperandGridInfo &info,
 
 static void applyTTNNTensorUpdate(const OperandGridInfo &info,
                                   OpBuilder &builder) {
-  Value ttnnOperand = info.operand;
+  Value ttnnOperand = info.getLiveOperand();
   auto metalTensor = mlir::cast<mlir::RankedTensorType>(ttnnOperand.getType());
   auto metalLayout =
       mlir::cast<ttcore::MetalLayoutAttr>(metalTensor.getEncoding());
@@ -498,7 +499,8 @@ static void applyCompositeViewUpdate(
     const OperandGridInfo &info,
     const EffectiveTargetGridRange &effectiveTargetGridRange, bool ttnnMode,
     OpBuilder &builder) {
-  auto compositeView = info.operand.getDefiningOp<d2m::CompositeViewOp>();
+  auto compositeView =
+      info.getLiveOperand().getDefiningOp<d2m::CompositeViewOp>();
   auto outType =
       mlir::cast<RankedTensorType>(compositeView.getResult().getType());
 
@@ -532,7 +534,7 @@ static void
 applyEmptyOpUpdate(const OperandGridInfo &info,
                    const EffectiveTargetGridRange &effectiveTargetGridRange,
                    bool ttnnMode, OpBuilder &builder) {
-  EmptyOp emptyOp = info.operand.getDefiningOp<d2m::EmptyOp>();
+  EmptyOp emptyOp = info.getLiveOperand().getDefiningOp<d2m::EmptyOp>();
   auto emptyType =
       mlir::cast<mlir::RankedTensorType>(emptyOp.getResult().getType());
   RankedTensorType newTensorType = utils::tensorWithOptimalGrid(
@@ -607,7 +609,8 @@ deriveGenericGridAttr(d2m::GenericOp genericOp,
 // accounts for the shape change from the old grid to the new grid.
 static void applyViewLayoutUpdate(const OperandGridInfo &info, bool ttnnMode,
                                   OpBuilder &builder) {
-  d2m::ViewLayoutOp viewOp = info.operand.getDefiningOp<d2m::ViewLayoutOp>();
+  d2m::ViewLayoutOp viewOp =
+      info.getLiveOperand().getDefiningOp<d2m::ViewLayoutOp>();
   auto oldResultType =
       mlir::cast<RankedTensorType>(viewOp.getResult().getType());
   auto oldLayout =
@@ -722,7 +725,10 @@ static LogicalResult applyGridDecisions(d2m::GenericOp genericOp,
   llvm::SmallVector<Kind, 4> kinds;
   kinds.reserve(result.operandInfos.size());
   for (const auto &info : result.operandInfos) {
-    Value operand = info.operand;
+    // Resolve the operand live from the owning generic. A prior generic's apply
+    // may have rewritten this producer (replaceAllUsesWith updated the operand
+    // in place); reading it live reflects that. See OperandGridInfo.
+    Value operand = info.getLiveOperand();
     if (GridAnalysis::isTTNNOperand(operand)) {
       kinds.push_back(Kind::TTNNTensor);
     } else if (auto view = operand.getDefiningOp<d2m::ViewLayoutOp>()) {

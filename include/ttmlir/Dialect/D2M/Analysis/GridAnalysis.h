@@ -26,8 +26,38 @@ struct CompositeInputGridInfo {
 /// Per-operand analysis result describing the chosen grid for a GenericOp
 /// operand. The concrete update strategy is recovered at apply time from the
 /// operand's defining op.
+///
+/// The operand is never cached as a Value; it is referenced indirectly by
+/// `owner` + `operandIndex` and resolved on demand via getLiveOperand(). This
+/// makes stale operands impossible: between analysis and apply, an earlier
+/// generic's rewrite may replace or erase a producer, but replaceAllUsesWith
+/// updates this generic's operand in place, so re-reading it by index always
+/// yields the current producer.
 struct OperandGridInfo {
-  Value operand;
+private:
+  // The generic this operand belongs to, plus the operand index within
+  // `owner.getInputsAndOutputs()`. The operand is resolved from these on demand
+  // (see getLiveOperand()) rather than cached, so it can never go stale.
+  GenericOp owner;
+  unsigned operandIndex = 0;
+
+public:
+  void setOwner(GenericOp owner) { this->owner = owner; }
+
+  void setOperandIndex(unsigned index) { this->operandIndex = index; }
+
+  // Resolve the current operand value from the owning generic. Valid in both
+  // the analysis and apply phases: it reads operand `operandIndex` live off
+  // `owner`, so it reflects any in-place rewrites made since analysis.
+  //
+  // Relies on inputs+outputs being the leading operand segment of GenericOp, so
+  // that the index into getInputsAndOutputs() (used at construction) matches
+  // getOperand(operandIndex).
+  Value getLiveOperand() const {
+    GenericOp op = owner;
+    return op.getOperand(operandIndex);
+  }
+
   llvm::SmallVector<int64_t> selectedGrid;
   llvm::SmallVector<int64_t> targetGrid;
 

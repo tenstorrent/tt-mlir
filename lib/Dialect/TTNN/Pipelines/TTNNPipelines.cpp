@@ -397,6 +397,8 @@ void createTTIRToTTNNCommonPipeline(
     // Run TTNN lowering passes on Device module.
     createTTNNPipelineLoweringPasses(devicePm, options.removeDeadValuesEnabled);
     createTTNNResolveCompositesPass(devicePm, options);
+    // Add pass to clean up the leftover unreferenced symbols.
+    devicePm.addPass(mlir::createSymbolDCEPass());
     createTTNNFusingPass(devicePm, options);
 
     // Create TTNN decomposition pass, optionally with op-model validation.

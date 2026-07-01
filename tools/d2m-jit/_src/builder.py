@@ -1112,14 +1112,37 @@ def _emit_kernel_generic(
         output_lts = [to_dram(lt) for lt in output_lts]
         lazy_args = input_lts + output_lts
 
+    # In a non-lazy (rewrite) scope the surrounding module is not ours to add
+    # function params to, so runtime scalars would lower to host-scope
+    # `arith.constant` index values fed into the generic's additionalArgs --
+    # which the ttmetal flatbuffer translator cannot serialize (it only
+    # resolves scalar kernel args that are program inputs, so an inline
+    # constant hits a missing-BufferRef assertion). Since rewrite-scope scalars
+    # are always Python int constants, bake them into the kernel body as
+    # captures (in-region constants) and emit no additionalArgs for them. The
+    # lazy `_Builder` keeps the runtime-arg form: scalars stay index func args
+    # (see add_scalar_input) so the binary remains parameterised.
+    bake_scalars = not isinstance(b, _Builder)
+    if bake_scalars and scalar_args:
+        formal_names = [a.arg for a in kernel._ast.body[0].args.args]
+        scalar_names = formal_names[len(lazy_args) : len(lazy_args) + len(scalar_args)]
+        effective_captures = dict(kernel._captures)
+        effective_captures.update(
+            {n: int(v) for n, v in zip(scalar_names, scalar_args)}
+        )
+        runtime_scalars = []
+    else:
+        effective_captures = kernel._captures
+        runtime_scalars = list(scalar_args)
+
     # Compile the kernel body in the current builder's context. D2MCompiler
     # picks up b.ctx via get_default_loc_context.
     with b.ctx, b.loc:
-        compiler_args = [lt.layout for lt in lazy_args] + list(scalar_args)
+        compiler_args = [lt.layout for lt in lazy_args] + runtime_scalars
         compiler = D2MCompiler(
             kernel.fn.__name__,
             "unified",
-            kernel._captures,
+            effective_captures,
             *compiler_args,
             source_file=kernel._source_file,
             source_firstlineno=kernel._source_firstlineno,
@@ -1131,8 +1154,10 @@ def _emit_kernel_generic(
     # Emit the GenericOp + splice the kernel body.
     with b.ctx, b.loc, b.insert_point:
         # Scalars are sourced from func args (not host-scope constants) so the
-        # GenericOp's region stays isolated-from-above.
-        additional = [b.add_scalar_input(s) for s in scalar_args]
+        # GenericOp's region stays isolated-from-above. In a rewrite scope the
+        # scalars were baked into the kernel body above, so runtime_scalars is
+        # empty and no additionalArgs are emitted for them.
+        additional = [b.add_scalar_input(s) for s in runtime_scalars]
         inputs = [lt.value for lt in input_lts]
         outputs = [lt.value for lt in output_lts]
         output_types = [v.type for v in outputs]
