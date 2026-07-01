@@ -5049,8 +5049,8 @@ private:
   }
 
   LogicalResult
-  matchAndRewriteFused(ttir::ArgMaxOp op, OpAdaptor adaptor,
-                       mlir::ConversionPatternRewriter &rewriter) const {
+  matchAndRewrite(ttir::ArgMaxOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
     mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = op.getLoc();
 
@@ -5222,8 +5222,12 @@ private:
           return {result};
         });
 
-    // Stage 3: bcast max -> eltwise_eq -> bcast arange -> eltwise_mul
-    auto stage3origOutputs = createDpsOutputs(loc, rewriter, {argMaxOutputTy});
+    // Stage 3: bcast max -> eltwise_eq -> bcast arange -> eltwise_mul.
+    // The product (eq * index) stays in the input element type (bf16); only the
+    // final stage 5 typecast converts to the integer output type. Using
+    // argMaxOutputTy here would make stage 4's tile_reduce_max receive an
+    // integer tile, which it rejects.
+    auto stage3origOutputs = createDpsOutputs(loc, rewriter, {argMaxInputTy});
     auto [stage3inputs, stage3outputs] = toLayoutOperandsAndResults(
         rewriter, {SmallVector<Value>{argMaxInput}, stage3origOutputs}, true,
         noCollapse);
@@ -5320,47 +5324,38 @@ private:
               .getResult();
         });
 
-    // Stage 5: fill -> subtract -> typecast
-    auto stage5reducedIntType = RankedTensorType::get(
-        reducedType.getShape(), argMaxOutputTy.getElementType());
-    SmallVector<Value> stage5origInputs{stage4.getResult(0)};
-    SmallVector<Value> stage5origOutputs =
-        createDpsOutputs(loc, rewriter, {stage5reducedIntType});
-    auto [stage5inputs, stage5outputs] = toLayoutOperandsAndResults(
-        rewriter, {stage5origInputs, stage5origOutputs}, /*tiled=*/true,
+    // Stage 5: recover the index via tile_fill(N) then tile_sub(N, x).
+    auto stage5origOutputs = createDpsOutputs(loc, rewriter, {reducedType});
+    auto [stage5ins, stage5outputs] = toLayoutOperandsAndResults(
+        rewriter, {SmallVector<Value>{}, stage5origOutputs}, /*tiled=*/true,
         noCollapse);
-
     SmallVector<AffineMap> stage5maps =
         getIdentityAffineMapsArray(rewriter, 2, physicalRank);
 
     d2m::GenericOp stage5 = buildGenericLinAlg(
-        rewriter, loc, stage5inputs, stage5outputs, stage5maps,
+        rewriter, loc, stage4.getResults(), stage5outputs, stage5maps,
         allParallelIterTy,
         [&](mlir::OpBuilder &bb, mlir::Location l, mlir::ValueRange bbArgs) {
-          // bbArgs[0] = reduced bf16 tile (= N - smallestIndex).
-          // bbArgs[1] = output tile (integer element type).
-          auto inTileTy = mlir::cast<ttcore::TileType>(bbArgs[0].getType());
-          auto inElemTy = inTileTy.getElementType();
-          auto outTileTy = mlir::cast<ttcore::TileType>(bbArgs[1].getType());
-
-          // Recover the index: tile_fill(N) then tile_sub(N, x), then typecast
-          // the bf16 index to the integer output type.
+          auto tileTy = bbArgs[0].getType();
+          auto elemTy = mlir::cast<ttcore::TileType>(tileTy).getElementType();
           auto nAttr =
-              mlir::FloatAttr::get(inElemTy, static_cast<double>(numElements));
-          Value nScalar =
-              bb.create<mlir::arith::ConstantOp>(l, inElemTy, nAttr);
+              mlir::FloatAttr::get(elemTy, static_cast<double>(numElements));
+          Value nScalar = bb.create<mlir::arith::ConstantOp>(l, elemTy, nAttr);
           Value nTile =
-              bb.create<d2m::TileFillOp>(l, inTileTy, nScalar).getResult();
-          Value index = bb.create<d2m::TileSubOp>(l, inTileTy, nTile, bbArgs[0])
-                            .getResult();
-          return bb.create<d2m::TileTypecastOp>(l, outTileTy, index)
+              bb.create<d2m::TileFillOp>(l, tileTy, nScalar).getResult();
+          return bb.create<d2m::TileSubOp>(l, tileTy, nTile, bbArgs[0])
               .getResult();
         });
 
-    // Unlayout the reduced integer result back to the host output type and
-    // replace the original argmax.
-    Value result = unLayoutResult(rewriter, stage5.getResult(0), argMaxOutputTy)
-                       ->getResult(0);
+    // Stage 6: unlayout to host, then typecast the bf16 index to the integer
+    // output type.
+    auto reducedHostType = RankedTensorType::get(
+        reducedType.getShape(), argMaxInputTy.getElementType());
+    Value reducedHost =
+        unLayoutResult(rewriter, stage5.getResult(0), reducedHostType)
+            ->getResult(0);
+    Value result =
+        buildTypecastGeneric(rewriter, loc, reducedHost, argMaxOutputTy);
     rewriter.replaceOp(op, result);
     return success();
   }
@@ -5377,8 +5372,8 @@ private:
   // now output is the correct shape) -> (typecast to i32). Each stage is its
   // own generic for now.
   LogicalResult
-  matchAndRewrite(ttir::ArgMaxOp op, OpAdaptor adaptor,
-                  mlir::ConversionPatternRewriter &rewriter) const final {
+  matchAndRewritNonfused(ttir::ArgMaxOp op, OpAdaptor adaptor,
+                         mlir::ConversionPatternRewriter &rewriter) const {
     mlir::MLIRContext *ctx = rewriter.getContext();
     mlir::Location loc = op.getLoc();
 
