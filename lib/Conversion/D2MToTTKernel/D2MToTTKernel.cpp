@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/D2M/Analysis/CBProducerConsumer.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsTypes.h"
+#include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTKernel/IR/TTKernelOps.h"
@@ -3152,7 +3153,9 @@ public:
       if (mlir::isa<ttkernel::CBType>(convertedType)) {
         // CB-backed memref (e.g. scratch buffer with CBLayoutAttr).
         // Handle identically to D2MGetCBRewriter: CBPort kernel arg.
-        arg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, op.getOperandIndex());
+        int64_t physicalPort =
+            d2m::getPhysicalCBPort(entry, op.getOperandIndex());
+        arg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, physicalPort);
         argResultType = convertedType;
 
         replaceOpWithKernelArg(op.getOperation(), argResultType, entry, arg,
@@ -3223,8 +3226,8 @@ public:
     // Append a CBPort entry to the parent function's ArgSpec. The operand index
     // tells the runtime which operand's buffer to associate with this CB.
     func::FuncOp entry = op->getParentOfType<func::FuncOp>();
-    ArgAttr cbArg =
-        rewriter.getAttr<ArgAttr>(ArgType::CBPort, op.getCbOperandIdx());
+    int64_t physicalPort = d2m::getPhysicalCBPort(entry, op.getCbOperandIdx());
+    ArgAttr cbArg = rewriter.getAttr<ArgAttr>(ArgType::CBPort, physicalPort);
     Type cbType = getTypeConverter()->convertType(op.getResult().getType());
 
     replaceOpWithKernelArg(op.getOperation(), cbType, entry, cbArg,
@@ -3329,9 +3332,10 @@ public:
                        SmallVectorImpl<ArgAttr> &rtArgs,
                        SmallVectorImpl<ArgAttr> &ctArgs) const {
     op.walk([&](d2m::GetCBOp getCBOp) {
-      insertKernelArg(
-          rtArgs, ctArgs,
-          builder.getAttr<ArgAttr>(ArgType::CBPort, getCBOp.getCbOperandIdx()));
+      int64_t physicalPort =
+          d2m::getPhysicalCBPort(op, getCBOp.getCbOperandIdx());
+      insertKernelArg(rtArgs, ctArgs,
+                      builder.getAttr<ArgAttr>(ArgType::CBPort, physicalPort));
     });
 
     op.walk([&](d2m::GetArgOp getArgOp) {
@@ -3339,9 +3343,11 @@ public:
       if (auto memrefType = mlir::dyn_cast<MemRefType>(argType)) {
         Type convertedType = getTypeConverter()->convertType(memrefType);
         if (mlir::isa<ttkernel::CBType>(convertedType)) {
-          insertKernelArg(rtArgs, ctArgs,
-                          builder.getAttr<ArgAttr>(ArgType::CBPort,
-                                                   getArgOp.getOperandIndex()));
+          int64_t physicalPort =
+              d2m::getPhysicalCBPort(op, getArgOp.getOperandIndex());
+          insertKernelArg(
+              rtArgs, ctArgs,
+              builder.getAttr<ArgAttr>(ArgType::CBPort, physicalPort));
           return;
         }
 

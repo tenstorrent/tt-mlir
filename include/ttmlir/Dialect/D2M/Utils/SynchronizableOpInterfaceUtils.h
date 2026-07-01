@@ -11,9 +11,12 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Region.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
+
+#include <string>
 
 namespace mlir::tt::d2m::utils {
 struct CBUsageInfo {
@@ -34,10 +37,10 @@ bool isPurelyDerivedOp(Operation *op,
 /// produce SSA results that are used outside of [start, end). Since
 /// SynchronizedRegionOp has no results, any such external uses would become
 /// invalid when the original ops are erased.
-Operation *wrapInSynchronizedRegion(RewriterBase &rewriter,
-                                    Block::iterator start, Block::iterator end,
-                                    const SmallVector<Value> &consumers,
-                                    const SmallVector<Value> &producers);
+FailureOr<Operation *> wrapInSynchronizedRegion(
+    RewriterBase &rewriter, Block::iterator start, Block::iterator end,
+    const SmallVector<Value> &consumers, const SmallVector<Value> &producers,
+    std::string *failureMessage = nullptr);
 
 /// Unwraps a SynchronizedRegionOp by hoisting its ops to the parent level.
 LogicalResult
