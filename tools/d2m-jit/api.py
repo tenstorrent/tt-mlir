@@ -326,6 +326,24 @@ def core_index(index):
     return d2m.core_index(index)
 
 
+def _str_literal(node):
+    """args_as_attr callback: pull a string-literal format out of `node`."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    raise D2mJitError(
+        'dprint expects a string-literal format, e.g. dprint("step1\\n")'
+    )
+
+
+@syntax("dprint", args_as_attr=[_str_literal])
+def dprint(fmt):
+    """Kernel-side marker print -> d2m.print -> ttkernel.dprint. Format string only
+    (no value interpolation) -- emit before/after kernel ops to trace which op a
+    core reaches (e.g. to localize a device hang). Enable at runtime with
+    TT_METAL_DPRINT_CORES=all TT_METAL_DPRINT_FILE=<path>."""
+    return d2m.print_(fmt, [])
+
+
 @syntax(
     "mesh_position",
     args_as_attr=[
