@@ -125,9 +125,6 @@ void SumL1MemoryTracker::allocateAddress(Value result, uint64_t l1SizePerCore) {
       return;
     }
   }
-  // Unreachable: callers MUST pre-check `wouldAllocateAt` (the forward sweep
-  // via ensureFitsL1; the eviction replay via replayFrom). Reaching here means
-  // a placement bypassed that check — a precondition violation.
   llvm_unreachable("allocateAddress: no contiguous free block; caller must "
                    "pre-check wouldAllocateAt");
 }
@@ -639,7 +636,7 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
   auto config = extractOpConfigFromIR(op);
   auto result =
       op_constraint_validation::ValidationResult::outOfMemoryError("");
-  bool resolved = evictUntil(pos, data, [&]() {
+  bool fitsAfterEviction = evictUntil(pos, data, [&]() {
     inputLayouts = utils::extractInputLayouts(op);
     result = memoryTracker.validate(op, inputLayouts, config);
     return result.isSuccess();
@@ -650,9 +647,8 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
     return;
   }
 
-  // resolved ⟹ validate() succeeded against a fully-placed live set; otherwise
-  // the op's own output doesn't fit, so self-demote below.
-  if (resolved) {
+  // fitsAfterEviction ⟹ validate() succeeded against a fully-placed live set.
+  if (fitsAfterEviction) {
     uint64_t l1Size = result.outputL1Usage;
     if (l1Size > 0) {
       l1Size = ensureFitsL1(op, pos, data, result.cbPeakUsage, l1Size);
@@ -717,7 +713,8 @@ void L1SpillManagement<MemoryTracker>::insertEventIntoLog(size_t pos,
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-bool L1SpillManagement<MemoryTracker>::markEvictedAndRebuild(Value victim) {
+bool L1SpillManagement<MemoryTracker>::markEvictedAndRebuild(
+    Value victim, size_t &campaignMin) {
   // O(1) lookup of victim's alloc event.
   auto idxIt = allocEventIndex.find(victim);
   assert(idxIt != allocEventIndex.end() &&
@@ -742,8 +739,8 @@ bool L1SpillManagement<MemoryTracker>::markEvictedAndRebuild(Value victim) {
   // victim could restore a base predating an earlier eviction and resurrect an
   // already-spilled tensor. Replaying from the minimum with all accumulated
   // skips re-applies every eviction.
-  campaignMinAllocIdx = std::min(campaignMinAllocIdx, allocIdx);
-  return replayFrom(campaignMinAllocIdx);
+  campaignMin = std::min(campaignMin, allocIdx);
+  return replayFrom(campaignMin);
 }
 
 //===----------------------------------------------------------------------===//
@@ -800,7 +797,7 @@ bool L1SpillManagement<MemoryTracker>::replayFrom(size_t startIdx) {
 
 template <typename MemoryTracker>
 bool L1SpillManagement<MemoryTracker>::evictValue(
-    Value victim, int64_t pos, ScheduleData &data,
+    Value victim, int64_t pos, ScheduleData &data, size_t &campaignMin,
     Operation *skipReshardConsumer) {
   liveValues.erase(victim);
   Operation *victimOp = victim.getDefiningOp();
@@ -976,7 +973,7 @@ bool L1SpillManagement<MemoryTracker>::evictValue(
     insertEventIntoLog(ins.pos, ins.event);
   }
 
-  return markEvictedAndRebuild(victim);
+  return markEvictedAndRebuild(victim, campaignMin);
 }
 
 //===----------------------------------------------------------------------===//
@@ -1035,18 +1032,16 @@ bool L1SpillManagement<MemoryTracker>::evictUntil(
     });
   };
 
-  // Start a fresh campaign: every rebuild restores from the minimum alloc
-  // index evicted in THIS campaign (see markEvictedAndRebuild).
-  campaignMinAllocIdx = SIZE_MAX;
+  // A fresh campaign: every rebuild restores from the smallest alloc index
+  // evicted in this campaign and replays the whole suffix with all accumulated
+  // skips (see evictValue / markEvictedAndRebuild).
+  size_t campaignMin = SIZE_MAX;
 
   // shouldStop() inspects tracker state, so it is only trustworthy after a
   // rebuild that placed every live tensor. The entry state qualifies — the
   // forward sweep placed everything via the infallible allocateAddress.
   bool rebuildPlacedAll = true;
-  while (true) {
-    if (rebuildPlacedAll && shouldStop()) {
-      break;
-    }
+  while (!rebuildPlacedAll || !shouldStop()) {
     if (liveValues.empty() || onlyReshardsRemain()) {
       break;
     }
@@ -1054,11 +1049,9 @@ bool L1SpillManagement<MemoryTracker>::evictUntil(
     if (!victim) {
       break;
     }
-    rebuildPlacedAll = evictValue(victim, pos, data);
+    rebuildPlacedAll = evictValue(victim, pos, data, campaignMin);
   }
 
-  // Unresolvable fragmentation: eviction is exhausted yet a still-live tensor
-  // has no contiguous L1 slot (the total may fit; the free space doesn't).
   // Demoting the current op cannot help — the unplaceable tensor is in the
   // already-scheduled suffix (or a non-evictable inserted reshard), independent
   // of the op whose output is not yet added. Fail loudly instead of shipping a
@@ -1073,8 +1066,6 @@ bool L1SpillManagement<MemoryTracker>::evictUntil(
     return false;
   }
 
-  // rebuildPlacedAll is true here, so the tracker reflects a clean rebuild and
-  // shouldStop() is trustworthy.
   return shouldStop();
 }
 
@@ -1091,7 +1082,7 @@ uint64_t L1SpillManagement<MemoryTracker>::handleNoFit(Operation *op,
                "    NO_FIT: output {0} bytes can't fit contiguously, evicting",
                outputL1Size);
 
-  bool resolved = evictUntil(pos, data, [&]() {
+  bool fitsAfterEviction = evictUntil(pos, data, [&]() {
     return memoryTracker.wouldAllocateAt(outputL1Size).has_value();
   });
   // evictUntil already failed the pass on unresolvable fragmentation; bail
@@ -1099,7 +1090,7 @@ uint64_t L1SpillManagement<MemoryTracker>::handleNoFit(Operation *op,
   if (compilationFailed) {
     return 0;
   }
-  if (!resolved) {
+  if (!fitsAfterEviction) {
     demoteToDram(op);
     evictForDramCBGrowth(op, pos, data);
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
@@ -1145,7 +1136,7 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
 
   // Evict (farthest last-use first) until the output has a contiguous fit AND
   // the CB region no longer overlaps the lowest live tensor.
-  bool resolved = evictUntil(pos, data, [&]() {
+  bool fitsAfterEviction = evictUntil(pos, data, [&]() {
     auto specAddr = memoryTracker.wouldAllocateAt(outputL1Size);
     if (!specAddr) {
       return false;
@@ -1162,7 +1153,7 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
 
   // Eviction was exhausted (op's own output won't fit / CB still overlaps).
   // Demote this op's output to DRAM rather than ship a clashing layout.
-  if (!resolved) {
+  if (!fitsAfterEviction) {
     demoteToDram(op);
     evictForDramCBGrowth(op, pos, data);
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
@@ -1208,6 +1199,9 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
         toEvict.push_back(operand);
       }
     }
+    // Its own mini-campaign: campaignMin accumulates across the sibling spills.
+    size_t campaignMin = SIZE_MAX;
+    bool fitsAfterSiblingSpill = true;
     for (Value victim : toEvict) {
       TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                    "    SPILL_SIBLING_OPERAND: evicting {0} to DRAM to "
@@ -1218,7 +1212,20 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
       // mixed-input failure and reshard it straight back, defeating the
       // homogeneous spill. Past/future consumers of the operand are still
       // restored, so their IR stays valid.
-      evictValue(victim, pos, data, /*skipReshardConsumer=*/op);
+      //
+      // Those reshards can fragment L1; keep the last result, since the replay
+      // reflects the fully-spilled state and early fragmentation clears as the
+      // rest spill.
+      fitsAfterSiblingSpill = evictValue(victim, pos, data, campaignMin,
+                                         /*skipReshardConsumer=*/op);
+    }
+    if (!fitsAfterSiblingSpill) {
+      op->emitError(
+          "L1SpillManagement: sibling-operand spill left a live tensor with no "
+          "contiguous L1 placement (fragmentation cannot be resolved by "
+          "demoting this op)");
+      compilationFailed = true;
+      return 0;
     }
   }
 

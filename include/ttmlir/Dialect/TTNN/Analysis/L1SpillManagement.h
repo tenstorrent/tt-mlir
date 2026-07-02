@@ -129,10 +129,8 @@ struct SumL1MemoryTracker {
   /// open a fresh alias group at refcount 1, and bump currentOccupied for
   /// the new slot. Does not touch tensorSizes (callers set it).
   ///
-  /// HARD CONTRACT: the tensor MUST fit. Callers pre-check `wouldAllocateAt`
-  /// (the forward sweep via `ensureFitsL1`; the eviction replay via
-  /// `replayFrom`). A no-fit here is a precondition violation, not a
-  /// recoverable state — it traps.
+  /// HARD CONTRACT: the tensor MUST fit (asserts otherwise). Callers should
+  /// pre-check with `wouldAllocateAt`.
   void allocateAddress(Value result, uint64_t l1SizePerCore);
 
   /// Add `result` to `srcAtSameAddr`'s alias group at the same address
@@ -264,13 +262,6 @@ private:
   /// selected as eviction victims.
   llvm::DenseMap<Value, size_t> allocEventIndex;
 
-  /// Smallest alloc-event index evicted in the current eviction campaign (one
-  /// evictUntil run). Every rebuild restores from this index and replays the
-  /// whole suffix with all accumulated skips, so out-of-order farthest-last-use
-  /// victims can never restore a base that resurrects an already-spilled
-  /// tensor. Reset to SIZE_MAX at the start of each campaign.
-  size_t campaignMinAllocIdx = SIZE_MAX;
-
   /// Results of reshards inserted by insertReshardIntoSchedule (future
   /// consumers). These must never be selected as eviction victims — evicting
   /// them defeats the purpose of the reshard. A DenseSet rather than checking
@@ -279,11 +270,12 @@ private:
   llvm::DenseSet<Value> insertedReshardValues;
 
   /// Mark victim's alloc/dealloc events as skipped, fold its alloc index into
-  /// the current campaign minimum, then rebuild by replaying the whole suffix
-  /// from that minimum (see `replayFrom`). Returns true iff every still-live
-  /// tensor was placed; false means a still-live tensor has no contiguous fit
+  /// `campaignMin` (the smallest alloc-event index evicted so far in the
+  /// enclosing campaign), then rebuild by replaying the whole suffix from that
+  /// minimum (see `replayFrom`). Returns true iff every still-live tensor was
+  /// placed; false means a still-live tensor has no contiguous fit
   /// (fragmentation).
-  bool markEvictedAndRebuild(Value victim);
+  bool markEvictedAndRebuild(Value victim, size_t &campaignMin);
 
   /// Restore the snapshot at `startIdx` and replay every non-skipped event in
   /// [startIdx, end) top-down first-fit. Pre-checks `wouldAllocateAt` before
@@ -436,9 +428,13 @@ private:
   /// skipReshardConsumer is non-null, that one consumer is left reading the
   /// DRAM spill (no reshard inserted for it); all other consumers are still
   /// restored.
+  /// `campaignMin` accumulates the smallest alloc-event index evicted across
+  /// the enclosing campaign (caller inits it to SIZE_MAX) so every rebuild
+  /// replays a self-consistent suffix; see `markEvictedAndRebuild`.
   /// Returns markEvictedAndRebuild's result: true iff the post-eviction replay
   /// placed every still-live tensor.
   bool evictValue(Value victim, int64_t pos, ScheduleData &data,
+                  size_t &campaignMin,
                   Operation *skipReshardConsumer = nullptr);
 
   /// Insert a ToMemoryConfigOp before an already-processed consumer to
