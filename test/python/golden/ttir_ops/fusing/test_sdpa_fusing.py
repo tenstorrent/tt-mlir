@@ -153,6 +153,29 @@ def gqa_broadcast_kv(key, value, q_heads, builder, unit_attrs=None):
     return key, value
 
 
+def gqa_repeat_interleave_kv(key, value, q_heads, builder, unit_attrs=None):
+    """Expand KV heads to match Q heads via repeat_interleave on the head dim.
+
+    This mirrors the explicit repeat_kv a frontend emits before feeding an
+    already-formed scaled_dot_product_attention op (as opposed to the
+    reshape/broadcast/reshape form in gqa_broadcast_kv). The
+    enable-sdpa-gqa-fusion pass folds these repeat_interleave ops away, feeding
+    the un-expanded K/V straight to SDPA.
+    """
+    _, kv_heads, _, _ = builder.get_shape(key)
+    if q_heads == kv_heads:
+        return key, value
+    assert q_heads % kv_heads == 0
+    num_repeats = q_heads // kv_heads
+    key = builder.repeat_interleave(
+        key, repeats=num_repeats, dim=1, unit_attrs=unit_attrs
+    )
+    value = builder.repeat_interleave(
+        value, repeats=num_repeats, dim=1, unit_attrs=unit_attrs
+    )
+    return key, value
+
+
 def pre_scale(tensor, scale, builder, dtype=torch.float32, unit_attrs=None):
     """Typecast to dtype and multiply by scalar constant."""
     tensor_f = builder.typecast(tensor, dtype, unit_attrs=unit_attrs)
@@ -301,13 +324,16 @@ def assert_sdpa_fused(mlir_path: str, q_seq: int):
         assert check_op(mlir_path, "scaled_dot_product_attention")
 
 
-def compile_and_run_sdpa(module_fn, target, request):
+def compile_and_run_sdpa(module_fn, target, request, extra_pipeline_options=None):
+    pipeline_options = ["optimization-level=1"]
+    if extra_pipeline_options:
+        pipeline_options += extra_pipeline_options
     return compile_and_execute_ttir(
         module_fn,
         target=target,
         **get_request_kwargs(request),
         device=DeferredDevice(request),
-        pipeline_options=["optimization-level=1"],
+        pipeline_options=pipeline_options,
         save_artifacts=True,
     )
 
@@ -624,3 +650,84 @@ def test_sdpa_simple_softmax(sdpa_shapes: SDPAShapes, target: str, request):
 
     mlir_path = compile_and_run_sdpa(module, target, request)
     assert_sdpa_fused(mlir_path, sdpa_shapes.q_seq)
+
+
+# GQA prefill shapes (q_heads != kv_heads, q_seq > 1). Only these exercise the
+# repeat_kv -> SDPA GQA fusion, and only the prefill SDPA op (not the decode
+# variant) is handled by the enable-sdpa-gqa-fusion pass.
+GQA_PREFILL_SHAPES = [
+    pytest.param(
+        SDPAShapes(batch=1, q_heads=32, kv_heads=8, q_seq=128, kv_seq=128, head_dim=64),
+        id="gqa_prefill_32_8",
+    ),
+    pytest.param(
+        SDPAShapes(batch=1, q_heads=16, kv_heads=4, q_seq=128, kv_seq=128, head_dim=64),
+        id="gqa_prefill_16_4",
+    ),
+]
+
+
+@pytest.mark.parametrize("sdpa_shapes", GQA_PREFILL_SHAPES)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_sdpa_gqa_repeat_kv_fusion(sdpa_shapes: SDPAShapes, target: str, request):
+    """
+    GQA repeat_kv -> SDPA fusion (enable-sdpa-gqa-fusion).
+
+    A frontend emits an explicit repeat_interleave (repeat_kv) that expands the
+    KV heads to match the query heads, feeding an already-formed
+    scaled_dot_product_attention op. With enable-sdpa-gqa-fusion the expansion
+    is removed and the un-expanded K/V are handed directly to SDPA, which
+    broadcasts them internally (GQA). PCC against the torch golden (computed
+    from the *expanded* K/V) confirms the two are numerically equivalent.
+    """
+    input_shapes = [
+        sdpa_shapes.query,
+        sdpa_shapes.key,
+        sdpa_shapes.value,
+        sdpa_shapes.mask,
+    ]
+    dtypes = [torch.bfloat16] * 4
+
+    def module(builder: TTIRBuilder):
+        @builder.func(input_shapes, dtypes)
+        def sdpa(query, key, value, mask, builder: TTIRBuilder, unit_attrs=None):
+            q_data = torch.randn(sdpa_shapes.query, dtype=torch.bfloat16)
+            k_data = torch.randn(sdpa_shapes.key, dtype=torch.bfloat16)
+            v_data = torch.randn(sdpa_shapes.value, dtype=torch.bfloat16)
+            m_data = torch.zeros(sdpa_shapes.mask, dtype=torch.bfloat16)
+
+            golden = build_torch_golden(
+                q_data, k_data, v_data, scale=sdpa_shapes.scale, attention_mask=m_data
+            )
+
+            # Explicit repeat_kv expansion feeding a formed SDPA op. The
+            # un-expanded K/V handed to SDPA after fusion are broadcast
+            # internally (GQA), which is numerically identical to this
+            # explicit expansion.
+            key_exp, value_exp = gqa_repeat_interleave_kv(
+                key, value, sdpa_shapes.q_heads, builder, unit_attrs=unit_attrs
+            )
+            result = builder.scaled_dot_product_attention(
+                query,
+                key_exp,
+                value_exp,
+                attention_mask=mask,
+                is_causal=False,
+                scale=sdpa_shapes.scale,
+                unit_attrs=unit_attrs,
+            )
+
+            builder.set_goldens(
+                {query: q_data, key: k_data, value: v_data, mask: m_data},
+                {result: golden},
+            )
+            return result
+
+    mlir_path = compile_and_run_sdpa(
+        module, target, request, extra_pipeline_options=["enable-sdpa-gqa-fusion=true"]
+    )
+    # SDPA is preserved and the repeat_kv expansion is folded away.
+    assert_sdpa_fused(mlir_path, sdpa_shapes.q_seq)
+    assert not check_op(
+        mlir_path, "repeat_interleave"
+    ), "repeat_interleave should be folded into SDPA by enable-sdpa-gqa-fusion"

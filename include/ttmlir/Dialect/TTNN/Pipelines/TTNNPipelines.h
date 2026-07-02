@@ -342,6 +342,15 @@ struct TTIRToTTNNCommonPipelineOptions
                             llvm::cl::desc("Enable fusing pass."),
                             llvm::cl::init(true)};
 
+  // Fold repeat_interleave (repeat_kv) ops feeding
+  // scaled_dot_product_attention and feed the un-expanded K/V directly to
+  // SDPA, which broadcasts them internally (GQA). Disabled by default.
+  Option<bool> enableSDPAGqaFusion{
+      *this, "enable-sdpa-gqa-fusion",
+      llvm::cl::desc("Fold repeat_interleave (repeat_kv) feeding SDPA and feed "
+                     "the un-expanded K/V directly to the op (GQA broadcast)."),
+      llvm::cl::init(false)};
+
   // Enable the TTNNCreateD2MSubgraphs pass. This pass finds maximal chains
   // of elementwise TTNN ops, outlines each chain into a private function, and
   // replaces the original ops with a ttnn.d2m_subgraph op. The outlined
