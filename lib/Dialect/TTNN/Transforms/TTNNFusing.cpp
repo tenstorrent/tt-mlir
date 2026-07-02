@@ -4,8 +4,8 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/Transforms/SDPAEraseRepeatKV.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Transforms/SDPAEraseRepeatKV.h"
 #include "ttmlir/Utils.h"
 
 #include "llvm/ADT/SmallVector.h"

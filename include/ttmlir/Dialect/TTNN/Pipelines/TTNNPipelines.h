@@ -347,8 +347,9 @@ struct TTIRToTTNNCommonPipelineOptions
   // SDPA, which broadcasts them internally (GQA/MQA). Disabled by default.
   Option<bool> enableSDPAEraseRepeatKV{
       *this, "enable-sdpa-erase-repeat-kv",
-      llvm::cl::desc("Erase repeat_interleave (repeat_kv) feeding SDPA and feed "
-                     "the un-expanded K/V directly to the op (GQA broadcast)."),
+      llvm::cl::desc(
+          "Erase repeat_interleave (repeat_kv) feeding SDPA and feed "
+          "the un-expanded K/V directly to the op (GQA broadcast)."),
       llvm::cl::init(false)};
 
   // Enable the TTNNCreateD2MSubgraphs pass. This pass finds maximal chains

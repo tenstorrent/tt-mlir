@@ -724,7 +724,10 @@ def test_sdpa_erase_repeat_kv(sdpa_shapes: SDPAShapes, target: str, request):
             return result
 
     mlir_path = compile_and_run_sdpa(
-        module, target, request, extra_pipeline_options=["enable-sdpa-erase-repeat-kv=true"]
+        module,
+        target,
+        request,
+        extra_pipeline_options=["enable-sdpa-erase-repeat-kv=true"],
     )
     # SDPA is preserved and the repeat_kv expansion is folded away.
     assert_sdpa_fused(mlir_path, sdpa_shapes.q_seq)

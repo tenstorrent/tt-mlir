@@ -19,8 +19,8 @@ namespace mlir::tt::ttnn {
 // redundant.
 //
 // Matches:
-//   K' = repeat_interleave(K, dim=1, repeats=R)   // [B, Hkv, S, D] -> [B, Hq, S, D]
-//   V' = repeat_interleave(V, dim=1, repeats=R)
+//   K' = repeat_interleave(K, dim=1, repeats=R)   // [B, Hkv, S, D] -> [B, Hq,
+//   S, D] V' = repeat_interleave(V, dim=1, repeats=R)
 //   scaled_dot_product_attention(Q, K', V', ...)   // Q: [B, Hq, S, D]
 //
 // Rewrites (in place) to:
