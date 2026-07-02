@@ -1748,6 +1748,20 @@ struct OpModel<GroupNormOp> {
                std::optional<llvm::ArrayRef<int64_t>> biasShape,
                std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
                llvm::APFloat epsilon, TTNNLayoutAttr outputLayout);
+
+  // Raw tt-metal group_norm constraint query, i.e. getOpConstraints without the
+  // ROW_MAJOR-input workaround it applies on top (tt-metal#47972). Delete
+  // together with the workaround once tt-metal#47972 is fixed and the tripwire
+  // test gets triggered.
+  static llvm::Expected<OpConstraints> getOpConstraintsRaw(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      std::optional<llvm::ArrayRef<int64_t>> inputMaskShape,
+      std::optional<TTNNLayoutAttr> inputMaskLayout,
+      std::optional<llvm::ArrayRef<int64_t>> weightShape,
+      std::optional<TTNNLayoutAttr> weightLayout,
+      std::optional<llvm::ArrayRef<int64_t>> biasShape,
+      std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
+      llvm::APFloat epsilon, TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//
