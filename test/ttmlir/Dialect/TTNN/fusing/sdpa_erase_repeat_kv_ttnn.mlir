@@ -23,11 +23,7 @@ module {
 
   // CHECK-LABEL: func.func @sdpa_gqa
   // OFF-LABEL:   func.func @sdpa_gqa
-  func.func @sdpa_gqa(%q: tensor<1x32x128x64xbf16, #ttnn_layout_q>,
-                      %k: tensor<1x8x128x64xbf16, #ttnn_layout_kv>,
-                      %v: tensor<1x8x128x64xbf16, #ttnn_layout_kv>,
-                      %mask: tensor<1x1x128x128xbf16, #ttnn_layout_mask>)
-                      -> tensor<1x32x128x64xbf16, #ttnn_layout_q> {
+  func.func @sdpa_gqa(%q: tensor<1x32x128x64xbf16, #ttnn_layout_q>, %k: tensor<1x8x128x64xbf16, #ttnn_layout_kv>, %v: tensor<1x8x128x64xbf16, #ttnn_layout_kv>, %mask: tensor<1x1x128x128xbf16, #ttnn_layout_mask>) -> tensor<1x32x128x64xbf16, #ttnn_layout_q> {
     // CHECK-NOT: ttnn.repeat_interleave
     // OFF: ttnn.repeat_interleave
     %ke = "ttnn.repeat_interleave"(%k) <{dim = 1 : si32, repeats = 4 : ui32}> : (tensor<1x8x128x64xbf16, #ttnn_layout_kv>) -> tensor<1x32x128x64xbf16, #ttnn_layout_q>
@@ -44,11 +40,7 @@ module {
   // Negative: repeat_interleave on a non-head dimension (dim=2) must NOT be
   // folded, since it does not correspond to KV-head broadcast.
   // CHECK-LABEL: func.func @sdpa_repeat_wrong_dim
-  func.func @sdpa_repeat_wrong_dim(%q: tensor<1x32x128x64xbf16, #ttnn_layout_q>,
-                                   %k: tensor<1x32x32x64xbf16, #ttnn_layout_q>,
-                                   %v: tensor<1x32x32x64xbf16, #ttnn_layout_q>,
-                                   %mask: tensor<1x1x128x128xbf16, #ttnn_layout_mask>)
-                                   -> tensor<1x32x128x64xbf16, #ttnn_layout_q> {
+  func.func @sdpa_repeat_wrong_dim(%q: tensor<1x32x128x64xbf16, #ttnn_layout_q>, %k: tensor<1x32x32x64xbf16, #ttnn_layout_q>, %v: tensor<1x32x32x64xbf16, #ttnn_layout_q>, %mask: tensor<1x1x128x128xbf16, #ttnn_layout_mask>) -> tensor<1x32x128x64xbf16, #ttnn_layout_q> {
     // Repeat is on the sequence dim, not the head dim -> not fusable.
     // CHECK: ttnn.repeat_interleave
     %ke = "ttnn.repeat_interleave"(%k) <{dim = 2 : si32, repeats = 4 : ui32}> : (tensor<1x32x32x64xbf16, #ttnn_layout_q>) -> tensor<1x32x128x64xbf16, #ttnn_layout_q>

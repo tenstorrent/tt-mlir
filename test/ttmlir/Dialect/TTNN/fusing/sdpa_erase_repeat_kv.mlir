@@ -13,11 +13,7 @@
 module {
   // ON-LABEL:  func.func @gqa_sdpa
   // OFF-LABEL: func.func @gqa_sdpa
-  func.func @gqa_sdpa(%query: tensor<1x32x128x64xbf16>,
-                      %key: tensor<1x8x128x64xbf16>,
-                      %value: tensor<1x8x128x64xbf16>,
-                      %mask: tensor<1x1x128x128xbf16>)
-                      -> tensor<1x32x128x64xbf16> {
+  func.func @gqa_sdpa(%query: tensor<1x32x128x64xbf16>, %key: tensor<1x8x128x64xbf16>, %value: tensor<1x8x128x64xbf16>, %mask: tensor<1x1x128x128xbf16>) -> tensor<1x32x128x64xbf16> {
     // With the flag on, the repeat_interleave expansion is folded away and
     // SDPA consumes the un-expanded K/V directly.
     // ON-NOT: ttnn.repeat_interleave
