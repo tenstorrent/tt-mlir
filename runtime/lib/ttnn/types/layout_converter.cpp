@@ -297,6 +297,19 @@ LayoutConverter::convertHostTensorLayout(const ::ttnn::Tensor &input,
   }
 
   if (!inputDesc.isTilized() && !shouldFromDevice) {
+    // Device typecast requires a tilized tensor: tilize -> typecast ->
+    // untilize back to ROW_MAJOR.
+    if (utils::canTilizeOnDevice(inputDesc.dataType, inputDesc.memoryConfig) &&
+        utils::canUntilizeOnDevice(outputDesc.dataType,
+                                   outputDesc.memoryConfig)) {
+      ::ttnn::Tensor out = ::ttnn::to_layout(input, ::ttnn::Layout::TILE,
+                                             std::nullopt, std::nullopt);
+      out = typecastIfNeeded(out);
+      out = ::ttnn::to_layout(out, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
+                              std::nullopt);
+      out = toMemoryConfigIfNeeded(out);
+      return out;
+    }
     LOG_FATAL("Currently to_layout does not support device to device typecast "
               "for input layout: ",
               debug::toString(inputDesc.layout));
