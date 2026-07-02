@@ -767,6 +767,15 @@ const std::set<mlir::StringRef>
         ttnn::PrepareMoEComputeW0W1WeightsOp::getOperationName(),
         ttnn::PrepareMoEComputeW2WeightsOp::getOperationName(),
         ttnn::MoeComputeOp::getOperationName(),
+        // MoE all-to-all CCL ops: workaround forces ROW_MAJOR + bf16/ui16.
+        ttnn::AllToAllDispatchOp::getOperationName(),
+        ttnn::AllToAllDispatchMetadataOp::getOperationName(),
+        ttnn::AllToAllCombineOp::getOperationName(),
+        ttnn::MoeExpertTokenRemapOp::getOperationName(),
+        ttnn::MoeGptOp::getOperationName(),
+        ttnn::SelectiveReduceCombineOp::getOperationName(),
+        // sparse_matmul: workaround forces sparsity operand ROW_MAJOR + bf16.
+        ttnn::SparseMatmulOp::getOperationName(),
         // Conv3d's runtime kernel hard-rejects Tile input
         // (TT_FATAL @ conv3d_device_operation.cpp:49); without the
         // workaround running here, the optimizer's layout propagation
@@ -779,5 +788,7 @@ const std::set<mlir::StringRef>
         // index/param tensors, UINT32 dtype on k, and ROW_MAJOR+UINT32 on
         // the result (the kernel hard-rejects anything else and produces
         // UINT32).
-        ttnn::SamplingOp::getOperationName()};
+        ttnn::SamplingOp::getOperationName(),
+        // argmax: workaround forces ROW_MAJOR + ui32 result, typecast to signed.
+        ttnn::ArgMaxOp::getOperationName()};
 } // namespace mlir::tt::ttnn
