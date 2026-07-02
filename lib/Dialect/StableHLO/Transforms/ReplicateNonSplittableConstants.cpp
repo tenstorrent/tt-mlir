@@ -19,6 +19,14 @@ namespace mlir::tt::stablehlo {
 //
 // Without this pass, UpdateGlobalToLocalShapes would try to shard the constant
 // value, which fails for non-splat, non-periodic data like [0, 1, 2, ..., 63].
+//
+// The same class of problem exists for `stablehlo.iota` sharded along its
+// iota_dimension: an iota over that axis produces [0, 1, ..., N-1], which is
+// non-splat and non-periodic. Localizing it by only shrinking the shape drops
+// the per-shard offset, so every shard emits 0..local-1 instead of
+// shard_id*local + 0..local-1. To avoid that, we also replicate such iotas here
+// so the full global iota is materialized and Shardy inserts a reshard that
+// slices out the correct local range per shard.
 class ReplicateNonSplittableConstantsPass
     : public impl::ReplicateNonSplittableConstantsPassBase<
           ReplicateNonSplittableConstantsPass> {
@@ -115,6 +123,53 @@ public:
       constantOp->setAttr(mlir::sdy::TensorShardingAttr::name,
                           mlir::sdy::TensorShardingPerValueAttr::get(
                               context, {replicatedSharding}));
+    });
+
+    rootModule.walk([&](mlir::stablehlo::IotaOp iotaOp) {
+      // Get sharding annotation (per-value format from propagation).
+      auto spv =
+          iotaOp->getAttrOfType<mlir::sdy::TensorShardingPerValueAttr>(
+              mlir::sdy::TensorShardingAttr::name);
+      if (!spv) {
+        return;
+      }
+
+      auto shardings = spv.getShardings();
+      if (shardings.empty()) {
+        return;
+      }
+      mlir::sdy::TensorShardingAttr sharding = shardings[0];
+
+      // Already fully replicated (no sharding axes on any dimension); skip.
+      if (shardy_utils::isFullyReplicatedTensor(sharding,
+                                                globalMeshOp)) {
+        return;
+      }
+
+      // Only the iota_dimension carries varying data; the values are constant
+      // (broadcast) along every other dimension. Sharding a non-iota dimension
+      // is therefore periodic and localizes correctly by shrinking the shape,
+      // so we only need to replicate when the iota_dimension itself is sharded.
+      uint64_t iotaDim = iotaOp.getIotaDimension();
+      llvm::ArrayRef<mlir::sdy::DimensionShardingAttr> dimShardings =
+          sharding.getDimShardings();
+      if (iotaDim >= dimShardings.size() ||
+          dimShardings[iotaDim].getAxes().empty()) {
+        return;
+      }
+
+      auto oldType = mlir::cast<mlir::RankedTensorType>(iotaOp.getType());
+
+      // Sharded iota along its iota_dimension: change sharding to fully
+      // replicated so InsertExplicitReshards will insert the necessary reshard
+      // ops that give each shard the correct per-shard offset.
+      auto replicatedSharding =
+          shardy_utils::getClosedReplicatedTensorSdyShardingAttr(
+              context, globalMeshOp.getSymName(), oldType.getRank());
+
+      iotaOp->setAttr(mlir::sdy::TensorShardingAttr::name,
+                      mlir::sdy::TensorShardingPerValueAttr::get(
+                          context, {replicatedSharding}));
     });
   }
 };
