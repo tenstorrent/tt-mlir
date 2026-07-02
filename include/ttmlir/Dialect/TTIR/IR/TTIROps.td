@@ -2677,6 +2677,8 @@ def TTIR_SumOp : TTIR_ReductionOp<"sum"> {
       Output:
       - `result` (Tensor): The result tensor after applying the reduction.
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_MeanOp : TTIR_ReductionOp<"mean"> {

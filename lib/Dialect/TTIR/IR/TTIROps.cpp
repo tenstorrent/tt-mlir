@@ -6483,6 +6483,48 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
                         getDimArg(), getKeepDim(), getType().getShape());
 }
 
+// SumOp folder
+::mlir::OpFoldResult mlir::tt::ttir::SumOp::fold(FoldAdaptor adaptor) {
+  // estricting to splats keeps the fold cheap and avoids
+  // materializing large (non-splat) constants.
+  auto input =
+      mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(adaptor.getInput());
+  if (!input || !input.isSplat()) {
+    return nullptr;
+  }
+
+  auto resultType = mlir::cast<ShapedType>(getResult().getType());
+  if (input.getElementType() != resultType.getElementType()) {
+    return nullptr;
+  }
+
+  int64_t resultElements = resultType.getNumElements();
+  if (resultElements == 0) {
+    return nullptr;
+  }
+  int64_t reductionCount = input.getNumElements() / resultElements;
+
+  mlir::Type elementType = resultType.getElementType();
+  if (auto floatType = mlir::dyn_cast<mlir::FloatType>(elementType)) {
+    llvm::APFloat value = input.getSplatValue<llvm::APFloat>();
+    llvm::APFloat scale(floatType.getFloatSemantics());
+    scale.convertFromAPInt(llvm::APInt(64, reductionCount, /*isSigned=*/true),
+                           /*IsSigned=*/true,
+                           llvm::APFloat::rmNearestTiesToEven);
+    value.multiply(scale, llvm::APFloat::rmNearestTiesToEven);
+    return SplatElementsAttr::get(resultType,
+                                  mlir::FloatAttr::get(elementType, value));
+  }
+  if (mlir::isa<mlir::IntegerType>(elementType)) {
+    llvm::APInt value = input.getSplatValue<llvm::APInt>();
+    value *= llvm::APInt(value.getBitWidth(), reductionCount);
+    return SplatElementsAttr::get(resultType,
+                                  mlir::IntegerAttr::get(elementType, value));
+  }
+
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // Reduce MinOp
 //===----------------------------------------------------------------------===//
@@ -8456,11 +8498,65 @@ static bool anyZero(mlir::ElementsAttr elems) {
       });
 }
 
+// Fold a self-comparison `x <cmp> x` (same SSA value): `eq` is all-true and
+// `ne` is all-false. Note that for floating-point operands this assumes the
+// value is not NaN (`NaN == NaN` is false, `NaN != NaN` is true).
+static mlir::OpFoldResult foldSelfComparison(mlir::Operation *op,
+                                             mlir::Value lhs, mlir::Value rhs,
+                                             bool foldToTrue) {
+  if (lhs != rhs) {
+    return nullptr;
+  }
+  auto resultType = mlir::cast<ShapedType>(op->getResult(0).getType());
+  return SplatElementsAttr::get(
+      resultType,
+      makeScalarAttr(resultType.getElementType(), foldToTrue ? 1.0 : 0.0));
+}
+
+// Fold a comparison of two splat constants. Restricted to splats so we never
+// compare large tensors, and it works even though comparisons change the
+// element type, which the generic elementwise-binary folder rejects.
+template <typename Predicate>
+static mlir::OpFoldResult
+foldSplatComparison(mlir::Operation *op, mlir::Attribute lhsAttr,
+                    mlir::Attribute rhsAttr, Predicate predicate) {
+  auto lhs = mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(lhsAttr);
+  auto rhs = mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(rhsAttr);
+  if (!lhs || !rhs || !lhs.isSplat() || !rhs.isSplat() ||
+      lhs.getElementType() != rhs.getElementType()) {
+    return nullptr;
+  }
+
+  bool result;
+  if (mlir::isa<mlir::FloatType>(lhs.getElementType())) {
+    result = predicate(lhs.getSplatValue<llvm::APFloat>(),
+                       rhs.getSplatValue<llvm::APFloat>());
+  } else if (mlir::isa<mlir::IntegerType>(lhs.getElementType())) {
+    result = predicate(lhs.getSplatValue<llvm::APInt>(),
+                       rhs.getSplatValue<llvm::APInt>());
+  } else {
+    return nullptr;
+  }
+
+  auto resultType = mlir::cast<ShapedType>(op->getResult(0).getType());
+  return SplatElementsAttr::get(
+      resultType,
+      makeScalarAttr(resultType.getElementType(), result ? 1.0 : 0.0));
+}
+
 //===----------------------------------------------------------------------===//
 // EqualOp
 //===----------------------------------------------------------------------===//
 
 ::mlir::OpFoldResult mlir::tt::ttir::EqualOp::fold(FoldAdaptor adaptor) {
+  if (mlir::OpFoldResult result =
+          foldSelfComparison(*this, getLhs(), getRhs(), /*foldToTrue=*/true)) {
+    return result;
+  }
+  if (mlir::OpFoldResult result = foldSplatComparison(
+          *this, adaptor.getLhs(), adaptor.getRhs(), std::equal_to<>())) {
+    return result;
+  }
   auto eq = PredicateToNumericAdapter(std::equal_to<>());
   return constantFoldEltwiseBinary(*this, adaptor.getLhs(), adaptor.getRhs(),
                                    eq, eq);
@@ -8471,6 +8567,14 @@ static bool anyZero(mlir::ElementsAttr elems) {
 //===----------------------------------------------------------------------===//
 
 ::mlir::OpFoldResult mlir::tt::ttir::NotEqualOp::fold(FoldAdaptor adaptor) {
+  if (mlir::OpFoldResult result =
+          foldSelfComparison(*this, getLhs(), getRhs(), /*foldToTrue=*/false)) {
+    return result;
+  }
+  if (mlir::OpFoldResult result = foldSplatComparison(
+          *this, adaptor.getLhs(), adaptor.getRhs(), std::not_equal_to<>())) {
+    return result;
+  }
   auto ne = PredicateToNumericAdapter(std::not_equal_to<>());
   return constantFoldEltwiseBinary(*this, adaptor.getLhs(), adaptor.getRhs(),
                                    ne, ne);
