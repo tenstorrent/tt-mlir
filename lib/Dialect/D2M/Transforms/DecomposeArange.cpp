@@ -19,6 +19,34 @@ namespace mlir::tt::d2m {
 
 namespace {
 
+// Walk up from `op` collecting IVs of enclosing blocking loops (tagged
+// `d2m.blocking_loop = <dim>` by D2MGenerateOuterLoops) into `rowBlockIV` and
+// `colBlockIV`. These must be folded into the arange offset so each shard
+// computes its correct slice rather than identical values. Either IV is null
+// if the corresponding blocking loop is absent.
+static void collectBlockingLoopIVs(Operation *op, int64_t rank,
+                                   Value &rowBlockIV, Value &colBlockIV) {
+  rowBlockIV = nullptr;
+  colBlockIV = nullptr;
+  for (Operation *parent = op->getParentOp(); parent;
+       parent = parent->getParentOp()) {
+    auto forOp = dyn_cast<scf::ForOp>(parent);
+    if (!forOp) {
+      continue;
+    }
+    auto dimAttr = forOp->getAttrOfType<IntegerAttr>("d2m.blocking_loop");
+    if (!dimAttr) {
+      continue;
+    }
+    int64_t dim = dimAttr.getInt();
+    if (dim == rank - 1) {
+      colBlockIV = forOp.getInductionVar();
+    } else if (dim == rank - 2) {
+      rowBlockIV = forOp.getInductionVar();
+    }
+  }
+}
+
 /// Decompose ArangeBlockOp into low-level tile operations.
 ///
 /// The arange_block op generates values: output[i] = start + step * i
@@ -134,14 +162,30 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
     Value totalTileRowsIdx =
         rewriter.create<arith::ConstantIndexOp>(loc, totalTileRows);
     Value const32Idx = rewriter.create<arith::ConstantIndexOp>(loc, 32);
-    // globalTileRow = coreY * shardTileRows + localTileRow
+    Value rowBlockIV, colBlockIV;
+    collectBlockingLoopIVs(op, static_cast<int64_t>(outputShape.size()),
+                           rowBlockIV, colBlockIV);
+
+    // globalTileRow = coreY * shardTileRows + rowBlockIV * shardTileRows
+    //               + localTileRow
     Value globalTileRow = rewriter.create<arith::AddIOp>(
         loc, rewriter.create<arith::MulIOp>(loc, coreY, shardTileRowsIdx),
         tileRowIdx);
-    // globalTileCol = coreX * shardTileCols + localTileCol
+    if (rowBlockIV) {
+      globalTileRow = rewriter.create<arith::AddIOp>(
+          loc, globalTileRow,
+          rewriter.create<arith::MulIOp>(loc, rowBlockIV, shardTileRowsIdx));
+    }
+    // globalTileCol = coreX * shardTileCols + colBlockIV * shardTileCols
+    //               + localTileCol
     Value globalTileCol = rewriter.create<arith::AddIOp>(
         loc, rewriter.create<arith::MulIOp>(loc, coreX, shardTileColsIdx),
         tileColIdx);
+    if (colBlockIV) {
+      globalTileCol = rewriter.create<arith::AddIOp>(
+          loc, globalTileCol,
+          rewriter.create<arith::MulIOp>(loc, colBlockIV, shardTileColsIdx));
+    }
 
     Value tileOffsetIdx;
     if (colMajor) {
