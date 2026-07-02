@@ -268,7 +268,13 @@ std::vector<uint32_t> getTensorRefShape(TensorRef tensorRef);
 // in the pool).
 std::optional<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
-                       TensorRef tensorRef, bool untilize);
+                       TensorRef tensorRef);
+
+// Registers a callback to fire when the underlying tensor wrapper of the
+// pool's runtime Tensor for `tensorRef` is destroyed.
+bool registerPoolTensorDestroyCallback(CallbackContext programContextHandle,
+                                       TensorRef tensorRef,
+                                       std::function<void(Tensor)> callback);
 
 // Overwrites only the payload data of the existing tensor pool entry referenced
 // by the given tensor reference.

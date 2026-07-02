@@ -6,7 +6,7 @@ import logging
 import math
 import os
 import traceback
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import torch
 
@@ -16,6 +16,13 @@ from _ttmlir_runtime.runtime import CallbackContext, Tensor, TensorRef
 
 from golden import GoldenMapTensor
 from golden.mapping import mlir_datatype_to_torch_dtype
+
+from .report import (
+    ChiselBugPayload,
+    ChiselRecord,
+    GoldenPromotedPayload,
+    GoldenPromotionSource,
+)
 
 logger = logging.getLogger("chisel")
 
@@ -29,6 +36,18 @@ def get_torch_tensor(tensor: Tensor) -> torch.Tensor:
     return torch_tensor.reshape(shape)
 
 
+def _get_live_tensor(
+    rt_program_context: CallbackContext, tensor_ref: TensorRef
+) -> Tensor:
+    tensor = tt_runtime.retrieve_tensor_from_pool(rt_program_context, tensor_ref)
+    if tensor is None:
+        raise RuntimeError(
+            "retrieve_tensor_from_pool returned None during op callback - "
+            "tensor should be live"
+        )
+    return tensor
+
+
 def retrieve_tensor(
     rt_program_context: CallbackContext,
     rt_tensor_ref: TensorRef,
@@ -40,11 +59,7 @@ def retrieve_tensor(
     Shards are keyed 0..N-1 and `mesh_shape` reflects the binary's compiled mesh so downstream
     shape/dtype/PCC checks operate over the right grid.
     """
-    tensor = tt_runtime.retrieve_tensor_from_pool(rt_program_context, rt_tensor_ref)
-    if tensor is None:
-        raise RuntimeError(
-            "retrieve_tensor_from_pool returned no tensor for the requested tensor reference"
-        )
+    tensor = _get_live_tensor(rt_program_context, rt_tensor_ref)
 
     shards = tt_runtime.to_host(tensor, untilize=True)
     if shards is None:
@@ -84,6 +99,85 @@ def cached_retrieve_tensor(
 def invalidate_device_cache(ctx, ssa: str) -> None:
     """Drop any cached host copy for `ssa` so the next read re-pulls from device."""
     ctx.device_tensor_pool.pop(ssa, None)
+
+
+def publish_to_session_pool(
+    ctx, tensor_ref: TensorRef, golden: GoldenMapTensor
+) -> None:
+    """Write `golden` into the session pool keyed by the stored runtime
+    tensor's globalId, and register a destroy-callback evictor so the entry
+    dies with the underlying TTNNTensorWrapper."""
+    rt_program_context = ctx.rt_program_context
+    global_id = _get_live_tensor(rt_program_context, tensor_ref).get_global_id()
+
+    session_pool = ctx.session_pool
+    session_pool[global_id] = golden
+
+    def _evict(
+        _tensor,
+        _gid: int = global_id,
+        _pool: Dict[int, GoldenMapTensor] = session_pool,
+    ) -> None:
+        _pool.pop(_gid, None)
+
+    registered = tt_runtime.register_pool_tensor_destroy_callback(
+        rt_program_context, tensor_ref, _evict
+    )
+    if registered:
+        return
+
+    # No evictor installed: drop the entry so it can't leak or go stale.
+    # The accumulation chain breaks at this tensor; surface it in the report.
+    session_pool.pop(global_id, None)
+    logger.warning(
+        "session pool publish failed for globalId %s: destroy-callback "
+        "registration failed, golden not chained",
+        global_id,
+    )
+    ctx.write_record(
+        ChiselRecord(
+            op=ctx.op.name,
+            check="session_pool_publish_failed",
+            payload=ChiselBugPayload(
+                traceback=(
+                    f"destroy-callback registration failed for globalId "
+                    f"{global_id}: tensor was live but not in session pool, golden not chained"
+                ),
+            ),
+        )
+    )
+
+
+def lookup_from_session_pool(ctx, tensor_ref: TensorRef) -> Optional[GoldenMapTensor]:
+    """Return the session-pool golden for the given tensor_ref, or None if not yet published"""
+    global_id = _get_live_tensor(ctx.rt_program_context, tensor_ref).get_global_id()
+    return ctx.session_pool.get(global_id)
+
+
+def promote_golden(
+    ctx,
+    op,
+    ssa: str,
+    tensor_ref: TensorRef,
+) -> None:
+    """Seed pool[ssa] from the session pool or fall back to device; write golden_promoted record."""
+    cross_golden = lookup_from_session_pool(ctx, tensor_ref)
+    if cross_golden is not None:
+        ctx.golden_tensor_pool[ssa] = cross_golden
+        source = GoldenPromotionSource.SESSION_POOL
+    else:
+        ctx.golden_tensor_pool[ssa] = cached_retrieve_tensor(
+            ctx, ssa, tensor_ref, ctx.mesh_shape
+        )
+        source = GoldenPromotionSource.DEVICE
+    ctx.write_record(
+        ChiselRecord(
+            op=op.name,
+            check="golden_promoted",
+            ssa=ssa,
+            payload=GoldenPromotedPayload(source=source),
+        )
+    )
 
 
 def get_op_asm(op) -> str:

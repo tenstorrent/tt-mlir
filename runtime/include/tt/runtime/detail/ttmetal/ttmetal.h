@@ -163,7 +163,7 @@ getOpOutputTensor(OpContext opContextHandle,
 
 std::optional<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
-                       TensorRef tensorRef, bool untilize);
+                       TensorRef tensorRef);
 
 void updateTensorInPool(CallbackContext programContextHandle,
                         TensorRef tensorRef, Tensor srcTensor);

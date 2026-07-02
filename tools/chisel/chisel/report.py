@@ -100,14 +100,28 @@ class NoGoldenPayload(_Payload):
     status: Literal[RecordStatus.NO_GOLDEN] = RecordStatus.NO_GOLDEN
 
 
+class GoldenPromotionSource(str, Enum):
+    """Where a promoted golden came from.
+
+    DEVICE: seeded from the device tensor's current contents.
+    SESSION_POOL: seeded from the session pool — a golden a prior program accumulated and chained forward.
+    """
+
+    DEVICE = "device"
+    SESSION_POOL = "session_pool"
+
+
 class GoldenPromotedPayload(_Payload):
-    """Audit-only: emitted when a device tensor is seeded into the golden pool.
+    """Audit-only: emitted when a golden is seeded into the golden pool.
+
+    `source` records where the golden came from (see GoldenPromotionSource)
 
     Ideally only function args are promoted; intermediate-SSA promotions
     mean a producer op is missing a golden.
     """
 
     status: Literal[RecordStatus.GOLDEN_PROMOTED] = RecordStatus.GOLDEN_PROMOTED
+    source: GoldenPromotionSource = GoldenPromotionSource.DEVICE
 
 
 class GoldenEvictedPayload(_Payload):

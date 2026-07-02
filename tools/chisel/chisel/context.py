@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import json
 import logging
-from typing import Dict, Iterator, List, Optional, Tuple, Type
+from typing import Dict, Iterator, List, Optional, Set, Type, Tuple
 
 from _ttmlir_runtime import runtime as tt_runtime
 from _ttmlir_runtime.binary import Binary
@@ -50,6 +50,13 @@ class ChiselContext:
         self.recorder: ChiselRecorder = ChiselRecorder()
         self.op_configs: Dict[Type, ChiselOpConfig] = default_configs()
         self.checks_config: ChiselChecksConfig = ChiselChecksConfig()
+        # Session-scoped, keyed by runtime Tensor.globalId. Used to chain
+        # accumulated goldens across program boundaries: program A's
+        # function-output golden is published here at POST-op and looked up
+        # by program B's PRE-op when it consumes the same runtime tensor.
+        # Entries are evicted automatically via on-destroy callbacks on the
+        # underlying tensor wrapper; the pool is also cleared on unbind().
+        self._session_pool: Dict[int, GoldenMapTensor] = {}
 
     def register_op_config(self, op_type: Type, config: ChiselOpConfig) -> None:
         self.op_configs[op_type] = config
@@ -145,6 +152,25 @@ class ChiselContext:
         return program._device_tensor_pool
 
     @property
+    def session_pool(self) -> Dict[int, GoldenMapTensor]:
+        """Session-scoped Tensor.globalId -> golden tensor map."""
+        return self._session_pool
+
+    @property
+    def function_arg_ssas(self) -> Set[SSAName]:
+        program = self._current_callback_program
+        if program is None:
+            raise UnexpectedStateError("function_arg_ssas")
+        return program._function_arg_ssas
+
+    @property
+    def function_output_ssas(self) -> Set[SSAName]:
+        program = self._current_callback_program
+        if program is None:
+            raise UnexpectedStateError("function_output_ssas")
+        return program._function_output_ssas
+
+    @property
     def rt_program_context(self) -> Optional[CallbackContext]:
         program = self._current_callback_program
         return program._rt_program_context if program is not None else None
@@ -233,6 +259,10 @@ class ChiselContext:
         """Evict all cached BinaryState entries (parsed MLIR modules)."""
         self.binaries.clear()
 
+    def clear_session_pool(self) -> None:
+        """Drop all session-pool golden cache entries."""
+        self._session_pool.clear()
+
     def preprogram(
         self, rt_binary: Binary, rt_program_context: CallbackContext
     ) -> None:
@@ -303,6 +333,16 @@ class ProgramState:
         # Both pools persist across ops within a program; not reset per op.
         self._golden_tensor_pool: Dict[SSAName, GoldenMapTensor] = {}
         self._device_tensor_pool: Dict[SSAName, GoldenMapTensor] = {}
+        # Pre-computed SSA sets for cheap membership checks in PRE/POST.
+        asm_state = ir_module.get_asm_state()
+        self._function_arg_ssas: Set[SSAName] = {
+            arg.get_name(asm_state)
+            for arg in ir_module.get_function_inputs(program_name)
+        }
+        self._function_output_ssas: Set[SSAName] = {
+            out.get_name(asm_state)
+            for out in ir_module.get_function_outputs(program_name)
+        }
 
     def begin_op(self) -> None:
         self._current_op = next(self._op_iter).opview

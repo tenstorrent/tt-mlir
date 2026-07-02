@@ -1182,20 +1182,40 @@ void walkProgram(Binary executableHandle, uint32_t programIndex,
 
 std::optional<Tensor>
 retrieveTensorFromPool(CallbackContext programContextHandle,
-                       TensorRef tensorRef, bool untilize) {
+                       TensorRef tensorRef) {
   using RetType = std::optional<Tensor>;
   return DISPATCH_TO_CURRENT_RUNTIME(
       RetType,
       [&]() -> RetType {
         return tt::runtime::ttnn::retrieveTensorFromPool(programContextHandle,
-                                                         tensorRef, untilize);
+                                                         tensorRef);
       },
       [&]() -> RetType {
         return tt::runtime::ttmetal::retrieveTensorFromPool(
-            programContextHandle, tensorRef, untilize);
+            programContextHandle, tensorRef);
       },
       [&]() -> RetType {
         detail::fatalNotImplemented("retrieveTensorFromPool",
+                                    HostRuntime::Distributed);
+      });
+}
+
+bool registerPoolTensorDestroyCallback(CallbackContext programContextHandle,
+                                       TensorRef tensorRef,
+                                       std::function<void(Tensor)> callback) {
+  using RetType = bool;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType,
+      [&]() -> RetType {
+        return tt::runtime::ttnn::registerPoolTensorDestroyCallback(
+            programContextHandle, tensorRef, std::move(callback));
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("registerPoolTensorDestroyCallback",
+                                    DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("registerPoolTensorDestroyCallback",
                                     HostRuntime::Distributed);
       });
 }
