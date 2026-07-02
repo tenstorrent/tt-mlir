@@ -1014,7 +1014,6 @@ def prod(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
     return builder.prod(in0, [1], False, unit_attrs=unit_attrs)
 
 
-@pytest.mark.xfail(reason="Fails Golden")
 @pytest.mark.parametrize(
     "shapes", [[(1, 32, 64, 512), (1, 32, 3, 512)] | SkipIf("sim")], ids=shapes_list_str
 )

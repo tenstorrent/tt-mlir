@@ -3606,9 +3606,15 @@ def fill_cache_golden(
         Filled cache tensor
     """
     result = cache_tensor.clone()
+    seq_len = input_tensor.shape[2]
+    tile_height = 32
+    padded_seq_len = ((seq_len + tile_height - 1) // tile_height) * tile_height
+    padded_seq_len = min(padded_seq_len, cache_tensor.shape[2])
 
     for device_id, shard in result.shard_map.items():
-        shard[:, :, : input_tensor.shape[2], :] = input_tensor.shard_at(device_id)
+        shard[:, :, :seq_len, :] = input_tensor.shard_at(device_id)
+        if padded_seq_len > seq_len:
+            shard[:, :, seq_len:padded_seq_len, :] = 0
     return result
 
 
