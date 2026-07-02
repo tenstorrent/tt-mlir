@@ -70,7 +70,7 @@ module {
 
         // CHECK: %{{[0-9]+}} = "ttir.prod"(%{{[0-9]+}}) <{dim_arg = [1 : i32], keep_dim = false}> : (tensor<96x32xf32, #ttnn_layout{{[0-9]+}}>) -> tensor<96xf32, #ttnn_layout{{[0-9]+}}>
         // CHECK-NOT: "ttnn.prod"
-        %2 = "ttnn.prod"(%1) {ttnn.hoist_generic_via_d2m, dim_arg = 1, keep_dim = false} : (tensor<96x32xf32, #l1_layout>) -> tensor<96xf32, #l1_layout>
+        %2 = "ttnn.prod"(%1) {ttnn.hoist_generic_via_d2m, dim_arg = 1 : si64, keep_dim = false} : (tensor<96x32xf32, #l1_layout>) -> tensor<96xf32, #l1_layout>
 
         %3 = "ttnn.to_memory_config"(%2) : (tensor<96xf32, #l1_layout>) -> tensor<96xf32, #dram_layout>
 
@@ -82,7 +82,7 @@ module {
 
         // CHECK: %{{[0-9]+}} = "ttir.argmax"(%{{[0-9]+}}) <{dim_arg = [0 : i32], keep_dim = false}> : (tensor<64x32xbf16, #ttnn_layout{{[0-9]+}}>) -> tensor<32xi32, #ttnn_layout{{[0-9]+}}>
         // CHECK-NOT: "ttnn.argmax"
-        %2 = "ttnn.argmax"(%1) {ttnn.hoist_generic_via_d2m, dim = 0 : i32, keep_dim = false} : (tensor<64x32xbf16, #l1_layout>) -> tensor<32xi32, #l1_layout>
+        %2 = "ttnn.argmax"(%1) {ttnn.hoist_generic_via_d2m, dim = 0 : si32, keep_dim = false} : (tensor<64x32xbf16, #l1_layout>) -> tensor<32xi32, #l1_layout>
 
         %3 = "ttnn.to_memory_config"(%2) : (tensor<32xi32, #l1_layout>) -> tensor<32xi32, #dram_layout>
 
@@ -94,7 +94,7 @@ module {
 
         // CHECK: %{{[0-9]+}} = "ttir.cumsum"(%{{[0-9]+}}) <{dim = 0 : i64}> : (tensor<32x32xf32, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout1>
         // CHECK-NOT: "ttnn.cumsum"
-        %2 = "ttnn.cumsum"(%1) <{dim = 0 : i32}> {ttnn.hoist_generic_via_d2m} : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout>
+        %2 = "ttnn.cumsum"(%1) <{dim = 0 : si32}> {ttnn.hoist_generic_via_d2m} : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout>
 
         %3 = "ttnn.to_memory_config"(%2) : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
 
@@ -106,7 +106,7 @@ module {
 
         // CHECK: %{{[0-9]+}} = "ttir.cumprod"(%{{[0-9]+}}) <{dim = 1 : i64}> : (tensor<32x32xf32, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout1>
         // CHECK-NOT: "ttnn.cumprod"
-        %2 = "ttnn.cumprod"(%1) <{dim = 1 : i32}> {ttnn.hoist_generic_via_d2m} : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout>
+        %2 = "ttnn.cumprod"(%1) <{dim = 1 : si32}> {ttnn.hoist_generic_via_d2m} : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #l1_layout>
 
         %3 = "ttnn.to_memory_config"(%2) : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
 

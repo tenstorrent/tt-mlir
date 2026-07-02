@@ -9966,7 +9966,7 @@ class TTNNBuilder(Builder):
         else:
             mlir_output_type = self._get_type_from_torch_dtype(output_type)
 
-        dim_attr = IntegerAttr.get(IntegerType.get_signless(32), dim)
+        dim_attr = IntegerAttr.get(IntegerType.get_signed(32), dim)
 
         input0 = self._get_golden_tensor(in0)
         input_index = self._get_golden_tensor(index)
