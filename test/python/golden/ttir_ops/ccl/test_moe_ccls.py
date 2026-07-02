@@ -63,6 +63,36 @@ def test_moe_dispatch_combine(
     shard_shape_bd[1] = mesh_shape[1]  # mesh dim 1 → tensor dim 1
     shard_dims_bd = [2, 1]
 
+    # expert_mapping is a one-hot [1, 1, E, D] table: mapping[0, 0, e, d] == 1
+    # iff device d owns expert e. The metal all_to_all_combine kernel reads
+    # experts = mapping_shape[2], devices = mapping_shape[-1], and requires
+    # input dim0 (K) == experts / num_devices, so each device owns
+    # experts_per_device = E // D contiguous experts.
+    torch.manual_seed(0)
+    experts_per_device = E // D
+    valid_mapping = torch.zeros(1, 1, E, D, dtype=torch.bfloat16)
+    for e in range(E):
+        valid_mapping[0, 0, e, e // experts_per_device] = 1.0
+
+    # Valid integer expert ids in [0, E): K distinct experts per token.
+    valid_indices = torch.zeros(B * D, 1, S, K, dtype=torch.bfloat16)
+    for b in range(B * D):
+        for s in range(S):
+            sel = torch.randperm(E)[:K].sort().values
+            valid_indices[b, 0, s, :] = sel.to(torch.bfloat16)
+
+    valid_activations = torch.randn(B * D, 1, S, H, dtype=torch.bfloat16)
+    # expert_output is replicated to every device (see the mesh_shard below).
+    # The combine kernel reads it across the full global token range
+    # (page = local_expert * (batch_size * seq) + global_token, with
+    # batch_size = B * D from the all-gathered metadata), so each device needs
+    # every token-batch of its local experts' outputs. The golden reads the
+    # owning device's expert_output at batch 0 for every destination token, so
+    # the data is made identical across the B*D token-batch dim to keep the
+    # golden and device in agreement.
+    base_expert_output = torch.randn(K, 1, S, H_out, dtype=torch.bfloat16)
+    valid_expert_output = base_expert_output.expand(K, B * D, S, H_out).contiguous()
+
     def module(builder: TTIRBuilder):
         @builder.func(
             [
@@ -81,6 +111,22 @@ def test_moe_dispatch_combine(
             builder: TTIRBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
+            from golden.mapping import GoldenMapTensor
+
+            ms = builder._mesh_shape
+            builder._set_golden_tensor(
+                activations, GoldenMapTensor({0: valid_activations}, mesh_shape=ms)
+            )
+            builder._set_golden_tensor(
+                expert_indices, GoldenMapTensor({0: valid_indices}, mesh_shape=ms)
+            )
+            builder._set_golden_tensor(
+                expert_mapping, GoldenMapTensor({0: valid_mapping}, mesh_shape=ms)
+            )
+            builder._set_golden_tensor(
+                expert_output, GoldenMapTensor({0: valid_expert_output}, mesh_shape=ms)
+            )
+
             # Shard activations/indices along dim 0 (batch)
             act = builder.mesh_shard(
                 activations,
@@ -104,13 +150,17 @@ def test_moe_dispatch_combine(
                 shard_shape=[1, 1, 1, 1],
                 shard_dims=[],
             )
-            # Shard expert_output along dim 1 (B*D -> B)
+            # Replicate expert_output: the combine kernel reads pages across
+            # the full global token range (batch_size = B*D from the
+            # all-gathered metadata), so every device needs all B*D
+            # token-batches of its local experts' outputs, not a single
+            # sharded batch.
             exp_out = builder.mesh_shard(
                 expert_output,
-                shard_type=MeshShardType.Devices,
+                shard_type=MeshShardType.Replicate,
                 shard_direction=MeshShardDirection.FullToShard,
-                shard_shape=shard_shape_bd,
-                shard_dims=shard_dims_bd,
+                shard_shape=[1, 1, 1, 1],
+                shard_dims=[],
             )
 
             # dispatch: per-device [B, 1, S, H] → [1, B*D, S, H], [1, B*D, S, K]

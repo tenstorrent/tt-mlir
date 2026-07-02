@@ -4,7 +4,9 @@
 
 #include "ttmlir/Dialect/TTNN/Transforms/Fusing/SplitQKVFusingPatterns.h"
 
+#include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Fusing/DecodeLayoutTransform.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -50,13 +52,33 @@ struct SliceReshapeMatch {
   SliceStaticOp sliceOp;
   ReshapeOp reshapeOp;
   PermuteOp permuteOp; // nullptr if absent
+  // Set when reshapeOp is the canonicalized (folded) form of the decode permute
+  // [2,0,1,3]: a layout-preserving reshape straight to decode layout [1,B,H,D].
+  // The pre-fusing canonicalizer folds the to-heads reshape and the permute
+  // into a single reshape for the value chain (which has no RoPE between them).
+  // In that case getFinalType() reports the equivalent BHSD type [B,H,1,D] so
+  // the rest of the pattern reasons in a single (BHSD) layout, and the explicit
+  // decode permute is re-materialized on the fused split output.
+  bool decodePermuteFolded = false;
+  int64_t decodeBatch = 0;
+  int64_t decodeNumHeads = 0;
+  int64_t decodeHeadDim = 0;
 
   Operation *getFinalOp() {
     return permuteOp ? permuteOp.getOperation() : reshapeOp.getOperation();
   }
 
   RankedTensorType getFinalType() {
-    return permuteOp ? permuteOp.getType() : reshapeOp.getType();
+    if (permuteOp) {
+      return permuteOp.getType();
+    }
+    if (decodePermuteFolded) {
+      // Equivalent pre-permute BHSD type [B,H,1,D].
+      return utils::RankedTensorTypeFactory::create(
+          reshapeOp.getType(),
+          SmallVector<int64_t>{decodeBatch, decodeNumHeads, 1, decodeHeadDim});
+    }
+    return reshapeOp.getType();
   }
 };
 
@@ -447,7 +469,24 @@ matchSliceReshapeChains(MatMulOpType matmulOp) {
       }
     }
 
-    matches.push_back({sliceOp, reshapeOp, permuteOp});
+    // When no permute follows, the reshape may itself be the canonicalized
+    // (folded) decode layout transform [B,H,1,D] -> [1,B,H,D] (the permute was
+    // folded in by the pre-fusing canonicalizer). Record it so validation and
+    // dim extraction treat it as the equivalent BHSD chain.
+    bool decodePermuteFolded = false;
+    int64_t decodeBatch = 0, decodeNumHeads = 0, decodeHeadDim = 0;
+    if (!permuteOp) {
+      if (std::optional<DecodeLayoutMatch> decodeMatch =
+              matchDecodeLayoutTransform(reshapeOp.getOperation())) {
+        decodePermuteFolded = true;
+        decodeBatch = decodeMatch->batch;
+        decodeNumHeads = decodeMatch->numHeads;
+        decodeHeadDim = decodeMatch->headDim;
+      }
+    }
+
+    matches.push_back({sliceOp, reshapeOp, permuteOp, decodePermuteFolded,
+                       decodeBatch, decodeNumHeads, decodeHeadDim});
   }
 
   return matches;
@@ -533,6 +572,13 @@ bool validateSliceCoverage(MatMulOpType matmulOp,
 //                                       data)
 bool validateReshapeLayouts(SmallVector<SliceReshapeMatch> &matches) {
   for (auto &m : matches) {
+    // The folded decode form is a recognized layout-preserving transform
+    // (slice [B,H*D] -> reshape [1,B,H,D], seq == 1); it is valid by
+    // construction and its effective layout is BHSD (see getFinalType).
+    if (m.decodePermuteFolded) {
+      continue;
+    }
+
     auto sliceShape = m.sliceOp.getType().getShape();
     auto reshapeShape = m.reshapeOp.getType().getShape();
     if (reshapeShape.size() != 4) {
@@ -676,12 +722,26 @@ mlir::LogicalResult createFusedOp(mlir::PatternRewriter &rewriter,
         .getResult();
   };
 
-  rewriter.replaceOp(q.match.getFinalOp(),
-                     maybeTypecast(splitOp.getQuery(), q.match.getFinalType()));
-  rewriter.replaceOp(k.match.getFinalOp(),
-                     maybeTypecast(splitOp.getKey(), k.match.getFinalType()));
-  rewriter.replaceOp(v.match.getFinalOp(),
-                     maybeTypecast(splitOp.getValue(), v.match.getFinalType()));
+  // Replace each matched chain with the corresponding split output. The split
+  // op produces BHSD [B,H,1,D] outputs. For a chain whose decode permute was
+  // folded into its reshape (decodePermuteFolded), re-materialize the explicit
+  // permute [2,0,1,3] so the consumer keeps decode layout [1,B,H,D] and
+  // NLPCreateQKVHeadsDecodeFusing can match it (the same canonical form the
+  // non-folded chains already have).
+  auto replaceHead = [&](QKVHead &head, Value splitResult) {
+    Value result = maybeTypecast(splitResult, head.match.getFinalType());
+    if (head.match.decodePermuteFolded) {
+      result = ttir_to_ttnn::utils::generatePermute(
+                   mlir::cast<TypedValue<RankedTensorType>>(result),
+                   /*permutation=*/{2, 0, 1, 3}, rewriter, matmulOp.getLoc())
+                   .getResult();
+    }
+    rewriter.replaceOp(head.match.getFinalOp(), result);
+  };
+
+  replaceHead(q, splitOp.getQuery());
+  replaceHead(k, splitOp.getKey());
+  replaceHead(v, splitOp.getValue());
 
   return mlir::success();
 }

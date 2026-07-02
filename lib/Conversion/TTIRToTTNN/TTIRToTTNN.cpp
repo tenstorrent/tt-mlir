@@ -266,8 +266,8 @@ public:
     mlir::IntegerAttr newDimArg = nullptr;
     if (dimArg && dimArg->size() == 1) {
       auto int32Attr = mlir::cast<mlir::IntegerAttr>(dimArg->getValue()[0]);
-      newDimArg =
-          mlir::IntegerAttr::get(rewriter.getI64Type(), int32Attr.getInt());
+      newDimArg = mlir::IntegerAttr::get(
+          rewriter.getIntegerType(64, /*isSigned=*/true), int32Attr.getInt());
     }
 
     rewriter.replaceOpWithNewOp<ttnn::ProdOp>(
@@ -287,7 +287,7 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ArgMaxOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Most of the frontends uses signed or sign less integer as return type for
+    // Most of the frontends uses signed or signless integer as return type for
     // argmax op (tt-mlir uses signed integer in this case); whereas, tt-metal
     // uses UINT32 as return type. This difference is ignored as the output
     // indices will always be positive.
@@ -297,7 +297,10 @@ public:
     if (dimArg) {
       assert(dimArg->size() == 1 &&
              "ttir::ArgMaxOp dim argument must be a single integer");
-      reductionAxis = *dimArg->getAsRange<mlir::IntegerAttr>().begin();
+
+      auto int32Attr = mlir::cast<mlir::IntegerAttr>(dimArg->getValue()[0]);
+      reductionAxis =
+          rewriter.getSI32IntegerAttr(static_cast<int32_t>(int32Attr.getInt()));
     }
     rewriter.replaceOpWithNewOp<ttnn::ArgMaxOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
@@ -456,8 +459,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::CumSumOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(),
-        rewriter.getI32IntegerAttr(static_cast<int32_t>(adaptor.getDim())));
+        adaptor.getInput(), static_cast<int32_t>(adaptor.getDim()));
     return success();
   }
 };
@@ -473,8 +475,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::CumProdOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(),
-        rewriter.getI32IntegerAttr(static_cast<int32_t>(adaptor.getDim())));
+        adaptor.getInput(), static_cast<int32_t>(adaptor.getDim()));
     return success();
   }
 };
@@ -2949,7 +2950,7 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::ScatterOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getInput(), adaptor.getIndex(), adaptor.getSource(),
-        rewriter.getI32IntegerAttr(op.getDim()),
+        rewriter.getSI32IntegerAttr(op.getDim()),
         adaptor.getScatterReduceTypeAttr());
     return success();
   }
@@ -2966,8 +2967,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::GatherOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getIndex(),
-        rewriter.getI32IntegerAttr(adaptor.getDim()));
+        adaptor.getInput(), adaptor.getIndex(), adaptor.getDim());
     return success();
   }
 };

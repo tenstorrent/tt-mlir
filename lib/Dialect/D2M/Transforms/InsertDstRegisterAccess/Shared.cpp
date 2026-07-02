@@ -201,6 +201,25 @@ unsigned DstSliceAllocator::getFirstInputSliceIndex() const {
   return inputStack.front();
 }
 
+void DstSliceAllocator::deallocateIntermediate(unsigned id) {
+  if (llvm::is_contained(inputStack, id)) {
+    return;
+  }
+  if (llvm::is_contained(sliceStack, id)) {
+    return;
+  }
+  TT_assertv(!llvm::is_contained(scratchSlots, id),
+             "Cannot deallocate a DST scratch slice");
+
+  sliceStack.push_back(id);
+  if (currSliceIndex && *currSliceIndex == id) {
+    currSliceIndex = std::nullopt;
+  }
+
+  debugDumpDstSliceAllocator("== DEALLOCATE INTERMEDIATE ==", sliceStack,
+                             inputStack, scratchSlots, id);
+}
+
 void DstSliceAllocator::deallocateAllButFirstInput() {
   TT_assertv(inputStack.size() >= 1u, "Need at least one input to keep");
 

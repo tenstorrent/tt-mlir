@@ -16,7 +16,7 @@ module attributes {} {
     // Test case when arange is created on host
     func.func @arange_on_host() -> tensor<128xbf16, #ttnn_layout_host_rm_bf16> {
         // CHECK: ttnn.arange
-        %0 = "ttnn.arange"() <{end = 128 : i64, layout = #ttnn.layout<row_major>, start = 0 : i64, step = 1 : i64}> : () -> tensor<128xbf16, #ttnn_layout_host_rm_bf16>
+        %0 = "ttnn.arange"() <{end = 128 : si64, layout = #ttnn.layout<row_major>, start = 0 : si64, step = 1 : si64}> : () -> tensor<128xbf16, #ttnn_layout_host_rm_bf16>
         return %0 : tensor<128xbf16, #ttnn_layout_host_rm_bf16>
     }
 
@@ -24,7 +24,7 @@ module attributes {} {
     func.func @arange_on_device_row_major() -> tensor<128xbf16, #ttnn_layout_device_rm_bf16> {
         %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
         // CHECK: ttnn.arange
-        %1 = "ttnn.arange"(%0) <{end = 128 : i64, layout = #ttnn.layout<row_major>, start = 0 : i64, step = 1 : i64}> : (!ttnn.device) -> tensor<128xbf16, #ttnn_layout_device_rm_bf16>
+        %1 = "ttnn.arange"(%0) <{end = 128 : si64, layout = #ttnn.layout<row_major>, start = 0 : si64, step = 1 : si64}> : (!ttnn.device) -> tensor<128xbf16, #ttnn_layout_device_rm_bf16>
         return %1 : tensor<128xbf16, #ttnn_layout_device_rm_bf16>
     }
 
@@ -32,7 +32,7 @@ module attributes {} {
     func.func @arange_on_device_tile() -> tensor<128xbf16, #ttnn_layout_device_tile_bf16> {
         %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
         // CHECK: ttnn.arange
-        %1 = "ttnn.arange"(%0) <{end = 128 : i64, layout = #ttnn.layout<tile>, start = 0 : i64, step = 1 : i64}> : (!ttnn.device) -> tensor<128xbf16, #ttnn_layout_device_tile_bf16>
+        %1 = "ttnn.arange"(%0) <{end = 128 : si64, layout = #ttnn.layout<tile>, start = 0 : si64, step = 1 : si64}> : (!ttnn.device) -> tensor<128xbf16, #ttnn_layout_device_tile_bf16>
         return %1 : tensor<128xbf16, #ttnn_layout_device_tile_bf16>
     }
 
@@ -40,7 +40,7 @@ module attributes {} {
     func.func @arange_on_l1_tile() -> tensor<128xbf16, #ttnn_layout_l1_tile_bf16> {
         %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
         // CHECK: ttnn.arange
-        %1 = "ttnn.arange"(%0) <{end = 128 : i64, layout = #ttnn.layout<tile>, start = 0 : i64, step = 1 : i64}> : (!ttnn.device) -> tensor<128xbf16, #ttnn_layout_l1_tile_bf16>
+        %1 = "ttnn.arange"(%0) <{end = 128 : si64, layout = #ttnn.layout<tile>, start = 0 : si64, step = 1 : si64}> : (!ttnn.device) -> tensor<128xbf16, #ttnn_layout_l1_tile_bf16>
         return %1 : tensor<128xbf16, #ttnn_layout_l1_tile_bf16>
     }
 }
