@@ -6,6 +6,7 @@
 #define TTMLIR_TARGET_UTILS_FUNCOPTOPROGRAM_H
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include "flatbuffers/flatbuffers.h"
@@ -40,6 +41,12 @@ inline std::string getOpLocInfo(mlir::Operation *op) {
   llvm::raw_string_ostream os(str);
   op->getLoc().print(os);
   return str;
+}
+
+// Scalar args are serialized in 32-bit unsigned integers
+inline bool isSupportedScalarArgType(mlir::Type type) {
+  return mlir::isa<mlir::IntegerType, mlir::FloatType>(type) &&
+         type.getIntOrFloatBitWidth() <= 32;
 }
 
 inline Value getOperandThroughDPSOps(Value value) {
@@ -82,14 +89,16 @@ funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry, FnT fn,
     }
 
     if (!isa<RankedTensorType>(input.getType())) {
-      assert((mlir::isa<mlir::IntegerType, mlir::IndexType, mlir::FloatType>(input.getType())) && "expected supported scalar type");
+      if (!isSupportedScalarArgType(input.getType())) {
+        llvm::report_fatal_error(
+            "Unsupported non-tensor program argument type in TTNN-to-flatbuffer "
+            "lowering; only integer/float scalars up to 32 bits are supported");
+      }
 
-      program.inputs.push_back(cache.getOrCreate(input, [](FlatbufferObjectCache &c, mlir::Value value) {
-        // Scalars are always represented as 1-element UInt32 tensors at the
-        // runtime layer (see runtime/lib/ttnn/runtime.cpp createScalarTensor
-        // and the UINT32 assert in runtime/lib/ttnn/types/types.cpp:128).
-        // The original scalar type doesn't matter — the runtime memcpys the
-        // raw bytes into a uint32 buffer regardless.
+      program.inputs.push_back(cache.getOrCreate(input, [](FlatbufferObjectCache &c, mlir::Value) {
+        // Scalars are represented as 1-element UInt32 tensors at the runtime
+        // layer regardless of their original type (see isSupportedScalarArgType
+        // above and runtime/lib/ttnn/runtime.cpp createScalarTensorImpl).
         ttcore::DataType dtype = ttcore::DataType::UInt32;
         std::vector<int32_t> shape = {1};
         std::vector<int32_t> meshShape = {1, 1};

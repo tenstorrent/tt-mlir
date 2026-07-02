@@ -23,7 +23,7 @@
 // appear in the ttnn.generic's additional args, only the scalars do).
 #scalar_i32_arg = #ttnn.kernel_arg_scalar<0>
 #scalar_f32_arg = #ttnn.kernel_arg_scalar<1>
-#scalar_idx_arg = #ttnn.kernel_arg_scalar<2>
+#scalar_i16_arg = #ttnn.kernel_arg_scalar<2>
 
 #read_kernel = #ttnn.read_kernel<
   symbol_ref = @read_kernel,
@@ -51,7 +51,7 @@
   core_ranges = #core_ranges,
   ct_args = [#out_cb_arg],
   common_rt_args = [],
-  rt_args = [#ttnn.core_runtime_args<core_coord = #core, args = [#out_addr_arg, #scalar_i32_arg, #scalar_f32_arg, #scalar_idx_arg]>]>
+  rt_args = [#ttnn.core_runtime_args<core_coord = #core, args = [#out_addr_arg, #scalar_i32_arg, #scalar_f32_arg, #scalar_i16_arg]>]>
 
 #program = #ttnn.program<
   kernels = [#read_kernel, #compute_kernel, #write_kernel],
@@ -75,11 +75,11 @@ module {
   // CHECK-LABEL: func.func @test_scalar_args
   // CHECK-SAME: %arg1: i32
   // CHECK-SAME: %arg2: f32
-  // CHECK-SAME: %arg3: index
+  // CHECK-SAME: %arg3: i16
   func.func @test_scalar_args(%arg0: tensor<32x32xf32, #dram_layout>,
                               %scalar_i32: i32,
                               %scalar_f32: f32,
-                              %scalar_idx: index) -> tensor<32x32xf32, #dram_layout> attributes {tt.function_type = "forward_device"} {
+                              %scalar_i16: i16) -> tensor<32x32xf32, #dram_layout> attributes {tt.function_type = "forward_device"} {
     %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.to_memory_config"(%arg0) : (tensor<32x32xf32, #dram_layout>) -> tensor<32x32xf32, #l1_layout>
     %2 = "ttnn.empty"(%0) <{layout = #ttnn.layout<tile>, shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #l1_layout>
@@ -87,8 +87,8 @@ module {
     // The three scalars are passed as the generic op's additional args.
     // CHECK: "ttnn.generic"(%{{.*}}, %{{.*}}, %arg1, %arg2, %arg3)
     // CHECK-SAME: operandSegmentSizes = array<i32: 2, 3>
-    // CHECK-SAME: (tensor<32x32xf32, {{.*}}>, tensor<32x32xf32, {{.*}}>, i32, f32, index) -> ()
-    "ttnn.generic"(%1, %2, %scalar_i32, %scalar_f32, %scalar_idx) <{program = #program, operandSegmentSizes = array<i32: 2, 3>}> : (tensor<32x32xf32, #l1_layout>, tensor<32x32xf32, #l1_layout>, i32, f32, index) -> ()
+    // CHECK-SAME: (tensor<32x32xf32, {{.*}}>, tensor<32x32xf32, {{.*}}>, i32, f32, i16) -> ()
+    "ttnn.generic"(%1, %2, %scalar_i32, %scalar_f32, %scalar_i16) <{program = #program, operandSegmentSizes = array<i32: 2, 3>}> : (tensor<32x32xf32, #l1_layout>, tensor<32x32xf32, #l1_layout>, i32, f32, i16) -> ()
 
     %3 = "ttnn.to_memory_config"(%2) : (tensor<32x32xf32, #l1_layout>) -> tensor<32x32xf32, #dram_layout>
     return %3 : tensor<32x32xf32, #dram_layout>
