@@ -1254,15 +1254,16 @@ verifyPoolingOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 
 ::mlir::LogicalResult mlir::tt::ttnn::ArangeOp::verify() {
 
-  if (getStep() == 0) {
+  int64_t step = getStep();
+  if (step == 0) {
     return emitOpError("Step cannot be zero.");
   }
 
-  int64_t numValues = (getEnd() - getStart()) / getStep();
+  int64_t numValues = (getEnd() - getStart()) / step;
 
   if (numValues <= 0) {
     return emitOpError("Invalid range: start=")
-           << getStart() << ", end=" << getEnd() << ", step=" << getStep();
+           << getStart() << ", end=" << getEnd() << ", step=" << step;
   }
 
   std::vector<int64_t> expectedShape = {numValues};
