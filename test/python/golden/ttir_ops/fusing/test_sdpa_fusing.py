@@ -678,7 +678,7 @@ def test_sdpa_erase_repeat_kv(sdpa_shapes: SDPAShapes, target: str, request):
     scaled_dot_product_attention op. With enable-sdpa-erase-repeat-kv the expansion
     is removed and the un-expanded K/V are handed directly to SDPA, which
     broadcasts them internally (GQA). PCC against the torch golden (computed
-    from the *expanded* K/V) confirms the two are numerically equivalent.
+    from the enable_gqa) confirms the two are numerically equivalent.
     """
     input_shapes = [
         sdpa_shapes.query,
