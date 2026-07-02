@@ -287,10 +287,13 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ArgMaxOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    // Most of the frontends uses signed or sign less integer as return type for
-    // argmax op (tt-mlir uses signed integer in this case); whereas, tt-metal
-    // uses UINT32 as return type. This difference is ignored as the output
-    // indices will always be positive.
+    // Frontends use a signed integer as argmax's return type (tt-mlir uses
+    // signed integer here); tt-metal's argmax returns UINT32. Build the op with
+    // its native UINT32 result and typecast back to the signed result type, so
+    // downstream consumers keep the signed dtype. Without this the UINT32 leaks
+    // to consumers (and to function results, e.g. the decode token id that is
+    // fed back as a signed input each step), forcing a runtime layout/dtype
+    // conversion.
 
     std::optional<mlir::ArrayAttr> dimArg = op.getDimArg();
     IntegerAttr reductionAxis;
@@ -299,9 +302,16 @@ public:
              "ttir::ArgMaxOp dim argument must be a single integer");
       reductionAxis = *dimArg->getAsRange<mlir::IntegerAttr>().begin();
     }
-    rewriter.replaceOpWithNewOp<ttnn::ArgMaxOp>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), reductionAxis, adaptor.getKeepDim());
+    auto signedResultType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getType()));
+    RankedTensorType uint32ResultType =
+        ttnn::utils::RankedTensorTypeFactory::create(
+            signedResultType, ttcore::DataType::UInt32);
+    auto argMaxOp = rewriter.create<ttnn::ArgMaxOp>(
+        op.getLoc(), uint32ResultType, adaptor.getInput(), reductionAxis,
+        adaptor.getKeepDim());
+    rewriter.replaceOpWithNewOp<ttnn::TypecastOp>(op, signedResultType,
+                                                  argMaxOp);
     return success();
   }
 };
