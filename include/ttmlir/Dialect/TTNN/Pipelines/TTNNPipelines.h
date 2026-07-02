@@ -339,12 +339,9 @@ struct TTIRToTTNNCommonPipelineOptions
       llvm::cl::init(true)};
 
   Option<bool> enableFusing{*this, "enable-fusing-pass",
-                            llvm::cl::desc("Enable fusing pass."),
-                            llvm::cl::init(true)};
+      llvm::cl::desc("Enable fusing pass."),
+      llvm::cl::init(true)};
 
-  // Erase repeat_interleave (repeat_kv) ops feeding
-  // scaled_dot_product_attention and feed the un-expanded K/V directly to
-  // SDPA, which broadcasts them internally (GQA/MQA). Disabled by default.
   Option<bool> enableSDPAEraseRepeatKV{
       *this, "enable-sdpa-erase-repeat-kv",
       llvm::cl::desc(
