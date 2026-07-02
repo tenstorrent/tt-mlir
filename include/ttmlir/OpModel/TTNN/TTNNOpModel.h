@@ -1748,6 +1748,7 @@ struct OpModel<GroupNormOp> {
                std::optional<llvm::ArrayRef<int64_t>> biasShape,
                std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
                llvm::APFloat epsilon, TTNNLayoutAttr outputLayout);
+};
 
 //===----------------------------------------------------------------------===//
 // ClampScalarOp
