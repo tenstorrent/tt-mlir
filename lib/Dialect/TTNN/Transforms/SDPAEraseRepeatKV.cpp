@@ -1,15 +1,15 @@
-// SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
+// SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include "ttmlir/Dialect/TTNN/Transforms/Fusing/SDPAGqaFusingPattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/SDPAEraseRepeatKV.h"
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/PatternMatch.h"
 
-namespace mlir::tt::ttnn::fusing {
+namespace mlir::tt::ttnn {
 
 // SDPA Query, Key, Value tensors have shape [B, H, S, D]
 // (Batch, NumHeads, SeqLen, HeadDim). The head dim is dim 1.
@@ -29,8 +29,8 @@ static RepeatInterleaveOp getHeadRepeat(Value v) {
 }
 
 mlir::LogicalResult
-SDPAGqaFusing::matchAndRewrite(ScaledDotProductAttentionOp op,
-                              mlir::PatternRewriter &rewriter) const {
+SDPAEraseRepeatKV::matchAndRewrite(ScaledDotProductAttentionOp op,
+                                   mlir::PatternRewriter &rewriter) const {
   // Both K and V must be expanded by repeat_interleave on the head dim. The
   // SDPA verifier requires key and value to have identical shapes, so we only
   // rewrite when both can be un-expanded by the same factor.
@@ -84,4 +84,4 @@ SDPAGqaFusing::matchAndRewrite(ScaledDotProductAttentionOp op,
   return success();
 }
 
-} // namespace mlir::tt::ttnn::fusing
+} // namespace mlir::tt::ttnn

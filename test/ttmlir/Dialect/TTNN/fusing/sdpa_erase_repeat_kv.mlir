@@ -1,10 +1,10 @@
 // End-to-end pipeline test for the GQA SDPA fusion. A frontend emits an
 // explicit repeat_interleave (repeat_kv) that expands the 8 KV heads to match
 // the 32 query heads before scaled_dot_product_attention. With the
-// enable-sdpa-gqa-fusion pipeline option, the expansion is removed and the
+// enable-sdpa-erase-repeat-kv pipeline option, the expansion is removed and the
 // un-expanded K/V are handed straight to the TTNN SDPA op (GQA broadcast).
 
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-ttnn-decomposition-pass=false enable-sdpa-gqa-fusion=true" -o %t.on %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-ttnn-decomposition-pass=false enable-sdpa-erase-repeat-kv=true" -o %t.on %s
 // RUN: FileCheck %s --check-prefix=ON --input-file=%t.on
 //
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% enable-ttnn-decomposition-pass=false" -o %t.off %s

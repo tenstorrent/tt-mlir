@@ -4,7 +4,7 @@
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Fusing/SDPAGqaFusingPattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/SDPAEraseRepeatKV.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
@@ -357,8 +357,8 @@ public:
         TTNNMatmulAndLinearWithActivation<MatmulOp, GeluOp>,
         TTNNMatmulAndLinearWithActivation<LinearOp, GeluOp>>(&getContext());
 
-    if (enableSDPAGqaFusion) {
-      patterns.add<fusing::SDPAGqaFusing>(&getContext());
+    if (enableSDPAEraseRepeatKV) {
+      patterns.add<SDPAEraseRepeatKV>(&getContext());
     }
 
 #ifdef TTMLIR_ENABLE_OPMODEL

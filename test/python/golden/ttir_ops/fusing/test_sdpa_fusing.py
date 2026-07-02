@@ -159,7 +159,7 @@ def gqa_repeat_interleave_kv(key, value, q_heads, builder, unit_attrs=None):
     This mirrors the explicit repeat_kv a frontend emits before feeding an
     already-formed scaled_dot_product_attention op (as opposed to the
     reshape/broadcast/reshape form in gqa_broadcast_kv). The
-    enable-sdpa-gqa-fusion pass folds these repeat_interleave ops away, feeding
+    enable-sdpa-erase-repeat-kv pass erases these repeat_interleave ops, feeding
     the un-expanded K/V straight to SDPA.
     """
     _, kv_heads, _, _ = builder.get_shape(key)
@@ -654,7 +654,7 @@ def test_sdpa_simple_softmax(sdpa_shapes: SDPAShapes, target: str, request):
 
 # GQA prefill shapes (q_heads != kv_heads, q_seq > 1). Only these exercise the
 # repeat_kv -> SDPA GQA fusion, and only the prefill SDPA op (not the decode
-# variant) is handled by the enable-sdpa-gqa-fusion pass.
+# variant) is handled by the enable-sdpa-erase-repeat-kv pass.
 GQA_PREFILL_SHAPES = [
     pytest.param(
         SDPAShapes(batch=1, q_heads=32, kv_heads=8, q_seq=128, kv_seq=128, head_dim=64),
@@ -669,13 +669,13 @@ GQA_PREFILL_SHAPES = [
 
 @pytest.mark.parametrize("sdpa_shapes", GQA_PREFILL_SHAPES)
 @pytest.mark.parametrize("target", ["ttnn"])
-def test_sdpa_gqa_repeat_kv_fusion(sdpa_shapes: SDPAShapes, target: str, request):
+def test_sdpa_erase_repeat_kv(sdpa_shapes: SDPAShapes, target: str, request):
     """
-    GQA repeat_kv -> SDPA fusion (enable-sdpa-gqa-fusion).
+    GQA repeat_kv erased before SDPA (enable-sdpa-erase-repeat-kv).
 
     A frontend emits an explicit repeat_interleave (repeat_kv) that expands the
     KV heads to match the query heads, feeding an already-formed
-    scaled_dot_product_attention op. With enable-sdpa-gqa-fusion the expansion
+    scaled_dot_product_attention op. With enable-sdpa-erase-repeat-kv the expansion
     is removed and the un-expanded K/V are handed directly to SDPA, which
     broadcasts them internally (GQA). PCC against the torch golden (computed
     from the *expanded* K/V) confirms the two are numerically equivalent.
@@ -724,10 +724,10 @@ def test_sdpa_gqa_repeat_kv_fusion(sdpa_shapes: SDPAShapes, target: str, request
             return result
 
     mlir_path = compile_and_run_sdpa(
-        module, target, request, extra_pipeline_options=["enable-sdpa-gqa-fusion=true"]
+        module, target, request, extra_pipeline_options=["enable-sdpa-erase-repeat-kv=true"]
     )
     # SDPA is preserved and the repeat_kv expansion is folded away.
     assert_sdpa_fused(mlir_path, sdpa_shapes.q_seq)
     assert not check_op(
         mlir_path, "repeat_interleave"
-    ), "repeat_interleave should be folded into SDPA by enable-sdpa-gqa-fusion"
+    ), "repeat_interleave should be erased before SDPA by enable-sdpa-erase-repeat-kv"

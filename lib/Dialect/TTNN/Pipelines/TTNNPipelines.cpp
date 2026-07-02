@@ -271,13 +271,13 @@ void createTTNNFusingPass(OpPassManager &pm,
       wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
 
       uint32_t fallbackAttempts = options.maxFallbackAttempts;
-      bool enableSDPAGqaFusion = options.enableSDPAGqaFusion;
+      bool enableSDPAEraseRepeatKV = options.enableSDPAEraseRepeatKV;
       pm.addPass(createDevicePassesWrapper(
-          [fallbackAttempts, enableSDPAGqaFusion](OpPassManager &innerPm) {
+          [fallbackAttempts, enableSDPAEraseRepeatKV](OpPassManager &innerPm) {
             TTNNFusingOptions fusingOptions;
             fusingOptions.enableOpConstraints = true;
             fusingOptions.maxFallbackAttempts = fallbackAttempts;
-            fusingOptions.enableSDPAGqaFusion = enableSDPAGqaFusion;
+            fusingOptions.enableSDPAEraseRepeatKV = enableSDPAEraseRepeatKV;
             innerPm.addPass(mlir::tt::ttnn::createTTNNFusing(fusingOptions));
           },
           wrapperOptions));
@@ -287,7 +287,7 @@ void createTTNNFusingPass(OpPassManager &pm,
 #endif
     } else {
       TTNNFusingOptions fusingOptions;
-      fusingOptions.enableSDPAGqaFusion = options.enableSDPAGqaFusion;
+      fusingOptions.enableSDPAEraseRepeatKV = options.enableSDPAEraseRepeatKV;
       pm.addPass(mlir::tt::ttnn::createTTNNFusing(fusingOptions));
     }
   }

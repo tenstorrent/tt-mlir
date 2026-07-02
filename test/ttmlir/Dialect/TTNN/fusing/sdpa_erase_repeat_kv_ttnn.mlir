@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttnn-fusing="enable-sdpa-gqa-fusion=true" -o %t %s
+// RUN: ttmlir-opt --ttcore-register-device --ttnn-fusing="enable-sdpa-erase-repeat-kv=true" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 //
 // RUN: ttmlir-opt --ttcore-register-device --ttnn-fusing -o %t.off %s

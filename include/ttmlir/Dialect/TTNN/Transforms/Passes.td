@@ -368,12 +368,12 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
             "bool", /*default=*/"false",
             "Enable RoPE fusion patterns at the TTNN level. Disabled by "
             "default since RoPE fusion is handled at the TTIR level.">,
-    Option<"enableSDPAGqaFusion",
-            "enable-sdpa-gqa-fusion",
+    Option<"enableSDPAEraseRepeatKV",
+            "enable-sdpa-erase-repeat-kv",
             "bool", /*default=*/"false",
-            "Fold repeat_interleave (repeat_kv) ops feeding "
+            "Erase repeat_interleave (repeat_kv) ops feeding "
             "scaled_dot_product_attention, feeding the un-expanded K/V "
-            "directly to SDPA which broadcasts them internally (GQA). "
+            "directly to SDPA which broadcasts them internally (GQA/MQA). "
             "Disabled by default; enable to remove the explicit KV expansion.">
   ];
 }

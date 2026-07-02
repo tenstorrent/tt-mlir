@@ -38,7 +38,7 @@ find_package(pybind11 CONFIG REQUIRED)
 
 add_mlir_dialect_library(MLIRTTNNTransforms
         Passes.cpp
-        Fusing/SDPAGqaFusingPattern.cpp
+        SDPAEraseRepeatKV.cpp
         TTNNResolveTTLangKernels.cpp
         TTNNResolveTTLangKernelsPython.cpp
         TTNNLowerTTLangToGeneric.cpp
