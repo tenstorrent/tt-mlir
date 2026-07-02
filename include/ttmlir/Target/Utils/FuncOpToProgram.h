@@ -91,36 +91,35 @@ funcOpToProgram(FlatbufferObjectCache &cache, func::FuncOp entry, FnT fn,
     if (!isa<RankedTensorType>(input.getType())) {
       if (!isSupportedScalarArgType(input.getType())) {
         llvm::report_fatal_error(
-            "Unsupported non-tensor program argument type in TTNN-to-flatbuffer "
+            "Unsupported non-tensor program argument type in "
+            "TTNN-to-flatbuffer "
             "lowering; only integer/float scalars up to 32 bits are supported");
       }
 
-      program.inputs.push_back(cache.getOrCreate(input, [](FlatbufferObjectCache &c, mlir::Value) {
-        // Scalars are represented as 1-element UInt32 tensors at the runtime
-        // layer regardless of their original type (see isSupportedScalarArgType
-        // above and runtime/lib/ttnn/runtime.cpp createScalarTensorImpl).
-        ttcore::DataType dtype = ttcore::DataType::UInt32;
-        std::vector<int32_t> shape = {1};
-        std::vector<int32_t> meshShape = {1, 1};
+      program.inputs.push_back(
+          cache.getOrCreate(input, [](FlatbufferObjectCache &c, mlir::Value) {
+            // Scalars are represented as 1-element UInt32 tensors at the
+            // runtime layer regardless of their original type (see
+            // isSupportedScalarArgType above and runtime/lib/ttnn/runtime.cpp
+            // createScalarTensorImpl).
+            ttcore::DataType dtype = ttcore::DataType::UInt32;
+            std::vector<int32_t> shape = {1};
+            std::vector<int32_t> meshShape = {1, 1};
 
-        ::tt::target::Dim2d tileShape(1, 1);
-        auto memoryDesc = ::tt::target::ttnn::CreateMemoryDesc(
-            *c.fbb,
-            ::tt::target::ttnn::StorageType::Host,    
-            &tileShape,
-            toFlatbuffer(c, dtype),                   
-            /* memory_config=*/0);                   
-        auto layoutDesc = ::tt::target::ttnn::CreateLayoutDesc(
-            *c.fbb,
-            ::tt::target::OOBVal::Undef,        
-            memoryDesc);
-        auto tensorDesc = ::tt::target::ttnn::CreateTensorDescDirect(
-            *c.fbb, &shape, &meshShape, layoutDesc,
-            ::tt::target::ttnn::ShardStatus::Unsharded,
-            /* local_shape */ nullptr);
-        return ::tt::target::ttnn::CreateTensorRef(
-            *c.fbb, c.nextGlobalId(), tensorDesc);
-      }));
+            ::tt::target::Dim2d tileShape(1, 1);
+            auto memoryDesc = ::tt::target::ttnn::CreateMemoryDesc(
+                *c.fbb, ::tt::target::ttnn::StorageType::Host, &tileShape,
+                toFlatbuffer(c, dtype),
+                /* memory_config=*/0);
+            auto layoutDesc = ::tt::target::ttnn::CreateLayoutDesc(
+                *c.fbb, ::tt::target::OOBVal::Undef, memoryDesc);
+            auto tensorDesc = ::tt::target::ttnn::CreateTensorDescDirect(
+                *c.fbb, &shape, &meshShape, layoutDesc,
+                ::tt::target::ttnn::ShardStatus::Unsharded,
+                /* local_shape */ nullptr);
+            return ::tt::target::ttnn::CreateTensorRef(*c.fbb, c.nextGlobalId(),
+                                                       tensorDesc);
+          }));
       continue;
     }
 
