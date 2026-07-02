@@ -99,6 +99,7 @@ PATTERN_TESTS = [
         # constants in the rewrite scope (see AUTHORING.md), so this compiles to
         # a flatbuffer and runs e2e on device directly.
         e2e=True,
+        tags=("perf",),
         check="""
         CHECK-LABEL: func.func @f
         CHECK-NOT:   ttir.exp

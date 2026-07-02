@@ -605,6 +605,29 @@ def run_e2e(spec: PatternTest, e2e_device: "E2EDevice"):
 
 
 # ----------------------------------------------------------------------
+# Perf helpers (compile both d2m and ttnn paths for comparison)
+# ----------------------------------------------------------------------
+
+
+def compile_perf_d2m_fbb(spec: PatternTest):
+    """Compile a PatternTest through the d2m pattern-rewrite pipeline."""
+    return compile_spec_to_fbb(spec)
+
+
+def compile_perf_ttnn_fbb(spec: PatternTest):
+    """Compile a PatternTest's TTIR through the standard TTIR→TTNN pipeline."""
+    return compile_ttir_to_ttnn_fbb(spec.ttir)
+
+
+def perf_inputs(spec: PatternTest):
+    """Generate deterministic inputs for a PatternTest from its TTIR signature."""
+    io = parse_func_io(spec.ttir)
+    gen = torch.Generator()
+    gen.manual_seed(spec.inputs.seed)
+    return [_gen_tensor(shape, td, spec.inputs.dist, gen) for shape, td in io]
+
+
+# ----------------------------------------------------------------------
 # Discovery
 # ----------------------------------------------------------------------
 

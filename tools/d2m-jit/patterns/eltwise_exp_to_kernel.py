@@ -90,6 +90,7 @@ PATTERN_TESTS = [
         # kernel body as constants in the rewrite scope (see AUTHORING.md), so
         # this compiles to a flatbuffer and runs e2e on device directly.
         e2e=True,
+        tags=("perf",),
         check="""
         CHECK-LABEL: func.func @forward
         CHECK-NOT:   ttir.exp
