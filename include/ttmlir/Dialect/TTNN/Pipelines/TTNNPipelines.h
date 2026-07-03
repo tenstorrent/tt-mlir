@@ -292,13 +292,6 @@ struct TTIRToTTNNCommonPipelineOptions
       llvm::cl::desc("Enable decomposition workaround pass."),
       llvm::cl::init(true)};
 
-  Option<bool> allReduceWorkaroundEnabled{
-      *this, "enable-all-reduce-workaround",
-      llvm::cl::desc("Enable the all_reduce decomposition workaround which "
-                     "breaks all_reduce down into reduce_scatter + all_gather "
-                     "(or all_gather + local reduce)."),
-      llvm::cl::init(true)};
-
   Option<bool> ttnnDecompositionEnabled{
       *this, "enable-ttnn-decomposition-pass",
       llvm::cl::desc("Enable TTNN decomposition pass."), llvm::cl::init(true)};

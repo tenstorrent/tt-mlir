@@ -87,7 +87,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNKVCacheDtypeConversion.cpp
         TTNNActivationDtypeLowering.cpp
         Workarounds/Decomposition/AllGatherOpRewritePattern.cpp
-        Workarounds/Decomposition/AllReduceReshapeOpRewritePattern.cpp
         Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.cpp
         Workarounds/Decomposition/MoeGptLayoutRewritePattern.cpp
         Workarounds/Decomposition/MoeComputeRewritePattern.cpp
@@ -103,7 +102,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/IntegerProdOpRewritePattern.cpp
         Workarounds/Decomposition/LinearOpRewritePattern.cpp
         Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.cpp
-        Workarounds/Decomposition/ReduceScatterOpRewritePattern.cpp
         Workarounds/Decomposition/SliceStaticOpRewritePattern.cpp
         Workarounds/Decomposition/ScaledDotProductAttentionDecodeAttentionSinkRewritePattern.cpp
         Workarounds/Decomposition/ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern.cpp
