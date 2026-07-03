@@ -1389,7 +1389,8 @@ void MemoryLayoutPropagation::applyToIR() {
     applyOpConfig(op, *chosen);
   });
 
-  // Second pass: insert reshard ops.
+  // Second pass: insert reshard ops (deduped per producer via reshardCache).
+  reshardCache.clear();
   func->walk([&](Operation *op) {
     const BeamCandidate *chosen = getChosenCandidate(op);
     if (!chosen) {
@@ -1503,6 +1504,23 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
   RankedTensorType newTensorType =
       utils::RankedTensorTypeFactory::create(producerTensorType, outputLayout);
 
+  // Dedup: reuse a shared reshard for consumers of the same producer requesting
+  // the same target layout.
+  // Stays correct downstream: TTNNDeallocate frees it after its last consumer,
+  // and if the L1 spill pass evicts it for space it re-splits into per-consumer
+  // reshards.
+  std::pair<mlir::Value, mlir::Attribute> cacheKey{operand, reshardLayout};
+  if (auto it = reshardCache.find(cacheKey); it != reshardCache.end()) {
+    if (Operation *cachedOp = it->second.getDefiningOp();
+        cachedOp && cachedOp->getBlock() == consumerOp->getBlock() &&
+        cachedOp->isBeforeInBlock(consumerOp)) {
+      consumerOp->setOperand(operandIndex, it->second);
+      TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                   "Reused shared memory reconfig op: {0}", cachedOp);
+      return;
+    }
+  }
+
   OpBuilder builder(consumerOp);
   Location loc = ttmlir::utils::appendLocationSuffix(consumerOp->getLoc(),
                                                      "_mem_reconfig");
@@ -1522,6 +1540,7 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
                 .getOperation();
 
   consumerOp->setOperand(operandIndex, reshardOp->getResult(0));
+  reshardCache[cacheKey] = reshardOp->getResult(0);
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                "Inserted reshard op: {0}", *reshardOp);
