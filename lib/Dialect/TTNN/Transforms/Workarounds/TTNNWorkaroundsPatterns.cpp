@@ -762,6 +762,7 @@ const std::set<mlir::StringRef>
         ttnn::PrepareMoEComputeW0W1WeightsOp::getOperationName(),
         ttnn::PrepareMoEComputeW2WeightsOp::getOperationName(),
         ttnn::MoeComputeOp::getOperationName(),
+        ttnn::AllToAllDispatchMetadataOp::getOperationName(),
         // Conv3d's runtime kernel hard-rejects Tile input
         // (TT_FATAL @ conv3d_device_operation.cpp:49); without the
         // workaround running here, the optimizer's layout propagation
