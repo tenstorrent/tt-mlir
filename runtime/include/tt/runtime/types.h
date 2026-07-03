@@ -422,19 +422,17 @@ struct Tensor : public detail::RuntimeCheckedObjectImpl {
 
   std::uint64_t getGlobalId() const { return globalId; }
 
-  // Returns a copy of `tensor` that shares the same underlying handle/data
-  // but is labeled with `globalId`. Used to bind runtime tensors to the
-  // caller-assigned (e.g. controller) global id at construction time, since
-  // the id is otherwise immutable after a Tensor is created.
-  static Tensor withGlobalId(const Tensor &tensor, std::uint64_t globalId) {
-    Tensor copy = tensor;
-    copy.globalId = globalId;
-    return copy;
-  }
+  // Binds the canonical (e.g. controller-assigned) global id that correlates
+  // this tensor across the controller/worker IPC boundary. May be called at
+  // most once: the id is frozen afterward and any attempt to rebind it to a
+  // different value is a fatal error. This keeps globalId a stable correlation
+  // key that cannot be silently reconfigured at runtime.
+  void bindGlobalId(std::uint64_t id);
 
 private:
   std::uint64_t nextTensorGlobalId();
   std::uint64_t globalId;
+  bool globalIdBound_ = false;
 };
 
 struct GlobalSemaphore : public detail::RuntimeCheckedObjectImpl {

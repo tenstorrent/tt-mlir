@@ -370,7 +370,7 @@ void CommandExecutor::execute(uint64_t commandId,
   ::tt::runtime::Tensor tensor = ::tt::runtime::createOwnedHostTensor(
       tensorData, shape, stride, itemSize, dataType);
 
-  tensor = ::tt::runtime::Tensor::withGlobalId(tensor, tensorGlobalId);
+  tensor.bindGlobalId(tensorGlobalId);
 
   tensorPool_.insert_or_assign(tensorGlobalId, tensor);
 
@@ -400,8 +400,7 @@ void CommandExecutor::execute(
       ::tt::runtime::createMultiDeviceHostTensor(tensorShards, strategy,
                                                  meshShape);
 
-  multiDeviceHostTensor = ::tt::runtime::Tensor::withGlobalId(
-      multiDeviceHostTensor, command->output_global_id());
+  multiDeviceHostTensor.bindGlobalId(command->output_global_id());
   tensorPool_.insert_or_assign(command->output_global_id(),
                                multiDeviceHostTensor);
 
@@ -426,8 +425,7 @@ void CommandExecutor::execute(
   ::tt::runtime::Tensor sourceTensor = tensorPool_.at(sourceGlobalId);
   ::tt::runtime::Tensor borrowedTensor =
       ::tt::runtime::createUnsafeBorrowedHostTensor(sourceTensor);
-  borrowedTensor =
-      ::tt::runtime::Tensor::withGlobalId(borrowedTensor, outputGlobalId);
+  borrowedTensor.bindGlobalId(outputGlobalId);
   tensorPool_.insert_or_assign(outputGlobalId, borrowedTensor);
 
   std::unique_ptr<::flatbuffers::FlatBufferBuilder> responseBuilder =
@@ -533,8 +531,7 @@ void CommandExecutor::execute(uint64_t commandId,
   ::tt::runtime::Tensor resultTensor =
       ::tt::runtime::toLayout(inputTensor, device, layout, retain);
 
-  resultTensor =
-      ::tt::runtime::Tensor::withGlobalId(resultTensor, outputGlobalId);
+  resultTensor.bindGlobalId(outputGlobalId);
 
   tensorPool_.insert_or_assign(outputGlobalId, resultTensor);
 
@@ -567,8 +564,7 @@ void CommandExecutor::execute(uint64_t commandId,
              " != ", command->output_global_ids()->size());
 
   for (size_t i = 0; i < outputTensors.size(); i++) {
-    outputTensors[i] = ::tt::runtime::Tensor::withGlobalId(
-        outputTensors[i], command->output_global_ids()->Get(i));
+    outputTensors[i].bindGlobalId(command->output_global_ids()->Get(i));
     tensorPool_.insert_or_assign(command->output_global_ids()->Get(i),
                                  outputTensors[i]);
   }
@@ -613,8 +609,7 @@ void CommandExecutor::execute(uint64_t commandId,
              " != ", command->output_global_ids()->size());
 
   for (size_t i = 0; i < outputTensors.size(); i++) {
-    outputTensors[i] = ::tt::runtime::Tensor::withGlobalId(
-        outputTensors[i], command->output_global_ids()->Get(i));
+    outputTensors[i].bindGlobalId(command->output_global_ids()->Get(i));
     tensorPool_.insert_or_assign(command->output_global_ids()->Get(i),
                                  outputTensors[i]);
   }
