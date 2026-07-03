@@ -94,10 +94,12 @@ public:
     }
 
     // Reshape back to the original shape.
-    rewriter.replaceOp(op, ttir_to_ttnn::utils::generateReshape(
-                               collective4D, outputShape, rewriter,
-                               ttmlir::utils::appendLocationSuffix(
-                                   op.getLoc(), "_reshape_back")));
+    rewriter.replaceOp(
+        op,
+        ttir_to_ttnn::utils::generateReshape(
+            mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(collective4D),
+            outputShape, rewriter,
+            ttmlir::utils::appendLocationSuffix(op.getLoc(), "_reshape_back")));
 
     return success();
   }
