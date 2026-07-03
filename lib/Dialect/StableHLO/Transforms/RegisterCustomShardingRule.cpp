@@ -1559,7 +1559,8 @@ getMoeDecodeShardingRule(mlir::stablehlo::CustomCallOp op) {
   }
   const bool hasBias = numOperands == 9;
 
-  auto tokensType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto tokensType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
   auto idxType = llvm::dyn_cast<RankedTensorType>(op.getOperand(1).getType());
   auto w0Type = llvm::dyn_cast<RankedTensorType>(op.getOperand(3).getType());
   auto resultType = llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
@@ -1583,13 +1584,14 @@ getMoeDecodeShardingRule(mlir::stablehlo::CustomCallOp op) {
 
   // Helper: build an operand-dim vector (length numOperands), all kNull except
   // the listed (operandIdx -> dim) entries.
-  auto opDims = [&](std::initializer_list<std::pair<int64_t, int64_t>> entries) {
-    SmallVector<int64_t> v(numOperands, mlir::sdy::kNullDim);
-    for (const auto &e : entries) {
-      v[e.first] = e.second;
-    }
-    return v;
-  };
+  auto opDims =
+      [&](std::initializer_list<std::pair<int64_t, int64_t>> entries) {
+        SmallVector<int64_t> v(numOperands, mlir::sdy::kNullDim);
+        for (const auto &e : entries) {
+          v[e.first] = e.second;
+        }
+        return v;
+      };
 
   // Token factor (M): tokens/idx/scr dim 2 -> result dim 1. kPassThrough so the
   // cluster axis shards the data-parallel token dim through the composite.

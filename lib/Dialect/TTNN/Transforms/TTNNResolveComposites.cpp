@@ -259,9 +259,11 @@ static void registerBuiltinComposites() {
         (void)extractMoeDecodeArgs(compositeOp);
         return OpValidationResult::success();
       },
-      // Build all_to_all_dispatch_metadata -> weight-prep -> moe_compute, wiring
+      // Build all_to_all_dispatch_metadata -> weight-prep -> moe_compute,
+      // wiring
       // moe's dispatched/indices/scores straight from a2a's results so
-      // TTNNDeduceMoEComputeLayouts can pin both ops onto one drain core. Result
+      // TTNNDeduceMoEComputeLayouts can pin both ops onto one drain core.
+      // Result
       // types are placeholders finalized by workarounds + the deduce pass.
       [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
         MoeDecodeCompositeArgs a = extractMoeDecodeArgs(compositeOp);

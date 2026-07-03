@@ -9368,8 +9368,8 @@ namespace {
 // converts sdy.mesh -> ttcore.meshes with no guaranteed firing order, so read
 // whichever form is present. Returns {} when the module carries no mesh.
 static llvm::SmallVector<int64_t> getModuleMeshShape(ModuleOp moduleOp) {
-  if (auto meshes = moduleOp->getAttrOfType<ttcore::MeshesAttr>(
-          ttcore::MeshesAttr::name);
+  if (auto meshes =
+          moduleOp->getAttrOfType<ttcore::MeshesAttr>(ttcore::MeshesAttr::name);
       meshes && !meshes.getMeshes().empty()) {
     return llvm::SmallVector<int64_t>(meshes.getMeshes()[0].getShape());
   }
@@ -9481,7 +9481,7 @@ static Value buildMoeDecodeDecompositionBody(
   };
 
   // 1. all_gather weights (+ biases) to replicate every expert locally.
-  Value w0g = allGather(w0, 1);       // [1, Eg, H, N]
+  Value w0g = allGather(w0, 1); // [1, Eg, H, N]
   Value w1g = allGather(w1, 1);
   Value w2g = allGather(w2, 1);       // [1, Eg, N, H]
   Value wGateUp = fuseLast(w0g, w1g); // [1, Eg, H, 2N]
@@ -9509,8 +9509,8 @@ static Value buildMoeDecodeDecompositionBody(
   // All-ones sparsity (compute every expert): a real per-token mask lets
   // sparse_matmul skip experts, leaving garbage the one-hot select folds in
   // (0 * NaN). In decode nearly every expert is selected, so this is ~free.
-  Value sparsity = rewriter.create<ttir::FullOp>(loc, rt({1, 1, 1, Eg}, act),
-                                                 rewriter.getF32FloatAttr(1.0f));
+  Value sparsity = rewriter.create<ttir::FullOp>(
+      loc, rt({1, 1, 1, Eg}, act), rewriter.getF32FloatAttr(1.0f));
 
   // 3. gate_up: a[1,1,M,H] . b[1,Eg,H,2N] -> [1,1,1,Eg,M,2N] -> [1,Eg,M,2N].
   Value gateUp4d = reshape(
@@ -9578,8 +9578,8 @@ static Value buildMoeDecodeDecompositionBody(
   Value outAll = rewriter.create<ttir::PermuteOp>(
       loc, rt({M, Eg, H}, act), reshape(down, {Eg, M, H}),
       rewriter.getDenseI64ArrayAttr({1, 0, 2}));
-  Value combine = rewriter.create<ttir::MatmulOp>(loc, rt({M, K, H}, act),
-                                                  oneHot, outAll);
+  Value combine =
+      rewriter.create<ttir::MatmulOp>(loc, rt({M, K, H}, act), oneHot, outAll);
   return rewriter.create<ttir::PermuteOp>(
       loc, outputType, combine, rewriter.getDenseI64ArrayAttr({1, 0, 2}));
 }
@@ -9652,7 +9652,8 @@ public:
 
     llvm::SmallVector<int64_t> meshShape =
         getModuleMeshShape(srcOp->getParentOfType<ModuleOp>());
-    if (clusterAxis < 0 || clusterAxis >= static_cast<int64_t>(meshShape.size())) {
+    if (clusterAxis < 0 ||
+        clusterAxis >= static_cast<int64_t>(meshShape.size())) {
       return rewriter.notifyMatchFailure(
           srcOp, "moe_decode: cluster_axis out of range for the module mesh "
                  "(no ttcore.meshes / sdy.mesh, or bad cluster_axis).");
@@ -9736,7 +9737,8 @@ public:
         decompFuncName = "moe_decode_decomp_" + std::to_string(counter++);
       }
     }
-    SmallVector<Type> argTypes = llvm::to_vector(ValueRange(operands).getTypes());
+    SmallVector<Type> argTypes =
+        llvm::to_vector(ValueRange(operands).getTypes());
     {
       OpBuilder::InsertionGuard guard(rewriter);
       rewriter.setInsertionPointToEnd(moduleOp.getBody());
