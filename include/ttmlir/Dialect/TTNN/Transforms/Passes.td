@@ -44,12 +44,6 @@ def TTNNWorkarounds : Pass<"ttnn-workaround", "::mlir::ModuleOp"> {
              "ttnn-enable-decomposition-workaround-pass",
              "bool", /*default=*/"true",
              "TTNN Decompsition Workarounds Pass">,
-      Option<"allReduceWorkaroundEnabled",
-             "ttnn-enable-all-reduce-workaround",
-             "bool", /*default=*/"true",
-             "Enable the all_reduce decomposition workaround which breaks "
-             "all_reduce down into reduce_scatter + all_gather (or "
-             "all_gather + local reduce).">,
       Option<"optimizationLevel",
              "ttnn-optimization-level",
              "int", /*default=*/"0",
