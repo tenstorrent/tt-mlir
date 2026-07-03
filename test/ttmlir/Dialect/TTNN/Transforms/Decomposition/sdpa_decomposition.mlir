@@ -101,8 +101,13 @@ module {
     // CHECK: "ttnn.matmul"
     // CHECK: "ttnn.full"
     // CHECK: "ttnn.multiply"
-    // Causal mask generated as compile-time constant + add
-    // CHECK: "ttnn.constant"
+    // Causal mask generated on-device: arange + reshape + compare + where (no dense constant)
+    // CHECK-NOT: "ttnn.constant"
+    // CHECK: "ttnn.arange"
+    // CHECK: "ttnn.arange"
+    // CHECK: "ttnn.gt"
+    // CHECK: "ttnn.where"
+    // CHECK: "ttnn.typecast"
     // CHECK: "ttnn.add"
     // CHECK: "ttnn.softmax"
     // CHECK: "ttnn.matmul"
@@ -127,8 +132,14 @@ module {
     // CHECK: "ttnn.matmul"
     // CHECK: "ttnn.full"
     // CHECK: "ttnn.multiply"
-    // Sliding window mask as compile-time constant
-    // CHECK: "ttnn.constant"
+    // Sliding window mask generated on-device (no dense constant)
+    // CHECK-NOT: "ttnn.constant"
+    // CHECK: "ttnn.arange"
+    // CHECK: "ttnn.arange"
+    // CHECK: "ttnn.subtract"
+    // CHECK: "ttnn.where"
+    // CHECK: "ttnn.where"
+    // CHECK: "ttnn.typecast"
     // CHECK: "ttnn.add"
     // CHECK: "ttnn.softmax"
     // CHECK: "ttnn.matmul"
