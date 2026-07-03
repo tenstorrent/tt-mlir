@@ -197,6 +197,14 @@ std::optional<QKVRole> findQKVRole(Value start) {
         }
       }
 
+      // Do not propagate past an SDPA op: its result is attention output, not
+      // part of a Q/K/V chain. Continuing would bleed the trace into downstream
+      // layers and reach other SDPA operands, producing a false "ambiguous"
+      // (multi-role) result.
+      if (role) {
+        continue;
+      }
+
       // Propagate through all ops to handle RoPE and other intermediate ops
       for (Value res : user->getResults()) {
         unsigned nextDepth = depth + 1;
