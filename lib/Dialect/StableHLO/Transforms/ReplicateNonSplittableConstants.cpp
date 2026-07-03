@@ -127,9 +127,8 @@ public:
 
     rootModule.walk([&](mlir::stablehlo::IotaOp iotaOp) {
       // Get sharding annotation (per-value format from propagation).
-      auto spv =
-          iotaOp->getAttrOfType<mlir::sdy::TensorShardingPerValueAttr>(
-              mlir::sdy::TensorShardingAttr::name);
+      auto spv = iotaOp->getAttrOfType<mlir::sdy::TensorShardingPerValueAttr>(
+          mlir::sdy::TensorShardingAttr::name);
       if (!spv) {
         return;
       }
@@ -141,8 +140,7 @@ public:
       mlir::sdy::TensorShardingAttr sharding = shardings[0];
 
       // Already fully replicated (no sharding axes on any dimension); skip.
-      if (shardy_utils::isFullyReplicatedTensor(sharding,
-                                                globalMeshOp)) {
+      if (shardy_utils::isFullyReplicatedTensor(sharding, globalMeshOp)) {
         return;
       }
 
