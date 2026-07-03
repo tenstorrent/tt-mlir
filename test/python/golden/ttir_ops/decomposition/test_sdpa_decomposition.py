@@ -122,7 +122,7 @@ def test_sdpa_decomposition_with_mask(
     [
         # Causal SDPA without an explicit mask (mirrors sdpa_causal_no_mask
         # in the lit test). is_causal=True forces the pattern to synthesize
-        # a causal mask via the constant + add path.
+        # a causal mask on-device (arange + where) + add.
         (
             [(1, 8, 64, 64), (1, 8, 64, 64), (1, 8, 64, 64)],
             0.125,
@@ -159,6 +159,15 @@ def test_sdpa_decomposition_causal_no_mask(
 
     mlir_path = compile_decomposed(module, target, request)
     assert_decomposed(mlir_path)
+    # Causal mask is built on-device (arange + where), not as a dense constant,
+    # so nothing O(seq^2) is serialized (tt-mlir#8954 / tt-xla#5506).
+    assert not check_op(
+        mlir_path, "constant"
+    ), "causal mask must not be a dense ttnn.constant"
+    assert check_op(
+        mlir_path, "arange"
+    ), "expected ttnn.arange for on-device causal mask"
+    assert check_op(mlir_path, "where"), "expected ttnn.where for on-device causal mask"
 
 
 # ---------------------------------------------------------------------------
@@ -398,5 +407,12 @@ def test_sdpa_decomposition_sliding_window(
 
     mlir_path = compile_decomposed(module, target, request)
     assert_decomposed(mlir_path)
-    # Window mask is emitted as a ttnn.constant + add.
-    assert check_op(mlir_path, "constant"), "expected ttnn.constant for window mask"
+    # Window mask is built on-device (arange + where), not as a dense constant,
+    # so nothing O(seq^2) is serialized.
+    assert not check_op(
+        mlir_path, "constant"
+    ), "window mask must not be a dense ttnn.constant"
+    assert check_op(
+        mlir_path, "arange"
+    ), "expected ttnn.arange for on-device window mask"
+    assert check_op(mlir_path, "where"), "expected ttnn.where for on-device window mask"
