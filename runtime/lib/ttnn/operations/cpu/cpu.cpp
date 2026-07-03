@@ -26,6 +26,9 @@ namespace {
   case ::ttnn::DataType::FLOAT32:
     return ::tt::runtime::ttnn::utils::createBorrowedTTNNTensor<float>(dataPtr,
                                                                        shape);
+  case ::ttnn::DataType::BFLOAT16:
+    return ::tt::runtime::ttnn::utils::createBorrowedTTNNTensor<bfloat16>(
+        dataPtr, shape);
   case ::ttnn::DataType::UINT32:
     return ::tt::runtime::ttnn::utils::createBorrowedTTNNTensor<uint32_t>(
         dataPtr, shape);

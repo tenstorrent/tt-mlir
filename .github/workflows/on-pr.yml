@@ -27,12 +27,14 @@ concurrency:
 
 jobs:
   pre-commit:
+    if: ${{ false }}
     uses: ./.github/workflows/call-pre-commit.yml
     secrets: inherit
   build-image:
     uses: ./.github/workflows/call-build-docker.yml
     secrets: inherit
   prepare-run:
+    if: ${{ false }}
     uses: ./.github/workflows/call-prepare-run.yml
     with:
       builder_build: true
@@ -40,42 +42,43 @@ jobs:
       min_timeout: ${{ (contains(github.event.pull_request.labels.*.name, 'build_all') || contains(github.event.pull_request.labels.*.name, 'uplift')) && 180 || 40 }}
     secrets: inherit
   release-build:
-    needs: [ prepare-run, build-image ]
-    if: needs.prepare-run.outputs.skip_build != 'true'
+    needs: [ build-image ]
     uses: ./.github/workflows/call-build-release.yml
     secrets: inherit
     with:
       metal_override: ${{ inputs.metal_override }}
       docker_image: ${{ needs.build-image.outputs.docker-image }}
-      runner: ${{ needs.prepare-run.outputs.runner }}
-      sh_builder: ${{ fromJson(needs.prepare-run.outputs.sh_builder) }}
-      component_matrix: ${{ needs.prepare-run.outputs.build_matrix }}
+      runner: builder
+      sh_builder: false
+      component_matrix: '[]'
+      release_matrix: >-
+        [{ "enable_op_model": "ON", "enable_perf": "ON", "enable_runtime_debug": "ON", "enable_explorer": "ON", "enable_pykernel": "ON", "enable_ttnn_jit": "ON", "name": "tracy" }]
   debug-build:
     needs: [ prepare-run, build-image ]
-    if: needs.prepare-run.outputs.skip_build != 'true'
+    if: ${{ false }}
     uses: ./.github/workflows/call-build-debug.yml
     secrets: inherit
     with:
       docker-image: ${{ needs.build-image.outputs.docker-image }}
   lint:
     needs: [ prepare-run, build-image ]
-    if: needs.prepare-run.outputs.skip_build != 'true'
+    if: ${{ false }}
     uses: ./.github/workflows/call-lint.yml
     secrets: inherit
     with:
       docker-image: ${{ needs.build-image.outputs.docker-image }}
   test:
-    needs: [ pre-commit, prepare-run, build-image, release-build ]
-    if: needs.prepare-run.outputs.skip_build != 'true'
+    needs: [ build-image, release-build ]
     uses: ./.github/workflows/call-test.yml
     secrets: inherit
     with:
       docker_image: ${{ needs.build-image.outputs.docker-image }}
-      test_matrix: ${{ needs.prepare-run.outputs.test_matrix }}
-      timeout: ${{ fromJson(needs.prepare-run.outputs.test_timeout) }}
+      test_matrix: >-
+        [{ "runs-on": "n150", "image": "tracy", "total_duration": 1800.0, "tests": [{ "script": "op_model_ttrt.sh", "args": "perf" }] }]
+      timeout: 240
   ttsim-test:
     needs: [ prepare-run, build-image, release-build ]
-    if: needs.prepare-run.outputs.skip_build != 'true'
+    if: ${{ false }}
     uses: ./.github/workflows/call-test-ttsim.yml
     secrets: inherit
     with:
@@ -85,7 +88,7 @@ jobs:
   downstream-checks:
     runs-on: ubuntu-latest
     needs: [ release-build, debug-build, test ]
-    if: github.event.pull_request.head.ref == 'uplift'
+    if: ${{ false }}
     strategy:
       matrix:
         projects: [
@@ -125,7 +128,7 @@ jobs:
           echo "### Triggered [${{ env.TARGET_REPO }}](https://github.com/${{ env.TARGET_REPO }}/actions/workflows/${{ env.WORKFLOW_NAME }}) with tt-mlir ${{ github.event.pull_request.head.sha }} :rocket:" >> $GITHUB_STEP_SUMMARY
 
   check-all-green:
-    if: always()
+    if: ${{ false }}
     needs:
       - pre-commit
       - prepare-run

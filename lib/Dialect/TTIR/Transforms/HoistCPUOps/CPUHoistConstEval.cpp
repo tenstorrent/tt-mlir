@@ -70,6 +70,7 @@
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallString.h"
 
@@ -89,6 +90,18 @@ static bool isTransparentOp(mlir::Operation *op) {
 // remain on device and split the subgraph into segments.
 static bool isBarrierOp(mlir::Operation *op) {
   return mlir::isa<CCL>(op) || mlir::isa<MeshShardOp, MeshPartitionOp>(op);
+}
+
+// Data-movement-only ops do not benefit from f32 promotion. Keeping their
+// original floating point dtype avoids large transient host copies for
+// const-eval weight preparation paths such as bf16 transposes.
+static bool isDataMovementOnlyOp(mlir::Operation *op) {
+  return mlir::isa<ReshapeOp, TransposeOp, ConcatOp, SliceStaticOp, PermuteOp,
+                   RepeatOp>(op);
+}
+
+static bool isDataMovementOnlySegment(const OpsVectorType &segment) {
+  return llvm::all_of(segment, isDataMovementOnlyOp);
 }
 
 // Walk backward from a value through transparent ops in a single traversal.
@@ -181,11 +194,23 @@ analyzeConstEval(func::FuncOp funcOp) {
   // Build a CPUHoistedOpsDescriptor descriptor for each segment.
   llvm::SmallVector<CPUHoistedOpsDescriptor> descriptors;
   for (const auto &segment : segments) {
+    bool promoteFloatsToF32 = !isDataMovementOnlySegment(segment);
+
     // Verify all ops can be lowered to Linalg. If any op fails, skip
     // CPU-hoisting this segment.
     auto *unlowerableOp = llvm::find_if(segment, [&](mlir::Operation *op) {
-      return !canLowerTTIRToLinalg(op);
+      return !canLowerTTIRToLinalg(op, promoteFloatsToF32);
     });
+
+    // Some data-movement lowering paths may still require the legacy
+    // CPU-compatible dtype policy. Fall back to promotion rather than skipping
+    // hoisting if preserving dtype is not legal for a particular op.
+    if (unlowerableOp != segment.end() && !promoteFloatsToF32) {
+      promoteFloatsToF32 = true;
+      unlowerableOp = llvm::find_if(segment, [&](mlir::Operation *op) {
+        return !canLowerTTIRToLinalg(op, promoteFloatsToF32);
+      });
+    }
 
     if (unlowerableOp != segment.end()) {
       (*unlowerableOp)
@@ -211,7 +236,8 @@ analyzeConstEval(func::FuncOp funcOp) {
     }
 
     descriptors.emplace_back(segment, outputValues,
-                             llvm::SmallString<64>("const_eval"));
+                             llvm::SmallString<64>("const_eval"),
+                             promoteFloatsToF32);
   }
 
   return descriptors;

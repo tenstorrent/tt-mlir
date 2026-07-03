@@ -1187,6 +1187,29 @@ static ::mlir::LogicalResult verifyQuantizeOpCommon(
 }
 
 //===----------------------------------------------------------------------===//
+// FromDeviceOp
+//===----------------------------------------------------------------------===//
+
+::llvm::LogicalResult
+mlir::tt::ttnn::FromDeviceOp::canonicalize(FromDeviceOp fromDeviceOp,
+                                           ::mlir::PatternRewriter &rewriter) {
+  auto toDeviceOp = fromDeviceOp.getInput().getDefiningOp<ToDeviceOp>();
+  if (!toDeviceOp) {
+    return mlir::failure();
+  }
+
+  if (toDeviceOp.getInput().getType() != fromDeviceOp.getType()) {
+    return mlir::failure();
+  }
+
+  rewriter.replaceOp(fromDeviceOp, toDeviceOp.getInput());
+  if (toDeviceOp->use_empty()) {
+    rewriter.eraseOp(toDeviceOp);
+  }
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
 // Typecast Op
 //===----------------------------------------------------------------------===//
 

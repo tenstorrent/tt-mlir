@@ -25,6 +25,15 @@ static bool isLegalWeightDtype(ttcore::DataType dtype) {
          dtype == ttcore::DataType::BFloat16;
 }
 
+static bool isSystemMemoryTensor(mlir::Value value) {
+  auto type = mlir::dyn_cast<mlir::RankedTensorType>(value.getType());
+  if (!type) {
+    return false;
+  }
+  auto layout = mlir::dyn_cast_or_null<TTNNLayoutAttr>(type.getEncoding());
+  return layout && layout.getBufferType() == ttnn::BufferType::SystemMemory;
+}
+
 // Template pattern to rewrite Matmul/Linear operations to use a specified
 // weight dtype. This pattern matches ops where the weight (B operand) is
 // bf16/f32, and inserts a typecast operation to convert it to the target dtype.
@@ -110,21 +119,46 @@ public:
     mlir::Value newWeight;
     if (dtype == ttcore::DataType::BFP_BFloat4 ||
         dtype == ttcore::DataType::BFP_BFloat8) {
-      auto hostInputType = ttnn::utils::RankedTensorTypeFactory::create(
-          mlir::cast<RankedTensorType>(weight.getType()),
-          ttnn::BufferType::SystemMemory);
-      auto fromDevOp =
-          rewriter.create<FromDeviceOp>(op.getLoc(), hostInputType, weight);
+      auto createHostPackedWeight = [&](mlir::Value hostWeight,
+                                        RankedTensorType deviceWeightType) {
+        auto hostInputType = ttnn::utils::RankedTensorTypeFactory::create(
+            deviceWeightType, ttnn::BufferType::SystemMemory);
+        if (hostWeight.getType() != hostInputType) {
+          hostWeight = rewriter.create<ToLayoutOp>(op.getLoc(), hostInputType,
+                                                   hostWeight);
+        }
 
-      auto hostOutputType =
-          ttnn::utils::RankedTensorTypeFactory::create(hostInputType, dtype);
-      auto typecastOp = rewriter.create<TypecastOp>(op.getLoc(), hostOutputType,
-                                                    fromDevOp.getResult());
+        auto hostOutputType =
+            ttnn::utils::RankedTensorTypeFactory::create(hostInputType, dtype);
+        auto typecastOp = rewriter.create<TypecastOp>(
+            op.getLoc(), hostOutputType, hostWeight);
 
-      mlir::Value device = ttnn::utils::getOrInsertDevice(rewriter, op);
-      auto toDevOp = rewriter.create<ToDeviceOp>(
-          op.getLoc(), newWeightType, typecastOp.getResult(), device);
-      newWeight = toDevOp.getResult();
+        mlir::Value device = ttnn::utils::getOrInsertDevice(rewriter, op);
+        return rewriter
+            .create<ToDeviceOp>(op.getLoc(), newWeightType,
+                                typecastOp.getResult(), device)
+            .getResult();
+      };
+
+      auto weightToLayout = weight.template getDefiningOp<ToLayoutOp>();
+      if (weightToLayout && isSystemMemoryTensor(weightToLayout.getInput())) {
+        // A CPU-hoisted const-eval result is still a host tensor before layout
+        // decomposition. Pack the BFP weight from that host value instead of
+        // materializing the intermediate bf16 weight on device and immediately
+        // reading it back for host-side BFP packing.
+        newWeight = createHostPackedWeight(
+            weightToLayout.getInput(),
+            mlir::cast<RankedTensorType>(weight.getType()));
+      } else {
+        auto hostInputType = ttnn::utils::RankedTensorTypeFactory::create(
+            mlir::cast<RankedTensorType>(weight.getType()),
+            ttnn::BufferType::SystemMemory);
+        auto fromDevOp =
+            rewriter.create<FromDeviceOp>(op.getLoc(), hostInputType, weight);
+        newWeight = createHostPackedWeight(
+            fromDevOp.getResult(),
+            mlir::cast<RankedTensorType>(weight.getType()));
+      }
     } else {
       // Single device typecast for non-blockfloat targets.
       auto typecastOp =
@@ -138,6 +172,12 @@ public:
     // defeating per-op overrides (e.g. bf16 overridden by global bfp_bf8).
     // The attribute is discardable and harmless in the final IR.
     rewriter.modifyOpInPlace(op, [&]() { op.getBMutable().assign(newWeight); });
+
+    if (auto weightToLayout = weight.template getDefiningOp<ToLayoutOp>()) {
+      if (weightToLayout->use_empty()) {
+        rewriter.eraseOp(weightToLayout);
+      }
+    }
 
     return mlir::success();
   }

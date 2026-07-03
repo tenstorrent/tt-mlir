@@ -135,6 +135,8 @@ def TTNN_FromDeviceOp : TTNN_Op<"from_device", [OpModelExempt]> {
 
     let arguments = (ins AnyRankedTensor:$input);
     let results = (outs AnyRankedTensor:$result);
+
+    let hasCanonicalizeMethod = 1;
 }
 
 class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :

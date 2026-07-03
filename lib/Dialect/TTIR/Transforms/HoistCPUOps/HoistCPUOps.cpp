@@ -74,9 +74,11 @@ static ValuesVectorType collectInputArguments(const OpsVectorType &operations) {
 }
 
 // Returns the CPU-compatible element type for the given element type.
-// Both integer and float types are converted to 32-bit equivalents.
+// Integer types are converted to 32-bit equivalents. Floating point types are
+// promoted to f32 only for segments that need CPU arithmetic precision.
 static mlir::Type getCPUCompatibleElementType(mlir::MLIRContext *context,
-                                              mlir::Type elementType) {
+                                              mlir::Type elementType,
+                                              bool promoteFloatsToF32) {
   if (elementType.isSignedInteger()) {
     return mlir::IntegerType::get(context, 32, mlir::IntegerType::Signed);
   }
@@ -86,7 +88,7 @@ static mlir::Type getCPUCompatibleElementType(mlir::MLIRContext *context,
   if (elementType.isSignlessInteger()) {
     return mlir::IntegerType::get(context, 32, mlir::IntegerType::Signless);
   }
-  if (elementType.isFloat()) {
+  if (elementType.isFloat() && promoteFloatsToF32) {
     return mlir::Float32Type::get(context);
   }
   return elementType;
@@ -94,10 +96,11 @@ static mlir::Type getCPUCompatibleElementType(mlir::MLIRContext *context,
 
 // Converts a tensor type to its CPU-compatible equivalent.
 static mlir::RankedTensorType
-convertTensorType(mlir::RankedTensorType tensorType) {
+convertTensorType(mlir::RankedTensorType tensorType,
+                  bool promoteFloatsToF32 = true) {
   auto elementType = tensorType.getElementType();
-  auto convertedElementType =
-      getCPUCompatibleElementType(tensorType.getContext(), elementType);
+  auto convertedElementType = getCPUCompatibleElementType(
+      tensorType.getContext(), elementType, promoteFloatsToF32);
 
   if (elementType != convertedElementType) {
     return mlir::RankedTensorType::get(tensorType.getShape(),
@@ -170,7 +173,8 @@ static void convertConstantOpValue(mlir::Operation *op) {
 // inserting conversion ops as needed.
 static ValuesVectorType
 performInputArgumentsConversion(mlir::OpBuilder &opBuilder,
-                                const ValuesVectorType &inputArguments) {
+                                const ValuesVectorType &inputArguments,
+                                bool promoteFloatsToF32) {
   ValuesVectorType convertedArguments;
   for (auto argument : inputArguments) {
     auto tensorType =
@@ -178,7 +182,7 @@ performInputArgumentsConversion(mlir::OpBuilder &opBuilder,
 
     TT_assertv(tensorType, "Input argument is not a RankedTensorType.");
 
-    auto convertedType = convertTensorType(tensorType);
+    auto convertedType = convertTensorType(tensorType, promoteFloatsToF32);
 
     if (tensorType != convertedType) {
       // Create converted tensor value.
@@ -200,7 +204,8 @@ performInputArgumentsConversion(mlir::OpBuilder &opBuilder,
 
 // Helper function to convert result types to CPU-compatible types.
 static TypesVectorType
-performResultConversions(const ValuesVectorType &outputValues) {
+performResultConversions(const ValuesVectorType &outputValues,
+                         bool promoteFloatsToF32) {
   TypesVectorType resultTypes;
   for (auto outputValue : outputValues) {
     auto tensorType =
@@ -208,7 +213,7 @@ performResultConversions(const ValuesVectorType &outputValues) {
 
     TT_assertv(tensorType, "Output value is not a RankedTensorType.");
 
-    auto convertedType = convertTensorType(tensorType);
+    auto convertedType = convertTensorType(tensorType, promoteFloatsToF32);
     resultTypes.push_back(convertedType);
   }
   return resultTypes;
@@ -330,7 +335,8 @@ static func::FuncOp createCPUHoistedFunctionDefinition(
     for (auto operand : clonedOp->getOperands()) {
       if (auto tensorType =
               mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
-        auto convertedTensorType = convertTensorType(tensorType);
+        auto convertedTensorType =
+            convertTensorType(tensorType, descriptor.promoteFloatsToF32);
         operand.setType(dropSignInformation(convertedTensorType));
       }
     }
@@ -339,7 +345,8 @@ static func::FuncOp createCPUHoistedFunctionDefinition(
     for (auto result : clonedOp->getResults()) {
       if (auto tensorType =
               mlir::dyn_cast<mlir::RankedTensorType>(result.getType())) {
-        auto convertedTensorType = convertTensorType(tensorType);
+        auto convertedTensorType =
+            convertTensorType(tensorType, descriptor.promoteFloatsToF32);
         result.setType(dropSignInformation(convertedTensorType));
       }
     }
@@ -458,8 +465,8 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
                                       mlir::ModuleOp cpuModule) {
   mlir::MLIRContext *context = deviceModule.getContext();
 
-  const TypesVectorType resultTypes =
-      performResultConversions(descriptor.outputValues);
+  const TypesVectorType resultTypes = performResultConversions(
+      descriptor.outputValues, descriptor.promoteFloatsToF32);
 
   const ValuesVectorType inputArguments =
       collectInputArguments(descriptor.operations);
@@ -471,7 +478,8 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
   opBuilder.setInsertionPointAfter(descriptor.operations.back());
 
   const ValuesVectorType convertedInputArguments =
-      performInputArgumentsConversion(opBuilder, inputArguments);
+      performInputArgumentsConversion(opBuilder, inputArguments,
+                                      descriptor.promoteFloatsToF32);
 
   // Create the CPU-hoisted function definition.
   func::FuncOp funcDefinition = createCPUHoistedFunctionDefinition(
@@ -536,7 +544,7 @@ static void hoistOperationsToFunction(CPUHoistedOpsDescriptor &descriptor,
 // Shared public functions
 //===----------------------------------------------------------------------===//
 
-bool canLowerTTIRToLinalg(mlir::Operation *op) {
+bool canLowerTTIRToLinalg(mlir::Operation *op, bool promoteFloatsToF32) {
   mlir::MLIRContext *context = op->getContext();
 
   // Build a temporary module containing a func that wraps a clone of the op.
@@ -548,9 +556,10 @@ bool canLowerTTIRToLinalg(mlir::Operation *op) {
   // Collect operand and result types, converting to CPU-compatible types
   // and dropping sign information, mirroring the type conversions
   // performed in createCPUHoistedFunctionDefinition.
-  auto convertType = [](mlir::Type type) -> mlir::Type {
+  auto convertType = [promoteFloatsToF32](mlir::Type type) -> mlir::Type {
     if (auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(type)) {
-      return dropSignInformation(convertTensorType(tensorType));
+      return dropSignInformation(
+          convertTensorType(tensorType, promoteFloatsToF32));
     }
     return type;
   };

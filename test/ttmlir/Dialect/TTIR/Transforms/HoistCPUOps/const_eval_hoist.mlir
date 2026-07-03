@@ -127,6 +127,20 @@ func.func private @const_eval_f32(
   return %0 : tensor<32x32xf32>
 }
 
+// --- Test 8b: Data-movement-only const-eval preserves bf16 ---
+
+// CHECK-LABEL: func.func private @const_eval_transpose_bf16
+// CHECK-NOT: ttir.to_layout
+// CHECK: call @cpu_hoisted_const_eval_{{.*}}(%arg0) {{.*}} : (tensor<16x32xbf16>) -> tensor<32x16xbf16>
+// CHECK-NOT: ttir.to_layout
+// CHECK: return
+func.func private @const_eval_transpose_bf16(
+    %arg0: tensor<16x32xbf16>
+) -> tensor<32x16xbf16> attributes {tt.function_type = "const_eval"} {
+  %0 = "ttir.transpose"(%arg0) <{dim0 = 0 : si32, dim1 = 1 : si32}> : (tensor<16x32xbf16>) -> tensor<32x16xbf16>
+  return %0 : tensor<32x16xbf16>
+}
+
 // --- Test 9: Multiple outputs ---
 
 // CHECK-LABEL: func.func private @const_eval_multiple_outputs

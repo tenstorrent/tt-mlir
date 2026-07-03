@@ -25,12 +25,17 @@ struct CPUHoistedOpsDescriptor {
   // Suffix for the hoisted function name (appears after "cpu_hoisted_",
   // and before the implementation hash).
   llvm::SmallString<64> funcNameSuffix;
+  // Whether floating point tensors in this hoisted segment should be promoted
+  // to f32 before executing on CPU.
+  bool promoteFloatsToF32;
 
   CPUHoistedOpsDescriptor(const OpsVectorType &ops,
                           const ValuesVectorType &outputs,
-                          llvm::SmallString<64> suffix)
+                          llvm::SmallString<64> suffix,
+                          bool promoteFloatsToF32 = true)
       : operations(ops), outputValues(outputs),
-        funcNameSuffix(std::move(suffix)) {}
+        funcNameSuffix(std::move(suffix)),
+        promoteFloatsToF32(promoteFloatsToF32) {}
 };
 
 // Hoists the ops from the provided descriptors into the CPU module.
@@ -58,7 +63,7 @@ mlir::ModuleOp getDeviceInnerModule(mlir::ModuleOp rootModule);
 // artificial coupling between different stages of the pipeline.
 // We should remove this once TTIR -> Linalg coverage is sufficient (issue
 // #7392).
-bool canLowerTTIRToLinalg(mlir::Operation *op);
+bool canLowerTTIRToLinalg(mlir::Operation *op, bool promoteFloatsToF32 = true);
 
 } // namespace mlir::tt::ttir
 

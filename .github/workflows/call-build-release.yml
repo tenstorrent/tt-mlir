@@ -27,6 +27,11 @@ on:
         required: false
         type: string
         default: '[]'
+      release_matrix:
+        description: 'Release build matrix'
+        required: false
+        type: string
+        default: '[{ "enable_op_model": "ON", "enable_emitc": "ON", "enable_alchemist_whl": "ON", "name": "speedy" }, { "enable_op_model": "ON", "enable_perf": "ON", "enable_runtime_debug": "ON", "enable_explorer": "ON", "enable_pykernel": "ON", "enable_ttnn_jit": "ON", "name": "tracy" }]'
 
 permissions:
   checks: write
@@ -39,10 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        build: [
-          { enable_op_model: "ON", enable_emitc: "ON", enable_alchemist_whl: "ON", name: "speedy" },
-          { enable_op_model: "ON", enable_perf: "ON", enable_runtime_debug: "ON", enable_explorer: "ON", enable_pykernel: "ON", enable_ttnn_jit: "ON", name: "tracy" }
-        ]
+        build: ${{ fromJson(inputs.release_matrix) }}
 
     name: Build ${{ matrix.build.name }} Release
 
