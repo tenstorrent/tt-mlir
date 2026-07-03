@@ -420,8 +420,17 @@ struct Tensor : public detail::RuntimeCheckedObjectImpl {
         event(eventHandle.value_or(nullptr), runtime),
         globalId(nextTensorGlobalId()) {}
 
-  void setGlobalId(std::uint64_t id) { globalId = id; }
   std::uint64_t getGlobalId() const { return globalId; }
+
+  // Returns a copy of `tensor` that shares the same underlying handle/data
+  // but is labeled with `globalId`. Used to bind runtime tensors to the
+  // caller-assigned (e.g. controller) global id at construction time, since
+  // the id is otherwise immutable after a Tensor is created.
+  static Tensor withGlobalId(const Tensor &tensor, std::uint64_t globalId) {
+    Tensor copy = tensor;
+    copy.globalId = globalId;
+    return copy;
+  }
 
 private:
   std::uint64_t nextTensorGlobalId();
