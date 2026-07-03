@@ -2786,6 +2786,198 @@ TEST_F(OpModelBase, Conv2dInterface) {
   }
 }
 
+TEST_F(OpModelBase, Conv1dInterface) {
+  // conv1d is modeled by reusing the conv2d op model path. Input is (N, L_in,
+  // C) and weight is (O, C/G, K); the op model maps these to their height-1
+  // conv2d equivalents internally.
+  llvm::SmallVector<int64_t> inputShape = {1, 32, 64};
+  llvm::SmallVector<int64_t> weightShape = {64, 64, 3};
+  // conv2d flattened output layout (1, 1, N * L_out, O); L_out = 30.
+  llvm::SmallVector<int64_t> outputShape = {1, 1, 30, 64};
+
+  auto input = createEmptyTensor(inputShape);
+  Type weightElementType = builder.getBF16Type();
+  auto weightLayout =
+      TTNNLayoutAttr::Builder(&context, weightShape, weightElementType)
+          .setBufferType(BufferType::SystemMemory)
+          .setGridShape(llvm::ArrayRef<int64_t>{1, 1})
+          .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+  auto weight = createEmptyTensor(weightShape, weightElementType, weightLayout);
+  auto outputType = createRankedTensorType(outputShape);
+
+  GetDeviceOp deviceOp = builder.create<GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+      MeshShapeAttr::get(builder.getContext(), 1, 1),
+      MeshOffsetAttr::get(builder.getContext(), 0, 0));
+
+  Conv1dOp conv1d = builder.create<Conv1dOp>(
+      builder.getUnknownLoc(),         // Location
+      outputType,                      // Output type
+      input,                           // Input tensor
+      weight,                          // Weight tensor
+      nullptr,                         // Bias tensor (optional)
+      deviceOp,                        // Device operation
+      64,                              // Input channels
+      64,                              // Output channels
+      1,                               // Batch size
+      32,                              // Input length
+      3,                               // Kernel size
+      1,                               // Stride
+      llvm::ArrayRef<int32_t>({0, 0}), // Padding [pL, pR]
+      1,                               // Dilation
+      1,                               // Groups
+      nullptr,                         // Conv2dConfig (optional)
+      nullptr,                         // ComputeKernelConfig (optional)
+      nullptr                          // Conv2dSliceConfig (optional)
+  );
+
+  // test Conv1dOp interface
+  auto constraintsExp = getOpConstraints(conv1d.getOperation());
+  ASSERT_TRUE(static_cast<bool>(constraintsExp));
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+      constraintsExp.get();
+  EXPECT_GT(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GT(outputSize, 0);
+
+  auto runtimeExp = getOpRuntime(conv1d.getOperation());
+  EXPECT_TRUE(static_cast<bool>(runtimeExp));
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    FAIL() << llvm::toString(runtimeExp.takeError());
+  }
+}
+
+TEST_F(OpModelBase, Conv1dMatchesEquivalentConv2d) {
+  // conv1d is modeled by delegating to the conv2d op model with a height-1
+  // mapping. Verify the delegation is exact: a conv1d and its explicit conv2d
+  // equivalent must produce identical constraints AND the same output layout
+  // (the flattened (1, 1, N * L_out, O) conv2d layout that conv1d lowers to
+  // downstream). Uses asymmetric padding [pL=1, pR=2] to also lock the padding
+  // mapping [pL, pR] -> {top=0, left=pL, bottom=0, right=pR}.
+  GetDeviceOp deviceOp = builder.create<GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+      MeshShapeAttr::get(builder.getContext(), 1, 1),
+      MeshOffsetAttr::get(builder.getContext(), 0, 0));
+
+  Type bf16 = builder.getBF16Type();
+  auto makeHostWeight = [&](llvm::ArrayRef<int64_t> shape) {
+    auto layout = TTNNLayoutAttr::Builder(&context, shape, bf16)
+                      .setBufferType(BufferType::SystemMemory)
+                      .setGridShape(llvm::ArrayRef<int64_t>{1, 1})
+                      .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+    return createEmptyTensor(shape, bf16, layout);
+  };
+
+  // conv1d: input (N, L_in, C) = (1, 32, 64), weight (O, C/G, K) = (64, 64, 3).
+  // L_out = (32 + 1 + 2 - 1 * (3 - 1) - 1) / 1 + 1 = 33; flattened output is
+  // (1, 1, N * L_out, O) = (1, 1, 33, 64).
+  Conv1dOp conv1d = builder.create<Conv1dOp>(
+      builder.getUnknownLoc(), createRankedTensorType({1, 1, 33, 64}),
+      createEmptyTensor({1, 32, 64}), makeHostWeight({64, 64, 3}),
+      /*bias=*/nullptr, deviceOp,
+      /*in_channels=*/64, /*out_channels=*/64, /*batch_size=*/1,
+      /*input_length=*/32, /*kernel_size=*/3, /*stride=*/1,
+      /*padding=*/llvm::ArrayRef<int32_t>({1, 2}), /*dilation=*/1, /*groups=*/1,
+      /*conv2d_config=*/nullptr, /*compute_config=*/nullptr,
+      /*conv2d_slice_config=*/nullptr);
+
+  // Explicit conv2d equivalent: input (1, 1, 32, 64), weight (64, 64, 1, 3),
+  // kernel {1, 3}, stride {1, 1}, dilation {1, 1}, padding {0, 1, 0, 2} (the
+  // [top, left, bottom, right] form conv2d's interface feeds through
+  // reorderPool2dPadding), and the L1_FULL slicing conv1d forces by default.
+  Conv2dSliceConfigAttr l1Full = Conv2dSliceConfigAttr::get(
+      &context, Conv2dSliceType::L1Full, /*num_slices=*/0);
+  Conv2dOp conv2d = builder.create<Conv2dOp>(
+      builder.getUnknownLoc(), createRankedTensorType({1, 1, 33, 64}),
+      createEmptyTensor({1, 1, 32, 64}), makeHostWeight({64, 64, 1, 3}),
+      /*bias=*/nullptr, deviceOp,
+      /*in_channels=*/64, /*out_channels=*/64, /*batch_size=*/1,
+      /*input_height=*/1, /*input_width=*/32, llvm::ArrayRef<int32_t>({1, 3}),
+      llvm::ArrayRef<int32_t>({1, 1}), llvm::ArrayRef<int32_t>({0, 1, 0, 2}),
+      llvm::ArrayRef<int32_t>({1, 1}), /*groups=*/1, /*conv2d_config=*/nullptr,
+      /*compute_config=*/nullptr, l1Full);
+
+  auto c1 = getOpConstraints(conv1d.getOperation());
+  auto c2 = getOpConstraints(conv2d.getOperation());
+  ASSERT_TRUE(static_cast<bool>(c1)) << llvm::toString(c1.takeError());
+  ASSERT_TRUE(static_cast<bool>(c2)) << llvm::toString(c2.takeError());
+
+  EXPECT_EQ(c1->cbL1PeakSize, c2->cbL1PeakSize);
+  EXPECT_EQ(c1->tensorL1PeakSize, c2->tensorL1PeakSize);
+  EXPECT_EQ(c1->peakL1MemorySize, c2->peakL1MemorySize);
+  EXPECT_EQ(c1->outputL1BufferSize, c2->outputL1BufferSize);
+  ASSERT_EQ(c1->outputLayouts.size(), c2->outputLayouts.size());
+  ASSERT_FALSE(c1->outputLayouts.empty());
+  EXPECT_EQ(c1->outputLayouts[0], c2->outputLayouts[0]);
+
+  auto r1 = getOpRuntime(conv1d.getOperation());
+  auto r2 = getOpRuntime(conv2d.getOperation());
+  ASSERT_TRUE(static_cast<bool>(r1)) << llvm::toString(r1.takeError());
+  ASSERT_TRUE(static_cast<bool>(r2)) << llvm::toString(r2.takeError());
+  EXPECT_GT(r1.get(), 0u);
+}
+
+TEST_F(OpModelBase, Conv1dWithBiasMatchesEquivalentConv2d) {
+  // Same delegation check as Conv1dMatchesEquivalentConv2d, but exercising the
+  // optional bias operand (conv1d bias is (1, 1, 1, O), identical to conv2d, so
+  // it is forwarded unchanged). This is the shape the motivating conv1d IR
+  // uses.
+  GetDeviceOp deviceOp = builder.create<GetDeviceOp>(
+      builder.getUnknownLoc(), builder.getType<DeviceType>(),
+      MeshShapeAttr::get(builder.getContext(), 1, 1),
+      MeshOffsetAttr::get(builder.getContext(), 0, 0));
+
+  Type bf16 = builder.getBF16Type();
+  auto makeHostTensor = [&](llvm::ArrayRef<int64_t> shape) {
+    auto layout = TTNNLayoutAttr::Builder(&context, shape, bf16)
+                      .setBufferType(BufferType::SystemMemory)
+                      .setGridShape(llvm::ArrayRef<int64_t>{1, 1})
+                      .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+    return createEmptyTensor(shape, bf16, layout);
+  };
+
+  Conv1dOp conv1d = builder.create<Conv1dOp>(
+      builder.getUnknownLoc(), createRankedTensorType({1, 1, 30, 64}),
+      createEmptyTensor({1, 32, 64}), makeHostTensor({64, 64, 3}),
+      /*bias=*/makeHostTensor({1, 1, 1, 64}), deviceOp,
+      /*in_channels=*/64, /*out_channels=*/64, /*batch_size=*/1,
+      /*input_length=*/32, /*kernel_size=*/3, /*stride=*/1,
+      /*padding=*/llvm::ArrayRef<int32_t>({0, 0}), /*dilation=*/1, /*groups=*/1,
+      /*conv2d_config=*/nullptr, /*compute_config=*/nullptr,
+      /*conv2d_slice_config=*/nullptr);
+
+  Conv2dSliceConfigAttr l1Full = Conv2dSliceConfigAttr::get(
+      &context, Conv2dSliceType::L1Full, /*num_slices=*/0);
+  Conv2dOp conv2d = builder.create<Conv2dOp>(
+      builder.getUnknownLoc(), createRankedTensorType({1, 1, 30, 64}),
+      createEmptyTensor({1, 1, 32, 64}), makeHostTensor({64, 64, 1, 3}),
+      /*bias=*/makeHostTensor({1, 1, 1, 64}), deviceOp,
+      /*in_channels=*/64, /*out_channels=*/64, /*batch_size=*/1,
+      /*input_height=*/1, /*input_width=*/32, llvm::ArrayRef<int32_t>({1, 3}),
+      llvm::ArrayRef<int32_t>({1, 1}), llvm::ArrayRef<int32_t>({0, 0, 0, 0}),
+      llvm::ArrayRef<int32_t>({1, 1}), /*groups=*/1, /*conv2d_config=*/nullptr,
+      /*compute_config=*/nullptr, l1Full);
+
+  auto c1 = getOpConstraints(conv1d.getOperation());
+  auto c2 = getOpConstraints(conv2d.getOperation());
+  ASSERT_TRUE(static_cast<bool>(c1)) << llvm::toString(c1.takeError());
+  ASSERT_TRUE(static_cast<bool>(c2)) << llvm::toString(c2.takeError());
+
+  EXPECT_EQ(c1->cbL1PeakSize, c2->cbL1PeakSize);
+  EXPECT_EQ(c1->tensorL1PeakSize, c2->tensorL1PeakSize);
+  EXPECT_EQ(c1->peakL1MemorySize, c2->peakL1MemorySize);
+  EXPECT_EQ(c1->outputL1BufferSize, c2->outputL1BufferSize);
+  ASSERT_FALSE(c1->outputLayouts.empty());
+  ASSERT_EQ(c1->outputLayouts.size(), c2->outputLayouts.size());
+  EXPECT_EQ(c1->outputLayouts[0], c2->outputLayouts[0]);
+
+  auto r1 = getOpRuntime(conv1d.getOperation());
+  ASSERT_TRUE(static_cast<bool>(r1)) << llvm::toString(r1.takeError());
+  EXPECT_GT(r1.get(), 0u);
+}
+
 TEST_F(OpModelBase, Conv2dInterfaceNullOutput) {
   // create Conv2dOp
   llvm::SmallVector<int64_t> inputShape = {1, 1, 50176, 3};

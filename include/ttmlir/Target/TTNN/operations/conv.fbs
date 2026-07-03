@@ -152,6 +152,27 @@ table PrepareConvTranspose2dBiasOp {
   conv2d_slice_config: tt.target.ttnn.Conv2dSliceConfig;
 }
 
+table Conv1dOp {
+  input: tt.target.ttnn.TensorRef;
+  weight: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  out: tt.target.ttnn.TensorRef;
+  device: tt.target.DeviceRef;
+  in_channels: uint32;
+  out_channels: uint32;
+  batch_size: uint32;
+  input_length: uint32;
+  kernel_size: uint32;
+  stride: uint32;
+  padding: [int32];
+  dilation: uint32;
+  groups: uint32;
+  output_dtype: tt.target.DataType = null;
+  conv2d_config: tt.target.ttnn.Conv2dConfig;
+  compute_config: tt.target.ttnn.DeviceComputeKernelConfig;
+  conv2d_slice_config: tt.target.ttnn.Conv2dSliceConfig;
+}
+
 table Conv2dOp {
   input: tt.target.ttnn.TensorRef;
   weight: tt.target.ttnn.TensorRef;
