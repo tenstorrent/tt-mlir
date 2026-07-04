@@ -367,6 +367,7 @@ public:
           }
           return std::nullopt;
         };
+        mlir::sdy::TensorShardingAttr resolvedSharding = nullptr;
         bool walkOk = true;
         while (walkOk) {
           mlir::Operation *def = shardingSource.getDefiningOp();
@@ -454,16 +455,37 @@ public:
             walkOk = false;
             break;
           }
+          // sdy collective ops
+          // (all_slice/all_gather/reshard/sharding_constraint) are emitted as
+          // stablehlo.composite carrying the authoritative result sharding in
+          // composite_attributes["out_sharding"]. Read it directly instead of
+          // walking further back (e.g. to the lm_head weight, whose sharding
+          // may name a different axis than the resharded logits).
+          if (auto composite =
+                  llvm::dyn_cast<mlir::stablehlo::CompositeOp>(def)) {
+            if (auto attrs = composite.getCompositeAttributes()) {
+              resolvedSharding =
+                  attrs.getAs<mlir::sdy::TensorShardingAttr>("out_sharding");
+            }
+            break;
+          }
           break;
         }
-        if (walkOk && shardingSource.use_empty()) {
-          walkOk = false;
+        mlir::sdy::TensorShardingAttr sharding;
+        int64_t queryDim;
+        if (resolvedSharding) {
+          sharding = resolvedSharding;
+          queryDim = trackedDim;
+        } else {
+          if (walkOk && shardingSource.use_empty()) {
+            walkOk = false;
+          }
+          sharding = walkOk ? shardy_utils::getOperandShardingAttr(
+                                  *shardingSource.use_begin(), meshOps[0])
+                            : shardy_utils::getOperandShardingAttr(
+                                  srcOp->getOpOperand(0), meshOps[0]);
+          queryDim = walkOk ? trackedDim : reductionDim;
         }
-        auto sharding = walkOk ? shardy_utils::getOperandShardingAttr(
-                                     *shardingSource.use_begin(), meshOps[0])
-                               : shardy_utils::getOperandShardingAttr(
-                                     srcOp->getOpOperand(0), meshOps[0]);
-        int64_t queryDim = walkOk ? trackedDim : reductionDim;
         auto dimShardings = sharding.getDimShardings();
         if (queryDim < static_cast<int64_t>(dimShardings.size()) &&
             !dimShardings[queryDim].getAxes().empty()) {
@@ -710,6 +732,7 @@ public:
           }
           return std::nullopt;
         };
+        mlir::sdy::TensorShardingAttr resolvedSharding = nullptr;
         bool walkOk = true;
         while (walkOk) {
           mlir::Operation *def = shardingSource.getDefiningOp();
@@ -802,17 +825,38 @@ public:
             walkOk = false;
             break;
           }
+          // sdy collective ops
+          // (all_slice/all_gather/reshard/sharding_constraint) are emitted as
+          // stablehlo.composite carrying the authoritative result sharding in
+          // composite_attributes["out_sharding"]. Read it directly instead of
+          // walking further back (e.g. to the lm_head weight, whose sharding
+          // may name a different axis than the resharded logits).
+          if (auto composite =
+                  llvm::dyn_cast<mlir::stablehlo::CompositeOp>(def)) {
+            if (auto attrs = composite.getCompositeAttributes()) {
+              resolvedSharding =
+                  attrs.getAs<mlir::sdy::TensorShardingAttr>("out_sharding");
+            }
+            break;
+          }
           // Unknown op — stop and query sharding on what we have.
           break;
         }
-        if (walkOk && shardingSource.use_empty()) {
-          walkOk = false;
+        mlir::sdy::TensorShardingAttr sharding;
+        int64_t queryDim;
+        if (resolvedSharding) {
+          sharding = resolvedSharding;
+          queryDim = trackedDim;
+        } else {
+          if (walkOk && shardingSource.use_empty()) {
+            walkOk = false;
+          }
+          sharding = walkOk ? shardy_utils::getOperandShardingAttr(
+                                  *shardingSource.use_begin(), meshOps[0])
+                            : shardy_utils::getOperandShardingAttr(
+                                  srcOp->getOpOperand(0), meshOps[0]);
+          queryDim = walkOk ? trackedDim : topkDim;
         }
-        auto sharding = walkOk ? shardy_utils::getOperandShardingAttr(
-                                     *shardingSource.use_begin(), meshOps[0])
-                               : shardy_utils::getOperandShardingAttr(
-                                     srcOp->getOpOperand(0), meshOps[0]);
-        int64_t queryDim = walkOk ? trackedDim : topkDim;
         auto dimShardings = sharding.getDimShardings();
         if (queryDim < static_cast<int64_t>(dimShardings.size()) &&
             !dimShardings[queryDim].getAxes().empty()) {
