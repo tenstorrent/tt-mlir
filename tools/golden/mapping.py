@@ -8494,9 +8494,11 @@ def ttir_sdpa_golden(
     sliding_window_size: kernel-derived {0, -inf} mask added after scaling.
       causal:     window covers last W tokens [i-W+1, i]
       non-causal: window covers [i-W/2, i+W/2] (inclusive, W+1 tokens)
-    attention_sink: per-head logit treated as a virtual K column. Kernel
-      applies scale to it just like raw QK, so the golden pre-scales it
-      before concat-softmax-slice.
+    attention_sink: per-head logit treated as a virtual K column, concatenated
+      before softmax and sliced off after. It is a faithful post-scale logit
+      (NOT scaled here). The tt-metal kernel applies scale to the sink operand,
+      so the TTNN lowering pre-divides it by scale to compensate (tt-metal
+      issue 40470); this golden models the faithful, pre-compensation value.
     """
     output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
     is_causal = unpack_mlir_attr(is_causal_attr)
@@ -8551,11 +8553,17 @@ def ttir_sdpa_golden(
         qk = torch.add(qk, attention_mask.float())
 
     if attention_sink is not None:
-        # Sink shape: [1, Hq, 1, 1]; broadcast to [B, Hq, Sq, 1] and scale.
+        # Sink shape: [1, Hq, 1, 1]; broadcast to [B, Hq, Sq, 1]. The sink is a
+        # faithful post-scale logit (in the source graph it is concatenated to
+        # the already-scaled scores), so it is NOT scaled here. The TTNN lowering
+        # pre-divides it by `scale` because the tt-metal kernel applies scale to
+        # the sink operand; that division cancels the kernel's scaling, leaving
+        # this faithful value. See TTIRToTTNN::compensateAttentionSinkForScale
+        # and tt-metal issue 40470.
         # GoldenMapTensor routes torch ops through __torch_function__ but
-        # doesn't override Python `*` or mutating methods like .expand — use
-        # torch.* free functions instead.
-        sink = torch.mul(attention_sink.float(), scale)
+        # doesn't override mutating methods like .expand — use torch.* free
+        # functions instead.
+        sink = attention_sink.float()
         sink = torch.broadcast_to(
             sink, (qk.shape[0], qk.shape[1], qk.shape[2], sink.shape[-1])
         )
