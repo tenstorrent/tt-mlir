@@ -268,12 +268,30 @@ def test_index_copy(dim: int) -> None:
 def test_index_copy_inplace_kv_cache_like() -> None:
     # Mirrors the Llama StaticCache update: scatter new key/value slabs into a
     # [batch, heads, cache_len, head_dim] cache along the sequence dim.
+    seq_dim = 2
     cache = torch.zeros((2, 4, 32, 16), dtype=torch.bfloat16)
     positions = torch.tensor([0, 1, 2])
     values = torch.randn((2, 4, positions.numel(), 16), dtype=torch.bfloat16)
-    expected = cache.clone().index_copy_(2, positions, values)
+    expected = cache.clone().index_copy_(seq_dim, positions, values)
     tt = cache.to("tt")
     with strict_no_fallback():
-        ret = tt.index_copy_(2, positions.to("tt"), values.to("tt"))
+        ret = tt.index_copy_(seq_dim, positions.to("tt"), values.to("tt"))
     assert ret is tt, "index_copy_ must return self"
+    torch.testing.assert_close(tt.cpu(), expected)
+
+
+@pytest.mark.usefixtures("skip_if_sim")
+def test_index_copy_inplace_kv_cache_decode_step() -> None:
+    # Single-token decode step at a non-zero position: the [batch, heads, 1,
+    # head_dim] write along the seq dim lowers to ttir.update_cache (vs the
+    # multi-token prefill above, which lowers to ttir.fill_cache). update_cache
+    # honors the runtime position, so a non-zero index must land exactly.
+    seq_dim = 2
+    cache = torch.randn((2, 4, 32, 16), dtype=torch.bfloat16)
+    positions = torch.tensor([7])
+    values = torch.randn((2, 4, 1, 16), dtype=torch.bfloat16)
+    expected = cache.clone().index_copy_(seq_dim, positions, values)
+    tt = cache.to("tt")
+    with strict_no_fallback():
+        tt.index_copy_(seq_dim, positions.to("tt"), values.to("tt"))
     torch.testing.assert_close(tt.cpu(), expected)
