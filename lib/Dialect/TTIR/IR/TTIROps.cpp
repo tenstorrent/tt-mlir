@@ -695,7 +695,8 @@ static mlir::Attribute makeScalarAttr(mlir::Type elemType, double val) {
   llvm_unreachable("Expected a FloatType or IntegerType");
 }
 
-// Extract constant fill value from FullOp, ZerosOp, or OnesOp.
+// Extract constant fill value from FullOp, ZerosOp, OnesOp,
+//  or a splat ConstantOp.
 static mlir::Attribute getConstantValue(mlir::Value value) {
   mlir::Operation *op = value.getDefiningOp();
 
@@ -714,6 +715,17 @@ static mlir::Attribute getConstantValue(mlir::Value value) {
         mlir::cast<mlir::RankedTensorType>(op->getResult(0).getType())
             .getElementType(),
         1.0);
+  }
+
+  // A splat constant (an all-ones/all-zeros mask that is folded to a single
+  // repeated value)
+  if (auto constantOp =
+          mlir::dyn_cast_if_present<mlir::tt::ttir::ConstantOp>(op)) {
+    auto elements =
+        mlir::dyn_cast<mlir::DenseElementsAttr>(constantOp.getValueAttr());
+    if (elements && elements.isSplat()) {
+      return elements.getSplatValue<mlir::Attribute>();
+    }
   }
 
   return {};
@@ -896,6 +908,25 @@ constantFoldLogicalOr(mlir::tt::ttir::LogicalOrOp op,
   }
   if (auto foldResult = constantFoldLogicalOr(*this, adaptor)) {
     return foldResult;
+  }
+  return nullptr;
+}
+
+//===----------------------------------------------------------------------===//
+// WhereOp
+//===----------------------------------------------------------------------===//
+
+// WhereOp folder:
+//   where(ones,  x, y) -> x
+//   where(zeros, x, y) -> y
+::mlir::OpFoldResult mlir::tt::ttir::WhereOp::fold(FoldAdaptor adaptor) {
+  auto resultType = getResult().getType();
+
+  if (isConstantOne(getFirst()) && getSecond().getType() == resultType) {
+    return getSecond();
+  }
+  if (isConstantZero(getFirst()) && getThird().getType() == resultType) {
+    return getThird();
   }
   return nullptr;
 }
