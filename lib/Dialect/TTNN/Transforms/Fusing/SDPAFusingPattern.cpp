@@ -321,6 +321,28 @@ std::pair<Value, std::optional<float>> SDPAFusing::analyzeQ(Value v) const {
   return {v, scale};
 }
 
+// A reshape that only inserts or removes size-1 dims (squeeze/unsqueeze):
+// stripping the 1s from both shapes leaves the same dim sequence, so it
+// preserves data order and the [B, H, S, D] structure this walk reasons about,
+// and is safe to look through when tracing back to the logical Q/K/V. A reshape
+// that moves non-unit dims is not, and must stop the walk.
+static bool isUnitDimReshape(ReshapeOp reshapeOp) {
+  auto strip = [](ArrayRef<int64_t> shape) {
+    SmallVector<int64_t> kept;
+    for (int64_t d : shape) {
+      if (d != 1) {
+        kept.push_back(d);
+      }
+    }
+    return kept;
+  };
+  auto in =
+      mlir::cast<RankedTensorType>(reshapeOp.getInput().getType()).getShape();
+  auto out =
+      mlir::cast<RankedTensorType>(reshapeOp.getResult().getType()).getShape();
+  return strip(in) == strip(out);
+}
+
 std::tuple<Value, bool, std::optional<float>>
 SDPAFusing::analyzeK(Value v) const {
   bool skippedTranspose = false;
@@ -359,6 +381,14 @@ SDPAFusing::analyzeK(Value v) const {
       }
     }
 
+    if (auto reshapeOp = dyn_cast<ReshapeOp>(defOp)) {
+      if (isUnitDimReshape(reshapeOp)) {
+        v = reshapeOp.getInput();
+        continue;
+      }
+      break;
+    }
+
     break;
   }
 
@@ -375,6 +405,14 @@ Value SDPAFusing::analyzeV(Value v) const {
     if (auto repeatOp = dyn_cast<RepeatInterleaveOp>(defOp)) {
       if (repeatOp.getDim() == kNumHeadsDim) {
         v = repeatOp.getInput();
+        continue;
+      }
+      break;
+    }
+
+    if (auto reshapeOp = dyn_cast<ReshapeOp>(defOp)) {
+      if (isUnitDimReshape(reshapeOp)) {
+        v = reshapeOp.getInput();
         continue;
       }
       break;
