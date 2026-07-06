@@ -2,8 +2,6 @@
 
 #include "assert.hpp"
 #include <cstdint>
-#include <optional>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -12,7 +10,7 @@
 #include <mlir/IR/MLIRContext.h>
 #include <tt/runtime/types.h>
 
-#include "config.hpp"
+#include "compile_options.hpp"
 #include "tt_kurbla_export.hpp"
 
 namespace tt::kurbla {
@@ -41,33 +39,6 @@ struct TT_KURBLA_API CompiledProgram {
 
     std::uint32_t num_programs() const { return binary.getNumPrograms(); }
     std::string program_name(std::uint32_t program_index) const { return binary.getProgramName(program_index); }
-};
-
-// Options for TTIR-starting pipelines. Shared across all current pipelines
-// because every field maps to tt-mlir's TTIRToTTNNCommonPipelineOptions base.
-// Per-pipeline option splits arrive only when a future pipeline grows a knob
-// the others don't have.
-struct TT_KURBLA_API CompileOptions {
-    enum class MockArch { WormholeB0, Blackhole };
-
-    // 0=all optimizer passes off (fastest), 1=optimizer on without sharding,
-    // 2=optimizer on with memory layout analysis (sharding). See tt-mlir's
-    // TTIRToTTNNCommonPipelineOptions for the precise mapping.
-    int optimization_level = 0;
-
-    // Precedence: system_desc > system_desc_path > mock_arch.
-    std::optional<tt::runtime::SystemDesc> system_desc;
-    std::string system_desc_path;
-    MockArch mock_arch = MockArch::WormholeB0;
-
-    std::string to_string() const {
-        std::stringstream ss;
-        ss << "{ ";
-        ss << "optimization_level: " << optimization_level;
-        ss << " }";
-
-        return ss.str();
-    }
 };
 
 // Returns the process-wide MLIRContext used by tt-kurbla's compile pipelines.

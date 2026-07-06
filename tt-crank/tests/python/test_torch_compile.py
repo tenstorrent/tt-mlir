@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 
 from tt_kurbla.torch.testing import DeviceType, ExecutionMode, assert_close_cpu_vs_tt
-from tt_kurbla.torch._compile import _compile_options, CompileOption
+from tt_kurbla.torch._compile import _compile_options, CompileOption, BfpDtype, MathFidelity
 from _models import MNISTLinear
 
 
@@ -937,29 +937,85 @@ def test_compile_mse_loss_backward(reduction: int) -> None:
     _assert_compile_matches_eager(_MSELossBwd(reduction), grad, pred, target, atol=0.05, rtol=0.05)
 
 
-@pytest.mark.parametrize("options,expected", [(None, 0), ({}, 0), ({CompileOption.OPT_LEVEL: 1}, 1), ({CompileOption.OPT_LEVEL: 2}, 2)])
-def test_compile_options_parses_optimization_level(options: dict | None, expected: int) -> None:
-    """Valid options parse into a CompileOptions carrying the requested level;
-    an absent or empty dict defaults to 0."""
-    assert _compile_options(options).optimization_level == expected
+def test_compile_options() -> None:
+    """All in-process `_compile_options` parsing/validation in one test:
+    optimization_level parsing, unset-option defaults, a full round-trip of every
+    Category-A option, plain string keys, unknown-key rejection, and nanobind's
+    native type enforcement."""
+    # optimization_level parsing; an absent or empty dict defaults to 0.
+    for options, expected in [(None, 0), ({}, 0), ({CompileOption.OPT_LEVEL: 1}, 1), ({CompileOption.OPT_LEVEL: 2}, 2)]:
+        assert _compile_options(options).optimization_level == expected
 
+    # Unset options stay None so the compiler keeps its own defaults; only
+    # optimization_level (0) and experimental_enable_permute_matmul_fusion (True)
+    # carry an explicit default.
+    defaults = _compile_options(None)
+    assert defaults.optimization_level == 0
+    assert defaults.experimental_weight_dtype is None
+    assert defaults.experimental_kv_cache_dtype is None
+    assert defaults.math_fidelity is None
+    assert defaults.fp32_dest_acc_en is None
+    assert defaults.experimental_enable_permute_matmul_fusion is True
+    assert defaults.enable_const_eval is None
+    assert defaults.all_reduce_workaround_enabled is None
 
-def test_compile_options_invalid_compile_option() -> None:
-    """Test that invalid compile option throws."""
-    with pytest.raises(Exception):
+    # Every Category-A option round-trips into the native CompileOptions struct.
+    c = _compile_options({
+        CompileOption.OPT_LEVEL: 2,
+        CompileOption.EXPERIMENTAL_WEIGHT_DTYPE: BfpDtype.BfpBf8,
+        CompileOption.EXPERIMENTAL_KV_CACHE_DTYPE: BfpDtype.BfpBf4,
+        CompileOption.MATH_FIDELITY: MathFidelity.HiFi3,
+        CompileOption.FP32_DEST_ACC_EN: False,
+        CompileOption.EXPERIMENTAL_ENABLE_FUSING_CONV2D_WITH_MULTIPLY_PATTERN: True,
+        CompileOption.EXPERIMENTAL_ENABLE_PERMUTE_MATMUL_FUSION: False,
+        CompileOption.ENABLE_TRACE: True,
+        CompileOption.ENABLE_CONST_EVAL: False,
+        CompileOption.ENABLE_CONST_EVAL_ON_CPU: False,
+        CompileOption.ENABLE_CONST_EVAL_INPUTS_TO_SYSTEM_MEMORY: False,
+        CompileOption.EXPERIMENTAL_ENABLE_DRAM_SPACE_SAVING_OPTIMIZATION: True,
+        CompileOption.ENABLE_CREATE_D2M_SUBGRAPHS: True,
+        CompileOption.TTNN_PERF_METRICS_ENABLED: True,
+        CompileOption.TTNN_PERF_METRICS_OUTPUT_FILE: "/tmp/perf.json",
+        CompileOption.ALL_REDUCE_WORKAROUND_ENABLED: False,
+    })
+    assert c.optimization_level == 2
+    assert c.experimental_weight_dtype == BfpDtype.BfpBf8
+    assert c.experimental_kv_cache_dtype == BfpDtype.BfpBf4
+    assert c.math_fidelity == MathFidelity.HiFi3
+    assert c.fp32_dest_acc_en is False
+    assert c.experimental_enable_fusing_conv2d_with_multiply_pattern is True
+    assert c.experimental_enable_permute_matmul_fusion is False
+    assert c.enable_trace is True
+    assert c.enable_const_eval is False
+    assert c.enable_const_eval_on_cpu is False
+    assert c.enable_const_eval_inputs_to_system_memory is False
+    assert c.experimental_enable_dram_space_saving_optimization is True
+    assert c.enable_create_d2m_subgraphs is True
+    assert c.ttnn_perf_metrics_enabled is True
+    assert c.ttnn_perf_metrics_output_file == "/tmp/perf.json"
+    assert c.all_reduce_workaround_enabled is False
+
+    # Plain string keys are accepted alongside CompileOption members.
+    string_keyed = _compile_options({"enable_trace": True, "math_fidelity": MathFidelity.LoFi})
+    assert string_keyed.enable_trace is True
+    assert string_keyed.math_fidelity == MathFidelity.LoFi
+
+    # Unknown option keys are rejected.
+    with pytest.raises(ValueError):
         _compile_options({"invalid": 0})
 
+    # nanobind enforces the native field types: a wrong-typed value is rejected
+    # when assigned into the CompileOptions struct.
+    for bad_options in [
+        {CompileOption.ENABLE_TRACE: "yes"},  # bool option, str value
+        {CompileOption.FP32_DEST_ACC_EN: "true"},  # optional-bool option, str value
+        {CompileOption.MATH_FIDELITY: "hifi4"},  # MathFidelity option, str value
+        {CompileOption.EXPERIMENTAL_WEIGHT_DTYPE: "bfp_bf8"},  # BfpDtype option, str value
+        {CompileOption.OPT_LEVEL: 1.0},  # int option, float value
+    ]:
+        with pytest.raises(TypeError):
+            _compile_options(bad_options)
 
-@pytest.mark.parametrize(
-    "level",
-    [-1, 3, 99, True, 1.0, "2"],
-    ids=["negative", "too_high", "way_high", "bool", "float", "str"],
-)
-def test_compile_options_rejects_invalid_optimization_level(level) -> None:
-    """optimization_level must be an int in [0, 2]: bool, float, str, and
-    out-of-range values are rejected before reaching the pipeline."""
-    with pytest.raises(ValueError):
-        _compile_options({CompileOption.OPT_LEVEL: level})
 
 
 @pytest.mark.parametrize("shape", _TILE_SHAPES)

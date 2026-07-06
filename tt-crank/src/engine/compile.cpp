@@ -10,6 +10,7 @@
 
 #include "assert.hpp"
 #include "config.hpp"
+#include "engine/compile_options.hpp"
 #include "engine/device.hpp"
 #include "misc.hpp"
 #include <llvm/Support/raw_ostream.h>
@@ -76,16 +77,6 @@ struct EngineState {
 EngineState &engine_state() {
     static EngineState state;
     return state;
-}
-
-mlir::tt::ttcore::Arch to_ttcore_arch(CompileOptions::MockArch arch) {
-    switch (arch) {
-        case CompileOptions::MockArch::WormholeB0:
-            return mlir::tt::ttcore::Arch::WormholeB0;
-        case CompileOptions::MockArch::Blackhole:
-            return mlir::tt::ttcore::Arch::Blackhole;
-    }
-    return mlir::tt::ttcore::Arch::WormholeB0;
 }
 
 std::string make_error_message(std::string_view fallback, const std::string &captured) {
@@ -177,9 +168,7 @@ CompiledProgram &run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const Compi
     print_compile_options(options);
 
     mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions pm_opts;
-    pm_opts.optimizationLevel = options.optimization_level;
-    pm_opts.systemDescPath = options.system_desc.has_value() ? std::string{} : options.system_desc_path;
-    pm_opts.mockSystemDescArch = to_ttcore_arch(options.mock_arch);
+    options.set_options_on(pm_opts);
 
     const auto mesh_shape = ::tt::kurbla::runtime_device_mesh_shape();
     const auto &mesh_fabric = ::tt::kurbla::runtime_mesh_fabric_config(mesh_shape);

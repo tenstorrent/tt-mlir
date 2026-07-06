@@ -22,6 +22,7 @@
 
 #include "cast.hpp"
 #include "engine/compile.hpp"
+#include "engine/compile_options.hpp"
 #include "engine/device.hpp"
 #include "torch/backend.hpp"
 #include "torch/ops/builders.hpp"
@@ -558,12 +559,40 @@ NB_MODULE(_native, m) {
         return std::vector<std::int64_t>(dims.begin(), dims.end());
     });
 
-    // Compile knobs threaded from `torch.compile(..., options=...)` into the
-    // TTIR->TTNN pipeline. Only the user-facing field is exposed; system_desc
-    // is filled in by the backend, not the caller.
+    // Typed enums for the dtype / math-fidelity compile options.
+    nb::enum_<::tt::kurbla::CompileOptions::BfpDtype>(m, "BfpDtype")
+        .value("BfpBf8", ::tt::kurbla::CompileOptions::BfpDtype::BfpBf8)
+        .value("BfpBf4", ::tt::kurbla::CompileOptions::BfpDtype::BfpBf4);
+
+    nb::enum_<::tt::kurbla::CompileOptions::MathFidelity>(m, "MathFidelity")
+        .value("LoFi", ::tt::kurbla::CompileOptions::MathFidelity::LoFi)
+        .value("HiFi2", ::tt::kurbla::CompileOptions::MathFidelity::HiFi2)
+        .value("HiFi3", ::tt::kurbla::CompileOptions::MathFidelity::HiFi3)
+        .value("HiFi4", ::tt::kurbla::CompileOptions::MathFidelity::HiFi4);
+
+    // Compile options: `torch.compile(..., options=...)`
     nb::class_<::tt::kurbla::CompileOptions>(m, "CompileOptions")
         .def("__init__", [](::tt::kurbla::CompileOptions *self) { new (self)::tt::kurbla::CompileOptions{}; })
-        .def_rw("optimization_level", &::tt::kurbla::CompileOptions::optimization_level);
+        .def_rw("optimization_level", &::tt::kurbla::CompileOptions::optimization_level)
+        .def_rw("experimental_weight_dtype", &::tt::kurbla::CompileOptions::experimental_weight_dtype)
+        .def_rw("experimental_kv_cache_dtype", &::tt::kurbla::CompileOptions::experimental_kv_cache_dtype)
+        .def_rw("math_fidelity", &::tt::kurbla::CompileOptions::math_fidelity)
+        .def_rw("fp32_dest_acc_en", &::tt::kurbla::CompileOptions::fp32_dest_acc_en)
+        .def_rw("experimental_enable_fusing_conv2d_with_multiply_pattern",
+                &::tt::kurbla::CompileOptions::experimental_enable_fusing_conv2d_with_multiply_pattern)
+        .def_rw("experimental_enable_permute_matmul_fusion",
+                &::tt::kurbla::CompileOptions::experimental_enable_permute_matmul_fusion)
+        .def_rw("enable_trace", &::tt::kurbla::CompileOptions::enable_trace)
+        .def_rw("enable_const_eval", &::tt::kurbla::CompileOptions::enable_const_eval)
+        .def_rw("enable_const_eval_on_cpu", &::tt::kurbla::CompileOptions::enable_const_eval_on_cpu)
+        .def_rw("enable_const_eval_inputs_to_system_memory",
+                &::tt::kurbla::CompileOptions::enable_const_eval_inputs_to_system_memory)
+        .def_rw("experimental_enable_dram_space_saving_optimization",
+                &::tt::kurbla::CompileOptions::experimental_enable_dram_space_saving_optimization)
+        .def_rw("enable_create_d2m_subgraphs", &::tt::kurbla::CompileOptions::enable_create_d2m_subgraphs)
+        .def_rw("ttnn_perf_metrics_enabled", &::tt::kurbla::CompileOptions::ttnn_perf_metrics_enabled)
+        .def_rw("ttnn_perf_metrics_output_file", &::tt::kurbla::CompileOptions::ttnn_perf_metrics_output_file)
+        .def_rw("all_reduce_workaround_enabled", &::tt::kurbla::CompileOptions::all_reduce_workaround_enabled);
 
     nb::class_<PyModuleBuilder>(m, "ModuleBuilder")
         .def(nb::init<std::vector<tk::TensorTypeSpec>, const std::vector<mlir::tt::ttcore::ArgumentType> &>(),
