@@ -11,6 +11,7 @@ configure_file(
 add_library(tt_kurbla SHARED
     ${CMAKE_CURRENT_BINARY_DIR}/version.cpp
     engine/compile.cpp
+    engine/compile_options.cpp
     engine/device.cpp
     engine/execution_payload.cpp
     # Static-init env shim runtime. Linked into the library so every consumer (tests,

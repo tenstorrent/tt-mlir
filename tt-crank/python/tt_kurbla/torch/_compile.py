@@ -553,30 +553,94 @@ def _prepare_op_args(
 
 
 class CompileOption(StrEnum):
-    OPT_LEVEL = "optimization_level"
+    """Compile options in ``torch.compile(model, backend="tt", options={...})``."""
+
+    OPT_LEVEL = "optimization_level" # int
+    EXPERIMENTAL_WEIGHT_DTYPE = "experimental_weight_dtype" # BfpDtype
+    EXPERIMENTAL_KV_CACHE_DTYPE = "experimental_kv_cache_dtype" # BfpDtype
+    MATH_FIDELITY = "math_fidelity" # MathFidelity
+    FP32_DEST_ACC_EN = "fp32_dest_acc_en" # bool
+    EXPERIMENTAL_ENABLE_FUSING_CONV2D_WITH_MULTIPLY_PATTERN = "experimental_enable_fusing_conv2d_with_multiply_pattern" # bool
+    EXPERIMENTAL_ENABLE_PERMUTE_MATMUL_FUSION = "experimental_enable_permute_matmul_fusion" # bool
+    ENABLE_TRACE = "enable_trace" # bool
+    ENABLE_CONST_EVAL = "enable_const_eval" # bool
+    ENABLE_CONST_EVAL_ON_CPU = "enable_const_eval_on_cpu" # bool
+    ENABLE_CONST_EVAL_INPUTS_TO_SYSTEM_MEMORY = "enable_const_eval_inputs_to_system_memory" # bool
+    EXPERIMENTAL_ENABLE_DRAM_SPACE_SAVING_OPTIMIZATION = "experimental_enable_dram_space_saving_optimization" # bool
+    ENABLE_CREATE_D2M_SUBGRAPHS = "enable_create_d2m_subgraphs" # bool
+    TTNN_PERF_METRICS_ENABLED = "ttnn_perf_metrics_enabled" # bool
+    TTNN_PERF_METRICS_OUTPUT_FILE = "ttnn_perf_metrics_output_file" # str
+    ALL_REDUCE_WORKAROUND_ENABLED = "all_reduce_workaround_enabled" # bool
+
 
 COMPILE_OPTIONS = [opt for opt in CompileOption]
 
-def _compile_options(options: dict [CompileOption, str | int | bool] | None) -> _native.CompileOptions:
-    """Validate the torch.compile `options` dict and build a CompileOptions.
+# Exported native enums so callers can set the typed options directly.
+# e.g. options={
+#   CompileOption.MATH_FIDELITY: MathFidelity.HiFi4,
+#   CompileOptions.EXPERIMENTAL_WEIGHT_DTYPE: BfpDtype.BfpBf4
+# }
+BfpDtype = _native.BfpDtype          # BfpBf8, BfpBf4
+MathFidelity = _native.MathFidelity  # LoFi, HiFi2, HiFi3, HiFi4
 
-    A custom backend receives `options` as an arbitrary, unvalidated dict (torch
-    schema-checks only the inductor backend), so we check it here and pass to the compiler.
-    """
+def _compile_options(options: dict [CompileOption, str | int | bool] | None) -> _native.CompileOptions:
+    """Converts python dict with CompileOption to _native.CompileOptions"""
+
     opts = _native.CompileOptions() # default options from config.hpp
     if (options is None):
         return opts
 
     unknown = options.keys() - COMPILE_OPTIONS
     if unknown:
-        raise ValueError(f"tt backend: unknown compile option(s) {sorted(unknown)}; supported: {sorted(COMPILE_OPTIONS)}")
+        raise ValueError(f"Unknown compile option(s) {sorted(unknown)}; supported: {sorted(COMPILE_OPTIONS)}")
 
     if (CompileOption.OPT_LEVEL in options):
-        level = options[CompileOption.OPT_LEVEL]
-        if isinstance(level, bool) or not isinstance(level, int) or not 0 <= level <= 2:
-            raise ValueError(f"tt backend: optimization_level must be an int in [0, 2], got {level!r}")
+        opts.optimization_level = options[CompileOption.OPT_LEVEL]
 
-        opts.optimization_level = level
+    if (CompileOption.EXPERIMENTAL_WEIGHT_DTYPE in options):
+        opts.experimental_weight_dtype = options[CompileOption.EXPERIMENTAL_WEIGHT_DTYPE]
+
+    if (CompileOption.EXPERIMENTAL_KV_CACHE_DTYPE in options):
+        opts.experimental_kv_cache_dtype = options[CompileOption.EXPERIMENTAL_KV_CACHE_DTYPE]
+
+    if (CompileOption.MATH_FIDELITY in options):
+        opts.math_fidelity = options[CompileOption.MATH_FIDELITY]
+
+    if (CompileOption.FP32_DEST_ACC_EN in options):
+        opts.fp32_dest_acc_en = options[CompileOption.FP32_DEST_ACC_EN]
+
+    if (CompileOption.EXPERIMENTAL_ENABLE_FUSING_CONV2D_WITH_MULTIPLY_PATTERN in options):
+        opts.experimental_enable_fusing_conv2d_with_multiply_pattern = options[CompileOption.EXPERIMENTAL_ENABLE_FUSING_CONV2D_WITH_MULTIPLY_PATTERN]
+
+    if (CompileOption.EXPERIMENTAL_ENABLE_PERMUTE_MATMUL_FUSION in options):
+        opts.experimental_enable_permute_matmul_fusion = options[CompileOption.EXPERIMENTAL_ENABLE_PERMUTE_MATMUL_FUSION]
+
+    if (CompileOption.ENABLE_TRACE in options):
+        opts.enable_trace = options[CompileOption.ENABLE_TRACE]
+
+    if (CompileOption.ENABLE_CONST_EVAL in options):
+        opts.enable_const_eval = options[CompileOption.ENABLE_CONST_EVAL]
+
+    if (CompileOption.ENABLE_CONST_EVAL_ON_CPU in options):
+        opts.enable_const_eval_on_cpu = options[CompileOption.ENABLE_CONST_EVAL_ON_CPU]
+
+    if (CompileOption.ENABLE_CONST_EVAL_INPUTS_TO_SYSTEM_MEMORY in options):
+        opts.enable_const_eval_inputs_to_system_memory = options[CompileOption.ENABLE_CONST_EVAL_INPUTS_TO_SYSTEM_MEMORY]
+
+    if (CompileOption.EXPERIMENTAL_ENABLE_DRAM_SPACE_SAVING_OPTIMIZATION in options):
+        opts.experimental_enable_dram_space_saving_optimization = options[CompileOption.EXPERIMENTAL_ENABLE_DRAM_SPACE_SAVING_OPTIMIZATION]
+
+    if (CompileOption.ENABLE_CREATE_D2M_SUBGRAPHS in options):
+        opts.enable_create_d2m_subgraphs = options[CompileOption.ENABLE_CREATE_D2M_SUBGRAPHS]
+
+    if (CompileOption.TTNN_PERF_METRICS_ENABLED in options):
+        opts.ttnn_perf_metrics_enabled = options[CompileOption.TTNN_PERF_METRICS_ENABLED]
+
+    if (CompileOption.TTNN_PERF_METRICS_OUTPUT_FILE in options):
+        opts.ttnn_perf_metrics_output_file = options[CompileOption.TTNN_PERF_METRICS_OUTPUT_FILE]
+
+    if (CompileOption.ALL_REDUCE_WORKAROUND_ENABLED in options):
+        opts.all_reduce_workaround_enabled = options[CompileOption.ALL_REDUCE_WORKAROUND_ENABLED]
 
     return opts
 
