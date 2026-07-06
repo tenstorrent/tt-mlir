@@ -1096,11 +1096,17 @@ public:
       // If the input didn't come from a subview, we'll expect the CB directly
       // which implicitly comes from an unrealized conversion cast.  This is a
       // special case where we're reading from offset 0.
-      if (mlir::isa_and_nonnull<UnrealizedConversionCastOp>(
+      auto needsZeroTileIndex = [](Value tileIndex) {
+        Type type = tileIndex.getType();
+        return !type.isIndex() && !llvm::isa<IntegerType>(type);
+      };
+      if (needsZeroTileIndex(aTileIndex) ||
+          mlir::isa_and_nonnull<UnrealizedConversionCastOp>(
               aTileIndex.getDefiningOp())) {
         aTileIndex = index(rewriter, op.getLoc(), 0);
       }
-      if (mlir::isa_and_nonnull<UnrealizedConversionCastOp>(
+      if (needsZeroTileIndex(bTileIndex) ||
+          mlir::isa_and_nonnull<UnrealizedConversionCastOp>(
               bTileIndex.getDefiningOp())) {
         bTileIndex = index(rewriter, op.getLoc(), 0);
       }

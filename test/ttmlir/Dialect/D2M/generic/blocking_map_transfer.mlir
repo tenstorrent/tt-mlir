@@ -22,7 +22,7 @@
 // CHECK: memref.alloc() {alignment = 64 : i64, d2m.blocking_map = #map, d2m.compute_intermediate, d2m.synchronized_buffer = 2 : i32} : memref<4x4x!ttcore.tile<32x32, f32>>
 // CHECK-ALLOC-LABEL: func.func @blocking_map_transfers_to_alloc
 // CHECK-ALLOC: d2m.generic
-// CHECK-ALLOC: memref.alloc() {alignment = {{.*}}, d2m.blocking_map = #map, d2m.compute_intermediate, d2m.synchronized_buffer = 2 : i32} : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+// CHECK-ALLOC: memref.alloc() {{.*}}d2m.blocking_map = #map, d2m.compute_intermediate, d2m.synchronized_buffer = 2 : i32} : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
 func.func @blocking_map_transfers_to_alloc(%arg0: !memref_tiled, %arg1: !memref_tiled, %arg2: !memref_tiled) {
   %out = memref.alloc() : !memref_tiled
   d2m.generic {
@@ -76,7 +76,7 @@ func.func @blocking_map_transfers_to_alloc(%arg0: !memref_tiled, %arg1: !memref_
 // CHECK-FUSED-AUTO: d2m.view_layout %{{.*}} -> memref<8x2x1x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>
 // CHECK-FUSED-AUTO: d2m.generic {block_factors = [8, 2], grid = #ttcore.grid<1x1>
 // CHECK-FUSED-AUTO: affine.for
-// CHECK-FUSED-AUTO: memref.alloc() {alignment = {{.*}}, d2m.blocking_map = #{{.*}}, d2m.compute_intermediate, d2m.synchronized_buffer = 2 : i32} : memref<1x4x!ttcore.tile<32x32, f32>, #l1>
+// CHECK-FUSED-AUTO: memref.alloc() {{.*}}d2m.blocking_map = #{{.*}}, d2m.compute_intermediate, d2m.synchronized_buffer = 2 : i32} : memref<1x4x!ttcore.tile<32x32, f32>, #l1>
 // CHECK-FUSED-AUTO: linalg.generic
 // %a/%b (the L1 views returned by the remote_load) are unused in this example in favor of %e0/%e1 (scratch allocs) for testing purposes.
 func.func @blocking_map_reblocks_fused_generic(%arg0: !memref_tiled_l1_8, %arg1: !memref_tiled_l1_8, %arg2: !memref_tiled_l1_8) {

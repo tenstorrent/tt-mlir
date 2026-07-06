@@ -376,6 +376,9 @@ public:
       // TODO(sdjordjevic): #8598 Decouple NLPCreateQKVHeadsDecodeFusing from
       // RoPEDecodeFusing
       patterns.add<fusing::RoPEDecodeFusing>(&getContext());
+      // Sibling that matches the canonicalized (folded reshape) form of the
+      // decode permute the same RoPEDecodeFusing handles.
+      patterns.add<fusing::RoPEDecodeReshapeFusing>(&getContext());
       patterns.add<fusing::SDPAFusing>(&getContext(), validationConfig);
       patterns.add<NLPConcatHeadsDecodeFusing>(&getContext());
       patterns.add<fusing::SplitQueryKeyValueAndSplitHeadsFusing<MatmulOp>>(

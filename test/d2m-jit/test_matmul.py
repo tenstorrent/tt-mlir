@@ -341,9 +341,10 @@ def test_matmul_transpose_b_method_form_correctness():
 # Multicast smoke kernel.
 #
 # Each core (cy, cx) loops over k, m, n. For each k, m it row-multicasts
-# `lhs[m, k]` from the column-0 source core (cy, 0) across the row, and
-# for each k, m, n it column-multicasts `rhs[k, n]` from the row-0 source
-# core (0, cx) down the column. The body stores `lhs_shard + rhs_shard`
+# `lhs[cy * M + m, k]` from the column-0 source core (cy, 0) across
+# the row, and for each k, m, n it column-multicasts
+# `rhs[k, cx * N + n]` from the row-0 source core (0, cx) down the
+# column. The body stores `lhs_shard + rhs_shard`
 # into `out[m, n]` -- the store is *not* accumulating, so out[m, n] ends
 # up holding the last K iteration's `lhs + rhs`.
 #
@@ -357,26 +358,16 @@ def mcast_overwrite_kernel(lhs, rhs, out, K, M, N, GY, GX):
     for k in range(K):
         for m in range(M):
             lhs_shard = remote_load(
-                lhs, [m, k], mcast_start_index=[cy, 0], mcast_shape=[1, GX]
+                lhs, [cy * M + m, k], mcast_start_index=[cy, 0], mcast_shape=[1, GX]
             )
             for n in range(N):
                 rhs_shard = remote_load(
-                    rhs, [k, n], mcast_start_index=[0, cx], mcast_shape=[GY, 1]
+                    rhs, [k, cx * N + n], mcast_start_index=[0, cx], mcast_shape=[GY, 1]
                 )
                 out_shard = lhs_shard + rhs_shard
                 remote_store(out, [m, n], out_shard)
 
 
-@pytest.mark.skip(
-    reason=(
-        "Hits an expected assertion in "
-        "lib/Dialect/D2M/Transforms/SplitUnifiedThread.cpp:127 -- "
-        "wrapComputeInSynchronizedRegion expects exactly one op with a "
-        "synchronizable op, and the multicast remote_load pattern violates "
-        "that invariant. Tracked separately; un-skip once the pass handles "
-        "multi-op synchronized scopes."
-    )
-)
 def test_mcast_overwrite_grid_2x2():
     """Run mcast_overwrite_kernel on a 2x2 grid with K=M=N=1 -- single
     iteration per core, multicast from (cy, 0) across the row and from

@@ -574,10 +574,10 @@ public:
     mlir::Attribute exponentAttr;
     if (auto attr = mlir::dyn_cast<FloatAttr>(srcOp.getRhs())) {
       auto exponent = attr.getValue().convertToFloat();
-      exponentAttr = emitter.template emit<float>(exponent);
+      exponentAttr = emitter.emit<float>(exponent);
     } else if (auto attr = mlir::dyn_cast<IntegerAttr>(srcOp.getRhs())) {
       auto exponent = static_cast<int32_t>(attr.getValue().getSExtValue());
-      exponentAttr = emitter.template emit<int32_t>(exponent);
+      exponentAttr = emitter.emit<int32_t>(exponent);
     } else {
       return failure();
     }
@@ -728,14 +728,14 @@ public:
         emitter.emit(srcOp.getA()),
         emitter.emit(srcOp.getB()),
         emitter.emit(srcOp.getSparsity()),
-        emitter.template emit<ttnn_to_emitc::SparseMatmulProgramConfig>(
+        emitter.emit<ttnn_to_emitc::SparseMatmulProgramConfig>(
             srcOp.getProgramConfig()),
         emitter.emit(srcOp.getNnz()),
         emitter.emit(srcOp.getIsInputASparse()),
         emitter.emit(srcOp.getIsInputBSparse()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
         emitter.emit(srcOp.getDtypeAttr()),
-        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
+        emitter.emit<::ttnn::WormholeComputeKernelConfig>(
             srcOp.getComputeConfig()),
     };
 
@@ -780,10 +780,9 @@ public:
         emitter.emit(srcOp.getInputHeight()),
         emitter.emit(srcOp.getInputWidth()),
         emitter.emit(srcOp.getChannels()),
-        emitter.template emit<std::array<uint32_t, 2>>(
-            srcOp.getKernelSizeAttr()),
-        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
-        emitter.template emit<
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
+        emitter.emit<
             std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
             rewriter.getI32ArrayAttr(padding)),
         emitter.emit(srcOp.getCeilMode()),
@@ -839,13 +838,12 @@ public:
         emitter.emit(srcOp.getInputHeight()),
         emitter.emit(srcOp.getInputWidth()),
         emitter.emit(srcOp.getChannels()),
-        emitter.template emit<std::array<uint32_t, 2>>(
-            srcOp.getKernelSizeAttr()),
-        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
-        emitter.template emit<
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
+        emitter.emit<
             std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
             rewriter.getI32ArrayAttr(padding)),
-        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getCeilMode()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
         /*dram_slice_config=*/emitter.emit(std::nullopt),
@@ -908,13 +906,12 @@ public:
         emitter.emit(srcOp.getInput()), emitter.emit(srcOp.getBatchSize()),
         emitter.emit(srcOp.getInputHeight()),
         emitter.emit(srcOp.getInputWidth()), emitter.emit(srcOp.getChannels()),
-        emitter.template emit<std::array<uint32_t, 2>>(
-            srcOp.getKernelSizeAttr()),
-        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
-        emitter.template emit<
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
+        emitter.emit<
             std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
             rewriter.getI32ArrayAttr(padding)),
-        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getCeilMode()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
         /*dram_slice_config=*/emitter.emit(std::nullopt),
@@ -3125,8 +3122,9 @@ public:
         emitter.emit(srcOp.getIndex()),
         emitter.emit(srcOp.getSource()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
-        emitter.emit(std::nullopt), // opt_reduction_string
-        emitter.emit(std::nullopt)  // sub_core_grid
+        emitter.emit(ttnn_to_emitc::reduceTypeToScatterString(
+            srcOp.getScatterReduceType())), // opt_reduction_string
+        emitter.emit(std::nullopt)          // sub_core_grid
     };
 
     emitter.replaceOp(*this, args);

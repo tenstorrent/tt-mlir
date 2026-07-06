@@ -6,7 +6,7 @@ module @cumprod attributes {} {
   func.func public @test_cumprod_dim0(%arg0: tensor<1x32x128x128xf32>) -> tensor<1x32x128x128xf32> {
     // CHECK-LABEL: func.func public @test_cumprod_dim0
     // CHECK: ttnn.cumprod
-    // CHECK-SAME: dim = 0 : i32
+    // CHECK-SAME: dim = 0 : si32
     // CHECK-SAME: tensor<1x32x128x128xf32,
     // CHECK-SAME: -> tensor<1x32x128x128xf32,
     %1 = "ttir.cumprod"(%arg0) <{dim = 0 : i64}> : (tensor<1x32x128x128xf32>) -> tensor<1x32x128x128xf32>

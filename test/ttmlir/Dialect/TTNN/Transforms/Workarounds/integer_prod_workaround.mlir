@@ -15,7 +15,7 @@ module {
   // CHECK: "ttnn.multiply"
   // CHECK: "ttnn.reshape"
   func.func public @test_integer_prod(%arg0: tensor<1x3xsi32, #ttnn_layout>) -> tensor<1xsi32, #ttnn_layout1> {
-    %0 = "ttnn.prod"(%arg0) <{dim_arg = 1 : i64, keep_dim = false}> : (tensor<1x3xsi32, #ttnn_layout>) -> tensor<1xsi32, #ttnn_layout1>
+    %0 = "ttnn.prod"(%arg0) <{dim_arg = 1 : si64, keep_dim = false}> : (tensor<1x3xsi32, #ttnn_layout>) -> tensor<1xsi32, #ttnn_layout1>
     return %0 : tensor<1xsi32, #ttnn_layout1>
   }
 }

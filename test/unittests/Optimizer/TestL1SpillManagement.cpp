@@ -808,3 +808,49 @@ TEST_F(ReshardCbOverlapTest, OverlapWithReshardInputFailsCompilation) {
   EXPECT_NE(diag.find("cannot be placed"), std::string::npos)
       << "expected a clear placement error; got: " << diag;
 }
+
+//===----------------------------------------------------------------------===//
+// FragmentationTrackerTest
+//===----------------------------------------------------------------------===//
+
+class FragmentationTrackerTest : public L1SpillTestFixture {};
+
+// allocateAddress is an infallible contract: callers MUST pre-check
+// wouldAllocateAt and never place a tensor that does not fit. This pins that
+// pre-check — wouldAllocateAt reports nullopt exactly when no contiguous block
+// fits, which is what the forward sweep (ensureFitsL1) and the eviction replay
+// (replayFrom) rely on to avoid placing a tensor with no contiguous fit. The
+// eviction-loop integration (a replay that can't place a still-live tensor →
+// keep evicting, no false FRAG_RESOLVED) is covered end-to-end by the phi2
+// repro, which needs geometric fragmentation this sum-based fixture cannot
+// easily construct.
+TEST_F(FragmentationTrackerTest, WouldAllocateAtReportsNoFitAndRoundTrips) {
+  l1BudgetPerCore = 100 * kKiB;
+  auto tt = tensorType({1, 1, 1024, 1024}, makeL1Sharded({1, 1, 1024, 1024}));
+  auto args = beginFunc({tt, tt});
+  finishFunc({args[0]});
+
+  mlir::tt::ttnn::SumL1MemoryTracker tracker;
+  tracker.init(l1BudgetPerCore);
+
+  // 60 KiB fits in a fresh 100 KiB budget; place it (pre-check passes).
+  EXPECT_TRUE(tracker.wouldAllocateAt(60 * kKiB).has_value());
+  tracker.addTensor(args[0], 60 * kKiB);
+  EXPECT_EQ(tracker.getOccupiedL1(), 60 * kKiB);
+
+  // A second 60 KiB no longer fits the remaining 40 KiB — wouldAllocateAt says
+  // so, so a caller must NOT hand it to addTensor (that would trip the
+  // allocateAddress contract). A 30 KiB tensor still fits.
+  EXPECT_FALSE(tracker.wouldAllocateAt(60 * kKiB).has_value());
+  EXPECT_TRUE(tracker.wouldAllocateAt(30 * kKiB).has_value());
+
+  // State round-trips through snapshot/restore (occupancy + free list), which
+  // the replay restore path depends on.
+  auto snap = tracker.takeSnapshot();
+  tracker.init(l1BudgetPerCore);
+  EXPECT_EQ(tracker.getOccupiedL1(), 0u);
+  EXPECT_TRUE(tracker.wouldAllocateAt(100 * kKiB).has_value());
+  tracker.restoreSnapshot(snap);
+  EXPECT_EQ(tracker.getOccupiedL1(), 60 * kKiB);
+  EXPECT_FALSE(tracker.wouldAllocateAt(60 * kKiB).has_value());
+}

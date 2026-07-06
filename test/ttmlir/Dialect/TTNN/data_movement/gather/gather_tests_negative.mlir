@@ -5,7 +5,7 @@
 module {
   func.func @gather_rank_mismatch(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3x1xui32>) -> tensor<2x3xf32> {
     // CHECK: error: 'ttnn.gather' op Input tensor and index tensor must have the same rank.
-    %0 = "ttnn.gather"(%arg0, %arg1) <{dim = 0 : i32}> : (tensor<5x3xf32>, tensor<2x3x1xui32>) -> tensor<2x3xf32>
+    %0 = "ttnn.gather"(%arg0, %arg1) <{dim = 0 : si32}> : (tensor<5x3xf32>, tensor<2x3x1xui32>) -> tensor<2x3xf32>
     return %0 : tensor<2x3xf32>
   }
 }
@@ -16,7 +16,7 @@ module {
 module {
   func.func @gather_dim_too_large(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xui32>) -> tensor<2x3xf32> {
     // CHECK: error: 'ttnn.gather' op Dimension must be in the range [-2, 2), got dim = 2
-    %0 = "ttnn.gather"(%arg0, %arg1) <{dim = 2 : i32}> : (tensor<5x3xf32>, tensor<2x3xui32>) -> tensor<2x3xf32>
+    %0 = "ttnn.gather"(%arg0, %arg1) <{dim = 2 : si32}> : (tensor<5x3xf32>, tensor<2x3xui32>) -> tensor<2x3xf32>
     return %0 : tensor<2x3xf32>
   }
 }
@@ -27,7 +27,7 @@ module {
 module {
   func.func @gather_dim_too_negative(%arg0: tensor<5x3xf32>, %arg1: tensor<2x3xui32>) -> tensor<2x3xf32> {
     // CHECK: error: 'ttnn.gather' op Dimension must be in the range [-2, 2), got dim = -3
-    %0 = "ttnn.gather"(%arg0, %arg1) <{dim = -3 : i32}> : (tensor<5x3xf32>, tensor<2x3xui32>) -> tensor<2x3xf32>
+    %0 = "ttnn.gather"(%arg0, %arg1) <{dim = -3 : si32}> : (tensor<5x3xf32>, tensor<2x3xui32>) -> tensor<2x3xf32>
     return %0 : tensor<2x3xf32>
   }
 }
