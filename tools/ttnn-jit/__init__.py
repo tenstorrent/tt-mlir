@@ -103,8 +103,10 @@ if METAL_GIT_SHA is not None:
 
 from ttnn_jit.api import (
     jit,
+    shard_advisor,
 )
 
 __all__ = [
     "jit",
+    "shard_advisor",
 ]

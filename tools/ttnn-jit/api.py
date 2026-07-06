@@ -6,6 +6,7 @@ import inspect
 
 import ttnn
 from ttnn_jit._src.jit import JitFunction
+from ttnn_jit._src.shard_advisor import ShardAdvisor
 
 
 def jit(
@@ -52,5 +53,46 @@ def jit(
         if inspect.ismethod(f):
             return staticmethod(jit_func)
         return jit_func
+
+    return _decorator
+
+
+def shard_advisor(
+    optimization_level: int = 2,
+    debug: bool = False,
+    out_dir: str = None,
+    extra_pipeline_options: str = "",
+):
+    """Decorate a ttnn function to run the greedy L1-sharding advisor.
+
+    The decorated callable, when invoked with live ttnn.Tensor arguments,
+    traces the function to TTIR, runs the greedy memory-layout optimizer, and
+    returns an AdvisorReport (printing the text report as a side effect). It
+    does not compile to a flatbuffer or execute on device.
+
+    Args:
+        optimization_level: Optimizer level. >=2 enables L1 sharding analysis
+            and the L1 spill pass; 1 runs greedy without L1 sharding.
+        debug: Print the pipeline options and enable verbose tracing.
+        out_dir: Directory for the decision-trace JSON and saved system desc.
+            Defaults to generated/ttnn-jit/<func>/advisor.
+        extra_pipeline_options: Extra options appended verbatim to the
+            ttir-to-ttnn runtime pipeline.
+    """
+
+    def _decorator(f):
+        advisor = ShardAdvisor(
+            f,
+            optimization_level=optimization_level,
+            debug=debug,
+            out_dir=out_dir,
+            extra_pipeline_options=extra_pipeline_options,
+        )
+
+        def _wrapped(*args, **kwargs):
+            return advisor.run(*args, **kwargs)
+
+        _wrapped.advisor = advisor
+        return _wrapped
 
     return _decorator
