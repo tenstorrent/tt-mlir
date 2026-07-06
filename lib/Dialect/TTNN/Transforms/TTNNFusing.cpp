@@ -178,6 +178,52 @@ private:
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
+// Build nlp_concat_heads_decode for a [S=1, B, H, D] input and confirm it can
+// run: the op needs height-sharded L1 input, but the workaround pass that would
+// provide it hasn't run yet, so probe the sharded form through the op model.
+// Returns the op, or nullptr (leaving no ops behind) when it can't run. `anchor`
+// supplies the insertion location and the device for the probe.
+static NLPConcatHeadsDecodeOp
+buildValidatedNLPConcatHeadsDecode(Value input, int64_t numHeads,
+                                   Operation *anchor,
+                                   mlir::PatternRewriter &rewriter) {
+  auto inputType = mlir::cast<RankedTensorType>(input.getType());
+  auto inputShape = inputType.getShape();
+  SmallVector<int64_t> outputShape = {inputShape[0], 1, inputShape[1],
+                                      numHeads * inputShape[3]};
+  auto resultType =
+      utils::RankedTensorTypeFactory::create(inputType, outputShape);
+
+  op_model::ScopedSingletonDeviceGuard deviceGuard(anchor);
+  auto decodeOp = rewriter.create<NLPConcatHeadsDecodeOp>(
+      anchor->getLoc(), resultType, input,
+      rewriter.getUI32IntegerAttr(static_cast<uint32_t>(numHeads)));
+
+  auto workaround =
+      workarounds::decomposition::getWorkaroundedInput(decodeOp, rewriter);
+  if (workaround) {
+    auto shardedInputType = mlir::cast<RankedTensorType>(workaround->getType());
+    auto shardedResultType =
+        utils::RankedTensorTypeFactory::create(shardedInputType, outputShape);
+    auto validationOp = rewriter.create<NLPConcatHeadsDecodeOp>(
+        anchor->getLoc(), shardedResultType, workaround->getResult(),
+        rewriter.getUI32IntegerAttr(static_cast<uint32_t>(numHeads)));
+    std::vector<TTNNLayoutAttr> inputLayouts =
+        utils::extractInputLayouts(validationOp.getOperation());
+    OpConfig config(
+        mlir::cast<TTNNLayoutAttr>(shardedResultType.getEncoding()));
+    auto validationResult = op_constraint_validation::validateOperation(
+        validationOp.getOperation(), inputLayouts, config);
+    rewriter.eraseOp(validationOp);
+    rewriter.eraseOp(*workaround);
+    if (!validationResult.isSuccess()) {
+      rewriter.eraseOp(decodeOp);
+      return nullptr;
+    }
+  }
+  return decodeOp;
+}
+
 // ============================================================================
 // NLP Concat Heads Decode Fusing
 // ============================================================================
@@ -425,6 +471,66 @@ public:
   }
 };
 
+// TTIR-level fusing already folds merge-heads into a batch-first
+// concatenate_heads op, so the reshape/permute-rooted fusion above never matches
+// the decode case. Match a decode-shaped concatenate_heads ([B, H, S=1, D]) and
+// upgrade it to nlp_concat_heads_decode so the KV stays in the decode sharded
+// layout rather than going through the generic head concat.
+class ConcatHeadsToNLPConcatHeadsDecodeFusing
+    : public mlir::OpRewritePattern<ConcatenateHeadsOp> {
+  using mlir::OpRewritePattern<ConcatenateHeadsOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ConcatenateHeadsOp concatOp,
+                  mlir::PatternRewriter &rewriter) const override {
+    auto inputType = mlir::cast<RankedTensorType>(concatOp.getInput().getType());
+    auto inputShape = inputType.getShape(); // [B, H, S, D]
+    // Decode phase only (seq_len == 1).
+    if (inputShape.size() != 4 || inputShape[2] != 1) {
+      return failure();
+    }
+    int64_t batchSize = inputShape[0];
+    int64_t numHeads = inputShape[1];
+    int64_t headDim = inputShape[3];
+
+    // nlp_concat_heads_decode derives its output shape from the input's padded
+    // shape, so head_dim and batch must be tile-aligned (see the sibling
+    // fusion's note on tt-metal #38992).
+    constexpr int64_t kTileSize = 32;
+    if (headDim % kTileSize != 0 || batchSize % kTileSize != 0) {
+      return failure();
+    }
+
+    // nlp_concat_heads_decode consumes [S=1, B, H, D]; concatenate_heads is
+    // batch-first. With S==1 this reshape only repositions the unit dim, so it
+    // preserves data order (and cancels the frontend's [S,B,H,D]->[B,H,S,D]).
+    SmallVector<int64_t> sbhdShape = {1, batchSize, numHeads, headDim};
+    auto sbhdType = utils::RankedTensorTypeFactory::create(inputType, sbhdShape);
+    SmallVector<int32_t> sbhdShape32(sbhdShape.begin(), sbhdShape.end());
+    auto sbhdInput = rewriter.create<ReshapeOp>(
+        concatOp.getLoc(), sbhdType, concatOp.getInput(),
+        rewriter.getI32ArrayAttr(sbhdShape32));
+
+    auto decodeOp = buildValidatedNLPConcatHeadsDecode(
+        sbhdInput.getResult(), numHeads, concatOp, rewriter);
+    if (!decodeOp) {
+      return failure();
+    }
+
+    // The [S, 1, B, H*D] decode output collapses back to concatenate_heads'
+    // [B, S, H*D] result (again a unit-dim-only reshape).
+    rewriter.setInsertionPointAfter(decodeOp);
+    auto outType = mlir::cast<RankedTensorType>(concatOp.getResult().getType());
+    SmallVector<int32_t> outShape32(outType.getShape().begin(),
+                                    outType.getShape().end());
+    rewriter.replaceOpWithNewOp<ReshapeOp>(concatOp, outType,
+                                           decodeOp.getResult(),
+                                           rewriter.getI32ArrayAttr(outShape32));
+    return success();
+  }
+};
+
 #endif // TTMLIR_ENABLE_OPMODEL
 
 // Folds the "expand-style" repeat_interleave — reshape (insert a unit dim) ->
@@ -575,6 +681,7 @@ public:
         patterns.add<fusing::SDPAFusing>(&getContext(), validationConfig);
       }
       patterns.add<NLPConcatHeadsDecodeFusing>(&getContext());
+      patterns.add<ConcatHeadsToNLPConcatHeadsDecodeFusing>(&getContext());
       patterns.add<fusing::SplitQueryKeyValueAndSplitHeadsFusing<MatmulOp>>(
           &getContext(), validationConfig);
       patterns.add<fusing::SplitQueryKeyValueAndSplitHeadsFusing<LinearOp>>(
