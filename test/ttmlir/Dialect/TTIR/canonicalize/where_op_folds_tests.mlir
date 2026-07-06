@@ -3,7 +3,7 @@
 
 // Verifies WhereOp::fold: a where with a constant-splat condition folds to the
 // selected branch:
-//   where(ones,  x, y) -> x
+//   where(nonzero,  x, y) -> x
 //   where(zeros, x, y) -> y
 // The condition may come from ttir.ones/ttir.zeros/ttir.full or a splat
 // ttir.constant (getConstantValue looks through all of them). This is the GLM
@@ -49,12 +49,12 @@ module {
     return %0 : tensor<4x4xf32>
   }
 
-  // Negative: a constant condition whose value is neither 0 nor 1 must NOT
-  // fold. This pins the fold to the exact 1/0 predicate values rather than
-  // "any constant condition".
-  func.func @where_constant_nonbinary_not_folded(%x: tensor<4x4xf32>, %y: tensor<4x4xf32>) -> tensor<4x4xf32> {
-    // CHECK-LABEL: @where_constant_nonbinary_not_folded
-    // CHECK: "ttir.where"
+  // A non-zero constant condition (any value, not just 1) selects the
+  // true branch, matching where's non-zero=true predicate semantics.
+  func.func @where_constant_nonzero_folds_to_true(%x: tensor<4x4xf32>, %y: tensor<4x4xf32>) -> tensor<4x4xf32> {
+    // CHECK-LABEL: @where_constant_nonzero_folds_to_true
+    // CHECK-NOT: "ttir.where"
+    // CHECK: return %arg0
     %cond = "ttir.full"() <{shape = array<i32: 4, 4>, fill_value = 5.0 : f32}> : () -> tensor<4x4xf32>
     %0 = "ttir.where"(%cond, %x, %y) : (tensor<4x4xf32>, tensor<4x4xf32>, tensor<4x4xf32>) -> tensor<4x4xf32>
     return %0 : tensor<4x4xf32>
@@ -68,6 +68,16 @@ module {
     // CHECK: return %arg0
     %cond = "ttir.constant"() <{value = dense<1> : tensor<4x4xi32>}> : () -> tensor<4x4xi32>
     %0 = "ttir.where"(%cond, %x, %y) : (tensor<4x4xi32>, tensor<4x4xf32>, tensor<4x4xf32>) -> tensor<4x4xf32>
+    return %0 : tensor<4x4xf32>
+  }
+
+  // Constant-true but broadcasting condition: folding to x would change the
+  // result type, so the guard declines the fold.
+  func.func @where_broadcast_condition_not_folded(%x: tensor<1x4xf32>, %y: tensor<4x4xf32>) -> tensor<4x4xf32> {
+    // CHECK-LABEL: @where_broadcast_condition_not_folded
+    // CHECK: "ttir.where"
+    %cond = "ttir.ones"() <{shape = array<i32: 4, 4>}> : () -> tensor<4x4xbf16>
+    %0 = "ttir.where"(%cond, %x, %y) : (tensor<4x4xbf16>, tensor<1x4xf32>, tensor<4x4xf32>) -> tensor<4x4xf32>
     return %0 : tensor<4x4xf32>
   }
 }
