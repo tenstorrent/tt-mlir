@@ -1221,6 +1221,59 @@ mlir::Value build_bitwise_and(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rh
     return mb.create<mlir::tt::ttir::BitwiseAndOp>(result_type, lhs, rhs).getResult();
 }
 
+// Writes `source` into the rank-4 [batch, heads, seq, head_dim] `cache` at the
+// sequence positions in the 1-D `index`, emitting the purpose-built
+// ttir.update_cache (decode, one new token) / ttir.fill_cache (prefill, many
+// tokens) so it maps to dedicated ttnn ops rather than a generic ttir.scatter.
+//
+// update_cache honors the runtime update_index, so the decode rewrite is exact
+// for any positions. fill_cache writes contiguously from seq 0 and carries no
+// seq offset, so the prefill rewrite is correct only for a from-scratch prefill
+// (index = arange from 0); an offset/chunked prefill would miswrite, and nothing
+// here checks that. The caller is trusted to only reach this with seq_update > 1
+// on a fresh cache.
+static mlir::Value build_kv_cache_write(ModuleBuilder &mb, mlir::Value cache, mlir::Value index, mlir::Value source) {
+    auto cache_type = mlir::cast<mlir::RankedTensorType>(cache.getType());
+    auto source_shape = mlir::cast<mlir::RankedTensorType>(source.getType()).getShape();
+    int64_t batch = cache_type.getShape()[0];
+    int64_t seq_update = source_shape[2];
+    auto i32_type = mb.attrs().getI32Type();
+
+    if (seq_update == 1) {
+        // Decode: update_cache wants input [1, num_heads, num_users, head_dim], so
+        // permute the [batch, heads, 1, head_dim] new token to [1, heads, batch,
+        // head_dim] (a no-op when batch == 1, where dim 0 is already 1).
+        mlir::Value updates = batch > 1 ? build_permute(mb, source, {2, 1, 0, 3}) : source;
+        // The tt-metal kernel takes i32 positions; cache_position is i64.
+        mlir::Value update_index = index;
+        if (mlir::cast<mlir::RankedTensorType>(index.getType()).getElementType() != i32_type) {
+            update_index = mb.insert_typecast(index, i32_type);
+        }
+        return mb
+            .create<mlir::tt::ttir::UpdateCacheOp>(cache_type, cache, updates, update_index,
+                                                   mb.attrs().getI32IntegerAttr(0))
+            .getResult();
+    }
+
+    // Prefill: fill_cache fills a single batch slab from seq 0, so emit one op per
+    // batch element (slicing it out) and chain the in-place result.
+    llvm::SmallVector<int64_t> begins(4, 0), steps(4, 1);
+    llvm::SmallVector<int64_t> ends(source_shape.begin(), source_shape.end());
+    mlir::Value chained = cache;
+    for (int64_t b = 0; b < batch; ++b) {
+        mlir::Value slab = source;
+        if (batch > 1) {
+            begins[0] = b;
+            ends[0] = b + 1;
+            slab = build_slice(mb, source, begins, ends, steps);
+        }
+        chained = mb.create<mlir::tt::ttir::FillCacheOp>(cache_type, chained, slab,
+                                                         mb.attrs().getI32IntegerAttr(as<int32_t>(b)))
+                      .getResult();
+    }
+    return chained;
+}
+
 mlir::Value build_index_copy(ModuleBuilder &mb, mlir::Value input, int64_t dim, mlir::Value index, mlir::Value source) {
     auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
     auto source_type = mlir::cast<mlir::RankedTensorType>(source.getType());
@@ -1229,6 +1282,17 @@ mlir::Value build_index_copy(ModuleBuilder &mb, mlir::Value input, int64_t dim, 
     int64_t rank = as<int64_t>(input_type.getShape().size());
     if (dim < 0) {
         dim += rank;
+    }
+
+    // A rank-4 index_copy along dim 2 is a KV-cache write: HF's StaticCache
+    // updates its [batch, kv_heads, seq, head_dim] cache in place via
+    // `keys.index_copy_(2, cache_position, key_states)`. Route it to the dedicated
+    // cache ops. The structural signature (rank-4, dim 2) has the same fidelity as
+    // tt-mlir's StableHLO CacheFillUpdatePattern: aten's index_copy contract
+    // already guarantees source matches the cache on every non-dim dimension, so
+    // rank and dim are the only real discriminators.
+    if (rank == 4 && dim == 2) {
+        return build_kv_cache_write(mb, input, index, source);
     }
 
     // Reshape 1D index [n] to [1, ..., n, ..., 1] (size 1 except at dim)
