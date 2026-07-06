@@ -11,11 +11,14 @@ module {
   }
 }
 
+// The scaler CB (get_cb(4)) is waited/popped in the compute region. The
+// wait and reserve are hoisted above the reduction loop (waited once, not
+// per-iteration); the scaler view/load stay inside the loop next to its use.
 // CHECK: d2m.generic {{.*}}grid = #ttcore.grid<2x4x1
 // CHECK: }, {
 // CHECK: %[[SCALER_CB:.*]] = d2m.get_cb(4)
-// CHECK: scf.for
 // CHECK: %[[SCALER_WAIT:.*]] = d2m.wait %[[SCALER_CB]]
+// CHECK: scf.for
 // CHECK: %[[SCALER_VIEW:.*]] = memref.collapse_shape %[[SCALER_WAIT]]
 // CHECK: %[[SCALER:.*]] = memref.load %[[SCALER_VIEW]]
 // CHECK: "d2m.tile_reduce_mean"({{.*}}, %[[SCALER]], {{.*}})
