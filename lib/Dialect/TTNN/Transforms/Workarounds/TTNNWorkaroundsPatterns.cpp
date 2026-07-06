@@ -779,5 +779,11 @@ const std::set<mlir::StringRef>
         // index/param tensors, UINT32 dtype on k, and ROW_MAJOR+UINT32 on
         // the result (the kernel hard-rejects anything else and produces
         // UINT32).
-        ttnn::SamplingOp::getOperationName()};
+        ttnn::SamplingOp::getOperationName(),
+        // ArgMax's operands workaround forces ROW_MAJOR input/output. Since
+        // tt-metal #46340 the multicore argmax kernel is only selected for a
+        // ROW_MAJOR input (TILE silently falls back to single-core, ~100ms for
+        // a full-vocab reduction). Without this, opt_level>=1 layout
+        // propagation leaves the input TILE and we lose the multicore path.
+        ttnn::ArgMaxOp::getOperationName()};
 } // namespace mlir::tt::ttnn
