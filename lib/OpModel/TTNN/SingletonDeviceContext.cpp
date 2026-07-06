@@ -273,8 +273,29 @@ void SingletonDeviceContext::openDevice(
 
   // Build into locals; commit to members only on success so a throw leaves
   // m_env/m_device null and the context reusable.
-  auto env = std::make_unique<::tt::tt_metal::MetalEnv>(
-      makeEnvDescriptor(isMock, arch, numChips));
+  //
+  // #5521: constructing MetalEnv reads TT_VISIBLE_DEVICES and applies it to the
+  // cluster. For a mock the chip ids are fully defined by the mock descriptor;
+  // a physical pin (e.g. "1") is meaningless and makes the mock reject the id,
+  // which breaks vLLM chip pinning to any non-zero chip. Unset the pin only for
+  // the mock env build so the mock uses its own chips (0..numChips-1).
+  std::unique_ptr<::tt::tt_metal::MetalEnv> env;
+  if (isMock) {
+    const char *prevVisibleDevices = std::getenv("TT_VISIBLE_DEVICES");
+    std::string savedVisibleDevices =
+        prevVisibleDevices ? prevVisibleDevices : "";
+    if (prevVisibleDevices) {
+      ::unsetenv("TT_VISIBLE_DEVICES");
+    }
+    env = std::make_unique<::tt::tt_metal::MetalEnv>(
+        makeEnvDescriptor(isMock, arch, numChips));
+    if (prevVisibleDevices) {
+      ::setenv("TT_VISIBLE_DEVICES", savedVisibleDevices.c_str(), 1);
+    }
+  } else {
+    env = std::make_unique<::tt::tt_metal::MetalEnv>(
+        makeEnvDescriptor(isMock, arch, numChips));
+  }
 
   ::tt::tt_metal::distributed::MeshShape shape{
       meshShape ? static_cast<unsigned int>(meshShape->first) : 1,
