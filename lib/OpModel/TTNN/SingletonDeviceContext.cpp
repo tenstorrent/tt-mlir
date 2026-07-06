@@ -101,13 +101,19 @@ void SingletonDeviceContext::openDevice(
     ::tt::tt_metal::experimental::configure_mock_mode(metalArch, numChips);
   }
 
-  // todo: this replicates logic in
-  // runtime/include/tt/runtime/detail/common/common.h, move to shared location
-  size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
-  size_t numPCIeDevices = ::tt::tt_metal::GetNumPCIeDevices();
   ::tt::tt_metal::DispatchCoreType dispatchCoreType =
-      numDevices == numPCIeDevices ? ::tt::tt_metal::DispatchCoreType::WORKER
-                                   : ::tt::tt_metal::DispatchCoreType::ETH;
+      ::tt::tt_metal::DispatchCoreType::WORKER;
+  if (!isMock) {
+    // todo: this replicates logic in
+    // runtime/include/tt/runtime/detail/common/common.h, move to shared
+    // location. Avoid these queries for mock devices because they initialize the
+    // real MetalContext through GetNumAvailableDevices().
+    size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
+    size_t numPCIeDevices = ::tt::tt_metal::GetNumPCIeDevices();
+    dispatchCoreType = numDevices == numPCIeDevices
+                           ? ::tt::tt_metal::DispatchCoreType::WORKER
+                           : ::tt::tt_metal::DispatchCoreType::ETH;
+  }
 
   ::tt::tt_metal::distributed::MeshShape shape{
       meshShape ? static_cast<unsigned int>(meshShape->first) : 1,
@@ -127,19 +133,13 @@ void SingletonDeviceContext::reshapeMeshDevice(
 
   m_device.reset();
 
-  size_t numDevices = ::tt::tt_metal::GetNumAvailableDevices();
-  size_t numPCIeDevices = ::tt::tt_metal::GetNumPCIeDevices();
-  ::tt::tt_metal::DispatchCoreType dispatchCoreType =
-      numDevices == numPCIeDevices ? ::tt::tt_metal::DispatchCoreType::WORKER
-                                   : ::tt::tt_metal::DispatchCoreType::ETH;
-
   ::tt::tt_metal::distributed::MeshShape shape{
       static_cast<unsigned int>(meshShape.first),
       static_cast<unsigned int>(meshShape.second)};
   m_device = ::tt::tt_metal::distributed::MeshDevice::create(
       ::tt::tt_metal::distributed::MeshDeviceConfig{shape},
       ::tt::constants::L1_SMALL_SIZE, traceRegionSize,
-      /* num_hw_cqs = */ 1, dispatchCoreType);
+      /* num_hw_cqs = */ 1, ::tt::tt_metal::DispatchCoreType::WORKER);
 
   m_device->disable_and_clear_program_cache();
 }
