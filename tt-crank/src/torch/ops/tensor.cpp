@@ -165,6 +165,19 @@ at::Tensor copy_from(const at::Tensor &self, const at::Tensor &dst, bool /*non_b
     }
 
     if (is_tt(self) && is_tt(dst)) {
+        // Skip the copy only when self and dst are literally the same device
+        // buffer. AOTAutograd functionalizes the graph and then appends an
+        // `input.copy_(output)` epilogue to write any outputs to inputs which were
+        // supposed to be modified in-place (before functionalization).
+        // But some of our ops do mutations in-place on device (e.g. ttnn.update_cache
+        // updates the cache tensor in-place), so output and input end up the same buffer and the
+        // writeback is a self-copy; skip it instead of round-tripping every shard
+        // through host.
+        const auto &self_handle = storage_of(self).tensor().handle;
+        const auto &dst_handle = storage_of(dst).tensor().handle;
+        if (self_handle != nullptr && self_handle.get() == dst_handle.get()) {
+            return dst;
+        }
         // Per-shard deep copy: pull every chip's slab and rebuild, preserving
         // self's distribution. Collapsing to shard 0 would broadcast rank 0's
         // data to every chip for sharded tensors (matmul/scatter outputs, the
