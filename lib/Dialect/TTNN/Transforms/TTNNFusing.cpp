@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
 #include "llvm/ADT/SmallVector.h"
@@ -426,17 +427,120 @@ public:
 
 #endif // TTMLIR_ENABLE_OPMODEL
 
+// Folds the "expand-style" repeat_interleave — reshape (insert a unit dim) ->
+// repeat (tile that unit dim by n) -> reshape (merge it into the preceding
+// dim) — into a single repeat_interleave on the preceding dim. Tiling a size-1
+// dim and merging it into its neighbor is exactly repeat_interleave of that
+// neighbor, so the rewrite is value-preserving. Frontends that lower
+// torch.repeat_interleave via unsqueeze/expand/reshape (e.g. HF's repeat_kv for
+// GQA) produce this shape; the StableHLO frontend emits repeat_interleave
+// directly. Normalizing to the canonical op lets downstream fusions that match
+// repeat_interleave (notably SDPAFusing's analyzeK/analyzeV, which strip a
+// repeat_interleave on the num-heads dim so KV feeds GQA-native into
+// scaled_dot_product_attention_decode) fire regardless of frontend.
+class RepeatToRepeatInterleave : public mlir::OpRewritePattern<ReshapeOp> {
+  using mlir::OpRewritePattern<ReshapeOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ReshapeOp mergeReshape,
+                  mlir::PatternRewriter &rewriter) const final {
+    auto repeatOp = mergeReshape.getInput().getDefiningOp<RepeatOp>();
+    if (!repeatOp || !repeatOp.getResult().hasOneUse()) {
+      return failure();
+    }
+
+    // Match a unit dim being expanded: exactly one tiled dim, size 1 in input.
+    auto inType = mlir::cast<RankedTensorType>(repeatOp.getInput().getType());
+    llvm::ArrayRef<int64_t> inShape = inType.getShape();
+    llvm::ArrayRef<int64_t> repeatDims = repeatOp.getRepeatDims().getShape();
+    if (repeatDims.size() != inShape.size()) {
+      return failure();
+    }
+    int64_t tileDim = -1;
+    int64_t tileFactor = 1;
+    for (int64_t i = 0; i < static_cast<int64_t>(repeatDims.size()); ++i) {
+      if (repeatDims[i] == 1) {
+        continue;
+      }
+      if (tileDim != -1) {
+        return failure(); // more than one tiled dim
+      }
+      tileDim = i;
+      tileFactor = repeatDims[i];
+    }
+    // Need a preceding dim to merge into (tileDim >= 1) and a genuine unit-dim
+    // expansion (tileFactor > 1, input size 1 at tileDim).
+    if (tileDim < 1 || tileFactor <= 1 || inShape[tileDim] != 1) {
+      return failure();
+    }
+
+    // The outer reshape must merge (tileDim-1, tileDim) into one dim and leave
+    // every other dim intact — that is exactly what makes tile+merge equal to
+    // repeat_interleave on (tileDim-1). Merging (tileDim, tileDim+1) instead
+    // would be plain tiling, not interleave, so reject anything whose output
+    // shape does not match the (tileDim-1, tileDim) merge.
+    auto outType =
+        mlir::cast<RankedTensorType>(mergeReshape.getResult().getType());
+    llvm::SmallVector<int64_t> mergedShape;
+    for (int64_t i = 0; i < static_cast<int64_t>(inShape.size()); ++i) {
+      if (i == tileDim) {
+        continue; // folded into the preceding dim
+      }
+      mergedShape.push_back(i == tileDim - 1 ? inShape[i] * tileFactor
+                                             : inShape[i]);
+    }
+    if (outType.getShape() != llvm::ArrayRef<int64_t>(mergedShape)) {
+      return failure();
+    }
+
+    llvm::SmallVector<int64_t> droppedShape;
+    for (int64_t i = 0; i < static_cast<int64_t>(inShape.size()); ++i) {
+      if (i != tileDim) {
+        droppedShape.push_back(inShape[i]);
+      }
+    }
+    RankedTensorType droppedType =
+        utils::RankedTensorTypeFactory::create(inType, droppedShape);
+    llvm::SmallVector<int32_t> droppedShape32(droppedShape.begin(),
+                                              droppedShape.end());
+    auto dropped = rewriter.create<ReshapeOp>(
+        mergeReshape.getLoc(), droppedType, repeatOp.getInput(),
+        rewriter.getI32ArrayAttr(droppedShape32));
+
+    rewriter.replaceOpWithNewOp<RepeatInterleaveOp>(
+        mergeReshape, outType, dropped.getResult(),
+        rewriter.getUI32IntegerAttr(static_cast<uint32_t>(tileFactor)),
+        rewriter.getSI32IntegerAttr(static_cast<int32_t>(tileDim - 1)));
+    return success();
+  }
+};
+
 class TTNNFusingPass : public impl::TTNNFusingBase<TTNNFusingPass> {
 public:
   using impl::TTNNFusingBase<TTNNFusingPass>::TTNNFusingBase;
 
   void runOnOperation() final {
+    // Normalize expand-style repeats (reshape/repeat/reshape) into
+    // repeat_interleave in a separate sweep that runs to fixpoint before the
+    // fusion patterns below. This cannot be co-scheduled with SDPAFusing: that
+    // pattern anchors on the attention matmul and commits to the pre-rewrite
+    // (materialized, full-head) KV before this rewrite would fire, so the
+    // canonical repeat_interleave must already exist when SDPAFusing runs its
+    // analyzeK/analyzeV to strip the repeat off the num-heads dim.
+    {
+      RewritePatternSet prePatterns(&getContext());
+      prePatterns.add<RepeatToRepeatInterleave>(&getContext());
+      (void)applyPatternsGreedily(getOperation(), std::move(prePatterns));
+    }
+
     RewritePatternSet patterns(&getContext());
     // TODO(mvasiljevic): Add HardsigmoidOp once tt-metal issue is resolved
     // https://github.com/tenstorrent/tt-metal/issues/30973
     patterns.add<
-        TTNNConv2dWithActivation<ReluOp>, TTNNConv2dWithActivation<Relu6Op>,
-        TTNNConv2dWithActivation<SiluOp>, TTNNConv2dWithActivation<SigmoidOp>,
+        TTNNConv2dWithActivation<ReluOp>,
+        TTNNConv2dWithActivation<Relu6Op>, TTNNConv2dWithActivation<SiluOp>,
+        TTNNConv2dWithActivation<SigmoidOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, SigmoidOp>,
         TTNNMatmulAndLinearWithActivation<LinearOp, SigmoidOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, SiluOp>,
