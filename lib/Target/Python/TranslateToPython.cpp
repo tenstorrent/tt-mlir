@@ -750,9 +750,9 @@ static LogicalResult printOperation(PythonEmitter &emitter, ClassOp classOp) {
 
 static LogicalResult printOperation(PythonEmitter &emitter,
                                     NestedFuncOp funcOp) {
+  emitter.reserveName(funcOp.getSymName().str());
   PythonEmitter::Scope scope(emitter);
   raw_indented_ostream &os = emitter.ostream();
-  emitter.reserveName(funcOp.getSymName().str());
 
   os << "def " << funcOp.getSymName() << "(";
   Block &body = funcOp.getBody().front();

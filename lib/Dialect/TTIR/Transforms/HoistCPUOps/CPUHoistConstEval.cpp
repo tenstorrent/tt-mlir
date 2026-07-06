@@ -28,12 +28,11 @@
 // After this pass, the device module function becomes:
 //
 //   func @const_eval(%x: bf16, %y: bf16) {
-//     // --- segment 0: bf16 → f32, compute on CPU, f32 → bf16 ---
-//     %x_f32 = to_layout(%x)  : bf16 -> f32         // typecast + from_device
-//     transfer %y_f32 = to_layout(%y)  : bf16 -> f32 %b_f32 = call
-//     @cpu_hoisted_0(%x_f32, %y_f32)  // executes on host %b     =
-//     to_layout(%b_f32) : f32 -> bf16       // typecast + to_device transfer
-//     transfer
+//     // --- segment 0: bf16 -> f32, compute on CPU, f32 -> bf16 ---
+//     %x_f32 = to_layout(%x) : bf16 -> f32      // typecast + from_device
+//     %y_f32 = to_layout(%y) : bf16 -> f32      // typecast + from_device
+//     %b_f32 = call @cpu_hoisted_0(%x_f32, %y_f32)  // executes on host
+//     %b     = to_layout(%b_f32) : f32 -> bf16  // typecast + to_device
 //
 //     // --- barrier: stays on device ---
 //     %g = all_gather(%b)
@@ -89,9 +88,7 @@ static bool isTransparentOp(mlir::Operation *op) {
 // Check if an op is a barrier for CPU hoisting - CCL and MeshShard ops must
 // remain on device and split the subgraph into segments.
 static bool isBarrierOp(mlir::Operation *op) {
-  return mlir::isa<MeshShardOp, AllGatherOp, AllReduceOp, ReduceScatterOp,
-                   CollectivePermuteOp, AllToAllOp, CollectiveBroadcastOp,
-                   MeshPartitionOp>(op);
+  return mlir::isa<CCL>(op) || mlir::isa<MeshShardOp, MeshPartitionOp>(op);
 }
 
 // Walk backward from a value through transparent ops in a single traversal.
@@ -184,11 +181,16 @@ analyzeConstEval(func::FuncOp funcOp) {
   // Build a CPUHoistedOpsDescriptor descriptor for each segment.
   llvm::SmallVector<CPUHoistedOpsDescriptor> descriptors;
   for (const auto &segment : segments) {
-    // Verify all ops can be lowered to Linalg.
-    bool canLower = llvm::all_of(
-        segment, [&](mlir::Operation *op) { return canLowerTTIRToLinalg(op); });
+    // Verify all ops can be lowered to Linalg. If any op fails, skip
+    // CPU-hoisting this segment.
+    auto *unlowerableOp = llvm::find_if(segment, [&](mlir::Operation *op) {
+      return !canLowerTTIRToLinalg(op);
+    });
 
-    if (!canLower) {
+    if (unlowerableOp != segment.end()) {
+      (*unlowerableOp)
+          ->emitWarning("Skipping CPU hoisting of const-eval "
+                        "subgraph: op cannot be lowered to Linalg");
       continue;
     }
 
