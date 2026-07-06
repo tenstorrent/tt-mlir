@@ -901,6 +901,25 @@ constantFoldLogicalOr(mlir::tt::ttir::LogicalOrOp op,
 }
 
 //===----------------------------------------------------------------------===//
+// WhereOp
+//===----------------------------------------------------------------------===//
+
+// WhereOp folder:
+//   where(ones,  x, y) -> x
+//   where(zeros, x, y) -> y
+::mlir::OpFoldResult mlir::tt::ttir::WhereOp::fold(FoldAdaptor adaptor) {
+  auto resultType = getResult().getType();
+
+  if (isConstantNonZero(getFirst()) && getSecond().getType() == resultType) {
+    return getSecond();
+  }
+  if (isConstantZero(getFirst()) && getThird().getType() == resultType) {
+    return getThird();
+  }
+  return nullptr;
+}
+
+//===----------------------------------------------------------------------===//
 // ClampScalarOp
 //===----------------------------------------------------------------------===//
 
