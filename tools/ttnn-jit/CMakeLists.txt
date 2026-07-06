@@ -89,6 +89,7 @@ else ()
         _src/tensor_translator.py
         _src/supported_ops.py
         _src/conversions.py
+        _src/decision_trace_parser.py
         _src/jit_functions.py
         _src/tracing_compiler.py
   )
