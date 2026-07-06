@@ -359,8 +359,8 @@ public:
   LogicalResult
   matchAndRewrite(ttir::ConcatOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto listOp = rewriter.create<emitpy::CallOpaqueOp>(
-        op.getLoc(),
+    auto listOp = emitpy::CallOpaqueOp::create(
+        rewriter, op.getLoc(),
         emitpy::OpaqueType::get(rewriter.getContext(), "[torch.Tensor]"),
         "util_create_list", adaptor.getInputs(), nullptr, nullptr);
 

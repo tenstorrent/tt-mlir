@@ -151,7 +151,7 @@ struct AlignElementwiseBinaryTypesPattern : public mlir::RewritePattern {
       }
       auto castType = buildTensorWithElementType(operandType, targetElemType);
       return static_cast<mlir::Value>(
-          rewriter.create<TypecastOp>(op->getLoc(), castType, v).getResult());
+          TypecastOp::create(rewriter, op->getLoc(), castType, v).getResult());
     };
 
     mlir::Value newLhs = castOperandIfNeeded(op->getOperand(0), lhsType);
@@ -278,7 +278,7 @@ struct WhereConditionTypePattern : public mlir::OpRewritePattern<WhereOp> {
     auto targetType =
         buildTensorWithElementType(condType, trueType.getElementType());
     auto condCast =
-        rewriter.create<TypecastOp>(op.getLoc(), targetType, op.getFirst());
+        TypecastOp::create(rewriter, op.getLoc(), targetType, op.getFirst());
 
     rewriter.replaceOpWithNewOp<WhereOp>(op, op.getResult().getType(),
                                          condCast.getResult(), op.getSecond(),

@@ -80,9 +80,9 @@ static Value reshapeForKeepDim(Value result, RankedTensorType resultType,
   }
   auto shapeType =
       tosa::shapeType::get(rewriter.getContext(), keepDimShape.size());
-  auto shapeOp = rewriter.create<tosa::ConstShapeOp>(
-      loc, shapeType, rewriter.getIndexTensorAttr(keepDimShape));
-  return rewriter.create<tosa::ReshapeOp>(loc, resultType, result, shapeOp);
+  auto shapeOp = tosa::ConstShapeOp::create(
+      rewriter, loc, shapeType, rewriter.getIndexTensorAttr(keepDimShape));
+  return tosa::ReshapeOp::create(rewriter, loc, resultType, result, shapeOp);
 }
 
 } // namespace
@@ -168,11 +168,11 @@ public:
       const bool useUnsignedCast =
           intType.isUnsigned() || intType.getWidth() == 1;
       if (useUnsignedCast) {
-        input = rewriter.create<arith::UIToFPOp>(op.getLoc(), floatInputType,
-                                                 input);
+        input = arith::UIToFPOp::create(rewriter, op.getLoc(), floatInputType,
+                                        input);
       } else {
-        input = rewriter.create<arith::SIToFPOp>(op.getLoc(), floatInputType,
-                                                 input);
+        input = arith::SIToFPOp::create(rewriter, op.getLoc(), floatInputType,
+                                        input);
       }
       inputType = cast<RankedTensorType>(input.getType());
     }
@@ -196,13 +196,15 @@ public:
     }
 
     auto divisor =
-        rewriter.create<tosa::ConstOp>(op.getLoc(), resultType, divisorAttr);
+        tosa::ConstOp::create(rewriter, op.getLoc(), resultType, divisorAttr);
 
-    auto output = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), resultType.getShape(), resultType.getElementType());
+    auto output =
+        tensor::EmptyOp::create(rewriter, op.getLoc(), resultType.getShape(),
+                                resultType.getElementType());
 
-    auto divOp = rewriter.create<linalg::DivOp>(
-        op.getLoc(), resultType, ValueRange{sum, divisor}, output.getResult());
+    auto divOp =
+        linalg::DivOp::create(rewriter, op.getLoc(), resultType,
+                              ValueRange{sum, divisor}, output.getResult());
 
     rewriter.replaceOp(op, divOp.getResult(0));
     return success();
@@ -266,7 +268,7 @@ public:
           APFloat::getInf(cast<FloatType>(elementType).getFloatSemantics(),
                           /*Negative=*/true));
       initMax =
-          rewriter.create<arith::ConstantOp>(loc, elementType, negInfAttr);
+          arith::ConstantOp::create(rewriter, loc, elementType, negInfAttr);
     } else {
       auto intType = cast<IntegerType>(elementType);
       unsigned bitWidth = intType.getWidth();
@@ -275,26 +277,23 @@ public:
         minValue = APInt::getSignedMinValue(bitWidth);
       }
       auto minAttr = rewriter.getIntegerAttr(elementType, minValue);
-      initMax = rewriter.create<arith::ConstantOp>(loc, elementType, minAttr);
+      initMax = arith::ConstantOp::create(rewriter, loc, elementType, minAttr);
     }
-    Value zero = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getI32Type(), rewriter.getI32IntegerAttr(0));
+    Value zero = arith::ConstantOp::create(rewriter, loc, rewriter.getI32Type(),
+                                           rewriter.getI32IntegerAttr(0));
 
     Value maxValuesFilled =
-        rewriter
-            .create<linalg::FillOp>(
-                loc, initMax,
-                rewriter.create<tensor::EmptyOp>(loc, reducedShape, elementType)
-                    .getResult())
+        linalg::FillOp::create(
+            rewriter, loc, initMax,
+            tensor::EmptyOp::create(rewriter, loc, reducedShape, elementType)
+                .getResult())
             .getResult(0);
     Value maxIndicesFilled =
-        rewriter
-            .create<linalg::FillOp>(
-                loc, zero,
-                rewriter
-                    .create<tensor::EmptyOp>(loc, reducedShape,
-                                             rewriter.getI32Type())
-                    .getResult())
+        linalg::FillOp::create(rewriter, loc, zero,
+                               tensor::EmptyOp::create(rewriter, loc,
+                                                       reducedShape,
+                                                       rewriter.getI32Type())
+                                   .getResult())
             .getResult(0);
 
     AffineMap inputMap =
@@ -302,9 +301,9 @@ public:
     AffineMap outputMap =
         AffineMap::get(rank, 0, outputExprs, rewriter.getContext());
 
-    auto genericOp = rewriter.create<linalg::GenericOp>(
-        loc, TypeRange{maxValuesType, maxIndicesType}, ValueRange{input},
-        ValueRange{maxValuesFilled, maxIndicesFilled},
+    auto genericOp = linalg::GenericOp::create(
+        rewriter, loc, TypeRange{maxValuesType, maxIndicesType},
+        ValueRange{input}, ValueRange{maxValuesFilled, maxIndicesFilled},
         SmallVector<AffineMap>{inputMap, outputMap, outputMap}, iteratorTypes,
         [&](OpBuilder &b, Location loc, ValueRange args) {
           Value currentVal = args[0];
@@ -314,23 +313,24 @@ public:
           // Compute linearized index across reduce dimensions (row-major).
           Value linearIdx = nullptr;
           for (int64_t d : reduceDims) {
-            Value idx = b.create<arith::IndexCastOp>(
-                loc, b.getI32Type(), b.create<linalg::IndexOp>(loc, d));
+            Value idx = arith::IndexCastOp::create(
+                b, loc, b.getI32Type(), linalg::IndexOp::create(b, loc, d));
             if (!linearIdx) {
               linearIdx = idx;
             } else {
-              Value dimSize = b.create<arith::ConstantOp>(
-                  loc, b.getI32Type(),
+              Value dimSize = arith::ConstantOp::create(
+                  b, loc, b.getI32Type(),
                   b.getI32IntegerAttr(inputType.getShape()[d]));
-              linearIdx = b.create<arith::AddIOp>(
-                  loc, b.create<arith::MulIOp>(loc, linearIdx, dimSize), idx);
+              linearIdx = arith::AddIOp::create(
+                  b, loc, arith::MulIOp::create(b, loc, linearIdx, dimSize),
+                  idx);
             }
           }
 
           Value isGreater;
           if (isa<FloatType>(elementType)) {
-            isGreater = b.create<arith::CmpFOp>(loc, arith::CmpFPredicate::OGT,
-                                                currentVal, currentMax)
+            isGreater = arith::CmpFOp::create(b, loc, arith::CmpFPredicate::OGT,
+                                              currentVal, currentMax)
                             .getResult();
           } else {
             auto intType = cast<IntegerType>(elementType);
@@ -338,14 +338,14 @@ public:
                                             ? arith::CmpIPredicate::ugt
                                             : arith::CmpIPredicate::sgt;
             isGreater =
-                b.create<arith::CmpIOp>(loc, pred, currentVal, currentMax)
+                arith::CmpIOp::create(b, loc, pred, currentVal, currentMax)
                     .getResult();
           }
-          Value newMax =
-              b.create<arith::SelectOp>(loc, isGreater, currentVal, currentMax);
+          Value newMax = arith::SelectOp::create(b, loc, isGreater, currentVal,
+                                                 currentMax);
           Value newIdx =
-              b.create<arith::SelectOp>(loc, isGreater, linearIdx, currentIdx);
-          b.create<linalg::YieldOp>(loc, ValueRange{newMax, newIdx});
+              arith::SelectOp::create(b, loc, isGreater, linearIdx, currentIdx);
+          linalg::YieldOp::create(b, loc, ValueRange{newMax, newIdx});
         });
 
     Value result = genericOp.getResult(1);
@@ -400,11 +400,12 @@ public:
     SmallVector<utils::IteratorType> allParallel(rank,
                                                  utils::IteratorType::parallel);
 
-    Value emptyTensor = rewriter.create<tensor::EmptyOp>(
-        loc, inputType.getShape(), elementType);
+    Value emptyTensor = tensor::EmptyOp::create(
+        rewriter, loc, inputType.getShape(), elementType);
 
-    auto booleanize = rewriter.create<linalg::GenericOp>(
-        loc, TypeRange{inputType}, ValueRange{input}, ValueRange{emptyTensor},
+    auto booleanize = linalg::GenericOp::create(
+        rewriter, loc, TypeRange{inputType}, ValueRange{input},
+        ValueRange{emptyTensor},
         SmallVector<AffineMap>{identityMap, identityMap}, allParallel,
         [&](OpBuilder &b, Location loc, ValueRange args) {
           Value elem = args[0];
@@ -412,24 +413,24 @@ public:
           Value isNonZero;
           Value zeroVal, oneVal;
           if (isa<FloatType>(elementType)) {
-            zeroVal = b.create<arith::ConstantOp>(
-                loc, b.getFloatAttr(elementType, 0.0));
-            oneVal = b.create<arith::ConstantOp>(
-                loc, b.getFloatAttr(elementType, 1.0));
-            isNonZero = b.create<arith::CmpFOp>(loc, arith::CmpFPredicate::UNE,
-                                                elem, zeroVal);
+            zeroVal = arith::ConstantOp::create(
+                b, loc, b.getFloatAttr(elementType, 0.0));
+            oneVal = arith::ConstantOp::create(
+                b, loc, b.getFloatAttr(elementType, 1.0));
+            isNonZero = arith::CmpFOp::create(b, loc, arith::CmpFPredicate::UNE,
+                                              elem, zeroVal);
           } else {
-            zeroVal = b.create<arith::ConstantOp>(
-                loc, b.getIntegerAttr(elementType, 0));
-            oneVal = b.create<arith::ConstantOp>(
-                loc, b.getIntegerAttr(elementType, 1));
-            isNonZero = b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::ne,
-                                                elem, zeroVal);
+            zeroVal = arith::ConstantOp::create(
+                b, loc, b.getIntegerAttr(elementType, 0));
+            oneVal = arith::ConstantOp::create(
+                b, loc, b.getIntegerAttr(elementType, 1));
+            isNonZero = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ne,
+                                              elem, zeroVal);
           }
 
           Value result =
-              b.create<arith::SelectOp>(loc, isNonZero, oneVal, zeroVal);
-          b.create<linalg::YieldOp>(loc, result);
+              arith::SelectOp::create(b, loc, isNonZero, oneVal, zeroVal);
+          linalg::YieldOp::create(b, loc, result);
         });
 
     // Step 2: Apply TOSA reduction on the 0/1 tensor.
@@ -494,7 +495,7 @@ public:
                                          "Unsupported element type for cumsum");
     }
     Value output =
-        rewriter.create<arith::ConstantOp>(loc, resultType, zeroAttr);
+        arith::ConstantOp::create(rewriter, loc, resultType, zeroAttr);
 
     // Compute the slice type (same shape but with dim size = 1).
     SmallVector<int64_t> sliceShape(inputType.getShape());
@@ -504,7 +505,7 @@ public:
     // Create a zero-filled tensor for the running sum accumulator.
     DenseElementsAttr zeroSliceAttr = createDenseElementsAttr(sliceType, 0.0);
     Value runningSum =
-        rewriter.create<arith::ConstantOp>(loc, sliceType, zeroSliceAttr);
+        arith::ConstantOp::create(rewriter, loc, sliceType, zeroSliceAttr);
 
     // Build the static sizes and strides for slice operations.
     SmallVector<OpFoldResult> staticSizes;
@@ -518,14 +519,15 @@ public:
     }
 
     // Loop bounds for the scan.
-    Value lowerBound = rewriter.create<arith::ConstantIndexOp>(loc, 0);
-    Value upperBound = rewriter.create<arith::ConstantIndexOp>(loc, dimSize);
-    Value step = rewriter.create<arith::ConstantIndexOp>(loc, 1);
+    Value lowerBound = arith::ConstantIndexOp::create(rewriter, loc, 0);
+    Value upperBound = arith::ConstantIndexOp::create(rewriter, loc, dimSize);
+    Value step = arith::ConstantIndexOp::create(rewriter, loc, 1);
 
     // Use scf.for to iterate along the scan dimension.
     // Loop-carried values: [output, runningSum].
-    auto forOp = rewriter.create<scf::ForOp>(
-        loc, lowerBound, upperBound, step, ValueRange{output, runningSum},
+    auto forOp = scf::ForOp::create(
+        rewriter, loc, lowerBound, upperBound, step,
+        ValueRange{output, runningSum},
         [&](OpBuilder &b, Location loc, Value iv, ValueRange iterArgs) {
           Value currentOutput = iterArgs[0];
           Value currentSum = iterArgs[1];
@@ -535,20 +537,22 @@ public:
           offsets[dim] = iv;
 
           // Extract the current slice from input.
-          Value inputSlice = b.create<tensor::ExtractSliceOp>(
-              loc, sliceType, input, offsets, staticSizes, staticStrides);
+          Value inputSlice = tensor::ExtractSliceOp::create(
+              b, loc, sliceType, input, offsets, staticSizes, staticStrides);
 
           // Add current input slice to running sum, writing into currentSum
           // so the result aliases the iter_arg (required by bufferization).
-          auto addOp = b.create<linalg::AddOp>(
-              loc, sliceType, ValueRange{currentSum, inputSlice}, currentSum);
+          auto addOp = linalg::AddOp::create(b, loc, sliceType,
+                                             ValueRange{currentSum, inputSlice},
+                                             currentSum);
           Value newSum = addOp.getResult(0);
 
           // Insert the new sum into the output tensor at the current position.
-          Value newOutput = b.create<tensor::InsertSliceOp>(
-              loc, newSum, currentOutput, offsets, staticSizes, staticStrides);
+          Value newOutput = tensor::InsertSliceOp::create(
+              b, loc, newSum, currentOutput, offsets, staticSizes,
+              staticStrides);
 
-          b.create<scf::YieldOp>(loc, ValueRange{newOutput, newSum});
+          scf::YieldOp::create(b, loc, ValueRange{newOutput, newSum});
         });
 
     rewriter.replaceOp(op, forOp.getResult(0));

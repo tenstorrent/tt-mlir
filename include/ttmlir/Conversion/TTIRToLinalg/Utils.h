@@ -113,15 +113,16 @@ Value createReductionOpChain(Value input, RankedTensorType resultType,
     auto opResultType =
         RankedTensorType::get(shape, inputType.getElementType());
     result =
-        rewriter.create<TosaReductionOp>(loc, opResultType, result, axisAttr);
+        TosaReductionOp::create(rewriter, loc, opResultType, result, axisAttr);
   }
   if (!keepDim) {
     ArrayRef<int64_t> newShape = resultType.getShape();
     auto shapeType =
         tosa::shapeType::get(rewriter.getContext(), newShape.size());
     auto attr = rewriter.getIndexTensorAttr(newShape);
-    auto shapeOp = rewriter.create<tosa::ConstShapeOp>(loc, shapeType, attr);
-    result = rewriter.create<tosa::ReshapeOp>(loc, resultType, result, shapeOp);
+    auto shapeOp = tosa::ConstShapeOp::create(rewriter, loc, shapeType, attr);
+    result =
+        tosa::ReshapeOp::create(rewriter, loc, resultType, result, shapeOp);
   }
   return result;
 }

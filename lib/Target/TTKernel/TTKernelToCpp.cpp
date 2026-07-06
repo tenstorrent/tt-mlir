@@ -320,7 +320,7 @@ cloneEntryIntoStandaloneModule(func::FuncOp origEntry, ThreadType threadType) {
 
   // We will wrap everything in a standalone module op so that we can run the
   // translation.
-  auto moduleWrapper = builder.create<mlir::ModuleOp>(loc, "module_wrapper");
+  auto moduleWrapper = mlir::ModuleOp::create(builder, loc, "module_wrapper");
   builder.setInsertionPointToStart(moduleWrapper.getBody());
 
   Region *kernelMainRegion;
@@ -328,8 +328,8 @@ cloneEntryIntoStandaloneModule(func::FuncOp origEntry, ThreadType threadType) {
     ScopedModuleHelper threadConfigHelper(&builder, loc, region, threadType);
 
     // Clone 'region' into a new func op nested inside 'moduleWrapper':
-    auto kernelMain = builder.create<func::FuncOp>(
-        loc, "kernel_main",
+    auto kernelMain = func::FuncOp::create(
+        builder, loc, "kernel_main",
         builder.getType<FunctionType>(region->getArgumentTypes(), TypeRange()));
     kernelMainRegion = &kernelMain.getBody();
   }
