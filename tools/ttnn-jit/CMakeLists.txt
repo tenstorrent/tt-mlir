@@ -90,6 +90,7 @@ else ()
         _src/supported_ops.py
         _src/conversions.py
         _src/decision_trace_parser.py
+        _src/advisor_report.py
         _src/jit_functions.py
         _src/tracing_compiler.py
   )
