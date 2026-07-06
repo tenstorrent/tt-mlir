@@ -2007,6 +2007,14 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
       // device layout: https://github.com/tenstorrent/tt-mlir/issues/5445
       continue;
     }
+    // Interleaved operands are not sharded across the op grid: the whole
+    // (interleaved) buffer is visible to every core, and each core streams the
+    // tiles it needs (e.g. the persistent/streaming form where an 8x8 grid
+    // iterates over a single 1x1 interleaved DRAM tensor). The grid-divisibility
+    // invariant only applies to sharded layouts, so skip it here.
+    if (mlir::isa<ttcore::InterleavedLayoutAttr>(layout)) {
+      continue;
+    }
     ArrayRef<int64_t> outputGridShape = layout.getGridShape(outputType);
     if (!llvm::all_of(llvm::zip(outputGridShape, opGridShape), [](auto pair) {
           auto [out, op] = pair;
