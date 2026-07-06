@@ -108,7 +108,68 @@ PREFILL_SHAPES = [
     ),
 ]
 
-ALL_SHAPES = DECODE_SHAPES + PREFILL_SHAPES
+# Real model shapes extracted from tt-xla CI TTIR artifacts (benchmark run),
+# tagged by model + phase (mirrors test_rope_fusing.py). These bring head_dims
+# and GQA ratios the synthetic set above doesn't cover (hd256, 3:1 / 2:1 / 4:1
+# GQA) plus a cross-seq prefill chunk (Sq < Sk). Seqs are kept >= 32 to avoid
+# the sub-tile SDPA re-query explosion (see project_sdpa_subtile_hang).
+REAL_MODEL_SHAPES = [
+    # llama_3_2_1b prefill chunk: GQA 32/8, hd64, cross-seq (Sq < Sk with KV cache)
+    pytest.param(
+        SDPAShapes(batch=1, q_heads=32, kv_heads=8, q_seq=32, kv_seq=128, head_dim=64),
+        id="llama_3_2_1b-prefill-crossseq",
+    ),
+    # mistral_7b prefill: GQA 32/8 (4:1), hd128
+    pytest.param(
+        SDPAShapes(
+            batch=1, q_heads=32, kv_heads=8, q_seq=128, kv_seq=128, head_dim=128
+        ),
+        id="mistral_7b-prefill",
+    ),
+    # falcon3_7b prefill: GQA 12/4 (3:1), hd256
+    pytest.param(
+        SDPAShapes(
+            batch=1, q_heads=12, kv_heads=4, q_seq=128, kv_seq=128, head_dim=256
+        ),
+        id="falcon3_7b-prefill",
+    ),
+    # falcon3_7b decode: GQA 12/4 (3:1), hd256
+    pytest.param(
+        SDPAShapes(batch=32, q_heads=12, kv_heads=4, q_seq=1, kv_seq=128, head_dim=256),
+        id="falcon3_7b-decode",
+    ),
+    # gemma2_2b prefill: GQA 8/4 (2:1), hd256
+    pytest.param(
+        SDPAShapes(batch=1, q_heads=8, kv_heads=4, q_seq=128, kv_seq=128, head_dim=256),
+        id="gemma2_2b-prefill",
+    ),
+    # phi_1 prefill: MHA 32/32, hd64
+    pytest.param(
+        SDPAShapes(
+            batch=1, q_heads=32, kv_heads=32, q_seq=128, kv_seq=128, head_dim=64
+        ),
+        id="phi_1-prefill",
+    ),
+]
+
+ALL_SHAPES = DECODE_SHAPES + PREFILL_SHAPES + REAL_MODEL_SHAPES
+
+# Only GQA shapes (Hq != Hkv) — used by the repeat_interleave test, whose whole
+# point is exercising the native-GQA peel (a no-op when Hq == Hkv).
+GQA_SHAPES = [p for p in ALL_SHAPES if p.values[0].is_gqa]
+
+# Attention-sink shapes are MHA (Hq == Hkv) so the per-head sink is [1, Hq, 1, 1]
+# with no GQA expansion tangled in. gpt_oss-like: hd64, small head count.
+SINK_SHAPES = [
+    pytest.param(
+        SDPAShapes(batch=1, q_heads=8, kv_heads=8, q_seq=128, kv_seq=128, head_dim=64),
+        id="gpt_oss-prefill-sink",
+    ),
+    pytest.param(
+        SDPAShapes(batch=32, q_heads=8, kv_heads=8, q_seq=1, kv_seq=128, head_dim=64),
+        id="gpt_oss-decode-sink",
+    ),
+]
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +321,51 @@ def nan_safe_softmax(
     return builder.typecast(softmax_out, out_dtype, unit_attrs=unit_attrs)
 
 
+def compute_scores_permute(query, key, builder, mask=None, unit_attrs=None):
+    """Kᵀ via ttir.permute (dot_general form) instead of ttir.transpose.
+
+    Real models lower Q·Kᵀ through dot_general, which decomposes Kᵀ to a
+    ttir.permute swapping the last two dims — not a ttir.transpose. The matcher
+    must recognize this form (isLastTwoDimsPermute) or it no-ops on real models.
+    """
+    key_t = builder.permute(key, [0, 1, 3, 2], unit_attrs=unit_attrs)
+    scores = builder.matmul(query, key_t, unit_attrs=unit_attrs)
+    if mask is not None:
+        scores = builder.add(scores, mask, unit_attrs=unit_attrs)
+    return scores
+
+
+def gqa_repeat_interleave_kv(key, value, q_heads, builder, unit_attrs=None):
+    """Expand KV heads to Q heads via ttir.repeat_interleave on the heads dim.
+
+    Unlike gqa_broadcast_kv (reshape→broadcast→reshape, which fuses as MHA),
+    this is the form the matcher's detectGqaExpansion peels to feed the native
+    Hkv-head tensors, so the op stays GQA-native.
+    """
+    k_shape = builder.get_shape(key)
+    kv_heads = k_shape[1]
+    if q_heads == kv_heads:
+        return key, value
+
+    assert q_heads % kv_heads == 0
+    num_repeats = q_heads // kv_heads
+
+    key = builder.repeat_interleave(key, num_repeats, 1, unit_attrs=unit_attrs)
+    value = builder.repeat_interleave(value, num_repeats, 1, unit_attrs=unit_attrs)
+    return key, value
+
+
+def div_scale_scores(scores, divisor, builder, unit_attrs=None):
+    """Scale QK^T scores by dividing by a scalar (via full op) -> scale = 1/divisor.
+
+    Exercises the matcher's DivOp scale-peel path (scale := 1/divisor).
+    """
+    scores_shape = builder.get_shape(scores)
+    div_shape = [1] * len(scores_shape)
+    div_tensor = builder.full(div_shape, torch.bfloat16, divisor, unit_attrs=unit_attrs)
+    return builder.div(scores, div_tensor, unit_attrs=unit_attrs)
+
+
 # ---------------------------------------------------------------------------
 # Golden computation
 # ---------------------------------------------------------------------------
@@ -278,6 +384,31 @@ def build_torch_golden(
     return torch.nn.functional.scaled_dot_product_attention(
         query, key, value, attn_mask=attention_mask, scale=scale, enable_gqa=enable_gqa
     )
+
+
+def build_sink_golden(
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    scale: float,
+    attention_mask: torch.Tensor,
+    sink: torch.Tensor,
+) -> torch.Tensor:
+    """Faithful attention-sink reference (MHA).
+
+    The sink is an extra per-head logit column appended to the scores; it
+    participates in the softmax denominator but is dropped before the value
+    matmul. Kept faithful (sink is a raw post-scale logit) — the kernel's 1/scale
+    sink compensation is applied in TTIRToTTNN lowering, not here
+    (project_sdpa_sink_scale_compensation).
+    """
+    scores = (query.float() @ key.float().transpose(-2, -1)) * scale
+    scores = scores + attention_mask.float()
+    batch, heads, q_seq, kv_seq = scores.shape
+    sink_col = sink.float().expand(batch, heads, q_seq, 1)
+    augmented = torch.cat([scores, sink_col], dim=-1)
+    weights = torch.softmax(augmented, dim=-1)[..., :kv_seq]
+    return (weights @ value.float()).to(query.dtype)
 
 
 # ---------------------------------------------------------------------------
@@ -570,6 +701,190 @@ def test_sdpa_pre_scale_k_nan_safe(sdpa_shapes: SDPAShapes, target: str, request
 
             builder.set_goldens(
                 {query: q_data, key: k_data, value: v_data, mask: m_data},
+                {result: golden},
+            )
+            return result
+
+    mlir_path = compile_and_run_sdpa(module, target, request)
+    assert_sdpa_fused(mlir_path, sdpa_shapes.q_seq)
+
+
+@pytest.mark.parametrize("sdpa_shapes", ALL_SHAPES)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_sdpa_kt_via_permute(sdpa_shapes: SDPAShapes, target: str, request):
+    """
+    dot_general lowering form (LLaMA / Mistral / Qwen).
+    Kᵀ is a ttir.permute (last-two-dims swap), not a ttir.transpose — the form
+    real models lower to. The matcher no-ops on real models without matching it.
+    Pattern: Q @ permute(K) -> scale -> mask -> simple_softmax -> @ V
+    """
+    input_shapes = [
+        sdpa_shapes.query,
+        sdpa_shapes.key,
+        sdpa_shapes.value,
+        sdpa_shapes.mask,
+    ]
+    dtypes = [torch.bfloat16] * 4
+
+    def module(builder: TTIRBuilder):
+        @builder.func(input_shapes, dtypes)
+        def sdpa(query, key, value, mask, builder: TTIRBuilder, unit_attrs=None):
+            q_data = torch.randn(sdpa_shapes.query, dtype=torch.bfloat16)
+            k_data = torch.randn(sdpa_shapes.key, dtype=torch.bfloat16)
+            v_data = torch.randn(sdpa_shapes.value, dtype=torch.bfloat16)
+            m_data = torch.zeros(sdpa_shapes.mask, dtype=torch.bfloat16)
+
+            golden = build_torch_golden(
+                q_data, k_data, v_data, scale=sdpa_shapes.scale, attention_mask=m_data
+            )
+
+            key_exp, value_exp = gqa_broadcast_kv(
+                key, value, sdpa_shapes.q_heads, builder, unit_attrs=unit_attrs
+            )
+            scores = compute_scores_permute(
+                query, key_exp, builder, unit_attrs=unit_attrs
+            )
+            scores = post_scale_scores(
+                scores, sdpa_shapes.scale, builder, unit_attrs=unit_attrs
+            )
+            scores = builder.add(scores, mask, unit_attrs=unit_attrs)
+            attn = simple_softmax(scores, builder, unit_attrs=unit_attrs)
+            result = builder.matmul(attn, value_exp, unit_attrs=unit_attrs)
+
+            builder.set_goldens(
+                {query: q_data, key: k_data, value: v_data, mask: m_data},
+                {result: golden},
+            )
+            return result
+
+    mlir_path = compile_and_run_sdpa(module, target, request)
+    assert_sdpa_fused(mlir_path, sdpa_shapes.q_seq)
+
+
+@pytest.mark.parametrize("sdpa_shapes", GQA_SHAPES)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_sdpa_gqa_repeat_interleave_div_scale(
+    sdpa_shapes: SDPAShapes, target: str, request
+):
+    """
+    Native-GQA form. K/V are expanded via ttir.repeat_interleave (the form the
+    matcher peels to feed the native Hkv-head tensors, unlike the broadcast
+    expansion), and the scale is applied as a division scores / sqrt(d) rather
+    than a multiply (matcher's DivOp scale-peel).
+    Pattern: Q @ K^T -> / sqrt(d) -> mask -> simple_softmax -> @ V
+    """
+    input_shapes = [
+        sdpa_shapes.query,
+        sdpa_shapes.key,
+        sdpa_shapes.value,
+        sdpa_shapes.mask,
+    ]
+    dtypes = [torch.bfloat16] * 4
+
+    def module(builder: TTIRBuilder):
+        @builder.func(input_shapes, dtypes)
+        def sdpa(query, key, value, mask, builder: TTIRBuilder, unit_attrs=None):
+            q_data = torch.randn(sdpa_shapes.query, dtype=torch.bfloat16)
+            k_data = torch.randn(sdpa_shapes.key, dtype=torch.bfloat16)
+            v_data = torch.randn(sdpa_shapes.value, dtype=torch.bfloat16)
+            m_data = torch.zeros(sdpa_shapes.mask, dtype=torch.bfloat16)
+
+            golden = build_torch_golden(
+                q_data, k_data, v_data, scale=sdpa_shapes.scale, attention_mask=m_data
+            )
+
+            key_exp, value_exp = gqa_repeat_interleave_kv(
+                key, value, sdpa_shapes.q_heads, builder, unit_attrs=unit_attrs
+            )
+            scores = compute_scores(query, key_exp, builder, unit_attrs=unit_attrs)
+            scores = div_scale_scores(
+                scores, math.sqrt(sdpa_shapes.head_dim), builder, unit_attrs=unit_attrs
+            )
+            scores = builder.add(scores, mask, unit_attrs=unit_attrs)
+            attn = simple_softmax(scores, builder, unit_attrs=unit_attrs)
+            result = builder.matmul(attn, value_exp, unit_attrs=unit_attrs)
+
+            builder.set_goldens(
+                {query: q_data, key: k_data, value: v_data, mask: m_data},
+                {result: golden},
+            )
+            return result
+
+    mlir_path = compile_and_run_sdpa(module, target, request)
+    assert_sdpa_fused(mlir_path, sdpa_shapes.q_seq)
+
+
+@pytest.mark.parametrize("sdpa_shapes", SINK_SHAPES)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_sdpa_attention_sink(sdpa_shapes: SDPAShapes, target: str, request):
+    """
+    Attention sink (gpt_oss). A per-head sink logit [1, Hq, 1, 1] is concat'd as
+    an extra score column before softmax, then sliced off after — folded into
+    the op's attention_sink operand. The sink participates in the softmax
+    denominator but not the value matmul.
+    Pattern: concat(Q@K^T*scale + mask, sink) -> softmax -> slice[..., :Sk] -> @ V
+    """
+    sink_shape = (1, sdpa_shapes.q_heads, 1, 1)
+    input_shapes = [
+        sdpa_shapes.query,
+        sdpa_shapes.key,
+        sdpa_shapes.value,
+        sdpa_shapes.mask,
+        sink_shape,
+    ]
+    dtypes = [torch.bfloat16] * 5
+
+    def module(builder: TTIRBuilder):
+        @builder.func(input_shapes, dtypes)
+        def sdpa(query, key, value, mask, sink, builder: TTIRBuilder, unit_attrs=None):
+            q_data = torch.randn(sdpa_shapes.query, dtype=torch.bfloat16)
+            k_data = torch.randn(sdpa_shapes.key, dtype=torch.bfloat16)
+            v_data = torch.randn(sdpa_shapes.value, dtype=torch.bfloat16)
+            m_data = torch.zeros(sdpa_shapes.mask, dtype=torch.bfloat16)
+            sink_data = torch.randn(sink_shape, dtype=torch.bfloat16)
+
+            golden = build_sink_golden(
+                q_data, k_data, v_data, sdpa_shapes.scale, m_data, sink_data
+            )
+
+            scores = compute_scores(query, key, builder, unit_attrs=unit_attrs)
+            scores = post_scale_scores(
+                scores, sdpa_shapes.scale, builder, unit_attrs=unit_attrs
+            )
+            scores = builder.add(scores, mask, unit_attrs=unit_attrs)
+
+            # Sink logit as an extra column: broadcast [1, Hq, 1, 1] -> [B, Hq, Sq, 1]
+            # then concat onto the kv (last) axis.
+            sink_bc = builder.broadcast(
+                sink,
+                [sdpa_shapes.batch, 1, sdpa_shapes.q_seq, 1],
+                unit_attrs=unit_attrs,
+            )
+            augmented = builder.concat([scores, sink_bc], dim=3, unit_attrs=unit_attrs)
+            attn = simple_softmax(augmented, builder, unit_attrs=unit_attrs)
+            # Drop the sink column: keep [..., :Sk].
+            attn_sliced = builder.slice(
+                attn,
+                begins=[0, 0, 0, 0],
+                ends=[
+                    sdpa_shapes.batch,
+                    sdpa_shapes.q_heads,
+                    sdpa_shapes.q_seq,
+                    sdpa_shapes.kv_seq,
+                ],
+                step=[1, 1, 1, 1],
+                unit_attrs=unit_attrs,
+            )
+            result = builder.matmul(attn_sliced, value, unit_attrs=unit_attrs)
+
+            builder.set_goldens(
+                {
+                    query: q_data,
+                    key: k_data,
+                    value: v_data,
+                    mask: m_data,
+                    sink: sink_data,
+                },
                 {result: golden},
             )
             return result
