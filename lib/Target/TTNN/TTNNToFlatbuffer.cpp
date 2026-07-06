@@ -3294,9 +3294,13 @@ createOp(FlatbufferObjectCache &cache, ScaledDotProductAttentionDecodeOp op) {
   std::optional<::flatbuffers::Offset<::tt::target::ttnn::SDPAConfig>>
       programConfig = toFlatbuffer(cache, op.getProgramConfig());
 
+  ::flatbuffers::Optional<uint32_t> slidingWindowSize =
+      toFlatbuffer(cache, op.getSlidingWindowSize());
+
   return ::tt::target::ttnn::CreateScaledDotProductAttentionDecodeOp(
       *cache.fbb, query, key, value, isCausal, attentionMask, curPosTensor,
-      attentionSink, scale, out, memoryConfig, programConfig.value_or(0));
+      attentionSink, scale, slidingWindowSize, out, memoryConfig,
+      programConfig.value_or(0));
 }
 
 ::flatbuffers::Offset<

@@ -3877,52 +3877,6 @@ mlir::OpFoldResult mlir::tt::ttir::TypecastOp::fold(FoldAdaptor adaptor) {
   return nullptr;
 }
 
-static bool isNarrowingConversion(const ::mlir::tt::ttcore::DataType srcDtype,
-                                  const ::mlir::tt::ttcore::DataType dstDtype) {
-  const bool srcIsFloat = isFloat(srcDtype);
-  const bool dstIsFloat = isFloat(dstDtype);
-  const auto srcNumberOfBits = getNumberOfBits(srcDtype);
-  const auto dstNumberOfBits = getNumberOfBits(dstDtype);
-
-  if (srcIsFloat && !dstIsFloat) {
-    return true;
-  }
-
-  if (srcIsFloat && dstIsFloat) {
-    const auto srcExponentSize = getExponentSize(srcDtype);
-    const auto dstExponentSize = getExponentSize(dstDtype);
-    const auto srcMantissaSize = getMantissaSize(srcDtype);
-    const auto dstMantissaSize = getMantissaSize(dstDtype);
-    return srcExponentSize > dstExponentSize ||
-           srcMantissaSize > dstMantissaSize;
-  }
-
-  // For integer to FP, it is narrowing if the FP type has fewer bits in its
-  // mantissa than the integer type's magnitude bits.
-  if (!srcIsFloat && dstIsFloat) {
-    if (isSignedInteger(srcDtype)) {
-      return srcNumberOfBits - 1 > getMantissaSize(dstDtype);
-    }
-    return srcNumberOfBits > getMantissaSize(dstDtype);
-  }
-
-  assert(!srcIsFloat && !dstIsFloat);
-  const auto srcIsSigned = isSignedInteger(srcDtype);
-  const auto dstIsSigned = isSignedInteger(dstDtype);
-  // When signedness are the same, reducing the number of bits is narrowing.
-  if (srcIsSigned == dstIsSigned) {
-    return srcNumberOfBits > dstNumberOfBits;
-  }
-  // Unsigned->Signed is narrowing when the signed type can't hold the largest.
-  // value of the unsigned type
-  if (!srcIsSigned && dstIsSigned) {
-    return srcNumberOfBits >= dstNumberOfBits;
-  }
-  // Signed->Unsigned is always narrowing.
-  assert(srcIsSigned && !dstIsSigned);
-  return true;
-}
-
 // TypecastOp canonicalization method
 ::llvm::LogicalResult
 mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
@@ -3954,8 +3908,10 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
     // If the 1st Op is narrowing and the 2nd Op is widening, we shouldn't fold.
     // FP->Int->FP is special and should never fold, due to its truncation
     // semantics and application in QDQ models.
-    const bool isNarrowingProducer = isNarrowingConversion(dtypeIn, dtypeMid);
-    const bool isNarrowingConsumer = isNarrowingConversion(dtypeMid, dtypeOut);
+    const bool isNarrowingProducer =
+        ttcore::isNarrowingConversion(dtypeIn, dtypeMid);
+    const bool isNarrowingConsumer =
+        ttcore::isNarrowingConversion(dtypeMid, dtypeOut);
     const bool isFpIntFp =
         isFloat(dtypeIn) && !isFloat(dtypeMid) && isFloat(dtypeOut);
     if (isFpIntFp || (isNarrowingProducer && !isNarrowingConsumer)) {
