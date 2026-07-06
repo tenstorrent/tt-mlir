@@ -21,19 +21,8 @@ jobs:
           TAG=$(cd third_party/tt-mlir && bash .github/get-docker-tag.sh)
           echo "image=ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-24-04:$TAG" >> $GITHUB_OUTPUT
 
-  reset-device:
-    if: ${{ !inputs.sim }}
-    runs-on: [self-hosted, "${{ inputs.sim && 'compute' || 'qb' }}"]
-    steps:
-      - name: Reset device
-        run: tt-smi -r
-
-      - name: Show device info
-        run: tt-smi -s --snapshot_no_tty
-
   build-and-test:
-    needs: [resolve-image, reset-device]
-    if: ${{ !cancelled() && needs.resolve-image.result == 'success' && needs.reset-device.result != 'failure' }}
+    needs: [resolve-image]
     runs-on: [self-hosted, "${{ inputs.sim && 'compute' || 'qb' }}"]
     container:
       image: ${{ needs.resolve-image.outputs.image }}
@@ -47,6 +36,21 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+
+
+      # Install `tt-smi` in a venv. Adding its bin dir to $GITHUB_PATH exposes tt-smi
+      # to subsequent steps.
+      - name: Reset device
+        if: ${{ !inputs.sim }}
+        run: |
+          python3 -m venv /tmp/tt-smi-venv
+          /tmp/tt-smi-venv/bin/pip install tt-smi
+          echo "/tmp/tt-smi-venv/bin" >> "$GITHUB_PATH"
+          /tmp/tt-smi-venv/bin/tt-smi -r
+
+      - name: Show device info
+        if: ${{ !inputs.sim }}
+        run: tt-smi -s --snapshot_no_tty
 
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1.2
