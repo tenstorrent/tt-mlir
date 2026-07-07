@@ -166,14 +166,18 @@ def _capture(arg, jit_ctx):
         return arg
     if hasattr(arg, "mlir_value"):
         return arg
-    # A real tensor referenced from outside the traced fn (weight/constant).
-    return TracedTensor(_weight_value(arg, jit_ctx))
+    # A real tensor (weight/cache/table) -> materialize as a graph input.
+    if hasattr(arg, "shape") and hasattr(arg, "dtype"):
+        return TracedTensor(_weight_value(arg, jit_ctx))
+    # Config/enum/other non-tensor object -> pass through unchanged.
+    return arg
 
 
 def _make_traced_op(handler_fn, jit_ctx):
     def op(*args, **kwargs):
-        proxied = [_capture(a, jit_ctx) for a in args]
-        result = handler_fn(*proxied, **kwargs)  # existing handler -> ResultWrapper
+        proxied_args = [_capture(a, jit_ctx) for a in args]
+        proxied_kwargs = {k: _capture(v, jit_ctx) for k, v in kwargs.items()}
+        result = handler_fn(*proxied_args, **proxied_kwargs)
         return TracedTensor(result.mlir_value)
 
     return op
