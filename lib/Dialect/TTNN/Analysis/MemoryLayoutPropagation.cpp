@@ -1390,7 +1390,6 @@ void MemoryLayoutPropagation::applyToIR() {
   });
 
   // Second pass: insert reshard ops (deduped per producer via reshardCache).
-  reshardCache.clear();
   func->walk([&](Operation *op) {
     const BeamCandidate *chosen = getChosenCandidate(op);
     if (!chosen) {
