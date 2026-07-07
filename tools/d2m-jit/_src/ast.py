@@ -248,9 +248,24 @@ class D2MCompiler(ast.NodeVisitor):
     def _emit_entry(self, node):
         assert not self.func_entry, "Cannot declare function within a function"
 
+        # A formal param whose name is also a capture is materialised as an
+        # in-body `arith.constant` (see the captures loop below) rather than a
+        # function argument. This is how rewrite-scope scalars get baked into
+        # the kernel: the caller moves them into `captures` so they become
+        # in-region constants instead of host-scope `additionalArgs` (which the
+        # ttmetal flatbuffer translator cannot serialize). Lazy-scope scalars
+        # are not captures, so they stay as index function arguments and remain
+        # runtime-variable. `self.args` only carries the non-capture params, in
+        # order, so track a separate cursor into it.
         func_operand_types = []
-        for i, arg in enumerate(node.args.args):
-            rt_arg = self.args[i]
+        arg_param_names = []
+        arg_cursor = 0
+        for arg in node.args.args:
+            if arg.arg in self.captures:
+                continue
+            rt_arg = self.args[arg_cursor]
+            arg_cursor += 1
+            arg_param_names.append(arg.arg)
             if isinstance(rt_arg, Layout):
                 func_operand_types.append(
                     rt_arg.build_device_tensor_type(self.ctx, blocked=True)
@@ -269,8 +284,8 @@ class D2MCompiler(ast.NodeVisitor):
 
         self.symbol_tables.append({})
         func_bb = self.func_entry.add_entry_block()
-        for i, bb_arg in enumerate(func_bb.arguments):
-            self.symbol_tables[-1][node.args.args[i].arg] = bb_arg
+        for name, bb_arg in zip(arg_param_names, func_bb.arguments):
+            self.symbol_tables[-1][name] = bb_arg
         self.module_symbol_table = SymbolTable(self.module.operation)
 
         with InsertionPoint(func_bb):

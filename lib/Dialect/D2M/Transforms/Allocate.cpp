@@ -647,14 +647,14 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
         if (allocOp->getAttr("d2m.scratch_buffer")) {
           numBuffers = 1;
         } else if (allocOp->getAttr("d2m.synchronized_buffer")) {
-          // Skip allocating, this is a contract from fusion and compute
-          // lowering saying we will not actually use this buffer and it's just
-          // a placeholder, so we can safely skip it.
-          if (!allocOp->getAttr("d2m.compute_intermediate")) {
-            numBuffers =
-                allocOp->getAttrOfType<IntegerAttr>("d2m.synchronized_buffer")
-                    .getInt();
-          }
+          // Synchronized buffers participate in CB producer/consumer
+          // handshakes after SplitUnifiedThread. Even single-tile compute
+          // intermediates need real L1 backing when a later compute stage reads
+          // them through a CB-backed memref (for example SDPA's staged softmax
+          // values feeding bcast/reduce/matmul stages).
+          numBuffers =
+              allocOp->getAttrOfType<IntegerAttr>("d2m.synchronized_buffer")
+                  .getInt();
         } else {
           // We can allow this in the future but asserting for now to check it's
           // not used.

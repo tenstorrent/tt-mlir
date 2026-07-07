@@ -60,7 +60,7 @@ GatherOpRank1RewritePattern::matchAndRewrite(ttnn::GatherOp srcOp,
   auto gather = rewriter.create<ttnn::GatherOp>(
       ttmlir::utils::appendLocationSuffix(loc, "_gather"), gatherOutputType,
       inputReshaped.getResult(), indexReshaped.getResult(),
-      rewriter.getI32IntegerAttr(adjustedDim));
+      rewriter.getSI32IntegerAttr(adjustedDim));
 
   // Reshape the result back to the original rank, reusing the original output
   // type so downstream consumers see the exact same layout.

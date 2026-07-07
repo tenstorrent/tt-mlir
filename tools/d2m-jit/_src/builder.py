@@ -672,9 +672,23 @@ def _emit_view_layout(lt: LazyTensor, affine_map, spec) -> LazyTensor:
                 f"view_layout: lambda takes {affine_map.n_dims} args but "
                 f"source MLIR rank is {len(src_shape)}"
             )
-        dst_shape = []
-        for tag, val in spec:
-            dst_shape.append(src_shape[val] if tag == "dim" else 1)
+        simple_dim_or_const = all(tag in {"dim", "const"} for tag, _ in spec)
+        if simple_dim_or_const:
+            dst_shape = []
+            for tag, val in spec:
+                dst_shape.append(src_shape[val] if tag == "dim" else 1)
+        else:
+            # For now, affine-arithmetic view_layout lambdas are remappings over
+            # the same physical shape. If future users need arithmetic maps that
+            # also change shape/rank, add an explicit shape= parameter rather
+            # than trying to infer bounds from arbitrary affine expressions.
+            if len(spec) != len(src_shape):
+                raise ValueError(
+                    "view_layout: affine-arithmetic remappings currently "
+                    "preserve source rank and shape; got "
+                    f"{len(spec)} results for source rank {len(src_shape)}"
+                )
+            dst_shape = src_shape
         dst_ty = RankedTensorType.get(
             dst_shape, src_type.element_type, encoding=src_type.encoding
         )
@@ -690,14 +704,13 @@ def view_layout(lt: LazyTensor, remapping_fn) -> LazyTensor:
     source value's MLIR rank (typically 2N for an N-dim logical tiled
     tensor: the first N dims are grid, the trailing N are per-grid tile
     indices). Each result expression may reference a parameter (perm /
-    passthrough) or be the literal 0 (broadcast-to-1).
+    passthrough), be the literal 0 (broadcast-to-1), or use affine arithmetic
+    with integer constants (`+`, `-`, `*`, `//`, `%`).
 
     The result LazyTensor's Layout is derived from the source by
     permuting logical_shape/block_shape/grid_shape if the lambda is a
-    paired (grid, tile) permutation. Otherwise it inherits the source
-    Layout unchanged -- callers that immediately consume the view in a
-    kernel should make sure their lambda corresponds to a valid layout
-    permutation.
+    paired (grid, tile) permutation. Arithmetic remappings preserve the source
+    physical shape and inherit the source Layout unchanged.
     """
     lt = lt._resolve()
     b = _get_scope()
@@ -985,23 +998,76 @@ def _affine_map_from_lambda(fn):
     """Build an MLIR AffineMap by running `fn` with sentinel dim objects.
 
     Returns `(AffineMap, spec)` where `spec` is a list of one tag per
-    result expression: either `("dim", i)` for AffineDimExpr referencing
-    input dim `i`, or `("const", v)` for an AffineConstantExpr. Callers
-    that don't need the spec can take `[0]`.
+    result expression: `("dim", i)` for a bare input dim, `("const", 0)` for
+    literal zero, or `("expr", None)` for affine arithmetic.
     """
 
-    class _Dim:
+    class _AffineExprProxy:
+        def __init__(self, expr, spec=("expr", None)):
+            self.expr = expr
+            self.spec = spec
+
+        @staticmethod
+        def _constant(value):
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise TypeError(
+                    "view_layout affine expressions only support integer constants"
+                )
+            return AffineConstantExpr.get(value)
+
+        @classmethod
+        def _expr(cls, value):
+            if isinstance(value, _AffineExprProxy):
+                return value.expr
+            return cls._constant(value)
+
+        def _new(self, expr):
+            return _AffineExprProxy(expr)
+
+        def __add__(self, rhs):
+            return self._new(self.expr + self._expr(rhs))
+
+        def __radd__(self, lhs):
+            return self._new(self._expr(lhs) + self.expr)
+
+        def __sub__(self, rhs):
+            return self._new(self.expr - self._expr(rhs))
+
+        def __rsub__(self, lhs):
+            return self._new(self._expr(lhs) - self.expr)
+
+        def __mul__(self, rhs):
+            self._constant(rhs)
+            return self._new(self.expr * rhs)
+
+        def __rmul__(self, lhs):
+            self._constant(lhs)
+            return self._new(self.expr * lhs)
+
+        def __floordiv__(self, rhs):
+            return self._new(AffineFloorDivExpr.get(self.expr, self._constant(rhs)))
+
+        def __mod__(self, rhs):
+            return self._new(AffineModExpr.get(self.expr, self._constant(rhs)))
+
+        def __rfloordiv__(self, lhs):
+            raise TypeError("view_layout does not support int // affine_expr")
+
+        def __rmod__(self, lhs):
+            raise TypeError("view_layout does not support int % affine_expr")
+
+    class _Dim(_AffineExprProxy):
         def __init__(self, position):
-            self.position = position
+            super().__init__(AffineDimExpr.get(position), ("dim", position))
 
     dims = tuple(_Dim(i) for i, _ in enumerate(inspect.signature(fn).parameters))
     results = fn(*dims)
     exprs = []
     spec = []
     for r in results:
-        if isinstance(r, _Dim):
-            exprs.append(AffineDimExpr.get(r.position))
-            spec.append(("dim", r.position))
+        if isinstance(r, _AffineExprProxy):
+            exprs.append(r.expr)
+            spec.append(r.spec)
         elif isinstance(r, int):
             assert r == 0, "Only 0 is allowed as an integer constant in indexing_map"
             exprs.append(AffineConstantExpr.get(r))
@@ -1112,14 +1178,37 @@ def _emit_kernel_generic(
         output_lts = [to_dram(lt) for lt in output_lts]
         lazy_args = input_lts + output_lts
 
+    # In a non-lazy (rewrite) scope the surrounding module is not ours to add
+    # function params to, so runtime scalars would lower to host-scope
+    # `arith.constant` index values fed into the generic's additionalArgs --
+    # which the ttmetal flatbuffer translator cannot serialize (it only
+    # resolves scalar kernel args that are program inputs, so an inline
+    # constant hits a missing-BufferRef assertion). Since rewrite-scope scalars
+    # are always Python int constants, bake them into the kernel body as
+    # captures (in-region constants) and emit no additionalArgs for them. The
+    # lazy `_Builder` keeps the runtime-arg form: scalars stay index func args
+    # (see add_scalar_input) so the binary remains parameterised.
+    bake_scalars = not isinstance(b, _Builder)
+    if bake_scalars and scalar_args:
+        formal_names = [a.arg for a in kernel._ast.body[0].args.args]
+        scalar_names = formal_names[len(lazy_args) : len(lazy_args) + len(scalar_args)]
+        effective_captures = dict(kernel._captures)
+        effective_captures.update(
+            {n: int(v) for n, v in zip(scalar_names, scalar_args)}
+        )
+        runtime_scalars = []
+    else:
+        effective_captures = kernel._captures
+        runtime_scalars = list(scalar_args)
+
     # Compile the kernel body in the current builder's context. D2MCompiler
     # picks up b.ctx via get_default_loc_context.
     with b.ctx, b.loc:
-        compiler_args = [lt.layout for lt in lazy_args] + list(scalar_args)
+        compiler_args = [lt.layout for lt in lazy_args] + runtime_scalars
         compiler = D2MCompiler(
             kernel.fn.__name__,
             "unified",
-            kernel._captures,
+            effective_captures,
             *compiler_args,
             source_file=kernel._source_file,
             source_firstlineno=kernel._source_firstlineno,
@@ -1131,8 +1220,10 @@ def _emit_kernel_generic(
     # Emit the GenericOp + splice the kernel body.
     with b.ctx, b.loc, b.insert_point:
         # Scalars are sourced from func args (not host-scope constants) so the
-        # GenericOp's region stays isolated-from-above.
-        additional = [b.add_scalar_input(s) for s in scalar_args]
+        # GenericOp's region stays isolated-from-above. In a rewrite scope the
+        # scalars were baked into the kernel body above, so runtime_scalars is
+        # empty and no additionalArgs are emitted for them.
+        additional = [b.add_scalar_input(s) for s in runtime_scalars]
         inputs = [lt.value for lt in input_lts]
         outputs = [lt.value for lt in output_lts]
         output_types = [v.type for v in outputs]

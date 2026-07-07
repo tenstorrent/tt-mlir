@@ -39,6 +39,41 @@ func.func @add(%arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<163
   return %alloc : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
 }
 
+// When a memref that is itself a d2m.generic operand is accessed directly
+// inside the generic's region (region is not isolated-from-above), the
+// collapse_shape must be anchored at the start of the generic region, not
+// after the memref's definition (which lives outside the region). See
+// "Handle collapsed memref insertions inside d2m.generic users".
+func.func @generic_operand_collapse(%arg0: memref<2x4x!ttcore.tile<32x32, f32>, #l1_>) -> memref<2x4x!ttcore.tile<32x32, f32>, #l1_> {
+  // CHECK-LABEL: func.func @generic_operand_collapse
+  // The alloc and the generic op come first; the collapse_shape ops must NOT
+  // be hoisted above the generic (which is what the unfixed pass did).
+  // CHECK: %[[ALLOC:.*]] = memref.alloc
+  // CHECK-NOT: memref.collapse_shape
+  // CHECK: d2m.generic
+  // CHECK: ins(%arg0
+  // CHECK: outs(%[[ALLOC]]
+  %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+  "d2m.generic"(%arg0, %alloc) <{block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<compute>], operandSegmentSizes = array<i32: 1, 1, 0>}> ({
+  ^bb0:
+    // Both collapse_shape ops are anchored inside the region, before the loop.
+    // CHECK: [[CARG0:%[a-z0-9_]+]] = memref.collapse_shape %arg0
+    // CHECK: [[CALLOC:%[a-z0-9_]+]] = memref.collapse_shape %[[ALLOC]]
+    affine.for %i = 0 to 2 {
+      affine.for %j = 0 to 4 {
+        // CHECK: [[IDX0:%[a-z0-9_]+]] = affine.apply #map(%{{.*}}, %{{.*}})
+        // CHECK: memref.load [[CARG0]][[[IDX0]]]
+        %0 = affine.load %arg0[%i, %j] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+        %2 = "d2m.tile_add"(%0, %0) : (!ttcore.tile<32x32, f32>, !ttcore.tile<32x32, f32>) -> !ttcore.tile<32x32, f32>
+        // CHECK: [[IDX1:%[a-z0-9_]+]] = affine.apply #map(%{{.*}}, %{{.*}})
+        // CHECK: memref.store %{{.*}}, [[CALLOC]][[[IDX1]]]
+        affine.store %2, %alloc[%i, %j] : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+      }
+    }
+  }) : (memref<2x4x!ttcore.tile<32x32, f32>, #l1_>, memref<2x4x!ttcore.tile<32x32, f32>, #l1_>) -> ()
+  return %alloc : memref<2x4x!ttcore.tile<32x32, f32>, #l1_>
+}
+
 func.func @rank0_scalar(%arg0: memref<i32>) -> memref<i32> {
   // CHECK-LABEL: func.func @rank0_scalar
   // CHECK: %[[LOAD:.*]] = memref.load %arg0[] : memref<i32>

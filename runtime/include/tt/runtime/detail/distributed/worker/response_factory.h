@@ -20,6 +20,9 @@ public:
   static void
   buildSetMemoryLogLevelResponse(::flatbuffers::FlatBufferBuilder &fbb,
                                  uint64_t commandId);
+  static void buildGetWorkerDebugStatsResponse(
+      ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId,
+      const std::string &hostname, const DebugStatsMap &stats);
 
   static void
   buildConfigureRuntimeContextResponse(::flatbuffers::FlatBufferBuilder &fbb,
