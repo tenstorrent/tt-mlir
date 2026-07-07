@@ -1,5 +1,5 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --replicate-non-splittable-constants %s | FileCheck %s
+// RUN: ttmlir-opt --replicate-non-splittable-values %s | FileCheck %s
 
 // A stablehlo.iota over its iota_dimension (dim 0) sharded on _axis_0 (2
 // devices) is non-splat and non-periodic: pass must change its sharding to

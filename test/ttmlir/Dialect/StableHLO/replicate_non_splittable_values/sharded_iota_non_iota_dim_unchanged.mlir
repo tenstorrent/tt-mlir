@@ -1,5 +1,5 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --replicate-non-splittable-constants %s | FileCheck %s
+// RUN: ttmlir-opt --replicate-non-splittable-values %s | FileCheck %s
 
 // A 2D stablehlo.iota with iota_dimension = 1 sharded only on dim 0 (_axis_0).
 // The values are constant (broadcast) along dim 0, so the sharded axis is

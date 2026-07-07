@@ -1,5 +1,5 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --replicate-non-splittable-constants %s | FileCheck %s
+// RUN: ttmlir-opt --replicate-non-splittable-values %s | FileCheck %s
 
 // 3D periodic constant sharded on dim 0 and dim 2 (dim 1 replicated).
 // The 2x3x2 base block tiles exactly, so the pass must leave sharding unchanged.

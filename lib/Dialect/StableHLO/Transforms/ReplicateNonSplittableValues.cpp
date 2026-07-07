@@ -8,14 +8,15 @@
 #include "stablehlo/dialect/StablehloOps.h"
 
 namespace mlir::tt::stablehlo {
-#define GEN_PASS_DEF_REPLICATENONSPLITTABLECONSTANTSPASS
+#define GEN_PASS_DEF_REPLICATENONSPLITTABLEVALUESPASS
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h.inc"
 
 // This pass changes the sharding annotation of non-splat, non-periodic
-// constants to "replicated". It must run before InsertExplicitReshards so
-// that Shardy detects the mismatch between the replicated constant and its
-// sharded consumers, and inserts the appropriate reshard operations. Those
-// reshards are later converted to collective ops by ReshardToCollectives.
+// value-producing ops to "replicated". It must run before
+// InsertExplicitReshards so that Shardy detects the mismatch between the
+// replicated value and its sharded consumers, and inserts the appropriate
+// reshard operations. Those reshards are later converted to collective ops by
+// ReshardToCollectives.
 //
 // Without this pass, UpdateGlobalToLocalShapes would try to shard the constant
 // value, which fails for non-splat, non-periodic data like [0, 1, 2, ..., 63].
@@ -27,13 +28,12 @@ namespace mlir::tt::stablehlo {
 // shard_id*local + 0..local-1. To avoid that, we also replicate such iotas here
 // so the full global iota is materialized and Shardy inserts a reshard that
 // slices out the correct local range per shard.
-class ReplicateNonSplittableConstantsPass
-    : public impl::ReplicateNonSplittableConstantsPassBase<
-          ReplicateNonSplittableConstantsPass> {
+class ReplicateNonSplittableValuesPass
+    : public impl::ReplicateNonSplittableValuesPassBase<
+          ReplicateNonSplittableValuesPass> {
 public:
-  using impl::ReplicateNonSplittableConstantsPassBase<
-      ReplicateNonSplittableConstantsPass>::
-      ReplicateNonSplittableConstantsPassBase;
+  using impl::ReplicateNonSplittableValuesPassBase<
+      ReplicateNonSplittableValuesPass>::ReplicateNonSplittableValuesPassBase;
 
   void runOnOperation() final {
     mlir::ModuleOp rootModule = getOperation();
@@ -62,18 +62,11 @@ public:
 
     rootModule.walk([&](mlir::stablehlo::ConstantOp constantOp) {
       // Get sharding annotation (per-value format from propagation).
-      auto spv =
-          constantOp->getAttrOfType<mlir::sdy::TensorShardingPerValueAttr>(
-              mlir::sdy::TensorShardingAttr::name);
-      if (!spv) {
+      mlir::sdy::TensorShardingAttr sharding =
+          shardy_utils::getFirstSharding(constantOp);
+      if (!sharding) {
         return;
       }
-
-      auto shardings = spv.getShardings();
-      if (shardings.empty()) {
-        return;
-      }
-      mlir::sdy::TensorShardingAttr sharding = shardings[0];
 
       auto denseAttr =
           mlir::dyn_cast<mlir::DenseElementsAttr>(constantOp.getValue());
@@ -116,28 +109,17 @@ public:
 
       // Non-splat, non-periodic constant: change sharding to fully replicated
       // so InsertExplicitReshards will insert the necessary reshard ops.
-      auto replicatedSharding =
-          shardy_utils::getClosedReplicatedTensorSdyShardingAttr(
-              context, globalMeshOp.getSymName(), oldType.getRank());
-
-      constantOp->setAttr(mlir::sdy::TensorShardingAttr::name,
-                          mlir::sdy::TensorShardingPerValueAttr::get(
-                              context, {replicatedSharding}));
+      shardy_utils::setReplicatedSharding(
+          constantOp, context, globalMeshOp.getSymName(), oldType.getRank());
     });
 
     rootModule.walk([&](mlir::stablehlo::IotaOp iotaOp) {
       // Get sharding annotation (per-value format from propagation).
-      auto spv = iotaOp->getAttrOfType<mlir::sdy::TensorShardingPerValueAttr>(
-          mlir::sdy::TensorShardingAttr::name);
-      if (!spv) {
+      mlir::sdy::TensorShardingAttr sharding =
+          shardy_utils::getFirstSharding(iotaOp);
+      if (!sharding) {
         return;
       }
-
-      auto shardings = spv.getShardings();
-      if (shardings.empty()) {
-        return;
-      }
-      mlir::sdy::TensorShardingAttr sharding = shardings[0];
 
       // Already fully replicated (no sharding axes on any dimension); skip.
       if (shardy_utils::isFullyReplicatedTensor(sharding, globalMeshOp)) {
@@ -161,13 +143,8 @@ public:
       // Sharded iota along its iota_dimension: change sharding to fully
       // replicated so InsertExplicitReshards will insert the necessary reshard
       // ops that give each shard the correct per-shard offset.
-      auto replicatedSharding =
-          shardy_utils::getClosedReplicatedTensorSdyShardingAttr(
-              context, globalMeshOp.getSymName(), oldType.getRank());
-
-      iotaOp->setAttr(mlir::sdy::TensorShardingAttr::name,
-                      mlir::sdy::TensorShardingPerValueAttr::get(
-                          context, {replicatedSharding}));
+      shardy_utils::setReplicatedSharding(
+          iotaOp, context, globalMeshOp.getSymName(), oldType.getRank());
     });
   }
 };
