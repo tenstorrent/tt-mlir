@@ -37,6 +37,16 @@ class TracedTensor:
         self.mlir_value = mlir_value
 
     @property
+    def __class__(self):
+        # Spoof isinstance(proxy, ttnn.Tensor) so real model code that gates on
+        # `isinstance(x, ttnn.Tensor)` accepts the proxy. `type(proxy)` still
+        # returns the real TracedTensor class, so our internal checks use
+        # `type(x) is TracedTensor` (which ignores this spoof).
+        import ttnn
+
+        return ttnn.Tensor
+
+    @property
     def shape(self):
         return tuple(int(d) for d in self.mlir_value.type.shape)
 
@@ -138,10 +148,10 @@ _PASSTHROUGH_NONE = {"deallocate"}
 def _identity_passthrough(*args, **kwargs):
     # Layout op: return the first tensor operand unchanged; emit no TTIR.
     for a in args:
-        if isinstance(a, TracedTensor):
+        if type(a) is TracedTensor:
             return a
     for v in kwargs.values():
-        if isinstance(v, TracedTensor):
+        if type(v) is TracedTensor:
             return v
     return args[0] if args else None
 
@@ -180,11 +190,7 @@ def _weight_value(tensor, jit_ctx):
 def _capture(arg, jit_ctx):
     if isinstance(arg, (list, tuple)):
         return type(arg)(_capture(a, jit_ctx) for a in arg)
-    if (
-        isinstance(arg, TracedTensor)
-        or isinstance(arg, (int, float, bool))
-        or arg is None
-    ):
+    if type(arg) is TracedTensor or isinstance(arg, (int, float, bool)) or arg is None:
         return arg
     if hasattr(arg, "mlir_value"):
         return arg
@@ -228,10 +234,26 @@ def _make_traced_multi_op(value_fn, jit_ctx):
     return op
 
 
+def _broadcast_batch(x, y):
+    # numpy-style right-aligned broadcast of two batch-dim lists.
+    n = max(len(x), len(y))
+    xr = [1] * (n - len(x)) + list(x)
+    yr = [1] * (n - len(y)) + list(y)
+    return [(a if b == 1 else b if a == 1 else max(a, b)) for a, b in zip(xr, yr)]
+
+
 def _linear_handler(jit_ctx, a, b, *, bias=None, dtype=None, **kwargs):
     a_type = a.mlir_value.type
     b_type = b.mlir_value.type
-    out_shape = [int(d) for d in a_type.shape[:-1]] + [int(b_type.shape[-1])]
+    a_shape = [int(d) for d in a_type.shape]
+    b_shape = [int(d) for d in b_type.shape]
+    # matmul/linear output = broadcast(a[:-2], b[:-2]) + [a[-2], b[-1]]
+    # (matches ttir.LinearOp verifier; naive a[:-1]+[b[-1]] mis-ranks when a/b
+    # have different batch-dim counts).
+    out_shape = _broadcast_batch(a_shape[:-2], b_shape[:-2]) + [
+        a_shape[-2],
+        b_shape[-1],
+    ]
     elem_type = (
         mlir_dtype_from_ttnn_dtype(dtype, jit_ctx.ctx)
         if dtype is not None
@@ -264,20 +286,57 @@ def _rms_norm_handler(jit_ctx, x, *, epsilon=1e-5, weight=None, **kwargs):
         result_type = RankedTensorType.get(
             [int(d) for d in x_type.shape], x_type.element_type
         )
+        weight_val = None
+        if weight is not None:
+            w_type = weight.mlir_value.type
+            w_shape = [int(d) for d in w_type.shape]
+            # The TTIR rms_norm verifier requires weight.shape == normalized_shape
+            # == [hidden]. TTNN models tile-pack the norm weight (e.g. [1,1,H/32,32]);
+            # flatten it to [hidden] for the analysis graph (values are irrelevant).
+            if w_shape != [hidden]:
+                flat_type = RankedTensorType.get([hidden], w_type.element_type)
+                weight_val = ttir.reshape(
+                    result=flat_type, input=weight.mlir_value, shape=[hidden]
+                )
+            else:
+                weight_val = weight.mlir_value
         eps_attr = FloatAttr.get(F32Type.get(jit_ctx.ctx), float(epsilon))
         return ttir.rms_norm(
             result=result_type,
             input=x.mlir_value,
             normalized_shape=[hidden],
-            weight=(weight.mlir_value if weight is not None else None),
+            weight=weight_val,
             epsilon=eps_attr,
         )
+
+
+def _reshape_handler(jit_ctx, x, shape=None, **kwargs):
+    # ttnn.reshape(x, shape) — shape is positional (args[1]) or a `shape=` kwarg,
+    # a list/tuple/ttnn.Shape that may contain a single -1 to infer. Overrides the
+    # jit_functions reshape handler, which mis-resolves the shape as an operand.
+    if shape is None:
+        shape = kwargs.get("shape")
+    dims = [int(d) for d in shape]
+    in_shape = [int(d) for d in x.mlir_value.type.shape]
+    if -1 in dims:
+        total = 1
+        for d in in_shape:
+            total *= d
+        known = 1
+        for d in dims:
+            if d != -1:
+                known *= d
+        dims[dims.index(-1)] = total // known
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        result_type = RankedTensorType.get(dims, x.mlir_value.type.element_type)
+        return ttir.reshape(result=result_type, input=x.mlir_value, shape=dims)
 
 
 _VALUE_HANDLERS = {
     "linear": _linear_handler,
     "typecast": _typecast_handler,
     "rms_norm": _rms_norm_handler,
+    "reshape": _reshape_handler,
 }
 
 
@@ -390,13 +449,24 @@ def _sdpa_handler(jit_ctx, q, k, v, *, is_causal=None, scale=None, **kwargs):
         result_type = RankedTensorType.get([int(d) for d in t.shape], t.element_type)
         return ttir.scaled_dot_product_attention(
             result=result_type,
-            query=q.mlir_value, key=k.mlir_value, value=v.mlir_value,
-            is_causal=is_causal, scale=scale,
+            query=q.mlir_value,
+            key=k.mlir_value,
+            value=v.mlir_value,
+            is_causal=is_causal,
+            scale=scale,
         )
 
 
-def _chunked_sdpa_handler(jit_ctx, *, input_tensor_q, input_tensor_k, input_tensor_v,
-                          page_table_tensor=None, scale=None, **kwargs):
+def _chunked_sdpa_handler(
+    jit_ctx,
+    *,
+    input_tensor_q,
+    input_tensor_k,
+    input_tensor_v,
+    page_table_tensor=None,
+    scale=None,
+    **kwargs,
+):
     t = input_tensor_q.mlir_value.type
     with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
         result_type = RankedTensorType.get([int(d) for d in t.shape], t.element_type)
@@ -407,7 +477,8 @@ def _chunked_sdpa_handler(jit_ctx, *, input_tensor_q, input_tensor_k, input_tens
             query=input_tensor_q.mlir_value,
             key=input_tensor_k.mlir_value,
             value=input_tensor_v.mlir_value,
-            is_causal=True, scale=scale,
+            is_causal=True,
+            scale=scale,
         )
 
 
@@ -446,7 +517,9 @@ def patch_ttnn(jit_ctx):
             setattr(ttnn, name, _make_traced_value_op(value_fn, jit_ctx))
         if hasattr(namespace, "multiply"):
             originals["mul"] = getattr(ttnn, "mul", _MISSING)
-            setattr(ttnn, "mul", _make_traced_op(getattr(namespace, "multiply"), jit_ctx))
+            setattr(
+                ttnn, "mul", _make_traced_op(getattr(namespace, "multiply"), jit_ctx)
+            )
         if experimental is not None:
             for name, fn in _EXPERIMENTAL_MULTI.items():
                 exp_originals[name] = getattr(experimental, name, _MISSING)
@@ -501,7 +574,7 @@ def trace_intercepted(fn, *args):
     with patch_ttnn(scope.jit_ctx):
         result = fn(*scope.traced_args)
 
-    if not isinstance(result, TracedTensor):
+    if type(result) is not TracedTensor:
         raise TypeError(
             f"traced function must return a single tensor, got {type(result)!r}"
         )
