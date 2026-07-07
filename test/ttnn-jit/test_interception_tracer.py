@@ -38,6 +38,25 @@ def test_traced_tensor_layout_is_unknown():
 
 def test_patch_ttnn_restores_originals_including_on_exception():
     original_matmul = ttnn.matmul
+    # Capture submodule originals BEFORE any patching so we can confirm
+    # patch_ttnn's finally block restores nested (ttnn.experimental /
+    # ttnn.transformer) attrs too, not just top-level ttnn ones.
+    has_sdpa = hasattr(ttnn, "transformer") and hasattr(
+        ttnn.transformer, "scaled_dot_product_attention"
+    )
+    if has_sdpa:
+        original_sdpa = ttnn.transformer.scaled_dot_product_attention
+    has_concat_heads = hasattr(ttnn, "experimental") and hasattr(
+        ttnn.experimental, "nlp_concat_heads"
+    )
+    if has_concat_heads:
+        original_concat_heads = ttnn.experimental.nlp_concat_heads
+    has_qkv_heads = hasattr(ttnn, "experimental") and hasattr(
+        ttnn.experimental, "nlp_create_qkv_heads"
+    )
+    if has_qkv_heads:
+        original_qkv_heads = ttnn.experimental.nlp_create_qkv_heads
+
     scope = build_trace_scope("f", [((256, 512), ttnn.bfloat16)])
     with patch_ttnn(scope.jit_ctx):
         assert ttnn.matmul is not original_matmul
@@ -49,6 +68,12 @@ def test_patch_ttnn_restores_originals_including_on_exception():
     except RuntimeError:
         pass
     assert ttnn.matmul is original_matmul
+    if has_sdpa:
+        assert ttnn.transformer.scaled_dot_product_attention is original_sdpa
+    if has_concat_heads:
+        assert ttnn.experimental.nlp_concat_heads is original_concat_heads
+    if has_qkv_heads:
+        assert ttnn.experimental.nlp_create_qkv_heads is original_qkv_heads
 
 
 def test_patched_op_builds_ttir_and_captures_weight():
@@ -151,20 +176,35 @@ def test_multi_output_returns_tuple_of_proxies():
     # Emit a real 3-result op to get 3 MLIR values, then wrap them.
     from ttnn_jit.ttmlir.ir import InsertionPoint, Location, RankedTensorType
     from ttnn_jit.ttmlir.dialects import ttir
+    from ttnn_jit.ttmlir.dialects import func as _func
 
     with InsertionPoint(scope.func_bb), Location.unknown(scope.ctx):
         et = x.mlir_value.type.element_type
+        # The SplitQueryKeyValueAndSplitHeadsOp verifier requires a rank-3
+        # [batch, seq, qkv_size] input; reshape the rank-4 fused-qkv block arg
+        # down first, matching what _nlp_create_qkv_heads_handler does for the
+        # real op.
+        reshaped_type = RankedTensorType.get([1, 32, 6144], et)
+        reshaped = ttir.reshape(reshaped_type, x.mlir_value, [1, 32, 6144])
         qt = RankedTensorType.get([1, 32, 32, 128], et)
         kt = RankedTensorType.get([1, 8, 32, 128], et)
         vt = RankedTensorType.get([1, 8, 32, 128], et)
         results = ttir.split_query_key_value_and_split_heads(
-            qt, kt, vt, x.mlir_value, 32, False, num_kv_heads=8
+            qt, kt, vt, reshaped, 32, False, num_kv_heads=8
         )
     wrapped = _wrap_results(results)
     assert isinstance(wrapped, tuple) and len(wrapped) == 3
     assert all(hasattr(w, "mlir_value") for w in wrapped)
     assert wrapped[0].shape == (1, 32, 32, 128)
     assert wrapped[1].shape == (1, 8, 32, 128)
+    # build_trace_scope's func body has no terminator (this test doesn't run
+    # the full trace_intercepted finalize step) -- add one so operation.verify()
+    # is a real oracle over the reshape + split ops themselves. x's type
+    # matches the func's pre-declared result type, so returning it unchanged
+    # keeps the signature consistent.
+    with InsertionPoint(scope.func_bb), Location.unknown(scope.ctx):
+        _func.ReturnOp([x.mlir_value])
+    scope.module.operation.verify()
 
 
 def test_nlp_create_qkv_heads_multi_output():

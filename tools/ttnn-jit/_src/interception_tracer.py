@@ -110,6 +110,23 @@ from ttnn_jit._src.supported_ops import (
 
 _MISSING = object()
 
+
+def _restore_patched(module, saved):
+    """Restore attrs on `module` from a {name: original_or__MISSING} mapping.
+
+    `_MISSING` means the attr didn't exist before patching, so it's deleted
+    (rather than set to a sentinel) to leave the module exactly as found.
+    """
+    for name, original in saved.items():
+        if original is _MISSING:
+            try:
+                delattr(module, name)
+            except AttributeError:
+                pass
+        else:
+            setattr(module, name, original)
+
+
 _PASSTHROUGH_IDENTITY = {
     "to_memory_config",
     "interleaved_to_sharded",
@@ -425,32 +442,11 @@ def patch_ttnn(jit_ctx):
                 setattr(transformer, name, _make_traced_value_op(value_fn, jit_ctx))
         yield
     finally:
-        for name, original in originals.items():
-            if original is _MISSING:
-                try:
-                    delattr(ttnn, name)
-                except AttributeError:
-                    pass
-            else:
-                setattr(ttnn, name, original)
+        _restore_patched(ttnn, originals)
         if experimental is not None:
-            for name, original in exp_originals.items():
-                if original is _MISSING:
-                    try:
-                        delattr(experimental, name)
-                    except AttributeError:
-                        pass
-                else:
-                    setattr(experimental, name, original)
+            _restore_patched(experimental, exp_originals)
         if transformer is not None:
-            for name, original in transformer_originals.items():
-                if original is _MISSING:
-                    try:
-                        delattr(transformer, name)
-                    except AttributeError:
-                        pass
-                else:
-                    setattr(transformer, name, original)
+            _restore_patched(transformer, transformer_originals)
 
 
 def _finalize_signature(module, func_op, input_types, return_value, ctx):
