@@ -318,6 +318,18 @@ public:
       input = reorderResult;
     }
 
+    // Don't fire on a reshape that ConcatHeadsToNLPConcatHeadsDecodeFusing
+    // already emitted: that pattern rewrites a concatenate_heads into
+    // reshape([1,B,H,D]) -> nlp_concat_heads_decode, and this reshape-rooted
+    // pattern would otherwise match that [1,B,H,D] reshape and add a second,
+    // redundant nlp_concat_heads_decode (concat -> reshape-back -> concat).
+    // A reshape feeding a decode concat is already fused; leave it alone.
+    if (llvm::any_of(reshapeOp.getResult().getUsers(), [](Operation *user) {
+          return mlir::isa<NLPConcatHeadsDecodeOp>(user);
+        })) {
+      return failure();
+    }
+
     auto inputType = mlir::cast<RankedTensorType>(input.getType());
     auto inputShape = inputType.getShape();
     int64_t seqLen = inputShape[0];
