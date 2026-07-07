@@ -208,7 +208,7 @@ def rope_materializer(kernel, inputs, cfg):
     return out_lt.to_host()
 
 
-def _torch_rope_reference(x, cos, sin_signed):
+def _golden(x, cos, sin_signed):
     """Torch reference matching the kernel exactly: x*cos + roll_half(x)*sin_signed.
 
     roll_half shifts the feature dimension by head_dim/2: [x_lo, x_hi] → [x_hi, x_lo].
@@ -224,7 +224,7 @@ def _torch_rope_reference(x, cos, sin_signed):
 KERNEL_BENCH = KernelBench(
     name="rope",
     kernel=rope,
-    golden=_torch_rope_reference,
+    golden=_golden,
     run=rope_materializer,
     inputs=InputSpec("randn"),
     default_cfg={
