@@ -94,6 +94,7 @@ else ()
         _src/shard_advisor.py
         _src/jit_functions.py
         _src/tracing_compiler.py
+        _src/interception_tracer.py
   )
 
   add_mlir_python_modules(TTNNJITModules
