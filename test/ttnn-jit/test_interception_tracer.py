@@ -283,3 +283,24 @@ def test_chunked_sdpa_output_matches_query_shape():
     with InsertionPoint(scope.func_bb), Location.unknown(scope.ctx):
         _func.ReturnOp([out.mlir_value])
     scope.module.operation.verify()
+
+
+def test_synthetic_attention_chain_traces():
+    import ttnn as _ttnn
+    from ttnn_jit._src.interception_tracer import trace_intercepted
+
+    def attn(xqkv):
+        q, k, v = _ttnn.experimental.nlp_create_qkv_heads(
+            xqkv, num_heads=32, num_kv_heads=8, transpose_k_heads=False
+        )
+        # (RoPE omitted — Plan C.) Repeat kv to match q heads is handled inside sdpa;
+        # here we pass q,k,v straight to sdpa for the op-chain smoke.
+        attn_out = _ttnn.transformer.scaled_dot_product_attention(q, k, v, is_causal=True)
+        return _ttnn.experimental.nlp_concat_heads(attn_out)
+
+    module, out_type = trace_intercepted(attn, _DummyTensor((1, 1, 32, 6144), _ttnn.bfloat16))
+    ir = str(module)
+    assert "split_query_key_value_and_split_heads" in ir
+    assert "scaled_dot_product_attention" in ir
+    assert "concatenate_heads" in ir
+    module.operation.verify()
