@@ -5059,7 +5059,7 @@ private:
   // (max elements become 1, everything else is 0), broadcast arange to full
   // shape (repeat rows or columns if necessary), eltwise mul with result of
   // eltwise eq (max elements are now replaced with their indices, everything
-  // else is 0). All fused into one generic.
+  // else is 0).
   // 4. Reduce max result of (3) to remove all 0's and get the correct output
   // shape.
   // 5. Recover original indices by performing N - i for each element (in case
@@ -5119,6 +5119,31 @@ private:
       // Reduce the new last dim (row-wise); the original 1D reduction over dim
       // 0 maps to ReduceDim::R on [1, N].
       reduceDim = d2m::ReduceDim::R;
+    }
+
+    // Warn the user about possibly exceeding L1 capacity with really large
+    // tensors. Since this decomposition uses F32 for its index calculation,
+    // exceeding L1 capacity is more likely than with bf16. Mostly happens with
+    // full reduction.
+    constexpr int64_t kArgMaxL1WarnThreshold = 256 * 256;
+    for (int64_t dimSize : argMaxInputTy.getShape()) {
+      if (dimSize > kArgMaxL1WarnThreshold) {
+        op.emitWarning() << "D2M Argmax with a dimension of size " << dimSize
+                         << " (> " << kArgMaxL1WarnThreshold
+                         << ") may exhaust device L1.";
+        break;
+      }
+    }
+
+    // Switch to using F32 type for index calculation to avoid running into bf16
+    // rounding issues, causing off-by-one errors in the result.
+    if (!argMaxInputTy.getElementType().isF32()) {
+      auto f32InputTy =
+          RankedTensorType::get(argMaxInputTy.getShape(), rewriter.getF32Type(),
+                                argMaxInputTy.getEncoding());
+      argMaxInput =
+          buildTypecastGeneric(rewriter, loc, argMaxInput, f32InputTy);
+      argMaxInputTy = f32InputTy;
     }
 
     // Stage 1: reduce_max over target dim.
@@ -5321,37 +5346,51 @@ private:
       break;
     }
     AffineMap arangeReducedMap = arangeReducedMutable.getAffineMap();
-    SmallVector<AffineMap> stage3maps = {identityMap, maxReducedMap,
-                                         arangeReducedMap, identityMap};
 
     auto maxBcastTyAttr = d2m::TileBcastTypeAttr::get(ctx, maxBcastTy);
     auto arangeBcastTyAttr = d2m::TileBcastTypeAttr::get(ctx, arangeBcastTy);
 
-    d2m::GenericOp stage3 = buildGenericLinAlg(
-        rewriter, loc,
-        SmallVector<Value>{stage3inputs[0], stage1.getResult(0),
-                           stage2.getResult(0)},
-        stage3outputs, stage3maps, allParallelIterTy,
+    // Split stage 3 into two generics to avoid running out of DST register
+    // slices.
+
+    // Stage 3a: bcast max -> eltwise_eq. Produces the 0/1 mask.
+    SmallVector<AffineMap> stage3amaps = {identityMap, maxReducedMap,
+                                          identityMap};
+    d2m::GenericOp stage3a = buildGenericLinAlg(
+        rewriter, loc, SmallVector<Value>{stage3inputs[0], stage1.getResult(0)},
+        stage3outputs, stage3amaps, allParallelIterTy,
         [&](mlir::OpBuilder &bb, mlir::Location l, mlir::ValueRange bbArgs) {
           Value bcastMax =
               rewriter
-                  .create<d2m::TileBcastOp>(l, bbArgs[3].getType(), bbArgs[1],
+                  .create<d2m::TileBcastOp>(l, bbArgs[2].getType(), bbArgs[1],
                                             maxBcastTyAttr)
                   .getResult();
-          Value tileEq = rewriter
-                             .create<d2m::TileEqOp>(l, bbArgs[3].getType(),
-                                                    bbArgs[0], bcastMax)
-                             .getResult();
+          return rewriter
+              .create<d2m::TileEqOp>(l, bbArgs[2].getType(), bbArgs[0],
+                                     bcastMax)
+              .getResult();
+        });
+
+    // Stage 3b: bcast arange -> eltwise_mul(mask, arange).
+    auto stage3borigOutputs = createDpsOutputs(loc, rewriter, {argMaxInputTy});
+    auto [stage3bunused, stage3boutputs] = toLayoutOperandsAndResults(
+        rewriter, {SmallVector<Value>{}, stage3borigOutputs}, true, noCollapse);
+    SmallVector<AffineMap> stage3bmaps = {identityMap, arangeReducedMap,
+                                          identityMap};
+    d2m::GenericOp stage3 = buildGenericLinAlg(
+        rewriter, loc,
+        SmallVector<Value>{stage3a.getResult(0), stage2.getResult(0)},
+        stage3boutputs, stage3bmaps, allParallelIterTy,
+        [&](mlir::OpBuilder &bb, mlir::Location l, mlir::ValueRange bbArgs) {
           Value bcastArange =
               rewriter
-                  .create<d2m::TileBcastOp>(l, bbArgs[3].getType(), bbArgs[2],
+                  .create<d2m::TileBcastOp>(l, bbArgs[2].getType(), bbArgs[1],
                                             arangeBcastTyAttr)
                   .getResult();
-          Value tileMul = rewriter
-                              .create<d2m::TileMulOp>(l, bbArgs[3].getType(),
-                                                      tileEq, bcastArange)
-                              .getResult();
-          return tileMul;
+          return rewriter
+              .create<d2m::TileMulOp>(l, bbArgs[2].getType(), bbArgs[0],
+                                      bcastArange)
+              .getResult();
         });
 
     // Stage 4: reduce max again
