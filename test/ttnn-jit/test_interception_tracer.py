@@ -110,10 +110,13 @@ def test_passthrough_to_memory_config_is_identity_and_emits_no_op():
 def test_capture_walks_kwargs_and_ignores_non_tensors():
     scope = build_trace_scope("f", [((256, 512), ttnn.bfloat16)])
     x = scope.traced_args[0]
-    w = _DummyTensor((512, 512), ttnn.bfloat16)  # tensor passed by KEYWORD
+    w = _DummyTensor((256, 512), ttnn.bfloat16)  # tensor passed by KEYWORD to clamp
     with patch_ttnn(scope.jit_ctx):
-        # matmul with the weight as a kwarg + a non-tensor config kwarg present.
-        out = ttnn.matmul(x, w, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        # clamp with tensor-valued min kwarg (exercises kwargs capture)
+        out = ttnn.clamp(x, min=w)
+        # Also test that non-tensor config kwarg passes through without materializing
+        out2 = ttnn.multiply(x, x, memory_config=ttnn.DRAM_MEMORY_CONFIG)
     assert isinstance(out, TracedTensor)
-    assert "ttir.empty" in str(scope.module)  # kwarg weight materialized
-    # non-tensor kwarg (memory_config) did NOT get materialized/crash
+    ir = str(scope.module)
+    assert "ttir.empty" in ir  # w kwarg tensor materialized
+    assert out2 is not None  # memory_config kwarg did not crash
