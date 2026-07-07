@@ -3391,6 +3391,23 @@ private:
     return success();
   }
 };
+
+class RotaryEmbeddingLlamaOpConversionPattern
+    : public OpConversionPattern<ttir::RotaryEmbeddingLlamaOp> {
+public:
+  using OpConversionPattern<ttir::RotaryEmbeddingLlamaOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::RotaryEmbeddingLlamaOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::RotaryEmbeddingLlamaOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getCosCache(), adaptor.getSinCache(),
+        adaptor.getTransMat(), adaptor.getIsDecodeMode(),
+        /*compute_config=*/nullptr);
+    return success();
+  }
+};
 } // namespace
 
 // This rewrite pattern lowers a ttir.all_to_all op into a sequence of
@@ -3696,6 +3713,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            CollectiveBroadcastOpConversionPattern,
            ConcatenateHeadsOpConversionPattern,
            ScaledDotProductAttentionOpConversionPattern,
+           RotaryEmbeddingLlamaOpConversionPattern,
            ScaledDotProductAttentionDecodeOpConversionPattern,
            PagedScaledDotProductAttentionDecodeOpConversionPattern,
            ChunkedScaledDotProductAttentionOpConversionPattern,
