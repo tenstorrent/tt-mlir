@@ -3325,7 +3325,7 @@ def D2M_TopkBlockOp : D2M_GenericRegionComputeOp<"topk_block",
       The scratch_idx_tile is a pre-filled full-shape index buffer containing
       the arange of original element indices (generated upstream in TTIRToD2M
       via arange + broadcast generics). `d2m-decompose-topk` consumes this
-      buffer directly; it no longer emits `arange_block`.
+      buffer directly.
   }];
 
   let arguments = (ins

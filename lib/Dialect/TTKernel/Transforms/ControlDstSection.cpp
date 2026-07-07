@@ -30,9 +30,9 @@ static Block *findBlockContaining(Operation *op) {
 }
 
 // Returns true if `op` is a pack_tile that already lives inside a
-// self-managed DST section. Topk group ops emit a complete
-// commit/wait/pack/release sequence in the same block as the pack_tile, so
-// this pass must not wrap them again.
+// self-managed DST section. Some group ops emit a complete
+// commit/wait/pack/release sequence in the same block, so this pass must
+// not wrap them again.
 static bool isSelfManagedPackTile(Operation *op) {
   return !op->getBlock()->getOps<ttkernel::TileRegsReleaseOp>().empty();
 }
@@ -80,7 +80,7 @@ public:
         return;
       }
 
-      // Topk group ops self-manage their DST section; don't wrap them.
+      // When group ops self-manage their DST section, don't wrap them.
       if (isSelfManagedPackTile(op)) {
         return;
       }

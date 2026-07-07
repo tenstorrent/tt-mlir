@@ -175,10 +175,9 @@ module {
     // Outer scf.for (ceilLog2(3)=2 iterations), inner scf.for over tile pairs.
     // CHECK: scf.for
     // CHECK: scf.for
-    // Ragged guard: merge only when tileB < numTiles.
-    // CHECK: scf.if
     // CHECK: d2m.tile_topk_local_sort
     // CHECK: d2m.tile_topk_merge{{.*}}k = 32
+    // Rebuild only on the last iteration.
     // CHECK: scf.if
     // CHECK: d2m.tile_topk_rebuild{{.*}}k = 16{{.*}}logk = 5
     // Odd-tail standalone sort for tile 2 (emitted at level 0).
@@ -190,7 +189,7 @@ module {
   }
 
   // 32x192 with k=16: Wt=6 (even, ragged), ceilLog2=3 iterations.
-  // All tiles paired at level 0 (no odd tail). Ragged merge guard present.
+  // All tiles paired at level 0 (no odd tail).
   // CHECK-LABEL: func @decompose_k16_6tiles
   func.func @decompose_k16_6tiles(%arg0: tensor<32x192xf32>) -> (tensor<32x16xf32>, tensor<32x16xsi32>) {
     // CHECK-NOT: d2m.topk_block
@@ -199,10 +198,9 @@ module {
     // Outer scf.for (ceilLog2(6)=3 iterations), inner scf.for over tile pairs.
     // CHECK: scf.for
     // CHECK: scf.for
-    // Ragged guard present (tileB < numTiles check wrapping merge).
-    // CHECK: scf.if
     // CHECK: d2m.tile_topk_local_sort
     // CHECK: d2m.tile_topk_merge{{.*}}k = 32
+    // Rebuild only on the last iteration.
     // CHECK: scf.if
     // CHECK: d2m.tile_topk_rebuild{{.*}}k = 16{{.*}}logk = 5
 
@@ -219,10 +217,9 @@ module {
     // Outer scf.for (ceilLog2(17)=5 iterations), inner scf.for over tile pairs.
     // CHECK: scf.for
     // CHECK: scf.for
-    // Ragged merge guard.
-    // CHECK: scf.if
     // CHECK: d2m.tile_topk_local_sort
     // CHECK: d2m.tile_topk_merge{{.*}}k = 32
+    // Rebuild only on the last iteration.
     // CHECK: scf.if
     // CHECK: d2m.tile_topk_rebuild{{.*}}k = 16{{.*}}logk = 5
     // Odd-tail standalone sort for tile 16 at level 0.
@@ -241,10 +238,9 @@ module {
     // CHECK-SAME: num_elements = 96
     // CHECK: scf.for
     // CHECK: scf.for
-    // Ragged merge guard.
-    // CHECK: scf.if
     // CHECK: d2m.tile_topk_local_sort
     // CHECK: d2m.tile_topk_merge{{.*}}k = 32
+    // Rebuild only on the last iteration.
     // CHECK: scf.if
     // CHECK: d2m.tile_topk_rebuild{{.*}}k = 16{{.*}}logk = 5
     // Odd-tail standalone sort for tile 2 at level 0.

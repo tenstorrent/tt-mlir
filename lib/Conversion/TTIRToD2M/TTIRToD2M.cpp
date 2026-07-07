@@ -3699,7 +3699,6 @@ public:
     assert(k <= 64 && "D2M topk only supports k <= 64");
     int32_t dim = op.getDim();
     int64_t rank = inputType.getRank();
-    const bool noCollapse = rank > 2;
     if (dim < 0) {
       dim += rank;
     }
@@ -3710,6 +3709,12 @@ public:
     }
 
     int64_t reductionDimSize = inputType.getShape()[dim];
+
+    // The value input's logical shape. When large-k pads the reduction dim to
+    // a power-of-2 tile count, this grows to match the arange/index buffer,
+    // since topk d2m.generic requires both operands to share a shard shape.
+    SmallVector<int64_t> topkLogicalShape(inputType.getShape().begin(),
+                                          inputType.getShape().end());
 
     Value layoutedInput = createOptimalLayoutOp(adaptor.getInputTensor(),
                                                 memorySpaces[0], /*tiled=*/true,
@@ -3785,7 +3790,7 @@ public:
       layoutedType = cast<RankedTensorType>(layoutedInput.getType());
       metalLayout = cast<ttcore::MetalLayoutAttr>(layoutedType.getEncoding());
       deviceShape = layoutedType.getShape();
-      numReductionTiles = paddedNumReductionTiles;
+      topkLogicalShape[dim] = paddedDimElems;
     }
 
     Type si32Type = IntegerType::get(ctx, 32, IntegerType::Signed);
@@ -3809,9 +3814,9 @@ public:
     SmallVector<Attribute> iteratorTypes(physicalRank, parallel);
     AffineMap identityMap = rewriter.getMultiDimIdentityMap(physicalRank);
 
-    // Per-tile transpose helper: emits a generic whose region applies
-    // TileTransposeOp to every tile in the shard. Used for both the value input
-    // and the index buffer when dim==1 so the two stay in the same orientation.
+    // Emits a generic that applies TileTransposeOp to every tile in the shard.
+    // Used for both value and index when dim==1 to keep them in the same
+    // orientation.
     auto transposeTiles = [&](Value src) -> Value {
       auto srcType = cast<RankedTensorType>(src.getType());
       auto srcTileType = cast<ttcore::TileType>(srcType.getElementType());
@@ -3864,11 +3869,12 @@ public:
 
     // Setting up the arange op.
 
-    auto si32InputType = RankedTensorType::get(inputType.getShape(), si32Type,
+    auto si32InputType = RankedTensorType::get(topkLogicalShape, si32Type,
                                                inputType.getEncoding());
     auto arangeOrigOutputs = createDpsOutputs(loc, rewriter, {si32InputType});
     auto [arangeins, arangeOutputs] = toLayoutOperandsAndResults(
-        rewriter, {SmallVector<Value>{}, arangeOrigOutputs}, true, noCollapse);
+        rewriter, {SmallVector<Value>{}, arangeOrigOutputs}, true,
+        /*noCollapse=*/false);
 
     // Create a scratch tile (copied from D2MArangeOpRewriter).
     auto arangeOutput = arangeOutputs[0];
@@ -3894,10 +3900,11 @@ public:
                                   arangeScratchTileType, arangeScratchLayout)
             .getResult();
 
-    // Compute numElements: for C (column reduction), we need all output
-    // columns; for R (row reduction), we need all output rows.
-    int64_t numElements = (dim == 0) ? inputType.getDimSize(rank - 2)
-                                     : inputType.getDimSize(rank - 1);
+    // Compute numElements from the padded logical shape: for C (column
+    // reduction), all output columns; for R (row reduction), all output rows.
+    // Padded positions are never selected since the value side is -inf.
+    int64_t numElements =
+        (dim == 0) ? topkLogicalShape[rank - 2] : topkLogicalShape[rank - 1];
 
     // Build affine maps: scratch input always at (0,0), output is identity.
     AffineExpr zero = rewriter.getAffineConstantExpr(0);
@@ -3947,7 +3954,7 @@ public:
     auto [postArangeBcastins, postArangeBcastOutputs] =
         toLayoutOperandsAndResults(
             rewriter, {SmallVector<Value>{}, postArangeBcastOrigOutputs}, true,
-            noCollapse);
+            /*noCollapse=*/false);
 
     // Build affine maps: input is reduced, output is identity.
     mlir::MutableAffineMap postArangeInMap(
@@ -3985,13 +3992,33 @@ public:
           Value input = blockArgs[0];
           Value output = blockArgs[1];
           std::size_t shardRank =
-              cast<RankedTensorType>(input.getType()).getRank();
+              cast<RankedTensorType>(output.getType()).getRank();
+          // Reuse the outer d2m.generic's projecting maps (input map zeroes the
+          // broadcast axis). An identity map would make linalg infer the
+          // broadcast-axis extent from the iteration domain, mismatching the
+          // collapsed input shard when the non-target dim spans >1 tile (e.g.
+          // ht=2 for dim=1).
+          mlir::MutableAffineMap shardInMap(
+              rewriter.getMultiDimIdentityMap(shardRank));
+          switch (postArangeBcastType) {
+          case d2m::TileBcastType::Row:
+            shardInMap.setResult(shardRank - 2,
+                                 rewriter.getAffineConstantExpr(0));
+            break;
+          case d2m::TileBcastType::Col:
+            shardInMap.setResult(shardRank - 1,
+                                 rewriter.getAffineConstantExpr(0));
+            break;
+          default:
+            break;
+          }
+          AffineMap shardInputMap = shardInMap.getAffineMap();
           AffineMap shardIdentity = rewriter.getMultiDimIdentityMap(shardRank);
           SmallVector<mlir::utils::IteratorType> linalgIters(
               shardRank, mlir::utils::IteratorType::parallel);
           auto linalgOp = rewriter.create<linalg::GenericOp>(
               loc, output.getType(), input, output,
-              SmallVector<AffineMap>{shardIdentity, shardIdentity}, linalgIters,
+              SmallVector<AffineMap>{shardInputMap, shardIdentity}, linalgIters,
               [&](OpBuilder &b, Location bodyLoc, ValueRange args) {
                 Value bcast = b.create<d2m::TileBcastOp>(
                     bodyLoc, args[1].getType(), args[0],
@@ -4004,15 +4031,10 @@ public:
     Value indexOperand = postArangeBcast->getResult(0);
     Value idxBuf = wrapInToLayout(indexOperand);
 
-    // The value input is transposed per-tile for dim==1 (see topkInput above).
-    // TopkBlockOp reads the value tile and index tile in lockstep, element for
-    // element, so the index buffer must be in the SAME orientation as the value
-    // tiles. Apply the identical per-tile transpose to keep them aligned.
-    //
-    // For dim==1: arange+bcast yields idxBuf[row][col] = col (constant down
-    // each column). After the per-tile transpose, idxBufT_tile[i][j] =
-    // col_of(i) = tileCol*32 + i, i.e. the source column index now varies along
-    // the tile's row axis, matching where the transposed value tile expects it.
+    // TopkBlockOp reads value and index tiles in lockstep, so transpose the
+    // index buffer the same way as the value input for dim==1. For dim==1,
+    // arange+bcast yields idxBuf[row][col] = col, so after transpose the
+    // column index varies along the tile's row axis, matching the value tile.
     if (dim == 1) {
       idxBuf = transposeTiles(idxBuf);
     }
@@ -4038,10 +4060,9 @@ public:
     Value topkValsRelayouted = wrapInToLayout(topkGeneric->getResult(0));
     Value topkIdxRelayouted = wrapInToLayout(topkGeneric->getResult(1));
 
-    // The index extract operates on the si32 topk index tiles; a typecast
-    // generic below converts the extracted si32 indices to the user index
-    // output element type (e.g. ui16) so the final untilize is
-    // width-preserving.
+    // Index extract uses si32 topk tiles; a typecast generic below converts
+    // to the user index output element type (uint16) for width-preserving
+    // untilize.
     auto si32IndicesType =
         RankedTensorType::get(indicesType.getShape(), si32Type);
 
@@ -4067,14 +4088,11 @@ public:
         rewriter, loc, ctx, topkIdxRelayouted, extractIdxLayout,
         extractProjectDim, outputReductionTiles, lastStride, dim);
 
-    // Typecast the extracted si32 indices to the user index output element type
-    // (e.g. ui16). The element width MUST match the output: the final untilize
-    // is a pure layout op (tiled->row-major) with no numeric narrowing, so an
-    // si32 index tile untilized into a ui16 buffer drops the high half and
-    // zeroes small indices. Casting to the output width here keeps untilize a
-    // width-preserving copy. Modeled on the standalone transpose generic above:
-    // one tile op per region so the D2M->TTKernel store/DST-index lookup finds
-    // a single terminal compute op.
+    // Typecast extracted si32 indices to the output element type (uint16).
+    // Untilize is a pure layout op with no narrowing, so width must match;
+    // si32 untilized into uint16 drops the high half. One tile op per region
+    // so D2M->TTKernel store/DST-index lookup finds a single terminal compute
+    // op.
     Value extractedIdx = extractIdxGeneric->getResult(0);
     auto extractedIdxType = cast<RankedTensorType>(extractedIdx.getType());
     Type idxOutElemType = indicesType.getElementType();

@@ -28,8 +28,8 @@ static int32_t floorLog2(T n) {
   return result;
 }
 
-// Decomposes TopkBlockOp into arange_block +
-// tile_topk_{local_sort,merge,rebuild} ops with scf.for loops over tile pairs.
+// Decomposes TopkBlockOp into tile_topk_{local_sort,merge,rebuild} ops with
+// scf.for loops over tile pairs.
 struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
   using OpRewritePattern<TopkBlockOp>::OpRewritePattern;
 
@@ -57,8 +57,8 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
     int32_t logk = floorLog2(k);
 
     // When k>32 the result spans 2 tiles, requiring a 3-sub-merge reduction.
-    // The reduction dim is padded to a power-of-2 tile count in TTIRToD2M
-    // (-inf fill), so the large-k path always sees a power-of-2 tile count.
+    // TTIRToD2M pads the reduction dim to a power-of-2 tile count (-inf fill),
+    // so the large-k path always sees a power-of-2 tile count.
     bool useLargeK = (k > 32);
     int64_t dimIdx = op.getDim();
     int64_t numTilesInner = inputShape[dimIdx];
@@ -70,17 +70,19 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
     int32_t logWt = numTilesPow2 ? fl : fl + 1;
     bool ragged = !numTilesPow2;
 
-    // The shard is row-major [htShard, wtShard]; flat(nt, r) =
-    // r*reductionStride
-    // + nt*ntStride, where strides depend on which dim is the reduction dim.
-    int64_t ntDimIdx = (dimIdx == (int64_t)inputShape.size() - 1)
-                           ? (int64_t)inputShape.size() - 2
-                           : (int64_t)inputShape.size() - 1;
+    // Shard is row-major [htShard, wtShard] with flat index r*reductionStride +
+    // nt*ntStride; strides depend on which dim is the reduction dim.
+    int64_t ntDimIdx = (dimIdx == static_cast<int64_t>(inputShape.size()) - 1)
+                           ? static_cast<int64_t>(inputShape.size()) - 2
+                           : static_cast<int64_t>(inputShape.size()) - 1;
     int64_t nonTargetCount = inputShape[ntDimIdx];
     int64_t reductionStride =
-        (dimIdx == (int64_t)inputShape.size() - 1) ? 1 : nonTargetCount;
-    int64_t ntStride =
-        (dimIdx == (int64_t)inputShape.size() - 1) ? numTilesInner : 1;
+        (dimIdx == static_cast<int64_t>(inputShape.size()) - 1)
+            ? 1
+            : nonTargetCount;
+    int64_t ntStride = (dimIdx == static_cast<int64_t>(inputShape.size()) - 1)
+                           ? numTilesInner
+                           : 1;
 
     auto i32Attr = [&](int32_t v) { return rewriter.getI32IntegerAttr(v); };
     auto boolAttr = [&](bool v) { return rewriter.getBoolAttr(v); };
@@ -240,8 +242,6 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
       Value mergeGroupEnd =
           rewriter.create<arith::XOrIOp>(loc, needsRebuild, trueVal);
 
-      // For ragged N, tileB may be out of bounds at the last level, so guard
-      // the sort+merge+rebuild with a bounds check on rB (not the flat tileB).
       // On the ragged path, always use sortStartPhase=0 since carried tiles may
       // have skipped levels and need a full sort.
       Value sortStartPhase = ragged ? i32Val(0) : mIterI32;
@@ -270,19 +270,7 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
         rewriter.setInsertionPointAfter(rebuildIf);
       };
 
-      if (ragged) {
-        // Guard on rB (the raw reduction index) rather than the flat tile
-        // index.
-        Value rBInBounds = rewriter.create<arith::CmpIOp>(
-            loc, arith::CmpIPredicate::ult, rB, numTilesIdx);
-        auto mergeIf = rewriter.create<scf::IfOp>(loc, rBInBounds,
-                                                  /*withElseRegion=*/false);
-        rewriter.setInsertionPointToStart(mergeIf.thenBlock());
-        emitSortMergeRebuildSmallK();
-        rewriter.setInsertionPointAfter(mergeIf);
-      } else {
-        emitSortMergeRebuildSmallK();
-      }
+      emitSortMergeRebuildSmallK();
     }
 
     rewriter.setInsertionPointAfter(innerLoop);
