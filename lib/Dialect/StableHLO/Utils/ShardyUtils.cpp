@@ -341,6 +341,31 @@ mlir::sdy::TensorShardingAttr getClosedReplicatedTensorSdyShardingAttr(
                                             /*unknownAxes=*/{});
 }
 
+mlir::sdy::TensorShardingAttr getFirstSharding(mlir::Operation *op) {
+  auto spv = op->getAttrOfType<mlir::sdy::TensorShardingPerValueAttr>(
+      mlir::sdy::TensorShardingAttr::name);
+  if (!spv) {
+    return nullptr;
+  }
+
+  auto shardings = spv.getShardings();
+  if (shardings.empty()) {
+    return nullptr;
+  }
+
+  return shardings[0];
+}
+
+void setReplicatedSharding(mlir::Operation *op, MLIRContext *context,
+                           llvm::StringRef meshName, int64_t rank) {
+  mlir::sdy::TensorShardingAttr replicatedSharding =
+      getClosedReplicatedTensorSdyShardingAttr(context, meshName, rank);
+
+  op->setAttr(mlir::sdy::TensorShardingAttr::name,
+              mlir::sdy::TensorShardingPerValueAttr::get(context,
+                                                         {replicatedSharding}));
+}
+
 // Get the argument sharding attributes.
 // If createIfMissing is true, create default sharding attributes (replicated
 // on) for any arguments that do not have sdy.sharding annotations.
