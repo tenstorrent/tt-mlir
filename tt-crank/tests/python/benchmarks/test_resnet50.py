@@ -39,7 +39,10 @@ def test_resnet50(
     model, inputs = _build()
 
     # deepcopy because Module.to() is in-place; keep the CPU originals as the reference.
-    device_model = prepare_model(copy.deepcopy(model).to(tt_device), mode, options={CompileOption.OPT_LEVEL: 1})
+    device_model = prepare_model(copy.deepcopy(model).to(tt_device), mode, options={
+        CompileOption.OPT_LEVEL: 2,
+        CompileOption.ENABLE_TRACE: True,
+    })
     device_inputs = tuple(t.to(tt_device) for t in inputs)
 
     record_bench(
