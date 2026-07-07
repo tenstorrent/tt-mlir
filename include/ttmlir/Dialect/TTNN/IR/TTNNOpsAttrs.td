@@ -119,6 +119,10 @@ def TTNN_LayoutAttr : EnumAttr<TTNN_Dialect, TTNN_Layout, "layout"> {
   let assemblyFormat = "`<` $value `>`";
 }
 
+def TTNN_PixelUnshuffleChannelOrderAttr : EnumAttr<TTNN_Dialect, TTNN_PixelUnshuffleChannelOrder, "pixel_unshuffle_channel_order"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
 def TTNN_TensorMemoryLayoutAttr : EnumAttr<TTNN_Dialect, TTNN_TensorMemoryLayout, "tensor_memory_layout"> {
   let assemblyFormat = "`<` $value `>`";
 }

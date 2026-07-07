@@ -5135,6 +5135,53 @@ def TTIR_GridSampleOp : TTIR_NamedOp<"grid_sample"> {
     let hasVerifier = 1;
 }
 
+def TTIR_PixelUnshuffleOp : TTIR_NamedOp<"pixel_unshuffle"> {
+    let summary = "Pixel unshuffle (space-to-depth) with selectable channel ordering.";
+
+    let description = [{
+      Rearranges elements in an NCHW tensor from [N, C, H, W] to
+      [N, C*r^2, H/r, W/r] where r = downscale_factor.
+      H and W must be divisible by downscale_factor.
+
+      The channel_order attribute controls how the r^2 sub-pixel positions are
+      interleaved with the input channels in the output:
+
+        ChannelMajor (default): c_out = c_in * r^2 + h_sub * r + w_sub
+          Matches PyTorch nn.PixelUnshuffle convention.
+
+        SpatialMajor: c_out = h_sub * (r * C) + w_sub * C + c_in
+          Matches the ONNX SpaceToDepth operator convention.
+          Required when fusing a 6D chain whose composed permutation is
+          {0,3,5,1,2,4} with C > 1 (e.g. a two-channel UV path).
+
+      For C = 1 both orderings produce identical results.
+
+      Example (Y path, C=1, r=4 — both orderings equivalent):
+      ```mlir
+      %result = ttir.pixel_unshuffle(%input)
+          {downscale_factor = 4 : ui32,
+           channel_order = #ttir.pixel_unshuffle_channel_order<channel_major>}
+          : (tensor<1x1x1280x2304xbf16>) -> tensor<1x16x320x576xbf16>
+      ```
+
+      Example (UV path, C=2, r=2 — spatial_major required for ONNX correctness):
+      ```mlir
+      %result = ttir.pixel_unshuffle(%input)
+          {downscale_factor = 2 : ui32,
+           channel_order = #ttir.pixel_unshuffle_channel_order<spatial_major>}
+          : (tensor<1x2x640x1152xbf16>) -> tensor<1x8x320x576xbf16>
+      ```
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         UI32Attr:$downscale_factor,
+                         DefaultValuedAttr<TTIR_PixelUnshuffleChannelOrderAttr, "::mlir::tt::ttir::PixelUnshuffleChannelOrder::ChannelMajor">:$channel_order);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTIR_ScatterOp : TTIR_NamedOp<"scatter"> {
   let summary = "Scatter operation with simplified dimension attributes";
   let description = [{

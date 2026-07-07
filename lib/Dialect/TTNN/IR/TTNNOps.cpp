@@ -4224,6 +4224,34 @@ void mlir::tt::ttnn::PermuteOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// PixelUnshuffleOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult PixelUnshuffleOp::verify() {
+  ::mlir::RankedTensorType inType = getInput().getType();
+  ::mlir::RankedTensorType outType = getResult().getType();
+  if (inType.getRank() != 4) {
+    return emitOpError("input must be 4D [N,C,H,W], got rank ")
+           << inType.getRank();
+  }
+  if (outType.getRank() != 4) {
+    return emitOpError("output must be 4D, got rank ") << outType.getRank();
+  }
+  uint32_t r = getDownscaleFactor();
+  if (r == 0) {
+    return emitOpError("downscale_factor must be positive");
+  }
+  auto inShape = inType.getShape();
+  if (inShape[2] != mlir::ShapedType::kDynamic && inShape[2] % r != 0) {
+    return emitOpError("H=") << inShape[2] << " not divisible by r=" << r;
+  }
+  if (inShape[3] != mlir::ShapedType::kDynamic && inShape[3] % r != 0) {
+    return emitOpError("W=") << inShape[3] << " not divisible by r=" << r;
+  }
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
 // GridSampleOp
 //===----------------------------------------------------------------------===//
 

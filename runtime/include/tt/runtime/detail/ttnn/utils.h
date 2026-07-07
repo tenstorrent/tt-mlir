@@ -8,7 +8,7 @@
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/TTNN/Target.h"
-#include "tt_metal/api/tt-metalium/tile.hpp"
+#include "tt-metalium/tile.hpp"
 #include "ttnn/events.hpp"
 
 namespace tt::runtime::ttnn::utils {

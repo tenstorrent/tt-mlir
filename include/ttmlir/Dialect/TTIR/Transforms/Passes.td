@@ -553,6 +553,29 @@ def TTIRSpatialRowGroupPackingOpt : Pass<"ttir-spatial-row-group-packing-opt", "
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
 }
 
+def TTIRPixelUnshuffleOpt : Pass<"ttir-pixel-unshuffle-opt", "::mlir::ModuleOp"> {
+  let summary = "Fuse 6D reshape-permute-reshape chains into ttir.pixel_unshuffle.";
+  let description = [{
+    Detects the pattern produced by pixel_unshuffle decomposition:
+      reshape([N,C,H,W] -> [N,C,H/r,r,W/r,r])
+      <any chain of ttir.TransposeOp / ttir.PermuteOp>
+      reshape([N,C*r^2,H/r,W/r])
+    and replaces with ttir.pixel_unshuffle(input, downscale_factor=r,
+                                           channel_order=<detected>).
+
+    The channel_order is determined by composeTransposeChain on the 6D intermediate:
+      SpatialMajor {0,3,5,1,2,4}: ONNX SpaceToDepth convention
+        c_out = h_sub*(r*C) + w_sub*C + c_in
+      ChannelMajor {0,1,3,5,2,4}: PyTorch pixel_unshuffle convention
+        c_out = c_in*r^2 + h_sub*r + w_sub
+
+    The channel_order attribute is forwarded to TTNN and into the kernel
+    compile-time args, so no downstream reorder chain is needed for any C.
+    For C=1 both orderings produce identical results.
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
 def TTIRDepthwiseConvSpatialPackingOpt : Pass<"ttir-depthwise-conv-spatial-packing-opt", "::mlir::ModuleOp"> {
   let summary = "Spatial row-group packing for depthwise conv2d with IC < TILE_WIDTH.";
   let description = [{
@@ -578,6 +601,44 @@ def TTIRDepthwiseConvSpatialPackingOpt : Pass<"ttir-depthwise-conv-spatial-packi
       K=TILE_WIDTH/IC=16,  packed_IC=32=TILE_WIDTH  (zero tile waste)
       Block A: 9.4 MB → L1, 0.21 ms permute (vs 150.9 MB DRAM, 6.5 ms baseline)
       Block C: 11.8 MB → L1, 0.21 ms permute (vs 188.7 MB DRAM, 7.1 ms baseline)
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
+def TTIRPointwiseConv2dPartialPackingOpt : Pass<"ttir-pointwise-conv2d-partial-packing-opt", "::mlir::ModuleOp"> {
+  let summary = "Spatial row-group packing for 1x1 pointwise conv2d with partial packing factor K<TILE_WIDTH.";
+  let description = [{
+    Handles narrow-channel 1x1 pointwise conv2d where IC < TILE_WIDTH but
+    packingFactor(IC) < TILE_WIDTH (i.e. gcd(IC, TILE_WIDTH) > 1).
+    Examples: IC=24 -> K=4 (IC*K=96=3xTILE_WIDTH), IC=8 -> K=4, IC=12 -> K=8.
+
+    TTIRSpatialRowGroupPackingOpt handles the K==TILE_WIDTH case (IC=3) using
+    ttir.linear.  This pass handles the partial-K case using ttir.conv2d to
+    avoid the TTNNSpatialPackActivationRowMajorOpt TTNN pass that interferes
+    with the linear path and degrades PCC for K<TILE_WIDTH.
+
+    Matches the same pattern (after TTIRFusing):
+      permute({0,2,3,1})  [N,IC,H,W] -> [N,H,W,IC]   NHWC
+      conv2d {channel_last, kernel=1x1, stride=1, pad=0, groups=1}
+      permute({0,3,1,2})  [N,H,W,OC] -> [N,OC,H,W]   NCHW
+
+    Replaces with spatial packing (K = TILE_WIDTH / gcd(IC, TILE_WIDTH)):
+      reshape [N,IC,H,W]     -> [N,IC*K, H/K, W]     free view
+      permute {0,2,3,1}      -> [N, H/K, W, IC*K]    0% tile waste (IC*K=lcm)
+      reshape                -> [N,1,(H/K)*W, IC*K]   flatten spatial
+      conv2d(IC=IC*K, OC=OC*K, k=1x1, groups=1)       packed 1x1 conv
+      reshape                -> [N, H/K, W, OC*K]     unflatten
+      permute {0,3,1,2}      -> [N, OC*K, H/K, W]
+      reshape [N,OC,H,W]                               free view unpack
+
+    Weight packing produces OIHW [OC*K, IC*K, 1, 1] block-diagonal:
+      W_conv[oc*K+k, ic*K+k', 0, 0] = W[oc, ic] if k==k' else 0
+    Built via: broadcast -> diagonal-mask(arange+eq) -> multiply ->
+               permute[0,2,1,3] -> reshape[OC*K,IC*K] -> reshape[OC*K,IC*K,1,1]
+
+    Example (IC=24, OC=64, K=4):
+      IC*K = 96 = 3*TILE_WIDTH  ->  0% IC tile waste
+      conv spatial: 147456 -> 36864 rows (4x smaller footprint)
   }];
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
 }

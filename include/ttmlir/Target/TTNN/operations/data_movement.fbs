@@ -61,6 +61,14 @@ table PermuteOp {
   out: tt.target.ttnn.TensorRef;
 }
 
+table PixelUnshuffleOp {
+  in: tt.target.ttnn.TensorRef;
+  downscale_factor: uint32;
+  channel_order: uint32 = 0;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
 table RepeatInterleaveOp {
   input: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;

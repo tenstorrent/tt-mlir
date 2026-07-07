@@ -3309,6 +3309,50 @@ def TTNN_GridSampleOp : TTNN_Op<"grid_sample"> {
 }
 
 
+def TTNN_PixelUnshuffleOp : TTNN_Op<"pixel_unshuffle"> {
+    let summary = "Pixel unshuffle (space-to-depth) with selectable channel ordering and memory config.";
+
+    let description = [{
+      Rearranges elements from [N, C, H, W] to [N, C*r^2, H/r, W/r]
+      where r = downscale_factor. Calls ttnn::pixel_unshuffle internally.
+      Input must be ROW_MAJOR NCHW on device.
+
+      channel_order controls sub-pixel interleaving (see ttir.pixel_unshuffle):
+        ChannelMajor (default): PyTorch nn.PixelUnshuffle — c_out = c_in*r^2 + h_sub*r + w_sub
+        SpatialMajor:           ONNX SpaceToDepth        — c_out = h_sub*(r*C) + w_sub*C + c_in
+
+      memory_config controls the output tensor placement:
+        Absent (default): DRAM interleaved, ROW_MAJOR layout.
+        L1 interleaved:   output written to L1 with TILE layout — eliminates the
+                          implicit to_layout(TILE) that would otherwise allocate a
+                          temporary DRAM buffer and churn the L1 allocator history.
+
+      Example (channel_major, DRAM output):
+        %0 = "ttnn.pixel_unshuffle"(%input)
+            <{downscale_factor = 4 : ui32,
+              channel_order = #ttnn.pixel_unshuffle_channel_order<channel_major>}> :
+            (tensor<1x1x1280x2304xbf16, #ttnn_layout>) ->
+            tensor<1x16x320x576xbf16, #ttnn_layout>
+
+      Example (spatial_major, L1+TILE output via TTNNPixelUnshuffleL1Opt):
+        %0 = "ttnn.pixel_unshuffle"(%input)
+            <{downscale_factor = 2 : ui32,
+              channel_order = #ttnn.pixel_unshuffle_channel_order<spatial_major>,
+              memory_config = #ttnn.memory_config<l1, interleaved, tile>}> :
+            (tensor<1x2x640x1152xbf16, #ttnn_layout>) ->
+            tensor<1x8x320x576xbf16, #ttnn_layout<l1, tile>>
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         UI32Attr:$downscale_factor,
+                         DefaultValuedAttr<TTNN_PixelUnshuffleChannelOrderAttr, "::mlir::tt::ttnn::PixelUnshuffleChannelOrder::ChannelMajor">:$channel_order,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_QuantizeOp : TTNN_Op<"quantize"> {
     let summary = "Quantize operation.";
     let description = [{

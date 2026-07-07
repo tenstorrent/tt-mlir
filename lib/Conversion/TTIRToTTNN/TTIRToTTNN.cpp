@@ -3229,6 +3229,34 @@ public:
 } // namespace
 
 namespace {
+class PixelUnshuffleOpConversionPattern
+    : public OpConversionPattern<ttir::PixelUnshuffleOp> {
+public:
+  using OpConversionPattern<ttir::PixelUnshuffleOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::PixelUnshuffleOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(op.getType()));
+    // NOTE: No NCHW->NHWC permutes needed — ttnn::pixel_unshuffle is
+    // NCHW-native (unlike GridSample which required NHWC format conversion).
+    // Map the TTIR channel-order enum to the TTNN channel-order enum (same cases).
+    ttnn::PixelUnshuffleChannelOrder ttnnChannelOrder =
+        (op.getChannelOrder() == ttir::PixelUnshuffleChannelOrder::SpatialMajor)
+            ? ttnn::PixelUnshuffleChannelOrder::SpatialMajor
+            : ttnn::PixelUnshuffleChannelOrder::ChannelMajor;
+    rewriter.replaceOpWithNewOp<ttnn::PixelUnshuffleOp>(
+        op, outputType,
+        adaptor.getInput(),
+        op.getDownscaleFactorAttr(),
+        ttnn::PixelUnshuffleChannelOrderAttr::get(rewriter.getContext(),
+                                                  ttnnChannelOrder),
+        /*memory_config=*/ttnn::MemoryConfigAttr{});
+    return success();
+  }
+};
+
 class GridSampleOpConversionPattern
     : public OpConversionPattern<ttir::GridSampleOp> {
 public:
@@ -3969,6 +3997,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            GatherOpConversionPattern,
            PermuteOpConversionPattern,
            UpsampleOpConversionPattern,
+           PixelUnshuffleOpConversionPattern,
            GridSampleOpConversionPattern,
            AllToAllOpConversionPattern,
            CollectiveBroadcastOpConversionPattern,

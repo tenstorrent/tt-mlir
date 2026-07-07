@@ -1787,6 +1787,26 @@ struct OpModel<PowScalarOp> {
 // GridSampleOp
 //===----------------------------------------------------------------------===//
 
+// PixelUnshuffleOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<PixelUnshuffleOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(ttcore::GridAttr deviceGrid,
+                   llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout,
+                   llvm::ArrayRef<int64_t> outputShape,
+                   TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+               llvm::ArrayRef<int64_t> outputShape,
+               TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
+
 template <>
 struct OpModel<GridSampleOp> {
   static llvm::Expected<OpConstraints>

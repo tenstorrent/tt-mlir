@@ -10,6 +10,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         ExplicateTMs.cpp
         FlattenSlidingWindow.cpp
         SpatialRowGroupPackingOpt.cpp
+        TTIRPixelUnshuffleOpt.cpp
         FoldConstantReshapeBroadcast.cpp
         ElementTypeNormalization.cpp
         PredicateTypeAlignment.cpp

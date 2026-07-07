@@ -89,6 +89,17 @@ if (TTMLIR_ENABLE_RUNTIME)
       ${PROJECT_BINARY_DIR}/include/ttmlir/Target/Common
       ${PROJECT_SOURCE_DIR}/runtime/python/include
   )
+  # tt-metal headers needed by ttnn.h; add as SYSTEM to suppress -Werror on external code.
+  # NOTE: Do NOT include tt_metal/api here — it conflicts with build_Release/include
+  # (both define tile.hpp but via different physical paths, causing redefinition with #pragma once).
+  # build_Release/include provides the pre-installed metalium API headers.
+  target_include_directories(_mlir_runtime_utils SYSTEM
+    PRIVATE
+      ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build_Release/include
+      ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/build_Release/include/metalium-thirdparty
+      ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/.cpmcache/spdlog/b1c2586bb5c35a7929362e87f62433eb68206873/include
+      ${PROJECT_SOURCE_DIR}/third_party/tt-metal/src/tt-metal/ttnn/cpp
+  )
   target_link_libraries(_mlir_runtime_utils
     PRIVATE
     TTRuntimeTTNNUtils
