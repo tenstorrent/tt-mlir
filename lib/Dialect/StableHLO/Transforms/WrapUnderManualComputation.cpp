@@ -163,6 +163,14 @@ public:
     // under a sdy.manual_computation op. This is required to enable the
     // conversion from sdy into ttir.
     rootModule.walk([&](func::FuncOp funcOp) {
+      // Composite decompositions (e.g. @tenstorrent.argmax.impl) are private
+      // helper functions referenced by an entry function that is itself
+      // wrapped. Wrapping them independently produces multiple
+      // sdy.manual_computation ops, which downstream PJRT ingestion (which
+      // expects at most one) rejects. Only wrap entry (public) functions.
+      if (funcOp.isPrivate()) {
+        return;
+      }
       if (failed(wrapFunctionBodyInManualComputationOp(context, builder,
                                                        globalMeshOp, funcOp))) {
         rootModule.emitError(

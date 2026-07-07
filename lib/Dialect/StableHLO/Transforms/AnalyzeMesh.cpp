@@ -261,6 +261,28 @@ public:
       return;
     }
 
+    // Ensure a mesh exists before converting tt.sharding_constraint custom
+    // calls, which contain mesh_idx_N placeholders that need resolution against
+    // the mesh axes. On the Shardy path, ConvertXlaSdyToSdyPass already created
+    // the mesh. On the GSPMD path we must create it here.
+    if (shardy_utils::getMeshOps(rootModule).empty()) {
+      if (gspmd_utils::gspmdAnnotationsExist(rootModule)) {
+        llvm::Expected<llvm::SmallVector<llvm::SmallVector<int64_t>>>
+            parsedMeshes = gspmd_utils::parseMeshesFromGspmdModule(rootModule);
+        if (auto err = parsedMeshes.takeError()) {
+          rootModule.emitError("Could not query meshes from gspmd module");
+          signalPassFailure();
+          return;
+        }
+        llvm::SmallVector<int64_t> earlyMeshShape = (*parsedMeshes)[0];
+        shardy_utils::addMeshToModule(rootModule, "mesh", "x", "y",
+                                      earlyMeshShape[0], earlyMeshShape[1]);
+      } else if (!automaticArgAnalysis && meshShape.size() == 2) {
+        shardy_utils::addMeshToModule(rootModule, "mesh", "x", "y",
+                                      meshShape[0], meshShape[1]);
+      }
+    }
+
     // Convert stablehlo.custom_call @Sharding, @tt.sharding_constraint, and
     // @xla.sdy.FuncResultSharding ops to sdy.sharding_constraint ops.
     if (mlir::failed(shardy_utils::convertCustomCallToShardingConstraint(
