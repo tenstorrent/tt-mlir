@@ -571,6 +571,14 @@ def get_perf_counter_stats(perf_counters: pd.DataFrame) -> dict:
     semaphore_full_wait_0 = get_value_ref_ratio("WAITING_FOR_NONFULL_SEM_0")
     semaphore_full_wait_1 = get_value_ref_ratio("WAITING_FOR_NONFULL_SEM_1")
     semaphore_full_wait_2 = get_value_ref_ratio("WAITING_FOR_NONFULL_SEM_2")
+    tdma_bundle_cnt = (
+        get_counter_values("L1_0_TDMA_BUNDLE_0_RISC")
+        + get_counter_values("L1_0_TDMA_BUNDLE_1_TRISC")
+    ) / 2
+    tdma_bundle = (tdma_bundle_cnt) / get_counter_ref_cnt("L1_0_TDMA_BUNDLE_0_RISC")
+    fpu_efficiency = get_counter_values("FPU_COUNTER") / get_counter_values(
+        "FPU_INSTRN_AVAILABLE_1"
+    )
 
     noc_out = (
         get_counter_values("L1_0_NOC_RING0_OUTGOING_0")
@@ -590,7 +598,7 @@ def get_perf_counter_stats(perf_counters: pd.DataFrame) -> dict:
         "fpu utilization": get_stats_by_core(fpu_util),
         "mmio idle t0": get_stats_by_core(mmio_idle_t0),
         "sfpu idle t1": get_stats_by_core(sfpu_idle_t1),
-        "thcon idle t0": get_stats_by_core(thcon_idle_t0),
+        "thread control idle t0": get_stats_by_core(thcon_idle_t0),
         "move idle t0": get_stats_by_core(move_idle_t0),
         "semaphore zero wait t0": get_stats_by_core(semaphore_zero_wait_0),
         "semaphore zero wait t1": get_stats_by_core(semaphore_zero_wait_1),
@@ -599,6 +607,8 @@ def get_perf_counter_stats(perf_counters: pd.DataFrame) -> dict:
         "semaphore full wait t1": get_stats_by_core(semaphore_full_wait_1),
         "semaphore full wait t2": get_stats_by_core(semaphore_full_wait_2),
         "noc vs compute": get_stats_by_core(noc_vs_compute),
+        "L1 TDMA bundle util": get_stats_by_core(tdma_bundle),
+        "fpu efficiency": get_stats_by_core(fpu_efficiency),
     }
 
 
