@@ -17,6 +17,7 @@ from ttnn_jit._src.decision_trace_parser import (
     DecisionTraceReport,
 )
 from ttnn_jit._src.advisor_report import render_text_report
+from ttnn_jit._src.interception_tracer import trace_intercepted
 
 
 class AdvisorReport:
@@ -45,10 +46,12 @@ class ShardAdvisor:
         debug: bool = False,
         out_dir: str = None,
         extra_pipeline_options: str = "",
+        tracer: str = "rewrite",
     ):
         self.func = func
         self.optimization_level = optimization_level
         self.debug = debug
+        self.tracer = tracer
         self.out_dir = out_dir or os.path.join(
             "generated", "ttnn-jit", func.__name__, "advisor"
         )
@@ -89,21 +92,23 @@ class ShardAdvisor:
 
         system_desc_path = self._ensure_system_desc(device)
 
-        # Mirror JitFunction: pass runtime tensor metadata to the tracer.
-        sig = inspect.signature(self.func)
-        param_names = list(sig.parameters.keys())
-        kwargs = dict(kwargs)
-        kwargs["_tensor_args"] = {
-            param_names[i]: args[i] for i in range(len(args))
-        }
-
-        # insert_output_layout=False: let the optimizer assign the output layout.
-        # (Forcing a block-sharded output makes the pipeline fail with a
-        # return-type mismatch — validated on hardware.)
-        ir, _output_type = generate_ir(
-            self.func, self.debug, None, *args,
-            insert_output_layout=False, **kwargs
-        )
+        if self.tracer == "interception":
+            # Global ttnn-op interception: works across function boundaries.
+            ir, _output_type = trace_intercepted(self.func, *args)
+        else:
+            # Source-rewrite tracer. Mirror JitFunction: pass runtime tensor
+            # metadata. insert_output_layout=False lets the optimizer assign the
+            # output layout (forcing block-sharded fails the pipeline).
+            sig = inspect.signature(self.func)
+            param_names = list(sig.parameters.keys())
+            kwargs = dict(kwargs)
+            kwargs["_tensor_args"] = {
+                param_names[i]: args[i] for i in range(len(args))
+            }
+            ir, _output_type = generate_ir(
+                self.func, self.debug, None, *args,
+                insert_output_layout=False, **kwargs
+            )
 
         trace_dir = os.path.join(self.out_dir, "decision_trace")
         os.makedirs(trace_dir, exist_ok=True)
