@@ -776,7 +776,8 @@ def test_reduce_scatter_config_without_workaround(
                 (1, 1, 64, 64),  # attention mask
             ],
             marks=pytest.mark.xfail(
-                reason="SDPA with non-32-divisible head_dim fails without ttnn-workaround pass. Metal issue: https://github.com/tenstorrent/tt-metal/issues/33434"
+                reason="SDPA with non-32-divisible head_dim fails without ttnn-workaround pass. Metal issue: https://github.com/tenstorrent/tt-metal/issues/33434",
+                strict=True,
             ),
         ),
         # Both seq_len and head_dim not divisible by 32
@@ -788,7 +789,8 @@ def test_reduce_scatter_config_without_workaround(
                 (1, 1, 63, 64),  # attention mask
             ],
             marks=pytest.mark.xfail(
-                reason="SDPA with non-32-divisible head_dim fails without ttnn-workaround pass. Metal issue: https://github.com/tenstorrent/tt-metal/issues/33434"
+                reason="SDPA with non-32-divisible head_dim fails without ttnn-workaround pass. Metal issue: https://github.com/tenstorrent/tt-metal/issues/33434",
+                strict=True,
             ),
         ),
     ],
@@ -832,7 +834,10 @@ def test_sdpa_with_mask_no_workaround(
         target=target,
         **get_request_kwargs(request),
         device=device,
-        pipeline_options=["disable-workarounds=true"],
+        pipeline_options=[
+            "enable-ttnn-decomposition-pass=false",
+            "enable-decomposition-workaround-pass=false",
+        ],
     )
 
 
@@ -851,7 +856,8 @@ def test_sdpa_with_mask_no_workaround(
                 (32, 1, 1, 128),  # attention mask with heads=1
             ],
             marks=pytest.mark.xfail(
-                reason="SDPA decode requires mask[2] == num_heads. Metal issue: https://github.com/tenstorrent/tt-metal/issues/39910"
+                reason="SDPA decode requires mask[2] == num_heads. Metal issue: https://github.com/tenstorrent/tt-metal/issues/39946",
+                strict=True,
             ),
         ),
     ],
@@ -906,7 +912,10 @@ def test_sdpa_decode_mask_broadcast_no_workaround(
         target=target,
         **get_request_kwargs(request),
         device=device,
-        pipeline_options=["disable-workarounds=true"],
+        pipeline_options=[
+            "disable-workarounds=true",
+            "enable-ttnn-decomposition-pass=false",
+        ],
     )
 
 
