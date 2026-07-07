@@ -497,6 +497,63 @@ def test_arange(
     )
 
 
+@pytest.mark.parametrize(
+    "shape,start,step,dtype,arange_dimension",
+    [
+        pytest.param((1, 128), 0, 1, torch.float32, 1, id="1x128_s0_step1_f32_dim1"),
+        pytest.param((32, 256), 0, 1, torch.float32, 1, id="32x256_s0_step1_f32_dim1"),
+        pytest.param(
+            (32, 1024), 0, 1, torch.float32, 1, id="32x1024_s0_step1_f32_dim1"
+        ),
+        pytest.param((32, 256), 0, 1, torch.float32, 0, id="32x256_s0_step1_f32_dim0"),
+        pytest.param(
+            (1024, 32), 0, 1, torch.float32, 0, id="1024x32_s0_step1_f32_dim0"
+        ),
+    ],
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_arange_single_core(
+    shape: tuple,
+    start: int,
+    step: int,
+    dtype: torch.dtype,
+    arange_dimension: int,
+    target: str,
+    request,
+    device,
+):
+    num_elements = shape[arange_dimension]
+    end = start + num_elements * step
+
+    def arange_module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def arange(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.arange(
+                shape=list(shape),
+                dtype=dtype,
+                start=start,
+                end=end,
+                step=step,
+                arange_dimension=arange_dimension,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        arange_module,
+        target=target,
+        device=device,
+        custom_pipeline="ttir-to-ttmetal-pipeline",
+        pipeline_options=["override-device-shape=1,1"],
+        **get_request_kwargs(request),
+        atol=1e-6,
+        check_atol=True,
+    )
+
+
 # ==================== EMBEDDING TESTS ====================
 
 
