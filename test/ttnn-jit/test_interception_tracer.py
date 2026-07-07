@@ -62,3 +62,32 @@ def test_patched_op_builds_ttir_and_captures_weight():
     ir = str(scope.module)
     assert "ttir.matmul" in ir
     assert "ttir.empty" in ir  # weight materialized
+
+
+def test_trace_intercepted_cross_function_shape_and_weight_capture():
+    from ttnn_jit._src.interception_tracer import trace_intercepted
+
+    # Weight captured from the enclosing scope (not a declared param).
+    W = _DummyTensor((512, 512), ttnn.bfloat16)
+
+    def _linear(a, b):
+        return ttnn.matmul(a, b)  # called INSIDE a helper -> cross-fn interception
+
+    def mlp(x):
+        h = _linear(x, W)  # W captured -> weight capture
+        h = ttnn.relu(h)
+        rows, cols = h.shape[0], h.shape[1]  # reads proxy .shape
+        h = ttnn.reshape(h, shape=(rows, cols))  # shape kwarg (see Global Constraints)
+        return ttnn.add(h, h)
+
+    module, out_type = trace_intercepted(mlp, _DummyTensor((256, 512), ttnn.bfloat16))
+
+    ir = str(module)
+    assert "ttir.matmul" in ir  # emitted from the helper
+    assert "ttir.relu" in ir
+    assert "ttir.reshape" in ir
+    assert "ttir.add" in ir
+    assert "ttir.empty" in ir  # captured weight
+    # exactly one declared parameter (x); the weight is not a param:
+    assert len(module.body.operations[0].arguments) == 1
+    assert tuple(int(d) for d in out_type.shape) == (256, 512)

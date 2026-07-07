@@ -184,3 +184,50 @@ def patch_ttnn(jit_ctx):
                     pass
             else:
                 setattr(ttnn, name, original)
+
+
+def _finalize_signature(module, func_op, input_types, return_value, ctx):
+    """Add the return op and rebuild the func with the correct result type.
+
+    Mirrors TracingCompiler._update_function_signature: MLIR can't mutate a func
+    signature in place, so recreate the func and move the body block.
+    """
+    old_block = func_op.regions[0].blocks[0]
+    if not old_block.operations or not isinstance(
+        old_block.operations[-1], func.ReturnOp
+    ):
+        with InsertionPoint(old_block), Location.unknown(ctx):
+            func.ReturnOp([return_value])
+
+    with InsertionPoint(module.body), Location.unknown(ctx):
+        new_func = func.FuncOp(
+            name=func_op.name.value, type=(input_types, [return_value.type])
+        )
+    old_block.append_to(new_func.regions[0])
+    func_op.erase()
+
+
+def trace_intercepted(fn, *args):
+    """Trace `fn` (called with example tensors) to a TTIR module via interception.
+
+    `args` are example tensors (or metadata stand-ins) for `fn`'s declared
+    parameters; only their `.shape`/`.dtype` are read. Returns (module,
+    output_type). Output layout is left unforced so the optimizer chooses it.
+    """
+    input_specs = [(tuple(int(d) for d in a.shape), a.dtype) for a in args]
+    scope = build_trace_scope(fn.__name__, input_specs)
+
+    with patch_ttnn(scope.jit_ctx):
+        result = fn(*scope.traced_args)
+
+    if not isinstance(result, TracedTensor):
+        raise TypeError(
+            f"traced function must return a single tensor, got {type(result)!r}"
+        )
+
+    return_value = result.mlir_value
+    _finalize_signature(
+        scope.module, scope.func_op, scope.input_types, return_value, scope.ctx
+    )
+    scope.module.operation.verify()
+    return scope.module, return_value.type
