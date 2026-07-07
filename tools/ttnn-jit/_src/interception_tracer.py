@@ -302,6 +302,39 @@ _EXPERIMENTAL_MULTI = {
 }
 
 
+def _sdpa_handler(jit_ctx, q, k, v, *, is_causal=None, scale=None, **kwargs):
+    t = q.mlir_value.type
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        result_type = RankedTensorType.get([int(d) for d in t.shape], t.element_type)
+        return ttir.scaled_dot_product_attention(
+            result=result_type,
+            query=q.mlir_value, key=k.mlir_value, value=v.mlir_value,
+            is_causal=is_causal, scale=scale,
+        )
+
+
+def _chunked_sdpa_handler(jit_ctx, *, input_tensor_q, input_tensor_k, input_tensor_v,
+                          page_table_tensor=None, scale=None, **kwargs):
+    t = input_tensor_q.mlir_value.type
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        result_type = RankedTensorType.get([int(d) for d in t.shape], t.element_type)
+        # chunked SDPA maps to the same TTIR SDPA op for layout analysis; the
+        # chunk/page mechanics don't change the output layout the optimizer sees.
+        return ttir.scaled_dot_product_attention(
+            result=result_type,
+            query=input_tensor_q.mlir_value,
+            key=input_tensor_k.mlir_value,
+            value=input_tensor_v.mlir_value,
+            is_causal=True, scale=scale,
+        )
+
+
+_TRANSFORMER_VALUE = {
+    "scaled_dot_product_attention": _sdpa_handler,
+    "chunked_scaled_dot_product_attention": _chunked_sdpa_handler,
+}
+
+
 @contextmanager
 def patch_ttnn(jit_ctx):
     """Monkeypatch allowlisted ttnn.<op> to build TTIR; restore on exit."""
@@ -311,6 +344,8 @@ def patch_ttnn(jit_ctx):
     originals = {}
     experimental = getattr(ttnn, "experimental", None)
     exp_originals = {}
+    transformer = getattr(ttnn, "transformer", None)
+    transformer_originals = {}
     try:
         for name in _PASSTHROUGH_IDENTITY:
             originals[name] = getattr(ttnn, name, _MISSING)
@@ -334,6 +369,10 @@ def patch_ttnn(jit_ctx):
             for name, fn in _EXPERIMENTAL_MULTI.items():
                 exp_originals[name] = getattr(experimental, name, _MISSING)
                 setattr(experimental, name, _make_traced_multi_op(fn, jit_ctx))
+        if transformer is not None:
+            for name, value_fn in _TRANSFORMER_VALUE.items():
+                transformer_originals[name] = getattr(transformer, name, _MISSING)
+                setattr(transformer, name, _make_traced_value_op(value_fn, jit_ctx))
         yield
     finally:
         for name, original in originals.items():
@@ -353,6 +392,15 @@ def patch_ttnn(jit_ctx):
                         pass
                 else:
                     setattr(experimental, name, original)
+        if transformer is not None:
+            for name, original in transformer_originals.items():
+                if original is _MISSING:
+                    try:
+                        delattr(transformer, name)
+                    except AttributeError:
+                        pass
+                else:
+                    setattr(transformer, name, original)
 
 
 def _finalize_signature(module, func_op, input_types, return_value, ctx):

@@ -190,3 +190,50 @@ def test_nlp_create_qkv_heads_multi_output():
     with InsertionPoint(scope.func_bb), Location.unknown(scope.ctx):
         _func.ReturnOp([x.mlir_value])
     scope.module.operation.verify()
+
+
+def test_sdpa_output_matches_query_shape():
+    import ttnn as _ttnn
+    from ttnn_jit.ttmlir.ir import InsertionPoint, Location
+    from ttnn_jit.ttmlir.dialects import func as _func
+
+    scope = build_trace_scope("f", [((1, 32, 32, 128), _ttnn.bfloat16)])
+    q = scope.traced_args[0]
+    kdummy = _DummyTensor((1, 8, 32, 128), _ttnn.bfloat16)
+    vdummy = _DummyTensor((1, 8, 32, 128), _ttnn.bfloat16)
+    with patch_ttnn(scope.jit_ctx):
+        out = _ttnn.transformer.scaled_dot_product_attention(q, kdummy, vdummy, is_causal=True)
+    assert out.shape == (1, 32, 32, 128)
+    assert "scaled_dot_product_attention" in str(scope.module)
+    # build_trace_scope's func body has no terminator (this test doesn't run
+    # the full trace_intercepted finalize step) -- add one so operation.verify()
+    # exercises the SDPA op itself. out's type matches the func's pre-declared
+    # result type (query type == result type per the SDPA verifier), so
+    # returning it keeps the signature consistent.
+    with InsertionPoint(scope.func_bb), Location.unknown(scope.ctx):
+        _func.ReturnOp([out.mlir_value])
+    scope.module.operation.verify()
+
+
+def test_chunked_sdpa_output_matches_query_shape():
+    import ttnn as _ttnn
+    from ttnn_jit.ttmlir.ir import InsertionPoint, Location
+    from ttnn_jit.ttmlir.dialects import func as _func
+
+    scope = build_trace_scope("f", [((1, 32, 32, 128), _ttnn.bfloat16)])
+    q = scope.traced_args[0]
+    kdummy = _DummyTensor((1, 8, 32, 128), _ttnn.bfloat16)
+    vdummy = _DummyTensor((1, 8, 32, 128), _ttnn.bfloat16)
+    page_table = _DummyTensor((1, 4), _ttnn.uint32)  # captured but unused by the SDPA mapping
+    with patch_ttnn(scope.jit_ctx):
+        out = _ttnn.transformer.chunked_scaled_dot_product_attention(
+            input_tensor_q=q,
+            input_tensor_k=kdummy,
+            input_tensor_v=vdummy,
+            page_table_tensor=page_table,
+        )
+    assert out.shape == (1, 32, 32, 128)
+    assert "scaled_dot_product_attention" in str(scope.module)
+    with InsertionPoint(scope.func_bb), Location.unknown(scope.ctx):
+        _func.ReturnOp([out.mlir_value])
+    scope.module.operation.verify()
