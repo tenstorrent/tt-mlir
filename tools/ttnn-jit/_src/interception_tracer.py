@@ -302,6 +302,53 @@ _EXPERIMENTAL_MULTI = {
 }
 
 
+def _nlp_concat_heads_handler(jit_ctx, x, **kwargs):
+    """Merge per-head attention output back into a single hidden dimension.
+
+    The real ttnn.experimental.nlp_concat_heads shuffles
+    [b, num_heads, seq, head_dim] into [b, 1, seq, num_heads*head_dim] (a
+    singleton "user" dim retained for its internal tiling convention). The
+    TTIR ConcatenateHeadsOp verifier instead requires a rank-3 output
+    [b, seq, num_heads*head_dim] -- no singleton dim. Emit that TTIR shape;
+    the singleton-dim discrepancy is a runtime-only quirk of the ttnn op
+    that the TTIR/TTNN dialect abstraction doesn't model.
+    """
+    t = x.mlir_value.type
+    b = int(t.shape[0])
+    nh = int(t.shape[1])
+    seq = int(t.shape[2])
+    hd = int(t.shape[3])
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        result_type = RankedTensorType.get([b, seq, nh * hd], t.element_type)
+        return ttir.concatenate_heads(result=result_type, input=x.mlir_value)
+
+
+def _paged_fill_cache_handler(jit_ctx, cache, input, page_table, **kwargs):
+    """Fill a paged KV cache in place; result models the updated cache.
+
+    Real call sites pass a scalar `batch_idx` (int) kwarg, not a tensor; the
+    TTIR PagedFillCacheOp only models an optional `batch_idx_tensor` operand
+    (per-row tensor), so `batch_idx` and other real-op-only kwargs (e.g.
+    `block_size`, `cache_position_modulo`) are silently ignored here -- they
+    don't affect the shapes/dtypes the layout optimizer analyzes.
+    """
+    t = cache.mlir_value.type
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        result_type = RankedTensorType.get([int(d) for d in t.shape], t.element_type)
+        return ttir.paged_fill_cache(
+            result=result_type,
+            cache=cache.mlir_value,
+            input=input.mlir_value,
+            page_table=page_table.mlir_value,
+        )
+
+
+_EXPERIMENTAL_VALUE = {
+    "nlp_concat_heads": _nlp_concat_heads_handler,
+    "paged_fill_cache": _paged_fill_cache_handler,
+}
+
+
 def _sdpa_handler(jit_ctx, q, k, v, *, is_causal=None, scale=None, **kwargs):
     t = q.mlir_value.type
     with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
@@ -369,6 +416,9 @@ def patch_ttnn(jit_ctx):
             for name, fn in _EXPERIMENTAL_MULTI.items():
                 exp_originals[name] = getattr(experimental, name, _MISSING)
                 setattr(experimental, name, _make_traced_multi_op(fn, jit_ctx))
+            for name, value_fn in _EXPERIMENTAL_VALUE.items():
+                exp_originals[name] = getattr(experimental, name, _MISSING)
+                setattr(experimental, name, _make_traced_value_op(value_fn, jit_ctx))
         if transformer is not None:
             for name, value_fn in _TRANSFORMER_VALUE.items():
                 transformer_originals[name] = getattr(transformer, name, _MISSING)

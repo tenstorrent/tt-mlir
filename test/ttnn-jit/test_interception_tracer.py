@@ -215,6 +215,52 @@ def test_sdpa_output_matches_query_shape():
     scope.module.operation.verify()
 
 
+def test_concat_heads_merges():
+    import ttnn as _ttnn
+    from ttnn_jit.ttmlir.ir import InsertionPoint, Location
+    from ttnn_jit.ttmlir.dialects import func as _func
+
+    scope = build_trace_scope("f", [((1, 32, 32, 128), _ttnn.bfloat16)])
+    x = scope.traced_args[0]
+    with patch_ttnn(scope.jit_ctx):
+        out = _ttnn.experimental.nlp_concat_heads(x)
+    assert "concatenate_heads" in str(scope.module)
+    assert out.shape == (1, 32, 4096)  # [b, seq, num_heads * head_dim]
+    assert out.shape[0] == 1  # batch preserved
+    # build_trace_scope's func body has no terminator, and its pre-declared
+    # result type matches x (rank 4), not out (rank 3, per the
+    # ConcatenateHeadsOp verifier's [b, seq, num_heads*head_dim] convention)
+    # -- return x unchanged so operation.verify() exercises the
+    # concatenate_heads op itself rather than failing on a return-type
+    # mismatch.
+    with InsertionPoint(scope.func_bb), Location.unknown(scope.ctx):
+        _func.ReturnOp([x.mlir_value])
+    scope.module.operation.verify()
+
+
+def test_paged_fill_cache_returns_cache_shape():
+    import ttnn as _ttnn
+    from ttnn_jit.ttmlir.ir import InsertionPoint, Location
+    from ttnn_jit.ttmlir.dialects import func as _func
+
+    scope = build_trace_scope("f", [((4, 8, 32, 128), _ttnn.bfloat16)])
+    cache = scope.traced_args[0]
+    k_fill = _DummyTensor((1, 8, 32, 128), _ttnn.bfloat16)  # single-user slice
+    page_table = _DummyTensor((1, 4), _ttnn.uint32)
+    with patch_ttnn(scope.jit_ctx):
+        # Real call sites pass a scalar batch_idx (not batch_idx_tensor); the
+        # handler ignores it via **kwargs -- the TTIR op only models the
+        # optional batch_idx_tensor operand.
+        out = _ttnn.experimental.paged_fill_cache(cache, k_fill, page_table, batch_idx=0)
+    assert out.shape == (4, 8, 32, 128)  # result = cache shape
+    assert "paged_fill_cache" in str(scope.module)
+    # out's type matches cache's type, which matches the func's pre-declared
+    # result type (input_types[0]) -- return it directly.
+    with InsertionPoint(scope.func_bb), Location.unknown(scope.ctx):
+        _func.ReturnOp([out.mlir_value])
+    scope.module.operation.verify()
+
+
 def test_chunked_sdpa_output_matches_query_shape():
     import ttnn as _ttnn
     from ttnn_jit.ttmlir.ir import InsertionPoint, Location
