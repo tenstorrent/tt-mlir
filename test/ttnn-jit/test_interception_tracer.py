@@ -141,3 +141,27 @@ def test_common_op_handlers_build_ttir():
     assert "ttir.multiply" in ir
     assert "ttir.typecast" in ir
     assert "ttir.rms_norm" in ir
+
+
+def test_multi_output_returns_tuple_of_proxies():
+    from ttnn_jit._src.interception_tracer import _wrap_results
+
+    scope = build_trace_scope("f", [((1, 1, 32, 6144), ttnn.bfloat16)])
+    x = scope.traced_args[0]
+    # Emit a real 3-result op to get 3 MLIR values, then wrap them.
+    from ttnn_jit.ttmlir.ir import InsertionPoint, Location, RankedTensorType
+    from ttnn_jit.ttmlir.dialects import ttir
+
+    with InsertionPoint(scope.func_bb), Location.unknown(scope.ctx):
+        et = x.mlir_value.type.element_type
+        qt = RankedTensorType.get([1, 32, 32, 128], et)
+        kt = RankedTensorType.get([1, 8, 32, 128], et)
+        vt = RankedTensorType.get([1, 8, 32, 128], et)
+        results = ttir.split_query_key_value_and_split_heads(
+            qt, kt, vt, x.mlir_value, 32, False, num_kv_heads=8
+        )
+    wrapped = _wrap_results(results)
+    assert isinstance(wrapped, tuple) and len(wrapped) == 3
+    assert all(hasattr(w, "mlir_value") for w in wrapped)
+    assert wrapped[0].shape == (1, 32, 32, 128)
+    assert wrapped[1].shape == (1, 8, 32, 128)

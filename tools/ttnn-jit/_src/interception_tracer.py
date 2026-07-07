@@ -197,6 +197,20 @@ def _make_traced_value_op(value_fn, jit_ctx):
     return op
 
 
+def _wrap_results(results):
+    """Wrap an MLIR OpResultList / list of values into a tuple of TracedTensors."""
+    return tuple(TracedTensor(v) for v in results)
+
+
+def _make_traced_multi_op(value_fn, jit_ctx):
+    def op(*args, **kwargs):
+        proxied_args = [_capture(a, jit_ctx) for a in args]
+        proxied_kwargs = {k: _capture(v, jit_ctx) for k, v in kwargs.items()}
+        return _wrap_results(value_fn(jit_ctx, *proxied_args, **proxied_kwargs))
+
+    return op
+
+
 def _linear_handler(jit_ctx, a, b, *, bias=None, dtype=None, **kwargs):
     a_type = a.mlir_value.type
     b_type = b.mlir_value.type
