@@ -16,6 +16,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/MapVector.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MSPLITTHREADS
@@ -29,22 +30,36 @@ static constexpr StringRef kThreadAttrName = "d2m.thread";
 // Helpers
 // ---------------------------------------------------------------------------
 
-// Verify all compute lives in a single synchronization scope. Compute ops in
-// distinct loop nests give an ambiguous sync scope: a single per-block wait/pop
-// pair can't balance a CB shared across nests, so this is diagnosed up front
-// (before splitting, while the full set of synchronizable ops is visible).
+// Verify each CB's synchronization scope is well-formed. A sync scope is a
+// property of each CB, not the whole region: the wait/pop (or reserve/push)
+// cadence is set by the loop block its DMA marker lives in. The only
+// unsupported case is a *single* CB whose markers sit in distinct loop nests --
+// one per-block sync pair can't balance that and would deadlock. Different CBs
+// in different nests are fine (e.g. matmul: A/B stream in the K-loop while C is
+// stored once per output tile in the persistent loop).
 static LogicalResult checkComputeSyncScope(GenericOp generic) {
+  // Parents of synchronizable ops bound the raw-span climb below: a compute op
+  // never climbs past a loop that itself carries a DMA marker.
   DenseSet<Operation *> opsWithSynchronizableOps;
   generic.getRegion(0).walk([&](Operation *op) {
     if (dyn_cast<SynchronizableOpInterface>(op)) {
       opsWithSynchronizableOps.insert(op->getParentOp());
     }
   });
-  if (opsWithSynchronizableOps.size() != 1) {
-    return generic.emitOpError()
-           << "compute ops span multiple synchronization scopes (e.g. a CB "
-              "consumed across distinct loop nests); cross-nest fan-out is not "
-              "yet supported";
+
+  // A CB whose markers span more than one block lives in distinct loop nests, which we can't synchronize. 
+  llvm::MapVector<unsigned, DenseSet<Block *>> cbMarkerBlocks;
+  generic.getRegion(0).walk([&](ShardDMAOpInterface dma) {
+    cbMarkerBlocks[dma.getCBPort()].insert(dma->getBlock());
+  });
+  for (auto &[cbPort, blocks] : cbMarkerBlocks) {
+    if (blocks.size() > 1) {
+      return generic.emitOpError()
+             << "circular buffer (port " << cbPort
+             << ") is used across distinct loop nests; cross-nest fan-out is "
+                "not yet supported (would deadlock on a wait/pop cadence "
+                "mismatch)";
+    }
   }
 
   LogicalResult result = success();
