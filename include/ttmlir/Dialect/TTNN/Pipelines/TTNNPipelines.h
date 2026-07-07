@@ -273,6 +273,15 @@ struct TTIRToTTNNCommonPipelineOptions
                      "Analysis and Memory Layout Analysis. [0.0-1.0]"),
       llvm::cl::init(0.95f)};
 
+  // Option to disable generation of DRAM-sharded matmuls in the optimizer.
+  // When set, the matmul DRAM-shard rule book is suppressed and matmuls fall
+  // back to the other (1D/2D mcast) program configs.
+  Option<bool> disableDRAMShardedMatmul{
+      *this, OptionNames::disableDramShardedMatmul,
+      llvm::cl::desc(
+          "Disable generation of DRAM-sharded matmuls in the optimizer."),
+      llvm::cl::init(false)};
+
   // Option to enable/disable the workaround pass.
   //
   Option<bool> disableWorkarounds{

@@ -37,6 +37,8 @@ struct OptionNames {
   static constexpr StringRef meshTopology = "mesh-topology";
   static constexpr StringRef tuplifyInputIfEmpty = "tuplify-input-if-empty";
   static constexpr StringRef tensorL1UsageCap = "tensor-l1-usage-cap";
+  static constexpr StringRef disableDramShardedMatmul =
+      "disable-dram-sharded-matmul";
   static constexpr StringRef ttnnPerfMetricsOutputFile =
       "ttnn-perf-metrics-output-file";
   static constexpr StringRef ttnnPerfMetricsVerboseOutputEnabled =
