@@ -44,4 +44,3 @@ def test_build_rope_tables_start_pos_and_signed_sin():
 
     assert torch.allclose(cos, torch.cat([cos_half, cos_half], dim=-1))
     assert torch.allclose(sin_signed, torch.cat([-sin_half, sin_half], dim=-1))
-

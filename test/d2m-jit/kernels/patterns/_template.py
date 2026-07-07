@@ -15,7 +15,7 @@ A pattern file is the complete unit — kernel + rewrite + tests — and declare
 two module-level lists the generic runner picks up automatically:
 
     PATTERN_TESTS  : rewrite correctness, checked with FileCheck (no device).
-    KERNEL_BENCHES : on-device numerics, PCC-compared against a torch golden.
+    KERNEL_BENCH   : on-device numerics, PCC-compared against a torch golden.
 
 Run just this pattern after copying:
 
@@ -73,7 +73,7 @@ def lower_template(op, rewriter):
 
 def _golden(x):
     # TODO: torch reference for your op. Args match the func args in `ttir`
-    # below (and input_shapes in KERNEL_BENCHES), in order.
+    # below (and input_shapes in KERNEL_BENCH), in order.
     return torch.exp(x)
 
 
@@ -117,20 +117,16 @@ PATTERN_TESTS = [
 # On-device numerics: drive the kernel directly and PCC-compare vs torch.
 # Reuse eltwise_block_run for the common elementwise-block shape; write a
 # custom run(kernel, inputs, cfg) -> host tensor for anything else.
-KERNEL_BENCHES = [
-    KernelBench(
-        name="template",
-        kernel=template_kernel,
-        golden=_golden,
-        run=eltwise_block_run,
-        inputs=InputSpec("uniform(-1,1)"),
-        # input_shapes goes in default_cfg; add block_shape/grid_shape/dtype explicitly.
-        default_cfg={
-            "input_shapes": [(32, 32)],  # one entry per kernel input, in order
-            "block_shape": [1, 1],
-            "grid_shape": [1, 1],
-            "dtype": "float32",
-        },
-        # space: list[TuneAxis] for autotuning axes (block_shape, grid_shape, etc.)
-    ),
-]
+KERNEL_BENCH = KernelBench(
+    name="template",
+    kernel=template_kernel,
+    golden=_golden,
+    run=eltwise_block_run,
+    inputs=InputSpec("uniform(-1,1)"),
+    default_cfg={
+        "input_shapes": [(32, 32)],  # one entry per kernel input, in order
+        "block_shape": [1, 1],
+        "grid_shape": [1, 1],
+        "dtype": torch.float32,
+    },
+)

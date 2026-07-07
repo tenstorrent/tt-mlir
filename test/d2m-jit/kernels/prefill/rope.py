@@ -23,7 +23,7 @@ through a 32-wide tile.
 import torch
 
 import d2m_jit as d2m
-from d2m_jit.testing import InputSpec, KernelBench, TuneAxis, d2m_dtype
+from d2m_jit.testing import InputSpec, KernelBench, d2m_dtype
 
 
 def _feature_half_roll_view(x_lt):
@@ -221,22 +221,16 @@ def _torch_rope_reference(x, cos, sin_signed):
 
 
 # KernelBench: one declaration, used by both testing and autotuning
-KERNEL_BENCHES = [
-    KernelBench(
-        name="rope",
-        kernel=rope,
-        golden=_torch_rope_reference,
-        run=rope_materializer,
-        inputs=InputSpec("randn"),
-        space=[
-            TuneAxis("grid_shape", [(1, 1), (2, 2), (1, 2)]),
-            TuneAxis("block_shape", [[2, 2], [1, 1]]),
-        ],
-        default_cfg={
-            "input_shapes": [(64, 64), (64, 64), (64, 64)],
-            "grid_shape": (1, 1),
-            "block_shape": [2, 2],
-            "dtype": "float32",
-        },
-    ),
-]
+KERNEL_BENCH = KernelBench(
+    name="rope",
+    kernel=rope,
+    golden=_torch_rope_reference,
+    run=rope_materializer,
+    inputs=InputSpec("randn"),
+    default_cfg={
+        "input_shapes": [(64, 64), (64, 64), (64, 64)],
+        "grid_shape": (1, 1),
+        "block_shape": [2, 2],
+        "dtype": torch.float32,
+    },
+)

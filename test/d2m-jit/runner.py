@@ -18,7 +18,7 @@ Two declaration kinds:
   IR through the real ``FileCheck`` binary. Replaces the hand-written
   ``test/d2m-jit/lit/*_pattern.py`` files. No device needed.
 
-* ``KERNEL_BENCHES = [KernelBench(...)]`` — on-device numerics, **in-process**.
+* ``KERNEL_BENCH = KernelBench(...)`` — on-device numerics, **in-process**.
   Each bench drives the ``@d2m.kernel`` entrypoint directly with an explicit
   ``(layout, block_shape, grid_shape)`` config and PCC-compares against a
   torch golden. Replaces ``test/d2m-jit/test_pattern_eltwise.py``.
@@ -46,8 +46,7 @@ Two declaration kinds:
 
 Not implemented yet:
 
-* **Autotuning** — ``KernelBench.space`` declares axes (block_shape /
-  grid_shape / dtype) an autotuner would sweep, taking perf traces per config.
+* **Autotuning** — perf traces per config to rank execution parameters.
 """
 
 from __future__ import annotations
@@ -109,14 +108,6 @@ class PatternTest:
 
 
 @dataclass
-class TuneAxis:
-    """One autotuning axis: a named config key and its candidate values."""
-
-    name: str
-    values: list
-
-
-@dataclass
 class KernelBench:
     """Direct-kernel device bench: numerics, testing, and autotuning.
 
@@ -134,26 +125,14 @@ class KernelBench:
     kernel: Callable
     golden: Callable
     run: Callable
+    default_cfg: dict
     inputs: InputSpec = field(default_factory=InputSpec)
-    default_cfg: dict = field(
-        default_factory=lambda: dict(
-            block_shape=[1, 1], grid_shape=[1, 1], dtype="float32"
-        )
-    )
-    space: list = field(default_factory=list)  # list[TuneAxis]
     pcc: float = 0.99
-    source_file: str = ""
 
 
 # ----------------------------------------------------------------------
 # dtype helpers
 # ----------------------------------------------------------------------
-
-_TORCH_DTYPES = {
-    "float32": torch.float32,
-    "float16": torch.float16,
-    "bfloat16": torch.bfloat16,
-}
 
 _MLIR_ELTY_TO_TORCH = {
     "f32": torch.float32,
@@ -162,18 +141,14 @@ _MLIR_ELTY_TO_TORCH = {
 }
 
 
-def torch_dtype(name: str) -> torch.dtype:
-    return _TORCH_DTYPES[name]
-
-
-def d2m_dtype(name: str):
+def d2m_dtype(dtype: torch.dtype):
     import d2m_jit as d2m
 
     return {
-        "float32": d2m.float32,
-        "float16": d2m.float16,
-        "bfloat16": d2m.bfloat16,
-    }[name]
+        torch.float32: d2m.float32,
+        torch.float16: d2m.float16,
+        torch.bfloat16: d2m.bfloat16,
+    }[dtype]
 
 
 # ----------------------------------------------------------------------
@@ -332,12 +307,11 @@ def run_bench(bench: KernelBench, cfg: Optional[dict] = None):
     input generation.
     """
     cfg = cfg or bench.default_cfg
-    td = torch_dtype(cfg["dtype"])
 
     input_shapes = cfg.get("input_shapes")
     if input_shapes is None:
         raise ValueError(f"KernelBench {bench.name}: cfg missing 'input_shapes'")
-    inputs = make_inputs(input_shapes, td, bench.inputs)
+    inputs = make_inputs(input_shapes, cfg["dtype"], bench.inputs)
 
     actual = bench.run(bench.kernel, inputs, cfg)
     expected = bench.golden(*inputs)
@@ -658,8 +632,7 @@ def discover(force: bool = False):
         for t in getattr(mod, "PATTERN_TESTS", []):
             t.source_file = mod.__file__
             pattern_tests.append(t)
-        for b in getattr(mod, "KERNEL_BENCHES", []):
-            b.source_file = mod.__file__
+        if (b := getattr(mod, "KERNEL_BENCH", None)) is not None:
             kernel_benches.append(b)
 
     _DISCOVERED = (pattern_tests, kernel_benches)
