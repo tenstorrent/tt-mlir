@@ -344,3 +344,16 @@ def test_synthetic_attention_chain_traces():
     assert "scaled_dot_product_attention" in ir
     assert "concatenate_heads" in ir
     module.operation.verify()
+
+
+def test_rotary_embedding_llama_handler():
+    import ttnn as _ttnn
+    scope = build_trace_scope("f", [((1, 32, 32, 128), _ttnn.bfloat16)])
+    x = scope.traced_args[0]
+    cos = _DummyTensor((1, 1, 32, 128), _ttnn.bfloat16)
+    sin = _DummyTensor((1, 1, 32, 128), _ttnn.bfloat16)
+    tm = _DummyTensor((1, 1, 32, 32), _ttnn.bfloat16)
+    with patch_ttnn(scope.jit_ctx):
+        out = _ttnn.experimental.rotary_embedding_llama(x, cos, sin, tm, is_decode_mode=False)
+    assert out.shape == (1, 32, 32, 128)
+    assert "rotary_embedding_llama" in str(scope.module)

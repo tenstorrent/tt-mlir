@@ -360,9 +360,27 @@ def _paged_fill_cache_handler(jit_ctx, cache, input, page_table, **kwargs):
         )
 
 
+def _rotary_embedding_llama_handler(
+    jit_ctx, input, cos_cache, sin_cache, trans_mat, *, is_decode_mode=False, **kwargs
+):
+    """Apply RoPE to a Q/K head tensor; result shape matches `input`."""
+    t = input.mlir_value.type
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        result_type = RankedTensorType.get([int(d) for d in t.shape], t.element_type)
+        return ttir.rotary_embedding_llama(
+            result=result_type,
+            input=input.mlir_value,
+            cos_cache=cos_cache.mlir_value,
+            sin_cache=sin_cache.mlir_value,
+            trans_mat=trans_mat.mlir_value,
+            is_decode_mode=bool(is_decode_mode),
+        )
+
+
 _EXPERIMENTAL_VALUE = {
     "nlp_concat_heads": _nlp_concat_heads_handler,
     "paged_fill_cache": _paged_fill_cache_handler,
+    "rotary_embedding_llama": _rotary_embedding_llama_handler,
 }
 
 
