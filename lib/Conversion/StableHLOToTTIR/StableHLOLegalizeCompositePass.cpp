@@ -471,34 +471,43 @@ public:
           }
           break;
         }
-        mlir::sdy::TensorShardingAttr sharding;
-        int64_t queryDim;
-        if (resolvedSharding) {
-          sharding = resolvedSharding;
-          queryDim = trackedDim;
-        } else {
-          if (walkOk && shardingSource.use_empty()) {
-            walkOk = false;
-          }
-          sharding = walkOk ? shardy_utils::getOperandShardingAttr(
-                                  *shardingSource.use_begin(), meshOps[0])
-                            : shardy_utils::getOperandShardingAttr(
-                                  srcOp->getOpOperand(0), meshOps[0]);
-          queryDim = walkOk ? trackedDim : reductionDim;
+        // Prefer the operand sharding from the walk; it resolves the correct
+        // axis on 2D meshes. Fall back to the sdy composite's out_sharding only
+        // when the operand sharding names no axis on the reduction dim (the
+        // all_slice grammar path, where it is a replicated/open default that
+        // yields numShards=0).
+        if (walkOk && shardingSource.use_empty()) {
+          walkOk = false;
         }
-        auto dimShardings = sharding.getDimShardings();
-        if (queryDim < static_cast<int64_t>(dimShardings.size()) &&
-            !dimShardings[queryDim].getAxes().empty()) {
-          llvm::StringRef axisName =
-              dimShardings[queryDim].getAxes()[0].getName();
-          for (auto [idx, axis] :
-               llvm::enumerate(meshOps[0].getMeshAttr().getAxes())) {
-            if (axis.getName() == axisName) {
-              numShards = axis.getSize();
-              clusterAxis = static_cast<uint32_t>(idx);
-              break;
+        mlir::sdy::TensorShardingAttr fallbackSharding =
+            walkOk ? shardy_utils::getOperandShardingAttr(
+                         *shardingSource.use_begin(), meshOps[0])
+                   : shardy_utils::getOperandShardingAttr(
+                         srcOp->getOpOperand(0), meshOps[0]);
+        int64_t fallbackQueryDim = walkOk ? trackedDim : reductionDim;
+        auto resolveNumShards = [&](mlir::sdy::TensorShardingAttr sharding,
+                                    int64_t queryDim) -> bool {
+          if (!sharding) {
+            return false;
+          }
+          auto dimShardings = sharding.getDimShardings();
+          if (queryDim < static_cast<int64_t>(dimShardings.size()) &&
+              !dimShardings[queryDim].getAxes().empty()) {
+            llvm::StringRef axisName =
+                dimShardings[queryDim].getAxes()[0].getName();
+            for (auto [idx, axis] :
+                 llvm::enumerate(meshOps[0].getMeshAttr().getAxes())) {
+              if (axis.getName() == axisName) {
+                numShards = axis.getSize();
+                clusterAxis = static_cast<uint32_t>(idx);
+                return true;
+              }
             }
           }
+          return false;
+        };
+        if (!resolveNumShards(fallbackSharding, fallbackQueryDim)) {
+          resolveNumShards(resolvedSharding, trackedDim);
         }
       }
     }
@@ -852,34 +861,43 @@ public:
           // Unknown op — stop and query sharding on what we have.
           break;
         }
-        mlir::sdy::TensorShardingAttr sharding;
-        int64_t queryDim;
-        if (resolvedSharding) {
-          sharding = resolvedSharding;
-          queryDim = trackedDim;
-        } else {
-          if (walkOk && shardingSource.use_empty()) {
-            walkOk = false;
-          }
-          sharding = walkOk ? shardy_utils::getOperandShardingAttr(
-                                  *shardingSource.use_begin(), meshOps[0])
-                            : shardy_utils::getOperandShardingAttr(
-                                  srcOp->getOpOperand(0), meshOps[0]);
-          queryDim = walkOk ? trackedDim : topkDim;
+        // Prefer the operand sharding from the walk; it resolves the correct
+        // axis on 2D meshes. Fall back to the sdy composite's out_sharding only
+        // when the operand sharding names no axis on the topk dim (the
+        // all_slice grammar path, where it is a replicated/open default that
+        // yields numShards=0).
+        if (walkOk && shardingSource.use_empty()) {
+          walkOk = false;
         }
-        auto dimShardings = sharding.getDimShardings();
-        if (queryDim < static_cast<int64_t>(dimShardings.size()) &&
-            !dimShardings[queryDim].getAxes().empty()) {
-          llvm::StringRef axisName =
-              dimShardings[queryDim].getAxes()[0].getName();
-          for (auto [idx, axis] :
-               llvm::enumerate(meshOps[0].getMeshAttr().getAxes())) {
-            if (axis.getName() == axisName) {
-              numShards = axis.getSize();
-              clusterAxis = static_cast<uint32_t>(idx);
-              break;
+        mlir::sdy::TensorShardingAttr fallbackSharding =
+            walkOk ? shardy_utils::getOperandShardingAttr(
+                         *shardingSource.use_begin(), meshOps[0])
+                   : shardy_utils::getOperandShardingAttr(
+                         srcOp->getOpOperand(0), meshOps[0]);
+        int64_t fallbackQueryDim = walkOk ? trackedDim : topkDim;
+        auto resolveNumShards = [&](mlir::sdy::TensorShardingAttr sharding,
+                                    int64_t queryDim) -> bool {
+          if (!sharding) {
+            return false;
+          }
+          auto dimShardings = sharding.getDimShardings();
+          if (queryDim < static_cast<int64_t>(dimShardings.size()) &&
+              !dimShardings[queryDim].getAxes().empty()) {
+            llvm::StringRef axisName =
+                dimShardings[queryDim].getAxes()[0].getName();
+            for (auto [idx, axis] :
+                 llvm::enumerate(meshOps[0].getMeshAttr().getAxes())) {
+              if (axis.getName() == axisName) {
+                numShards = axis.getSize();
+                clusterAxis = static_cast<uint32_t>(idx);
+                return true;
+              }
             }
           }
+          return false;
+        };
+        if (!resolveNumShards(fallbackSharding, fallbackQueryDim)) {
+          resolveNumShards(resolvedSharding, trackedDim);
         }
       }
     }
