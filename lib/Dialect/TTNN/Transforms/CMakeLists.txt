@@ -70,6 +70,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/PadHighDimRewritePattern.cpp
         Workarounds/TTNNWorkaroundsPatterns.cpp
         OptimizerPasses/TTNNGridSampleLayoutOptimizer.cpp
+        OptimizerPasses/TTNNPixelUnshuffleL1Opt.cpp
         OptimizerPasses/TTNNSpatialPackActivationRowMajorOpt.cpp
 
         ADDITIONAL_HEADER_DIRS

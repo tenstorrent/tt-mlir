@@ -1281,6 +1281,10 @@ getOpOutputRef(OpContext opContextHandle,
     tensorRef = opContext.type_as_GridSampleOp()->out();
     break;
   }
+  case ::tt::target::ttnn::OpType::PixelUnshuffleOp: {
+    tensorRef = opContext.type_as_PixelUnshuffleOp()->out();
+    break;
+  }
   case ::tt::target::ttnn::OpType::ConstantOp: {
     tensorRef = opContext.type_as_ConstantOp()->out();
     break;
@@ -1827,6 +1831,10 @@ getOpInputRefs(OpContext opContextHandle,
   case ::tt::target::ttnn::OpType::GridSampleOp: {
     tensorRefs = {opContext.type_as_GridSampleOp()->input(),
                   opContext.type_as_GridSampleOp()->grid()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PixelUnshuffleOp: {
+    tensorRefs = {opContext.type_as_PixelUnshuffleOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::CpuOp: {

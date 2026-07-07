@@ -69,6 +69,7 @@
 namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRSPATIALROWGROUPPACKINGOPT
 #define GEN_PASS_DEF_TTIRDEPTHWISECONVSPATIALPACKINGOPT
+#define GEN_PASS_DEF_TTIRPOINTWISECONV2DPARTIALPACKINGOPT
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
 namespace {
@@ -198,6 +199,11 @@ private:
     int64_t packedIC = IC * K;
     int64_t packedOC = OC * K;
     auto bf16 = BFloat16Type::get(ctx);
+    // Use the original activation element type (e.g. f32) for all non-weight
+    // types so that downstream ops (slice_static etc.) see a consistent type.
+    // ElementTypeNormalization keeps f32 as f32, so postPerm may be f32 even
+    // though the hardcoded bf16 below would cause a type mismatch.
+    auto actElemTy = mlir::cast<RankedTensorType>(origInput.getType()).getElementType();
 
     Value origWeight = convOp.getWeight(); // [OC, IC, 1, 1]
     Value origBias   = convOp.getBias();   // [1,  1,  1, OC] optional
@@ -297,14 +303,14 @@ private:
       // transpose(-1,-2) on rank-1, calling get_normalized_index(-2) for
       // rank=1 → 1+(-2)=-1 → UINT64_MAX → TT_FATAL.
       // Using [OC,1] (rank-2): dim=0 != input_rank-1=1 → main path, no issue.
-      auto bFlatTy = RankedTensorType::get({OC, 1}, bf16);
+      auto bFlatTy = RankedTensorType::get({OC, 1}, actElemTy);
       Value bFlat  =
           b.create<ttir::ReshapeOp>(loc, bFlatTy, origBias,
                                      b.getI32ArrayAttr({(int32_t)OC, 1}))
               .getResult();
 
       // repeat_interleave([OC,1], K, dim=0) → [OC*K, 1]
-      auto bRepTy = RankedTensorType::get({packedOC, 1}, bf16);
+      auto bRepTy = RankedTensorType::get({packedOC, 1}, actElemTy);
       Value bRep  =
           b.create<ttir::RepeatInterleaveOp>(
                loc, bRepTy, bFlat,
@@ -313,7 +319,7 @@ private:
               .getResult();
 
       // reshape [OC*K, 1] → [1,1,1,OC*K]
-      auto bPackedTy = RankedTensorType::get({1, 1, 1, packedOC}, bf16);
+      auto bPackedTy = RankedTensorType::get({1, 1, 1, packedOC}, actElemTy);
       bPacked        =
           b.create<ttir::ReshapeOp>(loc, bPackedTy, bRep,
                                      b.getI32ArrayAttr(
@@ -323,7 +329,7 @@ private:
 
     // ── 3c. Activation packing (runtime) ──────────────────────────────────
     // reshape [N,C,H,W] → [N,C*K,H/K,W]  free view
-    auto aNTy = RankedTensorType::get({N, packedIC, packedH, W}, bf16);
+    auto aNTy = RankedTensorType::get({N, packedIC, packedH, W}, actElemTy);
     Value aN  =
         b.create<ttir::ReshapeOp>(
              loc, aNTy, origInput,
@@ -333,7 +339,7 @@ private:
 
     // permute({0,2,3,1}): [N,C*K,H/K,W] → [N,H/K,W,C*K]  NHWC packed
     //   writes only 17.7 MB vs 151 MB baseline — C*K=96=3×TILE_WIDTH fills tiles 100%
-    auto aNHWCTy = RankedTensorType::get({N, packedH, W, packedIC}, bf16);
+    auto aNHWCTy = RankedTensorType::get({N, packedH, W, packedIC}, actElemTy);
     Value aNHWC  =
         b.create<ttir::PermuteOp>(
              loc, aNHWCTy, aN,
@@ -342,7 +348,7 @@ private:
 
     // reshape [N,H/K,W,C*K] → [N,1,H/K*W,C*K]  flatten spatial for ttir.linear
     int64_t packedSpatial = packedH * W;
-    auto aFlatTy = RankedTensorType::get({N, 1, packedSpatial, packedIC}, bf16);
+    auto aFlatTy = RankedTensorType::get({N, 1, packedSpatial, packedIC}, actElemTy);
     Value aFlat  =
         b.create<ttir::ReshapeOp>(
              loc, aFlatTy, aNHWC,
@@ -369,7 +375,7 @@ private:
     // bfp_bf4 in trace_enabled configs) to every LinearOp whose weight traces to
     // a constant parameter. For the Kronecker-packed weight this destroys the
     // block-diagonal structure and drops PCC to ~0.96.
-    auto linearOutTy = RankedTensorType::get({N, 1, packedSpatial, packedOC}, bf16);
+    auto linearOutTy = RankedTensorType::get({N, 1, packedSpatial, packedOC}, actElemTy);
     auto *linearOp   =
         b.create<ttir::LinearOp>(loc, linearOutTy, aFlat, wPacked,
                                   bPacked ? bPacked : Value(),
@@ -381,7 +387,7 @@ private:
 
     // ── 3e. Output unpack ─────────────────────────────────────────────────
     // reshape [N,1,H/K*W,OC*K] → [N,H/K,W,OC*K]  unflatten spatial
-    auto oUnflatTy = RankedTensorType::get({N, packedH, W, packedOC}, bf16);
+    auto oUnflatTy = RankedTensorType::get({N, packedH, W, packedOC}, actElemTy);
     Value oUnflat  =
         b.create<ttir::ReshapeOp>(
              loc, oUnflatTy, linearOut,
@@ -390,7 +396,7 @@ private:
             .getResult();
 
     // permute({0,3,1,2}): [N,H/K,W,OC*K] → [N,OC*K,H/K,W]
-    auto oPerTy = RankedTensorType::get({N, packedOC, packedH, W}, bf16);
+    auto oPerTy = RankedTensorType::get({N, packedOC, packedH, W}, actElemTy);
     Value oPer  =
         b.create<ttir::PermuteOp>(
              loc, oPerTy, oUnflat,
@@ -398,7 +404,7 @@ private:
             .getResult();
 
     // reshape [N,OC*K,H/K,W] → [N,OC,H,W]  free view
-    auto finalTy = RankedTensorType::get({N, OC, H, W}, bf16);
+    auto finalTy = RankedTensorType::get({N, OC, H, W}, actElemTy);
     Value finalOut =
         b.create<ttir::ReshapeOp>(
              loc, finalTy, oPer,
@@ -630,6 +636,280 @@ private:
             .getResult();
 
     // ── 4. Replace old chain ─────────────────────────────────────────────
+    postPerm.getResult().replaceAllUsesWith(finalOut);
+    postPerm.erase();
+    convOp.erase();
+    prePerm.erase();
+  }
+};
+
+// ── TTIRPointwiseConv2dPartialPackingOpt ────────────────────────────────────
+//
+// Same permute→conv2d→permute pattern as TTIRSpatialRowGroupPackingOpt but
+// fires when packingFactor(IC) < TILE_WIDTH (partial K, e.g. IC=24 → K=4).
+//
+// Uses ttir.conv2d (not ttir.linear) to avoid TTNNSpatialPackActivationRowMajorOpt
+// which specifically matches LinearOp and interferes with the linear path for
+// partial K, degrading PCC from 0.99 to ~0.972.
+//
+// Weight format for conv2d OIHW [OC*K, IC*K, 1, 1]:
+//   W_conv[oc*K+k, ic*K+k', 0, 0] = W[oc, ic]  if k==k'  else 0
+//
+// Building from W[OC,IC,1,1]:
+//   broadcast [OC,IC,1,1] → [OC,IC,K,K]
+//   arange(dim=2)+arange(dim=3)+eq → I_K [1,1,K,K] diagonal mask
+//   multiply → [OC,IC,K,K] (zeroed off-diagonal)
+//   permute [0,2,1,3] → [OC,K,IC,K]     ← OIHW reordering (vs [1,2,0,3] for linear)
+//   reshape [OC*K, IC*K] → [OC*K, IC*K, 1, 1]
+//
+// Correctness:
+//   out_pack[sp, oc*K+k] = Σ_ic x_pack[sp, ic*K+k] * W[oc,ic]
+//                        = conv_out[oc, k*(H/K)+h', w]   where sp=h'*W+w  ✓
+
+class TTIRPointwiseConv2dPartialPackingOptPass
+    : public impl::TTIRPointwiseConv2dPartialPackingOptBase<
+          TTIRPointwiseConv2dPartialPackingOptPass> {
+public:
+  using impl::TTIRPointwiseConv2dPartialPackingOptBase<
+      TTIRPointwiseConv2dPartialPackingOptPass>::
+      TTIRPointwiseConv2dPartialPackingOptBase;
+
+  void runOnOperation() final {
+    ModuleOp mod = getOperation();
+    MLIRContext *ctx = &getContext();
+
+    SmallVector<ttir::Conv2dOp, 4> candidates;
+    mod.walk([&](ttir::Conv2dOp op) { candidates.push_back(op); });
+
+    for (ttir::Conv2dOp convOp : candidates)
+      process(convOp, ctx);
+  }
+
+private:
+  void process(ttir::Conv2dOp convOp, MLIRContext *ctx) {
+    static const int64_t kNCHWtoNHWC[] = {0, 2, 3, 1};
+    static const int64_t kNHWCtoNCHW[] = {0, 3, 1, 2};
+
+    // ── 1. Match permute(NCHW→NHWC) → conv2d → permute(NHWC→NCHW) ──────────
+    auto *prePermuteOp = convOp.getInput().getDefiningOp();
+    if (!isPermute(prePermuteOp, kNCHWtoNHWC))
+      return;
+    auto prePerm = mlir::cast<ttir::PermuteOp>(prePermuteOp);
+    Value origInput = prePerm.getInput(); // [N,IC,H,W] NCHW
+
+    ttir::PermuteOp postPerm;
+    for (Operation *u : convOp.getResult().getUsers()) {
+      if (isPermute(u, kNHWCtoNCHW)) {
+        postPerm = mlir::cast<ttir::PermuteOp>(u);
+        break;
+      }
+    }
+    if (!postPerm)
+      return;
+
+    // ── 2. Guard: partial-K 1×1 pointwise conv, non-depthwise ───────────────
+    auto weightType = mlir::cast<RankedTensorType>(convOp.getWeight().getType());
+    if (weightType.getRank() != 4)
+      return;
+    int64_t OC = weightType.getDimSize(0);
+    int64_t IC = weightType.getDimSize(1);
+    int64_t kH = weightType.getDimSize(2);
+    int64_t kW = weightType.getDimSize(3);
+
+    if (kH != 1 || kW != 1)
+      return;
+    if (IC >= TILE_WIDTH)
+      return;
+
+    int64_t K = packingFactor(IC);
+
+    // Only handle partial packing (K < TILE_WIDTH).
+    // K == TILE_WIDTH is handled by TTIRSpatialRowGroupPackingOpt (linear path).
+    if (K == TILE_WIDTH)
+      return;
+
+    // Non-depthwise only.
+    if (convOp.getGroups() != 1)
+      return;
+
+    // Stride [1,1], padding all zeros.
+    if (auto arr = mlir::dyn_cast<DenseI32ArrayAttr>(convOp.getStride()))
+      for (int32_t s : arr.asArrayRef())
+        if (s != 1)
+          return;
+    if (auto arr = mlir::dyn_cast<DenseI32ArrayAttr>(convOp.getPadding()))
+      for (int32_t p : arr.asArrayRef())
+        if (p != 0)
+          return;
+
+    auto inputType = mlir::cast<RankedTensorType>(origInput.getType());
+    if (inputType.getRank() != 4)
+      return;
+    int64_t N = inputType.getDimSize(0);
+    int64_t H = inputType.getDimSize(2);
+    int64_t W = inputType.getDimSize(3);
+
+    if (H % K != 0)
+      return;
+
+    int64_t packedH  = H / K;
+    int64_t packedIC = IC * K;
+    int64_t packedOC = OC * K;
+
+    auto bf16     = BFloat16Type::get(ctx);
+    auto actElemTy = mlir::cast<RankedTensorType>(origInput.getType()).getElementType();
+
+    Value origWeight = convOp.getWeight(); // [OC, IC, 1, 1]
+    Value origBias   = convOp.getBias();   // [1,  1,  1, OC] optional
+
+    // ── 3. Build new ops ─────────────────────────────────────────────────────
+    OpBuilder b(convOp);
+    Location loc = convOp.getLoc();
+
+    // ── 3a. Weight packing for conv2d OIHW [OC*K, IC*K, 1, 1] ──────────────
+    //
+    // broadcast [OC,IC,1,1] → [OC,IC,K,K]
+    auto wBcTy = RankedTensorType::get({OC, IC, K, K}, bf16);
+    Value wBc  =
+        b.create<ttir::BroadcastOp>(loc, wBcTy, origWeight,
+                                     b.getDenseI64ArrayAttr({1, 1, K, K}))
+            .getResult();
+
+    // arange(dim=2) row-index grid [1,1,K,K]
+    auto kGridTy = RankedTensorType::get({1, 1, K, K},
+                                          IntegerType::get(ctx, 64));
+    Value kRow   =
+        b.create<ttir::ArangeOp>(loc, kGridTy,
+                                  (int64_t)0, K, (int64_t)1, (uint64_t)2)
+            .getResult();
+
+    // arange(dim=3) col-index grid [1,1,K,K]
+    Value kCol   =
+        b.create<ttir::ArangeOp>(loc, kGridTy,
+                                  (int64_t)0, K, (int64_t)1, (uint64_t)3)
+            .getResult();
+
+    // diagonal bool mask [1,1,K,K]
+    auto diagBoolTy = RankedTensorType::get({1, 1, K, K},
+                                             IntegerType::get(ctx, 1));
+    Value diagBool  =
+        b.create<ttir::EqualOp>(loc, diagBoolTy, kRow, kCol).getResult();
+
+    // typecast bool→bf16  I_K [1,1,K,K]
+    auto iKTy = RankedTensorType::get({1, 1, K, K}, bf16);
+    Value iK  = b.create<ttir::TypecastOp>(loc, iKTy, diagBool).getResult();
+
+    // multiply: w_bc * i_k → [OC,IC,K,K]  zero off-diagonal
+    Value wDiag = b.create<ttir::MultiplyOp>(loc, wBcTy, wBc, iK).getResult();
+
+    // permute [0,2,1,3]: [OC,IC,K,K] → [OC,K,IC,K]  (OIHW reordering)
+    //   result[oc,k,ic,k'] = wDiag[oc,ic,k,k']
+    //   After reshape: w_conv[oc*K+k, ic*K+k'] = W[oc,ic] if k==k' else 0  ✓
+    auto wPermTy = RankedTensorType::get({OC, K, IC, K}, bf16);
+    Value wPerm  =
+        b.create<ttir::PermuteOp>(loc, wPermTy, wDiag,
+                                   b.getDenseI64ArrayAttr({0, 2, 1, 3}))
+            .getResult();
+
+    // reshape [OC,K,IC,K] → [OC*K, IC*K]
+    auto w2dTy = RankedTensorType::get({packedOC, packedIC}, bf16);
+    Value w2d  =
+        b.create<ttir::ReshapeOp>(
+             loc, w2dTy, wPerm,
+             b.getI32ArrayAttr({(int32_t)packedOC, (int32_t)packedIC}))
+            .getResult();
+
+    // reshape [OC*K, IC*K] → [OC*K, IC*K, 1, 1]  OIHW conv2d weight
+    auto wPackedTy = RankedTensorType::get({packedOC, packedIC, 1, 1}, bf16);
+    Value wPacked  =
+        b.create<ttir::ReshapeOp>(
+             loc, wPackedTy, w2d,
+             b.getI32ArrayAttr({(int32_t)packedOC, (int32_t)packedIC, 1, 1}))
+            .getResult();
+
+    // ── 3b. Bias packing (auto const-eval'd) ─────────────────────────────────
+    // [1,1,1,OC] → [OC,1] → repeat_interleave(K,dim=0) → [OC*K,1] → [1,1,1,OC*K]
+    Value bPacked;
+    if (origBias) {
+      auto bFlatTy = RankedTensorType::get({OC, 1}, actElemTy);
+      Value bFlat  =
+          b.create<ttir::ReshapeOp>(loc, bFlatTy, origBias,
+                                     b.getI32ArrayAttr({(int32_t)OC, 1}))
+              .getResult();
+
+      auto bRepTy = RankedTensorType::get({packedOC, 1}, actElemTy);
+      Value bRep  =
+          b.create<ttir::RepeatInterleaveOp>(
+               loc, bRepTy, bFlat,
+               b.getUI32IntegerAttr((uint32_t)K),
+               b.getSI32IntegerAttr(0))
+              .getResult();
+
+      auto bPackedTy = RankedTensorType::get({1, 1, 1, packedOC}, actElemTy);
+      bPacked        =
+          b.create<ttir::ReshapeOp>(loc, bPackedTy, bRep,
+                                     b.getI32ArrayAttr(
+                                         {1, 1, 1, (int32_t)packedOC}))
+              .getResult();
+    }
+
+    // ── 3c. Activation packing (runtime) ─────────────────────────────────────
+    // reshape [N,IC,H,W] → [N,IC*K,H/K,W]  free view
+    auto aNTy = RankedTensorType::get({N, packedIC, packedH, W}, actElemTy);
+    Value aN  =
+        b.create<ttir::ReshapeOp>(
+             loc, aNTy, origInput,
+             b.getI32ArrayAttr({(int32_t)N, (int32_t)packedIC,
+                                (int32_t)packedH, (int32_t)W}))
+            .getResult();
+
+    // permute {0,2,3,1}: [N,IC*K,H/K,W] → [N,H/K,W,IC*K]  NHWC — 0% tile waste
+    auto aNHWCTy = RankedTensorType::get({N, packedH, W, packedIC}, actElemTy);
+    Value aNHWC  =
+        b.create<ttir::PermuteOp>(
+             loc, aNHWCTy, aN,
+             b.getDenseI64ArrayAttr({0, 2, 3, 1}))
+            .getResult();
+
+    // ── 3d. Packed 1×1 conv2d (channel_last, groups=1) ───────────────────────
+    // Input  [N,H/K,W,IC*K]  NHWC
+    // Weight [OC*K, IC*K, 1, 1]  OIHW  (block-diagonal)
+    // Output [N,H/K,W,OC*K]  NHWC
+    // TTIRFlattenSlidingWindow will add the [N,H/K,W,C] → [1,1,N*H/K*W,C] reshape.
+    auto convPackedTy =
+        RankedTensorType::get({N, packedH, W, packedOC}, actElemTy);
+    auto convPackedOp =
+        b.create<ttir::Conv2dOp>(
+             loc, convPackedTy,
+             /*input=*/aNHWC,
+             /*weight=*/wPacked,
+             /*bias=*/bPacked ? bPacked : Value(),
+             /*stride=*/b.getDenseI32ArrayAttr({1, 1}),
+             /*padding=*/b.getDenseI32ArrayAttr({0, 0, 0, 0}),
+             /*dilation=*/b.getDenseI32ArrayAttr({1, 1}),
+             /*groups=*/(uint32_t)1,
+             /*flattened_compat_info=*/nullptr);
+    convPackedOp->setAttr("channel_last", b.getUnitAttr());
+    Value convPacked = convPackedOp.getResult();
+
+    // ── 3e. Output unpack ─────────────────────────────────────────────────────
+    // permute {0,3,1,2}: [N,H/K,W,OC*K] → [N,OC*K,H/K,W]  NCHW
+    auto oPerTy = RankedTensorType::get({N, packedOC, packedH, W}, actElemTy);
+    Value oPer  =
+        b.create<ttir::PermuteOp>(
+             loc, oPerTy, convPacked,
+             b.getDenseI64ArrayAttr({0, 3, 1, 2}))
+            .getResult();
+
+    // reshape [N,OC*K,H/K,W] → [N,OC,H,W]  free view unpack
+    auto finalTy = RankedTensorType::get({N, OC, H, W}, actElemTy);
+    Value finalOut =
+        b.create<ttir::ReshapeOp>(
+             loc, finalTy, oPer,
+             b.getI32ArrayAttr({(int32_t)N, (int32_t)OC, (int32_t)H, (int32_t)W}))
+            .getResult();
+
+    // ── 4. Replace old chain ──────────────────────────────────────────────────
     postPerm.getResult().replaceAllUsesWith(finalOut);
     postPerm.erase();
     convOp.erase();

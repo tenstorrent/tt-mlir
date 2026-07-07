@@ -736,6 +736,38 @@ def TTNNGridSampleLayoutOptimizer : Pass<"ttnn-grid-sample-layout-opt", "::mlir:
 }
 
 
+def TTNNPixelUnshuffleL1Opt : Pass<"ttnn-pixel-unshuffle-l1-opt", "::mlir::ModuleOp"> {
+  let summary = "Rewrite DRAM pixel_unshuffle outputs to L1+TILE to restore L1 HWM.";
+  let description = [{
+    The TTIRPixelUnshuffleOpt pass fuses 6D reshape->permute->reshape chains into
+    ttir.pixel_unshuffle.  The TTNN optimizer assigns DRAM/ROW_MAJOR to the
+    pixel_unshuffle output (OpModel returns "not implemented"), reducing the L1
+    high-water mark compared to the baseline 6D chain (whose per-step L1 tensors
+    pushed the HWM higher).
+
+    This lower HWM causes downstream conv2d reshard buffers to land inside a
+    static circular-buffer region, triggering an L1 CB clash at runtime.
+
+    The root cause is not a live-buffer overlap — it is allocator history pollution:
+    the missing L1 allocs shift the bump-pointer so the reshard allocation aliases
+    the static CB.
+
+    This pass rewrites each DRAM-output ttnn.pixel_unshuffle in-place by setting
+      memory_config = L1_interleaved
+      output_layout = TILE
+    directly on the op (no separate to_memory_config op is inserted).  Writing to
+    L1 in TILE format in a single step:
+      - Restores the L1 HWM to match the 6D chain, eliminating the CB clash.
+      - Avoids the implicit to_layout(TILE) that TTNN would otherwise insert when
+        the consumer expects TILE layout — that implicit conversion allocates a
+        temporary DRAM buffer and further churns the L1 allocator history.
+
+    The ttnn::pixel_unshuffle runtime supports L1 interleaved TILE output via the
+    memory_config and output_layout kernel arguments.
+  }];
+  let dependentDialects = ["mlir::tt::ttnn::TTNNDialect"];
+}
+
 def TTNNSpatialPackActivationRowMajorOpt : Pass<"ttnn-spatial-pack-activation-rm-opt", "::mlir::ModuleOp"> {
   let summary = "Move to_layout(TILE) to after the spatial packing reshape+permute+reshape chain.";
   let description = [{

@@ -43,6 +43,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/gather.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/pad.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/permute.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/pixel_unshuffle.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/repeat.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/repeat_interleave.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/data_movement/reshape.cpp

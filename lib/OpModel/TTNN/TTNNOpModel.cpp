@@ -7489,6 +7489,70 @@ llvm::Expected<size_t> OpModel<PermuteOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// PixelUnshuffleOp
+//===----------------------------------------------------------------------===//
+llvm::Expected<OpConstraints> OpModel<PixelUnshuffleOp>::getOpConstraints(
+    ttcore::GridAttr deviceGrid, llvm::ArrayRef<int64_t> inputShape,
+    TTNNLayoutAttr inputLayout, llvm::ArrayRef<int64_t> outputShape,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  // Derive downscale_factor from spatial dims: inputH / outputH.
+  uint32_t downscale_factor =
+      static_cast<uint32_t>(inputShape[2] / outputShape[2]);
+
+  auto pixelUnshuffleQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS(::ttnn::pixel_unshuffle, device, inputSpec,
+                                downscale_factor,
+                                detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), deviceGrid,
+                                     pixelUnshuffleQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<PixelUnshuffleOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> outputShape, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  auto inputSpecExp =
+      detail::convertToTensorSpec(device, inputShape, inputLayout);
+  if (!inputSpecExp) {
+    return inputSpecExp.takeError();
+  }
+  ::ttnn::TensorSpec inputSpec = inputSpecExp.get();
+
+  uint32_t downscale_factor =
+      static_cast<uint32_t>(inputShape[2] / outputShape[2]);
+
+  auto pixelUnshuffleQuery = [=]() {
+    return QUERY_OP_RUNTIME(::ttnn::pixel_unshuffle, device, inputSpec,
+                            downscale_factor,
+                            detail::getNullableMemoryConfig(outputLayout));
+  };
+
+  return operation::getOpRuntime(pixelUnshuffleQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // GridSampleOp
 //===----------------------------------------------------------------------===//
 llvm::Expected<OpConstraints> OpModel<GridSampleOp>::getOpConstraints(

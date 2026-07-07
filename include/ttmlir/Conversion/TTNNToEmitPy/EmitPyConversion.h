@@ -450,6 +450,20 @@ struct EmitPyTypeConverter<mlir::tt::ttcore::ReduceType> {
   }
 };
 
+template <>
+struct EmitPyTypeConverter<::mlir::tt::ttnn::PixelUnshuffleChannelOrder> {
+  static std::string
+  convert(::mlir::tt::ttnn::PixelUnshuffleChannelOrder order) {
+    switch (order) {
+    case ::mlir::tt::ttnn::PixelUnshuffleChannelOrder::ChannelMajor:
+      return "ttnn.PixelUnshuffleChannelOrder.CHANNEL_MAJOR";
+    case ::mlir::tt::ttnn::PixelUnshuffleChannelOrder::SpatialMajor:
+      return "ttnn.PixelUnshuffleChannelOrder.SPATIAL_MAJOR";
+    }
+    llvm_unreachable("Unknown PixelUnshuffleChannelOrder");
+  }
+};
+
 // Converter for integral types.
 template <typename T>
 struct EmitPyTypeConverter<T, std::enable_if_t<std::is_integral_v<T>, void>> {

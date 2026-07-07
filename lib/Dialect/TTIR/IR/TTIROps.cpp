@@ -4668,6 +4668,58 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// PixelUnshuffleOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::PixelUnshuffleOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getType();
+  if (inputType.getRank() != 4) {
+    return emitOpError("input must be 4D [N,C,H,W], got rank ")
+           << inputType.getRank();
+  }
+  if (outputType.getRank() != 4) {
+    return emitOpError("output must be 4D, got rank ") << outputType.getRank();
+  }
+  uint32_t r = getDownscaleFactor();
+  if (r == 0) {
+    return emitOpError("downscale_factor must be positive");
+  }
+  auto inShape = inputType.getShape();
+  auto outShape = outputType.getShape();
+  // Validate H and W divisibility.
+  if (inShape[2] != mlir::ShapedType::kDynamic && inShape[2] % r != 0) {
+    return emitOpError("H=") << inShape[2] << " not divisible by r=" << r;
+  }
+  if (inShape[3] != mlir::ShapedType::kDynamic && inShape[3] % r != 0) {
+    return emitOpError("W=") << inShape[3] << " not divisible by r=" << r;
+  }
+  // Validate output shape: [N, C*r^2, H/r, W/r].
+  if (inShape[0] != mlir::ShapedType::kDynamic &&
+      outShape[0] != mlir::ShapedType::kDynamic &&
+      outShape[0] != inShape[0]) {
+    return emitOpError("output N=") << outShape[0] << " != input N=" << inShape[0];
+  }
+  if (inShape[1] != mlir::ShapedType::kDynamic &&
+      outShape[1] != mlir::ShapedType::kDynamic &&
+      outShape[1] != inShape[1] * static_cast<int64_t>(r) * static_cast<int64_t>(r)) {
+    return emitOpError("output C=")
+           << outShape[1] << " != C*r^2=" << inShape[1] * static_cast<int64_t>(r) * r;
+  }
+  if (inShape[2] != mlir::ShapedType::kDynamic &&
+      outShape[2] != mlir::ShapedType::kDynamic &&
+      outShape[2] != inShape[2] / static_cast<int64_t>(r)) {
+    return emitOpError("output H=") << outShape[2] << " != H/r=" << inShape[2] / r;
+  }
+  if (inShape[3] != mlir::ShapedType::kDynamic &&
+      outShape[3] != mlir::ShapedType::kDynamic &&
+      outShape[3] != inShape[3] / static_cast<int64_t>(r)) {
+    return emitOpError("output W=") << outShape[3] << " != W/r=" << inShape[3] / r;
+  }
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
 // GridSampleOp
 //===----------------------------------------------------------------------===//
 

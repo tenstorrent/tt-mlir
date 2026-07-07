@@ -5860,4 +5860,25 @@ ResetGlobalSemaphoreOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
 }
 
+//===----------------------------------------------------------------------===//
+// PixelUnshuffleOp - TTNN Op Model Interface
+// NOTE: Constraint/runtime model not implemented — TTNNPixelUnshuffleL1Opt
+// forces L1 output directly, so the TTNN optimizer does not need to reason
+// about placement for this op.
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+PixelUnshuffleOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                   const OpConfig &opConfig) {
+  return issueErrorForGetOpConstraints(
+      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
+}
+
+llvm::Expected<size_t>
+PixelUnshuffleOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                               const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
+}
+
 } // namespace mlir::tt::ttnn
