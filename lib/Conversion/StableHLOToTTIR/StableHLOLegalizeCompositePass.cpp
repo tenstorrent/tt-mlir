@@ -513,6 +513,16 @@ public:
       return success();
     }
 
+    // NOTE (known runtime bug — path currently unused by tt-xla): the i32
+    // index all_gather below corrupts the tiny [batch, 1] local-argmax tensor
+    // in a full multi-collective model graph (it reads tile padding, e.g.
+    // yielding 32), while the bf16 value all_gather beside it is fine. The
+    // sequence is correct in isolation (unit tests and isolated probes pass)
+    // but returns wrong indices end-to-end, so tt-xla's vocab-sharded greedy
+    // sampling does NOT use composite_argmax — it gathers logits to full and
+    // runs a plain argmax instead. Routing the index through f32 only reduces
+    // the error to off-by-one, so the real fix is the small/sub-tile
+    // all_gather in tt-metal; re-enable this path once that is fixed.
     // Distributed argmax: local max/argmax → all_gather → shard offset →
     // merge argmax → gather.
     auto dimArgAttr =
