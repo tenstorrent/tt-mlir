@@ -17,6 +17,7 @@
 
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/TypeSwitch.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MSPLITTHREADS
@@ -29,6 +30,33 @@ static constexpr StringRef kThreadAttrName = "d2m.thread";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// The CB port a shard DMA op synchronizes on, form-agnostic. Post-
+// d2m-assign-threads most DMA ops are in explicit CB form (getCBPort() works),
+// but *aliased* remote_load/store ops are intentionally left implicit -- they
+// carry no transfer and are turned into compute-side CB obligations later by
+// d2m-insert-compute-cb. getCBPort() asserts on implicit form, so for those we
+// derive the port from the generic operand the op references: the memref (for
+// remote ops) / dst (for local_copy) operand is itself a d2m.generic operand,
+// and its operand index is the CB port.
+static unsigned getDMACBPort(GenericOp generic, Operation *op) {
+  return llvm::TypeSwitch<Operation *, unsigned>(op)
+      .Case<RemoteLoadOp, RemoteStoreOp>([&](auto dma) -> unsigned {
+        if (dma.isExplicitCBForm()) {
+          return dma.getCBPort();
+        }
+        return generic.getOperandIndex(dma.getMemref());
+      })
+      .Case<LocalCopyOp>([&](LocalCopyOp copy) -> unsigned {
+        if (copy.isExplicitCBForm()) {
+          return copy.getCBPort();
+        }
+        return generic.getOperandIndex(copy.getDst());
+      })
+      .Default([](Operation *) -> unsigned {
+        llvm_unreachable("unexpected ShardDMAOpInterface op");
+      });
+}
 
 // Verify each CB's synchronization scope is well-formed. A sync scope is a
 // property of each CB, not the whole region: the wait/pop (or reserve/push)
@@ -50,8 +78,9 @@ static LogicalResult checkComputeSyncScope(GenericOp generic) {
   // A CB whose markers span more than one block lives in distinct loop nests, which we can't synchronize. 
   llvm::MapVector<unsigned, DenseSet<Block *>> cbMarkerBlocks;
   generic.getRegion(0).walk([&](ShardDMAOpInterface dma) {
-    cbMarkerBlocks[dma.getCBPort()].insert(dma->getBlock());
+    cbMarkerBlocks[getDMACBPort(generic, dma)].insert(dma->getBlock());
   });
+  
   for (auto &[cbPort, blocks] : cbMarkerBlocks) {
     if (blocks.size() > 1) {
       return generic.emitOpError()

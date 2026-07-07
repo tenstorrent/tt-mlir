@@ -19,6 +19,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/SetVector.h"
+#include "llvm/ADT/TypeSwitch.h"
 
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MINSERTCOMPUTECB
@@ -46,6 +47,32 @@ static bool isAliasedLoad(RemoteLoadOp loadOp) {
   auto operandAliasOp =
       mlir::dyn_cast<OperandAliasOp>(loadOp.getLocalBuffer().getDefiningOp());
   return operandAliasOp && operandAliasOp.getMemref() == loadOp.getMemref();
+}
+
+// The CB port a shard DMA op synchronizes on, form-agnostic. Aliased
+// remote_load/store ops are left in implicit form (they carry no transfer), and
+// getCBPort() asserts on implicit form, so for those we derive the port from the
+// generic operand the op references: the memref (for remote ops) / dst (for
+// local_copy) operand is itself a d2m.generic operand, and its operand index is
+// the CB port.
+// NOTE: duplicated in SplitThreads.cpp; hoist to a shared header later.
+static unsigned getDMACBPort(GenericOp generic, Operation *op) {
+  return llvm::TypeSwitch<Operation *, unsigned>(op)
+      .Case<RemoteLoadOp, RemoteStoreOp>([&](auto dma) -> unsigned {
+        if (dma.isExplicitCBForm()) {
+          return dma.getCBPort();
+        }
+        return generic.getOperandIndex(dma.getMemref());
+      })
+      .Case<LocalCopyOp>([&](LocalCopyOp copy) -> unsigned {
+        if (copy.isExplicitCBForm()) {
+          return copy.getCBPort();
+        }
+        return generic.getOperandIndex(copy.getDst());
+      })
+      .Default([](Operation *) -> unsigned {
+        llvm_unreachable("unexpected ShardDMAOpInterface op");
+      });
 }
 
 // Trace `use` (an operand reading/writing a memref) up through
@@ -475,7 +502,8 @@ public:
 
       llvm::DenseMap<unsigned, unsigned> cbTransferDepth; // generic operand index --> loop nest depth of its DMA marker
       dmBlock->walk([&](ShardDMAOpInterface dma) {
-        cbTransferDepth[dma.getCBPort()] = forDepth(dma.getOperation());
+        cbTransferDepth[getDMACBPort(generic, dma.getOperation())] =
+            forDepth(dma.getOperation());
       });
       if (failed(insertCBOpsForCompute(computeBlock, rewriter, aliasedLoadCBs,
                                        aliasedStoreCBs, cbTransferDepth))) {
