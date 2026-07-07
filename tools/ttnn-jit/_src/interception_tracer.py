@@ -93,3 +93,94 @@ def build_trace_scope(name, input_specs):
     jit_ctx.weight_cache = {}
     traced_args = [TracedTensor(func_bb.arguments[i]) for i in range(len(input_types))]
     return TraceScope(ctx, module, func_op, func_bb, jit_ctx, traced_args, input_types)
+
+
+from contextlib import contextmanager
+
+from ttnn_jit._src.jit_functions import TTNNJitNamespaceUpdater
+from ttnn_jit._src.supported_ops import (
+    unary_ops,
+    binary_ops,
+    reduction_ops,
+    tm_ops,
+    data_movement_ops,
+)
+
+_MISSING = object()
+
+
+def _allowlisted_op_names():
+    return (
+        set(unary_ops)
+        | set(binary_ops)
+        | set(reduction_ops)
+        | set(tm_ops)
+        | set(data_movement_ops)
+        | {"matmul", "div", "pow"}
+    )
+
+
+def _weight_value(tensor, jit_ctx):
+    """Materialize a captured (non-proxy) tensor as a ttir.empty, deduped by id."""
+    key = id(tensor)
+    cache = jit_ctx.weight_cache
+    if key in cache:
+        return cache[key]
+    shape = [int(d) for d in tensor.shape]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        ttype = RankedTensorType.get(
+            shape, mlir_dtype_from_ttnn_dtype(tensor.dtype, jit_ctx.ctx)
+        )
+        value = ttir.EmptyOp(ttype).result
+    cache[key] = value
+    return value
+
+
+def _capture(arg, jit_ctx):
+    if isinstance(arg, (list, tuple)):
+        return type(arg)(_capture(a, jit_ctx) for a in arg)
+    if (
+        isinstance(arg, TracedTensor)
+        or isinstance(arg, (int, float, bool))
+        or arg is None
+    ):
+        return arg
+    if hasattr(arg, "mlir_value"):
+        return arg
+    # A real tensor referenced from outside the traced fn (weight/constant).
+    return TracedTensor(_weight_value(arg, jit_ctx))
+
+
+def _make_traced_op(handler_fn, jit_ctx):
+    def op(*args, **kwargs):
+        proxied = [_capture(a, jit_ctx) for a in args]
+        result = handler_fn(*proxied, **kwargs)  # existing handler -> ResultWrapper
+        return TracedTensor(result.mlir_value)
+
+    return op
+
+
+@contextmanager
+def patch_ttnn(jit_ctx):
+    """Monkeypatch allowlisted ttnn.<op> to build TTIR; restore on exit."""
+    import ttnn
+
+    namespace = TTNNJitNamespaceUpdater(jit_ctx)
+    originals = {}
+    try:
+        for name in _allowlisted_op_names():
+            if not hasattr(namespace, name):
+                continue
+            handler_fn = getattr(namespace, name)
+            originals[name] = getattr(ttnn, name, _MISSING)
+            setattr(ttnn, name, _make_traced_op(handler_fn, jit_ctx))
+        yield
+    finally:
+        for name, original in originals.items():
+            if original is _MISSING:
+                try:
+                    delattr(ttnn, name)
+                except AttributeError:
+                    pass
+            else:
+                setattr(ttnn, name, original)
