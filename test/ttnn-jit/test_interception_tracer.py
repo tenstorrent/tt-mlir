@@ -120,3 +120,24 @@ def test_capture_walks_kwargs_and_ignores_non_tensors():
     ir = str(scope.module)
     assert "ttir.empty" in ir  # w kwarg tensor materialized
     assert out2 is not None  # memory_config kwarg did not crash
+
+
+def test_common_op_handlers_build_ttir():
+    scope = build_trace_scope("f", [((256, 512), ttnn.bfloat16)])
+    x = scope.traced_args[0]
+    w = _DummyTensor((512, 1024), ttnn.bfloat16)
+    norm_w = _DummyTensor((512,), ttnn.bfloat16)
+    with patch_ttnn(scope.jit_ctx):
+        h = ttnn.linear(x, w, dtype=ttnn.bfloat16, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        assert h.shape == (256, 1024)
+        g = ttnn.mul(x, x)  # alias for multiply
+        assert g.shape == (256, 512)
+        c = ttnn.typecast(x, ttnn.bfloat16)
+        assert c.shape == (256, 512)
+        n = ttnn.rms_norm(x, epsilon=1e-5, weight=norm_w)
+        assert n.shape == (256, 512)
+    ir = str(scope.module)
+    assert "ttir.linear" in ir
+    assert "ttir.multiply" in ir
+    assert "ttir.typecast" in ir
+    assert "ttir.rms_norm" in ir

@@ -14,6 +14,8 @@ from ttnn_jit.ttmlir.ir import (
     Module,
     InsertionPoint,
     RankedTensorType,
+    F32Type,
+    FloatAttr,
 )
 
 from ttnn_jit._src.tracing_compiler import JitContext
@@ -183,6 +185,63 @@ def _make_traced_op(handler_fn, jit_ctx):
     return op
 
 
+def _make_traced_value_op(value_fn, jit_ctx):
+    def op(*args, **kwargs):
+        proxied_args = [_capture(a, jit_ctx) for a in args]
+        proxied_kwargs = {k: _capture(v, jit_ctx) for k, v in kwargs.items()}
+        return TracedTensor(value_fn(jit_ctx, *proxied_args, **proxied_kwargs))
+
+    return op
+
+
+def _linear_handler(jit_ctx, a, b, *, bias=None, **kwargs):
+    a_type = a.mlir_value.type
+    b_type = b.mlir_value.type
+    out_shape = [int(d) for d in a_type.shape[:-1]] + [int(b_type.shape[-1])]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        result_type = RankedTensorType.get(out_shape, a_type.element_type)
+        return ttir.linear(
+            result=result_type,
+            a=a.mlir_value,
+            b=b.mlir_value,
+            bias=(bias.mlir_value if bias is not None else None),
+        )
+
+
+def _typecast_handler(jit_ctx, x, dtype, **kwargs):
+    x_type = x.mlir_value.type
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        result_type = RankedTensorType.get(
+            [int(d) for d in x_type.shape],
+            mlir_dtype_from_ttnn_dtype(dtype, jit_ctx.ctx),
+        )
+        return ttir.typecast(result=result_type, input=x.mlir_value)
+
+
+def _rms_norm_handler(jit_ctx, x, *, epsilon=1e-5, weight=None, **kwargs):
+    x_type = x.mlir_value.type
+    hidden = int(x_type.shape[-1])
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        result_type = RankedTensorType.get(
+            [int(d) for d in x_type.shape], x_type.element_type
+        )
+        eps_attr = FloatAttr.get(F32Type.get(jit_ctx.ctx), float(epsilon))
+        return ttir.rms_norm(
+            result=result_type,
+            input=x.mlir_value,
+            normalized_shape=[hidden],
+            weight=(weight.mlir_value if weight is not None else None),
+            epsilon=eps_attr,
+        )
+
+
+_VALUE_HANDLERS = {
+    "linear": _linear_handler,
+    "typecast": _typecast_handler,
+    "rms_norm": _rms_norm_handler,
+}
+
+
 @contextmanager
 def patch_ttnn(jit_ctx):
     """Monkeypatch allowlisted ttnn.<op> to build TTIR; restore on exit."""
@@ -203,6 +262,12 @@ def patch_ttnn(jit_ctx):
             handler_fn = getattr(namespace, name)
             originals[name] = getattr(ttnn, name, _MISSING)
             setattr(ttnn, name, _make_traced_op(handler_fn, jit_ctx))
+        for name, value_fn in _VALUE_HANDLERS.items():
+            originals[name] = getattr(ttnn, name, _MISSING)
+            setattr(ttnn, name, _make_traced_value_op(value_fn, jit_ctx))
+        if hasattr(namespace, "multiply"):
+            originals["mul"] = getattr(ttnn, "mul", _MISSING)
+            setattr(ttnn, "mul", _make_traced_op(getattr(namespace, "multiply"), jit_ctx))
         yield
     finally:
         for name, original in originals.items():
