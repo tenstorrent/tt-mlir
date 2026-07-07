@@ -169,11 +169,13 @@ kernel body.
 | `d2m.zeros(layout)` | Allocate a zero-initialised device tensor (host-side `torch.zeros` + `to_layout`). |
 | `d2m.full(layout, value)` | Allocate a device tensor initialised to a scalar `value` (host-side `torch.full` + `to_layout`). |
 | `d2m.reduction_layout(layout, dim, allow_cross_tile=False)` | Build the keepdim output layout for a row/column reduction. Set `allow_cross_tile=True` only when the kernel has a cross-core gather/redistribute strategy for the reduced dimension. |
+| `d2m.arange(layout, start=0, step=1)` | Allocate a device tensor filled with arange values (host-side `torch.arange` + `to_layout`). Future zero-roundtrip version would emit `d2m.arange_block`. |
 | `d2m.tilize(lt, dtype=None)` | Convert a `LazyTensor` to a tile-typed (`tiled=True`) layout; optional dtype override. |
 | `d2m.untilize(lt, dtype=None)` | Convert a `LazyTensor` to row-major (`tiled=False`); optional dtype override. |
 | `d2m.view(lt, lambda d0, d1: ...)` | Logical-rank permutation. The lambda's parameter count matches the source's logical rank. Result is a view (`is_view=True`). |
 | `d2m.view_layout(lt, lambda d0, d1, d2, d3: ...)` | Low-level: lambda parameter count matches the source's MLIR rank (typically `2 * logical_rank` for tiled tensors). Each result expression may be a parameter, literal `0`, or affine arithmetic with integer constants (`+`, `-`, `*`, `//`, `%`). Arithmetic remappings preserve the source physical shape. |
 | `d2m.permute(lt, *dims)` | `torch.permute`-style positional permutation. |
+| `d2m.reshape(lt, *new_shape)` | `torch.reshape`-style logical-shape change. A single `-1` dim is inferred from the others. Currently a host roundtrip (`to_host` -> `torch.reshape` -> `to_layout`); pays a DRAM transfer. Use for shape changes not expressible as a `view`. |
 | `d2m.to_host(*lts)` | Compile and execute; return a tuple of `torch.Tensor`s. Resets the builder. |
 | `LazyTensor.to_host()` | Sugar for `to_host(self)[0]`. |
 
@@ -234,11 +236,17 @@ Unary (41):
 `sign`, `signbit`, `ceil`, `floor`, `frac`, `trunc`, `abs`, `bitwise_not`,
 `logical_not`, `eqz`, `nez`, `gtz`, `gez`, `ltz`, `lez`.
 
-Binary (13):
+Binary (19):
 
 `add`, `sub`, `mul`, `div`, `pow`, `maximum`, `minimum`, `bitwise_and`,
 `bitwise_or`, `bitwise_xor`, `logical_left_shift`, `logical_right_shift`,
-`right_shift`.
+`right_shift`, `eq`, `ne`, `gt`, `ge`, `lt`, `le`.
+
+Comparisons (`eq` / `ne` / `gt` / `ge` / `lt` / `le`) write 1/0 into each tile
+lane (same element type as the inputs) -- pair with `where` to mask. They are
+free functions and method-form only; Python `<` / `>=` / `==` etc. are not
+overloaded because `visit_Compare` in the AST visitor lowers compares to
+`arith.cmpi` for index-domain conditions (loop bounds), which would conflict.
 
 Ternary:
 
