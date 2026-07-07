@@ -123,6 +123,9 @@ def _identity_passthrough(*args, **kwargs):
     for a in args:
         if isinstance(a, TracedTensor):
             return a
+    for v in kwargs.values():
+        if isinstance(v, TracedTensor):
+            return v
     return args[0] if args else None
 
 
@@ -194,12 +197,17 @@ def _make_traced_value_op(value_fn, jit_ctx):
     return op
 
 
-def _linear_handler(jit_ctx, a, b, *, bias=None, **kwargs):
+def _linear_handler(jit_ctx, a, b, *, bias=None, dtype=None, **kwargs):
     a_type = a.mlir_value.type
     b_type = b.mlir_value.type
     out_shape = [int(d) for d in a_type.shape[:-1]] + [int(b_type.shape[-1])]
+    elem_type = (
+        mlir_dtype_from_ttnn_dtype(dtype, jit_ctx.ctx)
+        if dtype is not None
+        else a_type.element_type
+    )
     with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
-        result_type = RankedTensorType.get(out_shape, a_type.element_type)
+        result_type = RankedTensorType.get(out_shape, elem_type)
         return ttir.linear(
             result=result_type,
             a=a.mlir_value,

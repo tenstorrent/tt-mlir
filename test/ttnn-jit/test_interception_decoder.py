@@ -44,6 +44,6 @@ def test_interception_traces_functional_mlp(device):
 
     assert isinstance(report, AdvisorReport)
     assert len(report.trace.final_choices) >= 1
-    assert "ttir" not in report.text or "=> FINAL:" in report.text
+    assert "=> FINAL:" in report.text
     # The MLP has 3 linears -> at least 3 layout decisions in the report.
     assert report.trace.total_ops >= 3
