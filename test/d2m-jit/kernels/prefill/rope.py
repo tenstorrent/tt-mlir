@@ -23,6 +23,7 @@ through a 32-wide tile.
 import torch
 
 import d2m_jit as d2m
+from d2m_jit.testing import InputSpec, KernelBench, TuneAxis, d2m_dtype
 
 
 def _feature_half_roll_view(x_lt):
@@ -151,3 +152,91 @@ def apply_rope(x_lt, cos_lt, sin_signed_lt, L_io, grid, m_blocks, n_blocks):
     out = d2m.empty(L_io)
     rope(x_lt, x_rolled, cos_lt, sin_signed_lt, out, m_blocks, n_blocks, grid=grid)
     return out
+
+
+def rope_materializer(kernel, inputs, cfg):
+    """Materializer for rope: inputs → layout → kernel dispatch → host.
+
+    Args:
+        kernel: the @d2m.kernel rope function (unused; we call apply_rope directly)
+        inputs: [x_torch, cos_torch, sin_signed_torch] as torch tensors
+        cfg: dict with keys:
+            - grid_shape: (gy, gx) tuple
+            - block_shape: [by, bx] tile counts per remote_load
+            - dtype: "float32", "bfloat16", etc.
+
+    Returns:
+        output tensor on host
+    """
+    x_torch, cos_torch, sin_signed_torch = inputs
+
+    gy, gx = cfg["grid_shape"]
+    seq_len, head_dim = x_torch.shape
+
+    # Convert physical dimensions to tile counts (each tile is 32x32)
+    seq_len_tiles = seq_len // 32
+    head_dim_tiles = head_dim // 32
+
+    block_y, block_x = cfg["block_shape"]
+
+    L = d2m.Layout(
+        shape=(seq_len, head_dim),
+        dtype=d2m_dtype(cfg["dtype"]),
+        block_shape=[block_y, block_x],
+        grid_shape=[gy, gx],
+    )
+
+    x_lt = d2m.to_layout(x_torch, L)
+    cos_lt = d2m.to_layout(cos_torch, L)
+    sin_signed_lt = d2m.to_layout(sin_signed_torch, L)
+
+    # m_blocks/n_blocks: how many block_shape chunks each core iterates over.
+    # general formula: tiles_per_core / block_shape
+    m_blocks = (seq_len_tiles // gy) // block_y
+    n_blocks = (head_dim_tiles // gx) // block_x
+
+    out_lt = apply_rope(
+        x_lt,
+        cos_lt,
+        sin_signed_lt,
+        L_io=L,
+        grid=(gy, gx),
+        m_blocks=m_blocks,
+        n_blocks=n_blocks,
+    )
+
+    return out_lt.to_host()
+
+
+def _torch_rope_reference(x, cos, sin_signed):
+    """Torch reference matching the kernel exactly: x*cos + roll_half(x)*sin_signed.
+
+    roll_half shifts the feature dimension by head_dim/2: [x_lo, x_hi] → [x_hi, x_lo].
+    This directly mirrors `_feature_half_roll_view` and the kernel body.
+    """
+    half = x.shape[-1] // 2
+    x_hi, x_lo = x[..., half:], x[..., :half]
+    x_rolled = torch.cat([x_hi, x_lo], dim=-1)
+    return x * cos + x_rolled * sin_signed
+
+
+# KernelBench: one declaration, used by both testing and autotuning
+KERNEL_BENCHES = [
+    KernelBench(
+        name="rope",
+        kernel=rope,
+        golden=_torch_rope_reference,
+        run=rope_materializer,
+        inputs=InputSpec("randn"),
+        space=[
+            TuneAxis("grid_shape", [(1, 1), (2, 2), (1, 2)]),
+            TuneAxis("block_shape", [[2, 2], [1, 1]]),
+        ],
+        default_cfg={
+            "input_shapes": [(64, 64), (64, 64), (64, 64)],
+            "grid_shape": (1, 1),
+            "block_shape": [2, 2],
+            "dtype": "float32",
+        },
+    ),
+]

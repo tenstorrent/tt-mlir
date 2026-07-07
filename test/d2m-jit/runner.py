@@ -58,7 +58,7 @@ import subprocess
 import tempfile
 import textwrap
 from dataclasses import dataclass, field
-from typing import Callable, Optional, Sequence
+from typing import Callable, Optional, Sequence, Union
 
 import torch
 
@@ -118,18 +118,21 @@ class TuneAxis:
 
 @dataclass
 class KernelBench:
-    """Direct-kernel device bench (numerics today, autotuning later).
+    """Direct-kernel device bench: numerics, testing, and autotuning.
 
-    ``run(kernel, inputs, cfg) -> host tensor`` is the only pattern-specific
-    glue: it maps a concrete ``cfg`` (block_shape / grid_shape / dtype) to a
-    Layout and the kernel's call args. ``eltwise_block_run`` covers the
-    common elementwise-block shape, so most patterns just set ``space``.
+    ``run(kernel, inputs, cfg) -> host tensor`` is the materializer: it maps
+    a concrete ``cfg`` (block_shape / grid_shape / dtype, or custom keys) to a
+    Layout and the kernel's call args. ``eltwise_block_run`` covers the common
+    elementwise-block shape; custom materializers handle prefills like rope.
+
+    Input shapes go in ``default_cfg["input_shapes"]``; ``inputs`` controls the
+    distribution (randn, uniform, etc.). The materializer reads the actual tensor
+    shapes from the inputs it receives, not from cfg directly.
     """
 
     name: str
     kernel: Callable
     golden: Callable
-    input_shapes: Sequence[tuple]
     run: Callable
     inputs: InputSpec = field(default_factory=InputSpec)
     default_cfg: dict = field(
@@ -137,7 +140,7 @@ class KernelBench:
             block_shape=[1, 1], grid_shape=[1, 1], dtype="float32"
         )
     )
-    space: list = field(default_factory=list)
+    space: list = field(default_factory=list)  # list[TuneAxis]
     pcc: float = 0.99
     source_file: str = ""
 
@@ -222,9 +225,15 @@ def parse_func_io(ttir_text: str):
 # ----------------------------------------------------------------------
 
 
-def assert_pcc(golden, actual, threshold: float = 0.99):
+def compute_pcc(golden, actual) -> float:
+    """Compute Pearson correlation coefficient between two tensors."""
     combined = torch.stack([golden.flatten().float(), actual.flatten().float()])
     pcc = torch.corrcoef(combined)[0, 1].item()
+    return pcc
+
+
+def assert_pcc(golden, actual, threshold: float = 0.99):
+    pcc = compute_pcc(golden, actual)
     assert (
         pcc >= threshold
     ), f"Expected pcc {pcc} >= {threshold}\ngolden:\n{golden}\nactual:\n{actual}"
@@ -317,10 +326,19 @@ def eltwise_block_run(kernel, inputs, cfg):
 
 def run_bench(bench: KernelBench, cfg: Optional[dict] = None):
     """Execute one bench at ``cfg`` (default: ``bench.default_cfg``) and
-    return ``(actual, expected)`` torch tensors for PCC comparison."""
+    return ``(actual, expected)`` torch tensors for PCC comparison.
+
+    Used by both testing and autotuning. Handles both static and config-dependent
+    input generation.
+    """
     cfg = cfg or bench.default_cfg
     td = torch_dtype(cfg["dtype"])
-    inputs = make_inputs(bench.input_shapes, td, bench.inputs)
+
+    input_shapes = cfg.get("input_shapes")
+    if input_shapes is None:
+        raise ValueError(f"KernelBench {bench.name}: cfg missing 'input_shapes'")
+    inputs = make_inputs(input_shapes, td, bench.inputs)
+
     actual = bench.run(bench.kernel, inputs, cfg)
     expected = bench.golden(*inputs)
     return actual, expected

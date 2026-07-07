@@ -122,10 +122,15 @@ KERNEL_BENCHES = [
         name="template",
         kernel=template_kernel,
         golden=_golden,
-        input_shapes=[(32, 32)],  # one entry per kernel input, in order
         run=eltwise_block_run,
         inputs=InputSpec("uniform(-1,1)"),
-        # default_cfg defaults to block_shape=[1,1], grid_shape=[1,1],
-        # dtype="float32". `space` (autotuning axes) is not swept yet.
+        # input_shapes goes in default_cfg; add block_shape/grid_shape/dtype explicitly.
+        default_cfg={
+            "input_shapes": [(32, 32)],  # one entry per kernel input, in order
+            "block_shape": [1, 1],
+            "grid_shape": [1, 1],
+            "dtype": "float32",
+        },
+        # space: list[TuneAxis] for autotuning axes (block_shape, grid_shape, etc.)
     ),
 ]
