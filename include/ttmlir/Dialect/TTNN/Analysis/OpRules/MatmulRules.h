@@ -58,14 +58,14 @@ struct MatmulRuleBook : OpRuleBook {
                           bool requiresReshard) const override;
 
   /// Inject DS-specific input layouts into the candidate pool:
-  ///   operand 0 → L1 width-sharded 1×8 (canonical DS activation layout; 8 cores empirically optimal)
+  ///   operand 0 → L1 width-sharded 1×kNumIn0Cores (canonical DS activation layout)
   ///   operand 1 → DRAM width-sharded 1×12 (DS weight layout with padding)
   std::vector<TTNNLayoutAttr>
   getExtraInputReshardCandidates(Operation *op,
                                  unsigned operandIdx) const override;
 
 private:
-  /// Build the DS output hint (L1 1×8 width-sharded + DS program config).
+  /// Build the DS output hint (L1 width-sharded 1×kNumIn0Cores + DS program config).
   /// Returns nullopt if not eligible or params don't fit L1.
   std::optional<OpConfig> buildDRAMShardingHint(Operation *op) const;
 

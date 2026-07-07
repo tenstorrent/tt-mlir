@@ -242,7 +242,7 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
 void MatmulRuleBook::applyDRAMShardedTransformation(
     MatmulOp matmulOp, const MatmulAttrs &matmulAttrs) const {
   auto *ctx = matmulOp.getContext();
-  // Input reshards (activation → L1 1×8, weight → DRAM 1×12) are handled by
+  // Input reshards (activation → L1 1×kNumIn0Cores, weight → DRAM 1×numBanks) handled by
   // pass-2 in applyToIR via reshardLayouts populated from the input candidates
   // injected by getExtraInputReshardCandidates.
 
