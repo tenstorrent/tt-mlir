@@ -211,9 +211,15 @@ analyzeConstEval(func::FuncOp funcOp, bool hoistDataMovement) {
   //
   // The hoist-data-movement option restores the legacy behavior (hoist these
   // anyway) as an escape hatch for A/B comparison.
-  if (!hoistDataMovement &&
-      llvm::all_of(descriptor.operations, isPureDataMovementOp) &&
-      llvm::any_of(descriptor.operations, isTensorManipulationOp)) {
+  bool allPureDataMovement = true;
+  bool anyTensorManipulation = false;
+  for (const auto &segment : segments) {
+    for (auto *op : segment) {
+      allPureDataMovement &= isPureDataMovementOp(op);
+      anyTensorManipulation |= isTensorManipulationOp(op);
+    }
+  }
+  if (!hoistDataMovement && allPureDataMovement && anyTensorManipulation) {
     return {};
   }
 
