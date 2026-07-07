@@ -86,6 +86,14 @@ static int64_t getActivationM(RankedTensorType rtt) {
 }
 
 static bool isDRAMShardEligible(MatmulOp matmulOp) {
+  // Respect the disable-dram-sharded-matmul pipeline option (set as a module
+  // attribute by DevicePassesWrapper). This is the single choke point for the
+  // DS path: buildDRAMShardingHint and getExtraInputReshardCandidates both gate
+  // on it, and getOutputHints reaches DS only through buildDRAMShardingHint.
+  if (ttnn::utils::isDRAMShardedMatmulDisabled(matmulOp)) {
+    return false;
+  }
+
   Value weight = matmulOp.getB();
 
   if (!isBfpDRAMInterleaved(weight)) {
