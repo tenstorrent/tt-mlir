@@ -160,7 +160,34 @@ mlir::Value build_matmul(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
     int64_t lhs_rank = as<int64_t>(lhs_shape.size());
     int64_t rhs_rank = as<int64_t>(rhs_shape.size());
     TORCH_INTERNAL_ASSERT(lhs_rank >= 2 && rhs_rank >= 2, "tt-kurbla build_matmul: inputs must be at least 2D");
-    llvm::SmallVector<int64_t> out_shape(lhs_shape.begin(), lhs_shape.end() - 2);
+
+    // PERF: When RHS is a plain 2-D weight and LHS carries leading/batch dims, flatten all
+    // of LHS's leading dims into a single M so a batch of small matmuls becomes one
+    // dense [M, K] x [K, N] matmul.
+    //
+    // The two reshapes cost something, so flatten only when the matmul is large
+    // enough (K*N past an empirical break-even) that the reshape overhead is
+    // negligible next to the matmul work. The A/B sweep showed matmul size,
+    // not the rows per matmul, is what separates perf gains from losses.
+    constexpr int64_t k_flatten_min_kn = 1 << 20;
+    int64_t k = lhs_shape[as<std::size_t>(lhs_rank - 1)];
+    int64_t n = rhs_shape[as<std::size_t>(rhs_rank - 1)];
+    bool flatten_pays_off = k * n >= k_flatten_min_kn;
+    if (rhs_rank == 2 && lhs_rank > 2 && flatten_pays_off) {
+        int64_t m = 1;
+        for (int64_t i = 0; i < lhs_rank - 1; ++i) {
+            m *= lhs_shape[as<std::size_t>(i)];
+        }
+        mlir::Value lhs_2d = build_reshape(mb, lhs, {m, k});
+        auto result_2d_type = mlir::RankedTensorType::get({m, n}, lhs_type.getElementType());
+        mlir::Value result_2d =
+            mb.create<mlir::tt::ttir::MatmulOp>(result_2d_type, lhs_2d, rhs, false, false).getResult();
+        llvm::SmallVector<int64_t> out_shape = llvm::to_vector(lhs_shape.drop_back());
+        out_shape.push_back(n);
+        return build_reshape(mb, result_2d, out_shape);
+    }
+
+    llvm::SmallVector<int64_t> out_shape = llvm::to_vector(lhs_shape.drop_back(2));
     out_shape.push_back(lhs_shape[as<std::size_t>(lhs_rank - 2)]);
     out_shape.push_back(rhs_shape[as<std::size_t>(rhs_rank - 1)]);
     auto result_type = mlir::RankedTensorType::get(out_shape, lhs_type.getElementType());
