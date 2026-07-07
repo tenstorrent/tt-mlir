@@ -163,8 +163,20 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     }];
 
     let arguments = (ins AnyRankedTensor:$lhs,
-                         AnyRankedTensor:$rhs);
+                         AnyRankedTensor:$rhs,
+                         OptionalAttr<StrAttr>:$lhs_activation);
     let results = (outs AnyRankedTensor:$result);
+
+    // Keep the (resultType, lhs, rhs) builder that all binary-op call sites use;
+    // the optional lhs_activation is left unset (only the fused-SwiGLU path sets
+    // it, via setLhsActivationAttr).
+    let builders = [
+      OpBuilder<(ins "::mlir::Type":$result, "::mlir::Value":$lhs,
+                     "::mlir::Value":$rhs), [{
+        $_state.addOperands({lhs, rhs});
+        $_state.addTypes({result});
+      }]>,
+    ];
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {

@@ -6,8 +6,21 @@
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+#include "ttnn/operations/eltwise/unary/common/unary_op_types.hpp"
 
 namespace tt::runtime::ttnn::operations::eltwise::binary {
+
+// Build the operand-A in-kernel activations from the op's optional
+// lhs_activation string (currently only "silu", used by fused SwiGLU:
+// multiply(silu(lhs), rhs)). Empty vector = no activation.
+static std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam>
+lhsActivationsFromOp(const ::tt::target::ttnn::EltwiseBinaryOp *op) {
+  std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam> acts;
+  if (op->lhs_activation() && op->lhs_activation()->str() == "silu") {
+    acts.emplace_back(::ttnn::operations::unary::UnaryOpType::SILU);
+  }
+  return acts;
+}
 
 template <typename Fn>
 static void runEltwiseBinaryOp(const ::tt::target::ttnn::EltwiseBinaryOp *op,
@@ -46,8 +59,17 @@ void run(const ::tt::target::ttnn::EltwiseBinaryOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::Multiply: {
-    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
-      return ::ttnn::multiply(std::forward<decltype(args)>(args)...);
+    // Fused SwiGLU: an optional in-kernel activation (silu) applied to operand A
+    // (the gate output) before the multiply — avoids a separate silu op. Empty
+    // for a plain multiply. noActs/lhsActs outlive the call within this scope.
+    std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam> noActs;
+    std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam> lhsActs =
+        lhsActivationsFromOp(op);
+    runEltwiseBinaryOp(op, tensorPool, [&](auto &&...args) {
+      return ::ttnn::multiply(std::forward<decltype(args)>(args)...,
+                              /*optional_output=*/std::nullopt,
+                              /*post_activations=*/noActs,
+                              /*lhs_activations=*/lhsActs);
     });
     break;
   }

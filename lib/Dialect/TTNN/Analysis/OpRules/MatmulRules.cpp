@@ -257,30 +257,69 @@ void MatmulRuleBook::applyDRAMShardedTransformation(
     matmulOp.setComputeConfigAttr(*matmulAttrs.computeKernelConfig);
   }
 
-  // --- 2. Strip activation, insert separate elementwise op after ---
-  // The DS kernel with fused activation is significantly slower than a
-  // separate elementwise op running across all cores with full parallelism.
+  // --- 2. Handle the fused activation ---
+  // Fusing the activation into the DS matmul kernel is significantly slower
+  // (measured: the 12-core DS matmul applies silu much slower than an op on all
+  // 64 cores). So strip it off the matmul and either (a) fold it into a
+  // consuming multiply as its operand-A activation — SwiGLU: multiply(silu(gate),
+  // up) — which runs on the full grid (cheapest), or (b) fall back to a separate
+  // elementwise op.
   auto activationAttr = matmulOp.getActivationAttr();
   if (activationAttr) {
     matmulOp.removeActivationAttr();
+    StringRef actStr = activationAttr.getValue();
+    Value matmulResult = matmulOp.getResult();
 
-    auto actStr = activationAttr.getValue();
-    StringRef opName;
+    // (a) Try to fold silu into a consuming ttnn.multiply's lhs_activation.
+    // Only when the matmul result's sole non-dealloc consumer is a multiply
+    // (either operand — multiply is commutative, so we normalize the silu'd
+    // value to operand A). Currently silu only (runtime plumbs lhs_activation).
+    MultiplyOp fuseInto = nullptr;
     if (actStr == "silu") {
-      opName = "ttnn.silu";
-    } else if (actStr == "relu") {
-      opName = "ttnn.relu";
-    } else if (actStr == "gelu") {
-      opName = "ttnn.gelu";
+      Operation *soleUser = nullptr;
+      bool multiUse = false;
+      for (Operation *u : matmulResult.getUsers()) {
+        if (isa<DeallocateOp>(u)) {
+          continue;
+        }
+        if (soleUser) {
+          multiUse = true;
+          break;
+        }
+        soleUser = u;
+      }
+      if (!multiUse && soleUser) {
+        fuseInto = dyn_cast<MultiplyOp>(soleUser);
+      }
     }
-    if (!opName.empty()) {
-      builder.setInsertionPointAfter(matmulOp);
-      Value matmulResult = matmulOp.getResult();
-      auto *activationOp = builder.create(
-          matmulOp.getLoc(), StringAttr::get(ctx, opName),
-          ValueRange{matmulResult}, TypeRange{matmulResult.getType()});
-      matmulResult.replaceAllUsesExcept(activationOp->getResult(0),
-                                        activationOp);
+
+    if (fuseInto && !fuseInto.getLhsActivation() &&
+        (fuseInto.getLhs() == matmulResult ||
+         fuseInto.getRhs() == matmulResult)) {
+      // Normalize the silu'd (matmul) value to operand A, then tag lhs_activation.
+      Value other = fuseInto.getLhs() == matmulResult ? fuseInto.getRhs()
+                                                       : fuseInto.getLhs();
+      fuseInto.getLhsMutable().assign(matmulResult);
+      fuseInto.getRhsMutable().assign(other);
+      fuseInto.setLhsActivationAttr(StringAttr::get(ctx, "silu"));
+    } else {
+      // (b) Fallback: separate elementwise op running across all cores.
+      StringRef opName;
+      if (actStr == "silu") {
+        opName = "ttnn.silu";
+      } else if (actStr == "relu") {
+        opName = "ttnn.relu";
+      } else if (actStr == "gelu") {
+        opName = "ttnn.gelu";
+      }
+      if (!opName.empty()) {
+        builder.setInsertionPointAfter(matmulOp);
+        auto *activationOp = builder.create(
+            matmulOp.getLoc(), StringAttr::get(ctx, opName),
+            ValueRange{matmulResult}, TypeRange{matmulResult.getType()});
+        matmulResult.replaceAllUsesExcept(activationOp->getResult(0),
+                                          activationOp);
+      }
     }
   }
 }
