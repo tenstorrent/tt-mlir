@@ -485,6 +485,19 @@ public:
                    : shardy_utils::getOperandShardingAttr(
                          srcOp->getOpOperand(0), meshOps[0]);
         int64_t fallbackQueryDim = walkOk ? trackedDim : reductionDim;
+        // The distributed lowering assumes a single shard axis on the reduction
+        // dim (offset = shard * numItemsLocal, one all_gather cluster axis).
+        // Sharding the reduction dim across >1 mesh axis is unsupported — fail
+        // loudly instead of silently taking only the first axis.
+        if (fallbackSharding) {
+          auto fbDims = fallbackSharding.getDimShardings();
+          if (fallbackQueryDim < static_cast<int64_t>(fbDims.size()) &&
+              fbDims[fallbackQueryDim].getAxes().size() > 1) {
+            return rewriter.notifyMatchFailure(
+                srcOp, "distributed argmax: reduction dim sharded across "
+                       "multiple mesh axes is unsupported");
+          }
+        }
         auto resolveNumShards = [&](mlir::sdy::TensorShardingAttr sharding,
                                     int64_t queryDim) -> bool {
           if (!sharding) {
@@ -875,6 +888,20 @@ public:
                    : shardy_utils::getOperandShardingAttr(
                          srcOp->getOpOperand(0), meshOps[0]);
         int64_t fallbackQueryDim = walkOk ? trackedDim : topkDim;
+        // The distributed lowering assumes a single shard axis on the topk dim
+        // (offset = shard * numItemsLocal, one all_gather cluster axis).
+        // Sharding the topk dim across >1 mesh axis is unsupported — fail
+        // loudly instead of silently taking only the first axis.
+        if (fallbackSharding) {
+          auto fbDims = fallbackSharding.getDimShardings();
+          if (fallbackQueryDim < static_cast<int64_t>(fbDims.size()) &&
+              fbDims[fallbackQueryDim].getAxes().size() > 1) {
+            return rewriter.notifyMatchFailure(
+                srcOp,
+                "distributed topk: topk dim sharded across multiple mesh "
+                "axes is unsupported");
+          }
+        }
         auto resolveNumShards = [&](mlir::sdy::TensorShardingAttr sharding,
                                     int64_t queryDim) -> bool {
           if (!sharding) {
