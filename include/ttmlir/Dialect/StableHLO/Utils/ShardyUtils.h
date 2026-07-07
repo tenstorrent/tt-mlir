@@ -121,6 +121,16 @@ getDefaultTensorSdyShardingAttr(MLIRContext *context, llvm::StringRef meshName,
 mlir::sdy::TensorShardingAttr getClosedReplicatedTensorSdyShardingAttr(
     MLIRContext *context, llvm::StringRef meshName, int64_t rank);
 
+// Return the first per-value sdy tensor sharding attached to `op`, or nullptr
+// if the op has no sharding annotation or an empty sharding list.
+mlir::sdy::TensorShardingAttr getFirstSharding(mlir::Operation *op);
+
+// Overwrite `op`'s sharding annotation with a fully replicated (closed)
+// sharding, so InsertExplicitReshards will insert the reshard ops that give
+// each shard the correct data.
+void setReplicatedSharding(mlir::Operation *op, MLIRContext *context,
+                           llvm::StringRef meshName, int64_t rank);
+
 // Get the argument sharding attributes.
 llvm::SmallVector<mlir::sdy::TensorShardingAttr>
 getInShardingAttrs(MLIRContext *context, func::FuncOp &funcOp,
