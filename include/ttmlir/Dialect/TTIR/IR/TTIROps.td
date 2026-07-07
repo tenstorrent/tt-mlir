@@ -6250,6 +6250,26 @@ def TTIR_ScaledDotProductAttentionOp : TTIR_NamedOp<"scaled_dot_product_attentio
   let hasVerifier = 1;
 }
 
+def TTIR_RotaryEmbeddingLlamaOp : TTIR_NamedOp<"rotary_embedding_llama"> {
+  let summary = "Llama rotary position embedding.";
+  let description = [{
+    Applies Llama-style rotary position embedding to `input` using precomputed
+    `cos_cache`/`sin_cache` and a transformation matrix `trans_mat`.
+    Device-agnostic mirror of `ttnn.rotary_embedding_llama` (drops device attrs).
+    Output has the same shape/type as `input`.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       AnyRankedTensor:$cos_cache,
+                       AnyRankedTensor:$sin_cache,
+                       AnyRankedTensor:$trans_mat,
+                       DefaultValuedAttr<BoolAttr, "false">:$is_decode_mode);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_GlobalAvgPool2dOp: TTIR_NamedOp<"global_avg_pool2d">{
   let summary = "A global average pooling 2d operation";
   let description = [{

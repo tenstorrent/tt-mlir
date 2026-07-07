@@ -7691,6 +7691,22 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// RotaryEmbeddingLlamaOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::RotaryEmbeddingLlamaOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType resultType = getResult().getType();
+  if (inputType.getShape() != resultType.getShape()) {
+    return emitOpError("input and result must have the same shape");
+  }
+  if (inputType.getElementType() != resultType.getElementType()) {
+    return emitOpError("input and result must have the same element type");
+  }
+  return ::mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
 // GlobalAvgPool2dOp
 //===----------------------------------------------------------------------===//
 
