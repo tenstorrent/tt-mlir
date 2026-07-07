@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsInterfaces.cpp.inc"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
@@ -23,6 +24,7 @@
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
@@ -155,6 +157,26 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
   }
 
   return success();
+}
+
+// ConstantOp canonicalization
+void mlir::tt::ttnn::ConstantOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape): false positive from
+  // ttnn.full's OperationState builder (cf. D2MDialect.cpp). Directive, not a
+  // comment -- do not remove.
+  patterns.add(
+      +[](mlir::tt::ttnn::ConstantOp op, mlir::PatternRewriter &rewriter) {
+        mlir::Attribute fillValueAttr =
+            mlir::tt::ttir::utils::splatToFillValue(rewriter, op.getValue());
+        if (!fillValueAttr) {
+          return mlir::failure();
+        }
+        rewriter.replaceOpWithNewOp<mlir::tt::ttnn::FullOp>(
+            op, op.getType(), fillValueAttr, op.getDevice());
+        return mlir::success();
+      });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 //===----------------------------------------------------------------------===//
@@ -1258,6 +1280,7 @@ verifyPoolingOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
     return emitOpError("Step cannot be zero.");
   }
 
+  // NOLINTNEXTLINE(clang-analyzer-core.DivideZero): guarded above
   int64_t numValues = (getEnd() - getStart()) / getStep();
 
   if (numValues <= 0) {

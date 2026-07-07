@@ -12,33 +12,6 @@ have.
 
 ## Pipeline gaps
 
-### 🔴 Multicast kernels hit `SplitUnifiedThread` assertion
-
-**Where:** any kernel that uses the multicast form of `remote_load`
-(`mcast_start_index`, `mcast_shape`) on a grid larger than 1×1.
-
-**Symptom:**
-
-```
-python: lib/Dialect/D2M/Transforms/SplitUnifiedThread.cpp:127:
-  wrapComputeInSynchronizedRegion: Assertion
-  `opsWithSynchronizableOps.size() == 1 && "synchronized scope must be
-  unambiguous"' failed.
-```
-
-**Root cause:** `wrapComputeInSynchronizedRegion` expects exactly one
-op-with-a-synchronizable-op inside a `d2m.GenericOp` when wrapping the
-compute thread, but a multicast `remote_load` kernel produces multiple
-such ops (the load itself plus the elementwise body), so the pass aborts.
-
-**Impact:** the multicast smoke test in
-`test/d2m-jit/test_matmul.py::test_mcast_overwrite_grid_2x2` is
-currently marked `@pytest.mark.skip` for this reason.
-
-**Fix shape:** teach `SplitUnifiedThread`'s
-`wrapComputeInSynchronizedRegion` to handle multiple synchronizable ops
-in the same scope (or split them into separate synchronized scopes).
-
 ---
 
 ## Missing API surface

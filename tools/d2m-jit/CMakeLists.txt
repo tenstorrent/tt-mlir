@@ -21,6 +21,8 @@ declare_mlir_python_sources(TTD2MJitSources
         patterns/_template.py
         patterns/eltwise_add_exp_to_kernel.py
         patterns/eltwise_exp_to_kernel.py
+        prefill/__init__.py
+        prefill/rope.py
 )
 
 add_mlir_python_modules(TTD2MJitModules
