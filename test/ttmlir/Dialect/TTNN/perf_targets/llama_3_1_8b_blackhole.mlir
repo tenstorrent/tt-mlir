@@ -42,5 +42,5 @@
 // CHECK: "params_count": 743440384
 // CHECK: "params_memory_bytes": 789905408
 // CHECK: "roofline_ms": 1.542784
-// CHECK: "skipped_ops": 3
+// CHECK: "skipped_ops": 2
 // CHECK: "top_perf_estimate_ms": 2.203977

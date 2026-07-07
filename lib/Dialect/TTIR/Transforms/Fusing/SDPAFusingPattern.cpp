@@ -9,6 +9,8 @@
 
 #include "mlir/IR/PatternMatch.h"
 
+#include <limits>
+
 namespace mlir::tt::ttir::fusing {
 
 namespace {
@@ -69,6 +71,41 @@ bool isZerosConstant(Value v) {
     }
   }
   return false;
+}
+
+// Build the "query row is fully masked" predicate from the additive mask alone,
+// independent of the QK^T scores: rowDead[b, ., q, 0] = (max over the kv axis
+// of mask == -inf). This is equivalent to the model's score-derived predicate
+// (finite_score + (-inf) == -inf, finite_score + 0 stays finite, so
+// eq(scores + mask, -inf) == eq(mask, -inf)), but it drops the dependency on
+// the score matmul so it can be DCE'd, and the predicate becomes const-foldable
+// (causal mask -> all-false -> the NaN-safety select folds away) or at worst
+// loop-invariant (dynamic padding mask -> hoisted/CSE'd once). Returns a
+// [B, m, Sq, 1] i1 predicate, or null if the mask shape/type is unexpected (the
+// caller then falls back to the model's predicate).
+Value buildRowFullyMaskedCond(PatternRewriter &rewriter, Location loc,
+                              Value mask) {
+  auto maskType = mlir::dyn_cast<RankedTensorType>(mask.getType());
+  if (!maskType || maskType.getRank() != kSdpaRank ||
+      !mlir::isa<FloatType>(maskType.getElementType())) {
+    return nullptr;
+  }
+  llvm::SmallVector<int64_t> reducedShape(maskType.getShape());
+  reducedShape.back() = 1; // keep_dim over the kv (last) axis
+  auto reducedType =
+      RankedTensorType::get(reducedShape, maskType.getElementType());
+  auto dimAttr =
+      rewriter.getI32ArrayAttr({static_cast<int32_t>(maskType.getRank() - 1)});
+  Value rowMax = rewriter.create<MaxOp>(
+      loc, reducedType, mask, /*keep_dim=*/rewriter.getBoolAttr(true), dimAttr);
+  Value negInf = rewriter.create<FullOp>(
+      loc, reducedType,
+      rewriter.getF32FloatAttr(-std::numeric_limits<float>::infinity()));
+  // Emit the predicate in the mask's (float) element type, not i1: the TTNN
+  // runtime has no Bool dtype (toTTNNDataType rejects i1), and comparison ops
+  // that reach it must carry a supported type. This matches how the model's own
+  // comparison lowers (ttnn.eq -> bf16) and ttir-predicate handling elsewhere.
+  return rewriter.create<EqualOp>(loc, reducedType, rowMax, negInf);
 }
 
 // Walk through BroadcastOp, ReshapeOp, and TypecastOp to find a scalar
@@ -569,11 +606,24 @@ SDPAFusingPattern::matchAndRewrite(MatmulOp srcOp,
     // rowCond is [B, H, Sq, 1]; broadcast it across the output head dim.
     auto loc = c.attentionMatmul.getLoc();
     auto outType = mlir::cast<RankedTensorType>(resultType);
-    auto condType = mlir::cast<RankedTensorType>(nanSafeRowCond.getType());
+
+    // Prefer a mask-derived predicate: it is equivalent to the model's
+    // score-derived one but does not depend on QK^T, so the score matmul is
+    // freed to DCE and the predicate const-folds (causal masks) / hoists
+    // (dynamic masks). Fall back to the model's predicate if the mask is
+    // absent or an unexpected shape.
+    Value cond = nanSafeRowCond;
+    if (c.mask) {
+      if (Value fromMask = buildRowFullyMaskedCond(rewriter, loc, c.mask)) {
+        cond = fromMask;
+      }
+    }
+
+    auto condType = mlir::cast<RankedTensorType>(cond.getType());
     auto condOutType =
         RankedTensorType::get(outType.getShape(), condType.getElementType());
     Value condBcast = rewriter.create<BroadcastOp>(
-        loc, condOutType, nanSafeRowCond,
+        loc, condOutType, cond,
         ttmlir::utils::getBroadcastDimensions<int64_t>(condType.getShape(),
                                                        outType.getShape()));
     Value zeros = rewriter.create<ZerosOp>(
