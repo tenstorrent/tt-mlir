@@ -264,6 +264,44 @@ _VALUE_HANDLERS = {
 }
 
 
+def _nlp_create_qkv_heads_handler(
+    jit_ctx, xqkv, *, num_heads, num_kv_heads, transpose_k_heads=False, **kwargs
+):
+    """Split a fused QKV projection into per-head Q/K/V tensors.
+
+    The TTIR SplitQueryKeyValueAndSplitHeadsOp verifier requires a rank-3
+    input [batch, seq, qkv_size], but the model passes a rank-4 fused qkv
+    tensor [batch, 1, seq, qkv_size] (the singleton dim from an un-squeezed
+    linear projection). Reshape it down to rank-3 first.
+    """
+    t = xqkv.mlir_value.type
+    b = int(t.shape[0])
+    seq = int(t.shape[-2])
+    qkv_size = int(t.shape[-1])
+    head_dim = qkv_size // (num_heads + 2 * num_kv_heads)
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        et = t.element_type
+        reshaped_type = RankedTensorType.get([b, seq, qkv_size], et)
+        reshaped = ttir.reshape(reshaped_type, xqkv.mlir_value, [b, seq, qkv_size])
+        qt = RankedTensorType.get([b, num_heads, seq, head_dim], et)
+        kt = RankedTensorType.get([b, num_kv_heads, seq, head_dim], et)
+        vt = RankedTensorType.get([b, num_kv_heads, seq, head_dim], et)
+        return ttir.split_query_key_value_and_split_heads(
+            qt,
+            kt,
+            vt,
+            reshaped,
+            num_heads,
+            bool(transpose_k_heads),
+            num_kv_heads=num_kv_heads,
+        )
+
+
+_EXPERIMENTAL_MULTI = {
+    "nlp_create_qkv_heads": _nlp_create_qkv_heads_handler,
+}
+
+
 @contextmanager
 def patch_ttnn(jit_ctx):
     """Monkeypatch allowlisted ttnn.<op> to build TTIR; restore on exit."""
@@ -271,6 +309,8 @@ def patch_ttnn(jit_ctx):
 
     namespace = TTNNJitNamespaceUpdater(jit_ctx)
     originals = {}
+    experimental = getattr(ttnn, "experimental", None)
+    exp_originals = {}
     try:
         for name in _PASSTHROUGH_IDENTITY:
             originals[name] = getattr(ttnn, name, _MISSING)
@@ -290,6 +330,10 @@ def patch_ttnn(jit_ctx):
         if hasattr(namespace, "multiply"):
             originals["mul"] = getattr(ttnn, "mul", _MISSING)
             setattr(ttnn, "mul", _make_traced_op(getattr(namespace, "multiply"), jit_ctx))
+        if experimental is not None:
+            for name, fn in _EXPERIMENTAL_MULTI.items():
+                exp_originals[name] = getattr(experimental, name, _MISSING)
+                setattr(experimental, name, _make_traced_multi_op(fn, jit_ctx))
         yield
     finally:
         for name, original in originals.items():
@@ -300,6 +344,15 @@ def patch_ttnn(jit_ctx):
                     pass
             else:
                 setattr(ttnn, name, original)
+        if experimental is not None:
+            for name, original in exp_originals.items():
+                if original is _MISSING:
+                    try:
+                        delattr(experimental, name)
+                    except AttributeError:
+                        pass
+                else:
+                    setattr(experimental, name, original)
 
 
 def _finalize_signature(module, func_op, input_types, return_value, ctx):

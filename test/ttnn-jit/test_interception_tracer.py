@@ -165,3 +165,28 @@ def test_multi_output_returns_tuple_of_proxies():
     assert all(hasattr(w, "mlir_value") for w in wrapped)
     assert wrapped[0].shape == (1, 32, 32, 128)
     assert wrapped[1].shape == (1, 8, 32, 128)
+
+
+def test_nlp_create_qkv_heads_multi_output():
+    import ttnn as _ttnn
+    from ttnn_jit.ttmlir.ir import InsertionPoint, Location
+    from ttnn_jit.ttmlir.dialects import func as _func
+
+    scope = build_trace_scope("f", [((1, 1, 32, 6144), _ttnn.bfloat16)])  # 6144 = 128*(32+2*8)
+    x = scope.traced_args[0]
+    with patch_ttnn(scope.jit_ctx):
+        q, k, v = _ttnn.experimental.nlp_create_qkv_heads(
+            x, num_heads=32, num_kv_heads=8, transpose_k_heads=False
+        )
+    assert q.shape == (1, 32, 32, 128)
+    assert k.shape == (1, 8, 32, 128)
+    assert v.shape == (1, 8, 32, 128)
+    assert "split_query_key_value_and_split_heads" in str(scope.module)
+    # build_trace_scope's func body has no terminator (this test doesn't run
+    # the full trace_intercepted finalize step) -- add one so operation.verify()
+    # exercises the split op itself rather than failing on a missing return.
+    # x's type matches the func's pre-declared result type, so returning it
+    # unchanged keeps the signature consistent.
+    with InsertionPoint(scope.func_bb), Location.unknown(scope.ctx):
+        _func.ReturnOp([x.mlir_value])
+    scope.module.operation.verify()
