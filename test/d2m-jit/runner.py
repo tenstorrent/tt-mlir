@@ -624,7 +624,9 @@ def discover(force: bool = False):
 
     import importlib.util
 
-    pkg_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "patterns")
+    pkg_dir = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "kernels", "patterns"
+    )
     pattern_tests, kernel_benches = [], []
     for fn in sorted(os.listdir(pkg_dir)):
         # Underscore-prefixed files are scaffolding (templates, shared
