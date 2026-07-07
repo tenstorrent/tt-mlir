@@ -2488,15 +2488,31 @@ FlashMlaPrefillOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 llvm::Expected<op_model::OpConstraints>
 IndexerScoreOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                  const OpConfig &opConfig) {
-  return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+  assert(inputs.size() == 3);
+
+  auto queryShape = getQuery().getType().getShape();
+  auto keyShape = getKey().getType().getShape();
+  auto weightsShape = getWeights().getType().getShape();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<IndexerScoreOp>::getOpConstraints, *this, queryShape,
+      inputs[0], keyShape, inputs[1], weightsShape, inputs[2],
+      getChunkStartIdx(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
 IndexerScoreOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                              const OpConfig &opConfig) {
-  return issueErrorForGetOpRuntime(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
+  assert(inputs.size() == 3);
+
+  auto queryShape = getQuery().getType().getShape();
+  auto keyShape = getKey().getType().getShape();
+  auto weightsShape = getWeights().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<IndexerScoreOp>::getOpRuntime, *this, queryShape,
+      inputs[0], keyShape, inputs[1], weightsShape, inputs[2],
+      getChunkStartIdx(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

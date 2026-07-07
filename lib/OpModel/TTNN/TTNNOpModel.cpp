@@ -3262,6 +3262,72 @@ llvm::Expected<size_t> OpModel<FlashMlaPrefillOp>::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+//===----------------------------------------------------------------------===//
+// IndexerScoreOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<IndexerScoreOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+    llvm::ArrayRef<int64_t> weightsShape, TTNNLayoutAttr weightsLayout,
+    uint32_t chunkStartIdx, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec weightsSpec,
+      detail::convertToTensorSpec(device, weightsShape, weightsLayout));
+
+  // ttnn::experimental::indexer_score has no output memory-config parameter;
+  // it selects its own output layout, so outputLayout is not forwarded and
+  // program_config / compute_kernel_config fall back to the ttnn defaults.
+  auto indexerScoreOpQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS(::ttnn::experimental::indexer_score, device,
+                                querySpec, keySpec, weightsSpec, chunkStartIdx);
+  };
+
+  return operation::getOpConstraints(queryLayout.getContext(),
+                                     indexerScoreOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<IndexerScoreOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+    llvm::ArrayRef<int64_t> weightsShape, TTNNLayoutAttr weightsLayout,
+    uint32_t chunkStartIdx, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec weightsSpec,
+      detail::convertToTensorSpec(device, weightsShape, weightsLayout));
+
+  auto indexerScoreOpQuery = [=]() {
+    return QUERY_OP_RUNTIME(::ttnn::experimental::indexer_score, device,
+                            querySpec, keySpec, weightsSpec, chunkStartIdx);
+  };
+
+  return operation::getOpRuntime(indexerScoreOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
 //===-----------------------------------------------------------------------===//
 // RotaryEmbeddingLlamaOp
 // ===----------------------------------------------------------------------===//

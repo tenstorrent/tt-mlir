@@ -31,17 +31,18 @@ using CompositeValidatorFn =
     std::function<OpValidationResult(ttcore::CompositeOp, OpBuilder &)>;
 using CompositeBuilderFn =
     std::function<Operation *(ttcore::CompositeOp, OpBuilder &)>;
-// A hard precondition checked before the inline/promote decision. When it
-// returns failure (after emitting its own diagnostic), the pass fails instead
-// of silently falling back to inlining the decomposition. Used for composites
-// that are only valid on a specific architecture.
-using CompositePreconditionFn =
+// An optional guard checked before promoting a composite to its typed op. When
+// it returns failure, the composite is inlined (its decomposition body is
+// spliced in) instead of promoted, and the pass keeps going. Used for
+// composites whose typed op is only valid under certain conditions, e.g. on a
+// specific architecture.
+using CompositePromotionGuardFn =
     std::function<LogicalResult(ttcore::CompositeOp)>;
 
 struct CompositeEntry {
   CompositeValidatorFn validate;
   CompositeBuilderFn build;
-  CompositePreconditionFn precondition; // may be empty
+  CompositePromotionGuardFn promotionGuard; // may be empty
 };
 
 static llvm::StringMap<CompositeEntry> &getCompositeRegistry() {
@@ -144,7 +145,7 @@ static void registerBuiltinComposites() {
             builder.getI32IntegerAttr(kAttr.getInt()),
             builder.getI32IntegerAttr(numExpertsAttr.getInt()));
       },
-      /*precondition=*/nullptr};
+      /*promotionGuard=*/nullptr};
 
   registry["rotary_embedding"] = CompositeEntry{
       // Validate
@@ -170,7 +171,7 @@ static void registerBuiltinComposites() {
             /*token_index=*/mlir::IntegerAttr(),
             /*compute_config=*/nullptr);
       },
-      /*precondition=*/nullptr};
+      /*promotionGuard=*/nullptr};
 
   registry["flash_mla_prefill"] = CompositeEntry{
       // Validate
@@ -199,7 +200,7 @@ static void registerBuiltinComposites() {
             static_cast<uint32_t>(args.headDimV.getValue().getZExtValue()),
             args.isCausal.getValue(), args.scale);
       },
-      /*precondition=*/nullptr};
+      /*promotionGuard=*/nullptr};
 
   registry["indexer_score"] = CompositeEntry{
       // Validate
@@ -223,7 +224,9 @@ static void registerBuiltinComposites() {
             compositeOp.getInputs()[0], compositeOp.getInputs()[1],
             compositeOp.getInputs()[2], chunkStartIdx);
       },
-      // Precondition: ttnn.experimental.indexer_score is Blackhole-only.
+      // Promotion guard: ttnn.experimental.indexer_score is Blackhole-only. On
+      // any other architecture, veto promotion so the composite falls back to
+      // inlining its decomposition instead of failing the pass.
       [](ttcore::CompositeOp compositeOp) -> LogicalResult {
         ModuleOp moduleOp = compositeOp->getParentOfType<ModuleOp>();
         auto sysDesc = moduleOp
@@ -231,19 +234,13 @@ static void registerBuiltinComposites() {
                                  ttcore::SystemDescAttr::name)
                            : nullptr;
         // Without a system descriptor in scope (e.g. running the pass in
-        // isolation) the architecture is unknown; defer the check to the
-        // metal runtime, which fails on non-Blackhole devices.
+        // isolation) the architecture is unknown; allow promotion and defer the
+        // check to the metal runtime, which fails on non-Blackhole devices.
         if (!sysDesc) {
           return success();
         }
         ttcore::Arch arch = sysDesc.getChipDesc(0).getArch().getValue();
-        if (arch != ttcore::Arch::Blackhole) {
-          return compositeOp.emitOpError()
-                 << "ttnn.experimental.indexer_score is only supported on "
-                    "Blackhole, but the target architecture is "
-                 << ttcore::stringifyArch(arch) << ".";
-        }
-        return success();
+        return success(arch == ttcore::Arch::Blackhole);
       }};
 }
 
@@ -290,7 +287,8 @@ static LogicalResult inlineDecomposition(ttcore::CompositeOp compositeOp,
 // Try to create the typed op for a registered composite.
 //
 // Returns nullptr when the composite should be inlined instead — either because
-// the resolution mode is Inline, the composite is not in the registry, or
+// the resolution mode is Inline, the composite is not in the registry, a
+// promotion guard vetoed promotion (e.g. an architecture requirement), or
 // validation failed (in Validate mode).
 static Operation *tryCreateTypedOp(ttcore::CompositeOp compositeOp,
                                    OpBuilder &builder,
@@ -306,6 +304,12 @@ static Operation *tryCreateTypedOp(ttcore::CompositeOp compositeOp,
   }
 
   auto &entry = it->second;
+
+  // A promotion guard (e.g. an architecture requirement) can veto promotion.
+  // When it fails, fall back to inlining the decomposition.
+  if (entry.promotionGuard && mlir::failed(entry.promotionGuard(compositeOp))) {
+    return nullptr;
+  }
 
   if (resolution == CompositeResolution::Validate) {
     auto validationResult = entry.validate(compositeOp, builder);
@@ -338,18 +342,6 @@ public:
       auto decompName = compositeOp.getDecomposition();
       auto *symbolOp = SymbolTable::lookupSymbolIn(moduleOp, decompName);
       auto decompFunc = dyn_cast<func::FuncOp>(symbolOp);
-
-      // Hard preconditions (e.g. architecture requirements) are enforced
-      // regardless of the resolution mode, before deciding to promote or
-      // inline. A failed precondition emits a diagnostic and fails the pass.
-      auto &registry = getCompositeRegistry();
-      auto regIt = registry.find(compositeOp.getCompositeName());
-      if (regIt != registry.end() && regIt->second.precondition) {
-        if (mlir::failed(regIt->second.precondition(compositeOp))) {
-          passFailed = true;
-          return;
-        }
-      }
 
       OpBuilder builder(compositeOp);
       Operation *typedOp =
