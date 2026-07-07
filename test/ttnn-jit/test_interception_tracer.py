@@ -91,3 +91,17 @@ def test_trace_intercepted_cross_function_shape_and_weight_capture():
     # exactly one declared parameter (x); the weight is not a param:
     assert len(module.body.operations[0].arguments) == 1
     assert tuple(int(d) for d in out_type.shape) == (256, 512)
+
+
+def test_passthrough_to_memory_config_is_identity_and_emits_no_op():
+    scope = build_trace_scope("f", [((256, 512), ttnn.bfloat16)])
+    x = scope.traced_args[0]
+    with patch_ttnn(scope.jit_ctx):
+        out = ttnn.to_memory_config(x, ttnn.DRAM_MEMORY_CONFIG)
+        also = ttnn.sharded_to_interleaved(x, ttnn.DRAM_MEMORY_CONFIG)
+        dealloc = ttnn.deallocate(x)
+    assert out is x  # identity: same proxy back
+    assert also is x
+    assert dealloc is None
+    assert "to_memory_config" not in str(scope.module)
+    assert "ttir.empty" not in str(scope.module)  # x not re-materialized

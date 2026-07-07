@@ -108,6 +108,25 @@ from ttnn_jit._src.supported_ops import (
 
 _MISSING = object()
 
+_PASSTHROUGH_IDENTITY = {
+    "to_memory_config",
+    "interleaved_to_sharded",
+    "sharded_to_interleaved",
+}
+_PASSTHROUGH_NONE = {"deallocate"}
+
+
+def _identity_passthrough(*args, **kwargs):
+    # Layout op: return the first tensor operand unchanged; emit no TTIR.
+    for a in args:
+        if isinstance(a, TracedTensor):
+            return a
+    return args[0] if args else None
+
+
+def _none_passthrough(*args, **kwargs):
+    return None
+
 
 def _allowlisted_op_names():
     return (
@@ -168,6 +187,12 @@ def patch_ttnn(jit_ctx):
     namespace = TTNNJitNamespaceUpdater(jit_ctx)
     originals = {}
     try:
+        for name in _PASSTHROUGH_IDENTITY:
+            originals[name] = getattr(ttnn, name, _MISSING)
+            setattr(ttnn, name, _identity_passthrough)
+        for name in _PASSTHROUGH_NONE:
+            originals[name] = getattr(ttnn, name, _MISSING)
+            setattr(ttnn, name, _none_passthrough)
         for name in _allowlisted_op_names():
             if not hasattr(namespace, name):
                 continue
