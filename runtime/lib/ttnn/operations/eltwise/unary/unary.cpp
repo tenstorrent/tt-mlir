@@ -157,7 +157,10 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Gelu: {
-    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::gelu);
+    runEltwiseUnaryWithFastAndApproximateModeOp(
+        op, tensorPool, [](auto &&...args) {
+          return ::ttnn::gelu(std::forward<decltype(args)>(args)...);
+        });
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::IsFinite: {
