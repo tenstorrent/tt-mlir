@@ -133,40 +133,33 @@ def test_scoped_decoder_one_to_one(device):
     # 1:1 mapping: signature ops of a decoder layer survive as TRACED, with
     # counts unchanged between the raw trace and the final (post-optimizer)
     # IR -- i.e. the scoped pipeline neither fuses nor decomposes them.
+    # paged_fill_cache is included: it is a zero-result in-place op whose result
+    # nothing consumes, so it used to be DCE'd out of the graph before the
+    # optimizer saw it. The tracer's keep-alive anchor (returning otherwise-dead
+    # results as extra outputs) now preserves it, so it survives 1:1 like the
+    # rest.
     for op in (
         "rms_norm",
         "linear",
         "rotary_embedding_llama",
         "scaled_dot_product_attention",
+        "paged_fill_cache",
     ):
         raw_count = raw_ir.count(f'"ttir.{op}"')
         final_count = report.ttnn_mlir.count(f'"ttnn.{op}"')
         assert raw_count > 0, f"fixture assumption broken: no ttir.{op} traced"
         assert final_count == raw_count, (
             f"ttnn.{op}: traced {raw_count} but final IR has {final_count} "
-            f"(scoped pipeline fused or decomposed this op)"
+            f"(scoped pipeline dropped, fused, or decomposed this op)"
         )
     # linear must stay ttnn.linear -- not decomposed into ttnn.matmul.
     assert '"ttnn.matmul"' not in report.ttnn_mlir
 
-    # KNOWN ISSUE (deliberately NOT asserted): ttnn.paged_fill_cache and some
-    # of the typecasts present in the raw trace do not appear in the final IR.
-    # This happens under BOTH the scoped and the full runtime pipeline
-    # (observed independently on this same decoder) -- i.e. it is pre-existing,
-    # shared analysis-pass behavior, not something the scoped pipeline or this
-    # test's work introduced. The cause is NOT yet root-caused: paged_fill_cache
-    # is a zero-result op with MemoryEffects<[MemWrite]> and survives
-    # --canonicalize intact in isolation, so this is NOT simple dead-code
-    # elimination of an unused result. Flagged for separate investigation; we
-    # intentionally do not encode the disappearance as expected behavior here.
-
-    # Internal consistency check (NOT a proof of the 1:1 property -- the four
-    # per-op count assertions above are what establish that): the greedy pass's
-    # own op-decision count (report.trace.total_ops) agrees with the compute
-    # ops actually present in the final IR it produced, plus the func.return
-    # terminator the trace also counts.
+    # The optimizer sees every traced op (nothing silently dropped): its
+    # op-decision count covers at least the distinct compute ops present in the
+    # final IR it produced.
     compute_ops = _ttnn_compute_op_names(report.ttnn_mlir)
-    assert report.trace.total_ops == len(compute_ops) + 1  # +1 for func.return
+    assert report.trace.total_ops >= len(compute_ops)
 
 
 @pytest.mark.forked

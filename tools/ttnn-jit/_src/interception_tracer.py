@@ -16,13 +16,33 @@ from ttnn_jit.ttmlir.ir import (
     RankedTensorType,
     F32Type,
     FloatAttr,
+    IntegerType,
 )
+
+import ttnn
 
 from ttnn_jit._src.tracing_compiler import JitContext
 from ttnn_jit._src.conversions import (
     mlir_dtype_from_ttnn_dtype,
     ttnn_dtype_from_mlir_dtype,
 )
+
+
+def _traced_element_type(dtype, ctx):
+    """MLIR element type for a traced tensor of the given ttnn dtype.
+
+    Same as the shared mapping, except ttnn.int32 -> signed `si32`. The analysis
+    pipeline (`ttnn-layout`) canonicalizes int32 tensor layouts to `si32`, and
+    the optimizer's ScalarDataTypeAnalysis asserts the tensor's element type
+    matches its layout's scalar type -- so an int32 tensor traced as signless
+    `i32` (what the shared jit/full-pipeline mapping emits) would trip that
+    assert once it survives to the optimizer (e.g. a paged_fill_cache page
+    table kept alive by the keep-alive anchor). This override is advisor-only;
+    the shared `mlir_dtype_from_ttnn_dtype` (used by @jit) is left untouched.
+    """
+    if dtype == ttnn.int32:
+        return IntegerType.get_signed(32, ctx)
+    return mlir_dtype_from_ttnn_dtype(dtype, ctx)
 
 
 class TracedTensor:
@@ -91,7 +111,7 @@ def build_trace_scope(name, input_specs):
     module = Module.create(Location.unknown(ctx))
     with Location.unknown(ctx):
         input_types = [
-            RankedTensorType.get(list(shape), mlir_dtype_from_ttnn_dtype(dtype, ctx))
+            RankedTensorType.get(list(shape), _traced_element_type(dtype, ctx))
             for shape, dtype in input_specs
         ]
         with InsertionPoint(module.body):
@@ -180,7 +200,7 @@ def _weight_value(tensor, jit_ctx):
     shape = [int(d) for d in tensor.shape]
     with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
         ttype = RankedTensorType.get(
-            shape, mlir_dtype_from_ttnn_dtype(tensor.dtype, jit_ctx.ctx)
+            shape, _traced_element_type(tensor.dtype, jit_ctx.ctx)
         )
         value = ttir.EmptyOp(ttype).result
     cache[key] = value
@@ -255,7 +275,7 @@ def _linear_handler(jit_ctx, a, b, *, bias=None, dtype=None, **kwargs):
         b_shape[-1],
     ]
     elem_type = (
-        mlir_dtype_from_ttnn_dtype(dtype, jit_ctx.ctx)
+        _traced_element_type(dtype, jit_ctx.ctx)
         if dtype is not None
         else a_type.element_type
     )
@@ -274,7 +294,7 @@ def _typecast_handler(jit_ctx, x, dtype, **kwargs):
     with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
         result_type = RankedTensorType.get(
             [int(d) for d in x_type.shape],
-            mlir_dtype_from_ttnn_dtype(dtype, jit_ctx.ctx),
+            _traced_element_type(dtype, jit_ctx.ctx),
         )
         return ttir.typecast(result=result_type, input=x.mlir_value)
 
@@ -540,6 +560,31 @@ def patch_ttnn(jit_ctx):
             _restore_patched(transformer, transformer_originals)
 
 
+def _result_is_unused(value):
+    return next(iter(value.uses), None) is None
+
+
+def _collect_keepalive_anchors(block, return_value):
+    """Traced-op results that nothing consumes.
+
+    A traced op whose result is never used is `Pure` at the TTIR level (all
+    TTIR_NamedOps are), so `ttnn-layout`'s greedy DCE deletes it before the
+    optimizer ever sees it -- e.g. an in-place `ttir.paged_fill_cache` whose
+    returned cache handle isn't threaded anywhere. Returning these as extra
+    function outputs makes them "used" so the whole traced graph survives and
+    the advisor reports layouts for every op the user wrote. `ttir.empty`
+    scaffolding is skipped (pure placeholders, nothing to advise on).
+    """
+    anchors = []
+    for op in block.operations:
+        if op.name == "ttir.empty":
+            continue
+        for result in op.results:
+            if result != return_value and _result_is_unused(result):
+                anchors.append(result)
+    return anchors
+
+
 def _finalize_signature(module, func_op, input_types, return_value, ctx):
     """Add the return op and rebuild the func with the correct result type.
 
@@ -547,15 +592,17 @@ def _finalize_signature(module, func_op, input_types, return_value, ctx):
     signature in place, so recreate the func and move the body block.
     """
     old_block = func_op.regions[0].blocks[0]
+    results = [return_value, *_collect_keepalive_anchors(old_block, return_value)]
     if not old_block.operations or not isinstance(
         old_block.operations[-1], func.ReturnOp
     ):
         with InsertionPoint(old_block), Location.unknown(ctx):
-            func.ReturnOp([return_value])
+            func.ReturnOp(results)
 
     with InsertionPoint(module.body), Location.unknown(ctx):
         new_func = func.FuncOp(
-            name=func_op.name.value, type=(input_types, [return_value.type])
+            name=func_op.name.value,
+            type=(input_types, [r.type for r in results]),
         )
     old_block.append_to(new_func.regions[0])
     func_op.erase()
