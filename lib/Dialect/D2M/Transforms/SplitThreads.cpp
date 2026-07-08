@@ -36,16 +36,17 @@ static constexpr StringRef kThreadAttrName = "d2m.thread";
 // but *aliased* remote_load/store ops are intentionally left implicit -- they
 // carry no transfer and are turned into compute-side CB obligations later by
 // d2m-insert-compute-cb. getCBPort() asserts on implicit form, so for those we
-// derive the port from the generic operand the op references: the memref (for
-// remote ops) / dst (for local_copy) operand is itself a d2m.generic operand,
-// and its operand index is the CB port.
+// derive the port from the CB the op references: the local buffer (for remote
+// ops) / dst (for local_copy) operand is itself a d2m.generic operand, and its
+// operand index is the CB port -- matching the operand index the compute side
+// keys its CBs on.
 static unsigned getDMACBPort(GenericOp generic, Operation *op) {
   return llvm::TypeSwitch<Operation *, unsigned>(op)
       .Case<RemoteLoadOp, RemoteStoreOp>([&](auto dma) -> unsigned {
         if (dma.isExplicitCBForm()) {
           return dma.getCBPort();
         }
-        return generic.getOperandIndex(dma.getMemref());
+        return generic.getOperandIndex(dma.getLocalBuffer());
       })
       .Case<LocalCopyOp>([&](LocalCopyOp copy) -> unsigned {
         if (copy.isExplicitCBForm()) {
@@ -75,12 +76,13 @@ static LogicalResult checkComputeSyncScope(GenericOp generic) {
     }
   });
 
-  // A CB whose markers span more than one block lives in distinct loop nests, which we can't synchronize. 
+  // A CB whose markers span more than one block lives in distinct loop nests,
+  // which we can't synchronize.
   llvm::MapVector<unsigned, DenseSet<Block *>> cbMarkerBlocks;
   generic.getRegion(0).walk([&](ShardDMAOpInterface dma) {
     cbMarkerBlocks[getDMACBPort(generic, dma)].insert(dma->getBlock());
   });
-  
+
   for (auto &[cbPort, blocks] : cbMarkerBlocks) {
     if (blocks.size() > 1) {
       return generic.emitOpError()

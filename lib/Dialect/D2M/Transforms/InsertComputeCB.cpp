@@ -51,10 +51,11 @@ static bool isAliasedLoad(RemoteLoadOp loadOp) {
 
 // The CB port a shard DMA op synchronizes on, form-agnostic. Aliased
 // remote_load/store ops are left in implicit form (they carry no transfer), and
-// getCBPort() asserts on implicit form, so for those we derive the port from the
-// generic operand the op references: the memref (for remote ops) / dst (for
+// getCBPort() asserts on implicit form, so for those we derive the port from
+// the CB the op references: the local buffer (for remote ops) / dst (for
 // local_copy) operand is itself a d2m.generic operand, and its operand index is
-// the CB port.
+// the CB port
+// -- matching the operand index the compute side keys its CBs on.
 // NOTE: duplicated in SplitThreads.cpp; hoist to a shared header later.
 static unsigned getDMACBPort(GenericOp generic, Operation *op) {
   return llvm::TypeSwitch<Operation *, unsigned>(op)
@@ -62,7 +63,7 @@ static unsigned getDMACBPort(GenericOp generic, Operation *op) {
         if (dma.isExplicitCBForm()) {
           return dma.getCBPort();
         }
-        return generic.getOperandIndex(dma.getMemref());
+        return generic.getOperandIndex(dma.getLocalBuffer());
       })
       .Case<LocalCopyOp>([&](LocalCopyOp copy) -> unsigned {
         if (copy.isExplicitCBForm()) {
@@ -146,9 +147,12 @@ static SmallVector<Operation *> collectRawSpanAnchors(Block *computeBlock,
 // Number of scf.for ops between `op` and its enclosing generic region.
 static unsigned forDepth(Operation *op) {
   unsigned d = 0;
-  for (Operation *p = op->getParentOp();
-       p && !isa<GenericOp>(p); p = p->getParentOp())
-    if (isa<scf::ForOp>(p)) ++d;
+  for (Operation *p = op->getParentOp(); p && !isa<GenericOp>(p);
+       p = p->getParentOp()) {
+    if (isa<scf::ForOp>(p)) {
+      ++d;
+    }
+  }
   return d;
 }
 
@@ -156,11 +160,13 @@ static unsigned forDepth(Operation *op) {
 // region (depth 0 == the generic op compute block itself).
 static Block *scopeBlockAtDepth(Operation *useOwner, unsigned depth,
                                 Block *computeBlock) {
-  SmallVector<Block *> forBodies;         // outermost first
+  SmallVector<Block *> forBodies; // outermost first
   for (Operation *p = useOwner; p && p->getBlock() != computeBlock;
-       p = p->getParentOp())
-    if (auto f = dyn_cast<scf::ForOp>(p->getParentOp()))
+       p = p->getParentOp()) {
+    if (auto f = dyn_cast<scf::ForOp>(p->getParentOp())) {
       forBodies.push_back(f.getBody());
+    }
+  }
   std::reverse(forBodies.begin(), forBodies.end());
   return depth == 0 ? computeBlock : forBodies[depth - 1];
 }
@@ -176,19 +182,24 @@ struct CBSync {
 // (malformed CB — caller diagnoses).
 static Block *computeScopeBlock(const CBSync &sync, unsigned depth,
                                 Block *computeBlock) {
-  if (depth == 0)
+  if (depth == 0) {
     return computeBlock;
+  }
   auto tryOp = [&](Operation *op) -> Block * {
     return op && forDepth(op) >= depth
                ? scopeBlockAtDepth(op, depth, computeBlock)
                : nullptr;
   };
-  for (Operation *anchor : sync.anchors)
-    if (Block *b = tryOp(anchor))
+  for (Operation *anchor : sync.anchors) {
+    if (Block *b = tryOp(anchor)) {
       return b;
-  for (OpOperand *use : sync.uses)
-    if (Block *b = tryOp(use->getOwner()))
+    }
+  }
+  for (OpOperand *use : sync.uses) {
+    if (Block *b = tryOp(use->getOwner())) {
       return b;
+    }
+  }
   return nullptr;
 }
 
@@ -201,10 +212,11 @@ static Block *computeScopeBlock(const CBSync &sync, unsigned depth,
 // result. `aliasedLoadCBs`/`aliasedStoreCBs` are the CBs whose DMA-side
 // producer/consumer is aliased (no transfer); compute supplies the missing
 // half.
-static LogicalResult
-insertCBOpsForCompute(Block *computeBlock, RewriterBase &rewriter,
-                      const llvm::SetVector<Value> &aliasedLoadCBs,
-                      const llvm::SetVector<Value> &aliasedStoreCBs, const llvm::DenseMap<unsigned, unsigned>& cbTransferDepth) {
+static LogicalResult insertCBOpsForCompute(
+    Block *computeBlock, RewriterBase &rewriter,
+    const llvm::SetVector<Value> &aliasedLoadCBs,
+    const llvm::SetVector<Value> &aliasedStoreCBs,
+    const llvm::DenseMap<unsigned, unsigned> &cbTransferDepth) {
   auto generic = cast<GenericOp>(computeBlock->getParentOp());
 
   llvm::MapVector<Value, CBSync> consumers, producers;
@@ -312,10 +324,16 @@ insertCBOpsForCompute(Block *computeBlock, RewriterBase &rewriter,
                      Block *block) -> std::pair<Operation *, Operation *> {
     SmallVector<Operation *> boundary;
     auto lift = [&](Operation *op) {
-      if (Operation *a = block->findAncestorOpInBlock(*op)) boundary.push_back(a);
+      if (Operation *a = block->findAncestorOpInBlock(*op)) {
+        boundary.push_back(a);
+      }
     };
-    for (Operation *anchor : sync.anchors)   lift(anchor);
-    for (OpOperand *use : sync.uses)         lift(use->getOwner());
+    for (Operation *anchor : sync.anchors) {
+      lift(anchor);
+    }
+    for (OpOperand *use : sync.uses) {
+      lift(use->getOwner());
+    }
 
     llvm::sort(boundary, byProgramOrder);
     return {boundary.front(), boundary.back()};
@@ -326,7 +344,8 @@ insertCBOpsForCompute(Block *computeBlock, RewriterBase &rewriter,
     llvm::sort(sync.anchors, byProgramOrder);
 
     unsigned cbOperandIdx = generic.getOperandIndex(cb);
-    unsigned depth = cbTransferDepth.lookup(cbOperandIdx);   // 0 if aliased/no marker
+    unsigned depth =
+        cbTransferDepth.lookup(cbOperandIdx); // 0 if aliased/no marker
     Block *anchorBlock = computeScopeBlock(sync, depth, computeBlock);
     if (!anchorBlock) {
       return generic.emitOpError()
@@ -359,7 +378,8 @@ insertCBOpsForCompute(Block *computeBlock, RewriterBase &rewriter,
   for (auto &[cb, sync] : producers) {
     llvm::sort(sync.anchors, byProgramOrder);
     unsigned cbOperandIdx = generic.getOperandIndex(cb);
-    unsigned depth = cbTransferDepth.lookup(cbOperandIdx);   // 0 if aliased/no marker
+    unsigned depth =
+        cbTransferDepth.lookup(cbOperandIdx); // 0 if aliased/no marker
     Block *anchorBlock = computeScopeBlock(sync, depth, computeBlock);
     if (!anchorBlock) {
       return generic.emitOpError()
@@ -384,8 +404,11 @@ insertCBOpsForCompute(Block *computeBlock, RewriterBase &rewriter,
 
     for (OpOperand *use : sync.uses) {
       Operation *owner = use->getOwner();
-      if (owner->getBlock() != anchorBlock && !anchorBlock->getParent()->isAncestor(owner->getParentRegion()))
-        owner->moveAfter(reserveOp);   // sink the hoisted view next to the reserve
+      if (owner->getBlock() != anchorBlock &&
+          !anchorBlock->getParent()->isAncestor(owner->getParentRegion())) {
+        owner->moveAfter(
+            reserveOp); // sink the hoisted view next to the reserve
+      }
       use->set(reserveOp.getResult());
     }
   }
@@ -500,7 +523,9 @@ public:
         }
       });
 
-      llvm::DenseMap<unsigned, unsigned> cbTransferDepth; // generic operand index --> loop nest depth of its DMA marker
+      llvm::DenseMap<unsigned, unsigned>
+          cbTransferDepth; // generic operand index --> loop nest depth of its
+                           // DMA marker
       dmBlock->walk([&](ShardDMAOpInterface dma) {
         cbTransferDepth[getDMACBPort(generic, dma.getOperation())] =
             forDepth(dma.getOperation());
