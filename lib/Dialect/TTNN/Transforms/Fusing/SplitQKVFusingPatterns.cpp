@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::ttnn::fusing {
@@ -630,11 +631,20 @@ bool validateReshapeLayouts(SmallVector<SliceReshapeMatch> &matches) {
 // Step 7: Create fused op
 // ============================================================================
 
+// `commitReorder` applies any QKV weight/bias reordering needed to bring the
+// matmul RHS into [Q|K|V] order. It is invoked *after* the fused op passes
+// validation and *before* the matched chains are replaced. Deferring it until
+// validation succeeds is essential: the greedy rewriter does not roll back
+// ops a pattern created before a `failure()`, so reordering earlier would leave
+// a reordered weight with no fused op, silently corrupting the downstream
+// (unfused) slicing. It must still run before the chains are replaced, since it
+// reads the original slice ops.
 template <typename MatMulOpType>
 mlir::LogicalResult createFusedOp(mlir::PatternRewriter &rewriter,
                                   MatMulOpType matmulOp, QKVHead &q, QKVHead &k,
                                   QKVHead &v,
-                                  const OpValidationConfig &validationConfig) {
+                                  const OpValidationConfig &validationConfig,
+                                  llvm::function_ref<void()> commitReorder) {
   auto qFinalShape = q.match.getFinalType().getShape();
   int64_t batchSize = qFinalShape[O_BATCH];
   int64_t seqLen = q.seqLen();
@@ -711,6 +721,16 @@ mlir::LogicalResult createFusedOp(mlir::PatternRewriter &rewriter,
   if (!validationResult.isSuccess()) {
     return mlir::failure();
   }
+
+  // Validation passed — it is now safe to commit the QKV reorder (see the
+  // `commitReorder` contract above). This still precedes replacing the matched
+  // chains below, which the reorder depends on.
+  commitReorder();
+
+  // `commitReorder` may reset the insertion point (the LoadCachedOp path
+  // inserts slice/concat ops before the matmul). Restore it after the input
+  // reshape so the split op and its uses are correctly ordered.
+  rewriter.setInsertionPointAfter(inputReshape);
 
   auto splitOp = rewriter.create<SplitQueryKeyValueAndSplitHeadsOp>(
       matmulOp.getLoc(), TypeRange{qSplitTy, kSplitTy, vSplitTy},
@@ -831,12 +851,37 @@ SplitQueryKeyValueAndSplitHeadsFusing<MatMulOpType>::matchAndRewrite(
     return mlir::failure();
   }
 
-  // Ensure QKV portions are in Q, K, V order on the matmul RHS.
-  if (!isQKVOrder(*heads)) {
+  // Whether the QKV portions still need to be brought into Q, K, V order on
+  // the matmul RHS.
+  bool needsReorder = !isQKVOrder(*heads);
+
+  // Pure precondition check (no IR mutation): if a reorder is required, every
+  // tensor we would have to reorder must be const-foldable. A LinearOp bias
+  // that is neither a ConcatOp nor a LoadCachedOp cannot be reordered, so the
+  // fusion must bail out here — before any mutation — to avoid leaving a
+  // partially-reordered graph.
+  if constexpr (std::is_same_v<MatMulOpType, LinearOp>) {
+    Value bias = matmulOp.getBias();
+    if (needsReorder && bias && !bias.getDefiningOp<ConcatOp>() &&
+        !bias.getDefiningOp<ttcore::LoadCachedOp>()) {
+      return mlir::failure();
+    }
+  }
+
+  // Reorder closure, invoked by createFusedOp only after the fused op passes
+  // validation (and before the matched chains are replaced). Mutating here
+  // rather than up-front guarantees the reorder is never committed unless the
+  // fusion is. Preconditions were checked above, so this is a pure mutation.
+  auto commitReorder = [&]() {
+    if (!needsReorder) {
+      return;
+    }
+
+    // Ensure QKV portions are in Q, K, V order on the matmul RHS.
     if (isDirectConcat) {
       // Fast path: reorder concat inputs in-place.
       reorderConcatInputs(rewriter, rhs.getDefiningOp<ConcatOp>(), *heads);
-    } else if (isLoadCached) {
+    } else {
       // LoadCachedOp: slice + reconcat on the weight. The second const-eval
       // pass folds these away.
       bool transB = matmulOp.getTransposeB();
@@ -847,22 +892,16 @@ SplitQueryKeyValueAndSplitHeadsFusing<MatMulOpType>::matchAndRewrite(
           rewriter, matmulOp, rhs, weightSliceDim, *heads);
       rewriter.modifyOpInPlace(
           matmulOp, [&]() { matmulOp.getBMutable().assign(reorderedWeight); });
-    } else {
-      // If it is not const-eval'd, we would add a slice + concat to
-      // reorder the inputs, but this would hinder performance.
-      return mlir::failure();
     }
 
     // Reorder bias to match if this is a LinearOp with a bias.
     if constexpr (std::is_same_v<MatMulOpType, LinearOp>) {
-      Value bias = matmulOp.getBias();
-      if (bias) {
-        auto biasConcatOp = bias.getDefiningOp<ConcatOp>();
-        auto biasLoadCached = bias.getDefiningOp<ttcore::LoadCachedOp>();
-        if (biasConcatOp) {
+      if (Value bias = matmulOp.getBias()) {
+        if (auto biasConcatOp = bias.getDefiningOp<ConcatOp>()) {
           reorderConcatInputs(rewriter, biasConcatOp, *heads);
-        } else if (biasLoadCached) {
-          // Bias is 1D or 2D — the QKV dim is always the last.
+        } else {
+          // LoadCachedOp (the only other option; verified by the precondition
+          // check above). Bias is 1D or 2D — the QKV dim is always the last.
           auto biasShape =
               mlir::cast<RankedTensorType>(bias.getType()).getShape();
           size_t biasSliceDim = biasShape.size() - 1;
@@ -872,14 +911,13 @@ SplitQueryKeyValueAndSplitHeadsFusing<MatMulOpType>::matchAndRewrite(
           rewriter.modifyOpInPlace(matmulOp, [&]() {
             matmulOp.getBiasMutable().assign(reorderedBias);
           });
-        } else {
-          return mlir::failure();
         }
       }
     }
-  }
+  };
 
-  return createFusedOp(rewriter, matmulOp, *q, *k, *v, validationConfig);
+  return createFusedOp(rewriter, matmulOp, *q, *k, *v, validationConfig,
+                       commitReorder);
 }
 
 // Explicit template instantiations.
