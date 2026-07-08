@@ -747,6 +747,12 @@ struct TTIRToEmitPyPipelineOptions : public TTIRToTTNNCommonPipelineOptions,
 void createTTIRToTTNNRuntimePipeline(
     OpPassManager &pm, const TTIRToTTNNRuntimePipelineOptions &options);
 
+// Scoped analysis-only pipeline for the L1 shard advisor: lowers TTIR to TTNN
+// 1:1 (no graph reshaping) and runs the greedy L1 optimizer. Reuses
+// TTIRToTTNNCommonPipelineOptions so the advisor's option string is unchanged.
+void createTTIRToTTNNL1AdvisorPipeline(
+    OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options);
+
 void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options);
 

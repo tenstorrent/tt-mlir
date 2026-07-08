@@ -754,6 +754,49 @@ void createTTIRToTTNNRuntimePipeline(
   createTTNNCommonToRuntimePipeline(pm, options);
 }
 
+void createTTIRToTTNNL1AdvisorPipeline(
+    OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options) {
+  // Resolve optimizerPassEnabled / memory-layout-analysis from optimization
+  // level, matching the common pipeline.
+  options.resolveOptimizationLevelOptions();
+
+  // TODO(dmilinkovic): mirror the common pipeline's multithreading workaround
+  // (tt-metal issue #31041) while the optimizer runs.
+  if (options.optimizerPassEnabled) {
+    static_cast<PassManager &>(pm).getContext()->disableMultithreading();
+  }
+
+  // Structure the module the TTNN passes expect.
+  pm.addPass(ttcore::createTTCoreMarkFunctionsAsForwardPass());
+  pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
+
+  auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
+
+  // Register device / attach system desc from the pipeline options. Required by
+  // ttnn-layout and the optimizer's getCurrentScopeSystemDesc(); normally done
+  // by the (excluded) createTTNNPipelineTTIRPasses.
+  ttcore::TTCoreRegisterDevicePassOptions registerDeviceOptions;
+  registerDeviceOptions.systemDescPath = options.systemDescPath;
+  registerDeviceOptions.mockSystemDescArch = options.mockSystemDescArch;
+  registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
+  registerDeviceOptions.meshTopology = llvm::to_vector(options.meshTopology);
+  devicePm.addPass(
+      mlir::tt::ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
+
+  // 1:1 lowering only: ttnn-layout + convert-ttir-to-ttnn. Deliberately NO
+  // fusing / decomposition / simplification / dtype-conversion /
+  // SetComputeKernelConfig — the advisor advises on the ops as written.
+  createTTNNPipelineLoweringPasses(devicePm);
+
+  // Reuse the optimizer block verbatim: ConfigureCCLOps, UniqueLocations,
+  // device-wrapped { GreedyMemoryLayoutPropagation, GreedyL1SpillManagement,
+  // OperationValidationAndFallback } + decision trace.
+  createTTNNPipelineAnalysisPasses(devicePm, options);
+
+  // Materialize reshards as ttnn.to_memory_config for the IR-derived summary.
+  createTTNNPipelineLayoutDecompositionPass(devicePm, options);
+}
+
 // Complete pipeline for lowering TTIR to EmitC.
 //
 void createTTIRToEmitCPipeline(OpPassManager &pm,
@@ -838,6 +881,15 @@ void registerTTNNPipelines() {
       "ttir-to-ttnn-runtime-pipeline",
       "Pipeline lowering TTIR to TTNN for tt-mlir Runtime execution.",
       mlir::tt::ttnn::createTTIRToTTNNRuntimePipeline);
+
+  // TTIR to TTNN L1 shard-advisor pipeline (analysis-only, no graph reshaping).
+  mlir::PassPipelineRegistration<
+      mlir::tt::ttnn::TTIRToTTNNCommonPipelineOptions>(
+      "ttir-to-ttnn-l1-advisor",
+      "Scoped analysis-only pipeline: 1:1 TTIR->TTNN lowering + greedy L1 "
+      "optimizer + decision trace, with no fusing/decomposition. For the L1 "
+      "shard advisor.",
+      mlir::tt::ttnn::createTTIRToTTNNL1AdvisorPipeline);
 
   // Backwards-compatible ttir-to-ttnn-backend-pipeline, which is the same as
   // ttir-to-ttnn-runtime-pipeline.
