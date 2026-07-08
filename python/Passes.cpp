@@ -137,6 +137,40 @@ void populatePassesModule(nb::module_ &m) {
       nb::arg("module"), nb::arg("options") = "", nb::arg("print_ir") = false);
 
   m.def(
+      "run_pipeline",
+      [](MlirModule module, std::string pipelineName, std::string options = "",
+         bool printIr = false) {
+        mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
+        mlir::PassManager pm(moduleOp->getName());
+
+        if (printIr) {
+          pm.getContext()->disableMultithreading();
+          pm.enableIRPrinting(
+              [](mlir::Pass *, mlir::Operation *) { return false; },
+              [](mlir::Pass *, mlir::Operation *) { return true; }, true,
+              false);
+        }
+
+        const auto *pipeline = mlir::PassPipelineInfo::lookup(pipelineName);
+        if (!pipeline) {
+          throw std::runtime_error("Unknown pipeline: " + pipelineName);
+        }
+
+        std::function<mlir::LogicalResult(const llvm::Twine &)> err_handler =
+            [](const llvm::Twine &) { return mlir::failure(); };
+
+        if (mlir::failed(pipeline->addToPipeline(pm, options, err_handler))) {
+          throw std::runtime_error("Failed to add pipeline to pass manager");
+        }
+
+        if (mlir::failed(pm.run(moduleOp))) {
+          throw std::runtime_error("Failed to run pass manager");
+        }
+      },
+      nb::arg("module"), nb::arg("pipeline_name"), nb::arg("options") = "",
+      nb::arg("print_ir") = false);
+
+  m.def(
       "ttir_to_ttmetal_backend_pipeline",
       [](MlirModule module, std::string options = "", bool printIr = false) {
         mlir::Operation *moduleOp = unwrap(mlirModuleGetOperation(module));
