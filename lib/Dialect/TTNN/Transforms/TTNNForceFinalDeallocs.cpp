@@ -13,6 +13,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/TypeSwitch.h"
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNFORCEFINALDEALLOCS
@@ -92,9 +93,10 @@ Value canonicalRoot(Value value, llvm::DenseMap<Value, Value> &valueToRoot) {
 // For each underlying buffer, this pass walks that buffer's deallocate ops from
 // bottom to top and sets the force flag to true on the last one in program
 // order (the true final use of that buffer), so the buffer is properly freed.
-// The remaining deallocates of that buffer are left as force=false no-ops.
-// Buffers that escape the function (returned variables) or activations that a
-// conv op deallocates itself are left untouched.
+// For buffers that are freed elsewhere (variables that escape the function that
+// are freed by the caller or conv activations the conv op force-deallocates
+// itself), no deallocation is forced and all of their (no-op) deallocations are
+// removed.
 class TTNNForceFinalDeallocs
     : public impl::TTNNForceFinalDeallocsBase<TTNNForceFinalDeallocs> {
 public:
@@ -121,12 +123,12 @@ private:
         return WalkResult::advance();
       }
 
-      Value convActivation;
-      if (auto convOp = mlir::dyn_cast<Conv2dOp>(op)) {
-        convActivation = getConvDeallocatedActivation(convOp);
-      } else if (auto convOp = mlir::dyn_cast<ConvTranspose2dOp>(op)) {
-        convActivation = getConvDeallocatedActivation(convOp);
-      }
+      Value convActivation =
+          llvm::TypeSwitch<Operation *, Value>(op)
+              .Case<Conv2dOp, ConvTranspose2dOp>([](auto convOp) {
+                return getConvDeallocatedActivation(convOp);
+              })
+              .Default(Value());
       if (convActivation) {
         doNotForceRoots.insert(canonicalRoot(convActivation, valueToRoot));
       }
@@ -156,21 +158,38 @@ private:
       deallocCountByRoot[canonicalRoot(deallocOp.getInput(), valueToRoot)]++;
     });
 
-    // Walk deallocations bottom-to-top. The first deallocate in order for the
-    // given buffer is the last in program order.
+    // Walk deallocations bottom-to-top and decide, per buffer, which single
+    // deallocate (if any) should free it. All other deallocations of that
+    // buffer are no-ops and are removed.
     llvm::DenseSet<Value> forcedRoots;
+    llvm::SmallVector<DeallocateOp> redundantDeallocs;
     for (auto deallocOp : llvm::reverse(deallocs)) {
       Value root = canonicalRoot(deallocOp.getInput(), valueToRoot);
+
+      // The buffer is freed elsewhere: escapes the function (freed by the
+      // caller) or is a conv activation the conv force-deallocates itself.
       if (doNotForceRoots.contains(root)) {
+        redundantDeallocs.push_back(deallocOp);
         continue;
       }
+
+      // A single deallocate already frees the buffer (its input variable is the
+      // sole reference), so leave it as is.
       if (deallocCountByRoot.lookup(root) < 2) {
         continue;
       }
-      if (!forcedRoots.insert(root).second) {
-        continue;
+
+      // Multiple aliasing deallocations: the first one seen is the last in
+      // program order, so force it. The rest are no-ops and are removed.
+      if (forcedRoots.insert(root).second) {
+        deallocOp.setForce(true);
+      } else {
+        redundantDeallocs.push_back(deallocOp);
       }
-      deallocOp.setForce(true);
+    }
+
+    for (DeallocateOp deallocOp : redundantDeallocs) {
+      deallocOp->erase();
     }
   }
 };

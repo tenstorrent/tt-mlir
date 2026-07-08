@@ -494,9 +494,11 @@ def TTNNForceFinalDeallocs: Pass<"ttnn-force-final-deallocs", "::mlir::ModuleOp"
   let description = [{
     This pass walks the deallocation ops of each buffer from bottom to top and
     sets the force flag to true on the last one in program order (the true final
-    use of that memory), so the buffer is freed properly. Exceptions are
-    variables that escape the function (returned values) or activations that are
-    deallocated by a conv op.
+    use of that memory), so the buffer is freed properly. The remaining
+    deallocations of that buffer are no-ops and are removed. For buffers that are
+    freed elsewhere (variables that escape the function that are freed by the caller
+    or conv activations the conv op force-deallocates itself), no deallocation
+    is forced and all of their (no-op) deallocations are removed.
   }];
 }
 
