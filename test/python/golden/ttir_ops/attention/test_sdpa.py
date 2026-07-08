@@ -622,35 +622,33 @@ def test_sdpa_decode_in_models(
     )
 
 @pytest.mark.parametrize(
-    "num_heads,num_kv_heads,head_dim",
+    "num_heads,num_kv_heads,head_dim,blocks_per_user",
     [
         # MHA (Q heads == KV heads)
-        (8, 8, 64),
-        (8, 8, 128),
+        (8, 8, 64, 4),
+        (8, 8, 128, 4),
         # GQA (4:1)
-        (8, 2, 128),
+        (8, 2, 128, 4),
         # MQA with large head_dim (config-sensitive path, Gemma-style)
-        (8, 1, 256),
+        (8, 1, 256, 4),
+        # MQA: head_dim=512, 32-block page table (Blackhole L1 overflow guard)
+        (8, 1, 512, 32),
     ],
     ids=[
         "mha_d64",
         "mha_d128",
         "gqa_d128",
         "mqa_d256",
+        "gemma4_d512_overflow",
     ],
 )
 @pytest.mark.parametrize("optimization_level", [0, 1, 2])
-@pytest.mark.only_config(
-    ("p150",),
-    ("p300",),
-    reason="Guards the Blackhole-specific SDPA decode runtime program config; "
-    "only meaningful on a Blackhole board (p150/p300).",
-)
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_paged_sdpa_decode_causal(
     num_heads: int,
     num_kv_heads: int,
     head_dim: int,
+    blocks_per_user: int,
     optimization_level: int,
     target: str,
     request,
@@ -659,22 +657,13 @@ def test_paged_sdpa_decode_causal(
     """
     Test causal Paged Scaled Dot Product Attention Decode.
 
-    Guards the Blackhole-specific runtime program config selected for the
-    causal, no-explicit-program-config path in
-    runtime/lib/ttnn/operations/transformer/
-    paged_scaled_dot_product_attention_decode.cpp
-    (q_chunk_size=32, k_chunk_size=32, max_cores_per_head_batch=1, to match
-    tt-metal on Blackhole). That branch is chosen at runtime from the device
-    arch, so it is only exercised when this test executes on a Blackhole board
-    (p150/p300) -- compile-only lit tests cannot cover it.
-
-    Runs across every optimization level (0/1/2) to confirm the op fits after
-    the tt-metal L1 fix regardless of the compiler pipeline, now that the
-    optimizer_level=0 program-config workaround has been removed.
+    The head_dim=512 case guards the Blackhole runtime program config that pins
+    max_cores_per_head_batch=1 to keep the op within per-core L1; it runs across
+    all optimization levels since that config replaced the former compile-time
+    workaround.
     """
     batch = 1
     block_size = 32
-    blocks_per_user = 4
     kv_seq = block_size * blocks_per_user
     num_blocks = batch * blocks_per_user
     scale = head_dim**-0.5
