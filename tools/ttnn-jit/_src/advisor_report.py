@@ -31,7 +31,11 @@ def _render_reshards(report: DecisionTraceReport, lines: list) -> None:
         return f"op{idx} {name_by_index.get(idx, '?')}"
 
     resharded = [e for e in report.edges if e.has_reshard]
-    lines.append(f"-- Reshards ({len(resharded)}) --")
+    # NOTE: this is the greedy pass's own view. Passes that run after the trace
+    # is written (input relayouts, output-layout reverts) add more reshards; the
+    # authoritative count is in the final-IR summary. Kept here as rationale.
+    lines.append(f"-- Reshards decided by greedy pass ({len(resharded)}) --")
+    lines.append("   (rationale only; authoritative reshards are in the IR summary)")
     if not report.edges:
         lines.append("    (no edge data in trace)")
     elif not resharded:

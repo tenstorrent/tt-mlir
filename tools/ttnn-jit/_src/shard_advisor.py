@@ -17,16 +17,38 @@ from ttnn_jit._src.decision_trace_parser import (
     DecisionTraceReport,
 )
 from ttnn_jit._src.advisor_report import render_text_report
+from ttnn_jit._src.ir_layout_summary import render_ir_summary_from_mlir
 from ttnn_jit._src.interception_tracer import trace_intercepted
 
 
 class AdvisorReport:
-    """Result of a shard-advisor run: parsed trace + rendered text + TTNN IR."""
+    """Result of a shard-advisor run.
 
-    def __init__(self, trace: DecisionTraceReport, text: str, ttnn_mlir: str):
+    Attributes:
+        trace: parsed greedy-optimizer decision trace (beam candidates, scores,
+            spill accounting) - useful as *rationale*, but it only records the
+            reshards the greedy pass itself decided.
+        ttnn_mlir: the final optimized TTNN IR. This is the ground truth: every
+            reshard is an explicit ttnn.to_memory_config / ttnn.to_layout op and
+            every tensor carries its chosen layout, including reshards inserted
+            by post-greedy passes (input relayouts, output-layout reverts) that
+            never reach the decision trace.
+        ir_summary: human-readable layout + reshard summary derived from
+            ttnn_mlir (authoritative).
+        text: ir_summary followed by the decision-trace rationale.
+    """
+
+    def __init__(
+        self,
+        trace: DecisionTraceReport,
+        text: str,
+        ttnn_mlir: str,
+        ir_summary: str = "",
+    ):
         self.trace = trace
         self.text = text
         self.ttnn_mlir = ttnn_mlir
+        self.ir_summary = ir_summary
 
     def __str__(self):
         return self.text
@@ -102,12 +124,9 @@ class ShardAdvisor:
             sig = inspect.signature(self.func)
             param_names = list(sig.parameters.keys())
             kwargs = dict(kwargs)
-            kwargs["_tensor_args"] = {
-                param_names[i]: args[i] for i in range(len(args))
-            }
+            kwargs["_tensor_args"] = {param_names[i]: args[i] for i in range(len(args))}
             ir, _output_type = generate_ir(
-                self.func, self.debug, None, *args,
-                insert_output_layout=False, **kwargs
+                self.func, self.debug, None, *args, insert_output_layout=False, **kwargs
             )
 
         trace_dir = os.path.join(self.out_dir, "decision_trace")
@@ -130,7 +149,12 @@ class ShardAdvisor:
             )
 
         trace = load_decision_trace(trace_path)
-        text = render_text_report(trace)
-        report = AdvisorReport(trace, text, str(ir))
+        ttnn_mlir = str(ir)
+        # The final IR is authoritative for layouts + reshards; the decision
+        # trace is kept as greedy-phase rationale below it.
+        ir_summary = render_ir_summary_from_mlir(ttnn_mlir)
+        rationale = render_text_report(trace)
+        text = ir_summary + "\n" + rationale
+        report = AdvisorReport(trace, text, ttnn_mlir, ir_summary)
         print(text)
         return report

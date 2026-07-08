@@ -80,14 +80,14 @@ def test_report_renders_pressure_events_only():
 
 def test_report_no_edge_data():
     text = render_text_report(_report(SpillSummary(ran=False)))
-    assert "-- Reshards (0) --" in text
+    assert "-- Reshards decided by greedy pass (0) --" in text
     assert "(no edge data in trace)" in text
 
 
 def test_report_no_reshards():
     edges = [Edge(0, 2, 0, 0, has_reshard=False)]
     text = render_text_report(_report(SpillSummary(ran=False), edges))
-    assert "-- Reshards (0) --" in text
+    assert "-- Reshards decided by greedy pass (0) --" in text
     assert "no reshards inserted" in text
 
 
@@ -97,7 +97,7 @@ def test_report_lists_reshards_with_names_and_target_layout():
         Edge(2, 3, 0, 0, has_reshard=False),
     ]
     text = render_text_report(_report(SpillSummary(ran=False), edges))
-    assert "-- Reshards (1) --" in text
+    assert "-- Reshards decided by greedy pass (1) --" in text
     # Producer/consumer op names + operand + target layout are all surfaced.
     assert (
         "op0 ttnn.matmul -> op1 ttnn.reshape (operand 0): "
@@ -113,5 +113,5 @@ def test_report_reshard_between_same_layout_label():
         Edge(2, 3, 0, 0, has_reshard=True, reshard_layout="L1/width_sharded/1x64"),
     ]
     text = render_text_report(_report(SpillSummary(ran=False), edges))
-    assert "-- Reshards (1) --" in text
+    assert "-- Reshards decided by greedy pass (1) --" in text
     assert "op2 ttnn.matmul -> op3 ttnn.matmul (operand 0)" in text
