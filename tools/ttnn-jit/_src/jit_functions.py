@@ -453,7 +453,19 @@ class MatmulOpHandler(BaseOpHandler):
                 self.jit_ctx.core_grid,
             )
 
-        shape = [lhs_shape[0], rhs_shape[-1]]
+        # numpy-style right-aligned broadcast of the batch dims (mirrors
+        # interception_tracer._linear_handler / the ttir.LinearOp verifier);
+        # a plain [lhs_shape[0], rhs_shape[-1]] mis-ranks whenever either
+        # operand carries batch dims (e.g. [1, 1, M, K] x [1, 1, K, N]).
+        lhs_batch, rhs_batch = lhs_shape[:-2], rhs_shape[:-2]
+        n = max(len(lhs_batch), len(rhs_batch))
+        lhs_batch = [1] * (n - len(lhs_batch)) + lhs_batch
+        rhs_batch = [1] * (n - len(rhs_batch)) + rhs_batch
+        batch_shape = [
+            a if b == 1 else b if a == 1 else max(a, b)
+            for a, b in zip(lhs_batch, rhs_batch)
+        ]
+        shape = batch_shape + [lhs_shape[-2], rhs_shape[-1]]
         element_type = lhs_type.element_type
 
         with Location.unknown(self.jit_ctx.ctx):

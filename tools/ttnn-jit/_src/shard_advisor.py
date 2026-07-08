@@ -6,7 +6,10 @@
 import inspect
 import os
 
-from ttnn_jit.ttmlir.passes import ttir_to_ttnn_runtime_pipeline
+from ttnn_jit.ttmlir.passes import (
+    ttir_to_ttnn_runtime_pipeline,
+    run_pipeline,
+)
 from ttnn_jit._src.ir_generator import generate_ir
 from ttnn_jit._src import (
     get_current_system_desc,
@@ -69,11 +72,13 @@ class ShardAdvisor:
         out_dir: str = None,
         extra_pipeline_options: str = "",
         tracer: str = "rewrite",
+        pipeline: str = "scoped",
     ):
         self.func = func
         self.optimization_level = optimization_level
         self.debug = debug
         self.tracer = tracer
+        self.pipeline = pipeline
         self.out_dir = out_dir or os.path.join(
             "generated", "ttnn-jit", func.__name__, "advisor"
         )
@@ -136,7 +141,21 @@ class ShardAdvisor:
             print(f"[shard-advisor] pipeline options: {options}")
 
         # Mutates `ir` in place: TTIR -> TTNN with greedy optimizer + trace.
-        ttir_to_ttnn_runtime_pipeline(ir, options)
+        if self.pipeline == "scoped":
+            try:
+                run_pipeline(ir, "ttir-to-ttnn-l1-advisor", options)
+            except RuntimeError as e:
+                raise RuntimeError(
+                    "scoped ttir-to-ttnn-l1-advisor pipeline failed to lower the "
+                    "traced graph (an op may require decomposition). Retry with "
+                    f"ShardAdvisor(pipeline='full'). Underlying error: {e}"
+                ) from e
+        elif self.pipeline == "full":
+            ttir_to_ttnn_runtime_pipeline(ir, options)
+        else:
+            raise ValueError(
+                f"unknown pipeline {self.pipeline!r}; expected 'scoped' or 'full'"
+            )
 
         trace_path = os.path.join(
             trace_dir, f"{self.func.__name__}_decision_trace.json"

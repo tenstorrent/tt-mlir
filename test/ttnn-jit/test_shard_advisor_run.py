@@ -13,6 +13,7 @@ def _matmul(a, b):
     return ttnn.matmul(a, b)
 
 
+@pytest.mark.forked
 def test_shard_advisor_run_produces_report(device):
     a = create_dram_tensor(device, (256, 256), torch.bfloat16)
     b = create_dram_tensor(device, (256, 256), torch.bfloat16)

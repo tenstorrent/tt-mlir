@@ -7,6 +7,7 @@ Exercises the full trace -> greedy optimizer -> decision-trace -> report path
 on a multi-op graph (2 matmuls + bias + activation + gate + unary + residual),
 rather than a single op. Requires a TT device and SYSTEM_DESC_PATH.
 """
+import pytest
 import torch
 import ttnn
 
@@ -16,16 +17,17 @@ from utils import create_dram_tensor
 
 
 def ffn_block(x, w1, b1, w2):
-    h = ttnn.matmul(x, w1)   # up-projection   [256,512]x[512,1024] -> [256,1024]
-    h = ttnn.add(h, b1)      # bias            [256,1024]
-    h = ttnn.relu(h)         # activation      [256,1024]
+    h = ttnn.matmul(x, w1)  # up-projection   [256,512]x[512,1024] -> [256,1024]
+    h = ttnn.add(h, b1)  # bias            [256,1024]
+    h = ttnn.relu(h)  # activation      [256,1024]
     h = ttnn.multiply(h, h)  # gate            [256,1024]
-    y = ttnn.matmul(h, w2)   # down-projection [256,1024]x[1024,512] -> [256,512]
-    z = ttnn.exp(y)          # unary           [256,512]
-    out = ttnn.add(z, y)     # residual-ish    [256,512]
+    y = ttnn.matmul(h, w2)  # down-projection [256,1024]x[1024,512] -> [256,512]
+    z = ttnn.exp(y)  # unary           [256,512]
+    out = ttnn.add(z, y)  # residual-ish    [256,512]
     return out
 
 
+@pytest.mark.forked
 def test_shard_advisor_ffn_block(device):
     advised = ttnn_jit.shard_advisor(optimization_level=2)(ffn_block)
 

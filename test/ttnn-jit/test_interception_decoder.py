@@ -131,10 +131,13 @@ def test_interception_traces_full_decoder(device):
     assert report.trace.total_ops >= 15
     assert len(report.trace.final_choices) >= 15
     assert "=> FINAL:" in report.text
-    # Signature ops of a decoder layer must appear in the advice.
+    # Signature ops of a decoder layer must appear in the advice. ShardAdvisor
+    # now defaults to the scoped 1:1 pipeline (no fusing/decomposition), so the
+    # 5 projections stay ttnn.linear (as traced) rather than being decomposed
+    # into ttnn.matmul the way the full runtime pipeline would.
     for op in (
         "ttnn.rms_norm",
-        "ttnn.matmul",
+        "ttnn.linear",
         "ttnn.rotary_embedding_llama",
         "ttnn.scaled_dot_product_attention",
     ):

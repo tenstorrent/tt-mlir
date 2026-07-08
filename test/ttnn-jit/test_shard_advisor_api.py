@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: (c) 2025 Tenstorrent AI ULC
 #
 # SPDX-License-Identifier: Apache-2.0
+import pytest
 import ttnn
 import torch
 
@@ -9,6 +10,7 @@ from ttnn_jit._src.shard_advisor import AdvisorReport
 from utils import create_dram_tensor
 
 
+@pytest.mark.forked
 def test_shard_advisor_decorator_end_to_end(device):
     @ttnn_jit.shard_advisor(optimization_level=2)
     def model(a, b):
