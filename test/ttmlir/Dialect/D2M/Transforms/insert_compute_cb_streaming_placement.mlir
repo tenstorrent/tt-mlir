@@ -27,7 +27,7 @@ module attributes {ttcore.system_desc = #system_desc} {
     %y_cb = memref.alloc() {address = 3072 : i64, alignment = 16 : i64, d2m.synchronized_buffer = 2 : i32} : memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 2>, #l1>
     %out_cb = memref.alloc() {address = 5120 : i64, alignment = 16 : i64, d2m.synchronized_buffer = 2 : i32} : memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 2>, #l1>
     // Operand indices (== CB ports): x_cb = 3, y_cb = 4, out_cb = 5.
-    d2m.generic {block_factors = [], grid = #ttcore.grid<8x8>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+    d2m.generic {block_factors = [], grid = #ttcore.grid<1x1>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
         ins(%x_dram, %y_dram : memref<1x1x1x1x!ttcore.tile<32x32, bf16>, #ttcore.interleaved<2048x2048>, #dram>, memref<1x1x1x1x!ttcore.tile<32x32, bf16>, #ttcore.interleaved<2048x2048>, #dram>)
         outs(%out_dram : memref<1x1x1x1x!ttcore.tile<32x32, bf16>, #ttcore.interleaved<2048x2048>, #dram>)
         additionalArgs(%x_cb, %y_cb, %out_cb : memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 2>, #l1>, memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 2>, #l1>, memref<1x1x!ttcore.tile<32x32, bf16>, #ttcore.cb_layout<2048x2048, 2>, #l1>)
