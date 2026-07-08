@@ -17,6 +17,8 @@ from ttnn_jit.ttmlir.ir import (
     F32Type,
     FloatAttr,
     IntegerType,
+    Attribute,
+    DictAttr,
 )
 
 import ttnn
@@ -585,13 +587,39 @@ def _collect_keepalive_anchors(block, return_value):
     return anchors
 
 
-def _finalize_signature(module, func_op, input_types, return_value, ctx):
-    """Add the return op and rebuild the func with the correct result type.
+def _lift_weights_to_args(old_block, weight_values, ctx):
+    """Replace captured-weight ttir.empty placeholders with function arguments.
+
+    The tracer materializes captured tensors (weights, KV caches, page tables,
+    rope tables) as ttir.empty. Lifting them to real function arguments lets the
+    optimizer model them as DRAM-resident parameters (as in a real compile)
+    instead of freshly-allocated intermediates. Returns the appended arg types
+    in order so the caller can extend the function signature.
+    """
+    loc = Location.unknown(ctx)
+    weight_types = []
+    empties = []
+    for wv in weight_values:
+        weight_types.append(wv.type)
+        new_arg = old_block.add_argument(wv.type, loc)
+        empties.append(wv.owner)
+        wv.replace_all_uses_with(new_arg)
+    for empty_op in empties:
+        empty_op.erase()
+    return weight_types
+
+
+def _finalize_signature(module, func_op, input_types, return_value, ctx, weight_values):
+    """Add the return op and rebuild the func with the correct signature.
 
     Mirrors TracingCompiler._update_function_signature: MLIR can't mutate a func
-    signature in place, so recreate the func and move the body block.
+    signature in place, so recreate the func and move the body block. Captured
+    weights are lifted to trailing function arguments (tagged as parameters);
+    the original traced activations stay as the leading arguments (tagged input).
     """
     old_block = func_op.regions[0].blocks[0]
+    weight_types = _lift_weights_to_args(old_block, weight_values, ctx)
+
     results = [return_value, *_collect_keepalive_anchors(old_block, return_value)]
     if not old_block.operations or not isinstance(
         old_block.operations[-1], func.ReturnOp
@@ -599,13 +627,26 @@ def _finalize_signature(module, func_op, input_types, return_value, ctx):
         with InsertionPoint(old_block), Location.unknown(ctx):
             func.ReturnOp(results)
 
+    all_input_types = list(input_types) + weight_types
     with InsertionPoint(module.body), Location.unknown(ctx):
         new_func = func.FuncOp(
             name=func_op.name.value,
-            type=(input_types, [r.type for r in results]),
+            type=(all_input_types, [r.type for r in results]),
         )
     old_block.append_to(new_func.regions[0])
     func_op.erase()
+
+    # Tag args: leading traced activations as <input>, lifted weights as
+    # <parameter>, so the optimizer can distinguish weights from activations.
+    n_inputs = len(input_types)
+    input_attr = Attribute.parse("#ttcore.argument_type<input>", ctx)
+    param_attr = Attribute.parse("#ttcore.argument_type<parameter>", ctx)
+    new_func.arg_attrs = [
+        DictAttr.get(
+            {"ttcore.argument_type": input_attr if i < n_inputs else param_attr}, ctx
+        )
+        for i in range(len(all_input_types))
+    ]
 
 
 def trace_intercepted(fn, *args):
@@ -627,8 +668,14 @@ def trace_intercepted(fn, *args):
         )
 
     return_value = result.mlir_value
+    weight_values = list(scope.jit_ctx.weight_cache.values())
     _finalize_signature(
-        scope.module, scope.func_op, scope.input_types, return_value, scope.ctx
+        scope.module,
+        scope.func_op,
+        scope.input_types,
+        return_value,
+        scope.ctx,
+        weight_values,
     )
     scope.module.operation.verify()
     return scope.module, return_value.type

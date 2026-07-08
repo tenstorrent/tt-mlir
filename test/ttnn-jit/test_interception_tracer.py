@@ -112,9 +112,15 @@ def test_trace_intercepted_cross_function_shape_and_weight_capture():
     assert "ttir.relu" in ir
     assert "ttir.reshape" in ir
     assert "ttir.add" in ir
-    assert "ttir.empty" in ir  # captured weight
-    # exactly one declared parameter (x); the weight is not a param:
-    assert len(module.body.operations[0].arguments) == 1
+    # The captured weight W is lifted to a function argument (tagged as a
+    # parameter), not left as a ttir.empty placeholder, so the optimizer models
+    # it as a DRAM-resident weight rather than a freshly-allocated intermediate.
+    assert "ttir.empty" not in ir
+    # Two args now: the declared activation x (input) + the captured weight W
+    # (parameter).
+    assert len(module.body.operations[0].arguments) == 2
+    assert "#ttcore.argument_type<input>" in ir
+    assert "#ttcore.argument_type<parameter>" in ir
     assert tuple(int(d) for d in out_type.shape) == (256, 512)
 
 
@@ -153,7 +159,9 @@ def test_common_op_handlers_build_ttir():
     w = _DummyTensor((512, 1024), ttnn.bfloat16)
     norm_w = _DummyTensor((512,), ttnn.bfloat16)
     with patch_ttnn(scope.jit_ctx):
-        h = ttnn.linear(x, w, dtype=ttnn.bfloat16, memory_config=ttnn.DRAM_MEMORY_CONFIG)
+        h = ttnn.linear(
+            x, w, dtype=ttnn.bfloat16, memory_config=ttnn.DRAM_MEMORY_CONFIG
+        )
         assert h.shape == (256, 1024)
         g = ttnn.mul(x, x)  # alias for multiply
         assert g.shape == (256, 512)
@@ -212,7 +220,9 @@ def test_nlp_create_qkv_heads_multi_output():
     from ttnn_jit.ttmlir.ir import InsertionPoint, Location
     from ttnn_jit.ttmlir.dialects import func as _func
 
-    scope = build_trace_scope("f", [((1, 1, 32, 6144), _ttnn.bfloat16)])  # 6144 = 128*(32+2*8)
+    scope = build_trace_scope(
+        "f", [((1, 1, 32, 6144), _ttnn.bfloat16)]
+    )  # 6144 = 128*(32+2*8)
     x = scope.traced_args[0]
     with patch_ttnn(scope.jit_ctx):
         q, k, v = _ttnn.experimental.nlp_create_qkv_heads(
@@ -242,7 +252,9 @@ def test_sdpa_output_matches_query_shape():
     kdummy = _DummyTensor((1, 8, 32, 128), _ttnn.bfloat16)
     vdummy = _DummyTensor((1, 8, 32, 128), _ttnn.bfloat16)
     with patch_ttnn(scope.jit_ctx):
-        out = _ttnn.transformer.scaled_dot_product_attention(q, kdummy, vdummy, is_causal=True)
+        out = _ttnn.transformer.scaled_dot_product_attention(
+            q, kdummy, vdummy, is_causal=True
+        )
     assert out.shape == (1, 32, 32, 128)
     assert "scaled_dot_product_attention" in str(scope.module)
     # build_trace_scope's func body has no terminator (this test doesn't run
@@ -291,7 +303,9 @@ def test_paged_fill_cache_returns_cache_shape():
         # Real call sites pass a scalar batch_idx (not batch_idx_tensor); the
         # handler ignores it via **kwargs -- the TTIR op only models the
         # optional batch_idx_tensor operand.
-        out = _ttnn.experimental.paged_fill_cache(cache, k_fill, page_table, batch_idx=0)
+        out = _ttnn.experimental.paged_fill_cache(
+            cache, k_fill, page_table, batch_idx=0
+        )
     assert out.shape == (4, 8, 32, 128)  # result = cache shape
     assert "paged_fill_cache" in str(scope.module)
     # out's type matches cache's type, which matches the func's pre-declared
@@ -310,7 +324,9 @@ def test_chunked_sdpa_output_matches_query_shape():
     q = scope.traced_args[0]
     kdummy = _DummyTensor((1, 8, 32, 128), _ttnn.bfloat16)
     vdummy = _DummyTensor((1, 8, 32, 128), _ttnn.bfloat16)
-    page_table = _DummyTensor((1, 4), _ttnn.uint32)  # captured but unused by the SDPA mapping
+    page_table = _DummyTensor(
+        (1, 4), _ttnn.uint32
+    )  # captured but unused by the SDPA mapping
     with patch_ttnn(scope.jit_ctx):
         out = _ttnn.transformer.chunked_scaled_dot_product_attention(
             input_tensor_q=q,
@@ -335,10 +351,14 @@ def test_synthetic_attention_chain_traces():
         )
         # (RoPE omitted — Plan C.) Repeat kv to match q heads is handled inside sdpa;
         # here we pass q,k,v straight to sdpa for the op-chain smoke.
-        attn_out = _ttnn.transformer.scaled_dot_product_attention(q, k, v, is_causal=True)
+        attn_out = _ttnn.transformer.scaled_dot_product_attention(
+            q, k, v, is_causal=True
+        )
         return _ttnn.experimental.nlp_concat_heads(attn_out)
 
-    module, out_type = trace_intercepted(attn, _DummyTensor((1, 1, 32, 6144), _ttnn.bfloat16))
+    module, out_type = trace_intercepted(
+        attn, _DummyTensor((1, 1, 32, 6144), _ttnn.bfloat16)
+    )
     ir = str(module)
     assert "split_query_key_value_and_split_heads" in ir
     assert "scaled_dot_product_attention" in ir
@@ -348,12 +368,15 @@ def test_synthetic_attention_chain_traces():
 
 def test_rotary_embedding_llama_handler():
     import ttnn as _ttnn
+
     scope = build_trace_scope("f", [((1, 32, 32, 128), _ttnn.bfloat16)])
     x = scope.traced_args[0]
     cos = _DummyTensor((1, 1, 32, 128), _ttnn.bfloat16)
     sin = _DummyTensor((1, 1, 32, 128), _ttnn.bfloat16)
     tm = _DummyTensor((1, 1, 32, 32), _ttnn.bfloat16)
     with patch_ttnn(scope.jit_ctx):
-        out = _ttnn.experimental.rotary_embedding_llama(x, cos, sin, tm, is_decode_mode=False)
+        out = _ttnn.experimental.rotary_embedding_llama(
+            x, cos, sin, tm, is_decode_mode=False
+        )
     assert out.shape == (1, 32, 32, 128)
     assert "rotary_embedding_llama" in str(scope.module)
