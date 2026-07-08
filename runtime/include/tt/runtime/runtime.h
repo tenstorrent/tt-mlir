@@ -233,6 +233,11 @@ std::vector<Tensor> getDeviceTensors(Tensor tensor);
 Tensor toLayout(Tensor tensor, Device device, Layout layout,
                 std::optional<bool> retain = std::nullopt);
 
+// Device-side independent copy of `tensor` (wraps ttnn::clone): allocates a new
+// tensor and copies on device, so callers get copy (not alias) semantics with no
+// host round-trip. Preserves the source's layout / memory config / distribution.
+Tensor clone(Tensor tensor);
+
 bool hasLayout(Tensor tensor, Layout layout);
 
 Layout getTensorLayout(Tensor tensor);
