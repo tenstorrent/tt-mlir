@@ -94,12 +94,21 @@ static bool isPureDataMovementOp(mlir::Operation *op) {
   return op->hasTrait<TensorManipulation::Trait>() || mlir::isa<TypecastOp>(op);
 }
 
-// Check if an op rearranges data layout/shape (transpose, reshape, permute,
-// rearrange). Unlike a bare typecast, such an op produces a differently-shaped
-// tensor that downstream device passes may want to handle (e.g. folding a
-// weight transpose into a matmul's transpose_b).
-static bool isTensorManipulationOp(mlir::Operation *op) {
-  return op->hasTrait<TensorManipulation::Trait>();
+// Check if a segment is pure data movement that should be kept on device: every
+// op only rearranges/retypes data (no arithmetic) and at least one op changes
+// shape/layout (transpose, reshape, permute, rearrange). A segment that is
+// *only* typecast(s) is intentionally not treated as pure data movement - the
+// host-storage motivation can still apply there (a conversion can produce a
+// narrower-dtype tensor on host), so it is left to the normal hoisting path.
+static bool isPureDataMovementSegment(const OpsVectorType &segment) {
+  bool anyTensorManipulation = false;
+  for (auto *op : segment) {
+    if (!isPureDataMovementOp(op)) {
+      return false;
+    }
+    anyTensorManipulation |= op->hasTrait<TensorManipulation::Trait>();
+  }
+  return anyTensorManipulation;
 }
 
 // Check if an op is a barrier for CPU hoisting - CCL and MeshShard ops must
@@ -195,37 +204,21 @@ analyzeConstEval(func::FuncOp funcOp, bool hoistDataMovement) {
     segments.push_back(std::move(currentSegment));
   }
 
-  // Skip CPU-hoisting of const-eval subgraphs that perform no arithmetic and
-  // include at least one shape/layout-changing op - i.e. pure data-movement
-  // graphs (transpose, permute, reshape; optionally interleaved with
-  // typecast). The precision motivation for CPU-hoisting does not apply: a
-  // permutation/retype is exact regardless of element type. Hoisting them only
-  // adds a bf16->f32->bf16 typecast round-trip plus a host round-trip, and
-  // prevents on-device handling of the movement op (e.g. folding a weight
-  // transpose into a matmul's transpose_b). Keep these on device.
-  //
-  // Note: a subgraph that is *only* typecast(s) is intentionally still hoisted.
-  // For those the host-storage motivation can still apply - the conversion can
-  // produce a narrower-dtype tensor on host, lowering what is materialized on
-  // device - so it is left to the existing hoisting path.
-  //
-  // The hoist-data-movement option restores the legacy behavior (hoist these
-  // anyway) as an escape hatch for A/B comparison.
-  bool allPureDataMovement = true;
-  bool anyTensorManipulation = false;
-  for (const auto &segment : segments) {
-    for (auto *op : segment) {
-      allPureDataMovement &= isPureDataMovementOp(op);
-      anyTensorManipulation |= isTensorManipulationOp(op);
-    }
-  }
-  if (!hoistDataMovement && allPureDataMovement && anyTensorManipulation) {
-    return {};
-  }
-
   // Build a CPUHoistedOpsDescriptor descriptor for each segment.
   llvm::SmallVector<CPUHoistedOpsDescriptor> descriptors;
   for (const auto &segment : segments) {
+    // Skip CPU-hoisting of pure data-movement segments (transpose, permute,
+    // reshape; optionally interleaved with typecast). The precision motivation
+    // for CPU-hoisting does not apply: a permutation/retype is exact regardless
+    // of element type. Hoisting them only adds a bf16->f32->bf16 typecast
+    // round-trip plus a host round-trip, and prevents on-device handling of the
+    // movement op (e.g. folding a weight transpose into a matmul's
+    // transpose_b). Keep these on device. The hoist-data-movement option
+    // restores the legacy behavior (hoist them anyway) as an A/B escape hatch.
+    if (!hoistDataMovement && isPureDataMovementSegment(segment)) {
+      continue;
+    }
+
     // Verify all ops can be lowered to Linalg. If any op fails, skip
     // CPU-hoisting this segment.
     auto *unlowerableOp = llvm::find_if(segment, [&](mlir::Operation *op) {
