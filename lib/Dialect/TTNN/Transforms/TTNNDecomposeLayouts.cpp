@@ -517,6 +517,16 @@ private:
       return createLayoutStep(rewriter, current, output, padWorkaround);
     }
     if (!needsLayoutChange && needDtype) {
+      // ttnn.typecast on device produces wrong results in row-major layout, so
+      // never typecast a row-major tensor on device: tilize around the cast so
+      // it runs on a TILE tensor, then untilize back.
+      if (onDevice && !output.isTiled() &&
+          isOnDeviceLayoutChangeSupportedForDataType(input.getDataType()) &&
+          isOnDeviceLayoutChangeSupportedForDataType(output.getDataType())) {
+        current = createToLayoutOp(rewriter, current, ttnn::Layout::Tile);
+        current = createTypecastOp(rewriter, current, output.getDataType());
+        return createToLayoutOp(rewriter, current, ttnn::Layout::RowMajor);
+      }
       return createTypecastOp(rewriter, current, output.getDataType());
     }
 
@@ -577,17 +587,44 @@ private:
                            : output.isDeviceBufferType();
   }
 
+  // A combined layout+dtype change run on device emits a ttnn.typecast on a
+  // row-major tensor (which ttnn miscomputes) unless the tensor can be kept in
+  // TILE across the cast:
+  //   - untilize (input TILE): typecast TILE->TILE first, then untilize in the
+  //     OUTPUT dtype - which needs the output dtype to (un)tilize on device;
+  //   - tilize (input RM): tilize in the INPUT dtype, then typecast TILE->TILE
+  //     - which needs the input dtype to (un)tilize on device (the fused
+  //     float-family tilize+cast single op also avoids the row-major cast).
+  // When neither holds, the on-device path casts a row-major tensor. Pushing
+  // the (un)tilize to host (with the typecast staying on device as TILE->TILE)
+  // avoids it. Complements layoutChangeNeedsHost, which covers the (un)tilize
+  // that must run on host regardless of any dtype change.
+  bool onDeviceTypecastWouldBeRowMajor(TTNNLayoutAttr input,
+                                       TTNNLayoutAttr output) const {
+    if (!hasLayoutChange(input, output) || !hasDtypeChange(input, output)) {
+      return false;
+    }
+    if (input.isTiled()) {
+      return !isOnDeviceLayoutChangeSupportedForDataType(output.getDataType());
+    }
+    if (isFloatFamily(input.getDataType()) &&
+        isFloatFamily(output.getDataType())) {
+      return false;
+    }
+    return !isOnDeviceLayoutChangeSupportedForDataType(input.getDataType());
+  }
+
   //===--------------------------------------------------------------------===//
   // Orchestration.
   //===--------------------------------------------------------------------===//
 
   mlir::LogicalResult createLayoutConversionOps(ttnn::ToLayoutOp op,
                                                 IRRewriter &rewriter) const {
-    auto [input, output] = getInputOutputLayouts(op);
+    auto [inputLayout, outputLayout] = getInputOutputLayouts(op);
 
-    bool needsLayoutChange = hasLayoutChange(input, output);
-    bool needDtype = hasDtypeChange(input, output);
-    bool needMemory = hasMemoryChange(input, output);
+    bool needsLayoutChange = hasLayoutChange(inputLayout, outputLayout);
+    bool needDtype = hasDtypeChange(inputLayout, outputLayout);
+    bool needMemory = hasMemoryChange(inputLayout, outputLayout);
 
     if (!needsLayoutChange && !needDtype && !needMemory) {
       op->emitError(
@@ -596,7 +633,8 @@ private:
       return failure();
     }
 
-    mlir::Value current = buildLayoutConversion(op, rewriter, input, output);
+    mlir::Value current =
+        buildLayoutConversion(op, rewriter, inputLayout, outputLayout);
 
     op.getResult().replaceAllUsesWith(current);
     return success();
@@ -604,8 +642,8 @@ private:
 
   // Emits the layout/dtype/memory conversion ops and returns the final value.
   mlir::Value buildLayoutConversion(ttnn::ToLayoutOp op, IRRewriter &rewriter,
-                                    TTNNLayoutAttr input,
-                                    TTNNLayoutAttr output) const {
+                                    TTNNLayoutAttr inputLayout,
+                                    TTNNLayoutAttr outputLayout) const {
     mlir::Value current = op.getInput();
 
     rewriter.setInsertionPoint(op);
@@ -613,28 +651,36 @@ private:
     // CPU-hoisted boundaries keep the layout/typecast work on host.
     bool isCpuHoistedInputOrResult = isOutputFromCPUHoistedFunction(current) ||
                                      isInputToCPUHoistedFunction(op);
-    bool bothOnHost = input.isSystemBufferType() && output.isSystemBufferType();
-    bool layoutNeedsHost = layoutChangeNeedsHost(input, output);
+    bool bothOnHost =
+        inputLayout.isSystemBufferType() && outputLayout.isSystemBufferType();
+    // Run the (un)tilize on host when it cannot run on device at all
+    // (layoutChangeNeedsHost) or when running it on device would force the
+    // typecast onto a row-major tensor (onDeviceTypecastWouldBeRowMajor). In
+    // both cases the typecast can still stay on device as a TILE->TILE op.
+    bool layoutNeedsHost =
+        layoutChangeNeedsHost(inputLayout, outputLayout) ||
+        onDeviceTypecastWouldBeRowMajor(inputLayout, outputLayout);
 
     // The typecast runs on host only for genuinely host-resident work: both
     // sides on host, a CPU-hoisted boundary, or a host (un)tilize whose device
     // side cannot hold the TILE tensor for an on-device typecast.
-    bool fullyOnHost =
-        bothOnHost || isCpuHoistedInputOrResult ||
-        (layoutNeedsHost && !canKeepTypecastOnDevice(input, output));
+    bool fullyOnHost = bothOnHost || isCpuHoistedInputOrResult ||
+                       (layoutNeedsHost &&
+                        !canKeepTypecastOnDevice(inputLayout, outputLayout));
 
     if (fullyOnHost) {
       // Bring the tensor to host (if needed), do the layout/dtype changes
       // there, then move to the output memory (if it is on device). to_device
       // carries the full target memory config, so no separate to_memory_config
       // is required.
-      if (input.isDeviceBufferType()) {
+      if (inputLayout.isDeviceBufferType()) {
         current = createFromDeviceOp(rewriter, current);
       }
-      current = layoutAndDtypeTransformations(rewriter, current, input, output,
+      current = layoutAndDtypeTransformations(rewriter, current, inputLayout,
+                                              outputLayout,
                                               /*onDevice=*/false);
-      if (output.isDeviceBufferType()) {
-        current = createToDeviceOp(rewriter, current, output);
+      if (outputLayout.isDeviceBufferType()) {
+        current = createToDeviceOp(rewriter, current, outputLayout);
       }
       return current;
     }
@@ -643,52 +689,55 @@ private:
       // The tilize/untilize must run on host, but the typecast stays on device
       // as a TILE->TILE op (the dtype is preserved across the host round-trip).
       // Reached only when canKeepTypecastOnDevice(input, output) holds.
-      bool needDtype = hasDtypeChange(input, output);
-      if (input.isTiled()) {
+      bool needDtype = hasDtypeChange(inputLayout, outputLayout);
+      if (inputLayout.isTiled()) {
         // Untilize: typecast on device (TILE) first, untilize on host, then
         // land in the output memory.
         if (needDtype) {
-          current = createTypecastOp(rewriter, current, output.getDataType());
+          current =
+              createTypecastOp(rewriter, current, outputLayout.getDataType());
         }
         current = createFromDeviceOp(rewriter, current);
-        current = createLayoutStep(rewriter, current, output,
+        current = createLayoutStep(rewriter, current, outputLayout,
                                    /*padWorkaround=*/false);
-        if (output.isDeviceBufferType()) {
-          current = createToDeviceOp(rewriter, current, output);
+        if (outputLayout.isDeviceBufferType()) {
+          current = createToDeviceOp(rewriter, current, outputLayout);
         }
         return current;
       }
       // Tilize: tilize on host (dtype preserved), move to the output memory,
       // then typecast on device (TILE).
-      if (input.isDeviceBufferType()) {
+      if (inputLayout.isDeviceBufferType()) {
         current = createFromDeviceOp(rewriter, current);
       }
-      current = createLayoutStep(rewriter, current, output,
+      current = createLayoutStep(rewriter, current, outputLayout,
                                  /*padWorkaround=*/false);
-      current = createToDeviceOp(rewriter, current, output);
+      current = createToDeviceOp(rewriter, current, outputLayout);
       if (needDtype) {
-        current = createTypecastOp(rewriter, current, output.getDataType());
+        current =
+            createTypecastOp(rewriter, current, outputLayout.getDataType());
       }
       return current;
     }
 
-    if (shouldLayoutAndDtypeChangesRunBeforeMemoryMove(input, output)) {
+    if (shouldLayoutAndDtypeChangesRunBeforeMemoryMove(inputLayout,
+                                                       outputLayout)) {
       // The layout/dtype changes run in the input memory; the memory move (if
       // any) comes after.
-      current = layoutAndDtypeTransformations(rewriter, current, input, output,
-                                              /*onDevice=*/true);
+      current = layoutAndDtypeTransformations(rewriter, current, inputLayout,
+                                              outputLayout, /*onDevice=*/true);
       auto currentEncoding = mlir::cast<TTNNLayoutAttr>(
           mlir::cast<RankedTensorType>(current.getType()).getEncoding());
-      if (hasMemoryChange(currentEncoding, output)) {
-        current = createMemoryMove(rewriter, current, output);
+      if (hasMemoryChange(currentEncoding, outputLayout)) {
+        current = createMemoryMove(rewriter, current, outputLayout);
       }
       return current;
     }
 
     // Move to the output memory first, then run the layout/dtype changes.
-    current = createMemoryMove(rewriter, current, output);
-    return layoutAndDtypeTransformations(rewriter, current, input, output,
-                                         /*onDevice=*/true);
+    current = createMemoryMove(rewriter, current, outputLayout);
+    return layoutAndDtypeTransformations(rewriter, current, inputLayout,
+                                         outputLayout, /*onDevice=*/true);
   }
 };
 } // namespace mlir::tt::ttnn
