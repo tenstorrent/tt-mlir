@@ -59,14 +59,124 @@ static unsigned getDMACBPort(GenericOp generic, Operation *op) {
       });
 }
 
-// Verify each CB's synchronization scope is well-formed. A sync scope is a
-// property of each CB, not the whole region: the wait/pop (or reserve/push)
-// cadence is set by the loop block its DMA marker lives in. The only
-// unsupported case is a *single* CB whose markers sit in distinct loop nests --
-// one per-block sync pair can't balance that and would deadlock. Different CBs
-// in different nests are fine (e.g. matmul: A/B stream in the K-loop while C is
-// stored once per output tile in the persistent loop).
+// The top-level loop nest `op` belongs to: the outermost ancestor that is a
+// direct child of the region block, if that ancestor is an scf.for. Compute may
+// touch one CB from several blocks of the same nest (matmul: K-loop accumulate
+// + copy-out), so nests, not blocks, are the unit of confinement on the compute
+// side. Accesses at the region top level (a one-time CB init like
+// fill_arange_tile, or bare tile ops) are not in a loop nest and return null --
+// they sit at depth 0, compatible with any single nest.
+static Operation *topLevelNest(Operation *op, Block *regionBlock) {
+  Operation *a = op;
+  while (a->getBlock() != regionBlock) {
+    a = a->getParentOp();
+  }
+  return isa<scf::ForOp>(a) ? a : nullptr;
+}
+
+// Verify that a CB synchronization pair is balanced, i.e.:
+//  1. DMA-Side: CB's data movement markers occupy a single block/nest
+//  2. Compute-side: CB's compute accesses occupy a single block/nset
+//  3. Nesting is well formed: if a scf.for/linalg.generic sits between a
+//  compute op and its sync scope, allow sync to be placed at the appropriate
+//  loop depth.
+//
+// Note that (1) and (2) are separate checks because it is legal for the same CB
+// to sit in *different* depths between the compute and data movement kernels.
 static LogicalResult checkComputeSyncScope(GenericOp generic) {
+#if 1
+  Region &region = generic.getRegion(0);
+  Operation *genericOp = generic.getOperation();
+
+  // Map every CB-derived value -- each additionalArg CB and the
+  // collapse_shape/subview results viewing it -- to its port, so any op that
+  // reads or writes a CB is attributable in one walk. Scratch and
+  // reduction-scaler additionalArgs are not CBs.
+  DenseMap<Value, unsigned> cbValueToPort;
+  for (Value cb : generic.getAdditionalArgs()) {
+    Operation *def = cb.getDefiningOp();
+    if (def && (def->hasAttr("d2m.scratch_buffer") ||
+                utils::isReductionScalerBuffer(def))) {
+      continue;
+    }
+    unsigned port = generic.getOperandIndex(cb);
+    SmallVector<Value> worklist{cb};
+    while (!worklist.empty()) {
+      Value v = worklist.pop_back_val();
+      cbValueToPort.try_emplace(v, port);
+      for (Operation *user : v.getUsers()) {
+        if (isa<memref::CollapseShapeOp, memref::SubViewOp>(user)) {
+          worklist.push_back(user->getResult(0));
+        }
+      }
+    }
+  }
+
+  // One walk gathers everything: per-CB DMA blocks and compute nests, the
+  // parents of synchronizable ops (which bound the nesting climb), and the
+  // compute ops. DMA markers are discrete transfers, so they are confined per
+  // block; compute may touch a CB from several blocks of one nest, so it is
+  // confined per top-level nest.
+  Block *regionBlock = &region.front();
+  llvm::MapVector<unsigned, DenseSet<Block *>> dmaBlocks;
+  llvm::MapVector<unsigned, DenseSet<Operation *>> computeNests;
+  DenseSet<Operation *> synchronizableParents;
+  SmallVector<Operation *> computeOps;
+  region.walk([&](Operation *op) {
+    if (isa<SynchronizableOpInterface>(op)) {
+      synchronizableParents.insert(op->getParentOp());
+    }
+    if (isa<memref::CollapseShapeOp, memref::SubViewOp>(op)) {
+      return; // a view, not an access
+    }
+    if (isa<ShardDMAOpInterface>(op)) {
+      dmaBlocks[getDMACBPort(generic, op)].insert(op->getBlock());
+      return;
+    }
+    if (Operation *nest = topLevelNest(op, regionBlock)) {
+      for (Value operand : op->getOperands()) {
+        if (auto it = cbValueToPort.find(operand); it != cbValueToPort.end()) {
+          computeNests[it->second].insert(nest);
+        }
+      }
+    }
+    if (op->hasTrait<D2MGenericRegionComputeOpTrait>()) {
+      computeOps.push_back(op);
+    }
+  });
+
+  // (1) + (2): each side of each CB confined to one block/nest.
+  auto checkConfined = [&](auto &spansByPort, StringRef side) -> LogicalResult {
+    for (auto &[port, spans] : spansByPort) {
+      if (spans.size() > 1) {
+        return generic.emitOpError()
+               << "circular buffer (port " << port << ") has " << side
+               << " accesses across distinct loop nests; cross-nest fan-out is "
+                  "not yet supported (would deadlock on a cadence mismatch)";
+      }
+    }
+    return success();
+  };
+
+  if (failed(checkConfined(dmaBlocks, "data-movement")) ||
+      failed(checkConfined(computeNests, "compute"))) {
+    return failure();
+  }
+
+  // (3): only scf.for / linalg.generic between a compute op and its sync scope.
+  for (Operation *op : computeOps) {
+    Operation *a = op;
+    while (a->getParentOp() != genericOp &&
+           !synchronizableParents.contains(a->getParentOp())) {
+      a = a->getParentOp();
+      if (!isa<scf::ForOp, linalg::GenericOp>(a)) {
+        return a->emitOpError("parent ops containing compute ops must be "
+                              "scf.for or linalg.generic");
+      }
+    }
+  }
+  return success();
+#else
   // Parents of synchronizable ops bound the raw-span climb below: a compute op
   // never climbs past a loop that itself carries a DMA marker.
   DenseSet<Operation *> opsWithSynchronizableOps;
@@ -113,6 +223,7 @@ static LogicalResult checkComputeSyncScope(GenericOp generic) {
     return WalkResult::advance();
   });
   return result;
+#endif
 }
 
 // ---------------------------------------------------------------------------
