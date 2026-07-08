@@ -352,13 +352,6 @@ struct TTIRToTTNNCommonPipelineOptions
       *this, "enable-d2m-elementwise-fusion",
       llvm::cl::desc("Enable elementwise fusion pass."), llvm::cl::init(false)};
 
-  // Enable fusing of conv2d + multiply pattern.
-  // If not explicitly set, determined by optimization_level.
-  mutable Option<bool> enableFusingConv2dWithMultiplyPattern{
-      *this, "enable-fusing-conv2d-with-multiply-pattern",
-      llvm::cl::desc("Enable Conv2dWithMultiply pattern in the fusing pass."),
-      llvm::cl::init(false)};
-
   // Enable fusing of permute + matmul/linear pattern.
   Option<bool> enablePermuteMatmulFusion{
       *this, "enable-permute-matmul-fusion",
@@ -597,9 +590,6 @@ struct TTIRToTTNNCommonPipelineOptions
     // Use getNumOccurrences() to detect explicit user settings.
     if (optimizerPassEnabled.getNumOccurrences() == 0) {
       optimizerPassEnabled = (optimizationLevel >= 1);
-    }
-    if (enableFusingConv2dWithMultiplyPattern.getNumOccurrences() == 0) {
-      enableFusingConv2dWithMultiplyPattern = (optimizationLevel >= 1);
     }
     if (memoryLayoutAnalysisEnabled.getNumOccurrences() == 0) {
       memoryLayoutAnalysisEnabled = (optimizationLevel >= 2);

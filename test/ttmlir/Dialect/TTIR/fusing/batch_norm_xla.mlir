@@ -1,4 +1,4 @@
-// RUN: ttmlir-opt --ttir-fusing="ttnn-enable-conv2d-with-multiply-pattern=true" -o %t %s
+// RUN: ttmlir-opt --ttir-fusing -o %t %s
 // RUN: FileCheck %s --input-file=%t
 module {
 func.func @test_batch_norm_decomposition(%arg0: tensor<1x3x224x224xbf16>, %arg1: tensor<64x3x7x7xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg2: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg3: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg4: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}, %arg5: tensor<64xbf16> {ttcore.argument_type = #ttcore.argument_type<constant>}) -> tensor<1x64x112x112xbf16> {
