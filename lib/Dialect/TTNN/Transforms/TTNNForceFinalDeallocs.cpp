@@ -104,7 +104,14 @@ public:
       TTNNForceFinalDeallocs>::TTNNForceFinalDeallocsBase;
 
   void runOnOperation() final {
-    getOperation()->walk([&](func::FuncOp funcOp) { processFunc(funcOp); });
+    getOperation()->walk([&](func::FuncOp funcOp) {
+      if (funcOp.isDeclaration()) {
+        return;
+      }
+      assert(funcOp.getBody().hasOneBlock() &&
+             "found func that didn't have one block!");
+      processFunc(funcOp);
+    });
   }
 
 private:
