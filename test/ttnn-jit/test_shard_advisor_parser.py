@@ -16,7 +16,7 @@ SAMPLE = {
         {
             "opIndex": 0,
             "opName": "ttnn.matmul",
-            "opLocation": "loc(\"m\":1:2)",
+            "opLocation": 'loc("m":1:2)',
             "usedDramFallback": False,
             "beam": [
                 {
@@ -48,6 +48,23 @@ SAMPLE = {
     ],
     "finalChoices": [
         {"opIndex": 0, "opName": "ttnn.matmul", "chosenLayout": "L1/block_sharded/8x4"},
+    ],
+    "edges": [
+        {
+            "producerOpIndex": 0,
+            "consumerOpIndex": 1,
+            "operandIndex": 1,
+            "producerResultIndex": 0,
+            "hasReshard": True,
+            "reshardLayout": "L1/width_sharded/1x64",
+        },
+        {
+            "producerOpIndex": 0,
+            "consumerOpIndex": 1,
+            "operandIndex": 0,
+            "producerResultIndex": 0,
+            "hasReshard": False,
+        },
     ],
     "spillManagement": {
         "budget": 1048576,
@@ -118,3 +135,25 @@ def test_missing_spill_management_marks_not_run():
     r = parse_decision_trace(data)
     assert r.spill.ran is False
     assert r.spill.events == []
+
+
+def test_parses_edges_and_reshards():
+    r = parse_decision_trace(SAMPLE)
+    assert len(r.edges) == 2
+    resharded = [e for e in r.edges if e.has_reshard]
+    assert len(resharded) == 1
+    e = resharded[0]
+    assert e.producer_op_index == 0
+    assert e.consumer_op_index == 1
+    assert e.operand_index == 1
+    assert e.reshard_layout == "L1/width_sharded/1x64"
+    # Non-resharded edge carries no target layout.
+    non = [e for e in r.edges if not e.has_reshard][0]
+    assert non.reshard_layout == ""
+
+
+def test_missing_edges_defaults_empty():
+    data = dict(SAMPLE)
+    data.pop("edges")
+    r = parse_decision_trace(data)
+    assert r.edges == []

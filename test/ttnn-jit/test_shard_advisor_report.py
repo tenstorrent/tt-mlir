@@ -8,11 +8,12 @@ from ttnn_jit._src.decision_trace_parser import (
     FinalChoice,
     SpillSummary,
     SpillEvent,
+    Edge,
 )
 from ttnn_jit._src.advisor_report import render_text_report
 
 
-def _report(spill):
+def _report(spill, edges=None):
     return DecisionTraceReport(
         function_name="my_model",
         beam_width=4,
@@ -29,8 +30,14 @@ def _report(spill):
                 ],
             )
         ],
-        final_choices=[FinalChoice(0, "ttnn.matmul", "L1/block_sharded/8x4")],
+        final_choices=[
+            FinalChoice(0, "ttnn.matmul", "L1/block_sharded/8x4"),
+            FinalChoice(1, "ttnn.reshape", "L1/interleaved"),
+            FinalChoice(2, "ttnn.matmul", "L1/width_sharded/1x64"),
+            FinalChoice(3, "ttnn.matmul", "L1/width_sharded/1x64"),
+        ],
         spill=spill,
+        edges=edges or [],
     )
 
 
@@ -57,7 +64,9 @@ def test_report_renders_pressure_events_only():
         final_live_tensors=3,
         total_spills=1,
         events=[
-            SpillEvent(5, "ttnn.add", "eviction", 900, 700, 200, "ttnn.matmul", "freed"),
+            SpillEvent(
+                5, "ttnn.add", "eviction", 900, 700, 200, "ttnn.matmul", "freed"
+            ),
             SpillEvent(6, "ttnn.add", "live_added", 700, 800, 100, "", ""),
         ],
     )
@@ -67,3 +76,42 @@ def test_report_renders_pressure_events_only():
     assert "victim=ttnn.matmul" in text
     # Bookkeeping action is filtered out of the timeline.
     assert "live_added" not in text
+
+
+def test_report_no_edge_data():
+    text = render_text_report(_report(SpillSummary(ran=False)))
+    assert "-- Reshards (0) --" in text
+    assert "(no edge data in trace)" in text
+
+
+def test_report_no_reshards():
+    edges = [Edge(0, 2, 0, 0, has_reshard=False)]
+    text = render_text_report(_report(SpillSummary(ran=False), edges))
+    assert "-- Reshards (0) --" in text
+    assert "no reshards inserted" in text
+
+
+def test_report_lists_reshards_with_names_and_target_layout():
+    edges = [
+        Edge(0, 1, 0, 0, has_reshard=True, reshard_layout="L1/interleaved"),
+        Edge(2, 3, 0, 0, has_reshard=False),
+    ]
+    text = render_text_report(_report(SpillSummary(ran=False), edges))
+    assert "-- Reshards (1) --" in text
+    # Producer/consumer op names + operand + target layout are all surfaced.
+    assert (
+        "op0 ttnn.matmul -> op1 ttnn.reshape (operand 0): "
+        "reshard into L1/interleaved" in text
+    )
+
+
+def test_report_reshard_between_same_layout_label():
+    # Two ops with the IDENTICAL layout string can still reshard (different
+    # shard shape/grid). This is the case the per-op table cannot reveal, so the
+    # Reshards section must still list it.
+    edges = [
+        Edge(2, 3, 0, 0, has_reshard=True, reshard_layout="L1/width_sharded/1x64"),
+    ]
+    text = render_text_report(_report(SpillSummary(ran=False), edges))
+    assert "-- Reshards (1) --" in text
+    assert "op2 ttnn.matmul -> op3 ttnn.matmul (operand 0)" in text

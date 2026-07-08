@@ -52,6 +52,18 @@ class FinalChoice:
 
 
 @dataclass
+class Edge:
+    producer_op_index: int
+    consumer_op_index: int
+    operand_index: int
+    producer_result_index: int
+    has_reshard: bool
+    # Layout the producer's output is resharded into for this consumer operand;
+    # empty string when has_reshard is False.
+    reshard_layout: str = ""
+
+
+@dataclass
 class SpillEvent:
     position: int
     op_name: str
@@ -81,6 +93,7 @@ class DecisionTraceReport:
     ops: List[OpDecision]
     final_choices: List[FinalChoice]
     spill: SpillSummary
+    edges: List[Edge] = field(default_factory=list)
 
 
 def _parse_beam_entry(entry: dict) -> ValidatedLayout:
@@ -110,6 +123,17 @@ def _parse_final_choice(fc: dict) -> FinalChoice:
         op_index=fc.get("opIndex", 0),
         op_name=fc.get("opName", ""),
         chosen_layout=fc.get("chosenLayout", "null"),
+    )
+
+
+def _parse_edge(e: dict) -> Edge:
+    return Edge(
+        producer_op_index=e.get("producerOpIndex", -1),
+        consumer_op_index=e.get("consumerOpIndex", -1),
+        operand_index=e.get("operandIndex", 0),
+        producer_result_index=e.get("producerResultIndex", 0),
+        has_reshard=e.get("hasReshard", False),
+        reshard_layout=e.get("reshardLayout", ""),
     )
 
 
@@ -146,10 +170,9 @@ def parse_decision_trace(data: dict) -> DecisionTraceReport:
         beam_width=data.get("beamWidth", 0),
         total_ops=data.get("totalOps", 0),
         ops=[_parse_op(op) for op in data.get("forwardPass", [])],
-        final_choices=[
-            _parse_final_choice(fc) for fc in data.get("finalChoices", [])
-        ],
+        final_choices=[_parse_final_choice(fc) for fc in data.get("finalChoices", [])],
         spill=_parse_spill(data),
+        edges=[_parse_edge(e) for e in data.get("edges", [])],
     )
 
 

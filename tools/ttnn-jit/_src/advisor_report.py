@@ -17,6 +17,37 @@ def _fmt_bytes(n: int) -> str:
     return f"{n} B"
 
 
+def _render_reshards(report: DecisionTraceReport, lines: list) -> None:
+    # Reshards live on the edges between ops - a consumer whose chosen input
+    # layout differs from the producer's output layout forces a reshard. These
+    # are invisible in the per-op layout table (two ops can even share the same
+    # layout *label* yet differ in shard shape/grid and still reshard), so
+    # surface them explicitly.
+    name_by_index = {op.op_index: op.op_name for op in report.ops}
+    for fc in report.final_choices:
+        name_by_index.setdefault(fc.op_index, fc.op_name)
+
+    def label(idx: int) -> str:
+        return f"op{idx} {name_by_index.get(idx, '?')}"
+
+    resharded = [e for e in report.edges if e.has_reshard]
+    lines.append(f"-- Reshards ({len(resharded)}) --")
+    if not report.edges:
+        lines.append("    (no edge data in trace)")
+    elif not resharded:
+        lines.append("    no reshards inserted")
+    else:
+        for e in sorted(
+            resharded, key=lambda x: (x.consumer_op_index, x.operand_index)
+        ):
+            lines.append(
+                f"    {label(e.producer_op_index)} -> "
+                f"{label(e.consumer_op_index)} (operand {e.operand_index}): "
+                f"reshard into {e.reshard_layout}"
+            )
+    lines.append("")
+
+
 def render_text_report(report: DecisionTraceReport) -> str:
     lines = []
     lines.append(f"=== L1 Sharding Advisor: {report.function_name} ===")
@@ -39,12 +70,12 @@ def render_text_report(report: DecisionTraceReport) -> str:
         lines.append(f"    => FINAL: {chosen}")
     lines.append("")
 
+    _render_reshards(report, lines)
+
     s = report.spill
     lines.append("-- L1 spill accounting --")
     if not s.ran:
-        lines.append(
-            "    spill management not run (memory-layout-analysis disabled)"
-        )
+        lines.append("    spill management not run (memory-layout-analysis disabled)")
     else:
         pct = (100.0 * s.final_occupied / s.budget) if s.budget else 0.0
         lines.append(
