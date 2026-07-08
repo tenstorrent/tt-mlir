@@ -330,6 +330,17 @@ static LogicalResult insertCBOpsForCompute(
     };
     for (Operation *anchor : sync.anchors) {
       lift(anchor);
+      // A CB read into an SSA value (e.g. a hoisted, loop-invariant reduction
+      // scaler load) stays live until that value's consumers finish, which may
+      // sit deeper than the load itself. Extend the bracket over the
+      // load-result users so the pop lands after the compute that reads the
+      // value, not right after the load. Only memref.load reads produce such a
+      // value; store/tile anchors are themselves the final CB access.
+      if (isa<memref::LoadOp>(anchor)) {
+        for (Operation *user : anchor->getUsers()) {
+          lift(user);
+        }
+      }
     }
     for (OpOperand *use : sync.uses) {
       lift(use->getOwner());
