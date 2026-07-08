@@ -1076,6 +1076,18 @@ void memcpy(Tensor dst, Tensor src) {
       [&]() -> RetType { ::tt::runtime::distributed::memcpy(dst, src); });
 }
 
+Tensor clone(Tensor tensor) {
+  using RetType = Tensor;
+  return DISPATCH_TO_CURRENT_RUNTIME(
+      RetType, [&]() -> RetType { return ::tt::runtime::ttnn::clone(tensor); },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("clone", DeviceRuntime::TTMetal);
+      },
+      [&]() -> RetType {
+        detail::fatalNotImplemented("clone", HostRuntime::Distributed);
+      });
+}
+
 void deallocateTensor(Tensor &tensor, bool force) {
   using RetType = void;
   DISPATCH_TO_CURRENT_RUNTIME(
