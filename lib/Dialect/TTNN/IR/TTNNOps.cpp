@@ -3207,9 +3207,7 @@ namespace {
 // (matches tt-metal's compute_output_specs).
 TTNNLayoutAttr getA2ADrainShardedLayout(MLIRContext *ctx,
                                         RankedTensorType resultType,
-                                        CoreCoordAttr drainCore) {
-  auto drainRange = CoreRangeAttr::get(ctx, drainCore, drainCore);
-  auto drainCrs = CoreRangeSetAttr::get(ctx, {drainRange});
+                                        CoreRangeSetAttr drainCrs) {
   llvm::SmallVector<int64_t, 2> gridShape{1, 1};
   return TTNNLayoutAttr::Builder(resultType)
       .setBufferType(BufferType::L1)
@@ -3245,9 +3243,19 @@ void AllToAllDispatchMetadataOp::allocateBuffers(
 
   MLIRContext *ctx = rewriter.getContext();
 
-  // Persistent-mode drain core: the kernel derives it from the indices/scores
-  // shard spec, so we fix the shard placement to (0,0) here.
-  auto drainCore = CoreCoordAttr::get(ctx, /*x=*/0, /*y=*/0);
+  // Persistent-mode drain core: the consumer moe_compute reads the persistent
+  // indices/scores from CBs on its tilize drain core.
+  // TTNNAllocateDistributedOpBuffers stashes that core here (attr
+  // ttnn.moe_metadata_drain_core) so we place the persistent metadata directly
+  // on it; this avoids a cross-core to_memory_config reshard of the persistent
+  // buffers that deadlocks the collective. Absent the attr, default to (0,0).
+  CoreRangeSetAttr drainCrs =
+      (*this)->getAttrOfType<CoreRangeSetAttr>("ttnn.moe_metadata_drain_core");
+  if (!drainCrs) {
+    auto drainCore = CoreCoordAttr::get(ctx, /*x=*/0, /*y=*/0);
+    drainCrs = CoreRangeSetAttr::get(
+        ctx, {CoreRangeAttr::get(ctx, drainCore, drainCore)});
+  }
 
   auto dispatchedType = cast<RankedTensorType>(getDispatched().getType());
   auto indicesType = cast<RankedTensorType>(getIndices().getType());
@@ -3256,9 +3264,9 @@ void AllToAllDispatchMetadataOp::allocateBuffers(
   auto newDispatchedType = utils::RankedTensorTypeFactory::create(
       dispatchedType, getA2ADispatchedLayout(ctx, dispatchedType));
   auto newIndicesType = utils::RankedTensorTypeFactory::create(
-      indicesType, getA2ADrainShardedLayout(ctx, indicesType, drainCore));
+      indicesType, getA2ADrainShardedLayout(ctx, indicesType, drainCrs));
   auto newScoresType = utils::RankedTensorTypeFactory::create(
-      scoresType, getA2ADrainShardedLayout(ctx, scoresType, drainCore));
+      scoresType, getA2ADrainShardedLayout(ctx, scoresType, drainCrs));
 
   auto device = utils::getOrInsertDevice(rewriter, *this);
 

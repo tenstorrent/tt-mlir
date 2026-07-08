@@ -4,6 +4,12 @@
 
 #include "operations/ccl/prepare_moe_compute_w2_weights.h"
 
+#include <chrono>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+
+#include "ttnn/operations/copy/typecast/typecast.hpp"
 #include "ttnn/operations/experimental/ccl/moe_compute/moe_compute_utils.hpp"
 
 namespace tt::runtime::ttnn::operations::ccl {
@@ -26,19 +32,40 @@ void run(const ::tt::target::ttnn::PrepareMoEComputeW2WeightsOp *op,
   uint32_t E = w2.logical_shape()[1];
   bool hasBias = bias2.has_value();
 
+  // Fast path (opt-in via TTXLA_MOE_FAST_QUANTIZE): on-device ttnn::typecast to
+  // BFLOAT4_B instead of the default host round-trip quantize_weights_via_host.
+  const bool fastQuantize = std::getenv("TTXLA_MOE_FAST_QUANTIZE") != nullptr;
+  const auto memCfg = ::ttnn::experimental::get_weight_mem_configs(
+                          &meshDevice, L, E, op->hidden_size(),
+                          op->intermediate_size(), hasBias)
+                          .w2;
+
+  const auto tPrep0 = std::chrono::steady_clock::now();
   ::ttnn::Tensor packed =
       hasBias
           ? ::ttnn::experimental::prepare_w2_tensor_with_bias(
                 w2, *bias2, L, E, op->intermediate_size(), op->hidden_size())
           : ::ttnn::experimental::prepare_w2_tensor_for_moe_compute(
                 w2, L, E, op->intermediate_size(), op->hidden_size());
+  const auto tPrep1 = std::chrono::steady_clock::now();
 
-  ::ttnn::Tensor out = ::ttnn::experimental::quantize_weights_via_host(
-      packed, ::tt::tt_metal::DataType::BFLOAT4_B,
-      ::ttnn::experimental::get_weight_mem_configs(
-          &meshDevice, L, E, op->hidden_size(), op->intermediate_size(),
-          hasBias)
-          .w2);
+  ::ttnn::Tensor out =
+      fastQuantize
+          ? ::ttnn::typecast(packed, ::tt::tt_metal::DataType::BFLOAT4_B, memCfg)
+          : ::ttnn::experimental::quantize_weights_via_host(
+                packed, ::tt::tt_metal::DataType::BFLOAT4_B, memCfg);
+  const auto tQuant1 = std::chrono::steady_clock::now();
+
+  // Instrumentation (compile-time const-eval); fprintf bypasses loguru filter.
+  std::fprintf(
+      stderr,
+      "[MOE_PREP_TIMING] w2   L=%u E=%u bias=%d fast=%d: prepare=%.1fs "
+      "quantize=%.1fs total=%.1fs\n",
+      L, E, static_cast<int>(hasBias), static_cast<int>(fastQuantize),
+      std::chrono::duration<double>(tPrep1 - tPrep0).count(),
+      std::chrono::duration<double>(tQuant1 - tPrep1).count(),
+      std::chrono::duration<double>(tQuant1 - tPrep0).count());
+  std::fflush(stderr);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

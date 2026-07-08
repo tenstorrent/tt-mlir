@@ -69,8 +69,15 @@ public:
   // single-core HEIGHT_SHARDED: the kernel reads these untilized, and a sharded
   // TILE spec needs a 32x32-aligned shard the small last dim (select_experts_k)
   // can't satisfy.
-  void reshardTilizeInputToDrainCore(ttnn::MoeComputeOp op, unsigned operandIdx,
-                                     CoreRangeSetAttr drainCoreRangeSet) {
+  // NOTE: superseded by the in-place drain-core alignment done in
+  // TTNNAllocateDistributedOpBuffers (stash ttnn.moe_metadata_drain_core, read
+  // in AllToAllDispatchMetadataOp::allocateBuffers) + the L1-HeightShard
+  // moe_compute operand workarounds. This cross-core reshard of the PERSISTENT
+  // a2a metadata inserted a to_memory_config that deadlocked the collective.
+  // Kept for reference.
+  [[maybe_unused]] void
+  reshardTilizeInputToDrainCore(ttnn::MoeComputeOp op, unsigned operandIdx,
+                                CoreRangeSetAttr drainCoreRangeSet) {
     mlir::IRRewriter rewriter(op.getContext());
     rewriter.setInsertionPoint(op);
 
@@ -123,14 +130,13 @@ public:
       refreshEnclosingFuncReturnType(op.getResult());
     });
 
-    moduleOp.walk([&](ttnn::MoeComputeOp op) {
-      CoreRangeSetAttr drainCoreRangeSet =
-          op_model::getMoeTilizeDrainCoreRangeSet(&op);
-      // Operands 1 (expert indices) and 2 (expert scores) are read by the
-      // kernel from CBs allocated on the drain core.
-      reshardTilizeInputToDrainCore(op, /*operandIdx=*/1, drainCoreRangeSet);
-      reshardTilizeInputToDrainCore(op, /*operandIdx=*/2, drainCoreRangeSet);
-    });
+    // The moe_compute expert-indices/scores inputs are NO LONGER resharded
+    // here. Instead the persistent a2a metadata is placed directly on
+    // moe_compute's tilize drain core (TTNNAllocateDistributedOpBuffers stashes
+    // the core; AllToAllDispatchMetadataOp::allocateBuffers reads it) and the
+    // moe_compute operand workarounds pin those operands L1 HeightSharded, so
+    // layout propagation accepts the a2a's metadata in place with zero
+    // to_memory_config reshard (the reshard deadlocked the collective).
 #endif // TTMLIR_ENABLE_OPMODEL
   }
 };

@@ -9382,24 +9382,51 @@ static llvm::SmallVector<int64_t> getModuleMeshShape(ModuleOp moduleOp) {
   return {};
 }
 
-// Synthesize the moe_decode expert_mapping as a replicated 2D [D, E] uint16
-// constant where [d, e] = owner(e) = e / expertsPerDevice (same on every row),
-// derived from topology so the frontend composite stays mesh-agnostic.
-// Contiguous owner layout (1xN dispatch ring); the replicated cluster_axis==0
-// interleave (4x8) is a separate TODO.
+// Synthesize the moe_decode expert_mapping as a 2D [numMeshDevices, numExperts]
+// uint16 constant, derived from topology so the frontend composite stays
+// mesh-agnostic. Row count is the TOTAL mesh device count because the a2a
+// dispatch reader indexes one mapping page per device by the global linearized
+// mesh coordinate. Each entry [d, e] is the GLOBAL linearized mesh coordinate
+// of the device that owns expert e as seen from source device d — the a2a
+// dispatch kernel uses this value directly as target_device (a full mesh coord
+// in [0, numMeshDevices)). Experts are EP-sharded along clusterAxis and
+// replicated along the other axis, so rows differ per source on a 2D mesh:
+//   a = e / expertsPerDevice          (axis-local owner in [0, clusterDevices))
+//   1D             : target = a       (global coord == axis-local owner)
+//   clusterAxis==0 : target = a * numCols + col(d)   (owner varies along axis 0)
+//   clusterAxis==1 : target = row(d) * numCols + a   (owner varies along axis 1)
+// with numCols = meshShape[1], row(d) = d / numCols, col(d) = d % numCols.
 static Value synthesizeMoeDecodeExpertMapping(OpBuilder &builder, Location loc,
-                                              int64_t numDevices,
+                                              ArrayRef<int64_t> meshShape,
+                                              int64_t clusterAxis,
                                               int64_t expertsPerDevice) {
-  int64_t numExperts = expertsPerDevice * numDevices;
+  int64_t numMeshDevices = 1;
+  for (int64_t dim : meshShape) {
+    numMeshDevices *= dim;
+  }
+  int64_t clusterDevices = meshShape[clusterAxis];
+  int64_t numExperts = expertsPerDevice * clusterDevices;
+  int64_t numCols = meshShape.size() >= 2 ? meshShape[1] : numMeshDevices;
+
   auto u16 = builder.getIntegerType(16, /*isSigned=*/false);
-  auto mappingTy = RankedTensorType::get({numDevices, numExperts}, u16);
+  auto mappingTy = RankedTensorType::get({numMeshDevices, numExperts}, u16);
 
   llvm::SmallVector<llvm::APInt> values;
-  values.reserve(numDevices * numExperts);
-  for (int64_t d = 0; d < numDevices; ++d) {
+  values.reserve(numMeshDevices * numExperts);
+  for (int64_t d = 0; d < numMeshDevices; ++d) {
+    int64_t row = d / numCols;
+    int64_t col = d % numCols;
     for (int64_t e = 0; e < numExperts; ++e) {
-      values.emplace_back(/*numBits=*/16,
-                          static_cast<uint64_t>(e / expertsPerDevice),
+      int64_t a = e / expertsPerDevice; // axis-local owner in [0, clusterDevices)
+      int64_t target;
+      if (meshShape.size() < 2) {
+        target = a;
+      } else if (clusterAxis == 0) {
+        target = a * numCols + col;
+      } else {
+        target = row * numCols + a;
+      }
+      values.emplace_back(/*numBits=*/16, static_cast<uint64_t>(target),
                           /*isSigned=*/false);
     }
   }
@@ -9719,7 +9746,7 @@ public:
     auto w0Ty = mlir::cast<RankedTensorType>(srcOperands[3].getType());
     int64_t expertsPerDevice = w0Ty.getShape()[1];
     Value mapping = synthesizeMoeDecodeExpertMapping(
-        rewriter, srcOp.getLoc(), numDevices, expertsPerDevice);
+        rewriter, srcOp.getLoc(), meshShape, clusterAxis, expertsPerDevice);
 
     // Full operand list with mapping re-inserted at index 3.
     SmallVector<Value> operands;

@@ -415,7 +415,17 @@ private:
     // Cast to uint32 first, perform the memory config change, then cast back.
     // Metal issue reference:
     // https://github.com/tenstorrent/tt-metal/issues/41689
-    bool needsWorkaround = dataType == ttcore::DataType::UInt16;
+    //
+    // This ui16->ui32->ui16 bounce is ONLY correct for interleaved<->interleaved
+    // changes, which are the ones that actually go through ttnn.copy.
+    // Sharded<->interleaved (de)shards use the shard kernels (uint16-capable),
+    // and worse, running the leading ui16->ui32 ttnn.typecast on a sharded input
+    // FATALs when the page (e.g. top-4 routing row = 4x2 = 8 bytes) is below the
+    // 16-byte L1 alignment typecast requires for sharded inputs. Restrict the
+    // workaround to the non-sharded path.
+    bool needsWorkaround = dataType == ttcore::DataType::UInt16 &&
+                           !currentLayout.hasShardedTensorMemoryLayout() &&
+                           !info.output.isSharded();
     if (needsWorkaround) {
       ttcore::DataType workaroundDtype = ttcore::DataType::UInt32;
       RankedTensorType workaroundType = utils::RankedTensorTypeFactory::create(

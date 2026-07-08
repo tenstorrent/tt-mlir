@@ -347,7 +347,13 @@ static void registerBuiltinComposites() {
             intermediateSizeAttr, rewriter.getBoolAttr(a.hasBias),
             activationAttr, rewriter.getUI32IntegerAttr(a.clusterAxis),
             /*num_links=*/mlir::IntegerAttr(),
-            /*topology=*/ttcore::TopologyAttr(), muxCoreRangeSet);
+            // moe_compute's combine kernel supports only Linear/Ring; a null
+            // attr resolves to the fabric default (Mesh) and is rejected. Pin
+            // Ring to match the FABRIC_1D_RING galaxy fabric and the sibling
+            // a2a's auto-derived Ring topology.
+            /*topology=*/
+            ttcore::TopologyAttr::get(ctx, ttcore::Topology::Ring),
+            muxCoreRangeSet);
       }};
 }
 

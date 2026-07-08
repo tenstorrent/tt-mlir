@@ -53,9 +53,15 @@ void run(const ::tt::target::ttnn::AllToAllDispatchMetadataOp *op,
           /*drain_sync_tilizer_core=*/std::nullopt,
           /*worker_mode=*/
           ::ttnn::operations::experimental::ccl::WorkerMode::DIRECT,
+          // SPARSE_UNICAST routes per-target via the correct get_route(),
+          // matching tt-metal's gpt_oss reference. The op default
+          // SPARSE_MCAST_SHORTEST_PATH has a tt-metal-documented cluster_axis=0
+          // bug (it computes ring hop distances from the global linearized
+          // device id instead of the intra-ring column position -> wrong
+          // target). No MLIR attr exposes this yet, so it is hardcoded here.
           /*dispatch_algorithm=*/
           ::ttnn::operations::experimental::ccl::DispatchAlgorithm::
-              SPARSE_MCAST_SHORTEST_PATH,
+              SPARSE_UNICAST,
           /*worker_core_range_set=*/std::nullopt,
           /*mux_core_range_set=*/std::nullopt,
           /*cross_device_semaphore=*/crossDeviceSemaphore);
