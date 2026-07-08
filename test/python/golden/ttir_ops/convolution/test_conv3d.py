@@ -266,7 +266,7 @@ def test_conv3d_c_in_block_divergent(dtype, target, request, device):
     "input_shape, weight_shape, bias_shape",
     [
         # 1x1x1 pointwise conv3d, no bias -> rewritten to ttir.matmul by
-        # Conv3dPointwiseToLinearPattern.
+        # the Conv3dOp canonicalizer.
         ((1, 8, 16, 16, 64), (128, 64, 1, 1, 1), None),
         # 1x1x1 pointwise conv3d, with bias -> rewritten to ttir.linear.
         ((1, 8, 16, 16, 64), (128, 64, 1, 1, 1), (1, 1, 1, 1, 128)),

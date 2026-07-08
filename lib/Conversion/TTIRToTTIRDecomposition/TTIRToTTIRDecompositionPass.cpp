@@ -80,11 +80,8 @@ struct TTIRToTTIRDecompositionPass
       // Non-channel-last ops will be decomposed with permutes.
       target.addDynamicallyLegalOp<ttir::Conv2dOp>(
           [](ttir::Conv2dOp op) { return op.isNHWC(); });
-      // A conv3d is legal only if it is channel-last (NDHWC) and is not a
-      // pointwise (1x1x1) conv, which is rewritten to a matmul/linear.
-      target.addDynamicallyLegalOp<ttir::Conv3dOp>([](ttir::Conv3dOp op) {
-        return op.isNDHWC() && !isConv3dPointwiseLinearEligible(op);
-      });
+      target.addDynamicallyLegalOp<ttir::Conv3dOp>(
+          [](ttir::Conv3dOp op) { return op.isNDHWC(); });
       target.addDynamicallyLegalOp<ttir::ConvTranspose2dOp>(
           [](ttir::ConvTranspose2dOp op) { return op.isNHWC(); });
       break;

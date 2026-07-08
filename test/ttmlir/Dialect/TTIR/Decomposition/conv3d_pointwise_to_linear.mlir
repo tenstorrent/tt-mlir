@@ -1,11 +1,12 @@
-// RUN: ttmlir-opt --split-input-file --ttir-to-ttir-decomposition -o %t %s
+// RUN: ttmlir-opt --split-input-file --ttir-to-ttir-decomposition --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-// Verifies Conv3dPointwiseToLinearPattern: a 1x1x1 conv3d in NDHWC layout with
+// Verifies the Conv3dOp canonicalizer: a 1x1x1 conv3d in NDHWC layout with
 // unit stride, no padding and groups==1 is mathematically a matmul, so the
-// decomposition pass rewrites it to ttir.matmul (no bias) / ttir.linear (bias)
+// canonicalizer rewrites it to ttir.matmul (no bias) / ttir.linear (bias)
 // instead of lowering it as a conv3d. Anything failing the eligibility gate
-// (isConv3dPointwiseMatmulEligible) must stay a ttir.conv3d.
+// (isConv3dPointwiseLinearEligible) must stay a ttir.conv3d. The decomposition
+// pass runs first only to normalize non-NDHWC layouts to NDHWC.
 
 // -----
 

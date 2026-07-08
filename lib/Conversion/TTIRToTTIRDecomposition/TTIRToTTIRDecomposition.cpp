@@ -1581,86 +1581,6 @@ struct Conv3dChannelLastDecompositionPattern
     return success();
   }
 };
-
-// A 1x1x1 conv3d is just a matmul, so rewrite it to matmul (or linear, when a
-// bias is present) to avoid the conv3d. Requires NDHWC layout.
-//   input  (N,D,H,W,Cin) ->  reshape  -> (N*D*H*W, Cin)
-//   weight (Cout,Cin,1,1,1)  ->  reshape ->  (Cout, Cin)
-//   matmul (M,Cin) x (Cout,Cin)^T (transpose_b)  ->  (M, Cout) // no bias
-//   linear (M,Cin) x (Cout,Cin)^T (transpose_b) + bias ->  (M, Cout) // with
-//   bias (1,1,1,1,Cout)  ->  reshape ->  (Cout,) // with bias result
-//   (M,Cout)  ->  reshape ->  (N,D,H,W,Cout)
-struct Conv3dPointwiseToLinearPattern
-    : public OpConversionPattern<ttir::Conv3dOp> {
-  using OpConversionPattern<ttir::Conv3dOp>::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(ttir::Conv3dOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    if (!isConv3dPointwiseLinearEligible(op)) {
-      return failure();
-    }
-
-    auto inputType = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
-    auto weightType =
-        mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
-    auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
-
-    ArrayRef<int64_t> inputShape = inputType.getShape();   // (N, D, H, W, Cin)
-    ArrayRef<int64_t> weightShape = weightType.getShape(); // (Cout, Cin, 1,1,1)
-
-    int64_t rows =
-        inputShape[0] * inputShape[1] * inputShape[2] * inputShape[3];
-    int64_t cIn = inputShape[4];
-    int64_t cOut = weightShape[0];
-
-    // Build a ttir.reshape of `value` to `shape`.
-    auto reshapeTo = [&](Value value, ArrayRef<int64_t> shape, Type elementType,
-                         StringRef suffix) -> Value {
-      SmallVector<int32_t> shapeI32(shape.begin(), shape.end());
-      return rewriter.create<ttir::ReshapeOp>(
-          ttmlir::utils::appendLocationSuffix(op.getLoc(), suffix),
-          RankedTensorType::get(shape, elementType), value,
-          rewriter.getI32ArrayAttr(shapeI32));
-    };
-
-    // Collapse the input's spatial/temporal dims into matmul rows, and drop the
-    // singleton kernel dims from the weight.
-    Value inputMatrix = reshapeTo(adaptor.getInput(), {rows, cIn},
-                                  inputType.getElementType(), "_reshapeInput");
-    Value weightMatrix =
-        reshapeTo(adaptor.getWeight(), {cOut, cIn}, weightType.getElementType(),
-                  "_reshapeWeight");
-
-    auto matmulResultType =
-        RankedTensorType::get({rows, cOut}, outputType.getElementType());
-
-    // weight is (Cout, Cin); transpose_b makes the contraction
-    // (M,Cin)x(Cin,Cout).
-    Value contraction;
-    if (Value bias = adaptor.getBias()) {
-      Value biasVector = reshapeTo(
-          bias, {cOut},
-          mlir::cast<RankedTensorType>(bias.getType()).getElementType(),
-          "_reshapeBias");
-      contraction = rewriter.create<ttir::LinearOp>(
-          op.getLoc(), matmulResultType, inputMatrix, weightMatrix, biasVector,
-          /*transpose_a=*/false, /*transpose_b=*/true);
-    } else {
-      contraction = rewriter.create<ttir::MatmulOp>(
-          op.getLoc(), matmulResultType, inputMatrix, weightMatrix,
-          /*transpose_a=*/false, /*transpose_b=*/true);
-    }
-
-    // Restore the NDHWC output shape. Reuse the op's result type so the
-    // replacement type matches (D_out/H_out/W_out == D/H/W here).
-    SmallVector<int32_t> outShapeI32(outputType.getShape().begin(),
-                                     outputType.getShape().end());
-    rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
-        op, outputType, contraction, rewriter.getI32ArrayAttr(outShapeI32));
-    return success();
-  }
-};
 } // namespace
 
 namespace {
@@ -2078,38 +1998,6 @@ struct NegativePadOpDecompositionPattern
 };
 } // namespace
 
-bool isConv3dPointwiseLinearEligible(ttir::Conv3dOp op) {
-  // Only handle the canonical NDHWC layout; other layouts are normalized to
-  // NDHWC first by Conv3dChannelLastDecompositionPattern.
-  if (!op.isNDHWC()) {
-    return false;
-  }
-  if (op.getGroups() != 1) {
-    return false;
-  }
-
-  // Kernel must be 1x1x1. Weight is (Cout, Cin, K_D, K_H, K_W).
-  auto weightType = mlir::cast<RankedTensorType>(op.getWeight().getType());
-  ArrayRef<int64_t> weightShape = weightType.getShape();
-  if (weightShape.size() != 5 || weightShape[2] != 1 || weightShape[3] != 1 ||
-      weightShape[4] != 1) {
-    return false;
-  }
-
-  // Unit stride and no padding, otherwise the op is a strided/padded gather
-  // rather than a plain matmul or linear.
-  auto stride = ttmlir::utils::getTripleOfInteger<int32_t>(op.getStride());
-  auto padding = ttmlir::utils::getTripleOfInteger<int32_t>(op.getPadding());
-  if (!stride || !padding) {
-    llvm::consumeError(stride.takeError());
-    llvm::consumeError(padding.takeError());
-    return false;
-  }
-  auto [sD, sH, sW] = *stride;
-  auto [pD, pH, pW] = *padding;
-  return sD == 1 && sH == 1 && sW == 1 && pD == 0 && pH == 0 && pW == 0;
-}
-
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter,
@@ -2148,7 +2036,6 @@ void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
   patterns.add<ConvChannelLastDecompositionPattern<ttir::ConvTranspose2dOp>>(
       typeConverter, ctx);
   patterns.add<Conv3dChannelLastDecompositionPattern>(typeConverter, ctx);
-  patterns.add<Conv3dPointwiseToLinearPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

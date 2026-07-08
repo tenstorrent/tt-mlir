@@ -15,12 +15,6 @@ enum class DecompMode { TTNN, TTMetal, CPUFallback };
 #define GEN_PASS_DECL_TTIRTOTTIRDECOMPOSITION
 #include "ttmlir/Conversion/Passes.h.inc"
 
-namespace ttir {
-class Conv3dOp;
-} // namespace ttir
-
-bool isConv3dPointwiseLinearEligible(ttir::Conv3dOp op);
-
 void populateTTIRToTTIRDecompositionPatterns(MLIRContext *ctx,
                                              RewritePatternSet &patterns,
                                              TypeConverter &typeConverter,
