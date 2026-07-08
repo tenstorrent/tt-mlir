@@ -122,6 +122,17 @@ MultiProcessArgs::withTcpInterface(std::string_view interfaceName) {
   return *this;
 }
 
+MultiProcessArgs &MultiProcessArgs::withTracy(bool enabled) {
+  tracyEnabled_ = enabled;
+  return *this;
+}
+
+MultiProcessArgs &
+MultiProcessArgs::withTracyArgs(const std::vector<std::string> &args) {
+  tracyArgs_ = args;
+  return *this;
+}
+
 std::optional<std::string> MultiProcessArgs::getControllerHostname() const {
   return controllerHostname_;
 }
@@ -140,6 +151,24 @@ std::string MultiProcessArgs::toArgString() const {
   if (tcpInterface_.has_value()) {
     oss << " ";
     oss << "--tcp-interface " << tcpInterface_.value();
+  }
+
+  // Tracy multi-host profiling, tt-run specific. The --tracy value is a single
+  // quoted string forwarded to python -m tracy; empty string enables defaults.
+  // ttrun re-splits this blob on whitespace, so callers must quote args
+  // containing spaces at the source.
+  if (tracyEnabled_) {
+    oss << " --tracy \"";
+
+    if (tracyArgs_.size() != 0) {
+      oss << tracyArgs_[0];
+    }
+
+    for (size_t i = 1; i < tracyArgs_.size(); ++i) {
+      oss << " ";
+      oss << tracyArgs_[i];
+    }
+    oss << "\"";
   }
 
   oss << " ";

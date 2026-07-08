@@ -163,6 +163,10 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def("with_controller_hostname",
            &tt::runtime::MultiProcessArgs::withControllerHostname,
            nb::rv_policy::reference_internal)
+      .def("with_tracy", &tt::runtime::MultiProcessArgs::withTracy,
+           nb::rv_policy::reference_internal)
+      .def("with_tracy_args", &tt::runtime::MultiProcessArgs::withTracyArgs,
+           nb::rv_policy::reference_internal)
       .def("to_arg_string", &tt::runtime::MultiProcessArgs::toArgString);
 
   nb::class_<tt::runtime::DistributedOptions>(m, "DistributedOptions")
