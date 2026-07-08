@@ -156,5 +156,14 @@ class ShardAdvisor:
         rationale = render_text_report(trace)
         text = ir_summary + "\n" + rationale
         report = AdvisorReport(trace, text, ttnn_mlir, ir_summary)
+
+        # Persist every artifact next to the decision trace so a run leaves a
+        # complete, browsable set: the ground-truth IR, the rendered report, and
+        # (already written by the pipeline) the raw decision-trace JSON.
+        with open(os.path.join(self.out_dir, "final_ir.mlir"), "w") as f:
+            f.write(ttnn_mlir)
+        with open(os.path.join(self.out_dir, "report.txt"), "w") as f:
+            f.write(text)
+
         print(text)
         return report
