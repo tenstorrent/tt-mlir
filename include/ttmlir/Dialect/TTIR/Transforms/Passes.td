@@ -92,15 +92,6 @@ def CPUHoistConstEvalTransform: Pass<"cpu-hoist-const-eval", "::mlir::ModuleOp">
     and reduces peak DRAM/L1 usage by keeping intermediate tensors in host memory.
   }];
 
-  let options = [
-    Option<"hoistDataMovement", "hoist-data-movement", "bool", /*default=*/"false",
-           "Also hoist const-eval subgraphs that are pure data movement "
-           "(transpose/permute/reshape, optionally with typecast). This is the "
-           "legacy behavior and yields no precision/memory benefit for such "
-           "subgraphs; off by default keeps them on device. Intended as an "
-           "escape hatch to A/B the fix.">
-  ];
-
   let dependentDialects = ["::mlir::tt::ttcore::TTCoreDialect",
                            "::mlir::tt::ttir::TTIRDialect",
                            "::mlir::linalg::LinalgDialect",

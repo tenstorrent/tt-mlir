@@ -7,9 +7,6 @@
 
 // RUN: FileCheck %s --input-file=%t --check-prefix=HOISTCOUNT
 
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-cpu-hoisted-const-eval=true hoist-data-movement-const-eval=true" -o %t.legacy %s
-// RUN: FileCheck %s --input-file=%t.legacy --check-prefix=LEGACY
-
 module {
   // CHECK: ttcore.device_module {
   // CHECK: builtin.module
@@ -46,7 +43,4 @@ module {
 
   // HOISTCOUNT-COUNT-1: ttir.cpu_hoist_call
   // HOISTCOUNT-NOT: ttir.cpu_hoist_call
-
-  // LEGACY-COUNT-2: ttir.cpu_hoist_call
-  // LEGACY-NOT: ttir.cpu_hoist_call
 }

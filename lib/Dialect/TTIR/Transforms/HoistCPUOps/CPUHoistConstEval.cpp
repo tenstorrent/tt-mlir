@@ -86,29 +86,25 @@ static bool isTransparentOp(mlir::Operation *op) {
 }
 
 // Check if an op only rearranges or retypes data without performing any
-// arithmetic. This covers tensor-manipulation ops (transpose, reshape,
-// permute, rearrange) and typecast. For such ops f32 execution yields no
-// precision benefit, since a permutation/retype is exact regardless of the
-// element type.
+// arithmetic: tensor-manipulation ops (transpose, reshape, permute, rearrange)
+// and typecast. Such ops carry no arithmetic, so running them in f32 on the CPU
+// yields no precision benefit over on-device execution.
 static bool isPureDataMovementOp(mlir::Operation *op) {
   return op->hasTrait<TensorManipulation::Trait>() || mlir::isa<TypecastOp>(op);
 }
 
-// Check if a segment is pure data movement that should be kept on device: every
-// op only rearranges/retypes data (no arithmetic) and at least one op changes
+// Check if a segment should be kept on device as pure data movement: every op
+// only rearranges/retypes data (no arithmetic) and at least one op changes
 // shape/layout (transpose, reshape, permute, rearrange). A segment that is
-// *only* typecast(s) is intentionally not treated as pure data movement - the
-// host-storage motivation can still apply there (a conversion can produce a
-// narrower-dtype tensor on host), so it is left to the normal hoisting path.
+// *only* typecast(s) does not qualify: a bare typecast changes element type but
+// not shape/layout, so it neither blocks downstream shape-based folding (e.g. a
+// transpose feeding a matmul's transpose_b) nor is it the movement round-trip
+// this targets - leave it to the normal hoisting path.
 static bool isPureDataMovementSegment(const OpsVectorType &segment) {
-  bool anyTensorManipulation = false;
-  for (auto *op : segment) {
-    if (!isPureDataMovementOp(op)) {
-      return false;
-    }
-    anyTensorManipulation |= op->hasTrait<TensorManipulation::Trait>();
-  }
-  return anyTensorManipulation;
+  return llvm::all_of(segment, isPureDataMovementOp) &&
+         llvm::any_of(segment, [](mlir::Operation *op) {
+           return op->hasTrait<TensorManipulation::Trait>();
+         });
 }
 
 // Check if an op is a barrier for CPU hoisting - CCL and MeshShard ops must
@@ -144,7 +140,7 @@ static llvm::SmallVector<mlir::Operation *> traceCreationOpChain(Value v) {
 // Analyze a const-eval function for ops to perform CPU-hoisting on.
 // See file-level comment for motivation and an illustrative example.
 static llvm::SmallVector<CPUHoistedOpsDescriptor>
-analyzeConstEval(func::FuncOp funcOp, bool hoistDataMovement) {
+analyzeConstEval(func::FuncOp funcOp) {
   if (!ttmlir::utils::isConstEvalFunc(funcOp)) {
     return {};
   }
@@ -208,14 +204,12 @@ analyzeConstEval(func::FuncOp funcOp, bool hoistDataMovement) {
   llvm::SmallVector<CPUHoistedOpsDescriptor> descriptors;
   for (const auto &segment : segments) {
     // Skip CPU-hoisting of pure data-movement segments (transpose, permute,
-    // reshape; optionally interleaved with typecast). The precision motivation
-    // for CPU-hoisting does not apply: a permutation/retype is exact regardless
-    // of element type. Hoisting them only adds a bf16->f32->bf16 typecast
-    // round-trip plus a host round-trip, and prevents on-device handling of the
-    // movement op (e.g. folding a weight transpose into a matmul's
-    // transpose_b). Keep these on device. The hoist-data-movement option
-    // restores the legacy behavior (hoist them anyway) as an A/B escape hatch.
-    if (!hoistDataMovement && isPureDataMovementSegment(segment)) {
+    // reshape; optionally interleaved with typecast). Such a segment carries no
+    // arithmetic, so f32 CPU execution yields no precision benefit; hoisting it
+    // only adds a bf16->f32->bf16 typecast round-trip plus a host round-trip
+    // and prevents on-device handling of the movement op (e.g. folding a weight
+    // transpose into a matmul's transpose_b). Keep these on device.
+    if (isPureDataMovementSegment(segment)) {
       continue;
     }
 
@@ -270,7 +264,7 @@ public:
 
     llvm::SmallVector<CPUHoistedOpsDescriptor> descriptors;
     deviceInnerModule.walk([&](func::FuncOp funcOp) {
-      auto result = analyzeConstEval(funcOp, hoistDataMovement);
+      auto result = analyzeConstEval(funcOp);
       descriptors.append(std::make_move_iterator(result.begin()),
                          std::make_move_iterator(result.end()));
     });

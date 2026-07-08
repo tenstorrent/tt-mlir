@@ -411,15 +411,6 @@ struct TTIRToTTNNCommonPipelineOptions
       llvm::cl::desc("Enable hoisting const-eval ops to CPU module."),
       llvm::cl::init(true)};
 
-  // Legacy escape hatch: also CPU-hoist pure data-movement const-eval
-  // subgraphs (weight transpose/permute/reshape). Off by default keeps them on
-  // device; flip on to A/B against the pre-fix behavior.
-  Option<bool> hoistDataMovementConstEval{
-      *this, "hoist-data-movement-const-eval",
-      llvm::cl::desc("Also CPU-hoist pure data-movement const-eval subgraphs "
-                     "(legacy behavior)."),
-      llvm::cl::init(false)};
-
   // Force const-eval function inputs to system memory.
   Option<bool> enableConstEvalInputsToSystemMemory{
       *this, "enable-const-eval-inputs-to-system-memory",

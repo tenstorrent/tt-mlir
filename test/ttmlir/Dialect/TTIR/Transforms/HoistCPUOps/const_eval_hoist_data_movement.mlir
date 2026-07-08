@@ -5,21 +5,13 @@
 // RUN: ttmlir-opt --ttcore-register-device --ttcore-wrap-device-module --cpu-hoist-const-eval --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-// RUN: ttmlir-opt --ttcore-register-device --ttcore-wrap-device-module --cpu-hoist-const-eval="hoist-data-movement=true" --canonicalize -o %t.legacy %s
-// RUN: FileCheck %s --input-file=%t.legacy --check-prefix=LEGACY
-
 // CHECK: ttcore.device_module {
-// LEGACY: ttcore.device_module {
 
 // CHECK-LABEL: func.func private @pure_data_movement_single_segment
 // CHECK: ttir.permute
 // CHECK: ttir.reshape
 // CHECK-NOT: call @cpu_hoisted
 // CHECK: return
-// LEGACY-LABEL: func.func private @pure_data_movement_single_segment
-// LEGACY: call @cpu_hoisted_const_eval_{{.*}}
-// LEGACY-NOT: ttir.permute
-// LEGACY: return
 func.func private @pure_data_movement_single_segment(
     %arg0: tensor<32x64xbf16>
 ) -> tensor<32x64xbf16> attributes {tt.function_type = "const_eval"} {
