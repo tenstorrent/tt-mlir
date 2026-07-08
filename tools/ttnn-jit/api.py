@@ -62,6 +62,7 @@ def shard_advisor(
     debug: bool = False,
     out_dir: str = None,
     extra_pipeline_options: str = "",
+    pipeline: str = "scoped",
 ):
     """Decorate a ttnn function to run the greedy L1-sharding advisor.
 
@@ -78,6 +79,9 @@ def shard_advisor(
             Defaults to generated/ttnn-jit/<func>/advisor.
         extra_pipeline_options: Extra options appended verbatim to the
             ttir-to-ttnn runtime pipeline.
+        pipeline: Which TTIR-to-TTNN pipeline to run the advice over. Either
+            "scoped" (default; the 1:1 ttir-to-ttnn-l1-advisor pipeline with
+            no fusion/decomposition) or "full" (the runtime pipeline).
     """
 
     def _decorator(f):
@@ -87,6 +91,7 @@ def shard_advisor(
             debug=debug,
             out_dir=out_dir,
             extra_pipeline_options=extra_pipeline_options,
+            pipeline=pipeline,
         )
 
         def _wrapped(*args, **kwargs):
