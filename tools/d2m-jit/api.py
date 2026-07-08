@@ -26,9 +26,11 @@ from ._src.builder import (
     zeros,
     full,
     reduction_layout,
+    arange,
     view_layout,
     view,
     permute,
+    reshape,
     to_host,
 )
 from ._src.rewrite import (
@@ -573,6 +575,54 @@ def right_shift(lhs, rhs):
     return _eltwise_block(lambda l, r: d2m.tile_right_shift(l.type, l, r), lhs, rhs)
 
 
+# Binary comparisons. The result tile element type matches the input -- the
+# comparison primitive writes 1.0/0.0 (or 1/0 for int tiles) into each lane,
+# matching the dialect's tile_eqz / tile_gez / ... family. Pair with `where`
+# to build masked computations.
+#
+# Not wired into Python `<` / `>=` / `==` dunders: visit_Compare in the AST
+# visitor currently lowers compare ops to `arith.cmpi` for index-domain
+# conditions (scf loop bounds, etc.), so overloading the dunders would
+# conflict. Use the free-function or method forms instead: `d2m.ge(a, b)`
+# or `a.ge(b)`.
+
+
+@syntax("eq")
+def eq(lhs, rhs):
+    """Block-level elementwise equality: `lhs == rhs`."""
+    return _eltwise_block(lambda l, r: d2m.tile_eq(l.type, l, r), lhs, rhs)
+
+
+@syntax("ne")
+def ne(lhs, rhs):
+    """Block-level elementwise inequality: `lhs != rhs`."""
+    return _eltwise_block(lambda l, r: d2m.tile_ne(l.type, l, r), lhs, rhs)
+
+
+@syntax("gt")
+def gt(lhs, rhs):
+    """Block-level elementwise greater-than: `lhs > rhs`."""
+    return _eltwise_block(lambda l, r: d2m.tile_gt(l.type, l, r), lhs, rhs)
+
+
+@syntax("ge")
+def ge(lhs, rhs):
+    """Block-level elementwise greater-than-or-equal: `lhs >= rhs`."""
+    return _eltwise_block(lambda l, r: d2m.tile_ge(l.type, l, r), lhs, rhs)
+
+
+@syntax("lt")
+def lt(lhs, rhs):
+    """Block-level elementwise less-than: `lhs < rhs`."""
+    return _eltwise_block(lambda l, r: d2m.tile_lt(l.type, l, r), lhs, rhs)
+
+
+@syntax("le")
+def le(lhs, rhs):
+    """Block-level elementwise less-than-or-equal: `lhs <= rhs`."""
+    return _eltwise_block(lambda l, r: d2m.tile_le(l.type, l, r), lhs, rhs)
+
+
 @syntax("tile_bcast", args_as_attr=[False, _tile_bcast_type_attr])
 def tile_bcast(input, bcast_type):
     """Block-level tile broadcast.
@@ -1034,6 +1084,30 @@ class TensorBlock:
     def right_shift(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
         """Same as `d2m.right_shift(self, rhs)`."""
         return right_shift(ast_self, rhs)
+
+    def eq(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
+        """Same as `d2m.eq(self, rhs)`."""
+        return eq(ast_self, rhs)
+
+    def ne(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
+        """Same as `d2m.ne(self, rhs)`."""
+        return ne(ast_self, rhs)
+
+    def gt(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
+        """Same as `d2m.gt(self, rhs)`."""
+        return gt(ast_self, rhs)
+
+    def ge(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
+        """Same as `d2m.ge(self, rhs)`."""
+        return ge(ast_self, rhs)
+
+    def lt(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
+        """Same as `d2m.lt(self, rhs)`."""
+        return lt(ast_self, rhs)
+
+    def le(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
+        """Same as `d2m.le(self, rhs)`."""
+        return le(ast_self, rhs)
 
     def tile_bcast_row(ast_self: TensorBlock) -> TensorBlock:
         """Same as `d2m.tile_bcast_row(self)`."""

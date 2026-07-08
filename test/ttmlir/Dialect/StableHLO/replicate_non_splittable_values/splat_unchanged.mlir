@@ -1,5 +1,5 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --replicate-non-splittable-constants %s | FileCheck %s
+// RUN: ttmlir-opt --replicate-non-splittable-values %s | FileCheck %s
 
 // Splat constant (all elements identical) can always be reshaped trivially.
 // The pass must leave its sharding unchanged.

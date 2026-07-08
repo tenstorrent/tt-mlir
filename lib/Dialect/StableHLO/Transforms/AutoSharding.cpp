@@ -294,7 +294,7 @@ static void addRemainingStableHLOPasses(OpPassManager &pm) {
   pm.nest<func::FuncOp>().addPass(
       mlir::sdy::createShardingConstraintToReshardPass());
 
-  pm.addPass(createReplicateNonSplittableConstantsPass());
+  pm.addPass(createReplicateNonSplittableValuesPass());
   pm.addPass(createInsertExplicitReshardsPass());
   pm.addPass(createWrapUnderManualComputationPass());
 

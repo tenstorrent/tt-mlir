@@ -1,5 +1,5 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --replicate-non-splittable-constants %s | FileCheck %s
+// RUN: ttmlir-opt --replicate-non-splittable-values %s | FileCheck %s
 
 // 3D non-periodic constant sharded on dim 0 and dim 2 (dim 1 replicated).
 // Periodic on dim 2 but NOT on dim 0, so the pass must replicate the constant.
