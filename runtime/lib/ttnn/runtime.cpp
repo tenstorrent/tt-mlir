@@ -23,6 +23,7 @@
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/TTNN/types_generated.h"
 #include "ttmlir/Version.h"
+#include "ttnn/operations/data_movement/clone/clone.hpp"
 #include "ttnn/tensor/host_buffer/functions.hpp"
 #include "ttnn/tensor/serialization.hpp"
 #include "ttnn/tensor/types.hpp"
@@ -1176,6 +1177,14 @@ void memcpy(::tt::runtime::Tensor dst, ::tt::runtime::Tensor src) {
     ::ttnn::copy_to_host(srcTensor.device()->mesh_command_queue(), srcTensor,
                          reinterpret_cast<std::byte *>(dstPtr));
   }
+}
+
+::tt::runtime::Tensor clone(::tt::runtime::Tensor tensor) {
+  const ::ttnn::Tensor &input = utils::getTTNNTensorFromRuntimeTensor(tensor);
+  ::ttnn::Tensor out = ::ttnn::clone(input, /*dtype=*/std::nullopt,
+                                     /*memory_config=*/std::nullopt,
+                                     /*compute_kernel_config=*/std::nullopt);
+  return utils::createRuntimeTensorFromTTNN(out);
 }
 
 void deallocateTensor(::tt::runtime::Tensor &tensor, bool force) {
