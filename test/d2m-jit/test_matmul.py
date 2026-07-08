@@ -368,15 +368,6 @@ def mcast_overwrite_kernel(lhs, rhs, out, K, M, N, GY, GX):
                 remote_store(out, [m, n], out_shard)
 
 
-@pytest.mark.skip(
-    reason=(
-        "Hits the expected diagnostic in checkComputeSyncScope "
-        "(lib/Dialect/D2M/Transforms/SplitThreads.cpp): compute ops must live "
-        "in a single synchronization scope, and the multicast remote_load "
-        "pattern spans multiple. Tracked separately; un-skip once the pass "
-        "handles multi-scope compute."
-    )
-)
 def test_mcast_overwrite_grid_2x2():
     """Run mcast_overwrite_kernel on a 2x2 grid with K=M=N=1 -- single
     iteration per core, multicast from (cy, 0) across the row and from
