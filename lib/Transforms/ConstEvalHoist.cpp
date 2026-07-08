@@ -6,28 +6,24 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreTraits.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
-#include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
-#include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Location.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Transforms/DialectConversion.h"
-#include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallPtrSet.h"
-#include "llvm/ADT/SmallSet.h"
-#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 
 namespace mlir::tt::transforms {
 
 #define GEN_PASS_DEF_CONSTEVALHOISTTRANSFORM
-#define GEN_PASS_DEF_UNDOCONSTEVALTRANSFORM
 #include "ttmlir/Transforms/Passes.h.inc"
 
 static bool isSharedOp(mlir::Operation *op) {
@@ -93,6 +89,8 @@ struct DisjointSetUnion {
 struct ConstEvalSubgraph {
   // Set of parameters to the original function that this subgraph depends on.
   llvm::SmallPtrSet<mlir::BlockArgument, 4> inputParameters;
+  // load_cached ops that this subgraph depends on.
+  llvm::SetVector<mlir::tt::ttcore::LoadCachedOp> loadCachedOps;
   // Ops from the original function that this subgraph contains.
   llvm::SmallVector<mlir::Operation *, 4> ops;
 };
@@ -137,9 +135,24 @@ public:
           rootToId[root] = currentId++;
         }
 
-        // Add op to the corresponding subgraph.
+        // Find the subgraph corresponding to this root.
         size_t id = rootToId[root];
         auto &subgraph = idToSubgraph[id];
+
+        if (auto loadCachedOp =
+                mlir::dyn_cast<mlir::tt::ttcore::LoadCachedOp>(&op)) {
+          subgraph.loadCachedOps.insert(loadCachedOp);
+          for (auto input : loadCachedOp.getInputs()) {
+            if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(input)) {
+              assert(constParams.contains(blockArg) &&
+                     "Only const/param block args should be in DSU");
+              subgraph.inputParameters.insert(blockArg);
+            }
+          }
+          continue;
+        }
+
+        // Add op to the corresponding subgraph.
         subgraph.ops.push_back(&op);
 
         for (auto operand : op.getOperands()) {
@@ -204,7 +217,8 @@ private:
     };
 
     // Check if all operands can be const-eval'ed.
-    if (!llvm::all_of(op->getOperands(), operandConstEval)) {
+    if (!llvm::isa<mlir::tt::ttcore::LoadCachedOp>(op) &&
+        !llvm::all_of(op->getOperands(), operandConstEval)) {
       return;
     }
 
@@ -282,7 +296,6 @@ private:
 };
 } // namespace
 
-// Common implementation shared between passes
 namespace {
 // Deduplicate operations with TTCoreDuplicateConstEvalTrait in a function.
 // Assumes any op with TTCoreDuplicateConstEvalTrait is equivalent to the same
@@ -331,139 +344,6 @@ static void deduplicateSharedOps(func::FuncOp funcOp) {
     op->erase();
   }
 }
-
-// Helper to inline a const-eval function.
-static void inlineConstEvalFunction(mlir::func::FuncOp funcOp,
-                                    mlir::tt::ttcore::LoadCachedOp callOp,
-                                    OpBuilder &builder) {
-  builder.setInsertionPoint(callOp);
-
-  // Use IRMapping to handle the mapping from original values to cloned values
-  mlir::IRMapping valueMapper;
-
-  // Map function arguments to call operands
-  for (size_t i = 0; i < funcOp.getNumArguments(); ++i) {
-    valueMapper.map(funcOp.getArgument(i), callOp.getOperand(i));
-  }
-
-  // Clone operations from const-eval function
-  llvm::SmallVector<mlir::Operation *, 16> inlinedOps;
-  auto &funcBody = funcOp.getBody().front();
-  for (auto &op : funcBody) {
-    // Skip the terminator operations
-    if (op.hasTrait<mlir::OpTrait::IsTerminator>()) {
-      continue;
-    }
-
-    // Clone the operation and update operands using the mapper
-    inlinedOps.push_back(builder.clone(op, valueMapper));
-  }
-
-  // Get the return operation and map its values to the cloned values
-  auto returnOp = cast<mlir::func::ReturnOp>(funcBody.back());
-  for (size_t i = 0; i < returnOp.getNumOperands(); ++i) {
-    auto mappedVal = valueMapper.lookup(returnOp.getOperand(i));
-    callOp.getResult(i).replaceAllUsesWith(mappedVal);
-  }
-
-  // Erase the call operation
-  callOp.erase();
-
-  // Sink ops to just before their earliest user to minimize intermediate
-  // tensor liveness on device. Process bottom-to-top so that consumers
-  // are already in their final position when their producers are sunk.
-  // Use the last moved op as an upper bound to preserve relative order.
-  mlir::Operation *lastMovedOp = nullptr;
-  for (int i = inlinedOps.size() - 1; i >= 0; --i) {
-    mlir::Operation *op = inlinedOps[i];
-    mlir::Operation *earliestUser = nullptr;
-    for (auto result : op->getResults()) {
-      for (auto *user : result.getUsers()) {
-        if (!earliestUser || user->isBeforeInBlock(earliestUser)) {
-          earliestUser = user;
-        }
-      }
-    }
-    if (earliestUser) {
-      mlir::Operation *insertPt = earliestUser;
-      if (lastMovedOp && lastMovedOp->isBeforeInBlock(insertPt)) {
-        insertPt = lastMovedOp;
-      }
-      op->moveBefore(insertPt);
-      lastMovedOp = op;
-    }
-  }
-}
-
-static void undoConstEvalImpl(mlir::ModuleOp module,
-                              mlir::MLIRContext *context) {
-  OpBuilder builder(context);
-
-  // Find all const-eval functions and their callers
-  llvm::DenseMap<mlir::func::FuncOp, mlir::tt::ttcore::LoadCachedOp> funcToCall;
-  llvm::SmallVector<mlir::func::FuncOp, 4> constEvalFuncs;
-  llvm::SmallVector<mlir::func::FuncOp, 4> parentFuncs;
-
-  // Find all const-eval functions
-  module.walk([&](mlir::func::FuncOp funcOp) {
-    if (ttmlir::utils::isConstEvalFunc(funcOp)) {
-      constEvalFuncs.push_back(funcOp);
-    }
-  });
-
-  // Find all calls to const-eval functions
-  module.walk([&](mlir::tt::ttcore::LoadCachedOp loadOp) {
-    mlir::StringRef calleeName = loadOp.getCallee();
-    auto funcOp = module.lookupSymbol<mlir::func::FuncOp>(calleeName);
-    assert(funcOp && ttmlir::utils::isConstEvalFunc(funcOp));
-    auto [_, inserted] = funcToCall.insert({funcOp, loadOp});
-    assert(inserted && "Found const-eval func used more than once!");
-  });
-
-  // Inline each const-eval function
-  for (auto funcOp : constEvalFuncs) {
-    auto callIt = funcToCall.find(funcOp);
-    if (callIt == funcToCall.end()) {
-      // No call found; this can happen if the const-evaled value
-      // is optimized-away.
-      continue;
-    }
-    mlir::tt::ttcore::LoadCachedOp &callOp = callIt->second;
-    // Get the parent function of this call
-    mlir::func::FuncOp parentFunc =
-        callOp->getParentOfType<mlir::func::FuncOp>();
-    if (parentFunc) {
-      parentFuncs.emplace_back(parentFunc);
-    }
-
-    inlineConstEvalFunction(funcOp, callOp, builder);
-  }
-
-  // Deduplicate shared ops in each function where we performed inlining
-  for (auto funcOp : parentFuncs) {
-    deduplicateSharedOps(funcOp);
-  }
-
-  // Delete inlined functions
-  for (auto funcOp : constEvalFuncs) {
-    funcOp.erase();
-  }
-}
-} // namespace
-
-namespace {
-// Standalone pass to undo const-eval transformations
-class UndoConstEvalTransform
-    : public impl::UndoConstEvalTransformBase<UndoConstEvalTransform> {
-public:
-  using impl::UndoConstEvalTransformBase<
-      UndoConstEvalTransform>::UndoConstEvalTransformBase;
-
-  void runOnOperation() final {
-    mlir::ModuleOp module = this->getOperation();
-    undoConstEvalImpl(module, &getContext());
-  }
-};
 } // namespace
 
 namespace {
@@ -510,6 +390,42 @@ static std::optional<uint64_t> computeL1ConstEvalUsage(mlir::ModuleOp module) {
 }
 } // namespace
 
+// Infix used to construct const-eval function names of the form
+// "<originalName>_const_eval_<subgraphIdx>".
+static constexpr llvm::StringLiteral g_constEvalFuncNameInfix = "_const_eval_";
+
+// Construct a const-eval function name from the original function name and
+// subgraph index.
+static std::string constructConstEvalFunctionName(llvm::StringRef originalName,
+                                                  uint64_t subgraphIdx) {
+  return (originalName + g_constEvalFuncNameInfix + std::to_string(subgraphIdx))
+      .str();
+}
+
+// Parse a const-eval function name produced by this pass, returning the
+// original function name and the subgraph index it was created from if `name`
+// is a well-formed const-eval function name.
+static std::optional<std::pair<std::string, uint64_t>>
+parseConstEvalFunctionName(llvm::StringRef name) {
+  // Isolate the trailing "_const_eval_<subgraphIdx>" portion.
+  size_t pos = name.rfind(g_constEvalFuncNameInfix);
+  if (pos == llvm::StringRef::npos) {
+    return std::nullopt;
+  }
+
+  llvm::StringRef originalName = name.take_front(pos);
+  llvm::StringRef indexStr =
+      name.drop_front(pos + g_constEvalFuncNameInfix.size());
+
+  uint64_t subgraphIdx;
+  if (originalName.empty() || indexStr.empty() ||
+      indexStr.getAsInteger(/*Radix=*/10, subgraphIdx)) {
+    return std::nullopt;
+  }
+
+  return std::make_pair(originalName.str(), subgraphIdx);
+}
+
 namespace {
 // Transform pass to hoist const-eval subgraphs into separate funcs, invoked
 // w/ ttcore.load_cached ops.
@@ -522,25 +438,43 @@ public:
   void runOnOperation() final {
     mlir::ModuleOp module = this->getOperation();
     llvm::SmallVector<func::FuncOp, 4> functionsToProcess;
+    llvm::DenseMap<mlir::func::FuncOp, size_t> maxSubgraphIndexMap;
 
-    bool hasExistingConstEvalFuncs = false;
     module.walk([&](func::FuncOp funcOp) {
       if (ttmlir::utils::isConstEvalFunc(funcOp)) {
-        hasExistingConstEvalFuncs = true;
-        return WalkResult::interrupt();
+        auto name = funcOp.getName();
+        auto parsed = parseConstEvalFunctionName(name);
+        if (!parsed) {
+          // This is a const-eval function, but it doesn't follow the naming
+          // convention. It doesn't affect naming of new const-eval functions,
+          // so we can ignore it.
+          return WalkResult::advance();
+        }
+        auto [orgFuncName, subgraphIdx] = parsed.value();
+        func::FuncOp orgFuncOp =
+            SymbolTable::lookupNearestSymbolFrom<mlir::func::FuncOp>(
+                funcOp, StringAttr::get(funcOp.getContext(), orgFuncName));
+        assert(orgFuncOp &&
+               "Original function not found for const-eval function");
+        auto it = maxSubgraphIndexMap.find(orgFuncOp);
+        if (it == maxSubgraphIndexMap.end()) {
+          maxSubgraphIndexMap[orgFuncOp] = subgraphIdx;
+        } else {
+          it->second = std::max(it->second, subgraphIdx);
+        }
       }
       return WalkResult::advance();
     });
 
-    // If we found existing const-eval functions, undo them first
-    if (hasExistingConstEvalFuncs) {
-      undoConstEvalImpl(module, &getContext());
-    }
-
     // Collect functions that need processing
     bool failed = false;
     module.walk([&](func::FuncOp funcOp) {
-      if (!processFunction(funcOp)) {
+      auto it = maxSubgraphIndexMap.find(funcOp);
+      auto end = maxSubgraphIndexMap.end();
+      if (it == end && !processFunction(funcOp, 0)) {
+        failed = true;
+      }
+      if (it != end && !processFunction(funcOp, it->second + 1)) {
         failed = true;
       }
     });
@@ -562,7 +496,7 @@ public:
   }
 
 private:
-  bool processFunction(func::FuncOp funcOp) {
+  bool processFunction(func::FuncOp funcOp, size_t nameIndexOffset) {
     if (ttmlir::utils::isConstEvalFunc(funcOp)) {
       return true;
     }
@@ -587,51 +521,37 @@ private:
     }
 
     // Create new functions for each subgraph
-    for (size_t i = 0; i < subgraphs.size(); ++i) {
-      auto &subgraph = subgraphs[i];
-
-      // Create a new function for this const-eval subgraph
-      createConstEvalFunction(funcOp, subgraph, sharedOps, i);
+    size_t newFuncIndex = 0;
+    for (const auto &subgraph : subgraphs) {
+      if (subgraph.loadCachedOps.empty()) {
+        // Create a new function for this const-eval subgraph
+        createConstEvalFunction(funcOp, subgraph, sharedOps,
+                                newFuncIndex + nameIndexOffset);
+        ++newFuncIndex;
+      } else {
+        addToExistingConstEvalFunction(funcOp, subgraph, sharedOps);
+      }
     }
     return true;
   }
 
   // Create a new function for a const-eval subgraph and replace the original
   // ops with a call
-  void createConstEvalFunction(func::FuncOp originalFunc,
-                               ConstEvalSubgraph &subgraph,
-                               llvm::SmallVector<Operation *, 1> sharedOps,
-                               size_t subgraphIdx) {
+  void createConstEvalFunction(
+      func::FuncOp originalFunc, const ConstEvalSubgraph &subgraph,
+      const llvm::SmallVector<Operation *, 1> &sharedOps, size_t nameIndex) {
     mlir::MLIRContext *context = &this->getContext();
     mlir::OpBuilder builder(context);
 
-    // Identify all outputs of the subgraph.
-    llvm::SmallVector<mlir::BlockArgument, 4> inputs(
-        subgraph.inputParameters.begin(), subgraph.inputParameters.end());
-    // Sort by argument number to keep order consistent
-    std::sort(inputs.begin(), inputs.end(),
-              [](BlockArgument a, BlockArgument b) {
-                return a.getArgNumber() < b.getArgNumber();
-              });
-    llvm::SmallVector<mlir::Type, 4> inputTypes;
+    // Identify all inputs and outputs of the subgraph.
+    llvm::SmallVector<mlir::BlockArgument, 4> inputs;
     llvm::SmallVector<mlir::Value, 4> outputs;
-    llvm::SmallVector<mlir::Type, 4> outputTypes;
-
-    collectSubgraphBoundary(subgraph.ops, outputs);
-
-    // Get types for function signature.
-    for (auto input : inputs) {
-      inputTypes.push_back(input.getType());
-    }
-
-    for (auto output : outputs) {
-      outputTypes.push_back(output.getType());
-    }
+    collectSubgraphBoundary(subgraph, inputs, outputs);
 
     // Create the new function.
-    std::string newFuncName = originalFunc.getName().str() + "_const_eval_" +
-                              std::to_string(subgraphIdx);
-    auto funcType = builder.getFunctionType(inputTypes, outputTypes);
+    std::string newFuncName =
+        constructConstEvalFunctionName(originalFunc.getName(), nameIndex);
+    mlir::FunctionType funcType = createFunctionType(inputs, outputs, builder);
 
     mlir::ModuleOp moduleOp =
         dyn_cast<mlir::ModuleOp>(originalFunc->getParentOp());
@@ -646,27 +566,11 @@ private:
                                    ttmlir::utils::FunctionType::ConstEval);
     newFuncOp.setPrivate();
 
-    // Retain connv2dWeight input attributes from original function.
+    // Retain conv2dWeight input attributes from original function.
     // This is required because TTNNLayout pass places the
     // conv2d weights in the system memory.
     for (auto [newArgIdx, input] : llvm::enumerate(inputs)) {
-      // Check if input argument is also original function argument.
-      auto *maybeFunctionArgument =
-          std::find(originalFunc.getArguments().begin(),
-                    originalFunc.getArguments().end(), input);
-
-      if (maybeFunctionArgument == originalFunc.getArguments().end()) {
-        continue;
-      }
-
-      auto originalArgIdx = maybeFunctionArgument->getArgNumber();
-
-      // Check for existence of ttmlir::utils::g_conv2dWeightAttrName.
-      if (auto attr = originalFunc.getArgAttrOfType<mlir::Attribute>(
-              originalArgIdx, ttmlir::utils::g_conv2dWeightAttrName)) {
-        newFuncOp.setArgAttr(newArgIdx, ttmlir::utils::g_conv2dWeightAttrName,
-                             attr);
-      }
+      transferConv2DWeightAttr(originalFunc, newFuncOp, input, newArgIdx);
     }
 
     // Build the body of the new function.
@@ -683,6 +587,197 @@ private:
     for (auto *op : sharedOps) {
       processOp(op, valueMap, builder);
     }
+    cloneSubgraph(subgraph, outputs, originalFunc.getLoc(), valueMap, builder);
+
+    // Replace the original ops in the parent function with a call to the new
+    // function.
+    replaceOpsWithCall(originalFunc, newFuncOp, subgraph, inputs, outputs,
+                       builder);
+  }
+
+  void addToExistingConstEvalFunction(
+      func::FuncOp originalFunc, const ConstEvalSubgraph &subgraph,
+      const llvm::SmallVector<Operation *, 1> &sharedOps) {
+    auto constEvalFuncLoadCachedOp = subgraph.loadCachedOps.front();
+    auto constEvalFuncName = constEvalFuncLoadCachedOp.getCallee();
+    auto constEvalFunc = originalFunc->getParentOfType<mlir::ModuleOp>()
+                             .lookupSymbol<func::FuncOp>(constEvalFuncName);
+    assert(constEvalFunc && ttmlir::utils::isConstEvalFunc(constEvalFunc) &&
+           "Const-eval function not found for load_cached op");
+
+    mlir::MLIRContext *context = &this->getContext();
+    mlir::OpBuilder builder(context);
+
+    // Identify all inputs and outputs of the subgraph.
+    llvm::SmallVector<mlir::BlockArgument, 4> inputs;
+    llvm::SmallVector<mlir::Value, 4> outputs;
+    collectSubgraphBoundary(subgraph, inputs, outputs);
+
+    mlir::FunctionType newFuncType =
+        createFunctionType(inputs, outputs, builder);
+    constEvalFunc.setType(newFuncType);
+
+    // Update function inputs and create a mapping from original inputs to
+    // function arguments.
+    llvm::DenseMap<mlir::Value, mlir::Value> valueMap;
+    assert(!constEvalFunc.getBody().empty() &&
+           "constEvalFunc must have a body");
+    Block *entryBlock = &constEvalFunc.getBody().front();
+    const auto &oldInputs = constEvalFuncLoadCachedOp.getInputs();
+    auto oldIt = oldInputs.begin();
+    for (size_t i = 0; i != inputs.size(); ++i) {
+      if (oldIt != oldInputs.end() && *oldIt == inputs[i]) {
+        valueMap.insert({inputs[i], entryBlock->getArgument(i)});
+        ++oldIt;
+      } else {
+        entryBlock->insertArgument(i, inputs[i].getType(),
+                                   constEvalFunc.getLoc());
+        valueMap.insert({inputs[i], entryBlock->getArgument(i)});
+        // Retain conv2dWeight input attributes from original function.
+        // This is required because TTNNLayout pass places the
+        // conv2d weights in the system memory.
+        transferConv2DWeightAttr(originalFunc, constEvalFunc,
+                                 entryBlock->getArgument(i), i);
+      }
+    }
+
+    // Map load_cached outputs to the const-eval function's current return
+    // values.
+    const auto &loadCachedResults = constEvalFuncLoadCachedOp.getResults();
+    auto returnOp = cast<mlir::func::ReturnOp>(entryBlock->getTerminator());
+    for (size_t i = 0; i < loadCachedResults.size(); ++i) {
+      valueMap.insert({loadCachedResults[i], returnOp.getOperand(i)});
+    }
+
+    // Remove the old return operation.
+    returnOp.erase();
+
+    // Clone the subgraph ops at the end of the block; they may depend on values
+    // already present in the existing const-eval function.
+    builder.setInsertionPointToStart(entryBlock);
+    for (auto *op : sharedOps) {
+      processOp(op, valueMap, builder);
+    }
+    builder.setInsertionPointToEnd(entryBlock);
+    // Clone the bodies of all const-eval functions called by the other
+    // load_cached ops into this const-eval function.
+    for (auto loadCachedOp : subgraph.loadCachedOps) {
+      if (loadCachedOp == constEvalFuncLoadCachedOp) {
+        continue;
+      }
+      auto calleeFunc =
+          originalFunc->getParentOfType<mlir::ModuleOp>()
+              .lookupSymbol<func::FuncOp>(loadCachedOp.getCallee());
+      assert(calleeFunc && ttmlir::utils::isConstEvalFunc(calleeFunc) &&
+             "Const-eval function not found for load_cached op");
+      cloneConstEvalFunctionBody(loadCachedOp, calleeFunc, valueMap, builder);
+    }
+    cloneSubgraph(subgraph, outputs, constEvalFunc.getLoc(), valueMap, builder);
+    // Some shared ops that we cloned in the const-eval function may have
+    // already been there.
+    deduplicateSharedOps(constEvalFunc);
+
+    // Update the original function.
+    replaceOpsWithCall(originalFunc, constEvalFunc, subgraph, inputs, outputs,
+                       builder);
+    // Remove the original load_cached ops.
+    for (auto loadCachedOp : subgraph.loadCachedOps) {
+      if (loadCachedOp != constEvalFuncLoadCachedOp) {
+        func::FuncOp calleeFunc =
+            originalFunc->getParentOfType<mlir::ModuleOp>()
+                .lookupSymbol<func::FuncOp>(loadCachedOp.getCallee());
+        assert(calleeFunc && ttmlir::utils::isConstEvalFunc(calleeFunc) &&
+               "Const-eval function not found for load_cached op");
+        calleeFunc.erase();
+      }
+      loadCachedOp.erase();
+    }
+  }
+
+  mlir::FunctionType
+  createFunctionType(const llvm::SmallVector<mlir::BlockArgument, 4> &inputs,
+                     const llvm::SmallVector<mlir::Value, 4> &outputs,
+                     mlir::OpBuilder &builder) {
+    llvm::SmallVector<mlir::Type, 4> inputTypes;
+    llvm::SmallVector<mlir::Type, 4> outputTypes;
+
+    // Get types for function signature.
+    for (auto input : inputs) {
+      inputTypes.push_back(input.getType());
+    }
+
+    for (auto output : outputs) {
+      outputTypes.push_back(output.getType());
+    }
+
+    return builder.getFunctionType(inputTypes, outputTypes);
+  }
+
+  void transferConv2DWeightAttr(mlir::func::FuncOp originalFunc,
+                                mlir::func::FuncOp newFuncOp,
+                                mlir::BlockArgument inputArg,
+                                size_t newArgIdx) {
+    // Check if input argument is also original function argument.
+    auto *maybeFunctionArgument =
+        std::find(originalFunc.getArguments().begin(),
+                  originalFunc.getArguments().end(), inputArg);
+
+    if (maybeFunctionArgument == originalFunc.getArguments().end()) {
+      return;
+    }
+
+    auto originalArgIdx = maybeFunctionArgument->getArgNumber();
+
+    // Check for existence of ttmlir::utils::g_conv2dWeightAttrName.
+    if (auto attr = originalFunc.getArgAttrOfType<mlir::Attribute>(
+            originalArgIdx, ttmlir::utils::g_conv2dWeightAttrName)) {
+      newFuncOp.setArgAttr(newArgIdx, ttmlir::utils::g_conv2dWeightAttrName,
+                           attr);
+    }
+  }
+
+  void replaceOpsWithCall(
+      mlir::func::FuncOp originalFunc, mlir::func::FuncOp constEvalFunction,
+      const ConstEvalSubgraph &subgraph,
+      const llvm::SmallVector<mlir::BlockArgument, 4> &inputs,
+      llvm::SmallVector<mlir::Value, 4> &outputs, mlir::OpBuilder &builder) {
+    auto &originalEntryBlock = originalFunc.getBody().front();
+    // Manually order LoadCachedOp as first n ops in original func--we may
+    // have folded some creation ops into the subgraph, so we need to ensure
+    // these ops come before existing ops.
+    auto iter = originalEntryBlock.begin();
+    while (iter != originalEntryBlock.end() &&
+           mlir::isa<mlir::tt::ttcore::LoadCachedOp>(*iter)) {
+      ++iter;
+    }
+    assert(iter != originalEntryBlock.end());
+    builder.setInsertionPoint(&*iter);
+    auto calleeAttr = mlir::SymbolRefAttr::get(builder.getContext(),
+                                               constEvalFunction.getName());
+
+    // Create the LoadCachedOp with the correct argument order
+    auto callOp = builder.create<ttcore::LoadCachedOp>(
+        originalFunc.getLoc(), constEvalFunction.getFunctionType().getResults(),
+        calleeAttr, ValueRange(inputs));
+
+    // Replace uses of original outputs with call results.
+    for (size_t i = 0; i < outputs.size(); ++i) {
+      outputs[i].replaceAllUsesWith(callOp.getResult(i));
+    }
+
+    // Remove the original operations (in reverse order to handle
+    // dependencies).
+    for (auto it = subgraph.ops.rbegin(); it != subgraph.ops.rend(); ++it) {
+      (*it)->erase();
+    }
+  }
+
+  void cloneSubgraph(const ConstEvalSubgraph &subgraph,
+                     const llvm::SmallVector<mlir::Value, 4> &outputs,
+                     mlir::Location loc,
+                     llvm::DenseMap<mlir::Value, mlir::Value> &valueMap,
+                     mlir::OpBuilder &builder) {
+    // Clone operations into the new function.
     for (auto *op : subgraph.ops) {
       processOp(op, valueMap, builder);
     }
@@ -696,32 +791,44 @@ private:
       returnValues.push_back(it->second);
     }
 
-    builder.create<func::ReturnOp>(originalFunc.getLoc(), returnValues);
+    builder.create<func::ReturnOp>(loc, returnValues);
+  }
 
-    auto &originalEntryBlock = originalFunc.getBody().front();
-    // Manually order LoadCachedOp as first n ops in original func--we may
-    // have folded some creation ops into the subgraph, so we need to ensure
-    // these ops come before existing ops.
-    auto iter = originalEntryBlock.begin();
-    std::advance(iter, subgraphIdx);
-    assert(iter != originalEntryBlock.end());
-    builder.setInsertionPoint(&*iter);
-    auto calleeAttr =
-        mlir::SymbolRefAttr::get(builder.getContext(), newFuncName);
+  // Clone the body of a const-eval function called by a load_cached op into the
+  // current insertion point, and update the value map.
+  void
+  cloneConstEvalFunctionBody(mlir::tt::ttcore::LoadCachedOp loadCachedOp,
+                             func::FuncOp calleeFunc,
+                             llvm::DenseMap<mlir::Value, mlir::Value> &valueMap,
+                             mlir::OpBuilder &builder) {
+    Block &calleeEntryBlock = calleeFunc.getBody().front();
 
-    // Create the LoadCachedOp with the correct argument order
-    auto callOp = builder.create<ttcore::LoadCachedOp>(
-        originalFunc.getLoc(), outputTypes, calleeAttr, ValueRange(inputs));
-
-    // Replace uses of original outputs with call results.
-    for (size_t i = 0; i < outputs.size(); ++i) {
-      outputs[i].replaceAllUsesWith(callOp.getResult(i));
+    // Map the callee's block arguments to the values passed by the load_cached
+    // op.
+    llvm::DenseMap<mlir::Value, mlir::Value> localValueMap;
+    auto inputs = loadCachedOp.getInputs();
+    for (auto [arg, input] :
+         llvm::zip_equal(calleeEntryBlock.getArguments(), inputs)) {
+      auto it = valueMap.find(input);
+      assert(it != valueMap.end() &&
+             "load_cached input not present in value map");
+      localValueMap.insert({arg, it->second});
     }
 
-    // Remove the original operations (in reverse order to handle
-    // dependencies).
-    for (auto it = subgraph.ops.rbegin(); it != subgraph.ops.rend(); ++it) {
-      (*it)->erase();
+    // Clone the ops of the callee's body.
+    for (auto &op : calleeEntryBlock.without_terminator()) {
+      processOp(&op, localValueMap, builder);
+    }
+
+    // Map the load_cached results to the cloned return values.
+    auto returnOp =
+        cast<mlir::func::ReturnOp>(calleeEntryBlock.getTerminator());
+    for (auto [result, returnValue] :
+         llvm::zip_equal(loadCachedOp.getResults(), returnOp.getOperands())) {
+      auto it = localValueMap.find(returnValue);
+      assert(it != localValueMap.end() &&
+             "load_cached return value not present in value map");
+      valueMap.insert({result, it->second});
     }
   }
 
@@ -754,17 +861,47 @@ private:
 
   // Collect inputs and outputs of the subgraph.
   void
-  collectSubgraphBoundary(const llvm::SmallVector<mlir::Operation *, 4> &opVec,
+  collectSubgraphBoundary(const ConstEvalSubgraph &subgraph,
+                          llvm::SmallVector<mlir::BlockArgument, 4> &inputs,
                           llvm::SmallVector<mlir::Value, 4> &outputs) {
+
+    std::copy(subgraph.inputParameters.begin(), subgraph.inputParameters.end(),
+              std::back_inserter(inputs));
+
+    // Sort by argument number to keep order consistent.
+    std::sort(inputs.begin(), inputs.end(),
+              [](BlockArgument a, BlockArgument b) {
+                return a.getArgNumber() < b.getArgNumber();
+              });
+    // Remove duplicates.
+    auto *newEnd = std::unique(inputs.begin(), inputs.end());
+    inputs.erase(newEnd, inputs.end());
+
     // Create a set of operations for quick lookup.
     llvm::SmallPtrSet<mlir::Operation *, 8> opSet;
-    for (auto *op : opVec) {
+    for (auto *op : subgraph.ops) {
       opSet.insert(op);
     }
 
     // Collect outputs: values defined in the subgraph that are used outside.
-    for (auto *op : opVec) {
+    for (auto *op : subgraph.ops) {
       for (auto result : op->getResults()) {
+        for (auto &use : result.getUses()) {
+          mlir::Operation *user = use.getOwner();
+          // Check if the user is outside the subgraph.
+          if (!opSet.contains(user)) {
+            outputs.push_back(result);
+            break;
+          }
+        }
+      }
+    }
+
+    // If adding to existing const-eval function, also consider outputs of
+    // load_cached ops that are going to be removed, as outputs of the
+    // subgraph.
+    for (auto loadCachedOp : subgraph.loadCachedOps) {
+      for (auto result : loadCachedOp.getResults()) {
         for (auto &use : result.getUses()) {
           mlir::Operation *user = use.getOwner();
           // Check if the user is outside the subgraph.
