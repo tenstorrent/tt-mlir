@@ -1190,7 +1190,8 @@ def TTNN_NLPConcatHeadsDecodeOp: TTNN_Op<"nlp_concat_heads_decode"> {
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
-                         UI32Attr:$num_heads);
+                         UI32Attr:$num_heads,
+                         OptionalAttr<TTNN_CoreRangeSetAttr>:$sub_core_grids);
 
     let results = (outs AnyRankedTensor:$result);
 

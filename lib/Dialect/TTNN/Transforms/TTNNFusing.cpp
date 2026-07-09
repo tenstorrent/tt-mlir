@@ -292,7 +292,8 @@ public:
 
     auto nlpConcatHeadsDecodeOp = rewriter.create<NLPConcatHeadsDecodeOp>(
         reshapeOp.getLoc(), concatHeadsResultType, input,
-        rewriter.getUI32IntegerAttr(static_cast<uint32_t>(numHeads)));
+        rewriter.getUI32IntegerAttr(static_cast<uint32_t>(numHeads)),
+        /*sub_core_grids=*/CoreRangeSetAttr());
 
     // Validate the fused op. The op requires height-sharded L1 input, so
     // try the workaround-sharded version since the workaround pass hasn't
@@ -307,7 +308,8 @@ public:
 
       auto validationOp = rewriter.create<NLPConcatHeadsDecodeOp>(
           reshapeOp.getLoc(), shardedResultType, workaround->getResult(),
-          rewriter.getUI32IntegerAttr(static_cast<uint32_t>(numHeads)));
+          rewriter.getUI32IntegerAttr(static_cast<uint32_t>(numHeads)),
+          /*sub_core_grids=*/CoreRangeSetAttr());
 
       std::vector<TTNNLayoutAttr> inputLayouts =
           utils::extractInputLayouts(validationOp.getOperation());

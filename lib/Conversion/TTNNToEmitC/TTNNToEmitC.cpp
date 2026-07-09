@@ -4579,6 +4579,7 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getNumHeads()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
+        /*sub_core_grids=*/emitter.emit(srcOp.getSubCoreGrids()),
     };
 
     emitter.replaceOp(*this, args);

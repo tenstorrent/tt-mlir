@@ -3339,7 +3339,9 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getNumHeads(), "num_heads"),
-        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config")};
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
+        emitter.emit<::ttnn::CoreRangeSet>(srcOp.getSubCoreGrids(),
+                                           "sub_core_grids")};
 
     emitter.replaceOp(*this, args);
 
