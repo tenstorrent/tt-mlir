@@ -90,7 +90,9 @@ void createTTNNPipelineTTIRPasses(
   // (e.g. IC=24 → K=4, packed IC*K=96=3×TILE_WIDTH, 0% tile waste).
   // Uses ttir.conv2d (not ttir.linear) to avoid TTNNSpatialPackActivationRowMajorOpt
   // interference which degrades PCC to ~0.972 for partial packing factors.
-  pm.addPass(mlir::tt::ttir::createTTIRPointwiseConv2dPartialPackingOpt());
+  // Set FORGE_DISABLE_POINTWISE_SPATIAL_PACKING=1 to skip for baseline comparison.
+  if (!std::getenv("FORGE_DISABLE_POINTWISE_SPATIAL_PACKING"))
+    pm.addPass(mlir::tt::ttir::createTTIRPointwiseConv2dPartialPackingOpt());
   // Fuse 6D reshape->permute{0,3,5,1,2,4}->reshape chain into
   // ttir.pixel_unshuffle. Eliminates 87.5-93.75% DRAM tile-padding waste
   // from the 6D TILE reshape (Y path r=4, UV path r=2 in BEV pipeline).
@@ -293,7 +295,9 @@ void createTTNNPipelineLayoutDecompositionPass(
   // (because linear needs TILE input), tilizing the activation before the reshapes.
   // This pass moves the tilize to after the chain so the reshapes and permute
   // operate in ROW_MAJOR (free views + 17.7 MB permute instead of 151 MB).
-  pm.addPass(createTTNNSpatialPackActivationRowMajorOpt());
+  // Skip when pointwise spatial packing is disabled — no packing chain to optimize.
+  if (!std::getenv("FORGE_DISABLE_POINTWISE_SPATIAL_PACKING"))
+    pm.addPass(createTTNNSpatialPackActivationRowMajorOpt());
 
 
 

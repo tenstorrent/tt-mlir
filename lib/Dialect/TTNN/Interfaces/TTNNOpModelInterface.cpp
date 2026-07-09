@@ -5862,23 +5862,39 @@ ResetGlobalSemaphoreOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 
 //===----------------------------------------------------------------------===//
 // PixelUnshuffleOp - TTNN Op Model Interface
-// NOTE: Constraint/runtime model not implemented — TTNNPixelUnshuffleL1Opt
-// forces L1 output directly, so the TTNN optimizer does not need to reason
-// about placement for this op.
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<op_model::OpConstraints>
 PixelUnshuffleOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                                    const OpConfig &opConfig) {
-  return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
+  assert(inputs.size() == 1);
+
+  llvm::Expected<bool> check = detail::checkDeviceWorkerGrid(getOperation());
+  if (!check) {
+    return check.takeError();
+  }
+  ttcore::GridAttr deviceGrid =
+      ttcore::lookupDevice(getOperation()).getWorkerGrid();
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto outputShape = getResult().getType().getShape();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<PixelUnshuffleOp>::getOpConstraints, *this, deviceGrid,
+      inputShape, inputs[0], outputShape, opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
 PixelUnshuffleOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
                                const OpConfig &opConfig) {
-  return issueErrorForGetOpRuntime(
-      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto outputShape = getResult().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<PixelUnshuffleOp>::getOpRuntime, *this, inputShape,
+      inputs[0], outputShape, opConfig.outputLayout);
 }
 
 } // namespace mlir::tt::ttnn
