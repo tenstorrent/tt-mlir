@@ -1794,7 +1794,7 @@ def _make_gather_indices(
     spread across that range rather than pinned to 0, because all-zero indices
     map every component to flat index 0 and hide the stride-order bug.
     """
-    torch.manual_seed(0)
+    g = torch.Generator().manual_seed(0)
     rank = len(indices_shape)
 
     # index_vector_dim == rank means the vector dim is implicit/trailing and
@@ -1802,7 +1802,9 @@ def _make_gather_indices(
     if index_vector_dim == rank:
         dim = start_index_map[0]
         hi = input_shape[dim] - slice_sizes[dim]
-        return torch.randint(0, hi + 1, indices_shape, dtype=torch.int32)
+        return torch.randint(
+            0, hi + 1, indices_shape, dtype=torch.int32, generator=g
+        )
 
     indices = torch.zeros(indices_shape, dtype=torch.int32)
     num_components = indices_shape[index_vector_dim]
@@ -1814,7 +1816,7 @@ def _make_gather_indices(
         selector[index_vector_dim] = k
         component = indices[tuple(selector)]
         indices[tuple(selector)] = torch.randint(
-            0, hi + 1, component.shape, dtype=torch.int32
+            0, hi + 1, component.shape, dtype=torch.int32, generator=g
         )
     return indices
 
