@@ -5,6 +5,7 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/ConcatenateHeadsDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/DistributedLayerNormDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/DistributedRMSNormDecompositionRewritePattern.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Decomposition/DitRMSNormUnaryFusedDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/GroupNormDecompositionRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/GroupedConvChannelSplitRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Decomposition/SDPADecodeDecompositionPattern.h"
@@ -48,6 +49,9 @@ public:
           &getContext(), validationConfig);
       patterns.add<decomposition::GroupNormDecompositionRewritePattern>(
           &getContext(), validationConfig);
+      patterns
+          .add<decomposition::DitRMSNormUnaryFusedDecompositionRewritePattern>(
+              &getContext(), validationConfig);
       patterns.add<decomposition::SDPADecompositionPattern>(&getContext(),
                                                             validationConfig);
       patterns.add<decomposition::SDPADecodeDecompositionPattern>(
@@ -59,6 +63,9 @@ public:
           &getContext());
       patterns.add<decomposition::GroupNormDecompositionRewritePattern>(
           &getContext());
+      patterns
+          .add<decomposition::DitRMSNormUnaryFusedDecompositionRewritePattern>(
+              &getContext());
       patterns.add<decomposition::SDPADecompositionPattern>(&getContext());
       patterns.add<decomposition::SDPADecodeDecompositionPattern>(
           &getContext());
