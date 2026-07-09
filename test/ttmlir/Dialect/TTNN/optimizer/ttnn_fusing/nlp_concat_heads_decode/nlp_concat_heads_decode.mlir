@@ -6,6 +6,7 @@
 //   1. Basic decode pattern: permute + reshape fuses to nlp_concat_heads_decode
 //   2. Negative: wrong permutation (should not fuse)
 //   3. Negative: non-decode seq_len > 1 (should not fuse)
+//   4. Negative: batch exceeds worker grid volume (should not fuse)
 
 // REQUIRES: opmodel
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="system-desc-path=%system_desc_path% optimization-level=1" %s | FileCheck %s
@@ -36,5 +37,15 @@ module {
   func.func @nlp_concat_heads_not_decode(%arg0: tensor<128x32x8x64xbf16>) -> tensor<32x8x128x64xbf16> {
     %0 = "ttir.permute"(%arg0) <{permutation = array<i64: 1, 2, 0, 3>}> : (tensor<128x32x8x64xbf16>) -> tensor<32x8x128x64xbf16>
     return %0 : tensor<32x8x128x64xbf16>
+  }
+
+  // Negative: batch (256) exceeds worker grid volume must not fuse (would assert
+  // in deriveCanonicalL1CoreRangeSet). Canonicalized reshape form. Mochi
+  // [1, 256, H, D] text-stream misfire.
+  // CHECK-LABEL: @nlp_concat_heads_batch_exceeds_grid
+  // CHECK-NOT: "ttnn.nlp_concat_heads_decode"
+  func.func @nlp_concat_heads_batch_exceeds_grid(%arg0: tensor<1x256x8x128xbf16>) -> tensor<256x1024xbf16> {
+    %0 = "ttir.reshape"(%arg0) <{shape = [256 : i32, 1024 : i32]}> : (tensor<1x256x8x128xbf16>) -> tensor<256x1024xbf16>
+    return %0 : tensor<256x1024xbf16>
   }
 }
