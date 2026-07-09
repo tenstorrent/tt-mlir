@@ -302,7 +302,8 @@ def eltwise_block_run(kernel, inputs, tensors, grid_shape):
 
     All input tensors share the same shape and block layout; builds one Layout
     from the first TensorSpec, wraps all inputs and the output in it, derives
-    ``m_blocks``/``n_blocks`` from the shape and grid, and calls
+    ``m_blocks``/``n_blocks`` (blocks per core, accounting for ``block_shape``)
+    from the shape, block_shape, and grid, and calls
     ``kernel(*inputs, out, m_blocks, n_blocks, grid=...)``.
     """
     import d2m_jit as d2m
@@ -318,8 +319,8 @@ def eltwise_block_run(kernel, inputs, tensors, grid_shape):
     )
     ins = [d2m.to_layout(t, L) for t in inputs]
     out = d2m.empty(L)
-    m_blocks = (ts.shape[-2] // 32) // gy
-    n_blocks = (ts.shape[-1] // 32) // gx
+    m_blocks = (ts.shape[-2] // 32) // ts.block_shape[0] // gy
+    n_blocks = (ts.shape[-1] // 32) // ts.block_shape[1] // gx
     kernel(*ins, out, m_blocks, n_blocks, grid=(gy, gx))
     return out.to_host()
 
