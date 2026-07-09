@@ -125,6 +125,7 @@ def build_trace_scope(name, input_specs):
 
     jit_ctx = JitContext(func_bb, ctx, (1, 1), (7, 7))
     jit_ctx.weight_cache = {}
+    jit_ctx.cache_alias = {}
     traced_args = [TracedTensor(func_bb.arguments[i]) for i in range(len(input_types))]
     return TraceScope(ctx, module, func_op, func_bb, jit_ctx, traced_args, input_types)
 
@@ -196,6 +197,12 @@ def _allowlisted_op_names():
 def _weight_value(tensor, jit_ctx):
     """Materialize a captured (non-proxy) tensor as a ttir.empty, deduped by id."""
     key = id(tensor)
+    # In-place cache ops rebind their cache tensor to the update result here, so
+    # later reads thread through the mutation. Checked before weight_cache so the
+    # empty stays in weight_cache (for weight-lifting) while reads see the update.
+    alias = getattr(jit_ctx, "cache_alias", None)
+    if alias is not None and key in alias:
+        return alias[key]
     cache = jit_ctx.weight_cache
     if key in cache:
         return cache[key]
@@ -238,6 +245,37 @@ def _make_traced_value_op(value_fn, jit_ctx):
         proxied_args = [_capture(a, jit_ctx) for a in args]
         proxied_kwargs = {k: _capture(v, jit_ctx) for k, v in kwargs.items()}
         return TracedTensor(value_fn(jit_ctx, *proxied_args, **proxied_kwargs))
+
+    return op
+
+
+# ttnn in-place cache ops -> positional index of the mutated cache argument.
+# These ops write the cache buffer in place; the model calls them as a bare
+# statement and later reads the SAME cache tensor (e.g. attention over the
+# updated KV cache). We must thread the mutation so the reader consumes the
+# op's result, not the pre-update cache -- otherwise the graph is semantically
+# wrong (reads stale cache) and the cache has two users, which the TTIRToTTNN
+# cache-op conversion rejects (it requires the update to be the cache's sole /
+# final use).
+_INPLACE_CACHE_ARG = {
+    "paged_fill_cache": 0,
+    "paged_update_cache": 0,
+}
+
+
+def _make_traced_inplace_cache_op(value_fn, jit_ctx, cache_idx):
+    def op(*args, **kwargs):
+        raw_cache = args[cache_idx] if cache_idx < len(args) else None
+        proxied_args = [_capture(a, jit_ctx) for a in args]
+        proxied_kwargs = {k: _capture(v, jit_ctx) for k, v in kwargs.items()}
+        result = value_fn(jit_ctx, *proxied_args, **proxied_kwargs)
+        # Rebind the mutated cache tensor to this op's result via a SEPARATE
+        # alias map (not weight_cache): later reads thread through the update,
+        # while the cache's ttir.empty stays in weight_cache so weight-lifting
+        # still lifts it to a parameter arg (and doesn't erase this op).
+        if raw_cache is not None and hasattr(raw_cache, "shape"):
+            jit_ctx.cache_alias[id(raw_cache)] = result
+        return TracedTensor(result)
 
     return op
 
@@ -332,10 +370,12 @@ def _rms_norm_handler(jit_ctx, x, *, epsilon=1e-5, weight=None, **kwargs):
         )
 
 
-def _reshape_handler(jit_ctx, x, shape=None, **kwargs):
+def _reshape_handler(jit_ctx, x, shape=None, padded_shape=None, **kwargs):
     # ttnn.reshape(x, shape) — shape is positional (args[1]) or a `shape=` kwarg,
     # a list/tuple/ttnn.Shape that may contain a single -1 to infer. Overrides the
     # jit_functions reshape handler, which mis-resolves the shape as an operand.
+    # The decode path also calls ttnn.reshape(x, logical_shape, padded_shape) with
+    # a second (tile-padded) shape; we model the logical shape and ignore padding.
     if shape is None:
         shape = kwargs.get("shape")
     dims = [int(d) for d in shape]
@@ -395,8 +435,44 @@ def _nlp_create_qkv_heads_handler(
         )
 
 
+def _nlp_create_qkv_heads_decode_handler(
+    jit_ctx, xqkv, *, num_heads, num_kv_heads=None, **kwargs
+):
+    """Decode-phase QKV split: fused [1,1,B,qkv] -> q [1,B,Hq,D], k/v [1,B,Hkv,D].
+
+    Decode uses the [1, batch, heads, head_dim] head layout (vs prefill's
+    [batch, heads, seq, head_dim]). No dedicated TTIR op exists, so reuse the
+    split op on a rank-3 reshape, then reshape each output into the decode
+    layout the downstream decode ops (rope/paged-sdpa-decode) expect.
+    """
+    t = xqkv.mlir_value.type
+    shp = [int(d) for d in t.shape]
+    batch = shp[-2]
+    qkv = shp[-1]
+    nkv = num_kv_heads if num_kv_heads is not None else num_heads
+    head_dim = qkv // (num_heads + 2 * nkv)
+    et = t.element_type
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        reshaped = ttir.reshape(
+            RankedTensorType.get([1, batch, qkv], et), xqkv.mlir_value, [1, batch, qkv]
+        )
+        qt = RankedTensorType.get([1, num_heads, batch, head_dim], et)
+        kt = RankedTensorType.get([1, nkv, batch, head_dim], et)
+        vt = RankedTensorType.get([1, nkv, batch, head_dim], et)
+        q_r, k_r, v_r = ttir.split_query_key_value_and_split_heads(
+            qt, kt, vt, reshaped, num_heads, False, num_kv_heads=nkv
+        )
+
+        def _to_decode(v, heads):
+            dt = RankedTensorType.get([1, batch, heads, head_dim], et)
+            return ttir.reshape(result=dt, input=v, shape=[1, batch, heads, head_dim])
+
+        return [_to_decode(q_r, num_heads), _to_decode(k_r, nkv), _to_decode(v_r, nkv)]
+
+
 _EXPERIMENTAL_MULTI = {
     "nlp_create_qkv_heads": _nlp_create_qkv_heads_handler,
+    "nlp_create_qkv_heads_decode": _nlp_create_qkv_heads_decode_handler,
 }
 
 
@@ -458,9 +534,43 @@ def _rotary_embedding_llama_handler(
         )
 
 
+def _paged_update_cache_handler(
+    jit_ctx, cache, input, *, update_idxs_tensor, page_table=None, **kwargs
+):
+    """Decode-phase in-place paged KV-cache update; result models updated cache.
+
+    Called as a bare statement (result unused), so the keep-alive anchor keeps
+    it in the graph. `update_idxs_tensor` is the per-user current position.
+    """
+    t = cache.mlir_value.type
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        result_type = RankedTensorType.get([int(d) for d in t.shape], t.element_type)
+        return ttir.paged_update_cache(
+            result=result_type,
+            cache=cache.mlir_value,
+            input=input.mlir_value,
+            update_index=update_idxs_tensor.mlir_value,
+            page_table=(page_table.mlir_value if page_table is not None else None),
+        )
+
+
+def _nlp_concat_heads_decode_handler(jit_ctx, x, *, num_heads=None, **kwargs):
+    """Decode-phase head merge: [1, B, Hq, D] -> [1, B, Hq*D] (heads -> hidden)."""
+    t = x.mlir_value.type
+    shp = [int(d) for d in t.shape]
+    batch, heads, head_dim = shp[-3], shp[-2], shp[-1]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        out_type = RankedTensorType.get([1, batch, heads * head_dim], t.element_type)
+        return ttir.reshape(
+            result=out_type, input=x.mlir_value, shape=[1, batch, heads * head_dim]
+        )
+
+
 _EXPERIMENTAL_VALUE = {
     "nlp_concat_heads": _nlp_concat_heads_handler,
+    "nlp_concat_heads_decode": _nlp_concat_heads_decode_handler,
     "paged_fill_cache": _paged_fill_cache_handler,
+    "paged_update_cache": _paged_update_cache_handler,
     "rotary_embedding_llama": _rotary_embedding_llama_handler,
 }
 
@@ -504,9 +614,37 @@ def _chunked_sdpa_handler(
         )
 
 
+def _paged_sdpa_decode_handler(
+    jit_ctx, q, k, v, *, page_table_tensor, cur_pos_tensor=None, scale=None, **kwargs
+):
+    """Decode-phase paged attention. Output shape matches the query [1,B,Hq,D].
+
+    `k`/`v` are the paged KV-cache tensors, not the freshly-split heads. The
+    TTIR op is DPS-style (takes an `output` operand), so materialize an empty of
+    the query shape for it.
+    """
+    t = q.mlir_value.type
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        result_type = RankedTensorType.get([int(d) for d in t.shape], t.element_type)
+        output = ttir.EmptyOp(result_type).result
+        return ttir.paged_scaled_dot_product_attention_decode(
+            result=result_type,
+            query=q.mlir_value,
+            key=k.mlir_value,
+            value=v.mlir_value,
+            page_table=page_table_tensor.mlir_value,
+            output=output,
+            cur_pos_tensor=(
+                cur_pos_tensor.mlir_value if cur_pos_tensor is not None else None
+            ),
+            scale=scale,
+        )
+
+
 _TRANSFORMER_VALUE = {
     "scaled_dot_product_attention": _sdpa_handler,
     "chunked_scaled_dot_product_attention": _chunked_sdpa_handler,
+    "paged_scaled_dot_product_attention_decode": _paged_sdpa_decode_handler,
 }
 
 
@@ -548,7 +686,13 @@ def patch_ttnn(jit_ctx):
                 setattr(experimental, name, _make_traced_multi_op(fn, jit_ctx))
             for name, value_fn in _EXPERIMENTAL_VALUE.items():
                 exp_originals[name] = getattr(experimental, name, _MISSING)
-                setattr(experimental, name, _make_traced_value_op(value_fn, jit_ctx))
+                if name in _INPLACE_CACHE_ARG:
+                    wrapped = _make_traced_inplace_cache_op(
+                        value_fn, jit_ctx, _INPLACE_CACHE_ARG[name]
+                    )
+                else:
+                    wrapped = _make_traced_value_op(value_fn, jit_ctx)
+                setattr(experimental, name, wrapped)
         if transformer is not None:
             for name, value_fn in _TRANSFORMER_VALUE.items():
                 transformer_originals[name] = getattr(transformer, name, _MISSING)

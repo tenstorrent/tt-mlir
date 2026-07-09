@@ -8,6 +8,7 @@ import torch
 import ttnn
 
 from ttnn_jit._src.shard_advisor import ShardAdvisor, AdvisorReport
+from ttnn_jit._src.interception_tracer import trace_intercepted
 from _autoport.functional_decoder import FunctionalDecoder, _FunctionalMLP
 from models.common.modules.lazy_weight import LazyWeight
 
@@ -147,6 +148,73 @@ def test_interception_traces_full_decoder(device):
 
 
 @pytest.mark.forked
+@pytest.mark.forked
+def test_interception_traces_decode_layer(device):
+    # Decode-phase decoder traces to TTIR with the decode-variant op vocabulary
+    # (nlp_create_qkv_heads_decode, paged_update_cache, RoPE decode,
+    # paged_scaled_dot_product_attention_decode, nlp_concat_heads_decode), and
+    # the in-place KV-cache updates thread into attention so each cache has a
+    # single user. Trace-only: the decode path exercises fixed-layout ops
+    # (HeightSharded RoPE/SDPA-decode inputs) whose layout handling the
+    # analysis pipeline does not yet apply, so this asserts the trace, not an
+    # optimizer run.
+    seq = 128
+    dec = FunctionalDecoder.from_state_dict(
+        _dummy_decoder_state_dict(),
+        hf_config=_stub_llama_config(),
+        layer_idx=0,
+        mesh_device=device,
+        max_batch_size=1,
+        max_seq_len=seq,
+        page_block_size=64,
+    )
+    cos, sin = _mk(device, (1, 1, _HD, _HD)), _mk(device, (1, 1, _HD, _HD))
+    current_pos = ttnn.from_torch(
+        torch.zeros(1, dtype=torch.int32),
+        dtype=ttnn.int32,
+        layout=ttnn.ROW_MAJOR_LAYOUT,
+        device=device,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+    )
+    page_table = ttnn.from_torch(
+        torch.zeros(1, 2, dtype=torch.int32),
+        dtype=ttnn.int32,
+        layout=ttnn.ROW_MAJOR_LAYOUT,
+        device=device,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+    )
+    x = _mk(device, (1, 1, 1, _HIDDEN))
+
+    def traced(hs):
+        return dec.decode_forward(
+            hs, current_pos=current_pos, rot_mats=(cos, sin), page_table=page_table
+        )
+
+    module, _ = trace_intercepted(traced, x)
+    ir = str(module)
+
+    assert ir.count('"ttir.paged_update_cache"') == 2  # k + v cache updates
+    assert ir.count('"ttir.paged_scaled_dot_product_attention_decode"') == 1
+    assert ir.count('"ttir.rotary_embedding_llama"') == 2  # q + k, decode mode
+
+    # Cache threading: each in-place update's result must feed the decode SDPA
+    # (attention reads the UPDATED cache), not the original cache tensor -- so
+    # every paged_update_cache result appears as an SDPA operand.
+    import re
+
+    update_results = re.findall(r'(%\S+) = "ttir\.paged_update_cache"', ir)
+    assert len(update_results) == 2
+    sdpa_line = next(
+        line
+        for line in ir.splitlines()
+        if "paged_scaled_dot_product_attention_decode" in line
+    )
+    for result in update_results:
+        assert (
+            result in sdpa_line
+        ), f"cache update {result} not threaded into decode SDPA"
+
+
 def test_interception_attention_chain(device):
     # Attention block covering the nlp_create_qkv_heads /
     # scaled_dot_product_attention / nlp_concat_heads tracer handlers through the
