@@ -3411,8 +3411,7 @@ public:
                                      SmallVectorImpl<ArgAttr> &ctArgs) const {
     FailureOr<d2m::GenericOp> parentGenericOr = findParentGeneric(op);
     if (failed(parentGenericOr)) {
-      return op.emitError("preserve-all-kernel-args: could not find parent "
-                          "d2m.generic for kernel func");
+      return failure();
     }
 
     // operandIndex matches d2m.get_arg / d2m.get_cb indexing: the parent
@@ -3464,9 +3463,7 @@ public:
         continue;
       }
 
-      return op.emitError("preserve-all-kernel-args: unsupported "
-                          "d2m.generic operand type: ")
-             << argType;
+      return failure();
     }
     return success();
   }
