@@ -71,7 +71,13 @@ RotaryEmbeddingRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
       TensorMemoryLayout::HeightSharded);
 }
 
-bool RotaryEmbeddingRuleBook::shouldExploreReshards() const { return false; }
+// getInputLayoutFilter requires HeightSharded inputs, so the optimizer MUST be
+// allowed to explore reshards to produce them -- otherwise it can only accept a
+// producer's (typically interleaved) layout, the HeightSharded-only filter
+// rejects it, no valid config is found, and the op falls back to
+// DRAM-interleaved (which then fails decode-mode validation). Reshard
+// exploration is what lets the op reach the sharded input its rule requires.
+bool RotaryEmbeddingRuleBook::shouldExploreReshards() const { return true; }
 
 OutputHints RotaryEmbeddingRuleBook::getOutputHints(
     Operation * /*op*/, const std::vector<OpConfig> & /*legalConfigs*/) const {
