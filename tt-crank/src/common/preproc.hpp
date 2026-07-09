@@ -33,7 +33,7 @@ inline constexpr bool build_release = true;
 // }
 
 // clang-format off
-#ifndef FS_IMPL // FS definitions (config.hpp)
+#ifndef FS_CONFIG_IMPL // FS definitions (config.hpp)
 
 #define FS_WITH_ENABLER(name, value, env)  bool name##_enabled();
 #define FS_WITH_DISABLER(name, value, env) bool name##_enabled();
@@ -49,5 +49,28 @@ inline constexpr bool build_release = true;
     static bool env_##name = std::getenv(env) != nullptr;                                                              \
     bool name##_enabled() { return value && !env_##name; }
 
-#endif // FS_IMPL
+#endif // FS_CONFIG_IMPL
+
+// Config section.
+//
+// Exposes <config_name>_config() function which evaluates to default value
+// unless the env var is set, in which case it takes the env var value.
+//
+// Example usage:
+//
+// config.hpp: CONFIG_STR(some_str, "default_str_value", "TT_KURBLA_SOME_STR")
+//
+// somewhere.cpp: std::string dir = some_str_config();
+
+#ifndef FS_CONFIG_IMPL // Config definitions (config.hpp)
+
+#define CONFIG_STR(name, value, env) const char *name##_config();
+
+#else  // Config implementations (config.cpp)
+
+#define CONFIG_STR(name, value, env)                                                                                   \
+    static const char *env_##name = std::getenv(env);                                                                  \
+    const char *name##_config() { return env_##name != nullptr ? env_##name : value; }
+
+#endif // FS_CONFIG_IMPL
 // clang-format on
