@@ -7,6 +7,7 @@ import dataclasses
 import inspect
 import json
 import os
+import re
 
 from ttnn_jit.ttmlir.passes import (
     ttir_to_ttnn_runtime_pipeline,
@@ -246,7 +247,37 @@ class ShardAdvisor:
         summary = parse_ir_summary(ttnn_mlir)
         ir_summary = render_ir_summary(summary)
         rationale = render_text_report(trace)
-        text = ir_summary + "\n" + rationale
+
+        # Ops the validation-fallback pass could not make valid are flagged in
+        # the IR (ttnn.validation_unfixable) rather than failing the compile, so
+        # analysis continues and the rest of the report stays useful. Surface
+        # them prominently -- the agent should treat these as "skip / use other
+        # hints" rather than trusting a layout for them.
+        unfixable = []
+        for line in ttnn_mlir.splitlines():
+            if "ttnn.validation_unfixable" not in line:
+                continue
+            op_m = re.search(r'"(ttnn\.[\w.]+)"', line)
+            why_m = re.search(r'ttnn\.validation_unfixable = "((?:[^"\\]|\\.)*)"', line)
+            reason = why_m.group(1) if why_m else ""
+            # MLIR escapes newlines/tabs in string attrs as \0A / \09; unescape
+            # to a single readable line.
+            reason = re.sub(r"\\0[aA9]", " ", reason)
+            reason = re.sub(r"\s+", " ", reason).strip()
+            unfixable.append(
+                {"op": op_m.group(1) if op_m else "unknown", "reason": reason}
+            )
+        banner = ""
+        if unfixable:
+            lines = [
+                f"!! {u['op']}: no valid config (left broken) -- {u['reason']}"
+                for u in unfixable
+            ]
+            banner = (
+                f"=== {len(unfixable)} UNFIXABLE OP(S) -- skip these / use other "
+                "hints ===\n" + "\n".join(lines) + "\n\n"
+            )
+        text = banner + ir_summary + "\n" + rationale
         report = AdvisorReport(trace, text, ttnn_mlir, ir_summary, self.out_dir)
 
         # Persist every artifact next to the decision trace so a run leaves a
@@ -270,6 +301,7 @@ class ShardAdvisor:
                 "ran": trace.spill.ran,
                 "total_spills": trace.spill.total_spills,
             },
+            "unfixable_ops": unfixable,
             "ops": [
                 {"index": o.index, "op": o.op_name, "layout": o.result_layout}
                 for o in summary.ops

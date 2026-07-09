@@ -161,6 +161,7 @@ public:
 
     size_t totalOperationsChecked = 0;
     size_t operationsFixed = 0;
+    size_t operationsFlagged = 0;
     bool validationFailed = false;
 
     moduleOp->walk([&](func::FuncOp func) {
@@ -292,6 +293,27 @@ public:
             TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
                          "Operation {} at {} fixed with fallback configuration",
                          operation->getName(), operation->getLoc());
+          } else if (flagUnfixableOps) {
+            // Analysis mode: don't sink the whole compile because one op has no
+            // working fallback. Mark it and keep going so consumers (e.g. the
+            // L1 shard advisor) get the rest of the report and can skip this op.
+            operationsFlagged++;
+            std::string reason =
+                op_constraint_validation::validationStatusToString(
+                    originalResult.status)
+                    .str();
+            if (!originalResult.errorMessage.empty()) {
+              reason += " - " + originalResult.errorMessage;
+            }
+            operation->setAttr(
+                "ttnn.validation_unfixable",
+                StringAttr::get(operation->getContext(), reason));
+            mlir::emitWarning(operation->getLoc())
+                << "OperationValidationAndFallback: no working fallback for "
+                << operation->getName()
+                << "; flagged with ttnn.validation_unfixable and left as-is "
+                   "(reason: "
+                << reason << ").";
           } else {
             emitValidationFailureError(operation, originalResult,
                                        maxFallbackAttempts);
@@ -306,10 +328,12 @@ public:
 
     // Log validation summary
     TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
-                 "Operation validation {}: {} operations checked{}, {} fixed",
+                 "Operation validation {}: {} operations checked{}, {} fixed, "
+                 "{} flagged unfixable",
                  validationFailed ? "FAILED" : "complete",
                  totalOperationsChecked,
-                 validationFailed ? " before failure" : "", operationsFixed);
+                 validationFailed ? " before failure" : "", operationsFixed,
+                 operationsFlagged);
 #endif // TTMLIR_ENABLE_OPMODEL
   }
 

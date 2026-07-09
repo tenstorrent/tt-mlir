@@ -461,7 +461,14 @@ def TTNNOperationValidationAndFallback: Pass<"ttnn-operation-validation-and-fall
     Option<"maxFallbackAttempts",
            "max-fallback-attempts",
            "uint32_t", /*default=*/"10000",
-           "Maximum number of fallback configurations to try before giving up (0 = unlimited)">
+           "Maximum number of fallback configurations to try before giving up (0 = unlimited)">,
+    Option<"flagUnfixableOps",
+           "flag-unfixable-ops",
+           "bool", /*default=*/"false",
+           "When an op has no working fallback, emit a warning and mark it with a "
+           "ttnn.validation_unfixable attribute instead of failing the pass. Lets "
+           "analysis consumers (e.g. the L1 shard advisor) keep the rest of the "
+           "report and skip the broken op rather than losing the whole compile.">
   ];
 }
 

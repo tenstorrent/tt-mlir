@@ -98,7 +98,8 @@ void createTTNNPipelineTTIRPasses(
 }
 
 void createTTNNPipelineAnalysisPasses(
-    OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options) {
+    OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options,
+    bool flagUnfixableOps = false) {
 
   pm.addPass(mlir::tt::ttnn::createTTNNConfigureCCLOps());
 
@@ -115,6 +116,9 @@ void createTTNNPipelineAnalysisPasses(
 
     ttnn::TTNNOperationValidationAndFallbackOptions validationOptions;
     validationOptions.maxFallbackAttempts = options.maxFallbackAttempts;
+    // Analysis pipelines (e.g. the L1 shard advisor) flag unfixable ops and
+    // continue; the full backend pipeline keeps the default (fail).
+    validationOptions.flagUnfixableOps = flagUnfixableOps;
 
     if (!options.enableGreedyOptimizer) {
       // Default: chain-based TTNNOptimizer.
@@ -790,8 +794,11 @@ void createTTIRToTTNNL1AdvisorPipeline(
 
   // Reuse the optimizer block verbatim: ConfigureCCLOps, UniqueLocations,
   // device-wrapped { GreedyMemoryLayoutPropagation, GreedyL1SpillManagement,
-  // OperationValidationAndFallback } + decision trace.
-  createTTNNPipelineAnalysisPasses(devicePm, options);
+  // OperationValidationAndFallback } + decision trace. Advisor is analysis-only:
+  // flag ops with no working fallback and keep going, so an agent still gets the
+  // rest of the layout report and can skip the broken op.
+  createTTNNPipelineAnalysisPasses(devicePm, options,
+                                   /*flagUnfixableOps=*/true);
 
   // Materialize reshards as ttnn.to_memory_config for the IR-derived summary.
   createTTNNPipelineLayoutDecompositionPass(devicePm, options);
