@@ -272,6 +272,41 @@ def _closest_block(target: list[int], candidates: list[list[int]]) -> list[int]:
     return min(candidates, key=lambda b: abs(b[0] * b[1] - target_tiles))
 
 
+def _override_bench_tensors(
+    bench: KernelBench,
+    tensor_shapes: Optional[list[tuple[int, ...]]] = None,
+    tensor_dtypes: Optional[list] = None,
+) -> KernelBench:
+    """Return a copy of *bench* with tensor shapes and/or dtypes overridden.
+
+    Lengths of *tensor_shapes* / *tensor_dtypes* must match
+    ``len(bench.tensors)`` when provided.  Returns *bench* unchanged if
+    both arguments are ``None``.
+    """
+    if tensor_shapes is None and tensor_dtypes is None:
+        return bench
+    n = len(bench.tensors)
+    if tensor_shapes is not None and len(tensor_shapes) != n:
+        raise ValueError(
+            f"tensor_shapes has {len(tensor_shapes)} entries but bench "
+            f"has {n} tensor(s)"
+        )
+    if tensor_dtypes is not None and len(tensor_dtypes) != n:
+        raise ValueError(
+            f"tensor_dtypes has {len(tensor_dtypes)} entries but bench "
+            f"has {n} tensor(s)"
+        )
+    new_tensors = []
+    for i, ts in enumerate(bench.tensors):
+        kwargs: dict = {}
+        if tensor_shapes is not None:
+            kwargs["shape"] = tuple(tensor_shapes[i])
+        if tensor_dtypes is not None:
+            kwargs["dtype"] = tensor_dtypes[i]
+        new_tensors.append(dataclasses.replace(ts, **kwargs))
+    return dataclasses.replace(bench, tensors=new_tensors)
+
+
 def _divisors(n: int) -> list[int]:
     """Return all positive divisors of n in ascending order."""
     if n <= 0:
@@ -781,6 +816,8 @@ class Autotuner:
         strategy: str = "sweep",
         seed: Optional[AutotuneConfig] = None,
         max_rounds: int = 10,
+        tensor_shapes: Optional[list[tuple[int, ...]]] = None,
+        tensor_dtypes: Optional[list] = None,
     ) -> list[AutotuneResult]:
         """Run *bench* under the chosen search strategy.
 
@@ -801,8 +838,17 @@ class Autotuner:
             Starting config for hill-climbing.  ``None`` → bench default.
         max_rounds:
             Maximum coordinate-descent rounds for hill-climbing.
+        tensor_shapes:
+            One ``(dim, …)`` tuple per tensor, overriding the shapes defined
+            in the bench.  Affects grid/block auto-generation as well as the
+            tensors passed to the kernel.  Length must match
+            ``len(bench.tensors)``.
+        tensor_dtypes:
+            One dtype per tensor, overriding the dtypes defined in the bench.
+            Length must match ``len(bench.tensors)``.
         """
         name = bench_name or bench.name or "unnamed"
+        bench = _override_bench_tensors(bench, tensor_shapes, tensor_dtypes)
 
         if strategy == "hill-climb":
             return self._run_hill_climb(bench, name, seed=seed, max_rounds=max_rounds)
@@ -1218,7 +1264,13 @@ def autotune_kernel(
 
     all_results: dict[str, list[AutotuneResult]] = {}
     for name, bench in benches.items():
-        results = tuner.run_bench(bench, bench_name=name, strategy=strategy)
+        results = tuner.run_bench(
+            bench,
+            bench_name=name,
+            strategy=strategy,
+            tensor_shapes=tensor_shapes,
+            tensor_dtypes=tensor_dtypes,
+        )
         tuner.save_results(name, results)
         all_results[name] = results
 
