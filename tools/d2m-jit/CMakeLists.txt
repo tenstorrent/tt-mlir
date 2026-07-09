@@ -7,6 +7,7 @@ declare_mlir_python_sources(TTD2MJitSources
     SOURCES
         __init__.py
         api.py
+        autotune.py
         _src/__init__.py
         _src/ast.py
         _src/builder.py
