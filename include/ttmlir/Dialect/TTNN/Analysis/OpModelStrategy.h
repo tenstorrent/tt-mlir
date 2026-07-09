@@ -53,6 +53,12 @@ bool shouldExploreReshards(Operation *op);
 /// kernel hard-requires a specific sharded layout on a constant input.
 bool shouldReshardConstantOperand(Operation *op, unsigned operandIdx);
 
+/// Whether the greedy search should synthesize a ROW_MAJOR sibling for each
+/// tiled input candidate at the given operand index. Default false; op rule
+/// books opt in for operands whose kernel hard-requires a RowMajor page layout
+/// (the tiled-only candidate pool otherwise has no RowMajor candidate).
+bool generatesRowMajorInputSiblings(Operation *op, unsigned operandIdx);
+
 //--- Scoring ---
 
 /// Score representing the quality of a layout candidate. Used for ranking.

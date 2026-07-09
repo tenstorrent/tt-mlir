@@ -21,6 +21,10 @@ bool shouldReshardConstantOperand(Operation *op, unsigned operandIdx) {
   return getRuleBook(op).shouldReshardConstantOperand(operandIdx);
 }
 
+bool generatesRowMajorInputSiblings(Operation *op, unsigned operandIdx) {
+  return getRuleBook(op).generatesRowMajorInputSiblings(operandIdx);
+}
+
 //--- Scoring ---
 
 bool LayoutScore::operator>(const LayoutScore &other) const {

@@ -70,6 +70,21 @@ struct OpRuleBook {
     return false;
   }
 
+  /// Whether the greedy search should materialize a ROW_MAJOR sibling for each
+  /// tiled input candidate of the given operand.
+  ///
+  /// Default: false. The candidate pool is 100% tiled (module-wide RM layout
+  /// generation is off by default to bound compile time), so a RuleBook filter
+  /// requiring RowMajor would reject every candidate and yield an empty set.
+  /// Override to true for operands whose kernel hard-requires a RowMajor page
+  /// layout (e.g. paged_update_cache's page_table / update_idxs index tensors):
+  /// the greedy search then clones each tiled candidate into an RM sibling on
+  /// demand. Pair with getInputLayoutFilter() -> requireRowMajor() to drop the
+  /// tiled originals. No global flag, no pool growth for other ops.
+  virtual bool generatesRowMajorInputSiblings(unsigned /*operandIdx*/) const {
+    return false;
+  }
+
   /// Cross-product pruning: reject input layout combinations before expensive
   /// backend validation. Default accepts all. Override for ops that require
   /// homogeneous input layouts (e.g., concat requires all inputs to share the

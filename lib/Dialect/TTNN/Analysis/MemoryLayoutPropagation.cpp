@@ -118,6 +118,24 @@ static bool isShardedLayout(TTNNLayoutAttr layout) {
   return memLayout && isShardedMemoryLayout(memLayout.getValue());
 }
 
+/// Build the ROW_MAJOR sibling of a tiled layout: the same buffer type, memory
+/// layout, grid and data type, but with the scalar (row-major) element type
+/// instead of a TileType. getLayout() is derived from the element type, so
+/// swapping to the scalar type flips the layout to RowMajor (matching how
+/// LegalTensorLayoutAnalysis materializes layouts). Returns null if the layout
+/// is already row-major.
+static TTNNLayoutAttr getRowMajorSibling(TTNNLayoutAttr tiledLayout,
+                                         llvm::ArrayRef<int64_t> tensorShape) {
+  if (tiledLayout.getLayout() == Layout::RowMajor) {
+    return nullptr;
+  }
+  Type rmElementType = ttnn::utils::getElementType(
+      tiledLayout.getContext(), Layout::RowMajor, tiledLayout.getDataType());
+  return TTNNLayoutAttr::Builder(tiledLayout, tensorShape)
+      .setElementType(rmElementType)
+      .build();
+}
+
 /// Compute total bytes transferred from DRAM across all inputs.
 static uint64_t
 computeInputDramBytes(const std::vector<TTNNLayoutAttr> &inputLayouts) {
@@ -955,6 +973,28 @@ MemoryLayoutPropagation::getInputCandidateSets(Operation *op) {
     addReshardCandidates(candidatesForOperand, op, operandIdx, operand,
                          currentLayout, tensorType, producerBeam, producerOp,
                          resultIdx, maxInputCandidatesPerOperand);
+
+    // Row-major input siblings: for ops whose kernel requires a RowMajor page
+    // layout on this operand (e.g. paged_update_cache page_table / update_idxs),
+    // synthesize an RM sibling for each tiled candidate. The pool is otherwise
+    // tiled-only, so without this the require-RM filter below would empty the
+    // set. isReshard=true so the framework inserts a ToLayout from the tiled
+    // producer. The require-RM filter then drops the tiled originals.
+    if (generatesRowMajorInputSiblings(op, operandIdx)) {
+      std::vector<InputCandidate> rmSiblings;
+      for (const auto &ic : candidatesForOperand) {
+        if (TTNNLayoutAttr rmLayout =
+                getRowMajorSibling(ic.layout, tensorType.getShape())) {
+          InputCandidate rmIc;
+          rmIc.layout = rmLayout;
+          rmIc.producerCandidateIndex = ic.producerCandidateIndex;
+          rmIc.isReshard = true;
+          rmSiblings.push_back(rmIc);
+        }
+      }
+      candidatesForOperand.insert(candidatesForOperand.end(), rmSiblings.begin(),
+                                  rmSiblings.end());
+    }
 
     // Filter after all candidates (producer beam + reshards) are collected.
     // This rejects layouts the op cannot consume (e.g., any sharded RHS for

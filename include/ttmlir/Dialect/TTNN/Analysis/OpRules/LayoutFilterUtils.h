@@ -44,6 +44,15 @@ inline bool rejectL1Interleaved(TTNNLayoutAttr layout) {
   return isDRAMBufferType(layout.getBufferType());
 }
 
+/// Accept only ROW_MAJOR page-layout candidates; reject tiled. Page-layout
+/// only, no dtype dependency. Pair with an op's
+/// generatesRowMajorInputSiblings(operandIdx) so the greedy search first
+/// synthesizes RowMajor siblings for the (otherwise tiled-only) candidate pool,
+/// then this filter drops the tiled originals.
+inline bool requireRowMajor(TTNNLayoutAttr layout) {
+  return layout.getLayout() == Layout::RowMajor;
+}
+
 /// Reject width-sharded layouts. Returns true if the layout should be kept.
 inline bool rejectWidthSharded(TTNNLayoutAttr layout) {
   auto ml = layout.getMemLayout();

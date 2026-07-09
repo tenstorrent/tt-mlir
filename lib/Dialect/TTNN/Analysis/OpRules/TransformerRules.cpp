@@ -142,4 +142,40 @@ PagedFillCacheRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
   return nullptr;
 }
 
+//===----------------------------------------------------------------------===//
+// PagedUpdateCacheRuleBook
+//===----------------------------------------------------------------------===//
+
+// Operand order: (0) cache, (1) value input, (2) update_idxs, (3) page_table.
+LayoutFilterFn
+PagedUpdateCacheRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
+  switch (operandIdx) {
+  case 0:
+    // Cache is updated in place; it must stay in DRAM interleaved storage.
+    return cacheBufferDramOnlyFilter();
+  case 1:
+    // Kernel requires the value input HeightSharded ("Expect input_tensor to
+    // be sharded"; NOT width sharded).
+    return layout_filter_utils::allowOnlyShardingType(
+        TensorMemoryLayout::HeightSharded);
+  case 2:
+  case 3:
+    // update_idxs / page_table must be ROW_MAJOR. Paired with the RowMajor
+    // input siblings below, this drops the tiled originals so only the
+    // synthesized RowMajor candidates survive.
+    return layout_filter_utils::requireRowMajor;
+  default:
+    return nullptr;
+  }
+}
+
+bool PagedUpdateCacheRuleBook::shouldExploreReshards() const { return true; }
+
+bool PagedUpdateCacheRuleBook::generatesRowMajorInputSiblings(
+    unsigned operandIdx) const {
+  // update_idxs (2) and page_table (3) index tensors require RowMajor, which
+  // the tiled-only candidate pool does not contain; synthesize RM siblings.
+  return operandIdx == 2 || operandIdx == 3;
+}
+
 } // namespace mlir::tt::ttnn

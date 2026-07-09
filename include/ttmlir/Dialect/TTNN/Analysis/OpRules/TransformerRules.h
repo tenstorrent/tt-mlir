@@ -94,6 +94,19 @@ struct PagedFillCacheRuleBook : OpRuleBook {
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
 };
 
+/// PagedUpdateCache (decode) operand contract (paged_update_cache_device_
+/// operation.cpp): cache (0) DRAM-interleaved tiled; value input (1) L1
+/// HeightSharded ("Expect input_tensor to be sharded", one user per core);
+/// update_idxs (2) and page_table (3) ROW_MAJOR. At opt >= 2 there is no
+/// workaround pass, so the greedy optimizer must reach all of these itself:
+/// reshards drive the value to HeightSharded, and RowMajor input siblings give
+/// the index tensors the RM candidates the tiled-only pool otherwise lacks.
+struct PagedUpdateCacheRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+  bool shouldExploreReshards() const override;
+  bool generatesRowMajorInputSiblings(unsigned operandIdx) const override;
+};
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_DIALECT_TTNN_ANALYSIS_OPRULES_TRANSFORMERRULES_H
