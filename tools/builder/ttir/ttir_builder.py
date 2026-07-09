@@ -18336,6 +18336,235 @@ class TTIRBuilder(Builder):
 
         return rms_norm_module, rms_norm_builder
 
+    ############### ttir.DitRMSNormUnaryFusedOp ###############
+
+    @tag(ttir.DitRMSNormUnaryFusedOp)
+    def dit_rms_norm_unary_fused(
+        self,
+        in0: Operand,
+        normalized_shape: List[int],
+        weight: Optional[Operand] = None,
+        bias: Optional[Operand] = None,
+        residual_input: Optional[Operand] = None,
+        epsilon: float = 1e-5,
+        activation: Optional[str] = None,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.dit_rms_norm_unary_fused)
+        normalized_shape_attr = DenseI64ArrayAttr.get(normalized_shape)
+        epsilon_attr = FloatAttr.get_f32(epsilon)
+        activation_attr = StringAttr.get(activation) if activation is not None else None
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        weight0 = self._get_golden_tensor(weight) if weight is not None else None
+        bias0 = self._get_golden_tensor(bias) if bias is not None else None
+        residual0 = (
+            self._get_golden_tensor(residual_input)
+            if residual_input is not None
+            else None
+        )
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            weight=weight0,
+            bias=bias0,
+            residual_input=residual0,
+            normalized_shape=normalized_shape_attr,
+            epsilon=epsilon_attr,
+            activation=activation,
+            output_type_mlir=mlir_output_type,
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            normalized_shape_attr,
+            weight=weight,
+            bias=bias,
+            residual_input=residual_input,
+            epsilon=epsilon_attr,
+            activation=activation_attr,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
+    @parse(ttir.DitRMSNormUnaryFusedOp)
+    def dit_rms_norm_unary_fused_parser(
+        self,
+        old_op: ttir.DitRMSNormUnaryFusedOp,
+        global_dict: Dict[Operand, Operand],
+    ) -> Tuple[Operation, Dict[OpResult, OpResult]]:
+        ttir_op = self.get_opview_from_parser(
+            TTIRBuilder.dit_rms_norm_unary_fused_parser
+        )
+        in0 = global_dict[old_op.input]
+        weight = global_dict[old_op.weight] if old_op.weight else None
+        bias = global_dict[old_op.bias] if old_op.bias else None
+        residual_input = (
+            global_dict[old_op.residual_input] if old_op.residual_input else None
+        )
+        normalized_shape_attr = old_op.normalized_shape
+        epsilon_attr = old_op.epsilon
+        activation_attr = old_op.activation
+        result = old_op.result.type
+
+        new_op = ttir_op(
+            result,
+            in0,
+            normalized_shape_attr,
+            weight=weight,
+            bias=bias,
+            residual_input=residual_input,
+            epsilon=epsilon_attr,
+            activation=activation_attr,
+            loc=old_op.location,
+        )
+        new_op_result = new_op.result
+
+        input0 = self._get_golden_tensor(in0)
+        weight0 = self._get_golden_tensor(weight) if weight is not None else None
+        bias0 = self._get_golden_tensor(bias) if bias is not None else None
+        residual0 = (
+            self._get_golden_tensor(residual_input)
+            if residual_input is not None
+            else None
+        )
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            weight0,
+            bias0,
+            residual0,
+            normalized_shape_attr,
+            epsilon_attr,
+            activation_attr,
+            result.element_type,
+        )
+        self._set_golden_tensor(new_op_result, golden_output)
+
+        op_map_dictionary = {old_op.result: new_op_result}
+        return new_op, op_map_dictionary
+
+    @split(ttir.DitRMSNormUnaryFusedOp)
+    def dit_rms_norm_unary_fused_split(
+        self,
+        old_op: ttir.DitRMSNormUnaryFusedOp,
+    ) -> Tuple[Module, TTIRBuilder]:
+        ttir_op = self.get_opview_from_split(TTIRBuilder.dit_rms_norm_unary_fused_split)
+
+        old_ctx = old_op.context
+        old_loc = Location.unknown(old_ctx)
+        with old_ctx, old_loc:
+            dit_module = Module.create()
+            dit_builder = TTIRBuilder(
+                old_ctx, old_loc, mesh_name=self._mesh_name, mesh_dict=self._mesh_dict
+            )
+            op_input_types = [old_op.input.type]
+            if old_op.weight is not None:
+                op_input_types.append(old_op.weight.type)
+            if old_op.bias is not None:
+                op_input_types.append(old_op.bias.type)
+            if old_op.residual_input is not None:
+                op_input_types.append(old_op.residual_input.type)
+
+            with InsertionPoint(dit_module.body):
+                ordered_inputs = []
+                ordered_outputs = []
+
+                @func.func(*op_input_types, name="dit_rms_norm_unary_fused_module")
+                def decorated_func(*inputs):
+                    in0 = inputs[0]
+                    idx = 1
+                    weight = None
+                    bias = None
+                    residual_input = None
+                    if old_op.weight is not None:
+                        weight = inputs[idx]
+                        idx += 1
+                    if old_op.bias is not None:
+                        bias = inputs[idx]
+                        idx += 1
+                    if old_op.residual_input is not None:
+                        residual_input = inputs[idx]
+                    result = old_op.result.type
+
+                    new_op = ttir_op(
+                        result,
+                        in0,
+                        old_op.normalized_shape,
+                        weight=weight,
+                        bias=bias,
+                        residual_input=residual_input,
+                        epsilon=old_op.epsilon,
+                        activation=old_op.activation,
+                        loc=old_op.location,
+                    )
+                    new_op_result = new_op.result
+
+                    input0 = self._get_golden_tensor(old_op.input)
+                    weight0 = (
+                        self._get_golden_tensor(old_op.weight)
+                        if old_op.weight is not None
+                        else None
+                    )
+                    bias0 = (
+                        self._get_golden_tensor(old_op.bias)
+                        if old_op.bias is not None
+                        else None
+                    )
+                    residual0 = (
+                        self._get_golden_tensor(old_op.residual_input)
+                        if old_op.residual_input is not None
+                        else None
+                    )
+
+                    old_op_result = self._get_golden_tensor(old_op.result)
+                    dit_builder._set_golden_tensor(new_op_result, old_op_result)
+                    dit_builder._set_golden_tensor(in0, input0)
+                    dit_builder._annotate_presharded_arg(in0)
+                    ordered_inputs.append(in0)
+                    if weight is not None:
+                        dit_builder._set_golden_tensor(weight, weight0)
+                        ordered_inputs.append(weight)
+                    if bias is not None:
+                        dit_builder._set_golden_tensor(bias, bias0)
+                        ordered_inputs.append(bias)
+                    if residual_input is not None:
+                        dit_builder._set_golden_tensor(residual_input, residual0)
+                        ordered_inputs.append(residual_input)
+                    ordered_outputs.append(new_op_result)
+
+                    return new_op
+
+                new_func_op = decorated_func.func_op
+                dit_builder._func_ops_generated[new_func_op] = [
+                    ordered_inputs,
+                    ordered_outputs,
+                ]
+
+        return dit_module, dit_builder
+
     ############### ttir.SplitQueryKeyValueAndSplitHeadsOp ###############
 
     @tag(ttir.SplitQueryKeyValueAndSplitHeadsOp)

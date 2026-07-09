@@ -3493,6 +3493,60 @@ static ::mlir::LogicalResult verifyTTNNBatchNormOp(OpType op) {
 }
 
 //===----------------------------------------------------------------------===//
+// DitRMSNormUnaryFusedOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttnn::DitRMSNormUnaryFusedOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  // Input and output must have the same shape.
+  if (inputType.getShape() != outputType.getShape()) {
+    return emitOpError("input and output must have the same shape");
+  }
+
+  // Residual input, if present, must have the same shape as the input.
+  if (getResidualInput()) {
+    RankedTensorType residualType = getResidualInput().getType();
+    if (residualType.getShape() != inputType.getShape()) {
+      return emitOpError(
+          "residual_input tensor must have the same shape as input");
+    }
+  }
+
+  // For 0D tensors, weight and bias should also be 0D if present.
+  if (inputType.getRank() == 0) {
+    if (getWeight() && getWeight().getType().getRank() != 0) {
+      return emitOpError("weight tensor must be 0D for 0D input tensor");
+    }
+    if (getBias() && getBias().getType().getRank() != 0) {
+      return emitOpError("bias tensor must be 0D for 0D input tensor");
+    }
+    return success();
+  }
+
+  // For non-0D tensors, weight/bias must be 1D matching the last dimension.
+  int64_t lastDimSize = inputType.getShape().back();
+
+  if (getWeight()) {
+    RankedTensorType weightType = getWeight().getType();
+    if (weightType.getRank() != 1 || weightType.getShape()[0] != lastDimSize) {
+      return emitOpError("weight tensor must be 1D with size matching the last "
+                         "dimension of input");
+    }
+  }
+
+  if (getBias()) {
+    RankedTensorType biasType = getBias().getType();
+    if (biasType.getRank() != 1 || biasType.getShape()[0] != lastDimSize) {
+      return emitOpError("bias tensor must be 1D with size matching the last "
+                         "dimension of input");
+    }
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // DistributedRMSNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttnn::DistributedRMSNormOp::verify() {

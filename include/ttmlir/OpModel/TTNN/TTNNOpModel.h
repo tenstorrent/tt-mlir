@@ -1693,6 +1693,37 @@ struct OpModel<RMSNormOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// DitRMSNormUnaryFusedOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<DitRMSNormUnaryFusedOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      std::optional<llvm::ArrayRef<int64_t>> weightShape,
+      std::optional<TTNNLayoutAttr> weightLayout,
+      std::optional<llvm::ArrayRef<int64_t>> biasShape,
+      std::optional<TTNNLayoutAttr> biasLayout,
+      std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+      std::optional<TTNNLayoutAttr> residualInputLayout, llvm::APFloat epsilon,
+      mlir::StringAttr activation, TTNNLayoutAttr outputLayout,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+          std::nullopt);
+
+  static llvm::Expected<size_t> getOpRuntime(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      std::optional<llvm::ArrayRef<int64_t>> weightShape,
+      std::optional<TTNNLayoutAttr> weightLayout,
+      std::optional<llvm::ArrayRef<int64_t>> biasShape,
+      std::optional<TTNNLayoutAttr> biasLayout,
+      std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
+      std::optional<TTNNLayoutAttr> residualInputLayout, llvm::APFloat epsilon,
+      mlir::StringAttr activation, TTNNLayoutAttr outputLayout,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+          std::nullopt);
+};
+
+//===----------------------------------------------------------------------===//
 // RMSNormPreAllGatherOp
 //===----------------------------------------------------------------------===//
 

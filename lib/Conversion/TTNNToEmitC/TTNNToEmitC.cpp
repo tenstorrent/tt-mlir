@@ -3828,6 +3828,64 @@ public:
 };
 } // namespace
 
+// DitRMSNormUnaryFusedOp conversion pattern
+//
+namespace {
+class DitRMSNormUnaryFusedOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::DitRMSNormUnaryFusedOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.dit_rms_norm_unary_fused";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "::ttnn::experimental::dit_rms_norm_unary_fused";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::DitRMSNormUnaryFusedOp>::
+      TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::DitRMSNormUnaryFusedOp srcOp,
+                  OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::DitRMSNormUnaryFusedOp>
+        emitter(srcOp, adaptor, rewriter);
+
+    // The C++ API takes std::optional<UnaryWithParam>, so wrap the activation
+    // string via the ttnn helper when present.
+    mlir::Attribute activationAttr;
+    if (std::optional<llvm::StringRef> activation = srcOp.getActivation()) {
+      std::string code =
+          "::ttnn::operations::unary::utils::string_to_unary_with_param(\"" +
+          activation->str() + "\")";
+      activationAttr = rewriter.getAttr<emitc::OpaqueAttr>(code);
+    } else {
+      activationAttr = emitter.emit(std::nullopt);
+    }
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getEpsilon()),
+        emitter.emit(srcOp.getWeight()),
+        emitter.emit(srcOp.getBias()),
+        emitter.emit(srcOp.getResidualInput()),
+        emitter.emit(srcOp.getMemoryConfigAttr()),
+        emitter.emit(/* program_config= */ std::nullopt),
+        emitter.emit(srcOp.getComputeConfig()),
+        activationAttr,
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // RMSNormPreAllGatherOp conversion pattern
 //
 namespace {
@@ -5718,6 +5776,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            CumSumOpConversionPattern, CumProdOpConversionPattern,
            BatchNormInferenceOpConversionPattern,
            BatchNormTrainingOpConversionPattern, RMSNormOpConversionPattern,
+           DitRMSNormUnaryFusedOpConversionPattern,
            RMSNormPreAllGatherOpConversionPattern,
            DistributedRMSNormOpConversionPattern, LayerNormOpConversionPattern,
            LayerNormPreAllGatherOpConversionPattern,

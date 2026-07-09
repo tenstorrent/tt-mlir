@@ -4044,6 +4044,84 @@ BatchNormTrainingOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// DitRMSNormUnaryFusedOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+struct DitRMSNormUnaryFusedOptionalArgs {
+  std::optional<llvm::ArrayRef<int64_t>> weightShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> weightLayout = std::nullopt;
+  std::optional<llvm::ArrayRef<int64_t>> biasShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> biasLayout = std::nullopt;
+  std::optional<llvm::ArrayRef<int64_t>> residualInputShape = std::nullopt;
+  std::optional<TTNNLayoutAttr> residualInputLayout = std::nullopt;
+};
+
+static DitRMSNormUnaryFusedOptionalArgs unpackDitRMSNormUnaryFusedOptionalArgs(
+    const std::vector<TTNNLayoutAttr> &inputs, DitRMSNormUnaryFusedOp op) {
+  DitRMSNormUnaryFusedOptionalArgs ret;
+  // inputs[0] = input layout; optional operands follow in operand order:
+  // weight, bias, residual_input.
+  size_t idx = 1;
+  if (op.getWeight()) {
+    ret.weightShape = op.getWeight().getType().getShape();
+    ret.weightLayout = inputs[idx++];
+  }
+  if (op.getBias()) {
+    ret.biasShape = op.getBias().getType().getShape();
+    ret.biasLayout = inputs[idx++];
+  }
+  if (op.getResidualInput()) {
+    ret.residualInputShape = op.getResidualInput().getType().getShape();
+    ret.residualInputLayout = inputs[idx++];
+  }
+  return ret;
+}
+
+llvm::Expected<op_model::OpConstraints>
+DitRMSNormUnaryFusedOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  const auto inputShape = getInput().getType().getShape();
+
+  DitRMSNormUnaryFusedOptionalArgs optionalArgs =
+      unpackDitRMSNormUnaryFusedOptionalArgs(inputs, *this);
+
+  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+      getComputeConfigAttr()
+          ? std::optional<DeviceComputeKernelConfigAttr>(getComputeConfigAttr())
+          : std::nullopt;
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<DitRMSNormUnaryFusedOp>::getOpConstraints, *this,
+      inputShape, inputs[0], optionalArgs.weightShape,
+      optionalArgs.weightLayout, optionalArgs.biasShape,
+      optionalArgs.biasLayout, optionalArgs.residualInputShape,
+      optionalArgs.residualInputLayout, getEpsilon(), getActivationAttr(),
+      opConfig.outputLayout, computeKernelConfig);
+}
+
+llvm::Expected<size_t>
+DitRMSNormUnaryFusedOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                     const OpConfig &opConfig) {
+  const auto inputShape = getInput().getType().getShape();
+
+  DitRMSNormUnaryFusedOptionalArgs optionalArgs =
+      unpackDitRMSNormUnaryFusedOptionalArgs(inputs, *this);
+
+  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+      getComputeConfigAttr()
+          ? std::optional<DeviceComputeKernelConfigAttr>(getComputeConfigAttr())
+          : std::nullopt;
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<DitRMSNormUnaryFusedOp>::getOpRuntime, *this,
+      inputShape, inputs[0], optionalArgs.weightShape,
+      optionalArgs.weightLayout, optionalArgs.biasShape,
+      optionalArgs.biasLayout, optionalArgs.residualInputShape,
+      optionalArgs.residualInputLayout, getEpsilon(), getActivationAttr(),
+      opConfig.outputLayout, computeKernelConfig);
+}
+
+//===----------------------------------------------------------------------===//
 // RMSNormOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

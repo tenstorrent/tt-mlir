@@ -1271,6 +1271,44 @@ public:
 } // namespace
 
 namespace {
+class DitRMSNormUnaryFusedOpConversionPattern
+    : public OpConversionPattern<ttir::DitRMSNormUnaryFusedOp> {
+public:
+  using OpConversionPattern<ttir::DitRMSNormUnaryFusedOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::DitRMSNormUnaryFusedOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+
+    // TTNN only supports normalization over the last dimension.
+    ArrayRef<int64_t> inputShape = inputType.getShape();
+    ArrayRef<int64_t> normalizedShape = adaptor.getNormalizedShape();
+
+    if (normalizedShape.size() != 1) {
+      return rewriter.notifyMatchFailure(
+          op, "TTNN dit_rms_norm_unary_fused currently only supports "
+              "normalization over the last dimension");
+    }
+
+    if (normalizedShape[0] != inputShape.back()) {
+      return rewriter.notifyMatchFailure(
+          op, "TTNN dit_rms_norm_unary_fused requires normalized_shape to "
+              "match the last dimension of input shape");
+    }
+
+    rewriter.replaceOpWithNewOp<ttnn::DitRMSNormUnaryFusedOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getWeight(), adaptor.getBias(),
+        adaptor.getResidualInput(), adaptor.getEpsilon(),
+        adaptor.getActivationAttr());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 class DistributedRMSNormOpConversionPattern
     : public OpConversionPattern<ttir::DistributedRMSNormOp> {
 public:
@@ -3802,6 +3840,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            BatchNormInferenceOpConversionPattern,
            BatchNormTrainingOpConversionPattern,
            RMSNormOpConversionPattern,
+           DitRMSNormUnaryFusedOpConversionPattern,
            DistributedRMSNormOpConversionPattern,
            DistributedLayerNormOpConversionPattern,
            LayerNormOpConversionPattern,

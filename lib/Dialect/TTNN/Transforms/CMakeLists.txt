@@ -62,6 +62,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNPrepareConstEvalCaching.cpp
         TTNNDecomposeLayouts.cpp
         Decomposition/ConcatenateHeadsDecompositionRewritePattern.cpp
+        Decomposition/DitRMSNormUnaryFusedDecompositionRewritePattern.cpp
         Decomposition/DistributedRMSNormDecompositionRewritePattern.cpp
         Decomposition/DistributedLayerNormDecompositionRewritePattern.cpp
         Decomposition/GroupNormDecompositionRewritePattern.cpp

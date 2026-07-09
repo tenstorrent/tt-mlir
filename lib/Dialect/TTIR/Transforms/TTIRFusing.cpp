@@ -3669,6 +3669,13 @@ public:
       patterns.add<RMSNormFusionPattern>(&getContext());
       patterns.add<NormalizeRMSNormFusionPattern>(&getContext());
 
+      patterns.add<RMSNormActivationFusionPattern<SiluOp>>(&getContext(),
+                                                           "silu");
+      patterns.add<RMSNormActivationFusionPattern<GeluOp>>(&getContext(),
+                                                           "gelu");
+      patterns.add<RMSNormActivationFusionPattern<ReluOp>>(&getContext(),
+                                                           "relu");
+
       patterns.add<GeluFusionPattern>(&getContext());
       patterns.add<Relu6FusionPattern>(&getContext());
       patterns.add<SiluFusionPattern>(&getContext());
