@@ -56,6 +56,11 @@ public:
   using impl::TTNNSetComputeKernelConfigBase<
       TTNNSetComputeKernelConfig>::TTNNSetComputeKernelConfigBase;
 
+  // Set only by createTTNNSetComputeKernelConfigRestamp (the post-optimizer
+  // re-stamp); not a pass option, so it is never configurable from the CLI. The
+  // implicitly-generated copy constructor carries it through clonePass.
+  bool onlyUnconfiguredOps = false;
+
   void runOnOperation() final {
     ModuleOp moduleOp = getOperation();
     MLIRContext *context = &getContext();
@@ -80,6 +85,17 @@ public:
       // Get existing compute config attribute (may be nullptr).
       DeviceComputeKernelConfigAttr originalConfig =
           computeConfigOp.getComputeConfigAttr();
+
+      // In only-unconfigured mode (used by the post-optimizer re-stamp), skip
+      // ops that already carry a compute_config. A non-null config means the op
+      // was deliberately configured - by the optimizer (e.g. conv3d's partial
+      // config) or by the first stamp and preserved through the optimizer - so
+      // we must not augment it with extra knobs. Only ops whose config was
+      // fully dropped (null) by a rebuild are (re)stamped here.
+      if (onlyUnconfiguredOps && originalConfig) {
+        return;
+      }
+
       DeviceComputeKernelConfigAttr config = originalConfig;
 
       // Log operation info and config before setting overrides
@@ -174,5 +190,12 @@ public:
     });
   }
 };
+
+std::unique_ptr<::mlir::Pass> createTTNNSetComputeKernelConfigRestamp(
+    TTNNSetComputeKernelConfigOptions options) {
+  auto pass = std::make_unique<TTNNSetComputeKernelConfig>(std::move(options));
+  pass->onlyUnconfiguredOps = true;
+  return pass;
+}
 
 } // namespace mlir::tt::ttnn

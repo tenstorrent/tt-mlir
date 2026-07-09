@@ -488,6 +488,35 @@ void createTTIRToTTNNCommonPipeline(
 
     createTTNNPipelineAnalysisPasses(devicePm, options);
 
+    // Re-apply the compute-kernel config after the optimizer. The optimizer
+    // (and the canonicalizer / fallback passes wrapped with it) can rebuild
+    // config-bearing ops - reductions in particular are re-created via a
+    // builder that defaults compute_config to null - which silently drops the
+    // fp32_dest_acc_en stamped by the earlier TTNNSetComputeKernelConfig. That
+    // loss makes large reductions (e.g. the cross-entropy vocab-axis sum /
+    // token count) accumulate in low precision on device and produce garbage,
+    // so re-stamp with the same options to restore it.
+    //
+    // The re-stamp uses the "restamp" factory (only-unconfigured mode) so it
+    // ONLY refills ops whose compute_config was fully dropped (null) by a
+    // rebuild. Ops that still carry a config are skipped entirely - including
+    // ones the optimizer deliberately configured (e.g. conv3d, which gets a
+    // partial {math_fidelity, fp32_dest_acc_en} config, or matmuls) - so the
+    // re-stamp never augments them with extra knobs the optimizer left unset.
+    // This mode is intentionally not a CLI option: there is no standalone use
+    // case, so it is reachable only here, with the same options as the first
+    // stamp.
+    //
+    // Guarded on optimizerPassEnabled: only the optimizer/D2M path rebuilds ops
+    // this way. Note enableCreateD2MSubgraphs force-enables
+    // optimizerPassEnabled above, so the re-stamp also covers that path even at
+    // optimization-level=0; when neither is active the first stamp survives and
+    // the pass is not added.
+    if (options.optimizerPassEnabled) {
+      devicePm.addPass(
+          createTTNNSetComputeKernelConfigRestamp(setConfigOptions));
+    }
+
     // Materialize PrepareConv3dWeightsOp for every Conv3dOp. Runs after the
     // optimizer (so it can read the optimizer's chosen Conv3dConfigAttr) but
     // unconditionally — at optimization-level=0 there's no Conv3dConfigAttr

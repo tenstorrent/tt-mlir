@@ -32,6 +32,16 @@ enum class FileSplitTarget { EmitPy, EmitC };
 #define GEN_PASS_REGISTRATION
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h.inc"
 
+// Internal factory for the post-optimizer re-stamp of
+// TTNNSetComputeKernelConfig. Builds the pass in "only-unconfigured-ops" mode:
+// it restores compute_config on ops a rebuild dropped it from (e.g. reductions)
+// but skips ops that still carry one, so it never augments configs the
+// optimizer chose. This mode is not a pass option on purpose - there is no
+// standalone use case, so it is not exposed on the command line; only the
+// pipeline uses it.
+std::unique_ptr<::mlir::Pass> createTTNNSetComputeKernelConfigRestamp(
+    TTNNSetComputeKernelConfigOptions options);
+
 } // namespace mlir::tt::ttnn
 
 #endif
