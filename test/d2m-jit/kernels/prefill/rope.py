@@ -215,18 +215,27 @@ KERNEL_BENCHES = {
         golden=_golden,
         run=rope_materializer,
         tensors=[
-            TensorSpec(shape=(64, 64), block_shape=[2, 2], dtype=torch.float32, dist="uniform(-1,1)"),
             TensorSpec(
                 shape=(64, 64),
                 block_shape=[2, 2],
                 dtype=torch.float32,
-                dist=lambda shape, td, gen: build_rope_tables(shape[0], shape[1], dtype=td)[0],
+                dist="uniform(-1,1)",
             ),
             TensorSpec(
                 shape=(64, 64),
                 block_shape=[2, 2],
                 dtype=torch.float32,
-                dist=lambda shape, td, gen: build_rope_tables(shape[0], shape[1], dtype=td)[1],
+                dist=lambda shape, td, gen: build_rope_tables(
+                    shape[0], shape[1], dtype=td
+                )[0],
+            ),
+            TensorSpec(
+                shape=(64, 64),
+                block_shape=[2, 2],
+                dtype=torch.float32,
+                dist=lambda shape, td, gen: build_rope_tables(
+                    shape[0], shape[1], dtype=td
+                )[1],
             ),
         ],
         grid_shape=(1, 1),
