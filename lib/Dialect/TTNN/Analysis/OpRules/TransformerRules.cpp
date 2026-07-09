@@ -79,6 +79,16 @@ RotaryEmbeddingRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
 // exploration is what lets the op reach the sharded input its rule requires.
 bool RotaryEmbeddingRuleBook::shouldExploreReshards() const { return true; }
 
+// cos/sin/trans_mat arrive as constant-derived <parameter> args, but the decode
+// kernel requires all four inputs HeightSharded. Opt in to resharding the
+// constant operands so the optimizer can generate the HeightSharded candidates
+// they need -- mirroring the reference lowering, which reshards all four inputs
+// (including the constant trans_mat) to HeightSharded via to_memory_config.
+bool RotaryEmbeddingRuleBook::shouldReshardConstantOperand(
+    unsigned /*operandIdx*/) const {
+  return true;
+}
+
 OutputHints RotaryEmbeddingRuleBook::getOutputHints(
     Operation * /*op*/, const std::vector<OpConfig> & /*legalConfigs*/) const {
   return layout_filter_utils::nullHintOnly();

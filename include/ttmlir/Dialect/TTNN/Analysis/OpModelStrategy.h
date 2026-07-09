@@ -47,6 +47,12 @@ OutputHints getOutputHints(Operation *op,
 /// Returns false for ops that must always be DRAM (e.g., reshape, permute).
 bool shouldExploreReshards(Operation *op);
 
+/// Whether reshard candidates should be generated for a constant-derived
+/// operand (function <parameter>/<constant> arg, or const-evaled result) at
+/// the given operand index. Default false; op rule books opt in when their
+/// kernel hard-requires a specific sharded layout on a constant input.
+bool shouldReshardConstantOperand(Operation *op, unsigned operandIdx);
+
 //--- Scoring ---
 
 /// Score representing the quality of a layout candidate. Used for ranking.

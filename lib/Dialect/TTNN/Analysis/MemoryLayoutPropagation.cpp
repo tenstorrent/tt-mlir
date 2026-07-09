@@ -749,10 +749,17 @@ void MemoryLayoutPropagation::addReshardCandidates(
     const llvm::SmallVector<BeamCandidate, 0> *producerBeam,
     Operation *producerOp, size_t resultIdx, size_t maxCandidates) {
 
-  if (isConstantDerivedOperand(operand)) {
+  if (!shouldExploreReshards(op)) {
     return;
   }
-  if (!shouldExploreReshards(op)) {
+  // Constant-derived operands (function <parameter>/<constant> args, const-eval
+  // results) are normally not resharded: they are assumed to already be laid
+  // out optimally, so a runtime reshard is wasteful (e.g. matmul weights).
+  // Ops whose kernel hard-requires a specific sharded layout on such an operand
+  // opt in per operand via shouldReshardConstantOperand() -- e.g.
+  // rotary_embedding_llama decode needs cos/sin/trans_mat HeightSharded.
+  if (isConstantDerivedOperand(operand) &&
+      !shouldReshardConstantOperand(op, operandIdx)) {
     return;
   }
 

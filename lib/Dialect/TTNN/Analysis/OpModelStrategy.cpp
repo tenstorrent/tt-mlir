@@ -17,6 +17,10 @@ bool shouldExploreReshards(Operation *op) {
   return getRuleBook(op).shouldExploreReshards();
 }
 
+bool shouldReshardConstantOperand(Operation *op, unsigned operandIdx) {
+  return getRuleBook(op).shouldReshardConstantOperand(operandIdx);
+}
+
 //--- Scoring ---
 
 bool LayoutScore::operator>(const LayoutScore &other) const {

@@ -56,12 +56,14 @@ struct SDPADecodeRuleBook : SDPARuleBook {
 };
 
 /// RotaryEmbedding / RotaryEmbeddingLlama:
-/// NULL hint only, no reshards. Rejects width-sharded and block-sharded
-/// inputs (only height-sharded or interleaved accepted).
-/// Cache tensors are DRAM-interleaved; resharding them is wasteful.
+/// NULL hint only. Rejects width-sharded and block-sharded inputs (only
+/// height-sharded or interleaved accepted). Explores reshards -- including on
+/// the constant cos/sin/trans_mat operands -- because the decode kernel
+/// hard-requires all four inputs HeightSharded.
 struct RotaryEmbeddingRuleBook : OpRuleBook {
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
   bool shouldExploreReshards() const override;
+  bool shouldReshardConstantOperand(unsigned operandIdx) const override;
   OutputHints
   getOutputHints(Operation *op,
                  const std::vector<OpConfig> &legalConfigs) const override;

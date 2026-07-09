@@ -51,6 +51,25 @@ struct OpRuleBook {
   /// always outputs DRAM-interleaved regardless of input layout).
   virtual bool shouldExploreReshards() const { return true; }
 
+  /// Whether reshard candidate generation should include a constant-derived
+  /// operand (a function <parameter>/<constant> arg or a const-evaled
+  /// ttcore.load_cached result) at the given operand index.
+  ///
+  /// Default: false. Constants are assumed to already be laid out optimally
+  /// (or hoisted by const-eval), so the optimizer avoids inserting a runtime
+  /// reshard on them -- e.g. matmul does not reshard its weight operand.
+  ///
+  /// Override to true for ops whose kernel *hard-requires* a specific sharded
+  /// layout on a constant operand and can only reach it via a reshard. For
+  /// example rotary_embedding_llama decode requires cos/sin/trans_mat to be
+  /// HeightSharded, and they arrive as <parameter> args; the reference
+  /// lowering reshards all four inputs (including the constant trans_mat) via
+  /// to_memory_config. Without this override the const-derived skip strands
+  /// those operands on DRAM-interleaved and forces a DRAM fallback.
+  virtual bool shouldReshardConstantOperand(unsigned /*operandIdx*/) const {
+    return false;
+  }
+
   /// Cross-product pruning: reject input layout combinations before expensive
   /// backend validation. Default accepts all. Override for ops that require
   /// homogeneous input layouts (e.g., concat requires all inputs to share the
