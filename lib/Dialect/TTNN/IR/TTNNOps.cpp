@@ -5715,20 +5715,16 @@ mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
                          << ttmlir::utils::join(transShape, ",") << ").";
   }
 
-  // Decode mode specific validations
-  if (getIsDecodeMode()) {
-    auto isHeightShardedPredicate = [](RankedTensorType type) {
-      auto encoding = mlir::cast<ttnn::TTNNLayoutAttr>(type.getEncoding());
-      return encoding.getMemLayout() &&
-             encoding.getMemLayout().getValue() ==
-                 ttnn::TensorMemoryLayout::HeightSharded;
-    };
-
-    if (!llvm::all_of(inputTypes, isHeightShardedPredicate)) {
-      return emitOpError("in decode mode, all input tensors must have "
-                         "HeightSharded memory layout.");
-    }
-  }
+  // NOTE: decode mode requires all input tensors to be HeightSharded, but that
+  // is an optimizer-assignable memory-layout constraint, not an op structural
+  // invariant. Enforcing it in the op verifier fires at op-creation time (e.g.
+  // during ConvertTTIRToTTNN), which breaks flows that assign/refine layouts
+  // *after* convert -- notably the ttnn-jit analysis path, where TTNNLayout
+  // seeds a default layout and the greedy optimizer (whose op-constraint model
+  // requires HeightSharded here) only picks the final layout in a later pass.
+  // It is instead enforced after layout assignment by the op-constraint model
+  // (which the optimizer consults) and by TTNNOperationValidationAndFallback.
+  // See https://github.com/tenstorrent/tt-mlir (ttnn-jit L1 shard advisor).
 
   mlir::RankedTensorType outputType = getResult().getType();
 
