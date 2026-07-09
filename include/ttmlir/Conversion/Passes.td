@@ -186,10 +186,10 @@ def ConvertD2MToTTKernel: Pass<"convert-d2m-to-ttkernel", "::mlir::func::FuncOp"
     Option<"ttnnMode", "ttnn-mode", "bool", /*default=*/"false", "Enable TTNN mode">,
     Option<"forceCompileTimeArgs", "force-compile-time-args", "bool", /*default=*/"false",
            "Force uniform D2M kernel arguments into compile-time args when legal for CRTA performance comparison.">,
-    Option<"preserveAllKernelArgs", "preserve-all-kernel-args", "bool", /*default=*/"false",
-           "Keep the full parent d2m.generic operand list in each kernel arg_spec, "
-           "including unused operands. Use when a decomposed kernel must preserve "
-           "the parent's argument list (e.g. Triton runtime contracts).">
+    Option<"preserveExternalKernelArgs", "preserve-external-kernel-args", "bool", /*default=*/"false",
+           "Keep used kernel args plus unused operands that originate from the "
+           "parent function arguments (host/runtime ABI). Skips compiler-generated "
+           "operands such as CB allocs and pass-inserted semaphores.">
   ];
 }
 
