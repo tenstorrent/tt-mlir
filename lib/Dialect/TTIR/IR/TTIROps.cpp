@@ -1719,9 +1719,12 @@ static bool isConv3dPointwiseLinearEligible(mlir::tt::ttir::Conv3dOp op) {
   // Unit stride and no padding, otherwise the op is a strided/padded gather
   // rather than a plain matmul or linear.
   auto stride = ttmlir::utils::getTripleOfInteger<int32_t>(op.getStride());
-  auto padding = ttmlir::utils::getTripleOfInteger<int32_t>(op.getPadding());
-  if (!stride || !padding) {
+  if (!stride) {
     llvm::consumeError(stride.takeError());
+    return false;
+  }
+  auto padding = ttmlir::utils::getTripleOfInteger<int32_t>(op.getPadding());
+  if (!padding) {
     llvm::consumeError(padding.takeError());
     return false;
   }

@@ -296,8 +296,8 @@ def test_conv3d_pointwise_to_linear(
     """Golden coverage for the 1x1x1 conv3d -> matmul/linear rewrite.
 
     A pointwise (1x1x1) conv3d in NDHWC layout with unit stride, no padding and
-    groups==1 is mathematically a matmul, so the decomposition pass rewrites it
-    to ttir.matmul (no bias) or ttir.linear (bias) instead of lowering it as a
+    groups==1 is mathematically a matmul, so the Conv3dOp canonicalizer rewrites
+    it to ttir.matmul (no bias) or ttir.linear (bias) instead of lowering it as a
     conv3d.
     """
     if bias_shape:
