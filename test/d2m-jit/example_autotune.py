@@ -37,6 +37,7 @@ def a():
         # knobs=AutotuneKnobs(mem_spaces=["L1", "DRAM"]),
         check_pcc=True,
         output_dir="autotune-artifacts",
+        # strategy="hill-climb"
     )
 
     best = min(

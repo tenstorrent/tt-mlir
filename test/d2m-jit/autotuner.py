@@ -100,7 +100,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import csv
 import dataclasses
 import importlib.util
 import json
@@ -263,6 +262,14 @@ class AutotuneResult:
 # ---------------------------------------------------------------------------
 # Config generation helpers
 # ---------------------------------------------------------------------------
+
+
+def _closest_block(target: list[int], candidates: list[list[int]]) -> list[int]:
+    """Return the candidate whose total tile count is closest to *target*."""
+    if not candidates:
+        raise ValueError("candidates must be non-empty")
+    target_tiles = target[0] * target[1]
+    return min(candidates, key=lambda b: abs(b[0] * b[1] - target_tiles))
 
 
 def _divisors(n: int) -> list[int]:
@@ -771,21 +778,35 @@ class Autotuner:
         *,
         bench_name: str = "",
         configs: Optional[list[AutotuneConfig]] = None,
+        strategy: str = "sweep",
+        seed: Optional[AutotuneConfig] = None,
+        max_rounds: int = 10,
     ) -> list[AutotuneResult]:
-        """Sweep all configs for *bench* and return a result list.
+        """Run *bench* under the chosen search strategy.
 
         Parameters
         ----------
         bench:
-            ``KernelBench`` to sweep.
+            ``KernelBench`` to evaluate.
         bench_name:
-            Human-readable name (used for output paths).  Falls back to
-            ``bench.name`` if the bench was stamped by ``discover()``.
+            Human-readable name (used for output paths).
         configs:
-            Explicit list of configs to run.  ``None`` → auto-generate via
-            ``generate_configs``.
+            Explicit list of configs.  ``None`` → auto-generate.  Ignored
+            when ``strategy='hill-climb'``.
+        strategy:
+            ``'sweep'`` (default) – exhaustive Cartesian sweep.
+            ``'hill-climb'`` – coordinate-descent hill-climb; much faster
+            for large search spaces, but may miss the global optimum.
+        seed:
+            Starting config for hill-climbing.  ``None`` → bench default.
+        max_rounds:
+            Maximum coordinate-descent rounds for hill-climbing.
         """
         name = bench_name or bench.name or "unnamed"
+
+        if strategy == "hill-climb":
+            return self._run_hill_climb(bench, name, seed=seed, max_rounds=max_rounds)
+
         cfgs = configs if configs is not None else self.generate_configs(bench)
 
         if self.verbose:
@@ -795,8 +816,148 @@ class Autotuner:
             )
 
         results: list[AutotuneResult] = []
-        for i, cfg in enumerate(cfgs):
+        for cfg in cfgs:
             results.append(self.run_config(bench, cfg, name))
+
+        return results
+
+    # ------------------------------------------------------------------
+    # Hill-climb strategy
+    # ------------------------------------------------------------------
+
+    def _run_hill_climb(
+        self,
+        bench: KernelBench,
+        bench_name: str,
+        *,
+        seed: Optional[AutotuneConfig] = None,
+        max_rounds: int = 10,
+    ) -> list[AutotuneResult]:
+        """Coordinate-descent hill-climb over grid × block × mem_space.
+
+        Each round sweeps one axis at a time while holding the other two
+        fixed, moving to the best found value on that axis before continuing.
+        Rounds repeat until no axis improves or *max_rounds* is reached.
+
+        This converges in O((G + B + M) × rounds) evaluations rather than
+        O(G × B × M) for a full sweep.  In practice it typically converges
+        in 1–2 rounds.
+
+        The grid axis adapts the block shape when it changes grids: the
+        candidate block with the closest total tile count to the current
+        block is used as a proxy.  Once the best grid is found, the block
+        axis is swept properly for that grid.
+        """
+        knobs = self.knobs
+
+        # Determine seed config.
+        if seed is None:
+            ts = bench.tensors[0]
+            full_sweep = (
+                knobs.grid_shapes is None
+                and knobs.block_shapes is None
+                and knobs.mem_spaces is None
+            )
+            seed = AutotuneConfig(
+                grid_shape=tuple(bench.grid_shape),
+                block_shape=list(ts.block_shape),
+                mem_space="L1" if not full_sweep else "L1",
+            )
+
+        evaluated: dict[str, AutotuneResult] = {}
+        results: list[AutotuneResult] = []
+
+        def _run(cfg: AutotuneConfig) -> AutotuneResult:
+            if cfg.id in evaluated:
+                return evaluated[cfg.id]
+            r = self.run_config(bench, cfg, bench_name)
+            evaluated[cfg.id] = r
+            results.append(r)
+            return r
+
+        def _better(a: AutotuneResult, b: AutotuneResult) -> bool:
+            if a.kernel_ns is None:
+                return False
+            if b.kernel_ns is None:
+                return True
+            return a.kernel_ns < b.kernel_ns
+
+        def _best_of(candidates: list[AutotuneConfig]) -> AutotuneResult:
+            best = None
+            for cfg in candidates:
+                r = _run(cfg)
+                if best is None or _better(r, best):
+                    best = r
+            return best
+
+        full_sweep = (
+            knobs.grid_shapes is None
+            and knobs.block_shapes is None
+            and knobs.mem_spaces is None
+        )
+        mem_spaces_list = ["L1", "DRAM"] if full_sweep else (knobs.mem_spaces or ["L1"])
+
+        current = seed
+        current_result = _run(current)
+
+        if self.verbose:
+            print(
+                f"\n=== Hill-climb {bench_name!r}: "
+                f"seed={current.id}  max_rounds={max_rounds} ==="
+            )
+
+        for round_idx in range(max_rounds):
+            improved = False
+
+            # --- Axis 1: grid ---
+            all_grids = valid_grid_shapes(bench, knobs)
+            grid_candidates = []
+            for g in all_grids:
+                blocks = valid_block_shapes(bench, g, knobs)
+                if not blocks:
+                    continue
+                adapted_block = _closest_block(current.block_shape, blocks)
+                grid_candidates.append(
+                    AutotuneConfig(g, adapted_block, current.mem_space)
+                )
+            best_grid_r = _best_of(grid_candidates)
+            if _better(best_grid_r, current_result):
+                current = best_grid_r.config
+                current_result = best_grid_r
+                improved = True
+
+            # --- Axis 2: block (for current grid) ---
+            all_blocks = valid_block_shapes(bench, current.grid_shape, knobs)
+            block_candidates = [
+                AutotuneConfig(current.grid_shape, b, current.mem_space)
+                for b in all_blocks
+            ]
+            best_block_r = _best_of(block_candidates)
+            if _better(best_block_r, current_result):
+                current = best_block_r.config
+                current_result = best_block_r
+                improved = True
+
+            # --- Axis 3: mem_space ---
+            mem_candidates = [
+                AutotuneConfig(current.grid_shape, current.block_shape, m)
+                for m in mem_spaces_list
+            ]
+            best_mem_r = _best_of(mem_candidates)
+            if _better(best_mem_r, current_result):
+                current = best_mem_r.config
+                current_result = best_mem_r
+                improved = True
+
+            if self.verbose:
+                print(
+                    f"  round {round_idx + 1}: best={current.id}  "
+                    f"kernel_ns={current_result.kernel_ns}  "
+                    f"({'improved' if improved else 'converged'})"
+                )
+
+            if not improved:
+                break
 
         return results
 
@@ -809,15 +970,14 @@ class Autotuner:
         bench_name: str,
         results: list[AutotuneResult],
     ) -> pathlib.Path:
-        """Persist per-run JSON files and a summary CSV for *bench_name*.
+        """Persist per-run JSON files for *bench_name*.
 
         Layout::
 
             <output_dir>/<bench_name>/
                 runs/<config_id>.json   # one per result
-                summary.csv             # all results in one table
 
-        Returns the directory path.
+        Returns the bench directory path.
         """
         bench_dir = self.output_dir / bench_name
         runs_dir = bench_dir / "runs"
@@ -828,10 +988,6 @@ class Autotuner:
             with open(json_path, "w") as f:
                 json.dump(r.as_dict(), f, indent=2)
 
-        # Summary CSV
-        csv_path = bench_dir / "summary.csv"
-        _write_summary_csv(csv_path, results)
-
         if self.verbose:
             print(f"\nResults saved to {bench_dir}/")
             _print_summary(bench_name, results)
@@ -841,23 +997,75 @@ class Autotuner:
     def save_summary(
         self,
         all_results: dict[str, list[AutotuneResult]],
-    ) -> pathlib.Path:
-        """Write a cross-bench plain-text summary to ``<output_dir>/summary.txt``.
+    ) -> dict[str, pathlib.Path]:
+        """Write a plain-text ``summary.txt`` into each bench's directory.
 
-        Shows the best config (by ``kernel_ns``) per bench and a full ranking
-        table per bench.
+        Each file contains the best config and a full ranked table for that
+        bench.  If *all_results* contains more than one bench, also prints a
+        cross-bench best-per-bench table to stdout.
 
-        Returns the summary file path.
+        Returns a dict mapping bench name → summary file path.
         """
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-        txt_path = self.output_dir / "summary.txt"
-        with open(txt_path, "w") as f:
-            f.write("d2m-jit Autotune Summary\n")
-            f.write("=" * 40 + "\n\n")
+        paths: dict[str, pathlib.Path] = {}
 
-            # Best-per-bench table
-            f.write("Best Configurations\n")
-            f.write("-" * 40 + "\n")
+        for bench_name, results in all_results.items():
+            bench_dir = self.output_dir / bench_name
+            bench_dir.mkdir(parents=True, exist_ok=True)
+            txt_path = bench_dir / "summary.txt"
+
+            valid = sorted(
+                [r for r in results if r.kernel_ns is not None],
+                key=lambda r: r.kernel_ns,
+            )
+            failed = [r for r in results if r.kernel_ns is None]
+            best = _best_result(results)
+
+            with open(txt_path, "w") as f:
+                f.write(f"d2m-jit Autotune Summary: {bench_name}\n")
+                f.write("=" * 40 + "\n\n")
+
+                if best is not None:
+                    kns = f"{best.kernel_ns:.1f}" if best.kernel_ns is not None else "-"
+                    wns = f"{best.wall_ns:.1f}" if best.wall_ns is not None else "-"
+                    pcc = f"{best.pcc:.5f}" if best.pcc is not None else "-"
+                    f.write(
+                        f"Best: {best.config_id}  kernel_ns={kns}  wall_ns={wns}  PCC={pcc}\n\n"
+                    )
+
+                f.write("Ranking (kernel_ns, lower is better)\n")
+                f.write("-" * 40 + "\n")
+                if valid:
+                    headers = (
+                        "Rank",
+                        "Config",
+                        "kernel_ns",
+                        "wall_ns",
+                        "PCC",
+                        "elapsed_s",
+                    )
+                    rows = []
+                    for rank, r in enumerate(valid, 1):
+                        kns = f"{r.kernel_ns:.1f}"
+                        wns = f"{r.wall_ns:.1f}" if r.wall_ns is not None else "-"
+                        pcc = f"{r.pcc:.5f}" if r.pcc is not None else "-"
+                        es = f"{r.elapsed_s:.2f}" if r.elapsed_s is not None else "-"
+                        rows.append((str(rank), r.config_id, kns, wns, pcc, es))
+                    f.write(_fmt_table(headers, rows) + "\n")
+                else:
+                    f.write("(no configs produced profiler data)\n")
+
+                if failed:
+                    f.write(f"\nFailed ({len(failed)}): ")
+                    f.write(", ".join(r.config_id for r in failed))
+                    f.write("\n")
+
+            if self.verbose:
+                print(f"Summary written to {txt_path}")
+            paths[bench_name] = txt_path
+
+        # Cross-bench best table printed to stdout only when there are multiple benches.
+        if self.verbose and len(all_results) > 1:
+            print("\nBest per bench:")
             headers = ("Bench", "Config", "kernel_ns", "wall_ns", "PCC")
             rows = []
             for bench_name, results in all_results.items():
@@ -869,46 +1077,9 @@ class Autotuner:
                 wns = f"{best.wall_ns:.1f}" if best.wall_ns is not None else "-"
                 pcc = f"{best.pcc:.5f}" if best.pcc is not None else "-"
                 rows.append((bench_name, best.config_id, kns, wns, pcc))
-            f.write(_fmt_table(headers, rows) + "\n\n")
+            print(_fmt_table(headers, rows))
 
-            # Full ranking per bench
-            for bench_name, results in all_results.items():
-                f.write(f"{bench_name}\n")
-                f.write("-" * 40 + "\n")
-                valid = sorted(
-                    [r for r in results if r.kernel_ns is not None],
-                    key=lambda r: r.kernel_ns,
-                )
-                failed = [r for r in results if r.kernel_ns is None]
-
-                if valid:
-                    headers2 = (
-                        "Rank",
-                        "Config",
-                        "kernel_ns",
-                        "wall_ns",
-                        "PCC",
-                        "elapsed_s",
-                    )
-                    rows2 = []
-                    for rank, r in enumerate(valid, 1):
-                        kns = f"{r.kernel_ns:.1f}"
-                        wns = f"{r.wall_ns:.1f}" if r.wall_ns is not None else "-"
-                        pcc = f"{r.pcc:.5f}" if r.pcc is not None else "-"
-                        es = f"{r.elapsed_s:.2f}" if r.elapsed_s is not None else "-"
-                        rows2.append((str(rank), r.config_id, kns, wns, pcc, es))
-                    f.write(_fmt_table(headers2, rows2) + "\n")
-                else:
-                    f.write("(no configs produced profiler data)\n")
-
-                if failed:
-                    f.write(f"\nFailed ({len(failed)}): ")
-                    f.write(", ".join(r.config_id for r in failed))
-                f.write("\n\n")
-
-        if self.verbose:
-            print(f"Summary written to {txt_path}")
-        return txt_path
+        return paths
 
 
 # ---------------------------------------------------------------------------
@@ -930,39 +1101,6 @@ def _fmt_table(headers: tuple, rows: list[tuple]) -> str:
 def _best_result(results: list[AutotuneResult]) -> Optional[AutotuneResult]:
     valid = [r for r in results if r.kernel_ns is not None and r.error is None]
     return min(valid, key=lambda r: r.kernel_ns) if valid else None
-
-
-def _write_summary_csv(path: pathlib.Path, results: list[AutotuneResult]) -> None:
-    fieldnames = [
-        "config_id",
-        "grid_shape",
-        "block_shape",
-        "mem_space",
-        "kernel_ns",
-        "wall_ns",
-        "pcc",
-        "error",
-        "elapsed_s",
-        "profiler_log",
-    ]
-    with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        for r in results:
-            writer.writerow(
-                {
-                    "config_id": r.config_id,
-                    "grid_shape": f"{r.config.grid_shape[0]}x{r.config.grid_shape[1]}",
-                    "block_shape": f"{r.config.block_shape[0]}x{r.config.block_shape[1]}",
-                    "mem_space": r.config.mem_space,
-                    "kernel_ns": r.kernel_ns,
-                    "wall_ns": r.wall_ns,
-                    "pcc": r.pcc,
-                    "error": r.error or "",
-                    "elapsed_s": r.elapsed_s,
-                    "profiler_log": r.profiler_log or "",
-                }
-            )
 
 
 def _print_summary(bench_name: str, results: list[AutotuneResult]) -> None:
@@ -1022,6 +1160,7 @@ def autotune_kernel(
     n_warmup: int = 1,
     traits: str = "device-zone",
     verbose: bool = True,
+    strategy: str = "sweep",
 ) -> dict[str, list[AutotuneResult]]:
     """Autotune all (or selected) KernelBench entries in a kernel file.
 
@@ -1045,6 +1184,9 @@ def autotune_kernel(
         Profiler traits string (``"device-zone"`` | ``"all"`` | …).
     verbose:
         Print progress.
+    strategy:
+        ``'sweep'`` (default) – exhaustive Cartesian sweep.
+        ``'hill-climb'`` – coordinate-descent hill-climb.
 
     Returns
     -------
@@ -1076,7 +1218,7 @@ def autotune_kernel(
 
     all_results: dict[str, list[AutotuneResult]] = {}
     for name, bench in benches.items():
-        results = tuner.run_bench(bench, bench_name=name)
+        results = tuner.run_bench(bench, bench_name=name, strategy=strategy)
         tuner.save_results(name, results)
         all_results[name] = results
 
@@ -1181,6 +1323,13 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Verify PCC against golden after each run.",
+    )
+    p.add_argument(
+        "--strategy",
+        metavar="STRATEGY",
+        default="sweep",
+        choices=["sweep", "hill-climb"],
+        help="Search strategy: 'sweep' (exhaustive, default) or 'hill-climb' (faster, coordinate descent).",
     )
     p.add_argument(
         "--no-sweep",
@@ -1295,6 +1444,7 @@ def main(argv=None):
         n_warmup=args.n_warmup,
         traits=args.traits,
         verbose=not args.quiet,
+        strategy=args.strategy,
     )
 
 
