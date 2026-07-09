@@ -66,8 +66,7 @@ CLI usage
         [--no-sweep] \\
         [--max-cores 8] \\
         [--max-block 8] \\
-        [--n-warmup 1] \\
-        [--traits device-zone]
+        [--n-warmup 1]
 
 Module usage
 ------------
@@ -467,13 +466,13 @@ def _mem_space_ctx(mem_space: str):
 
 
 @contextlib.contextmanager
-def _profiling_ctx(profiler_dir: str, traits: str):
+def _profiling_ctx(profiler_dir: str):
     """Enable in-process device profiling, directing output to *profiler_dir*.
 
     Sets the environment variable ``TT_METAL_PROFILER_DIR`` so the tt-metal
     runtime writes ``profile_log_device.csv`` into ``<profiler_dir>/.logs/``.
-    Also enables ``config.enable_perf_trace`` and
-    ``config.insert_profiler_traces``.  All mutations are reversed on exit.
+    Also enables ``config.enable_perf_trace``.  All mutations are reversed on
+    exit.
     """
     from d2m_jit._src.config import config as _cfg
 
@@ -488,7 +487,6 @@ def _profiling_ctx(profiler_dir: str, traits: str):
     # Config overrides
     old_perf = _cfg.enable_perf_trace
     old_traces = _cfg.insert_profiler_traces
-    old_traits = _cfg.profiler_traits
     _cfg.enable_perf_trace = True
     # Do NOT set insert_profiler_traces: the inserted DeviceZoneScopedN scopes
     # register source-location hashes globally for the process lifetime.  With
@@ -501,7 +499,6 @@ def _profiling_ctx(profiler_dir: str, traits: str):
     finally:
         _cfg.enable_perf_trace = old_perf
         _cfg.insert_profiler_traces = old_traces
-        _cfg.profiler_traits = old_traits
         if old_profiler_dir is None:
             os.environ.pop("TT_METAL_PROFILER_DIR", None)
         else:
@@ -577,9 +574,6 @@ class Autotuner:
     n_warmup:
         Number of warm-up iterations before the measured run.  Warm-ups
         compile the kernel and amortize JIT overhead.
-    traits:
-        Profiler trait string forwarded to ``insert-device-zone-scopes``
-        (``"device-zone"`` | ``"fpu,sfpu"`` | ``"all"`` | …).
     verbose:
         Print per-config progress to stdout.
     """
@@ -591,7 +585,6 @@ class Autotuner:
         save_profiler_logs: bool = False,
         check_pcc: bool = False,
         n_warmup: int = 1,
-        traits: str = "device-zone",
         verbose: bool = True,
     ):
         self.knobs = knobs or AutotuneKnobs()
@@ -599,7 +592,6 @@ class Autotuner:
         self.save_profiler_logs = save_profiler_logs
         self.check_pcc = check_pcc
         self.n_warmup = n_warmup
-        self.traits = traits
         self.verbose = verbose
         # Single profiler directory for the whole Autotuner session.
         # tt-metal initialises its profiler on the first measured run and
@@ -723,7 +715,7 @@ class Autotuner:
                 # warmup) because TT_METAL_DEVICE_PROFILER=1 needs to be set
                 # before the device is first opened.  Warmup data is simply
                 # discarded by wiping the .logs dir before the measured pass.
-                with _profiling_ctx(profiler_tmp, self.traits):
+                with _profiling_ctx(profiler_tmp):
                     # Warm-up runs (compile + JIT cache fill; profiler data discarded)
                     for _ in range(self.n_warmup):
                         _Builder.reset()
@@ -1204,7 +1196,6 @@ def autotune_kernel(
     save_profiler_logs: bool = False,
     check_pcc: bool = False,
     n_warmup: int = 1,
-    traits: str = "device-zone",
     verbose: bool = True,
     strategy: str = "sweep",
 ) -> dict[str, list[AutotuneResult]]:
@@ -1226,8 +1217,6 @@ def autotune_kernel(
         Verify numerics against the golden after each run.
     n_warmup:
         Warmup iterations before the measured run.
-    traits:
-        Profiler traits string (``"device-zone"`` | ``"all"`` | …).
     verbose:
         Print progress.
     strategy:
@@ -1258,7 +1247,6 @@ def autotune_kernel(
         save_profiler_logs=save_profiler_logs,
         check_pcc=check_pcc,
         n_warmup=n_warmup,
-        traits=traits,
         verbose=verbose,
     )
 
@@ -1414,12 +1402,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Warmup iterations before the measured run (default: 1).",
     )
     p.add_argument(
-        "--traits",
-        default="device-zone",
-        metavar="STR",
-        help="Profiler traits string (default: 'device-zone').",
-    )
-    p.add_argument(
         "--quiet",
         action="store_true",
         default=False,
@@ -1452,7 +1434,6 @@ def main(argv=None):
             save_profiler_logs=args.save_profiler_logs,
             check_pcc=args.check_pcc,
             n_warmup=args.n_warmup,
-            traits=args.traits,
             verbose=not args.quiet,
         )
         all_results: dict[str, list[AutotuneResult]] = {}
@@ -1494,7 +1475,6 @@ def main(argv=None):
         save_profiler_logs=args.save_profiler_logs,
         check_pcc=args.check_pcc,
         n_warmup=args.n_warmup,
-        traits=args.traits,
         verbose=not args.quiet,
         strategy=args.strategy,
     )
