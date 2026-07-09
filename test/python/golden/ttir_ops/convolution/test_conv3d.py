@@ -13,6 +13,15 @@ from conftest import get_request_kwargs
 pytestmark = pytest.mark.frontend("ttir")
 
 
+def check_op(mlir_file: str, op_name: str) -> bool:
+    op_name = "ttnn." + op_name
+    with open(mlir_file, "r") as f:
+        for line in f:
+            if op_name in line:
+                return True
+    return False
+
+
 @pytest.fixture(autouse=True)
 def clear_program_cache_after_test(device):
     """Clear program cache after each conv3d test to free L1 memory.
@@ -260,3 +269,92 @@ def test_conv3d_c_in_block_divergent(dtype, target, request, device):
         device=device,
         target=target,
     )
+
+
+@pytest.mark.parametrize(
+    "input_shape, weight_shape, bias_shape",
+    [
+        # 1x1x1 pointwise conv3d, no bias -> rewritten to ttir.matmul by
+        # the Conv3dOp canonicalizer.
+        ((1, 8, 16, 16, 64), (128, 64, 1, 1, 1), None),
+        # 1x1x1 pointwise conv3d, with bias -> rewritten to ttir.linear.
+        ((1, 8, 16, 16, 64), (128, 64, 1, 1, 1), (1, 1, 1, 1, 128)),
+    ],
+    ids=["pointwise_1x1x1_no_bias", "pointwise_1x1x1_with_bias"],
+)
+@pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16], ids=["f32", "bf16"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
+def test_conv3d_pointwise_to_linear(
+    input_shape: Shape,
+    weight_shape: Shape,
+    bias_shape: Optional[Shape],
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    """Golden coverage for the 1x1x1 conv3d -> matmul/linear rewrite.
+
+    A pointwise (1x1x1) conv3d in NDHWC layout with unit stride, no padding and
+    groups==1 is mathematically a matmul, so the decomposition pass rewrites it
+    to ttir.matmul (no bias) or ttir.linear (bias) instead of lowering it as a
+    conv3d.
+    """
+    if bias_shape:
+        input_shapes = [input_shape, weight_shape, bias_shape]
+        input_types = [dtype, dtype, dtype]
+
+        def module(builder: TTIRBuilder):
+            @builder.func(input_shapes, input_types)
+            def conv3d_wrapper(
+                in0: Operand,
+                weight: Operand,
+                bias: Operand,
+                builder: TTIRBuilder,
+                unit_attrs: Optional[List[str]] = None,
+            ):
+                return builder.conv3d(
+                    in0,
+                    weight,
+                    bias,
+                    stride=[1, 1, 1],
+                    padding=[0, 0, 0],
+                    groups=1,
+                    unit_attrs=unit_attrs,
+                )
+
+    else:
+        input_shapes = [input_shape, weight_shape]
+        input_types = [dtype, dtype]
+
+        def module(builder: TTIRBuilder):
+            @builder.func(input_shapes, input_types)
+            def conv3d_wrapper(
+                in0: Operand,
+                weight: Operand,
+                builder: TTIRBuilder,
+                unit_attrs: Optional[List[str]] = None,
+            ):
+                return builder.conv3d(
+                    in0,
+                    weight,
+                    None,
+                    stride=[1, 1, 1],
+                    padding=[0, 0, 0],
+                    groups=1,
+                    unit_attrs=unit_attrs,
+                )
+
+    output = compile_and_execute_ttir(
+        module,
+        **get_request_kwargs(request),
+        device=device,
+        target=target,
+        save_artifacts=True,
+    )
+
+    if target == "ttnn":
+        expected_op = "linear" if bias_shape else "matmul"
+        assert check_op(
+            output, expected_op
+        ), f"Pointwise conv3d should be rewritten to ttnn.{expected_op}"
