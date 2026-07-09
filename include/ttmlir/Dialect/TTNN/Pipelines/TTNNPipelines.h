@@ -607,12 +607,22 @@ struct TTIRToTTNNCommonPipelineOptions
     if (enableGreedyOptimizer.getNumOccurrences() == 0) {
       enableGreedyOptimizer = (optimizationLevel >= 1);
     }
-    if (computeCfgMathFidelity.getNumOccurrences() == 0 &&
-        optimizationLevel > 0) {
+    // At optimization_level > 0 the optimizer configures compute kernels per
+    // op, so defer these global knobs to runtime defaults - but ONLY when the
+    // caller genuinely left them untouched. Gate on hasValue() rather than
+    // getNumOccurrences(): getNumOccurrences() counts command-line occurrences
+    // only, so a PJRT frontend that sets the value programmatically
+    // (`options.computeCfgFp32DestAccEn = true`, a struct assignment) reads as
+    // zero occurrences and would be silently reset here - dropping the
+    // frontend's explicit fp32_dest_acc_en=true at opt>0 and corrupting large
+    // reductions (cross-entropy log-sum-exp / NLL accumulating in bf16).
+    // hasValue() is set by MLIR's Option callback on both CLI parsing AND C++
+    // assignment, and stays false for the cl::init default - so it resets only
+    // the truly-default case and preserves any explicit CLI or frontend value.
+    if (!computeCfgMathFidelity.hasValue() && optimizationLevel > 0) {
       computeCfgMathFidelity = OptionalMathFidelity::Undefined;
     }
-    if (computeCfgFp32DestAccEn.getNumOccurrences() == 0 &&
-        optimizationLevel > 0) {
+    if (!computeCfgFp32DestAccEn.hasValue() && optimizationLevel > 0) {
       computeCfgFp32DestAccEn = std::optional<bool>(std::nullopt);
     }
   }
