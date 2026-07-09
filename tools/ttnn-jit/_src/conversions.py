@@ -67,6 +67,8 @@ def mlir_dtype_from_ttnn_dtype(dtype, ctx):
             return IntegerType.get_unsigned(32, ctx)
         case 3:
             return ttcore.ir.TileType.get(ctx, 32, 32, ttcore.DataType.BFP_BFloat8)
+        case 4:
+            return ttcore.ir.TileType.get(ctx, 32, 32, ttcore.DataType.BFP_BFloat4)
         case 5:
             return IntegerType.get_unsigned(8, ctx)
         case 6:
@@ -99,6 +101,10 @@ def ttcore_dtype_from_ttnn_dtype(dtype):
             return ttcore.DataType.BFP_BFloat8
         case "DataType.BFLOAT8_B":
             return ttcore.DataType.BFP_BFloat8
+        case "DataType.BFP_BFloat4":
+            return ttcore.DataType.BFP_BFloat4
+        case "DataType.BFLOAT4_B":
+            return ttcore.DataType.BFP_BFloat4
         case _:
             raise ValueError(f"Unsupported TTNN dtype string: {dtype}")
 
@@ -121,6 +127,8 @@ def ttcore_dtype_from_mlir_dtype(dtype):
             return ttcore.DataType.BFloat16
         case s if "bfp_bf8" in s.lower():
             return ttcore.DataType.BFP_BFloat8
+        case s if "bfp_bf4" in s.lower():
+            return ttcore.DataType.BFP_BFloat4
         case "i32":
             return ttcore.DataType.Int32
         case _:
@@ -145,6 +153,8 @@ def ttnn_dtype_from_mlir_dtype(dtype):
             return ttnn.DataType.BFLOAT16
         case s if "bfp_bf8" in s.lower():
             return ttnn.DataType.BFLOAT8_B
+        case s if "bfp_bf4" in s.lower():
+            return ttnn.DataType.BFLOAT4_B
         case "i32":
             return ttnn.DataType.INT32
         case _:

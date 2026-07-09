@@ -259,4 +259,9 @@ setup(
     install_requires=[],
     python_requires=">=3.12",
     zip_safe=False,
+    entry_points={
+        "console_scripts": [
+            "ttnn-advise = ttnn_jit._src.cli:main",
+        ],
+    },
 )
