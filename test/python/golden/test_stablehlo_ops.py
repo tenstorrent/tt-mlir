@@ -1802,9 +1802,7 @@ def _make_gather_indices(
     if index_vector_dim == rank:
         dim = start_index_map[0]
         hi = input_shape[dim] - slice_sizes[dim]
-        return torch.randint(
-            0, hi + 1, indices_shape, dtype=torch.int32, generator=g
-        )
+        return torch.randint(0, hi + 1, indices_shape, dtype=torch.int32, generator=g)
 
     indices = torch.zeros(indices_shape, dtype=torch.int32)
     num_components = indices_shape[index_vector_dim]
