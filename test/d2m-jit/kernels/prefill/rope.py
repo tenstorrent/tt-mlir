@@ -23,7 +23,7 @@ through a 32-wide tile.
 import torch
 
 import d2m_jit as d2m
-from d2m_jit.testing import InputSpec, KernelBench, d2m_dtype
+from runner import InputSpec, KernelBench, d2m_dtype
 
 
 def _feature_half_roll_view(x_lt):

@@ -75,10 +75,13 @@ class InputSpec:
 
     ``dist`` is either a named distribution string (``"uniform(-1,1)"``,
     ``"randn"``, ``"rand"``) or a callable ``(shape, torch_dtype, generator)
-    -> tensor`` for full control. ``seed`` keeps generation deterministic.
+    -> tensor`` for full control. It may also be a list of any of the above,
+    one entry per input tensor, for kernels whose inputs need different
+    distributions (e.g. matmul where one operand must avoid zeros).
+    ``seed`` keeps generation deterministic.
     """
 
-    dist: "str | Callable" = "uniform(-1,1)"
+    dist: "str | Callable | list[str | Callable]" = "uniform(-1,1)"
     seed: int = 0
 
 
@@ -176,7 +179,10 @@ def make_inputs(shapes, td, inspec: InputSpec):
     """Deterministically generate one torch tensor per shape."""
     gen = torch.Generator()
     gen.manual_seed(inspec.seed)
-    return [_gen_tensor(tuple(s), td, inspec.dist, gen) for s in shapes]
+    dists = (
+        inspec.dist if isinstance(inspec.dist, list) else [inspec.dist] * len(shapes)
+    )
+    return [_gen_tensor(tuple(s), td, d, gen) for s, d in zip(shapes, dists)]
 
 
 def parse_func_io(ttir_text: str):
