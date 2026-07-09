@@ -19,14 +19,20 @@ from utils import assert_pcc
 )
 def test_rope_matches_torch(seq_len, head_dim, grid_shape, block_shape):
     """Test rope at various workload shapes and execution configs."""
+    def _cos_dist(shape, td, gen):
+        cos, _ = build_rope_tables(shape[0], shape[1], start_pos=7, dtype=td)
+        return cos
+
+    def _sin_dist(shape, td, gen):
+        _, sin_signed = build_rope_tables(shape[0], shape[1], start_pos=7, dtype=td)
+        return sin_signed
+
     tensors = [
-        TensorSpec(
-            shape=(seq_len, head_dim), block_shape=block_shape, dtype=torch.float32
-        )
-    ] * 3
-    actual, expected = run_bench(
-        KERNEL_BENCHES["rope"], tensors=tensors, grid_shape=grid_shape
-    )
+        TensorSpec(shape=(seq_len, head_dim), block_shape=block_shape, dtype=torch.float32, dist="uniform(-1,1)"),
+        TensorSpec(shape=(seq_len, head_dim), block_shape=block_shape, dtype=torch.float32, dist=_cos_dist),
+        TensorSpec(shape=(seq_len, head_dim), block_shape=block_shape, dtype=torch.float32, dist=_sin_dist),
+    ]
+    actual, expected = run_bench(KERNEL_BENCHES["rope"], tensors=tensors, grid_shape=grid_shape)
     assert_pcc(expected, actual, threshold=0.99)
     assert torch.allclose(expected, actual, atol=0.05, rtol=0.05)
 

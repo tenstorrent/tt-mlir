@@ -57,7 +57,7 @@ import subprocess
 import tempfile
 import textwrap
 from dataclasses import dataclass, field
-from typing import Callable, Optional, Sequence, Union
+from typing import Callable, Optional, Sequence
 
 import torch
 

@@ -180,14 +180,18 @@ def rope_materializer(kernel, inputs, tensors, grid_shape):
     m_blocks = (seq_len_tiles // gy) // block_y
     n_blocks = (head_dim_tiles // gx) // block_x
 
-    out_lt = apply_rope(
+    _validate_rope_layouts(x_lt, cos_lt, sin_signed_lt, L)
+    x_rolled = _feature_half_roll_view(x_lt)
+    out_lt = d2m.empty(L)
+    kernel(
         x_lt,
+        x_rolled,
         cos_lt,
         sin_signed_lt,
-        L_io=L,
+        out_lt,
+        m_blocks,
+        n_blocks,
         grid=(gy, gx),
-        m_blocks=m_blocks,
-        n_blocks=n_blocks,
     )
 
     return out_lt.to_host()
@@ -210,8 +214,21 @@ KERNEL_BENCHES = {
         kernel=rope,
         golden=_golden,
         run=rope_materializer,
-        tensors=[TensorSpec(shape=(64, 64), block_shape=[2, 2], dtype=torch.float32)]
-        * 3,
+        tensors=[
+            TensorSpec(shape=(64, 64), block_shape=[2, 2], dtype=torch.float32, dist="uniform(-1,1)"),
+            TensorSpec(
+                shape=(64, 64),
+                block_shape=[2, 2],
+                dtype=torch.float32,
+                dist=lambda shape, td, gen: build_rope_tables(shape[0], shape[1], dtype=td)[0],
+            ),
+            TensorSpec(
+                shape=(64, 64),
+                block_shape=[2, 2],
+                dtype=torch.float32,
+                dist=lambda shape, td, gen: build_rope_tables(shape[0], shape[1], dtype=td)[1],
+            ),
+        ],
         grid_shape=(1, 1),
     )
 }
