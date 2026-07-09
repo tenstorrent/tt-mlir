@@ -6,7 +6,7 @@ import pytest
 import torch
 
 import d2m_jit as d2m
-from d2m_jit.prefill.rope import apply_rope, build_rope_tables
+from kernels.prefill.rope import apply_rope, build_rope_tables
 from utils import assert_pcc
 
 

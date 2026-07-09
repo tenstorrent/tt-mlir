@@ -18,7 +18,7 @@ keep working — the add stays alive in that case.
 import torch
 
 import d2m_jit as d2m
-from d2m_jit.testing import InputSpec, KernelBench, PatternTest, eltwise_block_run
+from runner import InputSpec, KernelBench, PatternTest, eltwise_block_run
 from ttmlir import ir
 from ttmlir.dialects import ttir
 
@@ -68,7 +68,7 @@ def fuse_add_exp(op, rewriter):
 
 
 # ----------------------------------------------------------------------
-# Co-located tests. See d2m_jit.testing for the runner contract.
+# Co-located tests. See testing.py for the runner contract.
 # ----------------------------------------------------------------------
 
 
