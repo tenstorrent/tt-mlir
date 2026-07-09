@@ -173,9 +173,11 @@ set_target_properties(tt_kurbla::tracy PROPERTIES
     INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_TRACY_INCLUDE_DIR}"
 )
 
-# Expose the install dir + binary paths to the parent CMake scope so that
-# cmake/Tracy.cmake (included after add_subdirectory(third_party)) can build
-# the bundle-tracy symlink against them.
+# Expose the source + install dirs and binary paths to the parent CMake scope:
+# cmake/Tracy.cmake consumes the install dir + binaries (it's included after
+# add_subdirectory(third_party)); src/CMakeLists.txt consumes the source dir to
+# derive the tt-mlir commit and worktree hashes.
+set(TT_KURBLA_TTMLIR_SOURCE_DIR  "${_TTMLIR_SRC}" PARENT_SCOPE)
 set(TT_KURBLA_TTMLIR_INSTALL_DIR "${_TTMLIR_INSTALL_DIR}" PARENT_SCOPE)
 set(TT_KURBLA_TRACY_CAPTURE_BIN  "${_TTMLIR_CAPTURE_BIN}" PARENT_SCOPE)
 set(TT_KURBLA_TRACY_CSVEXPORT_BIN "${_TTMLIR_CSVEXPORT_BIN}" PARENT_SCOPE)

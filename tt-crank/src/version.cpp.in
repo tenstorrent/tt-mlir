@@ -6,4 +6,12 @@ std::string_view version() noexcept {
     return "@PROJECT_VERSION@";
 }
 
+std::string_view ttmlir_git_hash() noexcept {
+    return "@TTMLIR_GIT_HASH@";
+}
+
+std::string_view ttmlir_git_worktree_hash() noexcept {
+    return "@TTMLIR_GIT_WORKTREE_HASH@";
+}
+
 } // namespace tt::kurbla
