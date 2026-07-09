@@ -3736,16 +3736,14 @@ public:
     }
     // For k>32, the reduction dim is padded to a power-of-2 tile count, so
     // lastStride must use the padded count (not numReductionTiles/2).
-    int64_t nextPow2;
+    int64_t p = 1;
+    while (p < numReductionTiles) {
+      p <<= 1;
+    }
+    int64_t nextPow2 = p;
     if (numReductionTiles <= 0 ||
         (numReductionTiles & (numReductionTiles - 1)) == 0) {
       nextPow2 = numReductionTiles;
-    } else {
-      int64_t p = 1;
-      while (p < numReductionTiles) {
-        p <<= 1;
-      }
-      nextPow2 = p;
     }
     int64_t paddedNumReductionTiles = (k > 32) ? nextPow2 : numReductionTiles;
     int64_t lastStride = paddedNumReductionTiles / 2;
@@ -3793,12 +3791,11 @@ public:
       topkLogicalShape[dim] = paddedDimElems;
     }
 
-    Type si32Type = IntegerType::get(ctx, 32, IntegerType::Signed);
-    auto si32TileType = ttcore::TileType::get(si32Type, f32TileType.getShape());
+    Type f32Type = f32TileType.getElementType();
     auto topkValsEmpty = rewriter.create<d2m::EmptyOp>(
         loc, deviceShape, f32TileType, metalLayout);
-    auto topkIdxEmpty = rewriter.create<d2m::EmptyOp>(
-        loc, deviceShape, si32TileType, metalLayout);
+    auto topkIdxEmpty = rewriter.create<d2m::EmptyOp>(loc, deviceShape,
+                                                      f32TileType, metalLayout);
 
     auto wrapInToLayout = [&](Value genericResult) -> Value {
       auto resultType = cast<RankedTensorType>(genericResult.getType());
@@ -3869,9 +3866,9 @@ public:
 
     // Setting up the arange op.
 
-    auto si32InputType = RankedTensorType::get(topkLogicalShape, si32Type,
-                                               inputType.getEncoding());
-    auto arangeOrigOutputs = createDpsOutputs(loc, rewriter, {si32InputType});
+    auto f32InputType = RankedTensorType::get(topkLogicalShape, f32Type,
+                                              inputType.getEncoding());
+    auto arangeOrigOutputs = createDpsOutputs(loc, rewriter, {f32InputType});
     auto [arangeins, arangeOutputs] = toLayoutOperandsAndResults(
         rewriter, {SmallVector<Value>{}, arangeOrigOutputs}, true,
         /*noCollapse=*/false);
@@ -3950,7 +3947,7 @@ public:
     SmallVector<Value> postArangeBcastInputs(arange.getResults().begin(),
                                              arange.getResults().end());
     auto postArangeBcastOrigOutputs =
-        createDpsOutputs(loc, rewriter, {si32InputType});
+        createDpsOutputs(loc, rewriter, {f32InputType});
     auto [postArangeBcastins, postArangeBcastOutputs] =
         toLayoutOperandsAndResults(
             rewriter, {SmallVector<Value>{}, postArangeBcastOrigOutputs}, true,
@@ -4060,16 +4057,16 @@ public:
     Value topkValsRelayouted = wrapInToLayout(topkGeneric->getResult(0));
     Value topkIdxRelayouted = wrapInToLayout(topkGeneric->getResult(1));
 
-    // Index extract uses si32 topk tiles; a typecast generic below converts
+    // Index extract uses fp32 topk tiles; a typecast generic below converts
     // to the user index output element type (uint16) for width-preserving
     // untilize.
-    auto si32IndicesType =
-        RankedTensorType::get(indicesType.getShape(), si32Type);
+    auto f32IndicesType =
+        RankedTensorType::get(indicesType.getShape(), f32Type);
 
     SmallVector<Value> origValOutputs =
         createDpsOutputs(loc, rewriter, {valuesType});
     SmallVector<Value> origIdxOutputs =
-        createDpsOutputs(loc, rewriter, {si32IndicesType});
+        createDpsOutputs(loc, rewriter, {f32IndicesType});
     Value extractValsLayout = createOptimalLayoutOp(
         origValOutputs[0], memorySpaces[1], /*tiled=*/true,
         /*noCollapse=*/false, rewriter);
@@ -4088,9 +4085,9 @@ public:
         rewriter, loc, ctx, topkIdxRelayouted, extractIdxLayout,
         extractProjectDim, outputReductionTiles, lastStride, dim);
 
-    // Typecast extracted si32 indices to the output element type (uint16).
+    // Typecast extracted fp32 indices to the output element type (uint16).
     // Untilize is a pure layout op with no narrowing, so width must match;
-    // si32 untilized into uint16 drops the high half. One tile op per region
+    // fp32 untilized into uint16 drops the high half. One tile op per region
     // so D2M->TTKernel store/DST-index lookup finds a single terminal compute
     // op.
     Value extractedIdx = extractIdxGeneric->getResult(0);

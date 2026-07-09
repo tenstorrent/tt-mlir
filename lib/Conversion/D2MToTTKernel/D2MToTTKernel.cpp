@@ -2147,6 +2147,18 @@ static void emitTopkGroupStartIfNeeded(ConversionPatternRewriter &rewriter,
   // rfo=true: T0 reads output CB tiles that T2 just wrote. Fence so T0 sees
   // all pack_tile L1 writes before copy_tile executes.
   Value rfo = op.getReadFromOutput();
+  std::optional<int64_t> rfoConst = getConstantIntValue(rfo);
+  if (rfoConst) {
+    if (*rfoConst) {
+      rewriter.create<ttkernel::UnpackStallOnPackOp>(loc);
+      emitTopkGroupStart(rewriter, loc, cbOutVals, cbOutIdx, cbOutVals, tileA,
+                         tileB);
+    } else {
+      emitTopkGroupStart(rewriter, loc, cbInVals, cbInIdx, cbOutVals, tileA,
+                         tileB);
+    }
+    return;
+  }
   rewriter.create<scf::IfOp>(
       loc, rfo,
       /*thenBuilder=*/
@@ -2167,6 +2179,14 @@ static void emitTopkGroupEndIfNeeded(ConversionPatternRewriter &rewriter,
                                      Location loc, OpTy op, Value tileA,
                                      Value tileB) {
   Value isGroupEnd = op.getIsGroupEnd();
+  std::optional<int64_t> isGroupEndConst = getConstantIntValue(isGroupEnd);
+  if (isGroupEndConst) {
+    if (*isGroupEndConst) {
+      emitTopkGroupEnd(rewriter, loc, getCB(rewriter, op.getOutValues()),
+                       getCB(rewriter, op.getOutIndices()), tileA, tileB);
+    }
+    return;
+  }
   rewriter.create<scf::IfOp>(
       loc, isGroupEnd,
       /*thenBuilder=*/
