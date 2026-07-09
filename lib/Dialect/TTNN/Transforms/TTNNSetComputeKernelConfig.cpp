@@ -11,12 +11,18 @@
 namespace mlir::tt::ttnn {
 namespace {
 
-// During training backward run we have observed matmuls with inner dimension
-// equal to vocab size fail due to precision issues. Upon inspection, we have
-// not found a model that has vocab size smaller than this threshold. Fix is
-// only applied to these types of matmuls, as we do not expect other matmuls to
-// have this type of inner dimension.
-constexpr int64_t kLargeInnerDimThreshold = 50000;
+// bf16 matmuls with a vocab-sized dimension accumulate too coarsely and hit
+// precision issues, so we force fp32 destination accumulation on them:
+//   * large *inner* (contraction) dim: observed in the training backward run,
+//     where grad flows through a matmul whose inner dim equals vocab size;
+//   * large *output* dim: the forward lm_head / vocab projection
+//     ([.., hidden] x [hidden, vocab]). On multi-chip TP its logits feed greedy
+//     argmax, where coarse bf16 accumulation lets a near-tie logit flip
+//     run-to-run, breaking greedy determinism (tt-xla #5520).
+// We have not found a model with a vocab smaller than this threshold, and we do
+// not expect other matmuls to have an inner or output dim this large, so the
+// fix stays scoped to matmuls that cross it.
+constexpr int64_t kLargeDimThreshold = 50000;
 
 static bool hasSetComputeConfigFields(DeviceComputeKernelConfigAttr config) {
   return config.getMathFidelity().has_value() || config.getMathApproxMode() ||
@@ -25,16 +31,23 @@ static bool hasSetComputeConfigFields(DeviceComputeKernelConfigAttr config) {
 }
 
 template <typename OpTy>
-void applyLargeInnerDimBf16MatmulConfig(OpTy op,
-                                        DeviceComputeKernelConfigAttr &config) {
+void applyLargeDimBf16MatmulConfig(OpTy op,
+                                   DeviceComputeKernelConfigAttr &config) {
+  auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
+
   std::optional<int64_t> innerDim =
       getMatmulInnerDim(op.getA().getType(), op.getB().getType(),
                         op.getTransposeA(), op.getTransposeB());
-  if (!innerDim || *innerDim <= kLargeInnerDimThreshold) {
+  bool largeInnerDim = innerDim && *innerDim > kLargeDimThreshold;
+
+  auto outputShape = outputType.getShape();
+  bool largeOutputDim =
+      !outputShape.empty() && outputShape.back() > kLargeDimThreshold;
+
+  if (!largeInnerDim && !largeOutputDim) {
     return;
   }
 
-  auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
   if (ttcore::elementTypeToDataType(outputType.getElementType()) !=
       ttcore::DataType::BFloat16) {
     return;
@@ -158,9 +171,9 @@ public:
 
       // This fix is required for correctness of large matmuls/linears.
       if (auto matmulOp = dyn_cast<MatmulOp>(op)) {
-        applyLargeInnerDimBf16MatmulConfig(matmulOp, config);
+        applyLargeDimBf16MatmulConfig(matmulOp, config);
       } else if (auto linearOp = dyn_cast<LinearOp>(op)) {
-        applyLargeInnerDimBf16MatmulConfig(linearOp, config);
+        applyLargeDimBf16MatmulConfig(linearOp, config);
       }
 
       // Log config after applying overrides
