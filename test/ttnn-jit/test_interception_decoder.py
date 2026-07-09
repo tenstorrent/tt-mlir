@@ -150,14 +150,15 @@ def test_interception_traces_full_decoder(device):
 @pytest.mark.forked
 @pytest.mark.forked
 def test_interception_traces_decode_layer(device):
-    # Decode-phase decoder traces to TTIR with the decode-variant op vocabulary
-    # (nlp_create_qkv_heads_decode, paged_update_cache, RoPE decode,
-    # paged_scaled_dot_product_attention_decode, nlp_concat_heads_decode), and
-    # the in-place KV-cache updates thread into attention so each cache has a
-    # single user. Trace-only: the decode path exercises fixed-layout ops
-    # (HeightSharded RoPE/SDPA-decode inputs) whose layout handling the
-    # analysis pipeline does not yet apply, so this asserts the trace, not an
-    # optimizer run.
+    # Decode-phase decoder: the interception tracer emits the decode op
+    # vocabulary (split_query_key_value_and_split_heads, RoPE decode,
+    # paged_update_cache, paged_scaled_dot_product_attention_decode) and threads
+    # the in-place KV-cache updates into attention so each cache has one user.
+    # The advisor then lowers the whole graph through the greedy optimizer at
+    # opt-2: RoPE reaches HeightSharded and paged_update_cache is handled in the
+    # optimizer (RowMajor index siblings + HeightSharded value input), so the
+    # scoped pipeline lowers e2e instead of DRAM-falling-back and failing
+    # OperationValidationAndFallback.
     seq = 128
     dec = FunctionalDecoder.from_state_dict(
         _dummy_decoder_state_dict(),
@@ -213,6 +214,26 @@ def test_interception_traces_decode_layer(device):
         assert (
             result in sdpa_line
         ), f"cache update {result} not threaded into decode SDPA"
+
+    # e2e: the advisor lowers the traced decode graph through the greedy
+    # optimizer. Regression guard for the RoPE-HeightSharded (const-derived
+    # reshard) and paged_update_cache (RowMajor input siblings) fixes -- before
+    # them this raised RuntimeError "No fallback configuration worked" on
+    # rotary_embedding_llama.
+    report = ShardAdvisor(
+        traced, optimization_level=2, tracer="interception"
+    ).run(x)
+    final_mlir = report.ttnn_mlir
+    assert final_mlir.count('"ttnn.rotary_embedding_llama"') == 2
+    assert final_mlir.count('"ttnn.paged_update_cache"') == 2
+    assert final_mlir.count('"ttnn.paged_scaled_dot_product_attention_decode"') == 1
+    # Both decode RoPE ops must land on HeightSharded inputs (the fix); the
+    # op-layout summary records the chosen layout per op.
+    rope_layouts = re.findall(
+        r"ttnn\.rotary_embedding_llama\s+->\s+(\S+)", report.text
+    )
+    assert len(rope_layouts) == 2, report.text
+    assert all("height_sharded" in lay for lay in rope_layouts), rope_layouts
 
 
 def test_interception_attention_chain(device):
