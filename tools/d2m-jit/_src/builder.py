@@ -628,6 +628,134 @@ def reduction_layout(layout: Layout, dim, allow_cross_tile: bool = False) -> Lay
     return layout.replace(shape=shape, block_shape=block_shape, grid_shape=grid_shape)
 
 
+def arange(layout: Layout, start: int = 0, step: int = 1) -> LazyTensor:
+    """Allocate a device tensor filled with arange values.
+
+    Equivalent to `torch.arange(start, start + N*step, step).reshape(shape)`
+    where `N = prod(layout.logical_shape)` and `shape = layout.logical_shape`.
+    Row-major linear traversal.
+
+    Currently implemented as a host-side `torch.arange` + `to_layout`. This
+    matches what TTIR's `arange` ends up costing for a precomputed mask
+    (one DRAM transfer), but does **not** exercise the device-side
+    `d2m.arange_block` op. A future zero-roundtrip version would emit
+    `d2m.GenericOp { d2m.arange_block + remote_store }` (mirroring the C++
+    `D2MArangeOpRewriter` in lib/Conversion/TTIRToD2M/TTIRToD2M.cpp).
+    """
+    if torch is None:
+        raise RuntimeError("torch is required for d2m_jit.arange()")
+    torch_dtype = _ttcore_to_torch_dtype(layout.dtype)
+    numel = 1
+    for d in layout.logical_shape:
+        numel *= d
+    flat = torch.arange(start, start + numel * step, step, dtype=torch_dtype)
+    return to_layout(flat.reshape(list(layout.logical_shape)), layout)
+
+
+def reshape(lt: LazyTensor, *shape) -> LazyTensor:
+    """torch.reshape-style logical-shape change.
+
+    Total element count must match. A single dimension may be given as
+    `-1`, in which case its size is inferred from the remaining dims
+    (e.g. `reshape(lt, -1)` flattens, `reshape(lt, 2, -1)` infers the
+    last dim). Currently implemented via a host
+    roundtrip (`to_host` -> `torch.reshape` -> `to_layout`), so it pays a
+    DRAM transfer and re-tilises the data. Use it for shape changes that
+    don't cleanly map to a `view` -- e.g. coalescing two non-adjacent dims
+    or splitting one dim into many.
+
+    Distinct from `view` / `view_layout` / `permute`, which are metadata
+    reinterpretations of the buffer (no data movement, but require the
+    new logical layout to be expressible as a permutation of the source's
+    grid/tile dims).
+
+    The destination layout reuses the source layout's `dtype`, `mem_space`,
+    `tiled` setting, and either:
+      - keeps the source's `block_shape` / `grid_shape` if they fit the
+        new shape divisibility-wise, or
+      - falls back to `block_shape=[1]*rank`, `grid_shape=[1]*rank`.
+    Use `to_layout(reshaped, target_layout)` to land it in a specific
+    layout afterwards.
+    """
+    if not isinstance(lt, LazyTensor):
+        raise TypeError(f"reshape expected a LazyTensor, got {type(lt).__name__}")
+    if torch is None:
+        raise RuntimeError("torch is required for d2m_jit.reshape()")
+
+    # Accept reshape(lt, 1, 2, 256, 64) and reshape(lt, [1, 2, 256, 64]).
+    if len(shape) == 1 and isinstance(shape[0], (list, tuple)):
+        new_shape = tuple(shape[0])
+    else:
+        new_shape = tuple(shape)
+
+    src_numel = 1
+    for d in lt.layout.logical_shape:
+        src_numel *= d
+
+    # Support the torch idiom of a single `-1` dim whose size is inferred
+    # from the remaining dims (e.g. reshape(lt, -1) flattens; reshape(lt,
+    # 2, -1) infers the second dim).
+    neg_axes = [i for i, d in enumerate(new_shape) if d == -1]
+    if len(neg_axes) > 1:
+        raise ValueError(
+            f"reshape: only one dimension may be inferred (-1), " f"got {new_shape}"
+        )
+    if any(d < -1 for d in new_shape):
+        raise ValueError(f"reshape: dimensions must be >= -1, got {new_shape}")
+    if neg_axes:
+        known = 1
+        for d in new_shape:
+            if d != -1:
+                known *= d
+        if known == 0 or src_numel % known != 0:
+            raise ValueError(
+                f"reshape: cannot infer -1 dimension: src has {src_numel} "
+                f"elements which is not divisible by the product of the "
+                f"known dims {known} (from {new_shape})"
+            )
+        inferred = src_numel // known
+        new_shape = tuple(inferred if d == -1 else d for d in new_shape)
+
+    dst_numel = 1
+    for d in new_shape:
+        dst_numel *= d
+    if src_numel != dst_numel:
+        raise ValueError(
+            f"reshape: total element count must match: "
+            f"src {tuple(lt.layout.logical_shape)} ({src_numel}) "
+            f"!= dst {new_shape} ({dst_numel})"
+        )
+
+    # Pick a destination layout: keep src's block/grid if compatible,
+    # otherwise fall back to a trivial single-block single-grid layout
+    # (the user can to_layout to something denser if perf matters).
+    rank = len(new_shape)
+    src_block = list(lt.layout.block_shape)
+    src_grid = list(lt.layout.grid_shape)
+    if (
+        len(src_block) == rank
+        and len(src_grid) == rank
+        and all(
+            d % (b * g * (32 if lt.layout.tiled else 1)) == 0
+            for d, b, g in zip(new_shape, src_block, src_grid)
+        )
+    ):
+        block_shape = src_block
+        grid_shape = src_grid
+    else:
+        block_shape = [1] * rank
+        grid_shape = [1] * rank
+
+    dst_layout = lt.layout.replace(
+        shape=new_shape,
+        block_shape=block_shape,
+        grid_shape=grid_shape,
+    )
+
+    host = lt.to_host().reshape(new_shape)
+    return to_layout(host, dst_layout)
+
+
 def _derive_perm_layout(src_layout: Layout, spec):
     """If `spec` (from _affine_map_from_lambda) describes a clean permutation
     of paired (grid, tile) dims, return a Layout with logical_shape/
