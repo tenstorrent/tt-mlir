@@ -205,12 +205,13 @@ def _golden(x, cos, sin_signed):
     return x * cos + x_rolled * sin_signed
 
 
-# KernelBench: one declaration, used by both testing and autotuning
-KERNEL_BENCH = KernelBench(
-    name="rope",
-    kernel=rope,
-    golden=_golden,
-    run=rope_materializer,
-    tensors=[TensorSpec(shape=(64, 64), block_shape=[2, 2], dtype=torch.float32)] * 3,
-    grid_shape=(1, 1),
-)
+KERNEL_BENCHES = {
+    "rope": KernelBench(
+        kernel=rope,
+        golden=_golden,
+        run=rope_materializer,
+        tensors=[TensorSpec(shape=(64, 64), block_shape=[2, 2], dtype=torch.float32)]
+        * 3,
+        grid_shape=(1, 1),
+    )
+}

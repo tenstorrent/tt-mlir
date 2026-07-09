@@ -15,7 +15,7 @@ A pattern file is the complete unit — kernel + rewrite + tests — and declare
 two module-level lists the generic runner picks up automatically:
 
     PATTERN_TESTS  : rewrite correctness, checked with FileCheck (no device).
-    KERNEL_BENCH   : on-device numerics, PCC-compared against a torch golden.
+    KERNEL_BENCHES : on-device numerics, PCC-compared against a torch golden.
 
 Run just this pattern after copying:
 
@@ -116,20 +116,21 @@ PATTERN_TESTS = [
 
 # On-device numerics: drive the kernel directly and PCC-compare vs torch.
 # Reuse eltwise_block_run for the common elementwise-block shape; write a
-# custom run(kernel, inputs, tensors, grid_shape, dtype) -> host tensor for
+# custom run(kernel, inputs, tensors, grid_shape) -> host tensor for
 # anything else.
-KERNEL_BENCH = KernelBench(
-    name="template",
-    kernel=template_kernel,
-    golden=_golden,
-    run=eltwise_block_run,
-    tensors=[
-        TensorSpec(
-            shape=(32, 32),
-            block_shape=[1, 1],
-            dtype=torch.float32,
-            dist="uniform(-1,1)",
-        )
-    ],
-    grid_shape=(1, 1),
-)
+KERNEL_BENCHES = {
+    "template": KernelBench(
+        kernel=template_kernel,
+        golden=_golden,
+        run=eltwise_block_run,
+        tensors=[
+            TensorSpec(
+                shape=(32, 32),
+                block_shape=[1, 1],
+                dtype=torch.float32,
+                dist="uniform(-1,1)",
+            )
+        ],
+        grid_shape=(1, 1),
+    )
+}

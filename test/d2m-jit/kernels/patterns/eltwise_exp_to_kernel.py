@@ -100,18 +100,19 @@ PATTERN_TESTS = [
 ]
 
 # On-device numerics (replaces test_pattern_exp_kernel_on_device).
-KERNEL_BENCH = KernelBench(
-    name="exp",
-    kernel=exp_fused,
-    golden=_golden,
-    run=eltwise_block_run,
-    tensors=[
-        TensorSpec(
-            shape=(32, 32),
-            block_shape=[1, 1],
-            dtype=torch.float32,
-            dist="uniform(-1,1)",
-        )
-    ],
-    grid_shape=(1, 1),
-)
+KERNEL_BENCHES = {
+    "exp": KernelBench(
+        kernel=exp_fused,
+        golden=_golden,
+        run=eltwise_block_run,
+        tensors=[
+            TensorSpec(
+                shape=(32, 32),
+                block_shape=[1, 1],
+                dtype=torch.float32,
+                dist="uniform(-1,1)",
+            )
+        ],
+        grid_shape=(1, 1),
+    )
+}

@@ -25,7 +25,7 @@ def _reset_builder():
 def pytest_generate_tests(metafunc):
     """Parametrize the generic pattern tests over every spec declared in the
     bundled pattern files (test/d2m-jit/patterns/*.py). Adding a pattern file with
-    PATTERN_TESTS / KERNEL_BENCH is picked up here with no harness edits."""
+    PATTERN_TESTS / KERNEL_BENCHES is picked up here with no harness edits."""
     from runner import discover
 
     pattern_tests, kernel_benches = discover()

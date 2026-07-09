@@ -139,9 +139,11 @@ class KernelBench:
     The materializer ``run(kernel, inputs, tensors, grid_shape) -> host_tensor``
     receives the generated torch inputs alongside the full ``TensorSpec`` list,
     so it can build per-tensor ``d2m.Layout`` objects directly.
+
+    ``name`` is set by ``discover()`` from the key in ``KERNEL_BENCHES``; it
+    is empty when the bench is used directly without discovery.
     """
 
-    name: str
     kernel: Callable
     golden: Callable
     run: Callable
@@ -149,6 +151,7 @@ class KernelBench:
     grid_shape: "tuple | list"
     seed: int = 0
     pcc: float = 0.99
+    name: str = ""  # stamped by discover() from the KERNEL_BENCHES dict key
 
 
 # ----------------------------------------------------------------------
@@ -319,50 +322,6 @@ def eltwise_block_run(kernel, inputs, tensors, grid_shape):
     n_blocks = (ts.shape[-1] // 32) // gx
     kernel(*ins, out, m_blocks, n_blocks, grid=(gy, gx))
     return out.to_host()
-
-
-def matmul_transpose_b_run(kernel, inputs, tensors, grid_shape):
-    """Materializer for single-grid transpose_b matmul kernels.
-
-    ``tensors`` must be ``[lhs_spec, rhs_spec]`` where rhs is stored in
-    ``(n, k)`` layout (pre-transposed). Output block shape is derived as
-    ``[lhs_spec.block_shape[0], rhs_spec.block_shape[0]]``.
-    """
-    import d2m_jit as d2m
-
-    lhs, rhs = inputs
-    lhs_spec, rhs_spec = tensors
-    gy, gx = grid_shape
-    m, k = lhs_spec.shape
-    n = rhs_spec.shape[0]
-    out_block_shape = [lhs_spec.block_shape[0], rhs_spec.block_shape[0]]
-
-    lhs_layout = d2m.Layout(
-        shape=(m, k),
-        dtype=d2m_dtype(lhs_spec.dtype),
-        block_shape=list(lhs_spec.block_shape),
-        grid_shape=[gy, gx],
-    )
-    rhs_layout = d2m.Layout(
-        shape=(n, k),
-        dtype=d2m_dtype(rhs_spec.dtype),
-        block_shape=list(rhs_spec.block_shape),
-        grid_shape=[gy, gx],
-    )
-    out_layout = d2m.Layout(
-        shape=(m, n),
-        dtype=d2m_dtype(lhs_spec.dtype),
-        block_shape=out_block_shape,
-        grid_shape=[gy, gx],
-    )
-    out_d = d2m.empty(out_layout)
-    kernel(
-        d2m.to_layout(lhs, lhs_layout),
-        d2m.to_layout(rhs, rhs_layout),
-        out_d,
-        grid=(gy, gx),
-    )
-    return out_d.to_host()
 
 
 def run_bench(bench: KernelBench, *, tensors=None, grid_shape=None):
@@ -693,8 +652,9 @@ def discover(force: bool = False):
         for t in getattr(mod, "PATTERN_TESTS", []):
             t.source_file = mod.__file__
             pattern_tests.append(t)
-        if (b := getattr(mod, "KERNEL_BENCH", None)) is not None:
-            kernel_benches.append(b)
+        for key, bench in getattr(mod, "KERNEL_BENCHES", {}).items():
+            bench.name = key
+            kernel_benches.append(bench)
 
     _DISCOVERED = (pattern_tests, kernel_benches)
     return _DISCOVERED
