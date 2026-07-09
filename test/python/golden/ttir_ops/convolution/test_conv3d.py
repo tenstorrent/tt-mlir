@@ -13,6 +13,15 @@ from conftest import get_request_kwargs
 pytestmark = pytest.mark.frontend("ttir")
 
 
+def check_op(mlir_file: str, op_name: str) -> bool:
+    op_name = "ttnn." + op_name
+    with open(mlir_file, "r") as f:
+        for line in f:
+            if op_name in line:
+                return True
+    return False
+
+
 @pytest.fixture(autouse=True)
 def clear_program_cache_after_test(device):
     """Clear program cache after each conv3d test to free L1 memory.
@@ -336,9 +345,16 @@ def test_conv3d_pointwise_to_linear(
                     unit_attrs=unit_attrs,
                 )
 
-    compile_and_execute_ttir(
+    output = compile_and_execute_ttir(
         module,
         **get_request_kwargs(request),
         device=device,
         target=target,
+        save_artifacts=True,
     )
+
+    if target == "ttnn":
+        expected_op = "linear" if bias_shape else "matmul"
+        assert check_op(
+            output, expected_op
+        ), f"Pointwise conv3d should be rewritten to ttnn.{expected_op}"

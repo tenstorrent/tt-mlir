@@ -1,12 +1,11 @@
-// RUN: ttmlir-opt --split-input-file --ttir-to-ttir-decomposition --canonicalize -o %t %s
+// RUN: ttmlir-opt --split-input-file --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Verifies the Conv3dOp canonicalizer: a 1x1x1 conv3d in NDHWC layout with
 // unit stride, no padding and groups==1 is mathematically a matmul, so the
 // canonicalizer rewrites it to ttir.matmul (no bias) / ttir.linear (bias)
 // instead of lowering it as a conv3d. Anything failing the eligibility gate
-// (isConv3dPointwiseLinearEligible) must stay a ttir.conv3d. The decomposition
-// pass runs first only to normalize non-NDHWC layouts to NDHWC.
+// (isConv3dPointwiseLinearEligible) must stay a ttir.conv3d.
 
 // -----
 
@@ -146,18 +145,18 @@ func.func @negative_grouped(%input: tensor<1x8x16x16x64xbf16>,
   return %0 : tensor<1x8x16x16x128xbf16>
 }
 
-// Non-NDHWC (NCDHW) pointwise 1x1x1 conv3d: not eligible as-is (fails the
-// isNDHWC() gate), so Conv3dChannelLastDecompositionPattern first permutes it
-// to NDHWC, after which it becomes eligible and is rewritten to ttir.matmul.
-// This covers the normalize-then-rewrite path and the !isNDHWC() early-out.
-// NCDHW input (N=1, Cin=64, D=8, H=16, W=16), weight (Cout=128, Cin=64, 1,1,1),
-// NCDHW output (1, 128, 8, 16, 16).
-func.func @pointwise_ncdhw_normalized(%input: tensor<1x64x8x16x16xbf16>,
-                                      %weight: tensor<128x64x1x1x1xbf16>) -> tensor<1x128x8x16x16xbf16> {
-  // CHECK-LABEL: @pointwise_ncdhw_normalized
-  // CHECK: "ttir.permute"
-  // CHECK: "ttir.matmul"
-  // CHECK-NOT: "ttir.conv3d"
+// -----
+
+// Negative: non-NDHWC (NCDHW) layout fails the isNDHWC() gate, so the
+// canonicalizer leaves it as conv3d. Layout normalization to NDHWC is a
+// separate decomposition pass, not the canonicalizer's job.
+// NCDHW input (N=1, Cin=64, D=8, H=16, W=16), weight (Cout=128, Cin=64, 1,1,1).
+func.func @negative_non_ndhwc(%input: tensor<1x64x8x16x16xbf16>,
+                              %weight: tensor<128x64x1x1x1xbf16>) -> tensor<1x128x8x16x16xbf16> {
+  // CHECK-LABEL: @negative_non_ndhwc
+  // CHECK: "ttir.conv3d"
+  // CHECK-NOT: "ttir.matmul"
+  // CHECK-NOT: "ttir.linear"
   %0 = "ttir.conv3d"(%input, %weight)
           <{
             stride = array<i32: 1, 1, 1>,
