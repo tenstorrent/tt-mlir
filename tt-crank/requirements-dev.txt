@@ -2,7 +2,10 @@
 pre-commit>=4.0,<5
 torch==2.10.0+cpu
 torchvision==0.25.0+cpu
-transformers
+# Pinned: transformers 5.13.0 changed StaticCache in-place update semantics,
+# breaking the KV-cache writeback in the LLM decode benchmarks (_copy_from
+# shape mismatch). Bump deliberately and re-validate the benchmarks.
+transformers==5.12.1
 
 # Build deps for `uv pip install -e .`. Live in the venv (not just
 # build-system.requires) because we disable PEP 517 build isolation in

@@ -1,0 +1,212 @@
+name: benchmark
+
+on:
+  schedule:
+    # Nightly at 00:00 UTC. GitHub Actions cron is always UTC.
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+    inputs:
+      tests:
+        description: "Which benchmarks to run"
+        type: choice
+        default: all
+        options:
+          - all
+          - llm
+          - mnist
+          - resnet
+      parallel:
+        description: "LLM parallelism variant (ignored for non-LLM benchmarks)"
+        type: choice
+        default: all
+        options:
+          - all
+          - none
+          - dp
+          - tp
+      pytest_args:
+        description: "Extra pytest args (e.g. --mode eager --iters 50 --llm-batch-size 16)"
+        type: string
+        default: ""
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  resolve-image:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.tag.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - id: tag
+        run: |
+          TAG=$(cd third_party/tt-mlir && bash .github/get-docker-tag.sh)
+          echo "image=ghcr.io/tenstorrent/tt-mlir/tt-mlir-ci-ubuntu-24-04:$TAG" >> $GITHUB_OUTPUT
+
+  benchmark:
+    needs: [resolve-image]
+    runs-on: [self-hosted, qb]
+    # Cap the run so a wedged device can't hold the shared qb runner for the 6h
+    # GitHub default and block PR CI, which resolves to the same runner label.
+    timeout-minutes: 120
+    container:
+      image: ${{ needs.resolve-image.outputs.image }}
+      options: --device /dev/tenstorrent -v /dev/hugepages-1G:/dev/hugepages-1G
+      volumes:
+        - /opt/cpm-cache:/cpm-cache
+      env:
+        CPM_SOURCE_CACHE: /cpm-cache
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Reset device
+        run: |
+          python3 -m venv /tmp/tt-smi-venv
+          /tmp/tt-smi-venv/bin/pip install tt-smi
+          echo "/tmp/tt-smi-venv/bin" >> "$GITHUB_PATH"
+          /tmp/tt-smi-venv/bin/tt-smi -r
+
+      - name: Show device info
+        run: tt-smi -s --snapshot_no_tty
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: build-${{ runner.os }}-release
+
+      - name: Build (release)
+        shell: bash
+        run: |
+          source venv/activate
+          ./scripts/build release
+
+      - name: Install torch backend
+        shell: bash
+        run: |
+          source venv/activate
+          ./scripts/install-py
+
+      - name: Set up HF cache
+        shell: bash
+        run: |
+          # Park the HF cache under the runner workspace so it survives across
+          # runs (actions/checkout wipes github.workspace; there is no persistent
+          # host mount configured on qb yet — TODO: use a proper mount). Use the
+          # RUNNER_WORKSPACE env var, NOT the runner.workspace context
+          # expression: inside a container job that expression resolves to the
+          # host path, which is not mounted in the container, so the cache would
+          # land in the container's throwaway overlay and vanish at job end.
+          # RUNNER_WORKSPACE is remapped to the in-container mount (/__w/<repo>).
+          echo "HF_HOME=$RUNNER_WORKSPACE/hf-cache" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_WORKSPACE/hf-cache"
+
+      - name: Run benchmarks
+        shell: bash
+        env:
+          # `inputs.*` defaults only apply to workflow_dispatch — on a `push`
+          # event they arrive empty, so fall back to "all" here to keep the
+          # -k expression valid for both trigger types.
+          INPUT_TESTS: ${{ inputs.tests || 'all' }}
+          INPUT_PARALLEL: ${{ inputs.parallel || 'all' }}
+          INPUT_PYTEST_ARGS: ${{ inputs.pytest_args }}
+        run: |
+          source venv/activate
+
+          # Compose the pytest -k expression from the two filter inputs. Each
+          # selected filter contributes one AND-clause; empty means no filter.
+          # The parallel clause is written as "<variant> or not test_llm_decode"
+          # so it constrains only the LLM parametrizations and leaves non-LLM
+          # tests untouched.
+          K_PARTS=()
+          case "$INPUT_TESTS" in
+            all)    ;;
+            llm)    K_PARTS+=("test_llm_decode");;
+            mnist)  K_PARTS+=("test_mnist_linear");;
+            resnet) K_PARTS+=("test_resnet50");;
+          esac
+          case "$INPUT_PARALLEL" in
+            all) ;;
+            *)   K_PARTS+=("$INPUT_PARALLEL or not test_llm_decode");;
+          esac
+
+          PYTEST_K=()
+          if [ "${#K_PARTS[@]}" -gt 0 ]; then
+            EXPR="(${K_PARTS[0]})"
+            for part in "${K_PARTS[@]:1}"; do
+              EXPR="$EXPR and ($part)"
+            done
+            PYTEST_K=(-k "$EXPR")
+            echo "pytest -k expression: $EXPR"
+          fi
+
+          # shellcheck disable=SC2086  # INPUT_PYTEST_ARGS is intentionally split
+          pytest tests/python/benchmarks/ \
+            --benchmark-json=benchmark_results.json \
+            "${PYTEST_K[@]}" \
+            $INPUT_PYTEST_ARGS \
+            -v 2>&1 | tee benchmark_output.log
+
+      - name: Render benchmark summary
+        if: always()
+        shell: bash
+        run: |
+          if [ ! -f benchmark_results.json ]; then
+            echo "No benchmark_results.json produced." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+
+          with open("benchmark_results.json") as f:
+              payload = json.load(f)
+
+          session = payload.get("session", {})
+          results = payload.get("results", [])
+
+          print("## Benchmark results")
+          print()
+          print(f"- commit: `{session.get('git_sha', '')[:12]}`")
+          print(f"- mode: `{session.get('mode')}` | warmup: `{session.get('warmup')}` | iters: `{session.get('iters')}`")
+          print(f"- simulator: `{session.get('simulator')}`")
+          print(f"- host: `{session.get('device_info', {}).get('hostname', '')}`")
+          print(f"- timestamp: `{session.get('timestamp', '')}`")
+          print()
+
+          if not results:
+              print("_no results recorded_")
+              raise SystemExit
+
+          for r in results:
+              header = (
+                  f"### `{r['label']}` "
+                  f"— mode=`{r['mode']}`, device=`{r['device']}`, "
+                  f"warmup={r['warmup']}, iters={r['iters']}"
+              )
+              print(header)
+              print()
+              print("| metric | value | unit | target |")
+              print("| --- | ---: | :--- | ---: |")
+              for m in r.get("measurements", []):
+                  target = m.get("target", -1.0)
+                  target_s = "—" if target is None or target < 0 else f"{target:g}"
+                  print(f"| {m['name']} | {m['value']:.3f} | {m['unit']} | {target_s} |")
+              print()
+          PY
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            benchmark_results.json
+            benchmark_output.log
+          if-no-files-found: warn
