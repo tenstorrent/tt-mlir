@@ -71,18 +71,35 @@ from ttmlir import ir
 
 @dataclass
 class InputSpec:
-    """How to materialise torch input tensors for a test.
+    """How to materialise torch input tensors for a PatternTest.
 
     ``dist`` is either a named distribution string (``"uniform(-1,1)"``,
     ``"randn"``, ``"rand"``) or a callable ``(shape, torch_dtype, generator)
-    -> tensor`` for full control. It may also be a list of any of the above,
-    one entry per input tensor, for kernels whose inputs need different
-    distributions (e.g. matmul where one operand must avoid zeros).
-    ``seed`` keeps generation deterministic.
+    -> tensor`` for full control. ``seed`` keeps generation deterministic.
     """
 
-    dist: "str | Callable | list[str | Callable]" = "uniform(-1,1)"
+    dist: "str | Callable" = "uniform(-1,1)"
     seed: int = 0
+
+
+@dataclass
+class TensorSpec:
+    """Shape and layout for one input tensor in a KernelBench.
+
+    Fully describes a single kernel input: the logical shape, the tile-level
+    block count per ``remote_load``, the element dtype, and the random
+    distribution used to generate test data. All four are tensor-level
+    properties — they can differ between inputs in the same kernel (e.g.
+    lhs/rhs in a mixed-precision matmul).
+
+    ``grid_shape`` is the only graph-level execution parameter and lives on
+    ``KernelBench`` directly.
+    """
+
+    shape: tuple
+    block_shape: list
+    dtype: torch.dtype
+    dist: "str | Callable" = "uniform(-1,1)"
 
 
 @dataclass
@@ -112,24 +129,25 @@ class PatternTest:
 
 @dataclass
 class KernelBench:
-    """Direct-kernel device bench: numerics, testing, and autotuning.
+    """Direct-kernel device bench: numerics and testing.
 
-    ``run(kernel, inputs, cfg) -> host tensor`` is the materializer: it maps
-    a concrete ``cfg`` (block_shape / grid_shape / dtype, or custom keys) to a
-    Layout and the kernel's call args. ``eltwise_block_run`` covers the common
-    elementwise-block shape; custom materializers handle prefills like rope.
+    ``tensors`` declares one ``TensorSpec`` per kernel INPUT, fully describing
+    each tensor: shape, block_shape, dtype, and input distribution.
+    ``grid_shape`` is the only graph-level parameter — the execution grid
+    shared by all tensors in the kernel call.
 
-    Input shapes go in ``default_cfg["input_shapes"]``; ``inputs`` controls the
-    distribution (randn, uniform, etc.). The materializer reads the actual tensor
-    shapes from the inputs it receives, not from cfg directly.
+    The materializer ``run(kernel, inputs, tensors, grid_shape) -> host_tensor``
+    receives the generated torch inputs alongside the full ``TensorSpec`` list,
+    so it can build per-tensor ``d2m.Layout`` objects directly.
     """
 
     name: str
     kernel: Callable
     golden: Callable
     run: Callable
-    default_cfg: dict
-    inputs: InputSpec = field(default_factory=InputSpec)
+    tensors: "list[TensorSpec]"
+    grid_shape: "tuple | list"
+    seed: int = 0
     pcc: float = 0.99
 
 
@@ -175,14 +193,11 @@ def _gen_tensor(shape, td, dist, gen):
     raise ValueError(f"unknown input distribution: {dist!r}")
 
 
-def make_inputs(shapes, td, inspec: InputSpec):
-    """Deterministically generate one torch tensor per shape."""
+def make_inputs(tensors: "list[TensorSpec]", seed: int = 0):
+    """Deterministically generate one torch tensor per TensorSpec."""
     gen = torch.Generator()
-    gen.manual_seed(inspec.seed)
-    dists = (
-        inspec.dist if isinstance(inspec.dist, list) else [inspec.dist] * len(shapes)
-    )
-    return [_gen_tensor(tuple(s), td, d, gen) for s, d in zip(shapes, dists)]
+    gen.manual_seed(seed)
+    return [_gen_tensor(tuple(ts.shape), ts.dtype, ts.dist, gen) for ts in tensors]
 
 
 def parse_func_io(ttir_text: str):
@@ -279,47 +294,87 @@ def filecheck(check_text: str, ir_text: str):
 # ----------------------------------------------------------------------
 
 
-def eltwise_block_run(kernel, inputs, cfg):
-    """Stock ``run`` for elementwise-block kernels.
+def eltwise_block_run(kernel, inputs, tensors, grid_shape):
+    """Stock materializer for elementwise-block kernels.
 
-    Builds one tiled Layout from ``cfg`` shared by all inputs and the output,
-    derives ``m_blocks``/``n_blocks`` from the shape and grid, and calls
+    All input tensors share the same shape and block layout; builds one Layout
+    from the first TensorSpec, wraps all inputs and the output in it, derives
+    ``m_blocks``/``n_blocks`` from the shape and grid, and calls
     ``kernel(*inputs, out, m_blocks, n_blocks, grid=...)``.
     """
     import d2m_jit as d2m
 
-    ref = inputs[0]
-    gy, gx = cfg["grid_shape"]
+    ts = tensors[0]
+    gy, gx = grid_shape
     L = d2m.Layout(
-        shape=tuple(ref.shape),
-        dtype=d2m_dtype(cfg["dtype"]),
-        block_shape=list(cfg["block_shape"]),
+        shape=tuple(ts.shape),
+        dtype=d2m_dtype(ts.dtype),
+        block_shape=list(ts.block_shape),
         grid_shape=[gy, gx],
         tiled=True,
     )
     ins = [d2m.to_layout(t, L) for t in inputs]
     out = d2m.empty(L)
-    m_blocks = (ref.shape[-2] // 32) // gy
-    n_blocks = (ref.shape[-1] // 32) // gx
+    m_blocks = (ts.shape[-2] // 32) // gy
+    n_blocks = (ts.shape[-1] // 32) // gx
     kernel(*ins, out, m_blocks, n_blocks, grid=(gy, gx))
     return out.to_host()
 
 
-def run_bench(bench: KernelBench, cfg: Optional[dict] = None):
-    """Execute one bench at ``cfg`` (default: ``bench.default_cfg``) and
-    return ``(actual, expected)`` torch tensors for PCC comparison.
+def matmul_transpose_b_run(kernel, inputs, tensors, grid_shape):
+    """Materializer for single-grid transpose_b matmul kernels.
 
-    Used by both testing and autotuning. Handles both static and config-dependent
-    input generation.
+    ``tensors`` must be ``[lhs_spec, rhs_spec]`` where rhs is stored in
+    ``(n, k)`` layout (pre-transposed). Output block shape is derived as
+    ``[lhs_spec.block_shape[0], rhs_spec.block_shape[0]]``.
     """
-    cfg = cfg or bench.default_cfg
+    import d2m_jit as d2m
 
-    input_shapes = cfg.get("input_shapes")
-    if input_shapes is None:
-        raise ValueError(f"KernelBench {bench.name}: cfg missing 'input_shapes'")
-    inputs = make_inputs(input_shapes, cfg["dtype"], bench.inputs)
+    lhs, rhs = inputs
+    lhs_spec, rhs_spec = tensors
+    gy, gx = grid_shape
+    m, k = lhs_spec.shape
+    n = rhs_spec.shape[0]
+    out_block_shape = [lhs_spec.block_shape[0], rhs_spec.block_shape[0]]
 
-    actual = bench.run(bench.kernel, inputs, cfg)
+    lhs_layout = d2m.Layout(
+        shape=(m, k),
+        dtype=d2m_dtype(lhs_spec.dtype),
+        block_shape=list(lhs_spec.block_shape),
+        grid_shape=[gy, gx],
+    )
+    rhs_layout = d2m.Layout(
+        shape=(n, k),
+        dtype=d2m_dtype(rhs_spec.dtype),
+        block_shape=list(rhs_spec.block_shape),
+        grid_shape=[gy, gx],
+    )
+    out_layout = d2m.Layout(
+        shape=(m, n),
+        dtype=d2m_dtype(lhs_spec.dtype),
+        block_shape=out_block_shape,
+        grid_shape=[gy, gx],
+    )
+    out_d = d2m.empty(out_layout)
+    kernel(
+        d2m.to_layout(lhs, lhs_layout),
+        d2m.to_layout(rhs, rhs_layout),
+        out_d,
+        grid=(gy, gx),
+    )
+    return out_d.to_host()
+
+
+def run_bench(bench: KernelBench, *, tensors=None, grid_shape=None):
+    """Execute one bench and return ``(actual, expected)`` torch tensors.
+
+    Each keyword argument overrides the corresponding field of ``bench``;
+    omitted arguments fall back to the bench's defaults.
+    """
+    tensors = tensors if tensors is not None else bench.tensors
+    grid_shape = grid_shape if grid_shape is not None else bench.grid_shape
+    inputs = make_inputs(tensors, bench.seed)
+    actual = bench.run(bench.kernel, inputs, tensors, grid_shape)
     expected = bench.golden(*inputs)
     return actual, expected
 

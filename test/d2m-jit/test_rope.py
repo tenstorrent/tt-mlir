@@ -6,7 +6,7 @@ import pytest
 import torch
 
 from kernels.prefill.rope import KERNEL_BENCH, build_rope_tables
-from runner import run_bench
+from runner import TensorSpec, run_bench
 from utils import assert_pcc
 
 
@@ -19,14 +19,12 @@ from utils import assert_pcc
 )
 def test_rope_matches_torch(seq_len, head_dim, grid_shape, block_shape):
     """Test rope at various workload shapes and execution configs."""
-    cfg = {
-        "input_shapes": [(seq_len, head_dim), (seq_len, head_dim), (seq_len, head_dim)],
-        "grid_shape": grid_shape,
-        "block_shape": block_shape,
-        "dtype": torch.float32,
-    }
-
-    actual, expected = run_bench(KERNEL_BENCH, cfg)
+    tensors = [
+        TensorSpec(
+            shape=(seq_len, head_dim), block_shape=block_shape, dtype=torch.float32
+        )
+    ] * 3
+    actual, expected = run_bench(KERNEL_BENCH, tensors=tensors, grid_shape=grid_shape)
     assert_pcc(expected, actual, threshold=0.99)
     assert torch.allclose(expected, actual, atol=0.05, rtol=0.05)
 

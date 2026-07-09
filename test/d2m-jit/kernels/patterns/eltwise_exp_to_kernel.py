@@ -16,7 +16,7 @@ point — no rebuild needed when this file changes.
 import torch
 
 import d2m_jit as d2m
-from runner import InputSpec, KernelBench, PatternTest, eltwise_block_run
+from runner import InputSpec, KernelBench, PatternTest, TensorSpec, eltwise_block_run
 from ttmlir.dialects import ttir
 
 
@@ -105,11 +105,13 @@ KERNEL_BENCH = KernelBench(
     kernel=exp_fused,
     golden=_golden,
     run=eltwise_block_run,
-    inputs=InputSpec("uniform(-1,1)"),
-    default_cfg={
-        "input_shapes": [(32, 32)],
-        "block_shape": [1, 1],
-        "grid_shape": [1, 1],
-        "dtype": torch.float32,
-    },
+    tensors=[
+        TensorSpec(
+            shape=(32, 32),
+            block_shape=[1, 1],
+            dtype=torch.float32,
+            dist="uniform(-1,1)",
+        )
+    ],
+    grid_shape=(1, 1),
 )

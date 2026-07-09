@@ -23,7 +23,7 @@ through a 32-wide tile.
 import torch
 
 import d2m_jit as d2m
-from runner import InputSpec, KernelBench, d2m_dtype
+from runner import KernelBench, TensorSpec, d2m_dtype
 
 
 def _feature_half_roll_view(x_lt):
@@ -154,34 +154,21 @@ def apply_rope(x_lt, cos_lt, sin_signed_lt, L_io, grid, m_blocks, n_blocks):
     return out
 
 
-def rope_materializer(kernel, inputs, cfg):
-    """Materializer for rope: inputs → layout → kernel dispatch → host.
-
-    Args:
-        kernel: the @d2m.kernel rope function (unused; we call apply_rope directly)
-        inputs: [x_torch, cos_torch, sin_signed_torch] as torch tensors
-        cfg: dict with keys:
-            - grid_shape: (gy, gx) tuple
-            - block_shape: [by, bx] tile counts per remote_load
-            - dtype: "float32", "bfloat16", etc.
-
-    Returns:
-        output tensor on host
-    """
+def rope_materializer(kernel, inputs, tensors, grid_shape):
+    """Materializer for rope: inputs → layout → kernel dispatch → host."""
     x_torch, cos_torch, sin_signed_torch = inputs
 
-    gy, gx = cfg["grid_shape"]
-    seq_len, head_dim = x_torch.shape
+    ts = tensors[0]
+    gy, gx = grid_shape
+    seq_len, head_dim = ts.shape
 
-    # Convert physical dimensions to tile counts (each tile is 32x32)
     seq_len_tiles = seq_len // 32
     head_dim_tiles = head_dim // 32
-
-    block_y, block_x = cfg["block_shape"]
+    block_y, block_x = ts.block_shape
 
     L = d2m.Layout(
         shape=(seq_len, head_dim),
-        dtype=d2m_dtype(cfg["dtype"]),
+        dtype=d2m_dtype(ts.dtype),
         block_shape=[block_y, block_x],
         grid_shape=[gy, gx],
     )
@@ -190,8 +177,6 @@ def rope_materializer(kernel, inputs, cfg):
     cos_lt = d2m.to_layout(cos_torch, L)
     sin_signed_lt = d2m.to_layout(sin_signed_torch, L)
 
-    # m_blocks/n_blocks: how many block_shape chunks each core iterates over.
-    # general formula: tiles_per_core / block_shape
     m_blocks = (seq_len_tiles // gy) // block_y
     n_blocks = (head_dim_tiles // gx) // block_x
 
@@ -226,11 +211,6 @@ KERNEL_BENCH = KernelBench(
     kernel=rope,
     golden=_golden,
     run=rope_materializer,
-    inputs=InputSpec("randn"),
-    default_cfg={
-        "input_shapes": [(64, 64), (64, 64), (64, 64)],
-        "grid_shape": (1, 1),
-        "block_shape": [2, 2],
-        "dtype": torch.float32,
-    },
+    tensors=[TensorSpec(shape=(64, 64), block_shape=[2, 2], dtype=torch.float32)] * 3,
+    grid_shape=(1, 1),
 )

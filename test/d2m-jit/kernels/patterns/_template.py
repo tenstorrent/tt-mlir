@@ -29,7 +29,7 @@ marked parts with your op.
 import torch
 
 import d2m_jit as d2m
-from runner import InputSpec, KernelBench, PatternTest, eltwise_block_run
+from runner import InputSpec, KernelBench, PatternTest, TensorSpec, eltwise_block_run
 from ttmlir.dialects import ttir
 
 
@@ -116,17 +116,20 @@ PATTERN_TESTS = [
 
 # On-device numerics: drive the kernel directly and PCC-compare vs torch.
 # Reuse eltwise_block_run for the common elementwise-block shape; write a
-# custom run(kernel, inputs, cfg) -> host tensor for anything else.
+# custom run(kernel, inputs, tensors, grid_shape, dtype) -> host tensor for
+# anything else.
 KERNEL_BENCH = KernelBench(
     name="template",
     kernel=template_kernel,
     golden=_golden,
     run=eltwise_block_run,
-    inputs=InputSpec("uniform(-1,1)"),
-    default_cfg={
-        "input_shapes": [(32, 32)],  # one entry per kernel input, in order
-        "block_shape": [1, 1],
-        "grid_shape": [1, 1],
-        "dtype": torch.float32,
-    },
+    tensors=[
+        TensorSpec(
+            shape=(32, 32),
+            block_shape=[1, 1],
+            dtype=torch.float32,
+            dist="uniform(-1,1)",
+        )
+    ],
+    grid_shape=(1, 1),
 )
