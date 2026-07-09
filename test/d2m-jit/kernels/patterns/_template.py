@@ -73,7 +73,7 @@ def lower_template(op, rewriter):
 
 def _golden(x):
     # TODO: torch reference for your op. Args match the func args in `ttir`
-    # below (and input_shapes in KERNEL_BENCH), in order.
+    # below (and input_shapes in KERNEL_BENCHES), in order.
     return torch.exp(x)
 
 

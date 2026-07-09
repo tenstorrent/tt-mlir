@@ -18,7 +18,7 @@ Two declaration kinds:
   IR through the real ``FileCheck`` binary. Replaces the hand-written
   ``test/d2m-jit/lit/*_pattern.py`` files. No device needed.
 
-* ``KERNEL_BENCH = KernelBench(...)`` — on-device numerics, **in-process**.
+* ``KERNEL_BENCHES = { "name": KernelBench(...) }`` — on-device numerics, **in-process**.
   Each bench drives the ``@d2m.kernel`` entrypoint directly with an explicit
   ``(layout, block_shape, grid_shape)`` config and PCC-compares against a
   torch golden. Replaces ``test/d2m-jit/test_pattern_eltwise.py``.
