@@ -2,6 +2,27 @@ include(GenerateExportHeader)
 
 add_subdirectory(common)
 
+# Bake tt-mlir provenance into version.cpp: the plain commit hash
+# (ttmlir_git_hash()) and a combined commit+worktree hash
+# (ttmlir_git_worktree_hash(), == commit when clean) for keying a compile cache.
+include(${CMAKE_SOURCE_DIR}/cmake/GitRev.cmake)
+
+git_commit_hash(TTMLIR_GIT_HASH ${TT_KURBLA_TTMLIR_SOURCE_DIR})
+if(TTMLIR_GIT_HASH STREQUAL "")
+    message(FATAL_ERROR
+        "Could not resolve the tt-mlir commit hash from "
+        "${TT_KURBLA_TTMLIR_SOURCE_DIR}. Initialize the submodule "
+        "(git submodule update --init --recursive), or point "
+        "-DTTMLIR_SOURCE_DIR_OVERRIDE at a git checkout.")
+endif()
+
+git_worktree_hash(TTMLIR_GIT_WORKTREE_HASH ${TT_KURBLA_TTMLIR_SOURCE_DIR})
+if(TTMLIR_GIT_WORKTREE_HASH STREQUAL "")
+    message(FATAL_ERROR
+        "Could not resolve the tt-mlir worktree hash from "
+        "${TT_KURBLA_TTMLIR_SOURCE_DIR} ('git diff HEAD' failed).")
+endif()
+
 configure_file(
     version.cpp.in
     ${CMAKE_CURRENT_BINARY_DIR}/version.cpp
