@@ -155,16 +155,52 @@ def apply_rope(x_lt, cos_lt, sin_signed_lt, L_io, grid, m_blocks, n_blocks):
 
 
 def rope_materializer(kernel, inputs, tensors, grid_shape):
-    """Materializer for rope: inputs → layout → kernel dispatch → host."""
+    """Materializer for rope: inputs → layout → kernel dispatch → host.
+
+    All TensorSpecs must share the same shape, block_shape, and dtype
+    (asserted at runtime). The shape must be tile-aligned, tile counts must
+    divide evenly by block_shape, and block counts must divide evenly by the
+    grid. Violations raise ``AssertionError`` immediately rather than
+    silently truncating work.
+    """
     x_torch, cos_torch, sin_signed_torch = inputs
 
     ts = tensors[0]
-    gy, gx = grid_shape
-    seq_len, head_dim = ts.shape
+    for i, other in enumerate(tensors[1:], 1):
+        assert (
+            other.shape == ts.shape
+        ), f"tensor[{i}].shape {other.shape} != tensor[0].shape {ts.shape}"
+        assert list(other.block_shape) == list(
+            ts.block_shape
+        ), f"tensor[{i}].block_shape {other.block_shape} != tensor[0].block_shape {ts.block_shape}"
+        assert (
+            other.dtype == ts.dtype
+        ), f"tensor[{i}].dtype {other.dtype} != tensor[0].dtype {ts.dtype}"
 
-    seq_len_tiles = seq_len // 32
-    head_dim_tiles = head_dim // 32
+    seq_len, head_dim = ts.shape
     block_y, block_x = ts.block_shape
+    gy, gx = grid_shape
+
+    assert (
+        seq_len % 32 == 0
+    ), f"seq_len={seq_len} is not tile-aligned (must be a multiple of 32)"
+    assert (
+        head_dim % 32 == 0
+    ), f"head_dim={head_dim} is not tile-aligned (must be a multiple of 32)"
+    seq_len_tiles, head_dim_tiles = seq_len // 32, head_dim // 32
+    assert (
+        seq_len_tiles % block_y == 0
+    ), f"M tiles ({seq_len_tiles}) not evenly divisible by block_shape[0]={block_y}"
+    assert (
+        head_dim_tiles % block_x == 0
+    ), f"N tiles ({head_dim_tiles}) not evenly divisible by block_shape[1]={block_x}"
+    blocks_m, blocks_n = seq_len_tiles // block_y, head_dim_tiles // block_x
+    assert (
+        blocks_m % gy == 0
+    ), f"M blocks ({blocks_m}) not evenly divisible by grid_shape[0]={gy}"
+    assert (
+        blocks_n % gx == 0
+    ), f"N blocks ({blocks_n}) not evenly divisible by grid_shape[1]={gx}"
 
     L = d2m.Layout(
         shape=(seq_len, head_dim),
@@ -177,8 +213,8 @@ def rope_materializer(kernel, inputs, tensors, grid_shape):
     cos_lt = d2m.to_layout(cos_torch, L)
     sin_signed_lt = d2m.to_layout(sin_signed_torch, L)
 
-    m_blocks = (seq_len_tiles // gy) // block_y
-    n_blocks = (head_dim_tiles // gx) // block_x
+    m_blocks = blocks_m // gy
+    n_blocks = blocks_n // gx
 
     _validate_rope_layouts(x_lt, cos_lt, sin_signed_lt, L)
     x_rolled = _feature_half_roll_view(x_lt)

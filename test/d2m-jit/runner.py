@@ -300,27 +300,59 @@ def filecheck(check_text: str, ir_text: str):
 def eltwise_block_run(kernel, inputs, tensors, grid_shape):
     """Stock materializer for elementwise-block kernels.
 
-    All input tensors share the same shape and block layout; builds one Layout
-    from the first TensorSpec, wraps all inputs and the output in it, derives
-    ``m_blocks``/``n_blocks`` (blocks per core, accounting for ``block_shape``)
-    from the shape, block_shape, and grid, and calls
-    ``kernel(*inputs, out, m_blocks, n_blocks, grid=...)``.
+    All input tensors must share the same shape, block_shape, and dtype
+    (asserted at runtime). The shape must be tile-aligned (multiple of 32 in
+    each spatial dimension), the tile counts must divide evenly by their
+    respective block_shape components, and the resulting block counts must
+    divide evenly by the grid dimensions. Violations raise ``AssertionError``
+    immediately rather than silently under-computing work.
     """
     import d2m_jit as d2m
 
     ts = tensors[0]
+    for i, other in enumerate(tensors[1:], 1):
+        assert (
+            other.shape == ts.shape
+        ), f"tensor[{i}].shape {other.shape} != tensor[0].shape {ts.shape}"
+        assert list(other.block_shape) == list(
+            ts.block_shape
+        ), f"tensor[{i}].block_shape {other.block_shape} != tensor[0].block_shape {ts.block_shape}"
+        assert (
+            other.dtype == ts.dtype
+        ), f"tensor[{i}].dtype {other.dtype} != tensor[0].dtype {ts.dtype}"
+
+    H, W = ts.shape[-2], ts.shape[-1]
+    bm, bn = ts.block_shape[0], ts.block_shape[1]
     gy, gx = grid_shape
+
+    assert H % 32 == 0, f"shape[-2]={H} is not tile-aligned (must be a multiple of 32)"
+    assert W % 32 == 0, f"shape[-1]={W} is not tile-aligned (must be a multiple of 32)"
+    tiles_m, tiles_n = H // 32, W // 32
+    assert (
+        tiles_m % bm == 0
+    ), f"M tiles ({tiles_m}) not evenly divisible by block_shape[0]={bm}"
+    assert (
+        tiles_n % bn == 0
+    ), f"N tiles ({tiles_n}) not evenly divisible by block_shape[1]={bn}"
+    blocks_m, blocks_n = tiles_m // bm, tiles_n // bn
+    assert (
+        blocks_m % gy == 0
+    ), f"M blocks ({blocks_m}) not evenly divisible by grid_shape[0]={gy}"
+    assert (
+        blocks_n % gx == 0
+    ), f"N blocks ({blocks_n}) not evenly divisible by grid_shape[1]={gx}"
+
     L = d2m.Layout(
         shape=tuple(ts.shape),
         dtype=d2m_dtype(ts.dtype),
-        block_shape=list(ts.block_shape),
+        block_shape=[bm, bn],
         grid_shape=[gy, gx],
         tiled=True,
     )
     ins = [d2m.to_layout(t, L) for t in inputs]
     out = d2m.empty(L)
-    m_blocks = (ts.shape[-2] // 32) // ts.block_shape[0] // gy
-    n_blocks = (ts.shape[-1] // 32) // ts.block_shape[1] // gx
+    m_blocks = blocks_m // gy
+    n_blocks = blocks_n // gx
     kernel(*ins, out, m_blocks, n_blocks, grid=(gy, gx))
     return out.to_host()
 
