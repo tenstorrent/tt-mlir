@@ -651,8 +651,7 @@ def TTKernel_ReduceInitOp : TTKernel_InitOp<"reduce_init"> {
                          TTKernel_CB:$scaling_cb,
                          TTKernel_CB:$out_cb,
                          TTKernel_ReduceTypeAttr:$reduce_type,
-                         TTKernel_ReduceDimAttr:$reduce_dim,
-                         UnitAttr:$full_fp32);
+                         TTKernel_ReduceDimAttr:$reduce_dim);
 
     let assemblyFormat = [{
       `(` $in_cb `,` $scaling_cb `,` $out_cb `,` $reduce_type `,` $reduce_dim `)` attr-dict `:` functional-type(operands, results)
@@ -667,14 +666,10 @@ def TTKernel_ReduceUninitOp : TTKernel_InitOp<"reduce_uninit"> {
        same dimension, this call can be omitted. If this function is not called, the packer will continue to use the edge masks set
        by the latest reduce_init call, which may lead to incorrect packing behavior in subsequent operations.
 
-       The `full_fp32` attribute emits reduce_uninit<true>, which performs the extra cleanup required after some
-       full-fp32 reduce sequences. Without the attribute, lowering emits reduce_uninit(), matching tt-metal's
-       default false behavior.
-
        This function is not in line with our programming mode. To be removed by end of 2025. tt-metal#22904.
     }];
 
-    let arguments = (ins UnitAttr:$full_fp32);
+    let arguments = (ins);
 
     let assemblyFormat = [{
       `(` `)` attr-dict `:` functional-type(operands, results)
@@ -702,8 +697,7 @@ def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile", [TTKernel_TernaryOpTra
                          IndexLike:$scaling_tile_index,
                          IndexLike:$dst_index,
                          TTKernel_ReduceTypeAttr:$reduce_type,
-                         TTKernel_ReduceDimAttr:$reduce_dim,
-                         UnitAttr:$full_fp32);
+                         TTKernel_ReduceDimAttr:$reduce_dim);
 
     let assemblyFormat = [{
       `(` $in_cb `,` $scaling_cb `,` $in_tile_index `,` $scaling_tile_index `,` $dst_index `,` $reduce_type `,` $reduce_dim `)` attr-dict `:` functional-type(operands, results)
