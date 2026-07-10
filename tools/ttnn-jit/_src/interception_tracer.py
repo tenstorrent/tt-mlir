@@ -7,7 +7,7 @@ Reuses the existing BaseOpHandler machinery (jit_functions.py). Only dispatch,
 the proxy tensor, and weight capture differ from the source-rewrite tracer.
 """
 
-from ttnn_jit.ttmlir.dialects import func, ttir
+from ttnn_jit.ttmlir.dialects import func, ttir, ttcore
 from ttnn_jit.ttmlir.ir import (
     Context,
     Location,
@@ -164,6 +164,7 @@ _PASSTHROUGH_IDENTITY = {
     "to_memory_config",
     "interleaved_to_sharded",
     "sharded_to_interleaved",
+    "to_layout",
 }
 _PASSTHROUGH_NONE = {"deallocate"}
 
@@ -420,6 +421,44 @@ def _slice_handler(jit_ctx, x, starts=None, ends=None, steps=None, **kwargs):
         )
 
 
+def _softmax_handler(jit_ctx, x, dim=None, **kwargs):
+    # ttnn.softmax(x, dim=..) -> ttir.softmax(dimension=..). Shape-preserving.
+    dim = kwargs.get("dim", dim)
+    shape = [int(d) for d in x.mlir_value.type.shape]
+    d = (len(shape) - 1) if dim is None else (int(dim) % len(shape))
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        rt = RankedTensorType.get(shape, x.mlir_value.type.element_type)
+        return ttir.softmax(result=rt, input=x.mlir_value, dimension=d)
+
+
+def _zeros_like_handler(jit_ctx, x, **kwargs):
+    # ttnn.zeros_like(x) -> ttir.zeros of x's shape/dtype.
+    shape = [int(d) for d in x.mlir_value.type.shape]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        rt = RankedTensorType.get(shape, x.mlir_value.type.element_type)
+        return ttir.zeros(result=rt, shape=shape)
+
+
+def _scatter_handler(jit_ctx, input, dim=None, index=None, src=None, **kwargs):
+    # ttnn.scatter(input, dim=, index=, src=) -> ttir.scatter (result matches
+    # input). Scattering distinct router indices into a zeros tensor, so SUM
+    # reduce == assignment.
+    dim = kwargs.get("dim", dim)
+    index = kwargs.get("index", index)
+    src = kwargs.get("src", src)
+    shape = [int(d) for d in input.mlir_value.type.shape]
+    d = 0 if dim is None else (int(dim) % len(shape))
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        rt = RankedTensorType.get(shape, input.mlir_value.type.element_type)
+        reduce_attr = ttcore.ir.ReduceTypeAttr.get(
+            jit_ctx.ctx, ttcore.ir.ReduceType.Sum
+        )
+        return ttir.scatter(
+            result=rt, input=input.mlir_value, index=index.mlir_value,
+            source=src.mlir_value, dim=d, scatter_reduce_type=reduce_attr,
+        )
+
+
 def _unsqueeze_to_4d_handler(jit_ctx, x, **kwargs):
     # ttnn.unsqueeze_to_4D(x) prepends leading 1s to make the tensor rank-4
     # (a no-op if already 4D). Pure shape change -> ttir.reshape.
@@ -437,6 +476,38 @@ _VALUE_HANDLERS = {
     "reshape": _reshape_handler,
     "slice": _slice_handler,
     "unsqueeze_to_4D": _unsqueeze_to_4d_handler,
+    "softmax": _softmax_handler,
+    "zeros_like": _zeros_like_handler,
+    "scatter": _scatter_handler,
+}
+
+
+def _topk_handler(jit_ctx, x, k=None, dim=None, sorted=None, largest=None, **kwargs):
+    # ttnn.topk(x, k=, dim=, sorted=) -> ttir.topk (values, indices). Both have
+    # the input shape with the top-k dim reduced to k; indices are i32.
+    k = int(kwargs.get("k", k))
+    dim = kwargs.get("dim", dim)
+    shape = [int(d) for d in x.mlir_value.type.shape]
+    d = (len(shape) - 1) if dim is None else (int(dim) % len(shape))
+    out = list(shape)
+    out[d] = k
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        vt = RankedTensorType.get(out, x.mlir_value.type.element_type)
+        # Indices are int32, but the advisor canonicalizes int layouts to signed
+        # si32 (ScalarDataTypeAnalysis asserts tensor elt == layout scalar elt),
+        # so use the tracer's shared int32 mapping, not bare signless i32.
+        it = RankedTensorType.get(out, _traced_element_type(ttnn.int32, jit_ctx.ctx))
+        res = ttir.topk(
+            vt, it, x.mlir_value, k, dim=d,
+            largest=True if largest is None else largest,
+            sorted=True if sorted is None else sorted,
+        )
+        return list(res)
+
+
+# Top-level (non-experimental) multi-output ops.
+_TOPLEVEL_MULTI = {
+    "topk": _topk_handler,
 }
 
 
@@ -713,6 +784,9 @@ def patch_ttnn(jit_ctx):
         for name, value_fn in _VALUE_HANDLERS.items():
             originals[name] = getattr(ttnn, name, _MISSING)
             setattr(ttnn, name, _make_traced_value_op(value_fn, jit_ctx))
+        for name, fn in _TOPLEVEL_MULTI.items():
+            originals[name] = getattr(ttnn, name, _MISSING)
+            setattr(ttnn, name, _make_traced_multi_op(fn, jit_ctx))
         if hasattr(namespace, "multiply"):
             originals["mul"] = getattr(ttnn, "mul", _MISSING)
             setattr(
