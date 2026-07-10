@@ -7368,15 +7368,14 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
   auto numKVHeads = keyShape[1];
   auto blockSize = keyShape[2];
 
-  // Verify element types.
-  if (queryType.getElementType() != keyType.getElementType() ||
-      queryType.getElementType() != valueType.getElementType()) {
-    return emitOpError(
-        "Query, key, and value must have the same element type.");
-  }
-
+  // Verify element types. Query may differ from the KV cache element type: the
+  // JIT/advisor path traces a model that supplies a pre-quantized cache (e.g. a
+  // bf16 query against a BFP8 KV cache), whereas the torch-lowering path casts
+  // the cache to BFP only later in the TTNN pipeline, leaving one shared float
+  // type here. Require the query to be float and the K/V pair to match; the
+  // backend/op-model enforces the actual supported query/cache dtype combo.
   if (!queryType.getElementType().isFloat()) {
-    return emitOpError("Query, key, and value must be float tensors.");
+    return emitOpError("Query must be a float tensor.");
   }
 
   if (!pageTableType.getElementType().isInteger()) {
