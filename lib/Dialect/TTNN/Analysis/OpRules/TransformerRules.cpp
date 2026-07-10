@@ -110,6 +110,16 @@ static LayoutFilterFn cacheBufferDramOnlyFilter() {
   };
 }
 
+// Index operands (update_index, page_table, batch_idx): kernels assert the
+// non-sharded index is ROW_MAJOR + INTERLEAVED + DRAM. Require DRAM-interleaved
+// row-major (reject sharded, L1, and tiled).
+static LayoutFilterFn indexRowMajorFilter() {
+  return [](TTNNLayoutAttr layout) -> bool {
+    return !layout.isTiled() &&
+           layout_filter_utils::requireDRAMInterleaved(layout);
+  };
+}
+
 LayoutFilterFn
 FillCacheRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
   if (operandIdx == 0) {
@@ -122,6 +132,24 @@ LayoutFilterFn
 PagedFillCacheRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
   if (operandIdx == 0) {
     return cacheBufferDramOnlyFilter();
+  }
+  if (operandIdx == 3) {
+    return indexRowMajorFilter();
+  }
+  return nullptr;
+}
+
+//===----------------------------------------------------------------------===//
+// PagedUpdateCache
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn
+PagedUpdateCacheRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
+  if (operandIdx == 0) {
+    return cacheBufferDramOnlyFilter();
+  }
+  if (operandIdx == 2 || operandIdx == 3) {
+    return indexRowMajorFilter();
   }
   return nullptr;
 }

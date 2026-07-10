@@ -731,11 +731,24 @@ void MemoryLayoutPropagation::applyInputLayoutFilter(
     if (candidates.empty()) {
       auto tensorType =
           mlir::cast<RankedTensorType>(op->getOperand(operandIdx).getType());
+      auto buildInterleaved = [&](Layout tensorLayout) {
+        return TTNNLayoutAttr::Builder(currentLayout, tensorType.getShape())
+            .setBufferType(BufferType::DRAM)
+            .setMemoryLayout(TensorMemoryLayout::Interleaved)
+            .setLayout(tensorLayout)
+            .build();
+      };
+      // Prefer the current layout; if the op's filter rejects it, flip to the
+      // opposite layout.
       InputCandidate ic;
-      ic.layout = TTNNLayoutAttr::Builder(currentLayout, tensorType.getShape())
-                      .setBufferType(BufferType::DRAM)
-                      .setMemoryLayout(TensorMemoryLayout::Interleaved)
-                      .build();
+      auto layoutAttr = buildInterleaved(currentLayout.getLayout());
+      if (!inputFilter(layoutAttr)) {
+        Layout oppositeLayout = currentLayout.getLayout() == Layout::Tile
+                                    ? Layout::RowMajor
+                                    : Layout::Tile;
+        layoutAttr = buildInterleaved(oppositeLayout);
+      }
+      ic.layout = layoutAttr;
       ic.producerCandidateIndex = 0;
       ic.isReshard = true;
       candidates.push_back(ic);

@@ -84,6 +84,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static MoeRuleBook moe;
   static FillCacheRuleBook fillCache;
   static PagedFillCacheRuleBook pagedFillCache;
+  static PagedUpdateCacheRuleBook pagedUpdateCache;
 
   static llvm::DenseMap<mlir::OperationName, const OpRuleBook *> registry;
   static std::once_flag initFlag;
@@ -124,6 +125,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(PrepareMoEComputeW2WeightsOp::getOperationName(), &moe);
     reg(FillCacheOp::getOperationName(), &fillCache);
     reg(PagedFillCacheOp::getOperationName(), &pagedFillCache);
+    reg(PagedUpdateCacheOp::getOperationName(), &pagedUpdateCache);
   });
   auto it = registry.find(op->getName());
   return it != registry.end() ? *it->second : defaultRules;

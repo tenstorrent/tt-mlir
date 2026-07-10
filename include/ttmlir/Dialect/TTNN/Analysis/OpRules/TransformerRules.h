@@ -92,6 +92,14 @@ struct PagedFillCacheRuleBook : OpRuleBook {
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
 };
 
+/// PagedUpdateCache: cache (operand 0) DRAM-interleaved (see FillCache);
+/// update_index (operand 2) and page_table (operand 3) must be DRAM-interleaved
+/// row-major (kernel asserts non-sharded update_idxs is ROW_MAJOR +
+/// INTERLEAVED + DRAM).
+struct PagedUpdateCacheRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+};
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_DIALECT_TTNN_ANALYSIS_OPRULES_TRANSFORMERRULES_H
