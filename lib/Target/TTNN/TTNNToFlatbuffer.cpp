@@ -3817,6 +3817,12 @@ createOp(FlatbufferObjectCache &cache, GenericOp op) {
           ::tt::target::ttnn::ArgRef::GlobalSemaphoreRef);
       additional_args.push_back(
           cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(arg).Union());
+    } else if (isSupportedScalarArgType(arg.getType())) {
+      // Scalars are serialized as 1-element UInt32 scalar tensors by
+      // funcOpToProgram, so they resolve to a TensorRef here.
+      additional_args_types.push_back(::tt::target::ttnn::ArgRef::TensorRef);
+      additional_args.push_back(
+          cache.at<::tt::target::ttnn::TensorRef>(arg).Union());
     }
   }
 

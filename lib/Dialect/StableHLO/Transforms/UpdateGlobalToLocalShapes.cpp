@@ -56,7 +56,7 @@ static FailureOr<mlir::OperationState> createNewOperationState(
             } else {
               // The constant is periodic across shards — slice it.
               // Non-splat, non-periodic constants were already replicated
-              // by ReplicateNonSplittableConstantsPass and handled by the
+              // by ReplicateNonSplittableValuesPass and handled by the
               // type-unchanged branch above.
               std::optional<mlir::DenseElementsAttr> periodicAttr =
                   mlir::tt::shardy_utils::tryGetPeriodicShardSlice(
@@ -67,7 +67,7 @@ static FailureOr<mlir::OperationState> createNewOperationState(
                 constantOp.emitError(
                     "Non-splat, non-periodic constant reached "
                     "UpdateGlobalToLocalShapes with a sharded annotation. "
-                    "ReplicateNonSplittableConstantsPass should have marked "
+                    "ReplicateNonSplittableValuesPass should have marked "
                     "it as replicated.");
                 return mlir::failure();
               }

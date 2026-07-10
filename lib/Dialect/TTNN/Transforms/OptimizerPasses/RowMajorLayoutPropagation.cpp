@@ -260,7 +260,13 @@ private:
       Value current = worklist.front();
       worklist.pop();
 
-      for (auto &use : current.getUses()) {
+      llvm::SmallVector<OpOperand *> currentUses;
+      for (OpOperand &use : current.getUses()) {
+        currentUses.push_back(&use);
+      }
+
+      for (OpOperand *usePtr : currentUses) {
+        OpOperand &use = *usePtr;
         Operation *user = use.getOwner();
 
         if (auto returnOp = mlir::dyn_cast<func::ReturnOp>(user)) {
@@ -274,6 +280,11 @@ private:
 
         if (!rmOutputLayout) {
           llvm::consumeError(rmOutputLayout.takeError());
+          // TODO(rpavlovicTT): Remove when
+          // https://github.com/tenstorrent/tt-mlir/pull/8413 is merged.
+          if (user->hasTrait<OpModelExempt>()) {
+            insertTiledFixup(rewriter, use, current);
+          }
           continue;
         }
 
@@ -368,6 +379,35 @@ private:
                  ttmlir::opToString(op), operandIdx, layoutAttr,
                  actualFirstOutputLayout);
     return actualFirstOutputLayout;
+  }
+
+  // Restores a Tiled layout on `consumerOperand`'s operand right before its
+  // owning op, undoing RM propagation for this single edge (leaves other uses
+  // of `propagatedValue` untouched).
+  void insertTiledFixup(IRRewriter &rewriter, OpOperand &consumerOperand,
+                        Value propagatedValue) {
+    Operation *consumer = consumerOperand.getOwner();
+    auto tensorType = mlir::cast<RankedTensorType>(propagatedValue.getType());
+    auto propagatedLayout =
+        mlir::cast<TTNNLayoutAttr>(tensorType.getEncoding());
+
+    if (propagatedLayout.isTiled()) {
+      return; // Nothing to fix up.
+    }
+
+    TTNNLayoutAttr tiledLayout =
+        TTNNLayoutAttr::Builder(propagatedLayout, tensorType.getShape())
+            .setLayout(Layout::Tile);
+
+    rewriter.setInsertionPoint(consumer);
+    auto toLayoutOp = utils::createToLayoutOp(
+        consumer,
+        mlir::cast<mlir::TypedValue<RankedTensorType>>(propagatedValue),
+        rewriter, tiledLayout.getLayout(), tiledLayout.getBufferType(),
+        tiledLayout.getMemLayout(), tiledLayout.getDataType(),
+        "_stop_propagation_conversion");
+
+    consumerOperand.set(toLayoutOp.getResult());
   }
 
   // Handles ReturnOp during propagation. Checks if actual layout matches

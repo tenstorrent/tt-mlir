@@ -4,7 +4,7 @@
 
 """Co-located testing infrastructure for d2m-jit patterns.
 
-A pattern file under ``d2m_jit/patterns/`` declares its own tests as
+A pattern file under ``test/d2m-jit/patterns/`` declares its own tests as
 module-level data, so one file is the complete, self-contained unit:
 kernel + rewrite + tests. The generic runner in ``test/d2m-jit`` discovers
 these declarations and turns them into pytest cases — adding pattern #1001
@@ -612,7 +612,8 @@ _DISCOVERED = None
 
 
 def discover(force: bool = False):
-    """Import every ``d2m_jit.patterns`` submodule and collect declared specs.
+    """Import every pattern module from the co-located ``patterns/`` directory
+    and collect declared specs.
 
     Returns ``(pattern_tests, kernel_benches)`` with ``source_file`` stamped
     on each. Cached after the first call.
@@ -621,19 +622,21 @@ def discover(force: bool = False):
     if _DISCOVERED is not None and not force:
         return _DISCOVERED
 
-    import importlib
+    import importlib.util
 
-    import d2m_jit.patterns as patterns_pkg
-
-    pkg_dir = os.path.dirname(patterns_pkg.__file__)
+    pkg_dir = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "kernels", "patterns"
+    )
     pattern_tests, kernel_benches = [], []
     for fn in sorted(os.listdir(pkg_dir)):
         # Underscore-prefixed files are scaffolding (templates, shared
-        # helpers), not discoverable patterns. Copy `_template.py` to a
-        # non-underscore name to activate it.
+        # helpers), not discoverable patterns.
         if not fn.endswith(".py") or fn.startswith("_"):
             continue
-        mod = importlib.import_module(f"d2m_jit.patterns.{fn[:-3]}")
+        file_path = os.path.join(pkg_dir, fn)
+        spec = importlib.util.spec_from_file_location(fn[:-3], file_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
         for t in getattr(mod, "PATTERN_TESTS", []):
             t.source_file = mod.__file__
             pattern_tests.append(t)

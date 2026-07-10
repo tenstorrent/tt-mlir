@@ -1,5 +1,5 @@
 // REQUIRES: stablehlo
-// RUN: ttmlir-opt --replicate-non-splittable-constants %s | FileCheck %s
+// RUN: ttmlir-opt --replicate-non-splittable-values %s | FileCheck %s
 
 // Periodic constant: the 8-element pattern [0,1,2,3,4,5,6,7] repeats 8 times
 // across 64 elements. Sharded on _axis_0 (2 devices), each shard of 32 elements

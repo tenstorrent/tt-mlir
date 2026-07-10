@@ -14,7 +14,7 @@ hand-written, per-pattern test_pattern_eltwise.py + lit/*_pattern.py files.
                          On silicon (direct-kernel path).
 """
 
-from d2m_jit.testing import (
+from runner import (
     assert_pcc,
     filecheck,
     run_bench,

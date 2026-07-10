@@ -34,7 +34,7 @@ ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern::matchAndRewrite(
   //   [batch_or_1, 1, num_heads_or_1, kv_seq_len].
   // tt-metal handles batch broadcasting natively, so only the heads dimension
   // still requires this workaround.
-  // See https://github.com/tenstorrent/tt-metal/issues/39910.
+  // See https://github.com/tenstorrent/tt-metal/issues/39946.
   int64_t numHeads = queryType.getShape()[2];
   int64_t maskHeads = maskType.getShape()[2];
 

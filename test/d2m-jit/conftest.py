@@ -24,9 +24,9 @@ def _reset_builder():
 
 def pytest_generate_tests(metafunc):
     """Parametrize the generic pattern tests over every spec declared in the
-    bundled pattern files (d2m_jit/patterns/*.py). Adding a pattern file with
+    bundled pattern files (test/d2m-jit/patterns/*.py). Adding a pattern file with
     PATTERN_TESTS / KERNEL_BENCHES is picked up here with no harness edits."""
-    from d2m_jit.testing import discover
+    from runner import discover
 
     pattern_tests, kernel_benches = discover()
     if "pattern_test" in metafunc.fixturenames:
@@ -53,7 +53,7 @@ def e2e_device():
 
     For large-scale CI, prefer a single batch driver that opens one device and
     loops over all specs in-process, rather than one pytest case per pattern."""
-    from d2m_jit.testing import E2EDevice
+    from runner import E2EDevice
 
     holder = E2EDevice()
     yield holder

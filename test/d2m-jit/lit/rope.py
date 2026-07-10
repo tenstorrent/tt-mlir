@@ -10,7 +10,7 @@
 import torch
 
 import d2m_jit as d2m
-from d2m_jit.prefill.rope import apply_rope, build_rope_tables
+from kernels.prefill.rope import apply_rope, build_rope_tables
 from d2m_jit._src.builder import _Builder, _emit_returns_and_finalise
 
 

@@ -8,8 +8,8 @@ Copy this file to a descriptive, NON-underscore name to activate it, e.g.
 
     cp _template.py eltwise_mul_relu_to_kernel.py
 
-then add that filename to `tools/d2m-jit/CMakeLists.txt`. Discovery skips any
-`_`-prefixed file, so this template is never collected as a test.
+Discovery skips any `_`-prefixed file, so this template is never collected
+as a test.
 
 A pattern file is the complete unit — kernel + rewrite + tests — and declares
 two module-level lists the generic runner picks up automatically:
@@ -21,8 +21,7 @@ Run just this pattern after copying:
 
     pytest test/d2m-jit/test_patterns.py -k <kernel_or_test_name>
 
-See AUTHORING.md in this directory for the full field-by-field contract, and
-`eltwise_exp_to_kernel.py` / `eltwise_add_exp_to_kernel.py` for worked
+See `eltwise_exp_to_kernel.py` / `eltwise_add_exp_to_kernel.py` for worked
 examples. The body below is a runnable `ttir.exp` example; replace the TODO-
 marked parts with your op.
 """
@@ -30,7 +29,7 @@ marked parts with your op.
 import torch
 
 import d2m_jit as d2m
-from d2m_jit.testing import InputSpec, KernelBench, PatternTest, eltwise_block_run
+from runner import InputSpec, KernelBench, PatternTest, eltwise_block_run
 from ttmlir.dialects import ttir
 
 
