@@ -32,6 +32,41 @@ def test_ttnn_tracer_forces_ttnn_pipeline():
     assert adv.pipeline == "ttnn"
 
 
+class _Spec:
+    # Shape/dtype stand-in: trace_ttnn only reads .shape/.dtype (no device).
+    def __init__(self, shape, dtype=ttnn.bfloat16):
+        self.shape = shape
+        self.dtype = dtype
+
+
+def test_ttnn_tracer_emits_extended_ops():
+    # The trivial allowlist ops (unary/binary/reduction) emit their ttnn op 1:1.
+    def f(x):
+        a = ttnn.cos(x)
+        b = ttnn.divide(a, x)
+        c = ttnn.maximum(b, x)
+        d = ttnn.mean(c, dim=-1, keepdim=True)
+        return ttnn.multiply(c, d)
+
+    module, _ = trace_ttnn(f, _Spec((1, 1, 32, 128)))
+    text = str(module)
+    for op in ("cos", "divide", "maximum", "mean", "multiply"):
+        assert f'"ttnn.{op}"' in text
+    assert "ttir." not in text
+
+
+def test_ttnn_tracer_unhandled_op_fails_loudly():
+    # An allowlist op with no handler must raise a clear error, not fall through
+    # to a real on-device ttnn call on a TracedTensor.
+    def g(x):
+        return ttnn.pow(x, 2)
+
+    with pytest.raises(
+        NotImplementedError, match=r"ttnn\.pow has no direct-TTNN handler"
+    ):
+        trace_ttnn(g, _Spec((1, 1, 32, 128)))
+
+
 @pytest.mark.forked
 def test_ttnn_tracer_emits_ttnn_directly(device):
     # A tiny FFN: the traced module must be pure TTNN (no ttir.* ops) with

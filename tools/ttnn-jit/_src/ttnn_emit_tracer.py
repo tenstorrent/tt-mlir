@@ -47,6 +47,26 @@ from ttnn_jit._src.interception_tracer import (
     Context,
     Module,
 )
+from ttnn_jit._src.supported_ops import (
+    unary_ops,
+    binary_ops,
+    reduction_ops,
+    tm_ops,
+    data_movement_ops,
+)
+
+# The @jit allowlist. The TTIR tracer routes all of these through BaseOpHandler;
+# the direct-TTNN tracer has an explicit handler per op, so any allowlist op
+# without one is stubbed to fail loudly (see _unhandled) rather than silently
+# fall through to a real on-device ttnn call.
+_ALLOWLIST = (
+    set(unary_ops)
+    | set(binary_ops)
+    | set(reduction_ops)
+    | set(tm_ops)
+    | set(data_movement_ops)
+    | {"matmul", "div", "pow"}
+)
 
 # BufferType.DRAM, TensorMemoryLayout.Interleaved (see project memory).
 _DRAM = 0
@@ -579,13 +599,47 @@ def _make_inplace_op(value_fn, jit_ctx, cache_idx):
     return op
 
 
+def _reduction(op_fn):
+    def handler(jit_ctx, x, dim=None, keepdim=False, **kwargs):
+        keepdim = kwargs.get("keepdim", kwargs.get("keep_dim", keepdim))
+        dim = kwargs.get("dim", kwargs.get("dim_arg", dim))
+        shape = [int(d) for d in x.mlir_value.type.shape]
+        if dim is None:
+            dims = list(range(len(shape)))
+        elif isinstance(dim, (list, tuple)):
+            dims = [int(d) % len(shape) for d in dim]
+        else:
+            dims = [int(dim) % len(shape)]
+        out = []
+        for i, s in enumerate(shape):
+            if i in dims:
+                if keepdim:
+                    out.append(1)
+            else:
+                out.append(s)
+        with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+            rt = _retype(jit_ctx.ctx, x.mlir_value, out)
+            return op_fn(
+                result=rt, input=x.mlir_value, keep_dim=bool(keepdim), dim_arg=dims
+            )
+
+    return handler
+
+
+def _repeat_handler(jit_ctx, x, repeat_dims=None, **kwargs):
+    reps = [
+        int(r) for r in (repeat_dims if repeat_dims is not None else kwargs["repeats"])
+    ]
+    shape = [int(d) for d in x.mlir_value.type.shape]
+    out = [shape[i] * reps[i] for i in range(len(shape))]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        rt = _retype(jit_ctx.ctx, x.mlir_value, out)
+        return ttnn.repeat(result=rt, input=x.mlir_value, repeat_dims=reps)
+
+
 _VALUE_HANDLERS = {
     "matmul": _matmul_handler,
     "linear": _linear_handler,
-    "add": _binary(ttnn.add),
-    "multiply": _binary(ttnn.multiply),
-    "mul": _binary(ttnn.multiply),
-    "subtract": _binary(ttnn.subtract),
     "reshape": _reshape_handler,
     "typecast": _typecast_handler,
     "softmax": _softmax_handler,
@@ -596,17 +650,54 @@ _VALUE_HANDLERS = {
     "permute": _permute_handler,
     "concat": _concat_handler,
     "embedding": _embedding_handler,
+    "repeat": _repeat_handler,
+    # elementwise binary
+    "add": _binary(ttnn.add),
+    "multiply": _binary(ttnn.multiply),
+    "mul": _binary(ttnn.multiply),
+    "subtract": _binary(ttnn.subtract),
+    "div": _binary(ttnn.divide),
+    "divide": _binary(ttnn.divide),
+    "maximum": _binary(ttnn.maximum),
+    "minimum": _binary(ttnn.minimum),
+    "eq": _binary(ttnn.eq),
+    "ne": _binary(ttnn.ne),
+    "lt": _binary(ttnn.lt),
+    "le": _binary(ttnn.le),
+    "gt": _binary(ttnn.gt),
+    "ge": _binary(ttnn.ge),
+    "bitwise_and": _binary(ttnn.bitwise_and),
+    "bitwise_or": _binary(ttnn.bitwise_or),
+    "bitwise_xor": _binary(ttnn.bitwise_xor),
+    # elementwise unary
     "relu": _unary(ttnn.relu),
     "gelu": _unary(ttnn.gelu),
     "silu": _unary(ttnn.silu),
     "sigmoid": _unary(ttnn.sigmoid),
+    "hardsigmoid": _unary(ttnn.hardsigmoid),
     "sqrt": _unary(ttnn.sqrt),
     "rsqrt": _unary(ttnn.rsqrt),
     "exp": _unary(ttnn.exp),
+    "log": _unary(ttnn.log),
     "neg": _unary(ttnn.neg),
     "tanh": _unary(ttnn.tanh),
     "reciprocal": _unary(ttnn.reciprocal),
     "abs": _unary(ttnn.abs),
+    "cos": _unary(ttnn.cos),
+    "sin": _unary(ttnn.sin),
+    "tan": _unary(ttnn.tan),
+    "floor": _unary(ttnn.floor),
+    "ceil": _unary(ttnn.ceil),
+    "sign": _unary(ttnn.sign),
+    "erf": _unary(ttnn.erf),
+    "erfc": _unary(ttnn.erfc),
+    "logical_not": _unary(ttnn.logical_not),
+    "bitwise_not": _unary(ttnn.bitwise_not),
+    # reductions
+    "mean": _reduction(ttnn.mean),
+    "sum": _reduction(ttnn.sum),
+    "max": _reduction(ttnn.max),
+    "min": _reduction(ttnn.min),
 }
 
 # ttnn.experimental.<op> handlers.
@@ -657,6 +748,25 @@ def _none_passthrough(*args, **kwargs):
     return None
 
 
+def _unhandled(name):
+    """Stub for an allowlist op the direct-TTNN tracer doesn't emit yet.
+
+    Fails loudly and actionably instead of falling through to a real on-device
+    ttnn call (which crashes cryptically on a TracedTensor). This keeps coverage
+    gaps visible -- the whole point of the direct-TTNN path is to surface exactly
+    which ops still need a handler (or a ttnn dialect op), not to hide them.
+    """
+
+    def stub(*args, **kwargs):
+        raise NotImplementedError(
+            f"ttnn.{name} has no direct-TTNN handler yet (tracer='ttnn'). "
+            f"Add one in ttnn_emit_tracer.py, or trace this model with "
+            f"tracer='interception' (the TTIR path)."
+        )
+
+    return stub
+
+
 @contextmanager
 def patch_ttnn(jit_ctx):
     """Monkeypatch allowlisted ttnn.<op> to build TTNN directly; restore on exit."""
@@ -687,6 +797,11 @@ def patch_ttnn(jit_ctx):
             for name, value_fn in _TRANSFORMER_VALUE.items():
                 tr_originals[name] = getattr(transformer, name, _MISSING)
                 setattr(transformer, name, _make_value_op(value_fn, jit_ctx))
+        # Stub every allowlist op we don't emit yet so it fails loudly instead of
+        # falling through to a real on-device ttnn call on a TracedTensor.
+        for name in _ALLOWLIST - set(_VALUE_HANDLERS):
+            originals.setdefault(name, getattr(_ttnn_rt, name, _MISSING))
+            setattr(_ttnn_rt, name, _unhandled(name))
         yield
     finally:
         _restore_patched(_ttnn_rt, originals)
