@@ -9405,12 +9405,11 @@ static Value buildIndexerScoreDecompositionBody(OpBuilder &builder,
   Value qFold = reshapeTo(query, {batch, 1, numHeads * querySeqLen, headDim});
 
   // K^T: [B, 1, T, D] -> [B, 1, D, T].
-  Value keyT =
-      builder
-          .create<ttir::PermuteOp>(
-              loc, tensorType({batch, 1, headDim, keySeqLen}), key,
-              builder.getDenseI64ArrayAttr({0, 1, 3, 2}))
-          .getResult();
+  Value keyT = builder
+                   .create<ttir::PermuteOp>(
+                       loc, tensorType({batch, 1, headDim, keySeqLen}), key,
+                       builder.getDenseI64ArrayAttr({0, 1, 3, 2}))
+                   .getResult();
 
   // QK^T (grouped form), then unfold heads: [B, Hi, Sq, T].
   Value qkFold =
@@ -9433,8 +9432,7 @@ static Value buildIndexerScoreDecompositionBody(OpBuilder &builder,
       builder
           .create<ttir::BroadcastOp>(
               loc, tensorType({batch, numHeads, querySeqLen, keySeqLen}),
-              weights,
-              SmallVector<int64_t>{1, 1, 1, keySeqLen})
+              weights, SmallVector<int64_t>{1, 1, 1, keySeqLen})
           .getResult();
   Value weighted =
       builder
@@ -9445,39 +9443,45 @@ static Value buildIndexerScoreDecompositionBody(OpBuilder &builder,
 
   // Sum over the head dim: [B, 1, Sq, T].
   auto scoreType = tensorType({batch, 1, querySeqLen, keySeqLen});
-  Value score =
-      builder
-          .create<ttir::SumOp>(loc, scoreType, weighted,
-                               builder.getBoolAttr(/*keep_dim=*/true),
-                               builder.getI32ArrayAttr({1}))
-          .getResult();
+  Value score = builder
+                    .create<ttir::SumOp>(loc, scoreType, weighted,
+                                         builder.getBoolAttr(/*keep_dim=*/true),
+                                         builder.getI32ArrayAttr({1}))
+                    .getResult();
 
   // Causal mask: visible iff key index t <= chunk_start_idx + query index s.
-  // Future positions get an additive -inf.
+  // Future positions get an additive -inf. The index arithmetic and the
+  // comparison run in i32 (not the query element type) so that positions
+  // beyond bf16's exact-integer range (256) are not conflated --
+  // chunk_start_idx pushes the compared magnitudes well past that for long DSA
+  // contexts.
+  auto indexType = RankedTensorType::get({batch, 1, querySeqLen, keySeqLen},
+                                         builder.getI32Type(), encoding);
   Value rowIdx = builder
-                     .create<ttir::ArangeOp>(loc, scoreType, /*start=*/0,
+                     .create<ttir::ArangeOp>(loc, indexType, /*start=*/0,
                                              /*end=*/querySeqLen, /*step=*/1,
                                              /*arange_dimension=*/2)
                      .getResult();
   Value colIdx = builder
-                     .create<ttir::ArangeOp>(loc, scoreType, /*start=*/0,
+                     .create<ttir::ArangeOp>(loc, indexType, /*start=*/0,
                                              /*end=*/keySeqLen, /*step=*/1,
                                              /*arange_dimension=*/3)
                      .getResult();
   Value chunkStartConst =
       builder
           .create<ttir::FullOp>(
-              loc, scoreType,
-              builder.getF32FloatAttr(static_cast<float>(chunkStartIdx)))
+              loc, indexType,
+              builder.getI32IntegerAttr(static_cast<int32_t>(chunkStartIdx)))
           .getResult();
   Value threshold =
-      builder.create<ttir::AddOp>(loc, scoreType, rowIdx, chunkStartConst)
+      builder.create<ttir::AddOp>(loc, indexType, rowIdx, chunkStartConst)
           .getResult();
   Value visibleBool =
-      builder.create<ttir::GreaterEqualOp>(loc, scoreType, threshold, colIdx)
+      builder.create<ttir::GreaterEqualOp>(loc, indexType, threshold, colIdx)
           .getResult();
   Value zeros =
-      builder.create<ttir::FullOp>(loc, scoreType, builder.getF32FloatAttr(0.0f))
+      builder
+          .create<ttir::FullOp>(loc, scoreType, builder.getF32FloatAttr(0.0f))
           .getResult();
   Value negInf =
       builder

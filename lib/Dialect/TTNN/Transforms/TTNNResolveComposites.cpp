@@ -288,8 +288,7 @@ static LogicalResult inlineDecomposition(ttcore::CompositeOp compositeOp,
 //
 // Returns nullptr when the composite should be inlined instead — either because
 // the resolution mode is Inline, the composite is not in the registry, a
-// promotion guard vetoed promotion (e.g. an architecture requirement), or
-// validation failed (in Validate mode).
+// promotion guard vetoed promotion, or validation failed (in Validate mode).
 static Operation *tryCreateTypedOp(ttcore::CompositeOp compositeOp,
                                    OpBuilder &builder,
                                    CompositeResolution resolution) {
@@ -305,7 +304,7 @@ static Operation *tryCreateTypedOp(ttcore::CompositeOp compositeOp,
 
   auto &entry = it->second;
 
-  // A promotion guard (e.g. an architecture requirement) can veto promotion.
+  // A promotion guard can veto promotion.
   // When it fails, fall back to inlining the decomposition.
   if (entry.promotionGuard && mlir::failed(entry.promotionGuard(compositeOp))) {
     return nullptr;
