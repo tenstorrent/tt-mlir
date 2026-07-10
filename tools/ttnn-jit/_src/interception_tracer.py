@@ -394,11 +394,38 @@ def _reshape_handler(jit_ctx, x, shape=None, padded_shape=None, **kwargs):
         return ttir.reshape(result=result_type, input=x.mlir_value, shape=dims)
 
 
+def _slice_handler(jit_ctx, x, starts=None, ends=None, steps=None, **kwargs):
+    # ttnn.slice(input, starts, ends, steps=None) -> ttir.slice_static. starts /
+    # ends / steps are full-rank int sequences (Python's tensor[begin:end:step]
+    # per dim). Positional in the ttnn call; also accept the documented kwarg
+    # spellings. Overrides any jit_functions slice handler, which would try to
+    # resolve the index tuples as tensor operands.
+    if starts is None:
+        starts = kwargs.get("slice_start", kwargs.get("starts"))
+    if ends is None:
+        ends = kwargs.get("slice_end", kwargs.get("ends"))
+    if steps is None:
+        steps = kwargs.get("slice_step", kwargs.get("steps"))
+    begins = [int(s) for s in starts]
+    ends_i = [int(e) for e in ends]
+    step = [1] * len(begins) if steps is None else [int(s) for s in steps]
+    out = [
+        (ends_i[i] - begins[i] + step[i] - 1) // step[i] for i in range(len(begins))
+    ]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        result_type = RankedTensorType.get(out, x.mlir_value.type.element_type)
+        return ttir.slice_static(
+            result=result_type, input=x.mlir_value, begins=begins, ends=ends_i,
+            step=step,
+        )
+
+
 _VALUE_HANDLERS = {
     "linear": _linear_handler,
     "typecast": _typecast_handler,
     "rms_norm": _rms_norm_handler,
     "reshape": _reshape_handler,
+    "slice": _slice_handler,
 }
 
 
