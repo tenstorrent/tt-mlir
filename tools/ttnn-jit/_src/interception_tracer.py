@@ -459,6 +459,39 @@ def _scatter_handler(jit_ctx, input, dim=None, index=None, src=None, **kwargs):
         )
 
 
+def _sparse_matmul_handler(jit_ctx, a, b, sparsity=None,
+                           is_input_a_sparse=None, is_input_b_sparse=None,
+                           nnz=None, **kwargs):
+    # ttnn.sparse_matmul(a, b=[1,E,K,N], sparsity) -> ttir.sparse_matmul. Output
+    # shape per the op verifier (E,K,N from b; M = a[-2]): dense-sparse (b sparse,
+    # e.g. MoE gate/up) -> [A,B,1,E,M,N]; sparse-dense (a sparse, e.g. down) ->
+    # [A,E,M,N]; both sparse -> [1,E,M,N]. ttnn defaults to b-sparse when neither
+    # flag is set.
+    sparsity = kwargs.get("sparsity", sparsity)
+    is_input_a_sparse = kwargs.get("is_input_a_sparse", is_input_a_sparse)
+    is_input_b_sparse = kwargs.get("is_input_b_sparse", is_input_b_sparse)
+    nnz = kwargs.get("nnz", nnz)
+    a_sparse = bool(is_input_a_sparse)
+    b_sparse = bool(is_input_b_sparse) if is_input_b_sparse is not None else (
+        not a_sparse)
+    a_shape = [int(d) for d in a.mlir_value.type.shape]
+    b_shape = [int(d) for d in b.mlir_value.type.shape]
+    E, N, M = b_shape[1], b_shape[-1], a_shape[-2]
+    if a_sparse and b_sparse:
+        out = [1, E, M, N]
+    elif b_sparse:
+        out = [a_shape[0], a_shape[1], 1, E, M, N]
+    else:
+        out = [a_shape[0], a_shape[1], M, N]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        rt = RankedTensorType.get(out, a.mlir_value.type.element_type)
+        return ttir.sparse_matmul(
+            result=rt, a=a.mlir_value, b=b.mlir_value,
+            sparsity=sparsity.mlir_value, is_input_a_sparse=a_sparse,
+            is_input_b_sparse=b_sparse, nnz=nnz,
+        )
+
+
 def _unsqueeze_to_4d_handler(jit_ctx, x, **kwargs):
     # ttnn.unsqueeze_to_4D(x) prepends leading 1s to make the tensor rank-4
     # (a no-op if already 4D). Pure shape change -> ttir.reshape.
@@ -479,6 +512,7 @@ _VALUE_HANDLERS = {
     "softmax": _softmax_handler,
     "zeros_like": _zeros_like_handler,
     "scatter": _scatter_handler,
+    "sparse_matmul": _sparse_matmul_handler,
 }
 
 
