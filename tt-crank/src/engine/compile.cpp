@@ -36,6 +36,7 @@
 #include <ttmlir/Dialect/TTNN/Pipelines/TTNNPipelines.h>
 #include <ttmlir/RegisterAll.h>
 #include <ttmlir/Target/TTNN/TTNNToFlatbuffer.h>
+#include <ttmlir/Target/TTNN/Target.h>
 
 namespace tt::kurbla {
 
@@ -199,14 +200,16 @@ void print_tt_ir(mlir::ModuleOp module_op) {
     }
 }
 
-// Opt-in dump of the post-pipeline TTNN IR — useful when debugging op
-// lowerings from the torch frontend without rebuilding with verbose passes.
-void print_ttnn_ir(mlir::ModuleOp module_op) {
-    if (print_ttnn_ir_enabled()) {
-        llvm::errs() << "[tt_kurbla] ===== TTNN module =====\n";
-        module_op.print(llvm::errs());
-        llvm::errs() << "\n[tt_kurbla] ========================\n";
+// Opt-in dump of the post-pipeline TTNN IR.
+void print_ttnn_ir(const CompiledProgram &prog) {
+    if (!print_ttnn_ir_enabled()) {
+        return;
     }
+
+    auto ir = prog.ttnn_ir();
+    llvm::errs() << "[tt_kurbla] ===== TTNN module =====\n";
+    llvm::errs() << (ir.empty() ? "[tt_kurbla] <no TTNN IR embedded in cached binary>" : ir);
+    llvm::errs() << "\n[tt_kurbla] ========================\n";
 }
 
 // Prints compile options.
@@ -232,6 +235,7 @@ CompiledProgram &run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const Compi
 
     auto key = calc_compilation_key(module_op, pm_opts);
     if (auto *entry = cache[key]) {
+        print_ttnn_ir(*entry);
         return *entry;
     }
 
@@ -257,8 +261,6 @@ CompiledProgram &run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const Compi
                  make_error_message("ttir-to-ttnn pipeline failed", diag_buffer));
     }
 
-    print_ttnn_ir(module_op);
-
     std::shared_ptr<void> fb;
     {
         ZoneScopedN("tt_kurbla::ttnn_to_flatbuffer");
@@ -267,6 +269,8 @@ CompiledProgram &run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const Compi
     }
 
     CompiledProgram &prog = cache.insert(key, CompiledProgram(std::move(fb)));
+    print_ttnn_ir(prog);
+
     return prog;
 }
 
@@ -283,6 +287,20 @@ CompiledProgram::CompiledProgram(tt::runtime::Binary bin)
     for (std::uint32_t i = 0; i < num_inputs; ++i) {
         input_layouts.push_back(tt::runtime::getLayout(binary, /*program_index=*/0, i));
     }
+}
+
+std::string_view CompiledProgram::ttnn_ir() const {
+    const void *handle = binary.handle.get();
+    if (handle == nullptr || !::tt::target::ttnn::SizePrefixedTTNNBinaryBufferHasIdentifier(handle)) {
+        return {};
+    }
+
+    const auto *fb = ::tt::target::ttnn::GetSizePrefixedTTNNBinary(handle);
+    if (fb == nullptr || fb->mlir() == nullptr || fb->mlir()->source() == nullptr) {
+        return {};
+    }
+
+    return fb->mlir()->source()->c_str();
 }
 
 CompiledProgram &compile_ttir_to_ttnn_flatbuffer(mlir::ModuleOp module_op, const CompileOptions &options) {

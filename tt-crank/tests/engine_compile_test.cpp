@@ -70,3 +70,17 @@ TEST(EngineCompileTest, CompilesPreBuiltModule) {
 
     EXPECT_GE(program.num_programs(), 1U);
 }
+
+// ttnn_ir() recovers the post-pipeline module from the compiled flatbuffer.
+// Confirm it recovers the real lowered module, not an empty or partial buffer.
+TEST(EngineCompileTest, RecoversTtnnIrFromFlatbuffer) {
+    tt::kurbla::CompileOptions opts;
+    opts.mock_arch = tt::kurbla::CompileOptions::MockArch::WormholeB0;
+
+    auto program = tt::kurbla::compile_ttir_to_ttnn_flatbuffer(k_trivial_add_ttir, opts);
+
+    std::string_view ir = program.ttnn_ir();
+    EXPECT_FALSE(ir.empty());
+    EXPECT_NE(ir.find("func.func"), std::string_view::npos);
+    EXPECT_NE(ir.find("ttnn.add"), std::string_view::npos);
+}
