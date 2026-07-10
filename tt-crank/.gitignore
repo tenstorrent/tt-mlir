@@ -39,3 +39,6 @@ generated/
 # tt-mlir install tree.
 /python/tracy/_original
 /python/ttnn/_original
+
+# data directory
+.data/*

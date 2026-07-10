@@ -17,6 +17,9 @@ FS_WITH_ENABLER(monitor_verbose_print, false, "TT_KURBLA_MONITOR_VERBOSE_PRINT_E
 // Enables compiler cache.
 FS_WITH_DISABLER(comp_cache, true, "TT_KURBLA_COMP_CACHE_DISABLED");
 
+// Enables compiler cache on disk.
+FS_WITH_DISABLER(comp_cache_on_disk, true, "TT_KURBLA_COMP_CACHE_ON_DISK_DISABLED");
+
 // Enables tt ir printing.
 FS_WITH_ENABLER(print_tt_ir, false, "TT_KURBLA_PRINT_TT_IR_ENABLED");
 
@@ -38,3 +41,5 @@ FS_WITH_DISABLER(comp_consteval, true, "TT_KURBLA_COMP_CONSTEVAL_DISABLED");
 // Config section.
 
 constexpr size_t cfg_monitor_max_slots = 64;
+
+CONFIG_STR(compile_cache_dir, ".data/bin_cache/", "TT_KURBLA_COMPILE_CACHE_DIR")

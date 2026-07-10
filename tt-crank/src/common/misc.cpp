@@ -13,6 +13,8 @@ std::string slot_str(size_t slot) {
             return "dbg";
         case mc_comp_cache:
             return "compiler cache";
+        case mc_comp_cache_on_disk:
+            return "compiler on disk cache";
         default:
             return std::format("slot {}", slot);
     }
