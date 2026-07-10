@@ -8825,7 +8825,8 @@ foldSplatComparison(mlir::Operation *op, mlir::Attribute lhsAttr,
   for (auto in : getArguments()) {
     if (auto rt = ::mlir::dyn_cast<RankedTensorType>(in.getType())) {
       if (!rt.hasStaticShape()) {
-        return emitOpError("argument type '") << rt << "' must have a static shape";
+        return emitOpError("argument type '")
+               << rt << "' must have a static shape";
       }
     }
   }
