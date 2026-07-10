@@ -410,8 +410,6 @@ RNG is deterministic per test. `test/d2m-jit/utils.py` provides
 ```
 ttcore-register-device,
 canonicalize,
-d2m-materialize-view-returns,
-canonicalize,
 d2m-lower-to-layout,
 canonicalize,
 ttir-bufferization-pipeline,
