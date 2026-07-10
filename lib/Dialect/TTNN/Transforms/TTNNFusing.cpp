@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 #include "ttmlir/Utils.h"
@@ -280,6 +281,16 @@ public:
     // volume mismatch in the subsequent reshape at runtime.
     constexpr int64_t kTileSize = 32;
     if (headDim % kTileSize != 0 || batchSize % kTileSize != 0) {
+      return failure();
+    }
+
+    // The op height-shards the batch one shard per core, so batchSize must fit
+    // the worker grid; beyond that the sharded layout built below asserts in
+    // deriveCanonicalL1CoreRangeSet.
+    ttcore::DeviceAttr device = ttcore::lookupDevice(reshapeOp);
+    int64_t workerGridVolume =
+        ttmlir::utils::volume(device.getWorkerGrid().getShape());
+    if (batchSize > workerGridVolume) {
       return failure();
     }
 
