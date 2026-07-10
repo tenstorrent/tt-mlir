@@ -1449,7 +1449,8 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
                          AnyRankedTensorOrMemRef:$dst, Variadic<Index>:$dstIndices,
                          I64Attr:$numElems,
                          Variadic<Index>:$mcastStartIndex, Variadic<Index>:$mcastShape,
-                         Variadic<Index>:$startDevice, Variadic<Index>:$deviceMcastShape);
+                         Variadic<Index>:$startDevice, Variadic<Index>:$deviceMcastShape,
+                         OptionalAttr<AffineMapAttr>:$tensorAccessorPageMap);
     let results = (outs D2M_MemTx:$result);
 
     let builders =
@@ -1457,37 +1458,37 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
       // Fully indexed unicast - multicast args are defaulted
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems),
       [{
-        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange(), /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange(), /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange(), /*tensorAccessorPageMap=*/AffineMapAttr());
       }]>,
 
       // Fully indexed multicast - multicast args must be provided
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape, "size_t": $numElems),
       [{
-        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::McastWrite), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape, /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::McastWrite), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape, /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange(), /*tensorAccessorPageMap=*/AffineMapAttr());
       }]>,
 
       // Fully indexed unicast, with destination device range
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems, "ValueRange": $startDevice, "ValueRange": $deviceMcastShape),
       [{
-        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange(), startDevice, deviceMcastShape);
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange(), startDevice, deviceMcastShape, /*tensorAccessorPageMap=*/AffineMapAttr());
       }]>,
 
       // Shard-level unicast (no src indices, grid indices on dst, numElems = 0)
       OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $dstIndices),
       [{
-        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, ValueRange(), dst, dstIndices, $_builder.getI64IntegerAttr(0), ValueRange(), ValueRange(), /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, ValueRange(), dst, dstIndices, $_builder.getI64IntegerAttr(0), ValueRange(), ValueRange(), /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange(), /*tensorAccessorPageMap=*/AffineMapAttr());
       }]>,
 
       // Shard-level multicast (no indices on either, numElems = 0)
       OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
       [{
-        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::McastWrite), src, ValueRange(), dst, ValueRange(), $_builder.getI64IntegerAttr(0), mcastStartIndex, mcastShape, /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::McastWrite), src, ValueRange(), dst, ValueRange(), $_builder.getI64IntegerAttr(0), mcastStartIndex, mcastShape, /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange(), /*tensorAccessorPageMap=*/AffineMapAttr());
       }]>,
 
       // Shard-level unicast (no src indices, grid indices on dst, numElems = 0), with destination device range
       OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $startDevice, "ValueRange": $deviceMcastShape),
       [{
-        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, ValueRange(), dst, dstIndices, $_builder.getI64IntegerAttr(0), ValueRange(), ValueRange(), startDevice, deviceMcastShape);
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, ValueRange(), dst, dstIndices, $_builder.getI64IntegerAttr(0), ValueRange(), ValueRange(), startDevice, deviceMcastShape, /*tensorAccessorPageMap=*/AffineMapAttr());
       }]>
     ];
 
@@ -1566,19 +1567,20 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
 
     let arguments = (ins AnyRankedTensorOrMemRef:$src, Variadic<Index>:$srcIndices,
                          AnyRankedTensorOrMemRef:$dst, Variadic<Index>:$dstIndices,
-                         I64Attr:$numElems);
+                         I64Attr:$numElems,
+                         OptionalAttr<AffineMapAttr>:$tensorAccessorPageMap);
     let results = (outs D2M_MemTx:$result);
 
     let builders = [
       // Shard-level form (grid indices on src, no indices on dst, numElems = 0)
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst),
       [{
-        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, ValueRange(), $_builder.getI64IntegerAttr(0));
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, ValueRange(), $_builder.getI64IntegerAttr(0), /*tensorAccessorPageMap=*/AffineMapAttr());
       }]>,
       // Fully indexed form
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "IntegerAttr": $numElems),
       [{
-        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, dstIndices, numElems);
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, dstIndices, numElems, /*tensorAccessorPageMap=*/AffineMapAttr());
       }]>,
     ];
 

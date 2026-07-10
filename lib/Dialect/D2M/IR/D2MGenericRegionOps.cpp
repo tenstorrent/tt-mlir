@@ -66,6 +66,29 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
 // DMA Operations
 //===----------------------------------------------------------------------===//
 
+static LogicalResult verifyTensorAccessorPageMap(Operation *op,
+                                                 AffineMapAttr pageMapAttr,
+                                                 ShapedType remoteType,
+                                                 const bool isShardLevel) {
+  if (!pageMapAttr) {
+    return success();
+  }
+  if (!isShardLevel) {
+    return op->emitOpError("TensorAccessor page map requires shard-level DMA");
+  }
+
+  AffineMap pageMap = pageMapAttr.getValue();
+  if (pageMap.getNumDims() != static_cast<unsigned>(remoteType.getRank()) ||
+      pageMap.getNumSymbols() != 0 || pageMap.getNumResults() != 1) {
+    return op->emitOpError(
+               "TensorAccessor page map must be single-result, no symbols, and "
+               "one input per remote memref dim; expected ")
+           << remoteType.getRank() << " inputs, got "
+           << AffineMapAttr::get(pageMap);
+  }
+  return success();
+}
+
 // Comprehensive verifiers matching D2M
 ::mlir::LogicalResult DMAWriteOp::verify() {
   ShapedType srcType = mlir::cast<ShapedType>(getSrc().getType());
@@ -81,6 +104,12 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
 
   if (srcType.getElementType() != dstType.getElementType()) {
     return emitOpError("Operands to DMAWrite must have the same element type");
+  }
+
+  if (failed(verifyTensorAccessorPageMap(getOperation(),
+                                         getTensorAccessorPageMapAttr(),
+                                         dstType, isShardLevel()))) {
+    return failure();
   }
 
   if (isDstRemote() && isMcast()) {
@@ -138,6 +167,11 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
   }
   if (srcType.getElementType() != dstType.getElementType()) {
     return emitOpError("Operands to DMARead must have the same element type");
+  }
+  if (failed(verifyTensorAccessorPageMap(getOperation(),
+                                         getTensorAccessorPageMapAttr(),
+                                         srcType, isShardLevel()))) {
+    return failure();
   }
   int64_t numDstIndices = getDstIndices().size();
   int64_t numSrcIndices = getSrcIndices().size();

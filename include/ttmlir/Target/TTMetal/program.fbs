@@ -86,6 +86,10 @@ table KernelArgScalar {
   operand_idx: uint32;
 }
 
+table KernelArgTensorAccessorArgs {
+  operand_idx: uint32;
+}
+
 union KernelArgType {
   KernelArgCBPort,
   KernelArgBufferAddress,
@@ -93,6 +97,7 @@ union KernelArgType {
   KernelArgNamedArgument,
   KernelArgGlobalSemaphore,
   KernelArgScalar,
+  KernelArgTensorAccessorArgs,
 }
 
 table KernelArg {
