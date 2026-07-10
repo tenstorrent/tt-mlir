@@ -100,6 +100,20 @@ class TensorSpec:
     block_shape: list
     dtype: torch.dtype
     dist: "str | Callable" = "uniform(-1,1)"
+    mem_space: str = "L1"
+
+
+def d2m_mem_space(mem_space_str: str) -> str:
+    """Convert a mem-space string to the lowercase form ``d2m.Layout`` expects.
+
+    ``d2m.Layout`` accepts ``mem_space`` as a lowercase string (``"l1"``,
+    ``"dram"``).  Use this in materializers to pass an explicit ``mem_space``
+    to ``d2m.Layout`` when per-tensor placement is controlled via
+    ``TensorSpec.mem_space``.  Accepts case-insensitive input.
+    """
+    from d2m_jit._src import tensor_layout as _tl
+
+    return _tl._to_mem_space(mem_space_str.lower())
 
 
 @dataclass

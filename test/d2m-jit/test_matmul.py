@@ -13,6 +13,7 @@ import pytest
 import torch
 import d2m_jit as d2m
 
+from runner import KernelBench, TensorSpec, d2m_dtype, d2m_mem_space
 from utils import assert_pcc
 
 
@@ -40,14 +41,143 @@ def matmul_multi_k_kernel(lhs, rhs, out, k_blocks):
 
 @d2m.kernel
 def matmul_tiled_multi_k_kernel(lhs, rhs, out, m_blocks, n_blocks, k_blocks):
+    m_off = core_index(0) * m_blocks
+    n_off = core_index(1) * n_blocks
     for m in range(m_blocks):
         for n in range(n_blocks):
             acc = zeros([1, 1])
             for k in range(k_blocks):
-                a = remote_load(lhs, [m, k])
-                b = remote_load(rhs, [k, n])
+                a = remote_load(lhs, [m_off + m, k])
+                b = remote_load(rhs, [k, n_off + n])
                 acc += a @ b
-            remote_store(out, [m, n], acc)
+            remote_store(out, [m_off + m, n_off + n], acc)
+
+
+def _scaled_randn(shape, td, gen):
+    return torch.randn(shape, generator=gen, dtype=td) * 0.125
+
+
+def matmul_tiled_multi_k_materializer(kernel, inputs, tensors, grid_shape):
+    """Materialize layouts and dispatch tiled MNK matmul for autotuning.
+
+    TensorSpec interpretation
+    -------------------------
+    tensors[0] (lhs): block_shape = [m_block, k_block]
+    tensors[1] (rhs): block_shape = [k_block, n_block]
+
+    The execution grid (gy, gx) maps to (M, N) only.  K is never
+    grid-sharded: lhs uses grid (gy, 1) and rhs uses grid (1, gx), so any
+    grid where M_tiles % gy == 0 and N_tiles % gx == 0 is valid regardless
+    of K.
+    """
+    if len(inputs) != 2 or len(tensors) != 2:
+        raise ValueError("matmul_tiled_multi_k bench expects exactly 2 tensors")
+
+    lhs, rhs = inputs
+    lhs_ts, rhs_ts = tensors
+    gy, gx = grid_shape
+    m_block, k_block_lhs = lhs_ts.block_shape
+    k_block_rhs, n_block = rhs_ts.block_shape
+
+    if lhs_ts.shape[-1] != rhs_ts.shape[-2]:
+        raise ValueError("lhs/rhs shapes are not matmul-compatible")
+    if k_block_lhs != k_block_rhs:
+        raise ValueError(
+            f"K-block mismatch: lhs block_shape[1]={k_block_lhs} "
+            f"!= rhs block_shape[0]={k_block_rhs}"
+        )
+    k_block = k_block_lhs
+
+    m_tiles = lhs_ts.shape[-2] // 32
+    k_tiles = lhs_ts.shape[-1] // 32
+    n_tiles = rhs_ts.shape[-1] // 32
+
+    if rhs_ts.shape[-2] // 32 != k_tiles:
+        raise ValueError("lhs/rhs tile K dimensions do not match")
+    if m_tiles % gy != 0:
+        raise ValueError(f"gy={gy} does not divide M_tiles={m_tiles}")
+    if n_tiles % gx != 0:
+        raise ValueError(f"gx={gx} does not divide N_tiles={n_tiles}")
+    if (m_tiles // gy) % m_block != 0:
+        raise ValueError(
+            f"m_block={m_block} does not divide per-core M tiles {m_tiles // gy}"
+        )
+    if (n_tiles // gx) % n_block != 0:
+        raise ValueError(
+            f"n_block={n_block} does not divide per-core N tiles {n_tiles // gx}"
+        )
+    if k_tiles % k_block != 0:
+        raise ValueError(f"k_block={k_block} does not divide K_tiles={k_tiles}")
+
+    # lhs: sharded on M (gy rows), each core holds all K columns.
+    # rhs: each core holds all K rows, sharded on N (gx cols).
+    # out: sharded on both M and N.
+    lhs_layout = d2m.Layout(
+        shape=tuple(lhs_ts.shape),
+        dtype=d2m_dtype(lhs_ts.dtype),
+        block_shape=[m_block, k_block],
+        grid_shape=[gy, 1],
+        mem_space=d2m_mem_space(lhs_ts.mem_space),
+    )
+    rhs_layout = d2m.Layout(
+        shape=tuple(rhs_ts.shape),
+        dtype=d2m_dtype(rhs_ts.dtype),
+        block_shape=[k_block, n_block],
+        grid_shape=[1, gx],
+        mem_space=d2m_mem_space(rhs_ts.mem_space),
+    )
+    out_layout = d2m.Layout(
+        shape=(lhs_ts.shape[-2], rhs_ts.shape[-1]),
+        dtype=d2m_dtype(lhs_ts.dtype),
+        block_shape=[m_block, n_block],
+        grid_shape=[gy, gx],
+    )
+
+    m_blocks = (m_tiles // gy) // m_block
+    n_blocks = (n_tiles // gx) // n_block
+    k_blocks = k_tiles // k_block
+
+    old_use_tile_matmul = d2m.config.use_tile_matmul
+    d2m.config.use_tile_matmul = True
+    try:
+        out_d = d2m.empty(out_layout)
+        kernel(
+            d2m.to_layout(lhs, lhs_layout),
+            d2m.to_layout(rhs, rhs_layout),
+            out_d,
+            m_blocks,
+            n_blocks,
+            k_blocks,
+            grid=(gy, gx),
+        )
+        return out_d.to_host()
+    finally:
+        d2m.config.use_tile_matmul = old_use_tile_matmul
+
+
+KERNEL_BENCHES = {
+    "matmul_tiled_multi_k": KernelBench(
+        kernel=matmul_tiled_multi_k_kernel,
+        golden=lambda lhs, rhs: lhs @ rhs,
+        run=matmul_tiled_multi_k_materializer,
+        tensors=[
+            TensorSpec(
+                shape=(64, 96),
+                block_shape=[1, 1],
+                dtype=torch.float32,
+                dist=_scaled_randn,
+            ),
+            TensorSpec(
+                shape=(96, 64),
+                block_shape=[1, 1],
+                dtype=torch.float32,
+                dist=_scaled_randn,
+            ),
+        ],
+        grid_shape=(1, 1),
+        pcc=0.99,
+    )
+}
 
 
 @d2m.kernel
