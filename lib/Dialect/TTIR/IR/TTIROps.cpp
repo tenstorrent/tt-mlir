@@ -8814,17 +8814,26 @@ foldSplatComparison(mlir::Operation *op, mlir::Attribute lhsAttr,
 //===----------------------------------------------------------------------===//
 
 ::mlir::LogicalResult mlir::tt::ttir::InvokeExternalOp::verify() {
+  if (getPath().empty()) {
+    return emitOpError("'path' attribute must not be empty");
+  }
+
+  if (getEntry().empty()) {
+    return emitOpError("'entry' attribute must not be empty");
+  }
+
   for (auto in : getArguments()) {
-    ::mlir::Type inType = in.getType();
-    if (::mlir::isa<RankedTensorType>(inType)) {
-      // TODO: check that the ranked tensor shape is supported.
+    if (auto rt = ::mlir::dyn_cast<RankedTensorType>(in.getType())) {
+      if (!rt.hasStaticShape()) {
+        return emitOpError("argument type '") << rt << "' must have a static shape";
+      }
     }
   }
 
   for (auto out : getResults()) {
-    ::mlir::Type outType = out.getType();
-    if (::mlir::isa<RankedTensorType>(outType)) {
-      // TODO: check that the ranked tensor shape is supported.
+    auto rt = ::mlir::cast<RankedTensorType>(out.getType());
+    if (!rt.hasStaticShape()) {
+      return emitOpError("result type '") << rt << "' must have a static shape";
     }
   }
 
