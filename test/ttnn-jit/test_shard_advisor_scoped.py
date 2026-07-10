@@ -37,8 +37,17 @@ def _ttnn_compute_op_names(mlir_text):
     return [n for n in names if n not in _TTNN_INFRA_OPS]
 
 
-def test_default_pipeline_is_scoped():
+def test_default_tracer_is_direct_ttnn():
+    # A ttnn-framework model is the TTNN dialect, so the direct-TTNN tracer is
+    # the default and it selects the no-lowering ttnn-input pipeline.
     adv = ShardAdvisor(lambda x: x)
+    assert adv.tracer == "ttnn"
+    assert adv.pipeline == "ttnn"
+
+
+def test_explicit_scoped_pipeline_preserved():
+    # The TTIR path stays available for ops not yet in the direct-TTNN tracer.
+    adv = ShardAdvisor(lambda x: x, tracer="interception", pipeline="scoped")
     assert adv.pipeline == "scoped"
 
 

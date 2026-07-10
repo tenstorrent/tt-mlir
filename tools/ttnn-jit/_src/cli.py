@@ -203,10 +203,11 @@ def main(argv=None) -> int:
     )
     c.add_argument(
         "--tracer",
-        choices=["interception", "ttnn", "rewrite"],
-        default="interception",
-        help="interception (ttnn->TTIR, default), ttnn (emit TTNN directly, "
-        "forces --pipeline ttnn), or rewrite (source-rewrite)",
+        choices=["ttnn", "interception", "rewrite"],
+        default="ttnn",
+        help="ttnn (default; emit TTNN directly, forces --pipeline ttnn), "
+        "interception (ttnn->TTIR), or rewrite (source-rewrite). Use interception "
+        "only for ops not yet handled by the direct-TTNN tracer.",
     )
     c.set_defaults(fn=_cmd_capture)
 

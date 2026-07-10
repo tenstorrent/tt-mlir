@@ -79,7 +79,7 @@ class ShardAdvisor:
         debug: bool = False,
         out_dir: str = None,
         extra_pipeline_options: str = "",
-        tracer: str = "rewrite",
+        tracer: str = "ttnn",
         pipeline: str = "scoped",
         verbose: bool = True,
     ):
@@ -87,8 +87,12 @@ class ShardAdvisor:
         self.optimization_level = optimization_level
         self.debug = debug
         self.tracer = tracer
-        # The direct-TTNN tracer emits TTNN, so it must use the no-lowering
-        # ttnn-input pipeline; a TTIR-input pipeline can't consume its output.
+        # A ttnn-framework model *is* the TTNN dialect, so the direct-TTNN tracer
+        # is the default: it emits TTNN and runs the no-lowering ttnn-input
+        # pipeline (a TTIR-input pipeline can't consume its output). A ttnn op
+        # with no handler is a genuine missing-op signal (loud fail), not a
+        # reason to detour through TTIR -- fall back to tracer="interception"
+        # only for ops not yet in the direct-TTNN path.
         if tracer == "ttnn" and pipeline == "scoped":
             pipeline = "ttnn"
         self.pipeline = pipeline
