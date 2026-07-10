@@ -31,5 +31,12 @@ module @indexer_score attributes {} {
   // CHECK: "ttir.matmul"
   // CHECK: "ttir.relu"
   // CHECK: "ttir.sum"
-  // CHECK: "ttir.where"
+  // The causal-mask index arithmetic runs in i32, not the bf16 element type, so
+  // that key/query positions past bf16's exact-integer range (256) are not
+  // conflated. The arange, chunk_start_idx constant, threshold add and the
+  // comparison are all i32; only the additive 0/-inf mask is bf16.
+  // CHECK: "ttir.arange"{{.*}} -> tensor<{{.*}}xi32>
+  // CHECK: "ttir.arange"{{.*}} -> tensor<{{.*}}xi32>
+  // CHECK: "ttir.ge"{{.*}}(tensor<{{.*}}xi32>, tensor<{{.*}}xi32>) -> tensor<{{.*}}xi32>
+  // CHECK: "ttir.where"(%{{[0-9]+}}, %{{[0-9]+}}, %{{[0-9]+}}) {{.*}}: (tensor<{{.*}}xi32>, tensor<{{.*}}xbf16>, tensor<{{.*}}xbf16>) -> tensor<{{.*}}xbf16>
 }
