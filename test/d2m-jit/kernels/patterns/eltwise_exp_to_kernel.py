@@ -16,7 +16,7 @@ point — no rebuild needed when this file changes.
 import torch
 
 import d2m_jit as d2m
-from d2m_jit.testing import InputSpec, KernelBench, PatternTest, eltwise_block_run
+from runner import InputSpec, KernelBench, PatternTest, eltwise_block_run
 from ttmlir.dialects import ttir
 
 
@@ -64,7 +64,7 @@ def lower_exp(op, rewriter):
 
 
 # ----------------------------------------------------------------------
-# Co-located tests. See d2m_jit.testing for the runner contract.
+# Co-located tests. See testing.py for the runner contract.
 # ----------------------------------------------------------------------
 
 
