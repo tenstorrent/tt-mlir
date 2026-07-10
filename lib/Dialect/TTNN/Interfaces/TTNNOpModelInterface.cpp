@@ -3092,23 +3092,8 @@ TopKRouterGptOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       opConfig.outputLayout);
 }
 
-//===----------------------------------------------------------------------===//
-// MoeGptOp - TTNN Op Model Interface
-//===----------------------------------------------------------------------===//
-
-llvm::Expected<op_model::OpConstraints>
-MoeGptOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                           const OpConfig &opConfig) {
-  return issueErrorForGetOpConstraints(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
-}
-
-llvm::Expected<size_t>
-MoeGptOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                       const OpConfig &opConfig) {
-  return issueErrorForGetOpRuntime(
-      getOperation(), detail::ReasonForLackOfSupport::MissingMetalDefinition);
-}
+// MoeGptOp is OpModelExempt (like its sibling experimental MoE CCL ops), so it
+// does not implement the op-model interface — no getOpConstraints/getOpRuntime.
 
 //===----------------------------------------------------------------------===//
 // PrepareMoEComputeW0W1WeightsOp - TTNN Op Model Interface

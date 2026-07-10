@@ -75,6 +75,9 @@ struct TTIRToTTIRDecompositionPass
       target.addIllegalOp<ttir::RequantizeOp>();
       target.addIllegalOp<ttir::DequantizeOp>();
       target.addIllegalOp<ttir::ReverseOp>();
+      // Decompose the placeholder MoE decode op into the three low-level
+      // TTIR ops that have direct TTNN lowerings.
+      target.addIllegalOp<ttir::MoeGPTDecodeOp>();
 
       // Conv ops are legal only if already in channel-last format.
       // Non-channel-last ops will be decomposed with permutes.

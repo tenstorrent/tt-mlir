@@ -25,7 +25,8 @@ public:
                   std::vector<::tt::runtime::Tensor> &programInputs,
                   bool constEvalProgram = false,
                   const std::vector<::tt::runtime::GlobalSemaphore>
-                      &programSemaphoreInputs = {});
+                      &programSemaphoreInputs = {},
+                  ProgramContext *parentContext = nullptr);
 
   /**
    * Executes pre/post operation callbacks if registered

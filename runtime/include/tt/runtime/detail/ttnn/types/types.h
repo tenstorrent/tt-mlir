@@ -248,14 +248,15 @@ public:
                  GlobalSemaphoreMap &&liveGlobalSemaphores,
                  common::DylibManager &&programDylibManager,
                  ::tt::runtime::Device deviceHandle,
-                 const Binary &executableHandle, size_t programIndex = 0)
+                 const Binary &executableHandle, size_t programIndex = 0,
+                 ProgramContext *parentContext = nullptr)
       : tensorPool(ProgramTensorPool(programInputIds, programOutputIds,
                                      std::move(liveTensors))),
         globalSemaphorePool(
             ProgramGlobalSemaphorePool(std::move(liveGlobalSemaphores))),
         dylibManager(std::move(programDylibManager)),
         deviceHandle(deviceHandle), executableHandle(executableHandle),
-        programIndex(programIndex) {
+        programIndex(programIndex), parentContext(parentContext) {
     LOG_ASSERT(deviceHandle.handle, "DeviceHandle cannot be null");
   }
 
@@ -306,6 +307,48 @@ public:
     return globalSemaphorePool;
   }
 
+  // Returns a cached `GlobalSemaphore` for the given op-pointer key, creating
+  // it via `factory` on the first call. Ported from the GPT-OSS e2e branch:
+  // some CCL ops (all_to_all_dispatch_metadata, selective_reduce_combine) need
+  // a cross-device semaphore created via `create_global_semaphore` (a
+  // host->device L1 write); caching by op key avoids re-creating it on every
+  // invocation. (The e2e parentContext forwarding for trace nesting is omitted
+  // — this runtime does not nest ProgramContexts via FuncCallOp.)
+  ::ttnn::GlobalSemaphore getOrCreateImplicitGlobalSemaphore(
+      uintptr_t opKey,
+      const std::function<::ttnn::GlobalSemaphore()> &factory) {
+    if (parentContext) {
+      return parentContext->getOrCreateImplicitGlobalSemaphore(opKey, factory);
+    }
+    auto it = implicitOpSemaphores.find(opKey);
+    if (it == implicitOpSemaphores.end()) {
+      it = implicitOpSemaphores.emplace(opKey, factory()).first;
+    }
+    return it->second;
+  }
+
+  // Returns a cached Tensor for the (opKey, subKey) pair, creating it via
+  // `factory` on the first call. Same trace-capture rationale as
+  // getOrCreateImplicitGlobalSemaphore: ops that pre-allocate zero-initialized
+  // output buffers (e.g. all_to_all_dispatch_metadata) do a host->device write
+  // in ttnn::zeros, which is illegal during trace capture. Caching moves that
+  // write to the warmup func.call; the capture/replay calls read back the
+  // cached buffer. subKey disambiguates multiple buffers per op (e.g. the
+  // dispatched zero-template vs the indices/scores all-gather buffers).
+  ::ttnn::Tensor
+  getOrCreateImplicitTensor(uintptr_t opKey, uintptr_t subKey,
+                            const std::function<::ttnn::Tensor()> &factory) {
+    if (parentContext) {
+      return parentContext->getOrCreateImplicitTensor(opKey, subKey, factory);
+    }
+    auto &subMap = implicitOpTensors[opKey];
+    auto it = subMap.find(subKey);
+    if (it == subMap.end()) {
+      it = subMap.emplace(subKey, factory()).first;
+    }
+    return it->second;
+  }
+
   Binary &getExecutableHandle() { return executableHandle; }
 
   //
@@ -318,6 +361,14 @@ private:
 
   ProgramGlobalSemaphorePool globalSemaphorePool;
 
+  // Cache of implicitly-created cross-device semaphores, keyed by op pointer.
+  std::unordered_map<uintptr_t, ::ttnn::GlobalSemaphore> implicitOpSemaphores;
+
+  // Cache of implicitly-created zero-init output buffers, keyed by
+  // (op pointer, sub-key). See getOrCreateImplicitTensor.
+  std::unordered_map<uintptr_t, std::unordered_map<uintptr_t, ::ttnn::Tensor>>
+      implicitOpTensors;
+
   common::DylibManager dylibManager;
 
   ::tt::runtime::Device deviceHandle;
@@ -327,6 +378,12 @@ private:
 
   // The index of the program within the binary
   const size_t programIndex;
+
+  // Non-owning pointer to the parent context (null on the root context).
+  // Child contexts created for func.call forward getOrCreateImplicit* lookups
+  // to the root, so implicitly-created buffers/semaphores are shared across the
+  // trace warmup and capture func.calls (which run in distinct child contexts).
+  ProgramContext *parentContext = nullptr;
 };
 
 } // namespace tt::runtime::ttnn

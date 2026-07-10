@@ -6385,6 +6385,80 @@ def TTIR_TopKRouterGptOp : TTIR_NamedOp<"topk_router_gpt"> {
   let hasVerifier = 1;
 }
 
+def TTIR_MoeGPTDecodeOp : TTIR_NamedOp<"moe_gpt_decode"> {
+    let summary = "GPT-OSS fused decode composite placeholder.";
+    let description = [{
+      Placeholder TTIR op for the frontend GPT-OSS decode composite. This op
+      carries the decode routing and expert tensors through composite
+      legalization, while the StableHLO decomposition remains available for
+      sharding propagation before legalization.
+
+      The operand/result ranks match the 4D layout used by the surrounding
+      MoE decode custom calls (tt.all_to_all_dispatch_metadata, tt.moe_gpt,
+      tt.selective_reduce_combine) so no reshapes are required at the
+      composite boundary.
+
+      Dimensions:
+        B        = batch tokens (per device, after batch sharding)
+        S        = sequence length (must be 1 for decode)
+        H        = hidden size
+        K        = num_experts_per_tok
+        E        = num_experts (global, i.e. the `num_experts` attribute)
+        E_local  = per-device expert count = E / compound expert-parallel
+                   mesh factor (e.g. `mesh_rows * mesh_cols` when experts are
+                   compound-sharded across both axes). Equal to E when the
+                   module is not expert-parallel sharded.
+        D        = num_devices (ring size along cluster_axis)
+        I        = intermediate_size
+
+      Input shapes:
+      - hidden_states:      [B, 1, S, H]
+      - topk_indices:       [B, 1, S, K]
+      - topk_scores:        [B, 1, S, K]
+      - dispatch_mapping:   [1, 1, E, D]        (mapping E stays replicated
+                                                 at the global expert count)
+      - moe_gpt_mapping:    [1, 1, E, D]
+
+      Preprocessed 6D fused kernel weights (the frontend precomputes the
+      tt-metal `moe_gpt` kernel weight layout; these are required):
+      - fused_w0_w1:        [C_dram, L, E_local, G, K_bias, 4*TILE]
+      - fused_w2:           [C_dram, L, E_local, 2, N_bias, 4*TILE]
+      The decomposition binds them directly to `ttir.moe_gpt`'s 6D weight
+      inputs and derives E_local from `fused_w0_w1` dim 2. The unfused
+      gate_up/down expert weights are NOT operands of this op: the frontend
+      keeps them only for the dense prefill path and the CPU reference.
+
+      Output shape (from selective_reduce_combine):
+      - result: [K, B_local, S, H] when output_shard_dim=1, or
+                [K, S, B_local, H] when output_shard_dim=2.
+
+      B_local in the result is the per-device batch slot after the combine's
+      PassThrough sharding has been resolved. The verifier only requires it to
+      be a positive divisor of the input hidden_states batch dimension, since
+      the combine's batch factor may be further sharded by SPMD independently
+      of the input batch sharding.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$hidden_states,
+                         AnyRankedTensor:$topk_indices,
+                         AnyRankedTensor:$topk_scores,
+                         AnyRankedTensor:$dispatch_mapping,
+                         AnyRankedTensor:$moe_gpt_mapping,
+                         AnyRankedTensor:$fused_w0_w1,
+                         AnyRankedTensor:$fused_w2,
+                         I64Attr:$num_devices,
+                         I64Attr:$cluster_axis,
+                         I64Attr:$num_experts,
+                         I64Attr:$num_experts_per_tok,
+                         I64Attr:$intermediate_size,
+                         F32Attr:$alpha,
+                         F32Attr:$limit);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTIR_SparseMatmulOp : TTIR_NamedOp<"sparse_matmul"> {
     let summary = "Sparse block matrix multiplication with sparsity mask.";
     let description = [{

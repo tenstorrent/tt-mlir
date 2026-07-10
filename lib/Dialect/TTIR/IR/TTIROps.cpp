@@ -6773,6 +6773,149 @@ void mlir::tt::ttir::TopKOp::getCanonicalizationPatterns(
 }
 
 //===----------------------------------------------------------------------===//
+// MoeGPTDecodeOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::MoeGPTDecodeOp::verify() {
+  RankedTensorType hiddenType = getHiddenStates().getType();
+  RankedTensorType indicesType = getTopkIndices().getType();
+  RankedTensorType scoresType = getTopkScores().getType();
+  RankedTensorType dispatchMappingType = getDispatchMapping().getType();
+  RankedTensorType moeGptMappingType = getMoeGptMapping().getType();
+  RankedTensorType resultType = getResult().getType();
+  int64_t numDevices = static_cast<int64_t>(getNumDevices());
+  int64_t clusterAxis = static_cast<int64_t>(getClusterAxis());
+  int64_t numExperts = static_cast<int64_t>(getNumExperts());
+  int64_t numExpertsPerTok = static_cast<int64_t>(getNumExpertsPerTok());
+  int64_t intermediateSize = static_cast<int64_t>(getIntermediateSize());
+
+  // Activations / routing tensors follow the 4D layout used by the surrounding
+  // MoE decode custom calls (tt.all_to_all_dispatch_metadata, tt.moe_gpt,
+  // tt.selective_reduce_combine). The leading dim-1 at shape[1] is a marker
+  // that keeps the rank aligned with the dispatch/combine ring output layout
+  // [1, B*D, S, H] without reshapes.
+  if (hiddenType.getRank() != 4) {
+    return emitOpError("hidden_states must be a 4D tensor [B, 1, S, H]");
+  }
+  if (indicesType.getRank() != 4 || scoresType.getRank() != 4) {
+    return emitOpError("topk tensors must be 4D [B, 1, S, K]");
+  }
+  if (dispatchMappingType.getRank() != 4 || moeGptMappingType.getRank() != 4) {
+    return emitOpError(
+        "dispatch_mapping and moe_gpt_mapping must be 4D tensors [1, 1, "
+        "D_total, E]");
+  }
+  if (dispatchMappingType.getShape()[0] != 1 ||
+      dispatchMappingType.getShape()[1] != 1 ||
+      moeGptMappingType.getShape()[0] != 1 ||
+      moeGptMappingType.getShape()[1] != 1) {
+    return emitOpError(
+        "dispatch_mapping and moe_gpt_mapping leading dimensions must be 1");
+  }
+  // Result is the score-weighted, K-reduced, TP-reduced MoE output [B_local,
+  // H].
+  if (resultType.getRank() != 2) {
+    return emitOpError("result must be a 2D tensor [B_local, H]");
+  }
+
+  if (numDevices <= 0) {
+    return emitOpError("num_devices must be positive");
+  }
+  if (clusterAxis < 0 || clusterAxis > 1) {
+    return emitOpError("cluster_axis must be 0 or 1");
+  }
+  if (numExperts <= 0 || numExpertsPerTok <= 0 || intermediateSize <= 0) {
+    return emitOpError("num_experts, num_experts_per_tok, and "
+                       "intermediate_size must be positive");
+  }
+  // Decode: dim 1 is the marker 1, dim 2 is S (must be 1 for decode).
+  if (hiddenType.getShape()[1] != 1 || hiddenType.getShape()[2] != 1) {
+    return emitOpError("moe_gpt_decode currently expects decode inputs with "
+                       "S=1 (hidden_states shape[1] and shape[2] must be 1)");
+  }
+
+  if (indicesType.getShape() != scoresType.getShape()) {
+    return emitOpError("topk_indices and topk_scores must have the same shape");
+  }
+  // topk tensors share the [B, 1, S, _] prefix with hidden_states; last dim is
+  // num_experts_per_tok.
+  if (indicesType.getShape()[0] != hiddenType.getShape()[0] ||
+      indicesType.getShape()[1] != hiddenType.getShape()[1] ||
+      indicesType.getShape()[2] != hiddenType.getShape()[2] ||
+      indicesType.getShape()[3] != numExpertsPerTok) {
+    return emitOpError("topk tensors must have shape [B, 1, S, K]");
+  }
+
+  if (dispatchMappingType.getShape() != moeGptMappingType.getShape()) {
+    return emitOpError(
+        "dispatch_mapping and moe_gpt_mapping must have the same shape");
+  }
+  if (dispatchMappingType.getShape()[3] != numExperts ||
+      moeGptMappingType.getShape()[3] != numExperts) {
+    return emitOpError(
+        "mapping tensors expect num_experts as their last dimension");
+  }
+  // Mapping shape[2] is the total number of mesh devices (D_total) and must
+  // be divisible by num_devices (the dispatch-axis ring size) so that each
+  // dispatch ring sees an equal fraction of the mesh devices. We don't
+  // constrain D_total further here — the decomposition / ttnn kernels pick
+  // up D_total directly from the tensor shape.
+  int64_t mappingDevices = dispatchMappingType.getShape()[2];
+  if (mappingDevices <= 0 || mappingDevices % numDevices != 0) {
+    return emitOpError(
+        "mapping D_total (shape[2]) must be a positive multiple of "
+        "num_devices (the dispatch-axis ring size)");
+  }
+  // In the 4D layout [B, 1, S, H] the hidden size lives at the last dim; the
+  // fused kernel weights carry the authoritative per-device expert count and
+  // intermediate size, so no separate unfused-weight shape checks are needed.
+  int64_t hiddenSize = hiddenType.getShape()[3];
+
+  // Result layout is [B_local, H].
+  int64_t batchSize = hiddenType.getShape()[0];
+  if (resultType.getShape()[1] != hiddenSize) {
+    return emitOpError("result hidden dimension must match hidden_states");
+  }
+  int64_t resultBatch = resultType.getShape()[0];
+  if (resultBatch <= 0 || batchSize % resultBatch != 0) {
+    return emitOpError(
+        "result batch dimension must be a positive divisor of hidden_states "
+        "batch size");
+  }
+
+  // Preprocessed 6D fused kernel weights (required). The decomposition uses
+  // them to bind ttir.moe_gpt's 6D weight inputs directly. Shape expectations
+  // mirror `ttir.moe_gpt`'s verifier: rank 6, last dim == 128 (= 4 *
+  // TILE_SIZE), dim 0 and dim 2 match between w0_w1 and w2.
+  auto fusedW0W1Type = mlir::cast<RankedTensorType>(getFusedW0W1().getType());
+  auto fusedW2Type = mlir::cast<RankedTensorType>(getFusedW2().getType());
+  if (fusedW0W1Type.getRank() != 6 || fusedW2Type.getRank() != 6) {
+    return emitOpError("fused_w0_w1 and fused_w2 must be rank-6 tensors");
+  }
+  if (fusedW0W1Type.getShape().back() != 128 ||
+      fusedW2Type.getShape().back() != 128) {
+    return emitOpError(
+        "fused_w0_w1 and fused_w2 last dim must be 128 (4 * TILE_SIZE)");
+  }
+  if (fusedW0W1Type.getShape()[0] != fusedW2Type.getShape()[0]) {
+    return emitOpError("fused_w0_w1 and fused_w2 dim 0 must match (num_cores)");
+  }
+  if (fusedW0W1Type.getShape()[2] != fusedW2Type.getShape()[2]) {
+    return emitOpError(
+        "fused_w0_w1 and fused_w2 dim 2 must match (experts_per_device)");
+  }
+  // The fused kernel weights carry the authoritative per-device expert count
+  // (their dim 2); require it to be a positive divisor of num_experts.
+  int64_t fusedExpertsPerDevice = fusedW0W1Type.getShape()[2];
+  if (fusedExpertsPerDevice <= 0 || numExperts % fusedExpertsPerDevice != 0) {
+    return emitOpError("fused weight dim 2 (experts per device) must be a "
+                       "positive divisor of num_experts");
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // CumSumOp
 //===----------------------------------------------------------------------===//
 

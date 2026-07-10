@@ -487,7 +487,9 @@ materializeIntermediateTensor(memref::AllocOp op, IRRewriter &rewriter,
     auto device = ttnn::utils::getOrInsertDevice(rewriter, op);
 
     OpBuilder::InsertionGuard guard(rewriter);
-    rewriter.setInsertionPointAfter(op);
+    // Create at the block prelude (after the device op), not mid-graph, so the
+    // allocation stays outside the trace-captured region.
+    rewriter.setInsertionPointAfter(device);
     auto emptyOp = rewriter.create<ttnn::EmptyOp>(
         loc, emptyTensorType, device,
         ttnn::ShapeAttr::get(ctx, emptyTensorType.getShape()));
@@ -528,7 +530,9 @@ static LogicalResult convertD2MEmpty(d2m::EmptyOp op, IRRewriter &rewriter,
   auto shape = ttnn::ShapeAttr::get(op.getContext(), tensorType.getShape());
 
   OpBuilder::InsertionGuard guard(rewriter);
-  rewriter.setInsertionPointAfter(op);
+  // Create at the block prelude (after the device op), not mid-graph, so the
+  // allocation stays outside the trace-captured region.
+  rewriter.setInsertionPointAfter(device);
   auto emptyOp =
       rewriter.create<ttnn::EmptyOp>(op.getLoc(), tensorType, device, shape);
   valueMapping[op.getResult()] = emptyOp.getResult();

@@ -411,6 +411,18 @@ public:
   static TTNNOperandsWorkarounds
   createMoeGptOpOperandsWorkarounds(Operation *op);
 
+  // Create workarounds for selective_reduce_combine op operands.
+  // The metal kernel requires specific operand layouts to match moe_gpt's
+  // outputs and avoid DRAM tiling that breaks the stride-per-token invariant:
+  //   dense_input_tensor        : TILE, BF16, L1 HEIGHT_SHARDED (tilize_out)
+  //   dense_activations_tensor  : ROW_MAJOR, UINT32, L1 INTERLEAVED
+  //       (activation_records; DRAM alignment breaks the `(2*E/D+1)*sizeof`
+  //        aligned-to-16B invariant and trips the stride assert)
+  //   dense_token_maps_tensor   : ROW_MAJOR, UINT32, L1 INTERLEAVED
+  //   dense_token_counts_tensor : ROW_MAJOR, UINT32, L1 INTERLEAVED
+  static TTNNOperandsWorkarounds
+  createSelectiveReduceCombineOpOperandsWorkarounds(Operation *op);
+
   // Create workarounds for moe_expert_token_remap op operands.
   // expert_metadata requires uint16 dtype and ROW_MAJOR layout.
   // Issue page: https://github.com/tenstorrent/tt-metal/issues/39128

@@ -297,9 +297,34 @@ LayoutConverter::convertHostTensorLayout(const ::ttnn::Tensor &input,
   }
 
   if (!inputDesc.isTilized() && !shouldFromDevice) {
-    LOG_FATAL("Currently to_layout does not support device to device typecast "
-              "for input layout: ",
-              debug::toString(inputDesc.layout));
+    // ttnn::typecast cannot run on a ROW_MAJOR device tensor. For a same-width
+    // integer REINTERPRET (e.g. the fused-decode argmax token id, emitted as
+    // UInt32 by ttnn.argmax, threaded back into the Int32 input_ids arg) the
+    // bits are identical, so reinterpret it entirely on device via
+    // tilize -> bitcast -> untilize -- no per-step host round-trip. This
+    // matches how the compiler folds ui32<->si32 casts.
+    bool sameWidthIntReinterpret =
+        (inputDesc.dataType == ::ttnn::DataType::UINT32 &&
+         outputDesc.dataType == ::ttnn::DataType::INT32) ||
+        (inputDesc.dataType == ::ttnn::DataType::INT32 &&
+         outputDesc.dataType == ::ttnn::DataType::UINT32);
+    if (sameWidthIntReinterpret) {
+      ::ttnn::Tensor out = ::ttnn::to_layout(input, ::ttnn::Layout::TILE,
+                                             std::nullopt, std::nullopt);
+      out = ::ttnn::bitcast(out, outputDesc.dataType);
+      out = ::ttnn::to_layout(out, ::ttnn::Layout::ROW_MAJOR, std::nullopt,
+                              std::nullopt);
+      out = toMemoryConfigIfNeeded(out);
+      return out;
+    }
+    // Value-changing ROW_MAJOR device typecast (e.g. i64->i32): fall back to a
+    // host round-trip (ttnn::typecast needs a tilized device tensor or a host
+    // tensor). Rare compared to the per-step same-width int reinterpret above.
+    ::ttnn::MeshDevice *device = input.device();
+    ::ttnn::Tensor out = ::ttnn::from_device(input);
+    out = ::ttnn::typecast(out, outputDesc.dataType);
+    out = ::ttnn::to_device(out, device, outputDesc.memoryConfig);
+    return out;
   }
   LOG_FATAL("Unreachable code path");
 }

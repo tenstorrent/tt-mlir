@@ -583,6 +583,11 @@ const std::set<mlir::StringRef>
         ttnn::AllToAllCombineOp::getOperationName(),
         ttnn::MoeExpertTokenRemapOp::getOperationName(),
         ttnn::SparseMatmulOp::getOperationName(),
+        // moe_gpt fused-decode CCL ops (row-major/uint16 inputs, height-sharded
+        // L1 outputs); without these opt_level>=1 leaves DRAM interleaved TILE
+        // layouts that trip the tt-metal sharded-tilize assert (#30541).
+        ttnn::MoeGptOp::getOperationName(),
+        ttnn::SelectiveReduceCombineOp::getOperationName(),
         // ArgMax's operands workaround forces ROW_MAJOR input/output. Since
         // tt-metal #46340 the multicore argmax kernel is only selected for a
         // ROW_MAJOR input (TILE silently falls back to single-core, ~100ms for

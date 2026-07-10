@@ -590,10 +590,15 @@ private:
     bool needMemory = hasMemoryChange(input, output);
 
     if (!needsLayoutChange && !needDtype && !needMemory) {
-      op->emitError(
-          "Redundant ttnn::ToLayoutOp - no ttnn layout ops needed, this may be "
-          "due to the forcing of tile/row major layouts.");
-      return failure();
+      // A genuine no-op ToLayoutOp: an operand workaround forced a layout the
+      // producer already provides (e.g. MeshPartition's ROW_MAJOR operands fed
+      // by an already row-major reduce in the moe_gpt prefill). Fold it away by
+      // rewiring consumers to the producer instead of failing the pass.
+      if (op.getResult().getType() != op.getInput().getType()) {
+        op.getResult().setType(op.getInput().getType());
+      }
+      rewriter.replaceAllUsesWith(op.getResult(), op.getInput());
+      return success();
     }
 
     mlir::Value current = buildLayoutConversion(op, rewriter, input, output);

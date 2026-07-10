@@ -48,6 +48,14 @@ static constexpr llvm::StringLiteral moeExpertTokenRemapTargetName =
 static constexpr llvm::StringLiteral flashMlaPrefillTargetName =
     "tt.flash_mla_prefill";
 
+static constexpr llvm::StringLiteral allToAllDispatchMetadataTargetName =
+    "tt.all_to_all_dispatch_metadata";
+
+static constexpr llvm::StringLiteral moeGptTargetName = "tt.moe_gpt";
+
+static constexpr llvm::StringLiteral selectiveReduceCombineTargetName =
+    "tt.selective_reduce_combine";
+
 static mlir::sdy::OpShardingRuleAttr
 getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
   mlir::Operation::operand_range inputs = scatterOp.getInputs();
@@ -1245,6 +1253,132 @@ getAllToAllDispatchShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
+// all_to_all_dispatch_metadata sharding rule
+// Operands:
+//   [0] input [B, 1, S, H]
+//   [1] indices [B, 1, S, K]
+//   [2] scores [B, 1, S, K]
+//   [3] mapping [1, 1, D_total, E]   (tt-metal fused decode layout —
+//                                     matches ttnn.all_to_all_dispatch_metadata
+//                                     which expects [D_total, E] after the
+//                                     TTIR→TTNN reshape)
+// Results:
+//   [0] dispatched [1, B*D, S, H]
+//   [1] metadata_indices [1, B*D, S, K]
+//   [2] metadata_scores [1, B*D, S, K]
+static mlir::sdy::OpShardingRuleAttr
+getAllToAllDispatchMetadataShardingRule(mlir::stablehlo::CustomCallOp op) {
+  if (op.getNumOperands() != 4) {
+    op.getOperation()->emitWarning()
+        << "all_to_all_dispatch_metadata expects 4 operands, got "
+        << op.getNumOperands();
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto inputType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto indicesType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(1).getType());
+  auto scoresType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(2).getType());
+  auto mappingType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(3).getType());
+
+  if (!inputType || inputType.getRank() != 4 || !indicesType ||
+      indicesType.getRank() != 4 || !scoresType || scoresType.getRank() != 4 ||
+      !mappingType || mappingType.getRank() != 4) {
+    op.getOperation()->emitWarning()
+        << "all_to_all_dispatch_metadata expects 4D operands";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  SmallVector<Type> resultTypes;
+  if (op.getNumResults() == 3) {
+    for (auto type : op.getResultTypes()) {
+      resultTypes.push_back(type);
+    }
+  } else if (op.getNumResults() == 1) {
+    auto tupleType = llvm::dyn_cast<mlir::TupleType>(op.getResult(0).getType());
+    if (!tupleType || tupleType.size() != 3) {
+      return mlir::sdy::OpShardingRuleAttr();
+    }
+    for (auto elemType : tupleType.getTypes()) {
+      resultTypes.push_back(elemType);
+    }
+  } else {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  int64_t bDim = inputType.getShape()[0];
+  int64_t sDim = inputType.getShape()[2];
+  int64_t hDim = inputType.getShape()[3];
+  int64_t kDim = indicesType.getShape()[3];
+  // D_total lives at mapping dim 2, E at mapping dim 3 under the tt-metal
+  // fused decode mapping convention. Both factors stay blocked-replicated.
+  int64_t dDim = mappingType.getShape()[2];
+  int64_t eDim = mappingType.getShape()[3];
+
+  // Cluster-axis device count from the op's frontend_attributes. Output dim 1
+  // holds a compound B*D_cluster, and we split it into a kPassThrough B factor
+  // (so batch sharding propagates from input to output) plus a blocked
+  // D_cluster factor (which stays replicated along the ring axis).
+  int64_t dClusterDim = 1;
+  if (auto dispatchFrontendAttrs = mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+          op->getDiscardableAttr("mhlo.frontend_attributes"))) {
+    if (auto attr =
+            dispatchFrontendAttrs.getAs<mlir::StringAttr>("num_devices")) {
+      if (attr.getValue().getAsInteger(10, dClusterDim)) {
+        return mlir::sdy::OpShardingRuleAttr();
+      }
+    }
+  }
+  if (dClusterDim <= 0) {
+    op.getOperation()->emitWarning()
+        << "all_to_all_dispatch_metadata: num_devices must be positive";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  mlir::sdy::OpShardingRuleBuilder builder(op.getOperandTypes(),
+                                           TypeRange(resultTypes),
+                                           op.getContext(), std::nullopt);
+
+  // B factor: input dim 0 → output dim 1 (compound with D_cluster).
+  // kPassThrough so any batch sharding on the input flows through to the
+  // dispatched/metadata outputs without forcing an all_gather.
+  builder.addFactor({0, 0, 0, mlir::sdy::kNullDim}, {1, 1, 1}, bDim,
+                    mlir::sdy::FactorType::kPassThrough);
+  // D_cluster factor: no operand mapping, pairs with B factor on output dim 1.
+  // Blocked-replicated so Shardy does not try to shard along this factor.
+  builder.addFactor({mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+                    {1, 1, 1}, dClusterDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+  builder.addFactor({2, 2, 2, mlir::sdy::kNullDim}, {2, 2, 2}, sDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+  builder.addFactor(
+      {3, mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+      {3, mlir::sdy::kNullDim, mlir::sdy::kNullDim}, hDim,
+      mlir::sdy::FactorType::kNeedReplication,
+      /*isBlocked=*/true);
+  builder.addFactor({mlir::sdy::kNullDim, 3, 3, mlir::sdy::kNullDim},
+                    {mlir::sdy::kNullDim, 3, 3}, kDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+  builder.addFactor(
+      {mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim, 2},
+      {mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim}, dDim,
+      mlir::sdy::FactorType::kNeedReplication,
+      /*isBlocked=*/true);
+  builder.addFactor(
+      {mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim, 3},
+      {mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim}, eDim,
+      mlir::sdy::FactorType::kNeedReplication,
+      /*isBlocked=*/true);
+
+  return builder.build();
+}
+
 // =====================================================================
 // all_to_all_combine sharding rule
 // =====================================================================
@@ -1340,6 +1474,184 @@ getAllToAllCombineShardingRule(mlir::stablehlo::CustomCallOp op) {
   builder.addFactor({mlir::sdy::kNullDim, mlir::sdy::kNullDim, 3},
                     {mlir::sdy::kNullDim}, dDim,
                     mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  return builder.build();
+}
+
+// moe_gpt sharding rule (fused kernel weights variant)
+// Operands:
+//   [0] hidden  [1, B*D, S, H]
+//   [1] indices [1, B*D, S, K]
+//   [2] scores  [1, B*D, S, K]
+//   [3] mapping [1, 1, D_total, E]    (tt-metal fused decode layout —
+//                                      matches gen_expert_mapping, see
+//                                      models/demos/gpt_oss/tt/
+//                                      experts_throughput/config.py)
+//   [4] fused_w0_w1 [C_dram, L, E_local, G, K_bias, 4*TILE]  (opaque packed)
+//   [5] fused_w2    [C_dram, L, E_local, 2, N_bias, 4*TILE]  (opaque packed)
+// Results:
+//   [0] combine_metadata [1, 1, D_total, E]     (mapping forwarded to combine)
+//   [1] bundled_indices  [1, B*D, S, K]         (forwarded to combine)
+//   [2] bundled_scores   [1, B*D, S, K]         (forwarded to combine)
+//   [3] auxiliary_scores [1, B*D, S, K]         (placeholder bundle slot)
+//   [4] expert_output    [E, S, B*D, H]
+//
+// The tt-metal moe_gpt kernel consumes only the fused 6D weight layout, so
+// the unfused gate_up_proj / down_proj expert tensors are no longer part
+// of the operand list. The fused weights are treated as opaque for the
+// sharding rule — their internal layout (cores, groups, tiles) does not
+// expose the logical H / I / E axes, and the frontend pins their sharding
+// directly via `shard_specs[mlp.fused_w0_w1]` / `shard_specs[mlp.fused_w2]`.
+// Consequently the sharding rule only plumbs axes that actually appear on
+// the non-fused operands / results.
+static mlir::sdy::OpShardingRuleAttr
+getMoeGptShardingRule(mlir::stablehlo::CustomCallOp op) {
+  if (op.getNumOperands() != 6) {
+    op.getOperation()->emitWarning() << "moe_gpt expects 6 operands";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto hiddenType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto indicesType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(1).getType());
+  auto scoresType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(2).getType());
+  auto mappingType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(3).getType());
+  auto fusedW0W1Type =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(4).getType());
+  auto fusedW2Type =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(5).getType());
+
+  SmallVector<Type> resultTypes;
+  if (op.getNumResults() == 5) {
+    for (auto type : op.getResultTypes()) {
+      resultTypes.push_back(type);
+    }
+  } else if (op.getNumResults() == 1) {
+    auto tupleType = llvm::dyn_cast<mlir::TupleType>(op.getResult(0).getType());
+    if (!tupleType || tupleType.size() != 5) {
+      return mlir::sdy::OpShardingRuleAttr();
+    }
+    for (auto elemType : tupleType.getTypes()) {
+      resultTypes.push_back(elemType);
+    }
+  } else {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto combineMetadataType = llvm::dyn_cast<RankedTensorType>(resultTypes[0]);
+  auto bundledIndicesType = llvm::dyn_cast<RankedTensorType>(resultTypes[1]);
+  auto bundledScoresType = llvm::dyn_cast<RankedTensorType>(resultTypes[2]);
+  auto auxiliaryScoresType = llvm::dyn_cast<RankedTensorType>(resultTypes[3]);
+  auto expertOutputType = llvm::dyn_cast<RankedTensorType>(resultTypes[4]);
+
+  if (!hiddenType || hiddenType.getRank() != 4 || !indicesType ||
+      indicesType.getRank() != 4 || !scoresType || scoresType.getRank() != 4 ||
+      !mappingType || mappingType.getRank() != 4 || !fusedW0W1Type ||
+      fusedW0W1Type.getRank() != 6 || !fusedW2Type ||
+      fusedW2Type.getRank() != 6 || !combineMetadataType ||
+      combineMetadataType.getRank() != 4 || !bundledIndicesType ||
+      bundledIndicesType.getRank() != 4 || !bundledScoresType ||
+      bundledScoresType.getRank() != 4 || !auxiliaryScoresType ||
+      auxiliaryScoresType.getRank() != 4 || !expertOutputType ||
+      expertOutputType.getRank() != 4) {
+    op.getOperation()->emitWarning() << "moe_gpt expects ranked decode tensors";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  // Expert count (E) lives at the last dim of the tt-metal-layout mapping;
+  // device count (D_total) is at dim 2.
+  int64_t eDim = mappingType.getShape()[3];
+  int64_t bdDim = hiddenType.getShape()[1];
+  int64_t sDim = hiddenType.getShape()[2];
+  int64_t hDim = hiddenType.getShape()[3];
+  int64_t kDim = indicesType.getShape()[3];
+  int64_t dDim = mappingType.getShape()[2];
+
+  // Cluster-axis device count. BD (= B * D_cluster) is split into a
+  // kPassThrough B factor (carries batch sharding from dispatch) and a
+  // blocked D_cluster factor (must stay replicated along the ring axis).
+  int64_t dClusterDim = 1;
+  if (auto moeGptFrontendAttrs = mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+          op->getDiscardableAttr("mhlo.frontend_attributes"))) {
+    if (auto attr =
+            moeGptFrontendAttrs.getAs<mlir::StringAttr>("num_devices")) {
+      if (attr.getValue().getAsInteger(10, dClusterDim)) {
+        return mlir::sdy::OpShardingRuleAttr();
+      }
+    }
+  }
+  if (dClusterDim <= 0 || bdDim % dClusterDim != 0) {
+    op.getOperation()->emitWarning() << "moe_gpt: invalid num_devices "
+                                     << dClusterDim << " for bdDim " << bdDim;
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+  int64_t bBatchDim = bdDim / dClusterDim;
+
+  mlir::sdy::OpShardingRuleBuilder builder(op.getOperandTypes(),
+                                           TypeRange(resultTypes),
+                                           op.getContext(), std::nullopt);
+
+  // E factor: mapping[3] ↔ combine_metadata[3], replicate-blocked.
+  // The fused weights expose per-device E_local at their internal dim 2,
+  // but the frontend pins that directly and we intentionally keep the
+  // fused operands opaque for shardy propagation.
+  builder.addFactor({mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, 3, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim},
+                    {3, mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+                    eDim, mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  // H factor: hidden[3] ↔ expert_output[3]. Hidden size stays replicated
+  // end-to-end because MoE does not shard the hidden axis.
+  builder.addFactor({3, mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim},
+                    {mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, mlir::sdy::kNullDim, 3},
+                    hDim, mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  // BD (= B * D_cluster) appears at hidden[1]/indices[1]/scores[1] and at
+  // bundled_{indices,scores}[1]/auxiliary_scores[1] and expert_output[2].
+  // Split into a kPassThrough B factor (carries batch-axis sharding across
+  // the op) and a blocked D_cluster factor so the ring-axis stays replicated.
+  builder.addFactor(
+      {1, 1, 1, mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+      {mlir::sdy::kNullDim, 1, 1, 1, 2}, bBatchDim,
+      mlir::sdy::FactorType::kPassThrough);
+  builder.addFactor(
+      {1, 1, 1, mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+      {mlir::sdy::kNullDim, 1, 1, 1, 2}, dClusterDim,
+      mlir::sdy::FactorType::kNeedReplication,
+      /*isBlocked=*/true);
+
+  // S factor.
+  builder.addFactor(
+      {2, 2, 2, mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+      {mlir::sdy::kNullDim, 2, 2, 2, 1}, sDim,
+      mlir::sdy::FactorType::kNeedReplication,
+      /*isBlocked=*/true);
+
+  // K factor (top-k selected experts).
+  builder.addFactor({mlir::sdy::kNullDim, 3, 3, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+                    {mlir::sdy::kNullDim, 3, 3, 3, mlir::sdy::kNullDim}, kDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  // D_total factor (mapping[2] ↔ combine_metadata[2]).
+  builder.addFactor({mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, 2, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim},
+                    {2, mlir::sdy::kNullDim, mlir::sdy::kNullDim,
+                     mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+                    dDim, mlir::sdy::FactorType::kNeedReplication,
                     /*isBlocked=*/true);
 
   return builder.build();
@@ -1784,6 +2096,146 @@ getGatherDimShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
+// selective_reduce_combine sharding rule
+// Input:
+//   [0] expert_output [E, B*D, S, H] or [E, S, B*D, H]
+//   [1] metadata_indices [1, B*D, S, K]
+//   [2] metadata_scores [1, B*D, S, K]
+//   [3] combine_metadata [1, 1, E, D]
+// Result:
+//   [0] combined [K, B, S, H] or [K, S, B, H]
+static mlir::sdy::OpShardingRuleAttr
+getSelectiveReduceCombineShardingRule(mlir::stablehlo::CustomCallOp op) {
+  if (op.getNumOperands() != 4 || op.getNumResults() != 1) {
+    op.getOperation()->emitWarning()
+        << "selective_reduce_combine expects 4 operands and 1 result";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto expertOutType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto metadataIndicesType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(1).getType());
+  auto metadataScoresType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(2).getType());
+  auto combineMetadataType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(3).getType());
+  auto resultType = llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
+
+  if (!expertOutType || expertOutType.getRank() != 4 || !metadataIndicesType ||
+      metadataIndicesType.getRank() != 4 || !metadataScoresType ||
+      metadataScoresType.getRank() != 4 || !combineMetadataType ||
+      combineMetadataType.getRank() != 4 || !resultType ||
+      resultType.getRank() != 4) {
+    op.getOperation()->emitWarning()
+        << "selective_reduce_combine expects 4D tensors";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  mlir::DictionaryAttr frontendAttrs =
+      mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+          op->getDiscardableAttr("mhlo.frontend_attributes"));
+  int64_t outputShardDim = 2;
+  if (frontendAttrs) {
+    if (auto attr = frontendAttrs.getAs<mlir::StringAttr>("output_shard_dim")) {
+      if (attr.getValue().getAsInteger(10, outputShardDim)) {
+        return mlir::sdy::OpShardingRuleAttr();
+      }
+    }
+  }
+
+  if (outputShardDim != 1 && outputShardDim != 2) {
+    op.getOperation()->emitWarning()
+        << "selective_reduce_combine output_shard_dim must be 1 or 2, got "
+        << outputShardDim;
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  int64_t inputSDim = outputShardDim == 1 ? 2 : 1;
+  int64_t inputBDDim = outputShardDim == 1 ? 1 : 2;
+  int64_t resultSDim = outputShardDim == 1 ? 2 : 1;
+  int64_t resultBDDim = outputShardDim == 1 ? 1 : 2;
+
+  int64_t eDim = expertOutType.getShape()[0];
+  int64_t bdDim = expertOutType.getShape()[inputBDDim];
+  int64_t sDim = expertOutType.getShape()[inputSDim];
+  int64_t hDim = expertOutType.getShape()[3];
+  int64_t kDim = metadataIndicesType.getShape()[3];
+  // combine_metadata carries the forwarded [1, 1, D_total, E] mapping
+  // (tt-metal fused decode layout). See `getMoeGptShardingRule` for the
+  // matching result shape annotation.
+  int64_t dDim = combineMetadataType.getShape()[2];
+  int64_t eTotalDim = combineMetadataType.getShape()[3];
+  int64_t bDim = resultType.getShape()[resultBDDim];
+
+  // Cluster-axis device count: input BD = B * D_cluster, result B = B.
+  // We split input BD into a kPassThrough B factor (shared with result B to
+  // propagate batch sharding directly) and a blocked D_cluster factor so the
+  // ring-axis replication is preserved without forcing an all_gather here.
+  int64_t dClusterDim = 1;
+  if (frontendAttrs) {
+    if (auto attr = frontendAttrs.getAs<mlir::StringAttr>("num_devices")) {
+      if (attr.getValue().getAsInteger(10, dClusterDim)) {
+        return mlir::sdy::OpShardingRuleAttr();
+      }
+    }
+  }
+  if (dClusterDim <= 0 || bdDim != bDim * dClusterDim) {
+    op.getOperation()->emitWarning()
+        << "selective_reduce_combine: expected input BD=" << bdDim
+        << " to equal result B=" << bDim << " * num_devices=" << dClusterDim;
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  mlir::sdy::OpShardingRuleBuilder builder(op);
+
+  // E factor: experts are contracted in the result (expert_out dim 0 -> kNull).
+  // kReduction makes Shardy insert the cross-column all_reduce(sum) on the mesh
+  // axis E is sharded on (cluster_axis), completing the partial MoE sum each
+  // column produces -- so the reduction comes from the sharding rule rather
+  // than an explicit all_reduce in the decomposition.
+  builder.addFactor(
+      {0, mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim},
+      {mlir::sdy::kNullDim}, eDim, mlir::sdy::FactorType::kReduction);
+
+  builder.addFactor(
+      {mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim, 3},
+      {mlir::sdy::kNullDim}, eTotalDim, mlir::sdy::FactorType::kNeedReplication,
+      /*isBlocked=*/true);
+
+  builder.addFactor(
+      {3, mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim}, {3},
+      hDim, mlir::sdy::FactorType::kNeedReplication,
+      /*isBlocked=*/true);
+
+  builder.addFactor({mlir::sdy::kNullDim, 3, 3, mlir::sdy::kNullDim}, {0}, kDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  builder.addFactor({inputSDim, 2, 2, mlir::sdy::kNullDim}, {resultSDim}, sDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  // Input BD = B*D_cluster and result B = B share a single kPassThrough B
+  // factor: this makes Shardy propagate the batch sharding from moe_gpt's
+  // output directly into the combine result without inserting any all_gather
+  // or all_slice. A second blocked D_cluster factor pairs with B on the input
+  // side to form the BD compound and keeps the ring axis replicated.
+  builder.addFactor({inputBDDim, 1, 1, mlir::sdy::kNullDim}, {resultBDDim},
+                    bDim, mlir::sdy::FactorType::kPassThrough);
+  builder.addFactor({inputBDDim, 1, 1, mlir::sdy::kNullDim},
+                    {mlir::sdy::kNullDim}, dClusterDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  builder.addFactor(
+      {mlir::sdy::kNullDim, mlir::sdy::kNullDim, mlir::sdy::kNullDim, 2},
+      {mlir::sdy::kNullDim}, dDim, mlir::sdy::FactorType::kNeedReplication,
+      /*isBlocked=*/true);
+
+  return builder.build();
+}
+
 struct StablehloCustomCallShardingModel
     : public mlir::sdy::ShardingRuleOpInterface::ExternalModel<
           StablehloCustomCallShardingModel, ::mlir::stablehlo::CustomCallOp> {
@@ -1833,7 +2285,10 @@ private:
           {pagedFlashMlaDecodeTargetName, getPagedAttentionShardingRule},
           {sparseMatmulTargetName, getSparseMatmulShardingRule},
           {allToAllDispatchTargetName, getAllToAllDispatchShardingRule},
+          {allToAllDispatchMetadataTargetName,
+           getAllToAllDispatchMetadataShardingRule},
           {allToAllCombineTargetName, getAllToAllCombineShardingRule},
+          {moeGptTargetName, getMoeGptShardingRule},
           {moeExpertTokenRemapTargetName, getMoeExpertTokenRemapShardingRule},
           {utils::kTTRMSNormCustomCallTargetName, getRMSNormShardingRule},
           {flashMlaPrefillTargetName, getFlashMlaPrefillShardingRule},
@@ -1843,6 +2298,8 @@ private:
           {utils::kTTArgMaxCustomCallTargetName, getArgMaxShardingRule},
           {utils::kTTGatherDimCustomCallTargetName, getGatherDimShardingRule},
           {utils::kTTGatherCustomCallTargetName, getGatherDimShardingRule},
+          {selectiveReduceCombineTargetName,
+           getSelectiveReduceCombineShardingRule},
       };
 };
 

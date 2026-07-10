@@ -1222,6 +1222,75 @@ static LogicalResult convertToTTIRRMSNorm(mlir::Operation *srcOp,
   return success();
 }
 
+// Special handling for tenstorrent.moe_gpt_decode -> ttir.moe_gpt_decode.
+//
+// The composite carries 11 operands (5 routing/activation tensors, 4 unfused
+// gate_up/down expert weights, and the 2 mandatory fused 6D kernel weights).
+// ttir.moe_gpt_decode is fused-only, so this dedicated pattern selects the 7
+// fused-only operands (dropping the unfused weights) and strips the legacy
+// `has_fused_weights` attribute the op does not declare.
+class TenstorrentMoeGPTDecodeConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+public:
+  TenstorrentMoeGPTDecodeConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != "tenstorrent.moe_gpt_decode") {
+      return failure();
+    }
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tenstorrent.moe_gpt_decode composite must have exactly one result.");
+    }
+
+    // The frontend composite carries 11 operands so the flatten -> shard ->
+    // re-outline path keeps a contiguous group (operands 0-4
+    // routing/activation, 5-8 the unfused gate_up/down expert weights, 9-10 the
+    // fused 6D kernel weights). ttir.moe_gpt_decode is fused-only (7 operands),
+    // so we drop the 4 unfused weights here and let them DCE: the kernel
+    // computes on the fused weights and the decomposition derives the
+    // per-device expert count from fused_w0_w1 dim 2.
+    ValueRange operands = adaptor.getOperands();
+    size_t numOperands = operands.size();
+    if (numOperands != 11) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.moe_gpt_decode composite expects 11 operands "
+                 "(5 routing/activation + 4 unfused expert weights + "
+                 "fused_w0_w1 + fused_w2).");
+    }
+    SmallVector<Value> fusedOnlyOperands = {
+        operands[0], operands[1], operands[2], operands[3],
+        operands[4], operands[9], operands[10]};
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+
+    // Copy the composite attributes (num_devices, cluster_axis, num_experts,
+    // num_experts_per_tok, intermediate_size, alpha, limit) to the TTIR op.
+    // Drop the legacy `has_fused_weights` marker if present: the fused weights
+    // are now mandatory operands, so it carries no information and the op does
+    // not declare it.
+    SmallVector<NamedAttribute> namedAttrs;
+    if (auto compositeAttrs = srcOp.getCompositeAttributes()) {
+      for (const auto &attr : compositeAttrs) {
+        if (attr.getName() == "has_fused_weights") {
+          continue;
+        }
+        namedAttrs.push_back(attr);
+      }
+    }
+
+    rewriter.replaceOpWithNewOp<ttir::MoeGPTDecodeOp>(
+        srcOp, outputType, fusedOnlyOperands, namedAttrs);
+    return success();
+  }
+};
+
 // Converts stablehlo.composite @tenstorrent.rms_norm -> ttir.rms_norm.
 // Used in the non-sharded path where composites are not converted to
 // custom_calls.
@@ -1977,6 +2046,7 @@ void populateStableHLOCompositeLegalizationPatterns(
       context, "tenstorrent.gelu");
   patterns.add<StableHLOToTTIRCompositeOpConversionPattern<ttir::GeluOp>>(
       context, "tenstorrent.gelu_tanh");
+  patterns.add<TenstorrentMoeGPTDecodeConversionPattern>(context);
   patterns.add<TenstorrentRMSNormConversionPattern>(context);
   patterns.add<CustomCallRMSNormConversionPattern>(context);
   patterns.add<CustomCallDistributedRMSNormConversionPattern>(context);

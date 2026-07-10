@@ -1510,6 +1510,97 @@ TTNNOperandsWorkaroundsFactory::createMoeGptOpOperandsWorkarounds(
       .addOutputOperandWorkaround(rowMajorL1ShardedWorkaround); // tilize_out_rm
 }
 
+// Factory method to create workarounds for selective_reduce_combine op
+// operands.
+// tt-metal kernel requirements (selective_reduce_combine_device_operation.cpp):
+//   dense_input_tensor:        TILE, BF16, L1 HEIGHT_SHARDED
+//     (the tilized activations produced by moe_gpt)
+//   dense_activations_tensor:  ROW_MAJOR, UINT32, L1 INTERLEAVED
+//     (the `activation_records` buffer produced by moe_gpt; the kernel expects
+//      the last dim to equal `total_tokens * aligned-row-stride`, where the
+//      row stride is aligned to the *L1* alignment (16B). If the compiler
+//      inserts a TILE+DRAM round-trip, the alignment becomes 32B and the
+//      stride assert fires (actual=12 vs expected=16 for GPT-OSS-120B).)
+//   dense_token_maps_tensor:   ROW_MAJOR, UINT32, L1 INTERLEAVED
+//   dense_token_counts_tensor: ROW_MAJOR, UINT32, L1 INTERLEAVED
+TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
+    createSelectiveReduceCombineOpOperandsWorkarounds(Operation *op) {
+  auto interleaved = TensorMemoryLayoutAttr::get(
+      op->getContext(), TensorMemoryLayout::Interleaved);
+  auto heightSharded = TensorMemoryLayoutAttr::get(
+      op->getContext(), TensorMemoryLayout::HeightSharded);
+
+  TTNNOperandWorkarounds tileL1ShardedBf16Workaround;
+  tileL1ShardedBf16Workaround.tensorLayoutWorkaround = Layout::Tile;
+  tileL1ShardedBf16Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::BFloat16;
+  tileL1ShardedBf16Workaround.tensorBufferTypeWorkaround = BufferType::L1;
+  tileL1ShardedBf16Workaround.tensorMemoryLayoutWorkaround = heightSharded;
+
+  TTNNOperandWorkarounds rowMajorL1InterleavedUint32Workaround;
+  rowMajorL1InterleavedUint32Workaround.tensorLayoutWorkaround =
+      Layout::RowMajor;
+  rowMajorL1InterleavedUint32Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::UInt32;
+  rowMajorL1InterleavedUint32Workaround.tensorBufferTypeWorkaround =
+      BufferType::L1;
+  rowMajorL1InterleavedUint32Workaround.tensorMemoryLayoutWorkaround =
+      interleaved;
+
+  // Pre-zeroed optional_output_tensor (emitted by the compiler as
+  // ttnn.full(0)): ROW_MAJOR, BF16, DRAM INTERLEAVED to match the combine
+  // kernel's output.
+  TTNNOperandWorkarounds rowMajorDramInterleavedBf16Workaround;
+  rowMajorDramInterleavedBf16Workaround.tensorLayoutWorkaround =
+      Layout::RowMajor;
+  rowMajorDramInterleavedBf16Workaround.tensorDataTypeWorkaround =
+      ttcore::DataType::BFloat16;
+  rowMajorDramInterleavedBf16Workaround.tensorBufferTypeWorkaround =
+      BufferType::DRAM;
+  rowMajorDramInterleavedBf16Workaround.tensorMemoryLayoutWorkaround =
+      interleaved;
+
+  // NOTE: the tt-metal selective_reduce_combine kernel writes its result in
+  // ROW_MAJOR layout, but forcing the IR result to ROW_MAJOR via an output
+  // workaround sends the layout optimizer into a non-terminating
+  // reconciliation on the GPT-OSS decode graph. Instead we leave the IR result
+  // as the optimizer assigns it (TILE) and tilize the kernel's ROW_MAJOR
+  // output back to that layout in the runtime op (see runtime
+  // selective_reduce_combine.cpp), which keeps compile fast and the runtime
+  // tensor-ref validation satisfied.
+  TTNNOperandWorkarounds noOutputWorkaround;
+
+  // The compiler emits a pre-zeroed optional_output_tensor (ttnn.full(0)); when
+  // present, pin it to the ROW_MAJOR/BF16/DRAM layout the combine kernel
+  // writes.
+  auto selectiveOp = cast<ttnn::SelectiveReduceCombineOp>(op);
+  if (selectiveOp.getOptionalOutputTensor()) {
+    return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+        .addInputOperandWorkaround(
+            tileL1ShardedBf16Workaround) // dense_input_tensor
+        .addInputOperandWorkaround(
+            rowMajorL1InterleavedUint32Workaround) // dense_activations_tensor
+        .addInputOperandWorkaround(
+            rowMajorL1InterleavedUint32Workaround) // dense_token_maps_tensor
+        .addInputOperandWorkaround(
+            rowMajorL1InterleavedUint32Workaround) // dense_token_counts_tensor
+        .addInputOperandWorkaround(
+            rowMajorDramInterleavedBf16Workaround) // optional_output_tensor
+        .addOutputOperandWorkaround(noOutputWorkaround); // result
+  }
+
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(
+          tileL1ShardedBf16Workaround) // dense_input_tensor
+      .addInputOperandWorkaround(
+          rowMajorL1InterleavedUint32Workaround) // dense_activations_tensor
+      .addInputOperandWorkaround(
+          rowMajorL1InterleavedUint32Workaround) // dense_token_maps_tensor
+      .addInputOperandWorkaround(
+          rowMajorL1InterleavedUint32Workaround) // dense_token_counts_tensor
+      .addOutputOperandWorkaround(noOutputWorkaround); // result
+}
+
 // Factory method to create workarounds for all_to_all_combine op operands.
 // Issue page: https://github.com/tenstorrent/tt-metal/issues/39127
 // tt-metal CCL requirements:

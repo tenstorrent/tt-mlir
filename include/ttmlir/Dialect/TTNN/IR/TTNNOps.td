@@ -1691,12 +1691,23 @@ def TTNN_SelectiveReduceCombineOp : TTNN_Op<"selective_reduce_combine", [OpModel
       Takes dense blocks of expert-computed tokens from the MoE compute kernel,
       sparsifies them, and sends tokens back to their originating devices via
       fabric.
+
+      `optional_output_tensor`, if provided, is used as the pre-allocated
+      output buffer. The combine kernel performs sparse writes — only (token,
+      K-slot) pairs actually routed to valid experts are written. Callers
+      should pass a zero-initialized tensor to avoid propagating DRAM garbage
+      (-inf / NaN) through the downstream reduction. Mirrors tt-metal's
+      `fused_decode.py` reference which wraps `ttnn.selective_reduce_combine`
+      with an explicit zero-filled output allocation.
     }];
 
     let arguments = (ins AnyRankedTensor:$dense_input_tensor,
                          AnyRankedTensor:$dense_activations_tensor,
                          AnyRankedTensor:$dense_token_maps_tensor,
                          AnyRankedTensor:$dense_token_counts_tensor,
+                         Arg<Optional<AnyRankedTensor>,
+                             "optional pre-zeroed output tensor",
+                             [MemWrite]>:$optional_output_tensor,
                          UI32Attr:$hidden_size,
                          UI32Attr:$batch_size,
                          UI32Attr:$seq_size,
@@ -1704,6 +1715,14 @@ def TTNN_SelectiveReduceCombineOp : TTNN_Op<"selective_reduce_combine", [OpModel
                          UI32Attr:$experts);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createSelectiveReduceCombineOpOperandsWorkarounds(
+                getOperation());
+      }
+    }];
 
     let hasVerifier = 1;
 }
@@ -1731,7 +1750,7 @@ def TTNN_MoeExpertTokenRemapOp : TTNN_Op<"moe_expert_token_remap", [OpModelExemp
     let hasVerifier = 1;
 }
 
-def TTNN_MoeGptOp : TTNN_Op<"moe_gpt"> {
+def TTNN_MoeGptOp : TTNN_Op<"moe_gpt", [OpModelExempt]> {
     let summary = "Fused MoE compute kernel for GPT-OSS models.";
     let description = [{
       Fused Mixture-of-Experts compute kernel for GPT-OSS-style models. Runs

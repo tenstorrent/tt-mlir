@@ -594,8 +594,41 @@ MemoryLayoutPropagation::processOp(Operation *op) {
 
   bool usedDramFallback = false;
 
-  // Fallback: if no valid candidate found, use DRAM interleaved.
+  // Fallback: if no valid candidate found.
   if (candidates.empty()) {
+    // Custom MoE ops (all_to_all_dispatch_metadata / moe_gpt /
+    // selective_reduce_combine) lack OpModel support (OpModelExempt) and always
+    // reach this fallback. TTNNWorkaroundsPass has already set each of their
+    // results to the kernel-required layout (e.g. L1 height-sharded ui16
+    // `indices`); forcing DRAM interleaved — or unifying every result onto
+    // result[0]'s layout, as the single-layout path below does for multi-output
+    // ops — corrupts those (wrong optional-output layout/dtype -> decode PCC
+    // collapse / device hang). PRESERVE each result's current (workaround-
+    // applied) layout per-result.
+    if (isa<AllToAllDispatchMetadataOp, MoeGptOp, SelectiveReduceCombineOp>(
+            op)) {
+      TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                   "No valid candidate for MoE op {0} @{1}, preserving current "
+                   "(workaround-applied) per-result layouts.",
+                   op->getName(), op->getLoc());
+      llvm::SmallVector<TTNNLayoutAttr> perResultLayouts =
+          getCurrentLayoutsPerResult(op);
+      TTNNLayoutAttr primaryLayout = perResultLayouts.empty()
+                                         ? TTNNLayoutAttr()
+                                         : perResultLayouts.front();
+      if (primaryLayout) {
+        BeamCandidate fallback;
+        fallback.configHint = OpConfig(primaryLayout);
+        fallback.score = LayoutScore();
+        fallback.outputLayouts.assign(perResultLayouts.begin(),
+                                      perResultLayouts.end());
+        candidates.push_back(std::move(fallback));
+      }
+      usedDramFallback = true;
+      observer->onBeamResult(op, candidates, usedDramFallback);
+      return candidates;
+    }
+
     TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                  "No valid candidate for op {0} @{1}, falling back to DRAM "
                  "interleaved.",
@@ -1290,6 +1323,28 @@ MemoryLayoutPropagation::getDRAMInterleavedFallback(Operation *op) {
       .setBufferType(BufferType::DRAM)
       .setMemoryLayout(TensorMemoryLayout::Interleaved)
       .build();
+}
+
+llvm::SmallVector<TTNNLayoutAttr>
+MemoryLayoutPropagation::getCurrentLayoutsPerResult(Operation *op) {
+  // Per-result, no-op fallback for ops without OpModel support (custom MoE
+  // ops). Leaves each result's current (TTNNWorkaroundsPass-applied) layout
+  // untouched, so a multi-output op keeps e.g. ui16 L1-sharded `indices`
+  // alongside bf16 DRAM `dispatched` instead of forcing every result to
+  // result[0]'s layout.
+  llvm::SmallVector<TTNNLayoutAttr> perResultLayouts;
+  perResultLayouts.reserve(op->getNumResults());
+  for (Value result : op->getResults()) {
+    auto tensorType = mlir::dyn_cast<RankedTensorType>(result.getType());
+    if (!tensorType) {
+      perResultLayouts.push_back(nullptr);
+      continue;
+    }
+    auto currentLayout =
+        mlir::dyn_cast_or_null<TTNNLayoutAttr>(tensorType.getEncoding());
+    perResultLayouts.push_back(currentLayout);
+  }
+  return perResultLayouts;
 }
 
 //===----------------------------------------------------------------------===//
