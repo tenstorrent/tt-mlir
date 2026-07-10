@@ -42,4 +42,12 @@ FS_WITH_DISABLER(comp_consteval, true, "TT_KURBLA_COMP_CONSTEVAL_DISABLED");
 
 constexpr size_t cfg_monitor_max_slots = 64;
 
+// Logger types for program.
+// Kurbla uses Always type logs in codebase and it is default logger setting.
+// Also, Always silences all logs in third party code, except an important ones.
+// To see all logs, set TT_LOGGER_TYPES=All
+// Available log filters: All, Always, UMD, Metal, BuildKernels, Fabric, Distributed, Device
+CONFIG_STR(logger_types, "Always", "TT_LOGGER_TYPES")
+
+// Compile cache directory where all compiled binaries are loaded/stored.
 CONFIG_STR(compile_cache_dir, ".data/bin_cache/", "TT_KURBLA_COMPILE_CACHE_DIR")
