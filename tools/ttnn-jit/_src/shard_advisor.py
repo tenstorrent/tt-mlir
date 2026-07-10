@@ -87,13 +87,15 @@ class ShardAdvisor:
         self.optimization_level = optimization_level
         self.debug = debug
         self.tracer = tracer
+        # The direct-TTNN tracer emits TTNN, so it must use the no-lowering
+        # ttnn-input pipeline; a TTIR-input pipeline can't consume its output.
+        if tracer == "ttnn" and pipeline == "scoped":
+            pipeline = "ttnn"
         self.pipeline = pipeline
         self.verbose = verbose
         # func may be None when advising an existing .mlir file (no tracing).
         name = getattr(func, "__name__", None) or "advise"
-        self.out_dir = out_dir or os.path.join(
-            "generated", "ttnn-jit", name, "advisor"
-        )
+        self.out_dir = out_dir or os.path.join("generated", "ttnn-jit", name, "advisor")
         self.extra_pipeline_options = extra_pipeline_options
         os.makedirs(self.out_dir, exist_ok=True)
 
@@ -178,7 +180,13 @@ class ShardAdvisor:
 
         system_desc_path = self._ensure_system_desc(device)
 
-        if self.tracer == "interception":
+        if self.tracer == "ttnn":
+            # Direct-TTNN interception: emit TTNN dialect straight from the
+            # traced ops (no TTIR), consumed by the ttnn-to-ttnn-l1-advisor.
+            from ttnn_jit._src.ttnn_emit_tracer import trace_ttnn
+
+            ir, _output_type = trace_ttnn(self.func, *args)
+        elif self.tracer == "interception":
             # Global ttnn-op interception: works across function boundaries.
             ir, _output_type = trace_intercepted(self.func, *args)
         else:
@@ -235,7 +243,9 @@ class ShardAdvisor:
         if not os.path.exists(trace_path):
             import glob
 
-            produced = sorted(glob.glob(os.path.join(trace_dir, "*_decision_trace.json")))
+            produced = sorted(
+                glob.glob(os.path.join(trace_dir, "*_decision_trace.json"))
+            )
             if not produced:
                 raise RuntimeError(
                     f"Decision trace not produced in {trace_dir}. The optimizer "

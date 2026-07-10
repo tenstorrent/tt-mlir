@@ -153,7 +153,7 @@ def _cmd_capture(args) -> int:
                 func,
                 optimization_level=args.opt_level,
                 out_dir=args.out,
-                tracer="interception",
+                tracer=args.tracer,
                 pipeline=args.pipeline,
                 verbose=False,
             ).run(*inputs)
@@ -188,7 +188,9 @@ def main(argv=None) -> int:
     )
 
     m = sub.add_parser(
-        "mlir", parents=[common], help="advise on an existing .mlir (TTIR, or TTNN with --pipeline ttnn)"
+        "mlir",
+        parents=[common],
+        help="advise on an existing .mlir (TTIR, or TTNN with --pipeline ttnn)",
     )
     m.add_argument("file", help="path to a TTIR (or TTNN) .mlir file")
     m.set_defaults(fn=_cmd_mlir)
@@ -196,7 +198,16 @@ def main(argv=None) -> int:
     c = sub.add_parser(
         "capture", parents=[common], help="trace a ttnn fn on device, then advise"
     )
-    c.add_argument("target", help="<module.py:func>; module must define make_inputs(device)")
+    c.add_argument(
+        "target", help="<module.py:func>; module must define make_inputs(device)"
+    )
+    c.add_argument(
+        "--tracer",
+        choices=["interception", "ttnn", "rewrite"],
+        default="interception",
+        help="interception (ttnn->TTIR, default), ttnn (emit TTNN directly, "
+        "forces --pipeline ttnn), or rewrite (source-rewrite)",
+    )
     c.set_defaults(fn=_cmd_capture)
 
     args = p.parse_args(argv)
