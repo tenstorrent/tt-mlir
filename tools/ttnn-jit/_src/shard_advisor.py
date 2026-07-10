@@ -303,7 +303,14 @@ class ShardAdvisor:
             },
             "unfixable_ops": unfixable,
             "ops": [
-                {"index": o.index, "op": o.op_name, "layout": o.result_layout}
+                {
+                    "index": o.index,
+                    "op": o.op_name,
+                    "layout": o.result_layout,
+                    # program config the optimizer chose for its sharding strategy
+                    # (e.g. matmul 1d multicast); "" when the op carries none.
+                    "program_config": o.program_config,
+                }
                 for o in summary.ops
             ],
             "reshards": [

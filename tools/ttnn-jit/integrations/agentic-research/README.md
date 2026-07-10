@@ -63,8 +63,14 @@ in `tools/ttnn-jit/_src/interception_tracer.py`.
 
 ## Scope
 
-Layout-only. The advisor reasons about L1 memory layout / sharding; it does
-**not** recommend dtypes (bf16/bfp8/bfp4), matmul/SDPA program configs, or
-compute-kernel configs. It *does* faithfully trace the input dtypes the model
-already chose (including bfp4/bfp8 quantized weights), so its layout reasoning
+The advisor reasons about L1 memory layout / sharding, and for the sharding
+strategy it picks it also reports the matmul **program config** the optimizer
+generated and backend-validated (e.g. `matmul_multi_core_reuse_multi_cast_1d
+@8x8`), surfaced per op in `report.json`. It *does* faithfully trace the input
+dtypes the model already chose (bfp4/bfp8 weights included), so layout reasoning
 uses the true footprint.
+
+What it does **not** do: recommend a dtype change (bf16→bfp8/bfp4 stays the
+model's call), pick the expert's DRAM-sharded-weight matmul strategy (a distinct
+optimizer feature that's landing soon — once chosen, its program config surfaces
+through the same path), or tune compute-kernel configs.

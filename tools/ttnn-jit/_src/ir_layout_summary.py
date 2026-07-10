@@ -54,6 +54,7 @@ class OpLayout:
     index: int
     op_name: str  # e.g. ttnn.matmul
     result_layout: str  # short descriptor
+    program_config: str = ""  # e.g. matmul_multi_core_reuse_multi_cast_1d @8x8
 
 
 @dataclass
@@ -105,6 +106,25 @@ def _last_layout_ref(s: str) -> Optional[str]:
     return refs[-1] if refs else None
 
 
+_PCFG = re.compile(r"#ttnn\.(matmul_\w+?)_program_config<")
+_PCFG_GRID = re.compile(
+    r"compute_with_storage_grid_size = #ttnn\.core_coord<(\d+),\s*(\d+)>"
+)
+
+
+def _program_config(line: str) -> str:
+    """Compact label for a matmul program config the optimizer chose, if any.
+
+    e.g. 'matmul_multi_core_reuse_multi_cast_1d @8x8'. Empty when the op carries
+    no program config (the optimizer only attaches one for its sharded picks)."""
+    m = _PCFG.search(line)
+    if not m:
+        return ""
+    name = m.group(1)
+    g = _PCFG_GRID.search(line)
+    return f"{name} @{g.group(1)}x{g.group(2)}" if g else name
+
+
 def parse_ir_summary(ttnn_mlir: str) -> IRSummary:
     descs = _parse_layout_defs(ttnn_mlir)
 
@@ -141,11 +161,11 @@ def parse_ir_summary(ttnn_mlir: str) -> IRSummary:
         def_layout[res] = result_layout
         for o in operand_ssas:
             consumers.setdefault(o, []).append(op)
-        ordered.append((res, op, operand_ssas, result_layout))
+        ordered.append((res, op, operand_ssas, result_layout, _program_config(line)))
 
     summary = IRSummary()
     idx = 0
-    for res, op, operand_ssas, result_layout in ordered:
+    for res, op, operand_ssas, result_layout, pcfg in ordered:
         if op in RESHARD_OPS:
             src = operand_ssas[0] if operand_ssas else None
             # consumer = first non-noise user of this reshard's result
@@ -166,7 +186,10 @@ def parse_ir_summary(ttnn_mlir: str) -> IRSummary:
             continue
         summary.ops.append(
             OpLayout(
-                index=idx, op_name=f"ttnn.{op}", result_layout=short(result_layout)
+                index=idx,
+                op_name=f"ttnn.{op}",
+                result_layout=short(result_layout),
+                program_config=pcfg,
             )
         )
         idx += 1
@@ -180,7 +203,8 @@ def render_ir_summary(summary: IRSummary) -> str:
     lines.append("")
     lines.append("-- Op layouts (from final TTNN IR) --")
     for op in summary.ops:
-        lines.append(f"[{op.index}] {op.op_name}  ->  {op.result_layout}")
+        cfg = f"   [{op.program_config}]" if op.program_config else ""
+        lines.append(f"[{op.index}] {op.op_name}  ->  {op.result_layout}{cfg}")
     lines.append("")
 
     lines.append(f"-- Reshards ({len(summary.reshards)}) [from final IR] --")

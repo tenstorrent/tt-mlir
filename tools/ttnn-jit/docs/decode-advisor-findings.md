@@ -62,21 +62,26 @@ l1/height_sharded/1x1`; the const cos/sin/trans_mat tables reshard to
 | paged SDPA-decode | DRAM out | DRAM interleaved | yes |
 | MLP gate/up/down | L1 width-sharded | L1 width_sharded 1×64 | yes |
 
-**Expert techniques the advisor does NOT capture** (all outside the scoped,
-faithful-to-source pipeline's remit — no dtype conversion, no SetComputeKernelConfig):
+**What the advisor also reports:** for the sharding strategy it picks, the
+optimizer generates and backend-validates the matmul program config, and the
+advisor surfaces it per op (`report.json` `program_config`) — every width-sharded
+linear shows `matmul_multi_core_reuse_multi_cast_1d @8x8`.
 
-1. **Low precision** — expert casts the MLP `silu·up` intermediate to `bfloat8_b`; advisor stays bf16.
-2. **DRAM-sharded weight matmuls** — every expert decode linear uses `_dram_matmul_config` (weights sharded across DRAM banks + matmul-1d program config). Advisor picks the width-sharded activation but leaves weights DRAM-interleaved with no program config.
-3. **Program / compute-kernel configs** — expert pins `sdpa_program_config` + hifi2/hifi4 kernel configs; advisor reports layouts only.
+**Expert techniques the advisor does NOT capture:**
+
+1. **Low precision** — expert casts the MLP `silu·up` intermediate to `bfloat8_b`; advisor stays faithful to the source dtype (traces bf16/bfp8/bfp4 as written, but doesn't *recommend* a change).
+2. **DRAM-sharded weight matmuls** — every expert decode linear uses `_dram_matmul_config` (weights sharded across DRAM banks). The advisor picks a valid alternative (width-sharded activation + 1d-multicast program config) and reports it; the DRAM-sharded-weight strategy is a distinct optimizer feature landing soon, at which point the advisor reports it through the same path.
+3. **Compute-kernel configs** — expert pins hifi2/hifi4; the scoped advisor doesn't run SetComputeKernelConfig.
 
 **Genuine divergences:**
 - Residual adds: expert keeps them in **DRAM**; advisor keeps them **L1 width-sharded** (better if it fits L1; expert likely chose DRAM for L1 headroom).
 - QKV-head split: the traced functional decoder uses `split_query_key_value_and_split_heads` (→ interleaved) where the expert uses `nlp_create_qkv_heads_decode` (→ height-sharded). This is a model-source difference, not an optimizer one.
 
-**Bottom line:** on the axis the advisor is scoped to reason about (L1 memory
-layout / sharding), it matches expert intent op-for-op. The remaining gap to a
-hand-tuned decode is precision + DRAM-sharded-weight program configs — separate
-optimization axes the scoped advisor intentionally doesn't touch.
+**Bottom line:** on the axes the advisor reasons about — L1 layout / sharding and
+the matmul program config for that strategy — it matches expert intent op-for-op.
+The remaining gaps to a hand-tuned decode are dtype precision (faithful-to-source
+by design) and the DRAM-sharded-weight matmul strategy (a coming optimizer
+feature).
 
 ## Compiler fixes that made decode lower e2e
 

@@ -1,6 +1,6 @@
 ---
 name: shard-advise
-description: "Get the tt-mlir compiler's L1 memory-layout / sharding recommendation for a ttnn decode (or prefill) block and diff it against the layout the model hand-wrote. Use during model bringup / layout tuning when a decoder-layer, attention, or MLP block runs below its lower bound and you want a compiler-informed reference for which tensors should be L1-sharded (and how) versus DRAM. Produces a structured report.json (per-op layout, reshards, L1 spill). Not for perf profiling and not for dtype/program-config decisions (layout-only)."
+description: "Get the tt-mlir compiler's L1 memory-layout / sharding recommendation for a ttnn decode (or prefill) block and diff it against the layout the model hand-wrote. Use during model bringup / layout tuning when a decoder-layer, attention, or MLP block runs below its lower bound and you want a compiler-informed reference for which tensors should be L1-sharded (and how) versus DRAM, plus the matmul program config the optimizer picks for that strategy. Produces a structured report.json (per-op layout, program_config, reshards, L1 spill). Not for perf profiling and not for dtype-precision decisions."
 ---
 
 # Shard Advise
@@ -23,8 +23,8 @@ way `investigate-results` treats agent explanations.
 - You changed a block's sharding and want to know if the compiler agrees.
 - You want a per-op layout map of a model you didn't write.
 
-Do **not** use it for perf numbers (profile instead) or to decide dtypes /
-program configs (out of scope).
+Do **not** use it for perf numbers (profile instead) or to decide tensor dtype
+precision (bf16 vs bfp8/bfp4 — out of scope).
 
 ## Setup (once per shell)
 
@@ -76,13 +76,17 @@ model differs, ask why.
 
 ## Scope — do not over-read
 
-Layout-only. The advisor does **not** advise on, and its silence says nothing
-about: tensor **dtypes** (bf16 / bfp8_b / bfp4_b), matmul/SDPA **program
-configs** (e.g. DRAM-sharded weight matmuls), or **compute-kernel configs**
-(hifi2/hifi4). It *does* faithfully trace the dtypes the model already chose
-(bfp4/bfp8 weights included), so layout reasoning uses the real footprint. When
-comparing to a hand-tuned model expect agreement on the layout skeleton and gaps
-on precision + program configs — those are separate axes.
+The advisor advises L1 layout / sharding **and** the matmul **program config**
+the optimizer picks for that strategy (e.g. `matmul_multi_core_reuse_multi_cast_1d
+@8x8`, in each op's `program_config`). It faithfully traces the dtypes the model
+already chose (bfp4/bfp8 weights included), so layout reasoning uses the real
+footprint — but it does not *recommend* a dtype change.
+
+It does **not** pick the **DRAM-sharded-weight** matmul strategy (a distinct
+optimizer feature landing soon; once chosen its program config surfaces the same
+way) or tune **compute-kernel configs** (hifi2/hifi4). Comparing to a hand-tuned
+model, expect agreement on the layout skeleton + chosen-strategy program config,
+and gaps on precision and the DRAM-sharded-weight strategy.
 
 ## Gotchas
 
