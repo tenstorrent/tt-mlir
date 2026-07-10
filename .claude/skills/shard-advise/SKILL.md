@@ -6,8 +6,10 @@ description: Get L1 sharding advice for a ttnn graph via the ttnn-jit shard advi
 # Instructions
 
 Use the `ttnn-advise` CLI to get per-op L1 layout / sharding advice from the
-greedy optimizer. It traces (or reads) a ttnn graph, runs the scoped
-`ttir-to-ttnn-l1-advisor` pipeline, and writes a browsable artifact set.
+greedy optimizer. `capture` traces the ttnn function straight into the **TTNN
+dialect** (a ttnn-framework model *is* TTNN) and runs the greedy optimizer with
+no lowering; `mlir` reads an existing TTIR file. Either way it writes a
+browsable artifact set.
 
 **Always run it in a fresh process (a Bash call), and read `report.json` for the
 result — do not scrape stdout.** The tool prints only a 5-line summary to stdout;
@@ -51,9 +53,12 @@ def make_inputs(device):                # returns the ttnn.Tensor args, on devic
 ttnn-advise capture target.py:decode --out /tmp/advice 2>/dev/null
 ```
 
-Common flags (both modes): `--opt-level N` (default 2), `--out DIR`,
-`--pipeline scoped|full` (scoped = optimizer-only 1:1; use `full` only if scoped
-reports an op needs decomposition).
+`capture` traces directly to TTNN by default (`--tracer ttnn`). A ttnn op with
+no tracer handler fails loudly with `ttnn.<op> has no direct-TTNN handler yet` —
+a genuine add-op signal, not a dead end. `--tracer interception` routes through
+the older TTIR path as a stopgap for such ops.
+
+Common flags (both modes): `--opt-level N` (default 2), `--out DIR`.
 
 ## Reading the result
 
@@ -97,5 +102,6 @@ on precision and the DRAM-sharded-weight strategy.
   artifact from `ttmlir-opt`. After changing optimizer/pass/rule-book code, run
   `cmake --build build` (relink + reinstall) — building only `ttmlir-opt` will
   silently run the OLD code in the advisor.
-- If `mlir` mode raises "an op may require decomposition", retry with
-  `--pipeline full`.
+- If `capture` fails with `ttnn.<op> has no direct-TTNN handler yet`, add that
+  handler in `tools/ttnn-jit/_src/ttnn_emit_tracer.py` (bounded per-op work), or
+  use `--tracer interception` for that model in the meantime.

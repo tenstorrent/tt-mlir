@@ -106,9 +106,14 @@ and gaps on precision and the DRAM-sharded-weight strategy.
 ## Gotchas
 
 - **Fresh process per run** — the optimizer's device context is process-global.
+- **Missing op = loud, actionable failure.** By default the advisor traces the
+  model straight into the TTNN dialect. A ttnn op with no tracer handler fails
+  with `ttnn.<op> has no direct-TTNN handler yet`, naming exactly what to add —
+  that is a bounded per-op task in tt-mlir, not a dead end. Report the op rather
+  than working around it. (For a model that hits one, `--tracer interception`
+  routes through the older TTIR path as a stopgap.)
 - **ttnn version skew** — the advisor traces against tt-mlir's ttnn, not the
-  experiment's tt-metal branch. If tracing fails on a ttnn op, that op's tracer
-  handler needs aligning (bounded work in tt-mlir); report it rather than
-  working around it.
+  experiment's tt-metal branch; diverged op signatures surface as the same
+  loud trace failure.
 - Read `report.json`; the CLI keeps stdout to a 5-line summary and routes all
   pipeline/device logging to `pipeline.log`.

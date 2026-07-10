@@ -50,6 +50,15 @@ export TTMLIR_ADVISOR_HOME=/path/to/tt-mlir     # checkout with the build above
 
 `bootstrap.sh` activates that env and ensures a system descriptor exists.
 
+## How it traces: direct TTNN
+
+By default the advisor traces the ttnn function straight into the **TTNN
+dialect** (a ttnn-framework model *is* TTNN), then runs the greedy L1 optimizer
+with no lowering. A ttnn op with no tracer handler is a genuine **missing-op
+signal** — the trace fails loudly with `ttnn.<op> has no direct-TTNN handler
+yet`, naming exactly what to add — rather than silently detouring through TTIR.
+(The TTIR path stays available for such ops via `--tracer interception`.)
+
 ## The one real risk: ttnn version skew
 
 The advisor traces by **executing** ttnn, so the model must run against the
@@ -58,9 +67,10 @@ advisor's ttnn (tt-mlir's pinned tt-metal SHA), which differs from the agents'
 diverge, tracing breaks.
 
 **De-risk before relying on it:** run `advise_decoder.py` on one experiment's
-`optimized_decoder.py`. If it traces, integration is real. If it fails on a
-specific ttnn op, that op's tracer handler needs aligning — bounded, per-op work
-in `tools/ttnn-jit/_src/interception_tracer.py`.
+`optimized_decoder.py`. If it traces, integration is real. If it fails with a
+`no direct-TTNN handler yet` error for a specific op, adding that handler is
+bounded, per-op work in `tools/ttnn-jit/_src/ttnn_emit_tracer.py` (or fall back
+to `--tracer interception` for that model in the meantime).
 
 ## Scope
 
