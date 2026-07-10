@@ -420,12 +420,23 @@ def _slice_handler(jit_ctx, x, starts=None, ends=None, steps=None, **kwargs):
         )
 
 
+def _unsqueeze_to_4d_handler(jit_ctx, x, **kwargs):
+    # ttnn.unsqueeze_to_4D(x) prepends leading 1s to make the tensor rank-4
+    # (a no-op if already 4D). Pure shape change -> ttir.reshape.
+    in_shape = [int(d) for d in x.mlir_value.type.shape]
+    dims = [1] * (4 - len(in_shape)) + in_shape
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        result_type = RankedTensorType.get(dims, x.mlir_value.type.element_type)
+        return ttir.reshape(result=result_type, input=x.mlir_value, shape=dims)
+
+
 _VALUE_HANDLERS = {
     "linear": _linear_handler,
     "typecast": _typecast_handler,
     "rms_norm": _rms_norm_handler,
     "reshape": _reshape_handler,
     "slice": _slice_handler,
+    "unsqueeze_to_4D": _unsqueeze_to_4d_handler,
 }
 
 
