@@ -22,9 +22,15 @@ void run(const ::tt::target::ttnn::FuncCallOp *op, ProgramContext &context) {
   std::vector<::tt::runtime::GlobalSemaphore> semaphoreInputs =
       utils::collectSemaphoreInputs(op->semaphore_inputs(), context);
 
+  // Link the child context to `context` (the caller) as its parent so
+  // getOrCreateImplicit* lookups forward to the shared root context. Without
+  // this, the trace warmup and capture func.calls run in distinct child
+  // contexts and each re-runs the ttnn::zeros host write — illegal during trace
+  // capture ("Writes are not supported during trace capture").
   ProgramExecutor executor(context.getDeviceHandle(),
                            context.getExecutableHandle(), programIndex, inputs,
-                           /*constEvalProgram=*/false, semaphoreInputs);
+                           /*constEvalProgram=*/false, semaphoreInputs,
+                           /*parentContext=*/&context);
 
   executor.execute();
   std::vector<::tt::runtime::Tensor> outputs = executor.gatherOutputTensors();

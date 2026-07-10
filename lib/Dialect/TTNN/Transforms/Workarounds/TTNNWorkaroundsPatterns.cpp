@@ -779,5 +779,22 @@ const std::set<mlir::StringRef>
         // index/param tensors, UINT32 dtype on k, and ROW_MAJOR+UINT32 on
         // the result (the kernel hard-rejects anything else and produces
         // UINT32).
-        ttnn::SamplingOp::getOperationName()};
+        ttnn::SamplingOp::getOperationName(),
+        // Experimental MoE CCL ops require explicit operand workarounds
+        // (RowMajor/UInt16 inputs, HeightSharded L1 outputs) to satisfy the
+        // tt-metal kernel layout requirements. Without workarounds, the
+        // optimizer may assign DRAM INTERLEAVED TILE layouts that trip the
+        // runtime sharded-tilize assert (tt-metal#30541).
+        ttnn::AllToAllDispatchMetadataOp::getOperationName(),
+        ttnn::MoeGptOp::getOperationName(),
+        ttnn::SelectiveReduceCombineOp::getOperationName(),
+        // Expert-parallel (prefill) MoE CCL ops have the same row-major /
+        // uint16 operand requirements as their decode counterparts. Without
+        // these in the optimizer allowlist, opt_level>=1 leaves their inputs
+        // TILE-laid-out and the tt-metal kernels assert "Input tensor must be
+        // in row major layout" (all_to_all_dispatch) at runtime.
+        ttnn::AllToAllDispatchOp::getOperationName(),
+        ttnn::AllToAllCombineOp::getOperationName(),
+        ttnn::SparseMatmulOp::getOperationName(),
+        ttnn::MoeExpertTokenRemapOp::getOperationName()};
 } // namespace mlir::tt::ttnn

@@ -50,13 +50,27 @@ struct SliceReshapeMatch {
   SliceStaticOp sliceOp;
   ReshapeOp reshapeOp;
   PermuteOp permuteOp; // nullptr if absent
+  bool foldedRelabel =
+      false; // reshape folds head-split + decode relabel into
+             // one reshape to [1,B,H,D]; logical head=[B,H,1,D]
 
   Operation *getFinalOp() {
     return permuteOp ? permuteOp.getOperation() : reshapeOp.getOperation();
   }
 
   RankedTensorType getFinalType() {
-    return permuteOp ? permuteOp.getType() : reshapeOp.getType();
+    if (permuteOp) {
+      return permuteOp.getType();
+    }
+    if (foldedRelabel) {
+      // reshapeOp produces [1, B, H, D]; the logical pre-relabel head layout
+      // is [B, H, 1, D] (what the split op emits).
+      auto sh = reshapeOp.getType().getShape();
+      SmallVector<int64_t> headShape = {sh[1], sh[2], 1, sh[3]};
+      return utils::RankedTensorTypeFactory::create(reshapeOp.getType(),
+                                                    headShape);
+    }
+    return reshapeOp.getType();
   }
 };
 
@@ -447,7 +461,24 @@ matchSliceReshapeChains(MatMulOpType matmulOp) {
       }
     }
 
-    matches.push_back({sliceOp, reshapeOp, permuteOp});
+    bool folded = false;
+    if (!permuteOp) {
+      auto rs = reshapeOp.getType().getShape();
+      auto ss = sliceOp.getType().getShape();
+      int64_t batchSeq = 1;
+      for (size_t i = 0; i + 1 < ss.size(); ++i) {
+        batchSeq *= ss[i];
+      }
+      int64_t hidden = ss.back();
+      // Folded decode relabel: a norm-less chain whose reshape collapses the
+      // head-split and the [B,H,1,D]->[1,B,H,D] relabel into one reshape to
+      // [1, B, H, D]. K/Q keep them separate (q/k-norm sits between).
+      if (rs.size() == 4 && rs[0] == 1 && rs[1] == batchSeq &&
+          rs[2] * rs[3] == hidden) {
+        folded = true;
+      }
+    }
+    matches.push_back({sliceOp, reshapeOp, permuteOp, folded});
   }
 
   return matches;
@@ -533,6 +564,11 @@ bool validateSliceCoverage(MatMulOpType matmulOp,
 //                                       data)
 bool validateReshapeLayouts(SmallVector<SliceReshapeMatch> &matches) {
   for (auto &m : matches) {
+    if (m.foldedRelabel) {
+      // Structurally validated in matchSliceReshapeChains: a folded
+      // [1,B,H,D] decode-relabel reshape (logical head layout [B,H,1,D]).
+      continue;
+    }
     auto sliceShape = m.sliceOp.getType().getShape();
     auto reshapeShape = m.reshapeOp.getType().getShape();
     if (reshapeShape.size() != 4) {
@@ -676,12 +712,25 @@ mlir::LogicalResult createFusedOp(mlir::PatternRewriter &rewriter,
         .getResult();
   };
 
-  rewriter.replaceOp(q.match.getFinalOp(),
-                     maybeTypecast(splitOp.getQuery(), q.match.getFinalType()));
-  rewriter.replaceOp(k.match.getFinalOp(),
-                     maybeTypecast(splitOp.getKey(), k.match.getFinalType()));
-  rewriter.replaceOp(v.match.getFinalOp(),
-                     maybeTypecast(splitOp.getValue(), v.match.getFinalType()));
+  // Wire each split output back to the chain consumers. For folded-relabel
+  // chains (norm-less, e.g. V), the original reshape produced [1,B,H,D] while
+  // the split emits [B,H,1,D], so re-apply the decode relabel before replacing.
+  auto wireOutput = [&](QKVHead &head, Value splitResult) {
+    Value val = maybeTypecast(splitResult, head.match.getFinalType());
+    if (head.match.foldedRelabel) {
+      auto relabelTy = head.match.reshapeOp.getType();
+      auto shp = relabelTy.getShape();
+      SmallVector<int32_t> shpI32(shp.begin(), shp.end());
+      val = rewriter
+                .create<ReshapeOp>(matmulOp.getLoc(), relabelTy, val,
+                                   rewriter.getI32ArrayAttr(shpI32))
+                .getResult();
+    }
+    rewriter.replaceOp(head.match.getFinalOp(), val);
+  };
+  wireOutput(q, splitOp.getQuery());
+  wireOutput(k, splitOp.getKey());
+  wireOutput(v, splitOp.getValue());
 
   return mlir::success();
 }
@@ -690,20 +739,48 @@ mlir::LogicalResult createFusedOp(mlir::PatternRewriter &rewriter,
 // NLPCreateQKVHeadsDecodeFusing helpers
 // ============================================================================
 
-// Returns the single PermuteOp user of `result` if it has permutation
-// [2, 0, 1, 3], or nullptr otherwise.
-PermuteOp getDecodePermuteUser(Value result) {
+// Returns the single layout-defining user of `result` that performs the decode
+// relabel [B, H, 1, D] -> [1, B, H, D], or nullptr otherwise.
+//
+// This relabel is emitted as a permute [2, 0, 1, 3]. Because only the singleton
+// S=1 dim moves, PermuteOp::canonicalize rewrites that permute into an
+// equivalent reshape (see the PermuteOp folder / canonicalizer). Canonicalize
+// runs between fusing passes, so by the time this pattern sees the IR the
+// relabel may be in either form -- accept both. The returned op's single result
+// carries the [1, B, H, D] decode-layout type the fused op must produce.
+// True if `reshapeOp` performs the decode relabel [B, H, 1, D] -> [1, B, H, D]
+// (a pure singleton-S axis move, equivalent to permute [2, 0, 1, 3]).
+bool isDecodeRelabelReshape(ReshapeOp reshapeOp) {
+  auto inShape =
+      mlir::cast<RankedTensorType>(reshapeOp->getOperand(0).getType())
+          .getShape();
+  auto outShape = reshapeOp.getType().getShape();
+  return inShape.size() == 4 && outShape.size() == 4 && inShape[2] == 1 &&
+         outShape[0] == 1 && outShape[1] == inShape[0] &&
+         outShape[2] == inShape[1] && outShape[3] == inShape[3];
+}
+
+Operation *getDecodeLayoutUser(Value result) {
   if (!result.hasOneUse()) {
     return nullptr;
   }
-  auto permuteOp = dyn_cast<PermuteOp>(*result.getUsers().begin());
-  if (!permuteOp) {
+  Operation *user = *result.getUsers().begin();
+
+  if (auto permuteOp = dyn_cast<PermuteOp>(user)) {
+    if (permuteOp.getPermutation() == ArrayRef<int64_t>{2, 0, 1, 3}) {
+      return permuteOp;
+    }
     return nullptr;
   }
-  if (permuteOp.getPermutation() != ArrayRef<int64_t>{2, 0, 1, 3}) {
-    return nullptr;
+
+  // Reshape form: a pure singleton-S relabel [B, H, 1, D] -> [1, B, H, D],
+  // equivalent to permute [2, 0, 1, 3] when the moved S dim is 1.
+  if (auto reshapeOp = dyn_cast<ReshapeOp>(user)) {
+    return isDecodeRelabelReshape(reshapeOp) ? reshapeOp.getOperation()
+                                             : nullptr;
   }
-  return permuteOp;
+
+  return nullptr;
 }
 
 } // namespace
@@ -842,13 +919,18 @@ mlir::LogicalResult NLPCreateQKVHeadsDecodeFusing::matchAndRewrite(
     return mlir::failure();
   }
 
-  // All three outputs must each have exactly one use: a permute [2,0,1,3].
-  auto qPermuteOp = getDecodePermuteUser(splitOp.getQuery());
-  auto kPermuteOp = getDecodePermuteUser(splitOp.getKey());
-  auto vPermuteOp = getDecodePermuteUser(splitOp.getValue());
-  if (!qPermuteOp || !kPermuteOp || !vPermuteOp) {
+  // All three outputs must each have exactly one use: the decode relabel
+  // [B, H, 1, D] -> [1, B, H, D] (permute [2,0,1,3] or its canonicalized
+  // reshape form).
+  Operation *qLayoutOp = getDecodeLayoutUser(splitOp.getQuery());
+  Operation *kLayoutOp = getDecodeLayoutUser(splitOp.getKey());
+  Operation *vLayoutOp = getDecodeLayoutUser(splitOp.getValue());
+  if (!qLayoutOp || !kLayoutOp || !vLayoutOp) {
     return mlir::failure();
   }
+  auto qOutTy = mlir::cast<RankedTensorType>(qLayoutOp->getResult(0).getType());
+  auto kOutTy = mlir::cast<RankedTensorType>(kLayoutOp->getResult(0).getType());
+  auto vOutTy = mlir::cast<RankedTensorType>(vLayoutOp->getResult(0).getType());
 
   // Extract dimensions.
   int64_t batchSize = inputShape[0];
@@ -873,15 +955,13 @@ mlir::LogicalResult NLPCreateQKVHeadsDecodeFusing::matchAndRewrite(
   auto numHeadsAttr = rewriter.getUI32IntegerAttr(numHeads);
   auto numKVHeadsAttr =
       isGQA ? rewriter.getUI32IntegerAttr(numKVHeads) : IntegerAttr();
-  SmallVector<Type> resultTypes = {qPermuteOp.getType(), kPermuteOp.getType(),
-                                   vPermuteOp.getType()};
+  SmallVector<Type> resultTypes = {qOutTy, kOutTy, vOutTy};
 
   // Validate the fused op before creating it.
   IsolatedIRValidationWrapper validator(rewriter.getContext(),
                                         validationConfig);
   auto validationResult = validator.validateOp<NLPCreateQKVHeadsDecodeOp>(
-      splitOp.getOperation(), splitOp.getLoc(),
-      {qPermuteOp.getType(), kPermuteOp.getType(), vPermuteOp.getType()},
+      splitOp.getOperation(), splitOp.getLoc(), {qOutTy, kOutTy, vOutTy},
       reshapeOp.getResult(),
       /*batch_offset=*/Value(), numHeadsAttr, numKVHeadsAttr,
       /*overlap_qk_coregrid=*/BoolAttr(),
@@ -898,10 +978,262 @@ mlir::LogicalResult NLPCreateQKVHeadsDecodeFusing::matchAndRewrite(
       /*slice_size=*/IntegerAttr());
 
   // Replace permute ops with decode op outputs.
-  rewriter.replaceOp(qPermuteOp, decodeOp.getQuery());
-  rewriter.replaceOp(kPermuteOp, decodeOp.getKey());
-  rewriter.replaceOp(vPermuteOp, decodeOp.getValue());
+  rewriter.replaceOp(qLayoutOp, decodeOp.getQuery());
+  rewriter.replaceOp(kLayoutOp, decodeOp.getKey());
+  rewriter.replaceOp(vLayoutOp, decodeOp.getValue());
 
+  return mlir::success();
+}
+
+// ============================================================================
+// DecodeRelabelThroughRMSNorm
+// ============================================================================
+
+// True if `op` is a decode relabel [B, H, 1, D] -> [1, B, H, D], expressed as
+// either permute [2, 0, 1, 3] or its canonicalized reshape form.
+static bool isDecodeRelabelOp(Operation *op) {
+  if (auto permuteOp = dyn_cast<PermuteOp>(op)) {
+    return permuteOp.getPermutation() == ArrayRef<int64_t>{2, 0, 1, 3};
+  }
+  if (auto reshapeOp = dyn_cast<ReshapeOp>(op)) {
+    return isDecodeRelabelReshape(reshapeOp);
+  }
+  return false;
+}
+
+mlir::LogicalResult DecodeRelabelThroughRMSNorm::matchAndRewrite(
+    RMSNormOp normOp, mlir::PatternRewriter &rewriter) const {
+  // Every real consumer of the norm must be a decode relabel
+  // [B, H, 1, D] -> [1, B, H, D] (permute [2,0,1,3] or its reshape form). The
+  // norm may feed several (e.g. a partial-RoPE rotated half + a passthrough
+  // half), so collect them all and sink one shared relabel above the norm.
+  SmallVector<Operation *> relabels;
+  for (Operation *user : normOp.getResult().getUsers()) {
+    if (isa<DeallocateOp>(user)) {
+      continue;
+    }
+    if (!isDecodeRelabelOp(user)) {
+      return mlir::failure();
+    }
+    relabels.push_back(user);
+  }
+  if (relabels.empty()) {
+    return mlir::failure();
+  }
+  Operation *relabel = relabels.front();
+
+  // Only sink once the head split has been formed: the norm must consume a
+  // SplitQueryKeyValueAndSplitHeadsOp output (possibly via a typecast). This
+  // enforces split-fusion-first ordering -- otherwise the relabel would merge
+  // into the head-splitting reshape and break the split fusion's
+  // matmul -> slice -> reshape[B,H,1,D] match.
+  Operation *inputDef = normOp.getInput().getDefiningOp();
+  while (auto tc = dyn_cast_or_null<TypecastOp>(inputDef)) {
+    inputDef = tc.getInput().getDefiningOp();
+  }
+  if (!isa_and_nonnull<SplitQueryKeyValueAndSplitHeadsOp>(inputDef)) {
+    return mlir::failure();
+  }
+
+  auto relabelTy =
+      mlir::cast<RankedTensorType>(relabel->getResult(0).getType());
+
+  // rms_norm normalizes the last dim, which the relabel leaves untouched, so
+  // rms_norm(relabel(x)) == relabel(rms_norm(x)). Sink the relabel above the
+  // norm so the norm runs on the [1, B, H, D] decode layout and the relabel
+  // moves toward the split output, where NLPCreateQKVHeadsDecodeFusing consumes
+  // it. Emit the relabel as a reshape (the canonical S=1 form).
+  rewriter.setInsertionPoint(normOp);
+  auto outShape = relabelTy.getShape();
+  SmallVector<int32_t> shapeI32(outShape.begin(), outShape.end());
+  auto newReshape =
+      rewriter.create<ReshapeOp>(normOp.getLoc(), relabelTy, normOp.getInput(),
+                                 rewriter.getI32ArrayAttr(shapeI32));
+
+  // Clone the norm onto the relabeled input, preserving weight/bias operands,
+  // operandSegmentSizes, epsilon and compute_config.
+  mlir::OperationState state(normOp.getLoc(), RMSNormOp::getOperationName());
+  state.addOperands(newReshape.getResult());
+  for (unsigned i = 1; i < normOp->getNumOperands(); ++i) {
+    state.addOperands(normOp->getOperand(i));
+  }
+  state.addAttributes(normOp->getAttrs());
+  state.addTypes(relabelTy);
+  Operation *newNorm = rewriter.create(state);
+
+  for (Operation *r : relabels) {
+    rewriter.replaceOp(r, newNorm->getResult(0));
+  }
+  return mlir::success();
+}
+
+// Returns the single non-dealloc user of `v` if it is a decode relabel
+// (permute [2,0,1,3] or its reshape form), else nullptr.
+static Operation *getDecodeRelabelConsumer(Value v) {
+  Operation *user = getSingleNonDeallocUser(v);
+  return (user && isDecodeRelabelOp(user)) ? user : nullptr;
+}
+
+// The decode relabel target shape for a [B, H, 1, D'] input: [1, B, H, D'].
+static SmallVector<int32_t> decodeRelabelShape(ArrayRef<int64_t> inShape) {
+  return {1, static_cast<int32_t>(inShape[0]), static_cast<int32_t>(inShape[1]),
+          static_cast<int32_t>(inShape[3])};
+}
+
+mlir::LogicalResult DecodeRelabelThroughConcat::matchAndRewrite(
+    ConcatOp concatOp, mlir::PatternRewriter &rewriter) const {
+  Operation *relabel = getDecodeRelabelConsumer(concatOp.getResult());
+  if (!relabel) {
+    return mlir::failure();
+  }
+  // Only commute when concatenating along the last dim (head_dim) of a rank-4
+  // [B, H, 1, D] tensor: the relabel moves only leading/singleton dims, so the
+  // concat axis is unchanged.
+  auto concatTy = concatOp.getType();
+  if (concatTy.getRank() != 4 || concatOp.getDim() != 3 ||
+      concatTy.getShape()[2] != 1) {
+    return mlir::failure();
+  }
+  auto relabelTy =
+      mlir::cast<RankedTensorType>(relabel->getResult(0).getType());
+
+  rewriter.setInsertionPoint(concatOp);
+  SmallVector<Value> newInputs;
+  for (Value in : concatOp.getInputs()) {
+    auto inTy = mlir::cast<RankedTensorType>(in.getType());
+    auto inShape = inTy.getShape();
+    SmallVector<int64_t> outShape = {1, inShape[0], inShape[1], inShape[3]};
+    auto outTy = utils::RankedTensorTypeFactory::create(inTy, outShape);
+    newInputs.push_back(rewriter
+                            .create<ReshapeOp>(concatOp.getLoc(), outTy, in,
+                                               rewriter.getI32ArrayAttr(
+                                                   decodeRelabelShape(inShape)))
+                            .getResult());
+  }
+  auto newConcat = rewriter.create<ConcatOp>(concatOp.getLoc(), relabelTy,
+                                             newInputs, /*dim=*/3);
+  rewriter.replaceOp(relabel, newConcat.getResult());
+  return mlir::success();
+}
+
+mlir::LogicalResult DecodeRelabelThroughSlice::matchAndRewrite(
+    SliceStaticOp sliceOp, mlir::PatternRewriter &rewriter) const {
+  Operation *relabel = getDecodeRelabelConsumer(sliceOp.getResult());
+  if (!relabel) {
+    return mlir::failure();
+  }
+  // Only commute a pure head_dim (last-dim) slice of a rank-4 [B, H, 1, D]
+  // tensor: dims 0,1,2 must be full so the relabel (which only reorders
+  // leading/singleton dims) leaves the sliced axis as the last dim.
+  auto inTy = mlir::cast<RankedTensorType>(sliceOp->getOperand(0).getType());
+  auto inShape = inTy.getShape();
+  if (inShape.size() != 4 || inShape[2] != 1) {
+    return mlir::failure();
+  }
+  auto begins = sliceOp.getBegins();
+  auto ends = sliceOp.getEnds();
+  auto steps = sliceOp.getStep();
+  for (int d = 0; d < 3; ++d) {
+    if (mlir::cast<mlir::IntegerAttr>(begins[d]).getInt() != 0 ||
+        mlir::cast<mlir::IntegerAttr>(ends[d]).getInt() != inShape[d] ||
+        mlir::cast<mlir::IntegerAttr>(steps[d]).getInt() != 1) {
+      return mlir::failure();
+    }
+  }
+  auto relabelTy =
+      mlir::cast<RankedTensorType>(relabel->getResult(0).getType());
+
+  rewriter.setInsertionPoint(sliceOp);
+  // Relabel the slice input [B,H,1,D] -> [1,B,H,D].
+  SmallVector<int64_t> relInShape = {1, inShape[0], inShape[1], inShape[3]};
+  auto relInTy = utils::RankedTensorTypeFactory::create(inTy, relInShape);
+  auto relIn = rewriter.create<ReshapeOp>(
+      sliceOp.getLoc(), relInTy, sliceOp->getOperand(0),
+      rewriter.getI32ArrayAttr(decodeRelabelShape(inShape)));
+  // Slice the same head_dim range on the relabeled (now dim 3) layout.
+  int64_t d3b = mlir::cast<mlir::IntegerAttr>(begins[3]).getInt();
+  int64_t d3e = mlir::cast<mlir::IntegerAttr>(ends[3]).getInt();
+  int64_t d3s = mlir::cast<mlir::IntegerAttr>(steps[3]).getInt();
+  SmallVector<int32_t> nb = {0, 0, 0, static_cast<int32_t>(d3b)};
+  SmallVector<int32_t> ne = {1, static_cast<int32_t>(inShape[0]),
+                             static_cast<int32_t>(inShape[1]),
+                             static_cast<int32_t>(d3e)};
+  SmallVector<int32_t> ns = {1, 1, 1, static_cast<int32_t>(d3s)};
+  auto newSlice = rewriter.create<SliceStaticOp>(
+      sliceOp.getLoc(), relabelTy, relIn.getResult(),
+      rewriter.getI32ArrayAttr(nb), rewriter.getI32ArrayAttr(ne),
+      rewriter.getI32ArrayAttr(ns));
+  rewriter.replaceOp(relabel, newSlice.getResult());
+  return mlir::success();
+}
+
+mlir::LogicalResult DecodeRelabelThroughRotary::matchAndRewrite(
+    RotaryEmbeddingOp rotaryOp, mlir::PatternRewriter &rewriter) const {
+  // The rotary's consumer is the decode relabel [B,H,1,D] -> [1,B,H,D], either
+  // directly or through a leading seq-strip slice. At fusing time the rotary
+  // output is unpadded [B,H,1,D], so the seq-strip is an identity that
+  // canonicalizes away and the relabel consumes the rotary directly; once the
+  // seq-len workaround pads the rotary the strip reappears. Accept both.
+  // Relabel the rotary input to [1,B,H,D] and re-run the rotary on that layout
+  // (heads in dim2) with token_index=0 -- the decode rotary RoPEDecodeFusing
+  // produces.
+  Operation *next = getSingleNonDeallocUser(rotaryOp.getResult());
+  if (!next) {
+    return mlir::failure();
+  }
+  Operation *relabel = nullptr;
+  if (isDecodeRelabelOp(next)) {
+    relabel = next;
+  } else if (auto stripOp = dyn_cast<SliceStaticOp>(next)) {
+    auto sTy = mlir::cast<RankedTensorType>(stripOp->getOperand(0).getType());
+    auto sShape = sTy.getShape();
+    auto geti = [](mlir::ArrayAttr a, int i) {
+      return mlir::cast<mlir::IntegerAttr>(a[i]).getInt();
+    };
+    if (sShape.size() == 4 && geti(stripOp.getBegins(), 0) == 0 &&
+        geti(stripOp.getEnds(), 0) == sShape[0] &&
+        geti(stripOp.getBegins(), 1) == 0 &&
+        geti(stripOp.getEnds(), 1) == sShape[1] &&
+        geti(stripOp.getBegins(), 3) == 0 &&
+        geti(stripOp.getEnds(), 3) == sShape[3] &&
+        geti(stripOp.getBegins(), 2) == 0) {
+      relabel = getDecodeRelabelConsumer(stripOp.getResult());
+    }
+  }
+  if (!relabel) {
+    return mlir::failure();
+  }
+
+  // cos/sin must be single-position (dim -2 == 1): mirrors RoPEDecodeFusing.
+  auto cosTy = mlir::cast<RankedTensorType>(rotaryOp.getCosCache().getType());
+  if (cosTy.getShape()[cosTy.getRank() - 2] != 1) {
+    return mlir::failure();
+  }
+
+  Value rotIn = rotaryOp.getInput();
+  auto rotInTy = mlir::cast<RankedTensorType>(rotIn.getType());
+  auto ris = rotInTy.getShape();
+  if (ris.size() != 4 || ris[2] != 1) {
+    return mlir::failure();
+  }
+  auto relabelTy =
+      mlir::cast<RankedTensorType>(relabel->getResult(0).getType());
+
+  rewriter.setInsertionPoint(rotaryOp);
+  SmallVector<int64_t> relShape = {1, ris[0], ris[1], ris[3]};
+  auto relInTy = utils::RankedTensorTypeFactory::create(rotInTy, relShape);
+  SmallVector<int32_t> relShapeI32 = {1, static_cast<int32_t>(ris[0]),
+                                      static_cast<int32_t>(ris[1]),
+                                      static_cast<int32_t>(ris[3])};
+  auto relIn = rewriter.create<ReshapeOp>(
+      rotaryOp.getLoc(), relInTy, rotIn, rewriter.getI32ArrayAttr(relShapeI32));
+
+  auto tokenIndex = rewriter.getIntegerAttr(
+      rewriter.getIntegerType(32, /*isSigned=*/false), 0);
+  auto newRotary = rewriter.create<RotaryEmbeddingOp>(
+      rotaryOp.getLoc(), relabelTy, relIn.getResult(), rotaryOp.getCosCache(),
+      rotaryOp.getSinCache(), tokenIndex, rotaryOp.getComputeConfigAttr());
+  rewriter.replaceOp(relabel, newRotary.getResult());
   return mlir::success();
 }
 

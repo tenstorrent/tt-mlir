@@ -74,6 +74,45 @@ private:
   OpValidationConfig validationConfig;
 };
 
+// Sinks a decode relabel reshape [B, H, 1, D] -> [1, B, H, D] up through a
+// single-use ttnn.rms_norm (which normalizes the last dim, untouched by the
+// relabel), so the norm runs on the [1, B, H, D] decode layout and the relabel
+// moves toward the split output where NLPCreateQKVHeadsDecodeFusing consumes
+// it.
+class DecodeRelabelThroughRMSNorm : public mlir::OpRewritePattern<RMSNormOp> {
+public:
+  using mlir::OpRewritePattern<RMSNormOp>::OpRewritePattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(RMSNormOp normOp,
+                  mlir::PatternRewriter &rewriter) const override;
+};
+
+class DecodeRelabelThroughConcat : public mlir::OpRewritePattern<ConcatOp> {
+public:
+  using mlir::OpRewritePattern<ConcatOp>::OpRewritePattern;
+  mlir::LogicalResult
+  matchAndRewrite(ConcatOp concatOp,
+                  mlir::PatternRewriter &rewriter) const override;
+};
+
+class DecodeRelabelThroughSlice : public mlir::OpRewritePattern<SliceStaticOp> {
+public:
+  using mlir::OpRewritePattern<SliceStaticOp>::OpRewritePattern;
+  mlir::LogicalResult
+  matchAndRewrite(SliceStaticOp sliceOp,
+                  mlir::PatternRewriter &rewriter) const override;
+};
+
+class DecodeRelabelThroughRotary
+    : public mlir::OpRewritePattern<RotaryEmbeddingOp> {
+public:
+  using mlir::OpRewritePattern<RotaryEmbeddingOp>::OpRewritePattern;
+  mlir::LogicalResult
+  matchAndRewrite(RotaryEmbeddingOp rotaryOp,
+                  mlir::PatternRewriter &rewriter) const override;
+};
+
 } // namespace mlir::tt::ttnn::fusing
 
 #endif // TTMLIR_DIALECT_TTNN_TRANSFORMS_FUSING_SPLITQKVFUSINGPATTERNS_H

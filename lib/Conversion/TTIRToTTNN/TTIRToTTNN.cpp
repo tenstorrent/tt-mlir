@@ -31,6 +31,7 @@
 
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/MathExtras.h"
+#include <atomic>
 #include <cstdint>
 #include <optional>
 
@@ -1728,10 +1729,43 @@ public:
   LogicalResult
   matchAndRewrite(ttir::SelectiveReduceCombineOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    Type resultType =
+        this->getTypeConverter()->convertType(op.getResult().getType());
+
+    // Pre-allocate a zero-filled output buffer for the combine kernel.
+    // The kernel performs *sparse writes* into this buffer — only (token,
+    // K-slot) pairs routed to valid experts are actually written. Unwritten
+    // slots must start as zero, otherwise uninitialized DRAM values (often
+    // -inf / NaN) propagate into the downstream score-weighted sum and
+    // all_reduce and corrupt the final logits. This mirrors tt-metal's
+    // fused_decode.py reference which explicitly feeds a zero-filled DRAM
+    // tensor to `ttnn.selective_reduce_combine`. The workaround pass forces
+    // the tensor to ROW_MAJOR / BF16 / DRAM-INTERLEAVED to match the
+    // kernel's expected output layout.
+    mlir::Value device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    auto zeroOutput = rewriter.create<ttnn::FullOp>(
+        op.getLoc(), resultType, rewriter.getF32FloatAttr(0.0f), device);
+    // The combine writes into this zero buffer IN PLACE (sparse writes), so it
+    // must be re-materialized fresh every forward / decode step: a buffer
+    // reused across steps keeps the previous step's writes in its unwritten
+    // slots and decode output diverges per batch. Mark it "ttnn.non_cacheable"
+    // so the const-eval pass does NOT hoist+cache it (a cached buffer is
+    // persistent and shared across steps) — instead it stays inline in the
+    // forward func and the runtime allocates it dynamically per execution, with
+    // tight allocate->write->free liveness (no static-plan fragmentation; only
+    // the combine buffers are inlined, all other ttnn.full constants stay
+    // cached). The unique id additionally keeps the per-layer inline full ops
+    // distinct so CSE cannot merge them back into a single shared buffer.
+    zeroOutput->setAttr("ttnn.non_cacheable", rewriter.getUnitAttr());
+    static std::atomic<int64_t> combineOutputUniquifier{0};
+    zeroOutput->setAttr(
+        "ttnn.combine_output_id",
+        rewriter.getI64IntegerAttr(combineOutputUniquifier.fetch_add(1)));
+
     rewriter.replaceOpWithNewOp<ttnn::SelectiveReduceCombineOp>(
-        op, this->getTypeConverter()->convertType(op.getResult().getType()),
-        adaptor.getDenseInputTensor(), adaptor.getDenseActivationsTensor(),
-        adaptor.getDenseTokenMapsTensor(), adaptor.getDenseTokenCountsTensor(),
+        op, resultType, adaptor.getDenseInputTensor(),
+        adaptor.getDenseActivationsTensor(), adaptor.getDenseTokenMapsTensor(),
+        adaptor.getDenseTokenCountsTensor(), zeroOutput.getResult(),
         op.getHiddenSizeAttr(), op.getBatchSizeAttr(), op.getSeqSizeAttr(),
         op.getSelectExpertsKAttr(), op.getExpertsAttr());
     return success();

@@ -415,7 +415,10 @@ private:
     // Cast to uint32 first, perform the memory config change, then cast back.
     // Metal issue reference:
     // https://github.com/tenstorrent/tt-metal/issues/41689
-    bool needsWorkaround = dataType == ttcore::DataType::UInt16;
+    // Disabled: the ui16->ui32->ui16 round-trip corrupts the const-eval'd
+    // moe_gpt routing index; uint16 layout ops are handled on host instead.
+    bool needsWorkaround = false;
+
     if (needsWorkaround) {
       ttcore::DataType workaroundDtype = ttcore::DataType::UInt32;
       RankedTensorType workaroundType = utils::RankedTensorTypeFactory::create(
@@ -488,8 +491,17 @@ private:
     ttcore::DataType dataType = inputEncoding.getDataType();
 
     // Step 1: Unshard to DRAM INTERLEAVED.
-    // ttnn.copy (to_memory_config) doesn't support u16 (tt-metal#41689),
-    // so u16 tensors use a host round-trip (from_device → to_device).
+    // This is a sharded -> interleaved conversion, which ttnn.to_memory_config
+    // dispatches to ttnn.sharded_to_interleaved (NOT ttnn.copy). That op has no
+    // dtype restriction and handles uint16 on device, so we do it on-device for
+    // all dtypes. Keeping u16 on-device here is required for trace: a host
+    // round-trip (from_device -> to_device) on the moe_gpt routing indices
+    // makes the decode forward non-device-resident, which the trace hoist
+    // rejects
+    // ("All output tensors of trace function must be on device"). The #41689
+    // uint16 corruption is a ttnn.copy issue (interleaved copies), not this
+    // sharded_to_interleaved unshard.
+    (void)dataType;
     TTNNLayoutAttr dramEncoding =
         TTNNLayoutAttr::Builder(inputEncoding, shape)
             .setBufferType(BufferType::DRAM)
@@ -501,18 +513,8 @@ private:
 
     rewriter.setInsertionPoint(op);
 
-    if (dataType == ttcore::DataType::UInt16) {
-      auto hostType = utils::RankedTensorTypeFactory::create(
-          inputType, BufferType::SystemMemory);
-      mlir::Value hostVal =
-          rewriter.create<FromDeviceOp>(op.getLoc(), hostType, currentInput);
-      mlir::Value device = utils::getOrInsertDevice(rewriter, op);
-      currentInput =
-          rewriter.create<ToDeviceOp>(op.getLoc(), dramType, hostVal, device);
-    } else {
-      currentInput = rewriter.create<ToMemoryConfigOp>(op.getLoc(), dramType,
-                                                       currentInput);
-    }
+    currentInput =
+        rewriter.create<ToMemoryConfigOp>(op.getLoc(), dramType, currentInput);
 
     // Step 2: Pad to tile-aligned dimensions.
     int64_t h = shape[rank - 2];
@@ -1267,6 +1269,21 @@ private:
                                                 IRRewriter &rewriter) const {
     auto [input, output] = getInputOutputLayouts(op);
     OpsToCreate opsToCreate = determineRequiredOps(input, output);
+    // A ToLayoutOp that requires no actual layout ops is a genuine no-op. This
+    // arises when an operand workaround forces a layout the producer already
+    // provides (e.g. MeshPartition's ROW_MAJOR operands fed by an already
+    // row-major reduce). determineRequiredOps has established the input and
+    // output layouts are equivalent, so fold the op away — rewire its consumers
+    // to the producer — instead of failing the pass. If the result type differs
+    // only nominally from the input (same layout per determineRequiredOps),
+    // first relax the result type to the input's so the rewire verifies.
+    if (not opsToCreate.createSomeOp()) {
+      if (op.getResult().getType() != op.getInput().getType()) {
+        op.getResult().setType(op.getInput().getType());
+      }
+      rewriter.replaceAllUsesWith(op.getResult(), op.getInput());
+      return success();
+    }
     if (not isCreationValid(op, input, output, opsToCreate)) {
       return failure();
     }
