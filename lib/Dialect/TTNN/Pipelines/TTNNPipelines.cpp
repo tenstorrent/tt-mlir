@@ -804,6 +804,47 @@ void createTTIRToTTNNL1AdvisorPipeline(
   createTTNNPipelineLayoutDecompositionPass(devicePm, options);
 }
 
+void createTTNNToTTNNL1AdvisorPipeline(
+    OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options) {
+  // Direct-TTNN advisor: identical to createTTIRToTTNNL1AdvisorPipeline except
+  // the input is already TTNN (layouts assigned by the producer), so the 1:1
+  // lowering block (ttnn-layout + convert-ttir-to-ttnn) is deliberately absent.
+  options.resolveOptimizationLevelOptions();
+
+  // TODO(dmilinkovic): mirror the common pipeline's multithreading workaround
+  // (tt-metal issue #31041) while the optimizer runs.
+  if (options.optimizerPassEnabled) {
+    static_cast<PassManager &>(pm).getContext()->disableMultithreading();
+  }
+
+  // Structure the module the TTNN passes expect.
+  pm.addPass(ttcore::createTTCoreMarkFunctionsAsForwardPass());
+  pm.addPass(ttcore::createTTCoreWrapDeviceModulePass());
+
+  auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
+
+  // Register device / attach system desc from the pipeline options. Required by
+  // the optimizer's getCurrentScopeSystemDesc(); normally done by the (excluded)
+  // createTTNNPipelineTTIRPasses.
+  ttcore::TTCoreRegisterDevicePassOptions registerDeviceOptions;
+  registerDeviceOptions.systemDescPath = options.systemDescPath;
+  registerDeviceOptions.mockSystemDescArch = options.mockSystemDescArch;
+  registerDeviceOptions.meshShape = llvm::to_vector(options.meshShape);
+  registerDeviceOptions.meshTopology = llvm::to_vector(options.meshTopology);
+  devicePm.addPass(
+      mlir::tt::ttcore::createTTCoreRegisterDevicePass(registerDeviceOptions));
+
+  // No lowering: the input is already TTNN with layouts assigned by the
+  // producer. The advisor advises on the ops as written.
+
+  // Reuse the optimizer block verbatim (see createTTIRToTTNNL1AdvisorPipeline).
+  createTTNNPipelineAnalysisPasses(devicePm, options,
+                                   /*flagUnfixableOps=*/true);
+
+  // Materialize reshards as ttnn.to_memory_config for the IR-derived summary.
+  createTTNNPipelineLayoutDecompositionPass(devicePm, options);
+}
+
 // Complete pipeline for lowering TTIR to EmitC.
 //
 void createTTIRToEmitCPipeline(OpPassManager &pm,
@@ -897,6 +938,16 @@ void registerTTNNPipelines() {
       "optimizer + decision trace, with no fusing/decomposition. For the L1 "
       "shard advisor.",
       mlir::tt::ttnn::createTTIRToTTNNL1AdvisorPipeline);
+
+  // Direct-TTNN variant of the L1 shard-advisor pipeline: input is already TTNN
+  // (layouts assigned by the producer), so the 1:1 lowering is skipped.
+  mlir::PassPipelineRegistration<
+      mlir::tt::ttnn::TTIRToTTNNCommonPipelineOptions>(
+      "ttnn-to-ttnn-l1-advisor",
+      "Scoped analysis-only pipeline for TTNN input: greedy L1 optimizer + "
+      "decision trace, with no lowering/fusing/decomposition. For the L1 shard "
+      "advisor's direct-TTNN path.",
+      mlir::tt::ttnn::createTTNNToTTNNL1AdvisorPipeline);
 
   // Backwards-compatible ttir-to-ttnn-backend-pipeline, which is the same as
   // ttir-to-ttnn-runtime-pipeline.

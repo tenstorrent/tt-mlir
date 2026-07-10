@@ -753,6 +753,14 @@ void createTTIRToTTNNRuntimePipeline(
 void createTTIRToTTNNL1AdvisorPipeline(
     OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options);
 
+// Direct-TTNN variant of the L1 shard advisor: the input module is already in
+// the TTNN dialect (layouts assigned by the producer, e.g. a direct-TTNN
+// tracer), so the 1:1 ttnn-layout + convert-ttir-to-ttnn lowering is skipped.
+// Everything else (mark-forward, register-device, greedy optimizer + trace,
+// layout decomposition) matches createTTIRToTTNNL1AdvisorPipeline.
+void createTTNNToTTNNL1AdvisorPipeline(
+    OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options);
+
 void createTTIRToEmitCPipeline(OpPassManager &pm,
                                const TTIRToEmitCPipelineOptions &options);
 

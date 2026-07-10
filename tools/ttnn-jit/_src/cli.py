@@ -181,13 +181,16 @@ def main(argv=None) -> int:
     )
     common.add_argument(
         "--pipeline",
-        choices=["scoped", "full"],
+        choices=["scoped", "ttnn", "full"],
         default="scoped",
-        help="scoped (1:1, optimizer only) or full backend pipeline",
+        help="scoped (1:1 TTIR->TTNN + optimizer), ttnn (input already TTNN, "
+        "optimizer only), or full backend pipeline",
     )
 
-    m = sub.add_parser("mlir", parents=[common], help="advise on an existing .ttir.mlir")
-    m.add_argument("file", help="path to a TTIR .mlir file")
+    m = sub.add_parser(
+        "mlir", parents=[common], help="advise on an existing .mlir (TTIR, or TTNN with --pipeline ttnn)"
+    )
+    m.add_argument("file", help="path to a TTIR (or TTNN) .mlir file")
     m.set_defaults(fn=_cmd_mlir)
 
     c = sub.add_parser(

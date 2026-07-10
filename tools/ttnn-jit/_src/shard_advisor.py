@@ -217,11 +217,15 @@ class ShardAdvisor:
                     "traced graph (an op may require decomposition). Retry with "
                     f"pipeline='full'. Underlying error: {e}"
                 ) from e
+        elif self.pipeline == "ttnn":
+            # Input module is already TTNN (direct-TTNN producer); no lowering.
+            run_pipeline(ir, "ttnn-to-ttnn-l1-advisor", options)
         elif self.pipeline == "full":
             ttir_to_ttnn_runtime_pipeline(ir, options)
         else:
             raise ValueError(
-                f"unknown pipeline {self.pipeline!r}; expected 'scoped' or 'full'"
+                f"unknown pipeline {self.pipeline!r}; expected 'scoped', "
+                "'ttnn', or 'full'"
             )
 
         # The pipeline names the trace after the MLIR func symbol, which may not
