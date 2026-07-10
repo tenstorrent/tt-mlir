@@ -1178,6 +1178,14 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
         operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);
   }
 
+  // Operands are ordered query, key, value, page_table, attention_mask,
+  // cur_pos_tensor, attention_sink; each present optional operand needs a
+  // matching workaround entry.
+  if (sdpaOp.getAttentionMask()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  }
+
   if (sdpaOp.getCurPosTensor()) {
     operandsWorkaround =
         operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);

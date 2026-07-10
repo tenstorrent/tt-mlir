@@ -43,29 +43,14 @@ static void runPagedScaledDotProductAttentionDecodeOp(
 
   std::optional<float> scale = op->scale();
   std::optional<uint32_t> slidingWindowSize = op->sliding_window_size();
-  const auto computeGrid = query.device()->compute_with_storage_grid_size();
 
+  // The SDPAProgramConfig (incl. arch-specific chunk sizes and the Blackhole
+  // exp_approx_mode override) is populated in TTNN IR by the workaround pass
+  // (PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern).
   std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
       programConfig = std::nullopt;
   if (op->program_config()) {
     programConfig = utils::createSDPAProgramConfig(op->program_config());
-  } else if (!isCausal) {
-    programConfig.emplace();
-    programConfig->k_chunk_size = 32; // Required for non-causal
-    programConfig->compute_with_storage_grid_size = computeGrid;
-  } else if (query.device()->arch() == ::tt::ARCH::BLACKHOLE) {
-    programConfig.emplace();
-    programConfig->q_chunk_size = 32;
-    programConfig->k_chunk_size = 32;
-    programConfig->compute_with_storage_grid_size = computeGrid;
-    programConfig->max_cores_per_head_batch = 1;
-  }
-
-  // Blackhole's SDPA decode default approx-exp path fails SFPI compile
-  // (tt-metal #40301).
-  if (programConfig.has_value() &&
-      query.device()->arch() == ::tt::ARCH::BLACKHOLE) {
-    programConfig->exp_approx_mode = false;
   }
 
   ::ttnn::Tensor out =
