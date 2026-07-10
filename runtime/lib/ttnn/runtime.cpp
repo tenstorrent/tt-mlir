@@ -745,9 +745,11 @@ size_t getL1SmallSize(Device meshDevice) {
 size_t getTraceRegionSize(Device meshDevice) {
   ::ttnn::MeshDevice &ttnnMeshDevice =
       meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-  return ttnnMeshDevice.allocator()
-      ->get_statistics(::ttnn::BufferType::TRACE)
-      .total_allocatable_size_bytes;
+  const std::unique_ptr<::tt::tt_metal::Allocator> &allocator =
+      ttnnMeshDevice.allocator();
+  return static_cast<size_t>(
+      allocator->get_num_banks(::ttnn::BufferType::TRACE) *
+      allocator->get_bank_size(::ttnn::BufferType::TRACE));
 }
 
 size_t getNumDramChannels(Device meshDevice) {

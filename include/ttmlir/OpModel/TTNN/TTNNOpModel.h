@@ -1428,8 +1428,7 @@ struct OpModel<PrepareMoEComputeW0W1WeightsOp> {
                    std::optional<TTNNLayoutAttr> bias0Layout,
                    std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
                    std::optional<TTNNLayoutAttr> bias1Layout,
-                   uint32_t hiddenSize, uint32_t intermediateSize,
-                   std::optional<uint32_t> bhRingSize);
+                   uint32_t hiddenSize, uint32_t intermediateSize);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1442,8 +1441,7 @@ struct OpModel<PrepareMoEComputeW2WeightsOp> {
   getOpConstraints(llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
                    std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
                    std::optional<TTNNLayoutAttr> bias2Layout,
-                   uint32_t hiddenSize, uint32_t intermediateSize,
-                   std::optional<uint32_t> bhRingSize);
+                   uint32_t hiddenSize, uint32_t intermediateSize);
 };
 
 //===----------------------------------------------------------------------===//
