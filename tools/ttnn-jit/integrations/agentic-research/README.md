@@ -2,10 +2,11 @@
 
 Drop-in package that adds the tt-mlir **L1 shard advisor** as an agent skill for
 the [`agentic-research`](https://github.com/tenstorrent/agentic-research) repo.
-It lets a bringup agent ask *"what L1 layout would the tt-mlir optimizer pick for
-this decode block?"* and diff that against the `memory_config=` choices the model
-hand-wrote — surfacing gaps like "you left this DRAM-interleaved; the optimizer
-would width-shard it across the grid."
+It lets a bringup agent get a good-enough L1 sharding strategy for a pre-written
+model *from the compiler* — per-op layout + the matmul program config the greedy
+optimizer picks — instead of spending its own reasoning budget rediscovering
+which tensors to shard and how. Apply it as a baseline, tune the rest, and
+re-query specific blocks as the model changes.
 
 ## What's here
 

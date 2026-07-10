@@ -1,30 +1,42 @@
 ---
 name: shard-advise
-description: "Get the tt-mlir compiler's L1 memory-layout / sharding recommendation for a ttnn decode (or prefill) block and diff it against the layout the model hand-wrote. Use during model bringup / layout tuning when a decoder-layer, attention, or MLP block runs below its lower bound and you want a compiler-informed reference for which tensors should be L1-sharded (and how) versus DRAM, plus the matmul program config the optimizer picks for that strategy. Produces a structured report.json (per-op layout, program_config, reshards, L1 spill). Not for perf profiling and not for dtype-precision decisions."
+description: "Get a good-enough L1 sharding strategy for a pre-written ttnn model (or a single block) from the tt-mlir compiler, instead of hand-deriving it. The greedy optimizer decides which tensors to L1-shard, how, on what grid, plus the matmul program config for its pick; use it to skip the mechanical sharding search during model bringup / porting, apply the result as a baseline, then tune the rest and re-query specific blocks as needed. Produces a structured report.json (per-op layout, program_config, reshards, L1 spill). Not for perf profiling and not for dtype-precision decisions."
 ---
 
 # Shard Advise
 
 ## Mission
 
-Turn "is this block laid out well?" into a concrete, compiler-derived answer.
-The advisor traces a ttnn function, runs tt-mlir's greedy L1 optimizer, and
-reports the layout it would choose per op. Diff that against the `memory_config=`
-the model hand-wrote: agreement is a positive signal; a divergence (e.g. the
-optimizer width-shards a projection the model left DRAM-interleaved) is a lead.
+Get a good-enough L1 sharding strategy for a pre-written model **without spending
+your own reasoning budget rediscovering it**. Deriving which tensors to shard,
+how, and on what grid is exactly the mechanical search tt-mlir's greedy L1
+optimizer already does — so ask the advisor instead of exploring it yourself.
 
-This is a **reference/second-opinion** tool, not ground truth — it reasons only
-about L1 layout (see Scope). Treat divergences as hypotheses to verify, the same
-way `investigate-results` treats agent explanations.
+Give it the model (or one block). It traces the ttnn function, runs the greedy
+optimizer, and hands back, per op, the layout to use and the matmul program
+config for it (`report.json`). Apply that as your sharding baseline, then spend
+your effort on the parts the advisor doesn't cover — dtype precision, the
+DRAM-sharded-weight strategy, kernel configs (see Scope) — rather than on the
+sharding the compiler can hand you for free.
+
+Intended loop:
+
+1. **Get a baseline** — run the advisor on the model → apply the reported
+   layouts + program configs. Cheap, fast, compiler-validated.
+2. **Tune what's left** — profile, then adjust the axes the advisor doesn't own.
+3. **Re-query a piece** — changed one block, or want a fresh strategy for just
+   the MLP / attention? Point `advise_decoder.py` at that piece and ask again.
 
 ## When to use
 
-- A decode block runs below the decoder-layer lower bound and you suspect layout.
-- You changed a block's sharding and want to know if the compiler agrees.
-- You want a per-op layout map of a model you didn't write.
+- You have a pre-written (or freshly ported) model and need a sharding strategy
+  to start from — don't hand-derive it, ask the advisor first.
+- You want a per-op layout + program-config map for a block you didn't write.
+- You changed a block and want the compiler's current best layout for it.
 
-Do **not** use it for perf numbers (profile instead) or to decide tensor dtype
-precision (bf16 vs bfp8/bfp4 — out of scope).
+It is a fast baseline, not the last word: it reasons about L1 layout + the
+program config for its pick (see Scope). Do **not** use it for perf numbers
+(profile instead) or to decide tensor dtype precision (bf16 vs bfp8/bfp4).
 
 ## Setup (once per shell)
 
@@ -69,10 +81,13 @@ ttnn-advise mlir path/to/model.ttir.mlir --out /tmp/shard-advice 2>/dev/null
 Also written: `report.txt` (human-readable), `final_ir.mlir` (authoritative TTNN
 IR), `pipeline.log` (captured native output, for debugging only).
 
-**The diff that matters:** for each projection/norm/mul, compare `ops[].layout`
-to the `memory_config=` the model passed. The advisor width-shards L1-resident
-projections across the grid and keeps SDPA-decode / KV cache in DRAM; if the
-model differs, ask why.
+**Apply it as the baseline:** `ops[].layout` + `ops[].program_config` are the
+strategy to write onto each op's `memory_config=` / `program_config=`. Typically
+the advisor width-shards the L1-resident projections across the grid with a
+1d-multicast matmul config and keeps SDPA-decode / KV cache in DRAM — take that
+as given rather than re-deriving it. If the model already sets something and the
+advisor disagrees, prefer the advisor's pick unless you have a measured reason
+not to (then it becomes a tuning question, step 2).
 
 ## Scope — do not over-read
 
