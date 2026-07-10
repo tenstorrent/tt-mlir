@@ -121,7 +121,6 @@ void createD2MFrontendPipeline(OpPassManager &pm,
   pm.addPass(d2m::createD2MGridSelection(gridOptOptions));
   pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MOptimizeMasks());
-  pm.addPass(createCanonicalizerPassWithOptions(options));
   pm.addPass(d2m::createD2MLowerToLayout());
   pm.addPass(d2m::createD2MMaterializeViewReturns());
 
@@ -134,6 +133,7 @@ void createD2MFrontendPipeline(OpPassManager &pm,
   pm.addPass(mlir::createCanonicalizerPass());
   createTTIRBufferizationPipeline(pm, options);
   pm.addPass(d2m::createD2MInsertScratchBuffers());
+  pm.addPass(d2m::createD2MDecomposeTopk());
 
   d2m::D2MGenericApplyInterchangeOptions applyInterchangeOptions;
   {

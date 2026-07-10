@@ -924,6 +924,57 @@ def D2MDecomposeArange : Pass<"d2m-decompose-arange", "::mlir::ModuleOp"> {
   ];
 }
 
+def D2MDecomposeTopk : Pass<"d2m-decompose-topk", "::mlir::ModuleOp"> {
+  let summary = "Decompose topk_block ops into low-level tile operations";
+  let description = [{
+    This pass decomposes high-level `topk_block` operations into low-level
+    tile operations for computing top-K values and indices.
+
+    The topk_block op operates at block level (memref of tiles) and wraps
+    the full topk computation: index generation, bitonic sort, merge, and
+    rebuild.
+
+    The decomposition:
+    1. Allocate an index scratch buffer (buf_idx)
+    2. Generate initial indices via arange_block
+    3. Bitonic sort each tile independently via tile_topk_local_sort
+    4. Merge sorted tile pairs to find top-K via tile_topk_merge
+    5. Rebuild final sorted order via tile_topk_rebuild
+
+    Example transformation:
+    ```mlir
+    // Before:
+    %vals, %idx = d2m.topk_block(%input, %scratch, %out_vals, %out_idx)
+        {k = 16, num_elements = 64, stable_sort = false}
+        : (memref<1x2x!ttcore.tile<32x32, f32>>,
+           memref<1x1x!ttcore.tile<32x32, si32>>,
+           memref<1x2x!ttcore.tile<32x32, f32>>,
+           memref<1x2x!ttcore.tile<32x32, si32>>)
+        -> (memref<1x2x!ttcore.tile<32x32, f32>>,
+            memref<1x2x!ttcore.tile<32x32, si32>>)
+
+    // After:
+    %buf_idx = memref.alloc() : memref<1x2x!ttcore.tile<32x32, si32>, #l1>
+    %buf_idx_filled = d2m.arange_block(%scratch, %buf_idx) ...
+    %sorted_vals = memref.alloc() ...
+    %sorted_idx = memref.alloc() ...
+    d2m.tile_topk_local_sort(%input, %buf_idx_filled, %sorted_vals, %sorted_idx) ...
+    %merged_vals = memref.alloc() ...
+    %merged_idx = memref.alloc() ...
+    d2m.tile_topk_merge(%sorted_vals, %sorted_idx, %merged_vals, %merged_idx) ...
+    d2m.tile_topk_rebuild(%merged_vals, %merged_idx, %out_vals, %out_idx) ...
+    ```
+
+    This pass should run after bufferization and before
+    MarkSynchronizedBuffers.
+  }];
+  let dependentDialects = [
+    "::mlir::tt::d2m::D2MDialect",
+    "::mlir::memref::MemRefDialect",
+    "::mlir::arith::ArithDialect"
+  ];
+}
+
 def D2MScalarizeConstTensors : Pass<"d2m-scalarize-const-tensors", "::mlir::ModuleOp"> {
   let summary = "Scalarize uses of splat fills produced inside d2m.generic (tile_fill pattern)";
   let description = [{

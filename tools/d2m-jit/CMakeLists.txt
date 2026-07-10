@@ -15,9 +15,6 @@ declare_mlir_python_sources(TTD2MJitSources
         _src/rewrite.py
         _src/tensor_layout.py
         _src/utils.py
-        patterns/__init__.py
-        patterns/eltwise_add_exp_to_kernel.py
-        patterns/eltwise_exp_to_kernel.py
 )
 
 add_mlir_python_modules(TTD2MJitModules

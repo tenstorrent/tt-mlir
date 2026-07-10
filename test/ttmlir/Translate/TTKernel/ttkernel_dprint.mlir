@@ -4,10 +4,11 @@
 #l1_ = #ttcore.memory_space<l1>
 func.func @kernel_main() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
     %c42_i32 = arith.constant 42 : i32
-    // CHECK: ttmlir::dprint("Hello world, ", v1, "!\n");
+    // CHECK: DPRINT("Hello world, {}!\n", v{{[0-9]+}});
     ttkernel.dprint("Hello world, {}!\\n", %c42_i32) : (i32) -> ()
     %cb = ttkernel.get_compile_time_arg_val(0) : () -> !ttkernel.cb<1024, f32>
-    // CHECK: ttmlir::CBPrinter
+    // CHECK: ttmlir::CBPrinter [[CB:v[0-9]+]] = ttmlir::CBPrinter(
+    // CHECK: DPRINT("{}", [[CB]]);
     ttkernel.dprint("{}", %cb) : (!ttkernel.cb<1024, f32>) -> ()
     func.return
 }

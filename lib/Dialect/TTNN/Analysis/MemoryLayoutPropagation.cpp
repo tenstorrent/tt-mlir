@@ -856,6 +856,8 @@ void MemoryLayoutPropagation::addReshardCandidates(
     if (candidates.size() >= maxCandidates) {
       break;
     }
+    // Avoid repeated validateReshard for beam entries sharing a producerOutput.
+    llvm::SmallDenseMap<TTNNLayoutAttr, bool, 8> validationCache;
     for (size_t pIdx = 0; pIdx < producerBeamSize; ++pIdx) {
       if (candidates.size() >= maxCandidates) {
         break;
@@ -872,8 +874,12 @@ void MemoryLayoutPropagation::addReshardCandidates(
       if (!producerOutput) {
         continue;
       }
-      if (!validateReshard(op, tensorType.getShape(), producerOutput,
-                           reshardLayout)) {
+      auto [it, inserted] = validationCache.try_emplace(producerOutput, false);
+      if (inserted) {
+        it->second = validateReshard(op, tensorType.getShape(), producerOutput,
+                                     reshardLayout);
+      }
+      if (!it->second) {
         continue;
       }
       InputCandidate ic;

@@ -150,14 +150,14 @@ def _pipeline_passes():
         "d2m-lower-multicast-loads",
         "d2m-generic-lower-to-explicit-form",
         "canonicalize",
-        "d2m-be-pipeline{use-tile-matmul=0}",
+        f"d2m-be-pipeline{{use-tile-matmul={int(config.use_tile_matmul)}}}",
         "d2m-to-ttkernel-pre-emitc-pipeline",
         "d2m-to-ttmetal-pipeline",
-        "ttkernel-hoist-inits",
+        "func.func(ttkernel-hoist-inits)",
     ]
     if config.insert_profiler_traces:
         traits = config.profiler_traits.strip() or "device-zone"
-        passes.append("insert-device-zone-scopes{traits=" + traits + "}")
+        passes.append("func.func(insert-device-zone-scopes{traits=" + traits + "})")
     passes.append("d2m-emitc-pipeline")
     return passes
 
@@ -628,6 +628,134 @@ def reduction_layout(layout: Layout, dim, allow_cross_tile: bool = False) -> Lay
     return layout.replace(shape=shape, block_shape=block_shape, grid_shape=grid_shape)
 
 
+def arange(layout: Layout, start: int = 0, step: int = 1) -> LazyTensor:
+    """Allocate a device tensor filled with arange values.
+
+    Equivalent to `torch.arange(start, start + N*step, step).reshape(shape)`
+    where `N = prod(layout.logical_shape)` and `shape = layout.logical_shape`.
+    Row-major linear traversal.
+
+    Currently implemented as a host-side `torch.arange` + `to_layout`. This
+    matches what TTIR's `arange` ends up costing for a precomputed mask
+    (one DRAM transfer), but does **not** exercise the device-side
+    `d2m.arange_block` op. A future zero-roundtrip version would emit
+    `d2m.GenericOp { d2m.arange_block + remote_store }` (mirroring the C++
+    `D2MArangeOpRewriter` in lib/Conversion/TTIRToD2M/TTIRToD2M.cpp).
+    """
+    if torch is None:
+        raise RuntimeError("torch is required for d2m_jit.arange()")
+    torch_dtype = _ttcore_to_torch_dtype(layout.dtype)
+    numel = 1
+    for d in layout.logical_shape:
+        numel *= d
+    flat = torch.arange(start, start + numel * step, step, dtype=torch_dtype)
+    return to_layout(flat.reshape(list(layout.logical_shape)), layout)
+
+
+def reshape(lt: LazyTensor, *shape) -> LazyTensor:
+    """torch.reshape-style logical-shape change.
+
+    Total element count must match. A single dimension may be given as
+    `-1`, in which case its size is inferred from the remaining dims
+    (e.g. `reshape(lt, -1)` flattens, `reshape(lt, 2, -1)` infers the
+    last dim). Currently implemented via a host
+    roundtrip (`to_host` -> `torch.reshape` -> `to_layout`), so it pays a
+    DRAM transfer and re-tilises the data. Use it for shape changes that
+    don't cleanly map to a `view` -- e.g. coalescing two non-adjacent dims
+    or splitting one dim into many.
+
+    Distinct from `view` / `view_layout` / `permute`, which are metadata
+    reinterpretations of the buffer (no data movement, but require the
+    new logical layout to be expressible as a permutation of the source's
+    grid/tile dims).
+
+    The destination layout reuses the source layout's `dtype`, `mem_space`,
+    `tiled` setting, and either:
+      - keeps the source's `block_shape` / `grid_shape` if they fit the
+        new shape divisibility-wise, or
+      - falls back to `block_shape=[1]*rank`, `grid_shape=[1]*rank`.
+    Use `to_layout(reshaped, target_layout)` to land it in a specific
+    layout afterwards.
+    """
+    if not isinstance(lt, LazyTensor):
+        raise TypeError(f"reshape expected a LazyTensor, got {type(lt).__name__}")
+    if torch is None:
+        raise RuntimeError("torch is required for d2m_jit.reshape()")
+
+    # Accept reshape(lt, 1, 2, 256, 64) and reshape(lt, [1, 2, 256, 64]).
+    if len(shape) == 1 and isinstance(shape[0], (list, tuple)):
+        new_shape = tuple(shape[0])
+    else:
+        new_shape = tuple(shape)
+
+    src_numel = 1
+    for d in lt.layout.logical_shape:
+        src_numel *= d
+
+    # Support the torch idiom of a single `-1` dim whose size is inferred
+    # from the remaining dims (e.g. reshape(lt, -1) flattens; reshape(lt,
+    # 2, -1) infers the second dim).
+    neg_axes = [i for i, d in enumerate(new_shape) if d == -1]
+    if len(neg_axes) > 1:
+        raise ValueError(
+            f"reshape: only one dimension may be inferred (-1), " f"got {new_shape}"
+        )
+    if any(d < -1 for d in new_shape):
+        raise ValueError(f"reshape: dimensions must be >= -1, got {new_shape}")
+    if neg_axes:
+        known = 1
+        for d in new_shape:
+            if d != -1:
+                known *= d
+        if known == 0 or src_numel % known != 0:
+            raise ValueError(
+                f"reshape: cannot infer -1 dimension: src has {src_numel} "
+                f"elements which is not divisible by the product of the "
+                f"known dims {known} (from {new_shape})"
+            )
+        inferred = src_numel // known
+        new_shape = tuple(inferred if d == -1 else d for d in new_shape)
+
+    dst_numel = 1
+    for d in new_shape:
+        dst_numel *= d
+    if src_numel != dst_numel:
+        raise ValueError(
+            f"reshape: total element count must match: "
+            f"src {tuple(lt.layout.logical_shape)} ({src_numel}) "
+            f"!= dst {new_shape} ({dst_numel})"
+        )
+
+    # Pick a destination layout: keep src's block/grid if compatible,
+    # otherwise fall back to a trivial single-block single-grid layout
+    # (the user can to_layout to something denser if perf matters).
+    rank = len(new_shape)
+    src_block = list(lt.layout.block_shape)
+    src_grid = list(lt.layout.grid_shape)
+    if (
+        len(src_block) == rank
+        and len(src_grid) == rank
+        and all(
+            d % (b * g * (32 if lt.layout.tiled else 1)) == 0
+            for d, b, g in zip(new_shape, src_block, src_grid)
+        )
+    ):
+        block_shape = src_block
+        grid_shape = src_grid
+    else:
+        block_shape = [1] * rank
+        grid_shape = [1] * rank
+
+    dst_layout = lt.layout.replace(
+        shape=new_shape,
+        block_shape=block_shape,
+        grid_shape=grid_shape,
+    )
+
+    host = lt.to_host().reshape(new_shape)
+    return to_layout(host, dst_layout)
+
+
 def _derive_perm_layout(src_layout: Layout, spec):
     """If `spec` (from _affine_map_from_lambda) describes a clean permutation
     of paired (grid, tile) dims, return a Layout with logical_shape/
@@ -672,9 +800,23 @@ def _emit_view_layout(lt: LazyTensor, affine_map, spec) -> LazyTensor:
                 f"view_layout: lambda takes {affine_map.n_dims} args but "
                 f"source MLIR rank is {len(src_shape)}"
             )
-        dst_shape = []
-        for tag, val in spec:
-            dst_shape.append(src_shape[val] if tag == "dim" else 1)
+        simple_dim_or_const = all(tag in {"dim", "const"} for tag, _ in spec)
+        if simple_dim_or_const:
+            dst_shape = []
+            for tag, val in spec:
+                dst_shape.append(src_shape[val] if tag == "dim" else 1)
+        else:
+            # For now, affine-arithmetic view_layout lambdas are remappings over
+            # the same physical shape. If future users need arithmetic maps that
+            # also change shape/rank, add an explicit shape= parameter rather
+            # than trying to infer bounds from arbitrary affine expressions.
+            if len(spec) != len(src_shape):
+                raise ValueError(
+                    "view_layout: affine-arithmetic remappings currently "
+                    "preserve source rank and shape; got "
+                    f"{len(spec)} results for source rank {len(src_shape)}"
+                )
+            dst_shape = src_shape
         dst_ty = RankedTensorType.get(
             dst_shape, src_type.element_type, encoding=src_type.encoding
         )
@@ -690,14 +832,13 @@ def view_layout(lt: LazyTensor, remapping_fn) -> LazyTensor:
     source value's MLIR rank (typically 2N for an N-dim logical tiled
     tensor: the first N dims are grid, the trailing N are per-grid tile
     indices). Each result expression may reference a parameter (perm /
-    passthrough) or be the literal 0 (broadcast-to-1).
+    passthrough), be the literal 0 (broadcast-to-1), or use affine arithmetic
+    with integer constants (`+`, `-`, `*`, `//`, `%`).
 
     The result LazyTensor's Layout is derived from the source by
     permuting logical_shape/block_shape/grid_shape if the lambda is a
-    paired (grid, tile) permutation. Otherwise it inherits the source
-    Layout unchanged -- callers that immediately consume the view in a
-    kernel should make sure their lambda corresponds to a valid layout
-    permutation.
+    paired (grid, tile) permutation. Arithmetic remappings preserve the source
+    physical shape and inherit the source Layout unchanged.
     """
     lt = lt._resolve()
     b = _get_scope()
@@ -985,23 +1126,76 @@ def _affine_map_from_lambda(fn):
     """Build an MLIR AffineMap by running `fn` with sentinel dim objects.
 
     Returns `(AffineMap, spec)` where `spec` is a list of one tag per
-    result expression: either `("dim", i)` for AffineDimExpr referencing
-    input dim `i`, or `("const", v)` for an AffineConstantExpr. Callers
-    that don't need the spec can take `[0]`.
+    result expression: `("dim", i)` for a bare input dim, `("const", 0)` for
+    literal zero, or `("expr", None)` for affine arithmetic.
     """
 
-    class _Dim:
+    class _AffineExprProxy:
+        def __init__(self, expr, spec=("expr", None)):
+            self.expr = expr
+            self.spec = spec
+
+        @staticmethod
+        def _constant(value):
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise TypeError(
+                    "view_layout affine expressions only support integer constants"
+                )
+            return AffineConstantExpr.get(value)
+
+        @classmethod
+        def _expr(cls, value):
+            if isinstance(value, _AffineExprProxy):
+                return value.expr
+            return cls._constant(value)
+
+        def _new(self, expr):
+            return _AffineExprProxy(expr)
+
+        def __add__(self, rhs):
+            return self._new(self.expr + self._expr(rhs))
+
+        def __radd__(self, lhs):
+            return self._new(self._expr(lhs) + self.expr)
+
+        def __sub__(self, rhs):
+            return self._new(self.expr - self._expr(rhs))
+
+        def __rsub__(self, lhs):
+            return self._new(self._expr(lhs) - self.expr)
+
+        def __mul__(self, rhs):
+            self._constant(rhs)
+            return self._new(self.expr * rhs)
+
+        def __rmul__(self, lhs):
+            self._constant(lhs)
+            return self._new(self.expr * lhs)
+
+        def __floordiv__(self, rhs):
+            return self._new(AffineFloorDivExpr.get(self.expr, self._constant(rhs)))
+
+        def __mod__(self, rhs):
+            return self._new(AffineModExpr.get(self.expr, self._constant(rhs)))
+
+        def __rfloordiv__(self, lhs):
+            raise TypeError("view_layout does not support int // affine_expr")
+
+        def __rmod__(self, lhs):
+            raise TypeError("view_layout does not support int % affine_expr")
+
+    class _Dim(_AffineExprProxy):
         def __init__(self, position):
-            self.position = position
+            super().__init__(AffineDimExpr.get(position), ("dim", position))
 
     dims = tuple(_Dim(i) for i, _ in enumerate(inspect.signature(fn).parameters))
     results = fn(*dims)
     exprs = []
     spec = []
     for r in results:
-        if isinstance(r, _Dim):
-            exprs.append(AffineDimExpr.get(r.position))
-            spec.append(("dim", r.position))
+        if isinstance(r, _AffineExprProxy):
+            exprs.append(r.expr)
+            spec.append(r.spec)
         elif isinstance(r, int):
             assert r == 0, "Only 0 is allowed as an integer constant in indexing_map"
             exprs.append(AffineConstantExpr.get(r))
@@ -1112,14 +1306,37 @@ def _emit_kernel_generic(
         output_lts = [to_dram(lt) for lt in output_lts]
         lazy_args = input_lts + output_lts
 
+    # In a non-lazy (rewrite) scope the surrounding module is not ours to add
+    # function params to, so runtime scalars would lower to host-scope
+    # `arith.constant` index values fed into the generic's additionalArgs --
+    # which the ttmetal flatbuffer translator cannot serialize (it only
+    # resolves scalar kernel args that are program inputs, so an inline
+    # constant hits a missing-BufferRef assertion). Since rewrite-scope scalars
+    # are always Python int constants, bake them into the kernel body as
+    # captures (in-region constants) and emit no additionalArgs for them. The
+    # lazy `_Builder` keeps the runtime-arg form: scalars stay index func args
+    # (see add_scalar_input) so the binary remains parameterised.
+    bake_scalars = not isinstance(b, _Builder)
+    if bake_scalars and scalar_args:
+        formal_names = [a.arg for a in kernel._ast.body[0].args.args]
+        scalar_names = formal_names[len(lazy_args) : len(lazy_args) + len(scalar_args)]
+        effective_captures = dict(kernel._captures)
+        effective_captures.update(
+            {n: int(v) for n, v in zip(scalar_names, scalar_args)}
+        )
+        runtime_scalars = []
+    else:
+        effective_captures = kernel._captures
+        runtime_scalars = list(scalar_args)
+
     # Compile the kernel body in the current builder's context. D2MCompiler
     # picks up b.ctx via get_default_loc_context.
     with b.ctx, b.loc:
-        compiler_args = [lt.layout for lt in lazy_args] + list(scalar_args)
+        compiler_args = [lt.layout for lt in lazy_args] + runtime_scalars
         compiler = D2MCompiler(
             kernel.fn.__name__,
             "unified",
-            kernel._captures,
+            effective_captures,
             *compiler_args,
             source_file=kernel._source_file,
             source_firstlineno=kernel._source_firstlineno,
@@ -1131,8 +1348,10 @@ def _emit_kernel_generic(
     # Emit the GenericOp + splice the kernel body.
     with b.ctx, b.loc, b.insert_point:
         # Scalars are sourced from func args (not host-scope constants) so the
-        # GenericOp's region stays isolated-from-above.
-        additional = [b.add_scalar_input(s) for s in scalar_args]
+        # GenericOp's region stays isolated-from-above. In a rewrite scope the
+        # scalars were baked into the kernel body above, so runtime_scalars is
+        # empty and no additionalArgs are emitted for them.
+        additional = [b.add_scalar_input(s) for s in runtime_scalars]
         inputs = [lt.value for lt in input_lts]
         outputs = [lt.value for lt in output_lts]
         output_types = [v.type for v in outputs]

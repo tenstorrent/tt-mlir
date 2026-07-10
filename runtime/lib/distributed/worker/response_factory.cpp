@@ -56,6 +56,21 @@ void ResponseFactory::buildSetMemoryLogLevelResponse(
   BUILD_RESPONSE(SetMemoryLogLevel, fbb, commandId);
 }
 
+void ResponseFactory::buildGetWorkerDebugStatsResponse(
+    ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId,
+    const std::string &hostname, const DebugStatsMap &stats) {
+  LOG_ASSERT(fbb.GetSize() == 0, "Flatbuffer builder must be empty");
+
+  std::vector<::flatbuffers::Offset<fb::DebugStatEntry>> entries;
+  entries.reserve(stats.size());
+  for (const auto &[key, value] : stats) {
+    entries.push_back(fb::CreateDebugStatEntryDirect(fbb, key.c_str(), value));
+  }
+
+  BUILD_RESPONSE_DIRECT(GetWorkerDebugStats, fbb, commandId, hostname.c_str(),
+                        &entries);
+}
+
 void ResponseFactory::buildConfigureRuntimeContextResponse(
     ::flatbuffers::FlatBufferBuilder &fbb, uint64_t commandId) {
 

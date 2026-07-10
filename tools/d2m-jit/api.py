@@ -8,6 +8,7 @@ import ast
 
 from ttmlir.ir import *
 from ttmlir.dialects import d2m, ttcore, arith, linalg
+from ttmlir.dialects._ods_common import get_default_loc_context
 
 from ._src.utils import _asindex
 from ._src.ast import syntax
@@ -25,9 +26,11 @@ from ._src.builder import (
     zeros,
     full,
     reduction_layout,
+    arange,
     view_layout,
     view,
     permute,
+    reshape,
     to_host,
 )
 from ._src.rewrite import (
@@ -572,6 +575,54 @@ def right_shift(lhs, rhs):
     return _eltwise_block(lambda l, r: d2m.tile_right_shift(l.type, l, r), lhs, rhs)
 
 
+# Binary comparisons. The result tile element type matches the input -- the
+# comparison primitive writes 1.0/0.0 (or 1/0 for int tiles) into each lane,
+# matching the dialect's tile_eqz / tile_gez / ... family. Pair with `where`
+# to build masked computations.
+#
+# Not wired into Python `<` / `>=` / `==` dunders: visit_Compare in the AST
+# visitor currently lowers compare ops to `arith.cmpi` for index-domain
+# conditions (scf loop bounds, etc.), so overloading the dunders would
+# conflict. Use the free-function or method forms instead: `d2m.ge(a, b)`
+# or `a.ge(b)`.
+
+
+@syntax("eq")
+def eq(lhs, rhs):
+    """Block-level elementwise equality: `lhs == rhs`."""
+    return _eltwise_block(lambda l, r: d2m.tile_eq(l.type, l, r), lhs, rhs)
+
+
+@syntax("ne")
+def ne(lhs, rhs):
+    """Block-level elementwise inequality: `lhs != rhs`."""
+    return _eltwise_block(lambda l, r: d2m.tile_ne(l.type, l, r), lhs, rhs)
+
+
+@syntax("gt")
+def gt(lhs, rhs):
+    """Block-level elementwise greater-than: `lhs > rhs`."""
+    return _eltwise_block(lambda l, r: d2m.tile_gt(l.type, l, r), lhs, rhs)
+
+
+@syntax("ge")
+def ge(lhs, rhs):
+    """Block-level elementwise greater-than-or-equal: `lhs >= rhs`."""
+    return _eltwise_block(lambda l, r: d2m.tile_ge(l.type, l, r), lhs, rhs)
+
+
+@syntax("lt")
+def lt(lhs, rhs):
+    """Block-level elementwise less-than: `lhs < rhs`."""
+    return _eltwise_block(lambda l, r: d2m.tile_lt(l.type, l, r), lhs, rhs)
+
+
+@syntax("le")
+def le(lhs, rhs):
+    """Block-level elementwise less-than-or-equal: `lhs <= rhs`."""
+    return _eltwise_block(lambda l, r: d2m.tile_le(l.type, l, r), lhs, rhs)
+
+
 @syntax("tile_bcast", args_as_attr=[False, _tile_bcast_type_attr])
 def tile_bcast(input, bcast_type):
     """Block-level tile broadcast.
@@ -622,6 +673,24 @@ def where(cond, true_value, false_value):
     )
 
 
+def _shape_literal(node):
+    if isinstance(node, (ast.List, ast.Tuple)):
+        return [int(_const_value(element)) for element in node.elts]
+    raise D2mJitError(
+        "zeros() expects a literal block shape, e.g. zeros([m_tiles, n_tiles]); "
+        f"got {type(node).__name__}"
+    )
+
+
+@syntax("zeros", args_as_attr=[_shape_literal])
+def _zeros_op(shape):
+    """Kernel-body zero-initialized tile block."""
+    ctx = get_default_loc_context()
+    tile_ty = ttcore.ir.TileType.get(ctx, 32, 32, float32)
+    block_ty = RankedTensorType.get(list(shape), tile_ty)
+    return _zeros_block(block_ty)
+
+
 def _bool_attr_from_ast(node):
     if isinstance(node, ast.Constant) and isinstance(node.value, bool):
         return node.value
@@ -654,6 +723,12 @@ def matmul(lhs, rhs, transpose_b=False):
     return _matmul_block(
         lhs, rhs, transpose_b=_normalize_bool_literal(transpose_b, "transpose_b")
     )
+
+
+@syntax("__matmul_acc__")
+def _matmul_acc(acc, lhs, rhs):
+    """Hidden helper for `c += a @ b`: accumulate matmul into `acc`."""
+    return _matmul_block(lhs, rhs, acc=acc)
 
 
 def _int_attr_from_ast(node, compiler=None):
@@ -1010,6 +1085,30 @@ class TensorBlock:
         """Same as `d2m.right_shift(self, rhs)`."""
         return right_shift(ast_self, rhs)
 
+    def eq(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
+        """Same as `d2m.eq(self, rhs)`."""
+        return eq(ast_self, rhs)
+
+    def ne(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
+        """Same as `d2m.ne(self, rhs)`."""
+        return ne(ast_self, rhs)
+
+    def gt(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
+        """Same as `d2m.gt(self, rhs)`."""
+        return gt(ast_self, rhs)
+
+    def ge(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
+        """Same as `d2m.ge(self, rhs)`."""
+        return ge(ast_self, rhs)
+
+    def lt(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
+        """Same as `d2m.lt(self, rhs)`."""
+        return lt(ast_self, rhs)
+
+    def le(ast_self: TensorBlock, rhs: TensorBlock) -> TensorBlock:
+        """Same as `d2m.le(self, rhs)`."""
+        return le(ast_self, rhs)
+
     def tile_bcast_row(ast_self: TensorBlock) -> TensorBlock:
         """Same as `d2m.tile_bcast_row(self)`."""
         return tile_bcast_row(ast_self)
@@ -1291,10 +1390,12 @@ def _float_scalar_type_for_tile(tile_type):
     data_type = tile_type.data_type_as_int
     if data_type == int(ttcore.DataType.Float32):
         return F32Type.get(ctx)
+    if data_type == int(ttcore.DataType.Float16):
+        return F16Type.get(ctx)
     if data_type == int(ttcore.DataType.BFloat16):
         return BF16Type.get(ctx)
     raise TypeError(
-        f"float reductions require f32 or bf16 tile element types; got {tile_type}"
+        f"float tile fill requires f32, f16, or bf16 tile element types; got {tile_type}"
     )
 
 
@@ -1303,6 +1404,29 @@ def _tile_fill_float(tile_type, value):
     scalar_attr = FloatAttr.get(scalar_type, value)
     scalar = arith.ConstantOp(scalar_type, scalar_attr).result
     return d2m.tile_fill(tile_type, scalar)
+
+
+def _zeros_block(block_ty):
+    """Inputless linalg.generic that fills a tile-tensor block with zeros."""
+    tile_ty = block_ty.element_type
+    rank = block_ty.rank
+    output = d2m.empty(block_ty)
+    identity = AffineMap.get_identity(rank)
+    parallel = Attribute.parse("#linalg.iterator_type<parallel>")
+    generic = linalg.GenericOp(
+        [block_ty],
+        [],
+        [output],
+        ArrayAttr.get([AffineMapAttr.get(identity)]),
+        ArrayAttr.get([parallel] * rank),
+    )
+    body = Block.create_at_start(generic.regions[0], [tile_ty], [Location.unknown()])
+    with InsertionPoint(body):
+        filled = _tile_fill_float(tile_ty, 0.0)
+        if hasattr(filled, "result"):
+            filled = filled.result
+        linalg.yield_([filled])
+    return generic.result
 
 
 def _reduction_input_map(rank, reduce_axis, reduce_index):
@@ -1468,7 +1592,7 @@ def _reduce_block(
     return generic.result
 
 
-def _matmul_block(lhs, rhs, transpose_b=False):
+def _matmul_block(lhs, rhs, transpose_b=False, acc=None):
     """Block-level matmul: `C = A @ B` where each tensor is a 2D block of
     tiles. Emits a linalg.generic with the standard matmul indexing maps
     (parallel/parallel/reduction over M/N/K) and `d2m.tile_matmul` in the
@@ -1478,6 +1602,10 @@ def _matmul_block(lhs, rhs, transpose_b=False):
     rhs: tensor<K x N x !ttcore.tile<...>>, or tensor<N x K x ...> when
          transpose_b is true
     Returns: tensor<M x N x !ttcore.tile<...>>.
+
+    `acc` is an optional caller-supplied accumulator block used as the DPS init.
+    It is how `c += a @ b` maps an explicit K loop onto tile_matmul's native
+    accumulate operand. When omitted, a fresh in-kernel zero block is used.
     """
     transpose_b = _normalize_bool_literal(transpose_b, "transpose_b")
     assert isinstance(lhs.type, RankedTensorType)
@@ -1499,14 +1627,14 @@ def _matmul_block(lhs, rhs, transpose_b=False):
     n_blocks = rhs.type.shape[0] if transpose_b else rhs.type.shape[1]
 
     out_ty = RankedTensorType.get([m_blocks, n_blocks], elem_ty)
-    # TODO: zero-initialise the accumulator. The matmul body computes
-    # `c = c + a @ b`, so an uninitialised output yields garbage. A
-    # host-scope linalg.generic-as-fill (the natural way to express this
-    # at this layer) does not survive the d2m -> ttkernel conversion
-    # today. Users needing correct matmul should pre-fill the output via
-    # `d2m.zeros(L)` and pass that as the out-param to a kernel that
-    # calls `@`.
-    output = d2m.empty(out_ty)
+    if acc is not None:
+        if acc.type != out_ty:
+            raise ValueError(
+                f"matmul accumulator type {acc.type} does not match output type {out_ty}"
+            )
+        output = acc
+    else:
+        output = _zeros_block(out_ty)
 
     # (d0, d1, d2) = (M, N, K).
     d0 = AffineDimExpr.get(0)

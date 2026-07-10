@@ -169,11 +169,13 @@ kernel body.
 | `d2m.zeros(layout)` | Allocate a zero-initialised device tensor (host-side `torch.zeros` + `to_layout`). |
 | `d2m.full(layout, value)` | Allocate a device tensor initialised to a scalar `value` (host-side `torch.full` + `to_layout`). |
 | `d2m.reduction_layout(layout, dim, allow_cross_tile=False)` | Build the keepdim output layout for a row/column reduction. Set `allow_cross_tile=True` only when the kernel has a cross-core gather/redistribute strategy for the reduced dimension. |
+| `d2m.arange(layout, start=0, step=1)` | Allocate a device tensor filled with arange values (host-side `torch.arange` + `to_layout`). Future zero-roundtrip version would emit `d2m.arange_block`. |
 | `d2m.tilize(lt, dtype=None)` | Convert a `LazyTensor` to a tile-typed (`tiled=True`) layout; optional dtype override. |
 | `d2m.untilize(lt, dtype=None)` | Convert a `LazyTensor` to row-major (`tiled=False`); optional dtype override. |
 | `d2m.view(lt, lambda d0, d1: ...)` | Logical-rank permutation. The lambda's parameter count matches the source's logical rank. Result is a view (`is_view=True`). |
-| `d2m.view_layout(lt, lambda d0, d1, d2, d3: ...)` | Low-level: lambda parameter count matches the source's MLIR rank (typically `2 * logical_rank` for tiled tensors). Each result expression may be a parameter or the literal `0`. |
+| `d2m.view_layout(lt, lambda d0, d1, d2, d3: ...)` | Low-level: lambda parameter count matches the source's MLIR rank (typically `2 * logical_rank` for tiled tensors). Each result expression may be a parameter, literal `0`, or affine arithmetic with integer constants (`+`, `-`, `*`, `//`, `%`). Arithmetic remappings preserve the source physical shape. |
 | `d2m.permute(lt, *dims)` | `torch.permute`-style positional permutation. |
+| `d2m.reshape(lt, *new_shape)` | `torch.reshape`-style logical-shape change. A single `-1` dim is inferred from the others. Currently a host roundtrip (`to_host` -> `torch.reshape` -> `to_layout`); pays a DRAM transfer. Use for shape changes not expressible as a `view`. |
 | `d2m.to_host(*lts)` | Compile and execute; return a tuple of `torch.Tensor`s. Resets the builder. |
 | `LazyTensor.to_host()` | Sugar for `to_host(self)[0]`. |
 
@@ -234,11 +236,17 @@ Unary (41):
 `sign`, `signbit`, `ceil`, `floor`, `frac`, `trunc`, `abs`, `bitwise_not`,
 `logical_not`, `eqz`, `nez`, `gtz`, `gez`, `ltz`, `lez`.
 
-Binary (13):
+Binary (19):
 
 `add`, `sub`, `mul`, `div`, `pow`, `maximum`, `minimum`, `bitwise_and`,
 `bitwise_or`, `bitwise_xor`, `logical_left_shift`, `logical_right_shift`,
-`right_shift`.
+`right_shift`, `eq`, `ne`, `gt`, `ge`, `lt`, `le`.
+
+Comparisons (`eq` / `ne` / `gt` / `ge` / `lt` / `le`) write 1/0 into each tile
+lane (same element type as the inputs) -- pair with `where` to mask. They are
+free functions and method-form only; Python `<` / `>=` / `==` etc. are not
+overloaded because `visit_Compare` in the AST visitor lowers compares to
+`arith.cmpi` for index-domain conditions (loop bounds), which would conflict.
 
 Ternary:
 
@@ -324,12 +332,20 @@ lhs @ rhs              # operator form
 Emits `linalg.generic` with the standard matmul indexing maps
 (parallel/parallel/reduction over M/N/K) and `d2m.tile_matmul` in the body.
 
-> **Caveat:** the generated `linalg.generic` accumulates into the output
-> operand, which is currently a fresh `d2m.empty` (undefined-init). Pre-fill
-> the output with `d2m.zeros(L)` and pass it as the out-param to the kernel
-> that calls `@` to get correct values. A device-side fill inside
-> `_matmul_block` is tracked but blocked on a downstream
-> `d2m → ttkernel` materialisation issue.
+Standalone `a @ b` generates an in-kernel zero block and uses it as the
+`linalg.generic` DPS init, so tile matmul starts from a defined accumulator.
+For explicit K loops, use a loop-carried accumulator and `+=` so the matmul
+maps directly onto `tile_matmul`'s accumulate operand:
+
+```python
+c = zeros([1, 1])
+for k in range(k_blocks):
+    c += remote_load(lhs, [m, k]) @ remote_load(rhs, [k, n])
+```
+
+The kernel-body `zeros([m, n])` helper takes a literal tile-block shape. It is
+separate from host-side `d2m.zeros(layout)`, which still allocates/fills a full
+layout tensor outside the kernel body.
 
 ### Debug knobs (`d2m.config`)
 
@@ -342,6 +358,7 @@ d2m.config.print_ir_after_pipeline  # bool: dump the module after passes
 d2m.config.print_ir_after_each_pass # bool: enable_ir_printing(print_after_all=True)
 d2m.config.print_ir_debug_info      # bool: include locations
 d2m.config.verify_passes            # bool, default True
+d2m.config.use_tile_matmul          # bool: keep explicit tile_matmul loops
 d2m.config.save_flatbuffer_path     # str | None: write fbb to disk before submit
 ```
 
@@ -420,7 +437,8 @@ have been dropped — the DSL emits the post-legalisation form directly.
 - **Spent `LazyTensor`s.** After `to_host`, anything from the previous
   generation that was not passed to `to_host` raises on re-use. If you need
   multiple values out, pass them all to a single `to_host`.
-- **Matmul accumulator is currently undefined.** See the matmul note above.
+- **Matmul accumulation is explicit in IR.** Standalone `a @ b` gets a
+  generated zero block; explicit K loops should use `zeros([...])` plus `+=`.
 - **Float reductions are per tile/per core.** Use `reduction_layout` for reduced
   outputs. Reductions spanning multiple cores need a core gather/redistribute
   op.
@@ -440,6 +458,5 @@ have been dropped — the DSL emits the post-legalisation form directly.
 
 ## Known issues / TODO
 
-See [TODO.md](TODO.md) for active pipeline gaps (matmul accumulator init,
-host-scope `linalg.generic`), missing API surface (in-kernel typecast, DMA
-primitives, ...), and other follow-ups.
+See [TODO.md](TODO.md) for active pipeline gaps, missing API surface
+(in-kernel typecast, DMA primitives, init helpers, ...), and other follow-ups.

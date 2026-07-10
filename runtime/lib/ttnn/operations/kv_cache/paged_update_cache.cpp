@@ -31,11 +31,25 @@ void run(const ::tt::target::ttnn::PagedUpdateCacheOp *op,
           : std::nullopt;
 
   const std::vector<uint32_t> emptyUpdateIndex = {};
+
+  // Force the MeshWorkloadFactory by passing the cache tensor's full set of
+  // mesh coordinates. With std::nullopt, the device op selects the
+  // single-program factory, which under DP partitioning runs the kernel on
+  // the mesh root only - so per-rank cache writes from non-root devices are
+  // silently dropped. Per-rank divergent updates require one program per
+  // mesh coordinate, which is what the MeshWorkloadFactory provides.
+  //
+  // TODO(#47955): ttnn could infer these coords from the cache tensor (it is
+  // already an op input) and select the MeshWorkloadFactory by default, letting
+  // us drop this explicit pass. Tracked in tenstorrent/tt-metal#47955.
+  const auto &coordVec = cacheTensor.tensor_topology().mesh_coords();
+  std::set<::ttnn::MeshCoordinate> meshCoords(coordVec.begin(), coordVec.end());
+
   ::ttnn::experimental::paged_update_cache(
       cacheTensor, inputTensor, emptyUpdateIndex, updateIndexTensor, shareCache,
       pageTableTensor,
       /*batch_offset=*/0,
       /*compute_kernel_config*/ std::nullopt,
-      /*mesh_coords*/ std::nullopt);
+      /*mesh_coords*/ meshCoords);
 }
 } // namespace tt::runtime::ttnn::operations::kv_cache

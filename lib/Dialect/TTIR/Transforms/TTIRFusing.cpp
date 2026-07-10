@@ -1493,6 +1493,218 @@ private:
   }
 };
 
+// Move a matmul/linear output slice into the operand producing the sliced
+// dim, so the matmul computes only the rows/columns that are used:
+//
+//   row (M) slice of matmul(A, B):  -> matmul(slice(A) down M, B)
+//   col (N) slice of matmul(A, B):  -> matmul(A, slice(B) down N)
+//
+// Slice the linear bias on the dim right-aligned with the sliced output dim:
+//   [N]    -> sliced for a column slice; left as is for a row slice
+//   [M, N] -> the matching M or N dim is sliced
+//   higher -> same, by right-alignment; a missing or size-1 dim is left as is
+//
+// A reshape between matmul and slice is not handled here: EraseInverseOps
+// commutes it below the slice first, leaving a direct matmul -> slice to match.
+//
+// Guards: single-use matmul/linear; the slice is full on every dim but one
+// row/col dim, which it must strictly narrow (a strided sub-range is fine, and
+// the same stride is carried onto the operand). transpose_a/transpose_b are
+// honored when locating the producing operand dim.
+class PermuteSliceAfterMatmulPattern
+    : public mlir::OpRewritePattern<SliceStaticOp> {
+  using mlir::OpRewritePattern<SliceStaticOp>::OpRewritePattern;
+
+private:
+  // Build a slice of `value` that narrows `valueDim` with the same range and
+  // step that `slice` applies to its `srcDim`, keeping every other dim full.
+  // `value`'s `valueDim` has the same extent as the output's narrowed dim, so
+  // negative indices normalize the same way and the same count is selected.
+  // Shared by the operand and bias rewrites.
+  static Value createSingleDimSlice(mlir::PatternRewriter &rewriter,
+                                    SliceStaticOp slice, int64_t srcDim,
+                                    Value value, int64_t valueDim) {
+    auto type = mlir::cast<RankedTensorType>(value.getType());
+    ArrayRef<int64_t> shape = type.getShape();
+
+    // Copy the begin/end/step `slice` uses on `srcDim` verbatim; negative
+    // indices stay as-is since `value`'s `valueDim` has the same extent as the
+    // output's narrowed dim, so SliceStaticOp normalizes them the same way.
+    SmallVector<int32_t> begins(type.getRank(), 0);
+    SmallVector<int32_t> ends(shape.begin(), shape.end());
+    SmallVector<int32_t> steps(type.getRank(), 1);
+    begins[valueDim] =
+        mlir::cast<IntegerAttr>(slice.getBegins()[srcDim]).getInt();
+    ends[valueDim] = mlir::cast<IntegerAttr>(slice.getEnds()[srcDim]).getInt();
+    steps[valueDim] = mlir::cast<IntegerAttr>(slice.getStep()[srcDim]).getInt();
+    // `value`'s `valueDim` maps 1:1 to the output's narrowed dim, so the slice
+    // selects the same count the output slice already encodes at `srcDim`.
+    SmallVector<int64_t> slicedShape(shape);
+    slicedShape[valueDim] =
+        mlir::cast<RankedTensorType>(slice.getResult().getType())
+            .getShape()[srcDim];
+    auto slicedType = RankedTensorType::get(slicedShape, type.getElementType(),
+                                            type.getEncoding());
+    return rewriter.create<SliceStaticOp>(
+        slice.getLoc(), slicedType, value, rewriter.getI32ArrayAttr(begins),
+        rewriter.getI32ArrayAttr(ends), rewriter.getI32ArrayAttr(steps));
+  }
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(SliceStaticOp slice,
+                  mlir::PatternRewriter &rewriter) const final {
+    // Producer is a matmul or linear (matmul + bias). A reshape between matmul
+    // and slice is commuted below it by EraseInverseOps, not here.
+    Value sliceVal = slice.getInput();
+    auto matmul = sliceVal.getDefiningOp<MatmulOp>();
+    auto linear = sliceVal.getDefiningOp<LinearOp>();
+    Operation *matmulOrLinearOp =
+        matmul ? matmul.getOperation()
+               : (linear ? linear.getOperation() : nullptr);
+    if (!matmulOrLinearOp) {
+      return rewriter.notifyMatchFailure(
+          slice, "slice input is not a matmul or linear");
+    }
+    Value matmulAVal = matmul ? matmul.getA() : linear.getA();
+    Value matmulBVal = matmul ? matmul.getB() : linear.getB();
+    bool transposeA = matmul ? matmul.getTransposeA() : linear.getTransposeA();
+    bool transposeB = matmul ? matmul.getTransposeB() : linear.getTransposeB();
+    Value bias = linear ? linear.getBias() : Value();
+    Location matmulOrLinearLoc = matmulOrLinearOp->getLoc();
+
+    // Narrowing the output is only valid if this slice is its sole consumer:
+    // any other user would otherwise see the narrowed (wrong) result.
+    if (!matmulOrLinearOp->getResult(0).hasOneUse()) {
+      return rewriter.notifyMatchFailure(slice,
+                                         "matmul/linear result has other uses");
+    }
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(matmulOrLinearOp->getResult(0).getType());
+    ArrayRef<int64_t> outputShape = outputType.getShape();
+    int64_t outputRank = outputType.getRank();
+
+    // The output is [batch..., (M), (N)] where M comes from A and N from B. A
+    // 1D operand drops its dim (numpy-style): M is present iff A is rank >= 2,
+    // N iff B is rank >= 2. N, when present, is the last output dim; M is the
+    // dim just before N, or the last output dim when N is absent.
+    int64_t matmulARank =
+        mlir::cast<RankedTensorType>(matmulAVal.getType()).getRank();
+    int64_t matmulBRank =
+        mlir::cast<RankedTensorType>(matmulBVal.getType()).getRank();
+    int64_t outputColDim = (matmulBRank >= 2) ? outputRank - 1 : -1;
+    int64_t outputRowDim =
+        (matmulARank >= 2)
+            ? (matmulBRank >= 2 ? outputRank - 2 : outputRank - 1)
+            : -1;
+    if (outputRowDim < 0 && outputColDim < 0) {
+      return rewriter.notifyMatchFailure(slice, "no row/col dim to slice");
+    }
+
+    // The slice must keep every dim full except one row/col dim, which it
+    // narrows to a sub-range. A strided (non-unit step) narrowing is fine: each
+    // output row is A[m] . B (and each col is A . B[:,n]), so a strided output
+    // slice maps to the same strided slice of the producing operand.
+    auto sliceBegins = slice.getBegins().getValue();
+    auto sliceEnds = slice.getEnds().getValue();
+    auto sliceSteps = slice.getStep().getValue();
+
+    int64_t narrowedDim = -1; // the single narrowed output dim
+    for (int64_t dim = 0; dim < outputRank; ++dim) {
+      int64_t begin = mlir::cast<IntegerAttr>(sliceBegins[dim]).getInt();
+      int64_t end = mlir::cast<IntegerAttr>(sliceEnds[dim]).getInt();
+      int64_t step = mlir::cast<IntegerAttr>(sliceSteps[dim]).getInt();
+      int64_t dimSize = outputShape[dim];
+      if (begin < 0) {
+        begin += dimSize;
+      }
+      if (end < 0) {
+        end += dimSize;
+      }
+      // Reverse slices (step <= 0) are out of scope.
+      if (step < 1) {
+        return rewriter.notifyMatchFailure(slice, "non-positive step");
+      }
+      if (begin == 0 && end == dimSize && step == 1) {
+        continue; // full range on this dim
+      }
+      if (narrowedDim != -1) {
+        return rewriter.notifyMatchFailure(slice, "more than one narrowed dim");
+      }
+      narrowedDim = dim;
+    }
+    bool sliceRows = (outputRowDim >= 0 && narrowedDim == outputRowDim);
+    bool sliceCols = (outputColDim >= 0 && narrowedDim == outputColDim);
+    if (!sliceRows && !sliceCols) {
+      return rewriter.notifyMatchFailure(slice, "slice not on row or col dim");
+    }
+
+    // The slice op already encodes the narrowed dim size in its result type.
+    int64_t narrowedSize =
+        mlir::cast<RankedTensorType>(slice.getResult().getType())
+            .getShape()[narrowedDim];
+
+    if (narrowedSize <= 0) {
+      return rewriter.notifyMatchFailure(slice, "empty slice");
+    }
+
+    // Operand and dim producing the narrowed output, honoring transpose:
+    //   rows -> A: transpose_a ? last dim : rank-2 dim
+    //   cols -> B: transpose_b ? rank-2 dim : last dim
+    Value slicedOperand = sliceRows ? matmulAVal : matmulBVal;
+    int64_t operandRank =
+        mlir::cast<RankedTensorType>(slicedOperand.getType()).getRank();
+    int64_t operandDim;
+    if (sliceRows) {
+      operandDim = transposeA ? operandRank - 1 : operandRank - 2;
+    } else {
+      operandDim = transposeB ? operandRank - 2 : operandRank - 1;
+    }
+    Value operandSlice = createSingleDimSlice(rewriter, slice, narrowedDim,
+                                              slicedOperand, operandDim);
+
+    // Narrow the linear bias along the dim aligned with the sliced output dim
+    // (with the same step). Right-aligned broadcast puts it at
+    // biasRank-(outputRank-narrowedDim). A missing or size-1 (broadcast) dim
+    // already spans the output, so skip it.
+    Value newBias = bias;
+    if (bias) {
+      auto biasType = mlir::cast<RankedTensorType>(bias.getType());
+      int64_t biasRank = biasType.getRank();
+      int64_t biasDim = biasRank - (outputRank - narrowedDim);
+      if (biasDim >= 0 && biasType.getShape()[biasDim] != 1) {
+        newBias =
+            createSingleDimSlice(rewriter, slice, narrowedDim, bias, biasDim);
+      }
+    }
+
+    // Narrowed matmul/linear: sliced output dim becomes narrowedSize.
+    SmallVector<int64_t> narrowedOutShape(outputShape);
+    narrowedOutShape[narrowedDim] = narrowedSize;
+    auto narrowedOutType =
+        RankedTensorType::get(narrowedOutShape, outputType.getElementType(),
+                              outputType.getEncoding());
+    Value newMatmulAVal = sliceRows ? operandSlice : matmulAVal;
+    Value newMatmulBVal = sliceRows ? matmulBVal : operandSlice;
+    Value narrowedResult =
+        matmul ? rewriter
+                     .create<MatmulOp>(matmulOrLinearLoc, narrowedOutType,
+                                       newMatmulAVal, newMatmulBVal, transposeA,
+                                       transposeB)
+                     .getResult()
+               : rewriter
+                     .create<LinearOp>(matmulOrLinearLoc, narrowedOutType,
+                                       newMatmulAVal, newMatmulBVal, newBias,
+                                       transposeA, transposeB)
+                     .getResult();
+
+    // The narrowed output already has the slice's shape, so it replaces it.
+    rewriter.replaceOp(slice, narrowedResult);
+    return mlir::success();
+  }
+};
+
 // Fuse multiple MatmulOps that share the same LHS (A operand) into a single
 // MatmulOp with concatenated RHS (B operand) weights and sliced outputs.
 //
@@ -1592,13 +1804,23 @@ public:
   }
 
 private:
+  // Upper bound on the fused output (feature) dimension. Many-way fusions
+  // concatenate every RHS weight/bias along this dim; a rank-1 bias concat
+  // lowers to ttnn.concat's row-major path where one page is the whole row, so
+  // a large fused width overflows per-core L1. Cap keeps even an f32 bias page
+  // (262144 * 4 B = 1 MB) within L1, staying well above realistic QKV/MLP
+  // fusion.
+  static constexpr int64_t kMaxFusedOutputDim = 262144;
+
   struct FusionCandidates {
     SmallVector<OpType> ops;
     int64_t totalOutputDim = 0;
     bool allSameTransposeB = true;
     bool firstTransposeB = false;
 
-    bool isValid() const { return ops.size() >= 3; }
+    bool isValid() const {
+      return ops.size() >= 3 && totalOutputDim <= kMaxFusedOutputDim;
+    }
 
     bool getTargetTransposeB() const {
       return allSameTransposeB ? firstTransposeB : false;
@@ -3136,6 +3358,9 @@ public:
       patterns.add<SpatialMeanOptimizationPattern>(&getContext());
       patterns.add<SharedLHSMatmulFusion<MatmulOp>>(&getContext());
       patterns.add<SharedLHSMatmulFusion<LinearOp>>(&getContext());
+      if (permuteSliceAfterMatmulEnabled) {
+        patterns.add<PermuteSliceAfterMatmulPattern>(&getContext());
+      }
       patterns.add<RMSNormFusionPattern>(&getContext());
 
       patterns.add<GeluFusionPattern>(&getContext());

@@ -369,6 +369,32 @@ public:
   }
 };
 
+// Rewrites Shardy-emitted data-movement ops (collectives like
+// stablehlo.all_to_all, and stablehlo.composite reshards like "sdy.all_slice")
+// to operate on the unpacked real representation. These ops only forward data,
+// so appending the trailing real/imag dim leaves their attributes/dimension
+// indices valid. Supports variadic operands/results (unlike
+// ComplexTypeDefaultConversionPattern).
+template <typename OpTy>
+class ComplexPassthroughConversionPattern : public OpConversionPattern<OpTy> {
+  using OpConversionPattern<OpTy>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(OpTy op,
+                  typename OpConversionPattern<OpTy>::OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> newResultTypes;
+    for (Type t : op->getResultTypes()) {
+      newResultTypes.push_back(this->getTypeConverter()->convertType(t));
+    }
+    rewriter.replaceOpWithNewOp<OpTy>(op, TypeRange(newResultTypes),
+                                      adaptor.getOperands(),
+                                      op.getProperties());
+    return success();
+  }
+};
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -506,7 +532,8 @@ struct StableHLOComplexDataTypeConversionPass
     target.addDynamicallyLegalOp<
         mlir::stablehlo::ConstantOp, mlir::stablehlo::ReshapeOp,
         mlir::stablehlo::SliceOp, mlir::stablehlo::GatherOp,
-        mlir::stablehlo::ConcatenateOp, mlir::stablehlo::BroadcastInDimOp>(
+        mlir::stablehlo::ConcatenateOp, mlir::stablehlo::BroadcastInDimOp,
+        mlir::stablehlo::AllToAllOp, mlir::stablehlo::CompositeOp>(
         isNotComplexType);
 
     target.addIllegalOp<mlir::stablehlo::ComplexOp, mlir::stablehlo::RealOp,
@@ -551,6 +578,8 @@ struct StableHLOComplexDataTypeConversionPass
         ComplexSliceOpConversionPattern,
         ComplexTypeDefaultConversionPattern<mlir::stablehlo::ConcatenateOp>,
         ComplexTypeDefaultConversionPattern<mlir::stablehlo::ReshapeOp>,
+        ComplexPassthroughConversionPattern<mlir::stablehlo::AllToAllOp>,
+        ComplexPassthroughConversionPattern<mlir::stablehlo::CompositeOp>,
         ShardyManualComputationComplexConversionPattern,
         ShardyReturnOpTypeConversionPattern,
         StablehloComplexToDecomposedPattern,

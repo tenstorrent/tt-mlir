@@ -273,20 +273,6 @@ TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds(
       .addOutputOperandWorkaround(inputSourceWorkaround); // result
 }
 
-// Factory method to create a set of workarounds for mesh partition op operands.
-// The input and output tensors associated with the op should always be in
-// row-major layout.
-// TODO (hshah): Remove once
-// https://github.com/tenstorrent/tt-metal/issues/37676 is fixed.
-TTNNOperandsWorkarounds
-TTNNOperandsWorkaroundsFactory::createMeshPartitionOpOperandsWorkarounds() {
-  wa::TTNNOperandWorkarounds rowMajorWorkaround;
-  rowMajorWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
-  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-      .addInputOperandWorkaround(rowMajorWorkaround)
-      .addOutputOperandWorkaround(rowMajorWorkaround);
-}
-
 // Factory method to create a set of workarounds for slice op input operands.
 // ttnn::SliceStaticOp requires uint32 on input if the slice is strided
 // and input is < uint32.

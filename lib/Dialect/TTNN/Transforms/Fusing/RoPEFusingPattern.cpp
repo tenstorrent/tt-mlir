@@ -6,6 +6,7 @@
 
 #include "ttmlir/Conversion/TTIRToTTNN/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
+#include "ttmlir/Dialect/TTNN/Transforms/Fusing/DecodeLayoutTransform.h"
 #include "ttmlir/Dialect/TTNN/Transforms/OpValidator.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/RotaryEmbeddingOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
@@ -1040,27 +1041,20 @@ RoPEExpandedFusing::matchAndRewrite(ConcatOp srcOp,
 // RoPEDecodeFusing
 // =============================================================================
 
-mlir::LogicalResult
-RoPEDecodeFusing::matchAndRewrite(PermuteOp permuteOp,
-                                  mlir::PatternRewriter &rewriter) const {
-  auto ropeOp = permuteOp.getInput().getDefiningOp<RotaryEmbeddingOp>();
-  if (!ropeOp) {
-    return failure();
-  }
-
+// Shared body for the decode RoPE rewrite. `layoutOp` is the decode layout
+// transform consuming the RoPE result (a permute or its folded reshape form);
+// it is replaced by a decode-mode RoPE whose input has `perm` applied first.
+static mlir::LogicalResult
+applyRoPEDecodeRewrite(mlir::Operation *layoutOp, RotaryEmbeddingOp ropeOp,
+                       llvm::ArrayRef<int64_t> perm,
+                       mlir::PatternRewriter &rewriter) {
   // Already in decode mode.
   if (ropeOp.getTokenIndex()) {
     return failure();
   }
 
-  // RoPE result must feed only into this permute.
+  // RoPE result must feed only into this layout transform.
   if (!ropeOp.getResult().hasOneUse()) {
-    return failure();
-  }
-
-  // Permutation must be 4D and put S axis (dim 2 in BHSD) at position 0.
-  auto perm = permuteOp.getPermutation();
-  if (perm.size() != 4 || perm[0] != 2) {
     return failure();
   }
 
@@ -1076,7 +1070,7 @@ RoPEDecodeFusing::matchAndRewrite(PermuteOp permuteOp,
     return failure();
   }
 
-  op_model::ScopedSingletonDeviceGuard deviceGuard(permuteOp.getOperation());
+  op_model::ScopedSingletonDeviceGuard deviceGuard(layoutOp);
 
   // Create pre-permute on the original RoPE input: BHSD -> permuted order.
   auto prePermute = ttir_to_ttnn::utils::generatePermute(
@@ -1122,10 +1116,44 @@ RoPEDecodeFusing::matchAndRewrite(PermuteOp permuteOp,
     }
   }
 
-  // Replace the permute's uses with the new RoPE result.
+  // Replace the layout transform's uses with the new RoPE result.
   // The old RoPE op becomes dead and is cleaned up by the rewriter.
-  rewriter.replaceOp(permuteOp, newRope.getResult());
+  rewriter.replaceOp(layoutOp, newRope.getResult());
   return success();
+}
+
+mlir::LogicalResult
+RoPEDecodeFusing::matchAndRewrite(PermuteOp permuteOp,
+                                  mlir::PatternRewriter &rewriter) const {
+  auto ropeOp = permuteOp.getInput().getDefiningOp<RotaryEmbeddingOp>();
+  if (!ropeOp) {
+    return failure();
+  }
+
+  // Permutation must be 4D and put S axis (dim 2 in BHSD) at position 0.
+  auto perm = permuteOp.getPermutation();
+  if (perm.size() != 4 || perm[0] != 2) {
+    return failure();
+  }
+
+  return applyRoPEDecodeRewrite(permuteOp, ropeOp, perm, rewriter);
+}
+
+mlir::LogicalResult RoPEDecodeReshapeFusing::matchAndRewrite(
+    ReshapeOp reshapeOp, mlir::PatternRewriter &rewriter) const {
+  auto ropeOp = reshapeOp.getInput().getDefiningOp<RotaryEmbeddingOp>();
+  if (!ropeOp) {
+    return failure();
+  }
+
+  // The reshape must be the canonicalized (folded) form of permute {2,0,1,3}:
+  // a layout-preserving BHSD ([B,H,1,D]) -> decode layout ([1,B,H,D]) reshape.
+  if (!matchDecodeLayoutTransform(reshapeOp.getOperation())) {
+    return failure();
+  }
+
+  return applyRoPEDecodeRewrite(reshapeOp, ropeOp,
+                                /*perm=*/{2, 0, 1, 3}, rewriter);
 }
 
 } // namespace mlir::tt::ttnn::fusing

@@ -536,10 +536,6 @@ def test_chunked_sdpa(
         pytest.param(
             [(1, 32, 12, 256), (32, 4, 128, 256), (32, 4, 128, 256), (32,)],
             6.250000,
-            marks=pytest.mark.xfail(
-                reason="PCC marginally below 0.99 threshold due to bf16 precision "
-                "with large scale (6.25) and head_dim=256"
-            ),
         ),
         # Gemma 1.1 2B decode: heads=8/1 (8:1 GQA), kv_seq=128, head_dim=256
         (

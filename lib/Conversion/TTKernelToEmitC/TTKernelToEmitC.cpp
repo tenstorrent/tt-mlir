@@ -45,6 +45,8 @@ namespace mlir::tt::ttkernel {
 
 // ............................................................................
 
+static constexpr uint32_t ONE_AS_FP32 = 0x3F800000u;
+
 static std::string datatypeToDataformatStr(ttcore::DataType dtype) {
   std::string expression = "DataFormat::";
   switch (dtype) {
@@ -571,6 +573,158 @@ public:
     return success();
   }
 };
+
+static bool hasNonDefaultExpTileScale(IntegerAttr scaleAttr) {
+  return scaleAttr && static_cast<uint32_t>(scaleAttr.getInt()) != ONE_AS_FP32;
+}
+
+static StringRef
+getInputClampingTemplateArg(ttkernel::InputClamping inputClamping) {
+  switch (inputClamping) {
+  case ttkernel::InputClamping::None:
+    return "InputClamping::None";
+  case ttkernel::InputClamping::ClampToNegative:
+    return "InputClamping::ClampToNegative";
+  }
+  llvm_unreachable("Unhandled ttkernel::InputClamping value");
+}
+
+static int getLastSetTemplateArg(ArrayRef<bool> isSet) {
+  const int size = static_cast<int>(isSet.size());
+  for (int i = size - 1; i >= 0; --i) {
+    if (isSet[i]) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+static void appendExpApproxTemplateArg(SmallVectorImpl<Attribute> &args,
+                                       MLIRContext *ctx, BoolAttr approxAttr) {
+  const bool approx = approxAttr && approxAttr.getValue();
+  args.push_back(emitc::OpaqueAttr::get(ctx, approx ? "true" : "false"));
+}
+
+static void appendExpInputClampingTemplateArg(
+    SmallVectorImpl<Attribute> &args, MLIRContext *ctx,
+    ttkernel::InputClampingAttr inputClampingAttr) {
+  const ttkernel::InputClamping inputClamping =
+      inputClampingAttr ? inputClampingAttr.getValue()
+                        : ttkernel::InputClamping::ClampToNegative;
+  args.push_back(
+      emitc::OpaqueAttr::get(ctx, getInputClampingTemplateArg(inputClamping)));
+}
+
+static ArrayAttr
+getExpInitTemplateArgs(MLIRContext *ctx, BoolAttr approxAttr,
+                       IntegerAttr scaleAttr,
+                       ttkernel::InputClampingAttr inputClampingAttr) {
+  const int lastSet = getLastSetTemplateArg(
+      {static_cast<bool>(approxAttr), static_cast<bool>(scaleAttr),
+       static_cast<bool>(inputClampingAttr)});
+  if (lastSet < 0) {
+    return ArrayAttr();
+  }
+
+  SmallVector<Attribute, 3> args;
+  appendExpApproxTemplateArg(args, ctx, approxAttr);
+  if (lastSet >= 1) {
+    const uint32_t scaleBits =
+        scaleAttr ? static_cast<uint32_t>(scaleAttr.getInt()) : ONE_AS_FP32;
+    args.push_back(emitc::OpaqueAttr::get(ctx, std::to_string(scaleBits)));
+  }
+  if (lastSet >= 2) {
+    appendExpInputClampingTemplateArg(args, ctx, inputClampingAttr);
+  }
+  return ArrayAttr::get(ctx, args);
+}
+
+static ArrayAttr
+getExpTileTemplateArgs(MLIRContext *ctx, BoolAttr approxAttr, bool scaleEn,
+                       ttkernel::InputClampingAttr inputClampingAttr,
+                       IntegerAttr iterationsAttr) {
+  const int lastSet =
+      getLastSetTemplateArg({static_cast<bool>(approxAttr), scaleEn,
+                             static_cast<bool>(inputClampingAttr),
+                             static_cast<bool>(iterationsAttr)});
+  if (lastSet < 0) {
+    return ArrayAttr();
+  }
+
+  SmallVector<Attribute, 4> args;
+  appendExpApproxTemplateArg(args, ctx, approxAttr);
+  if (lastSet >= 1) {
+    args.push_back(emitc::OpaqueAttr::get(ctx, scaleEn ? "true" : "false"));
+  }
+  if (lastSet >= 2) {
+    appendExpInputClampingTemplateArg(args, ctx, inputClampingAttr);
+  }
+  if (lastSet >= 3) {
+    const int64_t iterations = iterationsAttr ? iterationsAttr.getInt() : 8;
+    std::string iterationsStr = std::to_string(iterations);
+    args.push_back(emitc::OpaqueAttr::get(ctx, iterationsStr));
+  }
+  return ArrayAttr::get(ctx, args);
+}
+
+class TTKernelExpTileInitOpRewriter
+    : public OpConversionPattern<ttkernel::ExpTileInitOp> {
+public:
+  using OpConversionPattern<ttkernel::ExpTileInitOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::ExpTileInitOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, TypeRange{}, "exp_tile_init", nullptr,
+        getExpInitTemplateArgs(op.getContext(), op.getApproxAttr(),
+                               op.getScaleAttr(), op.getInputClampingAttr()),
+        adaptor.getOperands());
+    return success();
+  }
+};
+
+class TTKernelExpTileOpRewriter
+    : public OpConversionPattern<ttkernel::ExpTileOp> {
+public:
+  using OpConversionPattern<ttkernel::ExpTileOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttkernel::ExpTileOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    IntegerAttr scaleAttr = op.getScaleAttr();
+    const bool scaleEn = hasNonDefaultExpTileScale(scaleAttr);
+
+    SmallVector<Value> operands(adaptor.getOperands());
+    if (scaleEn) {
+      operands.push_back(
+          rewriter
+              .create<emitc::LiteralOp>(
+                  op.getLoc(),
+                  rewriter.getType<emitc::OpaqueType>("VectorMode"),
+                  "VectorMode::RC")
+              .getResult());
+      const uint32_t fp16bScaleBits =
+          (static_cast<uint32_t>(scaleAttr.getInt()) >> 16) & 0xffffu;
+      operands.push_back(
+          rewriter
+              .create<emitc::LiteralOp>(
+                  op.getLoc(), rewriter.getType<emitc::OpaqueType>("uint16_t"),
+                  (Twine("static_cast<uint16_t>(") + Twine(fp16bScaleBits) +
+                   "u)")
+                      .str())
+              .getResult());
+    }
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        op, TypeRange{}, "exp_tile", nullptr,
+        getExpTileTemplateArgs(op.getContext(), op.getApproxAttr(), scaleEn,
+                               op.getInputClampingAttr(),
+                               op.getIterationsAttr()),
+        operands);
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -640,9 +794,8 @@ public:
   }
 
   static bool hasNonDefaultExpTileScale(IntegerAttr scaleAttr) {
-    constexpr uint32_t defaultScale = 0x3F800000u; // 1.0 encoded as fp32.
     return scaleAttr &&
-           static_cast<uint32_t>(scaleAttr.getInt()) != defaultScale;
+           static_cast<uint32_t>(scaleAttr.getInt()) != ONE_AS_FP32;
   }
 
   ArrayAttr getTemplateArgs(Builder &builder, SourceOp op) const {
@@ -838,13 +991,13 @@ public:
           op.getContext(),
           (approxAttr && approxAttr.getValue()) ? "true" : "false"));
       if (lastSet >= 1) {
-        uint32_t scale =
-            scaleAttr ? static_cast<uint32_t>(scaleAttr.getInt()) : 0x3F800000u;
+        const uint32_t scale =
+            scaleAttr ? static_cast<uint32_t>(scaleAttr.getInt()) : ONE_AS_FP32;
         template_args.push_back(
             emitc::OpaqueAttr::get(op.getContext(), std::to_string(scale)));
       }
       if (lastSet >= 2) {
-        ttkernel::InputClamping inputClamping =
+        const ttkernel::InputClamping inputClamping =
             clampAttr ? clampAttr.getValue()
                       : ttkernel::InputClamping::ClampToNegative;
         template_args.push_back(emitc::OpaqueAttr::get(
@@ -1794,40 +1947,41 @@ public:
           .getResult();
     };
 
-    auto operandsIter = adaptor.getOperands().begin();
-    auto operandsEnd = adaptor.getOperands().end();
-    StringRef rest;
-    SmallVector<Value> vargs;
-    do {
-      std::tie(fmt, rest) = fmt.split("{}");
-      if (!fmt.empty()) {
-        vargs.push_back(stringlit(fmt));
-      }
-      if (operandsIter != operandsEnd) {
-        if (mlir::isa<ttkernel::CBType>(
-                op.getOperands()[operandsIter.getIndex()].getType()) &&
-            op->getParentOfType<func::FuncOp>()
-                    ->getAttrOfType<ttkernel::ThreadTypeAttr>(
-                        ttkernel::ThreadTypeAttr::name)
-                    .getValue() == ttkernel::ThreadType::Compute) {
-          auto cbPrinter =
-              rewriter
-                  .create<emitc::CallOpaqueOp>(
-                      op.getLoc(),
-                      rewriter.getType<emitc::OpaqueType>("ttmlir::CBPrinter"),
-                      "ttmlir::CBPrinter", nullptr, nullptr,
-                      ValueRange{*operandsIter++})
-                  .getResult(0);
-          vargs.push_back(cbPrinter);
-        } else {
-          vargs.push_back(*operandsIter++);
-        }
-      }
-      fmt = rest;
-    } while (!fmt.empty());
+    // Lower to a single fmt-style DPRINT call:
+    //   DPRINT("<fmt with {} placeholders>", arg0, arg1, ...)
+    // The new tt-metal DEVICE_PRINT is fmt-style and requires the format
+    // string to be a compile-time literal: passing each arg through a
+    // template wrapper as DPRINT("{}", arg) would format string-literal
+    // pieces (and "\n") as pointer addresses rather than text, so the
+    // format string must be emitted verbatim as the first argument and the
+    // operands passed positionally for the {} placeholders.
+    bool isComputeThread = op->getParentOfType<func::FuncOp>()
+                               ->getAttrOfType<ttkernel::ThreadTypeAttr>(
+                                   ttkernel::ThreadTypeAttr::name)
+                               .getValue() == ttkernel::ThreadType::Compute;
 
-    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
-        op, TypeRange(), "ttmlir::dprint", nullptr, nullptr, vargs);
+    SmallVector<Value> vargs;
+    vargs.push_back(stringlit(fmt));
+    for (auto operand : adaptor.getOperands()) {
+      auto operandIndex = vargs.size() - 1;
+      if (mlir::isa<ttkernel::CBType>(
+              op.getOperands()[operandIndex].getType()) &&
+          isComputeThread) {
+        auto cbPrinter =
+            rewriter
+                .create<emitc::CallOpaqueOp>(
+                    op.getLoc(),
+                    rewriter.getType<emitc::OpaqueType>("ttmlir::CBPrinter"),
+                    "ttmlir::CBPrinter", nullptr, nullptr, ValueRange{operand})
+                .getResult(0);
+        vargs.push_back(cbPrinter);
+      } else {
+        vargs.push_back(operand);
+      }
+    }
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(op, TypeRange(), "DPRINT",
+                                                     nullptr, nullptr, vargs);
     return success();
   }
 };
@@ -2517,6 +2671,10 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MatmulBlockOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ExperimentalMatmulBlockOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::TopkTileInitOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::TopkLocalSortOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::TopkMergeOp>,
+        TTKernelToEmitCOpaqueRewriter<ttkernel::TopkRebuildOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulTilesInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::MulTilesOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::SubTilesInitOp>,
@@ -2584,8 +2742,7 @@ public:
         TTKernelToEmitCOpaqueRewriter<ttkernel::ErfTileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ErfcTileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::ErfcTileOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::ExpTileInitOp>,
-        TTKernelToEmitCOpaqueRewriter<ttkernel::ExpTileOp>,
+        TTKernelExpTileInitOpRewriter, TTKernelExpTileOpRewriter,
         TTKernelToEmitCOpaqueRewriter<ttkernel::Exp2TileInitOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::Exp2TileOp>,
         TTKernelToEmitCOpaqueRewriter<ttkernel::Expm1TileInitOp>,

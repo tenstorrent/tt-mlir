@@ -18,6 +18,9 @@
 #include "mlir/IR/IRMapping.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/MapVector.h"
+
 namespace mlir::tt::d2m {
 #define GEN_PASS_DEF_D2MSPLITUNIFIEDTHREAD
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h.inc"
@@ -32,6 +35,138 @@ static void appendUnique(SmallVectorImpl<Value> &values, Value value) {
   if (!llvm::is_contained(values, value)) {
     values.push_back(value);
   }
+}
+
+static bool isSynchronizableBoundaryOp(
+    Operation *op, const DenseSet<Operation *> &opsWithSynchronizableOps) {
+  return dyn_cast<SynchronizableOpInterface>(op) ||
+         opsWithSynchronizableOps.contains(op);
+}
+
+static bool canMergeIntoComputeRegion(
+    Operation *op, const DenseSet<Operation *> &opsWithSynchronizableOps) {
+  return !op->hasTrait<OpTrait::IsTerminator>() &&
+         !isSynchronizableBoundaryOp(op, opsWithSynchronizableOps);
+}
+
+static bool hasSynchronizableAncestor(Operation *op, GenericOp genericOp) {
+  for (Operation *parent = op->getParentOp();
+       parent && parent != genericOp.getOperation();
+       parent = parent->getParentOp()) {
+    if (dyn_cast<SynchronizableOpInterface>(parent)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static Operation *getAncestorInBlock(Operation *op, Block *block) {
+  Operation *current = op;
+  while (current && current->getBlock() != block) {
+    current = current->getParentOp();
+  }
+  return current;
+}
+
+static bool getSiblingOpsInNearestCommonBlock(Operation *first, Operation *last,
+                                              Operation *&firstBoundary,
+                                              Operation *&lastBoundary) {
+  for (Operation *firstAncestor = first; firstAncestor;
+       firstAncestor = firstAncestor->getParentOp()) {
+    if (Operation *candidateLastBoundary =
+            getAncestorInBlock(last, firstAncestor->getBlock())) {
+      firstBoundary = firstAncestor;
+      lastBoundary = candidateLastBoundary;
+      return true;
+    }
+  }
+  return false;
+}
+
+// Return the block all `ops` are direct children of, or nullptr otherwise. A
+// grouped CB op pair must sit in one block so its cadence matches the producer
+// or consumer cadence of that block.
+static Block *commonParentBlock(ArrayRef<Operation *> ops) {
+  Block *block = ops.front()->getBlock();
+  for (Operation *op : ArrayRef<Operation *>(ops).drop_front()) {
+    if (op->getBlock() != block) {
+      return nullptr;
+    }
+  }
+  return block;
+}
+
+static bool hasCrossNestComputeConsumerFanout(GenericOp genericOp) {
+  auto cbUsageInfo = utils::getCBUsageInfo(genericOp.getRegion(0));
+  for (auto &[localBuffer, usageInfo] : cbUsageInfo) {
+    (void)localBuffer;
+    SmallVector<Operation *> computeConsumers;
+    for (Operation *consumer : usageInfo.consumers) {
+      if (!consumer->hasTrait<D2MGenericRegionDatamovementOpTrait>()) {
+        computeConsumers.push_back(consumer);
+      }
+    }
+    if (computeConsumers.size() > 1 &&
+        commonParentBlock(computeConsumers) == nullptr) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static LogicalResult expandRangeToCoverNonPureResultUses(Block::iterator &start,
+                                                         Block::iterator &end) {
+  DenseMap<Operation *, bool> purelyDerivedOps;
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    Block *block = start->getBlock();
+    DenseSet<Operation *> opsInRange;
+    for (Operation &op : llvm::make_range(start, end)) {
+      opsInRange.insert(&op);
+    }
+
+    for (Operation &rootOp : llvm::make_range(start, end)) {
+      WalkResult walkResult = rootOp.walk([&](Operation *op) {
+        if (utils::isPurelyDerivedOp(op, purelyDerivedOps)) {
+          return WalkResult::advance();
+        }
+        for (Value result : op->getResults()) {
+          for (Operation *user : result.getUsers()) {
+            if (llvm::any_of(opsInRange, [&](Operation *rangeOp) {
+                  return rangeOp->isAncestor(user);
+                })) {
+              continue;
+            }
+
+            Operation *userBoundary = getAncestorInBlock(user, block);
+            if (!userBoundary) {
+              return WalkResult::interrupt();
+            }
+            if (userBoundary->isBeforeInBlock(&*start)) {
+              start = userBoundary->getIterator();
+              changed = true;
+              return WalkResult::interrupt();
+            }
+            if (end != block->end() && !userBoundary->isBeforeInBlock(&*end)) {
+              end = std::next(userBoundary->getIterator());
+              changed = true;
+              return WalkResult::interrupt();
+            }
+          }
+        }
+        return WalkResult::advance();
+      });
+      if (walkResult.wasInterrupted()) {
+        if (!changed) {
+          return failure();
+        }
+        break;
+      }
+    }
+  }
+
+  return success();
 }
 
 bool isAliasedStore(RemoteStoreOp storeOp) {
@@ -96,22 +231,32 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
   OpBuilder::InsertionGuard guard(rewriter);
 
   // Collect the ops that directly contain SynchronizableOpInterface ops.
-  // These delimit the scope where compute is synchronized: the outermost
-  // compute ancestor is a direct child of such an op, alongside the
-  // synchronizable ops that bound it.
+  // These delimit scopes where compute is synchronized: the outermost compute
+  // ancestor is a direct child of such an op, alongside the synchronizable ops
+  // that bound it. A unified region may have multiple such scopes when, for
+  // example, a pre-loop zero fill feeds a loop-carried matmul accumulator.
   DenseSet<Operation *> opsWithSynchronizableOps;
   genericOp.getRegion(0).walk([&](Operation *op) {
     if (dyn_cast<SynchronizableOpInterface>(op)) {
       opsWithSynchronizableOps.insert(op->getParentOp());
     }
   });
-  assert(opsWithSynchronizableOps.size() == 1 &&
-         "synchronized scope must be unambiguous");
+  if (opsWithSynchronizableOps.empty()) {
+    return success();
+  }
+
+  if (hasCrossNestComputeConsumerFanout(genericOp)) {
+    return rewriter.notifyMatchFailure(
+        genericOp,
+        "compute ops span multiple synchronization scopes (e.g. a CB consumed "
+        "across distinct loop nests); cross-nest fan-out is not yet supported");
+  }
 
   DenseSet<Operation *> outermostOps;
   bool walkFailed = false;
   genericOp.getRegion(0).walk([&](Operation *op) {
-    if (!op->hasTrait<D2MGenericRegionComputeOpTrait>()) {
+    if (!op->hasTrait<D2MGenericRegionComputeOpTrait>() ||
+        hasSynchronizableAncestor(op, genericOp)) {
       return WalkResult::advance();
     }
 
@@ -123,9 +268,9 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
       outermostOp = outermostOp->getParentOp();
       if (!mlir::isa<scf::ForOp>(outermostOp) &&
           !mlir::isa<linalg::GenericOp>(outermostOp)) {
-        outermostOp->emitOpError(
-            "Parent ops containing compute ops must be scf.for or "
-            "linalg.generic");
+        (void)rewriter.notifyMatchFailure(
+            genericOp, "parent ops containing compute ops must be scf.for or "
+                       "linalg.generic");
         walkFailed = true;
         return WalkResult::interrupt();
       }
@@ -156,7 +301,8 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
 
     // Expand above.
     while (start != outermostOp->getBlock()->begin() &&
-           !dyn_cast<SynchronizableOpInterface>(std::prev(start))) {
+           canMergeIntoComputeRegion(&*std::prev(start),
+                                     opsWithSynchronizableOps)) {
       start--;
       if (outermostOps.contains(&*start)) {
         outermostOps.erase(&*start);
@@ -164,15 +310,23 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
     }
 
     // Expand below.
-    while (std::next(end) != outermostOp->getBlock()->end() &&
-           !dyn_cast<SynchronizableOpInterface>(std::next(end))) {
+    while (
+        std::next(end) != outermostOp->getBlock()->end() &&
+        canMergeIntoComputeRegion(&*std::next(end), opsWithSynchronizableOps)) {
       end++;
       if (outermostOps.contains(&*end)) {
         outermostOps.erase(&*end);
       }
     }
 
-    computeRegions.push_back({start, std::next(end)});
+    Block::iterator wrappedEnd = std::next(end);
+    if (failed(expandRangeToCoverNonPureResultUses(start, wrappedEnd))) {
+      return failure();
+    }
+    for (Operation &op : llvm::make_range(start, wrappedEnd)) {
+      outermostOps.erase(&op);
+    }
+    computeRegions.push_back({start, wrappedEnd});
   }
 
   for (auto [start, end] : computeRegions) {
@@ -243,8 +397,11 @@ static LogicalResult processSharedBufferPairs(
     Block *computeBlock, PatternRewriter &rewriter,
     llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
   for (auto [localBuffer, usageInfo] : cbUsageInfo) {
-    assert(usageInfo.producers.size() == 1 && usageInfo.consumers.size() == 1 &&
-           "Expected exactly one producer and one consumer for CB");
+    // Only handles 1:1 RemoteLoad->RemoteStore alias pairs; fan-out CBs are
+    // handled by insertCBOpsForCompute.
+    if (usageInfo.producers.size() != 1 || usageInfo.consumers.size() != 1) {
+      continue;
+    }
     auto *producer = usageInfo.producers.front();
     auto *consumer = usageInfo.consumers.front();
 
@@ -287,86 +444,113 @@ static LogicalResult processSharedBufferPairs(
 static LogicalResult
 insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
                       llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
-  SmallVector<RemoteLoadOp> loads;
-
+  // Collect, per CB local buffer, the compute synchronizable ops that consume
+  // or produce it, in program order. A CB may have multiple consumers (fan-out,
+  // e.g. softmax reusing `scores`); the producer pushes once, so it's balanced
+  // by one wait before the first consumer and one pop after the last.
+  llvm::MapVector<Value, SmallVector<Operation *>> consumersByCB;
+  llvm::MapVector<Value, SmallVector<Operation *>> producersByCB;
   computeBlock->walk([&](Operation *op) {
-    if (dyn_cast<SynchronizableOpInterface>(op) &&
-        !op->hasTrait<D2MGenericRegionDatamovementOpTrait>()) {
-      auto synchronizedOp = mlir::cast<SynchronizableOpInterface>(op);
-      // get consumers and insert wait+pop
-      for (auto &operand : synchronizedOp->getOpOperands()) {
-        if (synchronizedOp.isConsumer(operand)) {
-          Location loc = synchronizedOp.getLoc();
-          Value localBuffer = operand.get();
-          unsigned cbOperandIdx =
-              synchronizedOp->getParentOfType<GenericOp>().getOperandIndex(
-                  localBuffer);
-
-          // get the associated producer for this operand
-          // Assumes only one producer for this local buffer
-          assert(cbUsageInfo[localBuffer].producers.size() == 1 &&
-                 cbUsageInfo[localBuffer].consumers.size() == 1 &&
-                 "Expected exactly one producer and one consumer for CB");
-          auto *associatedProducer = cbUsageInfo[localBuffer].producers.front();
-          rewriter.setInsertionPoint(synchronizedOp);
-          auto cb = d2m::getOrCreateCB(
-              rewriter, synchronizedOp->getParentOfType<GenericOp>(),
-              computeBlock, cbOperandIdx);
-
-          if (mlir::isa<RemoteLoadOp>(associatedProducer) &&
-              isAliasedLoad(mlir::cast<RemoteLoadOp>(associatedProducer))) {
-            rewriter.create<ReserveOp>(loc, cb);
-            rewriter.create<PushOp>(loc, cb);
-          }
-          WaitOp waitOp = rewriter.create<WaitOp>(loc, cb);
-          rewriter.setInsertionPointAfter(synchronizedOp);
-          rewriter.create<PopOp>(loc, cb);
-
-          // Replace uses of the local buffer in compute consumer
-          localBuffer.replaceUsesWithIf(
-              waitOp.getResult(),
-              [&](OpOperand &use) { return use.getOwner() == synchronizedOp; });
-        }
+    auto synchronizedOp = dyn_cast<SynchronizableOpInterface>(op);
+    if (!synchronizedOp ||
+        op->hasTrait<D2MGenericRegionDatamovementOpTrait>()) {
+      return WalkResult::advance();
+    }
+    for (auto &operand : op->getOpOperands()) {
+      if (synchronizedOp.isConsumer(operand)) {
+        consumersByCB[operand.get()].push_back(op);
       }
-
-      // Get producers and insert reserve+push.
-      for (auto &operand : synchronizedOp->getOpOperands()) {
-        if (synchronizedOp.isProducer(operand)) {
-          Location loc = synchronizedOp.getLoc();
-          Value localBuffer = operand.get();
-          unsigned cbOperandIdx =
-              synchronizedOp->getParentOfType<GenericOp>().getOperandIndex(
-                  localBuffer);
-
-          // Get the associated consumer for this operand.
-          // Assumes only one consumer for this local buffer
-          assert(cbUsageInfo[localBuffer].consumers.size() == 1 &&
-                 cbUsageInfo[localBuffer].producers.size() == 1 &&
-                 "Expected exactly one producer and one consumer for CB");
-          auto *associatedConsumer = cbUsageInfo[localBuffer].consumers.front();
-          rewriter.setInsertionPoint(synchronizedOp);
-          auto cb = d2m::getOrCreateCB(
-              rewriter, synchronizedOp->getParentOfType<GenericOp>(),
-              computeBlock, cbOperandIdx);
-          auto reserveOp = rewriter.create<ReserveOp>(loc, cb);
-          rewriter.setInsertionPointAfter(synchronizedOp);
-          rewriter.create<PushOp>(loc, cb);
-          if (mlir::isa<RemoteStoreOp>(associatedConsumer) &&
-              isAliasedStore(mlir::cast<RemoteStoreOp>(associatedConsumer))) {
-            rewriter.create<WaitOp>(loc, cb);
-            rewriter.create<PopOp>(loc, cb);
-          }
-
-          // Replace uses of the local buffer in compute consumer
-          localBuffer.replaceUsesWithIf(
-              reserveOp.getResult(),
-              [&](OpOperand &use) { return use.getOwner() == synchronizedOp; });
-        }
+      if (synchronizedOp.isProducer(operand)) {
+        producersByCB[operand.get()].push_back(op);
       }
     }
-
     return WalkResult::advance();
   });
+
+  auto generic = cast<GenericOp>(computeBlock->getParentOp());
+
+  // Consumers: wait once before the first consumer, pop once after the last.
+  for (auto &[localBuffer, ops] : consumersByCB) {
+    if (!commonParentBlock(ops)) {
+      return rewriter.notifyMatchFailure(
+          generic,
+          "CB has consumers across distinct loop nests; cross-nest fan-out is "
+          "not yet supported (would deadlock on a wait/pop cadence mismatch)");
+    }
+    unsigned cbOperandIdx = generic.getOperandIndex(localBuffer);
+    Operation *first = ops.front();
+    Operation *last = ops.back();
+    Location loc = first->getLoc();
+
+    rewriter.setInsertionPoint(first);
+    auto cb = d2m::getOrCreateCB(rewriter, generic, computeBlock, cbOperandIdx);
+
+    // Aliased remote_load producer has no DMA, so compute reserves+pushes.
+    bool aliasedLoadProducer =
+        llvm::any_of(cbUsageInfo[localBuffer].producers, [](Operation *p) {
+          auto load = mlir::dyn_cast<RemoteLoadOp>(p);
+          return load && isAliasedLoad(load);
+        });
+    if (aliasedLoadProducer) {
+      rewriter.create<ReserveOp>(loc, cb);
+      rewriter.create<PushOp>(loc, cb);
+    }
+    WaitOp waitOp = rewriter.create<WaitOp>(loc, cb);
+    rewriter.setInsertionPointAfter(last);
+    rewriter.create<PopOp>(last->getLoc(), cb);
+
+    llvm::DenseSet<Operation *> consumerSet(ops.begin(), ops.end());
+    localBuffer.replaceUsesWithIf(waitOp.getResult(), [&](OpOperand &use) {
+      return consumerSet.contains(use.getOwner());
+    });
+  }
+
+  // Producers: reserve once before the first producer, push once after last.
+  // Loop-carried accumulators may have their initial fill and repeated update
+  // in different loop scopes; that is still one logical produced value for the
+  // final DMA consumer, so wrap the nearest common syntactic range.
+  for (auto &[localBuffer, ops] : producersByCB) {
+    unsigned cbOperandIdx = generic.getOperandIndex(localBuffer);
+    Operation *first = ops.front();
+    Operation *last = ops.back();
+    Operation *reserveBefore = first;
+    Operation *pushAfter = last;
+    if (!commonParentBlock(ops)) {
+      auto &usageInfo = cbUsageInfo[localBuffer];
+      if (usageInfo.consumers.size() != 1 ||
+          !mlir::isa<RemoteStoreOp>(usageInfo.consumers.front()) ||
+          !getSiblingOpsInNearestCommonBlock(first, last, reserveBefore,
+                                             pushAfter)) {
+        return rewriter.notifyMatchFailure(
+            generic,
+            "CB has producers across distinct loop nests; cross-nest producer "
+            "fan-out is not yet supported");
+      }
+    }
+    Location loc = first->getLoc();
+
+    rewriter.setInsertionPoint(reserveBefore);
+    auto cb = d2m::getOrCreateCB(rewriter, generic, computeBlock, cbOperandIdx);
+    auto reserveOp = rewriter.create<ReserveOp>(loc, cb);
+    rewriter.setInsertionPointAfter(pushAfter);
+    rewriter.create<PushOp>(last->getLoc(), cb);
+
+    // Aliased remote_store consumer has no DMA, so compute waits+pops.
+    bool aliasedStoreConsumer =
+        llvm::any_of(cbUsageInfo[localBuffer].consumers, [](Operation *c) {
+          auto store = mlir::dyn_cast<RemoteStoreOp>(c);
+          return store && isAliasedStore(store);
+        });
+    if (aliasedStoreConsumer) {
+      rewriter.create<WaitOp>(last->getLoc(), cb);
+      rewriter.create<PopOp>(last->getLoc(), cb);
+    }
+
+    llvm::DenseSet<Operation *> producerSet(ops.begin(), ops.end());
+    localBuffer.replaceUsesWithIf(reserveOp.getResult(), [&](OpOperand &use) {
+      return producerSet.contains(use.getOwner());
+    });
+  }
 
   return success();
 }
@@ -380,15 +564,19 @@ static LogicalResult eraseAliasedLoadStoreOps(
     PatternRewriter &rewriter,
     llvm::DenseMap<Value, utils::CBUsageInfo> &cbUsageInfo) {
   for (auto [localBuffer, usageInfo] : cbUsageInfo) {
-    assert(usageInfo.producers.size() == 1 && usageInfo.consumers.size() == 1 &&
-           "Expected exactly one producer and one consumer for CB");
-    auto *producer = usageInfo.producers.front();
-    auto *consumer = usageInfo.consumers.front();
+    // Erases aliased RemoteLoad/RemoteStore ops. The aliased producer and
+    // consumer are handled independently (rather than requiring a single 1:1
+    // pair) so CBs whose other side fans out still get their aliased half
+    // erased.
+    auto *producer =
+        usageInfo.producers.size() == 1 ? usageInfo.producers.front() : nullptr;
+    auto *consumer =
+        usageInfo.consumers.size() == 1 ? usageInfo.consumers.front() : nullptr;
 
-    if (mlir::isa<RemoteStoreOp>(consumer) &&
+    if (mlir::isa_and_nonnull<RemoteStoreOp>(consumer) &&
         isAliasedStore(mlir::cast<RemoteStoreOp>(consumer))) {
       rewriter.eraseOp(consumer);
-    } else if (mlir::isa<RemoteLoadOp>(producer) &&
+    } else if (mlir::isa_and_nonnull<RemoteLoadOp>(producer) &&
                isAliasedLoad(mlir::cast<RemoteLoadOp>(producer))) {
       rewriter.eraseOp(producer);
     }

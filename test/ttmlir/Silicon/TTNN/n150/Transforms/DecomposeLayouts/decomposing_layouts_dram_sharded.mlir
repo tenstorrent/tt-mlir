@@ -121,7 +121,8 @@ module attributes {} {
     //===------------------------------------------------------------------===//
 
     // Host TILE f32 to DRAM-sharded RM bf16. to_device places the tile in
-    // DRAM-sharded, then typecast and untilize run on device.
+    // DRAM-sharded, then typecast and untilize run on device. Untilize + dtype
+    // cannot fuse, so the typecast stays a separate op.
     func.func @host_tile_f32_to_dram_ws_rm_bf16(%arg0: tensor<32x384xf32, #host_tile_f32>) -> tensor<32x384xbf16, #dram_ws_rm_bf16> {
         // CHECK-LABEL: func.func @host_tile_f32_to_dram_ws_rm_bf16
         // CHECK: %[[TO_DEV:.*]] = "ttnn.to_device"(%arg0
@@ -188,31 +189,30 @@ module attributes {} {
     // Tilize, with typecast
     //===------------------------------------------------------------------===//
 
-    // Host RM f32 to DRAM-sharded TILE bf16. Tilize and typecast both run
-    // on device after the host-to-device transfer.
+    // Host RM f32 to DRAM-sharded TILE bf16. After the host-to-device transfer,
+    // the f32 -> bf16 tilize fuses into a single device `to_layout` (float-family
+    // RM -> TILE) that changes both layout and dtype.
     func.func @host_rm_f32_to_dram_ws_tile_bf16(%arg0: tensor<32x384xf32, #host_rm_f32>) -> tensor<32x384xbf16, #dram_ws_tile_bf16> {
         // CHECK-LABEL: func.func @host_rm_f32_to_dram_ws_tile_bf16
         // CHECK: %[[TO_DEV:.*]] = "ttnn.to_device"
         // CHECK-SAME: -> tensor<32x384xf32, #[[DRAM_WS_RM_F32]]>
         // CHECK: %[[TILIZE:.*]] = "ttnn.to_layout"(%[[TO_DEV]])
-        // CHECK-SAME: -> tensor<32x384xf32, #[[DRAM_WS_TILE_F32]]>
-        // CHECK: %[[CAST:.*]] = "ttnn.typecast"(%[[TILIZE]])
         // CHECK-SAME: -> tensor<32x384xbf16, #[[DRAM_WS_TILE_BF16]]>
-        // CHECK: return %[[CAST]]
+        // CHECK-NOT: "ttnn.typecast"
+        // CHECK: return %[[TILIZE]]
         %0 = "ttnn.to_layout"(%arg0) : (tensor<32x384xf32, #host_rm_f32>) -> tensor<32x384xbf16, #dram_ws_tile_bf16>
         return %0 : tensor<32x384xbf16, #dram_ws_tile_bf16>
     }
 
-    // DRAM-interleaved RM f32 to DRAM-sharded TILE bf16. Tilize runs on
-    // the interleaved input, typecast on the tilized result, and a final
+    // DRAM-interleaved RM f32 to DRAM-sharded TILE bf16. The f32 -> bf16 tilize
+    // fuses into a single device `to_layout` on the interleaved input, then a
     // reshard lands the tensor in DRAM-sharded.
     func.func @dram_il_rm_f32_to_dram_ws_tile_bf16(%arg0: tensor<32x384xf32, #dram_il_rm_f32>) -> tensor<32x384xbf16, #dram_ws_tile_bf16> {
         // CHECK-LABEL: func.func @dram_il_rm_f32_to_dram_ws_tile_bf16
         // CHECK: %[[TILIZE:.*]] = "ttnn.to_layout"(%arg0)
-        // CHECK-SAME: -> tensor<32x384xf32, #[[DRAM_IL_TILE_F32]]>
-        // CHECK: %[[CAST:.*]] = "ttnn.typecast"(%[[TILIZE]])
         // CHECK-SAME: -> tensor<{{.*}}bf16
-        // CHECK: %[[RESHARD:.*]] = "ttnn.to_memory_config"(%[[CAST]])
+        // CHECK-NOT: "ttnn.typecast"
+        // CHECK: %[[RESHARD:.*]] = "ttnn.to_memory_config"(%[[TILIZE]])
         // CHECK-SAME: -> tensor<32x384xbf16, #[[DRAM_WS_TILE_BF16]]>
         // CHECK: return %[[RESHARD]]
         %0 = "ttnn.to_layout"(%arg0) : (tensor<32x384xf32, #dram_il_rm_f32>) -> tensor<32x384xbf16, #dram_ws_tile_bf16>
@@ -224,15 +224,15 @@ module attributes {} {
     //===------------------------------------------------------------------===//
 
     // DRAM-sharded TILE to DRAM-interleaved TILE with a dtype change.
-    // ttnn.typecast requires input and output memory layouts to match, so
-    // the unshard must happen before the typecast.
-    func.func @dram_ws_tile_bf16_to_dram_il_tile_f32_unshards_before_typecast(%arg0: tensor<32x384xbf16, #dram_ws_tile_bf16>) -> tensor<32x384xf32, #dram_il_tile_f32> {
-        // CHECK-LABEL: func.func @dram_ws_tile_bf16_to_dram_il_tile_f32_unshards_before_typecast
-        // CHECK: %[[TO_MEM_CONFIG:.*]] = "ttnn.to_memory_config"(%arg0)
-        // CHECK-SAME: -> tensor<32x384xbf16, #[[DRAM_IL_TILE_BF16]]>
-        // CHECK-NEXT: %[[TYPECAST:.*]] = "ttnn.typecast"(%[[TO_MEM_CONFIG]])
-        // CHECK-SAME: -> tensor<{{.*}}f32
-        // CHECK-NEXT: return %[[TYPECAST]]
+    // DRAM-sharded is the preferred memory, so the typecast runs in place on the
+    // sharded input, then a single to_memory_config unshards to interleaved.
+    func.func @dram_ws_tile_bf16_to_dram_il_tile_f32(%arg0: tensor<32x384xbf16, #dram_ws_tile_bf16>) -> tensor<32x384xf32, #dram_il_tile_f32> {
+        // CHECK-LABEL: func.func @dram_ws_tile_bf16_to_dram_il_tile_f32
+        // CHECK: %[[TYPECAST:.*]] = "ttnn.typecast"(%arg0)
+        // CHECK-SAME: -> tensor<32x384xf32, #[[DRAM_WS_TILE_F32]]>
+        // CHECK-NEXT: %[[TO_MEM_CONFIG:.*]] = "ttnn.to_memory_config"(%[[TYPECAST]])
+        // CHECK-SAME: -> tensor<32x384xf32, #[[DRAM_IL_TILE_F32]]>
+        // CHECK-NEXT: return %[[TO_MEM_CONFIG]]
         %0 = "ttnn.to_layout"(%arg0) : (tensor<32x384xbf16, #dram_ws_tile_bf16>) -> tensor<32x384xf32, #dram_il_tile_f32>
         return %0 : tensor<32x384xf32, #dram_il_tile_f32>
     }

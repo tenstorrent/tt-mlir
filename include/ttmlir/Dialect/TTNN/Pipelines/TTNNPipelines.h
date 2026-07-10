@@ -10,8 +10,8 @@
 #include "ttmlir/Dialect/TTIR/Pipelines/TTIRPipelines.h"
 #include "ttmlir/Dialect/TTNN/Utils/BFPDtypeParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/CompositeResolution.h"
-#include "ttmlir/Dialect/TTNN/Utils/MathFidelityParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/MemoryLayoutAnalysisParams.h"
+#include "ttmlir/Dialect/TTNN/Utils/PassOptionParsers.h"
 #include "ttmlir/Dialect/TTNN/Utils/PassOverrides.h"
 
 #include "mlir/Pass/PassManager.h"
@@ -292,13 +292,6 @@ struct TTIRToTTNNCommonPipelineOptions
       llvm::cl::desc("Enable decomposition workaround pass."),
       llvm::cl::init(true)};
 
-  Option<bool> allReduceWorkaroundEnabled{
-      *this, "enable-all-reduce-workaround",
-      llvm::cl::desc("Enable the all_reduce decomposition workaround which "
-                     "breaks all_reduce down into reduce_scatter + all_gather "
-                     "(or all_gather + local reduce)."),
-      llvm::cl::init(true)};
-
   Option<bool> ttnnDecompositionEnabled{
       *this, "enable-ttnn-decomposition-pass",
       llvm::cl::desc("Enable TTNN decomposition pass."), llvm::cl::init(true)};
@@ -372,6 +365,14 @@ struct TTIRToTTNNCommonPipelineOptions
       llvm::cl::desc(
           "Fuse permute ops into matmul/linear transpose attributes."),
       llvm::cl::init(false)};
+
+  // Push a matmul/linear output slice into the operand producing the sliced
+  // dim so the op only computes the rows/columns that are used.
+  Option<bool> enablePermuteSliceAfterMatmulFusion{
+      *this, "enable-permute-slice-after-matmul-fusion",
+      llvm::cl::desc("Push a matmul/linear output slice into the operand "
+                     "producing the sliced dim."),
+      llvm::cl::init(true)};
 
   Option<ttcore::TTArgumentTypeMap, ttcore::ArgumentTypeMapParser>
       argumentTypeMap{
@@ -463,8 +464,13 @@ struct TTIRToTTNNCommonPipelineOptions
   // This is done as part of generality effort,
   // to boost accuracy on all operations exposing compute kernel config by
   // default. At optimization levels > 0, these are overridden to
-  // Undefined/false to defer to runtime defaults (see
+  // Undefined/unset to defer to runtime defaults (see
   // resolveOptimizationLevelOptions).
+  // The remaining bool knobs (math_approx_mode, packer_l1_acc,
+  // dst_full_sync_en) default to unset (std::nullopt) at every optimization
+  // level, so TTNN decides unless a frontend explicitly overrides them. All
+  // bool knobs are tri-state (true / false / unset) so a frontend can force a
+  // knob OFF as distinct from leaving it to TTNN.
   mutable Option<OptionalMathFidelity> computeCfgMathFidelity{
       *this, "compute-cfg-math-fidelity",
       llvm::cl::desc("Set math fidelity for all ttnn operations exposing "
@@ -478,11 +484,30 @@ struct TTIRToTTNNCommonPipelineOptions
                      "Undefined math fidelity")),
       llvm::cl::init(OptionalMathFidelity::HiFi4)};
 
-  mutable Option<bool> computeCfgFp32DestAccEn{
+  mutable Option<std::optional<bool>> computeCfgFp32DestAccEn{
       *this, "compute-cfg-fp32-dest-acc-en",
       llvm::cl::desc("Set fp32 destination accumulation for all ttnn "
-                     "operations exposing compute kernel config."),
-      llvm::cl::init(true)};
+                     "operations exposing compute kernel config "
+                     "(true, false, unset)."),
+      llvm::cl::init(std::optional<bool>(true))};
+
+  mutable Option<std::optional<bool>> computeCfgMathApproxMode{
+      *this, "compute-cfg-math-approx-mode",
+      llvm::cl::desc("Set math approx mode for all ttnn operations exposing "
+                     "compute kernel config (true, false, unset)."),
+      llvm::cl::init(std::optional<bool>(std::nullopt))};
+
+  mutable Option<std::optional<bool>> computeCfgPackerL1Acc{
+      *this, "compute-cfg-packer-l1-acc",
+      llvm::cl::desc("Set packer L1 accumulation for all ttnn operations "
+                     "exposing compute kernel config (true, false, unset)."),
+      llvm::cl::init(std::optional<bool>(std::nullopt))};
+
+  mutable Option<std::optional<bool>> computeCfgDstFullSyncEn{
+      *this, "compute-cfg-dst-full-sync-en",
+      llvm::cl::desc("Set dst full sync enable for all ttnn operations "
+                     "exposing compute kernel config (true, false, unset)."),
+      llvm::cl::init(std::optional<bool>(std::nullopt))};
 
   Option<bool> ttnnPerfMetricsEnabled{
       *this, "ttnn-perf-metrics-enabled",
@@ -588,7 +613,7 @@ struct TTIRToTTNNCommonPipelineOptions
     }
     if (computeCfgFp32DestAccEn.getNumOccurrences() == 0 &&
         optimizationLevel > 0) {
-      computeCfgFp32DestAccEn = false;
+      computeCfgFp32DestAccEn = std::optional<bool>(std::nullopt);
     }
   }
 };

@@ -92,6 +92,11 @@ def _get_device_for_target(
             return _current_device
         elif _current_device_target == "emitpy":
             ttnn.close_mesh_device(_current_device)
+            # Clear the DeviceGetter singleton too; otherwise it keeps the old
+            # mesh shape and rejects the next emitpy test that requests a
+            # different one.
+            utils.DeviceGetter._instance = None
+            utils.DeviceGetter._mesh_shape = None
         else:  # Cache miss, need to teardown
             print(
                 f"Found new target {target} with mesh shape {mesh_shape} and fabric config {fabric_config}, closing device for {_current_device_target} with {_current_device_mesh_shape} and {_current_fabric_config}"

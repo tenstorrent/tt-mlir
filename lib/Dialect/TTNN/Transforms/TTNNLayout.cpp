@@ -222,7 +222,7 @@ public:
     // Skip toLayout ops
     if (mlir::isa<ttir::ToLayoutOp>(op) ||
         op->hasTrait<mlir::tt::ttcore::Trait::TTCoreCreationOpTrait>() ||
-        mlir::isa<ttir::MeshShardOp>(op)) {
+        mlir::isa<ttir::MeshShardOp, ttir::MeshPartitionOp>(op)) {
       return failure();
     }
 
@@ -477,6 +477,49 @@ public:
           resultType.getShape(), resultType.getElementType(), newLayout);
       rewriter.modifyOpInPlace(
           op, [&]() { op->getResult(0).setType(resultSystemMemoryType); });
+      modified = true;
+    }
+    return success(modified);
+  }
+};
+} // namespace
+
+namespace {
+
+// Keep ttir::MeshPartitionOp I/O in row-major.
+//
+// MeshPartitionOp typically reslices weights/parameters and is const-eval'd, so
+// it runs once. Tiling pads the last two dims to 32x32, blowing up device
+// memory for small trailing dims (e.g. conv weights ...x3x3) with no compute
+// benefit. Consumers re-tilize as needed.
+class TTNNLayoutMeshPartitionRewriter
+    : public OpRewritePattern<ttir::MeshPartitionOp> {
+public:
+  TTNNLayoutMeshPartitionRewriter(MLIRContext *ctx)
+      : OpRewritePattern<ttir::MeshPartitionOp>(ctx) {}
+
+  LogicalResult matchAndRewrite(ttir::MeshPartitionOp op,
+                                PatternRewriter &rewriter) const override {
+    bool modified = false;
+    Value input = op.getOperand();
+    Location newLoc = appendInputSuffix(op.getLoc(), 0);
+    std::optional<Value> inputLayout = createToLayoutOp(
+        rewriter, newLoc, input, g_defaultMemorySpaceDevice, /* tiled */ false);
+    if (inputLayout.has_value()) {
+      rewriter.modifyOpInPlace(op, [&]() { op->setOperand(0, *inputLayout); });
+      modified = true;
+    }
+
+    RankedTensorType resultType =
+        mlir::cast<RankedTensorType>(op.getResult().getType());
+    TTNNLayoutAttr newLayout =
+        createLayoutAttr(rewriter.getContext(), resultType,
+                         g_defaultMemorySpaceDevice, /* isTiled */ false);
+    if (newLayout != resultType.getEncoding()) {
+      auto resultRowMajorType = RankedTensorType::get(
+          resultType.getShape(), resultType.getElementType(), newLayout);
+      rewriter.modifyOpInPlace(
+          op, [&]() { op->getResult(0).setType(resultRowMajorType); });
       modified = true;
     }
     return success(modified);
@@ -785,6 +828,7 @@ public:
       patterns.add<TTNNLayoutFuncReturnRewriter>(&getContext());
       patterns.add<TTNNLayoutHoistedFuncCallRewriter>(&getContext());
       patterns.add<TTNNLayoutMeshShardRewriter>(&getContext());
+      patterns.add<TTNNLayoutMeshPartitionRewriter>(&getContext());
 
       // Rewrite LoadCachedOp call sites to have correct result types matching
       // callee function signatures in case const-eval function signatures have

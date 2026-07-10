@@ -64,7 +64,7 @@ public:
       auto cbUsageInfo = utils::getCBUsageInfo(genericOp.getRegion(0));
       for (auto &[cb, usageInfo] : cbUsageInfo) {
         if (auto allocOp =
-                mlir::dyn_cast<memref::AllocOp>(cb.getDefiningOp())) {
+                mlir::dyn_cast_or_null<memref::AllocOp>(cb.getDefiningOp())) {
           bool forceHoistedCB =
               utils::isReductionScalerBuffer(allocOp.getOperation());
           int32_t bufferCount = numStreamBuffers;

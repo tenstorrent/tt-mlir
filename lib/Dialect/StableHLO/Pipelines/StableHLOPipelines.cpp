@@ -97,7 +97,7 @@ void createStableHLOPipeline(OpPassManager &pm,
 
   // Replicate non-splittable constants so that InsertExplicitReshards inserts
   // reshard ops between the replicated constant and its sharded consumers.
-  pm.addPass(createReplicateNonSplittableConstantsPass());
+  pm.addPass(createReplicateNonSplittableValuesPass());
 
   // Close propagation gaps left by Shardy's conservative mode: when an op
   // has no propagated result sharding but its operands are sharded, insert

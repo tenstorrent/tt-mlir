@@ -29,7 +29,7 @@ module attributes {} {
     // CHECK-SAME: -> tensor<2x3xui32,
     // CHECK-SAME: !ttcore.tile<32x32,
     %0 = "ttnn.gather"(%arg0, %arg1)
-        <{dim = 0 : i32}>
+        <{dim = 0 : si32}>
         : (tensor<5x3xf32, #ttnn_layout_input_rm>,
            tensor<2x3xui32, #ttnn_layout_index_rm>)
         -> tensor<2x3xf32, #ttnn_layout_output>
@@ -47,7 +47,7 @@ module attributes {} {
     // CHECK-NOT: "ttnn.to_layout"
     // CHECK: "ttnn.gather"
     %0 = "ttnn.gather"(%arg0, %arg1)
-        <{dim = 0 : i32}>
+        <{dim = 0 : si32}>
         : (tensor<5x3xf32, #ttnn_layout_input_tile>,
            tensor<2x3xui32, #ttnn_layout_index_tile>)
         -> tensor<2x3xf32, #ttnn_layout_output>
@@ -81,7 +81,7 @@ module attributes {} {
     // %result = ttnn.where(mask, NaN, raw)
     // CHECK: "ttnn.where"({{.*}}, %[[NAN]], %[[RAW]])
     %0 = "ttnn.gather"(%arg0, %arg1)
-        <{dim = 0 : i32}>
+        <{dim = 0 : si32}>
         : (tensor<5x3xf32, #ttnn_layout_input_tile>,
            tensor<2x3xi32, #ttnn_layout_index_tile_i32>)
         -> tensor<2x3xf32, #ttnn_layout_output>

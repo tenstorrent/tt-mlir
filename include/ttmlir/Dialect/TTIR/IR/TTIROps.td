@@ -276,6 +276,8 @@ def TTIR_WhereOp: TTIR_ElementwiseTernaryOp<"where"> {
       This operation is equivalent to the ternary conditional operator (`condition ? true_value : false_value`)
       in many programming languages, applied elementwise across tensors.
     }];
+
+    let hasFolder = 1;
 }
 
 class TTIR_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
@@ -2677,6 +2679,8 @@ def TTIR_SumOp : TTIR_ReductionOp<"sum"> {
       Output:
       - `result` (Tensor): The result tensor after applying the reduction.
     }];
+
+    let hasFolder = 1;
 }
 
 def TTIR_MeanOp : TTIR_ReductionOp<"mean"> {
@@ -3968,6 +3972,7 @@ def TTIR_Conv3dOp : TTIR_NamedOp<"conv3d"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["isQuantizedRewriteFavorable", "rewriteWithQuantizedInputs"]>]> {
@@ -6347,6 +6352,7 @@ def TTIR_TopKOp : TTIR_NamedOp<"topk"> {
                       AnyRankedTensor:$indices);
 
   let hasVerifier = 1;
+  let hasCanonicalizer = 1;
 }
 
 def TTIR_TopKRouterGptOp : TTIR_NamedOp<"topk_router_gpt"> {

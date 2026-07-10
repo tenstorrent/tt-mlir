@@ -8,6 +8,8 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOpsInterfaces.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
 
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
+
 namespace mlir::tt::d2m::utils {
 
 // Note: This function must be used post-bufferization but before converting
@@ -47,6 +49,15 @@ bool isPurelyDerivedOp(Operation *op,
     return purelyDerivedOps[op];
   }
 
+  // View-like memref ops only derive aliases/metadata. Keep the original op
+  // outside the synchronized region for later users and clone it inside the
+  // region for local users. Requiring their source allocs to be pure would
+  // incorrectly force all downstream users into one synchronized region.
+  if (isa<memref::CollapseShapeOp, memref::SubViewOp>(op)) {
+    purelyDerivedOps[op] = true;
+    return true;
+  }
+
   // if not, compute the result
   bool isPurelyDerived = mlir::isPure(op);
   for (auto operand : op->getOperands()) {
@@ -72,7 +83,7 @@ bool isPurelyDerivedOp(Operation *op,
 // relying on SynchronizableOpInterface, such as in SplitUnifiedThread pass to
 // identify CBs and insert correct CB ops on producer/consumer side).
 //
-// PRECONDITION: No op in [start, end) with a side effect (i.e. not pure) may
+// PRECONDITION: No op in [start, end) that is not purely derived may
 // produce SSA results that are used outside of [start, end).
 Operation *wrapInSynchronizedRegion(RewriterBase &rewriter,
                                     Block::iterator start, Block::iterator end,

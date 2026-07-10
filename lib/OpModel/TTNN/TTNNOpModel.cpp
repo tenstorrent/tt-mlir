@@ -2933,6 +2933,18 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime(
 // PagedFlashMultiLatentAttentionDecodeOp
 //===----------------------------------------------------------------------===//
 
+#ifdef TTMLIR_ENABLE_OPMODEL
+static ::ttnn::operations::transformer::SDPAProgramConfig
+getPagedFlashMlaDecodeProgramConfig(
+    ::tt::tt_metal::distributed::MeshDevice *device) {
+  ::ttnn::operations::transformer::SDPAProgramConfig programConfig{};
+  programConfig.k_chunk_size = 32;
+  programConfig.compute_with_storage_grid_size =
+      device->compute_with_storage_grid_size();
+  return programConfig;
+}
+#endif // TTMLIR_ENABLE_OPMODEL
+
 llvm::Expected<OpConstraints>
 OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
@@ -2975,14 +2987,16 @@ OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpConstraints(
   std::optional<float> scaleFloat =
       scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
 
+  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+      programConfig = getPagedFlashMlaDecodeProgramConfig(device);
+
   auto pagedFlashMlaDecodeOpQuery = [=]() {
     return QUERY_OP_CONSTRAINTS(
         ::ttnn::transformer::paged_flash_multi_latent_attention_decode, device,
         querySpec, keySpec, valueSpec, headDimV, pageTableSpec, isCausal,
         attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
         /*slidingWindowSize=*/std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout), programConfig,
         /*compute_kernel_config=*/std::nullopt);
   };
 
@@ -3035,14 +3049,16 @@ OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpRuntime(
   std::optional<float> scaleFloat =
       scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
 
+  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+      programConfig = getPagedFlashMlaDecodeProgramConfig(device);
+
   auto pagedFlashMlaDecodeOpQuery = [=]() {
     return QUERY_OP_RUNTIME(
         ::ttnn::transformer::paged_flash_multi_latent_attention_decode, device,
         querySpec, keySpec, valueSpec, headDimV, pageTableSpec, isCausal,
         attentionMaskSpec, curPosTensorSpec, attentionSinkSpec, scaleFloat,
         /*slidingWindowSize=*/std::nullopt,
-        detail::getNullableMemoryConfig(outputLayout),
-        /*program_config=*/std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout), programConfig,
         /*compute_kernel_config=*/std::nullopt);
   };
 
@@ -6711,6 +6727,32 @@ llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
     llvm::APFloat epsilon, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
+  // tt-metal's group_norm hangs on a ROW_MAJOR input, reject row-major input
+  // here to force the optimizer to select a TILE input layout. tt-metal#47972
+  // tracks this issue. The raw query lives in getOpConstraintsRaw so the
+  // tripwire test can observe tt-metal's unguarded verdict; remove both once
+  // tt-metal#47972 is fixed.
+  if (inputLayout.getLayout() == mlir::tt::ttnn::Layout::RowMajor) {
+    return llvm::createStringError(
+        llvm::inconvertibleErrorCode(),
+        "group_norm ROW_MAJOR input is unsupported (hangs); requires TILE");
+  }
+#endif // TTMLIR_ENABLE_OPMODEL
+  return getOpConstraintsRaw(
+      inputShape, inputLayout, inputMaskShape, inputMaskLayout, weightShape,
+      weightLayout, biasShape, biasLayout, numGroups, epsilon, outputLayout);
+}
+
+llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraintsRaw(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    std::optional<llvm::ArrayRef<int64_t>> inputMaskShape,
+    std::optional<TTNNLayoutAttr> inputMaskLayout,
+    std::optional<llvm::ArrayRef<int64_t>> weightShape,
+    std::optional<TTNNLayoutAttr> weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
+    llvm::APFloat epsilon, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -6761,6 +6803,15 @@ llvm::Expected<size_t> OpModel<GroupNormOp>::getOpRuntime(
     std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
     llvm::APFloat epsilon, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
+  // tt-metal's group_norm hangs on a ROW_MAJOR input, reject row-major input
+  // here to force the optimizer to select a TILE input layout. tt-metal#47972
+  // tracks this issue.
+  if (inputLayout.getLayout() == mlir::tt::ttnn::Layout::RowMajor) {
+    return llvm::createStringError(
+        llvm::inconvertibleErrorCode(),
+        "group_norm ROW_MAJOR input is unsupported (hangs); requires TILE");
+  }
+
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 

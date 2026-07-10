@@ -22,6 +22,11 @@ from .tensor_layout import Layout
 _D2M_KERNEL_TYPES = {None, "datamovement", "noc", "compute", "unified"}
 
 
+def _as_value(v):
+    """Coerce an OpView or Value to an ir.Value."""
+    return v.result if isinstance(v, OpView) else v
+
+
 class D2MCompiler(ast.NodeVisitor):
     """Unified AST -> MLIR visitor for d2m_jit.
 
@@ -87,6 +92,7 @@ class D2MCompiler(ast.NodeVisitor):
         # Statements
         ast.Pass,
         ast.Assign,
+        ast.AugAssign,
         ast.Return,
         # Function/module
         ast.Module,
@@ -242,9 +248,24 @@ class D2MCompiler(ast.NodeVisitor):
     def _emit_entry(self, node):
         assert not self.func_entry, "Cannot declare function within a function"
 
+        # A formal param whose name is also a capture is materialised as an
+        # in-body `arith.constant` (see the captures loop below) rather than a
+        # function argument. This is how rewrite-scope scalars get baked into
+        # the kernel: the caller moves them into `captures` so they become
+        # in-region constants instead of host-scope `additionalArgs` (which the
+        # ttmetal flatbuffer translator cannot serialize). Lazy-scope scalars
+        # are not captures, so they stay as index function arguments and remain
+        # runtime-variable. `self.args` only carries the non-capture params, in
+        # order, so track a separate cursor into it.
         func_operand_types = []
-        for i, arg in enumerate(node.args.args):
-            rt_arg = self.args[i]
+        arg_param_names = []
+        arg_cursor = 0
+        for arg in node.args.args:
+            if arg.arg in self.captures:
+                continue
+            rt_arg = self.args[arg_cursor]
+            arg_cursor += 1
+            arg_param_names.append(arg.arg)
             if isinstance(rt_arg, Layout):
                 func_operand_types.append(
                     rt_arg.build_device_tensor_type(self.ctx, blocked=True)
@@ -263,8 +284,8 @@ class D2MCompiler(ast.NodeVisitor):
 
         self.symbol_tables.append({})
         func_bb = self.func_entry.add_entry_block()
-        for i, bb_arg in enumerate(func_bb.arguments):
-            self.symbol_tables[-1][node.args.args[i].arg] = bb_arg
+        for name, bb_arg in zip(arg_param_names, func_bb.arguments):
+            self.symbol_tables[-1][name] = bb_arg
         self.module_symbol_table = SymbolTable(self.module.operation)
 
         with InsertionPoint(func_bb):
@@ -338,6 +359,19 @@ class D2MCompiler(ast.NodeVisitor):
                 scf.YieldOp([])
                 self.symbol_tables.pop()
 
+    @staticmethod
+    def _collect_assigned_names(body):
+        """Direct local names assigned by a statement list, in order."""
+        names = []
+        for stmt in body:
+            if isinstance(stmt, ast.AugAssign) and isinstance(stmt.target, ast.Name):
+                names.append(stmt.target.id)
+            elif isinstance(stmt, ast.Assign):
+                for target in stmt.targets:
+                    if isinstance(target, ast.Name):
+                        names.append(target.id)
+        return names
+
     def visit_For(self, node):
         assert node.iter.func.id == "range", "Only range() supported in for loops"
 
@@ -363,14 +397,30 @@ class D2MCompiler(ast.NodeVisitor):
         upper_bound = _to_index(upper_bound)
         step = _to_index(step)
 
-        for_op = scf.ForOp(lower_bound, upper_bound, step)
+        # Existing variables updated in the loop body need scf.for iter_args so
+        # the updated SSA value is visible in later iterations and after the loop.
+        owners = {}
+        carried = []
+        for name in self._collect_assigned_names(node.body):
+            owner = self._var_exists(name)
+            if owner and name not in owners:
+                owners[name] = owner
+                carried.append(name)
+        init_args = [_as_value(owners[name][name]) for name in carried]
+
+        for_op = scf.ForOp(lower_bound, upper_bound, step, iter_args=init_args)
         with InsertionPoint(for_op.body), Location.unknown():
             self.symbol_tables.append({})
             self.symbol_tables[-1][node.target.id] = for_op.induction_variable
+            for i, name in enumerate(carried):
+                self.symbol_tables[-1][name] = for_op.inner_iter_args[i]
             for stmt in node.body:
                 self.visit(stmt)
-            scf.YieldOp([])
+            scf.YieldOp([_as_value(self.symbol_tables[-1][name]) for name in carried])
             self.symbol_tables.pop()
+
+        for i, name in enumerate(carried):
+            owners[name][name] = for_op.results[i]
 
     # --- Async (d2m) -------------------------------------------------------
 
@@ -411,6 +461,39 @@ class D2MCompiler(ast.NodeVisitor):
                 f"Assign target {type(target).__name__} not supported"
             )
         self.symbol_tables[-1][target.id] = self.visit(node.value)
+
+    def visit_AugAssign(self, node):
+        target = node.target
+        if not isinstance(target, ast.Name):
+            raise NotImplementedError(
+                f"AugAssign target {type(target).__name__} not supported"
+            )
+        sym_table = self._var_exists(target.id)
+        if not sym_table:
+            self._fail(
+                node,
+                NameError(f"unknown variable '{target.id}'"),
+                hint=self._hint_for_name(target.id),
+            )
+        lhs = _as_value(sym_table[target.id])
+
+        # Route `c += a @ b` through matmul's accumulator operand instead of
+        # materializing a separate add. This keeps the loop-carried value tied
+        # to the matmul DPS init and models the K-reduction directly.
+        if (
+            isinstance(node.op, ast.Add)
+            and isinstance(node.value, ast.BinOp)
+            and isinstance(node.value.op, ast.MatMult)
+        ):
+            matmul_acc = self._fn_map.get("__matmul_acc__")
+            if matmul_acc is not None:
+                a = _as_value(self.visit(node.value.left))
+                b = _as_value(self.visit(node.value.right))
+                sym_table[target.id] = matmul_acc(lhs, a, b)
+                return
+
+        rhs = self.visit(node.value)
+        sym_table[target.id] = self._emit_binop(node.op, lhs, rhs)
 
     # --- Function calls ----------------------------------------------------
 
@@ -516,6 +599,9 @@ class D2MCompiler(ast.NodeVisitor):
     def visit_BinOp(self, node):
         lhs = self.visit(node.left)
         rhs = self.visit(node.right)
+        return self._emit_binop(node.op, lhs, rhs)
+
+    def _emit_binop(self, op, lhs, rhs):
         if not lhs or not rhs:
             raise ValueError("Binary operands not found")
 
@@ -537,9 +623,9 @@ class D2MCompiler(ast.NodeVisitor):
             return otherwise(lhs, cast_rhs)
 
         def unimplemented(*args, **kwargs):
-            raise NotImplementedError(f"{node.op} not implemented")
+            raise NotImplementedError(f"{op} not implemented")
 
-        match (node.op):
+        match (op):
             case ast.Add():
                 return qualified_or("__add__", arith.addi)
             case ast.Sub():
@@ -568,7 +654,7 @@ class D2MCompiler(ast.NodeVisitor):
                 return qualified_or("__xor__", arith.xori)
             case _:
                 raise NotImplementedError(
-                    f"Binary operator {type(node.op).__name__} not implemented"
+                    f"Binary operator {type(op).__name__} not implemented"
                 )
 
     def visit_UnaryOp(self, node):
@@ -779,11 +865,11 @@ def syntax(syntax_name, args_as_attr=None, kwargs_as_attr=None):
         nonlocal args_as_attr, kwargs_as_attr
         assert callable(fn)
         if args_as_attr is None and kwargs_as_attr is None:
-            D2MCompiler._syntax[fn.__name__] = fn
+            D2MCompiler._syntax[syntax_name] = fn
         else:
             assert args_as_attr is None or isinstance(args_as_attr, list)
             assert kwargs_as_attr is None or isinstance(kwargs_as_attr, dict)
-            D2MCompiler._syntax[fn.__name__] = (
+            D2MCompiler._syntax[syntax_name] = (
                 fn,
                 args_as_attr,
                 kwargs_as_attr or {},

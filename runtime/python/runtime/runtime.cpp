@@ -2,7 +2,16 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <iterator>
+#include <map>
+#include <optional>
 #include <sstream>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "tt/runtime/debug.h"
 #include "tt/runtime/perf.h"
@@ -154,6 +163,10 @@ void registerRuntimeBindings(nb::module_ &m) {
       .def("with_controller_hostname",
            &tt::runtime::MultiProcessArgs::withControllerHostname,
            nb::rv_policy::reference_internal)
+      .def("with_tracy", &tt::runtime::MultiProcessArgs::withTracy,
+           nb::rv_policy::reference_internal)
+      .def("with_tracy_args", &tt::runtime::MultiProcessArgs::withTracyArgs,
+           nb::rv_policy::reference_internal)
       .def("to_arg_string", &tt::runtime::MultiProcessArgs::toArgString);
 
   nb::class_<tt::runtime::DistributedOptions>(m, "DistributedOptions")
@@ -241,9 +254,12 @@ void registerRuntimeBindings(nb::module_ &m) {
            [](tt::runtime::Tensor self, tt::runtime::Layout layout) {
              return tt::runtime::hasLayout(self, layout);
            })
-      .def("get_layout", [](tt::runtime::Tensor self) {
-        return tt::runtime::getTensorLayout(self);
-      });
+      .def("get_layout",
+           [](tt::runtime::Tensor self) {
+             return tt::runtime::getTensorLayout(self);
+           })
+      .def("get_global_id",
+           [](tt::runtime::Tensor self) { return self.getGlobalId(); });
 
   nb::class_<tt::runtime::TensorRef>(m, "TensorRef")
       .def(
@@ -363,6 +379,27 @@ void registerRuntimeBindings(nb::module_ &m) {
   m.def("shutdown_distributed_runtime",
         &tt::runtime::shutdownDistributedRuntime,
         "Shutdown the distributed runtime");
+  nb::class_<tt::runtime::WorkerDebugStatsEntry>(m, "WorkerDebugStatsEntry")
+      .def_ro("hostname", &tt::runtime::WorkerDebugStatsEntry::hostname)
+      .def_ro("stats", &tt::runtime::WorkerDebugStatsEntry::stats)
+      .def("__repr__", [](const tt::runtime::WorkerDebugStatsEntry &entry) {
+        std::ostringstream oss;
+        oss << "Worker: " << entry.hostname << "\n";
+        // Sort keys for consistent output
+        std::vector<std::string> keys;
+        keys.reserve(entry.stats.size());
+        for (const auto &[key, value] : entry.stats) {
+          keys.push_back(key);
+        }
+        std::sort(keys.begin(), keys.end());
+        for (const auto &key : keys) {
+          oss << "  " << key << ": " << entry.stats.at(key) << "\n";
+        }
+        return oss.str();
+      });
+  m.def("get_worker_debug_stats", &tt::runtime::getWorkerDebugStats,
+        "Get per-worker runtime debug stats (hostname and counter map per "
+        "worker)");
   m.def(
       "create_borrowed_host_tensor",
       [](std::uintptr_t ptr, const std::vector<std::uint32_t> &shape,

@@ -10,6 +10,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsInterfaces.cpp.inc"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsTypes.h"
@@ -23,6 +24,7 @@
 #include "mlir/Dialect/Quant/IR/QuantTypes.h"
 #include "mlir/Dialect/Traits.h"
 #include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 
@@ -155,6 +157,26 @@ foldConsecutiveDataCastOps(T op, ::mlir::PatternRewriter &rewriter) {
   }
 
   return success();
+}
+
+// ConstantOp canonicalization
+void mlir::tt::ttnn::ConstantOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
+  // NOLINTBEGIN(clang-analyzer-core.StackAddressEscape): false positive from
+  // ttnn.full's OperationState builder (cf. D2MDialect.cpp). Directive, not a
+  // comment -- do not remove.
+  patterns.add(
+      +[](mlir::tt::ttnn::ConstantOp op, mlir::PatternRewriter &rewriter) {
+        mlir::Attribute fillValueAttr =
+            mlir::tt::ttir::utils::splatToFillValue(rewriter, op.getValue());
+        if (!fillValueAttr) {
+          return mlir::failure();
+        }
+        rewriter.replaceOpWithNewOp<mlir::tt::ttnn::FullOp>(
+            op, op.getType(), fillValueAttr, op.getDevice());
+        return mlir::success();
+      });
+  // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 }
 
 //===----------------------------------------------------------------------===//
@@ -1254,11 +1276,12 @@ verifyPoolingOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
 
 ::mlir::LogicalResult mlir::tt::ttnn::ArangeOp::verify() {
 
-  if (getStep() == 0) {
+  int64_t step = getStep();
+  if (step == 0) {
     return emitOpError("Step cannot be zero.");
   }
 
-  int64_t numValues = (getEnd() - getStart()) / getStep();
+  int64_t numValues = (getEnd() - getStart()) / step;
 
   if (numValues <= 0) {
     return emitOpError("Invalid range: start=")
@@ -3922,6 +3945,7 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateSemaphores(
 
 ::mlir::LogicalResult AllGatherOp::verify() {
   ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getResult().getType();
   int32_t gatherDim = getAllGatherDim();
 
   if (gatherDim >= inputType.getRank() || gatherDim < -inputType.getRank()) {
@@ -3929,6 +3953,24 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateSemaphores(
                        "dimension must be >= to input tensor rank or < -input "
                        "tensor rank, got gather_dim = ")
            << gatherDim;
+  }
+
+  // (TODO(rpavlovicTT): Remove when
+  // https://github.com/tenstorrent/tt-mlir/pull/8413 is merged.
+  // ttnn::all_gather is layout preserving, but does not have an OpModel yet.
+  // Once it does, we can remove this verification.
+  auto inputLayout =
+      mlir::dyn_cast_if_present<TTNNLayoutAttr>(inputType.getEncoding());
+  auto outputLayout =
+      mlir::dyn_cast_if_present<TTNNLayoutAttr>(outputType.getEncoding());
+  if (inputLayout && outputLayout &&
+      inputLayout.getLayout() != outputLayout.getLayout()) {
+    return emitOpError(
+               "Input and output layouts must agree, but got input layout ")
+           << stringifyLayout(inputLayout.getLayout()) << " and output layout "
+           << stringifyLayout(outputLayout.getLayout())
+           << ". all_gather is layout-preserving and cannot convert between "
+              "tiled and row-major layouts.";
   }
 
   return success();

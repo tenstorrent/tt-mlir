@@ -901,6 +901,25 @@ constantFoldLogicalOr(mlir::tt::ttir::LogicalOrOp op,
 }
 
 //===----------------------------------------------------------------------===//
+// WhereOp
+//===----------------------------------------------------------------------===//
+
+// WhereOp folder:
+//   where(ones,  x, y) -> x
+//   where(zeros, x, y) -> y
+::mlir::OpFoldResult mlir::tt::ttir::WhereOp::fold(FoldAdaptor adaptor) {
+  auto resultType = getResult().getType();
+
+  if (isConstantNonZero(getFirst()) && getSecond().getType() == resultType) {
+    return getSecond();
+  }
+  if (isConstantZero(getFirst()) && getThird().getType() == resultType) {
+    return getThird();
+  }
+  return nullptr;
+}
+
+//===----------------------------------------------------------------------===//
 // ClampScalarOp
 //===----------------------------------------------------------------------===//
 
@@ -1675,6 +1694,120 @@ bool mlir::tt::ttir::Conv2dOp::isBiasCompatible(llvm::ArrayRef<int64_t> bias) {
   }
 
   return mlir::success();
+}
+
+// A 1x1x1 conv3d is just a matmul (or linear, when a bias is present), so it
+// can be rewritten to avoid the conv3d. This is only eligible for the canonical
+// NDHWC layout; other layouts are normalized to NDHWC first by the
+// decomposition pass.
+static bool isConv3dPointwiseLinearEligible(mlir::tt::ttir::Conv3dOp op) {
+  if (!op.isNDHWC()) {
+    return false;
+  }
+  if (op.getGroups() != 1) {
+    return false;
+  }
+
+  // Kernel must be 1x1x1. Weight is (Cout, Cin, K_D, K_H, K_W).
+  auto weightType = mlir::cast<RankedTensorType>(op.getWeight().getType());
+  ArrayRef<int64_t> weightShape = weightType.getShape();
+  if (weightShape.size() != 5 || weightShape[2] != 1 || weightShape[3] != 1 ||
+      weightShape[4] != 1) {
+    return false;
+  }
+
+  // Unit stride and no padding, otherwise the op is a strided/padded gather
+  // rather than a plain matmul or linear.
+  auto stride = ttmlir::utils::getTripleOfInteger<int32_t>(op.getStride());
+  if (!stride) {
+    llvm::consumeError(stride.takeError());
+    return false;
+  }
+  auto padding = ttmlir::utils::getTripleOfInteger<int32_t>(op.getPadding());
+  if (!padding) {
+    llvm::consumeError(padding.takeError());
+    return false;
+  }
+  auto [sD, sH, sW] = *stride;
+  auto [pD, pH, pW] = *padding;
+  return sD == 1 && sH == 1 && sW == 1 && pD == 0 && pH == 0 && pW == 0;
+}
+
+// Conv3dOp canonicalization
+void mlir::tt::ttir::Conv3dOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // Rewrite a pointwise (1x1x1) conv3d to matmul (or linear, when a bias is
+  // present).
+  //   input  (N,D,H,W,Cin) ->  reshape  -> (N*D*H*W, Cin)
+  //   weight (Cout,Cin,1,1,1)  ->  reshape ->  (Cout, Cin)
+  //   matmul (M,Cin) x (Cout,Cin)^T (transpose_b)  ->  (M, Cout) // no bias
+  //   linear (M,Cin) x (Cout,Cin)^T (transpose_b) + bias ->  (M, Cout) // bias
+  //   bias (1,1,1,1,Cout)  ->  reshape ->  (Cout,) // with bias
+  //   (M,Cout)  ->  reshape ->  (N,D,H,W,Cout)
+  patterns.add(+[](mlir::tt::ttir::Conv3dOp op,
+                   mlir::PatternRewriter &rewriter) {
+    if (!isConv3dPointwiseLinearEligible(op)) {
+      return mlir::failure();
+    }
+
+    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto weightType = mlir::cast<RankedTensorType>(op.getWeight().getType());
+    auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
+
+    ArrayRef<int64_t> inputShape = inputType.getShape();   // (N, D, H, W, Cin)
+    ArrayRef<int64_t> weightShape = weightType.getShape(); // (Cout, Cin, 1,1,1)
+
+    int64_t rows =
+        inputShape[0] * inputShape[1] * inputShape[2] * inputShape[3];
+    int64_t cIn = inputShape[4];
+    int64_t cOut = weightShape[0];
+
+    // Build a ttir.reshape of `value` to `shape`.
+    auto reshapeTo = [&](Value value, ArrayRef<int64_t> shape, Type elementType,
+                         StringRef suffix) -> Value {
+      SmallVector<int32_t> shapeI32(shape.begin(), shape.end());
+      return rewriter.create<ttir::ReshapeOp>(
+          ttmlir::utils::appendLocationSuffix(op.getLoc(), suffix),
+          RankedTensorType::get(shape, elementType), value,
+          rewriter.getI32ArrayAttr(shapeI32));
+    };
+
+    // Collapse the input's spatial/temporal dims into matmul rows, and drop the
+    // singleton kernel dims from the weight.
+    Value inputMatrix = reshapeTo(op.getInput(), {rows, cIn},
+                                  inputType.getElementType(), "_reshapeInput");
+    Value weightMatrix =
+        reshapeTo(op.getWeight(), {cOut, cIn}, weightType.getElementType(),
+                  "_reshapeWeight");
+
+    auto matmulResultType =
+        RankedTensorType::get({rows, cOut}, outputType.getElementType());
+
+    // weight is (Cout, Cin); transpose_b makes the contraction
+    // (M,Cin)x(Cin,Cout).
+    Value contraction;
+    if (Value bias = op.getBias()) {
+      Value biasVector = reshapeTo(
+          bias, {cOut},
+          mlir::cast<RankedTensorType>(bias.getType()).getElementType(),
+          "_reshapeBias");
+      contraction = rewriter.create<ttir::LinearOp>(
+          op.getLoc(), matmulResultType, inputMatrix, weightMatrix, biasVector,
+          /*transpose_a=*/false, /*transpose_b=*/true);
+    } else {
+      contraction = rewriter.create<ttir::MatmulOp>(
+          op.getLoc(), matmulResultType, inputMatrix, weightMatrix,
+          /*transpose_a=*/false, /*transpose_b=*/true);
+    }
+
+    // Restore the NDHWC output shape. Reuse the op's result type so the
+    // replacement type matches (D_out/H_out/W_out == D/H/W here).
+    SmallVector<int32_t> outShapeI32(outputType.getShape().begin(),
+                                     outputType.getShape().end());
+    rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
+        op, outputType, contraction, rewriter.getI32ArrayAttr(outShapeI32));
+    return mlir::success();
+  });
 }
 
 //===----------------------------------------------------------------------===//
@@ -6483,6 +6616,48 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
                         getDimArg(), getKeepDim(), getType().getShape());
 }
 
+// SumOp folder
+::mlir::OpFoldResult mlir::tt::ttir::SumOp::fold(FoldAdaptor adaptor) {
+  // estricting to splats keeps the fold cheap and avoids
+  // materializing large (non-splat) constants.
+  auto input =
+      mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(adaptor.getInput());
+  if (!input || !input.isSplat()) {
+    return nullptr;
+  }
+
+  auto resultType = mlir::cast<ShapedType>(getResult().getType());
+  if (input.getElementType() != resultType.getElementType()) {
+    return nullptr;
+  }
+
+  int64_t resultElements = resultType.getNumElements();
+  if (resultElements == 0) {
+    return nullptr;
+  }
+  int64_t reductionCount = input.getNumElements() / resultElements;
+
+  mlir::Type elementType = resultType.getElementType();
+  if (auto floatType = mlir::dyn_cast<mlir::FloatType>(elementType)) {
+    llvm::APFloat value = input.getSplatValue<llvm::APFloat>();
+    llvm::APFloat scale(floatType.getFloatSemantics());
+    scale.convertFromAPInt(llvm::APInt(64, reductionCount, /*isSigned=*/true),
+                           /*IsSigned=*/true,
+                           llvm::APFloat::rmNearestTiesToEven);
+    value.multiply(scale, llvm::APFloat::rmNearestTiesToEven);
+    return SplatElementsAttr::get(resultType,
+                                  mlir::FloatAttr::get(elementType, value));
+  }
+  if (mlir::isa<mlir::IntegerType>(elementType)) {
+    llvm::APInt value = input.getSplatValue<llvm::APInt>();
+    value *= llvm::APInt(value.getBitWidth(), reductionCount);
+    return SplatElementsAttr::get(resultType,
+                                  mlir::IntegerAttr::get(elementType, value));
+  }
+
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // Reduce MinOp
 //===----------------------------------------------------------------------===//
@@ -6583,6 +6758,36 @@ void mlir::tt::ttir::ProdOp::getCanonicalizationPatterns(
   }
 
   return success();
+}
+
+// TopKOp canonicalization
+void mlir::tt::ttir::TopKOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
+
+  // A top-k over a dimension of size 1 is a no-op: there is only one element to
+  // select, so the values equal the input and the indices are always zero.
+  // Fold it away so downstream consumers of the (constant) indices can be
+  // constant-evaluated.
+  patterns.add(+[](mlir::tt::ttir::TopKOp op, mlir::PatternRewriter &rewriter) {
+    RankedTensorType inputType = op.getInputTensor().getType();
+    int64_t inputRank = inputType.getRank();
+    int32_t dim = op.getDim();
+    int64_t normalizedDim = dim < 0 ? dim + inputRank : dim;
+
+    if (inputType.getDimSize(normalizedDim) != 1) {
+      return failure();
+    }
+
+    // The values output equals the input (only one element along the reduced
+    // dimension). The verifier guarantees K == 1 here, so shapes match.
+    RankedTensorType indicesType = op.getIndices().getType();
+    auto zeros = rewriter.create<mlir::tt::ttir::ZerosOp>(
+        op.getLoc(), indicesType,
+        llvm::to_vector_of<int32_t>(indicesType.getShape()));
+
+    rewriter.replaceOp(op, {op.getInputTensor(), zeros.getResult()});
+    return success();
+  });
 }
 
 //===----------------------------------------------------------------------===//
@@ -8456,11 +8661,65 @@ static bool anyZero(mlir::ElementsAttr elems) {
       });
 }
 
+// Fold a self-comparison `x <cmp> x` (same SSA value): `eq` is all-true and
+// `ne` is all-false. Note that for floating-point operands this assumes the
+// value is not NaN (`NaN == NaN` is false, `NaN != NaN` is true).
+static mlir::OpFoldResult foldSelfComparison(mlir::Operation *op,
+                                             mlir::Value lhs, mlir::Value rhs,
+                                             bool foldToTrue) {
+  if (lhs != rhs) {
+    return nullptr;
+  }
+  auto resultType = mlir::cast<ShapedType>(op->getResult(0).getType());
+  return SplatElementsAttr::get(
+      resultType,
+      makeScalarAttr(resultType.getElementType(), foldToTrue ? 1.0 : 0.0));
+}
+
+// Fold a comparison of two splat constants. Restricted to splats so we never
+// compare large tensors, and it works even though comparisons change the
+// element type, which the generic elementwise-binary folder rejects.
+template <typename Predicate>
+static mlir::OpFoldResult
+foldSplatComparison(mlir::Operation *op, mlir::Attribute lhsAttr,
+                    mlir::Attribute rhsAttr, Predicate predicate) {
+  auto lhs = mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(lhsAttr);
+  auto rhs = mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(rhsAttr);
+  if (!lhs || !rhs || !lhs.isSplat() || !rhs.isSplat() ||
+      lhs.getElementType() != rhs.getElementType()) {
+    return nullptr;
+  }
+
+  bool result;
+  if (mlir::isa<mlir::FloatType>(lhs.getElementType())) {
+    result = predicate(lhs.getSplatValue<llvm::APFloat>(),
+                       rhs.getSplatValue<llvm::APFloat>());
+  } else if (mlir::isa<mlir::IntegerType>(lhs.getElementType())) {
+    result = predicate(lhs.getSplatValue<llvm::APInt>(),
+                       rhs.getSplatValue<llvm::APInt>());
+  } else {
+    return nullptr;
+  }
+
+  auto resultType = mlir::cast<ShapedType>(op->getResult(0).getType());
+  return SplatElementsAttr::get(
+      resultType,
+      makeScalarAttr(resultType.getElementType(), result ? 1.0 : 0.0));
+}
+
 //===----------------------------------------------------------------------===//
 // EqualOp
 //===----------------------------------------------------------------------===//
 
 ::mlir::OpFoldResult mlir::tt::ttir::EqualOp::fold(FoldAdaptor adaptor) {
+  if (mlir::OpFoldResult result =
+          foldSelfComparison(*this, getLhs(), getRhs(), /*foldToTrue=*/true)) {
+    return result;
+  }
+  if (mlir::OpFoldResult result = foldSplatComparison(
+          *this, adaptor.getLhs(), adaptor.getRhs(), std::equal_to<>())) {
+    return result;
+  }
   auto eq = PredicateToNumericAdapter(std::equal_to<>());
   return constantFoldEltwiseBinary(*this, adaptor.getLhs(), adaptor.getRhs(),
                                    eq, eq);
@@ -8471,6 +8730,14 @@ static bool anyZero(mlir::ElementsAttr elems) {
 //===----------------------------------------------------------------------===//
 
 ::mlir::OpFoldResult mlir::tt::ttir::NotEqualOp::fold(FoldAdaptor adaptor) {
+  if (mlir::OpFoldResult result =
+          foldSelfComparison(*this, getLhs(), getRhs(), /*foldToTrue=*/false)) {
+    return result;
+  }
+  if (mlir::OpFoldResult result = foldSplatComparison(
+          *this, adaptor.getLhs(), adaptor.getRhs(), std::not_equal_to<>())) {
+    return result;
+  }
   auto ne = PredicateToNumericAdapter(std::not_equal_to<>());
   return constantFoldEltwiseBinary(*this, adaptor.getLhs(), adaptor.getRhs(),
                                    ne, ne);

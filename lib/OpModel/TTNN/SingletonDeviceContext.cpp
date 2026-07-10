@@ -16,7 +16,13 @@
 #include <tt-metalium/experimental/context/metal_env.hpp>
 #include <tt-metalium/experimental/mock_device.hpp>
 
+#include <umd/device/cluster.hpp>
+#include <umd/device/cluster_descriptor.hpp>
+
 #include <cstdlib>
+#include <exception>
+#include <filesystem>
+#include <optional>
 #include <string>
 
 namespace mlir::tt::ttnn::op_model {
@@ -61,6 +67,41 @@ makeEnvDescriptor(bool isMock, ttcore::Arch arch, uint32_t numChips) {
   if (!isMock) {
     return ::tt::tt_metal::MetalEnvDescriptor{};
   }
+
+  // Prefer the live machine's real cluster descriptor over the canned mock
+  // board, but only when it matches the requested (arch, numChips) mock —
+  // discovery describes the physical box, which may differ (multi-chip mock on
+  // a single-chip box, or a cross-arch mock). Discovery is process-global and
+  // not free, so cache it once and decide per call. Arch is compared via the
+  // total toMetalArch(), so an unmappable live arch falls back to the canned
+  // board instead of aborting.
+  struct DiscoveredCluster {
+    std::string path;
+    ::tt::ARCH arch;
+    uint32_t numChips;
+  };
+  static const std::optional<DiscoveredCluster> discovered =
+      []() -> std::optional<DiscoveredCluster> {
+    try {
+      std::unique_ptr<::tt::umd::ClusterDescriptor> desc =
+          ::tt::umd::Cluster::create_cluster_descriptor();
+      if (!desc || desc->get_number_of_chips() == 0) {
+        return std::nullopt;
+      }
+      return DiscoveredCluster{
+          desc->serialize_to_file().string(), desc->get_arch(),
+          static_cast<uint32_t>(desc->get_number_of_chips())};
+    } catch (const std::exception &) {
+      // No hardware / discovery failed (e.g. headless CI): fall back below.
+      return std::nullopt;
+    }
+  }();
+
+  if (discovered && discovered->arch == toMetalArch(arch) &&
+      discovered->numChips == numChips) {
+    return ::tt::tt_metal::MetalEnvDescriptor{discovered->path};
+  }
+
   auto mockClusterPath =
       ::tt::tt_metal::experimental::get_mock_cluster_desc_name(
           toMetalArch(arch), numChips);

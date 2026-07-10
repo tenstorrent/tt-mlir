@@ -44,12 +44,6 @@ def TTNNWorkarounds : Pass<"ttnn-workaround", "::mlir::ModuleOp"> {
              "ttnn-enable-decomposition-workaround-pass",
              "bool", /*default=*/"true",
              "TTNN Decompsition Workarounds Pass">,
-      Option<"allReduceWorkaroundEnabled",
-             "ttnn-enable-all-reduce-workaround",
-             "bool", /*default=*/"true",
-             "Enable the all_reduce decomposition workaround which breaks "
-             "all_reduce down into reduce_scatter + all_gather (or "
-             "all_gather + local reduce).">,
       Option<"optimizationLevel",
              "ttnn-optimization-level",
              "int", /*default=*/"0",
@@ -633,8 +627,11 @@ def TTNNSetComputeKernelConfig: Pass<"ttnn-set-compute-kernel-config", "::mlir::
       option values are applied.
     - If a parameter is already set on the operation's compute_config, pipeline options do
       not override it.
-    - If a parameter is unset (std::nullopt for math_fidelity, false for bool options),
-      the corresponding pipeline option is applied.
+    - If a pipeline option is unset (std::nullopt / OptionalMathFidelity::Undefined), the
+      corresponding op parameter is left untouched (TTNN decides at runtime).
+    - If a pipeline option is set (including bool options explicitly set to false), it is
+      applied to ops that do not already set that parameter. This makes true / false /
+      unset a genuine tri-state for the bool options.
 
     Large-inner-dimension bf16 matmul/linear correctness fix (tenstorrent/tt-metal#46101):
     For `ttnn.matmul` and `ttnn.linear` with inner dimension > 50000 and bf16 output,
@@ -645,19 +642,20 @@ def TTNNSetComputeKernelConfig: Pass<"ttnn-set-compute-kernel-config", "::mlir::
     Example usage:
     ttmlir-opt --ttnn-set-compute-kernel-config="math-fidelity=hifi4" input.mlir
     ttmlir-opt --ttnn-set-compute-kernel-config="math-fidelity=lofi fp32-dest-acc-en=true" input.mlir
+    ttmlir-opt --ttnn-set-compute-kernel-config="fp32-dest-acc-en=false packer-l1-acc=true" input.mlir
   }];
 
   let options = [
     Option<"mathFidelity", "math-fidelity", "::mlir::tt::ttnn::OptionalMathFidelity", /*default=*/"::mlir::tt::ttnn::OptionalMathFidelity::HiFi4",
-           "Set default math_fidelity (lofi, hifi2, hifi3, hifi4)">,
-    Option<"mathApproxMode", "math-approx-mode", "bool", /*default=*/"false",
-           "Set default math_approx_mode">,
-    Option<"fp32DestAccEn", "fp32-dest-acc-en", "bool", /*default=*/"true",
-           "Set default fp32_dest_acc_en">,
-    Option<"packerL1Acc", "packer-l1-acc", "bool", /*default=*/"false",
-           "Set default packer_l1_acc">,
-    Option<"dstFullSyncEn", "dst-full-sync-en", "bool", /*default=*/"false",
-           "Set default dst_full_sync_en">
+           "Set default math_fidelity (lofi, hifi2, hifi3, hifi4, undefined)">,
+    Option<"mathApproxMode", "math-approx-mode", "std::optional<bool>", /*default=*/"std::optional<bool>(std::nullopt)",
+           "Set default math_approx_mode (true, false, unset)">,
+    Option<"fp32DestAccEn", "fp32-dest-acc-en", "std::optional<bool>", /*default=*/"std::optional<bool>(true)",
+           "Set default fp32_dest_acc_en (true, false, unset)">,
+    Option<"packerL1Acc", "packer-l1-acc", "std::optional<bool>", /*default=*/"std::optional<bool>(std::nullopt)",
+           "Set default packer_l1_acc (true, false, unset)">,
+    Option<"dstFullSyncEn", "dst-full-sync-en", "std::optional<bool>", /*default=*/"std::optional<bool>(std::nullopt)",
+           "Set default dst_full_sync_en (true, false, unset)">
   ];
 }
 

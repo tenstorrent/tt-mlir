@@ -83,10 +83,16 @@ func.func @forward_all_const(%arg0: tensor<32x16xf32> {ttcore.argument_type = #t
 
 // CHECK-LABEL : # File: "consteval"
 
-// CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}
+// Each hoisted segment is a ttnn-typed wrapper that defers to the
+// shard-by-shard helper, with the pure-torch body (ttir_cpu.*) emitted as a
+// nested `_impl` def passed to the helper.
+// CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}(
+// The impl is a nested def (indented) inside the wrapper.
+// CHECK: {{^  }}def cpu_hoisted_const_eval_{{.*}}_impl(
 // CHECK: ttir_cpu.
+// CHECK: utils.execute_cpu_hoisted_function({{.*}}, cpu_hoisted_const_eval_{{.*}}_impl)
 // CHECK-LABEL: def forward_const_eval_0(
-// CHECK: cpu_hoisted_const_eval_{{.*}}
+// CHECK: cpu_hoisted_const_eval_{{.*}}(
 // CHECK-LABEL: def consteval_forward(
 // CHECK-LABEL: def cpu_hoisted_const_eval_{{.*}}
 // CHECK: ttir_cpu.
