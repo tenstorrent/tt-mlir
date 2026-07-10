@@ -2,9 +2,12 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <filesystem>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <tt-logger/tt-logger.hpp>
+#include <tt/runtime/types.h>
 #include <utility>
 #include <vector>
 
@@ -13,6 +16,7 @@
 #include "engine/compile_options.hpp"
 #include "engine/device.hpp"
 #include "misc.hpp"
+#include "version.hpp"
 #include <llvm/Support/raw_ostream.h>
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/Diagnostics.h>
@@ -86,13 +90,6 @@ std::string make_error_message(std::string_view fallback, const std::string &cap
     return captured;
 }
 
-// Hash module by hashing all functions in it.
-std::string hash_module(mlir::ModuleOp module_op) {
-    llvm::SHA256 sha;
-    module_op->walk([&](mlir::func::FuncOp func) { sha.update(llvm::StringRef(mlir::tt::hashFuncOp(func))); });
-    return llvm::toHex(sha.final());
-}
-
 // Compiler cache.
 class CompilerCache {
 public:
@@ -105,11 +102,49 @@ public:
             return &m_cache.at(key);
         }
 
+        if (std::optional<CompiledProgram> program = load_from_disk(key)) {
+            return &m_cache.emplace(key, std::move(*program)).first->second;
+        }
+
         return nullptr;
     }
 
     CompiledProgram &insert(const std::string &key, CompiledProgram cp) {
-        return m_cache.emplace(key, std::move(cp)).first->second;
+        CompiledProgram &program = m_cache.emplace(key, std::move(cp)).first->second;
+        store_on_disk(key, program);
+
+        return program;
+    }
+
+    static void store_on_disk(const std::string &key, const CompiledProgram &cp) {
+        if (!comp_cache_on_disk_enabled()) {
+            return;
+        }
+
+        const char *cache_dir = compile_cache_dir_config();
+        if (!std::filesystem::exists(cache_dir)) {
+            std::filesystem::create_directories(cache_dir);
+        }
+
+        std::string path = cache_dir + key;
+        TT_FATAL(!std::filesystem::exists(path), "Binary already stored on disk: {}", path);
+
+        log_info(tt::LogAlways, "Storing binary on disk: {}", path);
+        cp.binary.store(path.c_str());
+    }
+
+    static std::optional<CompiledProgram> load_from_disk(const std::string &key) {
+        if (!comp_cache_on_disk_enabled()) {
+            return std::nullopt;
+        }
+
+        std::string path = compile_cache_dir_config() + key;
+        if (!monitor<mc_comp_cache_on_disk>(std::filesystem::exists(path))) {
+            return std::nullopt;
+        }
+
+        log_info(tt::LogAlways, "Loading binary from disk: {}", path);
+        return CompiledProgram{tt::runtime::Binary::loadFromPath(path.c_str())};
     }
 
 private:
@@ -118,16 +153,41 @@ private:
 
 CompilerCache cache; // NOLINT
 
+// Calculates sha256 compilation key.
+// Key is computed by hashing all functions in module, hashing all pipeline options, and hashing mlir git worktree.
 std::string calc_compilation_key(mlir::ModuleOp module_op,
                                  const mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions &pm_opts) {
-    std::string key = hash_module(module_op);
-    {
-        llvm::raw_string_ostream key_stream(key);
-        key_stream << '\n';
-        pm_opts.print(key_stream);
+    llvm::SHA256 sha;
+    module_op->walk([&](mlir::func::FuncOp func) { sha.update(llvm::StringRef(mlir::tt::hashFuncOp(func))); });
+
+    std::string opts;
+    llvm::raw_string_ostream os(opts);
+    pm_opts.print(os);
+    sha.update(llvm::StringRef(opts));
+
+    sha.update(ttmlir_git_worktree_hash());
+    return llvm::toHex(sha.final());
+}
+
+void set_pipeline_options(const CompileOptions &options, mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions &pm_opts) {
+    options.set_options_on(pm_opts);
+
+    const auto mesh_shape = ::tt::kurbla::runtime_device_mesh_shape();
+    const auto &mesh_fabric = ::tt::kurbla::runtime_mesh_fabric_config(mesh_shape);
+
+    // Pass in the currently opened device mesh shape - otherwise the CCL ops will hit issues during compilation.
+    pm_opts.meshShape = std::vector<std::int64_t>(mesh_shape.begin(), mesh_shape.end());
+
+    // Match CCL topology to what the fabric actually supports per mesh axis.
+    std::vector<mlir::tt::ttcore::Topology> mesh_topology;
+    mesh_topology.reserve(mesh_fabric.perAxisConfig.size());
+    for (const auto axis : mesh_fabric.perAxisConfig) {
+        mesh_topology.push_back(axis == ::tt::runtime::FabricConfig::FABRIC_1D_RING
+                                    ? mlir::tt::ttcore::Topology::Ring
+                                    : mlir::tt::ttcore::Topology::Linear);
     }
 
-    return key;
+    pm_opts.meshTopology = mesh_topology;
 }
 
 // Opt-in dump of the TTIR — useful when debugging.
@@ -168,25 +228,8 @@ CompiledProgram &run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const Compi
     print_compile_options(options);
 
     mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions pm_opts;
-    options.set_options_on(pm_opts);
+    set_pipeline_options(options, pm_opts);
 
-    const auto mesh_shape = ::tt::kurbla::runtime_device_mesh_shape();
-    const auto &mesh_fabric = ::tt::kurbla::runtime_mesh_fabric_config(mesh_shape);
-
-    // Pass in the currently opened device mesh shape - otherwise the CCL ops will hit issues during compilation.
-    pm_opts.meshShape = std::vector<std::int64_t>(mesh_shape.begin(), mesh_shape.end());
-
-    // Match CCL topology to what the fabric actually supports per mesh axis.
-    std::vector<mlir::tt::ttcore::Topology> mesh_topology;
-    for (const auto axis : mesh_fabric.perAxisConfig) {
-        mesh_topology.push_back(axis == ::tt::runtime::FabricConfig::FABRIC_1D_RING
-                                    ? mlir::tt::ttcore::Topology::Ring
-                                    : mlir::tt::ttcore::Topology::Linear);
-    }
-    pm_opts.meshTopology = mesh_topology;
-
-    // Hash before any IR mutations so the key reflects the original TTIR.
-    // The pipeline options must be in the key too, since they directly impact the compilation result.
     auto key = calc_compilation_key(module_op, pm_opts);
     if (auto *entry = cache[key]) {
         return *entry;
