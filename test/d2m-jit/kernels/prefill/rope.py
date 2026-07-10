@@ -23,6 +23,7 @@ through a 32-wide tile.
 import torch
 
 import d2m_jit as d2m
+from runner import KernelBench, TensorSpec, d2m_dtype
 
 
 def _feature_half_roll_view(x_lt):
@@ -151,3 +152,128 @@ def apply_rope(x_lt, cos_lt, sin_signed_lt, L_io, grid, m_blocks, n_blocks):
     out = d2m.empty(L_io)
     rope(x_lt, x_rolled, cos_lt, sin_signed_lt, out, m_blocks, n_blocks, grid=grid)
     return out
+
+
+def rope_materializer(kernel, inputs, tensors, grid_shape):
+    """Materializer for rope: inputs → layout → kernel dispatch → host.
+
+    All TensorSpecs must share the same shape, block_shape, and dtype
+    (asserted at runtime). The shape must be tile-aligned, tile counts must
+    divide evenly by block_shape, and block counts must divide evenly by the
+    grid. Violations raise ``AssertionError`` immediately rather than
+    silently truncating work.
+    """
+    x_torch, cos_torch, sin_signed_torch = inputs
+
+    ts = tensors[0]
+    for i, other in enumerate(tensors[1:], 1):
+        assert (
+            other.shape == ts.shape
+        ), f"tensor[{i}].shape {other.shape} != tensor[0].shape {ts.shape}"
+        assert list(other.block_shape) == list(
+            ts.block_shape
+        ), f"tensor[{i}].block_shape {other.block_shape} != tensor[0].block_shape {ts.block_shape}"
+        assert (
+            other.dtype == ts.dtype
+        ), f"tensor[{i}].dtype {other.dtype} != tensor[0].dtype {ts.dtype}"
+
+    seq_len, head_dim = ts.shape
+    block_y, block_x = ts.block_shape
+    gy, gx = grid_shape
+
+    assert (
+        seq_len % 32 == 0
+    ), f"seq_len={seq_len} is not tile-aligned (must be a multiple of 32)"
+    assert (
+        head_dim % 32 == 0
+    ), f"head_dim={head_dim} is not tile-aligned (must be a multiple of 32)"
+    seq_len_tiles, head_dim_tiles = seq_len // 32, head_dim // 32
+    assert (
+        seq_len_tiles % block_y == 0
+    ), f"M tiles ({seq_len_tiles}) not evenly divisible by block_shape[0]={block_y}"
+    assert (
+        head_dim_tiles % block_x == 0
+    ), f"N tiles ({head_dim_tiles}) not evenly divisible by block_shape[1]={block_x}"
+    blocks_m, blocks_n = seq_len_tiles // block_y, head_dim_tiles // block_x
+    assert (
+        blocks_m % gy == 0
+    ), f"M blocks ({blocks_m}) not evenly divisible by grid_shape[0]={gy}"
+    assert (
+        blocks_n % gx == 0
+    ), f"N blocks ({blocks_n}) not evenly divisible by grid_shape[1]={gx}"
+
+    L = d2m.Layout(
+        shape=(seq_len, head_dim),
+        dtype=d2m_dtype(ts.dtype),
+        block_shape=[block_y, block_x],
+        grid_shape=[gy, gx],
+    )
+
+    x_lt = d2m.to_layout(x_torch, L)
+    cos_lt = d2m.to_layout(cos_torch, L)
+    sin_signed_lt = d2m.to_layout(sin_signed_torch, L)
+
+    m_blocks = blocks_m // gy
+    n_blocks = blocks_n // gx
+
+    _validate_rope_layouts(x_lt, cos_lt, sin_signed_lt, L)
+    x_rolled = _feature_half_roll_view(x_lt)
+    out_lt = d2m.empty(L)
+    kernel(
+        x_lt,
+        x_rolled,
+        cos_lt,
+        sin_signed_lt,
+        out_lt,
+        m_blocks,
+        n_blocks,
+        grid=(gy, gx),
+    )
+
+    return out_lt.to_host()
+
+
+def _golden(x, cos, sin_signed):
+    """Torch reference matching the kernel exactly: x*cos + roll_half(x)*sin_signed.
+
+    roll_half shifts the feature dimension by head_dim/2: [x_lo, x_hi] → [x_hi, x_lo].
+    This directly mirrors `_feature_half_roll_view` and the kernel body.
+    """
+    half = x.shape[-1] // 2
+    x_hi, x_lo = x[..., half:], x[..., :half]
+    x_rolled = torch.cat([x_hi, x_lo], dim=-1)
+    return x * cos + x_rolled * sin_signed
+
+
+KERNEL_BENCHES = {
+    "rope": KernelBench(
+        kernel=rope,
+        golden=_golden,
+        run=rope_materializer,
+        tensors=[
+            TensorSpec(
+                shape=(64, 64),
+                block_shape=[2, 2],
+                dtype=torch.float32,
+                dist="uniform(-1,1)",
+            ),
+            TensorSpec(
+                shape=(64, 64),
+                block_shape=[2, 2],
+                dtype=torch.float32,
+                dist=lambda shape, td, gen: build_rope_tables(
+                    shape[0], shape[1], dtype=td
+                )[0],
+            ),
+            TensorSpec(
+                shape=(64, 64),
+                block_shape=[2, 2],
+                dtype=torch.float32,
+                dist=lambda shape, td, gen: build_rope_tables(
+                    shape[0], shape[1], dtype=td
+                )[1],
+            ),
+        ],
+        grid_shape=(1, 1),
+    )
+}
