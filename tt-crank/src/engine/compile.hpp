@@ -39,6 +39,11 @@ struct TT_KURBLA_API CompiledProgram {
 
     std::uint32_t num_programs() const { return binary.getNumPrograms(); }
     std::string program_name(std::uint32_t program_index) const { return binary.getProgramName(program_index); }
+
+    // Extract the IR from the binary.
+    // NOTE: this is the final IR associated in this binary, it isn't necessarily
+    // TTNN IR, but since we only lower to TTNN, in our case it is (for now).
+    std::string_view ttnn_ir() const;
 };
 
 // Returns the process-wide MLIRContext used by tt-kurbla's compile pipelines.
