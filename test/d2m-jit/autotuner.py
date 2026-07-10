@@ -19,22 +19,29 @@ used for ranking configurations.
 
 Autotuning knobs
 ----------------
+Every config is per-tensor: ``block_shape`` and ``mem_space`` carry one value
+per kernel input, stamped onto each ``TensorSpec`` before the run.  A "uniform"
+config is simply the case where every tensor shares a value.  The materializer
+reads the values off the specs and builds the matching ``d2m.Layout`` — so a
+knob only takes effect if the materializer honors it.  The autotuner verifies
+this after each run (see ``_verify_config_applied``): a config whose swept knob
+never reached a constructed ``Layout`` is reported as failed rather than ranked.
+
 * ``grid_shape`` (per-kernel): logical 2-D core grid ``(gy, gx)``.
-* ``block_shape`` (per-tensor): tile-block shape ``[by, bx]``.  Passed to
-  every ``TensorSpec`` in the bench; materializers that read only
-  ``tensors[0].block_shape`` (``eltwise_block_run``, ``rope_materializer``,
-  …) will apply it uniformly.  Per-tensor differentiation requires a custom
-  ``run`` function.
-* ``mem_space`` (per-tensor): tensor memory placement (``"L1"`` or
-  ``"DRAM"``).  Applied by temporarily overriding the default argument of
-  ``d2m_jit.Layout.__init__`` for the duration of each config run, so that
-  every Layout constructed inside the materializer picks up the chosen
-  space.  The override is reversed after each run.
+* ``block_shape`` (per-tensor): tile-block shape ``[by, bx]`` per input.
+  Elementwise materializers (``eltwise_block_run``, ``rope_materializer``)
+  require all inputs to share one block shape; differing per-tensor blocks are
+  only meaningful for materializers that build a Layout per input (e.g.
+  ``matmul_tiled_multi_k_materializer``) and are rejected by the guard
+  otherwise.
+* ``mem_space`` (per-tensor): tensor memory placement (``"L1"`` or ``"DRAM"``)
+  per input, passed straight to ``d2m.Layout`` by the materializer.
 
 Heuristics for sweep narrowing
 -------------------------------
 When ``grid_shapes`` / ``block_shapes`` are ``None``, valid candidates are
-auto-generated from the primary tensor's shape:
+auto-generated from the tile dimensions reduced (via GCD) across *all* the
+bench's tensors:
 
 * ``grid_shapes``: all ``(gy, gx)`` where ``gy`` divides
   ``gcd(total_tiles_y)`` and ``gx`` divides ``gcd(total_tiles_x)`` across
@@ -57,15 +64,21 @@ CLI usage
     python test/d2m-jit/autotuner.py \\
         --kernel test/d2m-jit/kernels/prefill/rope.py \\
         --bench rope \\
+        [--strategy sweep|hill-climb] \\
         [--grid-shapes 1x1,2x2,4x4] \\
         [--block-shapes 1x1,2x2] \\
         [--mem-spaces L1,DRAM] \\
+        [--joint-mem-spaces all|L1-L1,L1-DRAM,…] \\
+        [--joint-block-shapes 1x1_1x1,1x3_3x1] \\
+        [--tensor-shapes 64x96,96x64] \\
+        [--tensor-dtypes bf16,float32] \\
         [--output-dir autotune-artifacts] \\
         [--save-profiler-logs] \\
         [--check-pcc] \\
         [--no-sweep] \\
         [--max-cores 8] \\
         [--max-block 8] \\
+        [--max-rounds 10] \\
         [--n-warmup 1]
 
 Module usage
@@ -110,7 +123,7 @@ import shutil
 import sys
 import textwrap
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 # ---------------------------------------------------------------------------
@@ -122,7 +135,6 @@ if str(_RUNNER_DIR) not in sys.path:
     sys.path.insert(0, str(_RUNNER_DIR))
 
 from runner import KernelBench, TensorSpec, compute_pcc, make_inputs, run_bench
-
 
 # ---------------------------------------------------------------------------
 # Lazy-load perf-analyzer (hyphenated filename prevents normal import)
@@ -158,15 +170,15 @@ class AutotuneKnobs:
     """Controls which parameter values the autotuner will explore.
 
     **Full-sweep mode** (default): leave all knobs as ``None``.  The tuner
-    auto-generates every valid ``grid_shape`` and ``block_shape`` from the
-    primary tensor's dimensions and tries both ``"L1"`` and ``"DRAM"`` mem
-    spaces.
+    auto-generates every valid ``grid_shape`` and ``block_shape`` from the tile
+    dimensions reduced (via GCD) across all the bench's tensors, and tries both
+    ``"L1"`` and ``"DRAM"`` mem spaces.
 
-    **Focused mode**: set any one (or more) knob explicitly.  Unset knobs
-    default to the bench's own value (single grid/block from the
-    ``KernelBench`` definition, ``"L1"`` for mem_space) rather than being
-    swept.  This avoids an exponential config explosion when you only care
-    about one dimension.
+    **Focused mode**: set any one (or more) knob explicitly.  Unset knobs fall
+    back to the bench's own value rather than being swept — the ``grid_shape``
+    from the ``KernelBench`` definition, each tensor's own ``block_shape`` from
+    its ``TensorSpec``, and ``"L1"`` for mem_space.  This avoids an exponential
+    config explosion when you only care about one dimension.
 
     **``"all"`` shorthand**: any knob except ``joint_block_shapes`` may be
     set to the string ``"all"`` to request the full valid set for that axis,
@@ -234,48 +246,67 @@ class AutotuneKnobs:
 
 @dataclass
 class AutotuneConfig:
-    """One complete set of parameters to evaluate."""
+    """One complete set of parameters to evaluate.
+
+    A config is *always* per-tensor: ``blocks`` and ``mems`` each hold one
+    entry per kernel input (``len == len(bench.tensors)``), alongside a single
+    graph-level ``grid_shape``.  A "uniform" config is just the case where
+    every tensor shares a value — build one with :meth:`uniform`.  There is no
+    separate scalar representation, so every downstream consumer (``run_config``,
+    ``id``, ``as_dict``) reads a single shape without branching.
+    """
 
     grid_shape: tuple[int, int]
-    block_shape: list[int]
-    mem_space: str = "L1"
-    # Per-tensor overrides (populated when joint_block_shapes / joint_mem_spaces
-    # knobs are used).  Take priority over block_shape / mem_space.
-    per_tensor_block_shapes: Optional[list[list[int]]] = None
-    per_tensor_mem_spaces: Optional[list[str]] = None
+    blocks: list[list[int]]  # one [by, bx] per tensor
+    mems: list[str]  # one mem_space ("L1"/"DRAM") per tensor
 
     def __post_init__(self):
         self.grid_shape = tuple(self.grid_shape)
-        self.block_shape = list(self.block_shape)
-        if self.per_tensor_block_shapes is not None:
-            self.per_tensor_block_shapes = [
-                list(bs) for bs in self.per_tensor_block_shapes
-            ]
+        self.blocks = [list(b) for b in self.blocks]
+        self.mems = list(self.mems)
+
+    @classmethod
+    def uniform(
+        cls,
+        grid_shape: tuple[int, int],
+        block_shape: list[int],
+        mem_space: str,
+        n_tensors: int,
+    ) -> "AutotuneConfig":
+        """Broadcast one block/mem value across *n_tensors* tensors."""
+        return cls(
+            grid_shape=grid_shape,
+            blocks=[list(block_shape) for _ in range(n_tensors)],
+            mems=[mem_space for _ in range(n_tensors)],
+        )
+
+    @property
+    def is_uniform(self) -> bool:
+        return all(b == self.blocks[0] for b in self.blocks) and all(
+            m == self.mems[0] for m in self.mems
+        )
 
     @property
     def id(self) -> str:
+        # Collapse uniform axes so common-case ids stay short and stable
+        # (e.g. ``g1x1_b1x1_mL1``); differing tensors are joined with ``-``.
         g = f"{self.grid_shape[0]}x{self.grid_shape[1]}"
-        if self.per_tensor_block_shapes is not None:
-            b = "-".join(f"{bs[0]}x{bs[1]}" for bs in self.per_tensor_block_shapes)
+        if all(b == self.blocks[0] for b in self.blocks):
+            b = f"{self.blocks[0][0]}x{self.blocks[0][1]}"
         else:
-            b = f"{self.block_shape[0]}x{self.block_shape[1]}"
-        if self.per_tensor_mem_spaces is not None:
-            m = "-".join(self.per_tensor_mem_spaces)
+            b = "-".join(f"{by}x{bx}" for by, bx in self.blocks)
+        if all(m == self.mems[0] for m in self.mems):
+            m = self.mems[0]
         else:
-            m = self.mem_space
+            m = "-".join(self.mems)
         return f"g{g}_b{b}_m{m}"
 
     def as_dict(self) -> dict:
-        d: dict = {
+        return {
             "grid_shape": list(self.grid_shape),
-            "block_shape": self.block_shape,
-            "mem_space": self.mem_space,
+            "blocks": self.blocks,
+            "mems": self.mems,
         }
-        if self.per_tensor_block_shapes is not None:
-            d["per_tensor_block_shapes"] = self.per_tensor_block_shapes
-        if self.per_tensor_mem_spaces is not None:
-            d["per_tensor_mem_spaces"] = self.per_tensor_mem_spaces
-        return d
 
 
 @dataclass
@@ -460,58 +491,6 @@ def valid_block_shapes(
 
 
 # ---------------------------------------------------------------------------
-# mem_space override context manager
-# ---------------------------------------------------------------------------
-
-
-@contextlib.contextmanager
-def _mem_space_ctx(mem_space: str):
-    """Temporarily patch ``d2m_jit.Layout.__init__`` default mem_space.
-
-    All ``Layout`` constructions inside this context (e.g. inside a
-    materializer that doesn't explicitly pass ``mem_space``) will use the
-    given space.  The default is restored on exit.
-    """
-    if mem_space.upper() == "L1":
-        yield
-        return
-
-    from d2m_jit._src import tensor_layout as _tl
-
-    original_init = _tl.Layout.__init__
-    target_ms = _tl._to_mem_space(mem_space.lower())
-
-    def _patched_init(
-        self_inner,
-        shape,
-        dtype,
-        block_shape,
-        grid_shape=None,
-        tiled=True,
-        collapse=True,
-        mem_space=None,  # noqa: intentionally shadows outer name
-    ):
-        # Always use the autotuner-requested mem_space regardless of what
-        # the caller specified (or defaulted to).
-        original_init(
-            self_inner,
-            shape,
-            dtype,
-            block_shape,
-            grid_shape,
-            tiled,
-            collapse,
-            target_ms,
-        )
-
-    _tl.Layout.__init__ = _patched_init
-    try:
-        yield
-    finally:
-        _tl.Layout.__init__ = original_init
-
-
-# ---------------------------------------------------------------------------
 # Profiling context manager and CSV parser
 # ---------------------------------------------------------------------------
 
@@ -567,7 +546,7 @@ def _profiling_ctx(profiler_dir: str):
 
 
 def _parse_profile_csv(
-    csv_path: pathlib.Path,
+    csv_path: pathlib.Path, verbose: bool = False
 ) -> tuple[Optional[float], Optional[float]]:
     """Return ``(kernel_ns, wall_ns)`` from a ``profile_log_device.csv``.
 
@@ -575,7 +554,9 @@ def _parse_profile_csv(
     and ``read_chip_freq_mhz`` to convert cycles → ns.
 
     Returns ``(None, None)`` if the file does not exist or cannot be parsed
-    (e.g. profiling not enabled in the build).
+    (e.g. profiling not enabled in the build).  A *parse* failure (as opposed
+    to a missing file) is warned about when ``verbose`` so it is not confused
+    with "no device data".
     """
     if not csv_path.exists():
         return None, None
@@ -596,7 +577,9 @@ def _parse_profile_csv(
             wall_ns = None
 
         return kernel_ns, wall_ns
-    except Exception as e:
+    except Exception as exc:
+        if verbose:
+            print(f"  WARNING: failed to parse profiler CSV {csv_path}: {exc}")
         return None, None
 
 
@@ -628,6 +611,78 @@ def _silence_native_output(log_path: str):
 
 
 # ---------------------------------------------------------------------------
+# "config actually applied" guard
+# ---------------------------------------------------------------------------
+
+
+@contextlib.contextmanager
+def _layout_probe(collected: list):
+    """Record ``(block_shape, mem_space)`` for every ``Layout`` built inside.
+
+    Wraps ``d2m_jit.Layout.__init__`` observationally (delegating via
+    ``*args/**kwargs`` so it is robust to signature changes) and appends the
+    constructed layout's resolved ``block_shape`` / ``mem_space`` to
+    *collected*.  Used by ``_verify_config_applied`` to detect materializers
+    that silently ignore a swept per-tensor knob.
+    """
+    from d2m_jit._src import tensor_layout as _tl
+
+    prev_init = _tl.Layout.__init__
+
+    def _probing_init(self_inner, *args, **kwargs):
+        prev_init(self_inner, *args, **kwargs)
+        collected.append((tuple(self_inner.block_shape), self_inner.mem_space))
+
+    _tl.Layout.__init__ = _probing_init
+    try:
+        yield
+    finally:
+        _tl.Layout.__init__ = prev_init
+
+
+def _verify_config_applied(config: "AutotuneConfig", collected: list) -> Optional[str]:
+    """Return an error string if a requested knob never reached a Layout.
+
+    A materializer that reads only ``tensors[0]`` (or never passes
+    ``mem_space`` to ``Layout``) will silently drop per-tensor block/mem
+    knobs.  Without this check the autotuner would still emit a distinct
+    ``config.id`` and ``kernel_ns`` for such a config and *rank a
+    configuration it never actually applied*.
+
+    The check is necessary-but-not-sufficient: it asserts every requested
+    per-tensor value *appears* among the constructed layouts (catching the
+    "ignored entirely" failure mode).  It does not verify the value landed on
+    the correct tensor.  Returns ``None`` when every requested value was
+    observed, or when nothing was built (e.g. the run errored earlier).
+    """
+    if not collected:
+        return None
+
+    from d2m_jit._src.tensor_layout import _to_mem_space
+
+    built_blocks = {b for b, _ in collected}
+    built_mems = {m for _, m in collected}
+
+    for bs in config.blocks:
+        if tuple(bs) not in built_blocks:
+            return (
+                f"requested block_shape {list(bs)} was never applied "
+                f"(built {sorted(list(b) for b in built_blocks)}); the "
+                f"materializer likely ignores per-tensor block_shape"
+            )
+
+    for ms in config.mems:
+        if _to_mem_space(ms.lower()) not in built_mems:
+            return (
+                f"requested mem_space {ms!r} was never applied; the "
+                f"materializer likely ignores per-tensor mem_space "
+                f"(pass mem_space to d2m.Layout in the bench's run function)"
+            )
+
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Main Autotuner class
 # ---------------------------------------------------------------------------
 
@@ -638,8 +693,9 @@ class Autotuner:
     Parameters
     ----------
     knobs:
-        ``AutotuneKnobs`` instance.  Defaults to all-auto knobs with
-        ``mem_spaces=["L1"]``.
+        ``AutotuneKnobs`` instance.  ``None`` → default ``AutotuneKnobs()``,
+        i.e. full-sweep: auto-generated grids/blocks and both ``L1`` and
+        ``DRAM`` mem spaces.
     output_dir:
         Root artifacts directory.  Results are stored under
         ``<output_dir>/<bench_name>/``.
@@ -682,140 +738,95 @@ class Autotuner:
     # Config generation
     # ------------------------------------------------------------------
 
-    def generate_configs(self, bench: KernelBench) -> list[AutotuneConfig]:
-        """Return the full list of ``AutotuneConfig``s to evaluate for *bench*.
+    def _is_full_sweep(self) -> bool:
+        """True when no knob imposes an explicit constraint.
 
-        The configs are the Cartesian product of::
-
-            grids × block_configs(per grid) × mem_configs
-
-        where ``block_configs`` and ``mem_configs`` are either uniform
-        (one shared value per tensor) or joint (one list of per-tensor
-        values, swept jointly rather than as a cross-product).
-
-        Any knob may be set to ``"all"`` to expand to its full valid set.
-        See ``AutotuneKnobs`` for details.
-
-        In **full-sweep mode** (all knobs ``None`` or ``"all"``): grids and
-        blocks are auto-generated from the primary tensor's shape, and
-        mem_spaces is ``["L1", "DRAM"]``.
-
-        In **focused mode** (any knob explicitly constrained): unset knobs
-        fall back to the bench's own defaults (single value) rather than
-        being swept.
-
-        Duplicates (identical ``config.id``) are deduplicated.
+        In this mode grids and blocks are auto-generated from tensor shapes and
+        mem_space sweeps both ``L1`` and ``DRAM``.  ``"all"`` counts as
+        unconstrained (it *requests* the full auto set), ``None`` is the
+        default; any concrete list, or a ``joint_*`` list, is a constraint.
         """
-        knobs = self.knobs
-        _ALL = "all"
-        _ALL_MEM = ["L1", "DRAM"]
-        n_tensors = len(bench.tensors)
-
-        # Resolve "all" sentinels.
-        # grid/block "all" → None (triggers auto-generation below).
-        # mem_spaces "all" → ["L1", "DRAM"].
-        # joint_mem_spaces "all" → all L1/DRAM combos across every tensor.
-        eff_grid_shapes = (
-            None if knobs.grid_shapes in (None, _ALL) else list(knobs.grid_shapes)
-        )
-        eff_block_shapes = (
-            None if knobs.block_shapes in (None, _ALL) else knobs.block_shapes
-        )
-        eff_mem_spaces = _ALL_MEM if knobs.mem_spaces == _ALL else knobs.mem_spaces
-        eff_joint_mem_spaces = (
-            [list(c) for c in itertools.product(_ALL_MEM, repeat=n_tensors)]
-            if knobs.joint_mem_spaces == _ALL
-            else knobs.joint_mem_spaces
+        k = self.knobs
+        return (
+            k.grid_shapes in (None, "all")
+            and k.block_shapes in (None, "all")
+            and k.joint_block_shapes is None
+            and k.mem_spaces in (None, "all")
+            and k.joint_mem_spaces in (None, "all")
         )
 
-        # full_sweep: every knob is None or "all" — no explicit constraints.
-        # Controls auto-generation of grids/blocks and mem_space defaults.
-        full_sweep = (
-            knobs.grid_shapes in (None, _ALL)
-            and knobs.block_shapes in (None, _ALL)
-            and knobs.joint_block_shapes is None
-            and knobs.mem_spaces in (None, _ALL)
-            and knobs.joint_mem_spaces in (None, _ALL)
-        )
+    def _resolve_grids(self, bench: KernelBench) -> list[tuple[int, int]]:
+        """Grid candidates: explicit list, else auto-generated, else default."""
+        k = self.knobs
+        if k.grid_shapes not in (None, "all"):
+            return [tuple(g) for g in k.grid_shapes]
+        if self._is_full_sweep() or k.grid_shapes == "all":
+            return valid_grid_shapes(bench, dataclasses.replace(k, grid_shapes=None))
+        return [tuple(bench.grid_shape)]
 
-        # Strip "all" from knobs before passing to helpers that would try to
-        # iterate over the sentinel string instead of a real list.
-        knobs_for_grids = (
-            dataclasses.replace(knobs, grid_shapes=None)
-            if knobs.grid_shapes == _ALL
-            else knobs
-        )
-        knobs_for_blocks = (
-            dataclasses.replace(knobs, block_shapes=None)
-            if knobs.block_shapes == _ALL
-            else knobs
-        )
-
-        # ---- Grids ---------------------------------------------------
-        if eff_grid_shapes is not None:
-            grids = eff_grid_shapes
-        elif full_sweep or knobs.grid_shapes == _ALL:
-            grids = valid_grid_shapes(bench, knobs_for_grids)
-        else:
-            grids = [tuple(bench.grid_shape)]
-
-        # ---- Mem-space options ---------------------------------------
-        use_joint_mems = eff_joint_mem_spaces is not None
-        if use_joint_mems:
-            mem_options: list[list[str]] = [list(ms) for ms in eff_joint_mem_spaces]
-        elif eff_mem_spaces is not None:
-            mem_options = [[m] for m in eff_mem_spaces]
-        elif full_sweep:
-            mem_options = [["L1"], ["DRAM"]]
-        else:
-            mem_options = [["L1"]]
-
-        seen: set[str] = set()
-        configs: list[AutotuneConfig] = []
-
-        use_joint_blocks = knobs.joint_block_shapes is not None
-
-        for grid in grids:
-            # ---- Block-shape options (per grid) ----------------------
-            if use_joint_blocks:
-                block_options: list[list[list[int]]] = [
-                    [list(bs) for bs in entry] for entry in knobs.joint_block_shapes
+    def _resolve_mem_options(self, n_tensors: int) -> list[list[str]]:
+        """Per-tensor mem-space candidates; each entry has one value per tensor."""
+        k = self.knobs
+        if k.joint_mem_spaces is not None:
+            if k.joint_mem_spaces == "all":
+                return [
+                    list(c) for c in itertools.product(["L1", "DRAM"], repeat=n_tensors)
                 ]
-            elif (
-                eff_block_shapes is not None or full_sweep or knobs.block_shapes == _ALL
-            ):
-                valid = valid_block_shapes(bench, grid, knobs_for_blocks)
-                block_options = [[bs] for bs in valid]
-            else:
-                block_options = [[list(bench.tensors[0].block_shape)]]
+            return [list(ms) for ms in k.joint_mem_spaces]
+        if k.mem_spaces is not None:
+            mems = ["L1", "DRAM"] if k.mem_spaces == "all" else list(k.mem_spaces)
+            return [[m] * n_tensors for m in mems]
+        if self._is_full_sweep():
+            return [["L1"] * n_tensors, ["DRAM"] * n_tensors]
+        return [["L1"] * n_tensors]
 
-            for bo in block_options:
-                for mo in mem_options:
-                    if use_joint_blocks:
-                        per_tensor_bs: Optional[list[list[int]]] = bo
-                        block_shape = bo[0]
-                    else:
-                        per_tensor_bs = None
-                        block_shape = bo[0]
+    def _resolve_block_options(
+        self, bench: KernelBench, grid: tuple[int, int], n_tensors: int
+    ) -> list[list[list[int]]]:
+        """Per-tensor block-shape candidates for *grid*; one [by,bx] per tensor."""
+        k = self.knobs
+        if k.joint_block_shapes is not None:
+            return [[list(bs) for bs in entry] for entry in k.joint_block_shapes]
+        if k.block_shapes is not None or self._is_full_sweep():
+            knobs_for_blocks = (
+                dataclasses.replace(k, block_shapes=None)
+                if k.block_shapes == "all"
+                else k
+            )
+            valid = valid_block_shapes(bench, grid, knobs_for_blocks)
+            return [[list(bs)] * n_tensors for bs in valid]
+        # Focused mode, block unconstrained: each tensor keeps its own default.
+        return [[list(ts.block_shape) for ts in bench.tensors]]
 
-                    if use_joint_mems:
-                        per_tensor_ms: Optional[list[str]] = mo
-                        mem_space = mo[0]
-                    else:
-                        per_tensor_ms = None
-                        mem_space = mo[0]
+    def generate_configs(self, bench: KernelBench) -> list[AutotuneConfig]:
+        """Return the deduplicated ``AutotuneConfig``s to evaluate for *bench*.
 
-                    cfg = AutotuneConfig(
-                        grid_shape=grid,
-                        block_shape=block_shape,
-                        mem_space=mem_space,
-                        per_tensor_block_shapes=per_tensor_bs,
-                        per_tensor_mem_spaces=per_tensor_ms,
+        The space is the Cartesian product ``grids × block-options(per grid) ×
+        mem-options``, where each option is already resolved to a per-tensor
+        list (see the ``_resolve_*`` helpers).  ``joint_*`` knobs contribute
+        per-tensor entries directly; plain-list / ``"all"`` / full-sweep knobs
+        contribute uniform (broadcast) entries.  See ``AutotuneKnobs``.
+        """
+        n_tensors = len(bench.tensors)
+        grids = self._resolve_grids(bench)
+        mem_options = self._resolve_mem_options(n_tensors)
+
+        seen: set = set()
+        configs: list[AutotuneConfig] = []
+        for grid in grids:
+            for blocks in self._resolve_block_options(bench, grid, n_tensors):
+                for mems in mem_options:
+                    cfg = AutotuneConfig(grid_shape=grid, blocks=blocks, mems=mems)
+                    # Dedup on a structured key rather than the display id, which
+                    # collapses uniform axes and could alias distinct configs.
+                    key = (
+                        cfg.grid_shape,
+                        tuple(tuple(b) for b in cfg.blocks),
+                        tuple(cfg.mems),
                     )
-                    if cfg.id not in seen:
-                        seen.add(cfg.id)
+                    if key not in seen:
+                        seen.add(key)
                         configs.append(cfg)
-
         return configs
 
     # ------------------------------------------------------------------
@@ -834,13 +845,14 @@ class Autotuner:
 
         The method:
 
-        1. Replaces each ``TensorSpec``'s ``block_shape`` with
-           ``config.block_shape``.
-        2. Overrides the ``d2m_jit.Layout`` default ``mem_space`` for the
-           run duration.
-        3. Enables in-process device profiling into the session profiler dir.
-        4. Executes ``n_warmup`` un-measured warm-up iterations.
-        5. Executes one measured iteration and parses the profiler CSV.
+        1. Stamps each ``TensorSpec`` with its per-tensor ``block_shape`` and
+           ``mem_space`` from ``config.blocks`` / ``config.mems``.
+        2. Enables in-process device profiling into the session profiler dir.
+        3. Executes ``n_warmup`` un-measured warm-up iterations.
+        4. Executes one measured iteration (probing every Layout built) and
+           parses the profiler CSV.
+        5. Verifies the swept knobs actually reached a Layout
+           (``_verify_config_applied``); a config that wasn't applied is failed.
         6. Optionally checks PCC and saves the profiler log.
 
         Note on profiler directory: tt-metal initialises its profiler singleton
@@ -850,21 +862,14 @@ class Autotuner:
         """
         from d2m_jit._src.builder import _Builder
 
-        if config.per_tensor_block_shapes is not None:
-            overridden_tensors = [
-                dataclasses.replace(ts, block_shape=list(bs))
-                for ts, bs in zip(bench.tensors, config.per_tensor_block_shapes)
-            ]
-        else:
-            overridden_tensors = [
-                dataclasses.replace(ts, block_shape=list(config.block_shape))
-                for ts in bench.tensors
-            ]
-        if config.per_tensor_mem_spaces is not None:
-            overridden_tensors = [
-                dataclasses.replace(ts, mem_space=ms)
-                for ts, ms in zip(overridden_tensors, config.per_tensor_mem_spaces)
-            ]
+        # Every config is per-tensor: stamp each tensor's block_shape/mem_space
+        # onto its TensorSpec.  The materializer reads these off the specs and
+        # builds the corresponding d2m.Layout (see eltwise_block_run /
+        # rope_materializer / matmul_tiled_multi_k_materializer).
+        overridden_tensors = [
+            dataclasses.replace(ts, block_shape=list(bs), mem_space=ms)
+            for ts, bs, ms in zip(bench.tensors, config.blocks, config.mems)
+        ]
 
         profiler_tmp = tmp_dir or self._profiler_dir
         profiler_csv = pathlib.Path(profiler_tmp) / ".logs" / "profile_log_device.csv"
@@ -875,36 +880,34 @@ class Autotuner:
         actual = None
         expected = None
         error_msg: Optional[str] = None
+        probed_layouts: list = []
 
         try:
             native_log_dir.mkdir(parents=True, exist_ok=True)
             with _silence_native_output(str(native_log_path)):
-                with _mem_space_ctx(
-                    "L1"
-                    if config.per_tensor_mem_spaces is not None
-                    else config.mem_space
-                ):
-                    # The profiling context must wrap *all* runs (including
-                    # warmup) because TT_METAL_DEVICE_PROFILER=1 needs to be set
-                    # before the device is first opened.  Warmup data is simply
-                    # discarded by wiping the .logs dir before the measured pass.
-                    with _profiling_ctx(profiler_tmp):
-                        # Warm-up runs (compile + JIT cache fill; profiler data discarded)
-                        for _ in range(self.n_warmup):
-                            _Builder.reset()
-                            run_bench(
-                                bench,
-                                tensors=overridden_tensors,
-                                grid_shape=config.grid_shape,
-                            )
-
-                        # Clean warmup profiler data before the measured pass.
-                        stale = pathlib.Path(profiler_tmp) / ".logs"
-                        if stale.exists():
-                            shutil.rmtree(stale)
-
-                        # Measured run.
+                # The profiling context must wrap *all* runs (including warmup)
+                # because TT_METAL_DEVICE_PROFILER=1 needs to be set before the
+                # device is first opened.  Warmup data is simply discarded by
+                # wiping the .logs dir before the measured pass.
+                with _profiling_ctx(profiler_tmp):
+                    # Warm-up runs (compile + JIT cache fill; profiler data discarded)
+                    for _ in range(self.n_warmup):
                         _Builder.reset()
+                        run_bench(
+                            bench,
+                            tensors=overridden_tensors,
+                            grid_shape=config.grid_shape,
+                        )
+
+                    # Clean warmup profiler data before the measured pass.
+                    stale = pathlib.Path(profiler_tmp) / ".logs"
+                    if stale.exists():
+                        shutil.rmtree(stale)
+
+                    # Measured run.  Probe every Layout it builds so we can
+                    # verify the requested knobs actually reached the device.
+                    _Builder.reset()
+                    with _layout_probe(probed_layouts):
                         actual, expected = run_bench(
                             bench,
                             tensors=overridden_tensors,
@@ -923,7 +926,18 @@ class Autotuner:
 
         elapsed_s = time.perf_counter() - t0
 
-        kernel_ns, wall_ns = _parse_profile_csv(profiler_csv)
+        kernel_ns, wall_ns = _parse_profile_csv(profiler_csv, verbose=self.verbose)
+
+        # Guard: reject configs whose swept knobs were silently ignored by the
+        # materializer.  Such a config's timing is meaningless (it is a
+        # duplicate of some other config), so null it out and record why rather
+        # than let it into the ranking.
+        if error_msg is None:
+            guard_msg = _verify_config_applied(config, probed_layouts)
+            if guard_msg is not None:
+                error_msg = f"config not applied: {guard_msg}"
+                kernel_ns = None
+                wall_ns = None
 
         pcc_val: Optional[float] = None
         if self.check_pcc and actual is not None and expected is not None:
@@ -932,6 +946,15 @@ class Autotuner:
             except Exception as exc:
                 if error_msg is None:
                     error_msg = f"PCC error: {exc}"
+
+        # PCC gate: a config that computes wrong numerics is not a valid tuning
+        # result, so drop it from the ranking rather than let a fast-but-wrong
+        # config win.  ``pcc_val`` is retained on the result so the summary can
+        # show *why* it was dropped.  Only active when ``check_pcc`` is set.
+        if error_msg is None and pcc_val is not None and pcc_val < bench.pcc:
+            error_msg = f"PCC {pcc_val:.5f} < {bench.pcc} threshold"
+            kernel_ns = None
+            wall_ns = None
 
         saved_log: Optional[str] = None
         if self.save_profiler_logs and profiler_csv.exists():
@@ -1004,6 +1027,8 @@ class Autotuner:
             ``'sweep'`` (default) – exhaustive Cartesian sweep.
             ``'hill-climb'`` – coordinate-descent hill-climb; much faster
             for large search spaces, but may miss the global optimum.
+            ``'default'`` – run only the bench's own per-tensor default config
+            (no sweep); a quick correctness/perf spot-check.
         seed:
             Starting config for hill-climbing.  ``None`` → bench default.
         max_rounds:
@@ -1020,7 +1045,27 @@ class Autotuner:
         name = bench_name or bench.name or "unnamed"
         bench = _override_bench_tensors(bench, tensor_shapes, tensor_dtypes)
 
+        if strategy == "default":
+            # Bench's own per-tensor defaults, one config, no sweep.
+            cfg = AutotuneConfig(
+                grid_shape=tuple(bench.grid_shape),
+                blocks=[list(ts.block_shape) for ts in bench.tensors],
+                mems=[ts.mem_space for ts in bench.tensors],
+            )
+            if self.verbose:
+                print(f"\n=== {name!r}: default config only ({cfg.id}) ===")
+            return [self.run_config(bench, cfg, name)]
+
         if strategy == "hill-climb":
+            if (
+                self.knobs.joint_block_shapes is not None
+                or self.knobs.joint_mem_spaces is not None
+            ):
+                print(
+                    "  WARNING: hill-climb explores only uniform (grid × block × "
+                    "mem_space) configs; joint_block_shapes / joint_mem_spaces are "
+                    "ignored.  Use strategy='sweep' to tune per-tensor knobs."
+                )
             return self._run_hill_climb(bench, name, seed=seed, max_rounds=max_rounds)
 
         cfgs = configs if configs is not None else self.generate_configs(bench)
@@ -1065,19 +1110,16 @@ class Autotuner:
         axis is swept properly for that grid.
         """
         knobs = self.knobs
+        n_tensors = len(bench.tensors)
 
-        # Determine seed config.
+        # Determine seed config (uniform: hill-climb tunes shared knobs only).
         if seed is None:
             ts = bench.tensors[0]
-            full_sweep = (
-                knobs.grid_shapes is None
-                and knobs.block_shapes is None
-                and knobs.mem_spaces is None
-            )
-            seed = AutotuneConfig(
+            seed = AutotuneConfig.uniform(
                 grid_shape=tuple(bench.grid_shape),
                 block_shape=list(ts.block_shape),
-                mem_space="L1" if not full_sweep else "L1",
+                mem_space="L1",
+                n_tensors=n_tensors,
             )
 
         evaluated: dict[str, AutotuneResult] = {}
@@ -1106,12 +1148,12 @@ class Autotuner:
                     best = r
             return best
 
-        full_sweep = (
-            knobs.grid_shapes is None
-            and knobs.block_shapes is None
-            and knobs.mem_spaces is None
+        full_sweep = self._is_full_sweep()
+        mem_spaces_list = (
+            ["L1", "DRAM"]
+            if full_sweep or knobs.mem_spaces == "all"
+            else (knobs.mem_spaces or ["L1"])
         )
-        mem_spaces_list = ["L1", "DRAM"] if full_sweep else (knobs.mem_spaces or ["L1"])
 
         current = seed
         current_result = _run(current)
@@ -1122,45 +1164,57 @@ class Autotuner:
                 f"seed={current.id}  max_rounds={max_rounds} ==="
             )
 
+        # Strip "all" sentinels so the valid_* helpers auto-generate rather than
+        # iterating the literal string.
+        knobs_hc = dataclasses.replace(
+            knobs,
+            grid_shapes=None if knobs.grid_shapes == "all" else knobs.grid_shapes,
+            block_shapes=None if knobs.block_shapes == "all" else knobs.block_shapes,
+        )
+
         for round_idx in range(max_rounds):
             improved = False
 
             # --- Axis 1: grid ---
-            all_grids = valid_grid_shapes(bench, knobs)
+            all_grids = valid_grid_shapes(bench, knobs_hc)
             grid_candidates = []
             for g in all_grids:
-                blocks = valid_block_shapes(bench, g, knobs)
+                blocks = valid_block_shapes(bench, g, knobs_hc)
                 if not blocks:
                     continue
-                adapted_block = _closest_block(current.block_shape, blocks)
+                adapted_block = _closest_block(current.blocks[0], blocks)
                 grid_candidates.append(
-                    AutotuneConfig(g, adapted_block, current.mem_space)
+                    AutotuneConfig.uniform(g, adapted_block, current.mems[0], n_tensors)
                 )
             best_grid_r = _best_of(grid_candidates)
-            if _better(best_grid_r, current_result):
+            if best_grid_r is not None and _better(best_grid_r, current_result):
                 current = best_grid_r.config
                 current_result = best_grid_r
                 improved = True
 
             # --- Axis 2: block (for current grid) ---
-            all_blocks = valid_block_shapes(bench, current.grid_shape, knobs)
+            all_blocks = valid_block_shapes(bench, current.grid_shape, knobs_hc)
             block_candidates = [
-                AutotuneConfig(current.grid_shape, b, current.mem_space)
+                AutotuneConfig.uniform(
+                    current.grid_shape, b, current.mems[0], n_tensors
+                )
                 for b in all_blocks
             ]
             best_block_r = _best_of(block_candidates)
-            if _better(best_block_r, current_result):
+            if best_block_r is not None and _better(best_block_r, current_result):
                 current = best_block_r.config
                 current_result = best_block_r
                 improved = True
 
             # --- Axis 3: mem_space ---
             mem_candidates = [
-                AutotuneConfig(current.grid_shape, current.block_shape, m)
+                AutotuneConfig.uniform(
+                    current.grid_shape, current.blocks[0], m, n_tensors
+                )
                 for m in mem_spaces_list
             ]
             best_mem_r = _best_of(mem_candidates)
-            if _better(best_mem_r, current_result):
+            if best_mem_r is not None and _better(best_mem_r, current_result):
                 current = best_mem_r.config
                 current_result = best_mem_r
                 improved = True
@@ -1229,12 +1283,8 @@ class Autotuner:
             bench_dir.mkdir(parents=True, exist_ok=True)
             txt_path = bench_dir / "summary.txt"
 
-            valid = sorted(
-                [r for r in results if r.kernel_ns is not None],
-                key=lambda r: r.kernel_ns,
-            )
-            failed = [r for r in results if r.kernel_ns is None]
-            best = _best_result(results)
+            valid, failed = _rank(results)
+            best = valid[0] if valid else None
 
             with open(txt_path, "w") as f:
                 f.write(f"d2m-jit Autotune Summary: {bench_name}\n")
@@ -1271,9 +1321,17 @@ class Autotuner:
                     f.write("(no configs produced profiler data)\n")
 
                 if failed:
-                    f.write(f"\nFailed ({len(failed)}): ")
-                    f.write(", ".join(r.config_id for r in failed))
-                    f.write("\n")
+                    f.write(f"\nFailed / excluded ({len(failed)})\n")
+                    f.write("-" * 40 + "\n")
+                    frows = [
+                        (
+                            r.config_id,
+                            f"{r.pcc:.5f}" if r.pcc is not None else "-",
+                            _drop_reason(r),
+                        )
+                        for r in failed
+                    ]
+                    f.write(_fmt_table(("Config", "PCC", "Reason"), frows) + "\n")
 
             if self.verbose:
                 print(f"Summary written to {txt_path}")
@@ -1314,21 +1372,45 @@ def _fmt_table(headers: tuple, rows: list[tuple]) -> str:
     return "\n".join(lines)
 
 
+def _rank(
+    results: list[AutotuneResult],
+) -> tuple[list[AutotuneResult], list[AutotuneResult]]:
+    """Split *results* into ``(valid_sorted_by_kernel_ns, failed)``.
+
+    A result is *valid* only when it both produced a timing **and** had no
+    error — runtime failures, the applied-config guard, and the PCC gate all
+    set ``error``.  This is the single source of truth for both the stdout and
+    the ``summary.txt`` views, so the ranked table and the ``Best`` line can
+    never disagree.
+    """
+    valid = sorted(
+        (r for r in results if r.kernel_ns is not None and r.error is None),
+        key=lambda r: r.kernel_ns,
+    )
+    failed = [r for r in results if not (r.kernel_ns is not None and r.error is None)]
+    return valid, failed
+
+
 def _best_result(results: list[AutotuneResult]) -> Optional[AutotuneResult]:
-    valid = [r for r in results if r.kernel_ns is not None and r.error is None]
-    return min(valid, key=lambda r: r.kernel_ns) if valid else None
+    valid, _ = _rank(results)
+    return valid[0] if valid else None
+
+
+def _drop_reason(r: AutotuneResult) -> str:
+    """One-line reason a result was excluded from the ranking."""
+    if r.error:
+        return r.error
+    if r.kernel_ns is None:
+        return "no profiler data"
+    return ""
 
 
 def _print_summary(bench_name: str, results: list[AutotuneResult]) -> None:
-    valid = sorted(
-        [r for r in results if r.kernel_ns is not None],
-        key=lambda r: r.kernel_ns,
-    )
-    failed = [r for r in results if r.kernel_ns is None]
+    valid, failed = _rank(results)
 
     print(f"\n=== {bench_name} ranking (kernel_ns, lower is better) ===")
     if not valid:
-        print("  (no results with profiler data)")
+        print("  (no valid results)")
     else:
         w = max(len(r.config_id) for r in valid)
         for rank, r in enumerate(valid, 1):
@@ -1336,7 +1418,11 @@ def _print_summary(bench_name: str, results: list[AutotuneResult]) -> None:
             print(f"  #{rank:<2} {r.config_id:<{w}}  {r.kernel_ns:>10.1f} ns{pcc_str}")
 
     if failed:
-        print(f"\n  Failed: {', '.join(r.config_id for r in failed)}")
+        print(f"\n  Failed / excluded ({len(failed)}):")
+        w = max(len(r.config_id) for r in failed)
+        for r in failed:
+            pcc_str = f"pcc={r.pcc:.5f}  " if r.pcc is not None else ""
+            print(f"    {r.config_id:<{w}}  {pcc_str}{_drop_reason(r)}")
 
 
 # ---------------------------------------------------------------------------
@@ -1378,6 +1464,7 @@ def autotune_kernel(
     n_warmup: int = 1,
     verbose: bool = True,
     strategy: str = "sweep",
+    max_rounds: int = 10,
 ) -> dict[str, list[AutotuneResult]]:
     """Autotune all (or selected) KernelBench entries in a kernel file.
 
@@ -1408,6 +1495,9 @@ def autotune_kernel(
     strategy:
         ``'sweep'`` (default) – exhaustive Cartesian sweep.
         ``'hill-climb'`` – coordinate-descent hill-climb.
+        ``'default'`` – run only each bench's own default config (no sweep).
+    max_rounds:
+        Maximum coordinate-descent rounds for ``strategy='hill-climb'``.
 
     Returns
     -------
@@ -1442,6 +1532,7 @@ def autotune_kernel(
             bench,
             bench_name=name,
             strategy=strategy,
+            max_rounds=max_rounds,
             tensor_shapes=tensor_shapes,
             tensor_dtypes=tensor_dtypes,
         )
@@ -1477,6 +1568,64 @@ def _parse_grid(s: str) -> tuple[int, int]:
 
 def _parse_grids(s: str) -> list[tuple[int, int]]:
     return [_parse_grid(tok) for tok in s.split(",")]
+
+
+def _parse_tensor_shapes(s: str) -> list[tuple[int, ...]]:
+    """Parse ``'64x96,96x64'`` → ``[(64, 96), (96, 64)]`` (one per tensor)."""
+    return [tuple(_parse_shape(tok)) for tok in s.split(",")]
+
+
+_DTYPE_ALIASES = {
+    "float32": "float32",
+    "f32": "float32",
+    "fp32": "float32",
+    "float16": "float16",
+    "f16": "float16",
+    "fp16": "float16",
+    "bfloat16": "bfloat16",
+    "bf16": "bfloat16",
+}
+
+
+def _parse_dtypes(s: str) -> list:
+    """Parse ``'bf16,float32'`` → ``[torch.bfloat16, torch.float32]``."""
+    import torch
+
+    torch_by_name = {
+        "float32": torch.float32,
+        "float16": torch.float16,
+        "bfloat16": torch.bfloat16,
+    }
+    out = []
+    for tok in s.split(","):
+        key = tok.strip().lower()
+        if key not in _DTYPE_ALIASES:
+            raise argparse.ArgumentTypeError(
+                f"Unknown dtype {tok!r}; choose from {sorted(_DTYPE_ALIASES)}"
+            )
+        out.append(torch_by_name[_DTYPE_ALIASES[key]])
+    return out
+
+
+def _parse_joint_mems(s: str):
+    """Parse joint mem spaces.
+
+    ``'all'`` → the literal ``"all"`` sentinel (every L1/DRAM combo across
+    tensors).  Otherwise ``'L1-L1,L1-DRAM'`` → ``[["L1","L1"],["L1","DRAM"]]``
+    (dash separates tensors within one combo, comma separates combos).
+    """
+    if s.strip().lower() == "all":
+        return "all"
+    return [[m.strip() for m in combo.split("-")] for combo in s.split(",")]
+
+
+def _parse_joint_blocks(s: str) -> list[list[list[int]]]:
+    """Parse joint block shapes.
+
+    ``'1x1_1x1,1x3_3x1'`` → ``[[[1,1],[1,1]],[[1,3],[3,1]]]`` (underscore
+    separates tensors within one entry, comma separates entries).
+    """
+    return [[_parse_shape(bs) for bs in entry.split("_")] for entry in s.split(",")]
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -1533,6 +1682,38 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
+        "--joint-mem-spaces",
+        metavar="SPEC",
+        default=None,
+        help=(
+            "Per-tensor mem-space combos swept jointly (not Cartesian).  "
+            "'all' sweeps every L1/DRAM combo across tensors, or list combos "
+            "like 'L1-L1,L1-DRAM,DRAM-DRAM' (dash = per-tensor within a combo)."
+        ),
+    )
+    p.add_argument(
+        "--joint-block-shapes",
+        metavar="SPEC",
+        default=None,
+        help=(
+            "Per-tensor block-shape entries swept jointly (not Cartesian), "
+            "e.g. '1x1_1x1,1x3_3x1' (underscore = per-tensor within an entry).  "
+            "Required for kernels like matmul whose operand blocks are coupled."
+        ),
+    )
+    p.add_argument(
+        "--tensor-shapes",
+        metavar="NxM[,…]",
+        default=None,
+        help=("Override bench tensor shapes, one per tensor, e.g. '64x96,96x64'."),
+    )
+    p.add_argument(
+        "--tensor-dtypes",
+        metavar="DTYPE[,…]",
+        default=None,
+        help=("Override bench tensor dtypes, one per tensor, e.g. 'bf16,float32'."),
+    )
+    p.add_argument(
         "--output-dir",
         metavar="DIR",
         default="autotune-artifacts",
@@ -1562,9 +1743,17 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help=(
-            "Skip the auto-sweep; only run each bench's default config "
-            "(grid_shape and block_shape from the KernelBench definition)."
+            "Skip the sweep; run only each bench's own default config "
+            "(grid_shape, and per-tensor block_shape/mem_space from the "
+            "KernelBench definition).  Ignores the sweep knob flags."
         ),
+    )
+    p.add_argument(
+        "--max-rounds",
+        type=int,
+        default=10,
+        metavar="N",
+        help="Max coordinate-descent rounds for --strategy hill-climb (default: 10).",
     )
     p.add_argument(
         "--max-cores",
@@ -1608,47 +1797,22 @@ def main(argv=None):
         [m.strip() for m in args.mem_spaces.split(",")] if args.mem_spaces else None
     )
 
-    if args.no_sweep:
-        # Default-config-only: use the KernelBench's own grid/block/mem.
-        mod = load_kernel_module(args.kernel)
-        benches: dict[str, KernelBench] = getattr(mod, "KERNEL_BENCHES", {})
-        if bench_names:
-            benches = {n: benches[n] for n in bench_names if n in benches}
-
-        tuner = Autotuner(
-            output_dir=args.output_dir,
-            save_profiler_logs=args.save_profiler_logs,
-            check_pcc=args.check_pcc,
-            n_warmup=args.n_warmup,
-            verbose=not args.quiet,
-        )
-        all_results: dict[str, list[AutotuneResult]] = {}
-        for name, bench in benches.items():
-            ts = bench.tensors[0]
-            cfg = AutotuneConfig(
-                grid_shape=tuple(bench.grid_shape),
-                block_shape=list(ts.block_shape),
-                mem_space=(mem_spaces[0] if mem_spaces else "L1"),
-            )
-            result = tuner.run_config(bench, cfg, name)
-            tuner.save_results(name, [result])
-            all_results[name] = [result]
-        tuner.save_summary(all_results)
-        return
-
-    # Full sweep
-    grid_shapes: Optional[list[tuple[int, int]]] = None
-    block_shapes: Optional[list[list[int]]] = None
-
-    if args.grid_shapes:
-        grid_shapes = _parse_grids(args.grid_shapes)
-    if args.block_shapes:
-        block_shapes = _parse_shapes(args.block_shapes)
+    # --no-sweep is just the 'default' strategy; everything else flows through
+    # the same autotune_kernel entry point.
+    strategy = "default" if args.no_sweep else args.strategy
 
     knobs = AutotuneKnobs(
-        grid_shapes=grid_shapes,
-        block_shapes=block_shapes,
+        grid_shapes=_parse_grids(args.grid_shapes) if args.grid_shapes else None,
+        block_shapes=_parse_shapes(args.block_shapes) if args.block_shapes else None,
         mem_spaces=mem_spaces,
+        joint_mem_spaces=(
+            _parse_joint_mems(args.joint_mem_spaces) if args.joint_mem_spaces else None
+        ),
+        joint_block_shapes=(
+            _parse_joint_blocks(args.joint_block_shapes)
+            if args.joint_block_shapes
+            else None
+        ),
         max_cores=args.max_cores,
         max_block_tiles=args.max_block,
     )
@@ -1657,12 +1821,19 @@ def main(argv=None):
         kernel_path=args.kernel,
         bench_names=bench_names,
         knobs=knobs,
+        tensor_shapes=(
+            _parse_tensor_shapes(args.tensor_shapes) if args.tensor_shapes else None
+        ),
+        tensor_dtypes=(
+            _parse_dtypes(args.tensor_dtypes) if args.tensor_dtypes else None
+        ),
         output_dir=args.output_dir,
         save_profiler_logs=args.save_profiler_logs,
         check_pcc=args.check_pcc,
         n_warmup=args.n_warmup,
         verbose=not args.quiet,
-        strategy=args.strategy,
+        strategy=strategy,
+        max_rounds=args.max_rounds,
     )
 
 

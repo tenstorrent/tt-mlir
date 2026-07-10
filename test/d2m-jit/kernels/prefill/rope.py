@@ -23,7 +23,7 @@ through a 32-wide tile.
 import torch
 
 import d2m_jit as d2m
-from runner import KernelBench, TensorSpec, d2m_dtype
+from runner import KernelBench, TensorSpec, d2m_dtype, d2m_mem_space
 
 
 def _feature_half_roll_view(x_lt):
@@ -171,6 +171,7 @@ def rope_materializer(kernel, inputs, tensors, grid_shape):
         dtype=d2m_dtype(ts.dtype),
         block_shape=[block_y, block_x],
         grid_shape=[gy, gx],
+        mem_space=d2m_mem_space(ts.mem_space),
     )
 
     x_lt = d2m.to_layout(x_torch, L)

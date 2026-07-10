@@ -124,10 +124,11 @@ def c():
     bench = mod.KERNEL_BENCHES["rope"]
 
     default_ts = bench.tensors[0]
-    default_cfg = AutotuneConfig(
+    default_cfg = AutotuneConfig.uniform(
         grid_shape=tuple(bench.grid_shape),
         block_shape=list(default_ts.block_shape),
         mem_space="L1",
+        n_tensors=len(bench.tensors),
     )
 
     single_tuner = Autotuner(
@@ -157,6 +158,7 @@ def c():
 
 
 def d():
+    """
     results = autotune_kernel(
         "test/d2m-jit/test_matmul.py",
         bench_names=["matmul_tiled_multi_k"],
@@ -171,6 +173,14 @@ def d():
             joint_mem_spaces="all",
         ),
         check_pcc=True,
+        n_warmup=0,
+        output_dir="autotune-artifacts/matmul",
+    )
+    """
+
+    results = autotune_kernel(
+        "test/d2m-jit/test_matmul.py",
+        bench_names=["matmul_tiled_multi_k"],
         n_warmup=0,
         output_dir="autotune-artifacts/matmul",
     )

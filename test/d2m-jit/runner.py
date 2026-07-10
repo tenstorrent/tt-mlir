@@ -329,6 +329,7 @@ def eltwise_block_run(kernel, inputs, tensors, grid_shape):
         block_shape=list(ts.block_shape),
         grid_shape=[gy, gx],
         tiled=True,
+        mem_space=d2m_mem_space(ts.mem_space),
     )
     ins = [d2m.to_layout(t, L) for t in inputs]
     out = d2m.empty(L)
