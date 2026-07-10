@@ -549,6 +549,33 @@ def _parse_profile_csv(
         return None, None
 
 
+@contextlib.contextmanager
+def _silence_native_output(log_path: str):
+    """Redirect fd-level stdout/stderr to *log_path* for the duration.
+
+    tt-metal kernel JIT compilation emits profiler pragma notes through native
+    stdout/stderr, so Python-level stdout redirection does not catch them.
+    Redirecting file descriptors 1/2 keeps successful autotune runs quiet.
+    """
+    sys.stdout.flush()
+    sys.stderr.flush()
+
+    saved_stdout = os.dup(1)
+    saved_stderr = os.dup(2)
+    with open(log_path, "w") as log:
+        try:
+            os.dup2(log.fileno(), 1)
+            os.dup2(log.fileno(), 2)
+            yield
+        finally:
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os.dup2(saved_stdout, 1)
+            os.dup2(saved_stderr, 2)
+            os.close(saved_stdout)
+            os.close(saved_stderr)
+
+
 # ---------------------------------------------------------------------------
 # Main Autotuner class
 # ---------------------------------------------------------------------------
@@ -703,6 +730,8 @@ class Autotuner:
 
         profiler_tmp = tmp_dir or self._profiler_dir
         profiler_csv = pathlib.Path(profiler_tmp) / ".logs" / "profile_log_device.csv"
+        native_log_dir = self.output_dir / bench_name / "native_logs"
+        native_log_path = native_log_dir / f"{config.id}.log"
 
         t0 = time.perf_counter()
         actual = None
@@ -710,38 +739,45 @@ class Autotuner:
         error_msg: Optional[str] = None
 
         try:
-            with _mem_space_ctx(config.mem_space):
-                # The profiling context must wrap *all* runs (including
-                # warmup) because TT_METAL_DEVICE_PROFILER=1 needs to be set
-                # before the device is first opened.  Warmup data is simply
-                # discarded by wiping the .logs dir before the measured pass.
-                with _profiling_ctx(profiler_tmp):
-                    # Warm-up runs (compile + JIT cache fill; profiler data discarded)
-                    for _ in range(self.n_warmup):
+            native_log_dir.mkdir(parents=True, exist_ok=True)
+            with _silence_native_output(str(native_log_path)):
+                with _mem_space_ctx(config.mem_space):
+                    # The profiling context must wrap *all* runs (including
+                    # warmup) because TT_METAL_DEVICE_PROFILER=1 needs to be set
+                    # before the device is first opened.  Warmup data is simply
+                    # discarded by wiping the .logs dir before the measured pass.
+                    with _profiling_ctx(profiler_tmp):
+                        # Warm-up runs (compile + JIT cache fill; profiler data discarded)
+                        for _ in range(self.n_warmup):
+                            _Builder.reset()
+                            run_bench(
+                                bench,
+                                tensors=overridden_tensors,
+                                grid_shape=config.grid_shape,
+                            )
+
+                        # Clean warmup profiler data before the measured pass.
+                        stale = pathlib.Path(profiler_tmp) / ".logs"
+                        if stale.exists():
+                            shutil.rmtree(stale)
+
+                        # Measured run.
                         _Builder.reset()
-                        run_bench(
+                        actual, expected = run_bench(
                             bench,
                             tensors=overridden_tensors,
                             grid_shape=config.grid_shape,
                         )
 
-                    # Clean warmup profiler data before the measured pass.
-                    stale = pathlib.Path(profiler_tmp) / ".logs"
-                    if stale.exists():
-                        shutil.rmtree(stale)
-
-                    # Measured run.
-                    _Builder.reset()
-                    actual, expected = run_bench(
-                        bench,
-                        tensors=overridden_tensors,
-                        grid_shape=config.grid_shape,
-                    )
-
         except Exception as exc:
             error_msg = f"{type(exc).__name__}: {exc}"
         finally:
             _Builder.reset()
+
+        if error_msg is None:
+            native_log_path.unlink(missing_ok=True)
+        elif native_log_path.exists():
+            error_msg = f"{error_msg} (native log: {native_log_path})"
 
         elapsed_s = time.perf_counter() - t0
 
@@ -1192,6 +1228,8 @@ def autotune_kernel(
     bench_names: Optional[list[str]] = None,
     *,
     knobs: Optional[AutotuneKnobs] = None,
+    tensor_shapes: Optional[list[tuple[int, ...]]] = None,
+    tensor_dtypes: Optional[list] = None,
     output_dir: str = "autotune-artifacts",
     save_profiler_logs: bool = False,
     check_pcc: bool = False,
@@ -1209,6 +1247,12 @@ def autotune_kernel(
         Names of benches to tune.  ``None`` → tune all benches in the file.
     knobs:
         Knobs controlling the parameter sweep.  ``None`` → auto with defaults.
+    tensor_shapes:
+        One ``(dim, ...)`` tuple per tensor, overriding bench tensor shapes.
+        Length must match ``len(bench.tensors)`` for each tuned bench.
+    tensor_dtypes:
+        One dtype per tensor, overriding bench tensor dtypes.
+        Length must match ``len(bench.tensors)`` for each tuned bench.
     output_dir:
         Root artifacts directory (default ``"autotune-artifacts"``).
     save_profiler_logs:
