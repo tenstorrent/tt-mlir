@@ -77,3 +77,100 @@ def test_ttnn_tracer_advises_l1_sharding(device):
     assert report.ttnn_mlir.count('"ttnn.matmul"') == 2
     # The optimizer reached an L1 layout (the advisor's whole purpose).
     assert "l1" in report.text
+
+
+# The full-decoder sweeps run the greedy optimizer over a graph that touches
+# RotaryEmbeddingLlamaOp; keep them @pytest.mark.forked and one pipeline run per
+# process (see test_interception_decoder.py's RoPE-churn note).
+@pytest.mark.forked
+def test_ttnn_tracer_sweeps_decoder_prefill(device):
+    from test_interception_decoder import (
+        _dummy_decoder_state_dict,
+        _stub_llama_config,
+        _mk as _mkd,
+        _HIDDEN,
+        _HD,
+    )
+    from _autoport.functional_decoder import FunctionalDecoder
+
+    seq = 128
+    dec = FunctionalDecoder.from_state_dict(
+        _dummy_decoder_state_dict(),
+        hf_config=_stub_llama_config(),
+        layer_idx=0,
+        mesh_device=device,
+        max_batch_size=1,
+        max_seq_len=seq,
+        page_block_size=64,
+    )
+    cos, sin = _mkd(device, (1, 1, seq, _HD)), _mkd(device, (1, 1, seq, _HD))
+    page_table = ttnn.from_torch(
+        torch.zeros(1, 2, dtype=torch.int32),
+        dtype=ttnn.int32,
+        layout=ttnn.ROW_MAJOR_LAYOUT,
+        device=device,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+    )
+    hidden = _mkd(device, (1, 1, seq, _HIDDEN))
+
+    def traced(hs):
+        return dec.prefill_forward(hs, rot_mats=(cos, sin), page_table=page_table)
+
+    report = ShardAdvisor(traced, optimization_level=2, tracer="ttnn").run(hidden)
+    # The whole prefill decoder is emitted + optimized as pure TTNN.
+    assert "ttir." not in report.ttnn_mlir
+    assert '"ttnn.split_query_key_value_and_split_heads"' in report.ttnn_mlir
+    assert '"ttnn.scaled_dot_product_attention"' in report.ttnn_mlir
+    assert report.ttnn_mlir.count('"ttnn.paged_fill_cache"') == 2
+    assert "=> FINAL:" in report.text
+
+
+@pytest.mark.forked
+def test_ttnn_tracer_sweeps_decoder_decode(device):
+    from test_interception_decoder import (
+        _dummy_decoder_state_dict,
+        _stub_llama_config,
+        _mk as _mkd,
+        _HIDDEN,
+        _HD,
+    )
+    from _autoport.functional_decoder import FunctionalDecoder
+
+    dec = FunctionalDecoder.from_state_dict(
+        _dummy_decoder_state_dict(),
+        hf_config=_stub_llama_config(),
+        layer_idx=0,
+        mesh_device=device,
+        max_batch_size=1,
+        max_seq_len=128,
+        page_block_size=64,
+    )
+    cos, sin = _mkd(device, (1, 1, _HD, _HD)), _mkd(device, (1, 1, _HD, _HD))
+    current_pos = ttnn.from_torch(
+        torch.zeros(1, dtype=torch.int32),
+        dtype=ttnn.int32,
+        layout=ttnn.ROW_MAJOR_LAYOUT,
+        device=device,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+    )
+    page_table = ttnn.from_torch(
+        torch.zeros(1, 2, dtype=torch.int32),
+        dtype=ttnn.int32,
+        layout=ttnn.ROW_MAJOR_LAYOUT,
+        device=device,
+        memory_config=ttnn.DRAM_MEMORY_CONFIG,
+    )
+    x = _mkd(device, (1, 1, 1, _HIDDEN))
+
+    def traced(hs):
+        return dec.decode_forward(
+            hs, current_pos=current_pos, rot_mats=(cos, sin), page_table=page_table
+        )
+
+    report = ShardAdvisor(traced, optimization_level=2, tracer="ttnn").run(x)
+    # Decode op vocabulary emitted natively + optimized as pure TTNN.
+    assert "ttir." not in report.ttnn_mlir
+    assert '"ttnn.nlp_create_qkv_heads_decode"' in report.ttnn_mlir
+    assert '"ttnn.paged_scaled_dot_product_attention_decode"' in report.ttnn_mlir
+    assert report.ttnn_mlir.count('"ttnn.paged_update_cache"') == 2
+    assert "=> FINAL:" in report.text

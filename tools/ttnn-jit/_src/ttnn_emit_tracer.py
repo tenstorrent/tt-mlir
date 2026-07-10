@@ -13,9 +13,15 @@ op def -- no TTIR op + TTIRToTTNN conversion.
 Layout synthesis is a single call reusing the C++ TTNNLayoutAttr::Builder
 (default_ttnn_layout). This is 1:1 op->op like the TTIR tracer: no decomposition.
 
-Coverage is the dense compute path (matmul/linear, elementwise, norm, reshape).
-Attention / KV-cache / experimental ops are not yet ported to direct-TTNN; trace
-those through the default TTIR path (pipeline="scoped").
+Coverage is the full transformer-decoder vocabulary: dense compute
+(matmul/linear, elementwise binary/unary, rms_norm, softmax), data movement
+(slice, reshape, transpose, permute, concat, embedding), attention (SDPA,
+paged SDPA decode), heads (QKV split + concat, prefill and decode), RoPE, and
+in-place paged KV-cache ops. The full Llama decoder sweeps in both phases. Not
+yet ported: the long-tail allowlisted ops the TTIR tracer covers via
+BaseOpHandler (reductions, the rest of the tm/unary/binary set) and the MoE ops
+(topk/scatter/sparse_matmul); trace models needing those through the default
+TTIR path (pipeline="scoped").
 """
 
 from contextlib import contextmanager
@@ -230,8 +236,22 @@ def _unary(op_fn):
     return handler
 
 
-def _reshape_handler(jit_ctx, x, shape=None, **kwargs):
+def _reshape_handler(jit_ctx, x, shape=None, padded_shape=None, **kwargs):
+    # shape may carry a single -1 to infer; the decode path also passes a second
+    # (tile-padded) shape -- model the logical shape, ignore padding.
+    if shape is None:
+        shape = kwargs.get("shape")
     dims = [int(d) for d in shape]
+    in_shape = [int(d) for d in x.mlir_value.type.shape]
+    if -1 in dims:
+        total = 1
+        for d in in_shape:
+            total *= d
+        known = 1
+        for d in dims:
+            if d != -1:
+                known *= d
+        dims[dims.index(-1)] = total // known
     with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
         rt = _retype(jit_ctx.ctx, x.mlir_value, dims)
         return ttnn.reshape(result=rt, input=x.mlir_value, shape=dims)
@@ -253,15 +273,310 @@ def _softmax_handler(jit_ctx, x, dim=None, **kwargs):
 
 
 def _rms_norm_handler(jit_ctx, x, *, epsilon=1e-5, weight=None, **kwargs):
+    hidden = int(x.mlir_value.type.shape[-1])
     with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
         shape = [int(d) for d in x.mlir_value.type.shape]
         rt = _retype(jit_ctx.ctx, x.mlir_value, shape)
+        weight_val = None
+        if weight is not None:
+            # ttnn.rms_norm requires a 1D [hidden] weight; TTNN models tile-pack
+            # the norm weight (e.g. [1,1,H/32,32]), so flatten it for the graph.
+            w_type = weight.mlir_value.type
+            if [int(d) for d in w_type.shape] != [hidden]:
+                weight_val = ttnn.reshape(
+                    result=_tt(jit_ctx.ctx, [hidden], w_type.element_type),
+                    input=weight.mlir_value,
+                    shape=[hidden],
+                )
+            else:
+                weight_val = weight.mlir_value
         return ttnn.rms_norm(
-            result=rt,
-            input=x.mlir_value,
-            weight=(weight.mlir_value if weight is not None else None),
-            epsilon=float(epsilon),
+            result=rt, input=x.mlir_value, weight=weight_val, epsilon=float(epsilon)
         )
+
+
+def _slice_handler(jit_ctx, x, starts=None, ends=None, steps=None, **kwargs):
+    if starts is None:
+        starts = kwargs.get("slice_start", kwargs.get("starts"))
+    if ends is None:
+        ends = kwargs.get("slice_end", kwargs.get("ends"))
+    if steps is None:
+        steps = kwargs.get("slice_step", kwargs.get("steps"))
+    in_shape = [int(d) for d in x.mlir_value.type.shape]
+    # Resolve Python-style negative / open-ended indices against the input dims
+    # (the layout builder rejects negative shapes, unlike the lazy TTIR path).
+    begins, ends_i, step = [], [], []
+    for i in range(len(starts)):
+        dim = in_shape[i]
+        s = int(starts[i])
+        e = int(ends[i])
+        st = 1 if steps is None else int(steps[i])
+        if s < 0:
+            s += dim
+        if e < 0:
+            e += dim
+        e = min(e, dim)
+        begins.append(s)
+        ends_i.append(e)
+        step.append(st)
+    out = [(ends_i[i] - begins[i] + step[i] - 1) // step[i] for i in range(len(begins))]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        rt = _retype(jit_ctx.ctx, x.mlir_value, out)
+        return ttnn.slice_static(
+            result=rt, input=x.mlir_value, begins=begins, ends=ends_i, step=step
+        )
+
+
+def _unsqueeze_to_4d_handler(jit_ctx, x, **kwargs):
+    shape = [int(d) for d in x.mlir_value.type.shape]
+    dims = [1] * (4 - len(shape)) + shape if len(shape) < 4 else shape
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        rt = _retype(jit_ctx.ctx, x.mlir_value, dims)
+        return ttnn.reshape(result=rt, input=x.mlir_value, shape=dims)
+
+
+def _transpose_handler(jit_ctx, x, dim0, dim1, **kwargs):
+    shape = [int(d) for d in x.mlir_value.type.shape]
+    d0, d1 = int(dim0) % len(shape), int(dim1) % len(shape)
+    out = list(shape)
+    out[d0], out[d1] = out[d1], out[d0]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        rt = _retype(jit_ctx.ctx, x.mlir_value, out)
+        return ttnn.transpose(result=rt, input=x.mlir_value, dim0=d0, dim1=d1)
+
+
+def _permute_handler(jit_ctx, x, permutation=None, dims=None, **kwargs):
+    perm = [int(p) for p in (permutation if permutation is not None else dims)]
+    shape = [int(d) for d in x.mlir_value.type.shape]
+    out = [shape[p] for p in perm]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        rt = _retype(jit_ctx.ctx, x.mlir_value, out)
+        return ttnn.permute(result=rt, input=x.mlir_value, permutation=perm)
+
+
+def _concat_handler(jit_ctx, tensors, dim=0, **kwargs):
+    vals = [t.mlir_value for t in tensors]
+    shapes = [[int(d) for d in v.type.shape] for v in vals]
+    d = int(dim) % len(shapes[0])
+    out = list(shapes[0])
+    out[d] = sum(s[d] for s in shapes)
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        rt = _tt(jit_ctx.ctx, out, vals[0].type.element_type)
+        return ttnn.concat(result=rt, inputs=vals, dim=d)
+
+
+def _embedding_handler(jit_ctx, indices, weight, **kwargs):
+    ishape = [int(d) for d in indices.mlir_value.type.shape]
+    hidden = int(weight.mlir_value.type.shape[-1])
+    out = ishape + [hidden]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        rt = _tt(jit_ctx.ctx, out, weight.mlir_value.type.element_type)
+        return ttnn.embedding(
+            result=rt, input=indices.mlir_value, weight=weight.mlir_value
+        )
+
+
+def _rotary_embedding_llama_handler(
+    jit_ctx, input, cos_cache, sin_cache, trans_mat, *, is_decode_mode=False, **kwargs
+):
+    shape = [int(d) for d in input.mlir_value.type.shape]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        rt = _retype(jit_ctx.ctx, input.mlir_value, shape)
+        return ttnn.rotary_embedding_llama(
+            result=rt,
+            input=input.mlir_value,
+            cos_cache=cos_cache.mlir_value,
+            sin_cache=sin_cache.mlir_value,
+            trans_mat=trans_mat.mlir_value,
+            is_decode_mode=bool(is_decode_mode),
+        )
+
+
+def _sdpa_handler(jit_ctx, q, k, v, *, is_causal=None, scale=None, **kwargs):
+    shape = [int(d) for d in q.mlir_value.type.shape]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        rt = _retype(jit_ctx.ctx, q.mlir_value, shape)
+        return ttnn.scaled_dot_product_attention(
+            result=rt,
+            query=q.mlir_value,
+            key=k.mlir_value,
+            value=v.mlir_value,
+            is_causal=is_causal,
+            scale=scale,
+        )
+
+
+def _chunked_sdpa_handler(
+    jit_ctx,
+    *,
+    input_tensor_q,
+    input_tensor_k,
+    input_tensor_v,
+    page_table_tensor=None,
+    scale=None,
+    **kwargs,
+):
+    # chunked SDPA is layout-equivalent to plain SDPA for the optimizer; the
+    # chunk/page mechanics don't change the output layout (mirrors TTIR tracer).
+    shape = [int(d) for d in input_tensor_q.mlir_value.type.shape]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        rt = _retype(jit_ctx.ctx, input_tensor_q.mlir_value, shape)
+        return ttnn.scaled_dot_product_attention(
+            result=rt,
+            query=input_tensor_q.mlir_value,
+            key=input_tensor_k.mlir_value,
+            value=input_tensor_v.mlir_value,
+            is_causal=True,
+            scale=scale,
+        )
+
+
+def _paged_sdpa_decode_handler(
+    jit_ctx, q, k, v, *, page_table_tensor, cur_pos_tensor=None, scale=None, **kwargs
+):
+    # Decode-phase paged attention; output shape matches the query [1,B,Hq,D].
+    # ttnn's op is non-DPS (no `output` operand, unlike the TTIR op).
+    shape = [int(d) for d in q.mlir_value.type.shape]
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        rt = _retype(jit_ctx.ctx, q.mlir_value, shape)
+        return ttnn.paged_scaled_dot_product_attention_decode(
+            result=rt,
+            query=q.mlir_value,
+            key=k.mlir_value,
+            value=v.mlir_value,
+            page_table=page_table_tensor.mlir_value,
+            cur_pos_tensor=(
+                cur_pos_tensor.mlir_value if cur_pos_tensor is not None else None
+            ),
+            scale=scale,
+        )
+
+
+def _nlp_concat_heads_decode_handler(jit_ctx, x, *, num_heads=None, **kwargs):
+    # Decode head merge: [1, B, Hq, D] -> [1, 1, B, Hq*D] (op requires 4D output).
+    shp = [int(d) for d in x.mlir_value.type.shape]
+    batch, heads, head_dim = shp[-3], shp[-2], shp[-1]
+    nh = int(num_heads) if num_heads is not None else heads
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        rt = _tt(
+            jit_ctx.ctx, [1, 1, batch, heads * head_dim], x.mlir_value.type.element_type
+        )
+        return ttnn.nlp_concat_heads_decode(result=rt, input=x.mlir_value, num_heads=nh)
+
+
+def _nlp_concat_heads_handler(jit_ctx, x, **kwargs):
+    # Prefill head merge: [b, nh, seq, hd] -> [b, seq, nh*hd]. Use concatenate_heads
+    # (rank-3 output, no singleton dim) -- matches the op-model, like the TTIR path.
+    # ttnn.nlp_concat_heads produces [b,1,seq,nh*hd], which its op-model rejects.
+    t = x.mlir_value.type
+    b, nh, seq, hd = (int(t.shape[i]) for i in range(4))
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        rt = _tt(jit_ctx.ctx, [b, seq, nh * hd], t.element_type)
+        return ttnn.concatenate_heads(result=rt, input=x.mlir_value)
+
+
+# --- multi-result handlers (return an OpResultList) -------------------------
+
+
+def _nlp_create_qkv_heads_handler(
+    jit_ctx, xqkv, *, num_heads, num_kv_heads, transpose_k_heads=False, **kwargs
+):
+    # Prefill QKV split. The op needs a rank-3 [b, seq, qkv] input; the model
+    # passes rank-4 [b, 1, seq, qkv], so reshape down first (a real op, not a
+    # decomposition of the split itself).
+    t = xqkv.mlir_value.type
+    b = int(t.shape[0])
+    seq = int(t.shape[-2])
+    qkv_size = int(t.shape[-1])
+    head_dim = qkv_size // (num_heads + 2 * num_kv_heads)
+    et = t.element_type
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        reshaped = ttnn.reshape(
+            result=_tt(jit_ctx.ctx, [b, seq, qkv_size], et),
+            input=xqkv.mlir_value,
+            shape=[b, seq, qkv_size],
+        )
+        qt = _tt(jit_ctx.ctx, [b, num_heads, seq, head_dim], et)
+        kt = _tt(jit_ctx.ctx, [b, num_kv_heads, seq, head_dim], et)
+        vt = _tt(jit_ctx.ctx, [b, num_kv_heads, seq, head_dim], et)
+        return ttnn.split_query_key_value_and_split_heads(
+            qt,
+            kt,
+            vt,
+            reshaped,
+            num_heads,
+            bool(transpose_k_heads),
+            num_kv_heads=num_kv_heads,
+        )
+
+
+def _nlp_create_qkv_heads_decode_handler(
+    jit_ctx, xqkv, *, num_heads, num_kv_heads=None, **kwargs
+):
+    # Decode QKV split: fused [1,1,B,qkv] -> q [1,B,Hq,D], k/v [1,B,Hkv,D].
+    # ttnn has a native decode op (no reshape/split workaround needed).
+    t = xqkv.mlir_value.type
+    shp = [int(d) for d in t.shape]
+    batch = shp[-2]
+    qkv = shp[-1]
+    nkv = num_kv_heads if num_kv_heads is not None else num_heads
+    head_dim = qkv // (num_heads + 2 * nkv)
+    et = t.element_type
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        qt = _tt(jit_ctx.ctx, [1, batch, num_heads, head_dim], et)
+        kt = _tt(jit_ctx.ctx, [1, batch, nkv, head_dim], et)
+        vt = _tt(jit_ctx.ctx, [1, batch, nkv, head_dim], et)
+        return ttnn.nlp_create_qkv_heads_decode(
+            qt, kt, vt, xqkv.mlir_value, num_heads, num_kv_heads=nkv
+        )
+
+
+# --- in-place cache handlers (MemWrite, no result; reads use the cache SSA) --
+
+
+def _paged_update_cache_handler(
+    jit_ctx, cache, input, *, update_idxs_tensor, page_table=None, **kwargs
+):
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        ttnn.paged_update_cache(
+            cache=cache.mlir_value,
+            input=input.mlir_value,
+            update_index=update_idxs_tensor.mlir_value,
+            page_table=(page_table.mlir_value if page_table is not None else None),
+        )
+
+
+def _paged_fill_cache_handler(jit_ctx, cache, input, page_table, **kwargs):
+    with InsertionPoint(jit_ctx.func_bb), Location.unknown(jit_ctx.ctx):
+        ttnn.paged_fill_cache(
+            cache=cache.mlir_value,
+            input=input.mlir_value,
+            page_table=page_table.mlir_value,
+        )
+
+
+def _make_multi_op(value_fn, jit_ctx):
+    def op(*args, **kwargs):
+        pa = [_capture(a, jit_ctx) for a in args]
+        pk = {k: _capture(v, jit_ctx) for k, v in kwargs.items()}
+        return tuple(TracedTensor(v) for v in value_fn(jit_ctx, *pa, **pk))
+
+    return op
+
+
+def _make_inplace_op(value_fn, jit_ctx, cache_idx):
+    def op(*args, **kwargs):
+        raw_cache = args[cache_idx] if cache_idx < len(args) else None
+        pa = [_capture(a, jit_ctx) for a in args]
+        pk = {k: _capture(v, jit_ctx) for k, v in kwargs.items()}
+        value_fn(jit_ctx, *pa, **pk)
+        # In-place (MemWrite): the cache SSA value is unchanged; downstream reads
+        # of the same cache tensor observe the update. Return the cache proxy so
+        # a chained call still gets a TracedTensor.
+        cache = pa[cache_idx] if cache_idx < len(pa) else None
+        return cache if type(cache) is TracedTensor else None
+
+    return op
 
 
 _VALUE_HANDLERS = {
@@ -275,6 +590,12 @@ _VALUE_HANDLERS = {
     "typecast": _typecast_handler,
     "softmax": _softmax_handler,
     "rms_norm": _rms_norm_handler,
+    "slice": _slice_handler,
+    "unsqueeze_to_4D": _unsqueeze_to_4d_handler,
+    "transpose": _transpose_handler,
+    "permute": _permute_handler,
+    "concat": _concat_handler,
+    "embedding": _embedding_handler,
     "relu": _unary(ttnn.relu),
     "gelu": _unary(ttnn.gelu),
     "silu": _unary(ttnn.silu),
@@ -286,6 +607,29 @@ _VALUE_HANDLERS = {
     "tanh": _unary(ttnn.tanh),
     "reciprocal": _unary(ttnn.reciprocal),
     "abs": _unary(ttnn.abs),
+}
+
+# ttnn.experimental.<op> handlers.
+_EXPERIMENTAL_VALUE = {
+    "rotary_embedding_llama": _rotary_embedding_llama_handler,
+    "nlp_concat_heads": _nlp_concat_heads_handler,
+    "nlp_concat_heads_decode": _nlp_concat_heads_decode_handler,
+}
+_EXPERIMENTAL_MULTI = {
+    "nlp_create_qkv_heads": _nlp_create_qkv_heads_handler,
+    "nlp_create_qkv_heads_decode": _nlp_create_qkv_heads_decode_handler,
+}
+# name -> positional index of the mutated cache argument.
+_EXPERIMENTAL_INPLACE = {
+    "paged_update_cache": (_paged_update_cache_handler, 0),
+    "paged_fill_cache": (_paged_fill_cache_handler, 0),
+}
+
+# ttnn.transformer.<op> handlers.
+_TRANSFORMER_VALUE = {
+    "scaled_dot_product_attention": _sdpa_handler,
+    "chunked_scaled_dot_product_attention": _chunked_sdpa_handler,
+    "paged_scaled_dot_product_attention_decode": _paged_sdpa_decode_handler,
 }
 
 # Layout ops are no-ops for analysis: return the tensor unchanged (see the TTIR
@@ -316,7 +660,9 @@ def _none_passthrough(*args, **kwargs):
 @contextmanager
 def patch_ttnn(jit_ctx):
     """Monkeypatch allowlisted ttnn.<op> to build TTNN directly; restore on exit."""
-    originals = {}
+    experimental = getattr(_ttnn_rt, "experimental", None)
+    transformer = getattr(_ttnn_rt, "transformer", None)
+    originals, exp_originals, tr_originals = {}, {}, {}
     try:
         for name in _PASSTHROUGH_IDENTITY:
             originals[name] = getattr(_ttnn_rt, name, _MISSING)
@@ -327,9 +673,27 @@ def patch_ttnn(jit_ctx):
         for name, value_fn in _VALUE_HANDLERS.items():
             originals[name] = getattr(_ttnn_rt, name, _MISSING)
             setattr(_ttnn_rt, name, _make_value_op(value_fn, jit_ctx))
+        if experimental is not None:
+            for name, value_fn in _EXPERIMENTAL_VALUE.items():
+                exp_originals[name] = getattr(experimental, name, _MISSING)
+                setattr(experimental, name, _make_value_op(value_fn, jit_ctx))
+            for name, value_fn in _EXPERIMENTAL_MULTI.items():
+                exp_originals[name] = getattr(experimental, name, _MISSING)
+                setattr(experimental, name, _make_multi_op(value_fn, jit_ctx))
+            for name, (value_fn, idx) in _EXPERIMENTAL_INPLACE.items():
+                exp_originals[name] = getattr(experimental, name, _MISSING)
+                setattr(experimental, name, _make_inplace_op(value_fn, jit_ctx, idx))
+        if transformer is not None:
+            for name, value_fn in _TRANSFORMER_VALUE.items():
+                tr_originals[name] = getattr(transformer, name, _MISSING)
+                setattr(transformer, name, _make_value_op(value_fn, jit_ctx))
         yield
     finally:
         _restore_patched(_ttnn_rt, originals)
+        if experimental is not None:
+            _restore_patched(experimental, exp_originals)
+        if transformer is not None:
+            _restore_patched(transformer, tr_originals)
 
 
 def trace_ttnn(fn, *args):
