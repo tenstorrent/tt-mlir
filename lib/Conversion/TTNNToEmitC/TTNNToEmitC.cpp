@@ -2385,6 +2385,39 @@ private:
 };
 } // namespace
 
+// Arange op conversion pattern
+//
+namespace {
+class ArangeOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::ArangeOp> {
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::ArangeOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ArangeOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::ArangeOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getStart()),
+        emitter.emit(srcOp.getEnd()),
+        emitter.emit(srcOp.getStep()),
+        emitter.emit(srcOp.getDtypeAttr()),
+        emitter.emit<::ttnn::operations::creation::detail::OptionalMeshDevice>(
+            srcOp.getDevice()),
+        emitter.emit(srcOp.getMemoryConfigAttr()),
+        emitter.emit(srcOp.getLayoutAttr().getValue()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Rand op conversion pattern
 //
 namespace {
@@ -5554,7 +5587,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                NamedFullOpConversionPattern<mlir::tt::ttnn::ZerosOp>,
                NamedFullOpConversionPattern<mlir::tt::ttnn::OnesOp>,
                FullOpConversionPattern,
-               DefaultOpConversionPattern<mlir::tt::ttnn::ArangeOp>,
+               ArangeOpConversionPattern,
                DefaultOpConversionPattern<mlir::tt::ttnn::ConstantOp>,
                RandOpConversionPattern,
                AssignOpConversionPattern>(typeConverter, ctx);
