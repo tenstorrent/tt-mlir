@@ -590,10 +590,10 @@ const std::set<mlir::StringRef>
         // propagation leaves the input TILE and we lose the multicore path.
         ttnn::ArgMaxOp::getOperationName(),
         // Reductions route integer-typed inputs through Float32 (not BFloat16),
-        // preserving integer values up to 2^24 exactly; BFloat16 silently rounds
-        // (e.g. 8400 -> 8384), corrupting cross-entropy/NLL loss reductions.
-        // Without this, opt_level>=1 dtype propagation leaves the integer
-        // reduction in bf16. See createReductionOpOperandsWorkarounds / #8279.
+        // preserving integer values up to 2^24 exactly; BFloat16 silently
+        // rounds (e.g. 8400 -> 8384), corrupting cross-entropy/NLL loss
+        // reductions. Without this, opt_level>=1 dtype propagation leaves the
+        // integer reduction in bf16. See createReductionOpOperandsWorkarounds.
         ttnn::SumOp::getOperationName(),
         ttnn::MeanOp::getOperationName(),
         ttnn::MaxOp::getOperationName(),
