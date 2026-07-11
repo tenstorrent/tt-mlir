@@ -8,14 +8,14 @@
 // RUN: ttmlir-translate --mlir-to-cpp -o %t.cpp %t2.mlir
 // RUN: FileCheck %s --input-file=%t.cpp
 
-// The ttcore.composite "indexer_score" is promoted to ttnn.indexer_score by
+// The ttcore.composite "indexer_score_dsa" is promoted to ttnn.indexer_score_dsa by
 // TTNNResolveComposites and then emitted to C++ as
-// ttnn::experimental::indexer_score.
+// ttnn::experimental::indexer_score_dsa.
 
 module {
-  func.func @indexer_score(%q: tensor<1x8x32x128xbf16>, %k: tensor<1x1x32x128xbf16>, %w: tensor<1x8x32x1xbf16>) -> tensor<1x1x32x32xbf16> {
-    // CHECK: ttnn::experimental::indexer_score
-    %0 = "ttcore.composite"(%q, %k, %w) <{composite_name = "indexer_score", decomposition = @decomp, composite_attributes = {chunk_start_idx = 0 : ui32}}> : (tensor<1x8x32x128xbf16>, tensor<1x1x32x128xbf16>, tensor<1x8x32x1xbf16>) -> tensor<1x1x32x32xbf16>
+  func.func @indexer_score_dsa(%q: tensor<1x8x32x128xbf16>, %k: tensor<1x1x32x128xbf16>, %w: tensor<1x8x32x1xbf16>) -> tensor<1x1x32x32xbf16> {
+    // CHECK: ttnn::experimental::indexer_score_dsa
+    %0 = "ttcore.composite"(%q, %k, %w) <{composite_name = "indexer_score_dsa", decomposition = @decomp, composite_attributes = {chunk_start_idx = 0 : ui32}}> : (tensor<1x8x32x128xbf16>, tensor<1x1x32x128xbf16>, tensor<1x8x32x1xbf16>) -> tensor<1x1x32x32xbf16>
     return %0 : tensor<1x1x32x32xbf16>
   }
   func.func private @decomp(%q: tensor<1x8x32x128xbf16>, %k: tensor<1x1x32x128xbf16>, %w: tensor<1x8x32x1xbf16>) -> tensor<1x1x32x32xbf16> {

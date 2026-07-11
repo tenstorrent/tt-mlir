@@ -48,8 +48,8 @@ static constexpr llvm::StringLiteral moeExpertTokenRemapTargetName =
 static constexpr llvm::StringLiteral flashMlaPrefillTargetName =
     "tt.flash_mla_prefill";
 
-static constexpr llvm::StringLiteral indexerScoreTargetName =
-    "tt.indexer_score";
+static constexpr llvm::StringLiteral indexerScoreDsaTargetName =
+    "tt.indexer_score_dsa";
 
 static mlir::sdy::OpShardingRuleAttr
 getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
@@ -505,8 +505,8 @@ getFlashMlaPrefillShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
-// Sharding rule for the `tt.indexer_score` custom_call (DSA lightning-indexer
-// scorer).
+// Sharding rule for the `tt.indexer_score_dsa` custom_call (DSA
+// lightning-indexer scorer).
 //
 // Tensor layout (matches the StableHLO conversion at
 // StableHLOToTTIRPatterns.cpp:9374):
@@ -534,10 +534,10 @@ getFlashMlaPrefillShardingRule(mlir::stablehlo::CustomCallOp op) {
 //   - Head dim  (kNeedReplication, size D) : query/key dim 3. Contracted
 //       internally by the q.k dot product.
 static mlir::sdy::OpShardingRuleAttr
-getIndexerScoreShardingRule(mlir::stablehlo::CustomCallOp op) {
+getIndexerScoreDsaShardingRule(mlir::stablehlo::CustomCallOp op) {
   if (op.getNumOperands() != 3 || op.getNumResults() != 1) {
     op.getOperation()->emitWarning()
-        << "indexer_score expects 3 operands (query, key, weights) and 1 "
+        << "indexer_score_dsa expects 3 operands (query, key, weights) and 1 "
            "result";
     return mlir::sdy::OpShardingRuleAttr();
   }
@@ -549,13 +549,13 @@ getIndexerScoreShardingRule(mlir::stablehlo::CustomCallOp op) {
 
   if (!qType || !kType || !wType || !outType) {
     op.getOperation()->emitWarning()
-        << "indexer_score requires ranked tensor types";
+        << "indexer_score_dsa requires ranked tensor types";
     return mlir::sdy::OpShardingRuleAttr();
   }
 
   if (qType.getRank() != 4 || kType.getRank() != 4 || wType.getRank() != 4 ||
       outType.getRank() != 4) {
-    op.getOperation()->emitWarning() << "indexer_score requires 4D tensors";
+    op.getOperation()->emitWarning() << "indexer_score_dsa requires 4D tensors";
     return mlir::sdy::OpShardingRuleAttr();
   }
 
@@ -576,8 +576,8 @@ getIndexerScoreShardingRule(mlir::stablehlo::CustomCallOp op) {
   if (!isStaticPositiveDim(B) || !isStaticPositiveDim(Hi) ||
       !isStaticPositiveDim(Sq) || !isStaticPositiveDim(D) ||
       !isStaticPositiveDim(T)) {
-    op.getOperation()->emitWarning()
-        << "indexer_score requires static, positive B/Hi/Sq/D/T dimensions";
+    op.getOperation()->emitWarning() << "indexer_score_dsa requires static, "
+                                        "positive B/Hi/Sq/D/T dimensions";
     return mlir::sdy::OpShardingRuleAttr();
   }
 
@@ -591,7 +591,8 @@ getIndexerScoreShardingRule(mlir::stablehlo::CustomCallOp op) {
       kShape[3] != D ||                                       // D (q, key)
       outShape[3] != T ||                                     // T (key, out)
       wShape[3] != 1) {                                       // weights gate
-    op.getOperation()->emitWarning() << "indexer_score shape validation failed";
+    op.getOperation()->emitWarning()
+        << "indexer_score_dsa shape validation failed";
     return mlir::sdy::OpShardingRuleAttr();
   }
 
@@ -1958,7 +1959,7 @@ private:
           {moeExpertTokenRemapTargetName, getMoeExpertTokenRemapShardingRule},
           {utils::kTTRMSNormCustomCallTargetName, getRMSNormShardingRule},
           {flashMlaPrefillTargetName, getFlashMlaPrefillShardingRule},
-          {indexerScoreTargetName, getIndexerScoreShardingRule},
+          {indexerScoreDsaTargetName, getIndexerScoreDsaShardingRule},
           {utils::kTTTopKCustomCallTargetName, getTopKShardingRule},
           {utils::kTTTopKValuesCustomCallTargetName, getTopKShardingRule},
           {utils::kTTTopKIndicesCustomCallTargetName, getTopKShardingRule},

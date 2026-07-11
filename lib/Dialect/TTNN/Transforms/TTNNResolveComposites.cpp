@@ -89,9 +89,11 @@ extractFlashMlaPrefillArgs(ttcore::CompositeOp compositeOp) {
   return args;
 }
 
-// Recover the chunk_start_idx attribute from an "indexer_score" composite,
-// defaulting to 0 when absent. Shared by its validate and build callbacks.
-static uint32_t getIndexerScoreChunkStartIdx(ttcore::CompositeOp compositeOp) {
+// Recover the chunk_start_idx attribute from an "indexer_score_dsa"
+// composite, defaulting to 0 when absent. Shared by its validate and build
+// callbacks.
+static uint32_t
+getIndexerScoreDsaChunkStartIdx(ttcore::CompositeOp compositeOp) {
   DictionaryAttr attrs = compositeOp.getCompositeAttributes().value_or(nullptr);
   if (!attrs) {
     return 0;
@@ -202,31 +204,32 @@ static void registerBuiltinComposites() {
       },
       /*promotionGuard=*/nullptr};
 
-  registry["indexer_score"] = CompositeEntry{
+  registry["indexer_score_dsa"] = CompositeEntry{
       // Validate
       [](ttcore::CompositeOp compositeOp,
          OpBuilder &builder) -> OpValidationResult {
         TT_assert(compositeOp.getInputs().size() == 3u);
 
-        uint32_t chunkStartIdx = getIndexerScoreChunkStartIdx(compositeOp);
+        uint32_t chunkStartIdx = getIndexerScoreDsaChunkStartIdx(compositeOp);
         SmallVector<Type> resultTypes(compositeOp.getResultTypes());
         IsolatedIRValidationWrapper validator(compositeOp.getContext());
-        return validator.validateOp<IndexerScoreOp>(
+        return validator.validateOp<IndexerScoreDsaOp>(
             compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
             compositeOp.getInputs()[0], compositeOp.getInputs()[1],
             compositeOp.getInputs()[2], chunkStartIdx);
       },
       // Build
       [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
-        uint32_t chunkStartIdx = getIndexerScoreChunkStartIdx(compositeOp);
-        return builder.create<IndexerScoreOp>(
+        uint32_t chunkStartIdx = getIndexerScoreDsaChunkStartIdx(compositeOp);
+        return builder.create<IndexerScoreDsaOp>(
             compositeOp.getLoc(), compositeOp.getResultTypes(),
             compositeOp.getInputs()[0], compositeOp.getInputs()[1],
             compositeOp.getInputs()[2], chunkStartIdx);
       },
-      // Promotion guard: ttnn.experimental.indexer_score is Blackhole-only. On
-      // any other architecture, veto promotion so the composite falls back to
-      // inlining its decomposition instead of failing the pass.
+      // Promotion guard: ttnn.experimental.indexer_score_dsa is
+      // Blackhole-only. On any other architecture, veto promotion so the
+      // composite falls back to inlining its decomposition instead of
+      // failing the pass.
       [](ttcore::CompositeOp compositeOp) -> LogicalResult {
         ModuleOp moduleOp = compositeOp->getParentOfType<ModuleOp>();
         auto sysDesc = moduleOp

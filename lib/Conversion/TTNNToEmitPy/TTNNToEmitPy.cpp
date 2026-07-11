@@ -4517,31 +4517,31 @@ public:
 };
 } // namespace
 
-// IndexerScoreOp conversion pattern
+// IndexerScoreDsaOp conversion pattern
 //
 namespace {
-class IndexerScoreOpConversionPattern
+class IndexerScoreDsaOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<
-          mlir::tt::ttnn::IndexerScoreOp> {
+          mlir::tt::ttnn::IndexerScoreDsaOp> {
 
 private:
   std::string getPrefixSearchPattern() const override {
-    return "ttnn.indexer_score";
+    return "ttnn.indexer_score_dsa";
   }
   std::string getPrefixSwapPattern() const override {
-    return "ttnn.experimental.indexer_score";
+    return "ttnn.experimental.indexer_score_dsa";
   }
 
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
-      mlir::tt::ttnn::IndexerScoreOp>::TTNNToEmitPyBaseOpConversionPattern;
+      mlir::tt::ttnn::IndexerScoreDsaOp>::TTNNToEmitPyBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::IndexerScoreOp srcOp, OpAdaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::IndexerScoreDsaOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::IndexerScoreOp> emitter(
-        srcOp, adaptor, rewriter);
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::IndexerScoreDsaOp>
+        emitter(srcOp, adaptor, rewriter);
 
     // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
     llvm::SmallVector<mlir::Attribute> args{
@@ -5605,7 +5605,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<ScaledDotProductAttentionOpConversionPattern>(typeConverter,
                                                              ctx);
   patterns.add<FlashMlaPrefillOpConversionPattern>(typeConverter, ctx);
-  patterns.add<IndexerScoreOpConversionPattern>(typeConverter, ctx);
+  patterns.add<IndexerScoreDsaOpConversionPattern>(typeConverter, ctx);
   patterns.add<ScaledDotProductAttentionDecodeOpConversionPattern>(
       typeConverter, ctx);
   patterns.add<PagedScaledDotProductAttentionDecodeOpConversionPattern>(

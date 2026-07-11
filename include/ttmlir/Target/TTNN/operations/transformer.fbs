@@ -92,7 +92,7 @@ table FlashMlaPrefillOp {
   memcfg: tt.target.ttnn.MemoryConfig;
 }
 
-table IndexerScoreOp {
+table IndexerScoreDsaOp {
   query: tt.target.ttnn.TensorRef;
   key: tt.target.ttnn.TensorRef;
   weights: tt.target.ttnn.TensorRef;

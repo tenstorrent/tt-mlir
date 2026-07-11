@@ -111,7 +111,7 @@
 #include "operations/transformer/chunked_scaled_dot_product_attention.h"
 #include "operations/transformer/concatenate_heads.h"
 #include "operations/transformer/flash_mla_prefill.h"
-#include "operations/transformer/indexer_score.h"
+#include "operations/transformer/indexer_score_dsa.h"
 #include "operations/transformer/nlp_concat_heads.h"
 #include "operations/transformer/nlp_concat_heads_decode.h"
 #include "operations/transformer/nlp_create_qkv_heads_decode.h"
@@ -671,8 +671,8 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::transformer::run(op->type_as_FlashMlaPrefillOp(),
                                         getContext());
   }
-  case ::tt::target::ttnn::OpType::IndexerScoreOp: {
-    return operations::transformer::run(op->type_as_IndexerScoreOp(),
+  case ::tt::target::ttnn::OpType::IndexerScoreDsaOp: {
+    return operations::transformer::run(op->type_as_IndexerScoreDsaOp(),
                                         getContext());
   }
   case ::tt::target::ttnn::OpType::AggregateTensorOp: {

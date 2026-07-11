@@ -2549,11 +2549,11 @@ def test_flash_mla_prefill_value_mask_scale(
 
 
 # DeepSeek Sparse Attention lightning-indexer scorer (stablehlo.custom_call
-# @tt.indexer_score -> ttcore.composite -> ttnn.indexer_score).
+# @tt.indexer_score_dsa -> ttcore.composite -> ttnn.indexer_score_dsa).
 #
 # Two lowering paths:
 #   * on Blackhole with batch_size == 1:
-#       shlo.custom_call -> ttcore.composite -> ttnn.indexer_score
+#       shlo.custom_call -> ttcore.composite -> ttnn.indexer_score_dsa
 #   * otherwise:
 #       shlo.custom_call -> ttcore.composite -> decomposed into ttnn primitives
 #       (matmul/relu/multiply/sum + causal mask)
@@ -2570,7 +2570,7 @@ def test_flash_mla_prefill_value_mask_scale(
     ids=["mha", "multi_head", "batched"],
 )
 @pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
-def test_indexer_score(
+def test_indexer_score_dsa(
     shapes: List[Shape],
     chunk_start_idx: int,
     target: str,
@@ -2582,14 +2582,14 @@ def test_indexer_score(
 
     def module(builder: StableHLOBuilder):
         @builder.func(shapes, dtypes)
-        def indexer_score(
+        def indexer_score_dsa(
             query: Operand,
             key: Operand,
             weights: Operand,
             builder: StableHLOBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            return builder.indexer_score(
+            return builder.indexer_score_dsa(
                 query,
                 key,
                 weights,
@@ -2607,4 +2607,4 @@ def test_indexer_score(
 
     batch_size = shapes[0][0]
     expect_typed_op = system_desc.get_arch() == "Blackhole" and batch_size == 1
-    assert check_op(output, "indexer_score") == expect_typed_op
+    assert check_op(output, "indexer_score_dsa") == expect_typed_op

@@ -2482,12 +2482,12 @@ FlashMlaPrefillOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
-// IndexerScoreOp - TTNN Op Model Interface
+// IndexerScoreDsaOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
 llvm::Expected<op_model::OpConstraints>
-IndexerScoreOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                                 const OpConfig &opConfig) {
+IndexerScoreDsaOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                    const OpConfig &opConfig) {
   assert(inputs.size() == 3);
 
   auto queryShape = getQuery().getType().getShape();
@@ -2495,14 +2495,14 @@ IndexerScoreOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
   auto weightsShape = getWeights().getType().getShape();
 
   return opConstraintsCache().getOrCompute(
-      op_model::OpModel<IndexerScoreOp>::getOpConstraints, *this, queryShape,
+      op_model::OpModel<IndexerScoreDsaOp>::getOpConstraints, *this, queryShape,
       inputs[0], keyShape, inputs[1], weightsShape, inputs[2],
       getChunkStartIdx(), opConfig.outputLayout);
 }
 
 llvm::Expected<size_t>
-IndexerScoreOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
-                             const OpConfig &opConfig) {
+IndexerScoreDsaOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
   assert(inputs.size() == 3);
 
   auto queryShape = getQuery().getType().getShape();
@@ -2510,7 +2510,7 @@ IndexerScoreOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   auto weightsShape = getWeights().getType().getShape();
 
   return opRuntimeCache().getOrCompute(
-      op_model::OpModel<IndexerScoreOp>::getOpRuntime, *this, queryShape,
+      op_model::OpModel<IndexerScoreDsaOp>::getOpRuntime, *this, queryShape,
       inputs[0], keyShape, inputs[1], weightsShape, inputs[2],
       getChunkStartIdx(), opConfig.outputLayout);
 }

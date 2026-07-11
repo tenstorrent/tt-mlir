@@ -3257,10 +3257,10 @@ llvm::Expected<size_t> OpModel<FlashMlaPrefillOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
-// IndexerScoreOp
+// IndexerScoreDsaOp
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<OpConstraints> OpModel<IndexerScoreOp>::getOpConstraints(
+llvm::Expected<OpConstraints> OpModel<IndexerScoreDsaOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
     llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
     llvm::ArrayRef<int64_t> weightsShape, TTNNLayoutAttr weightsLayout,
@@ -3278,22 +3278,23 @@ llvm::Expected<OpConstraints> OpModel<IndexerScoreOp>::getOpConstraints(
       ::ttnn::TensorSpec weightsSpec,
       detail::convertToTensorSpec(device, weightsShape, weightsLayout));
 
-  // ttnn::experimental::indexer_score has no output memory-config parameter;
-  // it selects its own output layout, so outputLayout is not forwarded and
-  // program_config / compute_kernel_config fall back to the ttnn defaults.
-  auto indexerScoreOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::experimental::indexer_score, device,
+  // ttnn::experimental::indexer_score_dsa has no output memory-config
+  // parameter; it selects its own output layout, so outputLayout is not
+  // forwarded and program_config / compute_kernel_config fall back to the
+  // ttnn defaults.
+  auto indexerScoreDsaOpQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS(::ttnn::experimental::indexer_score_dsa, device,
                                 querySpec, keySpec, weightsSpec, chunkStartIdx);
   };
 
   return operation::getOpConstraints(queryLayout.getContext(),
-                                     indexerScoreOpQuery);
+                                     indexerScoreDsaOpQuery);
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
-llvm::Expected<size_t> OpModel<IndexerScoreOp>::getOpRuntime(
+llvm::Expected<size_t> OpModel<IndexerScoreDsaOp>::getOpRuntime(
     llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
     llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
     llvm::ArrayRef<int64_t> weightsShape, TTNNLayoutAttr weightsLayout,
@@ -3311,12 +3312,12 @@ llvm::Expected<size_t> OpModel<IndexerScoreOp>::getOpRuntime(
       ::ttnn::TensorSpec weightsSpec,
       detail::convertToTensorSpec(device, weightsShape, weightsLayout));
 
-  auto indexerScoreOpQuery = [=]() {
-    return QUERY_OP_RUNTIME(::ttnn::experimental::indexer_score, device,
+  auto indexerScoreDsaOpQuery = [=]() {
+    return QUERY_OP_RUNTIME(::ttnn::experimental::indexer_score_dsa, device,
                             querySpec, keySpec, weightsSpec, chunkStartIdx);
   };
 
-  return operation::getOpRuntime(indexerScoreOpQuery);
+  return operation::getOpRuntime(indexerScoreDsaOpQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL

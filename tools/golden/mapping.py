@@ -8523,14 +8523,15 @@ def flash_mla_prefill_golden(
     return output.to(output_dtype)
 
 
-def indexer_score_golden(
+def indexer_score_dsa_golden(
     query: GoldenMapTensor,
     key: GoldenMapTensor,
     weights: GoldenMapTensor,
     chunk_start_idx: int,
 ) -> GoldenMapTensor:
     """
-    Golden for the tt.indexer_score custom_call (DSA lightning-indexer scorer).
+    Golden for the tt.indexer_score_dsa custom_call (DSA lightning-indexer
+    scorer).
 
     Mirrors the primitive decomposition:
         score[b, s, t] = sum_h relu(q[b, h, s, :] . k[b, t, :]) * weights[b, h, s]
@@ -9226,7 +9227,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
 # StableHLO custom_call goldens
 STABLEHLO_CUSTOM_CALL_GOLDEN_MAPPINGS: Dict[str, Callable] = {
     "tt.flash_mla_prefill": flash_mla_prefill_golden,
-    "tt.indexer_score": indexer_score_golden,
+    "tt.indexer_score_dsa": indexer_score_dsa_golden,
 }
 
 

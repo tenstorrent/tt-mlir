@@ -876,10 +876,10 @@ struct OpModel<FlashMlaPrefillOp> {
 };
 
 //===----------------------------------------------------------------------===//
-// IndexerScoreOp
+// IndexerScoreDsaOp
 //===----------------------------------------------------------------------===//
 template <>
-struct OpModel<IndexerScoreOp> {
+struct OpModel<IndexerScoreDsaOp> {
   static llvm::Expected<OpConstraints> getOpConstraints(
       llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
       llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,

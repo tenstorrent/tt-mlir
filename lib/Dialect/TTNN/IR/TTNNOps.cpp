@@ -6512,10 +6512,10 @@ mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
-// IndexerScoreOp
+// IndexerScoreDsaOp
 //===----------------------------------------------------------------------===//
 
-::mlir::LogicalResult mlir::tt::ttnn::IndexerScoreOp::verify() {
+::mlir::LogicalResult mlir::tt::ttnn::IndexerScoreDsaOp::verify() {
   RankedTensorType queryType = getQuery().getType();
   RankedTensorType keyType = getKey().getType();
   RankedTensorType weightsType = getWeights().getType();

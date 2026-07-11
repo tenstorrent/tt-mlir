@@ -9366,16 +9366,16 @@ namespace {
 // Builds the primitive decomposition function for the ttcore.composite op for
 // the DSA lightning-indexer scorer. This is a fallback that gets inlined by the
 // TTNNResolveComposites pass when the composite op cannot be promoted to
-// ttnn.indexer_score.
+// ttnn.indexer_score_dsa.
 //
 //   score[b, s, t] = sum_h relu(q[b,h,s,:] . k[b,t,:]) * weights[b,h,s]
 //   masked to -inf where t > chunk_start_idx + s.
 //
 // q [B, Hi, Sq, D], k [B, 1, T, D], weights [B, Hi, Sq, 1] -> [B, 1, Sq, T].
-static Value buildIndexerScoreDecompositionBody(OpBuilder &builder,
-                                                Location loc, Value query,
-                                                Value key, Value weights,
-                                                uint32_t chunkStartIdx) {
+static Value buildIndexerScoreDsaDecompositionBody(OpBuilder &builder,
+                                                   Location loc, Value query,
+                                                   Value key, Value weights,
+                                                   uint32_t chunkStartIdx) {
   auto queryType = mlir::cast<RankedTensorType>(query.getType());
   auto keyType = mlir::cast<RankedTensorType>(key.getType());
   ArrayRef<int64_t> qShape = queryType.getShape();
@@ -9496,11 +9496,11 @@ static Value buildIndexerScoreDecompositionBody(OpBuilder &builder,
       .getResult();
 }
 
-// Converts stablehlo.custom_call @tt.indexer_score into a ttcore.composite
-// "indexer_score" carrying the synthesized primitive decomposition. The
-// composite is promoted to ttnn.indexer_score by TTNNResolveComposites
+// Converts stablehlo.custom_call @tt.indexer_score_dsa into a ttcore.composite
+// "indexer_score_dsa" carrying the synthesized primitive decomposition. The
+// composite is promoted to ttnn.indexer_score_dsa by TTNNResolveComposites
 // (Blackhole only); the decomposition body is the inlined fallback.
-class StableHLOToTTCoreIndexerScoreOpConversionPattern
+class StableHLOToTTCoreIndexerScoreDsaOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
   using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
 
@@ -9510,14 +9510,15 @@ public:
                   mlir::stablehlo::CustomCallOp::Adaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     StringAttr funcName = adaptor.getCallTargetNameAttr();
-    if (funcName != "tt.indexer_score") {
+    if (funcName != "tt.indexer_score_dsa") {
       return failure();
     }
 
     auto operands = adaptor.getOperands();
     if (operands.size() != 3) {
       return rewriter.notifyMatchFailure(
-          srcOp, "indexer_score expects exactly 3 operands (q, k, weights).");
+          srcOp,
+          "indexer_score_dsa expects exactly 3 operands (q, k, weights).");
     }
     Value query = operands[0];
     Value key = operands[1];
@@ -9546,11 +9547,12 @@ public:
 
     // Synthesize the private decomposition function (inlined fallback).
     ModuleOp moduleOp = srcOp->getParentOfType<ModuleOp>();
-    std::string decompFuncName = "indexer_score_decomp";
+    std::string decompFuncName = "indexer_score_dsa_decomp";
     {
       unsigned counter = 0;
       while (SymbolTable::lookupSymbolIn(moduleOp, decompFuncName)) {
-        decompFuncName = "indexer_score_decomp_" + std::to_string(counter++);
+        decompFuncName =
+            "indexer_score_dsa_decomp_" + std::to_string(counter++);
       }
     }
 
@@ -9567,7 +9569,7 @@ public:
       Block *entry = decompFunc.addEntryBlock();
       rewriter.setInsertionPointToStart(entry);
 
-      Value decompResult = buildIndexerScoreDecompositionBody(
+      Value decompResult = buildIndexerScoreDsaDecompositionBody(
           rewriter, srcOp.getLoc(), entry->getArgument(0),
           entry->getArgument(1), entry->getArgument(2), chunkStartIdx);
       rewriter.create<mlir::func::ReturnOp>(srcOp.getLoc(), decompResult);
@@ -9579,7 +9581,7 @@ public:
 
     rewriter.replaceOpWithNewOp<ttcore::CompositeOp>(
         srcOp, TypeRange{outputType}, ValueRange(compositeInputs),
-        rewriter.getStringAttr("indexer_score"),
+        rewriter.getStringAttr("indexer_score_dsa"),
         FlatSymbolRefAttr::get(rewriter.getContext(), decompFuncName),
         rewriter.getDictionaryAttr(compositeAttrList));
 
@@ -10147,7 +10149,7 @@ static void addScaledDotProductAttentionDecodeOpConversionPattern(
       StableHLOToTTIRPagedScaledDotProductAttentionDecodeOpConversionPattern,
       StableHLOToTTCoreFlashMlaPrefillOpConversionPattern,
       StableHLOToTTIRPagedFlashMLADecodeOpConversionPattern,
-      StableHLOToTTCoreIndexerScoreOpConversionPattern,
+      StableHLOToTTCoreIndexerScoreDsaOpConversionPattern,
       StableHLOToTTIRChunkedScaledDotProductAttentionOpConversionPattern>(
       typeConverter, ctx);
 }

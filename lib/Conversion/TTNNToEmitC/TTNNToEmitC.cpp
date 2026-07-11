@@ -3783,30 +3783,30 @@ public:
 };
 } // namespace
 
-// IndexerScoreOp conversion pattern
+// IndexerScoreDsaOp conversion pattern
 //
 namespace {
-class IndexerScoreOpConversionPattern
+class IndexerScoreDsaOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<
-          mlir::tt::ttnn::IndexerScoreOp> {
+          mlir::tt::ttnn::IndexerScoreDsaOp> {
 
 private:
   std::string getPrefixSearchPattern() const override {
-    return "ttnn.indexer_score";
+    return "ttnn.indexer_score_dsa";
   }
   std::string getPrefixSwapPattern() const override {
-    return "ttnn::experimental::indexer_score";
+    return "ttnn::experimental::indexer_score_dsa";
   }
 
 public:
   using TTNNToEmitCBaseOpConversionPattern<
-      mlir::tt::ttnn::IndexerScoreOp>::TTNNToEmitCBaseOpConversionPattern;
+      mlir::tt::ttnn::IndexerScoreDsaOp>::TTNNToEmitCBaseOpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(mlir::tt::ttnn::IndexerScoreOp srcOp, OpAdaptor adaptor,
+  matchAndRewrite(mlir::tt::ttnn::IndexerScoreDsaOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
 
-    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::IndexerScoreOp> emitter(
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::IndexerScoreDsaOp> emitter(
         srcOp, adaptor, rewriter);
     // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
     llvm::SmallVector<mlir::Attribute> args{
@@ -5831,7 +5831,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   patterns.add<ScaledDotProductAttentionOpConversionPattern>(typeConverter,
                                                              ctx);
   patterns.add<FlashMlaPrefillOpConversionPattern>(typeConverter, ctx);
-  patterns.add<IndexerScoreOpConversionPattern>(typeConverter, ctx);
+  patterns.add<IndexerScoreDsaOpConversionPattern>(typeConverter, ctx);
   patterns.add<NLPCreateQKVHeadsDecodeOpConversionPattern>(typeConverter, ctx);
 }
 // ANCHOR_END: op_rewriter_pattern_set_emitc

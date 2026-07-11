@@ -9864,10 +9864,10 @@ class StableHLOBuilder(Builder):
 
         return op.result
 
-    ################# stablehlo.CustomCallOp @tt.indexer_score #################
+    ############### stablehlo.CustomCallOp @tt.indexer_score_dsa ###############
 
     @tag(stablehlo.CustomCallOp)
-    def indexer_score(
+    def indexer_score_dsa(
         self,
         query: Operand,
         key: Operand,
@@ -9877,7 +9877,7 @@ class StableHLOBuilder(Builder):
         unit_attrs: Optional[List[str]] = None,
     ) -> OpResult:
         """
-        Emit a `stablehlo.custom_call @tt.indexer_score`.
+        Emit a `stablehlo.custom_call @tt.indexer_score_dsa`.
 
         DeepSeek Sparse Attention lightning-indexer scorer. Operands are passed
         in canonical order: query [B, Hi, Sq, D], key [B, 1, T, D],
@@ -9885,7 +9885,7 @@ class StableHLOBuilder(Builder):
         causal offset is carried as a string-valued frontend attribute (defaults
         to 0).
         """
-        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.indexer_score)
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.indexer_score_dsa)
 
         inputs = [query, key, weights]
 
@@ -9898,7 +9898,8 @@ class StableHLOBuilder(Builder):
             output_shape, self.get_type(query)
         )
 
-        # tt.indexer_score carries chunk_start_idx as a string-valued attribute.
+        # tt.indexer_score_dsa carries chunk_start_idx as a string-valued
+        # attribute.
         frontend_attrs = {
             "chunk_start_idx": StringAttr.get(str(chunk_start_idx)),
         }
@@ -9911,7 +9912,7 @@ class StableHLOBuilder(Builder):
         op = stablehlo_op(
             [output_type],
             inputs,
-            "tt.indexer_score",
+            "tt.indexer_score_dsa",
             api_version=IntegerAttr.get(IntegerType.get_signless(32), 0),
             loc=loc,
         )
@@ -9923,7 +9924,7 @@ class StableHLOBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        op_golden_function = get_custom_call_golden_function("tt.indexer_score")
+        op_golden_function = get_custom_call_golden_function("tt.indexer_score_dsa")
         golden_output = op_golden_function(
             self._get_golden_tensor(query),
             self._get_golden_tensor(key),

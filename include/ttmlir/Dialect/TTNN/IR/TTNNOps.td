@@ -4016,12 +4016,12 @@ def TTNN_FlashMlaPrefillOp : TTNN_Op<"flash_mla_prefill", [AttrSizedOperandSegme
     let hasVerifier = 1;
 }
 
-def TTNN_IndexerScoreOp : TTNN_Op<"indexer_score"> {
+def TTNN_IndexerScoreDsaOp : TTNN_Op<"indexer_score_dsa"> {
     let summary = "DeepSeek Sparse Attention lightning-indexer scorer.";
     let description = [{
       Computes the DeepSeek-V3.2 DSA (sparse attention) lightning-indexer
-      scores. Corresponds to `ttnn.experimental.indexer_score`
-      (`ttnn::experimental::indexer_score`).
+      scores. Corresponds to `ttnn.experimental.indexer_score_dsa`
+      (`ttnn::experimental::indexer_score_dsa`).
 
       For every query position `s` and key position `t`:
       ```

@@ -1,15 +1,15 @@
 // REQUIRES: stablehlo
 // RUN: ttmlir-opt --stablehlo-to-ttir-pipeline -o %t.mlir %s
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="mock-system-desc-arch=blackhole" -o %t2.mlir %t.mlir
-// RUN: FileCheck %s --input-file=%t2.mlir --implicit-check-not="ttnn.indexer_score"
+// RUN: FileCheck %s --input-file=%t2.mlir --implicit-check-not="ttnn.indexer_score_dsa"
 
 // End-to-end decomposition path: even on Blackhole, a batch size > 1 is not
-// supported by the typed ttnn.indexer_score op.
-// So the ttcore.composite "indexer_score" is replaced by its
+// supported by the typed ttnn.indexer_score_dsa op.
+// So the ttcore.composite "indexer_score_dsa" is replaced by its
 // decomposition of ttnn primitives.
 
-module @indexer_score {
-  func.func public @indexer_score(%q: tensor<4x8x32x128xbf16>, %k: tensor<4x1x32x128xbf16>, %w: tensor<4x8x32x1xbf16>) -> tensor<4x1x32x32xbf16> {
+module @indexer_score_dsa {
+  func.func public @indexer_score_dsa(%q: tensor<4x8x32x128xbf16>, %k: tensor<4x1x32x128xbf16>, %w: tensor<4x8x32x1xbf16>) -> tensor<4x1x32x32xbf16> {
     // The primitive ops may be split across the main function and a hoisted
     // const-eval function (the causal mask depends only on shapes), so match
     // them anywhere in the module rather than scoping to a single function.
@@ -20,7 +20,7 @@ module @indexer_score {
     // CHECK-DAG: "ttnn.arange"
     // CHECK-DAG: "ttnn.ge"
     // CHECK-DAG: "ttnn.where"
-    %0 = stablehlo.custom_call @tt.indexer_score(%q, %k, %w) {api_version = 0 : i32} : (tensor<4x8x32x128xbf16>, tensor<4x1x32x128xbf16>, tensor<4x8x32x1xbf16>) -> tensor<4x1x32x32xbf16>
+    %0 = stablehlo.custom_call @tt.indexer_score_dsa(%q, %k, %w) {api_version = 0 : i32} : (tensor<4x8x32x128xbf16>, tensor<4x1x32x128xbf16>, tensor<4x8x32x1xbf16>) -> tensor<4x1x32x32xbf16>
     return %0 : tensor<4x1x32x32xbf16>
   }
 }

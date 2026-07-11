@@ -6748,14 +6748,15 @@ TEST_F(OpModelBase, FlashMlaPrefillOpInterfaceWithMask) {
 }
 
 //===----------------------------------------------------------------------===//
-// IndexerScoreOp
+// IndexerScoreDsaOp
 //===----------------------------------------------------------------------===//
 
-// ttnn.experimental.indexer_score is Blackhole-only: on any other architecture
-// the metal op raises (TT_FATAL), which the op-model query surfaces as an
-// error. The test therefore skips when the query is unavailable so it still
-// exercises the binding on Blackhole hardware without failing elsewhere.
-TEST_F(OpModelBase, IndexerScoreOpInterface) {
+// ttnn.experimental.indexer_score_dsa is Blackhole-only: on any other
+// architecture the metal op raises (TT_FATAL), which the op-model query
+// surfaces as an error. The test therefore skips when the query is
+// unavailable so it still exercises the binding on Blackhole hardware without
+// failing elsewhere.
+TEST_F(OpModelBase, IndexerScoreDsaOpInterface) {
   // Shapes mirror the transformer lit tests: query [B, Hi, Sq, D],
   // key [B, 1, T, D], weights [B, Hi, Sq, 1] -> score [B, 1, Sq, T].
   llvm::SmallVector<int64_t> queryShape = {1, 8, 32, 128};
@@ -6789,7 +6790,7 @@ TEST_F(OpModelBase, IndexerScoreOpInterface) {
   auto outputType =
       createRankedTensorType(outputShape, tiledElemType, outputLayout);
 
-  auto indexerOp = builder.create<IndexerScoreOp>(
+  auto indexerOp = builder.create<IndexerScoreDsaOp>(
       builder.getUnknownLoc(), outputType, query, key, weights,
       /*chunk_start_idx=*/0);
 
@@ -6797,7 +6798,7 @@ TEST_F(OpModelBase, IndexerScoreOpInterface) {
 
   auto constraintsExp = getOpConstraints(indexerOp.getOperation());
   if (!constraintsExp) {
-    GTEST_SKIP() << "indexer_score op-model query unavailable "
+    GTEST_SKIP() << "indexer_score_dsa op-model query unavailable "
                     "(Blackhole-only): "
                  << llvm::toString(constraintsExp.takeError());
   }

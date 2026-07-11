@@ -3490,8 +3490,8 @@ createOp(FlatbufferObjectCache &cache, FlashMlaPrefillOp op) {
       out, memoryConfig);
 }
 
-::flatbuffers::Offset<::tt::target::ttnn::IndexerScoreOp>
-createOp(FlatbufferObjectCache &cache, IndexerScoreOp op) {
+::flatbuffers::Offset<::tt::target::ttnn::IndexerScoreDsaOp>
+createOp(FlatbufferObjectCache &cache, IndexerScoreDsaOp op) {
   auto query = cache.at<::tt::target::ttnn::TensorRef>(
       getOperandThroughDPSOps(op.getQuery()));
   auto key = cache.at<::tt::target::ttnn::TensorRef>(
@@ -3503,8 +3503,8 @@ createOp(FlatbufferObjectCache &cache, IndexerScoreOp op) {
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
                                   /*local_shape*/ std::nullopt);
 
-  return ::tt::target::ttnn::CreateIndexerScoreOp(*cache.fbb, query, key,
-                                                  weights, chunkStartIdx, out);
+  return ::tt::target::ttnn::CreateIndexerScoreDsaOp(
+      *cache.fbb, query, key, weights, chunkStartIdx, out);
 }
 
 std::vector<::flatbuffers::Offset<::tt::target::ttnn::KernelArg>>
@@ -4978,9 +4978,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, flashMlaPrefillOp),
                            debugString, locInfo);
   }
-  if (auto indexerScoreOp = dyn_cast<IndexerScoreOp>(op); indexerScoreOp) {
-    return createOperation(cache, createOp(cache, indexerScoreOp), debugString,
-                           locInfo);
+  if (auto indexerScoreDsaOp = dyn_cast<IndexerScoreDsaOp>(op);
+      indexerScoreDsaOp) {
+    return createOperation(cache, createOp(cache, indexerScoreDsaOp),
+                           debugString, locInfo);
   }
   if (auto dtOp = dyn_cast<DistributeTensorOp>(op); dtOp) {
     return createOperation(cache, createOp(cache, dtOp), debugString, locInfo);

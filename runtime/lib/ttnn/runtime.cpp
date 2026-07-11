@@ -1484,8 +1484,8 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_FlashMlaPrefillOp()->out()};
     break;
   }
-  case ::tt::target::ttnn::OpType::IndexerScoreOp: {
-    tensorRefs = {opContext.type_as_IndexerScoreOp()->out()};
+  case ::tt::target::ttnn::OpType::IndexerScoreDsaOp: {
+    tensorRefs = {opContext.type_as_IndexerScoreDsaOp()->out()};
     break;
   }
   case ::tt::target::ttnn::OpType::NLPConcatHeadsDecodeOp: {
@@ -2246,8 +2246,8 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     }
     break;
   }
-  case ::tt::target::ttnn::OpType::IndexerScoreOp: {
-    auto *op = opContext.type_as_IndexerScoreOp();
+  case ::tt::target::ttnn::OpType::IndexerScoreDsaOp: {
+    auto *op = opContext.type_as_IndexerScoreDsaOp();
     tensorRefs = {op->query(), op->key(), op->weights()};
     break;
   }
