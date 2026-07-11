@@ -760,7 +760,8 @@ public:
     rewriter.setInsertionPointToStart(rewriter.getInsertionBlock());
     setInsertionPointAfterOperands(rewriter, {inCB, outCB},
                                    /*allowHoisting*/ true);
-    rewriter.create<ttkernel::InitSFPUOp>(store.getLoc(), inCB, outCB);
+    rewriter.create<ttkernel::ComputeKernelHWStartupOp>(store.getLoc(), inCB,
+                                                        nullptr, outCB);
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
     rewriter.create<ttkernel::CopyTileInitOp>(store.getLoc(), cb);
