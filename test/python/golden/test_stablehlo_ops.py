@@ -2546,3 +2546,65 @@ def test_flash_mla_prefill_value_mask_scale(
     )
 
     check_op(output, "flash_mla_prefill")
+
+
+# DeepSeek Sparse Attention lightning-indexer scorer (stablehlo.custom_call
+# @tt.indexer_score -> ttcore.composite -> ttnn.indexer_score).
+#
+# Two lowering paths:
+#   * on Blackhole with batch_size == 1:
+#       shlo.custom_call -> ttcore.composite -> ttnn.indexer_score
+#   * otherwise:
+#       shlo.custom_call -> ttcore.composite -> decomposed into ttnn primitives
+#       (matmul/relu/multiply/sum + causal mask)
+@pytest.mark.parametrize(
+    "shapes,chunk_start_idx",
+    [
+        # query [B, Hi, Sq, D], key [B, 1, T, D], weights [B, Hi, Sq, 1]; Sq=T=32.
+        ([(1, 8, 32, 128), (1, 1, 32, 128), (1, 8, 32, 1)], 32),
+        # More heads, smaller head dim, longer sequence; still full visibility.
+        ([(1, 16, 64, 64), (1, 1, 64, 64), (1, 16, 64, 1)], 64),
+        # Batch > 1; exercises the batched decomposition path.
+        ([(2, 8, 32, 128), (2, 1, 32, 128), (2, 8, 32, 1)], 32),
+    ],
+    ids=["mha", "multi_head", "batched"],
+)
+@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+def test_indexer_score(
+    shapes: List[Shape],
+    chunk_start_idx: int,
+    target: str,
+    device,
+    request,
+    system_desc,
+):
+    dtypes = [torch.bfloat16] * len(shapes)
+
+    def module(builder: StableHLOBuilder):
+        @builder.func(shapes, dtypes)
+        def indexer_score(
+            query: Operand,
+            key: Operand,
+            weights: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.indexer_score(
+                query,
+                key,
+                weights,
+                chunk_start_idx=chunk_start_idx,
+                unit_attrs=unit_attrs,
+            )
+
+    output = compile_and_execute_shlo(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        save_artifacts=True,
+    )
+
+    batch_size = shapes[0][0]
+    expect_typed_op = system_desc.get_arch() == "Blackhole" and batch_size == 1
+    assert check_op(output, "indexer_score") == expect_typed_op

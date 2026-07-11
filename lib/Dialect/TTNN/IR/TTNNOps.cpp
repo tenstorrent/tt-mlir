@@ -6562,6 +6562,11 @@ mlir::tt::ttnn::PagedFlashMultiLatentAttentionDecodeOp::verify() {
   int64_t headDim = queryType.getShape()[3];
   int64_t keySeqLen = keyType.getShape()[2];
 
+  // Batch size must be 1 (tt-metal op restriction)
+  if (batch != 1) {
+    return emitOpError("Query batch size (dim 0) must be 1, got ") << batch;
+  }
+
   if (keyType.getShape()[0] != batch) {
     return emitOpError("Key batch size must match query batch size");
   }
