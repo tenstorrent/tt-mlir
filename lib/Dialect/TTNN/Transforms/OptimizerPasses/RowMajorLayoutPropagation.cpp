@@ -280,11 +280,10 @@ private:
 
         if (!rmOutputLayout) {
           llvm::consumeError(rmOutputLayout.takeError());
-          // TODO(rpavlovicTT): Remove when
-          // https://github.com/tenstorrent/tt-mlir/pull/8413 is merged.
-          if (user->hasTrait<OpModelExempt>()) {
-            insertTiledFixup(rewriter, use, current);
-          }
+          // When propagation stops at an interior op, a producer may already have
+          // been rewritten to RowMajor while this consumer still expects Tiled
+          // types. Insert a per-edge to_layout fixup (same idea as handleReturnOp).
+          insertTiledFixup(rewriter, use, current);
           continue;
         }
 
