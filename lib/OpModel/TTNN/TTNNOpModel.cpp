@@ -828,40 +828,39 @@ static ::ttnn::Tensor
 moeComputePackW0W1(const ::ttnn::Tensor &w0, const ::ttnn::Tensor &w1,
                    std::optional<::ttnn::Tensor> b0,
                    std::optional<::ttnn::Tensor> b1, uint32_t hiddenSize,
-                   uint32_t intermediateSize, uint32_t bhRingSize,
-                   ::ttnn::MeshDevice *device) {
+                   uint32_t intermediateSize, ::ttnn::MeshDevice *device) {
   uint32_t L = w0.logical_shape()[0];
   uint32_t E = w0.logical_shape()[1];
   bool hasBias = b0.has_value();
   ::ttnn::Tensor packed =
       hasBias ? ::ttnn::experimental::prepare_w0_w1_tensor_with_bias(
-                    w0, w1, *b0, *b1, L, E, hiddenSize, intermediateSize,
-                    bhRingSize)
+                    w0, w1, *b0, *b1, L, E, hiddenSize, intermediateSize)
               : ::ttnn::experimental::prepare_w0_w1_tensor_for_moe_compute(
-                    w0, w1, L, E, hiddenSize, intermediateSize, bhRingSize);
+                    w0, w1, L, E, hiddenSize, intermediateSize);
   return ::ttnn::experimental::quantize_weights_via_host(
       packed, ::tt::tt_metal::DataType::BFLOAT4_B,
-      ::ttnn::experimental::get_weight_mem_configs(
-          device, L, E, hiddenSize, intermediateSize, hasBias, bhRingSize)
+      ::ttnn::experimental::get_weight_mem_configs(device, L, E, hiddenSize,
+                                                   intermediateSize, hasBias)
           .w0_w1);
 }
 
-static ::ttnn::Tensor
-moeComputePackW2(const ::ttnn::Tensor &w2, std::optional<::ttnn::Tensor> b2,
-                 uint32_t hiddenSize, uint32_t intermediateSize,
-                 uint32_t bhRingSize, ::ttnn::MeshDevice *device) {
+static ::ttnn::Tensor moeComputePackW2(const ::ttnn::Tensor &w2,
+                                       std::optional<::ttnn::Tensor> b2,
+                                       uint32_t hiddenSize,
+                                       uint32_t intermediateSize,
+                                       ::ttnn::MeshDevice *device) {
   uint32_t L = w2.logical_shape()[0];
   uint32_t E = w2.logical_shape()[1];
   bool hasBias = b2.has_value();
   ::ttnn::Tensor packed =
       hasBias ? ::ttnn::experimental::prepare_w2_tensor_with_bias(
-                    w2, *b2, L, E, intermediateSize, hiddenSize, bhRingSize)
+                    w2, *b2, L, E, intermediateSize, hiddenSize)
               : ::ttnn::experimental::prepare_w2_tensor_for_moe_compute(
-                    w2, L, E, intermediateSize, hiddenSize, bhRingSize);
+                    w2, L, E, intermediateSize, hiddenSize);
   return ::ttnn::experimental::quantize_weights_via_host(
       packed, ::tt::tt_metal::DataType::BFLOAT4_B,
-      ::ttnn::experimental::get_weight_mem_configs(
-          device, L, E, hiddenSize, intermediateSize, hasBias, bhRingSize)
+      ::ttnn::experimental::get_weight_mem_configs(device, L, E, hiddenSize,
+                                                   intermediateSize, hasBias)
           .w2);
 }
 
@@ -873,11 +872,9 @@ static auto makePrepareMoEComputeW0W1WeightsQuery(
     std::optional<TTNNLayoutAttr> bias0Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
     std::optional<TTNNLayoutAttr> bias1Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
-
-  uint32_t ring = bhRingSize.value_or(12);
 
   return [=]() {
     ::ttnn::TensorSpec w0Spec = conversion::getTensorSpec(w0Shape, w0Layout);
@@ -892,7 +889,7 @@ static auto makePrepareMoEComputeW0W1WeightsQuery(
     }
     return ::ttnn::graph::query_op_constraints(
         WRAP_OP(moeComputePackW0W1), device, w0Spec, w1Spec, b0Spec, b1Spec,
-        hiddenSize, intermediateSize, ring, device);
+        hiddenSize, intermediateSize, device);
   };
 }
 
@@ -904,10 +901,10 @@ getPrepareMoEComputeW0W1WeightsOpOutputTensorSpec(
     std::optional<TTNNLayoutAttr> bias0Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
     std::optional<TTNNLayoutAttr> bias1Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
   auto query = makePrepareMoEComputeW0W1WeightsQuery(
       w0Shape, w0Layout, w1Shape, w1Layout, bias0Shape, bias0Layout, bias1Shape,
-      bias1Layout, hiddenSize, intermediateSize, bhRingSize);
+      bias1Layout, hiddenSize, intermediateSize);
   auto output = operation::executeConstraintQuery(query);
   if (!output) {
     return output.takeError();
@@ -921,11 +918,10 @@ static auto makePrepareMoEComputeW2WeightsQuery(
     llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
     std::optional<TTNNLayoutAttr> bias2Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  uint32_t ring = bhRingSize.value_or(12);
   return [=]() {
     ::ttnn::TensorSpec w2Spec = conversion::getTensorSpec(w2Shape, w2Layout);
     std::optional<::ttnn::TensorSpec> b2Spec;
@@ -934,7 +930,7 @@ static auto makePrepareMoEComputeW2WeightsQuery(
     }
     return ::ttnn::graph::query_op_constraints(
         WRAP_OP(moeComputePackW2), device, w2Spec, b2Spec, hiddenSize,
-        intermediateSize, ring, device);
+        intermediateSize, device);
   };
 }
 
@@ -943,10 +939,9 @@ getPrepareMoEComputeW2WeightsOpOutputTensorSpec(
     llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
     std::optional<TTNNLayoutAttr> bias2Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
   auto query = makePrepareMoEComputeW2WeightsQuery(
-      w2Shape, w2Layout, bias2Shape, bias2Layout, hiddenSize, intermediateSize,
-      bhRingSize);
+      w2Shape, w2Layout, bias2Shape, bias2Layout, hiddenSize, intermediateSize);
   auto output = operation::executeConstraintQuery(query);
   if (!output) {
     return output.takeError();
@@ -966,11 +961,11 @@ OpModel<PrepareMoEComputeW0W1WeightsOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> bias0Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
     std::optional<TTNNLayoutAttr> bias1Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto query = makePrepareMoEComputeW0W1WeightsQuery(
       w0Shape, w0Layout, w1Shape, w1Layout, bias0Shape, bias0Layout, bias1Shape,
-      bias1Layout, hiddenSize, intermediateSize, bhRingSize);
+      bias1Layout, hiddenSize, intermediateSize);
   return operation::getOpConstraints(w0Layout.getContext(), query);
 #else
   return OpConstraints{};
@@ -982,11 +977,10 @@ OpModel<PrepareMoEComputeW2WeightsOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
     std::optional<TTNNLayoutAttr> bias2Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto query = makePrepareMoEComputeW2WeightsQuery(
-      w2Shape, w2Layout, bias2Shape, bias2Layout, hiddenSize, intermediateSize,
-      bhRingSize);
+      w2Shape, w2Layout, bias2Shape, bias2Layout, hiddenSize, intermediateSize);
   return operation::getOpConstraints(w2Layout.getContext(), query);
 #else
   return OpConstraints{};
@@ -6793,32 +6787,6 @@ llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
     llvm::APFloat epsilon, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  // tt-metal's group_norm hangs on a ROW_MAJOR input, reject row-major input
-  // here to force the optimizer to select a TILE input layout. tt-metal#47972
-  // tracks this issue. The raw query lives in getOpConstraintsRaw so the
-  // tripwire test can observe tt-metal's unguarded verdict; remove both once
-  // tt-metal#47972 is fixed.
-  if (inputLayout.getLayout() == mlir::tt::ttnn::Layout::RowMajor) {
-    return llvm::createStringError(
-        llvm::inconvertibleErrorCode(),
-        "group_norm ROW_MAJOR input is unsupported (hangs); requires TILE");
-  }
-#endif // TTMLIR_ENABLE_OPMODEL
-  return getOpConstraintsRaw(
-      inputShape, inputLayout, inputMaskShape, inputMaskLayout, weightShape,
-      weightLayout, biasShape, biasLayout, numGroups, epsilon, outputLayout);
-}
-
-llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraintsRaw(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    std::optional<llvm::ArrayRef<int64_t>> inputMaskShape,
-    std::optional<TTNNLayoutAttr> inputMaskLayout,
-    std::optional<llvm::ArrayRef<int64_t>> weightShape,
-    std::optional<TTNNLayoutAttr> weightLayout,
-    std::optional<llvm::ArrayRef<int64_t>> biasShape,
-    std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
-    llvm::APFloat epsilon, TTNNLayoutAttr outputLayout) {
-#ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -6869,15 +6837,6 @@ llvm::Expected<size_t> OpModel<GroupNormOp>::getOpRuntime(
     std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
     llvm::APFloat epsilon, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  // tt-metal's group_norm hangs on a ROW_MAJOR input, reject row-major input
-  // here to force the optimizer to select a TILE input layout. tt-metal#47972
-  // tracks this issue.
-  if (inputLayout.getLayout() == mlir::tt::ttnn::Layout::RowMajor) {
-    return llvm::createStringError(
-        llvm::inconvertibleErrorCode(),
-        "group_norm ROW_MAJOR input is unsupported (hangs); requires TILE");
-  }
-
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 

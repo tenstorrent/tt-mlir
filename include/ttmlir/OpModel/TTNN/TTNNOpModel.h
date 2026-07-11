@@ -1447,8 +1447,7 @@ struct OpModel<PrepareMoEComputeW0W1WeightsOp> {
                    std::optional<TTNNLayoutAttr> bias0Layout,
                    std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
                    std::optional<TTNNLayoutAttr> bias1Layout,
-                   uint32_t hiddenSize, uint32_t intermediateSize,
-                   std::optional<uint32_t> bhRingSize);
+                   uint32_t hiddenSize, uint32_t intermediateSize);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1461,8 +1460,7 @@ struct OpModel<PrepareMoEComputeW2WeightsOp> {
   getOpConstraints(llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
                    std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
                    std::optional<TTNNLayoutAttr> bias2Layout,
-                   uint32_t hiddenSize, uint32_t intermediateSize,
-                   std::optional<uint32_t> bhRingSize);
+                   uint32_t hiddenSize, uint32_t intermediateSize);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1769,20 +1767,6 @@ struct OpModel<GroupNormOp> {
                std::optional<llvm::ArrayRef<int64_t>> biasShape,
                std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
                llvm::APFloat epsilon, TTNNLayoutAttr outputLayout);
-
-  // Raw tt-metal group_norm constraint query, i.e. getOpConstraints without the
-  // ROW_MAJOR-input workaround it applies on top (tt-metal#47972). Delete
-  // together with the workaround once tt-metal#47972 is fixed and the tripwire
-  // test gets triggered.
-  static llvm::Expected<OpConstraints> getOpConstraintsRaw(
-      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-      std::optional<llvm::ArrayRef<int64_t>> inputMaskShape,
-      std::optional<TTNNLayoutAttr> inputMaskLayout,
-      std::optional<llvm::ArrayRef<int64_t>> weightShape,
-      std::optional<TTNNLayoutAttr> weightLayout,
-      std::optional<llvm::ArrayRef<int64_t>> biasShape,
-      std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
-      llvm::APFloat epsilon, TTNNLayoutAttr outputLayout);
 };
 
 //===----------------------------------------------------------------------===//

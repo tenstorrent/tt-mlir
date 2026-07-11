@@ -17534,7 +17534,6 @@ class TTIRBuilder(Builder):
         bias_2: Optional[Operand] = None,
         activation_function: str = "silu",
         compute_only: bool = True,
-        bh_ring_size: Optional[int] = None,
         output_shapes: Optional[List[Shape]] = None,
         output_types: Optional[List[torch.dtype]] = None,
         unit_attrs: Optional[List[str]] = None,
@@ -17561,9 +17560,6 @@ class TTIRBuilder(Builder):
             f"#ttcore.moe_activation_function<{activation_function}>"
         )
         compute_only_attr = BoolAttr.get(compute_only)
-        bh_ring_size_attr = (
-            IntegerAttr.get(u32, bh_ring_size) if bh_ring_size is not None else None
-        )
 
         loc = self._get_location()
 
@@ -17589,7 +17585,6 @@ class TTIRBuilder(Builder):
             bias_2=bias_2,
             activation_function=activation_attr,
             compute_only=compute_only_attr,
-            bh_ring_size=bh_ring_size_attr,
             loc=loc,
         )
 
@@ -17623,7 +17618,6 @@ class TTIRBuilder(Builder):
             cluster_axis=0,
             activation_function=activation_function,
             compute_only=compute_only,
-            bh_ring_size=bh_ring_size,
             output_types_mlir=[r.type for r in op.results],
         )
         for result, golden in zip(op.results, golden_outputs):

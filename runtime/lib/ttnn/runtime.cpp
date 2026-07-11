@@ -745,9 +745,12 @@ size_t getL1SmallSize(Device meshDevice) {
 size_t getTraceRegionSize(Device meshDevice) {
   ::ttnn::MeshDevice &ttnnMeshDevice =
       meshDevice.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-  return ttnnMeshDevice.allocator()
-      ->get_statistics(::ttnn::BufferType::TRACE)
-      .total_allocatable_size_bytes;
+  // Metal reserves the trace region per DRAM bank, rounded up per bank, so
+  // report the aggregate reserved capacity (>= the requested
+  // trace_region_size).
+  const auto &allocator = ttnnMeshDevice.allocator();
+  return allocator->get_bank_size(::ttnn::BufferType::TRACE) *
+         allocator->get_num_banks(::ttnn::BufferType::TRACE);
 }
 
 size_t getNumDramChannels(Device meshDevice) {
