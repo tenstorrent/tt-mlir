@@ -7457,11 +7457,9 @@ OpModel<mlir::tt::ttnn::EmptyOp>::getOpConstraints(
 //===----------------------------------------------------------------------===//
 // ArangeOp
 //===----------------------------------------------------------------------===//
-// sgholamiTT: There are two reasons why receiving the start, end, and step as
-// attributes is better than as integers:
-//   1. That is the only valid way to acquire a pointer to MLIRContext.
-//   2. Using getInt() member function of ::mlir::IntegerAttr is safer and more
-//      mlir idiomatic than static_cast<int64_t>(start).
+// Receiving start, end, and step as attributes (rather than plain
+// integers) is the only valid way to acquire a pointer to the MLIRContext.
+// Note: these are SI64Attr (signed), so read them with getSExtValue()
 llvm::Expected<OpConstraints>
 OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
     ::mlir::IntegerAttr start, ::mlir::IntegerAttr end,
@@ -7496,9 +7494,10 @@ OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
       deviceRef = *device;
 
   auto arangeOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::arange, device, start.getInt(),
-                                end.getInt(), step.getInt(), dataType,
-                                deviceRef, memoryConfig, layout);
+    return QUERY_OP_CONSTRAINTS(
+        ::ttnn::arange, device, start.getValue().getSExtValue(),
+        end.getValue().getSExtValue(), step.getValue().getSExtValue(), dataType,
+        deviceRef, memoryConfig, layout);
   };
 
   return operation::getOpConstraints(start.getContext(), arangeOpQuery);
