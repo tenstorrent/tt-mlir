@@ -489,6 +489,19 @@ def TTNNAdjustDeallocs: Pass<"ttnn-adjust-deallocs", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNForceFinalDeallocs: Pass<"ttnn-force-final-deallocs", "::mlir::ModuleOp"> {
+  let summary = "Force the final deallocation of each aliased device buffer.";
+  let description = [{
+    This pass walks the deallocation ops of each buffer from bottom to top and
+    sets the force flag to true on the last one in program order (the true final
+    use of that memory), so the buffer is freed properly. The remaining
+    deallocations of that buffer are no-ops and are removed. For buffers that are
+    freed elsewhere (variables that escape the function that are freed by the caller
+    or conv activations the conv op force-deallocates itself), no deallocation
+    is forced and all of their (no-op) deallocations are removed.
+  }];
+}
+
 def TTNNWeightDtypeConversion: Pass<"ttnn-weight-dtype-conversion", "::mlir::ModuleOp"> {
   let summary = "Convert weight tensors to a specified dtype in matmul, linear, and sparse_matmul operations.";
   let description = [{
