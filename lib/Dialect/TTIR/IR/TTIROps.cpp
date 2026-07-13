@@ -3178,6 +3178,10 @@ mlir::tt::ttir::RearrangeOp::getInvPatternMap() {
     int32_t adjustedEndPositiveStep = (end < kDimStart) ? 
       std::max<int32_t>(end + dimSize, kDimStart) : 
       std::min<int32_t>(end, dimSize);
+    if (adjustedBeginPositiveStep > adjustedEndPositiveStep) {
+      // e.g. array[3:1:1] <=> array[0:0:1]
+      adjustedBeginPositiveStep = adjustedEndPositiveStep = kDimStart;
+    }
     
     // Adjust begin and end for a negative step
     int32_t adjustedBeginNegativeStep = (begin < kDimStart) ? 
@@ -3186,6 +3190,10 @@ mlir::tt::ttir::RearrangeOp::getInvPatternMap() {
     int32_t adjustedEndNegativeStep = (end < kDimStart) ? 
       std::max<int32_t>(end + dimSize, -1) : 
       std::min<int32_t>(end, dimSize - 1);
+    if (adjustedBeginNegativeStep < adjustedEndNegativeStep) {
+      // e.g. array[1:3:-1] <=> array[0:0:-1]
+      adjustedBeginNegativeStep = adjustedEndNegativeStep = kDimStart;
+    }
 
     // Adjust begin and end
     bool isPositiveStep = step > 0;
