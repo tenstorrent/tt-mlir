@@ -1,6 +1,5 @@
-// Verify the SDPA program config injected by the workaround survives the whole
-// TTIR->TTNN backend pipeline to the final TTNN IR (optimization-level=0 keeps
-// the device-dependent optimizer passes disabled so this runs host-side).
+// Verify the workaround-injected SDPA program config survives the whole
+// TTIR->TTNN backend pipeline (optimization-level=0 runs host-side).
 //
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=0 mock-system-desc-arch=blackhole" -mlir-print-local-scope %s | FileCheck %s --check-prefix=BLACKHOLE
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=0 mock-system-desc-arch=wormhole_b0" -mlir-print-local-scope %s | FileCheck %s --check-prefix=WORMHOLE
