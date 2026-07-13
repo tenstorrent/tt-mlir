@@ -1150,6 +1150,19 @@ private:
           loc, resultTypes, ValueRange{operands[0], operands[1]});
       yield = bbBuilder.create<d2m::TileMinimumOp>(
           loc, resultTypes, ValueRange{yield, operands[2]});
+    } else if constexpr (std::is_same_v<ConcreteOp, ttir::Relu6Op>) {
+      // Decompose into a scalar clamp
+      auto tileTy = mlir::cast<ttcore::TileType>(resultTypes[0]);
+      mlir::Attribute minAttr, maxAttr;
+      if (tileTy.getElementType().isInteger()) {
+        minAttr = bbBuilder.getI32IntegerAttr(0);
+        maxAttr = bbBuilder.getI32IntegerAttr(6);
+      } else {
+        minAttr = bbBuilder.getF32FloatAttr(0.0f);
+        maxAttr = bbBuilder.getF32FloatAttr(6.0f);
+      }
+      yield = bbBuilder.create<d2m::TileClampScalarOp>(
+          loc, resultTypes[0], operands[0], minAttr, maxAttr);
     } else if constexpr (std::is_same_v<ConcreteOp, ttir::ClampScalarOp> ||
                          std::is_same_v<ConcreteOp, ttir::SeluOp>) {
       // Unary ops with forwarded attributes (e.g. clamp min/max, selu
@@ -5609,6 +5622,7 @@ void populateTTIRToD2MPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
     D2MNamedElementwiseRewriter<ttir::PowOp,             d2m::TilePowOp>,
     D2MNamedElementwiseRewriter<ttir::ReciprocalOp,      d2m::TileRecipOp>,
     D2MNamedElementwiseRewriter<ttir::ReluOp,            d2m::TileReluOp>,
+    D2MNamedElementwiseRewriter<ttir::Relu6Op,           d2m::TileClampScalarOp>,
     D2MNamedElementwiseRewriter<ttir::RsqrtOp,           d2m::TileRsqrtOp>,
     D2MNamedElementwiseRewriter<ttir::SigmoidOp,         d2m::TileSigmoidOp>,
     D2MNamedElementwiseRewriter<ttir::SignOp,            d2m::TileSignOp>,

@@ -5553,6 +5553,13 @@ def ttir_hardsigmoid_golden(
     return torch.nn.functional.hardsigmoid(input_tensor).to(output_dtype)
 
 
+def ttir_relu6_golden(
+    input_tensor: GoldenMapTensor, output_type_mlir: Type
+) -> GoldenMapTensor:
+    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
+    return torch.nn.functional.relu6(input_tensor).to(output_dtype)
+
+
 def ttir_subtract_golden(
     input_tensor: GoldenMapTensor, other_tensor: GoldenMapTensor, output_type_mlir: Type
 ) -> GoldenMapTensor:
@@ -8826,7 +8833,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.TanhOp: ttir_tanh_golden,
     ttir.ReciprocalOp: torch.reciprocal,
     ttir.ReluOp: torch.relu,
-    ttir.Relu6Op: torch.nn.functional.relu6,
+    ttir.Relu6Op: ttir_relu6_golden,
     ttir.RsqrtOp: ttir_rsqrt_golden,
     ttir.SigmoidOp: ttir_sigmoid_golden,
     ttir.HardsigmoidOp: ttir_hardsigmoid_golden,
