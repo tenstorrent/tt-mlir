@@ -3188,8 +3188,9 @@ mlir::tt::ttir::RearrangeOp::getInvPatternMap() {
       std::min<int32_t>(end, dimSize - 1);
 
     // Adjust begin and end
-    int32_t adjustedBegin = (step > 0) ? adjustedBeginPositiveStep : adjustedBeginNegativeStep;
-    int32_t adjustedEnd = (step > 0) ? adjustedEndPositiveStep : adjustedEndNegativeStep;
+    bool isPositiveStep = step > 0;
+    int32_t adjustedBegin = isPositiveStep ? adjustedBeginPositiveStep : adjustedBeginNegativeStep;
+    int32_t adjustedEnd = isPositiveStep ? adjustedEndPositiveStep : adjustedEndNegativeStep;
 
     // Calculate the expected size of the output dimension
     int32_t expectedDimSize =
