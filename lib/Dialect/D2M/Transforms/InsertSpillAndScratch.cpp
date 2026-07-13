@@ -637,6 +637,37 @@ static bool fuseOuterScfLoops(SmallVector<affine::AffineForOp> &scratchLoops,
               return lhs.chain[level]->isBeforeInBlock(rhs.chain[level]);
             });
 
+  // Do not fuse across an ordering barrier. Fusion hoists the ops sitting
+  // between consecutive nests (remote_loads, setup, etc.) to before the first
+  // nest. A semaphore op carries cross-thread / cross-device ordering: e.g. a
+  // ring CCL step does `... produce acc_t ...; remote_store(send acc_t) inc
+  // es_{t+1}; semaphore_wait es_{t+1}; ... consume ...`, where es_{t+1} is only
+  // satisfied by a peer that first consumed this nest's output acc_t. Hoisting
+  // that semaphore_wait (and the send) ahead of the producing nest reorders it
+  // before acc_t is produced/pushed; once the unified thread is split, the
+  // compute thread then waits on es_{t+1} before pushing acc_t, deadlocking the
+  // ring. Skip fusion when such a barrier sits between the nests (it is only an
+  // optimization; the ring nests write distinct buffers and need no fusion).
+  for (size_t i = 1; i < chains.size(); ++i) {
+    Operation *prevOuter = chains[i - 1].chain[firstDivergentLevel];
+    Operation *thisOuter = chains[i].chain[firstDivergentLevel];
+    if (prevOuter->getBlock() != thisOuter->getBlock()) {
+      continue;
+    }
+    for (auto it = std::next(prevOuter->getIterator());
+         it != thisOuter->getIterator() && it != prevOuter->getBlock()->end();
+         ++it) {
+      // Only a consume-side wait creates the ring's circular dependency (the
+      // compute thread would wait on it before pushing the prior nest's
+      // output). A produce-side semaphore inc/set (e.g. a fused all_gather's
+      // cross-device store signalling a peer) does not, and those kernels rely
+      // on fusion -- so do not bail for them.
+      if (isa<SemaphoreWaitOp>(&*it)) {
+        return false;
+      }
+    }
+  }
+
   // Verify that the divergent loops are structurally identical. Fusion here is
   // intentionally conservative: only merge loops when they iterate over the
   // same space with the same step so the shared loop preserves semantics.

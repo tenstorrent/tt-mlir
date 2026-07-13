@@ -117,6 +117,11 @@ def TTKernel_TensorAccessorPageMapping : TTKernel_Type<"TensorAccessorPageMappin
   let description = "TensorAccessor struct that holds bank_id and bank_page_offset";
 }
 
+def TTKernel_DSpec : TTKernel_Type<"DSpec", "DSpec"> {
+  let summary = "DSpec type";
+  let description = "DistributionSpec that holds tensor distribution metadata";
+}
+
 def TTKernel_DataFormat : TTKernel_Type<"DataFormat", "DataFormat"> {
     let summary = "TTKernel compute data format type";
     let description = "Data format type in TTKernel dialect";
@@ -182,9 +187,14 @@ def TTKernel_ArgSpecAttr : TTKernel_Attr<"ArgSpec", "arg_spec"> {
     static bool isLessArg(ArgAttr lhs, ArgAttr rhs);
 
     // Returns the appended argument index.
-    static size_t appendCompileTimeArg(func::FuncOp func, ArgAttr arg);
+    // numSlots: number of CTA/CRTA uint32_t slots this arg occupies at
+    // runtime.  Defaults to 1.  When > 1 the implementation reserves
+    // additional placeholder entries so that subsequent indices are correct.
+    static size_t appendCompileTimeArg(func::FuncOp func, ArgAttr arg,
+                                       size_t numSlots = 1);
     // Returns the appended argument index.
-    static size_t appendRuntimeArg(func::FuncOp func, ArgAttr arg);
+    static size_t appendRuntimeArg(func::FuncOp func, ArgAttr arg,
+                                   size_t numSlots = 1);
   }];
 }
 

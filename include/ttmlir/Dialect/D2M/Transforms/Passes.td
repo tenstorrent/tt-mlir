@@ -1159,6 +1159,28 @@ def D2MSplitUnifiedThread : Pass<"d2m-split-unified-thread", "::mlir::ModuleOp">
   let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
 }
 
+def D2MSplitUnifiedThreadV2 : Pass<"d2m-split-unified-thread-v2", "::mlir::ModuleOp"> {
+  let summary = "Split unified thread regions (rewrite, WIP).";
+  let description = [{
+    Experimental rewrite of d2m-split-unified-thread, selectable via the
+    `use-split-unified-thread-v2` option on d2m-be-pipeline for A/B
+    comparison against the legacy pass.
+
+    The legacy pass models every circular buffer as a strict
+    single-producer/single-consumer streaming buffer, which a loop-carried
+    accumulator (e.g. `c = zeros; for k: c += a @ b; store(c)`) violates --
+    such a buffer has multiple intra-thread producers/consumers and only a
+    single cross-thread (compute->DM) edge that actually needs CB
+    synchronization. This rewrite is intended to move to a dataflow model
+    that classifies buffer accesses by thread and synchronizes only the
+    cross-thread edges.
+
+    Initially forked from the legacy implementation; behavior is identical
+    until the dataflow model lands.
+  }];
+  let dependentDialects = ["::mlir::tt::d2m::D2MDialect"];
+}
+
 def D2MPreallocateMcastSemaphores : Pass<"d2m-preallocate-mcast-semaphores", "::mlir::ModuleOp"> {
   let summary = "Pre-allocate semaphores for multicast DMA operations.";
   let description = [{
@@ -1319,6 +1341,12 @@ def D2MLowerDMAToFullyIndexedForm : Pass<"d2m-lower-dma-to-fully-indexed-form", 
            /*default=*/"false",
            "Enable debug mode for coalescing inference. Runs both analytical and "
            "sampling-based coalescing checks and prints debug output comparing them.">,
+    Option<"useTensorAccessorDMA", "use-tensor-accessor-dma", "bool",
+           /*default=*/"false",
+           "When set, plain (non-multicast, non-local) shard-level DMAs are left "
+           "in shard form for the TensorAccessor lowering in D2MToTTKernel; only "
+           "multicast and local-destination DMAs are lowered to fully-indexed "
+           "form here (the TensorAccessor path does not handle those).">,
   ];
 }
 

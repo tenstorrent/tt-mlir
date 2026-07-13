@@ -7,17 +7,32 @@ from __future__ import annotations
 import ast
 
 from ttmlir.ir import *
-from ttmlir.dialects import d2m, ttcore, arith, linalg
+from ttmlir.dialects import d2m, ttcore, arith, linalg, tensor
 from ttmlir.dialects._ods_common import get_default_loc_context
 
 from ._src.utils import _asindex
 from ._src.ast import syntax
 from ._src.config import config
 from ._src.errors import D2mJitError
-from ._src.tensor_layout import Layout, float32, float16, bfloat16, _to_data_type
+from ._src.tensor_layout import (
+    Layout,
+    float32,
+    float16,
+    bfloat16,
+    uint32,
+    _to_data_type,
+)
 from ._src.builder import (
     CompiledKernel,
     LazyTensor,
+    GlobalSemaphore,
+    global_semaphore,
+    mesh,
+    MeshShard,
+    mesh_shard,
+    mesh_gather,
+    reblock,
+    fabric_config,
     kernel,
     to_layout,
     tilize,
@@ -25,6 +40,7 @@ from ._src.builder import (
     empty,
     zeros,
     full,
+    arange,
     reduction_layout,
     arange,
     view_layout,
@@ -80,10 +96,46 @@ def _tile_bcast_type_attr(node):
     return _parse_tile_bcast_type(node.value)
 
 
+def _as_value(v):
+    """Coerce an OpView to its result Value (leave Values untouched)."""
+    return v.result if hasattr(v, "result") else v
+
+
+def _idx_list(v):
+    """Normalise an optional index / list-of-indices kwarg to a list of
+    index-typed Values (empty list for None). Used for the variadic
+    cross-device / semaphore operands."""
+    if v is None:
+        return []
+    if isinstance(v, (list, tuple)):
+        return [_asindex(x) for x in v]
+    return [_asindex(v)]
+
+
 @syntax("remote_load")
 def remote_load(
-    src, indices, mcast_start_index=None, mcast_shape=None, mcast_dims=None
+    *args, mcast_start_index=None, mcast_shape=None, mcast_dims=None
 ) -> MemTx:
+    """Load an entire shard from a remote tensor into a local L1 buffer.
+
+    Two call forms:
+      remote_load(src, indices, ...)        # allocate the destination buffer
+      remote_load(buf, src, indices, ...)   # load into an explicit buffer,
+                                            # e.g. one from in-kernel `empty`
+
+    `indices` are grid indices (length N/2 of the operand rank). Optional
+    multicast via `mcast_start_index`/`mcast_shape` (low-level) or
+    `mcast_dims` (high-level)."""
+    if len(args) == 2:
+        local_buffer, src, indices = None, args[0], args[1]
+    elif len(args) == 3:
+        local_buffer, src, indices = args
+    else:
+        raise D2mJitError(
+            "remote_load expects (src, indices) or (buf, src, indices); "
+            f"got {len(args)} positional arguments"
+        )
+
     if mcast_dims is not None:
         if isinstance(mcast_dims, tuple):
             mcast_dims = list(mcast_dims)
@@ -91,10 +143,16 @@ def remote_load(
             if isinstance(mcast_dims, int):
                 mcast_dims = arith.constant(IndexType.get(src.context), mcast_dims)
             mcast_dims = [mcast_dims]
-    dst_type = RankedTensorType.get(
-        src.type.shape[len(indices) :], src.type.element_type
-    )
-    dst = d2m.empty(dst_type)
+
+    if local_buffer is None:
+        dst_type = RankedTensorType.get(
+            src.type.shape[len(indices) :], src.type.element_type
+        )
+        local_buffer = d2m.empty(dst_type)
+    else:
+        local_buffer = _as_value(local_buffer)
+        dst_type = local_buffer.type
+
     return d2m.remote_load(
         dst_type,
         src,
@@ -102,20 +160,160 @@ def remote_load(
         mcast_start_index=mcast_start_index,
         mcast_shape=mcast_shape,
         mcast_dims=mcast_dims,
-        local_buffer=dst,
+        local_buffer=local_buffer,
     )
 
 
+@syntax("fabric_recv")
+def fabric_recv(recv, indices) -> MemTx:
+    """Expose a fabric-written input shard `recv[indices]` to compute WITHOUT a
+    NoC read.
+
+    `recv` is a generic *input* operand whose shard at the grid `indices` was
+    written by a peer's cross-device `remote_store` (arrival must be ordered by a
+    preceding `semaphore_wait`). Lowers to `cb_reserve_back`/`cb_push_back` on
+    `recv`'s own CB (no `dma_read`); compute consumes the result via the normal
+    input-CB `cb_wait_front`/`cb_pop_front`. The receiver dual of a cross-device
+    `remote_store` for ring CCL; avoids the NoC read-back that contends with the
+    open fabric connection.
+
+    `indices` are grid indices (length N/2 of the operand rank)."""
+    dst_type = RankedTensorType.get(
+        recv.type.shape[len(indices) :], recv.type.element_type
+    )
+    return d2m.fabric_recv(dst_type, recv, indices)
+
+
 @syntax("remote_store")
-def remote_store(dst, indices, src):
+def remote_store(
+    dst,
+    indices,
+    src,
+    *,
+    start_device=None,
+    device_mcast_shape=None,
+    semaphore=None,
+    semaphore_indices=None,
+):
+    """Store an entire shard from a local buffer into a remote tensor.
+
+    `indices` are grid indices (length N/2 of the operand rank). The
+    optional cross-device parameters drive a multi-device (mesh) store:
+      - `start_device` / `device_mcast_shape`: the destination device range,
+      - `semaphore` (`!d2m.global_semaphore`) + `semaphore_indices`: the
+        fabric semaphore to increment on the receiving device(s)."""
     return d2m.remote_store(
         dst.type,
         dst,
         indices,
-        start_device=[],
-        device_mcast_shape=[],
-        semaphore_indices=[],
+        start_device=_idx_list(start_device),
+        device_mcast_shape=_idx_list(device_mcast_shape),
+        semaphore_indices=_idx_list(semaphore_indices),
         local_buffer=src,
+        semaphore=semaphore,
+    )
+
+
+@syntax("core_read")
+def core_read(dst, src, *, core):
+    """Read another core's local L1 buffer into this core's `dst` buffer.
+
+    A direct core->core NoC read (no device layout): the copy of `src` on the
+    core at logical coordinates `core` ([y, x], same L1 offset across the grid)
+    is read into `dst`. Synchronization (the source having published `src`, and
+    not overwriting it until read) is the caller's responsibility via
+    semaphores. Returns the read data (aliasing `dst`)."""
+    dst = _as_value(dst)
+    src = _as_value(src)
+    return d2m.core_read(dst.type, src, _idx_list(core), dst)
+
+
+@syntax("core_write")
+def core_write(src, dst, *, core):
+    """Write this core's local L1 buffer `src` into another core's `dst` buffer.
+
+    The push dual of `core_read`: a direct core->core NoC write (no device
+    layout). `src` is sent into the copy of `dst` on the core at logical
+    coordinates `core` ([y, x], same L1 offset across the grid). Synchronization
+    (the destination core not reading `dst` until the write lands) is the
+    caller's responsibility via semaphores. Returns the (remote) `dst` handle."""
+    src = _as_value(src)
+    dst = _as_value(dst)
+    return d2m.core_write(dst.type, src, dst, _idx_list(core))
+
+
+@syntax("semaphore_set")
+def semaphore_set(semaphore, value, core=None, mcast=None):
+    """Set a (local or global) semaphore to `value`. Free-function form of
+    `Semaphore.set`; also reachable on a semaphore kernel argument."""
+    return d2m.semaphore_set(
+        semaphore, _asindex(value), _idx_list(core), _idx_list(mcast), [], []
+    )
+
+
+@syntax("semaphore_inc")
+def semaphore_inc(semaphore, value, core=None, mcast=None, compute=False):
+    """Increment a (local or global) semaphore by `value`.
+
+    Pass `compute=True` when this inc is a *producer-done* signal in a fused
+    producer->consumer kernel -- i.e. it tells a gatherer that this core's
+    compute output (the buffer a `core_read` will gather) is ready. The backend
+    keeps the inc on the datamovement thread (TRISC has no NOC) but fences it
+    behind a per-core compute->DM handshake on that output, so the signal can't
+    fire before the matmul/compute completes. See split-unified-thread-v2
+    (d2m.compute_signal) and unified_semaphore_design.md."""
+    op = d2m.semaphore_inc(
+        semaphore, _asindex(value), _idx_list(core), _idx_list(mcast), [], []
+    )
+    if compute:
+        op.operation.attributes["d2m.compute_signal"] = UnitAttr.get()
+    return op
+
+
+@syntax("semaphore_wait")
+def semaphore_wait(semaphore, value, reset=None):
+    """Block until a (local or global) semaphore reaches `value`. Optional
+    `reset` writes that value back after the wait completes."""
+    return d2m.semaphore_wait(semaphore, _asindex(value), reset_value=_asindex(reset))
+
+
+@syntax(
+    "device_synchronize",
+    kwargs_as_attr={
+        # Two-arg form: receives the visitor so the value can be a compile-time
+        # int expression over closed-over int captures (e.g. `num_receivers=N-1`
+        # for a mesh-volume-generic ring), not only a bare literal.
+        "num_receivers": lambda node, visitor: IntegerAttr.get(
+            IntegerType.get_signless(32), visitor._eval_static_int(node)
+        )
+    },
+)
+def device_synchronize(
+    semaphore,
+    start_device=None,
+    mcast_shape=None,
+    num_receivers=0,
+    core_indices=None,
+):
+    """Cross-device synchronization barrier for CCL kernels.
+
+    Receivers signal senders (by incrementing `semaphore` on the sender
+    device) that they have started the op; senders wait for all `num_receivers`
+    receivers before sending data. `start_device` / `mcast_shape` describe the
+    sender device range (from this device's perspective); `core_indices` is the
+    current core. `num_receivers` must be a compile-time int (it lowers to an
+    i32 attribute) -- a literal or an expression over closed-over int captures
+    (e.g. `N - 1` for a mesh-volume-generic ring), resolved at trace time.
+
+    Authored in a `@d2m.kernel` (unified) like every other op; the backend
+    pins this barrier to a single datamovement thread when it splits the kernel.
+    """
+    return d2m.device_synchronize(
+        semaphore,
+        _idx_list(start_device),
+        _idx_list(mcast_shape),
+        num_receivers,
+        _idx_list(core_indices),
     )
 
 
@@ -127,6 +325,57 @@ def remote_store(dst, indices, src):
 )
 def core_index(index):
     return d2m.core_index(index)
+
+
+def _str_literal(node):
+    """args_as_attr callback: pull a string-literal format out of `node`."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    raise D2mJitError(
+        'dprint expects a string-literal format, e.g. dprint("step1\\n")'
+    )
+
+
+@syntax("dprint", args_as_attr=[_str_literal])
+def dprint(fmt):
+    """Kernel-side marker print -> d2m.print -> ttkernel.dprint. Format string only
+    (no value interpolation) -- emit before/after kernel ops to trace which op a
+    core reaches (e.g. to localize a device hang). Enable at runtime with
+    TT_METAL_DPRINT_CORES=all TT_METAL_DPRINT_FILE=<path>."""
+    return d2m.print_(fmt, [])
+
+
+@syntax(
+    "mesh_position",
+    args_as_attr=[
+        lambda node: IntegerAttr.get(IntegerType.get_signless(64), node.value)
+    ],
+)
+def mesh_position(dim):
+    """The current device's position in the mesh along `dim` (0=y, 1=x).
+
+    Returns an index. Only meaningful on a multi-device mesh; on a 1x1
+    mesh both dims are 0. `dim` must be a compile-time literal."""
+    return d2m.mesh_position(dim)
+
+
+@syntax("is_router_core")
+def is_router_core():
+    """True on cores assigned to issue fabric ops, per this kernel's
+    `fabric_config(router_cores=...)`. Branch on it (``if is_router_core():``)
+    to gate fabric work (device_synchronize / cross-device remote_store) to the
+    router cores. With no `router_cores` (the whole grid), always true. See
+    tools/d2m-jit/fabric_router_cores_design.md."""
+    return d2m.is_router_core()
+
+
+@syntax("router_direction")
+def router_direction():
+    """This router core's (link, direction) slot index: slot ``i`` is routing
+    plane ``i // cores_per_link``, direction ``i % cores_per_link`` (forward /
+    backward). Switch on it inside an ``is_router_core()`` branch to address the
+    correct neighbor. Returns 0 by default; undefined on non-router cores."""
+    return d2m.router_direction()
 
 
 # --- Block-level elementwise free functions ---------------------------------
@@ -673,12 +922,19 @@ def where(cond, true_value, false_value):
     )
 
 
-def _shape_literal(node):
+def _shape_literal(node, visitor):
+    """args_as_attr callback: pull a compile-time block shape out of `node`.
+
+    Accepts `[m, n]` / `(m, n)` whose elements are compile-time ints -- literals
+    OR closed-over int captures (resolved at trace time via _eval_static_int, so
+    a kernel can be generic over its block shape, e.g. `zeros([M, K])`). The
+    shape must be compile-time because the resulting tensor type's dimensions are
+    static; runtime (index-typed) values cannot size a tensor type."""
     if isinstance(node, (ast.List, ast.Tuple)):
-        return [int(_const_value(element)) for element in node.elts]
+        return [visitor._eval_static_int(elt) for elt in node.elts]
     raise D2mJitError(
-        "zeros() expects a literal block shape, e.g. zeros([m_tiles, n_tiles]); "
-        f"got {type(node).__name__}"
+        "expected a block shape [m_tiles, n_tiles] of compile-time ints "
+        f"(literals or int captures); got {type(node).__name__}"
     )
 
 
@@ -689,6 +945,33 @@ def _zeros_op(shape):
     tile_ty = ttcore.ir.TileType.get(ctx, 32, 32, float32)
     block_ty = RankedTensorType.get(list(shape), tile_ty)
     return _zeros_block(block_ty)
+
+
+@syntax("empty", args_as_attr=[_shape_literal])
+def _empty_op(shape):
+    """Block-level uninitialised L1 scratch buffer (kernel-body `empty`).
+
+    Registered as the kernel-body op `empty`; named `_empty_op` at module
+    scope so it does not shadow the host-side `empty(layout)` re-exported as
+    the public `d2m.empty`.
+
+    `shape` is a Python-literal list/tuple of block dimensions in tiles, e.g.
+    `empty([m_tiles, n_tiles])`. Produces an uninitialised
+    `tensor<shape x !ttcore.tile<32x32, f32>>` (via `tensor.empty`), intended as
+    an explicit destination buffer for `remote_load(buf, src, indices)`.
+
+    Uses `tensor.empty` (not `d2m.empty`): for a cross-device CCL kernel a
+    `d2m.empty` load buffer makes the backend split the datamovement work onto a
+    second NOC thread that ends up without the fabric write (the
+    `getFabricConnectionManager` lowering then fails); `tensor.empty` matches the
+    buffer the all_gather rewriter emits and keeps the fabric chain on one
+    thread.
+
+    The tile element type is f32; this matches `zeros(...)`. A dtype override
+    is a follow-up once a non-f32 CCL needs it."""
+    ctx = get_default_loc_context()
+    tile_ty = ttcore.ir.TileType.get(ctx, 32, 32, float32)
+    return tensor.empty(list(shape), tile_ty)
 
 
 def _bool_attr_from_ast(node):
@@ -816,6 +1099,33 @@ def reduce_mean(input, dim):
         0.0,
         reduce_block_axis=True,
     )
+
+
+@syntax("copy_")
+def _copy_(dst, src):
+    """In-place copy of `src` into `dst`'s buffer (linalg.generic outs(dst)).
+
+    For a loop-carried snapshot, e.g. `acc_prev = copy_(acc_prev, acc)`: the
+    result aliases `dst`'s buffer, so when `dst` is an scf.for iter_arg the yield
+    is buffer-equivalent and bufferizes (a plain `acc_prev = acc` would yield a
+    fresh buffer -> "Yield operand not equivalent to iter bbArg").
+
+    Implemented as `dst = src + 0` (not an identity yield): a genuine
+    elementwise op forces the write into `outs(dst)`, whereas an identity body
+    lets bufferization alias the result back to the input."""
+    z = _zeros_block(_as_value(src).type)
+    return _eltwise_block(lambda s, zz: d2m.tile_add(s.type, s, zz), src, z, out=dst)
+
+
+@syntax("__add_acc__")
+def _add_acc(acc, rhs):
+    """Eltwise add accumulating into `acc`: `acc + rhs`, in place.
+
+    Not user-facing. The AST visitor routes a non-matmul `acc += rhs` here so
+    the add writes through `acc`'s buffer (linalg.generic outs(acc)); this is
+    the eltwise dual of `__matmul_acc__` and is required for a loop-carried
+    (scf.for iter_arg) eltwise accumulator to bufferize."""
+    return _eltwise_block(lambda a, r: d2m.tile_add(a.type, a, r), acc, rhs, out=acc)
 
 
 @syntax("!tensor")
@@ -1220,13 +1530,19 @@ def _common_reduced_axes(blocks):
     return frozenset()
 
 
-def _eltwise_block(tile_op_fn, *blocks, preserve_reduced_axes=True):
+def _eltwise_block(tile_op_fn, *blocks, out=None, preserve_reduced_axes=True):
     """Wrap an N-ary per-tile op inside a `linalg.generic` over tensors of
     tiles.
 
     All `blocks` must have broadcast-compatible tensor types. `tile_op_fn` is called
     with the scalar (tile-typed) values for each input and must return
     the scalar output value (or an OpView whose .result is the value).
+
+    If `out` is given it is used as the DPS init (the `outs` operand) so the
+    op writes in place through `out`'s buffer; this is required for a
+    loop-carried (scf.for iter_arg) eltwise accumulator to bufferize (the
+    eltwise dual of `_matmul_block`'s `acc`). Otherwise a fresh `d2m.empty()`
+    output is allocated.
 
     Emits:
         %out = d2m.empty() : tensor<...x!ttcore.tile<...>>
@@ -1252,7 +1568,7 @@ def _eltwise_block(tile_op_fn, *blocks, preserve_reduced_axes=True):
     output_shape = _broadcast_block_shape(blocks)
     output_ty = RankedTensorType.get(output_shape, elem_ty)
 
-    output = d2m.empty(output_ty)
+    output = _as_value(out) if out is not None else d2m.empty(output_ty)
     identity = AffineMap.get_identity(rank)
     n_args = len(blocks) + 1  # one input map per block + one output map
     indexing_maps = ArrayAttr.get(
@@ -1268,7 +1584,7 @@ def _eltwise_block(tile_op_fn, *blocks, preserve_reduced_axes=True):
     iterator_types = ArrayAttr.get([parallel] * rank)
 
     generic = linalg.GenericOp(
-        [output_ty],
+        [output.type],
         list(blocks),
         [output],
         indexing_maps,

@@ -407,6 +407,34 @@ static std::optional<bool> isReductionBlockingLoop(Operation *loopOp) {
   return iteratorType == ttcore::IteratorType::Reduction;
 }
 
+// True iff some output store of the enclosing d2m.generic (a remote_store) has
+// an index that depends on `iv`. Such an `iv` drives a DISTINCT output per
+// iteration -- it is a parallel/streaming loop, never the matmul's reduction
+// loop. This complements anyOutputStoreDependsOnIV, which only inspects the
+// in-region dst->L1 copies (indexed by the matmul's own inner IVs) and so
+// cannot see a loop -- e.g. a user-authored streaming loop wrapping independent
+// per-iteration matmuls -- that indexes only the generic-level output store.
+// Without this, such an enclosing loop is mistaken for the matmul's reduction
+// loop and the matmul accumulates onto stale output on every iteration after
+// the first.
+static bool genericOutputStoreDependsOnIV(Operation *contextOp, Value iv) {
+  auto genericOp = contextOp->getParentOfType<GenericOp>();
+  if (!genericOp) {
+    return false;
+  }
+  bool dependent = false;
+  genericOp.walk([&](RemoteStoreOp storeOp) {
+    for (Value idx : storeOp.getIndices()) {
+      if (valueDependsOnIV(idx, iv)) {
+        dependent = true;
+        return WalkResult::interrupt();
+      }
+    }
+    return WalkResult::advance();
+  });
+  return dependent;
+}
+
 static SmallVector<Value> getGuardLoopIVs(Operation *loadOrStore,
                                           DstAccessKind kind,
                                           Operation *contextOp) {
@@ -421,7 +449,8 @@ static SmallVector<Value> getGuardLoopIVs(Operation *loadOrStore,
       }
     }
 
-    if (!accessDependsOnIV(loadOrStore, kind, loopIV)) {
+    if (!accessDependsOnIV(loadOrStore, kind, loopIV) &&
+        !genericOutputStoreDependsOnIV(loadOrStore, loopIV)) {
       guardIVs.push_back(loopIV);
     }
   }
@@ -535,9 +564,14 @@ Value findClosestReductionLoopIVForL1Acc(Operation *acquireDstOp,
     if (isReduction.has_value() && !*isReduction) {
       continue;
     }
-    if (!isReduction.has_value() && anyOutputStoreDependsOnIV(copyInfos, iv)) {
-      // Non-blocking fallback: if this loop indexes the output, it is parallel,
-      // not a reduction.
+    if (!isReduction.has_value() &&
+        (anyOutputStoreDependsOnIV(copyInfos, iv) ||
+         genericOutputStoreDependsOnIV(acquireDstOp, iv))) {
+      // Non-blocking fallback: if this loop indexes the output -- either the
+      // in-region dst->L1 copy or the generic-level output store -- it is
+      // parallel (a distinct output per iteration), not a reduction. The
+      // generic-store check catches an enclosing user/streaming loop whose IV
+      // only reaches the output via the remote_store index.
       continue;
     }
 

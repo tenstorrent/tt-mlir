@@ -413,9 +413,14 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
             command->fabric_connection_config(), kernelConfig, program, handle,
             deviceCoord, meshDevice, rtArgsVec, coreRangeSet);
 
+        // appendFabricConfigArgs returns entries only for the cores it wired to
+        // fabric (the router_cores subset, or the whole grid by default). Those
+        // cores get their fabric args; any remaining cores get the plain args.
         for (auto core : tt::tt_metal::corerange_to_cores(coreRangeSet)) {
+          auto it = fabricConfigArgs.find(core);
           tt_metal::SetRuntimeArgs(program, handle, core,
-                                   fabricConfigArgs[core]);
+                                   it != fabricConfigArgs.end() ? it->second
+                                                                : rtArgsVec);
         }
       } else {
         tt_metal::SetRuntimeArgs(program, handle, coreRangeSet, rtArgsVec);

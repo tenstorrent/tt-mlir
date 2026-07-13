@@ -1,0 +1,64 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "d2m-jit",
+      "displayName": "d2m-jit (minimal)",
+      "description": "Lean build with only what d2m-jit needs: Python bindings + the TTMetal runtime backend. StableHLO, Explorer, PyKernel, OpModel, ttnn-jit, alchemist, TTRT, TTNN/Distributed runtime, NVVM, and the C++ test/tooling targets are all disabled.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-d2m-jit",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
+
+        "TTMLIR_ENABLE_D2M_JIT": "ON",
+        "TTMLIR_ENABLE_BINDINGS_PYTHON": "ON",
+
+        "TTMLIR_ENABLE_RUNTIME": "ON",
+        "TT_RUNTIME_ENABLE_TTMETAL": "ON",
+        "TT_RUNTIME_ENABLE_TTNN": "ON",
+        "TT_RUNTIME_ENABLE_DISTRIBUTED": "OFF",
+
+        "TTMLIR_ENABLE_STABLEHLO": "OFF",
+        "TTMLIR_ENABLE_EXPLORER": "OFF",
+        "TTMLIR_ENABLE_PYKERNEL": "OFF",
+        "TTMLIR_ENABLE_OPMODEL": "OFF",
+        "TTMLIR_ENABLE_OPMODEL_TESTS": "OFF",
+        "TTMLIR_ENABLE_TTNN_JIT": "OFF",
+        "TTMLIR_ENABLE_TTRT": "OFF",
+        "TTMLIR_ENABLE_ALCHEMIST": "OFF",
+        "TTMLIR_ENABLE_ALCHEMIST_WHEEL": "OFF",
+        "TTMLIR_ENABLE_TTIRTONVVM": "OFF",
+        "TTMLIR_ENABLE_TESTS": "OFF",
+        "TTMLIR_ENABLE_TOOLS": "OFF"
+      }
+    },
+    {
+      "name": "d2m-jit-debug",
+      "inherits": "d2m-jit",
+      "displayName": "d2m-jit (minimal, Debug)",
+      "description": "Same as d2m-jit but a Debug build.",
+      "binaryDir": "${sourceDir}/build-d2m-jit-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "d2m-jit",
+      "configurePreset": "d2m-jit",
+      "targets": ["d2m-jit"]
+    },
+    {
+      "name": "d2m-jit-debug",
+      "configurePreset": "d2m-jit-debug",
+      "targets": ["d2m-jit"]
+    }
+  ]
+}

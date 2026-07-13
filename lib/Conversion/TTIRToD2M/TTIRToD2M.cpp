@@ -4166,14 +4166,19 @@ public:
 
     // Get the supported topology
     auto topology = device.getMeshTopology()[clusterAxis];
-    assert(topology == ttcore::Topology::Ring &&
-           "Only ring topology is supported for all gather");
+    assert((topology == ttcore::Topology::Ring ||
+            topology == ttcore::Topology::Linear) &&
+           "Only ring and linear topology are supported for all gather");
     // TODO(sohaibnadeemTT): get num links from DeviceAttr (issue #7720)
     uint32_t num_links = 1;
-    // We use unidir routing mode for ring topology so we get 2 cores for each
-    // link
+    // Ring uses a unidirectional routing mode, so each link needs 2 cores (one
+    // per direction); a line is bidirectional over a single core per link.
     int num_cores =
         topology == ttcore::Topology::Ring ? num_links * 2 : num_links * 1;
+    // Ring/torus wraps around (unidirectional); a line/mesh is bidirectional.
+    auto routingMode = topology == ttcore::Topology::Ring
+                           ? ttcore::RoutingMode::UnidirRingTorus
+                           : ttcore::RoutingMode::BidirLineMesh;
     int num_devices = meshShape[clusterAxis];
 
     // Create global semaphores for synchronization
@@ -4252,7 +4257,7 @@ public:
         llvm::to_vector(ttcore::getGridShape(inputStreamResult));
     auto fabricConnectionConfig = ttcore::FabricConnectionConfigAttr::get(
         rewriter.getContext(), ttcore::NocIndex::Noc0, topology, clusterAxis,
-        ttcore::RoutingMode::UnidirRingTorus, num_links);
+        routingMode, num_links, /*router_cores=*/{});
     auto generic = rewriter.create<d2m::GenericOp>(
         loc, TypeRange(outputStreamResult), inputStreamResult,
         outputStreamResult, ValueRange({startSemaphore, endSemaphore}),
@@ -4297,7 +4302,9 @@ public:
         }
 
         // Synchronize: fabric semaphore increment mcast to all devices in
-        // cluster axis then wait till value is (num devices - 1)
+        // cluster axis then wait till value is (num devices - 1). This barrier
+        // increments only the *other* devices (no local self-increment), so the
+        // wait target is num_devices - 1.
         rewriter.create<d2m::DeviceSynchronizeOp>(loc, startSemaphore,
                                                   startDevice, deviceMcastShape,
                                                   num_devices - 1, coreIndices);
@@ -4352,9 +4359,17 @@ public:
         Value storeResult = remoteStoreOp.getResult();
         storeResults.push_back(storeResult);
 
+        // Wait until every shard has landed in this device's output. The
+        // remote_store above increments endSemaphore on all devices in the
+        // mcast range *including this one* (a local self-increment for the
+        // shard this device wrote locally), so each device receives
+        // num_devices increments total: num_devices - 1 from the other senders
+        // plus 1 from its own store. The wait target is therefore num_devices,
+        // not num_devices - 1 (an exact-equality wait on num_devices - 1
+        // overshoots by one and deadlocks).
         rewriter.create<d2m::SemaphoreWaitOp>(
             loc, endSemaphore,
-            rewriter.create<arith::ConstantIndexOp>(loc, num_devices - 1));
+            rewriter.create<arith::ConstantIndexOp>(loc, num_devices));
 
         rewriter.create<d2m::YieldOp>(loc, storeResults);
       }

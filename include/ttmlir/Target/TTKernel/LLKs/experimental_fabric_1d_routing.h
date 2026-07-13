@@ -195,15 +195,18 @@ FORCE_INLINE McastRoutingParams get_mcast_params_line(
       static_cast<uint32_t>(topology.routing_directions[topology.axis].first);
   uint32_t bwd_dir =
       static_cast<uint32_t>(topology.routing_directions[topology.axis].second);
-  ASSERT(fwd_dir != eth_chan_directions::COUNT);
-  ASSERT(bwd_dir != eth_chan_directions::COUNT);
 
+  // Only the direction we actually send in must have a valid link. On a line,
+  // edge devices legitimately have one direction set to COUNT (no link), so
+  // these asserts are gated by the corresponding range being non-zero.
   if (range_fwd != 0) {
+    ASSERT(fwd_dir != eth_chan_directions::COUNT);
     result.params_per_direction[fwd_dir].active = true;
     result.params_per_direction[fwd_dir].mcast_command_header = {
         static_cast<uint8_t>(start_fwd), static_cast<uint8_t>(range_fwd)};
   }
   if (range_bwd != 0) {
+    ASSERT(bwd_dir != eth_chan_directions::COUNT);
     result.params_per_direction[bwd_dir].active = true;
     result.params_per_direction[bwd_dir].mcast_command_header = {
         static_cast<uint8_t>(start_bwd), static_cast<uint8_t>(range_bwd)};

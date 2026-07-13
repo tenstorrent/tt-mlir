@@ -1232,10 +1232,30 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
     for (const auto &[genericOp, genericCtx] : analysis.generics) {
       const auto &genericOpRef = genericOp;
       for (const OperandContext &operandCtx : genericCtx.operands) {
+        // Aliased-store copy-elision rewrites a remote_store's local buffer to
+        // an alias of the output, so the producer writes the output shard
+        // directly. operand_alias resolves to *this core's single local output
+        // shard*, regardless of the store's index. That is only valid for a
+        // UNIQUE store to the operand (one local buffer <-> one local shard).
+        // A gather/scatter -- more than one remote_store to the same output,
+        // each to a different shard -- would alias every dst to that one local
+        // shard and clobber (e.g. a grid-1 generic gathering N shards: matmul
+        // -> core_read all-gather, or a remote_load reblock). So skip the
+        // elision entirely when the operand has multiple stores.
+        unsigned numStoresToOperand = 0;
+        genericOpRef->walk([&](RemoteStoreOp s) {
+          if (s.getMemref() == operandCtx.operand->get()) {
+            ++numStoresToOperand;
+          }
+        });
+
         genericOpRef->walk([&](RemoteStoreOp remoteStoreOp) {
           //  Check we don't already have aliased load since we can't alias
-          //  DMA on both sides
-          if (mlir::isa<d2m::OperandAliasOp>(
+          //  DMA on both sides. Use isa_and_nonnull: the local buffer can be a
+          //  block argument (e.g. a loop-carried value threaded through an
+          //  scf.for iter_arg, as in an in-loop remote_store), whose
+          //  getDefiningOp() is null -- a plain isa<> would deref null.
+          if (mlir::isa_and_nonnull<d2m::OperandAliasOp>(
                   remoteStoreOp.getLocalBuffer().getDefiningOp())) {
             return WalkResult::advance();
           }
@@ -1251,6 +1271,16 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
             }
             auto *allocOp = remoteStoreOp.getLocalBuffer().getDefiningOp();
             if (!mlir::isa_and_nonnull<memref::AllocOp>(allocOp)) {
+              return WalkResult::advance();
+            }
+            // Also skip when the buffer is a core_read destination: it holds
+            // gathered cross-core data destined for a possibly-*remote* output
+            // shard, which the local-shard alias gets wrong even for a single
+            // store. (core_write is the opposite -- its dst is the peer-written
+            // buffer, and aliasing it to the output is the intended elision.)
+            if (llvm::any_of(allocOp->getUsers(), [](Operation *user) {
+                  return mlir::isa<CoreReadOp>(user);
+                })) {
               return WalkResult::advance();
             }
             rewriter.setInsertionPoint(allocOp);
@@ -1322,7 +1352,12 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
     for (const auto &[genericOp, genericCtx] : analysis.generics) {
       genericOp->walk([&](RemoteStoreOp remoteStoreOp) {
-        if (mlir::isa<d2m::OperandAliasOp>(
+        // Use isa_and_nonnull: the local buffer can be a block argument (e.g. a
+        // loop-carried value threaded through an scf.for iter_arg, as in an
+        // in-loop remote_store), whose getDefiningOp() is null -- a plain isa<>
+        // would deref null (matches the guard in materializeAliasedLoadStore
+        // above and the null-safe getDefiningOp<AllocOp>() just below).
+        if (mlir::isa_and_nonnull<d2m::OperandAliasOp>(
                 remoteStoreOp.getLocalBuffer().getDefiningOp())) {
           return WalkResult::advance();
         }

@@ -12,19 +12,33 @@ kernel-body zero block.
 import pytest
 import torch
 import d2m_jit as d2m
+from utils import assert_pcc
 
 from utils import assert_pcc
 
 
+# Multi-tile K-reduction expressed as a single matmul: `remote_load` fetches a
+# [1,2]/[2,1] tile block (block_shape spans the K tiles) and `a @ b` reduces
+# over K inside one matmul. Exercises the `@` operator on differing M x K /
+# K x N operand shapes (the operator must not coerce them to a common type).
 @d2m.kernel
-def matmul_kernel(lhs, rhs, out, m_blocks, n_blocks):
+def matmul_multi_k_kernel(lhs, rhs, out):
+    a = remote_load(lhs, [0, 0])
+    b = remote_load(rhs, [0, 0])
+    remote_store(out, [0, 0], a @ b)
+
+
+@d2m.kernel
+def matmul_kernel(lhs, rhs, out, m_blocks, n_blocks, k_blocks):
     m_off = core_index(0) * m_blocks
     n_off = core_index(1) * n_blocks
     for m in range(m_blocks):
         for n in range(n_blocks):
-            a = remote_load(lhs, [m_off + m, n_off + n])
-            b = remote_load(rhs, [m_off + m, n_off + n])
-            c = a @ b
+            c = zeros([1, 1])
+            for k in range(k_blocks):
+                a = remote_load(lhs, [m_off + m, n_off + k])
+                b = remote_load(rhs, [m_off + k, n_off + n])
+                c += a @ b
             remote_store(out, [m_off + m, n_off + n], c)
 
 
@@ -78,7 +92,7 @@ def test_matmul_compiles_and_runs():
     L = _make_layout()
     out_d = d2m.empty(L)
     matmul_kernel(
-        d2m.to_layout(lhs, L), d2m.to_layout(rhs, L), out_d, 1, 1, grid=(2, 2)
+        d2m.to_layout(lhs, L), d2m.to_layout(rhs, L), out_d, 1, 1, 1, grid=(2, 2)
     )
     result = out_d.to_host()
     assert tuple(result.shape) == (64, 64)
@@ -94,7 +108,7 @@ def test_matmul_correctness_single_tile_multicore():
     L = _make_layout()
     out_d = d2m.empty(L)
     matmul_kernel(
-        d2m.to_layout(lhs, L), d2m.to_layout(rhs, L), out_d, 1, 1, grid=(2, 2)
+        d2m.to_layout(lhs, L), d2m.to_layout(rhs, L), out_d, 1, 1, 1, grid=(2, 2)
     )
     result = out_d.to_host()
 
@@ -327,6 +341,45 @@ def test_matmul_transpose_b_method_form_correctness():
     )
 
 
+def test_matmul_outer_loop_multi_k():
+    """K=2 reduction expressed as the d2m-jit outer-loop accumulator
+    (`for k: c += a @ b`). lhs/rhs grids span K so [i, k] / [k, j] address
+    distinct K shards; partials accumulate via the packer L1-acc path
+    (llk_pack_reconfig_l1_acc).
+
+    Previously xfailed: the partials came out as garbage because
+    tile_matmul_block read its input CBs before the input DMA completed -- the
+    compute thread was missing the input cb_wait_front/cb_pop_front handshake.
+    Unlike the eltwise tile ops (whose per-tile memref loads carry the consume
+    handshake), matmul_block reads whole CB blocks directly, so the V2 split's
+    consume tracing never saw its inputs. Fixed by recognizing tile_matmul_block
+    explicitly in SplitUnifiedThreadV2's insertComputeCBOpsV2 (tracing its
+    a/b/output operands back to their CBs)."""
+    lhs = torch.randn(32, 64, dtype=torch.float32)
+    rhs = torch.randn(64, 32, dtype=torch.float32)
+    L_lhs = d2m.Layout(
+        shape=(32, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 2]
+    )
+    L_rhs = d2m.Layout(
+        shape=(64, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[2, 1]
+    )
+    L_out = d2m.Layout(
+        shape=(32, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1]
+    )
+    out_d = d2m.zeros(L_out)
+    matmul_kernel(
+        d2m.to_layout(lhs, L_lhs),
+        d2m.to_layout(rhs, L_rhs),
+        out_d,
+        1,
+        1,
+        2,  # k_blocks = 2
+        grid=(1, 1),
+    )
+    result = out_d.to_host()
+    assert_pcc(lhs @ rhs, result)
+
+
 # ---------------------------------------------------------------------------
 # Multicast kernel
 # ---------------------------------------------------------------------------
@@ -364,7 +417,7 @@ def mcast_overwrite_kernel(lhs, rhs, out, K, M, N, GY, GX):
                 rhs_shard = remote_load(
                     rhs, [k, cx * N + n], mcast_start_index=[0, cx], mcast_shape=[GY, 1]
                 )
-                out_shard = lhs_shard + rhs_shard
+                out_shard = lhs_shard @ rhs_shard
                 remote_store(out, [m, n], out_shard)
 
 

@@ -2572,6 +2572,11 @@ public:
   LogicalResult
   matchAndRewrite(d2m::DMAReadOp op, d2m::DMAReadOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    // Shard-level ops are handled by D2MDMAReadViaTensorAccessorRewriter when
+    // use-tensor-accessor-dma is enabled. Skip them here so they fall through.
+    if (op.isShardLevel()) {
+      return failure();
+    }
 
     auto chipDesc = ttcore::getOpChipDescAttr(op);
     Location loc = op.getLoc();
@@ -2614,6 +2619,84 @@ private:
   const d2m::CBProducerConsumer *cbProducerConsumer;
 };
 
+// core_read: a whole-buffer core->core local-L1 read. Reads the source core's
+// copy of %src (same uniform L1 offset across the grid, selected by srcCore
+// logical coords) into the local %dst, then barriers. No dma_read: this maps
+// 1:1 to the NoC read primitive.
+class D2MCoreReadRewriter : public OpConversionPattern<d2m::CoreReadOp> {
+public:
+  using OpConversionPattern<d2m::CoreReadOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::CoreReadOp op, d2m::CoreReadOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto chipDesc = ttcore::getOpChipDescAttr(op);
+    Location loc = op.getLoc();
+
+    Value dstL1Addr =
+        rewriter.create<ttkernel::GetWritePtrOp>(loc, adaptor.getDst());
+    Value srcL1Addr =
+        rewriter.create<ttkernel::GetReadPtrOp>(loc, adaptor.getSrc());
+
+    auto srcType = op.getSrcMemRefType();
+    int64_t bytes = srcType.getNumElements() *
+                    ttcore::getElementSizeBytes(srcType.getElementType());
+    auto size = intConstant<int32_t>(rewriter, loc, bytes);
+
+    // Source core's virtual coords from the srcCore logical coordinates
+    // (srcCore = [y, x]), instead of this core's my_logical_y/x.
+    auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
+        rewriter, loc, chipDesc, adaptor.getSrcCore());
+    NocEndpoint srcEndpoint{
+        ttcore::MemorySpace::DeviceL1, {virtX, virtY}, nullptr, srcL1Addr};
+    Value nocId = materializeKernelNocId(rewriter, op.getOperation());
+    createNocAsyncRead(rewriter, loc, srcEndpoint, dstL1Addr, size, nocId);
+    rewriter.create<ttkernel::NocAsyncReadBarrierOp>(loc, nocId);
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
+// core_write: a whole-buffer core->core local-L1 write. Writes the local %src
+// into the destination core's copy of %dst (same uniform L1 offset, selected by
+// dstCore logical coords), then barriers. The push dual of core_read; no
+// dma_write.
+class D2MCoreWriteRewriter : public OpConversionPattern<d2m::CoreWriteOp> {
+public:
+  using OpConversionPattern<d2m::CoreWriteOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::CoreWriteOp op, d2m::CoreWriteOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    auto chipDesc = ttcore::getOpChipDescAttr(op);
+    Location loc = op.getLoc();
+
+    Value srcL1Addr =
+        rewriter.create<ttkernel::GetReadPtrOp>(loc, adaptor.getSrc());
+    Value dstL1Addr =
+        rewriter.create<ttkernel::GetWritePtrOp>(loc, adaptor.getDst());
+
+    auto srcType = op.getSrcMemRefType();
+    int64_t bytes = srcType.getNumElements() *
+                    ttcore::getElementSizeBytes(srcType.getElementType());
+    auto size = intConstant<int32_t>(rewriter, loc, bytes);
+
+    // Destination core's virtual coords from the dstCore logical coordinates
+    // (dstCore = [y, x]), instead of this core's my_logical_y/x.
+    auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
+        rewriter, loc, chipDesc, adaptor.getDstCore());
+    NocEndpoint dstEndpoint{
+        ttcore::MemorySpace::DeviceL1, {virtX, virtY}, nullptr, dstL1Addr};
+    Value nocId = materializeKernelNocId(rewriter, op.getOperation());
+    createNocAsyncWrite(rewriter, loc, srcL1Addr, dstEndpoint, size, nocId);
+    rewriter.create<ttkernel::NocAsyncWriteBarrierOp>(loc, nocId);
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 class D2MDMAWriteRewriter : public OpConversionPattern<d2m::DMAWriteOp> {
 public:
   D2MDMAWriteRewriter(TypeConverter &typeConverter, MLIRContext *context,
@@ -2624,6 +2707,11 @@ public:
   LogicalResult
   matchAndRewrite(d2m::DMAWriteOp op, d2m::DMAWriteOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    // Shard-level ops are handled by D2MDMAWriteViaTensorAccessorRewriter when
+    // use-tensor-accessor-dma is enabled. Skip them here so they fall through.
+    if (op.isShardLevel()) {
+      return failure();
+    }
 
     auto chipDesc = ttcore::getOpChipDescAttr(op);
 
@@ -2632,9 +2720,44 @@ public:
     if (op.getStartDevice().size() > 0) {
       auto srcL1Addr = buildL1Address<ttkernel::GetReadPtrOp>(
           rewriter, op.getLoc(), adaptor.getSrc(), op.getSrcIndices());
-      auto dstEndpoint = buildNocEndpoint(rewriter, op.getLoc(),
-                                          adaptor.getDst(), op.getDstIndices(),
-                                          chipDesc, op.getDstMemorySpace());
+      NocEndpoint dstEndpoint;
+      if (op.isDstRemote()) {
+        dstEndpoint = buildNocEndpoint(rewriter, op.getLoc(), adaptor.getDst(),
+                                       op.getDstIndices(), chipDesc,
+                                       op.getDstMemorySpace());
+      } else {
+        // Cross-device fabric write into a gridless #l1 scratch (the CCL
+        // tmp-buffer / loop-carried output). The dst is a LOCAL CB, so its base
+        // address is the runtime get_write_ptr (NOT castCBTypeAsAddress, which
+        // only resolves for remote/compile-time operands and would leave an
+        // unrealized cb->i32 cast). Every device runs the same SPMD kernel, so
+        // this device's scratch write pointer equals the peer's scratch
+        // address. dstIndices are [gridY, gridX, offset].
+        auto dstIndices = op.getDstIndices();
+        assert(dstIndices.size() == 3 &&
+               "fabric-scratch dst expects [gridY, gridX, offset]");
+        Value baseAddr = rewriter.create<ttkernel::GetWritePtrOp>(
+            op.getLoc(), adaptor.getDst());
+        Value offsetI32 = rewriter.create<arith::IndexCastOp>(
+            op.getLoc(), rewriter.getI32Type(), dstIndices[2]);
+        Value addr =
+            rewriter.create<arith::AddIOp>(op.getLoc(), baseAddr, offsetI32);
+        // A gridless #l1 scratch recv buffer is per-core: this core's fabric
+        // write must land on the SAME core of the peer device (where that
+        // core's fabric_recv reads it), NOT the hardcoded (0,0) carried in
+        // dstIndices[0,1]. Use the current core's logical coords -- matching
+        // the paired semaphore inc -- so a ring CCL works on a multi-core grid,
+        // not only grid (1,1).
+        Value myLogicalY = rewriter.create<ttkernel::MyLogicalYOp>(op.getLoc());
+        Value myLogicalX = rewriter.create<ttkernel::MyLogicalXOp>(op.getLoc());
+        auto [virtY, virtX] = getVirtualCoordsFromLogicalCoords(
+            rewriter, op.getLoc(), chipDesc,
+            ValueRange{myLogicalY, myLogicalX});
+        dstEndpoint = NocEndpoint{ttcore::MemorySpace::DeviceL1,
+                                  {virtX, virtY},
+                                  nullptr,
+                                  addr};
+      }
       auto dstNocAddr = materializeTranslatedNocAddr(rewriter, op.getLoc(),
                                                      dstEndpoint, nocId);
       auto size =
@@ -2964,6 +3087,352 @@ public:
     return success();
   }
 };
+
+// ---------------------------------------------------------------------------
+// TensorAccessor-based DMA rewriters for shard-level DMA ops.
+// These patterns match shard-level DMA ops (numElems == 0) and lower them
+// using TTKernel TensorAccessor ops.  They coexist with the existing
+// fully-indexed rewriters above which only match numElems > 0.
+// ---------------------------------------------------------------------------
+
+/// Helper: compute the page size in bytes for a memref element type.
+static int64_t getPageSizeBytes(MemRefType memrefType) {
+  return static_cast<int64_t>(
+      ttcore::getElementSizeBytes(memrefType.getElementType()));
+}
+
+/// Compute the number of CTA uint32_t slots a TensorAccessor occupies for
+/// the given remote memref.  This must match the number of values produced
+/// by tt_metal::TensorAccessorArgs::get_compile_time_args() at runtime.
+///
+/// Interleaved: 2 (args_config + aligned_page_size)
+/// Sharded:     2 + 1 (rank) + 1 (num_banks) + rank (tensor_shape)
+///                + rank (shard_shape) + ceil(num_banks / 2) (bank_coords)
+static size_t getTensorAccessorCTASlots(Value remoteMemref) {
+  // Base: args_config + aligned_page_size.
+  size_t slots = 2;
+
+  auto layout = ttcore::getDeviceLayout(remoteMemref);
+  if (!layout) {
+    // No device layout → interleaved, just the 2-slot base.
+    return slots;
+  }
+
+  auto shapedType = mlir::cast<ShapedType>(remoteMemref.getType());
+  // Further investigation for sizing numBanks:
+  // https://github.com/tenstorrent/tt-mlir/issues/7943
+  auto chipDesc = ttcore::getOpChipDescAttr(remoteMemref.getDefiningOp());
+  ArrayRef<int64_t> gridShape = chipDesc.getGrid();
+  ArrayRef<int64_t> shardShape = layout.getShardShape(shapedType);
+  size_t rank = shardShape.size();
+  size_t numBanks = 1;
+  for (int64_t g : gridShape) {
+    numBanks *= static_cast<size_t>(g);
+  }
+  numBanks =
+      std::max(numBanks, static_cast<size_t>(chipDesc.getNumDramChannels()));
+
+  // rank + num_banks + tensor_shape[rank] + shard_shape[rank] + packed
+  // bank_coords.
+  slots += 1 + 1 + rank + rank + numBanks;
+  return slots;
+}
+
+/// Helper: append a TensorAccessor ArgAttr to the parent function's ArgSpec
+/// and return the CT arg index.  Reserves the correct number of CTA slots
+/// so that subsequent arg indices are not shifted.
+static size_t appendTensorAccessorArg(ConversionPatternRewriter &rewriter,
+                                      func::FuncOp entry, int64_t operandIndex,
+                                      Value remoteMemref) {
+  ArgAttr arg =
+      rewriter.getAttr<ArgAttr>(ArgType::TensorAccessor, operandIndex);
+  size_t numSlots = getTensorAccessorCTASlots(remoteMemref);
+  size_t argIndex;
+  rewriter.modifyOpInPlace(entry, [&]() {
+    argIndex = ArgSpecAttr::appendCompileTimeArg(entry, arg, numSlots);
+  });
+  return argIndex;
+}
+
+static size_t getTensorStrideSlots(Value remoteMemref) {
+  auto layout = ttcore::getDeviceLayout(remoteMemref);
+  assert(layout);
+  auto shapedType = mlir::cast<ShapedType>(remoteMemref.getType());
+  size_t rank = layout.getShardShape(shapedType).size();
+  assert(rank == 2 &&
+         "TensorStride kernel argument only supports rank 2 tensors");
+  return rank;
+}
+
+/// Helper: append the tensor stride to be used at runtime for TensorAccessor
+/// indexing calculations.
+static size_t appendTensorStrideArg(ConversionPatternRewriter &rewriter,
+                                    func::FuncOp entry, int64_t operandIndex,
+                                    Value remoteMemref) {
+  ArgAttr arg = rewriter.getAttr<ArgAttr>(ArgType::TensorStride, operandIndex);
+  size_t numSlots = getTensorStrideSlots(remoteMemref);
+  size_t argIndex;
+  rewriter.modifyOpInPlace(entry, [&]() {
+    argIndex = ArgSpecAttr::appendCompileTimeArg(entry, arg, numSlots);
+  });
+  return argIndex;
+}
+
+// Template rewriter for shard-level DMA read/write via TensorAccessor.
+// DMAOpT is either d2m::DMAReadOp or d2m::DMAWriteOp.
+template <typename DMAOpT>
+class D2MDMAViaTensorAccessorRewriter : public OpConversionPattern<DMAOpT> {
+public:
+  static_assert(std::is_same_v<DMAOpT, d2m::DMAReadOp> ||
+                std::is_same_v<DMAOpT, d2m::DMAWriteOp>);
+  static constexpr bool IsRead = std::is_same_v<DMAOpT, d2m::DMAReadOp>;
+
+  D2MDMAViaTensorAccessorRewriter(
+      TypeConverter &typeConverter, MLIRContext *context,
+      const d2m::CBProducerConsumer *cbProducerConsumer)
+      : OpConversionPattern<DMAOpT>(typeConverter, context),
+        cbProducerConsumer(cbProducerConsumer) {}
+
+  LogicalResult
+  matchAndRewrite(DMAOpT op, typename DMAOpT::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    // Only handle shard-level DMA ops.
+    if (!op.isShardLevel()) {
+      return failure();
+    }
+
+    // Write-only: skip local-to-local transfers and multicast writes; both
+    // are handled by D2MLowerDMAToFullyIndexedForm + the existing mcast
+    // lowering that uses raw NOC addresses, not the TensorAccessor path.
+    if constexpr (!IsRead) {
+      if (op.isDstLocal()) {
+        return failure();
+      }
+      if (op.isMcast()) {
+        return failure();
+      }
+    }
+
+    Location loc = op.getLoc();
+
+    // Get the remote memref and its properties.  For reads the remote
+    // side is the src; for writes it is the dst.
+    Value remoteMemRef;
+    MemRefType remoteMemRefType;
+    if constexpr (IsRead) {
+      remoteMemRef = op.getSrc();
+      remoteMemRefType = op.getSrcMemRefType();
+    } else {
+      remoteMemRef = op.getDst();
+      remoteMemRefType = op.getDstMemRefType();
+    }
+
+    ArrayRef<int64_t> elemShardShape = ttcore::getShardShape(remoteMemRef);
+
+    // The runtime BufferDistributionSpec pages buffers and the TensorAccessor
+    // (plus the tensor strides) operate in PAGE units, so the read/write loop
+    // and pageId must be expressed in page units too.  For tiled buffers the
+    // element *is* a page (one tile), so the element shard shape and element
+    // size are already in page units.  For row-major (scalar-element) buffers
+    // the page is a stick of (1, shardWidth) -- matching
+    // createShardedBufferConfigForL1Memref -- so the innermost shard dim
+    // collapses to a single page and the page spans the full shard width.
+    // Without this, a scalar-element shard would be iterated per element while
+    // the tensor stride is stick-based, addressing the wrong pages.
+    SmallVector<int64_t> shardShape(elemShardShape.begin(),
+                                    elemShardShape.end());
+    int64_t pageSizeBytes = getPageSizeBytes(remoteMemRefType);
+    if (!mlir::isa<ttcore::TileType>(remoteMemRefType.getElementType())) {
+      int64_t shardWidthElems = shardShape.back();
+      shardShape.back() = 1;
+      pageSizeBytes *= shardWidthElems;
+    }
+
+    // Get the operand index for the remote memref (to set up ArgSpec).
+    auto getArgOp = remoteMemRef.template getDefiningOp<d2m::GetArgOp>();
+    TT_assertv(getArgOp,
+               IsRead ? "Expected shard-level DMA read src to come from "
+                        "d2m.get_arg, failing."
+                      : "Expected shard-level DMA write dst to come from "
+                        "d2m.get_arg, failing.");
+    int64_t operandIndex = getArgOp.getOperandIndex();
+
+    func::FuncOp entry = op->template getParentOfType<func::FuncOp>();
+
+    // Append a TensorAccessor arg to the ArgSpec, reserving the correct
+    // number of CTA slots so subsequent arg indices are not shifted.
+    size_t ctaTensorAccessorArgIndex =
+        appendTensorAccessorArg(rewriter, entry, operandIndex, remoteMemRef);
+    size_t ctaTensorStrideArgIndex =
+        appendTensorStrideArg(rewriter, entry, operandIndex, remoteMemRef);
+
+    // Create TensorAccessorArgs with CTA base offset.
+    Value ctaBase = intConstant<int32_t>(
+        rewriter, loc, static_cast<int32_t>(ctaTensorAccessorArgIndex));
+    Value crtaBase = intConstant<int32_t>(rewriter, loc, 0);
+    auto argsOp = rewriter.create<ttkernel::TensorAccessorArgsOp>(
+        loc, ctaBase, crtaBase, /*prev=*/Value(), /*ctaExpr=*/StringAttr(),
+        /*crtaExpr=*/StringAttr());
+
+    // Get the bank base address from the adapted remote operand.
+    Value adaptedRemote = IsRead ? adaptor.getSrc() : adaptor.getDst();
+    Value bankBaseAddress = castCBTypeAsAddress(rewriter, loc, adaptedRemote);
+
+    // Create the TensorAccessor.
+    Value pageSize =
+        intConstant<int32_t>(rewriter, loc, static_cast<int32_t>(pageSizeBytes));
+    auto tensorAccessor = rewriter.create<ttkernel::TensorAccessorOp>(
+        loc, argsOp, bankBaseAddress, pageSize);
+
+    // Get the local L1 base address.
+    Value localL1Base;
+    if constexpr (IsRead) {
+      auto dstCBMapping = cbProducerConsumer->get(op.getDst());
+      TT_assertv((dstCBMapping == d2m::ThreadCBOrientation::Producer ||
+                  dstCBMapping == d2m::ThreadCBOrientation::Default),
+                 "Expected dst cb of a read op to have a producer or default "
+                 "orientation, failing.");
+      localL1Base =
+          rewriter.create<ttkernel::GetWritePtrOp>(loc, adaptor.getDst());
+    } else {
+      localL1Base =
+          rewriter.create<ttkernel::GetReadPtrOp>(loc, adaptor.getSrc());
+    }
+
+    // Get grid indices for the remote side.
+    ValueRange gridIndices;
+    if constexpr (IsRead) {
+      gridIndices = op.getSrcIndices();
+    } else {
+      gridIndices = op.getDstIndices();
+    }
+    int64_t rank = static_cast<int64_t>(gridIndices.size());
+
+    SmallVector<Value> shardDimVals(rank);
+    SmallVector<Value> tensorStrideVals(rank);
+    SmallVector<Value> shardStrideVals(rank);
+    int32_t stride = 1;
+    for (int64_t d = rank - 1; d >= 0; --d) {
+      shardDimVals[d] = index(rewriter, loc, shardShape[d]);
+      shardStrideVals[d] = index(rewriter, loc, stride);
+
+      Value strideI32 = rewriter.create<ttkernel::GetCompileArgValOp>(
+          loc, rewriter.getI32Type(), ctaTensorStrideArgIndex + d);
+      tensorStrideVals[d] = rewriter.create<arith::IndexCastOp>(
+          loc, rewriter.getIndexType(), strideI32);
+
+      stride *= shardShape[d];
+    }
+
+    // Generate nested loops over shard dimensions.  The innermost loop body
+    // uses the loop IVs together with the grid indices to compute an absolute
+    // offset in the full tensor shape.
+    Value lb = index(rewriter, loc, 0);
+    Value step = index(rewriter, loc, 1);
+
+    // Build the nest from outermost to innermost dimension.
+    SmallVector<scf::ForOp> loops(rank);
+    OpBuilder::InsertionGuard guard(rewriter);
+    for (int64_t d = 0; d < rank; ++d) {
+      auto forOp = rewriter.create<scf::ForOp>(loc, lb, shardDimVals[d], step,
+                                               ValueRange{});
+      loops[d] = forOp;
+      rewriter.setInsertionPointToStart(forOp.getBody());
+    }
+
+    // Inside the innermost loop: compute page ID and local L1 address.
+    {
+      Location innerLoc = loc;
+
+      // Compute absolute coordinates and linearize into a page ID.
+      // abs[d] = gridIndices[d] * shardShape[d] + loopIV[d]
+      // pageId = sum_d(abs[d] * tensorStrides[d])
+      // localIdx = sum_d(loopIV[d] * shardStrides[d])
+      Value pageId = index(rewriter, innerLoc, 0);
+      Value localIdx = index(rewriter, innerLoc, 0);
+      for (int64_t d = rank - 1; d >= 0; --d) {
+        Value iv = loops[d].getInductionVar();
+
+        // Absolute coordinate: gridIndices[d] * shardShape[d] + iv.
+        Value gridOffset = rewriter.create<arith::MulIOp>(
+            innerLoc, gridIndices[d], shardDimVals[d]);
+        Value absDim = rewriter.create<arith::AddIOp>(innerLoc, gridOffset, iv);
+
+        // Accumulate into pageId with the tensor stride.
+        Value absContrib = rewriter.create<arith::MulIOp>(innerLoc, absDim,
+                                                          tensorStrideVals[d]);
+        pageId = rewriter.create<arith::AddIOp>(innerLoc, pageId, absContrib);
+
+        // Accumulate into localIdx with the shard stride.
+        Value localContrib =
+            rewriter.create<arith::MulIOp>(innerLoc, iv, shardStrideVals[d]);
+        localIdx =
+            rewriter.create<arith::AddIOp>(innerLoc, localIdx, localContrib);
+      }
+
+      Value pageIdI32 = rewriter.create<arith::IndexCastOp>(
+          innerLoc, rewriter.getI32Type(), pageId);
+
+      // local_l1_addr = local_l1_base + localIdx * page_size
+      Value offset = rewriter.create<arith::MulIOp>(
+          innerLoc, localIdx, index(rewriter, innerLoc, pageSizeBytes));
+      Value offsetI32 = rewriter.create<arith::IndexCastOp>(
+          innerLoc, rewriter.getI32Type(), offset);
+      Value localAddr =
+          rewriter.create<arith::AddIOp>(innerLoc, localL1Base, offsetI32);
+
+      // Debug probe (set D2M_ACCESSOR_DPRINT): per-tile, print this core's
+      // logical coords + the page id and local L1 address fed to the accessor.
+      if (std::getenv("D2M_ACCESSOR_DPRINT")) {
+        Value myY = rewriter.create<ttkernel::MyLogicalYOp>(innerLoc);
+        Value myX = rewriter.create<ttkernel::MyLogicalXOp>(innerLoc);
+        Value zeroOff = intConstant<int32_t>(rewriter, innerLoc, 0);
+        Value resolvedNoc =
+            rewriter.create<ttkernel::TensorAccessorGetNocAddrOp>(
+                innerLoc, rewriter.getType<ttkernel::NocAddrType>(),
+                tensorAccessor, pageIdI32, zeroOff, /*noc=*/Value());
+        rewriter.create<ttkernel::DPrintOp>(
+            innerLoc,
+            IsRead ? "ACC RD y={} x={} page={} bank={} noc={}\\n"
+                   : "ACC WR y={} x={} page={} bank={} noc={}\\n",
+            myY, myX, pageIdI32, bankBaseAddress, resolvedNoc);
+      }
+
+      // The TTKernel-to-EmitC lowering requires the NoC operand to be
+      // materialized explicitly (it refuses to default it); use the kernel's
+      // statically-resolved NoC index, as the other NoC ops do.
+      Value nocId = materializeKernelNocId(rewriter, op.getOperation());
+      if constexpr (IsRead) {
+        rewriter.create<ttkernel::NocAsyncReadTileOp>(
+            innerLoc, pageIdI32, tensorAccessor, localAddr, nocId);
+      } else {
+        rewriter.create<ttkernel::NocAsyncWriteTileOp>(
+            innerLoc, pageIdI32, tensorAccessor, localAddr, nocId);
+      }
+    }
+
+    // Restore the insertion point to the original op before replacing it: the
+    // InsertionGuard above only restores on scope exit (after this statement),
+    // so the rewriter's insertion point is still inside the innermost accessor
+    // loop. Without this, ConversionPatternRewriter::replaceOpWithNewOp would
+    // materialize the NullTx (and the subsequent mem_tx->index conversion of
+    // the yielded value) inside that child loop region, while an enclosing loop
+    // that carries the dma mem_tx token through its iter_args yields it -- a
+    // dominance violation (e.g. a multi-block eltwise kernel).
+    rewriter.setInsertionPoint(op);
+    rewriter.replaceOpWithNewOp<d2m::NullTxOp>(op, op.getResult().getType());
+    return success();
+  }
+
+private:
+  const d2m::CBProducerConsumer *cbProducerConsumer;
+};
+
+using D2MDMAReadViaTensorAccessorRewriter =
+    D2MDMAViaTensorAccessorRewriter<d2m::DMAReadOp>;
+using D2MDMAWriteViaTensorAccessorRewriter =
+    D2MDMAViaTensorAccessorRewriter<d2m::DMAWriteOp>;
+
 } // namespace
 
 namespace {
@@ -3024,6 +3493,120 @@ public:
     auto fcm = getFabricConnectionManager(op);
     rewriter.replaceOpWithNewOp<ttkernel::GetMyLogicalMeshPositionOp>(
         op, fcm, op.getDim());
+    return success();
+  }
+};
+} // namespace
+
+// router_cores (flat [y,x,...] pairs) of the fabric config of the generic whose
+// thread references this op's enclosing kernel func. Empty == whole grid (no
+// router subset). The generic still exists at D2MToTTKernel time (lowered to
+// ttmetal later) and references its thread funcs by symbol.
+static SmallVector<int64_t> getRouterCores(Operation *op) {
+  auto func = op->getParentOfType<func::FuncOp>();
+  if (!func) {
+    return {};
+  }
+  StringRef funcName = func.getSymName();
+  SmallVector<int64_t> routers;
+  if (auto module = op->getParentOfType<ModuleOp>()) {
+    module.walk([&](d2m::GenericOp generic) {
+      auto cfg = generic.getFabricConnectionConfigAttr();
+      if (!cfg) {
+        return WalkResult::advance();
+      }
+      for (Attribute t : generic.getThreads()) {
+        auto sym = mlir::cast<d2m::ThreadAttr>(t).getKernelSymbol();
+        if (sym && sym.getLeafReference() == funcName) {
+          routers = llvm::to_vector(cfg.getRouterCores());
+          return WalkResult::interrupt();
+        }
+      }
+      return WalkResult::advance();
+    });
+  }
+  return routers;
+}
+
+namespace {
+// is_router_core() := OR over router slots (ry,rx) of
+//   (my_logical_y == ry && my_logical_x == rx); constant true when there is no
+// router subset (whole grid).
+class D2MIsRouterCoreRewriter
+    : public OpConversionPattern<d2m::IsRouterCoreOp> {
+public:
+  using OpConversionPattern<d2m::IsRouterCoreOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::IsRouterCoreOp op, d2m::IsRouterCoreOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op.getLoc();
+    SmallVector<int64_t> routers = getRouterCores(op);
+    if (routers.empty()) {
+      rewriter.replaceOpWithNewOp<arith::ConstantOp>(
+          op, rewriter.getBoolAttr(true));
+      return success();
+    }
+    Value myY = rewriter.create<ttkernel::MyLogicalYOp>(loc);
+    Value myX = rewriter.create<ttkernel::MyLogicalXOp>(loc);
+    Value result;
+    for (size_t i = 0; i + 1 < routers.size(); i += 2) {
+      Value ry = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getIndexAttr(routers[i]));
+      Value rx = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getIndexAttr(routers[i + 1]));
+      Value eqY = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
+                                                 myY, ry);
+      Value eqX = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
+                                                 myX, rx);
+      Value both = rewriter.create<arith::AndIOp>(loc, eqY, eqX);
+      result =
+          result ? rewriter.create<arith::OrIOp>(loc, result, both).getResult()
+                 : both;
+    }
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
+// router_direction() := the slot index this core matches (select chain), 0 by
+// default / when there is no router subset.
+class D2MRouterDirectionRewriter
+    : public OpConversionPattern<d2m::RouterDirectionOp> {
+public:
+  using OpConversionPattern<d2m::RouterDirectionOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::RouterDirectionOp op,
+                  d2m::RouterDirectionOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op.getLoc();
+    SmallVector<int64_t> routers = getRouterCores(op);
+    Value result =
+        rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexAttr(0));
+    if (routers.empty()) {
+      rewriter.replaceOp(op, result);
+      return success();
+    }
+    Value myY = rewriter.create<ttkernel::MyLogicalYOp>(loc);
+    Value myX = rewriter.create<ttkernel::MyLogicalXOp>(loc);
+    unsigned numSlots = routers.size() / 2;
+    // Fold from the last slot so earlier slots win on (unexpected) overlap.
+    for (int s = static_cast<int>(numSlots) - 1; s >= 0; --s) {
+      Value ry = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getIndexAttr(routers[2 * s]));
+      Value rx = rewriter.create<arith::ConstantOp>(
+          loc, rewriter.getIndexAttr(routers[2 * s + 1]));
+      Value eqY = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
+                                                 myY, ry);
+      Value eqX = rewriter.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
+                                                 myX, rx);
+      Value both = rewriter.create<arith::AndIOp>(loc, eqY, eqX);
+      Value slot =
+          rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexAttr(s));
+      result = rewriter.create<arith::SelectOp>(loc, both, slot, result);
+    }
+    rewriter.replaceOp(op, result);
     return success();
   }
 };
@@ -3644,7 +4227,7 @@ namespace mlir::tt {
 void populateD2MToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
     const d2m::CBProducerConsumer &cbProducerConsumer,
-    bool forceCompileTimeArgs) {
+    bool forceCompileTimeArgs, bool useTensorAccessorDMA) {
   // clang-format off
   patterns.add<ttkernel::D2MKernelFunctionArgsRewriter>(
       typeConverter, ctx, forceCompileTimeArgs);
@@ -3762,6 +4345,8 @@ void populateD2MToTTKernelPatterns(
                ttkernel::D2MDMAWaitRewriter,
                ttkernel::D2MCoreIndexRewriter,
                ttkernel::D2MMeshPositionRewriter,
+               ttkernel::D2MIsRouterCoreRewriter,
+               ttkernel::D2MRouterDirectionRewriter,
                ttkernel::D2MNullTxRewriter,
                ttkernel::D2MIndexedRowCopyRewriter,
                ttkernel::MemRefCollapseRewriter,
@@ -3775,7 +4360,15 @@ void populateD2MToTTKernelPatterns(
   patterns.add<ttkernel::D2MGetCBRewriter>(typeConverter, ctx,
                                            forceCompileTimeArgs);
   patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &cbProducerConsumer);
+  patterns.add<ttkernel::D2MCoreReadRewriter>(typeConverter, ctx);
+  patterns.add<ttkernel::D2MCoreWriteRewriter>(typeConverter, ctx);
   patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &cbProducerConsumer);
+  // TensorAccessor-based DMA rewriters for shard-level ops (used when
+  // D2MLowerDMAToFullyIndexedForm is skipped via --use-tensor-accessor-dma).
+  if (useTensorAccessorDMA) {
+    patterns.add<ttkernel::D2MDMAReadViaTensorAccessorRewriter>(typeConverter, ctx, &cbProducerConsumer);
+    patterns.add<ttkernel::D2MDMAWriteViaTensorAccessorRewriter>(typeConverter, ctx, &cbProducerConsumer);
+  }
 
   // Debug op patterns.
   patterns.add<ttkernel::D2MPrintOpRewriter>(typeConverter, ctx);
