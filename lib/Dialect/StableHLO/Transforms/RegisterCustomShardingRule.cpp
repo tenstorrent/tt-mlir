@@ -51,6 +51,9 @@ static constexpr llvm::StringLiteral flashMlaPrefillTargetName =
 static constexpr llvm::StringLiteral indexerScoreDsaTargetName =
     "tt.indexer_score_dsa";
 
+static constexpr llvm::StringLiteral topkLargeIndicesTargetName =
+    "tt.topk_large_indices";
+
 static mlir::sdy::OpShardingRuleAttr
 getScatterShardingRule(mlir::stablehlo::ScatterOp scatterOp) {
   mlir::Operation::operand_range inputs = scatterOp.getInputs();
@@ -1698,6 +1701,78 @@ getTopKShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
+// Sharding rule for the `tt.topk_large_indices` custom_call (fused, single
+// device large-row top-k indices op).
+//
+//   input  : [..., N]   leading (row) dims, N is the row length (reduce dim)
+//   output : [..., k]   same leading dims, N replaced by k selected indices
+//
+// Factor design:
+//   - Leading (row) dims (kPassThrough): each row's top-k is independent, so
+//     they are data-parallel and pass straight through input dim i -> output
+//     dim i.
+//   - Row length N (kNeedReplication): unlike the decomposed `tenstorrent.topk`
+//     path, this is a single fused tt-metal op that needs the whole row on one
+//     device to compute the global top-k. N must not be sharded; Shardy
+//     all-gathers it (to replicate) if a sharding is present. N has no
+//     corresponding output dim.
+//   - Selected count k (kNeedReplication): a new output-only dim with no input
+//     correspondence; it cannot be sharded.
+static mlir::sdy::OpShardingRuleAttr
+getTopKLargeIndicesShardingRule(mlir::stablehlo::CustomCallOp op) {
+  if (op.getNumOperands() != 1 || op.getNumResults() != 1) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  auto inputType = llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto resultType = llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
+  if (!inputType || !resultType) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  int64_t rank = inputType.getRank();
+  if (rank < 1 || resultType.getRank() != rank) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  ArrayRef<int64_t> inShape = inputType.getShape();
+  ArrayRef<int64_t> outShape = resultType.getShape();
+
+  auto isStaticPositiveDim = [](int64_t dim) {
+    return !ShapedType::isDynamic(dim) && dim > 0;
+  };
+
+  // Only the last dim changes (N -> k); all leading dims must match statically.
+  for (int64_t i = 0; i + 1 < rank; ++i) {
+    if (!isStaticPositiveDim(inShape[i]) || inShape[i] != outShape[i]) {
+      return mlir::sdy::OpShardingRuleAttr();
+    }
+  }
+  int64_t n = inShape[rank - 1];
+  int64_t k = outShape[rank - 1];
+  if (!isStaticPositiveDim(n) || !isStaticPositiveDim(k)) {
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  mlir::sdy::OpShardingRuleBuilder builder(op);
+
+  // Leading (row) dims: data-parallel pass-through.
+  for (int64_t i = 0; i + 1 < rank; ++i) {
+    builder.addFactor({i}, {i}, inShape[i],
+                      mlir::sdy::FactorType::kPassThrough);
+  }
+
+  // Row length N (input last dim): must be replicated, no output dim.
+  builder.addFactor({rank - 1}, {mlir::sdy::kNullDim}, n,
+                    mlir::sdy::FactorType::kNeedReplication);
+
+  // Selected count k (output last dim): must be replicated, no input dim.
+  builder.addFactor({mlir::sdy::kNullDim}, {rank - 1}, k,
+                    mlir::sdy::FactorType::kNeedReplication);
+
+  return builder.build();
+}
+
 // Sharding rule for tenstorrent.argmax custom_call op (converted from
 // composite by FlattenOrConvertCompositesPass).
 //
@@ -1960,6 +2035,7 @@ private:
           {utils::kTTRMSNormCustomCallTargetName, getRMSNormShardingRule},
           {flashMlaPrefillTargetName, getFlashMlaPrefillShardingRule},
           {indexerScoreDsaTargetName, getIndexerScoreDsaShardingRule},
+          {topkLargeIndicesTargetName, getTopKLargeIndicesShardingRule},
           {utils::kTTTopKCustomCallTargetName, getTopKShardingRule},
           {utils::kTTTopKValuesCustomCallTargetName, getTopKShardingRule},
           {utils::kTTTopKIndicesCustomCallTargetName, getTopKShardingRule},

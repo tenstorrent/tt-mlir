@@ -1714,6 +1714,24 @@ TTNNOperandsWorkaroundsFactory::createTopKOpOperandsWorkarounds(
       .addOutputOperandWorkaround(outputIndicesWorkaround);
 }
 
+// The tt-metal topk_large_indices kernel requires a ROW_MAJOR BFloat16 input
+// and produces a ROW_MAJOR UInt32 indices output.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createTopKLargeIndicesOpOperandsWorkarounds(
+    ttnn::TopKLargeIndicesOp op) {
+  TTNNOperandWorkarounds inputWorkaround;
+  inputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  inputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  TTNNOperandWorkarounds outputWorkaround;
+  outputWorkaround.tensorLayoutWorkaround = Layout::RowMajor;
+  outputWorkaround.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
+
+  return wa::TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(inputWorkaround)
+      .addOutputOperandWorkaround(outputWorkaround);
+}
+
 // The topk_router_gpt kernel always returns outputs in ROW_MAJOR layout in L1.
 // expert_indices must be UInt16, expert_weights must be BFloat16.
 TTNNOperandsWorkarounds

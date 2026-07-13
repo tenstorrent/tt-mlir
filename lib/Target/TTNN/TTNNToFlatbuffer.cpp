@@ -4147,6 +4147,18 @@ createOp(FlatbufferObjectCache &cache, TopKOp op) {
                                                 sorted, memoryConfig, &outputs);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::TopKLargeIndicesOp>
+createOp(FlatbufferObjectCache &cache, TopKLargeIndicesOp op) {
+  auto in = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  uint32_t k = op.getK();
+  auto out =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  return ::tt::target::ttnn::CreateTopKLargeIndicesOp(*cache.fbb, in, k, out);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::SamplingOp>
 createOp(FlatbufferObjectCache &cache, SamplingOp op) {
   auto inputValues = cache.at<::tt::target::ttnn::TensorRef>(
@@ -5023,6 +5035,11 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto topKOp = dyn_cast<TopKOp>(op); topKOp) {
     return createOperation(cache, createOp(cache, topKOp), debugString,
                            locInfo);
+  }
+  if (auto topKLargeIndicesOp = dyn_cast<TopKLargeIndicesOp>(op);
+      topKLargeIndicesOp) {
+    return createOperation(cache, createOp(cache, topKLargeIndicesOp),
+                           debugString, locInfo);
   }
   if (auto topKRouterGptOp = dyn_cast<TopKRouterGptOp>(op); topKRouterGptOp) {
     return createOperation(cache, createOp(cache, topKRouterGptOp), debugString,

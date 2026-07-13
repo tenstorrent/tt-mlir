@@ -554,6 +554,11 @@ const std::set<mlir::StringRef>
         // TopK's operands workaround forces input bf16 + indices ui16/ui32;
         // without it, opt_level>=1 dtype propagation picks f32. See #8141.
         ttnn::TopKOp::getOperationName(),
+        // TopKLargeIndices' operands workaround forces ROW_MAJOR bf16 input and
+        // ROW_MAJOR ui32 output (the tt-metal kernel hard-rejects anything
+        // else); without it, opt_level>=1 layout/dtype propagation picks
+        // Tile/f32.
+        ttnn::TopKLargeIndicesOp::getOperationName(),
         // FlashMlaPrefill's operands workaround forces Q/K/V/output to a
         // tt-metal SDPA-supported dtype (bf16). Without it, opt_level>=1 leaves
         // f32 operands

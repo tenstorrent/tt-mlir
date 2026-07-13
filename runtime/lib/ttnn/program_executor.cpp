@@ -101,6 +101,7 @@
 #include "operations/reduction/reduction.h"
 #include "operations/reduction/sampling.h"
 #include "operations/reduction/topk.h"
+#include "operations/reduction/topk_large_indices.h"
 #include "operations/reduction/topk_router_gpt.h"
 #include "operations/tensor_serialization/dump_tensor.h"
 #include "operations/tensor_serialization/load_tensor.h"
@@ -701,6 +702,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::TopKOp: {
     return operations::reduction::topk::run(op->type_as_TopKOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::TopKLargeIndicesOp: {
+    return operations::reduction::topk_large_indices::run(
+        op->type_as_TopKLargeIndicesOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::TopKRouterGptOp: {
     return operations::reduction::topk_router_gpt::run(
