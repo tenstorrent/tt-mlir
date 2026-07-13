@@ -10,6 +10,7 @@
 
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/AffineMap.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/OpImplementation.h"
@@ -109,9 +110,15 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
     constexpr int64_t kExpectedIndicesRemote = 3;
     constexpr int64_t kExpectedIndicesLocal = 1;
 
-    if (isDstRemote()) {
+    // A cross-device fabric write into a gridless #l1 scratch (the CCL
+    // tmp-buffer) has a local-layout dst but is addressed like a remote one
+    // (gridY, gridX, offset) so buildNocEndpoint can resolve the peer's
+    // symmetric scratch address.
+    bool isFabricScratch = !getStartDevice().empty() && !isDstRemote();
+    if (isDstRemote() || isFabricScratch) {
       if (numDstIndices != kExpectedIndicesRemote) {
-        return emitOpError("Must have 3 dst indices for remote dst operand");
+        return emitOpError("Must have 3 dst indices for remote/fabric-scratch "
+                           "dst operand");
       }
     } else {
       if (numDstIndices != kExpectedIndicesLocal) {
@@ -861,28 +868,52 @@ void WriteColMaskTileOp::getEffects(
     }
   }
 
-  // Verify that the memref/tensor is remote (has device layout)
-  if (!ttcore::hasDeviceLayout(getMemref())) {
-    return emitOpError("memref/tensor must be remote (have a device layout)");
-  }
+  // Scratch-dst mode: a cross-device store into a gridless #l1 scratch (the CCL
+  // tmp-buffer). The scratch IS the shard -- no grid dims, no grid indices --
+  // and the symmetric L1 offset (every device runs the same SPMD kernel) makes
+  // the fabric dst address valid on the peer. Detected by a non-device-layout
+  // destination together with a cross-device store.
+  bool isScratchDst =
+      !ttcore::hasDeviceLayout(getMemref()) && !getStartDevice().empty();
 
-  // Verify memref/tensor rank is even (grid + shard dimensions)
-  if (shapedType.getRank() % 2 != 0) {
-    return emitOpError("memref/tensor rank must be even for device shape (grid "
-                       "+ shard dimensions)");
-  }
+  SmallVector<int64_t> shardShape;
+  if (isScratchDst) {
+    if (!getIndices().empty()) {
+      return emitOpError(
+          "scratch-dst cross-device store takes no grid indices");
+    }
+    // The whole scratch is the shard.
+    shardShape = llvm::to_vector(shapedType.getShape());
+  } else {
+    // Verify that the memref/tensor is remote (has device layout)
+    if (!ttcore::hasDeviceLayout(getMemref())) {
+      return emitOpError("memref/tensor must be remote (have a device layout)");
+    }
 
-  // Verify indices count matches grid dimensions (first N/2 dimensions)
-  int64_t gridRank = shapedType.getRank() / 2;
-  if (static_cast<int64_t>(getIndices().size()) != gridRank) {
-    return emitOpError("number of indices must equal grid rank (N/2 where N is "
-                       "memref/tensor rank), got ")
-           << getIndices().size() << " indices but expected " << gridRank;
+    // Verify memref/tensor rank is even (grid + shard dimensions)
+    if (shapedType.getRank() % 2 != 0) {
+      return emitOpError(
+          "memref/tensor rank must be even for device shape (grid "
+          "+ shard dimensions)");
+    }
+
+    // Verify indices count matches grid dimensions (first N/2 dimensions)
+    int64_t gridRank = shapedType.getRank() / 2;
+    if (static_cast<int64_t>(getIndices().size()) != gridRank) {
+      return emitOpError(
+                 "number of indices must equal grid rank (N/2 where N is "
+                 "memref/tensor rank), got ")
+             << getIndices().size() << " indices but expected " << gridRank;
+    }
   }
 
   // Verify that memref references a generic op operand or scratch allocation
-  // when inside a generic.
-  if (auto genericOp = getOperation()->getParentOfType<GenericOp>()) {
+  // when inside a generic. The scratch-dst CCL tmp-buffer is, by definition, a
+  // local scratch (an in-kernel `tensor.empty`/`d2m.empty` pre-bufferization, an
+  // alloc/to_buffer after) -- not a generic operand -- so this check is skipped
+  // for it.
+  if (auto genericOp = getOperation()->getParentOfType<GenericOp>();
+      genericOp && !isScratchDst) {
     Value memrefOperand = getMemref();
     bool foundInOperands = false;
     for (Value operand : genericOp.getOperands()) {
@@ -891,7 +922,7 @@ void WriteColMaskTileOp::getEffects(
         break;
       }
     }
-    // Also allow scratch allocations
+    // Also allow scratch allocations.
     if (!foundInOperands &&
         !isa_and_nonnull<ScratchAllocateOp>(memrefOperand.getDefiningOp())) {
       return emitOpError(
@@ -900,12 +931,14 @@ void WriteColMaskTileOp::getEffects(
     }
   }
 
-  // Get device layout for shape verification
-  auto deviceLayout = ttcore::getDeviceLayout(getMemref());
-  if (!deviceLayout) {
-    return emitOpError("failed to get device layout from memref/tensor");
+  if (!isScratchDst) {
+    // Get device layout for shape verification
+    auto deviceLayout = ttcore::getDeviceLayout(getMemref());
+    if (!deviceLayout) {
+      return emitOpError("failed to get device layout from memref/tensor");
+    }
+    shardShape = llvm::to_vector(deviceLayout.getShardShape(shapedType));
   }
-  auto shardShape = deviceLayout.getShardShape(shapedType);
 
   // CB-specific verification (only when CB is present)
   if (hasCbOperand) {
@@ -1612,6 +1645,395 @@ bool RemoteLoadOp::hasTensorSemantics() {
   return memrefIsTensor || resultIsTensor;
 }
 
+//===----------------------------------------------------------------------===//
+// FabricRecvOp Implementation
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult FabricRecvOp::verify() {
+  ShapedType shapedType = getShapedType();
+  bool hasCb = static_cast<bool>(getCb());
+  bool hasResult = static_cast<bool>(getResult());
+
+  // Explicit CB form must not carry a result; the data is exposed via the CB.
+  if (hasCb && hasResult) {
+    return emitOpError("explicit CB form cannot have a result");
+  }
+
+  // Two operand forms:
+  //  - device (sharded) operand: the fabric write destination shared across
+  //    devices; grid indices select the shard.
+  //  - gridless #l1 scratch (CCL tmp-buffer): the scratch IS the shard -- no
+  //    grid dims, no grid indices -- already fabric-written by a peer. This is
+  //    the receiver dual of a scratch-dst remote_store.
+  bool isScratch = !ttcore::hasDeviceLayout(getMemref());
+  if (isScratch) {
+    if (!getIndices().empty()) {
+      return emitOpError("scratch (gridless) fabric_recv takes no grid indices");
+    }
+  } else {
+    // Even rank (grid + shard dims); indices select the grid coordinate.
+    if (shapedType.getRank() % 2 != 0) {
+      return emitOpError(
+          "memref/tensor rank must be even for device shape (grid "
+          "+ shard dimensions)");
+    }
+    int64_t gridRank = shapedType.getRank() / 2;
+    if (static_cast<int64_t>(getIndices().size()) != gridRank) {
+      return emitOpError(
+                 "number of indices must equal grid rank (N/2 where N is "
+                 "memref/tensor rank), got ")
+             << getIndices().size() << " indices but expected " << gridRank;
+    }
+  }
+
+  // The memref operand must reference a parent-generic operand or scratch. The
+  // gridless #l1 scratch (CCL tmp-buffer) is a local scratch, not a generic
+  // operand, so this check is skipped for it.
+  if (auto genericOp = getOperation()->getParentOfType<GenericOp>();
+      genericOp && !isScratch) {
+    Value memrefOperand = getMemref();
+    bool found = llvm::is_contained(genericOp.getOperands(), memrefOperand);
+    if (!found) {
+      Operation *def = memrefOperand.getDefiningOp();
+      found = def && def->hasAttr("d2m.scratch_buffer");
+    }
+    if (!found) {
+      return emitOpError(
+          "memref operand must reference one of the parent generic op's "
+          "operands or a scratch allocation");
+    }
+  }
+  return success();
+}
+
+bool FabricRecvOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  // Reads the operand's (fabric-written) shard.
+  return operand.get() == getMemref();
+}
+
+bool FabricRecvOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &, const mlir::bufferization::AnalysisState &) {
+  // No local write: the operand's shard is written by peers over the fabric
+  // (ordered via semaphores), not by this op.
+  return false;
+}
+
+mlir::bufferization::AliasingValueList
+FabricRecvOp::getAliasingValues(mlir::OpOperand &operand,
+                                const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList aliasList;
+  Value resultValue = getResult();
+  // The result is a shard view into the operand buffer (a subset, not the whole
+  // buffer) -> an unknown (may-alias) relation.
+  if (resultValue && operand.get() == getMemref()) {
+    aliasList.addAlias(
+        {resultValue, mlir::bufferization::BufferRelation::Unknown});
+  }
+  return aliasList;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+FabricRecvOp::getBufferType(mlir::Value value,
+                            const mlir::bufferization::BufferizationOptions &,
+                            const mlir::bufferization::BufferizationState &,
+                            ::llvm::SmallVector<mlir::Value> &) {
+  if (getCb()) {
+    return mlir::failure();
+  }
+  if (value == getMemref() || value == getResult()) {
+    return ttcore::getBufferType(value.getType(), /*isView=*/false);
+  }
+  return mlir::failure();
+}
+
+bool FabricRecvOp::hasTensorSemantics() {
+  if (getCb()) {
+    return false;
+  }
+  bool memrefIsTensor = mlir::isa<RankedTensorType>(getMemref().getType());
+  Value result = getResult();
+  bool resultIsTensor = result && mlir::isa<RankedTensorType>(result.getType());
+  return memrefIsTensor || resultIsTensor;
+}
+
+mlir::LogicalResult FabricRecvOp::bufferize(
+    mlir::RewriterBase &rewriter,
+    const mlir::bufferization::BufferizationOptions &options,
+    mlir::bufferization::BufferizationState &state) {
+  if (getCb()) {
+    return emitOpError(
+        "FabricRecvOp with CB should not exist during bufferization");
+  }
+  Value result = getResult();
+  if (!result) {
+    return emitOpError("Expected result when CB is not present");
+  }
+
+  mlir::FailureOr<Value> memrefBuffer =
+      mlir::bufferization::getBuffer(rewriter, getMemref(), options, state);
+  if (failed(memrefBuffer)) {
+    return memrefBuffer;
+  }
+
+  // Memref-form op (no result): the operand's shard is exposed in place (no
+  // copy). Split + lowering map this to a reserve/push on the operand's CB.
+  rewriter.create<FabricRecvOp>(getLoc(), *memrefBuffer, getIndices());
+
+  // Gridless #l1 scratch (CCL tmp-buffer): the operand IS already the shard, so
+  // there is NO view to take -- expose the buffer directly (like remote_load's
+  // localBuffer). This avoids the memref.reinterpret_cast below, which is not
+  // legalizable in the D2MToTTKernel conversion and is anyway unnecessary here.
+  if (getIndices().empty()) {
+    auto toTensor = rewriter.create<bufferization::ToTensorOp>(
+        getLoc(), result.getType(), *memrefBuffer);
+    rewriter.replaceAllUsesWith(result, toTensor.getResult());
+    rewriter.eraseOp(*this);
+    return mlir::success();
+  }
+
+  // The result shard aliases the operand buffer's shard at the grid [indices].
+  // The operand carries a #ttcore.shard layout (not a standard strided layout),
+  // so memref.subview's stride inference fails; instead reinterpret_cast the
+  // base with an explicit row-major shard view. NOTE: offset is fixed to 0,
+  // which is correct for a grid-1 recv operand (the CCL link-core case). The
+  // general grid-[N,1] dynamic-index recv (offset = index * shard-stride) is a
+  // follow-up.
+  auto fullType = mlir::cast<MemRefType>((*memrefBuffer).getType());
+  int64_t gridRank = static_cast<int64_t>(getIndices().size());
+  SmallVector<int64_t> shardShape(fullType.getShape().begin() + gridRank,
+                                  fullType.getShape().end());
+  SmallVector<int64_t> shardStrides(shardShape.size(), 1);
+  for (int64_t i = static_cast<int64_t>(shardShape.size()) - 2; i >= 0; --i) {
+    shardStrides[i] = shardStrides[i + 1] * shardShape[i + 1];
+  }
+  auto layout = StridedLayoutAttr::get(getContext(), /*offset=*/0, shardStrides);
+  auto shardType = MemRefType::get(shardShape, fullType.getElementType(), layout,
+                                   fullType.getMemorySpace());
+  SmallVector<OpFoldResult> sizes, strides;
+  for (auto [s, st] : llvm::zip(shardShape, shardStrides)) {
+    sizes.push_back(rewriter.getIndexAttr(s));
+    strides.push_back(rewriter.getIndexAttr(st));
+  }
+  Value shard = rewriter.create<memref::ReinterpretCastOp>(
+      getLoc(), shardType, *memrefBuffer, /*offset=*/rewriter.getIndexAttr(0),
+      sizes, strides);
+  auto toTensor = rewriter.create<bufferization::ToTensorOp>(
+      getLoc(), result.getType(), shard);
+  rewriter.replaceAllUsesWith(result, toTensor.getResult());
+  rewriter.eraseOp(*this);
+  return mlir::success();
+}
+
+//===----------------------------------------------------------------------===//
+// CoreReadOp Implementation
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult CoreReadOp::verify() {
+  // src and dst are local buffers -- no device (grid/shard) layout.
+  if (ttcore::hasDeviceLayout(getSrc())) {
+    return emitOpError("src must be a local buffer (no device layout)");
+  }
+  if (ttcore::hasDeviceLayout(getDst())) {
+    return emitOpError("dst must be a local buffer (no device layout)");
+  }
+  // srcCore selects the source core by 2D logical grid coordinates.
+  if (getSrcCore().size() != 2) {
+    return emitOpError("expected 2 srcCore coordinates (grid rank), got ")
+           << getSrcCore().size();
+  }
+  // src and dst describe the same shard.
+  auto srcType = mlir::cast<ShapedType>(getSrc().getType());
+  auto dstType = mlir::cast<ShapedType>(getDst().getType());
+  if (srcType.getElementType() != dstType.getElementType()) {
+    return emitOpError("src and dst element types must match");
+  }
+  if (srcType.getShape() != dstType.getShape()) {
+    return emitOpError("src and dst shapes must match");
+  }
+  if (Value result = getResult()) {
+    if (result.getType() != getDst().getType()) {
+      return emitOpError("result type must match dst type");
+    }
+  }
+  return mlir::success();
+}
+
+bool CoreReadOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getSrc();
+}
+
+bool CoreReadOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getDst();
+}
+
+mlir::bufferization::AliasingValueList
+CoreReadOp::getAliasingValues(mlir::OpOperand &operand,
+                              const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList aliasList;
+  // The result aliases dst (read-in-place), so downstream ops resolve to the
+  // original dst allocation via getBuffer().
+  Value result = getResult();
+  if (result && operand.get() == getDst()) {
+    aliasList.addAlias(
+        {result, mlir::bufferization::BufferRelation::Equivalent});
+  }
+  return aliasList;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+CoreReadOp::getBufferType(mlir::Value value,
+                          const mlir::bufferization::BufferizationOptions &,
+                          const mlir::bufferization::BufferizationState &,
+                          ::llvm::SmallVector<mlir::Value> &) {
+  if (value == getSrc() || value == getDst()) {
+    return ttcore::getBufferType(value.getType(), /*isView=*/false);
+  }
+  return mlir::failure();
+}
+
+mlir::LogicalResult
+CoreReadOp::bufferize(mlir::RewriterBase &rewriter,
+                      const mlir::bufferization::BufferizationOptions &options,
+                      mlir::bufferization::BufferizationState &state) {
+  Value result = getResult();
+  if (!result) {
+    return emitOpError("expected a result to bufferize");
+  }
+  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
+  mlir::FailureOr<Value> srcBuffer =
+      mlir::bufferization::getBuffer(rewriter, getSrc(), options, state);
+  if (failed(srcBuffer)) {
+    return srcBuffer;
+  }
+  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
+  mlir::FailureOr<Value> dstBuffer =
+      mlir::bufferization::getBuffer(rewriter, getDst(), options, state);
+  if (failed(dstBuffer)) {
+    return dstBuffer;
+  }
+  // Memref form: no result; the data is read in place into dst.
+  rewriter.create<CoreReadOp>(getLoc(), mlir::TypeRange{}, *srcBuffer,
+                              getSrcCore(), *dstBuffer);
+  auto toTensor = rewriter.create<bufferization::ToTensorOp>(
+      getLoc(), result.getType(), *dstBuffer);
+  rewriter.replaceAllUsesWith(result, toTensor.getResult());
+  rewriter.eraseOp(*this);
+  return mlir::success();
+}
+
+bool CoreReadOp::hasTensorSemantics() {
+  bool srcIsTensor = mlir::isa<RankedTensorType>(getSrc().getType());
+  Value result = getResult();
+  bool resultIsTensor = result && mlir::isa<RankedTensorType>(result.getType());
+  return srcIsTensor || resultIsTensor;
+}
+
+//===----------------------------------------------------------------------===//
+// CoreWriteOp Implementation
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult CoreWriteOp::verify() {
+  // src and dst are local buffers -- no device (grid/shard) layout.
+  if (ttcore::hasDeviceLayout(getSrc())) {
+    return emitOpError("src must be a local buffer (no device layout)");
+  }
+  if (ttcore::hasDeviceLayout(getDst())) {
+    return emitOpError("dst must be a local buffer (no device layout)");
+  }
+  // dstCore selects the destination core by 2D logical grid coordinates.
+  if (getDstCore().size() != 2) {
+    return emitOpError("expected 2 dstCore coordinates (grid rank), got ")
+           << getDstCore().size();
+  }
+  auto srcType = mlir::cast<ShapedType>(getSrc().getType());
+  auto dstType = mlir::cast<ShapedType>(getDst().getType());
+  if (srcType.getElementType() != dstType.getElementType()) {
+    return emitOpError("src and dst element types must match");
+  }
+  if (srcType.getShape() != dstType.getShape()) {
+    return emitOpError("src and dst shapes must match");
+  }
+  if (Value result = getResult()) {
+    if (result.getType() != getDst().getType()) {
+      return emitOpError("result type must match dst type");
+    }
+  }
+  return mlir::success();
+}
+
+bool CoreWriteOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getSrc();
+}
+
+bool CoreWriteOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getDst();
+}
+
+mlir::bufferization::AliasingValueList
+CoreWriteOp::getAliasingValues(mlir::OpOperand &operand,
+                               const mlir::bufferization::AnalysisState &) {
+  mlir::bufferization::AliasingValueList aliasList;
+  Value result = getResult();
+  if (result && operand.get() == getDst()) {
+    aliasList.addAlias(
+        {result, mlir::bufferization::BufferRelation::Equivalent});
+  }
+  return aliasList;
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+CoreWriteOp::getBufferType(mlir::Value value,
+                           const mlir::bufferization::BufferizationOptions &,
+                           const mlir::bufferization::BufferizationState &,
+                           ::llvm::SmallVector<mlir::Value> &) {
+  if (value == getSrc() || value == getDst()) {
+    return ttcore::getBufferType(value.getType(), /*isView=*/false);
+  }
+  return mlir::failure();
+}
+
+mlir::LogicalResult
+CoreWriteOp::bufferize(mlir::RewriterBase &rewriter,
+                       const mlir::bufferization::BufferizationOptions &options,
+                       mlir::bufferization::BufferizationState &state) {
+  Value result = getResult();
+  if (!result) {
+    return emitOpError("expected a result to bufferize");
+  }
+  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
+  mlir::FailureOr<Value> srcBuffer =
+      mlir::bufferization::getBuffer(rewriter, getSrc(), options, state);
+  if (failed(srcBuffer)) {
+    return srcBuffer;
+  }
+  // NOLINTNEXTLINE(clang-analyzer-core.StackAddressEscape)
+  mlir::FailureOr<Value> dstBuffer =
+      mlir::bufferization::getBuffer(rewriter, getDst(), options, state);
+  if (failed(dstBuffer)) {
+    return dstBuffer;
+  }
+  // Memref form: no result; the write targets the remote core's dst.
+  rewriter.create<CoreWriteOp>(getLoc(), mlir::TypeRange{}, *srcBuffer,
+                               *dstBuffer, getDstCore());
+  auto toTensor = rewriter.create<bufferization::ToTensorOp>(
+      getLoc(), result.getType(), *dstBuffer);
+  rewriter.replaceAllUsesWith(result, toTensor.getResult());
+  rewriter.eraseOp(*this);
+  return mlir::success();
+}
+
+bool CoreWriteOp::hasTensorSemantics() {
+  bool srcIsTensor = mlir::isa<RankedTensorType>(getSrc().getType());
+  Value result = getResult();
+  bool resultIsTensor = result && mlir::isa<RankedTensorType>(result.getType());
+  return srcIsTensor || resultIsTensor;
+}
+
 bool RemoteLoadOp::isNotConflicting(
     mlir::OpOperand *uRead, mlir::OpOperand *uConflictingWrite,
     const mlir::bufferization::AnalysisState &) {
@@ -1648,8 +2070,18 @@ bool RemoteStoreOp::bufferizesToMemoryRead(
 
 bool RemoteStoreOp::bufferizesToMemoryWrite(
     mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
-  // The memref operand is written to
-  return operand.get() == getMemref();
+  if (operand.get() != getMemref()) {
+    return false;
+  }
+  // A cross-device store (startDevice set) writes a REMOTE device's buffer; the
+  // local memref operand is only the fabric destination address (the local recv
+  // side is written externally by peers, ordered via semaphores). Modeling it as
+  // a local write creates a false read+write conflict when the same operand is
+  // also read back in-kernel (the reduce_scatter accumulate-on-receive pattern),
+  // forcing one-shot-bufferize to copy the store out-of-place into a fresh
+  // buffer that drops the #ttcore.shard device layout. Only a LOCAL store
+  // (no startDevice) writes the local buffer.
+  return getStartDevice().empty();
 }
 
 mlir::bufferization::AliasingValueList

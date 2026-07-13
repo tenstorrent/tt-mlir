@@ -371,16 +371,22 @@ createBufferDistributionSpecForVirtualGrid(
     FlatbufferObjectCache &cache, ttcore::ShardLayoutAttr shardLayout,
     MemRefType memref, target::Dim2d elementShape, target::Dim2d pageShape,
     bool hasVirtualGridMapping,
-    std::optional<AffineMap> virtualGridForwardMapping) {
-  if (!hasVirtualGridMapping) {
-    return 0;
+    std::optional<AffineMap> virtualGridForwardMapping,
+    ArrayRef<int64_t> physicalGridShape, AffineMap physicalCoreMapping) {
+  if (hasVirtualGridMapping) {
+    TT_assertv(virtualGridForwardMapping.has_value(),
+               "Expected virtual-grid forward mapping");
   }
-  TT_assertv(virtualGridForwardMapping.has_value(),
-             "Expected virtual-grid forward mapping");
 
-  ArrayRef<int64_t> virtualGridShape = shardLayout.getGridShape(memref);
+  // For VGM buffers, use the logical (virtual) grid shape and the provided
+  // forward map (outputs [physY, physX, shardCoords...]).
+  // For non-VGM buffers, use the physical grid shape and the device's
+  // VirtToPhysicalMap (outputs [device, physY, physX]).
+  ArrayRef<int64_t> gridShape = hasVirtualGridMapping
+                                    ? shardLayout.getGridShape(memref)
+                                    : physicalGridShape;
   ArrayRef<int64_t> memrefShardShape = shardLayout.getShardShape(memref);
-  TT_assertv(virtualGridShape.size() == memrefShardShape.size(),
+  TT_assertv(gridShape.size() == memrefShardShape.size(),
              "Expected grid rank to match shard rank");
 
   std::vector<uint32_t> shardShapeInPages =
@@ -389,28 +395,47 @@ createBufferDistributionSpecForVirtualGrid(
   std::vector<uint32_t> tensorShapeInPages;
   tensorShapeInPages.reserve(shardShapeInPages.size());
   for (size_t i = 0; i < shardShapeInPages.size(); ++i) {
-    tensorShapeInPages.push_back(static_cast<uint32_t>(virtualGridShape[i]) *
+    tensorShapeInPages.push_back(static_cast<uint32_t>(gridShape[i]) *
                                  shardShapeInPages[i]);
   }
 
-  AffineMap forwardMap = *virtualGridForwardMapping;
-  TT_assertv(forwardMap.getNumDims() >= virtualGridShape.size(),
-             "Expected forward virtual-grid map to accept grid dimensions");
   std::vector<target::Dim2d> cores;
-  cores.reserve(ttmlir::utils::volume<int64_t>(virtualGridShape));
-  ttmlir::utils::sample(
-      virtualGridShape, [&](ArrayRef<int64_t> virtualCoreCoord) {
-        SmallVector<int64_t> operands(forwardMap.getNumDims(), 0);
-        for (size_t i = 0; i < virtualCoreCoord.size(); ++i) {
-          operands[i] = virtualCoreCoord[i];
-        }
+  cores.reserve(ttmlir::utils::volume<int64_t>(gridShape));
 
-        SmallVector<int64_t> physicalCoord = forwardMap.compose(operands);
-        TT_assertv(physicalCoord.size() >= 2u,
-                   "Expected forward virtual-grid map to produce a 2D core");
-        cores.emplace_back(static_cast<int32_t>(physicalCoord[0]),
-                           static_cast<int32_t>(physicalCoord[1]));
-      });
+  if (hasVirtualGridMapping) {
+    AffineMap forwardMap = *virtualGridForwardMapping;
+    TT_assertv(forwardMap.getNumDims() >= gridShape.size(),
+               "Expected forward virtual-grid map to accept grid dimensions");
+    ttmlir::utils::sample(gridShape, [&](ArrayRef<int64_t> coreCoord) {
+      SmallVector<int64_t> operands(forwardMap.getNumDims(), 0);
+      for (size_t i = 0; i < coreCoord.size(); ++i) {
+        operands[i] = coreCoord[i];
+      }
+      SmallVector<int64_t> physicalCoord = forwardMap.compose(operands);
+      TT_assertv(physicalCoord.size() >= 2u,
+                 "Expected forward virtual-grid map to produce a 2D core");
+      cores.emplace_back(static_cast<int32_t>(physicalCoord[0]),
+                         static_cast<int32_t>(physicalCoord[1]));
+    });
+  } else {
+    // physicalCoreMapping maps (row, col) -> [device, core_y, core_x].
+    TT_assertv(physicalCoreMapping.getNumDims() >= gridShape.size(),
+               "Expected physical core mapping to accept grid dimensions");
+    ttmlir::utils::sample(gridShape, [&](ArrayRef<int64_t> coreCoord) {
+      SmallVector<int64_t> operands(physicalCoreMapping.getNumDims(), 0);
+      for (size_t i = 0; i < coreCoord.size(); ++i) {
+        operands[i] = coreCoord[i];
+      }
+      SmallVector<int64_t> physCoord = physicalCoreMapping.compose(operands);
+      TT_assertv(physCoord.size() >=
+                     static_cast<size_t>(ttcore::PhysGridResultIdx::NumIndices),
+                 "Expected physical core mapping to produce [device, y, x]");
+      cores.emplace_back(static_cast<int32_t>(
+                             physCoord[ttcore::PhysGridResultIdx::CoreCoordY]),
+                         static_cast<int32_t>(
+                             physCoord[ttcore::PhysGridResultIdx::CoreCoordX]));
+    });
+  }
 
   return target::metal::CreateBufferDistributionSpecDirect(
       *cache.fbb, &tensorShapeInPages, &shardShapeInPages, &cores);
@@ -457,7 +482,15 @@ createShardedBufferConfigForL1Memref(
   auto shardSpec = target::metal::CreateShardSpecDirect(
       *cache.fbb, &coreRangeSet, &shardShape);
 
-  target::Dim2d pageShape(elementShape.y(), shardShape.x());
+  // Calculate ShardSpecBuffer.
+  target::Dim2d pageShape;
+  if (mlir::isa<ttcore::TileType>(memref.getElementType())) {
+    // For tiled tensors, pageShape is tile size.
+    pageShape = target::Dim2d(elementShape.y(), elementShape.x());
+  } else {
+    // For row-major tensors, pageShape is 1xN where N is 1 full row.
+    pageShape = target::Dim2d(elementShape.y(), shardShape.x());
+  }
   std::array<int32_t, 2> tensorShape = {gridShapeExtents[0] * shardShape.y(),
                                         gridShapeExtents[1] * shardShape.x()};
   assert(tensorShape[0] % pageShape.y() == 0);
@@ -468,7 +501,8 @@ createShardedBufferConfigForL1Memref(
       *cache.fbb, shardSpec, &pageShape, &tensorShapeInPages);
   auto bufferDistributionSpec = createBufferDistributionSpecForVirtualGrid(
       cache, shardLayout, memref, elementShape, pageShape,
-      hasVirtualGridMapping, virtualGridForwardMapping);
+      hasVirtualGridMapping, virtualGridForwardMapping, memrefGridShape,
+      extendedMapping);
 
   assert(pageShape.y() % elementShape.y() == 0);
   assert(pageShape.x() % elementShape.x() == 0);
@@ -897,6 +931,27 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
               .Union();
     break;
   }
+  case ttkernel::ArgType::TensorAccessor: {
+    argType = target::metal::KernelArgType::KernelArgTensorAccessor;
+    arg = target::metal::CreateKernelArgTensorAccessor(
+              *cache.fbb, kernelArg.getOperandIndex())
+              .Union();
+    break;
+  }
+  case ttkernel::ArgType::TensorStride: {
+    argType = target::metal::KernelArgType::KernelArgTensorStride;
+    arg = target::metal::CreateKernelArgTensorStride(
+              *cache.fbb, kernelArg.getOperandIndex())
+              .Union();
+    break;
+  }
+  case ttkernel::ArgType::Reserved: {
+    argType = target::metal::KernelArgType::KernelArgReserved;
+    arg = target::metal::CreateKernelArgTensorAccessor(
+              *cache.fbb, kernelArg.getOperandIndex())
+              .Union();
+    break;
+  }
   }
 
   return target::metal::CreateKernelArg(*cache.fbb, argType, arg);
@@ -944,12 +999,16 @@ static flatbuffers::Offset<target::FabricConnectionConfig>
 fabricConnectionConfigToFlatbuffer(
     FlatbufferObjectCache &cache,
     ttcore::FabricConnectionConfigAttr fabricConnectionConfig) {
+  std::vector<int32_t> routerCores(
+      fabricConnectionConfig.getRouterCores().begin(),
+      fabricConnectionConfig.getRouterCores().end());
   return target::CreateFabricConnectionConfig(
       *cache.fbb, toFlatbuffer(cache, fabricConnectionConfig.getNocIndex()),
       toFlatbuffer(cache, fabricConnectionConfig.getTopology()),
       fabricConnectionConfig.getClusterAxis(),
       toFlatbuffer(cache, fabricConnectionConfig.getRoutingMode()),
-      fabricConnectionConfig.getNumLinks());
+      fabricConnectionConfig.getNumLinks(),
+      cache.fbb->CreateVector(routerCores));
 }
 
 static flatbuffers::Offset<target::metal::KernelConfig>

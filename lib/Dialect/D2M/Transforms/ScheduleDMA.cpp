@@ -45,6 +45,13 @@ collectDMAOps(Block *block,
       collectDMAOps(forOp.getBody(), dmaOps);
       continue;
     }
+    if (auto ifOp = mlir::dyn_cast<scf::IfOp>(&op)) {
+      collectDMAOps(ifOp.thenBlock(), dmaOps);
+      if (Block *elseBlock = ifOp.elseBlock()) {
+        collectDMAOps(elseBlock, dmaOps);
+      }
+      continue;
+    }
 
     if (auto dmaOp = mlir::dyn_cast<ShardDMAOpInterface>(&op)) {
       dmaOps.push_back({&op, dmaOp.getCBPort()});
@@ -189,8 +196,17 @@ static bool shouldKeepOpForThread(Operation *op,
 
 // Recursively erase DMA ops not assigned to this thread.
 // Also removes ops that become dead as a result.
+//
+// `keepBarrier` designates this thread as the owner of the CCL start barrier
+// (DeviceSynchronizeOp). The barrier has no CB, so it would otherwise survive
+// the clone-into-every-DM-thread and run once per thread -- each replica emits
+// a fabric sem increment + wait, so a core with N DM threads sends N barrier
+// increments to its peers, overshooting the expected count and deadlocking.
+// The barrier must run exactly once per core, on the thread that owns the
+// cross-device store it guards; erase it from every other DM thread.
 static void filterOpsForThread(PatternRewriter &rewriter, Block *block,
-                               const DenseSet<unsigned> &assignedCBs) {
+                               const DenseSet<unsigned> &assignedCBs,
+                               bool keepBarrier) {
   bool changed = true;
   while (changed) {
     changed = false;
@@ -201,9 +217,26 @@ static void filterOpsForThread(PatternRewriter &rewriter, Block *block,
         continue;
       }
 
-      // Recurse into nested loops.
+      // Recurse into nested loops / conditionals.
       if (auto forOp = mlir::dyn_cast<scf::ForOp>(&op)) {
-        filterOpsForThread(rewriter, forOp.getBody(), assignedCBs);
+        filterOpsForThread(rewriter, forOp.getBody(), assignedCBs, keepBarrier);
+        continue;
+      }
+      if (auto ifOp = mlir::dyn_cast<scf::IfOp>(&op)) {
+        filterOpsForThread(rewriter, ifOp.thenBlock(), assignedCBs,
+                           keepBarrier);
+        if (Block *elseBlock = ifOp.elseBlock()) {
+          filterOpsForThread(rewriter, elseBlock, assignedCBs, keepBarrier);
+        }
+        continue;
+      }
+
+      // The CCL start barrier belongs to a single DM thread (see above).
+      if (mlir::isa<DeviceSynchronizeOp>(&op)) {
+        if (!keepBarrier && op.use_empty()) {
+          toErase.push_back(&op);
+          changed = true;
+        }
         continue;
       }
 
@@ -251,11 +284,51 @@ public:
     }
     Block *dmBlock = &dmRegion.front();
 
-    // Check that there are no illegal semaphore ops in the datamovement region.
-    // Replicating these across multiple threads would create a race condition
-    // on the shared semaphore.
     if (failed(utils::checkForIllegalSemaphoreOps(dmBlock))) {
       return failure();
+    }
+
+    // Option D (temporary): a kernel with explicit semaphore mutations
+    // (semaphore_inc / semaphore_set) is kept on a SINGLE datamovement thread.
+    // Splitting the DM region across NOC processors clones every op into each
+    // thread, so a mutation would run once per thread -- a race / wrong count
+    // on the shared semaphore. Keeping one DM thread makes the mutation run
+    // exactly once. This sidesteps the general problem (pin each semaphore op
+    // to one DM thread + local-barrier the observers) until that lands; see the
+    // TODO in DMAUtils.cpp's checkForIllegalSemaphoreOps and
+    // tools/d2m-jit/unified_semaphore_design.md.
+    // core_read (a core->core NoC read) is also kept single-DM-thread for now:
+    // it is not a ShardDMAOpInterface so it would not be assigned/filtered by a
+    // NOC split, and the streaming sync against it is not yet proven.
+    bool keepSingleDMThread = false;
+    dmBlock->walk([&](Operation *op) {
+      if (isa<SemaphoreIncOp, SemaphoreSetOp, CoreReadOp, CoreWriteOp>(op)) {
+        keepSingleDMThread = true;
+        return WalkResult::interrupt();
+      }
+      return WalkResult::advance();
+    });
+
+    // Multiple cross-device fabric sends must stay on a single DM thread. Each
+    // NOC thread that issues a fabric op creates and tears down its own
+    // fabric_connection_manager (setup_fabric_connections /
+    // close_fabric_connections); two managers racing the same link on one core
+    // deadlock. A *single* fabric send is safe on whatever thread it lands on,
+    // and pinning is actively harmful there -- a fused matmul+all_gather needs
+    // the matmul to split its reader/writer across DM threads (only the
+    // device_synchronize barrier is pinned, below), so collapsing it to one
+    // thread breaks the matmul CB handshake. Only pin when >1 fabric send (a
+    // cross-device remote_store, i.e. with a startDevice mcast range) would
+    // otherwise be distributed across threads -- e.g. a per-tile streaming
+    // all_gather.
+    unsigned numFabricSends = 0;
+    dmBlock->walk([&](RemoteStoreOp store) {
+      if (!store.getStartDevice().empty()) {
+        ++numFabricSends;
+      }
+    });
+    if (numFabricSends > 1) {
+      keepSingleDMThread = true;
     }
 
     // Collect all DMA operations and their CB associations.
@@ -305,6 +378,24 @@ public:
 
     assignDmCoreIndices(assignments, dmaOps, numDatamovementThreads);
 
+    // The CCL start barrier (device_synchronize) has no CB and must run exactly
+    // once per core. Pin it to the thread that owns the cross-device store it
+    // guards (the fabric send); fall back to thread 0 if there is no fabric
+    // store. filterOpsForThread erases the barrier from every other DM thread.
+    unsigned barrierOwnerIdx = 0;
+    for (const auto &[op, cbIdx] : dmaOps) {
+      auto store = mlir::dyn_cast<RemoteStoreOp>(op);
+      if (store && !store.getStartDevice().empty()) {
+        for (unsigned i = 0; i < numThreadsToUse; ++i) {
+          if (assignments[i].assignedCBs.contains(cbIdx)) {
+            barrierOwnerIdx = i;
+            break;
+          }
+        }
+        break;
+      }
+    }
+
     // Create new thread attributes: N datamovement threads + 1 compute thread.
     SmallVector<Attribute> threads;
     for (unsigned i = 0; i < numThreadsToUse; ++i) {
@@ -343,8 +434,10 @@ public:
         rewriter.clone(op, mapping);
       }
 
-      // Filter to keep only DMA ops for this thread's assigned CBs.
-      filterOpsForThread(rewriter, newDMBlock, assignments[i].assignedCBs);
+      // Filter to keep only DMA ops for this thread's assigned CBs (and the
+      // start barrier only on its designated owner thread).
+      filterOpsForThread(rewriter, newDMBlock, assignments[i].assignedCBs,
+                         /*keepBarrier=*/i == barrierOwnerIdx);
     }
 
     // Clone the compute region to the new generic (not move, to preserve SSA).

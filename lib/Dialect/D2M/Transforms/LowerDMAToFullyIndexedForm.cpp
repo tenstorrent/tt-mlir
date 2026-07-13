@@ -264,19 +264,31 @@ class D2MLowerDMAReadToFullyIndexed : public OpRewritePattern<DMAReadOp> {
 public:
   D2MLowerDMAReadToFullyIndexed(MLIRContext *context,
                                 bool debugCoalescingInference,
-                                CoalescingFactorCache &coalescingCache)
+                                CoalescingFactorCache &coalescingCache,
+                                bool useTensorAccessorDMA)
       : OpRewritePattern<DMAReadOp>(context),
         debugCoalescingInference(debugCoalescingInference),
-        coalescingCache(&coalescingCache) {}
+        coalescingCache(&coalescingCache),
+        useTensorAccessorDMA(useTensorAccessorDMA) {}
 
 private:
   bool debugCoalescingInference;
   CoalescingFactorCache *coalescingCache = nullptr;
+  bool useTensorAccessorDMA;
 
 public:
   LogicalResult matchAndRewrite(DMAReadOp op,
                                 PatternRewriter &rewriter) const final {
     if (op.isFullyIndexed()) {
+      return failure();
+    }
+    // When the TensorAccessor path is enabled, leave shard-level reads in
+    // shard form for D2MDMAViaTensorAccessorRewriter (D2MToTTKernel) to lower.
+    // The accessor path is only validated for L1-resident shards; on DRAM it
+    // mis-addresses the paged/interleaved buffer (PCC 0.0 on a DRAM eltwise),
+    // so route DRAM remote reads to the proven fully-indexed form instead.
+    if (useTensorAccessorDMA &&
+        op.getSrcMemorySpace() == ttcore::MemorySpace::DeviceL1) {
       return failure();
     }
 
@@ -335,19 +347,40 @@ class D2MLowerDMAWriteToFullyIndexed : public OpRewritePattern<DMAWriteOp> {
 public:
   D2MLowerDMAWriteToFullyIndexed(MLIRContext *context,
                                  bool debugCoalescingInference,
-                                 CoalescingFactorCache &coalescingCache)
+                                 CoalescingFactorCache &coalescingCache,
+                                 bool useTensorAccessorDMA)
       : OpRewritePattern<DMAWriteOp>(context),
         debugCoalescingInference(debugCoalescingInference),
-        coalescingCache(&coalescingCache) {}
+        coalescingCache(&coalescingCache),
+        useTensorAccessorDMA(useTensorAccessorDMA) {}
 
 private:
   bool debugCoalescingInference;
   CoalescingFactorCache *coalescingCache = nullptr;
+  bool useTensorAccessorDMA;
 
 public:
   LogicalResult matchAndRewrite(DMAWriteOp op,
                                 PatternRewriter &rewriter) const final {
     if (op.isFullyIndexed()) {
+      return failure();
+    }
+    // When the TensorAccessor path is enabled, leave plain (non-multicast,
+    // non-local-destination) shard-level writes in shard form for
+    // D2MDMAViaTensorAccessorRewriter (D2MToTTKernel). Multicast,
+    // local-destination, and cross-device fabric writes are not handled by the
+    // accessor path, so they still lower to fully-indexed form here.
+    // Cross-device fabric writes (non-empty startDevice) carry
+    // startDevice/deviceMcastShape into the fully-indexed DMAWriteOp below,
+    // which D2MToTTKernel lowers to a fabric (multicast) write. Deferring them
+    // to the accessor would silently drop the fabric write and emit only a
+    // local NOC write, leaving every device with just its own shard.
+    // The accessor path is only validated for L1-resident shards; on DRAM it
+    // mis-addresses the paged/interleaved buffer, so route DRAM remote writes
+    // to the proven fully-indexed form here.
+    if (useTensorAccessorDMA &&
+        op.getDstMemorySpace() == ttcore::MemorySpace::DeviceL1 &&
+        !op.isMcast() && !op.isDstLocal() && op.getStartDevice().empty()) {
       return failure();
     }
 
@@ -568,9 +601,11 @@ public:
     CoalescingFactorCache coalescingCache;
     RewritePatternSet dmaPatterns(&getContext());
     dmaPatterns.add<D2MLowerDMAReadToFullyIndexed>(
-        &getContext(), debugCoalescingInference, coalescingCache);
+        &getContext(), debugCoalescingInference, coalescingCache,
+        useTensorAccessorDMA);
     dmaPatterns.add<D2MLowerDMAWriteToFullyIndexed>(
-        &getContext(), debugCoalescingInference, coalescingCache);
+        &getContext(), debugCoalescingInference, coalescingCache,
+        useTensorAccessorDMA);
     dmaPatterns.add<D2MLowerLocalCopyToFullyIndexed>(&getContext(),
                                                      debugCoalescingInference);
     walkAndApplyPatterns(getOperation(), std::move(dmaPatterns));

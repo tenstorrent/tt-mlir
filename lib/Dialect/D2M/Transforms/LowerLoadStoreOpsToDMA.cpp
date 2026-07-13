@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
@@ -177,6 +178,27 @@ public:
           remoteLoad, "remote operand must be a memref, not a tensor");
     }
 
+    Value remoteMemref = remoteLoad.getMemref();
+    SmallVector<Value> gridIndices = remoteLoad.getIndices();
+
+    // Implicit (local buffer) form: DMA-read the shard straight into the local
+    // buffer memref (e.g. a datamovement-thread CCL kernel's scratch buffer).
+    // No CB to reserve/push; the buffer is already allocated.
+    if (!remoteLoad.isExplicitCBForm()) {
+      assert(remoteLoad.getLocalBuffer() &&
+             "remote_load must have either a CB or a local buffer");
+      if (remoteLoad.isMcast()) {
+        return rewriter.notifyMatchFailure(
+            remoteLoad, "multicast remote_load requires explicit CB form");
+      }
+      Value localMemref = remoteLoad.getLocalBuffer();
+      Value dmaTx = rewriter.create<DMAReadOp>(loc, remoteMemref, gridIndices,
+                                               localMemref);
+      rewriter.eraseOp(remoteLoad);
+      rewriter.create<DMAWaitOp>(loc, dmaTx);
+      return success();
+    }
+
     CBType cbType = remoteLoad.getCbType();
     if (!cbType.getUnderlyingAs<MemRefType>()) {
       return rewriter.notifyMatchFailure(
@@ -189,8 +211,6 @@ public:
 
     // Unicast path: reserve CB, emit shard-level dma_read, wait, push.
     Value cb = remoteLoad.getCb();
-    Value remoteMemref = remoteLoad.getMemref();
-    SmallVector<Value> gridIndices = remoteLoad.getIndices();
 
     Value localMemref = rewriter.create<ReserveOp>(loc, cb).getResult();
     Value dmaTx =
@@ -226,23 +246,58 @@ public:
           remoteStore, "remote operand must be a memref, not a tensor");
     }
 
-    CBType cbType = remoteStore.getCbType();
-    if (!cbType.getUnderlyingAs<MemRefType>()) {
-      return rewriter.notifyMatchFailure(
-          remoteStore, "circular buffer must have memref underlying type");
-    }
-
-    Value cb = remoteStore.getCb();
     Value remoteMemref = remoteStore.getMemref();
     SmallVector<Value> gridIndices = remoteStore.getIndices();
     ValueRange startDevice = remoteStore.getStartDevice();
     ValueRange deviceMcastShape = remoteStore.getDeviceMcastShape();
 
-    // Wait on CB, emit shard-level dma_write, wait, pop
-    Value localMemref = rewriter.create<WaitOp>(loc, cb).getResult();
-    Value dmaTx =
-        rewriter.create<DMAWriteOp>(loc, localMemref, remoteMemref, gridIndices,
-                                    startDevice, deviceMcastShape);
+    // The store source is either an explicit CB (wait on it, pop when done) or,
+    // in implicit form, a plain local-buffer memref (e.g. a datamovement-thread
+    // CCL kernel that loaded into a scratch buffer). Post-bufferization the
+    // local buffer is already the memref a CB WaitOp would have yielded, so the
+    // two forms share the same dma_write; only the CB form needs wait/pop.
+    Value cb;
+    Value localMemref;
+    if (remoteStore.isExplicitCBForm()) {
+      CBType cbType = remoteStore.getCbType();
+      if (!cbType.getUnderlyingAs<MemRefType>()) {
+        return rewriter.notifyMatchFailure(
+            remoteStore, "circular buffer must have memref underlying type");
+      }
+      cb = remoteStore.getCb();
+      localMemref = rewriter.create<WaitOp>(loc, cb).getResult();
+    } else {
+      localMemref = remoteStore.getLocalBuffer();
+      assert(localMemref &&
+             "remote_store must have either a CB or a local buffer");
+    }
+
+    // Scratch-dst mode: a cross-device store into a gridless #l1 scratch (the
+    // CCL tmp-buffer). The scratch has no device layout / grid memory-map, so we
+    // emit a fully-indexed write with explicit [0,0,0] dst indices (core 0,0,
+    // offset 0) -- bypassing the grid memory-map expansion. buildNocEndpoint
+    // then resolves the dst to castCBTypeAsAddress(scratchCB) at the peer's
+    // core (0,0), i.e. the symmetric scratch (every device runs the same SPMD
+    // kernel, so the scratch CB sits at the same L1 offset everywhere).
+    bool isScratchDst = !ttcore::hasDeviceLayout(remoteMemref) &&
+                        !startDevice.empty();
+    Value dmaTx;
+    if (isScratchDst) {
+      Value c0 = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+      SmallVector<Value> srcIdx = {c0};
+      SmallVector<Value> dstIdx = {c0, c0, c0};
+      int64_t numElems = 1;
+      for (int64_t d : remoteMemrefType.getShape()) {
+        numElems *= d;
+      }
+      dmaTx = rewriter.create<DMAWriteOp>(
+          loc, localMemref, ValueRange(srcIdx), remoteMemref, ValueRange(dstIdx),
+          static_cast<size_t>(numElems), startDevice, deviceMcastShape);
+    } else {
+      dmaTx =
+          rewriter.create<DMAWriteOp>(loc, localMemref, remoteMemref, gridIndices,
+                                      startDevice, deviceMcastShape);
+    }
 
     if (remoteStore.getSemaphore()) {
       auto incr = rewriter.create<arith::ConstantIndexOp>(loc, 1);
@@ -255,8 +310,10 @@ public:
 
     // Wait for DMA to complete.
     rewriter.create<DMAWaitOp>(loc, dmaTx);
-    // Pop the circular buffer to signal consumption.
-    rewriter.create<PopOp>(loc, cb);
+    // Pop the circular buffer to signal consumption (CB form only).
+    if (cb) {
+      rewriter.create<PopOp>(loc, cb);
+    }
     return success();
   }
 };
@@ -292,6 +349,35 @@ public:
   }
 };
 
+// fabric_recv: the operand's CB slot was already written by a peer's
+// cross-device remote_store (arrival ordered by a preceding semaphore_wait), so
+// there is NO local read. Just expose the slot to the consumer: reserve the
+// CB write slot and push it. This is the whole point of fabric_recv -- it
+// avoids the NoC read-back (noc_async_read) that contends with the open fabric
+// connection on the single DM thread.
+class D2MLowerFabricRecvRewritePattern
+    : public OpRewritePattern<FabricRecvOp> {
+public:
+  using OpRewritePattern<FabricRecvOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(FabricRecvOp recvOp,
+                                PatternRewriter &rewriter) const final {
+    if (!recvOp.isExplicitCBForm()) {
+      return rewriter.notifyMatchFailure(
+          recvOp, "fabric_recv must be in explicit CB form (split-v2 converts "
+                  "it); the implicit form should not reach this pass");
+    }
+    Location loc = recvOp.getLoc();
+    Value cb = recvOp.getCb();
+    // Reserve the slot the peer fabric-wrote, then push it to the consumer.
+    // No dma_read / noc_async_read.
+    rewriter.create<ReserveOp>(loc, cb);
+    rewriter.create<PushOp>(loc, cb);
+    rewriter.eraseOp(recvOp);
+    return success();
+  }
+};
+
 class D2MLowerLoadStoreOpsToDMA
     : public impl::D2MLowerLoadStoreOpsToDMABase<D2MLowerLoadStoreOpsToDMA> {
 public:
@@ -302,6 +388,7 @@ public:
     RewritePatternSet patterns(&getContext());
     patterns.add<D2MLowerRemoteLoadRewritePattern>(&getContext());
     patterns.add<D2MLowerRemoteStoreRewritePattern>(&getContext());
+    patterns.add<D2MLowerFabricRecvRewritePattern>(&getContext());
     patterns.add<D2MLowerDMACopyRewritePattern>(&getContext());
     if (failed(applyPatternsGreedily(getOperation(), std::move(patterns)))) {
       signalPassFailure();

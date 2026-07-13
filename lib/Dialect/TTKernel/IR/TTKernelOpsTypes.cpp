@@ -57,18 +57,22 @@ bool mlir::tt::ttkernel::ArgSpecAttr::isLessArg(ArgAttr lhs, ArgAttr rhs) {
   return lhs.getArgumentName().getValue() < rhs.getArgumentName().getValue();
 }
 
-static void incrementCompileArgUsers(func::FuncOp op, size_t firstIndex) {
+static void incrementCompileArgUsers(func::FuncOp op, size_t firstIndex,
+                                     size_t increment = 1) {
   op->walk([&](GetCompileArgValOp getArgOp) {
     uint32_t index = getArgOp.getArgIndex();
     if (index >= firstIndex) {
-      getArgOp.setArgIndex(index + 1);
+      getArgOp.setArgIndex(index + increment);
     }
   });
 }
 
-static size_t appendArgImpl(func::FuncOp op, ArgAttr arg, bool isCompileTime) {
+static size_t appendArgImpl(func::FuncOp op, ArgAttr arg, bool isCompileTime,
+                            size_t numSlots) {
   auto [rtArgSpecVector, ctArgSpecVector] = getOrCreateArgSpec(op);
   auto &argSpecVector = isCompileTime ? ctArgSpecVector : rtArgSpecVector;
+
+  // Dedup: if an identical arg was already appended, reuse its index.
   auto *it = std::find_if(argSpecVector.begin(), argSpecVector.end(),
                           [&](ArgAttr existingArg) {
                             return ArgSpecAttr::isSameArg(arg, existingArg);
@@ -77,33 +81,58 @@ static size_t appendArgImpl(func::FuncOp op, ArgAttr arg, bool isCompileTime) {
     return static_cast<size_t>(std::distance(argSpecVector.begin(), it));
   }
 
-  auto *insertionIt =
-      isCompileTime
-          ? std::lower_bound(argSpecVector.begin(), argSpecVector.end(), arg,
-                             [](ArgAttr lhs, ArgAttr rhs) {
-                               return ArgSpecAttr::isLessArg(lhs, rhs);
-                             })
-          : argSpecVector.end();
-  size_t nextIndex =
-      static_cast<size_t>(std::distance(argSpecVector.begin(), insertionIt));
-  if (isCompileTime && insertionIt != argSpecVector.end()) {
-    incrementCompileArgUsers(op, nextIndex);
+  // Find the insertion point.  Compile-time args are kept sorted (by isLessArg)
+  // so the CRTA layout is deterministic; runtime args append at the end.
+  // Multi-slot args (numSlots > 1) reserve trailing ArgType::Reserved
+  // placeholders so vector position equals the flat uint32 arg offset; those
+  // placeholders are not sort keys, so the scan skips over them rather than
+  // using std::lower_bound (which would require a fully sorted range).
+  size_t insertIndex;
+  if (isCompileTime) {
+    insertIndex = 0;
+    for (ArgAttr existing : argSpecVector) {
+      if (existing.getArgType() != ArgType::Reserved &&
+          !ArgSpecAttr::isLessArg(existing, arg)) {
+        break;
+      }
+      ++insertIndex;
+    }
+  } else {
+    insertIndex = argSpecVector.size();
   }
-  argSpecVector.insert(insertionIt, arg);
+
+  // Shift the indices of compile-time arg users at or after the insertion point
+  // by the number of slots we are about to insert.
+  if (isCompileTime && insertIndex < argSpecVector.size()) {
+    incrementCompileArgUsers(op, insertIndex, numSlots);
+  }
+
+  argSpecVector.insert(argSpecVector.begin() + insertIndex, arg);
+  // Reserve additional placeholder slots so that subsequent appends get correct
+  // indices.  The runtime fills all numSlots positions from a single KernelArg
+  // entry.
+  if (numSlots > 1) {
+    ArgAttr reserved = ArgAttr::get(op.getContext(), ArgType::Reserved,
+                                    arg.getOperandIndex());
+    argSpecVector.insert(argSpecVector.begin() + insertIndex + 1, numSlots - 1,
+                         reserved);
+  }
   auto argSpec =
       ArgSpecAttr::get(arg.getContext(), rtArgSpecVector, ctArgSpecVector);
   op->setAttr(ArgSpecAttr::name, argSpec);
-  return nextIndex;
+  return insertIndex;
 }
 
 size_t mlir::tt::ttkernel::ArgSpecAttr::appendCompileTimeArg(func::FuncOp op,
-                                                             ArgAttr arg) {
-  return appendArgImpl(op, arg, /*isCompileTime=*/true);
+                                                             ArgAttr arg,
+                                                             size_t numSlots) {
+  return appendArgImpl(op, arg, /*isCompileTime=*/true, numSlots);
 }
 
 size_t mlir::tt::ttkernel::ArgSpecAttr::appendRuntimeArg(func::FuncOp op,
-                                                         ArgAttr arg) {
-  return appendArgImpl(op, arg, /*isCompileTime=*/false);
+                                                         ArgAttr arg,
+                                                         size_t numSlots) {
+  return appendArgImpl(op, arg, /*isCompileTime=*/false, numSlots);
 }
 
 void TTKernelDialect::registerTypes() {

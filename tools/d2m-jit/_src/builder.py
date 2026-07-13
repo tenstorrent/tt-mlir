@@ -38,7 +38,7 @@ from ttmlir.passmanager import PassManager
 from ttmlir.dialects import d2m, func, arith, linalg, ttcore
 from ttmlir.passes import ttmetal_to_flatbuffer_bin
 
-from .ast import D2MCompiler
+from .ast import D2MCompiler, SEMAPHORE_ARG
 from .config import config
 from .errors import D2mJitError
 from .tensor_layout import Layout
@@ -129,6 +129,10 @@ def _get_system_desc_path():
 def _pipeline_passes():
     """Build the ordered list of pass names for the d2m -> ttmetal lowering.
 
+    The `d2m-be-pipeline` options are computed here so runtime config (e.g.
+    `config.use_split_unified_thread_v2`) can select alternate backend passes
+    without forking the whole pipeline string.
+
     When `config.insert_profiler_traces` is set, the TTKernel
     `insert-device-zone-scopes` pass is spliced in after `ttkernel-hoist-inits`
     and before the EmitC tail — the same slot createTTIRToTTMetalPipeline uses.
@@ -137,6 +141,16 @@ def _pipeline_passes():
     hoist-inits so the dispatch-level conversion sees the original loop
     structure.
     """
+    be_opts = [f"use-tile-matmul={int(config.use_tile_matmul)}"]
+    if config.use_split_unified_thread_v2:
+        be_opts.append("use-split-unified-thread-v2=1")
+    # use-tensor-accessor-dma is consumed by both d2m-be-pipeline (which gates
+    # D2MLowerDMAToFullyIndexedForm) and d2m-to-ttkernel-pre-emitc-pipeline
+    # (which passes it to convert-d2m-to-ttkernel); set it on both.
+    preemitc = "d2m-to-ttkernel-pre-emitc-pipeline"
+    if config.use_tensor_accessor_dma:
+        be_opts.append("use-tensor-accessor-dma=1")
+        preemitc += "{use-tensor-accessor-dma=1}"
     passes = [
         "canonicalize",
         "d2m-lower-to-layout",
@@ -150,8 +164,8 @@ def _pipeline_passes():
         "d2m-lower-multicast-loads",
         "d2m-generic-lower-to-explicit-form",
         "canonicalize",
-        f"d2m-be-pipeline{{use-tile-matmul={int(config.use_tile_matmul)}}}",
-        "d2m-to-ttkernel-pre-emitc-pipeline",
+        f"d2m-be-pipeline{{{' '.join(be_opts)}}}",
+        preemitc,
         "d2m-to-ttmetal-pipeline",
         "func.func(ttkernel-hoist-inits)",
     ]
@@ -160,6 +174,15 @@ def _pipeline_passes():
         passes.append("func.func(insert-device-zone-scopes{traits=" + traits + "})")
     passes.append("d2m-emitc-pipeline")
     return passes
+
+
+def _build_pipeline() -> str:
+    """Comma-joined pass-pipeline string (compat wrapper over `_pipeline_passes`).
+
+    Kept because tests and ad-hoc callers embed it directly in
+    `builtin.module(<register>,<pipeline>)`.
+    """
+    return ",".join(_pipeline_passes())
 
 
 # --- Scope abstraction ------------------------------------------------------
@@ -246,15 +269,48 @@ class _Builder:
         # Parallel arrays: MLIR arg types and the torch tensor that backs each.
         self._input_types: list = []
         self._input_tensors: list = []
+        # Optional mesh topology (e.g. ("linear", "ring")) for register-device;
+        # the mesh *shape* lives in the module's ttcore.meshes attr (set by
+        # set_mesh) and is read by ttcore-register-device's determineMeshShape.
+        self._mesh_topology = None
+        # Name of the declared mesh (None until set_mesh), used to build the
+        # `#ttcore.tensor_mesh<...>` encoding that marks mesh_shard boundary
+        # tensors as multi-device.
+        self._mesh_name = None
+        # Set when a kernel is invoked with a `fabric=` config (a CCL kernel).
+        # `_execute` must then enable the device fabric (set_fabric_config)
+        # before opening the mesh device, or the cross-device fabric ops
+        # (device_synchronize / fabric remote_store / fabric semaphore incs)
+        # silently no-op and the kernel hangs on its semaphore_wait.
+        self._fabric_used = False
+
+    def set_mesh(self, shape, topology=None):
+        """Declare the device mesh for this graph.
+
+        Sets the module's `ttcore.meshes` attribute (which ttcore-register-device
+        reads to size the device, and which flows to the flatbuffer program mesh
+        shape consumed by the runtime). `topology` (e.g. ("linear", "ring")) is
+        stashed for register-device's `mesh-topology` option -- needed for CCL
+        ops like all_gather that require a ring axis."""
+        dims = "x".join(str(int(d)) for d in shape)
+        with self.ctx, self.loc:
+            attr = Attribute.parse(f'#ttcore.meshes<[<"mesh" = {dims}>]>', self.ctx)
+        self.module.operation.attributes["ttcore.meshes"] = attr
+        self._mesh_topology = list(topology) if topology is not None else None
+        self._mesh_name = "mesh"
 
     def _refresh_function_type(self, results=None):
         with self.ctx, self.loc:
             ft = FunctionType.get(self._input_types, results or [])
             self.func_op.attributes["function_type"] = TypeAttr.get(ft)
 
-    def add_host_input(self, layout: Layout, host_tensor):
-        """Append a host-typed func arg and return its BlockArgument."""
-        host_ty = layout.build_host_tensor_type(self.ctx)
+    def add_host_input(self, layout: Layout, host_tensor, host_ty=None):
+        """Append a host-typed func arg and return its BlockArgument.
+
+        `host_ty` overrides the type (used for mesh inputs, whose func arg is
+        the full un-sharded tensor rather than `layout`'s per-device shard)."""
+        if host_ty is None:
+            host_ty = layout.build_host_tensor_type(self.ctx)
         bb_arg = self.entry_block.add_argument(host_ty, self.loc)
         self._input_types.append(host_ty)
         self._input_tensors.append(host_tensor)
@@ -337,7 +393,7 @@ class LazyTensor:
       - a materialised torch.Tensor (after to_host).
     """
 
-    __slots__ = ("layout", "value", "generation", "materialized", "is_view")
+    __slots__ = ("layout", "value", "generation", "materialized", "is_view", "mesh")
 
     def __init__(
         self,
@@ -346,6 +402,7 @@ class LazyTensor:
         generation,
         materialized=None,
         is_view: bool = False,
+        mesh=None,
     ):
         self.layout = layout
         self.value = value
@@ -356,6 +413,11 @@ class LazyTensor:
         # data is not in the view's logical form -- so we refuse it and
         # ask the user to materialise via to_layout first.
         self.is_view = is_view
+        # Mesh sharding metadata: None for a single-device tensor, else a
+        # `MeshShard` describing the full (un-sharded) shape and how this
+        # tensor's per-device shard maps onto the mesh. Drives the host-scope
+        # mesh_shard(shard_to_full) emitted on the to_host gather path.
+        self.mesh = mesh
 
     def to_host(self):
         return to_host(self)[0]
@@ -593,6 +655,398 @@ def full(layout: Layout, value) -> LazyTensor:
 def zeros(layout: Layout) -> LazyTensor:
     """`d2m.full(layout, 0)` -- allocate a zero-initialised device tensor."""
     return full(layout, 0)
+
+
+def arange(layout: Layout, start: int = 0, step: int = 1) -> LazyTensor:
+    """Allocate a device tensor filled with arange values.
+
+    Equivalent to `torch.arange(start, start + N*step, step).reshape(shape)`
+    where `N = prod(layout.logical_shape)` and `shape = layout.logical_shape`.
+    Row-major linear traversal.
+
+    Currently implemented as a host-side `torch.arange` + `to_layout`. This
+    matches what TTIR's `arange` ends up costing for a precomputed mask
+    (one DRAM transfer), but does **not** exercise the device-side
+    `d2m.arange_block` op. A future zero-roundtrip version would emit
+    `d2m.GenericOp { d2m.arange_block + remote_store }` (mirroring the C++
+    `D2MArangeOpRewriter` in lib/Conversion/TTIRToD2M/TTIRToD2M.cpp).
+    """
+    if torch is None:
+        raise RuntimeError("torch is required for d2m_jit.arange()")
+    torch_dtype = _ttcore_to_torch_dtype(layout.dtype)
+    numel = 1
+    for d in layout.logical_shape:
+        numel *= d
+    flat = torch.arange(start, start + numel * step, step, dtype=torch_dtype)
+    return to_layout(flat.reshape(list(layout.logical_shape)), layout)
+
+
+# --- Global semaphores -------------------------------------------------------
+
+
+def _semaphore_backing_type(ctx, grid_shape):
+    """Build the device tensor type for a global-semaphore backing buffer.
+
+    `d2m.create_global_semaphore`'s verifier requires the backing tensor to
+    have (a) a grid shape equal to the device worker grid, (b) a 1x1 shard,
+    and (c) a `ui32` element type. The compute `Layout` helper pads shards to
+    the 32x32 tile alignment, so we build the metal_layout directly with
+    `dim_alignments = 1x1` (matching `#sem_layout` in
+    test/.../generic_global_semaphores.mlir).
+    """
+    import numpy as np
+
+    rank = len(grid_shape)
+    # Identity collapse intervals [[0,1],[1,2],...]: one logical dim per shard
+    # dim, no collapsing.
+    intervals = np.array([[i, i + 1] for i in range(rank)], dtype=np.int64)
+    collapse = DenseIntElementsAttr.get(intervals, context=ctx)
+    metal_layout = ttcore.ir.MetalLayoutAttr.get(
+        ctx,
+        list(grid_shape),
+        int(ttcore.MemorySpace.DeviceL1),
+        int(ttcore.TensorMemoryLayout.Sharded),
+        collapse,
+        [1] * rank,  # dim_alignments: 1x1 shard, no tile padding
+    )
+    device_shape = ttcore.ir.MetalLayoutAttr.maybe_downcast(
+        metal_layout
+    ).getDeviceShape(list(grid_shape), [])
+    ui32 = IntegerType.get_unsigned(32, ctx)
+    return RankedTensorType.get(device_shape, ui32, encoding=metal_layout)
+
+
+class GlobalSemaphore:
+    """Host-side handle for a `!d2m.global_semaphore` created via
+    `d2m.create_global_semaphore`.
+
+    Passed positionally to a `@d2m.kernel` after the tensor arguments; the
+    kernel body sees it as a `!d2m.global_semaphore` parameter usable with
+    `semaphore_set` / `semaphore_wait` / `semaphore_inc` / `device_synchronize`
+    and the `semaphore=` kwarg of `remote_store`.
+    """
+
+    __slots__ = ("value", "generation", "grid_shape", "init")
+
+    def __init__(self, value, generation, grid_shape, init):
+        self.value = value
+        self.generation = generation
+        self.grid_shape = grid_shape
+        self.init = init
+
+    def _resolve_value(self):
+        b = _get_scope()
+        if self.generation != b.generation:
+            raise RuntimeError(
+                "Stale GlobalSemaphore: produced by a prior builder generation. "
+                "Create it in the same generation as the kernel call."
+            )
+        return self.value
+
+
+_g_worker_grid = None
+
+
+def _device_worker_grid():
+    """Return the device worker grid as `(rows, cols)` from the system desc.
+
+    `create_global_semaphore`'s verifier requires the semaphore backing tensor
+    to span the full device worker grid, which is arch-dependent (8x8 on
+    Wormhole, 10x11 on Blackhole p300c). Read it from the system descriptor's
+    `grid_size` so `global_semaphore()` is portable across architectures rather
+    than hardcoding a single arch's grid. Cached after the first call.
+    """
+    global _g_worker_grid
+    if _g_worker_grid is not None:
+        return _g_worker_grid
+    import json
+
+    # Use the already-imported `_ttmlir_runtime` bindings, NOT `ttrt.binary`:
+    # importing the ttrt wrapper here pulls in a second copy of the runtime
+    # extension and double-initialises it, aborting the process.
+    sd_path = _get_system_desc_path()
+    if binary is not None and sd_path:
+        sd = binary.load_system_desc_from_path(sd_path)
+    elif runtime is not None:
+        sd = runtime.get_current_system_desc()
+    else:
+        raise RuntimeError(
+            "global_semaphore() needs a system descriptor to size the worker "
+            "grid; set SYSTEM_DESC_PATH or pass grid_shape explicitly."
+        )
+    desc = json.loads(sd.as_json())
+    root = desc.get("system_desc", desc)
+    grid = root["chip_descs"][0]["grid_size"]
+    _g_worker_grid = (int(grid["y"]), int(grid["x"]))
+    return _g_worker_grid
+
+
+def global_semaphore(grid_shape=None, init=0) -> GlobalSemaphore:
+    """Allocate a global semaphore over the device worker grid.
+
+    `grid_shape` must equal the device worker grid (8x8 on Wormhole, 10x11 on
+    Blackhole p300c) — the `create_global_semaphore` verifier checks this. When
+    omitted (`None`), it is read from the system descriptor via
+    `_device_worker_grid()` so the same call is portable across architectures.
+    `init` is the initial value (default 0).
+
+    Emits an uninitialised `ui32` backing buffer plus
+    `d2m.create_global_semaphore`, and returns a `GlobalSemaphore` handle to
+    pass to a kernel.
+    """
+    if grid_shape is None:
+        grid_shape = _device_worker_grid()
+    b = _get_scope()
+    with b.ctx, b.loc, b.insert_point:
+        backing_ty = _semaphore_backing_type(b.ctx, grid_shape)
+        backing = d2m.empty(backing_ty)
+        sem_ty = d2m.ir.GlobalSemaphoreType.get(b.ctx)
+        # create_global_semaphore does not support type inference; the result
+        # type must be given explicitly.
+        sem = d2m.create_global_semaphore(backing, value=int(init), results=[sem_ty])
+    return GlobalSemaphore(sem, b.generation, tuple(grid_shape), int(init))
+
+
+def mesh(shape, topology=None):
+    """Declare the device mesh for the current graph.
+
+    `shape` is the mesh shape, e.g. `(1, 2)` for a 1x2 mesh; `topology` is an
+    optional per-axis topology tuple (e.g. `("linear", "ring")`) needed by CCL
+    ops such as all_gather (which require a ring cluster axis). Call before
+    building the graph; the mesh persists until the next `to_host` reset.
+
+    Sets the module's `ttcore.meshes` attribute, which ttcore-register-device
+    reads to size the device and which flows to the runtime as the program mesh
+    shape."""
+    b = _get_scope()
+    if not isinstance(b, _Builder):
+        raise RuntimeError("mesh() requires the lazy builder scope")
+    b.set_mesh(shape, topology)
+
+
+class MeshShard:
+    """Mesh-sharding metadata carried by a LazyTensor (see `LazyTensor.mesh`).
+
+    Records the full (un-sharded) logical shape plus how the per-device shard
+    maps onto the mesh, so the to_host gather path can emit a
+    `mesh_shard(shard_to_full)`."""
+
+    __slots__ = ("full_shape", "shard_dims", "shard_shape")
+
+    def __init__(self, full_shape, shard_dims, shard_shape):
+        self.full_shape = list(full_shape)
+        self.shard_dims = list(shard_dims)
+        self.shard_shape = list(shard_shape)
+
+
+def _shard_logical_shape(full_shape, shard_dims, shard_shape):
+    """Per-device shard shape: `full_shape` divided by `shard_shape` along the
+    corresponding `shard_dims`."""
+    shard = list(full_shape)
+    for i, d in enumerate(shard_dims):
+        if shard[d] % shard_shape[i] != 0:
+            raise ValueError(
+                f"mesh shard: full dim {d} ({shard[d]}) not divisible by shard "
+                f"factor {shard_shape[i]}"
+            )
+        shard[d] //= shard_shape[i]
+    return shard
+
+
+def _emit_mesh_shard(b, value, dst_ty, direction, shard_dims, shard_shape):
+    """Emit a `d2m.mesh_shard` (devices) op in the given direction."""
+    devices = Attribute.parse("#ttcore.shard_type<devices>", b.ctx)
+    dir_attr = Attribute.parse(f"#ttcore.shard_direction<{direction}>", b.ctx)
+    return d2m.mesh_shard(
+        dst_ty, value, devices, dir_attr, list(shard_shape), list(shard_dims)
+    )
+
+
+def _tensor_mesh_attr(b):
+    """The `#ttcore.tensor_mesh<name>` encoding for the declared mesh, or None.
+
+    Tagging the per-device shard at the mesh_shard boundary with this encoding
+    is what marks it multi-device: it bufferizes to a `#ttcore.host_layout<...,
+    <name>>` so the runtime sizes the distributed host buffer correctly (vs a
+    single-device tensor whose size mismatches the mesh device buffer). The
+    full-tensor side of mesh_shard stays un-encoded. Mirrors what
+    ttir-multi-device-tensor-annotation does for `ttir.mesh_shard`."""
+    name = getattr(b, "_mesh_name", None)
+    if name is None:
+        return None
+    with b.ctx, b.loc:
+        return Attribute.parse(f'#ttcore.tensor_mesh<"{name}">', b.ctx)
+
+
+def mesh_shard(input_, layout: Layout, shard_dims, shard_shape) -> LazyTensor:
+    """Distribute a full host tensor across the mesh, one shard per device
+    (`full_to_shard`).
+
+    `input_` is the full `torch.Tensor`; `layout` is the **per-device shard**
+    layout, whose `logical_shape` must equal `input_`'s shape divided by
+    `shard_shape` along `shard_dims`. `shard_shape` is the mesh shard factor
+    per axis (e.g. `[1, 2]` for a 1x2 mesh) and `shard_dims` maps tensor dims
+    to mesh axes (e.g. `[0, 1]`).
+
+    Returns a device LazyTensor carrying `MeshShard` metadata so `to_host`
+    gathers it back (`shard_to_full`)."""
+    if torch is None or not isinstance(input_, torch.Tensor):
+        raise TypeError("mesh_shard expects a torch.Tensor (the full tensor)")
+    b = _get_scope()
+    full_shape = list(input_.shape)
+    expected = _shard_logical_shape(full_shape, shard_dims, shard_shape)
+    if list(layout.logical_shape) != expected:
+        raise ValueError(
+            f"mesh_shard: layout shard shape {list(layout.logical_shape)} does "
+            f"not match {expected} (full {full_shape} / {list(shard_shape)} along "
+            f"dims {list(shard_dims)})"
+        )
+    with b.ctx, b.loc, b.insert_point:
+        elem = layout.get_host_elem_type(b.ctx)
+        full_ty = RankedTensorType.get(full_shape, elem)
+        # The per-device shard carries the tensor_mesh encoding (multi-device);
+        # the full tensor (func arg) stays plain.
+        tensor_mesh = _tensor_mesh_attr(b)
+        shard_ty = RankedTensorType.get(expected, elem, encoding=tensor_mesh)
+        bb_arg = b.add_host_input(layout, input_, host_ty=full_ty)
+        sharded = _emit_mesh_shard(
+            b, bb_arg, shard_ty, "full_to_shard", shard_dims, shard_shape
+        )
+        dev = layout.build_to_device(b.ctx, sharded)
+    return LazyTensor(
+        layout, dev, b.generation, mesh=MeshShard(full_shape, shard_dims, shard_shape)
+    )
+
+
+def mesh_gather(lt: LazyTensor, shard_dims=None, shard_shape=None) -> LazyTensor:
+    """Mark a per-device shard LazyTensor to be gathered to its full tensor on
+    `to_host` (`shard_to_full`).
+
+    A tensor produced by `mesh_shard` already carries the metadata, so this is
+    a no-op for it. For a tensor produced some other way (e.g. a kernel output),
+    pass `shard_dims`/`shard_shape`; the full shape is derived from the layout's
+    per-device shard shape."""
+    lt = lt._resolve()
+    if lt.mesh is None:
+        if shard_dims is None or shard_shape is None:
+            raise ValueError(
+                "mesh_gather needs shard_dims/shard_shape for a tensor not "
+                "produced by mesh_shard"
+            )
+        full = list(lt.layout.logical_shape)
+        for i, d in enumerate(shard_dims):
+            full[d] *= shard_shape[i]
+        lt.mesh = MeshShard(full, shard_dims, shard_shape)
+    return lt
+
+
+def reblock(lt: LazyTensor, grid) -> LazyTensor:
+    """Reblock a device tensor onto a different worker-core `grid` (a metadata
+    `d2m.view_layout`, no data movement).
+
+    Used to build the CCL "stream" operands: spread a shard's work across cores
+    and (for an all_gather output) span the mesh on the gather dim. The new
+    layout's `block_shape` is chosen so its blocked grid equals `grid` (the
+    layout is self-consistent), so a later device-view / to_host on the result
+    is a no-op rather than an implicit re-reblock."""
+    lt = lt._resolve()
+    layout = lt.layout
+    b = _get_scope()
+    grid = list(grid)
+    logical = list(layout.logical_shape)
+    tiles = [(s + 31) // 32 for s in logical] if layout.tiled else logical
+    if len(grid) != len(tiles):
+        raise ValueError(f"reblock: grid {grid} rank != logical rank {len(tiles)}")
+    new_block = []
+    for t, g in zip(tiles, grid):
+        if g <= 0 or t % g != 0:
+            raise ValueError(
+                f"reblock: {t} tiles along a dim not divisible by grid {g}"
+            )
+        new_block.append(t // g)
+    new_layout = layout.replace(grid_shape=grid, block_shape=new_block)
+    with b.ctx, b.loc, b.insert_point:
+        old_shape = list(lt.value.type.shape)
+        new_ty = new_layout.build_device_tensor_type(b.ctx, blocked=False)
+        reblock_map = d2m.ir.calculate_reblock_map(old_shape, list(new_ty.shape), b.ctx)
+        val = d2m.ViewLayoutOp(new_ty, lt.value, reblock_map).result
+    return LazyTensor(new_layout, val, b.generation, is_view=True, mesh=lt.mesh)
+
+
+def reshape(lt: LazyTensor, *shape) -> LazyTensor:
+    """torch.reshape-style logical-shape change.
+
+    Total element count must match. Currently implemented via a host
+    roundtrip (`to_host` -> `torch.reshape` -> `to_layout`), so it pays a
+    DRAM transfer and re-tilises the data. Use it for shape changes that
+    don't cleanly map to a `view` -- e.g. coalescing two non-adjacent dims
+    or splitting one dim into many.
+
+    Distinct from `view` / `view_layout` / `permute`, which are metadata
+    reinterpretations of the buffer (no data movement, but require the
+    new logical layout to be expressible as a permutation of the source's
+    grid/tile dims).
+
+    The destination layout reuses the source layout's `dtype`, `mem_space`,
+    `tiled` setting, and either:
+      - keeps the source's `block_shape` / `grid_shape` if they fit the
+        new shape divisibility-wise, or
+      - falls back to `block_shape=[1]*rank`, `grid_shape=[1]*rank`.
+    Use `to_layout(reshaped, target_layout)` to land it in a specific
+    layout afterwards.
+    """
+    if not isinstance(lt, LazyTensor):
+        raise TypeError(f"reshape expected a LazyTensor, got {type(lt).__name__}")
+    if torch is None:
+        raise RuntimeError("torch is required for d2m_jit.reshape()")
+
+    # Accept reshape(lt, 1, 2, 256, 64) and reshape(lt, [1, 2, 256, 64]).
+    if len(shape) == 1 and isinstance(shape[0], (list, tuple)):
+        new_shape = tuple(shape[0])
+    else:
+        new_shape = tuple(shape)
+
+    src_numel = 1
+    for d in lt.layout.logical_shape:
+        src_numel *= d
+    dst_numel = 1
+    for d in new_shape:
+        dst_numel *= d
+    if src_numel != dst_numel:
+        raise ValueError(
+            f"reshape: total element count must match: "
+            f"src {tuple(lt.layout.logical_shape)} ({src_numel}) "
+            f"!= dst {new_shape} ({dst_numel})"
+        )
+
+    # Pick a destination layout: keep src's block/grid if compatible,
+    # otherwise fall back to a trivial single-block single-grid layout
+    # (the user can to_layout to something denser if perf matters).
+    rank = len(new_shape)
+    src_block = list(lt.layout.block_shape)
+    src_grid = list(lt.layout.grid_shape)
+    if (
+        len(src_block) == rank
+        and len(src_grid) == rank
+        and all(
+            d % (b * g * (32 if lt.layout.tiled else 1)) == 0
+            for d, b, g in zip(new_shape, src_block, src_grid)
+        )
+    ):
+        block_shape = src_block
+        grid_shape = src_grid
+    else:
+        block_shape = [1] * rank
+        grid_shape = [1] * rank
+
+    dst_layout = lt.layout.replace(
+        shape=new_shape,
+        block_shape=block_shape,
+        grid_shape=grid_shape,
+    )
+
+    host = lt.to_host().reshape(new_shape)
+    return to_layout(host, dst_layout)
 
 
 def reduction_layout(layout: Layout, dim, allow_cross_tile: bool = False) -> Layout:
@@ -926,19 +1380,70 @@ def _emit_returns_and_finalise(b: _Builder, lts):
     with b.ctx, b.loc, b.insert_point:
         for lt in lts:
             dev = lt.layout.build_device_view(b.ctx, lt.value)
-            host = lt.layout.build_from_device(b.ctx, dev)
+            if lt.mesh is not None:
+                # Bring the device shard back to a tensor_mesh-encoded host
+                # shard (multi-device), then gather to the full tensor. The
+                # encoding is what lets the runtime size the distributed host
+                # buffer to match the mesh device buffer.
+                elem = lt.layout.get_host_elem_type(b.ctx)
+                tensor_mesh = _tensor_mesh_attr(b)
+                host_shard_ty = RankedTensorType.get(
+                    lt.layout.logical_shape, elem, encoding=tensor_mesh
+                )
+                out_empty = d2m.empty(host_shard_ty)
+                host_shard = d2m.ToLayoutOp([host_shard_ty], dev, out_empty).result
+                full_ty = RankedTensorType.get(lt.mesh.full_shape, elem)
+                host = _emit_mesh_shard(
+                    b,
+                    host_shard,
+                    full_ty,
+                    "shard_to_full",
+                    lt.mesh.shard_dims,
+                    lt.mesh.shard_shape,
+                )
+                host_ty = full_ty
+            else:
+                host = lt.layout.build_from_device(b.ctx, dev)
+                host_ty = lt.layout.build_host_tensor_type(b.ctx)
             host_values.append(host)
-            host_types.append(lt.layout.build_host_tensor_type(b.ctx))
+            host_types.append(host_ty)
         func.ReturnOp(host_values)
     b._refresh_function_type(results=host_types)
 
 
-def _run_pipeline(b: _Builder):
+def _register_device(b: _Builder):
+    """Run `ttcore-register-device` on the module.
+
+    Done as its own pass (separate from `_run_pipeline`) and *before* the
+    pre-pipeline `verify()` in `to_host`: some op verifiers (e.g.
+    `create_global_semaphore`, which sizes its backing buffer to the device
+    worker grid) call `ttcore::lookupDevice`, which asserts when no device op
+    is present. Registering first makes that verify well-defined.
+    """
     system_desc = _get_system_desc_path()
-    register = "ttcore-register-device"
+    opts = []
     if system_desc:
-        register += f"{{system-desc-path={system_desc}}}"
-    pipeline_str = f"builtin.module({register},{','.join(_pipeline_passes())})"
+        opts.append(f"system-desc-path={system_desc}")
+    # Mesh shape comes from the module's ttcore.meshes attr (determineMeshShape
+    # reads it); only the topology needs to be passed as a pass option. Passing
+    # mesh-shape here too would risk a conflict-error against the attr.
+    topology = getattr(b, "_mesh_topology", None)
+    if topology:
+        opts.append("mesh-topology=" + ",".join(topology))
+    register = "ttcore-register-device"
+    if opts:
+        register += "{" + " ".join(opts) + "}"
+    if config.print_pipeline:
+        print(f"[d2m-jit] register: {register}")
+    pm = PassManager.parse(f"builtin.module({register})", context=b.ctx)
+    pm.enable_verifier(config.verify_passes)
+    pm.run(b.module.operation)
+
+
+def _run_pipeline(b: _Builder):
+    # The device is already registered (see `_register_device`, run before the
+    # pre-pipeline verify in `to_host`), so this is the compute pipeline only.
+    pipeline_str = f"builtin.module({','.join(_pipeline_passes())})"
 
     if config.print_pipeline:
         print(f"[d2m-jit] pipeline: {pipeline_str}")
@@ -960,6 +1465,62 @@ def _run_pipeline(b: _Builder):
     if config.print_ir_after_pipeline:
         print("[d2m-jit] IR after pipeline:")
         print(b.module)
+
+
+# --- Mesh-device cache --------------------------------------------------------
+#
+# Opening + closing a mesh device on every execution repeatedly inits and tears
+# down the UMD cluster: slow, and on n300 it flakes the ARC startup. Mirroring
+# test/python/golden/conftest.py's `_get_device_for_target`, we keep one device
+# open and reuse it across executions, only closing + reopening when the mesh
+# shape or fabric setting changes. The d2m-jit conftest closes the cached device
+# at session end and after a failing test (the hardware may be in an undefined
+# state). A test that opens its own mesh device must call `_close_cached_device`
+# first so two meshes are never open at once.
+_cached_device = None
+_cached_mesh_shape = None
+_cached_fabric_used = None
+
+
+def _get_cached_device(mesh_shape, fabric_used):
+    """Return a mesh device for (`mesh_shape`, `fabric_used`), reusing the cached
+    one on a match and otherwise closing it and opening a fresh one."""
+    global _cached_device, _cached_mesh_shape, _cached_fabric_used
+    mesh_shape = tuple(mesh_shape)
+    if _cached_device is not None:
+        if _cached_mesh_shape == mesh_shape and _cached_fabric_used == fabric_used:
+            return _cached_device
+        # Mesh / fabric mismatch: tear down before opening the new device.
+        _close_cached_device()
+    # CCL kernels need the device fabric enabled *before* the mesh is opened
+    # (matching the golden harness). Without it the program's fabric ops
+    # (device_synchronize / fabric remote_store / fabric semaphore incs) silently
+    # no-op and the kernel hangs on semaphore_wait.
+    if fabric_used:
+        runtime.set_fabric_config(runtime.FabricConfig.FABRIC_1D_RING)
+    device_options = runtime.MeshDeviceOptions()
+    device_options.mesh_shape = list(mesh_shape)
+    _cached_device = runtime.open_mesh_device(device_options)
+    _cached_mesh_shape = mesh_shape
+    _cached_fabric_used = fabric_used
+    return _cached_device
+
+
+def _close_cached_device():
+    """Close and forget the cached mesh device (disabling fabric if it was on).
+    Safe to call when nothing is cached."""
+    global _cached_device, _cached_mesh_shape, _cached_fabric_used
+    if _cached_device is None:
+        return
+    fabric_used = _cached_fabric_used
+    try:
+        runtime.close_mesh_device(_cached_device)
+    finally:
+        if fabric_used:
+            runtime.set_fabric_config(runtime.FabricConfig.DISABLED)
+        _cached_device = None
+        _cached_mesh_shape = None
+        _cached_fabric_used = None
 
 
 _g_perf_trace_enabled = False
@@ -1006,8 +1567,7 @@ def _execute(b: _Builder, lts):
         fbb.store(config.save_flatbuffer_path)
         print(f"[d2m-jit] flatbuffer written to {config.save_flatbuffer_path}")
     program_index = 0
-    device_options = runtime.MeshDeviceOptions()
-    device_options.mesh_shape = fbb.get_program_mesh_shape(program_index)
+    mesh_shape = fbb.get_program_mesh_shape(program_index)
     runtime.set_compatible_device_runtime(fbb)
 
     # Marshal inputs from the torch tensors / scalars gathered during graph build.
@@ -1031,7 +1591,10 @@ def _execute(b: _Builder, lts):
     rt_outputs = []
     for lt in lts:
         torch_dtype = _ttcore_to_torch_dtype(lt.layout.dtype)
-        t_out = torch.empty(list(lt.layout.logical_shape), dtype=torch_dtype)
+        out_shape = (
+            lt.mesh.full_shape if lt.mesh is not None else lt.layout.logical_shape
+        )
+        t_out = torch.empty(list(out_shape), dtype=torch_dtype)
         out_torch.append(t_out)
         rt_outputs.append(
             runtime.create_borrowed_host_tensor(
@@ -1043,14 +1606,23 @@ def _execute(b: _Builder, lts):
             )
         )
 
-    device = runtime.open_mesh_device(device_options)
-    submitted = runtime.submit(device, fbb, program_index, rt_inputs)
-    runtime.wait(submitted)
-    for i, rt_out in enumerate(submitted):
-        host_view = runtime.to_host(rt_out, untilize=True)[0]
-        runtime.memcpy(rt_outputs[i], host_view)
-        runtime.deallocate_tensor(rt_out, force=True)
-    runtime.close_mesh_device(device)
+    # Reuse a cached mesh device when possible (see _get_cached_device); CCL
+    # kernels need the device fabric enabled before the mesh is opened, which
+    # the cache handles based on `fabric_used`.
+    fabric_used = getattr(b, "_fabric_used", False)
+    device = _get_cached_device(mesh_shape, fabric_used)
+    try:
+        submitted = runtime.submit(device, fbb, program_index, rt_inputs)
+        runtime.wait(submitted)
+        for i, rt_out in enumerate(submitted):
+            host_view = runtime.to_host(rt_out, untilize=True)[0]
+            runtime.memcpy(rt_outputs[i], host_view)
+            runtime.deallocate_tensor(rt_out, force=True)
+    except Exception:
+        # After a failed execution the device may be in an undefined state;
+        # drop it so the next run opens a clean one.
+        _close_cached_device()
+        raise
     return out_torch
 
 
@@ -1089,6 +1661,9 @@ def to_host(*lts: LazyTensor):
     assert all(lt.generation == b.generation for lt in resolved)
 
     _emit_returns_and_finalise(b, resolved)
+    # Register the device before verifying: device-dependent verifiers (e.g.
+    # create_global_semaphore) assert without a registered device.
+    _register_device(b)
     b.module.operation.verify()
     _run_pipeline(b)
     outs = _execute(b, resolved)
@@ -1221,10 +1796,16 @@ def _emit_kernel_generic(
     block_factors,
     indexing_maps,
     iterator_types,
+    fabric=None,
     kernel_io_in_dram=None,
 ):
     """Append a d2m.GenericOp to the open host func that invokes `kernel`."""
     b = _get_scope()
+
+    # A `fabric=` kernel needs the device fabric enabled at open time; flag it so
+    # `_execute` calls set_fabric_config before open_mesh_device.
+    if fabric is not None and isinstance(b, _Builder):
+        b._fabric_used = True
 
     def _call_error(msg, hint=None, cause=None):
         # Pin call-site errors to the kernel's `def` line. The user's actual
@@ -1245,30 +1826,37 @@ def _emit_kernel_generic(
             cause=cause,
         )
 
-    # Split args, preserving "all LazyTensors precede all scalars" ordering.
+    # Split args, preserving "all LazyTensors precede all non-tensor args"
+    # ordering. Non-tensor args (`extras`) are scalars (int) and global
+    # semaphores, kept in their original order so they map 1:1 onto the
+    # kernel's trailing parameters and the GenericOp's additionalArgs.
     lazy_args = []
-    scalar_args = []
-    saw_scalar = False
+    extras = []  # list of ("scalar", int) | ("sem", GlobalSemaphore)
+    saw_extra = False
     for i, a in enumerate(args):
         if isinstance(a, LazyTensor):
-            if saw_scalar:
+            if saw_extra:
                 raise _call_error(
                     f"argument {i} to kernel '{kernel.fn.__name__}' is a "
-                    f"LazyTensor but a scalar was already seen; tensor "
-                    f"arguments must precede scalars",
+                    f"LazyTensor but a scalar/semaphore was already seen; "
+                    f"tensor arguments must precede scalars and semaphores",
                     cause=TypeError(),
                 )
             lazy_args.append(a._resolve())
+        elif isinstance(a, GlobalSemaphore):
+            saw_extra = True
+            extras.append(("sem", a))
         elif isinstance(a, int) and not isinstance(a, bool):
-            saw_scalar = True
-            scalar_args.append(a)
+            saw_extra = True
+            extras.append(("scalar", a))
         else:
             raise _call_error(
                 f"argument {i} to kernel '{kernel.fn.__name__}' has "
                 f"unsupported type {type(a).__name__}: {a!r}",
                 hint=(
-                    "kernel arguments must be d2m_jit.LazyTensor or int. "
-                    "Use d2m.to_layout(t, L) to lift a torch tensor."
+                    "kernel arguments must be d2m_jit.LazyTensor, int, or "
+                    "d2m_jit.GlobalSemaphore. Use d2m.to_layout(t, L) to lift "
+                    "a torch tensor."
                 ),
                 cause=TypeError(),
             )
@@ -1315,27 +1903,43 @@ def _emit_kernel_generic(
     # are always Python int constants, bake them into the kernel body as
     # captures (in-region constants) and emit no additionalArgs for them. The
     # lazy `_Builder` keeps the runtime-arg form: scalars stay index func args
-    # (see add_scalar_input) so the binary remains parameterised.
+    # (see add_scalar_input) so the binary remains parameterised. Semaphores are
+    # runtime handles and can never be baked, so they always stay in `extras`.
     bake_scalars = not isinstance(b, _Builder)
+    scalar_args = [val for kind, val in extras if kind == "scalar"]
     if bake_scalars and scalar_args:
         formal_names = [a.arg for a in kernel._ast.body[0].args.args]
-        scalar_names = formal_names[len(lazy_args) : len(lazy_args) + len(scalar_args)]
+        # The trailing formals map 1:1 onto `extras` in order; pair each
+        # "scalar" extra with its formal name so it becomes an in-region capture.
+        extra_names = formal_names[len(lazy_args) : len(lazy_args) + len(extras)]
+        scalar_names = [
+            name for (kind, _), name in zip(extras, extra_names) if kind == "scalar"
+        ]
         effective_captures = dict(kernel._captures)
         effective_captures.update(
             {n: int(v) for n, v in zip(scalar_names, scalar_args)}
         )
-        runtime_scalars = []
+        # Baked scalars leave `extras`; only semaphores remain as runtime
+        # additionalArgs / func params.
+        extras = [(kind, val) for kind, val in extras if kind != "scalar"]
     else:
         effective_captures = kernel._captures
-        runtime_scalars = list(scalar_args)
 
     # Compile the kernel body in the current builder's context. D2MCompiler
     # picks up b.ctx via get_default_loc_context.
     with b.ctx, b.loc:
-        compiler_args = [lt.layout for lt in lazy_args] + runtime_scalars
+        # Per-extra D2MCompiler arg: scalars pass their int (-> index func
+        # arg); semaphores pass the SEMAPHORE_ARG sentinel (-> global_semaphore
+        # func arg). Baked scalars have been removed from `extras` above and
+        # instead live in `effective_captures`. Order matches the kernel's
+        # trailing parameters.
+        extra_compiler_args = [
+            val if kind == "scalar" else SEMAPHORE_ARG for kind, val in extras
+        ]
+        compiler_args = [lt.layout for lt in lazy_args] + extra_compiler_args
         compiler = D2MCompiler(
             kernel.fn.__name__,
-            "unified",
+            kernel.thread_type,
             effective_captures,
             *compiler_args,
             source_file=kernel._source_file,
@@ -1347,11 +1951,16 @@ def _emit_kernel_generic(
 
     # Emit the GenericOp + splice the kernel body.
     with b.ctx, b.loc, b.insert_point:
-        # Scalars are sourced from func args (not host-scope constants) so the
-        # GenericOp's region stays isolated-from-above. In a rewrite scope the
-        # scalars were baked into the kernel body above, so runtime_scalars is
-        # empty and no additionalArgs are emitted for them.
-        additional = [b.add_scalar_input(s) for s in runtime_scalars]
+        # additionalArgs operands, in the kernel's trailing-parameter order:
+        #  - scalars are sourced from func args (not host-scope constants) so
+        #    the GenericOp's region stays isolated-from-above (in a rewrite
+        #    scope the scalars were baked into captures above and dropped from
+        #    `extras`, so none are emitted here),
+        #  - semaphores reuse the host-scope `create_global_semaphore` result.
+        additional = [
+            b.add_scalar_input(val) if kind == "scalar" else val._resolve_value()
+            for kind, val in extras
+        ]
         inputs = [lt.value for lt in input_lts]
         outputs = [lt.value for lt in output_lts]
         output_types = [v.type for v in outputs]
@@ -1386,6 +1995,7 @@ def _emit_kernel_generic(
             iter_attr,
             threads,
             1,  # num_regions
+            fabricConnectionConfig=fabric,
         )
 
         region = generic.regions[0]
@@ -1400,10 +2010,24 @@ def _emit_kernel_generic(
         for _ in range(len(block.arguments)):
             block.erase_argument(0)
 
+        # Reset each semaphore after the generic that consumed it, so its
+        # backing buffer becomes dead and is deallocated (matching the
+        # reset_global_semaphore + dealloc pattern in
+        # test/.../generic_global_semaphores.mlir). NOTE: this assumes a
+        # semaphore is used by a single kernel call; multi-kernel reuse would
+        # need an explicit host-side reset instead.
+        for kind, val in extras:
+            if kind == "sem":
+                d2m.reset_global_semaphore(val._resolve_value(), 0)
+
     # Rebind output LazyTensors to the GenericOp's results.
     for i, lt in enumerate(output_lts):
         lt.value = generic.results[i]
         lt.generation = b.generation
+        # The output may have been a reblocked stream view (is_view=True); after
+        # the kernel writes through it, it holds a real result and is
+        # materialisable (the result aliases the underlying buffer).
+        lt.is_view = False
     if kernel_io_in_dram:
         for i, (user_lt, kernel_lt) in enumerate(zip(user_output_lts, output_lts)):
             user_lt.layout = kernel_lt.layout
@@ -1413,13 +2037,23 @@ def _emit_kernel_generic(
             user_lt.is_view = kernel_lt.is_view
 
 
+# All kernels are authored as the "unified" implicit-blocked compute+
+# datamovement form; the backend (split-unified-thread-v2 -> schedule-dma)
+# splits it into per-thread regions. CCL kernels (device_synchronize,
+# cross-device remote_store, semaphores) are authored unified too -- the split
+# pins the device_synchronize barrier to a single datamovement thread (see
+# ScheduleDMA). Explicit semaphore_set/inc are permitted but not yet split
+# safely (see checkForIllegalSemaphoreOps's TODO in DMAUtils.cpp).
+
+
 class CompiledKernel:
     """Wraps a user kernel function. Parses the Python body once; emits a
-    `d2m.GenericOp` into the current builder on every call."""
+    `d2m.GenericOp` (unified thread) into the current builder on every call."""
 
     def __init__(self, fn):
         functools.update_wrapper(self, fn)
         self.fn = fn
+        self.thread_type = "unified"
         (
             self._source,
             self._source_firstlineno,
@@ -1437,6 +2071,7 @@ class CompiledKernel:
         block_factors=None,
         indexing_maps=None,
         iterator_types=None,
+        fabric=None,
         kernel_io_in_dram=None,
     ):
         _emit_kernel_generic(
@@ -1447,10 +2082,53 @@ class CompiledKernel:
             block_factors=block_factors,
             indexing_maps=indexing_maps,
             iterator_types=iterator_types,
+            fabric=fabric,
             kernel_io_in_dram=kernel_io_in_dram,
         )
 
 
+def fabric_config(
+    cluster_axis,
+    topology="ring",
+    num_links=1,
+    noc="noc0",
+    routing="unidir_ring_torus",
+    router_cores=None,
+):
+    """Build a `#ttcore.fabric_connection_config` attribute for a CCL kernel.
+
+    Pass the result as the `fabric=` argument of a `@d2m.kernel` call; it
+    configures the cross-device fabric routing for the GenericOp (required for
+    all_gather and other collectives). Defaults match the all_gather lowering
+    (`noc0`, ring topology, unidirectional ring/torus routing).
+
+    `router_cores` optionally restricts the fabric to a subset of the generic's
+    grid: a list of `(y, x)` grid coordinates, one per `(link, direction)` slot
+    (slot `i` -> routing plane `i // cores_per_link`, direction
+    `i % cores_per_link`; `cores_per_link` is 1 for `bidir_line_mesh`, 2 for
+    `unidir_ring_torus`). Omitted == the whole grid (legacy behavior). The kernel
+    queries membership via `is_router_core()` / `router_direction()`. See
+    tools/d2m-jit/fabric_router_cores_design.md."""
+    b = _get_scope()
+    routers = ""
+    if router_cores:
+        flat = ", ".join(str(int(v)) for yx in router_cores for v in yx)
+        routers = f", router_cores = [{flat}]"
+    with b.ctx, b.loc:
+        return Attribute.parse(
+            f"#ttcore.fabric_connection_config<noc_index = {noc}, "
+            f"topology = {topology}, cluster_axis = {int(cluster_axis)}, "
+            f"routing_mode = {routing}, num_links = {int(num_links)}{routers}>",
+            b.ctx,
+        )
+
+
 def kernel(fn):
-    """Decorate a user function as a d2m_jit kernel."""
+    """Decorate a user function as a d2m_jit kernel.
+
+    All kernels are authored as the `unified` compute+datamovement form; the
+    backend splits it into per-thread regions. CCL kernels (device_synchronize,
+    cross-device remote_store, semaphores) are authored the same way -- the
+    split pins the device_synchronize barrier to a single datamovement thread.
+    """
     return CompiledKernel(fn)

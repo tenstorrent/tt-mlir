@@ -57,6 +57,7 @@ struct ConvertD2MToTTKernel
     // base class copy constructors ignore Pass option fields.
     this->ttnnMode = rhs.ttnnMode;
     this->forceCompileTimeArgs = rhs.forceCompileTimeArgs;
+    this->useTensorAccessorDMA = rhs.useTensorAccessorDMA;
   }
 
   void runOnOperation() final {
@@ -179,16 +180,34 @@ struct ConvertD2MToTTKernel
     populateFunctionOpInterfaceTypeConversionPattern<func::FuncOp>(
         patterns, typeConverter);
     populateD2MToTTKernelPatterns(&getContext(), patterns, typeConverter,
-                                  cbProducerConsumer, forceCompileTimeArgs);
+                                  cbProducerConsumer, forceCompileTimeArgs,
+                                  useTensorAccessorDMA);
     scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
                                                          patterns, target);
 
-    // If there is any fabric related writes,
-    // insert fabric connection manager ops and setup fabric connections at the
-    // start of the function and close at the end.
+    // Insert fabric connection manager ops and setup fabric connections at the
+    // start of the function and close at the end whenever the function has an
+    // "fcm user": a cross-device fabric op (fabric write / fabric semaphore
+    // inc/set) OR mesh_position (which lowers to
+    // get_my_logical_mesh_position(fcm)). A thread can use mesh_position without
+    // doing a fabric op itself -- e.g. after split-unified-thread a local
+    // output store with a mesh_position-derived grid index lands on a different
+    // NoC thread than the fabric send. Such a thread still needs the fcm to
+    // dominate the mesh_position; setup_fabric_connections opens only
+    // num_send_dir connections (0 for a non-sending thread), so this is just the
+    // cheap topology build mesh_position needs.
+    auto isFcmUser = [](Operation *op) {
+      return (mlir::isa<d2m::DMAWriteOp>(op) &&
+              mlir::cast<d2m::DMAWriteOp>(op).getStartDevice().size() > 0) ||
+             (mlir::isa<d2m::SemaphoreIncOp>(op) &&
+              mlir::cast<d2m::SemaphoreIncOp>(op).getStartDevice().size() > 0) ||
+             (mlir::isa<d2m::SemaphoreSetOp>(op) &&
+              mlir::cast<d2m::SemaphoreSetOp>(op).getStartDevice().size() > 0) ||
+             mlir::isa<d2m::MeshPositionOp>(op);
+    };
     bool fabric_write_present = false;
-    funcOp.walk([&](d2m::DMAWriteOp dmaWriteOp) {
-      if (dmaWriteOp.getStartDevice().size() > 0) {
+    funcOp.walk([&](Operation *op) {
+      if (isFcmUser(op)) {
         fabric_write_present = true;
         return WalkResult::interrupt();
       }

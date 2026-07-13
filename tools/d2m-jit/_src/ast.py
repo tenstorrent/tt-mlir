@@ -22,9 +22,34 @@ from .tensor_layout import Layout
 _D2M_KERNEL_TYPES = {None, "datamovement", "noc", "compute", "unified"}
 
 
+class _SemaphoreArg:
+    """Sentinel passed to D2MCompiler (via the kernel's compiler args) to type
+    a kernel parameter as `!d2m.global_semaphore`. Used instead of a `Layout`
+    or `int` for semaphore arguments. Lives here (not in builder.py) so
+    `_emit_entry` can recognise it without a circular import."""
+
+
+# Singleton instance; identity/type is all that matters.
+SEMAPHORE_ARG = _SemaphoreArg()
+
+
 def _as_value(v):
     """Coerce an OpView or Value to an ir.Value."""
     return v.result if isinstance(v, OpView) else v
+
+
+def _value_is_dm_seeded(v):
+    """True if `v` is the result of a data-movement load (remote_load /
+    fabric_recv). Used to reject a DM-seeded loop-carried accumulator (see the
+    guard in visit_For)."""
+    try:
+        owner = v.owner  # Operation for an OpResult; Block for a BlockArgument
+        name = owner.name if hasattr(owner, "name") else owner.operation.name
+    except Exception:
+        return False
+    return isinstance(name, str) and (
+        "remote_load" in name or "fabric_recv" in name
+    )
 
 
 class D2MCompiler(ast.NodeVisitor):
@@ -270,6 +295,8 @@ class D2MCompiler(ast.NodeVisitor):
                 func_operand_types.append(
                     rt_arg.build_device_tensor_type(self.ctx, blocked=True)
                 )
+            elif isinstance(rt_arg, _SemaphoreArg):
+                func_operand_types.append(d2m.ir.GlobalSemaphoreType.get(self.ctx))
             elif isinstance(rt_arg, int):
                 func_operand_types.append(IndexType.get(self.ctx))
             else:
@@ -372,8 +399,43 @@ class D2MCompiler(ast.NodeVisitor):
                         names.append(target.id)
         return names
 
+    def _eval_static_int(self, node):
+        """Evaluate a compile-time integer AST expression using int captures.
+
+        Used for attributes that must be known at trace time (e.g. shape
+        literals, num_receivers) so a value derived from a captured mesh size
+        resolves to a constant. Supports literals, captured int names, and
+        +, -, *, //, % over them."""
+        if isinstance(node, ast.Constant) and isinstance(node.value, int):
+            return node.value
+        if isinstance(node, ast.Name):
+            if node.id in self.captures and isinstance(self.captures[node.id], int):
+                return self.captures[node.id]
+            raise ValueError(
+                f"'{node.id}' is not a compile-time int capture "
+                f"(closed-over int)")
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+            return -self._eval_static_int(node.operand)
+        if isinstance(node, ast.BinOp):
+            lhs = self._eval_static_int(node.left)
+            rhs = self._eval_static_int(node.right)
+            if isinstance(node.op, ast.Add):
+                return lhs + rhs
+            if isinstance(node.op, ast.Sub):
+                return lhs - rhs
+            if isinstance(node.op, ast.Mult):
+                return lhs * rhs
+            if isinstance(node.op, ast.FloorDiv):
+                return lhs // rhs
+            if isinstance(node.op, ast.Mod):
+                return lhs % rhs
+        raise ValueError("compile-time integer expression must be over "
+                         "literals and int captures")
+
     def visit_For(self, node):
-        assert node.iter.func.id == "range", "Only range() supported in for loops"
+        iter_fn = getattr(node.iter.func, "id", None)
+        assert iter_fn == "range", \
+            "Only range() supported in for loops"
 
         if len(node.iter.args) == 1:
             lower_bound = arith.ConstantOp(IndexType.get(self.ctx), 0)
@@ -407,6 +469,37 @@ class D2MCompiler(ast.NodeVisitor):
                 owners[name] = owner
                 carried.append(name)
         init_args = [_as_value(owners[name][name]) for name in carried]
+
+        # Guard: a loop-carried accumulator must be COMPUTE-initialized (e.g.
+        # `acc = zeros([...])`), not DM-seeded. `acc = remote_load(...)` (or
+        # fabric_recv) followed by an in-place `acc += ...` inside the loop makes
+        # the accumulator a cross-thread circular-buffer FIFO -- the DM thread
+        # produces the init while the compute thread read-modify-writes it -- so
+        # the compute pack and the store land on different CB pages and the
+        # result silently miscomputes. The compute-initialized path keeps the
+        # accumulator L1-resident (and DST-chunks it, so it scales past DST).
+        aug_targets = {
+            s.target.id
+            for s in node.body
+            if isinstance(s, ast.AugAssign) and isinstance(s.target, ast.Name)
+        }
+        for i, name in enumerate(carried):
+            if name in aug_targets and _value_is_dm_seeded(init_args[i]):
+                self._fail(
+                    node,
+                    ValueError(
+                        f"loop-carried accumulator '{name}' is initialized by a "
+                        f"remote_load/fabric_recv (a data-movement seed); an "
+                        f"in-place '{name} += ...' over a DM-seeded buffer becomes "
+                        f"a cross-thread circular-buffer FIFO that silently "
+                        f"miscomputes."
+                    ),
+                    hint=(
+                        f"initialize the accumulator with an in-kernel compute op, "
+                        f"e.g. `{name} = zeros([...])` then `{name} += "
+                        f"remote_load(...)` (fold the seed into the first add)."
+                    ),
+                )
 
         for_op = scf.ForOp(lower_bound, upper_bound, step, iter_args=init_args)
         with InsertionPoint(for_op.body), Location.unknown():
@@ -490,6 +583,16 @@ class D2MCompiler(ast.NodeVisitor):
                 a = _as_value(self.visit(node.value.left))
                 b = _as_value(self.visit(node.value.right))
                 sym_table[target.id] = matmul_acc(lhs, a, b)
+                return
+
+        # `acc += <eltwise>` (non-matmul Add): accumulate in place into `acc`
+        # via `__add_acc__` (linalg.generic outs(acc)) -- the eltwise dual of
+        # the matmul case above, so a loop-carried `acc` bufferizes.
+        if isinstance(node.op, ast.Add):
+            add_acc = self._fn_map.get("__add_acc__")
+            if add_acc is not None:
+                rhs = _as_value(self.visit(node.value))
+                sym_table[target.id] = add_acc(lhs, rhs)
                 return
 
         rhs = self.visit(node.value)

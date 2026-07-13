@@ -2172,6 +2172,118 @@ def D2M_RemoteLoadOp : D2M_GenericRegionDatamovementOp<"remote_load",
     }];
 }
 
+def D2M_FabricRecvOp : D2M_GenericRegionDatamovementOp<"fabric_recv",
+  [ AttrSizedOperandSegments
+  , MemoryEffects<[MemRead]>
+  , D2M_ShardDMAOpInterface
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType",
+      "hasTensorSemantics"
+    ]>
+  , D2M_SynchronizableOpInterface
+  ]> {
+    let summary = "D2M fabric recv: expose a fabric-written input shard to compute (no NoC read)";
+    let description = [{
+      Exposes the shard at `memref[indices]` -- already written into the operand's
+      circular buffer by a peer's cross-device `remote_store` (arrival ordered by
+      a `semaphore_wait`) -- to the compute thread WITHOUT a NoC read. Lowers to
+      `cb_reserve_back` + `cb_push_back` on the operand's CB; the compute consumes
+      the result via the normal input-CB `cb_wait_front`/`cb_pop_front`. This is
+      the receiver dual of a cross-device `remote_store` for ring CCL, and avoids
+      the NoC read-back that contends with the open fabric connection.
+
+      `indices` are grid indices (first N/2 dims of the operand). Forms mirror
+      `remote_load` minus the local buffer and the DMA copy:
+      - tensor form (pre-bufferization): `result` is the shard tensor (aliases the
+        operand's shard at `[indices]`);
+      - explicit CB form: produces into the operand's CB (`cb` from `d2m.get_cb`),
+        no result;
+      - memref form (post-bufferization): no result, no CB.
+    }];
+
+    let arguments = (ins
+        Arg<AnyRankedTensorOrMemRef, "the fabric-written operand to expose",
+            [MemRead]>:$memref,
+        Variadic<Index>:$indices,
+        Optional<D2M_CB>:$cb);
+
+    let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
+
+    let builders = [
+      // Tensor form (with result, no CB).
+      OpBuilder<(ins "Type":$resultType, "Value":$memref, "ValueRange":$indices),
+      [{
+        build($_builder, $_state, resultType, memref, indices, /*cb=*/Value{});
+      }]>,
+      // Explicit CB form (no result, with CB).
+      OpBuilder<(ins "Value":$memref, "ValueRange":$indices, "Value":$cb),
+      [{
+        build($_builder, $_state, /*result=*/TypeRange{}, memref, indices, cb);
+      }]>,
+      // Memref form (no result, no CB; post-bufferization).
+      OpBuilder<(ins "Value":$memref, "ValueRange":$indices),
+      [{
+        build($_builder, $_state, /*result=*/TypeRange{}, memref, indices, /*cb=*/Value{});
+      }]>
+    ];
+
+    let assemblyFormat = [{
+      $memref `[` $indices `]` (`into` $cb^)? attr-dict `:`
+      type($memref) (`into` type($cb)^)? (`->` type($result)^)?
+    }];
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      /// The memref/tensor operand index (always 0 -- no local buffer).
+      unsigned getMemRefOperandIndex() { return 0; }
+      void setMemRef(Value value) { setOperand(getMemRefOperandIndex(), value); }
+
+      /// Shaped type of the memref operand.
+      ShapedType getShapedType() { return cast<ShapedType>(getMemref().getType()); }
+      MemRefType getMemRefType() {
+        return cast<MemRefType>(getMemref().getType());
+      }
+
+      /// CB type, or null CBType if CB absent.
+      CBType getCbType() {
+        Value cb = getCb();
+        if (!cb) return CBType();
+        return mlir::cast<CBType>(cb.getType());
+      }
+
+      bool isExplicitCBForm() { return static_cast<bool>(getCb()); }
+      bool hasResultForm() { return static_cast<bool>(getResult()); }
+
+      /// ShardDMAOpInterface: the CB port is the operand's own CB. Body in
+      /// extraClassDefinition (GetCBOp is incomplete in the generated header).
+      unsigned getCBPort();
+
+      /// SynchronizableOpInterface: fabric_recv PRODUCES the operand's CB
+      /// content (reserve+push) for the compute thread to consume; it consumes
+      /// nothing locally.
+      bool isProducer(mlir::OpOperand &operand) {
+        return false;
+      }
+      bool isConsumer(mlir::OpOperand &operand) {
+        return false;
+      }
+    }];
+
+    let extraClassDefinition = [{
+      unsigned $cppClass::getCBPort() {
+        assert(isExplicitCBForm() && "getCBPort requires explicit CB form");
+        auto getCBOp = getCb().getDefiningOp<GetCBOp>();
+        assert(getCBOp && "CB operand must be defined by a GetCBOp");
+        return getCBOp.getCbOperandIdx();
+      }
+    }];
+}
+
 def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
   [ AttrSizedOperandSegments
   , MemoryEffects<[MemRead, MemWrite]>
@@ -2403,58 +2515,151 @@ def D2M_RemoteStoreOp : D2M_GenericRegionDatamovementOp<"remote_store",
     }];
 }
 
-def D2M_SynchronizedRegionOp : D2M_GenericRegionOp<"synchronized_region", [
-  MemoryEffects<[MemRead, MemWrite]>,
-  AttrSizedOperandSegments,
-  DestinationStyleOpInterface,
-  NoTerminator,
-  SingleBlock,
-  D2M_SynchronizableOpInterface
+def D2M_CoreReadOp : D2M_GenericRegionDatamovementOp<"core_read",
+  [ MemoryEffects<[MemRead, MemWrite]>
+  , DestinationStyleOpInterface
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType",
+      "hasTensorSemantics"
+    ]>
+  , D2M_SynchronizableOpInterface
   ]> {
+    let summary = "D2M core-to-core local-L1 read.";
+    let description = [{
+      Reads an entire local L1 buffer from another core in the grid into this
+      core's local L1 buffer, over the NoC. This is a primitive core->core
+      transfer with **no device-layout requirement** on either buffer; it does
+      not go through the device-tensor (grid/shard) addressing that
+      `remote_load`/`dma_read` use. It lowers directly to a `noc_async_read` in
+      D2MToTTKernel (no `dma_read`).
 
-  let summary = "D2M Synchronized Region Op";
-  let description = [{
-    This is a generic op to wrap a region of non synchronized ops to be synchronizable.
-  }];
+      `%src`/`%dst` are local L1 buffers (or CBs). The op relies on the invariant
+      that `%src` has the **same L1 offset on every core** in the grid; the
+      source core's copy at that offset, selected by the `srcCore` logical
+      coordinates, is the data read. (Same invariant as `gather_core`.)
 
-  let arguments = (ins Variadic<AnyRankedTensorOrMemRef>:$consumers, Variadic<AnyRankedTensorOrMemRef>:$producers);
-  let regions = (region SizedRegion<1>:$region);
+      Synchronization is the caller's responsibility (semaphores): the source
+      core must have published `%src` before this read, and must not overwrite it
+      until the read completes. The op carries no barrier of its own.
 
-  let assemblyFormat = [{
-    `consumers` `(` $consumers `)` `producers` `(` $producers `)` $region attr-dict `:` type($consumers) type($producers)
-  }];
+      Tensor form (pre-bufferization, DPS) -- the result aliases `%dst`:
+      ```mlir
+      %result = d2m.core_read %src core [%srcY, %srcX] into %dst
+        : tensor<MxN x tile>, tensor<MxN x tile> -> tensor<MxN x tile>
+      ```
 
-  let builders = [
-    OpBuilder<(ins "TypeRange":$resultTypes, "ValueRange":$consumers, "ValueRange":$producers,
-      "function_ref<void(OpBuilder &, Location, ValueRange)>":$regionBuilder),
-    [{
-      build($_builder, $_state, resultTypes, consumers, producers);
-      Region &region = *$_state.regions.front().get();
-      {
-        OpBuilder::InsertionGuard guard($_builder);
-        Block *block = $_builder.createBlock(&region, region.end());
-        for (Value consumer : consumers)
-          block->addArgument(consumer.getType(), consumer.getLoc());
-        for (Value producer : producers)
-          block->addArgument(producer.getType(), producer.getLoc());
-        $_builder.setInsertionPointToStart(block);
-        regionBuilder($_builder, $_state.location, block->getArguments());
+      Memref form (post-bufferization) -- no result, read in place into `%dst`:
+      ```mlir
+      d2m.core_read %src core [%srcY, %srcX] into %dst
+        : memref<MxN x tile, #l1>, memref<MxN x tile, #l1>
+      ```
+
+      Constraints:
+      - `%src` and `%dst` must be local (no device layout).
+      - `srcCore` rank must equal the grid rank (2 for current grids).
+      - `%src` and `%dst` must have the same element type and shape.
+    }];
+
+    let arguments = (ins
+        Arg<AnyRankedTensorOrMemRef, "remote core's local source buffer",
+            [MemRead]>:$src,
+        Variadic<Index>:$srcCore,
+        Arg<AnyRankedTensorOrMemRef, "this core's local destination buffer",
+            [MemWrite]>:$dst);
+
+    let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
+
+    let assemblyFormat = [{
+      $src `core` `[` $srcCore `]` `into` $dst attr-dict
+      `:` type($src) `,` type($dst) (`->` qualified(type($result))^)?
+    }];
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      MemRefType getSrcMemRefType() { return cast<MemRefType>(getSrc().getType()); }
+      MemRefType getDstMemRefType() { return cast<MemRefType>(getDst().getType()); }
+      // DestinationStyleOpInterface: %dst is the single DPS init.
+      mlir::MutableOperandRange getDpsInitsMutable() { return getDstMutable(); }
+      // SynchronizableOpInterface: core_read produces dst, consumes src.
+      bool isProducer(mlir::OpOperand &operand) {
+        return &getDstMutable() == &operand;
       }
-    }]>
-  ];
+      bool isConsumer(mlir::OpOperand &operand) {
+        return &getSrcMutable() == &operand;
+      }
+    }];
+}
 
-  let extraClassDeclaration = [{
-    MutableOperandRange getDpsInitsMutable() { return getProducersMutable(); }
+def D2M_CoreWriteOp : D2M_GenericRegionDatamovementOp<"core_write",
+  [ MemoryEffects<[MemRead, MemWrite]>
+  , DestinationStyleOpInterface
+  , DeclareOpInterfaceMethods<BufferizableOpInterface, [
+      "bufferizesToMemoryRead",
+      "bufferizesToMemoryWrite",
+      "bufferize",
+      "getAliasingValues",
+      "getBufferType",
+      "hasTensorSemantics"
+    ]>
+  , D2M_SynchronizableOpInterface
+  ]> {
+    let summary = "D2M core-to-core local-L1 write.";
+    let description = [{
+      Writes this core's local L1 buffer `%src` into another core's local L1
+      buffer `%dst` (the copy on the core at `dstCore` logical coordinates),
+      over the NoC. The push dual of `core_read`: a primitive core->core
+      transfer with **no device-layout requirement** on either buffer, lowering
+      directly to a `noc_async_write` in D2MToTTKernel (no `dma_write`). Relies
+      on the same uniform-L1-offset invariant (`%dst` at the same L1 offset on
+      every core in the grid). Synchronization (the destination core not reading
+      `%dst` until the write lands) is the caller's responsibility (semaphores).
 
-    bool isProducer(mlir::OpOperand &operand) {
-      return llvm::any_of(getProducersMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
-    }
+      Tensor form (pre-bufferization, DPS) -- the result aliases `%dst`:
+      ```mlir
+      %result = d2m.core_write %src into %dst core [%dstY, %dstX]
+        : tensor<MxN x tile>, tensor<MxN x tile> -> tensor<MxN x tile>
+      ```
 
-    bool isConsumer(mlir::OpOperand &operand) {
-      return llvm::any_of(getConsumersMutable(), [&](mlir::OpOperand &op) { return &op == &operand; });
-    }
-  }];
+      Constraints:
+      - `%src` and `%dst` must be local (no device layout).
+      - `dstCore` rank must equal the grid rank (2 for current grids).
+      - `%src` and `%dst` must have the same element type and shape.
+    }];
 
+    let arguments = (ins
+        Arg<AnyRankedTensorOrMemRef, "this core's local source buffer",
+            [MemRead]>:$src,
+        Arg<AnyRankedTensorOrMemRef, "destination core's local buffer",
+            [MemWrite]>:$dst,
+        Variadic<Index>:$dstCore);
+
+    let results = (outs Optional<AnyRankedTensorOrMemRef>:$result);
+
+    let assemblyFormat = [{
+      $src `into` $dst `core` `[` $dstCore `]` attr-dict
+      `:` type($src) `,` type($dst) (`->` qualified(type($result))^)?
+    }];
+
+    let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+      MemRefType getSrcMemRefType() { return cast<MemRefType>(getSrc().getType()); }
+      MemRefType getDstMemRefType() { return cast<MemRefType>(getDst().getType()); }
+      // DestinationStyleOpInterface: %dst is the single DPS init.
+      mlir::MutableOperandRange getDpsInitsMutable() { return getDstMutable(); }
+      // SynchronizableOpInterface: core_write produces dst, consumes src.
+      bool isProducer(mlir::OpOperand &operand) {
+        return &getDstMutable() == &operand;
+      }
+      bool isConsumer(mlir::OpOperand &operand) {
+        return &getSrcMutable() == &operand;
+      }
+    }];
 }
 
 //===----------------------------------------------------------------------===//
@@ -3117,6 +3322,34 @@ def D2M_MeshPositionOp : D2M_GenericRegionOp<"mesh_position", [ Pure ]> {
 
     let arguments = (ins ConfinedAttr<I64Attr, [IntMinValue<0>]>:$dim);
     let results = (outs Index:$result);
+}
+
+def D2M_IsRouterCoreOp : D2M_GenericRegionOp<"is_router_core", [ Pure ]> {
+    let summary = "Query whether this core is a fabric router core.";
+    let description = [{
+      Returns true on cores assigned to issue fabric ops, per the enclosing
+      generic's `fabric_connection_config` `router_cores`. Lowers to a comparison
+      of this core's logical position against the configured router coordinates
+      (constant true when `router_cores` is empty, i.e. the whole grid). Branch
+      on it (`scf.if`) to gate fabric work to the router cores. See
+      tools/d2m-jit/fabric_router_cores_design.md.
+    }];
+    let results = (outs I1:$result);
+    let assemblyFormat = [{ attr-dict `:` type($result) }];
+}
+
+def D2M_RouterDirectionOp : D2M_GenericRegionOp<"router_direction", [ Pure ]> {
+    let summary = "Query this router core's (link, direction) slot index.";
+    let description = [{
+      Returns the router-core slot index this core matches (slot `i` -> routing
+      plane `i / cores_per_link`, direction `i % cores_per_link`), per the
+      enclosing generic's `fabric_connection_config` `router_cores`. A router
+      core switches on this to address the correct (forward/backward) neighbor.
+      Returns 0 when `router_cores` is empty; undefined on non-router cores.
+      Lowers to a select chain over the configured router coordinates.
+    }];
+    let results = (outs Index:$result);
+    let assemblyFormat = [{ attr-dict `:` type($result) }];
 }
 
 
