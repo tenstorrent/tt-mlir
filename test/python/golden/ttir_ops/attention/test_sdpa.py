@@ -658,12 +658,9 @@ def test_paged_sdpa_decode_causal(
     """
     Test causal Paged Scaled Dot Product Attention Decode.
 
-    The head_dim=512 case guards the Blackhole program config injected in IR by
-    the TTNN workaround (PagedScaledDotProductAttentionDecodeProgramConfig): it
-    pins max_cores_per_head_batch=1 to keep the op within per-core L1 and forces
-    exp_approx_mode=false (tt-metal #40301). Running across all optimization
-    levels exercises the full pipeline including the optimizer, confirming the
-    workaround-set config is not dropped or overwritten before execution.
+    The head_dim=512 case guards the Blackhole program config injected by the
+    TTNN workaround; running across all optimization levels confirms the
+    optimizer does not drop or overwrite it.
     """
     batch = 1
     block_size = 32
@@ -743,10 +740,8 @@ def test_paged_sdpa_decode_causal(
 
 @pytest.mark.parametrize(
     "num_heads,num_kv_heads,head_dim,blocks_per_user",
-    # A single representative shape suffices: providing k_chunk_size is a
-    # tt-metal API contract, not a numeric-shape property. Paged decode uses
-    # block_size=32, so kv_seq is always 32-aligned and metal's default
-    # k_chunk_size=32 satisfies the constraint for any head_dim/num_heads/kv_seq.
+    # A single shape suffices: k_chunk_size is a tt-metal API contract, not a
+    # shape property, and metal's default (32) always applies.
     [(8, 8, 64, 4)],
     ids=["mha_d64"],
 )
@@ -765,11 +760,9 @@ def test_paged_sdpa_decode_non_causal(
     """
     Test non-causal Paged Scaled Dot Product Attention Decode.
 
-    A non-causal decode carries an attention mask and gets no compile-time
-    program config off Blackhole: tt-metal's paged decode defaults
-    k_chunk_size=32 (kDefaultDecodeChunkSize) itself. This guards that the
-    former compile-time non-causal k_chunk_size override is safely covered by
-    that metal default, and that it survives every optimization level.
+    Off Blackhole no program config is injected; this guards that the former
+    compile-time non-causal k_chunk_size override is covered by tt-metal's
+    default (k_chunk_size=32) across all optimization levels.
     """
     batch = 1
     block_size = 32

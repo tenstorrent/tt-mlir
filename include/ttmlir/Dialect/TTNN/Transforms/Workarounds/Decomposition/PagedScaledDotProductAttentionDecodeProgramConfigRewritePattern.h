@@ -12,19 +12,13 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-// On Blackhole, sets exp_approx_mode = false on the op's SDPAProgramConfig. The
-// tt-metal default approx-exp path fails SFPI compile on Blackhole
-// (tt-metal #40301). tt-metal already fills every other field with a sensible
-// default when no config is passed (q/k_chunk_size = 32,
-// max_cores_per_head_batch = 1), so no config is needed off Blackhole; but
-// because passing any config disables metal's auto-default, on Blackhole we
-// replicate those defaults for the remaining fields (or preserve an existing
-// config) while forcing exp_approx_mode = false.
-//
-// The exp_approx_mode override is an invariant: on Blackhole it is applied to
-// whatever program_config the op ends up with -- IR-provided, optimizer-set, or
-// synthesized here -- so the pattern re-fires to fixpoint if another pattern
-// rebuilds the op with a fresh config.
+// Workaround which, on Blackhole, forces exp_approx_mode = false on the SDPA
+// decode program config; the tt-metal default approx-exp path fails SFPI
+// compile. Metal issue reference:
+// https://github.com/tenstorrent/tt-metal/issues/40301
+// An existing config is preserved, otherwise metal's defaults are replicated
+// (q/k_chunk_size = 32, max_cores_per_head_batch = 1), since passing a config
+// disables metal's auto-default.
 class PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern
     : public OpRewritePattern<ttnn::PagedScaledDotProductAttentionDecodeOp> {
 public:

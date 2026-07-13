@@ -23,23 +23,15 @@ LogicalResult PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern::
   ttcore::ChipDescAttr chip = sysDesc.getChipDesc(0);
   const bool isBlackhole = chip.getArch().getValue() == ttcore::Arch::Blackhole;
 
-  // Only Blackhole needs a compile-time program config. tt-metal's
-  // paged_scaled_dot_product_attention_decode already fills a sensible default
-  // when no config is passed (kDefaultDecodeChunkSize = 32 for q/k,
-  // kDefaultMaxCoresPerHeadBatch = 1). The one thing it gets wrong on Blackhole
-  // is exp_approx_mode: its default approx-exp path fails SFPI compile
-  // (tt-metal #40301). So we inject a config only on Blackhole, purely to force
-  // exp_approx_mode = false. Because passing any config disables metal's
-  // auto-default, we replicate those defaults for the remaining fields.
+  // Only Blackhole needs a compile-time config (see the pattern header).
   if (!isBlackhole) {
     return failure();
   }
 
   SDPAProgramConfigAttr existing = srcOp.getProgramConfigAttr();
 
-  // Preserve every field of an existing config (IR-provided, optimizer-set, or
-  // set by another workaround) and only layer exp_approx_mode = false on top;
-  // otherwise replicate metal's paged-decode default.
+  // Preserve an existing config and layer exp_approx_mode = false on top;
+  // otherwise replicate metal's paged-decode defaults.
   CoreCoordAttr grid;
   CoreRangeSetAttr subCoreGrids = nullptr;
   uint64_t qChunkSize = 32; // kDefaultDecodeChunkSize

@@ -44,8 +44,7 @@ static void runPagedScaledDotProductAttentionDecodeOp(
   std::optional<float> scale = op->scale();
   std::optional<uint32_t> slidingWindowSize = op->sliding_window_size();
 
-  // The SDPAProgramConfig (incl. arch-specific chunk sizes and the Blackhole
-  // exp_approx_mode override) is populated in TTNN IR by the workaround pass
+  // The SDPAProgramConfig is populated in TTNN IR by the workaround pass
   // (PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern).
   std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
       programConfig = std::nullopt;
