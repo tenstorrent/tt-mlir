@@ -108,7 +108,7 @@ def constructNDVirtualGridAffineMap(
     return map
 
 
-@pytest.mark.skip(reason="Still in development")
+@pytest.mark.xfail(reason="Still in development", strict=True)
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize(
     "shape, grid_shape",
