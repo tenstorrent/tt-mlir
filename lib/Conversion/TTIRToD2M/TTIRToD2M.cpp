@@ -3734,8 +3734,9 @@ public:
           op,
           "D2M topk requires at least 2 tiles along the reduction dimension");
     }
-    // For k>32, the reduction dim is padded to a power-of-2 tile count, so
-    // lastStride must use the padded count (not numReductionTiles/2).
+    // For k>32 with a non-pow2 tile count, the reduction dim is padded to the
+    // next power of 2, so lastStride must use the padded count (not
+    // numReductionTiles/2).
     int64_t p = 1;
     while (p < numReductionTiles) {
       p <<= 1;
@@ -3748,7 +3749,7 @@ public:
     int64_t paddedNumReductionTiles = (k > 32) ? nextPow2 : numReductionTiles;
     int64_t lastStride = paddedNumReductionTiles / 2;
 
-    // For large-k with a non-pow2 tile count, pad the logical input shape to
+    // For k>32 with a non-pow2 tile count, pad the logical input shape to
     // paddedNumReductionTiles*32 so GridSelection derives the correct tile
     // count, then mask the padding region with -inf so those tiles are never
     // top-k.
@@ -3897,9 +3898,6 @@ public:
                                   arangeScratchTileType, arangeScratchLayout)
             .getResult();
 
-    // Compute numElements from the padded logical shape: for C (column
-    // reduction), all output columns; for R (row reduction), all output rows.
-    // Padded positions are never selected since the value side is -inf.
     int64_t numElements =
         (dim == 0) ? topkLogicalShape[rank - 2] : topkLogicalShape[rank - 1];
 
@@ -4085,11 +4083,9 @@ public:
         rewriter, loc, ctx, topkIdxRelayouted, extractIdxLayout,
         extractProjectDim, outputReductionTiles, lastStride, dim);
 
-    // Typecast extracted fp32 indices to the output element type (uint16).
-    // Untilize is a pure layout op with no narrowing, so width must match;
-    // fp32 untilized into uint16 drops the high half. One tile op per region
-    // so D2M->TTKernel store/DST-index lookup finds a single terminal compute
-    // op.
+    // Typecast extracted fp32 indices to the output element type (uint16)
+    // before untilize. One tile op per region so D2M->TTKernel store/DST-index
+    // lookup finds a single terminal compute op.
     Value extractedIdx = extractIdxGeneric->getResult(0);
     auto extractedIdxType = cast<RankedTensorType>(extractedIdx.getType());
     Type idxOutElemType = indicesType.getElementType();

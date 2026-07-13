@@ -2148,15 +2148,15 @@ static void emitTopkGroupStartIfNeeded(ConversionPatternRewriter &rewriter,
   // all pack_tile L1 writes before copy_tile executes.
   Value rfo = op.getReadFromOutput();
   std::optional<int64_t> rfoConst = getConstantIntValue(rfo);
+  if (rfoConst && *rfoConst != 0) {
+    rewriter.create<ttkernel::UnpackStallOnPackOp>(loc);
+    emitTopkGroupStart(rewriter, loc, cbOutVals, cbOutIdx, cbOutVals, tileA,
+                       tileB);
+    return;
+  }
   if (rfoConst) {
-    if (*rfoConst) {
-      rewriter.create<ttkernel::UnpackStallOnPackOp>(loc);
-      emitTopkGroupStart(rewriter, loc, cbOutVals, cbOutIdx, cbOutVals, tileA,
-                         tileB);
-    } else {
-      emitTopkGroupStart(rewriter, loc, cbInVals, cbInIdx, cbOutVals, tileA,
-                         tileB);
-    }
+    emitTopkGroupStart(rewriter, loc, cbInVals, cbInIdx, cbOutVals, tileA,
+                       tileB);
     return;
   }
   rewriter.create<scf::IfOp>(
@@ -2180,11 +2180,12 @@ static void emitTopkGroupEndIfNeeded(ConversionPatternRewriter &rewriter,
                                      Value tileB) {
   Value isGroupEnd = op.getIsGroupEnd();
   std::optional<int64_t> isGroupEndConst = getConstantIntValue(isGroupEnd);
+  if (isGroupEndConst && *isGroupEndConst != 0) {
+    emitTopkGroupEnd(rewriter, loc, getCB(rewriter, op.getOutValues()),
+                     getCB(rewriter, op.getOutIndices()), tileA, tileB);
+    return;
+  }
   if (isGroupEndConst) {
-    if (*isGroupEndConst) {
-      emitTopkGroupEnd(rewriter, loc, getCB(rewriter, op.getOutValues()),
-                       getCB(rewriter, op.getOutIndices()), tileA, tileB);
-    }
     return;
   }
   rewriter.create<scf::IfOp>(
