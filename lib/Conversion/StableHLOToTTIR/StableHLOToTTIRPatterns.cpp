@@ -9525,6 +9525,132 @@ public:
 } // namespace
 
 namespace {
+// Builds the primitive decomposition body for the ttcore.composite op for the
+// experimental large-row top-k indices op. This is the fallback that gets
+// inlined by the TTNNResolveComposites pass when the composite cannot be
+// promoted to ttnn.topk_large_indices (e.g. on non-Blackhole architectures).
+//
+// It reuses the existing ttir.topk primitive, keeping only the (UINT32)
+// indices result and discarding the values:
+//   indices = topk(input, k, dim=-1, largest=true, sorted=true).indices
+//
+// input [..., N] bf16 -> [..., k] ui32.
+static Value
+buildTopKLargeIndicesDecompositionBody(OpBuilder &builder, Location loc,
+                                       Value input, uint32_t k,
+                                       RankedTensorType outputType) {
+  auto inputType = mlir::cast<RankedTensorType>(input.getType());
+  int64_t rank = inputType.getRank();
+
+  // The values result mirrors the indices shape but keeps the input dtype.
+  SmallVector<int64_t> topkShape(inputType.getShape());
+  topkShape[rank - 1] = static_cast<int64_t>(k);
+  auto valuesType = RankedTensorType::get(topkShape, inputType.getElementType(),
+                                          inputType.getEncoding());
+
+  auto topKOp = builder.create<ttir::TopKOp>(
+      loc, valuesType, /*indices=*/outputType, input,
+      builder.getI32IntegerAttr(static_cast<int32_t>(k)),
+      /*dim=*/builder.getI32IntegerAttr(-1),
+      /*largest=*/builder.getBoolAttr(true),
+      /*sorted=*/builder.getBoolAttr(true));
+  return topKOp.getIndices();
+}
+
+// Converts stablehlo.custom_call @tt.topk_large_indices into a ttcore.composite
+// "topk_large_indices" carrying the synthesized primitive decomposition. The
+// composite is promoted to ttnn.topk_large_indices by TTNNResolveComposites
+// (Blackhole only); the decomposition body is the inlined fallback.
+class StableHLOToTTCoreTopKLargeIndicesOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    StringAttr funcName = adaptor.getCallTargetNameAttr();
+    if (funcName != "tt.topk_large_indices") {
+      return failure();
+    }
+
+    auto operands = adaptor.getOperands();
+    if (operands.size() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "topk_large_indices expects exactly 1 operand (input).");
+    }
+    Value input = operands[0];
+
+    // k is a required string-valued frontend attribute.
+    mlir::DictionaryAttr frontendAttributes =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+            srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!frontendAttributes) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "topk_large_indices op must have mhlo.frontend_attributes "
+                 "attribute.");
+    }
+    auto kStringAttr = frontendAttributes.getAs<mlir::StringAttr>("k");
+    if (!kStringAttr) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "topk_large_indices op requires a k attribute.");
+    }
+    uint32_t k;
+    if (!llvm::to_integer(kStringAttr.getValue(), k) || k == 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "k attribute must be a positive integer. Received \"" +
+                     kStringAttr.getValue() + "\".");
+    }
+    IntegerAttr kAttr = rewriter.getUI32IntegerAttr(k);
+
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+
+    // Synthesize the private decomposition function (inlined fallback).
+    ModuleOp moduleOp = srcOp->getParentOfType<ModuleOp>();
+    std::string decompFuncName = "topk_large_indices_decomp";
+    {
+      unsigned counter = 0;
+      while (SymbolTable::lookupSymbolIn(moduleOp, decompFuncName)) {
+        decompFuncName =
+            "topk_large_indices_decomp_" + std::to_string(counter++);
+      }
+    }
+
+    SmallVector<Value> compositeInputs = {input};
+    SmallVector<Type> argTypes =
+        llvm::to_vector(ValueRange(compositeInputs).getTypes());
+    {
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToEnd(moduleOp.getBody());
+      auto decompFunc = rewriter.create<func::FuncOp>(
+          srcOp.getLoc(), decompFuncName,
+          rewriter.getFunctionType(argTypes, {outputType}));
+      decompFunc.setPrivate();
+      Block *entry = decompFunc.addEntryBlock();
+      rewriter.setInsertionPointToStart(entry);
+
+      Value decompResult = buildTopKLargeIndicesDecompositionBody(
+          rewriter, srcOp.getLoc(), entry->getArgument(0), k, outputType);
+      rewriter.create<mlir::func::ReturnOp>(srcOp.getLoc(), decompResult);
+    }
+
+    SmallVector<NamedAttribute> compositeAttrList;
+    compositeAttrList.push_back(rewriter.getNamedAttr("k", kAttr));
+
+    rewriter.replaceOpWithNewOp<ttcore::CompositeOp>(
+        srcOp, TypeRange{outputType}, ValueRange(compositeInputs),
+        rewriter.getStringAttr("topk_large_indices"),
+        FlatSymbolRefAttr::get(rewriter.getContext(), decompFuncName),
+        rewriter.getDictionaryAttr(compositeAttrList));
+
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 // Pattern to convert mhlo.topk to ttir.topk
 class StableHLOTopKOpMHLOConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
@@ -10083,6 +10209,7 @@ static void addScaledDotProductAttentionDecodeOpConversionPattern(
       StableHLOToTTIRPagedScaledDotProductAttentionDecodeOpConversionPattern,
       StableHLOToTTCoreFlashMlaPrefillOpConversionPattern,
       StableHLOToTTIRPagedFlashMLADecodeOpConversionPattern,
+      StableHLOToTTCoreTopKLargeIndicesOpConversionPattern,
       StableHLOToTTIRChunkedScaledDotProductAttentionOpConversionPattern>(
       typeConverter, ctx);
 }

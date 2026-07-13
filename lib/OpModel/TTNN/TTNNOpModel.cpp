@@ -8188,6 +8188,57 @@ llvm::Expected<size_t> OpModel<TopKOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// TopKLargeIndicesOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<TopKLargeIndicesOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout, uint32_t k,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+
+  // ttnn::experimental::topk_large_indices selects its own (ROW_MAJOR UINT32)
+  // output layout, so outputLayout is not forwarded.
+  auto topKLargeIndicesQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS(::ttnn::experimental::topk_large_indices,
+                                device, inputSpec, k);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(),
+                                     topKLargeIndicesQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<TopKLargeIndicesOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout, uint32_t k,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+
+  auto topKLargeIndicesQuery = [=]() {
+    return QUERY_OP_RUNTIME(::ttnn::experimental::topk_large_indices, device,
+                            inputSpec, k);
+  };
+
+  return operation::getOpRuntime(topKLargeIndicesQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // SamplingOp
 //===----------------------------------------------------------------------===//
 

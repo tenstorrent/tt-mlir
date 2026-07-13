@@ -2069,6 +2069,23 @@ struct OpModel<TopKOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// TopKLargeIndicesOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<TopKLargeIndicesOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
+                   TTNNLayoutAttr inputLayout, uint32_t k,
+                   TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t> getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
+                                             TTNNLayoutAttr inputLayout,
+                                             uint32_t k,
+                                             TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // SamplingOp
 //===----------------------------------------------------------------------===//
 

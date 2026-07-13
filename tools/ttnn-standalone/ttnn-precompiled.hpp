@@ -41,6 +41,7 @@
 #include "operations/experimental/conv3d/conv3d.hpp"
 #include "operations/experimental/conv3d/prepare_conv3d_weights.hpp"
 #include "operations/experimental/dropout/dropout.hpp"
+#include "operations/experimental/topk_large_indices/topk_large_indices.hpp"
 #include "operations/experimental/transformer/nlp_concat_heads/nlp_concat_heads.hpp"
 #include "operations/experimental/unary_backward/gelu_backward/gelu_backward.hpp"
 #include "operations/kv_cache/kv_cache.hpp"
