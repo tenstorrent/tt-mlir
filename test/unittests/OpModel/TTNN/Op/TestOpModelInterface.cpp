@@ -7034,6 +7034,69 @@ TEST_F(OpModelBase, FlashMlaPrefillOpInterfaceWithMask) {
 }
 
 //===----------------------------------------------------------------------===//
+// TopKLargeIndicesOp
+//===----------------------------------------------------------------------===//
+
+// ttnn.experimental.topk_large_indices is Blackhole-only: on any other
+// architecture the metal op raises (TT_FATAL), which the op-model query
+// surfaces as an error. The test therefore skips when the query is unavailable
+// so it still exercises the binding on Blackhole hardware without failing
+// elsewhere.
+TEST_F(OpModelBase, TopKLargeIndicesOpInterface) {
+  // input [num_rows, N] bf16 -> indices [num_rows, k] ui32.
+  llvm::SmallVector<int64_t> inputShape = {2, 512};
+  llvm::SmallVector<int64_t> outputShape = {2, 512};
+  const uint32_t k = 512;
+
+  llvm::SmallVector<int64_t> gridAttr{1, 1};
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  // The tt-metal kernel requires a ROW_MAJOR bf16 input and produces a
+  // ROW_MAJOR ui32 output, so use the untiled element types.
+  auto bf16Type = builder.getBF16Type();
+  auto ui32Type = builder.getIntegerType(32, false);
+
+  auto makeDramLayout = [&](llvm::ArrayRef<int64_t> shape, mlir::Type elem) {
+    return TTNNLayoutAttr::Builder(&context, shape, elem)
+        .setBufferType(BufferType::DRAM)
+        .setMemoryLayout(tensorMemoryLayoutAttr)
+        .setGridShape(gridAttr)
+        .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+  };
+
+  auto inputLayout = makeDramLayout(inputShape, bf16Type);
+  auto outputLayout = makeDramLayout(outputShape, ui32Type);
+
+  auto input = createEmptyTensor(inputShape, bf16Type, inputLayout);
+  auto outputType = createRankedTensorType(outputShape, ui32Type, outputLayout);
+
+  auto topKOp = builder.create<TopKLargeIndicesOp>(builder.getUnknownLoc(),
+                                                   outputType, input, k);
+
+  topKOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
+
+  auto constraintsExp = getOpConstraints(topKOp.getOperation());
+  if (!constraintsExp) {
+    GTEST_SKIP() << "topk_large_indices op-model query unavailable "
+                    "(Blackhole-only): "
+                 << llvm::toString(constraintsExp.takeError());
+  }
+  const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+      constraintsExp.get();
+  EXPECT_GE(cbSize, 0);
+  EXPECT_GE(l1PeakSize, 0);
+  EXPECT_GE(totalPeakSize, 0);
+
+  auto runtimeExp = getOpRuntime(topKOp.getOperation());
+  if (runtimeExp) {
+    EXPECT_TRUE(runtimeExp.get() > 0);
+  } else {
+    llvm::consumeError(runtimeExp.takeError());
+  }
+}
+
+//===----------------------------------------------------------------------===//
 // SamplingOp
 //===----------------------------------------------------------------------===//
 

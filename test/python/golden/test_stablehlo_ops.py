@@ -2546,3 +2546,74 @@ def test_flash_mla_prefill_value_mask_scale(
     )
 
     check_op(output, "flash_mla_prefill")
+
+
+# Experimental large-row top-k indices op (stablehlo.custom_call
+# @tt.topk_large_indices -> ttcore.composite -> ttnn.topk_large_indices).
+#
+# Two lowering paths:
+#   * on Blackhole:
+#       shlo.custom_call -> ttcore.composite -> ttnn.topk_large_indices
+#   * otherwise:
+#       shlo.custom_call -> ttcore.composite -> decomposed into a ttnn.topk
+#       whose (UINT32) indices are kept
+@pytest.mark.parametrize(
+    "shape,k",
+    [
+        # input [num_rows, N] -> indices [num_rows, k]. N > k exercises a real
+        # top-k selection (not a full sort). k is a multiple of 16 in [16, 2048]
+        # so the typed Blackhole op accepts it.
+        ((2, 64), 16),
+        ((4, 256), 64),
+    ],
+    ids=["rows2_n64_k16", "rows4_n256_k64"],
+)
+@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+def test_topk_large_indices(
+    shape: Shape,
+    k: int,
+    target: str,
+    device,
+    request,
+    system_desc,
+):
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape], [torch.bfloat16])
+        def topk_large_indices(
+            input: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.topk_large_indices(input, k=k, unit_attrs=unit_attrs)
+
+    output = compile_and_execute_shlo(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        save_artifacts=True,
+        ttir_pipeline_options=["optimization-level=1"],
+        # The op returns top-k *indices*. When several elements tie (common in
+        # bf16, which has only 8 mantissa bits), the order of the tied indices
+        # is unspecified, so the device and the torch golden may return the same
+        # index set in a different order. Positional PCC on index labels is not a
+        # meaningful correctness metric in that case (same convention as the
+        # boolean compare-op tests above), so skip it; the op still compiles
+        # through the full pipeline and executes on device, and the typed-op
+        # promotion is checked explicitly below.
+        check_pcc=False,
+    )
+
+    # The typed ttnn.topk_large_indices op is Blackhole-only; everywhere else
+    # the composite falls back to its ttnn.topk-based decomposition.
+    expect_typed_op = system_desc.get_arch() == "Blackhole"
+
+    # The promoted typed op appears in a target-specific form.
+    typed_op_marker = {
+        "ttnn": "ttnn.topk_large_indices",
+        "emitc": "ttnn::experimental::topk_large_indices",
+        "emitpy": "ttnn.experimental.topk_large_indices",
+    }[target]
+    with open(output, "r") as f:
+        has_typed_op = any(typed_op_marker in line for line in f)
+    assert has_typed_op == expect_typed_op

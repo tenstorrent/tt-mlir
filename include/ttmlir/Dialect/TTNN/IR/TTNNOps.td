@@ -4293,6 +4293,52 @@ def TTNN_TopKOp : TTNN_Op<"topk"> {
   let hasVerifier = 1;
 }
 
+def TTNN_TopKLargeIndicesOp : TTNN_Op<"topk_large_indices"> {
+  let summary = "Experimental top-k indices over large row-major rows.";
+  let description = [{
+    Returns the sorted-descending top-k indices along the last dimension of a
+    row-major BFLOAT16 tensor. Corresponds to
+    `ttnn.experimental.topk_large_indices`
+    (`ttnn::experimental::topk_large_indices`).
+
+    The output has the same shape as the input except that the last dimension
+    is `k`, and its element type is UINT32. Input values equal to `-inf`
+    produce the sentinel index `0xFFFFFFFF` when they survive into the final
+    top-k result.
+
+    This op is intended for large row-major rows: internally it snaps `k` to the
+    nearest supported LLK window and streams each input row in LLK-sized
+    windows.
+
+    Constraints (tt-metal op restrictions):
+        * input must be a ROW_MAJOR BFLOAT16 tensor of rank >= 1;
+        * the last dimension is the input row length and must be >= `k`;
+        * `k` must be in [16, 2048] and a multiple of 16.
+
+    Args:
+        input (AnyRankedTensor): row-major BFLOAT16 tensor `[..., N]`.
+        k (uint): required number of indices to return.
+
+    Returns:
+        AnyRankedTensor: UINT32 indices tensor `[..., k]`.
+
+    Note: this op is only supported on Blackhole.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$input,
+                       UI32Attr:$k);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return wa::TTNNOperandsWorkaroundsFactory::createTopKLargeIndicesOpOperandsWorkarounds(*this);
+    }
+  }];
+
+  let hasVerifier = 1;
+}
+
 def TTNN_TopKRouterGptOp : TTNN_Op<"topk_router_gpt"> {
   let summary = "Fused router linear layer for GPT-style mixture-of-experts models.";
   let description = [{

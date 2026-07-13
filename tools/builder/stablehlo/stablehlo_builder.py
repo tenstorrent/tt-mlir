@@ -9864,6 +9864,70 @@ class StableHLOBuilder(Builder):
 
         return op.result
 
+    ############### stablehlo.CustomCallOp @tt.topk_large_indices ###############
+
+    @tag(stablehlo.CustomCallOp)
+    def topk_large_indices(
+        self,
+        input: Operand,
+        k: int,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        """
+        Emit a `stablehlo.custom_call @tt.topk_large_indices`.
+
+        Experimental large-row top-k indices op. Returns the sorted-descending
+        top-k indices along the last dimension of a row-major BFLOAT16 tensor.
+        The output has the same shape as the input except that the last
+        dimension is `k`, and its element type is UINT32. `k` is carried as a
+        string-valued frontend attribute.
+        """
+        stablehlo_op = self.get_opview_from_method(StableHLOBuilder.topk_large_indices)
+
+        inputs = [input]
+
+        # Output is the input shape with the last dim replaced by k, dtype ui32.
+        input_shape = list(self.get_shape(input))
+        output_shape = input_shape[:-1] + [k]
+        output_type = self._create_ranked_tensor_type(
+            output_shape, IntegerType.get_unsigned(32, self._ctx)
+        )
+
+        # tt.topk_large_indices carries k as a string-valued frontend attribute.
+        frontend_attrs = {
+            "k": StringAttr.get(str(k)),
+        }
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = stablehlo_op(
+            [output_type],
+            inputs,
+            "tt.topk_large_indices",
+            api_version=IntegerAttr.get(IntegerType.get_signless(32), 0),
+            loc=loc,
+        )
+        op.operation.attributes["mhlo.frontend_attributes"] = DictAttr.get(
+            frontend_attrs, self._ctx
+        )
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        op_golden_function = get_custom_call_golden_function("tt.topk_large_indices")
+        golden_output = op_golden_function(
+            self._get_golden_tensor(input),
+            k,
+        )
+        self._set_golden_tensor(op.result, golden_output)
+
+        return op.result
+
     # ----- Public Shardy Attribute Generators ----
 
     def mesh_axis_attr(
