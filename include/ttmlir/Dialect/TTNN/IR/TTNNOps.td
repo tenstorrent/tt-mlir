@@ -3922,7 +3922,7 @@ def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_prod
   let hasVerifier = 1;
 }
 
-def TTNN_ChunkedScaledDotProductAttentionOp : TTNN_Op<"chunked_scaled_dot_product_attention", [OpModelExempt]> {
+def TTNN_ChunkedScaledDotProductAttentionOp : TTNN_Op<"chunked_scaled_dot_product_attention"> {
   let summary = "Chunked prefill scaled dot product attention over a paged KV cache.";
   let description = [{
     Chunked-prefill attention. A prefill chunk of `query` attends
