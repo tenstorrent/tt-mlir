@@ -33,7 +33,8 @@ def create_argmax_inputs(input_shape, dim_arg, keep_dim, dtype):
 @pytest.mark.parametrize("dim_arg", [[0], [1], None])
 @pytest.mark.parametrize("keep_dim", [True, False])
 @pytest.mark.parametrize(
-    "shape", [(32, 32), (32, 64), (64, 64), (128, 128), (256, 256), (512, 512)]
+    "shape",
+    [(32, 32), (32, 64), (64, 64), (128, 128), (256, 256), (512, 512), (32, 131072)],
 )
 def test_argmax(
     shape: tuple[int, int],
@@ -44,10 +45,10 @@ def test_argmax(
     device,
 ):
 
-    if dim_arg is None and shape == (512, 512):
+    if (dim_arg is None or dim_arg == [0]) and shape == (32, 131072):
         request.applymarker(
             pytest.mark.xfail(
-                reason="Full reduction of 512x512 exhausts L1 (f32 index intermediates)",
+                reason="dim_arg = 0 or dim_arg = None on large tensors exhausts L1",
                 strict=True,
             )
         )
