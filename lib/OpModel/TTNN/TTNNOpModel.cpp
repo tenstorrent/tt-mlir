@@ -14,8 +14,8 @@
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
 
-#include "ttnn/operations/experimental/ccl/moe_compute/moe_compute.hpp"
 #include "ttnn/operations/eltwise/unary/common/unary_op_utils.hpp"
+#include "ttnn/operations/experimental/ccl/moe_compute/moe_compute.hpp"
 #include "ttnn/operations/experimental/ccl/moe_compute/moe_compute_utils.hpp"
 #include "ttnn/operations/experimental/transformer/dit_rms_norm_unary_fused/dit_rms_norm_unary_fused.hpp"
 
@@ -7404,20 +7404,21 @@ llvm::Expected<OpConstraints> OpModel<DitRMSNormUnaryFusedOp>::getOpConstraints(
     std::optional<llvm::ArrayRef<int64_t>> residualInputShape,
     std::optional<TTNNLayoutAttr> residualInputLayout, llvm::APFloat epsilon,
     mlir::StringAttr activation, TTNNLayoutAttr outputLayout,
-    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig,
+    const MockAllocatorState *initialState) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  std::optional<::ttnn::TensorSpec> weightSpec =
+  std::optional<::tt::tt_metal::TensorSpec> weightSpec =
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
-  std::optional<::ttnn::TensorSpec> biasSpec =
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
-  std::optional<::ttnn::TensorSpec> residualInputSpec =
+  std::optional<::tt::tt_metal::TensorSpec> residualInputSpec =
       detail::convertToOptionalTensorSpec(device, residualInputShape,
                                           residualInputLayout);
 
@@ -7428,16 +7429,20 @@ llvm::Expected<OpConstraints> OpModel<DitRMSNormUnaryFusedOp>::getOpConstraints(
   std::optional<::ttnn::operations::unary::UnaryWithParam> activationParam =
       convertActivation(activation);
 
+  std::optional<MockAllocatorState> initialStateOpt =
+      initialState ? std::optional<MockAllocatorState>(*initialState)
+                   : std::nullopt;
+
   auto query = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::experimental::dit_rms_norm_unary_fused,
-                                device, inputSpec, epsilon.convertToFloat(),
-                                weightSpec, biasSpec, residualInputSpec,
-                                detail::getNullableMemoryConfig(outputLayout),
-                                /*program_config=*/std::nullopt,
-                                computeKernelConfigConverted, activationParam);
+    return QUERY_OP_CONSTRAINTS_WITH_STATE(
+        ::ttnn::experimental::dit_rms_norm_unary_fused, device, initialStateOpt,
+        inputSpec, epsilon.convertToFloat(), weightSpec, biasSpec,
+        residualInputSpec, detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt, computeKernelConfigConverted,
+        activationParam);
   };
 
-  return operation::getOpConstraints(inputLayout.getContext(), query);
+  return operation::getOpConstraintsWithState(inputLayout.getContext(), query);
 #else
   return OpConstraints{};
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -7458,14 +7463,14 @@ llvm::Expected<size_t> OpModel<DitRMSNormUnaryFusedOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  std::optional<::ttnn::TensorSpec> weightSpec =
+  std::optional<::tt::tt_metal::TensorSpec> weightSpec =
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
-  std::optional<::ttnn::TensorSpec> biasSpec =
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
-  std::optional<::ttnn::TensorSpec> residualInputSpec =
+  std::optional<::tt::tt_metal::TensorSpec> residualInputSpec =
       detail::convertToOptionalTensorSpec(device, residualInputShape,
                                           residualInputLayout);
 

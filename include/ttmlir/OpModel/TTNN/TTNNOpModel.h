@@ -1855,7 +1855,8 @@ struct OpModel<DitRMSNormUnaryFusedOp> {
       std::optional<TTNNLayoutAttr> residualInputLayout, llvm::APFloat epsilon,
       mlir::StringAttr activation, TTNNLayoutAttr outputLayout,
       std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
-          std::nullopt);
+          std::nullopt,
+      const MockAllocatorState *initialState = nullptr);
 
   static llvm::Expected<size_t> getOpRuntime(
       llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,

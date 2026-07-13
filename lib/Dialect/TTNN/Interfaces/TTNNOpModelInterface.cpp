@@ -4319,7 +4319,9 @@ static DitRMSNormUnaryFusedOptionalArgs unpackDitRMSNormUnaryFusedOptionalArgs(
 
 llvm::Expected<op_model::OpConstraints>
 DitRMSNormUnaryFusedOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
   const auto inputShape = getInput().getType().getShape();
 
   DitRMSNormUnaryFusedOptionalArgs optionalArgs =
@@ -4330,9 +4332,8 @@ DitRMSNormUnaryFusedOp::getOpConstraints(
           ? std::optional<DeviceComputeKernelConfigAttr>(getComputeConfigAttr())
           : std::nullopt;
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<DitRMSNormUnaryFusedOp>::getOpConstraints, *this,
-      inputShape, inputs[0], optionalArgs.weightShape,
+  return detail::constraintsDispatch(
+      *this, liveRecords, inputShape, inputs[0], optionalArgs.weightShape,
       optionalArgs.weightLayout, optionalArgs.biasShape,
       optionalArgs.biasLayout, optionalArgs.residualInputShape,
       optionalArgs.residualInputLayout, getEpsilon(), getActivationAttr(),
