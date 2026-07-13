@@ -1,11 +1,10 @@
 // RUN: ttmlir-opt --split-input-file --ttcore-register-device="mock-system-desc-arch=blackhole" --ttnn-layout --ttnn-workaround="ttnn-optimization-level=1" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-// The exp_approx_mode = false invariant must hold at optimization-level >= 1
-// (the pattern is not gated to level 0), otherwise an optimizer-set config
-// would keep Blackhole's broken approx-exp path.
+// exp_approx_mode = false must hold at optimization-level >= 1: the pattern is
+// not gated to level 0.
 
-// Blackhole causal, no config: defaults synthesized with exp_approx_mode = false.
+// Blackhole causal, no config: metal defaults + exp_approx_mode = false.
 func.func @sdpa_causal_no_config_opt(
     %arg0: tensor<1x1x4x512xbf16>,
     %arg1: tensor<128x4x32x512xbf16>,
@@ -28,8 +27,8 @@ func.func @sdpa_causal_no_config_opt(
 
 // -----
 
-// Blackhole with a pre-existing (optimizer-style) config: exp_approx_mode forced
-// to false while the optimizer's chunk sizes are preserved.
+// Blackhole with a pre-existing config: exp_approx_mode forced to false, chunk
+// sizes preserved.
 func.func @sdpa_existing_config_opt(
     %arg0: tensor<1x1x4x512xbf16>,
     %arg1: tensor<128x4x32x512xbf16>,

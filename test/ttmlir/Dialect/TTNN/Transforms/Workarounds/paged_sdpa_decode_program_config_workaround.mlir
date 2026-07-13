@@ -3,8 +3,8 @@
 // RUN: ttmlir-opt --split-input-file --ttcore-register-device="mock-system-desc-arch=wormhole_b0" --ttnn-layout --ttnn-workaround -o %t %s
 // RUN: FileCheck %s --check-prefixes=CHECK,WORMHOLE --input-file=%t
 
-// Blackhole + causal + no config: synthesize the Blackhole causal defaults and
-// force exp_approx_mode = false. Wormhole + causal + no config: nothing injected.
+// Blackhole causal, no config: metal defaults + exp_approx_mode = false.
+// Wormhole causal, no config: nothing injected.
 func.func @sdpa_causal_no_config(
     %arg0: tensor<1x1x4x512xbf16>,
     %arg1: tensor<128x4x32x512xbf16>,
@@ -30,9 +30,8 @@ func.func @sdpa_causal_no_config(
 
 // -----
 
-// Non-causal + no config: a mask-carrying op still gets the Blackhole config
-// (exp_approx_mode = false); on Wormhole no config is injected, since tt-metal
-// defaults k_chunk_size = 32 for non-causal decode itself.
+// Non-causal, no config: Blackhole still gets the config; Wormhole gets none
+// (metal defaults k_chunk_size = 32 for non-causal decode itself).
 func.func @sdpa_non_causal_no_config(
     %arg0: tensor<1x1x4x512xbf16>,
     %arg1: tensor<128x4x32x512xbf16>,
@@ -59,9 +58,8 @@ func.func @sdpa_non_causal_no_config(
 
 // -----
 
-// Override invariant: an existing program_config (e.g. from the optimizer or
-// another workaround) is preserved field-by-field, but on Blackhole
-// exp_approx_mode is forced to false. On Wormhole it is left untouched (true).
+// Existing config preserved field-by-field; exp_approx_mode forced to false on
+// Blackhole, left untouched (true) on Wormhole.
 func.func @sdpa_existing_config(
     %arg0: tensor<1x1x4x512xbf16>,
     %arg1: tensor<128x4x32x512xbf16>,
