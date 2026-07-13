@@ -5214,10 +5214,11 @@ TEST_F(OpModelBase, ArangeOpInterface) {
   auto resultType =
       createRankedTensorType(tensorShape, builder.getBF16Type(), layout);
 
-  // Create ArangeOp with IntegerAttr parameters
-  auto startAttr = builder.getI64IntegerAttr(0);
-  auto endAttr = builder.getI64IntegerAttr(10);
-  auto stepAttr = builder.getI64IntegerAttr(2);
+  // Create ArangeOp with signed IntegerAttr parameters
+  auto si64 = builder.getIntegerType(64, /*isSigned=*/true);
+  auto startAttr = builder.getIntegerAttr(si64, 0);
+  auto endAttr = builder.getIntegerAttr(si64, 10);
+  auto stepAttr = builder.getIntegerAttr(si64, 2);
 
   auto arange = builder.create<ArangeOp>(builder.getUnknownLoc(), resultType,
                                          /*device=*/nullptr, startAttr, endAttr,
