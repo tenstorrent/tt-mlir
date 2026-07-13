@@ -547,8 +547,7 @@ private:
 
 const std::set<mlir::StringRef>
     TTNNWorkarounds::TTNNWorkarounds::enabledOpsForWorkaroundWithOptimizer = {
-        ttnn::WhereOp::getOperationName(),
-        ttnn::FullOp::getOperationName(),
+        ttnn::WhereOp::getOperationName(), ttnn::FullOp::getOperationName(),
         ttnn::EmbeddingOp::getOperationName(),
         ttnn::ScatterOp::getOperationName(),
         // TopK's operands workaround forces input bf16 + indices ui16/ui32;
@@ -583,11 +582,7 @@ const std::set<mlir::StringRef>
         ttnn::AllToAllCombineOp::getOperationName(),
         ttnn::MoeExpertTokenRemapOp::getOperationName(),
         ttnn::SparseMatmulOp::getOperationName(),
-        // ArgMax's operands workaround forces ROW_MAJOR input/output. Since
-        // tt-metal #46340 the multicore argmax kernel is only selected for a
-        // ROW_MAJOR input (TILE silently falls back to single-core, ~100ms for
-        // a full-vocab reduction). Without this, opt_level>=1 layout
-        // propagation leaves the input TILE and we lose the multicore path.
-        ttnn::ArgMaxOp::getOperationName(),
+        // ArgMax is intentionally absent: at opt-level >= 1 ArgMaxRuleBook's
+        // RowMajor input siblings supply its ROW_MAJOR input (tt-metal #46340).
 };
 } // namespace mlir::tt::ttnn

@@ -9,6 +9,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/MatmulRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/MoeRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/NormalizationRules.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/ReductionRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/TransformerRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/TypecastRules.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -84,6 +85,8 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static MoeRuleBook moe;
   static FillCacheRuleBook fillCache;
   static PagedFillCacheRuleBook pagedFillCache;
+  static PagedUpdateCacheRuleBook pagedUpdateCache;
+  static ArgMaxRuleBook argMax;
 
   static llvm::DenseMap<mlir::OperationName, const OpRuleBook *> registry;
   static std::once_flag initFlag;
@@ -124,6 +127,8 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(PrepareMoEComputeW2WeightsOp::getOperationName(), &moe);
     reg(FillCacheOp::getOperationName(), &fillCache);
     reg(PagedFillCacheOp::getOperationName(), &pagedFillCache);
+    reg(PagedUpdateCacheOp::getOperationName(), &pagedUpdateCache);
+    reg(ArgMaxOp::getOperationName(), &argMax);
   });
   auto it = registry.find(op->getName());
   return it != registry.end() ? *it->second : defaultRules;
