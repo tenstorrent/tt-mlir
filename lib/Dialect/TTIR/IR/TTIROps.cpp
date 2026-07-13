@@ -3188,7 +3188,7 @@ mlir::tt::ttir::RearrangeOp::getInvPatternMap() {
       std::max<int32_t>(begin + dimSize, kDimStart) : 
       std::min<int32_t>(begin, dimSize - 1);
     int32_t adjustedEndNegativeStep = (end < kDimStart) ? 
-      std::max<int32_t>(end + dimSize, -1) : 
+      std::max<int32_t>(end + dimSize, kDimStart - 1) : 
       std::min<int32_t>(end, dimSize - 1);
     if (adjustedBeginNegativeStep < adjustedEndNegativeStep) {
       // e.g. array[1:3:-1] <=> array[0:0:-1]
