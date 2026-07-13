@@ -3126,7 +3126,11 @@ public:
     // Numerator of the division is the tensor being normalized.
     mlir::Value x = utils::lookThroughLayoutOps(divOp.getLhs());
 
-    // Denominator: optional clamp_min(sqrt(sum(x^2)), eps).
+    // Denominator: optional clamp_min(sqrt(sum(x^2)), eps). The eps guard may
+    // appear either as a clamp_tensor (splat min/max operands, as emitted by
+    // the frontend) or as a clamp_scalar (min/max folded into attributes by
+    // canonicalization).
+    constexpr double kMaxNormEpsGuard = 1e-3;
     double epsGuard = 0.0;
     mlir::Value sqrtSource = divOp.getRhs();
     if (auto clampOp =
@@ -3135,15 +3139,20 @@ public:
       if (!minVal) {
         return mlir::failure();
       }
-      // Only fold the clamp when it acts as a small numerical-stability eps
-      // guard (as in F.normalize). A larger floor would be a meaningful clamp
-      // whose behavior is not captured by an rms_norm epsilon.
-      constexpr double kMaxNormEpsGuard = 1e-3;
       if (*minVal < 0.0 || *minVal > kMaxNormEpsGuard) {
         return mlir::failure();
       }
       epsGuard = *minVal;
       sqrtSource = clampOp.getInput();
+    } else if (auto clampScalarOp =
+                   utils::findOpThroughLayoutOps<ClampScalarOp>(
+                       divOp.getRhs())) {
+      double minVal = ttmlir::utils::attributeToDouble(clampScalarOp.getMin());
+      if (minVal < 0.0 || minVal > kMaxNormEpsGuard) {
+        return mlir::failure();
+      }
+      epsGuard = minVal;
+      sqrtSource = clampScalarOp.getInput();
     }
 
     // sqrt expressed as either ttir.sqrt or pow(_, 0.5).
@@ -3668,13 +3677,6 @@ public:
       }
       patterns.add<RMSNormFusionPattern>(&getContext());
       patterns.add<NormalizeRMSNormFusionPattern>(&getContext());
-
-      patterns.add<RMSNormActivationFusionPattern<SiluOp>>(&getContext(),
-                                                           "silu");
-      patterns.add<RMSNormActivationFusionPattern<GeluOp>>(&getContext(),
-                                                           "gelu");
-      patterns.add<RMSNormActivationFusionPattern<ReluOp>>(&getContext(),
-                                                           "relu");
 
       patterns.add<GeluFusionPattern>(&getContext());
       patterns.add<Relu6FusionPattern>(&getContext());

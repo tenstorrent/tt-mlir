@@ -2338,46 +2338,6 @@ def TTIR_RMSNormOp : TTIR_NamedOp<"rms_norm", [AttrSizedOperandSegments]> {
   let hasVerifier = 1;
 }
 
-def TTIR_DitRMSNormUnaryFusedOp : TTIR_NamedOp<"dit_rms_norm_unary_fused", [AttrSizedOperandSegments]> {
-  let summary = "Fused RMS normalization + unary activation operation";
-  let description = [{
-    Performs RMS (Root Mean Square) normalization on the input tensor followed by
-    an optional unary activation (e.g. SiLU, GELU), fused into a single operation.
-
-    Inputs:
-    - `input` (Tensor): The input tensor to be normalized.
-    - `weight` (Optional Tensor): The scale parameter (gamma). If provided, the
-      normalized result is element-wise multiplied by this weight.
-    - `bias` (Optional Tensor): The shift parameter (beta). If provided, this bias
-      is added to the scaled result.
-    - `residual_input` (Optional Tensor): If provided, it is added to `input`
-      before normalization (fused pre-add residual).
-
-    Attributes:
-    - `normalized_shape` specifies the dimensions over which to normalize.
-    - `epsilon` is a small constant added for numerical stability (default: 1e-05).
-    - `activation` is the optional unary activation applied after normalization
-      (e.g. "silu", "gelu"). If absent, no activation is applied.
-
-    Mathematical definition:
-      dit_rms_norm_unary_fused(x, weight, bias, residual, epsilon, activation) =
-        activation((r / sqrt(mean(r^2) + epsilon)) * weight + bias)
-      where r = x + residual.
-  }];
-
-  let arguments = (ins AnyRankedTensor:$input,
-                       Optional<AnyRankedTensor>:$weight,
-                       Optional<AnyRankedTensor>:$bias,
-                       Optional<AnyRankedTensor>:$residual_input,
-                       DenseI64ArrayAttr:$normalized_shape,
-                       DefaultValuedAttr<F32Attr, "1e-05">:$epsilon,
-                       OptionalAttr<StrAttr>:$activation);
-
-  let results = (outs AnyRankedTensor:$result);
-
-  let hasVerifier = 1;
-}
-
 def TTIR_DistributedRMSNormOp : TTIR_NamedOp<"distributed_rms_norm", [AttrSizedOperandSegments]> {
   let summary = "Distributed RMS normalization with all-gather operation";
   let description = [{

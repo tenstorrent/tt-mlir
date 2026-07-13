@@ -1260,41 +1260,6 @@ def dit_rms_norm_unary_fused_golden(
     return result.to(input.dtype)
 
 
-def ttir_dit_rms_norm_unary_fused_golden(
-    input: GoldenMapTensor,
-    weight: Optional[GoldenMapTensor],
-    bias: Optional[GoldenMapTensor],
-    residual_input: Optional[GoldenMapTensor],
-    normalized_shape: ArrayAttr,
-    epsilon: FloatAttr,
-    activation: Optional["StringAttr"] = None,
-    output_type_mlir: Type = None,
-) -> GoldenMapTensor:
-    normalized_shape = unpack_mlir_attr(normalized_shape)
-    epsilon = unpack_mlir_attr(epsilon)
-    output_dtype = mlir_type_to_torch_dtype(output_type_mlir)
-
-    x = input.float()
-    if residual_input is not None:
-        x = torch.add(x, residual_input.float())
-
-    result = torch.nn.functional.rms_norm(
-        x,
-        normalized_shape=normalized_shape,
-        weight=weight,
-        eps=epsilon,
-    )
-
-    if bias is not None:
-        result = torch.add(result, bias)
-
-    activation_fn = _get_fused_activation_fn(activation)
-    if activation_fn is not None:
-        result = activation_fn(result)
-
-    return result.to(output_dtype)
-
-
 def ttir_distributed_rms_norm_golden(
     input: GoldenMapTensor,
     weight: Optional[GoldenMapTensor],
@@ -8891,7 +8856,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttir.SplitQueryKeyValueAndSplitHeadsOp: ttir_split_query_key_value_and_split_heads_golden,
     ttir.GroupNormOp: ttir_group_norm_golden,
     ttir.RMSNormOp: ttir_rms_norm_golden,
-    ttir.DitRMSNormUnaryFusedOp: ttir_dit_rms_norm_unary_fused_golden,
     ttir.DistributedRMSNormOp: ttir_distributed_rms_norm_golden,
     ttir.DistributedLayerNormOp: ttir_distributed_layer_norm_golden,
     # Type operations
