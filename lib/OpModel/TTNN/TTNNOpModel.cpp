@@ -7429,8 +7429,8 @@ OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
       deviceRef = *device;
 
   auto arangeOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::arange, device, start.getInt(),
-                                end.getInt(), step.getInt(), dataType,
+    return QUERY_OP_CONSTRAINTS(::ttnn::arange, device, start.getSInt(),
+                                end.getSInt(), step.getSInt(), dataType,
                                 deviceRef, memoryConfig, layout);
   };
 
