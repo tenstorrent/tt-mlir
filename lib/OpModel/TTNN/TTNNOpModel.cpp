@@ -7459,7 +7459,7 @@ OpModel<mlir::tt::ttnn::EmptyOp>::getOpConstraints(
 //===----------------------------------------------------------------------===//
 // Receiving start, end, and step as attributes (rather than plain
 // integers) is the only valid way to acquire a pointer to the MLIRContext.
-// Note: these are SI64Attr (signed), so read them with getSExtValue()
+// Note: these are SI64Attr (signed), so read them with getSInt()
 llvm::Expected<OpConstraints>
 OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
     ::mlir::IntegerAttr start, ::mlir::IntegerAttr end,
@@ -7494,10 +7494,9 @@ OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
       deviceRef = *device;
 
   auto arangeOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(
-        ::ttnn::arange, device, start.getValue().getSExtValue(),
-        end.getValue().getSExtValue(), step.getValue().getSExtValue(), dataType,
-        deviceRef, memoryConfig, layout);
+    return QUERY_OP_CONSTRAINTS(::ttnn::arange, device, start.getSInt(),
+                                end.getSInt(), step.getSInt(), dataType,
+                                deviceRef, memoryConfig, layout);
   };
 
   return operation::getOpConstraints(start.getContext(), arangeOpQuery);

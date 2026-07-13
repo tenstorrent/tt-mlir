@@ -3804,10 +3804,11 @@ TEST_F(OpModelTest, ArangeOp) {
   const mlir::tt::ttnn::TTNNLayoutAttr inputLayout =
       CreateTiledLayout(inputTensorShape, mlir::tt::ttnn::BufferType::DRAM,
                         mlir::tt::ttnn::TensorMemoryLayout::Interleaved);
-  // Create IntegerAttr parameters
-  ::mlir::IntegerAttr startAttr = builder.getI32IntegerAttr(0);
-  ::mlir::IntegerAttr endAttr = builder.getI32IntegerAttr(10);
-  ::mlir::IntegerAttr stepAttr = builder.getI32IntegerAttr(1);
+  // Create signed IntegerAttr parameters
+  ::mlir::Type si64 = builder.getIntegerType(64, /*isSigned=*/true);
+  ::mlir::IntegerAttr startAttr = builder.getIntegerAttr(si64, 0);
+  ::mlir::IntegerAttr endAttr = builder.getIntegerAttr(si64, 10);
+  ::mlir::IntegerAttr stepAttr = builder.getIntegerAttr(si64, 1);
 
   // Create optional dtype
   std::optional<mlir::tt::ttcore::DataType> dtype =
