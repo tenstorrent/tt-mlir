@@ -5,20 +5,9 @@
 // RUN: ttmlir-opt --split-input-file --ttcore-register-device --ttnn-layout --convert-ttir-to-ttnn --ttnn-workaround="ttnn-optimization-level=1" --canonicalize -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-// Regression test: ChunkedScaledDotProductAttentionOp must remain in the
-// workaround allowlist when the optimizer is enabled.
-//
-// The TTNN workarounds pass restricts its operand layout/dtype workarounds to
-// a small allowlist when the optimizer runs (ttnn-optimization-level >= 1).
-// ChunkedScaledDotProductAttentionOp was absent from that set, so its
-// createChunkedScaledDotProductAttentionOpOperandsWorkarounds (which forces the
-// page_table and chunk_start_idx operands to ROW_MAJOR) was skipped at opt >= 1.
-// Without it, the optimizer's layout propagation leaves the page table TILE and
-// the tt-metal kernel aborts at runtime with:
-//   "TT_FATAL: Page table must be row major".
+// ChunkedScaledDotProductAttentionOp forces ROW_MAJOR layout on page_table and chunk_start_idx.
+// This test verifies that the workaround is applied even with the optimizer enabled.
 
-// page_table (%arg3) and chunk_start_idx (%arg4) must be coerced to ROW_MAJOR
-// even with the optimizer enabled.
 // CHECK-DAG: #[[PAGE_TABLE_RM_LAYOUT:ttnn_layout[0-9]*]] = #ttnn.ttnn_layout<{{.*}}memref<1x4xsi32, #dram>
 // CHECK-DAG: #[[CHUNK_START_RM_LAYOUT:ttnn_layout[0-9]*]] = #ttnn.ttnn_layout<{{.*}}memref<1x1xsi32, #dram>
 // CHECK-DAG: %[[PAGE_TABLE:.*]] = "ttnn.to_layout"(%arg3){{.*}} -> tensor<1x4xsi32, #[[PAGE_TABLE_RM_LAYOUT]]>

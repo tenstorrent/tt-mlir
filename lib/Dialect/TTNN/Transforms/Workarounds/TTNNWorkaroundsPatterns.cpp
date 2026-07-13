@@ -589,11 +589,6 @@ const std::set<mlir::StringRef>
         // a full-vocab reduction). Without this, opt_level>=1 layout
         // propagation leaves the input TILE and we lose the multicore path.
         ttnn::ArgMaxOp::getOperationName(),
-        // ChunkedScaledDotProductAttention's operands workaround forces
-        // ROW_MAJOR layout on page_table and chunk_start_idx (the tt-metal
-        // kernel hard-rejects a tiled page table: "TT_FATAL: Page table must
-        // be row major"). Without this, opt_level>=1 layout propagation leaves
-        // the page table TILE and the chunked-prefill path crashes at runtime.
         ttnn::ChunkedScaledDotProductAttentionOp::getOperationName(),
 };
 } // namespace mlir::tt::ttnn
