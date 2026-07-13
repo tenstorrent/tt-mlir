@@ -605,6 +605,8 @@ void createTTNNCommonToEmitCPipeline(
   if (options.tryRecoverStructure) {
     createRecoverStructureXLATorchPipeline(
         pm, RecoverStructureXLATorchPipelineOptions());
+  } else {
+    pm.addPass(createTTNNForceFinalDeallocs());
   }
 
   if (options.targetDylib) {
@@ -647,6 +649,8 @@ void createTTNNCommonToEmitPyPipeline(
   if (options.tryRecoverStructure) {
     createRecoverStructureXLATorchPipeline(
         devicePm, RecoverStructureXLATorchPipelineOptions());
+  } else {
+    devicePm.addPass(createTTNNForceFinalDeallocs());
   }
 
   // Apply EmitPy-specific workarounds before conversion
