@@ -6985,14 +6985,29 @@ public:
 
     // Single-dimensional scatter.
     if (scatterDimsToOperandDims.size() == 1) {
-      // Process indices to match update tensor shape.
       int32_t dim = scatterDimsToOperandDims[0];
-      Value finalIndexTensor =
-          extractElementWiseScatterIndices(srcOp, rewriter);
+      int64_t inputRank = inputType.getRank();
+      int64_t updateRank = updateType.getRank();
+
+      Value finalIndexTensor;
+      Value finalSourceTensor;
+
+      if (updateRank < inputRank) {
+        // Rank-reducing single-dim scatter (single hyper-slice set), e.g.
+        // `x.at[i, :].set(v)`. StableHLO dropped the scattered axis from the
+        // update; promote source and index back to operand rank instead of
+        // flattening. See checkBasicLegality for the exact supported form.
+        std::tie(finalSourceTensor, finalIndexTensor) =
+            buildRankReducingScatterOperands(srcOp, dim, rewriter);
+      } else {
+        // Source is used as-is; build indices shape-aligned with the update.
+        finalSourceTensor = updateTensor;
+        finalIndexTensor = extractElementWiseScatterIndices(srcOp, rewriter);
+      }
 
       // Create ScatterOp.
       rewriter.replaceOpWithNewOp<ttir::ScatterOp>(
-          srcOp, outputType, inputTensor, finalIndexTensor, updateTensor,
+          srcOp, outputType, inputTensor, finalIndexTensor, finalSourceTensor,
           rewriter.getI32IntegerAttr(dim),
           ttcore::ReduceTypeAttr::get(rewriter.getContext(),
                                       *scatterReduceType));
@@ -7097,17 +7112,47 @@ private:
     }
 
     // Checks that apply to single dimensional scatter.
+    if (!multiDimensionalScatter) {
+      RankedTensorType inputType =
+          mlir::cast<RankedTensorType>(op.getInputs()[0].getType());
+      int64_t inputRank = inputType.getRank();
+      int64_t updateRank = static_cast<int64_t>(updateShape.size());
 
-    if (!multiDimensionalScatter && indexShape.size() > updateShape.size()) {
-      return rewriter.notifyMatchFailure(
-          op, "TTIR scatter requires indices.rank <= updates.rank. Please add "
-              "support for rank promotion if needed.");
-    }
-
-    if (!multiDimensionalScatter && indexVectorDim != 1u) {
-      return rewriter.notifyMatchFailure(
-          op,
-          "TTIR single dimensional scatter requires index_vector_dim to be 1");
+      if (updateRank < inputRank) {
+        // Rank-reducing single-dim scatter (e.g. `x.at[i, :].set(v)`): a single
+        // hyper-slice along the scattered axis is overwritten. StableHLO
+        // collapses that axis in the update, so its rank is exactly one less
+        // than the operand's. We support this by promoting index/source back to
+        // operand rank (see matchAndRewrite) rather than flattening, so the
+        // index_vector_dim == 1 requirement does not apply. Only the exact
+        // "scattered axis collapsed, all other axes are window" form is
+        // supported; reject anything else.
+        int64_t scatterDim = scatterDimsToOperandDims[0];
+        if (insertedWindowDims.size() != 1 ||
+            insertedWindowDims[0] != scatterDim || inputRank - 1 != updateRank) {
+          return rewriter.notifyMatchFailure(
+              op, "TTIR single dimensional scatter: unsupported rank-reducing "
+                  "form (only setting a single hyper-slice along the scattered "
+                  "axis is supported)");
+        }
+        // The single scatter coordinate must be a single value.
+        if (ttmlir::utils::volume(indexShape) != 1) {
+          return rewriter.notifyMatchFailure(
+              op, "TTIR single dimensional scatter: rank-reducing form expects "
+                  "exactly one scatter coordinate");
+        }
+      } else {
+        if (indexShape.size() > updateShape.size()) {
+          return rewriter.notifyMatchFailure(
+              op, "TTIR scatter requires indices.rank <= updates.rank. Please "
+                  "add support for rank promotion if needed.");
+        }
+        if (indexVectorDim != 1u) {
+          return rewriter.notifyMatchFailure(
+              op, "TTIR single dimensional scatter requires index_vector_dim "
+                  "to be 1");
+        }
+      }
     }
 
     return success();
@@ -7405,6 +7450,79 @@ private:
     // Flatten the computed indices to 1D.
     return ttir::utils::flattenTensor(rewriter, loc, flatIndices,
                                       "_flatten_expanded_indices");
+  }
+
+  /// Builds the {source, index} operands for a rank-reducing single-dimensional
+  /// scatter that sets a single hyper-slice along the scattered axis, e.g.
+  /// `x.at[i, :].set(v)`.
+  ///
+  /// StableHLO collapses the scattered axis in the update, so `update` has rank
+  /// `operandRank - 1`. Rather than flattening the whole scatter to 1D, we
+  /// promote both operands back to operand rank with size 1 at the scattered
+  /// axis, which lets `ttir.scatter` (dim = scattered axis) express the write
+  /// directly. The exact supported form is validated in checkBasicLegality
+  /// (single inserted window dim equal to the scattered axis, exactly one
+  /// scatter coordinate, all other axes are window).
+  ///
+  /// Example (operand 3x3, `x.at[0, :].set(v)`, dim = 0):
+  ///   update  tensor<3xf32>  -> source tensor<1x3xf32>  (reshape)
+  ///   indices (coord 0)      -> index  tensor<1x3xi32>  (reshape to 1x1 then
+  ///                                                       broadcast), all 0
+  ///   ttir.scatter then writes output[0][j] = source[0][j].
+  ///
+  /// Example (operand 2x3x4x5, `x.at[:, 1, :, :].set(v)`, dim = 1):
+  ///   update  tensor<2x4x5xf32> -> source tensor<2x1x4x5xf32> (reshape;
+  ///                                  a size-1 axis inserted at dim 1)
+  ///   indices (coord 1)         -> index  tensor<2x1x4x5xi32> (reshape to
+  ///                                  1x1x1x1 then broadcast), all 1
+  ///   ttir.scatter then writes output[a][1][c][d] = source[a][0][c][d];
+  ///   the other slices along dim 1 are untouched.
+  ///
+  /// Returns {promotedSource, promotedIndex}, both shaped like the operand with
+  /// size 1 at `dim`.
+  std::pair<Value, Value>
+  buildRankReducingScatterOperands(mlir::stablehlo::ScatterOp op, int32_t dim,
+                                   PatternRewriter &rewriter) const {
+    Location loc = op.getLoc();
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(op.getInputs()[0].getType());
+    ArrayRef<int64_t> inputShape = inputType.getShape();
+    int64_t inputRank = inputType.getRank();
+
+    // Operand-rank shape with size 1 at the scattered axis. Both source and
+    // index take this shape (ttir.scatter requires index.shape == source.shape
+    // and both to match the input rank).
+    llvm::SmallVector<int64_t> promotedShape(inputShape.begin(),
+                                             inputShape.end());
+    promotedShape[dim] = 1;
+
+    // Source: reshape the (row-major) update to the promoted shape. Inserting a
+    // size-1 axis at the scattered position preserves element order.
+    Value promotedSource = ttir::utils::createReshapeOp(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_source_promote"),
+        op.getUpdates()[0], promotedShape);
+
+    // Index: the ttir.scatter index must hold the scattered-axis coordinate at
+    // every element. There is exactly one coordinate, so reshape it to all-ones
+    // operand rank and broadcast it across the promoted shape.
+    Value indices = op.getScatterIndices();
+    RankedTensorType indicesType =
+        mlir::cast<RankedTensorType>(indices.getType());
+    llvm::SmallVector<int64_t> onesShape(inputRank, 1);
+    Value reshapedIndex = ttir::utils::createReshapeOp(
+        rewriter, ttmlir::utils::appendLocationSuffix(loc, "_index_reshape"),
+        indices, onesShape);
+
+    RankedTensorType broadcastType = RankedTensorType::get(
+        promotedShape, indicesType.getElementType(), indicesType.getEncoding());
+    llvm::SmallVector<int64_t> broadcastDims =
+        ttmlir::utils::getBroadcastDimensions<int64_t>(onesShape, promotedShape);
+    Value promotedIndex = rewriter.create<ttir::BroadcastOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_index_broadcast"),
+        broadcastType, reshapedIndex,
+        rewriter.getDenseI64ArrayAttr(broadcastDims));
+
+    return {promotedSource, promotedIndex};
   }
 
   Value extractElementWiseScatterIndices(mlir::stablehlo::ScatterOp op,
