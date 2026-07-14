@@ -57,7 +57,24 @@ void run(const ::tt::target::ttnn::ReductionOp *op, ProgramContext &context) {
     break;
   }
   case ::tt::target::ttnn::ReductionOpType::Mean: {
-    runReductionOp(op, tensorPool, ::ttnn::mean);
+    // ::ttnn::mean gained a trailing `fast_and_approximate_mode` parameter that
+    // the other reductions do not have, so it no longer matches the shared
+    // callback signature.  Wrap it and let the new parameter take its default
+    // (false = accurate fp32 SFPU path, matching prior behavior).
+    runReductionOp(
+        op, tensorPool,
+        [](const ::ttnn::Tensor &input,
+           const std::optional<
+               std::variant<int, int64_t, ::ttsl::SmallVector<int>>> &dimArg,
+           const bool keepDim,
+           const std::optional<::ttnn::MemoryConfig> &memoryConfig,
+           const std::optional<::ttnn::DeviceComputeKernelConfig>
+               &computeConfig,
+           float scalar, bool correction,
+           const std::optional<::ttnn::CoreRangeSet> &subCoreGrids) {
+          return ::ttnn::mean(input, dimArg, keepDim, memoryConfig,
+                              computeConfig, scalar, correction, subCoreGrids);
+        });
     break;
   }
   case ::tt::target::ttnn::ReductionOpType::Max: {
