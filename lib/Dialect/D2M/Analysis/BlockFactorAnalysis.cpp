@@ -363,7 +363,8 @@ static std::optional<CandidateScore> evaluateCandidate(
     ArrayRef<int64_t> shardExtents, ArrayRef<int64_t> shardFactors,
     ArrayRef<int64_t> originalBlockFactors, ArrayRef<int64_t> dimScales,
     ttcore::DeviceAttr device, ttcore::MemorySpaceAttr l1Attr,
-    uint32_t numBuffers, const uint64_t l1Budget, AutoShapeClass shapeClass, bool allowIdentityCandidate = false) {
+    uint32_t numBuffers, const uint64_t l1Budget, AutoShapeClass shapeClass,
+    bool allowIdentityCandidate = false) {
   SmallVector<int64_t> candidateGridExtents(gridExtents.begin(),
                                             gridExtents.end());
   SmallVector<int64_t> candidateShardExtents(shardExtents.begin(),
@@ -411,8 +412,10 @@ static std::optional<CandidateScore> evaluateCandidate(
       return std::nullopt;
     }
 
-    const int64_t shardVolume = ttmlir::utils::volume<int64_t>(operandShardShape);
+    const int64_t shardVolume =
+        ttmlir::utils::volume<int64_t>(operandShardShape);
     // Reject candidates that would result in a too small operand shard shape.
+    // Allow reductions to have a small operand shard shape.
     if (shapeClass != AutoShapeClass::SingleReduction && shardVolume < 4) {
       return std::nullopt;
     }
@@ -448,7 +451,8 @@ static std::optional<CandidateScore> evaluateCandidate(
     SmallVector<int64_t> intermediateShardShape =
         canonicalMap.compose(candidateShardExtents);
 
-    const int64_t shardVolume = ttmlir::utils::volume<int64_t>(intermediateShardShape);
+    const int64_t shardVolume =
+        ttmlir::utils::volume<int64_t>(intermediateShardShape);
     // Reject candidates that would result in a too small operand shard shape.
     if (shapeClass != AutoShapeClass::SingleReduction && shardVolume < 4) {
       return WalkResult::interrupt();
@@ -513,7 +517,8 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
                 ArrayRef<int64_t> gridExtents, ArrayRef<int64_t> shardExtents,
                 ArrayRef<int64_t> shardFactors, ttcore::DeviceAttr device,
                 ttcore::MemorySpaceAttr l1Attr, uint32_t numBuffers,
-                bool useBoundedEltwiseSearch, bool allowMNReblocking, const uint64_t l1Budget) {
+                bool useBoundedEltwiseSearch, bool allowMNReblocking,
+                const uint64_t l1Budget) {
   const SmallVector<int64_t> originalBlockFactors =
       genericOp.getBlockFactorsValue();
 
@@ -550,7 +555,8 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
     bestCandidate = evaluateCandidate(
         genericOp, config->candidateDims, indexingMaps, gridExtents,
         shardExtents, shardFactors, originalBlockFactors, currentDimScales,
-        device, l1Attr, numBuffers, l1Budget, config->shapeClass, /*allowIdentityCandidate=*/true);
+        device, l1Attr, numBuffers, l1Budget, config->shapeClass,
+        /*allowIdentityCandidate=*/true);
   }
 
   // Restrict the large eltwise search space to the top kEltwiseBeamWidth
@@ -608,7 +614,8 @@ applyAutoPolicy(GenericOp genericOp, ArrayRef<AffineMap> indexingMaps,
           auto candidate = evaluateCandidate(
               genericOp, config->candidateDims, indexingMaps, gridExtents,
               shardExtents, shardFactors, originalBlockFactors,
-              currentDimScales, device, l1Attr, numBuffers, l1Budget, config->shapeClass);
+              currentDimScales, device, l1Attr, numBuffers, l1Budget,
+              config->shapeClass);
           if (candidate && (!bestCandidate ||
                             isBetterCandidate(config->shapeClass, *candidate,
                                               *bestCandidate))) {
@@ -647,7 +654,8 @@ static SmallVector<int64_t> chooseReblockedFactors(
     ArrayRef<ttcore::IteratorType> iteratorTypes, ArrayRef<int64_t> gridExtents,
     ArrayRef<int64_t> shardExtents, ttcore::DeviceAttr device,
     BlockFactorAnalysis::BufferSizePolicy policy,
-    ttcore::MemorySpaceAttr l1Attr, uint32_t numBuffers, const uint64_t l1Budget) {
+    ttcore::MemorySpaceAttr l1Attr, uint32_t numBuffers,
+    const uint64_t l1Budget) {
   const SmallVector<int64_t> shardFactors = getShardBlockFactors(genericOp);
   switch (policy) {
   case BlockFactorAnalysis::BufferSizePolicy::Max:
