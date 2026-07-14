@@ -238,3 +238,66 @@ module {
     return %result : tensor<1x4x2x8xf32>
   }
 }
+
+// =========================================================================
+// Pattern 4: complex-interleaved RoPE (Krea CausalWanModel)
+// =========================================================================
+
+// Butterfly (real = a*c - b*d, imag = b*c + a*d) with a,b = even/odd halves of
+// x and c,d = cos/sin broadcast over heads, re-interleaved via concat. Anchored
+// on the subtract, folds to a single composite.
+// CHECK-LABEL: @rope_complex_interleaved_basic
+// CHECK: "ttcore.composite"
+// CHECK-SAME: composite_name = "rotary_embedding"
+module {
+  func.func @rope_complex_interleaved_basic(
+      %x: tensor<2x2x8xf32>,
+      %cos: tensor<2x1x4xf32>,
+      %sin: tensor<2x1x4xf32>) -> tensor<2x2x8xf32> {
+    // de-interleave x: (2,2,8) -> (2,2,4,2), slice the two pair components
+    %x_pairs = "ttir.reshape"(%x) <{shape = [2:i32, 2:i32, 4:i32, 2:i32]}> : (tensor<2x2x8xf32>) -> tensor<2x2x4x2xf32>
+    %a_s = "ttir.slice_static"(%x_pairs) <{begins = [0:i32, 0:i32, 0:i32, 0:i32], ends = [2:i32, 2:i32, 4:i32, 1:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<2x2x4x2xf32>) -> tensor<2x2x4x1xf32>
+    %a = "ttir.reshape"(%a_s) <{shape = [2:i32, 2:i32, 4:i32]}> : (tensor<2x2x4x1xf32>) -> tensor<2x2x4xf32>
+    %b_s = "ttir.slice_static"(%x_pairs) <{begins = [0:i32, 0:i32, 0:i32, 1:i32], ends = [2:i32, 2:i32, 4:i32, 2:i32], step = [1:i32, 1:i32, 1:i32, 1:i32]}> : (tensor<2x2x4x2xf32>) -> tensor<2x2x4x1xf32>
+    %b = "ttir.reshape"(%b_s) <{shape = [2:i32, 2:i32, 4:i32]}> : (tensor<2x2x4x1xf32>) -> tensor<2x2x4xf32>
+
+    // cos/sin broadcast over the head dim (head-independent freqs table)
+    %c = "ttir.broadcast"(%cos) <{broadcast_dimensions = array<i64: 1, 2, 1>}> : (tensor<2x1x4xf32>) -> tensor<2x2x4xf32>
+    %d = "ttir.broadcast"(%sin) <{broadcast_dimensions = array<i64: 1, 2, 1>}> : (tensor<2x1x4xf32>) -> tensor<2x2x4xf32>
+
+    // butterfly: real = a*c - b*d, imag = b*c + a*d
+    %ac = "ttir.multiply"(%a, %c) : (tensor<2x2x4xf32>, tensor<2x2x4xf32>) -> tensor<2x2x4xf32>
+    %bd = "ttir.multiply"(%b, %d) : (tensor<2x2x4xf32>, tensor<2x2x4xf32>) -> tensor<2x2x4xf32>
+    %real = "ttir.subtract"(%ac, %bd) : (tensor<2x2x4xf32>, tensor<2x2x4xf32>) -> tensor<2x2x4xf32>
+    %bc = "ttir.multiply"(%b, %c) : (tensor<2x2x4xf32>, tensor<2x2x4xf32>) -> tensor<2x2x4xf32>
+    %ad = "ttir.multiply"(%a, %d) : (tensor<2x2x4xf32>, tensor<2x2x4xf32>) -> tensor<2x2x4xf32>
+    %imag = "ttir.add"(%bc, %ad) : (tensor<2x2x4xf32>, tensor<2x2x4xf32>) -> tensor<2x2x4xf32>
+
+    // view_as_real: re-interleave real/imag and flatten back to (..., D)
+    %real_4d = "ttir.reshape"(%real) <{shape = [2:i32, 2:i32, 4:i32, 1:i32]}> : (tensor<2x2x4xf32>) -> tensor<2x2x4x1xf32>
+    %imag_4d = "ttir.reshape"(%imag) <{shape = [2:i32, 2:i32, 4:i32, 1:i32]}> : (tensor<2x2x4xf32>) -> tensor<2x2x4x1xf32>
+    %vas = "ttir.concat"(%real_4d, %imag_4d) <{dim = 3 : si32}> : (tensor<2x2x4x1xf32>, tensor<2x2x4x1xf32>) -> tensor<2x2x4x2xf32>
+    %result = "ttir.reshape"(%vas) <{shape = [2:i32, 2:i32, 8:i32]}> : (tensor<2x2x4x2xf32>) -> tensor<2x2x8xf32>
+    return %result : tensor<2x2x8xf32>
+  }
+}
+
+// Negative: freqs not broadcast over heads -> x/freqs split is ambiguous -> no fuse.
+// CHECK-LABEL: @rope_complex_interleaved_no_broadcast_no_fuse
+// CHECK-NOT: "ttcore.composite"
+module {
+  func.func @rope_complex_interleaved_no_broadcast_no_fuse(
+      %a: tensor<2x2x4xf32>, %b: tensor<2x2x4xf32>,
+      %c: tensor<2x2x4xf32>, %d: tensor<2x2x4xf32>) -> tensor<2x2x4x2xf32> {
+    %ac = "ttir.multiply"(%a, %c) : (tensor<2x2x4xf32>, tensor<2x2x4xf32>) -> tensor<2x2x4xf32>
+    %bd = "ttir.multiply"(%b, %d) : (tensor<2x2x4xf32>, tensor<2x2x4xf32>) -> tensor<2x2x4xf32>
+    %real = "ttir.subtract"(%ac, %bd) : (tensor<2x2x4xf32>, tensor<2x2x4xf32>) -> tensor<2x2x4xf32>
+    %bc = "ttir.multiply"(%b, %c) : (tensor<2x2x4xf32>, tensor<2x2x4xf32>) -> tensor<2x2x4xf32>
+    %ad = "ttir.multiply"(%a, %d) : (tensor<2x2x4xf32>, tensor<2x2x4xf32>) -> tensor<2x2x4xf32>
+    %imag = "ttir.add"(%bc, %ad) : (tensor<2x2x4xf32>, tensor<2x2x4xf32>) -> tensor<2x2x4xf32>
+    %real_4d = "ttir.reshape"(%real) <{shape = [2:i32, 2:i32, 4:i32, 1:i32]}> : (tensor<2x2x4xf32>) -> tensor<2x2x4x1xf32>
+    %imag_4d = "ttir.reshape"(%imag) <{shape = [2:i32, 2:i32, 4:i32, 1:i32]}> : (tensor<2x2x4xf32>) -> tensor<2x2x4x1xf32>
+    %vas = "ttir.concat"(%real_4d, %imag_4d) <{dim = 3 : si32}> : (tensor<2x2x4x1xf32>, tensor<2x2x4x1xf32>) -> tensor<2x2x4x2xf32>
+    return %vas : tensor<2x2x4x2xf32>
+  }
+}

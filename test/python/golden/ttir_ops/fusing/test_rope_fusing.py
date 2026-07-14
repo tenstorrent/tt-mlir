@@ -615,3 +615,143 @@ def test_rope_interleaved_pair(
     )
 
     assert check_op(output, "rotary_embedding")
+
+
+# ---------------------------------------------------------------------------
+# Pattern 4: complex-interleaved (Krea CausalWanModel)
+#   view_as_real(view_as_complex(x) * freqs).flatten(): a,b = even/odd of x;
+#   real = a*cos - b*sin; imag = b*cos + a*sin; interleaved back to [..., D].
+#   cos/sin are broadcast over the head dim.
+# ---------------------------------------------------------------------------
+
+
+def torch_rope_complex_interleaved(x, cos, sin):
+    """Golden reference for Krea complex-interleaved RoPE."""
+    a = x[..., 0::2]
+    b = x[..., 1::2]
+    real = a * cos - b * sin
+    imag = b * cos + a * sin
+    out = torch.stack([real, imag], dim=-1)
+    return out.reshape(*x.shape).type_as(x)
+
+
+def build_rope_complex_interleaved(
+    input: Operand,
+    cos_input: Operand,
+    sin_input: Operand,
+    builder: TTIRBuilder,
+):
+    """Build Pattern 4 (complex-interleaved) as a sequence of TTIR ops.
+
+    input is [B, H, S, D]; cos/sin are 3D [1, S, D/2], reshaped to 4D and
+    explicitly broadcast over the head dim (so the fuser classifies them as
+    the freqs table vs the x activation).
+    """
+    B, H, S, D = list(input.type.shape)
+    half_dim = D // 2
+
+    # de-interleave x: (B,H,S,D) -> (B,H,S,D/2,2), slice the two pair components
+    x_pairs = builder.reshape(input, shape=[B, H, S, half_dim, 2])
+    a = builder.reshape(
+        builder.slice(
+            x_pairs,
+            begins=[0, 0, 0, 0, 0],
+            ends=[B, H, S, half_dim, 1],
+            step=[1, 1, 1, 1, 1],
+        ),
+        shape=[B, H, S, half_dim],
+    )
+    b = builder.reshape(
+        builder.slice(
+            x_pairs,
+            begins=[0, 0, 0, 0, 1],
+            ends=[B, H, S, half_dim, 2],
+            step=[1, 1, 1, 1, 1],
+        ),
+        shape=[B, H, S, half_dim],
+    )
+
+    # cos/sin: reshape to 4D and broadcast over batch and heads.
+    cos_4d = builder.reshape(cos_input, shape=[1, 1, S, half_dim])
+    sin_4d = builder.reshape(sin_input, shape=[1, 1, S, half_dim])
+    c = builder.broadcast(cos_4d, broadcast_dimensions=[B, H, 1, 1])
+    d = builder.broadcast(sin_4d, broadcast_dimensions=[B, H, 1, 1])
+
+    # butterfly: real = a*c - b*d, imag = b*c + a*d
+    real = builder.subtract(builder.multiply(a, c), builder.multiply(b, d))
+    imag = builder.add(builder.multiply(b, c), builder.multiply(a, d))
+
+    # view_as_real: interleave real/imag and flatten back to (..., D)
+    real_5d = builder.reshape(real, shape=[B, H, S, half_dim, 1])
+    imag_5d = builder.reshape(imag, shape=[B, H, S, half_dim, 1])
+    vas = builder.concat([real_5d, imag_5d], dim=4)
+    return builder.reshape(vas, shape=[B, H, S, D])
+
+
+# Krea per-device model shape: seq = F*H*W = 3*30*52 = 4680, 40 heads tensor-
+# parallel across 4 chips -> 10/device, head_dim 128.
+COMPLEX_INTERLEAVED_SHAPES = [
+    pytest.param(
+        (1, 10, 4680, 128),
+        (1, 4680, 64),
+        id="krea_realtime_video-prefill",
+    ),
+]
+
+
+@pytest.mark.parametrize("input_shape, cos_sin_shape", COMPLEX_INTERLEAVED_SHAPES)
+@pytest.mark.parametrize("dtype", [torch.bfloat16])
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_rope_complex_interleaved(
+    input_shape, cos_sin_shape, dtype, target, request, device
+):
+    """
+    Pattern 4: complex-interleaved RoPE.
+    Used by Krea-Realtime CausalWanModel.
+
+    Verifies that the decomposed complex-multiply RoPE (butterfly + view_as_real
+    re-interleave) fuses into ttnn.rotary_embedding through the full pipeline,
+    avoiding the sub-tile (..., 1) DRAM blow-up of the unfused path.
+    """
+    shapes = [input_shape, cos_sin_shape, cos_sin_shape]
+    dtypes = [dtype] * 3
+
+    def module(builder: TTIRBuilder):
+        @builder.func(shapes, dtypes)
+        def rotary_embedding(
+            input: Operand,
+            cos_input: Operand,
+            sin_input: Operand,
+            builder: TTIRBuilder,
+        ):
+            input_data = torch.randn(input_shape, dtype=dtype)
+            cos_data = torch.randn(cos_sin_shape, dtype=dtype)
+            sin_data = torch.randn(cos_sin_shape, dtype=dtype)
+
+            golden = torch_rope_complex_interleaved(
+                input_data, cos_data.unsqueeze(0), sin_data.unsqueeze(0)
+            )
+
+            result = build_rope_complex_interleaved(
+                input, cos_input, sin_input, builder
+            )
+
+            builder.set_goldens(
+                {input: input_data, cos_input: cos_data, sin_input: sin_data},
+                {result: golden},
+            )
+            return result
+
+    output = compile_and_execute_ttir(
+        module,
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        pipeline_options=[
+            "enable-ttnn-decomposition-pass=false",
+            "composite-resolution=force-promote",
+        ],
+        save_artifacts=True,
+    )
+
+    assert check_op(output, "rotary_embedding")

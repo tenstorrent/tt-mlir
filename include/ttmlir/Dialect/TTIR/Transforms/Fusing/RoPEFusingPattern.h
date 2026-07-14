@@ -74,6 +74,24 @@ public:
   matchAndRewrite(AddOp srcOp, mlir::PatternRewriter &rewriter) const override;
 };
 
+// Fuses the complex-multiply RoPE butterfly (real = a*c - b*d, imag = b*c +
+// a*d, a/b = de-interleaved x, c/d = cos/sin) re-interleaved to (..., D).
+// Rewrites to rotate-half rotary_embedding over the full D dim, avoiding the
+// sub-tile
+// (..., 1) tensors of the unfused path.
+//
+// Anchors on SubtractOp; finds the sibling AddOp via shared operands. Splits x
+// vs freqs by which operand is broadcast over the head dim.
+class RoPEComplexInterleavedFusingPattern
+    : public mlir::OpRewritePattern<SubtractOp> {
+public:
+  using OpRewritePattern<SubtractOp>::OpRewritePattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(SubtractOp srcOp,
+                  mlir::PatternRewriter &rewriter) const override;
+};
+
 } // namespace mlir::tt::ttir::fusing
 
 #endif // TTMLIR_DIALECT_TTIR_TRANSFORMS_FUSING_ROPEFUSINGPATTERN_H

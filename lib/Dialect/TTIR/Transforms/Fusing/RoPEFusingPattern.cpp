@@ -1058,4 +1058,279 @@ mlir::LogicalResult RoPEInterleavedPairFusingPattern::matchAndRewrite(
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// RoPEComplexInterleavedFusingPattern
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+// True if the def-chain of `v` (through shape/layout-only ops) hits a
+// BroadcastOp: distinguishes the head-broadcast freqs from the x activation.
+bool defChainHasBroadcast(Value v, int depth = 24) {
+  if (depth < 0) {
+    return false;
+  }
+  Operation *op = v.getDefiningOp();
+  if (!op) {
+    return false;
+  }
+  if (isa<BroadcastOp>(op)) {
+    return true;
+  }
+  if (!isa<TypecastOp, ReshapeOp, PermuteOp, SliceStaticOp, ConcatOp>(op)) {
+    return false;
+  }
+  for (Value operand : op->getOperands()) {
+    if (defChainHasBroadcast(operand, depth - 1)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Bounded backward reachability: is `target` an ancestor of `v`?
+bool reachesBackward(Value v, Operation *target, int depth = 20) {
+  if (depth < 0) {
+    return false;
+  }
+  Operation *op = v.getDefiningOp();
+  if (!op) {
+    return false;
+  }
+  if (op == target) {
+    return true;
+  }
+  // Only traverse the RoPE reconstruction ops; do not cross unrelated compute.
+  if (!isa<TypecastOp, ReshapeOp, PermuteOp, SliceStaticOp, ConcatOp>(op)) {
+    return false;
+  }
+  for (Value operand : op->getOperands()) {
+    if (reachesBackward(operand, target, depth - 1)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Find the view_as_real ConcatOp (last-dim, 2 operands, result (..., 2)) whose
+// operands trace back to `subOp` (real) and `addOp` (imag). Bounded fwd BFS.
+ConcatOp findViewAsRealConcat(SubtractOp subOp, AddOp addOp) {
+  SmallVector<Operation *> worklist{subOp.getOperation()};
+  llvm::SmallPtrSet<Operation *, 32> seen;
+  int steps = 0;
+  while (!worklist.empty() && steps++ < 512) {
+    Operation *cur = worklist.pop_back_val();
+    for (Operation *user : cur->getUsers()) {
+      if (!seen.insert(user).second) {
+        continue;
+      }
+      if (auto concat = dyn_cast<ConcatOp>(user)) {
+        auto rt = mlir::cast<RankedTensorType>(concat.getType());
+        int64_t rank = rt.getRank();
+        if (rank >= 2 && rt.getShape()[rank - 1] == 2 &&
+            concat.getNumOperands() == 2 && concat.getDim() == rank - 1) {
+          bool op0Sub = reachesBackward(concat.getOperand(0), subOp);
+          bool op1Add = reachesBackward(concat.getOperand(1), addOp);
+          bool op0Add = reachesBackward(concat.getOperand(0), addOp);
+          bool op1Sub = reachesBackward(concat.getOperand(1), subOp);
+          if ((op0Sub && op1Add) || (op0Add && op1Sub)) {
+            return concat;
+          }
+        }
+      }
+      worklist.push_back(user);
+    }
+  }
+  return nullptr;
+}
+
+// Split a MultiplyOp into (x, freq); freq is the broadcast operand. nullopt if
+// ambiguous (both or neither broadcast).
+std::optional<std::pair<Value, Value>> splitXFreq(MultiplyOp mul) {
+  Value o0 = mul.getOperand(0);
+  Value o1 = mul.getOperand(1);
+  bool f0 = defChainHasBroadcast(o0);
+  bool f1 = defChainHasBroadcast(o1);
+  if (f0 == f1) {
+    return std::nullopt;
+  }
+  return f0 ? std::make_pair(o1, o0) : std::make_pair(o0, o1);
+}
+
+} // namespace
+
+mlir::LogicalResult RoPEComplexInterleavedFusingPattern::matchAndRewrite(
+    SubtractOp srcOp, mlir::PatternRewriter &rewriter) const {
+
+  // Don't fuse inside decomposition function bodies (infinite recursion).
+  if (utils::isInsideCompositeDecomposition(srcOp)) {
+    return failure();
+  }
+
+  // 1. real = a*c - b*d : both operands must be multiplies.
+  auto reMul0 =
+      dyn_cast_or_null<MultiplyOp>(srcOp.getOperand(0).getDefiningOp());
+  auto reMul1 =
+      dyn_cast_or_null<MultiplyOp>(srcOp.getOperand(1).getDefiningOp());
+  if (!reMul0 || !reMul1) {
+    return failure();
+  }
+
+  // 2. Split each real multiply into (x, freq) via the broadcast heuristic.
+  //    reMul0 = a*c  (a = x, c = cos),  reMul1 = b*d  (b = x, d = sin).
+  auto s0 = splitXFreq(reMul0);
+  auto s1 = splitXFreq(reMul1);
+  if (!s0 || !s1) {
+    return failure();
+  }
+  auto [a, c] = *s0;
+  auto [b, d] = *s1;
+
+  // The four base values must be distinct.
+  if (a == b || a == c || a == d || b == c || b == d || c == d) {
+    return failure();
+  }
+
+  // 3. Find the sibling imag AddOp: imag = b*c + a*d. Look for an AddOp whose
+  //    two operands are MultiplyOp(b, c) and MultiplyOp(a, d) (either order).
+  auto isMulOf = [](MultiplyOp m, Value x, Value y) {
+    return (m.getOperand(0) == x && m.getOperand(1) == y) ||
+           (m.getOperand(0) == y && m.getOperand(1) == x);
+  };
+  AddOp imagAdd = nullptr;
+  for (Operation *userBC : a.getUsers()) {
+    // a participates in a*d in the imag branch.
+    auto mAD = dyn_cast<MultiplyOp>(userBC);
+    if (!mAD || !isMulOf(mAD, a, d)) {
+      continue;
+    }
+    for (Operation *addUser : mAD->getUsers()) {
+      auto add = dyn_cast<AddOp>(addUser);
+      if (!add) {
+        continue;
+      }
+      auto other = dyn_cast_or_null<MultiplyOp>(
+          (add.getOperand(0).getDefiningOp() == mAD)
+              ? add.getOperand(1).getDefiningOp()
+              : add.getOperand(0).getDefiningOp());
+      if (other && isMulOf(other, b, c)) {
+        imagAdd = add;
+        break;
+      }
+    }
+    if (imagAdd) {
+      break;
+    }
+  }
+  if (!imagAdd) {
+    return failure();
+  }
+
+  // 4. a, b, c, d must share a common (..., K) type.
+  auto aType = mlir::dyn_cast<RankedTensorType>(a.getType());
+  if (!aType || aType != mlir::dyn_cast<RankedTensorType>(b.getType()) ||
+      aType != mlir::dyn_cast<RankedTensorType>(c.getType()) ||
+      aType != mlir::dyn_cast<RankedTensorType>(d.getType())) {
+    return failure();
+  }
+  int64_t rank = aType.getRank();
+  int64_t lastDim = rank - 1;
+  int64_t K = aType.getShape()[lastDim];
+  Type elemType = aType.getElementType();
+
+  // 5. Locate the view_as_real concat (the output to replace).
+  ConcatOp vaReal = findViewAsRealConcat(srcOp, imagAdd);
+  if (!vaReal) {
+    return failure();
+  }
+
+  // -------- Rewrite --------
+  Location loc = srcOp.getLoc();
+  int64_t D = 2 * K;
+
+  auto lastDimAttr = rewriter.getSI32IntegerAttr(lastDim);
+
+  // x_rh = concat(a, b) : the even/odd de-interleave is already the rotate-half
+  // layout.  (..., D)
+  SmallVector<int64_t> fullShape(aType.getShape());
+  fullShape[lastDim] = D;
+  auto fullType = RankedTensorType::get(fullShape, elemType);
+  auto xPerm =
+      rewriter.create<ConcatOp>(loc, fullType, ValueRange{a, b}, lastDimAttr);
+
+  // cos/sin: strip the head-broadcast so the promoted rotary_embedding op sees
+  // cos/sin with batch/head dims == 1. cosFull = concat(cosHalf, cosHalf),
+  // sinFull = concat(sinHalf, sinHalf)  (self-concat -> full D).
+  Value cosHalf = get4DEmbeddingInput(c);
+  Value sinHalf = get4DEmbeddingInput(d);
+  auto cosHalfType = mlir::cast<RankedTensorType>(cosHalf.getType());
+  auto sinHalfType = mlir::cast<RankedTensorType>(sinHalf.getType());
+  int64_t cosLastDim = cosHalfType.getRank() - 1;
+  int64_t sinLastDim = sinHalfType.getRank() - 1;
+  SmallVector<int64_t> cosFullShape(cosHalfType.getShape());
+  cosFullShape[cosLastDim] *= 2;
+  auto cosFullType =
+      RankedTensorType::get(cosFullShape, cosHalfType.getElementType());
+  SmallVector<int64_t> sinFullShape(sinHalfType.getShape());
+  sinFullShape[sinLastDim] *= 2;
+  auto sinFullType =
+      RankedTensorType::get(sinFullShape, sinHalfType.getElementType());
+  auto cosFull =
+      rewriter.create<ConcatOp>(loc, cosFullType, ValueRange{cosHalf, cosHalf},
+                                rewriter.getSI32IntegerAttr(cosLastDim));
+  auto sinFull =
+      rewriter.create<ConcatOp>(loc, sinFullType, ValueRange{sinHalf, sinHalf},
+                                rewriter.getSI32IntegerAttr(sinLastDim));
+
+  // out_rh = rotary_embedding(x_rh, cosFull, sinFull) : rotate-half form gives
+  // concat(a*c - b*d, b*c + a*d) = concat(real, imag).  (..., D)
+  auto moduleOp = srcOp->getParentOfType<ModuleOp>();
+  OpBuilder moduleBuilder(moduleOp.getContext());
+  moduleBuilder.setInsertionPointToEnd(moduleOp.getBody());
+  auto decompFunc = buildRoPEDecompositionFunc(
+      moduleBuilder, loc, fullType, cosFullType, sinFullType, fullType,
+      /*isSelfConcatCosSin=*/true);
+  moduleBuilder.insert(decompFunc);
+  auto rotEmb = rewriter.create<ttcore::CompositeOp>(
+      loc, TypeRange{fullType},
+      ValueRange{xPerm.getResult(), cosFull.getResult(), sinFull.getResult()},
+      rewriter.getStringAttr("rotary_embedding"),
+      FlatSymbolRefAttr::get(rewriter.getContext(), decompFunc.getName()),
+      /*composite_attributes=*/nullptr);
+
+  // Re-interleave rotate-half [real | imag] -> [real0, imag0, real1, imag1,
+  // ...] reshape (..., D) -> (..., 2, K); permute swap last two -> (..., K, 2).
+  SmallVector<int64_t> splitShape(aType.getShape());
+  splitShape[lastDim] = 2;
+  splitShape.push_back(K);
+  auto splitType = RankedTensorType::get(splitShape, elemType);
+  SmallVector<int32_t> splitShapeAttr(splitShape.size());
+  for (size_t i = 0; i < splitShape.size(); ++i) {
+    splitShapeAttr[i] = static_cast<int32_t>(splitShape[i]);
+  }
+  auto split =
+      rewriter.create<ReshapeOp>(loc, splitType, rotEmb->getResult(0),
+                                 rewriter.getI32ArrayAttr(splitShapeAttr));
+
+  SmallVector<int64_t> perm(splitShape.size());
+  for (size_t i = 0; i < perm.size(); ++i) {
+    perm[i] = static_cast<int64_t>(i);
+  }
+  std::swap(perm[perm.size() - 2], perm[perm.size() - 1]);
+  SmallVector<int64_t> pairShape(aType.getShape());
+  pairShape.push_back(2); // (..., K, 2)
+  auto pairType = RankedTensorType::get(pairShape, elemType);
+  auto interleaved =
+      rewriter.create<PermuteOp>(loc, pairType, split.getResult(), perm);
+
+  // Match the view_as_real concat's result type, then replace it: both
+  // downstream reshapes (flatten to (..., D)) then consume the fused tensor.
+  auto vaRealType = mlir::cast<RankedTensorType>(vaReal.getType());
+  if (vaRealType.getShape() != ArrayRef<int64_t>(pairShape)) {
+    return failure();
+  }
+  rewriter.replaceOp(vaReal, interleaved.getResult());
+  return success();
+}
+
 } // namespace mlir::tt::ttir::fusing
