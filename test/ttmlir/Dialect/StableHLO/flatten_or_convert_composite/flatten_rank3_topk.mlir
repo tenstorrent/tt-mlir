@@ -2,16 +2,8 @@
 // RUN: ttmlir-opt -split-input-file --flatten-or-convert-composites -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
-// Regression for the #8601 sharding regression (tt-xla DeepSeek-V3 TP galaxy
-// `new_volume == old_volume` reshape crash).
-//
-// getTopKShardingRule() only builds a valid rule for the rank-2 [batch, N]
-// form. DeepSeek-V3's MoE gate emits a rank-3 [tokens, groups, experts] topk
-// that is sharded on the batch (tokens) dim, not the reduction (experts) dim.
-// Converting it to a custom_call leaves Shardy with an empty rule, so the batch
-// sharding is not carried across the op and the global batch dim corrupts the
-// local shard. FlattenOrConvertCompositesPass must instead FLATTEN a rank-3
-// topk (no stablehlo.custom_call, no stablehlo.composite remaining).
+// A rank-3 topk has no valid sharding rule, so it must be flattened, not
+// converted to a custom_call (#8601 regression).
 module @jit_topk_rank3 attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
   sdy.mesh @mesh = <["batch"=4, "vocab"=1]>
   // CHECK-LABEL: func.func @main
@@ -37,10 +29,8 @@ module @jit_topk_rank3 attributes {mhlo.cross_program_prefetches = [], mhlo.inpu
 
 // -----
 
-// A rank-2 [batch, N] topk is the form getTopKShardingRule() supports, so it
-// must still be converted to a stablehlo.custom_call so Shardy can propagate
-// its custom sharding rule (the intended #8601 path). This is the vLLM
-// vocab-sharded sampling case, where the reduction dim N is the sharded one.
+// A rank-2 topk is the supported form, so it is still converted to a
+// custom_call for Shardy to propagate its sharding rule.
 module @jit_topk_rank2 attributes {mhlo.cross_program_prefetches = [], mhlo.input_output_alias = [], mhlo.is_dynamic = false, mhlo.use_auto_spmd_partitioning = false} {
   sdy.mesh @mesh = <["batch"=1, "vocab"=4]>
   // CHECK-LABEL: func.func @main
