@@ -1865,6 +1865,131 @@ public:
 } // namespace
 
 namespace {
+class Conv1dOpConversionPattern : public OpConversionPattern<ttir::Conv1dOp> {
+public:
+  using OpConversionPattern<ttir::Conv1dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::Conv1dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    auto weightTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
+    auto inputShape = inputTy.getShape();
+
+    int64_t batchDim = op.getBatchDim();
+    int64_t lengthDim = op.getLengthDim();
+    int64_t channelDim = op.getChannelDim();
+
+    auto batchSizeAttr = rewriter.getI32IntegerAttr(inputShape[batchDim]);
+    auto inputLengthAttr = rewriter.getI32IntegerAttr(inputShape[lengthDim]);
+    auto inChannelsAttr = rewriter.getI32IntegerAttr(inputShape[channelDim]);
+    auto outChannelsAttr = rewriter.getI32IntegerAttr(
+        op.getResult().getType().getDimSize(channelDim));
+
+    // Weight is (O, C/G, K); the kernel length is the last dimension.
+    auto kernelSizeAttr = rewriter.getI32IntegerAttr(weightTy.getDimSize(2));
+
+    // stride and dilation are scalars in the TTNN op. The TTIR op allows them
+    // to be either a scalar integer or a 1-element array.
+    auto scalarAttr =
+        [&](mlir::Attribute attr) -> std::optional<mlir::IntegerAttr> {
+      if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+        return rewriter.getI32IntegerAttr(intAttr.getInt());
+      }
+      if (auto arrAttr = mlir::dyn_cast<DenseI32ArrayAttr>(attr)) {
+        if (arrAttr.size() != 1) {
+          return std::nullopt;
+        }
+        return rewriter.getI32IntegerAttr(arrAttr[0]);
+      }
+      return std::nullopt;
+    };
+
+    auto strideAttr = scalarAttr(adaptor.getStride());
+    if (!strideAttr) {
+      return rewriter.notifyMatchFailure(
+          op, "conv1d stride must be a scalar or a 1-element array");
+    }
+    auto dilationAttr = scalarAttr(adaptor.getDilation());
+    if (!dilationAttr) {
+      return rewriter.notifyMatchFailure(
+          op, "conv1d dilation must be a scalar or a 1-element array");
+    }
+
+    // padding is normalized to a 2-element [pL, pR] array in the TTNN op.
+    DenseI32ArrayAttr paddingAttr;
+    mlir::Attribute padding = adaptor.getPadding();
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(padding)) {
+      int32_t p = static_cast<int32_t>(intAttr.getInt());
+      paddingAttr = rewriter.getDenseI32ArrayAttr({p, p});
+    } else if (auto arrAttr = mlir::dyn_cast<DenseI32ArrayAttr>(padding)) {
+      if (arrAttr.size() == 1) {
+        paddingAttr = rewriter.getDenseI32ArrayAttr({arrAttr[0], arrAttr[0]});
+      } else if (arrAttr.size() == 2) {
+        paddingAttr = arrAttr;
+      } else {
+        return rewriter.notifyMatchFailure(
+            op, "conv1d padding must be a scalar, 1-element, or 2-element "
+                "array");
+      }
+    } else {
+      return rewriter.notifyMatchFailure(op,
+                                         "unexpected conv1d padding attribute");
+    }
+
+    auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
+
+    // ttnn::conv1d forwards the bias unchanged to ttnn::conv2d, which expects a
+    // 4D (1, 1, 1, O) bias. The conv1d bias is (1, 1, O), so unsqueeze a height
+    // dimension before handing it off.
+    Value bias = adaptor.getBias();
+    if (bias) {
+      auto biasTy = mlir::cast<RankedTensorType>(bias.getType());
+      llvm::SmallVector<int64_t> biasShape(biasTy.getShape());
+      biasShape.insert(biasShape.begin() + 2, 1);
+      bias = mlir::tt::ttir_to_ttnn::utils::generateReshape(
+          mlir::cast<TypedValue<RankedTensorType>>(bias), biasShape, rewriter,
+          ttmlir::utils::appendLocationSuffix(op.getLoc(), "_bias_unsqueeze"));
+    }
+
+    // Keep conv1d config tensors in L1 (the Metal default). ttnn::conv1d wraps
+    // conv2d, and the in-DRAM depthwise conv2d path hangs in tt-metal (#45075),
+    // so we must not force DRAM here as the general conv2d path does.
+    auto conv2dConfigAttr = ttnn::Conv2dConfigAttr::get(rewriter.getContext())
+                                .withConfigTensorsInDram(false);
+
+    // ttnn::conv1d delegates to ttnn::conv2d and returns the output in conv2d's
+    // flattened layout (1, 1, N * L_out, O). Create the op with that flattened
+    // result type and reshape back to the original (N, L_out, O) shape.
+    auto resultTy = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getResult().getType()));
+    int64_t outLength = resultTy.getDimSize(lengthDim);
+    llvm::SmallVector<int64_t> flattenedShape = {
+        1, 1, inputShape[batchDim] * outLength,
+        resultTy.getDimSize(channelDim)};
+    RankedTensorType flattenedResultTy =
+        ttnn::utils::RankedTensorTypeFactory::create(resultTy, flattenedShape);
+
+    auto convOp = rewriter.create<ttnn::Conv1dOp>(
+        op.getLoc(), flattenedResultTy, adaptor.getInput(), adaptor.getWeight(),
+        bias, device, inChannelsAttr, outChannelsAttr, batchSizeAttr,
+        inputLengthAttr, kernelSizeAttr, *strideAttr, paddingAttr,
+        *dilationAttr, groupsAttr, conv2dConfigAttr, /*compute_config=*/nullptr,
+        /*conv2d_slice_config=*/nullptr);
+
+    Value output = mlir::tt::ttir_to_ttnn::utils::generateReshape(
+        mlir::cast<TypedValue<RankedTensorType>>(convOp.getResult()),
+        llvm::SmallVector<int64_t>(resultTy.getShape()), rewriter,
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_unflatten"));
+
+    rewriter.replaceOp(op, output);
+
+    return success();
+  }
+};
+
 class Conv2dOpConversionPattern : public OpConversionPattern<ttir::Conv2dOp> {
 public:
   using OpConversionPattern<ttir::Conv2dOp>::OpConversionPattern;
@@ -3689,6 +3814,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            MoeExpertTokenRemapOpConversionPattern,
            MoeGptOpConversionPattern,
            MoeComputeOpConversionPattern,
+           Conv1dOpConversionPattern,
            Conv2dOpConversionPattern,
            Conv3dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,

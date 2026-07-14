@@ -1313,6 +1313,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_RepeatInterleaveOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::Conv1dOp: {
+    tensorRefs = {opContext.type_as_Conv1dOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
     tensorRefs = {opContext.type_as_Conv2dOp()->out()};
     break;
@@ -1843,6 +1847,14 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::RepeatInterleaveOp: {
     tensorRefs = {opContext.type_as_RepeatInterleaveOp()->input()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::Conv1dOp: {
+    auto *op = opContext.type_as_Conv1dOp();
+    tensorRefs = {op->input(), op->weight()};
+    if (op->bias()) {
+      tensorRefs.push_back(op->bias());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::Conv2dOp: {

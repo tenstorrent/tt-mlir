@@ -499,6 +499,87 @@ def cbrt_golden(x: GoldenMapTensor) -> GoldenMapTensor:
     return torch.mul(golden_sign, golden_cbrt)
 
 
+def conv1d_golden(
+    input_tensor: GoldenMapTensor,
+    weight: GoldenMapTensor,
+    bias: Optional[GoldenMapTensor],
+    stride: Union[IntegerAttr, DenseI32ArrayAttr],
+    padding: Union[IntegerAttr, DenseI32ArrayAttr],
+    dilation: Union[IntegerAttr, DenseI32ArrayAttr],
+    groups: IntegerAttr,
+    batch_dim: IntegerAttr,
+    length_dim: IntegerAttr,
+    channel_dim: IntegerAttr,
+) -> GoldenMapTensor:
+    """
+    Custom golden function for conv1d with layout transformation.
+
+    The TTIR op uses an NLC layout (batch, length, channel) while
+    ``torch.nn.functional.conv1d`` expects NCL (batch, channel, length).
+    """
+    if bias is not None:
+        bias = bias.squeeze()  # Removes all dims of size 1
+
+    stride = unpack_mlir_attr(stride)
+    padding = unpack_mlir_attr(padding)
+    dilation = unpack_mlir_attr(dilation)
+    groups = unpack_mlir_attr(groups)
+
+    batch_dim = unpack_mlir_attr(batch_dim)
+    length_dim = unpack_mlir_attr(length_dim)
+    channel_dim = unpack_mlir_attr(channel_dim)
+
+    # Permute any layout to NCL (batch=0, channel=1, length=2).
+    to_ncl_perm = [batch_dim, channel_dim, length_dim]
+    is_ncl = to_ncl_perm == [0, 1, 2]
+
+    copied_input_tensor = input_tensor.clone()
+    if not is_ncl:
+        copied_input_tensor = copied_input_tensor.permute(to_ncl_perm)
+
+    # Normalize stride/dilation to scalars.
+    if isinstance(stride, (list, tuple)):
+        stride = int(stride[0])
+    if isinstance(dilation, (list, tuple)):
+        dilation = int(dilation[0])
+
+    # Handle padding: int, [p] (symmetric), or [pL, pR] (asymmetric).
+    if isinstance(padding, (list, tuple)):
+        padding = [int(p) for p in padding]
+        if len(padding) == 1:
+            padding = padding[0]
+        elif len(padding) == 2:
+            left, right = padding
+            if left == right:
+                padding = left
+            else:
+                copied_input_tensor = torch.nn.functional.pad(
+                    copied_input_tensor,
+                    [left, right],
+                    mode="constant",
+                    value=0,
+                )
+                padding = 0
+
+    result = torch.nn.functional.conv1d(
+        copied_input_tensor,
+        weight,
+        bias=bias,
+        stride=stride,
+        padding=padding,
+        dilation=dilation,
+        groups=groups,
+    )
+
+    # Permute output back to original layout if we permuted the input.
+    if not is_ncl:
+        from_ncl_perm = [0] * 3
+        for i, p in enumerate(to_ncl_perm):
+            from_ncl_perm[p] = i
+        result = result.permute(from_ncl_perm)
+    return result
+
+
 def conv2d_golden(
     input_tensor: GoldenMapTensor,
     weight: GoldenMapTensor,
@@ -8941,6 +9022,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     # Complex operations
     ttir.CbrtOp: cbrt_golden,
     ttir.ConcatenateHeadsOp: ttir_concatenate_heads_golden,
+    ttir.Conv1dOp: conv1d_golden,
     ttir.Conv2dOp: conv2d_golden,
     ttir.Conv3dOp: conv3d_golden,
     ttir.ConvTranspose2dOp: conv_transpose2d_golden,
@@ -9792,6 +9874,25 @@ def chisel_ttnn_max_pool2d_with_indices(op, inputs):
     )
 
 
+def chisel_ttnn_conv1d(op, inputs):
+    # TTNN conv1d keeps the input in NLC layout and the weight in (O, C/G, K)
+    # format (the same as TTIR), so the golden can be reused directly. The TTNN
+    # op returns the output in conv2d's flattened layout (1, 1, N * L_out, O).
+    result = conv1d_golden(
+        input_tensor=inputs["input"],
+        weight=inputs["weight"],
+        bias=inputs["bias"],
+        stride=op.attributes["stride"],
+        padding=op.attributes["padding"],
+        dilation=op.attributes["dilation"],
+        groups=op.attributes["groups"],
+        batch_dim=0,
+        length_dim=1,
+        channel_dim=2,
+    )
+    return result.reshape(1, 1, -1, result.shape[-1])
+
+
 def chisel_ttnn_conv2d(op, inputs):
     # TTNN input/output is flat [1, 1, N*H*W, C]; unflatten to NHWC, run conv, re-flatten.
     batch_size = unpack_mlir_attr(op.attributes["batch_size"])
@@ -10391,6 +10492,7 @@ CHISEL_GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.MaxPool2dOp: chisel_ttnn_max_pool2d,
     ttnn.AvgPool2dOp: chisel_ttnn_avg_pool2d,
     ttnn.MaxPool2dWithIndicesOp: chisel_ttnn_max_pool2d_with_indices,
+    ttnn.Conv1dOp: chisel_ttnn_conv1d,
     ttnn.Conv2dOp: chisel_ttnn_conv2d,
     ttnn.Conv3dOp: chisel_ttnn_conv3d,
     ttnn.ConvTranspose2dOp: chisel_ttnn_conv_transpose2d,

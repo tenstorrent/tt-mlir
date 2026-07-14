@@ -1742,6 +1742,9 @@ TTNNOperandsWorkaroundsFactory::createTopKRouterGptOpOperandsWorkarounds() {
 
 template TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
+    ttnn::Conv1dOp op);
+template TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
     ttnn::Conv2dOp op);
 template TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(

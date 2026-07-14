@@ -3373,6 +3373,82 @@ SamplingOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// Conv1dOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+// If a config has been specified, use that. Otherwise, use the op property.
+// Conv1dOp carries a conv2d config/compute config (it delegates to conv2d), so
+// the conv2d attrs bundle is reused verbatim.
+static Conv2dAttrs unpackConv1dAttrs(const OpConfig::OpSpecificAttrs &attrs,
+                                     Conv1dOp op) {
+  assert((std::holds_alternative<Conv2dAttrs>(attrs) ||
+          std::holds_alternative<UninitializedAttrs>(attrs)) &&
+         "Please create a Conv2dAttrs or leave it to be uninitialized.");
+
+  if (std::holds_alternative<UninitializedAttrs>(attrs)) {
+    return Conv2dAttrs{op.getConv2dConfig(), op.getComputeConfig()};
+  }
+
+  Conv2dAttrs conv2dAttrs = std::get<Conv2dAttrs>(attrs);
+
+  return Conv2dAttrs{conv2dAttrs.conv2dConfig ? conv2dAttrs.conv2dConfig
+                                              : op.getConv2dConfig(),
+                     conv2dAttrs.deviceComputeKernelConfig
+                         ? conv2dAttrs.deviceComputeKernelConfig
+                         : op.getComputeConfig()};
+}
+
+llvm::Expected<op_model::OpConstraints>
+Conv1dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto weightShape = getWeight().getType().getShape();
+  std::optional<llvm::ArrayRef<int64_t>> biasShape;
+  std::optional<TTNNLayoutAttr> biasLayout;
+  if (inputs.size() == 3) {
+    biasShape = getBias().getType().getShape();
+    biasLayout = inputs[2];
+  }
+
+  Conv2dAttrs attr = unpackConv1dAttrs(opConfig.opSpecificAttrs, *this);
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<Conv1dOp>::getOpConstraints, getOperation(), inputShape,
+      inputs[0], weightShape, inputs[1], biasShape, biasLayout, getInChannels(),
+      getOutChannels(), getBatchSize(), getInputLength(), getKernelSize(),
+      getStride(), getPadding(), getDilation(), getGroups(), attr.conv2dConfig,
+      attr.deviceComputeKernelConfig, getConv2dSliceConfigAttr(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+Conv1dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                       const OpConfig &opConfig) {
+  assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
+
+  const auto inputShape = getInput().getType().getShape();
+  const auto weightShape = getWeight().getType().getShape();
+  std::optional<llvm::ArrayRef<int64_t>> biasShape;
+  std::optional<TTNNLayoutAttr> biasLayout;
+  if (inputs.size() == 3) {
+    biasShape = getBias().getType().getShape();
+    biasLayout = inputs[2];
+  }
+
+  Conv2dAttrs attr = unpackConv1dAttrs(opConfig.opSpecificAttrs, *this);
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<Conv1dOp>::getOpRuntime, getOperation(), inputShape,
+      inputs[0], weightShape, inputs[1], biasShape, biasLayout, getInChannels(),
+      getOutChannels(), getBatchSize(), getInputLength(), getKernelSize(),
+      getStride(), getPadding(), getDilation(), getGroups(), attr.conv2dConfig,
+      attr.deviceComputeKernelConfig, getConv2dSliceConfigAttr(),
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // Conv2dOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

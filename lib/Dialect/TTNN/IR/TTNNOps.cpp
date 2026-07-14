@@ -637,6 +637,48 @@ static bool isDefinedByOp(mlir::Value value) {
   return foundDefinedByOp;
 }
 
+// Conv1dOp verification
+int64_t mlir::tt::ttnn::Conv1dOp::getOutputChannelSize() {
+  RankedTensorType weightTy = getWeight().getType();
+  return weightTy.getShape()[0];
+}
+
+::mlir::LogicalResult mlir::tt::ttnn::Conv1dOp::verify() {
+  if (getInput().getType().getRank() != 3) {
+    return emitOpError("input must be a 3D tensor (N, L_in, C)");
+  }
+  if (getWeight().getType().getRank() != 3) {
+    return emitOpError("weight must be a 3D tensor (O, C/G, K)");
+  }
+  // ttnn::conv1d forwards the bias to ttnn::conv2d, which expects a 4D
+  // (1, 1, 1, O) bias.
+  if (getBias() && getBias().getType().getRank() != 4) {
+    return emitOpError("bias must be a 4D tensor (1, 1, 1, O)");
+  }
+  // ttnn::conv1d returns the output in ttnn::conv2d's flattened layout
+  // (1, 1, N * L_out, O).
+  if (getResult().getType().getRank() != 4) {
+    return emitOpError("output must be a 4D tensor (1, 1, N * L_out, O)");
+  }
+
+  if (getPadding().size() != 2) {
+    return emitOpError(
+        "padding attribute must have exactly 2 elements ([pL, pR])");
+  }
+
+  if (getGroups() <= 0) {
+    return emitOpError("groups must be a positive integer");
+  }
+  if (getInChannels() % getGroups() != 0) {
+    return emitOpError("in_channels must be divisible by groups");
+  }
+  if (getOutChannels() % getGroups() != 0) {
+    return emitOpError("out_channels must be divisible by groups");
+  }
+
+  return mlir::success();
+}
+
 // Conv2dOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::Conv2dOp::verify() {
   using namespace mlir::tt::ttnn::utils::verification_utils::conv2d;

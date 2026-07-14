@@ -893,6 +893,46 @@ createOp(FlatbufferObjectCache &cache, PrepareConvTranspose2dBiasOp op) {
       computeConfig.value_or(0), sliceConfig.value_or(0));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::Conv1dOp>
+createOp(FlatbufferObjectCache &cache, Conv1dOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto weight = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getWeight()));
+  auto bias = op.getBias()
+                  ? cache.at<::tt::target::ttnn::TensorRef>(
+                        getOperandThroughDPSOps(op.getBias()))
+                  : flatbuffers::Offset<::tt::target::ttnn::TensorRef>();
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  auto device = getOperandThroughDPSOps(op.getDevice());
+
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> padding =
+      toFlatbuffer(cache, op.getPadding());
+
+  auto outputDtype = toFlatbuffer(cache, op.getDtypeAttr());
+
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>>
+      conv2dConfig = toFlatbuffer(cache, op.getConv2dConfig());
+
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dSliceConfig>>
+      sliceConfig = toFlatbuffer(cache, op.getConv2dSliceConfig());
+
+  return ::tt::target::ttnn::CreateConv1dOp(
+      *cache.fbb, input, weight, bias, output,
+      cache.at<::tt::target::DeviceRef>(device), op.getInChannels(),
+      op.getOutChannels(), op.getBatchSize(), op.getInputLength(),
+      op.getKernelSize(), op.getStride(), padding, op.getDilation(),
+      op.getGroups(), outputDtype, conv2dConfig.value_or(0),
+      computeConfig.value_or(0), sliceConfig.value_or(0));
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Conv2dOp>
 createOp(FlatbufferObjectCache &cache, Conv2dOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -4608,6 +4648,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
       prepareConvTranspose2dBiasOp) {
     return createOperation(cache, createOp(cache, prepareConvTranspose2dBiasOp),
                            debugString, locInfo);
+  }
+  if (auto conv1dOp = dyn_cast<Conv1dOp>(op); conv1dOp) {
+    return createOperation(cache, createOp(cache, conv1dOp), debugString,
+                           locInfo);
   }
   if (auto conv2dOp = dyn_cast<Conv2dOp>(op); conv2dOp) {
     return createOperation(cache, createOp(cache, conv2dOp), debugString,

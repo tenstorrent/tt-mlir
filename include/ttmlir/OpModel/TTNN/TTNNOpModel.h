@@ -1261,6 +1261,44 @@ struct OpModel<Conv2dOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// Conv1dOp
+//===----------------------------------------------------------------------===//
+
+// `ttnn::conv1d` is a thin wrapper around `ttnn::conv2d` (it reshapes the input
+// to a height-1 image and maps the 1D parameters to their 2D equivalents). This
+// model mirrors the runtime path by querying `::ttnn::conv1d` directly with the
+// native 1D parameters, while reusing the conv2d weight/bias prepare helpers
+// (conv1d weights/biases are conv2d weights/biases).
+template <>
+struct OpModel<Conv1dOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
+      std::optional<llvm::ArrayRef<int64_t>> biasShape,
+      std::optional<TTNNLayoutAttr> biasLayout, uint32_t in_channels,
+      uint32_t out_channels, uint32_t batch_size, uint32_t input_length,
+      uint32_t kernel_size, uint32_t stride, llvm::ArrayRef<int32_t> padding,
+      uint32_t dilation, uint32_t groups,
+      std::optional<Conv2dConfigAttr> conv2dConfig,
+      std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+      std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
+      TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t> getOpRuntime(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
+      std::optional<llvm::ArrayRef<int64_t>> biasShape,
+      std::optional<TTNNLayoutAttr> biasLayout, uint32_t in_channels,
+      uint32_t out_channels, uint32_t batch_size, uint32_t input_length,
+      uint32_t kernel_size, uint32_t stride, llvm::ArrayRef<int32_t> padding,
+      uint32_t dilation, uint32_t groups,
+      std::optional<Conv2dConfigAttr> conv2dConfig,
+      std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+      std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
+      TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // Conv3dOp
 //===----------------------------------------------------------------------===//
 

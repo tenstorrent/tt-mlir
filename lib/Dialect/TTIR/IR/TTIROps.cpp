@@ -1573,6 +1573,67 @@ mlir::Operation *mlir::tt::ttir::Conv2dOp::rewriteWithQuantizedInputs(
   return quantConv.getOperation();
 }
 
+//===----------------------------------------------------------------------===//
+// Conv1dOp
+//===----------------------------------------------------------------------===//
+
+// Get number of output channels
+int64_t mlir::tt::ttir::Conv1dOp::getOutputChannelSize() {
+  RankedTensorType weightTy = getWeight().getType();
+  return weightTy.getShape()[0];
+}
+
+// Conv1dOp verification
+::mlir::LogicalResult mlir::tt::ttir::Conv1dOp::verify() {
+  if (getInput().getType().getRank() != 3) {
+    return emitOpError("input must be a 3D tensor");
+  }
+  if (getWeight().getType().getRank() != 3) {
+    return emitOpError("weight must be a 3D tensor (O, C/G, K)");
+  }
+  if (getBias() && getBias().getType().getRank() != 3) {
+    return emitOpError("bias must be a 3D tensor (1, 1, O)");
+  }
+  if (getResult().getType().getRank() != 3) {
+    return emitOpError("output must be a 3D tensor");
+  }
+
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType weightType = getWeight().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  int64_t inChannels = inputType.getDimSize(getChannelDim());
+  int64_t outChannels = outputType.getDimSize(getChannelDim());
+  uint32_t groups = getGroups();
+
+  if (groups == 0) {
+    return emitOpError("groups must be a positive integer");
+  }
+  if (inChannels % groups != 0) {
+    return emitOpError("number of input channels (")
+           << inChannels << ") must be divisible by groups (" << groups << ")";
+  }
+  if (outChannels % groups != 0) {
+    return emitOpError("number of output channels (")
+           << outChannels << ") must be divisible by groups (" << groups << ")";
+  }
+
+  // weight is (O, C/G, K).
+  if (weightType.getDimSize(0) != outChannels) {
+    return emitOpError("expected weight's output channel dimension (")
+           << weightType.getDimSize(0)
+           << ") to match the output tensor's channel dimension ("
+           << outChannels << ")";
+  }
+  if (weightType.getDimSize(1) != inChannels / groups) {
+    return emitOpError("expected weight's input channel dimension (")
+           << weightType.getDimSize(1) << ") to match in_channels / groups ("
+           << inChannels / groups << ")";
+  }
+
+  return mlir::success();
+}
+
 // Conv2dOp verification
 ::mlir::LogicalResult mlir::tt::ttir::Conv2dOp::verify() {
   // Verify tensor ranks.

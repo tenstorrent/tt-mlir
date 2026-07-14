@@ -449,6 +449,7 @@ public:
               ttnn::FillCacheOp>,
           workarounds::decomposition::FillCacheInputPadRewritePattern<
               ttnn::PagedFillCacheOp>,
+          workarounds::decomposition::Conv2dRewritePattern<Conv1dOp>,
           workarounds::decomposition::Conv2dRewritePattern<Conv2dOp>,
           workarounds::decomposition::Conv2dRewritePattern<ConvTranspose2dOp>,
           workarounds::decomposition::
