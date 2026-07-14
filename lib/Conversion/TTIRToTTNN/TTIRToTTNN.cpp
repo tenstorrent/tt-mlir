@@ -909,14 +909,12 @@ public:
 } // namespace
 
 namespace {
-template <typename TTIROpTy, typename TTNNOpTy>
-class SliceOpConversionPattern : public OpConversionPattern<TTIROpTy> {
+class SliceStaticOpConversionPattern : public OpConversionPattern<ttir::SliceStaticOp> {
 public:
-  using OpConversionPattern<TTIROpTy>::OpConversionPattern;
-  using OpAdaptor = typename TTIROpTy::Adaptor;
+  using OpConversionPattern<ttir::SliceStaticOp>::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
+  matchAndRewrite(ttir::SliceStaticOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     ::mlir::RankedTensorType inputType = mlir::cast<::mlir::RankedTensorType>(adaptor.getInput().getType());
     ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
@@ -972,12 +970,33 @@ public:
       normalizedEnds.push_back(rewriter.getI32IntegerAttr(adjustedEnd));
     }
     
-    rewriter.replaceOpWithNewOp<TTNNOpTy>(
+    rewriter.replaceOpWithNewOp<ttnn::SliceStaticOp>(
       op, 
       this->getTypeConverter()->convertType(op.getType()),
       adaptor.getInput(), 
       rewriter.getArrayAttr(normalizedBegins), 
       rewriter.getArrayAttr(normalizedEnds),
+      adaptor.getStepAttr()
+    );
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class SliceDynamicOpConversionPattern : public OpConversionPattern<ttir::SliceDynamicOp> {
+public:
+  using OpConversionPattern<ttir::SliceDynamicOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::SliceDynamicOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {    
+    rewriter.replaceOpWithNewOp<ttnn::SliceDynamicOp>(
+      op, 
+      this->getTypeConverter()->convertType(op.getType()),
+      adaptor.getInput(), 
+      adaptor.getBegins(), 
+      adaptor.getEnds(),
       adaptor.getStepAttr()
     );
     return success();
@@ -3706,8 +3725,8 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            ClampOpConversionPattern<ttir::ClampTensorOp, ttnn::ClampTensorOp>,
            ConcatOpConversionPattern,
            ReshapeOpConversionPattern,
-           SliceOpConversionPattern<ttir::SliceStaticOp, ttnn::SliceStaticOp>,
-           SliceOpConversionPattern<ttir::SliceDynamicOp, ttnn::SliceDynamicOp>,
+           SliceStaticOpConversionPattern,
+           SliceDynamicOpConversionPattern,
            SqueezeOpConversionPattern,
            UnsqueezeOpConversionPattern,
            ConstantOpConversionPattern,
