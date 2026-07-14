@@ -54,20 +54,16 @@ def _verify_topk_outputs(input_tensor, golden_topk, dim, output_tensors, pcc=0.9
     """PCC-checks topk device outputs against the golden via check_outputs.
 
     Both values and indices go through the same check_outputs() PCC engine that
-    execute_fb uses, so a failure raises TTBuilderGoldenException. Values are
-    compared order-robustly. Indices are validated on the values they point to,
-    gathered from the input, rather than raw positions.
+    execute_fb uses, so a failure raises TTBuilderGoldenException. Values and
+    indices are both compared positionally.
     """
-    d = dim % input_tensor.ndim
     prog = output_tensors["program_0"]
     device_values = prog["device_output_0"][0]
     device_indices = prog["device_output_1"][0].long()
 
-    dv_sorted, _ = torch.sort(device_values, dim=d)
-    gv_sorted, _ = torch.sort(golden_topk.values, dim=d)
     check_outputs(
-        gv_sorted,
-        dv_sorted,
+        golden_topk.values,
+        device_values,
         "topk_values",
         pcc,
         1e-08,
@@ -77,17 +73,10 @@ def _verify_topk_outputs(input_tensor, golden_topk, dim, output_tensors, pcc=0.9
         check_rtol=False,
     )
 
-    # The pointed-to values are compared in bf16.
-    device_gathered = torch.gather(input_tensor, d, device_indices).to(torch.bfloat16)
-    golden_gathered = torch.gather(input_tensor, d, golden_topk.indices).to(
-        torch.bfloat16
-    )
-    dg_sorted, _ = torch.sort(device_gathered, dim=d)
-    gg_sorted, _ = torch.sort(golden_gathered, dim=d)
     check_outputs(
-        gg_sorted,
-        dg_sorted,
-        "topk_index_values",
+        golden_topk.indices.float(),
+        device_indices.float(),
+        "topk_indices",
         pcc,
         1e-08,
         1e-05,
@@ -98,12 +87,17 @@ def _verify_topk_outputs(input_tensor, golden_topk, dim, output_tensors, pcc=0.9
 
 
 SINGLE_CORE_TOPK_SHAPES = [
+    # Single-tile reduction dim (exactly 32 elements): no merge/rebuild, just
+    # local_sort.
+    pytest.param((32, 28), 16, -1, id="32x28_k16_dim1"),
+    pytest.param((32, 32), 32, -1, id="32x32_k32_dim1"),
+    pytest.param((32, 32), 16, 0, id="32x32_k16_dim0"),
     # Single-tile target dim, dim=1 and dim=0
     pytest.param((32, 256), 16, -1, id="32x256_k16_dim1"),
     pytest.param((32, 256), 64, -1, id="32x256_k64_dim1"),
     pytest.param((256, 32), 16, 0, id="256x32_k16_dim0"),
     pytest.param((256, 32), 64, 0, id="256x32_k64_dim0"),
-    # Large target dim (many tiles in reduction), still <= 1024.
+    # Large target dim (many tiles in reduction
     pytest.param((32, 1024), 64, -1, id="32x1024_k64_dim1"),
     pytest.param((1024, 32), 64, 0, id="1024x32_k64_dim0"),
     # Ragged (non-power-of-2 tile count)
@@ -116,7 +110,7 @@ SINGLE_CORE_TOPK_SHAPES = [
 MULTI_CORE_TOPK_SHAPES = [
     # Non-target dim is a single tile (32), on dim 0; target dim (dim=1) is
     # any multiple of 32.
-    pytest.param((32, 2048), 16, -1, id="32x2048_k16_dim1"),
+    pytest.param((32, 8192), 16, -1, id="32x8192_k16_dim1"),
 ]
 
 
