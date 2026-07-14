@@ -335,6 +335,14 @@ struct TTIRToTTNNCommonPipelineOptions
                             llvm::cl::desc("Enable fusing pass."),
                             llvm::cl::init(true)};
 
+  // Fuse an all_gather feeding a matmul/linear into the fused CCL op
+  // ttnn.all_gather_minimal_matmul_async. Default off.
+  Option<bool> enableAllGatherMatmulFusion{
+      *this, "enable-all-gather-matmul-fusion",
+      llvm::cl::desc("Fuse an all_gather feeding a matmul/linear into "
+                     "ttnn.all_gather_minimal_matmul_async."),
+      llvm::cl::init(false)};
+
   // Enable the TTNNCreateD2MSubgraphs pass. This pass finds maximal chains
   // of elementwise TTNN ops, outlines each chain into a private function, and
   // replaces the original ops with a ttnn.d2m_subgraph op. The outlined

@@ -3165,6 +3165,107 @@ bool MoeComputeOp::hasUnboundSemaphores() { return false; }
 void MoeComputeOp::allocateSemaphores(::mlir::RewriterBase &rewriter) {}
 
 //===----------------------------------------------------------------------===//
+// AllGatherMinimalMatmulAsyncOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult AllGatherMinimalMatmulAsyncOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType weightType = getWeight().getType();
+
+  if (inputType.getRank() < 2) {
+    return emitOpError("input tensor must have rank >= 2");
+  }
+  if (weightType.getRank() < 2) {
+    return emitOpError("weight tensor must have rank >= 2");
+  }
+
+  // The all-gather is synchronized by exactly two global semaphores. When the
+  // operand is left unbound it is materialized later by
+  // TTNNAllocateDistributedOpSemaphores; if provided it must be a pair.
+  if (!getMultiDeviceSemaphore().empty() &&
+      getMultiDeviceSemaphore().size() != 2) {
+    return emitOpError(
+               "expects exactly two multi-device global semaphores, got ")
+           << getMultiDeviceSemaphore().size();
+  }
+
+  if (getResults().empty()) {
+    return emitOpError("expects at least one result tensor");
+  }
+
+  // bias is row-broadcast: its last dim must match the matmul output width N.
+  if (getBias()) {
+    RankedTensorType biasType = getBias().getType();
+    int64_t n = weightType.getShape().back();
+    if (biasType.getShape().back() != n) {
+      return emitOpError("bias last dimension (")
+             << biasType.getShape().back()
+             << ") must match weight's last dimension N (" << n << ")";
+    }
+  }
+
+  // The gated-residual (addcmul) fusion needs both tensor operands together.
+  if (static_cast<bool>(getAddcmulInput1()) !=
+      static_cast<bool>(getAddcmulInput2())) {
+    return emitOpError("addcmul_input1 and addcmul_input2 must both be present "
+                       "or both absent");
+  }
+
+  return success();
+}
+
+bool AllGatherMinimalMatmulAsyncOp::hasUnboundBuffers() { return false; }
+
+void AllGatherMinimalMatmulAsyncOp::allocateBuffers(
+    ::mlir::RewriterBase &rewriter) {}
+
+bool AllGatherMinimalMatmulAsyncOp::hasUnboundSemaphores() {
+  return getMultiDeviceSemaphore().empty() || !getBarrierSemaphore();
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+void AllGatherMinimalMatmulAsyncOp::allocateSemaphores(
+    ::mlir::RewriterBase &rewriter) {
+  if (!hasUnboundSemaphores()) {
+    return;
+  }
+
+  // The all-gather semaphores must live on cores that exist on the device.
+  // Derive the core range from the input tensor's layout (its worker grid).
+  MLIRContext *ctx = rewriter.getContext();
+  auto inputLayout =
+      mlir::cast<TTNNLayoutAttr>(getInput().getType().getEncoding());
+  CoreRangeSetAttr coreRangeSet = inputLayout.getCoreRangeSet();
+
+  Value device = getDevice();
+
+  // All prelude ops are inserted right after the device def so they sit in the
+  // block prelude (see DistributedRMSNormOp for the trace-hoisting rationale).
+  auto createSemaphore = [&]() -> Value {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointAfter(device.getDefiningOp());
+    auto semaphoreOp = rewriter.create<ttnn::CreateGlobalSemaphoreOp>(
+        getLoc(), GlobalSemaphoreType::get(ctx), device,
+        /*initial_value=*/rewriter.getUI32IntegerAttr(0), coreRangeSet);
+    return semaphoreOp.getResult();
+  };
+
+  if (getMultiDeviceSemaphore().empty()) {
+    SmallVector<Value> semaphores = {createSemaphore(), createSemaphore()};
+    rewriter.modifyOpInPlace(*this, [&]() {
+      getMultiDeviceSemaphoreMutable().assign(semaphores);
+    });
+  }
+
+  if (!getBarrierSemaphore()) {
+    Value barrier = createSemaphore();
+    rewriter.modifyOpInPlace(
+        *this, [&]() { getBarrierSemaphoreMutable().assign(barrier); });
+  }
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
+
+//===----------------------------------------------------------------------===//
 // AllocOp
 //===----------------------------------------------------------------------===//
 

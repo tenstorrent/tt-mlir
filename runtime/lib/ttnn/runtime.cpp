@@ -1389,6 +1389,11 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_AllGatherOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::AllGatherMinimalMatmulAsyncOp: {
+    tensorRefs = utils::convertFbTensorRefsToVector(
+        opContext.type_as_AllGatherMinimalMatmulAsyncOp()->outputs());
+    break;
+  }
   case ::tt::target::ttnn::OpType::AllReduceOp: {
     tensorRefs = {opContext.type_as_AllReduceOp()->out()};
     break;
@@ -1998,6 +2003,20 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     tensorRefs = {opContext.type_as_AllGatherOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllGatherMinimalMatmulAsyncOp: {
+    auto *op = opContext.type_as_AllGatherMinimalMatmulAsyncOp();
+    tensorRefs = {op->input(), op->weight()};
+    if (op->bias()) {
+      tensorRefs.push_back(op->bias());
+    }
+    if (op->addcmul_input1()) {
+      tensorRefs.push_back(op->addcmul_input1());
+    }
+    if (op->addcmul_input2()) {
+      tensorRefs.push_back(op->addcmul_input2());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::AllReduceOp: {

@@ -361,7 +361,12 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
             "enable-rope-fusion",
             "bool", /*default=*/"false",
             "Enable RoPE fusion patterns at the TTNN level. Disabled by "
-            "default since RoPE fusion is handled at the TTIR level.">
+            "default since RoPE fusion is handled at the TTIR level.">,
+    Option<"enableAllGatherMatmulFusion",
+            "enable-all-gather-matmul-fusion",
+            "bool", /*default=*/"false",
+            "Fuse an all_gather feeding a matmul/linear into "
+            "ttnn.all_gather_minimal_matmul_async.">
   ];
 }
 

@@ -37,6 +37,28 @@ table AllReduceAsyncOp {
   topology: tt.target.Topology = null;
 }
 
+table AllGatherMinimalMatmulAsyncOp {
+  input: tt.target.ttnn.TensorRef;
+  weight: tt.target.ttnn.TensorRef;
+  bias: tt.target.ttnn.TensorRef;
+  addcmul_input1: tt.target.ttnn.TensorRef;
+  addcmul_input2: tt.target.ttnn.TensorRef;
+  multi_device_semaphore: [tt.target.ttnn.GlobalSemaphoreRef];
+  barrier_semaphore: tt.target.ttnn.GlobalSemaphoreRef;
+  cluster_axis: uint32 = null;
+  scalar: float = null;
+  topology: tt.target.Topology = null;
+  num_links: uint32 = null;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  dtype: tt.target.DataType = null;
+  force_transpose: bool;
+  num_workers_per_link: uint32;
+  num_buffers_per_channel: uint32;
+  chunks: int32;
+  dim: int32;
+  outputs: [tt.target.ttnn.TensorRef];
+}
+
 table ReduceScatterOp {
   in: tt.target.ttnn.TensorRef;
   out: tt.target.ttnn.TensorRef;

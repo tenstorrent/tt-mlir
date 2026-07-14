@@ -1428,6 +1428,78 @@ createOp(FlatbufferObjectCache &cache, MoeComputeOp op) {
       tilizeOutput, matmulOutput, combineOutput);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::AllGatherMinimalMatmulAsyncOp>
+createOp(FlatbufferObjectCache &cache, AllGatherMinimalMatmulAsyncOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto weight = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getWeight()));
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> bias = 0;
+  if (op.getBias()) {
+    bias = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getBias()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> addcmulInput1 = 0;
+  if (op.getAddcmulInput1()) {
+    addcmulInput1 = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getAddcmulInput1()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> addcmulInput2 = 0;
+  if (op.getAddcmulInput2()) {
+    addcmulInput2 = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getAddcmulInput2()));
+  }
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>>
+      multiDeviceSemaphore;
+  for (auto semaphore : op.getMultiDeviceSemaphore()) {
+    multiDeviceSemaphore.push_back(
+        cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(semaphore));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>
+      barrierSemaphore = 0;
+  if (op.getBarrierSemaphore()) {
+    barrierSemaphore = cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(
+        op.getBarrierSemaphore());
+  }
+
+  // `cluster_axis`, `num_links`, `topology`, `scalar`, and `dtype` are all
+  // schema-optional (= null); use the toFlatbuffer overloads that return
+  // flatbuffers::Optional so unset attrs serialize as the absent marker.
+  auto clusterAxis = toFlatbuffer(cache, op.getClusterAxis());
+  ::flatbuffers::Optional<float> scalar = toFlatbuffer(
+      cache, op.getScalar()
+                 ? std::make_optional(op.getScalar().value().convertToFloat())
+                 : std::nullopt);
+  auto topology = toFlatbuffer(cache, op.getTopology());
+  auto numLinks = toFlatbuffer(cache, op.getNumLinks());
+  // `memory_config` is schema-optional; skip serialization when unset so we do
+  // not dereference a null MemoryConfigAttr in toFlatbuffer.
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
+  if (op.getMemoryConfigAttr()) {
+    memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
+  }
+  ::flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbuffer(cache, op.getDtype());
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
+  for (auto result : op.getResults()) {
+    outputs.push_back(cache.getOrCreateNoSharding(
+        result, tensorValueToFlatbuffer, /*local_shape*/ std::nullopt));
+  }
+
+  return ::tt::target::ttnn::CreateAllGatherMinimalMatmulAsyncOpDirect(
+      *cache.fbb, input, weight, bias, addcmulInput1, addcmulInput2,
+      &multiDeviceSemaphore, barrierSemaphore, clusterAxis, scalar,
+      topology, numLinks, memoryConfig, dtype, op.getForceTranspose(),
+      op.getNumWorkersPerLink(), op.getNumBuffersPerChannel(), op.getChunks(),
+      op.getDim(), &outputs);
+}
+
 // Convert ttcore::ReduceType to tt::target::ttnn::ScatterReduceType
 // Sum, Max, Min, Prod - applied reduction type to source tensor
 // Invalid - copy source to output tensor
@@ -4625,6 +4697,13 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto allGatherOp = dyn_cast<AllGatherOp>(op); allGatherOp) {
     return createOperation(cache, createOp(cache, allGatherOp), debugString,
                            locInfo);
+  }
+  if (auto allGatherMinimalMatmulAsyncOp =
+          dyn_cast<AllGatherMinimalMatmulAsyncOp>(op);
+      allGatherMinimalMatmulAsyncOp) {
+    return createOperation(cache,
+                           createOp(cache, allGatherMinimalMatmulAsyncOp),
+                           debugString, locInfo);
   }
   if (auto meshPartitionOp = dyn_cast<MeshPartitionOp>(op); meshPartitionOp) {
     return createOperation(cache, createOp(cache, meshPartitionOp), debugString,

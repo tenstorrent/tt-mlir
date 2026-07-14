@@ -35,6 +35,7 @@ namespace tt.target.ttnn;
 union OpType {
   AggregateTensorOp,
   AllGatherOp,
+  AllGatherMinimalMatmulAsyncOp,
   AllReduceAsyncOp,
   AllReduceOp,
   AllToAllCombineOp,
