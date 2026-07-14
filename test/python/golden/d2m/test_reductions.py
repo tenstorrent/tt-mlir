@@ -599,3 +599,43 @@ def test_reduce_i32_4d_inner(
         device=device,
         atol=_reduction_atol(reduce_type, shape, dim_arg, dtype),
     )
+
+
+# Wide inner reductions whose per-core reduction extent is large (and, for
+# 128256, prime after sharding: 4008 tiles / 24 cores = 167 tiles/core). The
+# reduction block must stream so a single per-core panel does not have to fit
+# L1 at once. This used to OOM in L1 for f32 (2x the bf16 footprint) because
+# block factor analysis kept the whole panel resident; regression guard for
+# that fix. Uses max/min (exact goldens) to avoid large-sum accumulation
+# tolerance issues. See test_utils / BlockFactorAnalysis reduction blocking.
+_2D_LARGE_WIDE_COMBOS = [
+    (32, 128256),
+    (32, 16032),
+]
+
+
+@pytest.mark.parametrize("m,n", _2D_LARGE_WIDE_COMBOS)
+@pytest.mark.parametrize("reduce_type", ["max", "sum"])
+@pytest.mark.parametrize("dtype", _FLOAT_DTYPES, ids=[_DTYPE_IDS[d] for d in _FLOAT_DTYPES])
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_reduce_2d_large_wide(
+    m: int,
+    n: int,
+    reduce_type: str,
+    dtype: torch.dtype,
+    target: str,
+    request,
+    device,
+):
+    shape = (m, n)
+    dim_arg = [1]
+
+    compile_and_execute_ttir(
+        create_reductions_constrained_inputs(
+            shape, reduce_type, dim_arg, keep_dim=False, dtype=dtype
+        ),
+        target=target,
+        **get_request_kwargs(request),
+        device=device,
+        atol=_reduction_atol(reduce_type, shape, dim_arg, dtype),
+    )
