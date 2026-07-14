@@ -6755,6 +6755,114 @@ INSTANTIATE_TEST_SUITE_P(ScaledDotProductAttentionTests,
                          OpModelScaledDotProductAttentionParam,
                          scaledDotProductAttentionOpTestValues);
 
+// === ChunkedScaledDotProductAttentionOp Tests ===
+struct ChunkedScaledDotProductAttentionOpParam {
+  detail::TestTensor query;
+  detail::TestTensor key;
+  detail::TestTensor value;
+  detail::TestTensor pageTable;
+  detail::TestTensor chunkStartIdx;
+  float scale;
+  detail::TestTensor output;
+  detail::ExpectedResult expectedResult;
+};
+
+class OpModelChunkedScaledDotProductAttentionParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          ChunkedScaledDotProductAttentionOpParam> {
+protected:
+  void RunTest() {
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+    const auto [queryShape, queryTensorLayout, queryBufferType,
+                queryVirtualGrid] = GetParam().query;
+    const auto [keyShape, keyTensorLayout, keyBufferType, keyVirtualGrid] =
+        GetParam().key;
+    const auto [valueShape, valueTensorLayout, valueBufferType,
+                valueVirtualGrid] = GetParam().value;
+    const auto [pageTableShape, pageTableTensorLayout, pageTableBufferType,
+                pageTableVirtualGrid] = GetParam().pageTable;
+    const auto [chunkStartIdxShape, chunkStartIdxTensorLayout,
+                chunkStartIdxBufferType, chunkStartIdxVirtualGrid] =
+        GetParam().chunkStartIdx;
+
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = GetParam().output;
+
+    const auto expectedLegal = GetParam().expectedResult.expectedLegal;
+
+    const TTNNLayoutAttr queryLayout = CreateTiledLayout(
+        queryShape, queryBufferType, queryTensorLayout, queryVirtualGrid);
+    const TTNNLayoutAttr keyLayout = CreateTiledLayout(
+        keyShape, keyBufferType, keyTensorLayout, keyVirtualGrid);
+    const TTNNLayoutAttr valueLayout = CreateTiledLayout(
+        valueShape, valueBufferType, valueTensorLayout, valueVirtualGrid);
+    // page_table and chunk_start_idx are consumed on device as row-major int32
+    // tensors (the tt-metal kernel requires the page table to be row major).
+    const TTNNLayoutAttr pageTableLayout =
+        CreateRowMajorLayoutInt32(pageTableShape, pageTableBufferType,
+                                  pageTableTensorLayout, pageTableVirtualGrid);
+    const TTNNLayoutAttr chunkStartIdxLayout = CreateRowMajorLayoutInt32(
+        chunkStartIdxShape, chunkStartIdxBufferType, chunkStartIdxTensorLayout,
+        chunkStartIdxVirtualGrid);
+
+    const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+    const llvm::APFloat scaleAPFloat(GetParam().scale);
+    std::optional<llvm::APFloat> scale = scaleAPFloat;
+
+    std::optional<SDPAProgramConfigAttr> programConfig = std::nullopt;
+
+    auto constraintsExp =
+        OpModel<ChunkedScaledDotProductAttentionOp>::getOpConstraints(
+            queryShape, queryLayout, keyShape, keyLayout, valueShape,
+            valueLayout, pageTableShape, pageTableLayout, chunkStartIdxShape,
+            chunkStartIdxLayout, scale, programConfig, outputLayout);
+
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSizeResult,
+                  outputLayoutReadBacks] = constraintsExp.get();
+      EXPECT_GE(cbSize, 0);
+      EXPECT_GE(l1PeakSize, 0);
+      EXPECT_GE(totalPeakSize, 0);
+      EXPECT_GE(outputSizeResult, 0);
+    } else {
+      llvm::consumeError(constraintsExp.takeError());
+    }
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+  }
+};
+
+TEST_P(OpModelChunkedScaledDotProductAttentionParam,
+       ChunkedScaledDotProductAttentionOp) {
+  RunTest();
+}
+
+const auto chunkedScaledDotProductAttentionOpTestValues =
+    testing::Values(ChunkedScaledDotProductAttentionOpParam{
+        detail::TestTensor{
+            {1, 12, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{{128, 12, 32, 64},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{{128, 12, 32, 64},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{
+            {1, 8}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        0.125f,
+        detail::TestTensor{
+            {1, 12, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::ExpectedResult{true}});
+
+INSTANTIATE_TEST_SUITE_P(ChunkedScaledDotProductAttentionTests,
+                         OpModelChunkedScaledDotProductAttentionParam,
+                         chunkedScaledDotProductAttentionOpTestValues);
+
 TEST_F(OpModelTest, AssignOp) {
   const llvm::SmallVector<int64_t> tensorShape = {64, 64};
 

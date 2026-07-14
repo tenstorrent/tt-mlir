@@ -2402,6 +2402,97 @@ TEST_F(OpModelBase, ScaledDotProductAttentionOpInterfaceWithAttentionSink) {
   }
 }
 
+TEST_F(OpModelBase, ChunkedScaledDotProductAttentionOpInterface) {
+  int64_t numBlocks = 128;
+  int64_t numHeads = 12;
+  int64_t blockSize = 32;
+  int64_t headSize = 64;
+  int64_t seqLen = 64;
+  int64_t numBlocksPerUser = 8;
+
+  llvm::SmallVector<int64_t> queryShape{1, numHeads, seqLen, headSize};
+  llvm::SmallVector<int64_t> keyValueShape{numBlocks, numHeads, blockSize,
+                                           headSize};
+  llvm::SmallVector<int64_t> pageTableShape{1, numBlocksPerUser};
+  llvm::SmallVector<int64_t> chunkStartIdxShape{1};
+
+  auto tiledElemType = ttcore::TileType::get(builder.getBF16Type());
+  // page_table and chunk_start_idx are consumed on device as row-major int32
+  // tensors (the tt-metal kernel requires the page table to be row major).
+  auto pageTableType = builder.getI32Type();
+  auto chunkStartIdxType = builder.getI32Type();
+
+  llvm::SmallVector<int64_t> gridAttr{1, 1};
+  auto tensorMemoryLayoutAttr =
+      TensorMemoryLayoutAttr::get(&context, TensorMemoryLayout::Interleaved);
+
+  auto makeDramLayout = [&](llvm::ArrayRef<int64_t> shape, mlir::Type elem) {
+    return TTNNLayoutAttr::Builder(&context, shape, elem)
+        .setBufferType(BufferType::DRAM)
+        .setMemoryLayout(tensorMemoryLayoutAttr)
+        .setGridShape(gridAttr)
+        .buildWithCanonicalCorePlacement(CreateDeviceAttr());
+  };
+
+  auto queryLayout = makeDramLayout(queryShape, tiledElemType);
+  auto keyValueLayout = makeDramLayout(keyValueShape, tiledElemType);
+  auto pageTableLayout = makeDramLayout(pageTableShape, pageTableType);
+  auto chunkStartIdxLayout =
+      makeDramLayout(chunkStartIdxShape, chunkStartIdxType);
+
+  auto query = createEmptyTensor(queryShape, tiledElemType, queryLayout);
+  auto key = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
+  auto value = createEmptyTensor(keyValueShape, tiledElemType, keyValueLayout);
+  auto pageTable =
+      createEmptyTensor(pageTableShape, pageTableType, pageTableLayout);
+  auto chunkStartIdx = createEmptyTensor(chunkStartIdxShape, chunkStartIdxType,
+                                         chunkStartIdxLayout);
+
+  auto outputType =
+      createRankedTensorType(queryShape, tiledElemType, queryLayout);
+
+  auto chunkedSdpAttention = builder.create<ChunkedScaledDotProductAttentionOp>(
+      builder.getUnknownLoc(), outputType, query, key, value, pageTable,
+      chunkStartIdx,
+      /*scale=*/builder.getF32FloatAttr(0.125f),
+      /*program_config=*/nullptr);
+
+  OpModel backend = dyn_cast<OpModel>(chunkedSdpAttention.getOperation());
+  auto constraintsExp = backend.getOpConstraints(
+      getInputLayouts(chunkedSdpAttention), OpConfig(queryLayout));
+  if (constraintsExp) {
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
+        constraintsExp.get();
+
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GT(totalPeakSize, 0);
+    EXPECT_EQ(outputSize, 0);
+
+    ASSERT_FALSE(outputLayouts.empty());
+    EXPECT_EQ(outputLayouts[0].getLayout(), Layout::Tile);
+    EXPECT_TRUE(outputLayouts[0].hasInterleavedDRAMTensorMemoryLayout());
+  } else {
+    FAIL() << "Missing L1 constraints for ChunkedScaledDotProductAttentionOp; "
+              "Error="
+           << llvm::toString(constraintsExp.takeError());
+  }
+
+  // TODO(https://github.com/tenstorrent/tt-mlir/issues/5738) the runtime query
+  // sporadically hangs for ops that use a page table to index the cache
+  // tensor(s), disable by default for now.
+  constexpr bool skipRuntimeTest = true;
+  if (!skipRuntimeTest) {
+    auto runtimeExp = getOpRuntime(chunkedSdpAttention.getOperation());
+    if (runtimeExp) {
+      EXPECT_TRUE(runtimeExp.get() > 0);
+    } else {
+      FAIL() << "Runtime test failed for "
+                "ChunkedScaledDotProductAttentionOp; Error="
+             << llvm::toString(runtimeExp.takeError());
+    }
+  }
+}
+
 TEST_F(OpModelBase, NLPConcatHeadsOpInterface) {
   int64_t batchSize = 1;
   int64_t numHeads = 8;
