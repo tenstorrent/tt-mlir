@@ -6,7 +6,6 @@
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
-#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 #include "ttmlir/Utils.h"
 
 #include "llvm/ADT/SmallVector.h"
@@ -173,168 +172,6 @@ private:
     }
 
     return false;
-  }
-};
-
-// Shared builder for the two all_gather+matmul fusion patterns below. Replaces
-// `toReplace` with an all_gather_minimal_matmul_async that gathers
-// `allGatherOp`'s input and multiplies by `weight`, carrying the collective
-// attributes from `allGatherOp`. `addcmulInput1`/`addcmulInput2`/`scalar` are
-// null for the plain matmul fusion and populated for the gated-residual variant.
-// Semaphores are left unbound here and materialized later by
-// TTNNAllocateDistributedOpSemaphores via the DistributedOpInterface.
-static void replaceWithFusedAllGatherMatmul(
-    mlir::PatternRewriter &rewriter, mlir::Operation *toReplace,
-    mlir::Type resultType, AllGatherOp allGatherOp, mlir::Value weight,
-    mlir::Value bias, mlir::Value addcmulInput1, mlir::Value addcmulInput2,
-    mlir::FloatAttr scalar, mlir::Value device) {
-  rewriter.replaceOpWithNewOp<AllGatherMinimalMatmulAsyncOp>(
-      toReplace, resultType, allGatherOp.getInput(), weight, bias,
-      addcmulInput1, addcmulInput2,
-      /*multi_device_semaphore=*/mlir::ValueRange{},
-      /*barrier_semaphore=*/mlir::Value(), device,
-      allGatherOp.getClusterAxisAttr(), scalar, allGatherOp.getTopologyAttr(),
-      allGatherOp.getNumLinksAttr(), /*memory_config=*/ttnn::MemoryConfigAttr(),
-      /*dtype=*/ttcore::DataTypeAttr(), /*force_transpose=*/true,
-      /*num_workers_per_link=*/1u, /*num_buffers_per_channel=*/1u, /*chunks=*/1,
-      /*dim=*/allGatherOp.getAllGatherDim());
-}
-
-// True if this matmul/linear result flows into a gated-residual epilogue
-// (a multiply then an add), which AllGatherMatmulAddcmulFusing folds in whole.
-template <typename MatmulLikeOp>
-static bool feedsGatedResidualEpilogue(MatmulLikeOp matmulOp) {
-  if (!matmulOp.getResult().hasOneUse()) {
-    return false;
-  }
-  auto mulOp =
-      mlir::dyn_cast<MultiplyOp>(*matmulOp.getResult().getUsers().begin());
-  if (!mulOp || !mulOp.getResult().hasOneUse()) {
-    return false;
-  }
-  return mlir::isa<AddOp>(*mulOp.getResult().getUsers().begin());
-}
-
-// Fuses an all_gather feeding a matmul/linear into a single kernel:
-//   gathered = all_gather(x)            (x sharded along the contraction dim)
-//   proj     = matmul(gathered, W)      (or linear(gathered, W, bias))
-// becomes ttnn.all_gather_minimal_matmul_async, which performs the gather and
-// the matmul together, overlapping communication with compute. Gated behind the
-// `enable-all-gather-matmul-fusion` pass option. Bails on activation/transposed
-// operands since the fused op does not model those. The gathered intermediate
-// must have a single use (the matmul) so the collective is not duplicated.
-template <typename MatmulLikeOp>
-class AllGatherMatmulFusing : public mlir::OpRewritePattern<MatmulLikeOp> {
-  using AllGatherMatmulFusing::template OpRewritePattern<
-      MatmulLikeOp>::OpRewritePattern;
-
-public:
-  mlir::LogicalResult
-  matchAndRewrite(MatmulLikeOp matmulOp,
-                  mlir::PatternRewriter &rewriter) const final {
-    // The activation operand A must be produced by an all_gather feeding only
-    // this matmul (otherwise fusing would duplicate the collective).
-    AllGatherOp allGatherOp =
-        matmulOp.getA().template getDefiningOp<AllGatherOp>();
-    if (!allGatherOp || !allGatherOp.getResult().hasOneUse()) {
-      return mlir::failure();
-    }
-
-    // The fused op models neither a fused activation nor transposed operands.
-    if (matmulOp.getActivation() || matmulOp.getTransposeA() ||
-        matmulOp.getTransposeB()) {
-      return mlir::failure();
-    }
-
-    // Defer to AllGatherMatmulAddcmulFusing when a gated-residual epilogue
-    // consumes this matmul, so the whole epilogue folds into one op instead of
-    // leaving a separate multiply/add behind.
-    if (feedsGatedResidualEpilogue(matmulOp)) {
-      return mlir::failure();
-    }
-
-    mlir::Value bias;
-    if constexpr (std::is_same_v<MatmulLikeOp, LinearOp>) {
-      bias = matmulOp.getBias();
-    }
-
-    mlir::Value device =
-        ttnn::utils::getOrInsertDevice(rewriter, matmulOp).getResult();
-
-    replaceWithFusedAllGatherMatmul(
-        rewriter, matmulOp, matmulOp.getResult().getType(), allGatherOp,
-        matmulOp.getB(), bias, /*addcmul_input1=*/mlir::Value(),
-        /*addcmul_input2=*/mlir::Value(), /*scalar=*/mlir::FloatAttr(), device);
-    return mlir::success();
-  }
-};
-
-// Fuses an all_gather + matmul/linear + gated-residual epilogue into a single
-// all_gather_minimal_matmul_async:
-//   gathered = all_gather(x)
-//   proj     = matmul(gathered, W)      (or linear(gathered, W, bias))
-//   out      = residual + gate * proj
-// maps residual -> addcmul_input1, gate -> addcmul_input2, scalar = 1.0. This
-// mirrors tt-metal's optional addcmul (gated-residual) epilogue on the same
-// kernel. Gated behind `enable-all-gather-matmul-fusion`. Requires single uses
-// of the gather, projection, and multiply so nothing is duplicated, and bails
-// on activation/transposed operands the fused op cannot model.
-template <typename MatmulLikeOp>
-class AllGatherMatmulAddcmulFusing : public mlir::OpRewritePattern<AddOp> {
-  using AllGatherMatmulAddcmulFusing::OpRewritePattern<AddOp>::OpRewritePattern;
-
-public:
-  mlir::LogicalResult
-  matchAndRewrite(AddOp addOp, mlir::PatternRewriter &rewriter) const final {
-    // add is commutative: one operand is the (gate * proj) multiply, the other
-    // is the residual.
-    MultiplyOp mulOp = addOp.getLhs().getDefiningOp<MultiplyOp>();
-    mlir::Value residual = addOp.getRhs();
-    if (!mulOp) {
-      mulOp = addOp.getRhs().getDefiningOp<MultiplyOp>();
-      residual = addOp.getLhs();
-    }
-    if (!mulOp || !mulOp.getResult().hasOneUse()) {
-      return mlir::failure();
-    }
-
-    // multiply is commutative: one operand is the projection, the other gate.
-    MatmulLikeOp projOp = mulOp.getLhs().getDefiningOp<MatmulLikeOp>();
-    mlir::Value gate = mulOp.getRhs();
-    if (!projOp) {
-      projOp = mulOp.getRhs().getDefiningOp<MatmulLikeOp>();
-      gate = mulOp.getLhs();
-    }
-    if (!projOp || !projOp.getResult().hasOneUse()) {
-      return mlir::failure();
-    }
-
-    // The projection's activation must come from an all_gather feeding only it.
-    AllGatherOp allGatherOp =
-        projOp.getA().template getDefiningOp<AllGatherOp>();
-    if (!allGatherOp || !allGatherOp.getResult().hasOneUse()) {
-      return mlir::failure();
-    }
-
-    // The fused op models neither a fused activation nor transposed operands.
-    if (projOp.getActivation() || projOp.getTransposeA() ||
-        projOp.getTransposeB()) {
-      return mlir::failure();
-    }
-
-    mlir::Value bias;
-    if constexpr (std::is_same_v<MatmulLikeOp, LinearOp>) {
-      bias = projOp.getBias();
-    }
-
-    mlir::Value device =
-        ttnn::utils::getOrInsertDevice(rewriter, addOp).getResult();
-
-    replaceWithFusedAllGatherMatmul(
-        rewriter, addOp, addOp.getType(), allGatherOp, projOp.getB(), bias,
-        /*addcmul_input1=*/residual, /*addcmul_input2=*/gate,
-        /*scalar=*/rewriter.getF32FloatAttr(1.0), device);
-    return mlir::success();
   }
 };
 
@@ -606,13 +443,6 @@ public:
         TTNNMatmulAndLinearWithActivation<LinearOp, SiluOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, GeluOp>,
         TTNNMatmulAndLinearWithActivation<LinearOp, GeluOp>>(&getContext());
-
-    if (enableAllGatherMatmulFusion) {
-      patterns.add<AllGatherMatmulFusing<MatmulOp>,
-                   AllGatherMatmulFusing<LinearOp>,
-                   AllGatherMatmulAddcmulFusing<MatmulOp>,
-                   AllGatherMatmulAddcmulFusing<LinearOp>>(&getContext());
-    }
 
 #ifdef TTMLIR_ENABLE_OPMODEL
     if (enableOpConstraints) {

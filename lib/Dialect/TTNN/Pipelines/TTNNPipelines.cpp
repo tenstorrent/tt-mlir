@@ -48,7 +48,8 @@ void createTTNNPipelineTTIRPasses(
   ttir::TTIRFusingOptions fusingOptions{
       options.enableFusingConv2dWithMultiplyPattern,
       options.enablePermuteMatmulFusion,
-      options.enablePermuteSliceAfterMatmulFusion};
+      options.enablePermuteSliceAfterMatmulFusion,
+      options.enableAllGatherMatmulFusion};
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
@@ -271,13 +272,11 @@ void createTTNNFusingPass(OpPassManager &pm,
       wrapperOptions.tensorL1UsageCap = options.tensorL1UsageCap;
 
       uint32_t fallbackAttempts = options.maxFallbackAttempts;
-      bool enableAllGatherMatmul = options.enableAllGatherMatmulFusion;
       pm.addPass(createDevicePassesWrapper(
-          [fallbackAttempts, enableAllGatherMatmul](OpPassManager &innerPm) {
+          [fallbackAttempts](OpPassManager &innerPm) {
             TTNNFusingOptions fusingOptions;
             fusingOptions.enableOpConstraints = true;
             fusingOptions.maxFallbackAttempts = fallbackAttempts;
-            fusingOptions.enableAllGatherMatmulFusion = enableAllGatherMatmul;
             innerPm.addPass(mlir::tt::ttnn::createTTNNFusing(fusingOptions));
           },
           wrapperOptions));
@@ -286,10 +285,7 @@ void createTTNNFusingPass(OpPassManager &pm,
           "TTNNOptimizer passes require OpModel support to be enabled.");
 #endif
     } else {
-      TTNNFusingOptions fusingOptions;
-      fusingOptions.enableAllGatherMatmulFusion =
-          options.enableAllGatherMatmulFusion;
-      pm.addPass(mlir::tt::ttnn::createTTNNFusing(fusingOptions));
+      pm.addPass(mlir::tt::ttnn::createTTNNFusing());
     }
   }
 }
