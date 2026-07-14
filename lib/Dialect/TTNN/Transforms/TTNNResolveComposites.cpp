@@ -19,6 +19,7 @@
 #include "ttmlir/Asserts.h"
 
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
@@ -427,6 +428,36 @@ static Operation *tryCreateTypedOp(ttcore::CompositeOp compositeOp,
   return entry.build(compositeOp, builder);
 }
 
+// Collapse duplicate weight-prep ops within a block. With stacked all-layer
+// fused-decode weights, every layer's moe_decode references the SAME packed
+// weight, so each layer emits an identical PrepareMoECompute{W0W1,W2}WeightsOp
+// (same operands, same placeholder result type). These are deterministic repacks
+// of their operands, so fold duplicates onto the first occurrence -- otherwise
+// each layer const-evals its own full-model weight buffer and DRAM usage scales
+// as L x (all expert weights), OOMing at full depth. Done here (before layout
+// deduction / const-eval hoisting) where the duplicates are provably identical.
+template <typename OpT>
+static void dedupeIdenticalWeightPreps(ModuleOp moduleOp) {
+  SmallVector<OpT> kept;
+  SmallVector<Operation *> toErase;
+  moduleOp.walk([&](OpT op) {
+    for (OpT k : kept) {
+      if (k->getBlock() == op->getBlock() &&
+          llvm::equal(k->getOperands(), op->getOperands()) &&
+          k->getAttrDictionary() == op->getAttrDictionary() &&
+          k.getResult().getType() == op.getResult().getType()) {
+        op.getResult().replaceAllUsesWith(k.getResult());
+        toErase.push_back(op.getOperation());
+        return;
+      }
+    }
+    kept.push_back(op);
+  });
+  for (Operation *op : toErase) {
+    op->erase();
+  }
+}
+
 class TTNNResolveComposites
     : public impl::TTNNResolveCompositesBase<TTNNResolveComposites> {
 public:
@@ -475,6 +506,12 @@ public:
       signalPassFailure();
       return;
     }
+
+    // Fold the per-layer moe_decode weight-prep ops that share the same stacked
+    // all-layer weight into one, so the packed weight buffer is const-evaled and
+    // resident exactly once (indexed per layer by moe_compute's layer_id).
+    dedupeIdenticalWeightPreps<PrepareMoEComputeW0W1WeightsOp>(moduleOp);
+    dedupeIdenticalWeightPreps<PrepareMoEComputeW2WeightsOp>(moduleOp);
 
     // Clean up decomposition functions that are no longer referenced.
     for (func::FuncOp func : decompositionFuncsToDelete) {

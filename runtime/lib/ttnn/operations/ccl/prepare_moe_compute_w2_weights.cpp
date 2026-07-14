@@ -10,6 +10,7 @@
 #include <cstdlib>
 
 #include "ttnn/operations/copy/typecast/typecast.hpp"
+#include "ttnn/operations/core/to_memory_config/to_memory_config_op.hpp"
 #include "ttnn/operations/experimental/ccl/moe_compute/moe_compute_utils.hpp"
 
 namespace tt::runtime::ttnn::operations::ccl {
@@ -49,9 +50,14 @@ void run(const ::tt::target::ttnn::PrepareMoEComputeW2WeightsOp *op,
                 w2, L, E, op->intermediate_size(), op->hidden_size());
   const auto tPrep1 = std::chrono::steady_clock::now();
 
+  // [EXPERIMENT] fast path in 2 steps: typecast to BFLOAT4_B keeping the input's
+  // (interleaved) layout, then to_memory_config reshards to the HEIGHT_SHARDED
+  // moe_compute weight layout (ttnn::typecast rejects an in/out layout change).
   ::ttnn::Tensor out =
       fastQuantize
-          ? ::ttnn::typecast(packed, ::tt::tt_metal::DataType::BFLOAT4_B, memCfg)
+          ? ::ttnn::to_memory_config(
+                ::ttnn::typecast(packed, ::tt::tt_metal::DataType::BFLOAT4_B),
+                memCfg)
           : ::ttnn::experimental::quantize_weights_via_host(
                 packed, ::tt::tt_metal::DataType::BFLOAT4_B, memCfg);
   const auto tQuant1 = std::chrono::steady_clock::now();

@@ -9389,13 +9389,13 @@ static llvm::SmallVector<int64_t> getModuleMeshShape(ModuleOp moduleOp) {
 // mesh coordinate. Each entry [d, e] is the GLOBAL linearized mesh coordinate
 // of the device that owns expert e as seen from source device d — the a2a
 // dispatch kernel uses this value directly as target_device (a full mesh coord
-// in [0, numMeshDevices)). Experts are EP-sharded along clusterAxis and
-// replicated along the other axis, so rows differ per source on a 2D mesh:
-//   a = e / expertsPerDevice          (axis-local owner in [0, clusterDevices))
-//   1D             : target = a       (global coord == axis-local owner)
-//   clusterAxis==0 : target = a * numCols + col(d)   (owner varies along axis 0)
-//   clusterAxis==1 : target = row(d) * numCols + a   (owner varies along axis 1)
-// with numCols = meshShape[1], row(d) = d / numCols, col(d) = d % numCols.
+// in [0, numMeshDevices)). Experts are COMPOUND-sharded across ALL mesh devices
+// (expertsPerDevice = numExperts / numMeshDevices), so every expert lives on
+// exactly one device and the owner is source-INDEPENDENT (every mapping row is
+// identical). With the expert weights compound-sharded major->minor as
+// (("batch","model"),...), Shardy places expert e on device e / expertsPerDevice
+// (row-major linear index), so owner(e) = e / expertsPerDevice for any cluster
+// axis (cluster_axis selects the dispatch ring, not the physical placement).
 static Value synthesizeMoeDecodeExpertMapping(OpBuilder &builder, Location loc,
                                               ArrayRef<int64_t> meshShape,
                                               int64_t clusterAxis,
@@ -9404,28 +9404,22 @@ static Value synthesizeMoeDecodeExpertMapping(OpBuilder &builder, Location loc,
   for (int64_t dim : meshShape) {
     numMeshDevices *= dim;
   }
-  int64_t clusterDevices = meshShape[clusterAxis];
-  int64_t numExperts = expertsPerDevice * clusterDevices;
-  int64_t numCols = meshShape.size() >= 2 ? meshShape[1] : numMeshDevices;
+  // Compound layout: experts are sharded across ALL mesh devices (not just the
+  // cluster axis), so the true global expert count is expertsPerDevice *
+  // numMeshDevices, and every expert lives on exactly one device.
+  int64_t numExperts = expertsPerDevice * numMeshDevices;
+  (void)clusterAxis; // owner is the physical placement, set by shard-spec order
 
   auto u16 = builder.getIntegerType(16, /*isSigned=*/false);
   auto mappingTy = RankedTensorType::get({numMeshDevices, numExperts}, u16);
 
   llvm::SmallVector<llvm::APInt> values;
   values.reserve(numMeshDevices * numExperts);
+  // Compound (("batch","model")): Shardy places expert e on device e/expertsPerDevice
+  // (row-major linear), so owner(e) is that quotient, source-independent.
   for (int64_t d = 0; d < numMeshDevices; ++d) {
-    int64_t row = d / numCols;
-    int64_t col = d % numCols;
     for (int64_t e = 0; e < numExperts; ++e) {
-      int64_t a = e / expertsPerDevice; // axis-local owner in [0, clusterDevices)
-      int64_t target;
-      if (meshShape.size() < 2) {
-        target = a;
-      } else if (clusterAxis == 0) {
-        target = a * numCols + col;
-      } else {
-        target = row * numCols + a;
-      }
+      int64_t target = e / expertsPerDevice;
       values.emplace_back(/*numBits=*/16, static_cast<uint64_t>(target),
                           /*isSigned=*/false);
     }
@@ -9448,7 +9442,6 @@ static Value buildMoeDecodeDecompositionBody(
     uint32_t outputHeightShardDim, uint32_t intermediateSize,
     ttcore::MoEActivationFunction activation,
     std::optional<uint32_t> bhRingSize, RankedTensorType outputType) {
-  (void)layerId;
   (void)outputHeightShardDim;
   (void)intermediateSize;
   (void)bhRingSize;
@@ -9506,6 +9499,40 @@ static Value buildMoeDecodeDecompositionBody(
     return rewriter.create<ttir::AddOp>(loc, rt({1, Eg, M, C}, act), x,
                                         reshape(bias, {1, Eg, 1, C}));
   };
+
+  // Stacked multi-layer weights [L, E, ...]: the frontend may pack ALL layers'
+  // expert weights into one tensor (so the on-device prepare builds a single
+  // DRAM-resident buffer indexed by layer_id). The reference decomposition below
+  // computes a single layer, and sparse_matmul requires the weight's leading dim
+  // to be 1, so select this op's layer via layerId. L==1 passes through unchanged.
+  auto sliceLayer = [&](Value w) -> Value {
+    auto t = mlir::cast<RankedTensorType>(w.getType());
+    ArrayRef<int64_t> shape = t.getShape();
+    if (shape.empty() || shape[0] <= 1) {
+      return w;
+    }
+    SmallVector<int64_t> outShape(shape.begin(), shape.end());
+    outShape[0] = 1;
+    SmallVector<int32_t> begins, ends, steps;
+    for (size_t d = 0; d < shape.size(); ++d) {
+      begins.push_back(d == 0 ? static_cast<int32_t>(layerId) : 0);
+      ends.push_back(d == 0 ? static_cast<int32_t>(layerId) + 1
+                            : static_cast<int32_t>(shape[d]));
+      steps.push_back(1);
+    }
+    return rewriter.create<ttir::SliceStaticOp>(
+        loc, rt(outShape, t.getElementType()), w,
+        rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
+        rewriter.getI32ArrayAttr(steps));
+  };
+  w0 = sliceLayer(w0);
+  w1 = sliceLayer(w1);
+  w2 = sliceLayer(w2);
+  if (hasBias) {
+    bias0 = sliceLayer(bias0);
+    bias1 = sliceLayer(bias1);
+    bias2 = sliceLayer(bias2);
+  }
 
   // 1. all_gather weights (+ biases) to replicate every expert locally.
   Value w0g = allGather(w0, 1); // [1, Eg, H, N]
@@ -9807,11 +9834,33 @@ public:
           "bh_ring_size", rewriter.getI64IntegerAttr(*bhRingSize)));
     }
 
-    rewriter.replaceOpWithNewOp<ttcore::CompositeOp>(
-        srcOp, TypeRange{outputType}, operands,
+    auto composite = rewriter.create<ttcore::CompositeOp>(
+        srcOp.getLoc(), TypeRange{outputType}, operands,
         rewriter.getStringAttr("moe_decode"),
         FlatSymbolRefAttr::get(rewriter.getContext(), decompFuncName),
         rewriter.getDictionaryAttr(compositeAttrs));
+    Value result = composite.getResult(0);
+
+    // Compound: experts sharded across ALL mesh devices; moe_compute's 1D combine
+    // only reduces the cluster axis, so each non-cluster device holds a PARTIAL
+    // over its expert subset. Aggregate with all_reduce(sum) over the non-cluster
+    // axis. (The combine writes only the top-k slots whose experts are local; the
+    // other slots are zero-initialized by the moe_compute combine output, so this
+    // sum is clean.)
+    int64_t totalMeshDevices = 1;
+    for (int64_t dim : meshShape) {
+      totalMeshDevices *= dim;
+    }
+    int64_t nonClusterSize =
+        totalMeshDevices / std::max(numDevices, static_cast<int64_t>(1));
+    if (nonClusterSize > 1 && numDevices > 1) {
+      uint32_t reduceAxis = (clusterAxis == 0) ? 1 : 0;
+      result = rewriter
+                   .create<ttir::AllReduceOp>(srcOp.getLoc(), outputType, result,
+                                              ttcore::ReduceType::Sum, reduceAxis)
+                   .getResult();
+    }
+    rewriter.replaceOp(srcOp, result);
     return success();
   }
 };

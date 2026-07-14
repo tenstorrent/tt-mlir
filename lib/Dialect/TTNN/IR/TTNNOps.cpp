@@ -29,6 +29,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/TypeSwitch.h"
 
+#include <atomic>
 #include <cstdint>
 #include <numeric>
 #include <optional>
@@ -3147,16 +3148,40 @@ void MoeComputeOp::allocateBuffers(::mlir::RewriterBase &rewriter) {
   auto device = utils::getOrInsertDevice(rewriter, *this);
 
   // Insert in the prelude (after GetDeviceOp) so it is trace-hoistable.
-  ttnn::EmptyOp combineEmptyOp;
+  // Use ZerosOp (not EmptyOp): the combine writer only fills the (top-k slot,
+  // token) pages whose expert is local to this device's cluster ring. Under
+  // 2D-compound sharding a token's other top-k experts live on other non-cluster
+  // columns, so those pages are never written on this device and MUST read as 0
+  // (not stale/uninitialized DRAM) for the downstream all_reduce(sum) over the
+  // non-cluster axis to aggregate cleanly. EmptyOp left them uninitialized, which
+  // summed garbage into the compound result.
+  ttnn::ZerosOp combineZerosOp;
   {
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPointAfter(device);
-    combineEmptyOp = rewriter.create<ttnn::EmptyOp>(getLoc(), combineType,
+    combineZerosOp = rewriter.create<ttnn::ZerosOp>(getLoc(), combineType,
                                                     device, combineShapeAttr);
   }
 
+  // The combine writer does *sparse* in-place writes into this buffer, so it
+  // must be re-materialized fresh every forward / decode step and must NOT be
+  // shared across layers. Two discardable attrs enforce that:
+  //  - "ttnn.non_cacheable": opt this instance out of const-eval hoisting.
+  //    Without it the zero buffer is hoisted into a const_eval func + cached
+  //    (persistent, shared across steps) so its unwritten pages keep the
+  //    previous step's writes; the downstream all_reduce(sum) over the
+  //    non-cluster axis then aggregates stale data. It instead stays inline
+  //    and the runtime re-zeros it per execution.
+  //  - "ttnn.combine_output_id" (unique): keeps the per-layer zero buffers
+  //    distinct so CSE cannot merge them back into one shared buffer.
+  combineZerosOp->setAttr("ttnn.non_cacheable", rewriter.getUnitAttr());
+  static std::atomic<int64_t> combineOutputUniquifier{0};
+  combineZerosOp->setAttr(
+      "ttnn.combine_output_id",
+      rewriter.getI64IntegerAttr(combineOutputUniquifier.fetch_add(1)));
+
   rewriter.modifyOpInPlace(*this, [&]() {
-    getOptionalOutputTensorMutable().assign(combineEmptyOp.getResult());
+    getOptionalOutputTensorMutable().assign(combineZerosOp.getResult());
   });
 }
 // NOLINTEND(clang-analyzer-core.StackAddressEscape)
