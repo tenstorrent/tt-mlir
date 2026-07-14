@@ -534,8 +534,8 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::ccl::run(op->type_as_AllGatherOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::AllGatherMinimalMatmulAsyncOp: {
-    return operations::ccl::run(
-        op->type_as_AllGatherMinimalMatmulAsyncOp(), getContext());
+    return operations::ccl::run(op->type_as_AllGatherMinimalMatmulAsyncOp(),
+                                getContext());
   }
   case ::tt::target::ttnn::OpType::AllReduceOp: {
     return operations::ccl::run(op->type_as_AllReduceOp(), getContext());

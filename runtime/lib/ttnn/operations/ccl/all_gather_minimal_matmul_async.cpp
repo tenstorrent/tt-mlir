@@ -16,7 +16,8 @@ void run(const ::tt::target::ttnn::AllGatherMinimalMatmulAsyncOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  const ::ttnn::Tensor &input = tensorPool.getTTNNTensorAndValidate(op->input());
+  const ::ttnn::Tensor &input =
+      tensorPool.getTTNNTensorAndValidate(op->input());
   const ::ttnn::Tensor &weight =
       tensorPool.getTTNNTensorAndValidate(op->weight());
 
