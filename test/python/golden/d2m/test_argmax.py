@@ -29,12 +29,23 @@ def create_argmax_inputs(input_shape, dim_arg, keep_dim, dtype):
     return module
 
 
+_shapes = [
+    (32, 32),
+    (32, 64),
+    (64, 64),
+    (128, 128),
+    (256, 256),
+    (512, 512),
+    (32, 224000),
+]
+
+
 @pytest.mark.parametrize("target", ["ttmetal"])
 @pytest.mark.parametrize("dim_arg", [[0], [1], None])
 @pytest.mark.parametrize("keep_dim", [True, False])
 @pytest.mark.parametrize(
     "shape",
-    [(32, 32), (32, 64), (64, 64), (128, 128), (256, 256), (512, 512), (32, 131072)],
+    _shapes,
 )
 def test_argmax(
     shape: tuple[int, int],
@@ -45,7 +56,7 @@ def test_argmax(
     device,
 ):
 
-    if (dim_arg is None or dim_arg == [0]) and shape == (32, 131072):
+    if (dim_arg is None or dim_arg == [0]) and shape == _shapes[6]:
         request.applymarker(
             pytest.mark.xfail(
                 reason="dim_arg = 0 or dim_arg = None on large tensors exhausts L1",
