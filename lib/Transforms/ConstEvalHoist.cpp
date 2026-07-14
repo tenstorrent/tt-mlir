@@ -21,6 +21,12 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include <algorithm>
+#include <iterator>
+#include <optional>
+#include <string>
+#include <utility>
+
 namespace mlir::tt::transforms {
 
 #define GEN_PASS_DEF_CONSTEVALHOISTTRANSFORM
@@ -437,9 +443,10 @@ public:
 
   void runOnOperation() final {
     mlir::ModuleOp module = this->getOperation();
-    llvm::SmallVector<func::FuncOp, 4> functionsToProcess;
     llvm::DenseMap<mlir::func::FuncOp, size_t> maxSubgraphIndexMap;
 
+    // Determine existing const-eval function names to determine the indeces for
+    // naming new const-eval functions.
     module.walk([&](func::FuncOp funcOp) {
       if (ttmlir::utils::isConstEvalFunc(funcOp)) {
         auto name = funcOp.getName();
@@ -452,10 +459,13 @@ public:
         }
         auto [orgFuncName, subgraphIdx] = parsed.value();
         func::FuncOp orgFuncOp =
-            SymbolTable::lookupNearestSymbolFrom<mlir::func::FuncOp>(
-                funcOp, StringAttr::get(funcOp.getContext(), orgFuncName));
-        assert(orgFuncOp &&
-               "Original function not found for const-eval function");
+            module.lookupSymbol<mlir::func::FuncOp>(orgFuncName);
+        if (!orgFuncOp) {
+          // No original parent found in module for this const-eval function. It
+          // doesn't affect naming of new const-eval functions, so we can ignore
+          // it.
+          return WalkResult::advance();
+        }
         auto it = maxSubgraphIndexMap.find(orgFuncOp);
         if (it == maxSubgraphIndexMap.end()) {
           maxSubgraphIndexMap[orgFuncOp] = subgraphIdx;
@@ -469,12 +479,13 @@ public:
     // Collect functions that need processing
     bool failed = false;
     module.walk([&](func::FuncOp funcOp) {
+      // If the function has existing const-eval functions, offset the new
+      // subgraph indices by the max index + 1 to avoid name collisions.
       auto it = maxSubgraphIndexMap.find(funcOp);
       auto end = maxSubgraphIndexMap.end();
-      if (it == end && !processFunction(funcOp, 0)) {
-        failed = true;
-      }
-      if (it != end && !processFunction(funcOp, it->second + 1)) {
+      size_t offset = (it == end) ? 0 : it->second + 1;
+
+      if (!processFunction(funcOp, offset)) {
         failed = true;
       }
     });
