@@ -3141,9 +3141,9 @@ mlir::tt::ttir::RearrangeOp::getInvPatternMap() {
   }
 
   // Verify that the input rank matches number of elements in begins, ends and step
-  size_t input_rank = static_cast<size_t>(inputType.getRank());
-  if (input_rank != begins.size() || input_rank != ends.size() ||
-      input_rank != stepAttr.size()) {
+  size_t inputRank = static_cast<size_t>(inputType.getRank());
+  if (inputRank != begins.size() || inputRank != ends.size() ||
+      inputRank != stepAttr.size()) {
     return emitOpError("Begins, ends, and step attributes must have the same "
                        "number of elements as the input tensor rank");
   }
@@ -3160,7 +3160,7 @@ mlir::tt::ttir::RearrangeOp::getInvPatternMap() {
 
   // Verify begin, end, step and the output tensor dimensions
   constexpr int32_t kDimStart = 0;
-  for (size_t dim = 0; dim < input_rank; ++dim) {
+  for (size_t dim = 0; dim < inputRank; ++dim) {
     int64_t dimSize = inputShape[dim];
 
     int32_t begin = ::mlir::cast<::mlir::IntegerAttr>(begins[dim]).getInt();
