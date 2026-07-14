@@ -13,6 +13,7 @@
 #include "operations/cache/load_cached.h"
 #include "operations/ccl/aggregate_tensor.h"
 #include "operations/ccl/all_gather.h"
+#include "operations/ccl/all_gather_minimal_matmul_async.h"
 #include "operations/ccl/all_reduce.h"
 #include "operations/ccl/all_reduce_async.h"
 #include "operations/ccl/all_to_all_combine.h"
@@ -536,6 +537,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::AllGatherOp: {
     return operations::ccl::run(op->type_as_AllGatherOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::AllGatherMinimalMatmulAsyncOp: {
+    return operations::ccl::run(
+        op->type_as_AllGatherMinimalMatmulAsyncOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::AllReduceOp: {
     return operations::ccl::run(op->type_as_AllReduceOp(), getContext());
