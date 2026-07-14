@@ -3524,9 +3524,8 @@ void AllGatherMinimalMatmulAsyncOp::allocateSemaphores(
 
   if (getMultiDeviceSemaphore().empty()) {
     SmallVector<Value> semaphores = {createSemaphore(), createSemaphore()};
-    rewriter.modifyOpInPlace(*this, [&]() {
-      getMultiDeviceSemaphoreMutable().assign(semaphores);
-    });
+    rewriter.modifyOpInPlace(
+        *this, [&]() { getMultiDeviceSemaphoreMutable().assign(semaphores); });
   }
 
   if (!getBarrierSemaphore()) {

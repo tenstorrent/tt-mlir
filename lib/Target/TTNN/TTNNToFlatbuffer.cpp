@@ -1545,8 +1545,8 @@ createOp(FlatbufferObjectCache &cache, AllGatherMinimalMatmulAsyncOp op) {
 
   return ::tt::target::ttnn::CreateAllGatherMinimalMatmulAsyncOpDirect(
       *cache.fbb, input, weight, bias, addcmulInput1, addcmulInput2,
-      &multiDeviceSemaphore, barrierSemaphore, clusterAxis, scalar,
-      topology, numLinks, memoryConfig, dtype, op.getForceTranspose(),
+      &multiDeviceSemaphore, barrierSemaphore, clusterAxis, scalar, topology,
+      numLinks, memoryConfig, dtype, op.getForceTranspose(),
       op.getNumWorkersPerLink(), op.getNumBuffersPerChannel(), op.getChunks(),
       op.getDim(), &outputs);
 }
