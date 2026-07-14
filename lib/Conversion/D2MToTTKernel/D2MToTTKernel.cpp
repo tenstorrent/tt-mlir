@@ -2159,19 +2159,6 @@ static void emitTopkGroupStartIfNeeded(ConversionPatternRewriter &rewriter,
                        tileB);
     return;
   }
-  rewriter.create<scf::IfOp>(
-      loc, rfo,
-      /*thenBuilder=*/
-      [&](OpBuilder &b, Location l) {
-        b.create<ttkernel::UnpackStallOnPackOp>(l);
-        emitTopkGroupStart(b, l, cbOutVals, cbOutIdx, cbOutVals, tileA, tileB);
-        b.create<scf::YieldOp>(l);
-      },
-      /*elseBuilder=*/
-      [&](OpBuilder &b, Location l) {
-        emitTopkGroupStart(b, l, cbInVals, cbInIdx, cbOutVals, tileA, tileB);
-        b.create<scf::YieldOp>(l);
-      });
 }
 
 template <typename OpTy>
@@ -2188,14 +2175,6 @@ static void emitTopkGroupEndIfNeeded(ConversionPatternRewriter &rewriter,
   if (isGroupEndConst) {
     return;
   }
-  rewriter.create<scf::IfOp>(
-      loc, isGroupEnd,
-      /*thenBuilder=*/
-      [&](OpBuilder &b, Location l) {
-        emitTopkGroupEnd(b, l, getCB(rewriter, op.getOutValues()),
-                         getCB(rewriter, op.getOutIndices()), tileA, tileB);
-        b.create<scf::YieldOp>(l);
-      });
 }
 
 class D2MTopkLocalSortRewriter

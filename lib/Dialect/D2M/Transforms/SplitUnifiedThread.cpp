@@ -267,11 +267,10 @@ LogicalResult wrapComputeInSynchronizedRegion(GenericOp genericOp,
            !opsWithSynchronizableOps.contains(outermostOp->getParentOp())) {
       outermostOp = outermostOp->getParentOp();
       if (!mlir::isa<scf::ForOp>(outermostOp) &&
-          !mlir::isa<scf::IfOp>(outermostOp) &&
           !mlir::isa<linalg::GenericOp>(outermostOp)) {
-        outermostOp->emitOpError(
-            "Parent ops containing compute ops must be scf.for, scf.if, or "
-            "linalg.generic");
+        (void)rewriter.notifyMatchFailure(
+            genericOp, "parent ops containing compute ops must be scf.for or "
+                       "linalg.generic");
         walkFailed = true;
         return WalkResult::interrupt();
       }

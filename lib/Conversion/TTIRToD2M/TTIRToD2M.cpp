@@ -3710,15 +3710,16 @@ public:
 
     int64_t reductionDimSize = inputType.getShape()[dim];
 
-    // The value input's logical shape. When large-k pads the reduction dim to
-    // a power-of-2 tile count, this grows to match the arange/index buffer,
-    // since topk d2m.generic requires both operands to share a shard shape.
+    // Logical shape for the value input. When the reduction dim is padded to a
+    // power-of-2 tile count (for large-k cases), this shape grows to match the
+    // arange/index buffer, since topk d2m.generic requires compatible operand
+    // shapes.
     SmallVector<int64_t> topkLogicalShape(inputType.getShape().begin(),
                                           inputType.getShape().end());
 
-    Value layoutedInput = createOptimalLayoutOp(adaptor.getInputTensor(),
-                                                memorySpaces[0], /*tiled=*/true,
-                                                /*noCollapse=*/false, rewriter);
+    Value layoutedInput = createOptimalLayoutOp(
+        adaptor.getInputTensor(), memorySpaces[0], /*tiled=*/true,
+        /*noCollapse=*/false, rewriter, ttcore::OOBVal::NegInf);
     auto layoutedType = cast<RankedTensorType>(layoutedInput.getType());
     auto metalLayout =
         cast<ttcore::MetalLayoutAttr>(layoutedType.getEncoding());
