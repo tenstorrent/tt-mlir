@@ -4,6 +4,7 @@
 
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
+#include "ttmlir/Dialect/TTIR/Transforms/Fusing/AllGatherMatmulFusingPattern.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Fusing/RoPEFusingPattern.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Fusing/TopKFusingPattern.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h"
@@ -3679,6 +3680,14 @@ public:
       patterns.add<fusing::RoPEComplexRotationFusingPattern>(&getContext());
       patterns.add<fusing::RoPEInterleavedPairFusingPattern>(&getContext());
       patterns.add<fusing::TopKFusingPattern>(&getContext());
+
+      if (enableAllGatherMatmulFusion) {
+        patterns.add<fusing::AllGatherMatmulFusing<MatmulOp>,
+                     fusing::AllGatherMatmulFusing<LinearOp>,
+                     fusing::AllGatherMatmulAddcmulFusing<MatmulOp>,
+                     fusing::AllGatherMatmulAddcmulFusing<LinearOp>>(
+            &getContext());
+      }
 
       GreedyRewriteConfig config;
       config.setUseTopDownTraversal(true);

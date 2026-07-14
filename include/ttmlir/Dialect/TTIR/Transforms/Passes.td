@@ -316,6 +316,12 @@ def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
              "enable-permute-slice-after-matmul-fusion",
              "bool", /*default=*/"true",
              "Push a matmul/linear output slice into the operand producing the sliced dim">,
+      Option<"enableAllGatherMatmulFusion",
+             "enable-all-gather-matmul-fusion",
+             "bool", /*default=*/"false",
+             "Fuse an all_gather feeding a matmul/linear (optionally with a "
+             "gated-residual addcmul epilogue) into a ttcore.composite "
+             "all_gather_minimal_matmul_async.">,
   ];
 }
 

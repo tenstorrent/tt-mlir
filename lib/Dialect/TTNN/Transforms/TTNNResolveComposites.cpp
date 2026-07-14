@@ -6,11 +6,13 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Transforms/OpValidator.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "ttmlir/Dialect/TTNN/Utils/TransformUtils.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/SymbolTable.h"
 
 #include "ttmlir/Asserts.h"
@@ -175,6 +177,64 @@ static void registerBuiltinComposites() {
             args.key, args.value, args.attentionMask,
             static_cast<uint32_t>(args.headDimV.getValue().getZExtValue()),
             args.isCausal.getValue(), args.scale);
+      }};
+
+  registry["all_gather_minimal_matmul_async"] = CompositeEntry{
+      // Validate — the fused collective op is OpModelExempt, so there are no
+      // op-model constraints to check; it is always promotable.
+      [](ttcore::CompositeOp, OpBuilder &) -> OpValidationResult {
+        return OpValidationResult::success();
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        DictionaryAttr attrs =
+            compositeOp.getCompositeAttributes().value_or(nullptr);
+        TT_assert(attrs);
+
+        auto readBool = [&](StringRef name) -> bool {
+          auto a = attrs.getAs<BoolAttr>(name);
+          return a && a.getValue();
+        };
+        bool hasBias = readBool("has_bias");
+        bool hasAddcmul = readBool("has_addcmul");
+
+        // Recover operands using the presence flags. Input order mirrors the
+        // composite: input, weight, [bias], [addcmul_input1, addcmul_input2].
+        auto inputs = compositeOp.getInputs();
+        Value input = inputs[0];
+        Value weight = inputs[1];
+        unsigned idx = 2;
+        Value bias = hasBias ? inputs[idx++] : Value();
+        Value addcmulInput1 = hasAddcmul ? inputs[idx++] : Value();
+        Value addcmulInput2 = hasAddcmul ? inputs[idx++] : Value();
+
+        auto clusterAxis = attrs.getAs<IntegerAttr>("cluster_axis");
+        auto allGatherDim = attrs.getAs<IntegerAttr>("all_gather_dim");
+        TT_assert(allGatherDim);
+        FloatAttr scalar =
+            hasAddcmul ? attrs.getAs<FloatAttr>("scalar") : FloatAttr();
+
+        // The typed op needs a device handle and (later) semaphores; those are
+        // TTNN-level concerns that belong here, not in the TTIR fusing pattern.
+        // Semaphores are left unbound and materialized by
+        // TTNNAllocateDistributedOpSemaphores via the DistributedOpInterface.
+        IRRewriter rewriter(builder.getContext());
+        rewriter.setInsertionPoint(compositeOp);
+        Value device =
+            ttnn::utils::getOrInsertDevice(rewriter, compositeOp).getResult();
+
+        return rewriter.create<AllGatherMinimalMatmulAsyncOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(), input, weight,
+            bias, addcmulInput1, addcmulInput2,
+            /*multi_device_semaphore=*/ValueRange{},
+            /*barrier_semaphore=*/Value(), device, clusterAxis, scalar,
+            /*topology=*/ttcore::TopologyAttr(),
+            /*num_links=*/IntegerAttr(), /*memory_config=*/MemoryConfigAttr(),
+            /*dtype=*/ttcore::DataTypeAttr(), /*force_transpose=*/true,
+            /*num_workers_per_link=*/1u, /*num_buffers_per_channel=*/1u,
+            /*chunks=*/1,
+            /*dim=*/
+            static_cast<int32_t>(allGatherDim.getValue().getSExtValue()));
       }};
 }
 
