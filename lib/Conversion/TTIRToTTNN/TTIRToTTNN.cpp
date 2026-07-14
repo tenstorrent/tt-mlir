@@ -31,6 +31,8 @@
 
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/MathExtras.h"
+
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 
