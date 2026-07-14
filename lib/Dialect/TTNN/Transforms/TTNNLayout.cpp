@@ -239,10 +239,13 @@ public:
       Location newLoc =
           appendInputSuffix(op->getLoc(), operand.getOperandNumber());
 
+      // Movement ops with a large tile-pad-waste input stay row-major.
+      bool tiled = !movementStaysRowMajor(op);
+
       // Given the operand constraint, create the desired layout for the operand
       std::optional<Value> desiredLayout = createToLayoutOp(
           rewriter, newLoc, operand.get(), g_defaultMemorySpaceDevice,
-          /*tiled=*/true);
+          /*tiled=*/tiled);
 
       // If layout changed update the operand
       if (desiredLayout) {
@@ -272,6 +275,11 @@ public:
 private:
   bool shouldTilizeResult(Operation *op) const {
 
+    // Movement ops with a large tile-pad-waste input stay row-major.
+    if (movementStaysRowMajor(op)) {
+      return false;
+    }
+
     // TTNN Reshape does not support implicit tilization/untilization
     // Therefore input output layouts should be the same
     if (auto reshapeOp = mlir::dyn_cast<ttir::ReshapeOp>(op)) {
@@ -288,6 +296,43 @@ private:
     }
 
     return true;
+  }
+
+  // Pure data-movement ops (valid in row-major).
+  static bool isTensorMovementOp(Operation *op) {
+    return op->hasTrait<ttir::TensorManipulation::Trait>() ||
+           mlir::isa<ttir::SliceStaticOp>(op);
+  }
+
+  // Bytes wasted by padding the last two dims to 32x32 tiles.
+  static int64_t tilePadWasteBytes(RankedTensorType ty) {
+    int64_t rank = ty.getRank();
+    // Skip <2D and non-int/float (e.g. quantized) elements: no bit width.
+    if (rank < 2 || !ty.getElementType().isIntOrFloat()) {
+      return 0;
+    }
+    constexpr int64_t tileH = ttcore::TileType::getDefaultShape()[0];
+    constexpr int64_t tileW = ttcore::TileType::getDefaultShape()[1];
+    int64_t logical = 1, padded = 1;
+    for (int64_t i = 0; i < rank; ++i) {
+      int64_t d = ty.getDimSize(i);
+      logical *= d;
+      if (i == rank - 2) {
+        d = ((d + tileH - 1) / tileH) * tileH;
+      } else if (i == rank - 1) {
+        d = ((d + tileW - 1) / tileW) * tileW;
+      }
+      padded *= d;
+    }
+    return (padded - logical) * (ty.getElementTypeBitWidth() / 8);
+  }
+
+  // Movement op whose input tile-pad waste is >= 1 GiB.
+  static bool movementStaysRowMajor(Operation *op) {
+    constexpr int64_t kMinWasteBytes = 1LL * 1024 * 1024 * 1024;
+    return isTensorMovementOp(op) &&
+           tilePadWasteBytes(mlir::cast<RankedTensorType>(
+               op->getOperand(0).getType())) >= kMinWasteBytes;
   }
 };
 } // namespace
