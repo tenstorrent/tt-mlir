@@ -3316,39 +3316,20 @@ def TTNN_AllGatherMinimalMatmulAsyncOp: TTNN_Op<"all_gather_minimal_matmul_async
     [AttrSizedOperandSegments, TTNN_DistributedOpInterface, OpModelExempt]> {
     let summary = "Fused async all-gather + minimal matmul op.";
     let description = [{
-      Fused collective-communication + matmul op that maps to
-      `ttnn::all_gather_minimal_matmul_async` at runtime. The activation
-      `input` is sharded along its contraction dim `K` across the devices on
-      `cluster_axis`; the op all-gathers those shards while concurrently
-      computing `input @ weight` (a lean "minimal matmul" kernel), overlapping
-      communication with computation. Optional fusions applied in the matmul
-      epilogue:
-        - `bias`: row-broadcast bias added to the matmul result.
-        - gated residual (addcmul): `addcmul_input1 + scalar * (input @ weight) *
-          addcmul_input2`, used by DiT transformer blocks.
+      Fused collective + matmul op (maps to
+      `ttnn::all_gather_minimal_matmul_async`). Activation `input` `[..., M, K]`
+      is sharded along `K` across `cluster_axis`; the op all-gathers those
+      shards while computing `input @ weight` `[..., K, N]`, overlapping
+      communication with compute. Optional epilogues: row-broadcast `bias`, and
+      gated residual `addcmul_input1 + scalar * (input @ weight) * addcmul_input2`
+      (DiT blocks).
 
-      The async all-gather is synchronized across devices by the two
-      `multi_device_semaphore` global semaphores; `barrier_semaphore` guarantees
-      the gather output buffer is ready before it is written. When these
-      semaphore operands are left unbound in source MLIR they are materialized
-      by the `TTNNAllocateDistributedOpSemaphores` pass via the
-      `DistributedOpInterface`.
-
-      Results: the op returns the activation all-gather intermediate followed by
-      the matmul output chunk(s) (a single output for the default `chunks = 1`).
-
-      `fused_activation`, the `MinimalMatmulConfig`, `compute_kernel_config`,
-      persistent buffers, and the FSDP path are not yet modeled here; the runtime
-      passes their tt-metal defaults.
-
-      Inputs:
-        - `input`: activation matrix A `[..., M, K]` (sharded along K).
-        - `weight`: weight matrix B `[..., K, N]`.
-        - `bias`: optional bias `[..., N]`.
-        - `addcmul_input1`: optional residual/base `[..., M, N]`.
-        - `addcmul_input2`: optional gate `[..., 1, N]` (row-broadcast).
-        - `multi_device_semaphore`: two global semaphores for the all-gather.
-        - `barrier_semaphore`: optional barrier global semaphore.
+      The async all-gather is synchronized by the two `multi_device_semaphore`
+      global semaphores and `barrier_semaphore`; left unbound, these are
+      materialized by `TTNNAllocateDistributedOpSemaphores` via the
+      `DistributedOpInterface`. `fused_activation`, `MinimalMatmulConfig`,
+      `compute_kernel_config`, persistent buffers, and FSDP use tt-metal
+      defaults.
     }];
 
     let arguments = (ins AnyRankedTensor:$input,
