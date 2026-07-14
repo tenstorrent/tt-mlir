@@ -953,7 +953,7 @@ public:
       
       // Adjust begin and end for a negative step
       int32_t adjustedBeginNegativeStep = (begin < kDimStart) ? 
-        std::max<int32_t>(begin + dimSize, kDimStart) : 
+        std::max<int32_t>(begin + dimSize, kDimStart - 1) : 
         std::min<int32_t>(begin, dimSize - 1);
       int32_t adjustedEndNegativeStep = (end < kDimStart) ? 
         std::max<int32_t>(end + dimSize, kDimStart - 1) : 
