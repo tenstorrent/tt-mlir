@@ -918,10 +918,68 @@ public:
   LogicalResult
   matchAndRewrite(TTIROpTy op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    ::mlir::RankedTensorType inputType = mlir::cast<::mlir::RankedTensorType>(adaptor.getInput().getType());
+    ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
+
+    ::mlir::ArrayAttr begins = adaptor.getBegins();
+    ::mlir::ArrayAttr ends = adaptor.getEnds();
+    ::mlir::ArrayAttr stepAttr = adaptor.getStepAttr();
+
+    size_t inputRank = inputType.getRank();
+    ::llvm::SmallVector<::mlir::Attribute> normalizedBegins;
+    ::llvm::SmallVector<::mlir::Attribute> normalizedEnds;
+    normalizedBegins.reserve(inputRank);
+    normalizedEnds.reserve(inputRank);
+
+    constexpr int32_t kDimStart = 0;
+    for (size_t dim = 0; dim < inputRank; ++dim) {
+      int64_t dimSize = inputShape[dim];
+
+      int32_t begin = ::mlir::cast<::mlir::IntegerAttr>(begins[dim]).getInt();
+      int32_t end = ::mlir::cast<::mlir::IntegerAttr>(ends[dim]).getInt();
+      int32_t step = ::mlir::cast<::mlir::IntegerAttr>(stepAttr[dim]).getInt();
+
+      // Adjust begin and end for a positive step
+      int32_t adjustedBeginPositiveStep = (begin < kDimStart) ? 
+        std::max<int32_t>(begin + dimSize, kDimStart) : 
+        std::min<int32_t>(begin, dimSize);
+      int32_t adjustedEndPositiveStep = (end < kDimStart) ? 
+        std::max<int32_t>(end + dimSize, kDimStart) : 
+        std::min<int32_t>(end, dimSize);
+      if (adjustedBeginPositiveStep > adjustedEndPositiveStep) {
+        // e.g. array[3:1:1] <=> array[0:0:1]
+        adjustedBeginPositiveStep = adjustedEndPositiveStep = kDimStart;
+      }
+      
+      // Adjust begin and end for a negative step
+      int32_t adjustedBeginNegativeStep = (begin < kDimStart) ? 
+        std::max<int32_t>(begin + dimSize, kDimStart) : 
+        std::min<int32_t>(begin, dimSize - 1);
+      int32_t adjustedEndNegativeStep = (end < kDimStart) ? 
+        std::max<int32_t>(end + dimSize, kDimStart - 1) : 
+        std::min<int32_t>(end, dimSize - 1);
+      if (adjustedBeginNegativeStep < adjustedEndNegativeStep) {
+        // e.g. array[1:3:-1] <=> array[0:0:-1]
+        adjustedBeginNegativeStep = adjustedEndNegativeStep = kDimStart;
+      }
+
+      // Adjust begin and end
+      bool isPositiveStep = step > 0;
+      int32_t adjustedBegin = isPositiveStep ? adjustedBeginPositiveStep : adjustedBeginNegativeStep;
+      int32_t adjustedEnd = isPositiveStep ? adjustedEndPositiveStep : adjustedEndNegativeStep;
+
+      normalizedBegins.push_back(rewriter.getI32IntegerAttr(adjustedBegin));
+      normalizedEnds.push_back(rewriter.getI32IntegerAttr(adjustedEnd));
+    }
+    
     rewriter.replaceOpWithNewOp<TTNNOpTy>(
-        op, this->getTypeConverter()->convertType(op.getType()),
-        adaptor.getInput(), adaptor.getBegins(), adaptor.getEnds(),
-        adaptor.getStepAttr());
+      op, 
+      this->getTypeConverter()->convertType(op.getType()),
+      adaptor.getInput(), 
+      rewriter.getArrayAttr(normalizedBegins), 
+      rewriter.getArrayAttr(normalizedEnds),
+      adaptor.getStepAttr()
+    );
     return success();
   }
 };
