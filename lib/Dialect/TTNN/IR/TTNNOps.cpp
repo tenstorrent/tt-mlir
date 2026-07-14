@@ -5706,12 +5706,17 @@ mlir::LogicalResult RotaryEmbeddingLlamaOp::verify() {
     return emitOpError("transformation matrix must be at least 4D tensor.");
   }
 
-  llvm::SmallVector<int64_t> expectedTransShape = {1, 1, TILE_WIDTH,
-                                                   TILE_HEIGHT};
-  if (!llvm::equal(transShape.take_back(4), expectedTransShape)) {
-    return emitOpError() << "transformation matrix must have shape ("
-                         << ttmlir::utils::join(expectedTransShape, ",")
-                         << ") but got ("
+  // The kernel reads a single 32x32 tile of the transformation matrix per core.
+  // In decode mode the matrix is height-sharded across the batch, so its
+  // logical shape is (1, 1, N*32, 32) (N=batch; N=1 in prefill). Require the
+  // leading dims to be 1, the last dim to be one tile, and the third dim to be
+  // a whole number of tiles -- matching what tt-metal accepts (it does not pin
+  // the shape to a single tile).
+  auto last4 = transShape.take_back(4);
+  if (last4[0] != 1 || last4[1] != 1 || last4[2] % TILE_WIDTH != 0 ||
+      last4[3] != TILE_HEIGHT) {
+    return emitOpError() << "transformation matrix must have shape (1,1,N*"
+                         << TILE_WIDTH << "," << TILE_HEIGHT << ") but got ("
                          << ttmlir::utils::join(transShape, ",") << ").";
   }
 
