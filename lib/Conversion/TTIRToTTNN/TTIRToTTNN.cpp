@@ -32,6 +32,7 @@
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/MathExtras.h"
 #include <cstdint>
+#include <numeric>
 #include <optional>
 
 using namespace mlir;
@@ -2059,18 +2060,36 @@ public:
     // for some shapes (C_out_block = 0 collapses to the full padded output
     // channels, breaking `matmul_N_t % out_subblock_w`; a 1x1 grid breaks
     // `C_in_blocks <= total_cores`). So mirror tt-metal's own defaults here —
-    // spatial out-blocks = 1, c_out_block = TILE_WIDTH, c_in_block =
-    // TILE_WIDTH, and the compute grid taken from the device's worker grid — so
+    // spatial out-blocks = 1, c_out_block = TILE_WIDTH, the minimal valid
+    // c_in_block, and the compute grid taken from the device's worker grid — so
     // the op's config is the single source of truth on every backend. This is
     // the one place that encodes tt-metal's default knowledge; the optimizer
     // may refine fields later (its overrides merge onto this config, preserving
     // the rest), and TTNNPrepareConv3dWeights only reads c_in_block back out.
+    //
+    // c_in_block: the minimal block that satisfies weight tile-alignment
+    // (kernel_vol * C_in_block divisible by TILE_WIDTH) and L1 alignment, then
+    // clamped to the padded input-channel count. This mirrors tt-metal's own
+    // minimal default (#42146): a full TILE_WIDTH block put the whole K
+    // reduction in one matmul block and overflowed L1 for large-kernel
+    // patch-embed convs. Since this op always carries an explicit config, the
+    // ttnn-side minimal default never triggers, so the minimum must be chosen
+    // here.
+    int64_t kernelVol = weightTy.getDimSize(2) * weightTy.getDimSize(3) *
+                        weightTy.getDimSize(4);
+    int64_t l1Alignment =
+        ttcore::getCurrentScopeSystemDesc(op).getNocL1AddressAlignBytes();
+    int64_t tileAlignFactor =
+        TILE_WIDTH / std::gcd(kernelVol, static_cast<int64_t>(TILE_WIDTH));
+    int64_t cInBlock = std::min<int64_t>(std::lcm(l1Alignment, tileAlignFactor),
+                                         inChannelsAttr.getInt());
+
     auto computeGrid = ttcore::GridAttr::get(
         getContext(), ttcore::lookupDevice(op).getWorkerGrid().getShape());
     auto defaultConv3dConfig = ttnn::Conv3dConfigAttr::get(
         getContext(), /*weights_dtype=*/std::nullopt, /*t_out_block=*/1,
         /*w_out_block=*/1, /*h_out_block=*/1, /*c_out_block=*/TILE_WIDTH,
-        /*c_in_block=*/TILE_WIDTH,
+        /*c_in_block=*/cInBlock,
         /*compute_with_storage_grid_size=*/computeGrid);
 
     // The raw 5D weight is passed through unchanged; TTNNPrepareConv3dWeights
