@@ -128,4 +128,50 @@ module {
     %1 = "ttir.group_norm"(%arg0, %arg1, %arg2) <{num_groups = 8 : i64, epsilon = 1.000000e-05 : f32, channel_dim = 1 : i64, operandSegmentSizes = array<i32: 1, 0, 1, 1>}> : (tensor<1x480x4x8x8xbf16>, tensor<480xbf16>, tensor<480xbf16>) -> tensor<1x480x4x8x8xbf16>
     return %1 : tensor<1x480x4x8x8xbf16>
   }
+
+  // Test non-tile-aligned flattened height: N*H*W = 50 is not a multiple of 32,
+  // so the fused ttnn.group_norm kernel cannot represent this shape. The
+  // conversion decomposes into primitive ops instead (no ttnn.group_norm).
+  func.func @forward_non_tile_aligned(%arg0: tensor<1x1x50x480xbf16>) -> tensor<1x1x50x480xbf16> {
+    // CHECK-LABEL: func.func @forward_non_tile_aligned
+    // CHECK-NOT: "ttnn.group_norm"
+    // Group-split reshape [N, 1, S, C] -> [N, S, G, Cpg].
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: shape = [1 : i32, 50 : i32, 8 : i32, 60 : i32]
+    // mean / center / variance.
+    // CHECK: "ttnn.mean"
+    // CHECK: "ttnn.subtract"
+    // CHECK: "ttnn.multiply"
+    // CHECK: "ttnn.mean"
+    // eps + rsqrt + normalize.
+    // CHECK: "ttnn.rsqrt"
+    // CHECK: "ttnn.multiply"
+    // Restore canonical [N, 1, S, C] shape; no affine tail without weight/bias.
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: shape = [1 : i32, 1 : i32, 50 : i32, 480 : i32]
+    %1 = "ttir.group_norm"(%arg0) <{num_groups = 8 : i64, epsilon = 1.000000e-12 : f32, operandSegmentSizes = array<i32: 1, 0, 0, 0>}> : (tensor<1x1x50x480xbf16>) -> tensor<1x1x50x480xbf16>
+    return %1 : tensor<1x1x50x480xbf16>
+  }
+
+  // Test non-tile-aligned flattened height with weight and bias: decomposes and
+  // emits the affine tail (weight multiply + bias add) after normalization.
+  func.func @forward_non_tile_aligned_weight_bias(%arg0: tensor<1x1x50x480xbf16>, %arg1: tensor<480xbf16>, %arg2: tensor<480xbf16>) -> tensor<1x1x50x480xbf16> {
+    // CHECK-LABEL: func.func @forward_non_tile_aligned_weight_bias
+    // CHECK-NOT: "ttnn.group_norm"
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: shape = [1 : i32, 50 : i32, 8 : i32, 60 : i32]
+    // CHECK: "ttnn.rsqrt"
+    // Restore canonical shape, then affine tail: weight reshape [C] -> [1,1,1,C]
+    // and multiply, bias reshape and add.
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: shape = [1 : i32, 1 : i32, 50 : i32, 480 : i32]
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: shape = [1 : i32, 1 : i32, 1 : i32, 480 : i32]
+    // CHECK: "ttnn.multiply"
+    // CHECK: "ttnn.reshape"
+    // CHECK-SAME: shape = [1 : i32, 1 : i32, 1 : i32, 480 : i32]
+    // CHECK: "ttnn.add"
+    %1 = "ttir.group_norm"(%arg0, %arg1, %arg2) <{num_groups = 8 : i64, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 0, 1, 1>}> : (tensor<1x1x50x480xbf16>, tensor<480xbf16>, tensor<480xbf16>) -> tensor<1x1x50x480xbf16>
+    return %1 : tensor<1x1x50x480xbf16>
+  }
 }

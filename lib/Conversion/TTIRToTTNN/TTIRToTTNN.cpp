@@ -1478,11 +1478,26 @@ public:
       }
     }
 
-    // Create the GroupNormOp.
-    Value groupNormResult = rewriter.create<ttnn::GroupNormOp>(
-        loc, this->getTypeConverter()->convertType(groupNormInputType), input,
-        adaptor.getInputMask(), weight, bias, adaptor.getNumGroups(),
-        adaptor.getEpsilon());
+    // ttnn.group_norm requires the flattened height (N * H*W) to be
+    // tile-aligned (multiple of 32). When it is not (e.g. data-dependent
+    // sequence lengths), decompose into primitive ops instead; padding is not
+    // an option since group_norm reduces over H*W and padded rows would corrupt
+    // the per-group mean/variance.
+    RankedTensorType convertedGroupNormType = mlir::cast<RankedTensorType>(
+        this->getTypeConverter()->convertType(groupNormInputType));
+    ArrayRef<int64_t> gnShape = groupNormInputType.getShape();
+    constexpr int64_t kTileHeight = 32;
+    Value groupNormResult;
+    if ((gnShape[0] * gnShape[2]) % kTileHeight != 0) {
+      groupNormResult = ttir_to_ttnn::utils::decomposeGroupNorm(
+          mlir::cast<mlir::TypedValue<RankedTensorType>>(input), weight, bias,
+          adaptor.getNumGroups(), adaptor.getEpsilon(), convertedGroupNormType,
+          op.getOperation(), rewriter, loc);
+    } else {
+      groupNormResult = rewriter.create<ttnn::GroupNormOp>(
+          loc, convertedGroupNormType, input, adaptor.getInputMask(), weight,
+          bias, adaptor.getNumGroups(), adaptor.getEpsilon());
+    }
 
     // Reshape back to original shape if reshaped.
     if (needsReshape) {
