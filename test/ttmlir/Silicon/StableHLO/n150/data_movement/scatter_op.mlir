@@ -60,3 +60,22 @@ func.func @rank_reducing_scatter_1d(%operand: tensor<32xbf16>, %indices: tensor<
   }) : (tensor<32xbf16>, tensor<1xi64>, tensor<bf16>) -> tensor<32xbf16>
   return %result : tensor<32xbf16>
 }
+
+// Multi-point scalar scatter-add into a 1-D operand `x.at[idx].add(u)` with a
+// runtime index list. Scalar updates + a trailing length-1 coordinate axis, so
+// the element-wise path squeezes the index to rank 1 and scatters along dim 0.
+func.func @multipoint_scalar_scatter_1d(%operand: tensor<32xbf16>, %indices: tensor<8x1xi64>, %update: tensor<8xbf16>) -> tensor<32xbf16> {
+  // CHECK-LABEL: func.func @multipoint_scalar_scatter_1d
+  // CHECK: "ttnn.scatter"
+  %result = "stablehlo.scatter"(%operand, %indices, %update) <{
+    scatter_dimension_numbers = #stablehlo.scatter<
+      inserted_window_dims = [0],
+      scatter_dims_to_operand_dims = [0],
+      index_vector_dim = 1>
+  }> ({
+  ^bb0(%a: tensor<bf16>, %b: tensor<bf16>):
+    %s = stablehlo.add %a, %b : tensor<bf16>
+    stablehlo.return %s : tensor<bf16>
+  }) : (tensor<32xbf16>, tensor<8x1xi64>, tensor<8xbf16>) -> tensor<32xbf16>
+  return %result : tensor<32xbf16>
+}

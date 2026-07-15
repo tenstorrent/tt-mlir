@@ -278,6 +278,32 @@ module @jit_scatter attributes {} {
         return %result : tensor<4xf32>
     }
 
+    // Multi-point scalar scatter into a 1-D operand `x.at[idx].add(u)` with a
+    // runtime index list (e.g. idx = [0, 2, 1]). Updates are scalar (no window)
+    // and the index carries a trailing length-1 coordinate axis, so index rank
+    // (2) is one more than update rank (1). The element-wise path squeezes that
+    // coordinate axis away (index [3,1] -> [3]) and scatters along dim 0 with
+    // the sum reduce type taken from the combine region.
+    func.func public @test_multipoint_scalar_scatter_1d(%operand: tensor<4xf32>, %indices: tensor<3x1xi64>, %update: tensor<3xf32>) -> tensor<4xf32> {
+        // CHECK-LABEL: func.func public @test_multipoint_scalar_scatter_1d
+        // CHECK: [[IDX:%[0-9]+]] = "ttir.reshape"(%arg1)
+        // CHECK-SAME: -> tensor<3xi64>
+        // CHECK: "ttir.scatter"(%arg0, [[IDX]], %arg2)
+        // CHECK-SAME: <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<sum>}>
+        // CHECK-SAME: (tensor<4xf32>, tensor<3xi64>, tensor<3xf32>) -> tensor<4xf32>
+        %result = "stablehlo.scatter"(%operand, %indices, %update) <{
+            scatter_dimension_numbers = #stablehlo.scatter<
+                inserted_window_dims = [0],
+                scatter_dims_to_operand_dims = [0],
+                index_vector_dim = 1>
+        }> ({
+        ^bb0(%a: tensor<f32>, %b: tensor<f32>):
+            %sum = stablehlo.add %a, %b : tensor<f32>
+            stablehlo.return %sum : tensor<f32>
+        }) : (tensor<4xf32>, tensor<3x1xi64>, tensor<3xf32>) -> tensor<4xf32>
+        return %result : tensor<4xf32>
+    }
+
     func.func @test_multidim_scatter_with_window_extracted_from_model(%arg186: tensor<1x2xbf16>, %arg187: tensor<1xi64>, %arg188: tensor<1xi64>) -> (tensor<1x7x2xbf16>) {
         // CHECK: "ttir.scatter"
         // CHECK-SAME: <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<sum>}>

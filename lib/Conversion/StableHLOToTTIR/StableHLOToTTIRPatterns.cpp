@@ -7142,7 +7142,24 @@ private:
                   "exactly one scatter coordinate");
         }
       } else {
-        if (indexShape.size() > updateShape.size()) {
+        // Multi-point scalar scatter into a 1-D operand, e.g. a runtime index
+        // list `zeros(4).at[idx].add(u)` with idx = [0, 2, 1]. The updates are
+        // scalar (no window) and the index carries a trailing length-1
+        // coordinate axis, so its rank is exactly one more than the update's
+        // (index [N, 1], update [N]). The element-wise path squeezes that
+        // coordinate axis away (index [N, 1] -> [N]), producing a valid
+        // equal-rank ttir.scatter, so this shape is allowed past the general
+        // indices.rank <= updates.rank guard below.
+        ArrayRef<int64_t> updateWindowDims =
+            adaptor.getScatterDimensionNumbers().getUpdateWindowDims();
+        bool multiPointScalarScatter =
+            updateWindowDims.empty() &&
+            indexVectorDim < static_cast<uint32_t>(indexShape.size()) &&
+            indexShape.size() == updateShape.size() + 1 &&
+            indexShape[indexVectorDim] == 1;
+
+        if (!multiPointScalarScatter &&
+            indexShape.size() > updateShape.size()) {
           return rewriter.notifyMatchFailure(
               op, "TTIR scatter requires indices.rank <= updates.rank. Please "
                   "add support for rank promotion if needed.");
