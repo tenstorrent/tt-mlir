@@ -2,10 +2,12 @@
 // RUN: FileCheck %s --input-file=%t.mlir
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %t.ttnn %t.mlir
 
-// Host-side compiler test for the TTNN-only `all_gather_minimal_matmul_async`
-// op. There is no TTIR op / frontend path yet (see issue #8984, "we probably
-// need just the TTNN op"), so the op is hand-authored at the TTNN level. This
-// exercises three compiler stages with no silicon:
+// Host-side compiler test for the `all_gather_minimal_matmul_async` op. The
+// frontend path produces this op by fusing `all_gather -> matmul/linear` into a
+// `ttcore.composite` (see AllGatherMatmulFusingPattern), which
+// TTNNResolveComposites can promote to `ttnn.all_gather_minimal_matmul_async`.
+// Here the op is hand-authored at the TTNN level to exercise, with no silicon,
+// three compiler stages downstream of that promotion:
 //   1. the op verifier (runs on parse),
 //   2. the `--ttnn-allocate-distributed-op-semaphores` pass, which materializes
 //      the two all-gather semaphores + barrier semaphore via the
