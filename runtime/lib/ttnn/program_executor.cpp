@@ -724,7 +724,7 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
 }
 
 void ProgramExecutor::readProfilerDataIfNeeded(bool force) {
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+#if defined(TT_RUNTIME_ENABLE_TRACY) && TT_RUNTIME_ENABLE_TRACY == 1
   static uint32_t counter = 0;
   if (!force && ++counter < perf::Env::get().dumpDeviceRate) {
     return;

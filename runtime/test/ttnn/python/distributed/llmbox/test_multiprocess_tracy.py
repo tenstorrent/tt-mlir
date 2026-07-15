@@ -100,7 +100,7 @@ def _resolve_tracy_tools_dir():
 
     raise AssertionError(
         "Tracy tools (%s) not found. Searched (after importlib.metadata):\n%s\n"
-        "Build tt-mlir with -DTT_RUNTIME_ENABLE_PERF_TRACE=ON."
+        "Build tt-mlir with -DTT_RUNTIME_ENABLE_TRACY=ON (or -DTT_RUNTIME_ENABLE_PERF_TRACE=ON)."
         % (", ".join(TRACY_TOOL_NAMES), "\n".join("  " + c for c in candidates))
     )
 

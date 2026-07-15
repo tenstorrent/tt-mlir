@@ -30,15 +30,19 @@ inline std::string toString(TracyLogTag tracyLogTag) {
   }
 }
 
+// perf::Env is live whenever Tracy is built (TT_RUNTIME_ENABLE_TRACY).
+// Host-zone perf trace (TT_RUNTIME_ENABLE_PERF_TRACE) always implies Tracy, so
+// Tracy alone gates the singleton; otherwise get() returns a value stub with
+// tracing disabled.
 struct Env {
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+#if defined(TT_RUNTIME_ENABLE_TRACY) && TT_RUNTIME_ENABLE_TRACY == 1
   static Env &
 #else
   static Env
 #endif
   get(std::uint32_t dumpDeviceRate = 1000, bool enablePerfTrace = false,
       const std::string &tracyProgramMetadata = "")
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+#if defined(TT_RUNTIME_ENABLE_TRACY) && TT_RUNTIME_ENABLE_TRACY == 1
       ;
 #else
   {
@@ -50,7 +54,7 @@ struct Env {
   bool enablePerfTrace;
   std::string tracyProgramMetadata;
 
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+#if defined(TT_RUNTIME_ENABLE_TRACY) && TT_RUNTIME_ENABLE_TRACY == 1
   Env(const Env &) = delete;
   Env &operator=(const Env &) = delete;
   Env(Env &&) = delete;

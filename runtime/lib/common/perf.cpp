@@ -10,7 +10,7 @@
 
 namespace tt::runtime::perf {
 
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+#if defined(TT_RUNTIME_ENABLE_TRACY) && TT_RUNTIME_ENABLE_TRACY == 1
 Env &Env::get(std::uint32_t dumpDeviceRate, bool enablePerfTrace,
               const std::string &tracyProgramMetadata) {
   static Env config(dumpDeviceRate, enablePerfTrace, tracyProgramMetadata);

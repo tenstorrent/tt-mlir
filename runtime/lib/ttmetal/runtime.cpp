@@ -332,7 +332,7 @@ void closeMeshDevice(Device parentMesh) {
                 "its submeshes.");
   }
 
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE) && TT_RUNTIME_ENABLE_PERF_TRACE == 1
+#if defined(TT_RUNTIME_ENABLE_TRACY) && TT_RUNTIME_ENABLE_TRACY == 1
   ::tt::tt_metal::ReadMeshDeviceProfilerResults(metalMeshDevice);
 #endif
 
@@ -492,7 +492,7 @@ void readDeviceProfilerResults(Device deviceHandle) {
   LOG_ASSERT(metalMeshDevice.is_parent_mesh(),
              "Mesh device must be a parent mesh");
 
-#if defined(TT_RUNTIME_ENABLE_PERF_TRACE)
+#if defined(TT_RUNTIME_ENABLE_TRACY) && TT_RUNTIME_ENABLE_TRACY == 1
   ::tt::tt_metal::ReadMeshDeviceProfilerResults(metalMeshDevice);
 #endif
 }

@@ -111,7 +111,8 @@ You have now configured tt-mlir.
 You can add different flags to your build. Here are some options to consider:
 
 - To enable the ttnn/metal runtime add `-DTTMLIR_ENABLE_RUNTIME=ON`. Clang 20 is the minimum required version when enabling the runtime.
-- To enable the ttnn/metal perf runtime add `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON`.
+- To build tt-metal with Tracy device profiling (tt-metal device + host-op instrumentation, plus the runtime's device-profiler reads) without host-side zones, add `-DTT_RUNTIME_ENABLE_TRACY=ON` (off by default).
+- To additionally emit tt-mlir runtime host-side Tracy zones (perf trace), add `-DTT_RUNTIME_ENABLE_PERF_TRACE=ON` (this implies and auto-enables `TT_RUNTIME_ENABLE_TRACY`).
 - To accelerate the builds with ccache use `-DCMAKE_CXX_COMPILER_LAUNCHER=ccache`.
 - To workaround OOM issues it can be useful to decrease the number of parallel jobs with `-DCMAKE_BUILD_PARALLEL_LEVEL=4`.
 - If Python bindings aren't required for your project, you can accelerate builds further with the command `-DTTMLIR_ENABLE_BINDINGS_PYTHON=OFF`.

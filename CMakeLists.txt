@@ -29,7 +29,12 @@ endif()
 set(MLIR_BINDINGS_PYTHON_NB_DOMAIN "ttmlir" CACHE STRING
   "Domain name used for nanobind-based MLIR python extensions")
 
-option(TT_RUNTIME_ENABLE_PERF_TRACE "Enable performance mode" OFF)
+option(TT_RUNTIME_ENABLE_PERF_TRACE "Enable tt-mlir runtime host-side Tracy zones (perf trace)" OFF)
+# Build tt-metal with Tracy profiling (device profiler + a real libtracy client) and
+# compile the runtime's device-profiler reads. Off by default (lean build, matching
+# today's behavior); enabling TT_RUNTIME_ENABLE_PERF_TRACE below auto-enables it.
+# Decoupled so device profiling can be built without host-side zones.
+option(TT_RUNTIME_ENABLE_TRACY "Build tt-metal with Tracy and enable runtime device-profiler reads" OFF)
 option(TTMLIR_ENABLE_RUNTIME "Enable runtime" OFF)
 option(TTMLIR_ENABLE_PYKERNEL "Enable python kernels" OFF)
 option(TTMLIR_ENABLE_D2M_JIT "Enable d2m-jit" OFF)
@@ -92,6 +97,14 @@ if (APPLE)
 endif()
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR}/cmake/modules)
+
+# Host-side Tracy zones need a Tracy-enabled libtracy.so, so perf trace always implies
+# Tracy. Enable it automatically when perf trace is requested (this matches the
+# pre-decoupling behavior, where the two were a single switch) rather than failing.
+if (TT_RUNTIME_ENABLE_PERF_TRACE AND NOT TT_RUNTIME_ENABLE_TRACY)
+  message(STATUS "TT_RUNTIME_ENABLE_PERF_TRACE=ON implies Tracy; enabling TT_RUNTIME_ENABLE_TRACY.")
+  set(TT_RUNTIME_ENABLE_TRACY ON CACHE BOOL "Build tt-metal with Tracy and enable runtime device-profiler reads" FORCE)
+endif()
 
 if (TT_RUNTIME_ENABLE_PERF_TRACE)
   add_compile_options(-DTRACY_ENABLE=ON)
