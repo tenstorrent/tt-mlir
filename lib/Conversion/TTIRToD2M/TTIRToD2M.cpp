@@ -3729,10 +3729,13 @@ public:
     int64_t fullReductionElems = inputType.getShape()[dim];
     int64_t fullReductionTiles =
         (fullReductionElems + kTileWidth - 1) / kTileWidth;
-    // G = number of slices needed so each slice is <= kMaxShardTiles tiles.
-    int64_t numShards =
+    // Minimum cores needed so each band is <= kMaxShardTiles tiles. This is a
+    // lower bound; the actual band count is the physical grid area chosen below
+    // (which must divide fullReductionTiles evenly and fit the worker grid), so
+    // it may exceed this minimum.
+    int64_t minShards =
         (fullReductionTiles + kMaxShardTiles - 1) / kMaxShardTiles;
-    bool multiCore = numShards > 1;
+    bool multiCore = minShards > 1;
 
     if (fullReductionTiles < 1) {
       return rewriter.notifyMatchFailure(
@@ -3744,6 +3747,13 @@ public:
       // 2-tile output with no second input tile to source it from.
       assert(k <= kTileWidth && "single-tile topk input only supports k <= 32");
     }
+    // The reduction bands are distributed one per core: numShards bands, each a
+    // logical shard at grid position [0, g]. The tensor keeps a 1xnumShards
+    // device grid; a virtual-grid map (attached in emitShardTopk) folds those
+    // numShards logical positions onto the 2D physical worker grid. numShards
+    // is 1 for single-core, chosen below for multi-core.
+    SmallVector<int64_t> workerGridShape;
+    int64_t numShards = 1;
     if (multiCore) {
       // Hard-fail (no TTNN fallback) for configs outside the first-cut scope.
       assert(k <= 32 && "multi-core topk first cut only supports k <= 32");
@@ -3751,9 +3761,39 @@ public:
       assert(inputType.getShape()[0] == kTileWidth &&
              "multi-core topk first cut only supports a single tile row "
              "(ht == 1)");
-      assert(fullReductionElems % (kTileWidth * numShards) == 0 &&
-             "multi-core topk first cut requires the reduction dim to divide "
-             "evenly across shards");
+
+      auto device = ttcore::lookupDevice(op);
+      workerGridShape = llvm::to_vector(device.getWorkerGrid().getShape());
+      assert(workerGridShape.size() == 2 && "expected a 2D worker grid");
+
+      // Pick the band count. It must (1) be >= minShards so each band holds
+      // <= kMaxShardTiles reduction tiles, (2) divide fullReductionTiles evenly
+      // so getDeviceShape can shard the tile plane cleanly, and (3) have a
+      // legal 2D factorization within the worker grid so the 1xnumShards
+      // logical grid can be folded onto physical cores
+      // (findLegalPhysicalGridForVolume). Pinning numShards to minShards (=
+      // ceil(tiles/32)) fails whenever that count is prime-ish (e.g. 23 or 27,
+      // which have no <=8x<=8 factor pair); searching upward for the first
+      // divisor that also factors legally always finds one when
+      // fullReductionTiles has a suitable divisor.
+      for (int64_t cand = minShards; cand <= fullReductionTiles; ++cand) {
+        if (fullReductionTiles % cand != 0) {
+          continue;
+        }
+        if (fullReductionTiles / cand > kMaxShardTiles) {
+          continue;
+        }
+        if (d2m::utils::findLegalPhysicalGridForVolume(cand, workerGridShape)
+                .empty()) {
+          continue;
+        }
+        numShards = cand;
+        break;
+      }
+      assert(numShards > 1 &&
+             "multi-core topk: no band count divides the reduction tile count "
+             "with <= kMaxShardTiles tiles per core and a legal worker-grid "
+             "factorization");
     }
 
     // Emits the full single-shard topk (layout -> transpose -> arange/index ->
@@ -3789,10 +3829,40 @@ public:
       // buffer already tilized whole-on-one -core, so that staging buffer would
       // overflow L1 for wide reduction dims.
       Value layoutedInput;
+      // Virtual-grid fold maps for the multi-core path. Set when gridCols>1 and
+      // attached (via attachFold below) to EVERY EmptyOp allocated at the
+      // 1xgridCols device grid, so their buffers place on the same folded
+      // physical cores as the input. Without the map a 1xgridCols buffer would
+      // request physical core columns 0..gridCols-1 and crash for gridCols>8.
+      AffineMapAttr foldForwardMapAttr, foldInverseMapAttr;
+      auto attachFold = [&](d2m::EmptyOp emptyOp) {
+        if (foldForwardMapAttr) {
+          emptyOp.setVirtualGridForwardMappingAttr(foldForwardMapAttr);
+          emptyOp.setVirtualGridInverseMappingAttr(foldInverseMapAttr);
+        }
+      };
       if (gridCols > 1) {
-        // Build the same collapsed, sharded L1 layout createOptimalLayoutOp
-        // produces for the 2D case, but target a 1xgridCols device grid so each
-        // core owns wt/gridCols reduction tiles.
+        // Distribute the gridCols reduction bands (one band = kMaxShardTiles
+        // reduction tiles) across the worker grid, one band per core. The
+        // tensor keeps a 1xgridCols device grid -- band g == reduction tiles
+        // [g*shardTiles, (g+1)*shardTiles), so each core holds all ht rows and
+        // a distinct COLUMN band. This is the tile-correct sharding: topk is
+        // per-row, so every core must see the full row (ht) over its column
+        // band. (Reshaping the logical shape to a 2D tensor grid is WRONG: it
+        // would tile-group different elements and split each row across cores.)
+        //
+        // A literal 1xgridCols placement asks for physical core columns
+        // 0..gridCols-1, which exceeds the worker width once gridCols > worker
+        // cols (e.g. 1x32 on 8x8 asks for col 31 -> the coordinate manager
+        // cannot translate it). So attach a virtual-grid mapping that folds the
+        // gridCols logical shard positions onto the 2D physical grid (the same
+        // createCoreVirtMaps machinery GridSelection uses). Logical shard [0,
+        // g] lands on physical core findLegalPhysicalGridForVolume-folded from
+        // g, while the tensor grid, generic maps, and gather indices all stay
+        // 1xgridCols. The buffer placement (flatbuffer) and the DMA address
+        // path both read this same forward map, so they agree; the physical
+        // grid MUST be the one findLegalPhysicalGridForVolume picks (that is
+        // what both consumers recompute deterministically).
         constexpr std::array<int64_t, 2> defaultTileShape =
             ttcore::TileType::getDefaultShape();
         SmallVector<int64_t> tileShapeVec(defaultTileShape.begin(),
@@ -3807,6 +3877,18 @@ public:
             shardedLayout.getDeviceShape(shardedGrid, tileShapeVec);
         auto shardedEmpty = rewriter.create<d2m::EmptyOp>(
             loc, shardedDeviceShape, tileElemType, shardedLayout);
+        // Fold the 1xgridCols logical shard grid onto the 2D physical grid.
+        SmallVector<int64_t> physicalGrid =
+            d2m::utils::findLegalPhysicalGridForVolume(gridCols,
+                                                       workerGridShape);
+        assert(!physicalGrid.empty() &&
+               "band count has no legal worker-grid factorization");
+        auto [forwardMap, inverseMap] =
+            ttmlir::d2m::utils::grids::createCoreVirtMaps(ctx, shardedGrid,
+                                                          physicalGrid);
+        foldForwardMapAttr = AffineMapAttr::get(forwardMap);
+        foldInverseMapAttr = AffineMapAttr::get(inverseMap);
+        attachFold(shardedEmpty);
         layoutedInput =
             rewriter.create<d2m::ToLayoutOp>(loc, rawInput, shardedEmpty)
                 .getResult(0);
@@ -3881,12 +3963,15 @@ public:
           loc, deviceShape, f32TileType, metalLayout);
       auto topkIdxEmpty = rewriter.create<d2m::EmptyOp>(
           loc, deviceShape, f32TileType, metalLayout);
+      attachFold(topkValsEmpty);
+      attachFold(topkIdxEmpty);
 
       auto wrapInToLayout = [&](Value genericResult) -> Value {
         auto resultType = cast<RankedTensorType>(genericResult.getType());
         auto emptyOp = rewriter.create<d2m::EmptyOp>(
             loc, resultType.getShape(), resultType.getElementType(),
             resultType.getEncoding());
+        attachFold(emptyOp);
         return rewriter.create<d2m::ToLayoutOp>(loc, genericResult, emptyOp)
             .getResult(0);
       };
@@ -3905,6 +3990,7 @@ public:
         auto srcLayout = cast<ttcore::MetalLayoutAttr>(srcType.getEncoding());
         auto transposeEmpty = rewriter.create<d2m::EmptyOp>(
             loc, srcType.getShape(), srcTileType, srcLayout);
+        attachFold(transposeEmpty);
         SmallVector<Value> transposeInputs = {src};
         SmallVector<Value> transposeOutputs = {transposeEmpty.getResult()};
         auto transposeGeneric = rewriter.create<d2m::GenericOp>(
@@ -3970,11 +4056,10 @@ public:
       // each core owns only its band.
       SmallVector<Value> arangeOutputs;
       if (gridCols > 1) {
-        arangeOutputs.push_back(rewriter
-                                    .create<d2m::EmptyOp>(loc, deviceShape,
-                                                          f32TileType,
-                                                          metalLayout)
-                                    .getResult());
+        auto arangeEmpty = rewriter.create<d2m::EmptyOp>(
+            loc, deviceShape, f32TileType, metalLayout);
+        attachFold(arangeEmpty);
+        arangeOutputs.push_back(arangeEmpty.getResult());
       } else {
         auto arangeOrigOutputs =
             createDpsOutputs(loc, rewriter, {f32InputType});
@@ -4058,11 +4143,10 @@ public:
       // device shape so its L1 buffer is split across cores and its operand
       // grid matches the sharded arange input (and topkInput).
       if (gridCols > 1) {
-        postArangeBcastOutputs.push_back(
-            rewriter
-                .create<d2m::EmptyOp>(loc, deviceShape, f32TileType,
-                                      metalLayout)
-                .getResult());
+        auto bcastEmpty = rewriter.create<d2m::EmptyOp>(
+            loc, deviceShape, f32TileType, metalLayout);
+        attachFold(bcastEmpty);
+        postArangeBcastOutputs.push_back(bcastEmpty.getResult());
       } else {
         // For single-core, use the standard layout wrapping.
         auto postArangeBcastOrigOutputs =
@@ -4290,8 +4374,12 @@ public:
                     .create<tensor::EmptyOp>(loc, srcShardType.getShape(),
                                              srcShardType.getElementType())
                     .getResult();
-            // remote_load source band g: grid index [0, g] (dim==1 shards along
-            // columns) into loadBuf.
+            // remote_load source band g: LOGICAL grid index [0, g]. The source
+            // buffer carries a virtual-grid forward map (attached where its
+            // 1xgridCols layout is built), and the DMA address path composes
+            // that map to fold [0, g] onto the physical core band g actually
+            // lives on. So we address the logical position, not the folded
+            // physical core.
             Value zeroGrid = rewriter.create<arith::ConstantIndexOp>(loc, 0);
             Value colGrid = rewriter.create<arith::ConstantIndexOp>(loc, g);
             SmallVector<Value> srcIndices = {zeroGrid, colGrid};
