@@ -32,6 +32,7 @@
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/MathExtras.h"
 #include <cstdint>
+#include <numeric>
 #include <optional>
 
 using namespace mlir;
@@ -1831,14 +1832,13 @@ public:
         ttmlir::utils::appendLocationSuffix(op.getLoc(), "_prepare_w0_w1"),
         /*placeholder type, refined by TTNNDeduceMoEComputeLayouts=*/w0Type,
         adaptor.getW0(), adaptor.getW1(), adaptor.getBias_0(),
-        adaptor.getBias_1(), device, hiddenSizeAttr, intermediateSizeAttr,
-        op.getBhRingSizeAttr());
+        adaptor.getBias_1(), device, hiddenSizeAttr, intermediateSizeAttr);
 
     auto w2Prepared = rewriter.create<ttnn::PrepareMoEComputeW2WeightsOp>(
         ttmlir::utils::appendLocationSuffix(op.getLoc(), "_prepare_w2"),
         /*placeholder type, refined by TTNNDeduceMoEComputeLayouts=*/w2Type,
         adaptor.getW2(), adaptor.getBias_2(), device, hiddenSizeAttr,
-        intermediateSizeAttr, op.getBhRingSizeAttr());
+        intermediateSizeAttr);
 
     // The TTNN op (mirroring tt-metal) carries has_bias; derive it from the
     // bias operands.
@@ -1855,8 +1855,8 @@ public:
         w2Prepared.getResult(), /*optional_output_tensor=*/Value(),
         /*cross_device_semaphore=*/Value(), device, op.getLayerIdAttr(),
         op.getOutputHeightShardDimAttr(), op.getIntermediateSizeAttr(),
-        hasBiasAttr, op.getActivationFunctionAttr(), op.getBhRingSizeAttr(),
-        op.getComputeOnlyAttr(), op.getClusterAxisAttr(),
+        hasBiasAttr, op.getActivationFunctionAttr(), op.getComputeOnlyAttr(),
+        op.getClusterAxisAttr(),
         /*num_links=*/mlir::IntegerAttr(), /*topology=*/ttcore::TopologyAttr(),
         /*mux_core_range_set=*/ttnn::CoreRangeSetAttr());
     return success();
@@ -1865,6 +1865,131 @@ public:
 } // namespace
 
 namespace {
+class Conv1dOpConversionPattern : public OpConversionPattern<ttir::Conv1dOp> {
+public:
+  using OpConversionPattern<ttir::Conv1dOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::Conv1dOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+
+    auto inputTy = mlir::cast<RankedTensorType>(adaptor.getInput().getType());
+    auto weightTy = mlir::cast<RankedTensorType>(adaptor.getWeight().getType());
+    auto inputShape = inputTy.getShape();
+
+    int64_t batchDim = op.getBatchDim();
+    int64_t lengthDim = op.getLengthDim();
+    int64_t channelDim = op.getChannelDim();
+
+    auto batchSizeAttr = rewriter.getI32IntegerAttr(inputShape[batchDim]);
+    auto inputLengthAttr = rewriter.getI32IntegerAttr(inputShape[lengthDim]);
+    auto inChannelsAttr = rewriter.getI32IntegerAttr(inputShape[channelDim]);
+    auto outChannelsAttr = rewriter.getI32IntegerAttr(
+        op.getResult().getType().getDimSize(channelDim));
+
+    // Weight is (O, C/G, K); the kernel length is the last dimension.
+    auto kernelSizeAttr = rewriter.getI32IntegerAttr(weightTy.getDimSize(2));
+
+    // stride and dilation are scalars in the TTNN op. The TTIR op allows them
+    // to be either a scalar integer or a 1-element array.
+    auto scalarAttr =
+        [&](mlir::Attribute attr) -> std::optional<mlir::IntegerAttr> {
+      if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
+        return rewriter.getI32IntegerAttr(intAttr.getInt());
+      }
+      if (auto arrAttr = mlir::dyn_cast<DenseI32ArrayAttr>(attr)) {
+        if (arrAttr.size() != 1) {
+          return std::nullopt;
+        }
+        return rewriter.getI32IntegerAttr(arrAttr[0]);
+      }
+      return std::nullopt;
+    };
+
+    auto strideAttr = scalarAttr(adaptor.getStride());
+    if (!strideAttr) {
+      return rewriter.notifyMatchFailure(
+          op, "conv1d stride must be a scalar or a 1-element array");
+    }
+    auto dilationAttr = scalarAttr(adaptor.getDilation());
+    if (!dilationAttr) {
+      return rewriter.notifyMatchFailure(
+          op, "conv1d dilation must be a scalar or a 1-element array");
+    }
+
+    // padding is normalized to a 2-element [pL, pR] array in the TTNN op.
+    DenseI32ArrayAttr paddingAttr;
+    mlir::Attribute padding = adaptor.getPadding();
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(padding)) {
+      int32_t p = static_cast<int32_t>(intAttr.getInt());
+      paddingAttr = rewriter.getDenseI32ArrayAttr({p, p});
+    } else if (auto arrAttr = mlir::dyn_cast<DenseI32ArrayAttr>(padding)) {
+      if (arrAttr.size() == 1) {
+        paddingAttr = rewriter.getDenseI32ArrayAttr({arrAttr[0], arrAttr[0]});
+      } else if (arrAttr.size() == 2) {
+        paddingAttr = arrAttr;
+      } else {
+        return rewriter.notifyMatchFailure(
+            op, "conv1d padding must be a scalar, 1-element, or 2-element "
+                "array");
+      }
+    } else {
+      return rewriter.notifyMatchFailure(op,
+                                         "unexpected conv1d padding attribute");
+    }
+
+    auto groupsAttr = rewriter.getI32IntegerAttr(adaptor.getGroups());
+
+    // ttnn::conv1d forwards the bias unchanged to ttnn::conv2d, which expects a
+    // 4D (1, 1, 1, O) bias. The conv1d bias is (1, 1, O), so unsqueeze a height
+    // dimension before handing it off.
+    Value bias = adaptor.getBias();
+    if (bias) {
+      auto biasTy = mlir::cast<RankedTensorType>(bias.getType());
+      llvm::SmallVector<int64_t> biasShape(biasTy.getShape());
+      biasShape.insert(biasShape.begin() + 2, 1);
+      bias = mlir::tt::ttir_to_ttnn::utils::generateReshape(
+          mlir::cast<TypedValue<RankedTensorType>>(bias), biasShape, rewriter,
+          ttmlir::utils::appendLocationSuffix(op.getLoc(), "_bias_unsqueeze"));
+    }
+
+    // Keep conv1d config tensors in L1 (the Metal default). ttnn::conv1d wraps
+    // conv2d, and the in-DRAM depthwise conv2d path hangs in tt-metal (#45075),
+    // so we must not force DRAM here as the general conv2d path does.
+    auto conv2dConfigAttr = ttnn::Conv2dConfigAttr::get(rewriter.getContext())
+                                .withConfigTensorsInDram(false);
+
+    // ttnn::conv1d delegates to ttnn::conv2d and returns the output in conv2d's
+    // flattened layout (1, 1, N * L_out, O). Create the op with that flattened
+    // result type and reshape back to the original (N, L_out, O) shape.
+    auto resultTy = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getResult().getType()));
+    int64_t outLength = resultTy.getDimSize(lengthDim);
+    llvm::SmallVector<int64_t> flattenedShape = {
+        1, 1, inputShape[batchDim] * outLength,
+        resultTy.getDimSize(channelDim)};
+    RankedTensorType flattenedResultTy =
+        ttnn::utils::RankedTensorTypeFactory::create(resultTy, flattenedShape);
+
+    auto convOp = rewriter.create<ttnn::Conv1dOp>(
+        op.getLoc(), flattenedResultTy, adaptor.getInput(), adaptor.getWeight(),
+        bias, device, inChannelsAttr, outChannelsAttr, batchSizeAttr,
+        inputLengthAttr, kernelSizeAttr, *strideAttr, paddingAttr,
+        *dilationAttr, groupsAttr, conv2dConfigAttr, /*compute_config=*/nullptr,
+        /*conv2d_slice_config=*/nullptr);
+
+    Value output = mlir::tt::ttir_to_ttnn::utils::generateReshape(
+        mlir::cast<TypedValue<RankedTensorType>>(convOp.getResult()),
+        llvm::SmallVector<int64_t>(resultTy.getShape()), rewriter,
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_unflatten"));
+
+    rewriter.replaceOp(op, output);
+
+    return success();
+  }
+};
+
 class Conv2dOpConversionPattern : public OpConversionPattern<ttir::Conv2dOp> {
 public:
   using OpConversionPattern<ttir::Conv2dOp>::OpConversionPattern;
@@ -2060,18 +2185,36 @@ public:
     // for some shapes (C_out_block = 0 collapses to the full padded output
     // channels, breaking `matmul_N_t % out_subblock_w`; a 1x1 grid breaks
     // `C_in_blocks <= total_cores`). So mirror tt-metal's own defaults here —
-    // spatial out-blocks = 1, c_out_block = TILE_WIDTH, c_in_block =
-    // TILE_WIDTH, and the compute grid taken from the device's worker grid — so
+    // spatial out-blocks = 1, c_out_block = TILE_WIDTH, the minimal valid
+    // c_in_block, and the compute grid taken from the device's worker grid — so
     // the op's config is the single source of truth on every backend. This is
     // the one place that encodes tt-metal's default knowledge; the optimizer
     // may refine fields later (its overrides merge onto this config, preserving
     // the rest), and TTNNPrepareConv3dWeights only reads c_in_block back out.
+    //
+    // c_in_block: the minimal block that satisfies weight tile-alignment
+    // (kernel_vol * C_in_block divisible by TILE_WIDTH) and L1 alignment, then
+    // clamped to the padded input-channel count. This mirrors tt-metal's own
+    // minimal default (#42146): a full TILE_WIDTH block put the whole K
+    // reduction in one matmul block and overflowed L1 for large-kernel
+    // patch-embed convs. Since this op always carries an explicit config, the
+    // ttnn-side minimal default never triggers, so the minimum must be chosen
+    // here.
+    int64_t kernelVol = weightTy.getDimSize(2) * weightTy.getDimSize(3) *
+                        weightTy.getDimSize(4);
+    int64_t l1Alignment =
+        ttcore::getCurrentScopeSystemDesc(op).getNocL1AddressAlignBytes();
+    int64_t tileAlignFactor =
+        TILE_WIDTH / std::gcd(kernelVol, static_cast<int64_t>(TILE_WIDTH));
+    int64_t cInBlock = std::min<int64_t>(std::lcm(l1Alignment, tileAlignFactor),
+                                         inChannelsAttr.getInt());
+
     auto computeGrid = ttcore::GridAttr::get(
         getContext(), ttcore::lookupDevice(op).getWorkerGrid().getShape());
     auto defaultConv3dConfig = ttnn::Conv3dConfigAttr::get(
         getContext(), /*weights_dtype=*/std::nullopt, /*t_out_block=*/1,
         /*w_out_block=*/1, /*h_out_block=*/1, /*c_out_block=*/TILE_WIDTH,
-        /*c_in_block=*/TILE_WIDTH,
+        /*c_in_block=*/cInBlock,
         /*compute_with_storage_grid_size=*/computeGrid);
 
     // The raw 5D weight is passed through unchanged; TTNNPrepareConv3dWeights
@@ -3671,6 +3814,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            MoeExpertTokenRemapOpConversionPattern,
            MoeGptOpConversionPattern,
            MoeComputeOpConversionPattern,
+           Conv1dOpConversionPattern,
            Conv2dOpConversionPattern,
            Conv3dOpConversionPattern,
            ConvTranspose2dOpConversionPattern,

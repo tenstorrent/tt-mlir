@@ -50,7 +50,7 @@ def test_binary_tree(
             return builder.add(left, right)
 
     if shape == (2048, 2048) and dtype == torch.float32:
-        pytest.skip(
+        pytest.xfail(
             "Hitting L1 limits in Allocator, need to enable DRAM spilling for intermediate allocs."
         )
 

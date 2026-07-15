@@ -19,7 +19,9 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/TypeSwitch.h"
+#include <cmath>
 #include <cstdint>
+#include <optional>
 
 #include <type_traits>
 
@@ -3022,6 +3024,309 @@ public:
   }
 };
 
+// Reads a splat scalar value from a constant-like value, tracing back through
+// layout ops (typecast/reshape/broadcast/repeat_interleave). Handles
+// ttir.full, ttir.constant (splat) and ttir.zeros. Returns std::nullopt if the
+// value is not a recognizable scalar constant.
+static std::optional<double> getSplatConstantValue(mlir::Value value) {
+  value = utils::lookThroughLayoutOps(value);
+  mlir::Operation *op = value.getDefiningOp();
+  if (!op) {
+    return std::nullopt;
+  }
+  if (mlir::isa<ZerosOp>(op)) {
+    return 0.0;
+  }
+  if (auto fullOp = mlir::dyn_cast<FullOp>(op)) {
+    mlir::Attribute fill = fullOp.getFillValue();
+    if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(fill)) {
+      return floatAttr.getValue().convertToDouble();
+    }
+    if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(fill)) {
+      return static_cast<double>(intAttr.getValue().getSExtValue());
+    }
+    return std::nullopt;
+  }
+  if (auto constOp = mlir::dyn_cast<ConstantOp>(op)) {
+    auto elements = mlir::dyn_cast<mlir::ElementsAttr>(constOp.getValue());
+    if (!elements || !elements.isSplat()) {
+      return std::nullopt;
+    }
+    mlir::Type elemType = elements.getElementType();
+    if (mlir::isa<mlir::FloatType>(elemType)) {
+      return elements.getSplatValue<mlir::APFloat>().convertToDouble();
+    }
+    if (mlir::isa<mlir::IntegerType>(elemType)) {
+      return static_cast<double>(
+          elements.getSplatValue<llvm::APInt>().getSExtValue());
+    }
+  }
+  return std::nullopt;
+}
+
+// Returns true if `value` is a splat scalar constant approximately equal to
+// `expected` within the given relative tolerance.
+static bool isApproxScalarConstant(mlir::Value value, double expected,
+                                   double relTol) {
+  std::optional<double> actual = getSplatConstantValue(value);
+  if (!actual) {
+    return false;
+  }
+  double denom = std::max(std::abs(expected), 1.0);
+  return std::abs(*actual - expected) / denom <= relTol;
+}
+
+// Fuses the `torch.nn.functional.normalize`-style RMS norm decomposition into a
+// ttir.rms_norm op. Frontends that export an RMS norm as an L2 normalize scaled
+// by sqrt(D) produce:
+//
+//   s = sum(|x|^2, dim=d)              // sum of squares over dim d (size D)
+//   n = clamp_min(sqrt(s), eps)        // F.normalize denominator guard
+//   y = (x / n) * sqrt(D) * gamma      // rescale + per-channel weight
+//
+// Multiplying the unit-norm (L2) result by sqrt(D) turns it into a mean-square
+// (RMS) normalized tensor, since
+//   x / sqrt(sum(x^2)) * sqrt(D) == x / sqrt(mean(x^2)).
+// The sqrt(D) factor is therefore required: it is what distinguishes an RMS
+// norm from a plain L2 normalization (which is not an rms_norm).
+//
+// ttir.rms_norm (and the TTNN kernel behind it) only normalizes over the
+// trailing dimension. When the reduced dim `d` is not the last one, the input
+// is permuted so `d` becomes last, normalized, then permuted back.
+//
+// If the sqrt(D) scale is followed by a per-channel `gamma` multiply, gamma is
+// folded into the rms_norm weight. When there is no such multiply, only the
+// normalization core (up to and including the sqrt(D) scale) is fused.
+class NormalizeRMSNormFusionPattern
+    : public mlir::OpRewritePattern<MultiplyOp> {
+  using mlir::OpRewritePattern<MultiplyOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(MultiplyOp scaleMul,
+                  mlir::PatternRewriter &rewriter) const final {
+    if (utils::isInsideCompositeDecomposition(scaleMul)) {
+      return mlir::failure();
+    }
+
+    // The anchor multiply is `normalize_core * sqrt(D)`. Identify which operand
+    // is the DivOp (looking through typecasts) and which is the scalar scale.
+    DivOp divOp =
+        ttmlir::utils::findOpThrough<DivOp, TypecastOp>(scaleMul.getLhs());
+    mlir::Value scaleRaw = scaleMul.getRhs();
+    if (!divOp) {
+      divOp =
+          ttmlir::utils::findOpThrough<DivOp, TypecastOp>(scaleMul.getRhs());
+      scaleRaw = scaleMul.getLhs();
+    }
+    if (!divOp) {
+      return mlir::failure();
+    }
+
+    // Numerator of the division is the tensor being normalized.
+    mlir::Value x = utils::lookThroughLayoutOps(divOp.getLhs());
+
+    // Denominator: optional clamp_min(sqrt(sum(x^2)), eps).
+    double epsGuard = 0.0;
+    mlir::Value sqrtSource = divOp.getRhs();
+    if (auto clampOp =
+            utils::findOpThroughLayoutOps<ClampTensorOp>(divOp.getRhs())) {
+      std::optional<double> minVal = getSplatConstantValue(clampOp.getMin());
+      if (!minVal) {
+        return mlir::failure();
+      }
+      // Only fold the clamp when it acts as a small numerical-stability eps
+      // guard (as in F.normalize). A larger floor would be a meaningful clamp
+      // whose behavior is not captured by an rms_norm epsilon.
+      constexpr double kMaxNormEpsGuard = 1e-3;
+      if (*minVal < 0.0 || *minVal > kMaxNormEpsGuard) {
+        return mlir::failure();
+      }
+      epsGuard = *minVal;
+      sqrtSource = clampOp.getInput();
+    }
+
+    // sqrt expressed as either ttir.sqrt or pow(_, 0.5).
+    mlir::Value sumSource;
+    if (auto sqrtOp = utils::findOpThroughLayoutOps<SqrtOp>(sqrtSource)) {
+      sumSource = sqrtOp.getInput();
+    } else if (auto powOp = utils::findOpThroughLayoutOps<PowOp>(sqrtSource)) {
+      if (!isApproxScalarConstant(powOp.getRhs(), 0.5, 1e-3)) {
+        return mlir::failure();
+      }
+      sumSource = powOp.getLhs();
+    } else {
+      return mlir::failure();
+    }
+
+    // Reduction: sum over a single dimension.
+    auto sumOp = utils::findOpThroughLayoutOps<SumOp>(sumSource);
+    if (!sumOp) {
+      return mlir::failure();
+    }
+    std::optional<mlir::ArrayAttr> dimArg = sumOp.getDimArg();
+    if (!dimArg || dimArg->size() != 1) {
+      return mlir::failure();
+    }
+    int64_t rank =
+        mlir::cast<mlir::RankedTensorType>(sumOp.getInput().getType())
+            .getRank();
+    int64_t reduceDim = mlir::cast<mlir::IntegerAttr>((*dimArg)[0]).getInt();
+    if (reduceDim < 0) {
+      reduceDim += rank;
+    }
+
+    // The summand must be x^2, expressed as pow(_, 2) or mul(v, v), optionally
+    // wrapped in abs (|x|^2 == x^2).
+    mlir::Value squareBase;
+    if (auto powOp = utils::findOpThroughLayoutOps<PowOp>(sumOp.getInput())) {
+      if (!isApproxScalarConstant(powOp.getRhs(), 2.0, 1e-3)) {
+        return mlir::failure();
+      }
+      squareBase = powOp.getLhs();
+    } else if (auto mulOp = utils::findOpThroughLayoutOps<MultiplyOp>(
+                   sumOp.getInput())) {
+      if (mulOp.getLhs() != mulOp.getRhs()) {
+        return mlir::failure();
+      }
+      squareBase = mulOp.getLhs();
+    } else {
+      return mlir::failure();
+    }
+
+    mlir::Value squareSrc = utils::lookThroughLayoutOps(squareBase);
+    if (auto absOp = squareSrc.getDefiningOp<AbsOp>()) {
+      squareSrc = utils::lookThroughLayoutOps(absOp.getInput());
+    }
+    // The squared tensor must be the same value that is being normalized.
+    if (squareSrc != x) {
+      return mlir::failure();
+    }
+
+    // The scale factor must be sqrt(D), where D is the size of the reduced dim.
+    auto xType = mlir::cast<mlir::RankedTensorType>(x.getType());
+    if (reduceDim < 0 || reduceDim >= xType.getRank()) {
+      return mlir::failure();
+    }
+    int64_t reduceDimSize = xType.getShape()[reduceDim];
+    if (reduceDimSize <= 1) {
+      return mlir::failure();
+    }
+    if (!isApproxScalarConstant(scaleRaw,
+                                std::sqrt(static_cast<double>(reduceDimSize)),
+                                /*relTol=*/0.02)) {
+      return mlir::failure();
+    }
+
+    // rms_norm's internal mean divides by reduceDimSize, which is exactly what
+    // the sqrt(D) scale accounts for. The clamp guard on the norm (denominator
+    // floored at `epsGuard`) maps to an additive epsilon under the mean of
+    // epsGuard^2 / D.
+    float epsilon = static_cast<float>((epsGuard * epsGuard) /
+                                       static_cast<double>(reduceDimSize));
+    llvm::SmallVector<int64_t> normalizedShape{reduceDimSize};
+
+    // If the scale multiply feeds a per-channel gamma multiply, fold gamma into
+    // the rms_norm weight. gamma qualifies when it is a per-channel vector,
+    // i.e. it holds exactly `reduceDimSize` elements (broadcast across the
+    // other dims). The scale multiply must have a single use so that folding
+    // the gamma multiply leaves it dead. Otherwise the (absent) weight stays
+    // null and only the normalization core is fused.
+    MultiplyOp gammaMul;
+    mlir::Value gammaSrc;
+    if (scaleMul->hasOneUse()) {
+      if (auto userMul =
+              mlir::dyn_cast<MultiplyOp>(*scaleMul->getUsers().begin())) {
+        mlir::Value other = userMul.getLhs() == scaleMul.getResult()
+                                ? userMul.getRhs()
+                                : userMul.getLhs();
+        mlir::Value src = utils::lookThroughLayoutOps(other);
+        if (auto srcType =
+                mlir::dyn_cast<mlir::RankedTensorType>(src.getType())) {
+          int64_t total = 1;
+          for (int64_t d : srcType.getShape()) {
+            total *= d;
+          }
+          if (src != scaleMul.getResult() && total == reduceDimSize) {
+            gammaMul = userMul;
+            gammaSrc = src;
+          }
+        }
+      }
+    }
+
+    mlir::Operation *replaceTarget =
+        gammaMul ? gammaMul.getOperation() : scaleMul.getOperation();
+    auto targetType = mlir::cast<mlir::RankedTensorType>(
+        replaceTarget->getResult(0).getType());
+
+    rewriter.setInsertionPoint(replaceTarget);
+    mlir::Location loc = scaleMul.getLoc();
+
+    // Build the optional rms_norm weight from gamma: reshape to the 1-D
+    // normalized_shape and match the input's element type.
+    mlir::Value weight;
+    if (gammaMul) {
+      weight = gammaSrc;
+      auto gammaType = mlir::cast<mlir::RankedTensorType>(weight.getType());
+      if (gammaType.getShape() != llvm::ArrayRef(normalizedShape)) {
+        weight = utils::createReshapeOp(rewriter, loc, weight, normalizedShape)
+                     .getResult();
+      }
+      auto weightType = mlir::cast<mlir::RankedTensorType>(weight.getType());
+      if (weightType.getElementType() != xType.getElementType()) {
+        auto castType = mlir::RankedTensorType::get(
+            normalizedShape, xType.getElementType(), weightType.getEncoding());
+        weight = rewriter.create<TypecastOp>(loc, castType, weight);
+      }
+    }
+
+    mlir::Value rmsResult;
+    if (reduceDim == xType.getRank() - 1) {
+      rmsResult =
+          rewriter
+              .create<RMSNormOp>(loc, xType, x, weight,
+                                 /*bias=*/mlir::Value(),
+                                 rewriter.getDenseI64ArrayAttr(normalizedShape),
+                                 rewriter.getF32FloatAttr(epsilon))
+              .getResult();
+    } else {
+      // Move the reduced dim to the last position, normalize, then restore.
+      // The weight is 1-D over the reduced (now last) dim, so it needs no
+      // permutation.
+      llvm::SmallVector<int64_t> perm;
+      for (int64_t i = 0; i < xType.getRank(); ++i) {
+        if (i != reduceDim) {
+          perm.push_back(i);
+        }
+      }
+      perm.push_back(reduceDim);
+      llvm::SmallVector<int64_t> invPerm =
+          ttmlir::utils::inversePermutation(perm);
+      llvm::SmallVector<int64_t> permShape = ttmlir::utils::applyPermutation(
+          xType.getShape(), llvm::ArrayRef(perm));
+      auto permType = mlir::RankedTensorType::get(
+          permShape, xType.getElementType(), xType.getEncoding());
+      mlir::Value permX = rewriter.create<PermuteOp>(
+          loc, permType, x, rewriter.getDenseI64ArrayAttr(perm));
+      mlir::Value rms =
+          rewriter
+              .create<RMSNormOp>(loc, permType, permX, weight,
+                                 /*bias=*/mlir::Value(),
+                                 rewriter.getDenseI64ArrayAttr(normalizedShape),
+                                 rewriter.getF32FloatAttr(epsilon))
+              .getResult();
+      rmsResult = rewriter.create<PermuteOp>(
+          loc, xType, rms, rewriter.getDenseI64ArrayAttr(invPerm));
+    }
+
+    mlir::Value result =
+        utils::reshapeAndCastToType(rewriter, loc, rmsResult, targetType);
+    rewriter.replaceOp(replaceTarget, result);
+    return mlir::success();
+  }
+};
+
 // If value is defined by PermuteOp with permute dimensions
 // (..., rank - 2, rank - 1), return the input of the PermuteOp, otherwise
 // return std::nullopt. This is used for fusing permute into MatmulOp and
@@ -3362,6 +3667,7 @@ public:
         patterns.add<PermuteSliceAfterMatmulPattern>(&getContext());
       }
       patterns.add<RMSNormFusionPattern>(&getContext());
+      patterns.add<NormalizeRMSNormFusionPattern>(&getContext());
 
       patterns.add<GeluFusionPattern>(&getContext());
       patterns.add<Relu6FusionPattern>(&getContext());

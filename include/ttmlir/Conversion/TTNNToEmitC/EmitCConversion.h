@@ -2337,6 +2337,53 @@ public:
       return conv2dExpr;
     }
 
+    // Special handling for Conv1dOp. Like Conv2dOp, `ttnn::conv1d` returns a
+    // variant (`Conv1dResult`) rather than a bare `ttnn::Tensor`, so we unwrap
+    // the first alternative via `std::get<0>`. Using an ExpressionOp built from
+    // `adaptor.getOperands()` (original operand order) is also required here:
+    // Conv1dOp has an optional `bias` operand that precedes `device` in the
+    // op's operand list, but the conversion pattern emits `device` before
+    // `bias`. The generic path below would mismatch the operand indices
+    // (swapping `device` and `bias`), so we must reference the block arguments,
+    // which follow the original operand order.
+    if constexpr (std::is_same_v<TTNNOp, tt::ttnn::Conv1dOp>) {
+      using OutputLength = std::uint32_t;
+      using ReturnTy = std::variant<
+          ::ttnn::Tensor, std::tuple<::ttnn::Tensor, OutputLength>,
+          std::tuple<::ttnn::Tensor,
+                     std::tuple<::ttnn::Tensor, std::optional<::ttnn::Tensor>>>,
+          std::tuple<
+              ::ttnn::Tensor, OutputLength,
+              std::tuple<::ttnn::Tensor, std::optional<::ttnn::Tensor>>>>;
+
+      emitc::ExpressionOp conv1dExpr = rewriter.create<emitc::ExpressionOp>(
+          op.getLoc(),
+          rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>),
+          adaptor.getOperands());
+
+      mlir::Block &bodyBlock = conv1dExpr.createBody();
+      rewriter.setInsertionPointToStart(&bodyBlock);
+
+      auto conv1dOp = rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
+          opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
+          /*template_args=*/nullptr, bodyBlock.getArguments());
+      auto getTensorOp = rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(),
+          rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>),
+          "::std::get", /*args=*/nullptr,
+          /*template_args=*/
+          rewriter.getArrayAttr({rewriter.getI32IntegerAttr(0)}),
+          conv1dOp.getResult(0));
+      rewriter.create<emitc::YieldOp>(op.getLoc(), getTensorOp.getResult(0));
+
+      rewriter.replaceOp(op, conv1dExpr);
+
+      rewriter.setInsertionPointAfter(conv1dExpr);
+
+      return conv1dExpr;
+    }
+
     // MaxPool2dOp return a std::vector<ttnn::Tensor> containing a single
     // element. We can guarantee this because MaxPool2dOp always has
     // `return_indices=false` - otherwise it would be MaxPool2dWithIndicesOp.

@@ -3756,6 +3756,86 @@ def TTIR_BroadcastOp : TTIR_NamedOp<"broadcast"> {
     let hasFolder = 1;
 }
 
+def TTIR_Conv1dOp : TTIR_NamedOp<"conv1d"> {
+    let summary = "Conv1d operation.";
+    let description = [{
+      Applies a 1D convolution over an input signal composed of several input planes.
+
+      This operation performs a 1D convolution on the input tensor using the provided weight tensor
+      and optional bias. It supports configurable stride, padding, dilation, and grouping parameters
+      to control the convolution behavior.
+
+      Example:
+      ```mlir
+      // Basic 1D convolution
+      %input = ... : tensor<1x32x32xf32>    // Batch size 1, length 32, 32 channels
+      %weight = ... : tensor<32x32x3xf32>   // 32 output channels, 32 input channels, kernel 3
+      %bias = ... : tensor<1x1x32xf32>      // Bias for 32 output channels
+      %result = ttir.conv1d(%input, %weight, %bias) {
+          stride = 1,
+          padding = 1,
+          dilation = 1,
+          groups = 1
+      } : (tensor<1x32x32xf32>, tensor<32x32x3xf32>, tensor<1x1x32xf32>) -> tensor<1x32x32xf32>
+      ```
+
+      Inputs:
+      - `input` (AnyRankedTensor): 3D tensor where dimension indices are controlled by `batch_dim`,
+        `length_dim`, and `channel_dim` attributes. Default layout is NLC (N, L_in, C) where:
+        - N is the batch size
+        - L_in is the length of the input signal
+        - C is the number of channels
+      - `weight` (AnyRankedTensor): expected in the following format (O, C/G, K) where:
+        - C is the number of input channels
+        - O is the number of output channels
+        - G is the number of groups
+        - K is the length of the kernel
+      - `bias` Optional<AnyRankedTensor>: bias tensor with output channels at position specified by `channel_dim`.
+        Default format is (1, 1, O).
+
+      Attributes:
+      - `stride` (i32 | array<1xi32>): The stride of the kernel window.
+      - `padding` (i32 | array<1xi32> | array<2xi32>):
+        - i32: Same padding for both sides (pL = pR = value).
+        - array<1xi32>: [p] symmetric padding (pL = pR = p).
+        - array<2xi32>: [pL, pR] for left and right padding respectively.
+      - `dilation` (i32 | array<1xi32>): Spacing between kernel elements.
+      - `groups` (i32): Number of blocked connections from input channels to output channels. Input and output channels must both be divisible by groups.
+      - `batch_dim` (i64): Index of the batch dimension in input/output tensors. Default: 0.
+      - `length_dim` (i64): Index of the length dimension in input/output tensors. Default: 1.
+      - `channel_dim` (i64): Index of the channel dimension in input/output tensors. Default: 2.
+
+      Output:
+      - `result` AnyRankedTensor: 3D tensor with same layout as input (controlled by dimension attributes).
+        Default format is (N, L_out, O) where:
+        - `L_out = (L_in + pL + pR - dilation * (K - 1) - 1) / stride + 1`
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$stride,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$padding,
+                         AnyAttrOf<[I32Attr, DenseI32ArrayAttr]>:$dilation,
+                         I32Attr:$groups,
+                         DefaultValuedAttr<I64Attr, "0">:$batch_dim,
+                         DefaultValuedAttr<I64Attr, "1">:$length_dim,
+                         DefaultValuedAttr<I64Attr, "2">:$channel_dim);
+
+    let extraClassDeclaration = [{
+      // Get number of output channels
+      int64_t getOutputChannelSize();
+      bool isNLC() {
+        return getBatchDim() == 0 && getLengthDim() == 1 &&
+               getChannelDim() == 2;
+      }
+    }];
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTIR_Conv2dOp : TTIR_NamedOp<"conv2d", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["isQuantizedRewriteFavorable", "rewriteWithQuantizedInputs"]>]> {
     let summary = "Conv2d operation.";
     let description = [{
@@ -3972,6 +4052,7 @@ def TTIR_Conv3dOp : TTIR_NamedOp<"conv3d"> {
     let results = (outs AnyRankedTensor:$result);
 
     let hasVerifier = 1;
+    let hasCanonicalizer = 1;
 }
 
 def TTIR_ConvTranspose2dOp : TTIR_NamedOp<"conv_transpose2d", [DeclareOpInterfaceMethods<TTIR_QuantizableOpInterface, ["isQuantizedRewriteFavorable", "rewriteWithQuantizedInputs"]>]> {
@@ -6705,7 +6786,6 @@ def TTIR_MoeComputeOp : TTIR_NamedOp<"moe_compute", [TTIR_CCL, AttrSizedOperandS
                          UI32Attr:$intermediate_size,
                          DefaultValuedAttr<TTCore_MoEActivationFunctionAttr,
                              "::mlir::tt::ttcore::MoEActivationFunction::Silu">:$activation_function,
-                         OptionalAttr<UI32Attr>:$bh_ring_size,
                          DefaultValuedAttr<BoolAttr, "true">:$compute_only,
 
                          // Full-path-only inputs, unused when compute_only == true.

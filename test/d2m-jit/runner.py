@@ -18,7 +18,7 @@ Two declaration kinds:
   IR through the real ``FileCheck`` binary. Replaces the hand-written
   ``test/d2m-jit/lit/*_pattern.py`` files. No device needed.
 
-* ``KERNEL_BENCHES = [KernelBench(...)]`` — on-device numerics, **in-process**.
+* ``KERNEL_BENCHES = { "name": KernelBench(...) }`` — on-device numerics, **in-process**.
   Each bench drives the ``@d2m.kernel`` entrypoint directly with an explicit
   ``(layout, block_shape, grid_shape)`` config and PCC-compares against a
   torch golden. Replaces ``test/d2m-jit/test_pattern_eltwise.py``.
@@ -46,8 +46,7 @@ Two declaration kinds:
 
 Not implemented yet:
 
-* **Autotuning** — ``KernelBench.space`` declares axes (block_shape /
-  grid_shape / dtype) an autotuner would sweep, taking perf traces per config.
+* **Autotuning** — perf traces per config to rank execution parameters.
 """
 
 from __future__ import annotations
@@ -72,7 +71,7 @@ from ttmlir import ir
 
 @dataclass
 class InputSpec:
-    """How to materialise torch input tensors for a test.
+    """How to materialise torch input tensors for a PatternTest.
 
     ``dist`` is either a named distribution string (``"uniform(-1,1)"``,
     ``"randn"``, ``"rand"``) or a callable ``(shape, torch_dtype, generator)
@@ -81,6 +80,26 @@ class InputSpec:
 
     dist: "str | Callable" = "uniform(-1,1)"
     seed: int = 0
+
+
+@dataclass
+class TensorSpec:
+    """Shape and layout for one input tensor in a KernelBench.
+
+    Fully describes a single kernel input: the logical shape, the tile-level
+    block count per ``remote_load``, the element dtype, and the random
+    distribution used to generate test data. All four are tensor-level
+    properties — they can differ between inputs in the same kernel (e.g.
+    lhs/rhs in a mixed-precision matmul).
+
+    ``grid_shape`` is the only graph-level execution parameter and lives on
+    ``KernelBench`` directly.
+    """
+
+    shape: tuple
+    block_shape: list
+    dtype: torch.dtype
+    dist: "str | Callable" = "uniform(-1,1)"
 
 
 @dataclass
@@ -109,48 +128,35 @@ class PatternTest:
 
 
 @dataclass
-class TuneAxis:
-    """One autotuning axis: a named config key and its candidate values."""
-
-    name: str
-    values: list
-
-
-@dataclass
 class KernelBench:
-    """Direct-kernel device bench (numerics today, autotuning later).
+    """Direct-kernel device bench: numerics and testing.
 
-    ``run(kernel, inputs, cfg) -> host tensor`` is the only pattern-specific
-    glue: it maps a concrete ``cfg`` (block_shape / grid_shape / dtype) to a
-    Layout and the kernel's call args. ``eltwise_block_run`` covers the
-    common elementwise-block shape, so most patterns just set ``space``.
+    ``tensors`` declares one ``TensorSpec`` per kernel INPUT, fully describing
+    each tensor: shape, block_shape, dtype, and input distribution.
+    ``grid_shape`` is the only graph-level parameter — the execution grid
+    shared by all tensors in the kernel call.
+
+    The materializer ``run(kernel, inputs, tensors, grid_shape) -> host_tensor``
+    receives the generated torch inputs alongside the full ``TensorSpec`` list,
+    so it can build per-tensor ``d2m.Layout`` objects directly.
+
+    ``name`` is set by ``discover()`` from the key in ``KERNEL_BENCHES``; it
+    is empty when the bench is used directly without discovery.
     """
 
-    name: str
     kernel: Callable
     golden: Callable
-    input_shapes: Sequence[tuple]
     run: Callable
-    inputs: InputSpec = field(default_factory=InputSpec)
-    default_cfg: dict = field(
-        default_factory=lambda: dict(
-            block_shape=[1, 1], grid_shape=[1, 1], dtype="float32"
-        )
-    )
-    space: list = field(default_factory=list)
+    tensors: "list[TensorSpec]"
+    grid_shape: "tuple | list"
+    seed: int = 0
     pcc: float = 0.99
-    source_file: str = ""
+    name: str = ""  # stamped by discover() from the KERNEL_BENCHES dict key
 
 
 # ----------------------------------------------------------------------
 # dtype helpers
 # ----------------------------------------------------------------------
-
-_TORCH_DTYPES = {
-    "float32": torch.float32,
-    "float16": torch.float16,
-    "bfloat16": torch.bfloat16,
-}
 
 _MLIR_ELTY_TO_TORCH = {
     "f32": torch.float32,
@@ -159,18 +165,14 @@ _MLIR_ELTY_TO_TORCH = {
 }
 
 
-def torch_dtype(name: str) -> torch.dtype:
-    return _TORCH_DTYPES[name]
-
-
-def d2m_dtype(name: str):
+def d2m_dtype(dtype: torch.dtype):
     import d2m_jit as d2m
 
     return {
-        "float32": d2m.float32,
-        "float16": d2m.float16,
-        "bfloat16": d2m.bfloat16,
-    }[name]
+        torch.float32: d2m.float32,
+        torch.float16: d2m.float16,
+        torch.bfloat16: d2m.bfloat16,
+    }[dtype]
 
 
 # ----------------------------------------------------------------------
@@ -194,11 +196,11 @@ def _gen_tensor(shape, td, dist, gen):
     raise ValueError(f"unknown input distribution: {dist!r}")
 
 
-def make_inputs(shapes, td, inspec: InputSpec):
-    """Deterministically generate one torch tensor per shape."""
+def make_inputs(tensors: "list[TensorSpec]", seed: int = 0):
+    """Deterministically generate one torch tensor per TensorSpec."""
     gen = torch.Generator()
-    gen.manual_seed(inspec.seed)
-    return [_gen_tensor(tuple(s), td, inspec.dist, gen) for s in shapes]
+    gen.manual_seed(seed)
+    return [_gen_tensor(tuple(ts.shape), ts.dtype, ts.dist, gen) for ts in tensors]
 
 
 def parse_func_io(ttir_text: str):
@@ -222,9 +224,15 @@ def parse_func_io(ttir_text: str):
 # ----------------------------------------------------------------------
 
 
-def assert_pcc(golden, actual, threshold: float = 0.99):
+def compute_pcc(golden, actual) -> float:
+    """Compute Pearson correlation coefficient between two tensors."""
     combined = torch.stack([golden.flatten().float(), actual.flatten().float()])
     pcc = torch.corrcoef(combined)[0, 1].item()
+    return pcc
+
+
+def assert_pcc(golden, actual, threshold: float = 0.99):
+    pcc = compute_pcc(golden, actual)
     assert (
         pcc >= threshold
     ), f"Expected pcc {pcc} >= {threshold}\ngolden:\n{golden}\nactual:\n{actual}"
@@ -289,39 +297,76 @@ def filecheck(check_text: str, ir_text: str):
 # ----------------------------------------------------------------------
 
 
-def eltwise_block_run(kernel, inputs, cfg):
-    """Stock ``run`` for elementwise-block kernels.
+def eltwise_block_run(kernel, inputs, tensors, grid_shape):
+    """Stock materializer for elementwise-block kernels.
 
-    Builds one tiled Layout from ``cfg`` shared by all inputs and the output,
-    derives ``m_blocks``/``n_blocks`` from the shape and grid, and calls
-    ``kernel(*inputs, out, m_blocks, n_blocks, grid=...)``.
+    All input tensors must share the same shape, block_shape, and dtype
+    (asserted at runtime). The shape must be tile-aligned (multiple of 32 in
+    each spatial dimension), the tile counts must divide evenly by their
+    respective block_shape components, and the resulting block counts must
+    divide evenly by the grid dimensions. Violations raise ``AssertionError``
+    immediately rather than silently under-computing work.
     """
     import d2m_jit as d2m
 
-    ref = inputs[0]
-    gy, gx = cfg["grid_shape"]
+    ts = tensors[0]
+    for i, other in enumerate(tensors[1:], 1):
+        assert (
+            other.shape == ts.shape
+        ), f"tensor[{i}].shape {other.shape} != tensor[0].shape {ts.shape}"
+        assert list(other.block_shape) == list(
+            ts.block_shape
+        ), f"tensor[{i}].block_shape {other.block_shape} != tensor[0].block_shape {ts.block_shape}"
+        assert (
+            other.dtype == ts.dtype
+        ), f"tensor[{i}].dtype {other.dtype} != tensor[0].dtype {ts.dtype}"
+
+    H, W = ts.shape[-2], ts.shape[-1]
+    bm, bn = ts.block_shape[0], ts.block_shape[1]
+    gy, gx = grid_shape
+
+    assert H % 32 == 0, f"shape[-2]={H} is not tile-aligned (must be a multiple of 32)"
+    assert W % 32 == 0, f"shape[-1]={W} is not tile-aligned (must be a multiple of 32)"
+    tiles_m, tiles_n = H // 32, W // 32
+    assert (
+        tiles_m % bm == 0
+    ), f"M tiles ({tiles_m}) not evenly divisible by block_shape[0]={bm}"
+    assert (
+        tiles_n % bn == 0
+    ), f"N tiles ({tiles_n}) not evenly divisible by block_shape[1]={bn}"
+    blocks_m, blocks_n = tiles_m // bm, tiles_n // bn
+    assert (
+        blocks_m % gy == 0
+    ), f"M blocks ({blocks_m}) not evenly divisible by grid_shape[0]={gy}"
+    assert (
+        blocks_n % gx == 0
+    ), f"N blocks ({blocks_n}) not evenly divisible by grid_shape[1]={gx}"
+
     L = d2m.Layout(
-        shape=tuple(ref.shape),
-        dtype=d2m_dtype(cfg["dtype"]),
-        block_shape=list(cfg["block_shape"]),
+        shape=tuple(ts.shape),
+        dtype=d2m_dtype(ts.dtype),
+        block_shape=[bm, bn],
         grid_shape=[gy, gx],
         tiled=True,
     )
     ins = [d2m.to_layout(t, L) for t in inputs]
     out = d2m.empty(L)
-    m_blocks = (ref.shape[-2] // 32) // gy
-    n_blocks = (ref.shape[-1] // 32) // gx
+    m_blocks = blocks_m // gy
+    n_blocks = blocks_n // gx
     kernel(*ins, out, m_blocks, n_blocks, grid=(gy, gx))
     return out.to_host()
 
 
-def run_bench(bench: KernelBench, cfg: Optional[dict] = None):
-    """Execute one bench at ``cfg`` (default: ``bench.default_cfg``) and
-    return ``(actual, expected)`` torch tensors for PCC comparison."""
-    cfg = cfg or bench.default_cfg
-    td = torch_dtype(cfg["dtype"])
-    inputs = make_inputs(bench.input_shapes, td, bench.inputs)
-    actual = bench.run(bench.kernel, inputs, cfg)
+def run_bench(bench: KernelBench, *, tensors=None, grid_shape=None):
+    """Execute one bench and return ``(actual, expected)`` torch tensors.
+
+    Each keyword argument overrides the corresponding field of ``bench``;
+    omitted arguments fall back to the bench's defaults.
+    """
+    tensors = tensors if tensors is not None else bench.tensors
+    grid_shape = grid_shape if grid_shape is not None else bench.grid_shape
+    inputs = make_inputs(tensors, bench.seed)
+    actual = bench.run(bench.kernel, inputs, tensors, grid_shape)
     expected = bench.golden(*inputs)
     return actual, expected
 
@@ -640,9 +685,9 @@ def discover(force: bool = False):
         for t in getattr(mod, "PATTERN_TESTS", []):
             t.source_file = mod.__file__
             pattern_tests.append(t)
-        for b in getattr(mod, "KERNEL_BENCHES", []):
-            b.source_file = mod.__file__
-            kernel_benches.append(b)
+        for key, bench in getattr(mod, "KERNEL_BENCHES", {}).items():
+            bench.name = key
+            kernel_benches.append(bench)
 
     _DISCOVERED = (pattern_tests, kernel_benches)
     return _DISCOVERED

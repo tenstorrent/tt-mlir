@@ -5,7 +5,7 @@
 """Generic, data-driven runner for bundled d2m-jit pattern tests.
 
 This file is intentionally tiny and pattern-agnostic: it just executes the
-specs each pattern file declares (see d2m_jit.testing). It replaces the
+specs each pattern file declares (see runner). It replaces the
 hand-written, per-pattern test_pattern_eltwise.py + lit/*_pattern.py files.
 
   test_pattern_rewrite : TTIR -> apply this file's pattern(s) -> FileCheck.
