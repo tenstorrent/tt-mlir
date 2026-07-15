@@ -65,6 +65,32 @@ def RegisterCustomShardingRulePass : Pass<"register-custom-sharding-rule", "::ml
     "::mlir::sdy::SdyDialect"
   ];
 }
+
+def RegisterUserShardingRulePass : Pass<"register-user-sharding-rule", "::mlir::ModuleOp">
+{
+  let summary = "Promote user-provided xla.sdy.custom_sharding_rule frontend attributes to sdy.sharding_rule op attributes.";
+
+  let description = [{
+    Promotes a user-specified custom sharding rule, carried on a
+    stablehlo.custom_call as the "xla.sdy.custom_sharding_rule" frontend
+    attribute, into a real #sdy.op_sharding_rule set under the standard
+    sdy.sharding_rule op attribute. Promoting it to a first-class,
+    Shardy-recognized attribute lets Shardy propagate it directly and run
+    its always-on verifier on it.
+
+    If "xla.sdy.custom_sharding_rule" is absent or an empty string, the op
+    has no custom rule and falls back to Shardy's default replication. If it
+    is present and non-empty but does not parse into an #sdy.op_sharding_rule,
+    the pass fails with an error.
+
+    This pass is intended to run before any Shardy sharding propagation passes.
+  }];
+
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
 def ApplyArgumentShardStatusPass : Pass<"apply-argument-shard-status", "::mlir::ModuleOp">
 {
   let summary = "Annotate arguments with their shard status.";
