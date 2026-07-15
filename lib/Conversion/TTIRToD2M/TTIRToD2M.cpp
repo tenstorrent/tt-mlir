@@ -4316,7 +4316,7 @@ public:
           metalLayout.getDimAlignments(), metalLayout.getCollapsedIntervals(),
           metalLayout.getMemorySpace(), metalLayout.getMemoryLayout());
 
-      // Emits the collector generic for one topk result (values or indices),
+      // Emits the collector generic for one topk result (values or index),
       // returning gridCols grid-1x1 partials (partial g == source core g's
       // tile 0).
       auto gatherPerCore = [&](Value gridResult) -> SmallVector<Value> {
@@ -4590,107 +4590,145 @@ public:
       SmallVector<std::pair<Value, Value>> partials = emitShardTopk(
           adaptor.getInputTensor(), /*arangeStart=*/0, /*gridCols=*/numShards);
 
-      // Build a numShards-tile buffer type along the reduction dim from a
-      // 1-tile partial's layout.
-      auto partialType = cast<RankedTensorType>(partials[0].first.getType());
-      auto tileType = cast<ttcore::TileType>(partialType.getElementType());
-      auto partialLayout =
-          cast<ttcore::MetalLayoutAttr>(partialType.getEncoding());
-      SmallVector<int64_t> wideShape(partialType.getShape().begin(),
-                                     partialType.getShape().end());
-      wideShape[deviceRedDim] = numShards;
-      auto wideLayout = layoutForDeviceShape(partialLayout, wideShape);
-      auto wideType = RankedTensorType::get(wideShape, tileType, wideLayout);
+      // Merge a group of 1-tile partials into a single top-k 1-tile
+      // (values, indices) pair on one core: CompositeView the group along the
+      // reduction dim, materialize, run ONE topk_block, and compact to tile 0.
+      // A single topk_block can only reduce tiles co-located on its core, so a
+      // group is capped at kMaxShardTiles (L1-safe). For numShards > 32 the
+      // driver below splits into two groups so no core ever holds > 32 tiles.
+      auto mergePartials = [&](ArrayRef<std::pair<Value, Value>> group)
+          -> std::pair<Value, Value> {
+        int64_t groupTiles = static_cast<int64_t>(group.size());
 
-      // Separate CompositeViews for values and indices (the DMA-expansion pass
-      // supports only one composite view per GenericOp, #7600), each
-      // materialized before the merge.
-      SmallVector<Value> valComposites, idxComposites;
-      for (auto &p : partials) {
-        valComposites.push_back(p.first);
-        idxComposites.push_back(p.second);
-      }
-      auto valsComposite = rewriter.create<d2m::CompositeViewOp>(
-          loc, wideType, valComposites, static_cast<int32_t>(dim),
-          /*logicalSizes=*/nullptr);
-      auto idxComposite = rewriter.create<d2m::CompositeViewOp>(
-          loc, wideType, idxComposites, static_cast<int32_t>(dim),
-          /*logicalSizes=*/nullptr);
+        // Build a groupTiles-tile buffer type along the reduction dim from a
+        // 1-tile partial's layout.
+        auto partialType = cast<RankedTensorType>(group[0].first.getType());
+        auto tileType = cast<ttcore::TileType>(partialType.getElementType());
+        auto partialLayout =
+            cast<ttcore::MetalLayoutAttr>(partialType.getEncoding());
+        SmallVector<int64_t> wideShape(partialType.getShape().begin(),
+                                       partialType.getShape().end());
+        wideShape[deviceRedDim] = groupTiles;
+        auto wideLayout = layoutForDeviceShape(partialLayout, wideShape);
+        auto wideType = RankedTensorType::get(wideShape, tileType, wideLayout);
 
-      // Materialize each composite into a genuinely-allocated L1 buffer via its
-      // OWN copy generic. ExpandDMAReadCompositeView allows only one composite
-      // view per generic (#7600); a plain to_layout on the composite bufferizes
-      // to a view_layout chain that getCompositeViewSource walks straight back
-      // to the composite, so feeding both composites into the merge generic
-      // would leave it with two composite-backed DMA reads and trip that
-      // assert. A dedicated copy generic per composite reads exactly one
-      // composite (so it DMA-expands cleanly) and yields a real buffer; the
-      // merge then reads two plain allocs.
-      auto materializeComposite = [&](Value composite) -> Value {
-        auto compType = cast<RankedTensorType>(composite.getType());
-        auto copyOut = rewriter.create<d2m::EmptyOp>(loc, compType.getShape(),
-                                                     compType.getElementType(),
-                                                     compType.getEncoding());
-        SmallVector<Value> ins = {composite};
-        SmallVector<Value> outs = {copyOut.getResult()};
-        auto copyGeneric = rewriter.create<d2m::GenericOp>(
-            loc, ins, outs, /*additionalArgs=*/ValueRange(),
-            rewriter.getAffineMapArrayAttr(
-                SmallVector<AffineMap>{mergeIdentity, mergeIdentity}),
+        // Separate CompositeViews for values and indices (the DMA-expansion
+        // pass supports only one composite view per GenericOp, #7600), each
+        // materialized before the merge.
+        SmallVector<Value> valComposites, idxComposites;
+        for (auto &p : group) {
+          valComposites.push_back(p.first);
+          idxComposites.push_back(p.second);
+        }
+        auto valsComposite = rewriter.create<d2m::CompositeViewOp>(
+            loc, wideType, valComposites, static_cast<int32_t>(dim),
+            /*logicalSizes=*/nullptr);
+        auto idxComposite = rewriter.create<d2m::CompositeViewOp>(
+            loc, wideType, idxComposites, static_cast<int32_t>(dim),
+            /*logicalSizes=*/nullptr);
+
+        // Materialize each composite into a genuinely-allocated L1 buffer via
+        // its OWN copy generic. ExpandDMAReadCompositeView allows only one
+        // composite view per generic (#7600); a plain to_layout on the
+        // composite bufferizes to a view_layout chain that
+        // getCompositeViewSource walks straight back to the composite, so
+        // feeding both composites into the merge generic would leave it with
+        // two composite-backed DMA reads and trip that assert. A dedicated copy
+        // generic per composite reads exactly one composite (so it DMA-expands
+        // cleanly) and yields a real buffer; the merge then reads two plain
+        // allocs.
+        auto materializeComposite = [&](Value composite) -> Value {
+          auto compType = cast<RankedTensorType>(composite.getType());
+          auto copyOut = rewriter.create<d2m::EmptyOp>(
+              loc, compType.getShape(), compType.getElementType(),
+              compType.getEncoding());
+          SmallVector<Value> ins = {composite};
+          SmallVector<Value> outs = {copyOut.getResult()};
+          auto copyGeneric = rewriter.create<d2m::GenericOp>(
+              loc, ins, outs, /*additionalArgs=*/ValueRange(),
+              rewriter.getAffineMapArrayAttr(
+                  SmallVector<AffineMap>{mergeIdentity, mergeIdentity}),
+              rewriter.getArrayAttr(mergeIters));
+          copyGeneric->setAttr("d2m.skip_grid_selection",
+                               rewriter.getUnitAttr());
+          withD2MGenericRegion(
+              rewriter, loc, copyGeneric, ins, outs,
+              [&](ArrayRef<Value> blockArgs) -> SmallVector<Value> {
+                Value input = blockArgs[0];
+                Value output = blockArgs[1];
+                std::size_t shardRank =
+                    cast<RankedTensorType>(output.getType()).getRank();
+                AffineMap shardIdentity =
+                    rewriter.getMultiDimIdentityMap(shardRank);
+                SmallVector<mlir::utils::IteratorType> linalgIters(
+                    shardRank, mlir::utils::IteratorType::parallel);
+                auto linalgOp = rewriter.create<linalg::GenericOp>(
+                    loc, output.getType(), input, output,
+                    SmallVector<AffineMap>{shardIdentity, shardIdentity},
+                    linalgIters,
+                    [&](OpBuilder &b, Location bodyLoc, ValueRange args) {
+                      Value copied = b.create<d2m::TileTypecastOp>(
+                          bodyLoc, args[1].getType(), args[0]);
+                      b.create<linalg::YieldOp>(bodyLoc, copied);
+                    });
+                return {linalgOp->getResult(0)};
+              });
+          return relayout(copyGeneric->getResult(0));
+        };
+        Value valsMaterialized =
+            materializeComposite(valsComposite.getResult());
+        Value idxMaterialized = materializeComposite(idxComposite.getResult());
+
+        int64_t mergeReductionElems = groupTiles * 32;
+        auto mergeValsOut =
+            rewriter.create<d2m::EmptyOp>(loc, wideShape, tileType, wideLayout);
+        auto mergeIdxOut =
+            rewriter.create<d2m::EmptyOp>(loc, wideShape, tileType, wideLayout);
+        SmallVector<Value> mergeInputs = {valsMaterialized, idxMaterialized};
+        SmallVector<Value> mergeOutputs = {mergeValsOut.getResult(),
+                                           mergeIdxOut.getResult()};
+        auto mergeGeneric = rewriter.create<d2m::GenericOp>(
+            loc, mergeInputs, mergeOutputs, /*additionalArgs=*/ValueRange(),
+            rewriter.getAffineMapArrayAttr(SmallVector<AffineMap>{
+                mergeIdentity, mergeIdentity, mergeIdentity, mergeIdentity}),
             rewriter.getArrayAttr(mergeIters));
-        copyGeneric->setAttr("d2m.skip_grid_selection", rewriter.getUnitAttr());
+        mergeGeneric->setAttr("d2m.skip_grid_selection",
+                              rewriter.getUnitAttr());
         withD2MGenericRegion(
-            rewriter, loc, copyGeneric, ins, outs,
+            rewriter, loc, mergeGeneric, mergeInputs, mergeOutputs,
             [&](ArrayRef<Value> blockArgs) -> SmallVector<Value> {
-              Value input = blockArgs[0];
-              Value output = blockArgs[1];
-              std::size_t shardRank =
-                  cast<RankedTensorType>(output.getType()).getRank();
-              AffineMap shardIdentity =
-                  rewriter.getMultiDimIdentityMap(shardRank);
-              SmallVector<mlir::utils::IteratorType> linalgIters(
-                  shardRank, mlir::utils::IteratorType::parallel);
-              auto linalgOp = rewriter.create<linalg::GenericOp>(
-                  loc, output.getType(), input, output,
-                  SmallVector<AffineMap>{shardIdentity, shardIdentity},
-                  linalgIters,
-                  [&](OpBuilder &b, Location bodyLoc, ValueRange args) {
-                    Value copied = b.create<d2m::TileTypecastOp>(
-                        bodyLoc, args[1].getType(), args[0]);
-                    b.create<linalg::YieldOp>(bodyLoc, copied);
-                  });
-              return {linalgOp->getResult(0)};
+              auto topkBlock = rewriter.create<d2m::TopkBlockOp>(
+                  loc, blockArgs[0], blockArgs[1], blockArgs[2], blockArgs[3],
+                  k,
+                  /*reductionDimSize=*/mergeReductionElems,
+                  /*stableSort=*/false, dim);
+              return {topkBlock.getResultValues(),
+                      topkBlock.getResultIndices()};
             });
-        return relayout(copyGeneric->getResult(0));
+        return {compactToTile(relayout(mergeGeneric->getResult(0))),
+                compactToTile(relayout(mergeGeneric->getResult(1)))};
       };
-      Value valsMaterialized = materializeComposite(valsComposite.getResult());
-      Value idxMaterialized = materializeComposite(idxComposite.getResult());
 
-      int64_t mergeReductionElems = numShards * 32;
-      auto mergeValsOut =
-          rewriter.create<d2m::EmptyOp>(loc, wideShape, tileType, wideLayout);
-      auto mergeIdxOut =
-          rewriter.create<d2m::EmptyOp>(loc, wideShape, tileType, wideLayout);
-      SmallVector<Value> mergeInputs = {valsMaterialized, idxMaterialized};
-      SmallVector<Value> mergeOutputs = {mergeValsOut.getResult(),
-                                         mergeIdxOut.getResult()};
-      auto mergeGeneric = rewriter.create<d2m::GenericOp>(
-          loc, mergeInputs, mergeOutputs, /*additionalArgs=*/ValueRange(),
-          rewriter.getAffineMapArrayAttr(SmallVector<AffineMap>{
-              mergeIdentity, mergeIdentity, mergeIdentity, mergeIdentity}),
-          rewriter.getArrayAttr(mergeIters));
-      mergeGeneric->setAttr("d2m.skip_grid_selection", rewriter.getUnitAttr());
-      withD2MGenericRegion(
-          rewriter, loc, mergeGeneric, mergeInputs, mergeOutputs,
-          [&](ArrayRef<Value> blockArgs) -> SmallVector<Value> {
-            auto topkBlock = rewriter.create<d2m::TopkBlockOp>(
-                loc, blockArgs[0], blockArgs[1], blockArgs[2], blockArgs[3], k,
-                /*reductionDimSize=*/mergeReductionElems, /*stableSort=*/false,
-                dim);
-            return {topkBlock.getResultValues(), topkBlock.getResultIndices()};
-          });
-      topkValsRelayouted = compactToTile(relayout(mergeGeneric->getResult(0)));
-      topkIdxRelayouted = compactToTile(relayout(mergeGeneric->getResult(1)));
+      std::pair<Value, Value> merged;
+      if (numShards <= kMaxShardTiles) {
+        // All partials fit one core: a single topk_block reduces them.
+        merged = mergePartials(partials);
+      } else {
+        // > 32 partials would put > 32 tiles on the merge core. Split into two
+        // groups of <= 32, merge each on its own core to a 1-tile top-k
+        // partial, then merge those two partials with one final topk_block.
+        int64_t half = (numShards + 1) / 2;
+        assert(half <= kMaxShardTiles &&
+               "numShards > 2 * kMaxShardTiles is unsupported (needs a "
+               "multi-level merge tree)");
+        std::pair<Value, Value> g0 = mergePartials(
+            ArrayRef<std::pair<Value, Value>>(partials).take_front(half));
+        std::pair<Value, Value> g1 = mergePartials(
+            ArrayRef<std::pair<Value, Value>>(partials).drop_front(half));
+        merged = mergePartials(SmallVector<std::pair<Value, Value>>{g0, g1});
+      }
+      topkValsRelayouted = merged.first;
+      topkIdxRelayouted = merged.second;
     }
 
     // Index extract uses fp32 topk tiles; a typecast generic below converts

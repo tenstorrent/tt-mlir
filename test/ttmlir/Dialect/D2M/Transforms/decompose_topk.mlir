@@ -100,7 +100,7 @@ module {
     // CHECK: d2m.arange_block
     // CHECK-SAME: num_elements = 128
 
-    // Outer scf.for is the non-target-row loop (one row here).
+    // Non-target loop wraps the whole merge tree.
     // CHECK: scf.for
     // Initial accumulator built from tiles (0,1).
     // CHECK: d2m.tile_topk_local_sort
@@ -108,11 +108,11 @@ module {
     // CHECK: d2m.tile_topk_rebuild{{.*}}k = 64
     // Fold loop over complete right pairs.
     // CHECK: scf.for
-    // Build the complete right pair (2,3) from raw input.
+    // Build the complete right block q = (t, t+1).
     // CHECK: d2m.tile_topk_local_sort
     // CHECK: d2m.tile_topk_merge{{.*}}k = 64
     // CHECK: d2m.tile_topk_rebuild{{.*}}k = 64
-    // 3-sub-merge combine of acc=(0,1) with the pair.
+    // 3-sub-merge combine of acc=(0,1) with q=(t,t+1).
     // Sub 1: merge winner tiles.
     // CHECK: d2m.tile_topk_local_sort
     // CHECK: d2m.tile_topk_merge{{.*}}k = 64
