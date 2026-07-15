@@ -6837,7 +6837,9 @@ protected:
 
 TEST_P(OpModelChunkedScaledDotProductAttentionParam,
        ChunkedScaledDotProductAttentionOp) {
+  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
   RunTest();
+  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
 }
 
 const auto chunkedScaledDotProductAttentionOpTestValues =
