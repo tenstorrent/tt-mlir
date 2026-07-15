@@ -111,6 +111,8 @@ MULTI_CORE_TOPK_SHAPES = [
     # Non-target dim is a single tile (32), on dim 0; target dim (dim=1) is
     # any multiple of 32.
     pytest.param((32, 8192), 16, -1, id="32x8192_k16_dim1"),
+    pytest.param((32, 23552), 16, -1, id="32x23552_k16_dim1"),
+    pytest.param((32, 32768), 16, -1, id="32x32768_k16_dim1"),
 ]
 
 
