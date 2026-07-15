@@ -165,6 +165,91 @@ module @jit_scatter attributes {} {
         return %0 : tensor<3x394xi64>
     }
 
+    // Rank-reducing single-dim scatter `x.at[i, :].set(v)`: StableHLO drops the
+    // scattered axis from the update (update rank == operand rank - 1). Instead
+    // of flattening, source and index are promoted back to operand rank with a
+    // size-1 scattered axis: the update is reshaped and the single scatter
+    // coordinate is reshaped to all-ones then broadcast across the slice.
+    func.func public @test_rank_reducing_scatter_row(%operand: tensor<3x3xf32>, %indices: tensor<1xi64>, %update: tensor<3xf32>) -> tensor<3x3xf32> {
+        // CHECK-LABEL: func.func public @test_rank_reducing_scatter_row
+        // CHECK: [[SRC:%[0-9]+]] = "ttir.reshape"(%arg2)
+        // CHECK-SAME: -> tensor<1x3xf32>
+        // CHECK: [[IDX:%[0-9]+]] = "ttir.reshape"(%arg1)
+        // CHECK-SAME: -> tensor<1x1xi64>
+        // CHECK: [[BIDX:%[0-9]+]] = "ttir.broadcast"([[IDX]])
+        // CHECK-SAME: -> tensor<1x3xi64>
+        // CHECK: "ttir.scatter"(%arg0, [[BIDX]], [[SRC]])
+        // CHECK-SAME: <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<invalid>}>
+        // CHECK-SAME: (tensor<3x3xf32>, tensor<1x3xi64>, tensor<1x3xf32>) -> tensor<3x3xf32>
+        %result = "stablehlo.scatter"(%operand, %indices, %update) <{
+            scatter_dimension_numbers = #stablehlo.scatter<
+                update_window_dims = [0], 
+                inserted_window_dims = [0], 
+                scatter_dims_to_operand_dims = [0], 
+                index_vector_dim = 0>
+        }> ({
+        ^bb0(%a: tensor<f32>, %b: tensor<f32>):
+            stablehlo.return %b : tensor<f32>
+        }) : (tensor<3x3xf32>, tensor<1xi64>, tensor<3xf32>) -> tensor<3x3xf32>
+        return %result : tensor<3x3xf32>
+    }
+
+    // Rank-reducing single-dim scatter into a non-leading axis `x.at[:, i, :, :].set(v)`
+    // (scattered axis is dim 1). The promoted source/index insert the size-1 axis
+    // at dim 1 and the ttir.scatter runs along dim 1.
+    func.func public @test_rank_reducing_scatter_middle_dim(%operand: tensor<2x3x4x5xf32>, %indices: tensor<1xi64>, %update: tensor<2x4x5xf32>) -> tensor<2x3x4x5xf32> {
+        // CHECK-LABEL: func.func public @test_rank_reducing_scatter_middle_dim
+        // CHECK: [[SRC:%[0-9]+]] = "ttir.reshape"(%arg2)
+        // CHECK-SAME: -> tensor<2x1x4x5xf32>
+        // CHECK: [[IDX:%[0-9]+]] = "ttir.reshape"(%arg1)
+        // CHECK-SAME: -> tensor<1x1x1x1xi64>
+        // CHECK: [[BIDX:%[0-9]+]] = "ttir.broadcast"([[IDX]])
+        // CHECK-SAME: -> tensor<2x1x4x5xi64>
+        // CHECK: "ttir.scatter"(%arg0, [[BIDX]], [[SRC]])
+        // CHECK-SAME: <{dim = 1 : i32, scatter_reduce_type = #ttcore.reduce_type<invalid>}>
+        // CHECK-SAME: (tensor<2x3x4x5xf32>, tensor<2x1x4x5xi64>, tensor<2x1x4x5xf32>) -> tensor<2x3x4x5xf32>
+        %result = "stablehlo.scatter"(%operand, %indices, %update) <{
+            scatter_dimension_numbers = #stablehlo.scatter<
+                update_window_dims = [0, 1, 2], 
+                inserted_window_dims = [1], 
+                scatter_dims_to_operand_dims = [1], 
+                index_vector_dim = 0>
+        }> ({
+        ^bb0(%a: tensor<f32>, %b: tensor<f32>):
+            stablehlo.return %b : tensor<f32>
+        }) : (tensor<2x3x4x5xf32>, tensor<1xi64>, tensor<2x4x5xf32>) -> tensor<2x3x4x5xf32>
+        return %result : tensor<2x3x4x5xf32>
+    }
+
+    // Rank-reducing single-dim scatter with an accumulating (sum) combine
+    // region. The reduce type is taken from the scatter body and flows into
+    // ttir.scatter. Scatter dim 1 is used because a leading-axis sum scatter is
+    // matched by the embedding_backward pattern instead of this one.
+    func.func public @test_rank_reducing_scatter_sum(%operand: tensor<2x3x4xf32>, %indices: tensor<1xi64>, %update: tensor<2x4xf32>) -> tensor<2x3x4xf32> {
+        // CHECK-LABEL: func.func public @test_rank_reducing_scatter_sum
+        // CHECK: [[SRC:%[0-9]+]] = "ttir.reshape"(%arg2)
+        // CHECK-SAME: -> tensor<2x1x4xf32>
+        // CHECK: [[IDX:%[0-9]+]] = "ttir.reshape"(%arg1)
+        // CHECK-SAME: -> tensor<1x1x1xi64>
+        // CHECK: [[BIDX:%[0-9]+]] = "ttir.broadcast"([[IDX]])
+        // CHECK-SAME: -> tensor<2x1x4xi64>
+        // CHECK: "ttir.scatter"(%arg0, [[BIDX]], [[SRC]])
+        // CHECK-SAME: <{dim = 1 : i32, scatter_reduce_type = #ttcore.reduce_type<sum>}>
+        // CHECK-SAME: (tensor<2x3x4xf32>, tensor<2x1x4xi64>, tensor<2x1x4xf32>) -> tensor<2x3x4xf32>
+        %result = "stablehlo.scatter"(%operand, %indices, %update) <{
+            scatter_dimension_numbers = #stablehlo.scatter<
+                update_window_dims = [0, 1],
+                inserted_window_dims = [1],
+                scatter_dims_to_operand_dims = [1],
+                index_vector_dim = 0>
+        }> ({
+        ^bb0(%a: tensor<f32>, %b: tensor<f32>):
+            %sum = stablehlo.add %a, %b : tensor<f32>
+            stablehlo.return %sum : tensor<f32>
+        }) : (tensor<2x3x4xf32>, tensor<1xi64>, tensor<2x4xf32>) -> tensor<2x3x4xf32>
+        return %result : tensor<2x3x4xf32>
+    }
+
     func.func @test_multidim_scatter_with_window_extracted_from_model(%arg186: tensor<1x2xbf16>, %arg187: tensor<1xi64>, %arg188: tensor<1xi64>) -> (tensor<1x7x2xbf16>) {
         // CHECK: "ttir.scatter"
         // CHECK-SAME: <{dim = 0 : i32, scatter_reduce_type = #ttcore.reduce_type<sum>}>
