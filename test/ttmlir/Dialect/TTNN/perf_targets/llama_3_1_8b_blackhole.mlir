@@ -27,9 +27,9 @@
 // constants than n150 (512 GB/s DRAM, 1.35 GHz, 130 Tensix cores) so the
 // roofline shrinks vs the Wormhole companion test even though the model
 // is the same. At default opt level SDPA is not fused, so 6 dram-bound
-// weight matmuls + 3 skipped activation@activation matmuls whose weight
-// operands are produced at runtime (ttnn.permute / ttnn.transpose /
-// ttnn.repeat_interleave) rather than streamed from DRAM as parameters.
+// weight matmuls + 2 skipped activation@activation matmuls. (The third,
+// a degenerate K=1 dot_general, now lowers to a broadcast multiply rather
+// than a matmul, so it is no longer counted among the skipped matmuls.)
 
 // CHECK: "perf_targets":
 // CHECK: "aiclk_hz": 1350000000
