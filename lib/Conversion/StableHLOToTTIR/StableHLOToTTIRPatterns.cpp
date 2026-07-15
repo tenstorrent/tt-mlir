@@ -172,17 +172,26 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
   if (initValueOp.getResult().getType().getElementType().isF64()) {
     return *initValueOp.getValue().value_begin<double>() == desiredF64;
   }
-  if (initValueOp.getResult().getType().getElementType().isInteger(32)) {
-    return *initValueOp.getValue().value_begin<int32_t>() == desiredI32;
-  }
-  if (initValueOp.getResult().getType().getElementType().isInteger(64)) {
-    return *initValueOp.getValue().value_begin<int64_t>() == desiredI64;
-  }
-  if (initValueOp.getResult().getType().getElementType().isInteger(8)) {
-    return *initValueOp.getValue().value_begin<uint8_t>() == desiredI8;
-  }
-  if (initValueOp.getResult().getType().getElementType().isInteger(1)) {
-    return *initValueOp.getValue().value_begin<bool>() == desiredI1;
+  // Integer element types: read the constant as an APInt so both signed and
+  // unsigned attributes work. value_begin<int32_t>()/<int64_t>() assert with
+  // "ElementsAttr does not provide iteration facilities for type `int`" on
+  // unsigned (ui32/ui64) attributes -- e.g. the dense<4294967295> :
+  // tensor<ui32> sentinel that torch 2.11's max_pool2d_with_indices lowering
+  // emits (#9031).
+  if (auto intType = mlir::dyn_cast<mlir::IntegerType>(
+          initValueOp.getResult().getType().getElementType())) {
+    const llvm::APInt &value =
+        *initValueOp.getValue().value_begin<llvm::APInt>();
+    unsigned width = intType.getWidth();
+    if (width == 1) {
+      return value.getBoolValue() == desiredI1;
+    }
+    int64_t desiredInt =
+        width == 8 ? desiredI8 : (width == 32 ? desiredI32 : desiredI64);
+    // Compare bit patterns at the attribute's width so a signedness-flipped
+    // sentinel still matches (ui32 4294967295 == i32 -1).
+    return value == llvm::APInt(width, static_cast<uint64_t>(desiredInt),
+                                /*isSigned=*/true);
   }
 
   return false;
