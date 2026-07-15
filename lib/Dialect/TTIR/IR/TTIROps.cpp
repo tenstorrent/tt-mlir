@@ -8870,6 +8870,19 @@ foldSplatComparison(mlir::Operation *op, mlir::Attribute lhsAttr,
 //===----------------------------------------------------------------------===//
 
 ::mlir::OpFoldResult mlir::tt::ttir::PowOp::fold(FoldAdaptor adaptor) {
+  // pow(x, 1) -> x, as long as lhs is not broadcast to the result shape.
+  if (auto rhs =
+          mlir::dyn_cast_if_present<mlir::ElementsAttr>(adaptor.getRhs());
+      rhs && rhs.isSplat() && getLhs().getType() == getType()) {
+    auto elemType = rhs.getElementType();
+    bool isOne =
+        mlir::isa<mlir::FloatType>(elemType)
+            ? rhs.getSplatValue<llvm::APFloat>().convertToDouble() == 1.0
+            : rhs.getSplatValue<llvm::APInt>().getSExtValue() == 1;
+    if (isOne) {
+      return getLhs();
+    }
+  }
   return constantFoldEltwiseBinaryFloat(
       *this, adaptor.getLhs(), adaptor.getRhs(), ApplyToAPFloat(::powf));
 }
