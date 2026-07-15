@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/StableHLO/Transforms/Passes.h"
 #include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
 
+#include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/Support/Error.h"
 #include <shardy/dialect/sdy/ir/enums.h>
 
@@ -1700,6 +1701,9 @@ struct StablehloCustomCallShardingModel
 private:
   mlir::sdy::OpShardingRuleAttr
   getCustomCallShardingRule(mlir::stablehlo::CustomCallOp op) const {
+    // NOTE: User-provided rules (xla.sdy.custom_sharding_rule) are promoted to
+    // the sdy.sharding_rule op attribute by the RegisterUserShardingRulePass.
+    // This pass only serves the C++-defined built-in rules below.
     llvm::StringRef target = op.getCallTargetName();
 
     auto shardOpFunc = customCallShardingRules.lookup(target);

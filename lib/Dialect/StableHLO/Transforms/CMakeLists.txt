@@ -12,6 +12,7 @@ add_mlir_dialect_library(MLIRStableHLOTransforms
   InsertReshardsForUnpropagatedOps.cpp
   PartiallyConvertSdyToStableHLO.cpp
   RegisterCustomShardingRule.cpp
+  RegisterUserShardingRule.cpp
   ReoutlineComposite.cpp
   ReplicateNonSplittableConstants.cpp
   ShardyCCLCanonicalization.cpp
