@@ -3196,6 +3196,9 @@ void MoeComputeOp::allocateSemaphores(::mlir::RewriterBase &rewriter) {}
   // bias is row-broadcast: its last dim must match the matmul output width N.
   if (getBias()) {
     RankedTensorType biasType = getBias().getType();
+    if (biasType.getRank() < 1) {
+      return emitOpError("bias tensor must have rank >= 1");
+    }
     int64_t n = weightType.getShape().back();
     if (biasType.getShape().back() != n) {
       return emitOpError("bias last dimension (")
@@ -3233,9 +3236,19 @@ void AllGatherMinimalMatmulAsyncOp::allocateSemaphores(
   // The all-gather semaphores must live on cores that exist on the device.
   // Derive the core range from the input tensor's layout (its worker grid).
   MLIRContext *ctx = rewriter.getContext();
-  auto inputLayout =
-      mlir::cast<TTNNLayoutAttr>(getInput().getType().getEncoding());
-  CoreRangeSetAttr coreRangeSet = inputLayout.getCoreRangeSet();
+  auto inputLayout = mlir::dyn_cast_if_present<TTNNLayoutAttr>(
+      getInput().getType().getEncoding());
+  CoreRangeSetAttr coreRangeSet =
+      inputLayout ? inputLayout.getCoreRangeSet() : CoreRangeSetAttr();
+
+  if (!coreRangeSet) {
+    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(*this);
+    llvm::ArrayRef<int64_t> gridShape = deviceAttr.getWorkerGrid().getShape();
+    coreRangeSet = CoreRangeSetAttr::get(
+        ctx, {CoreRangeAttr::get(
+                 ctx, CoreCoordAttr::get(ctx, 0, 0),
+                 CoreCoordAttr::get(ctx, gridShape[1] - 1, gridShape[0] - 1))});
+  }
 
   Value device = getDevice();
 
@@ -3243,7 +3256,11 @@ void AllGatherMinimalMatmulAsyncOp::allocateSemaphores(
   // block prelude (see DistributedRMSNormOp for the trace-hoisting rationale).
   auto createSemaphore = [&]() -> Value {
     OpBuilder::InsertionGuard guard(rewriter);
-    rewriter.setInsertionPointAfter(device.getDefiningOp());
+    if (Operation *deviceDef = device.getDefiningOp()) {
+      rewriter.setInsertionPointAfter(deviceDef);
+    } else {
+      rewriter.setInsertionPointToStart(getOperation()->getBlock());
+    }
     auto semaphoreOp = rewriter.create<ttnn::CreateGlobalSemaphoreOp>(
         getLoc(), GlobalSemaphoreType::get(ctx), device,
         /*initial_value=*/rewriter.getUI32IntegerAttr(0), coreRangeSet);
