@@ -2,45 +2,50 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// Integration test: the tt-train (ttml) metal ops are built
-// (BUILD_TT_TRAIN=ON), linked into the runtime (libttml.a -> TTRuntimeTTNNOps),
-// and runnable on device with their JIT kernels resolving from the tt-metal
-// home.
+// Integration test: the tt-train (ttml) metal ops are built.
 
 #include <gtest/gtest.h>
 
 #include <cmath>
-#include <cstdint>
+#include <memory>
+#include <vector>
 
-#include <xtensor/containers/xarray.hpp>
+#include <tt-metalium/shape.hpp>
 
-#include "autograd/auto_context.hpp"
-#include "core/tt_tensor_utils.hpp"
+#include "ttnn/device.hpp"
+#include "ttnn/operations/core/core.hpp"
+#include "ttnn/operations/creation/creation.hpp"
+#include "ttnn/tensor/types.hpp"
+
 #include "metal/ops/frobenius_normalize/frobenius_normalize.hpp"
 
 namespace {
 
 class TTMLMetalOpsTest : public ::testing::Test {
 protected:
-  void SetUp() override { ttml::autograd::ctx().open_device(); }
-  void TearDown() override { ttml::autograd::ctx().close_device(); }
+  void SetUp() override { device_ = ttnn::open_mesh_device(/*device_id=*/0); }
+  void TearDown() override {
+    if (device_) {
+      ttnn::close_device(*device_);
+      device_.reset();
+    }
+  }
+  std::shared_ptr<ttnn::MeshDevice> device_;
 };
 
 } // namespace
 
 TEST_F(TTMLMetalOpsTest, FrobeniusNormalizeRunsOnDevice) {
-  using namespace ttml;
-
-  constexpr uint32_t H = 32U;
-  constexpr uint32_t W = 32U;
-  xt::xarray<float> in = xt::ones<float>({1U, 1U, H, W});
-  auto input = core::from_xtensor(in, &autograd::ctx().get_device());
+  const ttnn::Shape shape({1, 1, 32, 32});
+  const ttnn::Tensor input =
+      ttnn::ones(shape, ttnn::DataType::BFLOAT16, ttnn::TILE_LAYOUT, *device_);
 
   ttnn::Tensor out;
   ASSERT_NO_THROW(out = ttml::metal::frobenius_normalize(input));
 
-  // Ran on device and produced a same-shaped, real (finite) result.
-  auto out_xt = core::to_xtensor<float>(out);
-  EXPECT_EQ(out_xt.shape(), in.shape());
-  EXPECT_TRUE(std::isfinite(out_xt(0, 0, 0, 0)));
+  // Ran on device and produced a same-shaped, real result.
+  EXPECT_EQ(out.logical_shape(), input.logical_shape());
+  const std::vector<float> values = ttnn::from_device(out).to_vector<float>();
+  ASSERT_FALSE(values.empty());
+  EXPECT_TRUE(std::isfinite(values.front()));
 }

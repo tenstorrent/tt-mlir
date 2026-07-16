@@ -5,5 +5,3 @@ add_runtime_gtest(test_owned_host_tensor_strided)
 
 add_runtime_gtest(test_ttml_metal_ops)
 target_link_libraries(test_ttml_metal_ops PRIVATE TTML_LIBRARY)
-target_include_directories(test_ttml_metal_ops PRIVATE ${TTML_BUILD_DIR}/serialization)
-target_compile_definitions(test_ttml_metal_ops PRIVATE FLATBUFFERS_LARGE_SIZE)
