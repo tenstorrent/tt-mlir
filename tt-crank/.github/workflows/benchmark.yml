@@ -67,6 +67,30 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Resolve tt-mlir commit
+        id: ttmlir
+        shell: bash
+        # Read the gitlink SHA from the superproject rather than the submodule's
+        # own HEAD, so this works even if the submodule checkout is incomplete.
+        run: echo "sha=$(git rev-parse HEAD:third_party/tt-mlir)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore compiled binary cache
+        uses: actions/cache@v4
+        with:
+          # Persists compiled flatbuffers across nightly runs so device-bound
+          # compilation is skipped on cache hits. Path is relative to the repo
+          # root, where pytest runs and writes the on-disk compile cache.
+          path: .data/bin_cache
+          # actions/cache entries are immutable: an exact key hit never re-saves,
+          # so a bare tt-mlir-hash key would freeze the cache at whatever the
+          # first run produced and never pick up binaries for benchmarks added
+          # later under the same tt-mlir commit. Suffixing the run id makes the
+          # primary key unique per run (always saves a fresh superset), while
+          # restore-keys restores the newest cache for this tt-mlir commit.
+          key: bin-cache-${{ runner.os }}-${{ steps.ttmlir.outputs.sha }}-${{ github.run_id }}
+          restore-keys: |
+            bin-cache-${{ runner.os }}-${{ steps.ttmlir.outputs.sha }}-
+
       - name: Reset device
         run: |
           python3 -m venv /tmp/tt-smi-venv
