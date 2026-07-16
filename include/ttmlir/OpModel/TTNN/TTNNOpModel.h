@@ -821,6 +821,32 @@ struct OpModel<PagedFlashMultiLatentAttentionDecodeOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// ChunkedScaledDotProductAttentionOp
+//===----------------------------------------------------------------------===//
+template <>
+struct OpModel<ChunkedScaledDotProductAttentionOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+      llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+      llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+      llvm::ArrayRef<int64_t> pageTableShape, TTNNLayoutAttr pageTableLayout,
+      llvm::ArrayRef<int64_t> chunkStartIdxShape,
+      TTNNLayoutAttr chunkStartIdxLayout, std::optional<llvm::APFloat> scale,
+      std::optional<SDPAProgramConfigAttr> programConfig,
+      TTNNLayoutAttr outputLayout);
+
+  static llvm::Expected<size_t> getOpRuntime(
+      llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+      llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+      llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+      llvm::ArrayRef<int64_t> pageTableShape, TTNNLayoutAttr pageTableLayout,
+      llvm::ArrayRef<int64_t> chunkStartIdxShape,
+      TTNNLayoutAttr chunkStartIdxLayout, std::optional<llvm::APFloat> scale,
+      std::optional<SDPAProgramConfigAttr> programConfig,
+      TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // ScaledDotProductAttentionOp
 //===----------------------------------------------------------------------===//
 template <>
