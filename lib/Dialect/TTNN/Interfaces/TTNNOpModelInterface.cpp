@@ -2328,6 +2328,49 @@ llvm::Expected<size_t> PagedFlashMultiLatentAttentionDecodeOp::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// ChunkedScaledDotProductAttentionOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+ChunkedScaledDotProductAttentionOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() == 5 &&
+         "ttnn::chunked_scaled_dot_product_attention has 5 input tensors "
+         "(q, k, v, page_table, chunk_start_idx)");
+
+  const auto queryShape = getQuery().getType().getShape();
+  const auto keyShape = getKey().getType().getShape();
+  const auto valueShape = getValue().getType().getShape();
+  const auto pageTableShape = getPageTable().getType().getShape();
+  const auto chunkStartIdxShape = getChunkStartIdx().getType().getShape();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<ChunkedScaledDotProductAttentionOp>::getOpConstraints,
+      *this, queryShape, inputs[0], keyShape, inputs[1], valueShape, inputs[2],
+      pageTableShape, inputs[3], chunkStartIdxShape, inputs[4], getScale(),
+      getProgramConfig(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t> ChunkedScaledDotProductAttentionOp::getOpRuntime(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() == 5 &&
+         "ttnn::chunked_scaled_dot_product_attention has 5 input tensors "
+         "(q, k, v, page_table, chunk_start_idx)");
+
+  const auto queryShape = getQuery().getType().getShape();
+  const auto keyShape = getKey().getType().getShape();
+  const auto valueShape = getValue().getType().getShape();
+  const auto pageTableShape = getPageTable().getType().getShape();
+  const auto chunkStartIdxShape = getChunkStartIdx().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<ChunkedScaledDotProductAttentionOp>::getOpRuntime,
+      *this, queryShape, inputs[0], keyShape, inputs[1], valueShape, inputs[2],
+      pageTableShape, inputs[3], chunkStartIdxShape, inputs[4], getScale(),
+      getProgramConfig(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // ScaledDotProductAttentionOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 

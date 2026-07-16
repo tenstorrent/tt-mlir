@@ -3069,6 +3069,109 @@ OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// ChunkedScaledDotProductAttentionOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints>
+OpModel<ChunkedScaledDotProductAttentionOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+    llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+    llvm::ArrayRef<int64_t> pageTableShape, TTNNLayoutAttr pageTableLayout,
+    llvm::ArrayRef<int64_t> chunkStartIdxShape,
+    TTNNLayoutAttr chunkStartIdxLayout, std::optional<llvm::APFloat> scale,
+    std::optional<SDPAProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec valueSpec,
+      detail::convertToTensorSpec(device, valueShape, valueLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec pageTableSpec,
+      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec chunkStartIdxSpec,
+                   detail::convertToTensorSpec(device, chunkStartIdxShape,
+                                               chunkStartIdxLayout));
+
+  std::optional<float> scaleFloat =
+      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+      sdpaProgramConfig = conversion::getSDPAProgramConfig(programConfig);
+
+  auto chunkedScaledDotProductAttentionOpQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS(
+        ::ttnn::transformer::chunked_scaled_dot_product_attention, device,
+        querySpec, keySpec, valueSpec, pageTableSpec, chunkStartIdxSpec,
+        scaleFloat, detail::getNullableMemoryConfig(outputLayout),
+        sdpaProgramConfig,
+        /*compute_kernel_config=*/std::nullopt);
+  };
+
+  return operation::getOpConstraints(queryLayout.getContext(),
+                                     chunkedScaledDotProductAttentionOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+OpModel<ChunkedScaledDotProductAttentionOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+    llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+    llvm::ArrayRef<int64_t> pageTableShape, TTNNLayoutAttr pageTableLayout,
+    llvm::ArrayRef<int64_t> chunkStartIdxShape,
+    TTNNLayoutAttr chunkStartIdxLayout, std::optional<llvm::APFloat> scale,
+    std::optional<SDPAProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec valueSpec,
+      detail::convertToTensorSpec(device, valueShape, valueLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec pageTableSpec,
+      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec chunkStartIdxSpec,
+                   detail::convertToTensorSpec(device, chunkStartIdxShape,
+                                               chunkStartIdxLayout));
+
+  std::optional<float> scaleFloat =
+      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+      sdpaProgramConfig = conversion::getSDPAProgramConfig(programConfig);
+
+  auto chunkedScaledDotProductAttentionOpQuery = [=]() {
+    return QUERY_OP_RUNTIME(
+        ::ttnn::transformer::chunked_scaled_dot_product_attention, device,
+        querySpec, keySpec, valueSpec, pageTableSpec, chunkStartIdxSpec,
+        scaleFloat, detail::getNullableMemoryConfig(outputLayout),
+        sdpaProgramConfig,
+        /*compute_kernel_config=*/std::nullopt);
+  };
+
+  return operation::getOpRuntime(chunkedScaledDotProductAttentionOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // ScaledDotProductAttentionOp
 //===----------------------------------------------------------------------===//
 
