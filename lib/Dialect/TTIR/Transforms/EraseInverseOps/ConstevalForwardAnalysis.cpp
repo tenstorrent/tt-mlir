@@ -99,10 +99,8 @@ void ConstevalForwardAnalysis::rebuild() {
 
       std::optional<Reachability> r = computeFromOperands(op);
       // Pre-order guarantees operands are cached, so r always has a value.
-      // Defensively treat an out-of-region operand pessimistically as
-      // non-const so callers skip the optimization rather than apply an
-      // incorrect one.
-      Reachability reachability = r ? *r : Reachability{false, true};
+      assert(r.has_value() && "rebuild: operands must be cached in pre-order");
+      Reachability reachability = *r;
 
       for (mlir::Value result : op->getResults()) {
         cache_[result] = reachability;

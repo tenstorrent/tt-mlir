@@ -121,10 +121,13 @@ private:
   // not yet cached, so the incremental caller can fall back to rebuild().
   std::optional<Reachability> computeFromOperands(mlir::Operation *op);
 
-  // Recomputes `seed`'s defining op entry; if it changed, pushes its users.
-  // Const-ness flows strictly forward, so the frontier is bounded by the
-  // touched value's downstream users. Sets `dirty_` (full rebuild next query)
-  // if it hits an operand that is not cached.
+  // Worklist that re-syncs the cache after a local IR change. Starting from
+  // `seed`, recomputes each value's Reachability from its operands; if the
+  // entry changed, enqueues that value's users and repeats, so the update flows
+  // downstream to a fixpoint. Only affected values are touched (a change can't
+  // reach anything upstream), leaving the cache as a full rebuild would.
+  // Skips block args (seeded by rebuild(), never change mid-pass); on an
+  // operand missing from the cache, sets `dirty_` to force a full rebuild.
   void propagateFrom(mlir::Value seed);
 
   mlir::Operation *root_;
