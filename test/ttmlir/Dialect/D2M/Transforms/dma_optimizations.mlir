@@ -271,6 +271,47 @@ module attributes {} {
     return
   }
 
+  // A write cannot be deferred past the next iteration's read from the same
+  // remote memref, even when the read and write use different CBs.
+  // CHECK-LABEL: func.func @test_no_defer_remote_raw
+  func.func @test_no_defer_remote_raw(
+      %arg0: memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram>) {
+    %stream = d2m.view_layout %arg0 remapping = #map4 : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #dram> -> memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+        ins() outs(%stream : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)  {
+    ^datamovement0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      %gi = d2m.core_index(0) : index
+      %gj = d2m.core_index(1) : index
+      %c0 = arith.constant 0 : index
+      %c8 = arith.constant 8 : index
+      %c1 = arith.constant 1 : index
+      // CHECK: [[CB0:%.+]] = d2m.get_cb(0)
+      // CHECK: [[CB1:%.+]] = d2m.get_cb(1)
+      // CHECK-NOT: d2m.null_tx
+      // CHECK: scf.for
+      // CHECK:   [[TX_R:%.+]] = d2m.dma_read
+      // CHECK:   d2m.dma_wait [[TX_R]] : !d2m.mem_tx<read>
+      // CHECK:   [[TX_W:%.+]] = d2m.dma_write
+      // CHECK-NEXT: d2m.dma_wait [[TX_W]] : !d2m.mem_tx<write>
+      // CHECK-NEXT: d2m.pop [[CB1]]
+      scf.for %iv = %c0 to %c8 step %c1 {
+        %local_in = d2m.reserve %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+        %tx_r = d2m.dma_read %stream[%gi, %gj], %local_in, <0> : (memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x!ttcore.tile<32x32, f32>, #l1>) -> !d2m.mem_tx<read>
+        d2m.dma_wait %tx_r : !d2m.mem_tx<read>
+        d2m.push %cb0 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+        %local_out = d2m.wait %cb1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>> -> memref<2x4x!ttcore.tile<32x32, f32>, #l1>
+        %tx_w = d2m.dma_write %local_out, %stream[%gi, %gj], <0> : (memref<2x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>) -> !d2m.mem_tx<write>
+        d2m.dma_wait %tx_w : !d2m.mem_tx<write>
+        d2m.pop %cb1 : <memref<2x4x!ttcore.tile<32x32, f32>, #l1>>
+      }
+    }, {
+    ^compute0:
+    }
+    return
+  }
+
   // Two reads + one write in a loop (all different CBs).
   // CHECK-LABEL: func.func @test_defer_write_with_coalesced_reads
   func.func @test_defer_write_with_coalesced_reads(
