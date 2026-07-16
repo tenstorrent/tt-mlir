@@ -2,9 +2,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// Integration test: the tt-train (ttml) metal ops are built (BUILD_TT_TRAIN=ON),
-// linked into the runtime (libttml.a -> TTRuntimeTTNNOps), and runnable on
-// device with their JIT kernels resolving from the tt-metal home.
+// Integration test: the tt-train (ttml) metal ops are built
+// (BUILD_TT_TRAIN=ON), linked into the runtime (libttml.a -> TTRuntimeTTNNOps),
+// and runnable on device with their JIT kernels resolving from the tt-metal
+// home.
 
 #include <gtest/gtest.h>
 
