@@ -159,6 +159,7 @@ union OpType {
   TopKRouterGptOp,
   CreateGlobalSemaphoreOp,
   ResetGlobalSemaphoreOp,
+  AllocateMoeComputeSemaphoreOp,
 }
 
 table Operation {

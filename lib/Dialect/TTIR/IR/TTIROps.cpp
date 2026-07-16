@@ -8382,17 +8382,6 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
   if (getOutputHeightShardDim() == 0) {
     return emitOpError("output_height_shard_dim must be positive");
   }
-  // Only the compute_only path is supported: the A2A selective-reduce-combine
-  // (and all multi-device routing it implies) is intentionally not wired, so
-  // the full-path-only input (cluster_axis) must be unset. compute_only must be
-  // set.
-  if (!getComputeOnly()) {
-    return emitOpError("only the compute_only path is supported; compute_only "
-                       "must be set");
-  }
-  if (getClusterAxis()) {
-    return emitOpError("compute_only moe_compute must not set cluster_axis");
-  }
 
   ::mlir::RankedTensorType inputType = getTilizeInputTensor().getType();
   if (inputType.getRank() < 2) {
