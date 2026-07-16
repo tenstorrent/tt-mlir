@@ -214,13 +214,13 @@ void ProgramExecutor::runProgramCallback(
 void ProgramExecutor::execute() {
   ZoneScopedN("program_execute");
   ZoneText(program->name()->c_str(), std::strlen(program->name()->c_str()));
-  LOG_DEBUG(LogType::LogRuntimeTTNN,
-            "Starting execution of program: ", program->name()->c_str());
+  LOG_INFO(LogType::LogRuntimeTTNN,
+           "Starting execution of program: ", program->name()->c_str());
   runProgramCallback(debug::Hooks::get().getpreProgramCallback(),
                      executableHandle, context.get());
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
-    LOG_DEBUG(LogType::LogRuntimeTTNN,
-              "Executing operation: ", op->debug_info()->c_str());
+    LOG_INFO(LogType::LogRuntimeTTNN,
+             "Executing operation: ", op->debug_info()->c_str());
     // TODO(#7743): Remove these tracy messages.
     // Currently they are being used by `ttrt perf` for parsing the csv output.
     perf::Env::get().tracyLogOpLocation(std::string(op->loc_info()->c_str()));
@@ -230,9 +230,7 @@ void ProgramExecutor::execute() {
     runOpCallback(debug::Hooks::get().getPreOperatorCallback(),
                   executableHandle, op, context.get());
     runOperation(op);
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     syncAfterOpIfNeeded();
-#endif
 
     runOpCallback(debug::Hooks::get().getPostOperatorCallback(),
                   executableHandle, op, context.get());
@@ -253,8 +251,8 @@ void ProgramExecutor::execute() {
   // `--op-support-count` flag in `tracy` CLI tool).
   readProfilerDataIfNeeded(/*force=*/true);
 
-  LOG_DEBUG(LogType::LogRuntimeTTNN,
-            "Finished execution of program: ", program->name()->c_str());
+  LOG_INFO(LogType::LogRuntimeTTNN,
+           "Finished execution of program: ", program->name()->c_str());
 }
 
 std::vector<::tt::runtime::Tensor> ProgramExecutor::gatherOutputTensors() {
@@ -742,15 +740,14 @@ void ProgramExecutor::readProfilerDataIfNeeded(bool force) {
 #endif
 }
 
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 void ProgramExecutor::syncAfterOpIfNeeded() {
   static const bool enabled =
       std::getenv("TT_RUNTIME_SYNC_AFTER_OP") != nullptr;
   if (enabled) {
     ::tt::tt_metal::distributed::Synchronize(&context->getMeshDevice(),
                                              std::nullopt);
+    LOG_INFO(LogType::LogRuntimeTTNN, "Synced after operation");
   }
 }
-#endif
 
 } // namespace tt::runtime::ttnn
