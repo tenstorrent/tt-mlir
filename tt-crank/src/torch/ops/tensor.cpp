@@ -123,10 +123,8 @@ at::Tensor empty_strided(at::IntArrayRef size, at::IntArrayRef stride, std::opti
                          std::optional<at::Layout> /*layout*/, std::optional<at::Device> device,
                          std::optional<bool> /*pin_memory*/) {
     TORCH_CHECK(!device.has_value() || is_tt(*device), "tt-kurbla empty_strided: device must be tt or unspecified");
-    // POC: only the natural contiguous stride is supported. as_strided/views
-    // with non-trivial strides come later.
-    auto natural = at::detail::defaultStrides(size);
-    TORCH_CHECK(stride.equals(natural), "tt-kurbla empty_strided: non-contiguous strides are not yet supported");
+    // Ignore requested stride and force contig layout.
+    (void)stride;
     return make_tt_tensor_from_host(/*data=*/nullptr, size, dtype.value_or(c10::ScalarType::Float));
 }
 

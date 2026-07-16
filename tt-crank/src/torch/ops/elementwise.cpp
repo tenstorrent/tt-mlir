@@ -218,21 +218,30 @@ at::Tensor &tt_threshold_backward_out(const at::Tensor &grad_output_in, const at
 at::Tensor &tt_sum_out(const at::Tensor &self, at::OptionalIntArrayRef dim, bool keepdim,
                        std::optional<at::ScalarType> dtype, at::Tensor &out) {
     TORCH_CHECK(is_tt(self), "tt-kurbla aten::sum.IntList_out: tensor must be on tt backend");
-    TORCH_CHECK(dim.has_value(), "tt-kurbla aten::sum.IntList_out: dim must be specified");
-    // We reduce at self's element type and wrap the result as self's dtype; an
-    // explicit out-dtype (accumulate/cast) isn't plumbed through yet. Fail loud
-    // rather than silently returning the wrong dtype.
+    // dim=None means reduce over all dimensions; build_reduce treats empty dims
+    // the same way.
+    llvm::SmallVector<int64_t> reduce_dims;
+    if (dim.has_value()) {
+        reduce_dims.assign(dim.value().begin(), dim.value().end());
+    }
+
     TORCH_CHECK(!dtype.has_value() || dtype.value() == self.scalar_type(),
                 "tt-kurbla aten::sum.IntList_out: dtype conversion is not yet supported (requested ", dtype.value(),
                 " for a ", self.scalar_type(), " tensor)");
 
+    const auto target_dtype = out.scalar_type();
+
     auto mb = ModuleBuilder::init({spec_for(self)});
-    auto result_v = build_sum(mb, mb.args()[0], dim.value(), keepdim);
+    mlir::Value in = mb.args()[0];
+    if (self.scalar_type() != target_dtype) {
+        in = mb.insert_typecast(in, mlir_element_type_for(target_dtype));
+    }
+    auto result_v = build_sum(mb, in, reduce_dims, keepdim);
     auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result_v.getType()).getShape();
     std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
     auto module_op = std::move(mb).finalize({result_v});
     auto outputs = compile_and_run(std::move(module_op), {self});
-    auto result = wrap_tt_tensor(std::move(outputs[0]), out_shape, self.scalar_type());
+    auto result = wrap_tt_tensor(std::move(outputs[0]), out_shape, target_dtype);
     return write_result_into(out, result);
 }
 
@@ -313,9 +322,14 @@ mlir::Value build_reduce(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<st
         norm_dims_i32.push_back(as<int32_t>((d + rank) % rank));
     }
 
+    // Empty `dims` means reduce over all dimensions (how `.sum()`/`.mean()`
+    // decompose). The output shape must reflect that full reduction to match the
+    // null dim_arg below, otherwise the result type won't match the op.
+    bool reduce_all = norm_dims_i32.empty();
     llvm::SmallVector<int64_t> out_shape;
     for (int64_t i = 0; i < rank; ++i) {
-        bool reduced = std::find(norm_dims_i32.begin(), norm_dims_i32.end(), as<int32_t>(i)) != norm_dims_i32.end();
+        bool reduced =
+            reduce_all || std::find(norm_dims_i32.begin(), norm_dims_i32.end(), as<int32_t>(i)) != norm_dims_i32.end();
         if (!reduced) {
             out_shape.push_back(shape[as<std::size_t>(i)]);
         } else if (keepdim) {
@@ -820,13 +834,23 @@ at::Tensor tt_mul_scalar(const at::Tensor &self, const at::Scalar &other) {
 
 at::Tensor tt_div_tensor(const at::Tensor &a_in, const at::Tensor &b_in) {
     const auto [a, b] = align_on_tt(a_in, b_in);
+    // div.Tensor is true division: an integral/bool result promotes to the
+    // default float dtype (int64 / int64 -> float32), floats keep their type.
+    // Use at::result_type on the original inputs so a wrapped Python scalar
+    // (`x / 2.0` dispatches here with 2.0 as a weak f64 tensor) takes x's dtype
+    // instead of promoting it — bf16 / 2.0 stays bf16.
+    const auto common = at::result_type(a_in, b_in);
+    const auto result_dtype = c10::isFloatingType(common) ? common : c10::typeMetaToScalarType(at::get_default_dtype());
+
     auto mb = ModuleBuilder::init({spec_for(a), spec_for(b)});
-    auto [promoted, lhs, rhs] = promote_inputs(mb, a, b);
+    const auto target = mlir_element_type_for(result_dtype);
+    auto lhs = mb.insert_typecast(mb.args()[0], target);
+    auto rhs = mb.insert_typecast(mb.args()[1], target);
     auto result = build_div(mb, lhs, rhs);
     auto out_shape = at::infer_size(a.sizes(), b.sizes());
     auto module_op = std::move(mb).finalize({result});
     auto outputs = compile_and_run(std::move(module_op), {a, b});
-    return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
+    return wrap_tt_tensor(std::move(outputs[0]), out_shape, result_dtype);
 }
 
 at::Tensor tt_div_scalar(const at::Tensor &self, const at::Scalar &other) {
@@ -1318,17 +1342,36 @@ mlir::Value build_index_copy(ModuleBuilder &mb, mlir::Value input, int64_t dim, 
         .getResult();
 }
 
+// Promote two element types the way PyTorch does for the cases that reach us:
+// a floating type outranks any integer/bool type; otherwise the wider bit width
+// wins (bool is i1, so int beats bool; f64 beats f32; i64 beats i32).
+static mlir::Type promote_element_types(mlir::Type a, mlir::Type b) {
+    if (a == b) {
+        return a;
+    }
+    bool a_float = mlir::isa<mlir::FloatType>(a);
+    bool b_float = mlir::isa<mlir::FloatType>(b);
+    if (a_float != b_float) {
+        return a_float ? a : b;
+    }
+    return a.getIntOrFloatBitWidth() >= b.getIntOrFloatBitWidth() ? a : b;
+}
+
 mlir::Value build_where(ModuleBuilder &mb, mlir::Value condition, mlir::Value true_val, mlir::Value false_val) {
     auto cond_type = mlir::cast<mlir::RankedTensorType>(condition.getType());
     auto true_type = mlir::cast<mlir::RankedTensorType>(true_val.getType());
     auto false_type = mlir::cast<mlir::RankedTensorType>(false_val.getType());
-    TT_FATAL(true_type.getElementType() == false_type.getElementType(),
-             "build_where: true_val and false_val must share element type — callers must promote first");
+    // aten.where type-promotes its two branches; promote to a common element
+    // type here (e.g. masked_fill lowers to where with a fill of a different
+    // dtype than the input).
+    auto elem = promote_element_types(true_type.getElementType(), false_type.getElementType());
+    true_val = mb.insert_typecast(true_val, elem);
+    false_val = mb.insert_typecast(false_val, elem);
     auto shape01 = at::infer_size(at::IntArrayRef(cond_type.getShape().data(), cond_type.getShape().size()),
                                   at::IntArrayRef(true_type.getShape().data(), true_type.getShape().size()));
     auto out_shape =
         at::infer_size(shape01, at::IntArrayRef(false_type.getShape().data(), false_type.getShape().size()));
-    auto result_type = mlir::RankedTensorType::get(out_shape, true_type.getElementType());
+    auto result_type = mlir::RankedTensorType::get(out_shape, elem);
     return mb.create<mlir::tt::ttir::WhereOp>(result_type, condition, true_val, false_val).getResult();
 }
 
