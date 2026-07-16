@@ -135,8 +135,9 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
                                     Value mergeIter, int32_t skipSecond,
                                     Value rfo) {
       rewriter.create<TileTopkLocalSortOp>(
-          loc, inputValues, bufIdxFilled, outValues, outIndices, sortStartPhase,
-          i32Attr(sortEndPhase), i32Attr(0), tA, tB, boolAttr(true),
+          loc, inputValues, bufIdxFilled, outValues, outIndices,
+          /*idir=*/i32Attr(0), /*i_end_phase=*/i32Attr(sortEndPhase),
+          /*i_start_phase=*/sortStartPhase, tA, tB, boolAttr(true),
           i1Val(false), rfo);
       rewriter.create<TileTopkMergeOp>(loc, inputValues, bufIdxFilled,
                                        outValues, outIndices, mergeIter,
@@ -273,9 +274,9 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
 
         rewriter.create<TileTopkLocalSortOp>(
             loc, inputValues, bufIdxFilled, outValues, outIndices,
-            /*sortStartPhase=*/sortStartPhase, /*sortEndPhase=*/i32Attr(4),
-            i32Attr(0), tileA, tileB, boolAttr(true), i1Val(false),
-            /*rfo=*/readFromOutput);
+            /*idir=*/i32Attr(0), /*i_end_phase=*/i32Attr(4),
+            /*i_start_phase=*/sortStartPhase, tileA, tileB, boolAttr(true),
+            i1Val(false), /*rfo=*/readFromOutput);
         rewriter.create<TileTopkMergeOp>(
             loc, inputValues, bufIdxFilled, outValues, outIndices,
             /*mergeIter=*/mIterI32, i32Attr(32), tileA, tileB, boolAttr(false),
@@ -298,8 +299,8 @@ struct DecomposeTopkBlockPattern : OpRewritePattern<TopkBlockOp> {
           Value tailTileIdx = flat(tailRawIdx);
           rewriter.create<TileTopkLocalSortOp>(
               loc, inputValues, bufIdxFilled, outValues, outIndices,
-              /*sortStartPhase=*/i32Val(0), /*sortEndPhase=*/i32Attr(4),
-              /*idir=*/i32Attr(0), /*tileA=*/tailTileIdx,
+              /*idir=*/i32Attr(0), /*i_end_phase=*/i32Attr(4),
+              /*i_start_phase=*/i32Val(0), /*tileA=*/tailTileIdx,
               /*tileB=*/tailTileIdx, /*is_group_start=*/boolAttr(true),
               /*is_group_end=*/i1Val(true), /*rfo=*/falseVal);
         }

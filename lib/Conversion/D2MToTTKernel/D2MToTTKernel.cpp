@@ -2192,8 +2192,8 @@ public:
 
     emitTopkGroupStartIfNeeded(rewriter, loc, op, tileA, tileB);
     rewriter.create<ttkernel::TopkLocalSortOp>(
-        loc, index(rewriter, loc, 0), op.getIdir(), i32(op.getIEndPhase()),
-        i32(op.getIStartPhase()));
+        loc, index(rewriter, loc, 0), i32(op.getIdir()), i32(op.getIEndPhase()),
+        op.getIStartPhase());
     emitTopkGroupEndIfNeeded(rewriter, loc, op, tileA, tileB);
 
     rewriter.eraseOp(op);

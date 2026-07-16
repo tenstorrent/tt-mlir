@@ -1086,16 +1086,39 @@ def D2M_TileTopkLocalSortOp : D2M_GenericRegionComputeOp<"tile_topk_local_sort",
    D2M_SkipOpEltwiseFusionTrait]> {
     let summary = "D2M Tile TopK Local Sort Block Op";
     let description = [{
-        The `tile_topk_local_sort` operation bitonically sorts the input value block and its paired index block in place.
+        Runs a bitonic sort in place over the concatenated 2-tile sequence
+        formed by `tile_a` and `tile_b` (each a value tile paired with an
+        index tile), leaving each tile as a sorted run forming one bitonic
+        sequence across both. Maps onto the ttkernel `topk_local_sort` LLK
+        call.
+
+        - `values`/`indices`: input value/index tensors or memrefs.
+        - `out_values`/`out_indices`: output value/index tensors or memrefs;
+          the op's DPS inits (`getDpsInitsMutable` = operands 2-3).
+        - `idir`: sort direction (0 = descending).
+        - `i_end_phase`: last bitonic-network phase (0-indexed) to run; a full
+          64-element sort runs phases 0..5.
+        - `i_start_phase`: first bitonic-network phase (0-indexed) to run;
+          nonzero values resume a partially-sorted tile pair rather than
+          re-sorting from scratch.
+        - `tile_a`, `tile_b`: flat tile indices of the pair being sorted.
+        - `is_group_start`: whether this op is responsible for acquiring the
+          DST tile registers and copying `tile_a`/`tile_b` (values and
+          indices) in from the source CB.
+        - `is_group_end`: whether this op is responsible for packing the
+          resulting DST tiles back to the output CB and releasing the DST
+          tile registers.
+        - `read_from_output`: whether `tile_a`/`tile_b` are read from the
+          output value/index buffers instead of the input buffers.
     }];
 
     let arguments = (ins AnyRankedTensorOrMemRef:$values,
                          AnyRankedTensorOrMemRef:$indices,
                          AnyRankedTensorOrMemRef:$out_values,
                          AnyRankedTensorOrMemRef:$out_indices,
-                         I32:$idir,
+                         I32Attr:$idir,
                          I32Attr:$i_end_phase,
-                         I32Attr:$i_start_phase,
+                         I32:$i_start_phase,
                          Index:$tile_a,
                          Index:$tile_b,
                          BoolAttr:$is_group_start,
@@ -1116,7 +1139,28 @@ def D2M_TileTopkMergeOp : D2M_GenericRegionComputeOp<"tile_topk_merge",
    D2M_SkipOpEltwiseFusionTrait]> {
     let summary = "D2M Tile TopK Merge Block Op";
     let description = [{
-        The `tile_topk_merge` operation merges length-K subsequences so the top-K values land in the first subsequence.
+        Given two bitonic length-K subsequences held in `tile_a` and
+        `tile_b`, merges them so the top-K values/indices across both land in
+        `tile_a`; `tile_b` is left holding the complementary "losers". Maps
+        onto the ttkernel `topk_merge` LLK call.
+
+        - `values`/`indices`: input value/index tensors or memrefs.
+        - `out_values`/`out_indices`: output value/index tensors or memrefs;
+          the op's DPS inits (`getDpsInitsMutable` = operands 2-3).
+        - `m_iter`: merge-tree level (0-indexed) being merged; determines
+          which stride/shape of length-K runs the LLK merges.
+        - `k`: number of top elements tracked per subsequence.
+        - `tile_a`, `tile_b`: flat tile indices of the pair being merged;
+          after the merge, `tile_a` holds the combined top-K result, `tile_b`
+          the losers.
+        - `is_group_start`: whether this op is responsible for acquiring the
+          DST tile registers and copying `tile_a`/`tile_b` in from the source
+          CB.
+        - `is_group_end`: whether this op is responsible for packing the
+          resulting DST tiles back to the output CB and releasing the DST
+          tile registers.
+        - `read_from_output`: whether `tile_a`/`tile_b` are read from the
+          output value/index buffers instead of the input buffers.
     }];
 
     let arguments = (ins AnyRankedTensorOrMemRef:$values,
@@ -1145,7 +1189,32 @@ def D2M_TileTopkRebuildOp : D2M_GenericRegionComputeOp<"tile_topk_rebuild",
    D2M_SkipOpEltwiseFusionTrait]> {
     let summary = "D2M Tile TopK Rebuild Block Op";
     let description = [{
-        The `tile_topk_rebuild` operation re-sorts the surviving length-K subsequences into final order.
+        Re-sorts the length-K sequence held across `tile_a`/`tile_b` into
+        fully-ordered order (a merge only guarantees the top-K values landed
+        in `tile_a`, not that they're sorted). Maps onto the ttkernel
+        `topk_rebuild` LLK call.
+
+        - `values`/`indices`: input value/index tensors or memrefs.
+        - `out_values`/`out_indices`: output value/index tensors or memrefs;
+          the op's DPS inits (`getDpsInitsMutable` = operands 2-3).
+        - `idir`: sort direction (0 = descending).
+        - `m_iter`: merge-tree level (0-indexed) whose result is being
+          rebuilt.
+        - `k`: number of top elements retained in the rebuilt sequence.
+        - `logk`: `floor(log2(k))`; number of bitonic-network phases the
+          rebuild runs to fully re-sort the length-K sequence.
+        - `skip_second`: whether the rebuild's second sub-pass (over the
+          second half of the sequence) is skipped.
+        - `tile_a`, `tile_b`: flat tile indices of the pair being rebuilt;
+          after rebuild hold the fully sorted top-K result.
+        - `is_group_start`: whether this op is responsible for acquiring the
+          DST tile registers and copying `tile_a`/`tile_b` in from the source
+          CB.
+        - `is_group_end`: whether this op is responsible for packing the
+          resulting DST tiles back to the output CB and releasing the DST
+          tile registers.
+        - `read_from_output`: whether `tile_a`/`tile_b` are read from the
+          output value/index buffers instead of the input buffers.
     }];
 
     let arguments = (ins AnyRankedTensorOrMemRef:$values,

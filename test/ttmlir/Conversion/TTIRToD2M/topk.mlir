@@ -169,9 +169,4 @@ module {
     %values, %indices = "ttir.topk"(%arg0) <{k = 16 : i32, dim = -1 : i32, largest = true, sorted = false}> : (tensor<32x544xf32>) -> (tensor<32x16xf32>, tensor<32x16xsi32>)
     return %values, %indices : tensor<32x16xf32>, tensor<32x16xsi32>
   }
-
-  // Note: k>32 with non-pow2 reduction tiles is still rejected by the gate
-  // ("D2M topk requires a power-of-2 reduction tile count when k > 32").
-  // That negative case is not exercised here to avoid an unconverted op in the
-  // output; it can be tested via a separate -verify-diagnostics run.
 }

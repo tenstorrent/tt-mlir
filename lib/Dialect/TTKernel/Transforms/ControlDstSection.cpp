@@ -30,11 +30,37 @@ static Block *findBlockContaining(Operation *op) {
 }
 
 // Returns true if `op` is a pack_tile that already lives inside a
-// self-managed DST section. Some group ops emit a complete
+// self-managed DST section: a TileRegsAcquireOp precedes it and a
+// TileRegsReleaseOp follows it in the same block, with no intervening
+// acquire/release breaking that pairing. Some group ops emit a complete
 // commit/wait/pack/release sequence in the same block, so this pass must
 // not wrap them again.
 static bool isSelfManagedPackTile(Operation *op) {
-  return !op->getBlock()->getOps<ttkernel::TileRegsReleaseOp>().empty();
+  bool precededByAcquire = false;
+  for (Operation *it = op->getPrevNode(); it != nullptr;
+       it = it->getPrevNode()) {
+    if (isa<ttkernel::TileRegsAcquireOp>(it)) {
+      precededByAcquire = true;
+      break;
+    }
+    if (isa<ttkernel::TileRegsReleaseOp>(it)) {
+      break;
+    }
+  }
+  if (!precededByAcquire) {
+    return false;
+  }
+
+  for (Operation *it = op->getNextNode(); it != nullptr;
+       it = it->getNextNode()) {
+    if (isa<ttkernel::TileRegsReleaseOp>(it)) {
+      return true;
+    }
+    if (isa<ttkernel::TileRegsAcquireOp>(it)) {
+      return false;
+    }
+  }
+  return false;
 }
 
 static Operation *parentOpAtBlock(Operation *child, Block *atBlock) {

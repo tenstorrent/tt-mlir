@@ -3738,14 +3738,9 @@ public:
     // For k>32 with a non-pow2 tile count, the reduction dim is padded to the
     // next power of 2, so lastStride must use the padded count (not
     // numReductionTiles/2).
-    int64_t p = 1;
-    while (p < numReductionTiles) {
-      p <<= 1;
-    }
-    int64_t nextPow2 = p;
-    if (numReductionTiles <= 0 ||
-        (numReductionTiles & (numReductionTiles - 1)) == 0) {
-      nextPow2 = numReductionTiles;
+    int64_t nextPow2 = 1;
+    while (nextPow2 < numReductionTiles) {
+      nextPow2 <<= 1;
     }
     int64_t paddedNumReductionTiles = (k > 32) ? nextPow2 : numReductionTiles;
     int64_t lastStride = paddedNumReductionTiles / 2;
