@@ -648,7 +648,7 @@ at::Tensor tt_to_copy(const at::Tensor &self_in, std::optional<at::ScalarType> d
                       std::optional<at::MemoryFormat> /*memory_format*/) {
     auto target_dtype = dtype.value_or(self_in.scalar_type());
     // No-op if dtype unchanged and staying on tt device (or no device specified)
-    bool same_device = !device.has_value() || device->type() == c10::DeviceType::PrivateUse1;
+    bool same_device = !device.has_value() || is_tt(*device);
     if (target_dtype == self_in.scalar_type() && same_device) {
         return self_in;
     }

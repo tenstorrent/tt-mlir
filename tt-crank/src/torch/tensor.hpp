@@ -37,11 +37,6 @@ private:
 // Throws std::runtime_error if `t` is not a tt-backend tensor or has no storage.
 TensorStorage &storage_of(const at::Tensor &t);
 
-// Build an at::Tensor on PrivateUse1 device 0 with the given shape/dtype, whose
-// storage is backed by the supplied TensorStorage. Ownership of `storage`
-// transfers to the returned tensor's DataPtr; do not delete it yourself.
-at::Tensor make_tt_tensor(TensorStorage *storage, at::IntArrayRef sizes, c10::ScalarType dtype);
-
 // Wrap a runtime tensor (e.g. an output from compile_and_run) as an at::Tensor
 // labeled with `sizes` / `dtype`. The caller decides the user-facing dtype —
 // useful when the runtime descriptor reports a post-demotion physical type
@@ -53,20 +48,17 @@ at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef 
 // the empty/copy paths to wrap host buffers as tt::runtime::Tensors.
 ::tt::runtime::TensorDesc make_contiguous_desc(at::IntArrayRef sizes, c10::ScalarType dtype);
 
-// Build a multi-device tt::runtime host tensor of per-chip shape `sizes`.
-// Two overloads, one builder underneath:
-//   - replicated: one `data` buffer handed to every chip (nullptr → zero-init).
-//   - sharded: one distinct buffer per chip (`per_chip_shards`, length =
-//     num_chips); the ttnn TensorTopology is marked Shard. This is the path
-//     `scatter_into` / tt→tt copy use.
-// On a 1x1 mesh or 0-dim tensor both collapse to a single owned host tensor.
-::tt::runtime::Tensor runtime_from_host_buffer(const void *data, at::IntArrayRef sizes, c10::ScalarType dtype);
-::tt::runtime::Tensor runtime_from_host_buffer(const std::vector<const void *> &per_chip_shards, at::IntArrayRef sizes,
+// Creates a runtime tensor from provided host buffers (shards).
+// This API is used for creating both single and multi device tensors.
+::tt::runtime::Tensor runtime_from_host_shards(std::vector<const void *> shards, at::IntArrayRef sizes,
                                                c10::ScalarType dtype);
 
 // Convenience wrapper over `runtime_from_host_buffer` for the common
 // CPU-torch-tensor source: pulls data_ptr/sizes/dtype off `cpu_src`.
 ::tt::runtime::Tensor runtime_from_torch_tensor(const at::Tensor &cpu_src);
+
+// True iff `d` is a tt (PrivateUse1) device.
+bool is_tt(const at::Device &d);
 
 // True iff `t` is on a tt (PrivateUse1) device.
 bool is_tt(const at::Tensor &t);
