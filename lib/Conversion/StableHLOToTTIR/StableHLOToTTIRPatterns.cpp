@@ -7129,7 +7129,8 @@ private:
         // supported; reject anything else.
         int64_t scatterDim = scatterDimsToOperandDims[0];
         if (insertedWindowDims.size() != 1 ||
-            insertedWindowDims[0] != scatterDim || inputRank - 1 != updateRank) {
+            insertedWindowDims[0] != scatterDim ||
+            inputRank - 1 != updateRank) {
           return rewriter.notifyMatchFailure(
               op, "TTIR single dimensional scatter: unsupported rank-reducing "
                   "form (only setting a single hyper-slice along the scattered "
@@ -7533,7 +7534,8 @@ private:
     RankedTensorType broadcastType = RankedTensorType::get(
         promotedShape, indicesType.getElementType(), indicesType.getEncoding());
     llvm::SmallVector<int64_t> broadcastDims =
-        ttmlir::utils::getBroadcastDimensions<int64_t>(onesShape, promotedShape);
+        ttmlir::utils::getBroadcastDimensions<int64_t>(onesShape,
+                                                       promotedShape);
     Value promotedIndex = rewriter.create<ttir::BroadcastOp>(
         ttmlir::utils::appendLocationSuffix(loc, "_index_broadcast"),
         broadcastType, reshapedIndex,

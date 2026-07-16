@@ -31,9 +31,9 @@ func.func @rank_reducing_scatter_middle_dim(%operand: tensor<2x32x32xbf16>, %ind
   // CHECK: "ttnn.scatter"
   %result = "stablehlo.scatter"(%operand, %indices, %update) <{
     scatter_dimension_numbers = #stablehlo.scatter<
-      update_window_dims = [0, 1], 
-      inserted_window_dims = [1], 
-      scatter_dims_to_operand_dims = [1], 
+      update_window_dims = [0, 1],
+      inserted_window_dims = [1],
+      scatter_dims_to_operand_dims = [1],
       index_vector_dim = 0>
   }> ({
   ^bb0(%a: tensor<bf16>, %b: tensor<bf16>):

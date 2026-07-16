@@ -183,9 +183,9 @@ module @jit_scatter attributes {} {
         // CHECK-SAME: (tensor<3x3xf32>, tensor<1x3xi64>, tensor<1x3xf32>) -> tensor<3x3xf32>
         %result = "stablehlo.scatter"(%operand, %indices, %update) <{
             scatter_dimension_numbers = #stablehlo.scatter<
-                update_window_dims = [0], 
-                inserted_window_dims = [0], 
-                scatter_dims_to_operand_dims = [0], 
+                update_window_dims = [0],
+                inserted_window_dims = [0],
+                scatter_dims_to_operand_dims = [0],
                 index_vector_dim = 0>
         }> ({
         ^bb0(%a: tensor<f32>, %b: tensor<f32>):
@@ -210,9 +210,9 @@ module @jit_scatter attributes {} {
         // CHECK-SAME: (tensor<2x3x4x5xf32>, tensor<2x1x4x5xi64>, tensor<2x1x4x5xf32>) -> tensor<2x3x4x5xf32>
         %result = "stablehlo.scatter"(%operand, %indices, %update) <{
             scatter_dimension_numbers = #stablehlo.scatter<
-                update_window_dims = [0, 1, 2], 
-                inserted_window_dims = [1], 
-                scatter_dims_to_operand_dims = [1], 
+                update_window_dims = [0, 1, 2],
+                inserted_window_dims = [1],
+                scatter_dims_to_operand_dims = [1],
                 index_vector_dim = 0>
         }> ({
         ^bb0(%a: tensor<f32>, %b: tensor<f32>):
