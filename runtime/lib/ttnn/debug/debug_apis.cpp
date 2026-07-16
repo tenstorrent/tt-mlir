@@ -19,9 +19,12 @@ static ::ttnn::MemoryConfig
 normalizeMemoryConfigForTensor(const ::ttnn::Tensor &tensor,
                                const ::ttnn::MemoryConfig &memoryConfig) {
   const ::ttnn::TensorSpec &spec = tensor.tensor_spec();
-  return ::ttnn::TensorSpec(
-             spec.logical_shape(),
-             spec.tensor_layout().with_memory_config(memoryConfig))
+  const ::ttnn::TensorLayout &layout = spec.tensor_layout();
+  return ::ttnn::TensorSpec(spec.logical_shape(),
+                            ::ttnn::TensorLayout(layout.get_data_type(),
+                                                 layout.get_page_config(),
+                                                 memoryConfig,
+                                                 layout.get_alignment()))
       .memory_config();
 }
 

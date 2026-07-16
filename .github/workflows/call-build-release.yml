@@ -72,17 +72,11 @@ jobs:
         echo "Updating tt-metal to SHA: ${{ inputs.metal_override }}"
         sed -i "s/set(TT_METAL_VERSION \".*\")/set(TT_METAL_VERSION \"${{ inputs.metal_override }}\")/" third_party/CMakeLists.txt
 
-    - name: Fetch job id
-      id: fetch-job-id
-      uses: tenstorrent/tt-github-actions/.github/actions/job_id@main
-      with:
-        job_name: "Build ${{ matrix.build.name }} Release"
-
     - name: Set reusable strings
       id: strings
       shell: bash
       env:
-        JOB_ID: ${{ steps.fetch-job-id.outputs.job_id }}
+        JOB_ID: ${{ job.check_run_id }}
       run: |
         echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
         echo "build-output-dir=$(pwd)/build" >> "$GITHUB_OUTPUT"

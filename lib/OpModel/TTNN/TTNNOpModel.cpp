@@ -828,40 +828,39 @@ static ::ttnn::Tensor
 moeComputePackW0W1(const ::ttnn::Tensor &w0, const ::ttnn::Tensor &w1,
                    std::optional<::ttnn::Tensor> b0,
                    std::optional<::ttnn::Tensor> b1, uint32_t hiddenSize,
-                   uint32_t intermediateSize, uint32_t bhRingSize,
-                   ::ttnn::MeshDevice *device) {
+                   uint32_t intermediateSize, ::ttnn::MeshDevice *device) {
   uint32_t L = w0.logical_shape()[0];
   uint32_t E = w0.logical_shape()[1];
   bool hasBias = b0.has_value();
   ::ttnn::Tensor packed =
       hasBias ? ::ttnn::experimental::prepare_w0_w1_tensor_with_bias(
-                    w0, w1, *b0, *b1, L, E, hiddenSize, intermediateSize,
-                    bhRingSize)
+                    w0, w1, *b0, *b1, L, E, hiddenSize, intermediateSize)
               : ::ttnn::experimental::prepare_w0_w1_tensor_for_moe_compute(
-                    w0, w1, L, E, hiddenSize, intermediateSize, bhRingSize);
+                    w0, w1, L, E, hiddenSize, intermediateSize);
   return ::ttnn::experimental::quantize_weights_via_host(
       packed, ::tt::tt_metal::DataType::BFLOAT4_B,
-      ::ttnn::experimental::get_weight_mem_configs(
-          device, L, E, hiddenSize, intermediateSize, hasBias, bhRingSize)
+      ::ttnn::experimental::get_weight_mem_configs(device, L, E, hiddenSize,
+                                                   intermediateSize, hasBias)
           .w0_w1);
 }
 
-static ::ttnn::Tensor
-moeComputePackW2(const ::ttnn::Tensor &w2, std::optional<::ttnn::Tensor> b2,
-                 uint32_t hiddenSize, uint32_t intermediateSize,
-                 uint32_t bhRingSize, ::ttnn::MeshDevice *device) {
+static ::ttnn::Tensor moeComputePackW2(const ::ttnn::Tensor &w2,
+                                       std::optional<::ttnn::Tensor> b2,
+                                       uint32_t hiddenSize,
+                                       uint32_t intermediateSize,
+                                       ::ttnn::MeshDevice *device) {
   uint32_t L = w2.logical_shape()[0];
   uint32_t E = w2.logical_shape()[1];
   bool hasBias = b2.has_value();
   ::ttnn::Tensor packed =
       hasBias ? ::ttnn::experimental::prepare_w2_tensor_with_bias(
-                    w2, *b2, L, E, intermediateSize, hiddenSize, bhRingSize)
+                    w2, *b2, L, E, intermediateSize, hiddenSize)
               : ::ttnn::experimental::prepare_w2_tensor_for_moe_compute(
-                    w2, L, E, intermediateSize, hiddenSize, bhRingSize);
+                    w2, L, E, intermediateSize, hiddenSize);
   return ::ttnn::experimental::quantize_weights_via_host(
       packed, ::tt::tt_metal::DataType::BFLOAT4_B,
-      ::ttnn::experimental::get_weight_mem_configs(
-          device, L, E, hiddenSize, intermediateSize, hasBias, bhRingSize)
+      ::ttnn::experimental::get_weight_mem_configs(device, L, E, hiddenSize,
+                                                   intermediateSize, hasBias)
           .w2);
 }
 
@@ -873,11 +872,9 @@ static auto makePrepareMoEComputeW0W1WeightsQuery(
     std::optional<TTNNLayoutAttr> bias0Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
     std::optional<TTNNLayoutAttr> bias1Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
-
-  uint32_t ring = bhRingSize.value_or(12);
 
   return [=]() {
     ::ttnn::TensorSpec w0Spec = conversion::getTensorSpec(w0Shape, w0Layout);
@@ -892,7 +889,7 @@ static auto makePrepareMoEComputeW0W1WeightsQuery(
     }
     return ::ttnn::graph::query_op_constraints(
         WRAP_OP(moeComputePackW0W1), device, w0Spec, w1Spec, b0Spec, b1Spec,
-        hiddenSize, intermediateSize, ring, device);
+        hiddenSize, intermediateSize, device);
   };
 }
 
@@ -904,10 +901,10 @@ getPrepareMoEComputeW0W1WeightsOpOutputTensorSpec(
     std::optional<TTNNLayoutAttr> bias0Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
     std::optional<TTNNLayoutAttr> bias1Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
   auto query = makePrepareMoEComputeW0W1WeightsQuery(
       w0Shape, w0Layout, w1Shape, w1Layout, bias0Shape, bias0Layout, bias1Shape,
-      bias1Layout, hiddenSize, intermediateSize, bhRingSize);
+      bias1Layout, hiddenSize, intermediateSize);
   auto output = operation::executeConstraintQuery(query);
   if (!output) {
     return output.takeError();
@@ -921,11 +918,10 @@ static auto makePrepareMoEComputeW2WeightsQuery(
     llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
     std::optional<TTNNLayoutAttr> bias2Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  uint32_t ring = bhRingSize.value_or(12);
   return [=]() {
     ::ttnn::TensorSpec w2Spec = conversion::getTensorSpec(w2Shape, w2Layout);
     std::optional<::ttnn::TensorSpec> b2Spec;
@@ -934,7 +930,7 @@ static auto makePrepareMoEComputeW2WeightsQuery(
     }
     return ::ttnn::graph::query_op_constraints(
         WRAP_OP(moeComputePackW2), device, w2Spec, b2Spec, hiddenSize,
-        intermediateSize, ring, device);
+        intermediateSize, device);
   };
 }
 
@@ -943,10 +939,9 @@ getPrepareMoEComputeW2WeightsOpOutputTensorSpec(
     llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
     std::optional<TTNNLayoutAttr> bias2Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
   auto query = makePrepareMoEComputeW2WeightsQuery(
-      w2Shape, w2Layout, bias2Shape, bias2Layout, hiddenSize, intermediateSize,
-      bhRingSize);
+      w2Shape, w2Layout, bias2Shape, bias2Layout, hiddenSize, intermediateSize);
   auto output = operation::executeConstraintQuery(query);
   if (!output) {
     return output.takeError();
@@ -966,11 +961,11 @@ OpModel<PrepareMoEComputeW0W1WeightsOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> bias0Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias1Shape,
     std::optional<TTNNLayoutAttr> bias1Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto query = makePrepareMoEComputeW0W1WeightsQuery(
       w0Shape, w0Layout, w1Shape, w1Layout, bias0Shape, bias0Layout, bias1Shape,
-      bias1Layout, hiddenSize, intermediateSize, bhRingSize);
+      bias1Layout, hiddenSize, intermediateSize);
   return operation::getOpConstraints(w0Layout.getContext(), query);
 #else
   return OpConstraints{};
@@ -982,11 +977,10 @@ OpModel<PrepareMoEComputeW2WeightsOp>::getOpConstraints(
     llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
     std::optional<TTNNLayoutAttr> bias2Layout, uint32_t hiddenSize,
-    uint32_t intermediateSize, std::optional<uint32_t> bhRingSize) {
+    uint32_t intermediateSize) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   auto query = makePrepareMoEComputeW2WeightsQuery(
-      w2Shape, w2Layout, bias2Shape, bias2Layout, hiddenSize, intermediateSize,
-      bhRingSize);
+      w2Shape, w2Layout, bias2Shape, bias2Layout, hiddenSize, intermediateSize);
   return operation::getOpConstraints(w2Layout.getContext(), query);
 #else
   return OpConstraints{};
@@ -3069,6 +3063,109 @@ OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// ChunkedScaledDotProductAttentionOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints>
+OpModel<ChunkedScaledDotProductAttentionOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+    llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+    llvm::ArrayRef<int64_t> pageTableShape, TTNNLayoutAttr pageTableLayout,
+    llvm::ArrayRef<int64_t> chunkStartIdxShape,
+    TTNNLayoutAttr chunkStartIdxLayout, std::optional<llvm::APFloat> scale,
+    std::optional<SDPAProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec valueSpec,
+      detail::convertToTensorSpec(device, valueShape, valueLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec pageTableSpec,
+      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec chunkStartIdxSpec,
+                   detail::convertToTensorSpec(device, chunkStartIdxShape,
+                                               chunkStartIdxLayout));
+
+  std::optional<float> scaleFloat =
+      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+      sdpaProgramConfig = conversion::getSDPAProgramConfig(programConfig);
+
+  auto chunkedScaledDotProductAttentionOpQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS(
+        ::ttnn::transformer::chunked_scaled_dot_product_attention, device,
+        querySpec, keySpec, valueSpec, pageTableSpec, chunkStartIdxSpec,
+        scaleFloat, detail::getNullableMemoryConfig(outputLayout),
+        sdpaProgramConfig,
+        /*compute_kernel_config=*/std::nullopt);
+  };
+
+  return operation::getOpConstraints(queryLayout.getContext(),
+                                     chunkedScaledDotProductAttentionOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+OpModel<ChunkedScaledDotProductAttentionOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+    llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+    llvm::ArrayRef<int64_t> pageTableShape, TTNNLayoutAttr pageTableLayout,
+    llvm::ArrayRef<int64_t> chunkStartIdxShape,
+    TTNNLayoutAttr chunkStartIdxLayout, std::optional<llvm::APFloat> scale,
+    std::optional<SDPAProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec valueSpec,
+      detail::convertToTensorSpec(device, valueShape, valueLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec pageTableSpec,
+      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec chunkStartIdxSpec,
+                   detail::convertToTensorSpec(device, chunkStartIdxShape,
+                                               chunkStartIdxLayout));
+
+  std::optional<float> scaleFloat =
+      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+      sdpaProgramConfig = conversion::getSDPAProgramConfig(programConfig);
+
+  auto chunkedScaledDotProductAttentionOpQuery = [=]() {
+    return QUERY_OP_RUNTIME(
+        ::ttnn::transformer::chunked_scaled_dot_product_attention, device,
+        querySpec, keySpec, valueSpec, pageTableSpec, chunkStartIdxSpec,
+        scaleFloat, detail::getNullableMemoryConfig(outputLayout),
+        sdpaProgramConfig,
+        /*compute_kernel_config=*/std::nullopt);
+  };
+
+  return operation::getOpRuntime(chunkedScaledDotProductAttentionOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // ScaledDotProductAttentionOp
 //===----------------------------------------------------------------------===//
 
@@ -5048,6 +5145,223 @@ llvm::Expected<size_t> OpModel<Conv2dOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// Conv1dOp
+//===----------------------------------------------------------------------===//
+#ifdef TTMLIR_ENABLE_OPMODEL
+namespace {
+// Builds the 2D-equivalent parameters `ttnn::conv1d` uses internally, for the
+// shared conv2d weight/bias prepare step:
+//   input   (N, L_in, C) -> (N, 1, L_in, C)
+//   weight  (O, C/G, K)  -> (O, C/G, 1, K)  ("OIHW")
+//   kernel/stride/dilation gain a leading 1; padding [pL, pR] ->
+//     {top=0, left=pL, bottom=0, right=pR} (the order reorderPool2dPadding
+//     consumes for a 4-element padding).
+struct Conv1dConv2dPrepParams {
+  llvm::SmallVector<int64_t, 4> inputShape;
+  llvm::SmallVector<int64_t, 4> weightShape;
+  llvm::SmallVector<int32_t, 2> kernelSize;
+  llvm::SmallVector<int32_t, 2> stride;
+  llvm::SmallVector<int32_t, 4> padding;
+  llvm::SmallVector<int32_t, 2> dilation;
+};
+
+Conv1dConv2dPrepParams
+getConv1dConv2dPrepParams(llvm::ArrayRef<int64_t> inputShape,
+                          llvm::ArrayRef<int64_t> weightShape,
+                          uint32_t kernel_size, uint32_t stride,
+                          llvm::ArrayRef<int32_t> padding, uint32_t dilation) {
+  return Conv1dConv2dPrepParams{
+      /*inputShape=*/{inputShape[0], 1, inputShape[1], inputShape[2]},
+      /*weightShape=*/{weightShape[0], weightShape[1], 1, weightShape[2]},
+      /*kernelSize=*/{1, static_cast<int32_t>(kernel_size)},
+      /*stride=*/{1, static_cast<int32_t>(stride)},
+      /*padding=*/{0, padding[0], 0, padding[1]},
+      /*dilation=*/{1, static_cast<int32_t>(dilation)}};
+}
+
+// `ttnn::conv1d` forces L1_FULL slicing when no slice config is provided;
+// return that effective config so the weight prepare and the query match
+// runtime.
+Conv2dSliceConfigAttr getConv1dEffectiveSliceConfig(
+    mlir::MLIRContext *ctx, std::optional<Conv2dSliceConfigAttr> sliceConfig) {
+  if (sliceConfig && *sliceConfig) {
+    return *sliceConfig;
+  }
+  return Conv2dSliceConfigAttr::get(ctx, Conv2dSliceType::L1Full,
+                                    /*num_slices=*/0);
+}
+} // namespace
+#endif // TTMLIR_ENABLE_OPMODEL
+
+llvm::Expected<OpConstraints> OpModel<Conv1dOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<TTNNLayoutAttr> biasLayout, uint32_t in_channels,
+    uint32_t out_channels, uint32_t batch_size, uint32_t input_length,
+    uint32_t kernel_size, uint32_t stride, llvm::ArrayRef<int32_t> padding,
+    uint32_t dilation, uint32_t groups,
+    std::optional<Conv2dConfigAttr> conv2dConfig,
+    std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  Conv1dConv2dPrepParams prep = getConv1dConv2dPrepParams(
+      inputShape, weightShape, kernel_size, stride, padding, dilation);
+  Conv2dSliceConfigAttr sliceConfig = getConv1dEffectiveSliceConfig(
+      inputLayout.getContext(), conv2dSliceConfig);
+
+  // Prepare weight tensor first (shared conv2d prepare helper).
+  llvm::Expected<::ttnn::TensorSpec> preparedWeightExp =
+      getPrepareConv2dWeightsOpOutputTensorSpec(
+          prep.inputShape, inputLayout, prep.weightShape, weightLayout,
+          in_channels, out_channels, batch_size, /*input_height=*/1,
+          /*input_width=*/input_length, prep.kernelSize, prep.stride,
+          prep.padding, prep.dilation, groups, conv2dConfig, sliceConfig,
+          biasLayout.has_value(), /*transpose*/ false);
+  if (!preparedWeightExp) {
+    return preparedWeightExp.takeError();
+  }
+  ::ttnn::TensorSpec weightSpec = preparedWeightExp.get();
+
+  // Prepare bias tensor if present.
+  std::optional<::ttnn::TensorSpec> biasSpec;
+  if (biasShape && biasLayout) {
+    llvm::Expected<::ttnn::TensorSpec> preparedBiasExp =
+        getPrepareConv2dBiasOpOutputTensorSpec(
+            prep.inputShape, inputLayout, *biasShape, *biasLayout,
+            weightSpec.data_type(), in_channels, out_channels, batch_size,
+            /*input_height=*/1, /*input_width=*/input_length, prep.kernelSize,
+            prep.stride, prep.padding, prep.dilation, groups, conv2dConfig,
+            /*transpose*/ false);
+    if (!preparedBiasExp) {
+      return preparedBiasExp.takeError();
+    }
+    biasSpec = preparedBiasExp.get();
+  }
+
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+
+  std::optional<::tt::tt_metal::DataType> outputDtype =
+      detail::getNullableDataType(outputLayout);
+  std::optional<::ttnn::Conv2dConfig> conv2dConfigConverted =
+      conversion::getConv2dConfig(conv2dConfig);
+  std::optional<::ttnn::DeviceComputeKernelConfig>
+      deviceComputeKernelConfigConverted =
+          conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig);
+  std::optional<::ttnn::Conv2dSliceConfig> sliceConfigConverted =
+      conversion::getConv2dSliceConfig(sliceConfig);
+
+  // conv1d padding is std::variant<std::array<uint32_t, 2>, uint32_t>; use the
+  // (left, right) array alternative, matching the runtime op.
+  std::variant<std::array<uint32_t, 2>, uint32_t> conv1dPadding =
+      conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding);
+
+  auto conv1dOpQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS(
+        ::ttnn::conv1d, device, inputSpec, weightSpec, device, in_channels,
+        out_channels, batch_size, input_length, kernel_size, stride,
+        conv1dPadding, dilation, groups, outputDtype, biasSpec,
+        conv2dConfigConverted, deviceComputeKernelConfigConverted,
+        detail::getNullableMemoryConfig(outputLayout), sliceConfigConverted,
+        /*return_output_dim=*/false,
+        /*return_weights_and_bias=*/false);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), conv1dOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<Conv1dOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
+    std::optional<llvm::ArrayRef<int64_t>> biasShape,
+    std::optional<TTNNLayoutAttr> biasLayout, uint32_t in_channels,
+    uint32_t out_channels, uint32_t batch_size, uint32_t input_length,
+    uint32_t kernel_size, uint32_t stride, llvm::ArrayRef<int32_t> padding,
+    uint32_t dilation, uint32_t groups,
+    std::optional<Conv2dConfigAttr> conv2dConfig,
+    std::optional<DeviceComputeKernelConfigAttr> deviceComputeKernelConfig,
+    std::optional<Conv2dSliceConfigAttr> conv2dSliceConfig,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  Conv1dConv2dPrepParams prep = getConv1dConv2dPrepParams(
+      inputShape, weightShape, kernel_size, stride, padding, dilation);
+  Conv2dSliceConfigAttr sliceConfig = getConv1dEffectiveSliceConfig(
+      inputLayout.getContext(), conv2dSliceConfig);
+
+  llvm::Expected<::ttnn::TensorSpec> preparedWeightExp =
+      getPrepareConv2dWeightsOpOutputTensorSpec(
+          prep.inputShape, inputLayout, prep.weightShape, weightLayout,
+          in_channels, out_channels, batch_size, /*input_height=*/1,
+          /*input_width=*/input_length, prep.kernelSize, prep.stride,
+          prep.padding, prep.dilation, groups, conv2dConfig, sliceConfig,
+          biasLayout.has_value(), /*transpose*/ false);
+  if (!preparedWeightExp) {
+    return preparedWeightExp.takeError();
+  }
+  ::ttnn::TensorSpec weightSpec = preparedWeightExp.get();
+
+  std::optional<::ttnn::TensorSpec> biasSpec;
+  if (biasShape && biasLayout) {
+    llvm::Expected<::ttnn::TensorSpec> preparedBiasExp =
+        getPrepareConv2dBiasOpOutputTensorSpec(
+            prep.inputShape, inputLayout, *biasShape, *biasLayout,
+            weightSpec.data_type(), in_channels, out_channels, batch_size,
+            /*input_height=*/1, /*input_width=*/input_length, prep.kernelSize,
+            prep.stride, prep.padding, prep.dilation, groups, conv2dConfig,
+            /*transpose*/ false);
+    if (!preparedBiasExp) {
+      return preparedBiasExp.takeError();
+    }
+    biasSpec = preparedBiasExp.get();
+  }
+
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+
+  std::optional<::tt::tt_metal::DataType> outputDtype =
+      detail::getNullableDataType(outputLayout);
+  std::optional<::ttnn::Conv2dConfig> conv2dConfigConverted =
+      conversion::getConv2dConfig(conv2dConfig);
+  std::optional<::ttnn::DeviceComputeKernelConfig>
+      deviceComputeKernelConfigConverted =
+          conversion::getDeviceComputeKernelConfig(deviceComputeKernelConfig);
+  std::optional<::ttnn::Conv2dSliceConfig> sliceConfigConverted =
+      conversion::getConv2dSliceConfig(sliceConfig);
+
+  std::variant<std::array<uint32_t, 2>, uint32_t> conv1dPadding =
+      conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(padding);
+
+  auto conv1dOpQuery = [=]() {
+    return QUERY_OP_RUNTIME(
+        ::ttnn::conv1d, device, inputSpec, weightSpec, device, in_channels,
+        out_channels, batch_size, input_length, kernel_size, stride,
+        conv1dPadding, dilation, groups, outputDtype, biasSpec,
+        conv2dConfigConverted, deviceComputeKernelConfigConverted,
+        detail::getNullableMemoryConfig(outputLayout), sliceConfigConverted,
+        /*return_output_dim=*/false,
+        /*return_weights_and_bias=*/false);
+  };
+
+  return operation::getOpRuntime(conv1dOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // Conv3dOp
 //===----------------------------------------------------------------------===//
 
@@ -6727,32 +7041,6 @@ llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraints(
     std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
     llvm::APFloat epsilon, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  // tt-metal's group_norm hangs on a ROW_MAJOR input, reject row-major input
-  // here to force the optimizer to select a TILE input layout. tt-metal#47972
-  // tracks this issue. The raw query lives in getOpConstraintsRaw so the
-  // tripwire test can observe tt-metal's unguarded verdict; remove both once
-  // tt-metal#47972 is fixed.
-  if (inputLayout.getLayout() == mlir::tt::ttnn::Layout::RowMajor) {
-    return llvm::createStringError(
-        llvm::inconvertibleErrorCode(),
-        "group_norm ROW_MAJOR input is unsupported (hangs); requires TILE");
-  }
-#endif // TTMLIR_ENABLE_OPMODEL
-  return getOpConstraintsRaw(
-      inputShape, inputLayout, inputMaskShape, inputMaskLayout, weightShape,
-      weightLayout, biasShape, biasLayout, numGroups, epsilon, outputLayout);
-}
-
-llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraintsRaw(
-    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
-    std::optional<llvm::ArrayRef<int64_t>> inputMaskShape,
-    std::optional<TTNNLayoutAttr> inputMaskLayout,
-    std::optional<llvm::ArrayRef<int64_t>> weightShape,
-    std::optional<TTNNLayoutAttr> weightLayout,
-    std::optional<llvm::ArrayRef<int64_t>> biasShape,
-    std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
-    llvm::APFloat epsilon, TTNNLayoutAttr outputLayout) {
-#ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -6803,15 +7091,6 @@ llvm::Expected<size_t> OpModel<GroupNormOp>::getOpRuntime(
     std::optional<TTNNLayoutAttr> biasLayout, int64_t numGroups,
     llvm::APFloat epsilon, TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
-  // tt-metal's group_norm hangs on a ROW_MAJOR input, reject row-major input
-  // here to force the optimizer to select a TILE input layout. tt-metal#47972
-  // tracks this issue.
-  if (inputLayout.getLayout() == mlir::tt::ttnn::Layout::RowMajor) {
-    return llvm::createStringError(
-        llvm::inconvertibleErrorCode(),
-        "group_norm ROW_MAJOR input is unsupported (hangs); requires TILE");
-  }
-
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
@@ -7470,8 +7749,8 @@ OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
       deviceRef = *device;
 
   auto arangeOpQuery = [=]() {
-    return QUERY_OP_CONSTRAINTS(::ttnn::arange, device, start.getInt(),
-                                end.getInt(), step.getInt(), dataType,
+    return QUERY_OP_CONSTRAINTS(::ttnn::arange, device, start.getSInt(),
+                                end.getSInt(), step.getSInt(), dataType,
                                 deviceRef, memoryConfig, layout);
   };
 

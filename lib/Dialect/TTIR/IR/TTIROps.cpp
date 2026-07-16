@@ -1573,6 +1573,67 @@ mlir::Operation *mlir::tt::ttir::Conv2dOp::rewriteWithQuantizedInputs(
   return quantConv.getOperation();
 }
 
+//===----------------------------------------------------------------------===//
+// Conv1dOp
+//===----------------------------------------------------------------------===//
+
+// Get number of output channels
+int64_t mlir::tt::ttir::Conv1dOp::getOutputChannelSize() {
+  RankedTensorType weightTy = getWeight().getType();
+  return weightTy.getShape()[0];
+}
+
+// Conv1dOp verification
+::mlir::LogicalResult mlir::tt::ttir::Conv1dOp::verify() {
+  if (getInput().getType().getRank() != 3) {
+    return emitOpError("input must be a 3D tensor");
+  }
+  if (getWeight().getType().getRank() != 3) {
+    return emitOpError("weight must be a 3D tensor (O, C/G, K)");
+  }
+  if (getBias() && getBias().getType().getRank() != 3) {
+    return emitOpError("bias must be a 3D tensor (1, 1, O)");
+  }
+  if (getResult().getType().getRank() != 3) {
+    return emitOpError("output must be a 3D tensor");
+  }
+
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType weightType = getWeight().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  int64_t inChannels = inputType.getDimSize(getChannelDim());
+  int64_t outChannels = outputType.getDimSize(getChannelDim());
+  uint32_t groups = getGroups();
+
+  if (groups == 0) {
+    return emitOpError("groups must be a positive integer");
+  }
+  if (inChannels % groups != 0) {
+    return emitOpError("number of input channels (")
+           << inChannels << ") must be divisible by groups (" << groups << ")";
+  }
+  if (outChannels % groups != 0) {
+    return emitOpError("number of output channels (")
+           << outChannels << ") must be divisible by groups (" << groups << ")";
+  }
+
+  // weight is (O, C/G, K).
+  if (weightType.getDimSize(0) != outChannels) {
+    return emitOpError("expected weight's output channel dimension (")
+           << weightType.getDimSize(0)
+           << ") to match the output tensor's channel dimension ("
+           << outChannels << ")";
+  }
+  if (weightType.getDimSize(1) != inChannels / groups) {
+    return emitOpError("expected weight's input channel dimension (")
+           << weightType.getDimSize(1) << ") to match in_channels / groups ("
+           << inChannels / groups << ")";
+  }
+
+  return mlir::success();
+}
+
 // Conv2dOp verification
 ::mlir::LogicalResult mlir::tt::ttir::Conv2dOp::verify() {
   // Verify tensor ranks.
@@ -1694,6 +1755,120 @@ bool mlir::tt::ttir::Conv2dOp::isBiasCompatible(llvm::ArrayRef<int64_t> bias) {
   }
 
   return mlir::success();
+}
+
+// A 1x1x1 conv3d is just a matmul (or linear, when a bias is present), so it
+// can be rewritten to avoid the conv3d. This is only eligible for the canonical
+// NDHWC layout; other layouts are normalized to NDHWC first by the
+// decomposition pass.
+static bool isConv3dPointwiseLinearEligible(mlir::tt::ttir::Conv3dOp op) {
+  if (!op.isNDHWC()) {
+    return false;
+  }
+  if (op.getGroups() != 1) {
+    return false;
+  }
+
+  // Kernel must be 1x1x1. Weight is (Cout, Cin, K_D, K_H, K_W).
+  auto weightType = mlir::cast<RankedTensorType>(op.getWeight().getType());
+  ArrayRef<int64_t> weightShape = weightType.getShape();
+  if (weightShape.size() != 5 || weightShape[2] != 1 || weightShape[3] != 1 ||
+      weightShape[4] != 1) {
+    return false;
+  }
+
+  // Unit stride and no padding, otherwise the op is a strided/padded gather
+  // rather than a plain matmul or linear.
+  auto stride = ttmlir::utils::getTripleOfInteger<int32_t>(op.getStride());
+  if (!stride) {
+    llvm::consumeError(stride.takeError());
+    return false;
+  }
+  auto padding = ttmlir::utils::getTripleOfInteger<int32_t>(op.getPadding());
+  if (!padding) {
+    llvm::consumeError(padding.takeError());
+    return false;
+  }
+  auto [sD, sH, sW] = *stride;
+  auto [pD, pH, pW] = *padding;
+  return sD == 1 && sH == 1 && sW == 1 && pD == 0 && pH == 0 && pW == 0;
+}
+
+// Conv3dOp canonicalization
+void mlir::tt::ttir::Conv3dOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // Rewrite a pointwise (1x1x1) conv3d to matmul (or linear, when a bias is
+  // present).
+  //   input  (N,D,H,W,Cin) ->  reshape  -> (N*D*H*W, Cin)
+  //   weight (Cout,Cin,1,1,1)  ->  reshape ->  (Cout, Cin)
+  //   matmul (M,Cin) x (Cout,Cin)^T (transpose_b)  ->  (M, Cout) // no bias
+  //   linear (M,Cin) x (Cout,Cin)^T (transpose_b) + bias ->  (M, Cout) // bias
+  //   bias (1,1,1,1,Cout)  ->  reshape ->  (Cout,) // with bias
+  //   (M,Cout)  ->  reshape ->  (N,D,H,W,Cout)
+  patterns.add(+[](mlir::tt::ttir::Conv3dOp op,
+                   mlir::PatternRewriter &rewriter) {
+    if (!isConv3dPointwiseLinearEligible(op)) {
+      return mlir::failure();
+    }
+
+    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto weightType = mlir::cast<RankedTensorType>(op.getWeight().getType());
+    auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
+
+    ArrayRef<int64_t> inputShape = inputType.getShape();   // (N, D, H, W, Cin)
+    ArrayRef<int64_t> weightShape = weightType.getShape(); // (Cout, Cin, 1,1,1)
+
+    int64_t rows =
+        inputShape[0] * inputShape[1] * inputShape[2] * inputShape[3];
+    int64_t cIn = inputShape[4];
+    int64_t cOut = weightShape[0];
+
+    // Build a ttir.reshape of `value` to `shape`.
+    auto reshapeTo = [&](Value value, ArrayRef<int64_t> shape, Type elementType,
+                         StringRef suffix) -> Value {
+      SmallVector<int32_t> shapeI32(shape.begin(), shape.end());
+      return rewriter.create<ttir::ReshapeOp>(
+          ttmlir::utils::appendLocationSuffix(op.getLoc(), suffix),
+          RankedTensorType::get(shape, elementType), value,
+          rewriter.getI32ArrayAttr(shapeI32));
+    };
+
+    // Collapse the input's spatial/temporal dims into matmul rows, and drop the
+    // singleton kernel dims from the weight.
+    Value inputMatrix = reshapeTo(op.getInput(), {rows, cIn},
+                                  inputType.getElementType(), "_reshapeInput");
+    Value weightMatrix =
+        reshapeTo(op.getWeight(), {cOut, cIn}, weightType.getElementType(),
+                  "_reshapeWeight");
+
+    auto matmulResultType =
+        RankedTensorType::get({rows, cOut}, outputType.getElementType());
+
+    // weight is (Cout, Cin); transpose_b makes the contraction
+    // (M,Cin)x(Cin,Cout).
+    Value contraction;
+    if (Value bias = op.getBias()) {
+      Value biasVector = reshapeTo(
+          bias, {cOut},
+          mlir::cast<RankedTensorType>(bias.getType()).getElementType(),
+          "_reshapeBias");
+      contraction = rewriter.create<ttir::LinearOp>(
+          op.getLoc(), matmulResultType, inputMatrix, weightMatrix, biasVector,
+          /*transpose_a=*/false, /*transpose_b=*/true);
+    } else {
+      contraction = rewriter.create<ttir::MatmulOp>(
+          op.getLoc(), matmulResultType, inputMatrix, weightMatrix,
+          /*transpose_a=*/false, /*transpose_b=*/true);
+    }
+
+    // Restore the NDHWC output shape. Reuse the op's result type so the
+    // replacement type matches (D_out/H_out/W_out == D/H/W here).
+    SmallVector<int32_t> outShapeI32(outputType.getShape().begin(),
+                                     outputType.getShape().end());
+    rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
+        op, outputType, contraction, rewriter.getI32ArrayAttr(outShapeI32));
+    return mlir::success();
+  });
 }
 
 //===----------------------------------------------------------------------===//
@@ -7459,14 +7634,11 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
   auto numKVHeads = keyShape[1];
   auto blockSize = keyShape[2];
 
-  // Verify element types.
-  if (queryType.getElementType() != keyType.getElementType() ||
-      queryType.getElementType() != valueType.getElementType()) {
-    return emitOpError(
-        "Query, key, and value must have the same element type.");
-  }
-
-  if (!queryType.getElementType().isFloat()) {
+  // Query may be higher precision than a BFP8/BFP4 KV cache (mirrors the TTNN
+  // verifier relaxed in #8668); K == V is still enforced below.
+  if (!queryType.getElementType().isFloat() ||
+      !keyType.getElementType().isFloat() ||
+      !valueType.getElementType().isFloat()) {
     return emitOpError("Query, key, and value must be float tensors.");
   }
 
@@ -8221,10 +8393,6 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
   if (getClusterAxis()) {
     return emitOpError("compute_only moe_compute must not set cluster_axis");
   }
-  if (getBhRingSize() && *getBhRingSize() != 8 && *getBhRingSize() != 12 &&
-      *getBhRingSize() != 16) {
-    return emitOpError("bh_ring_size must be 8, 12, or 16");
-  }
 
   ::mlir::RankedTensorType inputType = getTilizeInputTensor().getType();
   if (inputType.getRank() < 2) {
@@ -8248,24 +8416,6 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
     return emitOpError() << "w0 hidden dim (" << w0Shape[2]
                          << ") must match tilize_input_tensor hidden_size ("
                          << hiddenSize << ")";
-  }
-
-  // The W0/W1 and W2 matmuls shard their contraction (intermediate_size) and
-  // the W2 output (hidden_size) across the matmul ring (bh_ring_size cores on
-  // BH, default 12; WH is always 12). If either dim has fewer than ring-size
-  // tiles, the per-core shard distribution degenerates and leaves output tiles
-  // uncomputed, so require at least one tile per ring core in both dims.
-  int64_t ringSize = getBhRingSize() ? *getBhRingSize() : 12;
-  int64_t minSize = ringSize * 32;
-  if (hiddenSize < minSize) {
-    return emitOpError() << "hidden_size (" << hiddenSize
-                         << ") must be at least bh_ring_size*32 = " << minSize
-                         << " (one tile per matmul-ring core)";
-  }
-  if (static_cast<int64_t>(getIntermediateSize()) < minSize) {
-    return emitOpError() << "intermediate_size (" << getIntermediateSize()
-                         << ") must be at least bh_ring_size*32 = " << minSize
-                         << " (one tile per matmul-ring core)";
   }
 
   return success();

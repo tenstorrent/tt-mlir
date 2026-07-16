@@ -47,11 +47,6 @@ void run(const ::tt::target::ttnn::MoeComputeOp *op, ProgramContext &context) {
   LOG_ASSERT(op->compute_only(),
              "moe_compute runtime only supports compute_only=true");
 
-  std::optional<uint32_t> bhRingSize;
-  if (op->bh_ring_size()) {
-    bhRingSize = op->bh_ring_size().value();
-  }
-
   // compute_only: every combine-path input stays unset; tt-metal returns the
   // first five tensors and matmul_output is the final output.
   std::vector<::ttnn::Tensor> results = ::ttnn::experimental::moe_compute(
@@ -62,8 +57,7 @@ void run(const ::tt::target::ttnn::MoeComputeOp *op, ProgramContext &context) {
       /*output_memory_config=*/std::nullopt,
       /*optional_output_tensor=*/std::nullopt,
       /*cross_device_semaphore=*/std::nullopt,
-      toMetalActivation(op->activation_function()), /*compute_only=*/true,
-      bhRingSize);
+      toMetalActivation(op->activation_function()), /*compute_only=*/true);
 
   LOG_ASSERT(results.size() == 5, "moe_compute returned ", results.size(),
              " tensors; expected 5 (compute_only)");

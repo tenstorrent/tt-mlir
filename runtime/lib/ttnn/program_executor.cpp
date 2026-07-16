@@ -29,6 +29,7 @@
 #include "operations/ccl/reduce_scatter.h"
 #include "operations/ccl/selective_reduce_combine.h"
 #include "operations/context/get_device.h"
+#include "operations/conv/conv1d.h"
 #include "operations/conv/conv2d.h"
 #include "operations/conv/conv3d.h"
 #include "operations/conv/conv_transpose2d.h"
@@ -506,6 +507,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::PrepareConvTranspose2dBiasOp: {
     return operations::conv::run(op->type_as_PrepareConvTranspose2dBiasOp(),
                                  getContext());
+  }
+  case ::tt::target::ttnn::OpType::Conv1dOp: {
+    return operations::conv::run(op->type_as_Conv1dOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
     return operations::conv::run(op->type_as_Conv2dOp(), getContext());

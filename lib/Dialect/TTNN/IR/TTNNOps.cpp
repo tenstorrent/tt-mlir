@@ -637,6 +637,48 @@ static bool isDefinedByOp(mlir::Value value) {
   return foundDefinedByOp;
 }
 
+// Conv1dOp verification
+int64_t mlir::tt::ttnn::Conv1dOp::getOutputChannelSize() {
+  RankedTensorType weightTy = getWeight().getType();
+  return weightTy.getShape()[0];
+}
+
+::mlir::LogicalResult mlir::tt::ttnn::Conv1dOp::verify() {
+  if (getInput().getType().getRank() != 3) {
+    return emitOpError("input must be a 3D tensor (N, L_in, C)");
+  }
+  if (getWeight().getType().getRank() != 3) {
+    return emitOpError("weight must be a 3D tensor (O, C/G, K)");
+  }
+  // ttnn::conv1d forwards the bias to ttnn::conv2d, which expects a 4D
+  // (1, 1, 1, O) bias.
+  if (getBias() && getBias().getType().getRank() != 4) {
+    return emitOpError("bias must be a 4D tensor (1, 1, 1, O)");
+  }
+  // ttnn::conv1d returns the output in ttnn::conv2d's flattened layout
+  // (1, 1, N * L_out, O).
+  if (getResult().getType().getRank() != 4) {
+    return emitOpError("output must be a 4D tensor (1, 1, N * L_out, O)");
+  }
+
+  if (getPadding().size() != 2) {
+    return emitOpError(
+        "padding attribute must have exactly 2 elements ([pL, pR])");
+  }
+
+  if (getGroups() <= 0) {
+    return emitOpError("groups must be a positive integer");
+  }
+  if (getInChannels() % getGroups() != 0) {
+    return emitOpError("in_channels must be divisible by groups");
+  }
+  if (getOutChannels() % getGroups() != 0) {
+    return emitOpError("out_channels must be divisible by groups");
+  }
+
+  return mlir::success();
+}
+
 // Conv2dOp verification
 ::mlir::LogicalResult mlir::tt::ttnn::Conv2dOp::verify() {
   using namespace mlir::tt::ttnn::utils::verification_utils::conv2d;
@@ -3137,10 +3179,6 @@ void mlir::tt::ttnn::MatmulOp::getCanonicalizationPatterns(
         "num_links, mux_core_range_set, optional_output_tensor, or "
         "cross_device_semaphore");
   }
-  if (getBhRingSize() && *getBhRingSize() != 8 && *getBhRingSize() != 12 &&
-      *getBhRingSize() != 16) {
-    return emitOpError("bh_ring_size must be 8, 12, or 16");
-  }
 
   RankedTensorType inputType = getTilizeInputTensor().getType();
   if (inputType.getRank() < 2) {
@@ -3151,24 +3189,6 @@ void mlir::tt::ttnn::MatmulOp::getCanonicalizationPatterns(
     return emitOpError(
         "tilize_input_tensor last dim (hidden_size) must be a positive "
         "multiple of 32");
-  }
-
-  // The W0/W1 and W2 matmuls shard their contraction (intermediate_size) and
-  // the W2 output (hidden_size) across the matmul ring (bh_ring_size cores on
-  // BH, default 12; WH is always 12). If either dim has fewer than ring-size
-  // tiles, the per-core shard distribution degenerates and leaves output tiles
-  // uncomputed, so require at least one tile per ring core in both dims.
-  int64_t ringSize = getBhRingSize() ? *getBhRingSize() : 12;
-  int64_t minSize = ringSize * 32;
-  if (hiddenSize < minSize) {
-    return emitOpError() << "hidden_size (" << hiddenSize
-                         << ") must be at least bh_ring_size*32 = " << minSize
-                         << " (one tile per matmul-ring core)";
-  }
-  if (static_cast<int64_t>(getIntermediateSize()) < minSize) {
-    return emitOpError() << "intermediate_size (" << getIntermediateSize()
-                         << ") must be at least bh_ring_size*32 = " << minSize
-                         << " (one tile per matmul-ring core)";
   }
 
   return success();

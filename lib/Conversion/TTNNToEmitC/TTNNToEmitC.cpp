@@ -1632,6 +1632,50 @@ public:
 // Conv2d op conversion pattern
 //
 namespace {
+class Conv1dOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::Conv1dOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::Conv1dOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::Conv1dOp srcOp,
+                  mlir::tt::ttnn::Conv1dOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::Conv1dOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getWeight()),
+        emitter.emit(srcOp.getDevice()),
+        emitter.emit(srcOp.getInChannels()),
+        emitter.emit(srcOp.getOutChannels()),
+        emitter.emit(srcOp.getBatchSize()),
+        emitter.emit(srcOp.getInputLength()),
+        emitter.emit(srcOp.getKernelSize()),
+        emitter.emit(srcOp.getStride()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
+        emitter.emit(srcOp.getDilation()),
+        emitter.emit(srcOp.getGroups()),
+        emitter.emit(srcOp.getDtypeAttr()),
+        emitter.emit(srcOp.getBias()),
+        emitter.emit(srcOp.getConv2dConfig()),
+        emitter.emit(srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getMemoryConfigAttr()),
+        emitter.emit(srcOp.getConv2dSliceConfigAttr()),
+        emitter.emit(false), // return_output_dim
+        emitter.emit(false), // return_weights_and_bias
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+
 class Conv2dOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::Conv2dOp> {
 
@@ -5661,6 +5705,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                                                                  ctx);
   patterns.add<PrepareConvTranspose2dBiasOpConversionPattern>(typeConverter,
                                                               ctx);
+  patterns.add<Conv1dOpConversionPattern>(typeConverter, ctx);
   patterns.add<Conv2dOpConversionPattern>(typeConverter, ctx);
   patterns.add<Conv3dOpConversionPattern>(typeConverter, ctx);
   patterns.add<ConvTranspose2dOpConversionPattern>(typeConverter, ctx);

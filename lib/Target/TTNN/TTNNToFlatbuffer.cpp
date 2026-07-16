@@ -893,6 +893,46 @@ createOp(FlatbufferObjectCache &cache, PrepareConvTranspose2dBiasOp op) {
       computeConfig.value_or(0), sliceConfig.value_or(0));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::Conv1dOp>
+createOp(FlatbufferObjectCache &cache, Conv1dOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto weight = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getWeight()));
+  auto bias = op.getBias()
+                  ? cache.at<::tt::target::ttnn::TensorRef>(
+                        getOperandThroughDPSOps(op.getBias()))
+                  : flatbuffers::Offset<::tt::target::ttnn::TensorRef>();
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+
+  auto device = getOperandThroughDPSOps(op.getDevice());
+
+  ::flatbuffers::Offset<::flatbuffers::Vector<int32_t>> padding =
+      toFlatbuffer(cache, op.getPadding());
+
+  auto outputDtype = toFlatbuffer(cache, op.getDtypeAttr());
+
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dConfig>>
+      conv2dConfig = toFlatbuffer(cache, op.getConv2dConfig());
+
+  std::optional<
+      ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>>
+      computeConfig = toFlatbuffer(cache, op.getComputeConfig());
+
+  std::optional<::flatbuffers::Offset<::tt::target::ttnn::Conv2dSliceConfig>>
+      sliceConfig = toFlatbuffer(cache, op.getConv2dSliceConfig());
+
+  return ::tt::target::ttnn::CreateConv1dOp(
+      *cache.fbb, input, weight, bias, output,
+      cache.at<::tt::target::DeviceRef>(device), op.getInChannels(),
+      op.getOutChannels(), op.getBatchSize(), op.getInputLength(),
+      op.getKernelSize(), op.getStride(), padding, op.getDilation(),
+      op.getGroups(), outputDtype, conv2dConfig.value_or(0),
+      computeConfig.value_or(0), sliceConfig.value_or(0));
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::Conv2dOp>
 createOp(FlatbufferObjectCache &cache, Conv2dOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -1335,13 +1375,9 @@ createOp(FlatbufferObjectCache &cache, PrepareMoEComputeW0W1WeightsOp op) {
   auto out = cache.getOrCreateNoSharding(op.getResult(),
                                          tensorValueToFlatbuffer, std::nullopt);
 
-  // `bh_ring_size` is schema-optional (uint32 = null); same absent-marker
-  // handling as the downstream moe_compute op.
-  auto bhRingSize = toFlatbuffer(cache, op.getBhRingSize());
-
   return ::tt::target::ttnn::CreatePrepareMoEComputeW0W1WeightsOp(
       *cache.fbb, w0, w1, bias0, bias1, deviceRef, op.getHiddenSize(),
-      op.getIntermediateSize(), bhRingSize, out);
+      op.getIntermediateSize(), out);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::PrepareMoEComputeW2WeightsOp>
@@ -1358,13 +1394,9 @@ createOp(FlatbufferObjectCache &cache, PrepareMoEComputeW2WeightsOp op) {
   auto out = cache.getOrCreateNoSharding(op.getResult(),
                                          tensorValueToFlatbuffer, std::nullopt);
 
-  // `bh_ring_size` is schema-optional (uint32 = null); same absent-marker
-  // handling as the downstream moe_compute op.
-  auto bhRingSize = toFlatbuffer(cache, op.getBhRingSize());
-
   return ::tt::target::ttnn::CreatePrepareMoEComputeW2WeightsOp(
       *cache.fbb, w2, bias2, deviceRef, op.getHiddenSize(),
-      op.getIntermediateSize(), bhRingSize, out);
+      op.getIntermediateSize(), out);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::MoeComputeOp>
@@ -1409,10 +1441,6 @@ createOp(FlatbufferObjectCache &cache, MoeComputeOp op) {
   auto numLinks = toFlatbuffer(cache, op.getNumLinks());
   auto topology = toFlatbuffer(cache, op.getTopology());
 
-  // `bh_ring_size` is schema-optional (uint32 = null); same absent-marker
-  // handling as num_links above.
-  auto bhRingSize = toFlatbuffer(cache, op.getBhRingSize());
-
   ::flatbuffers::Offset<::tt::target::ttnn::CoreRangeSet> muxCoreRangeSet = 0;
   if (op.getMuxCoreRangeSetAttr()) {
     muxCoreRangeSet = toFlatbuffer(cache, op.getMuxCoreRangeSetAttr());
@@ -1436,8 +1464,8 @@ createOp(FlatbufferObjectCache &cache, MoeComputeOp op) {
       w2, optionalOutput, crossDeviceSemaphore, deviceRef, op.getLayerId(),
       op.getOutputHeightShardDim(), op.getIntermediateSize(), op.getHasBias(),
       clusterAxis, activation, numLinks, topology, muxCoreRangeSet,
-      op.getComputeOnly(), bhRingSize, perExpertTokens, expertActivation,
-      expertToToken, tilizeOutput, matmulOutput, combineOutput);
+      op.getComputeOnly(), perExpertTokens, expertActivation, expertToToken,
+      tilizeOutput, matmulOutput, combineOutput);
 }
 
 // Convert ttcore::ReduceType to tt::target::ttnn::ScatterReduceType
@@ -4620,6 +4648,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
       prepareConvTranspose2dBiasOp) {
     return createOperation(cache, createOp(cache, prepareConvTranspose2dBiasOp),
                            debugString, locInfo);
+  }
+  if (auto conv1dOp = dyn_cast<Conv1dOp>(op); conv1dOp) {
+    return createOperation(cache, createOp(cache, conv1dOp), debugString,
+                           locInfo);
   }
   if (auto conv2dOp = dyn_cast<Conv2dOp>(op); conv2dOp) {
     return createOperation(cache, createOp(cache, conv2dOp), debugString,
