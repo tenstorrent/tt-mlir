@@ -37,27 +37,27 @@ void delete_storage(void *p) {
 // shards (= mesh_size), NOT a dim index; "tensor_shard_dim" is the tensor dim
 // being split - cosmetic topology metadata (DTensor never forwards the real
 // dim), always 0.
-std::unordered_map<std::string, std::string> shard_strategy(std::size_t mesh_size) {
+std::unordered_map<std::string, std::string> shard_strategy(std::size_t num_shards, std::size_t mesh_size) {
+    if (num_shards == 1) {
+        return {{"strategy", "replicate"}, {"replication_factor", std::to_string(mesh_size)}};
+    }
     return {{"strategy", "shard"}, {"shard_dim", std::to_string(mesh_size)}, {"tensor_shard_dim", "0"}};
 }
 
 } // namespace
 
 TensorStorage &storage_of(const at::Tensor &t) {
-    TORCH_CHECK(t.device().type() == c10::DeviceType::PrivateUse1,
-                "tt-kurbla storage_of: tensor is not on the tt backend (device: ", t.device(), ")");
+    TORCH_CHECK(is_tt(t), "tt-kurbla storage_of: tensor is not on the tt backend (device: ", t.device(), ")");
     void *ctx = t.storage().data_ptr().get_context();
     TORCH_CHECK(ctx != nullptr, "tt-kurbla storage_of: tt tensor has no attached storage");
     return *as<TensorStorage *>(ctx);
 }
 
-at::Tensor make_tt_tensor(TensorStorage *storage, at::IntArrayRef sizes, c10::ScalarType dtype) {
-    // We will use the `TensorStorage*` as the `data_ptr`. The torch requires the data_ptr to uniquely define
-    // the tensors storage.
-    void *data_ptr = storage;
+at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef sizes, c10::ScalarType dtype) {
+    TensorStorage *storage = new TensorStorage(std::move(runtime_tensor));
 
     c10::Device device(c10::DeviceType::PrivateUse1, 0);
-    c10::DataPtr storage_data_ptr(data_ptr, storage, &delete_storage, device);
+    c10::DataPtr storage_data_ptr(storage, storage, &delete_storage, device);
 
     const caffe2::TypeMeta type_meta = caffe2::scalarTypeToTypeMeta(dtype);
     const std::int64_t numel = c10::multiply_integers(sizes);
@@ -74,11 +74,6 @@ at::Tensor make_tt_tensor(TensorStorage *storage, at::IntArrayRef sizes, c10::Sc
     return at::Tensor(std::move(tensor_impl));
 }
 
-at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef sizes, c10::ScalarType dtype) {
-    auto *storage = new TensorStorage(std::move(runtime_tensor));
-    return make_tt_tensor(storage, sizes, dtype);
-}
-
 ::tt::runtime::TensorDesc make_contiguous_desc(at::IntArrayRef sizes, c10::ScalarType dtype) {
     std::vector<std::uint32_t> shape;
     shape.reserve(sizes.size());
@@ -90,33 +85,22 @@ at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef 
     return {shape, to_runtime_dtype(dtype)};
 }
 
-::tt::runtime::Tensor runtime_from_host_buffer(const void *data, at::IntArrayRef sizes, c10::ScalarType dtype) {
-    const auto desc = make_contiguous_desc(sizes, dtype);
-    const auto mesh_size = ::tt::kurbla::runtime_device_mesh_size();
-    if (mesh_size <= 1) {
-        // Create a single-chip tensor.
-        return ::tt::runtime::createOwnedHostTensor(data, desc);
-    }
-    // Replicated: hand the same buffer to every device in the (opened) mesh.
-    const std::vector<const void *> per_chip(mesh_size, data);
-    const std::unordered_map<std::string, std::string> strategy{{"strategy", "replicate"},
-                                                                {"replication_factor", std::to_string(mesh_size)}};
-    return ::tt::runtime::createMultiDeviceHostTensor(per_chip, desc, strategy,
-                                                      ::tt::kurbla::runtime_device_mesh_shape());
-}
-
-::tt::runtime::Tensor runtime_from_host_buffer(const std::vector<const void *> &per_chip_shards, at::IntArrayRef sizes,
+::tt::runtime::Tensor runtime_from_host_shards(std::vector<const void *> shards, at::IntArrayRef sizes,
                                                c10::ScalarType dtype) {
-    TORCH_CHECK(!per_chip_shards.empty(), "tt-kurbla runtime_from_host_buffer: no shards");
-    const auto desc = make_contiguous_desc(sizes, dtype);
+    const size_t num_shards = shards.size();
     const auto mesh_size = ::tt::kurbla::runtime_device_mesh_size();
+
+    TORCH_CHECK(num_shards == 1 || num_shards == mesh_size,
+                "tt-kurbla runtime_from_host_buffer: invalid number of shards ", num_shards);
+
+    const auto desc = make_contiguous_desc(sizes, dtype);
+
     if (mesh_size <= 1) {
-        // Create a single-chip tensor.
-        return ::tt::runtime::createOwnedHostTensor(per_chip_shards.front(), desc);
+        return ::tt::runtime::createOwnedHostTensor(shards.front(), desc);
     }
-    // Sharded: one distinct slab per device, marked Shard so per-chip data is
-    // treated as distinct.
-    return ::tt::runtime::createMultiDeviceHostTensor(per_chip_shards, desc, shard_strategy(mesh_size),
+
+    shards.resize(mesh_size, shards.front());
+    return ::tt::runtime::createMultiDeviceHostTensor(shards, desc, shard_strategy(num_shards, mesh_size),
                                                       ::tt::kurbla::runtime_device_mesh_shape());
 }
 
@@ -130,7 +114,7 @@ at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef 
     if (mesh_size <= 1) {
         return std::move(shards.front());
     }
-    return ::tt::runtime::createMultiDeviceHostTensor(shards, shard_strategy(mesh_size),
+    return ::tt::runtime::createMultiDeviceHostTensor(shards, shard_strategy(shards.size(), mesh_size),
                                                       ::tt::kurbla::runtime_device_mesh_shape());
 }
 
@@ -138,7 +122,11 @@ at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef 
     TORCH_CHECK(cpu_src.is_cpu(), "tt-kurbla runtime_from_torch_tensor: source must be a CPU tensor, got ",
                 cpu_src.device());
     TORCH_CHECK(cpu_src.is_contiguous(), "tt-kurbla runtime_from_torch_tensor: source must be contiguous");
-    return runtime_from_host_buffer(cpu_src.data_ptr(), cpu_src.sizes(), cpu_src.scalar_type());
+    return runtime_from_host_shards({cpu_src.data_ptr()}, cpu_src.sizes(), cpu_src.scalar_type());
+}
+
+bool is_tt(const at::Device &d) {
+    return d.type() == c10::DeviceType::PrivateUse1;
 }
 
 bool is_tt(const at::Tensor &t) {
@@ -146,8 +134,7 @@ bool is_tt(const at::Tensor &t) {
 }
 
 at::Tensor to_tt(const at::Tensor &t, at::Device device) {
-    TORCH_CHECK(device.type() == c10::DeviceType::PrivateUse1, "tt-kurbla to_tt: target device must be tt, got ",
-                device);
+    TORCH_CHECK(is_tt(device), "tt-kurbla to_tt: target device must be tt, got ", device);
     return t.device() == device ? t : t.to(device);
 }
 
@@ -175,7 +162,7 @@ void scatter_into(const at::Tensor &output, const std::vector<at::Tensor> &chunk
         TORCH_CHECK(c.sizes() == output.sizes(), "scatter_into: chunk shape ", c.sizes(), " must match output shape ",
                     output.sizes());
         TORCH_CHECK(c.scalar_type() == output.scalar_type(), "scatter_into: chunk dtype must match output dtype");
-        if (c.device().type() == c10::DeviceType::PrivateUse1) {
+        if (is_tt(c)) {
             host_chunks.push_back(::tt::runtime::toHost(storage_of(c).tensor(), /*untilize=*/true));
             // toHost yields one host shard per physical mesh shard, so a chunk
             // is either a full-mesh multi-device tensor (mesh_size shards) or a
@@ -188,8 +175,7 @@ void scatter_into(const at::Tensor &output, const std::vector<at::Tensor> &chunk
                         mesh_size);
         } else {
             TORCH_CHECK(c.is_contiguous(), "scatter_into: chunk must be contiguous");
-            host_chunks.push_back(
-                {::tt::runtime::createOwnedHostTensor(c.data_ptr(), make_contiguous_desc(c.sizes(), c.scalar_type()))});
+            host_chunks.push_back({runtime_from_torch_tensor(c)});
         }
     }
 

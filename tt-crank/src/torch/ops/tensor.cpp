@@ -36,9 +36,7 @@ namespace {
 // construction; if null, the runtime returns a zero-initialized buffer of
 // the right size.
 at::Tensor make_tt_tensor_from_host(void *data, at::IntArrayRef sizes, c10::ScalarType dtype) {
-    auto runtime_tensor = runtime_from_host_buffer(data, sizes, dtype);
-    auto *storage = new TensorStorage(std::move(runtime_tensor));
-    return make_tt_tensor(storage, sizes, dtype);
+    return wrap_tt_tensor(runtime_from_host_shards({data}, sizes, dtype), sizes, dtype);
 }
 
 // Copy this rank's local shard (shard 0) of a tt tensor into `dst`. That's the
@@ -65,7 +63,7 @@ std::vector<std::byte> read_to_host(const at::Tensor &self, const char *who) {
 at::Tensor empty_memory_format(at::IntArrayRef size, std::optional<at::ScalarType> dtype,
                                std::optional<at::Layout> /*layout*/, std::optional<at::Device> device,
                                std::optional<bool> /*pin_memory*/, std::optional<at::MemoryFormat> memory_format) {
-    TORCH_CHECK(!device.has_value() || device->type() == c10::DeviceType::PrivateUse1,
+    TORCH_CHECK(!device.has_value() || is_tt(*device),
                 "tt-kurbla empty.memory_format: device must be tt or unspecified");
     TORCH_CHECK(!memory_format.has_value() || memory_format.value() == c10::MemoryFormat::Contiguous,
                 "tt-kurbla empty.memory_format: only contiguous memory_format is supported");
@@ -110,7 +108,7 @@ bool runtime_is_replicated(const at::Tensor &self) {
                                        const char *who) {
     if (::tt::kurbla::runtime_device_mesh_size() <= 1 || runtime_is_replicated(src)) {
         const auto buffer = read_to_host(src, who);
-        return runtime_from_host_buffer(buffer.data(), sizes, dtype);
+        return runtime_from_host_shards({buffer.data()}, sizes, dtype);
     }
     const auto per_shard = read_per_shard_to_host(src, who);
     std::vector<const void *> ptrs;
@@ -118,14 +116,13 @@ bool runtime_is_replicated(const at::Tensor &self) {
     for (const auto &b : per_shard) {
         ptrs.push_back(b.data());
     }
-    return runtime_from_host_buffer(ptrs, sizes, dtype);
+    return runtime_from_host_shards(std::move(ptrs), sizes, dtype);
 }
 
 at::Tensor empty_strided(at::IntArrayRef size, at::IntArrayRef stride, std::optional<at::ScalarType> dtype,
                          std::optional<at::Layout> /*layout*/, std::optional<at::Device> device,
                          std::optional<bool> /*pin_memory*/) {
-    TORCH_CHECK(!device.has_value() || device->type() == c10::DeviceType::PrivateUse1,
-                "tt-kurbla empty_strided: device must be tt or unspecified");
+    TORCH_CHECK(!device.has_value() || is_tt(*device), "tt-kurbla empty_strided: device must be tt or unspecified");
     // POC: only the natural contiguous stride is supported. as_strided/views
     // with non-trivial strides come later.
     auto natural = at::detail::defaultStrides(size);
@@ -240,7 +237,7 @@ const at::Tensor &resize_(const at::Tensor &self, at::IntArrayRef size, std::opt
 
     const std::int64_t new_numel = c10::multiply_integers(size);
     if (new_numel != self.numel()) {
-        auto runtime_tensor = runtime_from_host_buffer(/*data=*/nullptr, size, self.scalar_type());
+        auto runtime_tensor = runtime_from_host_shards({nullptr}, size, self.scalar_type());
         storage_of(self).replace(std::move(runtime_tensor));
 
         const std::size_t new_nbytes = as<std::size_t>(new_numel) * self.dtype().itemsize();
