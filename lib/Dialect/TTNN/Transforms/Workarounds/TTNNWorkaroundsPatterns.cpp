@@ -589,5 +589,17 @@ const std::set<mlir::StringRef>
         // a full-vocab reduction). Without this, opt_level>=1 layout
         // propagation leaves the input TILE and we lose the multicore path.
         ttnn::ArgMaxOp::getOperationName(),
+        // Paged-cache + chunked/paged SDPA index ops. Their operand
+        // workarounds force the page_table / index tensors ROW_MAJOR (+INT32).
+        // The tt-metal paged_fill_cache and chunked/paged SDPA kernels read the
+        // page_table as row-major; without the workaround, opt_level>=1 layout
+        // propagation leaves the page_table TILE, so the kernel reads
+        // swizzled/garbage block indices and the device hangs. Observed on the
+        // DP+TP chunked-prefill path: the chunked graph's paged_fill_cache
+        // hangs at opt1 but not at opt0 (opt0 workarounds every op).
+        ttnn::PagedFillCacheOp::getOperationName(),
+        ttnn::ChunkedScaledDotProductAttentionOp::getOperationName(),
+        ttnn::PagedScaledDotProductAttentionDecodeOp::getOperationName(),
+        ttnn::PagedFlashMultiLatentAttentionDecodeOp::getOperationName(),
 };
 } // namespace mlir::tt::ttnn
