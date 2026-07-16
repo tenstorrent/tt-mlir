@@ -180,16 +180,24 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
   // emits (#9031).
   if (auto intType = mlir::dyn_cast<mlir::IntegerType>(
           initValueOp.getResult().getType().getElementType())) {
+    unsigned width = intType.getWidth();
+    // Restrict to the widths the original signed-typed reads handled
+    // (i1/i8/i32/i64). Other widths previously fell through to `return false`,
+    // and desiredI8/I32/I64 are only defined for these; reading as APInt merely
+    // avoids the unsigned-iteration assert without changing which widths match.
+    if (width != 1 && width != 8 && width != 32 && width != 64) {
+      return false;
+    }
     const llvm::APInt &value =
         *initValueOp.getValue().value_begin<llvm::APInt>();
-    unsigned width = intType.getWidth();
     if (width == 1) {
       return value.getBoolValue() == desiredI1;
     }
     int64_t desiredInt =
         width == 8 ? desiredI8 : (width == 32 ? desiredI32 : desiredI64);
-    // Compare bit patterns at the attribute's width so a signedness-flipped
-    // sentinel still matches (ui32 4294967295 == i32 -1).
+    // Compare raw bit patterns at the attribute's width, so an unsigned init
+    // matches the signed sentinel with the same bits (e.g. for NEG_INF,
+    // ui32 2147483648 == i32 INT32_MIN).
     return value == llvm::APInt(width, static_cast<uint64_t>(desiredInt),
                                 /*isSigned=*/true);
   }
