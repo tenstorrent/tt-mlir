@@ -92,6 +92,15 @@ struct PagedFillCacheRuleBook : OpRuleBook {
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
 };
 
+/// PagedUpdateCache operand contract: cache (0) DRAM-interleaved, value (1) L1
+/// HeightSharded (via reshards), update_idxs (2) / page_table (3) ROW_MAJOR
+/// (via RowMajor input siblings). The optimizer reaches these at opt >= 2,
+/// where the paged_update_cache workaround is gated off.
+struct PagedUpdateCacheRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+  bool generatesRowMajorInputSiblings(unsigned operandIdx) const override;
+};
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_DIALECT_TTNN_ANALYSIS_OPRULES_TRANSFORMERRULES_H

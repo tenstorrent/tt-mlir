@@ -6,6 +6,7 @@ set(OPRULES_SRCS
     MoeRules.cpp
     NormalizationRules.cpp
     OpRuleBook.cpp
+    ReductionRules.cpp
     TransformerRules.cpp
     TypecastRules.cpp
 )
