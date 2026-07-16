@@ -332,6 +332,206 @@ private:
   const std::set<mlir::StringRef> *enabledOps;
 };
 
+// Two workarounds are implemented here to avoid issues in ttnn
+//
+// 1. all_reduce ops are broken down into reduce_scatter and all_gather ops
+// because current support of all_reduce in TTNN is not stable.
+// 2. We prefer using the last tensor dimensions for reduce_scatter.
+// In transformers, trailing dimensions are typically larger, which gives better
+// utilization.
+// 3. The selected tensor dimension must be divisible by the number of devices
+// along the cluster axis used for all_reduce. For tiled layout, this
+// divisibility is checked in per-dimension tile counts.
+class TTNNAllReduceWorkarounds : public OpRewritePattern<ttnn::AllReduceOp> {
+public:
+  using OpRewritePattern<ttnn::AllReduceOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(ttnn::AllReduceOp op,
+                                PatternRewriter &rewriter) const override {
+    RankedTensorType inputType =
+        mlir::cast<RankedTensorType>(op.getInput().getType());
+    Location loc = op.getLoc();
+    uint32_t clusterAxis = op.getClusterAxis();
+    auto deviceDesc = ttcore::lookupDevice(op);
+    ::llvm::ArrayRef<int64_t> meshShape = deviceDesc.getMeshShape();
+
+    // Algorithm: iterate through all tensor dimension values and select the
+    // last tensor dimension which is divisible by number of devices along the
+    // cluster axis on which we are performing the all reduce.
+    // For tiled layout, this divisibility check is done on per-dim tile counts.
+    auto sizeOfDevices = meshShape[clusterAxis];
+    auto inputShape = inputType.getShape();
+    auto inputLayout = utils::getLayoutAttrFromTensor(inputType);
+    llvm::SmallVector<int64_t> shapeInTileCounts(inputShape.begin(),
+                                                 inputShape.end());
+    llvm::SmallVector<int64_t> tilePaddedShape;
+    if (inputLayout.isTiled()) {
+      tilePaddedShape = utils::getTilePaddedShape(shapeInTileCounts);
+      if (!shapeInTileCounts.empty()) {
+        shapeInTileCounts[shapeInTileCounts.size() - 1] =
+            tilePaddedShape[shapeInTileCounts.size() - 1] / TILE_WIDTH;
+      }
+      if (shapeInTileCounts.size() > 1) {
+        shapeInTileCounts[shapeInTileCounts.size() - 2] =
+            tilePaddedShape[shapeInTileCounts.size() - 2] / TILE_HEIGHT;
+      }
+    }
+
+    int64_t selectedDim = -1;
+    for (int64_t dim = shapeInTileCounts.size() - 1; dim >= 0; --dim) {
+      if (shapeInTileCounts[dim] % sizeOfDevices == 0) {
+        selectedDim = dim;
+        break;
+      }
+    }
+
+    if (selectedDim < 0) {
+      // If all the dimensions are not evenly divisible by the number of
+      // devices in the cluster, use the all-gather + local reduce breakdown
+      // approach.
+      return rewriteAsAllGatherLocalReduce(op, meshShape, rewriter);
+    }
+
+    Value reduceScatterInput = op.getInput();
+    RankedTensorType reduceScatterInputType = inputType;
+
+    // If the input is tiled and selectedDim is one of the tile-sensitive dims,
+    // pad first so the reduce_scatter split produces equal-sized slices on each
+    // device.
+    if (inputLayout.isTiled() &&
+        selectedDim >= static_cast<int64_t>(inputShape.size()) - 2 &&
+        inputShape[selectedDim] != tilePaddedShape[selectedDim]) {
+      llvm::SmallVector<int32_t> padding(inputShape.size() * 2, 0);
+      padding[selectedDim * 2 + 1] =
+          tilePaddedShape[selectedDim] - inputShape[selectedDim];
+
+      llvm::SmallVector<int64_t> paddedShape(inputShape.begin(),
+                                             inputShape.end());
+      paddedShape[selectedDim] = tilePaddedShape[selectedDim];
+      auto paddedType =
+          ttnn::utils::RankedTensorTypeFactory::create(inputType, paddedShape);
+
+      reduceScatterInput = rewriter.create<ttnn::PadOp>(
+          ttmlir::utils::appendLocationSuffix(loc, "_pad_for_reduce_scatter"),
+          paddedType, op.getInput(), padding, /*pad_value=*/mlir::APFloat(0.0f),
+          /*use_multicore=*/false);
+      reduceScatterInputType = paddedType;
+    }
+
+    // TODO(wooseoklee): Once ttnn supports all_reduce op
+    // (https://github.com/tenstorrent/tt-metal/issues/13835), we can
+    // convert directly to ttnn.all_reduce.
+
+    // Build reduce_scatter output type.
+    llvm::SmallVector<int64_t> reduceScatterShape(
+        reduceScatterInputType.getShape().begin(),
+        reduceScatterInputType.getShape().end());
+    reduceScatterShape[selectedDim] =
+        reduceScatterShape[selectedDim] / meshShape[clusterAxis];
+    auto reduceScatterOutputType = ttnn::utils::RankedTensorTypeFactory::create(
+        reduceScatterInputType, reduceScatterShape);
+
+    // Create a new reducer scatter op.
+    ttnn::ReduceScatterOp reduceScatterOp =
+        rewriter.create<ttnn::ReduceScatterOp>(
+            ttmlir::utils::appendLocationSuffix(loc, "_reduce_scatter"),
+            reduceScatterOutputType, reduceScatterInput, op.getReduceType(),
+            selectedDim, clusterAxis, nullptr, nullptr, nullptr, nullptr);
+
+    // all_gather restores the reduce_scatter input shape.
+    auto allGatherOutputType = ttnn::utils::RankedTensorTypeFactory::create(
+        reduceScatterInputType, reduceScatterInputType.getShape());
+    ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_all_gather"),
+        allGatherOutputType, reduceScatterOp.getResult(), selectedDim,
+        clusterAxis, nullptr /*sub_device_id*/, nullptr /*num_links*/,
+        nullptr /*topology*/);
+
+    // If padding was added, crop back to the original shape.
+    if (reduceScatterInputType.getShape() != inputType.getShape()) {
+      llvm::SmallVector<int32_t> begins(inputShape.size(), 0);
+      llvm::SmallVector<int32_t> ends(inputShape.begin(), inputShape.end());
+      llvm::SmallVector<int32_t> steps(inputShape.size(), 1);
+      auto sliceOp = rewriter.create<ttnn::SliceStaticOp>(
+          ttmlir::utils::appendLocationSuffix(loc,
+                                              "_slice_for_reduce_scatter_pad"),
+          op.getType(), allGatherOp.getResult(),
+          rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
+          rewriter.getI32ArrayAttr(steps));
+      rewriter.replaceOp(op, sliceOp.getResult());
+    } else {
+      rewriter.replaceOp(op, allGatherOp.getResult());
+    }
+    return success();
+  }
+
+private:
+  LogicalResult
+  rewriteAsAllGatherLocalReduce(ttnn::AllReduceOp op,
+                                ::llvm::ArrayRef<int64_t> meshShape,
+                                PatternRewriter &rewriter) const {
+    RankedTensorType inputType = op.getInput().getType();
+    Location loc = op.getLoc();
+    uint32_t clusterAxis = op.getClusterAxis();
+
+    // Use allGather + Reduce breakdown.
+    // Increase the rank of the current input shape by 1.
+    ArrayRef<int64_t> inputTypeShape = inputType.getShape();
+    llvm::SmallVector<int64_t> expandedInputShape = {1};
+    expandedInputShape.append(inputTypeShape.begin(), inputTypeShape.end());
+    ArrayAttr reshapedInputShapeAttr =
+        rewriter.getI32ArrayAttr(llvm::SmallVector<int32_t>(
+            expandedInputShape.begin(), expandedInputShape.end()));
+    RankedTensorType reshapedInputType =
+        ttnn::utils::RankedTensorTypeFactory::create(inputType,
+                                                     expandedInputShape);
+
+    ttnn::ReshapeOp leadingReshapeOp = rewriter.create<ttnn::ReshapeOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_reshape"), reshapedInputType,
+        op.getInput(), reshapedInputShapeAttr);
+
+    // Create a new all gather op.
+    expandedInputShape[0] = meshShape[clusterAxis];
+    RankedTensorType allGatherOutputType =
+        ttnn::utils::RankedTensorTypeFactory::create(reshapedInputType,
+                                                     expandedInputShape);
+    ttnn::AllGatherOp allGatherOp = rewriter.create<ttnn::AllGatherOp>(
+        ttmlir::utils::appendLocationSuffix(loc, "_allGather"),
+        allGatherOutputType, leadingReshapeOp.getResult(), 0, clusterAxis,
+        nullptr /*sub_device_id*/, nullptr /*num_links*/, nullptr /*topology*/);
+    // Create a new reduce op.
+    ArrayAttr reduceDimAttr =
+        rewriter.getI32ArrayAttr(llvm::ArrayRef<int32_t>{0});
+    switch (op.getReduceType()) {
+    case ttcore::ReduceType::Sum:
+      rewriter.replaceOpWithNewOp<ttnn::SumOp>(op, op.getType(), allGatherOp,
+                                               false, reduceDimAttr);
+      break;
+    case ttcore::ReduceType::Mean:
+      rewriter.replaceOpWithNewOp<ttnn::MeanOp>(op, op.getType(), allGatherOp,
+                                                false, reduceDimAttr);
+      break;
+    case ttcore::ReduceType::Max:
+      rewriter.replaceOpWithNewOp<ttnn::MaxOp>(op, op.getType(), allGatherOp,
+                                               false, reduceDimAttr);
+      break;
+    case ttcore::ReduceType::Min:
+      rewriter.replaceOpWithNewOp<ttnn::MinOp>(op, op.getType(), allGatherOp,
+                                               false, reduceDimAttr);
+      break;
+    case ttcore::ReduceType::Std:
+      return op.emitOpError() << "std is not supported";
+    case ttcore::ReduceType::Var:
+      return op.emitOpError() << "var is not supported";
+    case ttcore::ReduceType::Prod:
+      return op.emitOpError() << "prod is not supported";
+    case ttcore::ReduceType::Invalid:
+      return op.emitOpError() << "invalid is not supported";
+    }
+    return success();
+  }
+};
+
 // This pattern wraps an si32-indexed gather in a fill-style mask, modeled
 // on what JAX emits for `jax.lax.gather(..., mode='fill')`:
 //
@@ -482,6 +682,10 @@ public:
       patterns.add<workarounds::decomposition::LinearOpRewritePattern>(
           &getContext(), /*benefit=*/2);
 
+      // Decompose ttnn.all_reduce into reduce_scatter + all_gather. This avoids
+      // a fused ttnn.all_reduce that hangs end_trace_capture on BH galaxy.
+      patterns.add<TTNNAllReduceWorkarounds>(&getContext());
+
       // PagedUpdateCacheOpRewritePattern is only needed below opt-level 2.
       // At level >= 2 the greedy sharding optimizer drives the upstream
       // producer to L1 height-sharded and inserts a proper ToMemoryConfigOp
@@ -589,5 +793,14 @@ const std::set<mlir::StringRef>
         // a full-vocab reduction). Without this, opt_level>=1 layout
         // propagation leaves the input TILE and we lose the multicore path.
         ttnn::ArgMaxOp::getOperationName(),
+        // Paged / chunked SDPA operands workarounds force ROW_MAJOR on the
+        // page_table and position/chunk index tensors (createChunked... /
+        // createPaged... in TTNNWorkaroundsPass.cpp). The tt-metal kernels
+        // hard-reject a TILE page_table (TT_FATAL @ sdpa_device_operation.cpp:
+        // "Page table must be row major"). Without these entries, opt_level>=1
+        // layout propagation leaves the index tensors TILE and the op fatals.
+        ttnn::ChunkedScaledDotProductAttentionOp::getOperationName(),
+        ttnn::PagedScaledDotProductAttentionDecodeOp::getOperationName(),
+        ttnn::PagedFlashMultiLatentAttentionDecodeOp::getOperationName(),
 };
 } // namespace mlir::tt::ttnn
