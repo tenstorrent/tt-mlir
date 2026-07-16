@@ -1046,6 +1046,48 @@ TEST_F(OpModelBase, MatmulOpInterface) {
   }
 }
 
+// Device cross-check for the ttnn-collect-perf-metrics peak. Runs a large
+// compute-bound matmul, measures its runtime on the real device via
+// getOpRuntime, and reports the achieved TFLOP/s. This is the independent
+// ground truth for the theoretical peak: achieved must never exceed the
+// hardware ceiling, and for a large matmul it should reach a healthy fraction
+// of the peak reported in perf_metrics JSON. Compare the printed number to
+// `peak_flops_per_sec` in your report — if achieved exceeds the report's peak,
+// the report's peak is too low.
+TEST_F(OpModelBase, MatmulRuntimeVsPeak) {
+  const int64_t M = 4096, K = 4096, N = 4096;
+  auto inputA = createEmptyTensor({M, K});
+  auto inputB = createEmptyTensor({K, N});
+  auto outputType = createRankedTensorType({M, N});
+  auto matmul = builder.create<MatmulOp>(builder.getUnknownLoc(), outputType,
+                                         mlir::ValueRange{inputA, inputB});
+
+  auto runtimeExp = getOpRuntime(matmul.getOperation());
+  ASSERT_TRUE(static_cast<bool>(runtimeExp))
+      << llvm::toString(runtimeExp.takeError());
+  const size_t ns = runtimeExp.get();
+  ASSERT_GT(ns, 0u);
+
+  const double flops = 2.0 * M * K * N;
+  const double achievedTflops = flops / static_cast<double>(ns) / 1e3;
+
+  // Absolute hardware ceiling across supported archs (Blackhole LoFi:
+  // 130 cores * 1.35 GHz * 2*32^3 / 16 ~= 718 TFLOP/s). Exceeding this means a
+  // measurement or peak-constant error, not real silicon.
+  constexpr double kArchMaxLoFiTflops = 718.0;
+
+  std::cout << "[MatmulRuntimeVsPeak] M=K=N=" << M << "  measured=" << ns
+            << " ns  achieved=" << achievedTflops << " TFLOP/s\n"
+            << "  Cross-check: this achieved value must be <= the "
+               "peak_flops_per_sec in your perf_metrics JSON (and a healthy "
+               "fraction of it). If it exceeds the report peak, the report "
+               "peak is too low.\n";
+
+  EXPECT_LE(achievedTflops, kArchMaxLoFiTflops)
+      << "Measured matmul throughput exceeds the absolute hardware ceiling — "
+         "runtime/peak mismatch.";
+}
+
 TEST_F(OpModelBase, MatmulOpInterfaceNullOutput) {
   // create MatmulOp
   llvm::SmallVector<int64_t> tensorShapeA = {2048, 1024};
