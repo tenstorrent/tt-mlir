@@ -554,4 +554,47 @@ module {
     }
     return
   }
+
+  // A load and store through distinct views of one DRAM buffer must remain on
+  // one DMA thread. Traffic for an unrelated buffer can still use the other
+  // thread.
+  // CHECK-LABEL: func.func @test_remote_memref_view_affinity
+  func.func @test_remote_memref_view_affinity(
+      %arg0: memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram>,
+      %arg1: memref<2x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>) {
+    // CHECK: %[[VIEW0:.*]] = d2m.view_layout %arg0
+    // CHECK: %[[VIEW1:.*]] = d2m.view_layout %arg0
+    %view0 = d2m.view_layout %arg0 remapping = affine_map<(d0, d1, d2, d3) -> (0, 0, (d0 + d1 floordiv 4) mod 2, d1 mod 4)> : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram> -> memref<2x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+    %view1 = d2m.view_layout %arg0 remapping = affine_map<(d0, d1, d2, d3) -> (0, 0, (d0 + d1 floordiv 4) mod 2, d1 mod 4)> : memref<1x1x2x4x!ttcore.tile<32x32, f32>, #ttcore.interleaved<16384x4096>, #dram> -> memref<2x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>
+    %alloc = memref.alloc() {alignment = 64 : i64} : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>
+
+    // CHECK: d2m.generic
+    // CHECK-SAME: threads = [#d2m.thread<datamovement
+    // CHECK-SAME: #d2m.thread<datamovement
+    // CHECK-SAME: #d2m.thread<compute>]
+    d2m.generic {block_factors = [], grid = #ttcore.grid<2x4>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<datamovement>, #d2m.thread<compute>]}
+        ins(%view0, %view1, %arg1 : memref<2x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>, memref<2x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram>)
+        outs(%alloc : memref<2x4x2x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
+    ^datamovement0:
+      %cb0 = d2m.get_cb(0) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
+      %cb1 = d2m.get_cb(1) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
+      %cb2 = d2m.get_cb(2) : !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
+      %c0 = arith.constant 0 : index
+      // CHECK: d2m.remote_load %[[VIEW0]]
+      // CHECK: d2m.remote_store %[[VIEW1]]
+      // CHECK-NOT: d2m.remote_load %arg1
+      // CHECK: }, {
+      // CHECK: d2m.remote_load %arg1
+      // CHECK-NOT: d2m.remote_load %[[VIEW0]]
+      // CHECK-NOT: d2m.remote_store %[[VIEW1]]
+      // CHECK: }, {
+      // CHECK: ^compute0
+      d2m.remote_load %view0[%c0, %c0] into %cb0 : memref<2x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> into !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
+      d2m.remote_store %view1[%c0, %c0] from %cb1 : memref<2x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> from !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
+      d2m.remote_load %arg1[%c0, %c0] into %cb2 : memref<2x4x1x1x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #dram> into !d2m.cb<memref<1x1x!ttcore.tile<32x32, f32>, #l1>>
+    }, {
+    ^compute0:
+    }
+    return
+  }
 }
