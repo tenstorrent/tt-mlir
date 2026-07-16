@@ -63,7 +63,6 @@ import torch
 
 from ttmlir import ir
 
-
 # ----------------------------------------------------------------------
 # Spec dataclasses (the data an agent emits / tweaks per pattern)
 # ----------------------------------------------------------------------
@@ -162,6 +161,11 @@ _MLIR_ELTY_TO_TORCH = {
     "f32": torch.float32,
     "f16": torch.float16,
     "bf16": torch.bfloat16,
+    "i64": torch.int64,
+    "si64": torch.int64,
+    "i32": torch.int32,
+    "si32": torch.int32,
+    "ui32": torch.uint32,
 }
 
 
@@ -480,6 +484,43 @@ class E2EDevice:
             self.device = None
 
 
+def _prepare_runtime_inputs(runtime, fbb, inputs, device, program_index):
+    import json
+    import re
+
+    input_descs = json.loads(
+        re.sub(
+            r"\binf\b",
+            "Infinity",
+            re.sub(r"\bnan\b", "NaN", fbb.get_program_inputs_as_json(program_index)),
+        )
+    )
+
+    rt_inputs = []
+    host_inputs = []
+    for tensor, input_desc in zip(inputs, input_descs, strict=True):
+        desc = input_desc["desc"]
+        expected_dtype = _RT_STR_TO_TORCH[desc["layout"]["memory_desc"]["data_type"]]
+        if tensor.dtype != expected_dtype:
+            tensor = tensor.to(expected_dtype)
+        tensor = tensor.contiguous()
+
+        # Borrowed host tensors do not own their backing storage. Return the
+        # owners so callers can keep converted temporaries alive through wait().
+        host_inputs.append(tensor)
+        rt_input = runtime.create_borrowed_host_tensor(
+            tensor.data_ptr(),
+            list(tensor.shape),
+            list(tensor.stride()),
+            tensor.element_size(),
+            _TORCH_TO_RT[tensor.dtype],
+        )
+        layout = runtime.get_layout(fbb, program_index, len(rt_inputs))
+        rt_inputs.append(runtime.to_layout(rt_input, device, layout, True))
+
+    return rt_inputs, host_inputs
+
+
 def execute_ttm_in_process(fbb, inputs, device, program_index: int = 0):
     """Submit ``fbb`` on ``device`` with torch ``inputs``; return torch outputs.
 
@@ -492,23 +533,15 @@ def execute_ttm_in_process(fbb, inputs, device, program_index: int = 0):
     import re
 
     runtime = _rt()
-
-    rt_inputs = []
-    for t in inputs:
-        t = t.contiguous()
-        rt_in = runtime.create_borrowed_host_tensor(
-            t.data_ptr(),
-            list(t.shape),
-            list(t.stride()),
-            t.element_size(),
-            _TORCH_TO_RT[t.dtype],
-        )
-        layout = runtime.get_layout(fbb, program_index, len(rt_inputs))
-        rt_inputs.append(runtime.to_layout(rt_in, device, layout, True))
+    rt_inputs, host_inputs = _prepare_runtime_inputs(
+        runtime, fbb, inputs, device, program_index
+    )
 
     runtime.set_compatible_device_runtime(fbb)
     rt_outputs = runtime.submit(device, fbb, program_index, rt_inputs)
     runtime.wait(rt_outputs)
+    # Keep the borrowed input storage alive until all queued transfers finish.
+    del host_inputs
 
     out_json = fbb.get_program_outputs_as_json(program_index)
     out_descs = json.loads(
