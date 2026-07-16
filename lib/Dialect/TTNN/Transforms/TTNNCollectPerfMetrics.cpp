@@ -133,7 +133,14 @@ inline uint64_t roundUpToTiles(uint64_t x) {
 //===----------------------------------------------------------------------===//
 struct PerfTargets {
   ttcore::Arch arch = ttcore::Arch::WormholeB0;
+  // Chips present in the system descriptor (gates the legacy weight-streaming
+  // perf_targets roofline, which is single-chip only).
   unsigned numChips = 0;
+  // Chips the compiled graph actually runs on (mesh volume). For an SPMD mesh
+  // program the IR holds one device's work and all devices run it concurrently,
+  // so per-op FLOP / MFU accounting stays per-chip and is correct regardless of
+  // this value; it is reported only for context.
+  unsigned numChipsUsed = 1;
   uint64_t dramBandwidthBytesPerSec = 0;
   uint64_t aiclkHz = 0;
   uint64_t numTensixCores = 0;
@@ -216,9 +223,10 @@ struct PerfTargets {
                       // roofline for this op is so we skip it to avoid
                       // overestimating.
                       skippedOps++;
-                      llvm::errs() << "TTNNCollectPerfMetrics: skipping "
-                                   << op->getName()
-                                   << " — dynamic attention mask present\n";
+                      TTMLIR_DEBUG(::ttmlir::LogComponent::PerfTargets,
+                                   "skipping {0} — dynamic attention mask "
+                                   "present",
+                                   op->getName().getStringRef());
                       return false;
                     }
 
@@ -237,12 +245,13 @@ struct PerfTargets {
       for (Value w : weights) {
         if (!isValidWeightForTargetCalculation(w)) {
           skippedOps++;
-          llvm::errs() << "TTNNCollectPerfMetrics: skipping " << op->getName()
-                       << " — input is not DRAM-resident (producer: "
-                       << (w.getDefiningOp()
-                               ? w.getDefiningOp()->getName().getStringRef()
-                               : "<block-arg>")
-                       << ")\n";
+          TTMLIR_DEBUG(::ttmlir::LogComponent::PerfTargets,
+                       "skipping {0} — input is not DRAM-resident (producer: "
+                       "{1})",
+                       op->getName().getStringRef(),
+                       w.getDefiningOp()
+                           ? w.getDefiningOp()->getName().getStringRef()
+                           : "<block-arg>");
           return;
         }
       }
@@ -886,17 +895,23 @@ private:
     assert(systemDescAttr &&
            "system_desc presence must be checked by the caller");
     auto chipDescs = systemDescAttr.getChipDescs();
-    // Single-chip only. On anything other than exactly one chip we leave
-    // the rest of `perfTargets` unpopulated and return; the caller's
-    // `numChips == 1` gate suppresses emission. Multi-chip rooflines need
-    // tensor-parallel-aware accounting we don't have yet, and silently
-    // estimating against chip 0 would give a misleading number.
+    // System chip count gates only the legacy weight-streaming perf_targets
+    // roofline (which needs tensor-parallel-aware accounting we don't have).
+    // The per-op FLOP report below does NOT need it: it is graph-invariant and
+    // per-chip, so it is emitted regardless of chip count. Hardware limits are
+    // always populated from chip 0 (all chips share an arch here).
     perfTargets.numChips = chipDescs.size();
-    if (perfTargets.numChips != 1) {
-      llvm::errs() << "TTNNCollectPerfMetrics: perf target estimate requires "
-                      "a single-chip system desc; got "
-                   << chipDescs.size() << " chips. Skipping.\n";
-      return perfTargets;
+    // Chips the graph actually runs on (mesh volume), independent of how many
+    // chips the system descriptor advertises. Used for context only. Use the
+    // null-safe lookupDeviceOp (lookupDevice asserts when no device op exists,
+    // e.g. in hand-written test modules).
+    if (ttcore::DeviceOp deviceOp = ttcore::lookupDeviceOp(module)) {
+      uint64_t meshVolume = 1;
+      for (int64_t d : deviceOp.getDeviceAttr().getMeshShape()) {
+        meshVolume *= static_cast<uint64_t>(d);
+      }
+      perfTargets.numChipsUsed =
+          static_cast<unsigned>(std::max<uint64_t>(1, meshVolume));
     }
     if (failed(populateHardwareLimits(perfTargets, chipDescs[0], module))) {
       return failure();
@@ -993,6 +1008,12 @@ private:
                       const FlopSummary &summary, bool verbose) {
     llvm::json::Object flops;
     flops["total_flops"] = static_cast<int64_t>(summary.totalFlops);
+    // FLOPs/peak/ideal-times are per-chip (one device's SPMD program). For an
+    // N-chip mesh the model-wide FLOPs are total_flops * num_chips_used, while
+    // MFU (ideal_compute_ms / step_time) is unchanged since all chips run
+    // concurrently. num_chips_in_system is what the system descriptor reports.
+    flops["num_chips_used"] = static_cast<int64_t>(t.numChipsUsed);
+    flops["num_chips_in_system"] = static_cast<int64_t>(t.numChips);
 
     llvm::json::Object peak;
     peak["lofi"] =
@@ -1276,18 +1297,18 @@ public:
     llvm::json::Object jsonOutput;
     addSummaryToJson(jsonOutput, aggregatedMetrics);
 
-    // Only emit perf_targets / flops when computePerfTargets fully populated
-    // the struct; a soft-skip (e.g. multi-chip) leaves numChips at 0 and the
-    // numbers would all be zero.
+    // The legacy weight-streaming roofline is single-chip only (its
+    // tensor-parallel accounting isn't implemented), so it stays gated on the
+    // system chip count.
     if (perfTargets.numChips == 1) {
       addPerfTargetsToJson(jsonOutput, perfTargets);
-
-      // Per-op FLOP report over the same single selected function. Uses the
-      // hardware limits populated on perfTargets.
-      FlopSummary flopSummary = computeFlopSummary(perfTargetFunc, perfTargets);
-      addFlopsToJson(jsonOutput, perfTargets, flopSummary,
-                     ttnnPerfMetricsVerboseOutputEnabled);
     }
+
+    // The per-op FLOP report is graph-invariant and per-chip; emit it
+    // regardless of how many chips the system has or the graph runs on.
+    FlopSummary flopSummary = computeFlopSummary(perfTargetFunc, perfTargets);
+    addFlopsToJson(jsonOutput, perfTargets, flopSummary,
+                   ttnnPerfMetricsVerboseOutputEnabled);
 
     if (ttnnPerfMetricsVerboseOutputEnabled) {
       addVerboseOutputToJson(jsonOutput, operationDetails, operationTypeCounts);
