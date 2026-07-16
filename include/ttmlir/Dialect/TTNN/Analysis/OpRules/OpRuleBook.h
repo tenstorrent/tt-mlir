@@ -51,6 +51,15 @@ struct OpRuleBook {
   /// always outputs DRAM-interleaved regardless of input layout).
   virtual bool shouldExploreReshards() const { return true; }
 
+  /// Whether the greedy search should clone each tiled input candidate of this
+  /// operand into a RowMajor sibling on demand. Default false. Override for
+  /// operands whose kernel requires a RowMajor page layout (the candidate pool
+  /// is otherwise tiled-only); pair with getInputLayoutFilter() ->
+  /// requireRowMajor() to drop the tiled originals.
+  virtual bool generatesRowMajorInputSiblings(unsigned /*operandIdx*/) const {
+    return false;
+  }
+
   /// Cross-product pruning: reject input layout combinations before expensive
   /// backend validation. Default accepts all. Override for ops that require
   /// homogeneous input layouts (e.g., concat requires all inputs to share the
