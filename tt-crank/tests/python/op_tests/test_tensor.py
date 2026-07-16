@@ -52,17 +52,13 @@ def test_empty_unsupported_dtype_rejected() -> None:
 # -----------------------------------------------------------------------------
 
 
-def test_empty_strided_natural_strides_ok() -> None:
-    t = torch.empty_strided((32, 32), stride=(32, 1), device="tt", dtype=torch.bfloat16)
+def test_empty_strided() -> None:
+    # (1, 32) is the column-major stride for a (32, 32) tensor. empty_strided
+    # always allocates a contiguous tensor.
+    t = torch.empty_strided((32, 32), stride=(1, 32), device="tt", dtype=torch.bfloat16)
     assert t.device.type == "tt"
     assert tuple(t.shape) == (32, 32)
-
-
-def test_empty_strided_non_natural_rejected() -> None:
-    # (1, 32) is the column-major stride for a (32, 32) tensor; our impl only
-    # accepts the natural row-major stride.
-    with pytest.raises(RuntimeError, match="non-contiguous strides"):
-        torch.empty_strided((32, 32), stride=(1, 32), device="tt", dtype=torch.bfloat16)
+    assert t.is_contiguous()
 
 
 # -----------------------------------------------------------------------------

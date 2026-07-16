@@ -47,6 +47,16 @@ def test_div_scalar(scalar: float) -> None:
     assert_close_cpu_vs_tt(lambda x: x / scalar, a, atol=5e-3, rtol=5e-3)
 
 
+@pytest.mark.usefixtures("skip_if_sim")
+@pytest.mark.parametrize("dtype", [torch.int32, torch.int64])
+def test_div_integer_true_division(dtype: torch.dtype) -> None:
+    # int / int is true division: the result is the default float dtype
+    # (float32), not integer division. Divisor is nonzero.
+    a = torch.randint(-20, 20, (32, 64), dtype=dtype)
+    b = torch.randint(1, 8, (32, 64), dtype=dtype)
+    assert_close_cpu_vs_tt(torch.div, a, b, atol=1e-2, rtol=1e-2)
+
+
 @pytest.mark.parametrize("shape", [(32, 64), (32, 64, 128)])
 def test_cos(shape: tuple) -> None:
     a = torch.randn(shape, dtype=torch.bfloat16)
