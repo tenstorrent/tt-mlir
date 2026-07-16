@@ -797,277 +797,280 @@ class Run:
                             )
                             ttrt.runtime.begin_graph_capture(normal_mode=True)
 
-                        for loop in range(self["--loops"]):
-                            self.logging.debug(
-                                f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
-                            )
-                            tracy_program_metadata = {
-                                "loop_number": loop,
-                                "program_index": program_index,
-                                "disable_eth_dispatch": self["--disable-eth-dispatch"],
-                                "enable_program_cache": self["--enable-program-cache"],
-                                "dump_device_rate": self["--dump-device-rate"],
-                            }
-                            perf_env.set_program_metadata(str(tracy_program_metadata))
+                        # FLUSH-ON-CRASH: capture report even if the run throws (e.g. CB/L1 clash)
+                        try:
+                            for loop in range(self["--loops"]):
+                                self.logging.debug(
+                                    f"starting loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
+                                )
+                                tracy_program_metadata = {
+                                    "loop_number": loop,
+                                    "program_index": program_index,
+                                    "disable_eth_dispatch": self["--disable-eth-dispatch"],
+                                    "enable_program_cache": self["--enable-program-cache"],
+                                    "dump_device_rate": self["--dump-device-rate"],
+                                }
+                                perf_env.set_program_metadata(str(tracy_program_metadata))
 
-                            # Check if we need to dirty any input tensors in this iteration
-                            if loop in update_tensor_schedule:
-                                for input_idx in update_tensor_schedule[loop]:
-                                    if input_idx < len(inputs):
-                                        # Get the tensor to dirty
-                                        tensor_to_dirty = inputs[input_idx]
-                                        # Call the dirtyTensor function to increment the version counter
-                                        expected_layout = ttrt.runtime.get_layout(
-                                            bin.fbb, program_index, input_idx
+                                # Check if we need to dirty any input tensors in this iteration
+                                if loop in update_tensor_schedule:
+                                    for input_idx in update_tensor_schedule[loop]:
+                                        if input_idx < len(inputs):
+                                            # Get the tensor to dirty
+                                            tensor_to_dirty = inputs[input_idx]
+                                            # Call the dirtyTensor function to increment the version counter
+                                            expected_layout = ttrt.runtime.get_layout(
+                                                bin.fbb, program_index, input_idx
+                                            )
+                                            perf_env.tracy_log_op_location(
+                                                f"loc(arg_{input_idx})"
+                                            )
+                                            result_tensor = ttrt.runtime.to_layout(
+                                                tensor_to_dirty,
+                                                device,
+                                                expected_layout,
+                                                True,
+                                            )
+                                            perf_env.tracy_log_input_layout_conversion(True)
+                                            inputs[input_idx] = result_tensor
+                                            perf_env.tracy_log_input_layout_conversion(
+                                                False
+                                            )
+                                            self.logging.info(
+                                                f"Marked input tensor {input_idx} as dirty after {loop} iterations"
+                                            )
+                                        else:
+                                            self.logging.warning(
+                                                f"Cannot dirty input tensor {input_idx}, only {len(inputs)} inputs available"
+                                            )
+
+                                start_submit = time.perf_counter_ns()
+                                runtime_outputs = ttrt.runtime.submit(
+                                    device,
+                                    bin.fbb,
+                                    program_index,
+                                    inputs,
+                                )
+
+                                ttrt.runtime.wait(runtime_outputs)
+                                end_submit = time.perf_counter_ns()
+                                e2e_duration_nanoseconds_submit = end_submit - start_submit
+
+                                e2e_duration_nanoseconds_output = 0
+                                for i, runtime_output_tensor in enumerate(runtime_outputs):
+                                    start_get_output = time.perf_counter_ns()
+                                    output_host = ttrt.runtime.to_host(
+                                        runtime_output_tensor, untilize=True
+                                    )
+                                    if bin.extension != ".ttm":
+                                        mesh = (
+                                            fb_mesh_shape
+                                            if len(output_host) > 1
+                                            else (1, 1)
                                         )
-                                        perf_env.tracy_log_op_location(
-                                            f"loc(arg_{input_idx})"
+                                        outputs[
+                                            i
+                                        ] = ttrt.runtime.create_multi_device_host_tensor_from_shards(
+                                            output_host, {}, mesh
                                         )
-                                        result_tensor = ttrt.runtime.to_layout(
-                                            tensor_to_dirty,
-                                            device,
-                                            expected_layout,
-                                            True,
-                                        )
-                                        perf_env.tracy_log_input_layout_conversion(True)
-                                        inputs[input_idx] = result_tensor
-                                        perf_env.tracy_log_input_layout_conversion(
-                                            False
-                                        )
-                                        self.logging.info(
-                                            f"Marked input tensor {input_idx} as dirty after {loop} iterations"
-                                        )
+                                        program.output_tensors[i] = [
+                                            convert_runtime_to_torch_tensor(shard)
+                                            for shard in output_host
+                                        ]
                                     else:
-                                        self.logging.warning(
-                                            f"Cannot dirty input tensor {input_idx}, only {len(inputs)} inputs available"
-                                        )
+                                        ttrt.runtime.memcpy(outputs[i], output_host[0])
 
-                            start_submit = time.perf_counter_ns()
-                            runtime_outputs = ttrt.runtime.submit(
-                                device,
-                                bin.fbb,
-                                program_index,
-                                inputs,
-                            )
-
-                            ttrt.runtime.wait(runtime_outputs)
-                            end_submit = time.perf_counter_ns()
-                            e2e_duration_nanoseconds_submit = end_submit - start_submit
-
-                            e2e_duration_nanoseconds_output = 0
-                            for i, runtime_output_tensor in enumerate(runtime_outputs):
-                                start_get_output = time.perf_counter_ns()
-                                output_host = ttrt.runtime.to_host(
-                                    runtime_output_tensor, untilize=True
-                                )
-                                if bin.extension != ".ttm":
-                                    mesh = (
-                                        fb_mesh_shape
-                                        if len(output_host) > 1
-                                        else (1, 1)
+                                    end_get_output = time.perf_counter_ns()
+                                    e2e_duration_nanoseconds_output += (
+                                        end_get_output - start_get_output
                                     )
-                                    outputs[
-                                        i
-                                    ] = ttrt.runtime.create_multi_device_host_tensor_from_shards(
-                                        output_host, {}, mesh
-                                    )
-                                    program.output_tensors[i] = [
-                                        convert_runtime_to_torch_tensor(shard)
-                                        for shard in output_host
-                                    ]
-                                else:
-                                    ttrt.runtime.memcpy(outputs[i], output_host[0])
-
-                                end_get_output = time.perf_counter_ns()
-                                e2e_duration_nanoseconds_output += (
-                                    end_get_output - start_get_output
-                                )
-                                ttrt.runtime.deallocate_tensor(
-                                    runtime_output_tensor, force=True
-                                )
-
-                                output_tensor_torch = None
-                                if (
-                                    self["--print-input-output-tensors"]
-                                    or self["--enable-golden"]
-                                ):
-                                    output_tensor_torch = (
-                                        convert_runtime_to_torch_tensor(outputs[i])
+                                    ttrt.runtime.deallocate_tensor(
+                                        runtime_output_tensor, force=True
                                     )
 
-                                # Compare program level golden.
-                                golden_tensor_torch = None
-                                pcc_fail = False
-                                allclose_fail = False
-                                if (self["--enable-golden"]) and (
-                                    i < len(golden_outputs_torch)
-                                ):
-                                    self.logging.debug(
-                                        f"executing program level golden comparison for output_{i}"
-                                    )
-                                    golden_tensor_torch = golden_outputs_torch[i]
+                                    output_tensor_torch = None
                                     if (
-                                        golden_tensor_torch.shape
-                                        != output_tensor_torch.shape
+                                        self["--print-input-output-tensors"]
+                                        or self["--enable-golden"]
                                     ):
-                                        raise Exception(
-                                            f"Failed: program-level output doesn't match golden shape! golden_shape={golden_tensor_torch.shape}, output_shape={output_tensor_torch.shape}"
+                                        output_tensor_torch = (
+                                            convert_runtime_to_torch_tensor(outputs[i])
                                         )
 
-                                    # PCC check.
-                                    _, _, cal_pcc, _ = get_atol_rtol_pcc(
-                                        golden_tensor_torch,
-                                        output_tensor_torch,
-                                        self["--atol"],
-                                        self["--rtol"],
-                                        self.logging,
-                                    )
-                                    pcc_fail = (
-                                        cal_pcc < post_op_callback_runtime_config.pcc
-                                    )
-                                    if not pcc_fail:
-                                        self.logging.info(
-                                            f"Program level golden for output_{idx} matched. pcc={cal_pcc}"
+                                    # Compare program level golden.
+                                    golden_tensor_torch = None
+                                    pcc_fail = False
+                                    allclose_fail = False
+                                    if (self["--enable-golden"]) and (
+                                        i < len(golden_outputs_torch)
+                                    ):
+                                        self.logging.debug(
+                                            f"executing program level golden comparison for output_{i}"
                                         )
+                                        golden_tensor_torch = golden_outputs_torch[i]
+                                        if (
+                                            golden_tensor_torch.shape
+                                            != output_tensor_torch.shape
+                                        ):
+                                            raise Exception(
+                                                f"Failed: program-level output doesn't match golden shape! golden_shape={golden_tensor_torch.shape}, output_shape={output_tensor_torch.shape}"
+                                            )
 
-                                    # Allclose check.
-                                    # TODO(wenbinlyuTT):
-                                    # 0. Fix NaNs and set equal_nan=False
-                                    # 1. Quant ops may generate extreme outliers, we may need to
-                                    #    implement our own allclose() that allows for a certain
-                                    #    percentage of outliers.
-                                    if bin.extension == ".ttm":
-                                        allclose_fail = not torch.allclose(
+                                        # PCC check.
+                                        _, _, cal_pcc, _ = get_atol_rtol_pcc(
                                             golden_tensor_torch,
                                             output_tensor_torch,
-                                            rtol=self["--rtol-allclose"],
-                                            atol=self["--atol-allclose"],
-                                            equal_nan=True,
+                                            self["--atol"],
+                                            self["--rtol"],
+                                            self.logging,
                                         )
-                                        if not allclose_fail:
+                                        pcc_fail = (
+                                            cal_pcc < post_op_callback_runtime_config.pcc
+                                        )
+                                        if not pcc_fail:
                                             self.logging.info(
-                                                f"Program level golden for output_{idx} passed allclose check."
+                                                f"Program level golden for output_{idx} matched. pcc={cal_pcc}"
                                             )
 
-                                golden_fail = pcc_fail or allclose_fail
+                                        # Allclose check.
+                                        # TODO(wenbinlyuTT):
+                                        # 0. Fix NaNs and set equal_nan=False
+                                        # 1. Quant ops may generate extreme outliers, we may need to
+                                        #    implement our own allclose() that allows for a certain
+                                        #    percentage of outliers.
+                                        if bin.extension == ".ttm":
+                                            allclose_fail = not torch.allclose(
+                                                golden_tensor_torch,
+                                                output_tensor_torch,
+                                                rtol=self["--rtol-allclose"],
+                                                atol=self["--atol-allclose"],
+                                                equal_nan=True,
+                                            )
+                                            if not allclose_fail:
+                                                self.logging.info(
+                                                    f"Program level golden for output_{idx} passed allclose check."
+                                                )
 
-                                # Save golden reference tensor if save flag is enabled.
-                                if (
-                                    self["--save-artifacts"]
-                                    and golden_tensor_torch is not None
-                                ):
-                                    program_folder = f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}"
-                                    self.artifacts.save_torch_tensor(
-                                        program_folder,
-                                        golden_tensor_torch,
-                                        f"golden_output_{i}.pt",
-                                    )
+                                    golden_fail = pcc_fail or allclose_fail
 
-                                if self["--print-input-output-tensors"] or golden_fail:
-                                    torch.set_printoptions(
-                                        threshold=100, edgeitems=3, linewidth=120
-                                    )
-                                    for j, golden_input_tensor_torch in enumerate(
-                                        program.input_tensors
+                                    # Save golden reference tensor if save flag is enabled.
+                                    if (
+                                        self["--save-artifacts"]
+                                        and golden_tensor_torch is not None
                                     ):
-                                        self.logging.info(
-                                            f"Input {j}:\n{golden_input_tensor_torch}"
-                                        )
-                                    self.logging.info(
-                                        f"Output {i}:\n{output_tensor_torch}"
-                                    )
-                                    if golden_tensor_torch is not None:
-                                        self.logging.info(
-                                            f"Golden:\n{golden_tensor_torch}"
+                                        program_folder = f"{self.artifacts.get_binary_folder_path(bin)}/run/program_{program_index}"
+                                        self.artifacts.save_torch_tensor(
+                                            program_folder,
+                                            golden_tensor_torch,
+                                            f"golden_output_{i}.pt",
                                         )
 
-                                # Print the top k differences.
-                                if golden_fail:
-                                    top_k = self["--golden-diff-topk"]
-                                    top_k_list = get_topk_diff(
-                                        golden_tensor_torch,
-                                        output_tensor_torch,
-                                        top_k,
-                                        relative=False,
-                                    )
-                                    self.logging.info(
-                                        f"Top {top_k} absolute differences:"
-                                    )
-                                    for rank, (
-                                        v_golden,
-                                        v_output,
-                                        v_diff,
-                                        idx,
-                                        is_int,
-                                    ) in enumerate(top_k_list):
-                                        if is_int:
+                                    if self["--print-input-output-tensors"] or golden_fail:
+                                        torch.set_printoptions(
+                                            threshold=100, edgeitems=3, linewidth=120
+                                        )
+                                        for j, golden_input_tensor_torch in enumerate(
+                                            program.input_tensors
+                                        ):
                                             self.logging.info(
-                                                f"{rank}: golden {v_golden:+.0f}, output {v_output:+.0f}, abs diff {v_diff:.0f}, idx {idx}"
+                                                f"Input {j}:\n{golden_input_tensor_torch}"
                                             )
-                                        else:
+                                        self.logging.info(
+                                            f"Output {i}:\n{output_tensor_torch}"
+                                        )
+                                        if golden_tensor_torch is not None:
                                             self.logging.info(
-                                                f"{rank}: golden {v_golden:+.6e}, output {v_output:+.6e}, abs diff {v_diff:.6e}, idx {idx}"
-                                            )
-                                    top_k_list = get_topk_diff(
-                                        golden_tensor_torch,
-                                        output_tensor_torch,
-                                        top_k,
-                                        relative=True,
-                                    )
-                                    self.logging.info(
-                                        f"Top {top_k} relative differences:"
-                                    )
-                                    for rank, (
-                                        v_golden,
-                                        v_output,
-                                        v_diff,
-                                        idx,
-                                        is_int,
-                                    ) in enumerate(top_k_list):
-                                        diff_percent = v_diff * 100
-                                        if is_int:
-                                            self.logging.info(
-                                                f"{rank}: golden {v_golden:+.0f}, output {v_output:+.0f}, rel diff {diff_percent:4.1f}%, idx {idx}"
-                                            )
-                                        else:
-                                            self.logging.info(
-                                                f"{rank}: golden {v_golden:+.6e}, output {v_output:+.6e}, rel diff {diff_percent:4.1f}%, idx {idx}"
+                                                f"Golden:\n{golden_tensor_torch}"
                                             )
 
-                                if pcc_fail:
-                                    raise PCCErrorException(
-                                        f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={post_op_callback_runtime_config.pcc}"
-                                    )
-                                if allclose_fail:
-                                    raise AllCloseErrorException(
-                                        f"Failed: program-level output golden comparison failed the allclose check"
-                                    )
+                                    # Print the top k differences.
+                                    if golden_fail:
+                                        top_k = self["--golden-diff-topk"]
+                                        top_k_list = get_topk_diff(
+                                            golden_tensor_torch,
+                                            output_tensor_torch,
+                                            top_k,
+                                            relative=False,
+                                        )
+                                        self.logging.info(
+                                            f"Top {top_k} absolute differences:"
+                                        )
+                                        for rank, (
+                                            v_golden,
+                                            v_output,
+                                            v_diff,
+                                            idx,
+                                            is_int,
+                                        ) in enumerate(top_k_list):
+                                            if is_int:
+                                                self.logging.info(
+                                                    f"{rank}: golden {v_golden:+.0f}, output {v_output:+.0f}, abs diff {v_diff:.0f}, idx {idx}"
+                                                )
+                                            else:
+                                                self.logging.info(
+                                                    f"{rank}: golden {v_golden:+.6e}, output {v_output:+.6e}, abs diff {v_diff:.6e}, idx {idx}"
+                                                )
+                                        top_k_list = get_topk_diff(
+                                            golden_tensor_torch,
+                                            output_tensor_torch,
+                                            top_k,
+                                            relative=True,
+                                        )
+                                        self.logging.info(
+                                            f"Top {top_k} relative differences:"
+                                        )
+                                        for rank, (
+                                            v_golden,
+                                            v_output,
+                                            v_diff,
+                                            idx,
+                                            is_int,
+                                        ) in enumerate(top_k_list):
+                                            diff_percent = v_diff * 100
+                                            if is_int:
+                                                self.logging.info(
+                                                    f"{rank}: golden {v_golden:+.0f}, output {v_output:+.0f}, rel diff {diff_percent:4.1f}%, idx {idx}"
+                                                )
+                                            else:
+                                                self.logging.info(
+                                                    f"{rank}: golden {v_golden:+.6e}, output {v_output:+.6e}, rel diff {diff_percent:4.1f}%, idx {idx}"
+                                                )
 
-                            self.logging.info(
-                                f"e2e_duration_nanoseconds_submit = {e2e_duration_nanoseconds_submit}"
-                            )
-                            self.logging.info(
-                                f"e2e_duration_nanoseconds_output = {e2e_duration_nanoseconds_output}"
-                            )
-                            self.logging.info(
-                                f"total_e2e_duration_nanoseconds_submit_plus_output = {e2e_duration_nanoseconds_submit + e2e_duration_nanoseconds_output}"
-                            )
-                            self.logging.debug(
-                                f"finished loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
-                            )
+                                    if pcc_fail:
+                                        raise PCCErrorException(
+                                            f"Failed: program-level output golden comparison failed, actual_pcc={cal_pcc} < expected_pcc={post_op_callback_runtime_config.pcc}"
+                                        )
+                                    if allclose_fail:
+                                        raise AllCloseErrorException(
+                                            f"Failed: program-level output golden comparison failed the allclose check"
+                                        )
 
-                            bin.add_program_results(
-                                program_index,
-                                loop,
-                                e2e_duration_nanoseconds_submit,
-                                e2e_duration_nanoseconds_output,
-                            )
+                                self.logging.info(
+                                    f"e2e_duration_nanoseconds_submit = {e2e_duration_nanoseconds_submit}"
+                                )
+                                self.logging.info(
+                                    f"e2e_duration_nanoseconds_output = {e2e_duration_nanoseconds_output}"
+                                )
+                                self.logging.info(
+                                    f"total_e2e_duration_nanoseconds_submit_plus_output = {e2e_duration_nanoseconds_submit + e2e_duration_nanoseconds_output}"
+                                )
+                                self.logging.debug(
+                                    f"finished loop={loop+1}/{self['--loops']} for binary={bin.file_path}"
+                                )
 
-                        if graph_capture_path:
-                            self.logging.info(
-                                f"ending TTNN graph capture, writing report to {graph_capture_path}"
-                            )
-                            ttrt.runtime.end_graph_capture_to_file(graph_capture_path)
+                                bin.add_program_results(
+                                    program_index,
+                                    loop,
+                                    e2e_duration_nanoseconds_submit,
+                                    e2e_duration_nanoseconds_output,
+                                )
+
+                        finally:
+                            if graph_capture_path:
+                                self.logging.info(
+                                    f"ending TTNN graph capture, writing report to {graph_capture_path}"
+                                )
+                                ttrt.runtime.end_graph_capture_to_file(graph_capture_path)
 
                         if event is not None:
                             ttrt.runtime.wait(event)
