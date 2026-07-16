@@ -8664,7 +8664,8 @@ def ttir_paged_sdpa_decode_golden(
     # Build attention mask
     attn_mask = None
     if attention_mask is not None:
-        attn_mask = _gmt_leaf_torch(attention_mask.float())
+        # Mask: [B, S, H, kv] -> [B, H, S, kv]
+        attn_mask = _gmt_leaf_torch(attention_mask.float()).permute(0, 2, 1, 3)
     elif is_causal_val and cur_pos_tensor is not None:
         cur_t = _gmt_leaf_torch(cur_pos_tensor)
         attn_mask = torch.zeros((b, nh, s_q, seq_len), dtype=torch.float32)
@@ -8689,6 +8690,10 @@ def ttir_paged_sdpa_decode_golden(
         sink_len = sink_t.shape[-1] if sink_t.dim() > 0 else 1
         attn_mask[..., :sink_len] = 0
 
+    # tt-metal fuses scale after masking, so pre-scale the mask to match F.sdpa.
+    if attn_mask is not None:
+        scale_factor = scale_val if scale_val is not None else d**-0.5
+        attn_mask = attn_mask * scale_factor
     out = torch.nn.functional.scaled_dot_product_attention(
         q, k_unpaged, v_unpaged, attn_mask=attn_mask, scale=scale_val, is_causal=False
     )

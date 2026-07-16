@@ -467,6 +467,8 @@ public:
           workarounds::decomposition::
               ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern,
           workarounds::decomposition::
+              PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern,
+          workarounds::decomposition::
               ScaledDotProductAttentionPadTileDimsRewritePattern,
           workarounds::decomposition::PointToPointOpRewritePattern,
           workarounds::decomposition::RMSNormConfigRewritePattern,
@@ -493,11 +495,6 @@ public:
             .add<workarounds::decomposition::PagedUpdateCacheOpRewritePattern>(
                 &getContext());
       }
-
-      patterns.add<
-          workarounds::decomposition::
-              PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern>(
-          &getContext(), optimizationLevel);
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);

@@ -1178,6 +1178,12 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
         operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);
   }
 
+  // Attention mask needs no workaround.
+  if (sdpaOp.getAttentionMask()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  }
+
   if (sdpaOp.getCurPosTensor()) {
     operandsWorkaround =
         operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);
