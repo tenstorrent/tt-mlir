@@ -14,7 +14,7 @@ module attributes {} {
     // but the output layout doesn't match the expected one, so it inserts a revert to tile layout with bf16.
 
     // CHECK: %[[CONCAT_RES:.*]] = "ttnn.concat"
-    // CHECK: "ttnn.to_layout"
+    // CHECK: "ttnn.to_tensor_spec"
     // CHECK-SAME: (%[[CONCAT_RES]]
     // CHECK-SAME: -> tensor<{{.*}}bf16
 

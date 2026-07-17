@@ -111,9 +111,10 @@ void applyOutputLayoutRevert(Operation *operation, size_t resultIndex,
                              TTNNLayoutAttr actualOutputLayout,
                              TTNNLayoutAttr expectedOutputLayout);
 
-ToLayoutOp createToLayoutOp(OpBuilder &builder, Location loc,
-                            RankedTensorType resultType, Value inputValue,
-                            TTNNLayoutAttr targetLayout);
+ToTensorSpecOp createToTensorSpecOp(OpBuilder &builder, Location loc,
+                                    RankedTensorType resultType,
+                                    Value inputValue,
+                                    TTNNLayoutAttr targetLayout);
 
 // Try fallback configurations for a failed operation
 bool tryFallbacks(Operation *operation,
@@ -165,9 +166,9 @@ public:
 
     moduleOp->walk([&](func::FuncOp func) {
       func.walk([&](Operation *operation) -> WalkResult {
-        if (auto toLayoutOp = mlir::dyn_cast<ttnn::ToLayoutOp>(operation)) {
-          // Skip ToLayout operations - they will be decomposed later, so there
-          // is no point in validating them here.
+        if (mlir::isa<ttnn::ToTensorSpecOp>(operation)) {
+          // Skip ToTensorSpec operations - they will be decomposed later, so
+          // there is no point in validating them here.
           return WalkResult::skip();
         }
 
@@ -824,12 +825,12 @@ void applyInputOperandChange(Operation *operation, size_t operandIndex,
 
   // Insert ToLayout operation to perform the transformation
   OpBuilder builder(operation);
-  auto toLayoutOp =
-      createToLayoutOp(builder, operation->getLoc(), currentTensorType, operand,
-                       targetLayoutAttr);
+  auto toTensorSpecOp =
+      createToTensorSpecOp(builder, operation->getLoc(), currentTensorType,
+                           operand, targetLayoutAttr);
 
-  // Replace the operand with the result of ToLayout
-  operation->setOperand(operandIndex, toLayoutOp.getResult());
+  // Replace the operand with the result of ToTensorSpec
+  operation->setOperand(operandIndex, toTensorSpecOp.getResult());
 
   TTMLIR_DEBUG(
       ttmlir::LogComponent::ValidationFallback,
@@ -871,32 +872,33 @@ void applyOutputLayoutRevert(Operation *operation, size_t resultIndex,
   OpBuilder builder(operation->getContext());
   builder.setInsertionPointAfter(operation);
 
-  auto revertToLayoutOp =
-      createToLayoutOp(builder,
-                       ttmlir::utils::appendLocationSuffix(operation->getLoc(),
-                                                           "_revert_layout"),
-                       currentResultType, result, expectedOutputLayout);
+  auto revertToTensorSpecOp =
+      createToTensorSpecOp(builder,
+                           ttmlir::utils::appendLocationSuffix(
+                               operation->getLoc(), "_revert_layout"),
+                           currentResultType, result, expectedOutputLayout);
 
   TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
-               "Inserted revert ToLayout op after operation {} to restore "
+               "Inserted revert ToTensorSpec op after operation {} to restore "
                "expected layout",
                operation->getName());
 
   // Update all saved uses to point to the revert operation instead
   for (auto &use : uses) {
     Operation *useOp = use.first;
-    useOp->setOperand(use.second, revertToLayoutOp.getResult());
+    useOp->setOperand(use.second, revertToTensorSpecOp.getResult());
     TTMLIR_DEBUG(ttmlir::LogComponent::ValidationFallback,
                  "Updated consumer {}@{} to use reverted layout",
                  useOp->getName(), useOp->getLoc());
   }
 }
 
-ToLayoutOp createToLayoutOp(OpBuilder &builder, Location loc,
-                            RankedTensorType currentResultType,
-                            Value inputValue, TTNNLayoutAttr targetLayout) {
+ToTensorSpecOp createToTensorSpecOp(OpBuilder &builder, Location loc,
+                                    RankedTensorType currentResultType,
+                                    Value inputValue,
+                                    TTNNLayoutAttr targetLayout) {
 
-  // Create result type for ToLayoutOp, which has the same shape as
+  // Create result type for ToTensorSpecOp, which has the same shape as
   // currentResultType but use scalar element type and encoding from
   // targetLayout
   Type scalarElementType = mlir::tt::ttcore::dataTypeToElementType(
@@ -904,7 +906,7 @@ ToLayoutOp createToLayoutOp(OpBuilder &builder, Location loc,
   RankedTensorType resultType = RankedTensorType::get(
       currentResultType.getShape(), scalarElementType, targetLayout);
 
-  return builder.create<ToLayoutOp>(loc, resultType, inputValue);
+  return builder.create<ToTensorSpecOp>(loc, resultType, inputValue);
 }
 
 // Try config fallbacks for Conv2d-like operations
