@@ -137,3 +137,23 @@ module @test_gather_repeat_front_singleton_indexed_dim {
     return %2 : tensor<1x16x3x40x64xbf16>
   }
 }
+
+// Consecutive ascending indices [0, 1, ..., N-1] would otherwise match the
+// replicate-padding heuristic, but a batched index vector (start_indices shape
+// [1, N]) makes the gather output rank (3) exceed the operand rank (2). The
+// slice/repeat/concat rewrite reconstructs operand-shaped frames, so it cannot
+// represent that output and must fall through to the embedding lowering. This
+// is the InternLM2 RoPE `cos[position_ids]` pattern (operand [S, D], indices
+// [1, S], output [1, S, D]); matching it here produced an invalid concat
+// ('ttir.concat' output dim mismatch "1 vs. N").
+// CHECK-LABEL: func.func @rope_cos_gather_falls_through
+module @test_gather_rope_cos {
+  func.func @rope_cos_gather_falls_through(%arg0: tensor<8x4xbf16>) -> tensor<1x8x4xbf16> {
+    // CHECK-NOT: "ttir.concat"
+    // CHECK: "ttir.embedding"
+    // CHECK-NOT: stablehlo.gather
+    %1 = "stablehlo.constant"() <{value = dense<[[0, 1, 2, 3, 4, 5, 6, 7]]> : tensor<1x8xi64>}> : () -> tensor<1x8xi64>
+    %2 = "stablehlo.gather"(%arg0, %1) <{dimension_numbers = #stablehlo.gather<offset_dims = [2], collapsed_slice_dims = [0], start_index_map = [0], index_vector_dim = 2>, indices_are_sorted = false, slice_sizes = array<i64: 1, 4>}> : (tensor<8x4xbf16>, tensor<1x8xi64>) -> tensor<1x8x4xbf16>
+    return %2 : tensor<1x8x4xbf16>
+  }
+}
