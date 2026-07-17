@@ -2,6 +2,3 @@ add_runtime_gtest(test_tensor_serialization)
 add_runtime_gtest(test_tensor_cache_lifetime)
 add_runtime_gtest(test_unsafe_borrowed_host_tensor)
 add_runtime_gtest(test_owned_host_tensor_strided)
-
-add_runtime_gtest(test_ttml_metal_ops)
-target_link_libraries(test_ttml_metal_ops PRIVATE TTML_LIBRARY)

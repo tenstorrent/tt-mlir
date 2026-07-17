@@ -5313,6 +5313,28 @@ public:
     return success();
   }
 };
+
+// AdamW conversion pattern.
+//
+// TODO(pglusac): EmitPy lowering for ttnn.adamw is intentionally unsupported.
+// The emitted Python would need to call the low-level ttml::metal::adamw
+// primitive, but tt-train's nanobind bindings only expose the high-level
+// AdamW optimizer class. We need to upstream those Python bindings.
+class AdamWOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::AdamWOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::AdamWOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::AdamWOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    return rewriter.notifyMatchFailure(
+        srcOp,
+        "EmitPy lowering for ttnn.adamw is not supported: ttml does not "
+        "expose the metal::adamw primitive through its Python bindings.");
+  }
+};
 } // namespace
 
 namespace mlir::tt {
@@ -5621,6 +5643,9 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
       typeConverter, ctx);
   patterns.add<PagedFlashMultiLatentAttentionDecodeOpConversionPattern>(
       typeConverter, ctx);
+
+  // AdamW: deliberately declines conversion (see TODO(pglusac) above).
+  patterns.add<AdamWOpConversionPattern>(typeConverter, ctx);
 }
 
 } // namespace mlir::tt

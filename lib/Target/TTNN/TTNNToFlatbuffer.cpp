@@ -1612,6 +1612,36 @@ createOp(FlatbufferObjectCache &cache, BatchNormTrainingOp op) {
       weight, bias, memoryConfig, output, computeConfig.value_or(0));
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::AdamWOp>
+createOp(FlatbufferObjectCache &cache, AdamWOp op) {
+  auto param = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getParam()));
+  auto grad = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getGrad()));
+  auto expAvg = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpAvg()));
+  auto expAvgSq = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getExpAvgSq()));
+
+  // Optional AMSGrad max second moment: offset 0 when absent.
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> maxExpAvgSq = 0;
+  if (op.getMaxExpAvgSq()) {
+    maxExpAvgSq = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getMaxExpAvgSq()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape=*/std::nullopt);
+
+  return ::tt::target::ttnn::CreateAdamWOp(
+      *cache.fbb, param, grad, expAvg, expAvgSq, maxExpAvgSq,
+      op.getLr().convertToFloat(), op.getBeta1().convertToFloat(),
+      op.getBeta2().convertToFloat(), op.getBeta1Pow().convertToFloat(),
+      op.getBeta2Pow().convertToFloat(), op.getEpsilon().convertToFloat(),
+      op.getWeightDecay().convertToFloat(), op.getStochasticRounding(), output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::RMSNormOp>
 createOp(FlatbufferObjectCache &cache, RMSNormOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> input =
@@ -4835,6 +4865,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
       batchNormTrainingOp) {
     return createOperation(cache, createOp(cache, batchNormTrainingOp),
                            debugString, locInfo);
+  }
+  if (auto adamwOp = dyn_cast<AdamWOp>(op); adamwOp) {
+    return createOperation(cache, createOp(cache, adamwOp), debugString,
+                           locInfo);
   }
   if (auto rmsNormOp = dyn_cast<RMSNormOp>(op); rmsNormOp) {
     return createOperation(cache, createOp(cache, rmsNormOp), debugString,

@@ -2619,6 +2619,51 @@ def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_Compute
     let hasVerifier = 1;
 }
 
+def TTNN_AdamWOp : TTNN_Op<"adamw", [OpModelExempt]> {
+    let summary = "AdamW optimizer step (ttml).";
+    let description = [{
+      Fused AdamW optimizer step, backed by the ttml metal op
+      `ttml::metal::adamw`. Updates the parameter tensor from its gradient and the
+      first/second moment estimates, and updates the moments in place.
+
+      The first and second moments (`exp_avg`, `exp_avg_sq`, and the optional
+      `max_exp_avg_sq` used for AMSGrad) are mutated in place. `amsgrad` is implied
+      by the presence of `max_exp_avg_sq`. The updated parameter is returned.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$param,
+                         AnyRankedTensor:$grad,
+                         Arg<AnyRankedTensor, "first moment estimate", [MemWrite]>:$exp_avg,
+                         Arg<AnyRankedTensor, "second moment estimate", [MemWrite]>:$exp_avg_sq,
+                         Arg<Optional<AnyRankedTensor>, "max second moment estimate (amsgrad)", [MemWrite]>:$max_exp_avg_sq,
+                         F32Attr:$lr,
+                         F32Attr:$beta1,
+                         F32Attr:$beta2,
+                         F32Attr:$beta1_pow,
+                         F32Attr:$beta2_pow,
+                         F32Attr:$epsilon,
+                         F32Attr:$weight_decay,
+                         DefaultValuedAttr<BoolAttr, "false">:$stochastic_rounding);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let builders = [
+      OpBuilder<(ins "Type":$result, "Value":$param, "Value":$grad,
+                     "Value":$exp_avg, "Value":$exp_avg_sq,
+                     "llvm::APFloat":$lr, "llvm::APFloat":$beta1,
+                     "llvm::APFloat":$beta2, "llvm::APFloat":$beta1_pow,
+                     "llvm::APFloat":$beta2_pow, "llvm::APFloat":$epsilon,
+                     "llvm::APFloat":$weight_decay),
+      [{
+        build($_builder, $_state, result, param, grad, exp_avg, exp_avg_sq,
+              /*max_exp_avg_sq=*/nullptr, lr, beta1, beta2, beta1_pow, beta2_pow,
+              epsilon, weight_decay, /*stochastic_rounding=*/false);
+      }]>
+    ];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_DistributedRMSNormOp : TTNN_Op<"distributed_rms_norm",
     [AttrSizedOperandSegments, TTNN_ComputeKernelConfigOpInterface, TTNN_DistributedOpInterface, OpModelExempt]> {
     let summary = "Distributed RMS normalization with all-gather op.";

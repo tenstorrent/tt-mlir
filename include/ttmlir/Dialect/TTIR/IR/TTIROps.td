@@ -2338,6 +2338,51 @@ def TTIR_RMSNormOp : TTIR_NamedOp<"rms_norm", [AttrSizedOperandSegments]> {
   let hasVerifier = 1;
 }
 
+def TTIR_AdamWOp : TTIR_NamedOp<"adamw"> {
+  let summary = "AdamW optimizer step";
+  let description = [{
+    Fused AdamW optimizer step. Updates `param` from its gradient and the first/second
+    moment estimates, updating the moments in place. The updated parameter is returned.
+
+    Inputs:
+    - `param` (Tensor): parameter tensor being optimized.
+    - `grad` (Tensor): gradient of the parameter.
+    - `exp_avg` (Tensor): first moment estimate; updated in place.
+    - `exp_avg_sq` (Tensor): second moment estimate; updated in place.
+    - `max_exp_avg_sq` (Optional Tensor): max second moment for AMSGrad; updated in place
+      when present. Its presence implies amsgrad.
+
+    Attributes:
+    - `lr`: learning rate.
+    - `beta1`, `beta2`: exponential decay rates for the moment estimates.
+    - `beta1_pow`, `beta2_pow`: beta1^t and beta2^t bias-correction terms.
+    - `epsilon`: numerical-stability constant.
+    - `weight_decay`: decoupled weight-decay coefficient.
+    - `stochastic_rounding`: enable stochastic rounding (default false).
+
+    Output:
+    - `result` (Tensor): the updated parameter tensor.
+  }];
+
+  let arguments = (ins AnyRankedTensor:$param,
+                       AnyRankedTensor:$grad,
+                       AnyRankedTensor:$exp_avg,
+                       AnyRankedTensor:$exp_avg_sq,
+                       Optional<AnyRankedTensor>:$max_exp_avg_sq,
+                       F32Attr:$lr,
+                       F32Attr:$beta1,
+                       F32Attr:$beta2,
+                       F32Attr:$beta1_pow,
+                       F32Attr:$beta2_pow,
+                       F32Attr:$epsilon,
+                       F32Attr:$weight_decay,
+                       DefaultValuedAttr<BoolAttr, "false">:$stochastic_rounding);
+
+  let results = (outs AnyRankedTensor:$result);
+
+  let hasVerifier = 1;
+}
+
 def TTIR_DistributedRMSNormOp : TTIR_NamedOp<"distributed_rms_norm", [AttrSizedOperandSegments]> {
   let summary = "Distributed RMS normalization with all-gather operation";
   let description = [{

@@ -1,5 +1,7 @@
 find_package(Python REQUIRED COMPONENTS Interpreter Development.Module Development.Embed)
 
+add_subdirectory(ttml)
+
 if (NOT TTNN_RUNTIME_ENABLED)
   add_library(TTRuntimeTTNNOps INTERFACE)
   return()
@@ -148,7 +150,3 @@ target_link_libraries(TTRuntimeTTNNOps PUBLIC coverage_config Python::Python)
 
 
 add_dependencies(TTRuntimeTTNNOps TTNN_LIBRARY tt-metal FBS_GENERATION TTRuntimeTTNNTypes TTRuntimeTTNNDebug RUNTIME_FBS_GENERATION)
-
-target_link_libraries(TTRuntimeTTNNOps PUBLIC TTML_LIBRARY)
-target_compile_definitions(TTRuntimeTTNNOps PUBLIC FLATBUFFERS_LARGE_SIZE)
-add_dependencies(TTRuntimeTTNNOps TTML_LIBRARY)

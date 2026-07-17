@@ -7298,6 +7298,31 @@ mlir::tt::ttir::SplitQueryKeyValueAndSplitHeadsOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// AdamWOp
+//===----------------------------------------------------------------------===//
+::mlir::LogicalResult mlir::tt::ttir::AdamWOp::verify() {
+  llvm::ArrayRef<int64_t> shape = getParam().getType().getShape();
+  auto sameShape = [&](RankedTensorType t) { return t.getShape() == shape; };
+
+  if (!sameShape(getGrad().getType())) {
+    return emitOpError("grad must have the same shape as param");
+  }
+  if (!sameShape(getExpAvg().getType())) {
+    return emitOpError("exp_avg must have the same shape as param");
+  }
+  if (!sameShape(getExpAvgSq().getType())) {
+    return emitOpError("exp_avg_sq must have the same shape as param");
+  }
+  if (getMaxExpAvgSq() && !sameShape(getMaxExpAvgSq().getType())) {
+    return emitOpError("max_exp_avg_sq must have the same shape as param");
+  }
+  if (!sameShape(getResult().getType())) {
+    return emitOpError("result must have the same shape as param");
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // DistributedRMSNormOp
 //===----------------------------------------------------------------------===//
 ::mlir::LogicalResult mlir::tt::ttir::DistributedRMSNormOp::verify() {

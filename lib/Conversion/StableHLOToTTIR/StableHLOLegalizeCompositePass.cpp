@@ -1943,6 +1943,72 @@ public:
   }
 };
 
+class TenstorrentAdamWConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CompositeOp> {
+
+public:
+  TenstorrentAdamWConversionPattern(MLIRContext *context)
+      : OpConversionPattern<mlir::stablehlo::CompositeOp>(context) {}
+
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CompositeOp srcOp,
+                  mlir::stablehlo::CompositeOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (srcOp.getName() != "tenstorrent.adamw") {
+      return failure();
+    }
+    if (srcOp.getNumResults() != 1) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.adamw must have exactly one result.");
+    }
+    size_t numOperands = adaptor.getOperands().size();
+    if (numOperands != 4 && numOperands != 5) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.adamw must have 4 or 5 operands (param, grad, "
+                 "exp_avg, exp_avg_sq, [max_exp_avg_sq]).");
+    }
+
+    DictionaryAttr compositeAttrs = srcOp.getCompositeAttributes();
+    if (!compositeAttrs) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tenstorrent.adamw must have composite_attributes.");
+    }
+
+    // Copy the required F32 hyperparameters through, normalizing to F32 so the
+    // ttir.adamw verifier accepts them regardless of the source float width.
+    static constexpr StringRef kFloatAttrs[] = {
+        "lr",       "beta1",   "beta2",       "beta1_pow",
+        "beta2_pow", "epsilon", "weight_decay"};
+
+    SmallVector<NamedAttribute> namedAttrs;
+    for (StringRef name : kFloatAttrs) {
+      auto attr = mlir::dyn_cast_or_null<FloatAttr>(compositeAttrs.get(name));
+      if (!attr) {
+        return rewriter.notifyMatchFailure(
+            srcOp, llvm::Twine("tenstorrent.adamw requires float '") + name +
+                       "' attribute");
+      }
+      namedAttrs.push_back(rewriter.getNamedAttr(
+          name, rewriter.getF32FloatAttr(attr.getValueAsDouble())));
+    }
+
+    // stochastic_rounding is optional and defaults to false.
+    bool stochasticRounding = false;
+    if (auto srAttr = mlir::dyn_cast_or_null<BoolAttr>(
+            compositeAttrs.get("stochastic_rounding"))) {
+      stochasticRounding = srAttr.getValue();
+    }
+    namedAttrs.push_back(rewriter.getNamedAttr(
+        "stochastic_rounding", rewriter.getBoolAttr(stochasticRounding)));
+
+    auto outputType =
+        mlir::cast<RankedTensorType>(srcOp.getResult(0).getType());
+    rewriter.replaceOpWithNewOp<ttir::AdamWOp>(
+        srcOp, outputType, adaptor.getOperands(), namedAttrs);
+    return success();
+  }
+};
+
 struct LegalizeStableHLOCompositeToTTIR
     : public ttir::impl::LegalizeStableHLOCompositeToTTIRBase<
           LegalizeStableHLOCompositeToTTIR> {
@@ -1977,6 +2043,7 @@ void populateStableHLOCompositeLegalizationPatterns(
       context, "tenstorrent.gelu");
   patterns.add<StableHLOToTTIRCompositeOpConversionPattern<ttir::GeluOp>>(
       context, "tenstorrent.gelu_tanh");
+  patterns.add<TenstorrentAdamWConversionPattern>(context);
   patterns.add<TenstorrentRMSNormConversionPattern>(context);
   patterns.add<CustomCallRMSNormConversionPattern>(context);
   patterns.add<CustomCallDistributedRMSNormConversionPattern>(context);

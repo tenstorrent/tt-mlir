@@ -29,6 +29,7 @@ set(TTNN_OPERATIONS_FBS_GEN_SOURCES
   operations/tensor_serialization.fbs
   operations/trace.fbs
   operations/transformer.fbs
+  operations/ttml.fbs
   operations/global_semaphore.fbs
 )
 
