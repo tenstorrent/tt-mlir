@@ -1,0 +1,77 @@
+// RUN: ttmlir-opt --canonicalize -o %t %s
+// RUN: FileCheck %s --input-file=%t
+#dram = #ttnn.buffer_type<dram>
+#system_memory = #ttnn.buffer_type<system_memory>
+#ttnn_layout = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<32x32xbf16, #system_memory>>
+#ttnn_layout1 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, bf16>, #dram>, <interleaved>>
+#ttnn_layout2 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<32x32xbf16, #dram>, <interleaved>>
+#ttnn_layout3 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #dram>, <interleaved>>
+#ttnn_layout4 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<1x1x!ttcore.tile<32x32, f32>, #system_memory>>
+#ttnn_layout5 = #ttnn.ttnn_layout<(d0, d1) -> (d0, d1), <1x1>, memref<32x32xf32, #system_memory>>
+module attributes {} {
+  func.func @merge_to_tensor_spec_op_layout(%arg0: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout2> {
+    // Verify that the to_tensor_spec op is canonicalized to a single to_tensor_spec op and the attributes are merged.
+    // CHECK-LABEL: func.func @merge_to_tensor_spec_op_layout
+    // CHECK: "ttnn.to_tensor_spec"(%arg0)
+    // CHECK-SAME: -> tensor<32x32xbf16, #ttnn_layout1>
+    // CHECK-NEXT: return
+    %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout1>
+    %1 = "ttnn.to_tensor_spec"(%0)  : (tensor<32x32xbf16, #ttnn_layout1>) -> tensor<32x32xbf16, #ttnn_layout2>
+    return %1 : tensor<32x32xbf16, #ttnn_layout2>
+  }
+
+  func.func @merge_to_tensor_spec_op_data_type(%arg0: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout3> {
+    // Verify that the to_tensor_spec op is canonicalized to a single to_tensor_spec op and the attributes are merged.
+    // CHECK-LABEL: func.func @merge_to_tensor_spec_op_data_type
+    // CHECK: "ttnn.to_tensor_spec"(%arg0)
+    // CHECK-SAME: -> tensor<32x32xf32, #ttnn_layout2>
+    // CHECK-NEXT: return
+    %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout1>
+    %1 = "ttnn.to_tensor_spec"(%0)  : (tensor<32x32xbf16, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout3>
+    return %1 : tensor<32x32xf32, #ttnn_layout3>
+  }
+
+  func.func @merge_to_tensor_spec_op_memory_config(%arg0: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout4> {
+    // Verify that the to_tensor_spec op is canonicalized to a single to_tensor_spec op and the attributes are merged.
+    // CHECK-LABEL: func.func @merge_to_tensor_spec_op_memory_config
+    // CHECK: "ttnn.to_tensor_spec"(%arg0)
+    // CHECK-SAME: -> tensor<32x32xbf16, #ttnn_layout3>
+    // CHECK-NEXT: return
+    %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout1>
+    %1 = "ttnn.to_tensor_spec"(%0)  : (tensor<32x32xbf16, #ttnn_layout1>) -> tensor<32x32xbf16, #ttnn_layout4>
+    return %1 : tensor<32x32xbf16, #ttnn_layout4>
+  }
+
+  func.func @merge_to_tensor_spec_op_all(%arg0: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout5> {
+    // Verify that the to_tensor_spec op is canonicalized to a single to_tensor_spec op and the attributes are merged.
+    // CHECK-LABEL: func.func @merge_to_tensor_spec_op_all
+    // CHECK: "ttnn.to_tensor_spec"(%arg0)
+    // CHECK-SAME: -> tensor<32x32xf32, #ttnn_layout4>
+    // CHECK-NEXT: return
+    %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout1>
+    %1 = "ttnn.to_tensor_spec"(%0)  : (tensor<32x32xbf16, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout5>
+    return %1 : tensor<32x32xf32, #ttnn_layout5>
+  }
+
+  func.func @merge_to_tensor_spec_op_4x(%arg0: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xf32, #ttnn_layout5> {
+    // Verify that the to_tensor_spec op is canonicalized to a single to_tensor_spec op and the attributes are merged.
+    // CHECK-LABEL: func.func @merge_to_tensor_spec_op_4x
+    // CHECK: "ttnn.to_tensor_spec"(%arg0)
+    // CHECK-SAME: -> tensor<32x32xf32, #ttnn_layout4>
+    // CHECK-NEXT: return
+    %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout1>
+    %1 = "ttnn.to_tensor_spec"(%0)  : (tensor<32x32xbf16, #ttnn_layout1>) -> tensor<32x32xf32, #ttnn_layout5>
+    %2 = "ttnn.to_tensor_spec"(%1)  : (tensor<32x32xf32, #ttnn_layout5>) -> tensor<32x32xf32, #ttnn_layout3>
+    %3 = "ttnn.to_tensor_spec"(%2)  : (tensor<32x32xf32, #ttnn_layout3>) -> tensor<32x32xf32, #ttnn_layout5>
+    return %3 : tensor<32x32xf32, #ttnn_layout5>
+  }
+
+  func.func @fold_to_tensor_spec_op(%arg0: tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout> {
+    // Verify folding of to_tensor_spec_op.
+    // CHECK-LABEL: func.func @fold_to_tensor_spec_op
+    %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<32x32xbf16, #ttnn_layout>) -> tensor<32x32xbf16, #ttnn_layout>
+    // CHECK-NOT: "ttnn.to_tensor_spec"
+    return %0 : tensor<32x32xbf16, #ttnn_layout>
+    // CHECK: return %arg0 : tensor<32x32xbf16
+  }
+}

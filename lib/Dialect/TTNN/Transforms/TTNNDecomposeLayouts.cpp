@@ -59,14 +59,17 @@ public:
       assert(func.getBody().hasOneBlock() &&
              "Found func that didn't have one block!");
       func->walk([&](Operation *op) {
-        if (!isa<ttnn::ToLayoutOp>(op)) {
+        if (!isa<ttnn::ToTensorSpecOp>(op)) {
+          assert(!isa<ttnn::ToLayoutOp>(op) &&
+                 "ttnn.to_layout op should not be present before "
+                 "TTNNDecomposeLayouts pass. Use ttnn.to_tensor_spec instead.");
           return;
         }
         opsToReplace.push_back(op);
       });
     });
     for (Operation *op : opsToReplace) {
-      if (failed(createLayoutConversionOps(mlir::cast<ttnn::ToLayoutOp>(op),
+      if (failed(createLayoutConversionOps(mlir::cast<ttnn::ToTensorSpecOp>(op),
                                            rewriter))) {
         signalPassFailure();
         return;
@@ -92,7 +95,7 @@ private:
 
   // True if the result of `op` feeds a CPU-hoisted function call. We move to
   // host first and perform the layout/typecast there.
-  bool isInputToCPUHoistedFunction(ttnn::ToLayoutOp op) const {
+  bool isInputToCPUHoistedFunction(ttnn::ToTensorSpecOp op) const {
     if (!op.getResult().hasOneUse()) {
       return false;
     }
@@ -201,7 +204,7 @@ private:
   //===--------------------------------------------------------------------===//
 
   std::pair<TTNNLayoutAttr, TTNNLayoutAttr>
-  getInputOutputLayouts(ttnn::ToLayoutOp op) const {
+  getInputOutputLayouts(ttnn::ToTensorSpecOp op) const {
     auto inputLayoutAttr =
         mlir::cast<TTNNLayoutAttr>(op.getInput().getType().getEncoding());
     auto outputLayoutAttr =
@@ -524,7 +527,7 @@ private:
   // Orchestration.
   //===--------------------------------------------------------------------===//
 
-  mlir::LogicalResult createLayoutConversionOps(ttnn::ToLayoutOp op,
+  mlir::LogicalResult createLayoutConversionOps(ttnn::ToTensorSpecOp op,
                                                 IRRewriter &rewriter) const {
     auto [input, output] = getInputOutputLayouts(op);
 
@@ -546,8 +549,8 @@ private:
   }
 
   // Emits the layout/dtype/memory conversion ops and returns the final value.
-  mlir::Value buildLayoutConversion(ttnn::ToLayoutOp op, IRRewriter &rewriter,
-                                    TTNNLayoutAttr input,
+  mlir::Value buildLayoutConversion(ttnn::ToTensorSpecOp op,
+                                    IRRewriter &rewriter, TTNNLayoutAttr input,
                                     TTNNLayoutAttr output) const {
     mlir::Value current = op.getInput();
 

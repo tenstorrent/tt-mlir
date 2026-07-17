@@ -11,7 +11,7 @@ module attributes {} {
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
 
     // CHECK: %[[RESHAPE_RES:.*]] = "ttnn.reshape"
-    // CHECK: "ttnn.to_layout"
+    // CHECK: "ttnn.to_tensor_spec"
     // CHECK-SAME: (%[[RESHAPE_RES]]
 
     %1 = "ttnn.reshape"(%arg0) <{

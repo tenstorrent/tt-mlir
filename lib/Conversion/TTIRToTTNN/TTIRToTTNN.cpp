@@ -173,7 +173,7 @@ public:
 
     RankedTensorType result = mlir::cast<RankedTensorType>(op.getType(0));
 
-    rewriter.replaceOpWithNewOp<ttnn::ToLayoutOp>(
+    rewriter.replaceOpWithNewOp<ttnn::ToTensorSpecOp>(
         op, this->getTypeConverter()->convertType(result), adaptor.getInput());
 
     return success();
