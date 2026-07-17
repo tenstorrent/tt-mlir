@@ -411,11 +411,11 @@ def test_relu_dram_sharded(
     """Smoke test for DRAM-sharded layouts, using an arbitrary op (relu).
 
         (DRAM-Interleaved arg)
-            -> to_layout -> (DRAM-sharded)
-            -> relu      -> (DRAM-Interleaved, builder default for op outputs)
+            -> to_tensor_spec -> (DRAM-sharded)
+            -> relu           -> (DRAM-Interleaved, builder default for op outputs)
 
-    Exercises block-arg construction, the explicit DRAM-sharded `to_layout`
-    reshard, and a unary op consuming a sharded operand.
+    Exercises block-arg construction, the explicit DRAM-sharded
+    `to_tensor_spec` reshard, and a unary op consuming a sharded operand.
     """
 
     def module(builder: TTNNBuilder):
@@ -425,7 +425,7 @@ def test_relu_dram_sharded(
             builder: TTNNBuilder,
             unit_attrs: Optional[List[str]] = None,
         ):
-            sharded_in = builder.to_layout(
+            sharded_in = builder.to_tensor_spec(
                 in0,
                 layout=ttnn.Layout.Tile,
                 buffer_type=ttnn.BufferType.DRAM,
@@ -443,6 +443,7 @@ def test_relu_dram_sharded(
 
 
 # Hoisted unary ops
+
 
 # Create hoisted versions of operations by currying the unit_attrs parameter
 def create_hoisted_unary_op(op_func, name):

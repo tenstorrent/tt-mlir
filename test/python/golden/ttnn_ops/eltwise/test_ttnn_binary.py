@@ -19,7 +19,6 @@ from test_utils import (
 )
 from ttmlir.dialects import ttnn
 
-
 pytestmark = pytest.mark.frontend("ttnn")
 
 
@@ -213,8 +212,8 @@ def test_add_dram_sharded(
     """Smoke test for DRAM-sharded layouts on a binary eltwise op.
 
     (DRAM-Interleaved args)
-        -> to_layout x2 -> (DRAM-sharded)
-        -> add          -> (DRAM-Interleaved, builder default)
+        -> to_tensor_spec x2 -> (DRAM-sharded)
+        -> add               -> (DRAM-Interleaved, builder default)
     """
 
     def module(builder: TTNNBuilder):
@@ -231,8 +230,8 @@ def test_add_dram_sharded(
                 tensor_memory_layout=memory_layout,
                 grid_shape=grid_shape,
             )
-            sharded_a = builder.to_layout(in0, **shard_kwargs)
-            sharded_b = builder.to_layout(in1, **shard_kwargs)
+            sharded_a = builder.to_tensor_spec(in0, **shard_kwargs)
+            sharded_b = builder.to_tensor_spec(in1, **shard_kwargs)
             return builder.add(sharded_a, sharded_b, unit_attrs=unit_attrs)
 
     compile_and_execute_ttnn(

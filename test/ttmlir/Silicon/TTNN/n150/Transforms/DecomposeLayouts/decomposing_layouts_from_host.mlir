@@ -26,7 +26,7 @@ module attributes {} {
         // CHECK: %[[GET_DEVICE_OP:.*]] = "ttnn.get_device"()
         // CHECK: %[[TO_DEVICE_OP:.*]] = "ttnn.to_device"(%arg0, %[[GET_DEVICE_OP]])
         // CHECK: return %[[TO_DEVICE_OP]]
-        %0 = "ttnn.to_layout"(%arg0)  : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xf32, #ttnn_layout_device_rm>
+        %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xf32, #ttnn_layout_device_rm>
         return %0 : tensor<64x128xf32, #ttnn_layout_device_rm>
     }
 
@@ -39,7 +39,7 @@ module attributes {} {
         // CHECK: %[[CASTING_OP:.*]] = "ttnn.typecast"(%arg0)
         // CHECK-SAME: -> tensor<{{.*}}bf16
         // CHECK-NEXT: return %[[CASTING_OP]]
-        %0 = "ttnn.to_layout"(%arg0)  : (tensor<64x128xf32, #ttnn_layout_host_tile>) -> tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>
+        %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<64x128xf32, #ttnn_layout_host_tile>) -> tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>
         return %0 : tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>
     }
 
@@ -49,7 +49,7 @@ module attributes {} {
         // CHECK: %[[CASTING_OP:.*]] = "ttnn.typecast"(%arg0)
         // CHECK-SAME: -> tensor<{{.*}}xbf16,
         // CHECK-NEXT: return %[[CASTING_OP]]
-        %0 = "ttnn.to_layout"(%arg0)  : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>
+        %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>
         return %0 : tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>
     }
 
@@ -61,7 +61,7 @@ module attributes {} {
         // CHECK-NEXT: %[[CASTING_OP:.*]] = "ttnn.typecast"(%[[TO_DEVICE_OP]])
         // CHECK-SAME: -> tensor<{{.*}}xbf16,
         // CHECK-NEXT: return %[[CASTING_OP]]
-        %0 = "ttnn.to_layout"(%arg0) : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
+        %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
         return %0 : tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
     }
 
@@ -73,7 +73,7 @@ module attributes {} {
         // CHECK-NEXT: %[[CASTING_OP:.*]] = "ttnn.typecast"(%[[TO_DEVICE_OP]])
         // CHECK-SAME: -> tensor<{{.*}}bf16
         // CHECK-NEXT: return %[[CASTING_OP]]
-        %0 = "ttnn.to_layout"(%arg0)  : (tensor<64x128xf32, #ttnn_layout_host_tile>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
+        %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<64x128xf32, #ttnn_layout_host_tile>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
         return %0 : tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
     }
 
@@ -85,7 +85,7 @@ module attributes {} {
         // This test verifies that the `to_layout` operation is correctly inserted to change the layout from tile to row-major on the host.
         // CHECK: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%arg0)
         // CHECK-NEXT: return %[[TO_LAYOUT_OP]]
-        %0 = "ttnn.to_layout"(%arg0)  : (tensor<64x128xf32, #ttnn_layout_host_tile>) -> tensor<64x128xf32, #ttnn_layout_host_rm>
+        %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<64x128xf32, #ttnn_layout_host_tile>) -> tensor<64x128xf32, #ttnn_layout_host_rm>
         return %0 : tensor<64x128xf32, #ttnn_layout_host_rm>
     }
 
@@ -94,7 +94,7 @@ module attributes {} {
         // This test verifies that the `to_layout` operation is correctly inserted to change the layout from row-major to tile on the host.
         // CHECK: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%arg0)
         // CHECK-NEXT: return %[[TO_LAYOUT_OP]]
-        %0 = "ttnn.to_layout"(%arg0)  : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xf32, #ttnn_layout_host_tile>
+        %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xf32, #ttnn_layout_host_tile>
         return %0 : tensor<64x128xf32, #ttnn_layout_host_tile>
     }
 
@@ -106,7 +106,7 @@ module attributes {} {
         // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[TO_DEVICE_OP]])
         // CHECK-SAME: memref<{{.*}}x{{.*}}, #ttnn.buffer_type
         // CHECK-NEXT: return %[[TO_LAYOUT_OP]]
-        %0 = "ttnn.to_layout"(%arg0)  : (tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>) -> tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
+        %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>) -> tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
         return %0 : tensor<64x128xbf16, #ttnn_layout_device_rm_bf16>
     }
 
@@ -119,7 +119,7 @@ module attributes {} {
         // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[TO_DEVICE_OP]])
         // CHECK-SAME: memref<{{.*}}x{{.*}}, #ttnn.buffer_type
         // CHECK-NEXT: return %[[TO_LAYOUT_OP]]
-        %0 = "ttnn.to_layout"(%arg0)  : (tensor<64x128xf32, #ttnn_layout_host_tile>) -> tensor<64x128xf32, #ttnn_layout_device_rm>
+        %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<64x128xf32, #ttnn_layout_host_tile>) -> tensor<64x128xf32, #ttnn_layout_device_rm>
         return %0 : tensor<64x128xf32, #ttnn_layout_device_rm>
     }
 
@@ -132,7 +132,7 @@ module attributes {} {
         // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[TO_DEVICE_OP]])
         // CHECK-SAME: !ttcore.tile<32x32,
         // CHECK-NEXT: return %[[TO_LAYOUT_OP]]
-        %0 = "ttnn.to_layout"(%arg0)  : (tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
+        %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
         return %0 : tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
     }
 
@@ -145,7 +145,7 @@ module attributes {} {
         // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[TO_DEVICE_OP]])
         // CHECK-SAME: !ttcore.tile<32x32,
         // CHECK-NEXT: return %[[TO_LAYOUT_OP]]
-        %0 = "ttnn.to_layout"(%arg0)  : (tensor<64x128xui32, #ttnn_layout_host_rm_u32>) -> tensor<64x128xui32, #ttnn_layout_device_tile_u32>
+        %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<64x128xui32, #ttnn_layout_host_rm_u32>) -> tensor<64x128xui32, #ttnn_layout_device_tile_u32>
         return %0 : tensor<64x128xui32, #ttnn_layout_device_tile_u32>
     }
 
@@ -160,7 +160,7 @@ module attributes {} {
         // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[CASTING_OP]])
         // CHECK-SAME: memref<{{.*}}x{{.*}}, #ttnn.buffer_type
         // CHECK-NEXT: return %[[TO_LAYOUT_OP]]
-        %0 = "ttnn.to_layout"(%arg0)  : (tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>) -> tensor<64x128xf32, #ttnn_layout_host_rm>
+        %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>) -> tensor<64x128xf32, #ttnn_layout_host_rm>
         return %0 : tensor<64x128xf32, #ttnn_layout_host_rm>
     }
 
@@ -172,7 +172,7 @@ module attributes {} {
         // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[CASTING_OP]])
         // CHECK-SAME: !ttcore.tile<32x32,
         // CHECK-NEXT: return %[[TO_LAYOUT_OP]]
-        %0 = "ttnn.to_layout"(%arg0)  : (tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>) -> tensor<64x128xf32, #ttnn_layout_host_tile>
+        %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>) -> tensor<64x128xf32, #ttnn_layout_host_tile>
         return %0 : tensor<64x128xf32, #ttnn_layout_host_tile>
     }
 
@@ -187,7 +187,7 @@ module attributes {} {
         // CHECK-NEXT: %[[TO_LAYOUT_OP:.*]] = "ttnn.to_layout"(%[[CASTING_OP]])
         // CHECK-SAME: memref<{{.*}}x{{.*}}, #ttnn.buffer_type
         // CHECK-NEXT: return %[[TO_LAYOUT_OP]]
-        %0 = "ttnn.to_layout"(%arg0)  : (tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>) -> tensor<64x128xf32, #ttnn_layout_device_rm>
+        %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<64x128xbf16, #ttnn_layout_host_tile_bf16>) -> tensor<64x128xf32, #ttnn_layout_device_rm>
         return %0 : tensor<64x128xf32, #ttnn_layout_device_rm>
     }
 
@@ -201,7 +201,7 @@ module attributes {} {
         // CHECK-SAME: -> tensor<{{.*}}f32
         // CHECK-NOT: "ttnn.typecast"
         // CHECK: return %[[TO_LAYOUT_OP]]
-        %0 = "ttnn.to_layout"(%arg0) : (tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>) -> tensor<64x128xf32, #ttnn_layout_device_tile>
+        %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<64x128xbf16, #ttnn_layout_host_rm_bf16>) -> tensor<64x128xf32, #ttnn_layout_device_tile>
         return %0 : tensor<64x128xf32, #ttnn_layout_device_tile>
     }
 
@@ -215,7 +215,7 @@ module attributes {} {
         // CHECK-SAME: -> tensor<{{.*}}bf16
         // CHECK-NOT: "ttnn.typecast"
         // CHECK: return %[[TO_LAYOUT_OP]]
-        %0 = "ttnn.to_layout"(%arg0) : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
+        %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
         return %0 : tensor<64x128xbf16, #ttnn_layout_device_tile_bf16>
     }
 
@@ -230,7 +230,7 @@ module attributes {} {
         // CHECK-NEXT: %[[CASTING_OP:.*]] = "ttnn.typecast"(%[[TO_LAYOUT_OP]])
         // CHECK-SAME: -> tensor<{{.*}}ui32
         // CHECK-NEXT: return %[[CASTING_OP]]
-        %0 = "ttnn.to_layout"(%arg0)  : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xui32, #ttnn_layout_device_tile_u32>
+        %0 = "ttnn.to_tensor_spec"(%arg0)  : (tensor<64x128xf32, #ttnn_layout_host_rm>) -> tensor<64x128xui32, #ttnn_layout_device_tile_u32>
         return %0 : tensor<64x128xui32, #ttnn_layout_device_tile_u32>
     }
 
@@ -243,7 +243,7 @@ module attributes {} {
         // CHECK-SAME: -> tensor<{{.*}}bf16
         // CHECK: %[[MEM_CONFIG:.*]] = "ttnn.to_memory_config"(%[[TYPECAST]])
         // CHECK: return %[[MEM_CONFIG]]
-        %0 = "ttnn.to_layout"(%arg0) : (tensor<1x1x784x512xf32, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <7x8>, memref<4x2x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<l1>>, <block_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,6)>]>>>) -> tensor<1x1x784x512xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <1x1>, memref<25x16x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
+        %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<1x1x784x512xf32, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <7x8>, memref<4x2x!ttcore.tile<32x32, f32>, #ttnn.buffer_type<l1>>, <block_sharded>, core_ranges = #ttnn.core_range_set<[#ttnn.core_range<(0,0), (7,6)>]>>>) -> tensor<1x1x784x512xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <1x1>, memref<25x16x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
         return %0 : tensor<1x1x784x512xbf16, #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 800 + d1 * 800 + d2, d3), <1x1>, memref<25x16x!ttcore.tile<32x32, bf16>, #ttnn.buffer_type<dram>>, <interleaved>>>
     }
 

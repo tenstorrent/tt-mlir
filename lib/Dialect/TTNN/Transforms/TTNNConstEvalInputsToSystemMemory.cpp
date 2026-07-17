@@ -63,15 +63,15 @@ static bool shouldTransferArgumentToDevice(BlockArgument blockArgument) {
     return true;
   }
 
-  auto toLayoutOp =
-      mlir::dyn_cast<ttnn::ToLayoutOp>(*blockArgument.getUsers().begin());
+  auto toTensorSpecOp =
+      mlir::dyn_cast<ttnn::ToTensorSpecOp>(*blockArgument.getUsers().begin());
 
-  if (!toLayoutOp) {
+  if (!toTensorSpecOp) {
     return true;
   }
 
   return mlir::cast<mlir::tt::ttnn::TTNNMemoryConfigOpInterface>(
-             toLayoutOp.getOperation())
+             toTensorSpecOp.getOperation())
              .getMemoryConfigAttr()
              .getBufferType()
              .getValue() != BufferType::SystemMemory;
@@ -173,13 +173,14 @@ static void convertArgumentOfConstEvalFunc(func::FuncOp constEvalFuncOp,
     auto deviceTensorType =
         mlir::cast<RankedTensorType>(blockArgument.getType());
 
-    // Create to_layout op to convert the argument to the original layout.
-    auto toLayoutOp = builder.create<ttnn::ToLayoutOp>(
+    // Create to_tensor_spec op to convert the argument to the original layout.
+    auto toTensorSpecOp = builder.create<ttnn::ToTensorSpecOp>(
         blockArgument.getLoc(), deviceTensorType, blockArgument);
 
-    // Replace the argument usages with the to_layout op result.
+    // Replace the argument usages with the to_tensor_spec op result.
     //
-    blockArgument.replaceAllUsesExcept(toLayoutOp.getResult(), toLayoutOp);
+    blockArgument.replaceAllUsesExcept(toTensorSpecOp.getResult(),
+                                       toTensorSpecOp);
   }
 
   // Finally, update the block argument type and the function type.

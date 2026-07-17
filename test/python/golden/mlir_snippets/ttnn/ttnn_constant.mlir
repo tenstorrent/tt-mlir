@@ -6,7 +6,7 @@
 module attributes {ttcore.meshes = #ttcore.meshes<[<"mesh" = 1x1>]>} {
   func.func @constant_row_major() -> tensor<2x2xf32, #ttnn_layout2> {
     %0 = "ttnn.constant"() <{value = dense<"0x0000803F000000400000404000008040"> : tensor<2x2xf32>}> : () -> tensor<2x2xf32, #ttnn_layout1>
-    %1 = "ttnn.to_layout"(%0)  : (tensor<2x2xf32, #ttnn_layout1>) -> tensor<2x2xf32, #ttnn_layout2>
+    %1 = "ttnn.to_tensor_spec"(%0)  : (tensor<2x2xf32, #ttnn_layout1>) -> tensor<2x2xf32, #ttnn_layout2>
     return %1 : tensor<2x2xf32, #ttnn_layout2>
   }
   func.func @constant_tile() -> tensor<2x2xf32, #ttnn_layout2> {

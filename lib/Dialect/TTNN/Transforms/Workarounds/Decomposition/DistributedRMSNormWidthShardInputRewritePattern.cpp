@@ -101,10 +101,10 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
     return failure();
   }
 
-  // Apply ToLayoutOp to convert the input tensor to width-sharded L1.
+  // Apply ToTensorSpecOp to convert the input tensor to width-sharded L1.
   RankedTensorType memoryConfigedInputType =
       inputType.cloneWithEncoding(desiredInputLayout);
-  auto inputToLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
+  auto inputToTensorSpecOp = rewriter.create<ttnn::ToTensorSpecOp>(
       op.getLoc(), memoryConfigedInputType, op.getInput());
 
   // The fused kernel requires the weight in ROW_MAJOR layout. The 1D->2D
@@ -129,9 +129,9 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
               .setLayout(ttnn::Layout::RowMajor);
       RankedTensorType rowMajorWeightType =
           weightType.cloneWithEncoding(rowMajorLayout);
-      auto weightToLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
+      auto weightToTensorSpecOp = rewriter.create<ttnn::ToTensorSpecOp>(
           op.getLoc(), rowMajorWeightType, weight);
-      weight = weightToLayoutOp.getResult();
+      weight = weightToTensorSpecOp.getResult();
     }
   }
 
@@ -146,9 +146,9 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
     if (residualLayout != desiredInputLayout) {
       RankedTensorType shardedResidualType =
           residualType.cloneWithEncoding(desiredInputLayout);
-      auto residualToLayoutOp = rewriter.create<ttnn::ToLayoutOp>(
+      auto residualToTensorSpecOp = rewriter.create<ttnn::ToTensorSpecOp>(
           op.getLoc(), shardedResidualType, residual);
-      residual = residualToLayoutOp.getResult();
+      residual = residualToTensorSpecOp.getResult();
     }
   }
 
@@ -210,7 +210,7 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   // the TTNNAllocateDistributedOpBuffers / TTNNAllocateDistributedOpSemaphores
   // passes (see DistributedOpInterface implementation in TTNNOps.cpp).
   auto newOp = rewriter.create<ttnn::DistributedRMSNormOp>(
-      op.getLoc(), shardedOutputType, inputToLayoutOp.getResult(), weight,
+      op.getLoc(), shardedOutputType, inputToTensorSpecOp.getResult(), weight,
       residual, /*stats=*/nullptr, /*semaphore=*/nullptr, op.getDevice(),
       static_cast<uint32_t>(op.getClusterAxis()), op.getEpsilon(),
       op.getSubDeviceIdAttr(), op.getNumLinksAttr(), op.getTopologyAttr(),

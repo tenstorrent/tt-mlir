@@ -12,8 +12,8 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-std::optional<ToLayoutOp> getWorkaroundedInput(NLPConcatHeadsDecodeOp op,
-                                               PatternRewriter &rewriter) {
+std::optional<ToTensorSpecOp> getWorkaroundedInput(NLPConcatHeadsDecodeOp op,
+                                                   PatternRewriter &rewriter) {
   auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
   TTNNLayoutAttr inputLayout = utils::getLayoutAttrFromTensor(inputType);
 
@@ -39,7 +39,7 @@ std::optional<ToLayoutOp> getWorkaroundedInput(NLPConcatHeadsDecodeOp op,
   auto dataType = ttcore::elementTypeToDataType(inputElementType);
 
   rewriter.setInsertionPoint(op);
-  return utils::createToLayoutOp(
+  return utils::createToTensorSpecOp(
       op, mlir::cast<mlir::TypedValue<RankedTensorType>>(op.getInput()),
       rewriter, Layout::Tile, BufferType::L1, memLayoutAttr, dataType,
       /*locSuffix=*/"", llvm::ArrayRef<int64_t>(virtualGridSize));

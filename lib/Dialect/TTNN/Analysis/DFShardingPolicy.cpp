@@ -2106,7 +2106,7 @@ static bool validateScheduleRangeWithReservation(
 
     Operation *op = schedule[static_cast<size_t>(pos)];
 
-    if (mlir::isa<ToLayoutOp>(op)) {
+    if (mlir::isa<ToTensorSpecOp>(op)) {
       continue;
     }
 
@@ -2267,7 +2267,7 @@ void DFShardingPolicy::run() {
       //
       if (l1ChainConfigs->back().isEmpty()) {
         for (auto *op : schedulableOps) {
-          if (isa<ToLayoutOp>(op)) {
+          if (isa<ToTensorSpecOp>(op)) {
             currentOp = op;
             break;
           }
@@ -2284,7 +2284,7 @@ void DFShardingPolicy::run() {
 
       // Skip starting sharding chain if currentOp is a memory management op.
       //
-      if (l1ChainConfigs->back().isEmpty() && isa<ToLayoutOp>(currentOp)) {
+      if (l1ChainConfigs->back().isEmpty() && isa<ToTensorSpecOp>(currentOp)) {
         currentOp = nullptr;
         continue;
       }

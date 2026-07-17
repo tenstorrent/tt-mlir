@@ -52,7 +52,7 @@ private:
           mlir::cast<TTNNLayoutAttr>(weight.getType().getEncoding());
       if (weightLayout.getLayout() != Layout::Tile) {
         rewriter.setInsertionPoint(convOp);
-        ToLayoutOp toTileOp = utils::createToLayoutOp(
+        ToTensorSpecOp toTileOp = utils::createToTensorSpecOp(
             convOp, weight, rewriter, Layout::Tile,
             weightLayout.getBufferType(), weightLayout.getMemLayout(),
             weightLayout.getDataType(), "_prepare_conv3d_weight_to_tile");
@@ -95,13 +95,13 @@ private:
         mlir::cast<TTNNLayoutAttr>(rawWeight.getType().getEncoding());
     if (rawWeightLayout.getLayout() != Layout::RowMajor ||
         rawWeightLayout.getBufferType() != BufferType::SystemMemory) {
-      rawWeight =
-          utils::createToLayoutOp(convOp, rawWeight, rewriter, Layout::RowMajor,
-                                  BufferType::SystemMemory,
-                                  /*targetTensorMemoryLayout=*/nullptr,
-                                  rawWeightLayout.getDataType(),
-                                  "_prepare_conv3d_weight_to_row_major")
-              .getResult();
+      rawWeight = utils::createToTensorSpecOp(
+                      convOp, rawWeight, rewriter, Layout::RowMajor,
+                      BufferType::SystemMemory,
+                      /*targetTensorMemoryLayout=*/nullptr,
+                      rawWeightLayout.getDataType(),
+                      "_prepare_conv3d_weight_to_row_major")
+                      .getResult();
     }
 
     auto prepareOp = rewriter.create<PrepareConv3dWeightsOp>(
@@ -119,7 +119,7 @@ private:
     // constraint on the weight (its input was the raw 5D weight).
     auto preparedLayout =
         mlir::cast<TTNNLayoutAttr>(preparedWeightType.getEncoding());
-    ToLayoutOp toTileOp = utils::createToLayoutOp(
+    ToTensorSpecOp toTileOp = utils::createToTensorSpecOp(
         convOp, prepareOp.getResult(), rewriter, Layout::Tile,
         preparedLayout.getBufferType(), preparedLayout.getMemLayout(),
         preparedLayout.getDataType(), "_prepare_conv3d_weight_to_tile");

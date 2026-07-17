@@ -16,7 +16,7 @@ module attributes {} {
     // doesn't match the expected one, so it inserts a revert to tile layout.
 
     // CHECK: %[[SUB_RES:.*]] = "ttnn.subtract"
-    // CHECK: "ttnn.to_layout"
+    // CHECK: "ttnn.to_tensor_spec"
     // CHECK-SAME: (%[[SUB_RES]]
 
     %1 = "ttnn.subtract"(%arg0, %arg1) : (tensor<1x1x32x32xsi32, #ttnn_layout_row_major_si32>, tensor<1x1x32x32xsi32, #ttnn_layout_row_major_si32>) -> tensor<1x1x32x32xbf16, #ttnn_layout_tile_bf16>
@@ -32,7 +32,7 @@ module attributes {} {
     // inserts a revert to tile layout.
 
     // CHECK: %[[ADD_RES:.*]] = "ttnn.add"
-    // CHECK: "ttnn.to_layout"
+    // CHECK: "ttnn.to_tensor_spec"
     // CHECK-SAME: (%[[ADD_RES]]
 
     %1 = "ttnn.add"(%arg0, %arg1) : (tensor<1x1x32x32xbf16, #ttnn_layout_row_major_bf16>, tensor<1x1x32x32xbf16, #ttnn_layout_row_major_bf16>) -> tensor<1x1x32x32xbf16, #ttnn_layout_tile_bf16>

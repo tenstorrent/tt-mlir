@@ -9060,6 +9060,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.ConstantOp: ttnn_constant_golden,
     # Layout/Device operations
     ttnn.ToLayoutOp: ttnn_to_layout_golden,
+    ttnn.ToTensorSpecOp: ttnn_to_layout_golden,
     ttnn.ToDeviceOp: ttnn_to_device_golden,
     ttnn.FromDeviceOp: ttnn_from_device_golden,
     # CCL (Collective Communication Library) operations

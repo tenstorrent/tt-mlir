@@ -22,7 +22,7 @@ module attributes {} {
         // CHECK-NEXT: %[[TO_MEM_CONFIG:.*]] = "ttnn.to_memory_config"(%[[TO_LAYOUT]])
         // CHECK-NOT: "ttnn.typecast"
         // CHECK: return %[[TO_MEM_CONFIG]]
-        %0 = "ttnn.to_layout"(%arg0) : (tensor<64x128xui16, #ttnn_layout_l1_rm_ui16>) -> tensor<64x128xui16, #ttnn_layout_dram_tile_ui16>
+        %0 = "ttnn.to_tensor_spec"(%arg0) : (tensor<64x128xui16, #ttnn_layout_l1_rm_ui16>) -> tensor<64x128xui16, #ttnn_layout_dram_tile_ui16>
         return %0 : tensor<64x128xui16, #ttnn_layout_dram_tile_ui16>
     }
 }

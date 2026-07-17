@@ -82,8 +82,9 @@ static void revertOutputLayout(wa::TTNNWorkaroundInterface &op,
   // Insert the toLayoutOp after the op output.
   rewriter.setInsertionPointAfter(op);
 
-  // Cast the data type back to the previous data type by inserting ToLayoutOp.
-  mlir::Value castLayoutOp = utils::createToLayoutOp(
+  // Cast the data type back to the previous data type by inserting
+  // ToTensorSpecOp.
+  mlir::Value castLayoutOp = utils::createToTensorSpecOp(
       op.getOperation(), newOpResult, rewriter,
       workaroundResults.tensorLayoutResult.previousValue,
       workaroundResults.tensorBufferTypeResult.previousValue,
@@ -119,9 +120,9 @@ static bool workaroundInputOperand(
     return false;
   }
 
-  // Apply the workarounds on the input operand by inserting the ToLayoutOp with
-  // the desired tensor layout, buffer type and memory layout.
-  mlir::Value insertedToLayoutOpValue = utils::createToLayoutOp(
+  // Apply the workarounds on the input operand by inserting the ToTensorSpecOp
+  // with the desired tensor layout, buffer type and memory layout.
+  mlir::Value insertedToTensorSpecOp = utils::createToTensorSpecOp(
       op.getOperation(), inputValue, rewriter,
       inputWorkaroundResults.tensorLayoutResult.targetValue,
       inputWorkaroundResults.tensorBufferTypeResult.targetValue,
@@ -132,7 +133,7 @@ static bool workaroundInputOperand(
   // intended, tag the inserted op so ConstEvalHoist permits hoisting it
   // despite the L1-resident result.
   if (inputWorkaround.allowL1ConstEval) {
-    insertedToLayoutOpValue.getDefiningOp()->setAttr(
+    insertedToTensorSpecOp.getDefiningOp()->setAttr(
         utils::g_ConstEvalAllowedAttrName, rewriter.getUnitAttr());
   }
 
@@ -140,7 +141,7 @@ static bool workaroundInputOperand(
   // to convert the input operand to the desired tensor layout, buffer type.
   rewriter.modifyOpInPlace(op, [&]() {
     // Update the input operand with the new toLayout op operand.
-    op->setOperand(inputOperand.getOperandNumber(), insertedToLayoutOpValue);
+    op->setOperand(inputOperand.getOperandNumber(), insertedToTensorSpecOp);
   });
 
   return true;
@@ -275,9 +276,10 @@ public:
       return failure();
     }
 
-    // To layout op is a special case, we don't want to rewrite it. We use it
-    // to apply workarounds to the operands and results of TTNN operations.
-    if (mlir::isa<ttnn::ToLayoutOp>(op.getOperation())) {
+    // The aggregate to_tensor_spec op is a special case, we don't want to
+    // rewrite it. We use it to apply workarounds to the operands and results of
+    // TTNN operations.
+    if (mlir::isa<ttnn::ToTensorSpecOp>(op.getOperation())) {
       return failure();
     }
 
@@ -381,7 +383,7 @@ public:
         op.getIndex(), zero.getResult());
 
     // %safe_u32 = ttnn.to_layout(%safe) -> ui32
-    ttnn::ToLayoutOp safeIdxU32 = ttnn::utils::createToLayoutOp(
+    ttnn::ToTensorSpecOp safeIdxU32 = ttnn::utils::createToTensorSpecOp(
         op.getOperation(),
         mlir::cast<mlir::TypedValue<RankedTensorType>>(safeIdx.getResult()),
         rewriter, indexLayout.getLayout(), indexLayout.getBufferType(),
