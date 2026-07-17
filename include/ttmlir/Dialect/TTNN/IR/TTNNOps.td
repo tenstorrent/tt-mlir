@@ -1871,19 +1871,11 @@ def TTNN_MoeComputeOp : TTNN_Op<"moe_compute",
       A2A selective-reduce-combine. Maps to
       `ttnn::experimental::moe_compute` at runtime.
 
-      `optional_output_tensor` is the caller-allocated combine-output buffer;
-      `cross_device_semaphore` synchronizes the A2A combine across devices.
-      Both are optional in source MLIR but must be bound before the runtime
-      can lower the op. They are populated by the
-      `TTNNAllocateDistributedOpBuffers` / `TTNNAllocateDistributedOpSemaphores`
-      passes via the `DistributedOpInterface`.
-
-      When `compute_only` is set, the A2A combine is skipped (single-device /
-      no-CCL bring-up): tt-metal returns only the first five tensors and
-      `matmul_output` is the final user-visible output. In that mode
-      `cluster_axis`, `topology`, `num_links`, `mux_core_range_set`,
-      `optional_output_tensor`, and `cross_device_semaphore` are unused, and
-      `combine_output` aliases `matmul_output`.
+      `optional_output_tensor` is the combine-output buffer and
+      `cross_device_semaphore` synchronizes the A2A combine across devices; both
+      are bound in the function prelude by this op's `DistributedOpInterface`
+      hooks. `cluster_axis` selects the mesh axis the combine reduces over;
+      `mux_core_range_set` provides the fabric-mux cores.
 
       See `TTIR_MoeComputeOp` for input/output shapes and dtypes.
     }];
@@ -1903,20 +1895,12 @@ def TTNN_MoeComputeOp : TTNN_Op<"moe_compute",
                          BoolAttr:$has_bias,
                          DefaultValuedAttr<TTCore_MoEActivationFunctionAttr,
                              "::mlir::tt::ttcore::MoEActivationFunction::Silu">:$activation_function,
-                         DefaultValuedAttr<BoolAttr, "true">:$compute_only,
-
-                         // Full-path-only inputs, unused when compute_only == true.
-                         OptionalAttr<UI32Attr>:$cluster_axis,
+                         UI32Attr:$cluster_axis,
                          OptionalAttr<UI32Attr>:$num_links,
                          OptionalAttr<TTCore_TopologyAttr>:$topology,
-                         OptionalAttr<TTNN_CoreRangeSetAttr>:$mux_core_range_set);
+                         TTNN_CoreRangeSetAttr:$mux_core_range_set);
 
-    let results = (outs AnyRankedTensor:$per_expert_total_tokens,
-                        AnyRankedTensor:$expert_activation,
-                        AnyRankedTensor:$expert_to_token,
-                        AnyRankedTensor:$tilize_output,
-                        AnyRankedTensor:$matmul_output,
-                        AnyRankedTensor:$combine_output);
+    let results = (outs AnyRankedTensor:$combine_output);
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
@@ -4435,6 +4419,29 @@ def TTNN_TTLangOp : Op<TTNN_Dialect, "tt_lang_op",
   }];
 
   let hasVerifier = 1;
+}
+
+def TTNN_AllocateMoeComputeSemaphoreOp : TTNN_Op<"allocate_moe_compute_semaphore", [TTCore_CreationOpTrait, TTCore_NonCacheableTrait, OpModelExempt]> {
+    let summary = "Allocate the moe_compute A2A combine semaphore.";
+    let description = [{
+      Creates the cross-device global semaphore used by `ttnn.moe_compute`'s
+      A2A selective-reduce-combine. The combine cores are placed dynamically by
+      tt-metal, so this op carries the placement inputs as attributes and its
+      runtime handler queries the cores (`get_moe_combine_cores`) and creates
+      the semaphore on them.
+
+      Example:
+      ```mlir
+      %semaphore = "ttnn.allocate_moe_compute_semaphore"(%device) <{output_height_shard_dim = 2 : ui32, hidden_size = 1280 : ui32, initial_value = 0 : ui32, mux_core_range_set = #ttnn.core_range_set<[#ttnn.core_range<(1,1), (3,3)>]>}> : (!ttnn.device) -> !ttnn.global_semaphore
+      ```
+    }];
+
+    let arguments = (ins TTNN_Device:$device,
+                         UI32Attr:$output_height_shard_dim,
+                         UI32Attr:$hidden_size,
+                         OptionalAttr<UI32Attr>:$initial_value,
+                         TTNN_CoreRangeSetAttr:$mux_core_range_set);
+    let results = (outs TTNN_GlobalSemaphore:$result);
 }
 
 #endif
