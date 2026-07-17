@@ -217,6 +217,15 @@ public:
         .buildWithCanonicalCorePlacement(deviceAttr);
   }
 
+  TTNNLayoutAttr makeL1Interleaved(llvm::ArrayRef<int64_t> shape) {
+    auto elemType = mlir::tt::ttcore::TileType::get(builder.getBF16Type());
+    auto deviceAttr = mlir::tt::ttcore::lookupDevice(module.get());
+    return TTNNLayoutAttr::Builder(&context, shape, elemType)
+        .setBufferType(BufferType::L1)
+        .setMemoryLayout(TensorMemoryLayout::Interleaved)
+        .buildWithCanonicalCorePlacement(deviceAttr);
+  }
+
   mlir::RankedTensorType tensorType(llvm::ArrayRef<int64_t> shape,
                                     TTNNLayoutAttr layout) {
     return mlir::RankedTensorType::get(shape, builder.getBF16Type(), layout);
@@ -267,6 +276,35 @@ public:
     auto op = builder.create<ReshapeOp>(builder.getUnknownLoc(), outType, input,
                                         shapeAttr);
     setL1Usage(op.getOperation(), l1UsageBytes);
+    return op.getOperation();
+  }
+
+  /// Add a zero-fill PadOp matching FillCacheInputPadRewritePattern's scrub
+  /// pad. `padding` is low/high per dim (2 * rank), as in ttnn.pad.
+  mlir::Operation *addPad(mlir::Value input, mlir::RankedTensorType outType,
+                          llvm::ArrayRef<int32_t> padding) {
+    auto op = builder.create<PadOp>(builder.getUnknownLoc(), outType, input,
+                                    llvm::SmallVector<int32_t>(padding),
+                                    /*value=*/llvm::APFloat(0.0f),
+                                    /*use_multicore=*/true);
+    return op.getOperation();
+  }
+
+  /// Add a RepeatOp with the given per-dim repetition factors.
+  mlir::Operation *addRepeat(mlir::Value input, mlir::RankedTensorType outType,
+                             llvm::ArrayRef<int64_t> repeatDims) {
+    auto op = builder.create<RepeatOp>(builder.getUnknownLoc(), outType, input,
+                                       ShapeAttr::get(&context, repeatDims));
+    return op.getOperation();
+  }
+
+  /// Add a PermuteOp with the given permutation.
+  mlir::Operation *addPermute(mlir::Value input, mlir::RankedTensorType outType,
+                              llvm::ArrayRef<int64_t> permutation) {
+    auto op =
+        builder.create<PermuteOp>(builder.getUnknownLoc(), outType, input,
+                                  builder.getDenseI64ArrayAttr(permutation),
+                                  /*pad_value=*/mlir::FloatAttr());
     return op.getOperation();
   }
 

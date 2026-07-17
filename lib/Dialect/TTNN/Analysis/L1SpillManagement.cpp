@@ -573,12 +573,13 @@ void L1SpillManagement<MemoryTracker>::processDeadTensors(
 template <typename MemoryTracker>
 bool L1SpillManagement<MemoryTracker>::willAliasSourceInL1(
     Operation *op) const {
-  // canReshapeBeView already guarantees op is a ReshapeOp with operand(0).
-  // Use hasTensorAddress (not hasTensor): aliasing calls allocateAddressAt,
-  // which requires the source to occupy a simulated address slot. A tensor
-  // can be size-tracked but not address-tracked (e.g. zero-size or no-fit),
-  // in which case it cannot be aliased. This matches the replay path.
-  return canReshapeBeView(op) &&
+  // isAliasingViewOp guarantees op is a view op (reshape/pad/repeat/permute)
+  // that aliases its input operand(0). Use hasTensorAddress (not hasTensor):
+  // aliasing calls allocateAddressAt, which requires the source to occupy a
+  // simulated address slot. A tensor can be size-tracked but not
+  // address-tracked (e.g. zero-size or no-fit), in which case it cannot be
+  // aliased. This matches the replay path.
+  return isAliasingViewOp(op) &&
          memoryTracker.hasTensorAddress(op->getOperand(0));
 }
 
@@ -765,11 +766,11 @@ bool L1SpillManagement<MemoryTracker>::replayFrom(size_t startIdx) {
       continue;
     }
     addressSnapshots[i] = memoryTracker.takeSnapshot();
-    // View-eligible reshape: alias if src is still address-tracked in this
-    // replay (consumes no fresh L1), otherwise fresh-allocate (the
-    // counterfactual when src was evicted to DRAM).
+    // View-eligible op (reshape/pad/repeat/permute): alias if src is still
+    // address-tracked in this replay (consumes no fresh L1), otherwise
+    // fresh-allocate (the counterfactual when src was evicted to DRAM).
     Operation *defOp = l1EventLog[i].tensor.getDefiningOp();
-    if (defOp && canReshapeBeView(defOp) &&
+    if (defOp && isAliasingViewOp(defOp) &&
         memoryTracker.hasTensorAddress(defOp->getOperand(0))) {
       memoryTracker.allocateAddressAt(l1EventLog[i].tensor,
                                       defOp->getOperand(0));

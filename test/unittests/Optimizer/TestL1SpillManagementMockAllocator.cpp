@@ -22,6 +22,11 @@
 #include "L1SpillMockAllocatorFixture.h"
 #include "MockDeviceFixture.h"
 
+#include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/DataMovementRules.h"
+#include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
+#include "ttmlir/OpModel/TTNN/TTNNOpConstraints.h"
+
 #include "gtest/gtest.h"
 
 #include <cstdint>
@@ -233,6 +238,104 @@ TEST_F(MockAllocatorCalibrationTest, PerCoreSizeMatchesConstant) {
   EXPECT_EQ(obs->lives.front().opL1Usage, kOpL1)
       << "mock op-model per-core L1 changed; update kOpL1 and re-derive "
          "budgets";
+}
+
+//===----------------------------------------------------------------------===//
+// View-op tripwires (https://github.com/tenstorrent/tt-mlir/issues/9054)
+//
+// The L1 spill pass classifies certain ops (reshape/pad/repeat/permute) as
+// input-aliasing views via `isAliasingViewOp` and aliases them onto their
+// source's L1 slot instead of tracking a fresh allocation. tt-metal signals
+// such a view by reporting the op's output buffer at the weightless input's
+// address 0 under the stateful op-model query. These tripwires pin that
+// contract: for each op our predicate calls a view, the mock op-model query
+// MUST report an L1 output allocation at address 0. If tt-metal drifts (a
+// classified-view op starts returning a real non-zero address), the tripwire
+// fails -- our `isAliasingViewOp` is then stale and must be adjusted, because
+// the spill pass would otherwise alias (undercount) a real allocation.
+//===----------------------------------------------------------------------===//
+
+// True if the op's stateful op-model query (empty live set = the op's own
+// query) reports an output buffer placed in L1 at address 0.
+static bool queryReportsL1Address0(mlir::Operation *op,
+                                   mlir::tt::ttnn::TTNNLayoutAttr inLayout,
+                                   mlir::tt::ttnn::TTNNLayoutAttr outLayout) {
+  auto result = mlir::tt::ttnn::op_constraint_validation::validateOperation(
+      op, /*inputLayouts=*/{inLayout}, mlir::tt::ttnn::OpConfig(outLayout),
+      /*liveRecords=*/
+      llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>{},
+      /*additionalL1Usage=*/0);
+  EXPECT_TRUE(result.isSuccess()) << "stateful op-model query should succeed";
+  for (const auto &r : result.outputAllocations) {
+    if (r.bufferType == mlir::tt::ttnn::BufferType::L1 && r.address == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
+class MockAllocatorViewTripwireTest : public L1SpillMockAllocatorFixture {};
+
+// Pad: the FillCacheInputPadRewritePattern scrub pad from the llama_3_2_1b
+// repro (seq_len 18 -> 32, TILE fast-path view).
+TEST_F(MockAllocatorViewTripwireTest, PadViewReportsL1Address0) {
+  llvm::SmallVector<int64_t> inShape = {1, 8, 18, 64};
+  llvm::SmallVector<int64_t> outShape = {1, 8, 32, 64};
+  auto inLayout = makeL1Interleaved(inShape);
+  auto outLayout = makeL1Interleaved(outShape);
+  auto args = beginFunc({tensorType(inShape, inLayout)});
+  auto *pad = addPad(args[0], tensorType(outShape, outLayout),
+                     /*padding=*/{0, 0, 0, 0, 0, 14, 0, 0});
+  finishFunc({pad->getResult(0)});
+
+  EXPECT_TRUE(mlir::tt::ttnn::canPadBeView(pad));
+  EXPECT_TRUE(mlir::tt::ttnn::isAliasingViewOp(pad));
+  EXPECT_TRUE(queryReportsL1Address0(pad, inLayout, outLayout))
+      << "TILE-view ttnn.pad must report an L1 output at address 0";
+}
+
+// Repeat: an all-ones repetition is a strict no-op (repeat.cpp:196).
+TEST_F(MockAllocatorViewTripwireTest, RepeatAllOnesViewReportsL1Address0) {
+  llvm::SmallVector<int64_t> shape = {1, 1, 32, 64};
+  auto layout = makeL1Interleaved(shape);
+  auto tt = tensorType(shape, layout);
+  auto args = beginFunc({tt});
+  auto *repeat = addRepeat(args[0], tt, /*repeatDims=*/{1, 1, 1, 1});
+  finishFunc({repeat->getResult(0)});
+
+  EXPECT_TRUE(mlir::tt::ttnn::canRepeatBeView(repeat));
+  EXPECT_TRUE(mlir::tt::ttnn::isAliasingViewOp(repeat));
+  EXPECT_TRUE(queryReportsL1Address0(repeat, layout, layout))
+      << "all-ones ttnn.repeat must report an L1 output at address 0";
+}
+
+// Permute: an identity permutation with unchanged memory config is a no-op.
+TEST_F(MockAllocatorViewTripwireTest, PermuteNopViewReportsL1Address0) {
+  llvm::SmallVector<int64_t> shape = {1, 1, 32, 64};
+  auto layout = makeL1Interleaved(shape);
+  auto tt = tensorType(shape, layout);
+  auto args = beginFunc({tt});
+  auto *permute = addPermute(args[0], tt, /*permutation=*/{0, 1, 2, 3});
+  finishFunc({permute->getResult(0)});
+
+  EXPECT_TRUE(mlir::tt::ttnn::canPermuteBeView(permute));
+  EXPECT_TRUE(mlir::tt::ttnn::isAliasingViewOp(permute));
+  EXPECT_TRUE(queryReportsL1Address0(permute, layout, layout))
+      << "identity ttnn.permute must report an L1 output at address 0";
+}
+
+// Negative: a real (non-view) pad that grows a tile dim must NOT be classified
+// a view.
+TEST_F(MockAllocatorViewTripwireTest, RealPadIsNotAView) {
+  llvm::SmallVector<int64_t> inShape = {1, 1, 32, 64};
+  llvm::SmallVector<int64_t> outShape = {1, 1, 64, 64}; // +1 full tile row
+  auto args = beginFunc({tensorType(inShape, makeL1Interleaved(inShape))});
+  auto *pad = addPad(args[0], tensorType(outShape, makeL1Interleaved(outShape)),
+                     /*padding=*/{0, 0, 0, 0, 0, 32, 0, 0});
+  finishFunc({pad->getResult(0)});
+
+  EXPECT_FALSE(mlir::tt::ttnn::canPadBeView(pad))
+      << "a pad that adds a full tile row is a real allocation, not a view";
 }
 
 } // namespace
