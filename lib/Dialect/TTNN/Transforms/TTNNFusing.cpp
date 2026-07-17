@@ -322,22 +322,30 @@ public:
       if (!condType || !replType || condType.getRank() != 4) {
         return failure();
       }
-      // Soundness guard: condition per-(B, H) and broadcast over the seq and
-      // head_dim axes, replacement a splat. Otherwise the commute is invalid.
+      // Soundness guard: condition per-batch and broadcast over the seq and
+      // head_dim axes, with a splat replacement. The head axis may be either
+      // per-head (numHeads) or broadcast over heads (1) — broadcasting is sound
+      // too, as it zeroes all of a batch's heads uniformly, which still
+      // commutes with the reorder and head concat. Otherwise the commute is
+      // invalid.
       ArrayRef<int64_t> condShape = condType.getShape();
-      if (condShape[0] != batchSize || condShape[1] != numHeads ||
-          condShape[2] != 1 || condShape[3] != 1 ||
+      int64_t condHeads = condShape[1];
+      if (condShape[0] != batchSize ||
+          (condHeads != numHeads && condHeads != 1) || condShape[2] != 1 ||
+          condShape[3] != 1 ||
           !llvm::all_of(replType.getShape(),
                         [](int64_t d) { return d == 1; })) {
         return failure();
       }
+      // Re-materialize the condition on the pre-reorder [S, B, H, D] layout,
+      // preserving its head axis (numHeads or the broadcast 1).
       auto reCondType = utils::RankedTensorTypeFactory::create(
-          condType, SmallVector<int64_t>{seqLen, batchSize, numHeads, 1});
+          condType, SmallVector<int64_t>{seqLen, batchSize, condHeads, 1});
       auto reCondOp = rewriter.create<ReshapeOp>(
           scrub.getLoc(), reCondType, cond,
           rewriter.getI32ArrayAttr({static_cast<int32_t>(seqLen),
                                     static_cast<int32_t>(batchSize),
-                                    static_cast<int32_t>(numHeads), 1}));
+                                    static_cast<int32_t>(condHeads), 1}));
       createdOps.push_back(reCondOp);
       auto scrubbed = rewriter.create<WhereOp>(
           scrub.getLoc(), inputType, reCondOp.getResult(), replacement, input);
