@@ -9,7 +9,7 @@
 #include "ttmlir/Target/TTNN/program_generated.h"
 
 namespace tt::runtime::ttnn::operations::ttml {
-void run(const ::tt::target::ttnn::AdamWOp *op, ProgramContext &context);
+void adamw(const ::tt::target::ttnn::AdamWOp *op, ProgramContext &context);
 } // namespace tt::runtime::ttnn::operations::ttml
 
 #endif // RUNTIME_LIB_TTNN_OPERATIONS_TTML_ADAMW_H

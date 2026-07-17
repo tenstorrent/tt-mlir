@@ -8,7 +8,7 @@
 
 namespace tt::runtime::ttnn::operations::ttml {
 
-void run(const ::tt::target::ttnn::AdamWOp *op, ProgramContext &context) {
+void adamw(const ::tt::target::ttnn::AdamWOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
   const ::ttnn::Tensor &param =

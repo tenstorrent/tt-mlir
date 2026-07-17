@@ -49,13 +49,10 @@ target_link_libraries(TTMLIRRuntime
     # we tell linker to link all the symbols anyway. We need this as symbols from libA might be used by whoever
     # imports libB.
     "$<LINK_LIBRARY:WHOLE_ARCHIVE,TTRuntimeTTNNTestLib>"
-    "$<LINK_LIBRARY:WHOLE_ARCHIVE,TTRuntimeTTMLOps>"
+    TTRuntimeTTMLOps
     ${METAL_LIBS}
     flatbuffers
 )
-
-# Keep ttml's symbols out of the dynamic symbol table.
-target_link_options(TTMLIRRuntime PRIVATE "LINKER:--exclude-libs,libttml.a")
 
 target_link_libraries(TTMLIRRuntime PUBLIC coverage_config)
 if (TTMLIR_ENABLE_TTNN_JIT)
