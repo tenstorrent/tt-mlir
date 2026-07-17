@@ -126,4 +126,35 @@ PagedFillCacheRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
   return nullptr;
 }
 
+//===----------------------------------------------------------------------===//
+// PagedUpdateCacheRuleBook
+//===----------------------------------------------------------------------===//
+
+// Operands: (0) cache, (1) value, (2) update_idxs, (3) page_table.
+LayoutFilterFn
+PagedUpdateCacheRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
+  switch (operandIdx) {
+  case 0: // in-place cache: DRAM interleaved
+    return cacheBufferDramOnlyFilter();
+  case 1: // value: the kernel needs HeightSharded, but this filter only rejects
+          // the wrong sharding types and keeps interleaved -- the greedy
+          // reshard search starts from the interleaved producer beam and
+          // derives the HeightSharded candidate, so pruning interleaved here
+          // would empty the pool. The hard HeightSharded requirement is
+          // enforced by backend validation.
+    return layout_filter_utils::allowOnlyShardingType(
+        TensorMemoryLayout::HeightSharded);
+  case 2: // index tensors: ROW_MAJOR (see generatesRowMajorInputSiblings)
+  case 3:
+    return layout_filter_utils::requireRowMajor;
+  default:
+    return nullptr;
+  }
+}
+
+bool PagedUpdateCacheRuleBook::generatesRowMajorInputSiblings(
+    unsigned operandIdx) const {
+  return operandIdx == 2 || operandIdx == 3;
+}
+
 } // namespace mlir::tt::ttnn

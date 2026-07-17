@@ -6806,14 +6806,13 @@ def TTIR_MoeComputeOp : TTIR_NamedOp<"moe_compute", [TTIR_CCL, AttrSizedOperandS
       - `w0` / `w1` / `w2`: raw per-expert gate / up / down weights.
       - `bias_0` / `bias_1` / `bias_2`: optional per-expert biases.
 
-      Outputs (6, in declaration order):
-        0. `per_expert_total_tokens`     routing metadata: per-expert token counts
-        1. `expert_activation`           routing metadata: per-token activation records
-        2. `expert_to_token`             routing metadata: per-expert token lists
-        3. `tilize_output`               selective-tilize staging buffer
-        4. `matmul_output`               expert-FFN result (final output in compute_only)
-        5. `combine_output`              A2A-combined result (aliases matmul_output
-           in compute_only)
+      Output:
+        `combine_output`                 A2A selective-reduce-combined result.
+
+      The op always runs the full (combine) path; `cluster_axis` selects the
+      mesh axis the A2A combine reduces over. The metal kernel internally
+      allocates and frees its routing/tilize/matmul intermediates; only the
+      combine result is exposed in the IR.
     }];
 
     let arguments = (ins AnyRankedTensor:$tilize_input_tensor,
@@ -6831,17 +6830,9 @@ def TTIR_MoeComputeOp : TTIR_NamedOp<"moe_compute", [TTIR_CCL, AttrSizedOperandS
                          UI32Attr:$intermediate_size,
                          DefaultValuedAttr<TTCore_MoEActivationFunctionAttr,
                              "::mlir::tt::ttcore::MoEActivationFunction::Silu">:$activation_function,
-                         DefaultValuedAttr<BoolAttr, "true">:$compute_only,
+                         UI32Attr:$cluster_axis);
 
-                         // Full-path-only inputs, unused when compute_only == true.
-                         OptionalAttr<UI32Attr>:$cluster_axis);
-
-    let results = (outs AnyRankedTensor:$per_expert_total_tokens,
-                        AnyRankedTensor:$expert_activation,
-                        AnyRankedTensor:$expert_to_token,
-                        AnyRankedTensor:$tilize_output,
-                        AnyRankedTensor:$matmul_output,
-                        AnyRankedTensor:$combine_output);
+    let results = (outs AnyRankedTensor:$combine_output);
 
     let hasVerifier = 1;
 }

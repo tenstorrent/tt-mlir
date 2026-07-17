@@ -31,6 +31,7 @@
 
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/MathExtras.h"
+#include <cmath>
 #include <cstdint>
 #include <numeric>
 #include <optional>
@@ -1824,21 +1825,18 @@ public:
   LogicalResult
   matchAndRewrite(ttir::MoeComputeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    llvm::SmallVector<Type, 6> resultTypes;
-    resultTypes.reserve(op->getNumResults());
-    for (Value result : op->getResults()) {
-      resultTypes.push_back(
-          this->getTypeConverter()->convertType(result.getType()));
-    }
+    // Single result: the A2A combine output. Use the default type converter;
+    // its ROW_MAJOR/DRAM-interleaved layout is set by the moe_compute operand
+    // workaround.
+    Type combineType =
+        getTypeConverter()->convertType(op.getCombineOutput().getType());
 
     auto device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
 
-    // Weight prepacking is a TTNN concern (mirrors prepare_conv2d/3d_weights):
-    // insert the device-specific ttnn.prepare_moe_compute_* ops here from the
-    // raw weights. Their result type is bank-sharded and device-dependent
-    // (num_cores), so unlike conv weight prep it can't be computed statically;
-    // create them with a placeholder type and let TTNNDeduceMoEComputeLayouts
-    // refine it via OpModel (see that pass).
+    // Prepack the raw weights into device-specific ttnn.prepare_moe_compute_*
+    // ops. Their result type is bank-sharded and device-dependent, so create
+    // with a placeholder and let TTNNDeduceMoEComputeLayouts refine it
+    // via OpModel.
     auto w0Type = cast<RankedTensorType>(adaptor.getW0().getType());
     auto w2Type = cast<RankedTensorType>(adaptor.getW2().getType());
     // w0 logical shape is (L, E, K=hidden_size, N=intermediate_size).
@@ -1848,35 +1846,39 @@ public:
 
     auto w0w1Prepared = rewriter.create<ttnn::PrepareMoEComputeW0W1WeightsOp>(
         ttmlir::utils::appendLocationSuffix(op.getLoc(), "_prepare_w0_w1"),
-        /*placeholder type, refined by TTNNDeduceMoEComputeLayouts=*/w0Type,
-        adaptor.getW0(), adaptor.getW1(), adaptor.getBias_0(),
-        adaptor.getBias_1(), device, hiddenSizeAttr, intermediateSizeAttr);
+        /*placeholder=*/w0Type, adaptor.getW0(), adaptor.getW1(),
+        adaptor.getBias_0(), adaptor.getBias_1(), device, hiddenSizeAttr,
+        intermediateSizeAttr);
 
     auto w2Prepared = rewriter.create<ttnn::PrepareMoEComputeW2WeightsOp>(
         ttmlir::utils::appendLocationSuffix(op.getLoc(), "_prepare_w2"),
-        /*placeholder type, refined by TTNNDeduceMoEComputeLayouts=*/w2Type,
-        adaptor.getW2(), adaptor.getBias_2(), device, hiddenSizeAttr,
-        intermediateSizeAttr);
+        /*placeholder=*/w2Type, adaptor.getW2(), adaptor.getBias_2(), device,
+        hiddenSizeAttr, intermediateSizeAttr);
 
-    // The TTNN op (mirroring tt-metal) carries has_bias; derive it from the
-    // bias operands.
+    // has_bias is derived from the bias operands.
     auto hasBiasAttr =
         rewriter.getBoolAttr(static_cast<bool>(adaptor.getBias_0()));
 
-    // Only the compute_only path is supported (verifier-enforced): the
-    // combine-path operands/attrs (including cluster_axis) stay unset.
+    // Fabric-mux cores for the A2A combine; default to the 6U-test 3x3 block
+    // at (1,1)-(3,3) = 9 cores.
+    MLIRContext *ctx = rewriter.getContext();
+    ttnn::CoreRangeSetAttr muxCoreRangeSet = ttnn::CoreRangeSetAttr::get(
+        ctx, ttnn::CoreRangeAttr::get(ctx, ttnn::CoreCoordAttr::get(ctx, 1, 1),
+                                      ttnn::CoreCoordAttr::get(ctx, 3, 3)));
+
+    // optional_output_tensor and cross_device_semaphore are left unbound here;
+    // MoeComputeOp's DistributedOpInterface hooks binds them in the prelude.
     rewriter.replaceOpWithNewOp<ttnn::MoeComputeOp>(
-        op, resultTypes, adaptor.getTilizeInputTensor(),
+        op, combineType, adaptor.getTilizeInputTensor(),
         adaptor.getTilizeExpertIndicesTensor(),
         adaptor.getTilizeExpertScoresTensor(),
         adaptor.getTilizeExpertMappingTensor(), w0w1Prepared.getResult(),
         w2Prepared.getResult(), /*optional_output_tensor=*/Value(),
         /*cross_device_semaphore=*/Value(), device, op.getLayerIdAttr(),
         op.getOutputHeightShardDimAttr(), op.getIntermediateSizeAttr(),
-        hasBiasAttr, op.getActivationFunctionAttr(), op.getComputeOnlyAttr(),
-        op.getClusterAxisAttr(),
+        hasBiasAttr, op.getActivationFunctionAttr(), op.getClusterAxisAttr(),
         /*num_links=*/mlir::IntegerAttr(), /*topology=*/ttcore::TopologyAttr(),
-        /*mux_core_range_set=*/ttnn::CoreRangeSetAttr());
+        muxCoreRangeSet);
     return success();
   }
 };
@@ -3335,7 +3337,8 @@ public:
         adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(),
         adaptor.getIsCausal(), adaptor.getAttentionMask(),
         adaptor.getCurPosTensor(), adaptor.getAttentionSink(),
-        adaptor.getScaleAttr(), /*program_config=*/nullptr);
+        adaptor.getScaleAttr(), /*sliding_window_size=*/IntegerAttr(),
+        /*program_config=*/nullptr);
     return success();
   }
 };
@@ -3473,6 +3476,38 @@ private:
     return rewriter.create<ttnn::RepeatOp>(loc, broadcastType, mask, shapeAttr);
   }
 
+  // Pre-divide the attention sink by `scale` so the tt-metal kernel reproduces
+  // the faithful sink logit.
+  //
+  // Workaround for https://github.com/tenstorrent/tt-metal/issues/40470: the
+  // SDPA prefill and decode kernels apply `scale` inside the exp path to BOTH
+  // the QK scores and the attention sink (exp((sink - max) * scale)).
+  Value
+  compensateAttentionSinkForScale(ttir::ScaledDotProductAttentionOp op,
+                                  Value sink,
+                                  ConversionPatternRewriter &rewriter) const {
+    if (!sink) {
+      return sink;
+    }
+    // The effective scale must match what the kernel applies: the explicit
+    // scale attribute, else the default 1 / sqrt(head_dim).
+    auto queryType = mlir::cast<RankedTensorType>(op.getQuery().getType());
+    int64_t headDim = queryType.getShape().back();
+    float scale = op.getScaleAttr()
+                      ? static_cast<float>(op.getScaleAttr().getValueAsDouble())
+                      : 1.0f / std::sqrt(static_cast<float>(headDim));
+    // scale == 1 (or the degenerate 0) needs no compensation.
+    if (scale == 1.0f || scale == 0.0f) {
+      return sink;
+    }
+    auto sinkType = mlir::cast<RankedTensorType>(sink.getType());
+    Value device = ::ttnn::utils::getOrInsertDevice(rewriter, op);
+    Value invScale = rewriter.create<ttnn::FullOp>(
+        op.getLoc(), sinkType, rewriter.getF32FloatAttr(1.0f / scale), device);
+    return rewriter.create<ttnn::MultiplyOp>(op.getLoc(), sinkType, sink,
+                                             invScale);
+  }
+
   // Lower to SDPA decode op. Operand layout transitions:
   //   Q:      [B, Hq, 1, D]      -> [1, B, Hq, D]  (permute {2,0,1,3})
   //   K, V:   [B, Hkv, Sk, D]    -> unchanged (TTIR generic and TTNN decode
@@ -3501,11 +3536,15 @@ private:
                                              op.getLoc());
     }
 
+    Value attentionSink = compensateAttentionSinkForScale(
+        op, adaptor.getAttentionSink(), rewriter);
+
     auto decodeOp = rewriter.create<ttnn::ScaledDotProductAttentionDecodeOp>(
         op.getLoc(), permutedQuery.getType(), permutedQuery, adaptor.getKey(),
         adaptor.getValue(), op.getIsCausal(), attentionMask,
-        /*cur_pos_tensor=*/Value(), /*attention_sink=*/Value(),
-        adaptor.getScaleAttr(),
+        /*cur_pos_tensor=*/Value(),
+        /*attention_sink=*/attentionSink, adaptor.getScaleAttr(),
+        adaptor.getSlidingWindowSizeAttr(),
         /*program_config=*/nullptr);
 
     // Permute result back: [1, B, H, D] -> [B, H, 1, D].
@@ -3543,11 +3582,14 @@ private:
       }
     }
 
+    Value attentionSink = compensateAttentionSinkForScale(
+        op, adaptor.getAttentionSink(), rewriter);
+
     rewriter.replaceOpWithNewOp<ttnn::ScaledDotProductAttentionOp>(
         op, this->getTypeConverter()->convertType(op.getType()),
         adaptor.getQuery(), adaptor.getKey(), adaptor.getValue(), mask,
         op.getIsCausal(), adaptor.getScaleAttr(),
-        adaptor.getSlidingWindowSizeAttr(), adaptor.getAttentionSink());
+        adaptor.getSlidingWindowSizeAttr(), attentionSink);
 
     return success();
   }
