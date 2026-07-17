@@ -116,13 +116,13 @@ module {
   }
   // permute-reshape row-major adjust:
   // CHECK-LABEL: func.func @permute_reshape_row_major_adjusting
-  // CHECK: %[[RM_IN:.*]] = "ttnn.to_layout"(%arg0)
+  // CHECK: %[[RM_IN:.*]] = "ttnn.to_tensor_spec"(%arg0)
   // CHECK: %[[PERM:.*]] = "ttnn.permute"(%[[RM_IN]])
   // CHECK-SAME: permutation = array<i64: 1, 0>
   // CHECK-SAME: -> tensor<67108864x1xf32
   // CHECK: %[[RESHAPE:.*]] = "ttnn.reshape"(%[[PERM]]) <{shape = [8192 : i32, 8192 : i32]}>
   // CHECK-SAME: -> tensor<8192x8192xf32
-  // CHECK: %[[RESTORED:.*]] = "ttnn.to_layout"(%[[RESHAPE]])
+  // CHECK: %[[RESTORED:.*]] = "ttnn.to_tensor_spec"(%[[RESHAPE]])
   // CHECK: return %[[RESTORED]]
   func.func @permute_reshape_row_major_adjusting(%arg0: tensor<1x67108864xf32, #layout_1x67M_tile>) -> tensor<8192x8192xf32, #layout_8192x8192_tile> {
     %0 = "ttnn.permute"(%arg0) <{permutation = array<i64: 1, 0>}> : (tensor<1x67108864xf32, #layout_1x67M_tile>) -> tensor<67108864x1xf32, #layout_67Mx1_tile>
@@ -132,7 +132,7 @@ module {
 
   // permute-repeat-reshape row-major adjust:
   // CHECK-LABEL: func.func @permute_repeat_reshape_row_major_adjusting
-  // CHECK: %[[RM_IN:.*]] = "ttnn.to_layout"(%arg0)
+  // CHECK: %[[RM_IN:.*]] = "ttnn.to_tensor_spec"(%arg0)
   // CHECK: %[[PERM:.*]] = "ttnn.permute"(%[[RM_IN]])
   // CHECK-SAME: permutation = array<i64: 1, 0>
   // CHECK-SAME: -> tensor<67108864x1xf32
@@ -140,7 +140,7 @@ module {
   // CHECK-SAME: -> tensor<67108864x2xf32
   // CHECK: %[[RESHAPE:.*]] = "ttnn.reshape"(%[[REPEAT]]) <{shape = [8192 : i32, 16384 : i32]}>
   // CHECK-SAME: -> tensor<8192x16384xf32
-  // CHECK: %[[RESTORED:.*]] = "ttnn.to_layout"(%[[RESHAPE]])
+  // CHECK: %[[RESTORED:.*]] = "ttnn.to_tensor_spec"(%[[RESHAPE]])
   // CHECK: return %[[RESTORED]]
   func.func @permute_repeat_reshape_row_major_adjusting(%arg0: tensor<1x67108864xf32, #layout_1x67M_tile>) -> tensor<8192x16384xf32, #layout_8192x16384_tile> {
     %0 = "ttnn.permute"(%arg0) <{permutation = array<i64: 1, 0>}> : (tensor<1x67108864xf32, #layout_1x67M_tile>) -> tensor<67108864x1xf32, #layout_67Mx1_tile>
@@ -151,13 +151,13 @@ module {
 
   // reshape-permute row-major adjust:
   // CHECK-LABEL: func.func @reshape_permute_row_major_adjusting
-  // CHECK: %[[RM_IN:.*]] = "ttnn.to_layout"(%arg0)
+  // CHECK: %[[RM_IN:.*]] = "ttnn.to_tensor_spec"(%arg0)
   // CHECK: %[[RESHAPE:.*]] = "ttnn.reshape"(%[[RM_IN]]) <{shape = [8192 : i32, 8192 : i32, 1 : i32, 1 : i32]}>
   // CHECK-SAME: -> tensor<8192x8192x1x1xf32
   // CHECK: %[[PERM:.*]] = "ttnn.permute"(%[[RESHAPE]])
   // CHECK-SAME: permutation = array<i64: 2, 3, 0, 1>
   // CHECK-SAME: -> tensor<1x1x8192x8192xf32
-  // CHECK: %[[RESTORED:.*]] = "ttnn.to_layout"(%[[PERM]])
+  // CHECK: %[[RESTORED:.*]] = "ttnn.to_tensor_spec"(%[[PERM]])
   // CHECK: return %[[RESTORED]]
   func.func @reshape_permute_row_major_adjusting(%arg0: tensor<1x1x8192x8192xf32, #layout_4d_1x1x8192x8192_tile>) -> tensor<1x1x8192x8192xf32, #layout_4d_1x1x8192x8192_tile> {
     %0 = "ttnn.reshape"(%arg0) <{shape = [8192 : i32, 8192 : i32, 1 : i32, 1 : i32]}> : (tensor<1x1x8192x8192xf32, #layout_4d_1x1x8192x8192_tile>) -> tensor<8192x8192x1x1xf32, #layout_4d_8192x8192x1x1_tile>

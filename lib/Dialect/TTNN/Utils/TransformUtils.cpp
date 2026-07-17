@@ -67,16 +67,15 @@ GetDeviceOp getOrInsertDevice(RewriterBase &rewriter, Block *block) {
   return deviceOp;
 }
 
-// Helper method to insert a ToLayoutOp to convert the input operand to the
+// Helper method to insert a ToTensorSpecOp to convert the input operand to the
 // desired tensor layout, buffer type and memory layout.
-ToLayoutOp
-createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
-                 RewriterBase &rewriter, Layout targetTensorLayout,
-                 BufferType targetTensorBufferType,
-                 TensorMemoryLayoutAttr targetTensorMemoryLayout,
-                 ttcore::DataType targetTensorDataType,
-                 llvm::StringRef locSuffix,
-                 std::optional<llvm::ArrayRef<int64_t>> targetGridShape) {
+ToTensorSpecOp createToTensorSpecOp(
+    Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
+    RewriterBase &rewriter, Layout targetTensorLayout,
+    BufferType targetTensorBufferType,
+    TensorMemoryLayoutAttr targetTensorMemoryLayout,
+    ttcore::DataType targetTensorDataType, llvm::StringRef locSuffix,
+    std::optional<llvm::ArrayRef<int64_t>> targetGridShape) {
   TTNNLayoutAttr inputLayoutAttr =
       getLayoutAttrFromTensor(inputValue.getType());
 
@@ -98,21 +97,21 @@ createToLayoutOp(Operation *op, mlir::TypedValue<RankedTensorType> inputValue,
   if (targetGridShape) {
     builder.setGridShape(*targetGridShape);
   }
-  TTNNLayoutAttr toLayoutOpResultEncoding =
+  TTNNLayoutAttr toTensorSpecOpResultEncoding =
       builder.buildWithCanonicalCorePlacement(deviceAttr);
 
   // Create the output result type with the new data type and encoding.
-  RankedTensorType toLayoutOpResultType = RankedTensorTypeFactory::create(
+  RankedTensorType toTensorSpecOpResultType = RankedTensorTypeFactory::create(
       RankedTensorTypeFactory::create(
           inputToLayoutOpType,
           mlir::tt::ttcore::dataTypeToElementType(rewriter.getContext(),
                                                   targetTensorDataType)),
-      toLayoutOpResultEncoding);
+      toTensorSpecOpResultEncoding);
   Location loc = ttmlir::utils::appendLocationSuffix(op->getLoc(), locSuffix);
-  // Create a ToLayoutOp to convert the input operand to the desired
+  // Create a ToTensorSpecOp to convert the input operand to the desired
   // tensor layout, buffer type and memory layout.
-  return rewriter.create<ttnn::ToLayoutOp>(loc, toLayoutOpResultType,
-                                           inputValue);
+  return rewriter.create<ttnn::ToTensorSpecOp>(loc, toTensorSpecOpResultType,
+                                               inputValue);
 }
 
 } // namespace mlir::tt::ttnn::utils

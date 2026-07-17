@@ -10,10 +10,10 @@ module @test_distributed_rms_norm_workaround attributes {} {
       %arg0: tensor<1x1x32x128xbf16, #ttnn_layout_supported>,
       %arg1: tensor<4x32xbf16, #ttnn_layout_weight_2d>) -> tensor<1x1x32x128xbf16, #ttnn_layout_supported> {
     // CHECK-LABEL: func.func public @test_workaround_layout_only
-    // CHECK: "ttnn.to_layout"
+    // CHECK: "ttnn.to_tensor_spec"
     // CHECK-SAME: #ttnn.buffer_type<l1>
     // CHECK-SAME: <width_sharded>
-    // CHECK: "ttnn.to_layout"
+    // CHECK: "ttnn.to_tensor_spec"
     // CHECK-SAME: -> tensor<4x32xbf16,
     // CHECK-SAME: memref<4x32xbf16, #ttnn.buffer_type
     // CHECK: "ttnn.distributed_rms_norm"

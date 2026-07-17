@@ -21,11 +21,11 @@ module attributes {} {
       -> tensor<2x3xf32, #ttnn_layout_output> {
     // CHECK-LABEL: func.func @gather_row_major_inputs
     // Check that the input operand is converted to tiled layout.
-    // CHECK: %[[TO_LAYOUT_INPUT:.*]] = "ttnn.to_layout"(%arg0)
+    // CHECK: %[[TO_LAYOUT_INPUT:.*]] = "ttnn.to_tensor_spec"(%arg0)
     // CHECK-SAME: -> tensor<5x3xf32,
     // CHECK-SAME: !ttcore.tile<32x32,
     // Check that the index operand is converted to tiled layout.
-    // CHECK-NEXT: %[[TO_LAYOUT_INDEX:.*]] = "ttnn.to_layout"(%arg1)
+    // CHECK-NEXT: %[[TO_LAYOUT_INDEX:.*]] = "ttnn.to_tensor_spec"(%arg1)
     // CHECK-SAME: -> tensor<2x3xui32,
     // CHECK-SAME: !ttcore.tile<32x32,
     %0 = "ttnn.gather"(%arg0, %arg1)
@@ -44,7 +44,7 @@ module attributes {} {
       %arg1: tensor<2x3xui32, #ttnn_layout_index_tile>)
       -> tensor<2x3xf32, #ttnn_layout_output> {
     // CHECK-LABEL: func.func @gather_tiled_inputs
-    // CHECK-NOT: "ttnn.to_layout"
+    // CHECK-NOT: "ttnn.to_tensor_spec"
     // CHECK: "ttnn.gather"
     %0 = "ttnn.gather"(%arg0, %arg1)
         <{dim = 0 : si32}>
@@ -71,7 +71,7 @@ module attributes {} {
     // %safe = ttnn.maximum(idx, zero)  -> si32 (negatives clamped to 0)
     // CHECK: %[[CLAMPED:.*]] = "ttnn.maximum"(%arg1, %[[ZERO]])
     // %safe_u32 = ttnn.to_layout(safe) -> ui32
-    // CHECK: %[[SAFE_U32:.*]] = "ttnn.to_layout"(%[[CLAMPED]])
+    // CHECK: %[[SAFE_U32:.*]] = "ttnn.to_tensor_spec"(%[[CLAMPED]])
     // CHECK-SAME: -> tensor<2x3xui32,
     // %raw = ttnn.gather(input, safe_u32, dim)
     // CHECK: %[[RAW:.*]] = "ttnn.gather"(%arg0, %[[SAFE_U32]])

@@ -229,6 +229,31 @@ public:
   }
 };
 
+class TTNNToTensorSpecToTTIRToLayoutConversionPattern
+    : public mlir::OpConversionPattern<mlir::tt::ttnn::ToTensorSpecOp> {
+public:
+  using mlir::OpConversionPattern<
+      mlir::tt::ttnn::ToTensorSpecOp>::OpConversionPattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ToTensorSpecOp srcOp,
+                  mlir::tt::ttnn::ToTensorSpecOp::Adaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const override {
+    auto outputType = mlir::cast<mlir::RankedTensorType>(
+        this->getTypeConverter()->convertType(srcOp.getResult().getType()));
+
+    auto emptyOp = rewriter.create<mlir::tt::ttir::EmptyOp>(
+        srcOp.getLoc(), outputType.getShape(), outputType.getElementType(),
+        outputType.getEncoding());
+
+    rewriter.replaceOpWithNewOp<mlir::tt::ttir::ToLayoutOp>(
+        srcOp, mlir::TypeRange{outputType}, adaptor.getInput(), emptyOp,
+        /*layout=*/mlir::tt::ttcore::MetalLayoutAttr{});
+
+    return mlir::success();
+  }
+};
+
 class TTNNFullOpToTTIRFullOpConversionPattern
     : public mlir::OpConversionPattern<mlir::tt::ttnn::FullOp> {
 public:
@@ -407,6 +432,8 @@ void populateTTNNToTTIRPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<TTNNMatmulToTTIRMatmulConversionPattern>(typeConverter, ctx);
   patterns.add<TTNNFullOpToTTIRFullOpConversionPattern>(typeConverter, ctx);
   patterns.add<TTNNToLayoutToTTIRToLayoutConversionPattern>(typeConverter, ctx);
+  patterns.add<TTNNToTensorSpecToTTIRToLayoutConversionPattern>(typeConverter,
+                                                                ctx);
 }
 
 } // namespace mlir::tt

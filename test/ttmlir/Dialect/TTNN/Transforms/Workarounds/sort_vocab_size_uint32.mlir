@@ -10,7 +10,7 @@ module {
     // CHECK-SAME: -> (tensor<1x50272xbf16,
     // CHECK-SAME: tensor<1x50272xui32,
     %0, %1 = "ttir.sort"(%arg0) : (tensor<1x50272xbf16>) -> (tensor<1x50272xbf16>, tensor<1x50272xsi32>)
-    // CHECK: %{{[0-9]+}} = "ttnn.to_layout"(%[[INDICES]])
+    // CHECK: %{{[0-9]+}} = "ttnn.to_tensor_spec"(%[[INDICES]])
     // CHECK-SAME: tensor<1x50272xui32,
     // CHECK-SAME: -> tensor<1x50272xsi32,
     return %0, %1 : tensor<1x50272xbf16>, tensor<1x50272xsi32>

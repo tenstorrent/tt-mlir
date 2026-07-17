@@ -46,9 +46,8 @@ void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
         ++argIdx;
       }
     }
-    // Insert a trailing to_layout to convert the last op's output to the
+    // Insert a trailing to_tensor_spec to convert the last op's output to the
     // chosen layout. The TTNN→TTIR conversion pattern will lower this to
-    // ttir.to_layout, which TTMetal's D2MToLayoutOpRewriter then handles.
     Block &block = mainFunc.getBody().front();
     Operation *terminator = block.getTerminator();
     if (func::ReturnOp returnOp = dyn_cast<func::ReturnOp>(terminator)) {
@@ -58,9 +57,9 @@ void applyChosenLayoutToD2MSubgraphOp(D2MSubgraphOp dispatchOp,
           OpBuilder builder(dispatchOp.getContext());
           builder.setInsertionPoint(returnOp);
           Location loc = mainFunc.getLoc();
-          ToLayoutOp toLayoutOp = builder.create<ToLayoutOp>(
+          ToTensorSpecOp toTensorSpecOp = builder.create<ToTensorSpecOp>(
               loc, newTensorType, currentResultValue);
-          returnOp.setOperand(0, toLayoutOp.getResult());
+          returnOp.setOperand(0, toTensorSpecOp.getResult());
         }
       }
     }

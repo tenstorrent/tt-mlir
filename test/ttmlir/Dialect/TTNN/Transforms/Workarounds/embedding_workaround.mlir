@@ -8,17 +8,17 @@
 module attributes {} {
   func.func @forward(%arg0: tensor<32x32xf32, #ttnn_layout>, %arg1: tensor<512x128xf32, #ttnn_layout1>) -> tensor<32x32x128xf32, #ttnn_layout2> {
     // Check that the input operand is transformed into the row major layout.
-    // CHECK: %[[TO_LAYOUT_INPUT:.*]] = "ttnn.to_layout"
+    // CHECK: %[[TO_LAYOUT_INPUT:.*]] = "ttnn.to_tensor_spec"
     // CHECK-SAME: -> tensor<32x32xui32
     // CHECK-SAME: memref<32x32xui32, #ttnn.buffer_type
     // Check that the data type of the weight operand is transformed in bf16.
-    // CHECK-NEXT: %[[TO_LAYOUT_WEIGHTS:.*]] = "ttnn.to_layout"
+    // CHECK-NEXT: %[[TO_LAYOUT_WEIGHTS:.*]] = "ttnn.to_tensor_spec"
     // CHECK-SAME: -> tensor<512x128xbf16
     // CHECK-SAME: memref<512x128xbf16, #ttnn.buffer_type
     %0 = "ttnn.embedding"(%arg0, %arg1) : (tensor<32x32xf32, #ttnn_layout>, tensor<512x128xf32, #ttnn_layout1>) -> tensor<32x32x128xf32, #ttnn_layout2>
     // CHECK-NEXT: %[[EMBEDDING_OP:.*]] = "ttnn.embedding"(%[[TO_LAYOUT_INPUT]], %[[TO_LAYOUT_WEIGHTS]])
     // Check that the output operand is transformed back into the f32 data type.
-    // CHECK-NEXT: "ttnn.to_layout"(%[[EMBEDDING_OP]])
+    // CHECK-NEXT: "ttnn.to_tensor_spec"(%[[EMBEDDING_OP]])
     // CHECK-SAME: -> tensor<32x32x128xf32
     // CHECK-SAME: !ttcore.tile<32x32,
     return %0 : tensor<32x32x128xf32, #ttnn_layout2>

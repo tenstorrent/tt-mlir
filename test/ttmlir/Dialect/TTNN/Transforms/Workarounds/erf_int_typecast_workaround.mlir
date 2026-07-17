@@ -9,12 +9,12 @@
 module {
   func.func public @test_erf_i32_to_bf16(%arg0: tensor<128x128xsi32>) -> tensor<128x128xsi32> {
     // CHECK-LABEL: func.func public @test_erf_i32_to_bf16
-    // CHECK: "ttnn.to_layout"
+    // CHECK: "ttnn.to_tensor_spec"
     // CHECK-SAME: -> tensor<{{.*}}xbf16,
     // CHECK: "ttnn.erf"
     // CHECK-SAME: tensor<128x128xbf16
     // CHECK-SAME: -> tensor<128x128xbf16
-    // CHECK: "ttnn.to_layout"
+    // CHECK: "ttnn.to_tensor_spec"
     %0 = "ttir.erf"(%arg0) : (tensor<128x128xsi32>) -> tensor<128x128xsi32>
     return %0 : tensor<128x128xsi32>
   }

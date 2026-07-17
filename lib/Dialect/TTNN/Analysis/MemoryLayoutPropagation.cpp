@@ -349,9 +349,9 @@ void MemoryLayoutPropagation::run() {
     if (!mlir::dyn_cast<OpModel>(op)) {
       return;
     }
-    // Skip ToLayoutOp -- these are inserted by earlier passes and their
+    // Skip ToTensorSpecOp -- these are inserted by earlier passes and their
     // layouts should be preserved, not re-decided by layout propagation.
-    if (isa<ToLayoutOp>(op)) {
+    if (isa<ToTensorSpecOp>(op)) {
       return;
     }
     if (!legalConfigs.count(op)) {
@@ -1516,7 +1516,7 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
       outputLayout.getLayout();
   Operation *reshardOp =
       pageLayoutChanges
-          ? builder.create<ToLayoutOp>(loc, newTensorType, operand)
+          ? builder.create<ToTensorSpecOp>(loc, newTensorType, operand)
                 .getOperation()
           : builder.create<ToMemoryConfigOp>(loc, newTensorType, operand)
                 .getOperation();

@@ -23,7 +23,7 @@ module attributes {} {
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.empty"(%0) <{ shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #ttnn_layout_dram_f32_rm>
-    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xf32, #ttnn_layout_dram_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
+    %2 = "ttnn.to_tensor_spec"(%1) : (tensor<32x32xf32, #ttnn_layout_dram_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
     return %2 : tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
   }
 
@@ -35,7 +35,7 @@ module attributes {} {
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.empty"(%0) <{ shape = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #ttnn_layout_dram_f32_rm>
-    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xf32, #ttnn_layout_dram_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_host_bf16_tile>
+    %2 = "ttnn.to_tensor_spec"(%1) : (tensor<32x32xf32, #ttnn_layout_dram_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_host_bf16_tile>
     return %2 : tensor<32x32xbf16, #ttnn_layout_host_bf16_tile>
   }
 
@@ -47,7 +47,7 @@ module attributes {} {
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.rand"(%0) <{size = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #ttnn_layout_dram_f32_rm>
-    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xf32, #ttnn_layout_dram_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
+    %2 = "ttnn.to_tensor_spec"(%1) : (tensor<32x32xf32, #ttnn_layout_dram_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
     return %2 : tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
   }
 
@@ -56,13 +56,12 @@ module attributes {} {
     // CHECK: "ttnn.rand"
     // CHECK-SAME: -> tensor<32x32xf32,
     // CHECK-SAME: memref<32x32x
-    // CHECK-NOT: "ttnn.to_layout"
-    // CHECK: "ttnn.to_layout"
+    // CHECK: "ttnn.to_tensor_spec"
     // CHECK-SAME: -> tensor<32x32xbf16,
     // CHECK-SAME: !ttcore.tile<32x32,
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.rand"(%0) <{size = #ttnn.shape<32x32>}> : (!ttnn.device) -> tensor<32x32xf32, #ttnn_layout_dram_f32_rm>
-    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xf32, #ttnn_layout_dram_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_host_bf16_tile>
+    %2 = "ttnn.to_tensor_spec"(%1) : (tensor<32x32xf32, #ttnn_layout_dram_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_host_bf16_tile>
     return %2 : tensor<32x32xbf16, #ttnn_layout_host_bf16_tile>
   }
 
@@ -74,7 +73,7 @@ module attributes {} {
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.arange"() <{ start = 0 : si64, step = 1 : si64, end = 32 : si64}> : () -> tensor<32xf32, #ttnn_layout_1_host_f32_rm>
-    %2 = "ttnn.to_layout"(%1) : (tensor<32xf32, #ttnn_layout_1_host_f32_rm>) -> tensor<32xbf16, #ttnn_layout_1_device_bf16_tile>
+    %2 = "ttnn.to_tensor_spec"(%1) : (tensor<32xf32, #ttnn_layout_1_host_f32_rm>) -> tensor<32xbf16, #ttnn_layout_1_device_bf16_tile>
     return %2 : tensor<32xbf16, #ttnn_layout_1_device_bf16_tile>
   }
 
@@ -86,7 +85,7 @@ module attributes {} {
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.arange"() <{ start = 0 : si64, step = 1 : si64, end = 32 : si64}> : () -> tensor<32xf32, #ttnn_layout_1_device_bf16_tile>
-    %2 = "ttnn.to_layout"(%1) : (tensor<32xf32, #ttnn_layout_1_device_bf16_tile>) -> tensor<32xf32, #ttnn_layout_1_host_f32_rm>
+    %2 = "ttnn.to_tensor_spec"(%1) : (tensor<32xf32, #ttnn_layout_1_device_bf16_tile>) -> tensor<32xf32, #ttnn_layout_1_host_f32_rm>
     return %2 : tensor<32xf32, #ttnn_layout_1_host_f32_rm>
   }
 
@@ -98,7 +97,7 @@ module attributes {} {
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.zeros"() <{ shape = #ttnn.shape<32x32>}> : () -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
-    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xf32, #ttnn_layout_host_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
+    %2 = "ttnn.to_tensor_spec"(%1) : (tensor<32x32xf32, #ttnn_layout_host_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
     return %2 : tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
   }
 
@@ -110,7 +109,7 @@ module attributes {} {
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.zeros"() <{ shape = #ttnn.shape<32x32>}> : () -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
-    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>) -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
+    %2 = "ttnn.to_tensor_spec"(%1) : (tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>) -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
     return %2 : tensor<32x32xf32, #ttnn_layout_host_f32_rm>
   }
 
@@ -122,7 +121,7 @@ module attributes {} {
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.ones"() <{ shape = #ttnn.shape<32x32>}> : () -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
-    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xf32, #ttnn_layout_host_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
+    %2 = "ttnn.to_tensor_spec"(%1) : (tensor<32x32xf32, #ttnn_layout_host_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
     return %2 : tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
   }
 
@@ -134,7 +133,7 @@ module attributes {} {
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.ones"() <{ shape = #ttnn.shape<32x32>}> : () -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
-    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>) -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
+    %2 = "ttnn.to_tensor_spec"(%1) : (tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>) -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
     return %2 : tensor<32x32xf32, #ttnn_layout_host_f32_rm>
   }
 
@@ -146,7 +145,7 @@ module attributes {} {
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.full"() <{ shape = #ttnn.shape<32x32>, fill_value = 7.0 : f32}> : () -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
-    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xf32, #ttnn_layout_host_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
+    %2 = "ttnn.to_tensor_spec"(%1) : (tensor<32x32xf32, #ttnn_layout_host_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
     return %2 : tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
   }
 
@@ -158,7 +157,7 @@ module attributes {} {
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.full"() <{ shape = #ttnn.shape<32x32>, fill_value = 7.0 : f32}> : () -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
-    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>) -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
+    %2 = "ttnn.to_tensor_spec"(%1) : (tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>) -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
     return %2 : tensor<32x32xf32, #ttnn_layout_host_f32_rm>
   }
 
@@ -170,7 +169,7 @@ module attributes {} {
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.constant"() <{value = dense_resource<dense_attr_f32> : tensor<32x32xf32>}> : () -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
-    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xf32, #ttnn_layout_host_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
+    %2 = "ttnn.to_tensor_spec"(%1) : (tensor<32x32xf32, #ttnn_layout_host_f32_rm>) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
     return %2 : tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
   }
 
@@ -182,7 +181,7 @@ module attributes {} {
     // CHECK-NOT: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.constant"(%0) <{value = dense_resource<dense_attr_bf16> : tensor<32x32xbf16>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
-    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>) -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
+    %2 = "ttnn.to_tensor_spec"(%1) : (tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>) -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
     return %2 : tensor<32x32xf32, #ttnn_layout_host_f32_rm>
   }
 
@@ -191,11 +190,11 @@ module attributes {} {
     // CHECK: "ttnn.constant"
     // CHECK-SAME: -> tensor<32x32xbf16,
     // CHECK-SAME: !ttcore.tile<32x32,
-    // CHECK: "ttnn.to_layout"
+    // CHECK: "ttnn.to_tensor_spec"
     // CHECK: "ttnn.to_layout"
     %0 = "ttnn.get_device"() <{mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
     %1 = "ttnn.constant"(%0) <{value = dense_resource<dense_attr_bf16> : tensor<32x32xbf16>}> : (!ttnn.device) -> tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>
-    %2 = "ttnn.to_layout"(%1) : (tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>) -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
+    %2 = "ttnn.to_tensor_spec"(%1) : (tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>) -> tensor<32x32xf32, #ttnn_layout_host_f32_rm>
     %3 = "ttnn.to_layout"(%1) : (tensor<32x32xbf16, #ttnn_layout_dram_bf16_tile>) -> tensor<32x32xf32, #ttnn_layout_dram_bf16_rm>
     return %2, %3 : tensor<32x32xf32, #ttnn_layout_host_f32_rm>, tensor<32x32xf32, #ttnn_layout_dram_bf16_rm>
   }
