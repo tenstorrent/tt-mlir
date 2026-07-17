@@ -913,14 +913,16 @@ public:
 } // namespace
 
 namespace {
-class SliceStaticOpConversionPattern : public OpConversionPattern<ttir::SliceStaticOp> {
+class SliceStaticOpConversionPattern
+    : public OpConversionPattern<ttir::SliceStaticOp> {
 public:
   using OpConversionPattern<ttir::SliceStaticOp>::OpConversionPattern;
 
   LogicalResult
   matchAndRewrite(ttir::SliceStaticOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    ::mlir::RankedTensorType inputType = mlir::cast<::mlir::RankedTensorType>(adaptor.getInput().getType());
+    ::mlir::RankedTensorType inputType =
+        mlir::cast<::mlir::RankedTensorType>(adaptor.getInput().getType());
     ::llvm::ArrayRef<int64_t> inputShape = inputType.getShape();
 
     ::mlir::ArrayAttr begins = adaptor.getBegins();
@@ -942,24 +944,25 @@ public:
       int32_t step = ::mlir::cast<::mlir::IntegerAttr>(stepAttr[dim]).getInt();
 
       // Adjust begin and end for a positive step
-      int32_t adjustedBeginPositiveStep = (begin < kDimStart) ? 
-        std::max<int32_t>(begin + dimSize, kDimStart) : 
-        std::min<int32_t>(begin, dimSize);
-      int32_t adjustedEndPositiveStep = (end < kDimStart) ? 
-        std::max<int32_t>(end + dimSize, kDimStart) : 
-        std::min<int32_t>(end, dimSize);
+      int32_t adjustedBeginPositiveStep =
+          (begin < kDimStart) ? std::max<int32_t>(begin + dimSize, kDimStart)
+                              : std::min<int32_t>(begin, dimSize);
+      int32_t adjustedEndPositiveStep =
+          (end < kDimStart) ? std::max<int32_t>(end + dimSize, kDimStart)
+                            : std::min<int32_t>(end, dimSize);
       if (adjustedBeginPositiveStep > adjustedEndPositiveStep) {
         // e.g. array[3:1:1] <=> array[0:0:1]
         adjustedBeginPositiveStep = adjustedEndPositiveStep = kDimStart;
       }
-      
+
       // Adjust begin and end for a negative step
-      int32_t adjustedBeginNegativeStep = (begin < kDimStart) ? 
-        std::max<int32_t>(begin + dimSize, kDimStart - 1) : 
-        std::min<int32_t>(begin, dimSize - 1);
-      int32_t adjustedEndNegativeStep = (end < kDimStart) ? 
-        std::max<int32_t>(end + dimSize, kDimStart - 1) : 
-        std::min<int32_t>(end, dimSize - 1);
+      int32_t adjustedBeginNegativeStep =
+          (begin < kDimStart)
+              ? std::max<int32_t>(begin + dimSize, kDimStart - 1)
+              : std::min<int32_t>(begin, dimSize - 1);
+      int32_t adjustedEndNegativeStep =
+          (end < kDimStart) ? std::max<int32_t>(end + dimSize, kDimStart - 1)
+                            : std::min<int32_t>(end, dimSize - 1);
       if (adjustedBeginNegativeStep < adjustedEndNegativeStep) {
         // e.g. array[1:3:-1] <=> array[0:0:-1]
         adjustedBeginNegativeStep = adjustedEndNegativeStep = kDimStart;
@@ -967,42 +970,37 @@ public:
 
       // Adjust begin and end
       bool isPositiveStep = step > 0;
-      int32_t adjustedBegin = isPositiveStep ? adjustedBeginPositiveStep : adjustedBeginNegativeStep;
-      int32_t adjustedEnd = isPositiveStep ? adjustedEndPositiveStep : adjustedEndNegativeStep;
+      int32_t adjustedBegin = isPositiveStep ? adjustedBeginPositiveStep
+                                             : adjustedBeginNegativeStep;
+      int32_t adjustedEnd =
+          isPositiveStep ? adjustedEndPositiveStep : adjustedEndNegativeStep;
 
       normalizedBegins.push_back(rewriter.getI32IntegerAttr(adjustedBegin));
       normalizedEnds.push_back(rewriter.getI32IntegerAttr(adjustedEnd));
     }
-    
+
     rewriter.replaceOpWithNewOp<ttnn::SliceStaticOp>(
-      op, 
-      this->getTypeConverter()->convertType(op.getType()),
-      adaptor.getInput(), 
-      rewriter.getArrayAttr(normalizedBegins), 
-      rewriter.getArrayAttr(normalizedEnds),
-      adaptor.getStepAttr()
-    );
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), rewriter.getArrayAttr(normalizedBegins),
+        rewriter.getArrayAttr(normalizedEnds), adaptor.getStepAttr());
     return success();
   }
 };
 } // namespace
 
 namespace {
-class SliceDynamicOpConversionPattern : public OpConversionPattern<ttir::SliceDynamicOp> {
+class SliceDynamicOpConversionPattern
+    : public OpConversionPattern<ttir::SliceDynamicOp> {
 public:
   using OpConversionPattern<ttir::SliceDynamicOp>::OpConversionPattern;
 
   LogicalResult
   matchAndRewrite(ttir::SliceDynamicOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {    
+                  ConversionPatternRewriter &rewriter) const override {
     rewriter.replaceOpWithNewOp<ttnn::SliceDynamicOp>(
-      op, 
-      this->getTypeConverter()->convertType(op.getType()),
-      adaptor.getInput(), 
-      adaptor.getBegins(), 
-      adaptor.getEnds(),
-      adaptor.getStepAttr()
-    );
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getInput(), adaptor.getBegins(), adaptor.getEnds(),
+        adaptor.getStepAttr());
     return success();
   }
 };

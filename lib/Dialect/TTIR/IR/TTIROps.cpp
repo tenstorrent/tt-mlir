@@ -3201,7 +3201,8 @@ mlir::tt::ttir::RearrangeOp::getInvPatternMap() {
     return emitOpError("Input must be at least a 1D tensor");
   }
 
-  // Verify that the input rank matches number of elements in begins, ends and step
+  // Verify that the input rank matches number of elements in begins, ends and
+  // step
   size_t inputRank = static_cast<size_t>(inputType.getRank());
   if (inputRank != begins.size() || inputRank != ends.size() ||
       inputRank != stepAttr.size()) {
@@ -3209,14 +3210,17 @@ mlir::tt::ttir::RearrangeOp::getInvPatternMap() {
                        "number of elements as the input tensor rank");
   }
 
-  // Validate that the output tensor has the same element type as the input tensor
+  // Validate that the output tensor has the same element type as the input
+  // tensor
   if (inputType.getElementType() != outputType.getElementType()) {
-    return emitOpError("Output tensor must have the same element type as the input tensor");
+    return emitOpError(
+        "Output tensor must have the same element type as the input tensor");
   }
 
   // Verify the output tensor rank
   if (inputType.getRank() != outputType.getRank()) {
-    return emitOpError("Output tensor must have the same rank as the input tensor");
+    return emitOpError(
+        "Output tensor must have the same rank as the input tensor");
   }
 
   // Verify begin, end, step and the output tensor dimensions
@@ -3229,28 +3233,29 @@ mlir::tt::ttir::RearrangeOp::getInvPatternMap() {
     int32_t step = ::mlir::cast<::mlir::IntegerAttr>(stepAttr[dim]).getInt();
 
     if (step == 0) {
-      return emitOpError("Step value for dimension " + std::to_string(dim) + " cannot be zero");
+      return emitOpError("Step value for dimension " + std::to_string(dim) +
+                         " cannot be zero");
     }
 
     // Adjust begin and end for a positive step
-    int32_t adjustedBeginPositiveStep = (begin < kDimStart) ? 
-      std::max<int32_t>(begin + dimSize, kDimStart) : 
-      std::min<int32_t>(begin, dimSize);
-    int32_t adjustedEndPositiveStep = (end < kDimStart) ? 
-      std::max<int32_t>(end + dimSize, kDimStart) : 
-      std::min<int32_t>(end, dimSize);
+    int32_t adjustedBeginPositiveStep =
+        (begin < kDimStart) ? std::max<int32_t>(begin + dimSize, kDimStart)
+                            : std::min<int32_t>(begin, dimSize);
+    int32_t adjustedEndPositiveStep =
+        (end < kDimStart) ? std::max<int32_t>(end + dimSize, kDimStart)
+                          : std::min<int32_t>(end, dimSize);
     if (adjustedBeginPositiveStep > adjustedEndPositiveStep) {
       // e.g. array[3:1:1] <=> array[0:0:1]
       adjustedBeginPositiveStep = adjustedEndPositiveStep = kDimStart;
     }
-    
+
     // Adjust begin and end for a negative step
-    int32_t adjustedBeginNegativeStep = (begin < kDimStart) ? 
-      std::max<int32_t>(begin + dimSize, kDimStart - 1) : 
-      std::min<int32_t>(begin, dimSize - 1);
-    int32_t adjustedEndNegativeStep = (end < kDimStart) ? 
-      std::max<int32_t>(end + dimSize, kDimStart - 1) : 
-      std::min<int32_t>(end, dimSize - 1);
+    int32_t adjustedBeginNegativeStep =
+        (begin < kDimStart) ? std::max<int32_t>(begin + dimSize, kDimStart - 1)
+                            : std::min<int32_t>(begin, dimSize - 1);
+    int32_t adjustedEndNegativeStep =
+        (end < kDimStart) ? std::max<int32_t>(end + dimSize, kDimStart - 1)
+                          : std::min<int32_t>(end, dimSize - 1);
     if (adjustedBeginNegativeStep < adjustedEndNegativeStep) {
       // e.g. array[1:3:-1] <=> array[0:0:-1]
       adjustedBeginNegativeStep = adjustedEndNegativeStep = kDimStart;
@@ -3258,8 +3263,10 @@ mlir::tt::ttir::RearrangeOp::getInvPatternMap() {
 
     // Adjust begin and end
     bool isPositiveStep = step > 0;
-    int32_t adjustedBegin = isPositiveStep ? adjustedBeginPositiveStep : adjustedBeginNegativeStep;
-    int32_t adjustedEnd = isPositiveStep ? adjustedEndPositiveStep : adjustedEndNegativeStep;
+    int32_t adjustedBegin =
+        isPositiveStep ? adjustedBeginPositiveStep : adjustedBeginNegativeStep;
+    int32_t adjustedEnd =
+        isPositiveStep ? adjustedEndPositiveStep : adjustedEndNegativeStep;
 
     // Calculate the expected size of the output dimension
     int32_t expectedDimSize =
