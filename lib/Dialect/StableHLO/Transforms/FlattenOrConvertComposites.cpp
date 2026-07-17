@@ -224,6 +224,32 @@ static bool hasCustomShardingRule(llvm::StringRef name) {
   return llvm::is_contained(utils::kCompositesWithCustomSharding, name);
 }
 
+// Returns true if the composite is one of the tenstorrent.topk* variants.
+static bool isTopKComposite(llvm::StringRef name) {
+  return name == utils::kTTTopKCustomCallTargetName ||
+         name == utils::kTTTopKValuesCustomCallTargetName ||
+         name == utils::kTTTopKIndicesCustomCallTargetName;
+}
+
+// Keep a composite as a custom_call (so Shardy can propagate its custom
+// sharding rule) vs. flatten it. topk is gated to rank-2, the only form
+// getTopKShardingRule() supports; other ranks get an empty rule (see #8601).
+static bool shouldConvertToCustomCall(mlir::stablehlo::CompositeOp composite) {
+  llvm::StringRef name = composite.getName();
+  if (!hasCustomShardingRule(name)) {
+    return false;
+  }
+  // Shape-gate the topk variants to the rank their sharding rule supports.
+  if (isTopKComposite(name)) {
+    auto inputType = composite.getNumOperands() >= 1
+                         ? llvm::dyn_cast<mlir::RankedTensorType>(
+                               composite.getOperand(0).getType())
+                         : nullptr;
+    return inputType && inputType.getRank() == 2;
+  }
+  return true;
+}
+
 // Converts a composite op with a custom sharding rule to a
 // stablehlo.custom_call op. The composite name becomes the call_target_name,
 // composite attributes are carried as a discardable attribute,
@@ -278,9 +304,10 @@ public:
       for (auto compositeOp : llvm::make_early_inc_range(
                funcOp.getOps<mlir::stablehlo::CompositeOp>())) {
 
-        // If this composite has a custom sharding rule, convert it to a
-        // stablehlo.custom_call so that Shardy can propagate through it.
-        if (hasCustomShardingRule(compositeOp.getName())) {
+        // If this composite has a custom sharding rule (and, for topk, matches
+        // the shape that rule supports), convert it to a stablehlo.custom_call
+        // so that Shardy can propagate through it.
+        if (shouldConvertToCustomCall(compositeOp)) {
           convertCompositeToCustomCall(compositeOp, builder);
           continue;
         }

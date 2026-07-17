@@ -1178,6 +1178,12 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
         operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);
   }
 
+  // Attention mask needs no workaround.
+  if (sdpaOp.getAttentionMask()) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(emptyWorkaround);
+  }
+
   if (sdpaOp.getCurPosTensor()) {
     operandsWorkaround =
         operandsWorkaround.addInputOperandWorkaround(rowMajorLayoutWorkaround);
@@ -1560,27 +1566,11 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
       .addOutputOperandWorkaround(rowMajorUint16Workaround); // reduced
 }
 
-// tt-metal moe_compute op requirements:
-//
-// Inputs:
-//   tilize_input_tensor:           ROW_MAJOR, BFLOAT16
-//   tilize_expert_indices_tensor:  handled in MoeComputeRewritePattern.
-//   tilize_expert_scores_tensor:   handled in MoeComputeRewritePattern.
-//   tilize_expert_mapping_tensor:  ROW_MAJOR, UINT16
-//   matmul_w0_w1_tensor:           pre-packed by prepare_moe_compute_weights;
-//                                  no dtype/layout workaround applied here.
-//   matmul_w2_tensor:              same as W0/W1.
-//
-// Outputs:
-//   per_expert_total_tokens:       UINT32, ROW_MAJOR
-//   expert_activation:             UINT32, ROW_MAJOR
-//   expert_to_token:               UINT32, ROW_MAJOR
-//   tilize_output:                 BFLOAT16, TILE
-//   matmul_output:                 BFLOAT16, ROW_MAJOR (aliases tilize_output)
-//   combine_output:                BFLOAT16, ROW_MAJOR
-//
-// Memory-config (sharded vs interleaved) coercion is intentionally not
-// expressed here; the dedicated MoeComputeRewritePattern handles it.
+// moe_compute operand layouts. Inputs: tilize_input ROW_MAJOR/BFLOAT16,
+// expert_mapping ROW_MAJOR/UINT16. indices/scores keep their frontend layout
+// (resharded onto the drain core at runtime); weights are pre-packed. The lone
+// combine_output is forced to tt-metal's SelectiveReduceCombine spec:
+// ROW_MAJOR, DRAM INTERLEAVED, bfloat16.
 TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createMoeComputeOpOperandsWorkarounds(
     ttnn::MoeComputeOp op) {
@@ -1592,13 +1582,13 @@ TTNNOperandsWorkaroundsFactory::createMoeComputeOpOperandsWorkarounds(
   rmU16.tensorLayoutWorkaround = Layout::RowMajor;
   rmU16.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
 
-  TTNNOperandWorkarounds rmU32;
-  rmU32.tensorLayoutWorkaround = Layout::RowMajor;
-  rmU32.tensorDataTypeWorkaround = ttcore::DataType::UInt32;
-
-  TTNNOperandWorkarounds tileBf16;
-  tileBf16.tensorLayoutWorkaround = Layout::Tile;
-  tileBf16.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+  // combine output: ROW_MAJOR, DRAM INTERLEAVED, bfloat16.
+  TTNNOperandWorkarounds combineOutput;
+  combineOutput.tensorLayoutWorkaround = Layout::RowMajor;
+  combineOutput.tensorBufferTypeWorkaround = BufferType::DRAM;
+  combineOutput.tensorMemoryLayoutWorkaround = TensorMemoryLayoutAttr::get(
+      op.getContext(), TensorMemoryLayout::Interleaved);
+  combineOutput.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
 
   TTNNOperandWorkarounds none;
 
@@ -1611,13 +1601,13 @@ TTNNOperandsWorkaroundsFactory::createMoeComputeOpOperandsWorkarounds(
           .addInputOperandWorkaround(none)   // matmul_w0_w1_tensor
           .addInputOperandWorkaround(none);  // matmul_w2_tensor
 
-  return w
-      .addOutputOperandWorkaround(rmU32)    // per_expert_total_tokens
-      .addOutputOperandWorkaround(rmU32)    // expert_activation
-      .addOutputOperandWorkaround(rmU32)    // expert_to_token
-      .addOutputOperandWorkaround(tileBf16) // tilize_output
-      .addOutputOperandWorkaround(rmBf16)   // matmul_output
-      .addOutputOperandWorkaround(rmBf16);  // combine_output
+  // optional_output_tensor, when bound, already has the correct combine spec;
+  // add a no-op workaround so the count matches the tensor-input count.
+  if (op.getOptionalOutputTensor()) {
+    w = w.addInputOperandWorkaround(none); // optional_output_tensor
+  }
+
+  return w.addOutputOperandWorkaround(combineOutput); // combine_output
 }
 
 // The tt-metal moe_compute weight packers require ROW_MAJOR weights/biases.
@@ -1740,6 +1730,9 @@ TTNNOperandsWorkaroundsFactory::createTopKRouterGptOpOperandsWorkarounds() {
       .addOutputOperandWorkaround(weightsOutputWorkaround);
 }
 
+template TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
+    ttnn::Conv1dOp op);
 template TTNNOperandsWorkarounds
 TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(
     ttnn::Conv2dOp op);

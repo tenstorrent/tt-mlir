@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsInterfaces.h"
+#include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
 #include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Utils.h"
 
@@ -160,6 +161,8 @@ public:
           }
         }
       }
+
+      reuseDisjointCBPorts(rewriter, generic);
     });
   }
 };

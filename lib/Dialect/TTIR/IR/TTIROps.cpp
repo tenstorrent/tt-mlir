@@ -1573,6 +1573,67 @@ mlir::Operation *mlir::tt::ttir::Conv2dOp::rewriteWithQuantizedInputs(
   return quantConv.getOperation();
 }
 
+//===----------------------------------------------------------------------===//
+// Conv1dOp
+//===----------------------------------------------------------------------===//
+
+// Get number of output channels
+int64_t mlir::tt::ttir::Conv1dOp::getOutputChannelSize() {
+  RankedTensorType weightTy = getWeight().getType();
+  return weightTy.getShape()[0];
+}
+
+// Conv1dOp verification
+::mlir::LogicalResult mlir::tt::ttir::Conv1dOp::verify() {
+  if (getInput().getType().getRank() != 3) {
+    return emitOpError("input must be a 3D tensor");
+  }
+  if (getWeight().getType().getRank() != 3) {
+    return emitOpError("weight must be a 3D tensor (O, C/G, K)");
+  }
+  if (getBias() && getBias().getType().getRank() != 3) {
+    return emitOpError("bias must be a 3D tensor (1, 1, O)");
+  }
+  if (getResult().getType().getRank() != 3) {
+    return emitOpError("output must be a 3D tensor");
+  }
+
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType weightType = getWeight().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  int64_t inChannels = inputType.getDimSize(getChannelDim());
+  int64_t outChannels = outputType.getDimSize(getChannelDim());
+  uint32_t groups = getGroups();
+
+  if (groups == 0) {
+    return emitOpError("groups must be a positive integer");
+  }
+  if (inChannels % groups != 0) {
+    return emitOpError("number of input channels (")
+           << inChannels << ") must be divisible by groups (" << groups << ")";
+  }
+  if (outChannels % groups != 0) {
+    return emitOpError("number of output channels (")
+           << outChannels << ") must be divisible by groups (" << groups << ")";
+  }
+
+  // weight is (O, C/G, K).
+  if (weightType.getDimSize(0) != outChannels) {
+    return emitOpError("expected weight's output channel dimension (")
+           << weightType.getDimSize(0)
+           << ") to match the output tensor's channel dimension ("
+           << outChannels << ")";
+  }
+  if (weightType.getDimSize(1) != inChannels / groups) {
+    return emitOpError("expected weight's input channel dimension (")
+           << weightType.getDimSize(1) << ") to match in_channels / groups ("
+           << inChannels / groups << ")";
+  }
+
+  return mlir::success();
+}
+
 // Conv2dOp verification
 ::mlir::LogicalResult mlir::tt::ttir::Conv2dOp::verify() {
   // Verify tensor ranks.
@@ -3961,52 +4022,6 @@ mlir::OpFoldResult mlir::tt::ttir::TypecastOp::fold(FoldAdaptor adaptor) {
   return nullptr;
 }
 
-static bool isNarrowingConversion(const ::mlir::tt::ttcore::DataType srcDtype,
-                                  const ::mlir::tt::ttcore::DataType dstDtype) {
-  const bool srcIsFloat = isFloat(srcDtype);
-  const bool dstIsFloat = isFloat(dstDtype);
-  const auto srcNumberOfBits = getNumberOfBits(srcDtype);
-  const auto dstNumberOfBits = getNumberOfBits(dstDtype);
-
-  if (srcIsFloat && !dstIsFloat) {
-    return true;
-  }
-
-  if (srcIsFloat && dstIsFloat) {
-    const auto srcExponentSize = getExponentSize(srcDtype);
-    const auto dstExponentSize = getExponentSize(dstDtype);
-    const auto srcMantissaSize = getMantissaSize(srcDtype);
-    const auto dstMantissaSize = getMantissaSize(dstDtype);
-    return srcExponentSize > dstExponentSize ||
-           srcMantissaSize > dstMantissaSize;
-  }
-
-  // For integer to FP, it is narrowing if the FP type has fewer bits in its
-  // mantissa than the integer type's magnitude bits.
-  if (!srcIsFloat && dstIsFloat) {
-    if (isSignedInteger(srcDtype)) {
-      return srcNumberOfBits - 1 > getMantissaSize(dstDtype);
-    }
-    return srcNumberOfBits > getMantissaSize(dstDtype);
-  }
-
-  assert(!srcIsFloat && !dstIsFloat);
-  const auto srcIsSigned = isSignedInteger(srcDtype);
-  const auto dstIsSigned = isSignedInteger(dstDtype);
-  // When signedness are the same, reducing the number of bits is narrowing.
-  if (srcIsSigned == dstIsSigned) {
-    return srcNumberOfBits > dstNumberOfBits;
-  }
-  // Unsigned->Signed is narrowing when the signed type can't hold the largest.
-  // value of the unsigned type
-  if (!srcIsSigned && dstIsSigned) {
-    return srcNumberOfBits >= dstNumberOfBits;
-  }
-  // Signed->Unsigned is always narrowing.
-  assert(srcIsSigned && !dstIsSigned);
-  return true;
-}
-
 // TypecastOp canonicalization method
 ::llvm::LogicalResult
 mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
@@ -4038,8 +4053,10 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
     // If the 1st Op is narrowing and the 2nd Op is widening, we shouldn't fold.
     // FP->Int->FP is special and should never fold, due to its truncation
     // semantics and application in QDQ models.
-    const bool isNarrowingProducer = isNarrowingConversion(dtypeIn, dtypeMid);
-    const bool isNarrowingConsumer = isNarrowingConversion(dtypeMid, dtypeOut);
+    const bool isNarrowingProducer =
+        ttcore::isNarrowingConversion(dtypeIn, dtypeMid);
+    const bool isNarrowingConsumer =
+        ttcore::isNarrowingConversion(dtypeMid, dtypeOut);
     const bool isFpIntFp =
         isFloat(dtypeIn) && !isFloat(dtypeMid) && isFloat(dtypeOut);
     if (isFpIntFp || (isNarrowingProducer && !isNarrowingConsumer)) {
@@ -8290,17 +8307,6 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
   }
   if (getOutputHeightShardDim() == 0) {
     return emitOpError("output_height_shard_dim must be positive");
-  }
-  // Only the compute_only path is supported: the A2A selective-reduce-combine
-  // (and all multi-device routing it implies) is intentionally not wired, so
-  // the full-path-only input (cluster_axis) must be unset. compute_only must be
-  // set.
-  if (!getComputeOnly()) {
-    return emitOpError("only the compute_only path is supported; compute_only "
-                       "must be set");
-  }
-  if (getClusterAxis()) {
-    return emitOpError("compute_only moe_compute must not set cluster_axis");
   }
 
   ::mlir::RankedTensorType inputType = getTilizeInputTensor().getType();

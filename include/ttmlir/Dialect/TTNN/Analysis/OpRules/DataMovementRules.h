@@ -46,6 +46,21 @@ struct ConcatRuleBook : OpRuleBook {
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
+/// RepeatOp: pin the output sharding grid to the input's grid.
+/// With a NULL/gridless output memory config, tt-metal's repeat re-derives the
+/// output shard spec onto the full compute grid, so the grid it reports no
+/// longer matches the physically-allocated (trimmed) grid and downstream
+/// consumers read the wrong cores (tt-xla#5605). Force an explicit sharded
+/// output on the input's memory layout and grid.
+struct RepeatRuleBook : OpRuleBook {
+  bool isValidOutputHintForInputs(
+      const OpConfig &hint,
+      llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+};
+
 /// SliceStaticOp, SliceDynamicOp: reject all sharded inputs, non-sharded
 /// output, no reshards.
 struct SliceRuleBook : OpRuleBook {

@@ -51,6 +51,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         OptimizerPasses/TTNNDeduceMoEComputeLayouts.cpp
         OptimizerPasses/TTNNPrepareConv3dWeights.cpp
         TTNNAdjustDeallocs.cpp
+        TTNNForceFinalDeallocs.cpp
         TTNNAllocateDistributedOpBuffers.cpp
         TTNNAllocateDistributedOpSemaphores.cpp
         TTNNCollaspeD2M.cpp
@@ -89,7 +90,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/AllGatherOpRewritePattern.cpp
         Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.cpp
         Workarounds/Decomposition/MoeGptLayoutRewritePattern.cpp
-        Workarounds/Decomposition/MoeComputeRewritePattern.cpp
         Workarounds/Decomposition/PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern.cpp
         Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.cpp
         Workarounds/Decomposition/PointToPointOpRewritePattern.cpp

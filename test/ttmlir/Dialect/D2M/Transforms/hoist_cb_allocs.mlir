@@ -56,3 +56,26 @@ func.func @hoist_multiple_cbs_dealloc(
   }
   return
 }
+
+// Verify that compute intermediate synchronized buffers with concrete addresses
+// are real CB-backed buffers and are hoisted like other synchronized buffers.
+func.func @hoist_compute_intermediate_cb_dealloc(
+    %stream: memref<2x2x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>,
+    %out: memref<2x2x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
+  // CHECK-LABEL: func @hoist_compute_intermediate_cb_dealloc
+  // CHECK: %[[CB:.*]] = memref.alloc() {address = 4096 : i64{{.*}}d2m.compute_intermediate{{.*}}cb_layout
+  // CHECK: d2m.generic
+  // CHECK: additionalArgs(%[[CB]]
+  // CHECK: memref.dealloc %[[CB]]
+  d2m.generic {block_factors = [], grid = #ttcore.grid<2x2>, indexing_maps = [], iterator_types = [], threads = [#d2m.thread<unified>]}
+      ins(%stream : memref<2x2x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>)
+      outs(%out : memref<2x2x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>) {
+  ^unified0():
+    %c0 = d2m.core_index(0) : index
+    %c1 = d2m.core_index(1) : index
+    %alloc_cb = memref.alloc() {address = 4096 : i64, alignment = 16 : i64, d2m.compute_intermediate, d2m.synchronized_buffer = 2} : memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+    d2m.remote_load %alloc_cb %stream[%c0, %c1] : memref<4x4x!ttcore.tile<32x32, f32>, #l1>, memref<2x2x4x4x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
+    d2m.remote_store %out[%c0, %c1] %alloc_cb : memref<2x2x4x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1>, memref<4x4x!ttcore.tile<32x32, f32>, #l1>
+  }
+  return
+}

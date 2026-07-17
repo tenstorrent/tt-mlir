@@ -225,6 +225,18 @@ public:
             continue;
           }
 
+          // A ttnn.moe_compute optional_output_tensor aliases its
+          // combine_output result (tt-metal returns the caller buffer). Skip it
+          // here; the result carries the correct, later deallocation.
+          bool feedsMoeOptionalOutput =
+              llvm::any_of(result.getUsers(), [&](Operation *user) {
+                auto moeOp = dyn_cast<ttnn::MoeComputeOp>(user);
+                return moeOp && moeOp.getOptionalOutputTensor() == result;
+              });
+          if (feedsMoeOptionalOutput) {
+            continue;
+          }
+
           Operation *lastOp = getLastValueUsageOp(livenessInfo, result);
           valuesToDeallocate.push_back({result, lastOp});
         }

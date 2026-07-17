@@ -12,26 +12,22 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-// Sets an explicit SDPAProgramConfig on PagedScaledDotProductAttentionDecodeOp
-// for head_dim >= 256, where the default TTNN schedule overflows per-core L1.
-// Scoped to opt-level=0; at opt-level>=1 OpValidationAndFallback owns this
-// decision.
-//
-// Metal issue: https://github.com/tenstorrent/tt-metal/issues/44311
+// Workaround which, on Blackhole, forces exp_approx_mode = false on the SDPA
+// decode program config; the tt-metal default approx-exp path fails SFPI
+// compile. Metal issue reference:
+// https://github.com/tenstorrent/tt-metal/issues/40301
+// An existing config is preserved, otherwise metal's defaults are replicated
+// (q/k_chunk_size = 32, max_cores_per_head_batch = 1), since passing a config
+// disables metal's auto-default.
 class PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern
     : public OpRewritePattern<ttnn::PagedScaledDotProductAttentionDecodeOp> {
 public:
-  PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern(
-      MLIRContext *context, int64_t optimizationLevel)
-      : OpRewritePattern<ttnn::PagedScaledDotProductAttentionDecodeOp>(context),
-        optimizationLevel(optimizationLevel) {}
+  using OpRewritePattern<
+      ttnn::PagedScaledDotProductAttentionDecodeOp>::OpRewritePattern;
 
   LogicalResult
   matchAndRewrite(ttnn::PagedScaledDotProductAttentionDecodeOp srcOp,
                   PatternRewriter &rewriter) const override;
-
-private:
-  int64_t optimizationLevel;
 };
 
 } // namespace mlir::tt::ttnn::workarounds::decomposition

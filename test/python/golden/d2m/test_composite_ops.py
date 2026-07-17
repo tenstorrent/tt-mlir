@@ -349,7 +349,7 @@ def test_softmax_decomposition(
 ):
     """Test softmax decomposition for the TTMetal pipeline."""
     if dimension == 0:
-        pytest.skip("Out of place reduction not supported with blocking. See #8290")
+        pytest.xfail("Out of place reduction not supported with blocking. See #8290")
 
     def module(builder: TTIRBuilder):
         @builder.func([shape], [torch.float32])

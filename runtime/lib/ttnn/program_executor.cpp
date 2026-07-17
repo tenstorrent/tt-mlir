@@ -18,6 +18,7 @@
 #include "operations/ccl/all_to_all_combine.h"
 #include "operations/ccl/all_to_all_dispatch.h"
 #include "operations/ccl/all_to_all_dispatch_metadata.h"
+#include "operations/ccl/allocate_moe_compute_semaphore.h"
 #include "operations/ccl/distribute_tensor.h"
 #include "operations/ccl/mesh_partition.h"
 #include "operations/ccl/moe_compute.h"
@@ -29,6 +30,7 @@
 #include "operations/ccl/reduce_scatter.h"
 #include "operations/ccl/selective_reduce_combine.h"
 #include "operations/context/get_device.h"
+#include "operations/conv/conv1d.h"
 #include "operations/conv/conv2d.h"
 #include "operations/conv/conv3d.h"
 #include "operations/conv/conv_transpose2d.h"
@@ -507,6 +509,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
     return operations::conv::run(op->type_as_PrepareConvTranspose2dBiasOp(),
                                  getContext());
   }
+  case ::tt::target::ttnn::OpType::Conv1dOp: {
+    return operations::conv::run(op->type_as_Conv1dOp(), getContext());
+  }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
     return operations::conv::run(op->type_as_Conv2dOp(), getContext());
   }
@@ -575,6 +580,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::MoeComputeOp: {
     return operations::ccl::run(op->type_as_MoeComputeOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::AllocateMoeComputeSemaphoreOp: {
+    return operations::ccl::run(op->type_as_AllocateMoeComputeSemaphoreOp(),
+                                getContext());
   }
   case ::tt::target::ttnn::OpType::ArangeOp: {
     return operations::creation::run(op->type_as_ArangeOp(), getContext());
