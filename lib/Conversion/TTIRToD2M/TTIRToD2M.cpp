@@ -3727,6 +3727,14 @@ public:
     constexpr int64_t kTileWidth = 32;
     constexpr int64_t kMaxShardTiles = 32; // L1-safe shard width.
     int64_t fullReductionElems = inputType.getShape()[dim];
+
+    // Index element type for the arange / topk index buffers. The topk SFPU
+    // LLK reads the index lane only as INT32 (when fp32_dest_acc is on) or as a
+    // 16-bit integer (LO16, otherwise) -- never as a float. Int32 makes any
+    // 32-bit operand force fp32_dest_acc on the compute kernel, selecting the
+    // INT32 index path, so indices round-trip losslessly for any reduction
+    // size.
+    Type idxElemType = rewriter.getI32Type();
     int64_t fullReductionTiles =
         (fullReductionElems + kTileWidth - 1) / kTileWidth;
     // Minimum cores needed so each band is <= kMaxShardTiles tiles. This is a
@@ -3958,11 +3966,11 @@ public:
       // tiles (winner=0, loser=1) for any tile count, so no power-of-2 padding
       // (and no -inf mask) is needed on the reduction dim.
 
-      Type f32Type = f32TileType.getElementType();
+      auto topkIdxTileType = ttcore::TileType::get(idxElemType);
       auto topkValsEmpty = rewriter.create<d2m::EmptyOp>(
           loc, deviceShape, f32TileType, metalLayout);
       auto topkIdxEmpty = rewriter.create<d2m::EmptyOp>(
-          loc, deviceShape, f32TileType, metalLayout);
+          loc, deviceShape, topkIdxTileType, metalLayout);
       attachFold(topkValsEmpty);
       attachFold(topkIdxEmpty);
 
@@ -4034,6 +4042,100 @@ public:
         return wrapInToLayout(transposeGeneric->getResult(0));
       };
 
+      // Full (grid-level) transpose: swaps the shard's last two tile-grid dims
+      // AND transposes within each tile, so an R-row x C-col buffer becomes a
+      // genuine C x R buffer (unlike transposeTiles, which keeps the grid shape
+      // and only transposes within each tile). Used to build the dim==0 index
+      // buffer: fill the arange into a [C, R] buffer (so the [0..R-1] sequence
+      // runs along the R-long axis, spanning all tiles), then transpose here to
+      // [R, C] so idxBuf[r][c] == r == the global dim-0 index.
+      auto transposeTilesGrid = [&](Value src) -> Value {
+        auto srcType = cast<RankedTensorType>(src.getType());
+        auto srcTileType = cast<ttcore::TileType>(srcType.getElementType());
+        auto srcLayout = cast<ttcore::MetalLayoutAttr>(srcType.getEncoding());
+        ArrayRef<int64_t> srcDeviceShape = srcType.getShape();
+        std::size_t deviceRank = srcDeviceShape.size();
+        // Output device shape swaps the last two (shard) tile dims.
+        SmallVector<int64_t> dstDeviceShape(srcDeviceShape.begin(),
+                                            srcDeviceShape.end());
+        std::swap(dstDeviceShape[deviceRank - 1],
+                  dstDeviceShape[deviceRank - 2]);
+        // Output logical shape (the layout carries a logical shape whose tile
+        // extents must track the swapped physical tile counts).
+        constexpr int64_t kTileDim = 32;
+        SmallVector<int64_t> dstLogical = {
+            dstDeviceShape[deviceRank - 2] * kTileDim,
+            dstDeviceShape[deviceRank - 1] * kTileDim};
+        auto dstLayout = ttcore::MetalLayoutAttr::get(
+            ctx, dstLogical, srcLayout.getDimAlignments(),
+            srcLayout.getCollapsedIntervals(), srcLayout.getMemorySpace(),
+            srcLayout.getMemoryLayout());
+        auto dstType =
+            RankedTensorType::get(dstDeviceShape, srcTileType, dstLayout);
+        auto transposeEmpty = rewriter.create<d2m::EmptyOp>(
+            loc, dstType.getShape(), srcTileType, dstLayout);
+        attachFold(transposeEmpty);
+        SmallVector<Value> transposeInputs = {src};
+        SmallVector<Value> transposeOutputs = {transposeEmpty.getResult()};
+        // Input map permutes the last two shard dims so tile [.., i, j] reads
+        // from source tile [.., j, i]; output map is identity.
+        SmallVector<AffineExpr> inExprs;
+        for (std::size_t i = 0; i < physicalRank; ++i) {
+          inExprs.push_back(rewriter.getAffineDimExpr(i));
+        }
+        std::swap(inExprs[physicalRank - 1], inExprs[physicalRank - 2]);
+        AffineMap permInMap = AffineMap::get(physicalRank, 0, inExprs, ctx);
+        auto transposeGeneric = rewriter.create<d2m::GenericOp>(
+            loc, transposeInputs, transposeOutputs,
+            /*additionalArgs=*/ValueRange(),
+            rewriter.getAffineMapArrayAttr(
+                SmallVector<AffineMap>{permInMap, identityMap}),
+            rewriter.getArrayAttr(iteratorTypes));
+        transposeGeneric->setAttr("d2m.skip_grid_selection",
+                                  rewriter.getUnitAttr());
+
+        withD2MGenericRegion(
+            rewriter, loc, transposeGeneric, transposeInputs, transposeOutputs,
+            [&](ArrayRef<Value> blockArgs) -> SmallVector<Value> {
+              Value input = blockArgs[0];
+              Value output = blockArgs[1];
+              std::size_t shardRank =
+                  cast<RankedTensorType>(output.getType()).getRank();
+              // The input and output shards have TRANSPOSED grid shapes here
+              // ([1,8] vs [8,1]): withD2MGenericRegion hands each block arg its
+              // own operand's shard shape, so the maps must reconcile them. The
+              // iteration domain follows the OUTPUT (identity map); the INPUT
+              // map permutes the last two shard dims so output tile [d0,d1]
+              // reads input tile [d1,d0]. A single identity on both (as for a
+              // shape-preserving per-tile transpose) would make linalg infer
+              // conflicting extents for the swapped dim and fail verification.
+              AffineMap shardIdentity =
+                  rewriter.getMultiDimIdentityMap(shardRank);
+              SmallVector<AffineExpr> shardInExprs;
+              for (std::size_t i = 0; i < shardRank; ++i) {
+                shardInExprs.push_back(rewriter.getAffineDimExpr(i));
+              }
+              std::swap(shardInExprs[shardRank - 1],
+                        shardInExprs[shardRank - 2]);
+              AffineMap shardPermMap =
+                  AffineMap::get(shardRank, 0, shardInExprs, ctx);
+              SmallVector<mlir::utils::IteratorType> linalgIters(
+                  shardRank, mlir::utils::IteratorType::parallel);
+              auto linalgOp = rewriter.create<linalg::GenericOp>(
+                  loc, output.getType(), input, output,
+                  SmallVector<AffineMap>{shardPermMap, shardIdentity},
+                  linalgIters,
+                  [&](OpBuilder &b, Location bodyLoc, ValueRange args) {
+                    Value transposed = b.create<d2m::TileTransposeOp>(
+                        bodyLoc, args[1].getType(), args[0]);
+                    b.create<linalg::YieldOp>(bodyLoc, transposed);
+                  });
+              return {linalgOp->getResult(0)};
+            });
+
+        return wrapInToLayout(transposeGeneric->getResult(0));
+      };
+
       // When dim=1, the sort dimension falls along tile rows, but TopkBlockOp
       // operates on tile columns, so we transpose the tiles first.
       Value topkInput = layoutedInput;
@@ -4042,9 +4144,51 @@ public:
       }
 
       // Setting up the arange op.
+      //
+      // dim==0 index construction: the reduction runs along tile ROWS, but the
+      // arange primitive naturally sequences indices along tile COLUMNS (and
+      // spanning multiple column tiles). So for dim==0 we build the ENTIRE
+      // arange+broadcast on a shape-SWAPPED [wt, ht] buffer -- reusing the same
+      // column-sequencing/Row-broadcast the dim==1 path uses -- then grid-
+      // transpose the result back to [ht, wt] via transposeTilesGrid. After the
+      // transpose idxBuf[r][c] == r == the global dim-0 index, across ALL
+      // tiles. (Multi-core is dim==1 only, so this swap only ever runs
+      // single-core.)
+      bool swapArange = (dim == 0);
 
-      auto f32InputType = RankedTensorType::get(topkLogicalShape, f32Type,
+      // Arange emits integer indices; allocate its buffers with the index
+      // element type (bf16 for small reduction dims, Int32 otherwise) rather
+      // than f32.
+      auto idxTileType = ttcore::TileType::get(idxElemType);
+      // Logical shape for the arange/bcast buffers: swapped for dim==0 so the
+      // sequence axis lands on columns, matching the dim==1-style construction.
+      SmallVector<int64_t> arangeLogicalShape(topkLogicalShape.begin(),
+                                              topkLogicalShape.end());
+      if (swapArange) {
+        std::swap(arangeLogicalShape[rank - 1], arangeLogicalShape[rank - 2]);
+      }
+      auto idxInputType = RankedTensorType::get(arangeLogicalShape, idxElemType,
                                                 inputType.getEncoding());
+
+      // For the swapped dim==0 buffer we must allocate the arange/bcast tensors
+      // DIRECTLY at the swapped physical [wt, ht] device shape. Routing through
+      // createOptimalLayoutOp instead re-derives the tile grid from the
+      // encoding collapse intervals and hands back the UN-swapped [ht, wt]
+      // shard, which makes the broadcast's linalg maps mismatch (expects [1,8],
+      // gets [8,1]). Build a swapped device shape + matching MetalLayoutAttr
+      // (mirrors the dst-side construction in transposeTilesGrid).
+      SmallVector<int64_t> swappedDeviceShape(deviceShape.begin(),
+                                              deviceShape.end());
+      std::swap(swappedDeviceShape[deviceShape.size() - 1],
+                swappedDeviceShape[deviceShape.size() - 2]);
+      constexpr int64_t kArangeTileDim = 32;
+      SmallVector<int64_t> swappedLogical = {
+          swappedDeviceShape[deviceShape.size() - 2] * kArangeTileDim,
+          swappedDeviceShape[deviceShape.size() - 1] * kArangeTileDim};
+      auto swappedMetalLayout = ttcore::MetalLayoutAttr::get(
+          ctx, swappedLogical, metalLayout.getDimAlignments(),
+          metalLayout.getCollapsedIntervals(), metalLayout.getMemorySpace(),
+          metalLayout.getMemoryLayout());
       // Shard the index buffer across the same gridCols cores as the input.
       // For gridCols==1, toLayoutOperandsAndResults builds the unit-grid
       // EmptyOp + to_layout as usual. For gridCols>1 we must NOT call it: it
@@ -4057,12 +4201,19 @@ public:
       SmallVector<Value> arangeOutputs;
       if (gridCols > 1) {
         auto arangeEmpty = rewriter.create<d2m::EmptyOp>(
-            loc, deviceShape, f32TileType, metalLayout);
+            loc, deviceShape, idxTileType, metalLayout);
+        attachFold(arangeEmpty);
+        arangeOutputs.push_back(arangeEmpty.getResult());
+      } else if (swapArange) {
+        // Direct-allocate at the swapped [wt, ht] device shape (see above);
+        // going through the layout infra would collapse it back to [ht, wt].
+        auto arangeEmpty = rewriter.create<d2m::EmptyOp>(
+            loc, swappedDeviceShape, idxTileType, swappedMetalLayout);
         attachFold(arangeEmpty);
         arangeOutputs.push_back(arangeEmpty.getResult());
       } else {
         auto arangeOrigOutputs =
-            createDpsOutputs(loc, rewriter, {f32InputType});
+            createDpsOutputs(loc, rewriter, {idxInputType});
         auto [arangeins, laidOut] = toLayoutOperandsAndResults(
             rewriter, {SmallVector<Value>{}, arangeOrigOutputs}, true,
             /*noCollapse=*/false);
@@ -4123,17 +4274,18 @@ public:
                                .create<d2m::ArangeBlockOp>(
                                    loc, idxTile, outTile, numElements,
                                    /*start=*/arangeStart,
-                                   /*step=*/1,
-                                   /*colMajor=*/(dim == 0))
+                                   /*step=*/1)
                                .getResult();
             return {result};
           });
 
       // Setting up the broadcast after arange.
 
-      // Broadcast first row or column to full shape.
-      d2m::TileBcastType postArangeBcastType =
-          (dim == 1) ? d2m::TileBcastType::Row : d2m::TileBcastType::Col;
+      // Broadcast first row or column to full shape. Both dim==1 and the
+      // swapped dim==0 buffer sequence indices along COLUMNS, so both broadcast
+      // row 0 DOWN the rows (Row broadcast). (dim==0 is handled on its swapped
+      // [wt, ht] buffer here and grid-transposed to [ht, wt] afterwards.)
+      d2m::TileBcastType postArangeBcastType = d2m::TileBcastType::Row;
       d2m::TileBcastTypeAttr postArangeBcastTypeAttr =
           d2m::TileBcastTypeAttr::get(ctx, postArangeBcastType);
       SmallVector<Value> postArangeBcastInputs(arange.getResults().begin(),
@@ -4144,13 +4296,20 @@ public:
       // grid matches the sharded arange input (and topkInput).
       if (gridCols > 1) {
         auto bcastEmpty = rewriter.create<d2m::EmptyOp>(
-            loc, deviceShape, f32TileType, metalLayout);
+            loc, deviceShape, idxTileType, metalLayout);
+        attachFold(bcastEmpty);
+        postArangeBcastOutputs.push_back(bcastEmpty.getResult());
+      } else if (swapArange) {
+        // Match the swapped [wt, ht] arange input so the broadcast's linalg
+        // maps line up (see the swappedDeviceShape rationale above).
+        auto bcastEmpty = rewriter.create<d2m::EmptyOp>(
+            loc, swappedDeviceShape, idxTileType, swappedMetalLayout);
         attachFold(bcastEmpty);
         postArangeBcastOutputs.push_back(bcastEmpty.getResult());
       } else {
         // For single-core, use the standard layout wrapping.
         auto postArangeBcastOrigOutputs =
-            createDpsOutputs(loc, rewriter, {f32InputType});
+            createDpsOutputs(loc, rewriter, {idxInputType});
         auto [postArangeBcastins, laidOut] = toLayoutOperandsAndResults(
             rewriter, {SmallVector<Value>{}, postArangeBcastOrigOutputs}, true,
             /*noCollapse=*/false);
@@ -4236,12 +4395,21 @@ public:
       Value indexOperand = postArangeBcast->getResult(0);
       Value idxBuf = wrapInToLayout(indexOperand);
 
-      // TopkBlockOp reads value and index tiles in lockstep, so transpose the
-      // index buffer the same way as the value input for dim==1. For dim==1,
-      // arange+bcast yields idxBuf[row][col] = col, so after transpose the
-      // column index varies along the tile's row axis, matching the value tile.
+      // TopkBlockOp reads value and index tiles in lockstep, so bring the index
+      // buffer into the same orientation as the value input.
+      //   dim==1: arange+bcast yields idxBuf[row][col] = col; a per-tile
+      //     transpose makes the column index vary along the tile's row axis,
+      //     matching the transposed value tile.
+      //   dim==0: idxBuf was built on the swapped [wt, ht] buffer with the
+      //     [0..R-1] sequence running along its columns; a GRID transpose swaps
+      //     the tile-grid dims AND transposes within each tile, producing the
+      //     genuine [ht, wt] buffer where idxBuf[r][c] == r (the global dim-0
+      //     index) across all tiles. A per-tile transpose alone would be wrong
+      //     for ht>1 because it cannot move the sequence across tile rows.
       if (dim == 1) {
         idxBuf = transposeTiles(idxBuf);
+      } else {
+        idxBuf = transposeTilesGrid(idxBuf);
       }
 
       SmallVector<Value> topkInputs = {topkInput, idxBuf};
@@ -4458,7 +4626,9 @@ public:
     // left-fold keeps the accumulator at canonical tiles (winner=0, loser=1),
     // so the extract reads tile j from input tile j (lastStride=1) for any tile
     // count, with no power-of-2 padding. For k<=32 lastStride is unused.
-    Type elemF32Type = rewriter.getF32Type();
+    // Extract/merge index buffers carry the same index element type chosen
+    // above (bf16 for small reduction dims, else Int32).
+    Type extractIdxElemType = idxElemType;
     std::size_t physicalRank = static_cast<std::size_t>(rank);
     int64_t outputReductionTiles = (k + 31) / 32;
     int64_t lastStride = 1;
@@ -4601,9 +4771,13 @@ public:
         int64_t groupTiles = static_cast<int64_t>(group.size());
 
         // Build a groupTiles-tile buffer type along the reduction dim from a
-        // 1-tile partial's layout.
+        // 1-tile partial's layout. Values and indices carry different element
+        // types (f32 vs Int32), so build a wide type per side.
         auto partialType = cast<RankedTensorType>(group[0].first.getType());
         auto tileType = cast<ttcore::TileType>(partialType.getElementType());
+        auto idxPartialType = cast<RankedTensorType>(group[0].second.getType());
+        auto idxTileType =
+            cast<ttcore::TileType>(idxPartialType.getElementType());
         auto partialLayout =
             cast<ttcore::MetalLayoutAttr>(partialType.getEncoding());
         SmallVector<int64_t> wideShape(partialType.getShape().begin(),
@@ -4611,6 +4785,8 @@ public:
         wideShape[deviceRedDim] = groupTiles;
         auto wideLayout = layoutForDeviceShape(partialLayout, wideShape);
         auto wideType = RankedTensorType::get(wideShape, tileType, wideLayout);
+        auto wideIdxType =
+            RankedTensorType::get(wideShape, idxTileType, wideLayout);
 
         // Separate CompositeViews for values and indices (the DMA-expansion
         // pass supports only one composite view per GenericOp, #7600), each
@@ -4624,7 +4800,7 @@ public:
             loc, wideType, valComposites, static_cast<int32_t>(dim),
             /*logicalSizes=*/nullptr);
         auto idxComposite = rewriter.create<d2m::CompositeViewOp>(
-            loc, wideType, idxComposites, static_cast<int32_t>(dim),
+            loc, wideIdxType, idxComposites, static_cast<int32_t>(dim),
             /*logicalSizes=*/nullptr);
 
         // Materialize each composite into a genuinely-allocated L1 buffer via
@@ -4682,8 +4858,8 @@ public:
         int64_t mergeReductionElems = groupTiles * 32;
         auto mergeValsOut =
             rewriter.create<d2m::EmptyOp>(loc, wideShape, tileType, wideLayout);
-        auto mergeIdxOut =
-            rewriter.create<d2m::EmptyOp>(loc, wideShape, tileType, wideLayout);
+        auto mergeIdxOut = rewriter.create<d2m::EmptyOp>(
+            loc, wideShape, idxTileType, wideLayout);
         SmallVector<Value> mergeInputs = {valsMaterialized, idxMaterialized};
         SmallVector<Value> mergeOutputs = {mergeValsOut.getResult(),
                                            mergeIdxOut.getResult()};
@@ -4731,16 +4907,16 @@ public:
       topkIdxRelayouted = merged.second;
     }
 
-    // Index extract uses fp32 topk tiles; a typecast generic below converts
-    // to the user index output element type (uint16) for width-preserving
-    // untilize.
-    auto f32IndicesType =
-        RankedTensorType::get(indicesType.getShape(), elemF32Type);
+    // Index extract uses the index-element-type topk tiles; a typecast generic
+    // below converts to the user index output element type (uint16) for
+    // width-preserving untilize.
+    auto extractIdxIndicesType =
+        RankedTensorType::get(indicesType.getShape(), extractIdxElemType);
 
     SmallVector<Value> origValOutputs =
         createDpsOutputs(loc, rewriter, {valuesType});
     SmallVector<Value> origIdxOutputs =
-        createDpsOutputs(loc, rewriter, {f32IndicesType});
+        createDpsOutputs(loc, rewriter, {extractIdxIndicesType});
     Value extractValsLayout = createOptimalLayoutOp(
         origValOutputs[0], memorySpaces[1], /*tiled=*/true,
         /*noCollapse=*/false, rewriter);
@@ -4760,7 +4936,7 @@ public:
         rewriter, loc, ctx, topkIdxRelayouted, extractIdxLayout,
         extractProjectDim, outputReductionTiles, lastStride, dim);
 
-    // Typecast extracted fp32 indices to the output element type (uint16)
+    // Typecast extracted indices to the output element type (uint16)
     // before untilize. One tile op per region so D2M->TTKernel store/DST-index
     // lookup finds a single terminal compute op.
     Value extractedIdx = extractIdxGeneric->getResult(0);

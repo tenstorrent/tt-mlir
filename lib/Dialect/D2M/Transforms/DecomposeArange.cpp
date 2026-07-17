@@ -10,6 +10,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 
@@ -24,10 +25,22 @@ namespace {
 // `colBlockIV`. These must be folded into the arange offset so each shard
 // computes its correct slice rather than identical values. Either IV is null
 // if the corresponding blocking loop is absent.
+//
+// Also records each blocking loop's constant trip count into `rowBlockCount` /
+// `colBlockCount` (defaulting to 1 when the loop is absent). A core's full span
+// along a dim is numTiles*blockCount, not numTiles alone: blocking splits one
+// core's shard into blockCount contiguous blocks of numTiles each, and the
+// per-core offset (coreY/coreX * span) must advance by the whole span so cores
+// don't overlap. Bounds are always constants here (D2MGenerateOuterLoops emits
+// scf.for over static block_factors).
 static void collectBlockingLoopIVs(Operation *op, int64_t rank,
-                                   Value &rowBlockIV, Value &colBlockIV) {
+                                   Value &rowBlockIV, Value &colBlockIV,
+                                   int64_t &rowBlockCount,
+                                   int64_t &colBlockCount) {
   rowBlockIV = nullptr;
   colBlockIV = nullptr;
+  rowBlockCount = 1;
+  colBlockCount = 1;
   for (Operation *parent = op->getParentOp(); parent;
        parent = parent->getParentOp()) {
     auto forOp = dyn_cast<scf::ForOp>(parent);
@@ -38,11 +51,20 @@ static void collectBlockingLoopIVs(Operation *op, int64_t rank,
     if (!dimAttr) {
       continue;
     }
+    // trip = ceildiv(ub - lb, step); block loops are 0..N step 1, so ub.
+    std::optional<int64_t> lb = getConstantIntValue(forOp.getLowerBound());
+    std::optional<int64_t> ub = getConstantIntValue(forOp.getUpperBound());
+    std::optional<int64_t> step = getConstantIntValue(forOp.getStep());
+    TT_assertv((lb && ub && step && *step > 0),
+               "blocking loop must have constant bounds");
+    int64_t trip = (*ub - *lb + *step - 1) / *step;
     int64_t dim = dimAttr.getInt();
     if (dim == rank - 1) {
       colBlockIV = forOp.getInductionVar();
+      colBlockCount = trip;
     } else if (dim == rank - 2) {
       rowBlockIV = forOp.getInductionVar();
+      rowBlockCount = trip;
     }
   }
 }
@@ -80,9 +102,23 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
 
     int64_t numTileRows = outputShape[outputShape.size() - 2];
     int64_t numTileCols = outputShape[outputShape.size() - 1];
-    // Total tiles across all cores.
-    int64_t totalTileCols = numTileCols * gridShape[gridShape.size() - 1];
-    int64_t totalTileRows = numTileRows * gridShape[gridShape.size() - 2];
+
+    // Blocking splits one core's shard into blockCount contiguous blocks of
+    // numTiles each (D2MGenerateOuterLoops), so numTileRows/numTileCols reflect
+    // ONE block, not the full per-core shard. Collect the block IVs and their
+    // trip counts so both the per-core span and the totals below account for
+    // all blocks. Walks only enclosing ops, so it is safe to call this early.
+    Value rowBlockIV, colBlockIV;
+    int64_t rowBlockCount = 1, colBlockCount = 1;
+    collectBlockingLoopIVs(op, static_cast<int64_t>(outputShape.size()),
+                           rowBlockIV, colBlockIV, rowBlockCount,
+                           colBlockCount);
+
+    // Total tiles across all cores = tiles-per-block * blocks-per-core * cores.
+    int64_t totalTileCols =
+        numTileCols * colBlockCount * gridShape[gridShape.size() - 1];
+    int64_t totalTileRows =
+        numTileRows * rowBlockCount * gridShape[gridShape.size() - 2];
 
     Value zeroIdx = rewriter.create<arith::ConstantIndexOp>(loc, 0);
     Value oneIdx = rewriter.create<arith::ConstantIndexOp>(loc, 1);
@@ -162,24 +198,31 @@ struct DecomposeArangeBlockPattern : OpRewritePattern<ArangeBlockOp> {
     Value totalTileRowsIdx =
         rewriter.create<arith::ConstantIndexOp>(loc, totalTileRows);
     Value const32Idx = rewriter.create<arith::ConstantIndexOp>(loc, 32);
-    Value rowBlockIV, colBlockIV;
-    collectBlockingLoopIVs(op, static_cast<int64_t>(outputShape.size()),
-                           rowBlockIV, colBlockIV);
+    // Per-core span along each dim = tiles-per-block * block count. The core
+    // offset must advance by the full span, while the intra-shard block IV
+    // still advances by one block (numTiles) at a time. (Block IVs/counts were
+    // collected above, before the totals.)
+    Value coreRowSpanIdx = rewriter.create<arith::ConstantIndexOp>(
+        loc, numTileRows * rowBlockCount);
+    Value coreColSpanIdx = rewriter.create<arith::ConstantIndexOp>(
+        loc, numTileCols * colBlockCount);
 
-    // globalTileRow = coreY * shardTileRows + rowBlockIV * shardTileRows
-    //               + localTileRow
+    // globalTileRow = coreY * (shardTileRows * rowBlockCount)
+    //               + rowBlockIV * shardTileRows + localTileRow
+    // The core term spans the WHOLE core (all blocks); the block IV advances
+    // one shardTileRows block at a time within that core.
     Value globalTileRow = rewriter.create<arith::AddIOp>(
-        loc, rewriter.create<arith::MulIOp>(loc, coreY, shardTileRowsIdx),
+        loc, rewriter.create<arith::MulIOp>(loc, coreY, coreRowSpanIdx),
         tileRowIdx);
     if (rowBlockIV) {
       globalTileRow = rewriter.create<arith::AddIOp>(
           loc, globalTileRow,
           rewriter.create<arith::MulIOp>(loc, rowBlockIV, shardTileRowsIdx));
     }
-    // globalTileCol = coreX * shardTileCols + colBlockIV * shardTileCols
-    //               + localTileCol
+    // globalTileCol = coreX * (shardTileCols * colBlockCount)
+    //               + colBlockIV * shardTileCols + localTileCol
     Value globalTileCol = rewriter.create<arith::AddIOp>(
-        loc, rewriter.create<arith::MulIOp>(loc, coreX, shardTileColsIdx),
+        loc, rewriter.create<arith::MulIOp>(loc, coreX, coreColSpanIdx),
         tileColIdx);
     if (colBlockIV) {
       globalTileCol = rewriter.create<arith::AddIOp>(
