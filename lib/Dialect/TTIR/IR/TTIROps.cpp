@@ -4197,6 +4197,16 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
 
 // EmbeddingOp canonicalization
 //
+// Restore the logical index shape when a frontend flattens indices around a
+// typecast. The embedding operates on the recovered 2D indices and its result
+// is reshaped back for existing consumers. Keeping the logical shape on the
+// embedding exposes both parallel dimensions to downstream layout selection.
+//
+//   Embedding(Typecast(Reshape([A,B] -> [A*B])))
+//     -> Reshape(Embedding(Typecast([A,B])), [A*B,C])
+//   Embedding(Reshape(Typecast([A,B]), [A*B]))
+//     -> Reshape(Embedding(Typecast([A,B])), [A*B,C])
+//
 // Squeeze unit dimensions out of the index tensor before the embedding lookup,
 // then reshape the result back to the original output shape.
 //
@@ -4216,6 +4226,76 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
 //
 void mlir::tt::ttir::EmbeddingOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  patterns.add(+[](mlir::tt::ttir::EmbeddingOp op,
+                   mlir::PatternRewriter &rewriter) -> LogicalResult {
+    RankedTensorType flattenedIndicesType = op.getInput().getType();
+    RankedTensorType flattenedResultType = op.getType();
+    if (!flattenedIndicesType.hasStaticShape() ||
+        flattenedIndicesType.getRank() != 1 ||
+        !flattenedResultType.hasStaticShape()) {
+      return failure();
+    }
+
+    auto findExpandedSource = [&](Value value, bool requireTypecast) -> Value {
+      while (auto reshape = value.getDefiningOp<ttir::ReshapeOp>()) {
+        value = reshape.getInput();
+        auto type = mlir::dyn_cast<RankedTensorType>(value.getType());
+        if (type && type.hasStaticShape() && type.getRank() == 2 &&
+            type.getNumElements() == flattenedIndicesType.getNumElements() &&
+            (!requireTypecast ||
+             value.getDefiningOp<ttir::TypecastOp>() != nullptr)) {
+          return value;
+        }
+      }
+      return {};
+    };
+
+    Value expandedIndices;
+    if (auto typecast = op.getInput().getDefiningOp<ttir::TypecastOp>()) {
+      Value expandedInput =
+          findExpandedSource(typecast.getInput(), /*requireTypecast=*/false);
+      if (!expandedInput) {
+        return failure();
+      }
+
+      auto expandedInputType =
+          mlir::cast<RankedTensorType>(expandedInput.getType());
+      auto expandedCastType = RankedTensorType::get(
+          expandedInputType.getShape(), flattenedIndicesType.getElementType(),
+          expandedInputType.getEncoding());
+      expandedIndices = rewriter.create<ttir::TypecastOp>(
+          typecast.getLoc(), expandedCastType, expandedInput,
+          typecast.getConservativeFolding());
+    } else {
+      expandedIndices =
+          findExpandedSource(op.getInput(), /*requireTypecast=*/true);
+      if (!expandedIndices ||
+          mlir::cast<RankedTensorType>(expandedIndices.getType())
+                  .getElementType() != flattenedIndicesType.getElementType()) {
+        return failure();
+      }
+    }
+
+    RankedTensorType expandedIndicesType =
+        mlir::cast<RankedTensorType>(expandedIndices.getType());
+    RankedTensorType weightType = op.getWeight().getType();
+    SmallVector<int64_t> expandedResultShape(expandedIndicesType.getShape());
+    expandedResultShape.push_back(weightType.getShape().back());
+    auto expandedResultType = RankedTensorType::get(
+        expandedResultShape, flattenedResultType.getElementType(),
+        flattenedResultType.getEncoding());
+    Value expandedEmbedding = rewriter.create<ttir::EmbeddingOp>(
+        op.getLoc(), expandedResultType, expandedIndices, op.getWeight());
+
+    SmallVector<int32_t> flattenedResultShape(
+        flattenedResultType.getShape().begin(),
+        flattenedResultType.getShape().end());
+    rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
+        op, flattenedResultType, expandedEmbedding,
+        rewriter.getI32ArrayAttr(flattenedResultShape));
+    return success();
+  });
+
   patterns.add(+[](mlir::tt::ttir::EmbeddingOp op,
                    mlir::PatternRewriter &rewriter) -> LogicalResult {
     // Do not apply when the indices are not produced by a ReshapeOp or when the

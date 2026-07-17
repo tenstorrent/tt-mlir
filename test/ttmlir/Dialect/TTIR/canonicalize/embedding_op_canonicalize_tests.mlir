@@ -53,6 +53,36 @@ module {
     return %2 : tensor<2x2x8xf32>
   }
 
+  // Flattening around the index typecast is removed so the embedding retains
+  // the logical index dimensions.
+  func.func @embedding_flatten_typecast_restore(%input: tensor<32x18xi64>, %weight: tensor<128256x4096xbf16>) -> tensor<32x18x4096xbf16> {
+    // CHECK-LABEL: func.func @embedding_flatten_typecast_restore
+    // CHECK-NOT:   "ttir.reshape"
+    // CHECK:       %[[CAST:.*]] = "ttir.typecast"(%arg0) <{conservative_folding = false}> : (tensor<32x18xi64>) -> tensor<32x18xui32>
+    // CHECK:       %[[EMBEDDING:.*]] = "ttir.embedding"(%[[CAST]], %arg1) : (tensor<32x18xui32>, tensor<128256x4096xbf16>) -> tensor<32x18x4096xbf16>
+    // CHECK:       return %[[EMBEDDING]] : tensor<32x18x4096xbf16>
+    %0 = "ttir.reshape"(%input) <{shape = [1 : i32, 32 : i32, 18 : i32]}> : (tensor<32x18xi64>) -> tensor<1x32x18xi64>
+    %1 = "ttir.reshape"(%0) <{shape = [576 : i32]}> : (tensor<1x32x18xi64>) -> tensor<576xi64>
+    %2 = "ttir.typecast"(%1) <{conservative_folding = false}> : (tensor<576xi64>) -> tensor<576xui32>
+    %3 = "ttir.embedding"(%2, %weight) : (tensor<576xui32>, tensor<128256x4096xbf16>) -> tensor<576x4096xbf16>
+    %4 = "ttir.reshape"(%3) <{shape = [32 : i32, 18 : i32, 4096 : i32]}> : (tensor<576x4096xbf16>) -> tensor<32x18x4096xbf16>
+    return %4 : tensor<32x18x4096xbf16>
+  }
+
+  // The same canonicalization applies after preprocessing commutes the typecast
+  // ahead of the flatten.
+  func.func @embedding_typecast_then_flatten(%input: tensor<32x18xsi32>, %weight: tensor<128256x4096xbf16>) -> tensor<576x4096xbf16> {
+    // CHECK-LABEL: func.func @embedding_typecast_then_flatten
+    // CHECK:       %[[CAST:.*]] = "ttir.typecast"(%arg0) <{conservative_folding = false}> : (tensor<32x18xsi32>) -> tensor<32x18xui32>
+    // CHECK-NEXT:  %[[EMBEDDING:.*]] = "ttir.embedding"(%[[CAST]], %arg1) : (tensor<32x18xui32>, tensor<128256x4096xbf16>) -> tensor<32x18x4096xbf16>
+    // CHECK-NEXT:  %[[FLATTENED:.*]] = "ttir.reshape"(%[[EMBEDDING]]) <{shape = [576 : i32, 4096 : i32]}> : (tensor<32x18x4096xbf16>) -> tensor<576x4096xbf16>
+    // CHECK-NEXT:  return %[[FLATTENED]] : tensor<576x4096xbf16>
+    %0 = "ttir.typecast"(%input) <{conservative_folding = false}> : (tensor<32x18xsi32>) -> tensor<32x18xui32>
+    %1 = "ttir.reshape"(%0) <{shape = [576 : i32]}> : (tensor<32x18xui32>) -> tensor<576xui32>
+    %2 = "ttir.embedding"(%1, %weight) : (tensor<576xui32>, tensor<128256x4096xbf16>) -> tensor<576x4096xbf16>
+    return %2 : tensor<576x4096xbf16>
+  }
+
   // Indices do not come from reshape, output does not go to reshape, pattern must NOT fire.
   func.func @embedding_1d_no_canonicalize_reshapes(%input: tensor<4x1xi32>, %weight: tensor<10x8xf32>) -> tensor<4x1x8xf32> {
     // CHECK-LABEL: func.func @embedding_1d_no_canonicalize_reshapes

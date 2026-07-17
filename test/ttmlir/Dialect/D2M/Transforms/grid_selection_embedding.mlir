@@ -1,6 +1,6 @@
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --canonicalize %s | FileCheck %s --check-prefix=BEFORE
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection --canonicalize %s | FileCheck %s --check-prefix=AFTER
-// RUN: ttmlir-opt --ttcore-register-device --ttir-to-d2m --d2m-grid-selection --canonicalize --ttcore-one-shot-bufferize %s | FileCheck %s --check-prefix=BUFFER
+// RUN: ttmlir-opt --ttcore-register-device --canonicalize --ttir-to-d2m --canonicalize %s | FileCheck %s --check-prefix=BEFORE
+// RUN: ttmlir-opt --ttcore-register-device --canonicalize --ttir-to-d2m --d2m-grid-selection --canonicalize %s | FileCheck %s --check-prefix=AFTER
+// RUN: ttmlir-opt --ttcore-register-device --canonicalize --ttir-to-d2m --d2m-grid-selection --canonicalize --ttcore-one-shot-bufferize %s | FileCheck %s --check-prefix=BUFFER
 
 module {
   func.func @embedding_grid(%indices: tensor<8x4xi32>, %weight: tensor<16x32xf32>) -> tensor<8x4x32xf32> {
@@ -53,5 +53,21 @@ module {
     // BUFFER-SAME: : memref
     %0 = "ttir.embedding"(%indices, %weight) : (tensor<1x4xi32>, tensor<16x16xf32>) -> tensor<1x4x16xf32>
     return %0 : tensor<1x4x16xf32>
+  }
+
+  func.func @embedding_flattened_indices(
+      %indices: tensor<32x18xsi32>,
+      %weight: tensor<128256x4096xbf16>) -> tensor<576x4096xbf16> {
+    // AFTER-LABEL: func.func @embedding_flattened_indices
+    // AFTER: d2m.to_layout %arg1
+    // AFTER: d2m.generic
+    // AFTER-SAME: grid = #ttcore.grid<8x8
+    // AFTER: d2m.embedding
+    // AFTER-SAME: <576, 4096>
+    // AFTER-SAME: {indicesShape = array<i64: 32, 18>}
+    %0 = "ttir.typecast"(%indices) <{conservative_folding = false}> : (tensor<32x18xsi32>) -> tensor<32x18xui32>
+    %1 = "ttir.reshape"(%0) <{shape = [576 : i32]}> : (tensor<32x18xui32>) -> tensor<576xui32>
+    %2 = "ttir.embedding"(%1, %weight) : (tensor<576xui32>, tensor<128256x4096xbf16>) -> tensor<576x4096xbf16>
+    return %2 : tensor<576x4096xbf16>
   }
 }
