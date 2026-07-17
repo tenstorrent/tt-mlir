@@ -1977,7 +1977,7 @@ public:
     // Copy the required F32 hyperparameters through, normalizing to F32 so the
     // ttir.adamw verifier accepts them regardless of the source float width.
     static constexpr StringRef kFloatAttrs[] = {
-        "lr",       "beta1",   "beta2",       "beta1_pow",
+        "lr",        "beta1",   "beta2",       "beta1_pow",
         "beta2_pow", "epsilon", "weight_decay"};
 
     SmallVector<NamedAttribute> namedAttrs;

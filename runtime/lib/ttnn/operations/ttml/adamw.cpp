@@ -11,7 +11,8 @@ namespace tt::runtime::ttnn::operations::ttml {
 void run(const ::tt::target::ttnn::AdamWOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
-  const ::ttnn::Tensor &param = tensorPool.getTTNNTensorAndValidate(op->param());
+  const ::ttnn::Tensor &param =
+      tensorPool.getTTNNTensorAndValidate(op->param());
   const ::ttnn::Tensor &grad = tensorPool.getTTNNTensorAndValidate(op->grad());
   const ::ttnn::Tensor &expAvg =
       tensorPool.getTTNNTensorAndValidate(op->exp_avg());
