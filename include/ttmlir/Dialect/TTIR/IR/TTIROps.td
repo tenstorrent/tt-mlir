@@ -2364,11 +2364,11 @@ def TTIR_AdamWOp : TTIR_NamedOp<"adamw"> {
     - `result` (Tensor): the updated parameter tensor.
   }];
 
-  let arguments = (ins AnyRankedTensor:$param,
+  let arguments = (ins Arg<AnyRankedTensor, "parameter tensor (updated in place)", [MemWrite]>:$param,
                        AnyRankedTensor:$grad,
-                       AnyRankedTensor:$exp_avg,
-                       AnyRankedTensor:$exp_avg_sq,
-                       Optional<AnyRankedTensor>:$max_exp_avg_sq,
+                       Arg<AnyRankedTensor, "first moment estimate", [MemWrite]>:$exp_avg,
+                       Arg<AnyRankedTensor, "second moment estimate", [MemWrite]>:$exp_avg_sq,
+                       Arg<Optional<AnyRankedTensor>, "max second moment estimate (amsgrad)", [MemWrite]>:$max_exp_avg_sq,
                        F32Attr:$lr,
                        F32Attr:$beta1,
                        F32Attr:$beta2,

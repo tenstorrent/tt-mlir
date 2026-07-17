@@ -2631,7 +2631,7 @@ def TTNN_AdamWOp : TTNN_Op<"adamw", [OpModelExempt]> {
       by the presence of `max_exp_avg_sq`. The updated parameter is returned.
     }];
 
-    let arguments = (ins AnyRankedTensor:$param,
+    let arguments = (ins Arg<AnyRankedTensor, "parameter tensor (updated in place)", [MemWrite]>:$param,
                          AnyRankedTensor:$grad,
                          Arg<AnyRankedTensor, "first moment estimate", [MemWrite]>:$exp_avg,
                          Arg<AnyRankedTensor, "second moment estimate", [MemWrite]>:$exp_avg_sq,
