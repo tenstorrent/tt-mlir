@@ -608,6 +608,22 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
 
         const MemRefType memrefType =
             llvm::cast<MemRefType>(allocOp->getResultTypes().front());
+
+        // Instrumentation: describe where this func-level (persistent) alloc
+        // comes from -- its type, its own source location, and the ops that
+        // consume it (with their locations). These persistent allocs are the
+        // ones that live across generic-op boundaries and dominate L1 usage.
+        if (TT_DEBUG_ENABLED()) {
+          std::string usersStr;
+          llvm::raw_string_ostream us{usersStr};
+          for (Operation *user : allocOp->getUsers()) {
+            us << "\n\t\tuser " << user->getName() << " @ " << user->getLoc();
+          }
+          TT_ALLOC_DEBUG("func-level alloc {}: type={} loc={} users:{}",
+                         asOperand(allocOp), memrefType, allocOp.getLoc(),
+                         us.str());
+        }
+
         MemrefValueContext &memrefCtx = addMemrefValueContext(
             rewriter, analysis, allocOp, memrefType, device);
         memrefCtx.live = closure.live;
@@ -684,6 +700,18 @@ class D2MAllocate final : public impl::D2MAllocateBase<D2MAllocate> {
                   numBuffers.value() *
                       getMemrefSizeBytes(allocOp.getType(), device),
                   L1memInfo.alignment);
+
+          // Instrumentation: describe where this in-generic (streamed CB)
+          // alloc comes from -- its buffer type, buffer count, computed L1
+          // byte size, and the owning generic op (with its location).
+          if (TT_DEBUG_ENABLED()) {
+            TT_ALLOC_DEBUG(
+                "in-generic alloc: type={} numBuffers={} l1Bytes={} loc={} "
+                "owning-generic loc={}",
+                allocOp.getType(), numBuffers.value(),
+                ctx.allocSize[ordinal(asPlannerSpace(MemorySpace::DeviceL1))],
+                allocOp.getLoc(), genericOp.getLoc());
+          }
         }
 
         return WalkResult::advance();

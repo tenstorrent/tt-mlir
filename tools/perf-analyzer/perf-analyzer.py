@@ -512,6 +512,8 @@ def collect_perf_counters(profile_log: pathlib.Path) -> pd.DataFrame:
             row = {k.strip().lower(): v for k, v in row.items()}
             if row["timer_id"] == PERF_COUNTER_TIMER_ID:
                 raw_md = row["meta data"]
+                if not raw_md:
+                    continue
                 meta_data = json.loads(raw_md.replace(";", ",").replace("'", '"'))
                 perf_counter_events.append(
                     {

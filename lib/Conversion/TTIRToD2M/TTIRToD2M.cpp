@@ -5503,7 +5503,7 @@ private:
     const int64_t otherAxis = 1 - rAxis;
     const int64_t otherSize = argMaxInputTy.getDimSize(otherAxis);
 
-    constexpr int64_t kMaxChunks = 8;
+    constexpr int64_t kMaxChunks = 1;
     constexpr int64_t kTile = 32;
     int64_t targetTiles = std::max<int64_t>(
         1, ((N + kMaxChunks - 1) / kMaxChunks + kTile - 1) / kTile);
@@ -5511,8 +5511,10 @@ private:
     while (pow2Tiles * 2 <= targetTiles) {
       pow2Tiles *= 2;
     }
-    int64_t chunkWidth = std::min(N, pow2Tiles * kTile);
-    const int64_t numChunks = (N + chunkWidth - 1) / chunkWidth;
+    // int64_t chunkWidth = std::min(N, pow2Tiles * kTile);
+    // const int64_t numChunks = (N + chunkWidth - 1) / chunkWidth;
+    const int64_t numChunks = 1;
+    int64_t chunkWidth = N;
 
     Value runningMax, runningIdx;
     RankedTensorType reducedType;
