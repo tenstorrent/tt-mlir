@@ -7,10 +7,7 @@ import torch
 
 from builder.base.builder_utils import Operand
 from builder.ttir.ttir_builder import TTIRBuilder
-from builder.base.builder_apis import (
-    compile_and_execute_ttir,
-    compile_ttir_to_flatbuffer,
-)
+from builder.base.builder_apis import compile_ttir_to_flatbuffer
 from builder.base.builder_runtime import execute_fb
 from builder.base.builder_apis import get_artifact_dir
 from golden import get_atol_rtol_pcc
@@ -71,6 +68,9 @@ def _verify_topk_outputs(input_tensor, golden_topk, dim, output_tensors):
     ],
 )
 def test_topk(shape, k, dim, target, request, device):
+    input_tensor = torch.randn(shape) * 50
+    golden_topk = torch.topk(input_tensor, k=k, dim=dim, largest=True)
+
     def module(builder: TTIRBuilder):
         @builder.func([shape], [torch.float32])
         def topk(
@@ -87,6 +87,13 @@ def test_topk(shape, k, dim, target, request, device):
                 unit_attrs=unit_attrs,
             )
             indices = builder.topk_indices(values)
+            builder.set_goldens(
+                {in0: input_tensor},
+                {
+                    values: golden_topk.values,
+                    indices: golden_topk.indices.to(torch.uint16),
+                },
+            )
             return values, indices
 
     kwargs = get_request_kwargs(request)
@@ -108,21 +115,6 @@ def test_topk(shape, k, dim, target, request, device):
         save_artifacts=True,
     )
 
-    # Recompute golden from a fresh random input for a valid comparison.
-    input_tensor = torch.randn(shape) * 50
-    golden_topk = torch.topk(input_tensor, k=k, dim=dim, largest=True)
-
-    mesh_shape = (1, 1)
-    io_goldens[0]["input_0"] = GoldenMapTensor({0: input_tensor}, mesh_shape=mesh_shape)
-    io_goldens[0]["output_0"] = GoldenMapTensor(
-        {0: golden_topk.values}, mesh_shape=mesh_shape
-    )
-    # Match device index dtype to avoid execute_fb dtype mismatch; raw index is ignored.
-    io_goldens[0]["output_1"] = GoldenMapTensor(
-        {0: golden_topk.indices.to(torch.uint16)}, mesh_shape=mesh_shape
-    )
-
-    # Raw index comparison is unstable on ties; PCC-check both in _verify_topk_outputs.
     _, output_tensors = execute_fb(
         compiled_bin,
         input_output_goldens=io_goldens,
@@ -211,6 +203,9 @@ def test_topk_tile_distribution(shape, k, dim, pattern, target, request, device)
     """Run topk with hand-crafted inputs that concentrate top values in
     specific tiles, stressing the merge-tree reduction logic."""
 
+    adversarial_input = _build_tile_distribution_input(shape, k, dim, pattern)
+    golden_topk = torch.topk(adversarial_input, k=k, dim=dim, largest=True)
+
     def module(builder: TTIRBuilder):
         @builder.func([shape], [torch.float32])
         def topk(
@@ -227,6 +222,13 @@ def test_topk_tile_distribution(shape, k, dim, pattern, target, request, device)
                 unit_attrs=unit_attrs,
             )
             indices = builder.topk_indices(values)
+            builder.set_goldens(
+                {in0: adversarial_input},
+                {
+                    values: golden_topk.values,
+                    indices: golden_topk.indices.to(torch.uint16),
+                },
+            )
             return values, indices
 
     kwargs = get_request_kwargs(request)
@@ -248,24 +250,6 @@ def test_topk_tile_distribution(shape, k, dim, pattern, target, request, device)
         save_artifacts=True,
     )
 
-    # Replace the random input with our adversarial tensor and recompute the
-    # expected output so the golden comparison is valid.
-    adversarial_input = _build_tile_distribution_input(shape, k, dim, pattern)
-    golden_topk = torch.topk(adversarial_input, k=k, dim=dim, largest=True)
-
-    mesh_shape = (1, 1)
-    io_goldens[0]["input_0"] = GoldenMapTensor(
-        {0: adversarial_input}, mesh_shape=mesh_shape
-    )
-    io_goldens[0]["output_0"] = GoldenMapTensor(
-        {0: golden_topk.values}, mesh_shape=mesh_shape
-    )
-    # Match device index dtype to avoid execute_fb dtype mismatch; raw index is ignored.
-    io_goldens[0]["output_1"] = GoldenMapTensor(
-        {0: golden_topk.indices.to(torch.uint16)}, mesh_shape=mesh_shape
-    )
-
-    # Raw index comparison is unstable on ties; PCC-check both in _verify_topk_outputs.
     _, output_tensors = execute_fb(
         compiled_bin,
         input_output_goldens=io_goldens,
