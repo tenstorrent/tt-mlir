@@ -3851,6 +3851,9 @@ def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attenti
           attention_sink (AnyRankedTensor, optional): `[Hq x 32]`, single tile
               wide.
           scale (float, optional): Softmax scale. Defaults to `1 / sqrt(D)`.
+          sliding_window_size (uint, optional): Restrict attention to the last
+              N keys, anchored at the decode position (`cur_pos`, defaulting to
+              the last kv position when not provided). Defaults to `None`.
 
       Returns:
           AnyRankedTensor: `[1 x B x Hq x D]` (same type as `query`).
@@ -3864,6 +3867,7 @@ def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attenti
                          Optional<AnyRankedTensor>:$cur_pos_tensor,
                          Optional<AnyRankedTensor>:$attention_sink,
                          OptionalAttr<F32Attr>:$scale,
+                         OptionalAttr<UI32Attr>:$sliding_window_size,
                          OptionalAttr<TTNN_SDPAProgramConfigAttr>:$program_config);
 
     let results = (outs AnyRankedTensor:$result);

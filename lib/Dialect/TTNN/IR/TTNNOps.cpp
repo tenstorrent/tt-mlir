@@ -2261,6 +2261,50 @@ mlir::OpFoldResult foldConsecutiveToLayoutOp(ttnn::ToLayoutOp op) {
 
   return op.getResult();
 }
+
+// A ToLayoutOp whose input is produced by a TypecastOp can read the
+// pre-typecast value directly when the net dtype is a lossless round-trip:
+//
+//   x --typecast--> mid --to_layout(+layout L)--> out,   with out == dtype(x)
+//
+// Collapsing cast(cast(x, mid), out) into cast(x, out) is value-preserving only
+// when the typecast widened losslessly (mid exactly represents x), so narrowing
+// mid back to x's type returns x bitwise. This rewires the to_layout to bypass
+// the typecast (turning it into a pure layout change) and lets the now-possibly
+// dead typecast be removed by DCE. Rejects f32->bf16->f32, bf16->f16->bf16, and
+// FP->Int->FP. TTNN carries no conservative_folding attribute (it does not
+// survive TTIR->TTNN lowering), so we require a provably lossless producer
+// rather than relying on caller intent.
+mlir::OpFoldResult foldTypecastIntoToLayoutOp(ttnn::ToLayoutOp op) {
+  ttnn::TypecastOp typecastOp = op.getInput().getDefiningOp<ttnn::TypecastOp>();
+  if (!typecastOp) {
+    return nullptr;
+  }
+
+  ttcore::DataTypeAttr inDtype = ttnn::getDtypeFromValue(typecastOp.getInput());
+  ttcore::DataTypeAttr midDtype = ttnn::getDtypeFromValue(op.getInput());
+  ttcore::DataTypeAttr outDtype = ttnn::getDtypeFromValue(op.getResult());
+  if (!inDtype || !midDtype || !outDtype) {
+    return nullptr;
+  }
+
+  // Only a dtype round-trip is eligible: the merge keeps the to_layout's result
+  // type, so its dtype must equal the typecast's input dtype to be a no-op on
+  // values.
+  if (inDtype.getValue() != outDtype.getValue()) {
+    return nullptr;
+  }
+
+  // The round-trip is value-preserving only when the typecast was a lossless
+  // widening of the input type.
+  if (ttcore::isNarrowingConversion(inDtype.getValue(), midDtype.getValue())) {
+    return nullptr;
+  }
+
+  op.getInputMutable().set(typecastOp.getInput());
+
+  return op.getResult();
+}
 } // namespace
 
 // Returns true iff input/result data types differ, i.e. this to_layout
@@ -2286,6 +2330,10 @@ mlir::OpFoldResult ttnn::ToLayoutOp::fold(FoldAdaptor adaptor) {
   }
 
   if (auto foldResult = foldConsecutiveToLayoutOp(*this)) {
+    return foldResult;
+  }
+
+  if (auto foldResult = foldTypecastIntoToLayoutOp(*this)) {
     return foldResult;
   }
 
