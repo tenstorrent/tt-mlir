@@ -10,7 +10,10 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
+
+#include "llvm/ADT/STLExtras.h"
 
 #include <atomic>
 #include <type_traits>
@@ -30,6 +33,12 @@ std::string getUniqueDecompName() {
          std::to_string(counter.fetch_add(1));
 }
 
+// Coefficient for the addcmul epilogue's scalar slot, which computes
+//   result = addcmul_input1 + scalar * proj * addcmul_input2
+// The gated residual we fuse carries no coefficient, so this is the identity
+// 1.0 (see the addcmul pattern for the full derivation).
+constexpr double kAddcmulScalar = 1.0;
+
 // True if this matmul/linear result flows into a gated-residual epilogue
 // (a multiply then an add), which the addcmul pattern folds in whole.
 template <typename MatmulLikeOp>
@@ -45,126 +54,51 @@ bool feedsGatedResidualEpilogue(MatmulLikeOp matmulOp) {
   return mlir::isa<AddOp>(*mulOp.getResult().getUsers().begin());
 }
 
-// Build the private decomposition function referenced by the composite. Its
-// arguments, in order, mirror the composite's inputs:
-//   x, weight, [bias], [residual, gate]
-// The body is the primitive form of the fused op. Marked with
-// kCompositeDecompositionAttr so fusing patterns never recurse into it.
 func::FuncOp buildDecompositionFunc(OpBuilder &builder, Location loc,
-                                    RankedTensorType gatheredType,
-                                    RankedTensorType projType,
-                                    RankedTensorType resultType,
-                                    int32_t allGatherDim, uint32_t clusterAxis,
-                                    Value x, Value weight, Value bias,
-                                    Value residual, Value gate) {
-  SmallVector<Type> argTypes{x.getType(), weight.getType()};
-  if (bias) {
-    argTypes.push_back(bias.getType());
-  }
-  if (residual) {
-    argTypes.push_back(residual.getType());
-    argTypes.push_back(gate.getType());
-  }
-
-  auto funcType = builder.getFunctionType(argTypes, {resultType});
-  auto funcOp = func::FuncOp::create(loc, getUniqueDecompName(), funcType);
+                                    ArrayRef<Value> captures,
+                                    ArrayRef<Operation *> ops,
+                                    Type resultType) {
+  auto argTypes =
+      llvm::map_to_vector(captures, [](Value v) { return v.getType(); });
+  auto funcOp = func::FuncOp::create(
+      loc, getUniqueDecompName(),
+      builder.getFunctionType(argTypes, {resultType}));
   funcOp.setVisibility(SymbolTable::Visibility::Private);
   funcOp->setAttr(utils::kCompositeDecompositionAttr,
                   UnitAttr::get(builder.getContext()));
 
   Block *block = funcOp.addEntryBlock();
-  OpBuilder fb(builder.getContext());
-  fb.setInsertionPointToStart(block);
+  OpBuilder fb(block, block->end());
 
-  unsigned idx = 0;
-  Value xArg = block->getArgument(idx++);
-  Value weightArg = block->getArgument(idx++);
-  Value biasArg = bias ? block->getArgument(idx++) : Value();
-  Value residualArg = residual ? block->getArgument(idx++) : Value();
-  Value gateArg = residual ? block->getArgument(idx++) : Value();
-
-  Value gathered =
-      fb.create<AllGatherOp>(loc, gatheredType, xArg, allGatherDim, clusterAxis)
-          .getResult();
-
-  Value proj;
-  if (biasArg) {
-    proj = fb.create<LinearOp>(loc, projType, gathered, weightArg, biasArg,
-                               /*transpose_a=*/false, /*transpose_b=*/false)
-               .getResult();
-  } else {
-    proj = fb.create<MatmulOp>(loc, projType, gathered, weightArg).getResult();
+  // Map each captured value to its matching block argument so cloned ops
+  // reference the function's arguments; clone() rewires chained results.
+  IRMapping mapping;
+  for (auto [capture, arg] : llvm::zip(captures, block->getArguments())) {
+    mapping.map(capture, arg);
   }
 
-  Value out = proj;
-  if (residualArg) {
-    // out = residual + gate * proj
-    Value scaled =
-        fb.create<MultiplyOp>(loc, projType, gateArg, proj).getResult();
-    out = fb.create<AddOp>(loc, resultType, residualArg, scaled).getResult();
+  Operation *last = nullptr;
+  for (Operation *op : ops) {
+    last = fb.clone(*op, mapping);
   }
 
-  fb.create<func::ReturnOp>(loc, ValueRange{out});
+  fb.create<func::ReturnOp>(loc, last->getResults());
   return funcOp;
-}
-
-// Emit the decomposition function into the module and replace `anchor` with a
-// ttcore.composite referencing it. `bias`/`residual`/`gate` are null for the
-// plain matmul fusion and populated for the gated-residual variant.
-void replaceWithComposite(mlir::PatternRewriter &rewriter, Operation *anchor,
-                          RankedTensorType resultType,
-                          RankedTensorType gatheredType,
-                          RankedTensorType projType, int32_t allGatherDim,
-                          uint32_t clusterAxis, Value x, Value weight,
-                          Value bias, Value residual, Value gate) {
-  auto moduleOp = anchor->getParentOfType<ModuleOp>();
-
-  OpBuilder moduleBuilder(moduleOp.getContext());
-  moduleBuilder.setInsertionPointToEnd(moduleOp.getBody());
-  func::FuncOp decompFunc = buildDecompositionFunc(
-      moduleBuilder, anchor->getLoc(), gatheredType, projType, resultType,
-      allGatherDim, clusterAxis, x, weight, bias, residual, gate);
-  moduleBuilder.insert(decompFunc);
-
-  SmallVector<Value> inputs{x, weight};
-  if (bias) {
-    inputs.push_back(bias);
-  }
-  if (residual) {
-    inputs.push_back(residual);
-    inputs.push_back(gate);
-  }
-
-  // Collective parameters and operand-presence flags travel on the composite so
-  // TTNNResolveComposites can rebuild the typed op without re-inspecting the
-  // IR.
-  mlir::MLIRContext *ctx = rewriter.getContext();
-  SmallVector<NamedAttribute> attrs;
-  attrs.emplace_back(StringAttr::get(ctx, "all_gather_dim"),
-                     rewriter.getSI32IntegerAttr(allGatherDim));
-  attrs.emplace_back(StringAttr::get(ctx, "cluster_axis"),
-                     rewriter.getUI32IntegerAttr(clusterAxis));
-  attrs.emplace_back(StringAttr::get(ctx, "has_bias"),
-                     rewriter.getBoolAttr(bias != nullptr));
-  attrs.emplace_back(StringAttr::get(ctx, "has_addcmul"),
-                     rewriter.getBoolAttr(residual != nullptr));
-  if (residual) {
-    attrs.emplace_back(StringAttr::get(ctx, "scalar"),
-                       rewriter.getF32FloatAttr(1.0));
-  }
-
-  rewriter.replaceOpWithNewOp<ttcore::CompositeOp>(
-      anchor, TypeRange{resultType}, inputs,
-      rewriter.getStringAttr(kCompositeName),
-      FlatSymbolRefAttr::get(ctx, decompFunc.getName()),
-      DictionaryAttr::get(ctx, attrs));
 }
 
 } // namespace
 
+// Match, with no gated-residual epilogue, and fold into the composite:
+//
+//   proj = matmul(all_gather(input), weight) + bias
+//
+// where `+ bias` applies only to the linear variant (matmul has no bias).
+// If a `residual + gate * proj` epilogue follows, defer to
+// AllGatherMatmulAddcmulFusing so the whole thing folds at once.
 template <typename MatmulLikeOp>
 mlir::LogicalResult AllGatherMatmulFusing<MatmulLikeOp>::matchAndRewrite(
     MatmulLikeOp matmulOp, mlir::PatternRewriter &rewriter) const {
+  // Don't re-fuse the primitive ops we cloned into a decomposition body.
   if (utils::isInsideCompositeDecomposition(matmulOp)) {
     return mlir::failure();
   }
@@ -190,40 +124,90 @@ mlir::LogicalResult AllGatherMatmulFusing<MatmulLikeOp>::matchAndRewrite(
   }
 
   auto projType = mlir::cast<RankedTensorType>(matmulOp.getResult().getType());
-  replaceWithComposite(
-      rewriter, matmulOp, /*resultType=*/projType,
-      mlir::cast<RankedTensorType>(allGatherOp.getResult().getType()), projType,
-      allGatherOp.getAllGatherDim(), allGatherOp.getClusterAxis(),
-      allGatherOp.getInput(), matmulOp.getB(), bias, /*residual=*/Value(),
-      /*gate=*/Value());
+
+  // Captures feed the composite/decomposition in order: input, weight, [bias].
+  SmallVector<Value> captures{allGatherOp.getInput(), matmulOp.getB()};
+  if (bias) {
+    captures.push_back(bias);
+  }
+  SmallVector<Operation *> ops{allGatherOp, matmulOp};
+
+  Operation *anchor = matmulOp.getOperation();
+  ModuleOp moduleOp = anchor->getParentOfType<ModuleOp>();
+  OpBuilder moduleBuilder(moduleOp.getContext());
+  moduleBuilder.setInsertionPointToEnd(moduleOp.getBody());
+  func::FuncOp decompFunc = buildDecompositionFunc(
+      moduleBuilder, matmulOp.getLoc(), captures, ops, projType);
+  moduleBuilder.insert(decompFunc);
+
+  // Collective parameters and operand-presence flags travel on the composite so
+  // TTNNResolveComposites can rebuild the typed op without re-inspecting the IR.
+  mlir::MLIRContext *ctx = rewriter.getContext();
+  SmallVector<NamedAttribute> attrs;
+  attrs.emplace_back(StringAttr::get(ctx, "all_gather_dim"),
+                     rewriter.getSI32IntegerAttr(allGatherOp.getAllGatherDim()));
+  attrs.emplace_back(StringAttr::get(ctx, "cluster_axis"),
+                     rewriter.getUI32IntegerAttr(allGatherOp.getClusterAxis()));
+  attrs.emplace_back(StringAttr::get(ctx, "has_bias"),
+                     rewriter.getBoolAttr(bias != nullptr));
+  attrs.emplace_back(StringAttr::get(ctx, "has_addcmul"),
+                     rewriter.getBoolAttr(false));
+
+  rewriter.replaceOpWithNewOp<ttcore::CompositeOp>(
+      anchor, TypeRange{projType}, captures,
+      rewriter.getStringAttr(kCompositeName),
+      FlatSymbolRefAttr::get(ctx, decompFunc.getName()),
+      DictionaryAttr::get(ctx, attrs));
   return mlir::success();
 }
 
 template <typename MatmulLikeOp>
 mlir::LogicalResult AllGatherMatmulAddcmulFusing<MatmulLikeOp>::matchAndRewrite(
     AddOp addOp, mlir::PatternRewriter &rewriter) const {
+  // Don't re-fuse the primitive ops we cloned into a decomposition body.
   if (utils::isInsideCompositeDecomposition(addOp)) {
     return mlir::failure();
   }
 
-  // add is commutative: one operand is the (gate * proj) multiply, the other is
-  // the residual.
-  MultiplyOp mulOp = addOp.getLhs().getDefiningOp<MultiplyOp>();
+  // Match the DiT gated residual:
+  //
+  //   result = residual + gate * proj,
+  //   where proj = matmul(all_gather(input), weight) + bias
+  //   (`+ bias` applies only to the linear variant; matmul has no bias)
+  //
+  // walking backwards from the anchor `add`:  add -> multiply -> matmul ->
+  // all_gather. Both the add and the multiply are commutative, so we try each
+  // operand order.
+  //
+  // This maps to tt-metal's `addcmul` epilogue, whose fixed formula is
+  //
+  //   result = addcmul_input1 + scalar * proj * addcmul_input2
+  //
+  // The gated residual carries no coefficient in front of the product, so
+  // `scalar` is the multiplicative identity (kAddcmulScalar == 1.0):
+  //
+  //   residual + 1.0 * proj * gate  ==  residual + gate * proj
+  //
+  // matching tt-metal, where every DiT call site passes 1.0; the slot stays
+  // configurable only because the underlying addcmul kernel is general.
+
+  // add: one operand is the `gate * proj` multiply, the other is the residual.
+  MultiplyOp gateMulOp = addOp.getLhs().getDefiningOp<MultiplyOp>();
   mlir::Value residual = addOp.getRhs();
-  if (!mulOp) {
-    mulOp = addOp.getRhs().getDefiningOp<MultiplyOp>();
+  if (!gateMulOp) {
+    gateMulOp = addOp.getRhs().getDefiningOp<MultiplyOp>();
     residual = addOp.getLhs();
   }
-  if (!mulOp || !mulOp.getResult().hasOneUse()) {
+  if (!gateMulOp || !gateMulOp.getResult().hasOneUse()) {
     return mlir::failure();
   }
 
-  // multiply is commutative: one operand is the projection, the other gate.
-  MatmulLikeOp projOp = mulOp.getLhs().getDefiningOp<MatmulLikeOp>();
-  mlir::Value gate = mulOp.getRhs();
+  // multiply: one operand is the projection, the other is the gate.
+  MatmulLikeOp projOp = gateMulOp.getLhs().getDefiningOp<MatmulLikeOp>();
+  mlir::Value gate = gateMulOp.getRhs();
   if (!projOp) {
-    projOp = mulOp.getRhs().getDefiningOp<MatmulLikeOp>();
-    gate = mulOp.getLhs();
+    projOp = gateMulOp.getRhs().getDefiningOp<MatmulLikeOp>();
+    gate = gateMulOp.getLhs();
   }
   if (!projOp || !projOp.getResult().hasOneUse()) {
     return mlir::failure();
@@ -243,13 +227,47 @@ mlir::LogicalResult AllGatherMatmulAddcmulFusing<MatmulLikeOp>::matchAndRewrite(
     bias = projOp.getBias();
   }
 
-  replaceWithComposite(
-      rewriter, addOp,
-      mlir::cast<RankedTensorType>(addOp.getResult().getType()),
-      mlir::cast<RankedTensorType>(allGatherOp.getResult().getType()),
-      mlir::cast<RankedTensorType>(projOp.getResult().getType()),
-      allGatherOp.getAllGatherDim(), allGatherOp.getClusterAxis(),
-      allGatherOp.getInput(), projOp.getB(), bias, residual, gate);
+  auto resultType = mlir::cast<RankedTensorType>(addOp.getResult().getType());
+
+  // Captures feed the composite/decomposition in order:
+  //   input, weight, [bias], residual, gate.
+  SmallVector<Value> captures{allGatherOp.getInput(), projOp.getB()};
+  if (bias) {
+    captures.push_back(bias);
+  }
+  captures.push_back(residual);
+  captures.push_back(gate);
+  SmallVector<Operation *> ops{allGatherOp, projOp, gateMulOp, addOp};
+
+  ModuleOp moduleOp = addOp->getParentOfType<ModuleOp>();
+  OpBuilder moduleBuilder(moduleOp.getContext());
+  moduleBuilder.setInsertionPointToEnd(moduleOp.getBody());
+  func::FuncOp decompFunc = buildDecompositionFunc(
+      moduleBuilder, addOp.getLoc(), captures, ops, resultType);
+  moduleBuilder.insert(decompFunc);
+
+  // Collective parameters and operand-presence flags travel on the composite so
+  // TTNNResolveComposites can rebuild the typed op without re-inspecting the IR.
+  mlir::MLIRContext *ctx = rewriter.getContext();
+  SmallVector<NamedAttribute> attrs;
+  attrs.emplace_back(StringAttr::get(ctx, "all_gather_dim"),
+                     rewriter.getSI32IntegerAttr(allGatherOp.getAllGatherDim()));
+  attrs.emplace_back(StringAttr::get(ctx, "cluster_axis"),
+                     rewriter.getUI32IntegerAttr(allGatherOp.getClusterAxis()));
+  attrs.emplace_back(StringAttr::get(ctx, "has_bias"),
+                     rewriter.getBoolAttr(bias != nullptr));
+  attrs.emplace_back(StringAttr::get(ctx, "has_addcmul"),
+                     rewriter.getBoolAttr(true));
+  // out = residual + kAddcmulScalar * proj * gate  (scalar == 1.0; see
+  // kAddcmulScalar for why).
+  attrs.emplace_back(StringAttr::get(ctx, "scalar"),
+                     rewriter.getF32FloatAttr(kAddcmulScalar));
+
+  rewriter.replaceOpWithNewOp<ttcore::CompositeOp>(
+      addOp, TypeRange{resultType}, captures,
+      rewriter.getStringAttr(kCompositeName),
+      FlatSymbolRefAttr::get(ctx, decompFunc.getName()),
+      DictionaryAttr::get(ctx, attrs));
   return mlir::success();
 }
 

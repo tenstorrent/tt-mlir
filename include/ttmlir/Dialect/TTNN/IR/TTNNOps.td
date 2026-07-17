@@ -3320,8 +3320,9 @@ def TTNN_AllGatherMinimalMatmulAsyncOp: TTNN_Op<"all_gather_minimal_matmul_async
       `ttnn::all_gather_minimal_matmul_async`). Activation `input` `[..., M, K]`
       is sharded along `K` across `cluster_axis`; the op all-gathers those
       shards while computing `input @ weight` `[..., K, N]`, overlapping
-      communication with compute. Optional epilogues: row-broadcast `bias`, and
-      gated residual `addcmul_input1 + scalar * (input @ weight) * addcmul_input2`
+      communication with compute. Optional epilogues: row-broadcast `bias`
+      (present only for the linear variant; matmul has no bias), and gated
+      residual `addcmul_input1 + scalar * (input @ weight + bias) * addcmul_input2`
       (DiT blocks).
 
       The async all-gather is synchronized by the two `multi_device_semaphore`

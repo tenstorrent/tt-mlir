@@ -48,8 +48,7 @@ void createTTNNPipelineTTIRPasses(
   ttir::TTIRFusingOptions fusingOptions{
       options.enableFusingConv2dWithMultiplyPattern,
       options.enablePermuteMatmulFusion,
-      options.enablePermuteSliceAfterMatmulFusion,
-      options.enableAllGatherMatmulFusion};
+      options.enablePermuteSliceAfterMatmulFusion};
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }

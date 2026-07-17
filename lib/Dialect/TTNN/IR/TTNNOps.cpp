@@ -3480,6 +3480,12 @@ void AllToAllDispatchMetadataOp::allocateSemaphores(
   }
 
   // The gated-residual (addcmul) fusion needs both tensor operands together.
+  // The slots are not interchangeable: the epilogue computes
+  //   addcmul_input1 + scalar * (input @ weight) * addcmul_input2
+  // so addcmul_input1 is the additive residual and addcmul_input2 is the
+  // multiplicative gate. The fusing pattern (AllGatherMatmulAddcmulFusing)
+  // fixes this mapping via its capture order (residual then gate); nothing
+  // here can recover it once fused, so callers must preserve that order.
   if (static_cast<bool>(getAddcmulInput1()) !=
       static_cast<bool>(getAddcmulInput2())) {
     return emitOpError("addcmul_input1 and addcmul_input2 must both be present "
