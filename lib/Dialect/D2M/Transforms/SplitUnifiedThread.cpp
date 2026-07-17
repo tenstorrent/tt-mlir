@@ -170,14 +170,16 @@ static LogicalResult expandRangeToCoverNonPureResultUses(Block::iterator &start,
 }
 
 bool isAliasedStore(RemoteStoreOp storeOp) {
-  auto operandAliasOp =
-      mlir::dyn_cast<OperandAliasOp>(storeOp.getLocalBuffer().getDefiningOp());
+  Operation *definingOp =
+      utils::getSynchronizationRoot(storeOp.getLocalBuffer()).getDefiningOp();
+  auto operandAliasOp = mlir::dyn_cast_or_null<OperandAliasOp>(definingOp);
   return operandAliasOp && operandAliasOp.getMemref() == storeOp.getMemref();
 }
 
 bool isAliasedLoad(RemoteLoadOp loadOp) {
-  auto operandAliasOp =
-      mlir::dyn_cast<OperandAliasOp>(loadOp.getLocalBuffer().getDefiningOp());
+  Operation *definingOp =
+      utils::getSynchronizationRoot(loadOp.getLocalBuffer()).getDefiningOp();
+  auto operandAliasOp = mlir::dyn_cast_or_null<OperandAliasOp>(definingOp);
   return operandAliasOp && operandAliasOp.getMemref() == loadOp.getMemref();
 }
 
@@ -187,9 +189,11 @@ Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
     if (auto memrefType = mlir::dyn_cast<MemRefType>(value.getType())) {
       if (llvm::find(genericOp.getAdditionalArgs(), value) !=
           genericOp.getAdditionalArgs().end()) {
-        // Skip scratch buffers.
-        Operation *definingOp = value.getDefiningOp();
-        if (definingOp && definingOp->getAttr("d2m.scratch_buffer")) {
+        // Compute intermediates and scratch buffers stay within compute.
+        Operation *definingOp =
+            utils::getSynchronizationRoot(value).getDefiningOp();
+        if (definingOp && (definingOp->getAttr("d2m.scratch_buffer") ||
+                           definingOp->getAttr("d2m.compute_intermediate"))) {
           return nullptr;
         }
         if (utils::isReductionScalerBuffer(definingOp)) {
@@ -462,11 +466,16 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
       return WalkResult::advance();
     }
     for (auto &operand : op->getOpOperands()) {
+      Value localBuffer = utils::getSynchronizationRoot(operand.get());
+      Operation *definingOp = localBuffer.getDefiningOp();
+      if (definingOp && definingOp->getAttr("d2m.compute_intermediate")) {
+        continue;
+      }
       if (synchronizedOp.isConsumer(operand)) {
-        consumersByCB[operand.get()].push_back(op);
+        consumersByCB[localBuffer].push_back(op);
       }
       if (synchronizedOp.isProducer(operand)) {
-        producersByCB[operand.get()].push_back(op);
+        producersByCB[localBuffer].push_back(op);
       }
     }
     return WalkResult::advance();
@@ -515,13 +524,17 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
   // in different loop scopes; that is still one logical produced value for the
   // final DMA consumer, so wrap the nearest common syntactic range.
   for (auto &[localBuffer, ops] : producersByCB) {
+    auto &usageInfo = cbUsageInfo[localBuffer];
+    // A push without a downstream consumer only fills the CB permanently.
+    if (usageInfo.consumers.empty()) {
+      continue;
+    }
     unsigned cbOperandIdx = generic.getOperandIndex(localBuffer);
     Operation *first = ops.front();
     Operation *last = ops.back();
     Operation *reserveBefore = first;
     Operation *pushAfter = last;
     if (!commonParentBlock(ops)) {
-      auto &usageInfo = cbUsageInfo[localBuffer];
       if (usageInfo.consumers.size() != 1 ||
           !mlir::isa<RemoteStoreOp>(usageInfo.consumers.front()) ||
           !getSiblingOpsInNearestCommonBlock(first, last, reserveBefore,
@@ -542,7 +555,7 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
 
     // Aliased remote_store consumer has no DMA, so compute waits+pops.
     bool aliasedStoreConsumer =
-        llvm::any_of(cbUsageInfo[localBuffer].consumers, [](Operation *c) {
+        llvm::any_of(usageInfo.consumers, [](Operation *c) {
           auto store = mlir::dyn_cast<RemoteStoreOp>(c);
           return store && isAliasedStore(store);
         });
@@ -606,7 +619,7 @@ static LogicalResult convertDMAToExplicitCBForm(Block *dmBlock,
       continue;
     }
 
-    Value localBuffer = loadOp.getLocalBuffer();
+    Value localBuffer = utils::getSynchronizationRoot(loadOp.getLocalBuffer());
     unsigned cbOperandIdx =
         loadOp->getParentOfType<GenericOp>().getOperandIndex(localBuffer);
 
@@ -631,7 +644,7 @@ static LogicalResult convertDMAToExplicitCBForm(Block *dmBlock,
       continue;
     }
 
-    Value localBuffer = storeOp.getLocalBuffer();
+    Value localBuffer = utils::getSynchronizationRoot(storeOp.getLocalBuffer());
     assert(localBuffer && "could not find associated local buffer for store");
     unsigned cbOperandIdx =
         storeOp->getParentOfType<GenericOp>().getOperandIndex(localBuffer);
@@ -656,12 +669,14 @@ static LogicalResult convertDMAToExplicitCBForm(Block *dmBlock,
     Location loc = copyOp.getLoc();
 
     unsigned srcCbOperandIdx =
-        copyOp->getParentOfType<GenericOp>().getOperandIndex(copyOp.getSrc());
+        copyOp->getParentOfType<GenericOp>().getOperandIndex(
+            utils::getSynchronizationRoot(copyOp.getSrc()));
     auto srcCb =
         d2m::getOrCreateCB(rewriter, copyOp->getParentOfType<GenericOp>(),
                            dmBlock, srcCbOperandIdx);
     unsigned dstCbOperandIdx =
-        copyOp->getParentOfType<GenericOp>().getOperandIndex(copyOp.getDst());
+        copyOp->getParentOfType<GenericOp>().getOperandIndex(
+            utils::getSynchronizationRoot(copyOp.getDst()));
     auto dstCb =
         d2m::getOrCreateCB(rewriter, copyOp->getParentOfType<GenericOp>(),
                            dmBlock, dstCbOperandIdx);
