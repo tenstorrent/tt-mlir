@@ -382,6 +382,22 @@ install(CODE
     COMPONENT SharedLib
 )
 
+# Ship the tt-train static libs (libttml.a + spdlog) into the lib dir so the installed ttnn-standalone
+# can link tt-train ops; spdlog is globbed inside the install script (its name is build-type suffixed: libspdlog.a / libspdlogd.a).
+install(CODE
+    "
+    file(GLOB _ttml_spdlog_libs \"${TTMETAL_LIBRARY_DIR}/libspdlog*.a\")
+    MESSAGE(STATUS \"Installing tt-train static libs to ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}\")
+    file(
+        INSTALL
+        ${TTML_LIBRARY_PATH}
+        \${_ttml_spdlog_libs}
+        DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}
+        TYPE STATIC_LIBRARY
+    )"
+    COMPONENT TTNNStandalone
+)
+
 if (TT_RUNTIME_ENABLE_PERF_TRACE)
   install(CODE
       "
