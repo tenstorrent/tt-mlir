@@ -24,7 +24,13 @@ torch.manual_seed(0)
 
 
 def _verify_topk_outputs(
-    input_tensor, golden_topk, dim, output_tensors, pcc=0.99, check_gathered=True
+    input_tensor,
+    golden_topk,
+    dim,
+    output_tensors,
+    pcc=0.99,
+    check_gathered=True,
+    check_indices=False,
 ):
     """PCC-checks topk device outputs against the golden via check_outputs.
 
@@ -34,10 +40,11 @@ def _verify_topk_outputs(
     check_gathered=True additionally validates the device's indices by
     gathering the values they point to from the original input and
     PCC-comparing those against the device's topk values. This is
-    order-robust (doesn't depend on positional/tie-break ordering).
-    check_gathered=False skips index validation entirely and only checks
-    values, which is used on multi-core tests due to a known indices gather
-    corruption bug that doesn't affect values.
+    order-robust (doesn't depend on positional/tie-break ordering). Used on
+    single-core tests.
+
+    check_indices=True instead PCC-compares the device's indices positionally
+    against the golden indices. Used on multi-core tests.
     """
     d = dim % input_tensor.ndim
     prog = output_tensors["program_0"]
@@ -55,13 +62,27 @@ def _verify_topk_outputs(
         check_rtol=False,
     )
 
+    device_indices = prog["device_output_1"][0].long()
+
     if check_gathered:
-        device_indices = prog["device_output_1"][0].long()
         gathered_values = torch.gather(input_tensor.float(), dim, device_indices)
         check_outputs(
             device_values.float(),
             gathered_values,
             "topk_gathered_values",
+            pcc,
+            1e-08,
+            1e-05,
+            check_pcc=True,
+            check_atol=False,
+            check_rtol=False,
+        )
+
+    if check_indices:
+        check_outputs(
+            golden_topk.indices.float(),
+            device_indices.float(),
+            "topk_indices",
             pcc,
             1e-08,
             1e-05,
@@ -80,7 +101,7 @@ SINGLE_CORE_TOPK_SHAPES = [
     # Single-tile target dim, dim=1 and dim=0
     pytest.param((32, 256), 16, -1, id="32x256_k16_dim1"),
     pytest.param((32, 256), 64, -1, id="32x256_k64_dim1"),
-    pytest.param((256, 32), 16, 0, id="256x32_k16_dim0"),
+    pytest.param((256, 32), 16, 1, id="256x32_k16_dim1"),
     pytest.param((256, 32), 64, 0, id="256x32_k64_dim0"),
     # Large target dim (many tiles in reduction
     pytest.param((32, 1024), 64, -1, id="32x1024_k64_dim1"),
@@ -249,7 +270,12 @@ def test_topk_multi_core(shape, k, dim, target, request, device):
     )
 
     _verify_topk_outputs(
-        input_tensor, golden_topk, dim, output_tensors, check_gathered=False
+        input_tensor,
+        golden_topk,
+        dim,
+        output_tensors,
+        check_gathered=True,
+        check_indices=False,
     )
 
 
@@ -487,5 +513,10 @@ def test_topk_tile_distribution_multi_core(
     )
 
     _verify_topk_outputs(
-        adversarial_input, golden_topk, dim, output_tensors, check_gathered=False
+        adversarial_input,
+        golden_topk,
+        dim,
+        output_tensors,
+        check_gathered=True,
+        check_indices=False,
     )
