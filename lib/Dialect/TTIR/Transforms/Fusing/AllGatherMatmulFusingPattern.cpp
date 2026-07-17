@@ -60,9 +60,9 @@ func::FuncOp buildDecompositionFunc(OpBuilder &builder, Location loc,
                                     Type resultType) {
   auto argTypes =
       llvm::map_to_vector(captures, [](Value v) { return v.getType(); });
-  auto funcOp = func::FuncOp::create(
-      loc, getUniqueDecompName(),
-      builder.getFunctionType(argTypes, {resultType}));
+  auto funcOp =
+      func::FuncOp::create(loc, getUniqueDecompName(),
+                           builder.getFunctionType(argTypes, {resultType}));
   funcOp.setVisibility(SymbolTable::Visibility::Private);
   funcOp->setAttr(utils::kCompositeDecompositionAttr,
                   UnitAttr::get(builder.getContext()));
@@ -141,11 +141,13 @@ mlir::LogicalResult AllGatherMatmulFusing<MatmulLikeOp>::matchAndRewrite(
   moduleBuilder.insert(decompFunc);
 
   // Collective parameters and operand-presence flags travel on the composite so
-  // TTNNResolveComposites can rebuild the typed op without re-inspecting the IR.
+  // TTNNResolveComposites can rebuild the typed op without re-inspecting the
+  // IR.
   mlir::MLIRContext *ctx = rewriter.getContext();
   SmallVector<NamedAttribute> attrs;
-  attrs.emplace_back(StringAttr::get(ctx, "all_gather_dim"),
-                     rewriter.getSI32IntegerAttr(allGatherOp.getAllGatherDim()));
+  attrs.emplace_back(
+      StringAttr::get(ctx, "all_gather_dim"),
+      rewriter.getSI32IntegerAttr(allGatherOp.getAllGatherDim()));
   attrs.emplace_back(StringAttr::get(ctx, "cluster_axis"),
                      rewriter.getUI32IntegerAttr(allGatherOp.getClusterAxis()));
   attrs.emplace_back(StringAttr::get(ctx, "has_bias"),
@@ -247,11 +249,13 @@ mlir::LogicalResult AllGatherMatmulAddcmulFusing<MatmulLikeOp>::matchAndRewrite(
   moduleBuilder.insert(decompFunc);
 
   // Collective parameters and operand-presence flags travel on the composite so
-  // TTNNResolveComposites can rebuild the typed op without re-inspecting the IR.
+  // TTNNResolveComposites can rebuild the typed op without re-inspecting the
+  // IR.
   mlir::MLIRContext *ctx = rewriter.getContext();
   SmallVector<NamedAttribute> attrs;
-  attrs.emplace_back(StringAttr::get(ctx, "all_gather_dim"),
-                     rewriter.getSI32IntegerAttr(allGatherOp.getAllGatherDim()));
+  attrs.emplace_back(
+      StringAttr::get(ctx, "all_gather_dim"),
+      rewriter.getSI32IntegerAttr(allGatherOp.getAllGatherDim()));
   attrs.emplace_back(StringAttr::get(ctx, "cluster_axis"),
                      rewriter.getUI32IntegerAttr(allGatherOp.getClusterAxis()));
   attrs.emplace_back(StringAttr::get(ctx, "has_bias"),
