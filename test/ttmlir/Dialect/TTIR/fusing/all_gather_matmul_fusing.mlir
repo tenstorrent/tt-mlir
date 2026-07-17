@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// RUN: ttmlir-opt --ttir-fusing="enable-all-gather-matmul-fusion=true" %s | FileCheck %s
+// RUN: ttmlir-opt --ttir-fusing %s | FileCheck %s
 
 // Fuses an all_gather feeding a matmul/linear (optionally with a gated-residual
 // addcmul epilogue) at the TTIR level into a

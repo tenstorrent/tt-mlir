@@ -12,9 +12,10 @@
 
 namespace mlir::tt::ttir::fusing {
 
-// Fuses matmul/linear(all_gather(x), W) into a
+// Fuses matmul/linear(all_gather(input), weight) into a
 // ttcore.composite "all_gather_minimal_matmul_async" (resolved later by
-// TTNNResolveComposites). Templated on MatmulOp/LinearOp. Bails on transposed
+// TTNNResolveComposites). Templated on MatmulOp/LinearOp; the linear variant's
+// bias rides along into the composite (matmul has no bias). Bails on transposed
 // operands and multi-use gathers; defers to AllGatherMatmulAddcmulFusing when a
 // gated-residual epilogue follows.
 template <typename MatmulLikeOp>
@@ -27,8 +28,9 @@ public:
                   mlir::PatternRewriter &rewriter) const final;
 };
 
-// Fuses `residual + gate * matmul/linear(all_gather(x), W)` into the same
-// composite, mapping residual/gate to the addcmul operands with scalar = 1.0.
+// Fuses `residual + gate * matmul/linear(all_gather(input), weight)` into the
+// same composite, mapping residual/gate to the addcmul operands (residual ->
+// addcmul_input1, gate -> addcmul_input2) with scalar = 1.0.
 // Anchored on AddOp; templated on the projection op (MatmulOp/LinearOp).
 template <typename MatmulLikeOp>
 class AllGatherMatmulAddcmulFusing : public mlir::OpRewritePattern<AddOp> {
