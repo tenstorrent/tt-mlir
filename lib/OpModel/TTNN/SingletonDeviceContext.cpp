@@ -103,22 +103,50 @@ makeEnvDescriptor(bool isMock, ttcore::Arch arch, uint32_t numChips) {
     }
   }();
 
-  // Prefer the live descriptor only for a single-chip op-model device. For a
-  // multi-chip device we must use the canned mock instead. The discovered
-  // descriptor is the live machine's real cluster desc (serialized), which
-  // carries that chip's harvested/inactive eth cores. Even though the resulting
-  // device is still a mock (MetalEnvDescriptor::is_mock_device() is true and
-  // physical fabric bring-up is skipped), multi-chip CCL/DistributedRMSNorm
-  // op-model queries compute fabric routing during metal graph-capture and read
-  // that topology, fataling when a fabric-router eth core is inactive ("Logical
-  // eth core N is not an active eth core on chip M") — which happens on a real
-  // multi-chip host such as an n300/n300-llmbox CI runner. The canned mock has
-  // a clean topology, so the query traces cleanly and portably; single-chip
-  // queries have no fabric routing, so discovery is safe there.
+  // 1D-fabric descriptor for a multi-chip mock env, so CCL/DistributedRMSNorm
+  // op-model queries can build routing across the mock mesh during graph-capture.
+  auto makeMultiChipFabric = []() {
+    ::tt::tt_metal::FabricConfigDescriptor fabricDesc{};
+    fabricDesc.fabric_config = ::tt::tt_fabric::FabricConfig::FABRIC_1D;
+    fabricDesc.reliability_mode =
+        ::tt::tt_fabric::FabricReliabilityMode::RELAXED_SYSTEM_HEALTH_SETUP_MODE;
+    fabricDesc.num_routing_planes = std::numeric_limits<uint8_t>::max();
+    return fabricDesc;
+  };
+
+  // Prefer the live machine's real (discovered) cluster descriptor over the
+  // canned mock board. The canned boards are keyed only on (arch, numChips), so a
+  // real box whose layout differs from the canned board of that chip count gets
+  // validated against the WRONG topology — e.g. a 2x p300 (== 4 chips) is mocked
+  // as 4x single-chip p150, which has different board type, harvesting and
+  // ethernet topology. The optimizer then picks sharded CCL specs that only fit
+  // the mock and fail on the real device at runtime (shard_grid_fit_error). The
+  // discovered descriptor is the live box's real cluster desc (serialized), which
+  // carries this box's true topology + harvested/inactive eth cores. The device
+  // stays a mock (is_mock_device() is true, physical fabric bring-up is skipped).
+  //
+  // Single-chip discovery is always safe (no fabric routing). Multi-chip
+  // discovery is OPT-IN via TTMLIR_OPMODEL_USE_DISCOVERED_CLUSTER, because
+  // multi-chip CCL queries compute fabric routing during graph-capture and read
+  // that topology, and a real multi-chip host can fatal when a fabric-router eth
+  // core is inactive ("Logical eth core N is not an active eth core on chip M")
+  // on hosts like n300/n300-llmbox CI runners. This env gate is a temporary
+  // bridge until a proper (arch, board) cluster descriptor lands in UMD and is
+  // uplifted (then multi-chip can select it by board type, not chip count).
   // See https://github.com/tenstorrent/tt-mlir/issues/9035.
-  if (numChips == 1 && discovered && discovered->arch == toMetalArch(arch) &&
-      discovered->numChips == numChips) {
-    return ::tt::tt_metal::MetalEnvDescriptor{discovered->path};
+  const bool useDiscoveredForMultiChip = []() {
+    const char *env = std::getenv("TTMLIR_OPMODEL_USE_DISCOVERED_CLUSTER");
+    return env != nullptr && std::string(env) != "0";
+  }();
+  const bool discoveredMatches = discovered &&
+                                 discovered->arch == toMetalArch(arch) &&
+                                 discovered->numChips == numChips;
+  if (discoveredMatches && (numChips == 1 || useDiscoveredForMultiChip)) {
+    if (numChips <= 1) {
+      return ::tt::tt_metal::MetalEnvDescriptor{discovered->path};
+    }
+    return ::tt::tt_metal::MetalEnvDescriptor{discovered->path,
+                                              makeMultiChipFabric()};
   }
 
   auto mockClusterPath =
@@ -131,13 +159,8 @@ makeEnvDescriptor(bool isMock, ttcore::Arch arch, uint32_t numChips) {
   if (numChips <= 1) {
     return ::tt::tt_metal::MetalEnvDescriptor{*mockClusterPath};
   }
-  ::tt::tt_metal::FabricConfigDescriptor fabricDesc{};
-  fabricDesc.fabric_config = ::tt::tt_fabric::FabricConfig::FABRIC_1D;
-  fabricDesc.reliability_mode =
-      ::tt::tt_fabric::FabricReliabilityMode::RELAXED_SYSTEM_HEALTH_SETUP_MODE;
-  fabricDesc.num_routing_planes = std::numeric_limits<uint8_t>::max();
   return ::tt::tt_metal::MetalEnvDescriptor{*mockClusterPath,
-                                            std::move(fabricDesc)};
+                                            makeMultiChipFabric()};
 }
 
 // Pick the dispatch core type for a device opened on this env. When every
