@@ -106,6 +106,27 @@ struct MeshPartitionRuleBook : OpRuleBook {
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
 
+/// AllGatherOp / ReduceScatterOp / AllReduceOp: keep CCL op inputs and outputs
+/// interleaved (L1 or DRAM), never L1-sharded.
+///
+/// The op-model constraint query validates a CCL op's sharded tensor spec
+/// against the PER-DEVICE tensor shape (the shape carried in the TTNN IR). At
+/// runtime, a mesh tensor that remains sharded on a non-cluster mesh axis
+/// carries the GLOBAL logical shape, and metal builds the CCL output TensorSpec
+/// from that global shape. So an L1-sharded CCL input/output the query accepts
+/// (per-device shard grid fits) can fail metal's shard-grid-fit at runtime
+/// (global shard grid overflows the core rows/cols; TT_FATAL @ tensor_spec.cpp).
+/// Until tt-mlir tracks per-value mesh distribution and can validate the global
+/// shard grid (issue #TODO_CCL_SHARDED_MESH), keep CCL layouts interleaved so
+/// the optimizer never offers a layout the runtime can't build.
+struct CCLRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+  bool shouldExploreReshards() const override;
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+};
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_DIALECT_TTNN_ANALYSIS_OPRULES_DATAMOVEMENTRULES_H
