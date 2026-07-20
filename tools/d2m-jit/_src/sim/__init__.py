@@ -11,6 +11,8 @@ kernels in torch when `config.simulator` is set. See SIMULATOR_SPEC.md.
 
 from __future__ import annotations
 
+import contextlib
+
 from . import ops  # noqa: F401  (attaches SimBlock dunders/methods on import)
 from .block import SimBlock
 from .ops import SIM_OPS
@@ -61,3 +63,40 @@ def install(namespace: dict):
     namespace.update(_HOST_EXPORTS)
     namespace["kernel"] = _make_kernel()
     return namespace
+
+
+def sim_kernel(fn_or_kernel):
+    """Wrap a raw function (or an existing CompiledKernel) as a sim kernel.
+
+    Accepts either a plain kernel function or a `CompiledKernel`/`SimCompiledKernel`
+    (whose `.fn` is unwrapped), so a parity driver can re-home a device-built
+    kernel onto the simulator without redefining it.
+    """
+    fn = getattr(fn_or_kernel, "fn", fn_or_kernel)
+    return host.SimCompiledKernel(fn, SIM_BUILTINS)
+
+
+@contextlib.contextmanager
+def simulator_backend():
+    """Temporarily bind the simulator host API over the live `d2m_jit` namespaces.
+
+    Lets a single process run a kernel through the simulator even when it was
+    imported in device mode: rebinds `d2m_jit`/`d2m_jit.api` host-API names to
+    the sim implementations for the duration of the block, then restores them.
+    This is what the sim-vs-device parity harness uses (SIMULATOR_SPEC §12).
+    """
+    import d2m_jit
+    import d2m_jit.api as _api
+
+    names = list(_HOST_EXPORTS) + ["kernel"]
+    targets = [_api.__dict__, d2m_jit.__dict__]
+    saved = [{n: ns.get(n) for n in names if n in ns} for ns in targets]
+    try:
+        for ns in targets:
+            install(ns)
+        yield
+    finally:
+        for ns, snap in zip(targets, saved):
+            for n in names:
+                if n in snap:
+                    ns[n] = snap[n]

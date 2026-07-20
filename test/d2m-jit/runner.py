@@ -63,7 +63,6 @@ import torch
 
 from ttmlir import ir
 
-
 # ----------------------------------------------------------------------
 # Spec dataclasses (the data an agent emits / tweaks per pattern)
 # ----------------------------------------------------------------------
@@ -357,8 +356,14 @@ def eltwise_block_run(kernel, inputs, tensors, grid_shape):
     return out.to_host()
 
 
-def run_bench(bench: KernelBench, *, tensors=None, grid_shape=None):
+def run_bench(bench: KernelBench, *, tensors=None, grid_shape=None, backend="device"):
     """Execute one bench and return ``(actual, expected)`` torch tensors.
+
+    ``backend="device"`` (default) runs through whatever d2m_jit backend is
+    currently bound (the MLIR->ttmetal device path unless D2M_JIT_SIM is set).
+    ``backend="sim"`` runs the same materializer through the torch simulator,
+    temporarily rebinding the d2m_jit host API for the call so a device-mode
+    process can still get a simulator result (used by the parity harness).
 
     Each keyword argument overrides the corresponding field of ``bench``;
     omitted arguments fall back to the bench's defaults.
@@ -366,9 +371,52 @@ def run_bench(bench: KernelBench, *, tensors=None, grid_shape=None):
     tensors = tensors if tensors is not None else bench.tensors
     grid_shape = grid_shape if grid_shape is not None else bench.grid_shape
     inputs = make_inputs(tensors, bench.seed)
-    actual = bench.run(bench.kernel, inputs, tensors, grid_shape)
+    if backend == "sim":
+        from d2m_jit._src.sim import sim_kernel, simulator_backend
+
+        with simulator_backend():
+            actual = bench.run(sim_kernel(bench.kernel), inputs, tensors, grid_shape)
+    elif backend == "device":
+        actual = bench.run(bench.kernel, inputs, tensors, grid_shape)
+    else:
+        raise ValueError(f"unknown backend {backend!r}; expected 'device' or 'sim'")
     expected = bench.golden(*inputs)
     return actual, expected
+
+
+def run_bench_parity(bench: KernelBench, *, tensors=None, grid_shape=None):
+    """Run one bench on both backends; return ``(pcc, sim_actual, device_actual)``.
+
+    PCC is ``corrcoef(device, sim)`` -- the sim result cross-checked against the
+    device result of the identical kernel. Intended to run in a device-mode
+    process (D2M_JIT_SIM unset); the sim leg rebinds the backend for its call.
+    Raises whatever the device path raises if no device/runtime is available;
+    callers that want a soft skip should guard on ``device_runtime_available()``.
+    """
+    sim_actual, _ = run_bench(
+        bench, tensors=tensors, grid_shape=grid_shape, backend="sim"
+    )
+    device_actual, _ = run_bench(
+        bench, tensors=tensors, grid_shape=grid_shape, backend="device"
+    )
+    pcc = compute_pcc(device_actual, sim_actual)
+    return pcc, sim_actual, device_actual
+
+
+def device_runtime_available() -> bool:
+    """True if the in-process tt-metal runtime extension can be imported.
+
+    A cheap gate for the device leg of the parity harness -- it does not open a
+    device, only checks that a runtime-enabled build is present. On a machine
+    with no silicon the subsequent device run may still fail; callers should
+    treat a raised device error as "device unavailable" too.
+    """
+    try:
+        import _ttmlir_runtime  # noqa: F401
+
+        return True
+    except Exception:
+        return False
 
 
 # ----------------------------------------------------------------------

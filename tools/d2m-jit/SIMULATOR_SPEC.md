@@ -47,6 +47,16 @@ and the pattern-rewrite / e2e-device cases in `test_patterns` (they drive the
 MLIR rewrite + device path). These are properties of the compiler backend, not
 the simulator.
 
+**Sim-vs-device parity harness (§12) is implemented:** `runner.run_bench` gained
+a `backend=` knob (`"device"` / `"sim"`), plus `run_bench_parity` and
+`device_runtime_available`; `test/d2m-jit/test_parity.py` drives every discovered
+`KernelBench` through both backends. `test_sim_matches_golden` needs no device;
+`test_sim_matches_device` compares against the device result of the identical
+kernel and skips when no runtime is present or the process is pinned to the sim.
+On hardware, the two discovered eltwise benches show PCC = 1.000000 sim-vs-device.
+(Parity is scoped to `KernelBench`es because those carry a golden + materializer;
+the simulator itself runs any `@d2m.kernel`, benched or not.)
+
 Deviations from the spec below, as built:
 - `config.simulator` is resolved at import time; runtime toggling is not
   supported in Phase 1 (noted in §14).
