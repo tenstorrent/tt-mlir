@@ -96,11 +96,6 @@
 #include <tuple>
 #include <vector>
 
-#ifdef TTNN_STANDALONE_ENABLE_TT_TRAIN
-#include "metal/common/const_utils.hpp"
-#include "metal/optimizers/adamw/adamw.hpp"
-#endif
-
 template <typename... T>
 std::vector<ttnn::Tensor> util_create_vec(T &&...t) {
   return std::vector<ttnn::Tensor>{std::forward<T>(t)...};

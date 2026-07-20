@@ -57,7 +57,6 @@ set(TTMETAL_LIBRARY_DIR ${TTMETAL_BUILD_DIR}/${CMAKE_INSTALL_LIBDIR})
 
 set(TTML_RELPATH tt-train/sources/ttml)
 set(TTML_SOURCE_DIR ${TTMETAL_SOURCE_DIR}/${TTML_RELPATH})
-set(TTML_BUILD_DIR ${TTMETAL_BUILD_DIR}/${TTML_RELPATH})
 
 set(TRACY_INCLUDE_DIRS
   ${TTMETAL_SOURCE_DIR}/tt_metal/third_party/tracy/public
@@ -99,7 +98,6 @@ set(TTNN_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/_ttnncpp.so)
 set(TTNN_PY_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/_ttnn.so)
 
 set(TTMETAL_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtt_metal.so)
-set(TTML_LIBRARY_PATH ${TTML_BUILD_DIR}/libttml.a)
 set(DEVICE_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtt-umd.so)
 set(TT_STL_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtt_stl.so)
 set(TRACY_LIBRARY_PATH ${TTMETAL_LIBRARY_DIR}/libtracy.so)
@@ -120,7 +118,6 @@ set(TT_STL_LIBRARY_PATH ${TT_STL_LIBRARY_PATH} PARENT_SCOPE)
 set(TRACY_LIBRARY_PATH ${TRACY_LIBRARY_PATH} PARENT_SCOPE)
 set(TRACY_BINARY_DIR ${TRACY_BINARY_DIR} PARENT_SCOPE)
 set(FMT_LIBRARY_PATH ${FMT_LIBRARY_PATH} PARENT_SCOPE)
-set(TTML_LIBRARY_PATH ${TTML_LIBRARY_PATH} PARENT_SCOPE)
 set(TTML_SOURCE_DIR ${TTML_SOURCE_DIR} PARENT_SCOPE)
 
 if ("${CMAKE_CXX_COMPILER_LAUNCHER}" STREQUAL "ccache")
@@ -194,7 +191,6 @@ ExternalProject_Add(
     ${DEVICE_LIBRARY_PATH}
     ${TT_STL_LIBRARY_PATH}
     ${FMT_LIBRARY_PATH}
-    ${TTML_LIBRARY_PATH}
 )
 
 ExternalProject_Add_StepTargets(tt-metal download update configure)
@@ -253,15 +249,6 @@ install(
   EXCLUDE_FROM_ALL
   FILES_MATCHING
   REGEX "third_party/umd/"
-)
-
-install(
-  DIRECTORY
-    ${TTML_SOURCE_DIR}/metal
-  DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal/${TTML_RELPATH}
-  USE_SOURCE_PERMISSIONS
-  COMPONENT SharedLib
-  EXCLUDE_FROM_ALL
 )
 
 # TTNN Standalone install commands
@@ -364,10 +351,6 @@ foreach(lib_name lib_path IN ZIP_LISTS library_names library_paths)
   add_dependencies(${lib_name} tt-metal)
 endforeach()
 
-add_library(TTML_LIBRARY STATIC IMPORTED GLOBAL)
-set_target_properties(TTML_LIBRARY PROPERTIES EXCLUDE_FROM_ALL TRUE IMPORTED_LOCATION ${TTML_LIBRARY_PATH})
-add_dependencies(TTML_LIBRARY tt-metal)
-
 install(CODE
     "
     MESSAGE(STATUS \"Installing tt-metal shared lib dependencies (${library_paths}) to ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}\")
@@ -379,22 +362,6 @@ install(CODE
         FOLLOW_SYMLINK_CHAIN
     )"
     COMPONENT SharedLib
-)
-
-# Ship the tt-train static libs (libttml.a + spdlog) into the lib dir so the installed ttnn-standalone
-# can link tt-train ops; spdlog is globbed inside the install script (its name is build-type suffixed: libspdlog.a / libspdlogd.a).
-install(CODE
-    "
-    file(GLOB _ttml_spdlog_libs \"${TTMETAL_LIBRARY_DIR}/libspdlog*.a\")
-    MESSAGE(STATUS \"Installing tt-train static libs to ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}\")
-    file(
-        INSTALL
-        ${TTML_LIBRARY_PATH}
-        \${_ttml_spdlog_libs}
-        DESTINATION ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}
-        TYPE STATIC_LIBRARY
-    )"
-    COMPONENT TTNNStandalone
 )
 
 if (TT_RUNTIME_ENABLE_PERF_TRACE)
@@ -422,7 +389,6 @@ else() # TTMLIR_ENABLE_RUNTIME OR TTMLIR_ENABLE_OPMODEL
   add_library(TRACY_LIBRARY INTERFACE)
   add_library(DEVICE_LIBRARY INTERFACE)
   add_library(TT_STL_LIBRARY INTERFACE)
-  add_library(TTML_LIBRARY INTERFACE)
   add_library(tt-metal-download INTERFACE EXCLUDE_FROM_ALL)
   add_library(tt-metal-update INTERFACE EXCLUDE_FROM_ALL)
   add_library(tt-metal-configure INTERFACE EXCLUDE_FROM_ALL)

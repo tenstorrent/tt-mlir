@@ -129,21 +129,6 @@ set(COMPILE_DEFS
     FMT_HEADER_ONLY  # needed for fmt lib
 )
 
-if(DEFINED ENV{TTML_LIB})
-    set(TTML_LIB "$ENV{TTML_LIB}")
-else()
-    set(TTML_LIB "${METAL_LIB_DIR}/libttml.a")
-endif()
-if(EXISTS "${TTML_LIB}")
-    message(STATUS "ttml: enabled, linking ${TTML_LIB}")
-    file(GLOB TTML_SPDLOG_LIB "${METAL_LIB_DIR}/libspdlog*.a")
-    list(APPEND INCLUDE_DIRS ${METAL_SRC_DIR}/tt-train/sources/ttml)
-    list(APPEND LINK_LIBS ${TTML_LIB} ${TTML_SPDLOG_LIB})
-    list(APPEND COMPILE_DEFS TTNN_STANDALONE_ENABLE_TT_TRAIN)
-else()
-    message(STATUS "ttml: libttml.a not found at ${TTML_LIB}; building standalone without ttml ops")
-endif()
-
 #       _                     _         _
 #  ___ | |_  __ _  _ __    __| |  __ _ | |  ___   _ __    ___
 # / __|| __|/ _` || '_ \  / _` | / _` || | / _ \ | '_ \  / _ \
