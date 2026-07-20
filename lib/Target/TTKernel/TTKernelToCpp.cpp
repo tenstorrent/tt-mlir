@@ -131,6 +131,7 @@ public:
           callee == "experimental::fabric_mcast_fast_write_any_len" ||
           callee == "experimental::fabric_sem_inc" ||
           callee == "experimental::fabric_mcast_sem_inc" ||
+          callee == "experimental::get_fabric_noc_addr_from_bank_id" ||
           callee == "experimental::get_my_logical_mesh_position" ||
           callee == "experimental::get_device_id_from_logical_mesh_position") {
         // Emit in order: topology_info -> routing -> api.
