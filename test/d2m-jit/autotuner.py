@@ -859,9 +859,19 @@ class Autotuner:
         # Every config is per-tensor: stamp each tensor's block_shape/mem_space
         # onto its TensorSpec.  The materializer reads these off the specs and
         # builds the corresponding d2m.Layout.
+        n_tensors = len(bench.tensors)
+        if len(config.blocks) != n_tensors or len(config.mems) != n_tensors:
+            raise ValueError(
+                f"Config tensor count mismatch: bench has {n_tensors} tensor(s) "
+                f"but blocks={len(config.blocks)} mems={len(config.mems)}"
+            )
         overridden_tensors = [
-            dataclasses.replace(ts, block_shape=list(bs), mem_space=ms)
-            for ts, bs, ms in zip(bench.tensors, config.blocks, config.mems)
+            dataclasses.replace(
+                bench.tensors[i],
+                block_shape=list(config.blocks[i]),
+                mem_space=config.mems[i],
+            )
+            for i in range(n_tensors)
         ]
 
         profiler_tmp = tmp_dir or self._profiler_dir
@@ -1728,8 +1738,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--strategy",
         metavar="STRATEGY",
         default="sweep",
-        choices=["sweep", "hill-climb"],
-        help="Search strategy: 'sweep' (exhaustive, default) or 'hill-climb' (faster, coordinate descent).",
+        choices=["sweep", "hill-climb", "default"],
+        help=(
+            "Search strategy: 'sweep' (exhaustive), 'hill-climb' (faster, coordinate descent), "
+            "or 'default' (run only the bench defaults; no sweep)."
+        ),
     )
     p.add_argument(
         "--no-sweep",
