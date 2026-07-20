@@ -22,6 +22,10 @@
 //     ],
 //     "core_range": {"start": [x, y], "end": [x, y]},
 //     "cb_configs": [{buffer_index, data_format, page_size, total_size}, ...],
+//     // Optional PipeNet resource counts (default 0 when omitted):
+//     //   "num_pipe_sync_semaphores": <int>,
+//     //   "num_pipe_global_semaphores": <int>,
+//     //   "pipe_sram_scratch_bytes": <int>,
 //     ...
 //   }
 //
@@ -70,8 +74,12 @@ namespace {
 // emitter inserts tensor-accessor markers into every NOC kernel's
 // compile-time args and the runtime expands each at launch time, so the
 // artifact carries no pre-baked TensorAccessor values. Anything other than
-// this version is fatal so the build fails loudly on schema drift. Bump
-// this when the artifact schema changes.
+// this version is fatal so the build fails loudly on schema drift.
+//
+// Bump this only for *breaking* schema changes (renamed/removed required
+// keys, changed semantics). Additive optional keys with backward-compatible
+// defaults (e.g. pipe resource counts defaulting to 0) do not require a
+// bump -- keep older v1 artifacts loadable.
 constexpr int64_t EXPECTED_FORMAT_VERSION = 1;
 
 // Map the JSON `data_format` spelling (e.g. "BFloat16") to a
@@ -440,21 +448,19 @@ ProgramAttr buildProgramAttr(
     kernels.push_back(kernel);
   }
 
-  std::optional<int64_t> numPipeSync =
-      root->getInteger("num_pipe_sync_semaphores");
-  if (!numPipeSync) {
-    op.emitError("kernel_artifact is missing required integer key "
-                 "`num_pipe_sync_semaphores`.");
-    return {};
-  }
-  if (*numPipeSync < 0 || static_cast<uint64_t>(*numPipeSync) >
-                              std::numeric_limits<uint32_t>::max()) {
+  // Optional for format_version==1: older artifacts omit the key and mean
+  // "no PipeNet sync semaphores". Same defaulting as pipe_sram_scratch_bytes
+  // / num_pipe_global_semaphores below.
+  const int64_t numPipeSync =
+      root->getInteger("num_pipe_sync_semaphores").value_or(0);
+  if (numPipeSync < 0 || static_cast<uint64_t>(numPipeSync) >
+                             std::numeric_limits<uint32_t>::max()) {
     op.emitError("kernel_artifact `num_pipe_sync_semaphores` = ")
-        << *numPipeSync << " is out of range for uint32_t.";
+        << numPipeSync << " is out of range for uint32_t.";
     return {};
   }
   llvm::SmallVector<KernelSemaphoreAttr> semaphores;
-  const uint32_t numSemaphores = static_cast<uint32_t>(*numPipeSync);
+  const uint32_t numSemaphores = static_cast<uint32_t>(numPipeSync);
   semaphores.reserve(numSemaphores);
   for (uint32_t id = 0; id < numSemaphores; ++id) {
     semaphores.push_back(

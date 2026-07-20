@@ -50,6 +50,11 @@
 //     "num_pipe_nets": 0
 //   }
 //
+// PipeNet keys (`num_pipe_sync_semaphores`, `num_pipe_global_semaphores`,
+// `pipe_sram_scratch_bytes`) are optional on format_version==1 and default
+// to 0 when omitted -- so this older artifact still lowers. Non-zero pipe
+// plumbing is covered by `tt_lang_op_pipe_resources.mlir`.
+//
 // The pass is expected to:
 //   - Parse the JSON payload (no diagnostic errors).
 //   - Build a `#ttnn.program` with one inline-source kernel attr per
