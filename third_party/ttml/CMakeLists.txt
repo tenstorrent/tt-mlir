@@ -2,27 +2,24 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+
 if (NOT (TTMLIR_ENABLE_RUNTIME AND TT_RUNTIME_ENABLE_TTNN))
   add_library(ttml_metal_ops INTERFACE)
   return()
 endif()
 
-file(GLOB_RECURSE TTML_METAL_OP_SRCS CONFIGURE_DEPENDS
-  ${TTML_SOURCE_DIR}/metal/ops/*.cpp
-  ${TTML_SOURCE_DIR}/metal/optimizers/*.cpp
+set(TTML_METAL_OP_SRCS
+  ${TTML_SOURCE_DIR}/metal/optimizers/adamw/adamw.cpp
+  ${TTML_SOURCE_DIR}/metal/optimizers/adamw/device/adamw_device_operation.cpp
+  ${TTML_SOURCE_DIR}/metal/optimizers/adamw/device/adamw_program_factory.cpp
 )
+set_source_files_properties(${TTML_METAL_OP_SRCS} PROPERTIES GENERATED TRUE)
 
-list(FILTER TTML_METAL_OP_SRCS EXCLUDE REGEX "/kernels/")
-list(FILTER TTML_METAL_OP_SRCS EXCLUDE REGEX "/layernorm_bw/")
-
-if (NOT TTML_METAL_OP_SRCS)
-  message(FATAL_ERROR
-    "No ttml metal op sources under ${TTML_SOURCE_DIR}/metal. The tt-metal "
-    "checkout must exist at configure time (it is fetched at build time for a "
-    "clean ExternalProject build). Pre-fetch tt-metal or set "
-    "-DTTMLIR_TTMETAL_SOURCE_DIR=<checkout>.")
-endif()
-
+# STATIC on purpose. The archive tolerates any ttnn/ttml::core symbols left
+# undefined by ops we don't dispatch; the runtime only references the ops wired
+# in ttml.cpp, so only those objects get pulled into libTTMLIRRuntime.so and
+# must fully resolve. It also keeps this out of libTTMLIRRuntime.so's NEEDED
+# list (no ttrt ImportError for a satellite .so).
 add_library(ttml_metal_ops STATIC ${TTML_METAL_OP_SRCS})
 set_property(TARGET ttml_metal_ops PROPERTY CXX_STANDARD 20)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x86|i386|i686)$")
