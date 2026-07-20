@@ -1,6 +1,6 @@
 include(ExternalProject)
 
-set(TT_METAL_VERSION "f1f4ff75579ebd7a69c7da52d45368f273026d85")
+set(TT_METAL_VERSION "d49ded17509f38c70e109387e7b25965780f484b")
 
 set(TTMLIR_TTMETAL_SOURCE_DIR "" CACHE PATH
     "Path to a user-managed tt-metal checkout. If empty, ExternalProject clones tt-metal at TT_METAL_VERSION.")
