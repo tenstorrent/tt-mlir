@@ -132,16 +132,28 @@ checkConstraintsResult(Operation *contextOp,
                        ttmlir::utils::firstNLines(errorMsg, 8));
           // The stateful (build-from-records) query places the currently-live
           // tensors at real addresses, so an op that does not fit surfaces as a
-          // tt-metal allocator exception ("Out of Memory: Not enough space
-          // ...") from the backend rather than via the peak-usage budget check
-          // below. Classify that as OOM (not a hard backend error) so the L1
-          // spill pass takes the evict-and-refit recovery -- the same path the
-          // scalar tracker's soft OOM takes. Demoting straight to DRAM instead
-          // skips config fallback and can leave a numerically-wrong op config
+          // tt-metal exception from the backend rather than via the peak-usage
+          // budget check below. Two flavors are really L1-pressure conditions,
+          // both recoverable by the L1 spill pass's evict-and-refit path (the
+          // same path the scalar tracker's soft OOM takes):
+          //   1. Allocator exhaustion: "Out of Memory: Not enough space ...".
+          //   2. A CB-vs-L1 overlap: "Statically allocated circular buffers ...
+          //      clash with L1 buffers ..." -- the op's static circular-buffer
+          //      region collides with a still-live L1 input (e.g. a large
+          //      height-sharded conv activation). Evicting that L1 input to DRAM
+          //      and refitting resolves it.
+          // Classify both as OOM so run() calls handleOOM (which spills the
+          // offending L1 input) instead of the metalBackendError branch, which
+          // only demotes the op's *output* to DRAM -- useless here, since the
+          // clash is with the input -- leaving a layout that throws at runtime
+          // (https://github.com/tenstorrent/tt-mlir/issues/9064). Demoting
+          // straight to DRAM also skips config fallback and can leave a
+          // numerically-wrong op config
           // (https://github.com/tenstorrent/tt-mlir/issues/9045). A genuine
-          // backend constraint (unsupported config, etc.) carries no "Out of
-          // Memory" marker and still routes to metalBackendError.
-          if (errorMsg.find("Out of Memory") != std::string::npos) {
+          // backend constraint (unsupported config, etc.) carries neither
+          // marker and still routes to metalBackendError.
+          if (errorMsg.find("Out of Memory") != std::string::npos ||
+              errorMsg.find("clash with L1 buffers") != std::string::npos) {
             result = ValidationResult::outOfMemoryError(
                 ttmlir::utils::firstNLines(errorMsg, 8));
           } else {
