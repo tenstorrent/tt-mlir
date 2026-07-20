@@ -8,8 +8,7 @@
 
 namespace tt::runtime::ttnn::operations::ttml {
 
-// The one symbol the ttml library exports: dispatch a ttml op to its internal
-// handler.
+// Dispatch a ttml op to its handler.
 void run(const ::tt::target::ttnn::Operation *op, ProgramContext &context) {
   switch (op->type_type()) {
   case ::tt::target::ttnn::OpType::AdamWOp:
