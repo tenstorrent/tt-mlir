@@ -3909,15 +3909,6 @@ public:
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
     };
 
-    // Emit drain_sync_tilizer_core as a Python tuple if present.
-    if (auto drainCore = srcOp.getDrainCore()) {
-      std::string buf;
-      llvm::raw_string_ostream rso(buf);
-      rso << "(" << drainCore->getX() << ", " << drainCore->getY() << ")";
-      args.push_back(
-          emitter.emitExpression(rso.str(), "drain_sync_tilizer_core"));
-    }
-
     emitter.replaceOp(*this, args);
 
     return success();
