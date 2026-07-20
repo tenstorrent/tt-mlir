@@ -85,13 +85,11 @@ class InputSpec:
 @dataclass
 class TensorSpec:
     """Shape and layout for one input tensor in a KernelBench.
-
     Fully describes a single kernel input: the logical shape, the tile-level
     block count per ``remote_load``, the element dtype, and the random
     distribution used to generate test data. All four are tensor-level
     properties — they can differ between inputs in the same kernel (e.g.
     lhs/rhs in a mixed-precision matmul).
-
     ``grid_shape`` is the only graph-level execution parameter and lives on
     ``KernelBench`` directly.
     """
@@ -100,6 +98,19 @@ class TensorSpec:
     block_shape: list
     dtype: torch.dtype
     dist: "str | Callable" = "uniform(-1,1)"
+    mem_space: str = "L1"
+
+
+def d2m_mem_space(mem_space_str: str) -> str:
+    """Convert a mem-space string to the lowercase form ``d2m.Layout`` expects.
+    ``d2m.Layout`` accepts ``mem_space`` as a lowercase string (``"l1"``,
+    ``"dram"``).  Use this in materializers to pass an explicit ``mem_space``
+    to ``d2m.Layout`` when per-tensor placement is controlled via
+    ``TensorSpec.mem_space``.  Accepts case-insensitive input.
+    """
+    from d2m_jit._src import tensor_layout as _tl
+
+    return _tl._to_mem_space(mem_space_str.lower())
 
 
 @dataclass

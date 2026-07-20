@@ -23,7 +23,7 @@ through a 32-wide tile.
 import torch
 
 import d2m_jit as d2m
-from runner import KernelBench, TensorSpec, d2m_dtype
+from runner import KernelBench, TensorSpec, d2m_dtype, d2m_mem_space
 
 
 def _feature_half_roll_view(x_lt):
@@ -202,23 +202,29 @@ def rope_materializer(kernel, inputs, tensors, grid_shape):
         blocks_n % gx == 0
     ), f"N blocks ({blocks_n}) not evenly divisible by grid_shape[1]={gx}"
 
-    L = d2m.Layout(
-        shape=(seq_len, head_dim),
-        dtype=d2m_dtype(ts.dtype),
-        block_shape=[block_y, block_x],
-        grid_shape=[gy, gx],
-    )
+    # Build a Layout per tensor so each input's swept ``mem_space`` (L1/DRAM)
+    # is honored; sharing a single Layout would silently drop the per-tensor
+    # mem_space knob.  The output inherits x's placement (tensors[0]).
+    def _layout(spec):
+        return d2m.Layout(
+            shape=(seq_len, head_dim),
+            dtype=d2m_dtype(spec.dtype),
+            block_shape=[block_y, block_x],
+            grid_shape=[gy, gx],
+            mem_space=d2m_mem_space(spec.mem_space),
+        )
 
-    x_lt = d2m.to_layout(x_torch, L)
-    cos_lt = d2m.to_layout(cos_torch, L)
-    sin_signed_lt = d2m.to_layout(sin_signed_torch, L)
+    x_lt = d2m.to_layout(x_torch, _layout(tensors[0]))
+    cos_lt = d2m.to_layout(cos_torch, _layout(tensors[1]))
+    sin_signed_lt = d2m.to_layout(sin_signed_torch, _layout(tensors[2]))
 
     m_blocks = blocks_m // gy
     n_blocks = blocks_n // gx
 
-    _validate_rope_layouts(x_lt, cos_lt, sin_signed_lt, L)
+    out_layout = _layout(tensors[0])
+    _validate_rope_layouts(x_lt, cos_lt, sin_signed_lt, out_layout)
     x_rolled = _feature_half_roll_view(x_lt)
-    out_lt = d2m.empty(L)
+    out_lt = d2m.empty(out_layout)
     kernel(
         x_lt,
         x_rolled,
