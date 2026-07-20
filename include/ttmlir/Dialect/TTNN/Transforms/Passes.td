@@ -933,7 +933,7 @@ def TTNNLowerTTLangToGeneric : Pass<"ttnn-lower-tt-lang-to-generic", "::mlir::Mo
     `tt_torch.tt_lang._serialize_compiled_operation`:
 
     {
-      "format_version": 1,
+      "format_version": 2,
       "kernels": [
         {"thread_type": "compute"|"noc",
          "cpp_source":  "<embedded C++ source>",
@@ -943,6 +943,9 @@ def TTNNLowerTTLangToGeneric : Pass<"ttnn-lower-tt-lang-to-generic", "::mlir::Mo
       ],
       "core_range": {"start": [x, y], "end": [x, y]},
       "cb_configs": [{buffer_index, data_format, page_size, total_size}, ...],
+      "num_pipe_sync_semaphores": <int>,
+      "num_pipe_global_semaphores": <int>,
+      "pipe_sram_scratch_bytes": <int>,
       ...
     }
 

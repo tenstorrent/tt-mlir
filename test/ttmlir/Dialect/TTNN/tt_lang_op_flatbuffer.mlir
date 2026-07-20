@@ -23,7 +23,7 @@
 // produces). Decoded, it is::
 //
 //   {
-//     "format_version": 1,
+//     "format_version": 2,
 //     "kernels": [
 //       {"thread_type": "compute",
 //        "cpp_source": "// compute kernel stub",
@@ -47,13 +47,12 @@
 //                      "page_size": 4096, "total_size": 8192,
 //                      "num_tiles": 2, "block_count": 2}, ...x3],
 //     "num_tensors": 3,
-//     "num_pipe_nets": 0
+//     "num_pipe_sync_semaphores": 0,
+//     "num_pipe_global_semaphores": 0,
+//     "pipe_sram_scratch_bytes": 0
 //   }
 //
-// PipeNet keys (`num_pipe_sync_semaphores`, `num_pipe_global_semaphores`,
-// `pipe_sram_scratch_bytes`) are optional on format_version==1 and default
-// to 0 when omitted -- so this older artifact still lowers. Non-zero pipe
-// plumbing is covered by `tt_lang_op_pipe_resources.mlir`.
+// Non-zero PipeNet plumbing is covered by `tt_lang_op_pipe_resources.mlir`.
 //
 // The pass is expected to:
 //   - Parse the JSON payload (no diagnostic errors).
@@ -103,7 +102,7 @@ module {
       version_tag = "1.0",
       arg_roles = "in,in,out",
       shard_spec = "",
-      kernel_artifact = "{\"format_version\": 1, \"kernels\": [{\"thread_type\": \"compute\", \"cpp_source\": \"// compute kernel stub\", \"tensor_indices\": [0, 1, 2], \"kernel_config\": {\"type\": \"ComputeKernelConfig\", \"math_fidelity\": \"HiFi4\", \"fp32_dest_acc_en\": false, \"dst_full_sync_en\": false, \"bfp8_pack_precise\": false, \"math_approx_mode\": false}}, {\"thread_type\": \"noc\", \"cpp_source\": \"// reader kernel stub\", \"tensor_indices\": [0, 1], \"kernel_config\": {\"type\": \"ReaderKernelConfig\"}}, {\"thread_type\": \"noc\", \"cpp_source\": \"// writer kernel stub\", \"tensor_indices\": [2], \"kernel_config\": {\"type\": \"WriterKernelConfig\"}}], \"core_range\": {\"start\": [0, 0], \"end\": [0, 0]}, \"cb_configs\": [{\"buffer_index\": 0, \"data_format\": \"Float32\", \"page_size\": 4096, \"total_size\": 8192, \"num_tiles\": 2, \"block_count\": 2}, {\"buffer_index\": 1, \"data_format\": \"Float32\", \"page_size\": 4096, \"total_size\": 8192, \"num_tiles\": 2, \"block_count\": 2}, {\"buffer_index\": 2, \"data_format\": \"Float32\", \"page_size\": 4096, \"total_size\": 8192, \"num_tiles\": 2, \"block_count\": 2}], \"num_tensors\": 3, \"num_pipe_nets\": 0}"
+      kernel_artifact = "{\"format_version\": 2, \"kernels\": [{\"thread_type\": \"compute\", \"cpp_source\": \"// compute kernel stub\", \"tensor_indices\": [0, 1, 2], \"kernel_config\": {\"type\": \"ComputeKernelConfig\", \"math_fidelity\": \"HiFi4\", \"fp32_dest_acc_en\": false, \"dst_full_sync_en\": false, \"bfp8_pack_precise\": false, \"math_approx_mode\": false}}, {\"thread_type\": \"noc\", \"cpp_source\": \"// reader kernel stub\", \"tensor_indices\": [0, 1], \"kernel_config\": {\"type\": \"ReaderKernelConfig\"}}, {\"thread_type\": \"noc\", \"cpp_source\": \"// writer kernel stub\", \"tensor_indices\": [2], \"kernel_config\": {\"type\": \"WriterKernelConfig\"}}], \"core_range\": {\"start\": [0, 0], \"end\": [0, 0]}, \"cb_configs\": [{\"buffer_index\": 0, \"data_format\": \"Float32\", \"page_size\": 4096, \"total_size\": 8192, \"num_tiles\": 2, \"block_count\": 2}, {\"buffer_index\": 1, \"data_format\": \"Float32\", \"page_size\": 4096, \"total_size\": 8192, \"num_tiles\": 2, \"block_count\": 2}, {\"buffer_index\": 2, \"data_format\": \"Float32\", \"page_size\": 4096, \"total_size\": 8192, \"num_tiles\": 2, \"block_count\": 2}], \"num_tensors\": 3, \"num_pipe_sync_semaphores\": 0, \"num_pipe_global_semaphores\": 0, \"pipe_sram_scratch_bytes\": 0}"
     }> : (tensor<32x32xf32, #dram_layout>, tensor<32x32xf32, #dram_layout>,
           tensor<32x32xf32, #dram_layout>)
         -> (tensor<32x32xf32, #dram_layout>)

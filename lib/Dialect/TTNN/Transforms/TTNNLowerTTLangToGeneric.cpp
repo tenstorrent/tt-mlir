@@ -12,7 +12,7 @@
 // `tt_torch.tt_lang._serialize_compiled_operation`:
 //
 //   {
-//     "format_version": 1,
+//     "format_version": 2,
 //     "kernels": [
 //       {"thread_type": "compute"|"noc",
 //        "cpp_source":  "<embedded C++ source>",
@@ -22,10 +22,9 @@
 //     ],
 //     "core_range": {"start": [x, y], "end": [x, y]},
 //     "cb_configs": [{buffer_index, data_format, page_size, total_size}, ...],
-//     // Optional PipeNet resource counts (default 0 when omitted):
-//     //   "num_pipe_sync_semaphores": <int>,
-//     //   "num_pipe_global_semaphores": <int>,
-//     //   "pipe_sram_scratch_bytes": <int>,
+//     "num_pipe_sync_semaphores": <int>,
+//     "num_pipe_global_semaphores": <int>,
+//     "pipe_sram_scratch_bytes": <int>,
 //     ...
 //   }
 //
@@ -76,11 +75,10 @@ namespace {
 // artifact carries no pre-baked TensorAccessor values. Anything other than
 // this version is fatal so the build fails loudly on schema drift.
 //
-// Bump this only for *breaking* schema changes (renamed/removed required
-// keys, changed semantics). Additive optional keys with backward-compatible
-// defaults (e.g. pipe resource counts defaulting to 0) do not require a
-// bump -- keep older v1 artifacts loadable.
-constexpr int64_t EXPECTED_FORMAT_VERSION = 1;
+// v2 adds required PipeNet resource keys (`num_pipe_sync_semaphores`,
+// `num_pipe_global_semaphores`, `pipe_sram_scratch_bytes`). Bump again on
+// further breaking schema changes; keep emitters and lit artifacts in sync.
+constexpr int64_t EXPECTED_FORMAT_VERSION = 2;
 
 // Map the JSON `data_format` spelling (e.g. "BFloat16") to a
 // `ttcore::DataType`. The names match the enum's C++ symbol spelling 1:1.
@@ -448,19 +446,21 @@ ProgramAttr buildProgramAttr(
     kernels.push_back(kernel);
   }
 
-  // Optional for format_version==1: older artifacts omit the key and mean
-  // "no PipeNet sync semaphores". Same defaulting as pipe_sram_scratch_bytes
-  // / num_pipe_global_semaphores below.
-  const int64_t numPipeSync =
-      root->getInteger("num_pipe_sync_semaphores").value_or(0);
-  if (numPipeSync < 0 || static_cast<uint64_t>(numPipeSync) >
-                             std::numeric_limits<uint32_t>::max()) {
+  std::optional<int64_t> numPipeSync =
+      root->getInteger("num_pipe_sync_semaphores");
+  if (!numPipeSync) {
+    op.emitError("kernel_artifact is missing required integer key "
+                 "`num_pipe_sync_semaphores` (format_version 2).");
+    return {};
+  }
+  if (*numPipeSync < 0 || static_cast<uint64_t>(*numPipeSync) >
+                              std::numeric_limits<uint32_t>::max()) {
     op.emitError("kernel_artifact `num_pipe_sync_semaphores` = ")
-        << numPipeSync << " is out of range for uint32_t.";
+        << *numPipeSync << " is out of range for uint32_t.";
     return {};
   }
   llvm::SmallVector<KernelSemaphoreAttr> semaphores;
-  const uint32_t numSemaphores = static_cast<uint32_t>(numPipeSync);
+  const uint32_t numSemaphores = static_cast<uint32_t>(*numPipeSync);
   semaphores.reserve(numSemaphores);
   for (uint32_t id = 0; id < numSemaphores; ++id) {
     semaphores.push_back(
@@ -565,10 +565,20 @@ mlir::LogicalResult lowerTTLangOpToGeneric(TTLangOp op) {
     return op.emitError("kernel_artifact root is not a JSON object.");
   }
 
-  const int64_t pipeScratchBytes =
-      root->getInteger("pipe_sram_scratch_bytes").value_or(0);
-  const int64_t numPipeGlobal =
-      root->getInteger("num_pipe_global_semaphores").value_or(0);
+  std::optional<int64_t> pipeScratchBytesOpt =
+      root->getInteger("pipe_sram_scratch_bytes");
+  std::optional<int64_t> numPipeGlobalOpt =
+      root->getInteger("num_pipe_global_semaphores");
+  if (!pipeScratchBytesOpt) {
+    return op.emitError("kernel_artifact is missing required integer key "
+                        "`pipe_sram_scratch_bytes` (format_version 2).");
+  }
+  if (!numPipeGlobalOpt) {
+    return op.emitError("kernel_artifact is missing required integer key "
+                        "`num_pipe_global_semaphores` (format_version 2).");
+  }
+  const int64_t pipeScratchBytes = *pipeScratchBytesOpt;
+  const int64_t numPipeGlobal = *numPipeGlobalOpt;
   if (pipeScratchBytes < 0) {
     return op.emitError("kernel_artifact `pipe_sram_scratch_bytes` = ")
            << pipeScratchBytes << " is negative.";
