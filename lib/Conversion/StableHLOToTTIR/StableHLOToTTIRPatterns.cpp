@@ -9817,6 +9817,12 @@ namespace {
 // `mhlo.frontend_attributes` onto the op so it survives the TTIR pipeline
 // (in particular Shardy / shape refinement on adjacent ops) with the right
 // number of typed operands and results.
+//
+// The SHLO custom_call is functional: operands are the "in"-tagged tensors
+// only (so Shardy can refine result types without a DPS init mismatch).
+// TTIR requires destination-passing style (`arg_roles == in* out+`), so this
+// pattern reintroduces one `ttir.empty` per result — typed from the
+// *post-Shardy* result — as the trailing DPS init operands.
 class StableHLOTTLangOpConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
   using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
@@ -9831,11 +9837,9 @@ public:
       return failure();
     }
 
-    if (adaptor.getOperands().empty() || srcOp.getResults().empty()) {
+    if (srcOp.getResults().empty()) {
       return rewriter.notifyMatchFailure(
-          srcOp,
-          "tt.tt_lang_op custom call must have at least one operand and one "
-          "result.");
+          srcOp, "tt.tt_lang_op custom call must have at least one result.");
     }
 
     mlir::DictionaryAttr frontendAttributes =
@@ -9886,8 +9890,65 @@ public:
       resultTypes.push_back(converted);
     }
 
+    // Parse logical DPS roles. SHLO is functional: operands must be exactly
+    // the "in"-tagged tensors. DPS "out" buffers are synthesized below from
+    // post-Shardy result types.
+    SmallVector<StringRef> roleTokens;
+    argRolesAttr.getValue().split(roleTokens, ',');
+    size_t inCount = 0;
+    size_t outCount = 0;
+    for (StringRef token : roleTokens) {
+      StringRef trimmed = token.trim();
+      if (trimmed == "in") {
+        ++inCount;
+      } else if (trimmed == "out") {
+        ++outCount;
+      } else {
+        return rewriter.notifyMatchFailure(
+            srcOp, "tt.tt_lang_op `arg_roles` token must be \"in\" or \"out\".");
+      }
+    }
+    if (outCount == 0 || outCount != resultTypes.size()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tt.tt_lang_op number of \"out\" roles must be non-zero and "
+                 "match number of results.");
+    }
+
+    auto shloOperands = adaptor.getOperands();
+    if (shloOperands.size() == inCount + outCount) {
+      return rewriter.notifyMatchFailure(
+          srcOp,
+          "tt.tt_lang_op legacy DPS-on-SHLO form is not supported: custom "
+          "call operands must be the \"in\" tensors only (#operands == "
+          "#in); DPS \"out\" inits are synthesized during conversion.");
+    }
+    if (shloOperands.size() != inCount) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tt.tt_lang_op operand count must equal number of \"in\" "
+                 "roles in `arg_roles`.");
+    }
+    if (inCount == 0) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "tt.tt_lang_op requires at least one \"in\" role; pure-out "
+                 "kernels are not supported on the functional SHLO path.");
+    }
+
+    SmallVector<Value> ttirOperands;
+    ttirOperands.append(shloOperands.begin(), shloOperands.end());
+    for (Type resultType : resultTypes) {
+      auto ranked = dyn_cast<RankedTensorType>(resultType);
+      if (!ranked) {
+        return rewriter.notifyMatchFailure(
+            srcOp, "tt.tt_lang_op result must be a ranked tensor to "
+                   "synthesize a DPS init.");
+      }
+      ttirOperands.push_back(rewriter.create<ttir::EmptyOp>(
+          srcOp.getLoc(), ranked.getShape(), ranked.getElementType(),
+          ranked.getEncoding()));
+    }
+
     rewriter.replaceOpWithNewOp<ttir::TTLangOp>(srcOp, resultTypes,
-                                                adaptor.getOperands(),
+                                                ttirOperands,
                                                 /*kernel_id=*/kernelIdAttr,
                                                 /*version_tag=*/versionTagAttr,
                                                 /*arg_roles=*/argRolesAttr,
