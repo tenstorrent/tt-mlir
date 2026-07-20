@@ -29,11 +29,6 @@ never reached a constructed ``Layout`` is reported as failed rather than ranked.
 
 * ``grid_shape`` (per-kernel): logical 2-D core grid ``(gy, gx)``.
 * ``block_shape`` (per-tensor): tile-block shape ``[by, bx]`` per input.
-  Elementwise materializers (``eltwise_block_run``, ``rope_materializer``)
-  require all inputs to share one block shape; differing per-tensor blocks are
-  only meaningful for materializers that build a Layout per input (e.g.
-  ``matmul_tiled_multi_k_materializer``) and are rejected by the guard
-  otherwise.
 * ``mem_space`` (per-tensor): tensor memory placement (``"L1"`` or ``"DRAM"``)
   per input, passed straight to ``d2m.Layout`` by the materializer.
 
@@ -863,8 +858,7 @@ class Autotuner:
 
         # Every config is per-tensor: stamp each tensor's block_shape/mem_space
         # onto its TensorSpec.  The materializer reads these off the specs and
-        # builds the corresponding d2m.Layout (see eltwise_block_run /
-        # rope_materializer / matmul_tiled_multi_k_materializer).
+        # builds the corresponding d2m.Layout.
         overridden_tensors = [
             dataclasses.replace(ts, block_shape=list(bs), mem_space=ms)
             for ts, bs, ms in zip(bench.tensors, config.blocks, config.mems)
