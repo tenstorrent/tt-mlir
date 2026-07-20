@@ -6862,7 +6862,8 @@ protected:
     EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
     if (expectedLegal) {
       const auto [cbSize, l1PeakSize, totalPeakSize, outputSizeResult,
-                  outputLayoutReadBacks] = constraintsExp.get();
+                  outputLayoutReadBacks, outputAllocations] =
+          constraintsExp.get();
       EXPECT_GE(cbSize, 0);
       EXPECT_GE(l1PeakSize, 0);
       EXPECT_GE(totalPeakSize, 0);
