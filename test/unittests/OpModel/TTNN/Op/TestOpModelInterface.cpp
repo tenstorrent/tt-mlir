@@ -2464,8 +2464,8 @@ TEST_F(OpModelBase, ChunkedScaledDotProductAttentionOpInterface) {
   auto constraintsExp = backend.getOpConstraints(
       getInputLayouts(chunkedSdpAttention), OpConfig(queryLayout));
   if (constraintsExp) {
-    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts] =
-        constraintsExp.get();
+    const auto &[cbSize, l1PeakSize, totalPeakSize, outputSize, outputLayouts,
+                 outputAllocations] = constraintsExp.get();
 
     EXPECT_GT(cbSize, 0);
     EXPECT_GT(totalPeakSize, 0);
