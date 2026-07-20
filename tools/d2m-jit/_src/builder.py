@@ -1143,6 +1143,8 @@ def spatial(inputs, outputs, grid_ranges, region_builders):
             f"grid_ranges has {len(ranges)} entries but region_builders has "
             f"{len(builders)}"
         )
+    if not builders:
+        raise ValueError("d2m.spatial requires at least one region")
     for i, builder_fn in enumerate(builders):
         if not callable(builder_fn):
             raise TypeError(

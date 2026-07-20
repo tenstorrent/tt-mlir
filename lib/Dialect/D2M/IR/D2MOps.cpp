@@ -2059,8 +2059,7 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
     // 1. The output operand's inverse VGM matches the GenericOp GridAttr's
     //    inverse map.
     // 2. The inverse map applied to the physical grid shape produces a virtual
-    //    grid shape matching the output's grid shape. (requires device;
-    //    getPhysicalGridShape looks up the worker grid)
+    //    grid shape matching the output's grid shape.
     // DRAM outputs may carry VGM attrs used for address calculation, but they
     // are not constrained by the GenericOp's L1 execution grid.
     AffineMap gridInvMap = getGrid().getPhysicalToVirtMap();
