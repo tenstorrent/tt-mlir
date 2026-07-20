@@ -9392,13 +9392,13 @@ buildIndexerScoreDsaDecompositionBody(ConversionPatternRewriter &rewriter,
   auto tensorType = [&](ArrayRef<int64_t> shape) {
     return RankedTensorType::get(shape, elemType, encoding);
   };
-  auto reshapeTo = [&](Value v, ArrayRef<int64_t> newShape) -> Value {
-    return ttir::utils::createReshapeOp(rewriter, loc, v, newShape).getResult();
-  };
 
   // Fold the query heads into the sequence dim so a single batched matmul
   // against K's single kv-head works without broadcasting K across heads.
-  Value qFold = reshapeTo(query, {batch, 1, numHeads * querySeqLen, headDim});
+  Value qFold =
+      ttir::utils::createReshapeOp(rewriter, loc, query,
+                                   {batch, 1, numHeads * querySeqLen, headDim})
+          .getResult();
 
   // K^T: [B, 1, T, D] -> [B, 1, D, T].
   Value keyT = rewriter
@@ -9414,7 +9414,10 @@ buildIndexerScoreDsaDecompositionBody(ConversionPatternRewriter &rewriter,
               loc, tensorType({batch, 1, numHeads * querySeqLen, keySeqLen}),
               qFold, keyT)
           .getResult();
-  Value qk = reshapeTo(qkFold, {batch, numHeads, querySeqLen, keySeqLen});
+  Value qk =
+      ttir::utils::createReshapeOp(rewriter, loc, qkFold,
+                                   {batch, numHeads, querySeqLen, keySeqLen})
+          .getResult();
 
   // relu(QK^T).
   Value qkRelu =
