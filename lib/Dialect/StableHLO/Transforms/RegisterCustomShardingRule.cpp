@@ -1160,9 +1160,11 @@ getAllToAllDispatchShardingRule(mlir::stablehlo::CustomCallOp op) {
     return mlir::sdy::OpShardingRuleAttr();
   }
 
-  // Extract dimension sizes
+  // Extract dimension sizes. The custom op canonicalizes operands to
+  // [B, 1, S, H] / [B, 1, S, K] (see all_to_all_dispatch in custom_ops.py:
+  // input_tensor.reshape(B, 1, S, H)), so the token dim S is dim2, NOT dim1.
   int64_t bDim = inputType.getShape()[0];   // B
-  int64_t sDim = inputType.getShape()[1];   // S
+  int64_t sDim = inputType.getShape()[2];   // S (dim2, the token dim)
   int64_t hDim = inputType.getShape()[3];   // H
   int64_t kDim = indicesType.getShape()[3]; // K
   int64_t eDim = mappingType.getShape()[2]; // E
@@ -1208,9 +1210,12 @@ getAllToAllDispatchShardingRule(mlir::stablehlo::CustomCallOp op) {
                     mlir::sdy::FactorType::kNeedReplication,
                     /*isBlocked=*/true);
 
-  // S factor: input[0]=dim1, input[1]=dim1, input[2]=kNull,
-  //           result[0]=dim2, result[1]=dim2
-  builder.addFactor({1, 1, mlir::sdy::kNullDim}, {2, 2}, sDim,
+  // S factor: input[0]=dim2, input[1]=dim2, input[2]=kNull,
+  //           result[0]=dim2, result[1]=dim2.
+  // Tying input and indices on dim2 (isBlocked) stops Shardy from independently
+  // resharding the indices' token dim, which would mismatch the batch-sharded
+  // input at the all_to_all_dispatch shape check.
+  builder.addFactor({2, 2, mlir::sdy::kNullDim}, {2, 2}, sDim,
                     mlir::sdy::FactorType::kNeedReplication,
                     /*isBlocked=*/true);
 

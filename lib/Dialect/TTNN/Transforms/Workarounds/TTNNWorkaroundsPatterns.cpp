@@ -763,6 +763,15 @@ const std::set<mlir::StringRef>
         ttnn::PrepareMoEComputeW2WeightsOp::getOperationName(),
         ttnn::MoeComputeOp::getOperationName(),
         ttnn::AllToAllDispatchMetadataOp::getOperationName(),
+        // The sparse-EP prefill MoE chain ops are all [OpModelExempt], so the
+        // optimizer defaults their operands to Tile while their tt-metal kernels
+        // hard-reject non-ROW_MAJOR input. Enabling their operand workarounds here
+        // pins the required layouts, so the full prefill+decode graph runs at
+        // optimization_level>=1 (decode-only sidestepped this chain).
+        ttnn::AllToAllDispatchOp::getOperationName(),
+        ttnn::MoeExpertTokenRemapOp::getOperationName(),
+        ttnn::SparseMatmulOp::getOperationName(),
+        ttnn::AllToAllCombineOp::getOperationName(),
         // Conv3d's runtime kernel hard-rejects Tile input
         // (TT_FATAL @ conv3d_device_operation.cpp:49); without the
         // workaround running here, the optimizer's layout propagation

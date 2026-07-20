@@ -325,12 +325,14 @@ static void registerBuiltinComposites() {
             loc, /*placeholder=*/w2Ty, a.w2, a.bias2, device, hiddenSizeAttr,
             intermediateSizeAttr);
 
-        // Fabric-mux cores: same 3x3 default at (1,1) as the standalone
-        // MoeComputeOpConversionPattern.
+        // Fabric-mux cores: 3x3 pool at (3,6)-(5,8) (bottom-center). The default
+        // (1,1) top-left block collides with the matmul ring / combine strip on
+        // the harvested 8x9 grid for large-hidden MoE (DeepSeek hidden=7168);
+        // bottom-center frees the top rows so the layout fits. gpt-oss unaffected.
         ttnn::CoreRangeSetAttr muxCoreRangeSet = ttnn::CoreRangeSetAttr::get(
             ctx,
-            ttnn::CoreRangeAttr::get(ctx, ttnn::CoreCoordAttr::get(ctx, 1, 1),
-                                     ttnn::CoreCoordAttr::get(ctx, 3, 3)));
+            ttnn::CoreRangeAttr::get(ctx, ttnn::CoreCoordAttr::get(ctx, 3, 6),
+                                     ttnn::CoreCoordAttr::get(ctx, 5, 8)));
 
         auto activationAttr =
             ttcore::MoEActivationFunctionAttr::get(ctx, a.activation);
