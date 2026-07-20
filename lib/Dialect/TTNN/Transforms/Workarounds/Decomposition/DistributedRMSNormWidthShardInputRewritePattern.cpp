@@ -75,18 +75,57 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   int64_t maxCores =
       physicalGrid[0] * physicalGrid[1]; // total cores in physical grid
 
-  // Pick the largest core count that evenly divides numWidthTiles,
-  // capped by the physical grid size.
+  // Choose the shard core grid. The fused kernel's LayerNorm program-config
+  // grid and its cross-device semaphore core range are both derived downstream
+  // from the *bounding box* of this shard (see the program config computed
+  // below and DistributedRMSNormOp::allocateSemaphores). If the shard cores do
+  // not fill a solid rectangle, that bounding box contains cores with no shard,
+  // which the fused kernel reads as garbage. This is what corrupts the b128
+  // decode path: 28 width tiles placed row-major on an 8-wide grid give a
+  // non-rectangular core set whose bounding box is 8x4 (four empty cores).
+  // Placing the shard as an exact rectangle keeps boundingBox == shardCoreSet,
+  // so every core in the program grid owns a shard.
+  //
+  // Pick the largest core count that (a) evenly divides numWidthTiles and
+  // (b) factors into a rectangle that fits the worker grid. Prefer the tallest
+  // rectangle, mirroring the validated tt-metal decode config (28 cores ->
+  // 4 wide x 7 tall).
+  int64_t workerGridH = physicalGrid[0];
+  int64_t workerGridW = physicalGrid[1];
   int64_t numCores = 1;
+  int64_t shardGridH = 1;
+  int64_t shardGridW = 1;
   for (int64_t c = std::min(maxCores, numWidthTiles); c >= 1; --c) {
-    if (numWidthTiles % c == 0) {
+    if (numWidthTiles % c != 0) {
+      continue;
+    }
+    bool placed = false;
+    for (int64_t h = std::min(workerGridH, c); h >= 1; --h) {
+      if (c % h == 0 && c / h <= workerGridW) {
+        shardGridH = h;
+        shardGridW = c / h;
+        placed = true;
+        break;
+      }
+    }
+    if (placed) {
       numCores = c;
       break;
     }
   }
-  SmallVector<int64_t> virtualGridSize = {1, numCores};
 
-  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op.getOperation());
+  // Width-sharded tensors keep a [1, numCores] logical shard grid (all shards
+  // lie along the width); the 2D core rectangle is carried by the explicit
+  // CoreRangeSet. Setting it directly (rather than via canonical row-major
+  // placement) guarantees a solid rectangle with no ragged trailing row.
+  SmallVector<int64_t> virtualGridSize = {1, numCores};
+  ttnn::CoreRangeSetAttr shardCoreRangeSet = ttnn::CoreRangeSetAttr::get(
+      rewriter.getContext(),
+      ttnn::CoreRangeAttr::get(
+          rewriter.getContext(),
+          ttnn::CoreCoordAttr::get(rewriter.getContext(), 0, 0),
+          ttnn::CoreCoordAttr::get(rewriter.getContext(), shardGridW - 1,
+                                   shardGridH - 1)));
 
   // Create layout attribute for the input tensor with width-sharded L1 config.
   ttnn::TTNNLayoutAttr desiredInputLayout =
@@ -95,7 +134,8 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
           .setBufferType(ttnn::BufferType::L1)
           .setMemoryLayout(ttnn::TensorMemoryLayout::WidthSharded)
           .setGridShape(virtualGridSize)
-          .buildWithCanonicalCorePlacement(deviceAttr);
+          .setCoreRangeSet(shardCoreRangeSet)
+          .build();
 
   if (currentInputLayout == desiredInputLayout) {
     return failure();
