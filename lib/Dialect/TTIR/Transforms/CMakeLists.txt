@@ -21,6 +21,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         ReductionForceKeepDim.cpp
         Transforms.cpp
         TTIRFusing.cpp
+        Fusing/MatmulReduceScatterFusingPattern.cpp
         Fusing/RoPEFusingPattern.cpp
         Fusing/TopKFusingPattern.cpp
         MultiDeviceTensorAnnotation.cpp

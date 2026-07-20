@@ -20,6 +20,7 @@
 #include "operations/ccl/all_to_all_dispatch_metadata.h"
 #include "operations/ccl/distribute_tensor.h"
 #include "operations/ccl/mesh_partition.h"
+#include "operations/ccl/minimal_matmul_strided_reduce_scatter_async.h"
 #include "operations/ccl/moe_compute.h"
 #include "operations/ccl/moe_expert_token_remap.h"
 #include "operations/ccl/moe_gpt.h"
@@ -544,6 +545,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     return operations::ccl::run(op->type_as_ReduceScatterOp(), getContext());
+  }
+  case ::tt::target::ttnn::OpType::MinimalMatmulStridedReduceScatterAsyncOp: {
+    return operations::ccl::run(
+        op->type_as_MinimalMatmulStridedReduceScatterAsyncOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::MeshPartitionOp: {
     return operations::ccl::run(op->type_as_MeshPartitionOp(), getContext());

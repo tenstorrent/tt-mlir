@@ -25,6 +25,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/distribute_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/mesh_partition.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/point_to_point.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/minimal_matmul_strided_reduce_scatter_async.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/reduce_scatter.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/context/get_device.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv1d.cpp

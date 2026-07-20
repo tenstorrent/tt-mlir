@@ -97,6 +97,7 @@ union OpType {
   SparseMatmulOp,
   MaxPool2dWithIndicesOp,
   MeshPartitionOp,
+  MinimalMatmulStridedReduceScatterAsyncOp,
   MoeExpertTokenRemapOp,
   MoeGptOp,
   PrepareMoEComputeW0W1WeightsOp,
