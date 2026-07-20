@@ -113,6 +113,29 @@ def d2m_mem_space(mem_space_str: str) -> str:
     return _tl._to_mem_space(mem_space_str.lower())
 
 
+def layout_from_spec(spec, *, grid_shape, block_shape=None, shape=None, tiled=True):
+    """Build a ``d2m.Layout`` from a ``TensorSpec``, honoring its ``mem_space``.
+
+    Centralizes Layout construction so every materializer applies the swept
+    per-tensor ``mem_space`` (and ``block_shape``) knob without having to
+    remember to thread ``mem_space`` through ``d2m.Layout`` by hand -- the
+    autotuner rejects any config whose ``mem_space`` never reaches a Layout.
+    ``block_shape`` / ``shape`` override the spec's values when a materializer
+    needs a different physical layout than the spec's declared one (e.g. an
+    output tensor); both default to the spec.
+    """
+    import d2m_jit as d2m
+
+    return d2m.Layout(
+        shape=tuple(shape if shape is not None else spec.shape),
+        dtype=d2m_dtype(spec.dtype),
+        block_shape=list(block_shape if block_shape is not None else spec.block_shape),
+        grid_shape=list(grid_shape),
+        tiled=tiled,
+        mem_space=d2m_mem_space(spec.mem_space),
+    )
+
+
 @dataclass
 class PatternTest:
     """Rewrite-correctness spec: one input module -> FileCheck.
@@ -353,15 +376,13 @@ def eltwise_block_run(kernel, inputs, tensors, grid_shape):
         blocks_n % gx == 0
     ), f"N blocks ({blocks_n}) not evenly divisible by grid_shape[1]={gx}"
 
-    L = d2m.Layout(
-        shape=tuple(ts.shape),
-        dtype=d2m_dtype(ts.dtype),
-        block_shape=[bm, bn],
-        grid_shape=[gy, gx],
-        tiled=True,
-    )
-    ins = [d2m.to_layout(t, L) for t in inputs]
-    out = d2m.empty(L)
+    # One Layout per input so each tensor's swept ``mem_space`` is honored;
+    # the output inherits the first input's placement.
+    ins = [
+        d2m.to_layout(t, layout_from_spec(spec, grid_shape=[gy, gx]))
+        for t, spec in zip(inputs, tensors)
+    ]
+    out = d2m.empty(layout_from_spec(ts, grid_shape=[gy, gx]))
     m_blocks = blocks_m // gy
     n_blocks = blocks_n // gx
     kernel(*ins, out, m_blocks, n_blocks, grid=(gy, gx))
