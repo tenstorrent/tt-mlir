@@ -72,8 +72,6 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   // Retrieve the physical grid shape for the device.
   auto physicalGrid =
       ttcore::getCurrentScopeSystemDesc(op).getChipDescs()[0].getGrid();
-  int64_t maxCores =
-      physicalGrid[0] * physicalGrid[1]; // total cores in physical grid
 
   // Choose the shard core grid. The fused kernel's LayerNorm program-config
   // grid and its cross-device semaphore core range are both derived downstream
@@ -83,36 +81,15 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   // which the fused kernel reads as garbage. This is what corrupts the b128
   // decode path: 28 width tiles placed row-major on an 8-wide grid give a
   // non-rectangular core set whose bounding box is 8x4 (four empty cores).
-  // Placing the shard as an exact rectangle keeps boundingBox == shardCoreSet,
-  // so every core in the program grid owns a shard.
-  //
-  // Pick the largest core count that (a) evenly divides numWidthTiles and
-  // (b) factors into a rectangle that fits the worker grid. Prefer the tallest
-  // rectangle, mirroring the validated tt-metal decode config (28 cores ->
-  // 4 wide x 7 tall).
-  int64_t workerGridH = physicalGrid[0];
-  int64_t workerGridW = physicalGrid[1];
-  int64_t numCores = 1;
-  int64_t shardGridH = 1;
-  int64_t shardGridW = 1;
-  for (int64_t c = std::min(maxCores, numWidthTiles); c >= 1; --c) {
-    if (numWidthTiles % c != 0) {
-      continue;
-    }
-    bool placed = false;
-    for (int64_t h = std::min(workerGridH, c); h >= 1; --h) {
-      if (c % h == 0 && c / h <= workerGridW) {
-        shardGridH = h;
-        shardGridW = c / h;
-        placed = true;
-        break;
-      }
-    }
-    if (placed) {
-      numCores = c;
-      break;
-    }
-  }
+  // chooseWidthShardCoreGrid returns a solid rectangle so that
+  // boundingBox == shardCoreSet and every core in the program grid owns a
+  // shard.
+  WidthShardCoreGrid shardGrid =
+      chooseWidthShardCoreGrid(numWidthTiles, /*workerGridH=*/physicalGrid[0],
+                               /*workerGridW=*/physicalGrid[1]);
+  int64_t numCores = shardGrid.numCores;
+  int64_t shardGridH = shardGrid.gridH;
+  int64_t shardGridW = shardGrid.gridW;
 
   // Width-sharded tensors keep a [1, numCores] logical shard grid (all shards
   // lie along the width); the 2D core rectangle is carried by the explicit

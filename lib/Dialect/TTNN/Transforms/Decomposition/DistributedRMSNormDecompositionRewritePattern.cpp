@@ -11,8 +11,6 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
-#include <cstdlib>
-
 namespace mlir::tt::ttnn::decomposition {
 
 namespace {
@@ -25,10 +23,6 @@ namespace {
 //   - input shape with second-to-last dim == 32, last dim a multiple of 32,
 //     and all leading dims == 1 (canonical (1,...,1,32,M)).
 bool isEligibleForFusedKernel(ttnn::DistributedRMSNormOp op) {
-  // Debug toggle (Kimi-K2.6 b128 decode isolation): force the decomposed path.
-  if (std::getenv("TT_DISABLE_FUSED_RMSNORM") != nullptr) {
-    return false;
-  }
   if (!op.getWeight()) {
     return false;
   }
