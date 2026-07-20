@@ -14,10 +14,19 @@ from ._src.utils import _asindex
 from ._src.ast import syntax
 from ._src.config import config
 from ._src.errors import D2mJitError
-from ._src.tensor_layout import Layout, float32, float16, bfloat16, _to_data_type
+from ._src.tensor_layout import (
+    Layout,
+    float32,
+    float16,
+    bfloat16,
+    uint32,
+    _to_data_type,
+)
 from ._src.builder import (
     CompiledKernel,
+    GlobalSemaphore,
     LazyTensor,
+    MeshShard,
     kernel,
     to_layout,
     tilize,
@@ -32,6 +41,10 @@ from ._src.builder import (
     permute,
     reshape,
     to_host,
+    global_semaphore,
+    mesh,
+    mesh_shard,
+    mesh_gather,
 )
 from ._src.rewrite import (
     pattern,
@@ -1160,6 +1173,14 @@ class Semaphore:
             ast_self, _asindex(value), _asindex(core), _asindex(mcast)
         )
 
+    def wait(ast_self, value, reset=None):
+        return d2m.semaphore_wait(
+            ast_self, _asindex(value), reset_value=_asindex(reset)
+        )
+
+
+@syntax("!d2m.global_semaphore")
+class GlobalSemaphoreOps:
     def wait(ast_self, value, reset=None):
         return d2m.semaphore_wait(
             ast_self, _asindex(value), reset_value=_asindex(reset)
