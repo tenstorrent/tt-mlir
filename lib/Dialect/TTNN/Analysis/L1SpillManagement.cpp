@@ -1661,10 +1661,22 @@ void L1SpillManagement<MemoryTracker>::evictForDramCBGrowth(
   auto result = memoryTracker.validateBackendDirect(op, inputLayouts, config,
                                                     /*additionalL1Usage=*/0);
   if (!result.isSuccess()) {
-    op->emitError("L1SpillManagement: DRAM output config failed validation "
-                  "after demotion (")
-        << result.errorMessage << "); this indicates a compiler bug";
-    compilationFailed = true;
+    // The op's demoted (DRAM-interleaved) output config does not validate given
+    // its current inputs. This is expected for layout-constrained ops: e.g.
+    // ttnn.typecast requires input and output memory layouts to match
+    // (typecast_device_op.cpp), so a DRAM-interleaved output paired with a
+    // still-sharded L1 input is rejected. Such an op cannot be CB-managed by
+    // demoting its output. Rather than abort the whole pass, leave the op as-is
+    // and let the downstream OperationValidationAndFallback pass reconcile the
+    // layout -- the same recovery the pass gets when this op-model error is
+    // classified as a plain backend error. Aborting here instead regresses
+    // models whose CB-vs-L1 clash lands on such an op
+    // (https://github.com/tenstorrent/tt-mlir/issues/9064).
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    DRAM_CB_SKIP: {0} DRAM-output config failed validation "
+                 "after demotion ({1}); leaving op for downstream layout fixup",
+                 op->getName(),
+                 ttmlir::utils::firstNLines(result.errorMessage, 1));
     return;
   }
   if (result.cbPeakUsage == 0) {
