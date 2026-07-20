@@ -21,6 +21,7 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/Error.h"
 
 #include "gtest/gtest.h"
 
@@ -456,6 +457,53 @@ TEST_F(OpConstraintValidationTest, ValidationStatusOutOfMemoryError) {
   EXPECT_FALSE(result.isSuccess());
   EXPECT_FALSE(result.isNotImplemented());
   EXPECT_FALSE(result.errorMessage.empty());
+}
+
+// Regression test for https://github.com/tenstorrent/tt-mlir/issues/9064:
+// The stateful (build-from-records) op-model query places live tensors at real
+// addresses, so an op whose static circular buffers overlap a still-live L1
+// input surfaces the tt-metal CB-clash exception ("Statically allocated
+// circular buffers ... clash with L1 buffers ...").  This is an L1-pressure
+// condition recoverable by evict-and-refit, so checkConstraintsResult must
+// classify it as OutOfMemoryError (routing the spill pass to handleOOM), NOT
+// MetalBackendError (which only demotes the op's output to DRAM and leaves the
+// clashing L1 input in place -> runtime crash).
+TEST_F(OpConstraintValidationTest, ClashWithL1BuffersClassifiedAsOOM) {
+  auto addOp = createMockAddOp();
+
+  llvm::Expected<op_model::OpConstraints> clashError =
+      llvm::make_error<llvm::StringError>(
+          "TT_THROW @ program.cpp:1612: tt::exception\n"
+          "Statically allocated circular buffers in program 42 clash with L1 "
+          "buffers on core range [0-0 - 7-7]. L1 buffer allocated at 253952 "
+          "and static circular buffer region ends at 646208",
+          llvm::inconvertibleErrorCode());
+
+  auto result = op_constraint_validation::checkConstraintsResult(
+      addOp.getOperation(), std::move(clashError));
+
+  EXPECT_EQ(result.status,
+            op_constraint_validation::ValidationStatus::OutOfMemoryError);
+  EXPECT_TRUE(result.isError());
+}
+
+// Companion to the above: a genuine backend constraint error (carrying neither
+// the "Out of Memory" nor the "clash with L1 buffers" marker) must remain a
+// MetalBackendError so the op is demoted rather than sent through evict-refit.
+TEST_F(OpConstraintValidationTest, GenericBackendErrorStaysBackendError) {
+  auto addOp = createMockAddOp();
+
+  llvm::Expected<op_model::OpConstraints> backendError =
+      llvm::make_error<llvm::StringError>(
+          "Unsupported data type combination for op",
+          llvm::inconvertibleErrorCode());
+
+  auto result = op_constraint_validation::checkConstraintsResult(
+      addOp.getOperation(), std::move(backendError));
+
+  EXPECT_EQ(result.status,
+            op_constraint_validation::ValidationStatus::MetalBackendError);
+  EXPECT_TRUE(result.isError());
 }
 
 // Test ValidationStatus::UnmatchedReferenceConfig
