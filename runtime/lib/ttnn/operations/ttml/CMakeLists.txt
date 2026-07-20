@@ -8,17 +8,15 @@ if (NOT TTNN_RUNTIME_ENABLED)
   return()
 endif()
 
-set(TTML_ENABLED_OP_DIRS
-  optimizers/adamw
+set(_ttml_metal ${TTML_SOURCE_DIR}/metal)
+set(TTML_METAL_OP_SRCS
+  # optimizers/adamw
+  ${_ttml_metal}/optimizers/adamw/adamw.cpp
+  ${_ttml_metal}/optimizers/adamw/device/adamw_device_operation.cpp
+  ${_ttml_metal}/optimizers/adamw/device/adamw_program_factory.cpp
 )
 
-set(TTML_METAL_OP_SRCS "")
-foreach(_op_dir ${TTML_ENABLED_OP_DIRS})
-  file(GLOB_RECURSE _op_srcs CONFIGURE_DEPENDS
-    ${TTML_SOURCE_DIR}/metal/${_op_dir}/*.cpp)
-  list(FILTER _op_srcs EXCLUDE REGEX "/kernels/")
-  list(APPEND TTML_METAL_OP_SRCS ${_op_srcs})
-endforeach()
+set_source_files_properties(${TTML_METAL_OP_SRCS} PROPERTIES GENERATED TRUE)
 
 add_library(TTRuntimeTTMLOps STATIC
   ttml.cpp
@@ -30,10 +28,8 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x86|i386|i686)$")
   target_compile_options(TTRuntimeTTMLOps PRIVATE -march=x86-64-v3)
 endif()
 
-if(TTML_METAL_OP_SRCS)
-  set_source_files_properties(${TTML_METAL_OP_SRCS} PROPERTIES
-    COMPILE_OPTIONS "-Wno-error;-Wno-missing-designated-field-initializers")
-endif()
+set_source_files_properties(${TTML_METAL_OP_SRCS} PROPERTIES
+  COMPILE_OPTIONS "-Wno-error;-Wno-missing-designated-field-initializers")
 
 target_include_directories(TTRuntimeTTMLOps PUBLIC
   ${PROJECT_SOURCE_DIR}/runtime/lib/ttnn
