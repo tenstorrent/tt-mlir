@@ -9372,10 +9372,10 @@ namespace {
 //   masked to -inf where t > chunk_start_idx + s.
 //
 // q [B, Hi, Sq, D], k [B, 1, T, D], weights [B, Hi, Sq, 1] -> [B, 1, Sq, T].
-static Value buildIndexerScoreDsaDecompositionBody(OpBuilder &builder,
-                                                   Location loc, Value query,
-                                                   Value key, Value weights,
-                                                   uint32_t chunkStartIdx) {
+static Value
+buildIndexerScoreDsaDecompositionBody(ConversionPatternRewriter &rewriter,
+                                      Location loc, Value query, Value key,
+                                      Value weights, uint32_t chunkStartIdx) {
   auto queryType = mlir::cast<RankedTensorType>(query.getType());
   auto keyType = mlir::cast<RankedTensorType>(key.getType());
   ArrayRef<int64_t> qShape = queryType.getShape();
@@ -9393,11 +9393,7 @@ static Value buildIndexerScoreDsaDecompositionBody(OpBuilder &builder,
     return RankedTensorType::get(shape, elemType, encoding);
   };
   auto reshapeTo = [&](Value v, ArrayRef<int64_t> newShape) -> Value {
-    SmallVector<int32_t> shapeI32(newShape.begin(), newShape.end());
-    return builder
-        .create<ttir::ReshapeOp>(loc, tensorType(newShape), v,
-                                 builder.getI32ArrayAttr(shapeI32))
-        .getResult();
+    return ttir::utils::createReshapeOp(rewriter, loc, v, newShape).getResult();
   };
 
   // Fold the query heads into the sequence dim so a single batched matmul
@@ -9405,15 +9401,15 @@ static Value buildIndexerScoreDsaDecompositionBody(OpBuilder &builder,
   Value qFold = reshapeTo(query, {batch, 1, numHeads * querySeqLen, headDim});
 
   // K^T: [B, 1, T, D] -> [B, 1, D, T].
-  Value keyT = builder
+  Value keyT = rewriter
                    .create<ttir::PermuteOp>(
                        loc, tensorType({batch, 1, headDim, keySeqLen}), key,
-                       builder.getDenseI64ArrayAttr({0, 1, 3, 2}))
+                       rewriter.getDenseI64ArrayAttr({0, 1, 3, 2}))
                    .getResult();
 
   // QK^T (grouped form), then unfold heads: [B, Hi, Sq, T].
   Value qkFold =
-      builder
+      rewriter
           .create<ttir::MatmulOp>(
               loc, tensorType({batch, 1, numHeads * querySeqLen, keySeqLen}),
               qFold, keyT)
@@ -9422,20 +9418,20 @@ static Value buildIndexerScoreDsaDecompositionBody(OpBuilder &builder,
 
   // relu(QK^T).
   Value qkRelu =
-      builder
+      rewriter
           .create<ttir::ReluOp>(
               loc, tensorType({batch, numHeads, querySeqLen, keySeqLen}), qk)
           .getResult();
 
   // Multiply by the per-head gate weights, broadcast over the key dim.
   Value weightsBcast =
-      builder
+      rewriter
           .create<ttir::BroadcastOp>(
               loc, tensorType({batch, numHeads, querySeqLen, keySeqLen}),
               weights, SmallVector<int64_t>{1, 1, 1, keySeqLen})
           .getResult();
   Value weighted =
-      builder
+      rewriter
           .create<ttir::MultiplyOp>(
               loc, tensorType({batch, numHeads, querySeqLen, keySeqLen}),
               qkRelu, weightsBcast)
@@ -9443,11 +9439,12 @@ static Value buildIndexerScoreDsaDecompositionBody(OpBuilder &builder,
 
   // Sum over the head dim: [B, 1, Sq, T].
   auto scoreType = tensorType({batch, 1, querySeqLen, keySeqLen});
-  Value score = builder
-                    .create<ttir::SumOp>(loc, scoreType, weighted,
-                                         builder.getBoolAttr(/*keep_dim=*/true),
-                                         builder.getI32ArrayAttr({1}))
-                    .getResult();
+  Value score =
+      rewriter
+          .create<ttir::SumOp>(loc, scoreType, weighted,
+                               rewriter.getBoolAttr(/*keep_dim=*/true),
+                               rewriter.getI32ArrayAttr({1}))
+          .getResult();
 
   // Causal mask: visible iff key index t <= chunk_start_idx + query index s.
   // Future positions get an additive -inf. The index arithmetic and the
@@ -9456,43 +9453,43 @@ static Value buildIndexerScoreDsaDecompositionBody(OpBuilder &builder,
   // chunk_start_idx pushes the compared magnitudes well past that for long DSA
   // contexts.
   auto indexType = RankedTensorType::get({batch, 1, querySeqLen, keySeqLen},
-                                         builder.getI32Type(), encoding);
-  Value rowIdx = builder
+                                         rewriter.getI32Type(), encoding);
+  Value rowIdx = rewriter
                      .create<ttir::ArangeOp>(loc, indexType, /*start=*/0,
                                              /*end=*/querySeqLen, /*step=*/1,
                                              /*arange_dimension=*/2)
                      .getResult();
-  Value colIdx = builder
+  Value colIdx = rewriter
                      .create<ttir::ArangeOp>(loc, indexType, /*start=*/0,
                                              /*end=*/keySeqLen, /*step=*/1,
                                              /*arange_dimension=*/3)
                      .getResult();
   Value chunkStartConst =
-      builder
+      rewriter
           .create<ttir::FullOp>(
               loc, indexType,
-              builder.getI32IntegerAttr(static_cast<int32_t>(chunkStartIdx)))
+              rewriter.getI32IntegerAttr(static_cast<int32_t>(chunkStartIdx)))
           .getResult();
   Value threshold =
-      builder.create<ttir::AddOp>(loc, indexType, rowIdx, chunkStartConst)
+      rewriter.create<ttir::AddOp>(loc, indexType, rowIdx, chunkStartConst)
           .getResult();
   Value visibleBool =
-      builder.create<ttir::GreaterEqualOp>(loc, indexType, threshold, colIdx)
+      rewriter.create<ttir::GreaterEqualOp>(loc, indexType, threshold, colIdx)
           .getResult();
   Value zeros =
-      builder
-          .create<ttir::FullOp>(loc, scoreType, builder.getF32FloatAttr(0.0f))
+      rewriter
+          .create<ttir::FullOp>(loc, scoreType, rewriter.getF32FloatAttr(0.0f))
           .getResult();
   Value negInf =
-      builder
+      rewriter
           .create<ttir::FullOp>(
               loc, scoreType,
-              builder.getF32FloatAttr(-std::numeric_limits<float>::infinity()))
+              rewriter.getF32FloatAttr(-std::numeric_limits<float>::infinity()))
           .getResult();
   Value maskAdd =
-      builder.create<ttir::WhereOp>(loc, scoreType, visibleBool, zeros, negInf)
+      rewriter.create<ttir::WhereOp>(loc, scoreType, visibleBool, zeros, negInf)
           .getResult();
-  return builder.create<ttir::AddOp>(loc, scoreType, score, maskAdd)
+  return rewriter.create<ttir::AddOp>(loc, scoreType, score, maskAdd)
       .getResult();
 }
 
