@@ -9536,8 +9536,8 @@ namespace {
 //
 // input [..., N] bf16 -> [..., k] ui32.
 static Value
-buildTopKLargeIndicesDecompositionBody(OpBuilder &builder, Location loc,
-                                       Value input, uint32_t k,
+buildTopKLargeIndicesDecompositionBody(ConversionPatternRewriter &rewriter,
+                                       Location loc, Value input, uint32_t k,
                                        RankedTensorType outputType) {
   auto inputType = mlir::cast<RankedTensorType>(input.getType());
   int64_t rank = inputType.getRank();
@@ -9548,12 +9548,12 @@ buildTopKLargeIndicesDecompositionBody(OpBuilder &builder, Location loc,
   auto valuesType = RankedTensorType::get(topkShape, inputType.getElementType(),
                                           inputType.getEncoding());
 
-  auto topKOp = builder.create<ttir::TopKOp>(
+  auto topKOp = rewriter.create<ttir::TopKOp>(
       loc, valuesType, /*indices=*/outputType, input,
-      builder.getI32IntegerAttr(static_cast<int32_t>(k)),
-      /*dim=*/builder.getI32IntegerAttr(-1),
-      /*largest=*/builder.getBoolAttr(true),
-      /*sorted=*/builder.getBoolAttr(true));
+      rewriter.getI32IntegerAttr(static_cast<int32_t>(k)),
+      /*dim=*/rewriter.getI32IntegerAttr(-1),
+      /*largest=*/rewriter.getBoolAttr(true),
+      /*sorted=*/rewriter.getBoolAttr(true));
   return topKOp.getIndices();
 }
 
