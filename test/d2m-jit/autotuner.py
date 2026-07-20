@@ -64,7 +64,7 @@ CLI usage
     python test/d2m-jit/autotuner.py \\
         --kernel test/d2m-jit/kernels/prefill/rope.py \\
         --bench rope \\
-        [--strategy sweep|hill-climb] \\
+        [--strategy sweep|hill-climb|default] \\
         [--grid-shapes 1x1,2x2,4x4] \\
         [--block-shapes 1x1,2x2] \\
         [--mem-spaces L1,DRAM] \\
@@ -79,33 +79,32 @@ CLI usage
         [--max-cores 8] \\
         [--max-block 8] \\
         [--max-rounds 10] \\
-        [--n-warmup 1]
+        [--n-warmup 1] \\
+        [--quiet]
+
+Omitting ``--bench`` tunes every ``KernelBench`` declared in the kernel file.
 
 Module usage
 ------------
-::
+The high-level ``autotune_kernel`` helper does everything in one call: it loads
+the kernel file, tunes the requested benches, and writes ``results.json`` /
+``summary.txt`` under ``output_dir``::
 
-    import importlib.util, pathlib, sys
-    sys.path.insert(0, "test/d2m-jit")
-    from autotuner import Autotuner, AutotuneKnobs
-
-    spec = importlib.util.spec_from_file_location(
-        "rope", "test/d2m-jit/kernels/prefill/rope.py"
-    )
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    bench = mod.KERNEL_BENCHES["rope"]
+    from autotuner import autotune_kernel, AutotuneKnobs
 
     knobs = AutotuneKnobs(
-        grid_shapes=[(1, 1), (2, 2), (4, 4)],
+        grid_shapes=[(1, 1), (2, 2)],
         block_shapes=[[1, 1], [2, 2]],
         mem_spaces=["L1"],
     )
-    tuner = Autotuner(knobs=knobs, output_dir="autotune-artifacts")
-    results = tuner.run_bench(bench, bench_name="rope")
-    tuner.save_results("rope", results)
-    tuner.save_summary({"rope": results})
-
+    results = autotune_kernel(
+        "test/d2m-jit/kernels/prefill/rope.py",
+        bench_names=["rope"],          # None → tune every bench in the file
+        knobs=knobs,                   # Omit to sweep all valid configs (full-sweep mode)
+        check_pcc=True,
+        strategy="hill-climb",         # or "sweep" (default) / "default"
+        output_dir="autotune-artifacts",
+    )
 """
 
 from __future__ import annotations
