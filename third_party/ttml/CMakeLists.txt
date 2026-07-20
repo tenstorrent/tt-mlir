@@ -33,11 +33,11 @@ target_include_directories(ttml_metal_ops PRIVATE ${TTML_SOURCE_DIR})
 target_include_directories(ttml_metal_ops SYSTEM PUBLIC "$<BUILD_INTERFACE:${TTMETAL_INCLUDE_DIRS}>")
 
 target_link_libraries(ttml_metal_ops PUBLIC
-  ${TTNN_LIBRARY_PATH}
-  ${TTMETAL_LIBRARY_PATH}
-  ${TT_STL_LIBRARY_PATH}
-  ${DEVICE_LIBRARY_PATH}
-  ${TRACY_LIBRARY_PATH}
+  TTNN_LIBRARY
+  TTMETAL_LIBRARY
+  TT_STL_LIBRARY
+  DEVICE_LIBRARY
+  TRACY_LIBRARY
   coverage_config
 )
 
