@@ -1,0 +1,319 @@
+# SPDX-FileCopyrightText: (c) 2026 Tenstorrent AI ULC
+#
+# SPDX-License-Identifier: Apache-2.0
+
+"""Simulator host API: the sim analogues of the `_src/builder.py` surface.
+
+These are bound over the real builder functions in `api.py` when
+`config.simulator` is set. Kernels run eagerly (each call mutates its output
+`SimTensor` in place); `to_host` just crops the physical buffer back to the
+logical shape.
+"""
+
+from __future__ import annotations
+
+import math
+import types
+
+import torch
+
+from .tensor import SimTensor, torch_dtype
+from .runtime import run_kernel
+
+# --- LazyTensor -------------------------------------------------------------
+
+_generation = [1]
+
+
+class SimLazyTensor:
+    """Host handle wrapping a mutable `SimTensor` (or a materialised result)."""
+
+    __slots__ = ("layout", "_sim", "materialized", "is_view", "generation")
+
+    def __init__(self, layout, sim_tensor, is_view=False):
+        self.layout = layout
+        self._sim = sim_tensor
+        self.materialized = None
+        self.is_view = is_view
+        self.generation = _generation[0]
+
+    def _ensure_fresh(self):
+        # Mirror the real builder: a tensor from a prior generation that was
+        # not materialised by its to_host() is "spent" and must not be reused.
+        # Materialised tensors auto-re-enter (see _sim_resolve).
+        if self.generation != _generation[0] and self.materialized is None:
+            raise RuntimeError(
+                "Stale LazyTensor: produced by a prior builder generation that "
+                "was reset by to_host(). Re-materialise its source or include it "
+                "in the to_host() call before reset."
+            )
+
+    def _sim_resolve(self) -> SimTensor:
+        self._ensure_fresh()
+        if self._sim is not None:
+            return self._sim
+        if self.materialized is not None:
+            self._sim = SimTensor.from_torch(self.layout, self.materialized)
+            return self._sim
+        raise RuntimeError("SimLazyTensor has no backing data")
+
+    def _sim_logical(self) -> torch.Tensor:
+        self._ensure_fresh()
+        if self._sim is not None:
+            return self._sim.to_logical()
+        if self.materialized is not None:
+            return self.materialized
+        raise RuntimeError("SimLazyTensor has no backing data")
+
+    def to_host(self):
+        return to_host(self)[0]
+
+
+# --- constructors -----------------------------------------------------------
+
+
+def to_layout(input_, layout) -> SimLazyTensor:
+    if isinstance(input_, SimLazyTensor):
+        assert list(input_.layout.logical_shape) == list(layout.logical_shape), (
+            f"to_layout shape mismatch: src {input_.layout.logical_shape} "
+            f"vs target {layout.logical_shape}"
+        )
+        logical = input_._sim_logical().to(torch_dtype(layout.dtype))
+        return SimLazyTensor(layout, SimTensor.from_torch(layout, logical))
+
+    if isinstance(input_, torch.Tensor):
+        assert list(input_.shape) == list(layout.logical_shape), (
+            f"to_layout shape mismatch: tensor {list(input_.shape)} "
+            f"vs layout {layout.logical_shape}"
+        )
+        return SimLazyTensor(layout, SimTensor.from_torch(layout, input_))
+
+    raise TypeError(
+        f"to_layout expected a torch.Tensor or LazyTensor, got {type(input_).__name__}"
+    )
+
+
+def tilize(lt, dtype=None) -> SimLazyTensor:
+    if not isinstance(lt, SimLazyTensor):
+        raise TypeError(f"tilize expected a LazyTensor, got {type(lt).__name__}")
+    overrides = {"tiled": True}
+    if dtype is not None:
+        overrides["dtype"] = dtype
+    return to_layout(lt, lt.layout.replace(**overrides))
+
+
+def untilize(lt, dtype=None) -> SimLazyTensor:
+    if not isinstance(lt, SimLazyTensor):
+        raise TypeError(f"untilize expected a LazyTensor, got {type(lt).__name__}")
+    overrides = {"tiled": False}
+    if dtype is not None:
+        overrides["dtype"] = dtype
+    return to_layout(lt, lt.layout.replace(**overrides))
+
+
+def empty(layout) -> SimLazyTensor:
+    return SimLazyTensor(layout, SimTensor.empty(layout))
+
+
+def full(layout, value) -> SimLazyTensor:
+    t = torch.full(
+        list(layout.logical_shape), float(value), dtype=torch_dtype(layout.dtype)
+    )
+    return SimLazyTensor(layout, SimTensor.from_torch(layout, t))
+
+
+def zeros(layout) -> SimLazyTensor:
+    return full(layout, 0)
+
+
+def arange(layout, start: int = 0, step: int = 1) -> SimLazyTensor:
+    numel = math.prod(layout.logical_shape)
+    flat = torch.arange(
+        start, start + numel * step, step, dtype=torch_dtype(layout.dtype)
+    )
+    return to_layout(flat.reshape(list(layout.logical_shape)), layout)
+
+
+# --- views ------------------------------------------------------------------
+
+
+def _as_perm_result(fn, n):
+    """Call `fn` with ints 0..n-1 and return the resulting tuple as ints."""
+    try:
+        result = fn(*range(n))
+    except TypeError as e:
+        raise ValueError(f"view lambda arity does not match rank {n}: {e}")
+    return list(result)
+
+
+def permute(lt, *dims) -> SimLazyTensor:
+    if not isinstance(lt, SimLazyTensor):
+        raise TypeError(f"permute expected a LazyTensor, got {type(lt).__name__}")
+    n = len(lt.layout.logical_shape)
+    if len(dims) != n:
+        raise ValueError(
+            f"permute: expected {n} dim indices for logical rank {n}, got {len(dims)}"
+        )
+    if sorted(dims) != list(range(n)):
+        raise ValueError(f"permute: {list(dims)} is not a permutation of 0..{n - 1}")
+    logical = lt._sim_logical().permute(*dims).contiguous()
+    new_layout = lt.layout.replace(
+        shape=[lt.layout.logical_shape[d] for d in dims],
+        block_shape=[lt.layout.block_shape[d] for d in dims],
+        grid_shape=[lt.layout.grid_shape[d] for d in dims],
+    )
+    return SimLazyTensor(
+        new_layout, SimTensor.from_torch(new_layout, logical), is_view=True
+    )
+
+
+def view(lt, remapping_fn) -> SimLazyTensor:
+    if not isinstance(lt, SimLazyTensor):
+        raise TypeError(f"view expected a LazyTensor, got {type(lt).__name__}")
+    n = len(lt.layout.logical_shape)
+    spec = _as_perm_result(remapping_fn, n)
+    if sorted(spec) != list(range(n)) or any(not isinstance(v, int) for v in spec):
+        raise ValueError(
+            "view: lambda must be a permutation of logical dims (no constants); "
+            "use view_layout for richer remappings"
+        )
+    return permute(lt, *spec)
+
+
+def view_layout(lt, remapping_fn) -> SimLazyTensor:
+    if not isinstance(lt, SimLazyTensor):
+        raise TypeError(f"view_layout expected a LazyTensor, got {type(lt).__name__}")
+    n = len(lt.layout.logical_shape)
+    phys_rank = 2 * n if lt.layout.tiled else n
+    spec = _as_perm_result(remapping_fn, phys_rank)
+
+    if spec == list(range(phys_rank)):
+        # Identity: metadata-only, data unchanged.
+        logical = lt._sim_logical()
+        return SimLazyTensor(
+            lt.layout, SimTensor.from_torch(lt.layout, logical), is_view=True
+        )
+
+    # Paired (grid, tile) permutation: [p0..p_{n-1}, p0+n..p_{n-1}+n].
+    head, tail = spec[:n], spec[n:]
+    if (
+        all(isinstance(v, int) and v < n for v in head)
+        and sorted(head) == list(range(n))
+        and tail == [p + n for p in head]
+    ):
+        return permute(lt, *head)
+
+    raise NotImplementedError(
+        "arithmetic view_layout (index remaps beyond identity/permutation) is "
+        "a Phase 2 simulator feature; got spec "
+        f"{spec} for physical rank {phys_rank}"
+    )
+
+
+def reshape(lt, *shape) -> SimLazyTensor:
+    if not isinstance(lt, SimLazyTensor):
+        raise TypeError(f"reshape expected a LazyTensor, got {type(lt).__name__}")
+    if len(shape) == 1 and isinstance(shape[0], (list, tuple)):
+        new_shape = tuple(shape[0])
+    else:
+        new_shape = tuple(shape)
+
+    src_numel = math.prod(lt.layout.logical_shape)
+    neg = [i for i, d in enumerate(new_shape) if d == -1]
+    if len(neg) > 1:
+        raise ValueError(
+            f"reshape: only one dimension may be inferred (-1), got {new_shape}"
+        )
+    if neg:
+        known = math.prod(d for d in new_shape if d != -1)
+        if known == 0 or src_numel % known != 0:
+            raise ValueError(
+                f"reshape: cannot infer -1 dimension from {new_shape} (src numel {src_numel})"
+            )
+        new_shape = tuple(src_numel // known if d == -1 else d for d in new_shape)
+
+    if math.prod(new_shape) != src_numel:
+        raise ValueError(
+            f"reshape: total element count must match: src {tuple(lt.layout.logical_shape)} "
+            f"({src_numel}) != dst {new_shape} ({math.prod(new_shape)})"
+        )
+
+    rank = len(new_shape)
+    dst_layout = lt.layout.replace(
+        shape=new_shape, block_shape=[1] * rank, grid_shape=[1] * rank
+    )
+    host = lt._sim_logical().reshape(new_shape)
+    return to_layout(host, dst_layout)
+
+
+# --- materialisation --------------------------------------------------------
+
+
+def to_host(*lts):
+    if not lts:
+        raise ValueError("to_host requires at least one LazyTensor")
+    outs = []
+    for i, lt in enumerate(lts):
+        if lt.is_view:
+            raise ValueError(
+                f"to_host: argument {i} is a view (created via view/view_layout). "
+                "Views are metadata reinterpretations and cannot be materialised "
+                "directly; convert first, e.g. to_layout(v, v.layout)."
+            )
+        outs.append(lt._sim_logical())
+    for lt, t in zip(lts, outs):
+        lt.materialized = t
+    _generation[0] += 1
+    return tuple(outs)
+
+
+# --- kernel dispatch --------------------------------------------------------
+
+
+class SimCompiledKernel:
+    """Runs a `@d2m.kernel` body as native Python via a globals rebind."""
+
+    def __init__(self, fn, builtins):
+        self.fn = fn
+        # Shadow the kernel-body vocabulary (core_index, remote_load, sigmoid,
+        # ...) into a copy of the function's own globals, then re-home the code
+        # object onto it so `for`/`if`/`+=`/method-calls run natively.
+        sim_globals = dict(fn.__globals__)
+        sim_globals.update(builtins)
+        self._sim_fn = types.FunctionType(
+            fn.__code__, sim_globals, fn.__name__, fn.__defaults__, fn.__closure__
+        )
+        self.__name__ = getattr(fn, "__name__", "kernel")
+
+    def __call__(
+        self,
+        *args,
+        grid,
+        num_outs: int = 1,
+        block_factors=None,
+        indexing_maps=None,
+        iterator_types=None,
+        kernel_io_in_dram=None,
+    ):
+        lazy_args, scalar_args, saw_scalar = [], [], False
+        for i, a in enumerate(args):
+            if isinstance(a, SimLazyTensor):
+                if saw_scalar:
+                    raise TypeError(
+                        f"argument {i} is a LazyTensor after a scalar; tensor args "
+                        "must precede scalars"
+                    )
+                lazy_args.append(a)
+            elif isinstance(a, int) and not isinstance(a, bool):
+                saw_scalar = True
+                scalar_args.append(a)
+            else:
+                raise TypeError(
+                    f"argument {i} has unsupported type {type(a).__name__}; kernel "
+                    "args must be LazyTensor or int"
+                )
+        if num_outs < 1:
+            raise ValueError(f"num_outs must be >= 1 (got {num_outs})")
+        # block_factors / indexing_maps / iterator_types / kernel_io_in_dram do
+        # not affect sim numerics; accepted and ignored.
+        run_kernel(self._sim_fn, lazy_args, scalar_args, grid)

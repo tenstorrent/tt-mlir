@@ -15,6 +15,12 @@ declare_mlir_python_sources(TTD2MJitSources
         _src/rewrite.py
         _src/tensor_layout.py
         _src/utils.py
+        _src/sim/__init__.py
+        _src/sim/block.py
+        _src/sim/host.py
+        _src/sim/ops.py
+        _src/sim/runtime.py
+        _src/sim/tensor.py
 )
 
 add_mlir_python_modules(TTD2MJitModules

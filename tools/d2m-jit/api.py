@@ -1673,3 +1673,21 @@ def _matmul_block(lhs, rhs, transpose_b=False, acc=None):
             result = result.result
         linalg.yield_([result])
     return generic.result
+
+
+# --- Simulator backend selection -------------------------------------------
+#
+# When `config.simulator` is set (env D2M_JIT_SIM), swap the host-API names
+# above for the pure-Python torch simulator. This runs during
+# `from d2m_jit.api import *`, so the re-exported names are the sim versions.
+# The @syntax-registered kernel-body ops stay as-is (unused by the sim, which
+# injects its own torch builtins into each kernel's globals). See
+# SIMULATOR_SPEC.md.
+if config.simulator:
+    import sys as _sys
+
+    from ._src import sim as _sim
+
+    # NOTE: `from ttmlir.ir import *` above shadows the builtin `globals`, so
+    # reach the module dict via sys.modules rather than calling globals().
+    _sim.install(_sys.modules[__name__].__dict__)

@@ -29,6 +29,14 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 @dataclass
 class _Config:
+    # Route the whole API through the pure-Python torch simulator instead of
+    # the MLIR -> ttmetal pipeline + device. Resolved once at import time from
+    # D2M_JIT_SIM; see _src/sim/ and SIMULATOR_SPEC.md. Toggling this after
+    # import has no effect (the backend is bound when api.py is imported).
+    simulator: bool = _env_bool("D2M_JIT_SIM")
+    # Simulator only: compute every op in float32 and cast at stores, giving a
+    # clean logical oracle instead of rounding in the tile dtype per op.
+    sim_high_precision: bool = _env_bool("D2M_JIT_SIM_HIGH_PRECISION")
     # Print the full pass-pipeline string before invoking it.
     print_pipeline: bool = _env_bool("D2M_JIT_PRINT_PIPELINE")
     # Dump the constructed module before the pass pipeline runs.
