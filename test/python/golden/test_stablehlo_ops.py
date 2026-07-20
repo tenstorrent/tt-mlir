@@ -2590,6 +2590,7 @@ def test_chunked_sdpa(
     scale: float,
     target: str,
     request,
+    device,
 ):
     seq_len = blocks_per_user * block_size
     assert chunk_start_idx + chunk_len <= seq_len
@@ -2652,7 +2653,7 @@ def test_chunked_sdpa(
         module,
         **get_request_kwargs(request),
         target=target,
-        device=DeferredDevice(request),
+        device=device,
         ttir_pipeline_options=["composite-resolution=force-promote"],
         save_artifacts=True,
     )
