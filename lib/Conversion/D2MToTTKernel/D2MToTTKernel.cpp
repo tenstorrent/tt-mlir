@@ -28,8 +28,12 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallPtrSet.h"
 
+#include "mlir/IR/Builders.h"
+#include "llvm/ADT/ArrayRef.h"
+#include "llvm/Support/LogicalResult.h"
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <type_traits>
 #include <utility>
@@ -3626,6 +3630,62 @@ public:
                   ConversionPatternRewriter &rewriter) const final {
     rewriter.replaceOpWithNewOp<ttkernel::DPrintOp>(op, op.getFmt(),
                                                     adaptor.getArgv());
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class D2MArgMaxScanOpRewriter : public OpConversionPattern<d2m::TileArgMaxOp> {
+public:
+  using OpConversionPattern<d2m::TileArgMaxOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::TileArgMaxOp op, d2m::TileArgMaxOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op.getLoc();
+    auto chipDesc = ttcore::getOpChipDescAttr(op);
+    ttcore::DeviceAttr device = ttcore::lookupDevice(op);
+
+    auto inTileType = mlir::cast<ttcore::TileType>(op.getA().getType());
+    const bool isBf16 = inTileType.getElementType().isBF16();
+    unsigned bitWidth = isBf16 ? 16 : 32;
+
+    Value cbA = getCB(rewriter, op.getA());
+    Value cValIdx = adaptor.getCVal();
+    Value cIdxIdx = adaptor.getCIdx();
+
+    // initialize accumulators
+    {
+      Value seedGuard =
+          buildFirstReductionIterationGuard(rewriter, loc, op, cValIdx);
+      auto emitSeed = [&]() {
+        rewriter.create<ttkernel::FillTileInitOp>(loc);
+
+        Value negInf = rewriter.create<arith::ConstantOp>(
+            loc, rewriter.getF32Type(),
+            rewriter.getF32FloatAttr(-std::numeric_limits<float>::infinity()));
+        rewriter.create<ttkernel::FillTileOp>(loc, adaptor.getCVal(), negInf);
+
+        Value zeroI32 = intConstant(rewriter, loc, 0);
+        rewriter.create<ttkernel::FillTileIntOp>(loc, adaptor.getCIdx(),
+                                                 zeroI32);
+      };
+      if (seedGuard) {
+        auto ifOp = rewriter.create<scf::IfOp>(loc, seedGuard, /*else*/ false);
+        OpBuilder::InsertionGuard g(rewriter);
+        rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+        emitSeed();
+      } else {
+        emitSeed();
+      }
+    }
+
+    // untilize this tile into a row-major scratch CB
+
+    (void)loc;
+    (void)chipDesc;
+    (void)device;
     return success();
   }
 };

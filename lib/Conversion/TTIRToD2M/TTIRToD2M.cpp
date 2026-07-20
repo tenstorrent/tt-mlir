@@ -5594,6 +5594,196 @@ private:
   }
 };
 
+class D2MArgMaxScanRewriter : public OpConversionPattern<ttir::ArgMaxOp>,
+                              D2MNamedRewriterCommon {
+public:
+  D2MArgMaxScanRewriter(const TypeConverter &typeConverter,
+                        mlir::MLIRContext *ctx,
+                        ttcore::MemorySpace defaultInputMemSpace,
+                        ttcore::MemorySpace defaultOutputMemSpace,
+                        bool ttnnMode, bool collapseTensors,
+                        bool enableMulticastInference)
+      : OpConversionPattern<ttir::ArgMaxOp>(typeConverter, ctx),
+        D2MNamedRewriterCommon(defaultInputMemSpace, defaultOutputMemSpace,
+                               ttnnMode, collapseTensors,
+                               enableMulticastInference) {}
+
+private:
+  static d2m::ReduceDim dimArgAsReduceDim(ttir::ArgMaxOp op,
+                                          std::size_t logicalRank) {
+    if (!op.getDimArg()) {
+      return d2m::ReduceDim::RC;
+    }
+    bool reduceC = false, reduceR = false;
+    auto dimAttrs = *op.getDimArg();
+    for (mlir::Attribute dimAttr : dimAttrs) {
+      int64_t d = mlir::cast<mlir::IntegerAttr>(dimAttr).getInt();
+      std::size_t nd = normalizeReductionDimIndex(d, logicalRank);
+      if (nd == logicalRank - 2) {
+        reduceC = true;
+      }
+      if (nd == logicalRank - 1) {
+        reduceR = true;
+      }
+    }
+    if (reduceC && reduceR) {
+      return d2m::ReduceDim::RC;
+    }
+    if (reduceC) {
+      return d2m::ReduceDim::C;
+    }
+    return d2m::ReduceDim::R;
+  }
+
+  LogicalResult
+  matchAndRewrite(ttir::ArgMaxOp op, OpAdaptor adaptor,
+                  mlir::ConversionPatternRewriter &rewriter) const final {
+    checkTTIRReductionPreconditions(op);
+    mlir::MLIRContext *ctx = rewriter.getContext();
+    mlir::Location loc = op.getLoc();
+
+    auto inputTy = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto outputTy = mlir::cast<RankedTensorType>(op.getResult().getType());
+
+    auto valAccTy = RankedTensorType::get(
+        outputTy.getShape(), inputTy.getElementType(), outputTy.getEncoding());
+    SmallVector<Value> origOutputs =
+        createDpsOutputs(loc, rewriter, {valAccTy, outputTy});
+
+    SmallVector<Value> newInputs{adaptor.getInput()};
+    bool noCollapse = (inputTy.getRank() > 2);
+
+    auto [inputs, outputs] =
+        toLayoutOperandsAndResults(rewriter, {newInputs, origOutputs}, true,
+                                   noCollapse, ttcore::OOBVal::NegInf);
+
+    const std::size_t numInputs = inputs.size();
+    const std::size_t numOutputs = outputs.size();
+    const std::size_t numOperands = numInputs + numOutputs;
+
+    const std::size_t physicalRank =
+        ttcore::getDeviceLayout(outputs[0]).getRank() / 2;
+    assertPhysicalIteratorRankForReduction(physicalRank);
+
+    // Which physical iterator dims are reduced. The reduce dim is expressed as
+    // R (last dim) and/or C (2nd-to-last); map that to physical dim positions
+    // physicalRank-1 (R) and physicalRank-2 (C).
+    d2m::ReduceDim reduceDim = dimArgAsReduceDim(op, physicalRank);
+    const bool reduceR =
+        (reduceDim == d2m::ReduceDim::R || reduceDim == d2m::ReduceDim::RC);
+    const bool reduceC =
+        (reduceDim == d2m::ReduceDim::C || reduceDim == d2m::ReduceDim::RC);
+    auto isReducedDim = [&](std::size_t d) {
+      return (reduceR && d == physicalRank - 1) ||
+             (reduceC && d == physicalRank - 2);
+    };
+
+    // Accumulator (output) map: identity, except reduced dims collapse to 0 so
+    // all tiles along the reduction axis accumulate into the same output tile.
+    mlir::AffineExpr zero = mlir::getAffineConstantExpr(0, ctx);
+    mlir::MutableAffineMap accumulator(
+        rewriter.getMultiDimIdentityMap(physicalRank));
+    for (std::size_t d = 0; d < physicalRank; ++d) {
+      if (isReducedDim(d)) {
+        accumulator.setResult(d, zero);
+      }
+    }
+    mlir::AffineMap accumulatorMap = accumulator.getAffineMap();
+    mlir::AffineMap identityMap = rewriter.getMultiDimIdentityMap(physicalRank);
+
+    // Operand order: [input, valAcc, idxAcc]. Input uses identity; both
+    // accumulator outputs use the reducing accumulator map.
+    SmallVector<mlir::AffineMap> indexingMaps;
+    indexingMaps.reserve(numOperands);
+    for (std::size_t i = 0; i < numInputs; ++i) {
+      indexingMaps.push_back(identityMap);
+    }
+    for (std::size_t i = 0; i < numOutputs; ++i) {
+      indexingMaps.push_back(accumulatorMap);
+    }
+
+    // Iterator types: parallel everywhere except the reduced physical dims.
+    auto parallel =
+        ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel);
+    auto reduction =
+        ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Reduction);
+    SmallVector<mlir::Attribute> iteratorTypes(physicalRank, parallel);
+    for (std::size_t d = 0; d < physicalRank; ++d) {
+      if (isReducedDim(d)) {
+        iteratorTypes[d] = reduction;
+      }
+    }
+
+    auto generic = rewriter.create<d2m::GenericOp>(
+        loc, inputs, outputs, ValueRange(),
+        rewriter.getAffineMapArrayAttr(indexingMaps),
+        rewriter.getArrayAttr(iteratorTypes));
+
+    auto insertPoint = rewriter.saveInsertionPoint();
+    rewriter.startOpModification(generic);
+    {
+      mlir::Region &region = generic.getRegions().front();
+      mlir::Block *block = rewriter.createBlock(&region);
+
+      auto [inputIndices, mcastGridDims] = createInputIndicesAndMcastGridDims(
+          rewriter, loc, generic, enableMulticastInference);
+      auto blockArgsVec = createBlockArguments(
+          rewriter, block, loc, TypeRange(inputs), TypeRange(outputs), generic,
+          inputIndices, mcastGridDims);
+      ArrayRef<Value> blockArgs(blockArgsVec);
+
+      auto reduceDimAttr =
+          d2m::ReduceDimAttr::get(ctx, dimArgAsReduceDim(op, physicalRank));
+
+      SmallVector<mlir::utils::IteratorType> linalgIters =
+          iteratorTypeTTIRToLinalg(rewriter, iteratorTypes);
+
+      auto linalgGeneric = rewriter.create<mlir::linalg::GenericOp>(
+          loc,
+          /*resultTypes*/
+          llvm::to_vector(
+              static_cast<mlir::ValueRange>(blockArgs.take_back(numOutputs))
+                  .getTypes()),
+          /*inputs*/ blockArgs.take_front(numInputs),  // [A]
+          /*outputs*/ blockArgs.take_back(numOutputs), // [valAcc, idxAcc]
+          indexingMaps, linalgIters,
+          [&](mlir::OpBuilder &bb, mlir::Location bbLoc,
+              mlir::ValueRange bbArgs) {
+            mlir::Value aArg = bbArgs[0];
+            mlir::Value cValArg = bbArgs[numInputs];     // valAcc init
+            mlir::Value cIdxArg = bbArgs[numInputs + 1]; // idxAcc init
+            auto amax = bb.create<d2m::TileArgMaxOp>(
+                bbLoc, /*resultVal*/ cValArg.getType(),
+                /*resultIdx*/ cIdxArg.getType(), aArg, cValArg, cIdxArg,
+                reduceDimAttr);
+            bb.create<mlir::linalg::YieldOp>(
+                bbLoc, ValueRange{amax.getResultVal(), amax.getResultIdx()});
+          });
+
+      SmallVector<Value> storeResults;
+      for (size_t o = 0; o < numOutputs; ++o) {
+        size_t operandIdx = numInputs + o;
+        AffineMap m = generic.getIndexingMap(operandIdx);
+        SmallVector<Value> idx = d2m::utils::buildGridIndices(rewriter, loc, m);
+        Value genOperand = generic->getOperand(operandIdx);
+        storeResults.push_back(rewriter
+                                   .create<d2m::RemoteStoreOp>(
+                                       loc, genOperand.getType(), genOperand,
+                                       idx, linalgGeneric->getResult(o))
+                                   .getResult());
+      }
+      rewriter.create<d2m::YieldOp>(loc, storeResults);
+    }
+
+    rewriter.finalizeOpModification(generic);
+    rewriter.restoreInsertionPoint(insertPoint);
+
+    rewriter.replaceOp(op, unLayoutResult(rewriter, generic.getResult(1),
+                                          op.getResult().getType()));
+    return success();
+  }
+};
+
 } // namespace mlir::tt
 
 namespace mlir::tt {

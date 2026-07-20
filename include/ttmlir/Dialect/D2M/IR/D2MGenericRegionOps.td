@@ -1212,6 +1212,39 @@ def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast", [D2
     let results = (outs TTCore_Tile:$result);
 }
 
+def D2M_TileArgMaxOp : D2M_GenericRegionDatamovementOp<"tile_argmax", D2M_TileComputeOpTraitBundle> {
+  let summary = "D2M argmax scan op";
+  let description = [{
+      TODO
+  }];
+
+  let arguments = (ins
+    TTCore_Tile:$a,
+    TTCore_Tile:$cVal,
+    TTCore_Tile:$cIdx,
+    D2M_ReduceDimAttr:$reduce_dim,
+    DefaultValuedAttr<I64Attr, "-1">:$dst_scratch_index
+  );
+
+  let results = (outs TTCore_Tile:$resultVal, TTCore_Tile:$resultIdx);
+
+  let extraClassDeclaration = [{
+    // cVal (operand 1) and cIdx (operand 2) are read from + written to DST.
+    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+      return {1, 2};
+    }
+    bool getDstRegInPlace() {
+      return true;
+    }
+    // One scratch DST slice to stage/untilize the incoming value tile,
+    // mirroring tile_sfpu_reduce_max. (May need 2 if you stage index too;
+    // start with 1 and bump if d2m-insert-dst-register-access complains.)
+    int64_t getNumDstScratchSlices() {
+      return 1;
+    }
+  }];
+}
+
 //===----------------------------------------------------------------------===//
 // D2M Masking Ops
 //===----------------------------------------------------------------------===//
