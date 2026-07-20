@@ -17,9 +17,9 @@ func.func @trid_read_barrier_static_noc() -> () attributes {ttkernel.thread = #t
 // -----
 
 // CHECK-LABEL: func @trid_write_path
-// CHECK: emitc.verbatim "UnicastEndpoint unicast_ep;"
-// CHECK-NEXT: emitc.verbatim "Noc noc0(0);"
-// CHECK-NEXT: %[[TRID:.*]] = "emitc.constant"() <{value = 3 : i32}> : () -> i32
+// CHECK-DAG: emitc.verbatim "UnicastEndpoint unicast_ep;"
+// CHECK-DAG: emitc.verbatim "Noc noc0(0);"
+// CHECK: %[[TRID:.*]] = "emitc.constant"() <{value = 3 : i32}> : () -> i32
 // CHECK-NEXT: %[[NOC_IDX:.*]] = "emitc.constant"() <{value = 0 : i8}> : () -> i8
 // CHECK-NEXT: %[[X:.*]] = "emitc.constant"() <{value = 0 : index}> : () -> !emitc.size_t
 // CHECK-NEXT: %[[Y:.*]] = "emitc.constant"() <{value = 1 : index}> : () -> !emitc.size_t
@@ -72,5 +72,64 @@ func.func @trid_barrier_dynamic_noc() -> () attributes {ttkernel.thread = #ttker
   %noc_offset = arith.constant 0 : i32
   %noc = ttkernel.load_from_l1(%noc_ptr, %noc_offset) : (!ttkernel.l1_addr_ptr<8>, i32) -> i8
   "ttkernel.noc_async_read_barrier_with_trid"(%trid, %noc) : (i32, i8) -> ()
+  return
+}
+
+// -----
+
+// A dynamic NOC ID is the first verbatim operand even when endpoint and local
+// memory arguments follow it.
+// CHECK-LABEL: func @async_read_dynamic_noc
+// CHECK: emitc.verbatim "UnicastEndpoint unicast_ep;"
+// CHECK: %[[X:.*]] = "emitc.constant"
+// CHECK: %[[Y:.*]] = "emitc.constant"
+// CHECK: %[[SRC:.*]] = "emitc.constant"
+// CHECK: %[[DST:.*]] = "emitc.constant"
+// CHECK: %[[SIZE:.*]] = "emitc.constant"
+// CHECK: %[[NOC:.*]] = emitc.cast
+// CHECK: emitc.verbatim "Noc({}).async_read(unicast_ep, CoreLocalMem<uint32_t>({}), {}
+// CHECK-SAME: args %[[NOC]], %[[DST]], %[[SIZE]], %[[X]], %[[Y]], %[[SRC]]
+func.func @async_read_dynamic_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+  %x = arith.constant 1 : index
+  %y = arith.constant 2 : index
+  %src = arith.constant 4096 : i32
+  %dst = arith.constant 8192 : i32
+  %size = arith.constant 64 : i32
+  %noc_arg = arith.constant 262400 : i32
+  %noc_ptr = ttkernel.reinterpret_cast(%noc_arg) : (i32) -> (!ttkernel.l1_addr_ptr<8>)
+  %noc_offset = arith.constant 0 : i32
+  %noc = ttkernel.load_from_l1(%noc_ptr, %noc_offset) : (!ttkernel.l1_addr_ptr<8>, i32) -> i8
+  ttkernel.noc_async_read core[%x, %y], %src, %dst, %size, noc %noc : (index, index, i32, i32, i32, i8) -> ()
+  return
+}
+
+// -----
+
+// Receiver, transfer, endpoint, and option operands remain ordered when a
+// dynamic NOC call has a trailing NocOptVals argument.
+// CHECK-LABEL: func @trid_write_dynamic_noc
+// CHECK: emitc.verbatim "UnicastEndpoint unicast_ep;"
+// CHECK: %[[TRID:.*]] = "emitc.constant"
+// CHECK: %[[SRC:.*]] = "emitc.constant"
+// CHECK: %[[X:.*]] = "emitc.constant"
+// CHECK: %[[Y:.*]] = "emitc.constant"
+// CHECK: %[[DST:.*]] = "emitc.constant"
+// CHECK: %[[SIZE:.*]] = "emitc.constant"
+// CHECK: %[[NOC:.*]] = emitc.cast
+// CHECK: emitc.verbatim "Noc({}).async_write<NocOptions::TXN_ID, NOC_MAX_BURST_SIZE>(
+// CHECK-SAME: NocOptVals{{[{][{]}}.trid = {}{{[}]}}
+// CHECK-SAME: args %[[NOC]], %[[SRC]], %[[SIZE]], %[[X]], %[[Y]], %[[DST]], %[[TRID]]
+func.func @trid_write_dynamic_noc() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+  %trid = arith.constant 3 : i32
+  %src = arith.constant 8192 : i32
+  %x = arith.constant 1 : index
+  %y = arith.constant 2 : index
+  %dst = arith.constant 4096 : i32
+  %size = arith.constant 64 : i32
+  %noc_arg = arith.constant 262400 : i32
+  %noc_ptr = ttkernel.reinterpret_cast(%noc_arg) : (i32) -> (!ttkernel.l1_addr_ptr<8>)
+  %noc_offset = arith.constant 0 : i32
+  %noc = ttkernel.load_from_l1(%noc_ptr, %noc_offset) : (!ttkernel.l1_addr_ptr<8>, i32) -> i8
+  ttkernel.noc_async_write_one_packet_with_trid(%src, core[%x, %y], %dst, %size, %trid, noc %noc) : (i32, index, index, i32, i32, i32, i8) -> ()
   return
 }
