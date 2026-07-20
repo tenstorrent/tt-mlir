@@ -5,6 +5,8 @@
 #ttnn_layout = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 9216 + d1 * 9216 + d2, d3), <1x1>, memref<73728x128xf32, #dram>, <interleaved>>
 #ttnn_layout_affine = #ttnn.ttnn_layout<(d0) -> (0, d0), <1x1>, memref<1x128xf32, #dram>, <interleaved>>
 #ttnn_layout_non_aligned = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 50 + d1 * 50 + d2, d3), <1x1>, memref<50x480xf32, #dram>, <interleaved>>
+// N=2, per-sample H*W=16 (N*H*W=32 looks aligned, but H*W=16 is not).
+#ttnn_layout_n2 = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 16 + d1 * 16 + d2, d3), <1x1>, memref<32x256xf32, #dram>, <interleaved>>
 
 // Test: full group_norm with weight and bias decomposes to primitives.
 // CHECK-LABEL: func.func @group_norm_weight_bias
@@ -93,4 +95,18 @@ func.func @group_norm_non_tile_aligned(
     %arg0: tensor<1x1x50x480xf32, #ttnn_layout_non_aligned>) -> tensor<1x1x50x480xf32, #ttnn_layout_non_aligned> {
   %0 = "ttnn.group_norm"(%arg0) <{num_groups = 8 : i64, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 0, 0, 0>}> : (tensor<1x1x50x480xf32, #ttnn_layout_non_aligned>) -> tensor<1x1x50x480xf32, #ttnn_layout_non_aligned>
   return %0 : tensor<1x1x50x480xf32, #ttnn_layout_non_aligned>
+}
+
+// N=2, per-sample H*W=16 (N*H*W=32 is aligned but H*W=16 is not): decompose.
+// CHECK-LABEL: func.func @group_norm_n2_non_tile_aligned
+// CHECK-NOT: "ttnn.group_norm"
+// CHECK: "ttnn.reshape"
+// CHECK-SAME: shape = [2 : i32, 16 : i32, 8 : i32, 32 : i32]
+// CHECK: "ttnn.mean"
+// CHECK: "ttnn.reshape"
+// CHECK-SAME: shape = [2 : i32, 1 : i32, 16 : i32, 256 : i32]
+func.func @group_norm_n2_non_tile_aligned(
+    %arg0: tensor<2x1x16x256xf32, #ttnn_layout_n2>) -> tensor<2x1x16x256xf32, #ttnn_layout_n2> {
+  %0 = "ttnn.group_norm"(%arg0) <{num_groups = 8 : i64, epsilon = 1.000000e-05 : f32, operandSegmentSizes = array<i32: 1, 0, 0, 0>}> : (tensor<2x1x16x256xf32, #ttnn_layout_n2>) -> tensor<2x1x16x256xf32, #ttnn_layout_n2>
+  return %0 : tensor<2x1x16x256xf32, #ttnn_layout_n2>
 }

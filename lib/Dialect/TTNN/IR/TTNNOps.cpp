@@ -3978,11 +3978,9 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateSemaphores(
            << inputShape[1];
   }
 
-  // Tile-alignment of the flattened height (N * H*W) is a constraint of the
-  // fused ttnn.group_norm kernel, not an op invariant, so it is not verified
-  // here. Non-tile-aligned shapes flow into TTNNDecomposition, where op-model
-  // validation rejects the fused kernel and decomposes into primitives;
-  // tile-aligned shapes validate and keep the fused kernel.
+  // Tile-alignment of the flattened height (H*W) is a fused-kernel constraint,
+  // not an op invariant, so it is not verified here. Non-tile-aligned shapes
+  // flow into TTNNDecomposition, which lowers them to primitives.
 
   int64_t numGroups = getNumGroups();
   if (numGroups <= 0) {
