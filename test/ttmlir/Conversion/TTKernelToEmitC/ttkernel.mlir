@@ -1958,6 +1958,17 @@ module {
       return
     }
 
+    // CHECK-LABEL: func @get_fabric_noc_addr_from_bank_id
+    func.func @get_fabric_noc_addr_from_bank_id() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      // CHECK: %[[BANK_ID:.*]] = "emitc.constant"
+      %bank_id = arith.constant 1 : i32
+      // CHECK: %[[ADDR_OFFSET:.*]] = "emitc.constant"
+      %addr_offset = arith.constant 262400 : i32
+      // CHECK: emitc.call_opaque "experimental::get_fabric_noc_addr_from_bank_id"(%[[BANK_ID]], %[[ADDR_OFFSET]]) {template_args = [#emitc.opaque<"true">]}
+      "ttkernel.experimental.get_fabric_noc_addr_from_bank_id"(%bank_id, %addr_offset) : (i32, i32) -> (!ttkernel.noc_addr)
+      return
+    }
+
     // CHECK-LABEL: func @noc_async_read
     func.func @noc_async_read() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
       // CHECK: emitc.verbatim "UnicastEndpoint unicast_ep;"

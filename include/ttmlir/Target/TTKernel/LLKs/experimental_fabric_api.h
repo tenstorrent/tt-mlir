@@ -25,6 +25,9 @@ namespace experimental {
 //   void fabric_fast_write_any_len(fcm, dst_mesh_id, dst_dev_id, ...)
 //   void fabric_mcast_fast_write_any_len(fcm, dst_mesh_id, ...)
 //
+// Fabric Address:
+//   uint64_t get_fabric_noc_addr_from_bank_id(bank_id, bank_address_offset)
+//
 ////////////////////////////////////////////////////////////////////////
 
 ////////// FabricConnectionManager and Setup/Teardown Functions //////////
@@ -367,6 +370,35 @@ fabric_mcast_sem_inc(FabricConnectionManager &fabric_connection_manager,
                                         incr);
     }
   }
+}
+
+// This is a mirror of get_noc_addr_from_bank_id in tt-metal/src/tt-metal/hw/inc/internal/dataflow/dataflow_api_addrgen.h
+// It's used to get the fabric NOC address from the bank id and bank address offset
+template <bool DRAM>
+FORCE_INLINE uint64_t
+get_fabric_noc_addr_from_bank_id(uint32_t bank_id, uint32_t bank_address_offset) {
+    uint64_t noc_address = get_noc_addr_from_bank_id<DRAM>(bank_id, bank_address_offset, edm_to_local_chip_noc);
+#if defined(ARCH_WORMHOLE)
+    // We do this for 2 reasons:
+    // 1. Wormhole doesn't support virtual coordinates for DRAM cores (and we could be writing to one)
+    // 2. We want to write to the best bank for the fabric writer noc, so we'd prefer to get the noc
+    // coordinate for that.
+    // However, the fabric APIs canonically expect coordinates in "noc0" system, so we need to flip
+    // them to noc0
+    //
+    // A little less efficient, but:
+    // a) cleaner
+    // b) less blast-radius (more incremental change)
+    // c) compiler may see the redundant transformation after inlinine
+    auto noc_address_components = get_noc_address_components(noc_address);
+    auto noc_addr = safe_get_noc_addr(
+        noc_address_components.first.x,
+        noc_address_components.first.y,
+        noc_address_components.second,
+        edm_to_local_chip_noc);
+    noc_address = noc_addr;
+#endif
+    return noc_address;
 }
 
 } // namespace experimental
