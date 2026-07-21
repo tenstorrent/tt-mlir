@@ -12,7 +12,7 @@
 
 namespace mlir::tt::ttnn::workarounds::decomposition {
 
-// Creates a height-sharded L1 ToLayoutOp for the input of
+// Creates a height-sharded L1 ToTensorSpecOp for the input of
 // NLPConcatHeadsDecodeOp with virtual grid [batchSize, 1]. Returns
 // std::nullopt if input is already height-sharded in L1. Caller is
 // responsible for erasing the returned op if it is temporary.
@@ -20,8 +20,8 @@ std::optional<ToTensorSpecOp> getWorkaroundedInput(NLPConcatHeadsDecodeOp op,
                                                    PatternRewriter &rewriter);
 
 // NLPConcatHeadsDecodeOp requires height-sharded L1 input. This workaround
-// inserts a ToLayoutOp to convert the input to height-sharded L1 Tile layout
-// with virtual grid [batchSize, 1] if it isn't already sharded.
+// inserts a ToTensorSpecOp to convert the input to height-sharded L1 Tile
+// layout with virtual grid [batchSize, 1] if it isn't already sharded.
 class NLPConcatHeadsDecodeInputRewritePattern
     : public OpRewritePattern<ttnn::NLPConcatHeadsDecodeOp> {
 public:

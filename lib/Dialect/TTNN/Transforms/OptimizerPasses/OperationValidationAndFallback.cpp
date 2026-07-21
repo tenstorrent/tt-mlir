@@ -823,7 +823,7 @@ void applyInputOperandChange(Operation *operation, size_t operandIndex,
   Value operand = operation->getOperand(operandIndex);
   auto currentTensorType = mlir::cast<RankedTensorType>(operand.getType());
 
-  // Insert ToLayout operation to perform the transformation
+  // Insert ToTensorSpec operation to perform the transformation
   OpBuilder builder(operation);
   auto toTensorSpecOp =
       createToTensorSpecOp(builder, operation->getLoc(), currentTensorType,
@@ -867,7 +867,7 @@ void applyOutputLayoutRevert(Operation *operation, size_t resultIndex,
     uses.emplace_back(use.getOwner(), use.getOperandNumber());
   }
 
-  // Insert ToLayoutOp after the operation to revert back to the original
+  // Insert ToTensorSpecOp after the operation to revert back to the original
   // expected layout
   OpBuilder builder(operation->getContext());
   builder.setInsertionPointAfter(operation);
