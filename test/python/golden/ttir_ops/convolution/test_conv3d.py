@@ -162,7 +162,8 @@ def test_conv3d(
     )
 
 
-def test_conv3d_optimizer(request, device):
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_conv3d_optimizer(target, request, device):
     """Golden execution of conv3d through the optimizer-enabled pipeline.
 
     Covers the path introduced alongside post-optimizer conv3d weight
@@ -209,7 +210,7 @@ def test_conv3d_optimizer(request, device):
         module,
         **get_request_kwargs(request),
         device=device,
-        target="ttnn",
+        target=target,
         pipeline_options=[
             "optimization-level=1",
             "override-conv3d-config=conv3d_opt=c_in_block#64",
