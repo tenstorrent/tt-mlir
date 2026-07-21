@@ -4095,6 +4095,10 @@ public:
   }
 };
 
+// Frontend legalization may flatten embedding indices even when surrounding
+// reshapes retain a rank-2 logical shape. D2M needs that shape to distribute
+// indices across both grid dimensions, so recover it here without changing the
+// shared TTIR canonical form used by other backends.
 class ExpandFlattenedEmbeddingIndicesForD2M
     : public OpRewritePattern<ttir::EmbeddingOp> {
 public:
@@ -4125,6 +4129,8 @@ public:
       return {};
     };
 
+    // Frontends can place the index typecast before or after the flattening
+    // reshape, so recover the same logical shape from either ordering.
     Value expandedIndices;
     if (auto typecast = op.getInput().getDefiningOp<ttir::TypecastOp>()) {
       Value expandedInput =
@@ -6051,6 +6057,9 @@ public:
     TypeConverter typeConverter;
     typeConverter.addConversion([](Type t) { return t; });
 
+    // Keep this normalization local to embeddings present at pass entry. A
+    // module-wide greedy walk can otherwise rewrite unrelated TTIR before
+    // dialect conversion.
     SmallVector<Operation *> embeddingOps;
     module.walk([&](ttir::EmbeddingOp op) {
       embeddingOps.push_back(op.getOperation());
