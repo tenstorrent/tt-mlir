@@ -75,12 +75,9 @@ module @test_convolution {
     return %0 : tensor<1x8x1x23xbf16>
   }
 
-  // Test a genuine 2D pointwise (1x1) conv on a [N,C,1,1] tensor, as produced
-  // by the squeeze-and-excitation blocks in EfficientNet/VovNet (a global
-  // average pool feeding a 1x1 conv). BOTH spatial dims are size 1, so there
-  // is no real 1D axis; it must stay a conv2d and NOT be routed to conv1d
-  // (which would move the weight parameter to host and break trace hoisting,
-  // tt-mlir #9076).
+  // A genuine 2D pointwise (1x1) conv on a [N,C,1,1] tensor (both spatial dims
+  // size 1) must stay a conv2d and NOT be routed to conv1d. See
+  // https://github.com/tenstorrent/tt-mlir/issues/9076.
   func.func @test_pointwise_2d_not_conv1d(%arg0: tensor<1x8x1x1xbf16>, %arg1: tensor<16x8x1x1xbf16>) -> tensor<1x16x1x1xbf16> {
     // CHECK-LABEL: @test_pointwise_2d_not_conv1d
     // CHECK: "ttir.conv2d"
