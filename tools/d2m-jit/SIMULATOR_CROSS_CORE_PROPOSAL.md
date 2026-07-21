@@ -3,7 +3,8 @@
 
 # Design Proposal: Cross-core stores in the d2m-jit simulator
 
-**Status:** Phase 0 done; Option C landed (2026-07-21). See §8.
+**Status:** Phase 0 + Option C landed; Option A investigated and found N/A
+(2026-07-21). See §8–§9.
 **Author:** (d2m-jit simulator work, branch `jgrim/d2m-jit-sim`)
 **Scope:** the one remaining Phase 2 simulator gap — kernels where multiple
 cores write into a shared output whose per-core target depends on the
@@ -304,3 +305,50 @@ just self-consistent.
 **Remaining (Option A).** Multi-block-per-core (`block_factors > 1`) stores and a
 dedicated distributed-reduction test still need the generic op's indexing maps
 modeled. The `NotImplementedError` marks exactly where that work plugs in.
+
+---
+
+## 9. Option A investigation — found not applicable (2026-07-21)
+
+Following the proposal's own recommendation (validate against device before
+implementing), both Option A targets were probed on device. **Neither has a
+valid, device-runnable form**, so there is no correct behavior for the simulator
+to match, and no Option A code was written.
+
+**Target 1 — multi-block-per-core core-relative (multicast) stores.** A
+multicast collapses a grid dim, and the layout verifier requires a collapsed dim
+to be evenly divisible by the grid extent:
+
+> Collapsed dimension must be evenly divisible by grid dimension, got 1 % 2 != 0.
+> — `lib/Dialect/TTCore/IR/TTCoreOpsTypes.cpp:973` (constructing a multicast
+> operand layout with 2 blocks per core along the collapsed dim)
+
+So a multicast dim is **always exactly one block per core**; more than one block
+per core along a collapsed dim cannot even be constructed. The `per_core == 1`
+resolver from §8 is therefore complete for every valid multicast kernel, and its
+`NotImplementedError` guard covers a state that valid kernels cannot reach — a
+safety net, not a missing feature.
+
+**Target 2 — distributed (cross-core) reductions.** Reducing along a dim the grid
+splits produces an output grid smaller than the compute grid, which the generic
+op rejects:
+
+> 'd2m.generic' op output grid shape must be divisible by the generic op's grid
+> shape
+
+(probe: input grid `2x2`, reduce a grid-split dim → output grid `2x1`, not
+divisible by `2x2`). This is structural: any reduction that collapses a
+grid-split dim shrinks the output grid below the compute grid. Consequently
+**cross-core reductions are not expressible in a single `d2m.generic` today** —
+this is a DSL/compiler limitation, not a simulator gap. `reduction_layout`'s
+`allow_cross_tile=True` lets you build the output *layout*, but the op verifier
+still rejects the grid mismatch, and no kernel in the tree uses it. The
+reductions that *are* supported keep the reduced dim on one core (`grid[dim] ==
+1`); those store with global indices and already pass in sim
+(`test_reductions.py`, including the multi-block and rectangular-grid variants).
+
+**Conclusion.** The simulator's cross-core story is complete for the kernels the
+compiler actually accepts. Option A becomes relevant only if the compiler later
+grows real multi-core reductions / gather-redistribute ops; at that point the
+`NotImplementedError` in `_resolve_core_relative` is the plug-in point, and this
+section records the device evidence for why it was deferred.
