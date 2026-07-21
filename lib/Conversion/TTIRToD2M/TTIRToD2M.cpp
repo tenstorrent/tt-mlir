@@ -4097,8 +4097,7 @@ public:
 
 // Frontend legalization may flatten embedding indices even when surrounding
 // reshapes retain a rank-2 logical shape. D2M needs that shape to distribute
-// indices across both grid dimensions, so recover it here without changing the
-// shared TTIR canonical form used by other backends.
+// indices across both grid dimensions, so recover it before grid selection.
 class ExpandFlattenedEmbeddingIndicesForD2M
     : public OpRewritePattern<ttir::EmbeddingOp> {
 public:
