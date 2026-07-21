@@ -620,21 +620,13 @@ uint64_t convFlopsFromAttrs(int64_t inChannels, int64_t groups,
   return 2ULL * numScalars(result) * macsPerOutputScalar;
 }
 
-// Scaled-dot-product attention (prefill) FLOPs: the QK^T and the *V matmuls.
+// Core scaled-dot-product attention (prefill) FLOP formula shared by the
+// prefill attention variants: the QK^T and the scores*V matmuls.
 // QK^T = 2*B*Hq*Sq*Sk*Dk, scores*V = 2*B*Hq*Sq*Sk*Dv. Halved (rough) for a
 // plain causal mask. A sliding window caps the effective key length.
-uint64_t sdpaFlops(Value query, Value key, Value value, bool isCausal,
-                   std::optional<int32_t> slidingWindowSize) {
-  auto qType = mlir::dyn_cast<RankedTensorType>(query.getType());
-  auto kType = mlir::dyn_cast<RankedTensorType>(key.getType());
-  auto vType = mlir::dyn_cast<RankedTensorType>(value.getType());
-  if (!qType || !kType || !vType || qType.getShape().size() != 4 ||
-      kType.getShape().size() != 4 || vType.getShape().size() != 4) {
-    return 0;
-  }
-  auto qShape = qType.getShape();
-  int64_t B = qShape[0], Hq = qShape[1], Sq = qShape[2], Dk = qShape[3];
-  int64_t Sk = kType.getShape()[2], Dv = vType.getShape()[3];
+uint64_t sdpaFlopsFromDims(int64_t B, int64_t Hq, int64_t Sq, int64_t Sk,
+                           int64_t Dk, int64_t Dv, bool isCausal,
+                           std::optional<int32_t> slidingWindowSize) {
   int64_t effectiveSk = slidingWindowSize.has_value()
                             ? std::min<int64_t>(slidingWindowSize.value(), Sk)
                             : Sk;
@@ -648,6 +640,40 @@ uint64_t sdpaFlops(Value query, Value key, Value value, bool isCausal,
   return flops;
 }
 
+// SDPA (prefill) FLOPs from Q/K/V tensors laid out as [B, H, S, D].
+uint64_t sdpaFlops(Value query, Value key, Value value, bool isCausal,
+                   std::optional<int32_t> slidingWindowSize) {
+  auto qType = mlir::dyn_cast<RankedTensorType>(query.getType());
+  auto kType = mlir::dyn_cast<RankedTensorType>(key.getType());
+  auto vType = mlir::dyn_cast<RankedTensorType>(value.getType());
+  if (!qType || !kType || !vType || qType.getShape().size() != 4 ||
+      kType.getShape().size() != 4 || vType.getShape().size() != 4) {
+    return 0;
+  }
+  auto qShape = qType.getShape();
+  return sdpaFlopsFromDims(qShape[0], qShape[1], qShape[2],
+                           kType.getShape()[2], qShape[3],
+                           vType.getShape()[3], isCausal, slidingWindowSize);
+}
+
+// Flash MLA prefill FLOPs. Q is [B, Hq, Sq, Dk], K is [B, Hkv, Sk, Dk]; V is
+// optional (taken from the first head_dim_v features of K when absent), so Dv
+// comes from the head_dim_v attribute rather than a value tensor. No sliding
+// window on this op.
+uint64_t flashMlaPrefillFlops(Value query, Value key, int64_t headDimV,
+                              bool isCausal) {
+  auto qType = mlir::dyn_cast<RankedTensorType>(query.getType());
+  auto kType = mlir::dyn_cast<RankedTensorType>(key.getType());
+  if (!qType || !kType || qType.getShape().size() != 4 ||
+      kType.getShape().size() != 4) {
+    return 0;
+  }
+  auto qShape = qType.getShape();
+  return sdpaFlopsFromDims(qShape[0], qShape[1], qShape[2],
+                           kType.getShape()[2], qShape[3], headDimV, isCausal,
+                           /*slidingWindowSize=*/std::nullopt);
+}
+
 // Logical FLOPs + coarse category for one op. Returns flops == 0 for ops that
 // do no arithmetic (reshape, layout, data movement, etc.), which the caller
 // drops from the report.
@@ -658,6 +684,25 @@ std::pair<StringRef, uint64_t> classifyOpFlops(Operation *op) {
           .Case<MatmulOp, LinearOp>([](auto m) -> Pair {
             return {"matmul",
                     matmulFlops(m.getA(), m.getResult(), m.getTransposeA())};
+          })
+          .Case<SparseMatmulOp>([](SparseMatmulOp m) -> Pair {
+            // Dense-equivalent 2*M*K*N over all E expert blocks (no transpose
+            // on this op). The block dim E is result[-3]; only `nnz` of those
+            // blocks actually participate, so scale the count down when nnz is
+            // known. matmulFlops's batch product already includes the E factor,
+            // and it divides evenly, so `/ E * nnz` stays exact.
+            uint64_t flops =
+                matmulFlops(m.getA(), m.getResult(), /*transposeA=*/false);
+            ArrayRef<int64_t> rShape =
+                mlir::cast<RankedTensorType>(m.getResult().getType()).getShape();
+            if (auto nnz = m.getNnz(); nnz.has_value() && rShape.size() >= 3) {
+              int64_t E = rShape[rShape.size() - 3];
+              if (E > 0) {
+                flops = flops / static_cast<uint64_t>(E) *
+                        static_cast<uint64_t>(*nnz);
+              }
+            }
+            return {"matmul", flops};
           })
           .Case<Conv2dOp, Conv3dOp, ConvTranspose2dOp>([](auto c) -> Pair {
             // kernel_size is a DenseI32Array on 2d/3d/transpose convs.
@@ -681,14 +726,44 @@ std::pair<StringRef, uint64_t> classifyOpFlops(Operation *op) {
                         sdpaFlops(m.getQuery(), m.getKey(), m.getValue(),
                                   m.getIsCausal(), m.getSlidingWindowSize())};
               })
+          .Case<FlashMlaPrefillOp>([](FlashMlaPrefillOp m) -> Pair {
+            return {"sdpa", flashMlaPrefillFlops(
+                                m.getQuery(), m.getKey(),
+                                static_cast<int64_t>(m.getHeadDimV()),
+                                m.getIsCausal())};
+          })
+          // Chunked/paged prefill and the decode SDPA variants read K/V from a
+          // paged cache whose logical key length is a runtime value, so their
+          // FLOPs can't be derived from the static shapes; left unaccounted.
           .Case<SoftmaxOp>([](SoftmaxOp s) -> Pair {
             // exp + max + subtract + sum + divide over every element.
             return {"softmax", 5ULL * numScalars(s.getInput())};
           })
-          .Case<SumOp, MeanOp, MaxOp, MinOp>([](auto r) -> Pair {
-            // One accumulate per input scalar.
-            return {"reduction", numScalars(r->getOperand(0))};
+          .Case<LayerNormOp, RMSNormOp, GroupNormOp, BatchNormInferenceOp,
+                BatchNormTrainingOp>([](auto n) -> Pair {
+            // mean + variance + normalize + scale + shift over every element.
+            return {"norm", 5ULL * numScalars(n.getInput())};
           })
+          .Case<AvgPool2dOp, MaxPool2dOp, MaxPool2dWithIndicesOp>(
+              [](auto p) -> Pair {
+                // One op (add for avg, compare for max) per element in each
+                // pooling window, for every output scalar.
+                uint64_t kernelProduct = 1;
+                for (int32_t k : p.getKernelSize()) {
+                  kernelProduct *= static_cast<uint64_t>(k);
+                }
+                return {"pooling", kernelProduct * numScalars(p.getResult())};
+              })
+          .Case<GlobalAvgPool2dOp>([](GlobalAvgPool2dOp p) -> Pair {
+            // Sum-reduce over the whole spatial extent: one add per input
+            // scalar.
+            return {"pooling", numScalars(p.getInput())};
+          })
+          .Case<SumOp, MeanOp, MaxOp, MinOp, ProdOp, CumSumOp, CumProdOp>(
+              [](auto r) -> Pair {
+                // One accumulate per input scalar.
+                return {"reduction", numScalars(r->getOperand(0))};
+              })
           .Default([](Operation *) -> Pair { return {"other", 0}; });
 
   if (result.second == 0 && result.first == "other") {
