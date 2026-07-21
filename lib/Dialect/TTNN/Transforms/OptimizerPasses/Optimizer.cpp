@@ -7,6 +7,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/Edge.h"
 #include "ttmlir/Dialect/TTNN/Analysis/L1InterleavedFallbackAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpConfigAnalysis.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/ConvRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/LegalTensorLayoutAnalysis.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MemReconfig.h"
@@ -62,7 +63,9 @@ TTNNOptimizerOptions::TTNNOptimizerOptions(
       memoryLayoutAnalysisPolicy(pipelineOptions.memoryLayoutAnalysisPolicy),
       memReconfigEnabled(pipelineOptions.memReconfigEnabled),
       maxLegalLayouts(pipelineOptions.maxLegalLayouts),
-      rowMajorEnabled(pipelineOptions.rowMajorEnabled) {}
+      rowMajorEnabled(pipelineOptions.rowMajorEnabled),
+      enableConv2dSearchExtensions(
+          pipelineOptions.enableConv2dSearchExtensions) {}
 
 namespace {
 
@@ -141,6 +144,8 @@ public:
     memoryLayoutAnalysisPolicy = std::move(options.memoryLayoutAnalysisPolicy);
     maxLegalLayouts = std::move(options.maxLegalLayouts);
     rowMajorEnabled = std::move(options.rowMajorEnabled);
+    enableConv2dSearchExtensions =
+        std::move(options.enableConv2dSearchExtensions);
   }
 
 protected:
@@ -191,7 +196,11 @@ protected:
       ::llvm::cl::desc(
           "Enable row major layout generation in legal layout analysis."),
       ::llvm::cl::init(false)};
-
+  ::mlir::Pass::Option<bool> enableConv2dSearchExtensions{
+      *this, "enable-conv2d-search-extensions",
+      ::llvm::cl::desc("Enable extended Conv2d config search space "
+                       "(actBlockH 384, double-buffer, reshardIfNotOptimal)."),
+      ::llvm::cl::init(false)};
 private:
   friend std::unique_ptr<::mlir::Pass> createTTNNOptimizer() {
     return std::make_unique<DerivedT>();
@@ -299,7 +308,8 @@ public:
         LegalOpConfigAnalysis legalOpConfigAnalysis =
             getChildAnalysis<LegalOpConfigAnalysis>(op);
         legalOpConfigAnalysis.init(LegalOpConfigAnalysisInput(
-            legalOpLayoutAnalysis.getResult(), &overrideConv2dConfig));
+            legalOpLayoutAnalysis.getResult(), &overrideConv2dConfig,
+            enableConv2dSearchExtensions));
         legalConfigs[op] = legalOpConfigAnalysis.getResult();
 
         // Save only L1 Interleaved legal configs in a separate map for

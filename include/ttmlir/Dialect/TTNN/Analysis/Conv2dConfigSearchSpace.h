@@ -159,8 +159,7 @@ public:
         filterOutFn(filterOutFn) {
 
     // Populate activeSearchFields from searchSpace.
-    if (searchSpace.isWeightsDtypeSetForSearch() &&
-        !baseConfig.hasWeightsDtype()) {
+    if (searchSpace.isWeightsDtypeSetForSearch()) {
       activeSearchFields.emplace_back(
           Conv2dConfigGeneratorSearchFieldInfo(searchSpace.weightsDtype),
           [](Conv2dConfigAttr attr,

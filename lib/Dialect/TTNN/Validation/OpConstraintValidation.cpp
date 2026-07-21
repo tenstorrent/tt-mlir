@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Validation/OpConstraintValidation.h"
 
+#include "Constants.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -136,8 +137,16 @@ checkConstraintsResult(Operation *contextOp,
   ttcore::ChipDescAttr chipDesc = systemDesc.getChipDescs()[0];
   uint64_t usableL1CacheSize = chipDesc.getUsableL1Size();
 
+  // L1_SMALL_SIZE is always reserved at the top of L1 by the hardware
+  // allocator and must not be counted as available for CB + tensor regions.
+  // Failing to subtract it causes the validator to accept configs where the
+  // static CB region overlaps the L1 tensor region at runtime.
+  constexpr uint64_t l1SmallSize = ::tt::constants::L1_SMALL_SIZE;
+  uint64_t allocatableL1 = usableL1CacheSize > l1SmallSize
+                               ? usableL1CacheSize - l1SmallSize
+                               : 0;
   uint64_t effectiveL1Limit =
-      static_cast<uint64_t>(tensorL1UsageCap * usableL1CacheSize);
+      static_cast<uint64_t>(tensorL1UsageCap * allocatableL1);
   uint64_t totalL1Usage = overallPeakL1Usage + additionalL1Usage;
 
   if (totalL1Usage > effectiveL1Limit) {
@@ -145,9 +154,10 @@ checkConstraintsResult(Operation *contextOp,
         ttmlir::LogComponent::OpValidation,
         "Not enough L1 memory. "
         "totalL1Usage: {} [overallPeakL1Usage={}, additionalL1Usage={}]"
-        " [cbPeakUsage={}, l1BuffersPeakUsage={}] limit: {}",
+        " [cbPeakUsage={}, l1BuffersPeakUsage={}]"
+        " limit: {} [allocatableL1={}, l1SmallSize={}]",
         totalL1Usage, overallPeakL1Usage, additionalL1Usage, cbPeakUsage,
-        l1BuffersPeakUsage, effectiveL1Limit);
+        l1BuffersPeakUsage, effectiveL1Limit, allocatableL1, l1SmallSize);
     return ValidationResult::outOfMemoryError("Not enough L1 memory");
   }
 

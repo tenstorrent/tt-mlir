@@ -75,12 +75,9 @@ void createTTNNPipelineTTIRPasses(
   // Propagate per-arg weight_dtype annotations through TM ops to consumers.
   pm.addPass(mlir::tt::ttir::createTTIRPropagateWeightDtype());
 
-  // Spatial row-group packing for narrow-channel 1x1 conv2d.
-  // Runs before FlattenSlidingWindow so we see the original pattern:
-  //   transpose(-3,-2) → transpose(-2,-1) → conv2d{channel_last} → transpose × 2
-  // Weight/bias packing ops reference constant parameters, so
-  // ConstEvalHoistTransform (which runs after all TTIR passes) automatically
-  // lifts them into const_eval functions — computed once, cached forever.
+  // Spatial row-group packing for narrow-channel 1x1 pointwise conv2d where
+  // IC is coprime to TILE_WIDTH=32 (e.g. IC=3 YUV adapter). Eliminates the
+  // permute→conv2d→permute pattern by replacing it with reshape→linear→reshape.
   pm.addPass(mlir::tt::ttir::createTTIRSpatialRowGroupPackingOpt());
   // Spatial packing for narrow-channel depthwise conv2d (e.g. UV AveragePool
   // IC=2, K=16): eliminates K=2→32 TILE padding waste (93.8%) on NCHW→NHWC
@@ -90,9 +87,7 @@ void createTTNNPipelineTTIRPasses(
   // (e.g. IC=24 → K=4, packed IC*K=96=3×TILE_WIDTH, 0% tile waste).
   // Uses ttir.conv2d (not ttir.linear) to avoid TTNNSpatialPackActivationRowMajorOpt
   // interference which degrades PCC to ~0.972 for partial packing factors.
-  // Set FORGE_DISABLE_POINTWISE_SPATIAL_PACKING=1 to skip for baseline comparison.
-  if (!std::getenv("FORGE_DISABLE_POINTWISE_SPATIAL_PACKING"))
-    pm.addPass(mlir::tt::ttir::createTTIRPointwiseConv2dPartialPackingOpt());
+  pm.addPass(mlir::tt::ttir::createTTIRPointwiseConv2dPartialPackingOpt());
   // Fuse 6D reshape->permute{0,3,5,1,2,4}->reshape chain into
   // ttir.pixel_unshuffle. Eliminates 87.5-93.75% DRAM tile-padding waste
   // from the 6D TILE reshape (Y path r=4, UV path r=2 in BEV pipeline).
@@ -139,11 +134,14 @@ void createTTNNPipelineAnalysisPasses(
     ttnn::TTNNOperationValidationAndFallbackOptions validationOptions;
     validationOptions.maxFallbackAttempts = options.maxFallbackAttempts;
 
+    BFPDtype conv2dWeightDtype = options.experimentalConv2dWeightDtype;
+
     if (!options.enableGreedyOptimizer) {
       // Default: chain-based TTNNOptimizer.
       ttnn::TTNNOptimizerOptions optimizerOptions(options);
       pm.addPass(createDevicePassesWrapper(
-          [optimizerOptions, validationOptions](OpPassManager &innerPm) {
+          [optimizerOptions, validationOptions,
+           conv2dWeightDtype](OpPassManager &innerPm) {
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
             innerPm.addPass(
@@ -152,6 +150,16 @@ void createTTNNPipelineAnalysisPasses(
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
                     validationOptions));
+            // Post-analysis weight dtype conversion: runs after config
+            // selection so the optimizer always uses BF16 L1 estimates.
+            // Only weight DRAM storage is compressed; output stays BF16.
+            if (conv2dWeightDtype != BFPDtype::None) {
+              TTNNConv2dWeightDtypeConversionOptions conv2dDtypeOpts;
+              conv2dDtypeOpts.targetDtype = conv2dWeightDtype;
+              innerPm.addPass(
+                  mlir::tt::ttnn::createTTNNConv2dWeightDtypeConversion(
+                      conv2dDtypeOpts));
+            }
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
           },
@@ -170,6 +178,7 @@ void createTTNNPipelineAnalysisPasses(
       propagationOptions.decisionTraceDir = options.decisionTraceDir;
       propagationOptions.enableCompileTimeStats =
           options.enableCompileTimeStats;
+      propagationOptions.enableConv2dSearchExtensions = options.enableConv2dSearchExtensions;
 
       TTNNGreedyL1SpillManagementOptions spillOptions;
       spillOptions.enableDecisionTrace = options.enableDecisionTrace;
@@ -178,7 +187,7 @@ void createTTNNPipelineAnalysisPasses(
       bool memLayoutEnabled = options.memoryLayoutAnalysisEnabled;
       pm.addPass(createDevicePassesWrapper(
           [propagationOptions, spillOptions, validationOptions,
-           memLayoutEnabled](OpPassManager &innerPm) {
+           memLayoutEnabled, conv2dWeightDtype](OpPassManager &innerPm) {
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
             innerPm.addPass(
@@ -192,6 +201,16 @@ void createTTNNPipelineAnalysisPasses(
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
                     validationOptions));
+            // Post-analysis weight dtype conversion: runs after config
+            // selection so the optimizer always uses BF16 L1 estimates.
+            // Only weight DRAM storage is compressed; output stays BF16.
+            if (conv2dWeightDtype != BFPDtype::None) {
+              TTNNConv2dWeightDtypeConversionOptions conv2dDtypeOpts;
+              conv2dDtypeOpts.targetDtype = conv2dWeightDtype;
+              innerPm.addPass(
+                  mlir::tt::ttnn::createTTNNConv2dWeightDtypeConversion(
+                      conv2dDtypeOpts));
+            }
             innerPm.addPass(
                 mlir::tt::ttnn::createTTNNPrepareConv2dWeightsAndBias());
           },
@@ -290,14 +309,10 @@ void createTTNNPipelineLayoutDecompositionPass(
 
   pm.addPass(createTTNNDecomposeLayouts());
 
-  // Move to_layout(TILE) from before the spatial packing reshape+permute+reshape
-  // chain to AFTER it. DecomposeLayouts propagates TILE backward through the chain
-  // (because linear needs TILE input), tilizing the activation before the reshapes.
-  // This pass moves the tilize to after the chain so the reshapes and permute
-  // operate in ROW_MAJOR (free views + 17.7 MB permute instead of 151 MB).
-  // Skip when pointwise spatial packing is disabled — no packing chain to optimize.
-  if (!std::getenv("FORGE_DISABLE_POINTWISE_SPATIAL_PACKING"))
-    pm.addPass(createTTNNSpatialPackActivationRowMajorOpt());
+  // Move to_layout(TILE) to after the spatial packing chain — always runs.
+  // Handles both NHWC (reshape→permute→reshape→linear) and NCHW (reshape→linear)
+  // paths. For NCHW path: also fuses the bias AddOp into ttnn.linear.
+  pm.addPass(createTTNNSpatialPackActivationRowMajorOpt());
 
 
 

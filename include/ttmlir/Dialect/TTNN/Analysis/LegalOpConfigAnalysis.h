@@ -20,17 +20,30 @@ struct LegalOpConfigAnalysisInput {
   // Conv2d config overrides.
   llvm::StringMap<Conv2dConfigOverrideParams> *conv2dConfigOverrides;
 
+  // When true, use the extended Conv2d search space:
+  //   actBlockHOverride = {0, 384, 64, 32}
+  //   enableWeightsDoubleBuffer = {true, false}
+  //   enableActDoubleBuffer     = {true, false}
+  //   reshardIfNotOptimal       = {false, true}
+  // When false, use the conservative baseline:
+  //   actBlockHOverride = {0, 64, 32}
+  //   deallocateActivation = {true}  (no double-buffer, no reshard)
+  bool enableConv2dSearchExtensions = false;
+
   LegalOpConfigAnalysisInput() : conv2dConfigOverrides(nullptr) {}
 
   LegalOpConfigAnalysisInput(
       std::vector<OpConfig> legalConfigs,
-      llvm::StringMap<Conv2dConfigOverrideParams> *conv2dConfigOverrides)
+      llvm::StringMap<Conv2dConfigOverrideParams> *conv2dConfigOverrides,
+      bool enableConv2dSearchExtensions = false)
       : legalConfigs(legalConfigs),
-        conv2dConfigOverrides(conv2dConfigOverrides) {}
+        conv2dConfigOverrides(conv2dConfigOverrides),
+        enableConv2dSearchExtensions(enableConv2dSearchExtensions) {}
 
   bool operator==(const LegalOpConfigAnalysisInput &rhs) const {
     return legalConfigs == rhs.legalConfigs &&
-           conv2dConfigOverrides == rhs.conv2dConfigOverrides;
+           conv2dConfigOverrides == rhs.conv2dConfigOverrides &&
+           enableConv2dSearchExtensions == rhs.enableConv2dSearchExtensions;
   }
 
   bool operator!=(const LegalOpConfigAnalysisInput &rhs) const {
@@ -39,21 +52,24 @@ struct LegalOpConfigAnalysisInput {
 };
 
 struct Conv2dConfigSearchSpaceFactory {
-  static Conv2dConfigSearchSpace get() {
-    static Conv2dConfigSearchSpace searchSpace;
-
-    // Return empty search space for now.
-    // TODO(rpavlovicTT): Enable search space for conv2d configs when priority
-    // is set.
-
-    // 0 is best (allows max ntiles based on input). Must be multiple of 32.
-    // Between non-zero values, prefer larger (less restrictive).
-    // Ordered by preference: 0 (best), 64, 32.
-    searchSpace.actBlockHOverride = {0, 64, 32};
+  // enableExtensions=true  → extended search: actBlockH {0,384,64,32},
+  //                          double-buffer, reshardIfNotOptimal.
+  // enableExtensions=false → conservative baseline: actBlockH {0,64,32},
+  //                          deallocateActivation only (original upstream).
+  static Conv2dConfigSearchSpace get(bool enableExtensions = true) {
+    Conv2dConfigSearchSpace searchSpace;
 
     searchSpace.deallocateActivation = {true};
 
-    // searchSpace.reshardIfNotOptimal = {false, true};
+    if (enableExtensions) {
+      // NOTE: 576 removed — caused ~1MB static CB clash on HEIGHT_SHARDED ops.
+      searchSpace.actBlockHOverride = {0, 384, 64, 32};
+      searchSpace.enableWeightsDoubleBuffer = {true, false};
+      searchSpace.enableActDoubleBuffer     = {true, false};
+      searchSpace.reshardIfNotOptimal = {false, true};
+    } else {
+      searchSpace.actBlockHOverride = {0, 64, 32};
+    }
 
     return searchSpace;
   }
@@ -81,8 +97,8 @@ private:
   // Conv2dConfigGenerator within search space.
   void fillOpSpecificAttrs();
 
-  // Search space for conv2d config. Shared across all conv2d ops.
-  Conv2dConfigSearchSpace searchSpace = Conv2dConfigSearchSpaceFactory::get();
+  // Search space for conv2d config. Set from analysisInput during analysis.
+  Conv2dConfigSearchSpace searchSpace;
 };
 
 } // namespace mlir::tt::ttnn

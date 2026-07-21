@@ -34,6 +34,7 @@ struct TTNNOptimizerOptions {
   bool memReconfigEnabled = false;
   int64_t maxLegalLayouts = 64;
   bool rowMajorEnabled = false;
+  bool enableConv2dSearchExtensions = false;
   std::shared_ptr<::tt::tt_metal::distributed::MeshDevice> devicePtr = nullptr;
 
   TTNNOptimizerOptions() = default;

@@ -404,6 +404,24 @@ struct TTIRToTTNNCommonPipelineOptions
           clEnumValN(BFPDtype::BFP_BFloat4, "bfp_bf4", "BFP BFloat4 format")),
       llvm::cl::init(BFPDtype::None)};
 
+  Option<BFPDtype> experimentalConv2dWeightDtype{
+      *this, "experimental-conv2d-weight-dtype",
+      llvm::cl::desc(
+          "Experimental: Target dtype for Conv2d weight storage after config "
+          "selection. Runs post-analysis so optimizer always uses BF16 L1 "
+          "estimates; only weight DRAM storage is compressed. Output "
+          "activations remain in BF16."),
+      llvm::cl::values(
+          clEnumValN(BFPDtype::None, "none", "Disabled"),
+          clEnumValN(BFPDtype::BFP_BFloat8, "bfp_bf8", "BFP BFloat8 format"),
+          clEnumValN(BFPDtype::BFP_BFloat4, "bfp_bf4", "BFP BFloat4 format")),
+      llvm::cl::init(BFPDtype::None)};
+  Option<bool> enableConv2dSearchExtensions{
+      *this, "enable-conv2d-search-extensions",
+      llvm::cl::desc("Enable extended Conv2d optimizer search space: "
+                     "actBlockH {0,384,64,32}, double-buffer, reshardIfNotOptimal. "
+                     "Set false for baseline comparison (actBlockH {0,64,32} only)."),
+      llvm::cl::init(false)};
   // ComputeKernelConfig options
   // Note: computeCfgMathFidelity default value is HiFi4
   // And computeCfgFp32DestAccEn default value is true.

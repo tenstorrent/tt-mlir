@@ -43,6 +43,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNUniqueLocs.cpp
         TTNNWeightDtypeConversion.cpp
         TTNNKVCacheDtypeConversion.cpp
+        TTNNConv2dWeightDtypeConversion.cpp
         Workarounds/Decomposition/AllGatherOpRewritePattern.cpp
         Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.cpp
         Workarounds/Decomposition/ArgMaxOpDimRewritePattern.cpp

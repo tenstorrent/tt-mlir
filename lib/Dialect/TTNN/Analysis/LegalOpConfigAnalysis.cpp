@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpConfigAnalysis.h"
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MatmulProgramConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
@@ -191,7 +192,7 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
                 : std::get<Conv2dAttrs>(analysisResult.begin()->opSpecificAttrs)
                       .conv2dConfig.value();
 
-        // If weights dtype is not set, set it to the weight tensor dtype.
+        // If weights dtype is not set, default from the weight tensor dtype.
         if (!conv2dConfigAttrBase.getWeightsDtype().has_value()) {
           conv2dConfigAttrBase = conv2dConfigAttrBase.withWeightsDtype(
               ttcore::elementTypeToDataType(
@@ -202,24 +203,35 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
                      "Op {} Base conv2d config: {}", convOp.getLoc(),
                      conv2dConfigAttrBase);
 
-        auto filterOut = [](const Conv2dConfigAttr &config) {
-          //
-          // Combinations that are invalid:
-          // 1. reshard_if_not_optimal = true and shard_layout is not set.
-          //
+        // Filter out reshardIfNotOptimal=true configs so only non-reshard
+        // configs are considered in the beam search.
+        auto filterOut = [](const Conv2dConfigAttr &config) -> bool {
           return (config.hasReshardIfNotOptimal() &&
                   config.getReshardIfNotOptimal().getValue() &&
                   !config.hasShardLayout());
         };
 
+        // Large-spatial ops (H×W > 100K) are HEIGHT_SHARDED across many cores.
+        // On a 64-core chip, H=320×W=576=184320 rows gives 90 tiles/core.
+        // act_block_h=0 lets static CBs cover the full shard height (~1.2 MB),
+        // clashing with L1 buffers. Restrict to {64, 32} and disable
+        // double-buffering to keep the static CB region well below 1 MB.
+        Conv2dConfigSearchSpace effectiveSearchSpace = searchSpace;
+        int64_t spatialSize =
+            (int64_t)convOp.getInputHeight() * convOp.getInputWidth();
+        if (spatialSize > 100000) {
+          effectiveSearchSpace.actBlockHOverride = {64, 32};
+          effectiveSearchSpace.enableActDoubleBuffer = {false};
+          effectiveSearchSpace.enableWeightsDoubleBuffer = {false};
+          effectiveSearchSpace.reshardIfNotOptimal = {false};
+        }
+
         Conv2dConfigGenerator configGenerator(&convOp, conv2dConfigAttrBase,
-                                              searchSpace, filterOut);
+                                              effectiveSearchSpace, filterOut);
 
         std::vector<OpConfig> newLegalConfigs;
         auto addConfigs = [&](const Conv2dConfigAttr &configAttr) {
           for (const OpConfig &existingOpConfig : analysisResult) {
-            // Create a new OpConfig pairing the existing layout with the new
-            // conv config.
             newLegalConfigs.emplace_back(existingOpConfig.outputLayout,
                                          Conv2dAttrs{configAttr, std::nullopt});
           }
@@ -270,6 +282,9 @@ void LegalOpConfigAnalysis::analysisImplementation() {
   if (!isOpEnabledForAnalysis(op)) {
     return;
   }
+
+  searchSpace = Conv2dConfigSearchSpaceFactory::get(
+      analysisInput.enableConv2dSearchExtensions);
 
   fillOpSpecificAttrs();
 

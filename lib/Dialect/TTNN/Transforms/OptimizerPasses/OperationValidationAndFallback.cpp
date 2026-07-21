@@ -26,6 +26,7 @@
 
 #include <cassert>
 #include <cstddef>
+#include <cstdlib>
 #include <optional>
 #include <set>
 #include <vector>
@@ -937,9 +938,12 @@ ToLayoutOp createToLayoutOp(OpBuilder &builder, Location loc,
 
   // Create result type for ToLayoutOp, which has the same shape as
   // currentResultType but use scalar element type and encoding from
-  // targetLayout
-  Type scalarElementType = mlir::tt::ttcore::dataTypeToElementType(
-      builder.getContext(), targetLayout.getDataType());
+  // targetLayout. Use getScalarElementType() rather than
+  // dataTypeToElementType(getDataType()) because the latter returns a TileType
+  // for BFP formats (e.g. BFP_BFloat4 → tile<32x32, bfp_bf4>), which violates
+  // CheckTileTypeTrait. getScalarElementType() always unwraps TileType to the
+  // underlying scalar (e.g. bf16 for BFP_BFloat4).
+  Type scalarElementType = targetLayout.getScalarElementType();
   RankedTensorType resultType = RankedTensorType::get(
       currentResultType.getShape(), scalarElementType, targetLayout);
 
