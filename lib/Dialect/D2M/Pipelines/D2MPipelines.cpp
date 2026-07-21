@@ -299,6 +299,8 @@ void createD2MToTTKernelPreEmitCPipeline(OpPassManager &pm,
   {
     D2MToTTKernelOptions.ttnnMode = options.ttnnMode;
     D2MToTTKernelOptions.forceCompileTimeArgs = options.forceCompileTimeArgs;
+    D2MToTTKernelOptions.preserveExternalKernelArgs =
+        options.preserveExternalKernelArgs;
   }
   funcPm.addPass(tt::createConvertD2MToTTKernelPass(D2MToTTKernelOptions));
   funcPm.addPass(createCanonicalizerPassWithOptions(options));

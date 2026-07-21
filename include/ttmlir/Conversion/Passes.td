@@ -185,7 +185,11 @@ def ConvertD2MToTTKernel: Pass<"convert-d2m-to-ttkernel", "::mlir::func::FuncOp"
   let options = [
     Option<"ttnnMode", "ttnn-mode", "bool", /*default=*/"false", "Enable TTNN mode">,
     Option<"forceCompileTimeArgs", "force-compile-time-args", "bool", /*default=*/"false",
-           "Force uniform D2M kernel arguments into compile-time args when legal for CRTA performance comparison.">
+           "Force uniform D2M kernel arguments into compile-time args when legal for CRTA performance comparison.">,
+    Option<"preserveExternalKernelArgs", "preserve-external-kernel-args", "bool", /*default=*/"false",
+           "Keep used kernel args plus unused operands that originate from the "
+           "parent function arguments (host/runtime ABI). Skips compiler-generated "
+           "operands such as CB allocs and pass-inserted semaphores.">
   ];
 }
 

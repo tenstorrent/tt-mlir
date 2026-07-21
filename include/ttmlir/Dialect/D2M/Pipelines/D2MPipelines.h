@@ -198,6 +198,15 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
                      "args when legal for CRTA performance comparison."),
       llvm::cl::init(false)};
 
+  // Keep used args plus unused operands that come from parent function args.
+  Option<bool> preserveExternalKernelArgs{
+      *this, "preserve-external-kernel-args",
+      llvm::cl::desc(
+          "Keep used kernel args plus unused parent-function arguments in "
+          "each kernel arg_spec. Skips compiler-generated operands such as "
+          "CB allocs."),
+      llvm::cl::init(false)};
+
   // Option to set the target data format for the global data format conversion
   // pass.
   Option<std::string> globalDataFormatTarget{
