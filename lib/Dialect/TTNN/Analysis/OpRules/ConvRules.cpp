@@ -65,6 +65,12 @@ void Conv2dRuleBook::applyOpSpecificAttrs(
       convOp.setComputeConfigAttr(
           conv2dAttrs.deviceComputeKernelConfig.value());
     }
+    // Note: outputDtype (if selected) is applied by the outer applyOpConfig
+    // loop via TTNNDtypeOpInterface::setDtypeAttr and result.setType(), using
+    // candidate.outputLayouts[0] which is the metal-backend-validated layout
+    // with the correct shard shape. Do NOT set/rebuild the result type here;
+    // doing so recomputes shard shape with a simplified formula and creates a
+    // mismatch with the memory config shard spec in downstream to_memory_config ops.
   };
 
   if (conv2d) {
@@ -86,10 +92,23 @@ static uint32_t getActBlockHOverride(const BeamCandidate &c) {
   return UINT32_MAX;
 }
 
+static bool getBothDoubleBuffersEnabled(const BeamCandidate &c) {
+  if (auto *conv2d =
+          std::get_if<Conv2dAttrs>(&c.configHint.opSpecificAttrs)) {
+    if (conv2d->conv2dConfig.has_value() && conv2d->conv2dConfig.value()) {
+      auto cfg = conv2d->conv2dConfig.value();
+      auto weightsDB = cfg.getEnableWeightsDoubleBuffer();
+      auto actDB = cfg.getEnableActDoubleBuffer();
+      return weightsDB && weightsDB.getValue() && actDB && actDB.getValue();
+    }
+  }
+  return false;
+}
+
 bool Conv2dRuleBook::preferCandidate(Operation *op, const BeamCandidate &a,
                                      const BeamCandidate &b) const {
   // Prefer act_block_h_override=0 (auto, best), then higher over lower.
-  // Ordering: 0 > 64 > 32 > ...
+  // Ordering: 0 > 384 > 64 > 32 > ...
   uint32_t abhA = getActBlockHOverride(a);
   uint32_t abhB = getActBlockHOverride(b);
   if (abhA != abhB) {
@@ -100,6 +119,12 @@ bool Conv2dRuleBook::preferCandidate(Operation *op, const BeamCandidate &a,
       return false;
     }
     return abhA > abhB;
+  }
+  // Among same act_block_h, prefer both double-buffers enabled.
+  bool dbA = getBothDoubleBuffersEnabled(a);
+  bool dbB = getBothDoubleBuffersEnabled(b);
+  if (dbA != dbB) {
+    return dbA;
   }
   return OpRuleBook::preferCandidate(op, a, b);
 }

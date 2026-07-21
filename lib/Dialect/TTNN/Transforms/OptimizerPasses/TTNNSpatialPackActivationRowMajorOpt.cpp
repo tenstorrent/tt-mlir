@@ -4,13 +4,14 @@
 
 // TTNNSpatialPackActivationRowMajorOpt
 //
+// Handles two spatial-packing patterns produced by TTIRSpatialRowGroupPackingOpt:
+//
+// ── NHWC path (process) ───────────────────────────────────────────────────────
 // Problem: TTNNDecomposeLayouts propagates TILE backward through the spatial
 // activation packing chain (to_layout(TILE) → reshape → permute → reshape)
 // because ttnn.linear needs TILE input.  This tilizes the activation BEFORE
 // the reshapes, which is wrong.  Additionally the optimizer inserts L1
 // intermediates around linear.
-//
-// Full before/after:
 //
 //   BEFORE (wrong):
 //     to_layout(%arg0, TILE)           DRAM TILE    (188 MB with C=3→32)
@@ -37,6 +38,31 @@
 //     to_memory_config(DRAM_ROW_MAJOR) DRAM ROW_MAJOR  ← L1→DRAM + untilize
 //     permute({0,3,1,2})               DRAM ROW_MAJOR
 //     reshape([N,OC,H,W])              DRAM ROW_MAJOR  ← free view
+//     to_memory_config(DRAM_TILE)      DRAM TILE       final output
+//
+// ── NCHW path (processNCHW) ───────────────────────────────────────────────────
+// TTIRSpatialRowGroupPackingOpt now emits NCHW-native linear (no permutes):
+//   reshape [N,C,H,W] → [N,1,IC*K,P]  (single reshape, no permute)
+//   linear(W^T[1,1,OC*K,IC*K], act[N,1,IC*K,P]) → [N,1,OC*K,P]
+//   reshape [N,1,OC*K,P] → [N,OC,H,W]  (no permute)
+//
+// TTNNDecomposeLayouts still tilizes before the NCHW reshape (wrong), and the
+// output reshape in TILE crosses tile boundaries (~3.7ms).  This pass fixes both.
+//
+//   BEFORE (wrong):
+//     to_layout(%arg0, TILE)           DRAM TILE
+//     reshape([N,C,H,W]→[N,1,IC*K,P]) DRAM TILE  (crosses tile boundaries!)
+//     ...
+//     linear(W^T, act)                 [N,1,OC*K,P]
+//     reshape([N,1,OC*K,P]→[N,OC,H,W]) TILE      (catastrophic ~3.7ms!)
+//
+//   AFTER (correct):
+//     reshape([N,C,H,W]→[N,1,IC*K,P]) DRAM ROW_MAJOR  ← free view
+//     to_layout(TILE)                  DRAM TILE       (tilize 17.7 MB)
+//     ...
+//     linear(W^T, act)                 [N,1,OC*K,P]
+//     to_layout(ROW_MAJOR)             DRAM ROW_MAJOR  ← untilize (new op)
+//     reshape([N,1,OC*K,P]→[N,OC,H,W]) DRAM ROW_MAJOR ← free view
 //     to_memory_config(DRAM_TILE)      DRAM TILE       final output
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -80,6 +106,7 @@ static RankedTensorType mkDRAMTileTy(RankedTensorType ref) {
   return RankedTensorType::get(ref.getShape(), ref.getElementType(), lo);
 }
 
+
 // Update a ToMemoryConfigOp to use a new result type (and matching attribute).
 static void updateMemoryConfig(ttnn::ToMemoryConfigOp mcOp,
                                 RankedTensorType newTy) {
@@ -114,8 +141,10 @@ public:
       candidates.push_back(op);
     });
 
-    for (ttnn::ToLayoutOp toTileOp : candidates)
+    for (ttnn::ToLayoutOp toTileOp : candidates) {
       process(toTileOp);
+      processNCHW(toTileOp);
+    }
   }
 
 private:
@@ -389,6 +418,279 @@ private:
       // Redirect all uses of r_final (except the new mc op itself) to mcTile.
       SmallPtrSet<Operation *, 1> except{mcTile.getOperation()};
       r_final.getResult().replaceAllUsesExcept(mcTile.getResult(), except);
+    }
+  }
+
+  // ── NCHW-native path ───────────────────────────────────────────────────────
+  // Handles the pattern emitted by TTIRSpatialRowGroupPackingOpt NCHW variant:
+  //   to_layout(TILE) → reshape([N,C,H,W]→[N,1,IC*K,P])  (no permute)
+  //   linear(W^T, act) → [N,1,OC*K,P]
+  //   reshape([N,1,OC*K,P]→[N,OC,H,W])
+  //
+  // Discriminant vs. NHWC process(): the immediate reshape after to_layout has
+  // dim[1]==1 (NCHW-flat [N,1,IC*K,P]).  The NHWC path has dim[1]==C*K>1.
+  void processNCHW(ttnn::ToLayoutOp toTileOp) {
+    // ── Match: to_layout(TILE) → rFlat([N,C,H,W]→[N,1,IC*K,P]) ─────────────
+    ttnn::ReshapeOp rFlat;
+    for (Operation *u : toTileOp.getResult().getUsers()) {
+      if (mlir::isa<ttnn::DeallocateOp>(u))
+        continue;
+      rFlat = mlir::dyn_cast<ttnn::ReshapeOp>(u);
+      if (!rFlat)
+        return;
+    }
+    if (!rFlat)
+      return;
+
+    // Guard: output dim[1] == 1 (NCHW-flat: [N,1,IC*K,P])
+    auto rFlatOutTy = mlir::cast<RankedTensorType>(rFlat.getResult().getType());
+    if (rFlatOutTy.getRank() != 4 || rFlatOutTy.getDimSize(1) != 1)
+      return;
+
+    // Guard: input dim[1] != 1 (original has channels, not already NCHW-flat)
+    auto rFlatInTy = mlir::cast<RankedTensorType>(rFlat.getInput().getType());
+    if (rFlatInTy.getRank() != 4 || rFlatInTy.getDimSize(1) == 1)
+      return;
+
+    // ── Transform 1: move to_layout(TILE) to AFTER rFlat ─────────────────────
+    // Before: to_layout(TILE, [N,C,H,W]) → rFlat (TILE reshape — crosses tiles)
+    // After:  rFlat (ROW_MAJOR free view) → to_layout(TILE, [N,1,IC*K,P])
+    Value rowMajorInput = toTileOp.getInput();
+
+    auto rFlatOutRM = mkDRAMRowMajorTy(rFlatOutTy);
+    rFlat.getInputMutable().assign(rowMajorInput);
+    rFlat.getResult().setType(rFlatOutRM);
+
+    toTileOp->moveAfter(rFlat);
+    toTileOp.getInputMutable().assign(rFlat.getResult());
+
+    auto origTileTy = mlir::cast<RankedTensorType>(toTileOp.getResult().getType());
+    auto tileLo = TTNNLayoutAttr::Builder(origTileTy)
+                      .setBufferType(BufferType::L1)
+                      .setLayout(Layout::Tile)
+                      .setMemoryLayout(TensorMemoryLayout::Interleaved)
+                      .build();
+    auto newTileTy = utils::RankedTensorTypeFactory::create(rFlatOutRM, tileLo);
+    toTileOp.getResult().setType(newTileTy);
+
+    SmallPtrSet<Operation *, 2> exceptions{toTileOp};
+    rFlat.getResult().replaceAllUsesExcept(toTileOp.getResult(), exceptions);
+
+    // ── Transform 2: remove L1 bounce + fuse matmul+add → linear ──────────────
+    // The NCHW path lowers ttir::LinearOp(W^T, act, bias) to ttnn::MatmulOp +
+    // ttnn::AddOp because the lowering only produces a fused ttnn::LinearOp when
+    // the constant weight is the SECOND operand.  In our NCHW arrangement the
+    // weight is first, so we detect the matmul+add pattern here and fuse it.
+    ttnn::LinearOp linearOp;
+    ttnn::MatmulOp matmulOp;
+
+    for (Operation *usr :
+         llvm::make_early_inc_range(toTileOp.getResult().getUsers())) {
+      if (mlir::isa<ttnn::DeallocateOp>(usr))
+        continue;
+
+      if (auto lin = mlir::dyn_cast<ttnn::LinearOp>(usr)) {
+        linearOp = lin;
+        continue;
+      }
+
+      if (auto mm = mlir::dyn_cast<ttnn::MatmulOp>(usr)) {
+        matmulOp = mm;
+        continue;
+      }
+
+      auto mcOp = mlir::dyn_cast<ttnn::ToMemoryConfigOp>(usr);
+      if (!mcOp)
+        continue;
+
+      auto lo = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
+          mlir::cast<RankedTensorType>(mcOp.getResult().getType())
+              .getEncoding());
+      if (!lo)
+        continue;
+
+      // Do NOT convert L1 mc → DRAM: activation stays in L1 for the
+      // L1-resident matmul path (tilize to L1, linear reads L1).
+
+      for (Operation *u2 : mcOp.getResult().getUsers()) {
+        if (mlir::isa<ttnn::DeallocateOp>(u2))
+          continue;
+        if (auto lin = mlir::dyn_cast<ttnn::LinearOp>(u2)) {
+          linearOp = lin;
+          continue;
+        }
+        if (auto mm = mlir::dyn_cast<ttnn::MatmulOp>(u2)) {
+          matmulOp = mm;
+          continue;
+        }
+        if (auto mc2 = mlir::dyn_cast<ttnn::ToMemoryConfigOp>(u2)) {
+          for (Operation *u3 : mc2.getResult().getUsers()) {
+            if (mlir::isa<ttnn::DeallocateOp>(u3))
+              continue;
+            if (auto lin = mlir::dyn_cast<ttnn::LinearOp>(u3))
+              linearOp = lin;
+            if (auto mm = mlir::dyn_cast<ttnn::MatmulOp>(u3))
+              matmulOp = mm;
+          }
+        }
+      }
+    }
+
+    // Convert MatmulOp + downstream AddOp(bias) → fused LinearOp(with bias).
+    // This eliminates the separate ttnn.add, producing reshape→linear→reshape
+    // with no extra ops in the TTNN IR.
+    if (matmulOp && !linearOp) {
+      // Find the bias AddOp directly after matmulOp before creating LinearOp.
+      ttnn::AddOp biasAddOp;
+      Value biasValue;
+      for (Operation *u : matmulOp.getResult().getUsers()) {
+        if (mlir::isa<ttnn::DeallocateOp>(u))
+          continue;
+        if (auto add = mlir::dyn_cast<ttnn::AddOp>(u)) {
+          Value lhs = add.getLhs(), rhs = add.getRhs();
+          biasValue = (lhs == matmulOp.getResult()) ? rhs : lhs;
+          biasAddOp = add;
+          break;
+        }
+      }
+
+      auto linearResultTy =
+          mlir::cast<RankedTensorType>(matmulOp.getResult().getType());
+      OpBuilder ob(matmulOp);
+      linearOp = ob.create<ttnn::LinearOp>(
+          matmulOp.getLoc(), linearResultTy,
+          matmulOp.getA(), matmulOp.getB(),
+          biasValue,
+          matmulOp.getTransposeA(), matmulOp.getTransposeB(),
+          matmulOp.getMatmulProgramConfigAttr(),
+          matmulOp.getActivationAttr(),
+          matmulOp.getComputeConfigAttr());
+
+      matmulOp.getResult().replaceAllUsesWith(linearOp.getResult());
+      matmulOp.erase();
+
+      // Remove the separate AddOp — bias is now fused into LinearOp.
+      if (biasAddOp) {
+        biasAddOp.getResult().replaceAllUsesWith(linearOp.getResult());
+        biasAddOp.erase();
+      }
+
+      llvm::errs() << "[SpatialPackOpt] processNCHW: MatmulOp → LinearOp"
+                   << (biasAddOp ? " (bias fused)" : " (no bias)")
+                   << " act=" << linearOp.getB().getType()
+                   << " w="   << linearOp.getA().getType() << "\n";
+    }
+
+    if (!linearOp)
+      return;
+
+    // ── Transform 3: insert untilize BEFORE output reshape ───────────────────
+    // The output reshape [N,1,OC*K,P]→[N,OC,H,W] on TILE data is catastrophic
+    // (~2.3 ms) because it crosses tile boundaries. Inserting to_layout(RM, L1)
+    // before the reshape converts it to a cheap ROW_MAJOR re-stride (~180 µs).
+    //
+    // Pattern:  linear → [optional mc (ShardedToInterleaved)] → rOut(TILE reshape)
+    //           → [optional mc_final(DRAM TILE)]
+    // After:    linear → [mc] → toRM(RM, L1) → rOut(RM reshape→DRAM RM)
+    //           → [mc_final(DRAM TILE)]  (inserted if absent)
+
+    ttnn::ReshapeOp rOut;
+    Value rOutSrc;
+
+    for (Operation *u : linearOp.getResult().getUsers()) {
+      if (mlir::isa<ttnn::DeallocateOp>(u))
+        continue;
+      if (auto r = mlir::dyn_cast<ttnn::ReshapeOp>(u)) {
+        rOut    = r;
+        rOutSrc = linearOp.getResult();
+        break;
+      }
+      if (auto mc = mlir::dyn_cast<ttnn::ToMemoryConfigOp>(u)) {
+        for (Operation *u2 : mc.getResult().getUsers()) {
+          if (mlir::isa<ttnn::DeallocateOp>(u2))
+            continue;
+          if (auto r = mlir::dyn_cast<ttnn::ReshapeOp>(u2)) {
+            rOut    = r;
+            rOutSrc = mc.getResult();
+            break;
+          }
+        }
+      }
+      if (rOut)
+        break;
+    }
+    if (!rOut)
+      return;
+
+    // If rOutSrc is still in L1 (e.g., ShardedToInterleaved chose L1 interleaved
+    // rather than DRAM TILE), redirect its defining mc to DRAM TILE first.
+    // This releases the L1 buffer before the rm_reshape_interleaved kernel
+    // allocates its CBs, preventing the CB address clash seen on Block C.
+    auto rOutSrcTy = mlir::cast<RankedTensorType>(rOutSrc.getType());
+    auto rOutSrcLo = mlir::dyn_cast_or_null<TTNNLayoutAttr>(rOutSrcTy.getEncoding());
+    if (rOutSrcLo && rOutSrcLo.getBufferType() == BufferType::L1) {
+      if (auto mcOp =
+              mlir::dyn_cast_or_null<ttnn::ToMemoryConfigOp>(rOutSrc.getDefiningOp())) {
+        auto dramTileTy = mkDRAMTileTy(rOutSrcTy);
+        updateMemoryConfig(mcOp, dramTileTy);
+        rOutSrcTy = dramTileTy;
+        llvm::errs() << "[SpatialPackOpt] processNCHW: redirected ShardedToInterleaved "
+                        "mc from L1 → DRAM TILE to release L1 before reshape\n";
+      }
+    }
+
+    // Insert to_layout(ROW_MAJOR, DRAM interleaved) BEFORE rOut.
+    // rOutSrc is TILE (DRAM or L1); untilize to DRAM RM so the reshape reads
+    // from DRAM — avoids the CB clash where rm_reshape_interleaved CBs overlap
+    // with any still-live L1 buffer.
+    auto dramRMUnTy = mkDRAMRowMajorTy(rOutSrcTy);
+    auto layoutAttr = ttnn::LayoutAttr::get(rOut->getContext(), Layout::RowMajor);
+    OpBuilder ob(rOut->getContext());
+    ob.setInsertionPoint(rOut);
+    auto toRM = ob.create<ttnn::ToLayoutOp>(rOut.getLoc(), dramRMUnTy, rOutSrc,
+                                             layoutAttr,
+                                             /*dtype=*/nullptr,
+                                             /*memory_config=*/nullptr);
+
+    // Redirect rOut to consume toRM's DRAM RM output; make rOut output DRAM RM
+    // (cheap re-stride — no tile boundary crossing, no CB clash).
+    rOut.getInputMutable().assign(toRM.getResult());
+    auto rOutTy  = mlir::cast<RankedTensorType>(rOut.getResult().getType());
+    auto dramRMTy = mkDRAMRowMajorTy(rOutTy);
+    rOut.getResult().setType(dramRMTy);
+
+    llvm::errs() << "[SpatialPackOpt] processNCHW: inserted untilize(DRAM RM)"
+                    " before output reshape → DRAM ROW_MAJOR re-stride\n";
+
+    // Ensure downstream consumers of rOut see DRAM TILE (same guard as NHWC).
+    bool hasDramTileFinal = false;
+    for (Operation *u : rOut.getResult().getUsers()) {
+      if (mlir::isa<ttnn::DeallocateOp>(u))
+        continue;
+      auto mc = mlir::dyn_cast<ttnn::ToMemoryConfigOp>(u);
+      if (!mc)
+        continue;
+      auto lo = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
+          mlir::cast<RankedTensorType>(mc.getResult().getType()).getEncoding());
+      if (lo && lo.getLayout() == Layout::Tile &&
+          lo.getBufferType() == BufferType::DRAM) {
+        hasDramTileFinal = true;
+        break;
+      }
+    }
+
+    if (!hasDramTileFinal) {
+      auto tileTy    = mkDRAMTileTy(dramRMTy);
+      auto tileLo    = mlir::cast<TTNNLayoutAttr>(tileTy.getEncoding());
+      auto tileMemCfg = MemoryConfigAttr::get(tileLo);
+
+      OpBuilder b(rOut->getContext());
+      b.setInsertionPointAfter(rOut);
+      auto mcTile = b.create<ttnn::ToMemoryConfigOp>(
+          rOut.getLoc(), tileTy, rOut.getResult(), tileMemCfg);
+
+      SmallPtrSet<Operation *, 1> except{mcTile.getOperation()};
+      rOut.getResult().replaceAllUsesExcept(mcTile.getResult(), except);
     }
   }
 };

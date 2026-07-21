@@ -412,7 +412,7 @@ def TTNNOperationValidationAndFallback: Pass<"ttnn-operation-validation-and-fall
     Option<"maxFallbackAttempts",
            "max-fallback-attempts",
            "uint32_t", /*default=*/"10000",
-           "Maximum number of fallback configurations to try before giving up (0 = unlimited)">
+           "Maximum number of fallback configurations to try before giving up (0 = unlimited)">,
   ];
 }
 
@@ -478,6 +478,37 @@ def TTNNKVCacheDtypeConversion: Pass<"ttnn-kv-cache-dtype-conversion", "::mlir::
     Option<"targetDtype", "target-dtype", "::mlir::tt::ttnn::BFPDtype",
            /*default=*/"::mlir::tt::ttnn::BFPDtype::None",
            "Target data type for KV cache conversion (bfp_bf8, bfp_bf4).">
+  ];
+}
+
+def TTNNConv2dWeightDtypeConversion : Pass<"ttnn-conv2d-weight-dtype-conversion", "::mlir::ModuleOp"> {
+  let summary = "Stamp a block-floating-point dtype on conv2d weight tensors after config selection.";
+  let description = [{
+    Sets weights_dtype in Conv2dConfigAttr on every Conv2dOp and ConvTranspose2dOp
+    in the module to the specified block-floating-point format.
+
+    Placement in the pipeline is deliberate. Config selection
+    (TTNNOptimizer, TTNNGreedyMemoryLayoutPropagation) evaluates CB footprint
+    and sharding using BF16 weight assumptions, which give a conservative upper
+    bound on L1 usage. Running this pass AFTER selection and BEFORE
+    TTNNPrepareConv2dWeightsAndBias (which packs the actual weight tensors on
+    the host) means:
+
+      - Configs validated with larger BF16 estimates are guaranteed to remain
+        valid when weights are later packed to the smaller target format — no
+        CB overflow is possible.
+      - The packed weight tensors written to DRAM use the target format
+        (BFP8_b or BFP4_b), reducing DRAM storage and transfer cost relative
+        to a full BF16 weight layout.
+      - Output activations are unaffected; only the stored weight dtype changes.
+
+    If targetDtype is None (default), the pass is a no-op.
+  }];
+
+  list<Option> options = [
+    Option<"targetDtype", "target-dtype", "::mlir::tt::ttnn::BFPDtype",
+           /*default=*/"::mlir::tt::ttnn::BFPDtype::None",
+           "Target data type for Conv2d weight conversion (bfp_bf8, bfp_bf4).">,
   ];
 }
 
@@ -769,26 +800,60 @@ def TTNNPixelUnshuffleL1Opt : Pass<"ttnn-pixel-unshuffle-l1-opt", "::mlir::Modul
 }
 
 def TTNNSpatialPackActivationRowMajorOpt : Pass<"ttnn-spatial-pack-activation-rm-opt", "::mlir::ModuleOp"> {
-  let summary = "Move to_layout(TILE) to after the spatial packing reshape+permute+reshape chain.";
+  let summary = "Fix to_layout(TILE) placement and output layout after spatial row-group packing.";
   let description = [{
-    TTNNDecomposeLayouts propagates TILE backward through the activation packing chain,
-    inserting to_layout(TILE) BEFORE the first reshape. This is wrong: the reshapes and
-    permute should operate on ROW_MAJOR so the first two reshapes are free views and the
-    permute writes only 17.7 MB instead of 151 MB.
+    TTNNDecomposeLayouts propagates TILE backward and inserts to_layout(TILE) BEFORE the
+    first activation reshape, which is wrong for both packing patterns produced by the
+    spatial row-group packing TTIR passes. This pass handles two distinct patterns.
 
-    Pattern matched (after DecomposeLayouts):
-      to_layout(%input, TILE)                 <- inserted too early by DecomposeLayouts
-      reshape([N, C*K, H/K, W])               <- should be free ROW_MAJOR view
-      permute({0,2,3,1})                      <- should write only 17.7 MB in ROW_MAJOR
-      reshape([N, 1, H/K*W, C*K])             <- should be free ROW_MAJOR view
+    ── NHWC path (reshape→permute→reshape before linear) ───────────────────────
+
+    Pattern (after DecomposeLayouts):
+      to_layout(%input, TILE)           <- inserted too early: tilizes full [N,C,H,W]
+      reshape([N, C*K, H/K, W])         <- channel-expand; should be ROW_MAJOR free view
+      permute({0,2,3,1})                <- NCHW→NHWC; costs 151 MB in TILE, 17.7 MB in RM
+      reshape([N, 1, H/K*W, C*K])       <- flatten spatial; should be ROW_MAJOR free view
       linear(...)
 
-    After this pass:
-      reshape([N, C*K, H/K, W])               <- free ROW_MAJOR view (zero copy)
-      permute({0,2,3,1})                      <- ROW_MAJOR: 17.7 MB write (C*K fills tiles 100%)
-      reshape([N, 1, H/K*W, C*K])             <- free ROW_MAJOR view (zero copy)
-      to_layout(%packed, TILE)                <- tilize HERE on the smaller packed tensor
-      linear(...)
+    Transform 1 — defer tilize:
+      reshape([N, C*K, H/K, W])         <- ROW_MAJOR free view (zero copy)
+      permute({0,2,3,1})                <- ROW_MAJOR: only 17.7 MB write
+      reshape([N, 1, H/K*W, C*K])       <- ROW_MAJOR free view (zero copy)
+      to_layout(%packed, TILE, DRAM)    <- tilize the smaller packed tensor only
+
+    Transform 2 — remove L1 bounce: any to_memory_config(L1) inserted between
+    the deferred tilize and the linear is redirected to DRAM TILE, eliminating
+    the L1 round-trip before the matmul.
+
+    Transform 3 — fix output unpack: the linear output is reshaped and permuted
+    back to NCHW. These ops run in L1 by default, wasting L1 for intermediate
+    buffers. This transform changes the post-linear to_memory_config to DRAM
+    ROW_MAJOR so the permute and final reshape are cheap DRAM operations.
+    A DRAM TILE to_memory_config is inserted after the final reshape if absent,
+    so downstream consumers (e.g. a subsequent conv2d) see TILE format.
+
+    ── NCHW-flat path (single reshape before linear, no permute) ──────────────
+
+    Pattern (after DecomposeLayouts):
+      to_layout(%input, TILE)                   <- tilizes full [N,C,H,W]
+      reshape([N,C,H,W] → [N,1,IC*K,P])         <- crosses tile boundaries in TILE!
+      linear(wPacked, xPacked)                  <- [N,1,OC*K,P]
+      reshape([N,1,OC*K,P] → [N,OC,H,W])        <- catastrophic TILE reshape (~3.7 ms)
+
+    Transform 1 — defer tilize:
+      reshape([N,C,H,W] → [N,1,IC*K,P])         <- ROW_MAJOR free view (no tile crossing)
+      to_layout(%flat, TILE)                    <- tilize the smaller flat tensor
+
+    Transform 2 — fuse matmul+add: when the constant weight is the first operand,
+    lowering produces ttnn.matmul + ttnn.add rather than a fused ttnn.linear.
+    This transform detects the matmul→add chain and replaces it with a single
+    ttnn.linear with the bias fused in.
+
+    Transform 3 — insert untilize before output reshape: the output reshape
+    [N,1,OC*K,P]→[N,OC,H,W] on TILE data crosses tile boundaries. An
+    to_layout(ROW_MAJOR) is inserted before the reshape, converting it to a
+    cheap re-stride. A DRAM TILE to_memory_config is appended after the reshape
+    if absent, matching the NHWC path's downstream contract.
   }];
   let dependentDialects = ["mlir::tt::ttnn::TTNNDialect"];
 }

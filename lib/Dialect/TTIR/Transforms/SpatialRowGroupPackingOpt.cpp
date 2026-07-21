@@ -16,11 +16,11 @@
 //     conv2d              {channel_last, kernel=1×1, stride=1, pad=0}
 //     permute({0,3,1,2})  [N,H,W,C]→[N,C,H,W] NCHW
 //
-// This pass replaces the pattern with spatial row-group packing so C*K=96 fills
-// tile rows completely (zero padding waste for C=3, K=32):
+// This pass replaces the pattern with NCHW-native spatial row-group packing
+// (K=TILE_WIDTH for IC coprime to TILE_WIDTH, e.g. IC=3 → K=32):
 //
 //   ── Weight packing (ops on constant parameter → auto const-eval'd) ────────
-//   Maps directly to _make_packed_weight() in Python (9 ops, no embedded constant):
+//   Maps directly to _make_packed_weight() using 9 TTIR ops — NO embedded constant:
 //
 //   broadcast  %weight [OC,IC,1,1] → [OC,IC,K,K]   expand kH=kW=1 to K×K
 //   arange     [1,1,K,K] arange_dim=2               val[0,0,k,*]=k  (row indices)
@@ -28,27 +28,24 @@
 //   eq         row_grid == col_grid → [1,1,K,K] bool  True on K×K diagonal only
 //   typecast   bool → bf16           [1,1,K,K]       1.0/0.0 (identity I_K)
 //   multiply   w_bc * i_k            [OC,IC,K,K]     zero off-diagonal elements
-//              (i_k broadcasts [1,1,K,K] → [OC,IC,K,K] implicitly)
-//   permute    [1,2,0,3]             [OC,IC,K,K]→[IC,K,OC,K]  absorbs W.T
-//   reshape    [IC,K,OC,K]→[IC*K, OC*K]
-//   reshape    → [IC*K, OC*K, 1, 1]  OIHW packed weight
+//   permute    [0,2,1,3]             [OC,IC,K,K]→[OC,K,IC,K]  produces W^T
+//   reshape    [OC,K,IC,K]→[OC*K, IC*K]
+//   reshape    → [1, 1, OC*K, IC*K]  transposed packed weight (A-operand)
 //
 //   No embedded tensor constant — I_K is computed from arange+eq (zero overhead).
 //
 //   ── Bias packing (ops on constant parameter → auto const-eval'd) ─────────
 //   reshape(%bias, [OC,1])                   rank-2 to avoid tt-metal rank-1 bug
 //   repeat_interleave([OC,1], K, dim=0)  → [OC*K, 1]
-//   reshape([1, 1, 1, OC*K])
+//   reshape([1, 1, OC*K, 1])                 column bias (broadcasts over spatial P)
 //
 //   ── Activation packing (runtime) ─────────────────────────────────────────
-//   reshape(%input, [N, C*K, H/K, W])    free view
-//   permute({0, 2, 3, 1})                → [N, H/K, W, C*K]  NHWC  17.7 MB ✓
+//   reshape(%input, [N, 1, C*K, H/K*W])  free NCHW view — no permute needed
 //
-//   ── Packed conv2d → output unpack ────────────────────────────────────────
-//   conv2d(packed_act, W_packed, B_packed, stride=1, pad=0)
-//   → [N, H/K, W, OC*K]
-//   permute({0, 3, 1, 2}) → [N, OC*K, H/K, W]
-//   reshape([N, OC, H, W])               free view
+//   ── NCHW-native linear → output unpack ───────────────────────────────────
+//   linear(W_packedT[1,1,OC*K,IC*K], act[N,1,IC*K,P]) → [N,1,OC*K,P]
+//   reshape([N, OC, H, W])               free NCHW view
+//   (TTNNSpatialPackActivationRowMajorOpt inserts untilize before this reshape)
 //
 // Because %weight and %bias carry ttcore.argument_type=parameter,
 // ConstEvalHoistTransform (which runs AFTER all TTIR passes) automatically lifts
@@ -113,6 +110,7 @@ public:
   }
 
 private:
+  // ── NCHW-native path ───────────────────────────────────────────────────────
   void process(ttir::Conv2dOp convOp, MLIRContext *ctx) {
     // ── 1. Match permute → conv2d → permute pattern ───────────────────────
     // By the time this pass runs, TTIRFusing has fused the two transposes into
@@ -268,30 +266,29 @@ private:
     Value wDiag  =
         b.create<ttir::MultiplyOp>(loc, wDiagTy, wBc, iK).getResult();
 
-    // permute [1,2,0,3]: [OC,IC,K,K]→[IC,K,OC,K]  absorbs W.T (matches Python _make_packed_weight)
-    //   result[ic,k,oc,k'] = wDiag[oc,ic,k,k'] = weight[oc,ic,0,0] if k==k'
-    //   After reshape: W[ic*K+k, oc*K+k'] is the linear weight matrix (row=input ch, col=output ch)
-    auto wPermTy = RankedTensorType::get({IC, K, OC, K}, bf16);
+    // permute [0,2,1,3]: [OC,IC,K,K]→[OC,K,IC,K]  produces transposed weight W^T
+    //   result[oc,k,ic,k'] = wDiag[oc,ic,k,k'] = weight[oc,ic,0,0] if k==k'
+    //   After reshape: W^T[oc*K+k, ic*K+k'] — NCHW linear computes W^T @ act
+    auto wPermTy = RankedTensorType::get({OC, K, IC, K}, bf16);
     Value wPerm  =
         b.create<ttir::PermuteOp>(loc, wPermTy, wDiag,
-                                   b.getDenseI64ArrayAttr({1, 2, 0, 3}))
+                                   b.getDenseI64ArrayAttr({0, 2, 1, 3}))
             .getResult();
 
-    // reshape [IC,K,OC,K] → [IC*K, OC*K]
-    auto w2dPackedTy = RankedTensorType::get({packedIC, packedOC}, bf16);
+    // reshape [OC,K,IC,K] → [OC*K, IC*K]
+    auto w2dPackedTy = RankedTensorType::get({packedOC, packedIC}, bf16);
     Value w2dPacked  =
         b.create<ttir::ReshapeOp>(
              loc, w2dPackedTy, wPerm,
-             b.getI32ArrayAttr({(int32_t)packedIC, (int32_t)packedOC}))
+             b.getI32ArrayAttr({(int32_t)packedOC, (int32_t)packedIC}))
             .getResult();
 
-    // reshape [IC*K, OC*K] → [1, 1, IC*K, OC*K]  for ttir.linear
-    // No prepare_conv2d_weights needed — linear takes weight directly
-    auto wPackedTy = RankedTensorType::get({1, 1, packedIC, packedOC}, bf16);
+    // reshape [OC*K, IC*K] → [1, 1, OC*K, IC*K]  transposed weight (A-operand of ttir.linear)
+    auto wPackedTy = RankedTensorType::get({1, 1, packedOC, packedIC}, bf16);
     Value wPacked  =
         b.create<ttir::ReshapeOp>(
              loc, wPackedTy, w2dPacked,
-             b.getI32ArrayAttr({1, 1, (int32_t)packedIC, (int32_t)packedOC}))
+             b.getI32ArrayAttr({1, 1, (int32_t)packedOC, (int32_t)packedIC}))
             .getResult();
 
     // ── 3b. Bias packing (auto const-eval'd — origBias is a parameter) ────
@@ -318,96 +315,55 @@ private:
                b.getSI32IntegerAttr(0))
               .getResult();
 
-      // reshape [OC*K, 1] → [1,1,1,OC*K]
-      auto bPackedTy = RankedTensorType::get({1, 1, 1, packedOC}, actElemTy);
+      // reshape [OC*K, 1] → [1,1,OC*K,1]  column bias: broadcasts over spatial dim P
+      auto bPackedTy = RankedTensorType::get({1, 1, packedOC, 1}, actElemTy);
       bPacked        =
           b.create<ttir::ReshapeOp>(loc, bPackedTy, bRep,
                                      b.getI32ArrayAttr(
-                                         {1, 1, 1, (int32_t)packedOC}))
+                                         {1, 1, (int32_t)packedOC, 1}))
               .getResult();
     }
 
     // ── 3c. Activation packing (runtime) ──────────────────────────────────
-    // reshape [N,C,H,W] → [N,C*K,H/K,W]  free view
-    auto aNTy = RankedTensorType::get({N, packedIC, packedH, W}, actElemTy);
-    Value aN  =
-        b.create<ttir::ReshapeOp>(
-             loc, aNTy, origInput,
-             b.getI32ArrayAttr({(int32_t)N, (int32_t)packedIC,
-                                (int32_t)packedH, (int32_t)W}))
-            .getResult();
-
-    // permute({0,2,3,1}): [N,C*K,H/K,W] → [N,H/K,W,C*K]  NHWC packed
-    //   writes only 17.7 MB vs 151 MB baseline — C*K=96=3×TILE_WIDTH fills tiles 100%
-    auto aNHWCTy = RankedTensorType::get({N, packedH, W, packedIC}, actElemTy);
-    Value aNHWC  =
-        b.create<ttir::PermuteOp>(
-             loc, aNHWCTy, aN,
-             b.getDenseI64ArrayAttr({0, 2, 3, 1}))
-            .getResult();
-
-    // reshape [N,H/K,W,C*K] → [N,1,H/K*W,C*K]  flatten spatial for ttir.linear
+    // Single NCHW-flat reshape: [N,C,H,W] → [N,1,C*K,H/K*W]  free ROW_MAJOR view
+    // No permute — channels stay in dim[2] for NCHW-native linear (W^T @ act).
+    // TTNNSpatialPackActivationRowMajorOpt moves the tilize to AFTER this reshape.
     int64_t packedSpatial = packedH * W;
-    auto aFlatTy = RankedTensorType::get({N, 1, packedSpatial, packedIC}, actElemTy);
+    auto aFlatTy = RankedTensorType::get({N, 1, packedIC, packedSpatial}, actElemTy);
     Value aFlat  =
         b.create<ttir::ReshapeOp>(
-             loc, aFlatTy, aNHWC,
-             b.getI32ArrayAttr({(int32_t)N, 1, (int32_t)packedSpatial,
-                                (int32_t)packedIC}))
+             loc, aFlatTy, origInput,
+             b.getI32ArrayAttr({(int32_t)N, 1, (int32_t)packedIC,
+                                (int32_t)packedSpatial}))
             .getResult();
 
-    // ── Single-linear path ───────────────────────────────────────────────────
-    // ONE packed linear [packedSpatial × packedOC] for the full OC (e.g. OC=3).
-    // Any downstream slice_static users on postPerm (Y and UV channel splits)
-    // are automatically redirected to finalOut via replaceAllUsesWith below —
-    // they survive unchanged and now slice the single packed output instead.
+    // ── Single-linear path (NCHW-native) ────────────────────────────────────
+    // result = wPacked[1,1,OC*K,IC*K] @ aFlat[N,1,IC*K,P] → [N,1,OC*K,P]
+    // No activation permutes — eliminates the two bottleneck permutes (~1,271 µs).
     //
-    // This produces 1 ttnn.linear per camera (5 total for the 5-camera BEV
-    // model). The previous per-slice approach created 2 linears per camera (10
-    // total), doubling the L1 pressure from spatial packing. That extra L1
-    // usage pushed the Y backbone pixel-rearrangement tensor down to address
-    // ~622976 (inside the UV DramWidth kernel's static CB region [622592-695712])
-    // causing the "CBs clash with L1 buffers" runtime crash. With a single linear
-    // the L1 pressure is halved and the Y pix-rearrange lands at a safe address.
+    // wPacked is operand A (not B): TTNNWeightDtypeConversion converts operand B
+    // that traces to constant args. aFlat (operand B) is a runtime value so it is
+    // not converted. wPacked (operand A) is skipped by the pass entirely.
+    // The block-diagonal structure is preserved without a ttcore.weight_dtype attr.
     //
-    // Force the packed weight to stay in bf16.
-    // TTNNWeightDtypeConversion applies the model's global weights_dtype (e.g.
-    // bfp_bf4 in trace_enabled configs) to every LinearOp whose weight traces to
-    // a constant parameter. For the Kronecker-packed weight this destroys the
-    // block-diagonal structure and drops PCC to ~0.96.
-    auto linearOutTy = RankedTensorType::get({N, 1, packedSpatial, packedOC}, actElemTy);
-    auto *linearOp   =
-        b.create<ttir::LinearOp>(loc, linearOutTy, aFlat, wPacked,
+    // One linear per camera keeps L1 pressure halved (vs. per-slice approach that
+    // created 2 linears, pushing Y pix-rearrange into UV kernel's CB region).
+    auto linearOutTy = RankedTensorType::get({N, 1, packedOC, packedSpatial}, actElemTy);
+    Value linearOut  =
+        b.create<ttir::LinearOp>(loc, linearOutTy, wPacked, aFlat,
                                   bPacked ? bPacked : Value(),
                                   /*transpose_a=*/false,
                                   /*transpose_b=*/false)
-            .getOperation();
-    linearOp->setAttr("ttcore.weight_dtype", b.getStringAttr("bf16"));
-    Value linearOut = linearOp->getResult(0);
+            .getResult();
 
     // ── 3e. Output unpack ─────────────────────────────────────────────────
-    // reshape [N,1,H/K*W,OC*K] → [N,H/K,W,OC*K]  unflatten spatial
-    auto oUnflatTy = RankedTensorType::get({N, packedH, W, packedOC}, actElemTy);
-    Value oUnflat  =
-        b.create<ttir::ReshapeOp>(
-             loc, oUnflatTy, linearOut,
-             b.getI32ArrayAttr({(int32_t)N, (int32_t)packedH,
-                                (int32_t)W, (int32_t)packedOC}))
-            .getResult();
-
-    // permute({0,3,1,2}): [N,H/K,W,OC*K] → [N,OC*K,H/K,W]
-    auto oPerTy = RankedTensorType::get({N, packedOC, packedH, W}, actElemTy);
-    Value oPer  =
-        b.create<ttir::PermuteOp>(
-             loc, oPerTy, oUnflat,
-             b.getDenseI64ArrayAttr({0, 3, 1, 2}))
-            .getResult();
-
-    // reshape [N,OC*K,H/K,W] → [N,OC,H,W]  free view
+    // Single NCHW free-view reshape: [N,1,OC*K,H/K*W] → [N,OC,H,W]
+    // No permute. TTNNSpatialPackActivationRowMajorOpt (TTNN level) inserts an
+    // untilize (to_layout ROW_MAJOR) before this reshape so it remains a free view.
     auto finalTy = RankedTensorType::get({N, OC, H, W}, actElemTy);
     Value finalOut =
         b.create<ttir::ReshapeOp>(
-             loc, finalTy, oPer,
+             loc, finalTy, linearOut,
              b.getI32ArrayAttr({(int32_t)N, (int32_t)OC, (int32_t)H, (int32_t)W}))
             .getResult();
 

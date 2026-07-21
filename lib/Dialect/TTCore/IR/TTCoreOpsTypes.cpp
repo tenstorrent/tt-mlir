@@ -1824,7 +1824,22 @@ uint64_t TileType::getSizeBytes() const {
 }
 
 mlir::Type TileType::getElementType() const {
-  return dataTypeToElementType(getContext(), getDataType());
+  // BFP types don't have a direct MLIR scalar type; return the corresponding
+  // uncompressed element type as documented: bfp_bf8/bf4/bf2 -> bf16,
+  // bfp_f8/f4/f2 -> f32. dataTypeToElementType() for BFP types returns a
+  // TileType (not a scalar), causing getScalarElementType() to recurse.
+  switch (getDataType()) {
+  case DataType::BFP_Float8:
+  case DataType::BFP_Float4:
+  case DataType::BFP_Float2:
+    return Float32Type::get(getContext());
+  case DataType::BFP_BFloat8:
+  case DataType::BFP_BFloat4:
+  case DataType::BFP_BFloat2:
+    return BFloat16Type::get(getContext());
+  default:
+    return dataTypeToElementType(getContext(), getDataType());
+  }
 }
 
 TileType TileType::cloneWith(::std::optional<::llvm::ArrayRef<int64_t>> shape,
