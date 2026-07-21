@@ -433,6 +433,33 @@ public:
     return {rawObs};
   }
 
+  /// Stateful-path pass instance, kept alive for post-run inspection.
+  std::unique_ptr<StatefulL1SpillManagement> statefulPass;
+
+  /// Drive StatefulL1SpillManagement (the record-based / captured-allocator
+  /// path) with a synthetic MockAllocatorL1Tracker backendValidator. Because
+  /// the validator short-circuits the op-model, this exercises the stateful
+  /// live-set / eviction-replay machinery with NO device and NO op-model --
+  /// letting a plain unit test reproduce replay behavior deterministically.
+  RunResult
+  runStatefulSynthetic(MockAllocatorL1Tracker::BackendValidatorFn validator) {
+    auto obs = std::make_unique<RecordingObserver>();
+    auto *rawObs = obs.get();
+
+    auto deviceAttr = mlir::tt::ttcore::lookupDevice(module.get());
+    ttcore::GridAttr deviceGrid = deviceAttr.getWorkerGrid();
+
+    statefulPass = std::make_unique<StatefulL1SpillManagement>(
+        func, deviceGrid, l1BudgetPerCore, std::move(obs));
+    statefulPass->getMemoryTracker().backendValidator = std::move(validator);
+    statefulPass->run();
+    return {rawObs};
+  }
+
+  bool statefulPassFailed() const {
+    return statefulPass && statefulPass->hasFailed();
+  }
+
   // --- IR inspection helpers ---
 
   /// Count ToMemoryConfigOp that write to DRAM (i.e. spills inserted by pass).

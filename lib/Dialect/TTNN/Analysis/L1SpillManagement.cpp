@@ -1858,7 +1858,17 @@ MockAllocatorL1Tracker::validate(Operation *op,
                                  const OpConfig &config) const {
   // Test-only hook takes precedence and is state-agnostic.
   if (backendValidator) {
-    return backendValidator(op, inputLayouts, config, /*additionalL1Usage=*/0);
+    op_constraint_validation::ValidationResult result =
+        backendValidator(op, inputLayouts, config, /*additionalL1Usage=*/0);
+    // Mirror the real path below: stash the output records so addTensor can
+    // associate them and the record-based live set / eviction replay behave
+    // as they do against the op-model. Lets tests drive the stateful path
+    // (including replayFrom) without a device.
+    if (result.isSuccess() && !result.outputAllocations.empty()) {
+      pendingRecords[op] = RecordVec(result.outputAllocations.begin(),
+                                     result.outputAllocations.end());
+    }
+    return result;
   }
 
   // Flatten the currently-live L1 allocations into the stateful query's initial
@@ -1952,6 +1962,16 @@ void MockAllocatorL1Tracker::addTensor(Value result,
     aliasOf[result] = result;
     aliasRefcount[result] = 1;
   }
+}
+
+void MockAllocatorL1Tracker::addRecordedTensor(Value result,
+                                               const RecordVec &records) {
+  // Restore a survivor from its captured forward-sweep record set without a
+  // query (see the header note and replayFrom). Same live-set bookkeeping as
+  // addTensor: the value owns its own buffer at the recorded address/size.
+  liveRecords[result] = records;
+  aliasOf[result] = result;
+  aliasRefcount[result] = 1;
 }
 
 void MockAllocatorL1Tracker::addTensorAlias(Value out, Value src) {
@@ -2070,6 +2090,14 @@ void StatefulL1SpillManagement::commitAllocation(Value val,
     memoryTracker.addTensorAlias(val, defOp->getOperand(0));
   } else {
     memoryTracker.addTensor(val, perResultL1);
+    // Capture the forward-sweep allocation record (address + size) so eviction
+    // replay can re-add this survivor at its validated placement instead of
+    // re-querying it (#9087). Empty when the op produced no records (not on the
+    // stateful path) — those events fall back to a re-query in replayFrom.
+    auto recIt = memoryTracker.liveRecords.find(val);
+    if (recIt != memoryTracker.liveRecords.end() && !recIt->second.empty()) {
+      committedRecords[val] = recIt->second;
+    }
   }
 
   liveValues.insert(val);
@@ -2125,8 +2153,10 @@ bool StatefulL1SpillManagement::replayFrom(size_t startIdx) {
   memoryTracker.restoreSnapshot(snapIt->second);
 
   // Replay allocation events from startIdx forward under the (victim-free)
-  // history. Each surviving op is re-queried so the allocator assigns fresh
-  // addresses; the resulting record becomes its live-set entry.
+  // history. A survivor with a captured forward-sweep record is restored at
+  // that recorded placement (no re-query); only events without a captured
+  // record (e.g. inserted reshards) are re-queried so the allocator assigns
+  // fresh addresses.
   for (size_t i = startIdx; i < l1EventLog.size(); ++i) {
     if (l1EventLog[i].skipped) {
       continue;
@@ -2145,6 +2175,20 @@ bool StatefulL1SpillManagement::replayFrom(size_t startIdx) {
       continue;
     }
     if (!defOp) {
+      continue;
+    }
+    // Survivor already validated by the forward sweep: re-add it from its
+    // captured record instead of re-querying. Re-querying rebuilds tt-metal's
+    // allocator from the reconstructed, address-pinned live set, which can
+    // report a *fragmentation* OOM (bytes fit, no contiguous block) for a set
+    // the sweep -- and the device -- placed fine. That false no-fit made the
+    // pass wrongly exhaust eviction and hard-fail (tt-mlir #9087). The record
+    // set is a validated subset of a fitting sweep state (minus the evicted
+    // victim), so its capacity is guaranteed; only genuinely-new events below
+    // (no captured record) still need a placing query.
+    auto committedIt = committedRecords.find(tensor);
+    if (committedIt != committedRecords.end()) {
+      memoryTracker.addRecordedTensor(tensor, committedIt->second);
       continue;
     }
     // Re-query so the allocator re-flows this buffer's address without the

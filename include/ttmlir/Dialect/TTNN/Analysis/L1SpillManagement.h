@@ -233,6 +233,13 @@ struct MockAllocatorL1Tracker {
   /// kept only for interface parity with SumL1MemoryTracker.
   void addTensor(Value result, uint64_t l1SizePerCore);
 
+  /// Re-add `result` from a previously-captured allocation record set, verbatim
+  /// (no query). Mirrors addTensor's live-set bookkeeping but sources the record
+  /// from the caller instead of pendingRecords. Used by eviction replay to
+  /// restore a survivor at its forward-sweep placement without re-querying it
+  /// (see StatefulL1SpillManagement::replayFrom / tt-mlir #9087).
+  void addRecordedTensor(Value result, const RecordVec &records);
+
   /// Record `out` as an alias of `src`'s buffer: bump the owner's refcount and
   /// add no new record.
   void addTensorAlias(Value out, Value src);
@@ -629,6 +636,15 @@ protected:
   void handleUnvalidatedL1Output(Operation *op, int64_t pos, ScheduleData &data,
                                  uint64_t derivedL1) override;
   bool replayFrom(size_t startIdx) override;
+
+private:
+  /// Forward-sweep allocation records captured at commit time, keyed by the
+  /// producing Value. Eviction replay re-adds a survivor from here instead of
+  /// re-querying it: re-querying a survivor against the reconstructed,
+  /// address-pinned live set can spuriously report a *fragmentation* OOM (the
+  /// bytes fit but no contiguous block), a set the forward sweep and the device
+  /// placed fine — the false no-fit that made phi-2 hard-fail on n150 (#9087).
+  llvm::DenseMap<Value, MockAllocatorL1Tracker::RecordVec> committedRecords;
 };
 
 } // namespace mlir::tt::ttnn

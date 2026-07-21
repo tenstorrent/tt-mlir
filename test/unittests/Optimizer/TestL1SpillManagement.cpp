@@ -854,3 +854,91 @@ TEST_F(FragmentationTrackerTest, WouldAllocateAtReportsNoFitAndRoundTrips) {
   EXPECT_EQ(tracker.getOccupiedL1(), 60 * kKiB);
   EXPECT_FALSE(tracker.wouldAllocateAt(60 * kKiB).has_value());
 }
+
+//===----------------------------------------------------------------------===//
+// StatefulReplayReusesRecordTest (tt-mlir #9087)
+//
+// Regression for the microsoft_phi-2 n150 hard-fail. On the stateful spill path
+// eviction replays the surviving allocation history. Before the fix, each
+// survivor was RE-QUERIED during replay; a re-query rebuilds the allocator from
+// the reconstructed, address-pinned live set and can report a *fragmentation*
+// OOM (bytes fit, no contiguous block) for a survivor the forward sweep placed
+// fine -- the false no-fit that made the pass wrongly evict a placeable tensor
+// and, on the tight n150 grid, exhaust eviction and hard-fail compilation.
+//
+// The fix re-adds a survivor from its captured forward-sweep record instead of
+// re-querying it, so a placeable set is never wrongly rejected.
+//
+// This test drives the stateful path with a synthetic backend validator (no
+// device / op-model), so it reproduces the replay behavior deterministically:
+//   - producer `p0` is the farthest-last-use victim (evicted first, so the
+//     replay campaign starts at its alloc index and `s` is a replayed survivor);
+//   - survivor `s` validates fine on the forward sweep but its *replay*
+//     re-query returns OOM (the fragmentation false-no-fit);
+//   - trigger `t` OOMs until `p0` is evicted, then fits.
+// Before the fix, `s`'s replay re-query OOMs and eviction spills `s` to DRAM.
+// After, `s` is restored from its record and stays resident in L1.
+//===----------------------------------------------------------------------===//
+class StatefulReplayReusesRecordTest : public L1SpillTestFixture {};
+
+TEST_F(StatefulReplayReusesRecordTest, ReplayReusesRecordForRefusedSurvivor) {
+  l1BudgetPerCore = 1300 * kKiB;
+  llvm::SmallVector<int64_t> shape = {1, 1, 1024, 1024};
+  auto tt = tensorType(shape, makeL1Sharded(shape));
+
+  auto args = beginFunc({tt});
+  auto *p0 = addUnary(args[0], tt, 0); // victim: farthest last-use
+  auto *s = addUnary(args[0], tt, 0);  // survivor: replay re-query OOMs
+  auto *t = addUnary(args[0], tt, 0);  // trigger: initial OOM, then fits
+  auto *useS = addUnary(s->getResult(0), tt, 0);
+  auto *useP0 = addUnary(p0->getResult(0), tt, 0); // p0 dies after s -> farther
+  finishFunc(
+      {t->getResult(0), useS->getResult(0), useP0->getResult(0)});
+
+  auto counts = std::make_shared<llvm::DenseMap<mlir::Operation *, int>>();
+  mlir::Operation *sOp = s;
+  mlir::Operation *tOp = t;
+  constexpr uint64_t kRec = 256 * kKiB;
+
+  auto validator =
+      [counts, sOp, tOp](
+          mlir::Operation *op,
+          llvm::ArrayRef<mlir::tt::ttnn::TTNNLayoutAttr> /*inputLayouts*/,
+          const mlir::tt::ttnn::OpConfig & /*config*/,
+          uint64_t /*additionalL1*/) -> ValidationResult {
+    int n = ++(*counts)[op];
+    mlir::tt::ttnn::TTNNLayoutAttr layout;
+    if (op->getNumResults() > 0) {
+      if (auto rt =
+              mlir::dyn_cast<mlir::RankedTensorType>(op->getResult(0).getType())) {
+        layout = mlir::dyn_cast_or_null<mlir::tt::ttnn::TTNNLayoutAttr>(
+            rt.getEncoding());
+      }
+    }
+    // Survivor: placeable on the forward sweep (n==1), refused on the replay
+    // re-query (n>=2). This is the fragmentation false-no-fit under test.
+    if (op == sOp && n >= 2) {
+      return ValidationResult::outOfMemoryError("replay re-query no-fit");
+    }
+    // Trigger: OOM until the victim is evicted (first two queries: the forward
+    // sweep and the first eviction re-check), then fits.
+    if (op == tOp && n <= 2) {
+      return ValidationResult::outOfMemoryError("initial pressure");
+    }
+    ValidationResult r = ValidationResult::success(0, layout, kRec, 0);
+    r.outputAllocations = {mlir::tt::ttnn::op_model::OpModelAllocationRecord{
+        mlir::tt::ttnn::BufferType::L1, /*address=*/0, /*sizePerBank=*/kRec}};
+    return r;
+  };
+
+  runStatefulSynthetic(validator);
+
+  EXPECT_FALSE(statefulPassFailed())
+      << "placeable set wrongly rejected (tt-mlir #9087)";
+  // The survivor must stay resident: the fix restores it from its recorded
+  // placement instead of re-querying (which would refuse it and spill it).
+  EXPECT_FALSE(wasSpilled(s->getResult(0)))
+      << "placeable survivor wrongly spilled to DRAM: replay re-queried it "
+         "instead of reusing its recorded placement (tt-mlir #9087)";
+  EXPECT_TRUE(resultIsL1(s->getResult(0)));
+}
