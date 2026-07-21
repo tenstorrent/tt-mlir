@@ -1,14 +1,11 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=1 enable-greedy-optimizer=true" -o %t %s
-// RUN: FileCheck %s --input-file=%t
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=1 enable-greedy-optimizer=false" -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=1" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Verifies the conv3d config heuristic (tt-metal _DEFAULT_BLOCKINGS lookup in
 // LegalOpConfigAnalysis). When (in_channels, out_channels, kernel) matches a
 // table entry the optimizer pins the table's blocking; otherwise it keeps the
-// conversion default. The heuristic runs the same on both the greedy and chain
-// optimizer paths, so both RUN lines share these checks.
+// conversion default.
 module {
   // in=192, out=384, kernel=(3,3,3) matches _DEFAULT_BLOCKINGS:
   //   (192, 384, (3, 3, 3)): (C_in=64, C_out=128, T=1, H=8, W=4)

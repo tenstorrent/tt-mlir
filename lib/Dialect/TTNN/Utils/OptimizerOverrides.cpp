@@ -16,19 +16,6 @@ void OptimizerOverridesHandler::setMemoryReconfig(bool value) {
 void OptimizerOverridesHandler::setEnableMemoryLayoutAnalysis(bool value) {
   enableMemoryLayoutAnalysis = value;
 }
-void OptimizerOverridesHandler::setEnableL1InterleavedFallbackAnalysis(
-    bool value) {
-  enableL1InterleavedFallbackAnalysis = value;
-}
-void OptimizerOverridesHandler::setEnableMemoryLayoutAnalysisPolicy(
-    bool value) {
-  enableMemoryLayoutAnalysisPolicy = value;
-}
-void OptimizerOverridesHandler::setMemoryLayoutAnalysisPolicy(
-    MemoryLayoutAnalysisPolicyType value) {
-  enableMemoryLayoutAnalysisPolicy = true;
-  memoryLayoutAnalysisPolicy = value;
-}
 
 void OptimizerOverridesHandler::setInsertMemReconfig(
     llvm::StringMap<InsertMemReconfigParams> &value) {
@@ -66,16 +53,6 @@ bool OptimizerOverridesHandler::getMemoryReconfig() const {
 }
 bool OptimizerOverridesHandler::getEnableMemoryLayoutAnalysis() const {
   return enableMemoryLayoutAnalysis;
-}
-bool OptimizerOverridesHandler::getEnableL1InterleavedFallbackAnalysis() const {
-  return enableL1InterleavedFallbackAnalysis;
-}
-bool OptimizerOverridesHandler::getEnableMemoryLayoutAnalysisPolicy() const {
-  return enableMemoryLayoutAnalysisPolicy;
-}
-MemoryLayoutAnalysisPolicyType
-OptimizerOverridesHandler::getMemoryLayoutAnalysisPolicy() const {
-  return memoryLayoutAnalysisPolicy;
 }
 
 std::string OptimizerOverridesHandler::getSystemDescPath() const {
@@ -149,18 +126,6 @@ std::string OptimizerOverridesHandler::toString() const {
 
   if (enableMemoryLayoutAnalysis) {
     options += OptionNames::memoryLayoutAnalysisEnabled.str() + "=true ";
-  }
-
-  if (enableL1InterleavedFallbackAnalysis) {
-    options +=
-        OptionNames::l1InterleavedFallbackAnalysisEnabled.str() + "=true ";
-  }
-
-  if (enableMemoryLayoutAnalysisPolicy) {
-    options += OptionNames::memoryLayoutAnalysisPolicy.str() + "=" +
-               MemoryLayoutAnalysisPolicyTypeParser::toString(
-                   memoryLayoutAnalysisPolicy) +
-               " ";
   }
 
   // Create input layout overrides.

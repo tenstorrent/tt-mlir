@@ -49,7 +49,9 @@ Clicking the gear icon opens a menu with advanced settings for model execution.
 
 ### Optimization Policy
 
-This dropdown provides a list of **Optimization Policies** which can be applied when lowering from a `ttir` module to an executable `ttnn` module.
+This dropdown enables or disables the optimizer when lowering from a `ttir`
+module to an executable `ttnn` module. When enabled, the greedy memory-layout
+optimizer chooses op configurations and tensor layouts.
 
 ### Generate C++ Code
 

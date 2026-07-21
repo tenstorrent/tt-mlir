@@ -5,7 +5,6 @@
 
 import ttmlir.optimizer_overrides as oo
 
-from ttmlir.optimizer_overrides import MemoryLayoutAnalysisPolicyType
 from ttmlir.optimizer_overrides import BufferType
 from ttmlir.optimizer_overrides import Layout
 from ttmlir.optimizer_overrides import TensorMemoryLayout
@@ -42,34 +41,6 @@ def main():
     print(f"Enable Memory Layout Analysis: {obj.get_enable_memory_layout_analysis()}")
     obj.set_enable_memory_layout_analysis(False)
     print(f"Enable Memory Layout Analysis: {obj.get_enable_memory_layout_analysis()}")
-
-    # Enable L1 Interleaved Fallback Analysis
-    obj.set_enable_l1_interleaved_fallback_analysis(True)
-    print(
-        f"Enable L1 Interleaved Fallback Analysis: {obj.get_enable_l1_interleaved_fallback_analysis()}"
-    )
-    obj.set_enable_l1_interleaved_fallback_analysis(False)
-    print(
-        f"Enable L1 Interleaved Fallback Analysis: {obj.get_enable_l1_interleaved_fallback_analysis()}"
-    )
-
-    # Enable Memory Layout Analysis Policy
-    obj.set_enable_memory_layout_analysis_policy(True)
-    print(
-        f"Enable Memory Layout Analysis Policy: {obj.get_enable_memory_layout_analysis_policy()}"
-    )
-    obj.set_enable_memory_layout_analysis_policy(False)
-    print(
-        f"Enable Memory Layout Analysis Policy: {obj.get_enable_memory_layout_analysis_policy()}"
-    )
-
-    # Memory Layout Analysis Policy
-    obj.set_memory_layout_analysis_policy(MemoryLayoutAnalysisPolicyType.DFSharding)
-    print(f"Memory Layout Analysis Policy: {obj.get_memory_layout_analysis_policy()}")
-    obj.set_memory_layout_analysis_policy(
-        MemoryLayoutAnalysisPolicyType.GreedyL1Interleaved
-    )
-    print(f"Memory Layout Analysis Policy: {obj.get_memory_layout_analysis_policy()}")
 
     # System Descriptor Path
     obj.set_system_desc_path("System Descriptor Path")

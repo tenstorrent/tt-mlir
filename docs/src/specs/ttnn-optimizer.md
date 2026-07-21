@@ -2,17 +2,22 @@
 
 ## TL;DR
 
-TTNNOptimizer performs two key optimizations for TTNN operations:
+The TTNN optimizer performs two key optimizations for TTNN operations:
 1. **Maximizes L1 memory usage** — keeps intermediate tensors in fast on-chip L1 memory instead of slow DRAM
 2. **Optimizes op-specific configurations** — selects optimal parameters for operations (e.g., Conv2d block sizes, activation handling)
 
-It achieves this via:
-1. **Layout Generation**: Enumerate valid tensor layouts per op
-2. **DFShardingPolicy**: Build L1 chains in DFS order
-3. **ShardSolver**: Constraint satisfaction to find compatible configs
-4. **Graph Transformation**: Apply configs and insert reshards
+It is implemented as a greedy, pass-based architecture consisting of two passes:
+1. **GreedyMemoryLayoutPropagation** (Pass 1): Enumerate valid tensor layouts per op and greedily propagate op configurations / layouts through the graph, inserting reshards where needed.
+2. **GreedyL1SpillManagement** (Pass 2): Enforce the L1 budget by spilling selected tensors to DRAM.
 
-Key limitation: Only tracks first operand; single edge failure breaks entire chain.
+This greedy architecture is described in [section 5](#5-pass-based-architecture-current-design).
+
+> **Status:** The original chain-based optimizer (`TTNNOptimizer` pass,
+> `DFShardingPolicy`, `ShardSolver`, `L1ChainConfig` and the
+> `MemoryLayoutAnalysis` policy dispatcher) has been **removed**. It is
+> superseded by the greedy pass-based architecture above, which now serves every
+> optimization level. Sections 2–4 below describe the removed chain-based design
+> and are retained only for historical context.
 
 ---
 
@@ -20,7 +25,7 @@ Key limitation: Only tracks first operand; single edge failure breaks entire cha
 
 1. [Introduction & Goals](#1-introduction--goals)
 2. [Architecture Overview](#2-architecture-overview)
-3. [Current Design - Core Components](#3-current-design---core-components)
+3. [Chain-Based Design - Core Components (Removed — Historical)](#3-chain-based-design---core-components-removed--historical)
    - 3.1 [Layout Generation Pipeline](#31-layout-generation-pipeline)
    - 3.2 [DFShardingPolicy](#32-dfshardingpolicy)
    - 3.3 [ShardSolver](#33-shardsolver)
@@ -29,7 +34,7 @@ Key limitation: Only tracks first operand; single edge failure breaks entire cha
    - 3.5 [Graph Transformation](#35-graph-transformation)
 4. [Future Work / Proposed Refactors](#4-future-work--proposed-refactors)
    - 4.1 [DFSharding 2.0: Chain Merging and L1 Saturation](#41-dfsharding-20-chain-merging-and-l1-saturation)
-5. [Proposed Refactoring: Pass-Based Architecture](#5-proposed-refactoring-pass-based-architecture)
+5. [Pass-Based Architecture (Current Design)](#5-pass-based-architecture-current-design)
    - 5.1 [Summary](#51-summary)
    - 5.2 [Motivation](#52-motivation)
    - 5.3 [Design Philosophy](#53-design-philosophy)
@@ -183,7 +188,11 @@ Tenstorrent devices feature a two-level memory hierarchy:
 
 ---
 
-## 3. Current Design - Core Components
+## 3. Chain-Based Design - Core Components (Removed — Historical)
+
+> The chain-based design described in this section (and section 4) has been
+> removed from the codebase. See [section 5](#5-pass-based-architecture-current-design)
+> for the current greedy pass-based optimizer.
 
 ### 3.1 Layout Generation Pipeline
 
@@ -769,7 +778,7 @@ The L1 reservation timeline mechanism introduced here provides the foundation fo
 
 ---
 
-## 5. Proposed Refactoring: Pass-Based Architecture
+## 5. Pass-Based Architecture (Current Design)
 
 ### 5.1 Summary
 

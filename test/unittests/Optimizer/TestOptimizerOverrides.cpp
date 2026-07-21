@@ -463,43 +463,6 @@ TEST_F(TestOptimizerOverrideHandler, TestSetMemoryLayoutAnalysis) {
   ASSERT_FALSE(optimizerOverridesHandler.getEnableMemoryLayoutAnalysis());
 }
 
-// Test the setEnableL1InterleavedFallbackAnalysis method
-TEST_F(TestOptimizerOverrideHandler,
-       TestSetEnableL1InterleavedFallbackAnalysis) {
-
-  optimizerOverridesHandler.setEnableL1InterleavedFallbackAnalysis(true);
-  ASSERT_TRUE(
-      optimizerOverridesHandler.getEnableL1InterleavedFallbackAnalysis());
-
-  optimizerOverridesHandler.setEnableL1InterleavedFallbackAnalysis(false);
-  ASSERT_FALSE(
-      optimizerOverridesHandler.getEnableL1InterleavedFallbackAnalysis());
-}
-
-// Test the setEnableMemoryLayoutAnalysisPolicy method
-TEST_F(TestOptimizerOverrideHandler, TestSetEnableMemoryLayoutAnalysisPolicy) {
-
-  optimizerOverridesHandler.setEnableMemoryLayoutAnalysisPolicy(true);
-  ASSERT_TRUE(optimizerOverridesHandler.getEnableMemoryLayoutAnalysisPolicy());
-
-  optimizerOverridesHandler.setEnableMemoryLayoutAnalysisPolicy(false);
-  ASSERT_FALSE(optimizerOverridesHandler.getEnableMemoryLayoutAnalysisPolicy());
-}
-
-// Test the setMemoryLayoutAnalysisPolicy method
-TEST_F(TestOptimizerOverrideHandler, TestSetMemoryLayoutAnalysisPolicy) {
-
-  optimizerOverridesHandler.setMemoryLayoutAnalysisPolicy(
-      mlir::tt::MemoryLayoutAnalysisPolicyType::DFSharding);
-  ASSERT_EQ(optimizerOverridesHandler.getMemoryLayoutAnalysisPolicy(),
-            mlir::tt::MemoryLayoutAnalysisPolicyType::DFSharding);
-
-  optimizerOverridesHandler.setMemoryLayoutAnalysisPolicy(
-      mlir::tt::MemoryLayoutAnalysisPolicyType::GreedyL1Interleaved);
-  ASSERT_EQ(optimizerOverridesHandler.getMemoryLayoutAnalysisPolicy(),
-            mlir::tt::MemoryLayoutAnalysisPolicyType::GreedyL1Interleaved);
-}
-
 // Test the setInsertMemReconfig method
 TEST_F(TestOptimizerOverrideHandler, TestSetInsertMemReconfig) {
 
@@ -669,7 +632,6 @@ TEST_F(TestOptimizerOverrideHandler, TestToString) {
       "enable-optimizer=true "; // The optimizer pass is enabled by default.
   options += "memreconfig-enabled=true ";
   options += "memory-layout-analysis-enabled=true ";
-  options += "l1-interleaved-fallback-analysis-enabled=true ";
   options += "insert-memreconfig=add_0_1_2=0 ";
   options +=
       "override-output-layout=add_1_2=1x1:dram:interleaved:row_major:f32";
@@ -679,7 +641,6 @@ TEST_F(TestOptimizerOverrideHandler, TestToString) {
 
   optimizerOverridesHandler.setEnableOptimizer(true);
   optimizerOverridesHandler.setEnableMemoryLayoutAnalysis(true);
-  optimizerOverridesHandler.setEnableL1InterleavedFallbackAnalysis(true);
   optimizerOverridesHandler.setMemoryReconfig(true);
   optimizerOverridesHandler.addInsertMemReconfig("add_0_1_2", operandIdxes);
   optimizerOverridesHandler.addOutputLayoutOverride(
