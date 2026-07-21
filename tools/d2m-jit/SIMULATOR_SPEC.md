@@ -562,4 +562,41 @@ behavior is unchanged. `config.py` gains `simulator` (env `D2M_JIT_SIM`) and
   `D2MCompiler`'s dispatch tables is the fallback if native-exec hits a wall
   (e.g. some future syntax the real compiler special-cases that Python evaluates
   differently — none known today).
-```
+
+---
+
+## 15. Adding an op to the simulator (recipe)
+
+When a new kernel-body op is registered in `tools/d2m-jit/api.py` (via
+`@syntax`), it also needs a simulator implementation, or it will only run on
+device. The coverage guards in `test/d2m-jit/test_simulator.py`
+(`test_builtins_cover_syntax`, `test_class_ops_cover_syntax`) fail loudly and
+name the missing op, so an omission is caught in CI rather than silently falling
+through — but you still have to add the op. Pick the case that matches:
+
+- **Free-function elementwise op** (`@syntax("foo")`, most ops): add one entry
+  to `SIM_OPS` in `_src/sim/ops.py` — `"foo": torch.foo` (or a lambda). Unary and
+  binary ops live in the `_UNARY_OPS` / `_BINARY_OPS` tables, which also become
+  `SimBlock` methods automatically.
+- **Structural / tile-semantic op** (reduce, matmul, tile_bcast, transpose,
+  view): write a handler in `ops.py` that operates on the `SimBlock` torch region
+  (and its `reduced_axes`), then register it as a `SimBlock` method in
+  `_install_methods`. These are not one-liners — model the tile-level semantics.
+- **`TensorBlock` method / operator** (`@syntax("!tensor.foo")` /
+  `!tensor.__op__`): add the method/dunder to `SimBlock` in `_install_methods`.
+  No registry change needed — `!tensor` already maps to `SimBlock` in
+  `SIM_CLASS_OPS`.
+- **New class-form op group** (a new `@syntax("!d2m.thing")` class, like
+  `Semaphore`): add the sim class, register it in `SIM_BUILTINS`, and add its
+  prefix to `SIM_CLASS_OPS` in `_src/sim/__init__.py` so the class-op guard
+  covers it.
+- **A new *mode/attribute* on an existing op** (e.g. a new multicast mode on
+  `remote_load`, a new grid/indexing-map behavior): this is NOT a new `_syntax`
+  entry, so the coverage guards do **not** catch it. Handle it in the relevant
+  runtime/op function and add a hand-written test. Distribution-semantics changes
+  (grid / indexing maps / multicast) are the least automatic area — see
+  `SIMULATOR_CROSS_CORE_PROPOSAL.md`.
+
+Then run `D2M_JIT_SIM=1 pytest test/d2m-jit/` (deviceless; this is the CI gate in
+`.github/workflows/call-test.yml`). For anything numeric, prefer also adding the
+kernel to the sim-vs-device parity harness (§12) so device stays the oracle.

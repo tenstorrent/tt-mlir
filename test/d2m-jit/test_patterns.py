@@ -14,12 +14,23 @@ hand-written, per-pattern test_pattern_eltwise.py + lit/*_pattern.py files.
                          On silicon (direct-kernel path).
 """
 
+import pytest
+
+import d2m_jit as d2m
 from runner import (
     assert_pcc,
     filecheck,
     run_bench,
     run_e2e,
     run_rewrite,
+)
+
+# These cover the MLIR pattern-rewrite path and the on-silicon e2e path -- both
+# compiler/device, not the torch simulator. Skip under D2M_JIT_SIM so the same
+# `pytest test/d2m-jit/` invocation is green in both backends.
+pytestmark = pytest.mark.skipif(
+    d2m.config.simulator,
+    reason="compiler-path test; not applicable to the torch simulator (D2M_JIT_SIM)",
 )
 
 

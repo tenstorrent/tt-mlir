@@ -7,8 +7,17 @@ round-trip path."""
 
 import io
 import contextlib
+import pytest
 import torch
 import d2m_jit as d2m
+
+# Debug knobs exercise the MLIR compile/print path, which the torch simulator
+# does not run. Skip under D2M_JIT_SIM so `pytest test/d2m-jit/` is green in both
+# backends.
+pytestmark = pytest.mark.skipif(
+    d2m.config.simulator,
+    reason="compiler-path test; not applicable to the torch simulator (D2M_JIT_SIM)",
+)
 
 
 def make_layout():

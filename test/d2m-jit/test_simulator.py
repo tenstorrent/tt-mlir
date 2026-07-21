@@ -55,7 +55,42 @@ def test_builtins_cover_syntax():
         if not k.startswith("!") and not k.startswith("__")
     }
     missing = sorted(free - set(SIM_BUILTINS))
-    assert not missing, f"ops missing from the simulator: {missing}"
+    assert not missing, f"free-function ops missing from the simulator: {missing}"
+
+
+def test_class_ops_cover_syntax():
+    """The simulator must also cover the class-form kernel-body ops the compiler
+    registers as `!<prefix>.<method>` (e.g. `!tensor.exp`, `!d2m.semaphore.wait`).
+    Each `!`-prefixed group must map to a sim class (SIM_CLASS_OPS) that provides
+    every registered method, so a newly-added TensorBlock/Semaphore method can't
+    silently fall through to a device-only path.
+
+    Dunder ops (`__matmul_acc__` and the `!tensor.__*__` operators) are covered
+    where SimBlock defines the operator; note that this guard does NOT cover new
+    *modes/attributes* added to an existing op (e.g. a new multicast mode on
+    remote_load), which are not separate `_syntax` entries -- those still need a
+    hand-written sim test."""
+    from d2m_jit._src.ast import D2MCompiler
+    from d2m_jit._src.sim import SIM_CLASS_OPS
+
+    groups = {}  # "!<prefix>" -> {method, ...}
+    for key in D2MCompiler._syntax:
+        if key.startswith("!"):
+            prefix, _, method = key.rpartition(".")
+            groups.setdefault(prefix, set()).add(method)
+
+    missing_groups = sorted(set(groups) - set(SIM_CLASS_OPS))
+    assert not missing_groups, (
+        f"class-form op groups missing a simulator class in SIM_CLASS_OPS: "
+        f"{missing_groups}"
+    )
+
+    for prefix, methods in sorted(groups.items()):
+        sim_cls = SIM_CLASS_OPS[prefix]
+        missing = sorted(m for m in methods if not hasattr(sim_cls, m))
+        assert (
+            not missing
+        ), f"{sim_cls.__name__} is missing methods for {prefix}: {missing}"
 
 
 @d2m.kernel

@@ -376,7 +376,12 @@ D2M_JIT_PRINT_IR_AFTER=1 python my_test.py
 | `_src/tensor_layout.py` | `Layout` descriptor and the `float32` / `float16` / `bfloat16` dtype constants. |
 | `_src/config.py` | The `config` debug singleton. |
 | `_src/utils.py` | Internal helpers (`_discover_dialect_ops`, `_cast`, `_asindex`, `_get_type_str`, `_cleanup_source_code`). |
+| `_src/sim/` | Torch-backed simulator (`D2M_JIT_SIM=1`). See `SIMULATOR_SPEC.md`. |
 | `__init__.py` | `from d2m_jit.api import *`. |
+
+> **Adding a `@syntax` op?** It also needs a simulator implementation, or it
+> only runs on device. See the recipe in `SIMULATOR_SPEC.md` §15; the coverage
+> guards in `test/d2m-jit/test_simulator.py` fail loudly if you forget.
 
 ## Building
 

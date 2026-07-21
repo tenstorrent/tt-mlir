@@ -32,6 +32,16 @@ SIM_BUILTINS.update(
     }
 )
 
+# Class-form kernel-body ops: the compiler registers these in D2MCompiler._syntax
+# as "<prefix>.<method>" (prefix starts with "!"). This maps each prefix to the
+# simulator class that must provide the same methods; the sim coverage guard
+# (test_simulator.py) checks it covers every "!"-prefixed group. `!tensor.*` are
+# the TensorBlock method/dunder ops, mirrored on SimBlock (attached by ops.py).
+SIM_CLASS_OPS = {
+    "!d2m.semaphore": Semaphore,
+    "!tensor": SimBlock,
+}
+
 
 def _make_kernel():
     def kernel(fn):

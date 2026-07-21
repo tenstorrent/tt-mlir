@@ -149,6 +149,24 @@ jobs:
             ${{ steps.strings.outputs.build-output-dir }}/test
         fi
 
+    - name: Run d2m-jit simulator tests
+      shell: bash
+      run: |
+        # Fast, deviceless drift gate for the d2m-jit torch simulator: the
+        # op-vocabulary coverage guard + numeric parity across the kernel suite.
+        # Needs no silicon and no system descriptor; compiler-path tests skip
+        # themselves under D2M_JIT_SIM (see test/d2m-jit/test_*.py).
+        echo "Running d2m-jit torch simulator tests..."
+        source env/activate
+        export WORK_DIR="$(pwd)"
+        export TT_METAL_RUNTIME_ROOT="${{ steps.strings.outputs.install-output-dir }}/tt-metal"
+        export TT_METAL_HOME="$WORK_DIR/third_party/tt-metal/src/tt-metal"
+        export LD_LIBRARY_PATH="${{ steps.strings.outputs.install-output-dir }}/lib:${TTMLIR_TOOLCHAIN_DIR}/lib:${LD_LIBRARY_PATH}"
+        ln -sf ${{ steps.strings.outputs.install-output-dir }} ${{ steps.strings.outputs.build-output-dir }}
+        mkdir -p test_reports
+        D2M_JIT_SIM=1 python -m pytest test/d2m-jit/ \
+          --junit-xml=${{ steps.strings.outputs.work-dir }}/test_reports/report_d2mjit_sim_${{matrix.build.runs-on}}_${{ matrix.build.image }}_${{strategy.job-index}}_${{job.check_run_id}}.xml
+
     - name: Run Tests
       shell: bash
       env:

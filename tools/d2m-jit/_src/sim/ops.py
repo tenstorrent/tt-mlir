@@ -201,6 +201,14 @@ def where(cond: SimBlock, true_value: SimBlock, false_value: SimBlock) -> SimBlo
     )
 
 
+def store(dst: SimBlock, src: SimBlock) -> SimBlock:
+    """Write `src` into `dst` in place and return `dst` (d2m.store: same-typed
+    operands, result aliases the destination)."""
+    dst.data = src.data.to(dst.data.dtype).clone()
+    dst.reduced_axes = src.reduced_axes
+    return dst
+
+
 def zeros(shape) -> SimBlock:
     m, n = int(shape[0]), int(shape[1])
     return SimBlock(torch.zeros(m * _TILE, n * _TILE, dtype=torch.float32), (m, n))
@@ -299,6 +307,7 @@ def _install_methods():
     setattr(SimBlock, "tile_bcast_2d", lambda self: tile_bcast_2d(self))
     setattr(SimBlock, "tile_transpose", lambda self: tile_transpose(self))
     setattr(SimBlock, "where", lambda self, t, f: where(self, t, f))
+    setattr(SimBlock, "store", lambda self, rhs: store(self, rhs))
     setattr(
         SimBlock,
         "matmul",

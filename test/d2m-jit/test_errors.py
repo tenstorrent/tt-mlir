@@ -20,6 +20,14 @@ import torch
 
 import d2m_jit as d2m
 
+# Compiler-diagnostic tests: they assert on errors raised while building/lowering
+# MLIR, which the torch simulator does not exercise. Skip under D2M_JIT_SIM so the
+# same `pytest test/d2m-jit/` invocation is green in both backends.
+pytestmark = pytest.mark.skipif(
+    d2m.config.simulator,
+    reason="compiler-path test; not applicable to the torch simulator (D2M_JIT_SIM)",
+)
+
 
 _L = d2m.Layout(
     shape=(64, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1]
