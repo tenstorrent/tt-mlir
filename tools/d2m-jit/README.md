@@ -407,6 +407,93 @@ The Python module installs to `<build>/python_packages/d2m_jit/`.
 RNG is deterministic per test. `test/d2m-jit/utils.py` provides
 `assert_pcc(golden, actual)` and `arange_tile(...)` helpers.
 
+## Using the simulator
+
+`d2m-jit` ships a pure-Python, torch-backed **simulator** that runs a
+`@d2m.kernel` body without the MLIR pipeline, a flatbuffer, or a device — same
+public API, same kernels, only the backend changes. Use it for device-less
+development and CI, fast iteration, in-kernel debugging, and as a second numeric
+oracle. See `SIMULATOR_SPEC.md` for the design.
+
+### Enabling it
+
+The backend is chosen **once, at import time**, from the `D2M_JIT_SIM`
+environment variable (read into `d2m.config.simulator`; see `_src/config.py`).
+Set it *before* importing `d2m_jit` — assigning `d2m.config.simulator` after
+import has no effect, because the host-API names are already bound.
+
+```bash
+D2M_JIT_SIM=1 python my_kernel.py          # run one script on the simulator
+D2M_JIT_SIM=1 pytest test/d2m-jit/         # run the suite on the simulator
+```
+
+No device and no system descriptor are required — the numeric suite runs
+anywhere torch runs, in well under a second. When enabled, `to_layout` / `empty`
+/ `to_host` / `@d2m.kernel` resolve to the simulator (confirm with
+`d2m.to_host.__module__`, which ends in `sim.host`).
+
+### What runs on it
+
+The simulator executes the kernel body as **native Python** — it rebinds the
+body's globals to torch-backed builtins and calls the function once per grid
+core, so `for` / `if` / `+=` and any helper functions run as-is. It reproduces
+the host API, the tiled/blocked data model, the full elementwise / reduction /
+matmul vocabulary, views (including arithmetic `view_layout`), non-tiled
+layouts, `async`/`await` + `Semaphore` (as functional no-ops), and core-relative
+(multicast) stores.
+
+The whole numeric suite passes verbatim under `D2M_JIT_SIM=1`. The
+compiler-diagnostic and MLIR-rewrite tests (`test_errors.py`, `test_config.py`,
+`test_patterns.py`) exercise the device/compiler path and **skip themselves**
+under `D2M_JIT_SIM`, so `pytest test/d2m-jit/` is green in both backends.
+
+### Debugging
+
+Because the body is ordinary Python, drop a `breakpoint()` or `print()` inside a
+kernel and inspect the intermediate torch tensors directly — a loaded shard is a
+`SimBlock` whose `.data` is a plain `torch.Tensor`.
+
+```python
+@d2m.kernel
+def k(a, out, m_blocks, n_blocks):
+    x = remote_load(a, [0, 0])
+    print(x.data)                       # torch.Tensor of the loaded shard
+    remote_store(out, [0, 0], x.exp())
+```
+
+### Higher-precision numerics
+
+By default the simulator computes each op in the tile dtype (matching device
+rounding). Set `D2M_JIT_SIM_HIGH_PRECISION=1` to compute in float32 and cast
+only at stores — a clean logical oracle when per-op rounding drifts.
+
+### Sim-vs-device parity
+
+`test/d2m-jit/runner.py` exposes `run_bench(bench, backend="sim")` and
+`run_bench_parity(bench, ...)`, which runs a kernel through both backends in a
+**device-mode** process and asserts `PCC(device, sim)` — a cheap way to catch
+compiler regressions (sim right, device wrong) and DSL-semantics bugs.
+
+Note that `backend="device"` runs through whatever backend is currently bound,
+so in a `D2M_JIT_SIM=1` process it silently executes on the simulator, not
+silicon. `run_bench` prints the effective target (`… -> executing on SIMULATOR
+(torch)` vs `DEVICE (silicon)`) so this is obvious; run the parity harness with
+`D2M_JIT_SIM` unset.
+
+### Scope / limitations
+
+Functional-only — no performance, cycle, or NOC-routing modeling (semaphores and
+multicast are correctness no-ops). Known gaps:
+
+- `async def` bodies that use `yield` (multi-thread producer/consumer handoff)
+  raise `NotImplementedError`; use `await` without `yield`.
+- Distribution semantics beyond one output block per core along a multicast
+  dimension are guarded with a `NotImplementedError` — see
+  `SIMULATOR_CROSS_CORE_PROPOSAL.md`.
+
+Adding a new `@syntax` op? It needs a simulator implementation too — see the
+recipe in `SIMULATOR_SPEC.md` §15.
+
 ## Pipeline
 
 `to_host` runs the following passes on the open module before flatbuffering:
