@@ -43,7 +43,7 @@ struct SumL1MemoryTracker {
 
   /// Bypass input-overlap accounting and call the backend (or hook) with an
   /// explicit additionalL1Usage. Used by consumer-reshard probes and DRAM
-  /// CB re-queries inside L1SpillManagement — those call sites already know
+  /// CB re-queries inside L1SpillManagementBase — those call sites already know
   /// the L1 pressure they want to express.
   op_constraint_validation::ValidationResult validateBackendDirect(
       Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
@@ -225,7 +225,7 @@ struct MockAllocatorL1Tracker : SumL1MemoryTracker {
   void restoreSnapshot(const Snapshot &snapshot);
 };
 
-/// L1SpillManagement enforces L1 budget constraints using farthest-last-use
+/// L1SpillManagementBase enforces L1 budget constraints using farthest-last-use
 /// eviction with validation-based budget enforcement.
 /// Each op is re-validated during the sweep using validateOperation() with
 /// the sum of live tensor L1 sizes as additionalL1Usage. When validation
@@ -238,13 +238,13 @@ struct MockAllocatorL1Tracker : SumL1MemoryTracker {
 /// - Inserts ToMemoryConfigOp after spilled ops (L1 -> DRAM)
 /// - Reconnects uses to read from spilled tensor
 template <typename MemoryTracker = SumL1MemoryTracker>
-class L1SpillManagement {
+class L1SpillManagementBase {
 public:
-  L1SpillManagement(func::FuncOp func, ttcore::GridAttr deviceGrid,
+  L1SpillManagementBase(func::FuncOp func, ttcore::GridAttr deviceGrid,
                     uint64_t l1BudgetPerCore,
                     std::unique_ptr<L1SpillObserver> observer = nullptr);
 
-  virtual ~L1SpillManagement() = default;
+  virtual ~L1SpillManagementBase() = default;
 
   /// Run farthest-last-use eviction with validation-based enforcement and apply
   /// spills directly to the IR.
@@ -537,8 +537,26 @@ private:
 };
 
 // Explicit instantiation declarations (definitions in .cpp).
-extern template class L1SpillManagement<SumL1MemoryTracker>;
-extern template class L1SpillManagement<MockAllocatorL1Tracker>;
+extern template class L1SpillManagementBase<SumL1MemoryTracker>;
+extern template class L1SpillManagementBase<MockAllocatorL1Tracker>;
+
+/// Legacy spill manager: scalar-sum tracker + simulated top-down first-fit
+/// address model. Selected when `use-mock-allocator-state=false`. Behavior is
+/// the historical default; the base hooks (address-sim) are inherited unchanged.
+class SumL1SpillManagement final
+    : public L1SpillManagementBase<SumL1MemoryTracker> {
+public:
+  using L1SpillManagementBase<SumL1MemoryTracker>::L1SpillManagementBase;
+};
+
+/// Stateful spill manager: fit / fragmentation / placement / CB-clash are all
+/// answered by tt-metal's captured allocator state. Selected by default
+/// (`use-mock-allocator-state=true`).
+class MockAllocatorSpillManagement final
+    : public L1SpillManagementBase<MockAllocatorL1Tracker> {
+public:
+  using L1SpillManagementBase<MockAllocatorL1Tracker>::L1SpillManagementBase;
+};
 
 } // namespace mlir::tt::ttnn
 
