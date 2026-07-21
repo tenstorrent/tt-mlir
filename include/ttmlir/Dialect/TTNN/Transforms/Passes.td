@@ -616,7 +616,10 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
 
     FLOP report ("flops" section):
     - total_flops: sum of logical, un-padded FLOPs (2*M*K*N for matmul, etc.)
-      over matmul/linear, conv, SDPA-prefill, elementwise and reduction ops.
+      over matmul/linear/sparse_matmul, conv, SDPA & flash-MLA prefill, norm,
+      pooling, reduction, softmax and (float) elementwise ops. Chunked-prefill
+      and paged/decode attention read K/V from a paged cache with a runtime key
+      length, so they are not counted.
       This is graph-invariant model work — the MFU numerator. Downstream
       tooling computes MFU = total_flops / (measured_time * peak_flops_per_sec),
       so a better-compiled graph reports a higher MFU.

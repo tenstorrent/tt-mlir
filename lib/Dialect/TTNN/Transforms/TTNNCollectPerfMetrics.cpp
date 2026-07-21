@@ -768,10 +768,16 @@ std::pair<StringRef, uint64_t> classifyOpFlops(Operation *op) {
 
   if (result.second == 0 && result.first == "other") {
     // Fall back to the elementwise op interfaces for the (many) unary/binary
-    // ops not named explicitly above: one FLOP per output scalar.
+    // ops not named explicitly above: one FLOP per output scalar. Gate on a
+    // float result element type: comparison (eq/gt/...), logical and bitwise
+    // ops carry the same elementwise interfaces but produce boolean/integer
+    // results and do no floating-point work, so they must not be counted.
     if (mlir::isa<ElementwiseUnary, ElementwiseBinary>(op) &&
         op->getNumResults() > 0) {
-      return {"elementwise", numScalars(op->getResult(0))};
+      auto rt = mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
+      if (rt && mlir::isa<mlir::FloatType>(rt.getElementType())) {
+        return {"elementwise", numScalars(op->getResult(0))};
+      }
     }
   }
   return result;

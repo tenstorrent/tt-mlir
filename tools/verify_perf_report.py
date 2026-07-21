@@ -9,8 +9,12 @@ it, so bugs like the earlier peak contamination get caught:
 
   1. Peak re-derivation: recompute peak_flops_per_sec from first principles
      (cores * clock * 2*32^3 / cycles_per_tile) and compare to the report. This
-     is a separate code path from the compiler, so it catches formula/constant
-     drift.
+     is a separate code path from the compiler, so it catches formula drift.
+     Note the cores/clock are read from the report's own perf_targets block
+     (or --cores/--clock-ghz), so it does NOT independently validate those
+     constants; and perf_targets is single-chip-only, so on a multi-chip report
+     this check (and the MFU check) are skipped unless --cores/--clock-ghz or a
+     known arch default supplies them.
   2. Published-peak anchor: print tt-metal's documented full-chip peak so a
      wildly-off number is obvious to the eye.
   3. Internal invariant: sum(per_op[].flops) == total_flops (needs a report

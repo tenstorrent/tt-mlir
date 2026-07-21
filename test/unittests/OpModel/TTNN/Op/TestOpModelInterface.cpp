@@ -17,6 +17,7 @@
 #include "mlir/IR/AffineExpr.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/Support/raw_ostream.h"
 
 #include <cstdint>
 #include <numeric>
@@ -1046,14 +1047,14 @@ TEST_F(OpModelBase, MatmulOpInterface) {
   }
 }
 
-// Device cross-check for the ttnn-collect-perf-metrics peak. Runs a large
+// Device sanity guard for the ttnn-collect-perf-metrics peak. Runs a large
 // compute-bound matmul, measures its runtime on the real device via
-// getOpRuntime, and reports the achieved TFLOP/s. This is the independent
-// ground truth for the theoretical peak: achieved must never exceed the
-// hardware ceiling, and for a large matmul it should reach a healthy fraction
-// of the peak reported in perf_metrics JSON. Compare the printed number to
-// `peak_flops_per_sec` in your report — if achieved exceeds the report's peak,
-// the report's peak is too low.
+// getOpRuntime, and asserts the achieved TFLOP/s stays within (0, absolute
+// hardware ceiling]. This is a coarse guard: real silicon reaches only a
+// fraction of peak, so the ceiling only catches gross measurement / unit /
+// peak-constant errors, not a peak that is merely somewhat off. The printed
+// achieved value is for manual comparison against `peak_flops_per_sec` in a
+// perf_metrics report (achieved must be <= the report peak).
 TEST_F(OpModelBase, MatmulRuntimeVsPeak) {
   const int64_t M = 4096, K = 4096, N = 4096;
   auto inputA = createEmptyTensor({M, K});
@@ -1076,13 +1077,14 @@ TEST_F(OpModelBase, MatmulRuntimeVsPeak) {
   // measurement or peak-constant error, not real silicon.
   constexpr double kArchMaxLoFiTflops = 718.0;
 
-  std::cout << "[MatmulRuntimeVsPeak] M=K=N=" << M << "  measured=" << ns
-            << " ns  achieved=" << achievedTflops << " TFLOP/s\n"
-            << "  Cross-check: this achieved value must be <= the "
-               "peak_flops_per_sec in your perf_metrics JSON (and a healthy "
-               "fraction of it). If it exceeds the report peak, the report "
-               "peak is too low.\n";
+  llvm::outs() << "[MatmulRuntimeVsPeak] M=K=N=" << M << "  measured=" << ns
+               << " ns  achieved=" << achievedTflops << " TFLOP/s\n"
+               << "  Manual cross-check: this value must be <= the "
+                  "peak_flops_per_sec in your perf_metrics JSON.\n";
 
+  // Guard against a broken (zero / absurdly-low) measurement as well as one
+  // that beats the hardware ceiling.
+  EXPECT_GT(achievedTflops, 0.0);
   EXPECT_LE(achievedTflops, kArchMaxLoFiTflops)
       << "Measured matmul throughput exceeds the absolute hardware ceiling — "
          "runtime/peak mismatch.";
