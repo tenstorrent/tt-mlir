@@ -118,7 +118,7 @@ public:
         // queries (conv2d config search, pool/conv constraint checks in
         // OperationValidationAndFallback) see the exact device state main sees.
         op_model::snapshotMockAllocatorState();
-        MockAllocatorSpillManagement spill(func, deviceGrid, l1BudgetPerCore,
+        StatefulL1SpillManagement spill(func, deviceGrid, l1BudgetPerCore,
                                            std::move(observer));
         spill.run();
         op_model::restoreMockAllocatorState();
