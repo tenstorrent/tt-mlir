@@ -80,6 +80,12 @@ class SimLazyTensor:
             phys = [g * b for g, b in zip(layout.grid_shape, layout.block_shape)]
         return _SimValueShim(_SimTypeShim(phys))
 
+    def __await__(self):
+        # See SimBlock.__await__: awaiting a device tensor is synchronous in the
+        # functional simulator and resolves immediately to the tensor itself.
+        yield from ()
+        return self
+
     def to_host(self):
         return to_host(self)[0]
 

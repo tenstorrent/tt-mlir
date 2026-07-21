@@ -48,6 +48,14 @@ class SimBlock:
         region = tiles.permute(0, 2, 1, 3).reshape(bm * _TILE, bn * _TILE)
         return SimBlock(region, block_shape, reduced_axes)
 
+    def __await__(self):
+        # `await block` in an async kernel marks "wait for this async DMA to
+        # complete". Every device op in the functional simulator is already
+        # synchronous, so the await resolves immediately to the block itself
+        # (yields nothing, so it never suspends the driving coroutine).
+        yield from ()
+        return self
+
     def __repr__(self):
         return (
             f"SimBlock(shape={tuple(self.data.shape)}, block_shape={self.block_shape}, "

@@ -16,7 +16,7 @@ import contextlib
 from . import ops  # noqa: F401  (attaches SimBlock dunders/methods on import)
 from .block import SimBlock
 from .ops import SIM_OPS
-from .runtime import core_index, remote_load, remote_store
+from .runtime import Semaphore, core_index, remote_load, remote_store
 from . import host
 
 # Everything a `@d2m.kernel` body can reference, injected into the kernel's
@@ -28,6 +28,7 @@ SIM_BUILTINS.update(
         "core_index": core_index,
         "remote_load": remote_load,
         "remote_store": remote_store,
+        "Semaphore": Semaphore,
     }
 )
 

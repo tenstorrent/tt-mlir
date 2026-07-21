@@ -165,3 +165,69 @@ def test_nontiled_view_layout_out_of_bounds():
     x = torch.arange(16, dtype=torch.float32).reshape(4, 4)
     with pytest.raises(ValueError, match="out of bounds"):
         d2m.view_layout(d2m.to_layout(x, L), lambda d0, d1: (d0, d1 + 1))._sim_logical()
+
+
+@d2m.kernel
+def _add_nontiled(lhs, rhs, out, m_blocks, n_blocks):
+    m_off = core_index(0) * m_blocks
+    n_off = core_index(1) * n_blocks
+    for m in range(m_blocks):
+        for n in range(n_blocks):
+            a = remote_load(lhs, [m_off + m, n_off + n])
+            b = remote_load(rhs, [m_off + m, n_off + n])
+            remote_store(out, [m_off + m, n_off + n], a + b)
+
+
+def test_nontiled_eltwise_add():
+    """Compute path over a non-tiled layout: the tile-size-1 block model loads
+    and stores element-granularity shards."""
+    L = _nontiled_layout()
+    lhs = torch.randn(4, 4)
+    rhs = torch.randn(4, 4)
+    out = d2m.empty(L)
+    _add_nontiled(d2m.to_layout(lhs, L), d2m.to_layout(rhs, L), out, 1, 1, grid=(2, 2))
+    assert torch.allclose(out.to_host(), lhs + rhs)
+
+
+@d2m.kernel
+async def _add_async(lhs, rhs, out, m_blocks, n_blocks):
+    sem = Semaphore(0)
+    m_off = core_index(0) * m_blocks
+    n_off = core_index(1) * n_blocks
+    for m in range(m_blocks):
+        for n in range(n_blocks):
+            a = remote_load(lhs, [m_off + m, n_off + n])
+            b = remote_load(rhs, [m_off + m, n_off + n])
+            a = await a
+            sem.inc(1)
+            sem.wait(1, reset=0)
+            remote_store(out, [m_off + m, n_off + n], a + b)
+
+
+def test_async_kernel_await_and_semaphore():
+    """An `async def` body (await + Semaphore no-ops) is driven to completion
+    and matches the synchronous result. Semaphores are ordering-only, so they
+    do not affect numerics in the functional simulator."""
+    L = _layout()
+    lhs = torch.randn(64, 64)
+    rhs = torch.randn(64, 64)
+    out = d2m.empty(L)
+    _add_async(d2m.to_layout(lhs, L), d2m.to_layout(rhs, L), out, 1, 1, grid=(2, 2))
+    assert torch.equal(out.to_host(), lhs + rhs)
+
+
+@d2m.kernel
+async def _gen_kernel(in_t, out_t):
+    x = remote_load(in_t, [0, 0])
+    yield x
+    remote_store(out_t, [0, 0], x)
+
+
+def test_async_generator_kernel_rejected():
+    """`async def` + `yield` (multi-thread producer/consumer) needs an ordering
+    model the simulator omits; it must fail loudly rather than silently no-op."""
+    L = _layout(grid=(1, 1))
+    t = torch.randn(64, 64)
+    out = d2m.empty(L)
+    with pytest.raises(NotImplementedError, match="async-generator"):
+        _gen_kernel(d2m.to_layout(t, L), out, grid=(1, 1))
