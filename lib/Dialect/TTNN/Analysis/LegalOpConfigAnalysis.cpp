@@ -414,7 +414,13 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
         }
       })
       .Default([](Operation *op) -> void {
-        op->emitError("Unsupported op type");
+        op->emitError()
+            << "LegalOpConfigAnalysis: no fillOpSpecificAttrs handler for op "
+               "type '"
+            << op->getName()
+            << "'; this op is not supported by the TTNN optimizer's "
+               "op-specific config generation. Add a TypeSwitch case for it in "
+               "LegalOpConfigAnalysis::fillOpSpecificAttrs().";
         llvm::llvm_unreachable_internal("Unsupported op type");
       });
 }
