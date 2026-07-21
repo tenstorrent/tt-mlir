@@ -29,7 +29,7 @@ namespace mlir::tt::ttnn::test {
 //
 // Reuses every IR-builder, layout, observer, and inspection helper from
 // L1SpillTestFixture unchanged. Adds runMock(), which drives
-// MockAllocatorSpillManagement WITHOUT installing a fake
+// StatefulL1SpillManagement WITHOUT installing a fake
 // validator, so the allocator-backed (stateful op-model) path executes.
 //===----------------------------------------------------------------------===//
 class L1SpillMockAllocatorFixture : public L1SpillTestFixture {
@@ -41,7 +41,7 @@ public:
   /// Pass instance kept alive as a fixture member so the observer (owned by the
   /// pass) outlives runMock() and stays reachable via the returned pointer, and
   /// so getMockTracker() can inspect final tracker state after the run.
-  std::unique_ptr<MockAllocatorSpillManagement> passMock;
+  std::unique_ptr<StatefulL1SpillManagement> passMock;
 
   /// Run the allocator-backed pass on `func`. No backendValidator is installed,
   /// so MockAllocatorL1Tracker::validate() issues real (uncached) stateful
@@ -53,7 +53,7 @@ public:
     auto deviceAttr = mlir::tt::ttcore::lookupDevice(module.get());
     ttcore::GridAttr deviceGrid = deviceAttr.getWorkerGrid();
 
-    passMock = std::make_unique<MockAllocatorSpillManagement>(
+    passMock = std::make_unique<StatefulL1SpillManagement>(
         func, deviceGrid, l1BudgetPerCore, std::move(obs));
     // Intentionally leave backendValidator unset -> real op-model path.
     passMock->run();
