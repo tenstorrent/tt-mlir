@@ -129,3 +129,39 @@ def test_reduce_implicit_broadcast():
             tile = t[r : r + 32, c : c + 32]
             expected[r : r + 32, c : c + 32] = tile - tile.mean(dim=1, keepdim=True)
     assert (result - expected).abs().max().item() < 1e-4
+
+
+def _nontiled_layout(shape=(4, 4), grid=(2, 2), block=(2, 2)):
+    return d2m.Layout(
+        shape=shape,
+        dtype=d2m.float32,
+        block_shape=list(block),
+        grid_shape=list(grid),
+        tiled=False,
+    )
+
+
+def test_nontiled_view_layout_reverse():
+    """Arithmetic view_layout on a non-tiled layout gathers per element (no
+    tile split): a reversal along the last axis."""
+    L = _nontiled_layout()
+    x = torch.arange(16, dtype=torch.float32).reshape(4, 4)
+    v = d2m.view_layout(d2m.to_layout(x, L), lambda d0, d1: (d0, 3 - d1))
+    assert v.is_view is True
+    assert torch.equal(v._sim_logical(), torch.flip(x, dims=[1]))
+
+
+def test_nontiled_view_layout_roll():
+    """Non-tiled arithmetic view_layout with a modular roll along axis 0."""
+    L = _nontiled_layout()
+    x = torch.arange(16, dtype=torch.float32).reshape(4, 4)
+    v = d2m.view_layout(d2m.to_layout(x, L), lambda d0, d1: ((d0 + 2) % 4, d1))
+    assert torch.equal(v._sim_logical(), torch.roll(x, shifts=2, dims=0))
+
+
+def test_nontiled_view_layout_out_of_bounds():
+    """A remap that leaves the physical index space is rejected."""
+    L = _nontiled_layout()
+    x = torch.arange(16, dtype=torch.float32).reshape(4, 4)
+    with pytest.raises(ValueError, match="out of bounds"):
+        d2m.view_layout(d2m.to_layout(x, L), lambda d0, d1: (d0, d1 + 1))._sim_logical()

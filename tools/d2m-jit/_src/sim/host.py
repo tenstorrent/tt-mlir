@@ -241,19 +241,49 @@ def view_layout(lt, remapping_fn) -> SimLazyTensor:
     return _arithmetic_view_layout(lt, remapping_fn, phys_rank)
 
 
+def _eval_remap(remapping_fn, dst_idx, phys_rank, idx_bounds):
+    """Evaluate the dst->src remapping lambda at one destination index and
+    validate the result: right arity, integer coordinates, all in bounds."""
+    src_idx = tuple(remapping_fn(*dst_idx))
+    if len(src_idx) != phys_rank:
+        raise ValueError(
+            f"view_layout lambda returned {len(src_idx)} indices for physical "
+            f"rank {phys_rank}"
+        )
+    for k, (s, bound) in enumerate(zip(src_idx, idx_bounds)):
+        if not isinstance(s, int) or isinstance(s, bool):
+            raise ValueError(
+                f"view_layout lambda must return integer indices; got {s!r} "
+                f"at position {k}"
+            )
+        if not (0 <= s < bound):
+            raise ValueError(
+                f"view_layout source index {src_idx} out of bounds at "
+                f"position {k} (extent {bound})"
+            )
+    return src_idx
+
+
 def _arithmetic_view_layout(lt, remapping_fn, phys_rank) -> SimLazyTensor:
     layout = lt.layout
     n = len(layout.logical_shape)
+    src_phys = lt._sim_resolve().physical
+
     if not layout.tiled:
-        raise NotImplementedError(
-            "arithmetic view_layout for non-tiled layouts is not yet supported "
-            "in the simulator"
-        )
+        # Non-tiled: the physical buffer already *is* the element-space affine
+        # index grid (physical rank == n, one index per logical axis with extent
+        # grid[a]*block[a] == logical[a]). The lambda addresses individual
+        # elements, so we gather element-by-element with no tile split.
+        idx_bounds = [g * b for g, b in zip(layout.grid_shape, layout.block_shape)]
+        dst = torch.empty_like(src_phys)
+        for dst_idx in itertools.product(*(range(b) for b in idx_bounds)):
+            src_idx = _eval_remap(remapping_fn, dst_idx, phys_rank, idx_bounds)
+            dst[dst_idx] = src_phys[src_idx]
+        return SimLazyTensor(layout, SimTensor(layout, dst), is_view=True)
 
     grid = list(layout.grid_shape)
     block = list(layout.block_shape)
     tile = 32
-    src_phys = lt._sim_resolve().physical
 
     # Reshape the (element-space) physical buffer into an explicit tile grid:
     # each logical axis a splits into (grid[a], block[a], tile), then reorder to
@@ -272,23 +302,7 @@ def _arithmetic_view_layout(lt, remapping_fn, phys_rank) -> SimLazyTensor:
     idx_bounds = grid + block  # extent of each of the 2N affine index dims
     dst = torch.empty_like(tg)
     for dst_idx in itertools.product(*(range(b) for b in idx_bounds)):
-        src_idx = tuple(remapping_fn(*dst_idx))
-        if len(src_idx) != phys_rank:
-            raise ValueError(
-                f"view_layout lambda returned {len(src_idx)} indices for physical "
-                f"rank {phys_rank}"
-            )
-        for k, (s, bound) in enumerate(zip(src_idx, idx_bounds)):
-            if not isinstance(s, int) or isinstance(s, bool):
-                raise ValueError(
-                    f"view_layout lambda must return integer indices; got {s!r} "
-                    f"at position {k}"
-                )
-            if not (0 <= s < bound):
-                raise ValueError(
-                    f"view_layout source index {src_idx} out of bounds at "
-                    f"position {k} (extent {bound})"
-                )
+        src_idx = _eval_remap(remapping_fn, dst_idx, phys_rank, idx_bounds)
         dst[dst_idx] = tg[src_idx]
 
     # Undo the reshape/permute to return to element space.
