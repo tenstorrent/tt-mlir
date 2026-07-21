@@ -1472,6 +1472,70 @@ mlir::LogicalResult d2m::CompositeViewOp::verify() {
     }
   }
 
+  // RM width-concat: each input becomes one NoC L1 DMA, so its byte size
+  // must satisfy NoC L1 alignment from the system descriptor (skipped when no
+  // system desc / device is registered, e.g. early standalone parses).
+  const bool isWidthConcat = (compositeDim == rank - 1);
+  if (isWidthConcat) {
+    Type elemType;
+    if (isTensorType) {
+      elemType = mlir::cast<RankedTensorType>(outType).getElementType();
+    } else {
+      elemType = mlir::cast<MemRefType>(outType).getElementType();
+    }
+    auto moduleOp = (*this)->getParentOfType<ModuleOp>();
+    const bool hasSystemDesc =
+        moduleOp && moduleOp->hasAttr(ttcore::SystemDescAttr::name) &&
+        ttcore::lookupDeviceOp(*this) != nullptr;
+    if (hasSystemDesc && !mlir::isa<ttcore::TileType>(elemType) &&
+        elemType.isIntOrFloat()) {
+      const int64_t elemBytes = elemType.getIntOrFloatBitWidth() / 8;
+      const int64_t nocL1AlignBytes =
+          mlir::tt::d2m::utils::getNocAddressAlignmentBytes(
+              *this, ttcore::MemorySpace::DeviceL1);
+
+      SmallVector<int64_t> sizes;
+      if (isTensorType) {
+        for (auto input : this->getInputs()) {
+          auto inLayout = mlir::cast<ttcore::MetalLayoutAttr>(
+              mlir::cast<RankedTensorType>(input.getType()).getEncoding());
+          sizes.push_back(inLayout.getLogicalShape()[compositeDim]);
+        }
+      } else if (this->getLogicalSizes().has_value()) {
+        auto attr = this->getLogicalSizes().value();
+        sizes.assign(attr.begin(), attr.end());
+      }
+
+      for (int64_t n : sizes) {
+        const int64_t chunkBytes = n * elemBytes;
+        if (chunkBytes < nocL1AlignBytes || chunkBytes % nocL1AlignBytes != 0) {
+          return emitOpError()
+                 << "row-major width-concat requires each input's per-DMA "
+                    "byte count (logicalSizes[i] * sizeof(elem)) to be >= "
+                 << nocL1AlignBytes
+                 << " and a multiple of it (NoC L1 alignment); got " << n
+                 << " elems * " << elemBytes << " bytes = " << chunkBytes
+                 << " bytes";
+        }
+      }
+    }
+  }
+
+  // composite_view inputs must be uniformly views or uniformly non-views
+  auto isViewInput = [](Value v) {
+    return mlir::isa_and_nonnull<d2m::ViewOpInterface>(v.getDefiningOp());
+  };
+  auto inputs = this->getInputs();
+  const bool firstIsView = isViewInput(inputs.front());
+  for (auto [i, input] : llvm::enumerate(llvm::drop_begin(inputs))) {
+    if (isViewInput(input) != firstIsView) {
+      return emitOpError() << "inputs must be uniformly views "
+                              "(ViewOpInterface) or uniformly non-views; "
+                              "input "
+                           << (i + 1) << " disagrees with input 0";
+    }
+  }
+
   return mlir::success();
 }
 

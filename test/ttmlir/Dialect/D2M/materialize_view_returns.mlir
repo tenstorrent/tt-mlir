@@ -121,9 +121,9 @@ func.func @higher_rank_view_return(%arg0: tensor<1x4x4x2x3x6x!ttcore.tile<32x32,
   %view = d2m.view_layout %arg0 remapping = #map6 : tensor<1x4x4x2x3x6x!ttcore.tile<32x32, f32>, #layout_6d_1x4x4> -> tensor<1x8x2x1x6x6x!ttcore.tile<32x32, f32>, #layout_6d_1x8x2>
 
   // Materialization uses load+store pair
-  // CHECK: d2m.empty() : tensor<1x8x2x1x6x6x!ttcore.tile<32x32, f32>
+  // CHECK: d2m.empty(){{.*}} : tensor<1x8x2x1x6x6x!ttcore.tile<32x32, f32>
   // CHECK: %[[MATERIALIZED:.*]] = d2m.generic
-  // CHECK-SAME: grid = #ttcore.grid<1x8x2>
+  // CHECK-SAME: grid = #ttcore.grid<1x8x2
   // CHECK-SAME: threads = [#d2m.thread<unified>]
   // CHECK: ins(%[[VIEW]]
   // CHECK: d2m.remote_load
@@ -182,4 +182,89 @@ func.func @view_before_device_to_device_unchanged(%arg0: tensor<1x1x8x24x!ttcore
   // CHECK-NOT: d2m.generic
   // CHECK: return %{{.*}}
   return %to_device : tensor<8x8x1x3x!ttcore.tile<32x32, f32>, #layout8x8>
+}
+
+#linput_chain = #ttcore.metal_layout<logical_shape = 64x96, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#lout_chain = #ttcore.metal_layout<logical_shape = 64x192, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+#map_chain = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// Chain of view_layouts feeding composite_view consumed by a generic: no
+// materialization should fire on the chain intermediates.
+// CHECK-LABEL: @chain_feeds_composite_consumed_by_generic
+func.func @chain_feeds_composite_consumed_by_generic(%arg0: tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain>, %arg1: tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain>) -> tensor<1x1x2x6x!ttcore.tile<32x32, f32>, #lout_chain> {
+  // CHECK: %[[V0A:.*]] = d2m.view_layout %arg0
+  %v0a = d2m.view_layout %arg0 remapping = #map_chain : tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain> -> tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain>
+  // CHECK: %[[V0B:.*]] = d2m.view_layout %[[V0A]]
+  %v0b = d2m.view_layout %v0a remapping = #map_chain : tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain> -> tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain>
+  // CHECK: %[[V1A:.*]] = d2m.view_layout %arg1
+  %v1a = d2m.view_layout %arg1 remapping = #map_chain : tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain> -> tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain>
+  // CHECK: %[[V1B:.*]] = d2m.view_layout %[[V1A]]
+  %v1b = d2m.view_layout %v1a remapping = #map_chain : tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain> -> tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain>
+  // CHECK: %[[CV:.*]] = "d2m.composite_view"(%[[V0B]], %[[V1B]])
+  %cv = "d2m.composite_view"(%v0b, %v1b) <{dim = 1 : si32}> : (tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain>, tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain>) -> tensor<1x1x2x6x!ttcore.tile<32x32, f32>, #lout_chain>
+  %empty = d2m.empty() : tensor<1x1x2x6x!ttcore.tile<32x32, f32>, #lout_chain>
+
+  // CHECK-NOT: d2m.remote_load
+  // CHECK-NOT: d2m.remote_store
+  // CHECK: %[[RES:.*]] = d2m.generic
+  // CHECK: ins(%[[CV]]
+  %result = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>,
+                         indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>],
+                         iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>],
+                         threads = [#d2m.thread<datamovement>]}
+      ins(%cv : tensor<1x1x2x6x!ttcore.tile<32x32, f32>, #lout_chain>)
+      outs(%empty : tensor<1x1x2x6x!ttcore.tile<32x32, f32>, #lout_chain>) {
+    ^bb0:
+      %in_cb = d2m.get_cb(0) : !d2m.cb<tensor<2x6x!ttcore.tile<32x32, f32>>>
+      %out_cb = d2m.get_cb(1) : !d2m.cb<tensor<2x6x!ttcore.tile<32x32, f32>>>
+      %in = d2m.wait %in_cb : !d2m.cb<tensor<2x6x!ttcore.tile<32x32, f32>>> -> tensor<2x6x!ttcore.tile<32x32, f32>>
+      %out = d2m.reserve %out_cb : !d2m.cb<tensor<2x6x!ttcore.tile<32x32, f32>>> -> tensor<2x6x!ttcore.tile<32x32, f32>>
+      d2m.yield %out : (tensor<2x6x!ttcore.tile<32x32, f32>>)
+  } : tensor<1x1x2x6x!ttcore.tile<32x32, f32>, #lout_chain>
+
+  // CHECK-NOT: d2m.generic
+  // CHECK: return %[[RES]]
+  return %result : tensor<1x1x2x6x!ttcore.tile<32x32, f32>, #lout_chain>
+}
+
+// 3-deep view_layout chain returned directly: only the outermost view
+// materializes via a single d2m.generic.
+// CHECK-LABEL: @chain_returned_directly
+func.func @chain_returned_directly(%arg0: tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain>) -> tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain> {
+  // CHECK: %[[V1:.*]] = d2m.view_layout %arg0
+  %v1 = d2m.view_layout %arg0 remapping = #map_chain : tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain> -> tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain>
+  // CHECK: %[[V2:.*]] = d2m.view_layout %[[V1]]
+  %v2 = d2m.view_layout %v1 remapping = #map_chain : tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain> -> tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain>
+  // CHECK: %[[V3:.*]] = d2m.view_layout %[[V2]]
+  %v3 = d2m.view_layout %v2 remapping = #map_chain : tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain> -> tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain>
+
+  // CHECK: d2m.empty() : tensor<1x1x2x3x!ttcore.tile<32x32, f32>
+  // CHECK: %[[RES:.*]] = d2m.generic
+  // CHECK-SAME: threads = [#d2m.thread<unified>]
+  // CHECK: ins(%[[V3]]
+  // CHECK: d2m.remote_load
+  // CHECK: d2m.remote_store
+  // CHECK: d2m.yield
+  // CHECK: return %[[RES]]
+  return %v3 : tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain>
+}
+
+// view_layout chain feeding to_host: only the outermost view materializes.
+// CHECK-LABEL: @chain_before_to_host
+func.func @chain_before_to_host(%arg0: tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain>) -> tensor<64x96xf32> {
+  // CHECK: %[[V1:.*]] = d2m.view_layout %arg0
+  %v1 = d2m.view_layout %arg0 remapping = #map_chain : tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain> -> tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain>
+  // CHECK: %[[V2:.*]] = d2m.view_layout %[[V1]]
+  %v2 = d2m.view_layout %v1 remapping = #map_chain : tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain> -> tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain>
+  %host_empty = d2m.empty() : tensor<64x96xf32>
+
+  // CHECK: d2m.empty() : tensor<1x1x2x3x!ttcore.tile<32x32, f32>
+  // CHECK: %[[MATERIALIZED:.*]] = d2m.generic
+  // CHECK: ins(%[[V2]]
+  // CHECK: d2m.remote_load
+  // CHECK: d2m.remote_store
+  // CHECK: d2m.to_host %[[MATERIALIZED]]
+  %to_host = d2m.to_host %v2, %host_empty layout = #linput_chain : tensor<1x1x2x3x!ttcore.tile<32x32, f32>, #linput_chain> into tensor<64x96xf32> -> tensor<64x96xf32>
+
+  return %to_host : tensor<64x96xf32>
 }

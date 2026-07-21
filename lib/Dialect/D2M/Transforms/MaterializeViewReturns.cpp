@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include "ttmlir/AffineMapUtils.h"
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOps.h"
@@ -32,6 +33,65 @@ namespace {
 
 bool isViewOp(Operation *op) {
   return mlir::isa_and_nonnull<d2m::ViewOpInterface>(op);
+}
+
+// Walks the view chain to the op that owns the VGM. Returns the value plus
+// its forward map so the caller can read its tensor shape.
+std::optional<std::pair<Value, AffineMap>> findUpstreamVgmSource(Value v) {
+  Operation *defOp = v.getDefiningOp();
+  if (!defOp) {
+    return std::nullopt;
+  }
+  unsigned idx = mlir::cast<OpResult>(v).getResultNumber();
+  if (auto emptyOp = mlir::dyn_cast<EmptyOp>(defOp)) {
+    if (auto fwd = emptyOp.getVirtualGridForwardMappingAttr()) {
+      return std::make_pair(v, fwd.getValue());
+    }
+    return std::nullopt;
+  }
+  if (auto toLayoutOp = mlir::dyn_cast<ToLayoutOp>(defOp)) {
+    return findUpstreamVgmSource(toLayoutOp.getOutput());
+  }
+  if (auto toDeviceOp = mlir::dyn_cast<ToDeviceOp>(defOp)) {
+    return findUpstreamVgmSource(toDeviceOp.getOutput());
+  }
+  if (auto genericOp = mlir::dyn_cast<GenericOp>(defOp)) {
+    return findUpstreamVgmSource(genericOp.getOutputs()[idx]);
+  }
+  if (auto spatialOp = mlir::dyn_cast<SpatialOp>(defOp)) {
+    return findUpstreamVgmSource(spatialOp.getOutputs()[idx]);
+  }
+  if (auto viewOp = mlir::dyn_cast<ViewOpInterface>(defOp)) {
+    if (viewOp.isComposite()) {
+      auto inputs = viewOp.getCompositeInputs();
+      if (inputs.empty()) {
+        return std::nullopt;
+      }
+      return findUpstreamVgmSource(inputs.front());
+    }
+    return findUpstreamVgmSource(viewOp.getInput());
+  }
+  return std::nullopt;
+}
+
+// 2D phys grid extent inherited from upstream VGM, or nullopt.
+std::optional<SmallVector<int64_t>> inheritPhysGridExtent(Value v) {
+  auto info = findUpstreamVgmSource(v);
+  if (!info) {
+    return std::nullopt;
+  }
+  auto [srcVal, fwdMap] = *info;
+  auto srcType = mlir::dyn_cast<RankedTensorType>(srcVal.getType());
+  if (!srcType || fwdMap.getNumResults() < 2 ||
+      fwdMap.getNumDims() != static_cast<unsigned>(srcType.getRank())) {
+    return std::nullopt;
+  }
+  auto physMap = ttmlir::utils::affineMapTakeFrontResults(fwdMap, 2);
+  auto evaluated = ttmlir::utils::evalShape(physMap, srcType.getShape());
+  if (evaluated.size() < 2) {
+    return std::nullopt;
+  }
+  return SmallVector<int64_t>(evaluated.begin(), evaluated.begin() + 2);
 }
 
 // Extract the grid attribute from a tensor's metal layout encoding.
@@ -101,12 +161,66 @@ Value materializeTensorView(OpBuilder &builder, Location loc,
       builder.getContext(), layout.getLogicalShape(), layout.getDimAlignments(),
       layout.getCollapsedIntervals(), layout.getMemorySpace(),
       layout.getMemoryLayout());
-  auto emptyOp = builder.create<d2m::EmptyOp>(
-      loc, tensorType.getShape(), tensorType.getElementType(), newLayout);
+  // Reuse upstream's phys grid when volumes match (output writes land on same
+  // cores as upstream input). Otherwise pick a phys grid that exactly
+  // factorizes the virt vol.
+  ttcore::GridAttr destGrid = getGridFromType(tensorType);
+  TT_assert(destGrid != nullptr);
+  AffineMapAttr fwdAttr;
+  AffineMapAttr invAttr;
+  SmallVector<int64_t> gridShape = llvm::to_vector(destGrid.getShape());
+  SmallVector<int64_t> physGrid;
+  if (auto deviceOp = ttcore::lookupDevice(builder.getInsertionBlock()
+                                               ->getParent()
+                                               ->getParentOfType<ModuleOp>())) {
+    auto targetGrid = llvm::to_vector(deviceOp.getWorkerGrid().getShape());
+    if (ttmlir::d2m::utils::grids::requiresVirtualGrid(gridShape, targetGrid)) {
+      int64_t targetVolume = std::accumulate(gridShape.begin(), gridShape.end(),
+                                             int64_t{1}, std::multiplies<>());
+      if (auto inherited = inheritPhysGridExtent(viewResult)) {
+        int64_t inheritedVolume =
+            std::accumulate(inherited->begin(), inherited->end(), int64_t{1},
+                            std::multiplies<>());
+        if (inheritedVolume == targetVolume) {
+          physGrid = *inherited;
+        }
+      }
+      if (physGrid.empty()) {
+        // Exact factorization (physH * physW == virt vol) avoids mod-wrap when
+        // the worker grid doesn't divide vol evenly (e.g. BH worker 10x11,
+        // virt vol 64 -> phys 8x8 instead of mod 11 over 10x11).
+        physGrid =
+            llvm::to_vector(ttmlir::d2m::utils::grids::getPhysicalGridExtent(
+                gridShape, targetGrid));
+      }
+      auto [fwd, inv] = ttmlir::d2m::utils::grids::createCoreVirtMaps(
+          builder.getContext(), gridShape, physGrid);
+      fwdAttr = AffineMapAttr::get(fwd);
+      invAttr = AffineMapAttr::get(inv);
+    }
+  }
 
-  // Extract the grid from the tensor's layout to determine core distribution.
-  ttcore::GridAttr grid = getGridFromType(tensorType);
-  TT_assert(grid != nullptr);
+  auto emptyOp =
+      fwdAttr ? builder.create<d2m::EmptyOp>(loc, tensorType, invAttr, fwdAttr)
+              : builder.create<d2m::EmptyOp>(loc, tensorType.getShape(),
+                                             tensorType.getElementType(),
+                                             newLayout);
+
+  // GridAttr fwd is grid-rank (not memref-rank); build directly, share
+  // physGrid.
+  ttcore::GridAttr grid;
+  if (fwdAttr) {
+    auto fwdGrid = ttmlir::d2m::utils::grids::create1DtoNDMap(
+                       builder.getContext(), physGrid)
+                       .compose(ttmlir::d2m::utils::grids::createCollapseMap(
+                           builder.getContext(), gridShape));
+    fwdGrid =
+        fwdGrid.insertResult(getAffineConstantExpr(0, builder.getContext()), 0);
+    grid = ttcore::GridAttr::get(builder.getContext(), gridShape, fwdGrid,
+                                 invAttr.getValue());
+  } else {
+    grid = destGrid;
+  }
 
   // Build identity affine maps for parallel iteration over all grid dimensions.
   size_t rank = grid.getShape().size();

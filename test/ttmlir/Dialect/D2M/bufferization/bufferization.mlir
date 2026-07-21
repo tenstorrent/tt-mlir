@@ -109,3 +109,63 @@ func.func @test_composite_view_logical_sizes() -> tensor<1x1x32x32xf32, #ttcore.
   } : tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>>
   return %5 : tensor<1x1x32x32xf32, #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>>
 }
+
+#linput_chain = #ttcore.metal_layout<logical_shape = 32x4, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
+#linput_chain2 = #ttcore.metal_layout<logical_shape = 32x8, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
+#linput_chain3 = #ttcore.metal_layout<logical_shape = 32x16, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
+#lout_chain = #ttcore.metal_layout<logical_shape = 32x28, dim_alignments = 32x32, collapsed_intervals = dense<> : tensor<0x2xi64>, l1, sharded>
+#map_chain_id = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CompositeViewOp::bufferize on chained view_layout inputs preserves the
+// chain and derives per-input logicalSizes from the outermost view's layout.
+// CHECK-LABEL: func.func @test_composite_view_chain_logical_sizes
+func.func @test_composite_view_chain_logical_sizes() -> tensor<1x1x32x32xf32, #lout_chain> {
+  // CHECK: memref.alloc
+  // CHECK: memref.alloc
+  // CHECK: memref.alloc
+  %0 = d2m.empty() : tensor<1x1x32x32xf32, #linput_chain>
+  %1 = d2m.empty() : tensor<1x1x32x32xf32, #linput_chain2>
+  %2 = d2m.empty() : tensor<1x1x32x32xf32, #linput_chain3>
+
+  // CHECK: d2m.view_layout
+  %v0 = d2m.view_layout %0 remapping = #map_chain_id : tensor<1x1x32x32xf32, #linput_chain> -> tensor<1x1x32x32xf32, #linput_chain>
+
+  // CHECK: d2m.view_layout
+  %v1a = d2m.view_layout %1 remapping = #map_chain_id : tensor<1x1x32x32xf32, #linput_chain2> -> tensor<1x1x32x32xf32, #linput_chain2>
+  // CHECK: d2m.view_layout
+  %v1b = d2m.view_layout %v1a remapping = #map_chain_id : tensor<1x1x32x32xf32, #linput_chain2> -> tensor<1x1x32x32xf32, #linput_chain2>
+
+  // CHECK: d2m.view_layout
+  %v2a = d2m.view_layout %2 remapping = #map_chain_id : tensor<1x1x32x32xf32, #linput_chain3> -> tensor<1x1x32x32xf32, #linput_chain3>
+  // CHECK: d2m.view_layout
+  %v2b = d2m.view_layout %v2a remapping = #map_chain_id : tensor<1x1x32x32xf32, #linput_chain3> -> tensor<1x1x32x32xf32, #linput_chain3>
+  // CHECK: d2m.view_layout
+  %v2c = d2m.view_layout %v2b remapping = #map_chain_id : tensor<1x1x32x32xf32, #linput_chain3> -> tensor<1x1x32x32xf32, #linput_chain3>
+
+  // CHECK: "d2m.composite_view"({{.+}}) <{dim = 1 : si32, logicalSizes = array<i64: 4, 8, 16>}> : (memref{{.+}}, memref{{.+}}, memref{{.+}}) -> memref
+  %3 = "d2m.composite_view"(%v0, %v1b, %v2c) <{dim = 1 : si32, logicalSizes = array<i64: 4, 8, 16>}> :
+      (tensor<1x1x32x32xf32, #linput_chain>,
+       tensor<1x1x32x32xf32, #linput_chain2>,
+       tensor<1x1x32x32xf32, #linput_chain3>) ->
+       tensor<1x1x32x32xf32, #lout_chain>
+  %4 = d2m.empty() : tensor<1x1x32x32xf32, #lout_chain>
+
+  // CHECK: d2m.generic
+  %5 = d2m.generic {block_factors = [1, 1], grid = #ttcore.grid<1x1>, indexing_maps = [affine_map<(d0, d1) -> (d0, d1)>, affine_map<(d0, d1) -> (d0, d1)>], iterator_types = [#ttcore.iterator_type<parallel>, #ttcore.iterator_type<parallel>], threads = [#d2m.thread<unified>]}
+      ins(%3 : tensor<1x1x32x32xf32, #lout_chain>)
+      outs(%4 : tensor<1x1x32x32xf32, #lout_chain>)
+   {
+    %6 = tensor.empty() : tensor<32x32xf32>
+    %block0 = d2m.block_index(0) : index
+    %block1 = d2m.block_index(1) : index
+    %7 = d2m.remote_load %6 %3[%block0, %block1] :
+        tensor<32x32xf32>, tensor<1x1x32x32xf32, #lout_chain> ->
+        tensor<32x32xf32>
+    %8 = d2m.remote_store %4[%block0, %block1] %7 :
+        tensor<1x1x32x32xf32, #lout_chain>,
+        tensor<32x32xf32> ->
+        tensor<1x1x32x32xf32, #lout_chain>
+    d2m.yield %8 : (tensor<1x1x32x32xf32, #lout_chain>)
+  } : tensor<1x1x32x32xf32, #lout_chain>
+  return %5 : tensor<1x1x32x32xf32, #lout_chain>
+}
