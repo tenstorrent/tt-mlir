@@ -230,6 +230,12 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
                      "prints debug output comparing them."),
       llvm::cl::init(false)};
 
+  Option<bool> useTensorAccessorDMA{
+      *this, "use-tensor-accessor-dma",
+      llvm::cl::desc(
+          "Use TensorAccessor for eligible page-granular D2M DMA operations."),
+      llvm::cl::init(false)};
+
   Option<bool> disableL1Acc{
       *this, "disable-l1-acc",
       llvm::cl::desc("Disable L1 accumulation (force reloading from L1 to DST "
