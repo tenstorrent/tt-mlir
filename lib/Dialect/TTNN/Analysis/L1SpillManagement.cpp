@@ -1884,6 +1884,16 @@ MockAllocatorL1Tracker::validate(Operation *op,
     // includes this op's inputs) + this op's output.
     uint64_t projected = getOccupiedL1() + result.outputL1Usage;
     if (l1Budget > 0 && projected > l1Budget) {
+      // Diagnostic: TTMLIR_SPILL_DEBUG=1 distinguishes a byte-cap OOM (this
+      // branch) from a device/CB OOM surfaced by the query itself (below), so
+      // an over-conservative spill can be attributed. See tt-mlir #9069 debug.
+      if (::getenv("TTMLIR_SPILL_DEBUG")) {
+        llvm::errs() << "[spill-debug] BYTE-CAP-OOM op=" << op->getName()
+                     << " occupied=" << getOccupiedL1()
+                     << " output=" << result.outputL1Usage
+                     << " projected=" << projected << " budget=" << l1Budget
+                     << "\n";
+      }
       return op_constraint_validation::ValidationResult::outOfMemoryError(
           "stateful: projected L1 (" + std::to_string(projected) +
           "B) exceeds optimizer budget (" + std::to_string(l1Budget) + "B)");
@@ -1893,6 +1903,13 @@ MockAllocatorL1Tracker::validate(Operation *op,
       pendingRecords[op] = RecordVec(result.outputAllocations.begin(),
                                      result.outputAllocations.end());
     }
+  } else if (::getenv("TTMLIR_SPILL_DEBUG")) {
+    llvm::errs() << "[spill-debug] QUERY-NON-SUCCESS op=" << op->getName()
+                 << " status="
+                 << (result.isNotImplemented()      ? "NotImplemented"
+                     : result.isMetalBackendError() ? "BackendError"
+                                                    : "OOM/other")
+                 << " msg=" << result.errorMessage << "\n";
   }
   return result;
 }
@@ -2144,6 +2161,15 @@ bool StatefulL1SpillManagement::replayFrom(size_t startIdx) {
     if (isOOM) {
       TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                    "Replay: op no longer fits under victim-free history");
+      // Diagnostic (TTMLIR_SPILL_DEBUG=1): name the op whose replay re-query
+      // failed. Pair with the [spill-debug] BYTE-CAP-OOM / QUERY-NON-SUCCESS
+      // line from validate() to attribute the no-fit. See tt-mlir #9069.
+      if (::getenv("TTMLIR_SPILL_DEBUG")) {
+        llvm::errs() << "[spill-debug] REPLAY-NOFIT op=" << defOp->getName()
+                     << " isReshard="
+                     << (insertedReshardValues.count(tensor) ? "yes" : "no")
+                     << " msg=" << result.errorMessage << "\n";
+      }
       return false;
     }
     memoryTracker.addTensor(tensor, l1EventLog[i].sizePerCore);
