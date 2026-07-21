@@ -3,7 +3,7 @@
 
 # Design Proposal: Cross-core stores in the d2m-jit simulator
 
-**Status:** Draft / for review
+**Status:** Phase 0 done; Option C landed (2026-07-21). See §8.
 **Author:** (d2m-jit simulator work, branch `jgrim/d2m-jit-sim`)
 **Scope:** the one remaining Phase 2 simulator gap — kernels where multiple
 cores write into a shared output whose per-core target depends on the
@@ -257,3 +257,50 @@ dependence on `core_index`.
 - Option A (infer default maps, flip the mcast gate green, distributed-reduction
   test): ~2–3 days, dominated by matching the compiler's default-map inference
   and validating via the parity harness.
+
+---
+
+## 8. Phase 0 results + what landed (2026-07-21)
+
+**Device investigation.** On a Wormhole device
+(`SYSTEM_DESC_PATH=ttrt-artifacts/system_desc.ttsys`):
+
+- `test_mcast_overwrite_grid_2x2` **passes on device** — each core's local
+  `remote_store(out, [0, 0], ...)` lands at that core's own `[cy, cx]` shard.
+  So the store is effectively core-relative for this shape.
+- Pre-pipeline `d2m.generic` dumps for both kernels (all-parallel eltwise vs the
+  multicast kernel) show **identical, empty** `block_factors`, `indexing_maps`,
+  and `iterator_types`, and `grid = 2x2`. The divergence is entirely in the
+  body:
+  - Eltwise: `remote_store %out[core0*m_blocks + m, core1*n_blocks + n]` — the
+    index already carries the core offset (**global**).
+  - Multicast: `remote_store %out[m, n]` with `m,n` the loop vars and **no** core
+    offset; the loads carry `mcore[...] mshape[...]` — lhs multicasts along grid
+    dim 1, rhs along dim 0, so the multicast collapses **both** grid dims.
+
+**Rule (confirmed):** a `remote_store` index is core-relative along exactly the
+grid dims a multicast collapses, and global elsewhere. The trigger the simulator
+can observe is the multicast arguments on the `remote_load`s.
+
+**What landed (Option C, blended toward A).** `_src/sim/runtime.py`:
+
+- `CoreContext` tracks `mcast_dims` — grid dims collapsed by multicast during the
+  current core-run. `remote_load` records a dim as collapsed when its
+  `mcast_shape` span is > 1 (or it is named in `mcast_dims`).
+- `remote_store` resolves core-relative along those dims:
+  `target[d] = core_coord[d] + index[d]` (one output block per core). Dims not
+  collapsed stay global, so all-parallel kernels are unchanged.
+- The multi-block-per-core case (`block_factors > 1`) raises a loud
+  `NotImplementedError` pointing at Option A, rather than silently mis-placing.
+
+**Validation.** `D2M_JIT_SIM=1 pytest test/d2m-jit/` → 127 pass / 2 skip / 18
+fail; the 18 are all out-of-scope-by-design compiler-path tests (`test_errors`
+compiler diagnostics, `test_config` pipeline prints, `test_patterns` MLIR
+rewrite/e2e). **The entire numeric suite is green, including
+`test_mcast_overwrite_grid_2x2`, which runs in both device and sim mode and
+whose golden is the device output** — so the resolver is device-validated, not
+just self-consistent.
+
+**Remaining (Option A).** Multi-block-per-core (`block_factors > 1`) stores and a
+dedicated distributed-reduction test still need the generic op's indexing maps
+modeled. The `NotImplementedError` marks exactly where that work plugs in.
