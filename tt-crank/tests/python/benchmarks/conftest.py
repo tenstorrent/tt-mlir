@@ -108,6 +108,17 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default=None,
         help="Truncate the model to this many decoder layers. Default keeps the full model.",
     )
+    group.addoption(
+        "--opt-level",
+        action="store",
+        type=int,
+        default=None,
+        choices=[0, 1, 2],
+        help="tt-mlir optimizer level for compile mode (CompileOption.OPT_LEVEL): "
+        "0 = optimizer off (bare TTIRToTTNN), 1 = optimizer on without sharding, "
+        "2 = optimizer on with memory-layout/sharding analysis. "
+        "When unset, each benchmark uses its own default.",
+    )
 
 
 @pytest.fixture(scope="session")
@@ -174,6 +185,12 @@ def _strict_no_fallback(request: pytest.FixtureRequest) -> Any:
 @pytest.fixture(scope="session")
 def llm_num_layers(request: pytest.FixtureRequest) -> int | None:
     value = request.config.getoption("--llm-num-layers")
+    return None if value is None else int(value)
+
+
+@pytest.fixture(scope="session")
+def opt_level(request: pytest.FixtureRequest) -> int | None:
+    value = request.config.getoption("--opt-level")
     return None if value is None else int(value)
 
 
