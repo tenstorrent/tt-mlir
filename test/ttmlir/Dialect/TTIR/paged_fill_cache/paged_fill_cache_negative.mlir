@@ -11,11 +11,11 @@ module {
       %input: tensor<4x12x65x256xbf16>,
       %page_table: tensor<8x16xi32>,
       %batch_idx: tensor<4xi32>) -> tensor<128x12x32x256xbf16> {
-    %0 = "ttir.paged_fill_cache"(%cache, %input, %page_table, %batch_idx)
+    "ttir.paged_fill_cache"(%cache, %input, %page_table, %batch_idx)
         : (tensor<128x12x32x256xbf16>, tensor<4x12x65x256xbf16>,
            tensor<8x16xi32>, tensor<4xi32>)
-        -> tensor<128x12x32x256xbf16>
-    return %0 : tensor<128x12x32x256xbf16>
+        -> ()
+    return %cache : tensor<128x12x32x256xbf16>
   }
 }
 
@@ -29,11 +29,11 @@ module {
       %page_table: tensor<8x16xi32>,
       %batch_idx: tensor<2xi32>) -> tensor<128x12x32x256xbf16> {
     // expected-error @+1 {{'ttir.paged_fill_cache' op Batch index tensor must have dim 0 equal to input batch (4), got 2}}
-    %0 = "ttir.paged_fill_cache"(%cache, %input, %page_table, %batch_idx)
+    "ttir.paged_fill_cache"(%cache, %input, %page_table, %batch_idx)
         : (tensor<128x12x32x256xbf16>, tensor<4x12x65x256xbf16>,
            tensor<8x16xi32>, tensor<2xi32>)
-        -> tensor<128x12x32x256xbf16>
-    return %0 : tensor<128x12x32x256xbf16>
+        -> ()
+    return %cache : tensor<128x12x32x256xbf16>
   }
 }
 
@@ -47,11 +47,11 @@ module {
       %input: tensor<4x12x65x256xbf16>,
       %page_table: tensor<8x16xi32>) -> tensor<128x12x32x256xbf16> {
     // expected-error @+1 {{'ttir.paged_fill_cache' op Input batch must be statically 1 when no batch_idx_tensor is provided, got 4}}
-    %0 = "ttir.paged_fill_cache"(%cache, %input, %page_table)
+    "ttir.paged_fill_cache"(%cache, %input, %page_table)
         : (tensor<128x12x32x256xbf16>, tensor<4x12x65x256xbf16>,
            tensor<8x16xi32>)
-        -> tensor<128x12x32x256xbf16>
-    return %0 : tensor<128x12x32x256xbf16>
+        -> ()
+    return %cache : tensor<128x12x32x256xbf16>
   }
 }
 
@@ -66,11 +66,11 @@ module {
       %input: tensor<?x12x65x256xbf16>,
       %page_table: tensor<8x16xi32>) -> tensor<128x12x32x256xbf16> {
     // expected-error @+1 {{'ttir.paged_fill_cache' op Input batch must be statically 1 when no batch_idx_tensor is provided, got dynamic}}
-    %0 = "ttir.paged_fill_cache"(%cache, %input, %page_table)
+    "ttir.paged_fill_cache"(%cache, %input, %page_table)
         : (tensor<128x12x32x256xbf16>, tensor<?x12x65x256xbf16>,
            tensor<8x16xi32>)
-        -> tensor<128x12x32x256xbf16>
-    return %0 : tensor<128x12x32x256xbf16>
+        -> ()
+    return %cache : tensor<128x12x32x256xbf16>
   }
 }
 
@@ -84,11 +84,11 @@ module {
       %page_table: tensor<8x16xi32>,
       %batch_idx: tensor<1x1xi32>) -> tensor<128x12x32x256xbf16> {
     // expected-error @+1 {{'ttir.paged_fill_cache' op Batch index tensor must be a 1D tensor}}
-    %0 = "ttir.paged_fill_cache"(%cache, %input, %page_table, %batch_idx)
+    "ttir.paged_fill_cache"(%cache, %input, %page_table, %batch_idx)
         : (tensor<128x12x32x256xbf16>, tensor<1x12x65x256xbf16>,
            tensor<8x16xi32>, tensor<1x1xi32>)
-        -> tensor<128x12x32x256xbf16>
-    return %0 : tensor<128x12x32x256xbf16>
+        -> ()
+    return %cache : tensor<128x12x32x256xbf16>
   }
 }
 
@@ -102,10 +102,10 @@ module {
       %page_table: tensor<8x16xi32>,
       %batch_idx: tensor<1xbf16>) -> tensor<128x12x32x256xbf16> {
     // expected-error @+1 {{'ttir.paged_fill_cache' op Batch index tensor must be an integer type}}
-    %0 = "ttir.paged_fill_cache"(%cache, %input, %page_table, %batch_idx)
+    "ttir.paged_fill_cache"(%cache, %input, %page_table, %batch_idx)
         : (tensor<128x12x32x256xbf16>, tensor<1x12x65x256xbf16>,
            tensor<8x16xi32>, tensor<1xbf16>)
-        -> tensor<128x12x32x256xbf16>
-    return %0 : tensor<128x12x32x256xbf16>
+        -> ()
+    return %cache : tensor<128x12x32x256xbf16>
   }
 }

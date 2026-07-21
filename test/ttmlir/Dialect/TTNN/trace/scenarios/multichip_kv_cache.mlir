@@ -42,8 +42,8 @@ module {
     ) -> (tensor<5x128x512xbf16> {ttcore.shard_status = #ttcore.shard_status<presharded>},
           tensor<1x32x64x512xbf16> {ttcore.shard_status = #ttcore.shard_status<presharded>}) {
         %idx = "ttir.constant"() <{value = dense<0> : tensor<1xi32>}> : () -> tensor<1xi32>
-        %updated_cache = "ttir.update_cache"(%cache, %update_input, %idx) <{batch_offset = 0 : i32}> : (tensor<1x32x64x512xbf16>, tensor<1x32x1x512xbf16>, tensor<1xi32>) -> tensor<1x32x64x512xbf16>
+        "ttir.update_cache"(%cache, %update_input, %idx) <{batch_offset = 0 : i32}> : (tensor<1x32x64x512xbf16>, tensor<1x32x1x512xbf16>, tensor<1xi32>) -> ()
         %1 = "ttir.add"(%arg0, %arg0) : (tensor<5x128x512xbf16>, tensor<5x128x512xbf16>) -> tensor<5x128x512xbf16>
-        return %1, %updated_cache : tensor<5x128x512xbf16>, tensor<1x32x64x512xbf16>
+        return %1, %cache : tensor<5x128x512xbf16>, tensor<1x32x64x512xbf16>
     }
 }
