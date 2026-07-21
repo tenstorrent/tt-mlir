@@ -2560,13 +2560,11 @@ def test_flash_mla_prefill_value_mask_scale(
 @pytest.mark.parametrize(
     "shape,k",
     [
-        # input [num_rows, N] -> indices [num_rows, k]. N > k exercises a real
-        # top-k selection (not a full sort). k is a multiple of 16 in [16, 2048]
-        # so the typed Blackhole op accepts it.
         ((2, 64), 16),
         ((4, 256), 64),
+        ((2, 4, 256), 64),
     ],
-    ids=["rows2_n64_k16", "rows4_n256_k64"],
+    ids=["rows2_n64_k16", "rows4_n256_k64", "batch2_hidden4_seq256_k64"],
 )
 @pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
 def test_topk_large_indices(
@@ -2616,4 +2614,64 @@ def test_topk_large_indices(
     }[target]
     with open(output, "r") as f:
         has_typed_op = any(typed_op_marker in line for line in f)
+    assert has_typed_op == expect_typed_op
+
+
+@pytest.mark.parametrize(
+    "input_dim_axes",
+    [
+        [[], [], []],  # fully replicated
+        [["x"], [], []],  # shard batch on axis x
+        [[], ["y"], []],  # shard hidden_size on axis y
+        [["x"], ["y"], []],  # shard batch on x and hidden_size on y
+    ],
+    ids=["replicated", "batch_x", "hidden_y", "batch_x_hidden_y"],
+)
+@pytest.mark.parametrize("target", ["ttnn"])
+def test_sharded_topk_large_indices(
+    input_dim_axes,
+    target: str,
+    device,
+    request,
+    system_desc,
+):
+    shape = (64, 1024, 256)  # batch, hidden, seq_len
+    k = 64
+
+    def module(builder: StableHLOBuilder):
+        @builder.func([shape], [torch.bfloat16])
+        def sharded_topk_large_indices(input: Operand, builder: StableHLOBuilder):
+            # Mark the desired sharding on the input tensor and build the op in
+            # its global shape. The pipeline derives the partitioned program.
+            input_sharding = builder.tensor_sharding_attr(
+                mesh_name="mesh",
+                dimension_shardings=[
+                    builder.dimension_sharding_attr(
+                        axes=[builder.axis_ref_attr(name=a) for a in axes],
+                        is_closed=True,
+                    )
+                    for axes in input_dim_axes
+                ],
+            )
+            sharded_input = builder.sharding_constraint(input, input_sharding)
+            return builder.topk_large_indices(sharded_input, k=k)
+
+    output = compile_and_execute_shlo(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        save_artifacts=True,
+        ttir_pipeline_options=["optimization-level=1"],
+        mesh_dict=OrderedDict([("x", 1), ("y", 1)]),
+        # As in test_topk_large_indices: top-k index labels tie under bf16, so
+        # positional PCC on the returned indices is not a meaningful metric.
+        check_pcc=False,
+    )
+
+    # As in test_topk_large_indices, the typed ttnn.topk_large_indices op is
+    # Blackhole-only; elsewhere the composite falls back to its decomposition.
+    expect_typed_op = system_desc.get_arch() == "Blackhole"
+    with open(output, "r") as f:
+        has_typed_op = any("ttnn.topk_large_indices" in line for line in f)
     assert has_typed_op == expect_typed_op
