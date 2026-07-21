@@ -12,7 +12,7 @@ module {
     %cb_2 = memref.alloc() {address = 111904 : i64, alignment = 16 : i64} : memref<1x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_>
     // TODO: add alias example
     // CHECK: "ttmetal.enqueue_program"
-    // CHECK-SAME: {{.*}}cb_ports = array<i64: 0, 1, 2>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel0, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args<common_rt_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]  >, dm_core = 1, noc0>, #ttmetal.noc_config<@datamovement_kernel1, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args<common_rt_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]  >, dm_core = 0, noc1>, #ttmetal.compute_config<@compute_kernel2, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args<common_rt_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]  >, hifi4, true, false, false, [default]>]
+    // CHECK-SAME: {{.*}}cb_ports = array<i64: 0, 1, 2>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel0, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args<common_rt_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]  ct_args = [<tensor_accessor_args[0]>]>, dm_core = 1, noc0>, #ttmetal.noc_config<@datamovement_kernel1, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args<common_rt_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]  >, dm_core = 0, noc1>, #ttmetal.compute_config<@compute_kernel2, #ttmetal.core_range<0x0, 8x8>, #ttmetal.kernel_args<common_rt_args = [<cb_port[0]>, <cb_port[1]>, <cb_port[2]>]  >, hifi4, true, false, false, [default]>]
     %0 = d2m.create_local_semaphore <{initialValue = 0 : ui32}> -> !d2m.local_semaphore
     %1 = d2m.create_local_semaphore <{initialValue = 0 : ui32}> -> !d2m.local_semaphore
     %2 = d2m.create_local_semaphore <{initialValue = 0 : ui32}> -> !d2m.local_semaphore
@@ -25,7 +25,10 @@ module {
     return %alloc  : memref<8x8x1x4x!ttcore.tile<32x32, f32>, #ttcore.shard<16384x4096, 1>, #l1_>
   }
 
-  func.func private @datamovement_kernel0() attributes {d2m.thread = #d2m.thread<datamovement, dm_core = 1>} {
+  func.func private @datamovement_kernel0() attributes {
+    ttkernel.arg_spec = #ttkernel.arg_spec<ct_args = [<arg_type = tensor_accessor_args, operand_index = 0>]>,
+    ttkernel.thread = #ttkernel.thread<noc>
+  } {
     %cb0 = d2m.get_cb(7) : !d2m.cb<memref<1x3x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<12288x4096, 1>, #l1_>>
     %cb1 = d2m.get_cb(8) : !d2m.cb<memref<3x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<49152x4096, 1>, #l1_>>
     %cb2 = d2m.get_cb(9) : !d2m.cb<memref<1x4x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1_>>

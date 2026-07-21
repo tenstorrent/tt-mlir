@@ -39,6 +39,7 @@
 #include "mlir/IR/Matchers.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/LogicalResult.h"
@@ -234,12 +235,14 @@ createShardedBufferConfigForDRAMMemref(FlatbufferObjectCache &cache,
                                        MemRefType memref,
                                        ttcore::DeviceAttr device,
                                        ttcore::SystemDescAttr systemDesc) {
+  const bool isTiled = mlir::isa<ttcore::TileType>(memref.getElementType());
+
   // D2M DRAM shard-to-bank placement is cyclic. Use the same page granularity
   // as L1 (one element-row per page) so that the host-side read reassembles
   // data in the row-major order.
   target::Dim2d elementShape(1, 1);
-  if (auto tileType =
-          mlir::dyn_cast<ttcore::TileType>(memref.getElementType())) {
+  if (isTiled) {
+    auto tileType = mlir::cast<ttcore::TileType>(memref.getElementType());
     elementShape = target::Dim2d(tileType.getHeight(), tileType.getWidth());
   }
 
@@ -256,18 +259,23 @@ createShardedBufferConfigForDRAMMemref(FlatbufferObjectCache &cache,
       (memrefShardShape[0] * stride[0] / elementSize) / shardXElements;
   TT_assert(collapsedShardYElements * shardXElements ==
             ttmlir::utils::volume(memrefShardShape));
+  // In scalar-space.
   target::Dim2d shardShape(collapsedShardYElements * elementShape.y() *
                                shardLayout.getBuffers(),
                            shardXElements * elementShape.x());
 
-  // The page's width is the same as the memref's element's row width.
-  target::Dim2d pageShape(elementShape.y(), shardShape.x());
+  // For tiled DRAM tensors, always use one tile as one page (for
+  // TensorAccessor). For row-major DRAM tensors, one page is one
+  // full-shard-row.
+  target::Dim2d pageShape =
+      isTiled ? elementShape : target::Dim2d(elementShape.y(), shardShape.x());
 
   // Determine how many DRAM banks are actually used by D2M.
   uint64_t numDramBanks =
       systemDesc.getChipDescs().front().getNumDramChannels();
   uint64_t numDRAMBanksUsed = std::min(numDramBanks, gridVolume);
   // Important: the DRAM cores are distributed along the X dim on WH & BH.
+  // CoreRange(Set) is inclusive, but Dim2dRange is exclusive.
   std::vector<target::Dim2dRange> coreRangeSet = {target::Dim2dRange(
       target::Dim2d(0, 0), target::Dim2d(1, numDRAMBanksUsed))};
 
@@ -316,6 +324,10 @@ createShardedBufferConfigForDRAMMemref(FlatbufferObjectCache &cache,
                                     pageShape.x() / elementShape.x()};
   const uint64_t pageSize =
       pageShapeInElements[0] * pageShapeInElements[1] * elementSize;
+  if (isTiled) {
+    TT_assert(pageSize % systemDesc.getNocL1AddressAlignBytes() == 0u);
+    TT_assert(pageSize % systemDesc.getNocDRAMAddressAlignBytes() == 0u);
+  }
   const uint64_t shardSize =
       device.getMemrefSizeBytes(memref, pageSize, /*includeBuffers=*/true);
   const uint64_t totalSize = gridVolume * shardSize;
@@ -367,50 +379,65 @@ getPhysicalGridShapeForVirtualGrid(ttcore::ShardLayoutAttr shardLayout,
 }
 
 static flatbuffers::Offset<target::metal::BufferDistributionSpec>
-createBufferDistributionSpecForVirtualGrid(
-    FlatbufferObjectCache &cache, ttcore::ShardLayoutAttr shardLayout,
-    MemRefType memref, target::Dim2d elementShape, target::Dim2d pageShape,
-    bool hasVirtualGridMapping,
+createBufferDistributionSpec(
+    FlatbufferObjectCache &cache, ttcore::DeviceAttr device,
+    ttcore::ShardLayoutAttr shardLayout, MemRefType memref,
+    target::Dim2d elementShape, target::Dim2d pageShape,
     std::optional<AffineMap> virtualGridForwardMapping) {
-  if (!hasVirtualGridMapping) {
-    return 0;
-  }
-  TT_assertv(virtualGridForwardMapping.has_value(),
-             "Expected virtual-grid forward mapping");
-
-  ArrayRef<int64_t> virtualGridShape = shardLayout.getGridShape(memref);
-  ArrayRef<int64_t> memrefShardShape = shardLayout.getShardShape(memref);
-  TT_assertv(virtualGridShape.size() == memrefShardShape.size(),
-             "Expected grid rank to match shard rank");
+  ArrayRef<int64_t> gridShape = shardLayout.getGridShape(memref);
+  ArrayRef<int64_t> shardShape = shardLayout.getShardShape(memref);
+  TT_assertv(gridShape.size() == shardShape.size(),
+             "Grid rank must match shard rank");
 
   std::vector<uint32_t> shardShapeInPages =
-      computeShardPageShapeForDistributionSpec(memrefShardShape, elementShape,
+      computeShardPageShapeForDistributionSpec(shardShape, elementShape,
                                                pageShape);
   std::vector<uint32_t> tensorShapeInPages;
   tensorShapeInPages.reserve(shardShapeInPages.size());
-  for (size_t i = 0; i < shardShapeInPages.size(); ++i) {
-    tensorShapeInPages.push_back(static_cast<uint32_t>(virtualGridShape[i]) *
+  for (size_t i = 0; i < shardShapeInPages.size(); i++) {
+    tensorShapeInPages.push_back(static_cast<uint32_t>(gridShape[i]) *
                                  shardShapeInPages[i]);
   }
 
-  AffineMap forwardMap = *virtualGridForwardMapping;
-  TT_assertv(forwardMap.getNumDims() >= virtualGridShape.size(),
-             "Expected forward virtual-grid map to accept grid dimensions");
-  std::vector<target::Dim2d> cores;
-  cores.reserve(ttmlir::utils::volume<int64_t>(virtualGridShape));
-  ttmlir::utils::sample(
-      virtualGridShape, [&](ArrayRef<int64_t> virtualCoreCoord) {
-        SmallVector<int64_t> operands(forwardMap.getNumDims(), 0);
-        for (size_t i = 0; i < virtualCoreCoord.size(); ++i) {
-          operands[i] = virtualCoreCoord[i];
-        }
+  AffineMap coreMapping;
+  int64_t coreYResult = -1;
+  int64_t coreXResult = -1;
+  if (virtualGridForwardMapping.has_value()) {
+    coreMapping = *virtualGridForwardMapping;
+    coreYResult = 0;
+    coreXResult = 1;
+  } else {
+    coreMapping = extendMappingForHigherDimGrid(
+        device.getWorkerGrid().getVirtToPhysicalMap(), gridShape.size());
+    coreYResult = ttcore::PhysGridResultIdx::CoreCoordY;
+    coreXResult = ttcore::PhysGridResultIdx::CoreCoordX;
+  }
 
-        SmallVector<int64_t> physicalCoord = forwardMap.compose(operands);
-        TT_assertv(physicalCoord.size() >= 2u,
-                   "Expected forward virtual-grid map to produce a 2D core");
-        cores.emplace_back(static_cast<int32_t>(physicalCoord[0]),
-                           static_cast<int32_t>(physicalCoord[1]));
-      });
+  TT_assertv(coreMapping.getNumDims() >= gridShape.size(),
+             "Expected core mapping to accept grid dimensions");
+  TT_assertv(coreMapping.getNumResults() > coreXResult,
+             "Expected core mapping to produce worker coordinates");
+
+  std::vector<target::Dim2d> cores;
+  cores.reserve(ttmlir::utils::volume<int64_t>(gridShape));
+  llvm::DenseSet<std::pair<int64_t, int64_t>> seenCores;
+  ttmlir::utils::sample(gridShape, [&](ArrayRef<int64_t> logicalCoreCoord) {
+    SmallVector<int64_t> operands(coreMapping.getNumDims(), 0);
+    for (size_t i = 0; i < logicalCoreCoord.size(); i++) {
+      operands[i] = logicalCoreCoord[i];
+    }
+
+    SmallVector<int64_t> mappedCoord = coreMapping.compose(operands);
+    const int64_t coreY = mappedCoord[coreYResult];
+    const int64_t coreX = mappedCoord[coreXResult];
+    TT_assertv(seenCores.insert({coreY, coreX}).second,
+               "Core mapping must be one-to-one");
+    cores.emplace_back(static_cast<int32_t>(coreY),
+                       static_cast<int32_t>(coreX));
+  });
+  TT_assertv(static_cast<int64_t>(cores.size()) ==
+                 ttmlir::utils::volume<int64_t>(gridShape),
+             "Core mapping must be onto");
 
   return target::metal::CreateBufferDistributionSpecDirect(
       *cache.fbb, &tensorShapeInPages, &shardShapeInPages, &cores);
@@ -419,7 +446,8 @@ createBufferDistributionSpecForVirtualGrid(
 static flatbuffers::Offset<target::metal::ShardedBufferConfig>
 createShardedBufferConfigForL1Memref(
     FlatbufferObjectCache &cache, MemRefType memref, ttcore::DeviceAttr device,
-    target::Dim2d elementShape, bool hasVirtualGridMapping,
+    target::Dim2d elementShape, ttcore::SystemDescAttr systemDesc,
+    bool hasVirtualGridMapping,
     std::optional<AffineMap> virtualGridForwardMapping) {
   auto deviceLayout = mlir::dyn_cast_if_present<ttcore::DeviceLayoutInterface>(
       memref.getLayout());
@@ -457,7 +485,9 @@ createShardedBufferConfigForL1Memref(
   auto shardSpec = target::metal::CreateShardSpecDirect(
       *cache.fbb, &coreRangeSet, &shardShape);
 
-  target::Dim2d pageShape(elementShape.y(), shardShape.x());
+  const bool isTiled = mlir::isa<ttcore::TileType>(memref.getElementType());
+  target::Dim2d pageShape =
+      isTiled ? elementShape : target::Dim2d(elementShape.y(), shardShape.x());
   std::array<int32_t, 2> tensorShape = {gridShapeExtents[0] * shardShape.y(),
                                         gridShapeExtents[1] * shardShape.x()};
   assert(tensorShape[0] % pageShape.y() == 0);
@@ -466,9 +496,9 @@ createShardedBufferConfigForL1Memref(
                                    tensorShape[1] / pageShape.x());
   auto shardSpecBuffer = target::metal::CreateShardSpecBuffer(
       *cache.fbb, shardSpec, &pageShape, &tensorShapeInPages);
-  auto bufferDistributionSpec = createBufferDistributionSpecForVirtualGrid(
-      cache, shardLayout, memref, elementShape, pageShape,
-      hasVirtualGridMapping, virtualGridForwardMapping);
+  auto bufferDistributionSpec = createBufferDistributionSpec(
+      cache, device, shardLayout, memref, elementShape, pageShape,
+      virtualGridForwardMapping);
 
   assert(pageShape.y() % elementShape.y() == 0);
   assert(pageShape.x() % elementShape.x() == 0);
@@ -476,6 +506,11 @@ createShardedBufferConfigForL1Memref(
       pageShape.y() / elementShape.y(), pageShape.x() / elementShape.x()};
   uint64_t pageSize =
       pageShapeInElements[0] * pageShapeInElements[1] * elementSize;
+  if (isTiled) {
+    TT_assert(pageSize % systemDesc.getNocL1AddressAlignBytes() == 0u);
+    TT_assertv(pageSize == device.getMemrefCBPageSizeBytes(memref),
+               "Tiled MeshBuffer and CB page sizes must match");
+  }
   uint64_t shardSize =
       device.getMemrefSizeBytes(memref, pageSize, /*includeBuffers=*/true);
   uint64_t size = gridShapeExtents[0] * gridShapeExtents[1] * shardSize;
@@ -496,7 +531,7 @@ memrefTypeToShardedBufferConfigFlatbuffer(
         cache, memref, device, systemDesc);
   } else if (isMemrefDeviceL1Memspace(memref)) {
     sharded_buffer_config = createShardedBufferConfigForL1Memref(
-        cache, memref, device, elementShape, hasVirtualGridMapping,
+        cache, memref, device, elementShape, systemDesc, hasVirtualGridMapping,
         virtualGridForwardMapping);
   } else {
     assert(false &&
@@ -627,13 +662,17 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
                        ttcore::SystemDescAttr systemDesc,
                        std::optional<AffineMap> virtualGridInverseMapping,
                        std::optional<AffineMap> virtualGridForwardMapping) {
-  bool hasVirtualGridMapping = hasVirtualGridMappingPair(
-      virtualGridInverseMapping, virtualGridForwardMapping);
+  const Type elementType = memref.getElementType();
+  target::Dim2d elementShape(0, 0);
+  ttcore::DataType dtype = ttcore::DataType::Bool;
 
-  std::vector<int32_t> shape =
-      ttmlir::utils::castContainer<std::vector<int32_t>>(memref.getShape());
-  target::Dim2d elementShape(1, 1);
-  ttcore::DataType dtype = ttcore::DataType::Float32;
+  if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType)) {
+    dtype = tileType.getDataType();
+    elementShape = target::Dim2d(tileType.getHeight(), tileType.getWidth());
+  } else {
+    dtype = ttcore::elementTypeToDataType(elementType);
+    elementShape = target::Dim2d(1, 1);
+  }
 
   target::metal::BufferDetail bufferDetailType;
   flatbuffers::Offset<void> bufferDetail;
@@ -653,13 +692,16 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
     bufferDetailType = target::metal::BufferDetail::MetalBuffer;
     bool isSharded = mlir::isa<ttcore::ShardLayoutAttr>(memref.getLayout());
 
+    bool hasVirtualGridMapping = hasVirtualGridMappingPair(
+        virtualGridInverseMapping, virtualGridForwardMapping);
+
     if (isSharded) {
       flatbuffers::Offset<target::metal::ShardedBufferConfig>
           shardedBufferConfig = memrefTypeToShardedBufferConfigFlatbuffer(
               cache, memref, device, elementShape, systemDesc,
               hasVirtualGridMapping, virtualGridForwardMapping);
 
-      // only generate CircularBufferConfig for L1 memspace
+      // Only generate CircularBufferConfig for L1 memspace.
       flatbuffers::Offset<target::metal::CircularBufferConfig>
           circularBufferConfig =
               isMemrefDeviceL1Memspace(memref)
@@ -674,7 +716,7 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
                          shardedBufferConfig.Union(), circularBufferConfig)
                          .Union();
     } else {
-      // must be interleaved if not sharded
+      // Must be interleaved if not sharded.
       flatbuffers::Offset<target::metal::InterleavedBufferConfig>
           interleavedBufferConfig =
               memrefTypeToInterleavedBufferConfigFlatbuffer(
@@ -685,14 +727,6 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
                          interleavedBufferConfig.Union(), 0)
                          .Union();
     }
-  }
-
-  Type elementType = memref.getElementType();
-  if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType)) {
-    dtype = tileType.getDataType();
-    elementShape = target::Dim2d(tileType.getHeight(), tileType.getWidth());
-  } else {
-    dtype = ttcore::elementTypeToDataType(elementType);
   }
 
   std::vector<int32_t> hostStrides{};
@@ -720,6 +754,8 @@ memrefTypeToFlatbuffer(FlatbufferObjectCache &cache, MemRefType memref,
     }
   }
 
+  const auto shape =
+      ttmlir::utils::castContainer<std::vector<int32_t>>(memref.getShape());
   return target::metal::CreateBufferDescDirect(
       *cache.fbb, &shape, &hostStrides, hostVolume, toFlatbuffer(cache, dtype),
       &elementShape, bufferDetailType, bufferDetail,
@@ -894,6 +930,13 @@ toFlatbuffer(FlatbufferObjectCache &cache, KernelArgAttr kernelArg) {
     argType = target::metal::KernelArgType::KernelArgScalar;
     arg = target::metal::CreateKernelArgScalar(*cache.fbb,
                                                kernelArg.getOperandIndex())
+              .Union();
+    break;
+  }
+  case ttkernel::ArgType::TensorAccessorArgs: {
+    argType = target::metal::KernelArgType::KernelArgTensorAccessorArgs;
+    arg = target::metal::CreateKernelArgTensorAccessorArgs(
+              *cache.fbb, kernelArg.getOperandIndex())
               .Union();
     break;
   }
