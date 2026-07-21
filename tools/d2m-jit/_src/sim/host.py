@@ -12,6 +12,7 @@ logical shape.
 
 from __future__ import annotations
 
+import itertools
 import math
 import types
 
@@ -65,8 +66,36 @@ class SimLazyTensor:
             return self.materialized
         raise RuntimeError("SimLazyTensor has no backing data")
 
+    @property
+    def value(self):
+        # Compatibility shim for host code that inspects the MLIR value's
+        # physical (blocked) shape, e.g. rope's half-roll builds its remap from
+        # `lt.value.type.shape`. The device tile-grid shape is
+        # [grid dims..., block dims...] (block extents in tiles for a tiled
+        # layout, in elements otherwise).
+        layout = self.layout
+        if layout.tiled:
+            phys = list(layout.grid_shape) + list(layout.block_shape)
+        else:
+            phys = [g * b for g, b in zip(layout.grid_shape, layout.block_shape)]
+        return _SimValueShim(_SimTypeShim(phys))
+
     def to_host(self):
         return to_host(self)[0]
+
+
+class _SimTypeShim:
+    __slots__ = ("shape",)
+
+    def __init__(self, shape):
+        self.shape = shape
+
+
+class _SimValueShim:
+    __slots__ = ("type",)
+
+    def __init__(self, type_):
+        self.type = type_
 
 
 # --- constructors -----------------------------------------------------------
@@ -203,11 +232,71 @@ def view_layout(lt, remapping_fn) -> SimLazyTensor:
     ):
         return permute(lt, *head)
 
-    raise NotImplementedError(
-        "arithmetic view_layout (index remaps beyond identity/permutation) is "
-        "a Phase 2 simulator feature; got spec "
-        f"{spec} for physical rank {phys_rank}"
-    )
+    # Affine-arithmetic remapping (e.g. the rope half-roll): evaluate the lambda
+    # concretely at every physical index and gather the source tile into the
+    # destination position. The lambda maps a destination index tuple to its
+    # source index tuple (dst[I] = src[fn(*I)]), matching the MLIR view_layout
+    # affine map's dst->src direction. Arithmetic maps preserve the source
+    # physical shape and inherit the source Layout unchanged (SIMULATOR_SPEC §8).
+    return _arithmetic_view_layout(lt, remapping_fn, phys_rank)
+
+
+def _arithmetic_view_layout(lt, remapping_fn, phys_rank) -> SimLazyTensor:
+    layout = lt.layout
+    n = len(layout.logical_shape)
+    if not layout.tiled:
+        raise NotImplementedError(
+            "arithmetic view_layout for non-tiled layouts is not yet supported "
+            "in the simulator"
+        )
+
+    grid = list(layout.grid_shape)
+    block = list(layout.block_shape)
+    tile = 32
+    src_phys = lt._sim_resolve().physical
+
+    # Reshape the (element-space) physical buffer into an explicit tile grid:
+    # each logical axis a splits into (grid[a], block[a], tile), then reorder to
+    # [grid dims..., block dims..., tile dims...] so the leading 2N axes are the
+    # affine index space the lambda addresses.
+    split_shape = []
+    for a in range(n):
+        split_shape += [grid[a], block[a], tile]
+    grid_view = src_phys.reshape(split_shape)
+    grid_axes = [3 * a for a in range(n)]
+    block_axes = [3 * a + 1 for a in range(n)]
+    tile_axes = [3 * a + 2 for a in range(n)]
+    perm = grid_axes + block_axes + tile_axes
+    tg = grid_view.permute(*perm).contiguous()  # [grid..., block..., tile...]
+
+    idx_bounds = grid + block  # extent of each of the 2N affine index dims
+    dst = torch.empty_like(tg)
+    for dst_idx in itertools.product(*(range(b) for b in idx_bounds)):
+        src_idx = tuple(remapping_fn(*dst_idx))
+        if len(src_idx) != phys_rank:
+            raise ValueError(
+                f"view_layout lambda returned {len(src_idx)} indices for physical "
+                f"rank {phys_rank}"
+            )
+        for k, (s, bound) in enumerate(zip(src_idx, idx_bounds)):
+            if not isinstance(s, int) or isinstance(s, bool):
+                raise ValueError(
+                    f"view_layout lambda must return integer indices; got {s!r} "
+                    f"at position {k}"
+                )
+            if not (0 <= s < bound):
+                raise ValueError(
+                    f"view_layout source index {src_idx} out of bounds at "
+                    f"position {k} (extent {bound})"
+                )
+        dst[dst_idx] = tg[src_idx]
+
+    # Undo the reshape/permute to return to element space.
+    inv_perm = [0] * len(perm)
+    for new_pos, old_axis in enumerate(perm):
+        inv_perm[old_axis] = new_pos
+    dst_phys = dst.permute(*inv_perm).contiguous().reshape(src_phys.shape)
+    return SimLazyTensor(layout, SimTensor(layout, dst_phys), is_view=True)
 
 
 def reshape(lt, *shape) -> SimLazyTensor:
