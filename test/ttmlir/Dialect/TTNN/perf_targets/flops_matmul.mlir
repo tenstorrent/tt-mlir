@@ -63,6 +63,10 @@ module attributes {ttcore.system_desc = #system_desc} {
 // CHECK:          "hifi2": 131072000000000
 // CHECK:        }
 // CHECK:        "per_op": [
+// A config-less matmul runs HiFi4 at runtime (tt-metal fallback), so the FLOP
+// report must account it at HiFi4 - not the faster HiFi2, which would halve
+// ideal_compute and understate MFU ~2x.
+// CHECK:          "math_fidelity": "hifi4"
 // CHECK:          "operation": "ttnn.matmul"
 // CHECK-NOT:      "operation": "ttnn.relu"
 // CHECK-NOT:      "operation": "ttnn.add"

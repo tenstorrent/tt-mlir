@@ -979,9 +979,16 @@ private:
       rec.flops = flops;
       rec.memoryBytes = opDramBytes(op);
 
-      // Per-op math fidelity, if the op carries a compute-kernel config;
-      // otherwise the conservative HiFi2 default (matches the roofline).
-      rec.mathFidelity = t.defaultMathFidelity;
+      // Per-op math fidelity. Use the op's explicit compute-kernel config when
+      // present; otherwise fall back to HiFi4, which is what tt-metal's runtime
+      // actually runs a config-less matmul at: with a non-sharded output and no
+      // program config, matmul lands on MatmulMultiCoreProgramConfig{} with a
+      // hardcoded HiFi4 math fidelity (see lib/Dialect/TTNN/Analysis/OpRules/
+      // MatmulRules.cpp - "the slowest kernel path"). Assuming the faster HiFi2
+      // here would halve ideal_compute and overstate the effective peak,
+      // understating MFU ~2x. (This is the FLOP report's own default; the legacy
+      // roofline keeps its separate, conservative t.defaultMathFidelity.)
+      rec.mathFidelity = MathFidelity::HiFi4;
       if (auto ckc = mlir::dyn_cast<TTNNComputeKernelConfigOpInterface>(op)) {
         if (auto cfg = ckc.getComputeConfigAttr()) {
           if (auto mf = cfg.getMathFidelity()) {
