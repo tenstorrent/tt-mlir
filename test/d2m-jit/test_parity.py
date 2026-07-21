@@ -36,17 +36,18 @@ from runner import (
 )
 
 
-def _run_or_skip_phase2(fn):
-    """Run `fn`, converting a Phase-2 sim gap into a skip rather than a failure."""
+def _run_or_skip_unsupported(fn):
+    """Run `fn`, converting an unsupported-by-simulator gap into a skip rather
+    than a failure."""
     try:
         return fn()
     except NotImplementedError as e:
-        pytest.skip(f"kernel needs a Phase 2 simulator feature: {e}")
+        pytest.skip(f"kernel not supported by the simulator: {e}")
 
 
 def test_sim_matches_golden(kernel_bench):
     """Simulator output matches the bench's torch golden (no device needed)."""
-    actual, expected = _run_or_skip_phase2(
+    actual, expected = _run_or_skip_unsupported(
         lambda: run_bench(kernel_bench, backend="sim")
     )
     pcc = compute_pcc(expected, actual)
@@ -64,7 +65,9 @@ def test_sim_matches_device(kernel_bench):
     if not device_runtime_available():
         pytest.skip("no tt-metal runtime available for the device leg")
     try:
-        pcc, _sim, _dev = _run_or_skip_phase2(lambda: run_bench_parity(kernel_bench))
+        pcc, _sim, _dev = _run_or_skip_unsupported(
+            lambda: run_bench_parity(kernel_bench)
+        )
     except Exception as e:  # noqa: BLE001 -- no silicon / device open failure
         pytest.skip(f"device leg unavailable: {type(e).__name__}: {e}")
     assert (
