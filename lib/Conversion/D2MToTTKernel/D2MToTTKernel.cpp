@@ -7,6 +7,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/D2M/Analysis/CBProducerConsumer.h"
 #include "ttmlir/Dialect/D2M/IR/D2MGenericRegionOps.h"
+#include "ttmlir/Dialect/D2M/IR/D2MOps.h"
 #include "ttmlir/Dialect/D2M/IR/D2MOpsTypes.h"
 #include "ttmlir/Dialect/D2M/Utils/CBUtils.h"
 #include "ttmlir/Dialect/D2M/Utils/Utils.h"
@@ -21,10 +22,12 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/PatternMatch.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -3281,9 +3284,11 @@ namespace {
 class D2MKernelFunctionArgsRewriter : public OpConversionPattern<func::FuncOp> {
 public:
   D2MKernelFunctionArgsRewriter(TypeConverter &typeConverter,
-                                MLIRContext *context, bool forceCompileTimeArgs)
+                                MLIRContext *context, bool forceCompileTimeArgs,
+                                bool preserveAllKernelArgs)
       : OpConversionPattern<func::FuncOp>(typeConverter, context),
-        forceCompileTimeArgs(forceCompileTimeArgs) {}
+        forceCompileTimeArgs(forceCompileTimeArgs),
+        preserveAllKernelArgs(preserveAllKernelArgs) {}
 
   static ThreadType getTTKernelThreadType(func::FuncOp op) {
     d2m::ThreadAttr threadAttr =
@@ -3385,6 +3390,96 @@ public:
     });
   }
 
+  // Find the d2m.generic that references this kernel func via ThreadAttr.
+  // getSymbolUses does not recurse into nested SymbolTable ops (func.func), so
+  // query each top-level function body where a parent generic may live.
+  static FailureOr<d2m::GenericOp> findParentGeneric(func::FuncOp op) {
+    ModuleOp module = op->getParentOfType<ModuleOp>();
+    if (!module) {
+      return failure();
+    }
+
+    StringAttr symName = op.getSymNameAttr();
+    for (auto container : module.getOps<func::FuncOp>()) {
+      std::optional<SymbolTable::UseRange> uses =
+          SymbolTable::getSymbolUses(symName, &container.getBody());
+      if (!uses) {
+        continue;
+      }
+      for (const SymbolTable::SymbolUse &use : *uses) {
+        if (auto generic = mlir::dyn_cast<d2m::GenericOp>(use.getUser())) {
+          return generic;
+        }
+      }
+    }
+    return failure();
+  }
+
+  // Build arg_spec from every operand of the parent d2m.generic, including
+  // ones not referenced by get_arg/get_cb in this kernel body.
+  // Keep the type mapping in sync with collectArgSpecs.
+  LogicalResult collectAllKernelArgs(Builder &builder, func::FuncOp op,
+                                     SmallVectorImpl<ArgAttr> &rtArgs,
+                                     SmallVectorImpl<ArgAttr> &ctArgs) const {
+    FailureOr<d2m::GenericOp> parentGenericOr = findParentGeneric(op);
+    if (failed(parentGenericOr)) {
+      return failure();
+    }
+
+    // operandIndex matches d2m.get_arg / d2m.get_cb indexing: the parent
+    // generic's flat operand list (inputs, outputs, additionalArgs).
+    d2m::GenericOp parentGeneric = *parentGenericOr;
+    for (auto [operandIndex, operand] :
+         llvm::enumerate(parentGeneric.getOperands())) {
+      Type argType = operand.getType();
+      if (auto memrefType = mlir::dyn_cast<MemRefType>(argType)) {
+        Type convertedType = getTypeConverter()->convertType(memrefType);
+        if (mlir::isa<ttkernel::CBType>(convertedType)) {
+          insertKernelArg(
+              rtArgs, ctArgs,
+              builder.getAttr<ArgAttr>(ArgType::CBPort, operandIndex));
+          continue;
+        }
+
+        insertKernelArg(
+            rtArgs, ctArgs,
+            builder.getAttr<ArgAttr>(ArgType::BufferAddress, operandIndex));
+        continue;
+      }
+
+      if (mlir::isa<d2m::CBType>(argType)) {
+        insertKernelArg(
+            rtArgs, ctArgs,
+            builder.getAttr<ArgAttr>(ArgType::CBPort, operandIndex));
+        continue;
+      }
+
+      if (mlir::isa<d2m::GlobalSemaphoreType>(argType)) {
+        insertKernelArg(
+            rtArgs, ctArgs,
+            builder.getAttr<ArgAttr>(ArgType::GlobalSemaphore, operandIndex));
+        continue;
+      }
+
+      if (mlir::isa<d2m::LocalSemaphoreType>(argType)) {
+        insertKernelArg(
+            rtArgs, ctArgs,
+            builder.getAttr<ArgAttr>(ArgType::LocalSemaphore, operandIndex));
+        continue;
+      }
+
+      if (mlir::isa<IndexType, IntegerType, FloatType>(argType)) {
+        insertKernelArg(
+            rtArgs, ctArgs,
+            builder.getAttr<ArgAttr>(ArgType::Scalar, operandIndex));
+        continue;
+      }
+
+      return failure();
+    }
+    return success();
+  }
+
   LogicalResult
   matchAndRewrite(func::FuncOp op, func::FuncOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
@@ -3395,7 +3490,14 @@ public:
 
     SmallVector<ArgAttr> rtArgSpecVector;
     SmallVector<ArgAttr> ctArgSpecVector;
-    collectArgSpecs(rewriter, op, rtArgSpecVector, ctArgSpecVector);
+    if (preserveAllKernelArgs) {
+      if (failed(collectAllKernelArgs(rewriter, op, rtArgSpecVector,
+                                      ctArgSpecVector))) {
+        return failure();
+      }
+    } else {
+      collectArgSpecs(rewriter, op, rtArgSpecVector, ctArgSpecVector);
+    }
 
     rewriter.modifyOpInPlace(op, [&]() {
       op.setType(rewriter.getFunctionType(TypeRange(), TypeRange()));
@@ -3406,6 +3508,7 @@ public:
 
 private:
   bool forceCompileTimeArgs;
+  bool preserveAllKernelArgs;
 };
 } // namespace
 
@@ -3656,10 +3759,10 @@ namespace mlir::tt {
 void populateD2MToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
     const d2m::CBProducerConsumer &cbProducerConsumer,
-    bool forceCompileTimeArgs) {
+    bool forceCompileTimeArgs, bool preserveAllKernelArgs) {
   // clang-format off
   patterns.add<ttkernel::D2MKernelFunctionArgsRewriter>(
-      typeConverter, ctx, forceCompileTimeArgs);
+      typeConverter, ctx, forceCompileTimeArgs, preserveAllKernelArgs);
   patterns.add<ttkernel::PassthroughRewriter<memref::CastOp>,
                ttkernel::MemRefSubviewRewriter,
 

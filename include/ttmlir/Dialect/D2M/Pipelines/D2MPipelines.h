@@ -198,6 +198,16 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
                      "args when legal for CRTA performance comparison."),
       llvm::cl::init(false)};
 
+  // Keep the full parent d2m.generic operand list in each kernel arg_spec.
+  Option<bool> preserveAllKernelArgs{
+      *this, "preserve-all-kernel-args",
+      llvm::cl::desc(
+          "Keep the full parent d2m.generic operand list in each kernel "
+          "arg_spec, including unused operands. Use when a decomposed "
+          "kernel must preserve the parent's argument list (e.g. Triton "
+          "runtime contracts)."),
+      llvm::cl::init(false)};
+
   // Option to set the target data format for the global data format conversion
   // pass.
   Option<std::string> globalDataFormatTarget{
