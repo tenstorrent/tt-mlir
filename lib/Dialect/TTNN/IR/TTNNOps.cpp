@@ -3023,6 +3023,18 @@ void mlir::tt::ttnn::MatmulOp::getCanonicalizationPatterns(
     return emitOpError("cluster_axis must be 0 or 1");
   }
 
+  // The three persistent output buffers are bound together by allocateBuffers,
+  // so they must be all-bound or all-unbound. A partially-bound op would
+  // mislead the runtime, which requires all three (plus the semaphore) present.
+  unsigned boundBuffers = (getDispatchedBuffer() ? 1 : 0) +
+                          (getIndicesBuffer() ? 1 : 0) +
+                          (getScoresBuffer() ? 1 : 0);
+
+  if (boundBuffers != 0 && boundBuffers != 3) {
+    return emitOpError("dispatched_buffer, indices_buffer and scores_buffer "
+                       "must be all bound or all unbound");
+  }
+
   return success();
 }
 
@@ -3289,6 +3301,133 @@ void MoeComputeOp::allocateSemaphores(::mlir::RewriterBase &rewriter) {
         getOutputHeightShardDimAttr(), hiddenSizeAttr,
         /*initial_value=*/rewriter.getUI32IntegerAttr(0),
         getMuxCoreRangeSetAttr());
+  }
+
+  rewriter.modifyOpInPlace(*this, [&]() {
+    getCrossDeviceSemaphoreMutable().assign(semaphoreOp.getResult());
+  });
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
+
+//===----------------------------------------------------------------------===//
+// AllToAllDispatchMetadataOp (DistributedOpInterface)
+//===----------------------------------------------------------------------===//
+
+// Persistent-mode bindings (3 output buffers + cross-device semaphore) are
+// materialized in the function prelude so they are trace-hoistable slots.
+namespace {
+// Persistent indices/scores layout: L1 HEIGHT_SHARDED on the op's drain core
+// (matches tt-metal's compute_output_specs).
+TTNNLayoutAttr getA2ADrainShardedLayout(MLIRContext *ctx,
+                                        RankedTensorType resultType,
+                                        CoreCoordAttr drainCore) {
+  auto drainRange = CoreRangeAttr::get(ctx, drainCore, drainCore);
+  auto drainCrs = CoreRangeSetAttr::get(ctx, {drainRange});
+  llvm::SmallVector<int64_t, 2> gridShape{1, 1};
+  return TTNNLayoutAttr::Builder(resultType)
+      .setBufferType(BufferType::L1)
+      .setMemoryLayout(
+          TensorMemoryLayoutAttr::get(ctx, TensorMemoryLayout::HeightSharded))
+      .setGridShape(gridShape)
+      .setCoreRangeSet(drainCrs)
+      .build();
+}
+
+// Persistent dispatched layout: DRAM INTERLEAVED (matches
+// compute_output_specs).
+TTNNLayoutAttr getA2ADispatchedLayout(MLIRContext *ctx,
+                                      RankedTensorType resultType) {
+  return TTNNLayoutAttr::Builder(resultType)
+      .setBufferType(BufferType::DRAM)
+      .setMemoryLayout(
+          TensorMemoryLayoutAttr::get(ctx, TensorMemoryLayout::Interleaved))
+      .build();
+}
+} // namespace
+
+bool AllToAllDispatchMetadataOp::hasUnboundBuffers() {
+  return !getDispatchedBuffer() || !getIndicesBuffer() || !getScoresBuffer();
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+void AllToAllDispatchMetadataOp::allocateBuffers(
+    ::mlir::RewriterBase &rewriter) {
+  if (!hasUnboundBuffers()) {
+    return;
+  }
+
+  MLIRContext *ctx = rewriter.getContext();
+
+  // Persistent-mode drain core: the kernel derives it from the indices/scores
+  // shard spec, so we fix the shard placement to (0,0) here.
+  auto drainCore = CoreCoordAttr::get(ctx, /*x=*/0, /*y=*/0);
+
+  auto dispatchedType = cast<RankedTensorType>(getDispatched().getType());
+  auto indicesType = cast<RankedTensorType>(getIndices().getType());
+  auto scoresType = cast<RankedTensorType>(getScores().getType());
+
+  auto newDispatchedType = utils::RankedTensorTypeFactory::create(
+      dispatchedType, getA2ADispatchedLayout(ctx, dispatchedType));
+  auto newIndicesType = utils::RankedTensorTypeFactory::create(
+      indicesType, getA2ADrainShardedLayout(ctx, indicesType, drainCore));
+  auto newScoresType = utils::RankedTensorTypeFactory::create(
+      scoresType, getA2ADrainShardedLayout(ctx, scoresType, drainCore));
+
+  auto device = utils::getOrInsertDevice(rewriter, *this);
+
+  auto makeEmpty = [&](RankedTensorType t) -> ttnn::EmptyOp {
+    auto shapeAttr = ShapeAttr::get(ctx, t.getShape());
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointAfter(device);
+    return rewriter.create<ttnn::EmptyOp>(getLoc(), t, device, shapeAttr);
+  };
+
+  ttnn::EmptyOp dispatchedEmpty = makeEmpty(newDispatchedType);
+  ttnn::EmptyOp indicesEmpty = makeEmpty(newIndicesType);
+  ttnn::EmptyOp scoresEmpty = makeEmpty(newScoresType);
+
+  rewriter.modifyOpInPlace(*this, [&]() {
+    // tt-metal returns the provided buffers as the op outputs.
+    getDispatched().setType(newDispatchedType);
+    getIndices().setType(newIndicesType);
+    getScores().setType(newScoresType);
+    getDispatchedBufferMutable().assign(dispatchedEmpty.getResult());
+    getIndicesBufferMutable().assign(indicesEmpty.getResult());
+    getScoresBufferMutable().assign(scoresEmpty.getResult());
+  });
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
+
+bool AllToAllDispatchMetadataOp::hasUnboundSemaphores() {
+  return !getCrossDeviceSemaphore();
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+void AllToAllDispatchMetadataOp::allocateSemaphores(
+    ::mlir::RewriterBase &rewriter) {
+  if (!hasUnboundSemaphores()) {
+    return;
+  }
+
+  MLIRContext *ctx = rewriter.getContext();
+
+  // Cross-device semaphore over the worker cores, init 0. The runtime passes
+  // worker_core_range_set=nullopt, so tt-metal uses its default worker range
+  // CoreRange((0,0),(0,7)) and the semaphore must span exactly those cores.
+  auto workerStart = CoreCoordAttr::get(ctx, /*x=*/0, /*y=*/0);
+  auto workerEnd = CoreCoordAttr::get(ctx, /*x=*/0, /*y=*/7);
+  auto workerRange = CoreRangeAttr::get(ctx, workerStart, workerEnd);
+  auto workerCrs = CoreRangeSetAttr::get(ctx, {workerRange});
+
+  auto device = utils::getOrInsertDevice(rewriter, *this);
+
+  ttnn::CreateGlobalSemaphoreOp semaphoreOp;
+  {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointAfter(device);
+    semaphoreOp = rewriter.create<ttnn::CreateGlobalSemaphoreOp>(
+        getLoc(), GlobalSemaphoreType::get(ctx), device.getResult(),
+        /*initial_value=*/rewriter.getUI32IntegerAttr(0), workerCrs);
   }
 
   rewriter.modifyOpInPlace(*this, [&]() {

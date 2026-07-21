@@ -58,7 +58,9 @@ def _verify_topk_outputs(input_tensor, golden_topk, dim, output_tensors):
         pytest.param((256, 32), 64, 0, id="256x32_k64_dim0"),
         # Large target dim (many tiles in reduction)
         pytest.param((32, 1376), 16, -1, id="32x1376_k16_dim1"),
-        pytest.param((1024, 32), 64, 0, id="1024x32_k64_dim0"),
+        pytest.param((1760, 32), 16, 0, id="1760x32_k16_dim0"),
+        pytest.param((32, 1376), 64, -1, id="32x1376_k64_dim1"),
+        pytest.param((1760, 32), 64, 0, id="1760x32_k64_dim0"),
         # Ragged (non-power-of-2 tile count)
         pytest.param((32, 96), 16, -1, id="32x96_k16_dim1"),
         pytest.param((1536, 32), 16, 0, id="1536x32_k16_dim0"),

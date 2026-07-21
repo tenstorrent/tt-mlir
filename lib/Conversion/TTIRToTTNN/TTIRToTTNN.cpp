@@ -1709,8 +1709,9 @@ public:
     rewriter.replaceOpWithNewOp<ttnn::AllToAllDispatchMetadataOp>(
         op, dispatched3D, indices3D, scores3D, adaptor.getInputTensor(),
         adaptor.getExpertIndices(), adaptor.getExpertScores(), expertMapping,
-        op.getNumDevicesAttr(), op.getClusterAxisAttr(),
-        /*drain_core=*/nullptr);
+        /*dispatched_buffer=*/Value(), /*indices_buffer=*/Value(),
+        /*scores_buffer=*/Value(), /*cross_device_semaphore=*/Value(),
+        op.getNumDevicesAttr(), op.getClusterAxisAttr());
     return success();
   }
 };
