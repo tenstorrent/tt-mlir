@@ -42,6 +42,49 @@ public:
         rewriter.eraseOp(op);
       }
     }
+
+    // Shardy propagation can't traverse tuple types, so flatten multi-output
+    // custom_calls (XLA encodes them as one tuple result) to multi-result form
+    // before it runs. Rewrite 1 misses these: the tuple is the custom_call's
+    // own result, not a separate stablehlo.tuple op.
+    SmallVector<mlir::stablehlo::CustomCallOp> tupleCustomCalls;
+    getOperation().walk([&](mlir::stablehlo::CustomCallOp op) {
+      if (op.getNumResults() != 1) {
+        return;
+      }
+      if (!isa<mlir::TupleType>(op.getResult(0).getType())) {
+        return;
+      }
+      // Only decompose when every use is a get_tuple_element; anything that
+      // consumes the tuple directly would need it rematerialized.
+      for (mlir::Operation *user : op.getResult(0).getUsers()) {
+        if (!isa<mlir::stablehlo::GetTupleElementOp>(user)) {
+          return;
+        }
+      }
+      tupleCustomCalls.push_back(op);
+    });
+
+    for (auto op : tupleCustomCalls) {
+      auto tupleType = cast<mlir::TupleType>(op.getResult(0).getType());
+      SmallVector<mlir::Type> newResultTypes(tupleType.begin(),
+                                             tupleType.end());
+
+      rewriter.setInsertionPoint(op);
+      mlir::OperationState state(op.getLoc(), op->getName().getStringRef());
+      state.addOperands(op->getOperands());
+      state.addTypes(newResultTypes);
+      state.addAttributes(op->getAttrs());
+      mlir::Operation *newOp = rewriter.create(state);
+
+      for (OpOperand &use :
+           llvm::make_early_inc_range(op.getResult(0).getUses())) {
+        auto getTupleOp =
+            cast<mlir::stablehlo::GetTupleElementOp>(use.getOwner());
+        rewriter.replaceOp(getTupleOp, newOp->getResult(getTupleOp.getIndex()));
+      }
+      rewriter.eraseOp(op);
+    }
   }
 };
 } // namespace mlir::tt::stablehlo
