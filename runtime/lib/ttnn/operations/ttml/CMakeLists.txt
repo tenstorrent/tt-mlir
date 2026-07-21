@@ -9,7 +9,6 @@ if (NOT TTNN_RUNTIME_ENABLED)
 endif()
 
 add_library(TTRuntimeTTMLOps STATIC
-  ttml.cpp
   adamw.cpp
 )
 set_property(TARGET TTRuntimeTTMLOps PROPERTY CXX_STANDARD 20)

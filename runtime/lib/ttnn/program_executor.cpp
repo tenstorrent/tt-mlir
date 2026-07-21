@@ -123,7 +123,7 @@
 #include "operations/transformer/scaled_dot_product_attention.h"
 #include "operations/transformer/scaled_dot_product_attention_decode.h"
 #include "operations/transformer/split_query_key_value_and_split_heads.h"
-#include "operations/ttml/ttml.h"
+#include "operations/ttml/adamw.h"
 #include "tt/runtime/debug.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "tt/runtime/detail/ttnn/utils.h"
@@ -628,7 +628,7 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
                                        getContext());
   }
   case ::tt::target::ttnn::OpType::AdamWOp: {
-    return operations::ttml::run(op, getContext());
+    return operations::ttml::run(op->type_as_AdamWOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::DumpTensorOp: {
     return operations::tensor_serialization::run(op->type_as_DumpTensorOp(),
