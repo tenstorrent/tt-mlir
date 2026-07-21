@@ -178,10 +178,11 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
         rewriter.getContext(),
         /*mathFidelity=*/MathFidelity::HiFi4,
         /*mathApproxMode=*/BoolAttr::get(rewriter.getContext(), false),
-        // DIAGNOSTIC: was true, which forces the stats scratch + kernel CBs to
-        // Float32 — a datapath the validated tt-metal decode config never
-        // exercises (it runs bf16 and passes at 0.999). Testing whether the
-        // fp32 stats/all-gather path is the source of the ~0.992 decode PCC.
+        // Must be false to match the validated tt-metal decode config. Setting
+        // it true forces the stats scratch + kernel CBs to Float32, a datapath
+        // the reference (test_distributed_rms_norm_decode_configs.py) never
+        // exercises — it runs bf16 and passes at 0.999. Empirically, true
+        // regressed b128 decode PCC (~0.992 -> ~0.994 when flipped to false).
         /*fp32DestAccEn=*/BoolAttr::get(rewriter.getContext(), false),
         /*packerL1Acc=*/BoolAttr::get(rewriter.getContext(), true),
         /*dstFullSyncEn=*/nullptr);
@@ -216,10 +217,17 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   ttnn::CoreCoordAttr boxStart = inputBoundingBox->getStartCoord();
   ttnn::CoreCoordAttr boxEnd = inputBoundingBox->getEndCoord();
 
-  // Same as tt-metal GridParams: gs = bbox.end - bbox.start + 1 (inclusive
-  // bounding box of the input shard cores).
+  // Width (gs.x) is the inclusive bounding box of the input shard cores.
   uint64_t gridW = boxEnd.getX() - boxStart.getX() + 1;
-  uint64_t gridH = boxEnd.getY() - boxStart.getY() + 1;
+  // DIAGNOSTIC: the validated tt-metal decode config passes a program grid
+  // whose height is the FULL worker-grid height, one row taller than the shard
+  // bbox (compute_with_storage_grid_size=(4,8) over a 4x7 shard). We previously
+  // emitted the tight bbox height (gridH=7). Pad gridH up to the worker-grid
+  // height (physicalGrid[0]) to match the reference and re-measure whether the
+  // (4,7) vs (4,8) program-grid difference moves b128 decode PCC. The reduction
+  // is shard-driven, so this is expected to rule the grid in or out rather than
+  // close the gap.
+  uint64_t gridH = static_cast<uint64_t>(physicalGrid[0]);
   auto programConfigAttr =
       ttnn::LayerNormShardedMultiCoreProgramConfigAttr::get(
           rewriter.getContext(),
