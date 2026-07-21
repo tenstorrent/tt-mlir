@@ -241,6 +241,55 @@ TEST_F(MockAllocatorCalibrationTest, PerCoreSizeMatchesConstant) {
 }
 
 //===----------------------------------------------------------------------===//
+// TrackerAliasRefcountKeepsBufferLive
+//
+// Device-free unit test of MockAllocatorL1Tracker's record-level view aliasing:
+// a view output shares its source's buffer (no second record), and the buffer
+// stays live until the last aliaser dies. Exercises addTensor / addTensorAlias
+// / removeTensor / getOccupiedL1 directly, without the op-model query.
+//===----------------------------------------------------------------------===//
+class MockAllocatorTrackerTest : public L1SpillMockAllocatorFixture {};
+
+TEST_F(MockAllocatorTrackerTest, TrackerAliasRefcountKeepsBufferLive) {
+  llvm::SmallVector<int64_t> shape = {1, 1, 1024, 1024};
+  auto tt = tensorType(shape, makeL1Sharded(shape));
+  auto args = beginFunc({tt});
+  auto *ownerOp = addUnary(args[0], tt, 0);
+  auto *viewOp = addUnary(ownerOp->getResult(0), tt, 0);
+  finishFunc({viewOp->getResult(0)});
+
+  mlir::Value owner = ownerOp->getResult(0);
+  mlir::Value view = viewOp->getResult(0);
+
+  constexpr uint64_t kBufBytes = 2048;
+  mlir::tt::ttnn::MockAllocatorL1Tracker t;
+  t.init(/*l1BudgetPerCore=*/100u * kKiB * 1024u);
+  // Seed the owner's record as if a stateful query had produced it.
+  t.pendingRecords[ownerOp] = mlir::tt::ttnn::MockAllocatorL1Tracker::RecordVec{
+      mlir::tt::ttnn::op_model::OpModelAllocationRecord{
+          mlir::tt::ttnn::BufferType::L1, /*address=*/0,
+          /*sizePerBank=*/kBufBytes}};
+
+  t.addTensor(owner, /*l1SizePerCore=*/0);
+  EXPECT_TRUE(t.hasTensor(owner));
+  EXPECT_EQ(t.getOccupiedL1(), kBufBytes);
+
+  t.addTensorAlias(view, owner);
+  EXPECT_TRUE(t.hasTensor(view));
+  EXPECT_EQ(t.getOccupiedL1(), kBufBytes)
+      << "alias shares the owner buffer (no duplicate record)";
+
+  t.removeTensor(owner);
+  EXPECT_EQ(t.getOccupiedL1(), kBufBytes)
+      << "buffer stays live while an aliaser remains";
+  EXPECT_TRUE(t.hasTensor(view));
+
+  t.removeTensor(view);
+  EXPECT_EQ(t.getOccupiedL1(), 0u) << "last aliaser gone -> buffer freed";
+  EXPECT_FALSE(t.hasTensor(view));
+}
+
+//===----------------------------------------------------------------------===//
 // View-op tripwires (https://github.com/tenstorrent/tt-mlir/issues/9054)
 //
 // The L1 spill pass classifies certain ops (reshape/pad/repeat/permute) as
