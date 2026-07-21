@@ -674,13 +674,19 @@ uint64_t flashMlaPrefillFlops(Value query, Value key, int64_t headDimV,
                            /*slidingWindowSize=*/std::nullopt);
 }
 
-// Logical FLOPs + coarse category for one op. Returns flops == 0 for ops that
-// do no arithmetic (reshape, layout, data movement, etc.), which the caller
-// drops from the report.
+// Logical FLOPs + coarse category for one op. Only matrix-engine (GEMM-class)
+// ops are counted: matmul/linear/sparse_matmul, conv and attention. These are
+// the ops whose peak is the Tensix matrix-engine tile-matmul peak, so their
+// FLOPs form a clean MFU numerator against `peak_flops_per_sec`. SFPU / vector-
+// engine ops (elementwise, softmax, norm, pooling, reduction) run on a
+// different engine at a different (much lower) peak and their FLOPs are
+// negligible next to the matmuls, so they are intentionally NOT counted -
+// folding them in would inflate the numerator with work that does not belong
+// against the matrix-engine peak. Returns flops == 0 for everything else, which
+// the caller drops from the report.
 std::pair<StringRef, uint64_t> classifyOpFlops(Operation *op) {
   using Pair = std::pair<StringRef, uint64_t>;
-  Pair result =
-      llvm::TypeSwitch<Operation *, Pair>(op)
+  return llvm::TypeSwitch<Operation *, Pair>(op)
           .Case<MatmulOp, LinearOp>([](auto m) -> Pair {
             return {"matmul",
                     matmulFlops(m.getA(), m.getResult(), m.getTransposeA())};
@@ -735,52 +741,7 @@ std::pair<StringRef, uint64_t> classifyOpFlops(Operation *op) {
           // Chunked/paged prefill and the decode SDPA variants read K/V from a
           // paged cache whose logical key length is a runtime value, so their
           // FLOPs can't be derived from the static shapes; left unaccounted.
-          .Case<SoftmaxOp>([](SoftmaxOp s) -> Pair {
-            // exp + max + subtract + sum + divide over every element.
-            return {"softmax", 5ULL * numScalars(s.getInput())};
-          })
-          .Case<LayerNormOp, RMSNormOp, GroupNormOp, BatchNormInferenceOp,
-                BatchNormTrainingOp>([](auto n) -> Pair {
-            // mean + variance + normalize + scale + shift over every element.
-            return {"norm", 5ULL * numScalars(n.getInput())};
-          })
-          .Case<AvgPool2dOp, MaxPool2dOp, MaxPool2dWithIndicesOp>(
-              [](auto p) -> Pair {
-                // One op (add for avg, compare for max) per element in each
-                // pooling window, for every output scalar.
-                uint64_t kernelProduct = 1;
-                for (int32_t k : p.getKernelSize()) {
-                  kernelProduct *= static_cast<uint64_t>(k);
-                }
-                return {"pooling", kernelProduct * numScalars(p.getResult())};
-              })
-          .Case<GlobalAvgPool2dOp>([](GlobalAvgPool2dOp p) -> Pair {
-            // Sum-reduce over the whole spatial extent: one add per input
-            // scalar.
-            return {"pooling", numScalars(p.getInput())};
-          })
-          .Case<SumOp, MeanOp, MaxOp, MinOp, ProdOp, CumSumOp, CumProdOp>(
-              [](auto r) -> Pair {
-                // One accumulate per input scalar.
-                return {"reduction", numScalars(r->getOperand(0))};
-              })
           .Default([](Operation *) -> Pair { return {"other", 0}; });
-
-  if (result.second == 0 && result.first == "other") {
-    // Fall back to the elementwise op interfaces for the (many) unary/binary
-    // ops not named explicitly above: one FLOP per output scalar. Gate on a
-    // float result element type: comparison (eq/gt/...), logical and bitwise
-    // ops carry the same elementwise interfaces but produce boolean/integer
-    // results and do no floating-point work, so they must not be counted.
-    if (mlir::isa<ElementwiseUnary, ElementwiseBinary>(op) &&
-        op->getNumResults() > 0) {
-      auto rt = mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
-      if (rt && mlir::isa<mlir::FloatType>(rt.getElementType())) {
-        return {"elementwise", numScalars(op->getResult(0))};
-      }
-    }
-  }
-  return result;
 }
 
 // One accounted op: its logical FLOPs plus a secondary per-op roofline.

@@ -2,11 +2,11 @@
 // RUN: ttmlir-opt --ttnn-collect-perf-metrics="ttnn-perf-metrics-output-file=%t.dir/out.json ttnn-perf-metrics-verbose-output-enabled=true" %s -o /dev/null
 // RUN: cat %t.dir/out.json | FileCheck %s
 
-// Per-op FLOP accounting for a matmul followed by two elementwise ops.
-//   matmul M=2048, K=128, N=128 -> 2*M*K*N        = 67,108,864 flops
-//   relu   2048x128             -> num_elements    =    262,144 flops
-//   add    2048x128             -> num_elements    =    262,144 flops
-//   total                                          = 67,633,152 flops
+// Per-op FLOP accounting for a matmul followed by two elementwise ops. Only the
+// matrix-engine matmul is counted; the SFPU/vector-engine relu and add are not.
+//   matmul M=2048, K=128, N=128 -> 2*M*K*N = 67,108,864 flops (counted)
+//   relu / add 2048x128         -> vector-engine ops, NOT counted
+//   total                                  = 67,108,864 flops
 // Peak (WH B0, 64 cores, 1.0 GHz): HiFi2 = 64 * 1e9 * 2*32^3 / 32 = 1.31072e14.
 
 #dram = #ttnn.buffer_type<dram>
@@ -57,14 +57,13 @@ module attributes {ttcore.system_desc = #system_desc} {
 
 // CHECK:      "flops": {
 // CHECK:        "flops_by_category": {
-// CHECK-DAG:      "elementwise": 524288
-// CHECK-DAG:      "matmul": 67108864
-// CHECK:        }
+// CHECK:          "matmul": 67108864
+// CHECK-NOT:      "elementwise"
 // CHECK:        "peak_flops_per_sec": {
 // CHECK:          "hifi2": 131072000000000
 // CHECK:        }
 // CHECK:        "per_op": [
-// CHECK-DAG:      "operation": "ttnn.matmul"
-// CHECK-DAG:      "operation": "ttnn.relu"
-// CHECK-DAG:      "operation": "ttnn.add"
-// CHECK:        "total_flops": 67633152
+// CHECK:          "operation": "ttnn.matmul"
+// CHECK-NOT:      "operation": "ttnn.relu"
+// CHECK-NOT:      "operation": "ttnn.add"
+// CHECK:        "total_flops": 67108864
