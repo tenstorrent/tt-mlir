@@ -263,7 +263,7 @@ public:
   /// does not fail the pass).
   bool hasFailed() const { return compilationFailed; }
 
-private:
+protected:
   func::FuncOp func;
   ttcore::GridAttr deviceGrid;
   uint64_t l1BudgetPerCore;
@@ -334,13 +334,6 @@ private:
   /// placed; false means a still-live tensor has no contiguous fit
   /// (fragmentation).
   bool markEvictedAndRebuild(Value victim, size_t &campaignMin);
-
-  /// Restore the snapshot at `startIdx` and replay every non-skipped event in
-  /// [startIdx, end) top-down first-fit. Pre-checks `wouldAllocateAt` before
-  /// each fresh allocation so `allocateAddress`'s hard contract holds, and
-  /// returns false at the first no-fit (a still-live tensor has no contiguous
-  /// slot). Returns true iff every still-live tensor was placed.
-  bool replayFrom(size_t startIdx);
 
   /// Insert event at pos in l1EventLog and shift all allocEventIndex entries
   /// and addressSnapshots keys >= pos by 1, preserving the index invariants.
@@ -423,65 +416,39 @@ private:
   void processDeadTensors(int64_t pos, const ScheduleData &data);
 
 protected:
-  /// Hook: place a successfully-validated op's output. Returns the L1 size to
-  /// add to the live set (0 = demoted to DRAM). Default (address-sim path):
-  /// contiguous-fit + CB-overlap checks via ensureFitsL1.
-  virtual uint64_t
-  placeValidatedOutput(Operation *op, int64_t pos, ScheduleData &data,
-                       const op_constraint_validation::ValidationResult &result);
+  // --- Strategy hooks. Implemented by AddressSimSpillManagement (address-sim)
+  //     and StatefulL1SpillManagement (captured allocator state). ---
 
-  /// Hook: recover from an OOM validation result (evict live tensors or demote
-  /// self to DRAM). Default (address-sim path): handleOOM.
+  /// Place a successfully-validated op's output. Returns the L1 size to add to
+  /// the live set (0 = demoted to DRAM).
+  virtual uint64_t placeValidatedOutput(
+      Operation *op, int64_t pos, ScheduleData &data,
+      const op_constraint_validation::ValidationResult &result) = 0;
+
+  /// Recover from an OOM validation result (evict live tensors or demote self
+  /// to DRAM).
   virtual void
   recoverFromOOM(Operation *op, int64_t pos,
                  llvm::ArrayRef<OpResult> tensorResults, ScheduleData &data,
-                 std::function<void(uint64_t)> addResultsToLiveSet);
+                 std::function<void(uint64_t)> addResultsToLiveSet) = 0;
 
-  /// Hook: commit one result tensor into the live set. Logs the alloc event,
-  /// adds it to the tracker (alias-or-fresh) and to the FLU heap. Default
-  /// (address-sim path): snapshot + addTensorAtAddress/addTensor.
+  /// Commit one result tensor into the live set: log the alloc event, add it to
+  /// the tracker (alias-or-fresh), and push it onto the FLU heap.
   virtual void commitAllocation(Value val, uint64_t perResultL1,
-                                ScheduleData &data);
+                                ScheduleData &data) = 0;
 
-private:
-  /// Check if the op's CB region (growing bottom-up) would overlap with any
-  /// live tensor or the speculative output tensor based on simulated L1
-  /// addresses. Uses min(speculativeOutputAddr, lowestOccupiedAddress) as
-  /// the effective lowest tensor address.
-  /// See: https://github.com/tenstorrent/tt-mlir/issues/7396
-  bool wouldCBsOverlapTensors(Operation *op, int64_t pos, uint64_t cbPeakUsage,
-                              uint64_t speculativeOutputAddr);
+  /// Handle an L1-output op that cannot be validated (a pre-decomposition
+  /// ToLayoutOp). Address-sim runs a fit check; the stateful path defers to the
+  /// consuming op's query.
+  virtual void handleUnvalidatedL1Output(Operation *op, int64_t pos,
+                                         ScheduleData &data,
+                                         uint64_t derivedL1) = 0;
 
-  /// Output cannot fit contiguously in the free list. Evict farthest-last-use
-  /// tensors until the output fits, then re-validate. Returns L1 bytes to add
-  /// to live set (0 if demoted to DRAM).
-  uint64_t handleNoFit(Operation *op, int64_t pos, ScheduleData &data,
-                       uint64_t outputL1Size);
+  /// Rebuild live-set state after an eviction marks events skipped, replaying
+  /// from `startIdx`. Returns true iff every still-live tensor was placed.
+  virtual bool replayFrom(size_t startIdx) = 0;
 
-  /// CB fragmentation recovery: evict tensors in the CB danger zone,
-  /// re-validate, or demote output to DRAM. Returns L1 bytes to add to live
-  /// set (0 if demoted).
-  uint64_t handleFragmentation(Operation *op, int64_t pos, ScheduleData &data,
-                               uint64_t cbPeakUsage, uint64_t outputL1Size);
-
-  /// Run contiguous-fit and CB-fragmentation checks on a validated op's
-  /// output. Returns the (possibly updated) L1 size to add to the live set,
-  /// or 0 if the output was demoted to DRAM.
-  uint64_t ensureFitsL1(Operation *op, int64_t pos, ScheduleData &data,
-                        uint64_t cbPeakUsage, uint64_t l1Size);
-
-  /// True when `op` is a view-eligible reshape whose source operand is still
-  /// resident in L1. Its output will alias the source's existing slot
-  /// (addTensorAtAddress) instead of carving a fresh one, so it consumes no
-  /// additional L1 and the fit / CB-overlap checks must not treat it as a
-  /// new allocation.
-  bool willAliasSourceInL1(Operation *op) const;
-
-  /// OOM recovery: evict farthest-last-use tensors or demote self to DRAM.
-  void handleOOM(Operation *op, int64_t pos,
-                 llvm::ArrayRef<OpResult> tensorResults, ScheduleData &data,
-                 std::function<void(uint64_t)> addResultsToLiveSet);
-
+protected:
   /// Evict all live L1 tensors. Used when encountering ops without OpModel
   /// support — since we cannot know their L1 requirements, the only safe
   /// choice is a full flush. Spill ops are inserted right before triggerOp
@@ -489,17 +456,10 @@ private:
   void evictAllFromL1(int64_t pos, ScheduleData &data,
                       Operation *triggerOp = nullptr);
 
-  /// Evict live tensors (farthest-last-use first) until no tensor's simulated
-  /// address falls below the cushioned CB threshold. Replaces the former
-  /// evictTensorsBelow, which was incorrect after address rebuild (addresses
-  /// shift, making the threshold check stale).
-  void evictForCBOverlap(uint64_t cushionedCBUsage, int64_t pos,
-                         ScheduleData &data);
-
   /// Evict tensors (farthest-last-use first) until shouldStop() returns true
   /// or the live set is empty. Returns true if shouldStop was satisfied.
-  /// After each eviction, rebuilds address simulation and inserts reshards
-  /// for already-processed consumers.
+  /// After each eviction, rebuilds tracker state (via the replayFrom hook) and
+  /// inserts reshards for already-processed consumers.
   bool evictUntil(int64_t pos, ScheduleData &data,
                   std::function<bool()> shouldStop);
 
@@ -522,15 +482,6 @@ private:
   void insertReshardForConsumer(Operation *consumer, unsigned operandIdx,
                                 TTNNLayoutAttr originalL1Layout);
 
-  /// After demoting an op's output to DRAM, re-query op_model for the DRAM
-  /// config's cbPeakUsage and evict any live tensors that fall within the
-  /// (potentially larger) static CB region.  When output switches from
-  /// L1-sharded to DRAM, the output CB flips from globally_allocated (aliased
-  /// to the shard, not in the static CB region) to locally_allocated (bottom-up
-  /// in the static CB region), which can significantly increase the CB
-  /// footprint.
-  void evictForDramCBGrowth(Operation *op, int64_t pos, ScheduleData &data);
-
   /// Collect downstream consumers of an op, following through spill ops.
   static llvm::SmallVector<Operation *>
   collectDownstreamConsumers(Operation *changed);
@@ -540,22 +491,97 @@ private:
 extern template class L1SpillManagementBase<SumL1MemoryTracker>;
 extern template class L1SpillManagementBase<MockAllocatorL1Tracker>;
 
-/// Legacy spill manager: scalar-sum tracker + simulated top-down first-fit
-/// address model. Selected when `use-mock-allocator-state=false`. Behavior is
-/// the historical default; the base hooks (address-sim) are inherited unchanged.
-class SumL1SpillManagement final
-    : public L1SpillManagementBase<SumL1MemoryTracker> {
+/// Address-sim strategy: implements the spill hooks with the simulated top-down
+/// first-fit allocator (SumL1MemoryTracker's address model) and the
+/// contiguous-fit / CB-overlap fragmentation checks. Shared by the legacy Sum
+/// path and (transitionally) the Mock path until the stateful path lands.
+template <typename MemoryTracker>
+class AddressSimSpillManagement : public L1SpillManagementBase<MemoryTracker> {
 public:
-  using L1SpillManagementBase<SumL1MemoryTracker>::L1SpillManagementBase;
+  using L1SpillManagementBase<MemoryTracker>::L1SpillManagementBase;
+
+protected:
+  using Base = L1SpillManagementBase<MemoryTracker>;
+  using typename Base::L1Event;
+  using typename Base::ScheduleData;
+  // Base state + generic helpers the address-sim strategy reuses. (Dependent
+  // base: member names must be brought into scope explicitly.)
+  using Base::addressSnapshots;
+  using Base::allocEventIndex;
+  using Base::applyOutputConfig;
+  using Base::cbFragCushion;
+  using Base::collectDownstreamConsumers;
+  using Base::compilationFailed;
+  using Base::demoteToDram;
+  using Base::evictFarthestUse;
+  using Base::evictUntil;
+  using Base::evictValue;
+  using Base::extractOpConfigFromIR;
+  using Base::insertedReshardValues;
+  using Base::insertEventIntoLog;
+  using Base::insertReshardForConsumer;
+  using Base::insertReshardIntoSchedule;
+  using Base::l1BudgetPerCore;
+  using Base::l1EventLog;
+  using Base::liveSet;
+  using Base::liveValues;
+  using Base::markEvictedAndRebuild;
+  using Base::memoryTracker;
+  using Base::observer_;
+  using Base::spillToDram;
+
+  // Strategy hooks (address-sim implementations).
+  uint64_t placeValidatedOutput(
+      Operation *op, int64_t pos, ScheduleData &data,
+      const op_constraint_validation::ValidationResult &result) override;
+  void
+  recoverFromOOM(Operation *op, int64_t pos,
+                 llvm::ArrayRef<OpResult> tensorResults, ScheduleData &data,
+                 std::function<void(uint64_t)> addResultsToLiveSet) override;
+  void commitAllocation(Value val, uint64_t perResultL1,
+                        ScheduleData &data) override;
+  void handleUnvalidatedL1Output(Operation *op, int64_t pos, ScheduleData &data,
+                                 uint64_t derivedL1) override;
+  bool replayFrom(size_t startIdx) override;
+
+  // Address-simulation fit / fragmentation / CB-overlap helpers.
+  uint64_t ensureFitsL1(Operation *op, int64_t pos, ScheduleData &data,
+                        uint64_t cbPeakUsage, uint64_t l1Size);
+  uint64_t handleNoFit(Operation *op, int64_t pos, ScheduleData &data,
+                       uint64_t outputL1Size);
+  uint64_t handleFragmentation(Operation *op, int64_t pos, ScheduleData &data,
+                               uint64_t cbPeakUsage, uint64_t outputL1Size);
+  bool wouldCBsOverlapTensors(Operation *op, int64_t pos, uint64_t cbPeakUsage,
+                              uint64_t speculativeOutputAddr);
+  bool willAliasSourceInL1(Operation *op) const;
+  void handleOOM(Operation *op, int64_t pos,
+                 llvm::ArrayRef<OpResult> tensorResults, ScheduleData &data,
+                 std::function<void(uint64_t)> addResultsToLiveSet);
+  void evictForCBOverlap(uint64_t cushionedCBUsage, int64_t pos,
+                         ScheduleData &data);
+  void evictForDramCBGrowth(Operation *op, int64_t pos, ScheduleData &data);
+};
+
+extern template class AddressSimSpillManagement<SumL1MemoryTracker>;
+extern template class AddressSimSpillManagement<MockAllocatorL1Tracker>;
+
+/// Legacy spill manager: scalar-sum tracker + simulated top-down first-fit
+/// address model. Selected when `use-mock-allocator-state=false`.
+class SumL1SpillManagement final
+    : public AddressSimSpillManagement<SumL1MemoryTracker> {
+public:
+  using AddressSimSpillManagement<SumL1MemoryTracker>::AddressSimSpillManagement;
 };
 
 /// Stateful spill manager: fit / fragmentation / placement / CB-clash are all
 /// answered by tt-metal's captured allocator state. Selected by default
-/// (`use-mock-allocator-state=true`).
+/// (`use-mock-allocator-state=true`). (Transitionally still address-sim; the
+/// stateful hooks land in a later change.)
 class MockAllocatorSpillManagement final
-    : public L1SpillManagementBase<MockAllocatorL1Tracker> {
+    : public AddressSimSpillManagement<MockAllocatorL1Tracker> {
 public:
-  using L1SpillManagementBase<MockAllocatorL1Tracker>::L1SpillManagementBase;
+  using AddressSimSpillManagement<
+      MockAllocatorL1Tracker>::AddressSimSpillManagement;
 };
 
 } // namespace mlir::tt::ttnn
