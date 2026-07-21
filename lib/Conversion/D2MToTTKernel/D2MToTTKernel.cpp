@@ -3686,6 +3686,9 @@ public:
     (void)loc;
     (void)chipDesc;
     (void)device;
+    (void)bitWidth;
+    (void)cbA;
+    (void)cIdxIdx;
     return success();
   }
 };

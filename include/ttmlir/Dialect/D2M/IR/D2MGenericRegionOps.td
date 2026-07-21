@@ -1212,7 +1212,7 @@ def D2M_TileTypecastOp : D2M_GenericRegionComputeUnaryDstOp<"tile_typecast", [D2
     let results = (outs TTCore_Tile:$result);
 }
 
-def D2M_TileArgMaxOp : D2M_GenericRegionDatamovementOp<"tile_argmax", D2M_TileComputeOpTraitBundle> {
+def D2M_TileArgMaxOp : D2M_GenericRegionComputeOp<"tile_argmax", D2M_TileComputeOpTraitBundle> {
   let summary = "D2M argmax scan op";
   let description = [{
       TODO
