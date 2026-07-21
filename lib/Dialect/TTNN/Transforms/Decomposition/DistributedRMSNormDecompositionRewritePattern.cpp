@@ -11,6 +11,8 @@
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 #include "ttmlir/Utils.h"
 
+#include <cstdlib>
+
 namespace mlir::tt::ttnn::decomposition {
 
 namespace {
@@ -23,6 +25,15 @@ namespace {
 //   - input shape with second-to-last dim == 32, last dim a multiple of 32,
 //     and all leading dims == 1 (canonical (1,...,1,32,M)).
 bool isEligibleForFusedKernel(ttnn::DistributedRMSNormOp op) {
+  // Debug/accuracy escape hatch: setting TT_DISABLE_FUSED_RMSNORM forces the
+  // decomposed lowering (rms_norm_pre_all_gather / all_gather / mean / rsqrt)
+  // instead of the fused rms_allgather kernel. The decomposed path is higher
+  // per-op accuracy; the fused kernel's per-op precision loss compounds across
+  // decode layers (2 layers ~0.99, degrading with depth). Use this to A/B the
+  // two paths on the full model.
+  if (std::getenv("TT_DISABLE_FUSED_RMSNORM")) {
+    return false;
+  }
   if (!op.getWeight()) {
     return false;
   }
