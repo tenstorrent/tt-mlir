@@ -540,7 +540,7 @@ def TTNNCCLActivationDtypeLowering: Pass<"ttnn-ccl-activation-dtype-lowering", "
         residual add. The residual add's result encoding stays bf16 (it was
         constructed from the bf16 residual operand), so TTNN restores bf16
         at the block output by combining the bfp_bf8 CCL output with the
-        bf16 residual — no exit-side cast needed.
+        bf16 residual - no exit-side cast needed.
       - MLP up / gate matmuls -> [view / CCL]* -> silu / multiply. The
         multiply's result encoding is rewritten to bfp_bf8 so the downstream
         FF2 matmul receives bfp_bf8 input; the FF2 residual add then
@@ -618,11 +618,11 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
     - total_flops: sum of logical, un-padded FLOPs (2*M*K*N for matmul, etc.)
       over the matrix-engine (GEMM-class) ops only: matmul/linear/sparse_matmul,
       conv, and SDPA & flash-MLA prefill. SFPU / vector-engine ops (elementwise,
-      softmax, norm, pooling, reduction) are not counted — they run at a
+      softmax, norm, pooling, reduction) are not counted - they run at a
       different peak and are negligible next to the matmuls. Chunked-prefill and
       paged/decode attention read K/V from a paged cache with a runtime key
       length, so they are not counted either.
-      This is graph-invariant model work — the MFU numerator. Downstream
+      This is graph-invariant model work - the MFU numerator. Downstream
       tooling computes MFU = total_flops / (measured_time * peak_flops_per_sec),
       so a better-compiled graph reports a higher MFU.
     - peak_flops_per_sec: hardware matrix-engine peak per math fidelity.
@@ -766,7 +766,7 @@ def TTNNResolveComposites : Pass<"ttnn-resolve-composites", "::mlir::ModuleOp"> 
     Resolution mode is controlled by the `composite-resolution` option:
 
     - `inline` (default): All composites are unconditionally inlined (decomposed
-      into primitives). This is the safe default — downstream TTNN fusing
+      into primitives). This is the safe default - downstream TTNN fusing
       patterns can still create typed ops from the inlined primitives.
 
     - `validate`: The typed op is validated via OpModel before promotion. If

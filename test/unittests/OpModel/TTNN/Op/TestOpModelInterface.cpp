@@ -1086,7 +1086,7 @@ TEST_F(OpModelBase, MatmulRuntimeVsPeak) {
   // that beats the hardware ceiling.
   EXPECT_GT(achievedTflops, 0.0);
   EXPECT_LE(achievedTflops, kArchMaxLoFiTflops)
-      << "Measured matmul throughput exceeds the absolute hardware ceiling — "
+      << "Measured matmul throughput exceeds the absolute hardware ceiling - "
          "runtime/peak mismatch.";
 }
 
@@ -3427,7 +3427,7 @@ TEST_F(OpModelBase, Conv3dInterfaceConfigs) {
   // constraints (c_in_block=7 is neither 32-aligned nor a divisor of
   // kT*kH*kW*c_in_aligned=864). If the unpack consumes the passed config,
   // OpModel must reject it. If the unpack is broken, OpModel would receive
-  // the op's stored nullptr config and silently succeed — failing this
+  // the op's stored nullptr config and silently succeed - failing this
   // assertion.
   auto badConfig = Conv3dConfigAttr::get(
       &context,
@@ -3486,7 +3486,7 @@ TEST_F(OpModelBase, Conv3dInterfaceConfigs) {
 
   // Path 3: UninitializedAttrs variant falls back to the op's stored config
   // (nullptr in this fixture). Must produce the same result as calling
-  // getOpConstraints with the bare outputLayout — the legacy path.
+  // getOpConstraints with the bare outputLayout - the legacy path.
   auto fallbackConstraintsExp = backend.getOpConstraints(
       getInputLayouts(conv3d), OpConfig(getOutputLayout(conv3d)));
   ASSERT_TRUE(static_cast<bool>(fallbackConstraintsExp))
@@ -6758,7 +6758,7 @@ TEST_F(OpModelBase, PagedFlashMultiLatentAttentionDecodeOpInterface) {
            << llvm::toString(constraintsExp.takeError());
   }
 
-  // Skip runtime test — paged ops may sporadically hang (see issue #5738).
+  // Skip runtime test - paged ops may sporadically hang (see issue #5738).
   constexpr bool skipRuntimeTest = true;
   if (!skipRuntimeTest) {
     auto runtimeExp = getOpRuntime(mlaOp.getOperation());
