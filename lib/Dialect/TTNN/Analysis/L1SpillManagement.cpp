@@ -1862,9 +1862,10 @@ MockAllocatorL1Tracker::validate(Operation *op,
   }
 
   // Flatten the currently-live L1 allocations into the stateful query's initial
-  // state. additionalL1Usage is 0: the live set is encoded in the records, not
-  // a scalar. Ops that don't override the stateful interface method fall back
-  // to the (cached) stateless query and return no records.
+  // state. Aliases share their owner's record (no separate entry), so there is
+  // no duplication. additionalL1Usage is 0: the live set is encoded in the
+  // records. Ops that don't override the stateful interface method fall back to
+  // the (cached) stateless query and return no records.
   llvm::SmallVector<op_model::OpModelAllocationRecord> flat;
   for (const auto &entry : liveRecords) {
     flat.append(entry.second.begin(), entry.second.end());
@@ -1875,22 +1876,48 @@ MockAllocatorL1Tracker::validate(Operation *op,
                                                   flat,
                                                   /*additionalL1Usage=*/0);
 
-  // Stash this op's output records for association at addTensor time.
-  if (result.isSuccess() && !result.outputAllocations.empty()) {
-    pendingRecords[op] = RecordVec(result.outputAllocations.begin(),
-                                   result.outputAllocations.end());
+  if (result.isSuccess()) {
+    // The query decides fit / fragmentation / CB-clash on the device's physical
+    // L1, but the optimizer budget reserves headroom below that (a ~0.95 cap
+    // minus reserved). Enforce that byte ceiling here so the optimizer does not
+    // pack up to the full device L1: projected peak = currently-live L1 (which
+    // includes this op's inputs) + this op's output.
+    uint64_t projected = getOccupiedL1() + result.outputL1Usage;
+    if (l1Budget > 0 && projected > l1Budget) {
+      return op_constraint_validation::ValidationResult::outOfMemoryError(
+          "stateful: projected L1 (" + std::to_string(projected) +
+          "B) exceeds optimizer budget (" + std::to_string(l1Budget) + "B)");
+    }
+    // Stash this op's output records for association at addTensor time.
+    if (!result.outputAllocations.empty()) {
+      pendingRecords[op] = RecordVec(result.outputAllocations.begin(),
+                                     result.outputAllocations.end());
+    }
   }
   return result;
 }
 
-void MockAllocatorL1Tracker::init(uint64_t l1BudgetPerCore) {
-  SumL1MemoryTracker::init(l1BudgetPerCore);
-  liveRecords.clear();
-  pendingRecords.clear();
+op_constraint_validation::ValidationResult
+MockAllocatorL1Tracker::validateBackendDirect(
+    Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+    const OpConfig &config, uint64_t additionalL1Usage) const {
+  if (backendValidator) {
+    return backendValidator(op, inputLayouts, config, additionalL1Usage);
+  }
+  return op_constraint_validation::validateOperation(op, inputLayouts, config,
+                                                     additionalL1Usage);
 }
 
-void MockAllocatorL1Tracker::addTensor(Value result, uint64_t l1SizePerCore) {
-  SumL1MemoryTracker::addTensor(result, l1SizePerCore);
+void MockAllocatorL1Tracker::init(uint64_t l1BudgetPerCore) {
+  l1Budget = l1BudgetPerCore;
+  liveRecords.clear();
+  pendingRecords.clear();
+  aliasOf.clear();
+  aliasRefcount.clear();
+}
+
+void MockAllocatorL1Tracker::addTensor(Value result,
+                                       uint64_t /*l1SizePerCore*/) {
   // Associate the pending record for this result (positional: i-th tensor
   // result <-> i-th output-buffer record). Ops that produced no records (not
   // migrated to the stateful path) simply contribute nothing to the state.
@@ -1905,36 +1932,223 @@ void MockAllocatorL1Tracker::addTensor(Value result, uint64_t l1SizePerCore) {
   const unsigned idx = mlir::cast<OpResult>(result).getResultNumber();
   if (idx < it->second.size()) {
     liveRecords[result] = RecordVec{it->second[idx]};
+    aliasOf[result] = result;
+    aliasRefcount[result] = 1;
   }
 }
 
-void MockAllocatorL1Tracker::addTensorAtAddress(Value result,
-                                                uint64_t l1SizePerCore,
-                                                Value srcAtSameAddr) {
-  // Alias (e.g. a reshape view): shares srcAtSameAddr's buffer, so it adds no
-  // new allocation to the state — do not add a record for `result` (that would
-  // double-count the same buffer). The base tracks the address alias group.
-  SumL1MemoryTracker::addTensorAtAddress(result, l1SizePerCore, srcAtSameAddr);
+void MockAllocatorL1Tracker::addTensorAlias(Value out, Value src) {
+  // A view op's output shares src's buffer: add no new record, just bump the
+  // owner's live-aliaser refcount so the record survives until the last
+  // aliaser dies.
+  auto ownerIt = aliasOf.find(src);
+  Value owner = ownerIt != aliasOf.end() ? ownerIt->second : src;
+  aliasOf[out] = owner;
+  ++aliasRefcount[owner];
 }
 
 void MockAllocatorL1Tracker::removeTensor(Value result) {
-  SumL1MemoryTracker::removeTensor(result);
-  liveRecords.erase(result);
+  auto ownerIt = aliasOf.find(result);
+  if (ownerIt == aliasOf.end()) {
+    // Untracked (op produced no records). Nothing to drop.
+    liveRecords.erase(result);
+    return;
+  }
+  Value owner = ownerIt->second;
+  aliasOf.erase(ownerIt);
+  auto rcIt = aliasRefcount.find(owner);
+  if (rcIt != aliasRefcount.end() && --rcIt->second == 0) {
+    aliasRefcount.erase(rcIt);
+    liveRecords.erase(owner);
+  }
 }
 
 void MockAllocatorL1Tracker::removeTensorFromSizes(Value result) {
-  SumL1MemoryTracker::removeTensorFromSizes(result);
-  // Eviction spills to DRAM via this path: the tensor has left L1.
-  liveRecords.erase(result);
+  // Records are the only size state, so the eviction spill path is identical to
+  // removeTensor.
+  removeTensor(result);
+}
+
+bool MockAllocatorL1Tracker::hasTensor(Value result) const {
+  return aliasOf.count(result) > 0;
+}
+
+uint64_t MockAllocatorL1Tracker::getTensorSize(Value result) const {
+  auto ownerIt = aliasOf.find(result);
+  Value owner = ownerIt != aliasOf.end() ? ownerIt->second : result;
+  auto it = liveRecords.find(owner);
+  if (it == liveRecords.end()) {
+    return 0;
+  }
+  uint64_t total = 0;
+  for (const auto &rec : it->second) {
+    if (rec.bufferType == BufferType::L1) {
+      total += rec.sizePerBank;
+    }
+  }
+  return total;
+}
+
+uint64_t MockAllocatorL1Tracker::getOccupiedL1() const {
+  uint64_t total = 0;
+  for (const auto &entry : liveRecords) {
+    for (const auto &rec : entry.second) {
+      if (rec.bufferType == BufferType::L1) {
+        total += rec.sizePerBank;
+      }
+    }
+  }
+  return total;
 }
 
 MockAllocatorL1Tracker::Snapshot MockAllocatorL1Tracker::takeSnapshot() const {
-  return Snapshot{SumL1MemoryTracker::takeSnapshot(), liveRecords};
+  return Snapshot{liveRecords, aliasOf, aliasRefcount};
 }
 
 void MockAllocatorL1Tracker::restoreSnapshot(const Snapshot &snapshot) {
-  SumL1MemoryTracker::restoreSnapshot(snapshot.base);
   liveRecords = snapshot.liveRecords;
+  aliasOf = snapshot.aliasOf;
+  aliasRefcount = snapshot.aliasRefcount;
+}
+
+//===----------------------------------------------------------------------===//
+// StatefulL1SpillManagement (captured allocator state)
+//===----------------------------------------------------------------------===//
+
+uint64_t StatefulL1SpillManagement::placeValidatedOutput(
+    Operation *, int64_t, ScheduleData &,
+    const op_constraint_validation::ValidationResult &result) {
+  // Fit / fragmentation / CB-overlap are all answered by the stateful query, so
+  // a validated output is committed at its reported L1 size with no extra
+  // checks.
+  return result.outputL1Usage;
+}
+
+void StatefulL1SpillManagement::handleUnvalidatedL1Output(Operation *, int64_t,
+                                                          ScheduleData &,
+                                                          uint64_t) {
+  // Pre-decomposition ToLayoutOp: no query, and (as in the address-sim path) it
+  // is kept out of liveValues. Any real OOM surfaces at the consuming op's
+  // stateful query, so there is nothing to do here.
+}
+
+void StatefulL1SpillManagement::commitAllocation(Value val,
+                                                 uint64_t perResultL1,
+                                                 ScheduleData &data) {
+  auto luIt = data.lastUsePositions.find(val);
+  assert(luIt != data.lastUsePositions.end() &&
+         "scheduled value missing its lastUsePositions entry");
+  int64_t resultLastUse = luIt->second;
+
+  // Log the alloc event and checkpoint the record set for eviction replay.
+  allocEventIndex[val] = l1EventLog.size();
+  addressSnapshots[l1EventLog.size()] = memoryTracker.takeSnapshot();
+  l1EventLog.push_back({L1Event::kAlloc, val, perResultL1, /*skipped=*/false});
+
+  // View-eligible op whose source is still L1-resident: alias its buffer (no
+  // new record). Otherwise associate this result's own output record.
+  Operation *defOp = val.getDefiningOp();
+  if (defOp && isAliasingViewOp(defOp) &&
+      memoryTracker.hasTensor(defOp->getOperand(0))) {
+    memoryTracker.addTensorAlias(val, defOp->getOperand(0));
+  } else {
+    memoryTracker.addTensor(val, perResultL1);
+  }
+
+  liveValues.insert(val);
+  liveSet.push({resultLastUse, val});
+}
+
+void StatefulL1SpillManagement::recoverFromOOM(
+    Operation *op, int64_t pos, llvm::ArrayRef<OpResult> /*tensorResults*/,
+    ScheduleData &data, std::function<void(uint64_t)> addResultsToLiveSet) {
+  observer_->onOOM(op, pos, memoryTracker.getOccupiedL1());
+  TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+               "    OOM (stateful): evicting until the query fits");
+
+  // Evict farthest-last-use tensors until the stateful re-query succeeds. Each
+  // eviction drops the victim's records and replays the surviving allocation
+  // history (replayFrom) so the allocator re-flows addresses under the
+  // victim-free history; fragmentation is decided by the query, never here.
+  auto config = extractOpConfigFromIR(op);
+  auto result = op_constraint_validation::ValidationResult::outOfMemoryError("");
+  bool fitsAfterEviction = evictUntil(pos, data, [&]() {
+    auto inputLayouts = utils::extractInputLayouts(op);
+    result = memoryTracker.validate(op, inputLayouts, config);
+    return result.isSuccess();
+  });
+  if (compilationFailed) {
+    return;
+  }
+
+  if (fitsAfterEviction) {
+    // Eviction may have inserted a reshard for `op`, shifting it past `pos`;
+    // bail so run()'s sweep reprocesses the reshard and then `op`.
+    if (data.schedule[pos] != op) {
+      return;
+    }
+    uint64_t l1Size = result.outputL1Usage;
+    if (l1Size > 0) {
+      addResultsToLiveSet(l1Size);
+      observer_->onLiveAdded(op, pos, l1Size, pos,
+                             memoryTracker.getOccupiedL1());
+    }
+  } else {
+    observer_->onSelfSpill(op, pos);
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "    DEMOTE SELF (stateful): op exceeds budget alone");
+    demoteToDram(op);
+  }
+}
+
+bool StatefulL1SpillManagement::replayFrom(size_t startIdx) {
+  auto snapIt = addressSnapshots.find(startIdx);
+  assert(snapIt != addressSnapshots.end() &&
+         "checkpoint not found for replay start index");
+  memoryTracker.restoreSnapshot(snapIt->second);
+
+  // Replay allocation events from startIdx forward under the (victim-free)
+  // history. Each surviving op is re-queried so the allocator assigns fresh
+  // addresses; the resulting record becomes its live-set entry.
+  for (size_t i = startIdx; i < l1EventLog.size(); ++i) {
+    if (l1EventLog[i].skipped) {
+      continue;
+    }
+    if (l1EventLog[i].kind == L1Event::kDealloc) {
+      memoryTracker.removeTensor(l1EventLog[i].tensor);
+      continue;
+    }
+    addressSnapshots[i] = memoryTracker.takeSnapshot();
+    Value tensor = l1EventLog[i].tensor;
+    Operation *defOp = tensor.getDefiningOp();
+    // View alias (src still L1-resident): consumes no fresh buffer.
+    if (defOp && isAliasingViewOp(defOp) &&
+        memoryTracker.hasTensor(defOp->getOperand(0))) {
+      memoryTracker.addTensorAlias(tensor, defOp->getOperand(0));
+      continue;
+    }
+    if (!defOp) {
+      continue;
+    }
+    // Re-query so the allocator re-flows this buffer's address without the
+    // evicted victim in the history.
+    auto inputLayouts = utils::extractInputLayouts(defOp);
+    auto config = extractOpConfigFromIR(defOp);
+    auto result = memoryTracker.validate(defOp, inputLayouts, config);
+    // A still-live op no longer fits (raw size or fragmentation): the caller
+    // (evictUntil) evicts more. Non-OOM outcomes (not-implemented / backend
+    // error, e.g. an unqueryable reshard) leave the buffer untracked but do not
+    // count as a placement failure.
+    bool isOOM = result.isError() && !result.isNotImplemented() &&
+                 !result.isMetalBackendError();
+    if (isOOM) {
+      TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                   "Replay: op no longer fits under victim-free history");
+      return false;
+    }
+    memoryTracker.addTensor(tensor, l1EventLog[i].sizePerCore);
+  }
+  return true;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1944,6 +2158,5 @@ void MockAllocatorL1Tracker::restoreSnapshot(const Snapshot &snapshot) {
 template class L1SpillManagementBase<SumL1MemoryTracker>;
 template class L1SpillManagementBase<MockAllocatorL1Tracker>;
 template class AddressSimSpillManagement<SumL1MemoryTracker>;
-template class AddressSimSpillManagement<MockAllocatorL1Tracker>;
 
 } // namespace mlir::tt::ttnn
