@@ -368,6 +368,18 @@ def run_bench(bench: KernelBench, *, tensors=None, grid_shape=None, backend="dev
     Each keyword argument overrides the corresponding field of ``bench``;
     omitted arguments fall back to the bench's defaults.
     """
+    # backend="device" runs through whatever host API is bound, which is the
+    # torch simulator when D2M_JIT_SIM is set -- so report the *effective*
+    # backend, not just the requested one, to make an accidental sim run obvious.
+    import d2m_jit as d2m
+
+    sim_active = backend == "sim" or d2m.config.simulator
+    effective = "SIMULATOR (torch)" if sim_active else "DEVICE (silicon)"
+    print(
+        f"Running bench {bench.name!r}: requested backend={backend!r}, "
+        f"D2M_JIT_SIM={'set' if d2m.config.simulator else 'unset'} "
+        f"-> executing on {effective}"
+    )
     tensors = tensors if tensors is not None else bench.tensors
     grid_shape = grid_shape if grid_shape is not None else bench.grid_shape
     inputs = make_inputs(tensors, bench.seed)
