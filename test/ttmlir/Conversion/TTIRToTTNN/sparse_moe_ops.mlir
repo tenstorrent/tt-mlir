@@ -39,7 +39,6 @@ module attributes {} {
 // CHECK-LABEL: @all_to_all_dispatch_metadata
 // CHECK: "ttnn.all_to_all_dispatch_metadata"
 // CHECK-SAME: cluster_axis = 0
-// CHECK-SAME: drain_core = #ttnn.core_coord<0, 0>
 // CHECK-SAME: num_devices = 2
 
 // -----

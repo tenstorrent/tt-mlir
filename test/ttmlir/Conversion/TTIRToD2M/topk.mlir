@@ -130,8 +130,9 @@ module {
     // CHECK-SAME: tensor<1x1x1x2x!ttcore.tile<32x32, f32>
     // The TopK values output is 1x2 tiles (full reduction shape before extract).
     // CHECK: d2m.empty() : tensor<1x1x1x2x!ttcore.tile<32x32, f32>
-    // The TopK indices output is 1x2 tiles of si32.
-    // CHECK: d2m.empty() : tensor<1x1x1x2x!ttcore.tile<32x32, si32>
+    // The TopK indices output is 1x2 tiles of f32 (index buffer carried as
+    // fp32; typecast to the si32 user output happens after extract).
+    // CHECK: d2m.empty() : tensor<1x1x1x2x!ttcore.tile<32x32, f32>
     %values, %indices = "ttir.topk"(%arg0) <{k = 16 : i32, dim = -1 : i32, largest = true, sorted = false}> : (tensor<32x64xf32>) -> (tensor<32x16xf32>, tensor<32x16xsi32>)
     return %values, %indices : tensor<32x16xf32>, tensor<32x16xsi32>
   }
@@ -142,8 +143,30 @@ module {
     // CHECK: d2m.to_layout
     // CHECK-SAME: tensor<1x1x2x1x!ttcore.tile<32x32, f32>
     // CHECK: d2m.empty() : tensor<1x1x2x1x!ttcore.tile<32x32, f32>
-    // CHECK: d2m.empty() : tensor<1x1x2x1x!ttcore.tile<32x32, si32>
+    // Index buffer is carried as fp32 (typecast to si32 user output after
+    // extract).
+    // CHECK: d2m.empty() : tensor<1x1x2x1x!ttcore.tile<32x32, f32>
     %values, %indices = "ttir.topk"(%arg0) <{k = 16 : i32, dim = 0 : i32, largest = true, sorted = false}> : (tensor<64x32xf32>) -> (tensor<16x32xf32>, tensor<16x32xsi32>)
     return %values, %indices : tensor<16x32xf32>, tensor<16x32xsi32>
+  }
+
+  // ---- Non-power-of-2 tile counts (ragged), k<=32 ----
+
+  // 32x544 with k=16: Wt=17 (non-pow2) now converts successfully.
+  // CHECK-LABEL: func @topk_dim1_k16_nonpow2
+  func.func @topk_dim1_k16_nonpow2(%arg0: tensor<32x544xf32>) -> (tensor<32x16xf32>, tensor<32x16xsi32>) {
+    // Pre-transpose and topk_block emit normally.
+    // CHECK: d2m.generic
+    // CHECK: d2m.tile_transpose
+    // CHECK: d2m.generic
+    // CHECK: d2m.topk_block
+    // CHECK-SAME: k = 16
+    // CHECK-SAME: num_elements = 544
+    // CHECK: d2m.generic
+    // CHECK: d2m.tile_transpose
+    // CHECK: d2m.generic
+    // CHECK: d2m.tile_transpose
+    %values, %indices = "ttir.topk"(%arg0) <{k = 16 : i32, dim = -1 : i32, largest = true, sorted = false}> : (tensor<32x544xf32>) -> (tensor<32x16xf32>, tensor<32x16xsi32>)
+    return %values, %indices : tensor<32x16xf32>, tensor<32x16xsi32>
   }
 }
