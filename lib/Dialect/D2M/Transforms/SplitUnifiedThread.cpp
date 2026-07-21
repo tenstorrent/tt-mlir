@@ -189,7 +189,8 @@ Value traceComputeMemrefToCB(Value value, GenericOp genericOp) {
     if (auto memrefType = mlir::dyn_cast<MemRefType>(value.getType())) {
       if (llvm::find(genericOp.getAdditionalArgs(), value) !=
           genericOp.getAdditionalArgs().end()) {
-        // Compute intermediates and scratch buffers stay within compute.
+        // Compute intermediates and scratch buffers do not participate in
+        // circular-buffer synchronization.
         Operation *definingOp =
             utils::getSynchronizationRoot(value).getDefiningOp();
         if (definingOp && (definingOp->getAttr("d2m.scratch_buffer") ||
@@ -525,7 +526,7 @@ insertCBOpsForCompute(Block *computeBlock, PatternRewriter &rewriter,
   // final DMA consumer, so wrap the nearest common syntactic range.
   for (auto &[localBuffer, ops] : producersByCB) {
     auto &usageInfo = cbUsageInfo[localBuffer];
-    // A push without a downstream consumer only fills the CB permanently.
+    // A push without a downstream consumer permanently fills the CB.
     if (usageInfo.consumers.empty()) {
       continue;
     }
