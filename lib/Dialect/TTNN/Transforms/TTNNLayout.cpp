@@ -223,11 +223,11 @@ static std::optional<Value> createToLayoutOp(PatternRewriter &rewriter,
 // producing function argument is marked `ttcore.argument_type<input>`.
 //
 // At TTNNLayout time the chunked-prefill op is still a
-// `ttcore.composite "chunked_scaled_dot_product_attention"` (TTNNResolveComposites
-// runs later), so it is matched by composite name with fixed operand indices
-// (3 = page_table, 4 = chunk_start_idx). The paged SDPA decode op is a real
-// ttir op with AttrSizedOperandSegments, so its row-major operands are matched
-// by value identity against the named accessors.
+// `ttcore.composite "chunked_scaled_dot_product_attention"`
+// (TTNNResolveComposites runs later), so it is matched by composite name with
+// fixed operand indices (3 = page_table, 4 = chunk_start_idx). The paged SDPA
+// decode op is a real ttir op with AttrSizedOperandSegments, so its row-major
+// operands are matched by value identity against the named accessors.
 //
 // Note on embedding: the embedding index also needs ROW_MAJOR, but the
 // embedding workaround couples that with an Int32 dtype coercion (a genuine
