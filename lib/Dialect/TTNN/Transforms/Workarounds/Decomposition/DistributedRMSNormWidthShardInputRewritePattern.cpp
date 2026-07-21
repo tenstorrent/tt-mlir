@@ -177,14 +177,20 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
     computeConfigAttr = DeviceComputeKernelConfigAttr::get(
         rewriter.getContext(),
         /*mathFidelity=*/MathFidelity::HiFi4,
-        /*mathApproxMode=*/BoolAttr::get(rewriter.getContext(), false),
-        // Must be false to match the validated tt-metal decode config. Setting
-        // it true forces the stats scratch + kernel CBs to Float32, a datapath
-        // the reference (test_distributed_rms_norm_decode_configs.py) never
-        // exercises — it runs bf16 and passes at 0.999. Empirically, true
-        // regressed b128 decode PCC (~0.992 -> ~0.994 when flipped to false).
+        // These three values mirror the tt-metal device default that the
+        // validated decode config relies on: the reference test
+        // (test_distributed_rms_norm_decode_configs.py) passes NO compute
+        // config, so the device applies init_device_compute_kernel_config(
+        // HiFi4, approx=true, fp32_acc=false, l1_acc=false) and measures
+        // ~0.9998 PCC on this exact 896/4x7 config. We must replicate it
+        // exactly: earlier we emitted approx=false / fp32=true / l1_acc=true,
+        // which invoked the same kernel with a lossier setup (full-model decode
+        // PCC ~0.992-0.994). fp32_dest_acc_en=true additionally forces the
+        // stats scratch + kernel CBs to Float32 (TTNNOps.cpp), a datapath the
+        // reference never exercises.
+        /*mathApproxMode=*/BoolAttr::get(rewriter.getContext(), true),
         /*fp32DestAccEn=*/BoolAttr::get(rewriter.getContext(), false),
-        /*packerL1Acc=*/BoolAttr::get(rewriter.getContext(), true),
+        /*packerL1Acc=*/BoolAttr::get(rewriter.getContext(), false),
         /*dstFullSyncEn=*/nullptr);
   }
 
@@ -217,17 +223,13 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   ttnn::CoreCoordAttr boxStart = inputBoundingBox->getStartCoord();
   ttnn::CoreCoordAttr boxEnd = inputBoundingBox->getEndCoord();
 
-  // Width (gs.x) is the inclusive bounding box of the input shard cores.
+  // Same as tt-metal GridParams: gs = bbox.end - bbox.start + 1 (inclusive
+  // bounding box of the input shard cores). The program grid does not drive the
+  // reduction (that is shard-driven, num_blocks = shard_spec.num_cores()), so
+  // padding gridH to the full worker-grid height — as the reference config does
+  // (4,8) over a 4x7 shard — was verified to make no PCC difference.
   uint64_t gridW = boxEnd.getX() - boxStart.getX() + 1;
-  // DIAGNOSTIC: the validated tt-metal decode config passes a program grid
-  // whose height is the FULL worker-grid height, one row taller than the shard
-  // bbox (compute_with_storage_grid_size=(4,8) over a 4x7 shard). We previously
-  // emitted the tight bbox height (gridH=7). Pad gridH up to the worker-grid
-  // height (physicalGrid[0]) to match the reference and re-measure whether the
-  // (4,7) vs (4,8) program-grid difference moves b128 decode PCC. The reduction
-  // is shard-driven, so this is expected to rule the grid in or out rather than
-  // close the gap.
-  uint64_t gridH = static_cast<uint64_t>(physicalGrid[0]);
+  uint64_t gridH = boxEnd.getY() - boxStart.getY() + 1;
   auto programConfigAttr =
       ttnn::LayerNormShardedMultiCoreProgramConfigAttr::get(
           rewriter.getContext(),
