@@ -70,7 +70,7 @@ ShardSolver::ShardSolver(
       legalConfigs(&legalConfigs), shardSpecs(&shardSpecs),
       shardedOps(&shardedOps), memReconfigEdges(overrideReshardEdges),
       overrideOutputLayout(overrideOutputLayout),
-      customCheckShardCompatible(customCheckShardCompatible) {
+      customCheckShardCompatible(std::move(customCheckShardCompatible)) {
   pathSets.reserve(shardSpecs.size());
   pathSetIds.reserve(shardSpecs.size());
   bitsets.reserve(shardedOps.size());
