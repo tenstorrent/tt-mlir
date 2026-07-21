@@ -266,11 +266,11 @@ SumL1MemoryTracker::wouldAllocateAt(uint64_t l1SizePerCore) const {
 }
 
 //===----------------------------------------------------------------------===//
-// L1SpillManagement
+// L1SpillManagementBase
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-L1SpillManagement<MemoryTracker>::L1SpillManagement(
+L1SpillManagementBase<MemoryTracker>::L1SpillManagementBase(
     func::FuncOp func, ttcore::GridAttr deviceGrid, uint64_t l1BudgetPerCore,
     std::unique_ptr<L1SpillObserver> observer)
     : func(func), deviceGrid(deviceGrid), l1BudgetPerCore(l1BudgetPerCore),
@@ -290,7 +290,7 @@ L1SpillManagement<MemoryTracker>::L1SpillManagement(
 
 template <typename MemoryTracker>
 OpConfig
-L1SpillManagement<MemoryTracker>::extractOpConfigFromIR(Operation *op) {
+L1SpillManagementBase<MemoryTracker>::extractOpConfigFromIR(Operation *op) {
   if (op->getNumResults() == 0) {
     return OpConfig{};
   }
@@ -336,7 +336,7 @@ L1SpillManagement<MemoryTracker>::extractOpConfigFromIR(Operation *op) {
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-Value L1SpillManagement<MemoryTracker>::evictFarthestUse() {
+Value L1SpillManagementBase<MemoryTracker>::evictFarthestUse() {
   while (!liveSet.empty()) {
     auto [lastUse, candidateVal] = liveSet.top();
     liveSet.pop();
@@ -363,7 +363,7 @@ Value L1SpillManagement<MemoryTracker>::evictFarthestUse() {
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::applyOutputConfig(
+void L1SpillManagementBase<MemoryTracker>::applyOutputConfig(
     Operation *op, const op_constraint_validation::ValidationResult &result) {
   TTNNLayoutAttr chosenLayout = result.getFirstActualOutputLayout();
   if (!chosenLayout) {
@@ -404,7 +404,7 @@ void L1SpillManagement<MemoryTracker>::applyOutputConfig(
 
 template <typename MemoryTracker>
 llvm::SmallVector<Operation *>
-L1SpillManagement<MemoryTracker>::collectDownstreamConsumers(
+L1SpillManagementBase<MemoryTracker>::collectDownstreamConsumers(
     Operation *changed) {
   // After spillToDram, a result may have a ToMemoryConfigOp user (spill op).
   // Follow through spill ops to find the actual downstream consumers.
@@ -428,7 +428,7 @@ L1SpillManagement<MemoryTracker>::collectDownstreamConsumers(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::revalidateConsumers(
+void L1SpillManagementBase<MemoryTracker>::revalidateConsumers(
     Operation *changedOp, int64_t currentPos,
     const llvm::DenseMap<Operation *, int64_t> &positionMap) {
   // Worklist of ops whose output changed — seed with the victim/changed op.
@@ -507,8 +507,8 @@ void L1SpillManagement<MemoryTracker>::revalidateConsumers(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-typename L1SpillManagement<MemoryTracker>::ScheduleData
-L1SpillManagement<MemoryTracker>::buildScheduleData() {
+typename L1SpillManagementBase<MemoryTracker>::ScheduleData
+L1SpillManagementBase<MemoryTracker>::buildScheduleData() {
   ScheduleData data;
 
   // Build schedule (ops in IR order = topological order). Include sink ops
@@ -546,7 +546,7 @@ L1SpillManagement<MemoryTracker>::buildScheduleData() {
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::processDeadTensors(
+void L1SpillManagementBase<MemoryTracker>::processDeadTensors(
     int64_t pos, const ScheduleData &data) {
   auto it = data.deathSchedule.find(pos - 1);
   if (it == data.deathSchedule.end()) {
@@ -571,7 +571,7 @@ void L1SpillManagement<MemoryTracker>::processDeadTensors(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-bool L1SpillManagement<MemoryTracker>::willAliasSourceInL1(
+bool L1SpillManagementBase<MemoryTracker>::willAliasSourceInL1(
     Operation *op) const {
   // isAliasingViewOp guarantees op is a view op (reshape/pad/repeat/permute)
   // that aliases its input operand(0). Use hasTensorAddress (not hasTensor):
@@ -588,21 +588,21 @@ bool L1SpillManagement<MemoryTracker>::willAliasSourceInL1(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-uint64_t L1SpillManagement<MemoryTracker>::placeValidatedOutput(
+uint64_t L1SpillManagementBase<MemoryTracker>::placeValidatedOutput(
     Operation *op, int64_t pos, ScheduleData &data,
     const op_constraint_validation::ValidationResult &result) {
   return ensureFitsL1(op, pos, data, result.cbPeakUsage, result.outputL1Usage);
 }
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::recoverFromOOM(
+void L1SpillManagementBase<MemoryTracker>::recoverFromOOM(
     Operation *op, int64_t pos, llvm::ArrayRef<OpResult> tensorResults,
     ScheduleData &data, std::function<void(uint64_t)> addResultsToLiveSet) {
   handleOOM(op, pos, tensorResults, data, addResultsToLiveSet);
 }
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::commitAllocation(Value val,
+void L1SpillManagementBase<MemoryTracker>::commitAllocation(Value val,
                                                         uint64_t perResultL1,
                                                         ScheduleData &data) {
   auto luIt = data.lastUsePositions.find(val);
@@ -629,7 +629,7 @@ void L1SpillManagement<MemoryTracker>::commitAllocation(Value val,
 }
 
 template <typename MemoryTracker>
-uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(Operation *op,
+uint64_t L1SpillManagementBase<MemoryTracker>::ensureFitsL1(Operation *op,
                                                         int64_t pos,
                                                         ScheduleData &data,
                                                         uint64_t cbPeakUsage,
@@ -666,7 +666,7 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(Operation *op,
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::handleOOM(
+void L1SpillManagementBase<MemoryTracker>::handleOOM(
     Operation *op, int64_t pos, llvm::ArrayRef<OpResult> tensorResults,
     ScheduleData &data, std::function<void(uint64_t)> addResultsToLiveSet) {
   observer_->onOOM(op, pos, memoryTracker.getOccupiedL1());
@@ -735,7 +735,7 @@ void L1SpillManagement<MemoryTracker>::handleOOM(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::insertEventIntoLog(size_t pos,
+void L1SpillManagementBase<MemoryTracker>::insertEventIntoLog(size_t pos,
                                                           L1Event event) {
   // Insert the event and shift every index >= pos in both index structures
   // so the invariant "addressSnapshots[i] = state before event i" and
@@ -759,7 +759,7 @@ void L1SpillManagement<MemoryTracker>::insertEventIntoLog(size_t pos,
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-bool L1SpillManagement<MemoryTracker>::markEvictedAndRebuild(
+bool L1SpillManagementBase<MemoryTracker>::markEvictedAndRebuild(
     Value victim, size_t &campaignMin) {
   // O(1) lookup of victim's alloc event.
   auto idxIt = allocEventIndex.find(victim);
@@ -794,7 +794,7 @@ bool L1SpillManagement<MemoryTracker>::markEvictedAndRebuild(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-bool L1SpillManagement<MemoryTracker>::replayFrom(size_t startIdx) {
+bool L1SpillManagementBase<MemoryTracker>::replayFrom(size_t startIdx) {
   auto snapIt = addressSnapshots.find(startIdx);
   assert(snapIt != addressSnapshots.end() &&
          "snapshot not found for replay start index");
@@ -842,7 +842,7 @@ bool L1SpillManagement<MemoryTracker>::replayFrom(size_t startIdx) {
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-bool L1SpillManagement<MemoryTracker>::evictValue(
+bool L1SpillManagementBase<MemoryTracker>::evictValue(
     Value victim, int64_t pos, ScheduleData &data, size_t &campaignMin,
     Operation *skipReshardConsumer) {
   liveValues.erase(victim);
@@ -1027,7 +1027,7 @@ bool L1SpillManagement<MemoryTracker>::evictValue(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::insertReshardIntoSchedule(
+void L1SpillManagementBase<MemoryTracker>::insertReshardIntoSchedule(
     Operation *reshardOp, Value reshardResult, uint64_t reshardSizePerCore,
     int64_t consumerPos, ScheduleData &data) {
   // Register so evictFarthestUse and sibling eviction guards know not to
@@ -1067,7 +1067,7 @@ void L1SpillManagement<MemoryTracker>::insertReshardIntoSchedule(
 }
 
 template <typename MemoryTracker>
-bool L1SpillManagement<MemoryTracker>::evictUntil(
+bool L1SpillManagementBase<MemoryTracker>::evictUntil(
     int64_t pos, ScheduleData &data, std::function<bool()> shouldStop) {
   // Helper: true if every remaining live value is a non-evictable inserted
   // reshard. Avoids exhausting the liveSet heap through stale entries when
@@ -1105,7 +1105,7 @@ bool L1SpillManagement<MemoryTracker>::evictUntil(
   if (!rebuildPlacedAll) {
     Operation *blockedOp = data.schedule[pos];
     blockedOp->emitError(
-        "L1SpillManagement: a live tensor has no contiguous L1 placement even "
+        "L1SpillManagementBase: a live tensor has no contiguous L1 placement even "
         "after evicting every spillable tensor (fragmentation: a non-evictable "
         "inserted reshard or irreducible working set cannot be relocated)");
     compilationFailed = true;
@@ -1120,7 +1120,7 @@ bool L1SpillManagement<MemoryTracker>::evictUntil(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-uint64_t L1SpillManagement<MemoryTracker>::handleNoFit(Operation *op,
+uint64_t L1SpillManagementBase<MemoryTracker>::handleNoFit(Operation *op,
                                                        int64_t pos,
                                                        ScheduleData &data,
                                                        uint64_t outputL1Size) {
@@ -1173,7 +1173,7 @@ uint64_t L1SpillManagement<MemoryTracker>::handleNoFit(Operation *op,
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
+uint64_t L1SpillManagementBase<MemoryTracker>::handleFragmentation(
     Operation *op, int64_t pos, ScheduleData &data, uint64_t cbPeakUsage,
     uint64_t outputL1Size) {
   // Add the same safety cushion as wouldCBsOverlapTensors to account for
@@ -1267,7 +1267,7 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
     }
     if (!fitsAfterSiblingSpill) {
       op->emitError(
-          "L1SpillManagement: sibling-operand spill left a live tensor with no "
+          "L1SpillManagementBase: sibling-operand spill left a live tensor with no "
           "contiguous L1 placement (fragmentation cannot be resolved by "
           "demoting this op)");
       compilationFailed = true;
@@ -1287,7 +1287,7 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-bool L1SpillManagement<MemoryTracker>::wouldCBsOverlapTensors(
+bool L1SpillManagementBase<MemoryTracker>::wouldCBsOverlapTensors(
     Operation *op, int64_t pos, uint64_t cbPeakUsage,
     uint64_t speculativeOutputAddr) {
   // Check if the op's CB region (growing bottom-up from base) would overlap
@@ -1338,7 +1338,7 @@ bool L1SpillManagement<MemoryTracker>::wouldCBsOverlapTensors(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::run() {
+void L1SpillManagementBase<MemoryTracker>::run() {
   ScheduleData data = buildScheduleData();
 
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
@@ -1552,7 +1552,7 @@ void L1SpillManagement<MemoryTracker>::run() {
 
 template <typename MemoryTracker>
 llvm::DenseMap<Value, int64_t>
-L1SpillManagement<MemoryTracker>::computeLastUsePositions(
+L1SpillManagementBase<MemoryTracker>::computeLastUsePositions(
     const llvm::SmallVector<Operation *> &schedule) {
   // Build position map.
   llvm::DenseMap<Operation *, int64_t> positionMap;
@@ -1593,7 +1593,7 @@ L1SpillManagement<MemoryTracker>::computeLastUsePositions(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::demoteToDram(Operation *op) {
+void L1SpillManagementBase<MemoryTracker>::demoteToDram(Operation *op) {
   for (auto opResult : op->getResults()) {
     auto tensorType = mlir::dyn_cast<RankedTensorType>(opResult.getType());
     if (!tensorType) {
@@ -1623,7 +1623,7 @@ void L1SpillManagement<MemoryTracker>::demoteToDram(Operation *op) {
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::evictAllFromL1(int64_t pos,
+void L1SpillManagementBase<MemoryTracker>::evictAllFromL1(int64_t pos,
                                                       ScheduleData &data,
                                                       Operation *triggerOp) {
   llvm::SmallVector<Operation *> evictedOps;
@@ -1662,7 +1662,7 @@ void L1SpillManagement<MemoryTracker>::evictAllFromL1(int64_t pos,
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::evictForCBOverlap(
+void L1SpillManagementBase<MemoryTracker>::evictForCBOverlap(
     uint64_t cushionedCBUsage, int64_t pos, ScheduleData &data) {
   evictUntil(pos, data, [&]() {
     return cushionedCBUsage <= memoryTracker.getLowestOccupiedAddress();
@@ -1674,7 +1674,7 @@ void L1SpillManagement<MemoryTracker>::evictForCBOverlap(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::evictForDramCBGrowth(
+void L1SpillManagementBase<MemoryTracker>::evictForDramCBGrowth(
     Operation *op, int64_t pos, ScheduleData &data) {
 
   auto inputLayouts = utils::extractInputLayouts(op);
@@ -1721,7 +1721,7 @@ void L1SpillManagement<MemoryTracker>::evictForDramCBGrowth(
   // rather than emit IR that overflows L1 at runtime.
   if (!liveValues.empty() &&
       dramCBCushioned > memoryTracker.getLowestOccupiedAddress()) {
-    op->emitError("L1SpillManagement: ")
+    op->emitError("L1SpillManagementBase: ")
         << op->getName()
         << " requires an L1 input restored by an inserted reshard, but its "
            "circular-buffer region overlaps that reshard's L1 slot and the "
@@ -1736,19 +1736,19 @@ void L1SpillManagement<MemoryTracker>::evictForDramCBGrowth(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::spillToDram(Value result) {
+void L1SpillManagementBase<MemoryTracker>::spillToDram(Value result) {
   spillToDramImpl(result, /*insertBefore=*/nullptr);
 }
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::spillToDramBeforeTrigger(
+void L1SpillManagementBase<MemoryTracker>::spillToDramBeforeTrigger(
     Value result, Operation *triggerOp) {
   assert(triggerOp && "spillToDramBeforeTrigger requires a non-null trigger");
   spillToDramImpl(result, triggerOp);
 }
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::spillToDramImpl(
+void L1SpillManagementBase<MemoryTracker>::spillToDramImpl(
     Value result, Operation *insertBefore) {
   Operation *defOp = result.getDefiningOp();
   RankedTensorType tensorType = mlir::cast<RankedTensorType>(result.getType());
@@ -1810,7 +1810,7 @@ void L1SpillManagement<MemoryTracker>::spillToDramImpl(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagement<MemoryTracker>::insertReshardForConsumer(
+void L1SpillManagementBase<MemoryTracker>::insertReshardForConsumer(
     Operation *consumer, unsigned operandIdx, TTNNLayoutAttr originalL1Layout) {
   Value spillOutput = consumer->getOperand(operandIdx);
   auto spillTensorType = mlir::cast<RankedTensorType>(spillOutput.getType());
@@ -1933,7 +1933,7 @@ void MockAllocatorL1Tracker::restoreSnapshot(const Snapshot &snapshot) {
 // Explicit template instantiation
 //===----------------------------------------------------------------------===//
 
-template class L1SpillManagement<SumL1MemoryTracker>;
-template class L1SpillManagement<MockAllocatorL1Tracker>;
+template class L1SpillManagementBase<SumL1MemoryTracker>;
+template class L1SpillManagementBase<MockAllocatorL1Tracker>;
 
 } // namespace mlir::tt::ttnn

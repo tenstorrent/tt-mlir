@@ -127,7 +127,7 @@ public:
 //  - MLIR context with TTCore + TTNN + Func dialects loaded.
 //  - Helpers to build a func::FuncOp with typed TTNN op graphs.
 //  - Per-op test configuration (setL1Usage, forceOOM, forceNotImplemented).
-//  - run() to construct and drive L1SpillManagement<SumL1MemoryTracker> with
+//  - run() to construct and drive SumL1SpillManagement with
 //    a backend validator lambda built from perOpConfigs.
 //  - Post-run assertion helpers that inspect the mutated IR.
 //===----------------------------------------------------------------------===//
@@ -411,13 +411,13 @@ public:
   /// Pass instance kept alive as a fixture member so the observer (owned by
   /// the pass via unique_ptr) outlives run() and stays accessible through
   /// the returned raw pointer.
-  std::unique_ptr<L1SpillManagement<SumL1MemoryTracker>> pass;
+  std::unique_ptr<SumL1SpillManagement> pass;
 
   struct RunResult {
     RecordingObserver *observer;
   };
 
-  /// Run L1SpillManagement<SumL1MemoryTracker> on `func` with the test
+  /// Run SumL1SpillManagement on `func` with the test
   /// validator installed.
   RunResult run() {
     auto obs = std::make_unique<RecordingObserver>();
@@ -426,7 +426,7 @@ public:
     auto deviceAttr = mlir::tt::ttcore::lookupDevice(module.get());
     ttcore::GridAttr deviceGrid = deviceAttr.getWorkerGrid();
 
-    pass = std::make_unique<L1SpillManagement<SumL1MemoryTracker>>(
+    pass = std::make_unique<SumL1SpillManagement>(
         func, deviceGrid, l1BudgetPerCore, std::move(obs));
     pass->getMemoryTracker().backendValidator = makeValidator();
     pass->run();
