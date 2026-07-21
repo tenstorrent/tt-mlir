@@ -583,6 +583,51 @@ bool L1SpillManagement<MemoryTracker>::willAliasSourceInL1(
          memoryTracker.hasTensorAddress(op->getOperand(0));
 }
 
+//===----------------------------------------------------------------------===//
+// Hooks (default = address-sim path)
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+uint64_t L1SpillManagement<MemoryTracker>::placeValidatedOutput(
+    Operation *op, int64_t pos, ScheduleData &data,
+    const op_constraint_validation::ValidationResult &result) {
+  return ensureFitsL1(op, pos, data, result.cbPeakUsage, result.outputL1Usage);
+}
+
+template <typename MemoryTracker>
+void L1SpillManagement<MemoryTracker>::recoverFromOOM(
+    Operation *op, int64_t pos, llvm::ArrayRef<OpResult> tensorResults,
+    ScheduleData &data, std::function<void(uint64_t)> addResultsToLiveSet) {
+  handleOOM(op, pos, tensorResults, data, addResultsToLiveSet);
+}
+
+template <typename MemoryTracker>
+void L1SpillManagement<MemoryTracker>::commitAllocation(Value val,
+                                                        uint64_t perResultL1,
+                                                        ScheduleData &data) {
+  auto luIt = data.lastUsePositions.find(val);
+  assert(luIt != data.lastUsePositions.end() &&
+         "scheduled value missing its lastUsePositions entry");
+  int64_t resultLastUse = luIt->second;
+
+  // Snapshot before allocation and record event for replay.
+  allocEventIndex[val] = l1EventLog.size();
+  addressSnapshots[l1EventLog.size()] = memoryTracker.takeSnapshot();
+  l1EventLog.push_back({L1Event::kAlloc, val, perResultL1, /*skipped=*/false});
+
+  // View-eligible reshape: alias src's buffer instead of carving a fresh slot.
+  // Must stay in sync with the willAliasSourceInL1 short-circuit in ensureFitsL1.
+  Operation *defOp = val.getDefiningOp();
+  if (defOp && willAliasSourceInL1(defOp)) {
+    memoryTracker.addTensorAtAddress(val, perResultL1, defOp->getOperand(0));
+  } else {
+    memoryTracker.addTensor(val, perResultL1);
+  }
+
+  liveValues.insert(val);
+  liveSet.push({resultLastUse, val});
+}
+
 template <typename MemoryTracker>
 uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(Operation *op,
                                                         int64_t pos,
@@ -1420,30 +1465,7 @@ void L1SpillManagement<MemoryTracker>::run() {
       uint64_t perResultL1 =
           numTensorResults > 0 ? totalL1 / numTensorResults : 0;
       for (auto r : tensorResults) {
-        Value val = r;
-        auto luIt = data.lastUsePositions.find(val);
-        assert(luIt != data.lastUsePositions.end() &&
-               "scheduled value missing its lastUsePositions entry");
-        int64_t resultLastUse = luIt->second;
-        // Snapshot before allocation and record event for replay.
-        allocEventIndex[val] = l1EventLog.size();
-        addressSnapshots[l1EventLog.size()] = memoryTracker.takeSnapshot();
-        l1EventLog.push_back(
-            {L1Event::kAlloc, val, perResultL1, /*skipped=*/false});
-
-        // View-eligible reshape: alias src's buffer instead of carving a
-        // fresh slot. See `addTensorAtAddress`. Must stay in sync with the
-        // willAliasSourceInL1 short-circuit in ensureFitsL1.
-        Operation *defOp = val.getDefiningOp();
-        if (defOp && willAliasSourceInL1(defOp)) {
-          memoryTracker.addTensorAtAddress(val, perResultL1,
-                                           defOp->getOperand(0));
-        } else {
-          memoryTracker.addTensor(val, perResultL1);
-        }
-
-        liveValues.insert(val);
-        liveSet.push({resultLastUse, val});
+        commitAllocation(r, perResultL1, data);
       }
     };
 
@@ -1468,14 +1490,13 @@ void L1SpillManagement<MemoryTracker>::run() {
     }
 
     if (result.isSuccess()) {
-      uint64_t l1Size = result.outputL1Usage;
-
       TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                    "    VALIDATION SUCCESS: op {0}, "
                    "cbPeakUsage={1}, outputL1={2} bytes",
-                   ttmlir::opToString(op), result.cbPeakUsage, l1Size);
+                   ttmlir::opToString(op), result.cbPeakUsage,
+                   result.outputL1Usage);
 
-      l1Size = ensureFitsL1(op, pos, data, result.cbPeakUsage, l1Size);
+      uint64_t l1Size = placeValidatedOutput(op, pos, data, result);
       if (rewindIfScheduleShifted()) {
         continue;
       }
@@ -1508,7 +1529,7 @@ void L1SpillManagement<MemoryTracker>::run() {
       continue;
     }
 
-    handleOOM(op, pos, tensorResults, data, addResultsToLiveSet);
+    recoverFromOOM(op, pos, tensorResults, data, addResultsToLiveSet);
     if (rewindIfScheduleShifted()) {
       continue;
     }
