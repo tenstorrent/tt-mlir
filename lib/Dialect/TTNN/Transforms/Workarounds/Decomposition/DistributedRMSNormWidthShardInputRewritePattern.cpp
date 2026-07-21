@@ -178,7 +178,11 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
         rewriter.getContext(),
         /*mathFidelity=*/MathFidelity::HiFi4,
         /*mathApproxMode=*/BoolAttr::get(rewriter.getContext(), false),
-        /*fp32DestAccEn=*/BoolAttr::get(rewriter.getContext(), true),
+        // DIAGNOSTIC: was true, which forces the stats scratch + kernel CBs to
+        // Float32 — a datapath the validated tt-metal decode config never
+        // exercises (it runs bf16 and passes at 0.999). Testing whether the
+        // fp32 stats/all-gather path is the source of the ~0.992 decode PCC.
+        /*fp32DestAccEn=*/BoolAttr::get(rewriter.getContext(), false),
         /*packerL1Acc=*/BoolAttr::get(rewriter.getContext(), true),
         /*dstFullSyncEn=*/nullptr);
   }
