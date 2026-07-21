@@ -88,14 +88,14 @@ def get_allocator_policy_override(
     ids=["matmul_composite"],
 )
 def test_matmul_smoketest(device, shapes, input_layouts, dtype, ttnn_dtype, op):
-    # # Skip large matmuls for float32
-    # if dtype == torch.float32 and shapes in [(256, 256, 256), (128, 256, 256)]:
-    #     pytest.skip("Skipping large matmul for float32")
+    # Skip large matmuls for float32
+    if dtype == torch.float32 and shapes in [(256, 256, 256), (128, 256, 256)]:
+        pytest.skip("Skipping large matmul for float32")
 
-    # if ttnn_dtype == ttnn.DataType.BFLOAT8_B and shapes == (None, 256, None):
-    #     pytest.skip(
-    #         "Skipping test for shape (None, 256, None) with dtype bfp8, pcc error. Issue #7418."
-    #     )
+    if ttnn_dtype == ttnn.DataType.BFLOAT8_B and shapes == (None, 256, None):
+        pytest.skip(
+            "Skipping test for shape (None, 256, None) with dtype bfp8, pcc error. Issue #7418."
+        )
 
     # Always square grid.
     core_grid = get_core_grid_from_device(device)

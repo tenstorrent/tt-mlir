@@ -251,6 +251,15 @@ install(
   REGEX "third_party/umd/"
 )
 
+install(
+  DIRECTORY
+    ${TTML_SOURCE_DIR}/metal
+  DESTINATION ${CMAKE_INSTALL_PREFIX}/tt-metal/${TTML_RELPATH}
+  USE_SOURCE_PERMISSIONS
+  COMPONENT SharedLib
+  EXCLUDE_FROM_ALL
+)
+
 # TTNN Standalone install commands
 #
 # Copy .cpmcache libs
