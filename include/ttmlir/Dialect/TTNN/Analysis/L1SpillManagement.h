@@ -244,6 +244,8 @@ public:
                     uint64_t l1BudgetPerCore,
                     std::unique_ptr<L1SpillObserver> observer = nullptr);
 
+  virtual ~L1SpillManagement() = default;
+
   /// Run farthest-last-use eviction with validation-based enforcement and apply
   /// spills directly to the IR.
   void run();
@@ -420,6 +422,28 @@ private:
   /// Remove result tensors whose last use was the previous position.
   void processDeadTensors(int64_t pos, const ScheduleData &data);
 
+protected:
+  /// Hook: place a successfully-validated op's output. Returns the L1 size to
+  /// add to the live set (0 = demoted to DRAM). Default (address-sim path):
+  /// contiguous-fit + CB-overlap checks via ensureFitsL1.
+  virtual uint64_t
+  placeValidatedOutput(Operation *op, int64_t pos, ScheduleData &data,
+                       const op_constraint_validation::ValidationResult &result);
+
+  /// Hook: recover from an OOM validation result (evict live tensors or demote
+  /// self to DRAM). Default (address-sim path): handleOOM.
+  virtual void
+  recoverFromOOM(Operation *op, int64_t pos,
+                 llvm::ArrayRef<OpResult> tensorResults, ScheduleData &data,
+                 std::function<void(uint64_t)> addResultsToLiveSet);
+
+  /// Hook: commit one result tensor into the live set. Logs the alloc event,
+  /// adds it to the tracker (alias-or-fresh) and to the FLU heap. Default
+  /// (address-sim path): snapshot + addTensorAtAddress/addTensor.
+  virtual void commitAllocation(Value val, uint64_t perResultL1,
+                                ScheduleData &data);
+
+private:
   /// Check if the op's CB region (growing bottom-up) would overlap with any
   /// live tensor or the speculative output tensor based on simulated L1
   /// addresses. Uses min(speculativeOutputAddr, lowestOccupiedAddress) as
