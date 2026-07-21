@@ -35,7 +35,7 @@ import pytest
 import torch
 from torch.distributed.tensor import DTensor, distribute_module
 from torch.distributed.tensor.experimental import implicit_replication
-from tt_kurbla.torch._compile import CompileOption
+from tt_kurbla.torch._compile import BfpDtype, CompileOption
 
 from ._runner import Measurement, compute_pcc, prepare_model, run_llm_benchmark
 
@@ -198,7 +198,7 @@ def _run_decode_benchmark(
             )
         with repl():
             dev_prefill, dev_decode, _ = _two_step_logits(
-                prepare_model(LLMSamplingWrapper(model, return_logits=True), mode),
+                prepare_model(LLMSamplingWrapper(model, return_logits=True), mode, options=options),
                 input_ids,
                 fresh_cache(tt_device, shard=parallel != "none"),
                 cache_position,
@@ -272,9 +272,20 @@ def _run(request: pytest.FixtureRequest, llm_model_id: str, parallel: str) -> No
         request.node.add_marker(
             pytest.mark.xfail(reason="eager TP mis-shards head-sharded SDPA under DTensor", strict=False)
         )
+    opt_level = request.getfixturevalue("opt_level")
+    options = {
+        CompileOption.OPT_LEVEL: opt_level if opt_level is not None else 0,
+        CompileOption.ENABLE_TRACE: True,
+        # The following cause a hang in benchmark CI when all models are run (during gemma dp).
+        # If that model is ran individually - it passes.
+        # CompileOption.EXPERIMENTAL_WEIGHT_DTYPE: BfpDtype.BfpBf8,
+        # CompileOption.EXPERIMENTAL_KV_CACHE_DTYPE: BfpDtype.BfpBf8,
+        # CompileOption.EXPERIMENTAL_ENABLE_PERMUTE_MATMUL_FUSION: False,
+    }
     _run_decode_benchmark(
         llm_model_id,
         parallel=parallel,
+        options=options,
         **{name: request.getfixturevalue(name) for name in _LLM_FIXTURES},
     )
 

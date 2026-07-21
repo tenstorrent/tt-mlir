@@ -8,6 +8,7 @@
 #include <sstream>
 #include <tracy/Tracy.hpp>
 #include <tt/runtime/runtime.h>
+#include <tt/runtime/utils.h>
 #include <utility>
 
 namespace tt::kurbla {
@@ -51,15 +52,22 @@ void ExecutionPayload::bind_tensor(tt::runtime::Tensor &tensor, std::uint32_t in
     TT_FATAL(index < impl_->input_slots.size(), "bind_tensor: index {} out of range (program has {} input(s))", index,
              impl_->input_slots.size());
 
-    // Stride/physicalVolume legitimately differ between the user's host tensor
-    // and the binary's padded device layout — that's what toLayout reconciles.
+    // Verify that the logical shape matches the expected shape in the program.
     const tt::runtime::TensorDesc actual = tt::runtime::getTensorDesc(tensor);
     const tt::runtime::TensorDesc &expected = impl_->program->input_descs[index];
-    TT_FATAL(actual.shape == expected.shape && actual.dataType == expected.dataType,
-             "bind_tensor: tensor for input {} does not match the program's expected desc. "
-             "expected shape={} dtype={}; got shape={} dtype={}",
-             index, to_string(expected.shape), as<int>(expected.dataType), to_string(actual.shape),
-             as<int>(actual.dataType));
+    TT_FATAL(actual.shape == expected.shape,
+             "bind_tensor: tensor for input {} has the wrong shape. expected {}; got {}", index,
+             to_string(expected.shape), to_string(actual.shape));
+
+    // The framework hands us the exact dtype of every input except the float slots
+    // the compiler quantized to a block format (bfp8/bfp4): torch has no such dtype,
+    // so we convert the tensor to the block format during `toLayout()`.
+    //
+    // For all other cases, we expect the dtypes to match exactly.
+    TT_FATAL(actual.dataType == expected.dataType || (tt::runtime::utils::isBlockFormatDataType(expected.dataType) &&
+                                                      !tt::runtime::utils::isIntegerDataType(actual.dataType)),
+             "bind_tensor: tensor for input {} has an incompatible dtype. expected {}; got {}", index,
+             as<int>(expected.dataType), as<int>(actual.dataType));
 
     try {
         const auto &layout = impl_->program->input_layout_at(index);

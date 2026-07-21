@@ -4,6 +4,7 @@ import copy
 
 import pytest
 import torch
+from tt_kurbla.torch._compile import CompileOption
 
 from _models import MNISTLinear
 
@@ -33,13 +34,16 @@ def test_mnist_linear(
     accuracy: bool,
     profile_enabled: bool,
     profile_dir: str,
+    opt_level: int | None,
     record_bench,
     tt_device: torch.device,
 ) -> None:
     model, inputs = _build()
 
     # deepcopy because Module.to() is in-place; keep the CPU originals as the reference.
-    device_model = prepare_model(copy.deepcopy(model).to(tt_device), mode)
+    device_model = prepare_model(copy.deepcopy(model).to(tt_device), mode, options={
+        CompileOption.OPT_LEVEL: opt_level if opt_level is not None else 0,
+    })
     device_inputs = tuple(t.to(tt_device) for t in inputs)
 
     record_bench(

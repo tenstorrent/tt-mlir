@@ -33,6 +33,7 @@ def test_resnet50(
     iters: int,
     cpu_baseline: bool,
     accuracy: bool,
+    opt_level: int | None,
     record_bench,
     tt_device: torch.device,
 ) -> None:
@@ -40,7 +41,7 @@ def test_resnet50(
 
     # deepcopy because Module.to() is in-place; keep the CPU originals as the reference.
     device_model = prepare_model(copy.deepcopy(model).to(tt_device), mode, options={
-        CompileOption.OPT_LEVEL: 2,
+        CompileOption.OPT_LEVEL: opt_level if opt_level is not None else 2,
         CompileOption.ENABLE_TRACE: True,
     })
     device_inputs = tuple(t.to(tt_device) for t in inputs)
