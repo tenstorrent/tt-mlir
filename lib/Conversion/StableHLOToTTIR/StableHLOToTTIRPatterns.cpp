@@ -1925,17 +1925,24 @@ private:
     auto kernelSpatialDims = dn.getKernelSpatialDimensions();
     auto outputSpatialDims = dn.getOutputSpatialDimensions();
 
-    // Find the degenerate spatial index (input and kernel extent both 1).
+    // A framework conv1d lowered to 2D has exactly one size-1 spatial dim; the
+    // other carries the sequence. Count them to distinguish that from a genuine
+    // pointwise 2D conv (both dims size-1, e.g. a 1x1 conv on a [N,C,1,1]
+    // squeeze-excite tensor), which has no 1D axis and must stay conv2d --
+    // rerouting it would needlessly host-move the weight and break trace hoist.
     int degIdx = -1;
+    int numDegenerate = 0;
     for (int i = 0; i < static_cast<int>(NUM_SPATIAL_DIMS); ++i) {
       if (inputType.getShape()[inputSpatialDims[i]] == 1 &&
           weightType.getShape()[kernelSpatialDims[i]] == 1) {
-        degIdx = i;
-        break;
+        if (degIdx < 0) {
+          degIdx = i;
+        }
+        ++numDegenerate;
       }
     }
-    if (degIdx < 0) {
-      return Value(); // genuine 2D conv.
+    if (degIdx < 0 || numDegenerate == static_cast<int>(NUM_SPATIAL_DIMS)) {
+      return Value(); // no 1D axis, or genuinely pointwise 2D -> keep conv2d.
     }
     int realIdx = 1 - degIdx; // the other of the two spatial dims.
 
