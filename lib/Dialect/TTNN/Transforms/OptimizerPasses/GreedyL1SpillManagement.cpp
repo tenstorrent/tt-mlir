@@ -2,6 +2,36 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+// TTNNGreedyL1SpillManagement: the follow-up stage of the greedy memory-layout
+// optimizer that runs after layout propagation has assigned L1/DRAM layouts.
+// Its job is to enforce the per-core L1 memory budget: layout propagation may
+// have placed more tensors in L1 than physically fit at some point in the
+// schedule, so this pass walks each forward device function and, using a
+// farthest-last-use eviction strategy, spills L1 tensors back to DRAM until
+// every op re-validates within budget. The eviction and validation logic lives
+// in the L1SpillManagement analysis; this pass computes the budget, runs the
+// analysis per function, and propagates its result and failure state.
+//
+// Key inputs:
+//   - The ModuleOp IR; only forward device functions are processed.
+//   - The worker grid from the device description.
+//   - The usable L1 budget per core, derived from the chip descriptor's usable
+//     L1 size minus the reserved usage and tensor usage cap.
+//   - Backend op-constraint validation, which re-checks each op against the
+//     running L1 pressure; the pass is only functional when built with
+//     TTMLIR_ENABLE_OPMODEL.
+//   - Pass options enableDecisionTrace and decisionTraceDir.
+//
+// Key outputs (all mutations of the module in place):
+//   - ToMemoryConfigOp ops inserted after spilled ops to move tensors from L1
+//     to DRAM, with consuming uses reconnected to read the spilled tensor.
+//   - D2M subgraph function types re-synced to match dispatch operand types
+//     that changed to DRAM as a result of spilling.
+//   - A pass failure signalled (and the module walk interrupted) when the
+//     analysis reports an unrecoverable condition.
+//   - Optionally, spill-management data merged into the decision-trace JSON
+//     produced earlier by layout propagation.
+
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"

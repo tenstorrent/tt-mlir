@@ -2,6 +2,45 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+// TTNNGreedyMemoryLayoutPropagation: the first stage of the greedy
+// memory-layout optimizer. Its job is to choose a concrete memory layout
+// (buffer type and memory space: DRAM vs. L1, interleaved vs. sharded, tile
+// vs. row-major) for the output of every tensor-producing op in each forward
+// device function, propagating those choices across data-dependency edges so
+// that producer/consumer layouts agree and inserting reshards where they must
+// differ. The actual edge-based search (greedy when beam width is 1, beam
+// search when it is larger) lives in the MemoryLayoutPropagation analysis;
+// this pass wires up its inputs, runs it per function, and applies the result
+// to the IR.
+//
+// Key inputs:
+//   - The ModuleOp IR; only functions identified as forward device functions
+//     are processed.
+//   - The worker grid queried from the system/device description.
+//   - A chain of analyses that build the space of legal per-op configurations:
+//     ScalarDataTypeAnalysis (scalar types in use), LegalTensorLayoutAnalysis
+//     (all legal layouts per tensor type), and per-op LegalOpLayoutAnalysis and
+//     LegalOpConfigAnalysis (legal OpConfigs, including Conv2d/Conv3d configs).
+//   - Pass options controlling the search and the candidate space:
+//     maxLegalLayouts, rowMajorEnabled, beamWidth, maxInputCandidatesPerOperand,
+//     maxReshardCandidatesPerType, enableL1ShardingLayouts, the
+//     overrideOutputLayout / overrideConv2dConfig / overrideConv3dConfig
+//     override maps, and the enableDecisionTrace / enableCompileTimeStats
+//     diagnostics toggles.
+//   - Backend op-model validation, which scores candidate layouts; the pass is
+//     only functional when built with TTMLIR_ENABLE_OPMODEL.
+//
+// Key outputs (all mutations of the module in place):
+//   - A final output layout assigned to each processed op, applied to the IR by
+//     the propagation analysis.
+//   - Reshard ops inserted on operand edges where a consumer's chosen input
+//     layout differs from the producer's output layout.
+//   - Default L1Full slice config applied to Conv2d ops prior to validation.
+//   - D2M subgraph function types re-synced to match dispatch operand types
+//     that changed as a result of reshard insertion.
+//   - Optionally, a decision-trace JSON per function or compile-time statistics
+//     at DEBUG level (the two are mutually exclusive; decision trace wins).
+
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
