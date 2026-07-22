@@ -410,7 +410,6 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
           command->fabric_connection_config()->dm_core() ==
               static_cast<uint32_t>(
                   kernelConfig->type_as_NocConfig()->processor())) {
-        std::cout << "fabricConfigArgs" << std::endl;
         auto fabricConfigArgs = common::appendFabricConfigArgs(
             command->fabric_connection_config(), kernelConfig, program, handle,
             deviceCoord, meshDevice, rtArgsVec, coreRangeSet);
