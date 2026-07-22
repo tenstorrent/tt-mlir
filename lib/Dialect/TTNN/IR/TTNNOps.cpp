@@ -3755,11 +3755,32 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateBuffers(
           ? static_cast<Type>(Float32Type::get(rewriter.getContext()))
           : static_cast<Type>(BFloat16Type::get(rewriter.getContext()));
 
-  // One tile (32x32) per device, width-sharded on core (0,0) in L1. The fused
-  // kernel hard-requires core (0,0), so spell the placement out explicitly
-  // rather than relying on canonical placement.
+  auto device = utils::getOrInsertDevice(rewriter, *this);
+
+  // The fused kernel averages E(x^2) across all devices on the cluster axis. It
+  // infers how many devices to average over from the stats buffer's last
+  // dimension: num_distributed_devices = stats.padded_shape()[-1] / TILE_WIDTH.
+  // The buffer must therefore hold one full 32-wide tile per device (last dim =
+  // numDevices * TILE_WIDTH) and be replicated across the mesh so every device
+  // sees the full width -- ttnn::empty on a mesh device replicates by default.
+  // Sizing the buffer to a single tile (last dim 32) would yield
+  // num_distributed_devices = 1, silently disabling cross-device averaging.
+  //
+  // Derive numDevices from the GetDeviceOp's mesh_shape, matching the fallback
+  // decomposition path. MeshShapeAttr stores (y, x); clusterAxis 0 = y-axis,
+  // 1 = x-axis.
+  MeshShapeAttr meshShapeAttr = device.getMeshShapeAttr();
+  assert(meshShapeAttr &&
+         "expected GetDeviceOp to have a mesh_shape attribute");
+  int64_t numDevices =
+      (getClusterAxis() == 0) ? meshShapeAttr.getY() : meshShapeAttr.getX();
+
+  // One tile (32x32) per device, all on a single core (0,0) in L1 and
+  // width-sharded with shard shape (32, numDevices * 32). The fused kernel
+  // hard-requires core (0,0), so spell the placement out explicitly rather
+  // than relying on canonical placement.
   MLIRContext *ctx = rewriter.getContext();
-  SmallVector<int64_t> statsShape = {1, 1, 32, 32};
+  SmallVector<int64_t> statsShape = {1, 1, 32, 32 * numDevices};
   SmallVector<int64_t> statsGridShape = {1, 1};
   CoreRangeSetAttr statsCoreRangeSet = CoreRangeSetAttr::get(
       ctx, CoreRangeAttr::get(ctx, CoreCoordAttr::get(ctx, 0, 0),
@@ -3777,8 +3798,6 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateBuffers(
 
   RankedTensorType statsResultType =
       RankedTensorType::get(statsShape, statsElementType, statsLayout);
-
-  auto device = utils::getOrInsertDevice(rewriter, *this);
 
   // Inserted right after GetDeviceOp so the EmptyOp sits in the block prelude.
   // TTNNTraceHoistTransform requires a contiguous block of hoistable ops, and
