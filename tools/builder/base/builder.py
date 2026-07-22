@@ -787,9 +787,15 @@ class Builder(metaclass=BuilderMeta):
             self._set_golden_tensor(operand, golden)
 
     def _snapshot_input_goldens(self, operands: List[Operand]):
-        # Capture the golden of each function input as it is bound, before any
-        # in-place op has a chance to overwrite it. Idempotent so it is safe to
-        # call once per function per input.
+        # Capture the current golden of each operand so it can still be reported
+        # as the function's input golden after an in-place op overwrites it. This
+        # is called by in-place op handlers immediately before they mutate the
+        # operand's golden, so it records the pre-mutation value (which already
+        # reflects any explicit input-golden assignment made before the op).
+        # Idempotent: the first capture wins, so repeated in-place writes to the
+        # same operand keep reporting the original input. Operands that are never
+        # mutated in place are never snapshotted; golden_map then falls back to
+        # their live golden, so explicit input overrides are honored unchanged.
         for operand in operands:
             if operand not in self._input_golden_snapshot and operand in self._goldens:
                 self._input_golden_snapshot[operand] = self._goldens[operand]
@@ -1046,8 +1052,6 @@ class Builder(metaclass=BuilderMeta):
 
                 self._set_goldens(input_goldens)
                 ordered_inputs.extend(inputs)
-                self._snapshot_input_goldens(inputs)
-
                 result = nested_func(*inputs, self)
 
                 outputs = result if hasattr(result, "__iter__") else [result]
@@ -1368,8 +1372,6 @@ class Builder(metaclass=BuilderMeta):
             ] = self._create_builder_golden_from_torch_tensor(golden_dict)
             self._set_goldens(input_goldens)
             ordered_inputs.extend(inputs)
-            self._snapshot_input_goldens(inputs)
-
             global_dict = {}
             for i, arg in enumerate(parsed_func.arguments):
                 global_dict[arg] = inputs[i]
@@ -1453,8 +1455,6 @@ class Builder(metaclass=BuilderMeta):
 
             self._set_goldens(input_goldens)
             ordered_inputs.extend(inputs)
-            self._snapshot_input_goldens(inputs)
-
             global_dict = {}
             for i, arg in enumerate(parsed_func.arguments):
                 global_dict[arg] = inputs[i]
@@ -1704,8 +1704,6 @@ class Builder(metaclass=BuilderMeta):
                     )
                 self._set_goldens(input_goldens)
                 ordered_inputs.extend(inputs)
-                self._snapshot_input_goldens(inputs)
-
                 result = fn(*inputs, self)
 
                 outputs = result if hasattr(result, "__iter__") else [result]
