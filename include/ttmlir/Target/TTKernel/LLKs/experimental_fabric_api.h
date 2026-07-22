@@ -389,7 +389,7 @@ get_fabric_noc_addr_from_bank_id(uint32_t bank_id, uint32_t bank_address_offset)
     // A little less efficient, but:
     // a) cleaner
     // b) less blast-radius (more incremental change)
-    // c) compiler may see the redundant transformation after inlinine
+    // c) compiler may see the redundant transformation after inlining
     auto noc_address_components = get_noc_address_components(noc_address);
     auto noc_addr = safe_get_noc_addr(
         noc_address_components.first.x,
