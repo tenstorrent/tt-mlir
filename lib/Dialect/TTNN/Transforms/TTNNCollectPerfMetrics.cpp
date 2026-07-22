@@ -651,9 +651,9 @@ uint64_t sdpaFlops(Value query, Value key, Value value, bool isCausal,
     return 0;
   }
   auto qShape = qType.getShape();
-  return sdpaFlopsFromDims(qShape[0], qShape[1], qShape[2],
-                           kType.getShape()[2], qShape[3],
-                           vType.getShape()[3], isCausal, slidingWindowSize);
+  return sdpaFlopsFromDims(qShape[0], qShape[1], qShape[2], kType.getShape()[2],
+                           qShape[3], vType.getShape()[3], isCausal,
+                           slidingWindowSize);
 }
 
 // Flash MLA prefill FLOPs. Q is [B, Hq, Sq, Dk], K is [B, Hkv, Sk, Dk]; V is
@@ -669,8 +669,8 @@ uint64_t flashMlaPrefillFlops(Value query, Value key, int64_t headDimV,
     return 0;
   }
   auto qShape = qType.getShape();
-  return sdpaFlopsFromDims(qShape[0], qShape[1], qShape[2],
-                           kType.getShape()[2], qShape[3], headDimV, isCausal,
+  return sdpaFlopsFromDims(qShape[0], qShape[1], qShape[2], kType.getShape()[2],
+                           qShape[3], headDimV, isCausal,
                            /*slidingWindowSize=*/std::nullopt);
 }
 
@@ -687,61 +687,61 @@ uint64_t flashMlaPrefillFlops(Value query, Value key, int64_t headDimV,
 std::pair<StringRef, uint64_t> classifyOpFlops(Operation *op) {
   using Pair = std::pair<StringRef, uint64_t>;
   return llvm::TypeSwitch<Operation *, Pair>(op)
-          .Case<MatmulOp, LinearOp>([](auto m) -> Pair {
-            return {"matmul",
-                    matmulFlops(m.getA(), m.getResult(), m.getTransposeA())};
+      .Case<MatmulOp, LinearOp>([](auto m) -> Pair {
+        return {"matmul",
+                matmulFlops(m.getA(), m.getResult(), m.getTransposeA())};
+      })
+      .Case<SparseMatmulOp>([](SparseMatmulOp m) -> Pair {
+        // Dense-equivalent 2*M*K*N over all E expert blocks (no transpose
+        // on this op). The block dim E is result[-3]; only `nnz` of those
+        // blocks actually participate, so scale the count down when nnz is
+        // known. matmulFlops's batch product already includes the E factor,
+        // and it divides evenly, so `/ E * nnz` stays exact.
+        uint64_t flops =
+            matmulFlops(m.getA(), m.getResult(), /*transposeA=*/false);
+        ArrayRef<int64_t> rShape =
+            mlir::cast<RankedTensorType>(m.getResult().getType()).getShape();
+        if (auto nnz = m.getNnz(); nnz.has_value() && rShape.size() >= 3) {
+          int64_t E = rShape[rShape.size() - 3];
+          if (E > 0) {
+            flops =
+                flops / static_cast<uint64_t>(E) * static_cast<uint64_t>(*nnz);
+          }
+        }
+        return {"matmul", flops};
+      })
+      .Case<Conv2dOp, Conv3dOp, ConvTranspose2dOp>([](auto c) -> Pair {
+        // kernel_size is a DenseI32Array on 2d/3d/transpose convs.
+        uint64_t kernelProduct = 1;
+        for (int32_t k : c.getKernelSize()) {
+          kernelProduct *= static_cast<uint64_t>(k);
+        }
+        return {"conv", convFlopsFromAttrs(c.getInChannels(), c.getGroups(),
+                                           kernelProduct, c.getResult())};
+      })
+      .Case<Conv1dOp>([](Conv1dOp c) -> Pair {
+        // conv1d's kernel_size is a scalar i32.
+        return {"conv",
+                convFlopsFromAttrs(c.getInChannels(), c.getGroups(),
+                                   static_cast<uint64_t>(c.getKernelSize()),
+                                   c.getResult())};
+      })
+      .Case<ScaledDotProductAttentionOp>(
+          [](ScaledDotProductAttentionOp m) -> Pair {
+            return {"sdpa",
+                    sdpaFlops(m.getQuery(), m.getKey(), m.getValue(),
+                              m.getIsCausal(), m.getSlidingWindowSize())};
           })
-          .Case<SparseMatmulOp>([](SparseMatmulOp m) -> Pair {
-            // Dense-equivalent 2*M*K*N over all E expert blocks (no transpose
-            // on this op). The block dim E is result[-3]; only `nnz` of those
-            // blocks actually participate, so scale the count down when nnz is
-            // known. matmulFlops's batch product already includes the E factor,
-            // and it divides evenly, so `/ E * nnz` stays exact.
-            uint64_t flops =
-                matmulFlops(m.getA(), m.getResult(), /*transposeA=*/false);
-            ArrayRef<int64_t> rShape =
-                mlir::cast<RankedTensorType>(m.getResult().getType()).getShape();
-            if (auto nnz = m.getNnz(); nnz.has_value() && rShape.size() >= 3) {
-              int64_t E = rShape[rShape.size() - 3];
-              if (E > 0) {
-                flops = flops / static_cast<uint64_t>(E) *
-                        static_cast<uint64_t>(*nnz);
-              }
-            }
-            return {"matmul", flops};
-          })
-          .Case<Conv2dOp, Conv3dOp, ConvTranspose2dOp>([](auto c) -> Pair {
-            // kernel_size is a DenseI32Array on 2d/3d/transpose convs.
-            uint64_t kernelProduct = 1;
-            for (int32_t k : c.getKernelSize()) {
-              kernelProduct *= static_cast<uint64_t>(k);
-            }
-            return {"conv", convFlopsFromAttrs(c.getInChannels(), c.getGroups(),
-                                               kernelProduct, c.getResult())};
-          })
-          .Case<Conv1dOp>([](Conv1dOp c) -> Pair {
-            // conv1d's kernel_size is a scalar i32.
-            return {"conv",
-                    convFlopsFromAttrs(c.getInChannels(), c.getGroups(),
-                                       static_cast<uint64_t>(c.getKernelSize()),
-                                       c.getResult())};
-          })
-          .Case<ScaledDotProductAttentionOp>(
-              [](ScaledDotProductAttentionOp m) -> Pair {
-                return {"sdpa",
-                        sdpaFlops(m.getQuery(), m.getKey(), m.getValue(),
-                                  m.getIsCausal(), m.getSlidingWindowSize())};
-              })
-          .Case<FlashMlaPrefillOp>([](FlashMlaPrefillOp m) -> Pair {
-            return {"sdpa", flashMlaPrefillFlops(
-                                m.getQuery(), m.getKey(),
-                                static_cast<int64_t>(m.getHeadDimV()),
-                                m.getIsCausal())};
-          })
-          // Chunked/paged prefill and the decode SDPA variants read K/V from a
-          // paged cache whose logical key length is a runtime value, so their
-          // FLOPs can't be derived from the static shapes; left unaccounted.
-          .Default([](Operation *) -> Pair { return {"other", 0}; });
+      .Case<FlashMlaPrefillOp>([](FlashMlaPrefillOp m) -> Pair {
+        return {"sdpa",
+                flashMlaPrefillFlops(m.getQuery(), m.getKey(),
+                                     static_cast<int64_t>(m.getHeadDimV()),
+                                     m.getIsCausal())};
+      })
+      // Chunked/paged prefill and the decode SDPA variants read K/V from a
+      // paged cache whose logical key length is a runtime value, so their
+      // FLOPs can't be derived from the static shapes; left unaccounted.
+      .Default([](Operation *) -> Pair { return {"other", 0}; });
 }
 
 // One accounted op: its logical FLOPs plus a secondary per-op roofline.
@@ -986,8 +986,9 @@ private:
       // hardcoded HiFi4 math fidelity (see lib/Dialect/TTNN/Analysis/OpRules/
       // MatmulRules.cpp - "the slowest kernel path"). Assuming the faster HiFi2
       // here would halve ideal_compute and overstate the effective peak,
-      // understating MFU ~2x. (This is the FLOP report's own default; the legacy
-      // roofline keeps its separate, conservative t.defaultMathFidelity.)
+      // understating MFU ~2x. (This is the FLOP report's own default; the
+      // legacy roofline keeps its separate, conservative
+      // t.defaultMathFidelity.)
       rec.mathFidelity = MathFidelity::HiFi4;
       if (auto ckc = mlir::dyn_cast<TTNNComputeKernelConfigOpInterface>(op)) {
         if (auto cfg = ckc.getComputeConfigAttr()) {
