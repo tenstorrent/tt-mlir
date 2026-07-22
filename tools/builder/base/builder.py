@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 import inspect
-from typing import List, Optional, Union, Tuple, Callable, Dict, Any
+from typing import List, Optional, Union, Tuple, Callable, Dict, Any, Iterable
 import torch
 from enum import Enum, auto
 import re
@@ -296,6 +296,8 @@ class Builder(metaclass=BuilderMeta):
     ):
         self._set_goldens(self._create_builder_golden_from_torch_tensor(inputs))
 
+        self._refresh_input_snapshot(inputs.keys())
+
         if outputs != None:
             self._set_goldens(self._create_builder_golden_from_torch_tensor(outputs))
             if set_all_outputs:
@@ -307,6 +309,7 @@ class Builder(metaclass=BuilderMeta):
         outputs: Dict[Operand, GoldenMapTensor] = None,
     ):
         self._set_goldens(inputs)
+        self._refresh_input_snapshot(inputs.keys())
 
         if outputs != None:
             self.set_goldens_to_check(outputs.keys())
@@ -792,6 +795,13 @@ class Builder(metaclass=BuilderMeta):
         # call once per function per input.
         for operand in operands:
             if operand not in self._input_golden_snapshot and operand in self._goldens:
+                self._input_golden_snapshot[operand] = self._goldens[operand]
+
+    def _refresh_input_snapshot(self, operands: Iterable[Operand]):
+        # Re-sync the bind-time input snapshot after an explicit golden
+        # (re)assignment.
+        for operand in operands:
+            if operand in self._input_golden_snapshot and operand in self._goldens:
                 self._input_golden_snapshot[operand] = self._goldens[operand]
 
     def _get_golden_tensor(

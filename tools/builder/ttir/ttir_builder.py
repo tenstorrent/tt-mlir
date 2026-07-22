@@ -13424,7 +13424,7 @@ class TTIRBuilder(Builder):
             input_update,
             input_index,
             batch_offset_attr,
-            self.get_type(cache).element_type,
+            self.get_type(cache),
         )
         # In-place op: the cache operand now holds the mutated values.
         self._set_golden_tensor(cache, golden_output)
@@ -13606,7 +13606,7 @@ class TTIRBuilder(Builder):
             index_golden,
             share_cache_attr,
             pt_golden,
-            self.get_type(cache).element_type,
+            self.get_type(cache),
         )
         # In-place op: the cache operand now holds the mutated values.
         self._set_golden_tensor(cache, golden_output)
@@ -13804,7 +13804,7 @@ class TTIRBuilder(Builder):
             input_golden,
             pt_golden,
             batch_idx_golden,
-            self.get_type(cache).element_type,
+            self.get_type(cache),
         )
         # In-place op: the cache operand now holds the mutated values.
         self._set_golden_tensor(cache, golden_output)
