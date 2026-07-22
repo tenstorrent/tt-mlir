@@ -69,24 +69,79 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   int64_t tileWidth = 32;
   int64_t numWidthTiles = (inputShape.back() + tileWidth - 1) / tileWidth;
 
-  // Retrieve the physical grid shape for the device.
-  auto physicalGrid =
-      ttcore::getCurrentScopeSystemDesc(op).getChipDescs()[0].getGrid();
-  int64_t maxCores =
-      physicalGrid[0] * physicalGrid[1]; // total cores in physical grid
+  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op.getOperation());
 
-  // Pick the largest core count that evenly divides numWidthTiles,
-  // capped by the physical grid size.
-  int64_t numCores = 1;
-  for (int64_t c = std::min(maxCores, numWidthTiles); c >= 1; --c) {
-    if (numWidthTiles % c == 0) {
-      numCores = c;
-      break;
+  // Retrieve the physical worker grid ([H, W]) for the device. We use the
+  // worker grid (not the raw chip grid) because that is what canonical core
+  // placement and the runtime use, so the core-count choice and the actual
+  // placement stay consistent.
+  llvm::ArrayRef<int64_t> workerGridShape =
+      deviceAttr.getWorkerGrid().getShape();
+  int64_t physGridH = workerGridShape[0];
+  int64_t physGridW = workerGridShape[1];
+  int64_t maxCores = physGridH * physGridW;
+
+  // Choose the core grid for the width-sharded input.
+  //
+  // #5738 root cause: the fused rms_allgather kernel multicasts and reduces
+  // stats across the *bounding-box rectangle* of the shard cores
+  // (num_mcast_dests = grid_w * grid_h; see tt-metal
+  // rms_allgather_program_factory.cpp). If the shard cores do not exactly fill
+  // that rectangle, the extra "phantom" cores in the bounding box hold
+  // uninitialized L1 yet still participate in the reduction -> the norm reads
+  // uninitialized memory and the whole decode explodes into NaN/1e36 garbage.
+  //
+  // The previous logic picked the largest core count dividing numWidthTiles
+  // and relied on canonical row-major placement, which wraps at the physical
+  // grid *width*. The failure is the wrapping, not the core count: for a 70B
+  // decode norm numWidthTiles = 4096/32 = 128, so the count is 64. On Wormhole
+  // (8x8 worker grid) 64 shards wrap at width 8 into a perfect 8x8 rectangle,
+  // so it happened to work. On Blackhole (11x10 worker grid) 64 shards wrap at
+  // width 11 into 5 full rows (55 cores) + 9 cores, a non-rectangular set whose
+  // bounding box is 11x6 = 66 cores with 2 phantom cores at (9,5) and (10,5)
+  // -> uninitialized read. (64 itself fits fine as a rectangle in 11x10; only
+  // the row-major-at-full-width placement makes it non-rectangular.)
+  //
+  // To be correct on every architecture we pick a *rectangular* core grid
+  // (gridW x gridH) that (a) fits in the physical worker grid, (b) has a core
+  // count dividing numWidthTiles (so the width shards evenly), and (c)
+  // maximizes the core count for throughput, then place it explicitly. The
+  // shard cores then exactly fill their bounding box, so there are no phantom
+  // cores. On Blackhole this yields 8x8 = 64 cores (same count as before, just
+  // rectangular -> no throughput loss); on Wormhole it is unchanged at 8x8.
+  int64_t rectW = 1, rectH = 1, numCores = 1;
+  for (int64_t h = 1; h <= physGridH; ++h) {
+    for (int64_t w = 1; w <= physGridW; ++w) {
+      int64_t cores = w * h;
+      if (cores > maxCores || cores > numWidthTiles) {
+        continue;
+      }
+      if (numWidthTiles % cores != 0) {
+        continue;
+      }
+      if (cores > numCores) {
+        numCores = cores;
+        rectW = w;
+        rectH = h;
+      }
     }
   }
-  SmallVector<int64_t> virtualGridSize = {1, numCores};
 
-  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op.getOperation());
+  // Width-sharded layouts use a [1, numCores] virtual grid; the physical
+  // placement is an explicit gridW x gridH rectangle at the origin so the
+  // shard cores fill their bounding box exactly (no phantom cores). We set the
+  // CoreRangeSet explicitly instead of using canonical row-major placement,
+  // which would wrap at the physical grid width and re-introduce a
+  // non-rectangular layout for core counts that are not a multiple of the
+  // grid width.
+  SmallVector<int64_t> virtualGridSize = {1, numCores};
+  ttnn::CoreRangeSetAttr shardCoreRangeSet = ttnn::CoreRangeSetAttr::get(
+      rewriter.getContext(),
+      ttnn::CoreRangeAttr::get(
+          rewriter.getContext(),
+          ttnn::CoreCoordAttr::get(rewriter.getContext(), 0, 0),
+          ttnn::CoreCoordAttr::get(rewriter.getContext(), rectW - 1,
+                                   rectH - 1)));
 
   // Create layout attribute for the input tensor with width-sharded L1 config.
   ttnn::TTNNLayoutAttr desiredInputLayout =
@@ -95,7 +150,8 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
           .setBufferType(ttnn::BufferType::L1)
           .setMemoryLayout(ttnn::TensorMemoryLayout::WidthSharded)
           .setGridShape(virtualGridSize)
-          .buildWithCanonicalCorePlacement(deviceAttr);
+          .setCoreRangeSet(shardCoreRangeSet)
+          .build();
 
   if (currentInputLayout == desiredInputLayout) {
     return failure();
