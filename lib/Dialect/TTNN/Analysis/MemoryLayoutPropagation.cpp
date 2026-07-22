@@ -1485,14 +1485,17 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
     }
   }
 
-  // Take the producer's layout and apply the reshard target's buffer type,
-  // memory layout, grid, and page layout (element type). Tracking the element
-  // type is what lets a tile -> row-major sibling reshard materialize.
+  // Derive the reshard element type from the PRODUCER's dtype, not the target's:
+  // a reshard is a pure memory move and must not change dtype, else it yields a
+  // tensor whose element dtype disagrees with its encoding (e.g. a bfp8 value
+  // under a bf16 target layout). Taking only the target's page layout still lets
+  // a tile -> row-major sibling reshard materialize; a real dtype change is a
+  // separate typecast.
   TTNNLayoutAttr producerLayout =
       utils::getLayoutAttrFromTensor(producerTensorType);
   Type reshardElementType = ttnn::utils::getElementType(
       reshardLayout.getContext(), reshardLayout.getLayout(),
-      reshardLayout.getDataType());
+      producerLayout.getDataType());
   TTNNLayoutAttr outputLayout =
       TTNNLayoutAttr::Builder(producerLayout, producerTensorType.getShape())
           .setBufferType(reshardLayout.getBufferType())

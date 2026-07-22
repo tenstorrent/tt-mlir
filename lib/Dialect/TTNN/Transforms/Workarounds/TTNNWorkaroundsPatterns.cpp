@@ -583,7 +583,11 @@ const std::set<mlir::StringRef>
         ttnn::AllToAllCombineOp::getOperationName(),
         ttnn::MoeExpertTokenRemapOp::getOperationName(),
         ttnn::SparseMatmulOp::getOperationName(),
-        // ArgMax is intentionally absent: at opt-level >= 1 ArgMaxRuleBook's
-        // RowMajor input siblings supply its ROW_MAJOR input (tt-metal #46340).
+        // ArgMax needs its operand workaround at opt-level >= 1 for the OUTPUT
+        // reconcile: the kernel emits UInt32 and the workaround casts the result
+        // back to the IR's expected index dtype. ArgMaxRuleBook only supplies the
+        // ROW_MAJOR input (tt-metal #46340), not this output cast; without it the
+        // argmax result stays UInt32 and mismatches an si32 graph output.
+        ttnn::ArgMaxOp::getOperationName(),
 };
 } // namespace mlir::tt::ttnn
