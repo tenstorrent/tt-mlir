@@ -3811,7 +3811,7 @@ createMeshProgramDescriptor(FlatbufferObjectCache &cache,
   ttcore::FabricConnectionConfigAttr fabricConnectionConfigAttr =
       meshProgramDescAttr.getFabricConnectionConfig();
   auto fabricConnectionConfig = ::tt::target::CreateFabricConnectionConfig(
-      *cache.fbb, toFlatbuffer(cache, fabricConnectionConfigAttr.getNocIndex()),
+      *cache.fbb, fabricConnectionConfigAttr.getDmCoreIndex(),
       toFlatbuffer(cache, fabricConnectionConfigAttr.getTopology()),
       fabricConnectionConfigAttr.getClusterAxis(),
       toFlatbuffer(cache, fabricConnectionConfigAttr.getRoutingMode()),

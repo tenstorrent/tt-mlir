@@ -23,6 +23,12 @@
 
 namespace mlir::tt::d2m {
 
+// ThreadType / ThreadAttr were hoisted into the TTCore dialect (mnemonic
+// `#ttcore.thread`) so lower layers can query the assigned DM core without
+// depending on D2M. These aliases keep existing d2m::Thread* references valid.
+using ttcore::ThreadAttr;
+using ttcore::ThreadType;
+
 struct ParallelizedGeneric;
 
 inline void getDpsEffects(

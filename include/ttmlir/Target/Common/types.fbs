@@ -211,7 +211,7 @@ enum RoutingMode : ushort {
 }
 
 table FabricConnectionConfig {
-  noc_index: NocIndex;
+  dm_core: uint32;
   topology: Topology;
   cluster_axis: uint32;
   routing_mode: RoutingMode;

@@ -53,19 +53,8 @@ def D2M_TileBcastType : I32EnumAttr<"TileBcastType", "D2M TileBcastType", [
   let cppNamespace = "::mlir::tt::d2m";
 }
 
-// D2M ThreadType mirrors D2M thread type and is used by D2M_ThreadAttr
-def D2M_ThreadTypeCompute : I32EnumAttrCase<"Compute", 0, "compute">;
-def D2M_ThreadTypeDatamovement : I32EnumAttrCase<"Datamovement", 1, "datamovement">;
-def D2M_ThreadTypeUnified : I32EnumAttrCase<"Unified", 2, "unified">;
-
-def D2M_ThreadType : I32EnumAttr<"ThreadType", "D2M ThreadType", [
-                                  D2M_ThreadTypeCompute,
-                                  D2M_ThreadTypeDatamovement,
-                                  D2M_ThreadTypeUnified,
-                                ]> {
-  let genSpecializedAttr = 1;
-  let cppNamespace = "::mlir::tt::d2m";
-}
+// NOTE: ThreadType moved to the TTCore dialect (TTCore_ThreadType). See
+// D2MOpsAttrs.td for rationale.
 
 // D2M DMAType classifies the type of DMA transaction for barrier lowering.
 def D2M_DMAReadType       : I32EnumAttrCase<"Read",       0, "read">;
