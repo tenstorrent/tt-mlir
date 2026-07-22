@@ -237,6 +237,23 @@ public:
             continue;
           }
 
+          // A ttnn.point_to_point optional_output_tensor aliases its result
+          // (the op writes the received data into the caller-provided buffer and
+          // returns that same buffer). Skip deallocating the value here; the
+          // aliasing result carries the correct, later deallocation. Without
+          // this, the buffer is freed immediately after the point_to_point op
+          // even though the (aliasing) result is still live -- e.g. in the
+          // multi-hop all_to_all reshard emitted for 2D-mesh decode -- causing a
+          // premature free / double free and garbage reads (issue #5738).
+          bool feedsPointToPointOptionalOutput =
+              llvm::any_of(result.getUsers(), [&](Operation *user) {
+                auto p2pOp = dyn_cast<ttnn::PointToPointOp>(user);
+                return p2pOp && p2pOp.getOptionalOutputTensor() == result;
+              });
+          if (feedsPointToPointOptionalOutput) {
+            continue;
+          }
+
           Operation *lastOp = getLastValueUsageOp(livenessInfo, result);
           valuesToDeallocate.push_back({result, lastOp});
         }

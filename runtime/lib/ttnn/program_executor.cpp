@@ -4,11 +4,13 @@
 
 #include "tt/runtime/detail/ttnn/program_executor.h"
 
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 #include <cstdlib>
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include "tt/runtime/runtime.h"
 
 #include <tt-metalium/distributed.hpp>
-#endif
 
 #include "operations/cache/load_cached.h"
 #include "operations/ccl/aggregate_tensor.h"
@@ -235,6 +237,55 @@ void ProgramExecutor::execute() {
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     syncAfterOpIfNeeded();
 #endif
+
+    // [#5738 debug] env-gated per-op output magnitude dump.
+    if (std::getenv("TTXLA_OP_DUMP")) {
+      // Synchronize so the read reflects the completed op (avoid async races).
+      ::tt::tt_metal::distributed::Synchronize(&context->getMeshDevice(),
+                                               std::nullopt);
+      std::shared_ptr<void> pcp =
+          ::tt::runtime::utils::unsafeBorrowShared(context.get());
+      std::shared_ptr<void> ocp = ::tt::runtime::utils::unsafeBorrowShared(
+          const_cast<::tt::target::ttnn::Operation *>(op));
+      auto perDev = ::tt::runtime::ttnn::getOpOutputTensor(
+          OpContext(ocp, DeviceRuntime::TTNN),
+          CallbackContext(pcp, DeviceRuntime::TTNN));
+      double maxAbs = 0.0;
+      bool bad = false;
+      unsigned long long n = 0;
+      for (auto &kv : perDev) {
+        ::tt::runtime::Tensor t = kv.second;
+        auto dt = ::tt::runtime::getTensorDataType(t);
+        std::vector<std::byte> buf = ::tt::runtime::getTensorDataBuffer(t);
+        unsigned long long vol = ::tt::runtime::getTensorVolume(t);
+        n += vol;
+        if (dt == ::tt::target::DataType::BFloat16) {
+          const uint16_t *p = reinterpret_cast<const uint16_t *>(buf.data());
+          for (unsigned long long i = 0; i < vol; i++) {
+            uint32_t u = static_cast<uint32_t>(p[i]) << 16;
+            float f;
+            std::memcpy(&f, &u, 4);
+            if (std::isnan(f) || std::isinf(f)) bad = true;
+            double a = std::fabs(static_cast<double>(f));
+            if (a > maxAbs) maxAbs = a;
+          }
+        } else if (dt == ::tt::target::DataType::Float32) {
+          const float *p = reinterpret_cast<const float *>(buf.data());
+          for (unsigned long long i = 0; i < vol; i++) {
+            float f = p[i];
+            if (std::isnan(f) || std::isinf(f)) bad = true;
+            double a = std::fabs(static_cast<double>(f));
+            if (a > maxAbs) maxAbs = a;
+          }
+        }
+      }
+      if (!perDev.empty()) {
+        std::fprintf(stderr,
+                     "[OPDUMP] prog=%s %-40s | maxabs=%.4g naninf=%d ndev=%zu vol=%llu\n",
+                     program->name()->c_str(), op->loc_info()->c_str(), maxAbs,
+                     (int)bad, perDev.size(), n);
+      }
+    }
 
     runOpCallback(debug::Hooks::get().getPostOperatorCallback(),
                   executableHandle, op, context.get());
