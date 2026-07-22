@@ -94,32 +94,39 @@ def load_tensor(file_path: str, layout, dtype, device, memory_config) -> ttnn.Te
 # CPU-hoisted segments are barrier-free local compute, so each device's shard is
 # computed independently on the host and the per-shard results are reassembled
 # into a multi-device tensor.
-def execute_cpu_hoisted_function(inputs, function):
+def execute_cpu_hoisted_function(inputs, function, mesh_shape=None):
     """Run a pure-torch CPU-hoisted body shard-by-shard over a mesh.
 
-    inputs:   list of ttnn.Tensor operands (device-resident, possibly sharded).
-    function: pure-torch callable mapping torch tensors -> torch tensor(s).
+    inputs:     list of ttnn.Tensor operands (device-resident, possibly sharded).
+    function:   pure-torch callable mapping torch tensors -> torch tensor(s).
+    mesh_shape: the device mesh grid (e.g. (4, 8)), or None. The compiler bakes
+                it in the target-module path, where the DeviceGetter singleton is
+                not populated. When None, try reading it from the DeviceGetter singleton
+                if available (the standalone path populates it by opening its own
+                device). Otherwise, None means single-chip.
     Returns a single ttnn.Tensor, or a tuple of them for multi-output bodies.
     """
 
     def _wrap_outputs(result):
         return result if isinstance(result, (list, tuple)) else (result,)
 
-    # The mesh device comes from the program context (the DeviceGetter
-    # singleton), not from the inputs: CPU-hoisted inputs have already been
-    # brought to host by the device program, so their .device() is None. This
-    # mirrors how the runtime obtains the mesh device from the ProgramContext.
-    mesh_device = DeviceGetter._instance
+    # Recover the mesh grid when the compiler did not bake it in: the standalone
+    # path opens its own device via the DeviceGetter singleton (which may be
+    # multi-device), so read the mesh from there.
+    if mesh_shape is None and DeviceGetter._instance is not None:
+        mesh_shape = DeviceGetter._instance.shape
 
-    # No mesh context: run the body once on the host and return host tensor(s).
-    if mesh_device is None:
+    # No mesh (single-chip): run the body once on the host.
+    if mesh_shape is None:
         torch_inputs = [ttnn.to_torch(tensor) for tensor in inputs]
         outputs = _wrap_outputs(function(*torch_inputs))
         host_outputs = [ttnn.from_torch(out) for out in outputs]
         return host_outputs[0] if len(host_outputs) == 1 else tuple(host_outputs)
 
-    mesh_shape = mesh_device.shape
-    num_shards = mesh_device.get_num_devices()
+    # Multi-chip: run the body shard-by-shard over the mesh.
+    mesh_dims = list(mesh_shape)
+    num_shards = math.prod(mesh_dims)
+    mesh_shape = ttnn.MeshShape(mesh_dims)
 
     # Split each input into per-device torch shards. get_device_tensors returns
     # one shard per device for a sharded tensor, or a single shard for an

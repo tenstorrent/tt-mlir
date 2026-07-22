@@ -643,6 +643,8 @@ void createTTNNCommonToEmitCPipeline(
 //
 void createTTNNCommonToEmitPyPipeline(
     OpPassManager &pm, const TTNNCommonToEmitPyPipelineOptions &options) {
+  pm.addPass(mlir::tt::createCaptureMeshShapePass());
+
   auto &devicePm = pm.nest<ttcore::DeviceModuleOp>().nest<mlir::ModuleOp>();
 
   devicePm.addPass(createTTNNAdjustDeallocs());

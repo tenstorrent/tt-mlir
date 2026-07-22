@@ -22,6 +22,7 @@
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyAttrs.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyOps.h"
 #include "ttmlir/Dialect/EmitPy/IR/EmitPyTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/FunctionTypes.h"
 
@@ -1019,6 +1020,19 @@ public:
   }
 };
 
+// Formats a 2-D mesh-shape attribute as a Python tuple literal, e.g. "(4, 8)".
+static std::string formatMeshShapeTuple(ArrayAttr meshShapeAttr) {
+  assert(meshShapeAttr.size() == 2 && "expected a 2-D device mesh shape");
+  std::string literal;
+  llvm::raw_string_ostream os(literal);
+  os << "(";
+  llvm::interleaveComma(meshShapeAttr, os, [&](Attribute dim) {
+    os << mlir::cast<IntegerAttr>(dim).getInt();
+  });
+  os << ")";
+  return literal;
+}
+
 // Wraps each in-place-lowered (now torch-typed) CPU-hoisted function in a
 // ttnn-typed wrapper that defers to utils.execute_cpu_hoisted_function, with
 // the torch body emitted as a nested `<name>_impl` def. Given
@@ -1095,6 +1109,19 @@ static void wrapAndNest(ModuleOp module) {
                                     emitpy::OpaqueAttr::get(ctx, implName)};
     SmallVector<Attribute> callKwargs{StringAttr::get(ctx, ""),
                                       StringAttr::get(ctx, "")};
+    // The mesh shape (stamped by CaptureMeshShape) is passed so the helper can
+    // split/reassemble multi-device tensors. This is required in the
+    // module-export path, where the device is provided by the caller (the host
+    // program the module is linked into, e.g. tt-xla) as an injected argument
+    // and `ttnn.get_device` is stripped, so the DeviceGetter singleton in
+    // utils.py is never populated and the mesh cannot be recovered at runtime.
+    // Absent only for single-chip.
+    if (auto meshShapeAttr =
+            impl->getAttrOfType<ArrayAttr>(ttcore::g_deviceMeshShapeAttrName)) {
+      callArgs.push_back(
+          emitpy::OpaqueAttr::get(ctx, formatMeshShapeTuple(meshShapeAttr)));
+      callKwargs.push_back(StringAttr::get(ctx, "mesh_shape"));
+    }
     auto callOp = builder.create<emitpy::CallOpaqueOp>(
         impl.getLoc(), SmallVector<Type>(numResults, ttnnType),
         "utils.execute_cpu_hoisted_function", callOperands,
