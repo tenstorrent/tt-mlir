@@ -24,6 +24,9 @@ constexpr inline llvm::StringLiteral g_originalActivationNamesAttrName =
 constexpr inline llvm::StringLiteral g_originalWeightNamesAttrName =
     "ttcore.original_weight_names";
 
+constexpr inline llvm::StringLiteral g_deviceMeshShapeAttrName =
+    "ttcore.device_mesh_shape";
+
 class DeviceOp;
 class DeviceAttr;
 class SystemDescAttr;

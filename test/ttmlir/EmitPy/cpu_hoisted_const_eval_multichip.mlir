@@ -19,9 +19,10 @@
 // CHECK-DAG: ttir_cpu.add(
 // CHECK-DAG: ttir_cpu.subtract(
 
-// Each hoisted segment defers to the shard-by-shard helper, passing its body.
-// CHECK-DAG: utils.execute_cpu_hoisted_function({{.*}}, cpu_hoisted_const_eval_{{.*}}_impl)
-// CHECK-DAG: utils.execute_cpu_hoisted_function({{.*}}, cpu_hoisted_const_eval_{{.*}}_impl)
+// Each hoisted segment defers to the shard-by-shard helper, passing its body
+// and the device mesh shape.
+// CHECK-DAG: utils.execute_cpu_hoisted_function({{.*}}, cpu_hoisted_const_eval_{{.*}}_impl, mesh_shape=(1, 2))
+// CHECK-DAG: utils.execute_cpu_hoisted_function({{.*}}, cpu_hoisted_const_eval_{{.*}}_impl, mesh_shape=(1, 2))
 
 // The device-side const-eval function calls the first segment, performs the
 // all_gather on device, brings the result to host, then calls the second
