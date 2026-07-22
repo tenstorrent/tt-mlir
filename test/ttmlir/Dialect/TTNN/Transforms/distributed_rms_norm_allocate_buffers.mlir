@@ -13,8 +13,12 @@ module @test_allocate_buffers attributes {} {
     // CHECK: #[[STATS_LAYOUT:.+]] = #ttnn.ttnn_layout{{.*}}tile<32x32, f32>{{.*}}<width_sharded>
     // CHECK-LABEL: func.func public @test_allocates_stats_buffer
     // CHECK: %[[DEV:.+]] = "ttnn.get_device"
+    // The stats buffer holds one 32-wide tile per device on the cluster axis
+    // (mesh_shape 1x2, cluster_axis 1 -> 2 devices -> last dim 2*32 = 64), so
+    // the fused kernel averages E(x^2) over all devices rather than a single
+    // one (num_distributed_devices = padded_shape[-1] / 32).
     // CHECK: %[[STATS:.+]] = "ttnn.empty"
-    // CHECK-SAME: tensor<1x1x32x32xf32, #[[STATS_LAYOUT]]>
+    // CHECK-SAME: tensor<1x1x32x64xf32, #[[STATS_LAYOUT]]>
     // CHECK: "ttnn.distributed_rms_norm"
     // CHECK-SAME: %[[STATS]]
     // CHECK-SAME: operandSegmentSizes = array<i32: 1, 1, 0, 1, 0, 1>
