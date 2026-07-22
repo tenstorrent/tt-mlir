@@ -624,9 +624,11 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
       over the matrix-engine (GEMM-class) ops only: matmul/linear/sparse_matmul,
       conv, and SDPA & flash-MLA prefill. SFPU / vector-engine ops (elementwise,
       softmax, norm, pooling, reduction) are not counted - they run at a
-      different peak and are negligible next to the matmuls. Chunked-prefill and
-      paged/decode attention read K/V from a paged cache with a runtime key
-      length, so they are not counted either.
+      different peak and are negligible next to the matmuls. All decode /
+      chunked / paged attention variants (chunked-prefill SDPA, non-paged and
+      paged SDPA decode, paged flash-MLA decode) are not counted either: their
+      effective key length is a runtime value (past-sequence length / paged
+      cache), so it can't be derived from the static op shapes.
       This is graph-invariant model work - the MFU numerator. Downstream
       tooling computes MFU = total_flops / (measured_time * peak_flops_per_sec),
       so a better-compiled graph reports a higher MFU.

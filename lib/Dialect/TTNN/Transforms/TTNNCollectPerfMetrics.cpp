@@ -738,9 +738,6 @@ std::pair<StringRef, uint64_t> classifyOpFlops(Operation *op) {
                                      static_cast<int64_t>(m.getHeadDimV()),
                                      m.getIsCausal())};
       })
-      // Chunked/paged prefill and the decode SDPA variants read K/V from a
-      // paged cache whose logical key length is a runtime value, so their
-      // FLOPs can't be derived from the static shapes; left unaccounted.
       .Default([](Operation *) -> Pair { return {"other", 0}; });
 }
 
