@@ -239,7 +239,12 @@ void ProgramExecutor::execute() {
 #endif
 
     // [#5738 debug] env-gated per-op output magnitude dump.
-    if (std::getenv("TTXLA_OP_DUMP")) {
+    // TTXLA_OP_DUMP_PROG, if set, restricts the dump to programs whose name
+    // matches (e.g. "trace_1_main" = decode) for speed.
+    const char *dumpProgFilter = std::getenv("TTXLA_OP_DUMP_PROG");
+    if (std::getenv("TTXLA_OP_DUMP") &&
+        (!dumpProgFilter ||
+         std::string(program->name()->c_str()) == dumpProgFilter)) {
       // Synchronize so the read reflects the completed op (avoid async races).
       ::tt::tt_metal::distributed::Synchronize(&context->getMeshDevice(),
                                                std::nullopt);
@@ -281,9 +286,9 @@ void ProgramExecutor::execute() {
       }
       if (!perDev.empty()) {
         std::fprintf(stderr,
-                     "[OPDUMP] prog=%s %-40s | maxabs=%.4g naninf=%d ndev=%zu vol=%llu\n",
-                     program->name()->c_str(), op->loc_info()->c_str(), maxAbs,
-                     (int)bad, perDev.size(), n);
+                     "[OPDUMP] prog=%s %-28s %-34s | maxabs=%.4g naninf=%d ndev=%zu vol=%llu\n",
+                     program->name()->c_str(), op->debug_info()->c_str(),
+                     op->loc_info()->c_str(), maxAbs, (int)bad, perDev.size(), n);
       }
     }
 
