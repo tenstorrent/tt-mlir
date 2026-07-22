@@ -4117,11 +4117,9 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateSemaphores(
            << inputShape[1];
   }
 
-  if (inputShape[0] * inputShape[2] % 32 != 0) {
-    return emitOpError("flattened height must be tile-aligned, "
-                       "got ")
-           << inputShape[0] * inputShape[2];
-  }
+  // Tile-alignment of the flattened height (H*W) is a fused-kernel constraint,
+  // not an op invariant, so it is not verified here. Non-tile-aligned shapes
+  // flow into TTNNDecomposition, which lowers them to primitives.
 
   int64_t numGroups = getNumGroups();
   if (numGroups <= 0) {

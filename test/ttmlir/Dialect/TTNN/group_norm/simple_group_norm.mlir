@@ -128,4 +128,14 @@ module {
     %1 = "ttir.group_norm"(%arg0, %arg1, %arg2) <{num_groups = 8 : i64, epsilon = 1.000000e-05 : f32, channel_dim = 1 : i64, operandSegmentSizes = array<i32: 1, 0, 1, 1>}> : (tensor<1x480x4x8x8xbf16>, tensor<480xbf16>, tensor<480xbf16>) -> tensor<1x480x4x8x8xbf16>
     return %1 : tensor<1x480x4x8x8xbf16>
   }
+
+  // Non-tile-aligned flattened height (N*H*W = 1*50 = 50): the verifier no
+  // longer rejects it, so conversion emits a ttnn.group_norm; the later
+  // TTNNDecomposition pass handles the non-aligned case.
+  func.func @forward_non_tile_aligned(%arg0: tensor<1x1x50x480xbf16>) -> tensor<1x1x50x480xbf16> {
+    // CHECK-LABEL: func.func @forward_non_tile_aligned
+    // CHECK: "ttnn.group_norm"
+    %1 = "ttir.group_norm"(%arg0) <{num_groups = 8 : i64, epsilon = 1.000000e-12 : f32, operandSegmentSizes = array<i32: 1, 0, 0, 0>}> : (tensor<1x1x50x480xbf16>) -> tensor<1x1x50x480xbf16>
+    return %1 : tensor<1x1x50x480xbf16>
+  }
 }
