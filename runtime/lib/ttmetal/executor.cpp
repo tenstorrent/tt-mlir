@@ -27,7 +27,10 @@
 #include "ttmlir/Version.h"
 #include "types_generated.h"
 
+#include <algorithm>
 #include <cstdint>
+#include <functional>
+#include <memory>
 #include <string>
 #include <unordered_map>
 
@@ -38,6 +41,26 @@ namespace tt_metal = ::tt::tt_metal;
 namespace distributed = ::tt::tt_metal::distributed;
 
 namespace {
+struct CachedKernelBinding {
+  tt_metal::KernelHandle handle;
+  tt_metal::CoreRangeSet coreRangeSet;
+  std::vector<std::uint32_t> commonRuntimeArgs;
+  std::vector<std::uint32_t> runtimeArgs;
+};
+
+struct CachedCircularBufferBinding {
+  tt_metal::CBHandle handle;
+  std::uint32_t bufferGlobalId;
+};
+
+struct CachedMeshWorkloadState {
+  std::vector<CachedKernelBinding> kernels;
+  std::vector<CachedCircularBufferBinding> circularBuffers;
+};
+
+using CachedMeshWorkload = tt_metal::program_cache::detail::CachedMeshWorkload<
+    CachedMeshWorkloadState>;
+
 class MCQExecutor {
 public:
   MCQExecutor(
@@ -45,7 +68,8 @@ public:
       const flatbuffers::Vector<
           flatbuffers::Offset<tt::target::metal::BufferRef>> *programInputs,
       const std::vector<Tensor> &inputs, common::DylibManager &&dylibManager,
-      bool blockingCQ);
+      bool blockingCQ, std::uint64_t binaryId, std::uint32_t programIndex,
+      std::uint32_t deviceProgramIndex);
 
   const std::vector<Tensor> &getOutputs() const { return outputs; }
 
@@ -71,6 +95,15 @@ private:
   void execute(const target::metal::CreateGlobalSemaphoreCommand *command);
   void execute(const target::metal::ResetGlobalSemaphoreCommand *command);
   void execute(const target::metal::CreateLocalSemaphoreCommand *command);
+
+  tt_metal::program_cache::detail::ProgramCacheKey
+  createProgramCacheKey(const target::metal::EnqueueProgramCommand *command,
+                        std::uint32_t commandIndex) const;
+  void refreshCachedMeshWorkload(
+      CachedMeshWorkload &cached,
+      const target::metal::EnqueueProgramCommand *command);
+  void enqueueMeshWorkload(distributed::MeshWorkload &workload,
+                           const char *loc);
 
   std::uint64_t generateUniqueProgramRuntimeId() {
     return nextProgramRuntimeId++;
@@ -98,7 +131,11 @@ private:
   const char *currentProgramName;
   DeviceAddressValidator deviceAddressValidator;
   common::DylibManager dylibManager;
+  std::uint64_t binaryId;
+  std::uint32_t programIndex;
+  std::uint32_t deviceProgramIndex;
   std::uint64_t nextProgramRuntimeId = 10000; // Start at a greppable number.
+  std::uint32_t nextEnqueueProgramIndex = 0;
 };
 } // namespace
 
@@ -107,10 +144,12 @@ MCQExecutor::MCQExecutor(
     const flatbuffers::Vector<flatbuffers::Offset<tt::target::metal::BufferRef>>
         *programInputs,
     const std::vector<Tensor> &inputs, common::DylibManager &&dylibManager,
-    bool blockingCQ)
+    bool blockingCQ, std::uint64_t binaryId, std::uint32_t programIndex,
+    std::uint32_t deviceProgramIndex)
     : meshDevice(meshDevice), blockingCQ(blockingCQ),
       deviceAddressValidator(meshDevice->get_devices().at(0)),
-      dylibManager(std::move(dylibManager)) {
+      dylibManager(std::move(dylibManager)), binaryId(binaryId),
+      programIndex(programIndex), deviceProgramIndex(deviceProgramIndex) {
   initMeshEvents.reserve(inputs.size());
 
   std::uint32_t inputIndex = 0;
@@ -356,11 +395,153 @@ void MCQExecutor::execute(
                                             command->ref()->initial_value());
 }
 
+tt_metal::program_cache::detail::ProgramCacheKey
+MCQExecutor::createProgramCacheKey(
+    const target::metal::EnqueueProgramCommand *command,
+    std::uint32_t commandIndex) const {
+  std::string canonical = "ttmlir.ttmetal:";
+  canonical += std::to_string(binaryId) + ":" + std::to_string(programIndex) +
+               ":" + std::to_string(deviceProgramIndex) + ":" +
+               std::to_string(commandIndex);
+
+  // A scalar compile argument changes the materialized kernel, while runtime
+  // scalars are refreshed in place on cache hits.
+  for (const target::metal::KernelConfig *kernelConfig :
+       *command->program()->kernels()) {
+    const auto *compileArgs = kernelConfig->args()->ct_args();
+    if (!compileArgs) {
+      continue;
+    }
+    for (const target::metal::KernelArg *kernelArg : *compileArgs) {
+      if (kernelArg->arg_type() !=
+          target::metal::KernelArgType::KernelArgScalar) {
+        continue;
+      }
+
+      const auto *arg = kernelArg->arg_as_KernelArgScalar();
+      LOG_ASSERT(command->arg_refs_type()->Get(arg->operand_idx()) ==
+                 target::metal::ArgRef::BufferRef);
+      const auto *buffer = reinterpret_cast<const target::metal::BufferRef *>(
+          command->arg_refs()->Get(arg->operand_idx()));
+      const MetalTensor &metalTensor =
+          hostBuffers.at(buffer->global_id())
+              .as<MetalTensor>(DeviceRuntime::TTMetal);
+      canonical += ":" + std::to_string(std::get<std::uint32_t>(metalTensor));
+    }
+  }
+
+  return {std::hash<std::string>{}(canonical), std::move(canonical)};
+}
+
+void MCQExecutor::refreshCachedMeshWorkload(
+    CachedMeshWorkload &cached,
+    const target::metal::EnqueueProgramCommand *command) {
+  auto &programs = cached.workload.get_programs();
+  LOG_ASSERT(programs.size() == 1,
+             "Cached non-fabric workloads must contain exactly one program");
+  tt_metal::Program &program = programs.begin()->second;
+  LOG_ASSERT(cached.shared_variables.kernels.size() ==
+                 command->program()->kernels()->size(),
+             "Cached kernel binding count mismatch");
+
+  std::function<std::uint32_t(std::uint32_t)> preserveLocalSemaphores;
+  for (std::size_t i = 0; i < cached.shared_variables.kernels.size(); ++i) {
+    const target::metal::KernelConfig *kernelConfig =
+        command->program()->kernels()->Get(i);
+    const CachedKernelBinding &binding = cached.shared_variables.kernels[i];
+
+    std::vector<std::uint32_t> commonRuntimeArgs = refreshRuntimeArgs(
+        binding.commonRuntimeArgs, kernelConfig->args()->crt_args(),
+        command->arg_refs_type(), command->arg_refs(), meshBuffers,
+        global_semaphores, local_semaphore_initializer, command->cbs(),
+        deviceAddressValidator, preserveLocalSemaphores, hostBuffers);
+    tt_metal::RuntimeArgsData &cachedCommonRuntimeArgs =
+        tt_metal::GetCommonRuntimeArgs(program, binding.handle);
+    LOG_ASSERT(cachedCommonRuntimeArgs.size() == commonRuntimeArgs.size(),
+               "Cached common runtime argument count mismatch");
+    std::copy(commonRuntimeArgs.begin(), commonRuntimeArgs.end(),
+              cachedCommonRuntimeArgs.data());
+
+    std::vector<std::uint32_t> runtimeArgs = refreshRuntimeArgs(
+        binding.runtimeArgs, kernelConfig->args()->rt_args(),
+        command->arg_refs_type(), command->arg_refs(), meshBuffers,
+        global_semaphores, local_semaphore_initializer, command->cbs(),
+        deviceAddressValidator, preserveLocalSemaphores, hostBuffers);
+    for (const tt_metal::CoreCoord core :
+         tt_metal::corerange_to_cores(binding.coreRangeSet)) {
+      tt_metal::RuntimeArgsData &cachedRuntimeArgs =
+          tt_metal::GetRuntimeArgs(program, binding.handle, core);
+      LOG_ASSERT(cachedRuntimeArgs.size() == runtimeArgs.size(),
+                 "Cached runtime argument count mismatch");
+      std::copy(runtimeArgs.begin(), runtimeArgs.end(),
+                cachedRuntimeArgs.data());
+    }
+  }
+
+  for (const CachedCircularBufferBinding &binding :
+       cached.shared_variables.circularBuffers) {
+    const auto &meshBuffer = meshBuffers.at(binding.bufferGlobalId);
+    tt_metal::UpdateDynamicCircularBufferAddress(
+        program, binding.handle, *meshBuffer->get_reference_buffer());
+  }
+}
+
+void MCQExecutor::enqueueMeshWorkload(distributed::MeshWorkload &workload,
+                                      const char *loc) {
+  if (perf::Env::get().enablePerfTrace) {
+    auto devices = meshDevice->get_devices();
+    auto meshShape = meshDevice->shape();
+
+    // All programs in a workload represent one serialized enqueue operation.
+    auto opId = generateUniqueProgramRuntimeId();
+    for (auto &[range, program] : workload.get_programs()) {
+      program.set_runtime_id(opId);
+      for (auto coord : range) {
+        size_t linearIdx = coord.to_linear_index(meshShape);
+        auto deviceId = devices[linearIdx]->id();
+        profiler::addProgramProfileHostMetadata(deviceId, program, loc);
+      }
+    }
+  }
+
+  distributed::EnqueueMeshWorkload(*mcq, workload, blockingCQ);
+
+  if (perf::Env::get().enablePerfTrace) {
+    ::tt::tt_metal::ReadMeshDeviceProfilerResults(*meshDevice);
+  }
+}
+
 void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
                           const char *loc, const char *debugInfo) {
   ZoneScopedN("EnqueueProgramCommand");
   LOG_TRACE(logger::LogRuntimeTTMetalCommand, "Executing program: ", loc, "\n",
             debugInfo);
+
+  const std::uint32_t commandIndex = nextEnqueueProgramIndex++;
+  auto &programCache = meshDevice->get_program_cache();
+
+  // Cached bindings describe one Program. Multi-device and fabric workloads
+  // need per-Program binding state before they can be refreshed safely.
+  const bool cacheEligible = programCache.is_enabled() &&
+                             meshDevice->num_devices() == 1 &&
+                             !command->fabric_connection_config();
+  tt_metal::program_cache::detail::ProgramCacheKey programKey;
+  if (cacheEligible) {
+    programKey = createProgramCacheKey(command, commandIndex);
+    if (programCache.contains(programKey)) {
+      auto &cachedProgramFactory = programCache.get(programKey);
+      auto &cached =
+          cachedProgramFactory.cached_program.get<CachedMeshWorkload>();
+      refreshCachedMeshWorkload(cached, command);
+      enqueueMeshWorkload(cached.workload, loc);
+      return;
+    }
+
+    LOG_ASSERT(programCache.cache_misses_allowed(),
+               "TTMetal program cache miss occurred while misses are disabled");
+  }
+
+  CachedMeshWorkloadState cacheState;
 
   auto meshWorkload = distributed::MeshWorkload();
   auto deviceRange = distributed::MeshCoordinateRange(meshDevice->shape());
@@ -420,6 +601,12 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
       } else {
         tt_metal::SetRuntimeArgs(program, handle, coreRangeSet, rtArgsVec);
       }
+
+      if (cacheEligible) {
+        cacheState.kernels.push_back({handle, coreRangeSet,
+                                      std::move(commonRtArgsVec),
+                                      std::move(rtArgsVec)});
+      }
     }
 
     for (const target::metal::CBRef *cbRef : *command->cbs()) {
@@ -443,7 +630,12 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
           metalBuffer->circular_buffer_config()->core_range_set());
       tt_metal::CircularBufferConfig config =
           createCircularBufferConfig(cbRef, meshBuffers);
-      tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
+      tt_metal::CBHandle handle =
+          tt_metal::CreateCircularBuffer(program, coreRangeSet, config);
+      if (cacheEligible) {
+        cacheState.circularBuffers.push_back(
+            {handle, cbRef->buffer_ref()->global_id()});
+      }
     }
 
     // fabric connected cores all have separate runtime args so we add a
@@ -457,26 +649,17 @@ void MCQExecutor::execute(const target::metal::EnqueueProgramCommand *command,
     }
   }
 
-  if (perf::Env::get().enablePerfTrace) {
-    auto devices = meshDevice->get_devices();
-    auto meshShape = meshDevice->shape();
-
-    // We use the same opId for all programs in the workload.
-    auto opId = generateUniqueProgramRuntimeId();
-    for (auto &[range, program] : meshWorkload.get_programs()) {
-      program.set_runtime_id(opId);
-      for (auto coord : range) {
-        size_t linearIdx = coord.to_linear_index(meshShape);
-        auto deviceId = devices[linearIdx]->id();
-        profiler::addProgramProfileHostMetadata(deviceId, program, loc);
-      }
-    }
-  }
-
-  distributed::EnqueueMeshWorkload(*mcq, meshWorkload, blockingCQ);
-
-  if (perf::Env::get().enablePerfTrace) {
-    ::tt::tt_metal::ReadMeshDeviceProfilerResults(*meshDevice);
+  if (cacheEligible) {
+    CachedMeshWorkload cached(std::move(meshWorkload), std::move(cacheState));
+    programCache.insert(programKey,
+                        tt_metal::program_cache::detail::CachedProgramFactory{
+                            std::move(cached), 0});
+    auto &cachedProgramFactory = programCache.get(programKey);
+    auto &cachedWorkload =
+        cachedProgramFactory.cached_program.get<CachedMeshWorkload>();
+    enqueueMeshWorkload(cachedWorkload.workload, loc);
+  } else {
+    enqueueMeshWorkload(meshWorkload, loc);
   }
 }
 
@@ -648,11 +831,14 @@ std::vector<Tensor>
 executeMeshDeviceProgram(distributed::MeshDevice *meshDevice,
                          const target::metal::DeviceProgram *program,
                          const std::vector<Tensor> &inputs,
-                         common::DylibManager &&dylibs) {
+                         common::DylibManager &&dylibs, std::uint64_t binaryId,
+                         std::uint32_t programIndex,
+                         std::uint32_t deviceProgramIndex) {
   LOG_ASSERT(program->command_queues()->size() == 1, "Only one MCQ supported");
 
   MCQExecutor executor(meshDevice, program->inputs(), inputs, std::move(dylibs),
-                       debug::Env::get().blockingCQ);
+                       debug::Env::get().blockingCQ, binaryId, programIndex,
+                       deviceProgramIndex);
   for (const target::metal::CommandQueue *cq : *program->command_queues()) {
     FrameMark;
     ZoneScoped;
