@@ -172,17 +172,34 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
   if (initValueOp.getResult().getType().getElementType().isF64()) {
     return *initValueOp.getValue().value_begin<double>() == desiredF64;
   }
-  if (initValueOp.getResult().getType().getElementType().isInteger(32)) {
-    return *initValueOp.getValue().value_begin<int32_t>() == desiredI32;
-  }
-  if (initValueOp.getResult().getType().getElementType().isInteger(64)) {
-    return *initValueOp.getValue().value_begin<int64_t>() == desiredI64;
-  }
-  if (initValueOp.getResult().getType().getElementType().isInteger(8)) {
-    return *initValueOp.getValue().value_begin<uint8_t>() == desiredI8;
-  }
-  if (initValueOp.getResult().getType().getElementType().isInteger(1)) {
-    return *initValueOp.getValue().value_begin<bool>() == desiredI1;
+  // Integer element types: read the constant as an APInt so both signed and
+  // unsigned attributes work. value_begin<int32_t>()/<int64_t>() assert with
+  // "ElementsAttr does not provide iteration facilities for type `int`" on
+  // unsigned (ui32/ui64) attributes -- e.g. the dense<4294967295> :
+  // tensor<ui32> sentinel that torch 2.11's max_pool2d_with_indices lowering
+  // emits (#9031).
+  if (auto intType = mlir::dyn_cast<mlir::IntegerType>(
+          initValueOp.getResult().getType().getElementType())) {
+    unsigned width = intType.getWidth();
+    // Restrict to the widths the original signed-typed reads handled
+    // (i1/i8/i32/i64). Other widths previously fell through to `return false`,
+    // and desiredI8/I32/I64 are only defined for these; reading as APInt merely
+    // avoids the unsigned-iteration assert without changing which widths match.
+    if (width != 1 && width != 8 && width != 32 && width != 64) {
+      return false;
+    }
+    const llvm::APInt &value =
+        *initValueOp.getValue().value_begin<llvm::APInt>();
+    if (width == 1) {
+      return value.getBoolValue() == desiredI1;
+    }
+    int64_t desiredInt =
+        width == 8 ? desiredI8 : (width == 32 ? desiredI32 : desiredI64);
+    // Compare raw bit patterns at the attribute's width, so an unsigned init
+    // matches the signed sentinel with the same bits (e.g. for NEG_INF,
+    // ui32 2147483648 == i32 INT32_MIN).
+    return value == llvm::APInt(width, static_cast<uint64_t>(desiredInt),
+                                /*isSigned=*/true);
   }
 
   return false;
