@@ -182,8 +182,11 @@ private:
       return;
     }
 
-    // Non-cacheable ops cannot be part of const-eval subgraphs.
-    if (op->hasTrait<mlir::tt::ttcore::Trait::TTCoreNonCacheableTrait>()) {
+    // Non-cacheable via op-class trait OR a per-instance "ttnn.non_cacheable"
+    // attr (lets one instance, e.g. the moe_compute combine zero buffer, opt out
+    // of const-eval so it is re-zeroed every step instead of cached and reused).
+    if (op->hasTrait<mlir::tt::ttcore::Trait::TTCoreNonCacheableTrait>() ||
+        op->hasAttr("ttnn.non_cacheable")) {
       return;
     }
 

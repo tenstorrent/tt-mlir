@@ -45,6 +45,19 @@ updateArgumentShardStatus(MLIRContext *context, mlir::ModuleOp &module,
       }
     }
 
+    // Respect a builder-set ttcore.shard_status instead of appending a duplicate
+    // (duplicate DictionaryAttr key aborts); only the pre-marked path hits this.
+    if (argAttrDict &&
+        argAttrDict.contains(mlir::tt::ttcore::ShardStatusAttr::name)) {
+      if (!shardyAnnotationsExist) {
+        mlir::NamedAttribute existing = {
+            mlir::tt::ttcore::ShardStatusAttr::name,
+            argAttrDict.get(mlir::tt::ttcore::ShardStatusAttr::name)};
+        gspmd_utils::updateShardStatusForArgument(context, arg, existing);
+      }
+      continue;
+    }
+
     mlir::NamedAttribute shardStatusNamedAttr = {
         mlir::tt::ttcore::ShardStatusAttr::name,
         mlir::tt::ttcore::ShardStatusAttr::get(context, shardStatus)};
@@ -96,6 +109,19 @@ updateResultShardStatus(MLIRContext *context, mlir::ModuleOp &module,
     if (resultAttrDict) {
       newResultAttrs =
           llvm::SmallVector<mlir::NamedAttribute>(resultAttrDict.getValue());
+    }
+
+    // Respect a pre-existing ttcore.shard_status (e.g. a builder-marked
+    // presharded result) instead of appending a duplicate DictionaryAttr key.
+    if (resultAttrDict &&
+        resultAttrDict.contains(mlir::tt::ttcore::ShardStatusAttr::name)) {
+      if (!shardy_utils::sdyAnnotationsExist(module)) {
+        mlir::NamedAttribute existing = {
+            mlir::tt::ttcore::ShardStatusAttr::name,
+            resultAttrDict.get(mlir::tt::ttcore::ShardStatusAttr::name)};
+        gspmd_utils::updateShardStatusForResult(context, funcOp, i, existing);
+      }
+      continue;
     }
 
     mlir::NamedAttribute shardStatusNamedAttr = {

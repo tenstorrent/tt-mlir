@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/StableHLO/Utils/GSPMDUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardingUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/ShardyUtils.h"
+#include "ttmlir/Dialect/StableHLO/Utils/StableHLOUtils.h"
 #include "ttmlir/Dialect/StableHLO/Utils/Utils.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
@@ -9525,6 +9526,467 @@ public:
 } // namespace
 
 namespace {
+// Device mesh shape for the module. moe_decode lowers in the same pass that
+// converts sdy.mesh -> ttcore.meshes with no guaranteed firing order, so read
+// whichever form is present. Returns {} when the module carries no mesh.
+static llvm::SmallVector<int64_t> getModuleMeshShape(ModuleOp moduleOp) {
+  if (auto meshes =
+          moduleOp->getAttrOfType<ttcore::MeshesAttr>(ttcore::MeshesAttr::name);
+      meshes && !meshes.getMeshes().empty()) {
+    return llvm::SmallVector<int64_t>(meshes.getMeshes()[0].getShape());
+  }
+  llvm::SmallVector<mlir::sdy::MeshOp> meshOps =
+      mlir::tt::shardy_utils::getMeshOps(moduleOp);
+  if (!meshOps.empty()) {
+    return mlir::tt::shardy_utils::getMeshShapeFromMeshAttr(
+        meshOps[0].getMeshAttr());
+  }
+  return {};
+}
+
+// [numMeshDevices, numExperts] uint16 expert->device mapping synthesized from
+// topology so the frontend composite stays mesh-agnostic. Experts are compound-
+// sharded across ALL mesh devices, so owner(e) = e / expertsPerDevice; this is
+// source-independent (every row identical) and the a2a dispatch reader uses the
+// entry directly as the global target device (cluster_axis selects the dispatch
+// ring, not placement).
+static Value synthesizeMoeDecodeExpertMapping(OpBuilder &builder, Location loc,
+                                              ArrayRef<int64_t> meshShape,
+                                              int64_t expertsPerDevice) {
+  int64_t numMeshDevices = 1;
+  for (int64_t dim : meshShape) {
+    numMeshDevices *= dim;
+  }
+  int64_t numExperts = expertsPerDevice * numMeshDevices;
+
+  auto u16 = builder.getIntegerType(16, /*isSigned=*/false);
+  auto mappingTy = RankedTensorType::get({numMeshDevices, numExperts}, u16);
+
+  llvm::SmallVector<llvm::APInt> values;
+  values.reserve(numMeshDevices * numExperts);
+  for (int64_t d = 0; d < numMeshDevices; ++d) {
+    for (int64_t e = 0; e < numExperts; ++e) {
+      int64_t target = e / expertsPerDevice;
+      values.emplace_back(/*numBits=*/16, static_cast<uint64_t>(target),
+                          /*isSigned=*/false);
+    }
+  }
+  return builder.create<ttir::ConstantOp>(
+      loc, mappingTy, DenseElementsAttr::get(mappingTy, values));
+}
+
+// Reference decomposition of moe_decode into primitive ops (all_gather weights
+// -> two sparse_matmuls + GLU -> one-hot top-k select), inlined only when the
+// typed composite promotion is not taken. operands: [tokens, indices, scores,
+// mapping, w0, w1, w2, (b0,b1,b2)?]; scores/mapping unused here.
+static Value buildMoeDecodeDecompositionBody(
+    ConversionPatternRewriter &rewriter, Location loc, ValueRange operands,
+    bool hasBias, int64_t numDevices, int64_t clusterAxis, uint32_t layerId,
+    ttcore::MoEActivationFunction activation, RankedTensorType outputType) {
+
+  Value tokens = operands[0];
+  Value indices = operands[1];
+  Value w0 = operands[4], w1 = operands[5], w2 = operands[6];
+  Value bias0 = hasBias ? operands[7] : Value();
+  Value bias1 = hasBias ? operands[8] : Value();
+  Value bias2 = hasBias ? operands[9] : Value();
+
+  auto tokensTy = mlir::cast<RankedTensorType>(tokens.getType());
+  auto idxTy = mlir::cast<RankedTensorType>(indices.getType());
+  auto w0Ty = mlir::cast<RankedTensorType>(w0.getType());
+  Type act = tokensTy.getElementType();
+  Type f32 = rewriter.getF32Type();
+
+  int64_t M = tokensTy.getShape()[tokensTy.getRank() - 2];
+  int64_t H = tokensTy.getShape().back();
+  int64_t K = idxTy.getShape().back();
+  int64_t N = w0Ty.getShape()[3];
+  int64_t Eg = w0Ty.getShape()[1] * numDevices; // global expert count
+
+  auto rt = [&](ArrayRef<int64_t> s, Type e) {
+    return RankedTensorType::get(s, e);
+  };
+  auto reshape = [&](Value v, ArrayRef<int64_t> s) -> Value {
+    Type e = mlir::cast<RankedTensorType>(v.getType()).getElementType();
+    return rewriter.create<ttir::ReshapeOp>(
+        loc, rt(s, e), v,
+        rewriter.getI32ArrayAttr(llvm::to_vector_of<int32_t>(s)));
+  };
+  // all_gather along `dim` over the cluster axis: EP-sharded -> global experts.
+  auto allGather = [&](Value v, int64_t dim) -> Value {
+    auto t = mlir::cast<RankedTensorType>(v.getType());
+    SmallVector<int64_t> s(t.getShape());
+    s[dim] *= numDevices;
+    return rewriter.create<ttir::AllGatherOp>(
+        loc, rt(s, t.getElementType()), v, static_cast<int32_t>(dim),
+        static_cast<uint32_t>(clusterAxis));
+  };
+  // Fuse gate/up into one [..., 2C] weight via a block concat [gate | up], not
+  // a stride-2 interleave (whose trailing size-2 dim tilizes to 32 -> 16x DRAM
+  // blowup). The halves are split back out before the GLU.
+  auto fuseLast = [&](Value lhs, Value rhs) -> Value {
+    auto t = mlir::cast<RankedTensorType>(lhs.getType());
+    SmallVector<int64_t> sout(t.getShape());
+    sout.back() *= 2;
+    return rewriter.create<ttir::ConcatOp>(
+        loc, rt(sout, t.getElementType()), ValueRange{lhs, rhs},
+        static_cast<int32_t>(sout.size() - 1));
+  };
+  // out[1,Eg,M,C] += bias[1,Eg,C], broadcast over the token dim.
+  auto addBias = [&](Value x, Value bias, int64_t C) -> Value {
+    return rewriter.create<ttir::AddOp>(loc, rt({1, Eg, M, C}, act), x,
+                                        reshape(bias, {1, Eg, 1, C}));
+  };
+
+  // Stacked multi-layer weights [L, E, ...]: select this op's layer via layerId
+  // (sparse_matmul needs leading dim 1; the reference body is single-layer).
+  // L==1 passes through unchanged.
+  auto sliceLayer = [&](Value w) -> Value {
+    auto t = mlir::cast<RankedTensorType>(w.getType());
+    ArrayRef<int64_t> shape = t.getShape();
+    if (shape.empty() || shape[0] <= 1) {
+      return w;
+    }
+    SmallVector<int64_t> outShape(shape.begin(), shape.end());
+    outShape[0] = 1;
+    SmallVector<int32_t> begins, ends, steps;
+    for (size_t d = 0; d < shape.size(); ++d) {
+      begins.push_back(d == 0 ? static_cast<int32_t>(layerId) : 0);
+      ends.push_back(d == 0 ? static_cast<int32_t>(layerId) + 1
+                            : static_cast<int32_t>(shape[d]));
+      steps.push_back(1);
+    }
+    return rewriter.create<ttir::SliceStaticOp>(
+        loc, rt(outShape, t.getElementType()), w,
+        rewriter.getI32ArrayAttr(begins), rewriter.getI32ArrayAttr(ends),
+        rewriter.getI32ArrayAttr(steps));
+  };
+  w0 = sliceLayer(w0);
+  w1 = sliceLayer(w1);
+  w2 = sliceLayer(w2);
+  if (hasBias) {
+    bias0 = sliceLayer(bias0);
+    bias1 = sliceLayer(bias1);
+    bias2 = sliceLayer(bias2);
+  }
+
+  // 1. all_gather weights (+ biases) to replicate every expert locally.
+  Value w0g = allGather(w0, 1); // [1, Eg, H, N]
+  Value w1g = allGather(w1, 1);
+  Value w2g = allGather(w2, 1);       // [1, Eg, N, H]
+  Value wGateUp = fuseLast(w0g, w1g); // [1, Eg, H, 2N]
+  Value bGateUp, b2g;
+  if (hasBias) {
+    bGateUp = fuseLast(allGather(bias0, 1), allGather(bias1, 1)); // [1,Eg,2N]
+    b2g = allGather(bias2, 1);                                    // [1,Eg,H]
+  }
+
+  // 2. one_hot[m,k,e] = (indices[m,k] == e), in f32 for an exact int compare.
+  Value idxB = rewriter.create<ttir::BroadcastOp>(
+      loc, rt({M, K, Eg}, f32),
+      reshape(rewriter.create<ttir::TypecastOp>(loc, rt({M, K}, f32),
+                                                reshape(indices, {M, K})),
+              {M, K, 1}),
+      rewriter.getDenseI64ArrayAttr({1, 1, Eg}));
+  Value arangeE = rewriter.create<ttir::ArangeOp>(
+      loc, rt({M, K, Eg}, f32), /*start=*/0, /*end=*/Eg, /*step=*/1,
+      /*arange_dimension=*/2);
+  Value oneHot = rewriter.create<ttir::TypecastOp>(
+      loc, rt({M, K, Eg}, act),
+      rewriter.create<ttir::EqualOp>(loc, rt({M, K, Eg}, rewriter.getI1Type()),
+                                     idxB, arangeE));
+
+  // All-ones sparsity (compute every expert): a real per-token mask lets
+  // sparse_matmul skip experts, leaving garbage the one-hot select folds in
+  // (0 * NaN). In decode nearly every expert is selected, so this is ~free.
+  Value sparsity = rewriter.create<ttir::FullOp>(
+      loc, rt({1, 1, 1, Eg}, act), rewriter.getF32FloatAttr(1.0f));
+
+  // 3. gate_up: a[1,1,M,H] . b[1,Eg,H,2N] -> [1,1,1,Eg,M,2N] -> [1,Eg,M,2N].
+  Value gateUp4d = reshape(
+      rewriter.create<ttir::SparseMatmulOp>(
+          loc, rt({1, 1, 1, Eg, M, 2 * N}, act), tokens, wGateUp, sparsity,
+          /*is_input_a_sparse=*/rewriter.getBoolAttr(false),
+          /*is_input_b_sparse=*/rewriter.getBoolAttr(true),
+          /*nnz=*/mlir::IntegerAttr()),
+      {1, Eg, M, 2 * N});
+  if (hasBias) {
+    gateUp4d = addBias(gateUp4d, bGateUp, 2 * N);
+  }
+
+  // 4. split the [gate | up] halves + GLU activation.
+  auto interTy = rt({1, Eg, M, N}, act);
+  auto half = [&](int64_t start) -> Value {
+    return rewriter.create<ttir::SliceStaticOp>(
+        loc, interTy, gateUp4d,
+        rewriter.getI32ArrayAttr({0, 0, 0, static_cast<int32_t>(start)}),
+        rewriter.getI32ArrayAttr({1, static_cast<int32_t>(Eg),
+                                  static_cast<int32_t>(M),
+                                  static_cast<int32_t>(start + N)}),
+        rewriter.getI32ArrayAttr({1, 1, 1, 1}));
+  };
+  Value gate = half(0), up = half(N);
+  Value inter;
+  if (activation == ttcore::MoEActivationFunction::SwiGLU) {
+    // (clamp(up,-7,7) + 1) * clamp(gate,_,7) * sigmoid(1.702 * gate_c).
+    Value gateC = rewriter.create<ttir::ClampScalarOp>(
+        loc, interTy, gate,
+        rewriter.getF32FloatAttr(std::numeric_limits<float>::lowest()),
+        rewriter.getF32FloatAttr(7.0f));
+    Value upC = rewriter.create<ttir::ClampScalarOp>(
+        loc, interTy, up, rewriter.getF32FloatAttr(-7.0f),
+        rewriter.getF32FloatAttr(7.0f));
+    Value sig = rewriter.create<ttir::SigmoidOp>(
+        loc, interTy,
+        rewriter.create<ttir::MultiplyOp>(
+            loc, interTy, gateC,
+            rewriter.create<ttir::FullOp>(loc, interTy,
+                                          rewriter.getF32FloatAttr(1.702f))));
+    Value up1 = rewriter.create<ttir::AddOp>(
+        loc, interTy, upC,
+        rewriter.create<ttir::FullOp>(loc, interTy,
+                                      rewriter.getF32FloatAttr(1.0f)));
+    inter = rewriter.create<ttir::MultiplyOp>(
+        loc, interTy,
+        rewriter.create<ttir::MultiplyOp>(loc, interTy, up1, gateC), sig);
+  } else {
+    inter = rewriter.create<ttir::MultiplyOp>(
+        loc, interTy, rewriter.create<ttir::SiluOp>(loc, interTy, gate), up);
+  }
+
+  // 5. down: a[1,Eg,M,N] . b[1,Eg,N,H] -> [1,Eg,M,H].
+  Value down = rewriter.create<ttir::SparseMatmulOp>(
+      loc, rt({1, Eg, M, H}, act), inter, w2g, sparsity,
+      /*is_input_a_sparse=*/rewriter.getBoolAttr(true),
+      /*is_input_b_sparse=*/rewriter.getBoolAttr(false),
+      /*nnz=*/mlir::IntegerAttr());
+  if (hasBias) {
+    down = addBias(down, b2g, H);
+  }
+
+  // 6. top-k select: one_hot[M,K,Eg] . out_all[M,Eg,H] -> [M,K,H] -> [K,M,H].
+  Value outAll = rewriter.create<ttir::PermuteOp>(
+      loc, rt({M, Eg, H}, act), reshape(down, {Eg, M, H}),
+      rewriter.getDenseI64ArrayAttr({1, 0, 2}));
+  Value combine =
+      rewriter.create<ttir::MatmulOp>(loc, rt({M, K, H}, act), oneHot, outAll);
+  return rewriter.create<ttir::PermuteOp>(
+      loc, outputType, combine, rewriter.getDenseI64ArrayAttr({1, 0, 2}));
+}
+
+// Converts stablehlo.custom_call @tt.moe_decode -> ttcore.composite "moe_decode".
+// Mirrors the flash_mla_prefill pattern.
+class StableHLOToTTCoreMoeDecodeOpConversionPattern
+    : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
+  using OpConversionPattern<mlir::stablehlo::CustomCallOp>::OpConversionPattern;
+
+public:
+  LogicalResult
+  matchAndRewrite(mlir::stablehlo::CustomCallOp srcOp,
+                  mlir::stablehlo::CustomCallOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (adaptor.getCallTargetNameAttr() != "tt.moe_decode") {
+      return failure();
+    }
+
+    // Attributes arrive either as string mhlo.frontend_attributes (Route B:
+    // direct custom_call) or typed tt.composite_attributes (Route A: composite
+    // flattened to a custom_call via kCompositesWithCustomSharding).
+    mlir::DictionaryAttr compAttrs =
+        mlir::dyn_cast_or_null<mlir::DictionaryAttr>(srcOp->getDiscardableAttr(
+            mlir::tt::stablehlo::utils::kCustomCallCompositeAttrsKey));
+    mlir::DictionaryAttr fe = mlir::dyn_cast_or_null<mlir::DictionaryAttr>(
+        srcOp->getDiscardableAttr("mhlo.frontend_attributes"));
+    if (!compAttrs && !fe) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "moe_decode op must have tt.composite_attributes or "
+                 "mhlo.frontend_attributes.");
+    }
+
+    // Required integer attributes: typed IntegerAttr (Route A) or
+    // string-encoded (Route B).
+    auto readReqInt = [&](StringRef name, int64_t &out) -> LogicalResult {
+      if (compAttrs) {
+        if (auto i = compAttrs.getAs<mlir::IntegerAttr>(name)) {
+          out = i.getInt();
+          return success();
+        }
+      }
+      if (fe) {
+        if (auto s = fe.getAs<mlir::StringAttr>(name)) {
+          if (llvm::to_integer(s.getValue(), out)) {
+            return success();
+          }
+        }
+      }
+      return rewriter.notifyMatchFailure(
+          srcOp, "moe_decode requires integer attribute '" + name.str() + "'.");
+    };
+    // num_devices is NOT a composite attribute: the frontend composite is
+    // mesh-agnostic, so the dispatch-ring device count is derived here from the
+    // module mesh (num_devices = meshShape[cluster_axis]).
+    int64_t clusterAxis, layerId, outputHeightShardDim, intermediateSize;
+    if (failed(readReqInt("cluster_axis", clusterAxis)) ||
+        failed(readReqInt("layer_id", layerId)) ||
+        failed(readReqInt("output_height_shard_dim", outputHeightShardDim)) ||
+        failed(readReqInt("intermediate_size", intermediateSize))) {
+      return failure();
+    }
+
+    llvm::SmallVector<int64_t> meshShape =
+        getModuleMeshShape(srcOp->getParentOfType<ModuleOp>());
+    if (clusterAxis < 0 ||
+        clusterAxis >= static_cast<int64_t>(meshShape.size())) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "moe_decode: cluster_axis out of range for the module mesh "
+                 "(no ttcore.meshes / sdy.mesh, or bad cluster_axis).");
+    }
+    int64_t numDevices = meshShape[clusterAxis];
+
+    // activation_function (optional, default silu). StringAttr in both forms.
+    ttcore::MoEActivationFunction activation =
+        ttcore::MoEActivationFunction::Silu;
+    mlir::StringAttr actStr;
+    if (compAttrs) {
+      actStr = compAttrs.getAs<mlir::StringAttr>("activation_function");
+    }
+    if (!actStr && fe) {
+      actStr = fe.getAs<mlir::StringAttr>("activation_function");
+    }
+    if (actStr) {
+      if (auto sym =
+              ttcore::symbolizeMoEActivationFunction(actStr.getValue())) {
+        activation = *sym;
+      } else {
+        return rewriter.notifyMatchFailure(
+            srcOp, "unknown activation_function '" + actStr.getValue() + "'.");
+      }
+    }
+
+    // bh_ring_size (optional): IntegerAttr (Route A) or string (Route B).
+    std::optional<uint32_t> bhRingSize;
+    if (compAttrs) {
+      if (auto i = compAttrs.getAs<mlir::IntegerAttr>("bh_ring_size")) {
+        bhRingSize = static_cast<uint32_t>(i.getInt());
+      }
+    }
+    if (!bhRingSize && fe) {
+      if (auto brStr = fe.getAs<mlir::StringAttr>("bh_ring_size")) {
+        uint32_t br;
+        if (!llvm::to_integer(brStr.getValue(), br)) {
+          return rewriter.notifyMatchFailure(
+              srcOp, "bh_ring_size must be an integer.");
+        }
+        bhRingSize = br;
+      }
+    }
+
+    // Mesh-agnostic composite omits expert_mapping (6/9 operands: tokens,
+    // indices, scores, w0, w1, w2, [bias0,1,2]); synthesized below and
+    // re-inserted at index 3 to restore the 7/10-operand contract.
+    auto srcOperands = adaptor.getOperands();
+    if (srcOperands.size() != 6 && srcOperands.size() != 9) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "moe_decode expects 6 (no bias) or 9 (bias) operands.");
+    }
+    bool hasBias = srcOperands.size() == 9;
+
+    RankedTensorType outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult(0).getType()));
+
+    // w0 is operand index 3 ([L, E_local, H, N]); its expert dim is the
+    // EP-sharded experts-per-device.
+    auto w0Ty = mlir::cast<RankedTensorType>(srcOperands[3].getType());
+    int64_t expertsPerDevice = w0Ty.getShape()[1];
+    Value mapping = synthesizeMoeDecodeExpertMapping(
+        rewriter, srcOp.getLoc(), meshShape, expertsPerDevice);
+
+    // Full operand list with mapping re-inserted at index 3.
+    SmallVector<Value> operands;
+    operands.reserve(srcOperands.size() + 1);
+    operands.append(srcOperands.begin(), srcOperands.begin() + 3);
+    operands.push_back(mapping);
+    operands.append(srcOperands.begin() + 3, srcOperands.end());
+
+    // Synthesize the private decomposition function.
+    ModuleOp moduleOp = srcOp->getParentOfType<ModuleOp>();
+    std::string decompFuncName = "moe_decode_decomp";
+    {
+      unsigned counter = 0;
+      while (SymbolTable::lookupSymbolIn(moduleOp, decompFuncName)) {
+        decompFuncName = "moe_decode_decomp_" + std::to_string(counter++);
+      }
+    }
+    SmallVector<Type> argTypes =
+        llvm::to_vector(ValueRange(operands).getTypes());
+    {
+      OpBuilder::InsertionGuard guard(rewriter);
+      rewriter.setInsertionPointToEnd(moduleOp.getBody());
+      auto decompFunc = rewriter.create<func::FuncOp>(
+          srcOp.getLoc(), decompFuncName,
+          rewriter.getFunctionType(argTypes, {outputType}));
+      decompFunc.setPrivate();
+      Block *entry = decompFunc.addEntryBlock();
+      rewriter.setInsertionPointToStart(entry);
+      Value res = buildMoeDecodeDecompositionBody(
+          rewriter, srcOp.getLoc(), entry->getArguments(), hasBias, numDevices,
+          clusterAxis, static_cast<uint32_t>(layerId), activation, outputType);
+      rewriter.create<mlir::func::ReturnOp>(srcOp.getLoc(), res);
+    }
+
+    // Typed composite_attributes consumed by the TTNNResolveComposites
+    // "moe_decode" entry (ints as i64 IntegerAttr, activation as a StringAttr).
+    SmallVector<NamedAttribute> compositeAttrs;
+    compositeAttrs.push_back(rewriter.getNamedAttr(
+        "num_devices", rewriter.getI64IntegerAttr(numDevices)));
+    compositeAttrs.push_back(rewriter.getNamedAttr(
+        "cluster_axis", rewriter.getI64IntegerAttr(clusterAxis)));
+    compositeAttrs.push_back(
+        rewriter.getNamedAttr("layer_id", rewriter.getI64IntegerAttr(layerId)));
+    compositeAttrs.push_back(rewriter.getNamedAttr(
+        "output_height_shard_dim",
+        rewriter.getI64IntegerAttr(outputHeightShardDim)));
+    compositeAttrs.push_back(rewriter.getNamedAttr(
+        "intermediate_size", rewriter.getI64IntegerAttr(intermediateSize)));
+    compositeAttrs.push_back(rewriter.getNamedAttr(
+        "activation_function",
+        rewriter.getStringAttr(
+            ttcore::stringifyMoEActivationFunction(activation))));
+    if (bhRingSize) {
+      compositeAttrs.push_back(rewriter.getNamedAttr(
+          "bh_ring_size", rewriter.getI64IntegerAttr(*bhRingSize)));
+    }
+
+    auto composite = rewriter.create<ttcore::CompositeOp>(
+        srcOp.getLoc(), TypeRange{outputType}, operands,
+        rewriter.getStringAttr("moe_decode"),
+        FlatSymbolRefAttr::get(rewriter.getContext(), decompFuncName),
+        rewriter.getDictionaryAttr(compositeAttrs));
+    Value result = composite.getResult(0);
+
+    // Compound sharding: moe_compute's 1D combine reduces only the cluster axis,
+    // so each non-cluster device holds a partial; all_reduce(sum) over the
+    // non-cluster axis (unwritten slots are zero, so the sum is clean).
+    int64_t totalMeshDevices = 1;
+    for (int64_t dim : meshShape) {
+      totalMeshDevices *= dim;
+    }
+    int64_t nonClusterSize =
+        totalMeshDevices / std::max(numDevices, static_cast<int64_t>(1));
+    if (nonClusterSize > 1 && numDevices > 1) {
+      uint32_t reduceAxis = (clusterAxis == 0) ? 1 : 0;
+      result = rewriter
+                   .create<ttir::AllReduceOp>(srcOp.getLoc(), outputType, result,
+                                              ttcore::ReduceType::Sum, reduceAxis)
+                   .getResult();
+    }
+    rewriter.replaceOp(srcOp, result);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
 // Pattern to convert mhlo.topk to ttir.topk
 class StableHLOTopKOpMHLOConversionPattern
     : public OpConversionPattern<mlir::stablehlo::CustomCallOp> {
@@ -10082,6 +10544,7 @@ static void addScaledDotProductAttentionDecodeOpConversionPattern(
       StableHLOToTTIRScaledDotProductAttentionOpConversionPattern,
       StableHLOToTTIRPagedScaledDotProductAttentionDecodeOpConversionPattern,
       StableHLOToTTCoreFlashMlaPrefillOpConversionPattern,
+      StableHLOToTTCoreMoeDecodeOpConversionPattern,
       StableHLOToTTIRPagedFlashMLADecodeOpConversionPattern,
       StableHLOToTTIRChunkedScaledDotProductAttentionOpConversionPattern>(
       typeConverter, ctx);

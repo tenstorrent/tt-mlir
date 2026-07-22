@@ -62,47 +62,10 @@ public:
     }
   }
 
-  // Reshard a moe_compute tilize input (expert indices or scores) onto the
-  // device-derived tilize-drain core. The fused kernel allocates the indices/
-  // scores circular buffers against an L1 buffer on that single core but never
-  // checks placement, so we pin it here in IR. The reshard is ROW_MAJOR + L1 +
-  // single-core HEIGHT_SHARDED: the kernel reads these untilized, and a sharded
-  // TILE spec needs a 32x32-aligned shard the small last dim (select_experts_k)
-  // can't satisfy.
-  void reshardTilizeInputToDrainCore(ttnn::MoeComputeOp op, unsigned operandIdx,
-                                     CoreRangeSetAttr drainCoreRangeSet) {
-    mlir::IRRewriter rewriter(op.getContext());
-    rewriter.setInsertionPoint(op);
-
-    auto inputValue = mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(
-        op->getOperand(operandIdx));
-    mlir::RankedTensorType inputType = inputValue.getType();
-
-    llvm::SmallVector<int64_t, 2> gridShape{1, 1};
-    TTNNLayoutAttr drainLayout =
-        TTNNLayoutAttr::Builder(inputType)
-            .setLayout(Layout::RowMajor)
-            .setBufferType(BufferType::L1)
-            .setMemoryLayout(TensorMemoryLayoutAttr::get(
-                op.getContext(), TensorMemoryLayout::HeightSharded))
-            .setGridShape(gridShape)
-            .setCoreRangeSet(drainCoreRangeSet)
-            .build();
-    mlir::RankedTensorType drainType =
-        utils::RankedTensorTypeFactory::create(inputType, drainLayout);
-
-    auto toMemCfg = rewriter.create<ttnn::ToMemoryConfigOp>(
-        op.getLoc(), drainType, inputValue);
-
-    rewriter.modifyOpInPlace(
-        op, [&]() { op->setOperand(operandIdx, toMemCfg.getResult()); });
-  }
-
   // The weight-prep ops are created with placeholder result types. Replace them
-  // with the device-derived specs OpModel computes via graph-captured query of
-  // the matching tt-metal invocation. Consumers read the deduced types via
-  // use-def. Also reshards moe_compute's expert indices/scores inputs onto the
-  // device-derived tilize drain core.
+  // with the device-derived specs OpModel computes via a graph-captured query of
+  // the matching tt-metal invocation; consumers read the deduced types via
+  // use-def.
   void runOnOperation() final {
 #ifndef TTMLIR_ENABLE_OPMODEL
     llvm::llvm_unreachable_internal("TTNNDeduceMoEComputeLayouts requires "
@@ -123,14 +86,9 @@ public:
       refreshEnclosingFuncReturnType(op.getResult());
     });
 
-    moduleOp.walk([&](ttnn::MoeComputeOp op) {
-      CoreRangeSetAttr drainCoreRangeSet =
-          op_model::getMoeTilizeDrainCoreRangeSet(&op);
-      // Operands 1 (expert indices) and 2 (expert scores) are read by the
-      // kernel from CBs allocated on the drain core.
-      reshardTilizeInputToDrainCore(op, /*operandIdx=*/1, drainCoreRangeSet);
-      reshardTilizeInputToDrainCore(op, /*operandIdx=*/2, drainCoreRangeSet);
-    });
+    // The a2a metadata is placed directly on moe_compute's tilize drain core
+    // (TTNNAllocateDistributedOpBuffers + the L1-HeightShard operand workarounds),
+    // so the persistent buffers are not resharded here (the reshard deadlocked).
 #endif // TTMLIR_ENABLE_OPMODEL
   }
 };
