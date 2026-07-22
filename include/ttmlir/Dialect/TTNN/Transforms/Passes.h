@@ -16,8 +16,8 @@
 #include "ttmlir/Dialect/TTNN/Transforms/GreedyMemoryLayoutPropagation.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Optimizer.h"
 #include "ttmlir/Dialect/TTNN/Utils/CompositeResolution.h"
-#include "ttmlir/Dialect/TTNN/Utils/MathFidelityParser.h"
 #include "ttmlir/Dialect/TTNN/Utils/OptimizerOverrides.h"
+#include "ttmlir/Dialect/TTNN/Utils/PassOptionParsers.h"
 
 namespace mlir::tt::ttnn {
 

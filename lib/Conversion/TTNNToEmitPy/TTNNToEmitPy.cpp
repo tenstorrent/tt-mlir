@@ -423,7 +423,7 @@ private:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getLhs()),
-        emitter.template emit<ExponentT>(exponent),
+        emitter.emit<ExponentT>(exponent),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
@@ -673,10 +673,9 @@ public:
         emitter.emit(srcOp.getInputHeight()),
         emitter.emit(srcOp.getInputWidth()),
         emitter.emit(srcOp.getChannels()),
-        emitter.template emit<std::array<uint32_t, 2>>(
-            srcOp.getKernelSizeAttr()),
-        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
-        emitter.template emit<
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
+        emitter.emit<
             std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
             rewriter.getI32ArrayAttr(padding)),
         emitter.emit(srcOp.getCeilMode()),
@@ -730,15 +729,12 @@ public:
         emitter.emit(maxPool2dOp.getInputHeight()),
         emitter.emit(maxPool2dOp.getInputWidth()),
         emitter.emit(maxPool2dOp.getChannels()),
-        emitter.template emit<std::vector<uint32_t>>(
-            maxPool2dOp.getKernelSizeAttr()),
-        emitter.template emit<std::vector<uint32_t>>(
-            maxPool2dOp.getStrideAttr()),
-        emitter.template emit<
+        emitter.emit<std::vector<uint32_t>>(maxPool2dOp.getKernelSizeAttr()),
+        emitter.emit<std::vector<uint32_t>>(maxPool2dOp.getStrideAttr()),
+        emitter.emit<
             std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
             rewriter.getI32ArrayAttr(padding)),
-        emitter.template emit<std::vector<uint32_t>>(
-            maxPool2dOp.getDilationAttr()),
+        emitter.emit<std::vector<uint32_t>>(maxPool2dOp.getDilationAttr()),
         emitter.emit(maxPool2dOp.getCeilMode(), "ceil_mode"),
         emitter.emit(maxPool2dOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(maxPool2dOp.getAppliedShardScheme(),
@@ -805,14 +801,14 @@ public:
         emitter.emit(maxPool2dWithIndicesOp.getInputHeight()),
         emitter.emit(maxPool2dWithIndicesOp.getInputWidth()),
         emitter.emit(maxPool2dWithIndicesOp.getChannels()),
-        emitter.template emit<std::vector<uint32_t>>(
+        emitter.emit<std::vector<uint32_t>>(
             maxPool2dWithIndicesOp.getKernelSizeAttr()),
-        emitter.template emit<std::vector<uint32_t>>(
+        emitter.emit<std::vector<uint32_t>>(
             maxPool2dWithIndicesOp.getStrideAttr()),
-        emitter.template emit<
+        emitter.emit<
             std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
             rewriter.getI32ArrayAttr(padding)),
-        emitter.template emit<std::vector<uint32_t>>(
+        emitter.emit<std::vector<uint32_t>>(
             maxPool2dWithIndicesOp.getDilationAttr()),
         emitter.emit(maxPool2dWithIndicesOp.getCeilMode(), "ceil_mode"),
         emitter.emit(maxPool2dWithIndicesOp.getMemoryConfigAttr(),
@@ -1643,6 +1639,55 @@ public:
 };
 } // namespace
 
+// Conv1dOp conversion pattern
+//
+namespace {
+class Conv1dOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::Conv1dOp> {
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::Conv1dOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::Conv1dOp conv1dOp,
+                  mlir::tt::ttnn::Conv1dOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::Conv1dOp> emitter(
+        conv1dOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(conv1dOp.getInput(), "input_tensor"),
+        emitter.emit(conv1dOp.getWeight(), "weight_tensor"),
+        emitter.emit(conv1dOp.getDevice(), "device"),
+        emitter.emit(conv1dOp.getInChannels(), "in_channels"),
+        emitter.emit(conv1dOp.getOutChannels(), "out_channels"),
+        emitter.emit(conv1dOp.getBatchSize(), "batch_size"),
+        emitter.emit(conv1dOp.getInputLength(), "input_length"),
+        emitter.emit(conv1dOp.getKernelSize(), "kernel_size"),
+        emitter.emit(conv1dOp.getStride(), "stride"),
+        emitter.template emit<std::vector<uint32_t>>(conv1dOp.getPaddingAttr(),
+                                                     "padding"),
+        emitter.emit(conv1dOp.getDilation(), "dilation"),
+        emitter.emit(conv1dOp.getGroups(), "groups"),
+        emitter.emit(conv1dOp.getDtypeAttr(), "dtype"),
+        emitter.emit(conv1dOp.getBias(), "bias_tensor"),
+        emitter.emit(conv1dOp.getConv2dConfig(), "conv_config"),
+        emitter.emit(conv1dOp.getComputeConfig(), "compute_config"),
+        emitter.emit(conv1dOp.getMemoryConfigAttr(), "memory_config"),
+        emitter.emit(conv1dOp.getConv2dSliceConfig(), "slice_config"),
+        emitter.emit(false, "return_output_dim"),
+        emitter.emit(false, "return_weights_and_bias"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Conv2dOp conversion pattern
 //
 namespace {
@@ -1670,14 +1715,13 @@ public:
         emitter.emit(conv2dOp.getBatchSize(), "batch_size"),
         emitter.emit(conv2dOp.getInputHeight(), "input_height"),
         emitter.emit(conv2dOp.getInputWidth(), "input_width"),
-        emitter.template emit<std::vector<uint32_t>>(
-            conv2dOp.getKernelSizeAttr(), "kernel_size"),
-        emitter.template emit<std::vector<uint32_t>>(conv2dOp.getStrideAttr(),
-                                                     "stride"),
-        emitter.template emit<std::vector<uint32_t>>(conv2dOp.getPaddingAttr(),
-                                                     "padding"),
-        emitter.template emit<std::vector<uint32_t>>(conv2dOp.getDilationAttr(),
-                                                     "dilation"),
+        emitter.emit<std::vector<uint32_t>>(conv2dOp.getKernelSizeAttr(),
+                                            "kernel_size"),
+        emitter.emit<std::vector<uint32_t>>(conv2dOp.getStrideAttr(), "stride"),
+        emitter.emit<std::vector<uint32_t>>(conv2dOp.getPaddingAttr(),
+                                            "padding"),
+        emitter.emit<std::vector<uint32_t>>(conv2dOp.getDilationAttr(),
+                                            "dilation"),
         emitter.emit(conv2dOp.getGroups(), "groups"),
         emitter.emit(conv2dOp.getDtypeAttr(), "dtype"),
         emitter.emit(conv2dOp.getBias(), "bias_tensor"),
@@ -2291,6 +2335,9 @@ public:
         emitter.emit(srcOp.getIndex(), "index"),
         emitter.emit(srcOp.getSource(), "src"),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
+        emitter.emit(ttnn_to_emitpy::reduceTypeToScatterString(
+                         srcOp.getScatterReduceType()),
+                     "reduce"),
     };
 
     emitter.replaceOp(*this, args);
@@ -2318,7 +2365,7 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.emit(static_cast<int32_t>(srcOp.getDim())),
+        emitter.emit(srcOp.getDim()),
         emitter.emit(srcOp.getIndex()),
         emitter.emit(/*sparse_grad=*/false, "sparse_grad"),
         emitter.emit(srcOp.getMemoryConfig(), "memory_config"),
@@ -2553,7 +2600,7 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getBegins()),
         emitter.emit(srcOp.getEnds()),
-        emitter.template emit<::ttsl::SmallVector<int32_t>>(srcOp.getStep()),
+        emitter.emit<::ttsl::SmallVector<int32_t>>(srcOp.getStep()),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
@@ -2589,9 +2636,9 @@ public:
 
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
-        emitter.template emit<::ttsl::SmallVector<int32_t>>(srcOp.getBegins()),
-        emitter.template emit<::ttsl::SmallVector<int32_t>>(srcOp.getEnds()),
-        emitter.template emit<::ttsl::SmallVector<int32_t>>(srcOp.getStep()),
+        emitter.emit<::ttsl::SmallVector<int32_t>>(srcOp.getBegins()),
+        emitter.emit<::ttsl::SmallVector<int32_t>>(srcOp.getEnds()),
+        emitter.emit<::ttsl::SmallVector<int32_t>>(srcOp.getStep()),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
     };
 
@@ -3862,15 +3909,6 @@ public:
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
     };
 
-    // Emit drain_sync_tilizer_core as a Python tuple if present.
-    if (auto drainCore = srcOp.getDrainCore()) {
-      std::string buf;
-      llvm::raw_string_ostream rso(buf);
-      rso << "(" << drainCore->getX() << ", " << drainCore->getY() << ")";
-      args.push_back(
-          emitter.emitExpression(rso.str(), "drain_sync_tilizer_core"));
-    }
-
     emitter.replaceOp(*this, args);
 
     return success();
@@ -4869,7 +4907,7 @@ public:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInputTensor()),
         emitter.emit(srcOp.getK()),
-        emitter.template emit<int32_t>(srcOp.getDim()),
+        emitter.emit(srcOp.getDim()),
         emitter.emit(srcOp.getLargest()),
         emitter.emit(srcOp.getSorted()),
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
@@ -5440,7 +5478,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // Convolution ops
   //
-  patterns.add<Conv2dOpConversionPattern, ConvTranspose2dOpConversionPattern,
+  patterns.add<Conv1dOpConversionPattern, Conv2dOpConversionPattern,
+               ConvTranspose2dOpConversionPattern,
                PrepareConv2dWeightsOpConversionPattern,
                PrepareConv2dBiasOpConversionPattern,
                PrepareConv3dWeightsOpConversionPattern,

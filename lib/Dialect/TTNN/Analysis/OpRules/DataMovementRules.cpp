@@ -129,6 +129,63 @@ OutputHints ConcatRuleBook::getOutputHints(
 }
 
 //===----------------------------------------------------------------------===//
+// RepeatRuleBook
+//===----------------------------------------------------------------------===//
+
+bool RepeatRuleBook::isValidOutputHintForInputs(
+    const OpConfig &hint, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
+  // ttnn.repeat has a single tensor operand.
+  if (inputLayouts.empty()) {
+    return true;
+  }
+
+  auto inputMem = inputLayouts[0].getMemLayout();
+  bool inputSharded = inputMem && isShardedMemoryLayout(inputMem.getValue());
+
+  // Interleaved input: no grid constraint (output stays interleaved).
+  if (!inputSharded) {
+    return true;
+  }
+
+  // Sharded input: a NULL/gridless output config lets tt-metal re-derive the
+  // output shard spec onto the full compute grid, so the reported grid no
+  // longer matches the physically-allocated (trimmed) grid and consumers read
+  // the wrong cores (tt-xla#5605). Require an explicit sharded output on the
+  // same memory layout type and the same grid as the input.
+  if (!hint.outputLayout) {
+    return false;
+  }
+  auto hintMem = hint.outputLayout.getMemLayout();
+  bool hintSharded = hintMem && isShardedMemoryLayout(hintMem.getValue());
+  if (!hintSharded || hintMem != inputMem) {
+    return false;
+  }
+  return hint.outputLayout.getGridShape() == inputLayouts[0].getGridShape();
+}
+
+OutputHints RepeatRuleBook::getOutputHints(
+    Operation * /*op*/, const std::vector<OpConfig> &legalConfigs) const {
+  // Promote sharded configs to primary hints so a grid-matching sharded
+  // candidate exists for a sharded input. Relying on the NULL hint alone lets
+  // tt-metal re-grid the output onto the full compute grid (the tt-xla#5605
+  // regression); isValidOutputHintForInputs then keeps only the config whose
+  // grid equals the input's. The NULL hint remains for the interleaved-input
+  // case (backend picks an interleaved output).
+  OutputHints result;
+  result.hints.push_back(OpConfig(TTNNLayoutAttr()));
+  for (const auto &cfg : legalConfigs) {
+    if (!cfg.outputLayout) {
+      continue;
+    }
+    auto memLayout = cfg.outputLayout.getMemLayout();
+    if (memLayout && isShardedMemoryLayout(memLayout.getValue())) {
+      result.hints.push_back(cfg);
+    }
+  }
+  return result;
+}
+
+//===----------------------------------------------------------------------===//
 // SliceRuleBook
 //===----------------------------------------------------------------------===//
 

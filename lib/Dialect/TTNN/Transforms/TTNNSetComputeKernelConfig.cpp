@@ -96,30 +96,64 @@ public:
         config = DeviceComputeKernelConfigAttr::get(context);
       }
 
-      // Apply overrides only for parameters that are not already set.
+      // Apply overrides only for parameters that are not already set on the op.
       // Each withX() method returns a new attribute, so we chain them.
+      // A pipeline option that is unset (std::nullopt for the bool options,
+      // Undefined for math fidelity) is never applied, so the op parameter is
+      // left for TTNN to decide. A bool option that is explicitly set - even to
+      // false - is applied, giving a genuine true / false / unset tri-state.
+      //
+      // When a global override is available but the op already sets that knob,
+      // we keep the op's value and emit a debug log so the user is aware the
+      // global compute-kernel-config was not applied for that parameter.
+      auto logSkippedOverride = [&](llvm::StringRef knob) {
+        TTMLIR_DEBUG(ttmlir::LogComponent::General,
+                     "  Skipping global {0} override on {1}: op already sets "
+                     "this knob, keeping its value",
+                     knob, op->getName().getStringRef());
+      };
 
       // Math fidelity: only override if not already set and we have a value.
-      if (!config.getMathFidelity().has_value() &&
-          mathFidelityOverride.has_value()) {
-        config = config.withMathFidelity(*mathFidelityOverride);
+      if (mathFidelityOverride.has_value()) {
+        if (!config.getMathFidelity().has_value()) {
+          config = config.withMathFidelity(*mathFidelityOverride);
+        } else {
+          logSkippedOverride("math_fidelity");
+        }
       }
 
-      // Bool options: only override if not already set and option is true.
-      if (!config.getMathApproxMode() && mathApproxMode) {
-        config = config.withMathApproxMode(mathApproxMode);
+      // Bool options: only override if not already set on the op and the
+      // pipeline option carries a value (true or false).
+      if (mathApproxMode.has_value()) {
+        if (!config.getMathApproxMode()) {
+          config = config.withMathApproxMode(*mathApproxMode);
+        } else {
+          logSkippedOverride("math_approx_mode");
+        }
       }
 
-      if (!config.getFp32DestAccEn() && fp32DestAccEn) {
-        config = config.withFp32DestAccEn(fp32DestAccEn);
+      if (fp32DestAccEn.has_value()) {
+        if (!config.getFp32DestAccEn()) {
+          config = config.withFp32DestAccEn(*fp32DestAccEn);
+        } else {
+          logSkippedOverride("fp32_dest_acc_en");
+        }
       }
 
-      if (!config.getPackerL1Acc() && packerL1Acc) {
-        config = config.withPackerL1Acc(packerL1Acc);
+      if (packerL1Acc.has_value()) {
+        if (!config.getPackerL1Acc()) {
+          config = config.withPackerL1Acc(*packerL1Acc);
+        } else {
+          logSkippedOverride("packer_l1_acc");
+        }
       }
 
-      if (!config.getDstFullSyncEn() && dstFullSyncEn) {
-        config = config.withDstFullSyncEn(dstFullSyncEn);
+      if (dstFullSyncEn.has_value()) {
+        if (!config.getDstFullSyncEn()) {
+          config = config.withDstFullSyncEn(*dstFullSyncEn);
+        } else {
+          logSkippedOverride("dst_full_sync_en");
+        }
       }
 
       // This fix is required for correctness of large matmuls/linears.

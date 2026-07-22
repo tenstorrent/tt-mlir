@@ -14472,6 +14472,132 @@ class TTIRBuilder(Builder):
 
         return csdpa_module, csdpa_builder
 
+    @tag(ttir.Conv1dOp)
+    def conv1d(
+        self,
+        in0: Operand,
+        weight: Operand,
+        bias: Optional[Operand],
+        stride: Union[int, List[int]],
+        padding: Union[int, List[int]],
+        dilation: Union[int, List[int]],
+        groups: int,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        """
+        Creates ``ttir.conv1d``.
+
+        *Conv1d operation.*
+
+        Applies a 1D convolution over an input signal composed of several input planes.
+
+        Parameters
+        ----------
+        in0 : Operand
+            Input tensor in (N, L_in, C) format
+        weight : Operand
+            Weight tensor in (O, C/G, K) format
+        bias : *Optional[Operand]*
+            Optional bias tensor in (1, 1, O) format
+        stride : *Union[int, List[int]]*, optional
+            Stride of the kernel window (default: 1)
+        padding : *Union[int, List[int]]*, optional
+            Padding for both sides or [left, right] (default: 0)
+        dilation : *Union[int, List[int]]*, optional
+            Spacing between kernel elements (default: 1)
+        groups : int, optional
+            Number of blocked connections from input to output channels (default: 1)
+        output_type : *Optional[torch.dtype]*, optional
+            Optional output data type (default: None, uses input type)
+        loc : *Optional[str]*, optional
+            Optional location string for debugging
+        unit_attrs : *Optional[List[str]]*, optional
+            Optional list of unit attributes
+
+        Returns
+        -------
+        (*OpResult*)
+            Output tensor after convolution
+        """
+        ttir_op = self.get_opview_from_method(TTIRBuilder.conv1d)
+
+        if not bias:
+            bias = None
+
+        stride_attr = (
+            IntegerAttr.get(IntegerType.get_signless(32), stride)
+            if isinstance(stride, int)
+            else DenseI32ArrayAttr.get(stride)
+        )
+        padding_attr = (
+            IntegerAttr.get(IntegerType.get_signless(32), padding)
+            if isinstance(padding, int)
+            else DenseI32ArrayAttr.get(padding)
+        )
+        dilation_attr = (
+            IntegerAttr.get(IntegerType.get_signless(32), dilation)
+            if isinstance(dilation, int)
+            else DenseI32ArrayAttr.get(dilation)
+        )
+
+        groups_attr = IntegerAttr.get(IntegerType.get_signless(32), groups)
+
+        # Default dimension attributes (NLC layout)
+        batch_dim_attr = IntegerAttr.get(IntegerType.get_signless(32), 0)
+        length_dim_attr = IntegerAttr.get(IntegerType.get_signless(32), 1)
+        channel_dim_attr = IntegerAttr.get(IntegerType.get_signless(32), 2)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(in0)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        input0 = self._get_golden_tensor(in0)
+        weight0 = self._get_golden_tensor(weight)
+        bias0 = self._get_golden_tensor(bias) if bias is not None else None
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            input0,
+            weight0,
+            bias0,
+            stride_attr,
+            padding_attr,
+            dilation_attr,
+            groups_attr,
+            batch_dim_attr,
+            length_dim_attr,
+            channel_dim_attr,
+        )
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            in0,
+            weight,
+            stride_attr,
+            padding_attr,
+            dilation_attr,
+            groups_attr,
+            bias=bias,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
     @tag(ttir.Conv2dOp)
     def conv2d(
         self,
@@ -17529,29 +17655,18 @@ class TTIRBuilder(Builder):
         layer_id: int,
         output_height_shard_dim: int,
         intermediate_size: int,
+        cluster_axis: int,
+        output_shape: Shape,
+        output_type: torch.dtype,
         bias_0: Optional[Operand] = None,
         bias_1: Optional[Operand] = None,
         bias_2: Optional[Operand] = None,
         activation_function: str = "silu",
-        compute_only: bool = True,
-        bh_ring_size: Optional[int] = None,
-        output_shapes: Optional[List[Shape]] = None,
-        output_types: Optional[List[torch.dtype]] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> Tuple[OpResult, OpResult, OpResult, OpResult, OpResult, OpResult]:
-        assert (
-            output_shapes is not None and len(output_shapes) == 6
-        ), "output_shapes must be a list of 6 shapes for moe_compute"
-        assert (
-            output_types is not None and len(output_types) == 6
-        ), "output_types must be a list of 6 dtypes for moe_compute"
-
-        result_types = [
-            self._create_ranked_tensor_type(
-                shape, self._get_type_from_torch_dtype(dtype)
-            )
-            for shape, dtype in zip(output_shapes, output_types)
-        ]
+    ) -> OpResult:
+        result_type = self._create_ranked_tensor_type(
+            output_shape, self._get_type_from_torch_dtype(output_type)
+        )
 
         u32 = IntegerType.get_unsigned(32)
         layer_id_attr = IntegerAttr.get(u32, layer_id)
@@ -17560,20 +17675,12 @@ class TTIRBuilder(Builder):
         activation_attr = Attribute.parse(
             f"#ttcore.moe_activation_function<{activation_function}>"
         )
-        compute_only_attr = BoolAttr.get(compute_only)
-        bh_ring_size_attr = (
-            IntegerAttr.get(u32, bh_ring_size) if bh_ring_size is not None else None
-        )
+        cluster_axis_attr = IntegerAttr.get(u32, cluster_axis)
 
         loc = self._get_location()
 
         op = ttir.MoeComputeOp(
-            result_types[0],
-            result_types[1],
-            result_types[2],
-            result_types[3],
-            result_types[4],
-            result_types[5],
+            result_type,
             tilize_input_tensor,
             tilize_expert_indices_tensor,
             tilize_expert_scores_tensor,
@@ -17588,8 +17695,7 @@ class TTIRBuilder(Builder):
             bias_1=bias_1,
             bias_2=bias_2,
             activation_function=activation_attr,
-            compute_only=compute_only_attr,
-            bh_ring_size=bh_ring_size_attr,
+            cluster_axis=cluster_axis_attr,
             loc=loc,
         )
 
@@ -17597,14 +17703,13 @@ class TTIRBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
-        # Compute goldens via the registered reference from the raw weight
-        # operands (the SiLU/SwiGLU MLP reference). Device-specific weight
-        # prepacking happens in TTNN; the golden works directly off w0/w1/w2.
+        # Golden works off the raw w0/w1/w2 operands; weight prepacking is a
+        # TTNN concern.
         def _maybe_golden(v):
             return self._get_golden_tensor(v) if v is not None else None
 
         op_golden_function = get_golden_function(ttir.MoeComputeOp)
-        golden_outputs = op_golden_function(
+        golden_output = op_golden_function(
             self._get_golden_tensor(tilize_input_tensor),
             self._get_golden_tensor(tilize_expert_indices_tensor),
             self._get_golden_tensor(tilize_expert_scores_tensor),
@@ -17619,17 +17724,13 @@ class TTIRBuilder(Builder):
             output_height_shard_dim=output_height_shard_dim,
             intermediate_size=intermediate_size,
             has_bias=any(b is not None for b in (bias_0, bias_1, bias_2)),
-            # cluster_axis is full-path routing, unused in compute_only.
-            cluster_axis=0,
+            cluster_axis=cluster_axis,
             activation_function=activation_function,
-            compute_only=compute_only,
-            bh_ring_size=bh_ring_size,
-            output_types_mlir=[r.type for r in op.results],
+            output_type_mlir=op.result.type,
         )
-        for result, golden in zip(op.results, golden_outputs):
-            self._set_golden_tensor(result, golden)
+        self._set_golden_tensor(op.result, golden_output)
 
-        return tuple(op.results)
+        return op.result
 
     def upsample2d(
         self,
@@ -19098,7 +19199,7 @@ class TTIRBuilder(Builder):
         output_type: Optional[torch.dtype] = None,
         loc: Optional[str] = None,
         unit_attrs: Optional[List[str]] = None,
-    ) -> Tuple[OpResult, OpResult]:
+    ) -> OpResult:
         ttir_op = self.get_opview_from_method(TTIRBuilder.topk)
 
         if output_type is None:
@@ -19142,9 +19243,29 @@ class TTIRBuilder(Builder):
             for attr_name in unit_attrs:
                 op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
 
+        # The ttir.topk op is dual-result: it produces both values and indices.
+        # topk() returns only the values result; topk_indices() recovers the
+        # indices result of the same op without emitting a duplicate op.
         self._set_golden_tensor(op_values, golden_values)
+        self._set_golden_tensor(op.indices, golden_indices)
 
         return op_values
+
+    def topk_indices(self, topk_values: OpResult) -> OpResult:
+        """Return the indices result of the ttir.topk op that produced ``topk_values``.
+
+        ``topk`` yields only the values result; the op itself is dual-result
+        (values, indices). This recovers the sibling indices result from the
+        same op, so no second topk op is emitted.
+        """
+        owner = topk_values.owner
+        op_view = owner.opview if isinstance(owner, Operation) else owner
+        if not isinstance(op_view, ttir.TopKOp):
+            raise TypeError(
+                "topk_indices expects a value produced by builder.topk; got "
+                f"{type(op_view).__name__}"
+            )
+        return op_view.indices
 
     @parse(ttir.TopKOp)
     def topk_parser(

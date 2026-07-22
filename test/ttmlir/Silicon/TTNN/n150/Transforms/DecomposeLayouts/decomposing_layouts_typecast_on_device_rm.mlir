@@ -53,9 +53,8 @@ module attributes {} {
     }
 
     // DRAM interleaved RM bf16 -> L1 interleaved RM f32. Dtype change plus a
-    // memory move. The typecast runs on the DRAM input, then a single
-    // to_memory_config moves the (already-typecast) result to L1; no host
-    // round-trip.
+    // memory move. The typecast runs in place on the DRAM input, then a single
+    // to_memory_config moves the result to L1; no host round-trip.
     func.func @dram_il_rm_bf16_to_l1_il_rm_f32(%arg0: tensor<32x128xbf16, #dram_il_rm_bf16>) -> tensor<32x128xf32, #l1_il_rm_f32> {
         // CHECK-LABEL: func.func @dram_il_rm_bf16_to_l1_il_rm_f32
         // CHECK: %[[CAST:.*]] = "ttnn.typecast"(%arg0)
@@ -63,7 +62,7 @@ module attributes {} {
         // CHECK-NEXT: %[[MEM:.*]] = "ttnn.to_memory_config"(%[[CAST]])
         // CHECK-SAME: -> tensor<32x128xf32, {{.*}}#ttnn.buffer_type<l1>
         // CHECK-NEXT: return %[[MEM]]
-        %0 = "ttnn.to_layout"(%arg0)  : (tensor<32x128xbf16, #dram_il_rm_bf16>) -> tensor<32x128xf32, #l1_il_rm_f32>
+        %0 = "ttnn.to_layout"(%arg0) : (tensor<32x128xbf16, #dram_il_rm_bf16>) -> tensor<32x128xf32, #l1_il_rm_f32>
         return %0 : tensor<32x128xf32, #l1_il_rm_f32>
     }
 

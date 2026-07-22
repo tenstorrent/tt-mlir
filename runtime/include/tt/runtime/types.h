@@ -6,10 +6,13 @@
 #define TT_RUNTIME_TYPES_H
 
 #include <cassert>
+#include <cstdint>
 #include <filesystem>
 #include <map>
 #include <memory>
 #include <optional>
+#include <string>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 
@@ -37,6 +40,14 @@ MemoryBlockTable is a list of memory blocks in the following format:
 */
 using MemoryBlockTable =
     std::vector<std::unordered_map<std::string, std::string>>;
+
+using DebugStatsMap = std::unordered_map<std::string, std::int64_t>;
+
+struct WorkerDebugStatsEntry {
+  std::string hostname;
+  DebugStatsMap stats;
+};
+using WorkerDebugStats = std::vector<WorkerDebugStatsEntry>;
 
 enum class MemoryBufferType {
   DRAM,
@@ -241,6 +252,10 @@ public:
 
   MultiProcessArgs &withControllerHostname(std::string_view hostname);
 
+  MultiProcessArgs &withTracy(bool enabled);
+
+  MultiProcessArgs &withTracyArgs(const std::vector<std::string> &args);
+
   MultiProcessArgs &withTcpInterface(std::string_view interfaceName);
 
   std::optional<std::string> getControllerHostname() const;
@@ -268,13 +283,17 @@ private:
   std::optional<std::string> controllerHostname_;
 
   std::optional<std::string> tcpInterface_;
+
+  bool tracyEnabled_ = false;
+
+  std::vector<std::string> tracyArgs_;
 };
 
 struct DistributedOptions {
   uint16_t controllerPort = 0;
   DistributedMode mode = DistributedMode::MultiProcess;
-  // Optional, if not provided, the distributed worker path will be derived from
-  // the MLIR home.
+  // Optional, if not provided, the distributed worker path will be derived
+  // from the MLIR home.
   std::optional<std::string> workerPath = std::nullopt;
   // Required for MultiProcess mode
   std::optional<MultiProcessArgs> multiProcessArgs = std::nullopt;

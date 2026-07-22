@@ -51,6 +51,9 @@ class _Config:
     verify_passes: bool = _env_bool("D2M_JIT_VERIFY", default=True)
     # Convert all tensor inputs and out-params to DRAM before each kernel call.
     kernel_io_in_dram: bool = _env_bool("D2M_JIT_KERNEL_IO_IN_DRAM")
+    # Keep explicit d2m.tile_matmul loops instead of replacing them with
+    # d2m.tile_matmul_block in the backend pipeline.
+    use_tile_matmul: bool = _env_bool("D2M_JIT_USE_TILE_MATMUL")
     # If set, write the post-pipeline flatbuffer to this path before
     # device submit. Useful for offline inspection with ttrt.
     save_flatbuffer_path: Optional[str] = os.environ.get("D2M_JIT_SAVE_FLATBUFFER_PATH")

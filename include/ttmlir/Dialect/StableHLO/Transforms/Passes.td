@@ -65,6 +65,32 @@ def RegisterCustomShardingRulePass : Pass<"register-custom-sharding-rule", "::ml
     "::mlir::sdy::SdyDialect"
   ];
 }
+
+def RegisterUserShardingRulePass : Pass<"register-user-sharding-rule", "::mlir::ModuleOp">
+{
+  let summary = "Promote user-provided xla.sdy.custom_sharding_rule frontend attributes to sdy.sharding_rule op attributes.";
+
+  let description = [{
+    Promotes a user-specified custom sharding rule, carried on a
+    stablehlo.custom_call as the "xla.sdy.custom_sharding_rule" frontend
+    attribute, into a real #sdy.op_sharding_rule set under the standard
+    sdy.sharding_rule op attribute. Promoting it to a first-class,
+    Shardy-recognized attribute lets Shardy propagate it directly and run
+    its always-on verifier on it.
+
+    If "xla.sdy.custom_sharding_rule" is absent or an empty string, the op
+    has no custom rule and falls back to Shardy's default replication. If it
+    is present and non-empty but does not parse into an #sdy.op_sharding_rule,
+    the pass fails with an error.
+
+    This pass is intended to run before any Shardy sharding propagation passes.
+  }];
+
+  let dependentDialects = [
+    "::mlir::sdy::SdyDialect"
+  ];
+}
+
 def ApplyArgumentShardStatusPass : Pass<"apply-argument-shard-status", "::mlir::ModuleOp">
 {
   let summary = "Annotate arguments with their shard status.";
@@ -512,28 +538,32 @@ def UpdateGlobalToLocalShapesPass : Pass<"update-global-to-local-shapes", "::mli
   ];
 }
 
-def ReplicateNonSplittableConstantsPass : Pass<"replicate-non-splittable-constants", "::mlir::ModuleOp">
+def ReplicateNonSplittableValuesPass : Pass<"replicate-non-splittable-values", "::mlir::ModuleOp">
 {
-  let summary = "Change sharding of non-splittable constants to replicated.";
+  let summary = "Change sharding of non-splittable values to replicated.";
   let description = [{
-    This pass identifies stablehlo.constant operations whose values are
-    non-splat and non-periodic across the sharding dimension, meaning they
-    cannot be meaningfully sharded in SPMD (all devices run the same program
-    and would need to split constant data that has no repeating pattern).
+    This pass identifies value-producing operations whose data is non-splat
+    and non-periodic across the sharding dimension, meaning they cannot be
+    meaningfully sharded in SPMD (all devices run the same program and would
+    need to split data that has no repeating pattern). It handles
+    stablehlo.constant values as well as stablehlo.iota sharded along its
+    iota_dimension (which produces the non-periodic sequence 0, 1, ..., N-1).
 
-    For such constants, the pass changes their sharding annotation to fully
+    For such values, the pass changes their sharding annotation to fully
     replicated (all dimensions closed, no sharding axes). This must run
     before InsertExplicitReshards so that Shardy detects the mismatch between
-    the replicated constant and its sharded consumers, and inserts the
+    the replicated value and its sharded consumers, and inserts the
     appropriate sdy.reshard operations. Those reshards are later converted to
     concrete collective operations by ReshardToCollectives.
 
-    Without this pass, UpdateGlobalToLocalShapes would try to shard the
-    constant value, which fails for non-splat, non-periodic data.
+    Without this pass, UpdateGlobalToLocalShapes would try to shard the value,
+    which fails for non-splat, non-periodic data (and, for iota, would drop
+    the per-shard offset so every shard emits 0..local-1).
 
-    Example constants that are non-splittable:
-      - dense<[0, 1, 2, ..., 63]> : tensor<64xi64>  (iota / position indices)
+    Example values that are non-splittable:
+      - dense<[0, 1, 2, ..., 63]> : tensor<64xi64>  (position indices)
       - dense<[[[0.0, 1.0, ..., 63.0]]]> : tensor<1x1x64xf32>  (RoPE freqs)
+      - stablehlo.iota dim = 0 : tensor<64xui32>  (sharded along dim 0)
   }];
 
   let dependentDialects = [

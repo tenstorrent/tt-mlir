@@ -14,6 +14,9 @@
 
 #include "OpModelFixture.h"
 
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
+
 namespace mlir::tt::ttnn::op_model {
 
 class OpModelTripwireTest : public OpModelFixture {};

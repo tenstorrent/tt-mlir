@@ -12,6 +12,7 @@ from builder.base.builder_apis import compile_and_execute_ttir
 
 pytestmark = pytest.mark.frontend("ttir")
 
+
 # =============================================================================
 # SDPA decomposition tests — exercise is_causal, scale, attention_mask
 # =============================================================================
@@ -149,7 +150,7 @@ def test_sdpa_decomposition(
     "shapes,mask_shape,is_causal,scale",
     [
         # Explicit mask, non-causal (broadcast batch+heads)
-        (
+        pytest.param(
             [(1, 8, 64, 64), (1, 8, 64, 64), (1, 8, 64, 64)],
             (1, 1, 64, 64),
             False,
@@ -349,7 +350,7 @@ def test_softmax_decomposition(
 ):
     """Test softmax decomposition for the TTMetal pipeline."""
     if dimension == 0:
-        pytest.skip("Out of place reduction not supported with blocking. See #8290")
+        pytest.xfail("Out of place reduction not supported with blocking. See #8290")
 
     def module(builder: TTIRBuilder):
         @builder.func([shape], [torch.float32])

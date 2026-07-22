@@ -4,19 +4,9 @@
 
 """`__matmul__` via `linalg.generic` + `d2m.tile_matmul`.
 
-Two flavours covered:
-
-1. `test_matmul_compiles_and_runs` -- baseline shape/dtype check using
-   `d2m.empty` for the output. Confirms the IR lowers and runs on
-   silicon. Values are not asserted because the output is uninitialised
-   (the matmul body accumulates).
-
-2. `test_matmul_correctness_via_zeros` -- pre-fill the output with
-   `d2m.zeros(L)` before calling the kernel. This is the recommended
-   pattern for correct values until the device-side accumulator
-   zero-init lands in `_matmul_block`.
-
-3. Parameterized transpose-b correctness over several M/K/N tile shapes.
+Coverage includes single-tile matmul on a multicore grid, transpose-b
+variants, and an explicit multi-K loop-carried accumulator initialized with a
+kernel-body zero block.
 """
 
 import pytest
@@ -36,6 +26,28 @@ def matmul_kernel(lhs, rhs, out, m_blocks, n_blocks):
             b = remote_load(rhs, [m_off + m, n_off + n])
             c = a @ b
             remote_store(out, [m_off + m, n_off + n], c)
+
+
+@d2m.kernel
+def matmul_multi_k_kernel(lhs, rhs, out, k_blocks):
+    c = zeros([1, 1])
+    for k in range(k_blocks):
+        a = remote_load(lhs, [0, k])
+        b = remote_load(rhs, [k, 0])
+        c += a @ b
+    remote_store(out, [0, 0], c)
+
+
+@d2m.kernel
+def matmul_tiled_multi_k_kernel(lhs, rhs, out, m_blocks, n_blocks, k_blocks):
+    for m in range(m_blocks):
+        for n in range(n_blocks):
+            acc = zeros([1, 1])
+            for k in range(k_blocks):
+                a = remote_load(lhs, [m, k])
+                b = remote_load(rhs, [k, n])
+                acc += a @ b
+            remote_store(out, [m, n], acc)
 
 
 @d2m.kernel
@@ -73,14 +85,14 @@ def test_matmul_compiles_and_runs():
     assert result.dtype == torch.float32
 
 
-def test_matmul_correctness_via_zeros():
+def test_matmul_correctness_single_tile_multicore():
     """Per-shard 32x32 matmul: each core's shard is exactly one tile, so
     the kernel emits a single `tile_matmul` per shard. Comparing against
     a per-shard torch matmul (no inter-shard K reduction)."""
     lhs = torch.randn(64, 64, dtype=torch.float32)
     rhs = torch.randn(64, 64, dtype=torch.float32)
     L = _make_layout()
-    out_d = d2m.zeros(L)  # pre-fill accumulator
+    out_d = d2m.empty(L)
     matmul_kernel(
         d2m.to_layout(lhs, L), d2m.to_layout(rhs, L), out_d, 1, 1, grid=(2, 2)
     )
@@ -96,6 +108,70 @@ def test_matmul_correctness_via_zeros():
 
     diff = (expected - result).abs().max().item()
     assert diff < 0.05, f"per-shard matmul: max diff {diff} too large"
+
+
+def test_matmul_correctness_multi_k_loop_carried_accumulator():
+    torch.manual_seed(0)
+    lhs = torch.randn(32, 64, dtype=torch.float32) * 0.25
+    rhs = torch.randn(64, 32, dtype=torch.float32) * 0.25
+
+    lhs_layout = d2m.Layout(
+        shape=(32, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1]
+    )
+    rhs_layout = d2m.Layout(
+        shape=(64, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1]
+    )
+    out_layout = d2m.Layout(
+        shape=(32, 32), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1]
+    )
+    out_d = d2m.empty(out_layout)
+
+    old_use_tile_matmul = d2m.config.use_tile_matmul
+    d2m.config.use_tile_matmul = True
+    try:
+        matmul_multi_k_kernel(
+            d2m.to_layout(lhs, lhs_layout),
+            d2m.to_layout(rhs, rhs_layout),
+            out_d,
+            2,
+            grid=(1, 1),
+        )
+        assert_pcc(lhs @ rhs, out_d.to_host(), threshold=0.99)
+    finally:
+        d2m.config.use_tile_matmul = old_use_tile_matmul
+
+
+def test_matmul_correctness_tiled_mnk_loop_carried_accumulator():
+    torch.manual_seed(0)
+    lhs = torch.randn(64, 96, dtype=torch.float32) * 0.125
+    rhs = torch.randn(96, 64, dtype=torch.float32) * 0.125
+
+    lhs_layout = d2m.Layout(
+        shape=(64, 96), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1]
+    )
+    rhs_layout = d2m.Layout(
+        shape=(96, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1]
+    )
+    out_layout = d2m.Layout(
+        shape=(64, 64), dtype=d2m.float32, block_shape=[1, 1], grid_shape=[1, 1]
+    )
+    out_d = d2m.empty(out_layout)
+
+    old_use_tile_matmul = d2m.config.use_tile_matmul
+    d2m.config.use_tile_matmul = True
+    try:
+        matmul_tiled_multi_k_kernel(
+            d2m.to_layout(lhs, lhs_layout),
+            d2m.to_layout(rhs, rhs_layout),
+            out_d,
+            2,
+            2,
+            3,
+            grid=(1, 1),
+        )
+        assert_pcc(lhs @ rhs, out_d.to_host(), threshold=0.99)
+    finally:
+        d2m.config.use_tile_matmul = old_use_tile_matmul
 
 
 _TRANSPOSE_B_CASES = [
@@ -265,9 +341,10 @@ def test_matmul_transpose_b_method_form_correctness():
 # Multicast smoke kernel.
 #
 # Each core (cy, cx) loops over k, m, n. For each k, m it row-multicasts
-# `lhs[m, k]` from the column-0 source core (cy, 0) across the row, and
-# for each k, m, n it column-multicasts `rhs[k, n]` from the row-0 source
-# core (0, cx) down the column. The body stores `lhs_shard + rhs_shard`
+# `lhs[cy * M + m, k]` from the column-0 source core (cy, 0) across
+# the row, and for each k, m, n it column-multicasts
+# `rhs[k, cx * N + n]` from the row-0 source core (0, cx) down the
+# column. The body stores `lhs_shard + rhs_shard`
 # into `out[m, n]` -- the store is *not* accumulating, so out[m, n] ends
 # up holding the last K iteration's `lhs + rhs`.
 #
@@ -281,26 +358,16 @@ def mcast_overwrite_kernel(lhs, rhs, out, K, M, N, GY, GX):
     for k in range(K):
         for m in range(M):
             lhs_shard = remote_load(
-                lhs, [m, k], mcast_start_index=[cy, 0], mcast_shape=[1, GX]
+                lhs, [cy * M + m, k], mcast_start_index=[cy, 0], mcast_shape=[1, GX]
             )
             for n in range(N):
                 rhs_shard = remote_load(
-                    rhs, [k, n], mcast_start_index=[0, cx], mcast_shape=[GY, 1]
+                    rhs, [k, cx * N + n], mcast_start_index=[0, cx], mcast_shape=[GY, 1]
                 )
                 out_shard = lhs_shard + rhs_shard
                 remote_store(out, [m, n], out_shard)
 
 
-@pytest.mark.skip(
-    reason=(
-        "Hits an expected assertion in "
-        "lib/Dialect/D2M/Transforms/SplitUnifiedThread.cpp:127 -- "
-        "wrapComputeInSynchronizedRegion expects exactly one op with a "
-        "synchronizable op, and the multicast remote_load pattern violates "
-        "that invariant. Tracked separately; un-skip once the pass handles "
-        "multi-op synchronized scopes."
-    )
-)
 def test_mcast_overwrite_grid_2x2():
     """Run mcast_overwrite_kernel on a 2x2 grid with K=M=N=1 -- single
     iteration per core, multicast from (cy, 0) across the row and from

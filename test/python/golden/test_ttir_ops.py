@@ -204,6 +204,77 @@ def test_hoisted_div(shape: Shape, dtype: torch.dtype, target: str, request, dev
     )
 
 
+@pytest.mark.parametrize("shape", [(64, 128)], ids=shape_str)
+@pytest.mark.parametrize("shard_dims", [(0, 1)])
+@pytest.mark.parametrize("mesh_shape", [(1, 2)], ids=shape_str)
+@pytest.mark.parametrize("target", ["ttnn" | SkipIf("sim"), "emitpy" | SkipIf("sim")])
+def test_cpu_hoisted_multichip(
+    shape: Shape,
+    shard_dims: Tuple[int, int],
+    mesh_shape: Tuple[int, int],
+    target: str,
+    request,
+    device,
+):
+    # Sharded inputs run each CPU-hoisted op shard-by-shard; the reduce_scatter
+    # CCL between them stays on device and keeps the data distributed, so both
+    # hoisted ops see distinct shards.
+    def module(builder: TTIRBuilder):
+        @builder.func([shape, shape], [torch.float32, torch.float32])
+        def hoisted_multichip(
+            in0: Operand,
+            in1: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            shard_shape = make_shard_shape(len(shape), shard_dims, mesh_shape)
+            s0 = builder.mesh_shard(
+                in0,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape,
+                shard_dims=list(shard_dims),
+            )
+            s1 = builder.mesh_shard(
+                in1,
+                shard_direction=MeshShardDirection.FullToShard.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape,
+                shard_dims=list(shard_dims),
+            )
+            # CPU-hoisted, runs on each device's distinct shard.
+            a = builder.add(s0, s1, unit_attrs=["ttir.should_hoist"])
+
+            # CCL barrier: stays on device. Scatters the reduced result along
+            # the sharded dim, so each device keeps a distinct slice.
+            rs = builder.reduce_scatter(
+                a,
+                reduce_type=ReduceType.Sum.value,
+                scatter_dim=1,
+                cluster_axis=1,
+            )
+
+            # CPU-hoisted again, still on distinct per-device shards.
+            m = builder.multiply(rs, rs, unit_attrs=["ttir.should_hoist"])
+
+            return builder.mesh_shard(
+                m,
+                shard_direction=MeshShardDirection.ShardToFull.value,
+                shard_type=MeshShardType.Devices.value,
+                shard_shape=shard_shape,
+                shard_dims=list(shard_dims),
+            )
+
+    compile_and_execute_ttir(
+        module,
+        mesh_name="mesh",
+        mesh_dict=OrderedDict([("x", mesh_shape[0]), ("y", mesh_shape[1])]),
+        target=target,
+        device=device,
+        **get_request_kwargs(request),
+    )
+
+
 @pytest.mark.parametrize("shape", [(1, 1, 32) | SkipIf("sim")], ids=shape_str)
 @pytest.mark.parametrize("broadcast_dimensions", [[1, 16, 1]])
 def test_broadcast(shape: List[int], broadcast_dimensions: List[int], request, device):
@@ -974,8 +1045,14 @@ def test_upsample2d(shapes: List[Shape], scale_factor: List[int], request, devic
         pytest.param(
             (5, 3), torch.int64, 0, 3, 1, 1, marks=pytest.mark.skip_config(["sim"])
         ),
+        pytest.param(
+            (5,), torch.float32, -5, 0, 1, 0, marks=pytest.mark.skip_config(["sim"])
+        ),
     ],
 )
+# NOTE: emitc omitted — arange has no dedicated EmitC conversion (the generic
+# DefaultOpConversionPattern emits `ttnn::arange()` with no start/end/step args).
+@pytest.mark.parametrize("target", ["ttnn", "emitpy"])
 def test_arange(
     shape: Shape,
     dtype: torch.dtype,
@@ -983,6 +1060,7 @@ def test_arange(
     end: int,
     step: int,
     dim: int,
+    target: str,
     request,
     device,
 ):
@@ -999,6 +1077,7 @@ def test_arange(
         module,
         **get_request_kwargs(request),
         device=device,
+        target=target,
     )
 
 
@@ -1006,7 +1085,6 @@ def prod(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
     return builder.prod(in0, [1], False, unit_attrs=unit_attrs)
 
 
-@pytest.mark.xfail(reason="Fails Golden")
 @pytest.mark.parametrize(
     "shapes", [[(1, 32, 64, 512), (1, 32, 3, 512)] | SkipIf("sim")], ids=shapes_list_str
 )
@@ -3003,8 +3081,9 @@ def test_presharded_arg(target, mesh_shape, request, device):
     [
         ((32, 64), (32, 16), 1),
         ((64, 32), (16, 32), 0),
+        ((32, 64), (32, 16), -1),
     ],
-    ids=["dim1", "dim0"],
+    ids=["dim1", "dim0", "negdim"],
 )
 @pytest.mark.parametrize(
     "target",

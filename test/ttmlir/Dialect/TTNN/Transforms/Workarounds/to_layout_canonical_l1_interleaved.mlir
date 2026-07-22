@@ -52,7 +52,7 @@ module attributes {} {
         tensor<1x32x4xui16, #dram_idx_out>,
         tensor<1x32x4xbf16, #dram_sc_out>) {
     %disp, %idx, %sc = "ttnn.all_to_all_dispatch_metadata"(%input, %indices, %scores, %mapping)
-        <{cluster_axis = 0 : i64, num_devices = 1 : i64}>
+        <{cluster_axis = 0 : i64, num_devices = 1 : i64, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0, 0, 0>}>
         : (tensor<1x1x32x128xbf16, #dram_input>,
            tensor<1x1x32x4xui16, #dram_idx>,
            tensor<1x1x32x4xbf16, #dram_score>,

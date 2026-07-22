@@ -4,6 +4,7 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/LegalOpConfigAnalysis.h"
 
+#include "ttmlir/Dialect/TTNN/Analysis/Conv3dConfigHeuristic.h"
 #include "ttmlir/Dialect/TTNN/Analysis/MatmulProgramConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfig.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpConfigAttrs.h"
@@ -125,18 +126,76 @@ applyConv2dConfigOverrides(ConvOpT op,
   }
 }
 
+// Compute the base Conv3dConfig for an op before any user override. Start from
+// the op's current (conversion-default) config and, if tt-metal's
+// `_DEFAULT_BLOCKINGS` table has an entry for this op's (in_channels,
+// out_channels, kernel), replace the five blocking fields with the table
+// values. weights_dtype and compute_with_storage_grid_size are preserved from
+// the op config. On a table miss the op config is returned unchanged. A
+// --override-conv3d-config still wins because it is merged on top of this base
+// (per field) by applyConv3dConfigOverrides.
+//
+// Note: in_channels here is the cin-padded value the conversion stored on the
+// op (padded up to a multiple of the tile width). All `_DEFAULT_BLOCKINGS`
+// input-channel keys are already 32-aligned, so matching is unaffected; only
+// sub-32-channel inputs (which the table never keys on) could differ from
+// tt-metal, where the lookup uses the unpadded channel count.
+static Conv3dConfigAttr conv3dBaseConfig(ttnn::Conv3dOp op) {
+  Conv3dConfigAttr base = op.getConv3dConfigAttr();
+  std::optional<ttcore::DataType> weightsDtype;
+  std::optional<ttcore::GridAttr> grid;
+  if (base) {
+    weightsDtype = base.getWeightsDtype();
+    grid = base.getComputeWithStorageGridSize();
+  }
+
+  llvm::ArrayRef<int32_t> kernel = op.getKernelSize();
+  std::optional<Conv3dBlocking> blocking;
+  if (kernel.size() == 3) {
+    blocking = lookupConv3dBlocking(op.getInChannels(), op.getOutChannels(),
+                                    {static_cast<int64_t>(kernel[0]),
+                                     static_cast<int64_t>(kernel[1]),
+                                     static_cast<int64_t>(kernel[2])});
+  }
+
+  if (!blocking) {
+    // No heuristic match: keep the op's existing config (may be null, which
+    // downstream override merging handles by treating every field as unset).
+    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+                 "Conv3d heuristic: no _DEFAULT_BLOCKINGS entry for op {} "
+                 "(in_channels={}, out_channels={}); keeping default config",
+                 op.getLoc(), op.getInChannels(), op.getOutChannels());
+    if (base) {
+      return base;
+    }
+    return Conv3dConfigAttr::get(op.getContext(), std::nullopt, std::nullopt,
+                                 std::nullopt, std::nullopt, std::nullopt,
+                                 std::nullopt, std::nullopt);
+  }
+
+  // kernel is guaranteed to have 3 elements here (blocking is only set above
+  // when kernel.size() == 3).
+  Conv3dConfigAttr matched = Conv3dConfigAttr::get(
+      op.getContext(), weightsDtype, blocking->tOutBlock, blocking->wOutBlock,
+      blocking->hOutBlock, blocking->cOutBlock, blocking->cInBlock, grid);
+  TTMLIR_TRACE(
+      ttmlir::LogComponent::Optimizer,
+      "Conv3d heuristic: _DEFAULT_BLOCKINGS matched op {} (in_channels={}, "
+      "out_channels={}, kernel=[{}, {}, {}]); using config {}",
+      op.getLoc(), op.getInChannels(), op.getOutChannels(), kernel[0],
+      kernel[1], kernel[2], matched);
+  return matched;
+}
+
 static void
 applyConv3dConfigOverrides(ttnn::Conv3dOp op,
                            const Conv3dConfigOverrideParams &overrides,
                            std::vector<OpConfig> &analysisResult) {
-  // Build a Conv3dConfigAttr from the op's current config plus overrides.
-  // If the op has no config yet, start from an empty one (all fields unset).
-  Conv3dConfigAttr base = op.getConv3dConfigAttr();
-  if (!base) {
-    base = Conv3dConfigAttr::get(op.getContext(), std::nullopt, std::nullopt,
-                                 std::nullopt, std::nullopt, std::nullopt,
-                                 std::nullopt, std::nullopt);
-  }
+  // Build a Conv3dConfigAttr from the op's heuristic base config plus
+  // overrides. The base already folds in any tt-metal _DEFAULT_BLOCKINGS entry,
+  // so a partial override pins only its fields and the rest come from the
+  // heuristic (or the conversion default on a table miss).
+  Conv3dConfigAttr base = conv3dBaseConfig(op);
 
   auto pick = [](auto overrideVal, auto existingVal) {
     return overrideVal.has_value() ? overrideVal : existingVal;
@@ -304,17 +363,18 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
                      convOp, analysisResult.size());
 
         // If applyConv3dConfigOverrides ran, the analysisResult's first
-        // entry already carries the override config — keep it as the base.
-        // Otherwise fall back to the config already attached to the op (if
-        // any). There is no config search; the override (or the op default)
-        // is taken as-is.
+        // entry already carries the override config (merged on top of the
+        // heuristic base) — keep it as the base. Otherwise fall back to the
+        // heuristic base config (tt-metal _DEFAULT_BLOCKINGS lookup, or the
+        // conversion default on a table miss). There is no config search; the
+        // override (or the heuristic) is taken as-is.
         std::optional<Conv3dConfigAttr> conv3dConfig;
         if (const Conv3dAttrs *attrs = std::get_if<Conv3dAttrs>(
                 &analysisResult.begin()->opSpecificAttrs)) {
           conv3dConfig = attrs->conv3dConfig;
         }
-        if (!conv3dConfig.has_value() && convOp.getConv3dConfigAttr()) {
-          conv3dConfig = convOp.getConv3dConfigAttr();
+        if (!conv3dConfig.has_value()) {
+          conv3dConfig = conv3dBaseConfig(convOp);
         }
 
         // Default compute config attached to every emitted Conv3dOp.

@@ -574,10 +574,10 @@ public:
     mlir::Attribute exponentAttr;
     if (auto attr = mlir::dyn_cast<FloatAttr>(srcOp.getRhs())) {
       auto exponent = attr.getValue().convertToFloat();
-      exponentAttr = emitter.template emit<float>(exponent);
+      exponentAttr = emitter.emit<float>(exponent);
     } else if (auto attr = mlir::dyn_cast<IntegerAttr>(srcOp.getRhs())) {
       auto exponent = static_cast<int32_t>(attr.getValue().getSExtValue());
-      exponentAttr = emitter.template emit<int32_t>(exponent);
+      exponentAttr = emitter.emit<int32_t>(exponent);
     } else {
       return failure();
     }
@@ -728,14 +728,14 @@ public:
         emitter.emit(srcOp.getA()),
         emitter.emit(srcOp.getB()),
         emitter.emit(srcOp.getSparsity()),
-        emitter.template emit<ttnn_to_emitc::SparseMatmulProgramConfig>(
+        emitter.emit<ttnn_to_emitc::SparseMatmulProgramConfig>(
             srcOp.getProgramConfig()),
         emitter.emit(srcOp.getNnz()),
         emitter.emit(srcOp.getIsInputASparse()),
         emitter.emit(srcOp.getIsInputBSparse()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
         emitter.emit(srcOp.getDtypeAttr()),
-        emitter.template emit<::ttnn::WormholeComputeKernelConfig>(
+        emitter.emit<::ttnn::WormholeComputeKernelConfig>(
             srcOp.getComputeConfig()),
     };
 
@@ -780,10 +780,9 @@ public:
         emitter.emit(srcOp.getInputHeight()),
         emitter.emit(srcOp.getInputWidth()),
         emitter.emit(srcOp.getChannels()),
-        emitter.template emit<std::array<uint32_t, 2>>(
-            srcOp.getKernelSizeAttr()),
-        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
-        emitter.template emit<
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
+        emitter.emit<
             std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
             rewriter.getI32ArrayAttr(padding)),
         emitter.emit(srcOp.getCeilMode()),
@@ -839,13 +838,12 @@ public:
         emitter.emit(srcOp.getInputHeight()),
         emitter.emit(srcOp.getInputWidth()),
         emitter.emit(srcOp.getChannels()),
-        emitter.template emit<std::array<uint32_t, 2>>(
-            srcOp.getKernelSizeAttr()),
-        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
-        emitter.template emit<
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
+        emitter.emit<
             std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
             rewriter.getI32ArrayAttr(padding)),
-        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getCeilMode()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
         /*dram_slice_config=*/emitter.emit(std::nullopt),
@@ -908,13 +906,12 @@ public:
         emitter.emit(srcOp.getInput()), emitter.emit(srcOp.getBatchSize()),
         emitter.emit(srcOp.getInputHeight()),
         emitter.emit(srcOp.getInputWidth()), emitter.emit(srcOp.getChannels()),
-        emitter.template emit<std::array<uint32_t, 2>>(
-            srcOp.getKernelSizeAttr()),
-        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
-        emitter.template emit<
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getKernelSizeAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getStrideAttr()),
+        emitter.emit<
             std::variant<std::array<uint32_t, 2>, std::array<uint32_t, 4>>>(
             rewriter.getI32ArrayAttr(padding)),
-        emitter.template emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getDilationAttr()),
         emitter.emit(srcOp.getCeilMode()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
         /*dram_slice_config=*/emitter.emit(std::nullopt),
@@ -1635,6 +1632,50 @@ public:
 // Conv2d op conversion pattern
 //
 namespace {
+class Conv1dOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::Conv1dOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::Conv1dOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::Conv1dOp srcOp,
+                  mlir::tt::ttnn::Conv1dOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::Conv1dOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getWeight()),
+        emitter.emit(srcOp.getDevice()),
+        emitter.emit(srcOp.getInChannels()),
+        emitter.emit(srcOp.getOutChannels()),
+        emitter.emit(srcOp.getBatchSize()),
+        emitter.emit(srcOp.getInputLength()),
+        emitter.emit(srcOp.getKernelSize()),
+        emitter.emit(srcOp.getStride()),
+        emitter.emit<std::array<uint32_t, 2>>(srcOp.getPaddingAttr()),
+        emitter.emit(srcOp.getDilation()),
+        emitter.emit(srcOp.getGroups()),
+        emitter.emit(srcOp.getDtypeAttr()),
+        emitter.emit(srcOp.getBias()),
+        emitter.emit(srcOp.getConv2dConfig()),
+        emitter.emit(srcOp.getComputeConfig()),
+        emitter.emit(srcOp.getMemoryConfigAttr()),
+        emitter.emit(srcOp.getConv2dSliceConfigAttr()),
+        emitter.emit(false), // return_output_dim
+        emitter.emit(false), // return_weights_and_bias
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+
 class Conv2dOpConversionPattern
     : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::Conv2dOp> {
 
@@ -3125,8 +3166,9 @@ public:
         emitter.emit(srcOp.getIndex()),
         emitter.emit(srcOp.getSource()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
-        emitter.emit(std::nullopt), // opt_reduction_string
-        emitter.emit(std::nullopt)  // sub_core_grid
+        emitter.emit(ttnn_to_emitc::reduceTypeToScatterString(
+            srcOp.getScatterReduceType())), // opt_reduction_string
+        emitter.emit(std::nullopt)          // sub_core_grid
     };
 
     emitter.replaceOp(*this, args);
@@ -4188,19 +4230,8 @@ public:
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::AllToAllDispatchMetadataOp>
         emitter(srcOp, adaptor, rewriter);
 
-    // Emit drain_sync_tilizer_core as tt::tt_metal::CoreCoord if present.
-    mlir::Attribute drainCoreArg;
-    if (auto drainCore = srcOp.getDrainCore()) {
-      std::string buf;
-      llvm::raw_string_ostream rso(buf);
-      rso << "std::make_optional<tt::tt_metal::CoreCoord>("
-          << "tt::tt_metal::CoreCoord(" << drainCore->getX() << ", "
-          << drainCore->getY() << "))";
-      drainCoreArg = rewriter.getAttr<emitc::OpaqueAttr>(rso.str());
-    } else {
-      drainCoreArg = emitter.emit(std::nullopt);
-    }
-
+    // Persistent mode derives the drain core from the shard spec, so it is
+    // passed as nullopt.
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInputTensor()),
         emitter.emit(srcOp.getExpertIndices()),
@@ -4209,7 +4240,7 @@ public:
         /*axis=*/emitter.emit(srcOp.getClusterAxis()),
         /*optional_output_tensors=*/emitter.emit(std::nullopt),
         /*num_links=*/emitter.emit(std::nullopt),
-        /*drain_sync_tilizer_core=*/drainCoreArg,
+        /*drain_sync_tilizer_core=*/emitter.emit(std::nullopt),
     };
 
     // Multi-result: returns std::array<ttnn::Tensor, 3>.
@@ -5663,6 +5694,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                                                                  ctx);
   patterns.add<PrepareConvTranspose2dBiasOpConversionPattern>(typeConverter,
                                                               ctx);
+  patterns.add<Conv1dOpConversionPattern>(typeConverter, ctx);
   patterns.add<Conv2dOpConversionPattern>(typeConverter, ctx);
   patterns.add<Conv3dOpConversionPattern>(typeConverter, ctx);
   patterns.add<ConvTranspose2dOpConversionPattern>(typeConverter, ctx);

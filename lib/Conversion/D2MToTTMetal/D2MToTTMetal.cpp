@@ -24,6 +24,7 @@
 #include "mlir/Support/LogicalResult.h"
 
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/TypeSwitch.h"
 
@@ -51,6 +52,31 @@ public:
                      ttcore::Arch arch, ttmetal::MathFidelity mathFidelity)
       : OpConversionPattern<d2m::GenericOp>(ctx), symbolTable_(&symbolTable),
         arch_(arch), mathFidelity_(mathFidelity) {}
+
+  static void collectCBOperandIndicesFromArgs(ArrayRef<ttkernel::ArgAttr> args,
+                                              DenseSet<size_t> &indices) {
+    for (ttkernel::ArgAttr arg : args) {
+      if (arg.getArgType() == ttkernel::ArgType::CBPort) {
+        indices.insert(arg.getOperandIndex());
+      }
+    }
+  }
+
+  DenseSet<size_t> collectReferencedCBOperandIndices(ArrayAttr threads) const {
+    DenseSet<size_t> indices;
+    for (Attribute threadAttr : threads) {
+      d2m::ThreadAttr thread = mlir::cast<d2m::ThreadAttr>(threadAttr);
+      auto kernelFunc = symbolTable_->lookup<func::FuncOp>(
+          thread.getKernelSymbol().getRootReference());
+      assert(kernelFunc && "thread kernel symbol must resolve");
+      auto kernelSpec = kernelFunc->getAttrOfType<ttkernel::ArgSpecAttr>(
+          ttkernel::ArgSpecAttr::name);
+      assert(kernelSpec && "thread kernel must have an ArgSpec");
+      collectCBOperandIndicesFromArgs(kernelSpec.getRtArgs(), indices);
+      collectCBOperandIndicesFromArgs(kernelSpec.getCtArgs(), indices);
+    }
+    return indices;
+  }
 
   static KernelArgsAttr
   evalKernelArgsFromSpec(Builder &builder, const SymbolTable &symbolTable,
@@ -177,6 +203,8 @@ public:
     llvm::SmallVector<Value> cbs;
     llvm::SmallVector<int64_t> cbPorts;
     DenseMap<size_t, size_t> cbOperandIndexToPort;
+    DenseSet<size_t> referencedCBOperandIndices =
+        collectReferencedCBOperandIndices(op.getThreads());
     unsigned ioSize = op.getInputsAndOutputs().size();
     for (unsigned i = 0; i < op.getAdditionalArgs().size(); ++i) {
       auto operandIndex = ioSize + i;
@@ -190,6 +218,9 @@ public:
       } else if (auto memrefType =
                      mlir::dyn_cast_if_present<MemRefType>(operand.getType());
                  memrefType) {
+        if (!referencedCBOperandIndices.contains(operandIndex)) {
+          continue;
+        }
         // Hoisted CB buffer (already converted to CreateBufferOp by
         // MemrefAllocRewriter).
         if (auto aliasOp = mlir::dyn_cast<d2m::OperandAliasOp>(
@@ -751,7 +782,8 @@ private:
                                       size_t mergedCbSlotBase) {
     size_t operandIndex = kernelArg.getOperandIndex();
     if (kernelArg.getType() == ttkernel::ArgType::BufferAddress ||
-        kernelArg.getType() == ttkernel::ArgType::Scalar) {
+        kernelArg.getType() == ttkernel::ArgType::Scalar ||
+        kernelArg.getType() == ttkernel::ArgType::TensorAccessorArgs) {
       if (auto unified = remapTable.lookupIO(enqueueProgram, operandIndex)) {
         operandIndex = *unified;
       }

@@ -425,6 +425,56 @@ def TTKernel_ExperimentalMatmulBlockOp : TTKernel_FPUOp<"experimental.matmul_blo
                          I32:$in1_k_stride);
 }
 
+def TTKernel_TopkTileInitOp : TTKernel_InitOp<"topk_tile_init"> {
+    let summary = "TopK tile init function";
+    let description = [{
+      Initialization for the topk operations. Must be called before
+      topk_local_sort/topk_merge/topk_rebuild.
+    }];
+
+    let assemblyFormat = [{
+      `(` `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_TopkLocalSortOp : TTKernel_SFPUOp<"topk_local_sort"> {
+    let summary = "TopK local sort operation";
+    let description = [{
+      Bitonic local-sort stage of TopK over the value and index tiles pre-loaded in DST. Compute engine only.
+    }];
+
+    let arguments = (ins IndexLike:$idst, I32:$idir, I32:$i_end_phase, I32:$i_start_phase);
+
+    let assemblyFormat = [{
+      `(` $idst `,` $idir `,` $i_end_phase `,` $i_start_phase `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_TopkMergeOp : TTKernel_SFPUOp<"topk_merge"> {
+    let summary = "TopK merge operation";
+    let description = [{
+      Merge stage of TopK combining length-K subsequences in DST. Compute engine only.
+    }];
+
+    let arguments = (ins IndexLike:$idst, I32:$m_iter, I32:$k);
+
+    let assemblyFormat = [{
+      `(` $idst `,` $m_iter `,` $k `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
+
+def TTKernel_TopkRebuildOp : TTKernel_SFPUOp<"topk_rebuild"> {
+    let summary = "TopK rebuild operation";
+    let description = [{
+      Rebuild stage of TopK re-sorting the surviving subsequences in DST. Compute engine only.
+    }];
+
+    let arguments = (ins IndexLike:$idst, I32:$idir, I32:$m_iter, I32:$k, I32:$logk, I32:$skip_second);
+
+    let assemblyFormat = [{
+      `(` $idst `,` $idir `,` $m_iter `,` $k `,` $logk `,` $skip_second `)` attr-dict `:` functional-type(operands, results)
+    }];
+}
 
 def TTKernel_AddTilesInitOp : TTKernel_InitOp<"add_tiles_init"> {
     let summary = "Short init function";
@@ -601,8 +651,7 @@ def TTKernel_ReduceInitOp : TTKernel_InitOp<"reduce_init"> {
                          TTKernel_CB:$scaling_cb,
                          TTKernel_CB:$out_cb,
                          TTKernel_ReduceTypeAttr:$reduce_type,
-                         TTKernel_ReduceDimAttr:$reduce_dim,
-                         UnitAttr:$full_fp32);
+                         TTKernel_ReduceDimAttr:$reduce_dim);
 
     let assemblyFormat = [{
       `(` $in_cb `,` $scaling_cb `,` $out_cb `,` $reduce_type `,` $reduce_dim `)` attr-dict `:` functional-type(operands, results)
@@ -617,14 +666,10 @@ def TTKernel_ReduceUninitOp : TTKernel_InitOp<"reduce_uninit"> {
        same dimension, this call can be omitted. If this function is not called, the packer will continue to use the edge masks set
        by the latest reduce_init call, which may lead to incorrect packing behavior in subsequent operations.
 
-       The `full_fp32` attribute emits reduce_uninit<true>, which performs the extra cleanup required after some
-       full-fp32 reduce sequences. Without the attribute, lowering emits reduce_uninit(), matching tt-metal's
-       default false behavior.
-
        This function is not in line with our programming mode. To be removed by end of 2025. tt-metal#22904.
     }];
 
-    let arguments = (ins UnitAttr:$full_fp32);
+    let arguments = (ins);
 
     let assemblyFormat = [{
       `(` `)` attr-dict `:` functional-type(operands, results)
@@ -652,8 +697,7 @@ def TTKernel_ReduceTileOp : TTKernel_FPUOp<"reduce_tile", [TTKernel_TernaryOpTra
                          IndexLike:$scaling_tile_index,
                          IndexLike:$dst_index,
                          TTKernel_ReduceTypeAttr:$reduce_type,
-                         TTKernel_ReduceDimAttr:$reduce_dim,
-                         UnitAttr:$full_fp32);
+                         TTKernel_ReduceDimAttr:$reduce_dim);
 
     let assemblyFormat = [{
       `(` $in_cb `,` $scaling_cb `,` $in_tile_index `,` $scaling_tile_index `,` $dst_index `,` $reduce_type `,` $reduce_dim `)` attr-dict `:` functional-type(operands, results)
@@ -4503,11 +4547,13 @@ def TTKernel_TensorAccessorOp : TTKernel_Op<"TensorAccessor"> {
     TensorAccessor constructor.
   }];
 
-  let arguments = (ins TTKernel_TensorAccessorArgs:$args, I32:$bank_base_address_in, I32:$page_size_in);
+  let arguments = (ins TTKernel_TensorAccessorArgs:$args,
+                       I32:$bank_base_address_in,
+                       Optional<I32>:$page_size_in);
   let results = (outs TTKernel_TensorAccessor:$result);
 
   let assemblyFormat = [{
-    `(` $args `,` $bank_base_address_in `,` $page_size_in `)` attr-dict `:` functional-type(operands, results)
+    `(` $args `,` $bank_base_address_in (`,` $page_size_in^)? `)` attr-dict `:` functional-type(operands, results)
   }];
 }
 

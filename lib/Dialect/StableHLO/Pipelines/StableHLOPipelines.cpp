@@ -75,6 +75,10 @@ void createStableHLOPipeline(OpPassManager &pm,
   // Register custom sharding rules for unsupported ops in Shardy.
   pm.addPass(createRegisterCustomShardingRulePass());
 
+  // Promote user-provided xla.sdy.custom_sharding_rule frontend attributes to
+  // sdy.sharding_rule op attributes. Must run before propagation.
+  pm.addPass(createRegisterUserShardingRulePass());
+
   // Apply sharding constraints.
   pm.addPass(mlir::sdy::createApplyShardingConstraintsPass());
 
@@ -97,7 +101,7 @@ void createStableHLOPipeline(OpPassManager &pm,
 
   // Replicate non-splittable constants so that InsertExplicitReshards inserts
   // reshard ops between the replicated constant and its sharded consumers.
-  pm.addPass(createReplicateNonSplittableConstantsPass());
+  pm.addPass(createReplicateNonSplittableValuesPass());
 
   // Close propagation gaps left by Shardy's conservative mode: when an op
   // has no propagated result sharding but its operands are sharded, insert

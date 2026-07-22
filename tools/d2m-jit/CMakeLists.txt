@@ -21,9 +21,6 @@ declare_mlir_python_sources(TTD2MJitSources
         _src/sim/ops.py
         _src/sim/host.py
         _src/sim/run.py
-        patterns/__init__.py
-        patterns/eltwise_add_exp_to_kernel.py
-        patterns/eltwise_exp_to_kernel.py
 )
 
 add_mlir_python_modules(TTD2MJitModules

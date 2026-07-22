@@ -51,6 +51,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         OptimizerPasses/TTNNDeduceMoEComputeLayouts.cpp
         OptimizerPasses/TTNNPrepareConv3dWeights.cpp
         TTNNAdjustDeallocs.cpp
+        TTNNForceFinalDeallocs.cpp
         TTNNAllocateDistributedOpBuffers.cpp
         TTNNAllocateDistributedOpSemaphores.cpp
         TTNNCollaspeD2M.cpp
@@ -87,10 +88,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNKVCacheDtypeConversion.cpp
         TTNNActivationDtypeLowering.cpp
         Workarounds/Decomposition/AllGatherOpRewritePattern.cpp
-        Workarounds/Decomposition/AllReduceReshapeOpRewritePattern.cpp
-        Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.cpp
         Workarounds/Decomposition/MoeGptLayoutRewritePattern.cpp
-        Workarounds/Decomposition/MoeComputeRewritePattern.cpp
         Workarounds/Decomposition/PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern.cpp
         Workarounds/Decomposition/PagedUpdateCacheOpRewritePattern.cpp
         Workarounds/Decomposition/PointToPointOpRewritePattern.cpp
@@ -103,7 +101,6 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         Workarounds/Decomposition/IntegerProdOpRewritePattern.cpp
         Workarounds/Decomposition/LinearOpRewritePattern.cpp
         Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.cpp
-        Workarounds/Decomposition/ReduceScatterOpRewritePattern.cpp
         Workarounds/Decomposition/SliceStaticOpRewritePattern.cpp
         Workarounds/Decomposition/ScaledDotProductAttentionDecodeAttentionSinkRewritePattern.cpp
         Workarounds/Decomposition/ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern.cpp

@@ -55,6 +55,7 @@ union OpType {
   NLPCreateQKVHeadsDecodeOp,
   NLPConcatHeadsOp,
   ConstantOp,
+  Conv1dOp,
   Conv2dOp,
   ConvTranspose2dOp,
   Conv3dOp,
@@ -158,6 +159,7 @@ union OpType {
   TopKRouterGptOp,
   CreateGlobalSemaphoreOp,
   ResetGlobalSemaphoreOp,
+  AllocateMoeComputeSemaphoreOp,
 }
 
 table Operation {

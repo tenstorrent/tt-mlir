@@ -66,6 +66,29 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
 // DMA Operations
 //===----------------------------------------------------------------------===//
 
+static LogicalResult verifyTensorAccessorPageMap(Operation *op,
+                                                 AffineMapAttr pageMapAttr,
+                                                 ShapedType remoteType,
+                                                 const bool isShardLevel) {
+  if (!pageMapAttr) {
+    return success();
+  }
+  if (!isShardLevel) {
+    return op->emitOpError("TensorAccessor page map requires shard-level DMA");
+  }
+
+  AffineMap pageMap = pageMapAttr.getValue();
+  if (pageMap.getNumDims() != static_cast<unsigned>(remoteType.getRank()) ||
+      pageMap.getNumSymbols() != 0 || pageMap.getNumResults() != 1) {
+    return op->emitOpError(
+               "TensorAccessor page map must be single-result, no symbols, and "
+               "one input per remote memref dim; expected ")
+           << remoteType.getRank() << " inputs, got "
+           << AffineMapAttr::get(pageMap);
+  }
+  return success();
+}
+
 // Comprehensive verifiers matching D2M
 ::mlir::LogicalResult DMAWriteOp::verify() {
   ShapedType srcType = mlir::cast<ShapedType>(getSrc().getType());
@@ -81,6 +104,12 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
 
   if (srcType.getElementType() != dstType.getElementType()) {
     return emitOpError("Operands to DMAWrite must have the same element type");
+  }
+
+  if (failed(verifyTensorAccessorPageMap(getOperation(),
+                                         getTensorAccessorPageMapAttr(),
+                                         dstType, isShardLevel()))) {
+    return failure();
   }
 
   if (isDstRemote() && isMcast()) {
@@ -138,6 +167,11 @@ static mlir::ConstantIntRanges getIndexRange(uint64_t umin, uint64_t umax) {
   }
   if (srcType.getElementType() != dstType.getElementType()) {
     return emitOpError("Operands to DMARead must have the same element type");
+  }
+  if (failed(verifyTensorAccessorPageMap(getOperation(),
+                                         getTensorAccessorPageMapAttr(),
+                                         srcType, isShardLevel()))) {
+    return failure();
   }
   int64_t numDstIndices = getDstIndices().size();
   int64_t numSrcIndices = getSrcIndices().size();
@@ -1357,11 +1391,145 @@ mlir::LogicalResult ArangeBlockOp::bufferize(
   // Create new op with memref operands.
   rewriter.create<ArangeBlockOp>(getLoc(), *maybeIndexTileBuffer,
                                  *maybeOutputBuffer, getNumElements(),
-                                 getStart(), getStep());
+                                 getStart(), getStep(), getColMajor());
 
   // Replace uses and erase (DPS pattern - result aliases output buffer).
   mlir::bufferization::replaceOpWithBufferizedValues(rewriter, getOperation(),
                                                      *maybeOutputBuffer);
+  return mlir::success();
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
+
+//===----------------------------------------------------------------------===//
+// TopkBlockOp Implementation
+//===----------------------------------------------------------------------===//
+
+mlir::LogicalResult TopkBlockOp::verify() {
+  Type inputType = getInputValues().getType();
+  Type outValsType = getOutValues().getType();
+  Type outIdxType = getOutIndices().getType();
+
+  bool inputIsTensor = mlir::isa<mlir::RankedTensorType>(inputType);
+  bool outValsIsTensor = mlir::isa<mlir::RankedTensorType>(outValsType);
+  bool outIdxIsTensor = mlir::isa<mlir::RankedTensorType>(outIdxType);
+
+  if (inputIsTensor != outValsIsTensor || inputIsTensor != outIdxIsTensor) {
+    return emitOpError("all operands must be tensors or all must be memrefs");
+  }
+  return mlir::success();
+}
+
+void TopkBlockOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(),
+                       &getInputValuesMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(),
+                       &getScratchIdxTileMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getScratchIdxTileMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getOutValuesMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getOutIndicesMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+}
+
+bool TopkBlockOp::bufferizesToMemoryRead(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getInputValues() ||
+         operand.get() == getScratchIdxTile();
+}
+
+bool TopkBlockOp::bufferizesToMemoryWrite(
+    mlir::OpOperand &operand, const mlir::bufferization::AnalysisState &) {
+  return operand.get() == getOutValues() || operand.get() == getOutIndices() ||
+         operand.get() == getScratchIdxTile();
+}
+
+mlir::bufferization::AliasingValueList
+TopkBlockOp::getAliasingValues(mlir::OpOperand &operand,
+                               const mlir::bufferization::AnalysisState &) {
+  if (operand.get() == getOutValues()) {
+    return {{getResultValues(), mlir::bufferization::BufferRelation::Equivalent,
+             /*isDefinite=*/true}};
+  }
+  if (operand.get() == getOutIndices()) {
+    return {{getResultIndices(),
+             mlir::bufferization::BufferRelation::Equivalent,
+             /*isDefinite=*/true}};
+  }
+  return {};
+}
+
+mlir::FailureOr<mlir::bufferization::BufferLikeType>
+TopkBlockOp::getBufferType(mlir::Value value,
+                           const mlir::bufferization::BufferizationOptions &,
+                           const mlir::bufferization::BufferizationState &,
+                           ::llvm::SmallVector<mlir::Value> &) {
+  // Determine which output tensor this value corresponds to.
+  mlir::RankedTensorType tensorType;
+  if (value == getResultValues()) {
+    tensorType =
+        mlir::dyn_cast<mlir::RankedTensorType>(getOutValues().getType());
+  } else if (value == getResultIndices()) {
+    tensorType =
+        mlir::dyn_cast<mlir::RankedTensorType>(getOutIndices().getType());
+  }
+  if (!tensorType) {
+    return mlir::bufferization::BufferLikeType(
+        mlir::cast<mlir::MemRefType>(getOutValues().getType()));
+  }
+  auto memrefType =
+      mlir::bufferization::getMemRefTypeWithStaticIdentityLayout(tensorType);
+  return mlir::bufferization::BufferLikeType(memrefType);
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+mlir::LogicalResult
+TopkBlockOp::bufferize(mlir::RewriterBase &rewriter,
+                       const mlir::bufferization::BufferizationOptions &options,
+                       mlir::bufferization::BufferizationState &state) {
+  if (!mlir::isa<mlir::RankedTensorType>(getOutValues().getType())) {
+    return mlir::failure();
+  }
+
+  auto maybeInputBuffer = mlir::bufferization::getBuffer(
+      rewriter, getInputValues(), options, state);
+  if (failed(maybeInputBuffer)) {
+    return maybeInputBuffer;
+  }
+
+  auto maybeScratchBuffer = mlir::bufferization::getBuffer(
+      rewriter, getScratchIdxTile(), options, state);
+  if (failed(maybeScratchBuffer)) {
+    return maybeScratchBuffer;
+  }
+
+  auto maybeOutValsBuffer =
+      mlir::bufferization::getBuffer(rewriter, getOutValues(), options, state);
+  if (failed(maybeOutValsBuffer)) {
+    return maybeOutValsBuffer;
+  }
+
+  auto maybeOutIdxBuffer =
+      mlir::bufferization::getBuffer(rewriter, getOutIndices(), options, state);
+  if (failed(maybeOutIdxBuffer)) {
+    return maybeOutIdxBuffer;
+  }
+
+  rewriter.create<TopkBlockOp>(getLoc(), *maybeInputBuffer, *maybeScratchBuffer,
+                               *maybeOutValsBuffer, *maybeOutIdxBuffer, getK(),
+                               getNumElements(), getStableSort(), getDim());
+
+  mlir::bufferization::replaceOpWithBufferizedValues(
+      rewriter, getOperation(),
+      mlir::ValueRange{*maybeOutValsBuffer, *maybeOutIdxBuffer});
   return mlir::success();
 }
 // NOLINTEND(clang-analyzer-core.StackAddressEscape)
@@ -1768,6 +1936,85 @@ void TileMatmulBlockOp::getEffects(
                        true, mlir::SideEffects::DefaultResource::get());
   effects.emplace_back(mlir::MemoryEffects::Write::get(), &getOutputMutable(),
                        0, true, mlir::SideEffects::DefaultResource::get());
+}
+
+static mlir::LogicalResult
+verifyTopkOperandsAreTiles(mlir::Operation *op, mlir::Value values,
+                           mlir::Value indices, mlir::Value outValues,
+                           mlir::Value outIndices, llvm::StringRef opName) {
+  for (mlir::Value v : {values, indices, outValues, outIndices}) {
+    if (!llvm::isa<mlir::tt::ttcore::TileType>(getElemType(v.getType()))) {
+      return op->emitOpError("operands to ")
+             << opName << " must have ttcore.tile element type";
+    }
+  }
+  return mlir::success();
+}
+
+::mlir::LogicalResult TileTopkLocalSortOp::verify() {
+  return verifyTopkOperandsAreTiles(*this, getValues(), getIndices(),
+                                    getOutValues(), getOutIndices(),
+                                    "TileTopkLocalSort");
+}
+
+void TileTopkLocalSortOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getValuesMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getIndicesMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getOutValuesMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getOutIndicesMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+}
+
+::mlir::LogicalResult TileTopkMergeOp::verify() {
+  return verifyTopkOperandsAreTiles(*this, getValues(), getIndices(),
+                                    getOutValues(), getOutIndices(),
+                                    "TileTopkMerge");
+}
+
+void TileTopkMergeOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getValuesMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getIndicesMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getOutValuesMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getOutIndicesMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+}
+
+::mlir::LogicalResult TileTopkRebuildOp::verify() {
+  return verifyTopkOperandsAreTiles(*this, getValues(), getIndices(),
+                                    getOutValues(), getOutIndices(),
+                                    "TileTopkRebuild");
+}
+
+void TileTopkRebuildOp::getEffects(
+    mlir::SmallVectorImpl<
+        mlir::SideEffects::EffectInstance<mlir::MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getValuesMutable(), 0,
+                       true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Read::get(), &getIndicesMutable(),
+                       0, true, mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getOutValuesMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       &getOutIndicesMutable(), 0, true,
+                       mlir::SideEffects::DefaultResource::get());
 }
 
 mlir::LogicalResult TileTilizeBlockOp::bufferize(

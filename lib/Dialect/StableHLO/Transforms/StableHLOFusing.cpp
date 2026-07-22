@@ -307,6 +307,120 @@ public:
   }
 };
 
+// Fuses a disguised row scatter into a single-axis one: index
+// concat(real_row, column_iota) at dims=[0,1] flattens to a single-core 1D
+// scatter (L1 clash). Re-emit with dims=[0], column as window.
+class CollapseRowScatterPattern
+    : public OpRewritePattern<::mlir::stablehlo::ScatterOp> {
+  using OpRewritePattern<::mlir::stablehlo::ScatterOp>::OpRewritePattern;
+
+  // True if `value` is an iota (through broadcast_in_dim). `axis` >= 0 requires
+  // the iota to vary along that axis, rejecting a row-axis iota.
+  static bool tracesToIota(::mlir::Value value, int64_t axis = -1) {
+    while (value) {
+      ::mlir::Operation *def = value.getDefiningOp();
+      if (!def) {
+        return false;
+      }
+      if (auto iota = ::mlir::dyn_cast<::mlir::stablehlo::IotaOp>(def)) {
+        return axis < 0 ||
+               static_cast<int64_t>(iota.getIotaDimension()) == axis;
+      }
+      auto bcast = ::mlir::dyn_cast<::mlir::stablehlo::BroadcastInDimOp>(def);
+      if (!bcast) {
+        return false;
+      }
+      if (axis < 0) {
+        value = bcast.getOperand();
+        continue;
+      }
+      // Map result `axis` to its operand axis; a broadcast dim can't carry it.
+      ArrayRef<int64_t> dims = bcast.getBroadcastDimensions();
+      int64_t mapped = -1;
+      for (int64_t j = 0; j < static_cast<int64_t>(dims.size()); ++j) {
+        if (dims[j] == axis) {
+          mapped = j;
+          break;
+        }
+      }
+      if (mapped < 0) {
+        return false;
+      }
+      value = bcast.getOperand();
+      axis = mapped;
+    }
+    return false;
+  }
+
+public:
+  LogicalResult matchAndRewrite(::mlir::stablehlo::ScatterOp op,
+                                ::mlir::PatternRewriter &rewriter) const final {
+    auto dimNumbers = op.getScatterDimensionNumbers();
+    if (op.getInputs().size() != 1) {
+      return failure();
+    }
+    auto operandType =
+        mlir::cast<RankedTensorType>(op.getInputs()[0].getType());
+    if (operandType.getRank() != 2) {
+      return failure();
+    }
+    if (!dimNumbers.getUpdateWindowDims().empty()) {
+      return failure(); // element-wise only
+    }
+    ArrayRef<int64_t> scatterDims = dimNumbers.getScatterDimsToOperandDims();
+    if (scatterDims.size() != 2 || scatterDims[0] != 0 || scatterDims[1] != 1) {
+      return failure();
+    }
+
+    int64_t indexVectorDim = dimNumbers.getIndexVectorDim();
+    auto concat = op.getScatterIndices()
+                      .getDefiningOp<::mlir::stablehlo::ConcatenateOp>();
+    if (!concat ||
+        static_cast<int64_t>(concat.getDimension()) != indexVectorDim ||
+        concat.getInputs().size() != 2) {
+      return failure();
+    }
+
+    // Component 0 = row, component 1 = column iota.
+    Value rowComp = concat.getInputs()[0];
+    Value colComp = concat.getInputs()[1];
+    auto rowType = mlir::cast<RankedTensorType>(rowComp.getType());
+    if (rowType.getRank() != 3 || rowType.getShape()[indexVectorDim] != 1) {
+      return failure();
+    }
+    if (tracesToIota(rowComp) || !tracesToIota(colComp, /*columnAxis=*/1)) {
+      return failure();
+    }
+    int64_t numRows = rowType.getShape()[0];
+
+    // Row is constant across columns -> take column 0.
+    Location loc = op.getLoc();
+    auto slicedType =
+        RankedTensorType::get({numRows, 1, 1}, rowType.getElementType());
+    Value sliced = rewriter.create<::mlir::stablehlo::SliceOp>(
+        loc, slicedType, rowComp, rewriter.getDenseI64ArrayAttr({0, 0, 0}),
+        rewriter.getDenseI64ArrayAttr({numRows, 1, 1}),
+        rewriter.getDenseI64ArrayAttr({1, 1, 1}));
+    auto rowIndexType =
+        RankedTensorType::get({numRows, 1}, rowType.getElementType());
+    Value rowIndex = rewriter.create<::mlir::stablehlo::ReshapeOp>(
+        loc, rowIndexType, sliced);
+
+    // Re-emit as a single-axis scatter; the dead concat/iota is left for DCE.
+    auto newDimNumbers = ::mlir::stablehlo::ScatterDimensionNumbersAttr::get(
+        rewriter.getContext(), /*update_window_dims=*/{1},
+        /*inserted_window_dims=*/{0}, /*input_batching_dims=*/{},
+        /*scatter_indices_batching_dims=*/{},
+        /*scatter_dims_to_operand_dims=*/{0}, /*index_vector_dim=*/1);
+    auto newScatter = rewriter.create<::mlir::stablehlo::ScatterOp>(
+        loc, op.getResultTypes(), op.getInputs(), rowIndex, op.getUpdates(),
+        newDimNumbers, op.getIndicesAreSorted(), op.getUniqueIndices());
+    newScatter.getUpdateComputation().takeBody(op.getUpdateComputation());
+    rewriter.replaceOp(op, newScatter.getResults());
+    return success();
+  }
+};
+
 struct StableHLOFusingPass
     : public impl::StableHLOFusingPassBase<StableHLOFusingPass> {
 public:
@@ -317,6 +431,7 @@ public:
     RewritePatternSet patterns(&getContext());
     patterns.add<ConcatenateToBroadcastInDimFusionPattern>(&getContext());
     patterns.add<ReshapeGatherFusionPattern>(&getContext());
+    patterns.add<CollapseRowScatterPattern>(&getContext());
 
     GreedyRewriteConfig config;
     config.setUseTopDownTraversal(true);

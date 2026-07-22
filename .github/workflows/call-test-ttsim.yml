@@ -16,7 +16,7 @@ on:
         description: "TTSim release tag"
         required: false
         type: string
-        default: "v1.9.1"
+        default: "v1.9.6"
       timeout:
         description: "Timeout in minutes for the TTSim test job"
         required: false
@@ -150,7 +150,7 @@ jobs:
           export TT_METAL_INSPECTOR_RPC="0"
           mkdir -p test_reports
 
-          pytest -ssv \
+          pytest -v \
             test/python/golden/d2m/test_binary.py \
             test/python/golden/d2m/test_ternary.py \
             test/python/golden/d2m/test_unary.py \

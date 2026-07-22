@@ -28,3 +28,41 @@ def _reset_builder():
     compile (negative tests) doesn't leak MLIR state into the next test."""
     yield
     _Builder.reset()
+
+
+def pytest_generate_tests(metafunc):
+    """Parametrize the generic pattern tests over every spec declared in the
+    bundled pattern files (test/d2m-jit/patterns/*.py). Adding a pattern file with
+    PATTERN_TESTS / KERNEL_BENCHES is picked up here with no harness edits."""
+    from runner import discover
+
+    pattern_tests, kernel_benches = discover()
+    if "pattern_test" in metafunc.fixturenames:
+        metafunc.parametrize(
+            "pattern_test", pattern_tests, ids=[t.name for t in pattern_tests]
+        )
+    if "kernel_bench" in metafunc.fixturenames:
+        metafunc.parametrize(
+            "kernel_bench", kernel_benches, ids=[b.name for b in kernel_benches]
+        )
+    if "e2e_spec" in metafunc.fixturenames:
+        # `golden` is optional: a spec with no golden cross-checks against the
+        # ttnn device baseline of its original TTIR (see run_e2e).
+        e2e = [t for t in pattern_tests if t.e2e]
+        metafunc.parametrize("e2e_spec", e2e, ids=[t.name for t in e2e])
+
+
+@pytest.fixture(scope="function")
+def e2e_device():
+    """An in-process mesh-device handle for one e2e test, opened lazily on first
+    use and closed afterwards. Function-scoped so at most one device is open at
+    a time (the in-process builder device tests open/close their own per call),
+    avoiding any cross-test device contention — no subprocess, no marker split.
+
+    For large-scale CI, prefer a single batch driver that opens one device and
+    loops over all specs in-process, rather than one pytest case per pattern."""
+    from runner import E2EDevice
+
+    holder = E2EDevice()
+    yield holder
+    holder.close()

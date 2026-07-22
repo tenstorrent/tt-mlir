@@ -52,50 +52,36 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
         pytest.param(
             (32, 128 * 500),
             [1, 0],
-            marks=pytest.mark.skip_config(
-                ["n150", "sim"],
-                reason="L1 memory usage exceeds capacity on non-square grid (see #8079)",
+            marks=pytest.mark.xfail_config(
+                ["n150", "sim"], reason="ttsim WH grid is 9×8", strict=True
             ),
         ),
         pytest.param(
             (32, 128 * 501),
             [1, 0],
             marks=[
-                pytest.mark.skip_config(
+                pytest.mark.xfail_config(
                     ["n150"],
-                    ["n300"],
                     reason="L1 memory usage exceeds capacity #7559",
+                    strict=True,
                 ),
-                pytest.mark.skip_config(
-                    ["p150"],
-                    reason="L1 memory usage exceeds capacity on non-square grid (see #8079)",
-                ),
+                pytest.mark.skip_config(["n150", "sim"], ["p150", "sim"]),
             ],
         ),
         pytest.param(
             (32, 128 * 800),
             [1, 0],
             marks=[
-                pytest.mark.skip_config(
-                    ["n150"],
-                    ["n300"],
-                    reason="L1 memory usage exceeds capacity #7559",
-                ),
-                pytest.mark.skip_config(
-                    ["p150"],
-                    reason="L1 memory usage exceeds capacity on non-square grid (see #8079)",
-                ),
+                pytest.mark.skip_config(["p150", "sim"]),
             ],
         ),
         pytest.param(
             (32, 128 * 801),
             [1, 0],
-            marks=pytest.mark.skip_config(
-                ["n150"],
-                ["n300"],
-                ["p150"],
-                ["p300"],
+            marks=pytest.mark.xfail_config(
+                ["ttmetal"],
                 reason="L1 memory usage exceeds capacity #7559",
+                strict=True,
             ),
         ),
         # 3d inner permutes
@@ -151,17 +137,7 @@ NOC_ISSUE_SKIP = pytest.mark.skip(
         [(1, 8, 128, 64), [0, 1, 3, 2]],
         [(1, 8, 64, 128), [0, 1, 3, 2]],
         # 4d inner permutes (llama3-70b, qwen3-32b)
-        pytest.param(
-            (32, 8, 128, 128),
-            [0, 1, 3, 2],
-            marks=[
-                pytest.mark.skip_config(
-                    ["p150"],
-                    ["p300"],
-                    reason="L1 memory usage exceeds capacity on p150/p300",
-                ),
-            ],
-        ),
+        [(32, 8, 128, 128), [0, 1, 3, 2]],
         # 4d complex permutes (llama3-70b, qwen3-32b)
         [(32, 1, 1, 128), [2, 1, 0, 3]],
         # 4d outer permutes (deepseek-671b)
@@ -398,8 +374,8 @@ def shapes_to_id(shapes) -> str:
     [
         torch.float32,
         torch.bfloat16,
-        torch.int32 | SkipIf("sim"),
-        torch.int64 | SkipIf("sim"),
+        torch.int32 | SkipIf(["n150", "sim"]),
+        torch.int64 | SkipIf(["n150", "sim"]),
         torch.bool,
     ],
     ids=["f32", "bf16", "i32", "i64", "i1"],
@@ -491,6 +467,63 @@ def test_arange(
         target=target,
         device=device,
         custom_pipeline="ttir-to-ttmetal-pipeline",
+        **get_request_kwargs(request),
+        atol=1e-6,
+        check_atol=True,
+    )
+
+
+@pytest.mark.parametrize(
+    "shape,start,step,dtype,arange_dimension",
+    [
+        pytest.param((1, 128), 0, 1, torch.float32, 1, id="1x128_s0_step1_f32_dim1"),
+        pytest.param((32, 256), 0, 1, torch.float32, 1, id="32x256_s0_step1_f32_dim1"),
+        pytest.param(
+            (32, 1024), 0, 1, torch.float32, 1, id="32x1024_s0_step1_f32_dim1"
+        ),
+        pytest.param((32, 256), 0, 1, torch.float32, 0, id="32x256_s0_step1_f32_dim0"),
+        pytest.param(
+            (1024, 32), 0, 1, torch.float32, 0, id="1024x32_s0_step1_f32_dim0"
+        ),
+    ],
+)
+@pytest.mark.parametrize("target", ["ttmetal"])
+def test_arange_single_core(
+    shape: tuple,
+    start: int,
+    step: int,
+    dtype: torch.dtype,
+    arange_dimension: int,
+    target: str,
+    request,
+    device,
+):
+    num_elements = shape[arange_dimension]
+    end = start + num_elements * step
+
+    def arange_module(builder: TTIRBuilder):
+        @builder.func([shape], [dtype])
+        def arange(
+            in0: Operand,
+            builder: TTIRBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.arange(
+                shape=list(shape),
+                dtype=dtype,
+                start=start,
+                end=end,
+                step=step,
+                arange_dimension=arange_dimension,
+                unit_attrs=unit_attrs,
+            )
+
+    compile_and_execute_ttir(
+        arange_module,
+        target=target,
+        device=device,
+        custom_pipeline="ttir-to-ttmetal-pipeline",
+        pipeline_options=["override-device-shape=1,1"],
         **get_request_kwargs(request),
         atol=1e-6,
         check_atol=True,
@@ -671,14 +704,7 @@ def module_transpose_inner_dims(builder: TTIRBuilder):
         (module_unary_exp_4d_exp, "4d_exp"),
         # Batched matmul (fixed in #6648)
         (module_batch_matmul, "matmul"),
-        # Operations with known issues (marked as skip)
-        pytest.param(
-            module_transpose_inner_dims,
-            "transpose",
-            marks=pytest.mark.skip(
-                reason="Hardcoded rank==2 assertions in permute rewriter cause core dump"
-            ),
-        ),
+        (module_transpose_inner_dims, "transpose"),
     ],
     ids=["3d_add", "3d_multiply", "3d_exp", "4d_add", "4d_exp", "matmul", "transpose"],
 )
@@ -698,13 +724,18 @@ def test_uncollapsed_tensors(
 
     pipeline_options = f"{{collapse-tensors-2d={str(collapse_tensors).lower()}}}"
     pipeline = f"ttir-to-ttmetal-pipeline{pipeline_options}"
+    request_kwargs = get_request_kwargs(request)
+    request_kwargs["test_base"] = (
+        f"{request.node.name}_{test_name}_"
+        f"{'collapsed' if collapse_tensors else 'non_collapsed'}"
+    )
 
     compile_and_execute_ttir(
         test_func,
         target=target,
         custom_pipeline=pipeline,
-        test_base=f"{request.node.name}_{test_name}_{'collapsed' if collapse_tensors else 'non_collapsed'}",
         device=device,
+        **request_kwargs,
     )
 
 
@@ -788,6 +819,7 @@ def test_rearrange(
 # Data-movement op mirrors (concat/slice/transpose/typecast/pad,
 # previously test_data_movement.py).
 # ============================================================
+
 
 # Concat tests
 @pytest.mark.parametrize(
@@ -919,7 +951,7 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
     )
 
 
-# Skipping WH sim due to issue https://github.com/tenstorrent/ttsim-private/issues/291
+# Skipping i32 WH sim due to issue https://github.com/tenstorrent/ttsim-private/issues/291
 @pytest.mark.parametrize(
     "shape,repeat_dims",
     [
@@ -933,9 +965,15 @@ def test_concat(shapes: List[Shape], dim: int, target: str, request, device):
     ],
 )
 @pytest.mark.parametrize(
-    "dtype", [torch.float32, torch.int32, torch.bfloat16], ids=["f32", "i32", "bf16"]
+    "dtype",
+    [
+        torch.float32,
+        torch.int32 | SkipIf(["n150", "sim"]),
+        torch.bfloat16,
+    ],
+    ids=["f32", "i32", "bf16"],
 )
-@pytest.mark.parametrize("target", ["ttmetal" | SkipIf(["n150", "sim"])])
+@pytest.mark.parametrize("target", ["ttmetal"])
 def test_repeat(shape: Shape, repeat_dims: List[int], dtype, target, request, device):
     def module(builder: TTIRBuilder):
         @builder.func([shape], [dtype])
@@ -970,22 +1008,34 @@ def test_repeat(shape: Shape, repeat_dims: List[int], dtype, target, request, de
             [3],
             [62],
             [7],
-            marks=pytest.mark.skip_config(
-                ["sim"],
-                ["ttmetal"],
-                reason="NOC alignment violation, see https://github.com/tenstorrent/tt-mlir/issues/8077",
-            ),
+            marks=[
+                pytest.mark.skip_config(
+                    ["sim"],
+                    reason="NOC alignment violation in simulator, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+                ),
+                pytest.mark.xfail_config(
+                    ["ttmetal"],
+                    reason="NOC alignment violation, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+                    strict=True,
+                ),
+            ],
         ),
         pytest.param(
             (2048,),
             [0],
             [2048],
             [3],
-            marks=pytest.mark.skip_config(
-                ["sim"],
-                ["ttmetal"],
-                reason="NOC alignment violation, see https://github.com/tenstorrent/tt-mlir/issues/8077",
-            ),
+            marks=[
+                pytest.mark.skip_config(
+                    ["sim"],
+                    reason="NOC alignment violation in simulator, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+                ),
+                pytest.mark.xfail_config(
+                    ["ttmetal"],
+                    reason="NOC alignment violation, see https://github.com/tenstorrent/tt-mlir/issues/8077",
+                    strict=True,
+                ),
+            ],
         ),
         # Simple 2D
         ((64, 64), [0, 0], [32, 32], None),
@@ -1000,10 +1050,11 @@ def test_repeat(shape: Shape, repeat_dims: List[int], dtype, target, request, de
             [0, 3],
             [32, 128 * 991],
             [2, 991],
-            marks=pytest.mark.skip_config(
+            marks=pytest.mark.xfail_config(
                 ["ttmetal", "p150"],
                 ["ttmetal", "p300"],
                 reason="L1 memory usage exceeds capacity #7559",
+                strict=True,
             ),
         ),
         ((131072, 32), [5, 1], [128 * 997, 32], [997, 2]),

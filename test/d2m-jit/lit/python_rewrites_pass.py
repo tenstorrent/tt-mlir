@@ -46,7 +46,7 @@ def find_tt_mlir_root():
 def main():
     root = find_tt_mlir_root()
     pattern_file = os.path.join(
-        root, "tools", "d2m-jit", "patterns", "eltwise_exp_to_kernel.py"
+        root, "test", "d2m-jit", "kernels", "patterns", "eltwise_exp_to_kernel.py"
     )
     if not os.path.exists(pattern_file):
         print(f"FATAL: pattern file missing: {pattern_file}", file=sys.stderr)

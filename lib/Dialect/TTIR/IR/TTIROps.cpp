@@ -901,6 +901,25 @@ constantFoldLogicalOr(mlir::tt::ttir::LogicalOrOp op,
 }
 
 //===----------------------------------------------------------------------===//
+// WhereOp
+//===----------------------------------------------------------------------===//
+
+// WhereOp folder:
+//   where(ones,  x, y) -> x
+//   where(zeros, x, y) -> y
+::mlir::OpFoldResult mlir::tt::ttir::WhereOp::fold(FoldAdaptor adaptor) {
+  auto resultType = getResult().getType();
+
+  if (isConstantNonZero(getFirst()) && getSecond().getType() == resultType) {
+    return getSecond();
+  }
+  if (isConstantZero(getFirst()) && getThird().getType() == resultType) {
+    return getThird();
+  }
+  return nullptr;
+}
+
+//===----------------------------------------------------------------------===//
 // ClampScalarOp
 //===----------------------------------------------------------------------===//
 
@@ -1554,6 +1573,67 @@ mlir::Operation *mlir::tt::ttir::Conv2dOp::rewriteWithQuantizedInputs(
   return quantConv.getOperation();
 }
 
+//===----------------------------------------------------------------------===//
+// Conv1dOp
+//===----------------------------------------------------------------------===//
+
+// Get number of output channels
+int64_t mlir::tt::ttir::Conv1dOp::getOutputChannelSize() {
+  RankedTensorType weightTy = getWeight().getType();
+  return weightTy.getShape()[0];
+}
+
+// Conv1dOp verification
+::mlir::LogicalResult mlir::tt::ttir::Conv1dOp::verify() {
+  if (getInput().getType().getRank() != 3) {
+    return emitOpError("input must be a 3D tensor");
+  }
+  if (getWeight().getType().getRank() != 3) {
+    return emitOpError("weight must be a 3D tensor (O, C/G, K)");
+  }
+  if (getBias() && getBias().getType().getRank() != 3) {
+    return emitOpError("bias must be a 3D tensor (1, 1, O)");
+  }
+  if (getResult().getType().getRank() != 3) {
+    return emitOpError("output must be a 3D tensor");
+  }
+
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType weightType = getWeight().getType();
+  RankedTensorType outputType = getResult().getType();
+
+  int64_t inChannels = inputType.getDimSize(getChannelDim());
+  int64_t outChannels = outputType.getDimSize(getChannelDim());
+  uint32_t groups = getGroups();
+
+  if (groups == 0) {
+    return emitOpError("groups must be a positive integer");
+  }
+  if (inChannels % groups != 0) {
+    return emitOpError("number of input channels (")
+           << inChannels << ") must be divisible by groups (" << groups << ")";
+  }
+  if (outChannels % groups != 0) {
+    return emitOpError("number of output channels (")
+           << outChannels << ") must be divisible by groups (" << groups << ")";
+  }
+
+  // weight is (O, C/G, K).
+  if (weightType.getDimSize(0) != outChannels) {
+    return emitOpError("expected weight's output channel dimension (")
+           << weightType.getDimSize(0)
+           << ") to match the output tensor's channel dimension ("
+           << outChannels << ")";
+  }
+  if (weightType.getDimSize(1) != inChannels / groups) {
+    return emitOpError("expected weight's input channel dimension (")
+           << weightType.getDimSize(1) << ") to match in_channels / groups ("
+           << inChannels / groups << ")";
+  }
+
+  return mlir::success();
+}
+
 // Conv2dOp verification
 ::mlir::LogicalResult mlir::tt::ttir::Conv2dOp::verify() {
   // Verify tensor ranks.
@@ -1675,6 +1755,120 @@ bool mlir::tt::ttir::Conv2dOp::isBiasCompatible(llvm::ArrayRef<int64_t> bias) {
   }
 
   return mlir::success();
+}
+
+// A 1x1x1 conv3d is just a matmul (or linear, when a bias is present), so it
+// can be rewritten to avoid the conv3d. This is only eligible for the canonical
+// NDHWC layout; other layouts are normalized to NDHWC first by the
+// decomposition pass.
+static bool isConv3dPointwiseLinearEligible(mlir::tt::ttir::Conv3dOp op) {
+  if (!op.isNDHWC()) {
+    return false;
+  }
+  if (op.getGroups() != 1) {
+    return false;
+  }
+
+  // Kernel must be 1x1x1. Weight is (Cout, Cin, K_D, K_H, K_W).
+  auto weightType = mlir::cast<RankedTensorType>(op.getWeight().getType());
+  ArrayRef<int64_t> weightShape = weightType.getShape();
+  if (weightShape.size() != 5 || weightShape[2] != 1 || weightShape[3] != 1 ||
+      weightShape[4] != 1) {
+    return false;
+  }
+
+  // Unit stride and no padding, otherwise the op is a strided/padded gather
+  // rather than a plain matmul or linear.
+  auto stride = ttmlir::utils::getTripleOfInteger<int32_t>(op.getStride());
+  if (!stride) {
+    llvm::consumeError(stride.takeError());
+    return false;
+  }
+  auto padding = ttmlir::utils::getTripleOfInteger<int32_t>(op.getPadding());
+  if (!padding) {
+    llvm::consumeError(padding.takeError());
+    return false;
+  }
+  auto [sD, sH, sW] = *stride;
+  auto [pD, pH, pW] = *padding;
+  return sD == 1 && sH == 1 && sW == 1 && pD == 0 && pH == 0 && pW == 0;
+}
+
+// Conv3dOp canonicalization
+void mlir::tt::ttir::Conv3dOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // Rewrite a pointwise (1x1x1) conv3d to matmul (or linear, when a bias is
+  // present).
+  //   input  (N,D,H,W,Cin) ->  reshape  -> (N*D*H*W, Cin)
+  //   weight (Cout,Cin,1,1,1)  ->  reshape ->  (Cout, Cin)
+  //   matmul (M,Cin) x (Cout,Cin)^T (transpose_b)  ->  (M, Cout) // no bias
+  //   linear (M,Cin) x (Cout,Cin)^T (transpose_b) + bias ->  (M, Cout) // bias
+  //   bias (1,1,1,1,Cout)  ->  reshape ->  (Cout,) // with bias
+  //   (M,Cout)  ->  reshape ->  (N,D,H,W,Cout)
+  patterns.add(+[](mlir::tt::ttir::Conv3dOp op,
+                   mlir::PatternRewriter &rewriter) {
+    if (!isConv3dPointwiseLinearEligible(op)) {
+      return mlir::failure();
+    }
+
+    auto inputType = mlir::cast<RankedTensorType>(op.getInput().getType());
+    auto weightType = mlir::cast<RankedTensorType>(op.getWeight().getType());
+    auto outputType = mlir::cast<RankedTensorType>(op.getResult().getType());
+
+    ArrayRef<int64_t> inputShape = inputType.getShape();   // (N, D, H, W, Cin)
+    ArrayRef<int64_t> weightShape = weightType.getShape(); // (Cout, Cin, 1,1,1)
+
+    int64_t rows =
+        inputShape[0] * inputShape[1] * inputShape[2] * inputShape[3];
+    int64_t cIn = inputShape[4];
+    int64_t cOut = weightShape[0];
+
+    // Build a ttir.reshape of `value` to `shape`.
+    auto reshapeTo = [&](Value value, ArrayRef<int64_t> shape, Type elementType,
+                         StringRef suffix) -> Value {
+      SmallVector<int32_t> shapeI32(shape.begin(), shape.end());
+      return rewriter.create<ttir::ReshapeOp>(
+          ttmlir::utils::appendLocationSuffix(op.getLoc(), suffix),
+          RankedTensorType::get(shape, elementType), value,
+          rewriter.getI32ArrayAttr(shapeI32));
+    };
+
+    // Collapse the input's spatial/temporal dims into matmul rows, and drop the
+    // singleton kernel dims from the weight.
+    Value inputMatrix = reshapeTo(op.getInput(), {rows, cIn},
+                                  inputType.getElementType(), "_reshapeInput");
+    Value weightMatrix =
+        reshapeTo(op.getWeight(), {cOut, cIn}, weightType.getElementType(),
+                  "_reshapeWeight");
+
+    auto matmulResultType =
+        RankedTensorType::get({rows, cOut}, outputType.getElementType());
+
+    // weight is (Cout, Cin); transpose_b makes the contraction
+    // (M,Cin)x(Cin,Cout).
+    Value contraction;
+    if (Value bias = op.getBias()) {
+      Value biasVector = reshapeTo(
+          bias, {cOut},
+          mlir::cast<RankedTensorType>(bias.getType()).getElementType(),
+          "_reshapeBias");
+      contraction = rewriter.create<ttir::LinearOp>(
+          op.getLoc(), matmulResultType, inputMatrix, weightMatrix, biasVector,
+          /*transpose_a=*/false, /*transpose_b=*/true);
+    } else {
+      contraction = rewriter.create<ttir::MatmulOp>(
+          op.getLoc(), matmulResultType, inputMatrix, weightMatrix,
+          /*transpose_a=*/false, /*transpose_b=*/true);
+    }
+
+    // Restore the NDHWC output shape. Reuse the op's result type so the
+    // replacement type matches (D_out/H_out/W_out == D/H/W here).
+    SmallVector<int32_t> outShapeI32(outputType.getShape().begin(),
+                                     outputType.getShape().end());
+    rewriter.replaceOpWithNewOp<ttir::ReshapeOp>(
+        op, outputType, contraction, rewriter.getI32ArrayAttr(outShapeI32));
+    return mlir::success();
+  });
 }
 
 //===----------------------------------------------------------------------===//
@@ -3858,52 +4052,6 @@ mlir::OpFoldResult mlir::tt::ttir::TypecastOp::fold(FoldAdaptor adaptor) {
   return nullptr;
 }
 
-static bool isNarrowingConversion(const ::mlir::tt::ttcore::DataType srcDtype,
-                                  const ::mlir::tt::ttcore::DataType dstDtype) {
-  const bool srcIsFloat = isFloat(srcDtype);
-  const bool dstIsFloat = isFloat(dstDtype);
-  const auto srcNumberOfBits = getNumberOfBits(srcDtype);
-  const auto dstNumberOfBits = getNumberOfBits(dstDtype);
-
-  if (srcIsFloat && !dstIsFloat) {
-    return true;
-  }
-
-  if (srcIsFloat && dstIsFloat) {
-    const auto srcExponentSize = getExponentSize(srcDtype);
-    const auto dstExponentSize = getExponentSize(dstDtype);
-    const auto srcMantissaSize = getMantissaSize(srcDtype);
-    const auto dstMantissaSize = getMantissaSize(dstDtype);
-    return srcExponentSize > dstExponentSize ||
-           srcMantissaSize > dstMantissaSize;
-  }
-
-  // For integer to FP, it is narrowing if the FP type has fewer bits in its
-  // mantissa than the integer type's magnitude bits.
-  if (!srcIsFloat && dstIsFloat) {
-    if (isSignedInteger(srcDtype)) {
-      return srcNumberOfBits - 1 > getMantissaSize(dstDtype);
-    }
-    return srcNumberOfBits > getMantissaSize(dstDtype);
-  }
-
-  assert(!srcIsFloat && !dstIsFloat);
-  const auto srcIsSigned = isSignedInteger(srcDtype);
-  const auto dstIsSigned = isSignedInteger(dstDtype);
-  // When signedness are the same, reducing the number of bits is narrowing.
-  if (srcIsSigned == dstIsSigned) {
-    return srcNumberOfBits > dstNumberOfBits;
-  }
-  // Unsigned->Signed is narrowing when the signed type can't hold the largest.
-  // value of the unsigned type
-  if (!srcIsSigned && dstIsSigned) {
-    return srcNumberOfBits >= dstNumberOfBits;
-  }
-  // Signed->Unsigned is always narrowing.
-  assert(srcIsSigned && !dstIsSigned);
-  return true;
-}
-
 // TypecastOp canonicalization method
 ::llvm::LogicalResult
 mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
@@ -3935,8 +4083,10 @@ mlir::tt::ttir::TypecastOp::canonicalize(mlir::tt::ttir::TypecastOp op,
     // If the 1st Op is narrowing and the 2nd Op is widening, we shouldn't fold.
     // FP->Int->FP is special and should never fold, due to its truncation
     // semantics and application in QDQ models.
-    const bool isNarrowingProducer = isNarrowingConversion(dtypeIn, dtypeMid);
-    const bool isNarrowingConsumer = isNarrowingConversion(dtypeMid, dtypeOut);
+    const bool isNarrowingProducer =
+        ttcore::isNarrowingConversion(dtypeIn, dtypeMid);
+    const bool isNarrowingConsumer =
+        ttcore::isNarrowingConversion(dtypeMid, dtypeOut);
     const bool isFpIntFp =
         isFloat(dtypeIn) && !isFloat(dtypeMid) && isFloat(dtypeOut);
     if (isFpIntFp || (isNarrowingProducer && !isNarrowingConsumer)) {
@@ -6483,6 +6633,48 @@ verifyReduceOp(llvm::function_ref<mlir::InFlightDiagnostic()> emitOpError,
                         getDimArg(), getKeepDim(), getType().getShape());
 }
 
+// SumOp folder
+::mlir::OpFoldResult mlir::tt::ttir::SumOp::fold(FoldAdaptor adaptor) {
+  // estricting to splats keeps the fold cheap and avoids
+  // materializing large (non-splat) constants.
+  auto input =
+      mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(adaptor.getInput());
+  if (!input || !input.isSplat()) {
+    return nullptr;
+  }
+
+  auto resultType = mlir::cast<ShapedType>(getResult().getType());
+  if (input.getElementType() != resultType.getElementType()) {
+    return nullptr;
+  }
+
+  int64_t resultElements = resultType.getNumElements();
+  if (resultElements == 0) {
+    return nullptr;
+  }
+  int64_t reductionCount = input.getNumElements() / resultElements;
+
+  mlir::Type elementType = resultType.getElementType();
+  if (auto floatType = mlir::dyn_cast<mlir::FloatType>(elementType)) {
+    llvm::APFloat value = input.getSplatValue<llvm::APFloat>();
+    llvm::APFloat scale(floatType.getFloatSemantics());
+    scale.convertFromAPInt(llvm::APInt(64, reductionCount, /*isSigned=*/true),
+                           /*IsSigned=*/true,
+                           llvm::APFloat::rmNearestTiesToEven);
+    value.multiply(scale, llvm::APFloat::rmNearestTiesToEven);
+    return SplatElementsAttr::get(resultType,
+                                  mlir::FloatAttr::get(elementType, value));
+  }
+  if (mlir::isa<mlir::IntegerType>(elementType)) {
+    llvm::APInt value = input.getSplatValue<llvm::APInt>();
+    value *= llvm::APInt(value.getBitWidth(), reductionCount);
+    return SplatElementsAttr::get(resultType,
+                                  mlir::IntegerAttr::get(elementType, value));
+  }
+
+  return nullptr;
+}
+
 //===----------------------------------------------------------------------===//
 // Reduce MinOp
 //===----------------------------------------------------------------------===//
@@ -6583,6 +6775,36 @@ void mlir::tt::ttir::ProdOp::getCanonicalizationPatterns(
   }
 
   return success();
+}
+
+// TopKOp canonicalization
+void mlir::tt::ttir::TopKOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *) {
+
+  // A top-k over a dimension of size 1 is a no-op: there is only one element to
+  // select, so the values equal the input and the indices are always zero.
+  // Fold it away so downstream consumers of the (constant) indices can be
+  // constant-evaluated.
+  patterns.add(+[](mlir::tt::ttir::TopKOp op, mlir::PatternRewriter &rewriter) {
+    RankedTensorType inputType = op.getInputTensor().getType();
+    int64_t inputRank = inputType.getRank();
+    int32_t dim = op.getDim();
+    int64_t normalizedDim = dim < 0 ? dim + inputRank : dim;
+
+    if (inputType.getDimSize(normalizedDim) != 1) {
+      return failure();
+    }
+
+    // The values output equals the input (only one element along the reduced
+    // dimension). The verifier guarantees K == 1 here, so shapes match.
+    RankedTensorType indicesType = op.getIndices().getType();
+    auto zeros = rewriter.create<mlir::tt::ttir::ZerosOp>(
+        op.getLoc(), indicesType,
+        llvm::to_vector_of<int32_t>(indicesType.getShape()));
+
+    rewriter.replaceOp(op, {op.getInputTensor(), zeros.getResult()});
+    return success();
+  });
 }
 
 //===----------------------------------------------------------------------===//
@@ -7368,14 +7590,11 @@ mlir::tt::ttir::PagedScaledDotProductAttentionDecodeOp::verify() {
   auto numKVHeads = keyShape[1];
   auto blockSize = keyShape[2];
 
-  // Verify element types.
-  if (queryType.getElementType() != keyType.getElementType() ||
-      queryType.getElementType() != valueType.getElementType()) {
-    return emitOpError(
-        "Query, key, and value must have the same element type.");
-  }
-
-  if (!queryType.getElementType().isFloat()) {
+  // Query may be higher precision than a BFP8/BFP4 KV cache (mirrors the TTNN
+  // verifier relaxed in #8668); K == V is still enforced below.
+  if (!queryType.getElementType().isFloat() ||
+      !keyType.getElementType().isFloat() ||
+      !valueType.getElementType().isFloat()) {
     return emitOpError("Query, key, and value must be float tensors.");
   }
 
@@ -8119,21 +8338,6 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
   if (getOutputHeightShardDim() == 0) {
     return emitOpError("output_height_shard_dim must be positive");
   }
-  // Only the compute_only path is supported: the A2A selective-reduce-combine
-  // (and all multi-device routing it implies) is intentionally not wired, so
-  // the full-path-only input (cluster_axis) must be unset. compute_only must be
-  // set.
-  if (!getComputeOnly()) {
-    return emitOpError("only the compute_only path is supported; compute_only "
-                       "must be set");
-  }
-  if (getClusterAxis()) {
-    return emitOpError("compute_only moe_compute must not set cluster_axis");
-  }
-  if (getBhRingSize() && *getBhRingSize() != 8 && *getBhRingSize() != 12 &&
-      *getBhRingSize() != 16) {
-    return emitOpError("bh_ring_size must be 8, 12, or 16");
-  }
 
   ::mlir::RankedTensorType inputType = getTilizeInputTensor().getType();
   if (inputType.getRank() < 2) {
@@ -8157,24 +8361,6 @@ mlir::tt::ttir::PagedFlashMultiLatentAttentionDecodeOp::verify() {
     return emitOpError() << "w0 hidden dim (" << w0Shape[2]
                          << ") must match tilize_input_tensor hidden_size ("
                          << hiddenSize << ")";
-  }
-
-  // The W0/W1 and W2 matmuls shard their contraction (intermediate_size) and
-  // the W2 output (hidden_size) across the matmul ring (bh_ring_size cores on
-  // BH, default 12; WH is always 12). If either dim has fewer than ring-size
-  // tiles, the per-core shard distribution degenerates and leaves output tiles
-  // uncomputed, so require at least one tile per ring core in both dims.
-  int64_t ringSize = getBhRingSize() ? *getBhRingSize() : 12;
-  int64_t minSize = ringSize * 32;
-  if (hiddenSize < minSize) {
-    return emitOpError() << "hidden_size (" << hiddenSize
-                         << ") must be at least bh_ring_size*32 = " << minSize
-                         << " (one tile per matmul-ring core)";
-  }
-  if (static_cast<int64_t>(getIntermediateSize()) < minSize) {
-    return emitOpError() << "intermediate_size (" << getIntermediateSize()
-                         << ") must be at least bh_ring_size*32 = " << minSize
-                         << " (one tile per matmul-ring core)";
   }
 
   return success();
@@ -8456,11 +8642,65 @@ static bool anyZero(mlir::ElementsAttr elems) {
       });
 }
 
+// Fold a self-comparison `x <cmp> x` (same SSA value): `eq` is all-true and
+// `ne` is all-false. Note that for floating-point operands this assumes the
+// value is not NaN (`NaN == NaN` is false, `NaN != NaN` is true).
+static mlir::OpFoldResult foldSelfComparison(mlir::Operation *op,
+                                             mlir::Value lhs, mlir::Value rhs,
+                                             bool foldToTrue) {
+  if (lhs != rhs) {
+    return nullptr;
+  }
+  auto resultType = mlir::cast<ShapedType>(op->getResult(0).getType());
+  return SplatElementsAttr::get(
+      resultType,
+      makeScalarAttr(resultType.getElementType(), foldToTrue ? 1.0 : 0.0));
+}
+
+// Fold a comparison of two splat constants. Restricted to splats so we never
+// compare large tensors, and it works even though comparisons change the
+// element type, which the generic elementwise-binary folder rejects.
+template <typename Predicate>
+static mlir::OpFoldResult
+foldSplatComparison(mlir::Operation *op, mlir::Attribute lhsAttr,
+                    mlir::Attribute rhsAttr, Predicate predicate) {
+  auto lhs = mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(lhsAttr);
+  auto rhs = mlir::dyn_cast_if_present<mlir::DenseElementsAttr>(rhsAttr);
+  if (!lhs || !rhs || !lhs.isSplat() || !rhs.isSplat() ||
+      lhs.getElementType() != rhs.getElementType()) {
+    return nullptr;
+  }
+
+  bool result;
+  if (mlir::isa<mlir::FloatType>(lhs.getElementType())) {
+    result = predicate(lhs.getSplatValue<llvm::APFloat>(),
+                       rhs.getSplatValue<llvm::APFloat>());
+  } else if (mlir::isa<mlir::IntegerType>(lhs.getElementType())) {
+    result = predicate(lhs.getSplatValue<llvm::APInt>(),
+                       rhs.getSplatValue<llvm::APInt>());
+  } else {
+    return nullptr;
+  }
+
+  auto resultType = mlir::cast<ShapedType>(op->getResult(0).getType());
+  return SplatElementsAttr::get(
+      resultType,
+      makeScalarAttr(resultType.getElementType(), result ? 1.0 : 0.0));
+}
+
 //===----------------------------------------------------------------------===//
 // EqualOp
 //===----------------------------------------------------------------------===//
 
 ::mlir::OpFoldResult mlir::tt::ttir::EqualOp::fold(FoldAdaptor adaptor) {
+  if (mlir::OpFoldResult result =
+          foldSelfComparison(*this, getLhs(), getRhs(), /*foldToTrue=*/true)) {
+    return result;
+  }
+  if (mlir::OpFoldResult result = foldSplatComparison(
+          *this, adaptor.getLhs(), adaptor.getRhs(), std::equal_to<>())) {
+    return result;
+  }
   auto eq = PredicateToNumericAdapter(std::equal_to<>());
   return constantFoldEltwiseBinary(*this, adaptor.getLhs(), adaptor.getRhs(),
                                    eq, eq);
@@ -8471,6 +8711,14 @@ static bool anyZero(mlir::ElementsAttr elems) {
 //===----------------------------------------------------------------------===//
 
 ::mlir::OpFoldResult mlir::tt::ttir::NotEqualOp::fold(FoldAdaptor adaptor) {
+  if (mlir::OpFoldResult result =
+          foldSelfComparison(*this, getLhs(), getRhs(), /*foldToTrue=*/false)) {
+    return result;
+  }
+  if (mlir::OpFoldResult result = foldSplatComparison(
+          *this, adaptor.getLhs(), adaptor.getRhs(), std::not_equal_to<>())) {
+    return result;
+  }
   auto ne = PredicateToNumericAdapter(std::not_equal_to<>());
   return constantFoldEltwiseBinary(*this, adaptor.getLhs(), adaptor.getRhs(),
                                    ne, ne);

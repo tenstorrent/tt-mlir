@@ -916,6 +916,35 @@ struct EmitCTypeConverter<ttcore::ReduceType> {
   }
 };
 
+// Maps a ttcore::ReduceType to the optional reduction string accepted by
+// `ttnn::scatter`'s reduction argument. This is distinct from the
+// reduction_common::ReduceType enum that the reduce ops take
+// (EmitCTypeConverter<ReduceType> above), so it is intentionally a separate
+// helper rather than a converter overload. Mirrors the runtime mapping
+// (runtime/.../data_movement/scatter.cpp): Invalid is the no reduction mode
+// and maps to std::nullopt (a plain overwrite scatter). Reductions that
+// ttnn::scatter cannot express (Mean/Std/Var) never reach scatter.
+inline std::optional<std::string>
+reduceTypeToScatterString(ttcore::ReduceType type) {
+  switch (type) {
+  case ttcore::ReduceType::Sum:
+    return "add";
+  case ttcore::ReduceType::Prod:
+    return "multiply";
+  case ttcore::ReduceType::Max:
+    return "amax";
+  case ttcore::ReduceType::Min:
+    return "amin";
+  case ttcore::ReduceType::Invalid:
+    return std::nullopt;
+  case ttcore::ReduceType::Mean:
+  case ttcore::ReduceType::Std:
+  case ttcore::ReduceType::Var:
+    break;
+  }
+  llvm_unreachable("Unsupported ttnn::scatter reduction type");
+}
+
 template <>
 struct EmitCTypeConverter<::ttnn::QueueId> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
@@ -2306,6 +2335,53 @@ public:
       rewriter.setInsertionPointAfter(conv2dExpr);
 
       return conv2dExpr;
+    }
+
+    // Special handling for Conv1dOp. Like Conv2dOp, `ttnn::conv1d` returns a
+    // variant (`Conv1dResult`) rather than a bare `ttnn::Tensor`, so we unwrap
+    // the first alternative via `std::get<0>`. Using an ExpressionOp built from
+    // `adaptor.getOperands()` (original operand order) is also required here:
+    // Conv1dOp has an optional `bias` operand that precedes `device` in the
+    // op's operand list, but the conversion pattern emits `device` before
+    // `bias`. The generic path below would mismatch the operand indices
+    // (swapping `device` and `bias`), so we must reference the block arguments,
+    // which follow the original operand order.
+    if constexpr (std::is_same_v<TTNNOp, tt::ttnn::Conv1dOp>) {
+      using OutputLength = std::uint32_t;
+      using ReturnTy = std::variant<
+          ::ttnn::Tensor, std::tuple<::ttnn::Tensor, OutputLength>,
+          std::tuple<::ttnn::Tensor,
+                     std::tuple<::ttnn::Tensor, std::optional<::ttnn::Tensor>>>,
+          std::tuple<
+              ::ttnn::Tensor, OutputLength,
+              std::tuple<::ttnn::Tensor, std::optional<::ttnn::Tensor>>>>;
+
+      emitc::ExpressionOp conv1dExpr = rewriter.create<emitc::ExpressionOp>(
+          op.getLoc(),
+          rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>),
+          adaptor.getOperands());
+
+      mlir::Block &bodyBlock = conv1dExpr.createBody();
+      rewriter.setInsertionPointToStart(&bodyBlock);
+
+      auto conv1dOp = rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(), rewriter.getType<emitc::OpaqueType>(TypeNameV<ReturnTy>),
+          opConversionPattern.convertOpName(op), rewriter.getArrayAttr(args),
+          /*template_args=*/nullptr, bodyBlock.getArguments());
+      auto getTensorOp = rewriter.create<emitc::CallOpaqueOp>(
+          op.getLoc(),
+          rewriter.getType<emitc::OpaqueType>(TypeNameV<::ttnn::Tensor>),
+          "::std::get", /*args=*/nullptr,
+          /*template_args=*/
+          rewriter.getArrayAttr({rewriter.getI32IntegerAttr(0)}),
+          conv1dOp.getResult(0));
+      rewriter.create<emitc::YieldOp>(op.getLoc(), getTensorOp.getResult(0));
+
+      rewriter.replaceOp(op, conv1dExpr);
+
+      rewriter.setInsertionPointAfter(conv1dExpr);
+
+      return conv1dExpr;
     }
 
     // MaxPool2dOp return a std::vector<ttnn::Tensor> containing a single

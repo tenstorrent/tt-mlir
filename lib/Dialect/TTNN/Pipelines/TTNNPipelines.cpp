@@ -47,7 +47,8 @@ void createTTNNPipelineTTIRPasses(
   pm.addPass(mlir::createCanonicalizerPass());
   ttir::TTIRFusingOptions fusingOptions{
       options.enableFusingConv2dWithMultiplyPattern,
-      options.enablePermuteMatmulFusion};
+      options.enablePermuteMatmulFusion,
+      options.enablePermuteSliceAfterMatmulFusion};
   if (options.enableFusing) {
     pm.addPass(mlir::tt::ttir::createTTIRFusing(fusingOptions));
   }
@@ -301,8 +302,6 @@ void createTTNNPipelineWorkaroundPass(
       options.layoutWorkaroundsEnabled,
       options.decompositionWorkaroundsEnabled};
 
-  workaroundOptions.allReduceWorkaroundEnabled =
-      options.allReduceWorkaroundEnabled;
   workaroundOptions.optimizationLevel = options.optimizationLevel;
 
   pm.addPass(createTTNNWorkarounds(workaroundOptions));
@@ -394,6 +393,8 @@ void createTTIRToTTNNCommonPipeline(
     // Run TTNN lowering passes on Device module.
     createTTNNPipelineLoweringPasses(devicePm, options.removeDeadValuesEnabled);
     createTTNNResolveCompositesPass(devicePm, options);
+    // Add pass to clean up the leftover unreferenced symbols.
+    devicePm.addPass(mlir::createSymbolDCEPass());
     createTTNNFusingPass(devicePm, options);
 
     // Create TTNN decomposition pass, optionally with op-model validation.
@@ -454,11 +455,14 @@ void createTTIRToTTNNCommonPipeline(
 
     // Apply ComputeKernelConfig settings before analysis passes.
     // Always run: large-K matmul/linear packer_l1_acc logic runs even when
-    // pipeline options leave math_fidelity undefined and fp32_dest_acc_en
-    // false.
+    // pipeline options leave every compute-kernel-config knob unset.
     TTNNSetComputeKernelConfigOptions setConfigOptions;
     setConfigOptions.mathFidelity = options.computeCfgMathFidelity.getValue();
+    setConfigOptions.mathApproxMode =
+        options.computeCfgMathApproxMode.getValue();
     setConfigOptions.fp32DestAccEn = options.computeCfgFp32DestAccEn.getValue();
+    setConfigOptions.packerL1Acc = options.computeCfgPackerL1Acc.getValue();
+    setConfigOptions.dstFullSyncEn = options.computeCfgDstFullSyncEn.getValue();
     devicePm.addPass(createTTNNSetComputeKernelConfig(setConfigOptions));
 
     if (options.enableCreateD2MSubgraphs) {
@@ -601,6 +605,8 @@ void createTTNNCommonToEmitCPipeline(
   if (options.tryRecoverStructure) {
     createRecoverStructureXLATorchPipeline(
         pm, RecoverStructureXLATorchPipelineOptions());
+  } else {
+    pm.addPass(createTTNNForceFinalDeallocs());
   }
 
   if (options.targetDylib) {
@@ -643,6 +649,8 @@ void createTTNNCommonToEmitPyPipeline(
   if (options.tryRecoverStructure) {
     createRecoverStructureXLATorchPipeline(
         devicePm, RecoverStructureXLATorchPipelineOptions());
+  } else {
+    devicePm.addPass(createTTNNForceFinalDeallocs());
   }
 
   // Apply EmitPy-specific workarounds before conversion

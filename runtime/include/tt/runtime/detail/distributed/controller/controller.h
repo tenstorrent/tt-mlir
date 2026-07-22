@@ -87,6 +87,7 @@ public:
 
   // Runtime APIs
   void setMemoryLogLevel(const MemoryLogLevel &logLevel);
+  WorkerDebugStats getWorkerDebugStats();
 
   SystemDesc getCurrentSystemDesc(
       std::optional<::tt::runtime::DispatchCoreType> dispatchCoreType =
@@ -215,6 +216,9 @@ private:
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 
   void handleSetMemoryLogLevelResponse(
+      const std::vector<SizedBuffer> &responseBuffers,
+      std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
+  void handleGetWorkerDebugStatsResponse(
       const std::vector<SizedBuffer> &responseBuffers,
       std::unique_ptr<AwaitingResponseQueueEntry> awaitingResponse);
 

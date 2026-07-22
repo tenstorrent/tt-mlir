@@ -1,0 +1,4 @@
+sphinx==7.4.7
+sphinx-rtd-theme==2.0.0
+sphinx-sitemap==2.6.0
+myst-parser==3.0.0

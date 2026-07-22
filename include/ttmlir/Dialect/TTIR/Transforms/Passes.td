@@ -312,6 +312,10 @@ def TTIRFusing: Pass<"ttir-fusing", "::mlir::ModuleOp">
              "enable-permute-matmul-fusion",
              "bool", /*default=*/"false",
              "Fuse permute ops into matmul/linear transpose attributes">,
+      Option<"permuteSliceAfterMatmulEnabled",
+             "enable-permute-slice-after-matmul-fusion",
+             "bool", /*default=*/"true",
+             "Push a matmul/linear output slice into the operand producing the sliced dim">,
   ];
 }
 

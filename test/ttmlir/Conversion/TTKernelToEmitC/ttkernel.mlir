@@ -495,7 +495,7 @@ module {
       %scaling_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
       // CHECK: %[[OUT_CB:.*]] = emitc.literal "get_compile_time_arg_val(2)"
       %out_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 2 : i32}> : () -> !cb2_tiles
-      // CHECK: emitc.call_opaque "reduce_init"(%[[IN_CB]], %[[SCALING_CB]], %[[OUT_CB]]) {template_args = [#emitc.opaque<"PoolType::SUM">, #emitc.opaque<"ReduceDim::REDUCE_SCALAR">, #emitc.opaque<"false">]}
+      // CHECK: emitc.call_opaque "reduce_init"(%[[IN_CB]], %[[SCALING_CB]], %[[OUT_CB]]) {template_args = [#emitc.opaque<"PoolType::SUM">, #emitc.opaque<"ReduceDim::REDUCE_SCALAR">]}
       "ttkernel.reduce_init"(%in_cb, %scaling_cb, %out_cb) <{reduce_dim = #ttkernel.reduce_dim<reduce_dim_scalar>, reduce_type = #ttkernel.reduce_type<reduce_sum>}> : (!cb0_tiles, !cb1_tiles, !cb2_tiles) -> ()
       return
     }
@@ -512,17 +512,10 @@ module {
       %scaling_tile_index = arith.constant 2 : i32
       // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
       %dst_index = arith.constant 3 : i32
-      // CHECK: emitc.call_opaque "reduce_tile"(%[[IN_CB]], %[[SCALING_CB]],  %[[IN_TILE_INDEX]], %[[SCALING_TILE_INDEX]], %[[DST_INDEX]]) {template_args = [#emitc.opaque<"PoolType::MAX">, #emitc.opaque<"ReduceDim::REDUCE_ROW">, #emitc.opaque<"false">]}
+      // CHECK: emitc.call_opaque "reduce_tile"(%[[IN_CB]], %[[SCALING_CB]],  %[[IN_TILE_INDEX]], %[[SCALING_TILE_INDEX]], %[[DST_INDEX]]) {template_args = [#emitc.opaque<"PoolType::MAX">, #emitc.opaque<"ReduceDim::REDUCE_ROW">]}
       "ttkernel.reduce_tile"(%in_cb, %scaling_cb, %in_tile_index, %scaling_tile_index, %dst_index) <{
         reduce_dim = #ttkernel.reduce_dim<reduce_dim_row>, reduce_type = #ttkernel.reduce_type<reduce_max>
         }> : (!cb0_tiles, !cb1_tiles, i32, i32, i32) -> ()
-      return
-    }
-
-    // CHECK-LABEL: func @reduce_uninit_full_fp32
-    func.func @reduce_uninit_full_fp32() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
-      // CHECK: emitc.call_opaque "reduce_uninit"() {template_args = [#emitc.opaque<"true">]}
-      "ttkernel.reduce_uninit"() <{full_fp32}> : () -> ()
       return
     }
 
@@ -539,7 +532,7 @@ module {
       %in_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 0 : i32}> : () -> !cb0_tiles
       %scaling_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 1 : i32}> : () -> !cb1_tiles
       %out_cb = "ttkernel.get_compile_time_arg_val"() <{arg_index = 2 : i32}> : () -> !cb2_tiles
-      // CHECK: emitc.call_opaque "reduce_init"({{.*}}) {template_args = [#emitc.opaque<"PoolType::AVG">, #emitc.opaque<"ReduceDim::REDUCE_COL">, #emitc.opaque<"false">]}
+      // CHECK: emitc.call_opaque "reduce_init"({{.*}}) {template_args = [#emitc.opaque<"PoolType::AVG">, #emitc.opaque<"ReduceDim::REDUCE_COL">]}
       "ttkernel.reduce_init"(%in_cb, %scaling_cb, %out_cb) <{reduce_dim = #ttkernel.reduce_dim<reduce_dim_col>, reduce_type = #ttkernel.reduce_type<reduce_avg>}> : (!cb0_tiles, !cb1_tiles, !cb2_tiles) -> ()
       return
     }
@@ -551,7 +544,7 @@ module {
       %in_tile_index = arith.constant 0 : i32
       %scaling_tile_index = arith.constant 0 : i32
       %dst_index = arith.constant 0 : i32
-      // CHECK: emitc.call_opaque "reduce_tile"({{.*}}) {template_args = [#emitc.opaque<"PoolType::AVG">, #emitc.opaque<"ReduceDim::REDUCE_COL">, #emitc.opaque<"false">]}
+      // CHECK: emitc.call_opaque "reduce_tile"({{.*}}) {template_args = [#emitc.opaque<"PoolType::AVG">, #emitc.opaque<"ReduceDim::REDUCE_COL">]}
       "ttkernel.reduce_tile"(%in_cb, %scaling_cb, %in_tile_index, %scaling_tile_index, %dst_index) <{
         reduce_dim = #ttkernel.reduce_dim<reduce_dim_col>, reduce_type = #ttkernel.reduce_type<reduce_avg>
         }> : (!cb0_tiles, !cb1_tiles, i32, i32, i32) -> ()
@@ -918,8 +911,9 @@ module {
     func.func @exp_tile_runtime_scale() -> () attributes {ttkernel.thread = #ttkernel.thread<compute>} {
       // CHECK: %[[DST_INDEX:.*]] = "emitc.constant"
       %dst_index = arith.constant 3 : i32
-      // CHECK: emitc.call_opaque "exp_tile"(%[[DST_INDEX]])
-      // CHECK-SAME: args = [0 : index, #emitc.opaque<"VectorMode::RC">, #emitc.opaque<"16384">]
+      // CHECK: %[[VECTOR_MODE:.*]] = emitc.literal "VectorMode::RC" : !emitc.opaque<"VectorMode">
+      // CHECK: %[[SCALE:.*]] = emitc.literal "static_cast<uint16_t>(16384u)" : !emitc.opaque<"uint16_t">
+      // CHECK: emitc.call_opaque "exp_tile"(%[[DST_INDEX]], %[[VECTOR_MODE]], %[[SCALE]])
       // CHECK-SAME: template_args = [#emitc.opaque<"true">, #emitc.opaque<"true">, #emitc.opaque<"InputClamping::None">]
       "ttkernel.exp_tile"(%dst_index) <{approx = true, input_clamping = #ttkernel.input_clamping<none>, scale = 1073741824 : i32}> : (i32) -> ()
       return
@@ -2551,14 +2545,32 @@ module {
       %tile_size = arith.constant 8 : i32
       %tile = arith.constant 1 : i32
       %noc = arith.constant 0 : i8
-      // CHECK: emitc.verbatim "auto [[ARGS:tensor_accessor_args_[0-9]+]] = TensorAccessorArgs<2, 0>();"
+      // CHECK: emitc.verbatim "constexpr auto [[ARGS:tensor_accessor_args_[0-9]+]] = TensorAccessorArgs<2, 0>();"
       %tensor_accessor_args = ttkernel.TensorAccessorArgs(%cta_offset, %crta_offset)
       // CHECK: %[[ACCESSOR:.*]] = emitc.call_opaque "TensorAccessor"
       %s = "ttkernel.TensorAccessor"(%tensor_accessor_args, %temp_addr, %tile_size) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessor
-      // CHECK: emitc.verbatim "noc0.async_write(CoreLocalMem<uint32_t>({}), {}, {}.get_aligned_page_size()
+      // CHECK: emitc.verbatim "const uint32_t [[WRITE_PAGE_ID:page_id_[0-9]+]] = static_cast<uint32_t>({});"
+      // CHECK-NEXT: emitc.verbatim "noc0.async_write(CoreLocalMem<uint32_t>({}), {}, {}.get_aligned_page_size()
+      // CHECK-SAME: .page_id = [[WRITE_PAGE_ID]]
       "ttkernel.noc_async_write_tile"(%tile, %s, %temp_addr, %noc) : (i32, !ttkernel.TensorAccessor, i32, i8) -> ()
-      // CHECK: emitc.verbatim "noc0.async_read({}, CoreLocalMem<uint32_t>({}), {}.get_aligned_page_size()
+      // CHECK: emitc.verbatim "const uint32_t [[READ_PAGE_ID:page_id_[0-9]+]] = static_cast<uint32_t>({});"
+      // CHECK-NEXT: emitc.verbatim "noc0.async_read({}, CoreLocalMem<uint32_t>({}), {}.get_aligned_page_size()
+      // CHECK-SAME: .page_id = [[READ_PAGE_ID]]
       "ttkernel.noc_async_read_tile"(%tile, %s, %temp_addr, %noc) : (i32, !ttkernel.TensorAccessor, i32, i8) -> ()
+      return
+    }
+
+    // CHECK-LABEL: func @tensor_accessor_default_page_size
+    func.func @tensor_accessor_default_page_size() -> () attributes {ttkernel.thread = #ttkernel.thread<noc>} {
+      %cta_offset = arith.constant 0 : i32
+      %crta_offset = arith.constant 0 : i32
+      %bank_address = arith.constant 303104 : i32
+      // CHECK: %[[DEFAULT_BANK:.*]] = "emitc.constant"() <{value = 303104 : i32}>
+      // CHECK: emitc.verbatim "constexpr auto [[DEFAULT_ARGS:tensor_accessor_args_[0-9]+]] = TensorAccessorArgs<0, 0>();"
+      // CHECK-NEXT: %[[DEFAULT_ARGS_LIT:.*]] = emitc.literal "[[DEFAULT_ARGS]]" : !emitc.opaque<"TensorAccessorArgs">
+      %args = ttkernel.TensorAccessorArgs(%cta_offset, %crta_offset)
+      // CHECK: emitc.call_opaque "TensorAccessor"(%[[DEFAULT_ARGS_LIT]], %[[DEFAULT_BANK]]) : (!emitc.opaque<"TensorAccessorArgs">, i32) -> !emitc.opaque<"TensorAccessor">
+      %tensor_accessor = "ttkernel.TensorAccessor"(%args, %bank_address) : (!ttkernel.TensorAccessorArgs, i32) -> !ttkernel.TensorAccessor
       return
     }
 
@@ -2572,7 +2584,7 @@ module {
       // CHECK: %[[SIZE:.*]] = "emitc.constant"
       %bank_address = arith.constant 303104 : i32
       %page_size = arith.constant 32 : i32
-      // CHECK: emitc.verbatim "auto [[ARGS:tensor_accessor_args_[0-9]+]] = TensorAccessorArgs<2, 0>();"
+      // CHECK: emitc.verbatim "constexpr auto [[ARGS:tensor_accessor_args_[0-9]+]] = TensorAccessorArgs<2, 0>();"
       // CHECK: %[[ARGS_LIT:.*]] = emitc.literal "[[ARGS]]" : !emitc.opaque<"TensorAccessorArgs">
       %tensor_accessor_args = ttkernel.TensorAccessorArgs(%cta_offset, %crta_offset)
       // CHECK: %[[TENSOR_ACCESSOR:.*]] = emitc.call_opaque "TensorAccessor"(%[[ARGS_LIT]], %[[ADDR]], %[[SIZE]]) : (!emitc.opaque<"TensorAccessorArgs">, i32, i32) -> !emitc.opaque<"TensorAccessor">
@@ -2615,17 +2627,17 @@ module {
       %crta_offset_2 = arith.constant 4 : i32
 
       // Case 1: First accessor with literal integer offset (existing functionality)
-      // CHECK: emitc.verbatim "auto [[ARGS1:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
+      // CHECK: emitc.verbatim "constexpr auto [[ARGS1:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
       // CHECK-NEXT: %[[ARGS1_LIT:.*]] = emitc.literal "[[ARGS1]]" : !emitc.opaque<"TensorAccessorArgs">
       %args1 = ttkernel.TensorAccessorArgs(%cta_offset, %crta_offset)
 
       // Case 2: Second accessor chained from first (NEW: chaining via prev_args)
-      // CHECK: emitc.verbatim "auto [[ARGS2:[a-z_0-9]+]] = TensorAccessorArgs<[[ARGS1]].next_compile_time_args_offset(), [[ARGS1]].next_common_runtime_args_offset()>();"
+      // CHECK: emitc.verbatim "constexpr auto [[ARGS2:[a-z_0-9]+]] = TensorAccessorArgs<[[ARGS1]].next_compile_time_args_offset(), [[ARGS1]].next_common_runtime_args_offset()>();"
       // CHECK-NEXT: %[[ARGS2_LIT:.*]] = emitc.literal "[[ARGS2]]" : !emitc.opaque<"TensorAccessorArgs">
       %args2 = ttkernel.TensorAccessorArgs(prev = %args1)
 
       // Case 3: Third accessor chained from second (chaining continues)
-      // CHECK: emitc.verbatim "auto [[ARGS3:[a-z_0-9]+]] = TensorAccessorArgs<[[ARGS2]].next_compile_time_args_offset(), [[ARGS2]].next_common_runtime_args_offset()>();"
+      // CHECK: emitc.verbatim "constexpr auto [[ARGS3:[a-z_0-9]+]] = TensorAccessorArgs<[[ARGS2]].next_compile_time_args_offset(), [[ARGS2]].next_common_runtime_args_offset()>();"
       // CHECK-NEXT: %[[ARGS3_LIT:.*]] = emitc.literal "[[ARGS3]]" : !emitc.opaque<"TensorAccessorArgs">
       %args3 = ttkernel.TensorAccessorArgs(prev = %args2)
 
@@ -2652,13 +2664,13 @@ module {
       %page_size = arith.constant 32 : i32
 
       // Case 1: First accessor args_src with literal offsets
-      // CHECK: emitc.verbatim "auto [[SRC:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
+      // CHECK: emitc.verbatim "constexpr auto [[SRC:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
       // CHECK-NEXT: %[[SRC_LIT:.*]] = emitc.literal "[[SRC]]" : !emitc.opaque<"TensorAccessorArgs">
       %args_src = ttkernel.TensorAccessorArgs(%cta_0, %crta_0)
 
       // Case 2: Second accessor args_dst chains BOTH CTA and CRTA from args_src
       // This is the COMMON PATTERN: TensorAccessorArgs<args_src.next_compile_time_args_offset(), args_src.next_common_runtime_args_offset()>
-      // CHECK: emitc.verbatim "auto [[DST:[a-z_0-9]+]] = TensorAccessorArgs<[[SRC]].next_compile_time_args_offset(), [[SRC]].next_common_runtime_args_offset()>();"
+      // CHECK: emitc.verbatim "constexpr auto [[DST:[a-z_0-9]+]] = TensorAccessorArgs<[[SRC]].next_compile_time_args_offset(), [[SRC]].next_common_runtime_args_offset()>();"
       // CHECK-NEXT: %[[DST_LIT:.*]] = emitc.literal "[[DST]]" : !emitc.opaque<"TensorAccessorArgs">
       %args_dst = ttkernel.TensorAccessorArgs(prev = %args_src)
 
@@ -2684,12 +2696,12 @@ module {
       %page_size = arith.constant 32 : i32
 
       // First accessor
-      // CHECK: emitc.verbatim "auto [[BASE:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
+      // CHECK: emitc.verbatim "constexpr auto [[BASE:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
       // CHECK-NEXT: %[[BASE_LIT:.*]] = emitc.literal "[[BASE]]" : !emitc.opaque<"TensorAccessorArgs">
       %args_base = ttkernel.TensorAccessorArgs(%cta_0, %crta_0)
 
       // Chain CTA only, use literal 0 for CRTA
-      // CHECK: emitc.verbatim "auto [[CTA_ONLY:[a-z_0-9]+]] = TensorAccessorArgs<[[BASE]].next_compile_time_args_offset(), 0>();"
+      // CHECK: emitc.verbatim "constexpr auto [[CTA_ONLY:[a-z_0-9]+]] = TensorAccessorArgs<[[BASE]].next_compile_time_args_offset(), 0>();"
       // CHECK-NEXT: %[[CTA_ONLY_LIT:.*]] = emitc.literal "[[CTA_ONLY]]" : !emitc.opaque<"TensorAccessorArgs">
       %args_cta_only = ttkernel.TensorAccessorArgs(prev = %args_base) crta_expr = "0"
 
@@ -2714,12 +2726,12 @@ module {
       %page_size = arith.constant 32 : i32
 
       // Case: First accessor with constexpr string expression (NEW: cta_expr attribute)
-      // CHECK: emitc.verbatim "auto [[CEXPR:[a-z_0-9]+]] = TensorAccessorArgs<get_base_offset(), 0>();"
+      // CHECK: emitc.verbatim "constexpr auto [[CEXPR:[a-z_0-9]+]] = TensorAccessorArgs<get_base_offset(), 0>();"
       // CHECK-NEXT: %[[CEXPR_LIT:.*]] = emitc.literal "[[CEXPR]]" : !emitc.opaque<"TensorAccessorArgs">
       %args = ttkernel.TensorAccessorArgs(%cta_offset, %crta_offset) cta_expr = "get_base_offset()"
 
       // Chain from a constexpr-based accessor
-      // CHECK: emitc.verbatim "auto [[CEXPR2:[a-z_0-9]+]] = TensorAccessorArgs<[[CEXPR]].next_compile_time_args_offset(), [[CEXPR]].next_common_runtime_args_offset()>();"
+      // CHECK: emitc.verbatim "constexpr auto [[CEXPR2:[a-z_0-9]+]] = TensorAccessorArgs<[[CEXPR]].next_compile_time_args_offset(), [[CEXPR]].next_common_runtime_args_offset()>();"
       // CHECK-NEXT: %[[CEXPR2_LIT:.*]] = emitc.literal "[[CEXPR2]]" : !emitc.opaque<"TensorAccessorArgs">
       %args2 = ttkernel.TensorAccessorArgs(prev = %args)
 
@@ -2746,15 +2758,15 @@ module {
       // CHECK: %[[PAGE_SIZE:.*]] = "emitc.constant"() <{value = 32 : i32}>
       %page_size = arith.constant 32 : i32
 
-      // CHECK: emitc.verbatim "auto [[M1:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
+      // CHECK: emitc.verbatim "constexpr auto [[M1:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
       // CHECK-NEXT: %[[M1_LIT:.*]] = emitc.literal "[[M1]]" : !emitc.opaque<"TensorAccessorArgs">
       %args1 = ttkernel.TensorAccessorArgs(%cta_0, %crta_0)
 
-      // CHECK: emitc.verbatim "auto [[M2:[a-z_0-9]+]] = TensorAccessorArgs<[[M1]].next_compile_time_args_offset(), [[M1]].next_common_runtime_args_offset()>();"
+      // CHECK: emitc.verbatim "constexpr auto [[M2:[a-z_0-9]+]] = TensorAccessorArgs<[[M1]].next_compile_time_args_offset(), [[M1]].next_common_runtime_args_offset()>();"
       // CHECK-NEXT: %[[M2_LIT:.*]] = emitc.literal "[[M2]]" : !emitc.opaque<"TensorAccessorArgs">
       %args2 = ttkernel.TensorAccessorArgs(prev = %args1)
 
-      // CHECK: emitc.verbatim "auto [[M3:[a-z_0-9]+]] = TensorAccessorArgs<[[M2]].next_compile_time_args_offset(), [[M2]].next_common_runtime_args_offset()>();"
+      // CHECK: emitc.verbatim "constexpr auto [[M3:[a-z_0-9]+]] = TensorAccessorArgs<[[M2]].next_compile_time_args_offset(), [[M2]].next_common_runtime_args_offset()>();"
       // CHECK-NEXT: %[[M3_LIT:.*]] = emitc.literal "[[M3]]" : !emitc.opaque<"TensorAccessorArgs">
       %args3 = ttkernel.TensorAccessorArgs(prev = %args2)
 
@@ -2795,13 +2807,13 @@ module {
       %page_size = arith.constant 32 : i32
 
       // First accessor
-      // CHECK: emitc.verbatim "auto [[BASE:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
+      // CHECK: emitc.verbatim "constexpr auto [[BASE:[a-z_0-9]+]] = TensorAccessorArgs<0, 0>();"
       // CHECK-NEXT: %[[BASE_LIT:.*]] = emitc.literal "[[BASE]]" : !emitc.opaque<"TensorAccessorArgs">
       %args_base = ttkernel.TensorAccessorArgs(%cta_0, %crta_0)
 
       // Override chaining with explicit cta_expr (prev_args provided but cta_expr takes precedence)
       // CTA uses explicit "42", CRTA chains from [[BASE]]
-      // CHECK: emitc.verbatim "auto [[OVERRIDE:[a-z_0-9]+]] = TensorAccessorArgs<42, [[BASE]].next_common_runtime_args_offset()>();"
+      // CHECK: emitc.verbatim "constexpr auto [[OVERRIDE:[a-z_0-9]+]] = TensorAccessorArgs<42, [[BASE]].next_common_runtime_args_offset()>();"
       // CHECK-NEXT: %[[OVERRIDE_LIT:.*]] = emitc.literal "[[OVERRIDE]]" : !emitc.opaque<"TensorAccessorArgs">
       %args_override = ttkernel.TensorAccessorArgs(prev = %args_base) cta_expr = "42"
 

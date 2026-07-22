@@ -12,70 +12,6 @@ have.
 
 ## Pipeline gaps
 
-### 🔴 Matmul accumulator init breaks `d2m → ttkernel` lowering
-
-**Where:** `_matmul_block` in `api.py`, when the `outs` operand to the
-inner `linalg.generic { d2m.tile_matmul }` is anything other than a
-fresh `d2m.empty`.
-
-**Symptom:** wiring a `linalg.generic { d2m.tile_fill }` as the
-accumulator producer fails late in the pipeline:
-
-```
-error: failed to legalize unresolved materialization from
-  ('memref<1x1x!ttcore.tile<32x32, f32>, #ttcore.memory_space<l1>>')
-  to ('!ttkernel.cb<1, !ttcore.tile<32x32, f32>>')
-  that remained live after conversion
- note: see existing live user here:
-  ttkernel.pack_tile(%c0, %8, %c0, true)
-    : (index, !ttkernel.cb<1, !ttcore.tile<32x32, f32>>, index) -> ()
-```
-
-**Root cause:** `D2MToTTKernel` doesn't recognise the
-`linalg.generic { d2m.tile_fill }` pattern as the producer of the
-matmul accumulator. The conversion emits an
-`unrealized_conversion_cast` from `memref<...>` to `!ttkernel.cb<...>`
-that no later pass can fold away, while `ttkernel.pack_tile` keeps
-using the CB form.
-
-**Workaround for users:** pre-fill the output via `out = d2m.zeros(L)`
-and pass it as the out-param to a kernel that calls `@`. The current
-test `test_matmul.py::test_matmul_correctness_via_zeros` does this.
-
-**Fix shape:** teach `D2MToTTKernel` to handle a fill-pattern producer
-(or to emit a CB-init prologue for the matmul kernel when one is
-detected). A `tile_matmul` op that internally zero-initialises on the
-first reduction step would also work.
-
----
-
-### 🔴 Multicast kernels hit `SplitUnifiedThread` assertion
-
-**Where:** any kernel that uses the multicast form of `remote_load`
-(`mcast_start_index`, `mcast_shape`) on a grid larger than 1×1.
-
-**Symptom:**
-
-```
-python: lib/Dialect/D2M/Transforms/SplitUnifiedThread.cpp:127:
-  wrapComputeInSynchronizedRegion: Assertion
-  `opsWithSynchronizableOps.size() == 1 && "synchronized scope must be
-  unambiguous"' failed.
-```
-
-**Root cause:** `wrapComputeInSynchronizedRegion` expects exactly one
-op-with-a-synchronizable-op inside a `d2m.GenericOp` when wrapping the
-compute thread, but a multicast `remote_load` kernel produces multiple
-such ops (the load itself plus the elementwise body), so the pass aborts.
-
-**Impact:** the multicast smoke test in
-`test/d2m-jit/test_matmul.py::test_mcast_overwrite_grid_2x2` is
-currently marked `@pytest.mark.skip` for this reason.
-
-**Fix shape:** teach `SplitUnifiedThread`'s
-`wrapComputeInSynchronizedRegion` to handle multiple synchronizable ops
-in the same scope (or split them into separate synchronized scopes).
-
 ---
 
 ## Missing API surface
@@ -120,14 +56,14 @@ but they're meaningful only in generic-op forms we haven't surfaced
 
 ### 🟡 Init helpers
 
-- `arange_block(layout)` — fill a block with `0, 1, 2, …` (per the
-  d2m op).
+- Kernel-body `full([m, n], value)` for block literals. `zeros([m, n])` exists
+  for accumulator blocks; a general fill helper would make the pattern reusable.
+- `arange_block(layout)` — fill a block with `0, 1, 2, ...` (per the d2m op).
 - `fill_arange_tile()` — per-tile arange.
 
 Useful for golden tests and for replacing the current
-`test/d2m-jit/utils.py:arange_tile` host-side helper with a true
-device-side fill. Need the same plumbing the device-side `zeros`/`full`
-fill would need (see the host-scope linalg gap above).
+`test/d2m-jit/utils.py:arange_tile` host-side helper with a true device-side
+fill.
 
 ### 🟡 Kernel-side `print`
 

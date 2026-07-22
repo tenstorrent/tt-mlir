@@ -231,6 +231,10 @@ convertKernelArg(Builder &builder, const ttkernel::ArgAttr &arg,
     return builder.getAttr<ttnn::KernelArgScalarAttr>(
         additionalArgMapping.at(arg.getOperandIndex()));
   }
+  case ttkernel::ArgType::TensorAccessorArgs: {
+    return builder.getAttr<ttnn::KernelArgTensorAccessorArgsAttr>(
+        arg.getOperandIndex());
+  }
   }
   llvm_unreachable("Invalid ArgType");
 }
@@ -858,6 +862,12 @@ remapSpatialKernelArgs(MLIRContext *ctx, ArrayRef<Attribute> args,
       if (auto unified =
               remapTable.lookupIO(generic, tensor.getTensorIndex())) {
         mapped = ttnn::KernelArgAddressOfTensorAttr::get(ctx, *unified);
+      }
+    } else if (auto tensorAccessor =
+                   mlir::dyn_cast<ttnn::KernelArgTensorAccessorArgsAttr>(arg)) {
+      if (auto unified =
+              remapTable.lookupIO(generic, tensorAccessor.getOperandIndex())) {
+        mapped = ttnn::KernelArgTensorAccessorArgsAttr::get(ctx, *unified);
       }
     } else if (auto globalSem =
                    mlir::dyn_cast<ttnn::KernelArgGlobalSemaphoreAttr>(arg)) {
