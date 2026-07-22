@@ -207,6 +207,17 @@ def ConvertTTIRCPUToEmitPy : Pass<"convert-ttir-cpu-to-emitpy", "::mlir::ModuleO
                            "mlir::tt::ttir::TTIRDialect"];
 }
 
+def CaptureMeshShape : Pass<"capture-mesh-shape", "::mlir::ModuleOp"> {
+  let summary = "Stamp the device mesh shape onto CPU-hoisted functions";
+  let description = [{
+    Reads the device mesh shape from the `ttcore.device` op in the device module
+    and stamps it as the `ttcore.device_mesh_shape` attribute on each
+    CPU-hoisted (`forward_cpu`) function in the CPU module.
+  }];
+  let constructor = "createCaptureMeshShapePass()";
+  let dependentDialects = ["mlir::tt::ttcore::TTCoreDialect"];
+}
+
 def ConvertTTNNToEmitPy : Pass<"convert-ttnn-to-emitpy", "::mlir::ModuleOp"> {
   let summary = "Convert TTNN dialect to EmitPy dialect.";
   let constructor = "createConvertTTNNToEmitPyPass()";
