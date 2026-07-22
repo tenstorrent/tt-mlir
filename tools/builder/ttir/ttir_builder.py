@@ -13214,6 +13214,9 @@ class TTIRBuilder(Builder):
 
         # The cache is mutated in place; record the post-mutation golden on the
         # cache operand so later reads (and the function output) observe it.
+        # Snapshot the pre-mutation golden first so the cache is still reported
+        # with its original value as the function's input golden.
+        self._snapshot_input_goldens([in0])
         self._set_golden_tensor(in0, golden_output)
 
         return in0
@@ -13243,7 +13246,10 @@ class TTIRBuilder(Builder):
         golden_output = op_golden_function(
             cache_golden, input_golden, batch_offset=batch_offset_attr
         )
-        # In-place op: the cache operand now holds the mutated values.
+        # In-place op: the cache operand now holds the mutated values. Snapshot
+        # the pre-mutation golden first so the cache is still reported with its
+        # original value as the function's input golden.
+        self._snapshot_input_goldens([cache])
         self._set_golden_tensor(cache, golden_output)
 
         return new_op, {}
@@ -13390,6 +13396,9 @@ class TTIRBuilder(Builder):
 
         # The cache is mutated in place; record the post-mutation golden on the
         # cache operand so later reads (and the function output) observe it.
+        # Snapshot the pre-mutation golden first so the cache is still reported
+        # with its original value as the function's input golden.
+        self._snapshot_input_goldens([in0])
         self._set_golden_tensor(in0, golden_output)
 
         return in0
@@ -13424,9 +13433,12 @@ class TTIRBuilder(Builder):
             input_update,
             input_index,
             batch_offset_attr,
-            self.get_type(cache).element_type,
+            self.get_type(cache),
         )
-        # In-place op: the cache operand now holds the mutated values.
+        # In-place op: the cache operand now holds the mutated values. Snapshot
+        # the pre-mutation golden first so the cache is still reported with its
+        # original value as the function's input golden.
+        self._snapshot_input_goldens([cache])
         self._set_golden_tensor(cache, golden_output)
 
         return new_op, {}
@@ -13564,6 +13576,9 @@ class TTIRBuilder(Builder):
 
         # The cache is mutated in place; record the post-mutation golden on the
         # cache operand so later reads (and the function output) observe it.
+        # Snapshot the pre-mutation golden first so the cache is still reported
+        # with its original value as the function's input golden.
+        self._snapshot_input_goldens([cache])
         self._set_golden_tensor(cache, golden_output)
 
         return cache
@@ -13606,9 +13621,12 @@ class TTIRBuilder(Builder):
             index_golden,
             share_cache_attr,
             pt_golden,
-            self.get_type(cache).element_type,
+            self.get_type(cache),
         )
-        # In-place op: the cache operand now holds the mutated values.
+        # In-place op: the cache operand now holds the mutated values. Snapshot
+        # the pre-mutation golden first so the cache is still reported with its
+        # original value as the function's input golden.
+        self._snapshot_input_goldens([cache])
         self._set_golden_tensor(cache, golden_output)
 
         return new_op, {}
@@ -13761,6 +13779,9 @@ class TTIRBuilder(Builder):
 
         # The cache is mutated in place; record the post-mutation golden on the
         # cache operand so later reads (and the function output) observe it.
+        # Snapshot the pre-mutation golden first so the cache is still reported
+        # with its original value as the function's input golden.
+        self._snapshot_input_goldens([cache])
         self._set_golden_tensor(cache, golden_output)
 
         return cache
@@ -13804,9 +13825,12 @@ class TTIRBuilder(Builder):
             input_golden,
             pt_golden,
             batch_idx_golden,
-            self.get_type(cache).element_type,
+            self.get_type(cache),
         )
-        # In-place op: the cache operand now holds the mutated values.
+        # In-place op: the cache operand now holds the mutated values. Snapshot
+        # the pre-mutation golden first so the cache is still reported with its
+        # original value as the function's input golden.
+        self._snapshot_input_goldens([cache])
         self._set_golden_tensor(cache, golden_output)
 
         return new_op, {}
