@@ -313,16 +313,16 @@ def TTNNPrepareConv2dWeightsAndBias : Pass<"ttnn-prepare-conv2d-weights-and-bias
 }
 
 def TTNNDeduceMoEComputeLayouts : Pass<"ttnn-deduce-moe-compute-layouts", "::mlir::ModuleOp"> {
-  let summary = "Refine result layouts of the moe_compute weight-prep and compute ops using OpModel.";
+  let summary = "Refine moe_compute weight-prep layouts and reshard its inputs using OpModel.";
   let description = [{
     The prepare_moe_compute_*_weights ops produce a 6-D packed tensor with a
-    bank-permuted DRAM HEIGHT_SHARDED memory config, and ttnn.moe_compute
-    produces height-sharded outputs on the device compute grid. The exact
-    shapes and layouts depend on the target device and the hidden/intermediate
-    sizes, so the TTIR caller cannot know them up front. This pass walks those
-    ops emerging from TTIR->TTNN conversion and replaces their (placeholder)
-    result layouts with the OpModel-derived specs obtained via graph-captured
-    query of the corresponding tt-metal invocation.
+    bank-permuted DRAM HEIGHT_SHARDED memory config. The exact shapes and
+    layouts depend on the target device and the hidden/intermediate sizes, so
+    the TTIR caller cannot know them up front. This pass walks those ops
+    emerging from TTIR->TTNN conversion and replaces their (placeholder) result
+    layouts with the OpModel-derived specs obtained via graph-captured query of
+    the corresponding tt-metal invocation. It also reshards ttnn.moe_compute's
+    expert indices/scores inputs onto the device-derived tilize drain core.
     Requires -DTTMLIR_ENABLE_OPMODEL=ON.
   }];
 }
@@ -361,7 +361,12 @@ def TTNNFusing: Pass<"ttnn-fusing", "::mlir::ModuleOp">
             "enable-rope-fusion",
             "bool", /*default=*/"false",
             "Enable RoPE fusion patterns at the TTNN level. Disabled by "
-            "default since RoPE fusion is handled at the TTIR level.">
+            "default since RoPE fusion is handled at the TTIR level.">,
+    Option<"enableSDPAFusion",
+            "enable-sdpa-fusion",
+            "bool", /*default=*/"false",
+            "Enable SDPA fusion patterns at the TTNN level. Disabled by "
+            "default since SDPA fusion is handled at the TTIR level.">
   ];
 }
 

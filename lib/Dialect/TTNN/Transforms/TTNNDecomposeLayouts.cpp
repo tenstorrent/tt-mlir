@@ -387,51 +387,6 @@ private:
     return current;
   }
 
-  //===--------------------------------------------------------------------===//
-  // Cross-orientation reshard guard.
-  //===--------------------------------------------------------------------===//
-
-  // A TILE sharded->sharded reshard that crosses L1<->DRAM silently corrupts
-  // (or raises) for certain orientation changes; route it through an
-  // interleaved buffer instead.
-  // TT-metal issue: https://github.com/tenstorrent/tt-metal/issues/49224
-  bool needsReshardViaInterleaved(TTNNLayoutAttr currentEncoding,
-                                  TTNNLayoutAttr target) const {
-    if (currentEncoding.getLayout() != ttnn::Layout::Tile) {
-      return false;
-    }
-    auto currentML = currentEncoding.getMemLayout();
-    bool currentSharded =
-        currentML && isShardedMemoryLayout(currentML.getValue());
-    if (!currentSharded || !target.hasShardedTensorMemoryLayout()) {
-      return false;
-    }
-    BufferType currentBufferType = currentEncoding.getBufferType();
-    BufferType targetBufferType = target.getBufferType();
-    bool crossesL1Dram = (currentBufferType == BufferType::L1 &&
-                          targetBufferType == BufferType::DRAM) ||
-                         (currentBufferType == BufferType::DRAM &&
-                          targetBufferType == BufferType::L1);
-    if (!crossesL1Dram) {
-      return false;
-    }
-    TensorMemoryLayout currentShardLayout = currentML.getValue();
-    TensorMemoryLayout targetShardLayout = target.getMemLayout().getValue();
-    // Empirically (see the metal issue) the direct reshard is only safe for a
-    // same-orientation height reshard (HS->HS) and block->width (BS->WS).
-    // Everything else corrupts or raises, which reduces to two rules:
-    //   - a width-sharded source is never safe (WS->{HS,WS,BS}), and
-    //   - height-sharding on either side combined with an orientation change
-    //     (HS<->WS, HS<->BS) is never safe.
-    bool sourceWidthSharded =
-        currentShardLayout == TensorMemoryLayout::WidthSharded;
-    bool eitherHeightSharded =
-        currentShardLayout == TensorMemoryLayout::HeightSharded ||
-        targetShardLayout == TensorMemoryLayout::HeightSharded;
-    return sourceWidthSharded ||
-           (eitherHeightSharded && currentShardLayout != targetShardLayout);
-  }
-
   // Move the current tensor into `target`'s memory. Picks to_device /
   // from_device when a host side is involved, otherwise to_memory_config.
   mlir::Value createMemoryMove(IRRewriter &rewriter, mlir::Value current,
@@ -453,19 +408,7 @@ private:
     if (currentOnHost && targetOnHost) {
       return current;
     }
-
     // Device to device.
-    if (needsReshardViaInterleaved(currentEncoding, target)) {
-      TTNNLayoutAttr interEncoding =
-          TTNNLayoutAttr::Builder(currentEncoding, currentType.getShape())
-              .setBufferType(BufferType::DRAM)
-              .setMemoryLayout(TensorMemoryLayout::Interleaved)
-              .setGridShape({1, 1})
-              .build();
-      RankedTensorType interType = RankedTensorType::get(
-          currentType.getShape(), currentType.getElementType(), interEncoding);
-      current = createOp<ttnn::ToMemoryConfigOp>(rewriter, interType, current);
-    }
     return createToMemoryConfigOp(rewriter, current, target);
   }
 

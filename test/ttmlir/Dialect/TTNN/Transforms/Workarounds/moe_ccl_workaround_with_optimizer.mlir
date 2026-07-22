@@ -117,7 +117,7 @@ module {
     // CHECK: %[[SC:.*]] = "ttnn.to_layout"(%arg2)
     // CHECK-SAME: -> tensor<1x1x32x4xbf16, {{.*}} memref<1x128xbf16, #ttnn.buffer_type<l1>>
     // CHECK: "ttnn.all_to_all_dispatch_metadata"(%[[IN]], %[[IDX]], %[[SC]], %arg3)
-    %disp, %idx, %sc = "ttnn.all_to_all_dispatch_metadata"(%input, %indices, %scores, %mapping) <{cluster_axis = 0 : i64, num_devices = 1 : i64}> : (tensor<1x1x32x128xbf16, #dm_in>, tensor<1x1x32x4xui16, #dm_idx>, tensor<1x1x32x4xbf16, #dm_score>, tensor<8x4xui16, #dm_map>) -> (tensor<1x32x128xbf16, #dm_disp>, tensor<1x32x4xui16, #dm_iout>, tensor<1x32x4xbf16, #dm_sout>)
+    %disp, %idx, %sc = "ttnn.all_to_all_dispatch_metadata"(%input, %indices, %scores, %mapping) <{cluster_axis = 0 : i64, num_devices = 1 : i64, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0, 0, 0>}> : (tensor<1x1x32x128xbf16, #dm_in>, tensor<1x1x32x4xui16, #dm_idx>, tensor<1x1x32x4xbf16, #dm_score>, tensor<8x4xui16, #dm_map>) -> (tensor<1x32x128xbf16, #dm_disp>, tensor<1x32x4xui16, #dm_iout>, tensor<1x32x4xbf16, #dm_sout>)
     return %disp, %idx, %sc : tensor<1x32x128xbf16, #dm_disp>, tensor<1x32x4xui16, #dm_iout>, tensor<1x32x4xbf16, #dm_sout>
   }
 }

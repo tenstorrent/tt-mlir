@@ -15,6 +15,8 @@
 #include "ttmlir/Target/TTMetal/Target.h"
 #include "ttmlir/Target/TTMetal/types_generated.h"
 
+#include "tt-metalium/tensor_accessor_args.hpp"
+
 #include <cstring>
 
 namespace tt::runtime::ttmetal {
@@ -136,6 +138,29 @@ std::vector<std::uint32_t> processKernelArgs(
               .as<MetalTensor>(DeviceRuntime::TTMetal);
       std::uint32_t scalarValue = std::get<std::uint32_t>(metalTensor);
       argsVec.push_back(scalarValue);
+      break;
+    }
+    case target::metal::KernelArgType::KernelArgTensorAccessorArgs: {
+      LOG_ASSERT(isCompileTime,
+                 "TensorAccessorArgs are only supported as compile-time args");
+      const auto *arg = kernelArg->arg_as_KernelArgTensorAccessorArgs();
+      LOG_ASSERT(arg->operand_idx() < argRefsType->size(),
+                 "TensorAccessorArgs operand_idx out of bounds ",
+                 arg->operand_idx());
+      LOG_ASSERT(argRefsType->Get(arg->operand_idx()) ==
+                 target::metal::ArgRef::BufferRef);
+      const target::metal::BufferRef *buffer =
+          reinterpret_cast<const target::metal::BufferRef *>(
+              argRefs->Get(arg->operand_idx()));
+      auto meshBufferIt = meshBuffers.find(buffer->global_id());
+      LOG_ASSERT(meshBufferIt != meshBuffers.end(),
+                 "Buffer referenced by TensorAccessorArgs is no longer alive "
+                 "or was never created ",
+                 logger::Buffer(buffer->global_id()));
+      std::vector<uint32_t> accessorArgs =
+          tt_metal::TensorAccessorArgs(*meshBufferIt->second)
+              .get_compile_time_args();
+      argsVec.insert(argsVec.end(), accessorArgs.begin(), accessorArgs.end());
       break;
     }
     case target::metal::KernelArgType::NONE:

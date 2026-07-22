@@ -13,12 +13,10 @@ namespace mlir::tt::ttnn {
 // MoE ops: moe_compute and its prepare_moe_compute_* weight-prep ops.
 //
 // These ops have rigid layouts: the prepare ops emit a fixed bank-permuted
-// bfp4 sharded weight layout, and moe_compute's input layouts are pinned by
-// the workaround pass (drain-core indices/scores) while its output layouts are
-// device-derived by TTNNDeduceMoEComputeLayouts. The kernel rejects any other
-// sharding, so probing sharded candidates crashes the constraint query. Use
-// NULL output hint only and skip reshard exploration; the deduce pass and the
-// workaround pass remain the layout authority.
+// bfp4 sharded weight layout, and moe_compute's combine output is forced to the
+// SelectiveReduceCombine spec by its operand workaround. The kernel rejects any
+// other sharding, so probing sharded candidates crashes the constraint query.
+// Emit a NULL output hint only and skip reshard exploration.
 //===----------------------------------------------------------------------===//
 
 struct MoeRuleBook : OpRuleBook {

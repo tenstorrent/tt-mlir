@@ -14,6 +14,7 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
+#include "ttnn/operations/experimental/ccl/moe_compute/moe_compute.hpp"
 #include "ttnn/operations/experimental/ccl/moe_compute/moe_compute_utils.hpp"
 
 #include "mlir/IR/AttrTypeSubElements.h"
@@ -949,6 +950,37 @@ getPrepareMoEComputeW2WeightsOpOutputTensorSpec(
   assert(output.get().output_tensor_specs.has_value() &&
          !output.get().output_tensor_specs->empty());
   return output.get().output_tensor_specs.value()[0];
+}
+
+// Query tt-metal for the moe_compute tilize-drain core (the single L1 core the
+// fused kernel allocates its expert indices/scores CBs against) and return it
+// as a single-core CoreRangeSetAttr. The core depends on the device's DRAM-bank
+// to worker assignment + arch, so this must run against an initialized device.
+CoreRangeSetAttr computeMoeTilizeDrainCoreRangeSet(
+    ::mlir::MLIRContext *context, uint32_t outputHeightShardDim,
+    uint32_t hiddenSize, CoreRangeSetAttr muxCoreRangeSet) {
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  // data-parallel cores = largest divisor of hidden_tiles <= 4 (mirrors the
+  // device op and the former runtime drain-core query).
+  uint32_t hiddenTiles = hiddenSize / 32;
+  uint32_t numDataParallelCores = 1;
+  for (uint32_t d = 4; d >= 1; --d) {
+    if (hiddenTiles % d == 0) {
+      numDataParallelCores = d;
+      break;
+    }
+  }
+
+  ::tt::tt_metal::CoreRangeSet muxCrs =
+      conversion::getCoreRangeSet(muxCoreRangeSet);
+  ::ttnn::CoreCoord drainCore = ::ttnn::experimental::get_moe_tilize_drain_core(
+      device, outputHeightShardDim, numDataParallelCores, hiddenSize, muxCrs);
+
+  ::tt::tt_metal::CoreRangeSet drainCrs(
+      ::tt::tt_metal::CoreRange(drainCore, drainCore));
+  return conversion::getCoreRangeSet(context, drainCrs);
 }
 
 #endif // TTMLIR_ENABLE_OPMODEL
@@ -3057,6 +3089,109 @@ OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpRuntime(
   };
 
   return operation::getOpRuntime(pagedFlashMlaDecodeOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
+// ChunkedScaledDotProductAttentionOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints>
+OpModel<ChunkedScaledDotProductAttentionOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+    llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+    llvm::ArrayRef<int64_t> pageTableShape, TTNNLayoutAttr pageTableLayout,
+    llvm::ArrayRef<int64_t> chunkStartIdxShape,
+    TTNNLayoutAttr chunkStartIdxLayout, std::optional<llvm::APFloat> scale,
+    std::optional<SDPAProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec valueSpec,
+      detail::convertToTensorSpec(device, valueShape, valueLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec pageTableSpec,
+      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec chunkStartIdxSpec,
+                   detail::convertToTensorSpec(device, chunkStartIdxShape,
+                                               chunkStartIdxLayout));
+
+  std::optional<float> scaleFloat =
+      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+      sdpaProgramConfig = conversion::getSDPAProgramConfig(programConfig);
+
+  auto chunkedScaledDotProductAttentionOpQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS(
+        ::ttnn::transformer::chunked_scaled_dot_product_attention, device,
+        querySpec, keySpec, valueSpec, pageTableSpec, chunkStartIdxSpec,
+        scaleFloat, detail::getNullableMemoryConfig(outputLayout),
+        sdpaProgramConfig,
+        /*compute_kernel_config=*/std::nullopt);
+  };
+
+  return operation::getOpConstraints(queryLayout.getContext(),
+                                     chunkedScaledDotProductAttentionOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t>
+OpModel<ChunkedScaledDotProductAttentionOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+    llvm::ArrayRef<int64_t> valueShape, TTNNLayoutAttr valueLayout,
+    llvm::ArrayRef<int64_t> pageTableShape, TTNNLayoutAttr pageTableLayout,
+    llvm::ArrayRef<int64_t> chunkStartIdxShape,
+    TTNNLayoutAttr chunkStartIdxLayout, std::optional<llvm::APFloat> scale,
+    std::optional<SDPAProgramConfigAttr> programConfig,
+    TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec valueSpec,
+      detail::convertToTensorSpec(device, valueShape, valueLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec pageTableSpec,
+      detail::convertToTensorSpec(device, pageTableShape, pageTableLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec chunkStartIdxSpec,
+                   detail::convertToTensorSpec(device, chunkStartIdxShape,
+                                               chunkStartIdxLayout));
+
+  std::optional<float> scaleFloat =
+      scale ? std::make_optional(scale.value().convertToFloat()) : std::nullopt;
+  std::optional<::ttnn::operations::transformer::SDPAProgramConfig>
+      sdpaProgramConfig = conversion::getSDPAProgramConfig(programConfig);
+
+  auto chunkedScaledDotProductAttentionOpQuery = [=]() {
+    return QUERY_OP_RUNTIME(
+        ::ttnn::transformer::chunked_scaled_dot_product_attention, device,
+        querySpec, keySpec, valueSpec, pageTableSpec, chunkStartIdxSpec,
+        scaleFloat, detail::getNullableMemoryConfig(outputLayout),
+        sdpaProgramConfig,
+        /*compute_kernel_config=*/std::nullopt);
+  };
+
+  return operation::getOpRuntime(chunkedScaledDotProductAttentionOpQuery);
 #else
   return llvm::createStringError("Not Implemented");
 #endif // TTMLIR_ENABLE_OPMODEL

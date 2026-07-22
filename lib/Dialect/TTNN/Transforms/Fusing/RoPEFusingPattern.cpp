@@ -1041,6 +1041,23 @@ RoPEExpandedFusing::matchAndRewrite(ConcatOp srcOp,
 // RoPEDecodeFusing
 // =============================================================================
 
+// Look through an optional single-use element-type typecast sitting between the
+// decode layout transform and the RoPE. The typecast is present when the RoPE
+// output feeds a higher-precision op (e.g. a faithful f32 SDPA whose bf16
+// coercion is deferred to the TTNN workaround pass); it is re-materialized
+// after the decode-mode RoPE. Returns the RoPE op, or nullptr.
+static RotaryEmbeddingOp getDecodeRoPE(mlir::Value layoutInput) {
+  if (auto ropeOp = layoutInput.getDefiningOp<RotaryEmbeddingOp>()) {
+    return ropeOp;
+  }
+  if (auto castOp = layoutInput.getDefiningOp<TypecastOp>()) {
+    if (castOp.getResult().hasOneUse()) {
+      return castOp.getInput().getDefiningOp<RotaryEmbeddingOp>();
+    }
+  }
+  return nullptr;
+}
+
 // Shared body for the decode RoPE rewrite. `layoutOp` is the decode layout
 // transform consuming the RoPE result (a permute or its folded reshape form);
 // it is replaced by a decode-mode RoPE whose input has `perm` applied first.
@@ -1061,6 +1078,21 @@ applyRoPEDecodeRewrite(mlir::Operation *layoutOp, RotaryEmbeddingOp ropeOp,
   // Input must be rank 4 with S dim (dim 2) == 1.
   auto inputType = mlir::cast<RankedTensorType>(ropeOp.getInput().getType());
   if (inputType.getRank() != 4 || inputType.getShape()[2] != 1) {
+    return failure();
+  }
+
+  // QK-Norm guard (Qwen3): a per-head RMSNorm sitting between the head split
+  // and the rotary (q_norm / k_norm) is not modeled by the fused decode
+  // attention path. This decode fusing was validated only on Qwen2.5, which has
+  // no QK-norm; when it fires for a QK-normed decode chain it mis-fuses Q/K and
+  // produces numerically wrong attention (negative PCC on Qwen3). If an RMSNorm
+  // is present in the RoPE input's layout-transform chain, bail so the whole
+  // decode chain stays unfused (the correct pre-#8931 path). See tt-xla Qwen3
+  // causal_lm PCC regression bisected to tt-mlir #8931.
+  Value ropeInputSrc =
+      skipTMs<TypecastOp, PermuteOp, ReshapeOp, RepeatOp>(ropeOp.getInput());
+  if (isa_and_nonnull<RMSNormOp, DistributedRMSNormOp>(
+          ropeInputSrc.getDefiningOp())) {
     return failure();
   }
 
@@ -1116,16 +1148,28 @@ applyRoPEDecodeRewrite(mlir::Operation *layoutOp, RotaryEmbeddingOp ropeOp,
     }
   }
 
-  // Replace the layout transform's uses with the new RoPE result.
-  // The old RoPE op becomes dead and is cleaned up by the rewriter.
-  rewriter.replaceOp(layoutOp, newRope.getResult());
+  // Replace the layout transform's uses with the new RoPE result. When a dtype
+  // typecast sat between the RoPE and the layout transform (the RoPE feeds a
+  // higher-precision consumer such as an f32 SDPA), the new RoPE is in the RoPE
+  // input's element type, so re-materialize the typecast to the layout
+  // transform's element type. The old RoPE (and typecast) become dead and are
+  // cleaned up by the rewriter.
+  Value replacement = newRope.getResult();
+  Type layoutResultType = layoutOp->getResult(0).getType();
+  if (replacement.getType() != layoutResultType) {
+    replacement =
+        rewriter
+            .create<TypecastOp>(ropeOp.getLoc(), layoutResultType, replacement)
+            .getResult();
+  }
+  rewriter.replaceOp(layoutOp, replacement);
   return success();
 }
 
 mlir::LogicalResult
 RoPEDecodeFusing::matchAndRewrite(PermuteOp permuteOp,
                                   mlir::PatternRewriter &rewriter) const {
-  auto ropeOp = permuteOp.getInput().getDefiningOp<RotaryEmbeddingOp>();
+  auto ropeOp = getDecodeRoPE(permuteOp.getInput());
   if (!ropeOp) {
     return failure();
   }
@@ -1141,7 +1185,7 @@ RoPEDecodeFusing::matchAndRewrite(PermuteOp permuteOp,
 
 mlir::LogicalResult RoPEDecodeReshapeFusing::matchAndRewrite(
     ReshapeOp reshapeOp, mlir::PatternRewriter &rewriter) const {
-  auto ropeOp = reshapeOp.getInput().getDefiningOp<RotaryEmbeddingOp>();
+  auto ropeOp = getDecodeRoPE(reshapeOp.getInput());
   if (!ropeOp) {
     return failure();
   }

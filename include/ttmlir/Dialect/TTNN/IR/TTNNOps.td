@@ -1613,7 +1613,8 @@ def TTNN_AllToAllDispatchOp : TTNN_Op<"all_to_all_dispatch", [OpModelExempt]> {
     let hasVerifier = 1;
 }
 
-def TTNN_AllToAllDispatchMetadataOp : TTNN_Op<"all_to_all_dispatch_metadata", [OpModelExempt]> {
+def TTNN_AllToAllDispatchMetadataOp : TTNN_Op<"all_to_all_dispatch_metadata",
+    [AttrSizedOperandSegments, TTNN_DistributedOpInterface, OpModelExempt]> {
     let summary = "Dispatch tokens with metadata to expert devices for MoE computation.";
     let description = [{
       Routes tokens along with expert scores to devices holding their selected
@@ -1636,15 +1637,30 @@ def TTNN_AllToAllDispatchMetadataOp : TTNN_Op<"all_to_all_dispatch_metadata", [O
         - dispatched: [1, tokens_global, H]
         - indices:    [1, tokens_global, K]  (all-gathered across ring)
         - scores:     [1, tokens_global, K]  (all-gathered across ring)
+
+      This op runs in tt-metal persistent mode only: the three output buffers
+      (`dispatched_buffer`/`indices_buffer`/`scores_buffer`) and the
+      `cross_device_semaphore` are materialized in the function prelude by the
+      `DistributedOpInterface` hooks and passed to the kernel. They are modeled
+      as `Optional` only because conversion emits them unbound and the prelude
+      pass binds them later; a finalized op always has all four bound. The drain
+      core (where indices/scores are sharded) is fixed internally, so it is not
+      an op input — the kernel derives it from the shard spec.
     }];
 
     let arguments = (ins AnyRankedTensor:$input_tensor,
                          AnyRankedTensor:$expert_indices,
                          AnyRankedTensor:$expert_scores,
                          AnyRankedTensor:$expert_mapping,
+
+                         Optional<AnyRankedTensor>:$dispatched_buffer,
+                         Optional<AnyRankedTensor>:$indices_buffer,
+                         Optional<AnyRankedTensor>:$scores_buffer,
+
+                         Optional<TTNN_GlobalSemaphore>:$cross_device_semaphore,
+
                          I64Attr:$num_devices,
-                         I64Attr:$cluster_axis,
-                         OptionalAttr<TTNN_CoreCoordAttr>:$drain_core);
+                         I64Attr:$cluster_axis);
 
     let results = (outs AnyRankedTensor:$dispatched,
                        AnyRankedTensor:$indices,
@@ -1654,6 +1670,10 @@ def TTNN_AllToAllDispatchMetadataOp : TTNN_Op<"all_to_all_dispatch_metadata", [O
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createAllToAllDispatchMetadataOpOperandsWorkarounds(getOperation());
       }
+      bool hasUnboundBuffers();
+      void allocateBuffers(::mlir::RewriterBase &rewriter);
+      bool hasUnboundSemaphores();
+      void allocateSemaphores(::mlir::RewriterBase &rewriter);
     }];
 
     let hasVerifier = 1;
@@ -1871,19 +1891,11 @@ def TTNN_MoeComputeOp : TTNN_Op<"moe_compute",
       A2A selective-reduce-combine. Maps to
       `ttnn::experimental::moe_compute` at runtime.
 
-      `optional_output_tensor` is the caller-allocated combine-output buffer;
-      `cross_device_semaphore` synchronizes the A2A combine across devices.
-      Both are optional in source MLIR but must be bound before the runtime
-      can lower the op. They are populated by the
-      `TTNNAllocateDistributedOpBuffers` / `TTNNAllocateDistributedOpSemaphores`
-      passes via the `DistributedOpInterface`.
-
-      When `compute_only` is set, the A2A combine is skipped (single-device /
-      no-CCL bring-up): tt-metal returns only the first five tensors and
-      `matmul_output` is the final user-visible output. In that mode
-      `cluster_axis`, `topology`, `num_links`, `mux_core_range_set`,
-      `optional_output_tensor`, and `cross_device_semaphore` are unused, and
-      `combine_output` aliases `matmul_output`.
+      `optional_output_tensor` is the combine-output buffer and
+      `cross_device_semaphore` synchronizes the A2A combine across devices; both
+      are bound in the function prelude by this op's `DistributedOpInterface`
+      hooks. `cluster_axis` selects the mesh axis the combine reduces over;
+      `mux_core_range_set` provides the fabric-mux cores.
 
       See `TTIR_MoeComputeOp` for input/output shapes and dtypes.
     }];
@@ -1903,20 +1915,12 @@ def TTNN_MoeComputeOp : TTNN_Op<"moe_compute",
                          BoolAttr:$has_bias,
                          DefaultValuedAttr<TTCore_MoEActivationFunctionAttr,
                              "::mlir::tt::ttcore::MoEActivationFunction::Silu">:$activation_function,
-                         DefaultValuedAttr<BoolAttr, "true">:$compute_only,
-
-                         // Full-path-only inputs, unused when compute_only == true.
-                         OptionalAttr<UI32Attr>:$cluster_axis,
+                         UI32Attr:$cluster_axis,
                          OptionalAttr<UI32Attr>:$num_links,
                          OptionalAttr<TTCore_TopologyAttr>:$topology,
-                         OptionalAttr<TTNN_CoreRangeSetAttr>:$mux_core_range_set);
+                         TTNN_CoreRangeSetAttr:$mux_core_range_set);
 
-    let results = (outs AnyRankedTensor:$per_expert_total_tokens,
-                        AnyRankedTensor:$expert_activation,
-                        AnyRankedTensor:$expert_to_token,
-                        AnyRankedTensor:$tilize_output,
-                        AnyRankedTensor:$matmul_output,
-                        AnyRankedTensor:$combine_output);
+    let results = (outs AnyRankedTensor:$combine_output);
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
@@ -3867,6 +3871,9 @@ def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attenti
           attention_sink (AnyRankedTensor, optional): `[Hq x 32]`, single tile
               wide.
           scale (float, optional): Softmax scale. Defaults to `1 / sqrt(D)`.
+          sliding_window_size (uint, optional): Restrict attention to the last
+              N keys, anchored at the decode position (`cur_pos`, defaulting to
+              the last kv position when not provided). Defaults to `None`.
 
       Returns:
           AnyRankedTensor: `[1 x B x Hq x D]` (same type as `query`).
@@ -3880,6 +3887,7 @@ def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attenti
                          Optional<AnyRankedTensor>:$cur_pos_tensor,
                          Optional<AnyRankedTensor>:$attention_sink,
                          OptionalAttr<F32Attr>:$scale,
+                         OptionalAttr<UI32Attr>:$sliding_window_size,
                          OptionalAttr<TTNN_SDPAProgramConfigAttr>:$program_config);
 
     let results = (outs AnyRankedTensor:$result);
@@ -3922,7 +3930,7 @@ def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_prod
   let hasVerifier = 1;
 }
 
-def TTNN_ChunkedScaledDotProductAttentionOp : TTNN_Op<"chunked_scaled_dot_product_attention", [OpModelExempt]> {
+def TTNN_ChunkedScaledDotProductAttentionOp : TTNN_Op<"chunked_scaled_dot_product_attention"> {
   let summary = "Chunked prefill scaled dot product attention over a paged KV cache.";
   let description = [{
     Chunked-prefill attention. A prefill chunk of `query` attends
@@ -4435,6 +4443,29 @@ def TTNN_TTLangOp : Op<TTNN_Dialect, "tt_lang_op",
   }];
 
   let hasVerifier = 1;
+}
+
+def TTNN_AllocateMoeComputeSemaphoreOp : TTNN_Op<"allocate_moe_compute_semaphore", [TTCore_CreationOpTrait, TTCore_NonCacheableTrait, OpModelExempt]> {
+    let summary = "Allocate the moe_compute A2A combine semaphore.";
+    let description = [{
+      Creates the cross-device global semaphore used by `ttnn.moe_compute`'s
+      A2A selective-reduce-combine. The combine cores are placed dynamically by
+      tt-metal, so this op carries the placement inputs as attributes and its
+      runtime handler queries the cores (`get_moe_combine_cores`) and creates
+      the semaphore on them.
+
+      Example:
+      ```mlir
+      %semaphore = "ttnn.allocate_moe_compute_semaphore"(%device) <{output_height_shard_dim = 2 : ui32, hidden_size = 1280 : ui32, initial_value = 0 : ui32, mux_core_range_set = #ttnn.core_range_set<[#ttnn.core_range<(1,1), (3,3)>]>}> : (!ttnn.device) -> !ttnn.global_semaphore
+      ```
+    }];
+
+    let arguments = (ins TTNN_Device:$device,
+                         UI32Attr:$output_height_shard_dim,
+                         UI32Attr:$hidden_size,
+                         OptionalAttr<UI32Attr>:$initial_value,
+                         TTNN_CoreRangeSetAttr:$mux_core_range_set);
+    let results = (outs TTNN_GlobalSemaphore:$result);
 }
 
 #endif
