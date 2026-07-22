@@ -103,7 +103,7 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
   // count dividing numWidthTiles (so the width shards evenly), and (c)
   // maximizes the core count for throughput. The shard cores then exactly fill
   // their bounding box, so there are no phantom cores.
-  int64_t gridW = 1, gridH = 1, numCores = 1;
+  int64_t rectW = 1, rectH = 1, numCores = 1;
   for (int64_t h = 1; h <= physGridH; ++h) {
     for (int64_t w = 1; w <= physGridW; ++w) {
       int64_t cores = w * h;
@@ -115,8 +115,8 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
       }
       if (cores > numCores) {
         numCores = cores;
-        gridW = w;
-        gridH = h;
+        rectW = w;
+        rectH = h;
       }
     }
   }
@@ -134,8 +134,8 @@ LogicalResult DistributedRMSNormWidthShardInputRewritePattern::matchAndRewrite(
       ttnn::CoreRangeAttr::get(
           rewriter.getContext(),
           ttnn::CoreCoordAttr::get(rewriter.getContext(), 0, 0),
-          ttnn::CoreCoordAttr::get(rewriter.getContext(), gridW - 1,
-                                   gridH - 1)));
+          ttnn::CoreCoordAttr::get(rewriter.getContext(), rectW - 1,
+                                   rectH - 1)));
 
   // Create layout attribute for the input tensor with width-sharded L1 config.
   ttnn::TTNNLayoutAttr desiredInputLayout =
