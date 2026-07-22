@@ -130,6 +130,14 @@ class SimBlock:
 
         return ops.matmul(self, rhs)
 
+    def __await__(self):
+        # `await block` in an async kernel marks "wait for this async DMA to
+        # complete". Every device op in the functional sim is already
+        # synchronous, so the await resolves immediately to the block itself
+        # (yields nothing, so it never suspends the driving coroutine).
+        yield from ()
+        return self
+
     # --- method-style ops: dispatch generically to the op registry ----
     def __getattr__(self, name):
         if name.startswith("_"):
@@ -167,6 +175,12 @@ class SimTensor:
         from .host import to_host
 
         return to_host(self)[0]
+
+    def __await__(self):
+        # See SimBlock.__await__: awaiting a device tensor is synchronous in the
+        # functional sim and resolves immediately to the tensor itself.
+        yield from ()
+        return self
 
     def __repr__(self):
         return (

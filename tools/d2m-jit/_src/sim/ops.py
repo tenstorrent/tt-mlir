@@ -40,6 +40,42 @@ def core_index(index):
     return int(core[int(index)])
 
 
+# --- synchronization (async / semaphores) -----------------------------------
+
+
+class Semaphore:
+    """A NOC synchronization semaphore.
+
+    On device, semaphores order the async data-movement / compute threads of a
+    multi-thread kernel. The functional sim runs a kernel body straight through
+    in program order on a single thread, so waits are always already satisfied
+    and set/inc/wait are no-ops kept only so async kernels referencing them run.
+    `await sem` resolves immediately. Semaphores are ordering-only and do not
+    affect numerics (see SIMULATOR_SPEC.md §5.5 / §13 non-goals).
+    """
+
+    __slots__ = ("_value",)
+
+    def __init__(self, value=0):
+        self._value = int(value)
+
+    def set(self, value, core=None, mcast=None):
+        self._value = int(value)
+
+    def inc(self, value, core=None, mcast=None):
+        self._value += int(value)
+
+    def wait(self, value, reset=None):
+        # Synchronous sim: the awaited condition already holds. Honor an
+        # explicit reset so a subsequent wait sees the reset value.
+        if reset is not None:
+            self._value = int(reset)
+
+    def __await__(self):
+        yield from ()
+        return self
+
+
 # --- movement ----------------------------------------------------------------
 
 
@@ -337,6 +373,7 @@ SIM_OPS.update(
         "core_index": core_index,
         "remote_load": remote_load,
         "remote_store": remote_store,
+        "Semaphore": Semaphore,
     }
 )
 

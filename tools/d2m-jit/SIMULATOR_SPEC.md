@@ -97,17 +97,21 @@ A host handle wrapping a real torch tensor plus its `Layout`.
 | Field | Meaning |
 | --- | --- |
 | `.layout` | the `Layout` descriptor (reused unchanged from `_src/tensor_layout.py`) |
-| `.torch` | the backing `torch.Tensor`, always in **logical** shape (e.g. `512×512`), logical dtype |
+| `.buffer` | the backing `torch.Tensor` in **tile-padded** shape — the logical shape rounded up to the tile grid (`tile_padded_shape`); logical dtype |
 | `.is_view` | `True` for `view` / `view_layout` / `permute` results — same semantics/rejection rule as device |
+
+`.to_logical()` slices `.buffer` back to `layout.logical_shape` (a clone); that
+is what `to_host` returns.
 
 The device representation (tiled, blocked grid, sharded across a physical
 grid) carries **no information that changes output values** — it's a
-placement/packing detail. So a `SimTensor` only ever stores the logical
-tensor. Tiling, blocked vs. user grid, mem_space (`l1`/`dram`), and `collapse`
-are all value-neutral and ignored for numerics (kept on `.layout` for shape
-math and parity). The *only* layout fields that affect values are `dtype`
-(casts) and the tiled→row-major elementwise identity (a no-op on logical
-form). This is the single biggest simplification the sim buys.
+placement/packing detail. So a `SimTensor` only ever stores the logical data,
+in a single tile-padded buffer (the pad is zero-filled and value-neutral).
+Tiling, blocked vs. user grid, mem_space (`l1`/`dram`), and `collapse` are all
+value-neutral and ignored for numerics (kept on `.layout` for shape math and
+parity). The *only* layout fields that affect values are `dtype` (casts) and
+the tiled→row-major elementwise identity (a no-op on logical form). This is the
+single biggest simplification the sim buys.
 
 ### `SimBlock` — the in-kernel `!tensor` tile-block value
 
@@ -116,16 +120,17 @@ of `bm × bn` tiles of 32×32.
 
 | Field | Meaning |
 | --- | --- |
-| `.t` | torch tensor, logical block shape `(bm*32, bn*32)` |
-| `.tile_grid` | `(bm, bn)` — tile counts, needed for per-tile ops (bcast, reduce, matmul) |
+| `.tiles` | torch tensor of shape `(bm, bn, 32, 32)` — tiles are a leading pair of axes so torch broadcasting handles both tile-axis and within-tile broadcast for free |
+| `.tile_grid` | property → `(bm, bn)` tile counts, needed for per-tile ops (bcast, reduce, matmul) |
 | `.reduced_axes` | `frozenset[int]` mirroring `_REDUCED_AXES_ATTR`; see §5.3 |
 
 `SimBlock` overloads `__add__/__sub__/__mul__/__truediv__/__neg__/__invert__/
-__matmul__` and exposes method forms (`.exp()`, `.reduce_max(0)`, …),
-delegating to the free functions in §5 — mirroring `TensorBlock` in `api.py`
-1:1 so the same body resolves identically.
+__matmul__` and exposes method forms (`.exp()`, `.reduce_max(0)`, …) via
+`__getattr__` dispatching to the `SIM_METHODS` registry — mirroring
+`TensorBlock` in `api.py` 1:1 so the same body resolves identically.
 
-Block ↔ tile reshape helper: `(bm*32, bn*32) ↔ (bm, 32, bn, 32)` permuted to
+Block ↔ 2-D reshape helpers: `to_2d()` returns the logical block `(bm*32,
+bn*32)`; `from_2d(t)` reshapes `(bm*32, bn*32) → (bm, 32, bn, 32)` permuted to
 `(bm, bn, 32, 32)`. Per-tile ops operate on the trailing `32×32`.
 
 ---
@@ -147,7 +152,7 @@ for y in range(Y):
 different cores land in disjoint blocks (the well-formed-kernel invariant —
 each core derives its block range from `core_index`), so sequential iteration
 is order-independent. `remote_store` mutates the **output `SimTensor`'s
-`.torch` in place**, so writes from all cores accumulate into the same buffer,
+`.buffer` in place**, so writes from all cores accumulate into the same buffer,
 exactly like the device output tensor.
 
 ### Running the body as Python
@@ -195,22 +200,27 @@ fidelity).
 
 - `core_index(d)` → `int` from thread-local current core.
 - `remote_load(src, [i, j], mcast_*=None)` → `SimBlock` for block `(i,j)` of
-  `src`: slice `src.torch[i*bm*32:(i+1)*bm*32, j*bn*32:(j+1)*bn*32]` where
-  `(bm,bn)=src.layout.block_shape`. **Multicast args are accepted and
-  ignored** — in sim every core reads from the shared global tensor, so the
+  `src`: slice `src.buffer[i*em:(i+1)*em, j*en:(j+1)*en]` where the per-axis
+  block extent `(em,en)=block_extent(src.layout)` is `block_shape*32` (tiled)
+  or `block_shape` (non-tiled), then `SimBlock.from_2d(slice)`. **Multicast
+  args (`mcast_start_index`/`mcast_shape`/`mcast_dims`) are accepted and
+  ignored** — in sim every core reads from the shared global buffer, so the
   result is identical. (This means the sim *runs* multicast kernels that
   currently hit the device `SplitUnifiedThread` assertion, [TODO §2] — a
   feature, flagged in output as "device-divergent: multicast".)
-- `remote_store(dst, [i, j], block)` → writes `block.t` into the same slice of
-  `dst.torch`. Overwrite (not accumulate).
+- `remote_store(dst, [i, j], block)` → writes `block.to_2d()` into the same
+  slice of `dst.buffer` (shape-checked against the block extent). Overwrite
+  (not accumulate); store index is global (no core-relative resolution in this
+  version).
 
 ### 5.2 Elementwise ✅
 
 Unary (all 41 in the README table) and binary (all 13) map to the obvious
-torch op over `.t`. `where(c,t,f)` → `torch.where(c.t != 0, t.t, f.t)`.
-`clamp_scalar(x,lo,hi)` → `x.t.clamp(lo,hi)`. `typecast(x,dtype)` →
-`x.t.to(torch_dtype)` with a new `tile_grid`. `tile_transpose(x)` → transpose
-the trailing `32×32` of every tile (distinct from logical `permute`).
+torch op over `.tiles`. `where(c,t,f)` → `torch.where(c.tiles != 0, t.tiles,
+f.tiles)`. `clamp_scalar(x,lo,hi)` → `x.tiles.clamp(lo,hi)`.
+`typecast(x,dtype)` → `x.tiles.to(torch_dtype)`. `tile_transpose(x)` →
+`x.tiles.transpose(2,3)`, i.e. transpose the trailing `32×32` of every tile
+(distinct from logical `permute`).
 
 Broadcast helpers operate **per tile**:
 - `tile_bcast(x,"row")` → each tile's row 0 expanded down all 32 rows.
@@ -250,18 +260,23 @@ Semantics that matter for matching `to_host`:
 3. `mean` divides by `32 * tile_count_along_axis` (matches the `1/(32*N)`
    scaler in `_reduce_block`).
 
-Concretely: `reduce_sum(x,1)` ≈ `x.t.sum(dim=1, keepdim=True).expand_as(x.t)`,
-`reduce_max(x,0)` ≈ `x.t.max(dim=0, keepdim=True).values.expand_as(x.t)`, with
-`reduced_axes={1}` / `{0}`.
+Concretely, on the 4-D `.tiles` `(bm,bn,32,32)` the reduce spans both the
+tile-axis and the within-tile axis: axis 1 (cols) reduces dims `(1,3)`, axis 0
+(rows) reduces dims `(0,2)`, each `keepdim=True`, and the reduced tile-axis is
+then `.expand`-ed back to full size (so tile-axis 1 → count 1, within-tile → 32)
+so both consumers in point 2 see the right number. `reduce_sum(x,1)` uses
+`x.tiles.sum(dim=(1,3), keepdim=True)`, `reduce_max` uses `torch.amax`, `mean`
+uses `.mean`; results carry `reduced_axes={1}` / `{0}`.
 
 This passes the existing reduction tests (atol 0.05–0.15) trivially in f32,
 since sim is *more* accurate than the device tile path.
 
 ### 5.4 Matmul ✅
 
-`matmul(lhs, rhs, transpose_b=False)` — block matmul over tiles. Logical
-form: `lhs.t @ rhs.t` (`(M*32,K*32) @ (K*32,N*32) → (M*32,N*32)`);
-`transpose_b=True` uses `rhs.t.transpose(-2,-1)` (rhs stored `(N,K)`).
+`matmul(lhs, rhs, transpose_b=False)` — block matmul over tiles, computed on
+the logical 2-D form: `lhs.to_2d() @ rhs.to_2d()` (`(M*32,K*32) @ (K*32,N*32) →
+(M*32,N*32)`); `transpose_b=True` transposes the rhs 2-D form (rhs stored
+`(N,K)`). Result is re-tiled via `SimBlock.from_2d`.
 
 The sim computes the **correct** product. It deliberately does **not**
 reproduce the device's undefined-accumulator bug ([TODO §1]) — `d2m.empty`
@@ -269,17 +284,27 @@ outputs are zero in sim, so `matmul_kernel` is correct whether the caller
 pre-fills with `zeros` or not. This divergence is intended (sim = oracle for
 the *intended* semantics); it is noted in §9.
 
-### 5.5 Async / semaphores / DMA 🟡
+### 5.5 Async / semaphores ✅ (DMA 🟡)
 
-- `async def` + `yield`/`await`: run the body **synchronously** in program
-  order; `yield`/`await` are no-ops in the sequential model. Sufficient for
-  correctness of the testbed's multi-thread kernels (they're produce/consume
-  pipelines with no data race once serialized).
-- `Semaphore.set/inc/wait`: modeled as a per-name integer counter; `wait`
-  is a no-op under sequential execution (the awaited condition always already
-  holds). Surfaced as "device-divergent: synchronization not modeled" so users
-  know the sim won't catch a real deadlock/race.
-- Low-level DMA primitives (`dma_read`, `embedding`, …) are not in `api.py`
+- `async def` + `await` ✅: an `async def` body returns a coroutine; the SPMD
+  driver (`run.py` `_drive_async`) runs it to completion via `.send(None)`.
+  Every sim awaitable — `SimBlock`, `SimTensor`, `Semaphore` — implements
+  `__await__` as `yield from (); return self`, so it resolves immediately and
+  never suspends the coroutine (device ops are synchronous in the functional
+  sim). Without this drive, an un-awaited coroutine would silently no-op.
+- `async def` + `yield` (async-generator) 🔴 **rejected**: a `yield`-based
+  body models a producer/consumer split across concurrently-scheduled threads,
+  which needs an ordering model the sim deliberately omits. `_drive_async`
+  detects the async-generator and raises `NotImplementedError` (fail loud, not
+  silent no-op); use `await` without `yield`, or run on device.
+- `Semaphore(value).set/inc/wait` ✅ (`ops.py`, injected via `SIM_OPS`):
+  mirrors the device DSL signatures (`set(value, core=None, mcast=None)`,
+  `inc(...)`, `wait(value, reset=None)`). Modeled as a single integer counter;
+  under sequential execution the awaited condition always already holds, so
+  `set`/`inc`/`wait` are no-ops (`wait` honors an explicit `reset`).
+  Ordering-only: they do not affect numerics, and the sim will **not** catch a
+  real deadlock/race (see §9 / §13).
+- Low-level DMA primitives (`dma_read`, `embedding`, …) 🟡 are not in `api.py`
   yet; add sim backings as they land (mirror `remote_load`/`remote_store`).
 
 ---
@@ -308,19 +333,20 @@ exact mode; quirks are a 🟢 follow-up.
 
 | Symbol | Sim behavior |
 | --- | --- |
-| `to_layout(torch, L)` | wrap into `SimTensor(L, torch.to(L.dtype).clone())` (shape-checked vs `L.logical_shape`, same assert as device) |
-| `to_layout(SimTensor, L)` | re-wrap with new layout; cast dtype if changed; `.contiguous()` if source was a view; clears `is_view` |
-| `empty(L)` | `SimTensor(L, torch.zeros(L.logical_shape))` — **zero**, not garbage, so sim is deterministic (documented divergence; see §9) |
-| `zeros(L)` / `full(L,v)` | `torch.zeros` / `torch.full` |
-| `tilize/untilize(lt, dtype=None)` | value-identity; optional dtype cast |
-| `view(lt, fn)` / `permute(lt, *d)` | logical permutation of `.torch`; `is_view=True`; same arity/permutation validation as device |
-| `view_layout(lt, fn)` | identity or broadcast (literal `0` → `expand`); `is_view=True` |
-| `to_host(*lts)` | reject `is_view` args (same message as device); return `tuple` of `.torch` (cast to logical dtype). No module/pipeline/reset needed |
+| `to_layout(torch, L)` | allocate a tile-padded `.buffer` (`_alloc`), copy the logical region in cast to `L.dtype` (shape-checked vs `L.logical_shape`, same assert as device) |
+| `to_layout(SimTensor, L)` | `to_logical()` the source, re-wrap into a fresh tile-padded buffer under the new layout; casts dtype if changed; clears `is_view` |
+| `empty(L)` | tile-padded `torch.zeros` buffer — **zero**, not garbage, so sim is deterministic (documented divergence; see §9) |
+| `zeros(L)` / `full(L,v)` | tile-padded `torch.zeros` / `torch.full` |
+| `tilize/untilize(lt, dtype=None)` | `to_layout` onto `layout.replace(tiled=…)`; value-identity, optional dtype cast |
+| `view(lt, fn)` / `permute(lt, *d)` | logical permutation of `.buffer`; `is_view=True`; same arity/true-permutation validation as device |
+| `view_layout(lt, fn)` | **paired `(grid, tile)` permutations only** — the `2*n`-arg lambda's head permutes and the tail must mirror it (`pos == head[i]+n`); broadcast/const (literal `0`) remaps raise `NotImplementedError` (not modeled yet); `is_view=True` |
+| `to_host(*lts)` | reject `is_view` args (same message as device); return `tuple` of `to_logical()` slices (logical shape + dtype). No module/pipeline/reset needed |
 | `reduction_layout(L, dim, ...)` | reused unchanged (pure descriptor math) |
 
 `view`/`permute` validation (rank, true-permutation, torch-tensor rejection)
-and the `to_host`-on-view rejection are replicated so `test_views.py` passes
-against sim.
+and the `to_host`-on-view rejection are replicated; the view/permute test cases
+in `test_sim.py` (`test_permute_is_view_and_materialise`,
+`test_view_identity_round_trip`, `test_to_host_on_view_raises`, …) exercise them.
 
 ---
 
@@ -380,10 +406,12 @@ tools/d2m-jit/
     __init__.py              # public sim surface: kernel, to_layout, empty, zeros, full,
                              #   tilize, untilize, view, view_layout, permute, to_host,
                              #   reduction_layout, SimTensor, SimBlock
-    tensors.py               # SimTensor, SimBlock (+ block<->tile reshape, dtype helpers)
+    tensors.py               # SimTensor, SimBlock (+ block<->2d reshape, dtype helpers, __await__)
     host.py                  # host-op implementations (§7) + reduction_layout
-    run.py                   # SimKernel: namespace build, SPMD loop, _current_core thread-local
-    ops.py                   # SIM_OPS / SIM_METHODS: torch backings for every @syntax name (§5)
+    run.py                   # SimKernel: namespace build, SPMD loop, _current_core thread-local,
+                             #   _drive_async (drive async-def bodies, reject async-generators)
+    ops.py                   # SIM_OPS / SIM_METHODS: torch backings for every @syntax name (§5),
+                             #   core_index / remote_load / remote_store / Semaphore
 ```
 The backend switch lives in `api.py`: `config.backend` (new field in
 `_src/config.py`, env `D2M_JIT_BACKEND`) selects per call; the device path in
@@ -399,12 +427,18 @@ Deferred (🟡/🟢), out of v1:
 
 ## 11. Testing strategy
 
-1. **Reuse the existing suite.** `test/d2m-jit/test_*.py` already encode the
-   intended numerics with golden torch computations. A `conftest` shim or a
-   parametrized `backend` fixture runs each test under `import d2m_jit.sim`.
-   v1 target: `test_simple`, `test_eltwise`, `test_ops`, `test_reductions`,
-   `test_views`, `test_broadcasts`, `test_zeros_full_where`, `test_matmul`
-   (correctness cases) all green in sim **with no device**.
+1. **Dedicated shadow suite (✅ implemented).** `test/d2m-jit/test_sim.py`
+   uses `import d2m_jit.sim as d2m` and re-covers the surface in one
+   device-free file: eltwise (add, fused exp+add), softmax, reductions
+   (sum-cols, max-rows), implicit-broadcast centering, matmul (per-shard +
+   `transpose_b`), where/clamp/tile_bcast, zeros/full/empty, bf16 eltwise,
+   views (permute/view/view_layout identity + round-trip, `to_host`-on-view
+   and non-permutation rejections), and arg-validation (scalar-before-tensor,
+   declarative-form rejection). It reuses the golden torch computations and
+   `utils.assert_pcc`, and runs with **no device** and no `SYSTEM_DESC_PATH`.
+   (This is a stand-alone file rather than a reparametrization of the existing
+   `test_*.py` suite — the sim redefines its own kernels against the shadow
+   import.)
 2. **Sim-vs-device parity (✅ implemented).** `test/d2m-jit/test_parity.py`
    runs each kernel on both backends through the `config.backend` switch and
    asserts `assert_pcc(sim, device)` (`utils.assert_parity` reseeds torch so
@@ -428,12 +462,13 @@ Deferred (🟡/🟢), out of v1:
 - **v1 (✅ done):** SPMD `core_index` execution model; `SimTensor`/`SimBlock`;
   all eltwise (unary/binary/where/clamp/typecast/tile_transpose/bcast);
   reductions; matmul; views/permute/tilize/untilize; host ops; `to_host`;
-  shadow module **and** the `config.backend` switch; exact numerics; tests in
+  `async def` + `await` bodies and no-op `Semaphore` (§5.5); shadow module
+  **and** the `config.backend` switch; exact numerics; tests in
   `test/d2m-jit/test_sim.py` and `test/d2m-jit/test_backend_switch.py`.
 - **v2 (🟡):** declarative generic forms (`indexing_maps` / `iterator_types` /
-  `block_factors` with `iter_index`/`block_index`/`block_offset`); async/
-  semaphore-aware scheduling beyond pure serialization; DMA primitives as they
-  land in `api.py`.
+  `block_factors` with `iter_index`/`block_index`/`block_offset`); async-
+  generator (`yield`) producer/consumer scheduling beyond pure serialization
+  (currently rejected, §5.5); DMA primitives as they land in `api.py`.
 - **v3 (🟢):** device-quirk numerics (fp19 fills, reduced-precision accumulate);
   optional staleness emulation; a sim↔device divergence report.
 

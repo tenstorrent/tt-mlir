@@ -323,3 +323,49 @@ def test_kernel_rejects_declarative_form():
     out = d2m.empty(layout)
     with pytest.raises(NotImplementedError):
         add(a, a, out, 1, 1, grid=(1, 1), iterator_types=["parallel", "parallel"])
+
+
+# --- async / semaphores ------------------------------------------------------
+
+
+@d2m.kernel
+async def add_async(lhs, rhs, out, m_blocks, n_blocks):
+    sem = Semaphore(0)
+    m_off = core_index(0) * m_blocks
+    n_off = core_index(1) * n_blocks
+    for m in range(m_blocks):
+        for n in range(n_blocks):
+            a = remote_load(lhs, [m_off + m, n_off + n])
+            b = remote_load(rhs, [m_off + m, n_off + n])
+            a = await a
+            sem.inc(1)
+            sem.wait(1, reset=0)
+            remote_store(out, [m_off + m, n_off + n], a + b)
+
+
+def test_async_kernel_await_and_semaphore():
+    """An `async def` body (await + Semaphore no-ops) is driven to completion
+    and matches the synchronous result. Semaphores are ordering-only, so they
+    do not affect numerics in the functional simulator."""
+    lin = _layout((64, 64), grid=(2, 2))
+    lhs, rhs = torch.randn(64, 64), torch.randn(64, 64)
+    out = d2m.empty(lin)
+    add_async(d2m.to_layout(lhs, lin), d2m.to_layout(rhs, lin), out, 1, 1, grid=(2, 2))
+    assert torch.allclose(lhs + rhs, out.to_host(), atol=1e-5)
+
+
+@d2m.kernel
+async def gen_kernel(in_t, out_t):
+    x = remote_load(in_t, [0, 0])
+    yield x
+    remote_store(out_t, [0, 0], x)
+
+
+def test_async_generator_kernel_rejected():
+    """`async def` + `yield` (multi-thread producer/consumer) needs an ordering
+    model the simulator omits; it must fail loudly rather than silently no-op."""
+    layout = _layout((32, 32))
+    t = torch.randn(32, 32)
+    out = d2m.empty(layout)
+    with pytest.raises(NotImplementedError, match="async-generator"):
+        gen_kernel(d2m.to_layout(t, layout), out, grid=(1, 1))

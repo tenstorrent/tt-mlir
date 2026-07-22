@@ -13,10 +13,39 @@ that is the whole "runs as regular Python" idea.
 """
 
 import functools
+import inspect
 import types
 
 from . import ops
 from .tensors import SimTensor
+
+
+def _drive_async(result):
+    """Run an async kernel body to completion synchronously.
+
+    An `async def` body returns a coroutine when called; native execution
+    otherwise leaves it un-awaited (a silent no-op). Every awaitable the sim
+    exposes (`SimBlock`, `SimTensor`, `Semaphore`) resolves without yielding, so
+    a coroutine runs straight to `StopIteration` on the first `send`; the loop
+    covers any awaitable that does suspend. A plain (non-async) body returns its
+    value directly and is left untouched.
+    """
+    if inspect.iscoroutine(result):
+        try:
+            while True:
+                result.send(None)
+        except StopIteration:
+            return
+    elif inspect.isasyncgen(result):
+        # `async def` bodies that use `yield` model a producer/consumer split
+        # across concurrently-scheduled threads; faithfully interleaving them
+        # needs an ordering model the functional sim deliberately omits.
+        result.aclose()
+        raise NotImplementedError(
+            "async-generator kernels (`async def` with `yield` for multi-thread "
+            "producer/consumer handoff) are not supported by the simulator; use "
+            "`await` without `yield`, or run on device"
+        )
 
 
 class SimKernel:
@@ -63,7 +92,7 @@ class SimKernel:
             for y in range(gy):
                 for x in range(gx):
                     ops._set_current_core((y, x))
-                    self._runnable(*args)
+                    _drive_async(self._runnable(*args))
         finally:
             ops._set_current_core(None)
 
