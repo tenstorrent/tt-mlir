@@ -369,6 +369,13 @@ public:
                                        dmCoreIndex),
           generic.getThreadsAttr().getValue()[1],
       }));
+      // The single DM thread owns any fabric send; pin the fabric config to its
+      // DM core.
+      if (auto fabricConfig = generic.getFabricConnectionConfigAttr()) {
+        generic.setFabricConnectionConfigAttr(fabricConfig.getWithThread(
+            rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement, nullptr,
+                                         dmCoreIndex)));
+      }
       return failure();
     }
 
@@ -405,13 +412,22 @@ public:
     }
     threads.push_back(rewriter.getAttr<ThreadAttr>(ThreadType::Compute));
 
+    // Pin the fabric config to the DM core of the thread that owns the fabric
+    // send (barrierOwnerIdx); that is the thread that issues the fabric ops.
+    auto fabricConfig = generic.getFabricConnectionConfigAttr();
+    if (fabricConfig) {
+      fabricConfig = fabricConfig.getWithThread(rewriter.getAttr<ThreadAttr>(
+          ThreadType::Datamovement, /*kernelSymbol=*/nullptr,
+          assignments[barrierOwnerIdx].dmCoreIndex));
+    }
+
     // Create new generic op with N+1 regions.
     auto newGeneric = rewriter.create<GenericOp>(
         generic.getLoc(), generic.getResultTypes(), generic.getInputs(),
         generic.getOutputs(), generic.getAdditionalArgs(), generic.getGrid(),
         generic.getBlockFactors(), generic.getIndexingMaps(),
         generic.getIteratorTypes(), rewriter.getArrayAttr(threads),
-        generic.getFabricConnectionConfigAttr(),
+        fabricConfig,
         /*numRegions*/ numThreadsToUse + 1);
 
     // Get the original DM block's argument types.

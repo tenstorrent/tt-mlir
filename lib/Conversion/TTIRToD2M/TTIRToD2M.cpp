@@ -4256,8 +4256,9 @@ public:
     llvm::SmallVector<int64_t> genericGridShape =
         llvm::to_vector(ttcore::getGridShape(inputStreamResult));
     auto fabricConnectionConfig = ttcore::FabricConnectionConfigAttr::get(
-        rewriter.getContext(), ttcore::NocIndex::Noc0, topology, clusterAxis,
-        routingMode, num_links, /*router_cores=*/{});
+        rewriter.getContext(),
+        rewriter.getAttr<d2m::ThreadAttr>(d2m::ThreadType::Unified), topology,
+        clusterAxis, routingMode, num_links, /*router_cores=*/{});
     auto generic = rewriter.create<d2m::GenericOp>(
         loc, TypeRange(outputStreamResult), inputStreamResult,
         outputStreamResult, ValueRange({startSemaphore, endSemaphore}),

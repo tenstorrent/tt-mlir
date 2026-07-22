@@ -1003,7 +1003,7 @@ fabricConnectionConfigToFlatbuffer(
       fabricConnectionConfig.getRouterCores().begin(),
       fabricConnectionConfig.getRouterCores().end());
   return target::CreateFabricConnectionConfig(
-      *cache.fbb, toFlatbuffer(cache, fabricConnectionConfig.getNocIndex()),
+      *cache.fbb, fabricConnectionConfig.getDmCoreIndex(),
       toFlatbuffer(cache, fabricConnectionConfig.getTopology()),
       fabricConnectionConfig.getClusterAxis(),
       toFlatbuffer(cache, fabricConnectionConfig.getRoutingMode()),

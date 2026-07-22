@@ -683,25 +683,80 @@ def TTCore_LocalShapeAttr : TTCore_Attr<"LocalShape", "local_shape"> {
   }];
 }
 
+def TTCore_ThreadAttr : TTCore_Attr<"Thread", "thread", [], "::mlir::Attribute"> {
+  let summary = "Thread information for a generic op.";
+  let description = [{
+    Holds the thread information corresponding to a single generic op region.
+    For data movement threads, `dmCoreIndex` indicates the assigned hardware DM
+    core.
+
+    The default DM core -> NoC mapping is defined in getDmCoreDefaultNoc:
+    on Wormhole/Blackhole DM core 1 maps to NoC0 and DM core 0 maps to NoC1;
+    on Quasar every DM core maps to NoC0.
+
+    A value of -1 means unassigned.
+  }];
+  let parameters = (ins
+    "ThreadType":$threadType,
+    OptionalParameter<"SymbolRefAttr">:$kernelSymbol,
+    DefaultValuedParameter<"int32_t", "-1">:$dmCoreIndex
+  );
+
+  // Format: `<` threadType (`,` kernelSymbol)?
+  //             (`,` `dm_core` `=` dmCoreIndex)? `>`.
+  // The optional groups all start with `,`, which the declarative format cannot
+  // disambiguate when kernelSymbol is absent, so we hand-roll the parser to
+  // peek for the keyword after a comma and pick the right branch.
+  let hasCustomAssemblyFormat = 1;
+
+  let extraClassDeclaration = [{
+      static ThreadAttr get(::mlir::MLIRContext *context, ThreadType threadType) {
+        return get(context, threadType, nullptr, -1);
+      }
+      static ThreadAttr get(::mlir::MLIRContext *context, ThreadType threadType,
+                            SymbolRefAttr kernelSymbol) {
+        return get(context, threadType, kernelSymbol, -1);
+      }
+  }];
+}
+
+def TTCore_ThreadArrayAttr : TypedArrayAttrBase<TTCore_ThreadAttr, "">;
+
 def TTCore_FabricConnectionConfigAttr: TTCore_Attr<"FabricConnectionConfig", "fabric_connection_config"> {
   let summary = "Fabric Connection Config attribute.";
   let description = [{
     Structure for configuring fabric connections for worker cores (in CCL ops).
   }];
 
-  let parameters = (ins "NocIndex":$noc_index,
+  let parameters = (ins "mlir::Attribute":$thread,
                         "Topology":$topology,
                         "uint32_t":$cluster_axis,
                         "RoutingMode":$routing_mode,
                         "uint32_t":$num_links,
                         OptionalArrayRefParameter<"int64_t">:$router_cores);
-  let assemblyFormat = "`<` `noc_index` `=` $noc_index `,` `topology` `=` $topology `,` `cluster_axis` `=` $cluster_axis `,` `routing_mode` `=` $routing_mode `,` `num_links` `=` $num_links (`,` `router_cores` `=` `[` $router_cores^ `]`)? `>`";
+  let assemblyFormat = "`<` `thread` `=` $thread `,` `topology` `=` $topology `,` `cluster_axis` `=` $cluster_axis `,` `routing_mode` `=` $routing_mode `,` `num_links` `=` $num_links (`,` `router_cores` `=` `[` $router_cores^ `]`)? `>`";
   let extraClassDeclaration = [{
     // router_cores is a flat list of (y, x) grid coordinate pairs, one per
     // (link, direction) slot: slot i -> routing plane i / cores_per_link,
     // direction i % cores_per_link. Empty == default (whole grid), i.e. legacy
     // behavior. See tools/d2m-jit/fabric_router_cores_design.md.
     unsigned getNumRouterSlots() const { return getRouterCores().size() / 2; }
+
+    // Return a copy of this config with the fabric thread replaced. Used by the
+    // thread-assigning passes (SplitUnifiedThread, ScheduleDMA) to progressively
+    // refine the thread from unified -> datamovement -> datamovement+dm_core.
+    FabricConnectionConfigAttr getWithThread(mlir::Attribute thread) const {
+      return FabricConnectionConfigAttr::get(getContext(), thread, getTopology(),
+                                             getClusterAxis(), getRoutingMode(),
+                                             getNumLinks(), getRouterCores());
+    }
+
+    // Read the assigned DM core index out of the stored fabric thread. The
+    // thread is a ttcore::ThreadAttr, so callers (e.g. flatbuffer
+    // serialization) don't need to depend on the D2M dialect.
+    int32_t getDmCoreIndex() const {
+      return mlir::cast<ThreadAttr>(getThread()).getDmCoreIndex();
+    }
   }];
 }
 

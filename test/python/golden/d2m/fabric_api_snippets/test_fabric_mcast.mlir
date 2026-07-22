@@ -12,7 +12,7 @@ module attributes {} {
     "ttmetal.enqueue_write_buffer"(%0, %src) : (!mesh_shard_layout, !src_shard_layout) -> ()
     // Test assumes output is the same as input except for the shards that get overwritten so we copy the input host tensor to the output as well.
     "ttmetal.enqueue_write_buffer"(%0, %dst) : (!mesh_shard_layout, !dst_shard_layout) -> ()
-    "ttmetal.enqueue_program"(%dst, %src) <{cb_ports = array<i64: 0>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args<common_rt_args = [<buffer_address[0]>]  ct_args = [<cb_port[0]>]>, dm_core = 1, insert_noc_name>], operandSegmentSizes = array<i32: 1, 1>, fabricConnectionConfig = #ttcore.fabric_connection_config<noc_index = insert_noc_name, topology = insert_topology, cluster_axis = insert_cluster_axis, routing_mode = insert_routing_mode, num_links = 1>}> : (!dst_shard_layout, !src_shard_layout) -> ()
+    "ttmetal.enqueue_program"(%dst, %src) <{cb_ports = array<i64: 0>, kernelConfigs = [#ttmetal.noc_config<@datamovement_kernel0, #ttmetal.core_range<0x0, 1x1>, #ttmetal.kernel_args<common_rt_args = [<buffer_address[0]>]  ct_args = [<cb_port[0]>]>, dm_core = 1, insert_noc_name>], operandSegmentSizes = array<i32: 1, 1>, fabricConnectionConfig = #ttcore.fabric_connection_config<thread = #d2m.thread<datamovement, dm_core = 1>, topology = insert_topology, cluster_axis = insert_cluster_axis, routing_mode = insert_routing_mode, num_links = 1>}> : (!dst_shard_layout, !src_shard_layout) -> ()
     %alloc_1 = memref.alloc() : !mesh_shard_layout
     "ttmetal.enqueue_read_buffer"(%dst, %alloc_1) : (!dst_shard_layout, !mesh_shard_layout) -> ()
     "ttmetal.finish"() : () -> ()

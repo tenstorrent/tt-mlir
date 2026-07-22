@@ -329,6 +329,14 @@ public:
       return failure();
     }
 
+    // The fabric ops move to the datamovement thread; refine the fabric config
+    // thread (unified -> datamovement) to match.
+    auto fabricConfig = generic.getFabricConnectionConfigAttr();
+    if (fabricConfig) {
+      fabricConfig = fabricConfig.getWithThread(
+          rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement));
+    }
+
     // Create new 2-region GenericOp: datamovement + compute.
     auto newGeneric = rewriter.create<GenericOp>(
         generic->getLoc(), generic.getResultTypes(), generic.getInputs(),
@@ -338,7 +346,7 @@ public:
         rewriter.getArrayAttr(
             {rewriter.getAttr<ThreadAttr>(ThreadType::Datamovement),
              rewriter.getAttr<ThreadAttr>(ThreadType::Compute)}),
-        generic.getFabricConnectionConfigAttr(),
+        fabricConfig,
         /*numRegions*/ 2);
 
     Block *dmBlock = &newGeneric.getRegion(0).emplaceBlock();
