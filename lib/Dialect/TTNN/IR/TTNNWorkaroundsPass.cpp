@@ -1603,6 +1603,19 @@ TTNNOperandsWorkaroundsFactory::createMoeComputeOpOperandsWorkarounds(
   rmU16.tensorLayoutWorkaround = Layout::RowMajor;
   rmU16.tensorDataTypeWorkaround = ttcore::DataType::UInt16;
 
+  // Pin indices/scores to L1 HeightSharded to match the a2a's persistent L1
+  // metadata in place (a reshard deadlocks the collective; DRAM would fail
+  // "Only L1 buffers can have an associated circular buffer").
+  TTNNOperandWorkarounds l1ShardedRmU16 = rmU16;
+  l1ShardedRmU16.tensorBufferTypeWorkaround = BufferType::L1;
+  l1ShardedRmU16.tensorMemoryLayoutWorkaround = TensorMemoryLayoutAttr::get(
+      op.getContext(), TensorMemoryLayout::HeightSharded);
+
+  TTNNOperandWorkarounds l1ShardedRmBf16 = rmBf16;
+  l1ShardedRmBf16.tensorBufferTypeWorkaround = BufferType::L1;
+  l1ShardedRmBf16.tensorMemoryLayoutWorkaround = TensorMemoryLayoutAttr::get(
+      op.getContext(), TensorMemoryLayout::HeightSharded);
+
   // combine output: ROW_MAJOR, DRAM INTERLEAVED, bfloat16.
   TTNNOperandWorkarounds combineOutput;
   combineOutput.tensorLayoutWorkaround = Layout::RowMajor;
@@ -1613,14 +1626,16 @@ TTNNOperandsWorkaroundsFactory::createMoeComputeOpOperandsWorkarounds(
 
   TTNNOperandWorkarounds none;
 
+  // Pin indices/scores ROW_MAJOR (the kernel reads them untilized) so layout
+  // propagation doesn't tilize them.
   TTNNOperandsWorkarounds w =
       TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
-          .addInputOperandWorkaround(rmBf16) // tilize_input_tensor
-          .addInputOperandWorkaround(none)   // tilize_expert_indices_tensor
-          .addInputOperandWorkaround(none)   // tilize_expert_scores_tensor
-          .addInputOperandWorkaround(rmU16)  // tilize_expert_mapping_tensor
-          .addInputOperandWorkaround(none)   // matmul_w0_w1_tensor
-          .addInputOperandWorkaround(none);  // matmul_w2_tensor
+          .addInputOperandWorkaround(rmBf16)          // tilize_input_tensor
+          .addInputOperandWorkaround(l1ShardedRmU16)  // tilize_expert_indices_tensor
+          .addInputOperandWorkaround(l1ShardedRmBf16) // tilize_expert_scores_tensor
+          .addInputOperandWorkaround(rmU16)           // tilize_expert_mapping_tensor
+          .addInputOperandWorkaround(none)            // matmul_w0_w1_tensor
+          .addInputOperandWorkaround(none);           // matmul_w2_tensor
 
   // optional_output_tensor, when bound, already has the correct combine spec;
   // add a no-op workaround so the count matches the tensor-input count.

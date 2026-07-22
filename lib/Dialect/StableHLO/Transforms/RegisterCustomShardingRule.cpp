@@ -1163,7 +1163,9 @@ getAllToAllDispatchShardingRule(mlir::stablehlo::CustomCallOp op) {
 
   // Extract dimension sizes
   int64_t bDim = inputType.getShape()[0];   // B
-  int64_t sDim = inputType.getShape()[1];   // S
+  // The a2a_dispatch custom op canonicalizes operands to [B,1,S,H]/[B,1,S,K]
+  // (custom_ops.py reshape), so the token dim S is dim2, NOT dim1.
+  int64_t sDim = inputType.getShape()[2];   // S (dim2, the token dim)
   int64_t hDim = inputType.getShape()[3];   // H
   int64_t kDim = indicesType.getShape()[3]; // K
   int64_t eDim = mappingType.getShape()[2]; // E
@@ -1209,9 +1211,11 @@ getAllToAllDispatchShardingRule(mlir::stablehlo::CustomCallOp op) {
                     mlir::sdy::FactorType::kNeedReplication,
                     /*isBlocked=*/true);
 
-  // S factor: input[0]=dim1, input[1]=dim1, input[2]=kNull,
-  //           result[0]=dim2, result[1]=dim2
-  builder.addFactor({1, 1, mlir::sdy::kNullDim}, {2, 2}, sDim,
+  // S factor: input[0]=dim2, input[1]=dim2, input[2]=kNull,
+  //           result[0]=dim2, result[1]=dim2. Tying input and indices on dim2
+  //           stops Shardy from independently resharding the indices' token dim
+  //           (96-vs-384 mismatch vs the batch-sharded input -> a2a shape assert).
+  builder.addFactor({2, 2, mlir::sdy::kNullDim}, {2, 2}, sDim,
                     mlir::sdy::FactorType::kNeedReplication,
                     /*isBlocked=*/true);
 
@@ -1625,6 +1629,133 @@ getArgMaxShardingRule(mlir::stablehlo::CustomCallOp op) {
   return builder.build();
 }
 
+// =====================================================================
+// moe_decode sharding rule
+// =====================================================================
+// The moe_decode composite is opaque to Shardy (it hides the internal
+// dispatch/moe_compute/combine): shard the token dim on tokens/indices/scores
+// and the expert dim on weights along the cluster axis, replicate the rest.
+//
+// Operands (6 without bias, 9 with). expert_mapping is NOT an operand -- the
+// composite is mesh-agnostic; it is synthesized in StableHLOToTTIR.
+//   [0] tokens         [1, 1, M, H]
+//   [1] expert_indices [1, 1, M, K]
+//   [2] expert_scores  [1, 1, M, K]
+//   [3] w0             [L, E, H, N]
+//   [4] w1             [L, E, H, N]
+//   [5] w2             [L, E, N, H]
+//   [6] bias_0         [L, E, N]   (optional)
+//   [7] bias_1         [L, E, N]   (optional)
+//   [8] bias_2         [L, E, H]   (optional)
+// Result:
+//   [0] combine_output [K, M, H]
+static mlir::sdy::OpShardingRuleAttr
+getMoeDecodeShardingRule(mlir::stablehlo::CustomCallOp op) {
+  const int64_t numOperands = op.getNumOperands();
+  if (numOperands != 6 && numOperands != 9) {
+    op.getOperation()->emitWarning()
+        << "moe_decode expects 6 or 9 operands, got " << numOperands;
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+  const bool hasBias = numOperands == 9;
+
+  auto tokensType =
+      llvm::dyn_cast<RankedTensorType>(op.getOperand(0).getType());
+  auto idxType = llvm::dyn_cast<RankedTensorType>(op.getOperand(1).getType());
+  auto w0Type = llvm::dyn_cast<RankedTensorType>(op.getOperand(3).getType());
+  auto resultType = llvm::dyn_cast<RankedTensorType>(op.getResult(0).getType());
+
+  if (!tokensType || tokensType.getRank() != 4 || !idxType ||
+      idxType.getRank() != 4 || !w0Type || w0Type.getRank() != 4 ||
+      !resultType || resultType.getRank() != 3) {
+    op.getOperation()->emitWarning()
+        << "moe_decode: tokens/idx/w0 must be 4D and result 3D";
+    return mlir::sdy::OpShardingRuleAttr();
+  }
+
+  const int64_t mDim = tokensType.getShape()[2];
+  const int64_t hDim = tokensType.getShape()[3];
+  const int64_t kDim = idxType.getShape()[3];
+  const int64_t lDim = w0Type.getShape()[0];
+  const int64_t eDim = w0Type.getShape()[1];
+  const int64_t nDim = w0Type.getShape()[3];
+
+  mlir::sdy::OpShardingRuleBuilder builder(op);
+
+  // Helper: build an operand-dim vector (length numOperands), all kNull except
+  // the listed (operandIdx -> dim) entries.
+  auto opDims =
+      [&](std::initializer_list<std::pair<int64_t, int64_t>> entries) {
+        SmallVector<int64_t> v(numOperands, mlir::sdy::kNullDim);
+        for (const auto &e : entries) {
+          v[e.first] = e.second;
+        }
+        return v;
+      };
+
+  // Token factor (M): tokens/idx/scr dim 2 -> result dim 1. kPassThrough so the
+  // cluster axis shards the data-parallel token dim through the composite.
+  builder.addFactor(opDims({{0, 2}, {1, 2}, {2, 2}}), {1}, mDim,
+                    mlir::sdy::FactorType::kPassThrough);
+
+  // Expert factor (E): w0/w1/w2 (and biases) dim 1. kPassThrough so the cluster
+  // axis shards the expert dim of the (global) weights into per-device experts.
+  {
+    SmallVector<int64_t> e = opDims({{3, 1}, {4, 1}, {5, 1}});
+    if (hasBias) {
+      e[6] = 1;
+      e[7] = 1;
+      e[8] = 1;
+    }
+    builder.addFactor(e, {mlir::sdy::kNullDim}, eDim,
+                      mlir::sdy::FactorType::kPassThrough);
+  }
+
+  // Hidden factor (H): tokens dim 3, w0/w1 dim 2, w2 dim 3, bias_2 dim 2 ->
+  // result dim 2. Replicated.
+  {
+    SmallVector<int64_t> h = opDims({{0, 3}, {3, 2}, {4, 2}, {5, 3}});
+    if (hasBias) {
+      h[8] = 2;
+    }
+    builder.addFactor(h, {2}, hDim, mlir::sdy::FactorType::kNeedReplication,
+                      /*isBlocked=*/true);
+  }
+
+  // Intermediate factor (N): w0/w1 dim 3, w2 dim 2, bias_0/bias_1 dim 2.
+  // Replicated.
+  {
+    SmallVector<int64_t> n = opDims({{3, 3}, {4, 3}, {5, 2}});
+    if (hasBias) {
+      n[6] = 2;
+      n[7] = 2;
+    }
+    builder.addFactor(n, {mlir::sdy::kNullDim}, nDim,
+                      mlir::sdy::FactorType::kNeedReplication,
+                      /*isBlocked=*/true);
+  }
+
+  // TopK factor (K): idx/scr dim 3 -> result dim 0. Replicated.
+  builder.addFactor(opDims({{1, 3}, {2, 3}}), {0}, kDim,
+                    mlir::sdy::FactorType::kNeedReplication,
+                    /*isBlocked=*/true);
+
+  // Layer factor (L): w0/w1/w2 (and biases) dim 0. Replicated.
+  {
+    SmallVector<int64_t> l = opDims({{3, 0}, {4, 0}, {5, 0}});
+    if (hasBias) {
+      l[6] = 0;
+      l[7] = 0;
+      l[8] = 0;
+    }
+    builder.addFactor(l, {mlir::sdy::kNullDim}, lDim,
+                      mlir::sdy::FactorType::kNeedReplication,
+                      /*isBlocked=*/true);
+  }
+
+  return builder.build();
+}
+
 // Sharding rule for RMS norm custom_call (converted from composite).
 //
 // Operands:
@@ -1839,6 +1970,7 @@ private:
           {allToAllDispatchTargetName, getAllToAllDispatchShardingRule},
           {allToAllCombineTargetName, getAllToAllCombineShardingRule},
           {moeExpertTokenRemapTargetName, getMoeExpertTokenRemapShardingRule},
+          {utils::kTTMoeDecodeCompositeName, getMoeDecodeShardingRule},
           {utils::kTTRMSNormCustomCallTargetName, getRMSNormShardingRule},
           {flashMlaPrefillTargetName, getFlashMlaPrefillShardingRule},
           {utils::kTTTopKCustomCallTargetName, getTopKShardingRule},

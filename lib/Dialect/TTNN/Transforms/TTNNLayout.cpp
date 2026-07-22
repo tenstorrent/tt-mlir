@@ -239,10 +239,24 @@ public:
       Location newLoc =
           appendInputSuffix(op->getLoc(), operand.getOperandNumber());
 
+      // all_gather is layout-preserving: keep integer operands (e.g. ui32
+      // argmax->next-token indices) row-major so the gather's input matches its
+      // row-major result (see shouldTilizeResult); tilizing only the operand
+      // trips the AllGatherOp layout verifier.
+      bool operandTiled = true;
+      if (mlir::isa<ttir::AllGatherOp>(op)) {
+        Type operandElemTy =
+            mlir::cast<RankedTensorType>(operand.get().getType())
+                .getElementType();
+        if (operandElemTy.isInteger()) {
+          operandTiled = false;
+        }
+      }
+
       // Given the operand constraint, create the desired layout for the operand
       std::optional<Value> desiredLayout = createToLayoutOp(
           rewriter, newLoc, operand.get(), g_defaultMemorySpaceDevice,
-          /*tiled=*/true);
+          /*tiled=*/operandTiled);
 
       // If layout changed update the operand
       if (desiredLayout) {
@@ -285,6 +299,19 @@ private:
     // Conv3d produces ROW_MAJOR output at runtime (experimental op)
     if (mlir::isa<ttir::Conv3dOp>(op)) {
       return false;
+    }
+
+    // ttnn.all_gather is layout-preserving (it cannot convert between tiled and
+    // row-major). Integer tensors (e.g. the ui32 argmax->next-token index in the
+    // sampling path) are produced row-major, so keep the gather row-major too;
+    // forcing tile trips the AllGatherOp layout verifier. Float gathers stay
+    // tiled as before.
+    if (mlir::isa<ttir::AllGatherOp>(op)) {
+      Type elemTy = mlir::cast<RankedTensorType>(op->getResult(0).getType())
+                        .getElementType();
+      if (elemTy.isInteger()) {
+        return false;
+      }
     }
 
     return true;
