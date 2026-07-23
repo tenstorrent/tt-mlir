@@ -130,9 +130,6 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        # compile-ttmlir-tests depends on the d2m-jit target when
-        # TTMLIR_ENABLE_D2M_JIT=ON, so the d2m_jit python package lands in
-        # build/python_packages (archived below) for the d2m-jit test job.
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- compile-ttmlir-tests
 
     - name: Install

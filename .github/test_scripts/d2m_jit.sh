@@ -5,12 +5,6 @@
 
 set -e -o pipefail
 
-# Unlike ttnn-jit, d2m-jit ships as a plain python package under
-# build/python_packages (built by the `d2m-jit` CMake target on the tracy
-# flavor), so there is no wheel to download/install. env/activate already puts
-# build/python_packages on PYTHONPATH; set it explicitly anyway, and add the
-# tt-metal python paths plus test/d2m-jit so the suite's `runner`/`utils`
-# imports resolve under pytest.
 export PYTHONPATH="$BUILD_DIR/python_packages:$WORK_DIR/test/d2m-jit:$INSTALL_DIR/tt-metal/ttnn:$INSTALL_DIR/tt-metal:$PYTHONPATH"
 
 # The in-process runtime expects tt-metal at third_party/tt-metal/src/tt-metal.
