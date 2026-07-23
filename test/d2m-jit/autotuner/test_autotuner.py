@@ -290,20 +290,23 @@ def test_autotune_exp_on_device(tmp_path):
     run to run, which would make the test flaky.
     """
     kernel_file = _KERNELS_DIR / "patterns" / "eltwise_exp_to_kernel.py"
-    mod = A.load_kernel_module(str(kernel_file))
-    bench = mod.KERNEL_BENCHES["exp"]
-
-    tuner = A.Autotuner(
+    all_results = A.autotune_kernel(
+        str(kernel_file),
+        bench_names=["exp"],
         knobs=A.AutotuneKnobs(grid_shapes=[(1, 1)]),  # single config: keep it quick
         output_dir=str(tmp_path),
         check_pcc=True,
         n_warmup=0,
         verbose=False,
+        strategy="default",
     )
-    results = tuner.run_bench(bench, bench_name="exp", strategy="default")
 
+    assert "exp" in all_results
+    results = all_results["exp"]
     assert len(results) == 1
     result = results[0]
     assert result.error is None, f"autotune run failed: {result.error}"
     assert result.pcc is not None
+    mod = A.load_kernel_module(str(kernel_file))
+    bench = mod.KERNEL_BENCHES["exp"]
     assert result.pcc >= bench.pcc, f"PCC {result.pcc} < {bench.pcc}"
