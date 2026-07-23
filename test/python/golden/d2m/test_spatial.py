@@ -87,13 +87,6 @@ def _build_ttnn_layout_attr(
     )
 
 
-def _core_range_offset_and_shape(
-    core_range: Tuple[Tuple[int, int], Tuple[int, int]],
-) -> Tuple[Tuple[int, int], Tuple[int, int]]:
-    (offset_y, offset_x), (size_y, size_x) = core_range
-    return (offset_y, offset_x), (size_y, size_x)
-
-
 def _largest_divisor_not_exceeding(value: int, upper_bound: int) -> int:
     if value <= 0:
         return 1
@@ -181,7 +174,7 @@ def _convert_input_to_device_tiled(
     target: str,
     grid_shape: Tuple[int, int] | None = None,
 ) -> Operand:
-    core_start, core_range_shape = _core_range_offset_and_shape(core_range)
+    core_start, core_range_shape = core_range
     if grid_shape is None:
         grid_shape = core_range_shape
     effective_grid = _resolve_effective_grid(tensor_shape, grid_shape)
@@ -275,7 +268,7 @@ def _allocate_device_output(
     target: str,
     grid_shape: Tuple[int, int] | None = None,
 ) -> Tuple[Operand, RankedTensorType]:
-    core_start, core_range_shape = _core_range_offset_and_shape(core_range)
+    core_start, core_range_shape = core_range
     if grid_shape is None:
         grid_shape = core_range_shape
     effective_grid = _resolve_effective_grid(tensor_shape, grid_shape)
