@@ -821,6 +821,197 @@ def test_compile_where() -> None:
     _assert_compile_matches_eager(_Where(), a, b, c)
 
 
+@pytest.mark.parametrize("op", [torch.lt, torch.le, torch.gt, torch.ge, torch.eq, torch.ne], ids=lambda o: o.__name__)
+def test_compile_comparison_tensor(op) -> None:
+    """Element-wise tensor comparisons in a compiled graph — Bool results. Small
+    integer-valued inputs so operands have ties (eq/ne aren't all-False/all-True)."""
+    class _Cmp(nn.Module):
+        def __init__(self, op) -> None:
+            super().__init__()
+            self.op = op
+
+        def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+            return self.op(a, b)
+
+    a = torch.randint(0, 4, (32, 64)).to(torch.bfloat16)
+    b = torch.randint(0, 4, (32, 64)).to(torch.bfloat16)
+    _assert_compile_matches_eager(_Cmp(op), a, b)
+
+
+@pytest.mark.parametrize("op", [torch.lt, torch.le, torch.gt, torch.ge, torch.eq, torch.ne], ids=lambda o: o.__name__)
+def test_compile_comparison_scalar(op) -> None:
+    """`op(tensor, scalar)` — the .Scalar overloads that lift the scalar to a
+    constant of the tensor's dtype."""
+    class _CmpScalar(nn.Module):
+        def __init__(self, op) -> None:
+            super().__init__()
+            self.op = op
+
+        def forward(self, a: torch.Tensor) -> torch.Tensor:
+            return self.op(a, 2.0)
+
+    a = torch.randint(0, 4, (32, 64)).to(torch.bfloat16)
+    _assert_compile_matches_eager(_CmpScalar(op), a)
+
+
+@pytest.mark.parametrize("shape", _TILE_SHAPES)
+def test_compile_sigmoid(shape: tuple[int, ...]) -> None:
+    class _Sigmoid(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.sigmoid(x)
+
+    x = torch.randn(shape, dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Sigmoid(), x, atol=1e-2, rtol=1e-2)
+
+
+@pytest.mark.parametrize("lo,hi", [(-0.5, 0.5), (0.0, None), (None, 1.0)], ids=["both", "min_only", "max_only"])
+def test_compile_clamp(lo, hi) -> None:
+    class _Clamp(nn.Module):
+        def __init__(self, lo, hi) -> None:
+            super().__init__()
+            self.lo, self.hi = lo, hi
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return torch.clamp(x, min=self.lo, max=self.hi)
+
+    x = torch.randn((32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Clamp(lo, hi), x, atol=1e-2, rtol=1e-2)
+
+
+def test_compile_floor_divide() -> None:
+    """aten::floor_divide in a compiled graph. Integer-valued operands keep the
+    quotient away from integer boundaries so bf16 rounding can't flip the floor."""
+    class _FloorDiv(nn.Module):
+        def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+            return torch.floor_divide(a, b)
+
+    a = torch.randint(0, 16, (32, 64)).to(torch.bfloat16)
+    b = torch.randint(2, 5, (32, 64)).to(torch.bfloat16)
+    _assert_compile_matches_eager(_FloorDiv(), a, b, atol=1e-2, rtol=1e-2)
+
+
+def test_compile_bitwise_bool() -> None:
+    """Bool-mask combinators `& | ~` — masks come from comparisons, so the graph
+    exercises the logical_and/or/not lowerings end-to-end."""
+    class _Mask(nn.Module):
+        def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+            mx = x > 0
+            my = y > 0
+            return (mx & my) | (~mx)
+
+    x = torch.randn((32, 64), dtype=torch.bfloat16)
+    y = torch.randn((32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Mask(), x, y)
+
+
+@pytest.mark.usefixtures("skip_if_sim")
+def test_compile_logical_nonbool() -> None:
+    """logical_and/or/not on non-bool (int) operands. torch treats any nonzero
+    value as true and returns bool, so these must NOT share the bitwise lowering
+    (which does a raw bitwise op on integers, e.g. `1 | 2 == 3`, not `True`)."""
+    class _Logical(nn.Module):
+        def forward(self, a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+            return torch.logical_and(torch.logical_or(a, b), torch.logical_not(a))
+
+    a = torch.tensor([0, 1, 2, 0, 5, 0, 7, 3], dtype=torch.int32)
+    b = torch.tensor([0, 0, 3, 0, 0, 9, 0, 1], dtype=torch.int32)
+    _assert_compile_matches_eager(_Logical(), a, b)
+
+
+@pytest.mark.usefixtures("skip_if_sim")
+def test_compile_index_single() -> None:
+    """Advanced indexing with one index tensor on a single dim (aten.index.Tensor
+    → gather). ttir.gather isn't supported under ttsim."""
+    class _Index(nn.Module):
+        def forward(self, x: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+            return x[:, idx]
+
+    x = torch.randn((8, 16), dtype=torch.bfloat16)
+    idx = torch.tensor([0, 3, 3, 7, 1], dtype=torch.int64)
+    _assert_compile_matches_eager(_Index(), x, idx)
+
+
+@pytest.mark.usefixtures("skip_if_sim")
+def test_compile_index_leading_dims() -> None:
+    """Advanced indexing with index tensors covering all leading dims
+    (aten.index.Tensor → flattened linear-index gather). ttir.gather isn't
+    supported under ttsim."""
+    class _IndexND(nn.Module):
+        def forward(self, x: torch.Tensor, r: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+            return x[r, c]
+
+    x = torch.randn((4, 5), dtype=torch.bfloat16)
+    r = torch.tensor([0, 1, 3], dtype=torch.int64)
+    c = torch.tensor([2, 4, 1], dtype=torch.int64)
+    _assert_compile_matches_eager(_IndexND(), x, r, c)
+
+
+@pytest.mark.usefixtures("skip_if_sim")
+def test_compile_index_negative() -> None:
+    """Negative indices count from the end. ttir.gather reads out of bounds on
+    negatives, so the lowering normalizes them (idx + size) first — covers both
+    the single-index and the all-leading-dims (linear-index) paths."""
+    class _Index(nn.Module):
+        def forward(self, x: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+            return x[:, idx]
+
+    x = torch.randn((8, 16), dtype=torch.bfloat16)
+    idx = torch.tensor([-1, 0, -2, 3, -16], dtype=torch.int64)
+    _assert_compile_matches_eager(_Index(), x, idx)
+
+    class _IndexND(nn.Module):
+        def forward(self, x: torch.Tensor, r: torch.Tensor, c: torch.Tensor) -> torch.Tensor:
+            return x[r, c]
+
+    x2 = torch.randn((4, 5), dtype=torch.bfloat16)
+    r = torch.tensor([-1, 1, -4], dtype=torch.int64)
+    c = torch.tensor([2, -1, 1], dtype=torch.int64)
+    _assert_compile_matches_eager(_IndexND(), x2, r, c)
+
+
+@pytest.mark.parametrize("factory", ["zeros", "ones", "full"])
+def test_compile_creation(factory: str) -> None:
+    """torch.zeros/ones/full inside a compiled graph — lower to ttir.full."""
+    class _Create(nn.Module):
+        def __init__(self, factory: str) -> None:
+            super().__init__()
+            self.factory = factory
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            if self.factory == "zeros":
+                c = torch.zeros(x.shape, dtype=x.dtype, device=x.device)
+            elif self.factory == "ones":
+                c = torch.ones(x.shape, dtype=x.dtype, device=x.device)
+            else:
+                c = torch.full(x.shape, 3.0, dtype=x.dtype, device=x.device)
+            return x + c
+
+    x = torch.randn((32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_Create(factory), x)
+
+
+@pytest.mark.parametrize("factory", ["new_zeros", "new_ones", "new_full"])
+def test_compile_new_creation(factory: str) -> None:
+    """x.new_zeros/new_ones/new_full — dtype defaults to the reference tensor's
+    (here bf16), not float32."""
+    class _NewCreate(nn.Module):
+        def __init__(self, factory: str) -> None:
+            super().__init__()
+            self.factory = factory
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            if self.factory == "new_zeros":
+                c = x.new_zeros(x.shape)
+            elif self.factory == "new_ones":
+                c = x.new_ones(x.shape)
+            else:
+                c = x.new_full(x.shape, 2.0)
+            return x + c
+
+    x = torch.randn((32, 64), dtype=torch.bfloat16)
+    _assert_compile_matches_eager(_NewCreate(factory), x)
+
+
 @pytest.mark.parametrize(
     "shape,diagonal",
     [

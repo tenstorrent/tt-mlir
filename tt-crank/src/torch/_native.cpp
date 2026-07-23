@@ -14,6 +14,7 @@
 #include <mlir/IR/Value.h>
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/optional.h>
+#include <nanobind/stl/pair.h>
 #include <nanobind/stl/shared_ptr.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
@@ -178,6 +179,35 @@ public:
         return tk::build_scalar(*mb_, tk::mlir_element_type_for(tk::to_torch_dtype(dtype)), value);
     }
 
+    // `shape`-shaped creation ops at `dtype` (ttir.zeros / ones / full).
+    mlir::Value zeros(std::vector<int64_t> shape, ::tt::target::DataType dtype) {
+        assert_builder();
+        return tk::build_zeros(*mb_, shape, tk::mlir_element_type_for(tk::to_torch_dtype(dtype)));
+    }
+    mlir::Value ones(std::vector<int64_t> shape, ::tt::target::DataType dtype) {
+        assert_builder();
+        return tk::build_ones(*mb_, shape, tk::mlir_element_type_for(tk::to_torch_dtype(dtype)));
+    }
+    mlir::Value full(std::vector<int64_t> shape, double value, ::tt::target::DataType dtype) {
+        assert_builder();
+        return tk::build_full(*mb_, shape, value, tk::mlir_element_type_for(tk::to_torch_dtype(dtype)));
+    }
+
+    // Same, but the element type comes from `like` (for new_* ops, which default
+    // their dtype to the reference tensor's).
+    mlir::Value zeros_like(mlir::Value like, std::vector<int64_t> shape) {
+        assert_builder();
+        return tk::build_zeros(*mb_, shape, mlir::cast<mlir::RankedTensorType>(like.getType()).getElementType());
+    }
+    mlir::Value ones_like(mlir::Value like, std::vector<int64_t> shape) {
+        assert_builder();
+        return tk::build_ones(*mb_, shape, mlir::cast<mlir::RankedTensorType>(like.getType()).getElementType());
+    }
+    mlir::Value full_like(mlir::Value like, std::vector<int64_t> shape, double value) {
+        assert_builder();
+        return tk::build_full(*mb_, shape, value, mlir::cast<mlir::RankedTensorType>(like.getType()).getElementType());
+    }
+
     // Lift a Python scalar to a broadcastable `ttir.constant` matching the
     // element type of `like`. Use this for Tensor_Scalar ops (e.g. pow) where
     // the scalar operand must carry the same dtype as the tensor operand.
@@ -219,6 +249,46 @@ public:
         assert_builder();
         return tk::build_silu(*mb_, input);
     }
+    mlir::Value sigmoid(mlir::Value input) {
+        assert_builder();
+        return tk::build_sigmoid(*mb_, input);
+    }
+    mlir::Value floor_divide(mlir::Value lhs, mlir::Value rhs) {
+        assert_builder();
+        return tk::build_floor_divide(*mb_, lhs, rhs);
+    }
+    mlir::Value bitwise_and(mlir::Value lhs, mlir::Value rhs) {
+        assert_builder();
+        return tk::build_bitwise_and(*mb_, lhs, rhs);
+    }
+    mlir::Value bitwise_or(mlir::Value lhs, mlir::Value rhs) {
+        assert_builder();
+        return tk::build_bitwise_or(*mb_, lhs, rhs);
+    }
+    mlir::Value bitwise_not(mlir::Value input) {
+        assert_builder();
+        return tk::build_bitwise_not(*mb_, input);
+    }
+    mlir::Value logical_and(mlir::Value lhs, mlir::Value rhs) {
+        assert_builder();
+        return tk::build_logical_and(*mb_, lhs, rhs);
+    }
+    mlir::Value logical_or(mlir::Value lhs, mlir::Value rhs) {
+        assert_builder();
+        return tk::build_logical_or(*mb_, lhs, rhs);
+    }
+    mlir::Value logical_not(mlir::Value input) {
+        assert_builder();
+        return tk::build_logical_not(*mb_, input);
+    }
+    mlir::Value clamp(mlir::Value input, std::optional<double> min_val, std::optional<double> max_val) {
+        assert_builder();
+        return tk::build_clamp(*mb_, input, min_val, max_val);
+    }
+    mlir::Value gather(mlir::Value input, mlir::Value index, int64_t dim) {
+        assert_builder();
+        return tk::build_gather(*mb_, input, index, dim);
+    }
     mlir::Value gelu(mlir::Value input) {
         assert_builder();
         return tk::build_gelu(*mb_, input);
@@ -236,6 +306,11 @@ public:
     mlir::Value matmul(mlir::Value lhs, mlir::Value rhs) {
         assert_builder();
         return tk::build_matmul(*mb_, lhs, rhs);
+    }
+    std::pair<std::optional<mlir::Value>, std::optional<mlir::Value>>
+    matmul_backward(mlir::Value grad, mlir::Value self, mlir::Value other, bool need_self, bool need_other) {
+        assert_builder();
+        return tk::build_matmul_backward(*mb_, grad, self, other, need_self, need_other);
     }
 
     // Reductions
@@ -356,6 +431,26 @@ public:
     mlir::Value le(mlir::Value lhs, mlir::Value rhs) {
         assert_builder();
         return tk::build_le(*mb_, lhs, rhs);
+    }
+    mlir::Value lt(mlir::Value lhs, mlir::Value rhs) {
+        assert_builder();
+        return tk::build_lt(*mb_, lhs, rhs);
+    }
+    mlir::Value gt(mlir::Value lhs, mlir::Value rhs) {
+        assert_builder();
+        return tk::build_gt(*mb_, lhs, rhs);
+    }
+    mlir::Value ge(mlir::Value lhs, mlir::Value rhs) {
+        assert_builder();
+        return tk::build_ge(*mb_, lhs, rhs);
+    }
+    mlir::Value eq(mlir::Value lhs, mlir::Value rhs) {
+        assert_builder();
+        return tk::build_eq(*mb_, lhs, rhs);
+    }
+    mlir::Value ne(mlir::Value lhs, mlir::Value rhs) {
+        assert_builder();
+        return tk::build_ne(*mb_, lhs, rhs);
     }
 
     // Conditional selection: result[i] = condition[i] ? true_val[i] : false_val[i]
@@ -624,16 +719,34 @@ NB_MODULE(_native, m) {
         .def("max_pool2d", &PyModuleBuilder::max_pool2d, "input"_a, "kernel_size"_a, "stride"_a, "padding"_a,
              "dilation"_a, "ceil_mode"_a = false)
         .def("scalar", &PyModuleBuilder::scalar, "dtype"_a, "value"_a)
+        .def("zeros", &PyModuleBuilder::zeros, "shape"_a, "dtype"_a)
+        .def("ones", &PyModuleBuilder::ones, "shape"_a, "dtype"_a)
+        .def("full", &PyModuleBuilder::full, "shape"_a, "value"_a, "dtype"_a)
+        .def("zeros_like", &PyModuleBuilder::zeros_like, "like"_a, "shape"_a)
+        .def("ones_like", &PyModuleBuilder::ones_like, "like"_a, "shape"_a)
+        .def("full_like", &PyModuleBuilder::full_like, "like"_a, "shape"_a, "value"_a)
         .def("scalar_like", &PyModuleBuilder::scalar_like, "like"_a, "value"_a)
         .def("typecast", &PyModuleBuilder::typecast, "value"_a, "dtype"_a)
         .def("cos", &PyModuleBuilder::cos, "input"_a)
         .def("sin", &PyModuleBuilder::sin, "input"_a)
         .def("neg", &PyModuleBuilder::neg, "input"_a)
         .def("silu", &PyModuleBuilder::silu, "input"_a)
+        .def("sigmoid", &PyModuleBuilder::sigmoid, "input"_a)
+        .def("floor_divide", &PyModuleBuilder::floor_divide, "lhs"_a, "rhs"_a)
+        .def("bitwise_and", &PyModuleBuilder::bitwise_and, "lhs"_a, "rhs"_a)
+        .def("bitwise_or", &PyModuleBuilder::bitwise_or, "lhs"_a, "rhs"_a)
+        .def("bitwise_not", &PyModuleBuilder::bitwise_not, "input"_a)
+        .def("logical_and", &PyModuleBuilder::logical_and, "lhs"_a, "rhs"_a)
+        .def("logical_or", &PyModuleBuilder::logical_or, "lhs"_a, "rhs"_a)
+        .def("logical_not", &PyModuleBuilder::logical_not, "input"_a)
+        .def("clamp", &PyModuleBuilder::clamp, "input"_a, "min"_a, "max"_a)
+        .def("gather", &PyModuleBuilder::gather, "input"_a, "index"_a, "dim"_a)
         .def("gelu", &PyModuleBuilder::gelu, "input"_a)
         .def("div", &PyModuleBuilder::div, "lhs"_a, "rhs"_a)
         .def("pow", &PyModuleBuilder::pow, "lhs"_a, "rhs"_a)
         .def("matmul", &PyModuleBuilder::matmul, "lhs"_a, "rhs"_a)
+        .def("matmul_backward", &PyModuleBuilder::matmul_backward, "grad"_a, "self"_a, "other"_a, "need_self"_a,
+             "need_other"_a)
         .def("softmax", &PyModuleBuilder::softmax, "input"_a, "dim"_a)
         .def("argmax", &PyModuleBuilder::argmax, "input"_a, "dim"_a, "keepdim"_a = false)
         .def("unsqueeze", &PyModuleBuilder::unsqueeze, "input"_a, "dim"_a)
@@ -646,6 +759,11 @@ NB_MODULE(_native, m) {
         .def("arange", &PyModuleBuilder::arange, "start"_a, "end"_a, "step"_a, "dtype"_a)
         .def("embedding", &PyModuleBuilder::embedding, "weight"_a, "indices"_a)
         .def("le", &PyModuleBuilder::le, "lhs"_a, "rhs"_a)
+        .def("lt", &PyModuleBuilder::lt, "lhs"_a, "rhs"_a)
+        .def("gt", &PyModuleBuilder::gt, "lhs"_a, "rhs"_a)
+        .def("ge", &PyModuleBuilder::ge, "lhs"_a, "rhs"_a)
+        .def("eq", &PyModuleBuilder::eq, "lhs"_a, "rhs"_a)
+        .def("ne", &PyModuleBuilder::ne, "lhs"_a, "rhs"_a)
         .def("where", &PyModuleBuilder::where, "condition"_a, "true_val"_a, "false_val"_a)
         .def("sdpa", &PyModuleBuilder::sdpa, "query"_a, "key"_a, "value"_a, "is_causal"_a = true,
              "scale"_a = nb::none(), "attn_mask"_a = nb::none())

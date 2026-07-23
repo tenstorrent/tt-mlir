@@ -1,5 +1,8 @@
 #pragma once
 
+#include <optional>
+#include <utility>
+
 #include <mlir/IR/Types.h>
 #include <mlir/IR/Value.h>
 
@@ -61,6 +64,12 @@ mlir::Value build_mean(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std:
 // `keepdim` controls whether reduced dimensions are retained as size-1.
 mlir::Value build_sum(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> dims, bool keepdim);
 
+// The `at::sum_to` analogue for MLIR values: reduce `input` to `target` by
+// summing away broadcasted dims — leading dims beyond `target`'s rank, plus dims
+// where `target` is size 1 but `input` is larger (with keepdim). A no-op when
+// the shapes already agree.
+mlir::Value build_sum_to(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<std::int64_t> target);
+
 // Emit TTIR for `grad_output * (self > threshold)`. `grad_output` and `self`
 // must share shape and element type. The `self > threshold` mask is computed
 // at `self`'s element type, then cast to the gradient's element type so the
@@ -92,6 +101,13 @@ mlir::Value build_bn_inference(ModuleBuilder &mb, mlir::Value operand, mlir::Val
 // Emit a `ttir.constant` of `value` with `element_type` and shape `[1]` —
 // broadcasts against any tensor in downstream elementwise ops.
 mlir::Value build_scalar(ModuleBuilder &mb, mlir::Type element_type, double value);
+
+// Emit `ttir.zeros` / `ttir.ones` / `ttir.full`: a `shape`-shaped tensor of
+// `element_type` filled with 0, 1, or `value`. Back the zeros/ones/full/new_*
+// creation ops.
+mlir::Value build_zeros(ModuleBuilder &mb, llvm::ArrayRef<int64_t> shape, mlir::Type element_type);
+mlir::Value build_ones(ModuleBuilder &mb, llvm::ArrayRef<int64_t> shape, mlir::Type element_type);
+mlir::Value build_full(ModuleBuilder &mb, llvm::ArrayRef<int64_t> shape, double value, mlir::Type element_type);
 
 // Emit `ttir.all_reduce(reduce_type, cluster_axis)` over the runtime mesh axis
 // `cluster_axis` (caller-supplied). Output shape == input (per-chip) shape.
@@ -147,6 +163,9 @@ mlir::Value build_neg(ModuleBuilder &mb, mlir::Value input);
 // Emit TTIR for element-wise SiLU activation.
 mlir::Value build_silu(ModuleBuilder &mb, mlir::Value input);
 
+// Emit TTIR for element-wise sigmoid activation.
+mlir::Value build_sigmoid(ModuleBuilder &mb, mlir::Value input);
+
 // Emit TTIR for element-wise GELU activation. ttir.gelu lowers to
 // ttnn.gelu(fast_and_approximate_mode=false): the exact/accurate variant
 // (aten approximate="none"). A "tanh" request gets this same accurate op.
@@ -154,6 +173,17 @@ mlir::Value build_gelu(ModuleBuilder &mb, mlir::Value input);
 
 // Emit TTIR for element-wise `lhs / rhs`. Inputs must share element type.
 mlir::Value build_div(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
+
+// Emit TTIR for element-wise floor division `floor(lhs / rhs)` (rounding toward
+// -inf). Integer inputs divide in float first so the sign rounds correctly, then
+// cast the floored quotient back. Inputs must share element type.
+mlir::Value build_floor_divide(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
+
+// Emit TTIR for element-wise clamp to [min_val, max_val] (ttir.clamp_scalar). A
+// missing bound (std::nullopt) becomes the widest value for the element type,
+// i.e. a no-op on that side.
+mlir::Value build_clamp(ModuleBuilder &mb, mlir::Value input, std::optional<double> min_val,
+                        std::optional<double> max_val);
 
 // Emit TTIR for element-wise `lhs ^ rhs`. Inputs must share element type.
 mlir::Value build_pow(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
@@ -204,9 +234,21 @@ mlir::Value build_arange(ModuleBuilder &mb, int64_t start, int64_t end, int64_t 
 // the dtype mismatch (int indices, float weight) is intentional.
 mlir::Value build_embedding(ModuleBuilder &mb, mlir::Value indices, mlir::Value weight);
 
+// Emit TTIR for torch.gather along `dim` (ttir.gather): `index` has the same rank
+// as `input`; the result takes `index`'s shape and `input`'s element type.
+mlir::Value build_gather(ModuleBuilder &mb, mlir::Value input, mlir::Value index, int64_t dim);
+
 // Emit TTIR for N-D matrix multiplication. Handles batched matmul for rank >= 3
 // inputs. Inputs must share element type — callers must promote first.
 mlir::Value build_matmul(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
+
+// Emit TTIR for aten::matmul_backward: the gradients of `matmul(self, other)`
+// w.r.t. each input. `need_self`/`need_other` are aten's output_mask; a false
+// entry yields std::nullopt so the caller can restore the `None` autograd
+// expects. Inputs must share element type — callers must promote first.
+std::pair<std::optional<mlir::Value>, std::optional<mlir::Value>>
+build_matmul_backward(ModuleBuilder &mb, mlir::Value grad, mlir::Value self, mlir::Value other, bool need_self,
+                      bool need_other);
 
 // Emit TTIR for element-wise conditional selection:
 //   result[i] = condition[i] ? true_val[i] : false_val[i]
@@ -237,17 +279,61 @@ mlir::Value build_all(ModuleBuilder &mb, mlir::Value input, llvm::ArrayRef<int64
 // Output is Bool (i1), broadcast-shaped from lhs and rhs.
 mlir::Value build_le(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
 
+// Emit TTIR for element-wise less-than comparison:
+//   result[i] = (lhs[i] < rhs[i])
+// `lhs` and `rhs` must share element type — callers must promote first.
+// Output is Bool (i1), broadcast-shaped from lhs and rhs.
+mlir::Value build_lt(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
+
 // Emit TTIR for element-wise greater-than comparison:
 //   result[i] = (lhs[i] > rhs[i])
 // `lhs` and `rhs` must share element type — callers must promote first.
 // Output is Bool (i1), broadcast-shaped from lhs and rhs.
 mlir::Value build_gt(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
 
+// Emit TTIR for element-wise greater-than-or-equal comparison:
+//   result[i] = (lhs[i] >= rhs[i])
+// `lhs` and `rhs` must share element type — callers must promote first.
+// Output is Bool (i1), broadcast-shaped from lhs and rhs.
+mlir::Value build_ge(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
+
+// Emit TTIR for element-wise equality comparison:
+//   result[i] = (lhs[i] == rhs[i])
+// `lhs` and `rhs` must share element type — callers must promote first.
+// Output is Bool (i1), broadcast-shaped from lhs and rhs.
+mlir::Value build_eq(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
+
+// Emit TTIR for element-wise inequality comparison:
+//   result[i] = (lhs[i] != rhs[i])
+// `lhs` and `rhs` must share element type — callers must promote first.
+// Output is Bool (i1), broadcast-shaped from lhs and rhs.
+mlir::Value build_ne(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
+
 // Emit TTIR for element-wise bitwise AND:
 //   result[i] = lhs[i] & rhs[i]
 // `lhs` and `rhs` must share element type — callers must promote first. Output
 // keeps that element type (Bool operands give logical AND).
 mlir::Value build_bitwise_and(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
+
+// Emit TTIR for element-wise bitwise OR:
+//   result[i] = lhs[i] | rhs[i]
+// `lhs` and `rhs` must share element type — callers must promote first. Output
+// keeps that element type (Bool operands give logical OR).
+mlir::Value build_bitwise_or(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
+
+// Emit TTIR for element-wise bitwise NOT:
+//   result[i] = ~input[i]
+// Output keeps the input element type (Bool operands give logical NOT).
+mlir::Value build_bitwise_not(ModuleBuilder &mb, mlir::Value input);
+
+// Emit TTIR for element-wise logical AND/OR/NOT. Unlike the bitwise builders
+// (which work on raw bit patterns and keep the integer element type), the
+// ttir.logical_* ops treat any nonzero operand as true, matching torch's
+// aten::logical_* semantics. The binary ops yield a Bool result directly; the
+// unary NOT is type-preserving, so a non-Bool input is lowered as x == 0.
+mlir::Value build_logical_and(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
+mlir::Value build_logical_or(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs);
+mlir::Value build_logical_not(ModuleBuilder &mb, mlir::Value input);
 
 // Emit TTIR for index_copy (aten::index_copy.default):
 //   result = self with source values scattered in at `index` positions along `dim`.
