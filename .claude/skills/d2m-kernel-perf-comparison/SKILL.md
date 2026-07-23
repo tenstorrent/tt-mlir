@@ -99,6 +99,42 @@ Report both the natural latency and any barrier-based diagnostic run.
 
 ## Required Workflow
 
+### Bottleneck attribution gates
+
+Treat a full-graph comparison as the start of a study, not its bottleneck
+analysis. Use `references/one_to_one_protocol.md` and keep a machine-readable
+study file based on `references/study_template.json`.
+
+The following claims require different evidence:
+
+- **API latency:** exact semantic boundary and source IR hash, matching
+  binary I/O, an audited build manifest linking that source to both binary
+  hashes, one fingerprinted input corpus, output validation, one hashed runtime
+  module, a matching single-chip/grid target, and at least two independent
+  trials in each ABBA order with an acceptable order effect.
+- **D2M internal transfer attribution:** flatbuffer transfer payloads and
+  locations correlated with steady device-timeline gaps. This can explain the
+  measured D2M executable but is not a D2M-versus-TTNN bandwidth comparison.
+- **Cross-backend transfer attribution:** matched transfer-only capsules at
+  representative physical payload sizes and layouts. Logical byte counts or
+  differently placed API phases are insufficient.
+- **Dispatch attribution:** dependent one-tile chains at multiple program
+  counts. Compare the fitted steady latency slope and intercept; do not divide
+  a full graph's unattributed time by its row count.
+- **Math attribution:** matched semantic capsules compiled from the same TTIR
+  and input corpus. Compare synchronized capsule makespan, then inspect rows.
+  Full-decoder row sums cannot identify a projection or SDPA bottleneck.
+
+Run the readiness auditor before publishing a causal claim:
+
+```bash
+python .claude/skills/d2m-kernel-perf-comparison/scripts/audit_comparison_study.py \
+  path/to/study.json --output path/to/readiness.json
+```
+
+`blocked` is the expected state for a claim whose control has not been run.
+Do not replace a missing control with a trace-based estimate.
+
 ### 1. Freeze the work unit
 
 Record:
@@ -119,8 +155,9 @@ cache update, a different precision, or a different set of returned tensors.
 
 Save the normalized IR, compiled binary, command used to generate it, git SHA,
 runtime module path, system descriptor, and binary hash or unique artifact
-directory. Inspect the binary or IR for the expected fusion and input/output
-descriptors.
+directory. Link them with a manifest based on
+`references/build_manifest_template.json`; co-location is not provenance.
+Inspect the binary or IR for the expected fusion and input/output descriptors.
 
 Do not reuse global profiler CSVs. Read results from the per-run,
 per-binary artifact directory and verify timestamps plus row counts.
@@ -178,13 +215,20 @@ For the Llama decoder harness:
 
 ```bash
 source env/activate
-python tools/scripts/d2m_pipeclean/llama_prefill_layer_perf.py \
-  --workload decoder --sequence 16 --backend both \
-  --warmup 2 --loops 7 --phase-breakdown \
+python .claude/skills/d2m-kernel-perf-comparison/scripts/run_wall_trials.py \
   --d2m-binary path/to/decoder.ttm \
   --compiler-ttnn-binary path/to/decoder.ttnn \
-  --output path/to/wall_timing_manifest.json
+  --output-dir path/to/wall_trials \
+  --warmup 2 --loops 7 --trials-per-order 2 \
+  --expected-runtime-sha256 HASH \
+  --expected-input-corpus-sha256 HASH
 ```
+
+The default trial schedule is `D2M/TTNN`, `TTNN/D2M`, `TTNN/D2M`,
+`D2M/TTNN`. Each entry runs in a fresh process and writes its exact command,
+stdout log, manifest, binary hashes, harness hash, runtime hash, and corpus
+hash to `wall_trial_index.json`. The runner times out one stuck trial instead
+of letting the full study stall indefinitely.
 
 Prefer loading the same hashed binaries used for device profiling. Compiling in
 the wall harness is useful during development but weakens provenance and can
@@ -234,8 +278,14 @@ python .claude/skills/d2m-kernel-perf-comparison/scripts/audit_device_profile.py
 python .claude/skills/d2m-kernel-perf-comparison/scripts/audit_device_profile.py \
   path/to/ops_perf_results.csv \
   --rows-per-invocation 305 \
+  --binary-manifest path/to/binary_manifest.json \
   --clock-mhz 1000
 ```
+
+With a binary manifest, the device auditor reports the largest row gaps and
+kernel rows and annotates TTMetal gaps whose following operation location
+matches a flatbuffer transfer-command location. Inspect the raw command order
+before treating location correlation as causal.
 
 The helper intentionally leaves unmatched rows separate. Do not assign those
 rows to an invocation without additional evidence.

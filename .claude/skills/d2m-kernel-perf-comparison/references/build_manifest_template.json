@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "source_ir": "path/to/normalized_decoder.mlir",
+  "source_ir_sha256": "replace-with-normalized-source-sha256",
+  "compiler_git_sha": "replace-with-compiler-git-sha",
+  "system_desc_sha256": "replace-with-system-descriptor-sha256",
+  "commands": {
+    "d2m": ["replace", "with", "exact", "argv"],
+    "ttnn": ["replace", "with", "exact", "argv"]
+  },
+  "binaries": {
+    "d2m": {
+      "path": "path/to/decoder.ttm",
+      "sha256": "replace-with-d2m-binary-sha256"
+    },
+    "ttnn": {
+      "path": "path/to/decoder.ttnn",
+      "sha256": "replace-with-ttnn-binary-sha256"
+    }
+  }
+}

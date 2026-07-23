@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "study_id": "llama3-8b-prefill-decoder",
+  "semantic_contract": {
+    "source_ir": "path/to/normalized_decoder.mlir",
+    "source_ir_sha256": "replace-with-normalized-source-sha256",
+    "batch": 32,
+    "sequence": 16,
+    "precision": "BF16",
+    "device_count": 1,
+    "physical_grid": [8, 8]
+  },
+  "artifacts": {
+    "build_manifest": "path/to/build_manifest.json",
+    "binary_manifest": "path/to/binary_manifest.json",
+    "wall_manifests": [
+      "path/to/d2m_first_trial_1.json",
+      "path/to/ttnn_first_trial_1.json",
+      "path/to/d2m_first_trial_2.json",
+      "path/to/ttnn_first_trial_2.json"
+    ],
+    "d2m_device_manifest": "path/to/d2m_device_manifest.json"
+  },
+  "requirements": {
+    "minimum_warmups": 2,
+    "minimum_samples_per_trial": 5,
+    "minimum_trials_per_order": 2,
+    "maximum_order_effect_percent": 10.0,
+    "discard_initial_device_invocations": 1,
+    "minimum_steady_device_invocations": 2,
+    "minimum_d2m_transfer_gap_fraction": 0.8
+  },
+  "controls": {
+    "transfer_capsules": {
+      "status": "missing",
+      "required_cases": ["activation", "projection-weight", "mlp-weight"],
+      "evidence": []
+    },
+    "dispatch_slope": {
+      "status": "missing",
+      "required_program_counts": [1, 8, 32, 128, 305],
+      "evidence": []
+    },
+    "semantic_capsules": {
+      "rmsnorm": {"status": "missing", "evidence": []},
+      "kv_projection": {"status": "missing", "evidence": []},
+      "q_output_projection": {"status": "missing", "evidence": []},
+      "sdpa_cache_update": {"status": "missing", "evidence": []},
+      "mlp_expand": {"status": "missing", "evidence": []},
+      "mlp_contract": {"status": "missing", "evidence": []}
+    }
+  }
+}

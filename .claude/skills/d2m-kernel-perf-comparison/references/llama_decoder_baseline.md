@@ -1,8 +1,10 @@
 # Llama Decoder Baseline
 
-This is the first fully reconciled D2M-JIT versus compiler-TTNN decoder
-measurement produced with this skill. It is an anchor for methodology and
-regression checks, not a claim that the performance gap has been attributed.
+This is a historical reconciled D2M-JIT versus compiler-TTNN decoder
+measurement. It predates runtime-module hashing, input-corpus fingerprints,
+output parity in the timing manifest, and counterbalanced trial order. Retain
+it as evidence about that artifact set, not as the canonical performance
+baseline or a bottleneck attribution.
 
 ## Contract
 
@@ -51,6 +53,13 @@ The baseline establishes three separate gaps:
 
 Those observations justify targeted transfer, dispatch/cache, and kernel
 ablations. They do not yet identify a single root cause.
+
+A later audit correlated 94.9% and 97.2% of the two steady D2M inter-row gap
+totals with flatbuffer transfer-command locations. The five largest gaps
+preceded the three 117,440,512-byte MLP-weight writes and two 33,554,432-byte
+projection-weight writes. This establishes a transfer/ABI bottleneck in that
+D2M executable. It does not compare D2M and TTNN transfer mechanisms; that
+requires matched transfer-only capsules.
 
 Raw Tracy captures, profiler CSVs, binaries, and generated manifests are kept
 outside git because they are build artifacts. A publishable result must retain

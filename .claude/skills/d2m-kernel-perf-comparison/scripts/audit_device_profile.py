@@ -22,6 +22,8 @@ FW_DURATION_NS = "DEVICE FW DURATION [ns]"
 KERNEL_DURATION_NS = "DEVICE KERNEL DURATION [ns]"
 CALL_COUNT = "GLOBAL CALL COUNT"
 PROGRAM_METADATA = "PROGRAM_METADATA"
+OP_CODE = "OP CODE"
+CORE_COUNT = "CORE COUNT"
 
 _DEVICE_OP_CALL_COUNT_RE = re.compile(r",\s*(\d+)\s*(?:->|`)")
 
@@ -145,8 +147,81 @@ def _partition_contiguous_invocations(
     }
 
 
+def _row_identity(row: dict[str, str]) -> dict[str, str | int]:
+    return {
+        "op_code": row.get(OP_CODE, ""),
+        "global_call_count": int(row[CALL_COUNT]),
+        "core_count": int(row.get(CORE_COUNT) or 0),
+    }
+
+
+def _percentile(values: list[int], fraction: float) -> int:
+    if not values:
+        return 0
+    ordered = sorted(values)
+    index = round((len(ordered) - 1) * fraction)
+    return ordered[index]
+
+
+def _inter_row_gaps(rows: list[dict[str, str]]) -> list[dict]:
+    ordered = sorted(rows, key=lambda row: int(row[START_CYCLE]))
+    covered_end = int(ordered[0][END_CYCLE])
+    covered_end_row = ordered[0]
+    gaps = []
+    for row in ordered[1:]:
+        start = int(row[START_CYCLE])
+        if start > covered_end:
+            gaps.append(
+                {
+                    "gap_cycles": start - covered_end,
+                    "after": _row_identity(covered_end_row),
+                    "before": _row_identity(row),
+                }
+            )
+        end = int(row[END_CYCLE])
+        if end > covered_end:
+            covered_end = end
+            covered_end_row = row
+    return gaps
+
+
+def _kernel_rows(rows: list[dict[str, str]]) -> list[dict]:
+    details = []
+    for row in rows:
+        detail = _row_identity(row)
+        detail["kernel_duration_ms"] = int(row[KERNEL_DURATION_NS]) / 1_000_000
+        detail["fw_duration_ms"] = int(row.get(FW_DURATION_NS) or 0) / 1_000_000
+        details.append(detail)
+    return sorted(details, key=lambda row: row["kernel_duration_ms"], reverse=True)
+
+
+def _load_transfer_locations(path: Path | None) -> dict[str, list[dict]]:
+    if path is None:
+        return {}
+    manifest = json.loads(path.read_text())
+    binaries = [
+        binary
+        for binary in manifest.get("binaries", [])
+        if "ttmetal_transfers" in binary
+    ]
+    if len(binaries) != 1:
+        raise ValueError(
+            "binary manifest must contain exactly one binary with TTMetal "
+            f"transfer commands, found {len(binaries)}"
+        )
+
+    by_location: dict[str, list[dict]] = defaultdict(list)
+    for command in binaries[0]["ttmetal_transfers"]["commands"]:
+        if command.get("location"):
+            by_location[command["location"]].append(command)
+    return dict(by_location)
+
+
 def _summarize_rows(
-    rows: list[dict[str, str]], clock_mhz: float | None
+    rows: list[dict[str, str]],
+    clock_mhz: float | None,
+    top_count: int,
+    transfers_by_location: dict[str, list[dict]],
 ) -> dict[str, int | float | None]:
     intervals = sorted((int(row[START_CYCLE]), int(row[END_CYCLE])) for row in rows)
     invalid_intervals = sum(start > end for start, end in intervals)
@@ -168,6 +243,18 @@ def _summarize_rows(
     span_cycles = last_end - first_start
     fw_sum_ns = sum(int(row.get(FW_DURATION_NS) or 0) for row in rows)
     kernel_sum_ns = sum(int(row[KERNEL_DURATION_NS]) for row in rows)
+    core_count_histogram: dict[int, int] = defaultdict(int)
+    for row in rows:
+        core_count_histogram[int(row.get(CORE_COUNT) or 0)] += 1
+    gaps = _inter_row_gaps(rows)
+    positive_gap_cycles = [gap["gap_cycles"] for gap in gaps]
+
+    for gap in gaps:
+        commands = transfers_by_location.get(gap["before"]["op_code"], [])
+        if commands:
+            gap["location_correlated_transfers"] = commands
+    transfer_gaps = [gap for gap in gaps if "location_correlated_transfers" in gap]
+    transfer_gap_cycles = sum(gap["gap_cycles"] for gap in transfer_gaps)
 
     result: dict[str, int | float | None] = {
         "rows": len(rows),
@@ -178,6 +265,24 @@ def _summarize_rows(
         "inter_row_gap_cycles": span_cycles - covered_cycles,
         "summed_fw_duration_ms": fw_sum_ns / 1_000_000,
         "summed_kernel_duration_ms": kernel_sum_ns / 1_000_000,
+        "maximum_core_count": max(core_count_histogram),
+        "core_count_histogram": {
+            str(count): row_count
+            for count, row_count in sorted(core_count_histogram.items())
+        },
+        "positive_inter_row_gaps": len(gaps),
+        "median_positive_gap_cycles": _percentile(positive_gap_cycles, 0.5),
+        "p95_positive_gap_cycles": _percentile(positive_gap_cycles, 0.95),
+        "largest_inter_row_gaps": sorted(
+            gaps, key=lambda gap: gap["gap_cycles"], reverse=True
+        )[:top_count],
+        "largest_kernel_rows": _kernel_rows(rows)[:top_count],
+        "location_correlated_transfer_gap_cycles": transfer_gap_cycles,
+        "location_correlated_transfer_gap_fraction": (
+            transfer_gap_cycles / (span_cycles - covered_cycles)
+            if span_cycles > covered_cycles
+            else 0.0
+        ),
     }
     if clock_mhz is None:
         result["device_fw_span_ms"] = None
@@ -188,6 +293,17 @@ def _summarize_rows(
         result["device_fw_span_ms"] = span_cycles / cycles_per_ms
         result["profiled_fw_interval_union_ms"] = covered_cycles / cycles_per_ms
         result["inter_row_gap_ms"] = (span_cycles - covered_cycles) / cycles_per_ms
+        result["median_positive_gap_ms"] = (
+            result["median_positive_gap_cycles"] / cycles_per_ms
+        )
+        result["p95_positive_gap_ms"] = (
+            result["p95_positive_gap_cycles"] / cycles_per_ms
+        )
+        result["location_correlated_transfer_gap_ms"] = (
+            transfer_gap_cycles / cycles_per_ms
+        )
+        for gap in result["largest_inter_row_gaps"]:
+            gap["gap_ms"] = gap["gap_cycles"] / cycles_per_ms
     return result
 
 
@@ -322,6 +438,22 @@ def _build_checks(
             ),
         }
     )
+    transfer_gap_fractions = {
+        name: summary["location_correlated_transfer_gap_fraction"]
+        for name, summary in summaries.items()
+        if summary["location_correlated_transfer_gap_cycles"]
+    }
+    if transfer_gap_fractions:
+        checks.append(
+            {
+                "name": "location_correlated_transfer_gap_fraction",
+                "status": "info",
+                "detail": ", ".join(
+                    f"{name}={fraction:.1%}"
+                    for name, fraction in sorted(transfer_gap_fractions.items())
+                ),
+            }
+        )
     return checks
 
 
@@ -360,6 +492,20 @@ def main() -> None:
         type=Path,
         help="Matching ttrt result JSON containing synchronized host envelopes.",
     )
+    parser.add_argument(
+        "--binary-manifest",
+        type=Path,
+        help=(
+            "Manifest from audit_binaries.py. TTMetal gaps whose following "
+            "op location matches a transfer-command location are annotated."
+        ),
+    )
+    parser.add_argument(
+        "--top",
+        type=int,
+        default=10,
+        help="Number of largest gaps and kernel rows to retain per invocation.",
+    )
     parser.add_argument("--output", type=Path, help="Write the JSON report here.")
     args = parser.parse_args()
 
@@ -369,6 +515,8 @@ def main() -> None:
         parser.error("--rows-per-invocation must be positive")
     if args.clock_mhz is not None and args.clock_mhz <= 0:
         parser.error("--clock-mhz must be positive")
+    if args.top <= 0:
+        parser.error("--top must be positive")
 
     rows = _load_rows(args.csv)
     trace_metadata = _load_trace_metadata(args.trace_data)
@@ -391,12 +539,17 @@ def main() -> None:
         groups = _partition_contiguous_invocations(unmatched, args.rows_per_invocation)
         unmatched = []
 
+    transfers_by_location = _load_transfer_locations(args.binary_manifest)
     summaries = {
-        name: _summarize_rows(invocation_rows, args.clock_mhz)
+        name: _summarize_rows(
+            invocation_rows, args.clock_mhz, args.top, transfers_by_location
+        )
         for name, invocation_rows in sorted(groups.items())
     }
     unmatched_summary = (
-        _summarize_rows(unmatched, args.clock_mhz) if unmatched else None
+        _summarize_rows(unmatched, args.clock_mhz, args.top, transfers_by_location)
+        if unmatched
+        else None
     )
     _attach_host_results(summaries, _load_host_results(args.run_results))
 
@@ -404,6 +557,9 @@ def main() -> None:
         "source_csv": str(args.csv),
         "trace_data": str(args.trace_data) if args.trace_data else None,
         "run_results": str(args.run_results) if args.run_results else None,
+        "binary_manifest": (
+            str(args.binary_manifest) if args.binary_manifest else None
+        ),
         "partition": {
             "repetitions": args.repetitions,
             "rows_per_invocation": args.rows_per_invocation,
