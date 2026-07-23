@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #ifndef TT_RUNTIME_DETAIL_TTNN_UTILS_H
-#define TT_RUNTIME_DETAIL_TTNN_UTILS_H #include "flatbuffers/vector.h"
-#include "tt/runtime/detail/ttnn/ttnn.h"
+#define TT_RUNTIME_DETAIL_TTNN_UTILS_H
+
+#include "flatbuffers/vector.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
 #include "ttmlir/Target/Common/types_generated.h"
 #include "ttmlir/Target/TTNN/Target.h"
@@ -143,7 +144,7 @@ createRuntimeTensorRefFromTTNN(const ::tt::target::ttnn::TensorRef *tensorRef);
 
 void *getRawHostDataPtr(const ::ttnn::Tensor &tensor);
 
-::ttnn::TensorSpec createTensorSpec(
+tt_metal::TensorSpec createTensorSpec(
     const ::ttnn::Shape &shape, const ::ttnn::DataType &dataType,
     const ::ttnn::Layout &layout = ::ttnn::Layout::ROW_MAJOR,
     const ::ttnn::MemoryConfig &memoryConfig = ::ttnn::DRAM_MEMORY_CONFIG);
@@ -159,7 +160,7 @@ inline ::ttnn::Tensor createTTNNTensor(
     const ::ttnn::Layout &layout = ::ttnn::Layout::ROW_MAJOR,
     const ::ttnn::MemoryConfig &memoryConfig = ::ttnn::DRAM_MEMORY_CONFIG) {
   std::uint64_t numElements = shape.volume();
-  ::ttnn::TensorSpec tensorSpec =
+  tt_metal::TensorSpec tensorSpec =
       createTensorSpec(shape, outputDataType, layout, memoryConfig);
   if (rawData != nullptr) {
     const T *typedData = static_cast<const T *>(rawData);

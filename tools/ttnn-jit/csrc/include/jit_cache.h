@@ -5,18 +5,10 @@
 #ifndef JIT_CACHE_H
 #define JIT_CACHE_H
 
-#include "mlir/CAPI/IR.h"
 #include "mlir/IR/DialectRegistry.h"
+#include "mlir/IR/Operation.h"
 #include "tt/runtime/types.h"
-
-// Forward declarations to avoid including heavy tensor headers
-namespace tt::tt_metal {
-class Tensor;
-} // namespace tt::tt_metal
-
-namespace ttnn {
-using Tensor = tt::tt_metal::Tensor;
-} // namespace ttnn
+#include "ttnn/tensor/tensor.hpp"
 
 namespace mlir::tt::ttnn::jit {
 

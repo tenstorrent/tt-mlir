@@ -156,7 +156,7 @@ OpModel<YourOp>::getOpConstraints(
   // 1. Convert inputs to TensorSpecs using ASSIGN_OR_RETURN.
   //    This macro unwraps llvm::Expected and returns the error
   //    on failure, avoiding repetitive error-checking boilerplate.
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec inputSpec,
+  ASSIGN_OR_RETURN(tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // 2. Create query closure
@@ -195,7 +195,7 @@ OpModel<YourOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec inputSpec,
+  ASSIGN_OR_RETURN(tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   auto yourOpQuery = [=]() {
