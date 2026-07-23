@@ -10,7 +10,13 @@ module @test_allocate_buffers attributes {} {
   func.func public @test_allocates_stats_buffer(
       %arg0: tensor<1x1x32x128xbf16, #ttnn_layout_input_ws>,
       %arg1: tensor<4x32xbf16, #ttnn_layout_weight_rm>) -> tensor<1x1x32x128xbf16, #ttnn_layout_input_ws> {
-    // CHECK: #[[STATS_LAYOUT:.+]] = #ttnn.ttnn_layout{{.*}}tile<32x32, f32>{{.*}}<width_sharded>
+    // The stats buffer is always bf16 (matching production llama_ccl.py),
+    // independent of the compute config's fp32_dest_acc_en = true below; bf16
+    // keeps its L1 footprint on core (0,0) small.
+    // Match the stats layout specifically by its 2-tile-wide shard (last dim
+    // 64 = 2*32 on a single core), not the input layout which is also bf16 +
+    // width_sharded but 1 tile wide per core.
+    // CHECK: #[[STATS_LAYOUT:.+]] = #ttnn.ttnn_layout{{.*}}memref<1x2x!ttcore.tile<32x32, bf16>, #l1>{{.*}}<width_sharded>
     // CHECK-LABEL: func.func public @test_allocates_stats_buffer
     // CHECK: %[[DEV:.+]] = "ttnn.get_device"
     // The stats buffer holds one 32-wide tile per device on the cluster axis
@@ -18,7 +24,7 @@ module @test_allocate_buffers attributes {} {
     // the fused kernel averages E(x^2) over all devices rather than a single
     // one (num_distributed_devices = padded_shape[-1] / 32).
     // CHECK: %[[STATS:.+]] = "ttnn.empty"
-    // CHECK-SAME: tensor<1x1x32x64xf32, #[[STATS_LAYOUT]]>
+    // CHECK-SAME: tensor<1x1x32x64xbf16, #[[STATS_LAYOUT]]>
     // CHECK: "ttnn.distributed_rms_norm"
     // CHECK-SAME: %[[STATS]]
     // CHECK-SAME: operandSegmentSizes = array<i32: 1, 1, 0, 1, 0, 1>

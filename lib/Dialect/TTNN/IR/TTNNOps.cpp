@@ -3741,19 +3741,18 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateBuffers(
     return;
   }
 
-  // The fused kernel CB data format must match compute_config.fp32_dest_acc_en
-  // (Float32 when set, BFloat16 otherwise). compute_config is set upstream by
-  // the workaround pattern or TTNNSetComputeKernelConfig; default to fp32.
-  bool fp32DestAccEn = true;
-  if (auto computeConfig = getComputeConfigAttr()) {
-    if (auto fp32Attr = computeConfig.getFp32DestAccEn()) {
-      fp32DestAccEn = fp32Attr.getValue();
-    }
-  }
-  Type statsElementType =
-      fp32DestAccEn
-          ? static_cast<Type>(Float32Type::get(rewriter.getContext()))
-          : static_cast<Type>(BFloat16Type::get(rewriter.getContext()));
+  // The stats buffer holds the per-device E(x^2) partials that are all-gathered
+  // and averaged. Store it in BFloat16, matching production
+  // (models/demos/llama3_70b_galaxy/tt/llama_ccl.py creates this buffer with
+  // dtype=ttnn.bfloat16). The fused kernel imposes no fp32 requirement on the
+  // stats tensor -- rms_allgather_program_factory.cpp reads stats_data_format
+  // directly from the tensor with no assert against fp32_dest_acc_en -- and
+  // bf16 halves the buffer's L1 footprint. That matters because this persistent
+  // buffer lives on core (0,0) (width-sharded, single core), the same core that
+  // carries the fused kernel's circular buffers, making it the tightest core in
+  // L1. Once the buffer is correctly sized to numDevices tiles (below), an fp32
+  // stats tensor overflowed L1 there and clashed with the static CBs.
+  Type statsElementType = BFloat16Type::get(rewriter.getContext());
 
   auto device = utils::getOrInsertDevice(rewriter, *this);
 
