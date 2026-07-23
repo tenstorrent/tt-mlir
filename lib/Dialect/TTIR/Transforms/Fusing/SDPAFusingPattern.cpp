@@ -188,10 +188,11 @@ bool isLastTwoDimsPermute(PermuteOp permuteOp) {
   return perm[rank - 2] == rank - 1 && perm[rank - 1] == rank - 2;
 }
 
-// A GQA head-expansion: a ttir.repeat_interleave on the num-heads dim,
-// optionally wrapped in one element-type typecast. Real models expand K/V from
-// Hkv to Hq heads with this before the score matmul; SDPA does GQA natively, so
-// it is peeled.
+// A GQA head-expansion on the num-heads dim, optionally wrapped in one
+// element-type typecast: either a ttir.repeat_interleave, or HF repeat_kv's
+// unsqueeze/broadcast/reshape form before it is canonicalized to one. Real
+// models expand K/V from Hkv to Hq heads with this before the score matmul;
+// SDPA does GQA natively, so it is peeled.
 struct GqaExpansion {
   Value native;    // the un-expanded (Hkv-head) tensor
   TypecastOp cast; // the surrounding cast, or null
@@ -203,21 +204,78 @@ struct GqaExpansion {
 GqaExpansion detectGqaExpansion(Value v) {
   TypecastOp cast = v.getDefiningOp<TypecastOp>();
   Value underCast = cast ? cast.getInput() : v;
-  auto repeatOp = underCast.getDefiningOp<RepeatInterleaveOp>();
-  if (!repeatOp) {
+  if (auto repeatOp = underCast.getDefiningOp<RepeatInterleaveOp>()) {
+    auto inType =
+        mlir::dyn_cast<RankedTensorType>(repeatOp.getInput().getType());
+    if (!inType) {
+      return {v, nullptr, std::nullopt};
+    }
+    int64_t dim = repeatOp.getDim();
+    int64_t rank = inType.getRank();
+    int64_t normDim = dim < 0 ? rank + dim : dim;
+    if (normDim != kNumHeadsDim) {
+      return {v, nullptr, std::nullopt};
+    }
+    return {repeatOp.getInput(), cast, repeatOp.getRepeats()};
+  }
+
+  // Also match HF repeat_kv's pre-canonicalization form (unsqueeze/broadcast/
+  // reshape). Its reshape/broadcast -> repeat_interleave canonicalization is
+  // co-scheduled with this fuser and may not have run yet; unless it is peeled
+  // here, SDPA is handed an Hq-head copy instead of the grouped Hkv-head cache
+  // (a large f32 GQA expansion per decode step).
+  auto finalReshape = underCast.getDefiningOp<ReshapeOp>();
+  if (!finalReshape) {
     return {v, nullptr, std::nullopt};
   }
-  auto inType = mlir::dyn_cast<RankedTensorType>(repeatOp.getInput().getType());
-  if (!inType) {
+  auto bcast = finalReshape.getInput().getDefiningOp<BroadcastOp>();
+  if (!bcast || !bcast->hasOneUse()) {
     return {v, nullptr, std::nullopt};
   }
-  int64_t dim = repeatOp.getDim();
-  int64_t rank = inType.getRank();
-  int64_t normDim = dim < 0 ? rank + dim : dim;
-  if (normDim != kNumHeadsDim) {
+  Value dimInserted = bcast.getInput();
+  Value native;
+  if (auto unsq = dimInserted.getDefiningOp<UnsqueezeOp>()) {
+    native = unsq.getInput();
+  } else if (auto rs = dimInserted.getDefiningOp<ReshapeOp>()) {
+    native = rs.getInput();
+  } else {
     return {v, nullptr, std::nullopt};
   }
-  return {repeatOp.getInput(), cast, repeatOp.getRepeats()};
+  auto nativeType = mlir::dyn_cast<RankedTensorType>(native.getType());
+  auto outType =
+      mlir::dyn_cast<RankedTensorType>(finalReshape.getResult().getType());
+  if (!nativeType || !outType || nativeType.getRank() != kSdpaRank ||
+      outType.getRank() != kSdpaRank) {
+    return {v, nullptr, std::nullopt};
+  }
+  // The broadcast must expand exactly one dim, positioned right after the heads
+  // dim (the GQA group axis).
+  auto bdims = bcast.getBroadcastDimensions();
+  int64_t insertedDim = -1;
+  int64_t repeat = 1;
+  for (int64_t i = 0; i < static_cast<int64_t>(bdims.size()); ++i) {
+    if (bdims[i] == 1) {
+      continue;
+    }
+    if (insertedDim != -1) {
+      return {v, nullptr, std::nullopt};
+    }
+    insertedDim = i;
+    repeat = bdims[i];
+  }
+  if (insertedDim != kNumHeadsDim + 1 || repeat <= 1) {
+    return {v, nullptr, std::nullopt};
+  }
+  // Net effect must be exactly Hkv -> Hkv*repeat on the heads dim, every other
+  // dim unchanged.
+  auto nShape = nativeType.getShape();
+  auto oShape = outType.getShape();
+  if (oShape[kNumHeadsDim] != nShape[kNumHeadsDim] * repeat ||
+      oShape[0] != nShape[0] || oShape[kSeqLenDim] != nShape[kSeqLenDim] ||
+      oShape[kHeadDim] != nShape[kHeadDim]) {
+    return {v, nullptr, std::nullopt};
+  }
+  return {native, cast, static_cast<uint32_t>(repeat)};
 }
 
 // True if the slice keeps [0 : lastDim-1] of the last dim and is otherwise a
