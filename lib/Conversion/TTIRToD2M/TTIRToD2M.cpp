@@ -5049,9 +5049,10 @@ private:
   }
 
   struct ArgMaxCoreResult {
-    mlir::Value maxVal;       // reduce_max of the chunk (value domain).
-    mlir::Value recoveredIdx; // N - encoded => global index of the max.
-    RankedTensorType reducedType;
+    mlir::Value maxVal;              // reduce_max of the chunk (value domain).
+    mlir::Value recoveredIdx;        // N - encoded => global index of the max.
+    RankedTensorType reducedType;    // value-domain type (types maxVal).
+    RankedTensorType reducedIdxType; // index-domain type, F32 (types idx).
   };
 
   /// Runs stages 1-5 of the argmax decomposition on a single f32 chunk input.
@@ -5085,6 +5086,10 @@ private:
     auto reducedType =
         RankedTensorType::get(reducedShape, chunkInputTy.getElementType(),
                               chunkInputTy.getEncoding());
+    // Index-domain reduced type. Stages 4/5 compute indices (up to N), which
+    // need F32 precision; the input dtype (e.g. bf16) cannot represent them.
+    auto reducedF32Type = RankedTensorType::get(
+        reducedShape, rewriter.getF32Type(), chunkInputTy.getEncoding());
 
     // Stage 1: reduce_max over target dim.
     auto scaler = createScaler(rewriter, loc, chunkInputTy);
@@ -5139,75 +5144,11 @@ private:
               .getResult();
         });
 
-    // Stage 2: arange.
-    auto stage2origOutputs = createDpsOutputs(loc, rewriter, {chunkInputTy});
-    auto [stage2ins, stage2outputs] = toLayoutOperandsAndResults(
-        rewriter, {SmallVector<Value>{}, stage2origOutputs}, true, noCollapse);
-    Value stage2output = stage2outputs[0];
-
-    auto arangeTensorType =
-        mlir::cast<RankedTensorType>(stage2output.getType());
-    auto arangeLayout =
-        mlir::cast<ttcore::MetalLayoutAttr>(arangeTensorType.getEncoding());
-    auto arangeTileType =
-        mlir::cast<ttcore::TileType>(arangeTensorType.getElementType());
-    Type arangeElemType = arangeTileType.getElementType();
-    ArrayRef<int64_t> arangeGridShape =
-        arangeLayout.getGridShape(arangeTensorType);
-    SmallVector<int64_t> scratchShape(arangeGridShape.begin(),
-                                      arangeGridShape.end());
-    scratchShape.append({1, 1});
-    auto scratchTileType = ttcore::TileType::get(arangeElemType);
-    auto scratchLayout = ttcore::MetalLayoutAttr::get(
-        ctx, SmallVector<int64_t>{1, 1}, ttcore::MemorySpace::DeviceL1,
-        ttcore::TensorMemoryLayout::Sharded);
-    Value indexTileTensor =
-        rewriter
-            .create<d2m::EmptyOp>(loc, scratchShape, scratchTileType,
-                                  scratchLayout)
-            .getResult();
-
-    // Number of elements along this chunk's reduction dim.
-    int64_t chunkNumElements = (reduceDim == d2m::ReduceDim::C)
-                                   ? chunkInputTy.getDimSize(logicalRank - 2)
-                                   : chunkInputTy.getDimSize(logicalRank - 1);
-
-    AffineMap arangeConstMap =
-        AffineMap::get(physicalRank, 0, {zero, zero}, ctx);
     AffineMap identityMap = rewriter.getMultiDimIdentityMap(physicalRank);
-    SmallVector<AffineMap> stage2maps = {arangeConstMap, identityMap};
 
     SmallVector<Attribute> allParallelIterTy(
         physicalRank,
         ttcore::IteratorTypeAttr::get(ctx, ttcore::IteratorType::Parallel));
-
-    SmallVector<Value> stage2genericInputs = {indexTileTensor};
-    d2m::GenericOp stage2 = rewriter.create<d2m::GenericOp>(
-        loc, stage2genericInputs, stage2outputs,
-        /*additionalArgs=*/ValueRange(),
-        rewriter.getAffineMapArrayAttr(stage2maps),
-        rewriter.getArrayAttr(allParallelIterTy));
-
-    // Fill descending indices so ties select the lowest index. Offsetting the
-    // start by `indexBase` makes stage 5's `N - x` recover the *global* index:
-    // chunk position j -> arange value (N - indexBase - j) -> recovered
-    // N - (N - indexBase - j) = indexBase + j.
-    int64_t arangeStart = globalNumElements - indexBase;
-    withD2MGenericRegion(
-        rewriter, loc, stage2, stage2genericInputs, stage2outputs,
-        [&](ArrayRef<Value> blockArgs) -> SmallVector<Value> {
-          Value idxTile = blockArgs[0];
-          Value outTile = blockArgs[1];
-          Value result =
-              rewriter
-                  .create<d2m::ArangeBlockOp>(
-                      loc, idxTile, outTile, chunkNumElements,
-                      /*start=*/arangeStart,
-                      /*step=*/-1,
-                      (reduceDim == d2m::ReduceDim::C ? true : false))
-                  .getResult();
-          return {result};
-        });
 
     // Stage 3: bcast max -> eltwise_eq -> bcast arange -> eltwise_mul.
     auto stage3origOutputs = createDpsOutputs(loc, rewriter, {chunkInputTy});
@@ -5244,7 +5185,6 @@ private:
     default:
       break;
     }
-    AffineMap arangeReducedMap = arangeReducedMutable.getAffineMap();
 
     auto maxBcastTyAttr = d2m::TileBcastTypeAttr::get(ctx, maxBcastTy);
     auto arangeBcastTyAttr = d2m::TileBcastTypeAttr::get(ctx, arangeBcastTy);
@@ -5273,7 +5213,103 @@ private:
               .getResult();
         });
 
-    // Stage 3b: bcast arange -> eltwise_mul(mask, arange).
+    auto f32ChunkTy =
+        RankedTensorType::get(chunkInputTy.getShape(), rewriter.getF32Type(),
+                              chunkInputTy.getEncoding());
+
+    // Stage 2: arange.
+    auto stage2origOutputs = createDpsOutputs(loc, rewriter, {f32ChunkTy});
+    auto [stage2ins, stage2outputs] = toLayoutOperandsAndResults(
+        rewriter, {SmallVector<Value>{}, stage2origOutputs}, true, noCollapse);
+    Value stage2output = stage2outputs[0];
+
+    auto arangeTensorType =
+        mlir::cast<RankedTensorType>(stage2output.getType());
+    auto arangeLayout =
+        mlir::cast<ttcore::MetalLayoutAttr>(arangeTensorType.getEncoding());
+    auto arangeTileType =
+        mlir::cast<ttcore::TileType>(arangeTensorType.getElementType());
+    Type arangeElemType = arangeTileType.getElementType();
+    ArrayRef<int64_t> arangeGridShape =
+        arangeLayout.getGridShape(arangeTensorType);
+    SmallVector<int64_t> scratchShape(arangeGridShape.begin(),
+                                      arangeGridShape.end());
+    scratchShape.append({1, 1});
+    auto scratchTileType = ttcore::TileType::get(arangeElemType);
+    auto scratchLayout = ttcore::MetalLayoutAttr::get(
+        ctx, SmallVector<int64_t>{1, 1}, ttcore::MemorySpace::DeviceL1,
+        ttcore::TensorMemoryLayout::Sharded);
+    Value indexTileTensor =
+        rewriter
+            .create<d2m::EmptyOp>(loc, scratchShape, scratchTileType,
+                                  scratchLayout)
+            .getResult();
+
+    // Number of elements along this chunk's reduction dim.
+    int64_t chunkNumElements = (reduceDim == d2m::ReduceDim::C)
+                                   ? chunkInputTy.getDimSize(logicalRank - 2)
+                                   : chunkInputTy.getDimSize(logicalRank - 1);
+
+    AffineMap arangeConstMap =
+        AffineMap::get(physicalRank, 0, {zero, zero}, ctx);
+    SmallVector<AffineMap> stage2maps = {arangeConstMap, identityMap};
+
+    SmallVector<Value> stage2genericInputs = {indexTileTensor};
+    d2m::GenericOp stage2 = rewriter.create<d2m::GenericOp>(
+        loc, stage2genericInputs, stage2outputs,
+        /*additionalArgs=*/ValueRange(),
+        rewriter.getAffineMapArrayAttr(stage2maps),
+        rewriter.getArrayAttr(allParallelIterTy));
+
+    // Fill descending indices so ties select the lowest index. Offsetting the
+    // start by `indexBase` makes stage 5's `N - x` recover the *global* index:
+    // chunk position j -> arange value (N - indexBase - j) -> recovered
+    // N - (N - indexBase - j) = indexBase + j.
+    int64_t arangeStart = globalNumElements - indexBase;
+    withD2MGenericRegion(
+        rewriter, loc, stage2, stage2genericInputs, stage2outputs,
+        [&](ArrayRef<Value> blockArgs) -> SmallVector<Value> {
+          Value idxTile = blockArgs[0];
+          Value outTile = blockArgs[1];
+          Value result =
+              rewriter
+                  .create<d2m::ArangeBlockOp>(
+                      loc, idxTile, outTile, chunkNumElements,
+                      /*start=*/arangeStart,
+                      /*step=*/-1,
+                      (reduceDim == d2m::ReduceDim::C ? true : false))
+                  .getResult();
+          return {result};
+        });
+
+    AffineMap arangeReducedMap = arangeReducedMutable.getAffineMap();
+
+    // Stage 3a2: typecast the eq-mask to f32 in its own generic.
+    // The eq-mask (stage3a) is produced in the input dtype (e.g. bf16); the
+    // index math needs f32. Keeping the typecast as a standalone generic
+    // (rather than fusing it into stage 3b's mul region) ensures the typecast's
+    // input CB is genuinely bf16, so D2MToTTKernel emits
+    // `typecast_tile<Float16_b, Float32>` with the correct source format.
+    // Fusing it left the input CB as f32 in the mixed-format region, producing
+    // a no-op `typecast<Float32, Float32>` that reinterpreted 2-byte bf16 data
+    // as 4-byte f32 (NaN garbage).
+    auto stage3a2origOutputs = createDpsOutputs(loc, rewriter, {f32ChunkTy});
+    auto [stage3a2unused, stage3a2outputs] = toLayoutOperandsAndResults(
+        rewriter, {SmallVector<Value>{}, stage3a2origOutputs}, true,
+        noCollapse);
+    d2m::GenericOp stage3a2 = buildGenericLinAlg(
+        rewriter, loc, SmallVector<Value>{stage3a.getResult(0)},
+        stage3a2outputs, getIdentityAffineMapsArray(rewriter, 2, physicalRank),
+        allParallelIterTy,
+        [&](mlir::OpBuilder &bb, mlir::Location l, mlir::ValueRange bbArgs) {
+          return bb
+              .create<d2m::TileTypecastOp>(l, bbArgs[1].getType(), bbArgs[0])
+              .getResult();
+        });
+
+    // Stage 3b: bcast arange -> eltwise_mul(mask_f32, arange). Everything here
+    // is f32 (f32ChunkTy), so the multiply and everything downstream is f32.
+    chunkInputTy = f32ChunkTy;
     auto stage3borigOutputs = createDpsOutputs(loc, rewriter, {chunkInputTy});
     auto [stage3bunused, stage3boutputs] = toLayoutOperandsAndResults(
         rewriter, {SmallVector<Value>{}, stage3borigOutputs}, true, noCollapse);
@@ -5281,7 +5317,7 @@ private:
                                           identityMap};
     d2m::GenericOp stage3 = buildGenericLinAlg(
         rewriter, loc,
-        SmallVector<Value>{stage3a.getResult(0), stage2.getResult(0)},
+        SmallVector<Value>{stage3a2.getResult(0), stage2.getResult(0)},
         stage3boutputs, stage3bmaps, allParallelIterTy,
         [&](mlir::OpBuilder &bb, mlir::Location l, mlir::ValueRange bbArgs) {
           Value bcastArange =
@@ -5301,7 +5337,7 @@ private:
         rewriter, {SmallVector<Value>{scaler2}, SmallVector<Value>{}}, true,
         noCollapse);
     SmallVector<Value> stage4inputs = {stage3.getResult(0), scaler2LaidOut[0]};
-    auto stage4origOutputs = createDpsOutputs(loc, rewriter, {reducedType});
+    auto stage4origOutputs = createDpsOutputs(loc, rewriter, {reducedF32Type});
     auto [stage4ins, max2Outputs] = toLayoutOperandsAndResults(
         rewriter, {SmallVector<Value>{}, stage4origOutputs}, true, noCollapse);
 
@@ -5315,7 +5351,7 @@ private:
         });
 
     // Stage 5: recover the index via tile_fill(N) then tile_sub(N, x).
-    auto stage5origOutputs = createDpsOutputs(loc, rewriter, {reducedType});
+    auto stage5origOutputs = createDpsOutputs(loc, rewriter, {reducedF32Type});
     auto [stage5ins, stage5outputs] = toLayoutOperandsAndResults(
         rewriter, {SmallVector<Value>{}, stage5origOutputs}, /*tiled=*/true,
         noCollapse);
@@ -5337,14 +5373,16 @@ private:
               .getResult();
         });
 
-    return {stage1.getResult(0), stage5.getResult(0), reducedType};
+    return {stage1.getResult(0), stage5.getResult(0), reducedType,
+            reducedF32Type};
   }
 
   std::pair<mlir::Value, mlir::Value>
   combineChunks(mlir::ConversionPatternRewriter &rewriter, mlir::Location loc,
                 mlir::Value runningMax, mlir::Value runningIdx,
                 mlir::Value chunkMax, mlir::Value chunkIdx,
-                RankedTensorType reducedType, bool noCollapse) const {
+                RankedTensorType reducedType, RankedTensorType reducedIdxType,
+                bool noCollapse) const {
     const std::size_t physicalRank =
         ttcore::getDeviceLayout(runningMax).getRank() / 2;
     SmallVector<Attribute> allParallelIterTy(
@@ -5385,8 +5423,8 @@ private:
               .getResult();
         });
 
-    // newIdx = where(cond, chunkIdx, runningIdx).
-    auto newIdxOrigOutputs = createDpsOutputs(loc, rewriter, {reducedType});
+    // newIdx = where(cond, chunkIdx, runningIdx). Index domain is F32.
+    auto newIdxOrigOutputs = createDpsOutputs(loc, rewriter, {reducedIdxType});
     auto [newIdxUnused, newIdxOutputs] = toLayoutOperandsAndResults(
         rewriter, {SmallVector<Value>{}, newIdxOrigOutputs}, true, noCollapse);
     d2m::GenericOp newIdxGen = buildGenericLinAlg(
@@ -5511,13 +5549,14 @@ private:
     while (pow2Tiles * 2 <= targetTiles) {
       pow2Tiles *= 2;
     }
-    int64_t chunkWidth = std::min(N, pow2Tiles * kTile);
-    const int64_t numChunks = (N + chunkWidth - 1) / chunkWidth;
-    // const int64_t numChunks = 1;
-    // int64_t chunkWidth = N;
+    // int64_t chunkWidth = std::min(N, pow2Tiles * kTile);
+    // const int64_t numChunks = (N + chunkWidth - 1) / chunkWidth;
+    const int64_t numChunks = 1;
+    int64_t chunkWidth = N;
 
     Value runningMax, runningIdx;
     RankedTensorType reducedType;
+    RankedTensorType reducedIdxType;
 
     for (int64_t c = 0; c < numChunks; c++) {
       int64_t base = c * chunkWidth, end = std::min(base + chunkWidth, N);
@@ -5547,14 +5586,14 @@ private:
                                                rewriter.getI32ArrayAttr(step))
                                            .getResult();
 
-      // Typecast this chunk to F32 for the index math. Done per-chunk so the
-      // F32 footprint is bounded by the chunk width, not the full tensor.
-      if (needsF32Cast) {
-        auto f32ChunkTy = RankedTensorType::get(
-            chunkShape, rewriter.getF32Type(), argMaxInputTy.getEncoding());
-        chunk = buildTypecastGeneric(rewriter, loc, chunk, f32ChunkTy);
-        chunkTy = f32ChunkTy;
-      }
+      // NOTE: we deliberately do NOT pre-cast the chunk to F32 here. Doing so
+      // materializes a full-width F32 buffer (chunk-width == N when unchunked),
+      // which is a large persistent L1 tensor and a primary source of L1
+      // pressure. Instead buildArgMaxChunk keeps the input in its native dtype
+      // (e.g. bf16) through the value-domain stages (reduce_max, eq) and casts
+      // to F32 per-tile inside the index-math region (stage 3b onward), so no
+      // full-width F32 copy of the input ever exists.
+      (void)needsF32Cast;
 
       ArgMaxCoreResult core = buildArgMaxChunk(rewriter, loc, chunk, chunkTy,
                                                reduceDim, noCollapse, base, N);
@@ -5563,10 +5602,12 @@ private:
         runningMax = core.maxVal;
         runningIdx = core.recoveredIdx;
         reducedType = core.reducedType;
+        reducedIdxType = core.reducedIdxType;
       } else {
         std::tie(runningMax, runningIdx) =
             combineChunks(rewriter, loc, runningMax, runningIdx, core.maxVal,
-                          core.recoveredIdx, core.reducedType, noCollapse);
+                          core.recoveredIdx, core.reducedType,
+                          core.reducedIdxType, noCollapse);
       }
     }
 
@@ -5574,8 +5615,8 @@ private:
     // output type. runningIdx carries the (F32) index domain from the chunk
     // cores, so the host type must match reducedType's element type, not the
     // (possibly bf16) native input type.
-    auto reducedHostType = RankedTensorType::get(reducedType.getShape(),
-                                                 reducedType.getElementType());
+    auto reducedHostType = RankedTensorType::get(
+        reducedIdxType.getShape(), reducedIdxType.getElementType());
     Value reducedHost =
         unLayoutResult(rewriter, runningIdx, reducedHostType)->getResult(0);
     Value result =

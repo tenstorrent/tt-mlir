@@ -25,7 +25,7 @@ from test_utils import (
 pytestmark = pytest.mark.frontend("ttir")
 
 
-@pytest.mark.parametrize("shape", [(512, 512)])
+@pytest.mark.parametrize("shape", [(32, 256000)])
 @pytest.mark.parametrize(
     "target",
     [

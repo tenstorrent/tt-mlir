@@ -53,6 +53,7 @@ def test_argmax_base(
         **get_request_kwargs(request),
         device=device,
         atol=0.0,
+        custom_pipeline="ttir-to-ttmetal-pipeline{allow-l1-output-spilling=true}",
     )
 
 
@@ -69,7 +70,7 @@ def test_argmax_base(
             [1],
             False,
             id="qwen_2_5_0_5b",
-            marks=pytest.mark.xfail(reason="(32, 151936) has rounding issues"),
+            # marks=pytest.mark.xfail(reason="(32, 151936) has rounding issues"),
         ),
         pytest.param(
             (32, 256000),
@@ -77,9 +78,9 @@ def test_argmax_base(
             [1],
             False,
             id="gemma_1_1_2b",
-            marks=pytest.mark.xfail(
-                reason="(32, 256000) tensor exhausts L1 at the moment"
-            ),
+            # marks=pytest.mark.xfail(
+            #     reason="(32, 256000) tensor exhausts L1 at the moment"
+            # ),
         ),
     ],
 )
@@ -100,4 +101,5 @@ def test_argmax_models(
         **get_request_kwargs(request),
         device=device,
         atol=0.0,
+        custom_pipeline="ttir-to-ttmetal-pipeline{allow-l1-output-spilling=true enable-eltwise-reduction-fusion}",
     )
