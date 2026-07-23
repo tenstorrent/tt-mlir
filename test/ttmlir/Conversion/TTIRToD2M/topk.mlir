@@ -55,11 +55,14 @@ module {
   // ---- dim=0, k<=32 ----
 
   // 2D topk along dim 0 with k=16 on a 64x32 input (2 tiles tall).
-  // No pre-transpose is needed for dim=0; extract uses tile_typecast.
+  // The value input needs no pre-transpose for dim=0, but the index buffer is
+  // built row-major on a shape-swapped [wt, ht] buffer and full-transposed
+  // (grid + tile) back to [ht, wt], so a tile_transpose DOES appear (on the
+  // index buffer, before topk_block). Extract uses tile_typecast.
   // CHECK-LABEL: func @topk_dim0_k16
   func.func @topk_dim0_k16(%arg0: tensor<64x32xf32>) -> (tensor<16x32xf32>, tensor<16x32xsi32>) {
-    // No pre-transpose is needed for dim=0.
-    // CHECK-NOT: d2m.tile_transpose
+    // The index buffer's full-transpose emits a tile_transpose before topk.
+    // CHECK: d2m.tile_transpose
 
     // The TopK generic op contains topk_block.
     // CHECK: d2m.generic
@@ -101,11 +104,12 @@ module {
     return %values, %indices : tensor<32x64xf32>, tensor<32x64xsi32>
   }
 
-  // k=64 along dim=0 uses tile_typecast for extract.
+  // k=64 along dim=0 uses tile_typecast for extract. The index buffer is
+  // built row-major + full-transposed, so a tile_transpose appears before topk.
   // CHECK-LABEL: func @topk_dim0_k64
   func.func @topk_dim0_k64(%arg0: tensor<256x32xf32>) -> (tensor<64x32xf32>, tensor<64x32xsi32>) {
-    // No pre-transpose is needed for dim=0.
-    // CHECK-NOT: d2m.tile_transpose
+    // The index buffer's full-transpose emits a tile_transpose before topk.
+    // CHECK: d2m.tile_transpose
     // CHECK: d2m.generic
     // CHECK: d2m.topk_block
     // CHECK-SAME: dim = 0
@@ -169,4 +173,51 @@ module {
     %values, %indices = "ttir.topk"(%arg0) <{k = 16 : i32, dim = -1 : i32, largest = true, sorted = false}> : (tensor<32x544xf32>) -> (tensor<32x16xf32>, tensor<32x16xsi32>)
     return %values, %indices : tensor<32x16xf32>, tensor<32x16xsi32>
   }
-}
+
+  // ---- Multi-core (reduction dim split into per-core bands) ----
+  //
+  // When the reduction dim needs more tiles than one core's budget
+  // (kMaxTilesPerCore / nonTargetTiles), the lowering splits it into numShards
+  // bands (one per core), runs a local topk_block per band, then merges the
+  // per-band partials via a composite_view + a final topk_block. A wide
+  // non-target dim (4 tiles here) shrinks the per-core reduction budget to
+  // 43/4 = 10 tiles, so a 16-reduction-tile input needs >= 2 cores.
+
+  // dim=1 multi-core: 128x512, k=16. Rows=128 (4 non-target tiles), cols=512
+  // (16 reduction tiles) -> multi-core band split.
+  // CHECK-LABEL: func @topk_dim1_multicore
+  func.func @topk_dim1_multicore(%arg0: tensor<128x512xf32>) -> (tensor<128x16xf32>, tensor<128x16xsi32>) {
+    // Per-band local topk (transpose + topk_block) ...
+    // CHECK: d2m.tile_transpose
+    // CHECK: d2m.topk_block
+    // CHECK-SAME: dim = 1
+    // CHECK-SAME: k = 16
+    // ... then the merge gathers the per-band partials via composite_view ...
+    // CHECK: d2m.composite_view
+    // ... and a final merge topk_block selects the global top-k.
+    // CHECK: d2m.topk_block
+    // CHECK-SAME: dim = 1
+    %values, %indices = "ttir.topk"(%arg0) <{k = 16 : i32, dim = -1 : i32, largest = true, sorted = false}> : (tensor<128x512xf32>) -> (tensor<128x16xf32>, tensor<128x16xsi32>)
+    return %values, %indices : tensor<128x16xf32>, tensor<128x16xsi32>
+  }
+
+  // dim=0 multi-core: 512x128, k=16. Rows=512 (16 reduction tiles), cols=128
+  // (4 non-target tiles) -> multi-core band split. Exercises the row-major
+  // arange + full-transpose (grid + tile) index construction under a
+  // gridColsx1 band grid.
+  // CHECK-LABEL: func @topk_dim0_multicore
+  func.func @topk_dim0_multicore(%arg0: tensor<512x128xf32>) -> (tensor<16x128xf32>, tensor<16x128xsi32>) {
+    // The index buffer's full-transpose emits a tile_transpose ...
+    // CHECK: d2m.tile_transpose
+    // ... the per-band local topk ...
+    // CHECK: d2m.topk_block
+    // CHECK-SAME: dim = 0
+    // CHECK-SAME: k = 16
+    // ... the merge gathers per-band partials via composite_view ...
+    // CHECK: d2m.composite_view
+    // ... and a final merge topk_block selects the global top-k.
+    // CHECK: d2m.topk_block
+    // CHECK-SAME: dim = 0
+    %values, %indices = "ttir.topk"(%arg0) <{k = 16 : i32, dim = 0 : i32, largest = true, sorted = false}> : (tensor<512x128xf32>) -> (tensor<16x128xf32>, tensor<16x128xsi32>)
+    return %values, %indices : tensor<16x128xf32>, tensor<16x128xsi32>
+  }
