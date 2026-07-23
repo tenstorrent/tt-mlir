@@ -10,3 +10,6 @@ ttnn-jit-wheel:
   - tools/ttnn-jit/**
 ttnn-jit-nightly:
   - test/ttnn-jit/nightly/**
+d2m-jit-nightly:
+  - test/d2m-jit/**
+  - tools/d2m-jit/**

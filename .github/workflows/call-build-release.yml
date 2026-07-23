@@ -41,7 +41,7 @@ jobs:
       matrix:
         build: [
           { enable_op_model: "ON", enable_emitc: "ON", enable_alchemist_whl: "ON", name: "speedy" },
-          { enable_op_model: "ON", enable_perf: "ON", enable_runtime_debug: "ON", enable_explorer: "ON", enable_pykernel: "ON", enable_ttnn_jit: "ON", name: "tracy" }
+          { enable_op_model: "ON", enable_perf: "ON", enable_runtime_debug: "ON", enable_explorer: "ON", enable_pykernel: "ON", enable_ttnn_jit: "ON", enable_d2m_jit: "ON", name: "tracy" }
         ]
 
     name: Build ${{ matrix.build.name }} Release
@@ -112,6 +112,7 @@ jobs:
           -DTT_RUNTIME_ENABLE_PERF_TRACE=${{ matrix.build.enable_perf }} \
           -DTTMLIR_ENABLE_PYKERNEL=${{ matrix.build.enable_pykernel }} \
           -DTTMLIR_ENABLE_TTNN_JIT=${{ matrix.build.enable_ttnn_jit }} \
+          -DTTMLIR_ENABLE_D2M_JIT=${{ matrix.build.enable_d2m_jit }} \
           -DTTMLIR_ENABLE_STABLEHLO=ON \
           -DTTMLIR_ENABLE_OPMODEL=${{ matrix.build.enable_op_model }} \
           -DTTMLIR_ENABLE_ALCHEMIST_WHEEL=${{ matrix.build.enable_alchemist_whl }} \
@@ -129,6 +130,9 @@ jobs:
       shell: bash
       run: |
         source env/activate
+        # compile-ttmlir-tests depends on the d2m-jit target when
+        # TTMLIR_ENABLE_D2M_JIT=ON, so the d2m_jit python package lands in
+        # build/python_packages (archived below) for the d2m-jit test job.
         cmake --build ${{ steps.strings.outputs.build-output-dir }} -- compile-ttmlir-tests
 
     - name: Install
