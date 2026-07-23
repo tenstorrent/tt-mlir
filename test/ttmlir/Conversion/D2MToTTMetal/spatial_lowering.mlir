@@ -26,7 +26,7 @@ module {
     %out0 = memref.alloc() {alignment = 64 : i64, address = 0x1100} : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>
     %cb_0 = memref.alloc() {address = 0x4000 : i64, alignment = 16 : i64} : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>
     %cb_1 = memref.alloc() {address = 0x4100 : i64, alignment = 16 : i64} : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>
-    d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (0, 0)>]}
+    d2m.spatial {grid_ranges = [#ttcore.core_range<0x0, 1x1>]}
         ins(%arg0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
         outs(%out0 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>) {
       ^region_0:
@@ -76,7 +76,7 @@ module {
     %cb_r1_0 = memref.alloc() {address = 0x4200 : i64, alignment = 16 : i64} : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>
     %cb_r1_1 = memref.alloc() {address = 0x4300 : i64, alignment = 16 : i64} : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>
 
-    d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(1, 1), (1, 1)>]}
+    d2m.spatial {grid_ranges = [#ttcore.core_range<0x0, 1x1>, #ttcore.core_range<1x1, 1x1>]}
         ins(%arg0, %arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
         outs(%out0, %out1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>) {
       ^region_0:
@@ -139,7 +139,7 @@ module {
     %cb_core_r0_1 = memref.alloc() {address = 0x7100 : i64, alignment = 16 : i64} : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>
     %cb_core_r1_0 = memref.alloc() {address = 0x7200 : i64, alignment = 16 : i64} : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>
     %cb_core_r1_1 = memref.alloc() {address = 0x7300 : i64, alignment = 16 : i64} : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>
-    d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(1, 1), (1, 2)>]}
+    d2m.spatial {grid_ranges = [#ttcore.core_range<0x0, 1x1>, #ttcore.core_range<1x1, 1x2>]}
         ins(%arg0, %arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
         outs(%out0, %out1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>) {
       ^region_0:
@@ -195,7 +195,7 @@ module {
     %cb_b0_1 = memref.alloc() {address = 0x5100 : i64, alignment = 16 : i64} : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>
     %cb_b1_0 = memref.alloc() {address = 0x5200 : i64, alignment = 16 : i64} : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>
     %cb_b1_1 = memref.alloc() {address = 0x5300 : i64, alignment = 16 : i64} : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>
-    d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(1, 1), (1, 1)>]}
+    d2m.spatial {grid_ranges = [#ttcore.core_range<0x0, 1x1>, #ttcore.core_range<1x1, 1x1>]}
         ins(%arg0, %arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
         outs(%out0, %out1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>) {
       ^region_0:
@@ -249,7 +249,7 @@ module {
     %cb_cbp_r0_1 = memref.alloc() {address = 0x6100 : i64, alignment = 16 : i64} : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>
     %cb_cbp_r1_0 = memref.alloc() {address = 0x6200 : i64, alignment = 16 : i64} : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>
     %cb_cbp_r1_1 = memref.alloc() {address = 0x6300 : i64, alignment = 16 : i64} : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>
-    d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(1, 1), (1, 1)>]}
+    d2m.spatial {grid_ranges = [#ttcore.core_range<0x0, 1x1>, #ttcore.core_range<1x1, 1x1>]}
         ins(%arg0, %arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
         outs(%out0, %out1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>) {
       ^region_0:
@@ -307,7 +307,7 @@ module {
     %cb_ls_r1_0 = memref.alloc() {address = 0x8200 : i64, alignment = 16 : i64} : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>
     %cb_ls_r1_1 = memref.alloc() {address = 0x8300 : i64, alignment = 16 : i64} : memref<2x2x!ttcore.tile<32x32, f32>, #ttcore.cb_layout<16384x4096, 1>, #l1>
 
-    d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(1, 1), (1, 1)>]}
+    d2m.spatial {grid_ranges = [#ttcore.core_range<0x0, 1x1>, #ttcore.core_range<1x1, 1x1>]}
         ins(%arg0, %arg1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>)
         outs(%out0, %out1 : memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>, memref<1x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.shard<8192x4096, 1>, #l1>) {
       ^region_0:
@@ -357,7 +357,7 @@ module {
     %view = d2m.view_layout %arg0 remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)> : memref<4x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<2048x2048, 1>, #l1> -> memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
     %out = memref.alloc() {alignment = 64 : i64, address = 0x2400} : memref<4x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<2048x2048, 1>, #l1>
     %out_view = d2m.view_layout %out remapping = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)> : memref<4x2x1x1x!ttcore.tile<32x32, f32>, #ttcore.shard<2048x2048, 1>, #l1> -> memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>
-    d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (0, 0)>]}
+    d2m.spatial {grid_ranges = [#ttcore.core_range<0x0, 1x1>]}
         ins(%view : memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>)
         outs(%out_view : memref<2x1x2x2x!ttcore.tile<32x32, f32>, #ttcore.view<4>, #l1>) {
       ^region_0:
