@@ -29,6 +29,11 @@ class _DeviceModule:
         return True
 
     @staticmethod
+    def get_amp_supported_dtype() -> list[torch.dtype]:
+        # This makes torch.amp.autocast(device_type="tt")
+        return [torch.bfloat16]
+
+    @staticmethod
     def is_initialized() -> bool:
         # Queried by torch.distributed.DeviceMesh during init_device_mesh;
         # there's no per-device init step on our side, so we're always "ready".

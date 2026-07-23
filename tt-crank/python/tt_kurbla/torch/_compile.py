@@ -26,7 +26,9 @@ from enum import StrEnum
 
 import torch
 import torch.fx
+from torch._decomp import core_aten_decompositions, get_decompositions
 from torch._dynamo.backends.common import aot_module_simplified
+from torch._subclasses.fake_tensor import unset_fake_temporarily
 
 from . import _native
 
@@ -239,6 +241,22 @@ def _(mb, x):
     return mb.silu(x)
 
 
+@_lowering(_aten.sigmoid.default)
+def _(mb, x):
+    return mb.sigmoid(x)
+
+
+@_lowering(_aten.clamp.default)
+@_skip_prepare(_aten.clamp.default)
+def _(mb, x, min=None, max=None):
+    return mb.clamp(x, None if min is None else float(min), None if max is None else float(max))
+
+
+@_lowering(_aten.floor_divide.default)
+def _(mb, a, b):
+    return mb.floor_divide(a, b)
+
+
 @_lowering(_aten.gelu.default)
 def _(mb, x, approximate="none"):
     # tt-mlir lowers gelu to ttnn.gelu(fast_and_approximate_mode=false): the
@@ -271,6 +289,18 @@ def _(mb, lhs, exp):
 @_lowering(_aten.matmul.default, _aten.bmm.default)
 def _(mb, lhs, rhs):
     return mb.matmul(lhs, rhs)
+
+
+@torch.library.register_fake("aten::matmul_backward")
+def _(grad, self, other, mask):
+    grad_self = torch.empty_like(self) if mask[0] else None
+    grad_other = torch.empty_like(other) if mask[1] else None
+    return grad_self, grad_other
+
+
+@_lowering(_aten.matmul_backward.default)
+def _(mb, grad, self, other, mask):
+    return mb.matmul_backward(grad, self, other, bool(mask[0]), bool(mask[1]))
 
 
 @_lowering(_aten.add.Scalar)
@@ -396,16 +426,207 @@ def _(mb, weight, indices, padding_idx=-1, scale_grad_by_freq=False, sparse=Fals
     return mb.embedding(weight, indices)
 
 
+@_lowering(_aten.le.Scalar)
+@_skip_prepare(_aten.le.Scalar)
+def _(mb, x, scalar):
+    return mb.le(x, mb.scalar_like(x, float(scalar)))
+
+
 @_lowering(_aten.le.Tensor)
 @_skip_prepare(_aten.le.Tensor)
 def _(mb, lhs, rhs):
     return mb.le(lhs, rhs)
 
 
+@_lowering(_aten.ge.Scalar)
+@_skip_prepare(_aten.ge.Scalar)
+def _(mb, x, scalar):
+    return mb.ge(x, mb.scalar_like(x, float(scalar)))
+
+
+@_lowering(_aten.ge.Tensor)
+@_skip_prepare(_aten.ge.Tensor)
+def _(mb, lhs, rhs):
+    return mb.ge(lhs, rhs)
+
+
+@_lowering(_aten.lt.Scalar)
+@_skip_prepare(_aten.lt.Scalar)
+def _(mb, x, scalar):
+    return mb.lt(x, mb.scalar_like(x, float(scalar)))
+
+
+@_lowering(_aten.lt.Tensor)
+@_skip_prepare(_aten.lt.Tensor)
+def _(mb, lhs, rhs):
+    return mb.lt(lhs, rhs)
+
+
+@_lowering(_aten.gt.Scalar)
+@_skip_prepare(_aten.gt.Scalar)
+def _(mb, x, scalar):
+    return mb.gt(x, mb.scalar_like(x, float(scalar)))
+
+
+@_lowering(_aten.gt.Tensor)
+@_skip_prepare(_aten.gt.Tensor)
+def _(mb, lhs, rhs):
+    return mb.gt(lhs, rhs)
+
+
+@_lowering(_aten.eq.Scalar)
+@_skip_prepare(_aten.eq.Scalar)
+def _(mb, x, scalar):
+    return mb.eq(x, mb.scalar_like(x, float(scalar)))
+
+
+@_lowering(_aten.eq.Tensor)
+@_skip_prepare(_aten.eq.Tensor)
+def _(mb, lhs, rhs):
+    return mb.eq(lhs, rhs)
+
+
+@_lowering(_aten.ne.Scalar)
+@_skip_prepare(_aten.ne.Scalar)
+def _(mb, x, scalar):
+    return mb.ne(x, mb.scalar_like(x, float(scalar)))
+
+
+@_lowering(_aten.ne.Tensor)
+@_skip_prepare(_aten.ne.Tensor)
+def _(mb, lhs, rhs):
+    return mb.ne(lhs, rhs)
+
+
 @_lowering(_aten.where.self)
 @_skip_prepare(_aten.where.self)
 def _(mb, condition, self, other):
     return mb.where(condition, self, other)
+
+
+def _numpy_broadcast_shape(shapes):
+    """numpy-style broadcast of a list of shapes (right-aligned, 1 broadcasts)."""
+    ndim = max(len(s) for s in shapes)
+    out = [1] * ndim
+    for s in shapes:
+        s = [1] * (ndim - len(s)) + list(s)
+        for i, d in enumerate(s):
+            if d != 1:
+                if out[i] != 1 and out[i] != d:
+                    raise NotImplementedError(f"tt-kurbla compile: incompatible index broadcast {shapes}")
+                out[i] = d
+    return out
+
+
+def _broadcast_to(mb, value, target):
+    """Reshape (left-pad rank) then broadcast an mb value to `target` shape."""
+    shape = list(value.shape)
+    if shape == target:
+        return value
+    if len(shape) < len(target):
+        shape = [1] * (len(target) - len(shape)) + shape
+        value = mb.reshape(value, shape)
+    return mb.broadcast(value, target) if shape != target else value
+
+
+def _normalize_neg_index(mb, idx, size):
+    """Resolve torch's from-the-end negative indices before a gather (which reads
+    out of bounds on them): return `idx + size` where `idx < 0`, else `idx`."""
+    zero = mb.scalar_like(idx, 0.0)
+    from_end = mb.add(idx, mb.scalar_like(idx, float(size)))
+    return mb.where(mb.lt(idx, zero), from_end, idx)
+
+
+# Advanced indexing x[..., idx, ...] (aten.index.Tensor). `indices` is a per-dim
+# list of index tensors or None. Two supported shapes: a single index tensor
+# (gather along that dim), or index tensors covering all leading dims (flatten to
+# a 1-D linear-index gather).
+@_lowering(_aten.index.Tensor)
+@_skip_prepare(_aten.index.Tensor)
+def _(mb, x, indices):
+    non_none = [(d, idx) for d, idx in enumerate(indices) if idx is not None]
+    in_shape = list(x.shape)
+
+    if len(non_none) == 1:
+        dim, idx = non_none[0]
+        idx_shape = list(idx.shape)
+        if len(idx_shape) != 1:
+            raise NotImplementedError("tt-kurbla compile: single-index aten.index.Tensor requires a 1-D index")
+        k = idx_shape[0]
+        out_shape = list(in_shape)
+        out_shape[dim] = k
+        view_shape = [1] * len(in_shape)
+        view_shape[dim] = k
+        idx_i32 = _normalize_neg_index(mb, mb.typecast(idx, _native.DataType.Int32), in_shape[dim])
+        idx_full = mb.broadcast(mb.reshape(idx_i32, view_shape), out_shape)
+        return mb.gather(x, idx_full, dim)
+
+    dims = [d for d, _ in non_none]
+    k = len(non_none)
+    if dims != list(range(k)) or k != len(in_shape):
+        raise NotImplementedError(
+            "tt-kurbla compile: aten.index.Tensor supports a single index, or index "
+            "tensors covering all leading dims with no trailing dims; "
+            f"got indexed dims {dims} on a {len(in_shape)}-D tensor"
+        )
+    idx_tensors = [idx for _, idx in non_none]
+    out_shape = _numpy_broadcast_shape([list(t.shape) for t in idx_tensors])
+    numel_out = 1
+    for d in out_shape:
+        numel_out *= d
+    # row-major linear index over the leading (== all) dims
+    linear = None
+    for j, t in enumerate(idx_tensors):
+        t = _normalize_neg_index(mb, t, in_shape[j])
+        stride = 1
+        for m in range(j + 1, k):
+            stride *= in_shape[m]
+        tb = _broadcast_to(mb, t, out_shape)
+        term = tb if stride == 1 else mb.mul(tb, mb.scalar_like(tb, float(stride)))
+        linear = term if linear is None else mb.add(linear, term, 1.0)
+    flat_n = 1
+    for d in in_shape:
+        flat_n *= d
+    x_flat = mb.reshape(x, [flat_n])
+    linear_1d = mb.reshape(mb.typecast(linear, _native.DataType.Int32), [numel_out])
+    gathered = mb.gather(x_flat, linear_1d, 0)
+    return mb.reshape(gathered, out_shape)
+
+
+@_lowering(_aten.bitwise_and.Tensor)
+@_skip_prepare(_aten.bitwise_and.Tensor)
+def _(mb, lhs, rhs):
+    return mb.bitwise_and(lhs, rhs)
+
+
+@_lowering(_aten.bitwise_or.Tensor)
+@_skip_prepare(_aten.bitwise_or.Tensor)
+def _(mb, lhs, rhs):
+    return mb.bitwise_or(lhs, rhs)
+
+
+@_lowering(_aten.bitwise_not.default)
+@_skip_prepare(_aten.bitwise_not.default)
+def _(mb, x):
+    return mb.bitwise_not(x)
+
+
+@_lowering(_aten.logical_and.default)
+@_skip_prepare(_aten.logical_and.default)
+def _(mb, lhs, rhs):
+    return mb.logical_and(lhs, rhs)
+
+
+@_lowering(_aten.logical_or.default)
+@_skip_prepare(_aten.logical_or.default)
+def _(mb, lhs, rhs):
+    return mb.logical_or(lhs, rhs)
+
+
+@_lowering(_aten.logical_not.default)
+@_skip_prepare(_aten.logical_not.default)
+def _(mb, x):
+    return mb.logical_not(x)
 
 
 @_lowering(_aten.tril.default)
@@ -438,6 +659,16 @@ def _(mb, x, size):
 @_lowering(_aten.alias.default, _aten.clone.default, _aten.lift_fresh_copy.default)
 @_skip_prepare(_aten.alias.default, _aten.clone.default, _aten.lift_fresh_copy.default)
 def _(mb, x, **kwargs):
+    # clone/alias are identity; lift_fresh_copy passes a baked-in constant tensor
+    if isinstance(x, torch.Tensor):
+        if x.numel() > 1:
+            raise NotImplementedError(
+                f"tt-kurbla compile: non-scalar constant tensor (shape {tuple(x.shape)}) not supported"
+            )
+        # .item() under fake mode would dispatch _local_scalar_dense
+        with unset_fake_temporarily():
+            value = float(x.item()) if x.numel() == 1 else 0.0
+        return mb.full(list(x.shape), value, _to_runtime_dtype(x.dtype))
     return x
 
 
@@ -448,18 +679,20 @@ def _(mb, value, dtype=None, layout=None, device=None, pin_memory=None):
     return mb.scalar(rt_dtype, float(value))
 
 
+def _default_rt_dtype(dtype):
+    return _to_runtime_dtype(dtype if dtype is not None else torch.float32)
+
+
 @_lowering(_aten.full.default)
 @_skip_prepare(_aten.full.default)
 def _(mb, size, fill_value, dtype=None, layout=None, device=None, pin_memory=None, memory_format=None):
-    rt_dtype = _to_runtime_dtype(dtype if dtype is not None else torch.float32)
-    return mb.broadcast(mb.scalar(rt_dtype, float(fill_value)), list(size))
+    return mb.full(list(size), float(fill_value), _default_rt_dtype(dtype))
 
 
 @_lowering(_aten.zeros.default)
 @_skip_prepare(_aten.zeros.default)
 def _(mb, size, dtype=None, layout=None, device=None, pin_memory=None, memory_format=None):
-    rt_dtype = _to_runtime_dtype(dtype if dtype is not None else torch.float32)
-    return mb.broadcast(mb.scalar(rt_dtype, 0.0), list(size))
+    return mb.zeros(list(size), _default_rt_dtype(dtype))
 
 
 @_lowering(_aten.index_copy.default)
@@ -471,8 +704,33 @@ def _(mb, input, dim, index, source):
 @_lowering(_aten.ones.default)
 @_skip_prepare(_aten.ones.default)
 def _(mb, size, dtype=None, layout=None, device=None, pin_memory=None, memory_format=None):
-    rt_dtype = _to_runtime_dtype(dtype if dtype is not None else torch.float32)
-    return mb.broadcast(mb.scalar(rt_dtype, 1.0), list(size))
+    return mb.ones(list(size), _default_rt_dtype(dtype))
+
+
+# new_* mirror zeros/ones/full but take a reference tensor first; unlike them,
+# their dtype defaults to the reference tensor's (not float32).
+@_lowering(_aten.new_zeros.default)
+@_skip_prepare(_aten.new_zeros.default)
+def _(mb, self, size, dtype=None, layout=None, device=None, pin_memory=None):
+    if dtype is None:
+        return mb.zeros_like(self, list(size))
+    return mb.zeros(list(size), _to_runtime_dtype(dtype))
+
+
+@_lowering(_aten.new_ones.default)
+@_skip_prepare(_aten.new_ones.default)
+def _(mb, self, size, dtype=None, layout=None, device=None, pin_memory=None):
+    if dtype is None:
+        return mb.ones_like(self, list(size))
+    return mb.ones(list(size), _to_runtime_dtype(dtype))
+
+
+@_lowering(_aten.new_full.default)
+@_skip_prepare(_aten.new_full.default)
+def _(mb, self, size, fill_value, dtype=None, layout=None, device=None, pin_memory=None):
+    if dtype is None:
+        return mb.full_like(self, list(size), float(fill_value))
+    return mb.full(list(size), float(fill_value), _to_runtime_dtype(dtype))
 
 
 def _is_tensor_schema_arg(
@@ -702,7 +960,9 @@ class _TTIRInterpreter(torch.fx.Interpreter):
             raise NotImplementedError(f"tt-kurbla compile: op {target} not implemented")
 
         val = self._current_node.meta["val"]
-        target_dtype = _to_runtime_dtype(val[0].dtype if isinstance(val, (tuple, list)) else val.dtype)
+        if isinstance(val, (tuple, list)):
+            val = next(v for v in val if v is not None)
+        target_dtype = _to_runtime_dtype(val.dtype)
         args = _prepare_op_args(self.mb, args, target_dtype, target)
         return fn(self.mb, *args, **kwargs)
 
@@ -781,6 +1041,38 @@ def _lower_and_compile(
     return runner
 
 
+def _empty_like_decomp(self, dtype=None, layout=None, device=None, pin_memory=None, memory_format=None):
+    # No uninitialized-allocation lowering; materialize as zeros ("empty" content
+    # is unspecified anyway, and zeros avoids garbage if the buffer is read).
+    return self.new_zeros(self.shape, dtype=dtype if dtype is not None else self.dtype)
+
+
+def _fill_scalar_decomp(self, value):
+    # fill.Scalar: self's shape/dtype filled with `value`, via new_full.
+    return self.new_full(self.shape, value, dtype=self.dtype)
+
+
+# A few scatter decomps we rely on aren't in the core set; pull them in explicitly.
+_EXTRA_DECOMP_OPS = [
+    torch.ops.aten.slice_scatter,
+]
+
+
+def _build_decomposition_table():
+    # Use default core decompositions, plus a few extra and some custom ones.
+    table = dict(core_aten_decompositions())
+    table.update(get_decompositions(_EXTRA_DECOMP_OPS))
+    table.update({
+        torch.ops.aten.empty_like.default: _empty_like_decomp,
+        torch.ops.aten.fill.Scalar: _fill_scalar_decomp,
+    })
+    # Never decompose an op tt lowers directly — keep it as a leaf for its kernel.
+    return {op: fn for op, fn in table.items() if op not in _LOWERINGS}
+
+
+_TT_DECOMPOSITIONS = _build_decomposition_table()
+
+
 def tt_backend(
     gm: torch.fx.GraphModule,
     example_inputs: list[torch.Tensor],
@@ -800,7 +1092,8 @@ def tt_backend(
         return lower_and_compile(bw_gm, bw_inputs, roles)
 
     return aot_module_simplified(
-        gm, example_inputs, fw_compiler=fw_compiler, bw_compiler=bw_compiler
+        gm, example_inputs, fw_compiler=fw_compiler, bw_compiler=bw_compiler,
+        decompositions=_TT_DECOMPOSITIONS,
     )
 
 

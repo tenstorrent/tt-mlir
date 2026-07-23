@@ -11,11 +11,12 @@ from tt_kurbla.torch import _native
 from tt_kurbla.torch.testing import strict_no_fallback
 
 
-# torch.sigmoid is not natively registered on tt — exercises the fallback.
-# If a future change adds a native sigmoid, swap this for another unimplemented
-# op (e.g. torch.cos, torch.log) — the test is about the fallback mechanism,
-# not sigmoid specifically.
-_FALLBACK_OP = torch.sigmoid
+# torch.erf is not natively registered on tt — exercises the fallback.
+# If a future change adds a native erf, swap this for another unimplemented
+# op (e.g. torch.atan, torch.expm1) — the test is about the fallback mechanism,
+# not erf specifically. Pick an op defined over all reals so the randn input in
+# test_fallback_matches_cpu stays finite.
+_FALLBACK_OP = torch.erf
 
 
 def test_fallback_matches_cpu() -> None:

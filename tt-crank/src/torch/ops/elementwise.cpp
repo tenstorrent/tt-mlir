@@ -3,6 +3,8 @@
 #include "cast.hpp"
 
 #include <cstdint>
+#include <limits>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -486,6 +488,41 @@ mlir::Value build_scalar(ModuleBuilder &mb, mlir::Type element_type, double valu
     return constant.getResult();
 }
 
+static llvm::SmallVector<int32_t> shape_to_i32(llvm::ArrayRef<int64_t> shape) {
+    llvm::SmallVector<int32_t> out;
+    for (int64_t d : shape) {
+        out.push_back(as<int32_t>(d));
+    }
+    return out;
+}
+
+// These creation ops (ttir.zeros/ones/full) take the result shape directly and
+// have no operands, so they replace a scalar constant + broadcast and handle a
+// rank-0 result without a special case.
+mlir::Value build_zeros(ModuleBuilder &mb, llvm::ArrayRef<int64_t> shape, mlir::Type element_type) {
+    auto result_type = mlir::RankedTensorType::get(shape, element_type);
+    return mb.create<mlir::tt::ttir::ZerosOp>(result_type, llvm::ArrayRef<int32_t>(shape_to_i32(shape))).getResult();
+}
+
+mlir::Value build_ones(ModuleBuilder &mb, llvm::ArrayRef<int64_t> shape, mlir::Type element_type) {
+    auto result_type = mlir::RankedTensorType::get(shape, element_type);
+    return mb.create<mlir::tt::ttir::OnesOp>(result_type, llvm::ArrayRef<int32_t>(shape_to_i32(shape))).getResult();
+}
+
+mlir::Value build_full(ModuleBuilder &mb, llvm::ArrayRef<int64_t> shape, double value, mlir::Type element_type) {
+    auto result_type = mlir::RankedTensorType::get(shape, element_type);
+    // ttir.full wants the fill value as an f32 or i32 attr regardless of the
+    // result element type (the op casts it to fill the tensor).
+    mlir::Attribute fill_attr;
+    if (mlir::isa<mlir::IntegerType>(element_type)) {
+        fill_attr = mb.attrs().getI32IntegerAttr(as<int32_t>(value));
+    } else {
+        fill_attr = mlir::FloatAttr::get(mb.attrs().getF32Type(), value);
+    }
+    return mb.create<mlir::tt::ttir::FullOp>(result_type, llvm::ArrayRef<int32_t>(shape_to_i32(shape)), fill_attr)
+        .getResult();
+}
+
 mlir::Value build_bn_inference(ModuleBuilder &mb, mlir::Value operand, mlir::Value scale, mlir::Value offset,
                                mlir::Value mean, mlir::Value variance, float eps) {
     auto operand_elem = mlir::cast<mlir::RankedTensorType>(operand.getType()).getElementType();
@@ -853,6 +890,17 @@ at::Tensor tt_div_tensor(const at::Tensor &a_in, const at::Tensor &b_in) {
     return wrap_tt_tensor(std::move(outputs[0]), out_shape, result_dtype);
 }
 
+at::Tensor tt_floor_divide(const at::Tensor &a_in, const at::Tensor &b_in) {
+    const auto [a, b] = align_on_tt(a_in, b_in);
+    auto mb = ModuleBuilder::init({spec_for(a), spec_for(b)});
+    auto [promoted, lhs, rhs] = promote_inputs(mb, a, b);
+    auto result = build_floor_divide(mb, lhs, rhs);
+    auto out_shape = at::infer_size(a.sizes(), b.sizes());
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {a, b});
+    return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
+}
+
 at::Tensor tt_div_scalar(const at::Tensor &self, const at::Scalar &other) {
     TORCH_CHECK(is_tt(self), "tt-kurbla aten::div.Scalar: tensor must be on tt backend");
     TT_FATAL(other.toDouble() != 0.0, "tt_div_scalar: division by zero");
@@ -934,6 +982,27 @@ at::Tensor tt_arange_start_step(const at::Scalar &start_scalar, const at::Scalar
     return arange_impl(s, e, step, out_dtype, device);
 }
 
+at::Tensor tt_sigmoid(const at::Tensor &self) {
+    TORCH_CHECK(is_tt(self), "tt-kurbla aten::sigmoid: tensor must be on tt backend");
+    auto mb = ModuleBuilder::init({spec_for(self)});
+    auto result = build_sigmoid(mb, mb.args()[0]);
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {self});
+    return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
+}
+
+at::Tensor tt_clamp(const at::Tensor &self, const std::optional<at::Scalar> &min,
+                    const std::optional<at::Scalar> &max) {
+    TORCH_CHECK(is_tt(self), "tt-kurbla aten::clamp: tensor must be on tt backend");
+    auto mb = ModuleBuilder::init({spec_for(self)});
+    std::optional<double> min_v = min.has_value() ? std::optional<double>(min->toDouble()) : std::nullopt;
+    std::optional<double> max_v = max.has_value() ? std::optional<double>(max->toDouble()) : std::nullopt;
+    auto result = build_clamp(mb, mb.args()[0], min_v, max_v);
+    auto module_op = std::move(mb).finalize({result});
+    auto outputs = compile_and_run(std::move(module_op), {self});
+    return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
+}
+
 at::Tensor tt_silu(const at::Tensor &self) {
     TORCH_CHECK(is_tt(self), "tt-kurbla aten::silu: tensor must be on tt backend");
     auto mb = ModuleBuilder::init({spec_for(self)});
@@ -991,6 +1060,11 @@ mlir::Value build_silu(ModuleBuilder &mb, mlir::Value input) {
     return mb.create<mlir::tt::ttir::SiluOp>(result_type, input).getResult();
 }
 
+mlir::Value build_sigmoid(ModuleBuilder &mb, mlir::Value input) {
+    auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    return mb.create<mlir::tt::ttir::SigmoidOp>(result_type, input).getResult();
+}
+
 mlir::Value build_gelu(ModuleBuilder &mb, mlir::Value input) {
     auto result_type = mlir::cast<mlir::RankedTensorType>(input.getType());
     return mb.create<mlir::tt::ttir::GeluOp>(result_type, input).getResult();
@@ -1005,6 +1079,40 @@ mlir::Value build_div(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
                                     at::IntArrayRef(rhs_type.getShape().data(), rhs_type.getShape().size()));
     auto result_type = mlir::RankedTensorType::get(out_shape, lhs_type.getElementType());
     return mb.create<mlir::tt::ttir::DivOp>(result_type, lhs, rhs).getResult();
+}
+
+mlir::Value build_floor_divide(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
+    // floor(lhs / rhs), rounding toward -inf. Integers divide in float first
+    // (ttir DivOp truncates toward zero, giving the wrong sign) then cast back.
+    auto elem = mlir::cast<mlir::RankedTensorType>(lhs.getType()).getElementType();
+    if (mlir::isa<mlir::IntegerType>(elem)) {
+        auto f32 = mb.attrs().getF32Type();
+        mlir::Value q = build_div(mb, mb.insert_typecast(lhs, f32), mb.insert_typecast(rhs, f32));
+        auto q_type = mlir::cast<mlir::RankedTensorType>(q.getType());
+        mlir::Value floored = mb.create<mlir::tt::ttir::FloorOp>(q_type, q).getResult();
+        return mb.insert_typecast(floored, elem);
+    }
+    mlir::Value q = build_div(mb, lhs, rhs);
+    auto q_type = mlir::cast<mlir::RankedTensorType>(q.getType());
+    return mb.create<mlir::tt::ttir::FloorOp>(q_type, q).getResult();
+}
+
+mlir::Value build_clamp(ModuleBuilder &mb, mlir::Value input, std::optional<double> min_val,
+                        std::optional<double> max_val) {
+    // clamp_scalar is float-typed; clamp integers in float and cast back. A
+    // missing bound becomes ±inf (no-op on that side).
+    auto in_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto elem = in_type.getElementType();
+    auto f32 = mb.attrs().getF32Type();
+    auto min_attr = mlir::FloatAttr::get(f32, min_val.value_or(-std::numeric_limits<double>::infinity()));
+    auto max_attr = mlir::FloatAttr::get(f32, max_val.value_or(std::numeric_limits<double>::infinity()));
+    if (mlir::isa<mlir::IntegerType>(elem)) {
+        mlir::Value in_f = mb.insert_typecast(input, f32);
+        auto f_type = mlir::cast<mlir::RankedTensorType>(in_f.getType());
+        mlir::Value clamped = mb.create<mlir::tt::ttir::ClampScalarOp>(f_type, in_f, min_attr, max_attr).getResult();
+        return mb.insert_typecast(clamped, elem);
+    }
+    return mb.create<mlir::tt::ttir::ClampScalarOp>(in_type, input, min_attr, max_attr).getResult();
 }
 
 mlir::Value build_pow(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
@@ -1183,6 +1291,17 @@ mlir::Value build_embedding(ModuleBuilder &mb, mlir::Value indices, mlir::Value 
     return mb.create<mlir::tt::ttir::EmbeddingOp>(result_type, indices, weight).getResult();
 }
 
+mlir::Value build_gather(ModuleBuilder &mb, mlir::Value input, mlir::Value index, int64_t dim) {
+    // torch.gather semantics (ttir.gather): `index` has the same rank as
+    // `input`; the result has `index`'s shape and `input`'s element type.
+    auto in_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    auto idx_type = mlir::cast<mlir::RankedTensorType>(index.getType());
+    auto result_type = mlir::RankedTensorType::get(idx_type.getShape(), in_type.getElementType());
+    return mb
+        .create<mlir::tt::ttir::GatherOp>(result_type, input, index, mb.attrs().getI32IntegerAttr(as<int32_t>(dim)))
+        .getResult();
+}
+
 mlir::Value build_tril(ModuleBuilder &mb, mlir::Value input, int64_t diagonal) {
     auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
     auto shape = input_type.getShape();
@@ -1227,6 +1346,42 @@ mlir::Value build_gt(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
     return mb.create<mlir::tt::ttir::GreaterThanOp>(result_type, lhs, rhs).getResult();
 }
 
+mlir::Value build_ge(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
+    auto lhs_type = mlir::cast<mlir::RankedTensorType>(lhs.getType());
+    auto rhs_type = mlir::cast<mlir::RankedTensorType>(rhs.getType());
+    auto out_shape = at::infer_size(at::IntArrayRef(lhs_type.getShape().data(), lhs_type.getShape().size()),
+                                    at::IntArrayRef(rhs_type.getShape().data(), rhs_type.getShape().size()));
+    auto result_type = mlir::RankedTensorType::get(out_shape, mb.attrs().getI1Type());
+    return mb.create<mlir::tt::ttir::GreaterEqualOp>(result_type, lhs, rhs).getResult();
+}
+
+mlir::Value build_lt(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
+    auto lhs_type = mlir::cast<mlir::RankedTensorType>(lhs.getType());
+    auto rhs_type = mlir::cast<mlir::RankedTensorType>(rhs.getType());
+    auto out_shape = at::infer_size(at::IntArrayRef(lhs_type.getShape().data(), lhs_type.getShape().size()),
+                                    at::IntArrayRef(rhs_type.getShape().data(), rhs_type.getShape().size()));
+    auto result_type = mlir::RankedTensorType::get(out_shape, mb.attrs().getI1Type());
+    return mb.create<mlir::tt::ttir::LessThanOp>(result_type, lhs, rhs).getResult();
+}
+
+mlir::Value build_eq(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
+    auto lhs_type = mlir::cast<mlir::RankedTensorType>(lhs.getType());
+    auto rhs_type = mlir::cast<mlir::RankedTensorType>(rhs.getType());
+    auto out_shape = at::infer_size(at::IntArrayRef(lhs_type.getShape().data(), lhs_type.getShape().size()),
+                                    at::IntArrayRef(rhs_type.getShape().data(), rhs_type.getShape().size()));
+    auto result_type = mlir::RankedTensorType::get(out_shape, mb.attrs().getI1Type());
+    return mb.create<mlir::tt::ttir::EqualOp>(result_type, lhs, rhs).getResult();
+}
+
+mlir::Value build_ne(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
+    auto lhs_type = mlir::cast<mlir::RankedTensorType>(lhs.getType());
+    auto rhs_type = mlir::cast<mlir::RankedTensorType>(rhs.getType());
+    auto out_shape = at::infer_size(at::IntArrayRef(lhs_type.getShape().data(), lhs_type.getShape().size()),
+                                    at::IntArrayRef(rhs_type.getShape().data(), rhs_type.getShape().size()));
+    auto result_type = mlir::RankedTensorType::get(out_shape, mb.attrs().getI1Type());
+    return mb.create<mlir::tt::ttir::NotEqualOp>(result_type, lhs, rhs).getResult();
+}
+
 mlir::Value build_bitwise_and(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
     auto lhs_type = mlir::cast<mlir::RankedTensorType>(lhs.getType());
     auto rhs_type = mlir::cast<mlir::RankedTensorType>(rhs.getType());
@@ -1243,6 +1398,59 @@ mlir::Value build_bitwise_and(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rh
         return mb.create<mlir::tt::ttir::LogicalAndOp>(result_type, lhs, rhs).getResult();
     }
     return mb.create<mlir::tt::ttir::BitwiseAndOp>(result_type, lhs, rhs).getResult();
+}
+
+mlir::Value build_bitwise_or(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
+    auto lhs_type = mlir::cast<mlir::RankedTensorType>(lhs.getType());
+    auto rhs_type = mlir::cast<mlir::RankedTensorType>(rhs.getType());
+    auto elem_type = lhs_type.getElementType();
+    TT_FATAL(elem_type == rhs_type.getElementType(),
+             "build_bitwise_or: lhs and rhs must share element type — callers must promote first");
+    auto out_shape = at::infer_size(at::IntArrayRef(lhs_type.getShape().data(), lhs_type.getShape().size()),
+                                    at::IntArrayRef(rhs_type.getShape().data(), rhs_type.getShape().size()));
+    auto result_type = mlir::RankedTensorType::get(out_shape, elem_type);
+    // On Bool operands this is logical OR (ttnn.bitwise_or rejects i1); integers
+    // use the genuine BitwiseOrOp.
+    if (elem_type.isInteger(1)) {
+        return mb.create<mlir::tt::ttir::LogicalOrOp>(result_type, lhs, rhs).getResult();
+    }
+    return mb.create<mlir::tt::ttir::BitwiseOrOp>(result_type, lhs, rhs).getResult();
+}
+
+mlir::Value build_bitwise_not(ModuleBuilder &mb, mlir::Value input) {
+    // Like build_bitwise_and: on Bool operands this is logical NOT (ttnn rejects
+    // bitwise on i1); integers use the genuine BitwiseNotOp.
+    auto in_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    if (in_type.getElementType().isInteger(1)) {
+        return mb.create<mlir::tt::ttir::LogicalNotOp>(in_type, input).getResult();
+    }
+    return mb.create<mlir::tt::ttir::BitwiseNotOp>(in_type, input).getResult();
+}
+
+mlir::Value build_logical_and(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
+    auto lhs_type = mlir::cast<mlir::RankedTensorType>(lhs.getType());
+    auto rhs_type = mlir::cast<mlir::RankedTensorType>(rhs.getType());
+    auto out_shape = at::infer_size(at::IntArrayRef(lhs_type.getShape().data(), lhs_type.getShape().size()),
+                                    at::IntArrayRef(rhs_type.getShape().data(), rhs_type.getShape().size()));
+    auto result_type = mlir::RankedTensorType::get(out_shape, mb.attrs().getI1Type());
+    return mb.create<mlir::tt::ttir::LogicalAndOp>(result_type, lhs, rhs).getResult();
+}
+
+mlir::Value build_logical_or(ModuleBuilder &mb, mlir::Value lhs, mlir::Value rhs) {
+    auto lhs_type = mlir::cast<mlir::RankedTensorType>(lhs.getType());
+    auto rhs_type = mlir::cast<mlir::RankedTensorType>(rhs.getType());
+    auto out_shape = at::infer_size(at::IntArrayRef(lhs_type.getShape().data(), lhs_type.getShape().size()),
+                                    at::IntArrayRef(rhs_type.getShape().data(), rhs_type.getShape().size()));
+    auto result_type = mlir::RankedTensorType::get(out_shape, mb.attrs().getI1Type());
+    return mb.create<mlir::tt::ttir::LogicalOrOp>(result_type, lhs, rhs).getResult();
+}
+
+mlir::Value build_logical_not(ModuleBuilder &mb, mlir::Value input) {
+    auto elem = mlir::cast<mlir::RankedTensorType>(input.getType()).getElementType();
+    if (elem.isInteger(1)) {
+        return mb.create<mlir::tt::ttir::LogicalNotOp>(input.getType(), input).getResult();
+    }
+    return build_eq(mb, input, build_scalar(mb, elem, 0.0));
 }
 
 // Writes `source` into the rank-4 [batch, heads, seq, head_dim] `cache` at the
@@ -1491,6 +1699,35 @@ at::Tensor &tt_bitwise_and_tensor_out(const at::Tensor &self, const at::Tensor &
     return write_result_into(out, tt_bitwise_and_tensor(self, other));
 }
 
+at::Tensor tt_bitwise_or_tensor(const at::Tensor &self_in, const at::Tensor &other_in) {
+    auto [self, other] = align_on_tt(self_in, other_in);
+    auto mb = ModuleBuilder::init({spec_for(self), spec_for(other)});
+    auto [promoted, lhs, rhs] = promote_inputs(mb, self, other);
+    auto result_v = build_bitwise_or(mb, lhs, rhs);
+    auto out_shape_ref = mlir::cast<mlir::RankedTensorType>(result_v.getType()).getShape();
+    std::vector<int64_t> out_shape(out_shape_ref.begin(), out_shape_ref.end());
+    auto module_op = std::move(mb).finalize({result_v});
+    auto outputs = compile_and_run(std::move(module_op), {self, other});
+    return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
+}
+
+at::Tensor &tt_bitwise_or_tensor_out(const at::Tensor &self, const at::Tensor &other, at::Tensor &out) {
+    return write_result_into(out, tt_bitwise_or_tensor(self, other));
+}
+
+at::Tensor tt_bitwise_not(const at::Tensor &self) {
+    TORCH_CHECK(is_tt(self), "tt-kurbla aten::bitwise_not: tensor must be on tt backend");
+    auto mb = ModuleBuilder::init({spec_for(self)});
+    auto result_v = build_bitwise_not(mb, mb.args()[0]);
+    auto module_op = std::move(mb).finalize({result_v});
+    auto outputs = compile_and_run(std::move(module_op), {self});
+    return wrap_tt_tensor(std::move(outputs[0]), self.sizes(), self.scalar_type());
+}
+
+at::Tensor &tt_bitwise_not_out(const at::Tensor &self, at::Tensor &out) {
+    return write_result_into(out, tt_bitwise_not(self));
+}
+
 // tril.out: lower-triangular part of self, written into `out`.
 at::Tensor &tt_tril_out(const at::Tensor &self_in, int64_t diagonal, at::Tensor &out) {
     TORCH_CHECK(is_tt(self_in), "tt-kurbla aten::tril.out: tensor must be on tt backend");
@@ -1563,6 +1800,9 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("arange.start", TORCH_FN(tt_arange_start));
     m.impl("arange.start_step", TORCH_FN(tt_arange_start_step));
     m.impl("silu", TORCH_FN(tt_silu));
+    m.impl("sigmoid", TORCH_FN(tt_sigmoid));
+    m.impl("clamp", TORCH_FN(tt_clamp));
+    m.impl("floor_divide", TORCH_FN(tt_floor_divide));
     m.impl("gelu", TORCH_FN(tt_gelu));
     m.impl("_softmax", TORCH_FN(tt_softmax));
     m.impl("sum.IntList_out", TORCH_FN(tt_sum_out));
@@ -1578,6 +1818,8 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("le.Tensor_out", TORCH_FN(tt_le_tensor_out));
     m.impl("gt.Tensor_out", TORCH_FN(tt_gt_tensor_out));
     m.impl("bitwise_and.Tensor_out", TORCH_FN(tt_bitwise_and_tensor_out));
+    m.impl("bitwise_or.Tensor_out", TORCH_FN(tt_bitwise_or_tensor_out));
+    m.impl("bitwise_not.out", TORCH_FN(tt_bitwise_not_out));
 }
 
 } // namespace tt::kurbla::torch_backend

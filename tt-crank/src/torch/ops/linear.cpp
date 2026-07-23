@@ -1,4 +1,5 @@
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include <ATen/ATen.h>
@@ -101,6 +102,38 @@ at::Tensor tt_bmm(const at::Tensor &self_in, const at::Tensor &mat2_in) {
     std::vector<int64_t> out_shape{a_in.size(0), a_in.size(1), b_in.size(2)};
     auto outputs = compile_and_run(std::move(module_op), {a_in, b_in});
     return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
+}
+
+std::tuple<at::Tensor, at::Tensor> tt_matmul_backward(const at::Tensor &grad_in, const at::Tensor &self_in,
+                                                      const at::Tensor &other_in, ::std::array<bool, 2> mask) {
+    const auto [g_in, a_in, b_in] = align_on_tt(grad_in, self_in, other_in);
+
+    auto mb = ModuleBuilder::init({spec_for(g_in), spec_for(a_in), spec_for(b_in)});
+    auto [promoted, g, a, b] = promote_inputs(mb, g_in, a_in, b_in);
+    auto [grad_self, grad_other] = build_matmul_backward(mb, g, a, b, mask[0], mask[1]);
+
+    // Finalize only the gradients autograd asked for, tracking the slot order so
+    // a masked-off gradient is returned as an undefined tensor.
+    llvm::SmallVector<mlir::Value> requested;
+    if (grad_self.has_value()) {
+        requested.push_back(*grad_self);
+    }
+    if (grad_other.has_value()) {
+        requested.push_back(*grad_other);
+    }
+    auto module_op = std::move(mb).finalize(requested);
+    auto results = compile_and_run(std::move(module_op), {g_in, a_in, b_in});
+
+    at::Tensor grad_self_t;
+    at::Tensor grad_other_t;
+    std::size_t idx = 0;
+    if (grad_self.has_value()) {
+        grad_self_t = wrap_tt_tensor(std::move(results[idx++]), self_in.sizes(), promoted);
+    }
+    if (grad_other.has_value()) {
+        grad_other_t = wrap_tt_tensor(std::move(results[idx++]), other_in.sizes(), promoted);
+    }
+    return std::make_tuple(std::move(grad_self_t), std::move(grad_other_t));
 }
 
 } // namespace
@@ -206,12 +239,88 @@ mlir::Value build_sdpa(ModuleBuilder &mb, mlir::Value query, mlir::Value key, ml
         .getResult();
 }
 
+mlir::Value build_sum_to(ModuleBuilder &mb, mlir::Value t, llvm::ArrayRef<int64_t> target) {
+    auto t_shape = mlir::cast<mlir::RankedTensorType>(t.getType()).getShape();
+    if (t_shape == target) {
+        return t;
+    }
+    int64_t leading = as<int64_t>(t_shape.size()) - as<int64_t>(target.size());
+    TORCH_INTERNAL_ASSERT(leading >= 0, "tt-kurbla build_sum_to: target rank exceeds input rank");
+    if (leading > 0) {
+        llvm::SmallVector<int64_t> dims;
+        for (int64_t i = 0; i < leading; ++i) {
+            dims.push_back(i);
+        }
+        t = build_sum(mb, t, dims, /*keepdim=*/false);
+    }
+    auto cur = mlir::cast<mlir::RankedTensorType>(t.getType()).getShape();
+    llvm::SmallVector<int64_t> keep_dims;
+    for (std::size_t i = 0; i < target.size(); ++i) {
+        if (target[i] == 1 && cur[i] != 1) {
+            keep_dims.push_back(as<int64_t>(i));
+        }
+    }
+    if (!keep_dims.empty()) {
+        t = build_sum(mb, t, keep_dims, /*keepdim=*/true);
+    }
+    // Leading-dim + broadcast-dim reductions above should land exactly on target;
+    // assert the invariant so a shape-inference bug surfaces here, not downstream.
+    auto final_shape = mlir::cast<mlir::RankedTensorType>(t.getType()).getShape();
+    TORCH_INTERNAL_ASSERT(final_shape == target, "tt-kurbla build_sum_to: reduction did not reach target shape");
+    return t;
+}
+
+std::pair<std::optional<mlir::Value>, std::optional<mlir::Value>>
+build_matmul_backward(ModuleBuilder &mb, mlir::Value grad, mlir::Value self, mlir::Value other, bool need_self,
+                      bool need_other) {
+    auto rank_of = [](mlir::Value v) { return mlir::cast<mlir::RankedTensorType>(v.getType()).getRank(); };
+    auto shape_of = [](mlir::Value v) { return mlir::cast<mlir::RankedTensorType>(v.getType()).getShape(); };
+    // The dim helpers normalise a possibly-negative dim against the (post-op) rank.
+    auto unsqueeze_at = [&](mlir::Value v, int64_t dim) {
+        int64_t r = rank_of(v);
+        return build_unsqueeze(mb, v, (dim + r + 1) % (r + 1));
+    };
+    auto squeeze_at = [&](mlir::Value v, int64_t dim) {
+        int64_t r = rank_of(v);
+        return build_squeeze(mb, v, (dim + r) % r);
+    };
+    auto transpose_last2 = [&](mlir::Value v) {
+        int64_t r = rank_of(v);
+        return build_transpose(mb, v, r - 2, r - 1);
+    };
+
+    bool self_1d = rank_of(self) == 1;
+    bool other_1d = rank_of(other) == 1;
+    mlir::Value a = self_1d ? unsqueeze_at(self, 0) : self;
+    mlir::Value b = other_1d ? unsqueeze_at(other, -1) : other;
+    mlir::Value g = grad;
+    if (other_1d) {
+        g = unsqueeze_at(g, -1);
+    }
+    if (self_1d) {
+        g = unsqueeze_at(g, -2);
+    }
+
+    std::optional<mlir::Value> grad_self;
+    std::optional<mlir::Value> grad_other;
+    if (need_self) {
+        mlir::Value ga = build_sum_to(mb, build_matmul(mb, g, transpose_last2(b)), shape_of(a));
+        grad_self = self_1d ? squeeze_at(ga, 0) : ga;
+    }
+    if (need_other) {
+        mlir::Value gb = build_sum_to(mb, build_matmul(mb, transpose_last2(a), g), shape_of(b));
+        grad_other = other_1d ? squeeze_at(gb, -1) : gb;
+    }
+    return {grad_self, grad_other};
+}
+
 TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("t", TORCH_FN(tt_t));
     m.impl("mm", TORCH_FN(tt_mm));
     m.impl("addmm", TORCH_FN(tt_addmm));
     m.impl("matmul", TORCH_FN(tt_matmul));
     m.impl("bmm", TORCH_FN(tt_bmm));
+    m.impl("matmul_backward", TORCH_FN(tt_matmul_backward));
 }
 
 } // namespace tt::kurbla::torch_backend
