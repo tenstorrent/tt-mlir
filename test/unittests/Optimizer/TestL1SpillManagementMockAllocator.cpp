@@ -290,6 +290,60 @@ TEST_F(MockAllocatorTrackerTest, TrackerAliasRefcountKeepsBufferLive) {
 }
 
 //===----------------------------------------------------------------------===//
+// ReshardedPastConsumerTrackedDuringEviction
+//
+// Regression for tt-mlir #9087: the stateful eviction rewinds and re-runs the
+// forward sweep, and past-consumer reshards are routed through the schedule so
+// they are tracked (not the old event-log bracketing that left DRAM-output
+// consumers untracked). Build a graph where the farthest-last-use victim (opV)
+// has a PAST consumer (cPast, scheduled before the OOM-triggering op): evicting
+// opV must insert an L1 reshard before cPast, compile cleanly (no hard-fail),
+// and leave cPast reading L1.
+//===----------------------------------------------------------------------===//
+class MockAllocatorReshardTest : public L1SpillMockAllocatorFixture {};
+
+TEST_F(MockAllocatorReshardTest, ReshardedPastConsumerTrackedDuringEviction) {
+  l1BudgetPerCore = 700 * kKiB; // 2 x 256 KiB fit; a 3rd trips OOM
+  llvm::SmallVector<int64_t> shape = {1, 1, 1024, 1024};
+  auto tt = tensorType(shape, makeL1Sharded(shape));
+
+  auto args = beginFunc({tt});
+  auto *opV = addUnary(args[0], tt, 0);          // victim (long-lived)
+  auto *cPast = addUnary(opV->getResult(0), tt, 0); // PAST consumer of opV
+  auto *cPastU = addUnary(cPast->getResult(0), tt, 0); // cPast dies here
+  auto *mid1 = addUnary(args[0], tt, 0);
+  auto *mid2 = addUnary(mid1->getResult(0), tt, 0); // OOM trigger; mid1 dies here
+  auto *tailV = addUnary(opV->getResult(0), tt, 0); // opV's farthest use
+  finishFunc(
+      {cPastU->getResult(0), mid2->getResult(0), tailV->getResult(0)});
+
+  runMock();
+
+  // A reshard is a ToMemoryConfigOp that writes L1 (the inverse of a spill).
+  size_t reshardsToL1 = 0;
+  func.walk([&](mlir::tt::ttnn::ToMemoryConfigOp op) {
+    auto rt = mlir::dyn_cast<mlir::RankedTensorType>(op.getResult().getType());
+    auto enc =
+        rt ? mlir::dyn_cast_or_null<mlir::tt::ttnn::TTNNLayoutAttr>(
+                 rt.getEncoding())
+           : nullptr;
+    if (enc && enc.hasL1BufferType()) {
+      ++reshardsToL1;
+    }
+  });
+
+  EXPECT_FALSE(mockPassFailed())
+      << "past-consumer reshard must not hard-fail the pass";
+  EXPECT_TRUE(wasSpilled(opV->getResult(0)))
+      << "farthest-last-use victim opV must be spilled";
+  EXPECT_GT(reshardsToL1, 0u)
+      << "opV's past consumer must get an L1 reshard inserted";
+  // cPast reads its reshard's L1 output.
+  EXPECT_TRUE(resultIsL1(cPast->getOperand(0)))
+      << "past consumer's input must be resharded back to L1";
+}
+
+//===----------------------------------------------------------------------===//
 // View-op tripwires (https://github.com/tenstorrent/tt-mlir/issues/9054)
 //
 // The L1 spill pass classifies certain ops (reshape/pad/repeat/permute) as
