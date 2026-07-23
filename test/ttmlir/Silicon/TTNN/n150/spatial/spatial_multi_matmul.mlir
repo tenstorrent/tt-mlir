@@ -35,7 +35,7 @@ module {
     %out_1 = d2m.empty() {virtualGridMapping = #map3} : tensor<64x64xf32, #ttnn_layout3>
     %out_cast_1 = ttir.ttnn_metal_layout_cast %out_1 {virtual_grid_forward_mapping = #vgm_fwd, virtual_grid_inverse_mapping = #vgm_inv}: tensor<64x64xf32, #ttnn_layout3> -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout2>
 
-    %result_reg_0_metal, %result_reg_1_metal = d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(1, 1), (1, 1)>]}
+    %result_reg_0_metal, %result_reg_1_metal = d2m.spatial {grid_ranges = [#ttcore.core_range<0x0, 1x1>, #ttcore.core_range<1x1, 1x1>]}
         ins(%in_cast_i_0, %in_cast_w_0, %in_cast_i_1, %in_cast_w_1 : tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>, tensor<1x1x4x2x!ttcore.tile<32x32, f32>, #layout1>, tensor<1x1x2x4x!ttcore.tile<32x32, f32>, #layout>, tensor<1x1x4x2x!ttcore.tile<32x32, f32>, #layout1>)
         outs(%out_cast, %out_cast_1 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout2>, tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout2>)  {
       ^region_0:

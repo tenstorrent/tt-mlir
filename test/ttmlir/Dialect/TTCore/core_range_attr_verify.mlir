@@ -1,23 +1,35 @@
 // RUN: ttmlir-opt %s --split-input-file --verify-diagnostics
 
-// CoreCoordAttr is (y, x). Negative start y.
-// expected-error @+1 {{must be non-negative}}
-#bad_start_y = #ttcore.core_range<(-1, 0), (0, 0)>
+// Offset and size are (y, x). Invalid offset rank.
+// expected-error @+1 {{offset must contain exactly 2 values, got 1}}
+#bad_offset_rank = #ttcore.core_range<0, 1x1>
 
 // -----
 
-// Negative start x.
-// expected-error @+1 {{must be non-negative}}
-#bad_start_x = #ttcore.core_range<(0, -1), (0, 0)>
+// Invalid size rank.
+// expected-error @+1 {{size must contain exactly 2 values, got 1}}
+#bad_size_rank = #ttcore.core_range<0x0, 1>
 
 // -----
 
-// Negative end y.
-// expected-error @+1 {{must be non-negative}}
-#bad_end_y = #ttcore.core_range<(0, 0), (-1, 0)>
+// DimensionList rejects negative offset values before attribute verification.
+// expected-error @+1 {{invalid dimension}}
+#bad_offset_x = #ttcore.core_range<0x-1, 1x1>
 
 // -----
 
-// Negative end x (non-negative check runs before start <= end).
-// expected-error @+1 {{must be non-negative}}
-#bad_end_x = #ttcore.core_range<(0, 0), (0, -1)>
+// Zero size y.
+// expected-error @+1 {{size values must be positive}}
+#bad_zero_size_y = #ttcore.core_range<0x0, 0x1>
+
+// -----
+
+// Zero size x.
+// expected-error @+1 {{size values must be positive}}
+#bad_zero_size_x = #ttcore.core_range<0x0, 1x0>
+
+// -----
+
+// DimensionList rejects negative size values before attribute verification.
+// expected-error @+1 {{invalid dimension}}
+#bad_negative_size_x = #ttcore.core_range<0x0, 1x-1>
