@@ -318,9 +318,38 @@ protected:
       return a.first < b.first; // max-heap: higher lastUse = higher priority
     }
   };
-  std::priority_queue<LiveEntry, std::vector<LiveEntry>, LiveEntryCompare>
-      liveSet;
+  using LiveSet =
+      std::priority_queue<LiveEntry, std::vector<LiveEntry>, LiveEntryCompare>;
+  LiveSet liveSet;
   llvm::DenseSet<Value> liveValues;
+
+  /// Full sweep state captured before processing a schedule position, so the
+  /// stateful eviction (StatefulL1SpillManagement) can rewind and re-run the
+  /// forward sweep from there. Bundles the tracker snapshot with the FLU heap
+  /// and live-value set (which are not cheaply re-derivable once eviction has
+  /// changed the L1-resident set).
+  struct SweepCheckpoint {
+    typename MemoryTracker::Snapshot tracker;
+    llvm::DenseSet<Value> liveValues;
+    LiveSet liveSet;
+  };
+  /// Per-position sweep checkpoints (stateful path only; keyed by schedule pos).
+  llvm::DenseMap<int64_t, SweepCheckpoint> sweepCheckpoints;
+
+  /// When set by the stateful recoverFromOOM, run() restores the checkpoint at
+  /// this position and re-runs the sweep from it.
+  std::optional<int64_t> pendingRewindTo;
+
+  /// True for spill strategies that rebuild allocator state by rewinding and
+  /// re-running the forward sweep (StatefulL1SpillManagement) rather than the
+  /// address-sim event-log replay. Gates checkpoint capture + rewind wiring so
+  /// the Sum/address-sim path stays byte-identical.
+  virtual bool usesRewindEviction() const { return false; }
+
+  /// Capture / restore the full sweep state (tracker snapshot + liveValues +
+  /// liveSet) at a schedule position. Used by the rewind eviction.
+  void captureCheckpoint(int64_t pos);
+  void restoreCheckpoint(int64_t pos);
 
   /// Event log entry for address reconstruction. Records every L1 allocation
   /// and deallocation in schedule order so that eviction can replay the full
@@ -617,6 +646,8 @@ public:
   using L1SpillManagementBase<MockAllocatorL1Tracker>::L1SpillManagementBase;
 
 protected:
+  bool usesRewindEviction() const override { return true; }
+
   uint64_t placeValidatedOutput(
       Operation *op, int64_t pos, ScheduleData &data,
       const op_constraint_validation::ValidationResult &result) override;
