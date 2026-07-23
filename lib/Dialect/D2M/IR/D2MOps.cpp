@@ -2375,9 +2375,10 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
           regionVirtualBbox.start[1] > 0 ||
           regionVirtualBbox.end[1] < gridEndX) {
         return emitOpError(
-                   "generic op grid not contained in region grid_ranges [")
-               << regionBox.start[0] << ", " << regionBox.start[1] << "] to ["
-               << regionBox.end[0] << ", " << regionBox.end[1] << "]";
+                   "generic op grid not contained in region grid_ranges "
+                   "offset [")
+               << offset[0] << ", " << offset[1] << "], size [" << size[0]
+               << ", " << size[1] << "]";
       }
     }
   }

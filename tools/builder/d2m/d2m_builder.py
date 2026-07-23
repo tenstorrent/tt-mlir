@@ -613,10 +613,14 @@ class D2MBuilder(Builder):
         ), "len(region_builders) must match len(grid_ranges)"
 
         with self._ctx, self._loc:
-            range_attrs: List[Attribute] = []
-            for (oy, ox), (height, width) in grid_ranges:
-                text = f"#ttcore.core_range<{oy}x{ox}, {height}x{width}>"
-                range_attrs.append(Attribute.parse(text, self._ctx))
+            range_attrs = [
+                ttcore.ir.CoreRangeAttr.get(
+                    self._ctx,
+                    [offset_y, offset_x],
+                    [size_y, size_x],
+                )
+                for (offset_y, offset_x), (size_y, size_x) in grid_ranges
+            ]
             grid_attr = ArrayAttr.get(range_attrs)
             if isinstance(loc, str):
                 loc = Location.name(loc, context=self._ctx)
