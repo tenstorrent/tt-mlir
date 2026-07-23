@@ -31,6 +31,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/TypeSwitch.h"
 
+#include <atomic>
 #include <cstdint>
 #include <numeric>
 #include <optional>
@@ -3742,16 +3743,26 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateBuffers(
   }
 
   // The stats buffer holds the per-device E(x^2) partials that are all-gathered
-  // and averaged. Store it in BFloat16, matching production
+  // and averaged. Store it in BFloat16 unconditionally, matching production
   // (models/demos/llama3_70b_galaxy/tt/llama_ccl.py creates this buffer with
   // dtype=ttnn.bfloat16). The fused kernel imposes no fp32 requirement on the
   // stats tensor -- rms_allgather_program_factory.cpp reads stats_data_format
-  // directly from the tensor with no assert against fp32_dest_acc_en -- and
-  // bf16 halves the buffer's L1 footprint. That matters because this persistent
-  // buffer lives on core (0,0) (width-sharded, single core), the same core that
-  // carries the fused kernel's circular buffers, making it the tightest core in
-  // L1. Once the buffer is correctly sized to numDevices tiles (below), an fp32
-  // stats tensor overflowed L1 there and clashed with the static CBs.
+  // directly from the tensor with no assert against fp32_dest_acc_en.
+  //
+  // Previously this tracked compute_config.fp32_dest_acc_en (fp32 when set).
+  // In the normal pipeline that is moot -- DistributedRMSNormWidthShardInput-
+  // RewritePattern sets fp32_dest_acc_en=false before this pass runs, so the
+  // buffer was already bf16 -- but pinning bf16 keeps us off the lossier,
+  // larger fp32 stats datapath (which the reference config never exercises)
+  // even if a caller supplies fp32_dest_acc_en=true.
+  //
+  // NOTE: bf16 is NOT sufficient to fit the numDevices-wide buffer on all
+  // configs. The buffer is width-sharded on the single core (0,0) that also
+  // carries the fused kernel's circular buffers, and the kernel additionally
+  // allocates a compute CB (cb_stats) of numDevices tiles on every compute
+  // core. For an 8-device cluster axis this can still overflow L1; relieving
+  // that requires moving this persistent buffer off the compute grid or
+  // adjusting the program config, not the dtype.
   Type statsElementType = BFloat16Type::get(rewriter.getContext());
 
   auto device = utils::getOrInsertDevice(rewriter, *this);
@@ -3774,10 +3785,10 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateBuffers(
   int64_t numDevices =
       (getClusterAxis() == 0) ? meshShapeAttr.getY() : meshShapeAttr.getX();
 
-  // One tile (32x32) per device, all on a single core (0,0) in L1 and
-  // width-sharded with shard shape (32, numDevices * 32). The fused kernel
-  // hard-requires core (0,0), so spell the placement out explicitly rather
-  // than relying on canonical placement.
+  // One tile (32x32) per device on a single core (0,0) in L1, width-sharded
+  // with shard shape (32, numDevices * 32). This matches how metal's own tests
+  // place the stats buffer (single core), and the buffer is transient (below)
+  // so it does not persist on that core beyond this op.
   MLIRContext *ctx = rewriter.getContext();
   SmallVector<int64_t> statsShape = {1, 1, 32, 32 * numDevices};
   SmallVector<int64_t> statsGridShape = {1, 1};
@@ -3798,19 +3809,51 @@ void mlir::tt::ttnn::DistributedRMSNormOp::allocateBuffers(
   RankedTensorType statsResultType =
       RankedTensorType::get(statsShape, statsElementType, statsLayout);
 
-  // Inserted right after GetDeviceOp so the EmptyOp sits in the block prelude.
-  // TTNNTraceHoistTransform requires a contiguous block of hoistable ops, and
-  // EmptyOp (a host-side allocation) is forbidden inside the trace body.
+  // Transient stats buffer: allocate immediately before this op and deallocate
+  // immediately after it, so the scratch only occupies L1 for the duration of
+  // this op instead of persisting for the whole program. A prelude-hoisted,
+  // CSE-shared buffer (the trace-safe form) stays resident on its core for the
+  // entire model and, at numDevices tiles, collides in L1 with unrelated ops
+  // that share that core (observed as a static-CB-vs-L1-buffer clash). Making
+  // it transient mirrors how the decomposed path stores its all-gather result.
+  //
+  // IMPORTANT: this transient form is only valid when tracing is DISABLED.
+  // Under tracing, ttnn.empty must be hoisted into the prelude
+  // (TTNNTraceHoistTransform forbids host allocations in the trace body), which
+  // would re-introduce persistence and, worse, break the per-op deallocate. The
+  // trace-enabled path should instead fall back to the decomposed op. That
+  // gating is NOT yet wired here -- this unconditionally emits the transient
+  // form so the trace-disabled path can be validated first.
   ttnn::EmptyOp statsEmptyOp;
   {
     OpBuilder::InsertionGuard guard(rewriter);
-    rewriter.setInsertionPointAfter(device);
+    rewriter.setInsertionPoint(*this);
     statsEmptyOp = rewriter.create<ttnn::EmptyOp>(getLoc(), statsResultType,
                                                   device, statsShapeAttr);
+    // ttnn.empty is Pure, so the CSE pass that runs right after buffer
+    // allocation would merge these per-op scratch buffers into one shared,
+    // dominating buffer -- which defeats the transient lifetime and turns the
+    // per-op deallocate below into a use-after-free / double-free. Tag each
+    // empty with a unique marker so CSE treats them as distinct and leaves one
+    // allocation per op. The attribute is inert downstream (ignored by
+    // flatbuffer emission).
+    static std::atomic<int64_t> transientStatsId{0};
+    statsEmptyOp->setDiscardableAttr(
+        "ttnn.transient_stats_id",
+        rewriter.getI64IntegerAttr(transientStatsId++));
   }
 
   rewriter.modifyOpInPlace(
       *this, [&]() { getStatsMutable().assign(statsEmptyOp.getResult()); });
+
+  // Free the scratch right after this op; nothing else uses it.
+  {
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointAfter(*this);
+    // force defaults to false, matching the deallocates the rest of the
+    // compiler emits; that frees this singly-owned device buffer.
+    rewriter.create<ttnn::DeallocateOp>(getLoc(), statsEmptyOp.getResult());
+  }
 }
 // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
