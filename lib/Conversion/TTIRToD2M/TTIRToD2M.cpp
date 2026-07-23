@@ -4010,6 +4010,23 @@ public:
           emptyOp.setVirtualGridInverseMappingAttr(foldInverseMapAttr);
         }
       };
+      // Fold maps for the dim==0 arange/index buffers, which are built in the
+      // SHAPE-SWAPPED [wt, ht] orientation on a 1xgridCols grid (so a row-major
+      // arange sequences the reduction index along columns; see the arange
+      // construction below). The value input uses a gridColsx1 grid, so its
+      // foldForwardMapAttr places bands down the grid ROWS; the swapped arange
+      // buffer needs the transposed placement (bands across grid COLUMNS). Both
+      // fold onto the SAME physical cores in the SAME row-major order (a 1xN
+      // and an Nx1 virtual grid collapse identically), so the fullTranspose
+      // that relabels [0,g] -> [g,0] moves no data across cores. For dim==1 the
+      // arange buffer is already natural-oriented, so these mirror attachFold.
+      AffineMapAttr arangeFoldForwardMapAttr, arangeFoldInverseMapAttr;
+      auto attachArangeFold = [&](d2m::EmptyOp emptyOp) {
+        if (arangeFoldForwardMapAttr) {
+          emptyOp.setVirtualGridForwardMappingAttr(arangeFoldForwardMapAttr);
+          emptyOp.setVirtualGridInverseMappingAttr(arangeFoldInverseMapAttr);
+        }
+      };
       if (gridCols > 1 || foldTotalShards > 0) {
         // Distribute the gridCols reduction bands (one band <=
         // maxMultiCoreReductionTilesPerCore reduction tiles) across the worker
@@ -4093,9 +4110,19 @@ public:
         //     from end), so the 1x1 grid's volume matches. Disjoint from the
         //     full group because that rectangle spans only rows [0, fh).
         AffineMap forwardMap, inverseMap;
+        // The arange buffer's grid, in its own (swapped for dim==0)
+        // orientation. For dim==0 this is the transpose of the value input's
+        // gridColsx1 grid.
+        SmallVector<int64_t> arangeGrid =
+            (dim == 1) ? shardedGrid
+                       : SmallVector<int64_t>{shardedGrid[1], shardedGrid[0]};
+        AffineMap arangeForwardMap, arangeInverseMap;
         if (foldColBase > 0) {
           std::tie(forwardMap, inverseMap) = createOffsetCoreVirtMaps(
               ctx, shardedGrid, workerGridShape, foldColBase);
+          std::tie(arangeForwardMap, arangeInverseMap) =
+              createOffsetCoreVirtMaps(ctx, arangeGrid, workerGridShape,
+                                       foldColBase);
         } else {
           SmallVector<int64_t> physicalGrid =
               d2m::utils::findLegalPhysicalGridForVolume(gridCols,
@@ -4105,9 +4132,14 @@ public:
           std::tie(forwardMap, inverseMap) =
               ttmlir::d2m::utils::grids::createCoreVirtMaps(ctx, shardedGrid,
                                                             physicalGrid);
+          std::tie(arangeForwardMap, arangeInverseMap) =
+              ttmlir::d2m::utils::grids::createCoreVirtMaps(ctx, arangeGrid,
+                                                            physicalGrid);
         }
         foldForwardMapAttr = AffineMapAttr::get(forwardMap);
         foldInverseMapAttr = AffineMapAttr::get(inverseMap);
+        arangeFoldForwardMapAttr = AffineMapAttr::get(arangeForwardMap);
+        arangeFoldInverseMapAttr = AffineMapAttr::get(arangeInverseMap);
         attachFold(shardedEmpty);
         Value tilized =
             rewriter.create<d2m::ToLayoutOp>(loc, rawInput, shardedEmpty)
@@ -4197,12 +4229,21 @@ public:
 
       auto topkIdxTileType = ttcore::TileType::get(idxElemType);
 
-      auto wrapInToLayout = [&](Value genericResult) -> Value {
+      // useArangeFold selects the swapped (1xgridCols) fold placement for the
+      // dim==0 arange/bcast buffers, which live in the shape-swapped [wt, ht]
+      // orientation before fullTranspose. All other buffers use the value
+      // input's (gridColsx1 / natural) fold.
+      auto wrapInToLayout = [&](Value genericResult,
+                                bool useArangeFold = false) -> Value {
         auto resultType = cast<RankedTensorType>(genericResult.getType());
         auto emptyOp = rewriter.create<d2m::EmptyOp>(
             loc, resultType.getShape(), resultType.getElementType(),
             resultType.getEncoding());
-        attachFold(emptyOp);
+        if (useArangeFold) {
+          attachArangeFold(emptyOp);
+        } else {
+          attachFold(emptyOp);
+        }
         return rewriter.create<d2m::ToLayoutOp>(loc, genericResult, emptyOp)
             .getResult(0);
       };
@@ -4265,54 +4306,50 @@ public:
         return wrapInToLayout(transposeGeneric->getResult(0));
       };
 
-      // Full (grid-level) transpose: swaps the shard's last two tile-grid dims
-      // AND transposes within each tile, so an R-row x C-col buffer becomes a
-      // genuine C x R buffer (unlike transposeTiles, which keeps the grid shape
-      // and only transposes within each tile). Used to build the dim==0 index
-      // buffer: fill the arange into a [C, R] buffer (so the [0..R-1] sequence
-      // runs along the R-long axis, spanning all tiles), then transpose here to
-      // [R, C] so idxBuf[r][c] == r == the global dim-0 index.
-      auto transposeTilesGrid = [&](Value src) -> Value {
+      // Full transpose (grid + tile): reorients an index buffer from the
+      // SHAPE-SWAPPED arange orientation [wt, ht] @ 1xgridCols back to the
+      // value input's natural [ht, wt] @ gridColsx1 orientation. Unlike
+      // transposeTiles (a per-tile TileTransposeOp that keeps the same shard
+      // shape), this ALSO swaps the two grid dims and the two shard dims, so
+      // index data moves onto the reduction-row axis. The generic's input map
+      // permutes the grid dims (grid transpose) and the inner linalg map
+      // permutes the shard dims (tile grid transpose), while TileTransposeOp
+      // transposes within each tile. Because a 1xgridCols and a gridColsx1
+      // virtual grid fold to the SAME physical cores in the SAME row-major
+      // order, the grid permutation is a relabel -- no cross-core data
+      // movement.
+      auto fullTranspose = [&](Value src) -> Value {
         auto srcType = cast<RankedTensorType>(src.getType());
         auto srcTileType = cast<ttcore::TileType>(srcType.getElementType());
-        auto srcLayout = cast<ttcore::MetalLayoutAttr>(srcType.getEncoding());
-        ArrayRef<int64_t> srcDeviceShape = srcType.getShape();
-        std::size_t deviceRank = srcDeviceShape.size();
-        // Output device shape swaps the last two (shard) tile dims.
-        SmallVector<int64_t> dstDeviceShape(srcDeviceShape.begin(),
-                                            srcDeviceShape.end());
-        std::swap(dstDeviceShape[deviceRank - 1],
-                  dstDeviceShape[deviceRank - 2]);
-        // Output logical shape (the layout carries a logical shape whose tile
-        // extents must track the swapped physical tile counts).
-        constexpr int64_t kTileDim = 32;
-        SmallVector<int64_t> dstLogical = {
-            dstDeviceShape[deviceRank - 2] * kTileDim,
-            dstDeviceShape[deviceRank - 1] * kTileDim};
-        auto dstLayout = ttcore::MetalLayoutAttr::get(
-            ctx, dstLogical, srcLayout.getDimAlignments(),
-            srcLayout.getCollapsedIntervals(), srcLayout.getMemorySpace(),
-            srcLayout.getMemoryLayout());
-        auto dstType =
-            RankedTensorType::get(dstDeviceShape, srcTileType, dstLayout);
+        // Output device shape = src device shape with the last two grid dims
+        // and the last two shard dims swapped. Device rank is 2*physicalRank,
+        // laid out [grid..., shard...]; swap grid_{pr-2}<->grid_{pr-1} and
+        // shard_{pr-2}<->shard_{pr-1}.
+        ArrayRef<int64_t> srcDevShape = srcType.getShape();
+        SmallVector<int64_t> dstDevShape(srcDevShape.begin(),
+                                         srcDevShape.end());
+        std::swap(dstDevShape[physicalRank - 2], dstDevShape[physicalRank - 1]);
+        std::swap(dstDevShape[2 * physicalRank - 2],
+                  dstDevShape[2 * physicalRank - 1]);
+        // Output carries the value input's (gridColsx1) fold and layout, so the
+        // transposed buffer lands co-located with topkInput.
         auto transposeEmpty = rewriter.create<d2m::EmptyOp>(
-            loc, dstType.getShape(), srcTileType, dstLayout);
+            loc, dstDevShape, srcTileType, metalLayout);
         attachFold(transposeEmpty);
+        // Generic-level input map: permute the last two grid dims.
+        SmallVector<AffineExpr> permExprs;
+        for (std::size_t i = 0; i < physicalRank; ++i) {
+          permExprs.push_back(rewriter.getAffineDimExpr(i));
+        }
+        std::swap(permExprs[physicalRank - 2], permExprs[physicalRank - 1]);
+        AffineMap gridPermMap = AffineMap::get(physicalRank, 0, permExprs, ctx);
         SmallVector<Value> transposeInputs = {src};
         SmallVector<Value> transposeOutputs = {transposeEmpty.getResult()};
-        // Input map permutes the last two shard dims so tile [.., i, j] reads
-        // from source tile [.., j, i]; output map is identity.
-        SmallVector<AffineExpr> inExprs;
-        for (std::size_t i = 0; i < physicalRank; ++i) {
-          inExprs.push_back(rewriter.getAffineDimExpr(i));
-        }
-        std::swap(inExprs[physicalRank - 1], inExprs[physicalRank - 2]);
-        AffineMap permInMap = AffineMap::get(physicalRank, 0, inExprs, ctx);
         auto transposeGeneric = rewriter.create<d2m::GenericOp>(
             loc, transposeInputs, transposeOutputs,
             /*additionalArgs=*/ValueRange(),
             rewriter.getAffineMapArrayAttr(
-                SmallVector<AffineMap>{permInMap, identityMap}),
+                SmallVector<AffineMap>{gridPermMap, identityMap}),
             rewriter.getArrayAttr(iteratorTypes));
         transposeGeneric->setAttr("d2m.skip_grid_selection",
                                   rewriter.getUnitAttr());
@@ -4324,29 +4361,24 @@ public:
               Value output = blockArgs[1];
               std::size_t shardRank =
                   cast<RankedTensorType>(output.getType()).getRank();
-              // The input and output shards have TRANSPOSED grid shapes here
-              // ([1,8] vs [8,1]): withD2MGenericRegion hands each block arg its
-              // own operand's shard shape, so the maps must reconcile them. The
-              // iteration domain follows the OUTPUT (identity map); the INPUT
-              // map permutes the last two shard dims so output tile [d0,d1]
-              // reads input tile [d1,d0]. A single identity on both (as for a
-              // shape-preserving per-tile transpose) would make linalg infer
-              // conflicting extents for the swapped dim and fail verification.
+              // Inner linalg input map permutes the last two shard dims so tile
+              // (r, c) of the output reads tile (c, r) of the input; the output
+              // map is identity over the (swapped) output shard shape.
+              SmallVector<AffineExpr> shardPermExprs;
+              for (std::size_t i = 0; i < shardRank; ++i) {
+                shardPermExprs.push_back(rewriter.getAffineDimExpr(i));
+              }
+              std::swap(shardPermExprs[shardRank - 2],
+                        shardPermExprs[shardRank - 1]);
+              AffineMap shardInputMap =
+                  AffineMap::get(shardRank, 0, shardPermExprs, ctx);
               AffineMap shardIdentity =
                   rewriter.getMultiDimIdentityMap(shardRank);
-              SmallVector<AffineExpr> shardInExprs;
-              for (std::size_t i = 0; i < shardRank; ++i) {
-                shardInExprs.push_back(rewriter.getAffineDimExpr(i));
-              }
-              std::swap(shardInExprs[shardRank - 1],
-                        shardInExprs[shardRank - 2]);
-              AffineMap shardPermMap =
-                  AffineMap::get(shardRank, 0, shardInExprs, ctx);
               SmallVector<mlir::utils::IteratorType> linalgIters(
                   shardRank, mlir::utils::IteratorType::parallel);
               auto linalgOp = rewriter.create<linalg::GenericOp>(
                   loc, output.getType(), input, output,
-                  SmallVector<AffineMap>{shardPermMap, shardIdentity},
+                  SmallVector<AffineMap>{shardInputMap, shardIdentity},
                   linalgIters,
                   [&](OpBuilder &b, Location bodyLoc, ValueRange args) {
                     Value transposed = b.create<d2m::TileTransposeOp>(
@@ -4368,92 +4400,75 @@ public:
 
       // Setting up the arange op.
       //
-      // dim==0 index construction has two strategies:
-      //
-      // (a) single-core (swapArange): the reduction runs along tile ROWS, but
-      //     the arange primitive naturally sequences indices along tile
-      //     COLUMNS. So build the ENTIRE arange+broadcast on a shape-SWAPPED
-      //     [wt, ht] buffer -- reusing the same column-sequencing/Row-
-      //     broadcast the dim==1 path uses -- then grid-transpose the result
-      //     back to [ht, wt] via transposeTilesGrid. After the transpose
-      //     idxBuf[r][c] == r == the global dim-0 index across all tiles.
-      //
-      // (b) multi-core banded along dim==0 (colMajorArange): a grid transpose
-      //     under a non-trivial (gridColsx1) grid is impossible -- the outer
-      //     d2m.generic's single grid-rank indexing map must simultaneously
-      //     describe an IDENTITY grid permutation (both operands share the
-      //     gridColsx1 grid) and a SWAPPING shard permutation (shard goes
-      //     [1,wt]->[wt,1]), which no single map can express. So instead build
-      //     the arange DIRECTLY in the natural [ht, wt] orientation and set
-      //     colMajor=true so ArangeBlockOp sequences indices DOWN the rows
-      //     (row-major global index), then Col-broadcast. This yields
-      //     idxBuf[r][c] == r with no transpose at all.
-      // isFoldedShard covers both the equal-band multi-core case (gridCols>1)
-      // and an uneven-split remainder band (gridCols==1, foldTotalShards>0):
-      // both are direct-allocated at a folded physical placement rather than
-      // the default unit-grid [0,0], so both need the colMajor arange
-      // construction (see the swapArange comment below for why the swapped
-      // construction is incompatible with a folded placement).
+      // Both dims build the arange ROW-MAJOR (colMajor=false): ArangeBlockOp
+      // sequences the global index along tile COLUMNS, and DecomposeArange's
+      // per-core coreX term supplies each multi-core band's offset. The buffer
+      // is oriented so the reduction lands on the COLUMN axis:
+      //   dim==1: reduction already runs along columns -> natural [ht, wt].
+      //   dim==0: reduction runs along ROWS, so build on the SHAPE-SWAPPED
+      //     [wt, ht] buffer (grid 1xgridCols), then fullTranspose back to the
+      //     natural [ht, wt] @ gridColsx1 orientation below. This is what lets
+      //     the row-major index sequence land DOWN the rows for ht>1 (a
+      //     per-tile transpose alone cannot move indices across a tile-row
+      //     boundary).
+      bool colMajorArange = false;
+      // isFoldedShard covers the equal-band multi-core case (gridCols>1) and an
+      // uneven-split remainder band (gridCols==1, foldTotalShards>0): both are
+      // direct-allocated at a folded physical placement rather than the default
+      // unit-grid [0,0].
       bool isFoldedShard = gridCols > 1 || foldTotalShards > 0;
-      bool colMajorArange = (dim == 0 && isFoldedShard);
-      bool swapArange = (dim == 0 && !colMajorArange);
 
       // Arange emits integer indices; allocate its buffers with the index
       // element type (bf16 for small reduction dims, Int32 otherwise) rather
       // than f32.
       auto idxTileType = ttcore::TileType::get(idxElemType);
-      // Logical shape for the arange/bcast buffers: swapped for dim==0 so the
-      // sequence axis lands on columns, matching the dim==1-style construction.
+      // Logical shape for the arange/bcast buffers. dim==1 keeps the natural
+      // orientation; dim==0 swaps the last two dims so the reduction is on the
+      // column axis (fullTranspose swaps it back afterwards).
       SmallVector<int64_t> arangeLogicalShape(topkLogicalShape.begin(),
                                               topkLogicalShape.end());
-      if (swapArange) {
-        std::swap(arangeLogicalShape[rank - 1], arangeLogicalShape[rank - 2]);
+      if (dim == 0) {
+        std::swap(arangeLogicalShape[rank - 2], arangeLogicalShape[rank - 1]);
       }
       auto idxInputType = RankedTensorType::get(arangeLogicalShape, idxElemType,
                                                 inputType.getEncoding());
+      // Device shape and layout the arange buffer is directly allocated at
+      // (used for the folded/multi-core path). dim==0 swaps the last two grid
+      // dims and the last two shard dims of deviceShape (the [wt, ht] @
+      // 1xgridCols orientation); dim==1 uses deviceShape/metalLayout unchanged.
+      SmallVector<int64_t> arangeDeviceShape(deviceShape.begin(),
+                                             deviceShape.end());
+      ttcore::MetalLayoutAttr arangeMetalLayout = metalLayout;
+      if (dim == 0) {
+        std::swap(arangeDeviceShape[physicalRank - 2],
+                  arangeDeviceShape[physicalRank - 1]);
+        std::swap(arangeDeviceShape[2 * physicalRank - 2],
+                  arangeDeviceShape[2 * physicalRank - 1]);
+        SmallVector<int64_t> swappedLogical(
+            metalLayout.getLogicalShape().begin(),
+            metalLayout.getLogicalShape().end());
+        std::swap(swappedLogical[swappedLogical.size() - 2],
+                  swappedLogical[swappedLogical.size() - 1]);
+        arangeMetalLayout = ttcore::MetalLayoutAttr::get(
+            ctx, swappedLogical, metalLayout.getDimAlignments(),
+            metalLayout.getCollapsedIntervals(), metalLayout.getMemorySpace(),
+            metalLayout.getMemoryLayout());
+      }
 
-      // For the swapped dim==0 buffer we must allocate the arange/bcast tensors
-      // DIRECTLY at the swapped physical [wt, ht] device shape. Routing through
-      // createOptimalLayoutOp instead re-derives the tile grid from the
-      // encoding collapse intervals and hands back the UN-swapped [ht, wt]
-      // shard, which makes the broadcast's linalg maps mismatch (expects [1,8],
-      // gets [8,1]). Build a swapped device shape + matching MetalLayoutAttr
-      // (mirrors the dst-side construction in transposeTilesGrid).
-      SmallVector<int64_t> swappedDeviceShape(deviceShape.begin(),
-                                              deviceShape.end());
-      std::swap(swappedDeviceShape[deviceShape.size() - 1],
-                swappedDeviceShape[deviceShape.size() - 2]);
-      constexpr int64_t kArangeTileDim = 32;
-      SmallVector<int64_t> swappedLogical = {
-          swappedDeviceShape[deviceShape.size() - 2] * kArangeTileDim,
-          swappedDeviceShape[deviceShape.size() - 1] * kArangeTileDim};
-      auto swappedMetalLayout = ttcore::MetalLayoutAttr::get(
-          ctx, swappedLogical, metalLayout.getDimAlignments(),
-          metalLayout.getCollapsedIntervals(), metalLayout.getMemorySpace(),
-          metalLayout.getMemoryLayout());
       // Shard the index buffer across the same gridCols cores as the input.
-      // For gridCols==1, toLayoutOperandsAndResults builds the unit-grid
-      // EmptyOp + to_layout as usual. For gridCols>1 we must NOT call it: it
-      // would materialize a full-width unit-grid buffer (e.g. 1x1x1x256 tiles =
-      // 1MB) on a single core, and overwriting the returned handle leaves that
-      // dead buffer in the IR where it still gets L1-allocated and overflows.
-      // Instead allocate the arange output directly at the sharded
-      // (1xgridCols or gridColsx1) device shape so each core owns only its
-      // band. Multi-core is either dim==1 (natural orientation) or dim==0 with
-      // colMajorArange (also natural [ht, wt] orientation, sequenced down rows
-      // in-block), so both use the un-swapped deviceShape here.
+      // For a folded (multi-core / remainder-band) placement we must NOT route
+      // through toLayoutOperandsAndResults: it would materialize a full-width
+      // unit-grid buffer (e.g. 1x1x1x256 tiles = 1MB) on a single core, and
+      // overwriting the returned handle leaves that dead buffer in the IR where
+      // it still gets L1-allocated and overflows. Instead allocate the arange
+      // output directly at the sharded (1xgridCols) device shape so each core
+      // owns only its band, using the (swapped for dim==0) arange orientation
+      // and its matching arangeFold placement.
       SmallVector<Value> arangeOutputs;
       if (isFoldedShard) {
         auto arangeEmpty = rewriter.create<d2m::EmptyOp>(
-            loc, deviceShape, idxTileType, metalLayout);
-        attachFold(arangeEmpty);
-        arangeOutputs.push_back(arangeEmpty.getResult());
-      } else if (swapArange) {
-        // Direct-allocate at the swapped [wt, ht] device shape (see above);
-        // going through the layout infra would collapse it back to [ht, wt].
-        auto arangeEmpty = rewriter.create<d2m::EmptyOp>(
-            loc, swappedDeviceShape, idxTileType, swappedMetalLayout);
-        attachFold(arangeEmpty);
+            loc, arangeDeviceShape, idxTileType, arangeMetalLayout);
+        attachArangeFold(arangeEmpty);
         arangeOutputs.push_back(arangeEmpty.getResult());
       } else {
         auto arangeOrigOutputs =
@@ -4486,8 +4501,10 @@ public:
                                     arangeScratchTileType, arangeScratchLayout)
               .getResult();
 
-      int64_t numElements =
-          (dim == 0) ? topkLogicalShape[rank - 2] : topkLogicalShape[rank - 1];
+      // The reduction extent. DecomposeArange derives the global index purely
+      // from tile grid position (it ignores numElements), so this is only
+      // cosmetic, but keep it truthful: the reduction dim's element count.
+      int64_t numElements = topkLogicalShape[dim];
 
       // Build affine maps: scratch input always at (0,0), output is identity.
       AffineExpr zero = rewriter.getAffineConstantExpr(0);
@@ -4526,37 +4543,26 @@ public:
 
       // Setting up the broadcast after arange.
 
-      // Broadcast first row or column to full shape.
-      //   dim==1 and swapped dim==0 (single-core): arange sequences indices
-      //     along COLUMNS, so value at (r,c) == c (same for all rows) ->
-      //     broadcast row 0 DOWN the rows (Row broadcast). Swapped dim==0 is
-      //     handled on its [wt, ht] buffer here and grid-transposed to [ht, wt]
-      //     afterwards.
-      //   colMajorArange (multi-core dim==0): arange sequences indices DOWN
-      //     the ROWS, so value at (r,c) == r (same for all cols) -> broadcast
-      //     col 0 ACROSS the columns (Col broadcast). No transpose afterwards.
-      d2m::TileBcastType postArangeBcastType =
-          colMajorArange ? d2m::TileBcastType::Col : d2m::TileBcastType::Row;
+      // Both dims build the arange row-major: it sequences indices along
+      // COLUMNS (value at (r,c) == c, same for all rows), so broadcast row 0
+      // DOWN the rows (Row broadcast). For dim==0 the buffer is the
+      // shape-swapped [wt, ht] orientation, so this fills each row with the
+      // column-index (reduction) sequence; fullTranspose then reorients it
+      // below.
+      d2m::TileBcastType postArangeBcastType = d2m::TileBcastType::Row;
       d2m::TileBcastTypeAttr postArangeBcastTypeAttr =
           d2m::TileBcastTypeAttr::get(ctx, postArangeBcastType);
       SmallVector<Value> postArangeBcastInputs(arange.getResults().begin(),
                                                arange.getResults().end());
       SmallVector<Value> postArangeBcastOutputs;
-      // For multicore, allocate the broadcast output at the sharded device
-      // shape (1xgridCols or gridColsx1, natural orientation for both dim==1
-      // and colMajorArange dim==0) so its L1 buffer is split across cores and
-      // its operand grid matches the sharded arange input (and topkInput).
+      // For multicore, allocate the broadcast output at the sharded arange
+      // device shape (swapped [wt, ht] @ 1xgridCols for dim==0, natural for
+      // dim==1) so its L1 buffer is split across cores and its operand grid
+      // matches the sharded arange input.
       if (isFoldedShard) {
         auto bcastEmpty = rewriter.create<d2m::EmptyOp>(
-            loc, deviceShape, idxTileType, metalLayout);
-        attachFold(bcastEmpty);
-        postArangeBcastOutputs.push_back(bcastEmpty.getResult());
-      } else if (swapArange) {
-        // Match the swapped [wt, ht] arange input so the broadcast's linalg
-        // maps line up (see the swappedDeviceShape rationale above).
-        auto bcastEmpty = rewriter.create<d2m::EmptyOp>(
-            loc, swappedDeviceShape, idxTileType, swappedMetalLayout);
-        attachFold(bcastEmpty);
+            loc, arangeDeviceShape, idxTileType, arangeMetalLayout);
+        attachArangeFold(bcastEmpty);
         postArangeBcastOutputs.push_back(bcastEmpty.getResult());
       } else {
         // For single-core, use the standard layout wrapping.
@@ -4645,27 +4651,26 @@ public:
           });
 
       Value indexOperand = postArangeBcast->getResult(0);
-      Value idxBuf = wrapInToLayout(indexOperand);
+      // The bcast result is in the swapped arange orientation (dim==0) /
+      // natural (dim==1), so wrap it with the matching (swapped) fold
+      // placement.
+      Value idxBuf = wrapInToLayout(indexOperand, /*useArangeFold=*/dim == 0);
 
       // TopkBlockOp reads value and index tiles in lockstep, so bring the index
-      // buffer into the same orientation as the value input.
-      //   dim==1: arange+bcast yields idxBuf[row][col] = col; a per-tile
-      //     transpose makes the column index vary along the tile's row axis,
-      //     matching the transposed value tile.
-      //   dim==0 single-core (swapArange): idxBuf was built on the swapped
-      //     [wt, ht] buffer with the [0..R-1] sequence running along its
-      //     columns; a GRID transpose swaps the tile-grid dims AND transposes
-      //     within each tile, producing the genuine [ht, wt] buffer where
-      //     idxBuf[r][c] == r (the global dim-0 index) across all tiles. A
-      //     per-tile transpose alone would be wrong for ht>1 because it cannot
-      //     move the sequence across tile rows.
-      //   dim==0 multi-core (colMajorArange): idxBuf was built DIRECTLY in the
-      //     [ht, wt] orientation with colMajor sequencing (idxBuf[r][c] == r
-      //     already), matching the un-transposed value input, so NO transpose.
+      // buffer into the same orientation as the value input. arange+bcast
+      // yields idxBuf[row][col] == col (the column-index sequence) for both
+      // dims.
+      //   dim==1: a per-tile transpose makes the column index vary along the
+      //     tile's row axis, matching the (per-tile-transposed) value input.
+      //   dim==0: a FULL transpose (grid + tile) reorients the swapped
+      //     [wt, ht] @ 1xgridCols index buffer to natural [ht, wt] @
+      //     gridColsx1, turning the column-index sequence into a DOWN-the-rows
+      //     row-index sequence (idxBuf[r][c] == r) that matches the
+      //     un-transposed value input across all reduction tiles.
       if (dim == 1) {
         idxBuf = transposeTiles(idxBuf);
-      } else if (!colMajorArange) {
-        idxBuf = transposeTilesGrid(idxBuf);
+      } else {
+        idxBuf = fullTranspose(idxBuf);
       }
 
       auto topkValsEmpty = rewriter.create<d2m::EmptyOp>(
