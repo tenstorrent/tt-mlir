@@ -1346,6 +1346,25 @@ bool AddressSimSpillManagement<MemoryTracker>::wouldCBsOverlapTensors(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
+void L1SpillManagementBase<MemoryTracker>::captureCheckpoint(int64_t pos) {
+  SweepCheckpoint cp;
+  cp.tracker = memoryTracker.takeSnapshot();
+  cp.liveValues = liveValues;
+  cp.liveSet = liveSet;
+  sweepCheckpoints[pos] = std::move(cp);
+}
+
+template <typename MemoryTracker>
+void L1SpillManagementBase<MemoryTracker>::restoreCheckpoint(int64_t pos) {
+  auto it = sweepCheckpoints.find(pos);
+  assert(it != sweepCheckpoints.end() &&
+         "no sweep checkpoint at rewind position");
+  memoryTracker.restoreSnapshot(it->second.tracker);
+  liveValues = it->second.liveValues;
+  liveSet = it->second.liveSet;
+}
+
+template <typename MemoryTracker>
 void L1SpillManagementBase<MemoryTracker>::run() {
   ScheduleData data = buildScheduleData();
 
@@ -1369,6 +1388,13 @@ void L1SpillManagementBase<MemoryTracker>::run() {
       break;
     }
     Operation *op = data.schedule[pos];
+
+    // Snapshot the full sweep state entering this position so the stateful
+    // eviction can rewind here and re-run the forward sweep. No-op for the
+    // address-sim path.
+    if (usesRewindEviction()) {
+      captureCheckpoint(pos);
+    }
 
     // Eviction can insert a reshard for `op`, shifting `op` past `pos`. Rewind
     // to the first inserted reshard (always at `pos`) so the sweep processes it
