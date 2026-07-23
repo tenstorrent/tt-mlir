@@ -222,10 +222,9 @@ struct MockAllocatorL1Tracker {
 
   /// Query a single op in isolation with an explicit additionalL1Usage (no live
   /// records). Used by the eviction path's consumer-reshard probes.
-  op_constraint_validation::ValidationResult
-  validateBackendDirect(Operation *op,
-                        llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
-                        const OpConfig &config, uint64_t additionalL1Usage) const;
+  op_constraint_validation::ValidationResult validateBackendDirect(
+      Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+      const OpConfig &config, uint64_t additionalL1Usage) const;
 
   /// Associate `result`'s allocation record from the pending stash (positional:
   /// i-th tensor result <-> i-th output-buffer record). No-op if the op
@@ -272,8 +271,8 @@ template <typename MemoryTracker = SumL1MemoryTracker>
 class L1SpillManagementBase {
 public:
   L1SpillManagementBase(func::FuncOp func, ttcore::GridAttr deviceGrid,
-                    uint64_t l1BudgetPerCore,
-                    std::unique_ptr<L1SpillObserver> observer = nullptr);
+                        uint64_t l1BudgetPerCore,
+                        std::unique_ptr<L1SpillObserver> observer = nullptr);
 
   virtual ~L1SpillManagementBase() = default;
 
@@ -333,7 +332,8 @@ protected:
     llvm::DenseSet<Value> liveValues;
     LiveSet liveSet;
   };
-  /// Per-position sweep checkpoints (stateful path only; keyed by schedule pos).
+  /// Per-position sweep checkpoints (stateful path only; keyed by schedule
+  /// pos).
   llvm::DenseMap<int64_t, SweepCheckpoint> sweepCheckpoints;
 
   /// When set by the stateful recoverFromOOM, run() restores the checkpoint at
@@ -629,7 +629,8 @@ extern template class AddressSimSpillManagement<SumL1MemoryTracker>;
 class SumL1SpillManagement final
     : public AddressSimSpillManagement<SumL1MemoryTracker> {
 public:
-  using AddressSimSpillManagement<SumL1MemoryTracker>::AddressSimSpillManagement;
+  using AddressSimSpillManagement<
+      SumL1MemoryTracker>::AddressSimSpillManagement;
 };
 
 /// Stateful spill manager: fit / fragmentation / placement / CB-clash are all
