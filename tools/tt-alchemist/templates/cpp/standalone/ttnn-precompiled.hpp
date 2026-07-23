@@ -80,7 +80,7 @@ namespace ttnn {
 //
 class DeviceGetter {
 public:
-  static constexpr std::size_t l1SmallSize = 1 << 15; // 32kB
+  static constexpr std::size_t l1SmallSize = 1 << 16; // 64kB
   static constexpr std::size_t traceRegionSize = 0;
 
   static ttnn::MeshDevice *getInstance() {
