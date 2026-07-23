@@ -23,6 +23,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         TTIRFusing.cpp
         Fusing/AllGatherMatmulFusingPattern.cpp
         Fusing/RoPEFusingPattern.cpp
+        Fusing/SDPAFusingPattern.cpp
         Fusing/TopKFusingPattern.cpp
         MultiDeviceTensorAnnotation.cpp
 

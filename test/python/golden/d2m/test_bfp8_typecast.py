@@ -139,8 +139,9 @@ def test_cos_bf16(shape: Shape, target: str, request, device):
     )
 
 
-@pytest.mark.skip(
-    reason="Flaky: times out on device causing entire CI workflow to be cancelled. See https://github.com/tenstorrent/tt-mlir/issues/7656"
+@pytest.mark.skip_exec(
+    ("p150",),
+    reason="Flaky: times out on device causing entire CI workflow to be cancelled. See https://github.com/tenstorrent/tt-mlir/issues/7656",
 )
 @pytest.mark.parametrize(
     "shape",

@@ -51,7 +51,7 @@ module {
     // CHECK: "ttnn.generic"(%[[T1]], %[[T2]])
     // CHECK-SAME: #ttnn.data_movement_kernel<symbol_ref = @read_kernel
     // CHECK-SAME: processor = riscv1, noc_index = noc0, noc_mode = dedicated_noc
-    // CHECK-SAME: ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_semaphore_at<0>, #ttnn.kernel_arg_semaphore_at<1>]
+    // CHECK-SAME: ct_args = [#ttnn.kernel_arg_cb_buffer_index<0>, #ttnn.kernel_arg_semaphore_at<0>, #ttnn.kernel_arg_semaphore_at<1>, #ttnn.kernel_arg_tensor_accessor_args<0>]
     // CHECK-SAME: common_rt_args = [#ttnn.kernel_arg_address_of_tensor<0>]
     // CHECK-SAME: #ttnn.data_movement_kernel<symbol_ref = @write_kernel
     // CHECK-SAME: processor = riscv0, noc_index = noc1, noc_mode = dedicated_noc
@@ -110,7 +110,8 @@ module {
       ct_args = [
         <arg_type = cb_port, operand_index = 6>,
         <arg_type = local_semaphore, operand_index = 0>,
-        <arg_type = local_semaphore, operand_index = 1>
+        <arg_type = local_semaphore, operand_index = 1>,
+        <arg_type = tensor_accessor_args, operand_index = 0>
       ]
     >,
     ttkernel.thread = #ttkernel.thread<noc>

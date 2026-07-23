@@ -4547,11 +4547,13 @@ def TTKernel_TensorAccessorOp : TTKernel_Op<"TensorAccessor"> {
     TensorAccessor constructor.
   }];
 
-  let arguments = (ins TTKernel_TensorAccessorArgs:$args, I32:$bank_base_address_in, I32:$page_size_in);
+  let arguments = (ins TTKernel_TensorAccessorArgs:$args,
+                       I32:$bank_base_address_in,
+                       Optional<I32>:$page_size_in);
   let results = (outs TTKernel_TensorAccessor:$result);
 
   let assemblyFormat = [{
-    `(` $args `,` $bank_base_address_in `,` $page_size_in `)` attr-dict `:` functional-type(operands, results)
+    `(` $args `,` $bank_base_address_in (`,` $page_size_in^)? `)` attr-dict `:` functional-type(operands, results)
   }];
 }
 

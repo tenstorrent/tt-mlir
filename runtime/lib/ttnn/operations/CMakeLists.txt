@@ -17,6 +17,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_to_all_combine.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_to_all_dispatch.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_to_all_dispatch_metadata.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/allocate_moe_compute_semaphore.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/moe_compute.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/moe_expert_token_remap.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/prepare_moe_compute_w0_w1_weights.cpp
@@ -28,6 +29,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/point_to_point.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/reduce_scatter.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/context/get_device.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv1d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/conv_transpose2d.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/conv/prepare_conv2d_weights.cpp

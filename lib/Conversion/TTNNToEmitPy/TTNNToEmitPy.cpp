@@ -1639,6 +1639,55 @@ public:
 };
 } // namespace
 
+// Conv1dOp conversion pattern
+//
+namespace {
+class Conv1dOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::Conv1dOp> {
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::Conv1dOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::Conv1dOp conv1dOp,
+                  mlir::tt::ttnn::Conv1dOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::Conv1dOp> emitter(
+        conv1dOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(conv1dOp.getInput(), "input_tensor"),
+        emitter.emit(conv1dOp.getWeight(), "weight_tensor"),
+        emitter.emit(conv1dOp.getDevice(), "device"),
+        emitter.emit(conv1dOp.getInChannels(), "in_channels"),
+        emitter.emit(conv1dOp.getOutChannels(), "out_channels"),
+        emitter.emit(conv1dOp.getBatchSize(), "batch_size"),
+        emitter.emit(conv1dOp.getInputLength(), "input_length"),
+        emitter.emit(conv1dOp.getKernelSize(), "kernel_size"),
+        emitter.emit(conv1dOp.getStride(), "stride"),
+        emitter.template emit<std::vector<uint32_t>>(conv1dOp.getPaddingAttr(),
+                                                     "padding"),
+        emitter.emit(conv1dOp.getDilation(), "dilation"),
+        emitter.emit(conv1dOp.getGroups(), "groups"),
+        emitter.emit(conv1dOp.getDtypeAttr(), "dtype"),
+        emitter.emit(conv1dOp.getBias(), "bias_tensor"),
+        emitter.emit(conv1dOp.getConv2dConfig(), "conv_config"),
+        emitter.emit(conv1dOp.getComputeConfig(), "compute_config"),
+        emitter.emit(conv1dOp.getMemoryConfigAttr(), "memory_config"),
+        emitter.emit(conv1dOp.getConv2dSliceConfig(), "slice_config"),
+        emitter.emit(false, "return_output_dim"),
+        emitter.emit(false, "return_weights_and_bias"),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
 // Conv2dOp conversion pattern
 //
 namespace {
@@ -3860,15 +3909,6 @@ public:
         emitter.emit(srcOp.getClusterAxis(), "cluster_axis"),
     };
 
-    // Emit drain_sync_tilizer_core as a Python tuple if present.
-    if (auto drainCore = srcOp.getDrainCore()) {
-      std::string buf;
-      llvm::raw_string_ostream rso(buf);
-      rso << "(" << drainCore->getX() << ", " << drainCore->getY() << ")";
-      args.push_back(
-          emitter.emitExpression(rso.str(), "drain_sync_tilizer_core"));
-    }
-
     emitter.replaceOp(*this, args);
 
     return success();
@@ -5438,7 +5478,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
 
   // Convolution ops
   //
-  patterns.add<Conv2dOpConversionPattern, ConvTranspose2dOpConversionPattern,
+  patterns.add<Conv1dOpConversionPattern, Conv2dOpConversionPattern,
+               ConvTranspose2dOpConversionPattern,
                PrepareConv2dWeightsOpConversionPattern,
                PrepareConv2dBiasOpConversionPattern,
                PrepareConv3dWeightsOpConversionPattern,

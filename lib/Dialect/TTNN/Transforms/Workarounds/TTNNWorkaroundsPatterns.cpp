@@ -10,7 +10,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNTraits.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNWorkaroundsPass.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllGatherOpRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/AllToAllDispatchMetadataDrainCoreRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/CollectiveReshapeOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dEnableKernelStrideFoldingRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/Conv2dRewritePattern.h"
@@ -22,7 +21,6 @@
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/GroupNormChannelPadRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/IntegerProdOpRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/LinearOpRewritePattern.h"
-#include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MoeComputeRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/MoeGptLayoutRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/NLPConcatHeadsDecodeInputRewritePattern.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Workarounds/Decomposition/PadHighDimRewritePattern.h"
@@ -449,6 +447,7 @@ public:
               ttnn::FillCacheOp>,
           workarounds::decomposition::FillCacheInputPadRewritePattern<
               ttnn::PagedFillCacheOp>,
+          workarounds::decomposition::Conv2dRewritePattern<Conv1dOp>,
           workarounds::decomposition::Conv2dRewritePattern<Conv2dOp>,
           workarounds::decomposition::Conv2dRewritePattern<ConvTranspose2dOp>,
           workarounds::decomposition::
@@ -466,6 +465,8 @@ public:
           workarounds::decomposition::
               ScaledDotProductAttentionDecodeBroadcastMaskRewritePattern,
           workarounds::decomposition::
+              PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern,
+          workarounds::decomposition::
               ScaledDotProductAttentionPadTileDimsRewritePattern,
           workarounds::decomposition::PointToPointOpRewritePattern,
           workarounds::decomposition::RMSNormConfigRewritePattern,
@@ -473,9 +474,6 @@ public:
               DistributedRMSNormWidthShardInputRewritePattern,
           workarounds::decomposition::ReduceScatterConfigRewritePattern,
           workarounds::decomposition::TopKRouterGptDecompositionRewritePattern,
-          workarounds::decomposition::
-              AllToAllDispatchMetadataDrainCoreRewritePattern,
-          workarounds::decomposition::MoeComputeRewritePattern,
           workarounds::decomposition::SliceStaticOpRewritePattern,
           workarounds::decomposition::MoeGptLayoutRewritePattern>(
           &getContext());
@@ -492,11 +490,6 @@ public:
             .add<workarounds::decomposition::PagedUpdateCacheOpRewritePattern>(
                 &getContext());
       }
-
-      patterns.add<
-          workarounds::decomposition::
-              PagedScaledDotProductAttentionDecodeProgramConfigRewritePattern>(
-          &getContext(), optimizationLevel);
 
       runRewritePatterns(std::move(patterns),
                          GreedyRewriteConfig::kNoLimit /*maxIterations*/);
@@ -547,8 +540,7 @@ private:
 
 const std::set<mlir::StringRef>
     TTNNWorkarounds::TTNNWorkarounds::enabledOpsForWorkaroundWithOptimizer = {
-        ttnn::WhereOp::getOperationName(),
-        ttnn::FullOp::getOperationName(),
+        ttnn::WhereOp::getOperationName(), ttnn::FullOp::getOperationName(),
         ttnn::EmbeddingOp::getOperationName(),
         ttnn::ScatterOp::getOperationName(),
         // TopK's operands workaround forces input bf16 + indices ui16/ui32;
@@ -558,6 +550,14 @@ const std::set<mlir::StringRef>
         // tt-metal SDPA-supported dtype (bf16). Without it, opt_level>=1 leaves
         // f32 operands
         ttnn::FlashMlaPrefillOp::getOperationName(),
+        // SDPA prefill/decode kernels TT_FATAL on non-bf16 inputs
+        // (sdpa_device_operation.cpp). Their operands workaround narrows
+        // Q/K/V/mask/output f32->bf16. Without it at opt_level>=1 the f32 op
+        // reaches the layout optimizer, whose op-model queries reject every
+        // f32 candidate -> a huge failing-query search. See #8141 (TopK has
+        // the same rationale).
+        ttnn::ScaledDotProductAttentionOp::getOperationName(),
+        ttnn::ScaledDotProductAttentionDecodeOp::getOperationName(),
         // The moe_compute weight packers and the op itself require
         // layout and data type workarounds.
         ttnn::PrepareMoEComputeW0W1WeightsOp::getOperationName(),
@@ -583,11 +583,7 @@ const std::set<mlir::StringRef>
         ttnn::AllToAllCombineOp::getOperationName(),
         ttnn::MoeExpertTokenRemapOp::getOperationName(),
         ttnn::SparseMatmulOp::getOperationName(),
-        // ArgMax's operands workaround forces ROW_MAJOR input/output. Since
-        // tt-metal #46340 the multicore argmax kernel is only selected for a
-        // ROW_MAJOR input (TILE silently falls back to single-core, ~100ms for
-        // a full-vocab reduction). Without this, opt_level>=1 layout
-        // propagation leaves the input TILE and we lose the multicore path.
-        ttnn::ArgMaxOp::getOperationName(),
+        // ArgMax is intentionally absent: at opt-level >= 1 ArgMaxRuleBook's
+        // RowMajor input siblings supply its ROW_MAJOR input (tt-metal #46340).
 };
 } // namespace mlir::tt::ttnn

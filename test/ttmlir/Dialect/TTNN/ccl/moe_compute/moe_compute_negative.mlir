@@ -14,25 +14,20 @@ module attributes {} {
       %w01: tensor<8x1x16x32x256x128xbf16>,
       %w2: tensor<8x1x16x32x256x128xbf16>,
       %device: !ttnn.device)
-    -> (tensor<1x1x16x4xi64>, tensor<1x1x128x4xbf16>, tensor<1x1x128x4xi64>,
-        tensor<1x1x128x256xbf16>, tensor<1x1x128x256xbf16>,
-        tensor<1x1x128x256xbf16>) {
-    %0:6 = "ttnn.moe_compute"(%inp, %idx, %scores, %map, %w01, %w2, %device)
+    -> tensor<4x128x256xbf16> {
+    %0 = "ttnn.moe_compute"(%inp, %idx, %scores, %map, %w01, %w2, %device)
       <{operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1, 0, 0, 1>,
         layer_id = 0 : ui32,
         output_height_shard_dim = 32 : ui32,
         intermediate_size = 100 : ui32,
         has_bias = false,
-        cluster_axis = 0 : ui32}>
+        cluster_axis = 0 : ui32,
+        mux_core_range_set = #ttnn.core_range_set<[#ttnn.core_range<(1,1), (3,3)>]>}>
       : (tensor<1x1x128x256xbf16>, tensor<1x1x128x4xi64>, tensor<1x1x128x4xbf16>,
          tensor<1x1x16x4xi64>, tensor<8x1x16x32x256x128xbf16>,
          tensor<8x1x16x32x256x128xbf16>, !ttnn.device)
-      -> (tensor<1x1x16x4xi64>, tensor<1x1x128x4xbf16>, tensor<1x1x128x4xi64>,
-          tensor<1x1x128x256xbf16>, tensor<1x1x128x256xbf16>,
-          tensor<1x1x128x256xbf16>)
-    return %0#0, %0#1, %0#2, %0#3, %0#4, %0#5
-      : tensor<1x1x16x4xi64>, tensor<1x1x128x4xbf16>, tensor<1x1x128x4xi64>,
-        tensor<1x1x128x256xbf16>, tensor<1x1x128x256xbf16>, tensor<1x1x128x256xbf16>
+      -> tensor<4x128x256xbf16>
+    return %0 : tensor<4x128x256xbf16>
   }
 }
 // CHECK: error: 'ttnn.moe_compute' op intermediate_size must be a positive multiple of 32
@@ -58,39 +53,3 @@ module attributes {} {
   }
 }
 // CHECK: error: 'ttnn.prepare_moe_compute_w0_w1_weights' op bias_0 and bias_1 must be both present or both absent
-
-// -----
-
-// only the compute_only path is supported
-module attributes {} {
-  func.func @moe_compute_full_path_rejected(
-      %inp: tensor<1x1x128x256xbf16>,
-      %idx: tensor<1x1x128x4xi64>,
-      %scores: tensor<1x1x128x4xbf16>,
-      %map: tensor<1x1x16x4xi64>,
-      %w01: tensor<8x1x16x32x256x128xbf16>,
-      %w2: tensor<8x1x16x32x256x128xbf16>,
-      %device: !ttnn.device)
-    -> (tensor<1x1x16x4xi64>, tensor<1x1x128x4xbf16>, tensor<1x1x128x4xi64>,
-        tensor<1x1x128x256xbf16>, tensor<1x1x128x256xbf16>,
-        tensor<1x1x128x256xbf16>) {
-    %0:6 = "ttnn.moe_compute"(%inp, %idx, %scores, %map, %w01, %w2, %device)
-      <{operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1, 0, 0, 1>,
-        layer_id = 0 : ui32,
-        output_height_shard_dim = 32 : ui32,
-        intermediate_size = 256 : ui32,
-        has_bias = false,
-        cluster_axis = 0 : ui32,
-        compute_only = false}>
-      : (tensor<1x1x128x256xbf16>, tensor<1x1x128x4xi64>, tensor<1x1x128x4xbf16>,
-         tensor<1x1x16x4xi64>, tensor<8x1x16x32x256x128xbf16>,
-         tensor<8x1x16x32x256x128xbf16>, !ttnn.device)
-      -> (tensor<1x1x16x4xi64>, tensor<1x1x128x4xbf16>, tensor<1x1x128x4xi64>,
-          tensor<1x1x128x256xbf16>, tensor<1x1x128x256xbf16>,
-          tensor<1x1x128x256xbf16>)
-    return %0#0, %0#1, %0#2, %0#3, %0#4, %0#5
-      : tensor<1x1x16x4xi64>, tensor<1x1x128x4xbf16>, tensor<1x1x128x4xi64>,
-        tensor<1x1x128x256xbf16>, tensor<1x1x128x256xbf16>, tensor<1x1x128x256xbf16>
-  }
-}
-// CHECK: error: 'ttnn.moe_compute' op only the compute_only path is supported

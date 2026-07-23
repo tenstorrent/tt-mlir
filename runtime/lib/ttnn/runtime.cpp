@@ -810,7 +810,13 @@ getMemoryView(Device deviceHandle) {
 }
 
 void setFabricConfig(tt::runtime::FabricConfig config) {
-  ::tt::tt_fabric::SetFabricConfig(common::toMetalFabricConfig(config));
+  // RELAXED reliability mode brings fabric up on the live links only, rather
+  // than requiring every link in the mesh graph descriptor to be healthy. The
+  // STRICT default errors/hangs at init on any downed link, stalling
+  // multi-device CCL ops (e.g. moe_compute's combine) on a Galaxy.
+  ::tt::tt_fabric::SetFabricConfig(
+      common::toMetalFabricConfig(config),
+      ::tt::tt_fabric::FabricReliabilityMode::RELAXED_SYSTEM_HEALTH_SETUP_MODE);
   RuntimeContext::instance().setCurrentFabricConfig(config);
 }
 
@@ -1313,6 +1319,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_RepeatInterleaveOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::Conv1dOp: {
+    tensorRefs = {opContext.type_as_Conv1dOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
     tensorRefs = {opContext.type_as_Conv2dOp()->out()};
     break;
@@ -1569,9 +1579,7 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::MoeComputeOp: {
     auto *op = opContext.type_as_MoeComputeOp();
-    tensorRefs = {op->per_expert_total_tokens(), op->expert_activation(),
-                  op->expert_to_token(),         op->tilize_output(),
-                  op->matmul_output(),           op->combine_output()};
+    tensorRefs = {op->combine_output()};
     break;
   }
   case ::tt::target::ttnn::OpType::TopKOp: {
@@ -1624,6 +1632,9 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     break;
   }
   case ::tt::target::ttnn::OpType::ResetGlobalSemaphoreOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllocateMoeComputeSemaphoreOp: {
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
@@ -1848,6 +1859,14 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::RepeatInterleaveOp: {
     tensorRefs = {opContext.type_as_RepeatInterleaveOp()->input()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::Conv1dOp: {
+    auto *op = opContext.type_as_Conv1dOp();
+    tensorRefs = {op->input(), op->weight()};
+    if (op->bias()) {
+      tensorRefs.push_back(op->bias());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::Conv2dOp: {
@@ -2364,6 +2383,9 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     break;
   }
   case ::tt::target::ttnn::OpType::ResetGlobalSemaphoreOp: {
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AllocateMoeComputeSemaphoreOp: {
     break;
   }
   case ::tt::target::ttnn::OpType::NONE: {
