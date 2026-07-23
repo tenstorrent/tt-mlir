@@ -23,7 +23,7 @@ import torch
 import autotuner as A
 from runner import KernelBench, TensorSpec
 
-_KERNELS_DIR = pathlib.Path(__file__).parent / "kernels"
+_KERNELS_DIR = pathlib.Path(__file__).parent.parent / "kernels"
 
 
 def _bench(shapes, block_shape=None, dtype=torch.float32, grid_shape=(1, 1)):
