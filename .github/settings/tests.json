@@ -40,7 +40,6 @@
     { "runs-on": "n150",   "image": "tracy",  "script": "pykernel.sh" },
     { "runs-on": "n150",   "image": "tracy",  "script": "ttnn_jit.sh", "args": "nightly", "if": "ttnn-jit-nightly" },
     { "runs-on": ["n150","llmbox","p150"],   "image": "tracy",  "script": "ttnn_jit.sh" },
-    { "runs-on": "n150",   "image": "tracy",  "script": "d2m_jit.sh", "args": "nightly", "if": "d2m-jit-nightly" },
     { "runs-on": ["n150","p150"],   "image": "tracy",  "script": "d2m_jit.sh" },
     { "runs-on": "n150",   "image": "speedy",  "script": "alchemist.sh" },
     { "runs-on": "n150",   "image": "speedy",  "script": "emitc.sh"}

@@ -16,17 +16,9 @@ ln -sf $INSTALL_DIR/tt-metal $WORK_DIR/third_party/tt-metal/src/tt-metal
 LIT_REPORT_PATH="${TEST_REPORT_PATH%.xml}_lit.xml"
 
 echo "Running d2m-jit tests (RUNS_ON=$RUNS_ON)..."
-if [ "$1" == "nightly" ]; then
-    # Full suite: FileCheck lit tests + every pytest module. Runs every nightly
-    # and on PRs that touch test/d2m-jit or tools/d2m-jit (d2m-jit-nightly
-    # component in .github/settings/optional-components.yml).
-    llvm-lit -v --xunit-xml-output "$LIT_REPORT_PATH" "$BUILD_DIR/test/d2m-jit/lit"
-    pytest -v "$WORK_DIR"/test/d2m-jit/test_*.py --junit-xml="$TEST_REPORT_PATH"
-else
-    # Always-on PR smoke: a single, device-generic eltwise kernel that exercises
-    # the build + in-process execution path on every runner.
-    pytest -v "$WORK_DIR/test/d2m-jit/test_simple.py" --junit-xml="$TEST_REPORT_PATH"
-fi
+# Full suite: FileCheck lit tests + every pytest module. Runs on every PR.
+llvm-lit -v --xunit-xml-output "$LIT_REPORT_PATH" "$BUILD_DIR/test/d2m-jit/lit"
+pytest -v "$WORK_DIR"/test/d2m-jit/test_*.py --junit-xml="$TEST_REPORT_PATH"
 
 # cleanup
 rm -rf $WORK_DIR/third_party/tt-metal
