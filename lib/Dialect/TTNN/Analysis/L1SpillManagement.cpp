@@ -870,6 +870,26 @@ bool L1SpillManagementBase<MemoryTracker>::evictValue(
   spillToDram(victim);
   memoryTracker.removeTensorFromSizes(victim);
 
+  // Rewind (stateful) path: the address-sim path frees the victim by marking its
+  // alloc event skipped in the replay; the rewind re-run has no such skip and
+  // re-processes the victim's op, which still produces L1. After the spill the
+  // victim's only remaining L1 use is the to_memory_config inserted right after
+  // it, so shorten its tracked lifetime to its own position — the re-run then
+  // frees it immediately (processDeadTensors) instead of keeping it live to its
+  // original far-future last use, which is what actually frees L1 for the op
+  // that triggered this eviction.
+  if (usesRewindEviction() && victimOp) {
+    int64_t victimPos = data.positionMap.lookup(victimOp);
+    auto luIt = data.lastUsePositions.find(victim);
+    if (luIt != data.lastUsePositions.end() && luIt->second != victimPos) {
+      auto &oldBucket = data.deathSchedule[luIt->second];
+      oldBucket.erase(std::remove(oldBucket.begin(), oldBucket.end(), victim),
+                      oldBucket.end());
+    }
+    data.lastUsePositions[victim] = victimPos;
+    data.deathSchedule[victimPos].push_back(victim);
+  }
+
   // Restore the original L1-sharded layout for consumers that need it:
   // - Past consumers (pos < currentPos): always restore. They were already
   //   validated assuming L1-sharded input; without reshard the IR is broken.
@@ -971,7 +991,9 @@ bool L1SpillManagementBase<MemoryTracker>::evictValue(
                       originalL1Layout,
                       ttmlir::utils::volume(originalL1Layout.getGridShape()));
 
-        if (isPastConsumer) {
+        if (isPastConsumer && !usesRewindEviction()) {
+          // Address-sim path: bracket the reshard's transient occupation in the
+          // event log so replayFrom accounts for it.
           // Find the consumer's first and last output alloc event indices so
           // we can bracket the reshard's transient occupation in the log.
           size_t firstAllocIdx = std::numeric_limits<size_t>::max();
@@ -1006,9 +1028,12 @@ bool L1SpillManagementBase<MemoryTracker>::evictValue(
                  {L1Event::kAlloc, reshardResult, reshardSizePerCore, false}});
           }
         } else {
-          // Insert the reshard into the schedule so the forward sweep processes
-          // it naturally, adding it to liveValues and the tracker. Each
-          // insertion shifts the consumer right by one, so advance consumerPos.
+          // Future consumer, OR any consumer on the stateful rewind path:
+          // insert the reshard into the schedule so the (re-run) forward sweep
+          // processes it as an ordinary op — querying and tracking its L1 buffer
+          // in schedule order. This is why the stateful path never leaves a
+          // reshard untracked (RCA #2). Each insertion shifts the consumer right
+          // by one, so advance consumerPos.
           insertReshardIntoSchedule(reshardOp, reshardResult,
                                     reshardSizePerCore, consumerPos, data);
           ++consumerPos;
@@ -1017,8 +1042,16 @@ bool L1SpillManagementBase<MemoryTracker>::evictValue(
     }
   }
 
-  // Apply transient event insertions largest-position-first so earlier
-  // positions are not invalidated by later insertions.
+  // Stateful (rewind) path: allocator state is rebuilt by the rewind + re-run
+  // of the forward sweep driven by recoverFromOOM. No event-log replay here, and
+  // all reshards were routed into the schedule above.
+  if (usesRewindEviction()) {
+    return true;
+  }
+
+  // Address-sim path: apply transient event insertions largest-position-first so
+  // earlier positions are not invalidated by later insertions, then rebuild via
+  // the first-fit replay.
   llvm::sort(transientInsertions,
              [](const TransientInsertion &a, const TransientInsertion &b) {
                return a.pos > b.pos;
@@ -2116,103 +2149,51 @@ void StatefulL1SpillManagement::commitAllocation(Value val,
 
 void StatefulL1SpillManagement::recoverFromOOM(
     Operation *op, int64_t pos, llvm::ArrayRef<OpResult> /*tensorResults*/,
-    ScheduleData &data, std::function<void(uint64_t)> addResultsToLiveSet) {
+    ScheduleData &data, std::function<void(uint64_t)> /*addResultsToLiveSet*/) {
   observer_->onOOM(op, pos, memoryTracker.getOccupiedL1());
-  TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-               "    OOM (stateful): evicting until the query fits");
 
-  // Evict farthest-last-use tensors until the stateful re-query succeeds. Each
-  // eviction drops the victim's records and replays the surviving allocation
-  // history (replayFrom) so the allocator re-flows addresses under the
-  // victim-free history; fragmentation is decided by the query, never here.
-  auto config = extractOpConfigFromIR(op);
-  auto result = op_constraint_validation::ValidationResult::outOfMemoryError("");
-  bool fitsAfterEviction = evictUntil(pos, data, [&]() {
-    auto inputLayouts = utils::extractInputLayouts(op);
-    result = memoryTracker.validate(op, inputLayouts, config);
-    return result.isSuccess();
-  });
-  if (compilationFailed) {
-    return;
-  }
-
-  if (fitsAfterEviction) {
-    // Eviction may have inserted a reshard for `op`, shifting it past `pos`;
-    // bail so run()'s sweep reprocesses the reshard and then `op`.
-    if (data.schedule[pos] != op) {
-      return;
-    }
-    uint64_t l1Size = result.outputL1Usage;
-    if (l1Size > 0) {
-      addResultsToLiveSet(l1Size);
-      observer_->onLiveAdded(op, pos, l1Size, pos,
-                             memoryTracker.getOccupiedL1());
-    }
-  } else {
+  // Evict ONE farthest-last-use victim, then rewind and re-run the forward
+  // sweep. evictValue spills the victim to DRAM and routes its consumers'
+  // reshards into the schedule; the rewind (pendingRewindTo, honored by run())
+  // restores the checkpoint before the victim's allocation and re-runs the
+  // sweep from there. The victim re-processes as a briefly-live L1 buffer that
+  // is freed immediately (its shortened lifetime), the reshards process as
+  // ordinary schedule ops, and this op is re-reached and re-validated against
+  // the freed state. If it still OOMs, recoverFromOOM fires again for the next
+  // victim -- one eviction per rewind, monotonically shrinking the L1 working
+  // set. There is no separate replay: eviction reuses the one placement
+  // algorithm (the forward sweep), so it cannot diverge from it.
+  Value victim = evictFarthestUse();
+  if (!victim) {
+    // Nothing evictable remains (only non-evictable reshards / an irreducible,
+    // genuinely-unplaceable working set). Degrade gracefully: demote this op's
+    // output to DRAM and continue, rather than failing the pass.
     observer_->onSelfSpill(op, pos);
     TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "    DEMOTE SELF (stateful): op exceeds budget alone");
+                 "    DEMOTE SELF (stateful): {0} unplaceable after draining L1",
+                 ttmlir::opToString(op));
     demoteToDram(op);
+    return; // no rewind; sweep advances to pos+1
   }
+
+  Operation *victimOp = victim.getDefiningOp();
+  size_t unusedCampaign = SIZE_MAX;
+  evictValue(victim, pos, data, unusedCampaign);
+
+  // Rewind to the victim's own allocation position. Reshards insert at consumer
+  // positions (> victimPos, since a consumer follows its producer), so victimPos
+  // is the earliest position affected by this eviction. Re-read positionMap in
+  // case insertions shifted it (they should not, being after victimPos).
+  int64_t victimPos = data.positionMap.lookup(victimOp);
+  pendingRewindTo = victimPos;
 }
 
-bool StatefulL1SpillManagement::replayFrom(size_t startIdx) {
-  auto snapIt = addressSnapshots.find(startIdx);
-  assert(snapIt != addressSnapshots.end() &&
-         "checkpoint not found for replay start index");
-  memoryTracker.restoreSnapshot(snapIt->second);
-
-  // Replay allocation events from startIdx forward under the (victim-free)
-  // history. Each surviving op is re-queried so the allocator assigns fresh
-  // addresses; the resulting record becomes its live-set entry.
-  for (size_t i = startIdx; i < l1EventLog.size(); ++i) {
-    if (l1EventLog[i].skipped) {
-      continue;
-    }
-    if (l1EventLog[i].kind == L1Event::kDealloc) {
-      memoryTracker.removeTensor(l1EventLog[i].tensor);
-      continue;
-    }
-    addressSnapshots[i] = memoryTracker.takeSnapshot();
-    Value tensor = l1EventLog[i].tensor;
-    Operation *defOp = tensor.getDefiningOp();
-    // View alias (src still L1-resident): consumes no fresh buffer.
-    if (defOp && isAliasingViewOp(defOp) &&
-        memoryTracker.hasTensor(defOp->getOperand(0))) {
-      memoryTracker.addTensorAlias(tensor, defOp->getOperand(0));
-      continue;
-    }
-    if (!defOp) {
-      continue;
-    }
-    // Re-query so the allocator re-flows this buffer's address without the
-    // evicted victim in the history.
-    auto inputLayouts = utils::extractInputLayouts(defOp);
-    auto config = extractOpConfigFromIR(defOp);
-    auto result = memoryTracker.validate(defOp, inputLayouts, config);
-    // A still-live op no longer fits (raw size or fragmentation): the caller
-    // (evictUntil) evicts more. Non-OOM outcomes (not-implemented / backend
-    // error, e.g. an unqueryable reshard) leave the buffer untracked but do not
-    // count as a placement failure.
-    bool isOOM = result.isError() && !result.isNotImplemented() &&
-                 !result.isMetalBackendError();
-    if (isOOM) {
-      TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-                   "Replay: op no longer fits under victim-free history");
-      // Diagnostic (TTMLIR_SPILL_DEBUG=1): name the op whose replay re-query
-      // failed. Pair with the [spill-debug] BYTE-CAP-OOM / QUERY-NON-SUCCESS
-      // line from validate() to attribute the no-fit. See tt-mlir #9069.
-      if (::getenv("TTMLIR_SPILL_DEBUG")) {
-        llvm::errs() << "[spill-debug] REPLAY-NOFIT op=" << defOp->getName()
-                     << " isReshard="
-                     << (insertedReshardValues.count(tensor) ? "yes" : "no")
-                     << " msg=" << result.errorMessage << "\n";
-      }
-      return false;
-    }
-    memoryTracker.addTensor(tensor, l1EventLog[i].sizePerCore);
-  }
-  return true;
+bool StatefulL1SpillManagement::replayFrom(size_t /*startIdx*/) {
+  // The stateful path rebuilds allocator state by rewinding and re-running the
+  // forward sweep (see recoverFromOOM), not via event-log replay. evictValue
+  // never calls markEvictedAndRebuild on this path, so this override is
+  // unreachable; it exists only to satisfy the pure-virtual base declaration.
+  llvm_unreachable("StatefulL1SpillManagement uses rewind, not replayFrom");
 }
 
 //===----------------------------------------------------------------------===//
