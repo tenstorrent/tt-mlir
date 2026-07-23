@@ -6,11 +6,9 @@
 
 #include "operations/cpu/cpu.h"
 #include "tt-metalium/experimental/fabric/fabric.hpp"
-#include "tt/runtime/debug.h"
 #include "tt/runtime/detail/common/common.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/common/runtime_context.h"
-#include "tt/runtime/detail/ttnn/debug_apis.h"
 #include "tt/runtime/detail/ttnn/layout_converter.h"
 #include "tt/runtime/detail/ttnn/program_executor.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
@@ -20,7 +18,6 @@
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
 #include "tt/runtime/workarounds.h"
-#include "ttmlir/Target/TTNN/Target.h"
 #include "ttmlir/Target/TTNN/program_generated.h"
 #include "ttmlir/Target/TTNN/types_generated.h"
 #include "ttnn/tensor/serialization.hpp"
@@ -387,13 +384,12 @@ Tensor createMultiDeviceBorrowedHostTensor(
   }
   ::ttnn::MeshDevice &meshDevice =
       device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-  ::ttnn::TensorSpec tensorSpec(
+  tt_metal::TensorSpec tensorSpec(
       ::ttnn::Shape(shape),
       ::ttnn::TensorLayout(
           layoutDesc.dataType, ::ttnn::PageConfig(layoutDesc.layout),
           layoutDesc.memoryConfig.value_or(::ttnn::MemoryConfig{})));
-  ::ttnn::Tensor tensor =
-      ::tt::tt_metal::create_device_tensor(tensorSpec, &meshDevice);
+  ::ttnn::Tensor tensor = ::ttnn::create_device_tensor(tensorSpec, &meshDevice);
 
   return utils::createRuntimeTensorFromTTNN(tensor);
 }
@@ -1050,8 +1046,8 @@ void memcpy(void *dst, ::tt::runtime::Tensor src,
     size_t size = srcTensor.physical_volume() * srcTensor.element_size();
     std::memcpy(dst, srcPtr, size);
   } else {
-    ::tt::tt_metal::copy_to_host(srcTensor.device()->mesh_command_queue(),
-                                 srcTensor, reinterpret_cast<std::byte *>(dst));
+    ::ttnn::copy_to_host(srcTensor.device()->mesh_command_queue(), srcTensor,
+                         reinterpret_cast<std::byte *>(dst));
   }
 }
 
@@ -1071,12 +1067,11 @@ void memcpy(::tt::runtime::Tensor dst, ::tt::runtime::Tensor src) {
     size_t size = srcTensor.physical_volume() * srcTensor.element_size();
     std::memcpy(dstPtr, srcPtr, size);
   } else if (utils::isOnHost(srcTensor.storage_type())) {
-    ::tt::tt_metal::copy_to_device(srcTensor, dstTensor);
+    ::ttnn::copy_to_device(srcTensor, dstTensor);
   } else {
     void *dstPtr = utils::getRawHostDataPtr(dstTensor);
-    ::tt::tt_metal::copy_to_host(srcTensor.device()->mesh_command_queue(),
-                                 srcTensor,
-                                 reinterpret_cast<std::byte *>(dstPtr));
+    ::ttnn::copy_to_host(srcTensor.device()->mesh_command_queue(), srcTensor,
+                         reinterpret_cast<std::byte *>(dstPtr));
   }
 }
 
@@ -2506,7 +2501,7 @@ void updateTensorInPool(CallbackContext programContextHandle,
   const bool dstOnHost = utils::isOnHost(dstTensor.storage_type());
   if (!srcOnHost && !dstOnHost) {
     ::ttnn::Tensor hostSrcTensor = ::ttnn::from_device(srcTensor);
-    ::tt::tt_metal::copy_to_device(hostSrcTensor, dstTensor);
+    ::ttnn::copy_to_device(hostSrcTensor, dstTensor);
   } else {
     ::tt::runtime::Tensor &dstRuntimeTensor =
         tensorPool.getRuntimeTensorAndValidate(tensorRefPtr);
@@ -2539,7 +2534,7 @@ invokeCpuOp(CallbackContext programContextHandle, OpContext opContextHandle,
 
 void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {
   ::ttnn::Tensor ttnnTensor = utils::getTTNNTensorFromRuntimeTensor(tensor);
-  ::tt::tt_metal::dump_tensor_flatbuffer(filePath, ttnnTensor);
+  ::ttnn::dump_tensor_flatbuffer(filePath, ttnnTensor);
 }
 
 ::tt::runtime::Tensor loadTensor(const std::string &filePath,
@@ -2551,7 +2546,7 @@ void dumpTensor(::tt::runtime::Tensor tensor, const std::string &filePath) {
   }
 
   ::ttnn::Tensor metalTensor =
-      ::tt::tt_metal::load_tensor_flatbuffer(filePath, devicePtr);
+      ::ttnn::load_tensor_flatbuffer(filePath, devicePtr);
 
   auto tensor = utils::createRuntimeTensorFromTTNN(metalTensor);
 

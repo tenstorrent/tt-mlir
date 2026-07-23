@@ -2,20 +2,15 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-#include <memory>
-#include <vector>
-
-#include "tt/runtime/detail/common/common.h"
+#include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/detail/common/logger.h"
-#include "tt/runtime/detail/common/runtime_context.h"
-#include "tt/runtime/detail/ttnn/debug_apis.h"
-#include "tt/runtime/detail/ttnn/types/program_desc_cache.h"
 #include "tt/runtime/detail/ttnn/types/trace_cache.h"
 #include "tt/runtime/detail/ttnn/types/types.h"
-#include "tt/runtime/detail/ttnn/utils.h"
 #include "tt/runtime/types.h"
 #include "tt/runtime/utils.h"
-#include "tt/runtime/workarounds.h"
+
+#include <memory>
+#include <vector>
 
 namespace tt::runtime::ttnn::utils {
 
@@ -624,11 +619,11 @@ void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
   return static_cast<void *>(hostBuffer.view_bytes().data());
 }
 
-::ttnn::TensorSpec createTensorSpec(const ::ttnn::Shape &shape,
-                                    const ::ttnn::DataType &dataType,
-                                    const ::ttnn::Layout &layout,
-                                    const ::ttnn::MemoryConfig &memoryConfig) {
-  ::ttnn::TensorSpec tensorSpec(
+tt_metal::TensorSpec
+createTensorSpec(const ::ttnn::Shape &shape, const ::ttnn::DataType &dataType,
+                 const ::ttnn::Layout &layout,
+                 const ::ttnn::MemoryConfig &memoryConfig) {
+  tt_metal::TensorSpec tensorSpec(
       shape, tt::tt_metal::TensorLayout(dataType, layout, memoryConfig));
   return tensorSpec;
 }

@@ -15,5 +15,5 @@ module {
 // CHECK-LABEL: func.func @create_inputs_for__main
 
 // CHECK-LABEL: func.func @main
-// CHECK: call @create_inputs_for__main
-// CHECK: call @_main
+// CHECK: emitc.call_opaque "::create_inputs_for__main"
+// CHECK: emitc.call_opaque "::_main"

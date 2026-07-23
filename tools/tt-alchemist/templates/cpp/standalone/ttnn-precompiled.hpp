@@ -190,8 +190,7 @@ uint32_t getScalarFromTensor(const ttnn::Tensor &tensor) {
 ::ttnn::Tensor loadTensor(const std::string &filePath, ttnn::Layout layout,
                           ttnn::DataType dtype, ttnn::MeshDevice *device,
                           ttnn::MemoryConfig memoryConfig) {
-  ::ttnn::Tensor loadedTensor =
-      ::tt::tt_metal::load_tensor_flatbuffer(filePath);
+  ::ttnn::Tensor loadedTensor = ::ttnn::load_tensor_flatbuffer(filePath);
 
   assert(loadedTensor.device() == nullptr && "loaded tensor must be on host");
 

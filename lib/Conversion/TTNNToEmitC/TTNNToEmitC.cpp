@@ -2809,6 +2809,34 @@ public:
 };
 } // namespace
 
+namespace {
+// Use CallOpaqueOp for generated function calls so we can spell callees as
+// `::foo(...)`. Tensor operands live in the ttnn namespace, so an unqualified
+// call like `add(v1, v2)` would also consider `ttnn::add` via ADL.
+class FuncCallOpConversionPattern : public OpConversionPattern<func::CallOp> {
+public:
+  using OpConversionPattern<func::CallOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(func::CallOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    SmallVector<Type> resultTypes;
+    for (Type resultType : srcOp.getResultTypes()) {
+      Type convertedType = getTypeConverter()->convertType(resultType);
+      if (!convertedType) {
+        return rewriter.notifyMatchFailure(srcOp, "type conversion failed");
+      }
+      resultTypes.push_back(convertedType);
+    }
+
+    rewriter.replaceOpWithNewOp<emitc::CallOpaqueOp>(
+        srcOp, resultTypes, ("::" + srcOp.getCallee()).str(), nullptr, nullptr,
+        adaptor.getOperands());
+    return success();
+  }
+};
+} // namespace
+
 // DistributeTensorOp conversion pattern
 //
 namespace {
@@ -5249,7 +5277,7 @@ private:
   }
 
   std::string getPrefixSwapPattern() const override {
-    return "::tt::tt_metal::dump_tensor_flatbuffer";
+    return "::ttnn::dump_tensor_flatbuffer";
   }
 
 public:
@@ -5771,6 +5799,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // FuncOp
   //
   patterns.add<FuncOpConversionPattern>(typeConverter, ctx);
+  patterns.add<FuncCallOpConversionPattern>(typeConverter, ctx,
+                                            PatternBenefit(2));
 
   // Transformers ops
   //

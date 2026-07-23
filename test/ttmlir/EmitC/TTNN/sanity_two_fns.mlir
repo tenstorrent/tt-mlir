@@ -5,7 +5,12 @@
 // RUN: ttmlir-translate --ttnn-to-flatbuffer -o %basename_t.ttnn %t_rt.mlir
 //
 // RUN: ttmlir-opt --ttnn-common-to-emitc-pipeline -o %t2.mlir %t.mlir
+// RUN: FileCheck %s --check-prefix=EMITC --input-file=%t2.mlir
 // RUN: ttmlir-translate --mlir-to-cpp -o %basename_t.cpp %t2.mlir
+
+// EMITC-LABEL: func.func @main
+// EMITC:       emitc.call_opaque "::create_inputs_for_add"
+// EMITC:       emitc.call_opaque "::add"
 
 func.func @add(%arg0: tensor<32x32xbf16>, %arg1: tensor<32x32xbf16>) -> tensor<32x32xbf16> {
   %1 = "ttir.add"(%arg0, %arg1) : (tensor<32x32xbf16>, tensor<32x32xbf16>) -> tensor<32x32xbf16>
