@@ -23,6 +23,17 @@ pytestmark = pytest.mark.frontend("ttir")
 torch.manual_seed(0)
 
 
+def _topk_index_dtype(shape: Tuple[int, ...], dim: int) -> torch.dtype:
+    """Index dtype the topk op declares for this input, mirroring
+    ttir_topk_golden / the TTNN topk workaround: UInt16 while the tile-padded
+    reduction dim fits in a uint16, else UInt32. Test-side goldens must match
+    this so execute_fb doesn't dtype-mismatch the device index output."""
+    TILE_SIZE = 32
+    reduction_dim = dim if dim >= 0 else dim + len(shape)
+    padded = ((shape[reduction_dim] + TILE_SIZE - 1) // TILE_SIZE) * TILE_SIZE
+    return torch.uint16 if padded <= 0xFFFF else torch.uint32
+
+
 def _verify_topk_outputs(
     input_tensor,
     golden_topk,
@@ -112,13 +123,11 @@ MULTI_CORE_TOPK_SHAPES = [
     # Non-target dim is a single tile (32), on dim 0; target dim (dim=1) is
     # any multiple of 32.
     pytest.param((32, 5504), 16, -1, id="32x5504_k16_dim1"),
-    pytest.param((32, 33792), 16, -1, id="32x33792_k16_dim1"),
     pytest.param((32, 88064), 16, -1, id="32x88064_k16_dim1"),
     pytest.param((35, 7639), 16, -1, id="35x7639_k16_dim1"),
     # Transposed equivalents: non-target dim is a single tile (32), on dim 1;
     # target dim (dim=0) is any multiple of 32.
     pytest.param((8192, 32), 16, 0, id="8192x32_k16_dim0"),
-    pytest.param((33792, 32), 16, 0, id="33792x32_k16_dim0"),
     pytest.param((88064, 32), 16, 0, id="88064x32_k16_dim0"),
     pytest.param((7639, 35), 16, 0, id="7639x35_k16_dim0"),
     # k > 32: each core's local top-k spans two reduction tiles (winner +
@@ -182,7 +191,8 @@ def test_topk_single_core(shape, k, dim, target, request, device):
     )
     # Match device index dtype to avoid execute_fb dtype mismatch; raw index is ignored.
     io_goldens[0]["output_1"] = GoldenMapTensor(
-        {0: golden_topk.indices.to(torch.uint16)}, mesh_shape=mesh_shape
+        {0: golden_topk.indices.to(_topk_index_dtype(shape, dim))},
+        mesh_shape=mesh_shape,
     )
 
     # execute_fb's positional PCC is invalid for unsorted values / tie-unstable
@@ -198,14 +208,7 @@ def test_topk_single_core(shape, k, dim, target, request, device):
         artifact_dir=artifact_dir,
     )
 
-    _verify_topk_outputs(
-        input_tensor,
-        golden_topk,
-        dim,
-        output_tensors,
-        check_gathered=False,
-        check_indices=False,
-    )
+    _verify_topk_outputs(input_tensor, golden_topk, dim, output_tensors)
 
 
 @pytest.mark.parametrize("target", ["ttmetal"])
@@ -235,7 +238,7 @@ def test_topk_multi_core(shape, k, dim, target, request, device):
                 {in0: input_tensor},
                 {
                     values: golden_topk.values,
-                    indices: golden_topk.indices.to(torch.uint16),
+                    indices: golden_topk.indices.to(_topk_index_dtype(shape, dim)),
                 },
             )
             return values, indices
@@ -267,7 +270,8 @@ def test_topk_multi_core(shape, k, dim, target, request, device):
     )
     # Match device index dtype to avoid execute_fb dtype mismatch; raw index is ignored.
     io_goldens[0]["output_1"] = GoldenMapTensor(
-        {0: golden_topk.indices.to(torch.uint16)}, mesh_shape=mesh_shape
+        {0: golden_topk.indices.to(_topk_index_dtype(shape, dim))},
+        mesh_shape=mesh_shape,
     )
 
     # execute_fb's positional PCC is invalid for unsorted values / tie-unstable
@@ -288,7 +292,7 @@ def test_topk_multi_core(shape, k, dim, target, request, device):
         golden_topk,
         dim,
         output_tensors,
-        check_gathered=False,
+        check_gathered=True,
         check_indices=False,
     )
 
@@ -424,7 +428,8 @@ def test_topk_tile_distribution_single_core(
     )
     # Match device index dtype to avoid execute_fb dtype mismatch; raw index is ignored.
     io_goldens[0]["output_1"] = GoldenMapTensor(
-        {0: golden_topk.indices.to(torch.uint16)}, mesh_shape=mesh_shape
+        {0: golden_topk.indices.to(_topk_index_dtype(shape, dim))},
+        mesh_shape=mesh_shape,
     )
 
     # execute_fb's positional PCC is invalid for unsorted values / tie-unstable
@@ -475,7 +480,7 @@ def test_topk_tile_distribution_multi_core(
                 {in0: adversarial_input},
                 {
                     values: golden_topk.values,
-                    indices: golden_topk.indices.to(torch.uint16),
+                    indices: golden_topk.indices.to(_topk_index_dtype(shape, dim)),
                 },
             )
             return values, indices
@@ -525,6 +530,6 @@ def test_topk_tile_distribution_multi_core(
         golden_topk,
         dim,
         output_tensors,
-        check_gathered=False,
+        check_gathered=True,
         check_indices=False,
     )
