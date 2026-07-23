@@ -1,0 +1,8 @@
+# Generated / machine-specific artifacts — not committed.
+*.ttnn
+*.chisel.jsonl
+*_stripped.mlir
+build_full.log
+libshim/
+generated/
+__pycache__/

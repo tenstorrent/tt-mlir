@@ -1,0 +1,22 @@
+{
+  "qkv_proj": {
+    "isolated": 0.9999846823844141,
+    "accumulated": 0.9999846823844141
+  },
+  "o_proj": {
+    "isolated": 0.9999846334881355,
+    "accumulated": 0.9999846334881355
+  },
+  "gate_up_proj": {
+    "isolated": 0.9999846812917599,
+    "accumulated": 0.9999846812917599
+  },
+  "down_proj": {
+    "isolated": 0.9993193225190743,
+    "accumulated": 0.9993193225190743
+  },
+  "rms_norm": {
+    "isolated": 0.9999979179172337,
+    "accumulated": 0.9999979179172337
+  }
+}
