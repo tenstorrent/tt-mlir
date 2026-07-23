@@ -124,7 +124,7 @@ from typing import Optional
 # Make runner.py importable when running from the repo root
 # ---------------------------------------------------------------------------
 
-_RUNNER_DIR = pathlib.Path(__file__).parent
+_RUNNER_DIR = pathlib.Path(__file__).parent.parent
 if str(_RUNNER_DIR) not in sys.path:
     sys.path.insert(0, str(_RUNNER_DIR))
 
@@ -142,7 +142,7 @@ def _load_perf_analyzer():
     if _perf_analyzer is not None:
         return _perf_analyzer
     pa_path = (
-        pathlib.Path(__file__).parents[2]
+        pathlib.Path(__file__).parents[3]
         / "tools"
         / "perf-analyzer"
         / "perf-analyzer.py"
