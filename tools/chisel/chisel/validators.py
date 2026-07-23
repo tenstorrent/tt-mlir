@@ -9,7 +9,7 @@ import torch
 
 from golden import GoldenMapTensor
 from golden.mapping import mlir_datatype_to_torch_dtype, mlir_type_to_torch_dtype
-from golden.metrics import get_atol_rtol_pcc
+from golden.metrics import get_atol_rtol_pcc, get_relative_l2
 
 from .exceptions import ChiselFailure, DtypeMismatch, ShapeMismatch
 from .report import ChiselRecord, NumericsMode, NumericsPayload, RecordStatus
@@ -45,6 +45,11 @@ class ChiselChecksConfig:
     # absolute/relative diff exceeds the threshold. None = disabled.
     max_atol: Optional[float] = None
     max_rtol: Optional[float] = None
+
+    # When set, the numerics check also fails if the relative L2 error
+    # (||device - golden||_2 / ||golden||_2) exceeds the threshold. rel_l2 is
+    # always computed and recorded regardless; None just disables the failure.
+    max_rel_l2: Optional[float] = None
 
     # Per-op golden modes:
     #   isolation:   re-run the golden each op from device inputs.
@@ -113,10 +118,13 @@ def check_numerics(
         atol, rtol, pcc = get_atol_rtol_pcc(
             golden_shard, device_shard, pcc_cfg.atol, pcc_cfg.rtol
         )
+        rel_l2 = get_relative_l2(golden_shard, device_shard)
         failed = pcc < pcc_cfg.min_pcc
         if cfg.max_atol is not None and atol > cfg.max_atol:
             failed = True
         if cfg.max_rtol is not None and rtol > cfg.max_rtol:
+            failed = True
+        if cfg.max_rel_l2 is not None and rel_l2 > cfg.max_rel_l2:
             failed = True
         status = RecordStatus.NUMERICS_FAIL if failed else RecordStatus.OK
         ctx.write_record(
@@ -130,6 +138,7 @@ def check_numerics(
                     pcc=pcc,
                     atol=atol,
                     rtol=rtol,
+                    rel_l2=rel_l2,
                     device_id=device_id,
                 ),
             )

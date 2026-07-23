@@ -14,4 +14,5 @@ __all__ = [
     "get_pcc",
     "get_atol_rtol",
     "get_atol_rtol_pcc",
+    "get_relative_l2",
 ]

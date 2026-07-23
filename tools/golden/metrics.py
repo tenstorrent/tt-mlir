@@ -115,6 +115,40 @@ def get_pcc(golden, calculated, atol, rtol):
     return cal_pcc
 
 
+def get_relative_l2(golden, calculated):
+    """Calculate relative L2 error between golden and calculated tensors.
+
+    rel_l2 = ||calculated - golden||_2 / ||golden||_2
+
+    Norms are computed in float64 to avoid bf16/fp32 underflow. Complements PCC:
+    PCC is scale-blind, max-atol is dominated by a single outlier, max-rtol blows
+    up near zero. rel_l2 is scale-sensitive, stable near zero globally (denominator
+    is the golden norm, not per-element |y|), and captures distributed degradation
+    rather than one bad element. Larger = worse.
+
+    Returns a non-negative float: 0.0 if both tensors are empty or the golden norm
+    is zero and the tensors match exactly, inf if the golden norm is zero but they
+    differ, NaN propagated through if either tensor contains NaN.
+    """
+    golden = golden.to(torch.float64).flatten()
+    calculated = calculated.to(torch.float64).flatten()
+
+    if golden.numel() == 0 or calculated.numel() == 0:
+        return 0.0
+
+    diff_norm = torch.linalg.vector_norm(calculated - golden)
+    golden_norm = torch.linalg.vector_norm(golden)
+
+    if torch.isnan(diff_norm) or torch.isnan(golden_norm):
+        return float("nan")
+
+    if golden_norm.item() == 0.0:
+        # Both exactly zero -> perfect match; otherwise undefined (inf).
+        return 0.0 if diff_norm.item() == 0.0 else float("inf")
+
+    return (diff_norm / golden_norm).item()
+
+
 def get_atol_rtol_pcc(golden, calculated, atol, rtol):
     """Wrapper function that calculates atol, rtol, and pcc."""
     cal_atol, cal_rtol = get_atol_rtol(golden, calculated)

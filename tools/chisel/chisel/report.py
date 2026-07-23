@@ -72,6 +72,7 @@ class NumericsPayload(_Payload):
     pcc: float
     atol: float
     rtol: float
+    rel_l2: float
     device_id: Optional[int] = None
 
 

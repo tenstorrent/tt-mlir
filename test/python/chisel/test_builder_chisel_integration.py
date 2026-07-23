@@ -106,6 +106,14 @@ def test_chisel_records_one_layer_nn(request, device, tmp_path):
     assert_pcc(chisel.NumericsMode.ISOLATED)
     assert_pcc(chisel.NumericsMode.ACCUMULATED)
 
+    # rel_l2 is recorded on every numerics record (no threshold set here, so it
+    # never flips the verdict, but it must be present and sane: a passing op has
+    # near-zero relative L2 error).
+    for r in (r for r in records if r.check == "numerics"):
+        assert (
+            0.0 <= r.payload.rel_l2 < 0.1
+        ), f"{r.op}: unexpected rel_l2 {r.payload.rel_l2} on passing op"
+
     # One promotion per function arg (x, w, b); extras mean a golden is missing.
     EXPECTED_PROMOTIONS = 3
     promotions = [r for r in records if r.check == "golden_promoted"]
@@ -167,6 +175,48 @@ def test_chisel_dumps_debug_artifacts_on_pcc_fail(request, device, tmp_path):
     assert (
         fb_files
     ), f"no flatbuffer dumped under {debug_dir}: {list(debug_dir.iterdir())}"
+
+
+def test_chisel_max_rel_l2_threshold_fails(request, device, tmp_path):
+    # rel_l2 is a non-negative error metric, so a negative max_rel_l2 is
+    # impossible to satisfy: every numerics check must record NUMERICS_FAIL,
+    # driven solely by the rel_l2 threshold (PCC stays well above min_pcc).
+    x_shape = (64, 128)
+    w_shape = (256, 128)
+    b_shape = (256,)
+
+    def module(builder: TTNNBuilder):
+        @builder.func(
+            [x_shape, w_shape, b_shape],
+            [torch.float32, torch.float32, torch.float32],
+        )
+        def one_layer_nn(
+            x: Operand,
+            w: Operand,
+            b: Operand,
+            builder: TTNNBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            y = builder.linear(x, w, bias=b, transpose_b=True)
+            return builder.multiply(y, y)
+
+    with chisel.session(
+        checks_config=chisel.ChiselChecksConfig(max_rel_l2=-1.0),
+    ) as report:
+        compile_and_execute_ttnn(
+            module,
+            test_base=request.node.name,
+            output_root=str(tmp_path),
+            target="ttnn",
+            device=device,
+        )
+        records = report.records
+
+    numerics_records = [r for r in records if r.check == "numerics"]
+    assert numerics_records, "no numerics records produced"
+    assert all(
+        r.status == chisel.RecordStatus.NUMERICS_FAIL for r in numerics_records
+    ), f"expected all numerics records to fail with max_rel_l2=-1.0, got {[r.status for r in numerics_records]}"
     # One dump per binary - the policy is first-failure-wins.
     assert len(mlir_files) == 1
     assert len(fb_files) == 1
