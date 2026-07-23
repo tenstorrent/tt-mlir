@@ -1564,6 +1564,18 @@ void L1SpillManagementBase<MemoryTracker>::run() {
     }
 
     recoverFromOOM(op, pos, tensorResults, data, addResultsToLiveSet);
+    // Stateful eviction requests a rewind: restore the full sweep state at the
+    // victim's position and re-run the forward sweep from there (the victim now
+    // reads DRAM, inserted reshards are ordinary schedule ops, and this op is
+    // re-reached and re-validated against the freed state). Inert on the Sum
+    // path (never sets pendingRewindTo).
+    if (pendingRewindTo) {
+      int64_t r = *pendingRewindTo;
+      pendingRewindTo.reset();
+      restoreCheckpoint(r);
+      pos = r - 1; // ++pos brings the sweep to r
+      continue;
+    }
     if (rewindIfScheduleShifted()) {
       continue;
     }
