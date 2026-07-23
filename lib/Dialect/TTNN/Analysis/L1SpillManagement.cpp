@@ -610,9 +610,8 @@ void AddressSimSpillManagement<MemoryTracker>::recoverFromOOM(
 }
 
 template <typename MemoryTracker>
-void AddressSimSpillManagement<MemoryTracker>::commitAllocation(Value val,
-                                                        uint64_t perResultL1,
-                                                        ScheduleData &data) {
+void AddressSimSpillManagement<MemoryTracker>::commitAllocation(
+    Value val, uint64_t perResultL1, ScheduleData &data) {
   auto luIt = data.lastUsePositions.find(val);
   assert(luIt != data.lastUsePositions.end() &&
          "scheduled value missing its lastUsePositions entry");
@@ -624,7 +623,8 @@ void AddressSimSpillManagement<MemoryTracker>::commitAllocation(Value val,
   l1EventLog.push_back({L1Event::kAlloc, val, perResultL1, /*skipped=*/false});
 
   // View-eligible reshape: alias src's buffer instead of carving a fresh slot.
-  // Must stay in sync with the willAliasSourceInL1 short-circuit in ensureFitsL1.
+  // Must stay in sync with the willAliasSourceInL1 short-circuit in
+  // ensureFitsL1.
   Operation *defOp = val.getDefiningOp();
   if (defOp && willAliasSourceInL1(defOp)) {
     memoryTracker.addTensorAtAddress(val, perResultL1, defOp->getOperand(0));
@@ -637,11 +637,9 @@ void AddressSimSpillManagement<MemoryTracker>::commitAllocation(Value val,
 }
 
 template <typename MemoryTracker>
-uint64_t AddressSimSpillManagement<MemoryTracker>::ensureFitsL1(Operation *op,
-                                                        int64_t pos,
-                                                        ScheduleData &data,
-                                                        uint64_t cbPeakUsage,
-                                                        uint64_t l1Size) {
+uint64_t AddressSimSpillManagement<MemoryTracker>::ensureFitsL1(
+    Operation *op, int64_t pos, ScheduleData &data, uint64_t cbPeakUsage,
+    uint64_t l1Size) {
   // A view-eligible reshape aliases its source's existing L1 slot
   // (addResultsToLiveSet uses addTensorAtAddress), so it consumes no fresh
   // L1. Skip the fit / CB-overlap checks that assume a new allocation —
@@ -744,7 +742,7 @@ void AddressSimSpillManagement<MemoryTracker>::handleOOM(
 
 template <typename MemoryTracker>
 void L1SpillManagementBase<MemoryTracker>::insertEventIntoLog(size_t pos,
-                                                          L1Event event) {
+                                                              L1Event event) {
   // Insert the event and shift every index >= pos in both index structures
   // so the invariant "addressSnapshots[i] = state before event i" and
   // "allocEventIndex[v] = i <=> l1EventLog[i] is v's kAlloc" are preserved.
@@ -870,14 +868,14 @@ bool L1SpillManagementBase<MemoryTracker>::evictValue(
   spillToDram(victim);
   memoryTracker.removeTensorFromSizes(victim);
 
-  // Rewind (stateful) path: the address-sim path frees the victim by marking its
-  // alloc event skipped in the replay; the rewind re-run has no such skip and
-  // re-processes the victim's op, which still produces L1. After the spill the
-  // victim's only remaining L1 use is the to_memory_config inserted right after
-  // it, so shorten its tracked lifetime to its own position — the re-run then
-  // frees it immediately (processDeadTensors) instead of keeping it live to its
-  // original far-future last use, which is what actually frees L1 for the op
-  // that triggered this eviction.
+  // Rewind (stateful) path: the address-sim path frees the victim by marking
+  // its alloc event skipped in the replay; the rewind re-run has no such skip
+  // and re-processes the victim's op, which still produces L1. After the spill
+  // the victim's only remaining L1 use is the to_memory_config inserted right
+  // after it, so shorten its tracked lifetime to its own position — the re-run
+  // then frees it immediately (processDeadTensors) instead of keeping it live
+  // to its original far-future last use, which is what actually frees L1 for
+  // the op that triggered this eviction.
   if (usesRewindEviction() && victimOp) {
     int64_t victimPos = data.positionMap.lookup(victimOp);
     auto luIt = data.lastUsePositions.find(victim);
@@ -1030,10 +1028,10 @@ bool L1SpillManagementBase<MemoryTracker>::evictValue(
         } else {
           // Future consumer, OR any consumer on the stateful rewind path:
           // insert the reshard into the schedule so the (re-run) forward sweep
-          // processes it as an ordinary op — querying and tracking its L1 buffer
-          // in schedule order. This is why the stateful path never leaves a
-          // reshard untracked (RCA #2). Each insertion shifts the consumer right
-          // by one, so advance consumerPos.
+          // processes it as an ordinary op — querying and tracking its L1
+          // buffer in schedule order. This is why the stateful path never
+          // leaves a reshard untracked (RCA #2). Each insertion shifts the
+          // consumer right by one, so advance consumerPos.
           insertReshardIntoSchedule(reshardOp, reshardResult,
                                     reshardSizePerCore, consumerPos, data);
           ++consumerPos;
@@ -1043,15 +1041,15 @@ bool L1SpillManagementBase<MemoryTracker>::evictValue(
   }
 
   // Stateful (rewind) path: allocator state is rebuilt by the rewind + re-run
-  // of the forward sweep driven by recoverFromOOM. No event-log replay here, and
-  // all reshards were routed into the schedule above.
+  // of the forward sweep driven by recoverFromOOM. No event-log replay here,
+  // and all reshards were routed into the schedule above.
   if (usesRewindEviction()) {
     return true;
   }
 
-  // Address-sim path: apply transient event insertions largest-position-first so
-  // earlier positions are not invalidated by later insertions, then rebuild via
-  // the first-fit replay.
+  // Address-sim path: apply transient event insertions largest-position-first
+  // so earlier positions are not invalidated by later insertions, then rebuild
+  // via the first-fit replay.
   llvm::sort(transientInsertions,
              [](const TransientInsertion &a, const TransientInsertion &b) {
                return a.pos > b.pos;
@@ -1107,8 +1105,8 @@ void L1SpillManagementBase<MemoryTracker>::insertReshardIntoSchedule(
   data.deathSchedule = std::move(newDeathSchedule);
 
   // Keep position-keyed sweep checkpoints (stateful rewind path) aligned across
-  // the insertion: keys >= consumerPos shift by +1, mirroring positionMap. Empty
-  // (a no-op) on the Sum path, which does not capture checkpoints.
+  // the insertion: keys >= consumerPos shift by +1, mirroring positionMap.
+  // Empty (a no-op) on the Sum path, which does not capture checkpoints.
   if (!sweepCheckpoints.empty()) {
     llvm::DenseMap<int64_t, SweepCheckpoint> shifted;
     shifted.reserve(sweepCheckpoints.size());
@@ -1158,7 +1156,8 @@ bool L1SpillManagementBase<MemoryTracker>::evictUntil(
   if (!rebuildPlacedAll) {
     Operation *blockedOp = data.schedule[pos];
     blockedOp->emitError(
-        "L1SpillManagementBase: a live tensor has no contiguous L1 placement even "
+        "L1SpillManagementBase: a live tensor has no contiguous L1 placement "
+        "even "
         "after evicting every spillable tensor (fragmentation: a non-evictable "
         "inserted reshard or irreducible working set cannot be relocated)");
     compilationFailed = true;
@@ -1173,10 +1172,8 @@ bool L1SpillManagementBase<MemoryTracker>::evictUntil(
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-uint64_t AddressSimSpillManagement<MemoryTracker>::handleNoFit(Operation *op,
-                                                       int64_t pos,
-                                                       ScheduleData &data,
-                                                       uint64_t outputL1Size) {
+uint64_t AddressSimSpillManagement<MemoryTracker>::handleNoFit(
+    Operation *op, int64_t pos, ScheduleData &data, uint64_t outputL1Size) {
   TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
                "    NO_FIT: output {0} bytes can't fit contiguously, evicting",
                outputL1Size);
@@ -1320,7 +1317,8 @@ uint64_t AddressSimSpillManagement<MemoryTracker>::handleFragmentation(
     }
     if (!fitsAfterSiblingSpill) {
       op->emitError(
-          "L1SpillManagementBase: sibling-operand spill left a live tensor with no "
+          "L1SpillManagementBase: sibling-operand spill left a live tensor "
+          "with no "
           "contiguous L1 placement (fragmentation cannot be resolved by "
           "demoting this op)");
       compilationFailed = true;
@@ -1625,9 +1623,9 @@ void L1SpillManagementBase<MemoryTracker>::run() {
       int64_t r = *pendingRewindTo;
       pendingRewindTo.reset();
       restoreCheckpoint(r);
-      // Drop stale checkpoints past the rewind point; the re-run recaptures them
-      // at each position it re-processes, so no checkpoint older than the current
-      // pass is ever restored.
+      // Drop stale checkpoints past the rewind point; the re-run recaptures
+      // them at each position it re-processes, so no checkpoint older than the
+      // current pass is ever restored.
       llvm::SmallVector<int64_t> stale;
       for (const auto &kv : sweepCheckpoints) {
         if (kv.first > r) {
@@ -1642,7 +1640,8 @@ void L1SpillManagementBase<MemoryTracker>::run() {
       // count. A runaway means a logic error (a re-added victim, a rewind that
       // makes no progress); fail loudly rather than spin.
       if (++rewindCount > kMaxRewinds) {
-        llvm_unreachable("stateful spill: rewind budget exceeded (no progress)");
+        llvm_unreachable(
+            "stateful spill: rewind budget exceeded (no progress)");
       }
       pos = r - 1; // ++pos brings the sweep to r
       continue;
@@ -1740,9 +1739,8 @@ void L1SpillManagementBase<MemoryTracker>::demoteToDram(Operation *op) {
 //===----------------------------------------------------------------------===//
 
 template <typename MemoryTracker>
-void L1SpillManagementBase<MemoryTracker>::evictAllFromL1(int64_t pos,
-                                                      ScheduleData &data,
-                                                      Operation *triggerOp) {
+void L1SpillManagementBase<MemoryTracker>::evictAllFromL1(
+    int64_t pos, ScheduleData &data, Operation *triggerOp) {
   llvm::SmallVector<Operation *> evictedOps;
   for (Value victim : liveValues) {
     uint64_t freedBytes = memoryTracker.getTensorSize(victim);
@@ -1993,16 +1991,6 @@ MockAllocatorL1Tracker::validate(Operation *op,
     // includes this op's inputs) + this op's output.
     uint64_t projected = getOccupiedL1() + result.outputL1Usage;
     if (l1Budget > 0 && projected > l1Budget) {
-      // Diagnostic: TTMLIR_SPILL_DEBUG=1 distinguishes a byte-cap OOM (this
-      // branch) from a device/CB OOM surfaced by the query itself (below), so
-      // an over-conservative spill can be attributed. See tt-mlir #9069 debug.
-      if (::getenv("TTMLIR_SPILL_DEBUG")) {
-        llvm::errs() << "[spill-debug] BYTE-CAP-OOM op=" << op->getName()
-                     << " occupied=" << getOccupiedL1()
-                     << " output=" << result.outputL1Usage
-                     << " projected=" << projected << " budget=" << l1Budget
-                     << "\n";
-      }
       return op_constraint_validation::ValidationResult::outOfMemoryError(
           "stateful: projected L1 (" + std::to_string(projected) +
           "B) exceeds optimizer budget (" + std::to_string(l1Budget) + "B)");
@@ -2012,13 +2000,6 @@ MockAllocatorL1Tracker::validate(Operation *op,
       pendingRecords[op] = RecordVec(result.outputAllocations.begin(),
                                      result.outputAllocations.end());
     }
-  } else if (::getenv("TTMLIR_SPILL_DEBUG")) {
-    llvm::errs() << "[spill-debug] QUERY-NON-SUCCESS op=" << op->getName()
-                 << " status="
-                 << (result.isNotImplemented()      ? "NotImplemented"
-                     : result.isMetalBackendError() ? "BackendError"
-                                                    : "OOM/other")
-                 << " msg=" << result.errorMessage << "\n";
   }
   return result;
 }
@@ -2166,10 +2147,8 @@ void StatefulL1SpillManagement::commitAllocation(Value val,
          "scheduled value missing its lastUsePositions entry");
   int64_t resultLastUse = luIt->second;
 
-  // Log the alloc event and checkpoint the record set for eviction replay.
-  allocEventIndex[val] = l1EventLog.size();
-  addressSnapshots[l1EventLog.size()] = memoryTracker.takeSnapshot();
-  l1EventLog.push_back({L1Event::kAlloc, val, perResultL1, /*skipped=*/false});
+  // No event log here: the stateful path rebuilds state by rewinding and
+  // re-running the sweep (per-position checkpoints), not via event-log replay.
 
   // View-eligible op whose source is still L1-resident: alias its buffer (no
   // new record). Otherwise associate this result's own output record.
@@ -2207,9 +2186,10 @@ void StatefulL1SpillManagement::recoverFromOOM(
     // genuinely-unplaceable working set). Degrade gracefully: demote this op's
     // output to DRAM and continue, rather than failing the pass.
     observer_->onSelfSpill(op, pos);
-    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
-                 "    DEMOTE SELF (stateful): {0} unplaceable after draining L1",
-                 ttmlir::opToString(op));
+    TTMLIR_DEBUG(
+        ttmlir::LogComponent::GreedyOptimizer,
+        "    DEMOTE SELF (stateful): {0} unplaceable after draining L1",
+        ttmlir::opToString(op));
     demoteToDram(op);
     return; // no rewind; sweep advances to pos+1
   }
@@ -2219,9 +2199,10 @@ void StatefulL1SpillManagement::recoverFromOOM(
   evictValue(victim, pos, data, unusedCampaign);
 
   // Rewind to the victim's own allocation position. Reshards insert at consumer
-  // positions (> victimPos, since a consumer follows its producer), so victimPos
-  // is the earliest position affected by this eviction. Re-read positionMap in
-  // case insertions shifted it (they should not, being after victimPos).
+  // positions (> victimPos, since a consumer follows its producer), so
+  // victimPos is the earliest position affected by this eviction. Re-read
+  // positionMap in case insertions shifted it (they should not, being after
+  // victimPos).
   int64_t victimPos = data.positionMap.lookup(victimOp);
   pendingRewindTo = victimPos;
 }

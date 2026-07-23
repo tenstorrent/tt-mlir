@@ -308,14 +308,14 @@ TEST_F(MockAllocatorReshardTest, ReshardedPastConsumerTrackedDuringEviction) {
   auto tt = tensorType(shape, makeL1Sharded(shape));
 
   auto args = beginFunc({tt});
-  auto *opV = addUnary(args[0], tt, 0);          // victim (long-lived)
-  auto *cPast = addUnary(opV->getResult(0), tt, 0); // PAST consumer of opV
+  auto *opV = addUnary(args[0], tt, 0);                // victim (long-lived)
+  auto *cPast = addUnary(opV->getResult(0), tt, 0);    // PAST consumer of opV
   auto *cPastU = addUnary(cPast->getResult(0), tt, 0); // cPast dies here
   auto *mid1 = addUnary(args[0], tt, 0);
-  auto *mid2 = addUnary(mid1->getResult(0), tt, 0); // OOM trigger; mid1 dies here
+  auto *mid2 =
+      addUnary(mid1->getResult(0), tt, 0); // OOM trigger; mid1 dies here
   auto *tailV = addUnary(opV->getResult(0), tt, 0); // opV's farthest use
-  finishFunc(
-      {cPastU->getResult(0), mid2->getResult(0), tailV->getResult(0)});
+  finishFunc({cPastU->getResult(0), mid2->getResult(0), tailV->getResult(0)});
 
   runMock();
 
@@ -323,10 +323,9 @@ TEST_F(MockAllocatorReshardTest, ReshardedPastConsumerTrackedDuringEviction) {
   size_t reshardsToL1 = 0;
   func.walk([&](mlir::tt::ttnn::ToMemoryConfigOp op) {
     auto rt = mlir::dyn_cast<mlir::RankedTensorType>(op.getResult().getType());
-    auto enc =
-        rt ? mlir::dyn_cast_or_null<mlir::tt::ttnn::TTNNLayoutAttr>(
-                 rt.getEncoding())
-           : nullptr;
+    auto enc = rt ? mlir::dyn_cast_or_null<mlir::tt::ttnn::TTNNLayoutAttr>(
+                        rt.getEncoding())
+                  : nullptr;
     if (enc && enc.hasL1BufferType()) {
       ++reshardsToL1;
     }
