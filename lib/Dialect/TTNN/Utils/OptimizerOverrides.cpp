@@ -10,9 +10,6 @@ void OptimizerOverridesHandler::setEnableOptimizer(bool value) {
   enableOptimizer = value;
 }
 
-void OptimizerOverridesHandler::setMemoryReconfig(bool value) {
-  enableMemoryReconfig = value;
-}
 void OptimizerOverridesHandler::setEnableMemoryLayoutAnalysis(bool value) {
   enableMemoryLayoutAnalysis = value;
 }
@@ -48,9 +45,6 @@ bool OptimizerOverridesHandler::getEnableOptimizer() const {
   return enableOptimizer;
 }
 
-bool OptimizerOverridesHandler::getMemoryReconfig() const {
-  return enableMemoryReconfig;
-}
 bool OptimizerOverridesHandler::getEnableMemoryLayoutAnalysis() const {
   return enableMemoryLayoutAnalysis;
 }
@@ -118,10 +112,6 @@ std::string OptimizerOverridesHandler::toString() const {
 
   if (enableOptimizer) {
     options += OptionNames::optimizerPassEnabled.str() + "=true ";
-  }
-
-  if (enableMemoryReconfig) {
-    options += OptionNames::memReconfigEnabled.str() + "=true ";
   }
 
   if (enableMemoryLayoutAnalysis) {

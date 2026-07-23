@@ -19,11 +19,6 @@ void populateOptimizerOverridesModule(nb::module_ &m) {
       .def("get_enable_optimizer",
            &tt::ttnn::OptimizerOverridesHandler::getEnableOptimizer)
 
-      .def("set_memory_reconfig",
-           &tt::ttnn::OptimizerOverridesHandler::setMemoryReconfig)
-      .def("get_memory_reconfig",
-           &tt::ttnn::OptimizerOverridesHandler::getMemoryReconfig)
-
       .def("set_enable_memory_layout_analysis",
            &tt::ttnn::OptimizerOverridesHandler::setEnableMemoryLayoutAnalysis)
       .def("get_enable_memory_layout_analysis",

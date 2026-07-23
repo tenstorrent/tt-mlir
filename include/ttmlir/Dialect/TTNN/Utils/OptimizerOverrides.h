@@ -20,8 +20,6 @@ public:
 
   // Enable/disable the optimizer passes.
   void setEnableOptimizer(bool);
-  // Enable/disable the memory configurations.
-  void setMemoryReconfig(bool);
   void setEnableMemoryLayoutAnalysis(bool);
   void setInsertMemReconfig(llvm::StringMap<InsertMemReconfigParams> &);
   void setOutputLayoutOverrides(llvm::StringMap<OutputLayoutOverrideParams> &);
@@ -36,8 +34,6 @@ public:
 
   // Get the current state of the optimizer passes.
   bool getEnableOptimizer() const;
-  // Get the current state of the memory configurations.
-  bool getMemoryReconfig() const;
   bool getEnableMemoryLayoutAnalysis() const;
   llvm::StringMap<InsertMemReconfigParams> getInsertMemReconfig() const;
   llvm::StringMap<OutputLayoutOverrideParams> getOutputLayoutOverrides() const;
@@ -78,8 +74,7 @@ private:
   // Flags for enabling/disabling the optimizer passes
   bool enableOptimizer = false;
 
-  // Flags for enabling/disabling the memory configurations
-  bool enableMemoryReconfig = true;
+  // Flag for enabling/disabling memory layout analysis
   bool enableMemoryLayoutAnalysis = false;
 
   llvm::StringMap<InsertMemReconfigParams> insertMemReconfig;

@@ -157,7 +157,7 @@ void createTTNNPipelineAnalysisPasses(
         wrapperOptions));
 #else
     llvm::llvm_unreachable_internal(
-        "Optimizer passes require OpModel support to be enabled.");
+        "TTNN optimizer passes require OpModel support to be enabled.");
 #endif
   }
 }
@@ -258,7 +258,7 @@ void createTTNNFusingPass(OpPassManager &pm,
           wrapperOptions));
 #else
       llvm::llvm_unreachable_internal(
-          "Optimizer passes require OpModel support to be enabled.");
+          "TTNN optimizer passes require OpModel support to be enabled.");
 #endif
     } else {
       pm.addPass(mlir::tt::ttnn::createTTNNFusing());

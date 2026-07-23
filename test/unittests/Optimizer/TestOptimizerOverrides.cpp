@@ -443,16 +443,6 @@ TEST_F(TestOptimizerOverrideHandler, TestSetOptimizerPass) {
   ASSERT_FALSE(optimizerOverridesHandler.getEnableOptimizer());
 }
 
-// Test the setMemoryConfig method
-TEST_F(TestOptimizerOverrideHandler, TestSetMemoryConfig) {
-
-  optimizerOverridesHandler.setMemoryReconfig(true);
-  ASSERT_TRUE(optimizerOverridesHandler.getMemoryReconfig());
-
-  optimizerOverridesHandler.setMemoryReconfig(false);
-  ASSERT_FALSE(optimizerOverridesHandler.getMemoryReconfig());
-}
-
 // Test the setMemoryLayoutAnalysis method
 TEST_F(TestOptimizerOverrideHandler, TestSetMemoryLayoutAnalysis) {
 
@@ -630,7 +620,6 @@ TEST_F(TestOptimizerOverrideHandler, TestToString) {
   std::string options;
   options +=
       "enable-optimizer=true "; // The optimizer pass is enabled by default.
-  options += "memreconfig-enabled=true ";
   options += "memory-layout-analysis-enabled=true ";
   options += "insert-memreconfig=add_0_1_2=0 ";
   options +=
@@ -641,7 +630,6 @@ TEST_F(TestOptimizerOverrideHandler, TestToString) {
 
   optimizerOverridesHandler.setEnableOptimizer(true);
   optimizerOverridesHandler.setEnableMemoryLayoutAnalysis(true);
-  optimizerOverridesHandler.setMemoryReconfig(true);
   optimizerOverridesHandler.addInsertMemReconfig("add_0_1_2", operandIdxes);
   optimizerOverridesHandler.addOutputLayoutOverride(
       "add_1_2", grid, BufferType::DRAM, TensorMemoryLayout::Interleaved,

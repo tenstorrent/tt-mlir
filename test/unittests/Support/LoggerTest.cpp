@@ -23,7 +23,8 @@ TEST(LoggerTest, LogLevels) {
 
 TEST(LoggerTest, LogComponents) {
   // Test log component string conversions
-  EXPECT_STREQ(getLogComponentStr(LogComponent::Optimizer), "optimizer");
+  EXPECT_STREQ(getLogComponentStr(LogComponent::GreedyOptimizer),
+               "greedy-optimizer");
   EXPECT_STREQ(getLogComponentStr(LogComponent::General), "general");
 }
 
@@ -50,7 +51,7 @@ TEST(LoggerTest, Timestamp) {
 TEST(LoggerTest, LoggingOutput) {
   // Enable debug logging for both optimizer and general components
   llvm::DebugFlag = true;
-  const char *debugTypes[] = {"general", "optimizer", nullptr};
+  const char *debugTypes[] = {"general", "greedy-optimizer", nullptr};
   llvm::setCurrentDebugTypes(debugTypes, 2);
 
   // Set log level to TRACE to see all messages
@@ -59,10 +60,10 @@ TEST(LoggerTest, LoggingOutput) {
   // Start capturing stderr because that's where the logs go
   testing::internal::CaptureStderr();
 
-  // Test all log levels with the optimizer component
-  TTMLIR_TRACE(LogComponent::Optimizer,
+  // Test all log levels with the greedy-optimizer component
+  TTMLIR_TRACE(LogComponent::GreedyOptimizer,
                "This is a trace message with value: {0}", 42);
-  TTMLIR_DEBUG(LogComponent::Optimizer,
+  TTMLIR_DEBUG(LogComponent::GreedyOptimizer,
                "Debug message with two values: {0}, {1}", "hello", 3.14);
 
   // Test the general component
@@ -72,9 +73,11 @@ TEST(LoggerTest, LoggingOutput) {
   // Switch to only general component
   llvm::setCurrentDebugType("general");
 
-  // These should not be visible since optimizer component is disabled
-  TTMLIR_TRACE(LogComponent::Optimizer, "This trace should not be visible");
-  TTMLIR_DEBUG(LogComponent::Optimizer, "This debug should not be visible");
+  // These should not be visible since greedy-optimizer component is disabled
+  TTMLIR_TRACE(LogComponent::GreedyOptimizer,
+               "This trace should not be visible");
+  TTMLIR_DEBUG(LogComponent::GreedyOptimizer,
+               "This debug should not be visible");
 
   // This should be visible since general component is enabled
   TTMLIR_DEBUG(LogComponent::General, "This debug should be visible");

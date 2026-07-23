@@ -30,12 +30,6 @@ def main():
     obj.set_enable_optimizer(False)
     print(f"Enable optimizer: {obj.get_enable_optimizer()}")
 
-    # Memory Reconfig
-    obj.set_memory_reconfig(True)
-    print(f"Memory Reconfig: {obj.get_memory_reconfig()}")
-    obj.set_memory_reconfig(False)
-    print(f"Memory Reconfig: {obj.get_memory_reconfig()}")
-
     # Enable Memory Layout Analysis
     obj.set_enable_memory_layout_analysis(True)
     print(f"Enable Memory Layout Analysis: {obj.get_enable_memory_layout_analysis()}")

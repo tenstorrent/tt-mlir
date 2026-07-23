@@ -186,13 +186,6 @@ struct TTIRToTTNNCommonPipelineOptions
       llvm::cl::desc("Enable memory layout optimization."),
       llvm::cl::init(false)};
 
-  // If this option is true, insert memory reconfiguration ops.
-  //
-  Option<bool> memReconfigEnabled{
-      *this, OptionNames::memReconfigEnabled,
-      llvm::cl::desc("Memory layout reconfiguration pass."),
-      llvm::cl::init(true)};
-
   // Option to provide a system descriptor flatbuffer file to compile
   // against.
   //
