@@ -154,9 +154,11 @@ func.func @ttkernel_noc_oo_tile_render() -> () attributes {ttkernel.thread = #tt
     %args = ttkernel.TensorAccessorArgs(%cta, %crta)
     // CHECK: TensorAccessor [[ACC:v[0-9]+]] = TensorAccessor(
     %s = "ttkernel.TensorAccessor"(%args, %addr, %tile_size) : (!ttkernel.TensorAccessorArgs, i32, i32) -> !ttkernel.TensorAccessor
-    // CHECK: [[NOC]].async_read([[ACC]], CoreLocalMem<uint32_t>({{.*}}), [[ACC]].get_aligned_page_size(), {.page_id = static_cast<uint32_t>({{.*}})}, {});
+    // CHECK: const uint32_t [[READ_PAGE_ID:page_id_[0-9]+]] = static_cast<uint32_t>({{.+}});
+    // CHECK: [[NOC]].async_read([[ACC]], CoreLocalMem<uint32_t>({{.*}}), [[ACC]].get_aligned_page_size(), {.page_id = [[READ_PAGE_ID]]}, {});
     "ttkernel.noc_async_read_tile"(%tile, %s, %addr, %noc0) : (i32, !ttkernel.TensorAccessor, i32, i8) -> ()
-    // CHECK: [[NOC]].async_write(CoreLocalMem<uint32_t>({{.*}}), [[ACC]], [[ACC]].get_aligned_page_size(), {} , {.page_id = static_cast<uint32_t>({{.*}})});
+    // CHECK: const uint32_t [[WRITE_PAGE_ID:page_id_[0-9]+]] = static_cast<uint32_t>({{.+}});
+    // CHECK: [[NOC]].async_write(CoreLocalMem<uint32_t>({{.*}}), [[ACC]], [[ACC]].get_aligned_page_size(), {} , {.page_id = [[WRITE_PAGE_ID]]});
     "ttkernel.noc_async_write_tile"(%tile, %s, %addr, %noc0) : (i32, !ttkernel.TensorAccessor, i32, i8) -> ()
     // CHECK: return
     func.return

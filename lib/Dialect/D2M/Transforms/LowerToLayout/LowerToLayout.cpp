@@ -471,29 +471,67 @@ public:
            currentInverse == spec.vgmInverse;
   }
 
+  OutputBufferSpec
+  inferRequiredVirtualGridMapping(const OutputBufferSpec &spec) const {
+    TT_assertv(static_cast<bool>(spec.vgmForward) ==
+                   static_cast<bool>(spec.vgmInverse),
+               "Expected virtual-grid forward and inverse maps to be set "
+               "together");
+    if (spec.vgmForward) {
+      return spec;
+    }
+
+    auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
+        spec.type.getEncoding());
+    if (!layout) {
+      return spec;
+    }
+
+    ArrayRef<int64_t> gridShape = layout.getGridShape(spec.type);
+    if (!ttmlir::d2m::utils::grids::requiresVirtualGrid(gridShape,
+                                                        targetGridShape)) {
+      return spec;
+    }
+
+    SmallVector<int64_t> physicalGridShape =
+        ttmlir::d2m::utils::grids::getPhysicalGridExtent(gridShape,
+                                                         targetGridShape);
+    auto [forwardMap, inverseMap] =
+        ttmlir::d2m::utils::grids::createCoreVirtMaps(
+            spec.type.getContext(), gridShape, physicalGridShape);
+
+    OutputBufferSpec mappedSpec = spec;
+    mappedSpec.vgmForward = forwardMap;
+    mappedSpec.vgmInverse = inverseMap;
+    return mappedSpec;
+  }
+
   Value createEmpty(PatternRewriter &rewriter, Location loc,
                     const OutputBufferSpec &spec, Value reusableOutput = {},
                     bool allowReuse = true) const {
-    if (allowReuse && matchesOutputSpec(reusableOutput, spec)) {
+    OutputBufferSpec mappedSpec = inferRequiredVirtualGridMapping(spec);
+    if (allowReuse && matchesOutputSpec(reusableOutput, mappedSpec)) {
       return reusableOutput;
     }
 
-    AffineMapAttr invAttr =
-        spec.vgmInverse ? AffineMapAttr::get(spec.vgmInverse) : nullptr;
-    AffineMapAttr fwdAttr =
-        spec.vgmForward ? AffineMapAttr::get(spec.vgmForward) : nullptr;
+    AffineMapAttr invAttr = mappedSpec.vgmInverse
+                                ? AffineMapAttr::get(mappedSpec.vgmInverse)
+                                : nullptr;
+    AffineMapAttr fwdAttr = mappedSpec.vgmForward
+                                ? AffineMapAttr::get(mappedSpec.vgmForward)
+                                : nullptr;
     if (!invAttr && !fwdAttr) {
       if (auto layout = mlir::dyn_cast_if_present<ttcore::MetalLayoutAttr>(
-              spec.type.getEncoding())) {
+              mappedSpec.type.getEncoding())) {
         return rewriter
-            .create<d2m::EmptyOp>(loc, spec.type.getShape(),
-                                  spec.type.getElementType(), layout,
+            .create<d2m::EmptyOp>(loc, mappedSpec.type.getShape(),
+                                  mappedSpec.type.getElementType(), layout,
                                   targetGridShape)
             .getResult();
       }
     }
 
-    return rewriter.create<d2m::EmptyOp>(loc, spec.type, invAttr, fwdAttr)
+    return rewriter.create<d2m::EmptyOp>(loc, mappedSpec.type, invAttr, fwdAttr)
         .getResult();
   }
 

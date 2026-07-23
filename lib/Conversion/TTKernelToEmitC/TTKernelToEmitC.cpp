@@ -1740,20 +1740,31 @@ public:
       return failure();
     }
 
-    SmallVector<Value, 4> operands;
+    std::string pageIdVarName =
+        getResultVariableName(op.getId(), state, "page_id_");
+    rewriter.create<emitc::VerbatimOp>(op.getLoc(),
+                                       "const uint32_t " + pageIdVarName +
+                                           " = static_cast<uint32_t>({});",
+                                       ValueRange{adaptor.getId()});
+
+    SmallVector<Value, 3> operands;
     std::string callStr;
     if constexpr (isRead) {
       operands.append({adaptor.getAddrGenStruct(), adaptor.getDstLocalL1Addr(),
-                       adaptor.getAddrGenStruct(), adaptor.getId()});
-      callStr = *nocName + ".async_read({}, CoreLocalMem<uint32_t>({}), "
-                           "{}.get_aligned_page_size(), "
-                           "{{.page_id = static_cast<uint32_t>({})}, {{});";
+                       adaptor.getAddrGenStruct()});
+      callStr = *nocName +
+                ".async_read({}, CoreLocalMem<uint32_t>({}), "
+                "{}.get_aligned_page_size(), "
+                "{{.page_id = " +
+                pageIdVarName + "}, {{});";
     } else {
       operands.append({adaptor.getSrcLocalL1Addr(), adaptor.getAddrGenStruct(),
-                       adaptor.getAddrGenStruct(), adaptor.getId()});
-      callStr = *nocName + ".async_write(CoreLocalMem<uint32_t>({}), {}, "
-                           "{}.get_aligned_page_size(), {{} , "
-                           "{{.page_id = static_cast<uint32_t>({})});";
+                       adaptor.getAddrGenStruct()});
+      callStr = *nocName +
+                ".async_write(CoreLocalMem<uint32_t>({}), {}, "
+                "{}.get_aligned_page_size(), {{} , "
+                "{{.page_id = " +
+                pageIdVarName + "});";
     }
 
     rewriter.create<emitc::VerbatimOp>(op.getLoc(), callStr, operands);
@@ -2117,10 +2128,10 @@ public:
     std::string crtaArg = buildArgExpr(op.getCrtaExprAttr(), op.getCrtaBase(),
                                        "next_common_runtime_args_offset");
 
-    // Emit: auto tensor_accessor_args_N = TensorAccessorArgs<ctaArg,
-    // crtaArg>();
-    std::string code = "auto " + varName + " = TensorAccessorArgs<" + ctaArg +
-                       ", " + crtaArg + ">();";
+    // Emit: constexpr auto tensor_accessor_args_N =
+    // TensorAccessorArgs<ctaArg, crtaArg>();
+    std::string code = "constexpr auto " + varName + " = TensorAccessorArgs<" +
+                       ctaArg + ", " + crtaArg + ">();";
     rewriter.create<emitc::VerbatimOp>(op.getLoc(), code);
 
     auto resultType =

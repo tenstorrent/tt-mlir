@@ -27,10 +27,12 @@
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
 
 #include <algorithm>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <type_traits>
 #include <utility>
@@ -758,7 +760,8 @@ public:
     rewriter.setInsertionPointToStart(rewriter.getInsertionBlock());
     setInsertionPointAfterOperands(rewriter, {inCB, outCB},
                                    /*allowHoisting*/ true);
-    rewriter.create<ttkernel::InitSFPUOp>(store.getLoc(), inCB, outCB);
+    rewriter.create<ttkernel::ComputeKernelHWStartupOp>(store.getLoc(), inCB,
+                                                        nullptr, outCB);
     rewriter.setInsertionPoint(insertionPoint->getBlock(), insertionPoint);
 
     rewriter.create<ttkernel::CopyTileInitOp>(store.getLoc(), cb);
@@ -2569,6 +2572,147 @@ static Value buildL1Address(OpBuilder &rewriter, Location loc, Value cb,
   return rewriter.create<arith::AddIOp>(loc, baseAddr, offset);
 }
 
+// Stores the chain of TensorAccessorArgs for all FuncOps.
+class TensorAccessorArgsChains {
+public:
+  void bind(func::FuncOp func, const size_t operandIndex, Value args) {
+    accessorArgs[func.getOperation()][operandIndex] = args;
+  }
+
+  Value lookup(func::FuncOp func, const size_t operandIndex) const {
+    auto funcIt = accessorArgs.find(func.getOperation());
+    if (funcIt == accessorArgs.end()) {
+      return {};
+    }
+    auto argIt = funcIt->second.find(operandIndex);
+    return argIt == funcIt->second.end() ? Value{} : argIt->second;
+  }
+
+private:
+  DenseMap<Operation *, DenseMap<size_t, Value>> accessorArgs;
+};
+
+template <typename DMAOp>
+class D2MDMAViaTensorAccessorRewriter : public OpConversionPattern<DMAOp> {
+  static constexpr bool isRead = std::is_same_v<DMAOp, d2m::DMAReadOp>;
+  static_assert(std::is_same_v<DMAOp, d2m::DMAReadOp> ||
+                std::is_same_v<DMAOp, d2m::DMAWriteOp>);
+
+public:
+  D2MDMAViaTensorAccessorRewriter(
+      TypeConverter &typeConverter, MLIRContext *context,
+      std::shared_ptr<TensorAccessorArgsChains> tensorAccessorArgsChains,
+      const d2m::CBProducerConsumer *cbProducerConsumer)
+      : OpConversionPattern<DMAOp>(typeConverter, context),
+        tensorAccessorArgsChains(std::move(tensorAccessorArgsChains)),
+        cbProducerConsumer(cbProducerConsumer) {}
+
+  LogicalResult
+  matchAndRewrite(DMAOp op, typename DMAOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    AffineMapAttr pageMapAttr = op.getTensorAccessorPageMapAttr();
+    if (!pageMapAttr) {
+      return failure();
+    }
+    TT_assertv(op.isShardLevel(),
+               "TensorAccessor lowering requires shard-level DMA");
+
+    Value remoteMemref = isRead ? op.getSrc() : op.getDst();
+    auto getArg = remoteMemref.template getDefiningOp<d2m::GetArgOp>();
+    TT_assertv(getArg, "remote TensorAccessor operand must be a d2m.get_arg");
+
+    func::FuncOp func = op->template getParentOfType<func::FuncOp>();
+    Value tensorAccessorArgs =
+        tensorAccessorArgsChains->lookup(func, getArg.getOperandIndex());
+    TT_assertv(tensorAccessorArgs,
+               "TensorAccessorArgs binding was not materialized");
+
+    auto remoteType = mlir::cast<MemRefType>(remoteMemref.getType());
+    auto remoteLayout =
+        mlir::cast<ttcore::DeviceLayoutInterface>(remoteType.getLayout());
+    ArrayRef<int64_t> shardShape = remoteLayout.getShardShape(remoteType);
+
+    SmallVector<Value> remoteGridIndices;
+    Value remoteBaseAddress = nullptr;
+    Value localCB = nullptr;
+    Value localBaseAddress = nullptr;
+    if constexpr (isRead) {
+      auto dstCBMapping = cbProducerConsumer->get(op.getDst());
+      TT_assertv((dstCBMapping == d2m::ThreadCBOrientation::Producer ||
+                  dstCBMapping == d2m::ThreadCBOrientation::Default),
+                 "DMARead's dst CB must be the producer/default orientation.");
+      remoteGridIndices.assign(adaptor.getSrcIndices().begin(),
+                               adaptor.getSrcIndices().end());
+      remoteBaseAddress = adaptor.getSrc();
+      localCB = adaptor.getDst();
+      localBaseAddress =
+          rewriter.create<ttkernel::GetWritePtrOp>(op.getLoc(), localCB);
+    } else {
+      remoteGridIndices.assign(adaptor.getDstIndices().begin(),
+                               adaptor.getDstIndices().end());
+      remoteBaseAddress = adaptor.getDst();
+      localCB = adaptor.getSrc();
+      localBaseAddress =
+          rewriter.create<ttkernel::GetReadPtrOp>(op.getLoc(), localCB);
+    }
+
+    Value tensorAccessor = rewriter.create<ttkernel::TensorAccessorOp>(
+        op.getLoc(), tensorAccessorArgs, remoteBaseAddress,
+        /*page_size_in=*/Value{});
+    Value nocId = materializeKernelNocId(rewriter, op.getOperation());
+    const int64_t pageSize =
+        ttcore::getElementSizeBytes(remoteType.getElementType());
+
+    auto [lbs, ubs, steps] =
+        d2m::utils::getLoopBounds(rewriter, op.getLoc(), shardShape);
+    scf::buildLoopNest(
+        rewriter, op.getLoc(), lbs, ubs, steps,
+        [&](OpBuilder &loopBuilder, Location loc, ValueRange shardIndices) {
+          SmallVector<Value> remotePageCoordinates(remoteGridIndices);
+          remotePageCoordinates.append(shardIndices.begin(),
+                                       shardIndices.end());
+          SmallVector<Value> pageIds =
+              d2m::utils::applyMap(loopBuilder, loc, pageMapAttr.getValue(),
+                                   remotePageCoordinates, /*isRemote=*/false);
+          Value pageId = loopBuilder.create<arith::IndexCastOp>(
+              loc, loopBuilder.getI32Type(), pageIds.front());
+
+          Value localPage = loopBuilder.create<arith::ConstantIndexOp>(loc, 0);
+          for (auto [shardIndex, dimSize] :
+               llvm::zip_equal(shardIndices, shardShape)) {
+            Value dim =
+                loopBuilder.create<arith::ConstantIndexOp>(loc, dimSize);
+            localPage = loopBuilder.create<arith::AddIOp>(
+                loc, loopBuilder.create<arith::MulIOp>(loc, localPage, dim),
+                shardIndex);
+          }
+          Value pageSizeValue =
+              loopBuilder.create<arith::ConstantIndexOp>(loc, pageSize);
+          Value localOffset =
+              loopBuilder.create<arith::MulIOp>(loc, localPage, pageSizeValue);
+          Value localOffsetI32 = loopBuilder.create<arith::IndexCastOp>(
+              loc, loopBuilder.getI32Type(), localOffset);
+          Value localAddress = loopBuilder.create<arith::AddIOp>(
+              loc, localBaseAddress, localOffsetI32);
+
+          if constexpr (isRead) {
+            loopBuilder.create<ttkernel::NocAsyncReadTileOp>(
+                loc, pageId, tensorAccessor, localAddress, nocId);
+          } else {
+            loopBuilder.create<ttkernel::NocAsyncWriteTileOp>(
+                loc, pageId, tensorAccessor, localAddress, nocId);
+          }
+        });
+
+    rewriter.replaceOpWithNewOp<d2m::NullTxOp>(op, op.getResult().getType());
+    return success();
+  }
+
+private:
+  std::shared_ptr<TensorAccessorArgsChains> tensorAccessorArgsChains;
+  const d2m::CBProducerConsumer *cbProducerConsumer;
+};
+
 class D2MDMAReadRewriter : public OpConversionPattern<d2m::DMAReadOp> {
 public:
   D2MDMAReadRewriter(TypeConverter &typeConverter, MLIRContext *context,
@@ -2579,6 +2723,9 @@ public:
   LogicalResult
   matchAndRewrite(d2m::DMAReadOp op, d2m::DMAReadOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    if (!op.isFullyIndexed()) {
+      return failure();
+    }
 
     auto chipDesc = ttcore::getOpChipDescAttr(op);
     Location loc = op.getLoc();
@@ -2631,6 +2778,9 @@ public:
   LogicalResult
   matchAndRewrite(d2m::DMAWriteOp op, d2m::DMAWriteOpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const final {
+    if (!op.isFullyIndexed()) {
+      return failure();
+    }
 
     auto chipDesc = ttcore::getOpChipDescAttr(op);
 
@@ -3280,10 +3430,13 @@ public:
 namespace {
 class D2MKernelFunctionArgsRewriter : public OpConversionPattern<func::FuncOp> {
 public:
-  D2MKernelFunctionArgsRewriter(TypeConverter &typeConverter,
-                                MLIRContext *context, bool forceCompileTimeArgs)
+  D2MKernelFunctionArgsRewriter(
+      TypeConverter &typeConverter, MLIRContext *context,
+      bool forceCompileTimeArgs,
+      std::shared_ptr<TensorAccessorArgsChains> tensorAccessorArgsChains)
       : OpConversionPattern<func::FuncOp>(typeConverter, context),
-        forceCompileTimeArgs(forceCompileTimeArgs) {}
+        forceCompileTimeArgs(forceCompileTimeArgs),
+        tensorAccessorArgsChains(std::move(tensorAccessorArgsChains)) {}
 
   static ThreadType getTTKernelThreadType(func::FuncOp op) {
     d2m::ThreadAttr threadAttr =
@@ -3383,6 +3536,72 @@ public:
         insertKernelArg(rtArgs, ctArgs, arg);
       }
     });
+
+    auto collectTensorAccessorArg = [&](Value remoteMemref) {
+      auto getArg = remoteMemref.getDefiningOp<d2m::GetArgOp>();
+      if (!getArg) {
+        return;
+      }
+      insertSortedUnique(ctArgs,
+                         builder.getAttr<ArgAttr>(ArgType::TensorAccessorArgs,
+                                                  getArg.getOperandIndex()));
+    };
+    op.walk([&](d2m::DMAReadOp dmaRead) {
+      if (dmaRead.getTensorAccessorPageMapAttr()) {
+        collectTensorAccessorArg(dmaRead.getSrc());
+      }
+    });
+    op.walk([&](d2m::DMAWriteOp dmaWrite) {
+      if (dmaWrite.getTensorAccessorPageMapAttr()) {
+        collectTensorAccessorArg(dmaWrite.getDst());
+      }
+    });
+  }
+
+  void formTensorAccessorArgsChain(ConversionPatternRewriter &rewriter,
+                                   func::FuncOp op,
+                                   ArrayRef<ArgAttr> ctArgs) const {
+    const auto *firstTensorAccessorArgs =
+        llvm::find_if(ctArgs, [](ArgAttr arg) {
+          return arg.getArgType() == ArgType::TensorAccessorArgs;
+        });
+    if (firstTensorAccessorArgs == ctArgs.end()) {
+      return;
+    }
+
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointToStart(&op.getBody().front());
+
+    const size_t ctaBase = static_cast<size_t>(
+        std::distance(ctArgs.begin(), firstTensorAccessorArgs));
+    ArrayRef<ArgAttr> allTensorAccessorArgs = ctArgs.drop_front(ctaBase);
+    Value previousArgs = nullptr;
+    for (ArgAttr ctArg : allTensorAccessorArgs) {
+      TT_assertv(ctArg.getArgType() == ArgType::TensorAccessorArgs,
+                 "TensorAccessorArgs must be the last in the CTA list");
+      Value args = nullptr;
+      if (!previousArgs) {
+        Value ctaBaseValue =
+            intConstant<int32_t>(rewriter, op.getLoc(), ctaBase);
+        Value zero = intConstant<int32_t>(rewriter, op.getLoc(), 0);
+        args = rewriter
+                   .create<ttkernel::TensorAccessorArgsOp>(
+                       op.getLoc(), ctaBaseValue, zero,
+                       /*prev_args=*/Value{}, /*cta_expr=*/StringAttr{},
+                       /*crta_expr=*/StringAttr{})
+                   .getResult();
+      } else {
+        args = rewriter
+                   .create<ttkernel::TensorAccessorArgsOp>(
+                       op.getLoc(), /*cta_base=*/Value{},
+                       /*crta_base=*/Value{}, previousArgs,
+                       /*cta_expr=*/StringAttr{},
+                       /*crta_expr=*/StringAttr{})
+                   .getResult();
+      }
+      tensorAccessorArgsChains->bind(op, ctArg.getOperandIndex(), args);
+      previousArgs = args;
+    }
   }
 
   LogicalResult
@@ -3401,11 +3620,13 @@ public:
       op.setType(rewriter.getFunctionType(TypeRange(), TypeRange()));
       convertFunctionAttrs(rewriter, op, rtArgSpecVector, ctArgSpecVector);
     });
+    formTensorAccessorArgsChain(rewriter, op, ctArgSpecVector);
     return success();
   }
 
 private:
   bool forceCompileTimeArgs;
+  std::shared_ptr<TensorAccessorArgsChains> tensorAccessorArgsChains;
 };
 } // namespace
 
@@ -3657,9 +3878,11 @@ void populateD2MToTTKernelPatterns(
     MLIRContext *ctx, RewritePatternSet &patterns, TypeConverter &typeConverter,
     const d2m::CBProducerConsumer &cbProducerConsumer,
     bool forceCompileTimeArgs) {
+  auto tensorAccessorArgsChains =
+      std::make_shared<ttkernel::TensorAccessorArgsChains>();
   // clang-format off
   patterns.add<ttkernel::D2MKernelFunctionArgsRewriter>(
-      typeConverter, ctx, forceCompileTimeArgs);
+      typeConverter, ctx, forceCompileTimeArgs, tensorAccessorArgsChains);
   patterns.add<ttkernel::PassthroughRewriter<memref::CastOp>,
                ttkernel::MemRefSubviewRewriter,
 
@@ -3786,6 +4009,10 @@ void populateD2MToTTKernelPatterns(
                                             forceCompileTimeArgs);
   patterns.add<ttkernel::D2MGetCBRewriter>(typeConverter, ctx,
                                            forceCompileTimeArgs);
+  patterns.add<
+      ttkernel::D2MDMAViaTensorAccessorRewriter<d2m::DMAReadOp>,
+      ttkernel::D2MDMAViaTensorAccessorRewriter<d2m::DMAWriteOp>>(
+      typeConverter, ctx, tensorAccessorArgsChains, &cbProducerConsumer);
   patterns.add<ttkernel::D2MDMAReadRewriter>(typeConverter, ctx, &cbProducerConsumer);
   patterns.add<ttkernel::D2MDMAWriteRewriter>(typeConverter, ctx, &cbProducerConsumer);
 

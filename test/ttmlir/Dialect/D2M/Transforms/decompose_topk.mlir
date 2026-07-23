@@ -66,33 +66,33 @@ module {
     return %values, %indices : tensor<32x16xf32>, tensor<32x16xsi32>
   }
 
-  // ---- Large k (k>32), 2 tiles: direct sort-merge-rebuild ----
+  // ---- Large k (k>32): left-fold accumulator over reduction tiles ----
 
-  // 32x128 with k=64: useLargeK=true, logk=6. Wt=2, logWt=1.
-  // Note: We use 32x128 (k < num_elements=128) to avoid a bug where
-  // k==num_elements causes a shape mismatch in createExtractGeneric.
+  // 32x64 with k=64: 2 reduction tiles. Builds a single 2-tile accumulator
+  // (tiles 0,1) with no fold loop, since there are no complete right pairs.
   // CHECK-LABEL: func @decompose_k64_2tiles
-  func.func @decompose_k64_2tiles(%arg0: tensor<32x128xf32>) -> (tensor<32x64xf32>, tensor<32x64xsi32>) {
+  func.func @decompose_k64_2tiles(%arg0: tensor<32x64xf32>) -> (tensor<32x64xf32>, tensor<32x64xsi32>) {
     // CHECK-NOT: d2m.topk_block
 
     // CHECK: d2m.arange_block
-    // CHECK-SAME: num_elements = 128
+    // CHECK-SAME: num_elements = 64
 
-    // Single scf.for with sort-merge-rebuild.
+    // Non-target loop wraps the whole merge tree.
     // CHECK: scf.for
+    // Initial accumulator from tiles (0,1): sort-merge-rebuild.
     // CHECK: d2m.tile_topk_local_sort
     // CHECK: d2m.tile_topk_merge{{.*}}k = 64
     // CHECK: d2m.tile_topk_rebuild{{.*}}k = 64{{.*}}logk = 6
 
-    %values, %indices = "ttir.topk"(%arg0) <{k = 64 : i32, dim = -1 : i32, largest = true, sorted = false}> : (tensor<32x128xf32>) -> (tensor<32x64xf32>, tensor<32x64xsi32>)
+    %values, %indices = "ttir.topk"(%arg0) <{k = 64 : i32, dim = -1 : i32, largest = true, sorted = false}> : (tensor<32x64xf32>) -> (tensor<32x64xf32>, tensor<32x64xsi32>)
     return %values, %indices : tensor<32x64xf32>, tensor<32x64xsi32>
   }
 
-  // ---- Large k (k>32), 4 tiles: 3-sub-merge tree on later iterations ----
+  // ---- Large k (k>32), 4 tiles: left-fold with one complete right pair ----
 
-  // 32x128 with k=64: Wt=4, logWt=2.
-  // Iter 0: pairs (0,1)(2,3) — direct sort-merge-rebuild (isFirst).
-  // Iter 1: pair (0,2) — 3-sub-merge tree.
+  // 32x128 with k=64: 4 reduction tiles. One fold-loop trip combines the
+  // accumulator (0,1) with the complete right pair (2,3) via a build plus a
+  // 3-sub-merge, keeping the accumulator canonical at (0,1).
   // CHECK-LABEL: func @decompose_k64_4tiles
   func.func @decompose_k64_4tiles(%arg0: tensor<32x128xf32>) -> (tensor<32x64xf32>, tensor<32x64xsi32>) {
     // CHECK-NOT: d2m.topk_block
@@ -100,30 +100,122 @@ module {
     // CHECK: d2m.arange_block
     // CHECK-SAME: num_elements = 128
 
-    // Level 0 is emitted unrolled: direct sort-merge-rebuild.
+    // Outer scf.for is the non-target-row loop (one row here).
     // CHECK: scf.for
-    // CHECK: scf.for
+    // Initial accumulator built from tiles (0,1).
     // CHECK: d2m.tile_topk_local_sort
     // CHECK: d2m.tile_topk_merge{{.*}}k = 64
     // CHECK: d2m.tile_topk_rebuild{{.*}}k = 64
-    // Levels [1, logWt) run in a separate scf.for: 3-sub-merge (winners,
-    // losers, winners-vs-losers).
+    // Fold loop over complete right pairs.
     // CHECK: scf.for
-    // CHECK: scf.for
+    // Build the complete right pair (2,3) from raw input.
+    // CHECK: d2m.tile_topk_local_sort
+    // CHECK: d2m.tile_topk_merge{{.*}}k = 64
+    // CHECK: d2m.tile_topk_rebuild{{.*}}k = 64
+    // 3-sub-merge combine of acc=(0,1) with the pair.
     // Sub 1: merge winner tiles.
     // CHECK: d2m.tile_topk_local_sort
     // CHECK: d2m.tile_topk_merge{{.*}}k = 64
     // CHECK: d2m.tile_topk_rebuild{{.*}}k = 64
-    // Sub 2: merge loser tiles.
+    // Sub 2: merge losers.
     // CHECK: d2m.tile_topk_local_sort
     // CHECK: d2m.tile_topk_merge{{.*}}k = 64
     // CHECK: d2m.tile_topk_rebuild{{.*}}k = 64
-    // Sub 3: merge winners vs losers.
+    // Sub 3: merge losers vs winners, writing back to tile 1.
     // CHECK: d2m.tile_topk_local_sort
     // CHECK: d2m.tile_topk_merge{{.*}}k = 64
     // CHECK: d2m.tile_topk_rebuild{{.*}}k = 64
 
     %values, %indices = "ttir.topk"(%arg0) <{k = 64 : i32, dim = -1 : i32, largest = true, sorted = false}> : (tensor<32x128xf32>) -> (tensor<32x64xf32>, tensor<32x64xsi32>)
+    return %values, %indices : tensor<32x64xf32>, tensor<32x64xsi32>
+  }
+
+  // ---- Large k (k>32), 6 tiles: left-fold with two complete right pairs ----
+
+  // 32x192 with k=64: 6 reduction tiles (even). The fold loop runs twice, once
+  // per complete right pair (2,3) and (4,5), each a build plus a 3-sub-merge.
+  // No power-of-2 padding is needed and there is no odd tail.
+  // CHECK-LABEL: func @decompose_k64_6tiles
+  func.func @decompose_k64_6tiles(%arg0: tensor<32x192xf32>) -> (tensor<32x64xf32>, tensor<32x64xsi32>) {
+    // CHECK-NOT: d2m.topk_block
+
+    // CHECK: d2m.arange_block
+    // CHECK-SAME: num_elements = 192
+
+    // Outer scf.for is the non-target-row loop.
+    // CHECK: scf.for
+    // Initial accumulator from tiles (0,1).
+    // CHECK: d2m.tile_topk_local_sort
+    // CHECK: d2m.tile_topk_merge{{.*}}k = 64
+    // CHECK: d2m.tile_topk_rebuild{{.*}}k = 64
+    // Fold loop (2 trips) over complete right pairs.
+    // CHECK: scf.for
+    // Build the complete right pair.
+    // CHECK: d2m.tile_topk_local_sort
+    // CHECK: d2m.tile_topk_merge{{.*}}k = 64
+    // CHECK: d2m.tile_topk_rebuild{{.*}}k = 64
+    // 3-sub-merge combine. Sub 1: winners.
+    // CHECK: d2m.tile_topk_local_sort
+    // CHECK: d2m.tile_topk_merge{{.*}}k = 64
+    // CHECK: d2m.tile_topk_rebuild{{.*}}k = 64
+    // Sub 2: losers.
+    // CHECK: d2m.tile_topk_local_sort
+    // CHECK: d2m.tile_topk_merge{{.*}}k = 64
+    // CHECK: d2m.tile_topk_rebuild{{.*}}k = 64
+    // Sub 3: losers vs winners.
+    // CHECK: d2m.tile_topk_local_sort
+    // CHECK: d2m.tile_topk_merge{{.*}}k = 64
+    // CHECK: d2m.tile_topk_rebuild{{.*}}k = 64
+
+    %values, %indices = "ttir.topk"(%arg0) <{k = 64 : i32, dim = -1 : i32, largest = true, sorted = false}> : (tensor<32x192xf32>) -> (tensor<32x64xf32>, tensor<32x64xsi32>)
+    return %values, %indices : tensor<32x64xf32>, tensor<32x64xsi32>
+  }
+
+  // ---- Large k (k>32), 5 tiles: odd tile count → tail fold ----
+
+  // 32x160 with k=64: 5 reduction tiles (odd). Seed (0,1), the fold loop runs
+  // once for the complete pair (2,3), then tile 4 is folded in as a lone tail
+  // with a 2-sub-merge (preceded by a prime that sorts the raw tail tile).
+  // CHECK-LABEL: func @decompose_k64_5tiles
+  func.func @decompose_k64_5tiles(%arg0: tensor<32x160xf32>) -> (tensor<32x64xf32>, tensor<32x64xsi32>) {
+    // CHECK-NOT: d2m.topk_block
+
+    // CHECK: d2m.arange_block
+    // CHECK-SAME: num_elements = 160
+
+    // Outer scf.for is the non-target-row loop.
+    // CHECK: scf.for
+    // Initial accumulator from tiles (0,1).
+    // CHECK: d2m.tile_topk_local_sort
+    // CHECK: d2m.tile_topk_merge{{.*}}k = 64
+    // CHECK: d2m.tile_topk_rebuild{{.*}}k = 64
+    // Fold loop over the one complete right pair (2,3): build + 3-sub-merge.
+    // CHECK: scf.for
+    // CHECK: d2m.tile_topk_local_sort
+    // CHECK: d2m.tile_topk_merge{{.*}}k = 64
+    // CHECK: d2m.tile_topk_rebuild{{.*}}k = 64
+    // CHECK: d2m.tile_topk_local_sort
+    // CHECK: d2m.tile_topk_merge{{.*}}k = 64
+    // CHECK: d2m.tile_topk_rebuild{{.*}}k = 64
+    // CHECK: d2m.tile_topk_local_sort
+    // CHECK: d2m.tile_topk_merge{{.*}}k = 64
+    // CHECK: d2m.tile_topk_rebuild{{.*}}k = 64
+    // CHECK: d2m.tile_topk_local_sort
+    // CHECK: d2m.tile_topk_merge{{.*}}k = 64
+    // CHECK: d2m.tile_topk_rebuild{{.*}}k = 64
+    // Odd tail (tile 4), emitted after the fold loop. First prime the raw tail
+    // tile into a valid sorted run with a standalone local_sort.
+    // CHECK: d2m.tile_topk_local_sort
+    // 2-sub-merge combine. Step A: winners (0, tail).
+    // CHECK: d2m.tile_topk_local_sort
+    // CHECK: d2m.tile_topk_merge{{.*}}k = 64
+    // CHECK: d2m.tile_topk_rebuild{{.*}}k = 64
+    // Step B: losers vs tail (1, tail).
+    // CHECK: d2m.tile_topk_local_sort
+    // CHECK: d2m.tile_topk_merge{{.*}}k = 64
+    // CHECK: d2m.tile_topk_rebuild{{.*}}k = 64
+
+    %values, %indices = "ttir.topk"(%arg0) <{k = 64 : i32, dim = -1 : i32, largest = true, sorted = false}> : (tensor<32x160xf32>) -> (tensor<32x64xf32>, tensor<32x64xsi32>)
     return %values, %indices : tensor<32x64xf32>, tensor<32x64xsi32>
   }
 

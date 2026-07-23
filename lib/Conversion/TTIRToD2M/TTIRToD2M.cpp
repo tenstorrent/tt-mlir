@@ -3647,11 +3647,20 @@ public:
           Value output = blockArgs[1];
           std::size_t outShardRank =
               cast<RankedTensorType>(output.getType()).getRank();
+          int64_t inReductionExtent = cast<RankedTensorType>(input.getType())
+                                          .getShape()[extractProjectDim];
 
+          // The input map must stay non-invertible, or linalg infers the loop
+          // bound from the full input extent and rejects the smaller output
+          // shard. With lastStride=1, `dim * lastStride` folds to an identity
+          // map, so we wrap it in `mod inReductionExtent` to stay
+          // non-invertible without changing the in-range read indices
           AffineExpr projExpr =
               outputReductionTiles == 1
                   ? rewriter.getAffineConstantExpr(0)
-                  : rewriter.getAffineDimExpr(extractProjectDim) * lastStride;
+                  : (rewriter.getAffineDimExpr(extractProjectDim) *
+                     lastStride) %
+                        inReductionExtent;
           SmallVector<AffineExpr> mapFirstExprs;
           for (std::size_t i = 0; i < outShardRank; ++i) {
             mapFirstExprs.push_back(i == extractProjectDim
@@ -3710,10 +3719,8 @@ public:
 
     int64_t reductionDimSize = inputType.getShape()[dim];
 
-    // Logical shape for the value input. When the reduction dim is padded to a
-    // power-of-2 tile count (for large-k cases), this shape grows to match the
-    // arange/index buffer, since topk d2m.generic requires compatible operand
-    // shapes.
+    // Logical shape for the value input, used to type the arange/index
+    // buffer since topk d2m.generic requires compatible operand shapes.
     SmallVector<int64_t> topkLogicalShape(inputType.getShape().begin(),
                                           inputType.getShape().end());
 
@@ -3735,58 +3742,10 @@ public:
           op,
           "D2M topk requires at least 2 tiles along the reduction dimension");
     }
-    // For k>32 with a non-pow2 tile count, the reduction dim is padded to the
-    // next power of 2, so lastStride must use the padded count (not
-    // numReductionTiles/2).
-    int64_t nextPow2 = 1;
-    while (nextPow2 < numReductionTiles) {
-      nextPow2 <<= 1;
-    }
-    int64_t paddedNumReductionTiles = (k > 32) ? nextPow2 : numReductionTiles;
-    int64_t lastStride = paddedNumReductionTiles / 2;
-
-    // For k>32 with a non-pow2 tile count, pad the logical input shape to
-    // paddedNumReductionTiles*32 so GridSelection derives the correct tile
-    // count, then mask the padding region with -inf so those tiles are never
-    // top-k.
-    if (paddedNumReductionTiles != numReductionTiles) {
-      constexpr int64_t kTileDim = 32;
-      int64_t paddedDimElems = paddedNumReductionTiles * kTileDim;
-
-      // Build a padded logical type with the reduction dim grown to
-      // paddedDimElems.
-      SmallVector<int64_t> paddedLogicalShape(inputType.getShape().begin(),
-                                              inputType.getShape().end());
-      paddedLogicalShape[dim] = paddedDimElems;
-      auto paddedLogicalType =
-          RankedTensorType::get(paddedLogicalShape, inputType.getElementType());
-
-      Value paddedLayouted = createOptimalLayoutOp(
-          adaptor.getInputTensor(), memorySpaces[0], /*tiled=*/true,
-          /*noCollapse=*/false, rewriter, ttcore::OOBVal::Undef,
-          paddedLogicalType);
-
-      // Mask with the real logical shape so padding cols/rows get -inf.
-      auto paddedLayoutedType =
-          cast<RankedTensorType>(paddedLayouted.getType());
-      auto maskOutput =
-          rewriter.create<d2m::EmptyOp>(loc, paddedLayoutedType.getShape(),
-                                        paddedLayoutedType.getElementType(),
-                                        paddedLayoutedType.getEncoding());
-      SmallVector<int64_t> realLogicalShape(inputType.getShape().begin(),
-                                            inputType.getShape().end());
-      paddedLayouted =
-          rewriter
-              .create<d2m::MaskOp>(loc, paddedLayouted, maskOutput,
-                                   realLogicalShape, ttcore::OOBVal::NegInf)
-              .getResult();
-
-      layoutedInput = paddedLayouted;
-      layoutedType = cast<RankedTensorType>(layoutedInput.getType());
-      metalLayout = cast<ttcore::MetalLayoutAttr>(layoutedType.getEncoding());
-      deviceShape = layoutedType.getShape();
-      topkLogicalShape[dim] = paddedDimElems;
-    }
+    // D2MDecomposeTopk's left-fold keeps the accumulator at canonical tiles
+    // (winner=0, loser=1), so extract always reads tile j from input tile j
+    // (lastStride=1)
+    int64_t lastStride = 1;
 
     Type f32Type = f32TileType.getElementType();
     auto topkValsEmpty = rewriter.create<d2m::EmptyOp>(

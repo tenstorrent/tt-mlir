@@ -1081,6 +1081,21 @@ applyRoPEDecodeRewrite(mlir::Operation *layoutOp, RotaryEmbeddingOp ropeOp,
     return failure();
   }
 
+  // QK-Norm guard (Qwen3): a per-head RMSNorm sitting between the head split
+  // and the rotary (q_norm / k_norm) is not modeled by the fused decode
+  // attention path. This decode fusing was validated only on Qwen2.5, which has
+  // no QK-norm; when it fires for a QK-normed decode chain it mis-fuses Q/K and
+  // produces numerically wrong attention (negative PCC on Qwen3). If an RMSNorm
+  // is present in the RoPE input's layout-transform chain, bail so the whole
+  // decode chain stays unfused (the correct pre-#8931 path). See tt-xla Qwen3
+  // causal_lm PCC regression bisected to tt-mlir #8931.
+  Value ropeInputSrc =
+      skipTMs<TypecastOp, PermuteOp, ReshapeOp, RepeatOp>(ropeOp.getInput());
+  if (isa_and_nonnull<RMSNormOp, DistributedRMSNormOp>(
+          ropeInputSrc.getDefiningOp())) {
+    return failure();
+  }
+
   // cos/sin must be single-position (dim -2 == 1).
   auto cosType = mlir::cast<RankedTensorType>(ropeOp.getCosCache().getType());
   if (cosType.getShape()[cosType.getRank() - 2] != 1) {
