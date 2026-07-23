@@ -214,9 +214,20 @@ static void registerBuiltinComposites() {
         FloatAttr scalar =
             hasAddcmul ? attrs.getAs<FloatAttr>("scalar") : FloatAttr();
 
-        // The typed op needs a device handle and (later) semaphores; those are
-        // TTNN-level concerns that belong here, not in the TTIR fusing pattern.
-        // Semaphores are left unbound and materialized by
+        // minimal_matmul gathers the contraction (last) dim, and tt-metal only
+        // accepts that expressed as -1. The fusing pattern only matches a
+        // last-axis gather (see AllGatherMatmulFusingPattern), so canonicalize
+        // an equivalent positive index to -1 here.
+        int64_t rank = mlir::cast<RankedTensorType>(input.getType()).getRank();
+        int64_t gatherDim = allGatherDim.getValue().getSExtValue();
+        if (gatherDim < 0) {
+          gatherDim += rank;
+        }
+        int32_t dim =
+            gatherDim == rank - 1 ? -1 : static_cast<int32_t>(gatherDim);
+
+        // The typed op needs a device handle; attach one here. Semaphores are
+        // left unbound and materialized later by
         // TTNNAllocateDistributedOpSemaphores via the DistributedOpInterface.
         IRRewriter rewriter(builder.getContext());
         rewriter.setInsertionPoint(compositeOp);
@@ -228,13 +239,20 @@ static void registerBuiltinComposites() {
             bias, addcmulInput1, addcmulInput2,
             /*multi_device_semaphore=*/ValueRange{},
             /*barrier_semaphore=*/Value(), device, clusterAxis, scalar,
+            // topology is left null; TTNNConfigureCCLOps derives it from the
+            // mesh topology later, consistent with the other CCL ops.
             /*topology=*/ttcore::TopologyAttr(),
             /*num_links=*/IntegerAttr(), /*memory_config=*/MemoryConfigAttr(),
-            /*dtype=*/ttcore::DataTypeAttr(), /*force_transpose=*/true,
+            /*dtype=*/ttcore::DataTypeAttr(),
+            // force_transpose is set to true to match tt-metal's default. This
+            // keeps transpose always on, which reduces NOC congestion.
+            // num_workers_per_link is ignored by the runtime while num_links is
+            // null, so its value here does not matter; it is set only because
+            // the builder requires it.
+            /*force_transpose=*/true,
             /*num_workers_per_link=*/1u, /*num_buffers_per_channel=*/1u,
             /*chunks=*/1,
-            /*dim=*/
-            static_cast<int32_t>(allGatherDim.getValue().getSExtValue()));
+            /*dim=*/dim);
       }};
 }
 

@@ -64,18 +64,19 @@ func.func @no_fuse_multiuse(%x: tensor<32x128xbf16>, %w: tensor<512x64xbf16>)
 
 // Gated-residual epilogue: residual + gate * matmul(all_gather(x), W) folds the
 // whole thing (gather + matmul + multiply + add) into one composite, with
-// residual/gate mapped to the addcmul operands and scalar = 1.0.
+// residual/gate mapped to the addcmul operands and scalar = 1.0. The fused
+// kernel applies the gate per-channel, so it must be row-broadcast (`[1, N]`).
 // CHECK-LABEL: func.func @all_gather_matmul_addcmul
 // CHECK: "ttcore.composite"
 // CHECK-SAME: has_addcmul = true
 // CHECK-SAME: scalar = 1.000000e+00 : f32
 // CHECK-SAME: composite_name = "all_gather_minimal_matmul_async"
 func.func @all_gather_matmul_addcmul(%x: tensor<32x128xbf16>, %w: tensor<512x64xbf16>,
-                                     %gate: tensor<32x64xbf16>, %res: tensor<32x64xbf16>)
+                                     %gate: tensor<1x64xbf16>, %res: tensor<32x64xbf16>)
     -> tensor<32x64xbf16> {
   %0 = "ttir.all_gather"(%x) <{all_gather_dim = 1 : si32, cluster_axis = 1 : ui32}> : (tensor<32x128xbf16>) -> tensor<32x512xbf16>
   %1 = "ttir.matmul"(%0, %w) <{transpose_a = false, transpose_b = false}> : (tensor<32x512xbf16>, tensor<512x64xbf16>) -> tensor<32x64xbf16>
-  %2 = "ttir.multiply"(%1, %gate) : (tensor<32x64xbf16>, tensor<32x64xbf16>) -> tensor<32x64xbf16>
+  %2 = "ttir.multiply"(%1, %gate) : (tensor<32x64xbf16>, tensor<1x64xbf16>) -> tensor<32x64xbf16>
   %3 = "ttir.add"(%res, %2) : (tensor<32x64xbf16>, tensor<32x64xbf16>) -> tensor<32x64xbf16>
   return %3 : tensor<32x64xbf16>
 }
@@ -88,12 +89,31 @@ func.func @all_gather_matmul_addcmul(%x: tensor<32x128xbf16>, %w: tensor<512x64x
 // CHECK-SAME: has_bias = true
 // CHECK-SAME: composite_name = "all_gather_minimal_matmul_async"
 func.func @all_gather_linear_addcmul(%x: tensor<32x128xbf16>, %w: tensor<512x64xbf16>, %bias: tensor<1x64xbf16>,
-                                     %gate: tensor<32x64xbf16>, %res: tensor<32x64xbf16>)
+                                     %gate: tensor<1x64xbf16>, %res: tensor<32x64xbf16>)
     -> tensor<32x64xbf16> {
   %0 = "ttir.all_gather"(%x) <{all_gather_dim = 1 : si32, cluster_axis = 1 : ui32}> : (tensor<32x128xbf16>) -> tensor<32x512xbf16>
   %1 = "ttir.linear"(%0, %w, %bias) <{transpose_a = false, transpose_b = false}> : (tensor<32x512xbf16>, tensor<512x64xbf16>, tensor<1x64xbf16>) -> tensor<32x64xbf16>
-  %2 = "ttir.multiply"(%gate, %1) : (tensor<32x64xbf16>, tensor<32x64xbf16>) -> tensor<32x64xbf16>
+  %2 = "ttir.multiply"(%gate, %1) : (tensor<1x64xbf16>, tensor<32x64xbf16>) -> tensor<32x64xbf16>
   %3 = "ttir.add"(%2, %res) : (tensor<32x64xbf16>, tensor<32x64xbf16>) -> tensor<32x64xbf16>
+  return %3 : tensor<32x64xbf16>
+}
+
+// A full `[M, N]` gate must NOT fuse: the fused addcmul epilogue applies the
+// gate per-channel (broadcast across the M/row dim), so a full gate would be
+// silently collapsed to its first row. The guard leaves the primitive
+// matmul + multiply + add in place.
+// CHECK-LABEL: func.func @no_fuse_full_gate
+// CHECK: "ttir.matmul"
+// CHECK: "ttir.multiply"
+// CHECK: "ttir.add"
+// CHECK-NOT: ttcore.composite
+func.func @no_fuse_full_gate(%x: tensor<32x128xbf16>, %w: tensor<512x64xbf16>,
+                             %gate: tensor<32x64xbf16>, %res: tensor<32x64xbf16>)
+    -> tensor<32x64xbf16> {
+  %0 = "ttir.all_gather"(%x) <{all_gather_dim = 1 : si32, cluster_axis = 1 : ui32}> : (tensor<32x128xbf16>) -> tensor<32x512xbf16>
+  %1 = "ttir.matmul"(%0, %w) <{transpose_a = false, transpose_b = false}> : (tensor<32x512xbf16>, tensor<512x64xbf16>) -> tensor<32x64xbf16>
+  %2 = "ttir.multiply"(%1, %gate) : (tensor<32x64xbf16>, tensor<32x64xbf16>) -> tensor<32x64xbf16>
+  %3 = "ttir.add"(%res, %2) : (tensor<32x64xbf16>, tensor<32x64xbf16>) -> tensor<32x64xbf16>
   return %3 : tensor<32x64xbf16>
 }
 

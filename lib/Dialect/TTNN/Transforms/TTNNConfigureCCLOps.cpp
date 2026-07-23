@@ -44,6 +44,9 @@ public:
         [&](AllReduceOp op) { setCCLTopology(op, meshTopology, context); });
     moduleOp.walk(
         [&](ReduceScatterOp op) { setCCLTopology(op, meshTopology, context); });
+    moduleOp.walk([&](AllGatherMinimalMatmulAsyncOp op) {
+      setCCLTopology(op, meshTopology, context);
+    });
   }
 
 private:
@@ -54,7 +57,14 @@ private:
       return;
     }
 
-    uint32_t clusterAxis = op.getClusterAxis();
+    // cluster_axis may be optional; without it the axis is ambiguous, so
+    // leave the topology unset (the runtime then defaults to Linear). A
+    // non-optional accessor implicitly wraps into an always-engaged optional.
+    std::optional<uint32_t> optClusterAxis = op.getClusterAxis();
+    if (!optClusterAxis) {
+      return;
+    }
+    uint32_t clusterAxis = *optClusterAxis;
 
     // meshTopology follows meshShape indexing:
     //   meshTopology[0] = row-axis (horizontal) connectivity

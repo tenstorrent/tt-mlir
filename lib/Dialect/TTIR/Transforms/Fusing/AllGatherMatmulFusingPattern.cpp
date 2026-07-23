@@ -39,6 +39,34 @@ std::string getUniqueDecompName() {
 // 1.0 (see the addcmul pattern for the full derivation).
 constexpr double kAddcmulScalar = 1.0;
 
+// True if the all_gather gathers the last axis of its input. The fused
+// minimal-matmul kernel only supports gathering the contraction (last) dim of
+// the activation, so gathers on any other axis must not fuse.
+bool gathersLastAxis(AllGatherOp allGatherOp) {
+  auto inputType =
+      mlir::cast<RankedTensorType>(allGatherOp.getInput().getType());
+  int64_t rank = inputType.getRank();
+  int64_t gatherDim = allGatherOp.getAllGatherDim();
+  if (gatherDim < 0) {
+    gatherDim += rank;
+  }
+  return gatherDim == rank - 1;
+}
+
+// True if `v` is a per-channel (row-broadcast) tensor: every dim except the
+// last is 1, e.g. `[1, N]`. The fused addcmul epilogue applies the gate
+// per-channel, broadcasting it across the row (M) dim; a full `[M, N]` gate
+// would be silently collapsed to its first row (see the addcmul pattern), so
+// only a row-broadcast gate may fuse.
+bool isRowBroadcast(mlir::Value v) {
+  auto type = mlir::dyn_cast<RankedTensorType>(v.getType());
+  if (!type) {
+    return false;
+  }
+  return llvm::all_of(type.getShape().drop_back(),
+                      [](int64_t dim) { return dim == 1; });
+}
+
 // True if this matmul/linear result flows into a gated-residual epilogue
 // (a multiply then an add), which the addcmul pattern folds in whole.
 template <typename MatmulLikeOp>
@@ -106,6 +134,11 @@ mlir::LogicalResult AllGatherMatmulFusing<MatmulLikeOp>::matchAndRewrite(
   AllGatherOp allGatherOp =
       matmulOp.getA().template getDefiningOp<AllGatherOp>();
   if (!allGatherOp || !allGatherOp.getResult().hasOneUse()) {
+    return mlir::failure();
+  }
+
+  // The fused kernel only gathers the matmul's contraction (last) dim.
+  if (!gathersLastAxis(allGatherOp)) {
     return mlir::failure();
   }
 
@@ -215,8 +248,21 @@ mlir::LogicalResult AllGatherMatmulAddcmulFusing<MatmulLikeOp>::matchAndRewrite(
     return mlir::failure();
   }
 
+  // The fused addcmul epilogue applies the gate per-channel (broadcast across
+  // the M/row dim). A full `[M, N]` gate would be silently collapsed to its
+  // first row, so leave the full-gate case unfused (it stays as the primitive
+  // matmul + multiply + add).
+  if (!isRowBroadcast(gate)) {
+    return mlir::failure();
+  }
+
   AllGatherOp allGatherOp = projOp.getA().template getDefiningOp<AllGatherOp>();
   if (!allGatherOp || !allGatherOp.getResult().hasOneUse()) {
+    return mlir::failure();
+  }
+
+  // The fused kernel only gathers the matmul's contraction (last) dim.
+  if (!gathersLastAxis(allGatherOp)) {
     return mlir::failure();
   }
 
