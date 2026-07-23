@@ -1105,6 +1105,18 @@ void L1SpillManagementBase<MemoryTracker>::insertReshardIntoSchedule(
   }
   newDeathSchedule[reshardLastUse].push_back(reshardResult);
   data.deathSchedule = std::move(newDeathSchedule);
+
+  // Keep position-keyed sweep checkpoints (stateful rewind path) aligned across
+  // the insertion: keys >= consumerPos shift by +1, mirroring positionMap. Empty
+  // (a no-op) on the Sum path, which does not capture checkpoints.
+  if (!sweepCheckpoints.empty()) {
+    llvm::DenseMap<int64_t, SweepCheckpoint> shifted;
+    shifted.reserve(sweepCheckpoints.size());
+    for (auto &[k, cp] : sweepCheckpoints) {
+      shifted[k >= consumerPos ? k + 1 : k] = std::move(cp);
+    }
+    sweepCheckpoints = std::move(shifted);
+  }
 }
 
 template <typename MemoryTracker>
@@ -1412,6 +1424,13 @@ void L1SpillManagementBase<MemoryTracker>::run() {
 
   [[maybe_unused]] int64_t spillCount = 0;
 
+  // Rewind budget (stateful path): each eviction permanently moves a value from
+  // L1 to DRAM, so rewinds are bounded by the L1-resident count (<= schedule
+  // size). The generous cap is a runaway backstop, not a real limit.
+  int64_t rewindCount = 0;
+  const int64_t kMaxRewinds =
+      4 * static_cast<int64_t>(data.schedule.size()) + 64;
+
   // Farthest-last-use eviction sweep with validation-based enforcement.
   for (int64_t pos = 0; pos < static_cast<int64_t>(data.schedule.size());
        ++pos) {
@@ -1606,6 +1625,25 @@ void L1SpillManagementBase<MemoryTracker>::run() {
       int64_t r = *pendingRewindTo;
       pendingRewindTo.reset();
       restoreCheckpoint(r);
+      // Drop stale checkpoints past the rewind point; the re-run recaptures them
+      // at each position it re-processes, so no checkpoint older than the current
+      // pass is ever restored.
+      llvm::SmallVector<int64_t> stale;
+      for (const auto &kv : sweepCheckpoints) {
+        if (kv.first > r) {
+          stale.push_back(kv.first);
+        }
+      }
+      for (int64_t k : stale) {
+        sweepCheckpoints.erase(k);
+      }
+      // Safety net: each eviction permanently moves one value from L1 to DRAM,
+      // so the total number of rewinds is bounded by the L1-resident tensor
+      // count. A runaway means a logic error (a re-added victim, a rewind that
+      // makes no progress); fail loudly rather than spin.
+      if (++rewindCount > kMaxRewinds) {
+        llvm_unreachable("stateful spill: rewind budget exceeded (no progress)");
+      }
       pos = r - 1; // ++pos brings the sweep to r
       continue;
     }
