@@ -1083,7 +1083,8 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
 
 def D2M_TileTopkLocalSortOp : D2M_GenericRegionComputeOp<"tile_topk_local_sort",
   [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-   D2M_SkipOpEltwiseFusionTrait]> {
+   D2M_SkipOpEltwiseFusionTrait,
+   D2M_SynchronizableOpInterface]> {
     let summary = "D2M Tile TopK Local Sort Block Op";
     let description = [{
         Runs a bitonic sort in place over the concatenated 2-tile sequence
@@ -1129,6 +1130,15 @@ def D2M_TileTopkLocalSortOp : D2M_GenericRegionComputeOp<"tile_topk_local_sort",
       MutableOperandRange getDpsInitsMutable() {
         return MutableOperandRange(getOperation(), 2, 2);
       }
+
+      bool isProducer(mlir::OpOperand &operand) {
+        return &getOutValuesMutable() == &operand ||
+               &getOutIndicesMutable() == &operand;
+      }
+      bool isConsumer(mlir::OpOperand &operand) {
+        return &getValuesMutable() == &operand ||
+               &getIndicesMutable() == &operand;
+      }
     }];
 
     let hasVerifier = 1;
@@ -1136,7 +1146,8 @@ def D2M_TileTopkLocalSortOp : D2M_GenericRegionComputeOp<"tile_topk_local_sort",
 
 def D2M_TileTopkMergeOp : D2M_GenericRegionComputeOp<"tile_topk_merge",
   [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-   D2M_SkipOpEltwiseFusionTrait]> {
+   D2M_SkipOpEltwiseFusionTrait,
+   D2M_SynchronizableOpInterface]> {
     let summary = "D2M Tile TopK Merge Block Op";
     let description = [{
         Given two bitonic length-K subsequences held in `tile_a` and
@@ -1179,6 +1190,15 @@ def D2M_TileTopkMergeOp : D2M_GenericRegionComputeOp<"tile_topk_merge",
       MutableOperandRange getDpsInitsMutable() {
         return MutableOperandRange(getOperation(), 2, 2);
       }
+
+      bool isProducer(mlir::OpOperand &operand) {
+        return &getOutValuesMutable() == &operand ||
+               &getOutIndicesMutable() == &operand;
+      }
+      bool isConsumer(mlir::OpOperand &operand) {
+        return &getValuesMutable() == &operand ||
+               &getIndicesMutable() == &operand;
+      }
     }];
 
     let hasVerifier = 1;
@@ -1186,7 +1206,8 @@ def D2M_TileTopkMergeOp : D2M_GenericRegionComputeOp<"tile_topk_merge",
 
 def D2M_TileTopkRebuildOp : D2M_GenericRegionComputeOp<"tile_topk_rebuild",
   [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-   D2M_SkipOpEltwiseFusionTrait]> {
+   D2M_SkipOpEltwiseFusionTrait,
+   D2M_SynchronizableOpInterface]> {
     let summary = "D2M Tile TopK Rebuild Block Op";
     let description = [{
         Re-sorts the length-K sequence held across `tile_a`/`tile_b` into
@@ -1235,6 +1256,15 @@ def D2M_TileTopkRebuildOp : D2M_GenericRegionComputeOp<"tile_topk_rebuild",
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() {
         return MutableOperandRange(getOperation(), 2, 2);
+      }
+
+      bool isProducer(mlir::OpOperand &operand) {
+        return &getOutValuesMutable() == &operand ||
+               &getOutIndicesMutable() == &operand;
+      }
+      bool isConsumer(mlir::OpOperand &operand) {
+        return &getValuesMutable() == &operand ||
+               &getIndicesMutable() == &operand;
       }
     }];
 
