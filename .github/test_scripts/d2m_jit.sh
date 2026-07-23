@@ -19,6 +19,3 @@ echo "Running d2m-jit tests (RUNS_ON=$RUNS_ON)..."
 # Full suite: FileCheck lit tests + every pytest module. Runs on every PR.
 llvm-lit -v --xunit-xml-output "$LIT_REPORT_PATH" "$BUILD_DIR/test/d2m-jit/lit"
 pytest -v "$WORK_DIR"/test/d2m-jit/test_*.py --junit-xml="$TEST_REPORT_PATH"
-
-# cleanup
-rm -rf $WORK_DIR/third_party/tt-metal
