@@ -2320,6 +2320,19 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
            << numRegions << ")";
   }
 
+  for (size_t i = 0; i < numCoreRanges; ++i) {
+    auto firstRange =
+        mlir::cast<ttcore::CoreRangeAttr>(gridRangesAttr.getValue()[i]);
+    for (size_t j = i + 1; j < numCoreRanges; ++j) {
+      auto secondRange =
+          mlir::cast<ttcore::CoreRangeAttr>(gridRangesAttr.getValue()[j]);
+      if (firstRange.intersects(secondRange)) {
+        return emitOpError("grid_ranges overlap: ")
+               << firstRange << " and " << secondRange;
+      }
+    }
+  }
+
   // Each region has exactly one generic op. Verify its grid (2D only) fits
   // within the region: when mapping is empty, compare shape only; when
   // mapping is present, require virtual grid contained in region's virtual

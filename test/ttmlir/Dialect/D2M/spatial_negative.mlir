@@ -9,6 +9,7 @@
 // 5. when grid mapping is empty: grid shape <= region shape
 // 6. when grid mapping is present: virtual grid [0,0]-[gridY-1,gridX-1] contained
 //    in region virtual bbox (inverse map applied to CoreRange)
+// 7. grid_ranges do not overlap
 
 #layout = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
@@ -513,5 +514,31 @@ module {
         d2m.spatial_yield %2 : (tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_9>)
     } : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_9>
     return %1 : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_9>
+  }
+}
+
+// -----
+
+// 7. grid_ranges must not overlap.
+// CHECK: error: 'd2m.spatial' op grid_ranges overlap: #ttcore.core_range<0x0, 2x2> and #ttcore.core_range<1x1, 2x2>
+
+#layout_overlap = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+
+module {
+  func.func @spatial_core_ranges_overlap(
+      %arg0: tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_overlap>)
+      -> (tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_overlap>,
+          tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_overlap>) {
+    %0:2 = d2m.spatial {
+      grid_ranges = [
+        #ttcore.core_range<0x0, 2x2>,
+        #ttcore.core_range<1x1, 2x2>
+      ]
+    } ins() outs(%arg0, %arg0 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_overlap>, tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_overlap>) {
+      ^region_0:
+      }, {
+      ^region_1:
+    } : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_overlap>, tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_overlap>
+    return %0#0, %0#1 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_overlap>, tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_overlap>
   }
 }
