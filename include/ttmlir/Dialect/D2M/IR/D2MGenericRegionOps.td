@@ -873,6 +873,28 @@ def D2M_TileReduceMaxOp : D2M_GenericRegionComputeOp<"tile_reduce_max", D2M_Tile
   let hasVerifier = 1;
 }
 
+def D2M_TileArgMaxOp : D2M_GenericRegionComputeFPUOrSFPUBinary<"tile_argmax", D2M_TileComputeOpTraitBundle> {
+  let summary = "D2M Tile ArgMax Op";
+  let description = [{
+    TODO
+  }];
+
+  let arguments = (ins TTCore_Tile:$values,
+                       TTCore_Tile:$indices,
+                       D2M_ReduceDimAttr:$reduce_dim);
+  let results = (outs TTCore_Tile:$out_values,
+                      TTCore_Tile:$out_indices);
+
+  let extraClassDeclaration = [{
+    mlir::SmallVector<int64_t> getOperandsLoadFromDstRegister() {
+      return {0, 1};
+    }
+    bool getDstRegInPlace() {
+      return true;
+    }
+  }];
+}
+
 def D2M_TileReduceMeanOp : D2M_GenericRegionComputeOp<"tile_reduce_mean", D2M_TileComputeOpTraitBundle> {
   let summary = "D2M Tile Reduce Mean Op";
   let description = [{

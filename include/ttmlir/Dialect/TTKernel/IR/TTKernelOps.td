@@ -727,6 +727,28 @@ def TTKernel_SFPUReduceInitOp : TTKernel_InitOp<"sfpu_reduce_init"> {
     let hasVerifier = 1;
 }
 
+def TTKernel_MaxReduceWithIndicesInitOp : TTKernel_InitOp<"max_reduce_with_indices_tile_init"> {
+    let summary = "Init for max_reduce_with_indices.";
+    let description = [{
+      Initializes max_reduce_with_indices. Must be called before max_reduce_with_indices.
+    }];
+}
+
+def TTKernel_MaxReduceWithIndicesTileOp : TTKernel_SFPUOp<"max_reduce_with_indices_tile"> {
+    let summary = "You know him, you love him.";
+    let description = [{
+      Performs MaxPool with indices algorithm on the data tile and index tile
+      that are pre-loaded in DST register. The DST register buffer must be in
+      acquired state via *acquire_dst* call. This call is blocking and is only
+      available on the compute engine.
+    }];
+
+    let arguments = (ins IndexLike:$idst,
+                         IndexLike:$idst_idx,
+                         DefaultValuedAttr<I32Attr, "32">:$num_rows,
+                         DefaultValuedAttr<BoolAttr, "false">:$accumulate);
+}
+
 def TTKernel_SFPUReduceTileOp : TTKernel_SFPUOp<"sfpu_reduce"> {
     let summary = "SFPU reduce operation on a tile in DST.";
     let description = [{
