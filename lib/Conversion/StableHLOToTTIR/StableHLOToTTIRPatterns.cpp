@@ -5056,8 +5056,22 @@ public:
         rewriter.create<ttir::EmbeddingOp>(srcOp.getLoc(), embeddingOutputType,
                                            ops.startIndices, ops.reshapedInput);
 
-    auto expectedOutputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult().getType()));
+    // Use the global (unsharded) output shape from the gather's original result
+    // type. When column-parallel FFN/attention weights cause Shardy to
+    // incorrectly propagate a shard annotation onto the gather result (e.g.
+    // marking the sequence dim as split), getTypeConverter()->convertType()
+    // returns a per-shard local shape that is wrong for an embedding lookup
+    // which always produces a fully-replicated output. Using the global shape
+    // avoids the ttir.concat dim-0 mismatch that otherwise surfaces as:
+    //   'ttir.concat' op Output tensor dimension 0 does not match the sum of
+    //   input tensor dimensions: 1 vs. <seq_len>
+    auto srcResultType =
+        mlir::cast<RankedTensorType>(srcOp.getResult().getType());
+    auto convertedType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcResultType));
+    auto expectedOutputType = mlir::RankedTensorType::get(
+        srcResultType.getShape(), convertedType.getElementType(),
+        convertedType.getEncoding());
     rewriter.replaceOp(srcOp, reshapeAndPermuteOutput(rewriter, embeddingOp,
                                                       ops.indexedDim, srcOp,
                                                       expectedOutputType));
@@ -6175,6 +6189,21 @@ public:
     auto inputShape = inputType.getShape();
     auto sliceSizes = srcOp.getSliceSizes();
     int64_t indexedDim = startIndexMap[0];
+
+    // Reject when the gather output has more dimensions than the operand.
+    // This happens when the start_indices tensor has batch dimensions (e.g.
+    // position_ids of shape (1, seq_len) index a 2-D cos/sin table, producing
+    // a 3-D output (1, seq_len, head_dim)). In that case the operand slices
+    // have rank 2 but outputType has rank 3, making the concat invalid along
+    // indexedDim. The embedding pattern (benefit=1) handles these correctly.
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+    if (outputType.getRank() != inputType.getRank()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "Output rank differs from operand rank — index batch dims "
+                 "not handled by SliceRepeatConcat; defer to embedding");
+    }
+
     int64_t maxIndex = inputShape[indexedDim] - sliceSizes[indexedDim];
     int64_t sliceSize = sliceSizes[indexedDim];
     int32_t starts = 0, ends = 0, lastIndex = 0;
@@ -6235,9 +6264,6 @@ public:
         createSlices(ends, indexedDim, sliceSize,
                      /*sliceStart=*/inputShape[indexedDim] - sliceSize,
                      inputShape, inputType, rewriter, srcOp, input));
-
-    auto outputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult().getType()));
 
     Value result = rewriter.create<ttir::ConcatOp>(
         srcOp.getLoc(), outputType, slicesToConcat,
