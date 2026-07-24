@@ -58,6 +58,25 @@ public:
                   mlir::PatternRewriter &rewriter) const override;
 };
 
+// Peels a GQA head-expansion off the K/V operands of an existing
+// ttir.scaled_dot_product_attention. SDPA handles Hkv < Hq natively, so a
+// head-dim ttir.repeat_interleave (or HF repeat_kv's unsqueeze/broadcast/reshape
+// form) that expands K/V from Hkv to Hq heads before the op is redundant; left
+// in place it materialises an Hq-head copy of the KV cache every decode step
+// (a ttnn.repeat_interleave per K and V, per layer). SDPAFusingPattern already
+// does this peel while fusing the decomposed matmul+softmax form; this pattern
+// covers frontends that emit the atomic op directly, where no matmul is left to
+// match.
+class SDPAGroupedQueryPeelPattern
+    : public mlir::OpRewritePattern<ScaledDotProductAttentionOp> {
+public:
+  using OpRewritePattern<ScaledDotProductAttentionOp>::OpRewritePattern;
+
+  mlir::LogicalResult
+  matchAndRewrite(ScaledDotProductAttentionOp op,
+                  mlir::PatternRewriter &rewriter) const override;
+};
+
 } // namespace mlir::tt::ttir::fusing
 
 #endif // TTMLIR_DIALECT_TTIR_TRANSFORMS_FUSING_SDPAFUSINGPATTERN_H

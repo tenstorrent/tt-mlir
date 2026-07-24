@@ -3689,6 +3689,7 @@ public:
       patterns.add<fusing::RoPEComplexRotationFusingPattern>(&getContext());
       patterns.add<fusing::RoPEInterleavedPairFusingPattern>(&getContext());
       patterns.add<fusing::SDPAFusingPattern>(&getContext());
+      patterns.add<fusing::SDPAGroupedQueryPeelPattern>(&getContext());
       patterns.add<fusing::TopKFusingPattern>(&getContext());
 
       GreedyRewriteConfig config;
