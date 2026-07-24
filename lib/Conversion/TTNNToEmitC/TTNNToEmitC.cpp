@@ -9,7 +9,6 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
-#include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/EmitC/IR/EmitC.h"
@@ -3032,9 +3031,10 @@ public:
         emitter.emit(srcOp.getInput()),
         emitter.emit(srcOp.getAllGatherDim()),
         emitter.emit(srcOp.getClusterAxis()),
-        emitter.emitSubDeviceId(srcOp.getSubDeviceId()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
-        emitter.emit(/* optional_output_tensor= */ std::nullopt),
+        emitter.emit(/* persistent_output_tensor= */ std::nullopt),
+        emitter.emitSubDeviceId(srcOp.getSubDeviceId()),
+        emitter.emit(/* sub_core_grid= */ std::nullopt),
         emitter.emit(srcOp.getNumLinks()),
         emitter.emit(srcOp.getTopology()),
     };
