@@ -30,7 +30,7 @@
 
 // --- run_and_capture_trace (write_tensor, begin/end trace, execute) ---
 // CHECK-LABEL: func.func private @run_and_capture_trace_0_single_add
-// CHECK:       emitc.call_opaque "tt::tt_metal::copy_to_device"
+// CHECK:       emitc.call_opaque "ttnn::copy_to_device"
 // CHECK:       emitc.call_opaque "ttnn::operations::trace::begin_trace_capture"
 // CHECK:       emitc.call_opaque "ttnn::operations::trace::end_trace_capture"
 // CHECK:       emitc.call_opaque "ttnn::operations::trace::execute_trace"

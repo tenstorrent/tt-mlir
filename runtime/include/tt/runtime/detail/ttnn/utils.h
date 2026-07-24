@@ -144,7 +144,7 @@ createRuntimeTensorRefFromTTNN(const ::tt::target::ttnn::TensorRef *tensorRef);
 
 void *getRawHostDataPtr(const ::ttnn::Tensor &tensor);
 
-tt_metal::TensorSpec createTensorSpec(
+::tt::tt_metal::TensorSpec createTensorSpec(
     const ::ttnn::Shape &shape, const ::ttnn::DataType &dataType,
     const ::ttnn::Layout &layout = ::ttnn::Layout::ROW_MAJOR,
     const ::ttnn::MemoryConfig &memoryConfig = ::ttnn::DRAM_MEMORY_CONFIG);
@@ -160,7 +160,7 @@ inline ::ttnn::Tensor createTTNNTensor(
     const ::ttnn::Layout &layout = ::ttnn::Layout::ROW_MAJOR,
     const ::ttnn::MemoryConfig &memoryConfig = ::ttnn::DRAM_MEMORY_CONFIG) {
   std::uint64_t numElements = shape.volume();
-  tt_metal::TensorSpec tensorSpec =
+  ::tt::tt_metal::TensorSpec tensorSpec =
       createTensorSpec(shape, outputDataType, layout, memoryConfig);
   if (rawData != nullptr) {
     const T *typedData = static_cast<const T *>(rawData);

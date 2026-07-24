@@ -582,7 +582,7 @@ allocateTensorOnDevice(const ::tt::target::ttnn::TensorRef *tensorRef,
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(tensorRef));
   LOG_ASSERT(memoryConfig.has_value());
-  tt_metal::TensorSpec tensorSpec(
+  ::tt::tt_metal::TensorSpec tensorSpec(
       ttnnShape,
       ::ttnn::TensorLayout(ttnnDataType, ::ttnn::PageConfig(ttnnLayout),
                            *memoryConfig));

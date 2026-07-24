@@ -384,7 +384,7 @@ Tensor createMultiDeviceBorrowedHostTensor(
   }
   ::ttnn::MeshDevice &meshDevice =
       device.as<::ttnn::MeshDevice>(DeviceRuntime::TTNN);
-  tt_metal::TensorSpec tensorSpec(
+  ::tt::tt_metal::TensorSpec tensorSpec(
       ::ttnn::Shape(shape),
       ::ttnn::TensorLayout(
           layoutDesc.dataType, ::ttnn::PageConfig(layoutDesc.layout),

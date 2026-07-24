@@ -619,11 +619,11 @@ void *getRawHostDataPtr(const ::ttnn::Tensor &tensor) {
   return static_cast<void *>(hostBuffer.view_bytes().data());
 }
 
-tt_metal::TensorSpec
+::tt::tt_metal::TensorSpec
 createTensorSpec(const ::ttnn::Shape &shape, const ::ttnn::DataType &dataType,
                  const ::ttnn::Layout &layout,
                  const ::ttnn::MemoryConfig &memoryConfig) {
-  tt_metal::TensorSpec tensorSpec(
+  ::tt::tt_metal::TensorSpec tensorSpec(
       shape, tt::tt_metal::TensorLayout(dataType, layout, memoryConfig));
   return tensorSpec;
 }
