@@ -468,6 +468,47 @@ TEST_F(MockAllocatorViewTripwireTest, RealPadIsNotAView) {
       << "a real (non-view) pad must not be classified as an aliasing view";
 }
 
+//===----------------------------------------------------------------------===//
+// StatelessUnchangedByStatefulRouting
+//
+// The stateful op-model routing must not perturb the stateless result: a query
+// with an EMPTY live-record set has to be byte-for-byte equivalent to the plain
+// stateless query (buildInitialState({}) -> null state -> constraintsDispatch
+// takes the cached stateless path). This is the invariant the whole
+// stateless-through-the-stateful-API design and the interface constraintsDispatch
+// helper rely on; assert it directly so a future change to buildInitialState or
+// the dispatch cannot silently diverge the two paths.
+//===----------------------------------------------------------------------===//
+class MockAllocatorStatelessEquivalenceTest
+    : public L1SpillMockAllocatorFixture {};
+
+TEST_F(MockAllocatorStatelessEquivalenceTest, EmptyRecordsMatchesStateless) {
+  llvm::SmallVector<int64_t> shape = {1, 1, 1024, 1024};
+  auto layout = makeL1Sharded(shape);
+  auto tt = tensorType(shape, layout);
+  auto args = beginFunc({tt});
+  auto *op = addUnary(args[0], tt, 0);
+  finishFunc({op->getResult(0)});
+
+  const mlir::tt::ttnn::OpConfig config(layout);
+  const auto stateless = mlir::tt::ttnn::op_constraint_validation::
+      validateOperation(op, /*inputLayouts=*/{layout}, config);
+  const auto statefulEmpty =
+      mlir::tt::ttnn::op_constraint_validation::validateOperation(
+          op, /*inputLayouts=*/{layout}, config,
+          /*liveRecords=*/
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>{});
+
+  EXPECT_EQ(stateless.isSuccess(), statefulEmpty.isSuccess())
+      << "empty-records stateful query must match the stateless status";
+  ASSERT_TRUE(stateless.isSuccess())
+      << "baseline stateless query must succeed for this op";
+  EXPECT_EQ(stateless.outputL1Usage, statefulEmpty.outputL1Usage);
+  EXPECT_EQ(stateless.cbPeakUsage, statefulEmpty.cbPeakUsage);
+  EXPECT_EQ(stateless.getFirstActualOutputLayout(),
+            statefulEmpty.getFirstActualOutputLayout());
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
