@@ -1693,6 +1693,30 @@ struct OpModel<RMSNormOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// DistributedRMSNormOp
+//===----------------------------------------------------------------------===//
+//
+// The fused rms_allgather op cannot be graph-captured directly (it needs a
+// multi-device mesh + fabric, which the op-model mock device does not provide;
+// tt-metal#44748). Its *layout* legality is governed by the local sharded
+// rms_norm compute — the all-gather only exchanges the small stats tile and
+// does not affect input/output layouts — so this proxies to ::ttnn::rms_norm.
+template <>
+struct OpModel<DistributedRMSNormOp> {
+  static llvm::Expected<OpConstraints> getOpConstraints(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      llvm::APFloat epsilon, TTNNLayoutAttr outputLayout,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+          std::nullopt);
+
+  static llvm::Expected<size_t> getOpRuntime(
+      llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+      llvm::APFloat epsilon, TTNNLayoutAttr outputLayout,
+      std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+          std::nullopt);
+};
+
+//===----------------------------------------------------------------------===//
 // RMSNormPreAllGatherOp
 //===----------------------------------------------------------------------===//
 

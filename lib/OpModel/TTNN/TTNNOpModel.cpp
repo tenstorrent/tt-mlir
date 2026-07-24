@@ -6719,6 +6719,77 @@ llvm::Expected<size_t> OpModel<RMSNormOp>::getOpRuntime(
 }
 
 //===----------------------------------------------------------------------===//
+// DistributedRMSNormOp
+//===----------------------------------------------------------------------===//
+//
+// Proxy to ::ttnn::rms_norm: the fused rms_allgather cannot be graph-captured
+// (needs mesh + fabric; tt-metal#44748), but its layout legality equals that of
+// the local sharded rms_norm compute (the all-gather only exchanges the stats
+// tile). Query the local sharded rms_norm with the same input/output layouts.
+
+llvm::Expected<OpConstraints> OpModel<DistributedRMSNormOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::APFloat epsilon, TTNNLayoutAttr outputLayout,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+
+  std::optional<::ttnn::DeviceComputeKernelConfig>
+      computeKernelConfigConverted =
+          conversion::getDeviceComputeKernelConfig(computeKernelConfig);
+
+  auto rmsNormQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS(
+        ::ttnn::rms_norm, device, inputSpec, epsilon.convertToFloat(),
+        /*weight=*/std::nullopt, /*bias=*/std::nullopt,
+        /*residual=*/std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt, computeKernelConfigConverted);
+  };
+
+  return operation::getOpConstraints(inputLayout.getContext(), rmsNormQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<DistributedRMSNormOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
+    llvm::APFloat epsilon, TTNNLayoutAttr outputLayout,
+    std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec inputSpec,
+      detail::convertToTensorSpec(device, inputShape, inputLayout));
+
+  std::optional<::ttnn::DeviceComputeKernelConfig>
+      computeKernelConfigConverted =
+          conversion::getDeviceComputeKernelConfig(computeKernelConfig);
+
+  auto rmsNormQuery = [=]() {
+    return QUERY_OP_RUNTIME(
+        ::ttnn::rms_norm, device, inputSpec, epsilon.convertToFloat(),
+        /*weight=*/std::nullopt, /*bias=*/std::nullopt,
+        /*residual=*/std::nullopt,
+        detail::getNullableMemoryConfig(outputLayout),
+        /*program_config=*/std::nullopt, computeKernelConfigConverted);
+  };
+
+  return operation::getOpRuntime(rmsNormQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+//===----------------------------------------------------------------------===//
 // RMSNormPreAllGatherOp
 //===----------------------------------------------------------------------===//
 

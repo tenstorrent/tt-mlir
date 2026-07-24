@@ -4115,6 +4115,40 @@ RMSNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// DistributedRMSNormOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints> DistributedRMSNormOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  const auto inputShape = getInput().getType().getShape();
+
+  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+      getComputeConfigAttr()
+          ? std::optional<DeviceComputeKernelConfigAttr>(getComputeConfigAttr())
+          : std::nullopt;
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<DistributedRMSNormOp>::getOpConstraints, *this,
+      inputShape, inputs[0], getEpsilon(), opConfig.outputLayout,
+      computeKernelConfig);
+}
+
+llvm::Expected<size_t>
+DistributedRMSNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                   const OpConfig &opConfig) {
+  const auto inputShape = getInput().getType().getShape();
+
+  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+      getComputeConfigAttr()
+          ? std::optional<DeviceComputeKernelConfigAttr>(getComputeConfigAttr())
+          : std::nullopt;
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<DistributedRMSNormOp>::getOpRuntime, *this, inputShape,
+      inputs[0], getEpsilon(), opConfig.outputLayout, computeKernelConfig);
+}
+
+//===----------------------------------------------------------------------===//
 // RMSNormPreAllGatherOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
