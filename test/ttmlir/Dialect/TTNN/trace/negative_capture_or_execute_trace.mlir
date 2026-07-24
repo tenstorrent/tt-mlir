@@ -220,7 +220,7 @@ func.func @test_trace_arg_not_on_device(%arg0: tensor<32x32xbf16, #host_layout>)
 func.func private @trace_fn(%arg0: tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout> {
   // Trace function uses a different mesh shape (1x2 vs 1x1).
   %0 = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x2>}> : () -> !ttnn.device
-  %1 = "ttnn.add"(%arg0, %arg0) : (tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
+  %1 = "ttnn.add"(%arg0, %arg0) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
   return %1 : tensor<32x32xbf16, #layout>
 }
 func.func private @capture_fn(%arg0: tensor<32x32xbf16, #host_layout>) -> (tensor<ui32, #ttnn.trace_id>, tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) {
@@ -252,7 +252,7 @@ func.func @test_device_config_mismatch(%arg0: tensor<32x32xbf16, #host_layout>) 
 // --- Test 9: Execute callee does not reference a function ---
 // CHECK: error: 'ttnn.capture_or_execute_trace' op 'nonexistent_execute' does not reference a function
 func.func private @trace_fn(%arg0: tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout> {
-  %0 = "ttnn.add"(%arg0, %arg0) : (tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
+  %0 = "ttnn.add"(%arg0, %arg0) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
   return %0 : tensor<32x32xbf16, #layout>
 }
 func.func private @capture_fn(%arg0: tensor<32x32xbf16, #host_layout>) -> (tensor<ui32, #ttnn.trace_id>, tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) {
@@ -281,7 +281,7 @@ func.func @test_execute_callee_missing(%arg0: tensor<32x32xbf16, #host_layout>) 
 // --- Test 10: Execute function has wrong number of arguments ---
 // CHECK: error: 'ttnn.capture_or_execute_trace' op Execute function 'execute_fn' must take exactly one trace_id argument, but has 2 arguments
 func.func private @trace_fn(%arg0: tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout> {
-  %0 = "ttnn.add"(%arg0, %arg0) : (tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
+  %0 = "ttnn.add"(%arg0, %arg0) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
   return %0 : tensor<32x32xbf16, #layout>
 }
 func.func private @capture_fn(%arg0: tensor<32x32xbf16, #host_layout>) -> (tensor<ui32, #ttnn.trace_id>, tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) {
@@ -313,7 +313,7 @@ func.func @test_execute_wrong_arg_count(%arg0: tensor<32x32xbf16, #host_layout>)
 // --- Test 11: Execute function argument is not a trace_id tensor ---
 // CHECK: error: 'ttnn.capture_or_execute_trace' op Execute function 'execute_fn' argument must be a trace_id tensor (scalar ui32 with TraceIdAttr encoding)
 func.func private @trace_fn(%arg0: tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout> {
-  %0 = "ttnn.add"(%arg0, %arg0) : (tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
+  %0 = "ttnn.add"(%arg0, %arg0) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) -> tensor<32x32xbf16, #layout>
   return %0 : tensor<32x32xbf16, #layout>
 }
 func.func private @capture_fn(%arg0: tensor<32x32xbf16, #host_layout>) -> (tensor<ui32, #ttnn.trace_id>, tensor<32x32xbf16, #layout>, tensor<32x32xbf16, #layout>) {

@@ -7,7 +7,27 @@
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/detail/ttnn/utils.h"
 
+#include <vector>
+
 namespace tt::runtime::ttnn::operations::eltwise::binary {
+
+static std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam>
+toTTNNUnaryWithParamVector(
+    const flatbuffers::Vector<
+        flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam>> *activations) {
+  std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam> converted;
+  if (activations == nullptr) {
+    return converted;
+  }
+
+  converted.reserve(activations->size());
+  for (const auto *activation : *activations) {
+    converted.push_back(
+        ::tt::runtime::ttnn::operations::utils::toTTNNUnaryWithParam(
+            *activation));
+  }
+  return converted;
+}
 
 template <typename Fn>
 static void runEltwiseBinaryOp(const ::tt::target::ttnn::EltwiseBinaryOp *op,
@@ -29,7 +49,15 @@ static void runEltwiseBinaryOp(const ::tt::target::ttnn::EltwiseBinaryOp *op,
                  outputMemoryConfig.has_value(),
              "Memory config must exist for device tensors");
 
-  ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputDataType, outputMemoryConfig);
+  auto activations = toTTNNUnaryWithParamVector(op->activations());
+  auto inputTensorAActivations =
+      toTTNNUnaryWithParamVector(op->input_tensor_a_activations());
+  auto inputTensorBActivations =
+      toTTNNUnaryWithParamVector(op->input_tensor_b_activations());
+
+  ::ttnn::Tensor out =
+      ttnnOp(*lhs, *rhs, outputDataType, outputMemoryConfig, std::nullopt,
+             activations, inputTensorAActivations, inputTensorBActivations);
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

@@ -39,9 +39,9 @@ module {
         // CHECK: %[[FULL_HOST:.+]] = "ttnn.to_layout"(%[[FULL]])
         // CHECK: "ttnn.capture_or_execute_trace"({{.*}}%[[FULL_HOST]])
         %dev = "ttnn.get_device"() <{mesh_offset = #ttnn<mesh_offset 0x0>, mesh_shape = #ttnn<mesh_shape 1x1>}> : () -> !ttnn.device
-        %add = "ttnn.add"(%arg0, %arg1) : (tensor<1x12x32x64xbf16, #ttnn_layout>, tensor<1x12x32x64xbf16, #ttnn_layout>) -> tensor<1x12x32x64xbf16, #ttnn_layout>
+        %add = "ttnn.add"(%arg0, %arg1) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x12x32x64xbf16, #ttnn_layout>, tensor<1x12x32x64xbf16, #ttnn_layout>) -> tensor<1x12x32x64xbf16, #ttnn_layout>
         %full = "ttnn.full"(%dev) <{fill_value = 1.250000e-01 : f32, layout = #ttnn.layout<tile>, shape = #ttnn.shape<1x12x32x64>}> : (!ttnn.device) -> tensor<1x12x32x64xbf16, #ttnn_layout>
-        %mul = "ttnn.multiply"(%add, %full) : (tensor<1x12x32x64xbf16, #ttnn_layout>, tensor<1x12x32x64xbf16, #ttnn_layout>) -> tensor<1x12x32x64xbf16, #ttnn_layout>
+        %mul = "ttnn.multiply"(%add, %full) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x12x32x64xbf16, #ttnn_layout>, tensor<1x12x32x64xbf16, #ttnn_layout>) -> tensor<1x12x32x64xbf16, #ttnn_layout>
         return %mul : tensor<1x12x32x64xbf16, #ttnn_layout>
       }
     }

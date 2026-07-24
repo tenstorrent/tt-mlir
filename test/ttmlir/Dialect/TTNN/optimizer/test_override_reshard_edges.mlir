@@ -17,10 +17,10 @@ module attributes {} {
     %1 = "ttnn.to_layout"(%arg0, %0)  : (tensor<1x32x32xf32, #ttnn_layout>, !ttnn.device) -> tensor<1x32x32xf32, #ttnn_layout1>
     %2 = "ttnn.to_layout"(%arg1, %0)  : (tensor<1x32x32xf32, #ttnn_layout>, !ttnn.device) -> tensor<1x32x32xf32, #ttnn_layout1>
     // CHECK: %[[C:.*]] = "ttnn.add"{{.*}} -> tensor<1x32x32xf32, #[[LAYOUT_1]]>
-    %3 = "ttnn.add"(%1, %2) : (tensor<1x32x32xf32, #ttnn_layout1>, tensor<1x32x32xf32, #ttnn_layout1>) -> tensor<1x32x32xf32, #ttnn_layout1> loc(#loc1)
+    %3 = "ttnn.add"(%1, %2) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x32x32xf32, #ttnn_layout1>, tensor<1x32x32xf32, #ttnn_layout1>) -> tensor<1x32x32xf32, #ttnn_layout1> loc(#loc1)
     %4 = "ttnn.to_layout"(%arg0, %0)  : (tensor<1x32x32xf32, #ttnn_layout>, !ttnn.device) -> tensor<1x32x32xf32, #ttnn_layout1>
     // CHECK: %{{.*}} = "ttnn.to_layout"(%[[C]], %0) {{.*}} -> tensor<1x32x32xf32, #[[LAYOUT_2]]>
-    %5 = "ttnn.add"(%3, %3) : (tensor<1x32x32xf32, #ttnn_layout1>, tensor<1x32x32xf32, #ttnn_layout1>) -> tensor<1x32x32xf32, #ttnn_layout1> loc(#loc2)
+    %5 = "ttnn.add"(%3, %3) <{activations = [], input_tensor_a_activations = [], input_tensor_b_activations = []}> : (tensor<1x32x32xf32, #ttnn_layout1>, tensor<1x32x32xf32, #ttnn_layout1>) -> tensor<1x32x32xf32, #ttnn_layout1> loc(#loc2)
     %6 = "ttnn.relu"(%5) : (tensor<1x32x32xf32, #ttnn_layout1>) -> tensor<1x32x32xf32, #ttnn_layout1> loc(#loc3)
     %7 = "ttnn.to_layout"(%6)  : (tensor<1x32x32xf32, #ttnn_layout1>) -> tensor<1x32x32xf32, #ttnn_layout>
     return %7 : tensor<1x32x32xf32, #ttnn_layout>

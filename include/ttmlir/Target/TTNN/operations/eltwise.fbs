@@ -30,6 +30,9 @@ table EltwiseBinaryOp {
   rhs: tt.target.ttnn.TensorRef;
   output_dtype: tt.target.DataType = null;
   memory_config: tt.target.ttnn.MemoryConfig;
+  activations: [UnaryWithParam];
+  input_tensor_a_activations: [UnaryWithParam];
+  input_tensor_b_activations: [UnaryWithParam];
   out: tt.target.ttnn.TensorRef;
 }
 
@@ -38,15 +41,29 @@ enum EltwiseBinaryCompositeOpType: uint32 {
   Minimum,
   Remainder,
   Pow,
-  Atan2,
   BitwiseAnd,
   BitwiseOr,
   BitwiseXor,
   LogicalLeftShift
 }
 
+enum EltwiseBinaryCompositeWithoutFusedActivationOpType: uint32 {
+  Atan2,
+}
+
 table EltwiseBinaryCompositeOp {
   type: EltwiseBinaryCompositeOpType;
+  lhs: tt.target.ttnn.TensorRef;
+  rhs: tt.target.ttnn.TensorRef;
+  memory_config: tt.target.ttnn.MemoryConfig;
+  activations: [UnaryWithParam];
+  input_tensor_a_activations: [UnaryWithParam];
+  input_tensor_b_activations: [UnaryWithParam];
+  out: tt.target.ttnn.TensorRef;
+}
+
+table EltwiseBinaryCompositeWithoutFusedActivationOp {
+  type: EltwiseBinaryCompositeWithoutFusedActivationOpType;
   lhs: tt.target.ttnn.TensorRef;
   rhs: tt.target.ttnn.TensorRef;
   memory_config: tt.target.ttnn.MemoryConfig;
@@ -292,7 +309,9 @@ enum UnaryOpType: uint32 {
   Dropout,
   Fill,
   PreluSfpu,
-  ZeroPoint
+  ZeroPoint,
+  Log1p,
+  Asinh
 }
 
 table UnaryWithParam {

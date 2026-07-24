@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-greedy-optimizer=true" -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-greedy-optimizer=true enable-fusing-pass=false" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 //
 // Test: small model with comfortable L1 headroom. The spill management pass
