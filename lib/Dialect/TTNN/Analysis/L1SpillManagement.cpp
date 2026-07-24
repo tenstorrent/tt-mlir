@@ -378,10 +378,16 @@ void L1SpillManagement<MemoryTracker>::applyOutputConfig(
     }
 
     size_t ri = opResult.getResultNumber();
-    assert(ri < result.actualOutputLayouts.size() &&
-           "validation result has fewer output layouts than tensor results");
+    if (ri >= result.actualOutputLayouts.size()) {
+      assert(false &&
+             "validation result has fewer output layouts than tensor results");
+      continue;
+    }
     TTNNLayoutAttr resultLayout = result.actualOutputLayouts[ri];
-    assert(resultLayout && "result layout is null for tensor result");
+    if (!resultLayout) {
+      assert(false && "result layout is null for tensor result");
+      continue;
+    }
 
     llvm::ArrayRef<int64_t> tensorShape = tensorType.getShape();
 
