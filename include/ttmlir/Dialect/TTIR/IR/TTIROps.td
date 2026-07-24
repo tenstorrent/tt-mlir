@@ -5340,6 +5340,7 @@ def TTIR_GatherOp : TTIR_NamedOp<"gather"> {
   let results = (outs AnyRankedTensor:$result);
 
   let hasVerifier = 1;
+  let hasCanonicalizer = 1;
 }
 
 //===----------------------------------------------------------------------===//

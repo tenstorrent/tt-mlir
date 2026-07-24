@@ -5800,6 +5800,37 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
   return ::mlir::success();
 }
 
+void mlir::tt::ttir::GatherOp::getCanonicalizationPatterns(
+    mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
+  // Reassociate two consecutive gathers along the same dimension:
+  //   gather(gather(x, A, dim=d), B, dim=d) == gather(x, gather(A, B, dim=d),
+  //   dim=d)
+  // Moves the gather from the data path to the index path, avoiding
+  // materialization of the large intermediate data tensor.
+  patterns.add(
+      +[](mlir::tt::ttir::GatherOp op, mlir::PatternRewriter &rewriter) {
+        auto producerGather =
+            op.getInput().getDefiningOp<mlir::tt::ttir::GatherOp>();
+        if (!producerGather) {
+          return mlir::failure();
+        }
+
+        if (op.getDim() != producerGather.getDim()) {
+          return mlir::failure();
+        }
+
+        auto composedIndex = rewriter.create<mlir::tt::ttir::GatherOp>(
+            op.getLoc(), op.getIndex().getType(), producerGather.getIndex(),
+            op.getIndex(), op.getDimAttr());
+
+        rewriter.replaceOpWithNewOp<mlir::tt::ttir::GatherOp>(
+            op, op.getType(), producerGather.getInput(), composedIndex,
+            op.getDimAttr());
+
+        return mlir::success();
+      });
+}
+
 //===----------------------------------------------------------------------===//
 // UpdateCacheOp
 //===----------------------------------------------------------------------===//
