@@ -10,6 +10,7 @@
 #include "operations/ccl/all_to_all_combine/all_to_all_combine.hpp"
 #include "operations/ccl/all_to_all_dispatch/all_to_all_dispatch.hpp"
 #include "operations/ccl/ccl_host_types.hpp"
+#include "operations/conv/conv1d/conv1d.hpp"
 #include "operations/conv/conv2d/conv2d.hpp"
 #include "operations/conv/conv2d/prepare_conv2d_weights.hpp"
 #include "operations/conv/conv_transpose2d/conv_transpose2d.hpp"
@@ -109,7 +110,7 @@ namespace ttnn {
 //
 class DeviceGetter {
 public:
-  static constexpr std::size_t l1SmallSize = 1 << 15; // 32kB
+  static constexpr std::size_t l1SmallSize = 1 << 16; // 64kB
   static constexpr std::size_t traceRegionSize = 0;
 
   static ttnn::MeshDevice *getInstance() {

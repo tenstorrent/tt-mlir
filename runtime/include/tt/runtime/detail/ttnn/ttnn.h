@@ -16,6 +16,7 @@
 #include "ttnn/device.hpp"
 #include "ttnn/events.hpp"
 #include "ttnn/global_semaphore.hpp"
+#include "ttnn/operations/conv/conv1d/conv1d.hpp"
 #include "ttnn/operations/conv/conv2d/conv2d.hpp"
 #include "ttnn/operations/copy/typecast/typecast.hpp"
 #include "ttnn/operations/core/core.hpp"

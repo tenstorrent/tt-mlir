@@ -749,12 +749,19 @@ class Builder(metaclass=BuilderMeta):
         ) or self._presharded_result_shard_dims.get(operand)
         if isinstance(goldens, GoldenMapTensor) and shard_dims is not None:
             local_shape = tuple(self._get_type(operand).shape)
-            if tuple(goldens.shard_at(0).shape) != local_shape:
-                goldens = apply_sharding(
-                    goldens,
-                    self._mesh_shape,
-                    shard_dims,
-                )
+
+            # Split a global golden into per-device shards.
+            needs_split = tuple(goldens.shard_at(0).shape) != local_shape
+
+            # Replicated operand (local == global shape): replicate the single
+            # global shard to one per device, since from_host_shards needs the
+            # shard count to equal the mesh size.
+            needs_replication = (
+                all(d == -1 for d in shard_dims) and len(goldens.shard_map) == 1
+            )
+
+            if needs_split or needs_replication:
+                goldens = apply_sharding(goldens, self._mesh_shape, shard_dims)
         if isinstance(goldens, str):
             self._deallocated_goldens[operand] = goldens
         else:

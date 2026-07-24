@@ -172,17 +172,34 @@ static bool checkInitValue(mlir::stablehlo::ConstantOp initValueOp,
   if (initValueOp.getResult().getType().getElementType().isF64()) {
     return *initValueOp.getValue().value_begin<double>() == desiredF64;
   }
-  if (initValueOp.getResult().getType().getElementType().isInteger(32)) {
-    return *initValueOp.getValue().value_begin<int32_t>() == desiredI32;
-  }
-  if (initValueOp.getResult().getType().getElementType().isInteger(64)) {
-    return *initValueOp.getValue().value_begin<int64_t>() == desiredI64;
-  }
-  if (initValueOp.getResult().getType().getElementType().isInteger(8)) {
-    return *initValueOp.getValue().value_begin<uint8_t>() == desiredI8;
-  }
-  if (initValueOp.getResult().getType().getElementType().isInteger(1)) {
-    return *initValueOp.getValue().value_begin<bool>() == desiredI1;
+  // Integer element types: read the constant as an APInt so both signed and
+  // unsigned attributes work. value_begin<int32_t>()/<int64_t>() assert with
+  // "ElementsAttr does not provide iteration facilities for type `int`" on
+  // unsigned (ui32/ui64) attributes -- e.g. the dense<4294967295> :
+  // tensor<ui32> sentinel that torch 2.11's max_pool2d_with_indices lowering
+  // emits (#9031).
+  if (auto intType = mlir::dyn_cast<mlir::IntegerType>(
+          initValueOp.getResult().getType().getElementType())) {
+    unsigned width = intType.getWidth();
+    // Restrict to the widths the original signed-typed reads handled
+    // (i1/i8/i32/i64). Other widths previously fell through to `return false`,
+    // and desiredI8/I32/I64 are only defined for these; reading as APInt merely
+    // avoids the unsigned-iteration assert without changing which widths match.
+    if (width != 1 && width != 8 && width != 32 && width != 64) {
+      return false;
+    }
+    const llvm::APInt &value =
+        *initValueOp.getValue().value_begin<llvm::APInt>();
+    if (width == 1) {
+      return value.getBoolValue() == desiredI1;
+    }
+    int64_t desiredInt =
+        width == 8 ? desiredI8 : (width == 32 ? desiredI32 : desiredI64);
+    // Compare raw bit patterns at the attribute's width, so an unsigned init
+    // matches the signed sentinel with the same bits (e.g. for NEG_INF,
+    // ui32 2147483648 == i32 INT32_MIN).
+    return value == llvm::APInt(width, static_cast<uint64_t>(desiredInt),
+                                /*isSigned=*/true);
   }
 
   return false;
@@ -1821,6 +1838,19 @@ public:
       return failure();
     }
 
+    // Frameworks (e.g. torch-xla) lower a conv1d to a 2D convolution with a
+    // size-1 spatial dim. Route that back to a native ttir.conv1d (which lowers
+    // to ttnn.conv1d and can use an L1 config), avoiding the in-DRAM depthwise
+    // conv2d hang (tt-metal #45075) that the DRAM conv2d config hits. Only
+    // non-transposed, batchGroupCount==1 convs; genuine 2D convs fall through.
+    if (!tt::stablehlo::utils::isTransposedConv(op) &&
+        adaptor.getBatchGroupCount() == 1) {
+      if (Value conv1d = tryEmitDegenerate2dAsConv1d(rewriter, op, adaptor)) {
+        rewriter.replaceOp(op, conv1d);
+        return success();
+      }
+    }
+
     uint64_t batchGroupCount = adaptor.getBatchGroupCount();
     uint64_t featureGroupCount = adaptor.getFeatureGroupCount();
 
@@ -1894,6 +1924,162 @@ public:
   }
 
 private:
+  // If the framework lowered a conv1d to a 2D convolution (one spatial dim has
+  // extent 1 in both input and kernel), emit a native ttir.conv1d instead of a
+  // conv2d by squeezing that degenerate spatial dim. Returns a null Value for a
+  // genuine 2D conv (caller falls back to conv2d).
+  Value tryEmitDegenerate2dAsConv1d(ConversionPatternRewriter &rewriter,
+                                    mlir::stablehlo::ConvolutionOp op,
+                                    OpAdaptor adaptor) const {
+    // Local semantic tags for permutation layouts. BATCH/FEATURE are negative
+    // in the ConvolutionDimension enum, so 0/1 here cannot collide.
+    constexpr int64_t REAL = 0, DEG = 1;
+
+    const auto &dn = adaptor.getDimensionNumbers();
+    auto inputType = mlir::cast<RankedTensorType>(adaptor.getLhs().getType());
+    auto weightType = mlir::cast<RankedTensorType>(adaptor.getRhs().getType());
+    auto inputSpatialDims = dn.getInputSpatialDimensions();
+    auto kernelSpatialDims = dn.getKernelSpatialDimensions();
+    auto outputSpatialDims = dn.getOutputSpatialDimensions();
+
+    // A framework conv1d lowered to 2D has exactly one size-1 spatial dim; the
+    // other carries the sequence. Count them to distinguish that from a genuine
+    // pointwise 2D conv (both dims size-1, e.g. a 1x1 conv on a [N,C,1,1]
+    // squeeze-excite tensor), which has no 1D axis and must stay conv2d --
+    // rerouting it would needlessly host-move the weight and break trace hoist.
+    int degIdx = -1;
+    int numDegenerate = 0;
+    for (int i = 0; i < static_cast<int>(NUM_SPATIAL_DIMS); ++i) {
+      if (inputType.getShape()[inputSpatialDims[i]] == 1 &&
+          weightType.getShape()[kernelSpatialDims[i]] == 1) {
+        if (degIdx < 0) {
+          degIdx = i;
+        }
+        ++numDegenerate;
+      }
+    }
+    if (degIdx < 0 || numDegenerate == static_cast<int>(NUM_SPATIAL_DIMS)) {
+      return Value(); // no 1D axis, or genuinely pointwise 2D -> keep conv2d.
+    }
+    int realIdx = 1 - degIdx; // the other of the two spatial dims.
+
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(op.getType()));
+    llvm::ArrayRef<int64_t> expectedOutputShape = outputType.getShape();
+
+    // 1D attributes come from the real spatial dim only. Any padding on the
+    // degenerate dim is ignored (it is [0,0] for a genuine 1D conv).
+    auto windowStrides = getI64ArrayOrDefault(adaptor.getWindowStridesAttr(),
+                                              NUM_SPATIAL_DIMS, 1);
+    auto rhsDilation =
+        getI64ArrayOrDefault(adaptor.getRhsDilationAttr(), NUM_SPATIAL_DIMS, 1);
+    auto padding =
+        getPaddingOrDefault(adaptor.getPaddingAttr(), NUM_SPATIAL_DIMS);
+    auto paddingMatrix = getPaddingMatrix<NUM_SPATIAL_DIMS>(padding);
+
+    auto strideAttr = rewriter.getI32IntegerAttr(
+        static_cast<int32_t>(windowStrides[realIdx]));
+    auto dilationAttr =
+        rewriter.getI32IntegerAttr(static_cast<int32_t>(rhsDilation[realIdx]));
+    auto paddingAttr = rewriter.getDenseI32ArrayAttr(
+        {static_cast<int32_t>(paddingMatrix[realIdx][0]),
+         static_cast<int32_t>(paddingMatrix[realIdx][1])});
+    auto groupsAttr = rewriter.getI32IntegerAttr(
+        static_cast<int32_t>(adaptor.getFeatureGroupCount()));
+
+    // Permute the 4D input to [batch, real, feature, deg], then reshape to NLC
+    // (dropping the trailing size-1 spatial dim).
+    llvm::SmallVector<int64_t> inputLayout(4);
+    inputLayout[dn.getInputBatchDimension()] = ConvolutionDimension::BATCH;
+    inputLayout[dn.getInputFeatureDimension()] = ConvolutionDimension::FEATURE;
+    inputLayout[inputSpatialDims[realIdx]] = REAL;
+    inputLayout[inputSpatialDims[degIdx]] = DEG;
+    llvm::SmallVector<int64_t> nlcdLayout = {
+        ConvolutionDimension::BATCH, REAL, ConvolutionDimension::FEATURE, DEG};
+    auto inputPerm = ttmlir::utils::generatePermutation(
+        llvm::ArrayRef(inputLayout), llvm::ArrayRef(nlcdLayout));
+    auto permutedInputShape =
+        ttmlir::utils::applyPermutation(inputType.getShape(), inputPerm);
+    Value permutedInput = rewriter.create<ttir::PermuteOp>(
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_conv1dInput"),
+        RankedTensorType::get(permutedInputShape, inputType.getElementType(),
+                              inputType.getEncoding()),
+        adaptor.getLhs(), inputPerm);
+    llvm::SmallVector<int64_t> nlcInputShape(permutedInputShape.begin(),
+                                             permutedInputShape.end() - 1);
+    Value nlcInput = ttir::utils::createReshapeOp(
+        rewriter,
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_conv1dInputSqueeze"),
+        permutedInput, nlcInputShape);
+
+    // Permute the 4D weight to (O, I/G, K_real, K_deg), then reshape to
+    // (O, I/G, K) by dropping the trailing size-1 kernel dim.
+    llvm::SmallVector<int64_t> kernelLayout(4);
+    kernelLayout[dn.getKernelOutputFeatureDimension()] =
+        ConvolutionKernelDimension::OUTPUT_FEATURES;
+    kernelLayout[dn.getKernelInputFeatureDimension()] =
+        ConvolutionKernelDimension::INPUT_FEATURES;
+    kernelLayout[kernelSpatialDims[realIdx]] = REAL;
+    kernelLayout[kernelSpatialDims[degIdx]] = DEG;
+    llvm::SmallVector<int64_t> oikdLayout = {
+        ConvolutionKernelDimension::OUTPUT_FEATURES,
+        ConvolutionKernelDimension::INPUT_FEATURES, REAL, DEG};
+    auto kernelPerm = ttmlir::utils::generatePermutation(
+        llvm::ArrayRef(kernelLayout), llvm::ArrayRef(oikdLayout));
+    auto permutedWeightShape =
+        ttmlir::utils::applyPermutation(weightType.getShape(), kernelPerm);
+    Value permutedWeight = rewriter.create<ttir::PermuteOp>(
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_conv1dWeight"),
+        RankedTensorType::get(permutedWeightShape, weightType.getElementType(),
+                              weightType.getEncoding()),
+        adaptor.getRhs(), kernelPerm);
+    llvm::SmallVector<int64_t> oikWeightShape(permutedWeightShape.begin(),
+                                              permutedWeightShape.end() - 1);
+    Value oikWeight =
+        ttir::utils::createReshapeOp(rewriter,
+                                     ttmlir::utils::appendLocationSuffix(
+                                         op.getLoc(), "_conv1dWeightSqueeze"),
+                                     permutedWeight, oikWeightShape);
+
+    // conv1d output is NLC.
+    llvm::SmallVector<int64_t> nlcOutputShape = {
+        expectedOutputShape[dn.getOutputBatchDimension()],
+        expectedOutputShape[outputSpatialDims[realIdx]],
+        expectedOutputShape[dn.getOutputFeatureDimension()]};
+    auto conv1dResultType = RankedTensorType::get(
+        nlcOutputShape, outputType.getElementType(), outputType.getEncoding());
+
+    Value conv1d = rewriter.create<ttir::Conv1dOp>(
+        op.getLoc(), conv1dResultType, nlcInput, oikWeight, /*bias=*/Value(),
+        strideAttr, paddingAttr, dilationAttr, groupsAttr,
+        /*batch_dim=*/rewriter.getI64IntegerAttr(0),
+        /*length_dim=*/rewriter.getI64IntegerAttr(1),
+        /*channel_dim=*/rewriter.getI64IntegerAttr(2));
+
+    // Re-add the size-1 spatial dim (NLC -> [batch, real, feature, deg]) then
+    // permute to the StableHLO output layout.
+    llvm::SmallVector<int64_t> nlcdOutputShape(nlcOutputShape.begin(),
+                                               nlcOutputShape.end());
+    nlcdOutputShape.push_back(1);
+    Value conv1dExpanded = ttir::utils::createReshapeOp(
+        rewriter,
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_conv1dOutputExpand"),
+        conv1d, nlcdOutputShape);
+    llvm::SmallVector<int64_t> outputLayout(4);
+    outputLayout[dn.getOutputBatchDimension()] = ConvolutionDimension::BATCH;
+    outputLayout[dn.getOutputFeatureDimension()] =
+        ConvolutionDimension::FEATURE;
+    outputLayout[outputSpatialDims[realIdx]] = REAL;
+    outputLayout[outputSpatialDims[degIdx]] = DEG;
+    auto outputPerm = ttmlir::utils::generatePermutation(
+        llvm::ArrayRef(nlcdLayout), llvm::ArrayRef(outputLayout));
+    return rewriter.create<ttir::PermuteOp>(
+        ttmlir::utils::appendLocationSuffix(op.getLoc(), "_conv1dOutput"),
+        RankedTensorType::get(expectedOutputShape, outputType.getElementType(),
+                              outputType.getEncoding()),
+        conv1dExpanded, outputPerm);
+  }
+
   // Create a Conv2d or ConvTranspose2d operation for a single slice.
   Value createConv2dForSlice(ConversionPatternRewriter &rewriter,
                              mlir::stablehlo::ConvolutionOp op,

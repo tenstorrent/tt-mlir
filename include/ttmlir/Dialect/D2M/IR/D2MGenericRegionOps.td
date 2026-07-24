@@ -1083,11 +1083,33 @@ def D2M_TileUntilizeBlockOp : D2M_GenericRegionComputeOp<"tile_untilize_block",
 
 def D2M_TileTopkLocalSortOp : D2M_GenericRegionComputeOp<"tile_topk_local_sort",
   [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-   D2M_SkipOpEltwiseFusionTrait,
-   D2M_SynchronizableOpInterface]> {
+   D2M_SkipOpEltwiseFusionTrait]> {
     let summary = "D2M Tile TopK Local Sort Block Op";
     let description = [{
-        The `tile_topk_local_sort` operation bitonically sorts the input value block and its paired index block in place.
+        Runs a bitonic sort in place over the concatenated 2-tile sequence
+        formed by `tile_a` and `tile_b` (each a value tile paired with an
+        index tile), leaving each tile as a sorted run forming one bitonic
+        sequence across both. Maps onto the ttkernel `topk_local_sort` LLK
+        call.
+
+        - `values`/`indices`: input value/index tensors or memrefs.
+        - `out_values`/`out_indices`: output value/index tensors or memrefs;
+          the op's DPS inits (`getDpsInitsMutable` = operands 2-3).
+        - `idir`: sort direction (0 = descending).
+        - `i_end_phase`: last bitonic-network phase (0-indexed) to run; a full
+          64-element sort runs phases 0..5.
+        - `i_start_phase`: first bitonic-network phase (0-indexed) to run;
+          nonzero values resume a partially-sorted tile pair rather than
+          re-sorting from scratch.
+        - `tile_a`, `tile_b`: flat tile indices of the pair being sorted.
+        - `is_group_start`: whether this op is responsible for acquiring the
+          DST tile registers and copying `tile_a`/`tile_b` (values and
+          indices) in from the source CB.
+        - `is_group_end`: whether this op is responsible for packing the
+          resulting DST tiles back to the output CB and releasing the DST
+          tile registers.
+        - `read_from_output`: whether `tile_a`/`tile_b` are read from the
+          output value/index buffers instead of the input buffers.
     }];
 
     let arguments = (ins AnyRankedTensorOrMemRef:$values,
@@ -1096,25 +1118,16 @@ def D2M_TileTopkLocalSortOp : D2M_GenericRegionComputeOp<"tile_topk_local_sort",
                          AnyRankedTensorOrMemRef:$out_indices,
                          I32Attr:$idir,
                          I32Attr:$i_end_phase,
-                         I32Attr:$i_start_phase,
-                         I64Attr:$tile_a,
-                         I64Attr:$tile_b,
+                         I32:$i_start_phase,
+                         Index:$tile_a,
+                         Index:$tile_b,
                          BoolAttr:$is_group_start,
-                         BoolAttr:$is_group_end,
-                         BoolAttr:$read_from_output);
+                         I1:$is_group_end,
+                         I1:$read_from_output);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() {
         return MutableOperandRange(getOperation(), 2, 2);
-      }
-
-      bool isProducer(mlir::OpOperand &operand) {
-        return &getOutValuesMutable() == &operand ||
-               &getOutIndicesMutable() == &operand;
-      }
-      bool isConsumer(mlir::OpOperand &operand) {
-        return &getValuesMutable() == &operand ||
-               &getIndicesMutable() == &operand;
       }
     }];
 
@@ -1123,37 +1136,48 @@ def D2M_TileTopkLocalSortOp : D2M_GenericRegionComputeOp<"tile_topk_local_sort",
 
 def D2M_TileTopkMergeOp : D2M_GenericRegionComputeOp<"tile_topk_merge",
   [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-   D2M_SkipOpEltwiseFusionTrait,
-   D2M_SynchronizableOpInterface]> {
+   D2M_SkipOpEltwiseFusionTrait]> {
     let summary = "D2M Tile TopK Merge Block Op";
     let description = [{
-        The `tile_topk_merge` operation merges length-K subsequences so the top-K values land in the first subsequence.
+        Given two bitonic length-K subsequences held in `tile_a` and
+        `tile_b`, merges them so the top-K values/indices across both land in
+        `tile_a`; `tile_b` is left holding the complementary "losers". Maps
+        onto the ttkernel `topk_merge` LLK call.
+
+        - `values`/`indices`: input value/index tensors or memrefs.
+        - `out_values`/`out_indices`: output value/index tensors or memrefs;
+          the op's DPS inits (`getDpsInitsMutable` = operands 2-3).
+        - `m_iter`: merge-tree level (0-indexed) being merged; determines
+          which stride/shape of length-K runs the LLK merges.
+        - `k`: number of top elements tracked per subsequence.
+        - `tile_a`, `tile_b`: flat tile indices of the pair being merged;
+          after the merge, `tile_a` holds the combined top-K result, `tile_b`
+          the losers.
+        - `is_group_start`: whether this op is responsible for acquiring the
+          DST tile registers and copying `tile_a`/`tile_b` in from the source
+          CB.
+        - `is_group_end`: whether this op is responsible for packing the
+          resulting DST tiles back to the output CB and releasing the DST
+          tile registers.
+        - `read_from_output`: whether `tile_a`/`tile_b` are read from the
+          output value/index buffers instead of the input buffers.
     }];
 
     let arguments = (ins AnyRankedTensorOrMemRef:$values,
                          AnyRankedTensorOrMemRef:$indices,
                          AnyRankedTensorOrMemRef:$out_values,
                          AnyRankedTensorOrMemRef:$out_indices,
-                         I32Attr:$m_iter,
+                         I32:$m_iter,
                          I32Attr:$k,
-                         I64Attr:$tile_a,
-                         I64Attr:$tile_b,
+                         Index:$tile_a,
+                         Index:$tile_b,
                          BoolAttr:$is_group_start,
-                         BoolAttr:$is_group_end,
-                         BoolAttr:$read_from_output);
+                         I1:$is_group_end,
+                         I1:$read_from_output);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() {
         return MutableOperandRange(getOperation(), 2, 2);
-      }
-
-      bool isProducer(mlir::OpOperand &operand) {
-        return &getOutValuesMutable() == &operand ||
-               &getOutIndicesMutable() == &operand;
-      }
-      bool isConsumer(mlir::OpOperand &operand) {
-        return &getValuesMutable() == &operand ||
-               &getIndicesMutable() == &operand;
       }
     }];
 
@@ -1162,11 +1186,35 @@ def D2M_TileTopkMergeOp : D2M_GenericRegionComputeOp<"tile_topk_merge",
 
 def D2M_TileTopkRebuildOp : D2M_GenericRegionComputeOp<"tile_topk_rebuild",
   [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
-   D2M_SkipOpEltwiseFusionTrait,
-   D2M_SynchronizableOpInterface]> {
+   D2M_SkipOpEltwiseFusionTrait]> {
     let summary = "D2M Tile TopK Rebuild Block Op";
     let description = [{
-        The `tile_topk_rebuild` operation re-sorts the surviving length-K subsequences into final order.
+        Re-sorts the length-K sequence held across `tile_a`/`tile_b` into
+        fully-ordered order (a merge only guarantees the top-K values landed
+        in `tile_a`, not that they're sorted). Maps onto the ttkernel
+        `topk_rebuild` LLK call.
+
+        - `values`/`indices`: input value/index tensors or memrefs.
+        - `out_values`/`out_indices`: output value/index tensors or memrefs;
+          the op's DPS inits (`getDpsInitsMutable` = operands 2-3).
+        - `idir`: sort direction (0 = descending).
+        - `m_iter`: merge-tree level (0-indexed) whose result is being
+          rebuilt.
+        - `k`: number of top elements retained in the rebuilt sequence.
+        - `logk`: `floor(log2(k))`; number of bitonic-network phases the
+          rebuild runs to fully re-sort the length-K sequence.
+        - `skip_second`: whether the rebuild's second sub-pass (over the
+          second half of the sequence) is skipped.
+        - `tile_a`, `tile_b`: flat tile indices of the pair being rebuilt;
+          after rebuild hold the fully sorted top-K result.
+        - `is_group_start`: whether this op is responsible for acquiring the
+          DST tile registers and copying `tile_a`/`tile_b` in from the source
+          CB.
+        - `is_group_end`: whether this op is responsible for packing the
+          resulting DST tiles back to the output CB and releasing the DST
+          tile registers.
+        - `read_from_output`: whether `tile_a`/`tile_b` are read from the
+          output value/index buffers instead of the input buffers.
     }];
 
     let arguments = (ins AnyRankedTensorOrMemRef:$values,
@@ -1174,28 +1222,19 @@ def D2M_TileTopkRebuildOp : D2M_GenericRegionComputeOp<"tile_topk_rebuild",
                          AnyRankedTensorOrMemRef:$out_values,
                          AnyRankedTensorOrMemRef:$out_indices,
                          I32Attr:$idir,
-                         I32Attr:$m_iter,
+                         I32:$m_iter,
                          I32Attr:$k,
                          I32Attr:$logk,
                          I32Attr:$skip_second,
-                         I64Attr:$tile_a,
-                         I64Attr:$tile_b,
+                         Index:$tile_a,
+                         Index:$tile_b,
                          BoolAttr:$is_group_start,
-                         BoolAttr:$is_group_end,
-                         BoolAttr:$read_from_output);
+                         I1:$is_group_end,
+                         I1:$read_from_output);
 
     let extraClassDeclaration = [{
       MutableOperandRange getDpsInitsMutable() {
         return MutableOperandRange(getOperation(), 2, 2);
-      }
-
-      bool isProducer(mlir::OpOperand &operand) {
-        return &getOutValuesMutable() == &operand ||
-               &getOutIndicesMutable() == &operand;
-      }
-      bool isConsumer(mlir::OpOperand &operand) {
-        return &getValuesMutable() == &operand ||
-               &getIndicesMutable() == &operand;
       }
     }];
 
@@ -1410,7 +1449,8 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
                          AnyRankedTensorOrMemRef:$dst, Variadic<Index>:$dstIndices,
                          I64Attr:$numElems,
                          Variadic<Index>:$mcastStartIndex, Variadic<Index>:$mcastShape,
-                         Variadic<Index>:$startDevice, Variadic<Index>:$deviceMcastShape);
+                         Variadic<Index>:$startDevice, Variadic<Index>:$deviceMcastShape,
+                         OptionalAttr<AffineMapAttr>:$tensorAccessorPageMap);
     let results = (outs D2M_MemTx:$result);
 
     let builders =
@@ -1418,37 +1458,37 @@ def D2M_DMAWriteOp : D2M_GenericRegionDatamovementOp<"dma_write",
       // Fully indexed unicast - multicast args are defaulted
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems),
       [{
-        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange(), /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange(), /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange(), /*tensorAccessorPageMap=*/AffineMapAttr());
       }]>,
 
       // Fully indexed multicast - multicast args must be provided
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape, "size_t": $numElems),
       [{
-        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::McastWrite), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape, /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::McastWrite), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), mcastStartIndex, mcastShape, /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange(), /*tensorAccessorPageMap=*/AffineMapAttr());
       }]>,
 
       // Fully indexed unicast, with destination device range
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "size_t": $numElems, "ValueRange": $startDevice, "ValueRange": $deviceMcastShape),
       [{
-        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange(), startDevice, deviceMcastShape);
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, srcIndices, dst, dstIndices, $_builder.getI64IntegerAttr(numElems), ValueRange(), ValueRange(), startDevice, deviceMcastShape, /*tensorAccessorPageMap=*/AffineMapAttr());
       }]>,
 
       // Shard-level unicast (no src indices, grid indices on dst, numElems = 0)
       OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $dstIndices),
       [{
-        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, ValueRange(), dst, dstIndices, $_builder.getI64IntegerAttr(0), ValueRange(), ValueRange(), /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, ValueRange(), dst, dstIndices, $_builder.getI64IntegerAttr(0), ValueRange(), ValueRange(), /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange(), /*tensorAccessorPageMap=*/AffineMapAttr());
       }]>,
 
       // Shard-level multicast (no indices on either, numElems = 0)
       OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $mcastStartIndex, "ValueRange": $mcastShape),
       [{
-        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::McastWrite), src, ValueRange(), dst, ValueRange(), $_builder.getI64IntegerAttr(0), mcastStartIndex, mcastShape, /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange());
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::McastWrite), src, ValueRange(), dst, ValueRange(), $_builder.getI64IntegerAttr(0), mcastStartIndex, mcastShape, /*startDevice=*/ValueRange(), /*deviceMcastShape=*/ValueRange(), /*tensorAccessorPageMap=*/AffineMapAttr());
       }]>,
 
       // Shard-level unicast (no src indices, grid indices on dst, numElems = 0), with destination device range
       OpBuilder<(ins "Value": $src, "Value": $dst, "ValueRange": $dstIndices, "ValueRange": $startDevice, "ValueRange": $deviceMcastShape),
       [{
-        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, ValueRange(), dst, dstIndices, $_builder.getI64IntegerAttr(0), ValueRange(), ValueRange(), startDevice, deviceMcastShape);
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Write), src, ValueRange(), dst, dstIndices, $_builder.getI64IntegerAttr(0), ValueRange(), ValueRange(), startDevice, deviceMcastShape, /*tensorAccessorPageMap=*/AffineMapAttr());
       }]>
     ];
 
@@ -1527,19 +1567,20 @@ def D2M_DMAReadOp : D2M_GenericRegionDatamovementOp<"dma_read",
 
     let arguments = (ins AnyRankedTensorOrMemRef:$src, Variadic<Index>:$srcIndices,
                          AnyRankedTensorOrMemRef:$dst, Variadic<Index>:$dstIndices,
-                         I64Attr:$numElems);
+                         I64Attr:$numElems,
+                         OptionalAttr<AffineMapAttr>:$tensorAccessorPageMap);
     let results = (outs D2M_MemTx:$result);
 
     let builders = [
       // Shard-level form (grid indices on src, no indices on dst, numElems = 0)
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst),
       [{
-        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, ValueRange(), $_builder.getI64IntegerAttr(0));
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, ValueRange(), $_builder.getI64IntegerAttr(0), /*tensorAccessorPageMap=*/AffineMapAttr());
       }]>,
       // Fully indexed form
       OpBuilder<(ins "Value": $src, "ValueRange": $srcIndices, "Value": $dst, "ValueRange": $dstIndices, "IntegerAttr": $numElems),
       [{
-        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, dstIndices, numElems);
+        build($_builder, $_state, MemTxType::get($_builder.getContext(), DMAType::Read), src, srcIndices, dst, dstIndices, numElems, /*tensorAccessorPageMap=*/AffineMapAttr());
       }]>,
     ];
 
@@ -3350,11 +3391,12 @@ def D2M_TopkBlockOp : D2M_GenericRegionComputeOp<"topk_block",
 
       This op operates at the block level (memref of tiles) and is
       decomposed post-bufferization by `d2m-decompose-topk` into
-      `arange_block`, `tile_topk_local_sort`, `tile_topk_merge`, and
-      `tile_topk_rebuild`.
+      `tile_topk_local_sort`, `tile_topk_merge`, and `tile_topk_rebuild`.
 
-      The scratch_idx_tile is a single-tile scratch buffer used by the
-      internal arange_block operation.
+      The scratch_idx_tile is a pre-filled full-shape index buffer containing
+      the arange of original element indices (generated upstream in TTIRToD2M
+      via arange + broadcast generics). `d2m-decompose-topk` consumes this
+      buffer directly.
   }];
 
   let arguments = (ins

@@ -259,11 +259,11 @@ def tanh(in0: Operand, builder: TTIRBuilder, unit_attrs: Optional[List[str]] = N
 
 unary_ops = [
     abs,
-    acos | Marks(pytest.mark.skip_config(["ttmetal"])),
-    asin | Marks(pytest.mark.skip_config(["ttmetal"])),
-    asinh | Marks(pytest.mark.skip_config(["ttmetal"])),
-    atan | Marks(pytest.mark.skip_config(["ttmetal"])),
-    cbrt | Marks(pytest.mark.skip_config(["ttmetal"])),
+    acos | Marks(pytest.mark.xfail(reason="Not implemented", strict=True)),
+    asin | Marks(pytest.mark.xfail(reason="Not implemented", strict=True)),
+    asinh | Marks(pytest.mark.xfail(reason="Not implemented", strict=True)),
+    atan | Marks(pytest.mark.xfail(reason="Not implemented", strict=True)),
+    cbrt | Marks(pytest.mark.xfail(reason="Not implemented", strict=True)),
     ceil,
     cos,
     erf,
@@ -273,15 +273,15 @@ unary_ops = [
     exp2 | SkipIf("ttnn", "emitc", "emitpy"),
     floor,
     gelu,
-    is_finite | Marks(pytest.mark.skip_config(["ttmetal"])),
+    is_finite | Marks(pytest.mark.xfail(reason="Not implemented", strict=True)),
     log,
     log1p,
     logical_not,
-    mish | Marks(pytest.mark.skip_config(["ttmetal"])),
+    mish | Marks(pytest.mark.xfail(reason="Not implemented", strict=True)),
     neg,
     reciprocal,
     relu,
-    relu6 | Marks(pytest.mark.skip_config(["ttmetal"])),
+    relu6 | Marks(pytest.mark.xfail(reason="Not implemented", strict=True)),
     rsqrt,
     sigmoid,
     sign,
@@ -329,7 +329,7 @@ def test_unary_ops(
         "relu",
         "sign",
     }:
-        pytest.skip("int32 unary op is not in the allowlist for this test")
+        pytest.xfail("int32 unary op is not in the allowlist for this test")
 
     # tt-metal #41850 replaced the SFPU erf kernel with a LUT-based rational
     # approximation. The new kernel reads the input as a float, so int32 bit
@@ -337,10 +337,10 @@ def test_unary_ops(
     # TTNN pipeline inserts a bf16 typecast workaround around ttnn.erf for
     # integer inputs (see TTNNWorkaroundsPass), but the TTMetal pipeline
     # lowers ttir.erf directly into a D2M tile op without that workaround.
-    # Skip until a TTIR-level decomposition is added for ttmetal.
+    # Xfail until a TTIR-level decomposition is added for ttmetal.
     # Tracking issue: https://github.com/tenstorrent/tt-mlir/issues/8105
     if dtype == torch.int32 and test_fn is erf and target == "ttmetal":
-        pytest.skip(
+        pytest.xfail(
             "erf with int32 input is not supported on ttmetal yet; "
             "TTNN typecast workaround doesn't apply to the ttmetal pipeline. "
             "See https://github.com/tenstorrent/tt-mlir/issues/8105"

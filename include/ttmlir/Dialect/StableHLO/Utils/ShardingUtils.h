@@ -14,6 +14,8 @@ namespace mlir::tt::sharding_utils {
 // SDY sharding related string definitions.
 inline constexpr llvm::StringRef kXlaSdyShardingAttr = "xla.sdy.sharding";
 inline constexpr llvm::StringRef kXlaSdyMeshesAttr = "xla.sdy.meshes";
+inline constexpr llvm::StringRef kXlaSdyCustomShardingRuleAttr =
+    "xla.sdy.custom_sharding_rule";
 inline constexpr llvm::StringRef kDefaultMeshName = "mesh";
 inline constexpr llvm::StringRef kTTShardingConstraintTargetName =
     "tt.sharding_constraint";

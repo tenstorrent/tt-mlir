@@ -141,14 +141,8 @@ createMeshBufferForShardedMetalBuffer(
                                              : tt_metal::BufferType::L1;
   uint32_t address = deviceAddressValidator(refAddress, bufferType);
 
-  auto localShardShape = tt_metal::Shape2D{shardShape[0], shardShape[1]};
-  auto distributedBufferShape =
-      tt_metal::Shape2D{localShardShape.height() * meshDevice->num_rows(),
-                        localShardShape.width() * meshDevice->num_cols()};
-  auto distributedBufferSizeBytes = meshDevice->num_rows() *
-                                    meshDevice->num_cols() *
-                                    shardedBufferConfig->size();
-
+  // BufferShardingArgs describes buffer distribution across worker cores within
+  // each device.
   auto createBufferShardingArgs = [&]() {
     const target::metal::BufferDistributionSpec *distributionSpec =
         shardedBufferConfig->buffer_distribution_spec();
@@ -190,10 +184,36 @@ createMeshBufferForShardedMetalBuffer(
       .bottom_up = std::nullopt,
       .sub_device_id = std::nullopt};
 
+  // ShardedBufferConfig describes buffer distribution across mesh devices.
+  const uint64_t devLocalSize = shardedBufferConfig->size();
+  const uint64_t pageSize = shardedBufferConfig->page_size();
+  LOG_ASSERT(devLocalSize % pageSize == 0,
+             "Sharded buffer size must be divisible by its page size: ",
+             devLocalSize, " % ", pageSize);
+
+  const size_t devLocalPageH = tensorShapeInPages[0];
+  const size_t devLocalPageW = tensorShapeInPages[1];
+  const uint64_t devLocalPages = devLocalSize / pageSize;
+  LOG_ASSERT(devLocalPageH * devLocalPageW == devLocalPages,
+             "Device-local page shape volume must match buffer page count: ",
+             devLocalPageH, " * ", devLocalPageW, " != ", devLocalPages);
+
+  // While global_size is the size of the full tensor in bytes, the two shapes
+  // are unit-agnostic: only the shapes and the inferred datum size are used to
+  // partition byte ranges across mesh devices.
+  //
+  // Here, we model the mesh-level shape using the full device-local tensor
+  // shape in the page-space instead of the scalar-space.
+  // - In the scalar-space, the inferred datum size might be truncated for BFP
+  //   data formats since their tile sizes are not powers-of-two.
+  // - In the page-space, inferred datum size is always equal to the page size
+  //   for every data format.
+  const size_t meshH = meshDevice->num_rows();
+  const size_t meshW = meshDevice->num_cols();
   auto distributedBufferConfig = distributed::ShardedBufferConfig{
-      .global_size = distributedBufferSizeBytes,
-      .global_buffer_shape = distributedBufferShape,
-      .shard_shape = localShardShape,
+      .global_size = meshH * meshW * devLocalSize,
+      .global_buffer_shape = {meshH * devLocalPageH, meshW * devLocalPageW},
+      .shard_shape = {devLocalPageH, devLocalPageW},
       .shard_orientation = tt_metal::ShardOrientation::ROW_MAJOR};
 
   return distributed::MeshBuffer::create(

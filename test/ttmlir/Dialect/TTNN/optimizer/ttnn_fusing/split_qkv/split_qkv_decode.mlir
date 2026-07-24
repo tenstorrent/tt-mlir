@@ -23,5 +23,13 @@
 // The value output is written to the value cache directly (no RoPE).
 // CHECK: "ttnn.paged_update_cache"(%[[VCACHE:arg[0-9]+]], %value,
 // The query output is rotated and attention reads key cache then value cache.
+// The fused SDPA is faithfully f32 at this stage (its bf16 coercion is deferred
+// to the TTNN workaround pass), so the query and both caches are typecast to f32
+// before the op; the workaround later folds these casts away. The wiring is what
+// matters: the rotated query feeds the SDPA query operand, the key cache feeds
+// the key operand, and the value cache feeds the value operand.
+// CHECK: %[[KCACHE_F32:[0-9]+]] = "ttnn.typecast"(%[[KCACHE]])
+// CHECK: %[[VCACHE_F32:[0-9]+]] = "ttnn.typecast"(%[[VCACHE]])
 // CHECK: %[[ROPE_Q:[0-9]+]] = "ttnn.rotary_embedding"(%query,
-// CHECK: "ttnn.scaled_dot_product_attention_decode"(%[[ROPE_Q]], %[[KCACHE]], %[[VCACHE]],
+// CHECK: %[[ROPE_Q_F32:[0-9]+]] = "ttnn.typecast"(%[[ROPE_Q]])
+// CHECK: "ttnn.scaled_dot_product_attention_decode"(%[[ROPE_Q_F32]], %[[KCACHE_F32]], %[[VCACHE_F32]],

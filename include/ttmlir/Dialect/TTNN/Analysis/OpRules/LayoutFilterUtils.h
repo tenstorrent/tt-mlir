@@ -44,6 +44,12 @@ inline bool rejectL1Interleaved(TTNNLayoutAttr layout) {
   return isDRAMBufferType(layout.getBufferType());
 }
 
+/// Accept only ROW_MAJOR candidates. Pair with generatesRowMajorInputSiblings()
+/// to drop the tiled originals once the RM siblings are synthesized.
+inline bool requireRowMajor(TTNNLayoutAttr layout) {
+  return layout.getLayout() == Layout::RowMajor;
+}
+
 /// Reject width-sharded layouts. Returns true if the layout should be kept.
 inline bool rejectWidthSharded(TTNNLayoutAttr layout) {
   auto ml = layout.getMemLayout();

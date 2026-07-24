@@ -103,7 +103,10 @@ table AllToAllDispatchMetadataOp {
   num_devices: uint32;
   cluster_axis: uint32;
   memory_config: tt.target.ttnn.MemoryConfig;
-  drain_core: tt.target.ttnn.CoreCoord;
+  dispatched_buffer: tt.target.ttnn.TensorRef;
+  indices_buffer: tt.target.ttnn.TensorRef;
+  scores_buffer: tt.target.ttnn.TensorRef;
+  cross_device_semaphore: tt.target.ttnn.GlobalSemaphoreRef;
 }
 
 table AllToAllCombineOp {
@@ -198,11 +201,7 @@ table MoeComputeOp {
   num_links: uint32 = null;
   topology: tt.target.Topology = null;
   mux_core_range_set: tt.target.ttnn.CoreRangeSet;
-  compute_only: bool;
-  per_expert_total_tokens: tt.target.ttnn.TensorRef;
-  expert_activation: tt.target.ttnn.TensorRef;
-  expert_to_token: tt.target.ttnn.TensorRef;
-  tilize_output: tt.target.ttnn.TensorRef;
-  matmul_output: tt.target.ttnn.TensorRef;
+  // Only the A2A combine output is exposed; tt-metal's routing/tilize/matmul
+  // intermediates are allocated and freed inside the runtime handler.
   combine_output: tt.target.ttnn.TensorRef;
 }

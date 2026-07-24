@@ -643,8 +643,9 @@ def test_spatial_two_regions_two_matmuls(
         pytest.param(
             "ttnn-mode",
             id="ttnn-mode",
-            marks=pytest.mark.skip(
-                reason="Temporarily skip ttnn-mode target for all-gather spatial path."
+            marks=pytest.mark.xfail(
+                reason="Temporarily skip ttnn-mode target for all-gather spatial path.",
+                strict=True,
             ),
         ),
     ],

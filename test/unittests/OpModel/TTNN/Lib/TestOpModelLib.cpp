@@ -2813,6 +2813,115 @@ INSTANTIATE_TEST_SUITE_P(
                         llvm::SmallVector<int32_t>{1, 1}, 1,
                         detail::ExpectedResult{true})));
 
+// conv1d shares the conv2d op model path (it queries ::ttnn::conv1d, which
+// wraps
+// ::ttnn::conv2d). Parameters are the native 1D form: input (N, L_in, C),
+// weight (O, C/G, K), and scalar kernel/stride/dilation with [pL, pR] padding.
+class OpModelConv1dParam : public OpModelTest,
+                           public testing::WithParamInterface<
+                               std::tuple<detail::TestTensor, // input
+                                          detail::TestTensor, // weight
+                                          detail::TestTensor, // output
+                                          uint32_t,           // in_channels
+                                          uint32_t,           // out_channels
+                                          uint32_t,           // batch_size
+                                          uint32_t,           // input_length
+                                          uint32_t,           // kernel_size
+                                          uint32_t,           // stride
+                                          llvm::SmallVector<int32_t>, // padding
+                                          uint32_t, // dilation
+                                          uint32_t, // groups
+                                          detail::ExpectedResult>> {};
+
+TEST_P(OpModelConv1dParam, Conv1d) {
+  auto params = GetParam();
+  const auto [inputShape, inputTensorLayout, inputBufferType,
+              inputVirtualGrid] = std::get<0>(params);
+  const auto [weightShape, weightTensorLayout, weightBufferType,
+              weightVirtualGrid] = std::get<1>(params);
+  const auto [outputShape, outputTensorLayout, outputBufferType,
+              outputVirtualGrid] = std::get<2>(params);
+  const auto in_channels = std::get<3>(params);
+  const auto out_channels = std::get<4>(params);
+  const auto batch_size = std::get<5>(params);
+  const auto input_length = std::get<6>(params);
+  const auto kernel_size = std::get<7>(params);
+  const auto stride = std::get<8>(params);
+  const auto padding = std::get<9>(params);
+  const auto dilation = std::get<10>(params);
+  const auto groups = std::get<11>(params);
+  const auto expectedLegal = std::get<12>(params).expectedLegal;
+
+  const TTNNLayoutAttr inputLayout = CreateRowMajorLayout(
+      inputShape, inputBufferType, inputTensorLayout, inputVirtualGrid,
+      GetPhysicalGridSize(), builder.getF32Type());
+  const TTNNLayoutAttr weightLayout = CreateRowMajorLayout(
+      weightShape, weightBufferType, weightTensorLayout, weightVirtualGrid,
+      GetPhysicalGridSize(), builder.getF32Type());
+  const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+      outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+  auto constraintsExp = OpModel<Conv1dOp>::getOpConstraints(
+      inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
+      std::nullopt, in_channels, out_channels, batch_size, input_length,
+      kernel_size, stride, padding, dilation, groups, std::nullopt,
+      std::nullopt, std::nullopt, outputLayout);
+  // Manually cast to bool because EXPECT_TRUE requires a const bool operator
+  // which llvm::Expected<T> does not have
+  EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+  if (constraintsExp) {
+    const auto [cbSize, l1PeakSize, totalPeakSize, outputSize,
+                outputLayoutReadBacks] = constraintsExp.get();
+    EXPECT_GT(cbSize, 0);
+    EXPECT_GT(l1PeakSize, 0);
+    EXPECT_GT(totalPeakSize, 0);
+  } else {
+    // Must clean up the error
+    llvm::consumeError(constraintsExp.takeError());
+  }
+
+  auto runtimeExp = OpModel<Conv1dOp>::getOpRuntime(
+      inputShape, inputLayout, weightShape, weightLayout, std::nullopt,
+      std::nullopt, in_channels, out_channels, batch_size, input_length,
+      kernel_size, stride, padding, dilation, groups, std::nullopt,
+      std::nullopt, std::nullopt, outputLayout);
+  EXPECT_EQ(static_cast<bool>(runtimeExp), expectedLegal);
+  if (runtimeExp) {
+    EXPECT_GT(runtimeExp.get(), 0);
+  } else {
+    // Must clean up the error
+    llvm::consumeError(runtimeExp.takeError());
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    Conv1dTests, OpModelConv1dParam,
+    ::testing::Values(
+        // symmetric (zero) padding: L_out = 30
+        std::make_tuple(detail::TestTensor{{1, 32, 64},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        detail::TestTensor{{64, 64, 3},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::SystemMemory},
+                        detail::TestTensor{{1, 1, 30, 64},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        64, 64, 1, 32, 3, 1, llvm::SmallVector<int32_t>{0, 0},
+                        1, 1, detail::ExpectedResult{true}),
+        // asymmetric padding [pL=1, pR=2]: L_out = 33
+        std::make_tuple(detail::TestTensor{{1, 32, 64},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        detail::TestTensor{{64, 64, 3},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::SystemMemory},
+                        detail::TestTensor{{1, 1, 33, 64},
+                                           TensorMemoryLayout::Interleaved,
+                                           BufferType::DRAM},
+                        64, 64, 1, 32, 3, 1, llvm::SmallVector<int32_t>{1, 2},
+                        1, 1, detail::ExpectedResult{true})));
+
 class OpModelConvTranspose2dParam
     : public OpModelTest,
       public testing::WithParamInterface<
@@ -6645,6 +6754,116 @@ const auto scaledDotProductAttentionOpTestValues = testing::Values(
 INSTANTIATE_TEST_SUITE_P(ScaledDotProductAttentionTests,
                          OpModelScaledDotProductAttentionParam,
                          scaledDotProductAttentionOpTestValues);
+
+// === ChunkedScaledDotProductAttentionOp Tests ===
+struct ChunkedScaledDotProductAttentionOpParam {
+  detail::TestTensor query;
+  detail::TestTensor key;
+  detail::TestTensor value;
+  detail::TestTensor pageTable;
+  detail::TestTensor chunkStartIdx;
+  float scale;
+  detail::TestTensor output;
+  detail::ExpectedResult expectedResult;
+};
+
+class OpModelChunkedScaledDotProductAttentionParam
+    : public OpModelTest,
+      public testing::WithParamInterface<
+          ChunkedScaledDotProductAttentionOpParam> {
+protected:
+  void RunTest() {
+    // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+    const auto [queryShape, queryTensorLayout, queryBufferType,
+                queryVirtualGrid] = GetParam().query;
+    const auto [keyShape, keyTensorLayout, keyBufferType, keyVirtualGrid] =
+        GetParam().key;
+    const auto [valueShape, valueTensorLayout, valueBufferType,
+                valueVirtualGrid] = GetParam().value;
+    const auto [pageTableShape, pageTableTensorLayout, pageTableBufferType,
+                pageTableVirtualGrid] = GetParam().pageTable;
+    const auto [chunkStartIdxShape, chunkStartIdxTensorLayout,
+                chunkStartIdxBufferType, chunkStartIdxVirtualGrid] =
+        GetParam().chunkStartIdx;
+
+    const auto [outputShape, outputTensorLayout, outputBufferType,
+                outputVirtualGrid] = GetParam().output;
+
+    const auto expectedLegal = GetParam().expectedResult.expectedLegal;
+
+    const TTNNLayoutAttr queryLayout = CreateTiledLayout(
+        queryShape, queryBufferType, queryTensorLayout, queryVirtualGrid);
+    const TTNNLayoutAttr keyLayout = CreateTiledLayout(
+        keyShape, keyBufferType, keyTensorLayout, keyVirtualGrid);
+    const TTNNLayoutAttr valueLayout = CreateTiledLayout(
+        valueShape, valueBufferType, valueTensorLayout, valueVirtualGrid);
+    // page_table and chunk_start_idx are consumed on device as row-major int32
+    // tensors (the tt-metal kernel requires the page table to be row major).
+    const TTNNLayoutAttr pageTableLayout =
+        CreateRowMajorLayoutInt32(pageTableShape, pageTableBufferType,
+                                  pageTableTensorLayout, pageTableVirtualGrid);
+    const TTNNLayoutAttr chunkStartIdxLayout = CreateRowMajorLayoutInt32(
+        chunkStartIdxShape, chunkStartIdxBufferType, chunkStartIdxTensorLayout,
+        chunkStartIdxVirtualGrid);
+
+    const TTNNLayoutAttr outputLayout = CreateTiledLayout(
+        outputShape, outputBufferType, outputTensorLayout, outputVirtualGrid);
+
+    const llvm::APFloat scaleAPFloat(GetParam().scale);
+    std::optional<llvm::APFloat> scale = scaleAPFloat;
+
+    std::optional<SDPAProgramConfigAttr> programConfig = std::nullopt;
+
+    auto constraintsExp =
+        OpModel<ChunkedScaledDotProductAttentionOp>::getOpConstraints(
+            queryShape, queryLayout, keyShape, keyLayout, valueShape,
+            valueLayout, pageTableShape, pageTableLayout, chunkStartIdxShape,
+            chunkStartIdxLayout, scale, programConfig, outputLayout);
+
+    EXPECT_EQ(static_cast<bool>(constraintsExp), expectedLegal);
+    if (expectedLegal) {
+      const auto [cbSize, l1PeakSize, totalPeakSize, outputSizeResult,
+                  outputLayoutReadBacks] = constraintsExp.get();
+      EXPECT_GE(cbSize, 0);
+      EXPECT_GE(l1PeakSize, 0);
+      EXPECT_GE(totalPeakSize, 0);
+      EXPECT_GE(outputSizeResult, 0);
+    } else {
+      llvm::consumeError(constraintsExp.takeError());
+    }
+    // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+  }
+};
+
+TEST_P(OpModelChunkedScaledDotProductAttentionParam,
+       ChunkedScaledDotProductAttentionOp) {
+  // NOLINTBEGIN(clang-analyzer-cplusplus.NewDelete)
+  RunTest();
+  // NOLINTEND(clang-analyzer-cplusplus.NewDelete)
+}
+
+const auto chunkedScaledDotProductAttentionOpTestValues =
+    testing::Values(ChunkedScaledDotProductAttentionOpParam{
+        detail::TestTensor{
+            {1, 12, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{{128, 12, 32, 64},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{{128, 12, 32, 64},
+                           TensorMemoryLayout::Interleaved,
+                           BufferType::DRAM},
+        detail::TestTensor{
+            {1, 8}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::TestTensor{
+            {1}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        0.125f,
+        detail::TestTensor{
+            {1, 12, 64, 64}, TensorMemoryLayout::Interleaved, BufferType::DRAM},
+        detail::ExpectedResult{true}});
+
+INSTANTIATE_TEST_SUITE_P(ChunkedScaledDotProductAttentionTests,
+                         OpModelChunkedScaledDotProductAttentionParam,
+                         chunkedScaledDotProductAttentionOpTestValues);
 
 TEST_F(OpModelTest, AssignOp) {
   const llvm::SmallVector<int64_t> tensorShape = {64, 64};
