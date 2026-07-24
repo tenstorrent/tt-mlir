@@ -1179,6 +1179,87 @@ createOp(FlatbufferObjectCache &cache, AllReduceAsyncOp op) {
       op.getClusterAxis(), subDeviceId, memoryConfig, numLinks, topology);
 }
 
+::flatbuffers::Offset<
+    ::tt::target::ttnn::MinimalMatmulStridedReduceScatterAsyncOp>
+createOp(FlatbufferObjectCache &cache,
+         MinimalMatmulStridedReduceScatterAsyncOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto weight = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getWeight()));
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> bias = 0;
+  if (op.getBias()) {
+    bias = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getBias()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> addcmulInput1 = 0;
+  if (op.getAddcmulInput1()) {
+    addcmulInput1 = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getAddcmulInput1()));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::TensorRef> addcmulInput2 = 0;
+  if (op.getAddcmulInput2()) {
+    addcmulInput2 = cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(op.getAddcmulInput2()));
+  }
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>>
+      multiDeviceSemaphore;
+  for (auto semaphore : op.getMultiDeviceSemaphore()) {
+    multiDeviceSemaphore.push_back(
+        cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(semaphore));
+  }
+
+  ::flatbuffers::Offset<::tt::target::ttnn::GlobalSemaphoreRef>
+      barrierSemaphore = 0;
+  if (op.getBarrierSemaphore()) {
+    barrierSemaphore = cache.at<::tt::target::ttnn::GlobalSemaphoreRef>(
+        op.getBarrierSemaphore());
+  }
+
+  // `cluster_axis`, `num_links`, `topology`, `scalar`, and `dtype` are all
+  // schema-optional (= null); use the toFlatbuffer overloads that return
+  // flatbuffers::Optional so unset attrs serialize as the absent marker.
+  auto clusterAxis = toFlatbuffer(cache, op.getClusterAxis());
+  ::flatbuffers::Optional<float> scalar = toFlatbuffer(
+      cache, op.getScalar()
+                 ? std::make_optional(op.getScalar().value().convertToFloat())
+                 : std::nullopt);
+  auto topology = toFlatbuffer(cache, op.getTopology());
+  auto numLinks = toFlatbuffer(cache, op.getNumLinks());
+  // `memory_config` is schema-optional; skip serialization when unset so we do
+  // not dereference a null MemoryConfigAttr in toFlatbuffer.
+  ::flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig = 0;
+  if (op.getMemoryConfigAttr()) {
+    memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
+  }
+  ::flatbuffers::Optional<::tt::target::DataType> dtype =
+      toFlatbuffer(cache, op.getDtype());
+
+  ::flatbuffers::Offset<::tt::target::ttnn::DeviceComputeKernelConfig>
+      computeConfig = 0;
+  if (op.getComputeConfig().has_value()) {
+    computeConfig = toFlatbuffer(cache, op.getComputeConfig().value());
+  }
+
+  std::vector<::flatbuffers::Offset<::tt::target::ttnn::TensorRef>> outputs;
+  for (auto result : op.getResults()) {
+    outputs.push_back(cache.getOrCreateNoSharding(
+        result, tensorValueToFlatbuffer, /*local_shape*/ std::nullopt));
+  }
+
+  return ::tt::target::ttnn::
+      CreateMinimalMatmulStridedReduceScatterAsyncOpDirect(
+          *cache.fbb, input, weight, bias, addcmulInput1, addcmulInput2,
+          &multiDeviceSemaphore, barrierSemaphore, clusterAxis, scalar,
+          topology, numLinks, memoryConfig, dtype, computeConfig,
+          op.getNumWorkersPerLink(), op.getNumBuffersPerChannel(), op.getDim(),
+          &outputs);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::ReduceScatterOp>
 createOp(FlatbufferObjectCache &cache, ReduceScatterOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -4701,6 +4782,13 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto reduceScatterOp = dyn_cast<ReduceScatterOp>(op); reduceScatterOp) {
     return createOperation(cache, createOp(cache, reduceScatterOp), debugString,
                            locInfo);
+  }
+  if (auto minimalMatmulStridedReduceScatterAsyncOp =
+          dyn_cast<MinimalMatmulStridedReduceScatterAsyncOp>(op);
+      minimalMatmulStridedReduceScatterAsyncOp) {
+    return createOperation(
+        cache, createOp(cache, minimalMatmulStridedReduceScatterAsyncOp),
+        debugString, locInfo);
   }
   if (auto allToAllDispatchOp = dyn_cast<AllToAllDispatchOp>(op);
       allToAllDispatchOp) {

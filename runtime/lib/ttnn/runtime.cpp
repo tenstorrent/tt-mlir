@@ -1411,6 +1411,12 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_ReduceScatterOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::MinimalMatmulStridedReduceScatterAsyncOp: {
+    tensorRefs = utils::convertFbTensorRefsToVector(
+        opContext.type_as_MinimalMatmulStridedReduceScatterAsyncOp()
+            ->outputs());
+    break;
+  }
   case ::tt::target::ttnn::OpType::MeshPartitionOp: {
     tensorRefs = {opContext.type_as_MeshPartitionOp()->out()};
     break;
@@ -2029,6 +2035,21 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::ReduceScatterOp: {
     tensorRefs = {opContext.type_as_ReduceScatterOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::MinimalMatmulStridedReduceScatterAsyncOp: {
+    const auto *op =
+        opContext.type_as_MinimalMatmulStridedReduceScatterAsyncOp();
+    tensorRefs = {op->input(), op->weight()};
+    if (op->bias()) {
+      tensorRefs.push_back(op->bias());
+    }
+    if (op->addcmul_input1()) {
+      tensorRefs.push_back(op->addcmul_input1());
+    }
+    if (op->addcmul_input2()) {
+      tensorRefs.push_back(op->addcmul_input2());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::MeshPartitionOp: {

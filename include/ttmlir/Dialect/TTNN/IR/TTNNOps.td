@@ -3291,6 +3291,60 @@ def TTNN_AllReduceOp: TTNN_Op<"all_reduce", [OpModelExempt]> {
     let hasFolder = 1;
 }
 
+def TTNN_MinimalMatmulStridedReduceScatterAsyncOp: TTNN_Op<"minimal_matmul_strided_reduce_scatter_async",
+    [AttrSizedOperandSegments, TTNN_DistributedOpInterface, OpModelExempt]> {
+    let summary = "Fused async minimal matmul + strided reduce-scatter op.";
+    let description = [{
+      Fused matmul + collective op (maps to
+      `ttnn::experimental::minimal_matmul_strided_reduce_scatter_async`).
+      Computes `input @ weight` with a minimal-matmul kernel and, in the same
+      program, reduce-scatters the partial products across `cluster_axis`
+      (row-parallel FFN down-projection), summing across ranks and scattering
+      the result along `dim` in a strided layout, overlapping compute with
+      communication. Optional epilogues: row-broadcast `bias` (present only for
+      the linear variant; matmul has no bias), and gated residual
+      `addcmul_input1 + scalar * reduce_scatter(input @ weight + bias) * addcmul_input2`
+      (DiT blocks).
+
+      The async collective is synchronized by the `multi_device_semaphore`
+      global semaphores and `barrier_semaphore`; left unbound, these are
+      materialized by `TTNNAllocateDistributedOpSemaphores` via the
+      `DistributedOpInterface`. `fused_activation`, `MinimalMatmulConfig`,
+      persistent buffers, and the reduce-scatter core-grid offset use tt-metal
+      defaults.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         Optional<AnyRankedTensor>:$addcmul_input1,
+                         Optional<AnyRankedTensor>:$addcmul_input2,
+                         Variadic<TTNN_GlobalSemaphore>:$multi_device_semaphore,
+                         Optional<TTNN_GlobalSemaphore>:$barrier_semaphore,
+                         TTNN_Device:$device,
+                         OptionalAttr<UI32Attr>:$cluster_axis,
+                         OptionalAttr<F32Attr>:$scalar,
+                         OptionalAttr<TTCore_TopologyAttr>:$topology,
+                         OptionalAttr<UI32Attr>:$num_links,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype,
+                         OptionalAttr<TTNN_DeviceComputeKernelConfig>:$compute_config,
+                         DefaultValuedAttr<UI32Attr, "1">:$num_workers_per_link,
+                         DefaultValuedAttr<UI32Attr, "1">:$num_buffers_per_channel,
+                         DefaultValuedAttr<SI32Attr, "0">:$dim);
+
+    let results = (outs Variadic<AnyRankedTensor>:$results);
+
+    let extraClassDeclaration = [{
+      bool hasUnboundBuffers();
+      void allocateBuffers(::mlir::RewriterBase &rewriter);
+      bool hasUnboundSemaphores();
+      void allocateSemaphores(::mlir::RewriterBase &rewriter);
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_AllReduceAsyncOp: TTNN_Op<"all_reduce_async", [OpModelExempt]> {
     let summary = "Asynchronous all reduce op.";
     let description = [{
