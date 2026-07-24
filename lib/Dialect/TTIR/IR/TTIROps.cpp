@@ -13,7 +13,6 @@
 #include "ttmlir/Dialect/TTIR/Utils/Utils.h"
 #include "ttmlir/Dialect/TTIR/Utils/VerificationUtils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
-#include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Utils.h"
 
 #include "mlir/Dialect/CommonFolders.h"
@@ -5880,14 +5879,8 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
     return emitOpError("Update index tensor must be a 1D tensor");
   }
 
-  int64_t blockSize = cacheShape[2];
   int64_t headDim = cacheShape[3];
   int64_t numUsers = updateIndexShape[0];
-
-  if (!usingStaticCache && blockSize % ttnn::TILE_HEIGHT != 0) {
-    return emitOpError("Block size must be divisible by 32, got " +
-                       std::to_string(blockSize));
-  }
 
   if (inputShape[0] != 1) {
     return emitOpError("Input tensor must have dim 0 be equal to 1, got " +
@@ -6107,13 +6100,7 @@ mlir::LogicalResult mlir::tt::ttir::MeshShardOp::verify() {
 
   int64_t numCacheHeads = cacheShape[1];
   int64_t numInputHeads = inputShape[1];
-  int64_t blockSize = cacheShape[2];
   int64_t headDim = cacheShape[3];
-
-  if (blockSize % 32 != 0) {
-    return emitOpError("Block size must be divisible by 32, got " +
-                       std::to_string(blockSize));
-  }
 
   if (numInputHeads != numCacheHeads) {
     return emitOpError(
