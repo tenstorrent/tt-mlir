@@ -500,6 +500,10 @@ void createTTIRToTTNNCommonPipeline(
       createTTNNPipelineD2MPass(devicePm, d2mOptions);
       devicePm.addPass(createTTNNCollaspeD2M());
       devicePm.addPass(createCanonicalizerPass());
+
+      if (options.enableTrace) {
+        devicePm.addPass(tt::ttnn::createTTNNPrepareD2MSubgraphsForTrace());
+      }
     }
 
     // We need to re-run const-eval to pick up const prepare conv2d weight ops

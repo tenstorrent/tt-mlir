@@ -381,6 +381,29 @@ def TTNNCreateD2MSubgraphs: Pass<"ttnn-create-d2m-subgraphs", "::mlir::ModuleOp"
   }];
 }
 
+def TTNNPrepareD2MSubgraphsForTrace : Pass<"ttnn-prepare-d2m-subgraphs-for-trace", "::mlir::ModuleOp"> {
+  let summary = "Prepare D2M subgraphs so they can be hoisted into traces.";
+  let description = [{
+    D2M subgraph lowering (TTNNCollaspeD2M) emits each subgraph as a
+    `ttnn.get_device` -> `ttnn.empty` -> `ttnn.generic` triple. The `get_device`
+    and `empty` ops are not hoistable, and they land interleaved between the
+    surrounding hoistable ops. `TTNNTraceHoistTransform` requires a contiguous
+    run of hoistable ops and fails with "Non-hoistable op found in the middle of
+    hoistable ops" when it encounters them.
+
+    This pass runs before trace hoisting and normalizes each forward-device
+    function so the trace boundary is clean:
+    - All `ttnn.get_device` ops are merged into a single op at the top of the
+      function (device handles are interchangeable).
+    - All `ttnn.empty` scratch buffers are moved into the function prelude, ahead
+      of the first hoistable op.
+
+    The scratch buffers then enter the trace as device-resident pass-through
+    inputs, the same way prelude-allocated scratch is already handled by the
+    trace hoist transform.
+  }];
+}
+
 def TTNNTraceHoistTransform : Pass<"ttnn-trace-hoist-transform", "::mlir::ModuleOp"> {
   let summary = "TTNN Trace hoist transform";
   let description = [{
