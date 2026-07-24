@@ -2320,6 +2320,19 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
            << numRegions << ")";
   }
 
+  for (size_t i = 0; i < numCoreRanges; ++i) {
+    auto firstRange =
+        mlir::cast<ttcore::CoreRangeAttr>(gridRangesAttr.getValue()[i]);
+    for (size_t j = i + 1; j < numCoreRanges; ++j) {
+      auto secondRange =
+          mlir::cast<ttcore::CoreRangeAttr>(gridRangesAttr.getValue()[j]);
+      if (firstRange.intersects(secondRange)) {
+        return emitOpError("grid_ranges overlap: ")
+               << firstRange << " and " << secondRange;
+      }
+    }
+  }
+
   // Each region has exactly one generic op. Verify its grid (2D only) fits
   // within the region: when mapping is empty, compare shape only; when
   // mapping is present, require virtual grid contained in region's virtual
@@ -2327,13 +2340,13 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
   for (auto [region, rangeAttr] :
        llvm::zip(getRegions(), gridRangesAttr.getValue())) {
     auto coreRange = mlir::cast<ttcore::CoreRangeAttr>(rangeAttr);
+    ttcore::CoreCoordAttr offset = coreRange.getOffset();
+    llvm::ArrayRef<int64_t> size = coreRange.getSize();
     utils::BoundingBox regionBox;
-    regionBox.start = {coreRange.getStartCoord().getY(),
-                       coreRange.getStartCoord().getX()};
-    regionBox.end = {coreRange.getEndCoord().getY(),
-                     coreRange.getEndCoord().getX()};
-    int64_t regionShapeY = regionBox.end[0] - regionBox.start[0] + 1;
-    int64_t regionShapeX = regionBox.end[1] - regionBox.start[1] + 1;
+    regionBox.start = {offset.getY(), offset.getX()};
+    regionBox.end = {offset.getY() + size[0] - 1, offset.getX() + size[1] - 1};
+    int64_t regionShapeY = size[0];
+    int64_t regionShapeX = size[1];
 
     if (region.empty()) {
       return emitOpError("each spatial region must not be empty");
@@ -2375,9 +2388,10 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
           regionVirtualBbox.start[1] > 0 ||
           regionVirtualBbox.end[1] < gridEndX) {
         return emitOpError(
-                   "generic op grid not contained in region grid_ranges [")
-               << regionBox.start[0] << ", " << regionBox.start[1] << "] to ["
-               << regionBox.end[0] << ", " << regionBox.end[1] << "]";
+                   "generic op grid not contained in region grid_ranges "
+                   "offset [")
+               << offset.getY() << ", " << offset.getX() << "], size ["
+               << size[0] << ", " << size[1] << "]";
       }
     }
   }

@@ -1092,24 +1092,27 @@ def permute(lt: LazyTensor, *dims) -> LazyTensor:
 
 
 def _parse_grid_ranges(grid_ranges):
-    """Parse grid_ranges into inclusive ((start_y, start_x), (end_y, end_x))."""
+    """Parse grid_ranges into ((offset_y, offset_x), (size_y, size_x))."""
     parsed = []
     for i, grid_range in enumerate(grid_ranges):
         try:
-            start_yx, end_yx = grid_range
-            sy, sx = start_yx
-            ey, ex = end_yx
+            offset_yx, size_yx = grid_range
+            oy, ox = offset_yx
+            height, width = size_yx
         except (TypeError, ValueError) as exc:
             raise ValueError(
-                "grid_ranges entries must be ((start_y, start_x), "
-                f"(end_y, end_x)) pairs, got {grid_range!r} at index {i}"
+                "grid_ranges entries must be ((offset_y, offset_x), "
+                f"(size_y, size_x)) pairs, got {grid_range!r} at index {i}"
             ) from exc
-        if ey < sy or ex < sx:
+        if oy < 0 or ox < 0:
             raise ValueError(
-                f"grid_ranges[{i}] end ({ey}, {ex}) must be greater than "
-                f"or equal to start ({sy}, {sx})"
+                f"grid_ranges[{i}] offset ({oy}, {ox}) must be non-negative"
             )
-        parsed.append(((sy, sx), (ey, ex)))
+        if height <= 0 or width <= 0:
+            raise ValueError(
+                f"grid_ranges[{i}] size ({height}, {width}) must be positive"
+            )
+        parsed.append(((oy, ox), (height, width)))
     return parsed
 
 
@@ -1122,8 +1125,8 @@ def spatial(inputs, outputs, grid_ranges, region_builders):
       inputs: Device tensors referenced by the nested kernels.
       outputs: Device tensors written by the nested kernels, in spatial
         result order.
-      grid_ranges: One inclusive `((start_y, start_x), (end_y, end_x))` core
-        range per region.
+      grid_ranges: One `((offset_y, offset_x), (size_y, size_x))` core range
+        per region.
       region_builders: One zero-argument callable per region. Each must emit
         exactly one `@d2m.kernel` call on device LazyTensors from
         inputs=/outputs= (no host tensor lifts).
@@ -1164,10 +1167,10 @@ def spatial(inputs, outputs, grid_ranges, region_builders):
             [
                 ttcore.ir.CoreRangeAttr.get(
                     b.ctx,
-                    ttcore.ir.CoreCoordAttr.get(b.ctx, sy, sx),
-                    ttcore.ir.CoreCoordAttr.get(b.ctx, ey, ex),
+                    ttcore.ir.CoreCoordAttr.get(b.ctx, oy, ox),
+                    [height, width],
                 )
-                for (sy, sx), (ey, ex) in parsed_ranges
+                for (oy, ox), (height, width) in parsed_ranges
             ]
         )
         result_types = [lt.value.type for lt in output_lts]
@@ -1181,13 +1184,13 @@ def spatial(inputs, outputs, grid_ranges, region_builders):
 
         for region_idx, build_region in enumerate(builders):
             block = Block.create_at_start(spatial_op.regions[region_idx], [], [])
-            (sy, sx), (ey, ex) = parsed_ranges[region_idx]
+            (oy, ox), (height, width) = parsed_ranges[region_idx]
             region_scope = _SpatialRegionScope(
                 b,
                 InsertionPoint(block),
                 spatial_op,
-                grid_shape=[ey - sy + 1, ex - sx + 1],
-                offset=[sy, sx],
+                grid_shape=[height, width],
+                offset=[oy, ox],
             )
             with _push_scope(region_scope):
                 build_region()

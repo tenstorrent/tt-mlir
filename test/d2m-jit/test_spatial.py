@@ -89,7 +89,7 @@ def test_spatial_two_regions_two_outputs():
     d2m.spatial(
         inputs=[inp],
         outputs=[out_add, out_mul],
-        grid_ranges=[((0, 0), (0, 0)), ((1, 0), (1, 0))],
+        grid_ranges=[((0, 0), (1, 1)), ((1, 0), (1, 1))],
         region_builders=[
             lambda: k_spatial_add(inp, out_add, grid=(1, 1)),
             lambda: k_spatial_mul(inp, out_mul, grid=(1, 1)),
@@ -120,7 +120,7 @@ def test_spatial_inputs_not_shared():
     d2m.spatial(
         inputs=[inp0, inp1],
         outputs=[out_add, out_mul],
-        grid_ranges=[((0, 0), (0, 0)), ((1, 1), (1, 1))],
+        grid_ranges=[((0, 0), (1, 1)), ((1, 1), (1, 1))],
         region_builders=[
             lambda: k_spatial_add(inp0, out_add, grid=(1, 1)),
             lambda: k_spatial_mul(inp1, out_mul, grid=(1, 1)),
@@ -151,7 +151,7 @@ def test_spatial_heterogeneous_kernels():
     d2m.spatial(
         inputs=[inp, weight],
         outputs=[out_exp, out_mm],
-        grid_ranges=[((0, 0), (0, 0)), ((1, 0), (1, 0))],
+        grid_ranges=[((0, 0), (1, 1)), ((1, 0), (1, 1))],
         region_builders=[
             lambda: k_spatial_exp(inp, out_exp, grid=(1, 1)),
             lambda: k_spatial_matmul(inp, weight, out_mm, grid=(1, 1)),
@@ -190,7 +190,7 @@ def test_spatial_multicore_matmul_and_eltwise():
     d2m.spatial(
         inputs=[lhs_d, rhs_d, inp],
         outputs=[out_mm, out_exp],
-        grid_ranges=[((0, 0), (1, 1)), ((2, 0), (3, 1))],
+        grid_ranges=[((0, 0), (2, 2)), ((2, 0), (2, 2))],
         region_builders=[
             lambda: k_spatial_matmul_multicore(lhs_d, rhs_d, out_mm, 1, 1, grid=(2, 2)),
             lambda: k_spatial_exp_multicore(inp, out_exp, 1, 1, grid=(2, 2)),
@@ -220,7 +220,7 @@ def test_spatial_three_regions():
     d2m.spatial(
         inputs=[inp],
         outputs=[out_add, out_mul, out_exp],
-        grid_ranges=[((0, 0), (0, 0)), ((0, 1), (0, 1)), ((1, 0), (1, 0))],
+        grid_ranges=[((0, 0), (1, 1)), ((0, 1), (1, 1)), ((1, 0), (1, 1))],
         region_builders=[
             lambda: k_spatial_add(inp, out_add, grid=(1, 1)),
             lambda: k_spatial_mul(inp, out_mul, grid=(1, 1)),
