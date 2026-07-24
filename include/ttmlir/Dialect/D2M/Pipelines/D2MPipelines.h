@@ -210,7 +210,7 @@ struct D2MPipelineOptions : public PassPipelineOptions<D2MPipelineOptions> {
   Option<bool> enableOpScheduler{
       *this, "enable-op-scheduler",
       llvm::cl::desc("Enable operation scheduling optimization"),
-      llvm::cl::init(true)};
+      llvm::cl::init(false)};
 
   // Option to enable/disable automatic multicast inference for reduction
   // operations.
