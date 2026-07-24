@@ -2322,10 +2322,18 @@ MutableArrayRef<OpOperand> d2m::GenericOp::getInputsAndOutputsMutable() {
 
   for (size_t i = 0; i < numCoreRanges; ++i) {
     auto firstRange =
-        mlir::cast<ttcore::CoreRangeAttr>(gridRangesAttr.getValue()[i]);
+        mlir::dyn_cast<ttcore::CoreRangeAttr>(gridRangesAttr.getValue()[i]);
+    if (!firstRange) {
+      return emitOpError(
+          "grid_ranges must contain ttcore.core_range attributes");
+    }
     for (size_t j = i + 1; j < numCoreRanges; ++j) {
       auto secondRange =
-          mlir::cast<ttcore::CoreRangeAttr>(gridRangesAttr.getValue()[j]);
+          mlir::dyn_cast<ttcore::CoreRangeAttr>(gridRangesAttr.getValue()[j]);
+      if (!secondRange) {
+        return emitOpError(
+            "grid_ranges must contain ttcore.core_range attributes");
+      }
       if (firstRange.intersects(secondRange)) {
         return emitOpError("grid_ranges overlap: ")
                << firstRange << " and " << secondRange;
