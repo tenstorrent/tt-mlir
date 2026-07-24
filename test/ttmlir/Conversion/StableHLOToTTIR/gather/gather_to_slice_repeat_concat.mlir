@@ -146,6 +146,9 @@ module @test_gather_repeat_front_singleton_indexed_dim {
 // is the InternLM2 RoPE `cos[position_ids]` pattern (operand [S, D], indices
 // [1, S], output [1, S, D]); matching it here produced an invalid concat
 // ('ttir.concat' output dim mismatch "1 vs. N").
+//
+// This covers only the output-rank-mismatch leg of the legality guard; see
+// @gather_offset_dim_mismatch_falls_through below for the same-rank leg.
 // CHECK-LABEL: func.func @rope_cos_gather_falls_through
 module @test_gather_rope_cos {
   func.func @rope_cos_gather_falls_through(%arg0: tensor<8x4xbf16>) -> tensor<1x8x4xbf16> {
@@ -155,5 +158,26 @@ module @test_gather_rope_cos {
     %1 = "stablehlo.constant"() <{value = dense<[[0, 1, 2, 3, 4, 5, 6, 7]]> : tensor<1x8xi64>}> : () -> tensor<1x8xi64>
     %2 = "stablehlo.gather"(%arg0, %1) <{dimension_numbers = #stablehlo.gather<offset_dims = [2], collapsed_slice_dims = [0], start_index_map = [0], index_vector_dim = 2>, indices_are_sorted = false, slice_sizes = array<i64: 1, 4>}> : (tensor<8x4xbf16>, tensor<1x8xi64>) -> tensor<1x8x4xbf16>
     return %2 : tensor<1x8x4xbf16>
+  }
+}
+
+// Same output rank as the operand (2 == 2), but placing the offset dim first
+// (offset_dims = [0]) puts the batch dim in output position 1 instead of
+// position 0. Indices [0, 1, ..., 7] are consecutive ascending, so this would
+// otherwise match the replicate-padding heuristic, but the guard's positional
+// non-indexed-dim comparison catches that output dim 1 (size 8, from the
+// batch) does not match operand dim 1 (size 4, D) and rejects the match. A
+// literal slice/repeat/concat of operand-shaped [8, 4] frames cannot produce
+// a [4, 8] result, so this must fall through to the embedding lowering
+// (which permutes/reshapes to handle arbitrary offset_dims ordering).
+// CHECK-LABEL: func.func @gather_offset_dim_mismatch_falls_through
+module @test_gather_offset_dim_mismatch {
+  func.func @gather_offset_dim_mismatch_falls_through(%arg0: tensor<8x4xbf16>) -> tensor<4x8xbf16> {
+    // CHECK-NOT: "ttir.concat"
+    // CHECK: "ttir.embedding"
+    // CHECK-NOT: stablehlo.gather
+    %1 = "stablehlo.constant"() <{value = dense<[0, 1, 2, 3, 4, 5, 6, 7]> : tensor<8xi64>}> : () -> tensor<8xi64>
+    %2 = "stablehlo.gather"(%arg0, %1) <{dimension_numbers = #stablehlo.gather<offset_dims = [0], collapsed_slice_dims = [0], start_index_map = [0], index_vector_dim = 1>, indices_are_sorted = false, slice_sizes = array<i64: 1, 4>}> : (tensor<8x4xbf16>, tensor<8xi64>) -> tensor<4x8xbf16>
+    return %2 : tensor<4x8xbf16>
   }
 }

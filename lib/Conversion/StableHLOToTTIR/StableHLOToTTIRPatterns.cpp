@@ -6162,20 +6162,18 @@ public:
     // them here would build a concat whose element shape mismatches the
     // declared output type. Bail out so such gathers fall through to the
     // embedding lowering, which handles them correctly.
-    {
-      auto gatherOutputType = mlir::cast<RankedTensorType>(
-          getTypeConverter()->convertType(srcOp.getResult().getType()));
-      auto gatherOutputShape = gatherOutputType.getShape();
-      if (gatherOutputShape.size() != inputShape.size()) {
+    auto outputType = mlir::cast<RankedTensorType>(
+        getTypeConverter()->convertType(srcOp.getResult().getType()));
+    auto outputShape = outputType.getShape();
+    if (outputShape.size() != inputShape.size()) {
+      return rewriter.notifyMatchFailure(
+          srcOp, "gather output rank differs from operand rank");
+    }
+    for (int64_t i = 0; i < static_cast<int64_t>(inputShape.size()); ++i) {
+      if (i != indexedDim && outputShape[i] != inputShape[i]) {
         return rewriter.notifyMatchFailure(
-            srcOp, "gather output rank differs from operand rank");
-      }
-      for (int64_t i = 0; i < static_cast<int64_t>(inputShape.size()); ++i) {
-        if (i != indexedDim && gatherOutputShape[i] != inputShape[i]) {
-          return rewriter.notifyMatchFailure(
-              srcOp, "gather output shape differs from operand shape on a "
-                     "non-indexed dimension");
-        }
+            srcOp, "gather output shape differs from operand shape on a "
+                   "non-indexed dimension");
       }
     }
 
@@ -6237,9 +6235,6 @@ public:
         createSlices(ends, indexedDim, sliceSize,
                      /*sliceStart=*/inputShape[indexedDim] - sliceSize,
                      inputShape, inputType, rewriter, srcOp, input));
-
-    auto outputType = mlir::cast<RankedTensorType>(
-        getTypeConverter()->convertType(srcOp.getResult().getType()));
 
     Value result = rewriter.create<ttir::ConcatOp>(
         srcOp.getLoc(), outputType, slicesToConcat,
