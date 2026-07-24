@@ -80,6 +80,39 @@ extractFlashMlaPrefillArgs(ttcore::CompositeOp compositeOp) {
   return args;
 }
 
+// Operands and attributes recovered from a
+// "chunked_scaled_dot_product_attention" composite, shared by its validate and
+// build registry callbacks.
+struct ChunkedScaledDotProductAttentionCompositeArgs {
+  Value query;
+  Value key;
+  Value value;
+  Value pageTable;
+  Value chunkStartIdx;
+  FloatAttr scale; // null when default is meant to be used.
+};
+
+// Map the composite's inputs back to (query, key, value, page_table,
+// chunk_start_idx) and pull out the optional scale attribute.
+static ChunkedScaledDotProductAttentionCompositeArgs
+extractChunkedScaledDotProductAttentionArgs(ttcore::CompositeOp compositeOp) {
+  auto inputs = compositeOp.getInputs();
+  TT_assert(inputs.size() == 5u);
+
+  ChunkedScaledDotProductAttentionCompositeArgs args;
+  args.query = inputs[0];
+  args.key = inputs[1];
+  args.value = inputs[2];
+  args.pageTable = inputs[3];
+  args.chunkStartIdx = inputs[4];
+
+  if (DictionaryAttr attrs =
+          compositeOp.getCompositeAttributes().value_or(nullptr)) {
+    args.scale = attrs.getAs<FloatAttr>("scale");
+  }
+  return args;
+}
+
 static void registerBuiltinComposites() {
   auto &registry = getCompositeRegistry();
   if (!registry.empty()) {
@@ -175,6 +208,32 @@ static void registerBuiltinComposites() {
             args.key, args.value, args.attentionMask,
             static_cast<uint32_t>(args.headDimV.getValue().getZExtValue()),
             args.isCausal.getValue(), args.scale);
+      }};
+
+  registry["chunked_scaled_dot_product_attention"] = CompositeEntry{
+      // Validate
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
+        ChunkedScaledDotProductAttentionCompositeArgs args =
+            extractChunkedScaledDotProductAttentionArgs(compositeOp);
+
+        SmallVector<Type> resultTypes(compositeOp.getResultTypes());
+        IsolatedIRValidationWrapper validator(compositeOp.getContext());
+        return validator.validateOp<ChunkedScaledDotProductAttentionOp>(
+            compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
+            args.query, args.key, args.value, args.pageTable,
+            args.chunkStartIdx, args.scale,
+            /*program_config=*/nullptr);
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        ChunkedScaledDotProductAttentionCompositeArgs args =
+            extractChunkedScaledDotProductAttentionArgs(compositeOp);
+        return builder.create<ChunkedScaledDotProductAttentionOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(), args.query,
+            args.key, args.value, args.pageTable, args.chunkStartIdx,
+            args.scale,
+            /*program_config=*/nullptr);
       }};
 }
 
