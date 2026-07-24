@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: (c) 2024 Tenstorrent AI ULC
 //
 // SPDX-License-Identifier: Apache-2.0
+
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/utils.h"
-#include "tt/runtime/workarounds.h"
 
 namespace tt::runtime::ttnn::operations::utils {
 
@@ -582,12 +582,12 @@ allocateTensorOnDevice(const ::tt::target::ttnn::TensorRef *tensorRef,
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(tensorRef));
   LOG_ASSERT(memoryConfig.has_value());
-  ::ttnn::TensorSpec tensorSpec(
+  tt_metal::TensorSpec tensorSpec(
       ttnnShape,
       ::ttnn::TensorLayout(ttnnDataType, ::ttnn::PageConfig(ttnnLayout),
                            *memoryConfig));
   ::ttnn::Tensor deviceTensor =
-      ::tt::tt_metal::create_device_tensor(tensorSpec, &meshDevice);
+      ::ttnn::create_device_tensor(tensorSpec, &meshDevice);
   return deviceTensor;
 }
 

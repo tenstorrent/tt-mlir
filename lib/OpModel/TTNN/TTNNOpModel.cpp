@@ -4,16 +4,16 @@
 
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/Utils.h"
+
 #include "llvm/ADT/SmallVector.h"
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
-#include "ttmlir/Dialect/TTCore/IR/Utils.h"
-#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/OpModel/TTNN/Conversion.h"
 #include "ttmlir/OpModel/TTNN/SingletonDeviceContext.h"
+
 #include "ttnn/operations/experimental/ccl/moe_compute/moe_compute.hpp"
 #include "ttnn/operations/experimental/ccl/moe_compute/moe_compute_utils.hpp"
 
@@ -29,7 +29,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
-#include <stdexcept>
 #include <type_traits>
 #include <vector>
 
@@ -201,10 +200,11 @@ namespace detail {
  *
  * @param device Pointer to an open device to obtain the compute grid size
  */
-llvm::Expected<::ttnn::TensorSpec>
+llvm::Expected<::tt::tt_metal::TensorSpec>
 convertToTensorSpec(::tt::tt_metal::distributed::MeshDevice *device,
                     llvm::ArrayRef<int64_t> shape, TTNNLayoutAttr layout) {
-  const ::ttnn::TensorSpec spec = conversion::getTensorSpec(shape, layout);
+  const ::tt::tt_metal::TensorSpec spec =
+      conversion::getTensorSpec(shape, layout);
   if (conversion::validateTensorSpec(
           spec, device->compute_with_storage_grid_size())) {
     return spec;
@@ -214,11 +214,11 @@ convertToTensorSpec(::tt::tt_metal::distributed::MeshDevice *device,
       "Unable to create TensorSpec out of given shape and layout");
 }
 
-std::optional<::ttnn::TensorSpec>
+std::optional<::tt::tt_metal::TensorSpec>
 convertToOptionalTensorSpec(::tt::tt_metal::distributed::MeshDevice *device,
                             std::optional<llvm::ArrayRef<int64_t>> shape,
                             std::optional<TTNNLayoutAttr> layout) {
-  std::optional<::ttnn::TensorSpec> ret = std::nullopt;
+  std::optional<::tt::tt_metal::TensorSpec> ret = std::nullopt;
   if (shape.has_value() && layout.has_value()) {
     auto retExp =
         detail::convertToTensorSpec(device, shape.value(), layout.value());
@@ -595,9 +595,8 @@ createHostBuffer(uint32_t numElements, ::tt::tt_metal::DataType dataType) {
 }
 
 // Allocate a ttnn tensor with the given shape and data type.
-static ::tt::tt_metal::Tensor
-createMetalHostTensor(llvm::ArrayRef<int64_t> shape,
-                      ttcore::DataType dataType) {
+static ::ttnn::Tensor createMetalHostTensor(llvm::ArrayRef<int64_t> shape,
+                                            ttcore::DataType dataType) {
   // Calculate total volume of the tensor
   uint32_t volume = 1;
   for (size_t i = 0; i < shape.size(); i++) {
@@ -612,14 +611,15 @@ createMetalHostTensor(llvm::ArrayRef<int64_t> shape,
                                       ::tt::tt_metal::MemoryConfig{});
   ::tt::tt_metal::TensorSpec tensorSpec(metalShape, layout);
 
-  return ::tt::tt_metal::Tensor(std::move(hostBuffer), tensorSpec);
+  return ::ttnn::Tensor(std::move(hostBuffer), tensorSpec);
 }
 
 // Returns the output tensor spec of the prepared weights for a conv2d op.
 // Transform the standard OIHW weights layout to the ttnn convolution internal
 // layout that is desired. The output shape is dependent on the conv2d config
 // and input memory config.
-llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
+llvm::Expected<::tt::tt_metal::TensorSpec>
+getPrepareConv2dWeightsOpOutputTensorSpec(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout,
     uint32_t in_channels, uint32_t out_channels, uint32_t batch_size,
@@ -642,14 +642,14 @@ llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
   }
 
   // TODO(rpavlovicTT):: Move this to tt-metal side #4043
-  ::tt::tt_metal::Tensor weightTensor =
+  ::ttnn::Tensor weightTensor =
       createMetalHostTensor(weightShape, weightLayout.getDataType());
 
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::tt::tt_metal::DataType> inputDtype =
@@ -719,7 +719,7 @@ llvm::Expected<::ttnn::TensorSpec> getPrepareConv2dWeightsOpOutputTensorSpec(
 }
 
 // Returns the output tensor spec of the prepared bias for a conv2d op.
-static llvm::Expected<::ttnn::TensorSpec>
+static llvm::Expected<::tt::tt_metal::TensorSpec>
 getPrepareConv2dBiasOpOutputTensorSpec(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> biasShape, TTNNLayoutAttr biasLayout,
@@ -741,14 +741,14 @@ getPrepareConv2dBiasOpOutputTensorSpec(
         llvm::inconvertibleErrorCode(),
         "Conv2d bias tensor assumed to be float32 or bfloat16.");
   }
-  ::tt::tt_metal::Tensor biasTensor =
+  ::ttnn::Tensor biasTensor =
       createMetalHostTensor(biasShape, biasLayout.getDataType());
 
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::tt::tt_metal::DataType> inputDtype =
@@ -878,13 +878,15 @@ static auto makePrepareMoEComputeW0W1WeightsQuery(
       SingletonDeviceContext::getInstance().getDevice();
 
   return [=]() {
-    ::ttnn::TensorSpec w0Spec = conversion::getTensorSpec(w0Shape, w0Layout);
-    ::ttnn::TensorSpec w1Spec = conversion::getTensorSpec(w1Shape, w1Layout);
-    std::optional<::ttnn::TensorSpec> b0Spec;
+    ::tt::tt_metal::TensorSpec w0Spec =
+        conversion::getTensorSpec(w0Shape, w0Layout);
+    ::tt::tt_metal::TensorSpec w1Spec =
+        conversion::getTensorSpec(w1Shape, w1Layout);
+    std::optional<::tt::tt_metal::TensorSpec> b0Spec;
     if (bias0Shape && bias0Layout) {
       b0Spec = conversion::getTensorSpec(*bias0Shape, *bias0Layout);
     }
-    std::optional<::ttnn::TensorSpec> b1Spec;
+    std::optional<::tt::tt_metal::TensorSpec> b1Spec;
     if (bias1Shape && bias1Layout) {
       b1Spec = conversion::getTensorSpec(*bias1Shape, *bias1Layout);
     }
@@ -894,7 +896,7 @@ static auto makePrepareMoEComputeW0W1WeightsQuery(
   };
 }
 
-llvm::Expected<::ttnn::TensorSpec>
+llvm::Expected<::tt::tt_metal::TensorSpec>
 getPrepareMoEComputeW0W1WeightsOpOutputTensorSpec(
     llvm::ArrayRef<int64_t> w0Shape, TTNNLayoutAttr w0Layout,
     llvm::ArrayRef<int64_t> w1Shape, TTNNLayoutAttr w1Layout,
@@ -924,8 +926,9 @@ static auto makePrepareMoEComputeW2WeightsQuery(
       SingletonDeviceContext::getInstance().getDevice();
 
   return [=]() {
-    ::ttnn::TensorSpec w2Spec = conversion::getTensorSpec(w2Shape, w2Layout);
-    std::optional<::ttnn::TensorSpec> b2Spec;
+    ::tt::tt_metal::TensorSpec w2Spec =
+        conversion::getTensorSpec(w2Shape, w2Layout);
+    std::optional<::tt::tt_metal::TensorSpec> b2Spec;
     if (bias2Shape && bias2Layout) {
       b2Spec = conversion::getTensorSpec(*bias2Shape, *bias2Layout);
     }
@@ -935,7 +938,7 @@ static auto makePrepareMoEComputeW2WeightsQuery(
   };
 }
 
-llvm::Expected<::ttnn::TensorSpec>
+llvm::Expected<::tt::tt_metal::TensorSpec>
 getPrepareMoEComputeW2WeightsOpOutputTensorSpec(
     llvm::ArrayRef<int64_t> w2Shape, TTNNLayoutAttr w2Layout,
     std::optional<llvm::ArrayRef<int64_t>> bias2Shape,
@@ -1034,7 +1037,7 @@ UnaryEltwiseOpModel<OpTy>::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -1060,7 +1063,7 @@ UnaryEltwiseOpModel<OpTy>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -1086,7 +1089,7 @@ UnaryEltwiseWithFastApproxModeOpModel<OpTy>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   bool fastApproxMode = true;
@@ -1114,7 +1117,7 @@ UnaryEltwiseWithFastApproxModeOpModel<OpTy>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   bool fastApproxMode = true;
@@ -1178,7 +1181,7 @@ OpModel<SigmoidOp>::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Add default parameters
@@ -1208,7 +1211,7 @@ OpModel<SigmoidOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Add default parameters
@@ -1240,7 +1243,7 @@ llvm::Expected<OpConstraints> OpModel<LeakyReluOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -1265,7 +1268,7 @@ llvm::Expected<size_t> OpModel<LeakyReluOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -1295,11 +1298,11 @@ llvm::Expected<OpConstraints> BinaryEltwiseOpModel<OpTy>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecA,
+      ::tt::tt_metal::TensorSpec inputSpecA,
       detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecB,
+      ::tt::tt_metal::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
   std::optional<::tt::tt_metal::DataType> outputDType =
@@ -1333,11 +1336,11 @@ llvm::Expected<size_t> BinaryEltwiseOpModel<OpTy>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecA,
+      ::tt::tt_metal::TensorSpec inputSpecA,
       detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecB,
+      ::tt::tt_metal::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
   std::optional<::tt::tt_metal::DataType> outputDType =
@@ -1368,11 +1371,11 @@ llvm::Expected<OpConstraints> BinaryCompositeOpModel<OpTy>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecA,
+      ::tt::tt_metal::TensorSpec inputSpecA,
       detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecB,
+      ::tt::tt_metal::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
@@ -1401,11 +1404,11 @@ llvm::Expected<size_t> BinaryCompositeOpModel<OpTy>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecA,
+      ::tt::tt_metal::TensorSpec inputSpecA,
       detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecB,
+      ::tt::tt_metal::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
@@ -1463,11 +1466,11 @@ llvm::Expected<OpConstraints> OpModel<GeluBackwardOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecA,
+      ::tt::tt_metal::TensorSpec inputSpecA,
       detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecB,
+      ::tt::tt_metal::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
@@ -1495,11 +1498,11 @@ llvm::Expected<size_t> OpModel<GeluBackwardOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecA,
+      ::tt::tt_metal::TensorSpec inputSpecA,
       detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecB,
+      ::tt::tt_metal::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
@@ -1530,7 +1533,7 @@ llvm::Expected<OpConstraints> OpModel<PowScalarOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Helper lambda to create the query with any exponent value type.
@@ -1569,7 +1572,7 @@ llvm::Expected<size_t> OpModel<PowScalarOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Helper lambda to create the query with any exponent value type.
@@ -1614,15 +1617,15 @@ llvm::Expected<OpConstraints> TernaryEltwiseOpModel<OpTy>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecA,
+      ::tt::tt_metal::TensorSpec inputSpecA,
       detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecB,
+      ::tt::tt_metal::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecC,
+      ::tt::tt_metal::TensorSpec inputSpecC,
       detail::convertToTensorSpec(device, inputShapeC, inputLayoutC));
 
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
@@ -1652,15 +1655,15 @@ llvm::Expected<size_t> TernaryEltwiseOpModel<OpTy>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecA,
+      ::tt::tt_metal::TensorSpec inputSpecA,
       detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecB,
+      ::tt::tt_metal::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecC,
+      ::tt::tt_metal::TensorSpec inputSpecC,
       detail::convertToTensorSpec(device, inputShapeC, inputLayoutC));
 
   std::optional<::tt::tt_metal::MemoryConfig> outputMemoryConfig =
@@ -1696,7 +1699,7 @@ llvm::Expected<OpConstraints> ReductionOpModel<OpTy>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttsl::SmallVector<int>> dimArgConverted;
@@ -1733,7 +1736,7 @@ llvm::Expected<size_t> ReductionOpModel<OpTy>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttsl::SmallVector<int>> dimArgConverted;
@@ -1822,7 +1825,7 @@ llvm::Expected<OpConstraints> OpModel<SoftmaxOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -1847,7 +1850,7 @@ llvm::Expected<size_t> OpModel<SoftmaxOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -1878,15 +1881,15 @@ llvm::Expected<OpConstraints> OpModel<ScatterOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec indexSpec,
+      ::tt::tt_metal::TensorSpec indexSpec,
       detail::convertToTensorSpec(device, indexShape, indexLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec sourceSpec,
+      ::tt::tt_metal::TensorSpec sourceSpec,
       detail::convertToTensorSpec(device, sourceShape, sourceLayout));
 
   // Convert optReduction to ScatterReductionType enum
@@ -1917,15 +1920,15 @@ llvm::Expected<size_t> OpModel<ScatterOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec indexSpec,
+      ::tt::tt_metal::TensorSpec indexSpec,
       detail::convertToTensorSpec(device, indexShape, indexLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec sourceSpec,
+      ::tt::tt_metal::TensorSpec sourceSpec,
       detail::convertToTensorSpec(device, sourceShape, sourceLayout));
 
   auto optReductionType = conversion::getScatterReductionType(optReduction);
@@ -1955,7 +1958,7 @@ llvm::Expected<OpConstraints> OpModel<ReshapeOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -1979,7 +1982,7 @@ llvm::Expected<size_t> OpModel<ReshapeOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -2007,7 +2010,7 @@ llvm::Expected<OpConstraints> OpModel<SliceStaticOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // convert arrays
@@ -2045,7 +2048,7 @@ llvm::Expected<size_t> OpModel<SliceStaticOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Convert arrays
@@ -2088,7 +2091,7 @@ llvm::Expected<OpConstraints> OpModel<SliceDynamicOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // It is not possible to use the dynamic version of slice in tt-metal since
@@ -2107,7 +2110,7 @@ llvm::Expected<OpConstraints> OpModel<SliceDynamicOp>::getOpConstraints(
   std::ranges::for_each(endsVec, [](int &end) { end = end - 1; });
 
   // Default values in tt-metal:
-  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
+  std::optional<::tt::tt_metal::TensorSpec> outputSpec = std::nullopt;
   std::optional<float> padValue = std::nullopt;
   // Create query closure to make a call to the static version of the op:
   auto sliceOpQuery = [=]() {
@@ -2133,7 +2136,7 @@ llvm::Expected<size_t> OpModel<SliceDynamicOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // It is not possible to use the dynamic version of slice in tt-metal since
@@ -2151,7 +2154,7 @@ llvm::Expected<size_t> OpModel<SliceDynamicOp>::getOpRuntime(
   ::ttsl::SmallVector<int> beginsVec(inputShape.size(), 0);
   ::ttsl::SmallVector<int> endsVec(inputShape.begin(), inputShape.end());
   // Default values in tt-metal:
-  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
+  std::optional<::tt::tt_metal::TensorSpec> outputSpec = std::nullopt;
   std::optional<float> padValue = std::nullopt;
 
   // Create query closure to make a call to the static version of the op:
@@ -2178,7 +2181,7 @@ llvm::Expected<OpConstraints> OpModel<BitcastConvertOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -2202,7 +2205,7 @@ llvm::Expected<size_t> OpModel<BitcastConvertOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -2229,7 +2232,7 @@ llvm::Expected<OpConstraints> OpModel<TypecastOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -2253,7 +2256,7 @@ llvm::Expected<size_t> OpModel<TypecastOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -2280,7 +2283,7 @@ llvm::Expected<OpConstraints> OpModel<ToLayoutOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::tt::tt_metal::DataType> dtype;
@@ -2311,7 +2314,7 @@ llvm::Expected<size_t> OpModel<ToLayoutOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::tt::tt_metal::DataType> dtype;
@@ -2347,7 +2350,7 @@ OpModel<ToMemoryConfigOp>::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -2373,7 +2376,7 @@ OpModel<ToMemoryConfigOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -2402,7 +2405,7 @@ llvm::Expected<OpConstraints> OpModel<ConcatOp>::getOpConstraints(
   assert(inputShapes.size() == inputLayouts.size());
   size_t numInputs = inputShapes.size();
 
-  std::vector<::ttnn::TensorSpec> inputSpecs;
+  std::vector<::tt::tt_metal::TensorSpec> inputSpecs;
   for (size_t i = 0; i < numInputs; ++i) {
     ASSIGN_OR_RETURN(
         auto _push_tmp,
@@ -2434,7 +2437,7 @@ llvm::Expected<size_t> OpModel<ConcatOp>::getOpRuntime(
   assert(inputShapes.size() == inputLayouts.size());
   size_t numInputs = inputShapes.size();
 
-  std::vector<::ttnn::TensorSpec> inputSpecs;
+  std::vector<::tt::tt_metal::TensorSpec> inputSpecs;
   for (size_t i = 0; i < numInputs; ++i) {
     ASSIGN_OR_RETURN(
         auto _push_tmp,
@@ -2465,7 +2468,7 @@ llvm::Expected<OpConstraints> OpModel<TransposeOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -2491,7 +2494,7 @@ llvm::Expected<size_t> OpModel<TransposeOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -2520,7 +2523,7 @@ llvm::Expected<OpConstraints> OpModel<CumSumOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::DataType> ttnnDtype = std::nullopt;
@@ -2551,7 +2554,7 @@ OpModel<CumSumOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::DataType> ttnnDtype = std::nullopt;
@@ -2584,7 +2587,7 @@ llvm::Expected<OpConstraints> OpModel<CumProdOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::DataType> ttnnDtype = std::nullopt;
@@ -2615,7 +2618,7 @@ OpModel<CumProdOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::ttnn::DataType> ttnnDtype = std::nullopt;
@@ -2648,7 +2651,7 @@ llvm::Expected<OpConstraints> OpModel<ConcatenateHeadsOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -2674,7 +2677,7 @@ OpModel<ConcatenateHeadsOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -2713,21 +2716,21 @@ OpModel<ScaledDotProductAttentionDecodeOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec querySpec,
+      ::tt::tt_metal::TensorSpec querySpec,
       detail::convertToTensorSpec(device, queryShape, queryLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec keySpec,
                    detail::convertToTensorSpec(device, keyShape, keyLayout));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec valueSpec,
+      ::tt::tt_metal::TensorSpec valueSpec,
       detail::convertToTensorSpec(device, valueShape, valueLayout));
 
-  std::optional<::ttnn::TensorSpec> attentionMaskSpec =
+  std::optional<::tt::tt_metal::TensorSpec> attentionMaskSpec =
       detail::convertToOptionalTensorSpec(device, attentionMaskShape,
                                           attentionMaskLayout);
-  std::optional<::ttnn::TensorSpec> curPosTensorSpec =
+  std::optional<::tt::tt_metal::TensorSpec> curPosTensorSpec =
       detail::convertToOptionalTensorSpec(device, curPosTensorShape,
                                           curPosTensorLayout);
-  std::optional<::ttnn::TensorSpec> attentionSinkSpec =
+  std::optional<::tt::tt_metal::TensorSpec> attentionSinkSpec =
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
@@ -2777,21 +2780,21 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionDecodeOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec querySpec,
+      ::tt::tt_metal::TensorSpec querySpec,
       detail::convertToTensorSpec(device, queryShape, queryLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec keySpec,
                    detail::convertToTensorSpec(device, keyShape, keyLayout));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec valueSpec,
+      ::tt::tt_metal::TensorSpec valueSpec,
       detail::convertToTensorSpec(device, valueShape, valueLayout));
 
-  std::optional<::ttnn::TensorSpec> attentionMaskSpec =
+  std::optional<::tt::tt_metal::TensorSpec> attentionMaskSpec =
       detail::convertToOptionalTensorSpec(device, attentionMaskShape,
                                           attentionMaskLayout);
-  std::optional<::ttnn::TensorSpec> curPosTensorSpec =
+  std::optional<::tt::tt_metal::TensorSpec> curPosTensorSpec =
       detail::convertToOptionalTensorSpec(device, curPosTensorShape,
                                           curPosTensorLayout);
-  std::optional<::ttnn::TensorSpec> attentionSinkSpec =
+  std::optional<::tt::tt_metal::TensorSpec> attentionSinkSpec =
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
@@ -2846,24 +2849,24 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec querySpec,
+      ::tt::tt_metal::TensorSpec querySpec,
       detail::convertToTensorSpec(device, queryShape, queryLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec keySpec,
                    detail::convertToTensorSpec(device, keyShape, keyLayout));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec valueSpec,
+      ::tt::tt_metal::TensorSpec valueSpec,
       detail::convertToTensorSpec(device, valueShape, valueLayout));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec pageTableSpec,
+      ::tt::tt_metal::TensorSpec pageTableSpec,
       detail::convertToTensorSpec(device, pageTableShape, pageTableLayout));
 
-  std::optional<::ttnn::TensorSpec> attentionMaskSpec =
+  std::optional<::tt::tt_metal::TensorSpec> attentionMaskSpec =
       detail::convertToOptionalTensorSpec(device, attentionMaskShape,
                                           attentionMaskLayout);
-  std::optional<::ttnn::TensorSpec> curPosTensorSpec =
+  std::optional<::tt::tt_metal::TensorSpec> curPosTensorSpec =
       detail::convertToOptionalTensorSpec(device, curPosTensorShape,
                                           curPosTensorLayout);
-  std::optional<::ttnn::TensorSpec> attentionSinkSpec =
+  std::optional<::tt::tt_metal::TensorSpec> attentionSinkSpec =
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
@@ -2910,26 +2913,26 @@ OpModel<PagedScaledDotProductAttentionDecodeOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec querySpec,
+      ::tt::tt_metal::TensorSpec querySpec,
       detail::convertToTensorSpec(device, queryShape, queryLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec keySpec,
                    detail::convertToTensorSpec(device, keyShape, keyLayout));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec valueSpec,
+      ::tt::tt_metal::TensorSpec valueSpec,
       detail::convertToTensorSpec(device, valueShape, valueLayout));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec pageTableSpec,
+      ::tt::tt_metal::TensorSpec pageTableSpec,
       detail::convertToTensorSpec(device, pageTableShape, pageTableLayout));
 
-  std::optional<::ttnn::TensorSpec> attentionMaskSpec =
+  std::optional<::tt::tt_metal::TensorSpec> attentionMaskSpec =
       detail::convertToOptionalTensorSpec(device, attentionMaskShape,
                                           attentionMaskLayout);
 
-  std::optional<::ttnn::TensorSpec> curPosTensorSpec =
+  std::optional<::tt::tt_metal::TensorSpec> curPosTensorSpec =
       detail::convertToOptionalTensorSpec(device, curPosTensorShape,
                                           curPosTensorLayout);
 
-  std::optional<::ttnn::TensorSpec> attentionSinkSpec =
+  std::optional<::tt::tt_metal::TensorSpec> attentionSinkSpec =
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
@@ -2990,23 +2993,23 @@ OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec querySpec,
+      ::tt::tt_metal::TensorSpec querySpec,
       detail::convertToTensorSpec(device, queryShape, queryLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec keySpec,
                    detail::convertToTensorSpec(device, keyShape, keyLayout));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec pageTableSpec,
+      ::tt::tt_metal::TensorSpec pageTableSpec,
       detail::convertToTensorSpec(device, pageTableShape, pageTableLayout));
 
-  std::optional<::ttnn::TensorSpec> valueSpec =
+  std::optional<::tt::tt_metal::TensorSpec> valueSpec =
       detail::convertToOptionalTensorSpec(device, valueShape, valueLayout);
-  std::optional<::ttnn::TensorSpec> attentionMaskSpec =
+  std::optional<::tt::tt_metal::TensorSpec> attentionMaskSpec =
       detail::convertToOptionalTensorSpec(device, attentionMaskShape,
                                           attentionMaskLayout);
-  std::optional<::ttnn::TensorSpec> curPosTensorSpec =
+  std::optional<::tt::tt_metal::TensorSpec> curPosTensorSpec =
       detail::convertToOptionalTensorSpec(device, curPosTensorShape,
                                           curPosTensorLayout);
-  std::optional<::ttnn::TensorSpec> attentionSinkSpec =
+  std::optional<::tt::tt_metal::TensorSpec> attentionSinkSpec =
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
@@ -3052,23 +3055,23 @@ OpModel<PagedFlashMultiLatentAttentionDecodeOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec querySpec,
+      ::tt::tt_metal::TensorSpec querySpec,
       detail::convertToTensorSpec(device, queryShape, queryLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec keySpec,
                    detail::convertToTensorSpec(device, keyShape, keyLayout));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec pageTableSpec,
+      ::tt::tt_metal::TensorSpec pageTableSpec,
       detail::convertToTensorSpec(device, pageTableShape, pageTableLayout));
 
-  std::optional<::ttnn::TensorSpec> valueSpec =
+  std::optional<::tt::tt_metal::TensorSpec> valueSpec =
       detail::convertToOptionalTensorSpec(device, valueShape, valueLayout);
-  std::optional<::ttnn::TensorSpec> attentionMaskSpec =
+  std::optional<::tt::tt_metal::TensorSpec> attentionMaskSpec =
       detail::convertToOptionalTensorSpec(device, attentionMaskShape,
                                           attentionMaskLayout);
-  std::optional<::ttnn::TensorSpec> curPosTensorSpec =
+  std::optional<::tt::tt_metal::TensorSpec> curPosTensorSpec =
       detail::convertToOptionalTensorSpec(device, curPosTensorShape,
                                           curPosTensorLayout);
-  std::optional<::ttnn::TensorSpec> attentionSinkSpec =
+  std::optional<::tt::tt_metal::TensorSpec> attentionSinkSpec =
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
@@ -3113,17 +3116,17 @@ OpModel<ChunkedScaledDotProductAttentionOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec querySpec,
+      ::tt::tt_metal::TensorSpec querySpec,
       detail::convertToTensorSpec(device, queryShape, queryLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec keySpec,
                    detail::convertToTensorSpec(device, keyShape, keyLayout));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec valueSpec,
+      ::tt::tt_metal::TensorSpec valueSpec,
       detail::convertToTensorSpec(device, valueShape, valueLayout));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec pageTableSpec,
+      ::tt::tt_metal::TensorSpec pageTableSpec,
       detail::convertToTensorSpec(device, pageTableShape, pageTableLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec chunkStartIdxSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec chunkStartIdxSpec,
                    detail::convertToTensorSpec(device, chunkStartIdxShape,
                                                chunkStartIdxLayout));
 
@@ -3163,17 +3166,17 @@ OpModel<ChunkedScaledDotProductAttentionOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec querySpec,
+      ::tt::tt_metal::TensorSpec querySpec,
       detail::convertToTensorSpec(device, queryShape, queryLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec keySpec,
                    detail::convertToTensorSpec(device, keyShape, keyLayout));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec valueSpec,
+      ::tt::tt_metal::TensorSpec valueSpec,
       detail::convertToTensorSpec(device, valueShape, valueLayout));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec pageTableSpec,
+      ::tt::tt_metal::TensorSpec pageTableSpec,
       detail::convertToTensorSpec(device, pageTableShape, pageTableLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec chunkStartIdxSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec chunkStartIdxSpec,
                    detail::convertToTensorSpec(device, chunkStartIdxShape,
                                                chunkStartIdxLayout));
 
@@ -3217,18 +3220,18 @@ OpModel<ScaledDotProductAttentionOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec querySpec,
+      ::tt::tt_metal::TensorSpec querySpec,
       detail::convertToTensorSpec(device, queryShape, queryLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec keySpec,
                    detail::convertToTensorSpec(device, keyShape, keyLayout));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec valueSpec,
+      ::tt::tt_metal::TensorSpec valueSpec,
       detail::convertToTensorSpec(device, valueShape, valueLayout));
 
-  std::optional<::ttnn::TensorSpec> attentionMaskSpec =
+  std::optional<::tt::tt_metal::TensorSpec> attentionMaskSpec =
       detail::convertToOptionalTensorSpec(device, attentionMaskShape,
                                           attentionMaskLayout);
-  std::optional<::ttnn::TensorSpec> attentionSinkSpec =
+  std::optional<::tt::tt_metal::TensorSpec> attentionSinkSpec =
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
@@ -3267,18 +3270,18 @@ llvm::Expected<size_t> OpModel<ScaledDotProductAttentionOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec querySpec,
+      ::tt::tt_metal::TensorSpec querySpec,
       detail::convertToTensorSpec(device, queryShape, queryLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec keySpec,
                    detail::convertToTensorSpec(device, keyShape, keyLayout));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec valueSpec,
+      ::tt::tt_metal::TensorSpec valueSpec,
       detail::convertToTensorSpec(device, valueShape, valueLayout));
 
-  std::optional<::ttnn::TensorSpec> attentionMaskSpec =
+  std::optional<::tt::tt_metal::TensorSpec> attentionMaskSpec =
       detail::convertToOptionalTensorSpec(device, attentionMaskShape,
                                           attentionMaskLayout);
-  std::optional<::ttnn::TensorSpec> attentionSinkSpec =
+  std::optional<::tt::tt_metal::TensorSpec> attentionSinkSpec =
       detail::convertToOptionalTensorSpec(device, attentionSinkShape,
                                           attentionSinkLayout);
 
@@ -3318,14 +3321,14 @@ llvm::Expected<OpConstraints> OpModel<FlashMlaPrefillOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec querySpec,
+      ::tt::tt_metal::TensorSpec querySpec,
       detail::convertToTensorSpec(device, queryShape, queryLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec keySpec,
                    detail::convertToTensorSpec(device, keyShape, keyLayout));
 
-  std::optional<::ttnn::TensorSpec> valueSpec =
+  std::optional<::tt::tt_metal::TensorSpec> valueSpec =
       detail::convertToOptionalTensorSpec(device, valueShape, valueLayout);
-  std::optional<::ttnn::TensorSpec> attentionMaskSpec =
+  std::optional<::tt::tt_metal::TensorSpec> attentionMaskSpec =
       detail::convertToOptionalTensorSpec(device, attentionMaskShape,
                                           attentionMaskLayout);
 
@@ -3362,14 +3365,14 @@ llvm::Expected<size_t> OpModel<FlashMlaPrefillOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec querySpec,
+      ::tt::tt_metal::TensorSpec querySpec,
       detail::convertToTensorSpec(device, queryShape, queryLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec keySpec,
                    detail::convertToTensorSpec(device, keyShape, keyLayout));
 
-  std::optional<::ttnn::TensorSpec> valueSpec =
+  std::optional<::tt::tt_metal::TensorSpec> valueSpec =
       detail::convertToOptionalTensorSpec(device, valueShape, valueLayout);
-  std::optional<::ttnn::TensorSpec> attentionMaskSpec =
+  std::optional<::tt::tt_metal::TensorSpec> attentionMaskSpec =
       detail::convertToOptionalTensorSpec(device, attentionMaskShape,
                                           attentionMaskLayout);
 
@@ -3405,14 +3408,14 @@ llvm::Expected<OpConstraints> OpModel<RotaryEmbeddingLlamaOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec cosSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec cosSpec,
                    detail::convertToTensorSpec(device, cosShape, cosLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec sinSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec sinSpec,
                    detail::convertToTensorSpec(device, sinShape, sinLayout));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec transMatSpec,
+      ::tt::tt_metal::TensorSpec transMatSpec,
       detail::convertToTensorSpec(device, transMatShape, transMatLayout));
 
   auto rotaryEmbeddingLlamaOpQuery = [=]() {
@@ -3440,14 +3443,14 @@ llvm::Expected<size_t> OpModel<RotaryEmbeddingLlamaOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec cosSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec cosSpec,
                    detail::convertToTensorSpec(device, cosShape, cosLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec sinSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec sinSpec,
                    detail::convertToTensorSpec(device, sinShape, sinLayout));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec transMatSpec,
+      ::tt::tt_metal::TensorSpec transMatSpec,
       detail::convertToTensorSpec(device, transMatShape, transMatLayout));
 
   // Create query closure
@@ -3478,11 +3481,11 @@ llvm::Expected<OpConstraints> OpModel<RotaryEmbeddingOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec cosSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec cosSpec,
                    detail::convertToTensorSpec(device, cosShape, cosLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec sinSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec sinSpec,
                    detail::convertToTensorSpec(device, sinShape, sinLayout));
 
   auto rotaryEmbeddingOpQuery = [=]() {
@@ -3508,11 +3511,11 @@ llvm::Expected<size_t> OpModel<RotaryEmbeddingOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec cosSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec cosSpec,
                    detail::convertToTensorSpec(device, cosShape, cosLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec sinSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec sinSpec,
                    detail::convertToTensorSpec(device, sinShape, sinLayout));
 
   // Create query closure
@@ -3542,14 +3545,14 @@ OpModel<NLPCreateQKVHeadsDecodeOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  std::optional<::ttnn::TensorSpec> batchOffsetSpec = std::nullopt;
+  std::optional<::tt::tt_metal::TensorSpec> batchOffsetSpec = std::nullopt;
   if (batchOffsetShape && batchOffsetLayout) {
     ASSIGN_OR_RETURN(batchOffsetSpec, detail::convertToTensorSpec(
                                           device, batchOffsetShape.value(),
                                           batchOffsetLayout.value()));
   }
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -3581,14 +3584,14 @@ llvm::Expected<size_t> OpModel<NLPCreateQKVHeadsDecodeOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
 
-  std::optional<::ttnn::TensorSpec> batchOffsetSpec = std::nullopt;
+  std::optional<::tt::tt_metal::TensorSpec> batchOffsetSpec = std::nullopt;
   if (batchOffsetShape && batchOffsetLayout) {
     ASSIGN_OR_RETURN(batchOffsetSpec, detail::convertToTensorSpec(
                                           device, batchOffsetShape.value(),
                                           batchOffsetLayout.value()));
   }
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -3623,10 +3626,10 @@ OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  std::optional<::ttnn::TensorSpec> inputKVSpec = std::nullopt;
+  std::optional<::tt::tt_metal::TensorSpec> inputKVSpec = std::nullopt;
   if (inputKVShape && inputKVLayout) {
     ASSIGN_OR_RETURN(inputKVSpec,
                      detail::convertToTensorSpec(device, inputKVShape.value(),
@@ -3659,10 +3662,10 @@ llvm::Expected<size_t> OpModel<SplitQueryKeyValueAndSplitHeadsOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  std::optional<::ttnn::TensorSpec> inputKVSpec = std::nullopt;
+  std::optional<::tt::tt_metal::TensorSpec> inputKVSpec = std::nullopt;
   if (inputKVShape && inputKVLayout) {
     ASSIGN_OR_RETURN(inputKVSpec,
                      detail::convertToTensorSpec(device, inputKVShape.value(),
@@ -3695,7 +3698,7 @@ OpModel<NLPConcatHeadsOp>::getOpConstraints(llvm::ArrayRef<int64_t> inputShape,
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -3721,7 +3724,7 @@ OpModel<NLPConcatHeadsOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -3748,7 +3751,7 @@ llvm::Expected<OpConstraints> OpModel<NLPConcatHeadsDecodeOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // tt-metal's nlp_concat_heads_decode infers on_subcoregrids from the input
@@ -3772,7 +3775,7 @@ llvm::Expected<OpConstraints> OpModel<NLPConcatHeadsDecodeOp>::getOpConstraints(
     return QUERY_OP_CONSTRAINTS(
         ::ttnn::experimental::nlp_concat_heads_decode, device, inputSpec,
         numHeads, detail::getNullableMemoryConfig(outputLayout),
-        std::optional<::tt::tt_metal::Tensor>(std::nullopt), subCoreGrids);
+        std::optional<::ttnn::Tensor>(std::nullopt), subCoreGrids);
   };
 
   return operation::getOpConstraints(inputLayout.getContext(),
@@ -3790,7 +3793,7 @@ llvm::Expected<size_t> OpModel<NLPConcatHeadsDecodeOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Pass sub_core_grids when the input shard grid would trigger subcoregrids
@@ -3811,7 +3814,7 @@ llvm::Expected<size_t> OpModel<NLPConcatHeadsDecodeOp>::getOpRuntime(
     return QUERY_OP_RUNTIME(
         ::ttnn::experimental::nlp_concat_heads_decode, device, inputSpec,
         numHeads, detail::getNullableMemoryConfig(outputLayout),
-        std::optional<::tt::tt_metal::Tensor>(std::nullopt), subCoreGrids);
+        std::optional<::ttnn::Tensor>(std::nullopt), subCoreGrids);
   };
 
   return operation::getOpRuntime(nlpConcatHeadsDecodeOpQuery);
@@ -3831,7 +3834,7 @@ llvm::Expected<OpConstraints> OpModel<RepeatInterleaveOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -3856,7 +3859,7 @@ llvm::Expected<size_t> OpModel<RepeatInterleaveOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -3883,7 +3886,7 @@ llvm::Expected<OpConstraints> OpModel<RepeatOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Convert repeats to ttnn::Shape
@@ -3917,7 +3920,7 @@ llvm::Expected<size_t> OpModel<RepeatOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Convert repeats to SmallVector<uint32_t> to use overload with memory_config
@@ -3984,7 +3987,7 @@ llvm::Expected<OpConstraints> OpModel<PadOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Convert padding to PadSpecDim format
@@ -4012,7 +4015,7 @@ llvm::Expected<size_t> OpModel<PadOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Convert padding to PadSpecDim format
@@ -4042,7 +4045,7 @@ llvm::Expected<OpConstraints> OpModel<SortOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -4066,7 +4069,7 @@ llvm::Expected<size_t> OpModel<SortOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -4096,14 +4099,14 @@ llvm::Expected<OpConstraints> OpModel<TopKRouterGptOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec weightSpec,
+      ::tt::tt_metal::TensorSpec weightSpec,
       detail::convertToTensorSpec(device, weightShape, weightLayout));
 
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec biasSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec biasSpec,
                    detail::convertToTensorSpec(device, biasShape, biasLayout));
 
   auto topKRouterGptQuery = [=]() {
@@ -4128,14 +4131,14 @@ llvm::Expected<size_t> OpModel<TopKRouterGptOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec weightSpec,
+      ::tt::tt_metal::TensorSpec weightSpec,
       detail::convertToTensorSpec(device, weightShape, weightLayout));
 
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec biasSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec biasSpec,
                    detail::convertToTensorSpec(device, biasShape, biasLayout));
 
   auto topKRouterGptQuery = [=]() {
@@ -4160,7 +4163,7 @@ llvm::Expected<OpConstraints> OpModel<ArgMaxOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -4184,7 +4187,7 @@ llvm::Expected<size_t> OpModel<ArgMaxOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -4211,7 +4214,7 @@ llvm::Expected<OpConstraints> OpModel<ProdOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -4242,15 +4245,15 @@ llvm::Expected<OpConstraints> QuantizationOpModel<OpTy>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec scaleSpec,
+      ::tt::tt_metal::TensorSpec scaleSpec,
       detail::convertToTensorSpec(device, scaleShape, scaleLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec zeroPointSpec,
+      ::tt::tt_metal::TensorSpec zeroPointSpec,
       detail::convertToTensorSpec(device, zeroPointShape, zeroPointLayout));
 
   // Use the explicit outputDtype parameter if provided, otherwise infer from
@@ -4291,15 +4294,15 @@ llvm::Expected<size_t> QuantizationOpModel<OpTy>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec scaleSpec,
+      ::tt::tt_metal::TensorSpec scaleSpec,
       detail::convertToTensorSpec(device, scaleShape, scaleLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec zeroPointSpec,
+      ::tt::tt_metal::TensorSpec zeroPointSpec,
       detail::convertToTensorSpec(device, zeroPointShape, zeroPointLayout));
 
   // Use the explicit outputDtype parameter if provided, otherwise infer from
@@ -4347,22 +4350,22 @@ llvm::Expected<OpConstraints> OpModel<RequantizeOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inScaleSpec,
+      ::tt::tt_metal::TensorSpec inScaleSpec,
       detail::convertToTensorSpec(device, inScaleShape, inScaleLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inZeroPointSpec,
+      ::tt::tt_metal::TensorSpec inZeroPointSpec,
       detail::convertToTensorSpec(device, inZeroPointShape, inZeroPointLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec outScaleSpec,
+      ::tt::tt_metal::TensorSpec outScaleSpec,
       detail::convertToTensorSpec(device, outScaleShape, outScaleLayout));
 
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec outZeroPointSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec outZeroPointSpec,
                    detail::convertToTensorSpec(device, outZeroPointShape,
                                                outZeroPointLayout));
 
@@ -4406,22 +4409,22 @@ llvm::Expected<size_t> OpModel<RequantizeOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inScaleSpec,
+      ::tt::tt_metal::TensorSpec inScaleSpec,
       detail::convertToTensorSpec(device, inScaleShape, inScaleLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inZeroPointSpec,
+      ::tt::tt_metal::TensorSpec inZeroPointSpec,
       detail::convertToTensorSpec(device, inZeroPointShape, inZeroPointLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec outScaleSpec,
+      ::tt::tt_metal::TensorSpec outScaleSpec,
       detail::convertToTensorSpec(device, outScaleShape, outScaleLayout));
 
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec outZeroPointSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec outZeroPointSpec,
                    detail::convertToTensorSpec(device, outZeroPointShape,
                                                outZeroPointLayout));
 
@@ -4465,18 +4468,18 @@ llvm::Expected<OpConstraints> OpModel<LinearOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecA,
+      ::tt::tt_metal::TensorSpec inputSpecA,
       detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecB,
+      ::tt::tt_metal::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
-  std::optional<::tt::tt_metal::Tensor> biasTensor;
+  std::optional<::ttnn::Tensor> biasTensor;
   if (biasShape && biasLayout) {
-    ::ttnn::TensorSpec biasSpec =
+    ::tt::tt_metal::TensorSpec biasSpec =
         conversion::getTensorSpec(biasShape.value(), biasLayout.value());
-    biasTensor = ::tt::tt_metal::create_device_tensor(biasSpec, device);
+    biasTensor = ::ttnn::create_device_tensor(biasSpec, device);
   }
 
   std::optional<::tt::tt_metal::DataType> outputDType =
@@ -4526,18 +4529,18 @@ llvm::Expected<size_t> OpModel<LinearOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecA,
+      ::tt::tt_metal::TensorSpec inputSpecA,
       detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecB,
+      ::tt::tt_metal::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
-  std::optional<::tt::tt_metal::Tensor> biasTensor;
+  std::optional<::ttnn::Tensor> biasTensor;
   if (biasShape && biasLayout) {
-    ::ttnn::TensorSpec biasSpec =
+    ::tt::tt_metal::TensorSpec biasSpec =
         conversion::getTensorSpec(biasShape.value(), biasLayout.value());
-    biasTensor = ::tt::tt_metal::create_device_tensor(biasSpec, device);
+    biasTensor = ::ttnn::create_device_tensor(biasSpec, device);
   }
 
   std::optional<::tt::tt_metal::DataType> outputDType =
@@ -4578,11 +4581,11 @@ llvm::Expected<OpConstraints> OpModel<MatmulOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecA,
+      ::tt::tt_metal::TensorSpec inputSpecA,
       detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecB,
+      ::tt::tt_metal::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
   std::optional<::tt::tt_metal::DataType> outputDType =
@@ -4629,11 +4632,11 @@ llvm::Expected<size_t> OpModel<MatmulOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecA,
+      ::tt::tt_metal::TensorSpec inputSpecA,
       detail::convertToTensorSpec(device, inputShapeA, inputLayoutA));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpecB,
+      ::tt::tt_metal::TensorSpec inputSpecB,
       detail::convertToTensorSpec(device, inputShapeB, inputLayoutB));
 
   std::optional<::tt::tt_metal::DataType> outputDType =
@@ -4673,7 +4676,7 @@ OpModel<DeallocateOp>::getOpRuntime(llvm::ArrayRef<int64_t> inputShape,
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -4699,11 +4702,11 @@ llvm::Expected<OpConstraints> OpModel<FillCacheOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec cacheSpec,
+      ::tt::tt_metal::TensorSpec cacheSpec,
       detail::convertToTensorSpec(device, cacheShape, cacheLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   auto fillCacheOpQuery = [=]() {
@@ -4727,11 +4730,11 @@ llvm::Expected<size_t> OpModel<FillCacheOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec cacheSpec,
+      ::tt::tt_metal::TensorSpec cacheSpec,
       detail::convertToTensorSpec(device, cacheShape, cacheLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   auto fillCacheOpQuery = [=]() {
@@ -4758,11 +4761,11 @@ llvm::Expected<OpConstraints> OpModel<UpdateCacheOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec cacheSpec,
+      ::tt::tt_metal::TensorSpec cacheSpec,
       detail::convertToTensorSpec(device, cacheShape, cacheLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // TODO(#1510): modify the ttnn::update_cache to take a tensor for
@@ -4803,11 +4806,11 @@ llvm::Expected<size_t> OpModel<UpdateCacheOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec cacheSpec,
+      ::tt::tt_metal::TensorSpec cacheSpec,
       detail::convertToTensorSpec(device, cacheShape, cacheLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // TODO(#1510): modify the ttnn::update_cache to take a tensor for
@@ -4843,18 +4846,18 @@ llvm::Expected<OpConstraints> OpModel<PagedUpdateCacheOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec cacheSpec,
+      ::tt::tt_metal::TensorSpec cacheSpec,
       detail::convertToTensorSpec(device, cacheShape, cacheLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec updateIndexSpec,
+      ::tt::tt_metal::TensorSpec updateIndexSpec,
       detail::convertToTensorSpec(device, updateIndexShape, updateIndexLayout));
 
-  std::optional<::ttnn::TensorSpec> pageTableSpec;
+  std::optional<::tt::tt_metal::TensorSpec> pageTableSpec;
   if (pageTableShape && pageTableLayout) {
     ASSIGN_OR_RETURN(
         pageTableSpec,
@@ -4889,18 +4892,18 @@ llvm::Expected<size_t> OpModel<PagedUpdateCacheOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec cacheSpec,
+      ::tt::tt_metal::TensorSpec cacheSpec,
       detail::convertToTensorSpec(device, cacheShape, cacheLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec updateIndexSpec,
+      ::tt::tt_metal::TensorSpec updateIndexSpec,
       detail::convertToTensorSpec(device, updateIndexShape, updateIndexLayout));
 
-  std::optional<::ttnn::TensorSpec> pageTableSpec;
+  std::optional<::tt::tt_metal::TensorSpec> pageTableSpec;
   if (pageTableShape && pageTableLayout) {
     ASSIGN_OR_RETURN(
         pageTableSpec,
@@ -4935,18 +4938,18 @@ llvm::Expected<OpConstraints> OpModel<PagedFillCacheOp>::getOpConstraints(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec cacheSpec,
+      ::tt::tt_metal::TensorSpec cacheSpec,
       detail::convertToTensorSpec(device, cacheShape, cacheLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec pageTableSpec,
+      ::tt::tt_metal::TensorSpec pageTableSpec,
       detail::convertToTensorSpec(device, pageTableShape, pageTableLayout));
 
-  std::optional<::ttnn::TensorSpec> batchIdxSpec;
+  std::optional<::tt::tt_metal::TensorSpec> batchIdxSpec;
   if (batchIdxShape && batchIdxLayout) {
     ASSIGN_OR_RETURN(
         batchIdxSpec,
@@ -4978,18 +4981,18 @@ llvm::Expected<size_t> OpModel<PagedFillCacheOp>::getOpRuntime(
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec cacheSpec,
+      ::tt::tt_metal::TensorSpec cacheSpec,
       detail::convertToTensorSpec(device, cacheShape, cacheLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec pageTableSpec,
+      ::tt::tt_metal::TensorSpec pageTableSpec,
       detail::convertToTensorSpec(device, pageTableShape, pageTableLayout));
 
-  std::optional<::ttnn::TensorSpec> batchIdxSpec;
+  std::optional<::tt::tt_metal::TensorSpec> batchIdxSpec;
   if (batchIdxShape && batchIdxLayout) {
     ASSIGN_OR_RETURN(
         batchIdxSpec,
@@ -5028,7 +5031,7 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   // Prepare weight tensor first.
-  llvm::Expected<::ttnn::TensorSpec> preparedWeightExp =
+  llvm::Expected<::tt::tt_metal::TensorSpec> preparedWeightExp =
       getPrepareConv2dWeightsOpOutputTensorSpec(
           inputShape, inputLayout, weightShape, weightLayout, in_channels,
           out_channels, batch_size, input_height, input_width, kernel_size,
@@ -5037,12 +5040,12 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
   if (!preparedWeightExp) {
     return preparedWeightExp.takeError();
   }
-  ::ttnn::TensorSpec weightSpec = preparedWeightExp.get();
+  ::tt::tt_metal::TensorSpec weightSpec = preparedWeightExp.get();
 
   // Prepare bias tensor if present.
-  std::optional<::ttnn::TensorSpec> biasSpec;
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec;
   if (biasShape && biasLayout) {
-    llvm::Expected<::ttnn::TensorSpec> preparedBiasExp =
+    llvm::Expected<::tt::tt_metal::TensorSpec> preparedBiasExp =
         getPrepareConv2dBiasOpOutputTensorSpec(
             inputShape, inputLayout, *biasShape, *biasLayout,
             weightSpec.data_type(), in_channels, out_channels, batch_size,
@@ -5058,7 +5061,7 @@ llvm::Expected<OpConstraints> OpModel<Conv2dOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::tt::tt_metal::DataType> outputDtype =
@@ -5111,7 +5114,7 @@ llvm::Expected<size_t> OpModel<Conv2dOp>::getOpRuntime(
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   // Prepare weight tensor first.
-  llvm::Expected<::ttnn::TensorSpec> preparedWeightExp =
+  llvm::Expected<::tt::tt_metal::TensorSpec> preparedWeightExp =
       getPrepareConv2dWeightsOpOutputTensorSpec(
           inputShape, inputLayout, weightShape, weightLayout, in_channels,
           out_channels, batch_size, input_height, input_width, kernel_size,
@@ -5121,12 +5124,12 @@ llvm::Expected<size_t> OpModel<Conv2dOp>::getOpRuntime(
     return preparedWeightExp.takeError();
   }
 
-  ::ttnn::TensorSpec weightSpec = preparedWeightExp.get();
+  ::tt::tt_metal::TensorSpec weightSpec = preparedWeightExp.get();
 
   // Prepare bias tensor if present.
-  std::optional<::ttnn::TensorSpec> biasSpec;
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec;
   if (biasShape && biasLayout) {
-    llvm::Expected<::ttnn::TensorSpec> preparedBiasExp =
+    llvm::Expected<::tt::tt_metal::TensorSpec> preparedBiasExp =
         getPrepareConv2dBiasOpOutputTensorSpec(
             inputShape, inputLayout, *biasShape, *biasLayout,
             weightSpec.data_type(), in_channels, out_channels, batch_size,
@@ -5142,7 +5145,7 @@ llvm::Expected<size_t> OpModel<Conv2dOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::tt::tt_metal::DataType> outputDtype =
@@ -5244,7 +5247,7 @@ llvm::Expected<OpConstraints> OpModel<Conv1dOp>::getOpConstraints(
       inputLayout.getContext(), conv2dSliceConfig);
 
   // Prepare weight tensor first (shared conv2d prepare helper).
-  llvm::Expected<::ttnn::TensorSpec> preparedWeightExp =
+  llvm::Expected<::tt::tt_metal::TensorSpec> preparedWeightExp =
       getPrepareConv2dWeightsOpOutputTensorSpec(
           prep.inputShape, inputLayout, prep.weightShape, weightLayout,
           in_channels, out_channels, batch_size, /*input_height=*/1,
@@ -5254,12 +5257,12 @@ llvm::Expected<OpConstraints> OpModel<Conv1dOp>::getOpConstraints(
   if (!preparedWeightExp) {
     return preparedWeightExp.takeError();
   }
-  ::ttnn::TensorSpec weightSpec = preparedWeightExp.get();
+  ::tt::tt_metal::TensorSpec weightSpec = preparedWeightExp.get();
 
   // Prepare bias tensor if present.
-  std::optional<::ttnn::TensorSpec> biasSpec;
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec;
   if (biasShape && biasLayout) {
-    llvm::Expected<::ttnn::TensorSpec> preparedBiasExp =
+    llvm::Expected<::tt::tt_metal::TensorSpec> preparedBiasExp =
         getPrepareConv2dBiasOpOutputTensorSpec(
             prep.inputShape, inputLayout, *biasShape, *biasLayout,
             weightSpec.data_type(), in_channels, out_channels, batch_size,
@@ -5276,7 +5279,7 @@ llvm::Expected<OpConstraints> OpModel<Conv1dOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::tt::tt_metal::DataType> outputDtype =
@@ -5329,7 +5332,7 @@ llvm::Expected<size_t> OpModel<Conv1dOp>::getOpRuntime(
   Conv2dSliceConfigAttr sliceConfig = getConv1dEffectiveSliceConfig(
       inputLayout.getContext(), conv2dSliceConfig);
 
-  llvm::Expected<::ttnn::TensorSpec> preparedWeightExp =
+  llvm::Expected<::tt::tt_metal::TensorSpec> preparedWeightExp =
       getPrepareConv2dWeightsOpOutputTensorSpec(
           prep.inputShape, inputLayout, prep.weightShape, weightLayout,
           in_channels, out_channels, batch_size, /*input_height=*/1,
@@ -5339,11 +5342,11 @@ llvm::Expected<size_t> OpModel<Conv1dOp>::getOpRuntime(
   if (!preparedWeightExp) {
     return preparedWeightExp.takeError();
   }
-  ::ttnn::TensorSpec weightSpec = preparedWeightExp.get();
+  ::tt::tt_metal::TensorSpec weightSpec = preparedWeightExp.get();
 
-  std::optional<::ttnn::TensorSpec> biasSpec;
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec;
   if (biasShape && biasLayout) {
-    llvm::Expected<::ttnn::TensorSpec> preparedBiasExp =
+    llvm::Expected<::tt::tt_metal::TensorSpec> preparedBiasExp =
         getPrepareConv2dBiasOpOutputTensorSpec(
             prep.inputShape, inputLayout, *biasShape, *biasLayout,
             weightSpec.data_type(), in_channels, out_channels, batch_size,
@@ -5360,7 +5363,7 @@ llvm::Expected<size_t> OpModel<Conv1dOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::tt::tt_metal::DataType> outputDtype =
@@ -5401,9 +5404,9 @@ llvm::Expected<size_t> OpModel<Conv1dOp>::getOpRuntime(
 namespace {
 
 struct Conv3dSpecs {
-  ::ttnn::TensorSpec inputSpec;
-  ::ttnn::TensorSpec weightSpec;
-  std::optional<::ttnn::TensorSpec> biasSpec;
+  ::tt::tt_metal::TensorSpec inputSpec;
+  ::tt::tt_metal::TensorSpec weightSpec;
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec;
   std::optional<::ttnn::experimental::prim::Conv3dConfig> config;
   ::tt::tt_metal::DataType dtype;
   uint32_t outputChannels;
@@ -5430,16 +5433,16 @@ llvm::Expected<Conv3dSpecs> prepareConv3dSpecs(
 
   // Convert input layout to TensorSpec
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Convert weight layout to TensorSpec
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec weightSpec,
+      ::tt::tt_metal::TensorSpec weightSpec,
       detail::convertToTensorSpec(device, weightShape, weightLayout));
 
   // Convert bias if present
-  std::optional<::ttnn::TensorSpec> biasSpec;
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec;
   if (biasShape && biasLayout) {
     ASSIGN_OR_RETURN(
         biasSpec, detail::convertToTensorSpec(device, *biasShape, *biasLayout));
@@ -5611,7 +5614,7 @@ llvm::Expected<OpConstraints> OpModel<ConvTranspose2dOp>::getOpConstraints(
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   // Prepare weight tensor first.
-  llvm::Expected<::ttnn::TensorSpec> preparedWeightExp =
+  llvm::Expected<::tt::tt_metal::TensorSpec> preparedWeightExp =
       getPrepareConv2dWeightsOpOutputTensorSpec(
           inputShape, inputLayout, weightShape, weightLayout, in_channels,
           out_channels, batch_size, input_height, input_width, kernel_size,
@@ -5620,12 +5623,12 @@ llvm::Expected<OpConstraints> OpModel<ConvTranspose2dOp>::getOpConstraints(
   if (!preparedWeightExp) {
     return preparedWeightExp.takeError();
   }
-  ::ttnn::TensorSpec weightSpec = preparedWeightExp.get();
+  ::tt::tt_metal::TensorSpec weightSpec = preparedWeightExp.get();
 
   // Prepare bias tensor if present.
-  std::optional<::ttnn::TensorSpec> biasSpec;
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec;
   if (biasShape && biasLayout) {
-    llvm::Expected<::ttnn::TensorSpec> preparedBiasExp =
+    llvm::Expected<::tt::tt_metal::TensorSpec> preparedBiasExp =
         getPrepareConv2dBiasOpOutputTensorSpec(
             inputShape, inputLayout, *biasShape, *biasLayout,
             weightSpec.data_type(), in_channels, out_channels, batch_size,
@@ -5641,7 +5644,7 @@ llvm::Expected<OpConstraints> OpModel<ConvTranspose2dOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::tt::tt_metal::DataType> outputDtype =
@@ -5692,7 +5695,7 @@ llvm::Expected<size_t> OpModel<ConvTranspose2dOp>::getOpRuntime(
     TTNNLayoutAttr outputLayout) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   // Prepare weight tensor first.
-  llvm::Expected<::ttnn::TensorSpec> preparedWeightExp =
+  llvm::Expected<::tt::tt_metal::TensorSpec> preparedWeightExp =
       getPrepareConv2dWeightsOpOutputTensorSpec(
           inputShape, inputLayout, weightShape, weightLayout, in_channels,
           out_channels, batch_size, input_height, input_width, kernel_size,
@@ -5702,12 +5705,12 @@ llvm::Expected<size_t> OpModel<ConvTranspose2dOp>::getOpRuntime(
     return preparedWeightExp.takeError();
   }
 
-  ::ttnn::TensorSpec weightSpec = preparedWeightExp.get();
+  ::tt::tt_metal::TensorSpec weightSpec = preparedWeightExp.get();
 
   // Prepare bias tensor if present.
-  std::optional<::ttnn::TensorSpec> biasSpec;
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec;
   if (biasShape && biasLayout) {
-    llvm::Expected<::ttnn::TensorSpec> preparedBiasExp =
+    llvm::Expected<::tt::tt_metal::TensorSpec> preparedBiasExp =
         getPrepareConv2dBiasOpOutputTensorSpec(
             inputShape, inputLayout, *biasShape, *biasLayout,
             weightSpec.data_type(), in_channels, out_channels, batch_size,
@@ -5723,7 +5726,7 @@ llvm::Expected<size_t> OpModel<ConvTranspose2dOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   std::optional<::tt::tt_metal::DataType> outputDtype =
@@ -5783,7 +5786,7 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dWeightsOp>::getOpConstraints(
   assert(weightLayout != nullptr && "Weight layout is nullptr");
 
   // TODO(#4043): Move this to tt-metal side.
-  ::tt::tt_metal::Tensor weightTensor =
+  ::ttnn::Tensor weightTensor =
       createMetalHostTensor(weightShape, weightLayout.getDataType());
   // Read output data type from output layout (if present) or from outputDtype.
   std::optional<::tt::tt_metal::DataType> convertedOutputDtype = std::nullopt;
@@ -5841,7 +5844,7 @@ llvm::Expected<OpConstraints> OpModel<PrepareConv2dBiasOp>::getOpConstraints(
   assert(biasLayout != nullptr && "Weight layout is nullptr");
 
   // TODO(#4043): Move this to tt-metal side.
-  ::tt::tt_metal::Tensor biasTensor =
+  ::ttnn::Tensor biasTensor =
       createMetalHostTensor(biasShape, biasLayout.getDataType());
   // Read output data type from output layout (if present) or from outputDtype.
   std::optional<::tt::tt_metal::DataType> convertedOutputDtype = std::nullopt;
@@ -5901,7 +5904,7 @@ OpModel<PrepareConvTranspose2dWeightsOp>::getOpConstraints(
   assert(weightLayout != nullptr && "Weight layout is nullptr");
 
   // TODO(#4043): Move this to tt-metal side.
-  ::tt::tt_metal::Tensor weightTensor =
+  ::ttnn::Tensor weightTensor =
       createMetalHostTensor(weightShape, weightLayout.getDataType());
   // Read output data type from output layout (if present) or from outputDtype.
   std::optional<::tt::tt_metal::DataType> convertedOutputDtype = std::nullopt;
@@ -5960,7 +5963,7 @@ OpModel<PrepareConvTranspose2dBiasOp>::getOpConstraints(
   assert(biasLayout != nullptr && "Bias layout is nullptr");
 
   // TODO(#4043): Move this to tt-metal side.
-  ::tt::tt_metal::Tensor biasTensor =
+  ::ttnn::Tensor biasTensor =
       createMetalHostTensor(biasShape, biasLayout.getDataType());
   // Read output data type from output layout (if present) or from outputDtype.
   std::optional<::tt::tt_metal::DataType> convertedOutputDtype = std::nullopt;
@@ -6018,7 +6021,7 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dOp>::getOpConstraints(
   uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -6064,7 +6067,7 @@ llvm::Expected<size_t> OpModel<MaxPool2dOp>::getOpRuntime(
   uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -6115,7 +6118,7 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dWithIndicesOp>::getOpConstraints(
   uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -6163,7 +6166,7 @@ llvm::Expected<size_t> OpModel<MaxPool2dWithIndicesOp>::getOpRuntime(
   uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -6213,7 +6216,7 @@ llvm::Expected<OpConstraints> OpModel<AvgPool2dOp>::getOpConstraints(
   uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // default values for the variables that are received by the op's invoke
@@ -6265,7 +6268,7 @@ llvm::Expected<size_t> OpModel<AvgPool2dOp>::getOpRuntime(
   uint32_t inputChannelsU = static_cast<uint32_t>(inputChannels);
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // default values for the variables that are received by the op's invoke
@@ -6310,7 +6313,7 @@ llvm::Expected<OpConstraints> OpModel<GlobalAvgPool2dOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   ::ttnn::DataType outputDType = ::ttnn::DataType::BFLOAT16;
@@ -6364,7 +6367,7 @@ llvm::Expected<size_t> OpModel<GlobalAvgPool2dOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   ::ttnn::DataType outputDType = ::ttnn::DataType::BFLOAT16;
@@ -6428,22 +6431,22 @@ llvm::Expected<OpConstraints> OpModel<BatchNormInferenceOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  std::optional<::ttnn::TensorSpec> runningMeanSpec =
+  std::optional<::tt::tt_metal::TensorSpec> runningMeanSpec =
       detail::convertToOptionalTensorSpec(device, runningMeanShape,
                                           runningMeanLayout);
-  std::optional<::ttnn::TensorSpec> runningVarSpec =
+  std::optional<::tt::tt_metal::TensorSpec> runningVarSpec =
       detail::convertToOptionalTensorSpec(device, runningVarShape,
                                           runningVarLayout);
-  std::optional<::ttnn::TensorSpec> weightSpec =
+  std::optional<::tt::tt_metal::TensorSpec> weightSpec =
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
-  std::optional<::ttnn::TensorSpec> biasSpec =
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
   // The following arguments are received by the invoke method of batch norm but
   // they don't exist in the op's definition in TTNNOps.td:
-  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
+  std::optional<::tt::tt_metal::TensorSpec> outputSpec = std::nullopt;
   std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
       std::nullopt;
 
@@ -6481,22 +6484,22 @@ llvm::Expected<size_t> OpModel<BatchNormInferenceOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  std::optional<::ttnn::TensorSpec> runningMeanSpec =
+  std::optional<::tt::tt_metal::TensorSpec> runningMeanSpec =
       detail::convertToOptionalTensorSpec(device, runningMeanShape,
                                           runningMeanLayout);
-  std::optional<::ttnn::TensorSpec> runningVarSpec =
+  std::optional<::tt::tt_metal::TensorSpec> runningVarSpec =
       detail::convertToOptionalTensorSpec(device, runningVarShape,
                                           runningVarLayout);
-  std::optional<::ttnn::TensorSpec> weightSpec =
+  std::optional<::tt::tt_metal::TensorSpec> weightSpec =
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
-  std::optional<::ttnn::TensorSpec> biasSpec =
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
   // The following arguments are received by the invoke method of batch norm but
   // they don't exist in the op's definition in TTNNOps.td:
-  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
+  std::optional<::tt::tt_metal::TensorSpec> outputSpec = std::nullopt;
   std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
       std::nullopt;
 
@@ -6539,22 +6542,22 @@ llvm::Expected<OpConstraints> OpModel<BatchNormTrainingOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  std::optional<::ttnn::TensorSpec> runningMeanSpec =
+  std::optional<::tt::tt_metal::TensorSpec> runningMeanSpec =
       detail::convertToOptionalTensorSpec(device, runningMeanShape,
                                           runningMeanLayout);
-  std::optional<::ttnn::TensorSpec> runningVarSpec =
+  std::optional<::tt::tt_metal::TensorSpec> runningVarSpec =
       detail::convertToOptionalTensorSpec(device, runningVarShape,
                                           runningVarLayout);
-  std::optional<::ttnn::TensorSpec> weightSpec =
+  std::optional<::tt::tt_metal::TensorSpec> weightSpec =
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
-  std::optional<::ttnn::TensorSpec> biasSpec =
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
   // The following arguments are received by the invoke method of batch norm but
   // they don't exist in the op's definition in TTNNOps.td:
-  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
+  std::optional<::tt::tt_metal::TensorSpec> outputSpec = std::nullopt;
   std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
       std::nullopt;
 
@@ -6591,22 +6594,22 @@ llvm::Expected<size_t> OpModel<BatchNormTrainingOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  std::optional<::ttnn::TensorSpec> runningMeanSpec =
+  std::optional<::tt::tt_metal::TensorSpec> runningMeanSpec =
       detail::convertToOptionalTensorSpec(device, runningMeanShape,
                                           runningMeanLayout);
-  std::optional<::ttnn::TensorSpec> runningVarSpec =
+  std::optional<::tt::tt_metal::TensorSpec> runningVarSpec =
       detail::convertToOptionalTensorSpec(device, runningVarShape,
                                           runningVarLayout);
-  std::optional<::ttnn::TensorSpec> weightSpec =
+  std::optional<::tt::tt_metal::TensorSpec> weightSpec =
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
-  std::optional<::ttnn::TensorSpec> biasSpec =
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
   // The following arguments are received by the invoke method of batch norm but
   // they don't exist in the op's definition in TTNNOps.td:
-  std::optional<::ttnn::TensorSpec> outputSpec = std::nullopt;
+  std::optional<::tt::tt_metal::TensorSpec> outputSpec = std::nullopt;
   std::optional<::ttnn::DeviceComputeKernelConfig> computeKernelConfig =
       std::nullopt;
 
@@ -6645,16 +6648,16 @@ llvm::Expected<OpConstraints> OpModel<RMSNormOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  std::optional<::ttnn::TensorSpec> weightSpec =
+  std::optional<::tt::tt_metal::TensorSpec> weightSpec =
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
-  std::optional<::ttnn::TensorSpec> biasSpec =
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
   // This information is not available in the op's definition in TTNNOps.td:
-  std::optional<::ttnn::TensorSpec> residualInputSpec = std::nullopt;
+  std::optional<::tt::tt_metal::TensorSpec> residualInputSpec = std::nullopt;
 
   std::optional<::ttnn::DeviceComputeKernelConfig>
       computeKernelConfigConverted =
@@ -6688,16 +6691,16 @@ llvm::Expected<size_t> OpModel<RMSNormOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  std::optional<::ttnn::TensorSpec> weightSpec =
+  std::optional<::tt::tt_metal::TensorSpec> weightSpec =
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
-  std::optional<::ttnn::TensorSpec> biasSpec =
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
   // This information is not available in the op's definition in TTNNOps.td:
-  std::optional<::ttnn::TensorSpec> residualInputSpec = std::nullopt;
+  std::optional<::tt::tt_metal::TensorSpec> residualInputSpec = std::nullopt;
 
   std::optional<::ttnn::DeviceComputeKernelConfig>
       computeKernelConfigConverted =
@@ -6733,10 +6736,10 @@ llvm::Expected<OpConstraints> OpModel<RMSNormPreAllGatherOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  std::optional<::ttnn::TensorSpec> residualInputSpec =
+  std::optional<::tt::tt_metal::TensorSpec> residualInputSpec =
       detail::convertToOptionalTensorSpec(device, residualInputShape,
                                           residualInputLayout);
 
@@ -6774,10 +6777,10 @@ llvm::Expected<size_t> OpModel<RMSNormPreAllGatherOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  std::optional<::ttnn::TensorSpec> residualInputSpec =
+  std::optional<::tt::tt_metal::TensorSpec> residualInputSpec =
       detail::convertToOptionalTensorSpec(device, residualInputShape,
                                           residualInputLayout);
 
@@ -6818,15 +6821,15 @@ llvm::Expected<OpConstraints> OpModel<LayerNormOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  std::optional<::ttnn::TensorSpec> weightSpec =
+  std::optional<::tt::tt_metal::TensorSpec> weightSpec =
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
-  std::optional<::ttnn::TensorSpec> biasSpec =
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
-  std::optional<::ttnn::TensorSpec> residualInputSpec = std::nullopt;
+  std::optional<::tt::tt_metal::TensorSpec> residualInputSpec = std::nullopt;
 
   auto layerNormQuery = [=]() {
     return QUERY_OP_CONSTRAINTS(
@@ -6855,15 +6858,15 @@ llvm::Expected<size_t> OpModel<LayerNormOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  std::optional<::ttnn::TensorSpec> weightSpec =
+  std::optional<::tt::tt_metal::TensorSpec> weightSpec =
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
-  std::optional<::ttnn::TensorSpec> biasSpec =
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
-  std::optional<::ttnn::TensorSpec> residualInputSpec = std::nullopt;
+  std::optional<::tt::tt_metal::TensorSpec> residualInputSpec = std::nullopt;
 
   // Create query closure
   auto layerNormQuery = [=]() {
@@ -6898,13 +6901,13 @@ OpModel<LayerNormPreAllGatherOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  std::optional<::ttnn::TensorSpec> residualInputSpec =
+  std::optional<::tt::tt_metal::TensorSpec> residualInputSpec =
       detail::convertToOptionalTensorSpec(device, residualInputShape,
                                           residualInputLayout);
-  std::optional<::ttnn::TensorSpec> recipSpec =
+  std::optional<::tt::tt_metal::TensorSpec> recipSpec =
       detail::convertToOptionalTensorSpec(device, recipShape, recipLayout);
 
   ::ttnn::DataType metalDtype = ::ttnn::DataType::BFLOAT16;
@@ -6941,13 +6944,13 @@ llvm::Expected<size_t> OpModel<LayerNormPreAllGatherOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  std::optional<::ttnn::TensorSpec> residualInputSpec =
+  std::optional<::tt::tt_metal::TensorSpec> residualInputSpec =
       detail::convertToOptionalTensorSpec(device, residualInputShape,
                                           residualInputLayout);
-  std::optional<::ttnn::TensorSpec> recipSpec =
+  std::optional<::tt::tt_metal::TensorSpec> recipSpec =
       detail::convertToOptionalTensorSpec(device, recipShape, recipLayout);
 
   ::ttnn::DataType metalDtype = ::ttnn::DataType::BFLOAT16;
@@ -6990,16 +6993,16 @@ OpModel<LayerNormPostAllGatherOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec statsSpec,
+      ::tt::tt_metal::TensorSpec statsSpec,
       detail::convertToTensorSpec(device, statsShape, statsLayout));
 
-  std::optional<::ttnn::TensorSpec> weightSpec =
+  std::optional<::tt::tt_metal::TensorSpec> weightSpec =
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
-  std::optional<::ttnn::TensorSpec> biasSpec =
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
   auto query = [=]() {
@@ -7031,16 +7034,16 @@ llvm::Expected<size_t> OpModel<LayerNormPostAllGatherOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec statsSpec,
+      ::tt::tt_metal::TensorSpec statsSpec,
       detail::convertToTensorSpec(device, statsShape, statsLayout));
 
-  std::optional<::ttnn::TensorSpec> weightSpec =
+  std::optional<::tt::tt_metal::TensorSpec> weightSpec =
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
-  std::optional<::ttnn::TensorSpec> biasSpec =
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
   auto query = [=]() {
@@ -7077,15 +7080,15 @@ llvm::Expected<OpConstraints> OpModel<GroupNormOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  std::optional<::ttnn::TensorSpec> inputMaskSpec =
+  std::optional<::tt::tt_metal::TensorSpec> inputMaskSpec =
       detail::convertToOptionalTensorSpec(device, inputMaskShape,
                                           inputMaskLayout);
-  std::optional<::ttnn::TensorSpec> weightSpec =
+  std::optional<::tt::tt_metal::TensorSpec> weightSpec =
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
-  std::optional<::ttnn::TensorSpec> biasSpec =
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
   int numGroupsInt = static_cast<int>(numGroups);
@@ -7127,15 +7130,15 @@ llvm::Expected<size_t> OpModel<GroupNormOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  std::optional<::ttnn::TensorSpec> inputMaskSpec =
+  std::optional<::tt::tt_metal::TensorSpec> inputMaskSpec =
       detail::convertToOptionalTensorSpec(device, inputMaskShape,
                                           inputMaskLayout);
-  std::optional<::ttnn::TensorSpec> weightSpec =
+  std::optional<::tt::tt_metal::TensorSpec> weightSpec =
       detail::convertToOptionalTensorSpec(device, weightShape, weightLayout);
-  std::optional<::ttnn::TensorSpec> biasSpec =
+  std::optional<::tt::tt_metal::TensorSpec> biasSpec =
       detail::convertToOptionalTensorSpec(device, biasShape, biasLayout);
 
   int numGroupsInt = static_cast<int>(numGroups);
@@ -7189,7 +7192,7 @@ llvm::Expected<OpConstraints> OpModel<ClampScalarOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   auto memConfig = detail::getNullableMemoryConfig(outputLayout);
@@ -7217,7 +7220,7 @@ llvm::Expected<size_t> OpModel<ClampScalarOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   auto memConfig = detail::getNullableMemoryConfig(outputLayout);
@@ -7249,13 +7252,13 @@ llvm::Expected<OpConstraints> OpModel<ClampTensorOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec minSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec minSpec,
                    detail::convertToTensorSpec(device, minShape, minLayout));
 
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec maxSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec maxSpec,
                    detail::convertToTensorSpec(device, maxShape, maxLayout));
 
   // Create query closure
@@ -7283,13 +7286,13 @@ llvm::Expected<size_t> OpModel<ClampTensorOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec minSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec minSpec,
                    detail::convertToTensorSpec(device, minShape, minLayout));
 
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec maxSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec maxSpec,
                    detail::convertToTensorSpec(device, maxShape, maxLayout));
 
   // Create query closure
@@ -7322,7 +7325,7 @@ llvm::Expected<OpConstraints> OpModel<PermuteOp>::getOpConstraints(
   float defaultedPadValue = padValue.convertToFloat();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -7354,7 +7357,7 @@ llvm::Expected<size_t> OpModel<PermuteOp>::getOpRuntime(
   float defaultedPadValue = padValue.convertToFloat();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -7400,7 +7403,7 @@ llvm::Expected<OpConstraints> OpModel<UpsampleOp>::getOpConstraints(
   }
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -7444,7 +7447,7 @@ llvm::Expected<size_t> OpModel<UpsampleOp>::getOpRuntime(
   }
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -7467,8 +7470,8 @@ llvm::Expected<size_t> OpModel<UpsampleOp>::getOpRuntime(
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 struct EmbeddingOpArgs {
-  ::ttnn::TensorSpec inputSpec;
-  ::ttnn::TensorSpec weightSpec;
+  ::tt::tt_metal::TensorSpec inputSpec;
+  ::tt::tt_metal::TensorSpec weightSpec;
 };
 
 llvm::Expected<EmbeddingOpArgs> getEmbeddingOpArgs(
@@ -7476,11 +7479,11 @@ llvm::Expected<EmbeddingOpArgs> getEmbeddingOpArgs(
     llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
     llvm::ArrayRef<int64_t> weightShape, TTNNLayoutAttr weightLayout) {
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec weightSpec,
+      ::tt::tt_metal::TensorSpec weightSpec,
       detail::convertToTensorSpec(device, weightShape, weightLayout));
 
   return EmbeddingOpArgs{inputSpec, weightSpec};
@@ -7586,15 +7589,15 @@ llvm::Expected<OpConstraints> OpModel<EmbeddingBackwardOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec weightSpec,
+      ::tt::tt_metal::TensorSpec weightSpec,
       detail::convertToTensorSpec(device, weightShape, weightLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inGradientSpec,
+      ::tt::tt_metal::TensorSpec inGradientSpec,
       detail::convertToTensorSpec(device, inGradientShape, inGradientLayout));
 
   auto embeddingBackwardOpQuery = [=]() {
@@ -7622,15 +7625,15 @@ OpModel<mlir::tt::ttnn::EmbeddingBackwardOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec weightSpec,
+      ::tt::tt_metal::TensorSpec weightSpec,
       detail::convertToTensorSpec(device, weightShape, weightLayout));
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inGradientSpec,
+      ::tt::tt_metal::TensorSpec inGradientSpec,
       detail::convertToTensorSpec(device, inGradientShape, inGradientLayout));
 
   auto embeddingBackwardOpQuery = [=]() {
@@ -7659,10 +7662,10 @@ llvm::Expected<OpConstraints> OpModel<GatherOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec indexSpec,
+      ::tt::tt_metal::TensorSpec indexSpec,
       detail::convertToTensorSpec(device, indexShape, indexLayout));
 
   auto gatherOpQuery = [=]() {
@@ -7688,10 +7691,10 @@ llvm::Expected<size_t> OpModel<GatherOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec indexSpec,
+      ::tt::tt_metal::TensorSpec indexSpec,
       detail::convertToTensorSpec(device, indexShape, indexLayout));
 
   auto gatherOpQuery = [=]() {
@@ -7898,7 +7901,7 @@ OpModel<mlir::tt::ttnn::DropoutOp>::getOpConstraints(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   float probVal = prob.convertToFloat();
@@ -7927,7 +7930,7 @@ llvm::Expected<size_t> OpModel<mlir::tt::ttnn::DropoutOp>::getOpRuntime(
       SingletonDeviceContext::getInstance().getDevice();
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   float probVal = prob.convertToFloat();
@@ -8071,7 +8074,7 @@ OpModel<mlir::tt::ttnn::AssignOp>::getOpConstraints(
 
   // Convert input tensor to TensorSpec
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   ::tt::tt_metal::MemoryConfig metalMemConfig =
@@ -8104,7 +8107,7 @@ llvm::Expected<size_t> OpModel<mlir::tt::ttnn::AssignOp>::getOpRuntime(
 
   // Convert input tensor to TensorSpec
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   ::tt::tt_metal::MemoryConfig metalMemConfig =
@@ -8142,7 +8145,7 @@ llvm::Expected<OpConstraints> OpModel<TopKOp>::getOpConstraints(
 
   // Convert input tensor to TensorSpec
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -8169,7 +8172,7 @@ llvm::Expected<size_t> OpModel<TopKOp>::getOpRuntime(
 
   // Convert input tensor to TensorSpec
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -8220,16 +8223,16 @@ llvm::Expected<OpConstraints> OpModel<SamplingOp>::getOpConstraints(
   }
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec valuesSpec,
+      ::tt::tt_metal::TensorSpec valuesSpec,
       detail::convertToTensorSpec(device, valuesQueryShape, inputValuesLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec indicesSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec indicesSpec,
                    detail::convertToTensorSpec(device, indicesQueryShape,
                                                inputIndicesLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec kSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec kSpec,
                    detail::convertToTensorSpec(device, kShape, kLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec pSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec pSpec,
                    detail::convertToTensorSpec(device, pShape, pLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec tempSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec tempSpec,
                    detail::convertToTensorSpec(device, tempShape, tempLayout));
 
   auto samplingQuery = [=]() {
@@ -8272,16 +8275,16 @@ llvm::Expected<size_t> OpModel<SamplingOp>::getOpRuntime(
   }
 
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec valuesSpec,
+      ::tt::tt_metal::TensorSpec valuesSpec,
       detail::convertToTensorSpec(device, valuesQueryShape, inputValuesLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec indicesSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec indicesSpec,
                    detail::convertToTensorSpec(device, indicesQueryShape,
                                                inputIndicesLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec kSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec kSpec,
                    detail::convertToTensorSpec(device, kShape, kLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec pSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec pSpec,
                    detail::convertToTensorSpec(device, pShape, pLayout));
-  ASSIGN_OR_RETURN(::ttnn::TensorSpec tempSpec,
+  ASSIGN_OR_RETURN(::tt::tt_metal::TensorSpec tempSpec,
                    detail::convertToTensorSpec(device, tempShape, tempLayout));
 
   auto samplingQuery = [=]() {
@@ -8309,7 +8312,7 @@ llvm::Expected<OpConstraints> OpModel<MeshPartitionOp>::getOpConstraints(
 
   // Convert input tensor to TensorSpec
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
@@ -8335,7 +8338,7 @@ llvm::Expected<size_t> OpModel<MeshPartitionOp>::getOpRuntime(
 
   // Convert input tensor to TensorSpec
   ASSIGN_OR_RETURN(
-      ::ttnn::TensorSpec inputSpec,
+      ::tt::tt_metal::TensorSpec inputSpec,
       detail::convertToTensorSpec(device, inputShape, inputLayout));
 
   // Create query closure
