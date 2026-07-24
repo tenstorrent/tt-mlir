@@ -5101,4 +5101,28 @@ TopKOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       inputShape, inputs[0], getK(), getDim(), getLargest(), getSorted(),
       opConfig.outputLayout);
 }
+
+//===----------------------------------------------------------------------===//
+// TopKLargeIndicesOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+TopKLargeIndicesOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                     const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+  const auto inputShape = getInput().getType().getShape();
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<mlir::tt::ttnn::TopKLargeIndicesOp>::getOpConstraints,
+      *this, inputShape, inputs[0], getK(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+TopKLargeIndicesOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                 const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+  const auto inputShape = getInput().getType().getShape();
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<mlir::tt::ttnn::TopKLargeIndicesOp>::getOpRuntime,
+      *this, inputShape, inputs[0], getK(), opConfig.outputLayout);
+}
 } // namespace mlir::tt::ttnn

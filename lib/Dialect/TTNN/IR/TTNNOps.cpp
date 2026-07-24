@@ -6919,6 +6919,65 @@ void mlir::tt::ttnn::D2MSubgraphOp::getEffects(
 }
 
 //===----------------------------------------------------------------------===//
+// TopKLargeIndicesOp
+//===----------------------------------------------------------------------===//
+
+// TopKLargeIndicesOp verification
+::mlir::LogicalResult mlir::tt::ttnn::TopKLargeIndicesOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType resultType = getResult().getType();
+  int64_t inputRank = inputType.getRank();
+  uint32_t k = getK();
+
+  if (inputRank < 1) {
+    return emitOpError("Input must have rank >= 1");
+  }
+
+  // tt-metal topk_large_indices requires a BFLOAT16 input.
+  if (!inputType.getElementType().isBF16()) {
+    return emitOpError("Input element type must be bf16");
+  }
+
+  // The op returns UINT32 indices.
+  if (!resultType.getElementType().isUnsignedInteger(32)) {
+    return emitOpError("Result element type must be ui32");
+  }
+
+  if (resultType.getRank() != inputRank) {
+    return emitOpError("Result rank must match input rank");
+  }
+
+  // Only the last dimension changes (to k); all leading dims must match.
+  ArrayRef<int64_t> inputShape = inputType.getShape();
+  ArrayRef<int64_t> resultShape = resultType.getShape();
+  for (int64_t i = 0; i + 1 < inputRank; ++i) {
+    if (inputShape[i] != resultShape[i]) {
+      return emitOpError("Result leading dimensions must match input leading "
+                         "dimensions");
+    }
+  }
+
+  int64_t inputLastDim = inputShape[inputRank - 1];
+  int64_t resultLastDim = resultShape[inputRank - 1];
+  if (resultLastDim != static_cast<int64_t>(k)) {
+    return emitOpError("Result last dimension must equal k, got ")
+           << resultLastDim << " (k = " << k << ")";
+  }
+  if (inputLastDim < static_cast<int64_t>(k)) {
+    return emitOpError("Input last dimension (")
+           << inputLastDim << ") must be >= k (" << k << ")";
+  }
+
+  // tt-metal restricts k to [16, 2048] and a multiple of 16.
+  if (k < 16 || k > 2048 || (k % 16) != 0) {
+    return emitOpError("k must be in [16, 2048] and a multiple of 16, got ")
+           << k;
+  }
+
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
 // TopKRouterGptOp
 //===----------------------------------------------------------------------===//
 
