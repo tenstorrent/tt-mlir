@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 import inspect
-from typing import List, Optional, Union, Tuple, Callable, Dict, Any
+from typing import List, Optional, Union, Tuple, Callable, Dict, Any, Iterable
 import torch
 from enum import Enum, auto
 import re
@@ -80,6 +80,13 @@ class Builder(metaclass=BuilderMeta):
         # Map from operand to its golden tensor.
         self._goldens: Dict[Operand, GoldenMapTensor] = {}
         self._deallocated_goldens: Dict[Operand, str] = {}
+
+        # Snapshot of each function input's golden, captured at binding time.
+        # In-place ops (e.g. ttir.update_cache) mutate their cache operand and
+        # overwrite that operand's golden so later reads observe the post-mutation
+        # value. This snapshot preserves the original value so it can still be
+        # reported as the function's input golden.
+        self._input_golden_snapshot: Dict[Operand, GoldenMapTensor] = {}
 
         # Shard dims for presharded function args, keyed by BlockArgument. The
         # block arg's MLIR type is already the per-device (local) shape; this
@@ -237,11 +244,15 @@ class Builder(metaclass=BuilderMeta):
             input_output_golden_info[program_index] = {}
             ordered_inputs, ordered_outputs = ordered_values
 
-            # Always store inputs into golden map.
+            # Always store inputs into golden map. Prefer the value snapshotted at
+            # binding time so in-place ops that overwrite a mutated operand's golden
+            # do not corrupt the reported input golden.
             for index, input in enumerate(ordered_inputs):
                 loc = f"input_{index}"
-                input_output_golden_info[program_index][loc] = self._get_golden_tensor(
-                    input
+                input_output_golden_info[program_index][
+                    loc
+                ] = self._input_golden_snapshot.get(
+                    input, self._get_golden_tensor(input)
                 )
 
             # Store outputs into golden map if they are marked to be stored.
@@ -285,6 +296,8 @@ class Builder(metaclass=BuilderMeta):
     ):
         self._set_goldens(self._create_builder_golden_from_torch_tensor(inputs))
 
+        self._refresh_input_snapshot(inputs.keys())
+
         if outputs != None:
             self._set_goldens(self._create_builder_golden_from_torch_tensor(outputs))
             if set_all_outputs:
@@ -296,6 +309,7 @@ class Builder(metaclass=BuilderMeta):
         outputs: Dict[Operand, GoldenMapTensor] = None,
     ):
         self._set_goldens(inputs)
+        self._refresh_input_snapshot(inputs.keys())
 
         if outputs != None:
             self.set_goldens_to_check(outputs.keys())
@@ -775,6 +789,21 @@ class Builder(metaclass=BuilderMeta):
         for operand, golden in goldens.items():
             self._set_golden_tensor(operand, golden)
 
+    def _snapshot_input_goldens(self, operands: List[Operand]):
+        # Capture the golden of each function input as it is bound, before any
+        # in-place op has a chance to overwrite it. Idempotent so it is safe to
+        # call once per function per input.
+        for operand in operands:
+            if operand not in self._input_golden_snapshot and operand in self._goldens:
+                self._input_golden_snapshot[operand] = self._goldens[operand]
+
+    def _refresh_input_snapshot(self, operands: Iterable[Operand]):
+        # Re-sync the bind-time input snapshot after an explicit golden
+        # (re)assignment.
+        for operand in operands:
+            if operand in self._input_golden_snapshot and operand in self._goldens:
+                self._input_golden_snapshot[operand] = self._goldens[operand]
+
     def _get_golden_tensor(
         self,
         operand: Operand,
@@ -1027,6 +1056,7 @@ class Builder(metaclass=BuilderMeta):
 
                 self._set_goldens(input_goldens)
                 ordered_inputs.extend(inputs)
+                self._snapshot_input_goldens(inputs)
 
                 result = nested_func(*inputs, self)
 
@@ -1348,6 +1378,7 @@ class Builder(metaclass=BuilderMeta):
             ] = self._create_builder_golden_from_torch_tensor(golden_dict)
             self._set_goldens(input_goldens)
             ordered_inputs.extend(inputs)
+            self._snapshot_input_goldens(inputs)
 
             global_dict = {}
             for i, arg in enumerate(parsed_func.arguments):
@@ -1432,6 +1463,7 @@ class Builder(metaclass=BuilderMeta):
 
             self._set_goldens(input_goldens)
             ordered_inputs.extend(inputs)
+            self._snapshot_input_goldens(inputs)
 
             global_dict = {}
             for i, arg in enumerate(parsed_func.arguments):
@@ -1682,6 +1714,7 @@ class Builder(metaclass=BuilderMeta):
                     )
                 self._set_goldens(input_goldens)
                 ordered_inputs.extend(inputs)
+                self._snapshot_input_goldens(inputs)
 
                 result = fn(*inputs, self)
 

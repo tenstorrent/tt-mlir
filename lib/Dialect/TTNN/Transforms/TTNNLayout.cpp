@@ -697,6 +697,13 @@ private:
       return false;
     }
 
+    // KV-cache arguments are mutated in place by device cache ops
+    // (fill_cache/update_cache/paged_*), which carry a MemWrite side effect and
+    // produce no SSA result. Therefore they should stay on device.
+    if (owningFunc.getArgAttr(argIdx, ttcore::g_kvCacheAttrName)) {
+      return false;
+    }
+
     for (Operation *user : arg.getUsers()) {
       if (mlir::isa<ttir::MeshShardOp>(user)) {
         return true;

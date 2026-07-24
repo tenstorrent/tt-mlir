@@ -64,14 +64,14 @@ func.func @llama_3_2_1b_decoder(%arg0: tensor<1xi64> {ttcore.argument_type = #tt
     %62 = "ttir.multiply"(%56, %61) : (tensor<32x8x1x64xbf16>, tensor<32x8x1x64xbf16>) -> tensor<32x8x1x64xbf16>
     %63 = "ttir.add"(%52, %62) : (tensor<32x8x1x64xbf16>, tensor<32x8x1x64xbf16>) -> tensor<32x8x1x64xbf16>
     %64 = "ttir.permute"(%63) <{permutation = array<i64: 2, 1, 0, 3>}> : (tensor<32x8x1x64xbf16>) -> tensor<1x8x32x64xbf16>
-    %65 = "ttir.update_cache"(%arg5, %64, %arg0) <{batch_offset = 0 : i32}> : (tensor<32x8x128x64xbf16>, tensor<1x8x32x64xbf16>, tensor<1xi64>) -> tensor<32x8x128x64xbf16>
+    "ttir.update_cache"(%arg5, %64, %arg0) <{batch_offset = 0 : i32}> : (tensor<32x8x128x64xbf16>, tensor<1x8x32x64xbf16>, tensor<1xi64>) -> ()
     %66 = "ttir.reshape"(%arg6) <{shape = [1 : i32, 512 : i32, 2048 : i32]}> : (tensor<512x2048xbf16>) -> tensor<1x512x2048xbf16>
     %67 = "ttir.reshape"(%66) <{shape = [512 : i32, 2048 : i32]}> : (tensor<1x512x2048xbf16>) -> tensor<512x2048xbf16>
     %68 = "ttir.permute"(%67) <{permutation = array<i64: 1, 0>}> : (tensor<512x2048xbf16>) -> tensor<2048x512xbf16>
     %69 = "ttir.dot_general"(%34, %68) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<32x2048xbf16>, tensor<2048x512xbf16>) -> tensor<32x512xbf16>
     %70 = "ttir.reshape"(%69) <{shape = [32 : i32, 8 : i32, 1 : i32, 64 : i32]}> : (tensor<32x512xbf16>) -> tensor<32x8x1x64xbf16>
     %71 = "ttir.permute"(%70) <{permutation = array<i64: 2, 1, 0, 3>}> : (tensor<32x8x1x64xbf16>) -> tensor<1x8x32x64xbf16>
-    %72 = "ttir.update_cache"(%arg7, %71, %arg0) <{batch_offset = 0 : i32}> : (tensor<32x8x128x64xbf16>, tensor<1x8x32x64xbf16>, tensor<1xi64>) -> tensor<32x8x128x64xbf16>
+    "ttir.update_cache"(%arg7, %71, %arg0) <{batch_offset = 0 : i32}> : (tensor<32x8x128x64xbf16>, tensor<1x8x32x64xbf16>, tensor<1xi64>) -> ()
     %73 = "ttir.reshape"(%arg11) <{shape = [1 : i32, 2048 : i32, 2048 : i32]}> : (tensor<2048x2048xbf16>) -> tensor<1x2048x2048xbf16>
     %74 = "ttir.reshape"(%73) <{shape = [2048 : i32, 2048 : i32]}> : (tensor<1x2048x2048xbf16>) -> tensor<2048x2048xbf16>
     %75 = "ttir.permute"(%74) <{permutation = array<i64: 1, 0>}> : (tensor<2048x2048xbf16>) -> tensor<2048x2048xbf16>
@@ -88,7 +88,7 @@ func.func @llama_3_2_1b_decoder(%arg0: tensor<1xi64> {ttcore.argument_type = #tt
     %86 = "ttir.broadcast"(%85) <{broadcast_dimensions = array<i64: 32, 32, 1, 1>}> : (tensor<1x1x1x64xbf16>) -> tensor<32x32x1x64xbf16>
     %87 = "ttir.multiply"(%84, %86) : (tensor<32x32x1x64xbf16>, tensor<32x32x1x64xbf16>) -> tensor<32x32x1x64xbf16>
     %88 = "ttir.add"(%80, %87) : (tensor<32x32x1x64xbf16>, tensor<32x32x1x64xbf16>) -> tensor<32x32x1x64xbf16>
-    %89 = "ttir.reshape"(%65) <{shape = [32 : i32, 8 : i32, 1 : i32, 128 : i32, 64 : i32]}> : (tensor<32x8x128x64xbf16>) -> tensor<32x8x1x128x64xbf16>
+    %89 = "ttir.reshape"(%arg5) <{shape = [32 : i32, 8 : i32, 1 : i32, 128 : i32, 64 : i32]}> : (tensor<32x8x128x64xbf16>) -> tensor<32x8x1x128x64xbf16>
     %90 = "ttir.broadcast"(%89) <{broadcast_dimensions = array<i64: 1, 1, 4, 1, 1>}> : (tensor<32x8x1x128x64xbf16>) -> tensor<32x8x4x128x64xbf16>
     %91 = "ttir.reshape"(%90) <{shape = [32 : i32, 32 : i32, 128 : i32, 64 : i32]}> : (tensor<32x8x4x128x64xbf16>) -> tensor<32x32x128x64xbf16>
     %92 = "ttir.permute"(%91) <{permutation = array<i64: 0, 1, 3, 2>}> : (tensor<32x32x128x64xbf16>) -> tensor<32x32x64x128xbf16>
@@ -117,7 +117,7 @@ func.func @llama_3_2_1b_decoder(%arg0: tensor<1xi64> {ttcore.argument_type = #tt
     %115 = "ttir.broadcast"(%114) <{broadcast_dimensions = array<i64: 1, 1, 1, 128>}> : (tensor<32x32x1x1xf32>) -> tensor<32x32x1x128xf32>
     %116 = "ttir.div"(%112, %115) : (tensor<32x32x1x128xf32>, tensor<32x32x1x128xf32>) -> tensor<32x32x1x128xf32>
     %117 = "ttir.typecast"(%116) <{conservative_folding = false}> : (tensor<32x32x1x128xf32>) -> tensor<32x32x1x128xbf16>
-    %118 = "ttir.reshape"(%72) <{shape = [32 : i32, 8 : i32, 1 : i32, 128 : i32, 64 : i32]}> : (tensor<32x8x128x64xbf16>) -> tensor<32x8x1x128x64xbf16>
+    %118 = "ttir.reshape"(%arg7) <{shape = [32 : i32, 8 : i32, 1 : i32, 128 : i32, 64 : i32]}> : (tensor<32x8x128x64xbf16>) -> tensor<32x8x1x128x64xbf16>
     %119 = "ttir.broadcast"(%118) <{broadcast_dimensions = array<i64: 1, 1, 4, 1, 1>}> : (tensor<32x8x1x128x64xbf16>) -> tensor<32x8x4x128x64xbf16>
     %120 = "ttir.reshape"(%119) <{shape = [32 : i32, 32 : i32, 128 : i32, 64 : i32]}> : (tensor<32x8x4x128x64xbf16>) -> tensor<32x32x128x64xbf16>
     %121 = "ttir.dot_general"(%117, %120) <{batch_dims_lhs = array<i64: 0, 1>, batch_dims_rhs = array<i64: 0, 1>, contract_dims_lhs = array<i64: 3>, contract_dims_rhs = array<i64: 2>}> : (tensor<32x32x1x128xbf16>, tensor<32x32x128x64xbf16>) -> tensor<32x32x1x64xbf16>
@@ -166,5 +166,5 @@ func.func @llama_3_2_1b_decoder(%arg0: tensor<1xi64> {ttcore.argument_type = #tt
     %164 = "ttir.dot_general"(%160, %163) <{batch_dims_lhs = array<i64>, batch_dims_rhs = array<i64>, contract_dims_lhs = array<i64: 1>, contract_dims_rhs = array<i64: 0>}> : (tensor<32x8192xbf16>, tensor<8192x2048xbf16>) -> tensor<32x2048xbf16>
     %165 = "ttir.reshape"(%164) <{shape = [32 : i32, 1 : i32, 2048 : i32]}> : (tensor<32x2048xbf16>) -> tensor<32x1x2048xbf16>
     %166 = "ttir.add"(%128, %165) : (tensor<32x1x2048xbf16>, tensor<32x1x2048xbf16>) -> tensor<32x1x2048xbf16>
-    return %65, %72, %166 : tensor<32x8x128x64xbf16>, tensor<32x8x128x64xbf16>, tensor<32x1x2048xbf16>
+    return %arg5, %arg7, %166 : tensor<32x8x128x64xbf16>, tensor<32x8x128x64xbf16>, tensor<32x1x2048xbf16>
 }
