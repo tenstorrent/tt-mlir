@@ -573,6 +573,75 @@ module {
 }
 
 // ----------------------------------------------------------------------------
+// GQA peel on an already-atomic ttir.scaled_dot_product_attention
+//
+// Some frontends emit the atomic op directly with K/V pre-expanded to Hq (no
+// matmul+softmax left to fuse). SDPAGroupedQueryPeelPattern peels the head-dim
+// expansion off the op's K/V operands since SDPA is GQA-native, so the op reads
+// the Hkv-head cache directly instead of an Hq-head copy materialised per step.
+// ----------------------------------------------------------------------------
+
+// Atomic op, decode shape (Sq=1), K/V expanded via ttir.repeat_interleave.
+module {
+  func.func @sdpa_op_gqa_repeat_interleave(
+      %q: tensor<1x32x1x64xbf16>,
+      %k: tensor<1x8x128x64xbf16>,
+      %v: tensor<1x8x128x64xbf16>,
+      %mask: tensor<1x1x1x128xbf16>) -> tensor<1x32x1x64xbf16> {
+    // CHECK-LABEL: @sdpa_op_gqa_repeat_interleave
+    // CHECK: "ttir.scaled_dot_product_attention"
+    // CHECK-SAME: tensor<1x8x128x64xbf16>, tensor<1x8x128x64xbf16>
+    // CHECK-NOT: ttir.repeat_interleave
+    %ke = "ttir.repeat_interleave"(%k) <{dim = 1 : si32, repeats = 4 : ui32}> : (tensor<1x8x128x64xbf16>) -> tensor<1x32x128x64xbf16>
+    %ve = "ttir.repeat_interleave"(%v) <{dim = 1 : si32, repeats = 4 : ui32}> : (tensor<1x8x128x64xbf16>) -> tensor<1x32x128x64xbf16>
+    %o = "ttir.scaled_dot_product_attention"(%q, %ke, %ve, %mask) <{is_causal = false, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0>, scale = 1.250000e-01 : f32}> : (tensor<1x32x1x64xbf16>, tensor<1x32x128x64xbf16>, tensor<1x32x128x64xbf16>, tensor<1x1x1x128xbf16>) -> tensor<1x32x1x64xbf16>
+    return %o : tensor<1x32x1x64xbf16>
+  }
+}
+
+// Atomic op, decode shape, K/V expanded via HF repeat_kv's
+// unsqueeze/broadcast/reshape form. The group axis is inserted with an
+// unsqueeze, so no repeat_interleave is produced; the peel must still recover
+// the native 8-head K/V.
+module {
+  func.func @sdpa_op_gqa_repeat_kv_reshape(
+      %q: tensor<1x32x1x64xbf16>,
+      %k: tensor<1x8x128x64xbf16>,
+      %v: tensor<1x8x128x64xbf16>,
+      %mask: tensor<1x1x1x128xbf16>) -> tensor<1x32x1x64xbf16> {
+    // CHECK-LABEL: @sdpa_op_gqa_repeat_kv_reshape
+    // CHECK: "ttir.scaled_dot_product_attention"
+    // CHECK-SAME: tensor<1x8x128x64xbf16>, tensor<1x8x128x64xbf16>
+    // CHECK-NOT: ttir.broadcast
+    %ku = "ttir.unsqueeze"(%k) <{dim = 2 : si32}> : (tensor<1x8x128x64xbf16>) -> tensor<1x8x1x128x64xbf16>
+    %kb = "ttir.broadcast"(%ku) <{broadcast_dimensions = array<i64: 1, 1, 4, 1, 1>}> : (tensor<1x8x1x128x64xbf16>) -> tensor<1x8x4x128x64xbf16>
+    %ke = "ttir.reshape"(%kb) <{shape = [1 : i32, 32 : i32, 128 : i32, 64 : i32]}> : (tensor<1x8x4x128x64xbf16>) -> tensor<1x32x128x64xbf16>
+    %vu = "ttir.unsqueeze"(%v) <{dim = 2 : si32}> : (tensor<1x8x128x64xbf16>) -> tensor<1x8x1x128x64xbf16>
+    %vb = "ttir.broadcast"(%vu) <{broadcast_dimensions = array<i64: 1, 1, 4, 1, 1>}> : (tensor<1x8x1x128x64xbf16>) -> tensor<1x8x4x128x64xbf16>
+    %ve = "ttir.reshape"(%vb) <{shape = [1 : i32, 32 : i32, 128 : i32, 64 : i32]}> : (tensor<1x8x4x128x64xbf16>) -> tensor<1x32x128x64xbf16>
+    %o = "ttir.scaled_dot_product_attention"(%q, %ke, %ve, %mask) <{is_causal = false, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0>, scale = 1.250000e-01 : f32}> : (tensor<1x32x1x64xbf16>, tensor<1x32x128x64xbf16>, tensor<1x32x128x64xbf16>, tensor<1x1x1x128xbf16>) -> tensor<1x32x1x64xbf16>
+    return %o : tensor<1x32x1x64xbf16>
+  }
+}
+
+// Negative: only K expanded (V already Hq) -> peeling would make Hkv mismatch,
+// so the op is left with the Hq-head operands.
+module {
+  func.func @sdpa_op_gqa_only_k_not_peeled(
+      %q: tensor<1x32x1x64xbf16>,
+      %k: tensor<1x8x128x64xbf16>,
+      %v: tensor<1x32x128x64xbf16>,
+      %mask: tensor<1x1x1x128xbf16>) -> tensor<1x32x1x64xbf16> {
+    // CHECK-LABEL: @sdpa_op_gqa_only_k_not_peeled
+    // CHECK: "ttir.scaled_dot_product_attention"
+    // CHECK-SAME: tensor<1x32x128x64xbf16>, tensor<1x32x128x64xbf16>
+    %ke = "ttir.repeat_interleave"(%k) <{dim = 1 : si32, repeats = 4 : ui32}> : (tensor<1x8x128x64xbf16>) -> tensor<1x32x128x64xbf16>
+    %o = "ttir.scaled_dot_product_attention"(%q, %ke, %v, %mask) <{is_causal = false, operandSegmentSizes = array<i32: 1, 1, 1, 1, 0>, scale = 1.250000e-01 : f32}> : (tensor<1x32x1x64xbf16>, tensor<1x32x128x64xbf16>, tensor<1x32x128x64xbf16>, tensor<1x1x1x128xbf16>) -> tensor<1x32x1x64xbf16>
+    return %o : tensor<1x32x1x64xbf16>
+  }
+}
+
+// ----------------------------------------------------------------------------
 // Attention sink (softmax padding column)
 //
 // The sink logit is concat'd as an extra score column before softmax, then the
