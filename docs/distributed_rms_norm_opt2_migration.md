@@ -3,6 +3,14 @@
 Handoff notes for the layout-optimizer developers. Branch:
 `mvasiljevic/5738-distributed-rmsnorm-rulebook`.
 
+> **Status: implemented and passing at the lit level.** All three pieces (rulebook +
+> gating + op-model proxy) are in. At opt-2 the workaround is gated off and the optimizer
+> emits a width-sharded `distributed_rms_norm` with a generated
+> `LayerNormShardedMultiCoreProgramConfig`; the existing opt-2 lit test passes via the
+> optimizer path and opt-1 still uses the workaround. Remaining: a full-model device check
+> (llama-1-layer, opt-2, qb2) and the open questions at the end. See the "Op-model" section
+> for the proxy design.
+
 ## Goal
 
 Today `DistributedRMSNormWidthShardInputRewritePattern` (a TTNN workaround) hand-picks the
@@ -33,8 +41,13 @@ to the optimizer with exactly three pieces. This op needs the same three:
 2. **Gating** — move the workaround pattern into the `optimizationLevel < 2` block.  ✅ done
    here (WIP).
 3. **Op-model** — `OpModel<Op>` so the beam search can *validate* the sharded candidates.
-   ❌ **missing — this is the blocker** (details below). `PagedUpdateCacheOp` and
-   `RMSNormOp` both have one; `DistributedRMSNormOp` does not.
+   ✅ done here as a **proxy** to `::ttnn::rms_norm` (details below). This was the original
+   blocker: `DistributedRMSNormOp` was `OpModelExempt` like **every** CCL op (`all_gather`,
+   `all_reduce`, `reduce_scatter`, `point_to_point`, …) — none can be graph-captured on the
+   fabric-less mock device (tt-metal#44748). `distributed_rms_norm` is special: its layout
+   legality equals a *modeled single-device op* (`rms_norm`), so a proxy works. Pure
+   data-movement CCL ops have no such local-compute equivalent, so this does not generalize
+   to them.
 
 ## What is implemented on this branch
 
