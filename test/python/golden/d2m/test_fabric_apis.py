@@ -23,6 +23,39 @@ import math
 CUSTOM_TTIR_PIPELINE = "ttcore-mark-functions-as-forward,ttcore-wrap-device-module,ttcore.device_module(builtin.module(d2m-to-ttkernel-pipeline,d2m-to-ttmetal-pipeline))"
 
 
+#Fill in the buffer addresses, destination memory space, and is_dram placeholders.
+def apply_memory_space_and_buffer_addresses(mlir_text, dst_memory_space):
+    # Source and destination buffer base addresses for the two memory spaces.
+    # The destination is a separate buffer, so in the L1 case the two addresses must not overlap.
+    # These addresses must also not be in the reserved address range of the memory spaces.
+    _SRC_BUFFER_ADDRESS = "307200"
+    _DST_BUFFER_ADDRESS = {
+        "l1": "204800",
+        "dram": "104857600",
+    }
+
+    if dst_memory_space not in _DST_BUFFER_ADDRESS:
+        raise ValueError(f"Unsupported dst_memory_space: {dst_memory_space}")
+    return (
+        mlir_text.replace("insert_src_buffer_address", _SRC_BUFFER_ADDRESS)
+        .replace(
+            "insert_is_dram", "1" if dst_memory_space == "dram" else "0"
+        )
+        .replace(
+            "insert_dst_buffer_address", _DST_BUFFER_ADDRESS[dst_memory_space]
+        )
+        .replace("insert_dst_memory_space", dst_memory_space)
+    )
+
+# Fill in the noc-index placeholders in a fabric snippet.
+def apply_noc_index_and_name(mlir_text, noc_index):
+    if noc_index not in (0, 1):
+        raise ValueError(f"Unsupported noc_index: {noc_index}")
+    return mlir_text.replace(
+        "insert_noc_index", f"{noc_index}"
+    ).replace("insert_noc_name", f"noc{noc_index}")
+
+
 @pytest.mark.frontend("ttir")
 @pytest.mark.parametrize(
     "fabric_config",
@@ -43,6 +76,8 @@ CUSTOM_TTIR_PIPELINE = "ttcore-mark-functions-as-forward,ttcore-wrap-device-modu
     "topology, cluster_axis, routing_mode", [("linear", 1, "bidir_line_mesh")]
 )
 @pytest.mark.parametrize("src_coord, dst_coord", [((0, 0), (0, 1))])
+@pytest.mark.parametrize("dst_memory_space", ["l1", "dram"])
+@pytest.mark.parametrize("noc_index", [0, 1])
 def test_fabric_unicast_2x4_line(
     target: str,
     request,
@@ -54,6 +89,8 @@ def test_fabric_unicast_2x4_line(
     topology,
     cluster_axis,
     routing_mode,
+    dst_memory_space,
+    noc_index,
 ):
     shard_shape = (32, 32)
     full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
@@ -110,6 +147,9 @@ def test_fabric_unicast_2x4_line(
             f"{routing_mode}",
         )
     )
+
+    mlir_text = apply_memory_space_and_buffer_addresses(mlir_text, dst_memory_space)
+    mlir_text = apply_noc_index_and_name(mlir_text, noc_index)
 
     ctx = Context()
     loc = Location.unknown(ctx)
@@ -331,6 +371,8 @@ def wrap_range(start, end, size):
         # ((0, 5), (0, 4), (0, 1)), # unsupported (has a gap)
     ],
 )
+@pytest.mark.parametrize("dst_memory_space", ["l1", "dram"])
+@pytest.mark.parametrize("noc_index", [0, 1])
 def test_fabric_mcast_1x8_line(
     target: str,
     request,
@@ -343,6 +385,8 @@ def test_fabric_mcast_1x8_line(
     topology,
     cluster_axis,
     routing_mode,
+    dst_memory_space,
+    noc_index,
 ):
     shard_shape = (32, 32)
     full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
@@ -403,6 +447,9 @@ def test_fabric_mcast_1x8_line(
             f"{routing_mode}",
         )
     )
+
+    mlir_text = apply_memory_space_and_buffer_addresses(mlir_text, dst_memory_space)
+    mlir_text = apply_noc_index_and_name(mlir_text, noc_index)
 
     ctx = Context()
     loc = Location.unknown(ctx)
@@ -486,6 +533,8 @@ def test_fabric_mcast_1x8_line(
         # ((0, 3), (0, 0), (0, 5)), # unsupported (has a gap)
     ],
 )
+@pytest.mark.parametrize("dst_memory_space", ["l1", "dram"])
+@pytest.mark.parametrize("noc_index", [0, 1])
 def test_fabric_mcast_1x8_ring(
     target: str,
     request,
@@ -498,6 +547,8 @@ def test_fabric_mcast_1x8_ring(
     topology,
     cluster_axis,
     routing_mode,
+    dst_memory_space,
+    noc_index,
 ):
     shard_shape = (32, 32)
     full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
@@ -558,6 +609,9 @@ def test_fabric_mcast_1x8_ring(
             f"{routing_mode}",
         )
     )
+
+    mlir_text = apply_memory_space_and_buffer_addresses(mlir_text, dst_memory_space)
+    mlir_text = apply_noc_index_and_name(mlir_text, noc_index)
 
     ctx = Context()
     loc = Location.unknown(ctx)
@@ -640,6 +694,8 @@ def test_fabric_mcast_1x8_ring(
         # ((1, 3), (1, 2), (1, 0)), # unsupported (has a gap)
     ],
 )
+@pytest.mark.parametrize("dst_memory_space", ["l1", "dram"])
+@pytest.mark.parametrize("noc_index", [0, 1])
 def test_fabric_mcast_2x4_line(
     target: str,
     request,
@@ -652,6 +708,8 @@ def test_fabric_mcast_2x4_line(
     topology,
     cluster_axis,
     routing_mode,
+    dst_memory_space,
+    noc_index,
 ):
     shard_shape = (32, 32)
     full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
@@ -712,6 +770,9 @@ def test_fabric_mcast_2x4_line(
             f"{routing_mode}",
         )
     )
+
+    mlir_text = apply_memory_space_and_buffer_addresses(mlir_text, dst_memory_space)
+    mlir_text = apply_noc_index_and_name(mlir_text, noc_index)
 
     ctx = Context()
     loc = Location.unknown(ctx)
@@ -796,6 +857,8 @@ def test_fabric_mcast_2x4_line(
         # ((0, 3), (0, 0), (0, 5)), # unsupported (has a gap)
     ],
 )
+@pytest.mark.parametrize("dst_memory_space", ["l1", "dram"])
+@pytest.mark.parametrize("noc_index", [0, 1])
 def test_fabric_mcast_8x4_ring(
     target: str,
     request,
@@ -808,6 +871,8 @@ def test_fabric_mcast_8x4_ring(
     topology,
     cluster_axis,
     routing_mode,
+    dst_memory_space,
+    noc_index,
 ):
     shard_shape = (32, 32)
     full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
@@ -868,6 +933,9 @@ def test_fabric_mcast_8x4_ring(
             f"{routing_mode}",
         )
     )
+
+    mlir_text = apply_memory_space_and_buffer_addresses(mlir_text, dst_memory_space)
+    mlir_text = apply_noc_index_and_name(mlir_text, noc_index)
 
     ctx = Context()
     loc = Location.unknown(ctx)
@@ -956,6 +1024,8 @@ def test_fabric_mcast_8x4_ring(
         # ((0, 3), (0, 0), (0, 5)), # unsupported (has a gap)
     ],
 )
+@pytest.mark.parametrize("dst_memory_space", ["l1", "dram"])
+@pytest.mark.parametrize("noc_index", [0, 1])
 def test_fabric_mcast_8x4_torus(
     target: str,
     request,
@@ -968,6 +1038,8 @@ def test_fabric_mcast_8x4_torus(
     topology,
     cluster_axis,
     routing_mode,
+    dst_memory_space,
+    noc_index,
 ):
     shard_shape = (32, 32)
     full_shape = (shard_shape[0] * mesh_shape[0], shard_shape[1] * mesh_shape[1])
@@ -1028,6 +1100,9 @@ def test_fabric_mcast_8x4_torus(
             f"{routing_mode}",
         )
     )
+
+    mlir_text = apply_memory_space_and_buffer_addresses(mlir_text, dst_memory_space)
+    mlir_text = apply_noc_index_and_name(mlir_text, noc_index)
 
     ctx = Context()
     loc = Location.unknown(ctx)

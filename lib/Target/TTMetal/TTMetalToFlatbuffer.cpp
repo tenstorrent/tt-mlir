@@ -988,7 +988,7 @@ fabricConnectionConfigToFlatbuffer(
     FlatbufferObjectCache &cache,
     ttcore::FabricConnectionConfigAttr fabricConnectionConfig) {
   return target::CreateFabricConnectionConfig(
-      *cache.fbb, toFlatbuffer(cache, fabricConnectionConfig.getNocIndex()),
+      *cache.fbb, fabricConnectionConfig.getDmCoreIndex(),
       toFlatbuffer(cache, fabricConnectionConfig.getTopology()),
       fabricConnectionConfig.getClusterAxis(),
       toFlatbuffer(cache, fabricConnectionConfig.getRoutingMode()),
