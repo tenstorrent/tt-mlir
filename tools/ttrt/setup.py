@@ -197,6 +197,13 @@ if enable_runtime:
         dirs_exist_ok=True,
     )
 
+    # copy ttml kernels
+    shutil.copytree(
+        f"{ttmetalhome}/tt-train/sources/ttml/metal",
+        f"{ttmlir_build_dir}/python_packages/ttrt/runtime/tt-train/sources/ttml/metal",
+        dirs_exist_ok=True,
+    )
+
     import os
 
     def package_files(directory):

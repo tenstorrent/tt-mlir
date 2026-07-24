@@ -171,6 +171,7 @@ add_definitions(${LLVM_DEFINITIONS})
 include(TTMLIRPythonSitePackages)
 
 add_subdirectory(third_party)
+add_subdirectory(third_party/ttml)
 if (TTMLIR_ENABLE_STABLEHLO)
   set(STABLEHLO_BUILD_EMBEDDED ON)
   set(STABLEHLO_ENABLE_BINDINGS_PYTHON ON)

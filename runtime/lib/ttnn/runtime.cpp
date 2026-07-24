@@ -1502,6 +1502,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_BatchNormTrainingOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::AdamWOp: {
+    tensorRefs = {opContext.type_as_AdamWOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::MaxPool2dWithIndicesOp: {
     tensorRefs = {opContext.type_as_MaxPool2dWithIndicesOp()->result(),
                   opContext.type_as_MaxPool2dWithIndicesOp()->result_indices()};
@@ -1936,6 +1940,16 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
                   opContext.type_as_BatchNormTrainingOp()->running_var(),
                   opContext.type_as_BatchNormTrainingOp()->weight(),
                   opContext.type_as_BatchNormTrainingOp()->bias()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::AdamWOp: {
+    tensorRefs = {opContext.type_as_AdamWOp()->param(),
+                  opContext.type_as_AdamWOp()->grad(),
+                  opContext.type_as_AdamWOp()->exp_avg(),
+                  opContext.type_as_AdamWOp()->exp_avg_sq()};
+    if (opContext.type_as_AdamWOp()->max_exp_avg_sq()) {
+      tensorRefs.push_back(opContext.type_as_AdamWOp()->max_exp_avg_sq());
+    }
     break;
   }
   case ::tt::target::ttnn::OpType::RMSNormOp: {

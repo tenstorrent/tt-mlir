@@ -1,0 +1,21 @@
+include "ttmlir/Target/Common/types.fbs";
+include "ttmlir/Target/TTNN/types.fbs";
+
+namespace tt.target.ttnn;
+
+table AdamWOp {
+  param: tt.target.ttnn.TensorRef;
+  grad: tt.target.ttnn.TensorRef;
+  exp_avg: tt.target.ttnn.TensorRef;
+  exp_avg_sq: tt.target.ttnn.TensorRef;
+  max_exp_avg_sq: tt.target.ttnn.TensorRef;
+  lr: float;
+  beta1: float;
+  beta2: float;
+  beta1_pow: float;
+  beta2_pow: float;
+  epsilon: float;
+  weight_decay: float;
+  stochastic_rounding: bool = false;
+  out: tt.target.ttnn.TensorRef;
+}

@@ -1,5 +1,7 @@
 find_package(Python REQUIRED COMPONENTS Interpreter Development.Module Development.Embed)
 
+add_subdirectory(ttml)
+
 if (NOT TTNN_RUNTIME_ENABLED)
   add_library(TTRuntimeTTNNOps INTERFACE)
   return()

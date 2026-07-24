@@ -1269,6 +1269,24 @@ public:
     return success();
   }
 };
+
+class AdamWOpConversionPattern : public OpConversionPattern<ttir::AdamWOp> {
+public:
+  using OpConversionPattern<ttir::AdamWOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ttir::AdamWOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<ttnn::AdamWOp>(
+        op, this->getTypeConverter()->convertType(op.getType()),
+        adaptor.getParam(), adaptor.getGrad(), adaptor.getExpAvg(),
+        adaptor.getExpAvgSq(), adaptor.getMaxExpAvgSq(), adaptor.getLr(),
+        adaptor.getBeta1(), adaptor.getBeta2(), adaptor.getBeta1Pow(),
+        adaptor.getBeta2Pow(), adaptor.getEpsilon(), adaptor.getWeightDecay(),
+        adaptor.getStochasticRounding());
+    return success();
+  }
+};
 } // namespace
 
 namespace {
@@ -3843,6 +3861,7 @@ void populateTTIRToTTNNPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
            LinearOpConversionPattern,
            BatchNormInferenceOpConversionPattern,
            BatchNormTrainingOpConversionPattern,
+           AdamWOpConversionPattern,
            RMSNormOpConversionPattern,
            DistributedRMSNormOpConversionPattern,
            DistributedLayerNormOpConversionPattern,

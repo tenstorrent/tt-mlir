@@ -7582,6 +7582,104 @@ class TTIRBuilder(Builder):
 
         return gt_module, gt_builder
 
+    ############### ttir.AdamWOp ###############
+
+    @tag(ttir.AdamWOp)
+    def adamw(
+        self,
+        param: Operand,
+        grad: Operand,
+        exp_avg: Operand,
+        exp_avg_sq: Operand,
+        max_exp_avg_sq: Optional[Operand] = None,
+        lr: float = 1e-3,
+        beta1: float = 0.9,
+        beta2: float = 0.999,
+        beta1_pow: float = 0.9,
+        beta2_pow: float = 0.999,
+        epsilon: float = 1e-8,
+        weight_decay: float = 0.0,
+        stochastic_rounding: bool = False,
+        output_type: Optional[torch.dtype] = None,
+        loc: Optional[str] = None,
+        unit_attrs: Optional[List[str]] = None,
+    ) -> OpResult:
+        ttir_op = self.get_opview_from_method(TTIRBuilder.adamw)
+        lr_attr = FloatAttr.get_f32(lr)
+        beta1_attr = FloatAttr.get_f32(beta1)
+        beta2_attr = FloatAttr.get_f32(beta2)
+        beta1_pow_attr = FloatAttr.get_f32(beta1_pow)
+        beta2_pow_attr = FloatAttr.get_f32(beta2_pow)
+        epsilon_attr = FloatAttr.get_f32(epsilon)
+        weight_decay_attr = FloatAttr.get_f32(weight_decay)
+
+        if output_type is None:
+            mlir_output_type = self.get_type(param)
+        else:
+            mlir_output_type = self._get_type_from_torch_dtype(output_type)
+
+        param0 = self._get_golden_tensor(param)
+        grad0 = self._get_golden_tensor(grad)
+        exp_avg0 = self._get_golden_tensor(exp_avg)
+        exp_avg_sq0 = self._get_golden_tensor(exp_avg_sq)
+        max_exp_avg_sq0 = (
+            self._get_golden_tensor(max_exp_avg_sq)
+            if max_exp_avg_sq is not None
+            else None
+        )
+
+        op_golden_function = get_golden_function(ttir_op)
+        golden_output = op_golden_function(
+            param0,
+            grad0,
+            exp_avg0,
+            exp_avg_sq0,
+            max_exp_avg_sq0,
+            lr_attr,
+            beta1_attr,
+            beta2_attr,
+            beta1_pow_attr,
+            beta2_pow_attr,
+            epsilon_attr,
+            weight_decay_attr,
+            stochastic_rounding,
+            mlir_output_type,
+        )
+
+        result = self._create_ranked_tensor_type(golden_output.shape, mlir_output_type)
+
+        if loc is None:
+            loc = self._get_location()
+        else:
+            loc = Location.name(loc)
+
+        op = ttir_op(
+            result,
+            param,
+            grad,
+            exp_avg,
+            exp_avg_sq,
+            lr_attr,
+            beta1_attr,
+            beta2_attr,
+            beta1_pow_attr,
+            beta2_pow_attr,
+            epsilon_attr,
+            weight_decay_attr,
+            max_exp_avg_sq=max_exp_avg_sq,
+            stochastic_rounding=stochastic_rounding,
+            loc=loc,
+        )
+        op_result = op.result
+
+        if unit_attrs is not None:
+            for attr_name in unit_attrs:
+                op.operation.attributes[attr_name] = UnitAttr.get(self._ctx)
+
+        self._set_golden_tensor(op_result, golden_output)
+
+        return op_result
+
     ############### ttir.BatchNormInferenceOp ###############
 
     @tag(ttir.BatchNormInferenceOp)
