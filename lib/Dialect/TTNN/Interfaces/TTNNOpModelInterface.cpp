@@ -5162,49 +5162,41 @@ unpackBatchNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
   return ret;
 }
 
-llvm::Expected<op_model::OpConstraints> BatchNormInferenceOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints>
+batchNormInferenceConstraintsImpl(
+    BatchNormInferenceOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
   assert(inputs.size() == 5 && "ttnn::batch_norm can only have 5 input tensors "
                                "(representing main input tensor, "
                                "running_mean, running_var, weight and bias).");
 
-  const auto inputShape = getInput().getType().getShape();
+  const auto inputShape = op.getInput().getType().getShape();
 
   BatchNormOptionalArgs optionalArgs =
-      unpackBatchNormOptionalArgs(inputs, *this);
+      unpackBatchNormOptionalArgs(inputs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<BatchNormInferenceOp>::getOpConstraints, *this,
-      inputShape, inputs[0], optionalArgs.runningMeanShape,
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], optionalArgs.runningMeanShape,
       optionalArgs.runningMeanLayout, optionalArgs.runningVarShape,
       optionalArgs.runningVarLayout, optionalArgs.weightShape,
       optionalArgs.weightLayout, optionalArgs.biasShape,
-      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout);
+      optionalArgs.biasLayout, op.getEpsilon(), opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints> BatchNormInferenceOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return batchNormInferenceConstraintsImpl(*this, inputs, opConfig,
+                                           /*state=*/nullptr);
 }
 
 llvm::Expected<op_model::OpConstraints>
 BatchNormInferenceOp::getOpConstraintsWithState(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
     llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
-  assert(inputs.size() == 5 && "ttnn::batch_norm can only have 5 input tensors "
-                               "(representing main input tensor, "
-                               "running_mean, running_var, weight and bias).");
-
-  const auto inputShape = getInput().getType().getShape();
-
-  BatchNormOptionalArgs optionalArgs =
-      unpackBatchNormOptionalArgs(inputs, *this);
-
   std::shared_ptr<op_model::MockAllocatorState> initialState =
       op_model::buildInitialState(liveRecords);
-
-  return op_model::OpModel<BatchNormInferenceOp>::getOpConstraintsWithState(
-      inputShape, inputs[0], optionalArgs.runningMeanShape,
-      optionalArgs.runningMeanLayout, optionalArgs.runningVarShape,
-      optionalArgs.runningVarLayout, optionalArgs.weightShape,
-      optionalArgs.weightLayout, optionalArgs.biasShape,
-      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout,
-      initialState.get());
+  return batchNormInferenceConstraintsImpl(*this, inputs, opConfig,
+                                           initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -5232,9 +5224,10 @@ BatchNormInferenceOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // BatchNormTrainingOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-BatchNormTrainingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                                      const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints>
+batchNormTrainingConstraintsImpl(
+    BatchNormTrainingOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
   assert((inputs.size() == 1 || inputs.size() == 5) &&
          "ttnn::batch_norm_training can either have 1 input tensor "
          "(representing the main input) or 5 input tensors (representing main "
@@ -5242,47 +5235,35 @@ BatchNormTrainingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
          "usage of this op with 2-4 input tensors is discouraged as it's "
          "ambiguous.");
 
-  const auto inputShape = getInput().getType().getShape();
+  const auto inputShape = op.getInput().getType().getShape();
 
   BatchNormOptionalArgs optionalArgs =
-      unpackBatchNormOptionalArgs(inputs, *this);
+      unpackBatchNormOptionalArgs(inputs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<BatchNormTrainingOp>::getOpConstraints, *this,
-      inputShape, inputs[0], optionalArgs.runningMeanShape,
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], optionalArgs.runningMeanShape,
       optionalArgs.runningMeanLayout, optionalArgs.runningVarShape,
       optionalArgs.runningVarLayout, optionalArgs.weightShape,
       optionalArgs.weightLayout, optionalArgs.biasShape,
-      optionalArgs.biasLayout, getEpsilon(), getMomentum(),
+      optionalArgs.biasLayout, op.getEpsilon(), op.getMomentum(),
       opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+BatchNormTrainingOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                      const OpConfig &opConfig) {
+  return batchNormTrainingConstraintsImpl(*this, inputs, opConfig,
+                                          /*state=*/nullptr);
 }
 
 llvm::Expected<op_model::OpConstraints>
 BatchNormTrainingOp::getOpConstraintsWithState(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
     llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
-  assert((inputs.size() == 1 || inputs.size() == 5) &&
-         "ttnn::batch_norm_training can either have 1 input tensor "
-         "(representing the main input) or 5 input tensors (representing main "
-         "input tensor, running_mean, running_var, weight and bias). The "
-         "usage of this op with 2-4 input tensors is discouraged as it's "
-         "ambiguous.");
-
-  const auto inputShape = getInput().getType().getShape();
-
-  BatchNormOptionalArgs optionalArgs =
-      unpackBatchNormOptionalArgs(inputs, *this);
-
   std::shared_ptr<op_model::MockAllocatorState> initialState =
       op_model::buildInitialState(liveRecords);
-
-  return op_model::OpModel<BatchNormTrainingOp>::getOpConstraintsWithState(
-      inputShape, inputs[0], optionalArgs.runningMeanShape,
-      optionalArgs.runningMeanLayout, optionalArgs.runningVarShape,
-      optionalArgs.runningVarLayout, optionalArgs.weightShape,
-      optionalArgs.weightLayout, optionalArgs.biasShape,
-      optionalArgs.biasLayout, getEpsilon(), getMomentum(),
-      opConfig.outputLayout, initialState.get());
+  return batchNormTrainingConstraintsImpl(*this, inputs, opConfig,
+                                          initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -5341,46 +5322,39 @@ unpackRMSNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
   return ret;
 }
 
+static llvm::Expected<op_model::OpConstraints>
+rMSNormConstraintsImpl(
+    RMSNormOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  const auto inputShape = op.getInput().getType().getShape();
+
+  RMSNormOptionalArgs optionalArgs = unpackRMSNormOptionalArgs(inputs, op);
+
+  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
+      op.getComputeConfigAttr()
+          ? std::optional<DeviceComputeKernelConfigAttr>(
+                op.getComputeConfigAttr())
+          : std::nullopt;
+
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], optionalArgs.weightShape,
+      optionalArgs.weightLayout, optionalArgs.biasShape,
+      optionalArgs.biasLayout, op.getEpsilon(), opConfig.outputLayout,
+      computeKernelConfig);
+}
+
 llvm::Expected<op_model::OpConstraints>
 RMSNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                             const OpConfig &opConfig) {
-
-  const auto inputShape = getInput().getType().getShape();
-
-  RMSNormOptionalArgs optionalArgs = unpackRMSNormOptionalArgs(inputs, *this);
-
-  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
-      getComputeConfigAttr()
-          ? std::optional<DeviceComputeKernelConfigAttr>(getComputeConfigAttr())
-          : std::nullopt;
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<RMSNormOp>::getOpConstraints, *this, inputShape,
-      inputs[0], optionalArgs.weightShape, optionalArgs.weightLayout,
-      optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(),
-      opConfig.outputLayout, computeKernelConfig);
+  return rMSNormConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
 }
 
 llvm::Expected<op_model::OpConstraints> RMSNormOp::getOpConstraintsWithState(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
     llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
-  const auto inputShape = getInput().getType().getShape();
-
-  RMSNormOptionalArgs optionalArgs = unpackRMSNormOptionalArgs(inputs, *this);
-
-  std::optional<DeviceComputeKernelConfigAttr> computeKernelConfig =
-      getComputeConfigAttr()
-          ? std::optional<DeviceComputeKernelConfigAttr>(getComputeConfigAttr())
-          : std::nullopt;
-
   std::shared_ptr<op_model::MockAllocatorState> initialState =
       op_model::buildInitialState(liveRecords);
-
-  return op_model::OpModel<RMSNormOp>::getOpConstraintsWithState(
-      inputShape, inputs[0], optionalArgs.weightShape,
-      optionalArgs.weightLayout, optionalArgs.biasShape,
-      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout,
-      computeKernelConfig, initialState.get());
+  return rMSNormConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -5427,37 +5401,36 @@ unpackRMSNormPreAllGatherOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
   return ret;
 }
 
-llvm::Expected<op_model::OpConstraints> RMSNormPreAllGatherOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-
-  const auto inputShape = getInput().getType().getShape();
+static llvm::Expected<op_model::OpConstraints>
+rMSNormPreAllGatherConstraintsImpl(
+    RMSNormPreAllGatherOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  const auto inputShape = op.getInput().getType().getShape();
 
   RMSNormPreAllGatherOptionalArgs optionalArgs =
-      unpackRMSNormPreAllGatherOptionalArgs(inputs, *this);
+      unpackRMSNormPreAllGatherOptionalArgs(inputs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<RMSNormPreAllGatherOp>::getOpConstraints, *this,
-      inputShape, inputs[0], optionalArgs.residualInputShape,
-      optionalArgs.residualInputLayout, dataTypeAttrToOptional(getDtypeAttr()),
-      getUse_2dCoreGrid(), opConfig.outputLayout);
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], optionalArgs.residualInputShape,
+      optionalArgs.residualInputLayout,
+      dataTypeAttrToOptional(op.getDtypeAttr()), op.getUse_2dCoreGrid(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints> RMSNormPreAllGatherOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return rMSNormPreAllGatherConstraintsImpl(*this, inputs, opConfig,
+                                            /*state=*/nullptr);
 }
 
 llvm::Expected<op_model::OpConstraints>
 RMSNormPreAllGatherOp::getOpConstraintsWithState(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
     llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
-  const auto inputShape = getInput().getType().getShape();
-
-  RMSNormPreAllGatherOptionalArgs optionalArgs =
-      unpackRMSNormPreAllGatherOptionalArgs(inputs, *this);
-
   std::shared_ptr<op_model::MockAllocatorState> initialState =
       op_model::buildInitialState(liveRecords);
-
-  return op_model::OpModel<RMSNormPreAllGatherOp>::getOpConstraintsWithState(
-      inputShape, inputs[0], optionalArgs.residualInputShape,
-      optionalArgs.residualInputLayout, dataTypeAttrToOptional(getDtypeAttr()),
-      getUse_2dCoreGrid(), opConfig.outputLayout, initialState.get());
+  return rMSNormPreAllGatherConstraintsImpl(*this, inputs, opConfig,
+                                            initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -5507,38 +5480,33 @@ unpackLayerNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
   return ret;
 }
 
+static llvm::Expected<op_model::OpConstraints>
+layerNormConstraintsImpl(
+    LayerNormOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  const auto inputShape = op.getInput().getType().getShape();
+
+  LayerNormOptionalArgs optionalArgs =
+      unpackLayerNormOptionalArgs(inputs, op);
+
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], optionalArgs.weightShape,
+      optionalArgs.weightLayout, optionalArgs.biasShape,
+      optionalArgs.biasLayout, op.getEpsilon(), opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 LayerNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
-
-  const auto inputShape = getInput().getType().getShape();
-
-  LayerNormOptionalArgs optionalArgs =
-      unpackLayerNormOptionalArgs(inputs, *this);
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<LayerNormOp>::getOpConstraints, *this, inputShape,
-      inputs[0], optionalArgs.weightShape, optionalArgs.weightLayout,
-      optionalArgs.biasShape, optionalArgs.biasLayout, getEpsilon(),
-      opConfig.outputLayout);
+  return layerNormConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
 }
 
 llvm::Expected<op_model::OpConstraints> LayerNormOp::getOpConstraintsWithState(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
     llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
-  const auto inputShape = getInput().getType().getShape();
-
-  LayerNormOptionalArgs optionalArgs =
-      unpackLayerNormOptionalArgs(inputs, *this);
-
   std::shared_ptr<op_model::MockAllocatorState> initialState =
       op_model::buildInitialState(liveRecords);
-
-  return op_model::OpModel<LayerNormOp>::getOpConstraintsWithState(
-      inputShape, inputs[0], optionalArgs.weightShape,
-      optionalArgs.weightLayout, optionalArgs.biasShape,
-      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout,
-      initialState.get());
+  return layerNormConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -5588,40 +5556,37 @@ unpackLayerNormPreAllGatherOptionalArgs(
   return ret;
 }
 
+static llvm::Expected<op_model::OpConstraints>
+layerNormPreAllGatherConstraintsImpl(
+    LayerNormPreAllGatherOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  const auto inputShape = op.getInput().getType().getShape();
+
+  LayerNormPreAllGatherOptionalArgs optionalArgs =
+      unpackLayerNormPreAllGatherOptionalArgs(inputs, op);
+
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], optionalArgs.residualInputShape,
+      optionalArgs.residualInputLayout, optionalArgs.recipShape,
+      optionalArgs.recipLayout, dataTypeAttrToOptional(op.getDtypeAttr()),
+      opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 LayerNormPreAllGatherOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-
-  const auto inputShape = getInput().getType().getShape();
-
-  LayerNormPreAllGatherOptionalArgs optionalArgs =
-      unpackLayerNormPreAllGatherOptionalArgs(inputs, *this);
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<LayerNormPreAllGatherOp>::getOpConstraints, *this,
-      inputShape, inputs[0], optionalArgs.residualInputShape,
-      optionalArgs.residualInputLayout, optionalArgs.recipShape,
-      optionalArgs.recipLayout, dataTypeAttrToOptional(getDtypeAttr()),
-      opConfig.outputLayout);
+  return layerNormPreAllGatherConstraintsImpl(*this, inputs, opConfig,
+                                              /*state=*/nullptr);
 }
 
 llvm::Expected<op_model::OpConstraints>
 LayerNormPreAllGatherOp::getOpConstraintsWithState(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
     llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
-  const auto inputShape = getInput().getType().getShape();
-
-  LayerNormPreAllGatherOptionalArgs optionalArgs =
-      unpackLayerNormPreAllGatherOptionalArgs(inputs, *this);
-
   std::shared_ptr<op_model::MockAllocatorState> initialState =
       op_model::buildInitialState(liveRecords);
-
-  return op_model::OpModel<LayerNormPreAllGatherOp>::getOpConstraintsWithState(
-      inputShape, inputs[0], optionalArgs.residualInputShape,
-      optionalArgs.residualInputLayout, optionalArgs.recipShape,
-      optionalArgs.recipLayout, dataTypeAttrToOptional(getDtypeAttr()),
-      opConfig.outputLayout, initialState.get());
+  return layerNormPreAllGatherConstraintsImpl(*this, inputs, opConfig,
+                                              initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -5672,41 +5637,38 @@ unpackLayerNormPostAllGatherOptionalArgs(
   return ret;
 }
 
+static llvm::Expected<op_model::OpConstraints>
+layerNormPostAllGatherConstraintsImpl(
+    LayerNormPostAllGatherOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  const auto inputShape = op.getInput().getType().getShape();
+  const auto statsShape = op.getStats().getType().getShape();
+
+  LayerNormPostAllGatherOptionalArgs optionalArgs =
+      unpackLayerNormPostAllGatherOptionalArgs(inputs, op);
+
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], statsShape, inputs[1],
+      optionalArgs.weightShape, optionalArgs.weightLayout,
+      optionalArgs.biasShape, optionalArgs.biasLayout, op.getEpsilon(),
+      opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 LayerNormPostAllGatherOp::getOpConstraints(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
-
-  const auto inputShape = getInput().getType().getShape();
-  const auto statsShape = getStats().getType().getShape();
-
-  LayerNormPostAllGatherOptionalArgs optionalArgs =
-      unpackLayerNormPostAllGatherOptionalArgs(inputs, *this);
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<LayerNormPostAllGatherOp>::getOpConstraints, *this,
-      inputShape, inputs[0], statsShape, inputs[1], optionalArgs.weightShape,
-      optionalArgs.weightLayout, optionalArgs.biasShape,
-      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout);
+  return layerNormPostAllGatherConstraintsImpl(*this, inputs, opConfig,
+                                               /*state=*/nullptr);
 }
 
 llvm::Expected<op_model::OpConstraints>
 LayerNormPostAllGatherOp::getOpConstraintsWithState(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
     llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
-  const auto inputShape = getInput().getType().getShape();
-  const auto statsShape = getStats().getType().getShape();
-
-  LayerNormPostAllGatherOptionalArgs optionalArgs =
-      unpackLayerNormPostAllGatherOptionalArgs(inputs, *this);
-
   std::shared_ptr<op_model::MockAllocatorState> initialState =
       op_model::buildInitialState(liveRecords);
-
-  return op_model::OpModel<LayerNormPostAllGatherOp>::getOpConstraintsWithState(
-      inputShape, inputs[0], statsShape, inputs[1], optionalArgs.weightShape,
-      optionalArgs.weightLayout, optionalArgs.biasShape,
-      optionalArgs.biasLayout, getEpsilon(), opConfig.outputLayout,
-      initialState.get());
+  return layerNormPostAllGatherConstraintsImpl(*this, inputs, opConfig,
+                                               initialState.get());
 }
 
 llvm::Expected<size_t> LayerNormPostAllGatherOp::getOpRuntime(
@@ -5764,43 +5726,37 @@ unpackGroupNormOptionalArgs(const std::vector<TTNNLayoutAttr> &inputs,
   return ret;
 }
 
+static llvm::Expected<op_model::OpConstraints>
+groupNormConstraintsImpl(
+    GroupNormOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
+  assert(!inputs.empty() && "GroupNormOp requires at least input layout");
+
+  const auto inputShape = op.getInput().getType().getShape();
+
+  GroupNormOptionalArgs optionalArgs =
+      unpackGroupNormOptionalArgs(inputs, op);
+
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], optionalArgs.inputMaskShape,
+      optionalArgs.inputMaskLayout, optionalArgs.weightShape,
+      optionalArgs.weightLayout, optionalArgs.biasShape,
+      optionalArgs.biasLayout, op.getNumGroups(), op.getEpsilon(),
+      opConfig.outputLayout);
+}
+
 llvm::Expected<op_model::OpConstraints>
 GroupNormOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
                               const OpConfig &opConfig) {
-  assert(!inputs.empty() && "GroupNormOp requires at least input layout");
-
-  const auto inputShape = getInput().getType().getShape();
-
-  GroupNormOptionalArgs optionalArgs =
-      unpackGroupNormOptionalArgs(inputs, *this);
-
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<GroupNormOp>::getOpConstraints, *this, inputShape,
-      inputs[0], optionalArgs.inputMaskShape, optionalArgs.inputMaskLayout,
-      optionalArgs.weightShape, optionalArgs.weightLayout,
-      optionalArgs.biasShape, optionalArgs.biasLayout, getNumGroups(),
-      getEpsilon(), opConfig.outputLayout);
+  return groupNormConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
 }
 
 llvm::Expected<op_model::OpConstraints> GroupNormOp::getOpConstraintsWithState(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
     llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
-  assert(!inputs.empty() && "GroupNormOp requires at least input layout");
-
-  const auto inputShape = getInput().getType().getShape();
-
-  GroupNormOptionalArgs optionalArgs =
-      unpackGroupNormOptionalArgs(inputs, *this);
-
   std::shared_ptr<op_model::MockAllocatorState> initialState =
       op_model::buildInitialState(liveRecords);
-
-  return op_model::OpModel<GroupNormOp>::getOpConstraintsWithState(
-      inputShape, inputs[0], optionalArgs.inputMaskShape,
-      optionalArgs.inputMaskLayout, optionalArgs.weightShape,
-      optionalArgs.weightLayout, optionalArgs.biasShape,
-      optionalArgs.biasLayout, getNumGroups(), getEpsilon(),
-      opConfig.outputLayout, initialState.get());
+  return groupNormConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
