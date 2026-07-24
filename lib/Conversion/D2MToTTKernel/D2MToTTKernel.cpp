@@ -30,6 +30,8 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallPtrSet.h"
 
+#include "mlir/IR/Builders.h"
+#include "llvm/Support/LogicalResult.h"
 #include <algorithm>
 #include <cstdint>
 #include <memory>
@@ -3116,6 +3118,66 @@ public:
                                    rowTransferSizeBytesValue, onePage, nocId);
       }
     }
+
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+} // namespace
+
+namespace {
+class D2MArgMaxRewriter : public OpConversionPattern<d2m::TileArgMaxOp> {
+public:
+  using OpConversionPattern<d2m::TileArgMaxOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(d2m::TileArgMaxOp op, d2m::TileArgMaxOpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const final {
+    Location loc = op->getLoc();
+
+    // idst / idstIdx are the DST slot indices of the (in-place) values and
+    // indices tiles. After d2m-insert-dst-register-access + type conversion an
+    // in-place DST operand becomes a memref.load from RegisterDst, which
+    // MemrefLoadRewriter lowers to a linearized index. If the operand did not
+    // come through a real DST subview (offset-0 / non-subview case) it is an
+    // unrealized_conversion_cast; fall back to a concrete slot then. The two
+    // tiles must occupy DISTINCT DST slots, so the fallbacks differ (0 vs 1).
+    Value idst = adaptor.getValues();
+    Value idstIdx = adaptor.getIndices();
+    if (mlir::isa_and_nonnull<UnrealizedConversionCastOp>(
+            idst.getDefiningOp())) {
+      idst = index(rewriter, loc, 0);
+    }
+    if (mlir::isa_and_nonnull<UnrealizedConversionCastOp>(
+            idstIdx.getDefiningOp())) {
+      idstIdx = index(rewriter, loc, 1);
+    }
+    ensureDominatesInsertionPoint(rewriter, idst);
+    ensureDominatesInsertionPoint(rewriter, idstIdx);
+
+    // Configure the SFPU input/output CB formats before the compute op, then
+    // arm max_reduce_with_indices (index-tracking mode + replay buffer). The
+    // per-tile CB<->DST copies are emitted by the memref load/store rewriters.
+    Value cbValues = getCB(rewriter, op.getValues());
+    Value outCB = getOutCB(rewriter, op);
+    {
+      OpBuilder::InsertionGuard guard(rewriter);
+      setInsertionPointAfterOperands(rewriter, {cbValues, outCB},
+                                     /*allowHoisting*/ true);
+      rewriter.create<ttkernel::InitSFPUOp>(loc, cbValues, outCB);
+      rewriter.create<ttkernel::MaxReduceWithIndicesInitOp>(loc);
+    }
+
+    // num_rows is the number of tile rows reduced. The LLK reduces columns
+    // (collapsing rows), so the value axis must be laid out as tile rows; the
+    // TTIRToD2M lowering transposes ReduceDim::C inputs so this op always sees
+    // a row reduction of a full 32-row tile.
+    constexpr int32_t kNumRows = 32;
+    // accumulate=false: cross-tile reduction is done in the D2M region (the
+    // compose-and-gather path), not via the LLK's in-kernel chunk accumulator.
+    rewriter.create<ttkernel::MaxReduceWithIndicesTileOp>(
+        loc, idst, idstIdx, rewriter.getI32IntegerAttr(kNumRows),
+        rewriter.getBoolAttr(false));
 
     rewriter.eraseOp(op);
     return success();

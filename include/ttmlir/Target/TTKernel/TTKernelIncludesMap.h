@@ -269,6 +269,9 @@ inline const llvm::StringMap<HeaderRequirement> &getCalleeToHeadersMap() {
         // These size_t specializations are hard-coded in TTKernelToEmitC.
         {"std::max<size_t>",                               {"<algorithm>", "<algorithm>"}},
         {"std::min<size_t>",                               {"<algorithm>", "<algorithm>"}},
+
+        {"max_reduce_with_indices_tile", {"api/compute/compute_kernel_api.h", ""}},
+        {"max_reduce_with_indices_tile_init", {"api/compute/compute_kernel_api.h", ""}},
     };
     // clang-format on
     llvm::StringMap<HeaderRequirement> map;
