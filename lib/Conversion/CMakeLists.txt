@@ -17,4 +17,5 @@ add_subdirectory(TTNNToTTIR)
 
 if (TTMLIR_ENABLE_STABLEHLO)
 add_subdirectory(StableHLOToTTIR)
+add_subdirectory(CHLOToTTIR)
 endif()
