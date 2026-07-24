@@ -495,8 +495,11 @@ uint64_t getNumTileMatmuls(Value lhs, Value result, bool transposeA) {
 // matmul, etc.), so the count is independent of tiling / layout / padding /
 // sharding - the same op is the same FLOPs however it is realized. (Graph
 // structure changes like fusion can still change the total.) Downstream tooling
-// reports MFU = total_flops / (t * peak_flops_per_sec). Convention follows
-// tt-metal's model FLOP counters (tt-metal tech_reports/GEMM_FLOPS).
+// reports MFU = ideal_compute_ms / measured_time, i.e. total_flops over an
+// effective peak = total_flops / ideal_compute_s that folds in per-op math
+// fidelity (a single peak_flops_per_sec entry can't, when fidelities are
+// mixed). Convention follows tt-metal's model FLOP counters (tt-metal
+// tech_reports/GEMM_FLOPS).
 //===----------------------------------------------------------------------===//
 
 constexpr double kFlopsPerTileMul = 2.0 * kTileHeight * kTileWidth * kTileWidth;
@@ -1022,8 +1025,11 @@ private:
     return summary;
   }
 
-  // Emit the FLOP report. `total_flops` + `peak_flops_per_sec` are the
-  // graph-invariant MFU inputs; the ideal_*_ms fields and per-op array are a
+  // Emit the FLOP report. `total_flops` and `ideal_compute_ms` are the
+  // graph-invariant MFU inputs (MFU = ideal_compute_ms / measured_time, i.e.
+  // total_flops over the ideal_compute-derived effective peak, which folds in
+  // per-op math fidelity). `peak_flops_per_sec` lists the raw per-fidelity
+  // hardware peaks for reference; the ideal_*_ms fields and per-op array are a
   // secondary roofline view of this specific graph.
   void addFlopsToJson(llvm::json::Object &jsonOutput, const PerfTargets &t,
                       const FlopSummary &summary, bool verbose) {

@@ -630,9 +630,14 @@ def TTNNCollectPerfMetrics: Pass<"ttnn-collect-perf-metrics", "::mlir::ModuleOp"
       effective key length is a runtime value (past-sequence length / paged
       cache), so it can't be derived from the static op shapes.
       This is graph-invariant model work - the MFU numerator. Downstream
-      tooling computes MFU = total_flops / (measured_time * peak_flops_per_sec),
-      so a better-compiled graph reports a higher MFU.
-    - peak_flops_per_sec: hardware matrix-engine peak per math fidelity.
+      tooling computes MFU = total_flops / (measured_time * effective_peak),
+      where effective_peak = total_flops / ideal_compute_s folds in the per-op
+      math fidelity; equivalently MFU = ideal_compute_ms / measured_time. A
+      single peak_flops_per_sec entry cannot stand in for effective_peak when
+      the graph mixes fidelities. A better-compiled graph reports a higher MFU.
+    - peak_flops_per_sec: raw hardware matrix-engine peak per math fidelity, for
+      reference; the MFU denominator uses the ideal_compute-derived effective
+      peak above, not a single one of these entries.
     - flops_by_category and a secondary per-op roofline (ideal_compute_ms /
       ideal_memory_ms / ideal_roofline_ms) for this specific graph.
 
