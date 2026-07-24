@@ -150,6 +150,38 @@ struct MatmulAttrs {
   void dump() const { llvm::outs() << toString(); }
 };
 
+struct DistributedRMSNormAttrs {
+  // LayerNormShardedMultiCoreProgramConfig derived from the input's width-shard
+  // spec (core grid, block_h, block_w). Empty until the rulebook computes it
+  // from a sharded candidate layout.
+  std::optional<mlir::tt::ttnn::LayerNormShardedMultiCoreProgramConfigAttr>
+      programConfig;
+
+  bool operator==(const DistributedRMSNormAttrs &other) const {
+    return programConfig == other.programConfig;
+  }
+  bool operator!=(const DistributedRMSNormAttrs &other) const {
+    return !(*this == other);
+  }
+
+  std::string toString() const {
+    std::string result = "DistributedRMSNormAttrs{";
+    if (programConfig.has_value() && programConfig.value()) {
+      std::string attrStr;
+      llvm::raw_string_ostream stream(attrStr);
+      stream << programConfig.value();
+      stream.flush();
+      result += "programConfig=" + attrStr;
+    } else {
+      result += "programConfig=<null>";
+    }
+    result += "}";
+    return result;
+  }
+
+  void dump() const { llvm::outs() << toString(); }
+};
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_DIALECT_TTNN_ANALYSIS_OPCONFIGATTRS_H

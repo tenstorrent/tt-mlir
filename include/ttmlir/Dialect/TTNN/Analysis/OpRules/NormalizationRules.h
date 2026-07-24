@@ -58,6 +58,45 @@ struct RmsNormRuleBook : OpRuleBook {
                           bool requiresReshard) const override;
 };
 
+//===----------------------------------------------------------------------===//
+// DistributedRMSNormOp: the fused rms_allgather kernel.
+//
+// Same full-bbox requirement as RMSNorm, but stricter — the fused kernel only
+// runs on a WIDTH-sharded L1 input (interleaved/height/block are rejected), and
+// it needs a LayerNormShardedMultiCoreProgramConfig derived from that shard
+// spec. This rulebook lets opt-level-2 own the sharding decision (produce the
+// width-shard layout + program config) so the DistributedRMSNormWidthShardInput
+// workaround can be restricted to lower opt levels.
+//===----------------------------------------------------------------------===//
+
+struct DistributedRMSNormRuleBook : OpRuleBook {
+  /// operand 0 (input) and operand 2 (residual): full-bbox width-sharded L1.
+  /// operand 1 (weight/gamma): ROW_MAJOR (the fused kernel requires it).
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+
+  /// The weight must be ROW_MAJOR; clone tiled weight candidates into RowMajor
+  /// siblings so the candidate pool can satisfy the filter above.
+  bool generatesRowMajorInputSiblings(unsigned operandIdx) const override;
+
+  /// Keep only full-bbox width-sharded L1 output candidates, and attach the
+  /// LayerNormShardedMultiCoreProgramConfig computed from each candidate's
+  /// shard spec (grid, block_h, block_w).
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+
+  /// Write the chosen program config onto the op.
+  void applyOpSpecificAttrs(Operation *op,
+                            const BeamCandidate &candidate) const override;
+
+  /// Same core-count reasoning as RMSNorm (kernel parallelizes across the
+  /// input shard grid).
+  LayoutScore adjustScore(Operation *op, LayoutScore base,
+                          const OpConfig &config,
+                          llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                          bool requiresReshard) const override;
+};
+
 } // namespace mlir::tt::ttnn
 
 #endif // TTMLIR_DIALECT_TTNN_ANALYSIS_OPRULES_NORMALIZATIONRULES_H

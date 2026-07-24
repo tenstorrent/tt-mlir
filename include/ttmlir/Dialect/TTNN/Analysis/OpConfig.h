@@ -23,7 +23,8 @@ struct OpConfig {
   // Holds attributes for the op. For most cases, a new type should be
   // added to the following std::variant.
   using OpSpecificAttrs =
-      std::variant<UninitializedAttrs, Conv2dAttrs, Conv3dAttrs, MatmulAttrs>;
+      std::variant<UninitializedAttrs, Conv2dAttrs, Conv3dAttrs, MatmulAttrs,
+                   DistributedRMSNormAttrs>;
   OpSpecificAttrs opSpecificAttrs;
 
   // Default Config Constructors.
@@ -184,6 +185,14 @@ struct DenseMapInfo<mlir::tt::ttnn::OpConfig::OpSpecificAttrs> {
                 attr.matmulProgramConfig.value()) {
               return static_cast<unsigned>(
                   mlir::hash_value(attr.matmulProgramConfig.value()));
+            }
+            return 0;
+          } else if constexpr (std::is_same_v<
+                                   T,
+                                   mlir::tt::ttnn::DistributedRMSNormAttrs>) {
+            if (attr.programConfig.has_value() && attr.programConfig.value()) {
+              return static_cast<unsigned>(
+                  mlir::hash_value(attr.programConfig.value()));
             }
             return 0;
           }
