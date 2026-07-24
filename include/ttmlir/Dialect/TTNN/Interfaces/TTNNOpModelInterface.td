@@ -41,6 +41,23 @@ def TTNN_OpModelInterface : OpInterface<"OpModel"> {
             /*methodBody=*/"",
             /*defaultImplementation=*/"return llvm::createStringError(\"Not Implemented\");"
         >,
+        InterfaceMethod<
+            /*desc=*/[{
+                Stateful variant of getOpConstraints used by the L1 spill path.
+                `liveRecords` describes the allocations already live in L1 (a
+                build-from-records snapshot); the op is evaluated on top of that
+                state via a query that bypasses the op-model constraint cache.
+                The default implementation ignores the state and delegates to the
+                (cached) stateless getOpConstraints, so ops become state-aware by
+                overriding this method. Passing an empty `liveRecords` is
+                equivalent to the stateless query.
+            }],
+            /*retTy=*/"llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>",
+            /*methodName=*/"getOpConstraintsWithState",
+            /*args=*/(ins "const std::vector<TTNNLayoutAttr>&":$inputs, "const OpConfig&":$config, "llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>":$liveRecords),
+            /*methodBody=*/"",
+            /*defaultImplementation=*/"return $_op.getOpConstraints(inputs, config);"
+        >,
         ];
 }
 

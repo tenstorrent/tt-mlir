@@ -52,6 +52,16 @@ def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config"> {
     let arguments = (ins AnyRankedTensor:$input);
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
+
     let hasVerifier = 1;
 }
 
@@ -81,6 +91,13 @@ def TTNN_ToLayoutOp : TTNN_Op<"to_layout", [TTNN_LayoutOpInterface]> {
       // i.e. this to_layout actually performs a dtype conversion as part of
       // the layout change.
       bool hasDtypeChange();
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 }
 
@@ -100,6 +117,16 @@ def TTNN_TypecastOp : TTNN_Op<"typecast"> {
 
     let hasFolder = 1;
     let hasCanonicalizeMethod = 1;
+
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
 }
 
 def TTNN_BitcastConvertOp : TTNN_Op<"bitcast_convert"> {
@@ -114,6 +141,16 @@ def TTNN_BitcastConvertOp : TTNN_Op<"bitcast_convert"> {
 
     let arguments = (ins AnyRankedTensor:$input);
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
 }
 
 def TTNN_ToDeviceOp : TTNN_Op<"to_device", [OpModelExempt]> {
@@ -154,6 +191,17 @@ class TTNN_ElementwiseUnaryOp<string mnemonic, list<Trait> traits = []> :
         build($_builder, $_state, {input.getType()}, input);
       }]>
     ];
+
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints). Declared on the base so
+      // the out-of-line defs in the interface impl bind for every member.
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
 }
 
 class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
@@ -172,6 +220,14 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
         return
           wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints). Declared on the base so
+      // the out-of-line defs in the interface impl bind for every member.
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 }
 
@@ -237,6 +293,13 @@ def TTNN_WhereOp : TTNN_ElementwiseTernaryOp<"where"> {
           wa::TTNNOperandsWorkaroundsFactory::createWhereOpOperandsWorkarounds(
                                                                         inputs);
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 }
 
@@ -303,6 +366,13 @@ def TTNN_ErfOp : TTNN_ElementwiseUnaryOp<"erf"> {
         return wa::TTNNOperandsWorkaroundsFactory::
             createErfOpOperandsWorkarounds(getInput().getType());
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 
     let description = [{
@@ -363,6 +433,13 @@ def TTNN_BitwiseNotOp : TTNN_ElementwiseUnaryOp<"bitwise_not"> {
           wa::TTNNOperandsWorkaroundsFactory::createUnaryBitwiseOpOperandsWorkarounds(
               this->getOperation());
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 }
 
@@ -695,6 +772,22 @@ def TTNN_LogicalLeftShiftOp: TTNN_ElementwiseBinaryCompositeOp<"logical_left_shi
     on the elements of the first tensor by the corresponding shift amounts in the
     second tensor.
   }];
+
+  // Per-op extraClassDeclaration replaces the composite base's, so re-declare
+  // getOperandsWorkarounds here alongside the stateful constraint-query
+  // override (default delegates to the stateless getOpConstraints).
+  let extraClassDeclaration = [{
+    wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+      return
+        wa::TTNNOperandsWorkaroundsFactory::createBinaryOpOperandsWorkarounds(*this);
+    }
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
+  }];
+
   let hasVerifier = 1;
 }
 
@@ -802,6 +895,16 @@ def TTNN_PowScalarOp : TTNN_ElementwiseBinaryCompositeScalarOp<"pow_scalar"> {
     Restriction: TTNN API supports expoenent ≥ 0 only.
   }];
 
+  let extraClassDeclaration = [{
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints).
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
+  }];
+
   let hasVerifier = 1;
 }
 
@@ -860,11 +963,24 @@ class TTNN_ReductionOp<string mnemonic, list<Trait> traits = []> : TTNN_Op<mnemo
     }]>
   ];
 
+  // NOTE: getOpConstraintsWithState is declared HERE on the base (not per-op)
+  // and cascades to every member (Sum/Mean/Max/Min). A per-op
+  // extraClassDeclaration would SHADOW this base block and silently drop
+  // getOperandsWorkarounds (the si32->f32 reduction cast) -- see
+  // https://github.com/tenstorrent/tt-mlir/issues/8279. All base members are
+  // migrated (define getOpConstraintsWithState in TTNNOpModelInterface.cpp).
   let extraClassDeclaration = [{
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
       return
         wa::TTNNOperandsWorkaroundsFactory::createReductionOpOperandsWorkarounds(*this);
     }
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints).
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
   }];
 
   let hasVerifier = 1;
@@ -952,6 +1068,14 @@ def TTNN_ArgMaxOp : TTNN_Op<"argmax"> {
       return wa::TTNNOperandsWorkaroundsFactory::
           createArgMaxOpOperandsWorkarounds();
     }
+
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints).
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
   }];
 
   let results = (outs AnyRankedTensor:$result);
@@ -990,6 +1114,14 @@ def TTNN_ProdOp : TTNN_Op<"prod"> {
       return
         wa::TTNNOperandsWorkaroundsFactory::createReduceProdOpOperandsWorkarounds();
     }
+
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints).
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
   }];
 
   let hasVerifier = 1;
@@ -1010,6 +1142,13 @@ def TTNN_EmbeddingOp : TTNN_Op<"embedding"> {
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createEmbeddingOpOperandsWorkarounds();
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 
     let hasVerifier = 1;
@@ -1031,6 +1170,13 @@ def TTNN_UpdateCacheOp : TTNN_InplaceOp<"update_cache"> {
         RankedTensorType updateIndexType = getUpdateIndex().getType();
         return wa::TTNNOperandsWorkaroundsFactory::createUpdateCacheOpOperandsWorkarounds(updateIndexType);
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 
   let hasVerifier = 1;
@@ -1057,6 +1203,13 @@ def TTNN_PagedUpdateCacheOp : TTNN_InplaceOp<"paged_update_cache"> {
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
       return wa::TTNNOperandsWorkaroundsFactory::createPagedUpdateCacheOpOperandsWorkarounds(this->getOperation());
     }
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints).
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
   }];
 
   let hasVerifier = 1;
@@ -1071,6 +1224,16 @@ def TTNN_FillCacheOp : TTNN_InplaceOp<"fill_cache"> {
   let arguments = (ins Arg<AnyRankedTensor, "cache tensor", [MemWrite]>:$cache,
                        AnyRankedTensor:$input,
                        I32Attr:$batch_offset);
+
+  let extraClassDeclaration = [{
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints).
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
+  }];
 
   let hasVerifier = 1;
 }
@@ -1090,6 +1253,13 @@ def TTNN_PagedFillCacheOp : TTNN_InplaceOp<"paged_fill_cache"> {
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
       return wa::TTNNOperandsWorkaroundsFactory::createPagedFillCacheOpOperandsWorkarounds(getOperation());
     }
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints).
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
   }];
 
   let hasVerifier = 1;
@@ -1111,6 +1281,13 @@ def TTNN_EmbeddingBackwardOp : TTNN_Op<"embedding_bw"> {
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createEmbeddingBackwardOpOperandsWorkarounds();
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 
     let hasVerifier = 1;
@@ -1138,6 +1315,16 @@ def TTNN_CumSumOp : TTNN_Op<"cumsum"> {
                        SI32Attr:$dim);
 
   let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints).
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
+  }];
 }
 
 def TTNN_CumProdOp : TTNN_Op<"cumprod"> {
@@ -1162,6 +1349,16 @@ def TTNN_CumProdOp : TTNN_Op<"cumprod"> {
                        SI32Attr:$dim);
 
   let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints).
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
+  }];
 }
 
 def TTNN_ConcatenateHeadsOp: TTNN_Op<"concatenate_heads"> {
@@ -1175,6 +1372,16 @@ def TTNN_ConcatenateHeadsOp: TTNN_Op<"concatenate_heads"> {
     let arguments = (ins AnyRankedTensor:$input);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
 
     let hasVerifier = 1;
 }
@@ -1193,6 +1400,16 @@ def TTNN_NLPConcatHeadsDecodeOp: TTNN_Op<"nlp_concat_heads_decode"> {
                          UI32Attr:$num_heads);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
 
     let hasVerifier = 1;
 }
@@ -1214,6 +1431,16 @@ def TTNN_SplitQueryKeyValueAndSplitHeadsOp: TTNN_Op<"split_query_key_value_and_s
     let results = (outs AnyRankedTensor:$query,
                         AnyRankedTensor:$key,
                         AnyRankedTensor:$value);
+
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
 
     let hasVerifier = 1;
 }
@@ -1246,6 +1473,16 @@ def TTNN_SoftmaxOp : TTNN_Op<"softmax", [TTNN_ComputeKernelConfigOpInterface]> {
               /*compute_config=*/nullptr);
       }]>
     ];
+
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
 
     let hasVerifier = 1;
 }
@@ -1281,6 +1518,13 @@ def TTNN_SortOp : TTNN_Op<"sort"> {
       return
         wa::TTNNOperandsWorkaroundsFactory::createSortOpOperandsWorkarounds(*this);
     }
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints).
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
   }];
 
   let hasVerifier = 1;
@@ -1297,6 +1541,16 @@ def TTNN_TransposeOp : TTNN_Op<"transpose"> {
                          SI32Attr:$dim1);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
 
     let hasVerifier = 1;
 }
@@ -1320,6 +1574,16 @@ def TTNN_RepeatInterleaveOp : TTNN_Op<"repeat_interleave"> {
 
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
+
     let hasVerifier = 1;
 }
 
@@ -1333,6 +1597,16 @@ def TTNN_ConcatOp : TTNN_Op<"concat"> {
                          SI32Attr:$dim);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
 
     let hasVerifier = 1;
 }
@@ -1358,6 +1632,13 @@ def TTNN_ReshapeOp : TTNN_Op<"reshape"> {
         RankedTensorType inputType = getInput().getType();
         return wa::TTNNOperandsWorkaroundsFactory::createReshapeOpOperandsWorkarounds(inputType);
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 }
 
@@ -1375,6 +1656,16 @@ def TTNN_RepeatOp : TTNN_Op<"repeat"> {
                          TTNN_ShapeAttr:$repeat_dims);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
 
     let hasVerifier = 1;
 }
@@ -1409,6 +1700,13 @@ def TTNN_PadOp: TTNN_Op<"pad"> {
         wa::TTNNOperandsWorkaroundsFactory::createPadOpOperandsWorkarounds(
                                                     input, layoutAttr, padding);
     }
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints).
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
   }];
 }
 
@@ -1432,6 +1730,13 @@ def TTNN_SliceStaticOp: TTNN_Op<"slice_static"> {
         return wa::TTNNOperandsWorkaroundsFactory::
             createSliceStaticOpOperandsWorkarounds(*this);
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 
     let hasVerifier = 1;
@@ -1458,6 +1763,13 @@ def TTNN_SliceDynamicOp: TTNN_Op<"slice_dynamic"> {
         return wa::TTNNOperandsWorkaroundsFactory::
             createSliceDynamicOpOperandsWorkarounds(*this);
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 
     let hasVerifier = 1;
@@ -1503,6 +1815,16 @@ def TTNN_LinearOp : TTNN_Op<"linear", [TTNN_ComputeKernelConfigOpInterface]> {
       }]>
     ];
 
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
+
     let hasVerifier = 1;
 }
 
@@ -1537,6 +1859,18 @@ def TTNN_MatmulOp : TTNN_Op<"matmul", [TTNN_ComputeKernelConfigOpInterface]> {
 
     let hasVerifier = 1;
     let hasCanonicalizer = 1;
+
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints). Declared here so the
+    // out-of-line MatmulOp::getOpConstraintsWithState in the interface impl
+    // binds and hides the trait default.
+    let extraClassDeclaration = [{
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
 }
 // ANCHOR_END: adding_an_op_matmul_ttnn
 
@@ -1848,6 +2182,13 @@ def TTNN_PrepareMoEComputeW0W1WeightsOp :
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createPrepareMoEComputeW0W1WeightsOpOperandsWorkarounds(*this);
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 
     let hasVerifier = 1;
@@ -1876,6 +2217,13 @@ def TTNN_PrepareMoEComputeW2WeightsOp :
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createPrepareMoEComputeW2WeightsOpOperandsWorkarounds(*this);
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 
     let hasVerifier = 1;
@@ -1962,6 +2310,16 @@ def TTNN_PrepareConv2dWeightsOp : TTNN_Op<"prepare_conv2d_weights", [TTNN_Comput
 
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
+
     let hasVerifier = 1;
 }
 
@@ -1989,6 +2347,16 @@ def TTNN_PrepareConv2dBiasOp : TTNN_Op<"prepare_conv2d_bias", [TTNN_ComputeKerne
                          OptionalAttr<TTNN_Conv2dSliceConfigAttr>:$conv2d_slice_config);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
 
     let hasVerifier = 1;
 }
@@ -2043,6 +2411,16 @@ def TTNN_PrepareConvTranspose2dWeightsOp : TTNN_Op<"prepare_conv_transpose2d_wei
 
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
+
     let hasVerifier = 1;
 }
 
@@ -2070,6 +2448,16 @@ def TTNN_PrepareConvTranspose2dBiasOp : TTNN_Op<"prepare_conv_transpose2d_bias",
                          OptionalAttr<TTNN_Conv2dSliceConfigAttr>:$conv2d_slice_config);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
 
     let hasVerifier = 1;
 }
@@ -2233,6 +2621,13 @@ def TTNN_Conv2dOp : TTNN_Op<"conv2d", [TTNN_ComputeKernelConfigOpInterface]> {
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(*this);
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 }
 
@@ -2326,6 +2721,13 @@ def TTNN_Conv3dOp : TTNN_Op<"conv3d", [TTNN_ComputeKernelConfigOpInterface]> {
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createConv3dOpOperandsWorkarounds(*this);
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 }
 
@@ -2414,6 +2816,13 @@ def TTNN_ConvTranspose2dOp : TTNN_Op<"conv_transpose2d", [TTNN_ComputeKernelConf
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createConvOpOperandsWorkarounds(*this);
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 }
 
@@ -2458,6 +2867,13 @@ def TTNN_AvgPool2dOp : TTNN_Op<"avg_pool2d"> {
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createPool2DOpOperandsWorkarounds();
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 
     let hasVerifier = 1;
@@ -2489,6 +2905,13 @@ def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d"> {
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createPool2DOpOperandsWorkarounds();
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 
     let hasVerifier = 1;
@@ -2523,6 +2946,13 @@ def TTNN_MaxPool2dWithIndicesOp : TTNN_Op<"max_pool2d_with_indices"> {
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createPool2DWithIndicesOpOperandsWorkarounds();
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 
     let hasVerifier = 1;
@@ -2556,6 +2986,16 @@ def TTNN_BatchNormInferenceOp : TTNN_Op<"batch_norm_inference", [AttrSizedOperan
       }]>
     ];
 
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
+
     let hasVerifier = 1;
 }
 
@@ -2588,6 +3028,16 @@ def TTNN_BatchNormTrainingOp : TTNN_Op<"batch_norm_training", [AttrSizedOperandS
       }]>
     ];
 
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
+
     let hasVerifier = 1;
 }
 
@@ -2619,6 +3069,16 @@ def TTNN_RMSNormOp : TTNN_Op<"rms_norm", [AttrSizedOperandSegments, TTNN_Compute
               epsilon, /*compute_config=*/nullptr);
       }]>
     ];
+
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
 
     let hasVerifier = 1;
 }
@@ -2743,6 +3203,16 @@ def TTNN_RMSNormPreAllGatherOp :  TTNN_Op<"rms_norm_pre_all_gather",
 
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
+
     let hasVerifier = 1;
 }
 
@@ -2804,6 +3274,16 @@ def TTNN_LayerNormOp : TTNN_Op<"layer_norm", [AttrSizedOperandSegments]> {
 
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
+
     let hasVerifier = 1;
 }
 
@@ -2834,6 +3314,16 @@ def TTNN_LayerNormPreAllGatherOp : TTNN_Op<"layer_norm_pre_all_gather",
                          OptionalAttr<TTNN_LayerNormShardedMultiCoreProgramConfigAttr>:$program_config);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
 
     let hasVerifier = 1;
 }
@@ -2869,6 +3359,16 @@ def TTNN_LayerNormPostAllGatherOp : TTNN_Op<"layer_norm_post_all_gather",
 
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
+
     let hasVerifier = 1;
 }
 
@@ -2895,6 +3395,14 @@ def TTNN_GroupNormOp : TTNN_Op<"group_norm", [AttrSizedOperandSegments]> {
         return wa::TTNNOperandsWorkaroundsFactory::
             createGroupNormOpOperandsWorkarounds(this->getOperation());
       }
+
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 
     let hasVerifier = 1;
@@ -2920,6 +3428,16 @@ def TTNN_ClampScalarOp : TTNN_Op<"clamp_scalar"> {
 
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
+
     let hasVerifier = 1;
 
 }
@@ -2943,6 +3461,16 @@ def TTNN_ClampTensorOp : TTNN_Op<"clamp_tensor"> {
                        AnyRankedTensor:$max);
 
   let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints).
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
+  }];
 
 }
 
@@ -3142,6 +3670,13 @@ def TTNN_ConstantOp : TTNN_CreationOp<"constant", [AllShapesMatch<["value", "res
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createConstantOpOperandsWorkarounds();
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 
     let hasCanonicalizer = 1;
@@ -3197,6 +3732,13 @@ def TTNN_ScatterOp : TTNN_Op<"scatter">{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createScatterOpOperandsWorkarounds(getOperation());
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 }
 
@@ -3225,6 +3767,13 @@ def TTNN_GatherOp : TTNN_Op<"gather"> {
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createGatherOpOperandsWorkarounds();
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 }
 
@@ -3321,6 +3870,15 @@ def TTNN_MeshPartitionOp: TTNN_Op<"mesh_partition"> {
                        SI32Attr:$dim,
                        OptionalAttr<UI32Attr>:$cluster_axis);
   let results = (outs AnyRankedTensor:$result);
+  let extraClassDeclaration = [{
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints).
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
+  }];
   let hasVerifier = 1;
 }
 
@@ -3353,6 +3911,13 @@ def TTNN_PermuteOp : TTNN_Op<"permute"> {
             getInput().getType()
           );
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 
     let hasFolder = 1;
@@ -3383,6 +3948,13 @@ def TTNN_UpsampleOp : TTNN_Op<"upsample"> {
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createUpsampleOpOperandsWorkarounds();
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 
     let hasVerifier = 1;
@@ -3497,6 +4069,16 @@ def TTNN_RequantizeOp : TTNN_Op<"requantize"> {
                          OptionalAttr<TTCore_DataTypeAttr>:$output_dtype);
 
     let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
 
     let hasVerifier = 1;
 }
@@ -3739,6 +4321,16 @@ def TTNN_RotaryEmbeddingLlamaOp : TTNN_Op<"rotary_embedding_llama", [TTNN_Comput
 
     let results = (outs AnyRankedTensor:$result);
 
+    let extraClassDeclaration = [{
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
+    }];
+
     let hasVerifier = 1;
 }
 
@@ -3770,6 +4362,13 @@ def TTNN_RotaryEmbeddingOp : TTNN_Op<"rotary_embedding", [TTNN_ComputeKernelConf
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
       return wa::TTNNOperandsWorkaroundsFactory::createRotaryEmbeddingOpOperandsWorkarounds(*this);
     }
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints).
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
   }];
 
   let hasVerifier = 1;
@@ -3785,6 +4384,16 @@ def TTNN_NLPConcatHeadsOp : TTNN_Op<"nlp_concat_heads"> {
   let arguments = (ins AnyRankedTensor:$input);
 
   let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints).
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
+  }];
 
   let hasVerifier = 1;
 }
@@ -3824,6 +4433,16 @@ def NLPCreateQKVHeadsDecodeOp : TTNN_Op<"nlp_create_qkv_heads_decode"> {
   let results = (outs AnyRankedTensor:$query,
                       AnyRankedTensor:$key,
                       AnyRankedTensor:$value);
+
+  let extraClassDeclaration = [{
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints).
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
+  }];
 
   let hasVerifier = 1;
 }
@@ -3896,6 +4515,13 @@ def TTNN_ScaledDotProductAttentionDecodeOp : TTNN_Op<"scaled_dot_product_attenti
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createScaledDotProductAttentionDecodeOpOperandsWorkarounds(getOperation());
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 
     let hasVerifier = 1;
@@ -3925,6 +4551,13 @@ def TTNN_PagedScaledDotProductAttentionDecodeOp : TTNN_Op<"paged_scaled_dot_prod
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
       return wa::TTNNOperandsWorkaroundsFactory::createPagedScaledDotProductAttentionDecodeOpOperandsWorkarounds(getOperation());
     }
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints).
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
   }];
 
   let hasVerifier = 1;
@@ -3996,6 +4629,13 @@ def TTNN_PagedFlashMultiLatentAttentionDecodeOp : TTNN_Op<"paged_flash_multi_lat
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
       return wa::TTNNOperandsWorkaroundsFactory::createPagedFlashMultiLatentAttentionDecodeOpOperandsWorkarounds(getOperation());
     }
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints).
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
   }];
 
   let hasVerifier = 1;
@@ -4045,6 +4685,13 @@ def TTNN_ScaledDotProductAttentionOp : TTNN_Op<"scaled_dot_product_attention", [
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createScaledDotProductAttentionOpOperandsWorkarounds(getOperation());
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 
     let hasVerifier = 1;
@@ -4091,6 +4738,13 @@ def TTNN_FlashMlaPrefillOp : TTNN_Op<"flash_mla_prefill", [AttrSizedOperandSegme
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::createFlashMlaPrefillOpOperandsWorkarounds(getOperation());
       }
+      // Override the OpModel interface's stateful constraint query (default
+      // delegates to the stateless getOpConstraints).
+      llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+      getOpConstraintsWithState(
+          const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+          llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+              liveRecords);
     }];
 
     let hasVerifier = 1;
@@ -4126,6 +4780,16 @@ def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d">{
   let arguments = (ins AnyRankedTensor:$input);
 
   let results = (outs AnyRankedTensor:$result);
+
+  let extraClassDeclaration = [{
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints).
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
+  }];
 
   let hasVerifier = 1;
 }
@@ -4261,6 +4925,13 @@ def TTNN_SamplingOp : TTNN_Op<"sampling"> {
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
       return wa::TTNNOperandsWorkaroundsFactory::createSamplingOpOperandsWorkarounds();
     }
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints).
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
   }];
 
   let hasVerifier = 1;
@@ -4288,6 +4959,13 @@ def TTNN_TopKOp : TTNN_Op<"topk"> {
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
       return wa::TTNNOperandsWorkaroundsFactory::createTopKOpOperandsWorkarounds(*this);
     }
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints).
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
   }];
 
   let hasVerifier = 1;
@@ -4325,6 +5003,13 @@ def TTNN_TopKRouterGptOp : TTNN_Op<"topk_router_gpt"> {
     wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
       return wa::TTNNOperandsWorkaroundsFactory::createTopKRouterGptOpOperandsWorkarounds();
     }
+    // Override the OpModel interface's stateful constraint query (default
+    // delegates to the stateless getOpConstraints).
+    llvm::Expected<mlir::tt::ttnn::op_model::OpConstraints>
+    getOpConstraintsWithState(
+        const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &config,
+        llvm::ArrayRef<mlir::tt::ttnn::op_model::OpModelAllocationRecord>
+            liveRecords);
   }];
 
   let hasVerifier = 1;

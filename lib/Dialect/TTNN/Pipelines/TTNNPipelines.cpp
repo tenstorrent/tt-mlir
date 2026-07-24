@@ -153,6 +153,7 @@ void createTTNNPipelineAnalysisPasses(
       TTNNGreedyL1SpillManagementOptions spillOptions;
       spillOptions.enableDecisionTrace = options.enableDecisionTrace;
       spillOptions.decisionTraceDir = options.decisionTraceDir;
+      spillOptions.useMockAllocatorState = options.useMockAllocatorState;
 
       bool memLayoutEnabled = options.memoryLayoutAnalysisEnabled;
       pm.addPass(createDevicePassesWrapper(

@@ -563,6 +563,15 @@ struct TTIRToTTNNCommonPipelineOptions
       llvm::cl::desc("Output directory for decision trace JSON files."),
       llvm::cl::init("ttrt-artifacts/decision_trace")};
 
+  // Greedy L1 spill: use the stateful (tt-metal MockAllocatorState-backed)
+  // memory tracker vs the scalar-heuristic tracker. Exposed here so it can be
+  // toggled without a rebuild (e.g. for stateful-vs-scalar A/B).
+  Option<bool> useMockAllocatorState{
+      *this, "use-mock-allocator-state",
+      llvm::cl::desc("Greedy L1 spill: use the stateful allocator-backed L1 "
+                     "tracker (true) vs the scalar-heuristic tracker (false)."),
+      llvm::cl::init(true)};
+
   // Enable per-op compile-time statistics from the greedy optimizer.
   Option<bool> enableCompileTimeStats{
       *this, "enable-compile-time-stats",

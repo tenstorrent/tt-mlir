@@ -43,7 +43,7 @@ struct SumL1MemoryTracker {
 
   /// Bypass input-overlap accounting and call the backend (or hook) with an
   /// explicit additionalL1Usage. Used by consumer-reshard probes and DRAM
-  /// CB re-queries inside L1SpillManagement — those call sites already know
+  /// CB re-queries inside L1SpillManagementBase — those call sites already know
   /// the L1 pressure they want to express.
   op_constraint_validation::ValidationResult validateBackendDirect(
       Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
@@ -169,7 +169,93 @@ private:
   llvm::DenseMap<uint64_t, AliasGroup> aliasGroups;
 };
 
-/// L1SpillManagement enforces L1 budget constraints using farthest-last-use
+/// L1 memory tracker backed by tt-metal's stateful op-constraints query.
+///
+/// Holds only the set of currently-live L1 allocation records (no address
+/// simulation). validate() flattens the live records into the op-model's
+/// stateful query, so fit / fragmentation / placement / CB-clash are all
+/// modeled by tt-metal's real allocator. Records are keyed by the producing
+/// Value; a view op's output aliases its source's buffer via `aliasOf` /
+/// `aliasRefcount` (record-level aliasing, no addresses), so it never adds a
+/// second record and the buffer stays live until the last aliaser dies.
+struct MockAllocatorL1Tracker {
+  using RecordVec = llvm::SmallVector<op_model::OpModelAllocationRecord>;
+
+  /// Backend validator hook (test-only). Same shape as SumL1MemoryTracker's:
+  /// when set, every validate()/validateBackendDirect() call forwards to it.
+  using BackendValidatorFn =
+      std::function<op_constraint_validation::ValidationResult(
+          Operation *, llvm::ArrayRef<TTNNLayoutAttr>, const OpConfig &,
+          uint64_t /*additionalL1*/)>;
+  BackendValidatorFn backendValidator;
+
+  /// Currently-live L1 allocations, keyed by the owning Value (an alias does
+  /// NOT get its own entry). Flattened into each validate()'s initial state.
+  llvm::DenseMap<Value, RecordVec> liveRecords;
+
+  /// Records produced by the most recent successful validate(), keyed by op,
+  /// awaiting association with result Values at addTensor time. `mutable` so
+  /// the const validate() can populate it.
+  mutable llvm::DenseMap<Operation *, RecordVec> pendingRecords;
+
+  /// Maps a view-op output (aliaser) to the canonical Value that owns the
+  /// shared buffer's record.
+  llvm::DenseMap<Value, Value> aliasOf;
+
+  /// Per-owner count of live aliasers (including the owner itself). The owner's
+  /// record is dropped from liveRecords when this reaches zero.
+  llvm::DenseMap<Value, unsigned> aliasRefcount;
+
+  /// Optimizer per-core L1 budget (a ~0.95 cap minus reserved L1 — tighter than
+  /// the device's physical L1 that the query models). validate() enforces it as
+  /// a byte ceiling on top of the query so the optimizer keeps its headroom.
+  uint64_t l1Budget = 0;
+
+  void init(uint64_t l1BudgetPerCore);
+
+  /// Stateful fit decision: flatten liveRecords (deduped by owner) into the
+  /// op-model's stateful query and stash the resulting per-output records for
+  /// association at addTensor time.
+  op_constraint_validation::ValidationResult
+  validate(Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+           const OpConfig &config) const;
+
+  /// Query a single op in isolation with an explicit additionalL1Usage (no live
+  /// records). Used by the eviction path's consumer-reshard probes.
+  op_constraint_validation::ValidationResult validateBackendDirect(
+      Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+      const OpConfig &config, uint64_t additionalL1Usage) const;
+
+  /// Associate `result`'s allocation record from the pending stash (positional:
+  /// i-th tensor result <-> i-th output-buffer record). No-op if the op
+  /// produced no records. `l1SizePerCore` is unused (records carry sizes) and
+  /// kept only for interface parity with SumL1MemoryTracker.
+  void addTensor(Value result, uint64_t l1SizePerCore);
+
+  /// Record `out` as an alias of `src`'s buffer: bump the owner's refcount and
+  /// add no new record.
+  void addTensorAlias(Value out, Value src);
+
+  /// Drop `result` from the live set (dead or spilled to DRAM): decrement its
+  /// owner's refcount and erase the record when it reaches zero.
+  void removeTensor(Value result);
+  void removeTensorFromSizes(Value result);
+
+  bool hasTensor(Value result) const;
+  uint64_t getTensorSize(Value result) const;
+  uint64_t getOccupiedL1() const;
+
+  /// Replay checkpoint: the live record set + alias bookkeeping.
+  struct Snapshot {
+    llvm::DenseMap<Value, RecordVec> liveRecords;
+    llvm::DenseMap<Value, Value> aliasOf;
+    llvm::DenseMap<Value, unsigned> aliasRefcount;
+  };
+  Snapshot takeSnapshot() const;
+  void restoreSnapshot(const Snapshot &snapshot);
+};
+
+/// L1SpillManagementBase enforces L1 budget constraints using farthest-last-use
 /// eviction with validation-based budget enforcement.
 /// Each op is re-validated during the sweep using validateOperation() with
 /// the sum of live tensor L1 sizes as additionalL1Usage. When validation
@@ -182,11 +268,13 @@ private:
 /// - Inserts ToMemoryConfigOp after spilled ops (L1 -> DRAM)
 /// - Reconnects uses to read from spilled tensor
 template <typename MemoryTracker = SumL1MemoryTracker>
-class L1SpillManagement {
+class L1SpillManagementBase {
 public:
-  L1SpillManagement(func::FuncOp func, ttcore::GridAttr deviceGrid,
-                    uint64_t l1BudgetPerCore,
-                    std::unique_ptr<L1SpillObserver> observer = nullptr);
+  L1SpillManagementBase(func::FuncOp func, ttcore::GridAttr deviceGrid,
+                        uint64_t l1BudgetPerCore,
+                        std::unique_ptr<L1SpillObserver> observer = nullptr);
+
+  virtual ~L1SpillManagementBase() = default;
 
   /// Run farthest-last-use eviction with validation-based enforcement and apply
   /// spills directly to the IR.
@@ -205,7 +293,7 @@ public:
   /// does not fail the pass).
   bool hasFailed() const { return compilationFailed; }
 
-private:
+protected:
   func::FuncOp func;
   ttcore::GridAttr deviceGrid;
   uint64_t l1BudgetPerCore;
@@ -229,9 +317,39 @@ private:
       return a.first < b.first; // max-heap: higher lastUse = higher priority
     }
   };
-  std::priority_queue<LiveEntry, std::vector<LiveEntry>, LiveEntryCompare>
-      liveSet;
+  using LiveSet =
+      std::priority_queue<LiveEntry, std::vector<LiveEntry>, LiveEntryCompare>;
+  LiveSet liveSet;
   llvm::DenseSet<Value> liveValues;
+
+  /// Full sweep state captured before processing a schedule position, so the
+  /// stateful eviction (StatefulL1SpillManagement) can rewind and re-run the
+  /// forward sweep from there. Bundles the tracker snapshot with the FLU heap
+  /// and live-value set (which are not cheaply re-derivable once eviction has
+  /// changed the L1-resident set).
+  struct SweepCheckpoint {
+    typename MemoryTracker::Snapshot tracker;
+    llvm::DenseSet<Value> liveValues;
+    LiveSet liveSet;
+  };
+  /// Per-position sweep checkpoints (stateful path only; keyed by schedule
+  /// pos).
+  llvm::DenseMap<int64_t, SweepCheckpoint> sweepCheckpoints;
+
+  /// When set by the stateful recoverFromOOM, run() restores the checkpoint at
+  /// this position and re-runs the sweep from it.
+  std::optional<int64_t> pendingRewindTo;
+
+  /// True for spill strategies that rebuild allocator state by rewinding and
+  /// re-running the forward sweep (StatefulL1SpillManagement) rather than the
+  /// address-sim event-log replay. Gates checkpoint capture + rewind wiring so
+  /// the Sum/address-sim path stays byte-identical.
+  virtual bool usesRewindEviction() const { return false; }
+
+  /// Capture / restore the full sweep state (tracker snapshot + liveValues +
+  /// liveSet) at a schedule position. Used by the rewind eviction.
+  void captureCheckpoint(int64_t pos);
+  void restoreCheckpoint(int64_t pos);
 
   /// Event log entry for address reconstruction. Records every L1 allocation
   /// and deallocation in schedule order so that eviction can replay the full
@@ -276,13 +394,6 @@ private:
   /// placed; false means a still-live tensor has no contiguous fit
   /// (fragmentation).
   bool markEvictedAndRebuild(Value victim, size_t &campaignMin);
-
-  /// Restore the snapshot at `startIdx` and replay every non-skipped event in
-  /// [startIdx, end) top-down first-fit. Pre-checks `wouldAllocateAt` before
-  /// each fresh allocation so `allocateAddress`'s hard contract holds, and
-  /// returns false at the first no-fit (a still-live tensor has no contiguous
-  /// slot). Returns true iff every still-live tensor was placed.
-  bool replayFrom(size_t startIdx);
 
   /// Insert event at pos in l1EventLog and shift all allocEventIndex entries
   /// and addressSnapshots keys >= pos by 1, preserving the index invariants.
@@ -364,44 +475,40 @@ private:
   /// Remove result tensors whose last use was the previous position.
   void processDeadTensors(int64_t pos, const ScheduleData &data);
 
-  /// Check if the op's CB region (growing bottom-up) would overlap with any
-  /// live tensor or the speculative output tensor based on simulated L1
-  /// addresses. Uses min(speculativeOutputAddr, lowestOccupiedAddress) as
-  /// the effective lowest tensor address.
-  /// See: https://github.com/tenstorrent/tt-mlir/issues/7396
-  bool wouldCBsOverlapTensors(Operation *op, int64_t pos, uint64_t cbPeakUsage,
-                              uint64_t speculativeOutputAddr);
+protected:
+  // --- Strategy hooks. Implemented by AddressSimSpillManagement (address-sim)
+  //     and StatefulL1SpillManagement (captured allocator state). ---
 
-  /// Output cannot fit contiguously in the free list. Evict farthest-last-use
-  /// tensors until the output fits, then re-validate. Returns L1 bytes to add
-  /// to live set (0 if demoted to DRAM).
-  uint64_t handleNoFit(Operation *op, int64_t pos, ScheduleData &data,
-                       uint64_t outputL1Size);
+  /// Place a successfully-validated op's output. Returns the L1 size to add to
+  /// the live set (0 = demoted to DRAM).
+  virtual uint64_t placeValidatedOutput(
+      Operation *op, int64_t pos, ScheduleData &data,
+      const op_constraint_validation::ValidationResult &result) = 0;
 
-  /// CB fragmentation recovery: evict tensors in the CB danger zone,
-  /// re-validate, or demote output to DRAM. Returns L1 bytes to add to live
-  /// set (0 if demoted).
-  uint64_t handleFragmentation(Operation *op, int64_t pos, ScheduleData &data,
-                               uint64_t cbPeakUsage, uint64_t outputL1Size);
-
-  /// Run contiguous-fit and CB-fragmentation checks on a validated op's
-  /// output. Returns the (possibly updated) L1 size to add to the live set,
-  /// or 0 if the output was demoted to DRAM.
-  uint64_t ensureFitsL1(Operation *op, int64_t pos, ScheduleData &data,
-                        uint64_t cbPeakUsage, uint64_t l1Size);
-
-  /// True when `op` is a view-eligible reshape whose source operand is still
-  /// resident in L1. Its output will alias the source's existing slot
-  /// (addTensorAtAddress) instead of carving a fresh one, so it consumes no
-  /// additional L1 and the fit / CB-overlap checks must not treat it as a
-  /// new allocation.
-  bool willAliasSourceInL1(Operation *op) const;
-
-  /// OOM recovery: evict farthest-last-use tensors or demote self to DRAM.
-  void handleOOM(Operation *op, int64_t pos,
+  /// Recover from an OOM validation result (evict live tensors or demote self
+  /// to DRAM).
+  virtual void
+  recoverFromOOM(Operation *op, int64_t pos,
                  llvm::ArrayRef<OpResult> tensorResults, ScheduleData &data,
-                 std::function<void(uint64_t)> addResultsToLiveSet);
+                 std::function<void(uint64_t)> addResultsToLiveSet) = 0;
 
+  /// Commit one result tensor into the live set: log the alloc event, add it to
+  /// the tracker (alias-or-fresh), and push it onto the FLU heap.
+  virtual void commitAllocation(Value val, uint64_t perResultL1,
+                                ScheduleData &data) = 0;
+
+  /// Handle an L1-output op that cannot be validated (a pre-decomposition
+  /// ToLayoutOp). Address-sim runs a fit check; the stateful path defers to the
+  /// consuming op's query.
+  virtual void handleUnvalidatedL1Output(Operation *op, int64_t pos,
+                                         ScheduleData &data,
+                                         uint64_t derivedL1) = 0;
+
+  /// Rebuild live-set state after an eviction marks events skipped, replaying
+  /// from `startIdx`. Returns true iff every still-live tensor was placed.
+  virtual bool replayFrom(size_t startIdx) = 0;
+
+protected:
   /// Evict all live L1 tensors. Used when encountering ops without OpModel
   /// support — since we cannot know their L1 requirements, the only safe
   /// choice is a full flush. Spill ops are inserted right before triggerOp
@@ -409,17 +516,10 @@ private:
   void evictAllFromL1(int64_t pos, ScheduleData &data,
                       Operation *triggerOp = nullptr);
 
-  /// Evict live tensors (farthest-last-use first) until no tensor's simulated
-  /// address falls below the cushioned CB threshold. Replaces the former
-  /// evictTensorsBelow, which was incorrect after address rebuild (addresses
-  /// shift, making the threshold check stale).
-  void evictForCBOverlap(uint64_t cushionedCBUsage, int64_t pos,
-                         ScheduleData &data);
-
   /// Evict tensors (farthest-last-use first) until shouldStop() returns true
   /// or the live set is empty. Returns true if shouldStop was satisfied.
-  /// After each eviction, rebuilds address simulation and inserts reshards
-  /// for already-processed consumers.
+  /// After each eviction, rebuilds tracker state (via the replayFrom hook) and
+  /// inserts reshards for already-processed consumers.
   bool evictUntil(int64_t pos, ScheduleData &data,
                   std::function<bool()> shouldStop);
 
@@ -442,22 +542,126 @@ private:
   void insertReshardForConsumer(Operation *consumer, unsigned operandIdx,
                                 TTNNLayoutAttr originalL1Layout);
 
-  /// After demoting an op's output to DRAM, re-query op_model for the DRAM
-  /// config's cbPeakUsage and evict any live tensors that fall within the
-  /// (potentially larger) static CB region.  When output switches from
-  /// L1-sharded to DRAM, the output CB flips from globally_allocated (aliased
-  /// to the shard, not in the static CB region) to locally_allocated (bottom-up
-  /// in the static CB region), which can significantly increase the CB
-  /// footprint.
-  void evictForDramCBGrowth(Operation *op, int64_t pos, ScheduleData &data);
-
   /// Collect downstream consumers of an op, following through spill ops.
   static llvm::SmallVector<Operation *>
   collectDownstreamConsumers(Operation *changed);
 };
 
-// Explicit instantiation declaration (definition in .cpp).
-extern template class L1SpillManagement<SumL1MemoryTracker>;
+// Explicit instantiation declarations (definitions in .cpp).
+extern template class L1SpillManagementBase<SumL1MemoryTracker>;
+extern template class L1SpillManagementBase<MockAllocatorL1Tracker>;
+
+/// Address-sim strategy: implements the spill hooks with the simulated top-down
+/// first-fit allocator (SumL1MemoryTracker's address model) and the
+/// contiguous-fit / CB-overlap fragmentation checks. Shared by the legacy Sum
+/// path and (transitionally) the Mock path until the stateful path lands.
+template <typename MemoryTracker>
+class AddressSimSpillManagement : public L1SpillManagementBase<MemoryTracker> {
+public:
+  using L1SpillManagementBase<MemoryTracker>::L1SpillManagementBase;
+
+protected:
+  using Base = L1SpillManagementBase<MemoryTracker>;
+  using typename Base::L1Event;
+  using typename Base::ScheduleData;
+  // Base state + generic helpers the address-sim strategy reuses. (Dependent
+  // base: member names must be brought into scope explicitly.)
+  using Base::addressSnapshots;
+  using Base::allocEventIndex;
+  using Base::applyOutputConfig;
+  using Base::cbFragCushion;
+  using Base::collectDownstreamConsumers;
+  using Base::compilationFailed;
+  using Base::demoteToDram;
+  using Base::evictFarthestUse;
+  using Base::evictUntil;
+  using Base::evictValue;
+  using Base::extractOpConfigFromIR;
+  using Base::insertedReshardValues;
+  using Base::insertEventIntoLog;
+  using Base::insertReshardForConsumer;
+  using Base::insertReshardIntoSchedule;
+  using Base::l1BudgetPerCore;
+  using Base::l1EventLog;
+  using Base::liveSet;
+  using Base::liveValues;
+  using Base::markEvictedAndRebuild;
+  using Base::memoryTracker;
+  using Base::observer_;
+  using Base::spillToDram;
+
+  // Strategy hooks (address-sim implementations).
+  uint64_t placeValidatedOutput(
+      Operation *op, int64_t pos, ScheduleData &data,
+      const op_constraint_validation::ValidationResult &result) override;
+  void
+  recoverFromOOM(Operation *op, int64_t pos,
+                 llvm::ArrayRef<OpResult> tensorResults, ScheduleData &data,
+                 std::function<void(uint64_t)> addResultsToLiveSet) override;
+  void commitAllocation(Value val, uint64_t perResultL1,
+                        ScheduleData &data) override;
+  void handleUnvalidatedL1Output(Operation *op, int64_t pos, ScheduleData &data,
+                                 uint64_t derivedL1) override;
+  bool replayFrom(size_t startIdx) override;
+
+  // Address-simulation fit / fragmentation / CB-overlap helpers.
+  uint64_t ensureFitsL1(Operation *op, int64_t pos, ScheduleData &data,
+                        uint64_t cbPeakUsage, uint64_t l1Size);
+  uint64_t handleNoFit(Operation *op, int64_t pos, ScheduleData &data,
+                       uint64_t outputL1Size);
+  uint64_t handleFragmentation(Operation *op, int64_t pos, ScheduleData &data,
+                               uint64_t cbPeakUsage, uint64_t outputL1Size);
+  bool wouldCBsOverlapTensors(Operation *op, int64_t pos, uint64_t cbPeakUsage,
+                              uint64_t speculativeOutputAddr);
+  bool willAliasSourceInL1(Operation *op) const;
+  void handleOOM(Operation *op, int64_t pos,
+                 llvm::ArrayRef<OpResult> tensorResults, ScheduleData &data,
+                 std::function<void(uint64_t)> addResultsToLiveSet);
+  void evictForCBOverlap(uint64_t cushionedCBUsage, int64_t pos,
+                         ScheduleData &data);
+  void evictForDramCBGrowth(Operation *op, int64_t pos, ScheduleData &data);
+};
+
+extern template class AddressSimSpillManagement<SumL1MemoryTracker>;
+
+/// Legacy spill manager: scalar-sum tracker + simulated top-down first-fit
+/// address model. Selected when `use-mock-allocator-state=false`.
+class SumL1SpillManagement final
+    : public AddressSimSpillManagement<SumL1MemoryTracker> {
+public:
+  using AddressSimSpillManagement<
+      SumL1MemoryTracker>::AddressSimSpillManagement;
+};
+
+/// Stateful spill manager: fit / fragmentation / placement / CB-clash are all
+/// answered by tt-metal's captured allocator state (no address simulation).
+/// Selected by default (`use-mock-allocator-state=true`). Eviction drops the
+/// victim's records and replays the surviving allocation history through the
+/// op-model, so the allocator re-flows addresses under the victim-free history
+/// (a stored record cannot simply be dropped: with_allocations pins buffers at
+/// their recorded addresses). The base is a non-dependent type here, so base
+/// members are reachable without using-declarations.
+class StatefulL1SpillManagement final
+    : public L1SpillManagementBase<MockAllocatorL1Tracker> {
+public:
+  using L1SpillManagementBase<MockAllocatorL1Tracker>::L1SpillManagementBase;
+
+protected:
+  bool usesRewindEviction() const override { return true; }
+
+  uint64_t placeValidatedOutput(
+      Operation *op, int64_t pos, ScheduleData &data,
+      const op_constraint_validation::ValidationResult &result) override;
+  void
+  recoverFromOOM(Operation *op, int64_t pos,
+                 llvm::ArrayRef<OpResult> tensorResults, ScheduleData &data,
+                 std::function<void(uint64_t)> addResultsToLiveSet) override;
+  void commitAllocation(Value val, uint64_t perResultL1,
+                        ScheduleData &data) override;
+  void handleUnvalidatedL1Output(Operation *op, int64_t pos, ScheduleData &data,
+                                 uint64_t derivedL1) override;
+  bool replayFrom(size_t startIdx) override;
+};
 
 } // namespace mlir::tt::ttnn
 

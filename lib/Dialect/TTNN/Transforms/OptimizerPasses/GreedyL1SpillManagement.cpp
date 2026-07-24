@@ -21,6 +21,12 @@
 #include "mlir/Pass/Pass.h"
 #include "llvm/Support/ErrorHandling.h"
 
+namespace mlir::tt::ttnn::op_model {
+// Defined in TTNNOpModel.cpp (behind the op-model / tt-metalium boundary).
+void snapshotMockAllocatorState();
+void restoreMockAllocatorState();
+} // namespace mlir::tt::ttnn::op_model
+
 namespace mlir::tt::ttnn {
 
 #define GEN_PASS_DEF_TTNNGREEDYL1SPILLMANAGEMENT
@@ -66,43 +72,62 @@ public:
         observer = std::make_unique<DecisionTraceObserver>();
       }
 
-      L1SpillManagement<SumL1MemoryTracker> spill(
-          func, deviceGrid, l1BudgetPerCore, std::move(observer));
-      spill.run();
+      // Post-run finalize, shared by both tracker instantiations.
+      auto finalize = [&](auto &spill) -> WalkResult {
+        // run() emits a diagnostic but cannot fail the pass on its own; surface
+        // any unrecoverable condition (e.g. an op whose CBs overlap a required
+        // inserted-reshard input) as a pass failure. Interrupt the walk too:
+        // the pass is already doomed, so don't keep mutating later
+        // forward-device funcs.
+        if (spill.hasFailed()) {
+          signalPassFailure();
+          return WalkResult::interrupt();
+        }
 
-      // run() emits a diagnostic but cannot fail the pass on its own; surface
-      // any unrecoverable condition (e.g. an op whose CBs overlap a required
-      // inserted-reshard input) as a pass failure. Interrupt the walk too: the
-      // pass is already doomed, so don't keep mutating later forward-device
-      // funcs.
-      if (spill.hasFailed()) {
-        signalPassFailure();
-        return WalkResult::interrupt();
-      }
+        // Sync D2M subgraph function types to match dispatch op's current
+        // inputs (e.g. after spill, operand types may have changed to DRAM).
+        d2m_optimizer_utils::syncAllD2MFuncTypes(func);
 
-      // Sync D2M subgraph function types to match dispatch op's current inputs
-      // (e.g. after spill, operand types may have changed to DRAM).
-      d2m_optimizer_utils::syncAllD2MFuncTypes(func);
-
-      // Merge spill management data into the existing decision trace JSON.
-      if (enableDecisionTrace) {
-        if (const DecisionTrace *dt = spill.getObserver()->getDecisionTrace()) {
-          if (DecisionTrace::mergeSpillTrace(decisionTraceDir, func.getName(),
-                                             *dt)) {
-            TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-                         "Merged spill management trace into {0}/{1}",
-                         decisionTraceDir, func.getName());
-          } else {
-            TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
-                         "Failed to merge spill management trace for func "
-                         "{0}; layout propagation may not have written a "
-                         "decision trace to {1}.",
-                         func.getName(), decisionTraceDir);
+        // Merge spill management data into the existing decision trace JSON.
+        if (enableDecisionTrace) {
+          if (const DecisionTrace *dt =
+                  spill.getObserver()->getDecisionTrace()) {
+            if (DecisionTrace::mergeSpillTrace(decisionTraceDir, func.getName(),
+                                               *dt)) {
+              TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                           "Merged spill management trace into {0}/{1}",
+                           decisionTraceDir, func.getName());
+            } else {
+              TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
+                           "Failed to merge spill management trace for func "
+                           "{0}; layout propagation may not have written a "
+                           "decision trace to {1}.",
+                           func.getName(), decisionTraceDir);
+            }
           }
         }
-      }
+        return WalkResult::advance();
+      };
 
-      return WalkResult::advance();
+      // Default: stateful, fragmentation-accurate L1 tracking backed by
+      // tt-metal's MockAllocatorState. Toggle off to fall back to the
+      // scalar-heuristic tracker.
+      if (useMockAllocatorState) {
+        // The stateful spill queries mutate the shared mock device's allocator.
+        // Snapshot it before and restore it after, so later stateless op-model
+        // queries (conv2d config search, pool/conv constraint checks in
+        // OperationValidationAndFallback) see the exact device state main sees.
+        op_model::snapshotMockAllocatorState();
+        StatefulL1SpillManagement spill(func, deviceGrid, l1BudgetPerCore,
+                                           std::move(observer));
+        spill.run();
+        op_model::restoreMockAllocatorState();
+        return finalize(spill);
+      }
+      SumL1SpillManagement spill(func, deviceGrid, l1BudgetPerCore,
+                                 std::move(observer));
+      spill.run();
+      return finalize(spill);
     });
 #endif
   }
