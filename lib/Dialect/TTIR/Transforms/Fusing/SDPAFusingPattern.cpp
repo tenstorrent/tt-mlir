@@ -280,6 +280,22 @@ GqaExpansion detectGqaExpansion(Value v) {
   return {native, cast, static_cast<uint32_t>(repeat)};
 }
 
+// Re-apply the element-type cast (if any) that sat outside a peeled GQA
+// expansion onto the smaller native tensor, so K/V keep the element type they
+// had post-expansion. Returns the native tensor unchanged when there was no
+// surrounding cast.
+Value reapplyGqaCast(PatternRewriter &rewriter, GqaExpansion g) {
+  if (!g.cast) {
+    return g.native;
+  }
+  auto nativeType = mlir::cast<RankedTensorType>(g.native.getType());
+  auto castElemType =
+      mlir::cast<RankedTensorType>(g.cast.getType()).getElementType();
+  auto nativeCastType = RankedTensorType::get(
+      nativeType.getShape(), castElemType, nativeType.getEncoding());
+  return rewriter.create<TypecastOp>(g.cast.getLoc(), nativeCastType, g.native);
+}
+
 // True if the slice keeps [0 : lastDim-1] of the last dim and is otherwise a
 // full, unit-step slice — i.e. it drops exactly the last column. Used to peel
 // the attention-sink softmax-padding slice.
@@ -606,20 +622,8 @@ SDPAFusingPattern::matchAndRewrite(MatmulOp srcOp,
   GqaExpansion vGqa = detectGqaExpansion(c.value);
   if (kGqa.repeats.has_value() && vGqa.repeats.has_value() &&
       *kGqa.repeats == *vGqa.repeats) {
-    auto reapplyCast = [&](GqaExpansion g) -> Value {
-      if (!g.cast) {
-        return g.native;
-      }
-      auto nativeType = mlir::cast<RankedTensorType>(g.native.getType());
-      auto castElemType =
-          mlir::cast<RankedTensorType>(g.cast.getType()).getElementType();
-      auto nativeCastType = RankedTensorType::get(
-          nativeType.getShape(), castElemType, nativeType.getEncoding());
-      return rewriter.create<TypecastOp>(g.cast.getLoc(), nativeCastType,
-                                         g.native);
-    };
-    c.key = reapplyCast(kGqa);
-    c.value = reapplyCast(vGqa);
+    c.key = reapplyGqaCast(rewriter, kGqa);
+    c.value = reapplyGqaCast(rewriter, vGqa);
   }
 
   // Shape validation (strict 4D, no unsqueezing).
@@ -692,6 +696,38 @@ SDPAFusingPattern::matchAndRewrite(MatmulOp srcOp,
   }
 
   rewriter.replaceOp(c.attentionMatmul, result);
+  return success();
+}
+
+mlir::LogicalResult SDPAGroupedQueryPeelPattern::matchAndRewrite(
+    ScaledDotProductAttentionOp op, mlir::PatternRewriter &rewriter) const {
+  // Detect a matching head-expansion on both K and V (same repeat count). SDPA
+  // is GQA-native, so feeding the un-expanded Hkv-head tensors is equivalent and
+  // drops the per-step expansion; a mismatch is left alone.
+  GqaExpansion kGqa = detectGqaExpansion(op.getKey());
+  GqaExpansion vGqa = detectGqaExpansion(op.getValue());
+  if (!kGqa.repeats.has_value() || !vGqa.repeats.has_value() ||
+      *kGqa.repeats != *vGqa.repeats) {
+    return failure();
+  }
+
+  Value newKey = reapplyGqaCast(rewriter, kGqa);
+  Value newValue = reapplyGqaCast(rewriter, vGqa);
+  // The op verifier requires key and value to share a full type (element type +
+  // encoding). The two peel from the same expansion shape, so they normally
+  // match; guard anyway so an asymmetric cast declines rather than emitting an
+  // op that fails its own verifier.
+  if (newKey.getType() != newValue.getType()) {
+    return failure();
+  }
+
+  // Only the K/V operands change; query, mask, sink, and all attrs (including
+  // the result type, keyed to Hq) are unaffected. Peeling makes the operands
+  // Hkv-head, so the pattern no longer matches and cannot re-fire.
+  rewriter.modifyOpInPlace(op, [&] {
+    op.getKeyMutable().assign(newKey);
+    op.getValueMutable().assign(newValue);
+  });
   return success();
 }
 
