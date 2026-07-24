@@ -6792,6 +6792,22 @@ def TTIR_MoeComputeOp : TTIR_NamedOp<"moe_compute", [TTIR_CCL, AttrSizedOperandS
     let hasVerifier = 1;
 }
 
+def TTIR_InvokeExternalOp : TTIR_NamedOp<"invoke_external"> {
+    let summary = "Invoke external code.";
+    let description = [{
+      Invokes an external function defined in an MLIR file on disk.
+      The `path` attribute names the MLIR file and `entry` names the
+      function symbol within that file to call.
+    }];
+
+    let arguments = (ins Variadic<AnyType>:$arguments,
+                         StrAttr:$path,
+                         StrAttr:$entry);
+    let results = (outs Variadic<AnyRankedTensor>:$results);
+
+    let hasVerifier = 1;
+}
+
 def TTIR_TTLangOp : TTIR_Op<"tt_lang_op",
     [TTIROpInterface, DestinationStyleOpInterface]> {
   let summary = "Opaque tt-lang custom kernel placeholder.";
