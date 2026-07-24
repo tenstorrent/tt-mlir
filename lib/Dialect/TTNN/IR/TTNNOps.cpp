@@ -3437,6 +3437,129 @@ void AllToAllDispatchMetadataOp::allocateSemaphores(
 // NOLINTEND(clang-analyzer-core.StackAddressEscape)
 
 //===----------------------------------------------------------------------===//
+// AllGatherMinimalMatmulAsyncOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult AllGatherMinimalMatmulAsyncOp::verify() {
+  RankedTensorType inputType = getInput().getType();
+  RankedTensorType weightType = getWeight().getType();
+
+  if (inputType.getRank() < 2) {
+    return emitOpError("input tensor must have rank >= 2");
+  }
+  if (weightType.getRank() < 2) {
+    return emitOpError("weight tensor must have rank >= 2");
+  }
+
+  // The all-gather is synchronized by exactly two global semaphores. When the
+  // operand is left unbound it is materialized later by
+  // TTNNAllocateDistributedOpSemaphores; if provided it must be a pair.
+  if (!getMultiDeviceSemaphore().empty() &&
+      getMultiDeviceSemaphore().size() != 2) {
+    return emitOpError(
+               "expects exactly two multi-device global semaphores, got ")
+           << getMultiDeviceSemaphore().size();
+  }
+
+  if (getResults().empty()) {
+    return emitOpError("expects at least one result tensor");
+  }
+
+  // bias is row-broadcast: its last dim must match the matmul output width N.
+  if (getBias()) {
+    RankedTensorType biasType = getBias().getType();
+    if (biasType.getRank() < 1) {
+      return emitOpError("bias tensor must have rank >= 1");
+    }
+    int64_t n = weightType.getShape().back();
+    if (biasType.getShape().back() != n) {
+      return emitOpError("bias last dimension (")
+             << biasType.getShape().back()
+             << ") must match weight's last dimension N (" << n << ")";
+    }
+  }
+
+  // The gated-residual (addcmul) fusion needs both tensor operands together.
+  // The slots are not interchangeable: the epilogue computes
+  //   addcmul_input1 + scalar * (input @ weight) * addcmul_input2
+  // so addcmul_input1 is the additive residual and addcmul_input2 is the
+  // multiplicative gate. The fusing pattern (AllGatherMatmulAddcmulFusing)
+  // fixes this mapping via its capture order (residual then gate); nothing
+  // here can recover it once fused, so callers must preserve that order.
+  if (static_cast<bool>(getAddcmulInput1()) !=
+      static_cast<bool>(getAddcmulInput2())) {
+    return emitOpError("addcmul_input1 and addcmul_input2 must both be present "
+                       "or both absent");
+  }
+
+  return success();
+}
+
+bool AllGatherMinimalMatmulAsyncOp::hasUnboundBuffers() { return false; }
+
+void AllGatherMinimalMatmulAsyncOp::allocateBuffers(
+    ::mlir::RewriterBase &rewriter) {}
+
+bool AllGatherMinimalMatmulAsyncOp::hasUnboundSemaphores() {
+  return getMultiDeviceSemaphore().empty() || !getBarrierSemaphore();
+}
+
+// NOLINTBEGIN(clang-analyzer-core.StackAddressEscape)
+void AllGatherMinimalMatmulAsyncOp::allocateSemaphores(
+    ::mlir::RewriterBase &rewriter) {
+  if (!hasUnboundSemaphores()) {
+    return;
+  }
+
+  // The all-gather semaphores must live on cores that exist on the device.
+  // Derive the core range from the input tensor's layout (its worker grid).
+  MLIRContext *ctx = rewriter.getContext();
+  auto inputLayout = mlir::dyn_cast_if_present<TTNNLayoutAttr>(
+      getInput().getType().getEncoding());
+  CoreRangeSetAttr coreRangeSet =
+      inputLayout ? inputLayout.getCoreRangeSet() : CoreRangeSetAttr();
+
+  if (!coreRangeSet) {
+    ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(*this);
+    llvm::ArrayRef<int64_t> gridShape = deviceAttr.getWorkerGrid().getShape();
+    coreRangeSet = CoreRangeSetAttr::get(
+        ctx, {CoreRangeAttr::get(
+                 ctx, CoreCoordAttr::get(ctx, 0, 0),
+                 CoreCoordAttr::get(ctx, gridShape[1] - 1, gridShape[0] - 1))});
+  }
+
+  Value device = getDevice();
+
+  // All prelude ops are inserted right after the device def so they sit in the
+  // block prelude (see DistributedRMSNormOp for the trace-hoisting rationale).
+  auto createSemaphore = [&]() -> Value {
+    OpBuilder::InsertionGuard guard(rewriter);
+    if (Operation *deviceDef = device.getDefiningOp()) {
+      rewriter.setInsertionPointAfter(deviceDef);
+    } else {
+      rewriter.setInsertionPointToStart(getOperation()->getBlock());
+    }
+    auto semaphoreOp = rewriter.create<ttnn::CreateGlobalSemaphoreOp>(
+        getLoc(), GlobalSemaphoreType::get(ctx), device,
+        /*initial_value=*/rewriter.getUI32IntegerAttr(0), coreRangeSet);
+    return semaphoreOp.getResult();
+  };
+
+  if (getMultiDeviceSemaphore().empty()) {
+    SmallVector<Value> semaphores = {createSemaphore(), createSemaphore()};
+    rewriter.modifyOpInPlace(
+        *this, [&]() { getMultiDeviceSemaphoreMutable().assign(semaphores); });
+  }
+
+  if (!getBarrierSemaphore()) {
+    Value barrier = createSemaphore();
+    rewriter.modifyOpInPlace(
+        *this, [&]() { getBarrierSemaphoreMutable().assign(barrier); });
+  }
+}
+// NOLINTEND(clang-analyzer-core.StackAddressEscape)
+
+//===----------------------------------------------------------------------===//
 // AllocOp
 //===----------------------------------------------------------------------===//
 

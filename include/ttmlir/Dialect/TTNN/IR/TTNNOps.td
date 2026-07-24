@@ -3312,6 +3312,59 @@ def TTNN_AllReduceAsyncOp: TTNN_Op<"all_reduce_async", [OpModelExempt]> {
     let hasVerifier = 1;
 }
 
+def TTNN_AllGatherMinimalMatmulAsyncOp: TTNN_Op<"all_gather_minimal_matmul_async",
+    [AttrSizedOperandSegments, TTNN_DistributedOpInterface, OpModelExempt]> {
+    let summary = "Fused async all-gather + minimal matmul op.";
+    let description = [{
+      Fused collective + matmul op (maps to
+      `ttnn::all_gather_minimal_matmul_async`). Activation `input` `[..., M, K]`
+      is sharded along `K` across `cluster_axis`; the op all-gathers those
+      shards while computing `input @ weight` `[..., K, N]`, overlapping
+      communication with compute. Optional epilogues: row-broadcast `bias`
+      (present only for the linear variant; matmul has no bias), and gated
+      residual `addcmul_input1 + scalar * (input @ weight + bias) * addcmul_input2`
+      (DiT blocks).
+
+      The async all-gather is synchronized by the two `multi_device_semaphore`
+      global semaphores and `barrier_semaphore`; left unbound, these are
+      materialized by `TTNNAllocateDistributedOpSemaphores` via the
+      `DistributedOpInterface`. `fused_activation`, `MinimalMatmulConfig`,
+      `compute_kernel_config`, persistent buffers, and FSDP use tt-metal
+      defaults.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$weight,
+                         Optional<AnyRankedTensor>:$bias,
+                         Optional<AnyRankedTensor>:$addcmul_input1,
+                         Optional<AnyRankedTensor>:$addcmul_input2,
+                         Variadic<TTNN_GlobalSemaphore>:$multi_device_semaphore,
+                         Optional<TTNN_GlobalSemaphore>:$barrier_semaphore,
+                         TTNN_Device:$device,
+                         OptionalAttr<UI32Attr>:$cluster_axis,
+                         OptionalAttr<F32Attr>:$scalar,
+                         OptionalAttr<TTCore_TopologyAttr>:$topology,
+                         OptionalAttr<UI32Attr>:$num_links,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         OptionalAttr<TTCore_DataTypeAttr>:$dtype,
+                         DefaultValuedAttr<BoolAttr, "true">:$force_transpose,
+                         DefaultValuedAttr<UI32Attr, "1">:$num_workers_per_link,
+                         DefaultValuedAttr<UI32Attr, "1">:$num_buffers_per_channel,
+                         DefaultValuedAttr<SI32Attr, "1">:$chunks,
+                         DefaultValuedAttr<SI32Attr, "-1">:$dim);
+
+    let results = (outs Variadic<AnyRankedTensor>:$results);
+
+    let extraClassDeclaration = [{
+      bool hasUnboundBuffers();
+      void allocateBuffers(::mlir::RewriterBase &rewriter);
+      bool hasUnboundSemaphores();
+      void allocateSemaphores(::mlir::RewriterBase &rewriter);
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_MeshPartitionOp: TTNN_Op<"mesh_partition"> {
   let summary = "Mesh partition operation.";
   let description = [{

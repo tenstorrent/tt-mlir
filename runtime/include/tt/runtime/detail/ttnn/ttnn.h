@@ -38,6 +38,7 @@
 #include "ttnn/operations/eltwise/ternary/ternary.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/embedding/embedding.hpp"
+#include "ttnn/operations/experimental/ccl/all_gather_minimal_matmul_async/all_gather_minimal_matmul_async.hpp"
 #include "ttnn/operations/experimental/ccl/moe/selective_reduce_combine/selective_reduce_combine.hpp"
 #include "ttnn/operations/experimental/conv3d/conv3d.hpp"
 #include "ttnn/operations/experimental/conv3d/prepare_conv3d_weights.hpp"

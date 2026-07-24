@@ -11,6 +11,7 @@ set(TTNN_OPS_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/cache/load_cached.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/aggregate_tensor.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_gather.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_gather_minimal_matmul_async.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_reduce.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_reduce_async.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/ccl/all_to_all_combine.cpp
