@@ -4115,6 +4115,82 @@ RMSNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// DistributedRMSNormOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints> DistributedRMSNormOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  assert(inputs.size() >= 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  // Unpack optional tensor shapes/layouts from the inputs vector.
+  // Inputs follow operand order: input(0), weight(1?), residual(2?), stats(3?)
+  size_t idx = 1;
+  std::optional<llvm::ArrayRef<int64_t>> weightShape;
+  std::optional<TTNNLayoutAttr> weightLayout;
+  if (getWeight() && inputs.size() > idx) {
+    weightShape = getWeight().getType().getShape();
+    weightLayout = inputs[idx++];
+  }
+  std::optional<llvm::ArrayRef<int64_t>> residualShape;
+  std::optional<TTNNLayoutAttr> residualLayout;
+  if (getResidual() && inputs.size() > idx) {
+    residualShape = getResidual().getType().getShape();
+    residualLayout = inputs[idx++];
+  }
+  std::optional<llvm::ArrayRef<int64_t>> statsShape;
+  std::optional<TTNNLayoutAttr> statsLayout;
+  if (getStats() && inputs.size() > idx) {
+    statsShape = getStats().getType().getShape();
+    statsLayout = inputs[idx++];
+  }
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<DistributedRMSNormOp>::getOpConstraints, *this,
+      inputShape, inputs[0], weightShape, weightLayout, residualShape,
+      residualLayout, statsShape, statsLayout, getClusterAxis(), getEpsilon(),
+      getSubDeviceId(), getNumLinks(), getTopology(), getComputeConfig(),
+      getProgramConfig(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+DistributedRMSNormOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                   const OpConfig &opConfig) {
+  assert(inputs.size() >= 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  // Unpack optional tensor shapes/layouts (same as getOpConstraints).
+  size_t idx = 1;
+  std::optional<llvm::ArrayRef<int64_t>> weightShape;
+  std::optional<TTNNLayoutAttr> weightLayout;
+  if (getWeight() && inputs.size() > idx) {
+    weightShape = getWeight().getType().getShape();
+    weightLayout = inputs[idx++];
+  }
+  std::optional<llvm::ArrayRef<int64_t>> residualShape;
+  std::optional<TTNNLayoutAttr> residualLayout;
+  if (getResidual() && inputs.size() > idx) {
+    residualShape = getResidual().getType().getShape();
+    residualLayout = inputs[idx++];
+  }
+  std::optional<llvm::ArrayRef<int64_t>> statsShape;
+  std::optional<TTNNLayoutAttr> statsLayout;
+  if (getStats() && inputs.size() > idx) {
+    statsShape = getStats().getType().getShape();
+    statsLayout = inputs[idx++];
+  }
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<DistributedRMSNormOp>::getOpRuntime, *this, inputShape,
+      inputs[0], weightShape, weightLayout, residualShape, residualLayout,
+      statsShape, statsLayout, getClusterAxis(), getEpsilon(), getSubDeviceId(),
+      getNumLinks(), getTopology(), getComputeConfig(), getProgramConfig(),
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // RMSNormPreAllGatherOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
@@ -4732,6 +4808,66 @@ FullOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// AllGatherOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+AllGatherOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                              const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<AllGatherOp>::getOpConstraints, *this, inputShape,
+      inputs[0], getAllGatherDim(), getClusterAxis(), getSubDeviceId(),
+      getNumLinks(), getTopology(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+AllGatherOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<AllGatherOp>::getOpRuntime, *this, inputShape,
+      inputs[0], getAllGatherDim(), getClusterAxis(), getSubDeviceId(),
+      getNumLinks(), getTopology(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// ReduceScatterOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+// Note: reduce_type is always SUM in ttnn::reduce_scatter (no API parameter).
+llvm::Expected<op_model::OpConstraints>
+ReduceScatterOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                  const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<ReduceScatterOp>::getOpConstraints, *this, inputShape,
+      inputs[0], getScatterDim(), getClusterAxis(), getSubDeviceId(),
+      getNumLinks(), getTopology(), getComputeConfig(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+ReduceScatterOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                              const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<ReduceScatterOp>::getOpRuntime, *this, inputShape,
+      inputs[0], getScatterDim(), getClusterAxis(), getSubDeviceId(),
+      getNumLinks(), getTopology(), getComputeConfig(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // MeshPartitionOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
@@ -4757,6 +4893,36 @@ MeshPartitionOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
   return opRuntimeCache().getOrCompute(
       op_model::OpModel<MeshPartitionOp>::getOpRuntime, *this, inputShape,
       inputs[0], getDim(), getClusterAxis(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// AllReduceOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints>
+AllReduceOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                              const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opConstraintsCache().getOrCompute(
+      op_model::OpModel<AllReduceOp>::getOpConstraints, *this, inputShape,
+      inputs[0], getClusterAxis(), getSubDeviceId(), getNumLinks(),
+      getTopology(), opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+AllReduceOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                          const OpConfig &opConfig) {
+  assert(inputs.size() == 1);
+
+  const auto inputShape = getInput().getType().getShape();
+
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<AllReduceOp>::getOpRuntime, *this, inputShape,
+      inputs[0], getClusterAxis(), getSubDeviceId(), getNumLinks(),
+      getTopology(), opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//
