@@ -4584,59 +4584,45 @@ static Conv2dAttrs unpackConv2dAttrs(const OpConfig::OpSpecificAttrs &attrs,
                          : op.getComputeConfig()};
 }
 
-llvm::Expected<op_model::OpConstraints>
-Conv2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                           const OpConfig &opConfig) {
-  assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
+static llvm::Expected<op_model::OpConstraints>
+conv2dConstraintsImpl(Conv2dOp op, const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig,
+                      const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == (2 + (op.getBias() == nullptr ? 0 : 1)));
 
-  const auto inputShape = getInput().getType().getShape();
-  const auto weightShape = getWeight().getType().getShape();
+  const auto inputShape = op.getInput().getType().getShape();
+  const auto weightShape = op.getWeight().getType().getShape();
   std::optional<llvm::ArrayRef<int64_t>> biasShape;
   std::optional<TTNNLayoutAttr> biasLayout;
 
   if (inputs.size() == 3) {
-    biasShape = getBias().getType().getShape();
+    biasShape = op.getBias().getType().getShape();
     biasLayout = inputs[2];
   }
 
-  Conv2dAttrs attr = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
+  Conv2dAttrs attr = unpackConv2dAttrs(opConfig.opSpecificAttrs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<Conv2dOp>::getOpConstraints, *this, inputShape,
-      inputs[0], weightShape, inputs[1], biasShape, biasLayout, getInChannels(),
-      getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
-      getKernelSize(), getStride(), getPadding(), getDilation(), getGroups(),
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], weightShape, inputs[1], biasShape,
+      biasLayout, op.getInChannels(), op.getOutChannels(), op.getBatchSize(),
+      op.getInputHeight(), op.getInputWidth(), op.getKernelSize(),
+      op.getStride(), op.getPadding(), op.getDilation(), op.getGroups(),
       attr.conv2dConfig, attr.deviceComputeKernelConfig,
-      getConv2dSliceConfigAttr(), opConfig.outputLayout);
+      op.getConv2dSliceConfigAttr(), opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+Conv2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  return conv2dConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
 }
 
 llvm::Expected<op_model::OpConstraints> Conv2dOp::getOpConstraintsWithState(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
     llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
-  assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
-
-  const auto inputShape = getInput().getType().getShape();
-  const auto weightShape = getWeight().getType().getShape();
-  std::optional<llvm::ArrayRef<int64_t>> biasShape;
-  std::optional<TTNNLayoutAttr> biasLayout;
-
-  if (inputs.size() == 3) {
-    biasShape = getBias().getType().getShape();
-    biasLayout = inputs[2];
-  }
-
-  Conv2dAttrs attr = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
-
   std::shared_ptr<op_model::MockAllocatorState> initialState =
       op_model::buildInitialState(liveRecords);
-
-  return op_model::OpModel<Conv2dOp>::getOpConstraintsWithState(
-      inputShape, inputs[0], weightShape, inputs[1], biasShape, biasLayout,
-      getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
-      getInputWidth(), getKernelSize(), getStride(), getPadding(),
-      getDilation(), getGroups(), attr.conv2dConfig,
-      attr.deviceComputeKernelConfig, getConv2dSliceConfigAttr(),
-      opConfig.outputLayout, initialState.get());
+  return conv2dConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -4688,66 +4674,50 @@ static Conv3dAttrs unpackConv3dAttrs(const OpConfig::OpSpecificAttrs &attrs,
                          : op.getComputeConfig()};
 }
 
-llvm::Expected<op_model::OpConstraints>
-Conv3dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                           const OpConfig &opConfig) {
-  assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
+static llvm::Expected<op_model::OpConstraints>
+conv3dConstraintsImpl(Conv3dOp op, const std::vector<TTNNLayoutAttr> &inputs,
+                      const OpConfig &opConfig,
+                      const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == (2 + (op.getBias() == nullptr ? 0 : 1)));
 
-  const auto inputShape = getInput().getType().getShape();
+  const auto inputShape = op.getInput().getType().getShape();
   // tt-metal's conv3d kernel consumes the prepared 2D weight; the in-IR
   // weight may still be raw 5D (before TTNNPrepareConv3dWeights runs), so
   // pass the prepared shape/layout regardless of what's currently in IR.
-  auto preparedWeight = op_model::getPreparedConv3dWeightsOutputTensor(this);
+  auto preparedWeight = op_model::getPreparedConv3dWeightsOutputTensor(&op);
   const auto weightShape = preparedWeight.getShape();
   auto weightLayout = mlir::cast<TTNNLayoutAttr>(preparedWeight.getEncoding());
   std::optional<llvm::ArrayRef<int64_t>> biasShape;
   std::optional<TTNNLayoutAttr> biasLayout;
 
   if (inputs.size() == 3) {
-    biasShape = getBias().getType().getShape();
+    biasShape = op.getBias().getType().getShape();
     biasLayout = inputs[2];
   }
 
-  Conv3dAttrs attr = unpackConv3dAttrs(opConfig.opSpecificAttrs, *this);
+  Conv3dAttrs attr = unpackConv3dAttrs(opConfig.opSpecificAttrs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<Conv3dOp>::getOpConstraints, *this, inputShape,
-      inputs[0], weightShape, weightLayout, biasShape, biasLayout,
-      getInChannels(), getOutChannels(), getBatchSize(), getInputDepth(),
-      getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
-      getPadding(), getGroups(), getPaddingMode(), getDtypeAttr(),
-      attr.conv3dConfig, attr.deviceComputeKernelConfig, opConfig.outputLayout);
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], weightShape, weightLayout, biasShape,
+      biasLayout, op.getInChannels(), op.getOutChannels(), op.getBatchSize(),
+      op.getInputDepth(), op.getInputHeight(), op.getInputWidth(),
+      op.getKernelSize(), op.getStride(), op.getPadding(), op.getGroups(),
+      op.getPaddingMode(), op.getDtypeAttr(), attr.conv3dConfig,
+      attr.deviceComputeKernelConfig, opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+Conv3dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                           const OpConfig &opConfig) {
+  return conv3dConstraintsImpl(*this, inputs, opConfig, /*state=*/nullptr);
 }
 
 llvm::Expected<op_model::OpConstraints> Conv3dOp::getOpConstraintsWithState(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
     llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
-  assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
-
-  const auto inputShape = getInput().getType().getShape();
-  auto preparedWeight = op_model::getPreparedConv3dWeightsOutputTensor(this);
-  const auto weightShape = preparedWeight.getShape();
-  auto weightLayout = mlir::cast<TTNNLayoutAttr>(preparedWeight.getEncoding());
-  std::optional<llvm::ArrayRef<int64_t>> biasShape;
-  std::optional<TTNNLayoutAttr> biasLayout;
-
-  if (inputs.size() == 3) {
-    biasShape = getBias().getType().getShape();
-    biasLayout = inputs[2];
-  }
-
-  Conv3dAttrs attr = unpackConv3dAttrs(opConfig.opSpecificAttrs, *this);
-
   std::shared_ptr<op_model::MockAllocatorState> initialState =
       op_model::buildInitialState(liveRecords);
-
-  return op_model::OpModel<Conv3dOp>::getOpConstraintsWithState(
-      inputShape, inputs[0], weightShape, weightLayout, biasShape, biasLayout,
-      getInChannels(), getOutChannels(), getBatchSize(), getInputDepth(),
-      getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
-      getPadding(), getGroups(), getPaddingMode(), getDtypeAttr(),
-      attr.conv3dConfig, attr.deviceComputeKernelConfig, opConfig.outputLayout,
-      initialState.get());
+  return conv3dConstraintsImpl(*this, inputs, opConfig, initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -4803,60 +4773,50 @@ static Conv2dAttrs unpackConv2dAttrs(const OpConfig::OpSpecificAttrs &attrs,
                      std::nullopt};
 }
 
-llvm::Expected<op_model::OpConstraints>
-ConvTranspose2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                                    const OpConfig &opConfig) {
-  assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
+static llvm::Expected<op_model::OpConstraints>
+convTranspose2dConstraintsImpl(ConvTranspose2dOp op,
+                               const std::vector<TTNNLayoutAttr> &inputs,
+                               const OpConfig &opConfig,
+                               const op_model::MockAllocatorState *state) {
+  assert(inputs.size() == (2 + (op.getBias() == nullptr ? 0 : 1)));
 
-  const auto inputShape = getInput().getType().getShape();
-  const auto weightShape = getWeight().getType().getShape();
+  const auto inputShape = op.getInput().getType().getShape();
+  const auto weightShape = op.getWeight().getType().getShape();
   std::optional<llvm::ArrayRef<int64_t>> biasShape;
   std::optional<TTNNLayoutAttr> biasLayout;
 
   if (inputs.size() == 3) {
-    biasShape = getBias().getType().getShape();
+    biasShape = op.getBias().getType().getShape();
     biasLayout = inputs[2];
   }
 
   // If a conv config has been specified, use that. If not, read the op property
-  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
+  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<ConvTranspose2dOp>::getOpConstraints, *this, inputShape,
-      inputs[0], weightShape, inputs[1], biasShape, biasLayout, getInChannels(),
-      getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
-      getKernelSize(), getStride(), getPadding(), getOutputPadding(),
-      getDilation(), getGroups(), conv2dAttrs.conv2dConfig,
-      getConv2dSliceConfig(), opConfig.outputLayout);
+  return detail::constraintsDispatch(
+      op, state, inputShape, inputs[0], weightShape, inputs[1], biasShape,
+      biasLayout, op.getInChannels(), op.getOutChannels(), op.getBatchSize(),
+      op.getInputHeight(), op.getInputWidth(), op.getKernelSize(),
+      op.getStride(), op.getPadding(), op.getOutputPadding(), op.getDilation(),
+      op.getGroups(), conv2dAttrs.conv2dConfig, op.getConv2dSliceConfig(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+ConvTranspose2dOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                    const OpConfig &opConfig) {
+  return convTranspose2dConstraintsImpl(*this, inputs, opConfig,
+                                        /*state=*/nullptr);
 }
 
 llvm::Expected<op_model::OpConstraints>
 ConvTranspose2dOp::getOpConstraintsWithState(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
     llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
-  assert(inputs.size() == (2 + (getBias() == nullptr ? 0 : 1)));
-
-  const auto inputShape = getInput().getType().getShape();
-  const auto weightShape = getWeight().getType().getShape();
-  std::optional<llvm::ArrayRef<int64_t>> biasShape;
-  std::optional<TTNNLayoutAttr> biasLayout;
-
-  if (inputs.size() == 3) {
-    biasShape = getBias().getType().getShape();
-    biasLayout = inputs[2];
-  }
-
-  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
-
   std::shared_ptr<op_model::MockAllocatorState> initialState =
       op_model::buildInitialState(liveRecords);
-
-  return op_model::OpModel<ConvTranspose2dOp>::getOpConstraintsWithState(
-      inputShape, inputs[0], weightShape, inputs[1], biasShape, biasLayout,
-      getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
-      getInputWidth(), getKernelSize(), getStride(), getPadding(),
-      getOutputPadding(), getDilation(), getGroups(), conv2dAttrs.conv2dConfig,
-      getConv2dSliceConfig(), opConfig.outputLayout, initialState.get());
+  return convTranspose2dConstraintsImpl(*this, inputs, opConfig,
+                                        initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -4890,47 +4850,42 @@ ConvTranspose2dOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // PrepareConv2dWeightsOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-PrepareConv2dWeightsOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints>
+prepareConv2dWeightsConstraintsImpl(
+    PrepareConv2dWeightsOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
   assert(inputs.size() == 1);
 
   const ::llvm::ArrayRef<int64_t> weightShape =
-      getWeightTensor().getType().getShape();
-  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
+      op.getWeightTensor().getType().getShape();
+  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<PrepareConv2dWeightsOp>::getOpConstraints, *this,
-      inputs[0], weightShape, getInputMemoryConfig(), getInputTensorLayout(),
-      getWeightsFormat(), getInChannels(), getOutChannels(), getBatchSize(),
-      getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
-      getPadding(), getDilation(), getHasBias(), getGroups(), getInputDtype(),
-      getOutputDtype(), conv2dAttrs.conv2dConfig,
-      conv2dAttrs.deviceComputeKernelConfig, getConv2dSliceConfigAttr(),
+  return detail::constraintsDispatch(
+      op, state, inputs[0], weightShape, op.getInputMemoryConfig(),
+      op.getInputTensorLayout(), op.getWeightsFormat(), op.getInChannels(),
+      op.getOutChannels(), op.getBatchSize(), op.getInputHeight(),
+      op.getInputWidth(), op.getKernelSize(), op.getStride(), op.getPadding(),
+      op.getDilation(), op.getHasBias(), op.getGroups(), op.getInputDtype(),
+      op.getOutputDtype(), conv2dAttrs.conv2dConfig,
+      conv2dAttrs.deviceComputeKernelConfig, op.getConv2dSliceConfigAttr(),
       opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+PrepareConv2dWeightsOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return prepareConv2dWeightsConstraintsImpl(*this, inputs, opConfig,
+                                             /*state=*/nullptr);
 }
 
 llvm::Expected<op_model::OpConstraints>
 PrepareConv2dWeightsOp::getOpConstraintsWithState(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
     llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
-  assert(inputs.size() == 1);
-
-  const ::llvm::ArrayRef<int64_t> weightShape =
-      getWeightTensor().getType().getShape();
-  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
-
   std::shared_ptr<op_model::MockAllocatorState> initialState =
       op_model::buildInitialState(liveRecords);
-
-  return op_model::OpModel<PrepareConv2dWeightsOp>::getOpConstraintsWithState(
-      inputs[0], weightShape, getInputMemoryConfig(), getInputTensorLayout(),
-      getWeightsFormat(), getInChannels(), getOutChannels(), getBatchSize(),
-      getInputHeight(), getInputWidth(), getKernelSize(), getStride(),
-      getPadding(), getDilation(), getHasBias(), getGroups(), getInputDtype(),
-      getOutputDtype(), conv2dAttrs.conv2dConfig,
-      conv2dAttrs.deviceComputeKernelConfig, getConv2dSliceConfigAttr(),
-      opConfig.outputLayout, initialState.get());
+  return prepareConv2dWeightsConstraintsImpl(*this, inputs, opConfig,
+                                             initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -4944,45 +4899,41 @@ PrepareConv2dWeightsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // PrepareConv2dBiasOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-PrepareConv2dBiasOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
-                                      const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints>
+prepareConv2dBiasConstraintsImpl(
+    PrepareConv2dBiasOp op, const std::vector<TTNNLayoutAttr> &inputs,
+    const OpConfig &opConfig, const op_model::MockAllocatorState *state) {
   assert(inputs.size() == 1);
 
   const ::llvm::ArrayRef<int64_t> biasShape =
-      getBiasTensor().getType().getShape();
-  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
+      op.getBiasTensor().getType().getShape();
+  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<PrepareConv2dBiasOp>::getOpConstraints, *this,
-      inputs[0], biasShape, getInputMemoryConfig(), getInputTensorLayout(),
-      getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
-      getInputWidth(), getKernelSize(), getStride(), getPadding(),
-      getDilation(), getGroups(), getInputDtype(), getOutputDtype(),
+  return detail::constraintsDispatch(
+      op, state, inputs[0], biasShape, op.getInputMemoryConfig(),
+      op.getInputTensorLayout(), op.getInChannels(), op.getOutChannels(),
+      op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
+      op.getKernelSize(), op.getStride(), op.getPadding(), op.getDilation(),
+      op.getGroups(), op.getInputDtype(), op.getOutputDtype(),
       conv2dAttrs.conv2dConfig, conv2dAttrs.deviceComputeKernelConfig,
       opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+PrepareConv2dBiasOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                      const OpConfig &opConfig) {
+  return prepareConv2dBiasConstraintsImpl(*this, inputs, opConfig,
+                                          /*state=*/nullptr);
 }
 
 llvm::Expected<op_model::OpConstraints>
 PrepareConv2dBiasOp::getOpConstraintsWithState(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
     llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
-  assert(inputs.size() == 1);
-
-  const ::llvm::ArrayRef<int64_t> biasShape =
-      getBiasTensor().getType().getShape();
-  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
-
   std::shared_ptr<op_model::MockAllocatorState> initialState =
       op_model::buildInitialState(liveRecords);
-
-  return op_model::OpModel<PrepareConv2dBiasOp>::getOpConstraintsWithState(
-      inputs[0], biasShape, getInputMemoryConfig(), getInputTensorLayout(),
-      getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
-      getInputWidth(), getKernelSize(), getStride(), getPadding(),
-      getDilation(), getGroups(), getInputDtype(), getOutputDtype(),
-      conv2dAttrs.conv2dConfig, conv2dAttrs.deviceComputeKernelConfig,
-      opConfig.outputLayout, initialState.get());
+  return prepareConv2dBiasConstraintsImpl(*this, inputs, opConfig,
+                                          initialState.get());
 }
 
 llvm::Expected<size_t>
@@ -5015,50 +4966,43 @@ PrepareConv3dWeightsOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 // PrepareConvTranspose2dWeightsOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-PrepareConvTranspose2dWeightsOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints>
+prepareConvTranspose2dWeightsConstraintsImpl(
+    PrepareConvTranspose2dWeightsOp op,
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    const op_model::MockAllocatorState *state) {
   assert(inputs.size() == 1);
 
   const ::llvm::ArrayRef<int64_t> weightShape =
-      getWeightTensor().getType().getShape();
-  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
+      op.getWeightTensor().getType().getShape();
+  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<PrepareConvTranspose2dWeightsOp>::getOpConstraints,
-      *this, inputs[0], weightShape, getInputMemoryConfig(),
-      getInputTensorLayout(), getWeightsFormat(), getInChannels(),
-      getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
-      getKernelSize(), getStride(), getPadding(), getOutputPadding(),
-      getDilation(), getHasBias(), getGroups(), getInputDtype(),
-      getOutputDtype(), conv2dAttrs.conv2dConfig,
-      conv2dAttrs.deviceComputeKernelConfig, getConv2dSliceConfig(),
-      getMirrorKernel(), opConfig.outputLayout);
+  return detail::constraintsDispatch(
+      op, state, inputs[0], weightShape, op.getInputMemoryConfig(),
+      op.getInputTensorLayout(), op.getWeightsFormat(), op.getInChannels(),
+      op.getOutChannels(), op.getBatchSize(), op.getInputHeight(),
+      op.getInputWidth(), op.getKernelSize(), op.getStride(), op.getPadding(),
+      op.getOutputPadding(), op.getDilation(), op.getHasBias(), op.getGroups(),
+      op.getInputDtype(), op.getOutputDtype(), conv2dAttrs.conv2dConfig,
+      conv2dAttrs.deviceComputeKernelConfig, op.getConv2dSliceConfig(),
+      op.getMirrorKernel(), opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+PrepareConvTranspose2dWeightsOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return prepareConvTranspose2dWeightsConstraintsImpl(*this, inputs, opConfig,
+                                                      /*state=*/nullptr);
 }
 
 llvm::Expected<op_model::OpConstraints>
 PrepareConvTranspose2dWeightsOp::getOpConstraintsWithState(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
     llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
-  assert(inputs.size() == 1);
-
-  const ::llvm::ArrayRef<int64_t> weightShape =
-      getWeightTensor().getType().getShape();
-  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
-
   std::shared_ptr<op_model::MockAllocatorState> initialState =
       op_model::buildInitialState(liveRecords);
-
-  return op_model::OpModel<PrepareConvTranspose2dWeightsOp>::
-      getOpConstraintsWithState(
-          inputs[0], weightShape, getInputMemoryConfig(),
-          getInputTensorLayout(), getWeightsFormat(), getInChannels(),
-          getOutChannels(), getBatchSize(), getInputHeight(), getInputWidth(),
-          getKernelSize(), getStride(), getPadding(), getOutputPadding(),
-          getDilation(), getHasBias(), getGroups(), getInputDtype(),
-          getOutputDtype(), conv2dAttrs.conv2dConfig,
-          conv2dAttrs.deviceComputeKernelConfig, getConv2dSliceConfig(),
-          getMirrorKernel(), opConfig.outputLayout, initialState.get());
+  return prepareConvTranspose2dWeightsConstraintsImpl(*this, inputs, opConfig,
+                                                      initialState.get());
 }
 
 llvm::Expected<size_t> PrepareConvTranspose2dWeightsOp::getOpRuntime(
@@ -5071,46 +5015,42 @@ llvm::Expected<size_t> PrepareConvTranspose2dWeightsOp::getOpRuntime(
 // PrepareConvTranspose2dBiasOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
-llvm::Expected<op_model::OpConstraints>
-PrepareConvTranspose2dBiasOp::getOpConstraints(
-    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+static llvm::Expected<op_model::OpConstraints>
+prepareConvTranspose2dBiasConstraintsImpl(
+    PrepareConvTranspose2dBiasOp op,
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    const op_model::MockAllocatorState *state) {
   assert(inputs.size() == 1);
 
   const ::llvm::ArrayRef<int64_t> biasShape =
-      getBiasTensor().getType().getShape();
-  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
+      op.getBiasTensor().getType().getShape();
+  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, op);
 
-  return opConstraintsCache().getOrCompute(
-      op_model::OpModel<PrepareConvTranspose2dBiasOp>::getOpConstraints, *this,
-      inputs[0], biasShape, getInputMemoryConfig(), getInputTensorLayout(),
-      getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
-      getInputWidth(), getKernelSize(), getStride(), getPadding(),
-      getDilation(), getGroups(), getInputDtype(), getOutputDtype(),
+  return detail::constraintsDispatch(
+      op, state, inputs[0], biasShape, op.getInputMemoryConfig(),
+      op.getInputTensorLayout(), op.getInChannels(), op.getOutChannels(),
+      op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
+      op.getKernelSize(), op.getStride(), op.getPadding(), op.getDilation(),
+      op.getGroups(), op.getInputDtype(), op.getOutputDtype(),
       conv2dAttrs.conv2dConfig, conv2dAttrs.deviceComputeKernelConfig,
-      getConv2dSliceConfig(), opConfig.outputLayout);
+      op.getConv2dSliceConfig(), opConfig.outputLayout);
+}
+
+llvm::Expected<op_model::OpConstraints>
+PrepareConvTranspose2dBiasOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig) {
+  return prepareConvTranspose2dBiasConstraintsImpl(*this, inputs, opConfig,
+                                                   /*state=*/nullptr);
 }
 
 llvm::Expected<op_model::OpConstraints>
 PrepareConvTranspose2dBiasOp::getOpConstraintsWithState(
     const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
     llvm::ArrayRef<op_model::OpModelAllocationRecord> liveRecords) {
-  assert(inputs.size() == 1);
-
-  const ::llvm::ArrayRef<int64_t> biasShape =
-      getBiasTensor().getType().getShape();
-  Conv2dAttrs conv2dAttrs = unpackConv2dAttrs(opConfig.opSpecificAttrs, *this);
-
   std::shared_ptr<op_model::MockAllocatorState> initialState =
       op_model::buildInitialState(liveRecords);
-
-  return op_model::OpModel<PrepareConvTranspose2dBiasOp>::
-      getOpConstraintsWithState(
-          inputs[0], biasShape, getInputMemoryConfig(), getInputTensorLayout(),
-          getInChannels(), getOutChannels(), getBatchSize(), getInputHeight(),
-          getInputWidth(), getKernelSize(), getStride(), getPadding(),
-          getDilation(), getGroups(), getInputDtype(), getOutputDtype(),
-          conv2dAttrs.conv2dConfig, conv2dAttrs.deviceComputeKernelConfig,
-          getConv2dSliceConfig(), opConfig.outputLayout, initialState.get());
+  return prepareConvTranspose2dBiasConstraintsImpl(*this, inputs, opConfig,
+                                                   initialState.get());
 }
 
 llvm::Expected<size_t> PrepareConvTranspose2dBiasOp::getOpRuntime(
