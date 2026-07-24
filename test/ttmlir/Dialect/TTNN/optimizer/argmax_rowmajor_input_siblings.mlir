@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 enable-greedy-optimizer=true disable-workarounds=true" -o %t %s --mlir-print-local-scope
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 disable-workarounds=true" -o %t %s --mlir-print-local-scope
 // RUN: FileCheck %s --input-file=%t
 
 // argmax is valid on a tiled input but runs single-core; a ROW_MAJOR input is

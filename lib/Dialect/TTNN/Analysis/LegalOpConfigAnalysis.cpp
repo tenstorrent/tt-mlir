@@ -40,13 +40,14 @@ applyConv2dConfigOverrides(ConvOpT op,
   // If conv2d config is not set get default conv2d config.
   Conv2dConfigAttr conv2dConfigAttr = op.getConv2dConfigAttr();
   if (!conv2dConfigAttr) {
-    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                  "Conv2d config not set, using empty default config");
     conv2dConfigAttr = Conv2dConfigAttr::get(op.getContext());
   }
-  TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+  TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                "Conv2d config before overrides: {}", conv2dConfigAttr);
-  TTMLIR_TRACE(ttmlir::LogComponent::Optimizer, "Overrides: {}", overrides);
+  TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer, "Overrides: {}",
+               overrides);
 
   if (overrides.weightsDtype.has_value()) {
     conv2dConfigAttr =
@@ -115,7 +116,7 @@ applyConv2dConfigOverrides(ConvOpT op,
         *overrides.enableWeightsDoubleBuffer);
   }
 
-  TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+  TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                "Conv2d config after overrides: {}", conv2dConfigAttr);
 
   // Set overridden conv2d config for all OpConfigs.
@@ -161,7 +162,7 @@ static Conv3dConfigAttr conv3dBaseConfig(ttnn::Conv3dOp op) {
   if (!blocking) {
     // No heuristic match: keep the op's existing config (may be null, which
     // downstream override merging handles by treating every field as unset).
-    TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+    TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                  "Conv3d heuristic: no _DEFAULT_BLOCKINGS entry for op {} "
                  "(in_channels={}, out_channels={}); keeping default config",
                  op.getLoc(), op.getInChannels(), op.getOutChannels());
@@ -179,7 +180,7 @@ static Conv3dConfigAttr conv3dBaseConfig(ttnn::Conv3dOp op) {
       op.getContext(), weightsDtype, blocking->tOutBlock, blocking->wOutBlock,
       blocking->hOutBlock, blocking->cOutBlock, blocking->cInBlock, grid);
   TTMLIR_TRACE(
-      ttmlir::LogComponent::Optimizer,
+      ttmlir::LogComponent::GreedyOptimizer,
       "Conv3d heuristic: _DEFAULT_BLOCKINGS matched op {} (in_channels={}, "
       "out_channels={}, kernel=[{}, {}, {}]); using config {}",
       op.getLoc(), op.getInChannels(), op.getOutChannels(), kernel[0],
@@ -210,7 +211,7 @@ applyConv3dConfigOverrides(ttnn::Conv3dOp op,
       pick(overrides.cInBlock, base.getCInBlock()),
       base.getComputeWithStorageGridSize());
 
-  TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+  TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                "Conv3d config after overrides: {}", built);
 
   for (OpConfig &opConfig : analysisResult) {
@@ -284,7 +285,7 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
       .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&](auto convOp) {
         assert(!analysisResult.empty() &&
                "Analysis result should not be empty after applying overrides");
-        TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+        TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                      "Filling op specific attrs for conv2d op {}, starting "
                      "with {} configs",
                      convOp, analysisResult.size());
@@ -307,7 +308,7 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
                   convOp.getWeight().getType().getElementType()));
         }
 
-        TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+        TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                      "Op {} Base conv2d config: {}", convOp.getLoc(),
                      conv2dConfigAttrBase);
 
@@ -350,14 +351,14 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
 
         analysisResult = std::move(newLegalConfigs);
         TTMLIR_TRACE(
-            ttmlir::LogComponent::Optimizer,
+            ttmlir::LogComponent::GreedyOptimizer,
             "Filled op specific attrs for conv2d op {}, ending with {} configs",
             convOp, analysisResult.size());
       })
       .Case<ttnn::Conv3dOp>([&](auto convOp) {
         assert(!analysisResult.empty() &&
                "Analysis result should not be empty after applying overrides");
-        TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+        TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                      "Filling op specific attrs for conv3d op {}, starting "
                      "with {} configs",
                      convOp, analysisResult.size());
@@ -394,7 +395,7 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
         }
 
         TTMLIR_TRACE(
-            ttmlir::LogComponent::Optimizer,
+            ttmlir::LogComponent::GreedyOptimizer,
             "Filled op specific attrs for conv3d op {}, ending with {} configs",
             convOp, analysisResult.size());
       })
@@ -407,7 +408,7 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
             opConfig.opSpecificAttrs =
                 MatmulAttrs{programConfig.value(), matmulOp.getComputeConfig()};
           }
-          TTMLIR_TRACE(ttmlir::LogComponent::Optimizer,
+          TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                        "Filled op specific attrs for matmul/linear op {}, "
                        "\n\t op config: {}",
                        ttmlir::opToString(matmulOp), opConfig);

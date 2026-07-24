@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=1 enable-greedy-optimizer=true override-conv3d-config=conv3d_match=c_out_block#96" -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=1 override-conv3d-config=conv3d_match=c_out_block#96" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 
 // Verifies override/heuristic precedence: a --override-conv3d-config field wins

@@ -42,7 +42,7 @@ struct DevicePassesWrapperOptions {
 //   options.devicePtr = ...; // optional
 //   nestedPm.addPass(createDevicePassesWrapper(
 //       [](OpPassManager &innerPm) {
-//         innerPm.addPass(createTTNNOptimizer(...));
+//         innerPm.addPass(createTTNNGreedyMemoryLayoutPropagation(...));
 //         innerPm.addPass(createTTNNOperationValidationAndFallback(...));
 //       },
 //       options));

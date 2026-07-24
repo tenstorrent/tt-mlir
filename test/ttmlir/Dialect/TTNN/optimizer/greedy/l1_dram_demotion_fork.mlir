@@ -1,5 +1,5 @@
 // REQUIRES: opmodel
-// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="enable-greedy-optimizer=true tensor-l1-usage-cap=0.01" -o %t %s
+// RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="tensor-l1-usage-cap=0.01" -o %t %s
 // RUN: FileCheck %s --input-file=%t
 //
 // Test: L1 spill management under tight L1 budget (1% cap).
