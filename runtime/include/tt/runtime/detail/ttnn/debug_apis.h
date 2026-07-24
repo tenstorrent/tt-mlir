@@ -5,10 +5,8 @@
 #ifndef TT_RUNTIME_DETAIL_TTNN_DEBUG_APIS_H
 #define TT_RUNTIME_DETAIL_TTNN_DEBUG_APIS_H
 
-#include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 #include "tt/runtime/utils.h"
-#include "ttmlir/Target/TTNN/Target.h"
 
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 #define RUNTIME_DEBUG_MAYBE_INLINE
@@ -63,15 +61,11 @@ inline std::string toString(const ::ttnn::StorageType &storageType) {
   }
 }
 
-inline std::string toString(const ::tt::tt_metal::Storage &storage) {
+inline std::string toString(const ::ttnn::Storage &storage) {
   return std::visit(
       ::tt::runtime::utils::overloaded{
-          [](const ::tt::tt_metal::HostStorage &) -> std::string {
-            return "HOST";
-          },
-          [](const ::tt::tt_metal::DeviceStorage &) -> std::string {
-            return "DEVICE";
-          },
+          [](const ::ttnn::HostStorage &) -> std::string { return "HOST"; },
+          [](const ::ttnn::DeviceStorage &) -> std::string { return "DEVICE"; },
       },
       storage);
 }

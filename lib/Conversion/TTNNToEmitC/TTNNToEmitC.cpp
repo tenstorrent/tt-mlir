@@ -4773,7 +4773,7 @@ private:
     return mlir::tt::ttnn::WriteTensorOp::getOperationName().str();
   }
   std::string getPrefixSwapPattern() const override {
-    return "tt::tt_metal::copy_to_device";
+    return "ttnn::copy_to_device";
   }
 
 public:
@@ -5249,7 +5249,7 @@ private:
   }
 
   std::string getPrefixSwapPattern() const override {
-    return "::tt::tt_metal::dump_tensor_flatbuffer";
+    return "::ttnn::dump_tensor_flatbuffer";
   }
 
 public:
