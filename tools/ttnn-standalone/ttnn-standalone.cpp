@@ -23,7 +23,7 @@ int32_t main() {
   ::ttnn::Tensor v1;
   ::ttnn::Tensor v2;
   std::tie(v1, v2) = create_inputs_for_add();
-  ::ttnn::Tensor v3 = add(v1, v2);
+  ::ttnn::Tensor v3 = ::add(v1, v2);
   int32_t v4 = 0;
   return v4;
 }
