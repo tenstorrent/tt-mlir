@@ -9,7 +9,7 @@ class DeviceGetter:
     _instance = None
     _mesh_shape = None
     _fabric_config = None
-    l1_small_size = 1 << 15
+    l1_small_size = 1 << 16  # 64kB
 
     def __init__(self):
         raise RuntimeError("This is Singleton, invoke get_device() instead.")
