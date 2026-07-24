@@ -1208,7 +1208,11 @@ def adamw_golden(
 
     update = torch.mul(torch.div(m_hat, denom), lr)
     decay = torch.mul(param, lr * weight_decay)
-    return torch.sub(torch.sub(param, update), decay)
+    result = torch.sub(torch.sub(param, update), decay)
+
+    if output_type_mlir is not None:
+        result = result.to(mlir_type_to_torch_dtype(output_type_mlir))
+    return result
 
 
 def rms_norm_golden(
@@ -9106,7 +9110,6 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
     ttnn.LayerNormPostAllGatherOp: ttnn_layer_norm_post_all_gather_golden,
     ttnn.GroupNormOp: ttnn_group_norm_golden,
     ttnn.RMSNormOp: rms_norm_golden,
-    ttnn.AdamWOp: adamw_golden,
     ttnn.PagedFlashMultiLatentAttentionDecodeOp: ttir_paged_flash_multi_latent_attention_decode_golden,
     ttnn.RMSNormPreAllGatherOp: ttnn_rms_norm_pre_all_gather_golden,
     # Tensor manipulation
