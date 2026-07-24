@@ -501,11 +501,14 @@ def TTIR_FracOp: TTIR_ElementwiseUnaryOp<"frac"> {
     }];
 }
 
-def TTIR_TruncOp: TTIR_ElementwiseUnaryOp<"trunc"> {
+def TTIR_TruncOp: TTIR_ElementwiseUnaryOp<"trunc", [TTIR_Idempotence]> {
     let summary = "Elementwise truncation toward zero.";
     let description = [{
       For each element x, returns the value truncated toward zero (round toward zero),
       preserving the tensor element type.
+
+      This operation has the idempotence property, meaning that applying it multiple times
+      produces the same result as applying it once: trunc(trunc(x)) = trunc(x).
     }];
 }
 
