@@ -93,6 +93,14 @@ table FlashMlaPrefillOp {
   memcfg: tt.target.ttnn.MemoryConfig;
 }
 
+table IndexerScoreDsaOp {
+  query: tt.target.ttnn.TensorRef;
+  key: tt.target.ttnn.TensorRef;
+  weights: tt.target.ttnn.TensorRef;
+  chunk_start_idx: uint32;
+  out: tt.target.ttnn.TensorRef;
+}
+
 table NLPCreateQKVHeadsDecodeOp {
   input: tt.target.ttnn.TensorRef;
   q_out: tt.target.ttnn.TensorRef;

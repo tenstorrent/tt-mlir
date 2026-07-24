@@ -8422,6 +8422,56 @@ def flash_mla_prefill_golden(
     return output.to(output_dtype)
 
 
+def indexer_score_dsa_golden(
+    query: GoldenMapTensor,
+    key: GoldenMapTensor,
+    weights: GoldenMapTensor,
+    chunk_start_idx: int,
+) -> GoldenMapTensor:
+    """
+    Golden for the tt.indexer_score_dsa custom_call (DSA lightning-indexer
+    scorer).
+
+    Mirrors the primitive decomposition:
+        score[b, s, t] = sum_h relu(q[b, h, s, :] . k[b, t, :]) * weights[b, h, s]
+    with an additive causal mask: key ``t`` is visible to query ``s`` iff
+    ``t <= chunk_start_idx + s``; masked (future) positions get ``-inf``.
+
+    Shapes: query [B, Hi, Sq, D], key [B, 1, T, D], weights [B, Hi, Sq, 1]
+    -> score [B, 1, Sq, T].
+    """
+    output_dtype = query.dtype
+
+    # Compute in f32 for golden accuracy, then cast back to the query dtype.
+    q = query.float()  # [B, Hi, Sq, D]
+    k = key.float()  # [B, 1, T, D]
+    w = weights.float()  # [B, Hi, Sq, 1]
+
+    _, _, query_seq_len, _ = q.shape
+    key_seq_len = k.shape[2]
+
+    # QK^T per head against K's single kv-head: [B, Hi, Sq, T].
+    qk = torch.einsum("bhsd,btd->bhst", q, k[:, 0])
+    qk = torch.relu(qk)
+
+    # Per-head gate weights broadcast over the key dim, then sum over heads.
+    weighted = torch.mul(qk, w)  # [B, Hi, Sq, T]
+    score = torch.sum(weighted, dim=1, keepdim=True)  # [B, 1, Sq, T]
+
+    # Causal additive mask (plain torch constants): visible iff
+    # t <= chunk_start_idx + s. Broadcasting-adds onto the per-shard score.
+    row_idx = torch.arange(query_seq_len).view(1, 1, query_seq_len, 1)
+    col_idx = torch.arange(key_seq_len).view(1, 1, 1, key_seq_len)
+    visible = (row_idx + chunk_start_idx) >= col_idx
+    mask_add = torch.where(
+        visible,
+        torch.zeros((), dtype=torch.float32),
+        torch.full((), float("-inf"), dtype=torch.float32),
+    )
+
+    return (score + mask_add).to(output_dtype)
+
+
 def ttir_paged_sdpa_decode_golden(
     query: GoldenMapTensor,
     key: GoldenMapTensor,
@@ -9082,6 +9132,7 @@ GOLDEN_MAPPINGS: Dict[type, Callable] = {
 # StableHLO custom_call goldens
 STABLEHLO_CUSTOM_CALL_GOLDEN_MAPPINGS: Dict[str, Callable] = {
     "tt.flash_mla_prefill": flash_mla_prefill_golden,
+    "tt.indexer_score_dsa": indexer_score_dsa_golden,
 }
 
 

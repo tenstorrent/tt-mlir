@@ -3391,6 +3391,73 @@ llvm::Expected<size_t> OpModel<FlashMlaPrefillOp>::getOpRuntime(
 #endif // TTMLIR_ENABLE_OPMODEL
 }
 
+//===----------------------------------------------------------------------===//
+// IndexerScoreDsaOp
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<OpConstraints> OpModel<IndexerScoreDsaOp>::getOpConstraints(
+    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+    llvm::ArrayRef<int64_t> weightsShape, TTNNLayoutAttr weightsLayout,
+    uint32_t chunkStartIdx, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec weightsSpec,
+      detail::convertToTensorSpec(device, weightsShape, weightsLayout));
+
+  // ttnn::experimental::indexer_score_dsa has no output memory-config
+  // parameter; it selects its own output layout, so outputLayout is not
+  // forwarded and program_config / compute_kernel_config fall back to the
+  // ttnn defaults.
+  auto indexerScoreDsaOpQuery = [=]() {
+    return QUERY_OP_CONSTRAINTS(::ttnn::experimental::indexer_score_dsa, device,
+                                querySpec, keySpec, weightsSpec, chunkStartIdx);
+  };
+
+  return operation::getOpConstraints(queryLayout.getContext(),
+                                     indexerScoreDsaOpQuery);
+#else
+  return OpConstraints{};
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
+llvm::Expected<size_t> OpModel<IndexerScoreDsaOp>::getOpRuntime(
+    llvm::ArrayRef<int64_t> queryShape, TTNNLayoutAttr queryLayout,
+    llvm::ArrayRef<int64_t> keyShape, TTNNLayoutAttr keyLayout,
+    llvm::ArrayRef<int64_t> weightsShape, TTNNLayoutAttr weightsLayout,
+    uint32_t chunkStartIdx, TTNNLayoutAttr outputLayout) {
+#ifdef TTMLIR_ENABLE_OPMODEL
+  ::tt::tt_metal::distributed::MeshDevice *device =
+      SingletonDeviceContext::getInstance().getDevice();
+
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec querySpec,
+      detail::convertToTensorSpec(device, queryShape, queryLayout));
+  ASSIGN_OR_RETURN(::ttnn::TensorSpec keySpec,
+                   detail::convertToTensorSpec(device, keyShape, keyLayout));
+  ASSIGN_OR_RETURN(
+      ::ttnn::TensorSpec weightsSpec,
+      detail::convertToTensorSpec(device, weightsShape, weightsLayout));
+
+  auto indexerScoreDsaOpQuery = [=]() {
+    return QUERY_OP_RUNTIME(::ttnn::experimental::indexer_score_dsa, device,
+                            querySpec, keySpec, weightsSpec, chunkStartIdx);
+  };
+
+  return operation::getOpRuntime(indexerScoreDsaOpQuery);
+#else
+  return llvm::createStringError("Not Implemented");
+#endif // TTMLIR_ENABLE_OPMODEL
+}
+
 //===-----------------------------------------------------------------------===//
 // RotaryEmbeddingLlamaOp
 // ===----------------------------------------------------------------------===//
@@ -7742,11 +7809,9 @@ OpModel<mlir::tt::ttnn::EmptyOp>::getOpConstraints(
 //===----------------------------------------------------------------------===//
 // ArangeOp
 //===----------------------------------------------------------------------===//
-// sgholamiTT: There are two reasons why receiving the start, end, and step as
-// attributes is better than as integers:
-//   1. That is the only valid way to acquire a pointer to MLIRContext.
-//   2. Using getInt() member function of ::mlir::IntegerAttr is safer and more
-//      mlir idiomatic than static_cast<int64_t>(start).
+// Receiving start, end, and step as attributes (rather than plain
+// integers) is the only valid way to acquire a pointer to the MLIRContext.
+// Note: these are SI64Attr (signed), so read them with getSInt()
 llvm::Expected<OpConstraints>
 OpModel<mlir::tt::ttnn::ArangeOp>::getOpConstraints(
     ::mlir::IntegerAttr start, ::mlir::IntegerAttr end,

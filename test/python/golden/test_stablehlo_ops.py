@@ -2546,3 +2546,90 @@ def test_flash_mla_prefill_value_mask_scale(
     )
 
     check_op(output, "flash_mla_prefill")
+
+
+# DeepSeek Sparse Attention lightning-indexer scorer (stablehlo.custom_call
+# @tt.indexer_score_dsa -> ttcore.composite -> ttnn.indexer_score_dsa).
+#
+# Two lowering paths:
+#   * on Blackhole with batch_size == 1:
+#       shlo.custom_call -> ttcore.composite -> ttnn.indexer_score_dsa
+#   * otherwise:
+#       shlo.custom_call -> ttcore.composite -> decomposed into ttnn primitives
+#       (matmul/relu/multiply/sum + causal mask)
+@pytest.mark.parametrize(
+    "shapes",
+    [
+        # query [B, Hi, Sq, D], key [B, 1, T, D], weights [B, Hi, Sq, 1].
+        # T = 2*Sq so the query chunk can sit at a nonzero offset within the
+        # key sequence (see chunk_start_idx derivation below).
+        # Batch = 1: exercises the lowering to ttnn.indexer_score_dsa path
+        # on BH
+        [(1, 8, 64, 128), (1, 1, 128, 128), (1, 8, 64, 1)],
+        # Batch > 1; exercises the batched decomposition path.
+        [(2, 8, 32, 128), (2, 1, 64, 128), (2, 8, 32, 1)],
+    ],
+    ids=["single_batch", "multi_batch"],
+)
+@pytest.mark.parametrize("is_chunked", [False, True], ids=["dense", "chunked"])
+@pytest.mark.parametrize("target", ["ttnn", "emitpy", "emitc"])
+def test_indexer_score_dsa(
+    shapes: List[Shape],
+    is_chunked: bool,
+    target: str,
+    device,
+    request,
+    system_desc,
+):
+    dtypes = [torch.bfloat16] * len(shapes)
+
+    # chunk_start_idx is the global position of the first query within the
+    # length-T key sequence; key t is visible to query s iff
+    # t <= chunk_start_idx + s. The query chunk spans
+    # [chunk_start_idx, chunk_start_idx + Sq), which must fit inside [0, T),
+    # i.e. chunk_start_idx <= T - Sq.
+    #   - dense:   chunk_start_idx = 0, the chunk is the first Sq keys.
+    #   - chunked: chunk_start_idx = T - Sq, the chunk is the most recent Sq
+    #              keys of a longer history.
+    query_seq_len = shapes[0][2]  # Sq
+    key_seq_len = shapes[1][2]  # T
+    chunk_start_idx = (key_seq_len - query_seq_len) if is_chunked else 0
+
+    def module(builder: StableHLOBuilder):
+        @builder.func(shapes, dtypes)
+        def indexer_score_dsa(
+            query: Operand,
+            key: Operand,
+            weights: Operand,
+            builder: StableHLOBuilder,
+            unit_attrs: Optional[List[str]] = None,
+        ):
+            return builder.indexer_score_dsa(
+                query,
+                key,
+                weights,
+                chunk_start_idx=chunk_start_idx,
+                unit_attrs=unit_attrs,
+            )
+
+    output = compile_and_execute_shlo(
+        module,
+        **get_request_kwargs(request),
+        target=target,
+        device=device,
+        save_artifacts=True,
+        ttir_pipeline_options=["optimization-level=1"],
+    )
+
+    batch_size = shapes[0][0]
+    expect_typed_op = system_desc.get_arch() == "Blackhole" and batch_size == 1
+
+    # The promoted typed op appears in a target-specific form
+    typed_op_marker = {
+        "ttnn": "ttnn.indexer_score_dsa",
+        "emitc": "ttnn::experimental::indexer_score_dsa",
+        "emitpy": "ttnn.experimental.indexer_score_dsa",
+    }[target]
+    with open(output, "r") as f:
+        has_typed_op = any(typed_op_marker in line for line in f)
+    assert has_typed_op == expect_typed_op

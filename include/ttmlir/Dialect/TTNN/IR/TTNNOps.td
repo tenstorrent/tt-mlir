@@ -4096,6 +4096,46 @@ def TTNN_FlashMlaPrefillOp : TTNN_Op<"flash_mla_prefill", [AttrSizedOperandSegme
     let hasVerifier = 1;
 }
 
+def TTNN_IndexerScoreDsaOp : TTNN_Op<"indexer_score_dsa"> {
+    let summary = "DeepSeek Sparse Attention lightning-indexer scorer.";
+    let description = [{
+      Computes DSA (Deepseek Sparse Attention) lightning-indexer
+      scores. Corresponds to `ttnn.experimental.indexer_score_dsa`
+      (`ttnn::experimental::indexer_score_dsa`).
+
+      For every query position `s` and key position `t`:
+      ```
+      score[b, s, t] = sum_h relu(q[b, h, s, :] . k[b, t, :]) * weights[b, h, s]
+      ```
+      Causality is controlled by `chunk_start_idx`: key `t` is visible to query
+      `s` iff `t <= chunk_start_idx + s`. Masked (future) positions are set to
+      `-inf`.
+
+      Shapes use `B` (batch, must be 1), `Hi` (indexer heads), `Sq` (queries),
+      `T` (keys), and `D` (indexer head dim).
+
+      Args:
+          query (AnyRankedTensor): `[B x Hi x Sq x D]`.
+          key (AnyRankedTensor): `[B x 1 x T x D]`.
+          weights (AnyRankedTensor): `[B x Hi x Sq x 1]` per-head gate scales.
+          chunk_start_idx (uint): Causal offset of the first query within the
+              full key sequence. Defaults to `0`.
+
+      Returns:
+          AnyRankedTensor: `[B x 1 x Sq x T]` scores.
+
+      Note: this op is only supported on Blackhole.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$query,
+                         AnyRankedTensor:$key,
+                         AnyRankedTensor:$weights,
+                         DefaultValuedAttr<UI32Attr, "0">:$chunk_start_idx);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
 
 def TTNN_GlobalAvgPool2dOp: TTNN_Op<"global_avg_pool2d">{
   let summary = "A global average pooling 2d operation";
